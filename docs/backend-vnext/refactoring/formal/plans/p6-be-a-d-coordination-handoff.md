@@ -46,3 +46,5 @@
 - D：后端真实编码器ASCII/中文/非BMP tar同字节制品、closure、SHA/长度；前端PAX修复提交及同制品互通未完成前不声称FE3解除依赖。
 - 原W1/W2及基准独立，未知不记通过。若需要上下文交接，先更新本页与各节事实，再请Owner新开会话，不猜测推进。
 - 联合旅程工具准备已静态核实：main `vnext/backend/benchmarks/real_dump_journey.py` 当前只发送MODIFIED_ONLY，`_archive`只允许既有身份异常。V2/D须在main同步新异常消费/明确原因及FULL必要旅程入口、完整tar校验；不能拿旧工具完成声称覆盖新矩阵，不覆盖原冻结V_ref脚本。确切工具变更owner在后续工作单固定。
+- V1产品前精确清单已提交`2ca25b6514`，见[p6-v1-handoff.md](p6-v1-handoff.md)，包含Rust源序chunk累计、领域facts/严格JCS摘要、Preview/Submit/checkpoint版本、Attempt/Submission必需BLOB、HTTP none、golden及唯一owner。协调/独审均指出missing分类须直接对齐已审TABLE_ABSENT/COLUMN_ABSENT/NO_ROWS/NO_VALUE/NO_VALID_VALUE，实施者正常修正，不重复Owner批准。规范摘要相同不能替代源序facts相同；baseline facts必须保留source Submission原规则身份，NO_CANONICAL_CHANGE既有规则不扩大。
+- **V2窄澄清已由设计者落盘`043705af06`（业务设计§10.3/10.4）**：MANUAL_CLOSE沿Start actor-independent，key为exact repo/device/project+CLOSE+key，fingerprint含命令/scope/目标/请求expected版本/reason，不含caller actor或最新状态。当前权限/scope/目标授权后另一合法actor同key/payload回放首次结果、保留原actor/time/reason、不二次释放；不同payload冲突。审计append仍actor-bound。V2公开owner补跨actor、撤权和冲突向量；这不影响V1、不改变关闭权限或新增业务处置，也不是本轮产品测试通过声明。

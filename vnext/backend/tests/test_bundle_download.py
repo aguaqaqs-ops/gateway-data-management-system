@@ -11,19 +11,23 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 from starlette.requests import ClientDisconnect
 
-from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts import ArtifactRef, put_with_built_ref
 from gateway_backend.artifacts.bounded_store import CleanupClassification, DeleteDisposition
 from gateway_backend.artifacts.bundle_download import prepare_bundle_download
 from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.tar_stream import TAR_END, TarMember, pax_record_chunks, pax_record_length
 from gateway_backend.capabilities.bundle_assembly import (
+    BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind,
     BundleAssemblyStatus, BundlePairInput, assemble_bundle,
 )
-from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError, read_bundle_transport_metadata
+from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.http.bundle_response import BundleStreamingResponse
 from gateway_backend.infrastructure.artifact_store import BoundedArtifactStore, LocalArtifactStore
 from tests.test_bundle_assembly import _request, _surface_result
@@ -69,7 +73,7 @@ def assert_complete_tar(raw: bytes, *, expected_digest: str | None = None) -> di
             payload = file.read()
             assert len(payload) == member.size == entry["size_bytes"] == entry["artifact_ref"]["size_bytes"]
             assert "sha256:" + hashlib.sha256(payload).hexdigest() == entry["raw_sha256"]
-        return manifest
+        return cast(dict[str, object], manifest)
 
 
 @pytest.mark.parametrize("path", ("rows.parquet", *PAX_PATHS))
@@ -133,6 +137,91 @@ def test_prepared_bundle_keeps_original_metadata_and_exact_complete_length(tmp_p
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
         source = archive.extractfile("manifest.json")
         assert source is not None and source.read() == store.locate(manifest_ref)
+
+
+def _publish_document(store: LocalArtifactStore, document: dict[str, object]) -> ArtifactRef:
+    semantic = {key: value for key, value in document.items() if key not in {
+        "bundle_digest", "closure_manifest_digest", "closure_entries",
+    }}
+    document["bundle_digest"] = raw_blob_digest(canonicalize_json_value(semantic)).value
+    document["closure_manifest_digest"] = raw_blob_digest(canonicalize_json_value(document["closure"])).value
+    raw = canonicalize_json_value(document)
+    try:
+        metadata = read_bundle_transport_metadata(raw)
+    except BundleIntegrityError:
+        pass  # Malformed manifest probes must fail before any closure lookup.
+    else:
+        store.put(metadata.expected_closure_bytes, metadata.closure_ref)
+    return put_with_built_ref(
+        store, raw, artifact_id="bundle-transport-test-manifest-" + raw_blob_digest(raw).value[7:],
+        media_type="application/vnd.gateway.comparison-bundle.manifest+json",
+    )
+
+
+def test_final_closure_same_ref_at_two_paths_sends_two_ordinary_members(tmp_path: Path) -> None:
+    store, ref = published_bundle(tmp_path)
+    document = json.loads(store.locate(ref))
+    original = document["closure_entries"][0]
+    extra = {**original, "logical_path": "shared/second-copy", "kind": "OTHER", "pair_id": None}
+    document["closure_entries"].append(extra)
+    document["closure"]["entries"].append({
+        **document["closure"]["entries"][0],
+        "logical_path": extra["logical_path"], "kind": "OTHER", "pair_id": None,
+    })
+    document["closure_entries"].sort(key=lambda item: item["logical_path"])
+    document["closure"]["entries"].sort(key=lambda item: item["logical_path"])
+    ref = _publish_document(store, document)
+    prepared = prepare_bundle_download(store, ref.artifact_id)
+    raw = b"".join(prepared.stream)
+    assert_complete_tar(raw)
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        first = archive.extractfile(original["logical_path"])
+        second = archive.extractfile(extra["logical_path"])
+        assert first is not None and second is not None
+        assert first.read() == second.read()
+
+
+@pytest.mark.parametrize("kind", (BundleArtifactKind.PROJECTION, BundleArtifactKind.DIAGNOSTICS, BundleArtifactKind.OTHER))
+def test_business_json_payload_is_not_subject_to_metadata_read_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: BundleArtifactKind,
+) -> None:
+    import gateway_backend.artifacts.bundle_download as downloads
+    store = LocalArtifactStore(tmp_path)
+    data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
+    source = put_with_built_ref(store, data, artifact_id="business-json", media_type="application/json")
+    result = assemble_bundle(_request(
+        (BundlePairInput("pair", 0, 1, _surface_result()),),
+        shared=BundleArtifactClosure((BundleArtifactBinding(source, "shared/data.json", kind, shared=True),)),
+    ), source_store=store)
+    assert result.bundle is not None
+    # Keep the actual payload small; a reduced metadata budget exposes any
+    # accidental whole-payload metadata reader without allocating a large input.
+    monkeypatch.setattr(downloads, "MAX_BUNDLE_MANIFEST_JSON_BYTES", source.size_bytes - 1)
+    prepared = prepare_bundle_download(store, result.bundle.manifest_ref.artifact_id)
+    assert_complete_tar(b"".join(prepared.stream))
+
+
+@pytest.mark.parametrize("fault", ("absolute", "traversal", "reserved", "duplicate", "ref-size", "entry-size", "closure-semantic"))
+def test_published_metadata_path_and_reference_contradictions_fail_preflight(tmp_path: Path, fault: str) -> None:
+    store, ref = published_bundle(tmp_path)
+    document = json.loads(store.locate(ref))
+    entry = document["closure_entries"][0]
+    semantic = document["closure"]["entries"][0]
+    paths = {"absolute": "/escape", "traversal": "pairs/../escape", "reserved": "manifest.json"}
+    if fault in paths:
+        entry["logical_path"] = semantic["logical_path"] = paths[fault]
+    elif fault == "duplicate":
+        document["closure_entries"].append(dict(entry))
+        document["closure"]["entries"].append(dict(semantic))
+    elif fault == "ref-size":
+        entry["artifact_ref"]["size_bytes"] += 1
+    elif fault == "entry-size":
+        entry["size_bytes"] += 1
+    else:
+        semantic["integrity"]["size_bytes"] += 1
+    ref = _publish_document(store, document)
+    with pytest.raises(BundleIntegrityError):
+        prepare_bundle_download(store, ref.artifact_id)
 
 
 @pytest.mark.parametrize("fault", ("missing", "size", "digest", "symlink", "directory"))
@@ -238,3 +327,38 @@ def test_response_send_failure_closes_even_unstarted_stream(tmp_path: Path, fail
     with store.cleanup_session() as acquired:
         assert acquired
     assert not any(path.name.startswith(".lock") for path in tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("termination", ("disconnect", "cancel"))
+def test_asgi_disconnect_and_task_cancellation_release_read_session(tmp_path: Path, termination: str) -> None:
+    store, ref = published_bundle(tmp_path)
+    prepared = prepare_bundle_download(store, ref.artifact_id)
+
+    async def scenario() -> None:
+        entered = asyncio.Event()
+        wait_forever = asyncio.Event()
+
+        async def receive() -> dict[str, object]:
+            await entered.wait()
+            if termination == "disconnect":
+                return {"type": "http.disconnect"}
+            await wait_forever.wait()
+            raise AssertionError("unreachable")
+
+        async def send(message: dict[str, object]) -> None:
+            if message["type"] == "http.response.body":
+                entered.set()
+                await wait_forever.wait()
+
+        scope = {"type": "http", "asgi": {"spec_version": "2.3"}, "method": "GET"}
+        task = asyncio.create_task(BundleStreamingResponse(prepared)(scope, receive, send))  # type: ignore[arg-type]
+        if termination == "cancel":
+            await entered.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await task
+    asyncio.run(scenario())
+    with store.cleanup_session() as acquired:
+        assert acquired

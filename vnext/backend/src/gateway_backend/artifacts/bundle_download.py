@@ -16,11 +16,11 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly.contracts import (
     BUNDLE_MANIFEST_MEDIA_TYPE,
     MAX_BUNDLE_MANIFEST_JSON_BYTES,
-    BundleArtifactKind,
 )
 from gateway_backend.capabilities.bundle_assembly.transport import (
     BundleIntegrityError,
     BundleTransportMetadata,
+    BUNDLE_REFERENCE_METADATA_KINDS,
     read_bundle_transport_metadata,
     validate_bundle_member_metadata,
 )
@@ -69,16 +69,8 @@ def _metadata_bytes(store: ArtifactStreamingStorePort, ref: ArtifactRef) -> byte
 
 def _preflight_members(store: ArtifactStreamingStorePort, metadata: BundleTransportMetadata) -> None:
     refs = {entry.artifact_ref for entry in metadata.entries}
-    # These JSON documents carry references; row annotation payloads are data,
-    # and may legally be much larger than the metadata budget.
-    metadata_kinds = {
-        BundleArtifactKind.SURFACE, BundleArtifactKind.RECORDS_MANIFEST,
-        BundleArtifactKind.RECORDS_CLOSURE, BundleArtifactKind.RISK_REPORT,
-        BundleArtifactKind.RISK_ANNOTATION_MANIFEST, BundleArtifactKind.RISK_ANNOTATION_CLOSURE,
-        BundleArtifactKind.PROJECTION, BundleArtifactKind.DIAGNOSTICS, BundleArtifactKind.OTHER,
-    }
     for entry in metadata.entries:
-        if "json" in entry.artifact_ref.media_type.casefold() and entry.kind in metadata_kinds:
+        if "json" in entry.artifact_ref.media_type.casefold() and entry.kind in BUNDLE_REFERENCE_METADATA_KINDS:
             validate_bundle_member_metadata(
                 entry, _metadata_bytes(store, entry.artifact_ref),
                 refs=refs, pair_digests=metadata.pair_digests,

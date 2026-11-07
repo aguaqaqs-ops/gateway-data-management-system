@@ -31,6 +31,16 @@ class BundleIntegrityError(ValueError):
     """Published bundle bytes contradict their owning contract."""
 
 
+# Only these owners already bound their reference documents to 16 MiB. Generic
+# projection/diagnostic/OTHER JSON is business payload, not transport metadata;
+# the assembler validated its refs before freezing the final raw SHA.
+BUNDLE_REFERENCE_METADATA_KINDS = frozenset({
+    BundleArtifactKind.SURFACE, BundleArtifactKind.RECORDS_MANIFEST,
+    BundleArtifactKind.RECORDS_CLOSURE, BundleArtifactKind.RISK_REPORT,
+    BundleArtifactKind.RISK_ANNOTATION_MANIFEST, BundleArtifactKind.RISK_ANNOTATION_CLOSURE,
+})
+
+
 @dataclass(frozen=True, slots=True)
 class BundleTransportMetadata:
     bundle_digest: str

@@ -505,3 +505,65 @@ RS预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z／0，log SHA=`4ee45ca1e0
 新 `run-authority-resume-mvzi5dNV` **14:14:04Z** 启动，literal command SHA=`ac62cdb623a6e7762d8ab9b48a54b5035e705c9a2c2f6e4e11a06a207d463521` 已读；外层原完整profile，wrapper明确 `actual_runner_packages=backend,repository_service`。两新起始manifest均clean49403、RS输入130674；backend total=`b03ddcd151fe3071c708c83dbabec3b4f9b473013078027b797e60a564e02cc5`，RS total=`a5ee1cb2c42cb1c803a022c6391aad125ea796db10a5ee36d7e852ae21381161`。backend环境因runner强制扩展同步另有uv组件变化，e6ac expected=installed已核，该包由本次实际执行承接。当前已读backend parallel3387／serial60通过及RS parallel1744通过／1skip，RS serial仍执行，**没有本轮整次通过或镜像绑定GO**。
 
 固定实施handoff **`3edcf330ea9683e00414b9806b0116f4b2a480d6`** 已在新只读 `/home/dev/gdds-reviews/p6-be-ad-resume-3edcf330ea` 核clean／legacy、docs-only／tree567不变，顶部与§13当前态与上述原件一致，无新增finding。postcopy实际参数已核为本轮mvzi路径和唯一resume父目录；由已审脚本读取将来的真实末0／RS稳定／UTC区间，不用旧q57。后续原总exit、两manifest原字节、三runtime immutable原config／全部DiffID、清理释放／LAN及最终handoff仍待同角色核收。05仅按§20有限引用a999，旧RS原件缺失持续保留；本次授权不等于DC33范围确认、FE3、退出／tag／push／S3。
+
+## 25. 正式后端联合技术GO：绑定49403及既定范围
+
+**GO。D实现及本节既定A1／V1／V2／D联合后端证据核收通过，无剩余finding。** 实际产品／权威来源为 **`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`**，vnext **`56720104af34a1eb677336f57bdbc07444a56615`**。最终实施handoff **`5ac36170bdfa9f0fcf71120d2df33fe3f2dd120b`** 已在新只读 detached WT `/home/dev/gdds-reviews/p6-be-ad-final-handoff-5ac36170bd` 核clean／legacy及完整当前态；其后一行标题完成态修订 **`233e6f788b9b9568664f0e427b45d08bf8d22dec`** 固定增量亦已核。二者均仅文档，vnext与实测49403无diff。本结论不把后继docs HEAD写成实际运行source。
+
+### 25.1 最终权威来源：四包实际比较沿用，两包本轮实跑
+
+04 **`run-authority-resume-mvzi5dNV`，14:14:04–14:40:10Z，original_runner_exit／command_exit／final_exit均0**；起止完整49403／clean／本人owner true，原log SHA=`0d0c69ad1cc24648a6f9abc9c0e66a4b98a66f7a3a96443d16ae2e2af3d62a5e`。原guard／expected／literal command／log四SHA均已独立重算，原命令与§23审定profile一致。扩展expected=installed e6ac，RS输入前后均130674且 `rs_input_unchanged=true`；14:40:50Z另一次已审预核原0亦符。这里没有RS后段candidate-only重建或手工retag。
+
+| 包 | 最终判定／直接实际来源 | 实际结果 | total_digest |
+| --- | --- | --- | --- |
+| rust | carried；原49403 `DTWWhQP4`，本次实际compare相等 | fmt／clippy／test均0，180 tests | `ef22a73afe84030fe86118e308c0b558fc76781ce386c6477730439d6ae27fae` |
+| shared_kernel | carried；原49403 `DTWWhQP4`，本次实际compare相等 | 243 passed | `ca4de641b0aab156103deaf164daa652ac0536e78281b17166ea19ff564992e1` |
+| repository_contracts | carried；原49403 `DTWWhQP4`，本次实际compare相等 | 152 passed | `e6c158219cca2c7856ffddaa260222c7f1bfaa8f689869b0316d20a6be89eddc` |
+| repository_client | carried；原49403 `DTWWhQP4`，本次实际compare相等 | 161 passed | `88bece58f8efc862c32a532809d2db1a4a2831a24f38d6e40564aed1531b1e82` |
+| backend | 本次实跑；49403 `mvzi5dNV` | parallel3387／serial60 passed | `b03ddcd151fe3071c708c83dbabec3b4f9b473013078027b797e60a564e02cc5` |
+| repository_service | 本次实跑；49403 `mvzi5dNV` | parallel1744／serial207 passed；另**1 skip** | `a5ee1cb2c42cb1c803a022c6391aad125ea796db10a5ee36d7e852ae21381161` |
+
+四包直接成功源、实际compare中文status／空changed_components及原摘要按§22／24核收，不链式引用比较结果，也不用失败a999 runner的任何包。本次只实际执行backend／RS，未把两次不同environment的运行说成又一次六包实跑。RS skip仍为§22明确的host目标cgroup smoke条件跳过，原-q只给计数，不算该case通过；没有改flag或额外补跑。
+
+新两manifest原字节索引 SHA=`af6c82ad8452ca98e37b07ea783633f9e3212e2692ce94cfb593e4b9d1c7ea31` 已逐项比原log：backend offset2983／length133950／原SHA=`f870506b19f822704646c836125e612b9234f3938757f1dde156abddc5a06a2c`，RS offset137072／length132232／原SHA=`b714373450374a3e499c014759034c643678fe9e789c513c95169cde91e926aa`，package／head／clean／total_digest全部相符。没有运行后重造或重序列化。
+
+### 25.2 当前原provenance、实际OpenAPI与immutable镜像原件
+
+新 `run-new-provenance-copy-DCXM2Abk` 原0，log SHA=`f0e61c9966e2b0232d111e86130355749ca802bf9e3d0dd3307ea32c46e210bb`。`resume-a-5OBTboKj/new-authority-compose-53h3ekqp/original-sources.json` SHA=`8230879138e66f159d7d2af0e1db3d4373244e0f2b90cca5d48d0fd80cd041f6` 与新mvzi原log SHA／实际14:14:04–14:40:10 awareUTC区间绑定。已独立比源stat／原bytes／copy／SHA：provenance mtime=`14:28:34.032202+00:00`，原SHA=`18143d7ddf7ae820cd0f6e25bb6cc50fde7681bf7142f5ec8246f831691742a6`；实际production GET schema源为pytest-171对应本轮case，mtime=`14:28:33.760682+00:00`，原SHA仍=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`。都位于新区间，不是旧q57／旧时间替换。
+
+实际新snapshot project=`gateway-submit-s8-848756-test_compose_accept_upload_imp0`。`run-resumed-image-identities-Rv4rWQDT` 14:41:15–25Z／0，log SHA=`e04307848b3c5c667bdc59673c080deedbd4be330a8ab63e5d74dafbfb3906c4`；`image-identities-after-authority-c4aqda9v/image-identities.json` SHA=`94a6bad1c17d8c0d633bcd52dfedfa7418eb3ff4fe6fca160e58f560fe4a74de`。三套原inspect／save-manifest／config及目录SHA全部已核，以下config digest均从原config bytes独立重算；**全部54个DiffID逐项等原inspect RootFS，immutable ID／container ID／provenance SHA逐项等本轮真实container snapshot**，没有tag fallback。
+
+| runtime | 原config digest | 全部DiffID数 |
+| --- | --- | ---: |
+| backend | `sha256:0ff00d56d7086e5e0cfbc77aa125b429c20fec59b2b20097cee68970b8cde1da` | 13 |
+| repository-service | `sha256:13776cfb1d842f66ffb46b6d382ab9bdd57a5e4a85a82251a7bda25622ab9432` | 28 |
+| worker | `sha256:900b53e3cec31bb6bbdc9abb1dfef8e603c740cec9d08be9927af5032de6135f` | 13 |
+
+RS本轮snapshot Image确为130674；其原config bytes与运行前§24预采**逐字节相同**，全部28项DiffID及labels亦相同，revision49403／build-input a687／source13cb／lock6dc均符。backend／worker无原生revision／source标签，其当前绑定来自clean49403本机正常build、当前backend完整输入manifest及本轮实际容器门禁，不虚构标签。base身份沿本轮先前04五项／05前四项的原config／全部DiffID报告，未变输入由新manifest记录，不谎称新采；client e2e另核原inspect SHA／revision49403／实际lock6e9，报告明确 `raw_config_exported=false`，未扩大为client原config采样。
+
+### 25.3 LAN原件、清理释放与功能闭包
+
+完整LAN副本 **`/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/`** 含原claim及04 artifact root。phase index SHA=`17d7a6a7de827089d146748d1ca6fbb701ff50b58c599adc91a6a1c00808671d` 的220个文件size／SHA、31个已完成guard四SHA及六包direct-source表逐项独立核符。它排除自己生成run及未来cleanup／release，不回写旧索引。后释放 `release-index.json` SHA=`7df3b602a8e7d6d34f68644a1348589e7ff49bce683af39edb35232905c8be1b` 已比native与LAN完全相同，15项追加文件size／SHA全符。最终LAN全部33个已完成guard四SHA及独立release原文件对均核符；这些是hash完整性记录，包含保留失败，**不表示33个run都通过**。
+
+`run-resumed-cleanup-check-ZeyXcR2u` 14:43:41Z／0，log SHA=`096d6b168ff981ab761235431b50588e41731ed092afd0bedc473c514ef4a5d0`；原命令只有assert，指定新旧Submit项目容器／卷／网络均空，整机running containers／8000／Dolt／pytest／Cargo／rustc／clippy空，runner Hypothesis及Cargo target均不存在，没有清他人资源。`release-0zzsICrS` 14:44:32–33Z，原command SHA=`0893866c7d1f5028e4aac919cd9434f7116f31a13a02ae5ab574a0e35501d17b`，log SHA=`b904cead22a4999316768c5afe0f8399ac20342ff90c1bd4472c383fb09f87be`；先cmp本人owner并核目录只有该owner，再释放，release_exit0／end49403 clean。14:45:32Z本角色另只读现场确认marker不存在、WT仍clean49403、running Docker及8000空。WT／镜像／缓存／历史原件保留，无后续预约。
+
+§21的A1／V1／V2／D必要功能覆盖由当前backend全批及既有直接合格来源闭合；新增FULL同code第二subject由原audit owner、唯一共用复现及当前受影响Compose证明，F1–F6均关闭。当前self-only／CLOSE→新上传新Submission／History两三节点／完整tar等原owner及Compose无需另跑。05仍只引用§18／20原a999一次fresh t1的成功步骤与四个完整tar校验；F6新增分支不冒称自然05覆盖，default单view摘要不冒称FULL只有一pair，也不称49403 fresh或05 image/package carried。GET bytes／完整读取时间只报告，READY锚不改，不新增t2/t3/t4或性能结论。
+
+### 25.4 GO范围、历史限制与延期项
+
+旧RS15e3／9e476原config与全部DiffID仍不可取得；06旧aaa首轮三原log仍不可复核，误跑及所有旧失败继续排除于当前通过来源。Owner明确批准A后，以本轮新身份／合法按包来源闭合当前49403技术核收，**没有追溯补回、重建或掩去历史原件**。UTC旧打印标签由原epoch／awareUTC sidecar说明，原log及SHA不改。本轮全部审核只读固定WT与节点原件／metadata，没有由审核者运行测试、编译、lint或被测对象。
+
+```text
+Current reviewed product / actual authority HEAD: 49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0
+Current reviewed implementation handoff: 233e6f788b9b9568664f0e427b45d08bf8d22dec (docs-only)
+Current vnext tree: 56720104af34a1eb677336f57bdbc07444a56615
+Rebuild triggered: yes；D HTTP/完整tar/container consumer及F6 runtime接缝，本轮当前backend/worker正常build
+Last verified backend/worker: 49403 clean context；本轮真实snapshot及原config/全部DiffID绑定，原生source标签不存在
+Last verified RS revision / build-input / source-tree: 49403 / a6876d560050285321fd9f62942d590a03f35d64 / sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2
+Container gate for reviewed product: passed；取本轮backend权威批次，不额外重复Compose
+Package carried: rust/shared_kernel/repository_contracts/repository_client；直接DTW成功来源+本次同WT实际compare
+Backend/RS package source: 本次mvzi实际通过；没有从旧失败或旧缺失RS身份作carried
+Deferred: Owner DC33最终范围确认与阶段退出手续/届时最终HEAD绑定；FE3同tar解析/摘要/OPFS证据
+```
+
+以上GO只覆盖已定后端实现与本节联合技术证据；后继docs HEAD没有被写成实跑，也没有另冒称阶段退出的最终HEAD镜像等价手续已做。**DC33范围确认、FE3/PAX同一b08 tar的OPFS互通、阶段exit／tag／push／S3仍未完成。** 本角色完成既定后端审核及联合准备核收，保留同角色连续性；后续Owner范围/退出手续或真实新diff需要复核时仍由原角色承接，不创建第三角色、改威胁模型或以静核替代授权。

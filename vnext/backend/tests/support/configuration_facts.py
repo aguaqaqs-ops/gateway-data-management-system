@@ -1,7 +1,7 @@
 """Explicit frozen facts for existing lifecycle fixtures; no SQL parser imitation."""
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import replace, fields
 from typing import Any
 
 from gateway_backend.domain.configuration_facts import (
@@ -59,3 +59,8 @@ def submit_attempt_with_facts(**kwargs: Any) -> SubmitAttempt:
 def submission_with_facts(**kwargs: Any) -> Submission:
     kwargs.setdefault("configuration_facts", _facts_for_record(kwargs))
     return Submission(**kwargs)
+
+
+def replace_preview_with_facts(preview: PreviewResult, **changes: Any) -> PreviewResult:
+    values = {field.name: getattr(preview, field.name) for field in fields(preview)}
+    return preview_result_with_facts(**{**values, **changes})

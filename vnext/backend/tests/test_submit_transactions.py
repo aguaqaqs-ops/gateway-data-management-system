@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts
+from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, replace_preview_with_facts
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -501,7 +501,7 @@ def seed_submit_ready_workspace(
             created_by=actor_id,
             created_at=TS0,
         )
-        preview = replace(
+        preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id, repository_id),
             preview_result_id=preview_result_id,
             upload_revision_id=upload_revision_id,
@@ -591,6 +591,9 @@ def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
 def _set_preview_canonical_states_equal(seed: SubmitSeed) -> SubmitSeed:
     canonical = replace(
         seed.preview_result.canonical,
+        configuration_facts=replace(seed.preview_result.canonical.configuration_facts,
+            baseline_content_identity=replace(seed.preview_result.canonical.configuration_facts.baseline_content_identity,
+                canonical_state_digest=seed.preview_result.canonical.modified_canonical_state_digest.value)),
         baseline_canonical_state_digest=(
             seed.preview_result.canonical.modified_canonical_state_digest
         ),
@@ -1247,7 +1250,7 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
         )
         unit_of_work.workspace.save_workspace(workspace, expected_version=0)
         upload_revision = replace(first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2")
-        preview = replace(
+        preview = replace_preview_with_facts(
             first_seed.preview_result,
             preview_result_id="pr-2",
             workspace_id="ws-2",
@@ -2297,6 +2300,9 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
             operation_id="op-preview-2",
             canonical=replace(
                 first_seed.preview_result.canonical,
+                configuration_facts=replace(first_seed.preview_result.canonical.configuration_facts,
+                    baseline_content_identity=replace(first_seed.preview_result.canonical.configuration_facts.baseline_content_identity,
+                        canonical_state_digest=first_seed.preview_result.canonical.modified_canonical_state_digest.value)),
                 baseline_canonical_state_digest=(
                     first_seed.preview_result.canonical.modified_canonical_state_digest
                 ),

@@ -2009,3 +2009,67 @@ postflight_complete/lock_release_allowed=true，Compose down=0，自有进程/wo
 这些是已审范围内的具体实现要求，不是追加候选审批门槛。复用现有用例，只验证两个真实符号的委托接线以及改动的写入/读取容量边界，保留必要的 AST/语法/文件摘要与 clean/镜像/输入检查；不重测未变矩阵。实施者准备合格即可按 §88 和本节运行一次，保存实际清单、hostname/时间/HEAD/exit、事件/资源/正常收尾或停止证据后交事后独审。要评价完整修复，仍需实际 prepare 完成、原正常 claim/join/worker 收尾与 GC 恢复/空闲回收路径的证据，不能仅凭未失租或 planner 返回判定成功。
 
 **本范围许可仅为上述一次完成性验证；不是新的正式计时、产品合入/push/tag 或正式基准恢复。** 无变更无新依据不原样重复大输入，实际失败停止保卷并按 DC80 最小修订；普通修订直接闭环，不重建逐摘要 GO。H3 原历史 PASS 保留，正式测量继续 STOP。
+
+## 91. Prepare b 完成性事后独审：限定范围 PASS，GC 覆盖与空闲回收成立，guardian 派生标记不阻塞
+
+**`p6mutationgcwindow20261107b` 的一次 prepare-only 完成性验证、已注册 GC observer 覆盖及正常收尾审核 PASS，无阻塞 Finding。** 固定输入下 prepare 已完成、375 次续租均成功，后继 submit_import 未领取；这关闭 §89 的“只到 planner 返回、未覆盖正常收尾”缺口。结论仅属于本次隔离候选，不证明全部历史失租的唯一原因，不代表完整 Submit/业务旅程、主线资源预算或正式性能验收。**本次运行已用，不授权重跑、继续后继步骤或恢复正式测量。**
+
+### 候选、身份与证据绑定
+
+最终实际 manifest SHA256 **`97d7e90685e1f0747c5e887243ec61a14fa067b163fbdb279288a6ca64ac275f`**，15 个候选文件的集合、逐文件 SHA/整数权限模式及 Python AST 独立核对通过。a→b 的 worker 只扩大既定事件预算并增加两个真实 renderer 的 `_phase` 委托；controller/guardian 的 worker-event 读取上限同步，资源日志仍 4096 条/8 MiB，原 GC observer 未变。shell/controller 的 10800/13500/900/14400 秒接线符合 §90。没有新增产品代码或依赖，故不触发镜像重建；产品保持 **`9704d0b286049073529d60036dbd999032f97e0a`**，最后合格镜像仍 §87 的 backend/worker config `sha256:66e362d44814d3db4a98ac8c0c6b5e9175812cd50bbc0895a822baf790648e62`（15 DiffID）与 RS config `sha256:b81faa1f970999676087a55f0fc63e17d4285fba73b04c5eca6a69612e1419aa`（28 DiffID），不把本诊断当新的容器门禁。
+
+已保存 preflight 的源码/输入/cache/镜像核验与该候选相符，source 三卷摘要、完成至 v2-preview 与 a 的已核来源逐项相同，目标为全新 b 项目，未复用 a RUNNING 卷。source RS run-bound full identity 仍明确 UNAVAILABLE，沿既有诊断来源限制保留，不写成 carried。CT05 focused 日志记录 clean 起止最终 HEAD、04:36:35–36Z、**14 passed / 28 deselected / 0.82s、原 fork warning、Ruff F821 PASS、exit 0**，SHA256 **`ddde0e989ca7ad4b98147e144745eebc8426ae5bc0a32c6555a4ca26dcd58214`**。
+
+本轮只读本地已交原始候选、结构化归档/副本、节点原日志副本及冻结源码；没有 SSH/实时节点确认、新取证、导入、测试或运行。归档 `/home/dev/gdds-p6-logs/prepare-step-lease-20261107/p6mutationgcwindow20261107b/collected-run-evidence/scenario-evidence.tar` 为 **1290240 bytes**，SHA256 **`f627cd36c28f7af2eb7c8ad32f53cd0ff348fa13fd532b918e925fcb897fd2f2`**；22 个普通文件逐字节等于本地 scenario 副本，也全部匹配交回的 remote inventory（SHA256 `1cef2a2ac261778f39a5759dd1901efc3c90e1b6d9c8a9e7b6f267192da1b992`）。该归档不含 secrets/三份 raw service 内容，不宣称本轮重算了远端 raw 原件；其捕获索引记录均 exit 0/reaped/quiet、无 timeout/truncation。
+
+DC68 两组准备错误及七份绑定证据摘要均核对通过：旧 image-identity 常量导致只读 preflight 退出，另一次 transfer 的额外 manifest/checksum 被候选集合检查拒绝，均发生在 scenario/worker/POST 前。修正后的 controller 摘要与新日志名已固定，原失败未覆盖；不把它们计作两次 prepare，也不因准备错误新增回执或重跑门槛。
+
+### 唯一业务执行与明确的尾部耗时
+
+CT05 `gw-dms-test-05`，**2026-11-07 04:39:22–05:42:33Z，3791.155s，controller/script/SSH exit 0**；launcher SHA256 **`1e4f175f057417bdcc06fe7d86c01683733fd7c2db11b619d057f1537a65950f`**，clean 起止最终 HEAD。单 acceptance POST 返回 HTTP 202 / RESPONSE_VALIDATED，单 prepare claim/attempt_count=1；operation=`op-e9585d1c707fabe7b130f1c7`、attempt=`sa-c82720c7299c57bed1eff3a9`。prepare step SUCCEEDED，后继 submit_import PENDING/attempt_count=0，operation/attempt repository_operation_id 均 null，没有第二 claim。operation 仍 RUNNING、attempt 仍 PREPARED 是限定 prepare-only 停点的实际状态，不能写成整个 Submit 已成功。
+
+10 个 phase 均正常 return；prepare observation **3755.338s**，prepare_handler **3755.815s**。关键阶段如下，存在外层包含关系，不累加全部 phase 时长：
+
+| 阶段 | 实际耗时 |
+| --- | --- |
+| prepare_build_input | 65.387s |
+| frozen_projection | 89.104s |
+| mutation_snapshots | 195.029s |
+| parent_materialization | 876.438s |
+| mutation_plan | 1296.669s |
+| schema replay SQL renderer | 0.004329s |
+| planned mutation DML renderer | **1115.868s** |
+| canonical_publish | **0.805933s** |
+
+因此 §89 未闭合的主要尾部现已明确在 **mutation DML 渲染约 18.6 分钟**，不是该次 canonical publication 本身的长耗时；它正常返回，没有证据支持死锁。本次为带观测的完成性运行，不据此生成正式性能数字、比较新旧加速或外推其他输入。
+
+### 续租和 GC 的实际覆盖
+
+事件共 **1904 条、1088165 bytes、单条最大 798 bytes**；helper/session 入口出口各 375 条全部正常返回，worker_event/heartbeat_succeeded=375，没有 lease_lost、heartbeat_busy、executor_failed。helper marker 相对 derived due 最大迟到 **1.588280016s**，距实际 deadline 最小余量 **18.411719984s**。1500 个 gc_since_previous snapshot 均 complete，cb_err/cleanup_err/invalid/obs_err 均为零，incomplete/open/gap 均为空。
+
+最终 summary 的 complete/overall_observation_complete/event_writer_complete 均 true，callback/cleanup/observer/invalid-transition 错误均零，coverage_gaps/open_windows 为空；成功 emit 数 1904 与实际完整文件相等。callback 在 bootstrap 导入/运行前注册，bootstrap 正常返回后移除并生成最终摘要；源码与这些结果支持**这一注册窗口内的 bounded observer 覆盖完整**，不扩写为 callback 移除后全部解释器退出过程或每对象堆审计。
+
+gen0/1/2 分别报告 collected **1575/147/44640**，uncollectable 均零；gen2 唯一完整区间 `2039912110453083–2039912606841184ns`，耗时 **496.388101ms**，与 claim/worker 主线程相同。独立核单调时序：claim_exit=`2039912110353432ns`，clean_drain_requested=`2039912110417642ns`，然后该 gen2 开始/结束，最后 worker_run_exit=`2039912607186688ns`。所以这次确有 **claim 正常返回后的空闲 generation-2 collection**，不是把“未见 GC”当成回收成功；结合已审 `_run_claim_cycle` 的 join 确认、恢复 gc.enable 后 collect 控制流，正常收尾路径已走通。没有单独持久化 isenabled 值，也不由 collected 对象数推算回收字节或 RSS 下降归因。
+
+writer 最终 metrics 的 encode/lock-wait/write/flush 最大为 **0.345144/0.119541/26.199919/0.005630ms**、failure_count=0；这不是 observer 零扰动证明。最终 GC summary 完整不建立旧失租唯一因果，也不把旧 g 的失败追改为通过。
+
+### guardian false 的含义、资源与收尾
+
+**guardian.worker_exited_cleanly=false 不构成本次业务/收尾阻塞。** 它只在自己的 5 秒轮询消费到 worker_run_exit 时置 true；controller 正常 `_stop_guardian()` 则 set stop_event、唤醒 wait，guardian 可以直接结束循环而不再消费一次事件。实际最后采样为 `2039912272865494ns`，比 worker_run_exit 早 **0.334321194s**；guardian CLOSED 于 `2039913.474661739s`，比该退出事件晚 **0.867475051s**，仍早于下一次约 5 秒采样。原 handoff 的“其后约 3.8 秒”不是这一单调时间差，应后置更正文案；不修改原 guardian flag。
+
+原控制流先 `_wait_worker_exit` 确认容器 exit 0/no-restart/进程已回收，再 capture、关闭 guardian 和 Compose down；实际 worker_exited/worker_run_exit=0、容器 exited/exit_code=0、postflight reaped 相互一致。guardian 无 stop_reason、无 signal、正常 exit 0/reaped/ready，未出现资源守护异常提前停止。上述控制流和时间关系足以解释 flag 未消费到退出事件；不需为派生标记重跑大输入、补造最终采样或新增生命周期机制。离散采样不覆盖两次样本间的瞬时峰值，关闭后的清理期也不冒称持续资源采样。
+
+资源为 **756 样本**，04:39:32–05:42:29Z，最大间隔 **5.010789925s**，guardian 绑定首个 worker 样本早于 wrapper ready/claim。worker RSS peak/last **24266887168/2527236096 bytes（约 22.6/2.35 GiB）**，host available 最低 **42892359680 bytes**，disk free 最低 **201185333248 bytes**，未触原隔离诊断停止线。该峰值不能替代主线 DC87 的容量验收。
+
+postflight complete、down=0、owned processes/项目容器/网络 quiet、worker/guardian/capture 均 reaped、lock_release_allowed=true，三个 b 卷保留、未清理 a 或其他旧证据。已保存 05:43:24Z 节点后检日志记录 clean、锁 absent、无项目资源/8000/Dolt/候选进程；SHA256 **`bcebb615ac532c7fea3046ae299cc28c7d2e2efc646e209ad0a7516b1f77ea33`**，不是本审核的实时节点复核。
+
+| 核心证据 | SHA256 |
+| --- | --- |
+| prepare-step-result.json | `13d68d338d524c008ff900e0ac0a9ff6c375b023bec69197d86abff1774dd829` |
+| worker-events.jsonl | `d00270e803e975ef2dc8afe061c484baab8078b4dc92a86f002d8cf0c0a1ae69` |
+| gc-observer-summary.json | `397fb0d1d9a418c36118959a79d27ac30372bbf6b282e45c9038b4372ee4b354` |
+| guardian-result.json | `f461f88fc41cd5cac4aea768d7b0f821db07dbb93f657cf3119fb551a593c0dd` |
+| resource-samples.jsonl | `fa6dc02acc5578ad636bee42d3e25eaf8256111b6d1c311978664353ae84826e` |
+| postflight.json | `4587d14019d38201ec78a915f8764ddbad53164d4ed93e7b083ba50735f9fa2e` |
+
+**结果直接交实施者并同步设计：本次限定完成性 PASS，guardian 派生 false 按上述限制保留，不要求新 focused 或重跑。** 普通 handoff 时间文案后置更正。没有下一次运行、后继 submit_import、清理卷、合入/push/tag 或正式计时许可；H3 原历史 PASS 保留，正式测量恢复与版本/来源资格另按原范围处理。

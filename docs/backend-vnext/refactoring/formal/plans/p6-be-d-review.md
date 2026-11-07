@@ -332,3 +332,49 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 已独立读取纯数据 `/home/dev/gdds-be-ad-05-archive-reasons-v1.json`，**1445bytes，SHA=`2868249c224a94c583b648d2db842cd018f4917add2af77a565fd73d39aca698`**，八项与§9逐字一致：INITIAL_SOURCE_UNEXPLAINED、BASELINE_TIME_UNAVAILABLE、GENERATION_TIME_MISSING／INVALID_VALUES／LAST_NOT_MAX、TIME_ABNORMAL_INITIAL／MODIFIED、APPROVED_SIBLING_EXCLUDED。明确仅对可重建测试库逐项接受，保留原UNKNOWN／诊断／事实与resolution审计。原consumer按actual subject digest或issue code查显式reason；未知code、unsupported subject和identity异常继续失败，无force。实际LAN文件SHA及完整JSON作为单一env argv仍待原run核收。
 
 联合运行尚未启动。接下来协调固定actual clean SHA及短source窗口；本角色在该窗口不提交main，source_ready后继续核原日志／manifest／image身份与完整fresh t1结果。04权威非0或身份／缓存／编排保全异常按既定停止规则处理，不以05成功抵消；任务结束只释放本人资源。产品tree未变，本次无新重建理由，最后06镜像／source记录仍§15；04／05当前镜像门禁与联合最终结论deferred到上述实际运行，FE3同tar OPFS及DC33退出手续仍pending。
+
+## 18. a999 联合首轮前提、05实际成功与04待收口失败
+
+### 18.1 两节点实际source及缓存
+
+协调固定实际source **`a999869c7f4714c95ee9a5b82866e52cd265e377`**／vnext0301；本角色在双source短窗口不提交main，两个source_ready后才解除。初次新WT／证据根不存在、无他人marker／运行容器／8000／Dolt等进程，原子mkdir本人marker后传source；原claim日志及ps／disk／owner已逐字核收。claim完整命令由实施者事后逐字转录原工具输入供静核，没有当时另存command文件，不冒称该转录是原命令日志。
+
+| 节点 | 原claim／UTC／log SHA256 | 原transfer／prepare SHA256；bundle SHA256 |
+| --- | --- | --- |
+| 04／gw-dms-test-04 | `p6-be-ad-04-claim-y7TTADuv/claim.log`，12:26:16Z，`f8b93e7c84e643fd88be0d00019c8d6d929eae7d6c63f90440231afc5b6c08fd` | `transfer-IUOsNXCG`，12:26:24–25Z，`bad842fad3f0ac5c12faf803fc42232a235ffb9ef2ae65a9e29460bd033ea25d`；`f140814f72d7f7695e949e2819317074a5b28ac62c6858c1885aa1269f13045d` |
+| 05／gw-dms-test-05 | `p6-be-ad-05-claim-KIM5R8lx/claim.log`，12:26:17Z，`8209ed52fc181a0216da3b32f7e9dc251d912a283d1e4fb95c41f7fce55e7a2b` | `transfer-cwKZNNWF`，12:26:37–38Z，`f71eb6f26828efb0ad87265ebede6d4976faa79e6de8712db9fe800a4278cd8f`；`4adbfaf24cc4c9ec219e4f5fb42adb4bf8ea5376fb0d130958f76392d51cbf46` |
+
+两份不同bundle各自通过verify／advertised exact a999／SHA／clean／prepare_exit0，不要求跨节点bundle archive字节相同。owner副本SHA04=`4680c89153f428b761984de79d3be261f13402803f7ecd30c5a31b782d62b379`、05=`9fe440a74123d50700b327e89ce3fd6cafc73d9ed90d2473009db32c976b87bd`，与现场本人marker相同；独立安装node-run SHA仍§17对应值。
+
+各run均在对应 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04|05/` 下，原命令／guard／expected／log四项SHA均已核。04 `run-prerequisites-Q1qbm78j`（SHA=`4f104383e4ef2bcb98174f1077ed831ae89a2025d38d408f37857ca6f63f3128`）、05 `run-prerequisites-9gbq9dXi`（`2eb633dffc51de892fbb750165d68c64562c1e162e0b5a7a0b30acc57a2fb467`）均12:28:09起、command/final0：UV/Cargo offline、BASETemp unset、local uv缓存、legacy、四工具同1.97、Dolt及Docker/Compose均实际到位。metadata脚本SHA=`31269239b278424574101fe2060f88eec1c3353729a8c3b547816b7f87b4c8b2`从实际docker-save config bytes求digest并核全部DiffID；04 `base-identities-e2nfolpk/base-identities.json` SHA=`dee4c57577d2527aa18a56e43f87a4b8d5ac8bf440df381d6e45705d3c46b86e`，05 `base-identities-y_o5a51u/base-identities.json` SHA=`b5343a80611bc0635e026c0a5ee78041ed01f16c7a3affff9043605a33015ccf`。两节点backend／RS base config及全部DiffID独立比§15已审06原来源完全相同；本地Rust／Python config及DiffID也跨04／05相同，04 client-base另保存config／9DiffID且label匹配lock，不将没有06 reference的三类写成source_match=true。
+
+两节点实际 `--print-input`仍完整d054，RS各自当前tag正常offline build0（04 log SHA=`58e74acc3be3c67bbb38a5250a4b6fb417ebb704094c36168197da0891032d6f`；05=`9634b847c87f62fe535a9aadb071c77869281a55cb70bfcd9bc9d1dfa157dbf2`），revision实际a999、source仍a687／13cb。05强制扩展sync `run-backend-sync-3U0NQiGH` 12:32:31–12:33:49Z，log SHA=`0ad22dedda643d6e8e4698838545153a91efce311586470929fb0835b03fa6a9`；`run-extension-build-input-913obiwP` 12:35:22Z，SHA=`d3d9e128c4342a3d7644c84abcd33d4854018c7c6bf840761279673360c1bdb7`，均0、expected=installed=e6ac。测试／编译只在节点，本角色读取Bash `%q`原文，不执行或eval精确argv；一次只读检查尾部用shlex解析ANSI-C引号报错，没有运行被测对象或写文件，原日志核收不受其影响。
+
+### 18.2 05唯一fresh t1实际通过，仅绑定a999
+
+`run-fresh-t1-8skuj66m` **12:35:37–12:40:42Z，command/final0，起止a999／clean／本人owner true**，原log SHA=`66cdeb8c906434bbdfbdf2b63ee438c4537f1a9aab10bedafe5d3a36189e83c1`。完整literal argv及单一JSON env参数已独立读核，与§17一致；LAN reason文件SHA仍286824…。原输入实际为 **`rd-t1-a-v1`／107115B／SHA=`42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2`**，以及 **`rd-t1-a-v2`／107066B／SHA=`4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0`**，不是另一t1-b数据集。
+
+`final-result.json` SHA=`505f9731235430c21c53ff39316bec1f0f4e22b7465275bdea12e4a04823cf1d`是原run.log在byte offset53374、length40044的**原始JSON行字节**，本角色独立比切片完全一致；不是重序列化或补造结果。保全metadata实际原run `run-preserve-journey-result-7sFbOrhR` SHA=`41f7d3383c1e278320bfd7c5d2977c9c6ac9c68fe2954bc095eff31e77c127bf`。原18步从v1 workspace／upload／preview／submit／repository-read／approve／archive，经repeat-v1四步，再到v2同六步和History，均成功。v1 MO身份N/A；v2实际FULL，INITIAL=v1／MODIFIED=v2，身份SAME_PROJECT；repeat-v1 MO为unchanged／NO_CANONICAL_CHANGE。FULL双pair由requested-mode的F3硬断言在default摘要前实际核过；输出 `preview.pair_count=1` 表示默认 `initial_to_modified` view的摘要，不能据此写成FULL单pair或声称JSON另存了完整manifest。
+
+| 实际完整tar GET | bytes | closure／普通成员 | records closure／逻辑records | GET至完整读取秒（只报告） |
+| --- | ---: | ---: | ---: | ---: |
+| v1 Preview／MODIFIED_ONLY | 2834432 | 354／356 | 1／0 | 0.529 |
+| v2 Preview／FULL | 2660352 | 118／120 | 2／12 | 0.214 |
+| repeat-v1 Preview／MODIFIED_ONLY | 2055680 | 105／107 | 1／0 | 0.163 |
+| History | 2153472 | 114／116 | 1／12 | 0.183 |
+
+对应semantic bundle digests依次为`sha256:5374345d0c32bf50a0c82c281cd226b1ed2184df198b26cfa23d62624a34c441`、`sha256:3fce1e91a655e612916ec10e7fdc7b34256ba3c66907e0b49a8cdcc8486b3bae`、`sha256:325d83b86a0438158911982e2118d80868afc9718395a160ee9c00a47d622c7e`、`sha256:0215af75516a8804bacba23cc9c5804bb8dd229402688cd383959676930e398e`。它们不是整tar的外存raw SHA。已提交consumer实际逐项核原metadata、全部closure路径／顺序／尺寸／物理SHA、引用闭合与适用records逻辑digest；现有留存是聚合counts／digest／bytes／time、原JSON／log及reason数据，不宣称外置保存了每成员原字节或所有diagnostic／resolution HTTP响应。持久diagnostic／接受仍保留原detected事实由V2 owning规则与本轮实际流程验证，不新增工具字段或evidence框架。GET计时单列report-only；原READY／operation完成锚未改，本轮 `operation_timings={}`，不冒称W1/W2性能证据。
+
+### 18.3 05镜像与释放
+
+`run-journey-image-identities-YSHUiWZd` command/final0，log SHA=`bd1a3f360c86fa926d61e8162cc3030cd4a53e9f476f73e524fbd0de17d50634`；`journey-image-bridge.json` SHA=`0da27b38f0550ee575d3705ea34e61eaf09d83fab4709cf5de9acca87365c1b3`，`base-identities-zdhheiw9/base-identities.json` SHA=`798515259fbe1fb0a189297e35c10e8f26e6ff76e3680e46f632d99da433cbb2`，全部54项DiffID（13／28／13）及actual config bytes来源脚本已核。backend config=`sha256:3d47ed71ec272cabc39d71ef6a845f3a4b2d59c979d5f52b483d9dff6d17b21b`；RS=`sha256:adde25e06a61e4c35585355490ecea7569220367945c3b4b245e3e73e8d4d053`；worker=`sha256:3730d9d2878cc8ddefea51ed368726aa1a7c8af2448c7d3a6d78c0fb0ce18dbe`。同机桥接确实逐项比较原tool的 `compose_image_ids` 与保留tag inspect IDs；原JSON字段名含running，但实际来源是构建tag的image inspect，并未另存container inspect，报告按该来源限定，不虚构额外采样。fresh build／UUID project／原up流程、原tool IDs与config共同绑定a999，跨节点仍只比config和全部DiffID。
+
+05原finally清理后 `run-cleanup-check-qDu6CB70` 12:43:52Z／0，log SHA=`987eaad6058cf1a2289d26e0ab000f9c6b5d110b5956f03951e96fd502f2414d`；`release-8QB9Ypmg/release.log` 12:46:02Z／0，SHA=`f4a1625250c8f88f17db56e1ab4222fbe5d97f8010254d07aff59b78cc661b54`，cmp本人marker后释放、保留WT clean a999。12:47:58Z本角色另只读现场确认marker不存在、本project容器／卷／网络和8000空。完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/` 的11run四项SHA全符；旧10-run index SHA=`5f551201c49fabaca2cc1e6a86e2cf72283b78b3602068357931a8b3fbbdf459`与释放后metadata SHA=`f0bb6b07ec725f5243105ecb0bca750e5edf2a3553303b4c1ad43e1c66749a87`分开，不改旧index或原log。
+
+### 18.4 04失败与固定test-only修订，未给联合GO
+
+04唯一原authority `run-authority-six-n3pnBrzg` 从12:32:24Z在a999执行，实际argv已核六包／workers48／全部既定env。backend parallel原 **3 failed／3383 passed**，本角色独立读完整三trace：checkpoint缺closure、reopen缺sidecar、sidecar replace失败后不可locate三例均已得到原 `CheckpointDecodeError`／`ManifestVerificationError`，只因expected `unknown artifact_id` 与D统一的实际 `artifact ref is not available` 不匹配。没有放宽拒绝或原子发布。
+
+固定 **`2ae2d825ea775e5ef35c449d924a9edcc6aa8b81`** 在 `/home/dev/gdds-reviews/p6-be-ad-fix-2ae2d825ea` 新只读WT核clean／legacy：仅两个原owner三行match同步，异常类型／fail-closed／未发布断言不变；产品src／consumer／harness／Rust／deploy／scripts／fixtures相对a999 diff为空，vnext仅tests变为`220ba52851eebf2886a109c32d6dd7f8c1ff80a2`。**该已知修订静核通过，实际补验待；不提前定最终候选。** 原runner serial已见失败标记，完整serial trace及总exit尚待，不写被测WT／不重tag／不启动后续验收。
+
+失败整次不得作为任一package carried来源，下一合格权威仍须六包（原S2b公共fixtures闭包不同），不把部分通过拼整次。05成功只绑定实际a999；是否可为后续仅tests变化的候选按步骤引用未影响证据，须等最终diff及对应owner结论，当前不称2ae或新HEAD实跑fresh，也未作image/package carried判定。A1/V1/V2／D联合覆盖与当前04镜像门禁仍待合格原运行收口，FE3同tar OPFS、DC33最终范围与退出手续继续pending；05成功不抵消04失败，本角色继续同一职责。

@@ -2,7 +2,7 @@
 
 状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：1de 的04 backend→Repository Service权威整次0/最终容器绑定；1de fresh t1–t4完整旅程；最终同WT闭包与独立审核。06定向81项及静态已通过；04 Rust、三小包已在同E WT按实际原来源比较可沿用。三节点00:25:56–57Z已取本次准备占用，source/env/另call独立核全0，04 backend权威已启动。05/CT108准备释放收尾命令语法错的原exit2保留，实际marker移除后已另做只读核0，等待独立复核后fresh自取锁。以下按时间保留历史状态；额外工具mypy待决项早已关闭，CT108窗口已确认，不能把早期暂停段当当前待决。
+当前 pending：**t4首Submit在真实Python行准备预约处超过M8，等待Owner容量取舍**；只读IPC buffer统计正待独立核。04 1de backend权威仍自然运行，RS暂缓；1de t1已完整PASS/cleanup/release，t2/t3未启动。CT108本次失败项目已正常stop/保资源与busy，无重跑。后续若改Compose容量，COMMON deployment改变所有六包闭包，必须新候选六包实际run，不沿用旧Rust/小包。此前1de同04WT的Rust/三小包compare仍是其当时合格事实。以下按时间保留历史状态；额外工具mypy待决项早已关闭，CT108窗口已确认，不能把早期暂停段当当前待决。
 
 ## 实际消费者与删除
 
@@ -228,3 +228,18 @@ H taskref `refs/codex/s2b-e/budget/<full1de>` bundle SHA `711ecbcf21a309eec0b643
 05/CT108准备release在00:26:52Z已执行idle/owner检查与移除标记，但追加footer的自身命令`{date`缺空格，使整个外置shell actualexit2。保原release.log（05 SHA `5d24bd99b640ffc2fef9ab782b514240a2c559c5336db50f94513fe6b8c15bea`；CT108 `5725f928f4b23487a8549a6dbd194aa2a5fe401852f547af3f3a1cfa85cc5c44`）不改；实际工具stderr仍保原调用记录。按root DC68一次明确收尾，00:27:07Z先独立只读查marker absent/原log，再00:27:22Z核cleanH/整机idle/无marker；**不重复rm或资源清理、不回填旧exit0**。两个节点各自 `environment-01/release-footer-command-error.txt` 是错误摘要转录，SHA `853153ce94633ffd3e2d061b8c5ccac6d2c943ea9ac39a4983d82a76fb60315e`；新 `independent-post-release-verification.log` actual0，05 SHA `f63200131639811529307b0a0d5ba0e879cc8e3c4175d65b7dcec8c022fd017b`、CT108 `374f47d7c64608137417663e3ee993e212fd5f0c4d3728208b9f4b1631c97eac`。独立审核已核此收尾闭合。
 
 00:29:00Z按已审driver实际SHA匹配后，CT108 fresh project `s2b-e-t4-1de3fa4084`（286ef89…）与05 fresh `s2b-e-t1-1de3fa4084`（d524f828…）各自重新现场原子取锁启动，与04backend并行。无from-step/resume，旧7c t4停止资源保留。结果待实际完整退出，不据中途Preview或step成功宣称整档PASS。
+
+
+### 00:37Z：1de真实Submit容量前提失败，停止后续档位
+
+CT108新项目 `s2b-e-t4-1de3fa4084` 首Preview已在00:30:30.430Z成功（operation wall58.34s），证明前次metadata-only错收费修正覆盖实际路径；随后Submit `op-c0146af9fb33f230e59afd8c` 的 `prepare_import` attempt1于00:30:34.690Z FAILED，首个effect前无checkpoint、无repository operation，diagnostic `RESOURCE_LIMIT_EXCEEDED / operation memory reservation exceeded`。journey00:30:36.861Z exit1，driver00:30:43.580Z exit1，正常stop保本E容器/卷/network/busy。
+
+本次资源证据齐全/独立resource verdict PASS只表示边界取证通过，不是功能通过：单未重启worker `6db383022a82`、N1/M8589934592/envelope12884901888/reserve4294967296；memory.max12884901888，memory.peak662650880，OOM与oom_kill0，normalstop exit0，结束1de/clean。peak仍只是失败前缀cgroup生命周期值，不能据此宣称M8足够或实际完整worker峰值。证据前缀 `artifacts/s2b-e-t4-1de3fa4084/`：journey.log SHA `293d682d6d4efbc38a981cbb4b3c14e3d02b2e32ebb1b861c0e1a9d28437ac56`，result.json SHA `5e904cd7dc6d47a9d574a2b313d8b166b0ac3b8e0a7a6c5d8bdde58f616751fe`，worker资源SHA `2d69976f583ea171d5137f8dc4dcf061a61e41d4cae83bc1b47b50d7bce96383`。
+
+只读DB与JSON metadata核：Submit step仅prepare_import失败，无后续effect。canonical table closure312表、初始parent故全changed；冻结canonicalization manifest SHA `0dc2f6f1c7c5f1ed33c08f248dd655fc2eb9ccb0c2d22d5c3fbed7cdc681ef9d`/216641B，table-set closure SHA `09eb1e9f140aef15f20399800f51a10c29d363088791fff5fde1d267eeee9b30`/73481B，READY closure SHA `3f7f7e3c9068c8ff8b2dc9512e644b45b427bfa4a0a198e29061b671a7690f7a`/493619B。`import_publication._reserve_submit_python_rows` 后的typed images/indexes/adaptive lists确实真实消费；不能按Preview单侧规则跳过。312表已知row-term下界8335221376B，加package-replay固定2650800128B为 **10986021504B > M8**，尚未计非负Arrow.nbytes×32。device_st单项3666670336B；按冻结顺序累计下界到该表已10682437056B，但确切触发的table/当前used未持久化，不能把数学下界当现场确切拒绝点。已知canonical mapping62330728B、reader metadata17724160B；其他retained/临时重开峰值未完整观测。
+
+只读metadata `dc80-submit-budget-metadata-01.json` SHA `fcf5321f929676cf0df2f062c8018dcfd5d7f8a34d8ba9e27bf5d82cba02e92c`；step/diagnostic/ref摘要 `dc80-submit-step-readonly-01.json` SHA `3ee384a569bd4f715f685841dca10c8115fa8667ca4aa68265bcee3140b67b97`。首只读摘要命令在JSON序列化BLOB时报TypeError，读取mode=ro，无DB或输出写入；原工具stderr转录 `dc80-control-readonly-01-command-error.txt` SHA `c601819ccf1fbafcfdbe56209a833a584e6b4bd672db6402154191bec8f68eb2`。按DC68一次明确修正为BLOB仅大小/SHA后的 `dc80-control-readonly-02.json` actual0，SHA `628166f612af5359b1d6b8abf362681cfacdedc7a9f0fb0163103763c0ce3fc3`。无Rust/runtime/行迭代或operation重跑。现存IPC的Arrow buffer只读统计待独立核，不为求完整上限建立新框架。
+
+05同H fresh t1自然收束：00:32:21.126Z journey0、00:32:28.432Z driver0、resources完整/同worker/normalstop0/ownedcleanup/release/HEADclean全真。`artifacts/s2b-e-t1-1de3fa4084/journey.log` SHA `5aa942a20ed275d5e49d42070d4d57a69d21344bff79852865201513b766a938`，result.json SHA `0a0fc66fee749fea0ddf50fc37b3d4b9db0ed6844e2d15ec1facdd122e440bbd`。按t4真实失败约定不接t2/t3。
+
+root已知且暂停后续真实运行/RS。24GiB envelope/8GiB reserve/M16仅可能的受限校准候选，尚无Owner执行决议，不承诺它解决完整旅程；不自行调整系数/M/输入。若Owner选该方案，settings固定值与上限、Compose mem_limit/四Env、显式CLI M、外置driver资源判定及对应断言/owning决议均需同步。Compose属于所有包COMMON Git输入，因此新候选最终六包均需实际run与本机当前HEAD容器门禁，不借旧source。性能W1/W2/W3及完整t4仍未知/未通过。

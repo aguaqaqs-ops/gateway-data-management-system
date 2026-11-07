@@ -2837,3 +2837,15 @@ core私有原main目录开库前的完整树核验日志961B、SHA **`e6e59b4fdd
 CT108同run before-History artifact snapshot的只读验证：报告399477B、SHA **`be8ce870330302c9b9352bf11a306bf076dcee1ea4ea8d9f14b1a7156bf848a0`**，运行日志1108B、SHA **`ccb0b30e0368917368aa574227ea00020d61f2d33878599ade64c0bc05a09739`**，20:18:57Z、exit0；脚本SHA **`5086f6875ab5ad48b9f4b04d24a9ed180c4870202d4301ba937f999c3a660539`** 已读，固定原snapshot root，核342对象和342 ref文件均存在、root边界、四字段canonical ref形状/身份及每一对象size/SHA与ref相符，missing/invalid/content mismatch均0。本审核进一步逐项核报告与清单的repo/layout/writer/expiry、object/ref路径与size/SHA相等，且全部对象mtime早于历史起点。报告明确**未重hash整个1043552482B artifact树**；原02048879树身份只作来源索引，本结论仅认证实际342引用范围，符合原缓存健康consumer的行/TTL/对象存在条件，不扩为新业务checkpoint完整资格、实际命中数或History之后状态。
 
 20:22:42Z合并脚本及日志SHA分别7d7ac906/4f0db9d7，绑定上述原输入，已独立核合并结果与提取/对象报告全部相等。已直接通知实施者消费本补证、继续正式record/comparator及既有分段/测试修订，无新GO、不重测core/FULL/STRESS；两类测试修订与05focused实际实施仍由唯一实施者完成，审核者仅只读诊断/独审，避免互等对方写代码。
+
+## 128. e0dd两测试修正只读初审：环境隔离方向成立，新增兜底回收仍需收口
+
+**`e0dd178d8c8c3111b57b2f0be2bcb5b12f29ad89` 尚未整体判PASS。** 父为fcc，仅改backend与RS两个既有测试文件，85增/7删；已建立只读detached审核worktree `/home/dev/gdds-p6-review-gate-e0dd178d`，HEAD准确且clean、diff-check通过。生产src、真实launcher/harness、依赖及计时均未变；05定向验证由实施者在clean已提交worktree执行，审核者未在开发机跑测试。原04失败结果仍保留。
+
+RS的两现有用例共用default-unset/custom参数表，按场景显式delenv或setenv，仍调用实际resolve_service_image，检查预期image及是否重建，monkeypatch作用域结束自动恢复外层真实门禁image。没有将默认断言改成随ambient浮动、删检查或修改实际harness；该代码方向成立，当前候选实际focused/静态结果待交。
+
+SIGINT继承探针在05执行，日志276B、SHA **`2bde62570001f3a664426298c86a442d1bf5586e470d0637bf0ac187cbc41fca`** 已直接只读核：20:34:15Z，前台Python及直接子进程为default_int_handler，Bash异步job的Python及直接子进程为SIG_IGN。该机制有实际探针支持；原04外层具体launch命令的关联仍已要求补记，不以一般机制伪造原进程已退出后的信号观察。已分别读05/04的GNU env帮助确认支持--default-signal。测试只在launcher Popen argv前加 `/usr/bin/env --default-signal=INT`，恢复该子进程初始处置；原15s、exit130、journey TERM、孙进程静止、Compose down及锁释放断言保持，不改真实guard或全局信号。
+
+新增失败兜底仍有一个有界性缺口：_stop_timed_out_fixture在TERM/10s之后的最终communicate()没有timeout；已交实施者给最后回收明确短上限，超限仍失败，不能由兜底TERM/KILL成功冒充原SIGINT测试通过。另_kill_fixture_sessions使用killpg(session_id)，实际只选择同号PGID；若按函数意图收束整个自有session，应复用已有guard的native pkill -s语义并排除非正/当前session ID。此为本次已出现挂起的fixture收束范围，不新增安全状态机、探针或测试矩阵。
+
+若05已经运行e0dd，先完整保留其结果再提交窄修，不改在途worktree。最终修订须在普通及明确SIGINT_IGN父入口下定向验证相关模块和RS两组用例、受影响两包静态；后续最终H及镜像/闭包/必要权威验证再按原规则一次绑定，不提前将e0dd或旧失败runner称合格最终候选。普通测试修正直接闭环，无新Owner/设计GO，不阻已审DC63/V5b准备与记录派生。

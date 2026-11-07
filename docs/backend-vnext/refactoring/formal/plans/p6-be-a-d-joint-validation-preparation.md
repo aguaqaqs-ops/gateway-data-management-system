@@ -61,6 +61,12 @@ RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67b
 
 05强制sync已0，log SHA=`0ad22dedda643d6e8e4698838545153a91efce311586470929fb0835b03fa6a9`；`run-extension-build-input-913obiwP`核expected=installed=e6ac，log SHA=`d3d9e128c4342a3d7644c84abcd33d4854018c7c6bf840761279673360c1bdb7`。**12:35:37Z**启动唯一fresh t1 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-05/run-fresh-t1-8skuj66m`，保持已审FULL/MO CLI、N1/M24GiB与单env显式reason JSON，非resume。04原六包run继续，当前均未完成。
 
-## 6. 最终核收待填
+## 6. 首轮实际失败与修订（不作合格来源）
 
-产品tree已收敛0301；完整执行稿已固定，04 workers48/六包一次runner及Compose，05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。原独审静核及协调固定source后，两节点已按既有授权开始；当前尚无完整runner/journey结果、最终manifests、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。
+04原run的backend parallel为**3383 passed / 3 failed**、207秒、批次exit1；三处均期望旧`unknown artifact_id`，实际正确typed拒绝消息为`artifact ref is not available`。异常类型与缺失拒绝/未发布不变量均命中，协调和同独审独立读trace确认，非缓存/身份/保全异常。最小修订 **`2ae2d825ea775e5ef35c449d924a9edcc6aa8b81`** 仅两原test owner三行expected message，vnext变为`220ba52851eebf2886a109c32d6dd7f8c1ff80a2`；产品src/benchmarks/Rust/harness/Contract无diff，待原独审静核。原runner自身serial另已出现F，尚无完整trace/最终exit；不能将2ae预判为完整最终修订。
+
+原运行期间不改节点WT、不重tag，暂停启动后续验收/carried。失败整次不能作任何包的合格carried源；旧S2b公共fixtures已变，下一合格最终runner仍须六包。05已启动的fresh原run现command/final0、endclean/owner真，完整JSON/镜像/结束UTC待同审核收；若最终增量确属test-only且产品/consumer不变，可按逐步骤影响审查引用其a999实际来源，不冒称新候选实跑，也不默认重跑整档。
+
+## 7. 最终核收待填
+
+原实际产品tree0301，两test修订后tree220ba5尚待全失败闭环；04 workers48/六包及Compose、05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。当前04有失败，不具最终GO；尚无合格最终六manifest闭包、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

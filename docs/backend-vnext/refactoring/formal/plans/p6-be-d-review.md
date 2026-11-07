@@ -491,3 +491,17 @@ RS tag仍 `gateway-repository-service:be-ad-final-04-a999869c7f`；现镜像OCI 
 | `/home/dev/gdds-be-ad-04-copy-new-provenance-v1.py` | `2001054e459746b4a03cd497bca770c707cdf7ffe2157458037c7a8a0f645b27` |
 
 **方案A静态可执行性核收通过，无剩余静态阻塞。** 只读核全文／hash／mode664与显式bash FILE或python3 -I入口，未bash-n、访问测试节点、安装／执行脚本、运行collector／测试／编译／lint、cleanup／释放。方案B保留pending后按Owner授权只清本人资源；两方案均不隐去旧原件缺失，不扩产品／闭包工具政策／角色／测试矩阵。Owner选择问题已由协调一次提交，当前尚无明确回复，全部执行继续停；同角色保留后续连续核收职责，不自动解释为A已批准、DC33确认／阶段退出、FE3／S3／tag／push完成。
+
+## 24. Owner明确批准A；实际预采与四包比较核收
+
+Owner随后明确 **“同意继续最小补验”**，协调固定授权 `e5157db91cffa305e030da1a6c13578086fa1fc1`／联合准备§11，取代§23末尾当时待答状态。原实施／独审继续同角色／原model，不新建角色。被测04 WT仍完整49403／tree567201；main后继仅docs，不把其新SHA切入本轮运行。14:10:47Z本角色只读现场核原owner与副本cmp一致、WT clean49403、RS130674／candidate49403／source13cb，运行容器／8000及Dolt／pytest／Cargo／rustc／clippy均空，未修改节点资源。
+
+实施原readiness `run-resume-a-readiness-339eHy8k` 14:11:01–02Z／0（log SHA=`da6b28808cbf8ad5efb1509ad2d27831b7dd5c29af3cce6e04383d89cf2f1b39`）与安装SHA核验 `run-resume-a-script-sha-3TI1p51M` 14:11:25Z／0（`b9b7e8d50972426552d8d114365ac50bbe87f0af8b8626cb0fb32a0c2ba7eaeb`）均已逐字核原命令／四SHA／前后49403 clean／owner true。五安装路径原先不存在，LAN安装后五完整SHA仍§23值；legacy、offline、Cargo4、同1.97四工具链与原bashFILE guard保持。唯一恢复目录 **`resume-a-5OBTboKj`**，位于原04 artifact root；不覆盖旧失败、provenance或索引。
+
+RS预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z／0，log SHA=`4ee45ca1e049150ba488754f15716afd9bb51a20e2945b2bcdd111bb60929833`。不可变ID预采 `run-rs-input-config-2NAkmSb8` 14:11:39–45Z／0，log SHA=`6c83d9494ffbcd6adc2c07e8919edcd53552528b3a928365797809c3158390f4`。其 `image-identities-rs-before-resume-hjh4fkki/image-identities.json` SHA=`9d2b02a2b6672f5ff9d4a10d4406faf609a4d39facddc86edf92726cfa07821f` 已连同目录全部SHA、原inspect／save-manifest／config字节独立核收：config digest **`sha256:13776cfb1d842f66ffb46b6d382ab9bdd57a5e4a85a82251a7bda25622ab9432`** 从原config bytes重算，全部28项DiffID逐项等原inspect RootFS，标签和immutable130674一致。此为当前阶段原件，**不是旧15e3／9e476原件补回**。
+
+四包实际比较 `run-four-package-compare-5zuLDhdL` **14:12:32–36Z／0**，log SHA=`0401fdd84a9cc6e50ec2eea34f3c876200e03eae397b9357c894a391881eece2`，原命令／四SHA及全profile已核。恢复目录 `four-package-closure/` 四份current manifest、compare JSON均已直接对原DTW成功来源核package／49403／clean／total_digest；**rust、shared_kernel、repository_contracts、repository_client四项status均“可沿用”，changed_components=[]，总摘要逐项等§22表。** 原逐包Hypothesis绝对路径不存在，未使用失败run或链式来源；这不是根据CLI exit0推测。`resume-scope.json` SHA=`f2027b0e71b56cb0ea3bfb5126356d0e8fa9c353f118d993692aab35f50b6798`，实际需运行集合精确为backend、repository_service。
+
+新 `run-authority-resume-mvzi5dNV` **14:14:04Z** 启动，literal command SHA=`ac62cdb623a6e7762d8ab9b48a54b5035e705c9a2c2f6e4e11a06a207d463521` 已读；外层原完整profile，wrapper明确 `actual_runner_packages=backend,repository_service`。两新起始manifest均clean49403、RS输入130674；backend total=`b03ddcd151fe3071c708c83dbabec3b4f9b473013078027b797e60a564e02cc5`，RS total=`a5ee1cb2c42cb1c803a022c6391aad125ea796db10a5ee36d7e852ae21381161`。backend环境因runner强制扩展同步另有uv组件变化，e6ac expected=installed已核，该包由本次实际执行承接。当前已读backend parallel3387／serial60通过及RS parallel1744通过／1skip，RS serial仍执行，**没有本轮整次通过或镜像绑定GO**。
+
+固定实施handoff **`3edcf330ea9683e00414b9806b0116f4b2a480d6`** 已在新只读 `/home/dev/gdds-reviews/p6-be-ad-resume-3edcf330ea` 核clean／legacy、docs-only／tree567不变，顶部与§13当前态与上述原件一致，无新增finding。postcopy实际参数已核为本轮mvzi路径和唯一resume父目录；由已审脚本读取将来的真实末0／RS稳定／UTC区间，不用旧q57。后续原总exit、两manifest原字节、三runtime immutable原config／全部DiffID、清理释放／LAN及最终handoff仍待同角色核收。05仅按§20有限引用a999，旧RS原件缺失持续保留；本次授权不等于DC33范围确认、FE3、退出／tag／push／S3。

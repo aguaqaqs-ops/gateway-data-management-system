@@ -112,7 +112,10 @@ def _canonical_stream(table: SnapshotTable) -> pa.RecordBatchReader:
     if callable(getattr(table.reader, "arrow_stream", None)):
         isolated = table.reader.reopen()
         try:
-            with isolated.arrow_stream() as source:
+            arrow_stream = getattr(isolated, "arrow_stream", None)
+            if not callable(arrow_stream):
+                raise AssertionError("reopened Arrow reader has no stream")
+            with arrow_stream() as source:
                 raw = _encode_canonical_ipc_native(
                     canonical_columns(table.descriptor), source, NeverCancel(), _CODEC_BUDGETS,
                 )

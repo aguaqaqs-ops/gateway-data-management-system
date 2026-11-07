@@ -22,7 +22,8 @@ from gateway_backend.artifacts.store import InMemoryArtifactStore, put_with_buil
 from gateway_backend.application import preview_jobs
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput, ComparisonPlan, ComparisonRequest, ComparisonTableFact, plan_comparison,
+    BoundSnapshotInput, ComparisonPlan, ComparisonRequest, ComparisonTableFact,
+    TableComparisonTask, plan_comparison,
 )
 from gateway_backend.capabilities.comparison import standard as frozen_standard
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit
@@ -39,8 +40,6 @@ from tests.test_comparison_s3_b_differential import (
     _expected_standard, _fixed_reference, _frames, _identity, _interval_view,
     _probe_interval_view, _probe_task, _project_record,
 )
-
-from benchmarks.p6_v1_ordered_diff import _close_bound
 
 _PACKAGES = {
     "rd-t1-a-v1": (107115, "42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2"),
@@ -82,6 +81,15 @@ def _materialize_package(package_bytes: bytes, store: InMemoryArtifactStore) -> 
     return bound
 
 
+def _close_bound(bound: BoundSnapshotInput) -> None:
+    if bound.table_set is None:
+        return
+    for table in bound.table_set.tables:
+        for reader in (table.reader, table.batch_reader):
+            if reader is not None:
+                reader.close()
+
+
 def _validated_packages(root: Path) -> dict[str, bytes]:
     document = json.loads((root / "datasets.json").read_text(encoding="utf-8"))
     items = document.get("datasets")
@@ -119,7 +127,7 @@ def _standard_row_view(actual: dict[str, Any]) -> list[dict[str, object]]:
 
 
 def _check_standard(
-    task: object, fact: ComparisonTableFact, actual: dict[str, Any],
+    task: TableComparisonTask, fact: ComparisonTableFact, actual: dict[str, Any],
 ) -> None:
     if (
         actual["row_added_count"], actual["row_deleted_count"], actual["row_modified_count"],
@@ -144,7 +152,7 @@ def _check_standard(
 
 
 def _check_ordered(
-    task: object, fact: ComparisonTableFact, actual: dict[str, Any],
+    task: TableComparisonTask, fact: ComparisonTableFact, actual: dict[str, Any],
 ) -> None:
     extension = fact.ordered_extension
     blank = fact.blank_extension
@@ -269,6 +277,7 @@ def _run_tier(
             if task.before_table is None or task.current_table is None or task.policy is None:
                 metadata_only += 1
                 continue
+            assert task.before_descriptor is not None and task.current_descriptor is not None
             ordered = task.policy.ordered_policy is not None
             if not ordered and _can_table_early_exit(
                 task.before_descriptor, task.current_descriptor, task.policy,

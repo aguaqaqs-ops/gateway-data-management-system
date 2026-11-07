@@ -17,7 +17,7 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     BUNDLE_MANIFEST_MEDIA_TYPE,
     MAX_BUNDLE_MANIFEST_JSON_BYTES,
 )
-from gateway_backend.capabilities.bundle_assembly.transport import (
+from gateway_backend.capabilities.bundle_assembly import (
     BundleTransportMetadata,
     BUNDLE_REFERENCE_METADATA_KINDS,
     read_bundle_transport_metadata,

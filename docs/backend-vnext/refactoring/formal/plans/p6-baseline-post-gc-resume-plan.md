@@ -73,6 +73,8 @@
 
 这是一次充分且有界的首轮安排，不是7.5小时完成预测；完成即退出。Submit/History 等长操作的等待截止为 `min(操作起点 + 本操作预算, 固定 work 截止)`；辅助阶段数值用于一次计算总 work 和余量，普通 HTTP/Repository read/Archive helper 沿已有单次 I/O 超时并受总 work 截止约束，不要求为每个 helper 新建强取消层。进入新阶段不重置总截止，初始化和尾部也不能漏出外层预算。沿既有外层进程/容器有界收束和保卷逻辑，work耗尽即停止新业务并进入清理，全部收束不得越hard截止；不为此建设另一套guardian或持久状态机。实现/固定runbook应一致，恢复关系审核一次核对即可，不重复Owner或最终manifest签字。
 
+**后续W4-FULL的独立预算：** 本项为冻结runbook所定义的fresh `w4-10pct` 完整旅程，`full_v2=true`、cold Preview、healthy History及FULL两上传角色，不能使用107b的恢复身份或仅四步预算。旧fresh v2 Submit的4055s上限仅略高于107b实测4027.732s API耗时，须在启动前修正必要bench接线；v1 Submit沿4047s，v2 Submit10800s、History7200s，其余沿原步骤上限，计时上限合计61105s，辅助9000s。固定work70200s、cleanup1800s、hard72000s；沿已审session/timeout/清理机制的等待闭包71673s低于hard，不新建guardian。这是一次给足的保守工具上限，不是20小时ETA；完成即收尾。新固定producer前缀、sampler前置校验和实际fresh操作等待保持一致；不改变107b的原配置、共享采样/计时或产品lease/HTTP，必要定向验证后沿原授权执行，普通接线修正不重开GO。
+
 ## B：保留单一修复版本的完整正式基准（未选）
 
 将目标产品固定为 `9704`，在 CT108 按原口径重新取得所有实际受共享 runtime/RS/JCS 修复影响的场景计时；无法证明未受影响的既有旅程不沿用为该目标产品的结果。不使用缺失正式来源资格的诊断 checkpoint 冒充 carried。

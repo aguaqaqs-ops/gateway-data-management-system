@@ -32,6 +32,8 @@ Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 ownin
 
 ## 4. 执行前提与停止点
 
+10:10:34Z 协调只读准备快照：04=`gw-dms-test-04`、05=`gw-dms-test-05`，BatchMode `echo OK` 均0；当时均无 busy marker，均有 `/home/dev/gateway-real-dumps/datasets.json`，均列出 `gateway-backend-deps:lock-d054366c02fa` / `lock-c668cef8e47e`。只核存在性和连通性，未运行测试/容器、未读改原基准 WT、未核完整缓存/输入摘要或镜像身份，也未获取/预约节点；不能用该快照代替执行时前提。
+
 - 先 SSH BatchMode 核连通，现场尊重有效占用，原子获取本节点标记；无提前预约或反复请示。04 权威运行时本任务不在同宿主 06/07 发起重负载；05 可按节点用途跨节点并行。CT108 正式测量和原基准资源不占用。
 - 新建本轮独立 clean 已提交 WT、legacy 链接、WT 外日志与 TMPDIR；源码经获准 LAN 传输。节点环境/缓存/依赖基础镜像实际可用，`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`，Rust 扩展强制同步并核 Git tree build input。依赖身份、config digest/全部 DiffID、离线构建和 provenance 沿既有规则，不输出凭据。
 - 固定被测提交后不在 WT 写入/提交或并行重新 tag 镜像。权威 runner exit 非 0 先停下处理失败，不继续 carried / 后续验收。DC68 仅用于满足原条件、未触及被测对象且无副作用的自身操作错误，失败日志及 SHA 保留；不得据此连续重试产品或前提失败。

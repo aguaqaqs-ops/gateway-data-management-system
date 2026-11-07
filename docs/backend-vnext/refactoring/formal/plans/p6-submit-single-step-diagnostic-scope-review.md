@@ -2369,3 +2369,15 @@ BatchMode连接确认后只读CT05 `/home/dev/gdds-p6-logs/baseline/ct05-s4-timi
 S4实际选择 `/steps/v2-submit/operation_timing/completion_seconds`，**4027.743s / record_only / 只记录**；reference与relative_deviation均null，不拿旧S1c v3或生成器时间比较。输出准确保留**测量HEAD3fd、hostname gw-dms-test及原run/state SHA**；CT05/5b只是后处理执行来源，不改记为在5b或CT05重新测量。该值是completion，不与§101 API用户可见4027.732s互换。
 
 本轮未运行测试、产品或业务，只读代码及CT05已完成的证据。产品/镜像边界不变，不触发重建，未宣称最终container gate carried。结论直接送实施者并同步设计；W4-FULL仍按18a在CT108继续，107b不重跑，W4-STRESS及A其他真实缺项继续原分工，无新增GO或整体exit结论。
+
+## 105. 631表旁证可复用原最终summary，实际三组对照仍待核
+
+**既有副本哈希路径满足原旁证的取证方式，完整原记录可复用；不要求先重复复制原卷或重跑旅程。** 原要求仍是2× v1、v2及三节点v3，与S1c `s1c-vprime-ebd1_*` 同输入结果逐表对照，不以旧1030b比较替代本次目标。本节只审证据路径及复用条件，**尚未取得并比较这三组实际目标映射，不标631旁证完成**；W4-FULL继续运行，不将其作为测量新门禁。
+
+只读原始Git对象：S1c `b96fe8e4cc`、2× core `bb348a9299`、H2三节点 `e0768fbeae` 及当前FULL工具 `18a4851d8c` 的 `_measure_dolt_table_hashes`、`_dolt_table_hashes_from_copy` 两项主函数AST分别精确相同。前者用docker cp将served仓库复制到worktree外scratch，再以无网络隔离容器绑定该副本；后者在副本checkout指定commit、批量读取DOLT_HASHOF_TABLE，并检查缺表、多表及32字符Dolt hash格式。不能仅凭当前函数存在，倒推历史实际运行了该路径；历史源代码、成功日志及结果绑定仍须对应。
+
+**实际索引位置需要纠正：** 代码将S1/S2/S3的 `dolt_table_hashes`、三节点 `H2-3NODE.third_commit.dolt_table_hashes` 写入完整最终summary的 `datasets[].baseline_operations`。bb348的run.json只保存conclusion/elapsed等摘要；不能因run/state没有maps就判原证据缺失。审核者CT201已核107b副本也实际如此：run_result仅conclusion/elapsed、state无baseline_operations，**原launch最终summary的S1/S2/S3各有631项**。该例只证明保存位置，107b的W4 v2不是2× v2，不被拿来关闭目标旁证；S2直接复用S1 map，也不算独立第三组证明。
+
+实施者在FULL结束后先检查原2× core/H2及S1c vprime完整journey/launch summary或其已认证JSON：保留原文件SHA、run/state、实际输入包SHA/bytes、Repository commit和版本/镜像来源，按原三组配对比较**完整表名集合恰为631且逐值全等**，不只比较交集或计数。S1c handoff已记录参考v1 `gc0j1d5316nui249o5d1petnncn8u881`、v2 `ej01n1u7srga41mdsqbht4lri82kl1mp`、v3 `jlpa7e30svqudnem8uo40vrbf5j2upt6`；原vprime journey也包含这套副本哈希输出，应优先查其原summary，不只查旧1030b对照JSON。A下仍保留各历史真实版本，不回填9704；当前107b/W4-FULL不同输入不替代2×目标。
+
+若这些原记录齐全，直接离线对照并写旁证结果即可，不增加新的取卷/业务。只有确实缺失的单组map才沿既有只读卷副本流程补该commit；该函数现有入口依赖live RS的ps查询，**不能为复用函数启动旧源栈或在原仓库checkout**。原631不符的停止/报告规则保持，不用输入相似、canonical digest或旧1030b相等概括替代本次表哈希事实。路径结论已直送实施者并同步设计，无新GO。本轮只读CT201代码、已有日志副本和索引，未访问运行中的CT108、运行测试/容器或修改产品；无镜像重建触发，也未宣称新容器门禁。

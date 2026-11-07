@@ -28,7 +28,7 @@
 | 项目 | A 的接续处理与版本来源 |
 | --- | --- |
 | 已完成 t1–t4、2× core（W1/W2/W3、S1–S3、H1）、W3-FULL/H1-FULL、H1-REFILL、H2 两/三节点、H3 | 保留各原 run 的 HEAD/镜像/节点及实际完成结论，逐项引用旧记录；不重测、不改记为9704。较新完成记录优先于旧待办快照，旧清单仍写未完不自动构成重跑依据。若索引确有实际缺口，明确报告而不补造。 |
-| 首轮 W4/S4/H1 缺口 | 从上述 source 已完成 v2-preview 的输入状态接续 v2-submit 及其后 Repository read/History/核对；新运行绑定9704产品、新 project/key/三卷及已核三镜像，完整 Submit 计时保留 prepare。 |
+| 首轮 W4/S4/H1 缺口 | **已完成本次有限接续：** `p6w4resume970420261107b`、工具HEAD `3fd64dc2fe`、handoff `945d9141c4`，由接续审核§101（`59b96c3cd9`）独立PASS。从上述source的v2-preview完成态接续，9704产品上的Submit/read/approve/History及收尾通过，完整Submit保留prepare。该项从待办扣除，不重跑；history cache mode=none，不代替healthy History/H3，也不代表完整矩阵或阶段exit。 |
 | W4-FULL、W4-STRESS | 只跑未完成范围；10% cold Preview/healthy History与100%压力按原定义分别记录，不把同名已完成的W3-FULL误列未完成。输入根可复用，压力结果如实报告，不写未证性能 PASS。 |
 | 631/631 表哈希、DC63 #1、V5b A–D | 在适用的已完成状态或新测量上补真正缺项；复用原工具，写明每项产品/步骤/节点来源，不为采集同一不变量重跑已闭合旅程。 |
 | JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |

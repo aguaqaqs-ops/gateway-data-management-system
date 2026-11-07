@@ -72,3 +72,19 @@ Joint final gates: 04 权威/必要 Compose；05 fresh t1，仍待联合最终�
 `start.py` 仍以 `head_record.optimistic_version + 1` 推进，BaselineHeadRecord 与基线 DDL 只约束非负，Start response 的版本仍为普通 int。若当前 Head 为合法协议上界 `9007199254740991`，完整确认/Start 可以提交 `9007199254740992`，产生下一轮 HTTP/application 无法引用的 Head。按已定 Head I-JSON 范围在写入前明确拒绝溢出，必要模型/DDL/响应约束同步；原事务 owner 以设定 max Head/facts 的小向量验证无 Plan/Node/Result/Workspace 副作用，不迭代大数据。
 
 此子候选不作 V2 完成结论，容器结果仍 `deferred`。测试/编译/lint 由实施者在 06 执行；审核者本轮只读代码，尚未核其日志或现场。
+
+## 7. 修复候选 7878e41ad3 代码复核
+
+固定候选 `7878e41ad3`，新只读 detached worktree `/home/dev/gdds-reviews/p6-v2-code-7878e41ad3`，clean/legacy 已核。F1 的真实 INITIAL_EMPTY N/A、F2 的内部既有关闭来源先校验、F3 的候选 Attempt 窄异常映射、F4 的 Head max 写前拒绝及模型/DDL/响应限制均已见代码修正与对应小向量；执行证据尚待核收，暂不据此关闭。新增 closed business response 模型已描述来源、时间、issue、审计 subject 与 Result 冻结诊断，原 opaque DTO 收口建议已采纳。
+
+新 audit 校验从持久完整 subject 重算摘要，并核事件与原请求、sequence、action、actor-bound fingerprint；preview/Start/原 append replay/审计读取均调用。新增成功 Result/Start replay helper 读取冻结原候选与原 Head 来源，不检查当前集合/occupancy；公开 Result 已先按 exact scope SQL 过滤再解正文。benchmark consumer 仅接受已限定 subject kind，并从显式 reason map 取得逐项原因，缺理由拒绝，不提供 force。完整 owning 正文、golden、必要小 Compose 与本轮验证仍由实施者补齐。
+
+### F5（P2）：原成功闭包缺少冻结 selection confirmation 的来源校验
+
+`integrity.py` 比较 frozen confirmation references、Plan references 与 Start fingerprint，却从未读取被引用的 confirmation event。成功单候选归档后，该 mandatory selection confirmation 丢失或损坏，GET/Start replay 仍会通过。应验证冻结原 sequence 的 scope/subject、CONFIRM 和 actor-bound 原请求绑定，不重查当前 latest 或新门禁。由原事务/HTTP owner 验证一个小型损坏向量。
+
+### F6（P2）：原成功 replay 可从已变更 Submission 返回不同 commit
+
+同 helper 只比较当前 Submission 的 configuration facts digest，不比较 selected `repository_commit_id` 与冻结 Plan/Node。若成功后该字段损坏为另一合法字符串，helper 仍可通过，而 `start.py` replay 再从当前 Submission 取 baseline commit，返回与原 Plan/Node 不同的值。须校原不可变绑定，并从冻结 Plan 返回原 commit；损坏硬拒。既有 `assert_submission_attempt_binding` 并不检查 repository_commit_id，复用它也不能代替这一显式绑定。不得为该修复引入当前 occupancy/Head/新候选门禁。
+
+F5/F6 已直接交原实施者处理。另要求 audit owner 用一个两成员来源组 consumer smoke 核完整 states/edges/affected 冻结及接受后仍 UNEXPLAINED，不复制纯图矩阵。本角色仍未执行产品测试或占用节点；尚无整体 GO。

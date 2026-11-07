@@ -585,9 +585,13 @@ business_baseline_commit_id
 baseline_head_version
 repository_expected_commit_id
 canonical_business_digest
+configuration_facts_digest
 source_artifact_refs[]
 preview_ready_closure_ref
-snapshot_table_set_digest
+canonical_table_set_closure_ref
+canonical_table_set_closure_digest
+canonicalization_manifest_ref
+canonicalization_manifest_digest
 ruleset_version
 storage_projection_version
 canonicalization_manifest_contract_version
@@ -599,14 +603,16 @@ repository_policy:
   target_ref: main
   verification_policy: STRUCTURAL
   unknown_type_policy: REJECT
-builder_mutation_policy: REBUILD_ALWAYS
+builder_mutation_policy: ADAPTIVE_PATCH
 options: {}
 ```
 
 Decoder要求exact key set、T1 Attempt equality、ref uniqueness、policy constants与version support；
 各表SnapshotTableArtifact refs由Attempt和`preview_ready_closure_ref`加载，并以
-`snapshot_table_set_digest`闭合，不复制进受64-ref预算约束的Operation payload。Payload不是第二个
+`canonical_table_set_closure_digest`闭合，不复制进受64-ref预算约束的Operation payload。Payload不是第二个
 business owner，Attempt是transaction-fresh source of truth。
+
+当前精确closed shape与必需字段以`application/submission/job_payload.py::build_submit_job_payload`、`application/submit_jobs.py::decode_submit_payload`及本文V1 amendment同步为准；新必需`configuration_facts_digest`与Attempt冻结事实核对，不接受旧字段、缺省或兼容别名。
 
 ### 8.3 Job-specific checkpoint schemas
 

@@ -36,7 +36,7 @@ HTTP/DTO/OpenAPI本节 **none**：现有Preview/Submit响应形状不变，新�
 | 公开payload固定字段与版本 | 现有 `test_submit_job_payload.py`/preview registry decoder owner |
 | 最小容器接线 | 收敛候选06已有真实Preview→Submit Compose owner中最小相关旅程，04联合完整门禁延期，不另起新容器矩阵 |
 
-全部测试/编译/lint在06，执行前现场核空闲并原子占用；clean提交独立WT、LAN bundle、legacy符号链接、离线预填缓存、UV_OFFLINE/CARGO_NET_OFFLINE、TMPDIR及jobs/workers4。Rust后强制重装backend扩展并核Rust tree build input；五包ruff/mypy、Rust fmt/clippy及相关focused。未改依赖时复用本节点已预填缓存。原A1 WT/镜像/证据保留。产品含native与持久接线，触发本节收敛候选最小容器验证；当前还没有V1 image revision/source-tree或测试证据，04权威/Compose与05 fresh t1留联合候选。
+全部测试/编译/lint在06，执行前现场核空闲并原子占用；clean提交独立WT、LAN bundle、legacy符号链接、离线预填缓存、UV_OFFLINE/CARGO_NET_OFFLINE、TMPDIR及jobs/workers4。Rust后强制重装backend扩展并核Rust tree build input；五包ruff/mypy、Rust fmt/clippy及相关focused。未改依赖时复用本节点已预填缓存。原A1 WT/镜像/证据保留。产品含native与持久接线，触发本节收敛候选最小容器验证；清单冻结时点尚无V1镜像/测试证据；实际完成的image revision/source-tree与证据已在§4–§5列明。04联合权威/Compose与05 fresh t1仍留联合候选。
 
 ## 3. 实际候选与证据
 

@@ -781,7 +781,8 @@ def test_self_target_authorization_precedes_review_closure_read(tmp_path: Path) 
     assert _post_review(env, seed, idempotency_key="no-disclosure", body=_apply_body(action="WITHDRAW")).status_code == 404
 
 
-def test_self_authorized_target_cannot_replay_another_submission_key(tmp_path: Path) -> None:
+@pytest.mark.parametrize("fault", (None, *CONFIGURATION_BODY_FAULTS))
+def test_self_authorized_target_cannot_replay_another_submission_key(tmp_path: Path, fault: str | None) -> None:
     from tests.test_review_transactions import _seed_additional_pending_review_submission
     env, seed = _review_env(tmp_path, extra_sessions={
         "second-owner": make_identity(actor_id="actor-sub-2", permissions=frozenset({SELF_PERMISSION})),
@@ -791,10 +792,15 @@ def test_self_authorized_target_cannot_replay_another_submission_key(tmp_path: P
     second = _seed_additional_pending_review_submission(env.db_path, submission_id="sub-2",
         device_key="device-1", repository_id="repo-1", project_id="project-1")
     target = replace(seed, submission_id=second.submission_id)
+    if fault is not None:
+        corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
+    before = _review_counts(env)
     collision = _post_review(env, target, idempotency_key="project-key", body=body, bearer="second-owner")
-    assert collision.status_code == 409
-    assert collision.json()["code"] == "IDEMPOTENCY_CONFLICT"
+    assert collision.status_code == (409 if fault is None else 503)
+    assert collision.json()["code"] == ("IDEMPOTENCY_CONFLICT" if fault is None else "SERVICE_NOT_READY")
     assert "event" not in collision.json()
+    assert "other-source" not in collision.text and "configuration_facts" not in collision.text
+    assert _review_counts(env) == before
 
 
 @pytest.mark.parametrize("action", ["APPROVE", "REJECT", "WITHDRAW"])
@@ -830,8 +836,8 @@ def test_removed_review_action_is_rejected_without_writes(review_env: tuple[Work
 def test_review_authorizes_target_before_decoding_configuration_facts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
 ) -> None:
-    from fastapi.testclient import TestClient
     env, seed = _review_env(tmp_path, extra_sessions={
+        "own-self": make_identity(permissions=frozenset({SELF_PERMISSION})),
         "other-self": make_identity(actor_id="other-actor", permissions=frozenset({SELF_PERMISSION})),
         "foreign-scope": make_identity(device_key="device-2", project_id="project-2", permissions=frozenset({PERMISSION_REVIEW_SUBMISSION})),
         "denied": make_identity(permissions=frozenset({"workspace_read"})),
@@ -839,7 +845,7 @@ def test_review_authorizes_target_before_decoding_configuration_facts(
     body = _apply_body(action="WITHDRAW", reason="finished review")
     assert _post_review(env, seed, idempotency_key="frozen-review", body=body).status_code == 201
     before = _review_counts(env)
-    message = corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
+    corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
     for key in ("fresh-review", "frozen-review"):
         assert _post_review(env, seed, idempotency_key=key, body=body, bearer="other-self").status_code == 404
     assert _get_review(env, seed, bearer="other-self").status_code == 404
@@ -851,10 +857,10 @@ def test_review_authorizes_target_before_decoding_configuration_facts(
     with forbid_configuration_object_reads(monkeypatch):
         assert _get_review(env, seed, bearer="denied").status_code == 403
         assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="denied").status_code == 403
-    with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
-        with pytest.raises(ValueError, match=message):
-            strict_client.get(f"/v1/submissions/{seed.submission_id}/review", headers=env.auth_headers())
-        with pytest.raises(ValueError, match=message):
-            strict_client.post(f"/v1/submissions/{seed.submission_id}/review-events",
-                headers=env.auth_headers(idempotency_key="frozen-review"), json=body)
+    authorized_get = _get_review(env, seed, bearer="own-self")
+    authorized_post = _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="own-self")
+    for response in (authorized_get, authorized_post):
+        assert response.status_code == 503
+        assert response.json()["code"] == "SERVICE_NOT_READY"
+        assert "other-source" not in response.text and "configuration_facts" not in response.text
     assert _review_counts(env) == before

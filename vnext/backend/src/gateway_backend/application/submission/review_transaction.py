@@ -17,6 +17,7 @@ from gateway_backend.application.submission.review import (
     assert_review_workspace_bindings,
     is_review_release_action,
     load_review_scope_facts,
+    load_review_submission,
     resolve_fresh_provisioned_scope,
     verify_idempotency_replay,
 )
@@ -100,7 +101,7 @@ def _apply_review_in_control_transaction(
                 record_events = unit_of_work.review.list_events(existing.submission_id)
             except ReviewClosureViolation as exc:
                 raise ReviewIntegrityFailure(exc.reason) from exc
-            record_submission = unit_of_work.submission.get_submission(existing.submission_id)
+            record_submission = load_review_submission(unit_of_work, existing.submission_id)
             if record_submission is None:
                 raise ReviewIntegrityFailure(
                     "review idempotency record points to a missing submission"

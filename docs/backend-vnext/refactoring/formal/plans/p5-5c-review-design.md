@@ -209,7 +209,7 @@ APPROVE 先提交使 candidate set 改变，旧 Start 请求拒绝；最后 REJE
 
 ### 4.3 Request and replay ordering
 
-POST、GET 和 replay 共用：当前 session401；动作permission-before-object403；解析scope；读取最小Submission/Workspace并验证 exact scope及仅本人权限的 created_by（不存在/跨scope/非本人统一404）；之后才读完整Review closure，损坏503。粗粒度GET/WITHDRAW接受 `review_submission` 或 `withdraw_own_submission`；APPROVE/REJECT只接受前者。
+POST、GET 和 replay 共用：当前 session401；动作permission-before-object403；解析scope；读取持久Submission最小binding（workspace_id/repository_id/created_by）与Workspace并验证 exact scope及仅本人权限的 created_by（不存在/跨scope/非本人统一404）；之后才解完整Submission facts/source绑定与Review closure。授权后解码/绑定损坏（含跨目标existing-key的权威内部引用）转既有ReviewIntegrityFailure，返回503 SERVICE_NOT_READY，不输出raw row。粗粒度GET/WITHDRAW接受 `review_submission` 或 `withdraw_own_submission`；APPROVE/REJECT只接受前者。
 
 每次 mutation 在写事务重新验证当前权限、mapping、目标scope和本人绑定，再查 actor-independent `(business_project_id,idempotency_key)`。先验证记录 project、Submission、event sequence、fingerprint完整性；same key/same fingerprint从原event重建原响应，保留首次actor，早于当前状态、baseline及occupancy门禁；同项目另一目标key仅返回 `IDEMPOTENCY_CONFLICT`，不披露原结果；损坏记录仍为完整性错误。无existing时校验归档关闭、expected review version、transition/reason、APPROVE当前baseline、exact occupancy，然后append/CAS/idempotency及必要Workspace释放，同事务失败全部回滚。
 

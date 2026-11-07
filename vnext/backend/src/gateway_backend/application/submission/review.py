@@ -212,6 +212,18 @@ def assert_fresh_scope_matches(fresh_scope: ResolvedScope, expected_scope: Resol
         raise ScopeForbidden
 
 
+def load_review_submission(
+    unit_of_work: ReviewApplyTransaction, submission_id: str, *,
+    workspace_id: str | None = None, repository_id: str | None = None,
+) -> Submission | None:
+    """Decode an already-authorized target or an internal idempotency reference."""
+    try:
+        return unit_of_work.submission.get_submission(submission_id,
+            workspace_id=workspace_id, repository_id=repository_id)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ReviewIntegrityFailure("submission facts are invalid") from exc
+
+
 def load_review_scope_facts(
     unit_of_work: ReviewApplyTransaction,
     *,
@@ -228,7 +240,7 @@ def load_review_scope_facts(
         raise ScopeForbidden
     assert_review_scope(binding, workspace, fresh_scope, context)
     assert_review_target_authorized(context, binding)
-    submission = unit_of_work.submission.get_submission(submission_id,
+    submission = load_review_submission(unit_of_work, submission_id,
         workspace_id=workspace.workspace_id, repository_id=fresh_scope.repository_id)
     if submission is None:
         raise ScopeForbidden

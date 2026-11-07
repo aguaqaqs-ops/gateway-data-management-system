@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submit_attempt_with_facts
+
 import json
 from typing import cast
 import pytest
@@ -64,7 +66,7 @@ _TERMINAL_EVIDENCE_DECODE = WireRepositoryTerminalEvidenceDecodePort()
 
 
 def _prepared_attempt() -> SubmitAttempt:
-    return SubmitAttempt(
+    return submit_attempt_with_facts(
         submit_attempt_id="sa-payload-1",
         workspace_id="ws-1",
         workspace_generation=1,
@@ -75,7 +77,7 @@ def _prepared_attempt() -> SubmitAttempt:
         business_baseline_commit_id="commit-base",
         baseline_head_version=1,
         repository_expected_commit_id="commit-main",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("initial-1", "modified-1"),

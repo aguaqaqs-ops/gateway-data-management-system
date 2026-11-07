@@ -8,10 +8,19 @@ from collections.abc import Callable
 from functools import cache
 import json
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
+from types import SimpleNamespace
+from gateway_shared_kernel import DigestRef
+from gateway_backend.domain.baseline.ports import BaselineRepository
+from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
+from gateway_backend.domain.configuration_facts import CanonicalContentIdentity
+from gateway_backend.domain.submission.models import Submission, SubmitVerificationPolicy, SubmitUnknownTypePolicy, SubmitTargetRef
+from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+from tests.support.configuration_facts import submission_with_facts
+from gateway_backend.capabilities.snapshot_materialization.contracts import canonical_state_digest_of
 
 from gateway_backend.application.job_definitions import build_job_worker_composition
 from gateway_backend.application.preview_jobs import (
@@ -135,7 +144,7 @@ def _canonical_baseline_catalog(
     tuple[RepositoryCatalogTable, ...],
     dict[str, tuple[tuple[object, ...], ...]],
 ]:
-    tables, row_items, _manifest = _canonical_baseline_data(baseline_sql)
+    tables, row_items, _manifest, _digest = _canonical_baseline_data(baseline_sql)
     return tables, dict(row_items)
 
 
@@ -146,6 +155,7 @@ def _canonical_baseline_data(
     tuple[RepositoryCatalogTable, ...],
     tuple[tuple[str, tuple[tuple[object, ...], ...]], ...],
     CanonicalizationManifest,
+    DigestRef,
 ]:
     """Build the test Repository catalog from the production business projection."""
     ruleset = migrated_table_ruleset_snapshot()
@@ -202,7 +212,9 @@ def _canonical_baseline_data(
         for item in materialized.table_set.tables:
             if item.reader is not None:
                 item.reader.close()
-    return tuple(tables), tuple(sorted(rows.items())), projected.manifest
+    state_digest = canonical_state_digest_of(tuple(item.descriptor for item in projected.tables))
+    assert state_digest is not None
+    return tuple(tables), tuple(sorted(rows.items())), projected.manifest, state_digest
 
 
 def repository_provider_factory(
@@ -375,8 +387,46 @@ def build_preview_harness(
             )
         }
     )
+    frozen_source = None if empty_baseline else submission_with_facts(
+        submission_id="submission-baseline", submit_attempt_id="baseline-attempt", workspace_id="baseline-workspace",
+        workspace_generation=1, upload_revision_id="baseline-upload", preview_result_id="baseline-preview",
+        repository_id=REPOSITORY_ID, based_on_baseline_node_id="initial-node", business_baseline_commit_id="initial-commit",
+        repository_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        canonical_business_digest=_canonical_baseline_data(baseline_sql)[3].value,
+        source_artifact_refs=("baseline-source",), canonicalization_manifest_ref="baseline-manifest",
+        canonicalization_manifest_digest=baseline_manifest.manifest_digest.value if baseline_manifest and baseline_manifest.manifest_digest else "sha256:" + "0" * 64,
+        repository_import_artifact_raw_sha256="sha256:" + "0" * 64, repository_artifact_id="baseline-import",
+        requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+        requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT, target_ref=SubmitTargetRef.MAIN,
+        created_by="baseline-actor", created_at=BASE_TIME)
+    if frozen_source is not None:
+        rules_digest = migrated_table_ruleset_snapshot().ruleset_digest
+        assert rules_digest is not None
+        old = frozen_source.configuration_facts
+        def fixed_identity(identity: CanonicalContentIdentity) -> CanonicalContentIdentity:
+            return replace(identity, storage_projection_ruleset_digest=rules_digest.value)
+        frozen_source = replace(frozen_source, configuration_facts=replace(old,
+            baseline_content_identity=fixed_identity(old.baseline_content_identity),
+            initial=replace(old.initial, content_identity=fixed_identity(old.initial.content_identity)),
+            modified=replace(old.modified, content_identity=fixed_identity(old.modified.content_identity))))
+    node = BaselineNode(BASELINE_HEAD.business_baseline_node_id, REPOSITORY_ID, "device-1", "project-1",
+        BASELINE_HEAD.business_baseline_commit_id, BaselineNodeKind.INITIAL if empty_baseline else BaselineNodeKind.ARCHIVED_SUBMISSION,
+        None if empty_baseline else "initial-node", None if empty_baseline else "submission-baseline", BASE_TIME)
+    class SourceRepository(SQLiteSubmissionRepository):
+        def get_submission(self, submission_id: str) -> Submission | None:
+            if frozen_source is not None and submission_id == frozen_source.submission_id:
+                return frozen_source
+            return super().get_submission(submission_id)
+    class SourceUnitOfWork(MetadataControlDbUnitOfWork):
+        @property
+        def baseline(self) -> BaselineRepository:
+            return cast(BaselineRepository, SimpleNamespace(get_node=lambda node_id: node if node_id == node.node_id else None))
+        @property
+        def submission(self) -> SQLiteSubmissionRepository:
+            return SourceRepository(self.connection, transaction_now=self.transaction_now)
     def control_uow_factory() -> MetadataControlDbUnitOfWork:
-        return MetadataControlDbUnitOfWork(db_path, metadata_port)
+        return SourceUnitOfWork(db_path, metadata_port)
     deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,
         repository_provider_factory=repository_provider_factory(baseline_provider),

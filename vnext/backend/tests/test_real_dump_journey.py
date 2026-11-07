@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submit_attempt_with_facts
+
 import json
 import sqlite3
 import subprocess
@@ -45,7 +47,6 @@ from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
     RepositoryArtifactRef,
-    SubmitAttempt,
     SubmitAttemptState,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
@@ -286,7 +287,7 @@ def _seed_succeeded_submit_control_db(
                 """
             )
             timestamp = datetime(2026, 10, 20, 15, 0, 0, tzinfo=UTC)
-            attempt = SubmitAttempt(
+            attempt = submit_attempt_with_facts(
                 submit_attempt_id="submit-attempt-1",
                 workspace_id="workspace-1",
                 workspace_generation=1,
@@ -297,7 +298,7 @@ def _seed_succeeded_submit_control_db(
                 business_baseline_commit_id="commit-base",
                 baseline_head_version=1,
                 repository_expected_commit_id="commit-expected",
-                canonical_business_digest="sha256:canonical",
+                canonical_business_digest="sha256:" + "5" * 64,
                 source_digest="sha256:source",
                 snapshot_digest="sha256:snapshot",
                 source_artifact_refs=(),

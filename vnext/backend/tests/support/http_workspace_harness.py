@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -457,7 +459,7 @@ def seed_submit_ready_workspace(
             created_at=TS0,
         )
         identity_digest, identity_pairs = make_not_applicable_preview_identity()
-        preview = PreviewResult(
+        preview = preview_result_with_facts(
             preview_result_id="pr-1",
             workspace_id=workspace.workspace_id,
             upload_revision_id=upload_revision.upload_revision_id,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -54,7 +56,7 @@ def _seed_upload(
 
 def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation_id: str = "op-read") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-read-1",
         workspace_id=workspace["workspace_id"],
         upload_revision_id=upload["upload_revision_id"],

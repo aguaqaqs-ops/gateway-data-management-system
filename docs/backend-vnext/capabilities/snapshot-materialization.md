@@ -666,3 +666,9 @@ artifact_policy:
 - 引入 projection table cache，但它属于 comparison/projection capability，不并入 raw snapshot table artifact cache。
 - repository server table cache 可加速 repository ref materialization，但仍不能替代 Snapshot descriptor/digest 计算。
 - cache promotion、TTL、cleanup 和跨 operation artifact dedup 后续由 cache/operation 设计补全。
+
+## V1 source-time metadata（2026-11-07）
+
+唯一Rust Table Access解析在成功typed转换行同步产出有界`configuration_generated_time`；SQL unquote/unescape后的逻辑文本使用`gateway-vnext/configuration-generated-time/v1`闭合语法，原table scalar规则不改。metadata含selected/max UTC、valid/empty/invalid counts、last/max源行序及last_not_max；每chunk常数空间，源序合并跨INSERT/chunk连续，max并列首次。TABLE_ABSENT/COLUMN_ABSENT/NO_ROWS/NO_VALUE/NO_VALID_VALUE为明确业务缺失，typed失败仍拒绝。
+
+`ParseResult.configuration_generated_time`是native小型metadata seam，capability不依赖domain或实现第二套时间计算；application在唯一上传物化入口严格转换为业务facts，并与SQL digest、source artifact及完整canonical content identity冻结。Snapshot/summary/canonical state等既有digest算法不加入该metadata。重启读取已冻结checkpoint，不由规范行顺序、Arrow输出批次或复用表重算。详细持久绑定见[Business Lifecycle V1 amendment](../refactoring/formal/contracts/business-lifecycle-and-state.md#v1-configuration-facts-amendment2026-11-07)。

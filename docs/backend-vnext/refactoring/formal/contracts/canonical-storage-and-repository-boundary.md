@@ -356,3 +356,9 @@ S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升）：此前能投影成功
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
+
+## V1 frozen configuration facts（2026-11-07）
+
+完整canonical content identity仍复用canonical_state_digest_of全规范表集合，连同原storage projection ruleset digest/version与scalar encoding version用于来源匹配；不排除version_manager.saved_time、不用snapshot/commit/raw SQL hash替代内容身份。新增configuration facts独立raw SHA256(JCS body)，包括实际SQL源序时间及source/输入绑定，绝不改变原canonical业务摘要。
+
+Preview的FULL initial摘要与modified/baseline并列冻结，MODIFIED_ONLY引用baseline.source_submission_id的durable modified facts，INITIAL空节点明确N/A。Attempt/Submission持久小型facts不依赖临时规范artifact/Preview/SQL的TTL；仍遵守T1、LeaseSession、CAS与finalize事务屏障。后续Archive仅从durable facts派生，不在事务里重扫SQL/调用Repository。具体字段/版本见[V1清单](../plans/p6-v1-handoff.md)。

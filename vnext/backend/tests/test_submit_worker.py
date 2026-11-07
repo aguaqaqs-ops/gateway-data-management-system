@@ -73,7 +73,7 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
             "business_baseline_commit_id": "commit-base",
             "baseline_head_version": 3,
             "repository_expected_commit_id": "commit-base",
-            "canonical_business_digest": "sha256:canonical",
+            "canonical_business_digest": "sha256:" + "5" * 64,
             "source_artifact_refs": ["source-1"],
             "preview_ready_closure_ref": "closure-1",
             "canonical_table_set_closure_ref": "canonical-table-closure-1",

@@ -879,3 +879,9 @@ P4 port和existing internal bearer。S0-F3不修改P4 capability guard。下一�
 既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
 后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
 原 owning contract 定义，不能以边界整理为由静默改变。
+
+## V1 configuration facts amendment（2026-11-07）
+
+AcceptSubmit T1从exact Preview复制并核验必需ConfigurationFacts，冻结在Attempt；Submit job v2载荷增加configuration_facts_digest并与Attempt核对。caller不提交通过标志。Attempt CAS更新拒绝facts变化，finalize同事务复制到Submission且replay核原事实；失败无部分权威写，恢复不重提取SQL。唯一基线Attempt/Submission各新增必需configuration_facts BLOB，旧DB拒绝启动，无迁移/双读/默认。
+
+Submission小型facts足以在Preview/SQL过期后独立解释；基线沿BaselineNode.source_submission_id读取modified，不另保存Baseline时间副本，不在归档事务调用Repository。内容哈希保值，facts独立raw SHA256(JCS body)。HTTP DTO不变，具体字段/golden/唯一测试owner见[V1清单](p6-v1-handoff.md)。

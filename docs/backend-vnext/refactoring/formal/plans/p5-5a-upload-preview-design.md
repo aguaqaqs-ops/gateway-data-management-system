@@ -416,3 +416,7 @@ non-authoritative historical oracle，用于发现capability行为和fixture。�
 既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
 后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
 原 owning contract 定义，不能以边界整理为由静默改变。
+
+## V1 configuration facts amendment（2026-11-07）
+
+materialize canonical metadata增加必需initial_canonical_state_digest及ConfigurationFacts（backend-vnext/configuration-facts/v1）。源时间在同次Rust source-order转换取得；FULL分别绑定上传两侧，MODIFIED_ONLY从exact baseline source Submission复制，INITIAL空基线为N/A。checkpoint/READY严格校验字段及输入/规则/内容绑定，缺facts硬失败，不默认missing。Preview job v2、materialized sides v2、assemble state v3直接替换旧版本，无兼容读法。取消/失租/旧generation沿原LeaseSession整体屏障，不部分发布。字段与唯一测试owner见[V1清单](p6-v1-handoff.md)。

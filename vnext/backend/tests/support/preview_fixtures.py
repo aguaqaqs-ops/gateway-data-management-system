@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from tests.support.configuration_facts import make_configuration_facts
 from functools import lru_cache
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -81,6 +82,8 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
         raw_sha256=raw_blob_digest(closure_bytes),
     )
     bindings = PreviewCanonicalBindings(
+        initial_canonical_state_digest=DigestRef("sha256:" + "4" * 64),
+        configuration_facts=make_configuration_facts(repository_id=repository_id, rules_digest=projected.manifest.ruleset_digest.value),
         canonical_table_set_closure_ref=PreviewArtifactRef(
             artifact_id=closure_ref.artifact_id,
             media_type=closure_ref.media_type,

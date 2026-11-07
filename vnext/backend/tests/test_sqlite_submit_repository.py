@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submit_attempt_with_facts, submission_with_facts
+
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -37,7 +39,7 @@ def db_path(tmp_path: Path) -> Path:
 
 
 def _sample_attempt(*, operation_id: str = "op-submit-1") -> SubmitAttempt:
-    return SubmitAttempt(
+    return submit_attempt_with_facts(
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
         workspace_generation=1,
@@ -48,7 +50,7 @@ def _sample_attempt(*, operation_id: str = "op-submit-1") -> SubmitAttempt:
         business_baseline_commit_id="commit-base",
         baseline_head_version=1,
         repository_expected_commit_id="commit-main",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("initial-1",),
@@ -93,7 +95,7 @@ def _seed_operation(db_path: Path, operation_id: str) -> None:
             contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
             operation_id=operation_id,
             job_kind="backend-vnext/submit",
-            job_contract_version="backend-vnext/submit/v1",
+            job_contract_version="backend-vnext/submit/v2",
             job_payload=b"{}",
             job_payload_ref=None,
             business_refs=(),
@@ -212,7 +214,7 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     _seed_workspace(db_path)
     _seed_operation(db_path, "op-submit-1")
     attempt = _sample_attempt()
-    submission = Submission(
+    submission = submission_with_facts(
         submission_id="sub-1",
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
@@ -223,7 +225,7 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
         based_on_baseline_node_id="node-1",
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_artifact_refs=("initial-1",),
         canonicalization_manifest_ref="manifest-1",
         canonicalization_manifest_digest="sha256:manifest",
@@ -280,7 +282,7 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
 
 
 def _sample_submission() -> Submission:
-    return Submission(
+    return submission_with_facts(
         submission_id="sub-1",
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
@@ -291,7 +293,7 @@ def _sample_submission() -> Submission:
         based_on_baseline_node_id="node-1",
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_artifact_refs=("initial-1",),
         canonicalization_manifest_ref="manifest-1",
         canonicalization_manifest_digest="sha256:manifest",

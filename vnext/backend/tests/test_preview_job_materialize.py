@@ -300,7 +300,7 @@ def test_materialize_uses_frozen_baseline_exact_commit(tmp_path: Path) -> None:
     payload = decode_preview_payload(decode_payload_object(harness))
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
-    _materialize_all_sides(payload, harness.deps)
+    _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
     assert harness.baseline_provider.last_session is not None
     assert harness.baseline_provider.last_session.pinned_commit_hash() == "commit-base"
 
@@ -329,7 +329,7 @@ def test_initial_baseline_rejects_repository_user_tables(tmp_path: Path) -> None
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
     with pytest.raises(PreviewJobError) as error:
-        _materialize_all_sides(payload, deps)
+        _materialize_all_sides(payload, deps, operation_id="op-direct-materialize")
     assert error.value.diagnostic_code == "INITIAL_BASELINE_NOT_EMPTY"
 
 
@@ -415,7 +415,7 @@ def test_unchanged_preview_table_does_not_read_baseline_rows(tmp_path: Path) -> 
     payload = decode_preview_payload(decode_payload_object(harness))
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
-    _materialize_all_sides(payload, harness.deps)
+    _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
 
     assert harness.baseline_provider.last_session is not None
     assert harness.baseline_provider.last_session.table_readers == []
@@ -439,7 +439,7 @@ def test_preview_reads_changed_and_deleted_baseline_tables_only(tmp_path: Path) 
     payload = decode_preview_payload(decode_payload_object(harness))
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
-    _materialize_all_sides(payload, harness.deps)
+    _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
 
     assert harness.baseline_provider.last_session is not None
     assert tuple(
@@ -803,7 +803,7 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
     with pytest.raises(PreviewJobError, match="uploaded"):
-        _materialize_all_sides(payload, harness.deps)
+        _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
 
 
 @pytest.mark.parametrize(

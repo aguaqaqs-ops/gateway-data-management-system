@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -296,6 +298,8 @@ class PreviewArtifactRef:
 
 @dataclass(frozen=True, slots=True)
 class PreviewCanonicalBindings:
+    initial_canonical_state_digest: DigestRef
+    configuration_facts: ConfigurationFacts
     canonical_table_set_closure_ref: PreviewArtifactRef
     canonical_table_set_closure_digest: DigestRef
     canonicalization_manifest_ref: PreviewArtifactRef
@@ -315,11 +319,20 @@ class PreviewCanonicalBindings:
             "canonical_table_set_closure_digest",
             "canonicalization_manifest_digest",
             "baseline_canonical_state_digest",
+            "initial_canonical_state_digest",
             "modified_canonical_state_digest",
             "storage_projection_ruleset_digest",
         ):
             if type(getattr(self, field_name)) is not DigestRef:
                 raise ValueError(f"{field_name} must be DigestRef")
+        if type(self.configuration_facts) is not ConfigurationFacts:
+            raise ValueError("Preview requires complete configuration facts")
+        facts = self.configuration_facts
+        if (facts.initial.content_identity.canonical_state_digest != self.initial_canonical_state_digest.value
+            or facts.modified.content_identity.canonical_state_digest != self.modified_canonical_state_digest.value
+            or facts.baseline_content_identity.canonical_state_digest != self.baseline_canonical_state_digest.value
+            or facts.modified.content_identity.storage_projection_ruleset_digest != self.storage_projection_ruleset_digest.value):
+            raise ValueError("Preview canonical content identities disagree with configuration facts")
         if self.canonical_table_set_closure_ref.raw_sha256 != self.canonical_table_set_closure_digest:
             raise ValueError("canonical table set closure digest must match its artifact ref")
 
@@ -415,6 +428,12 @@ class PreviewResult:
             raise ValueError("digests must be PreviewResultDigests")
         if type(self.canonical) is not PreviewCanonicalBindings:
             raise ValueError("canonical must be PreviewCanonicalBindings")
+        self.canonical.configuration_facts.assert_binding(
+            workspace_id=self.workspace_id, upload_revision_id=self.upload_revision_id,
+            generation=self.generation, repository_id=self.repository_id,
+            business_baseline_node_id=self.business_baseline_node_id,
+            business_baseline_commit_id=self.business_baseline_commit_id,
+            baseline_head_version=self.baseline_head_version, operation_id=self.operation_id)
         if type(self.identity_assessment_set_digest) is not DigestRef:
             raise ValueError("identity_assessment_set_digest must be DigestRef")
         if type(self.identity_pairs) is not tuple or any(

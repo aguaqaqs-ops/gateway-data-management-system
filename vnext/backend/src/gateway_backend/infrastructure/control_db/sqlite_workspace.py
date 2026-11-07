@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
@@ -398,6 +400,8 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             "bundle_digest": result.digests.bundle_digest,
         },
         "canonical": {
+            "initial_canonical_state_digest": result.canonical.initial_canonical_state_digest.value,
+            "configuration_facts": result.canonical.configuration_facts.to_document(),
             "canonical_table_set_closure_ref": _preview_artifact_ref_to_document(
                 result.canonical.canonical_table_set_closure_ref
             ),
@@ -481,7 +485,8 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
             bundle_digest=str(digests_payload["bundle_digest"]),
         ),
         canonical=PreviewCanonicalBindings(
-            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
+            initial_canonical_state_digest=DigestRef(str(canonical_payload["initial_canonical_state_digest"])),
+            configuration_facts=ConfigurationFacts.from_document(canonical_payload["configuration_facts"]),            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
                 canonical_payload.get("canonical_table_set_closure_ref")
             ),
             canonical_table_set_closure_digest=DigestRef(

@@ -8,6 +8,8 @@ from datetime import datetime
 from enum import StrEnum
 import re
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+
 from gateway_backend.domain.submission.errors import SubmitAttemptInvariantViolation
 from gateway_backend.domain.submission.reasons import validate_submission_reason
 
@@ -102,6 +104,7 @@ class RepositoryArtifactRef:
 
 @dataclass(frozen=True, slots=True)
 class SubmitAttempt:
+    configuration_facts: ConfigurationFacts
     submit_attempt_id: str
     workspace_id: str
     workspace_generation: int
@@ -206,6 +209,18 @@ class SubmitAttempt:
             type(self.repository_artifact_ref) is not RepositoryArtifactRef
         ):
             raise ValueError("repository_artifact_ref must be RepositoryArtifactRef or None")
+        if type(self.configuration_facts) is not ConfigurationFacts:
+            raise ValueError("immutable configuration facts are required")
+        self.configuration_facts.assert_binding(workspace_id=self.workspace_id,
+            upload_revision_id=self.upload_revision_id, generation=self.workspace_generation,
+            repository_id=self.repository_id,
+            business_baseline_node_id=self.business_baseline_node_id,
+            business_baseline_commit_id=self.business_baseline_commit_id,
+            baseline_head_version=self.baseline_head_version, modified_digest=self.canonical_business_digest)
+        uploaded_sources = (self.configuration_facts.modified.source_artifact_id,) + (
+            (self.configuration_facts.initial.source_artifact_id,) if self.configuration_facts.initial_origin == "UPLOADED" else ())
+        if any(source not in self.source_artifact_refs for source in uploaded_sources):
+            raise ValueError("configuration source artifacts do not match frozen sources")
         _validate_identity_confirmations(self.identity_confirmations)
         if (self.prepared_canonicalization_manifest_ref is None) != (
             self.prepared_canonicalization_manifest_digest is None
@@ -225,6 +240,7 @@ class SubmitAttempt:
 
 @dataclass(frozen=True, slots=True)
 class Submission:
+    configuration_facts: ConfigurationFacts
     submission_id: str
     submit_attempt_id: str
     workspace_id: str
@@ -285,6 +301,13 @@ class Submission:
         _validate_non_empty_str(self.created_by, "created_by")
         if type(self.created_at) is not datetime:
             raise ValueError("created_at must be datetime")
+        if type(self.configuration_facts) is not ConfigurationFacts:
+            raise ValueError("immutable configuration facts are required")
+        self.configuration_facts.assert_binding(workspace_id=self.workspace_id,
+            upload_revision_id=self.upload_revision_id, generation=self.workspace_generation,
+            repository_id=self.repository_id, business_baseline_node_id=self.based_on_baseline_node_id,
+            business_baseline_commit_id=self.business_baseline_commit_id,
+            modified_digest=self.canonical_business_digest)
         _validate_identity_confirmations(self.identity_confirmations)
 
 

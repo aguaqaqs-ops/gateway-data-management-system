@@ -199,7 +199,8 @@ def parse_arrow_sql(request: SqlParseRequest, *, budgets: ResourceBudgets = RESO
                     table = stream.read_all()
                 tables.append(ParsedTable(source, ArrowSourceTableReader(source, table, context)))
             context.checkpoint()
-            return ParseResult(ParseStatus(envelope["status"]), tuple(tables), diagnostics)
+            return ParseResult(ParseStatus(envelope["status"]), tuple(tables), diagnostics,
+                configuration_generated_time=envelope["configuration_generated_time"])
         except BaseException:
             for table in tables:
                 if table.reader is not None:

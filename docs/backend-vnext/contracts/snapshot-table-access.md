@@ -223,3 +223,9 @@ ProjectionTableArtifact
 - Cache hit 后仍校验 descriptor、digest 和 artifact manifest。
 - `SnapshotTableReader` contract 测试不依赖 Dolt 写入。
 - Repository import benchmark 应调用正式 table access / artifact builder，不长期维护独立 row/digest 实现。
+
+## Configuration generated time native metadata（V1）
+
+SQL parser返回独立小型configuration_generated_time metadata，不改变既有parse canonical encoding或scalar grammar。事实在INSERT成功typed转换时、规范排序前累计；source ordinal从1跨INSERT/chunk连续，NULL/empty/invalid占位，selected为最后有效值，max并列保留首次。文本复用原SQL literal解码（含TEXT合法hex），不由宿主自动转换非字符串逻辑类型。业务规则、UTC语法与缺失分类的唯一语义见[业务设计§4.1](../refactoring/formal/plans/p6-archive-business-validation-design.md#41-提取位置与顺序)。
+
+native只传递规则身份、selected/max、三类计数、两序号、status及last_not_max，不搬整列到Python、不重读SQL；取消/截止/预算错误仍按原parser整体失败。domain在application边界严格校验和绑定，缺metadata不是业务missing，不可发布READY。Rust唯一向量owner为gateway-compute-core/tests/configuration_generated_time.rs；adapter仅保留接线smoke。

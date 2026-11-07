@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 import io
 from pathlib import Path
 from uuid import UUID
@@ -619,7 +621,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             created_at=fixed_now,
         )
         identity_digest, identity_pairs = make_not_applicable_preview_identity()
-        preview = PreviewResult(
+        preview = preview_result_with_facts(
             preview_result_id="pr-accept-1",
             workspace_id=workspace.workspace_id,
             upload_revision_id=upload_revision.upload_revision_id,

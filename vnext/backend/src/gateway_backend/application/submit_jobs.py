@@ -234,6 +234,7 @@ class SubmitRepositoryPolicy:
 
 @dataclass(frozen=True, slots=True)
 class SubmitJobPayload:
+    configuration_facts_digest: str
     document_type: str
     contract_version: str
     submit_attempt_id: str
@@ -327,6 +328,7 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
     repository_expected_commit_id = _require_non_empty_str(payload_object, "repository_expected_commit_id")
     canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
+    configuration_facts_digest = _require_non_empty_str(payload_object, "configuration_facts_digest")
     source_artifact_refs = _decode_string_tuple(payload_object.get("source_artifact_refs"), label="source_artifact_refs")
     preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
     canonical_table_set_closure_ref = _require_non_empty_str(
@@ -376,6 +378,7 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         builder_mutation_policy=builder_mutation_policy,
     )
     return SubmitJobPayload(
+        configuration_facts_digest=configuration_facts_digest,
         document_type=document_type,
         contract_version=contract_version,
         submit_attempt_id=submit_attempt_id,
@@ -2424,6 +2427,8 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
         mismatches.append("baseline_head_version")
     if payload.repository_expected_commit_id != attempt.repository_expected_commit_id:
         mismatches.append("repository_expected_commit_id")
+    if payload.configuration_facts_digest != attempt.configuration_facts.facts_digest:
+        mismatches.append("configuration_facts_digest")
     if payload.canonical_business_digest != attempt.canonical_business_digest:
         mismatches.append("canonical_business_digest")
     if payload.source_artifact_refs != attempt.source_artifact_refs:
@@ -2943,6 +2948,7 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "baseline_head_version",
         "repository_expected_commit_id",
         "canonical_business_digest",
+        "configuration_facts_digest",
         "source_artifact_refs",
         "preview_ready_closure_ref",
         "canonical_table_set_closure_ref",

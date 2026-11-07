@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts
+
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -316,7 +318,7 @@ def _submit_job_registry() -> JobDefinitionRegistry:
 
 def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-1",
         workspace_id=workspace_id,
         upload_revision_id="ur-1",
@@ -1118,7 +1120,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
     )
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
-        attempt = SubmitAttempt(
+        attempt = submit_attempt_with_facts(
             submit_attempt_id="sa-existing",
             workspace_id=seed.workspace.workspace_id,
             workspace_generation=seed.workspace.generation,

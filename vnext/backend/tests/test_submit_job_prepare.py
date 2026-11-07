@@ -175,7 +175,7 @@ def _materialize_ready_preview(
         additional_refs.append(ref)
     ready_closure_ref = put_ready_closure(
         store,
-        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v1"),
+        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v2"),
     )
     protected_refs = tuple(
         ready_closure_ref if ref.artifact_id == seed.preview_result.ready_closure_artifact_id else ref

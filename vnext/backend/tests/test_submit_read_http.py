@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submission_with_facts
+
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -185,7 +187,7 @@ def test_get_submission_returns_redacted_submission(seeded_env: tuple[WorkspaceH
             finalized_attempt,
             expected_version=attempt.optimistic_version,
         )
-        submission = Submission(
+        submission = submission_with_facts(
             submission_id="sub-1",
             submit_attempt_id=attempt.submit_attempt_id,
             workspace_id=attempt.workspace_id,
@@ -243,7 +245,7 @@ def test_get_submission_hides_stale_mapping(
             finalized_attempt,
             expected_version=attempt.optimistic_version,
         )
-        submission = Submission(
+        submission = submission_with_facts(
             submission_id="sub-mapping",
             submit_attempt_id=attempt.submit_attempt_id,
             workspace_id=attempt.workspace_id,

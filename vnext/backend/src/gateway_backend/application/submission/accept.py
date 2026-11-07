@@ -478,6 +478,15 @@ def _load_preview_result(
     if preview_result.generation != command.generation:
         raise PreviewBindingConflict("preview result generation does not match request")
     _assert_preview_repository_matches_workspace(preview_result, workspace)
+    from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
+    facts = preview_result.canonical.configuration_facts
+    if facts.modified.source_artifact_id != upload_revision.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id:
+        raise PreviewBindingConflict("configuration modified source does not match upload")
+    if upload_revision.input_completeness is InputCompleteness.FULL:
+        if facts.initial_origin != "UPLOADED" or facts.initial.source_artifact_id != upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id:
+            raise PreviewBindingConflict("configuration initial source does not match upload")
+    elif facts.initial_origin == "UPLOADED":
+        raise PreviewBindingConflict("configuration initial origin does not match upload")
     return preview_result
 
 

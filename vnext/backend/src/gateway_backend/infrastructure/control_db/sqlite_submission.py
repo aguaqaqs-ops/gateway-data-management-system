@@ -10,6 +10,8 @@ from typing import cast
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+
 from gateway_backend.domain.submission.errors import (
     SubmitAttemptInvariantViolation,
     SubmitAttemptVersionConflict,
@@ -56,7 +58,7 @@ _SUBMIT_ATTEMPT_COLUMNS = (
     "accept_idempotency_key, accept_request_fingerprint, repository_upload_idempotency_key, "
     "repository_import_idempotency_key, operation_id, state, submission_id, optimistic_version, "
     "created_by, created_at_us, effect_pending_at_us, finalized_at_us, aborted_at_us, abort_code, "
-    "identity_confirmations"
+    "identity_confirmations, configuration_facts"
 )
 
 SUBMISSION_COLUMNS = (
@@ -66,7 +68,7 @@ SUBMISSION_COLUMNS = (
     "canonicalization_manifest_ref, canonicalization_manifest_digest, "
     "repository_import_artifact_raw_sha256, repository_artifact_id, "
     "requested_verification_policy, completed_verification_policy, requested_unknown_type_policy, "
-    "target_ref, created_by, created_at_us, identity_confirmations"
+    "target_ref, created_by, created_at_us, identity_confirmations, configuration_facts"
 )
 
 
@@ -364,6 +366,8 @@ class SQLiteSubmissionRepository:
         current = self.get_submit_attempt(attempt.submit_attempt_id)
         if current is not None and current.identity_confirmations != attempt.identity_confirmations:
             raise SubmitAttemptInvariantViolation("SubmitAttempt identity confirmations are immutable")
+        if current is not None and current.configuration_facts != attempt.configuration_facts:
+            raise SubmitAttemptInvariantViolation("SubmitAttempt configuration facts are immutable")
         row = submit_attempt_to_row(attempt)
         updated = self._connection.execute(
             """
@@ -385,7 +389,7 @@ class SQLiteSubmissionRepository:
                 repository_import_idempotency_key = ?, operation_id = ?, state = ?,
                 submission_id = ?, optimistic_version = ?, created_by = ?, created_at_us = ?,
                 effect_pending_at_us = ?, finalized_at_us = ?, aborted_at_us = ?, abort_code = ?,
-                identity_confirmations = ?
+                identity_confirmations = ?, configuration_facts = ?
             WHERE submit_attempt_id = ? AND optimistic_version = ?
             """,
             row[1:] + (attempt.submit_attempt_id, expected_version),
@@ -572,13 +576,14 @@ def submit_attempt_to_row(attempt: SubmitAttempt) -> tuple[object, ...]:
         _datetime_to_epoch_us(attempt.aborted_at) if attempt.aborted_at else None,
         attempt.abort_code,
         _encode_identity_confirmations(attempt.identity_confirmations),
+        canonicalize_json_value(attempt.configuration_facts.to_document()),
     )
 
 
 def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
     mapping = row_mapping(row)
     return SubmitAttempt(
-        submit_attempt_id=_required_text(mapping, "submit_attempt_id"),
+        configuration_facts=ConfigurationFacts.from_document(json.loads(_blob_value(mapping, "configuration_facts"))),        submit_attempt_id=_required_text(mapping, "submit_attempt_id"),
         workspace_id=_required_text(mapping, "workspace_id"),
         workspace_generation=_required_int(mapping, "workspace_generation"),
         upload_revision_id=_required_text(mapping, "upload_revision_id"),
@@ -673,12 +678,13 @@ def submission_to_row(submission: Submission) -> tuple[object, ...]:
         submission.created_by,
         _datetime_to_epoch_us(submission.created_at),
         _encode_identity_confirmations(submission.identity_confirmations),
+        canonicalize_json_value(submission.configuration_facts.to_document()),
     )
 
 
 def submission_from_row(row: Mapping[str, object]) -> Submission:
     return Submission(
-        submission_id=_required_text(row, "submission_id"),
+        configuration_facts=ConfigurationFacts.from_document(json.loads(_blob_value(row, "configuration_facts"))),        submission_id=_required_text(row, "submission_id"),
         submit_attempt_id=_required_text(row, "submit_attempt_id"),
         workspace_id=_required_text(row, "workspace_id"),
         workspace_generation=_required_int(row, "workspace_generation"),

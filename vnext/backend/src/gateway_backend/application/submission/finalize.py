@@ -70,6 +70,7 @@ def build_submission(*, command: FinalizeSubmitCommand) -> Submission:
         raise FinalizeBindingMismatch("finalize requires EFFECT_PENDING attempt")
     validate_matching_result_for_finalize(attempt=command.attempt, facts=command.facts)
     submission = Submission(
+        configuration_facts=command.attempt.configuration_facts,
         submission_id=command.submission_id,
         submit_attempt_id=command.attempt.submit_attempt_id,
         workspace_id=command.attempt.workspace_id,

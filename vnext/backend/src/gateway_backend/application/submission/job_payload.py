@@ -45,6 +45,7 @@ def build_submit_job_payload(
         "baseline_head_version": attempt.baseline_head_version,
         "repository_expected_commit_id": attempt.repository_expected_commit_id,
         "canonical_business_digest": attempt.canonical_business_digest,
+        "configuration_facts_digest": attempt.configuration_facts.facts_digest,
         "source_artifact_refs": list(attempt.source_artifact_refs),
         "preview_ready_closure_ref": attempt.preview_ready_closure_ref,
         "canonical_table_set_closure_ref": attempt.canonical_table_set_closure_ref,

@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.business-lifecycle-and-state`
 
 Owner：各子领域 owner（见下表；本文不建立共同 aggregate）
 
-Semantic version：`4.0.0`（2026-11-07 BE-a；前版 `3.1.0`）
+Semantic version：`5.0.0`（2026-11-07 V1 configuration facts；前版 `4.0.0`）
 
 2026-09-06 amendment：P5 设计收口后，Repository `main` 与业务 `BaselineHead` 明确分离；
 Archive 直接把既有合格 Submission commit 提升为业务 Baseline，不移动 Repository ref、
@@ -355,3 +355,11 @@ permission；完整项目历史需要device/project audit权限。
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Repository Service](repository-service.md)
+
+## V1 configuration facts amendment（2026-11-07）
+
+Preview canonical metadata必需包含FULL initial完整规范状态摘要与`ConfigurationFacts`，其独立身份为raw SHA256(JCS facts body bytes)，不改变既有业务内容哈希。事实schema为`backend-vnext/configuration-facts/v1`；内容身份包含完整规范状态摘要、storage projection ruleset digest/version及scalar encoding version，不排除规则保留的version_manager字段。源时间由同次Rust SQL typed转换在规范排序前按源行序提取，规则固定`gateway-vnext/configuration-generated-time/v1`，grammar/缺失分类见[业务核验设计§4.1](../plans/p6-archive-business-validation-design.md#41-提取位置与顺序)。
+
+小型事实绑定operation、Workspace/revision/generation、Repository、exact baseline node/commit/version、SQL源摘要与上传artifact，沿materialize/assemble checkpoint和READY的既有LeaseSession整体发布。FULL两实际上传侧独立提取；MODIFIED_ONLY initial严格复制BaselineNode.source_submission_id的durable Submission.modified（保留其原rules/projection/scalar身份并验证一致），INITIAL空基线为明确INITIAL_EMPTY/N/A。缺业务时间与缺facts/字段/错绑定不同，后者硬完整性失败。
+
+T1服务器复制绑定Preview的必需facts到immutable Attempt；finalize同事务复制到Submission，CAS更新不允许改facts，回放不重提取。Submission的字段足以在Preview/SQL TTL清理后独立读取，baseline不增时间副本；V2经既有Submission读取端口消费。Preview job/materialized sides/assemble state分别升至v2/v2/v3，Submit job升至v2；唯一control DB基线新增Attempt/Submission必需configuration_facts BLOB，不迁移/默认/兼容。HTTP形状本节不变。

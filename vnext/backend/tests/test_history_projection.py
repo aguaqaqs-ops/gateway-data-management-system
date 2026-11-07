@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submission_with_facts
+
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -275,7 +277,7 @@ def _submission(
     repository_commit_id: str,
     based_on_baseline_node_id: str = "node-1",
 ) -> Submission:
-    return Submission(
+    return submission_with_facts(
         submission_id=submission_id,
         submit_attempt_id=f"attempt-{submission_id}",
         workspace_id="ws-1",

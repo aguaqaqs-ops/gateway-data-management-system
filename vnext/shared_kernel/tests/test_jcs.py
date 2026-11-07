@@ -30,6 +30,12 @@ def test_canonicalize_jcs_non_bmp_key_order() -> None:
     assert canonicalize_jcs(raw) == b'{"a":2,"\xf0\x9f\x98\x80":1}'
 
 
+def test_canonicalize_jcs_supplementary_key_precedes_later_bmp_key() -> None:
+    # U+10000 starts with UTF-16 D800, before U+E000; UTF-8 byte order is opposite.
+    raw = '{"\ue000":2,"\U00010000":1}'.encode("utf-8")
+    assert canonicalize_jcs(raw) == b'{"\xf0\x90\x80\x80":1,"\xee\x80\x80":2}'
+
+
 def test_canonicalize_jcs_negative_zero_float_normalizes() -> None:
     assert canonicalize_jcs(b"-0.0") == b"0"
 

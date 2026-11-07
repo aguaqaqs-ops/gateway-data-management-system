@@ -8,6 +8,8 @@
 
 `TableComputation` 的记录列为未裁剪的三族 Arrow 数据，提供 facts 顺序索引、artifact 顺序索引、额外事实列和逐族 count/content digest。对外只发布小型 facts、manifest/ref、surface 和 bundle。无整份 Python row tuple 兼容属性，operation-local handle 不进入 checkpoint/HTTP/持久 DTO。
 
+Risk 的只读借用签名为 `iter_record_batches(table, family: STANDARD|ORDERED|BLANK, columns: tuple[str,...], order: FACTS) -> Iterator[RecordBatch]`，不是返回 `Table` 或全量 tuple。Risk 显式传 `order=FACTS`；producer 另用 `ARTIFACT` 索引，二者不能共用默认顺序。每批只包含所请求的合法列，保留 Arrow 类型，跨 batch 拼接后严格等于该族全局 facts 序；未知列、family 或已释放 owner 拒绝。可重复遍历供三种 row kind 规则消费；每批借用同一 operation owner，迭代提前关闭/异常/取消及最后消费者退出时释放借用和预算。`record_count(table,family)`、`has_records(table,family)` 返回精确计数/布尔存在性；`ordered_degraded(table)` 合并 ordered extension status、TABLE_DEGRADED 记录存在性和 diagnostics，不转元组。`has_visible_change/_risk_scope` 用 STANDARD 存在性，ordered unsupported 用合并布尔值；无行风险不打开批迭代。closure 仍通过现 `records_access` 当前 pair 验证。具体接口归属为 C 的 Arrow adapter 与 D 的 Python Risk 消费。
+
 | 逻辑视图 | 输入、顺序及字节口径 | owner/消费者 |
 | --- | --- | --- |
 | facts table/core | `row_encoding._table_digest_payload` 全字段：table 名、status/content、schema changes、before/current 与增删改/suppressed 计数、standard/ordered/blank 完整记录。standard 按 `(kind, identity or "", changed_columns)`；ordered 按 `(kind, current_position or before_position or 0, identity or "")`；blank 保留现扩展顺序及额外 `entity_key_kind`。值为 canonical scalar/collection frame 的小写 hex，null/省略不互换。table digest 为完整 table JCS；core digest 在 summary 已知后写完整 `{algorithm_version,kind,summary,tables}` JCS，tables 保留当前 facts 表序，不拼 table hashes。 | Rust 流式 JCS sink；Python 提供小 metadata/summary；`standard._build_facts` 只组小 envelope。`replacement.py` 保留独立 dataset-replacement/v1 envelope 和空 records。 |
@@ -58,17 +60,32 @@
 | K1 / D | 相同完整任务两次；只变方向、规则正文/版本、schema/key/scope、RiskOptions/diagnostics/selected tables、含名称 schema 的 `t1`→`t2`。 | 仅完全相同命中；上述各维 miss，包括 `t1`/`t2`。on/off 的 facts/records/risk/bundle 等值按各表重绑定后的摘要比较；S3 design §5/9.2，Comparison/Risk Contract。 |
 | O1 / B/D | unchanged ordered，before reader 计数器与当前 reader 计数器。 | 当前侧仅一次单侧摘要，before=0、LIS=0、records=0，两侧 ordered/occupancy digest 相同；Comparison/Ordered Diff。 |
 
+### A 在 06 的固定向量执行映射
+
+下列 nodeid/fixture 是 A 目前可执行的 Contract 证据。C/D 接入后复用这些 expected，改调用新 PyO3 adapter，不以新 Rust 输出回写预期。`C6` 的私有 Python validator 测试只是当前读侧基线；C 必须把同一损坏输入迁到实际 adapter，并删除被替代的私有测试入口。
+
+| ID | 06 nodeid / 现有 fixture | 固定 expected 与来源 |
+| --- | --- | --- |
+| C1 | `shared_kernel/tests/test_canonical_cases.py::test_canonical_case_matches_python_reference` 读 `vnext/fixtures/vectors/shared-kernel/canonical-encoding/v1/{scalar,digest,jcs}.jsonl`；新增 `shared_kernel/tests/test_jcs.py::test_canonicalize_jcs_supplementary_key_precedes_later_bmp_key`；现 `shared_kernel/tests/test_framing.py::test_encode_row_sorts_by_canonical_utf8_bytes`。 | case `scalar.float64.negative-zero` frame base64url `FAgAAAAAAAAAAA`，`scalar.decimal.canonical-zero` 为 `EgEw`，`scalar.null.empty` 为 `AAA`、`scalar.string.empty` 为 `IAA`，多字节 `你好` 为 `IAbkvaDlpb0`；`digest.row.mixed-fields-permuted-{a,b}` 同为 `AgFhAQEBAWIAAA`、`sha256:401578531a0add4dd48daa932190b0f1fff21f90cd2378a112c32199b1a80f39`。补例 U+10000 在 U+E000 前：JCS bytes `7b22f0908080223a312c22ee8080223a327d`；Shared Kernel v1 固定向量/UTF-16 Contract。 |
+| C2 | `backend/tests/test_comparison_standard.py::test_raw_primary_key_fallback_compares_keyless_rows_as_a_multiset`；`backend/tests/test_comparison_s3_contract_vectors.py::test_keyless_third_copy_uses_frozen_occurrence_two_identity`。 | 现集成例 `(added,deleted,modified)=(1,1,0)` 且无 KEY_DEGRADED；纯 occurrence=2 的前缀 bytes 为 `keyless-row-occurrence:v1\0` + 上述 frozen row digest ASCII + `02`，再按 `gateway-vnext:row:v1\0` 域 SHA，结果 `sha256:a30dfdfae0f29e7d4a7da411578d351fac59a100052dc8fd2135f6940f4ba2bb`。before 两份/current 三份时只加 occurrence2，反向只删 occurrence2；Comparison §S3 与现 `_compare_keyless`。 |
+| C3 | `backend/tests/test_comparison_ordered.py::test_backbone_is_the_earliest_longest_increasing_run_in_before_order`、`::test_backbone_reports_moves_blank_intervals_and_summarised_shifts`；`backend/tests/test_comparison_blank.py::test_blank_interval_shift_is_delete_and_insert_without_move_pairing`。 | positions `(2,1,3)` 的主干索引 `(0,2)`（before `[a,c]`）；空白区间 shift 为 delete+insert，无 move 配对；Ordered Diff §S3 与冻结 `_backbone_indices`。 |
+| C4 | `backend/tests/test_comparison_standard.py::test_added_columns_compare_common_columns_without_schema_status_or_record`、`::test_removed_column_is_classified_separately_from_incompatible_schema`、`::test_changed_effective_key_degrades_without_positional_fallback`、`::test_keyless_table_addition_is_table_level_without_row_records`、`::test_whole_table_deletion_is_table_level_without_row_records`。 | 新增 note：`COLUMNS_ADDED`、selected `(id,name)`、current-only `(note)`、无 schema record；删除列 `COLUMNS_REMOVED`；key 变化降级；整表增删无逐行 records。Comparison v3 与现断言。 |
+| C5 | Rust `records::tests::python_{standard,ordered,blank}_vector_has_the_same_logical_digest` 读 `vnext/fixtures/vectors/comparison/records/{standard,ordered,blank}-v1.parquet.b64`；`backend/tests/test_comparison_artifacts.py::test_publish_uses_independent_ordered_and_blank_artifacts`、`backend/tests/test_comparison_records.py::test_records_preserve_null_binary_float_decimal_and_temporal_values`、`backend/tests/test_comparison_s3_contract_vectors.py::test_records_writer_uses_1024_rows_then_one_row_group`。 | 冻结 `(family,version,count,content_digest)` 分别为 `(STANDARD,standard-records/v1,1,sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4)`、`(ORDERED,ordered-records/v1,1,sha256:887e686f96583a28c31f82788608ebd10491b80eb98dc9ab2ada7389ec50468b)`、`(BLANK,blank-records/v1,2,sha256:5f7d095129a4fdbeba84392206fa857740ecdca6b466f9cc8177d2264bf9c17a)`；detail 均 FULL，输出组 `(1024,1)`；Rust 现固定 Python Parquet 向量和 `artifacts._write_parquet`。raw SHA 另比原 fixture 文件，不以 content 推导。 |
+| C6 | `backend/tests/test_comparison_artifacts.py::test_corrupt_parquet_is_rejected_before_closure_is_consumed`、`::test_reopen_rejects_records_over_per_table_limit_before_materialization`；新增 `backend/tests/test_comparison_s3_contract_vectors.py::test_records_fixed_vector_rejects_independent_semantic_corruption` 读 standard-v1 fixture。 | raw 错拒绝；schema metadata 错 `schema mismatch`、同 schema 0 行对期望1行 `count mismatch`、同 schema 改 ROW_MODIFIED 为 ROW_ADDED 对冻结 `sha256:22bf...` 得 `content digest mismatch`。这三种变化独立重写 Parquet，防止 raw 校验遮住语义校验；现 `artifacts._validate_parquet_bytes` 承诺。 |
+
 Risk 纯候选不是最终标注列表。每次消费先做当前 pair 诊断预检，逐事件执行上限→等级过滤→编号/append→原时间检查；closure 控制步骤在原位执行。达到 cap 提前停止时的序列不完整，不得缓存。若候选存储超 M，放弃额外缓存并继续当次惰性求值，不使本来可执行的业务计算失败。R1/R2 的正常返回与异常分支不同，是风险去重实现验收的最小反例。
 
 ## 4. 验证与边界
 
-A 的 06 最小 focused 命令（测试者在 clean、已提交 worktree 与已预填充离线环境执行，先 `ssh -o BatchMode=yes ct107-gw-dms-06 'echo OK'`）：
+A 的 06 focused 命令（测试者在 clean、已提交 worktree 与已预填充离线环境执行，先 `ssh -o BatchMode=yes ct107-gw-dms-06 'echo OK'`；下列为按包顺序的最小 nodeid 集，测试者另跑阶段要求的五包 ruff/mypy）：
 
 ```bash
-cd vnext/backend
-UV_OFFLINE=1 ../scripts/uv-consume.sh -C . run pytest -q -n 0 tests/test_comparison_s3_contract_vectors.py
-UV_OFFLINE=1 ../scripts/uv-consume.sh -C . run ruff check tests/test_comparison_s3_contract_vectors.py
-UV_OFFLINE=1 ../scripts/uv-consume.sh -C . run mypy
+cd vnext/shared_kernel
+UV_OFFLINE=1 ../scripts/uv-consume.sh -C . run pytest -q -n 0 tests/test_canonical_cases.py tests/test_jcs.py::test_canonicalize_jcs_supplementary_key_precedes_later_bmp_key tests/test_framing.py::test_encode_row_sorts_by_canonical_utf8_bytes
+cd ../backend
+UV_OFFLINE=1 ../scripts/uv-consume.sh -C . run pytest -q -n 0 tests/test_comparison_s3_contract_vectors.py tests/test_comparison_standard.py::test_raw_primary_key_fallback_compares_keyless_rows_as_a_multiset tests/test_comparison_standard.py::test_added_columns_compare_common_columns_without_schema_status_or_record tests/test_comparison_standard.py::test_removed_column_is_classified_separately_from_incompatible_schema tests/test_comparison_standard.py::test_changed_effective_key_degrades_without_positional_fallback tests/test_comparison_standard.py::test_keyless_table_addition_is_table_level_without_row_records tests/test_comparison_standard.py::test_whole_table_deletion_is_table_level_without_row_records tests/test_comparison_ordered.py::test_backbone_is_the_earliest_longest_increasing_run_in_before_order tests/test_comparison_ordered.py::test_backbone_reports_moves_blank_intervals_and_summarised_shifts tests/test_comparison_blank.py::test_blank_interval_shift_is_delete_and_insert_without_move_pairing tests/test_comparison_artifacts.py::test_publish_uses_independent_ordered_and_blank_artifacts tests/test_comparison_artifacts.py::test_corrupt_parquet_is_rejected_before_closure_is_consumed tests/test_comparison_artifacts.py::test_reopen_rejects_records_over_per_table_limit_before_materialization tests/test_comparison_records.py::test_records_preserve_null_binary_float_decimal_and_temporal_values
+cd ../rust
+CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=4 cargo test -p gateway-compute-core --locked --offline records::tests::python_
 ```
 
 本 A 轮未改 Docker/Compose、依赖或 container-only runtime。`Container rebuild required: no`；当前 HEAD 的容器门禁状态为 `deferred`，最后已验证 image revision/source-tree 及执行点由阶段协调者填写，不能把祖先镜像写成当前 HEAD 已通过。B/C/D 的生产接入、差分、真实数据、容器/权威门禁及最终 golden 对照按 kickoff 的后续节执行。

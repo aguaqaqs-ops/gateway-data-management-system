@@ -185,7 +185,7 @@ S2a 的三个 Python-only reader 生命周期证明要移交给真实 owner：ol
 | IPC 生命周期与恢复 | SHA/metadata 损坏拒绝；独立 handle reopen/close/借用边界；stream error 后 reader 无可发布物；head+正式引用同事务；protected/TTL/shared ref；PREPARED/T1 冻结；miss/corruption 精确 commit 回填 | storage owner + Submit/Preview/History owner；06 filesystem/SQLite integration |
 | W2 结构计数 | 复用设计 §16.2 适用公式；W2 baseline 行读取/比较为 0，规范内容命中不重写；计数不由性能样本替代 | capability/application count Contract；06 focused |
 | 资源与执行控制 | invalid N/M startup；同池无冲突；reservation 先于增长；FULL 两侧/M 计算拒绝；actual worker cancel/drain/lease_lost 区分；finite deadline 注入；没有 deadline 就 None | worker owner；06 worker Integration，M 在 C 完成且接线前确定。lease_lost 复用 `LeaseSession` 安全发布边界 |
-| 真实业务正确性 | S2b 涉及的 t1–t4 Preview/History/Submit 生产路径正确性端到端 | t1–t3 在 05，t4 在 CT108，按现节点职责；CT108 忙时预约/等待，或先取得 Owner 对替代节点的明确授权。性能延期不豁免 t4 正确性 |
+| 真实业务正确性 | S2b 涉及的 t1–t4 Preview/History/Submit 生产路径正确性端到端 | t1–t3 在 05，t4 在 CT108，按现节点职责；CT108 忙时尊重有效占用，空闲后原子取用、不例行预约；若变更节点职责，仍先取得 Owner 明确授权。性能延期不豁免 t4 正确性 |
 | Final authority/container | 最终候选的 runner package closure（Rust 必须覆盖）；S2b stage exit 的 container result 必须绑定最终 HEAD，即当前候选验证或满足 AGENTS 的同节点正式 carried。触及 Compose/startup/env/health/signal/volume 等边界时重建该 HEAD 并跑相应 gate | 04 权威节点做最终 stage gate；正式门禁过程 clean/committed、按 node/cache/日志规则。06 不冒充权威结果 |
 
 ### 6.1 W1–W4 与结构性指标

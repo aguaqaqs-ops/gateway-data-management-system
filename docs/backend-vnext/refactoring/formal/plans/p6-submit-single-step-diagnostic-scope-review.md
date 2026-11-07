@@ -2508,3 +2508,7 @@ STRESS分支 `1742a8bcd62287fd9eb9fbd0a839615a470b2664` /tree `801e3925f634f9272
 较早47d7的37passed/1failed为孙进程fixture嵌套转义语法错误，失败SHA **`6599215e044b2344a6d516f103665424ddaa98bc94e2d2693da323fd38047698`** 保留，不当成真实诊断失败或已覆盖信号。3b62的38项及3722的39项仅记录新增覆盖历程，最终以上述40项日志为本轮证据；前次chain d582的mypy测试导入失败同样保留。其余四包静态按既有来源，不声称dc829权威runner/carried。
 
 本轮仅独立只读代码与CT05关闭日志，未运行测试、业务/容器或访问在途CT108。新接线是隔离诊断runtime边界，最小mount/install来源仍§108及相同worker脚本，实际完整身份在启动预检绑定；不重建或覆盖冻结tag，不把这些mock/focused升级成正式容器门禁。准备继续，真实结果再按原范围独审；FULL、STRESS、631旁证、最终04及整体exit各自保持原状态。
+
+**参数草案及后续小修订复核：** `40610231ee9109959d82b14bf0567ce5de76522c` 仅文档，所示guard五个位置参数及分隔符后的chain参数与真实consumer相符，manifest由guard单次注入。审核直接指出manifest无PROJECT字段、generate示例须补必填路径两处文案；最终 `52ab097f0e49d9ede1d7cee42a8a3c012aead519` 已修正文书，并在guard导出固定project、chain第一条外部命令之前校验project及规范化root与guard环境完全一致。正常调用保持原参数；错误project/root各自拒绝，防止child运行项目与父清理目标偏离，没有新的业务或证明矩阵。
+
+BatchMode确认后只读CT05 `dc63-guard-52ab-20261107.log`，SHA256 **`65af63d59dd15f8d2c789787ed2c3437f1f347d59225f06abe29a13613a0b733`**：15:07:04–16Z、起止完整52ab、42passed/11.14s、Ruff/mypy503/bash-n全0。代码/该必要验证PASS，worker/Compose/预算未改，不重跑挂载install或业务。实际输入身份、规范化绝对ROOT及新project、完整镜像/runtime身份和实际启动现场仍待固定；未运行诊断、未访问在途CT108，不新增Owner/设计/审核GO。

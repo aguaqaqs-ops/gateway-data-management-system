@@ -2381,3 +2381,38 @@ S4实际选择 `/steps/v2-submit/operation_timing/completion_seconds`，**4027.7
 实施者在FULL结束后先检查原2× core/H2及S1c vprime完整journey/launch summary或其已认证JSON：保留原文件SHA、run/state、实际输入包SHA/bytes、Repository commit和版本/镜像来源，按原三组配对比较**完整表名集合恰为631且逐值全等**，不只比较交集或计数。S1c handoff已记录参考v1 `gc0j1d5316nui249o5d1petnncn8u881`、v2 `ej01n1u7srga41mdsqbht4lri82kl1mp`、v3 `jlpa7e30svqudnem8uo40vrbf5j2upt6`；原vprime journey也包含这套副本哈希输出，应优先查其原summary，不只查旧1030b对照JSON。A下仍保留各历史真实版本，不回填9704；当前107b/W4-FULL不同输入不替代2×目标。
 
 若这些原记录齐全，直接离线对照并写旁证结果即可，不增加新的取卷/业务。只有确实缺失的单组map才沿既有只读卷副本流程补该commit；该函数现有入口依赖live RS的ps查询，**不能为复用函数启动旧源栈或在原仓库checkout**。原631不符的停止/报告规则保持，不用输入相似、canonical digest或旧1030b相等概括替代本次表哈希事实。路径结论已直送实施者并同步设计，无新GO。本轮只读CT201代码、已有日志副本和索引，未访问运行中的CT108、运行测试/容器或修改产品；无镜像重建触发，也未宣称新容器门禁。
+
+## 106. 保护预算复核：外层一致，局部未全部实测校准；FULL条件恢复方案已明确
+
+**不能声称所有阶段的局部保护超时都已证明留足。** 当前FULL的总工作/清理/hard配置及真实接线一致；v2 Preview等局部仍沿旧t4量级，可能先于全流程work截止结束。没有证据证明它们当前必然不足，也没有把未结束的阶段标性能PASS。按Owner与设计要求，**不修改、加时、重启或预跑在途FULL**；后续STRESS、DC63/V5b、record及04各自启动前另行固定局部/外层/清理安排，不把ETA上沿机械当硬限，不新增逐摘要GO。
+
+### 已核实际接线与局部边界
+
+本轮只读immutable运行HEAD **`18a4851d8c52d53afdb95ee4df9fae04e6e36d77`**，并轻量读取CT108现有launch.log头部，未查询进程、运行Docker或新探针。原头部明确11:49:34.763Z、gw-dms-test、完整18a，实际child前缀为 **`timeout --foreground --signal=INT --kill-after=1200s 70200s`**；解释器为该18a worktree的字面backend .venv Python，实际FULL/cold/healthy及17 checkpoint与§102相同，manifest SHA为ae0b…c143a。该日志仍开放，未将它封口hash或称结果完成。
+
+guard的FULL分支为work70200、watchdog71420；内层1200 grace、外层kill5、down180+5、postflight60+3，配置等待和71673小于hard72000，清理余量没有漏掉。实施者提供的实际外部controller是前台 `ssh -o BatchMode=yes ct108-gw-dms 'bash -s'` heredoc及tee，未另加timeout，工具长期session72199的yield/等待不是业务deadline；heredoc未独立存脚本，外部调用事实按其明确报告与既有controller记录限定，不补造独立进程审计。
+
+| FULL等待 | 实际秒数 | 证据与边界 |
+| --- | ---: | --- |
+| v1 Preview | 12887 | 旧t4 2577.296×5向上取整；不是本次已完成值 |
+| v1 Submit | 4047 | 旧t4 809.218×5；同2×v1历史约1450s提供量级背景，未据此冒称9704本次已完成 |
+| repeat Preview | 11271 | 旧t4 2254.054×5 |
+| repeat Submit | 名义3600 | NO_CANONICAL_CHANGE同步路径直接返回，不进入operation轮询；单次HTTP仍为600s |
+| FULL v2 Preview | **11300** | **旧t4 2259.980×5；没有9704 FULL同口径实测，确可早于70200s截断** |
+| FULL v2 Submit | 10800 | W4固定profile实际接线；107b的4027.732s仅是较轻路径实测，非FULL证明 |
+| History | 7200 | W4固定profile实际接线；本次healthy FULL仍待实测 |
+
+上列名义operation上限合计61105；辅助9000、work70200是一次规划余量，**不是已经证明所有helper最坏等待之和均被覆盖**。更短的现有局部保护仍存在：backend单次HTTP600、RS读取300、Compose up600、checkpoint pause/unpause各120、每卷cp及Dolt hash复制/SQL各3600、sampler若干Git/Docker查询各10秒，均可能在外层之前失败；它们不是整个异步operation的观察时长。产品lease/heartbeat/stall及Repository业务超时另属被测行为，不为凑工具预算放宽。本轮未发现另一处把FULL v2 Submit仍接回4055或sampler误用25200的情况；尚未发生的慢I/O、FULL或压力成本仍据实报告。
+
+### 确认的FULL恢复接线缺口与最小处置
+
+当前18a **不能按原FULL/cold/healthy参数直接使用普通失败checkpoint恢复**：`_validate_history_cache_mode` 的fresh healthy要求非resume，已有history_resume要求非full-v2且final-state；8452行cold Preview校验同样拒绝普通resume。guard还只登记107b和当前FULL两个project，失败后新身份需窄登记。不能把“保存了checkpoint”扩写为当前入口已经可直接恢复。
+
+恢复还须避免一处实际状态偏移：6095行的cold准备在 `runner.run("v2-preview")` 外无条件执行。若从v2-submit或更后checkpoint恢复并复用已完成Preview，照原代码重清cache会改变该checkpoint的缓存条件；只放宽validator仍不足。最小方案已直接交实施者并获设计认可：
+
+1. 仅在真实失败、原因已定位并保留现场后，用新project/key，认证**同9704产品、原FULL manifest/输入/目标镜像、源失败step-before checkpoint及完整卷摘要**。保留原source/run/state/log及旧运行结论，不启动旧源栈或从头重做已通过业务。
+2. 对这一已认证FULL恢复窄放cold+healthy校验，并登记对应新guard身份/实际预算；普通image/input/source约束保持，不泛化为任意resume、H3或skip。实际失败若是局部工具等待不足，恢复前一次明确该剩余步骤及总截止，不在在途动态续时。
+3. **仅当v2 Preview将实际执行时做cold准备**；复用源已完成Preview时，保留原缓存状态及其来源记录，不再次清除。History仍实查原条件/TTL；不满足则明确诊断，不静默改none、延TTL或伪称healthy。
+4. checkpoint仅按原resume边界选择后续步骤，沿用保留的合格失败前checkpoint，不把整个原17项列表重新传入导致“早于resume边界”拒绝。普通bench修正及必要focused后，实际前提满足即可按既有DC80授权恢复，不另等Owner/GO；证据沿用不确定或新业务取舍再交设计处理。
+
+这只是已明确的条件恢复方案，**尚无FULL失败、未实现/执行恢复、未宣称未来恢复代码已经PASS**。它解决“若失败是否只能整档从头重做”的具体工具限制，不新增恢复框架或预跑矩阵。源码/产品/在途worktree和镜像均未修改；最后产品镜像仍为§87绑定9704身份，无重建触发。本轮没有测试、容器/业务或原SQLite访问；结果及未实测的预算边界直接同步设计和实施者，整体测量继续。

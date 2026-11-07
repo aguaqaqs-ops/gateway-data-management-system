@@ -34,7 +34,7 @@ g 的闭合 generation 2 区间 wall 24.015076449 秒、同线程 CPU 24.0117671
 
 暂缓自动循环 GC 可能使不可达循环对象滞留到 claim 结束，大小目前未知；引用计数不等于全部对象都会即时释放。旧 g 的约 23.9 GB worker RSS 也不能预测新峰值。本轮只在既有独立测试节点和原诊断资源 envelope 内验证：启动 available 至少 48 GiB，worker RSS 40 GiB/host available 8 GiB/disk 10 GiB 停止线不变；越线即停止，不自动提高限额。
 
-主线 DC87 已由 Owner 于 2026-11-07 更新为 worker 24 GiB、工程预留 8 GiB、显式 kernel M=16 GiB、N=1（决议 `aedeb00679`，产品 `82c4251b6cf944526c80a5e9bfe707bc57ab5087`），替代历史 12/4/8 配置；这是另一个部署约束，不改变本轮冻结诊断 envelope。本候选即使通过旧测量环境验证，也不能声称满足主线预算或已获准合入/部署；当前 Rust projection 后仍有 Python mutation snapshots/planner，不能假设 Rust 会自然修复本问题。后续主线采用须与新开发设计协调实际资源与验证影响。
+主线部署约束以 [DC87 当前生效配置](p6-s0-owner-decisions.md) 为准；S2b E 最终共享交接为 worker 32 GiB、工程预留 8 GiB、显式 kernel M=24 GiB、N=1（产品 `a6876d560050285321fd9f62942d590a03f35d64`、冻结 H `3580e6649f`、独审 `9220f3cdec`），替代历史 12/4/8 与 24/8/M16 配置。此为另一条产品线的部署约束，不改变本轮冻结诊断 envelope，也不将对方证据改记为冻结 GC 候选的验证。本候选即使通过旧测量环境验证，也不能声称满足主线预算或已获准合入/部署；当前 Rust projection 后仍有 Python mutation snapshots/planner，不能假设 Rust 会自然修复本问题。后续主线采用须与新开发设计协调实际资源与验证影响。
 
 新 GC 策略可能改变既有场景的 CPU/时长/峰值，旧性能数字不能自动作为新候选结果。H3 原 PASS 保留为原身份历史事实，不据此声称新候选已运行该场景。正式 V→H、冻结口径和基准剩余范围另审；本方案不通过工具修复许可追认正式恢复，不改旧结果/输入/日志/卷。
 

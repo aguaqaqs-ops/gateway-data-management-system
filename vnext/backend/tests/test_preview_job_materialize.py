@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import gateway_backend.application.preview_jobs as preview_jobs
 
+from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalScope
 
@@ -903,5 +904,5 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     assert preview is not None and preview.canonical.configuration_facts == frozen
     damaged = dict(canonical)
     del damaged["configuration_facts"]
-    with pytest.raises(preview_jobs.CheckpointDecodeError, match="fields are invalid"):
+    with pytest.raises(CheckpointDecodeError, match="fields are invalid"):
         preview_jobs._canonical_preview_metadata_from_document(damaged)

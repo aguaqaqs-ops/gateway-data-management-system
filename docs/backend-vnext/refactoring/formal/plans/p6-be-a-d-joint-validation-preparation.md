@@ -32,6 +32,8 @@ V2实际交付后静态更新：f8的fixtures tree为 **`594aa44c74aeb08f4f8ac58
 
 V2主线归档consumer已改为显式`GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON`（`{subject_digest或issue_code:非空reason}`）；缺理由即失败。联合执行清单须写真实采用的理由映射及其验收目的，保留原异常，不捏造数据产生原因或无理由自动接受。D精确清单`cf2091eadd`已选同一次t1 v1 MO/v2 FULL配对，最终以实际落地CLI/断言/证据固定命令。
 
+最终profile已找到实际fresh t1来源：06 `/home/dev/gdds-test-tmp/artifacts/s2b-e-m24-t1-a6876d5600/command.json`，只读提取实际host CLI为`--kernel-threads 1 --kernel-memory-budget-bytes 25769803776`，原命令文件SHA=`1e725ec83e54c2ad40ee7d631216673b310e02817970e07b516d5e983a2009ae`。本轮05 t1沿此host N1/M24GiB；Compose worker独立核其N1/M24GiB、32GiB envelope/8GiB reserve/单active。不得用Cargo/pytest workers4、早期N4/24MiB示例、t3 cal的48GiB或06物理96GiB代替真实profile；不新增试预算矩阵。当前尚未执行本轮05命令。
+
 Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 owning Contract 校验原 manifest / closure、全部普通成员的路径、顺序、尺寸及相应物理/逻辑摘要；不能只解 `manifest.json`。报告单列 GET 开始到读取完成时间及实际字节数；READY / Operation 完成锚保持原定义。这些是本轮功能/传输证据，不作为 W1/W2 或正式性能测量。
 
 按 kickoff 暂定 05 fresh t1；不借用 S2b E 授予 06 的 t1–t3 例外，不新增 t2/t3/t4、大输入或正式性能矩阵。退出前将实际候选、范围、各分支/异常来源、必要沿用依据及剩余项组成具体 DC33 确认包交 Owner；已有小节开工授权无须重复申请。未取得所需范围确认及退出手续前，不宣布联合验收/阶段退出完成。

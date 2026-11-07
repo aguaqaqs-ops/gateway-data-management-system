@@ -78,10 +78,24 @@ Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整
 | 06 /aaa 首轮 | 工具输出记ruff/mypy0、focused141pass/1fail（CLI fixture漏新flag），旧focused SHA `2345ec835d433ff55a548697c0faeebc67ff8cbb8779b27d35b98c23b14a3cc2` | **三原完整log被后述误跑覆盖，原字节不可复核，不作为通过证据；只保留工具输出/历史SHA事实，不重造** |
 | 06 /aaa 误跑 | ruff/mypy0（当前log）；focused150pass/2fail（旧CLI fixture+store旧错误文案）`f882a86a8a0e472b80fa2897e61a1ffc4237a1cee9a3a73ffd8526780bedb9c5` | 不代表目标a795或最新445，完整当前文件保留 |
 
-11:16–11:17Z实施者传输编排失误：用纯SHA而非named `HEAD`建bundle被Git拒绝empty；本地编排未`set -e`，继续传旧bundle；目标checkout失败后仍单独启动旧aaa WT上的focused。该轮已触及旧被测对象，**不能按DC68产品前操作错误单次重做**。同HEAD日志名覆盖aaa首轮ruff/mypy/focused三份原文件。独审明确没有aaa原副本；不拼造恢复、不把后次当首次。两次更早的checkout自身错误（linked FETCH_HEAD、错误literal SHA）只剩工具输出与派生记录`checkout-*-operation-error.log`，不将派生说明当原执行原文。
+11:16–11:17Z实施者传输编排失误：用纯SHA而非named `HEAD`建bundle被Git拒绝empty；本地编排未`set -e`，继续传旧bundle；目标checkout失败后仍单独启动旧aaa WT上的focused。该轮已触及旧被测对象，**不能按DC68产品前操作错误单次重做**。同HEAD日志名覆盖aaa首轮ruff/mypy/focused三份原文件。独审明确没有aaa原副本；不拼造恢复、不把后次当首次。
+
+更早checkout的时间只能由相邻原log界定，未记失败秒级UTC，不伪造精确时间：①11:03:35Z 36ed静态失败之后、11:04:31Z 1c复查之前，首次传1c时在linked WT使用primary WT才有的FETCH_HEAD，checkout128；随后改完整1c SHA成功，才启动1c复查。②11:14:43Z d0 mypy失败之后、11:15:21Z aaa复查之前，传aaa typing修订时手填了不存在的literal `8c3f3bd0dc`，checkout128；随后改真实完整aaa SHA成功，才启动aaa首轮复查。两者是不同候选/不同传输步骤，不是同一步连续重做；每次失败当时未启动被测对象，后续成功后的产品执行另记。两次错误输出由工具回包保留，`checkout-operation-error.log` / `checkout-typing-operation-error.log`是事后从工具输出整理的**派生说明**，从未有原命令外置原log，不能称原执行原字节仍在。第三次11:16–11:17误跑与日志覆盖不适用前述产品前例外。
 
 协调者接报后明确暂停全部受影响节点focused/static/Compose/04/05，未经Owner回复不恢复。现仅做证据保全、资源清点/本人释放和可审查guard修正，其他无关产品/工具代码可继续；没有任何D Compose或联合权威/真实旅程通过声明。
 
 保全目录：06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/incident-preservation-rvpm66sO/`，保存事件时现存log/script/bundle、actual HEAD/status、进程、容器及8000快照，`SHA256SUMS` SHA `78122ba8b893b200c17ad9ae959af5fa7d25cc830f59986043f2b40298ca065b`；LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-d/incident-preservation-rvpm66sO/`。保全时WT为clean `aaa0f4a6f32143448c1b55bb1cc8f509643e1d3c`。11:19:30Z确认无本任务服务/运行容器/8000/Dolt/Cargo/pytest，仅释放本人marker；释放log `node-release-UzrHOQAs.log` SHA `de06e368c6459639f0f04525cdb6a9763edaa30e85eb3e8ff6a21b97422b8ae8`，副本同上。旧WT、卷、镜像及证据未清理。
 
-可审查guard（仅写文件，尚未执行/测试）：本地 `/home/dev/gdds-be-d-guarded-transfer.sh`（副本`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh`），SHA `f83066c0b15a012bf5df673577591910e5b0afd4926553d4f3592ef5edff9d4d`；node-run `/home/dev/gdds-be-d-guarded-node-run.sh`（副本同目录`guarded-node-run.sh`），SHA `3889eb3097eb4c6a672f1be01c2e653884e90228d3e682b72a9dfdb5023de949`。两者`set -euo pipefail`，transfer以named HEAD建bundle并verify/核advertised完整SHA及SHA256，任何失败不继续；节点checkout显式完整SHA并核clean/exact HEAD；run每次`mktemp`独立WT外目录，保存精确命令/guard，运行前后核完整HEAD/clean及本人marker，保存原command exit与最终exit。无需新evidence状态机；同一独审静态核后由协调者提交具体恢复方案给Owner，Owner回复前不执行。
+可审查guard（仅写文件，尚未执行/测试）：本地 `/home/dev/gdds-be-d-guarded-transfer.sh`（副本`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh`），SHA `f83066c0b15a012bf5df673577591910e5b0afd4926553d4f3592ef5edff9d4d`；node-run `/home/dev/gdds-be-d-guarded-node-run.sh`（副本同目录`guarded-node-run.sh`），SHA `4eb10c9fc1a8b3b12d4b5ae4cba4d54528d7462d7a5a8f91549facb0e7c979b2`。两者`set -euo pipefail`，transfer以named HEAD建bundle并verify/核advertised完整SHA及SHA256，任何失败不继续；节点checkout显式完整SHA并核clean/exact HEAD；run每次`mktemp`独立WT外目录，保存精确命令/guard，运行前后核完整HEAD/clean及本人marker；end marker不同或丢失记录`end_owner_marker_matches=false`，保留`command_exit`原值并使`final_exit=2`。无需新evidence状态机；同一独审静态核后由协调者提交具体恢复方案给Owner，Owner回复前不执行。
+
+两guard当前mode664，实际入口均为`bash <file>`；transfer只传source bundle，不安装/执行node-run。Owner恢复后，协调固定clean实际完整SHA（届时含审核/批准文档，核其vnext tree与已审产品相同），赋给`D_EXPECTED_SHA`，再用`bash /home/dev/gdds-be-d-guarded-transfer.sh "$D_EXPECTED_SHA"`传源码。node-run单独经LAN `scp /home/dev/gdds-be-d-guarded-node-run.sh ct107-gw-dms-06:/home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh`，核SHA后以`ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' <label> <command-and-properly-quoted-arguments>"`调用，不能`bash -s`令`$0=bash`而使guard自复制错误。具体待恢复命令由协调清单列明，不以这个占位示例启动。释放原log的精确本地副本是 `/home/dev/gdds-reviews/artifacts/p6-be-d/node-release-UzrHOQAs.log`，06原路径是 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/node-release-UzrHOQAs.log`，它在incident-preservation子目录外。
+
+Owner恢复后的固定调用形态（目前禁止执行）：
+
+```bash
+# D_EXPECTED_SHA由协调填恢复时clean实际完整SHA；先核审查产品vnext tree不变。
+bash /home/dev/gdds-be-d-guarded-transfer.sh "$D_EXPECTED_SHA"
+scp /home/dev/gdds-be-d-guarded-node-run.sh ct107-gw-dms-06:/home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh
+ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' backend-ruff vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync ruff check ."
+ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' backend-focused vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -n 4 -m '(not serial) or parallel_safe' tests/test_bundle_download.py tests/test_bundle_download_http.py tests/test_real_dump_journey.py tests/test_workspace_artifact_store.py"
+```

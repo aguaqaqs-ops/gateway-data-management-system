@@ -269,10 +269,16 @@ Candidate查询、review closedness、History查询/DTO、ArchiveResult装配等
 
 same key/same fingerprint在当前鉴权后返回原成功；不同内容冲突。新key重复关闭409，不执行第二次释放；已归档对象返回已终局冲突。响应丢失后可安全重放，旧预期Head不阻塞原成功回放。reason、actor、时间不可通过重放改写。
 
+**2026-11-07 实施前技术澄清：MANUAL_CLOSE 为 actor-independent 的终局业务命令。** 幂等命名空间为 exact repository/device/project scope＋CLOSE＋key，actor 不进入命名空间或 request fingerprint。fingerprint 绑定命令、exact scope、目标 submission、请求中的 expected_review_version、expected baseline node/head_version 及 reason；不把当前 caller、执行时间或重放时的最新 Head/Workspace 状态加入请求身份。同 scope 的另一位当前具有 `archive_submission` 权限且通过目标授权的 actor，以同 key/payload 请求时回放原成功，返回并保留首次关闭者、时间和原因，不记为第二位 actor 又关闭或签署了一次；不同目标或 payload 返回幂等冲突，不返回原结果内容。当前鉴权、scope 与目标授权仍在幂等查找/回放之前，原成功不能绕过权限撤销或跨 scope 边界。
+
+该选择沿用 [Archive Start §5.2](p5-5d-archive-design.md#52-idempotency-details-and-errors-after-commit) 的业务命令语义，亦与 [BE-a §4](p6-be-a-design.md) 的成功命令回放方向一致；不改变 confirmation/resolution 审计 append 的 actor-bound fingerprint，因为后者记录个人接受声明。恢复后仍校验所存关闭事实与原请求的绑定及完整性，不以当前状态重算旧请求、不覆盖原 actor，也不将持久记录损坏伪装成普通冲突。此项是对 §10.2/§10.3 已定命名空间和不可变关闭审计的技术细化，不新增 Owner 业务决议；由 V2 独审核对实现与证据。
+
 Start与close：close先完成则Start旧集合拒绝；Start先完成则close见已处置拒绝。两个close只能一条处置/一次释放。late失败回滚处置和Workspace全部写入。目标可属于旧baseline，但请求对当前Head的预期仍要匹配，防止与刚发生的归档交错被静默接受。
 
 ### 10.4 验收和范围影响
 
 增加公开权限/404隔离/原成功replay测试；事务owner验证保留APPROVED与历史、Head/Repository不变、唯一终局处置和精确释放、crash后重放及与Start竞争；History owner验证两种处置来源和旧archive查询正常；来源纯规则owner验证移除桥接提交后下游UNKNOWN。一个真实wiring异常拒绝→有理由关闭→新上传重提→归档路径，不把所有内部故障点搬进Compose。
+
+上述公开权限/replay owner 同时覆盖两位当前授权 actor 的同 key/payload 回放、首次 actor/time/reason 保持、权限撤销后拒绝，以及同 key 不同目标/reason/expected version 的冲突；复用事务 owner 的唯一处置/精确释放断言，不另复制完整 Compose 矩阵。
 
 本节影响control DB基线schema、Submission/Archive closedness、History和Review DTO及前端动作，明显超出原BE-a审核；联合kickoff和前端交接必须列明。它属于归档核验的闭环依赖，V2不能在没有该出口时声明完成。

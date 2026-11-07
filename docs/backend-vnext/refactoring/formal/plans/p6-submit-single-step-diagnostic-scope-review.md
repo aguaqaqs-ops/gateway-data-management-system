@@ -1981,3 +1981,31 @@ postflight_complete/lock_release_allowed=true，Compose down=0，自有进程/wo
 一条审核端本地补充统计命令因 comprehension 的 assignment-expression 语法被拒，未执行读文件主体；更正为普通循环后完成已有证据读取，不触发节点/产品动作。原错误转录 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-review-20261107/prepare-a-local-summary-attempt1.log` SHA256 `4a1189dda68e91e91119b6e2f7c88c7e79d28679166b9bf7959e458b620c4717` 保留，不影响核心结果/停止核验。
 
 **结果直接交实施者并同步设计：原定一次运行已用，执行/预算停止/回收核验可接受，完整 prepare 尚未完成。** 后续基于已保存的 plan 返回、后续源码边界及实际资源决定处置或预算取舍，不自动增加时限或重复同一大输入；关键变化按 §88 集中审，不重新引入逐 manifest GO。保留全部旧/新候选、卷和原始证据，无主线合入/push/tag/正式恢复许可，正式测量 STOP。
+
+## 90. a 恢复资格与 3h/4h 完成性验证集中审核：范围 PASS，准备合格后直接一次运行
+
+**设计提交 `1f84f30654` 的 GC 修复计划末节范围 PASS，无剩余阻塞 Finding。** 本节一次决定 a 的恢复资格及新的预算、日志容量和两个渲染边界；实施者按下列范围完成必要工具修订、受影响 focused 和运行前核对后，直接执行一次新的完成性验证，不再提交最终 manifest 等待 GO、POST-GO 文件或 Owner/设计/协调回执。实际 manifest 用于追溯，不能写成最终字节已事前独审。此处采用设计最终的 **10800s observation / 14400s 全流程硬限**，取代此前 90/105 分钟的早期提案；不追认延长 a，也不恢复其已用运行次数。
+
+本轮只读该计划差异、本地既有 a 结果/事件和冻结 `9704d0b286049073529d60036dbd999032f97e0a` 源码、原 a 工具；没有 SSH、新节点取证、产品导入、测试、业务请求或运行。§89 原始结果与限制全部保留。
+
+### a 不具备本次可用的续接 checkpoint
+
+冻结 `infrastructure/repository_write/import_publication.py:235–307` 在 plan 返回后仍构造 schema input、调用 schema replay SQL 与 mutation DML renderer、拼接并完成 canonical publication，之后才创建 PrepareImportCheckpoint。`application/submit_jobs.py:547–562` 等 publication 返回后才调用 `_prepare_step_checkpoint` 持久化；plan 返回本身没有 durable 续接点。a 的全部已保存阶段事件未出现 canonical_publish entry、prepare_package_publish return 或 prepare_handler return，最后可读目标仍为 RUNNING；没有已核完整 checkpoint 可供复用。最后 snapshot 的 steps 投影不含 checkpoint_ref，不能把字段未查询写成数据库中已实测 null，也不声称已扫描证明卷中不存在任何孤立文件。
+
+**本次恢复资格结论为不能续用 a 的 RUNNING 卷或内存 planner 结果。** 新 project/key/三个新目标卷只能从已核 `p6bw4s4h120261105b:v2-preview` 来源建立，原 W4 输入/cache/规则、source provenance 限制及 §87 三镜像身份保持；全部 a 与旧候选/卷留存。不为寻找恢复机会再启动 a、访问其活动数据库、造中间态持久化或追加全卷扫描。
+
+### 新预算与既有守护
+
+- 一次业务观察上限 **10800s**，保持原 post_started 起算；全流程工作截止为 launcher 起点后 **13500s**，预留 **900s** 清理，全流程硬限 **14400s**。shell 的 timeout/kill-after、controller 的 observation/work/cleanup 截止与 guardian 的 soft deadline须一致接线，不能只改展示字段或仅延长一层；运行中不滑动截止，完成即收尾。这是避免反复重做约 44 分钟前沿的一次受控上限，不是完成时间预测。
+- 启动 available 至少 48 GiB、worker RSS 40 GiB/host available 8 GiB/disk 10 GiB 原停止线、lease/heartbeat/stall、单 POST/单 target claim、no-restart、异常/身份/必要观测停止及原收束/保卷/安全解锁条件保持。延长窗口不屏蔽资源或产品失败，不把该隔离诊断 envelope 当成主线 DC87 部署预算的合格证明。
+- 仅复用原 `_phase` 委托方式，为 import_publication 实际使用的 `render_repository_import_schema_replay_sql` 与 `render_planned_import_mutation_dml` 增加入口/返回/异常事件，原参数、返回对象和异常原样传递；不逐行观测，不改变 renderer/planner 或重建镜像，不增加合成探针、Compose 或全量 runner。
+
+### 日志容量核对及必要接线
+
+计划“每轮四个调用事件”漏计原 worker_event/heartbeat_succeeded。a 实际 287 次正常续租对应四个 helper/session 边界各 287 条，加成功事件 287 条，即**正常每轮五条**。按 4 小时、10 秒间隔保守估算约 **7200 条**，再加少量阶段/生命周期事件，仍低于 **8192 条/16 MiB**，无需另扩大额度；异常重试可能增加记录，保留超限即停止，不承诺任何异常序列都不会触限。单条 2 KiB、最终摘要 32 KiB 保持。
+
+实现必须同步所有 worker-event consumer：原 controller `_verify_worker_ready` 有 8 MiB 文件上限、观测循环有 4096 条计数上限；resource_watch `_read_worker_events` 同样用 8 MiB 检查 worker 日志。不能只改 EventWriter，留下旧读取限制提前截断。guardian 自己的资源日志继续 **4096 条/8 MiB** 即可：4 小时约 2880 次、计入首样本约 2881 次，且每条不超过 2 KiB，仍在其原有上限内；worker-event 读取上限与资源日志写入上限应明确区分，不无故扩展其他日志/原始服务日志限额。controller/guardian 继续消费同一实际 event 文件，既有 GC partial 与错误分类不变。
+
+这些是已审范围内的具体实现要求，不是追加候选审批门槛。复用现有用例，只验证两个真实符号的委托接线以及改动的写入/读取容量边界，保留必要的 AST/语法/文件摘要与 clean/镜像/输入检查；不重测未变矩阵。实施者准备合格即可按 §88 和本节运行一次，保存实际清单、hostname/时间/HEAD/exit、事件/资源/正常收尾或停止证据后交事后独审。要评价完整修复，仍需实际 prepare 完成、原正常 claim/join/worker 收尾与 GC 恢复/空闲回收路径的证据，不能仅凭未失租或 planner 返回判定成功。
+
+**本范围许可仅为上述一次完成性验证；不是新的正式计时、产品合入/push/tag 或正式基准恢复。** 无变更无新依据不原样重复大输入，实际失败停止保卷并按 DC80 最小修订；普通修订直接闭环，不重建逐摘要 GO。H3 原历史 PASS 保留，正式测量继续 STOP。

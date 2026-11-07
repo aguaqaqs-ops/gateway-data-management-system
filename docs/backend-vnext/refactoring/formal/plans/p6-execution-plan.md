@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **E 当前收口（2026-11-07）：** `82c4251b6c` 的 04 六包/Compose、06 静态/定向、fresh t1/t2/t4 均已通过独审，t3 M16 资源拒绝保持 FAIL。最终产品 `a6876d5600` 在 `464289138a` 漏预约窄修上落定32/8/M24；隔离 `a10dec894e` 于 03:42:33Z 完成 fresh 全 t3，18 scope、同 worker 资源与正常停止/清理齐，独审 PASS。最大预约 19.907 GiB，cgroup 峰 4.438 GiB仅属于临时64/16/M48。Owner 已确认最终32/8/M24与DC33范围：06 fresh完整t1–t3、04六包/Compose，t4按独审具体上界沿用；已授权最终验收，E/S2b NO GO。最终六包/容器、必要真实旅程与H绑定尚待，不拼接旧失败或局部证据。细节见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [测后提案](p6-s2b-e-kickoff.md)。
+- **E 当前收口（2026-11-07）：** 最终产品 `a6876d5600`、32/8/M24 GiB、N1 的必要实际验证均已独审通过：06 五包静态/30项定向、04六包整次权威（含Compose）、06 fresh完整t1–t3及资源/同worker/正常停止/清理；t4按Owner已确认的82完整来源与具体新增费用上界沿用，不冒新档物理实测。最终t3于05:27:08Z结束，cgroup peak4761649152B，无OOM/失租/重启。尚待唯一H的同04同WT六包闭包与镜像绑定、E最终结论；S2b exit单独办理，未提前打tag。原M16 t3/旧cal失败不改判，W1/W2正式测量及原基准保持独立。精确来源见[E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及[E任务](p6-s2b-e-kickoff.md)。
 
 - **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
 

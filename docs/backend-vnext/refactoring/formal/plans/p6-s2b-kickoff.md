@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A–D 已交付，E 收尾取证中）
 
-E 当前进度（2026-11-07）：`82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 已通过独审，t3 M16 拒绝保持 FAIL。最终产品 `a6876d5600` 在 `464289138a` 真实漏预约修正上落定 32/8/M24；隔离 `a10dec894e` 的 fresh 完整 t3 宽裕校准现已独审 PASS，最高预约 19.907 GiB、同 worker cgroup 峰 4.438 GiB。**E/S2b NO GO**，Owner 已选最终 32/8/M24 与 06 fresh t1–t3、04 六包/Compose、t4 按独审上界沿用，已授权最终验收；原失败与局部证据不改判。具体提案见 [E 任务](p6-s2b-e-kickoff.md)。
+E 当前进度（2026-11-07）：最终产品 `a6876d5600` 按 Owner 确认的 32/8/M24、N1 完成 06 五包静态/30 项定向、04 六包权威/Compose、06 fresh 完整 t1–t3，全部实际与独审通过；t4 依据 82 完整来源和具体费用上界沿用。**尚待唯一最终 H 闭包/容器绑定及 E 最终结论，S2b exit 未办理。** 原 M16 t3 拒绝和旧 cal 失败保持历史事实；最终 t3 cgroup peak 4.434 GiB 只说明本次完整 worker，不冒更大输入或正式性能证明。具体见 [E 任务](p6-s2b-e-kickoff.md)、[交付](p6-s2b-e-handoff.md)与[独审](p6-s2b-e-review.md)。
 
 E 启动时状态记录：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 

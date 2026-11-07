@@ -1,6 +1,6 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：**Owner 已确认最终 32/8/M24、N1 与 06 fresh t1–t3／04 六包和 Compose／t4 依据独审沿用，开始最终验收；E/S2b 仍 NO GO，待实际证据与最终 H 绑定。** 隔离 a10 fresh 完整 t3 宽裕校准已独审 PASS，最终产品 `a6876d560050285321fd9f62942d590a03f35d64` 在 `464289138a` 窄修上落定新配置；临时 M48 与计数日志不合 main。原 `82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 为合格来源，t3 M16 资源拒绝保持 FAIL。准确证据见 [handoff](p6-s2b-e-handoff.md) `e990b70d7d` 与 [独立审核](p6-s2b-e-review.md) `cde10c5acd`。
+当前状态（2026-11-07）：**最终产品 `a6876d560050285321fd9f62942d590a03f35d64` 的所有必要实际验证已独审通过，待唯一最终 H 的闭包/容器绑定，尚未办理 E GO 或 S2b exit。** 配置为 32 GiB 容器上限／8 GiB reserve／显式 M24 GiB、N1/单 active。06 五包 Ruff/mypy 与 30 项定向通过；04 六包权威整次 runner/driver0（含 Compose）；06 fresh 完整 t1、t2、t3 均通过，资源/同 worker/正常停机/清理齐，t3 cgroup peak 4,761,649,152 B、VmHWM 4,419,688 KiB，无 OOM/失租/重启。t4 按 Owner 已确认的 82 完整来源及独审新增费用上界沿用，物理值仍标明原 24/M16 配置。精确来源及 SHA 见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。不重跑未受影响证据，不把原 M16 t3 或旧 cal 失败改判；W1/W2 正式项及原基准结论保持独立。
 
 ### 测后配置与最终验证（Owner 已确认推荐方案）
 

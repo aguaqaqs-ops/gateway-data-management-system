@@ -1268,6 +1268,25 @@ fn parse_output_object(py: Python<'_>, output: &SqlParseOutput) -> PyResult<Py<P
     let value = PyDict::new(py);
     value.set_item("kind", "result")?;
     value.set_item("status", output.status.as_str())?;
+    if let Some(facts) = &output.configuration_generated_time {
+        let time = PyDict::new(py);
+        time.set_item(
+            "rule_id",
+            gateway_compute_core::table_access::CONFIGURATION_GENERATED_TIME_RULE,
+        )?;
+        time.set_item("status", facts.status)?;
+        time.set_item("selected_time_utc", facts.selected_time_utc())?;
+        time.set_item("max_valid_time_utc", facts.max_valid_time_utc())?;
+        time.set_item("valid_count", facts.valid_count)?;
+        time.set_item("empty_count", facts.empty_count)?;
+        time.set_item("invalid_count", facts.invalid_count)?;
+        time.set_item("last_valid_source_row", facts.last_valid_source_row)?;
+        time.set_item("max_valid_source_row", facts.max_valid_source_row)?;
+        time.set_item("last_not_max", facts.last_not_max())?;
+        value.set_item("configuration_generated_time", time)?;
+    } else {
+        value.set_item("configuration_generated_time", py.None())?;
+    }
     let tables = PyList::empty(py);
     for table in &output.tables {
         add_table(py, &tables, table)?;

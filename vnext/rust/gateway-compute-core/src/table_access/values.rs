@@ -53,6 +53,7 @@ pub(crate) enum TableErrorKind {
 #[derive(Debug)]
 pub(crate) struct ChunkOutcome {
     pub table: usize,
+    pub configuration_generated_time: super::ConfigurationGeneratedTime,
     pub columns: Vec<ColumnBuilder>,
     pub row_offsets: Vec<usize>,
     pub table_errors: Vec<(Fault, TableErrorKind)>,
@@ -61,6 +62,7 @@ pub(crate) struct ChunkOutcome {
 
 pub(crate) struct ChunkContext<'a> {
     pub data: &'a [u8],
+    pub time_column: Option<(usize, usize)>,
     pub plans: &'a [Arc<[ColumnPlan]>],
     pub ordinals: &'a [Arc<[usize]>],
     pub max_field_bytes: usize,
@@ -97,6 +99,7 @@ pub(crate) fn parse_chunk(context: &ChunkContext<'_>, spec: ChunkSpec) -> ChunkO
     let ordinals = &context.ordinals[spec.job];
     let mut outcome = ChunkOutcome {
         table: spec.table,
+        configuration_generated_time: super::ConfigurationGeneratedTime::default(),
         columns: plans
             .iter()
             .map(|plan| ColumnBuilder::new(plan.kind.layout()))
@@ -179,6 +182,15 @@ fn parse_tuples(
                 match convert_row(context, plans, ordinals, &values, outcome, tuple_start) {
                     Ok(()) => {
                         outcome.row_offsets.push(tuple_start);
+                        if let Some((table, column)) = context.time_column
+                            && table == spec.table
+                            && let Some(index) =
+                                ordinals.iter().position(|ordinal| *ordinal == column)
+                        {
+                            outcome
+                                .configuration_generated_time
+                                .observe(&values[index], &plans[column].kind);
+                        }
                     }
                     Err(ConvError::Table(fault)) => {
                         record_table_error(outcome, fault, TableErrorKind::Conversion);

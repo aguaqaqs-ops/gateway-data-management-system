@@ -21,6 +21,7 @@ mod columns;
 mod convert;
 mod cursor;
 mod errors;
+mod generation_time;
 mod json_check;
 mod literal;
 mod model;
@@ -39,6 +40,7 @@ use rayon::prelude::*;
 
 pub use canonical::{PARSE_CANONICAL_FORMAT, PARSE_CANONICAL_VERSION, encode_parse_canonical};
 pub use errors::{ParserDiagnostic, ParserDiagnosticCode};
+pub use generation_time::{CONFIGURATION_GENERATED_TIME_RULE, ConfigurationGeneratedTime};
 pub use model::{ColumnDescriptor, DeclaredTypeMetadata, SqlLogicalType, TableDescriptor};
 
 use cursor::Cursor;
@@ -160,6 +162,7 @@ pub struct ParsedTable {
 
 #[derive(Debug, Clone)]
 pub struct SqlParseOutput {
+    pub configuration_generated_time: Option<ConfigurationGeneratedTime>,
     pub status: ParseStatus,
     /// Empty when the document failed.
     pub tables: Vec<ParsedTable>,
@@ -250,6 +253,7 @@ fn failed_document(
     diagnostics.push(fault.into_diagnostic(None, None));
     let diagnostics = finish_diagnostics(diagnostics, budgets);
     SqlParseOutput {
+        configuration_generated_time: None,
         status: ParseStatus::Failed,
         tables: Vec::new(),
         diagnostics,
@@ -414,7 +418,7 @@ fn run_phase_a(sql: &[u8], options: &SqlParseOptions<'_>, pool_threads: usize) -
                     .and_then(|n| {
                         span.splits
                             .len()
-                            .checked_mul(16)
+                            .checked_mul(16 + 2 * std::mem::size_of::<ConfigurationGeneratedTime>())
                             .and_then(|c| n.checked_add(c))
                     })
                     .and_then(|n| n.checked_add(4 * std::mem::size_of::<InsertJob>() + 4096)),
@@ -594,7 +598,19 @@ fn parse_document(
         .collect();
     let ordinals: Vec<Arc<[usize]>> = jobs.iter().map(|job| Arc::clone(&job.ordinals)).collect();
     let specs = chunk_specs(&jobs, &catalog.tables);
+    let time_table = catalog
+        .tables
+        .iter()
+        .position(|table| table.canonical_name == "version_manager");
+    let time_column = time_table.and_then(|index| {
+        catalog.tables[index]
+            .columns
+            .iter()
+            .position(|column| column.canonical_name == "saved_time")
+            .map(|column| (index, column))
+    });
     let context = ChunkContext {
+        time_column,
         data: sql,
         plans: &plans,
         ordinals: &ordinals,
@@ -696,6 +712,24 @@ fn parse_document(
     let diagnostics = finish_diagnostics(diagnostics, budgets);
 
     let document_failed = catalog.soft_failure.is_some();
+    let configuration_generated_time = if document_failed
+        || time_table.is_some_and(|index| {
+            catalog.tables[index].failed_at.is_some() || catalog.tables[index].unknown
+        }) {
+        None
+    } else {
+        let mut facts = ConfigurationGeneratedTime::default();
+        for outcome in &outcomes {
+            facts.merge(&outcome.configuration_generated_time);
+        }
+        Some(facts.finish(if time_table.is_none() {
+            "TABLE_ABSENT"
+        } else if time_column.is_none() {
+            "COLUMN_ABSENT"
+        } else {
+            "PRESENT"
+        }))
+    };
     let mut grouped: Vec<Vec<ChunkOutcome>> =
         (0..catalog.tables.len()).map(|_| Vec::new()).collect();
     for outcome in outcomes {
@@ -734,6 +768,7 @@ fn parse_document(
         ParseStatus::Partial
     };
     SqlParseOutput {
+        configuration_generated_time,
         status,
         tables,
         diagnostics,

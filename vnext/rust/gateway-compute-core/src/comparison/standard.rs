@@ -1609,12 +1609,31 @@ mod tests {
         let keyless_current = batch(&[1, 2, 2], &["a", "b", "b"])?;
         let ordered_schema = Arc::new(
             Schema::new(vec![
-                field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
-                field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
-                field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
+                field(
+                    "gid",
+                    "BIGINT",
+                    "standard",
+                    Some("signed-integer"),
+                    DataType::Int64,
+                ),
+                field(
+                    "no",
+                    "BIGINT",
+                    "standard",
+                    Some("signed-integer"),
+                    DataType::Int64,
+                ),
+                field(
+                    "name",
+                    "VARCHAR(64)",
+                    "standard",
+                    Some("string"),
+                    DataType::Utf8,
+                ),
             ])
             .with_metadata(HashMap::from([(
-                "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+                "gdds.canonical_mapping_version".to_string(),
+                "1".to_string(),
             )])),
         );
         let ordered_batch = |gids: Vec<i64>, names: Vec<&str>| {
@@ -1634,52 +1653,68 @@ mod tests {
         ordered_options.digest_value_columns = ordered_options.value_columns.clone();
         let jobs = (0..12usize).collect::<Vec<_>>();
         let run = |threads| -> Result<Vec<String>, Box<dyn std::error::Error>> {
-            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()?;
             let shared = context();
             let signatures = pool.install(|| {
-                jobs.par_iter().map(|job| -> Result<String, OrderedCompareError> {
-                    if *job % 3 == 2 {
-                        let result = compare_ordered_batches(
-                            OrderedBatchPair {
-                                before: Some(std::slice::from_ref(&ordered_before)),
-                                current: Some(std::slice::from_ref(&ordered_current)),
-                                before_schema: Some(ordered_before.schema()),
-                                current_schema: Some(ordered_current.schema()),
-                                options: &ordered_options,
-                            },
-                            &shared,
-                        )?;
-                        Ok(format!("{:?}", (
-                            &result.facts_metadata.status,
-                            &result.facts_metadata.ordered_extension.summary,
-                            &result.facts_metadata.blank_extension.summary,
-                            &result.facts_metadata.ordered_extension.before_ordered_digest,
-                            &result.facts_metadata.ordered_extension.current_ordered_digest,
-                            &result.ordered_records,
-                            &result.blank_records,
-                        )))
-                    } else {
-                        let (before, current, mode) = if *job % 3 == 0 {
-                            (&keyed_before, &keyed_current, StandardMode::Keyed)
+                jobs.par_iter()
+                    .map(|job| -> Result<String, OrderedCompareError> {
+                        if *job % 3 == 2 {
+                            let result = compare_ordered_batches(
+                                OrderedBatchPair {
+                                    before: Some(std::slice::from_ref(&ordered_before)),
+                                    current: Some(std::slice::from_ref(&ordered_current)),
+                                    before_schema: Some(ordered_before.schema()),
+                                    current_schema: Some(ordered_current.schema()),
+                                    options: &ordered_options,
+                                },
+                                &shared,
+                            )?;
+                            Ok(format!(
+                                "{:?}",
+                                (
+                                    &result.facts_metadata.status,
+                                    &result.facts_metadata.ordered_extension.summary,
+                                    &result.facts_metadata.blank_extension.summary,
+                                    &result
+                                        .facts_metadata
+                                        .ordered_extension
+                                        .before_ordered_digest,
+                                    &result
+                                        .facts_metadata
+                                        .ordered_extension
+                                        .current_ordered_digest,
+                                    &result.ordered_records,
+                                    &result.blank_records,
+                                )
+                            ))
                         } else {
-                            (&keyless_before, &keyless_current, StandardMode::Keyless)
-                        };
-                        let result = compare(
-                            std::slice::from_ref(before),
-                            std::slice::from_ref(current),
-                            &options(mode),
-                            &shared,
-                        )?;
-                        Ok(format!("{:?}", (
-                            result.row_added_count,
-                            result.row_deleted_count,
-                            result.row_modified_count,
-                            &result.records,
-                            &result.facts_order,
-                            &result.artifact_order,
-                        )))
-                    }
-                }).collect::<Result<Vec<_>, _>>()
+                            let (before, current, mode) = if *job % 3 == 0 {
+                                (&keyed_before, &keyed_current, StandardMode::Keyed)
+                            } else {
+                                (&keyless_before, &keyless_current, StandardMode::Keyless)
+                            };
+                            let result = compare(
+                                std::slice::from_ref(before),
+                                std::slice::from_ref(current),
+                                &options(mode),
+                                &shared,
+                            )?;
+                            Ok(format!(
+                                "{:?}",
+                                (
+                                    result.row_added_count,
+                                    result.row_deleted_count,
+                                    result.row_modified_count,
+                                    &result.records,
+                                    &result.facts_order,
+                                    &result.artifact_order,
+                                )
+                            ))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()
             })?;
             assert_eq!(shared.remaining_bytes(), 16 * 1024 * 1024);
             Ok(signatures)

@@ -38,6 +38,10 @@
 
 **04最终镜像准备补充：** 已核本冻结线RS测试harness同时检查candidate SHA、build-input、source-tree和lock，而backend harness只检查RS的source身份；共享闭包又包含所选RS本机image ID。最终V_ref冻结后，在04专用tag上预先核齐RS revision等身份，避免后段测试自动重建同tag。沿现有取证方式保存实际运行前不可变config digest、全部有序DiffID及同节点image ID，并核对结束时RS tag是否漂移；不能以终态tag代旧runtime或仅凭same-source宣称carried。这里不借其他开发线的结果或补验方案，不提前运行未冻结候选，不修改CT108的测量镜像/tag；client e2e的既有正常自动重建规则保持。
 
+**后处理指标口径更正：** owning设计§16.3要求W系列分别保留单operation的READY与完成时间，H1/H1-FULL/H1-回填/H2/H3以READY为主，H2三节点取完成，S1/S3/S4取main前移的Submit完成，S2取同步受理并核无Repository operation。整旅程elapsed单列，不作为这些指标的替代；不得统一改成completion而丢失READY。S2没有新operation不等于受理耗时为零，缺精确受理计时时只单列实际可得的代理口径并说明限制。
+
+已发现部分deviation selector误取整旅程、H2三节点的旧参考19361.157s也取整旅程。现有双方从认证的原run/state/summary中修正派生actual与同operation/同端点reference，保留产品/输入/节点及原SHA，不修改原证据或共享计时；record builder与deviation工具分别核实际影响，不将一个工具的修正泛化成另一个已错。原policy及统计规则保持，不能恢复合法参考时明确UNAVAILABLE/不可比及原因，不伪填或静默改policy。本修正不因错误selector、字段抽取或A下跨版本旧差异触发已关闭业务重跑；实际干扰、数据/身份不符仍按原停止和DC80处置。
+
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 
 ## 工具、镜像和时间预算

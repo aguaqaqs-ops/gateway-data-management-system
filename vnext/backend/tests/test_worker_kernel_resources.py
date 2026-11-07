@@ -13,10 +13,19 @@ from gateway_backend.settings import OperationWorkerSettings
 from tests.support.runtime_settings import make_operation_worker_settings
 
 
-@pytest.mark.parametrize("value", (0, -1, True, 1.5, "1.5", "", 8589934593))
+@pytest.mark.parametrize("value", (0, -1, True, 1.5, "1.5", "", 17179869185))
 def test_worker_rejects_invalid_or_excessive_kernel_budget(tmp_path: Path, value: object) -> None:
     with pytest.raises(ValidationError):
         make_operation_worker_settings(tmp_path, kernel_memory_budget_bytes=value)
+
+
+def test_worker_deployment_profile_has_explicit_budget_and_one_active_operation(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(tmp_path, kernel_memory_budget_bytes=16 * 1024**3)
+    assert settings.memory_envelope_bytes == 24 * 1024**3
+    assert settings.memory_reserve_bytes == 8 * 1024**3
+    assert settings.kernel_memory_budget_bytes == 16 * 1024**3
+    assert settings.kernel_threads == 1
+    assert settings.max_in_flight == settings.claim_limit == 1
 
 
 def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：固定最终产品82c4251b6c，Owner最终24/8/显式M16、N1单active；五包静态、04六包整次及final t1/t2/t4已通过，final t3在v2 Preview真实资源准入失败，保现场诊断，最终H闭包绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：最后完整门禁来源82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，t3在v2 Preview按现模型M16准入失败；当前源码464289138a补漏预约已过定向/static，24/8/M16仍不变，宽裕t3局部校准方案待Owner，最终H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -32,7 +32,7 @@ typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d
 
 ## 当前容器记录
 
-Current reviewed code HEAD: `82c4251b6cf944526c80a5e9bfe707bc57ab5087`，审核detached WT固定clean82。最终profile修改Compose/环境接线，已在04当前候选本机离线重建并由六包权威入口运行实际Compose；不重复同候选Compose。最后合格04 backend/worker image为 `sha256:a5e0b1df76750aee55cabc9506f0b89427626dab16060794311548617dd8a72f` / `sha256:99ebe2a031d2fb2c81fbf46a266cd8f8f9ac374d55c0f9f8fbce0f649ae25a5c`，RS image为 `sha256:2536840a18c0eb840e88d040988b203d9025270e55337090dca8e848d5b2b08c`、revision82/source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，provenance SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。backend starting closure total为 `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c`。该结果绑定实际82，不把旧D局部、失败runner或临时cal镜像升级为本来源。
+Current reviewed code HEAD: `464289138a27f03a4dddc3b825e6bd32907fbf9f`，审核detached WT固定clean464。相对82仅内部Python准入/owner测试，06定向覆盖，未新增06 Compose；最终档/H固定后再完成必要04闭包/门禁。此前82的profile触及Compose/环境，已在04本机离线重建并由六包权威入口运行实际Compose，不重复同候选Compose。最后合格04 backend/worker image为 `sha256:a5e0b1df76750aee55cabc9506f0b89427626dab16060794311548617dd8a72f` / `sha256:99ebe2a031d2fb2c81fbf46a266cd8f8f9ac374d55c0f9f8fbce0f649ae25a5c`，RS image为 `sha256:2536840a18c0eb840e88d040988b203d9025270e55337090dca8e848d5b2b08c`、revision82/source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，provenance SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。backend starting closure total为 `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c`。该结果只绑定实际82，不冒464或旧D/失败/cal的当前容器结论。
 
 82当前容器门禁已通过；最终H的carried仍须按同04/同WT实际闭包与镜像身份规则另办，当前不预填。04 WT保留至stage exit合入。主线读取至36709de375时相对82的vnext无实差异；这仅为差异审计，不代替最终H闭包判定。
 
@@ -288,3 +288,27 @@ W1初诊只使用这次t4本就导出的timing：首次v1 Preview受理响应后
 **最终t3未通过，E保持NO GO。** 05 fresh82于02:38:11–02:46:18Z运行，v1 Preview/Submit、repeat Preview成功，v2 Preview `op-dffc6a0eee79886afcb6b859` 的materialize_inputs attempt1 SUCCEEDED且checkpoint5608d132…保留，assemble_preview attempt1以 `RESOURCE_LIMIT_EXCEEDED: operation memory reservation exceeded` FAILED。只读step摘要 SHA `43f37e9c7138fc7ae24952585ddb5f0754658cb9a20aabd58e1149a28820d23f` 已核；journey SHA `948f27a15f7a6ff87fcf6cfb2c5b02298b005ee1c1fc5d25adf459a82a4f0a4c`、result SHA `78bde259fb8b02853075ddf5c4c1eee658670e35f40728e6ea99b0d6a124b888` 保持journey/driver1。
 
 该worker dfdade767d51的配置/同worker/资源完整/正常stop0均真，lifetime cgroup peak4373372928 B、max24GiB、VmHWM4201560KiB、必需事件0；`resource_verdict=PASS`只指资源证据齐，不能覆盖业务失败。现场容器/卷/busy按DC80保留，未重跑或改M/系数。当前先从保留descriptor/roles/identity筛选重算真实双侧预算需求，尚不认定误收费或选择新资源档，也不把资源拒绝归为性能延期；最终H闭包判定待故障收敛。
+
+### t3准入下界及当前读行分支的漏预约
+
+只读计算已收齐，无新旅程/服务或scalar行展开。原metadata脚本因unmaterialized descriptor没有business_schema_digest字段而失败，01日志 SHA `16d4bb2f87ee33f55a2171c5e6eedeab83429ce4713d9e64ba169bb3478b84ac` 保留；按Owner DC68只读后处理澄清，此字段适配不计一次重试限制，不扩到触产品/证据不符情形。修正摘要身份来源，并按真实table map过滤：BASELINE53个materialized/139个unmaterialized，MODIFIED193个materialized；后者仅summary描述符不会产生task.table，不计行项。
+
+固定脚本d178433d…实际0，`dc80-comparison-row-lower-02.json` SHA `60ab606f271b9a35c73ef5fa6954eb370bf22aa39063b1275b6d4defaa84756c`、原log SHA `437645773a1ca116ac4fbba9c08f3d9eb1688801c427a15a9012bc0615c84a5c` 已独立读取/重算。193 tasks为110 STANDARD/54 ORDERED/25 BROWSE_ONLY/4 SNAPSHOT_ONLY；保守略过87个ordinary identity，28个changed双侧、48个ordered identity current合计104个read-side行项。row项17044254528 B，加base1646592 B为17045901120 B；它单独仍低于M16 133968064 B，不能提前称已超额。
+
+随后仅当前device_st一个既有IPC做Arrow25 mmap/get_batch/select/nbytes，方法与已审4a28相同，不遍历scalar/不运行Rust或业务consumer。02:54:35Z actual0、锁核/native137/E解释器/82clean吻合，脚本065f60ee…；JSON `18be24ff08a342f40539863729945214168778e0390a59f73c7f339d65f21b0d`、log `b850b0acce2b41729c3d1405b3d706b16dafe68e50509e24c7be3713e752f897` 已独立核。device_st current43110行/43列的logical Arrow16646188 B×64=1065356032 B；与上述row/base合计 **18111257152 B（16.86742GiB）>M16，至少超931387968 B**，其余selected Arrow及已存活收费均未计。device_st本身双侧row项9700784640 B。该结论证明当前收费模型的双侧准入至少超M16，不把它叫真实RSS/精确物理需求，也不自动缩系数、跳过真实行或逐档扩大M。
+
+同时独立发现本次实际输入的增长前准入缺口：`standard._compare_non_record_role` 在COLUMNS_ADDED时会双侧`_read_rows`并建Counter来判content_changed，但`comparison_python_memory_upper`对BROWSE_ONLY/SNAPSHOT_ONLY无条件略过。源metadata中iec101_cfg/iec104_cfg/project的共同列scalar_type及nullable逐列相同、无removed，仅新增config_type/tips，分别337/330/13→14行，实际table refs齐；准确落入该读行分支，不是仅凭role猜测。未覆盖费用不能由其他表的宽裕保守系数替代。
+
+协调者已确认这是当前资源正确性窄修，交实施者只补该COLUMNS_ADDED实际读行分支的原行模型预约，保其他metadata-only免行费；不改业务facts/系数/预算档，也不声称这会解决M16拒绝。业务断言继续归现`test_comparison_rule_roles`两role owner，最小低M拒绝须在真实读行前触发。源码/focused闭环尚待；新增宽裕t3剩余路径校准须纳入此修复后另交Owner具体方案，当前未授权或启动。
+
+05所需只读证据齐后于02:55:18Z按idle/82clean/精确owner仅释放busy，release log SHA `2647713da378e4e631b6e47f64e1b52cb44f1f022e0808bce25bf6f69f3af80a` actual0，已独立核。原t3三容器均stopped、三卷/网络/镜像/输入/state及失败证据保留，未down/rm/prune。05实际MemTotal64GiB；若后续选择既有临时64/16/M48档，只能按CT10896GiB及获准用途安排，不能在05假称另留32GiB。现1f9相对82仅profile/log/assert四路径，不含新的漏预约修复，不能直接作为后续修复cal候选。
+
+上述漏预约已由固定main **`464289138a27f03a4dddc3b825e6bd32907fbf9f`** 窄修闭环。相对82仅standard.py/test_comparison_rule_roles.py：nonrecord双方descriptor存在时，复用业务同一_schema_view/schema_evolution，只有COLUMNS_ADDED才对双方真实reader套现行公式；其他metadata/单侧仍skip，ordinary/ordered原early-exit不变。原content_changed业务owner/expected不改；新一个role×columns_added四参数行为owner验证1→256行预约增长、metadata费用不随行量增长、低M在读取双侧前拒绝及零iter_rows/arrow_stream调用，不复制收费常数为expected。
+
+06实际source0/另call环境0日志 SHA `1b888897a385d6fe739a57f68d1febcb8dd406407289a2a728186b74c65581c0` / `b1ff94cbef696dea275cd4999af6f5ee99cb451be73c35dd86197298c9e83525`，clean464/实际E模块和venv/native137、profile仍24/8/M16，已独立核。03:00:22–03:00:24Z Ruff0/mypy500通过、roles/standard/ordered及既有pair admission nodeid共93 PASS，focused0，log SHA **`eeec41b911ba77eea540eae763a8504b2e6623f8c661e6d54ad3f040ae64a004`**。03:01:13Z release0 SHA `cd8534919179c7b272004e144334c4f61f8510e4674ea63426d1e00c2261a57d`，marker另核不存在。此范围独审CLEAR，不作新04来源；它补正确性费用，不会降低t3原模型18111257152 B下界或关闭M16失败。
+
+协调者拟向Owner提出具体一次宽裕隔离t3局部校准：464补丁纳入1f9原64/16/M48/N1 cal基线，CT10896GiB；05闲时原子取得占用后仅对本E三停止卷/state/secrets作标准冷归档，经获准LAN私有传输至新project，核byte/mode/uidgid一致；当前候选本机build/bareup/镜像绑定，原repo和V1 commit核后新key从`v2-preview`走剩余V2 Submit/read及History，不重复V1 Submit、不改原FAIL或source state/head。当前仅为具体方案，**未授权复制或启动新cal**，新cal候选与driver仍须核实际绑定。
+
+审核已核源state路径 `/home/dev/gateway-real-dumps/runs/s2b-e-final-t3-82c4251b6c/t3.state.json`、SHA `443732447e1f4ae12df80b576e44cf51ab17c7a80d8d24aeb0ab80710ad733b2`，14keys为_stack+13成功业务step，已有v2-upload/v2-workspace，无v2-preview。_stack原head82/project保持，repo `9c7cf48f-4d86-44f0-92f4-c12e029ff4cd`、initial commit `4a370s8f7cb72nt7j3dt39oqpd8tc83t`；同run下t3-secrets四文件齐，不输出secret内容。
+
+现CLI机制可用：JourneyStepRunner复用前缀workspace/upload，v2_preview_action按新project生成新key；accept_start_preview按(workspace,key)查重/定operation id，没有FAILED terminal禁止条件，accept本身不增workspace版本；资源失败handler只置operation/step FAILED和释放step保护，不改workspace。因此copy后还须一次核v2workspace OPEN、optimistic_version/current_upload_revision_id/generation与保存upload一致、BaselineHead与成功prefix一致，才可同workspace/upload发新op且newop≠旧FAILED；不人工改state、版本或HEAD来绕前提。此静态方案不替代实际局部结果，也不替代最终profile fresh完整t3/必要门禁。

@@ -2226,3 +2226,26 @@ BatchMode echo OK 后，只读 CT108 既有封口日志与 abort/postflight，�
 本次接续适用 Owner **c58f227875** 的“测试环境执行授权”，`p6-worker-gc-scheduling-repair-plan.md:13` 已明确：**“低风险准备命令失败先停止原样试错、留日志、查明原因后最小修正；恢复不因累计失败次数再等 Owner。”** 方案 A 当前执行条文继承这一普通接线/文书直接闭环流程。因此停止错误命令、保存两次非零记录是正确的，但不能仅凭“重做又失败”的次数增加 Owner 等待；本次恢复依据是已经查明并验证的具体修正，而不是忽略错误。实际产品、输入/镜像身份例外、必要守护或资源/范围变化仍按原边界处理，权威 runner 失败规则也未放宽。
 
 **具体指示已直接交实施者并同步设计：冻结当前封口文件，分开保存最终 SHA，使用三个固定权威路径，现场重新核空闲/取自有锁，从正常启动前核对开头继续。** source/checkpoint/input/目标三镜像/占用等实际守卫全部通过后直接运行，不再新增日志摘要审批层、重复 source 恢复或等待本会话另一份回执；结果事后独审。其余 §92/95/96 边界保持。
+
+## 99. 09:08 guarded 入口拒绝：真实 sampler 命令契约漏检，最小修正后改用唯一新身份
+
+**5de 的 guarded 入口在真实 sampler 前置校验退出，没有启动 journey、Submit 或资源采样，不能作为正式测量或已消费的业务 continuation。** 当前入口需修正这一具体工具接线问题后再执行；保留失败 project **`p6w4resume970420261107a`** 及所有证据，不复用其目录。新唯一执行 project 固定为 **`p6w4resume970420261107b`**，仍属 Owner 方案 A；产品9704、源 checkpoint、三镜像内容、输入/cache、预算及一次业务运行范围不变。不是增加第二次实际 Submit，不重做来源恢复/SQL/输入生成或已通过业务。
+
+### 实际失败与审核纠正
+
+BatchMode echo OK 后，只读 CT108 已关闭三日志，SHA256 精确匹配：最终 preflight **`7ab83c2f75b8dd24365e383afc7f28096b27c0fba68ff1bacc85d0982f54588c`**、controller **`d6379b746b32cdf0298fdff0d3e447cac0d88e209100f11022cf89f9e34e907a`**、postflight **`3a90caaf20751d986a8fc8e57a35ec4d999b52cab1364fb2ac837747c080e601`**。记录 clean5de，09:08:13–15Z，reason=`formal journey must use this worktree's backend .venv Python`、launcher exit125，project down/postflight/cleanup exit0、锁释放。final preflight 的 source/run/state/log、恢复、输入、native身份与预置镜像均已到 MATCH；这不消除随后实际入口的拒绝。
+
+真实 `p6_baseline_resources._launch_metadata`（原315行附近）直接把 `command[0]` 当作解释器；launcher 在 sampler 的子命令前加了 `timeout --foreground --signal=INT --kill-after=1200s 25200s`，所以 command[0]=timeout。该校验在 started_utc/采样循环/Popen 之前抛错，吻合只有 postflight 留下的事实。controller 后续的“watchdog PID is not the isolated session process group”处于快速退出后的身份检查，是同一入口失败后的派生信息，不另计一次产品/租约失败；原主要 reason 已保存。
+
+**上一轮审核漏检了真实 sampler 的消费者约束。** §96 两项真实 GNU timeout fixture 验证了信号/清理，但使用 fake sampler，未证明实际 producer argv 能被真实 `_launch_metadata` 接受；不能把那两项 PASS 扩写为该集成契约已经覆盖。F1 信号修订和静态通过事实保持，先前“无剩余工具阻塞”结论现按这一新实证接线问题收窄。为本次实际代码审创建了 clean detached `/home/dev/gdds-p6-vref-review-5de35b60` 并链接 legacy；本审核未运行测试、启动业务或改实施 worktree。
+
+### 准许的最小契约修正与验证
+
+1. **只修 sampler 的前置命令识别边界。** 识别 committed launcher 的固定 GNU timeout argv 前缀（固定工具路径/foreground/signal/grace/work值，优先固定绝对GNU路径），再对后面的真实命令执行原解释器、manifest/root/census/evidence 校验。真实 Python 仍须为当前 worktree 的字面 `.venv/bin/python`；空子命令、其他解释器、shell/env/任意 wrapper 或不匹配前缀仍拒绝。不能改成在任意 argv 中搜索 Python，也不能关闭原检查。
+2. 保持原直接 Python 命令的行为，记录实际完整 command 和真正 python_interpreter，不把 timeout 冒称解释器。改动限定于采样起点之前的启动校验；**采样循环/频率、资源统计、operation timer、计时边界和产物口径不变**。这不是修改已成功历史计时的路径，不要求因共享文件中一处前置 validator 修改而重测历史场景；若实现另触及时段/采样语义，再按实际影响处理。
+3. 在现有 sampler 命令校验用例中覆盖固定 wrapped 命令接受、原直接命令保持及错误解释器/不受支持 wrapper 拒绝；增加或复用一个**实际 launcher argv→真实 `_launch_metadata`** 的契约核验，不能继续只由 fake sampler 接受任意数组。复用已通过的小 GNU timeout/清理 fixture及必要五包静态，不加真实 Docker/Compose、prepare、全量 runner 或新矩阵。用例属于命令入口行为，不按本轮 Finding 编号命名。
+4. 同步更新新 project 的固定 identity JSON/其代码摘要、target evidence/log/key、launcher固定project及runbook/相应用例；原源仍是 `p6bw4s4h120261105b:v2-preview`，不得误改 source b 或旧 A 事故记录。预置镜像内容不变，为新 project 增加已核内容的别名而不覆盖旧tag/重建；在 CT108 对实际新tag照常核 config/全部有序DiffID/labels。
+
+本审核另只读检查了新 project 的目录/容器/卷/网络，结果均不存在，Docker查询均exit0。它只是本轮现场事实，不是预约；实际执行前仍现场核空闲/原子取自有占用及全部既定条件。旧 A 的 postflight、source事故/恢复和其image别名保留，不清理或改写。
+
+**上述具体修正、必要 focused/静态与新身份准备已在原工具修复范围内明确允许。** 合格后按 §92 正常前提核验直接执行新身份的唯一业务接续，交代码/原始结果供短复核，不再追加 Owner、最终 manifest 或身份文件摘要 GO。此前 source恢复和 F1 不因本命令校验错误重开；本次失败及125记录保留。该决定直接送现有实施者与设计者，不新增会话/角色，不扩基准 exit。

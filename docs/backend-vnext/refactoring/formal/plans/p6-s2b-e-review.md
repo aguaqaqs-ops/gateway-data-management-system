@@ -231,3 +231,11 @@ driver直接当前候选本机build和bare Compose up，不调用会teardown/see
 审核另查新copy容器/卷均0、busy不存在、节点无运行容器，7c/1de/4f原三代各3停止容器/3卷保留，原state SHA仍0b24994e…，原cal `journey1`/result4875de…不改。FD Finding由窄源码、行为owner、真实C正反对照与此实际History闭环收敛；**E最终仍未GO**，最终profile/候选及六包、t1–t4必要实际验收待收齐。若最终profile改vnext/deploy，按协调者1e9d6a378b确认六包共同闭包变化，最终六包均需实际合格来源；当前临时cal/FD不跑六包，A–D语义证据按影响复用，同候选backend权威Compose不重复。
 
 已给协调者的资源建议为24GiB envelope/8GiB reserve/M16、N1的受限候选：已覆盖成功前缀最大显式预约12.17324GiB，History补验10.44761GiB，M16对此预约峰留3.82676GiB余量；Rusttemporary不被charged完整计实，原cal物理峰值与新History局部也不能拼完整峰值，故此仅为覆盖范围+合理余量的待验选择，最终同worker完整t4及必要验收仍不可免。最终profile由Owner据此决定，不宣称临时64/16/48已获生产确认，也不承诺2×t4/W1/W2或更大输入容量。
+
+## Owner 最终A资源档及必要最终验收
+
+Owner已明确选择最终A：**24GiB envelope / 8GiB reserve / 显式M16，N1/单active**，覆盖此前暂缓配置消息（决议aedeb00679、命令绑定014e7a1c4f）。固定产品候选 **`82c4251b6cf944526c80a5e9bfe707bc57ab5087`** 已独立窄审CLEAR，审核WT同步detach至此：相对d6仅settings三常数、Compose精确字节25769803776/8589934592/17179869184、既有resource owner的M16+1拒绝及显式profile/N1/单active断言。缺M拒启、类型严格、M≤envelope-reserve、固定控制/租约/claim预算及FD修复不变；原小fixture显式M8仍合法，不机械重写。main无临时cal logger/观测框架或ulimit修改。
+
+06对clean82实际source0 SHA `95aa7b2faeb12bf2dab5f178db79e6d3fd3c7dbfb0f385a080c13fa03d962a29`、另call实际E路径/native137/24-8-16环境0 SHA `0f13ca465796fb2ce6a43c47a904034c75fb4aca27cfa3f0c996ba2ee2de82a0`；Ruff0/mypy500通过、worker resources/backend settings/worker lifecycle三module30 PASS、focused0，日志 SHA `c7ed37603c6c2d117ec4350d6bc2ad071042b99909dbf14ad72d4de2b60641c8` 已独立读取。02:17:14Z release0 SHA `a6b17a74059414043ec669259ac2c19c22dc7285bc678b04c9d29faaedc2aedf`。这关闭配置定向验证，不是最终六包或真实数据通过。
+
+按已确认影响执行最终82：04同E gate WT六包全部actual runner（Rustfmt/clippy/test和五Python），05 t1–t3、CT108 fresh完整t4可并行，不复用临时cal充当最终旅程。最终fresh driver `/tmp/s2b-e-final-t4-driver.py` SHA `0ff03b35aca679ac18ba1ecc0f8ba5b94ffb45a6bdc680760b431aa46e1a4d45` 的关键差异已核：新project、M16命令/24-8-16运行配置、同fresh worker cgroup lifetime peak/RSS/事件/正常stop、失败现场保全；无临时scope-counter必需条件。05版仅限制tier参数t1/t2/t3及对应WT/project，04实际选择全部六包、不carry旧Rust。已明确范围的准备/focused/预检按既有模式自行推进，不另立逐脚本GO链；审核重点为实际SourceV整次exit0、最终闭包/容器绑定、fresh t1–t4与资源事实。最终结果尚待，未知不写PASS；原cal三代/源callee数据保留，GC他人文档不触碰，S2b最终exit另办。

@@ -1775,3 +1775,19 @@ fence、业务异常或 drain 意图不等于 executor 已结束。恢复/可选
 **后续工具接线待办：** 新 `_run_claim` 增加 join_status 参数，而原 g 的外置 `prepare_step_worker.py:759` hook 只接受 claim_anchor，原字节直接复用会因 unexpected keyword argument 失败。到新真实 prepare 工具候选时应显式接收并透传同一 join_status 对象，不能只吞掉关键字而失去收束事实；不改旧 g 包、不增加生产兼容路径。此项不阻止当前产品修订/必要 focused，须在新精确 manifest 的接线审核中关闭。
 
 其余 inspected 主路径保持 claim_one StoreBusy 的独立捕获、anchor 前暂停、正常 join/ack 后恢复与空闲 collect；新增 GC 状态测试标 serial，另有真实组合 runtime/SQLite 的发布收束用例。当前只是静态方向检查，不预判其执行通过。产品变化仍要求新 backend/worker 镜像及计划内小门禁；旧 §52/57 image 身份不代表新候选，本轮不构建/重跑。§78 范围 PASS 持续有效，无真实 prepare/测量 GO，正式测量 STOP。
+
+## 80. GC 调度产品候选 0c97cb9c：代码静态复审通过，验证尚未完成
+
+**`0c97cb9c095ef4dde3401ffd874c80ac94d9ac3d` 的代码静态复审无新增阻塞；§79 G1 在代码侧关闭。** 本结论不接受尚未运行的 focused/Ruff/mypy，不是产品修复效果、镜像/容器门禁或真实 prepare 候选验收。实施 worktree 该 HEAD clean；另创建只读 detached 审核 worktree `/home/dev/gdds-p6-worker-gc-review-0c97cb9c` 并链接 legacy，核 HEAD/clean、完整冻结基点增量、调用点和测试组合。差异仅 worker_runtime.py 与 scheduler/integration 两个既有测试文件，未改依赖、Contract/Schema、golden、parser/planner 或部署。diff whitespace 检查及三文件 AST 解析通过，均为静态检查；未运行测试、访问节点或改产品。
+
+候选文件 SHA256：worker_runtime.py=`e5218425d03e6e2d880f098b04802ff7eaff0ceb3115c5043cfadb35664c3b91`，test_operation_worker_scheduler.py=`7204dfcbae4075481425df9e7ef9931e8657e2d51a335835402870866a733c6e`，test_operation_worker_integration.py=`d36a430beac8540b16e9b0a0f4aa8269f407569b2e8febb5812f735c5312de64`。
+
+G1 修正将 thread.start 的异常单独处理：标准未启动失败时 ident=None，确认没有 executor 需 join，原异常重抛，由外层 finally 恢复初始 enabled；不 collect、不等待、不产生 claim_busy 重试。已开始线程的路径仍 join，只有收束确认后才允许恢复；join 失败保留原业务/启动主因并留下最小 note，不因提前恢复 GC 伪称 executor 已停。`_ExecutorThread` 的新增只读 ident 由真实 threading.Thread 提供，共用 ControlledThread fixture 也同步，lifecycle 测试继续引用同一 fixture，没有复制另一套线程 API。没有为现有默认生产 signal handler 不会触发的任意异常时点新增协议或证明矩阵。
+
+其余边界保持：GC 暂停在 claim_anchor 之前，claim_one StoreBusy 单独捕获；真实 `_run_claim` StoreBusy/失租/业务异常原样向外。正常 `_run_claim` join 和 ack 后，外层释放 work 局部引用、恢复原 enabled，再做一次 idle collect，下一次 anchor 尚未读取；无 work/claim_busy 先恢复再等待，初始 disabled 不被强制 enable/collect。私有 claim-cycle 返回 enum 和 join-status 只承载本次进程内分支/收束事实，不新增 durable 状态或并发框架。
+
+必要测试已写入正确 owner：enabled/disabled 的 claim 与空队列/busy 分支、原业务错误、标准 start 失败、未确认 join 及既有 heartbeat 语义，GC 状态用例均 serial/finally 还原；真实组合 runtime/SQLite 用例通过 publish_operation 完成 durable terminal 和原 ack/退出路径，未引入 Dolt。释放引用的 fixture 避免测试自身保留已退出线程 target。以上只核测试内容与接线，**不是用例已通过的声明**。
+
+唯一实施者可沿 §78 现有授权，在 CT05 实际占用释放并正常取得节点后，完成受影响 worker/runtime focused 与五包 Ruff/mypy，记录 clean 起止 HEAD、节点、时间、exit 和完整日志摘要；同范围失败最小修订后直接继续必要验证，不新增 Owner/协调回执门槛。证据齐备后直接交本审核会话，不需要重复申请准备身份；尚不能据此跳过验证构建新镜像或运行业务。
+
+验证通过后仍按原计划准备新 backend/worker 镜像与一个原小 Compose，原 §52/57 镜像不能代表该产品差异；真实 prepare 的新工具 hook 必须显式传递 join_status，§79 接线待办继续保留到精确新 manifest 审核。没有重跑旧 g、扩大预算、主线合入/push/tag、真实 prepare 或正式测量 GO。H3 原历史 PASS 保留，lease 修复效果/内存代价未验证，正式测量 STOP。

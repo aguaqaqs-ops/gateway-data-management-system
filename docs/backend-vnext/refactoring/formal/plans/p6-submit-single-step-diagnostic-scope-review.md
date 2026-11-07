@@ -2672,3 +2672,17 @@ FULL的run/state从审核者已认证CT201副本经LAN到CT05，本审核独立h
 另一个实际派生边界已指出：_sample_scenario缺step_resources时的全run资源fallback不能当单operation指标；FULL S2等0样本下的空CPU/cores0/disk0也不证明实际资源为0。应在既有record的nullable统计及unavailable原因中保留缺观测，coarse全run资源只留原run/索引，不改sampler/raw或构建新资源证明机制。此项最小修订尚待交付，不能把它与有原DB可补的worker步骤混成同一“缺计时”。
 
 H1也需补既有条件证据，暂不将core History自动签为健康H1。DC38明确H1为**普通Preview/Submit之后的相邻首查**，H3是TTL内重复查询，不能互换。独立读bb348原argv未指定history_cache_mode，raw H1 cache_condition/cache_after及tier condition均null；W2在06:16记录274缓存项、TTL有效、无expired/missing，这不直接等于07:36:37.516Z History起点的健康证明。原before-History control/artifact快照可在上述同一空闲窗口按**历史起点UTC**核规则/TTL/相关缓存对象，不能用今天TTL判断旧时失效、改历史none为healthy或重跑首查。H1原API 2426.267s可保留为未补条件的历史观测，角色资格待这项核验；若源确实不足再给设计明确缺项/选择，不暂停STRESS等独立工作。当前以上均为已定位的记录/条件补证任务，标准record/comparator和整体exit仍未完成。
+
+## 119. 未来Preview worker采集及资源缺观测表达修订复核PASS，旧证据补取仍待
+
+**非在途集成线的 `2b6b947dfed785d28ad672ee65e0b5b9891d9dec` Preview ID修订，以及最终 `fcc827aec2750b2cc6d36c241c40de7415c7a1ea` 资源表达修订，代码/必要验证PASS。** 只改benchmarks/tests，不改产品、时钟、采样、原始记录或在途1742；不是已经修复旧raw、生成完整标准record、最终V_ref冻结或04通过。
+
+2b新增小helper按明确operation角色取ID：Preview取真实result.operation_id，其余Submit/History保原timing.operation_id，类型为非空str才收；同步NO_CANONICAL_CHANGE没有op，不伪造。真实record_operation_timing将该ID放入原operation_ids；各partial/full return的capture均读取同一集合，未发现压力scope过滤遗漏或只改孤立helper而消费者未接入。单个focused实际调用原_preview和HTTP MockTransport，生成result有ID而timing没有ID的真实形状，再核实际消费helper；同时核Submit/History及S2路径。CT05 `vref-preview-2b6b-focused-20261107.log` SHA **`4296ac4f932dbce9f02f74f7f8df588af781c10c76847a8ffada034e9aad3d74`**，16:38:48–49Z、完整2b起止、1passed/0.83s；`vref-preview-2b6b-static-20261107.log` SHA **`b723f66369356fb239ba7fac45af19600fce292fc9cf55917fc095055007ca07`**，16:39:03–04Z、Ruff/mypy500及exit0，均已直接核验。必要覆盖足够，不要求为这处元数据采集重跑业务；旧worker数据仍按§118原快照补证。
+
+资源修订删除operation记录对全run峰值的fallback：只有对应step_resources确有正整数samples时，才取该步骤的cores/memory/disk高水位，否则三者统计为null并在counts.unavailable.operation_resource_peaks说明缺周期样本。full-journey场景原本的整程资源不因本修订改作单操作，sampler原始数据不变。
+
+**审核者前次“缺周期样本则CPU也null”的泛化已纠正。** 独立追源表明原record CPU来自journey step_metrics的三服务起止cgroup计数，不是periodic sampler或全run CPU。真实FULL S2虽周期samples=0，但原step有7284/802/1923µs增量、记录的舍入CPU分别0.007/0.001/0.002s；这些是已观测的步骤边界值，不能因周期没碰到该短步骤就丢弃，也不将其充作精确API窗口CPU。650ac首版曾一并清空CPU，其8项通过不能证明语义正确；本审核直接收窄要求，fcc仅删除该清空并将unavailable限定为周期峰值，保留原完整CPU/缺失或reset为null的规则，不读global resource替代。
+
+CT05 `vref-resource-650a-20261107.log` SHA **`c07187baac8d282d6702b0c398b9c959861a5cb034e2c6f3627ec71fb448d9a2`**（16:40:32–33Z）按准备历史保留；最终 `vref-resource-fcc8-20261107.log` SHA **`8a457f06f09d3aa89444e5ace89485c314ddf8b8c62f04ab56c33d80a7957251`**，16:44:18–19Z、完整fcc起止、8passed/0.12s、Ruff/mypy500、exit0，已直接核验。测试用缺step资源与零周期样本两种情况证明峰值不回退，同时独立完整CPU仍为6.0；已有单字段缺失统计不默默删除样本的用例保持。其余四包无变化关联既有来源，不称本轮全量runner/carried。
+
+两项工具Finding现关闭；数据层面§118历史worker步骤、H1缓存条件及其他原件尚待合并补证，不能把未来采集路径修好当作旧数据已存在。05可继续原版本record准备、04可按既定分工准备最终身份/缓存，冻结前集中完成必要工具，避免测中修改04 worktree；不触CT108在途STRESS、原镜像或旧source，无新Owner/GO。

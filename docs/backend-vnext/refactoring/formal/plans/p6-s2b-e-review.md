@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码窄审通过，最终静态/定向、正式实际与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向与最终t1已独审通过，04整次、t2/t3与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -382,3 +382,17 @@ Owner已确认主案：**envelope34359738368 B（32GiB）、reserve8589934592 B�
 固定产品 **`a6876d560050285321fd9f62942d590a03f35d64`** 已独立窄审，审核WT同步clean detached a687。464后严格settings/Compose/test_worker_kernel_resources三路径：精确字节接线、现owner M24+1拒绝及32/8/M24正向/N1/claim1断言。FD早close与nonrecord新增列预约两blob未改，kernel_execution仍无cal logger；缺M拒启、严格类型、M≤envelope-reserve、真实控制/租约/恢复/业务输出/reader/规则/算法均不变。t4数值门槛M≥18678133632 B及实际差异条件满足，沿用82完整业务结果，旧24/M16物理峰不改标成新32/M24实测。
 
 后续按上述一次性清单收06必要profile focused/静态、04六包实际/当前Compose与06 fresh t1–t3原证据；无逐版本准备GO或A–D重复全证。最终H由协调者在实际证据及文档齐全后统一固定，再仅做一次同04原gate WT closure/image绑定，此前任何主线文档HEAD不称最终H。最终结论会分别说明E验收与整个S2b功能退出证据条件，阶段tag按P5§8.1另办；W1/W2正式性能、W3后续与原W4 OPEN均保持原范围/责任。当前源码清楚但实际证据尚待，E不GO，未给未完项预写PASS。
+
+
+## 最终a687实际来源与集中验收进度
+
+06实际source/独立环境/profile focused与五包静态已独立读原日志及核SHA，均固定clean a687；不从旧静态或失败runner摘取来源。目录 `artifacts/s2b-e-final-m24-a6876d56/` 的source、另call实际环境、`profile-focused-and-five-static.log`、release SHA分别为 `9c728fffb4915f09777a0270a4f67c4c88414b0a1546559e98c4cf6d6d62a6bf` / `ca24de4b6de06df54ae81ea535a0bb644533e857fd56f700a1a3f2efae83cb2f` / **`8af309bc680872fb21d0e6981fde0109881b744199f65d2661265ec90e075d97`** / `2725673aba5d80e5b08c3ac3fd52d95b05d3e4c4757c4b524db360cb3a1388d9`。04:39:31–38Z actual0：resource/settings/lifecycle三module共30PASS；五包Ruff全0，mypy backend500/shared34/contracts15/client26/RS200均0。实际各包模块/direct_urls来自本E自有WT/native137，04:40:20Z核idle/own/clean释放0；不把static冒作权威入口。
+
+04同原gate WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate` 准备source0/另call独立source0/env0/另call独立env0的SHA依次 `cf97a435ffb4421ce04d94d8a296660789e824d80ceb129bafe22e3e890a1cf5` / `4859f02fde5acd75d74d8e40c6eb5d4d925597cc4a5e411092b3521c28678943` / `15403c0938f913fd4d6a1f3c0ffd3a067fca7d35fc10fbc08d23ca5bd2fe5d24` / `fc885006681bb83f09028c7298631dd266cd77d52374daba93cd9c915bc4e641`。原始目录 `artifacts/s2b-e-gate-m24-a6876d56/`；实际五包E环境/native137、当前a687本机RS/source13cb已核。六包driver SHA **`8885e88c5e35a685a58a83d32fac91ff5c208aa5d4f2af8e779e2e185caacd6c`** 相对已审82稿仅fullSHA/out/RStag绑定变化，保all6 actual/offline/jobs4。04:44:47Z正式开始，当前尚未取得整次exit；任何单包通过均未先升级为合格来源。
+
+06真实旅程另用新clean WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-final-real`，不是复制venv。完整无前提bundle SHA `15737087c6958fd561d0ad37efc555c54267fe6ccc8867753723130eee9bc133`，ref `refs/codex/s2b-e/final-m24/<fulla687>`；source0/另call独立source0/env0/独立env0 SHA分别 `e8fef26ef767cb2774ed445301f2988ad7d4908f87b8658ca943405f2376186b` / `e27810bfb9e7bedf7d057df4ea4b72b67decfbb6058720b42ffa713655607fed` / `63c8336ab6e31d46a3db80ee8f5769bf3f6b8f26561b66e035f08212d1a8013d` / `9cd321447daa9759ae5f506452fe5d2efc8dcf64a52829be6d35943f38d13329`。现CLI validate-inputs八包有效、实际E路径/native137/32-8-M24、current RS/source13cb、离线缓存已核；04:45:55Z准备精确owner释放0，SHA `ee1e353216541e7c6941545d135c09fe4cf189c3da68604989cb8a74ee60fb5d`。之后由fresh driver自行现场取新原子锁。
+
+06最终tier driver SHA **`223988b801e882ee2622541d9fe4ff37c1021634f55b2ebe4337f178bcdab93d`** 独立核相对原final05稿仅当前06 WT/newproject/32-8-M24与明确环境unset；仅t1/t2/t3、full/N1/无resume，保cgroup/RSS/同worker/正常stop/失败保现场，无cal counter要求。最终t1目录 `artifacts/s2b-e-m24-t1-a6876d5600/`，04:46:00.698–04:49:55.583Z journey0、driver正常返回、resource verdict PASS；journey SHA **`f2dbf26ba4b4270e8d344daa5e63ba1335b1f9e47e19c920714b8bff51f5acd2`**、result SHA **`598691b35f600c3dacde90630767ada25a91662a92932faa872930e61baa7088`**。原command、running/stopped inspect、resources与sha256.json逐项重算全合：worker `8de3335b6ef0` 单一/Restart0/同StartedAt，显式M24/N1/32硬限/8reserve；CGpeak **283107328 B**，VmHWM **264192 KiB**，memory.events各值0，OOMKilled false，SIGTERM后exit0。日志齐、owned cleanup/release/endclean同a687均真，物理峰是本worker全生命周期，不作正式性能证据。t2随后fresh启动；t2/t3、04整次与最终H仍待，E未GO。
+
+
+06本次backend dependency-base沿用依据另独立核齐：同节点D原 `artifacts/s2b-d-93678f8439/base-identity.txt` SHA `3c5764473f68c1fb2d362226816bddfbce133897a0227c0738d1c65d5df22793` 含config `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a`、全19DiffIDs与IDENTITY_MATCH；同组原log SHA `daa9d38d0d0e96f5f06b86bf776992fa1bbfcc22066e4325754e2076ace55227` 明确该本机immutable ID为 `sha256:d363b45a33be8d0034f49f156998753086d09c4c171e75896f1e4beab4ff49ff`。最终06 env复核未变ID承接此前同节点完整证明，不把inspect ID用于跨节点比较、不重复save归档；D原整组后来fixture失败不升级为PASS，也不改变独立镜像身份事实。

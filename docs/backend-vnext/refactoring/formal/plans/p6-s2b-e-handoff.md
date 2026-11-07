@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**宽裕fresh完整t3校准已通过，等待Owner测后选择最终profile**；2026-11-07 03:43Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
+状态：**最终32GiB envelope / 8GiB reserve / 显式M24GiB的必要实际验收全部通过，待唯一最终H绑定与独立结论**；2026-11-07 05:27Z。固定产品V `a6876d560050285321fd9f62942d590a03f35d64`，N1/单active，保留FD生命周期与non-record新增列真实行比较准入修复，main无临时校准日志。06必要定向30PASS、五包Ruff/mypy全部0，04六包权威runner整次PASS；06新real WT离线环境/实际绑定已核，fresh t1/t2/t3完整PASS且资源/停机/清理/释放齐。
 
-当前 pending：**Owner依据完整t3校准及既有t4数据确定最终生产profile，再冻结最终产品并做必要门禁/真实旅程与最终H绑定**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
+当前 pending：**全部报告收齐后的一次同04同WT最终H闭包/镜像绑定、独立E GO及S2b exit**。Owner明确采用06 fresh三档功能/容量，06结果不作正式性能依据；t4按独立审核具体保守bound（最终M≥18678133632B、464后无其他业务/reader/规则/控制/算法变更）及Owner DC33决议沿用82完整PASS，不冒称新32GiB档t4物理峰值已实测。旧82 t3FAIL、4f calFAIL与既有失败证据全部保留，a10临时64/16/M48完整t3校准PASS仅供定档依据。后文各时刻“待Owner/未执行”均为当时历史状态，以本段和最新追加记录为准。
 
 ## 实际消费者与删除
 
@@ -458,3 +458,80 @@ CT108于 **03:20:23.298329Z** 现场重新原子取得本cal owner，project `s2
 | `scope-summary-from-original-untimed-log-01.json`（仅原log解析） | `28e2ae76f6b7f6215571a3965875def2b85c7c1dcbc238ffed42dee90a58e3cf` |
 
 若Owner选M24，相对本次最大charged余4394457141B=4.0926571386GiB，约高于实测20.5585%；这只是定档所需数字，不先承诺该生产档所有新门禁/未来输入通过。main仍464/24-8-M16、已知t3原FAIL不改，未把a10临时profile/logger合main，未启动新正式runner/最终Hcompare。06扩容已由root在03:40:36Z核96GiB/16CPU并03:40:47Z释放维护标记，后续可按原用途现场取用；没有迁移/重启本次CT108校准。
+
+
+### 04:44Z：最终32/8/M24候选与必要验收已启动
+
+Owner确定32GiB envelope / 8GiB reserve / 显式M24GiB（25769803776B）、N1/单active，生产候选 `a6876d560050285321fd9f62942d590a03f35d64` 严格只调整settings、Compose、既有worker资源owner断言三路径；拒绝缺M与M24+1、固定单active及控制预算保持。464漏预约与d6 mmap FD修复保留；不引入cal logger/系数变更。独立源码审核CLEAR。
+
+06现有impl WT在04:37:28–04:40:20Z固定a687完成source/独立实际绑定/必要定向及五包静态：native build input137d499975f3c104ae9c3268b9e12befb2817ba1、实际四pathdeps均本E WT，profile32/8/24；资源/settings/lifecycle三module30PASS，backend Ruff/mypy500及其余四包Ruff/default mypy均0。随后核clean/wholeidle/精确ownmarker释放，保WT/环境/target/日志。证据目录06 `/home/dev/gdds-test-tmp/artifacts/s2b-e-final-m24-a6876d56/`：
+
+| 步骤 | SHA256 |
+| --- | --- |
+| source-01/source-prepare.log | `9c728fffb4915f09777a0270a4f67c4c88414b0a1546559e98c4cf6d6d62a6bf` |
+| independent-environment.log | `ca24de4b6de06df54ae81ea535a0bb644533e857fd56f700a1a3f2efae83cb2f` |
+| profile-focused-and-five-static.log | `8af309bc680872fb21d0e6981fde0109881b744199f65d2661265ec90e075d97` |
+| release.log | `2725673aba5d80e5b08c3ac3fd52d95b05d3e4c4757c4b524db360cb3a1388d9` |
+
+最终源码用full-history bundle SHA `15737087c6958fd561d0ad37efc555c54267fe6ccc8867753723130eee9bc133`、唯一ref `refs/codex/s2b-e/final-m24/<fulla687>` 分别同步04/06，记录实际remote previous HEAD，不改root main/冻结refs。04保原gate WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，06为独立新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-final-real` 建新venv，禁止复制其他WT环境。两节点source与另call独立HEADclean/legacy/四Rust工具核于04:40:31Z实际0。
+
+04环境04:44:12Z实际0（prepare SHA `15403c0938f913fd4d6a1f3c0ffd3a067fca7d35fc10fbc08d23ca5bd2fe5d24`），独立五包实际依赖binding/native/镜像核04:44:31Z实际0（SHA `fc885006681bb83f09028c7298631dd266cd77d52374daba93cd9c915bc4e641`）。04六包权威于**04:44:47Z**实际启动，日志 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/authoritative-runner.log`，全部6包实际run而非carry，jobs4/pytest4、serial-n0、offline/native重装/本机Compose build。进行中，不提前认来源V或PASS。
+
+06 final fresh driver `/tmp/s2b-e-m24-06-tier-driver.py` SHA `223988b801e882ee2622541d9fe4ff37c1021634f55b2ebe4337f178bcdab93d`，参数 `<fulla687> t1|t2|t3`，各新project `s2b-e-m24-<tier>-a6876d5600`。沿已有fresh full/keep-stack边界，显式N1/M24、实际32硬限/8reserve、同worker与CG/RSS/正常stop事实；main无cal logger，driver不要求临时counter。各档实际成功且证据/cleanup/release全齐才下一档；失败保本E停止容器/卷/网络/证据与busy，不自动重跑。
+
+06独立新real环境04:45:35Z实际0（prepare SHA `63c8336ab6e31d46a3db80ee8f5769bf3f6b8f26561b66e035f08212d1a8013d`），另call实际四模块/directurls/新venv/native137/32-8-24/四Rust工具核04:45:45Z实际0（SHA `9cd321447daa9759ae5f506452fe5d2efc8dcf64a52829be6d35943f38d13329`），04:45:55Z精确ownmarker/wholeidle/a687clean释放prepare（SHA `ee1e353216541e7c6941545d135c09fe4cf189c3da68604989cb8a74ee60fb5d`）。同节点配置/19DiffID既有证明由未变immutable本机backend-base ID复核，RS/client锁label与实际本机build/source13cb/a687核齐；无LAN补缺/公网或代理。随后06新project `s2b-e-m24-t1-a6876d5600` fresh full t1已实际开始，证据 `/home/dev/gdds-test-tmp/artifacts/s2b-e-m24-t1-a6876d5600/`；此时尚无结果。
+
+
+### 04:50Z：06最终t1完整通过，t2接续
+
+06 final t1 fresh full于04:46:00.698–04:49:55.583Z实际journey0/driver0，起止a687clean，project `s2b-e-m24-t1-a6876d5600`。worker8de3335b6ef0同StartedAt/Restart0、N1/M24/32GiB硬限/8reserve，memory.peak283107328B、VmHWM264192KiB、必需events全0、normalstop0；所有logs完整/资源证据/同worker事实通过，只清本project containers/三卷/network并释放owner。原输入/保留失败资源不动。原journey SHA `f2dbf26ba4b4270e8d344daa5e63ba1335b1f9e47e19c920714b8bff51f5acd2`，result SHA `598691b35f600c3dacde90630767ada25a91662a92932faa872930e61baa7088`，证据06 `/home/dev/gdds-test-tmp/artifacts/s2b-e-m24-t1-a6876d5600/`。独立审核已逐项复算SHA及command/inspect/resources成立。
+
+06 backend dependency-base既有完整本节点身份证据：D `/home/dev/gdds-test-tmp/artifacts/s2b-d-93678f8439/base-identity.txt` SHA `3c5764473f68c1fb2d362226816bddfbce133897a0227c0738d1c65d5df22793`，含config b5b542…与全部19DiffIDs、IDENTITY_MATCH；同组base-current.tar SHA `95f6dc2ccf6ecd9fc352540a8b249bfa978d6bb2f5338fd5b936dfeb68b2076c`保留。关联D原log `/home/dev/gdds-test-tmp/logs/s2b-d-container-93678f8439.log` SHA `daa9d38d0d0e96f5f06b86bf776992fa1bbfcc22066e4325754e2076ace55227`明确当时本机immutableID d363b45a33be8d0034f49f156998753086d09c4c171e75896f1e4beab4ff49ff，当前同节点复核ID相等。D整组后来fixture失败不改变先前独立镜像身份核事实，也不改称整组PASS；无跨节点inspectID等价或新save。
+
+同节点现场重新原子取用，t2新project `s2b-e-m24-t2-a6876d5600` 已接续fresh完整旅程。04 backend并行主体3183PASS，串行仍自然执行；目前不提前认六包整次来源。
+
+
+### 05:04Z：06最终t2完整通过，fresh t3接续
+
+06 final t2于04:50:11.425–05:04:10.365Z实际journey0/driver0，固定a687clean，project `s2b-e-m24-t2-a6876d5600`。worker234e2ce1f33b完整同身份/Restart0、32/8/M24/N1；cgroup max34359738368B/peak2566234112B、VmHWM2415676KiB、必需events全0，normalstop0、全部logs与资源事实齐、ownedcleanup与busy释放齐。journey SHA `88666462a8e53b7c4de13df3d7130e1bd9b8d9e06d3c4d0ac3d3b7349c80ca59`，result SHA `51a4b6f85a8a7f75e24330017466283da5657d26c3973a087c36a0921e1c9852`，均在06 `/home/dev/gdds-test-tmp/artifacts/s2b-e-m24-t2-a6876d5600/`。t2成功/清理不当作t3预约；重新核现场并原子取用后，同finaldriver独立project `s2b-e-m24-t3-a6876d5600` 已fresh启动，无resume/from-step，等待自然终态。04此时backend3183+57通过，RS串行运行中，整次尚未认合格来源。
+
+
+### 05:11Z：最终04六包权威与当次Compose整次通过
+
+04 hostname gw-dms-test-04，在保留gate WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate` 固定clean a687于04:44:47–05:11:23Z运行权威入口；Rust fmt/all-target clippy/workspace tests均0，shared_kernel243、contracts152、client161、backend3183并行+57串行、RS1744并行+1skip与207串行通过。整次runner0/driver0，全部五包Hypothesis路径及外置Cargotarget由runner自身清理，核HEADclean/无running容器/Dolt/cargo/8000及精确ownmarker后释放。WT、五venv、本机镜像/缓存/证据保留到S2b exit；无单独重复Compose。
+
+合格实际来源V均直接引用a687本次实际运行，而非旧82或链式carry。证据04 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/`：原log SHA `9faaf9d80a2b3f249616e58880156155b177fb6d763d4b83acd0b4b375b85985`，当次 backend-compose-gate-provenance.json SHA `ac28f04e1b2d36aca3b4a5243f477cb577db4ae7ba807042818bbfbfd57b513f`。只在whole0后用纯原log解析逐字提取六starting JSON到 `original-starting-manifests/`，非post-run重算；head/worktree_head/package/clean字段逐项断言：
+
+| 包（均实际run） | 原starting total_digest | starting JSON SHA256 |
+| --- | --- | --- |
+| rust | `ec9549bb1980f6894c75a37b6ddcd094f183993078e54ed124e16c8176c59b79` | `429960a9aad2a12e81c9d8936d3eddb5727516949de3b57f463ce09697950d3c` |
+| shared_kernel | `b2aa9cb246423a2dc982a8851d375d187c9c83a4adcd57e47a370eae10955612` | `7ac6a85b629007f47ae360824d64d6ae98e4512c5095854a3b32f4a7be702a7e` |
+| repository_contracts | `72f77cf22ee074184887adab578d7e353c623fa250f112635edac7b264704650` | `0dd24001e0bb7855618b5f6dc94b9310ca0fb3dd18c9aa9b3bf8b5138f924724` |
+| repository_client | `36c310182dbea4686acfff425876a394b888b50cdebef07c414c5942c2bed378` | `2eba3a5248a65cdc07c021121b78e8d74003d4595016329c36e9d1fc99f68879` |
+| backend | `8d0b73df9f15d899265a4d57f24cac4dd87d24b5ca9f00c3b01992b1feff8645` | `fd42a472b44437c49939f926aa8c256fbcdb611a21e038ca457fe79a07c6c568` |
+| repository_service | `80203cb5ac294234e4192bc2c6842cbde5d853cec012d6884f54fa15bb0a5960` | `095405d818abe31a7034c0648aa9589eca45fc2fa83eee247633afcbbf5f25b9` |
+
+当次provenance最后实际ordered-bisect本机容器镜像为backend `sha256:34130ae839ba946d07bee991f2a7e44b01f1f1f33b9416aba6b13c8c14644e3e`、worker `sha256:692cc893fdbbc4e5c5b336679334b3561c6e0ed1a0b36cf20e42e3d661334298`、RS `sha256:cbc547e4b01d8aba6d5fd00e6df896975df4c1deb4f962f4fcf8105d3bb81e15`；RS label build-input-revision=a687、source-tree13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2。本机ID只作同节点状态记录，不作跨节点等价。最终H仍待所有报告收齐后固定，再在此同WT按正式路径六包closure compare/RS身份绑定一次；现不提前carry最终H。
+
+
+### 05:27Z：最终06 fresh t3完整通过，实际验收收齐
+
+06 hostname gw-dms-06、独立new real WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-final-real` 固定a687，于05:04:56.516–05:27:08.830Z完成本轮fresh full t3，journey0/driver0。首次Preview/Submit、重复Preview及no-rewrite读回、v2Preview/Submit/读回/approve与History全部成功。v2Preview于05:15:08Z成功，v2Submit05:23:46Z成功，History05:27:01Z成功；原82/M16在v2Preview的容量失败保持FAIL，不据新PASS改写旧证据。
+
+同一个workerbc4356c1ec0d从首次业务观测至末端身份/StartedAt保持、Restart0，N1/单active、显式M25769803776B、envelope/cgroup memory.max34359738368B、reserve8589934592B。完整生命周期memory.peak **4761649152B**，主进程VmHWM **4419688KiB**，必需memory.events含oom/oom_kill全0；normalstop退出0/OOMKilledfalse。全部logs/CG/RSS/同worker/HEADclean事实齐，无missing；资源verdict PASS与业务journey0同时成立。本轮main没有临时scope logger，最终M支持来自真实完整成功路径，不伪造最终charged高水位。CG包含startup/helpers/pagecache，RSS为主进程生命周期，不是每operation峰值，也不与旧校准/局部History相加。
+
+证据06 `/home/dev/gdds-test-tmp/artifacts/s2b-e-m24-t3-a6876d5600/`：
+
+| 原证据 | SHA256 |
+| --- | --- |
+| journey.log | `0b7059ad2ca0bacdda2cab76beec002d0e56d2cc5512780d451c20bf9ac4fa31` |
+| result.json | `32a028d51f9fc7c4d3ad073c395b643ee18939f767201e3110d416cc9925b78d` |
+| bc4356c1ec0d-resources.json | `eb7ef0bf551ebaaf9b0b49aaf09278d80ce9507f5571154d41b35822fc4889d5` |
+
+原worker after-stop log中lease_lost/RESOURCE_LIMIT_EXCEEDED/Traceback命中均0。成功后只清本project containers/三卷/network并释放精确owner，另call实际busy不存在/无running容器0；WT、新venv、native target/本机镜像/全部证据保留，不动原05失败资源、CT108三代失败资源、原线冻结材料。06三个tier均在该同节点各自fresh完成，按Owner本轮96GiB节点用途授权，不作为正式性能测量。
+
+**t4沿用的精确边界**：Owner已确认本轮t4不重复完整旅程；直接引用82/CT108完整fresh成功log `13ac186de8fa7774268a06b4a49f3fb95218b6319787fbfcb598fdf11d642fcc` / result `004a026b4f33c2440e5902fb1651326a9471a57df6bd3fd5715f3abb2c4348da`。审核者对同输入closed metadata的新增nonrecord费用保守上界1498264448B，报告CT108 `artifacts/s2b-e-review-t4-nonrecord-delta-01/fee-upper.json` SHA `6cb5fba0be807de08130e9c18491ced3b54572b0c03e80a221d8c356ee2331d9`；最保守条件Mfinal≥旧已过M16+新增上界=18678133632B，以保持未改native调用remaining cap不低于原82。本次M25769803776满足，464后仅profile/既有断言变化，N1/单active/reader/规则/业务输出/控制/算法均不变；FD与新增准入不改输出。旧t4 CG/RSS仅属于24/8/M16实际profile，不记成32/8/M24的t4实测。此为明确DC33范围沿用，不以文件更大/tier编号猜测容量。
+
+本节必要实际证据现已齐：06最终profile30focused+五包静态、04六包实际整次/当次Compose、06三个fresh完整真实tier；t4按上述确切来源/条件沿用。产品V=a687，最终H仍由协调者在报告/审核资料收齐后固定。唯一比较稿 `/tmp/s2b-e-final-H-closure-04.sh` SHA `6f4c91831f28196a5dc97363dda854f2f3fed332a835c43182b3f708602cba62` 已只读独审，参数H留待固定；复用同04原gateWT、qualified a687原6starting JSON、本轮RS tag/实际venv/native/逐包Hyp不存在路径，RS helper重算identity对label与原provenance。**截至此记录未同步H/未执行最终比较、未签E GO、未tag/push或办理S2b exit。**
+
+性能待补保持既有归属：W1/W2正式输入/2×t4预热与多次/30秒目标不从功能旅程PASS推导，W1本轮仅保旧单次t4受理响应后至观测的初诊，W2性能最迟S6；W3自S3，原冻结基准W4 lease_lost仍OPEN。最终生产gate/发布与本次阶段证据区分，不能冒已完成。

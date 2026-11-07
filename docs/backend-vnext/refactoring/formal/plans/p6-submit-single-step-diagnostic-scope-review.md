@@ -2073,3 +2073,44 @@ postflight complete、down=0、owned processes/项目容器/网络 quiet、worke
 | postflight.json | `4587d14019d38201ec78a915f8764ddbad53164d4ed93e7b083ba50735f9fa2e` |
 
 **结果直接交实施者并同步设计：本次限定完成性 PASS，guardian 派生 false 按上述限制保留，不要求新 focused 或重跑。** 普通 handoff 时间文案后置更正。没有下一次运行、后继 submit_import、清理卷、合入/push/tag 或正式计时许可；H3 原历史 PASS 保留，正式测量恢复与版本/来源资格另按原范围处理。
+
+## 92. Owner A 的有限恢复关系集中核验：PASS，按分版本口径直接准备并接续首轮
+
+**设计已记录 Owner 选择 A，`ad22c99c16`、首轮预算补充 `d137a47d0fd96ea53e3d09998085e04d5a7102ba` 及既有有界执行方式澄清 `469e5d2b901f3b6ff3e119c500309eb4bc4c0837` 的有限 source→目标、计时起点、必要守护与关键预算集中核验 PASS。** 既有唯一实施者可直接完成必要工具修订、受影响 focused、目标节点/离线缓存/镜像前提和固定运行材料，合格后现场取锁执行首轮并按方案 A 顺序补缺；不等新 Owner/设计/协调回执，不另签最终 manifest GO。实际清单留作追溯，结果事后独审。本会话只核本次有限恢复关系与其结果，不接管基准 exit；04 收口和全部历史证据的终审不变成首轮启动前置。
+
+本轮只读已提交方案、既有 §87/91 证据和冻结源码，并用本地 Git 核祖先/产品路径；无 SSH、节点取证、导入、测试或测量。此前的“Owner 尚未选择/所有后续测量 STOP”是历史快照，**不再阻断已批准的 A 分版本接续**；统一版本完整正式基准并未因此恢复。
+
+### 来源例外和目标继承关系
+
+恢复输入只取原 **`p6bw4s4h120261105b/evidence/checkpoints/v2-submit`**，其 **completed_through=v2-preview、resume_step=v2-submit**。这是 §89/91 已核的原来源，不是更早 a 项目的 Preview 前 checkpoint，也不是诊断候选 b 的 prepare 后状态。已核三卷内容、W4 manifest/cache/规则及 TTL 继续检查，新 project/key/三卷隔离，原源卷、a/b 诊断卷及旧证据只读保留。源 RS run-bound full identity 仍记 **UNAVAILABLE**；Owner A 只接受其作为受控输入的限定例外，不能伪造 identity MATCH、正式 carried 或把旧步骤计时归为目标版本。
+
+本地 `git merge-base --is-ancestor e798ec87a37330250b0c051162e7962dba1daa60 9704d0b286049073529d60036dbd999032f97e0a` exit 0；`application/checkpoints.py` 的对应 diff 为空。目标确实包含 READY 容量修复，而非需要证明两棵树相同。其后 7 提交/12 个 vnext 文件覆盖 RS metadata/cold catalog、JCS sink、worker GC 调度及必要导出/测试；这不扩 DC80 原 READY 特例，新的跨版本输入资格来自 Owner A 本次决定。
+
+目标固定为 **9704 产品及 §87 全身份已核三镜像**；允许在隔离参考线上形成仅含必要 benchmarks/tests/docs 的 clean 工具候选 V_ref，运行前证明生产源码、依赖/锁、Contract/schema/载荷和部署输入与已审目标相同，不混当前 main/S2b。普通恢复工具只能表达这一个已批准来源→目标关系、真实 completed/resume step 和实际镜像绑定，不用通用 skip 放行其他身份差异，也不借旧 READY approval 冒充本次授权。既有镜像按 config digest/全部有序 DiffID 离线预置 CT108，完整同节点容器身份绑定照常；这些工具修订本身不改变已审产品镜像内容，不为标签统一重建。若实际触及 Dockerfile/Compose/生产依赖或容器运行边界，仍按原规则处理，不能称纯工具。
+
+### 首轮实际选项、计时与固定上限
+
+首轮是 **t4、scope=full、MODIFIED_ONLY、resume=v2-submit**，full_v2/three_node_history/cross_project 均 false，history_cache_mode=none。新执行 v2-submit→v2-repository-read→v2-approve→history，再作原有尾部核对；没有新增 Archive/v3 业务旅程，不重做已完成 Preview。完整 v2-submit 从原受理边界开始，包含 prepare、Repository 提交/等待和原可见性核验；不能接诊断 b 的 successor、跨节点拼接耗时或拿其约 63 分钟观察结果填正式字段。
+
+| 首轮阶段 | 工具预算 |
+| --- | ---: |
+| 初始化/预检/恢复/必要快照 | 1800s |
+| 完整 v2-submit | 10800s |
+| v2-repository-read/approve/所属普通 HTTP | 1800s |
+| History/结果读取 | 7200s |
+| 尾部表哈希/比较/artifact/归档及正常证据 | 3600s |
+| 固定工作截止，自 launcher 起 | **25200s** |
+| 停止/reap/Compose cleanup/postflight 预留 | **1800s** |
+| 同一起点的全流程硬截止 | **27000s** |
+
+五阶段之和为 25200s；Submit/History 等长操作截止=min(操作起点+操作预算，固定 work 截止)，不重置总起点或运行中逐次加时，完成即收尾。辅助阶段的数值用于计算总 work 和余量，沿原单 HTTP/I/O 超时和既有外层 work/hard 控制，不要求为每个 helper 新建强取消层。10800s 是本 W4 工具等待覆盖，替代旧 `ceil(810.961×5)=4055s`；History 阶段预算包含其原操作轮询及结果读取，初始化和尾部不得漏出外层总限。1800s 的 read/approve 段不新增 v2-archive 业务步骤；尾部 3600s 的“归档”指原有证据/artifact 收尾，不是增加 Archive operation。冻结源码的 v2-archive 仅在 three_node_history=true 分支执行，本轮 false；旧模板的 checkpoint 名称列表不能驱动额外业务。保持产品 lease/heartbeat/stall、HTTP 单请求、RS 业务超时与错误分类，不能把工具预算当成产品配置、ETA 或性能门槛。沿既有有界进程/容器收束，work 耗尽停止新业务、使用预留清理，全部受 hard 截止约束；不新建 guardian/持久状态机。
+
+CT108 按实际现场空闲/有效占用与独占测量规则取锁，满足该节点实际离线缓存/数据/空间和已核目标镜像前提；不用预约/回执替代现场条件。复用原轻量采样、状态感知的健康/续租监视、真实数据一致性和失败留证/保卷/安全解锁规则，不把诊断 wrapper、GC callback 或 profiling 带进参考计时。普通脚本/接线修订由实施者做必要 focused/静态和固定预算检查后直接接续，不要求重跑已通过小 Compose 或 prepare-only。
+
+### 分版本交付与收口归属
+
+已完成 t1–t4、2× core、W3-FULL/H1-FULL、H1-REFILL、H2/H3 按各原记录的产品/镜像/节点保留历史结论，不回填为 9704；较新的实际完成记录优先于旧待办快照，索引真有缺口则如实标记。W4-FULL/STRESS、631 表 hash、DC63 #1、V5b、JSON/comparator 只补实际未完成范围，沿方案既定定义和实际来源记录，不以名称相似重复运行或扩展本次来源例外。记录无法表达多版本时，用多份真实记录加总索引或最小工具修正，不能伪填统一 HEAD、填零或写未证 PASS。
+
+04 最终 runner 归冻结参考线最终 V_ref；按实际包闭包与合格来源决定运行/沿用，不借 main/S2b 结果，不把 focused 当权威 runner，也不把本报告当最终门禁通过。该项与 CT108 可按原节点分工并行推进，阶段 exit 另由适格角色办理。
+
+**本次有限恢复关系已通过，执行方无需等待本会话复核另一份最终摘要。** 正常准备合格即按上述固定首轮运行、随后按 A 补既定缺项，结果独审；实际身份/缓存/守护/数据不符仍停并按 DC80 最小诊断修正，不原样盲重试。需要新业务取舍、资源上限或超出本次来源条件的例外时给具体替代方案，不外推本 PASS。未授权主线产品合入、push/tag、清理旧证据或提前办理基准 exit。

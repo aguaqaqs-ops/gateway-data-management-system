@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from gateway_shared_kernel import raw_blob_digest
@@ -85,10 +86,16 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             raise ValueError("bundle closure semantic entries mismatch")
         if raw_blob_digest(canonicalize_json_value(payload)).value != document["closure_manifest_digest"]:
             raise ValueError("bundle closure digest mismatch")
-        for entry in entries:
+        paths = [entry.logical_path for entry in entries]
+        for index, entry in enumerate(entries):
             validate_bundle_ref(entry.artifact_ref)
-            if entry.logical_path in {"manifest.json", "artifact-closure.json"} or "\0" in entry.logical_path:
+            if any(entry.logical_path == reserved or entry.logical_path.startswith(reserved + "/")
+                   for reserved in ("manifest.json", "artifact-closure.json")) or "\0" in entry.logical_path:
                 raise ValueError("bundle closure path is reserved or invalid")
+            prefix = entry.logical_path + "/"
+            descendant = bisect_left(paths, prefix, lo=index + 1)
+            if descendant < len(paths) and paths[descendant].startswith(prefix):
+                raise ValueError("bundle ordinary file paths conflict with a parent file")
         pairs = document["pairs"]
         if type(pairs) is not list or not pairs:
             raise ValueError("bundle must contain published pairs")

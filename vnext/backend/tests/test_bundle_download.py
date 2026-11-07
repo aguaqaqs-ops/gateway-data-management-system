@@ -201,18 +201,22 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     assert_complete_tar(b"".join(prepared.stream))
 
 
-@pytest.mark.parametrize("fault", ("absolute", "traversal", "reserved", "duplicate", "ref-size", "entry-size", "closure-semantic"))
+@pytest.mark.parametrize("fault", ("absolute", "traversal", "reserved", "reserved-child", "duplicate", "parent-child", "ref-size", "entry-size", "closure-semantic"))
 def test_published_metadata_path_and_reference_contradictions_fail_preflight(tmp_path: Path, fault: str) -> None:
     store, ref = published_bundle(tmp_path)
     document = json.loads(store.locate(ref))
     entry = document["closure_entries"][0]
     semantic = document["closure"]["entries"][0]
-    paths = {"absolute": "/escape", "traversal": "pairs/../escape", "reserved": "manifest.json"}
+    paths = {"absolute": "/escape", "traversal": "pairs/../escape", "reserved": "manifest.json", "reserved-child": "manifest.json/child"}
     if fault in paths:
         entry["logical_path"] = semantic["logical_path"] = paths[fault]
     elif fault == "duplicate":
         document["closure_entries"].append(dict(entry))
         document["closure"]["entries"].append(dict(semantic))
+    elif fault == "parent-child":
+        entry["logical_path"] = semantic["logical_path"] = "shared/a"
+        document["closure_entries"].append({**entry, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None})
+        document["closure"]["entries"].append({**semantic, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None})
     elif fault == "ref-size":
         entry["artifact_ref"]["size_bytes"] += 1
     elif fault == "entry-size":

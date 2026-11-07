@@ -1,9 +1,9 @@
 //! Operation-owned resource and lifetime boundary for comparison kernels.
 
+use std::cmp::Ordering as CompareOrder;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
-use std::cmp::Ordering as CompareOrder;
 
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, SchemaRef};
@@ -175,78 +175,77 @@ pub(super) fn validate_canonical_batches(
     side: &CanonicalBatchSide<'_>,
 ) -> Result<(), OrderedCompareError> {
     let schema = &side.schema;
-        if schema
-            .metadata()
-            .get("gdds.canonical_mapping_version")
-            .map(String::as_str)
-            != Some("1")
-        {
-            return Err(OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"));
-        }
+    if schema
+        .metadata()
+        .get("gdds.canonical_mapping_version")
+        .map(String::as_str)
+        != Some("1")
+    {
+        return Err(OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"));
+    }
     for field in schema.fields() {
-            let metadata = field
-                .metadata()
-                .get("gdds.canonical_type")
-                .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_REQUIRED"))?;
-            let value: Value = serde_json::from_str(metadata)
-                .map_err(|_| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-            let logical = value
-                .get("logical_type")
-                .and_then(Value::as_str)
-                .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-            let spelling = value
-                .get("sql_type")
-                .and_then(Value::as_str)
-                .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-            let normalized = spelling.trim().to_ascii_lowercase();
-            let expected_logical = if normalized.starts_with("set(") {
-                "set"
-            } else if normalized.starts_with("enum(") {
-                "enum"
-            } else if normalized == "json" {
-                "json"
-            } else {
-                "standard"
-            };
-            if logical != expected_logical {
-                return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
+        let metadata = field
+            .metadata()
+            .get("gdds.canonical_type")
+            .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_REQUIRED"))?;
+        let value: Value = serde_json::from_str(metadata)
+            .map_err(|_| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
+        let logical = value
+            .get("logical_type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
+        let spelling = value
+            .get("sql_type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
+        let normalized = spelling.trim().to_ascii_lowercase();
+        let expected_logical = if normalized.starts_with("set(") {
+            "set"
+        } else if normalized.starts_with("enum(") {
+            "enum"
+        } else if normalized == "json" {
+            "json"
+        } else {
+            "standard"
+        };
+        if logical != expected_logical {
+            return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
+        }
+        let physical = field.data_type();
+        let text = matches!(physical, DataType::Utf8 | DataType::LargeUtf8);
+        let valid = match logical {
+            "set" => {
+                value.get("declared_type").is_some_and(Value::is_null)
+                    && value.get("labels").and_then(Value::as_array).is_some()
+                    && text
             }
-            let physical = field.data_type();
-            let text = matches!(physical, DataType::Utf8 | DataType::LargeUtf8);
-            let valid = match logical {
-                "set" => {
-                    value.get("declared_type").is_some_and(Value::is_null)
-                        && value.get("labels").and_then(Value::as_array).is_some()
-                        && text
+            "enum" | "json" => text,
+            "standard" => {
+                match value
+                    .get("declared_type")
+                    .and_then(|part| part.get("kind"))
+                    .and_then(Value::as_str)
+                {
+                    Some("boolean") => matches!(physical, DataType::Boolean),
+                    Some("signed-integer") => matches!(physical, DataType::Int64),
+                    Some("unsigned-integer") => matches!(physical, DataType::UInt64),
+                    Some("float32") => matches!(physical, DataType::Float32),
+                    Some("float64") => matches!(physical, DataType::Float64),
+                    Some("binary") | Some("bit") => matches!(
+                        physical,
+                        DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_)
+                    ),
+                    Some(
+                        "decimal" | "string" | "date" | "datetime" | "timestamp" | "time-duration",
+                    ) => text,
+                    _ => false,
                 }
-                "enum" | "json" => text,
-                "standard" => {
-                    match value
-                        .get("declared_type")
-                        .and_then(|part| part.get("kind"))
-                        .and_then(Value::as_str)
-                    {
-                        Some("boolean") => matches!(physical, DataType::Boolean),
-                        Some("signed-integer") => matches!(physical, DataType::Int64),
-                        Some("unsigned-integer") => matches!(physical, DataType::UInt64),
-                        Some("float32") => matches!(physical, DataType::Float32),
-                        Some("float64") => matches!(physical, DataType::Float64),
-                        Some("binary") | Some("bit") => matches!(
-                            physical,
-                            DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_)
-                        ),
-                        Some(
-                            "decimal" | "string" | "date" | "datetime" | "timestamp"
-                            | "time-duration",
-                        ) => text,
-                        _ => false,
-                    }
-                }
-                _ => false,
-            };
-            if !valid {
-                return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
             }
+            _ => false,
+        };
+        if !valid {
+            return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
+        }
     }
     for batch in side.batches {
         if batch.schema().as_ref() != schema.as_ref() {

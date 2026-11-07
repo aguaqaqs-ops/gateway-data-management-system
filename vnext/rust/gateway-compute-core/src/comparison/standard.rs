@@ -12,7 +12,10 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use gateway_shared_kernel::{DigestKind, canonicalize_identifier, encode_uleb128, semantic_digest};
 
-use super::kernel::{CanonicalBatchSide, KernelContext, KernelLease, sort_indices_checked, validate_canonical_batches};
+use super::kernel::{
+    CanonicalBatchSide, KernelContext, KernelLease, sort_indices_checked,
+    validate_canonical_batches,
+};
 use super::ordered::{OrderedCompareError, encode_cell};
 
 const MAX_COLUMNS: usize = 512;
@@ -284,23 +287,26 @@ fn retained_bytes(
                 .and_then(|part| bytes.checked_add(part))
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    records.iter().try_fold(fixed, |total, record| {
-        let strings = record
-            .value_columns
-            .iter()
-            .chain(&record.changed_columns)
-            .chain(&record.diagnostics)
-            .try_fold(record.row_identity.capacity(), |size, name| {
-                size.checked_add(name.capacity())
-            })?;
-        let headers = record
-            .value_columns
-            .capacity()
-            .checked_add(record.changed_columns.capacity())?
-            .checked_add(record.diagnostics.capacity())?
-            .checked_mul(std::mem::size_of::<String>())?;
-        total.checked_add(strings)?.checked_add(headers)
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))
+    records
+        .iter()
+        .try_fold(fixed, |total, record| {
+            let strings = record
+                .value_columns
+                .iter()
+                .chain(&record.changed_columns)
+                .chain(&record.diagnostics)
+                .try_fold(record.row_identity.capacity(), |size, name| {
+                    size.checked_add(name.capacity())
+                })?;
+            let headers = record
+                .value_columns
+                .capacity()
+                .checked_add(record.changed_columns.capacity())?
+                .checked_add(record.diagnostics.capacity())?
+                .checked_mul(std::mem::size_of::<String>())?;
+            total.checked_add(strings)?.checked_add(headers)
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))
 }
 
 fn canonical_columns(input: &[String]) -> Result<Vec<String>, OrderedCompareError> {
@@ -474,15 +480,12 @@ fn compare_keyed(
             }
             continue;
         };
-        let has_change = selected
-            .iter()
-            .enumerate()
-            .any(|(index, name)| {
-                !key.contains(name)
-                    && !excluded.contains(name)
-                    && !incompatible.contains(name)
-                    && before_row.frames[*index] != current_row.frames[*index]
-            });
+        let has_change = selected.iter().enumerate().any(|(index, name)| {
+            !key.contains(name)
+                && !excluded.contains(name)
+                && !incompatible.contains(name)
+                && before_row.frames[*index] != current_row.frames[*index]
+        });
         if has_change {
             modified += 1;
             reserve_record(lease, selected, selected)?;
@@ -682,26 +685,28 @@ mod tests {
     }
 
     fn schema() -> SchemaRef {
-        Arc::new(Schema::new(vec![
-            field(
-                "id",
-                "BIGINT",
-                "standard",
-                Some("signed-integer"),
-                DataType::Int64,
-            ),
-            field(
-                "name",
-                "VARCHAR(64)",
-                "standard",
-                Some("string"),
-                DataType::Utf8,
-            ),
-        ])
-        .with_metadata(HashMap::from([(
-            "gdds.canonical_mapping_version".to_string(),
-            "1".to_string(),
-        )])))
+        Arc::new(
+            Schema::new(vec![
+                field(
+                    "id",
+                    "BIGINT",
+                    "standard",
+                    Some("signed-integer"),
+                    DataType::Int64,
+                ),
+                field(
+                    "name",
+                    "VARCHAR(64)",
+                    "standard",
+                    Some("string"),
+                    DataType::Utf8,
+                ),
+            ])
+            .with_metadata(HashMap::from([(
+                "gdds.canonical_mapping_version".to_string(),
+                "1".to_string(),
+            )])),
+        )
     }
 
     fn batch(ids: &[i64], names: &[&str]) -> Result<RecordBatch, arrow_schema::ArrowError> {
@@ -741,8 +746,14 @@ mod tests {
         policy: &StandardOptions,
         context: &Arc<KernelContext>,
     ) -> Result<StandardComputation, OrderedCompareError> {
-        let before_schema = before.first().map(RecordBatch::schema).unwrap_or_else(schema);
-        let current_schema = current.first().map(RecordBatch::schema).unwrap_or_else(schema);
+        let before_schema = before
+            .first()
+            .map(RecordBatch::schema)
+            .unwrap_or_else(schema);
+        let current_schema = current
+            .first()
+            .map(RecordBatch::schema)
+            .unwrap_or_else(schema);
         compare_standard_table(
             CanonicalBatchSide::new(before_schema, before),
             CanonicalBatchSide::new(current_schema, current),
@@ -857,7 +868,8 @@ mod tests {
     }
 
     #[test]
-    fn present_zero_batch_table_is_distinct_from_missing_side() -> Result<(), Box<dyn std::error::Error>> {
+    fn present_zero_batch_table_is_distinct_from_missing_side()
+    -> Result<(), Box<dyn std::error::Error>> {
         let current = batch(&[7], &["new"])?;
         let result = compare(&[], &[current], &options(StandardMode::Keyed), &context())?;
         assert_eq!((result.row_added_count, result.row_deleted_count), (1, 0));
@@ -973,15 +985,22 @@ mod tests {
         let summary = summarize_unchanged_ordered_side(&current, &policy, &context())?;
         let slices = [current.slice(0, 1), current.slice(1, 1)];
         let split = summarize_unchanged_ordered_batches(
-            CanonicalBatchSide::new(current.schema(), &slices), &policy, &context(),
+            CanonicalBatchSide::new(current.schema(), &slices),
+            &policy,
+            &context(),
         )?;
         assert_eq!(summary, split);
         let empty = summarize_unchanged_ordered_batches(
-            CanonicalBatchSide::new(current.schema(), &[]), &policy, &context(),
+            CanonicalBatchSide::new(current.schema(), &[]),
+            &policy,
+            &context(),
         )?;
         assert_eq!(empty.row_count, 0);
         assert_eq!(empty.before_ordered_digest, empty.current_ordered_digest);
-        assert_eq!(empty.before_occupancy_digest, empty.current_occupancy_digest);
+        assert_eq!(
+            empty.before_occupancy_digest,
+            empty.current_occupancy_digest
+        );
         assert_eq!(
             summary.before_ordered_digest,
             summary.current_ordered_digest
@@ -996,34 +1015,72 @@ mod tests {
 
     #[test]
     fn ordered_locator_path_reuses_earliest_lis_tie() -> Result<(), Box<dyn std::error::Error>> {
-        let schema = Arc::new(Schema::new(vec![
-            field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
-            field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
-            field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
-        ]).with_metadata(HashMap::from([("gdds.canonical_mapping_version".to_string(), "1".to_string())])));
-        let make = |gids: Vec<i64>, names: Vec<&str>| -> Result<RecordBatch, arrow_schema::ArrowError> {
-            RecordBatch::try_new(Arc::clone(&schema), vec![
-                Arc::new(Int64Array::from(gids)) as ArrayRef,
-                Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef,
-                Arc::new(StringArray::from(names)) as ArrayRef,
+        let schema = Arc::new(
+            Schema::new(vec![
+                field(
+                    "gid",
+                    "BIGINT",
+                    "standard",
+                    Some("signed-integer"),
+                    DataType::Int64,
+                ),
+                field(
+                    "no",
+                    "BIGINT",
+                    "standard",
+                    Some("signed-integer"),
+                    DataType::Int64,
+                ),
+                field(
+                    "name",
+                    "VARCHAR(64)",
+                    "standard",
+                    Some("string"),
+                    DataType::Utf8,
+                ),
             ])
-        };
+            .with_metadata(HashMap::from([(
+                "gdds.canonical_mapping_version".to_string(),
+                "1".to_string(),
+            )])),
+        );
+        let make =
+            |gids: Vec<i64>, names: Vec<&str>| -> Result<RecordBatch, arrow_schema::ArrowError> {
+                RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![
+                        Arc::new(Int64Array::from(gids)) as ArrayRef,
+                        Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef,
+                        Arc::new(StringArray::from(names)) as ArrayRef,
+                    ],
+                )
+            };
         let before = make(vec![1, 2, 3], vec!["a", "b", "c"])?;
         let current = make(vec![2, 1, 3], vec!["b", "a", "c"])?;
         let policy = OrderedCompareOptions::new("t");
-        let result = compare_ordered_batches(OrderedBatchPair {
-            before: Some(std::slice::from_ref(&before)),
-            current: Some(std::slice::from_ref(&current)),
-            before_schema: Some(before.schema()),
-            current_schema: Some(current.schema()),
-            options: &policy,
-        }, &context())?;
+        let result = compare_ordered_batches(
+            OrderedBatchPair {
+                before: Some(std::slice::from_ref(&before)),
+                current: Some(std::slice::from_ref(&current)),
+                before_schema: Some(before.schema()),
+                current_schema: Some(current.schema()),
+                options: &policy,
+            },
+            &context(),
+        )?;
         assert!(result.facts.records.is_empty());
         assert!(result.facts.ordered_extension.records.is_empty());
         assert_eq!(result.facts.ordered_extension.summary.row_moved_count, 1);
-        let moved = result.ordered_records.iter().filter(|record| record.kind == "ORDERED_ROW_MOVED").collect::<Vec<_>>();
+        let moved = result
+            .ordered_records
+            .iter()
+            .filter(|record| record.kind == "ORDERED_ROW_MOVED")
+            .collect::<Vec<_>>();
         assert_eq!(moved.len(), 1);
-        assert_eq!((moved[0].before_position, moved[0].current_position), (Some(2), Some(1)));
+        assert_eq!(
+            (moved[0].before_position, moved[0].current_position),
+            (Some(2), Some(1))
+        );
         assert_eq!(result.standard_records.len(), 0);
         Ok(())
     }

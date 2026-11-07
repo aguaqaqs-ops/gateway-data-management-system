@@ -21,6 +21,6 @@ pub use ordered::{
     OrderedCompareError, OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult,
     OrderedKernelResult, OrderedRecord, OrderedSummary, OrderedTablePair, SchemaChanges,
     StandardRecord, UnchangedOrderedSummary, build_ordered_pool, compare_ordered_batches,
-    compare_ordered_table, compare_ordered_tables_parallel,
-    summarize_unchanged_ordered_batches, summarize_unchanged_ordered_side,
+    compare_ordered_table, compare_ordered_tables_parallel, summarize_unchanged_ordered_batches,
+    summarize_unchanged_ordered_side,
 };

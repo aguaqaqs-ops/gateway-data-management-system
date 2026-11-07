@@ -10,8 +10,7 @@ use std::panic::AssertUnwindSafe;
 use arrow_array::{
     Array, BinaryArray, BooleanArray, Decimal128Array, Decimal256Array, FixedSizeBinaryArray,
     Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray,
-    LargeStringArray, RecordBatch, StringArray, UInt8Array, UInt16Array, UInt32Array,
-    UInt64Array,
+    LargeStringArray, RecordBatch, StringArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 use arrow_schema::{DataType, Field, SchemaRef};
 use gateway_shared_kernel::{
@@ -28,7 +27,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use super::kernel::{CanonicalBatchSide, KernelContext, KernelLease, sort_indices_checked, validate_canonical_batches};
+use super::kernel::{
+    CanonicalBatchSide, KernelContext, KernelLease, sort_indices_checked,
+    validate_canonical_batches,
+};
 use super::standard::{RowLocation, StandardKind, StandardRecordRef};
 
 pub const ORDERED_COMPARE_FORMAT: &str = "gateway.comparison.ordered-canonical";
@@ -239,9 +241,11 @@ pub fn summarize_unchanged_ordered_batches(
             total.checked_add(array.get_buffer_memory_size())
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let row_count = current.batches.iter().try_fold(0usize, |total, batch| {
-        total.checked_add(batch.num_rows())
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let row_count = current
+        .batches
+        .iter()
+        .try_fold(0usize, |total, batch| total.checked_add(batch.num_rows()))
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let row_overhead = row_count
         .checked_mul(selected.len().saturating_mul(80).saturating_add(512))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
@@ -491,22 +495,31 @@ pub fn compare_ordered_batches(
         if pair.before.is_none() || pair.current.is_none() {
             return Err(OrderedCompareError::new("TABLE_LEVEL_SINGLE_SIDE_REQUIRED"));
         }
-        let metadata_bytes = pair.before_schema.iter().chain(&pair.current_schema)
+        let metadata_bytes = pair
+            .before_schema
+            .iter()
+            .chain(&pair.current_schema)
             .flat_map(|schema| schema.fields().iter())
             .try_fold(4096usize, |total, field| {
-                let field_bytes = field.name().len()
+                let field_bytes = field
+                    .name()
+                    .len()
                     .checked_add(field.metadata().values().map(String::len).sum::<usize>())?;
                 total.checked_add(field_bytes.saturating_mul(8).saturating_add(128))
             })
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let _metadata_lease = context.reserve(metadata_bytes)?;
         if let Some(before) = pair.before {
-            let schema = pair.before_schema.as_ref()
+            let schema = pair
+                .before_schema
+                .as_ref()
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"))?;
             validate_canonical_batches(&CanonicalBatchSide::new(Arc::clone(schema), before))?;
         }
         if let Some(current) = pair.current {
-            let schema = pair.current_schema.as_ref()
+            let schema = pair
+                .current_schema
+                .as_ref()
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"))?;
             validate_canonical_batches(&CanonicalBatchSide::new(Arc::clone(schema), current))?;
         }
@@ -533,20 +546,28 @@ pub fn compare_ordered_batches(
         // The pinned Arrow backing is owned/charged by the caller. Local peak:
         // one encoded frame copy, one worst-case full-key/index copy, one
         // largest-row digest scratch allowance, plus row/LIS/gap structures.
-        let encoded_frames = input_bytes.checked_add(frame_overhead)
+        let encoded_frames = input_bytes
+            .checked_add(frame_overhead)
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let index_keys = input_bytes.checked_add(rows.saturating_mul(128))
+        let index_keys = input_bytes
+            .checked_add(rows.saturating_mul(128))
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let digest_scratch = input_bytes;
         let row_structures = rows
-            .checked_mul(std::mem::size_of::<OrderedRow>()
-                .saturating_add(columns.saturating_mul(96))
-                .saturating_add(640))
+            .checked_mul(
+                std::mem::size_of::<OrderedRow>()
+                    .saturating_add(columns.saturating_mul(96))
+                    .saturating_add(640),
+            )
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let batch_count = pair.before.unwrap_or_default().len()
+        let batch_count = pair
+            .before
+            .unwrap_or_default()
+            .len()
             .checked_add(pair.current.unwrap_or_default().len())
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let batch_refs = batch_count.checked_mul(std::mem::size_of::<RecordBatch>() + 128)
+        let batch_refs = batch_count
+            .checked_mul(std::mem::size_of::<RecordBatch>() + 128)
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let reservation = encoded_frames
             .checked_add(index_keys)
@@ -557,34 +578,64 @@ pub fn compare_ordered_batches(
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let mut lease = context.reserve(reservation)?;
         let work = compare_ordered_table_inner(&pair, Some(context), Some(&mut lease), true)?;
-        let standard_facts_order = sort_indices_checked(&work.locators.standard, context, |left, right| {
-            left.kind.contract_name().cmp(&right.kind.contract_name())
-                .then_with(|| left.row_identity.cmp(&right.row_identity))
-                .then_with(|| left.changed_columns.cmp(&right.changed_columns))
-        })?;
+        let standard_facts_order =
+            sort_indices_checked(&work.locators.standard, context, |left, right| {
+                left.kind
+                    .contract_name()
+                    .cmp(&right.kind.contract_name())
+                    .then_with(|| left.row_identity.cmp(&right.row_identity))
+                    .then_with(|| left.changed_columns.cmp(&right.changed_columns))
+            })?;
         let standard_artifact_order = standard_facts_order.clone();
-        let ordered_facts_order = sort_indices_checked(&work.locators.ordered, context, |left, right| {
-            left.kind.cmp(&right.kind)
-                .then_with(|| left.current_position.or(left.before_position).unwrap_or_default()
-                    .cmp(&right.current_position.or(right.before_position).unwrap_or_default()))
-                .then_with(|| left.row_identity.cmp(&right.row_identity))
-        })?;
-        let ordered_artifact_order = sort_indices_checked(&work.locators.ordered, context, |left, right| {
-            left.kind.cmp(&right.kind)
-                .then_with(|| left.row_identity.cmp(&right.row_identity))
-                .then_with(|| left.before_position.unwrap_or_default().cmp(&right.before_position.unwrap_or_default()))
-                .then_with(|| left.current_position.unwrap_or_default().cmp(&right.current_position.unwrap_or_default()))
-        })?;
+        let ordered_facts_order =
+            sort_indices_checked(&work.locators.ordered, context, |left, right| {
+                left.kind
+                    .cmp(&right.kind)
+                    .then_with(|| {
+                        left.current_position
+                            .or(left.before_position)
+                            .unwrap_or_default()
+                            .cmp(
+                                &right
+                                    .current_position
+                                    .or(right.before_position)
+                                    .unwrap_or_default(),
+                            )
+                    })
+                    .then_with(|| left.row_identity.cmp(&right.row_identity))
+            })?;
+        let ordered_artifact_order =
+            sort_indices_checked(&work.locators.ordered, context, |left, right| {
+                left.kind
+                    .cmp(&right.kind)
+                    .then_with(|| left.row_identity.cmp(&right.row_identity))
+                    .then_with(|| {
+                        left.before_position
+                            .unwrap_or_default()
+                            .cmp(&right.before_position.unwrap_or_default())
+                    })
+                    .then_with(|| {
+                        left.current_position
+                            .unwrap_or_default()
+                            .cmp(&right.current_position.unwrap_or_default())
+                    })
+            })?;
         let blank_facts_order: Vec<usize> = (0..work.locators.blank.len()).collect();
-        let blank_keys = work.locators.blank.iter()
+        let blank_keys = work
+            .locators
+            .blank
+            .iter()
             .map(|record| blank_artifact_key(record, &pair.options.table_name))
             .collect::<Result<Vec<_>, _>>()?;
-        let blank_artifact_order = sort_indices_checked(&blank_facts_order, context, |left, right| {
-            let left = *left;
-            let right = *right;
-            work.locators.blank[left].kind.cmp(&work.locators.blank[right].kind)
-                .then_with(|| blank_keys[left].cmp(&blank_keys[right]))
-        })?;
+        let blank_artifact_order =
+            sort_indices_checked(&blank_facts_order, context, |left, right| {
+                let left = *left;
+                let right = *right;
+                work.locators.blank[left]
+                    .kind
+                    .cmp(&work.locators.blank[right].kind)
+                    .then_with(|| blank_keys[left].cmp(&blank_keys[right]))
+            })?;
         let OrderedWork { facts, locators } = work;
         let mut result = OrderedKernelResult {
             facts,
@@ -614,42 +665,96 @@ pub fn compare_ordered_batches(
 
 fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, OrderedCompareError> {
     let facts_bytes = serde_json::to_vec(&result.facts)
-        .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?.len();
-    let batch_bytes = result.before_batches.capacity()
+        .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?
+        .len();
+    let batch_bytes = result
+        .before_batches
+        .capacity()
         .checked_add(result.current_batches.capacity())
         .and_then(|count| count.checked_mul(std::mem::size_of::<RecordBatch>()))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let record_headers = result.standard_records.capacity()
+    let record_headers = result
+        .standard_records
+        .capacity()
         .checked_mul(std::mem::size_of::<StandardRecordRef>())
-        .and_then(|bytes| result.ordered_records.capacity()
-            .checked_mul(std::mem::size_of::<OrderedRecordRef>())
-            .and_then(|part| bytes.checked_add(part)))
-        .and_then(|bytes| result.blank_records.capacity()
-            .checked_mul(std::mem::size_of::<BlankRecordRef>())
-            .and_then(|part| bytes.checked_add(part)))
+        .and_then(|bytes| {
+            result
+                .ordered_records
+                .capacity()
+                .checked_mul(std::mem::size_of::<OrderedRecordRef>())
+                .and_then(|part| bytes.checked_add(part))
+        })
+        .and_then(|bytes| {
+            result
+                .blank_records
+                .capacity()
+                .checked_mul(std::mem::size_of::<BlankRecordRef>())
+                .and_then(|part| bytes.checked_add(part))
+        })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let order_bytes = [
-        result.standard_facts_order.capacity(), result.standard_artifact_order.capacity(),
-        result.ordered_facts_order.capacity(), result.ordered_artifact_order.capacity(),
-        result.blank_facts_order.capacity(), result.blank_artifact_order.capacity(),
-    ].into_iter().try_fold(0usize, |total, count| {
-        count.checked_mul(std::mem::size_of::<usize>())
+        result.standard_facts_order.capacity(),
+        result.standard_artifact_order.capacity(),
+        result.ordered_facts_order.capacity(),
+        result.ordered_artifact_order.capacity(),
+        result.blank_facts_order.capacity(),
+        result.blank_artifact_order.capacity(),
+    ]
+    .into_iter()
+    .try_fold(0usize, |total, count| {
+        count
+            .checked_mul(std::mem::size_of::<usize>())
             .and_then(|part| total.checked_add(part))
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let standard_strings = result.standard_records.iter().try_fold(0usize, |total, record| {
-        record.value_columns.iter().chain(&record.changed_columns).chain(&record.diagnostics)
-            .try_fold(total.checked_add(record.row_identity.capacity())?, |sum, text| sum.checked_add(text.capacity()))?
-            .checked_add((record.value_columns.capacity() + record.changed_columns.capacity() + record.diagnostics.capacity()) * std::mem::size_of::<String>())
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let ordered_strings = result.ordered_records.iter().try_fold(0usize, |total, record| {
-        record.value_columns.iter().chain(&record.changed_columns)
-            .try_fold(total.checked_add(record.row_identity.capacity())?, |sum, text| sum.checked_add(text.capacity()))?
-            .checked_add((record.value_columns.capacity() + record.changed_columns.capacity()) * std::mem::size_of::<String>())
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let blank_strings = result.blank_records.iter().try_fold(0usize, |total, record| {
-        total.checked_add(record.interval.interval_digest.capacity())
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    facts_bytes.checked_mul(2)
+    })
+    .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let standard_strings = result
+        .standard_records
+        .iter()
+        .try_fold(0usize, |total, record| {
+            record
+                .value_columns
+                .iter()
+                .chain(&record.changed_columns)
+                .chain(&record.diagnostics)
+                .try_fold(
+                    total.checked_add(record.row_identity.capacity())?,
+                    |sum, text| sum.checked_add(text.capacity()),
+                )?
+                .checked_add(
+                    (record.value_columns.capacity()
+                        + record.changed_columns.capacity()
+                        + record.diagnostics.capacity())
+                        * std::mem::size_of::<String>(),
+                )
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let ordered_strings = result
+        .ordered_records
+        .iter()
+        .try_fold(0usize, |total, record| {
+            record
+                .value_columns
+                .iter()
+                .chain(&record.changed_columns)
+                .try_fold(
+                    total.checked_add(record.row_identity.capacity())?,
+                    |sum, text| sum.checked_add(text.capacity()),
+                )?
+                .checked_add(
+                    (record.value_columns.capacity() + record.changed_columns.capacity())
+                        * std::mem::size_of::<String>(),
+                )
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let blank_strings = result
+        .blank_records
+        .iter()
+        .try_fold(0usize, |total, record| {
+            total.checked_add(record.interval.interval_digest.capacity())
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    facts_bytes
+        .checked_mul(2)
         .and_then(|bytes| bytes.checked_add(batch_bytes))
         .and_then(|bytes| bytes.checked_add(record_headers))
         .and_then(|bytes| bytes.checked_add(order_bytes))
@@ -809,20 +914,31 @@ fn compare_ordered_table_inner(
     check_context(context)?;
     let mut added_keys = Vec::new();
     for (index, key) in current_real.keys().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if !before_real.contains_key(key) { added_keys.push(key.clone()); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if !before_real.contains_key(key) {
+            added_keys.push(key.clone());
+        }
     }
     let mut deleted_keys = Vec::new();
     let mut common_keys = Vec::new();
     for (index, key) in before_real.keys().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if current_real.contains_key(key) { common_keys.push(key.clone()); }
-        else { deleted_keys.push(key.clone()); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if current_real.contains_key(key) {
+            common_keys.push(key.clone());
+        } else {
+            deleted_keys.push(key.clone());
+        }
     }
 
     let mut changed_by_key = BTreeMap::<Vec<u8>, Vec<String>>::new();
     for (index, key) in common_keys.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         let before_row = &before.rows[before_real[key]];
         let current_row = &current.rows[current_real[key]];
         let changed: Vec<String> = value_columns
@@ -840,31 +956,49 @@ fn compare_ordered_table_inner(
 
     let mut common_keys_in_before_order = Vec::new();
     for (index, row) in before.rows.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if let Some(key) = row.stable_key.as_ref().filter(|key| current_real.contains_key(*key)) {
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if let Some(key) = row
+            .stable_key
+            .as_ref()
+            .filter(|key| current_real.contains_key(*key))
+        {
             common_keys_in_before_order.push(key.clone());
         }
     }
     let mut current_positions = Vec::with_capacity(common_keys_in_before_order.len());
     for (index, key) in common_keys_in_before_order.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         current_positions.push(current.rows[current_real[key]].position);
     }
     check_context(context)?;
     let backbone_indices = longest_increasing_backbone_with_control(&current_positions, context)?;
     let mut backbone = HashSet::new();
     for (index, pick) in backbone_indices.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if let Some(key) = common_keys_in_before_order.get(*pick) { backbone.insert(key.clone()); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if let Some(key) = common_keys_in_before_order.get(*pick) {
+            backbone.insert(key.clone());
+        }
     }
     let mut moved_keys = Vec::new();
     for (index, key) in common_keys.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if !backbone.contains(key) { moved_keys.push(key.clone()); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if !backbone.contains(key) {
+            moved_keys.push(key.clone());
+        }
     }
     let mut position_changed_keys = HashSet::new();
     for (index, key) in backbone.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         if before.rows[before_real[key]].position != current.rows[current_real[key]].position {
             position_changed_keys.insert(key.clone());
         }
@@ -875,11 +1009,15 @@ fn compare_ordered_table_inner(
     let mut locators = OrderedLocatorRecords::default();
     if options.include_add_delete_records {
         for (index, key) in added_keys.iter().enumerate() {
-            if index % 1024 == 0 { check_context(context)?; }
+            if index % 1024 == 0 {
+                check_context(context)?;
+            }
             let row = &current.rows[current_real[key]];
             if capture_locators {
                 reserve_locator(lease.as_deref_mut(), &selected, &value_columns)?;
-                let identity = row.stable_identity.clone()
+                let identity = row
+                    .stable_identity
+                    .clone()
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?;
                 locators.standard.push(StandardRecordRef {
                     kind: StandardKind::RowAdded,
@@ -891,83 +1029,101 @@ fn compare_ordered_table_inner(
                     diagnostics: vec!["ORDERED_PROVIDER".to_string()],
                 });
                 locators.ordered.push(OrderedRecordRef {
-                    kind: "ORDERED_ROW_ADDED", semantic_kind: "DATA_INSERT",
-                    entity_key_kind: "REAL_STABLE", row_identity: identity,
-                    before_position: None, current_position: Some(row.position),
-                    before: None, current: Some(row.location),
-                    value_columns: value_columns.clone(), changed_columns: Vec::new(),
+                    kind: "ORDERED_ROW_ADDED",
+                    semantic_kind: "DATA_INSERT",
+                    entity_key_kind: "REAL_STABLE",
+                    row_identity: identity,
+                    before_position: None,
+                    current_position: Some(row.position),
+                    before: None,
+                    current: Some(row.location),
+                    value_columns: value_columns.clone(),
+                    changed_columns: Vec::new(),
                 });
             } else {
-            standard_records.push(standard_record(
-                &options.table_name,
-                "ROW_ADDED",
-                row,
-                Some(&selected),
-                None,
-                Vec::new(),
-                vec!["ORDERED_PROVIDER".to_string()],
-            ));
-            ordered_records.push(ordered_record(OrderedRecordSpec {
-                table_name: &options.table_name,
-                record_kind: "ORDERED_ROW_ADDED",
-                semantic_kind: "DATA_INSERT",
-                row_identity: row.stable_identity.as_deref(),
-                before_position: None,
-                current_position: Some(row.position),
-                changed_columns: Vec::new(),
-                before_values: Vec::new(),
-                current_values: values(row, &value_columns),
-            })?);
+                standard_records.push(standard_record(
+                    &options.table_name,
+                    "ROW_ADDED",
+                    row,
+                    Some(&selected),
+                    None,
+                    Vec::new(),
+                    vec!["ORDERED_PROVIDER".to_string()],
+                ));
+                ordered_records.push(ordered_record(OrderedRecordSpec {
+                    table_name: &options.table_name,
+                    record_kind: "ORDERED_ROW_ADDED",
+                    semantic_kind: "DATA_INSERT",
+                    row_identity: row.stable_identity.as_deref(),
+                    before_position: None,
+                    current_position: Some(row.position),
+                    changed_columns: Vec::new(),
+                    before_values: Vec::new(),
+                    current_values: values(row, &value_columns),
+                })?);
             }
         }
         for (index, key) in deleted_keys.iter().enumerate() {
-            if index % 1024 == 0 { check_context(context)?; }
+            if index % 1024 == 0 {
+                check_context(context)?;
+            }
             let row = &before.rows[before_real[key]];
             if capture_locators {
                 reserve_locator(lease.as_deref_mut(), &selected, &value_columns)?;
-                let identity = row.stable_identity.clone()
+                let identity = row
+                    .stable_identity
+                    .clone()
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?;
                 locators.standard.push(StandardRecordRef {
                     kind: StandardKind::RowDeleted,
                     row_identity: identity.clone(),
-                    before: Some(row.location), current: None,
-                    value_columns: selected.clone(), changed_columns: Vec::new(),
+                    before: Some(row.location),
+                    current: None,
+                    value_columns: selected.clone(),
+                    changed_columns: Vec::new(),
                     diagnostics: vec!["ORDERED_PROVIDER".to_string()],
                 });
                 locators.ordered.push(OrderedRecordRef {
-                    kind: "ORDERED_ROW_DELETED", semantic_kind: "DATA_DELETE",
-                    entity_key_kind: "REAL_STABLE", row_identity: identity,
-                    before_position: Some(row.position), current_position: None,
-                    before: Some(row.location), current: None,
-                    value_columns: value_columns.clone(), changed_columns: Vec::new(),
+                    kind: "ORDERED_ROW_DELETED",
+                    semantic_kind: "DATA_DELETE",
+                    entity_key_kind: "REAL_STABLE",
+                    row_identity: identity,
+                    before_position: Some(row.position),
+                    current_position: None,
+                    before: Some(row.location),
+                    current: None,
+                    value_columns: value_columns.clone(),
+                    changed_columns: Vec::new(),
                 });
             } else {
-            standard_records.push(standard_record(
-                &options.table_name,
-                "ROW_DELETED",
-                row,
-                None,
-                Some(&selected),
-                Vec::new(),
-                vec!["ORDERED_PROVIDER".to_string()],
-            ));
-            ordered_records.push(ordered_record(OrderedRecordSpec {
-                table_name: &options.table_name,
-                record_kind: "ORDERED_ROW_DELETED",
-                semantic_kind: "DATA_DELETE",
-                row_identity: row.stable_identity.as_deref(),
-                before_position: Some(row.position),
-                current_position: None,
-                changed_columns: Vec::new(),
-                before_values: values(row, &value_columns),
-                current_values: Vec::new(),
-            })?);
+                standard_records.push(standard_record(
+                    &options.table_name,
+                    "ROW_DELETED",
+                    row,
+                    None,
+                    Some(&selected),
+                    Vec::new(),
+                    vec!["ORDERED_PROVIDER".to_string()],
+                ));
+                ordered_records.push(ordered_record(OrderedRecordSpec {
+                    table_name: &options.table_name,
+                    record_kind: "ORDERED_ROW_DELETED",
+                    semantic_kind: "DATA_DELETE",
+                    row_identity: row.stable_identity.as_deref(),
+                    before_position: Some(row.position),
+                    current_position: None,
+                    changed_columns: Vec::new(),
+                    before_values: values(row, &value_columns),
+                    current_values: Vec::new(),
+                })?);
             }
         }
     }
 
     for (index, (key, changed_columns)) in changed_by_key.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         let before_row = &before.rows[before_real[key]];
         let current_row = &current.rows[current_real[key]];
         let identity = before_row
@@ -979,96 +1135,107 @@ fn compare_ordered_table_inner(
             locators.standard.push(StandardRecordRef {
                 kind: StandardKind::RowModified,
                 row_identity: identity.to_string(),
-                before: Some(before_row.location), current: Some(current_row.location),
+                before: Some(before_row.location),
+                current: Some(current_row.location),
                 value_columns: changed_columns.clone(),
                 changed_columns: changed_columns.clone(),
                 diagnostics: Vec::new(),
             });
             locators.ordered.push(OrderedRecordRef {
-                kind: "ORDERED_ROW_MODIFIED", semantic_kind: "CONTENT_UPDATE",
-                entity_key_kind: "REAL_STABLE", row_identity: identity.to_string(),
+                kind: "ORDERED_ROW_MODIFIED",
+                semantic_kind: "CONTENT_UPDATE",
+                entity_key_kind: "REAL_STABLE",
+                row_identity: identity.to_string(),
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
-                before: Some(before_row.location), current: Some(current_row.location),
+                before: Some(before_row.location),
+                current: Some(current_row.location),
                 value_columns: changed_columns.clone(),
                 changed_columns: changed_columns.clone(),
             });
         } else {
-        let field_changes: Vec<FieldChange> = changed_columns
-            .iter()
-            .map(|column| {
-                let before_cell = before_row
-                    .cells
-                    .get(column)
-                    .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
-                let current_cell = current_row
-                    .cells
-                    .get(column)
-                    .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
-                Ok(FieldChange {
-                    table_name: options.table_name.clone(),
-                    row_identity: identity.to_string(),
-                    column: column.clone(),
-                    before: before_cell.canonical_value(column),
-                    current: current_cell.canonical_value(column),
-                    change_kind: "UPDATE".to_string(),
+            let field_changes: Vec<FieldChange> = changed_columns
+                .iter()
+                .map(|column| {
+                    let before_cell = before_row
+                        .cells
+                        .get(column)
+                        .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
+                    let current_cell = current_row
+                        .cells
+                        .get(column)
+                        .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
+                    Ok(FieldChange {
+                        table_name: options.table_name.clone(),
+                        row_identity: identity.to_string(),
+                        column: column.clone(),
+                        before: before_cell.canonical_value(column),
+                        current: current_cell.canonical_value(column),
+                        change_kind: "UPDATE".to_string(),
+                    })
                 })
-            })
-            .collect::<Result<_, OrderedCompareError>>()?;
-        let before_values = values(before_row, changed_columns);
-        let current_values = values(current_row, changed_columns);
-        standard_records.push(StandardRecord {
-            table_name: options.table_name.clone(),
-            record_kind: "ROW_MODIFIED".to_string(),
-            row_identity: Some(identity.to_string()),
-            changed_columns: changed_columns.clone(),
-            before_values: before_values.clone(),
-            current_values: current_values.clone(),
-            field_changes,
-            diagnostics: Vec::new(),
-        });
-        ordered_records.push(ordered_record(OrderedRecordSpec {
-            table_name: &options.table_name,
-            record_kind: "ORDERED_ROW_MODIFIED",
-            semantic_kind: "CONTENT_UPDATE",
-            row_identity: Some(identity),
-            before_position: Some(before_row.position),
-            current_position: Some(current_row.position),
-            changed_columns: changed_columns.clone(),
-            before_values,
-            current_values,
-        })?);
+                .collect::<Result<_, OrderedCompareError>>()?;
+            let before_values = values(before_row, changed_columns);
+            let current_values = values(current_row, changed_columns);
+            standard_records.push(StandardRecord {
+                table_name: options.table_name.clone(),
+                record_kind: "ROW_MODIFIED".to_string(),
+                row_identity: Some(identity.to_string()),
+                changed_columns: changed_columns.clone(),
+                before_values: before_values.clone(),
+                current_values: current_values.clone(),
+                field_changes,
+                diagnostics: Vec::new(),
+            });
+            ordered_records.push(ordered_record(OrderedRecordSpec {
+                table_name: &options.table_name,
+                record_kind: "ORDERED_ROW_MODIFIED",
+                semantic_kind: "CONTENT_UPDATE",
+                row_identity: Some(identity),
+                before_position: Some(before_row.position),
+                current_position: Some(current_row.position),
+                changed_columns: changed_columns.clone(),
+                before_values,
+                current_values,
+            })?);
         }
     }
 
     for (index, key) in moved_keys.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         let before_row = &before.rows[before_real[key]];
         let current_row = &current.rows[current_real[key]];
         if capture_locators {
             reserve_locator(lease.as_deref_mut(), &[], &[])?;
             locators.ordered.push(OrderedRecordRef {
-                kind: "ORDERED_ROW_MOVED", semantic_kind: "MOVE",
+                kind: "ORDERED_ROW_MOVED",
+                semantic_kind: "MOVE",
                 entity_key_kind: "REAL_STABLE",
-                row_identity: before_row.stable_identity.clone()
+                row_identity: before_row
+                    .stable_identity
+                    .clone()
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?,
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
-                before: Some(before_row.location), current: Some(current_row.location),
-                value_columns: Vec::new(), changed_columns: Vec::new(),
+                before: Some(before_row.location),
+                current: Some(current_row.location),
+                value_columns: Vec::new(),
+                changed_columns: Vec::new(),
             });
         } else {
-        ordered_records.push(ordered_record(OrderedRecordSpec {
-            table_name: &options.table_name,
-            record_kind: "ORDERED_ROW_MOVED",
-            semantic_kind: "MOVE",
-            row_identity: before_row.stable_identity.as_deref(),
-            before_position: Some(before_row.position),
-            current_position: Some(current_row.position),
-            changed_columns: Vec::new(),
-            before_values: Vec::new(),
-            current_values: Vec::new(),
-        })?);
+            ordered_records.push(ordered_record(OrderedRecordSpec {
+                table_name: &options.table_name,
+                record_kind: "ORDERED_ROW_MOVED",
+                semantic_kind: "MOVE",
+                row_identity: before_row.stable_identity.as_deref(),
+                before_position: Some(before_row.position),
+                current_position: Some(current_row.position),
+                changed_columns: Vec::new(),
+                before_values: Vec::new(),
+                current_values: Vec::new(),
+            })?);
         }
     }
 
@@ -1163,135 +1330,141 @@ fn compare_ordered_table_inner(
         && !options.compare_excluded_columns.is_empty()
         && options.raw_content_changed;
 
-    Ok(OrderedWork { facts: OrderedCompareResult {
-        format: ORDERED_COMPARE_FORMAT.to_string(),
-        version: ORDERED_COMPARE_VERSION,
-        table_name: options.table_name.clone(),
-        status: status.to_string(),
-        row_count_before: pair.before.map(side_row_count),
-        row_count_current: pair.current.map(side_row_count),
-        row_added_count: added_count,
-        row_deleted_count: deleted_count,
-        row_modified_count: modified_count,
-        suppressed_added_count: if options.include_add_delete_records {
-            0
-        } else {
-            added_count
-        },
-        suppressed_deleted_count: if options.include_add_delete_records {
-            0
-        } else {
-            deleted_count
-        },
-        content_changed,
-        schema_changes: options.schema_changes.clone(),
-        diagnostics: Vec::new(),
-        records: standard_records,
-        ordered_extension: OrderedExtensionResult {
-            contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
-            status: if mode.is_some() {
-                "ORDERED_CHANGED"
+    Ok(OrderedWork {
+        facts: OrderedCompareResult {
+            format: ORDERED_COMPARE_FORMAT.to_string(),
+            version: ORDERED_COMPARE_VERSION,
+            table_name: options.table_name.clone(),
+            status: status.to_string(),
+            row_count_before: pair.before.map(side_row_count),
+            row_count_current: pair.current.map(side_row_count),
+            row_added_count: added_count,
+            row_deleted_count: deleted_count,
+            row_modified_count: modified_count,
+            suppressed_added_count: if options.include_add_delete_records {
+                0
             } else {
-                "ORDERED_UNCHANGED"
-            }
-            .to_string(),
-            summary: OrderedSummary {
-                row_added_count: added_count,
-                row_deleted_count: deleted_count,
-                row_modified_count: modified_count,
-                row_moved_count: moved_count,
-                position_changed_count,
-                degraded_count: 0,
+                added_count
             },
-            before_ordered_digest: before_digest,
-            current_ordered_digest: current_digest,
-            replay_guarantee: "EXACT".to_string(),
-            table_processing_mode: mode.map(str::to_string),
-            policy_digest: options.policy_digest.clone(),
-            diagnostics: Vec::new(),
-            records: ordered_records,
-        },
-        blank_extension: BlankExtensionResult {
-            contract_version: BLANK_COMPARISON_CONTRACT_VERSION.to_string(),
-            status: if blank.summary.blank_changed_count > 0 {
-                "ORDERED_CHANGED"
+            suppressed_deleted_count: if options.include_add_delete_records {
+                0
             } else {
-                "ORDERED_UNCHANGED"
-            }
-            .to_string(),
-            summary: blank.summary,
-            before_occupancy_digest: Some(blank.before_digest),
-            current_occupancy_digest: Some(blank.current_digest),
-            replay_guarantee: "EXACT".to_string(),
+                deleted_count
+            },
+            content_changed,
+            schema_changes: options.schema_changes.clone(),
             diagnostics: Vec::new(),
-            records: blank.records,
+            records: standard_records,
+            ordered_extension: OrderedExtensionResult {
+                contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
+                status: if mode.is_some() {
+                    "ORDERED_CHANGED"
+                } else {
+                    "ORDERED_UNCHANGED"
+                }
+                .to_string(),
+                summary: OrderedSummary {
+                    row_added_count: added_count,
+                    row_deleted_count: deleted_count,
+                    row_modified_count: modified_count,
+                    row_moved_count: moved_count,
+                    position_changed_count,
+                    degraded_count: 0,
+                },
+                before_ordered_digest: before_digest,
+                current_ordered_digest: current_digest,
+                replay_guarantee: "EXACT".to_string(),
+                table_processing_mode: mode.map(str::to_string),
+                policy_digest: options.policy_digest.clone(),
+                diagnostics: Vec::new(),
+                records: ordered_records,
+            },
+            blank_extension: BlankExtensionResult {
+                contract_version: BLANK_COMPARISON_CONTRACT_VERSION.to_string(),
+                status: if blank.summary.blank_changed_count > 0 {
+                    "ORDERED_CHANGED"
+                } else {
+                    "ORDERED_UNCHANGED"
+                }
+                .to_string(),
+                summary: blank.summary,
+                before_occupancy_digest: Some(blank.before_digest),
+                current_occupancy_digest: Some(blank.current_digest),
+                replay_guarantee: "EXACT".to_string(),
+                diagnostics: Vec::new(),
+                records: blank.records,
+            },
         },
-    }, locators })
+        locators,
+    })
 }
 
 fn degraded_result(pair: &OrderedBatchPair<'_>, diagnostic: &'static str) -> OrderedWork {
     let options = pair.options;
     let diagnostics = vec![diagnostic.to_string()];
-    OrderedWork { facts: OrderedCompareResult {
-        format: ORDERED_COMPARE_FORMAT.to_string(),
-        version: ORDERED_COMPARE_VERSION,
-        table_name: options.table_name.clone(),
-        status: "DEGRADED".to_string(),
-        row_count_before: pair.before.map(side_row_count),
-        row_count_current: pair.current.map(side_row_count),
-        row_added_count: 0,
-        row_deleted_count: 0,
-        row_modified_count: 0,
-        suppressed_added_count: 0,
-        suppressed_deleted_count: 0,
-        content_changed: false,
-        schema_changes: options.schema_changes.clone(),
-        diagnostics: diagnostics.clone(),
-        records: vec![StandardRecord {
+    OrderedWork {
+        facts: OrderedCompareResult {
+            format: ORDERED_COMPARE_FORMAT.to_string(),
+            version: ORDERED_COMPARE_VERSION,
             table_name: options.table_name.clone(),
-            record_kind: "TABLE_DEGRADED".to_string(),
-            row_identity: None,
-            changed_columns: Vec::new(),
-            before_values: Vec::new(),
-            current_values: Vec::new(),
-            field_changes: Vec::new(),
+            status: "DEGRADED".to_string(),
+            row_count_before: pair.before.map(side_row_count),
+            row_count_current: pair.current.map(side_row_count),
+            row_added_count: 0,
+            row_deleted_count: 0,
+            row_modified_count: 0,
+            suppressed_added_count: 0,
+            suppressed_deleted_count: 0,
+            content_changed: false,
+            schema_changes: options.schema_changes.clone(),
             diagnostics: diagnostics.clone(),
-        }],
-        ordered_extension: OrderedExtensionResult {
-            contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
-            status: "ORDERED_DEGRADED".to_string(),
-            summary: OrderedSummary {
-                row_added_count: 0,
-                row_deleted_count: 0,
-                row_modified_count: 0,
-                row_moved_count: 0,
-                position_changed_count: 0,
-                degraded_count: 1,
+            records: vec![StandardRecord {
+                table_name: options.table_name.clone(),
+                record_kind: "TABLE_DEGRADED".to_string(),
+                row_identity: None,
+                changed_columns: Vec::new(),
+                before_values: Vec::new(),
+                current_values: Vec::new(),
+                field_changes: Vec::new(),
+                diagnostics: diagnostics.clone(),
+            }],
+            ordered_extension: OrderedExtensionResult {
+                contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
+                status: "ORDERED_DEGRADED".to_string(),
+                summary: OrderedSummary {
+                    row_added_count: 0,
+                    row_deleted_count: 0,
+                    row_modified_count: 0,
+                    row_moved_count: 0,
+                    position_changed_count: 0,
+                    degraded_count: 1,
+                },
+                before_ordered_digest: None,
+                current_ordered_digest: None,
+                replay_guarantee: "UNSUPPORTED".to_string(),
+                table_processing_mode: Some("DEGRADED".to_string()),
+                policy_digest: options.policy_digest.clone(),
+                diagnostics: diagnostics.clone(),
+                records: Vec::new(),
             },
-            before_ordered_digest: None,
-            current_ordered_digest: None,
-            replay_guarantee: "UNSUPPORTED".to_string(),
-            table_processing_mode: Some("DEGRADED".to_string()),
-            policy_digest: options.policy_digest.clone(),
-            diagnostics: diagnostics.clone(),
-            records: Vec::new(),
-        },
-        blank_extension: BlankExtensionResult {
-            contract_version: BLANK_COMPARISON_CONTRACT_VERSION.to_string(),
-            status: "ORDERED_DEGRADED".to_string(),
-            summary: BlankSummary {
-                interval_inserted_count: 0,
-                interval_deleted_count: 0,
-                blank_changed_count: 0,
-                degraded_count: 1,
+            blank_extension: BlankExtensionResult {
+                contract_version: BLANK_COMPARISON_CONTRACT_VERSION.to_string(),
+                status: "ORDERED_DEGRADED".to_string(),
+                summary: BlankSummary {
+                    interval_inserted_count: 0,
+                    interval_deleted_count: 0,
+                    blank_changed_count: 0,
+                    degraded_count: 1,
+                },
+                before_occupancy_digest: None,
+                current_occupancy_digest: None,
+                replay_guarantee: "UNSUPPORTED".to_string(),
+                diagnostics,
+                records: Vec::new(),
             },
-            before_occupancy_digest: None,
-            current_occupancy_digest: None,
-            replay_guarantee: "UNSUPPORTED".to_string(),
-            diagnostics,
-            records: Vec::new(),
         },
-    }, locators: OrderedLocatorRecords::default() }
+        locators: OrderedLocatorRecords::default(),
+    }
 }
 
 fn selected_columns(
@@ -1352,7 +1525,9 @@ fn real_index(
 ) -> Result<BTreeMap<Vec<u8>, usize>, OrderedCompareError> {
     let mut result = BTreeMap::new();
     for (index, row) in rows.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         if let Some(key) = &row.stable_key {
             result.insert(key.clone(), index);
         }
@@ -1492,7 +1667,9 @@ fn is_control_or_resource(error: &OrderedCompareError) -> bool {
 }
 
 fn check_context(context: Option<&KernelContext>) -> Result<(), OrderedCompareError> {
-    if let Some(context) = context { context.check()?; }
+    if let Some(context) = context {
+        context.check()?;
+    }
     Ok(())
 }
 
@@ -1523,7 +1700,9 @@ fn read_side_batches(
             return Err(OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"));
         }
         for (row_index, mut row) in side.rows.into_iter().enumerate() {
-            if row_index % 1024 == 0 { check_context(context)?; }
+            if row_index % 1024 == 0 {
+                check_context(context)?;
+            }
             row.location.batch = batch_index;
             if !positions.insert(row.position) {
                 return Err(OrderedCompareError::new("ORDER_KEY_DUPLICATE"));
@@ -1547,13 +1726,20 @@ fn read_side_batches(
         }
     }
     if let Some(context) = context {
-        let order = sort_indices_checked(&rows, context, |left, right| left.position.cmp(&right.position))?;
+        let order = sort_indices_checked(&rows, context, |left, right| {
+            left.position.cmp(&right.position)
+        })?;
         let mut slots: Vec<Option<OrderedRow>> = rows.into_iter().map(Some).collect();
         let mut sorted = Vec::with_capacity(slots.len());
         for (index, position) in order.into_iter().enumerate() {
-            if index % 1024 == 0 { context.check()?; }
-            sorted.push(slots[position].take()
-                .ok_or_else(|| OrderedCompareError::new("ORDERED_INTERNAL_ERROR"))?);
+            if index % 1024 == 0 {
+                context.check()?;
+            }
+            sorted.push(
+                slots[position]
+                    .take()
+                    .ok_or_else(|| OrderedCompareError::new("ORDERED_INTERNAL_ERROR"))?,
+            );
         }
         Ok(SideRows { rows: sorted })
     } else {
@@ -1691,7 +1877,10 @@ fn read_side(
             )
         };
         rows.push(OrderedRow {
-            location: RowLocation { batch: 0, row: row_index },
+            location: RowLocation {
+                batch: 0,
+                row: row_index,
+            },
             position,
             stable_key,
             stable_identity,
@@ -1699,7 +1888,9 @@ fn read_side(
             cells,
         });
     }
-    if context.is_none() { rows.sort_by_key(|row| row.position); }
+    if context.is_none() {
+        rows.sort_by_key(|row| row.position);
+    }
     Ok(SideRows { rows })
 }
 
@@ -2120,7 +2311,9 @@ fn longest_increasing_backbone_with_control(
     let mut reach = vec![0usize; positions.len()];
     let mut tails = Vec::<i64>::new();
     for index in (0..positions.len()).rev() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         let value = -positions[index];
         let slot = tails.partition_point(|tail| *tail < value);
         if slot == tails.len() {
@@ -2133,7 +2326,9 @@ fn longest_increasing_backbone_with_control(
     let longest = reach.iter().copied().max().unwrap_or_default();
     let mut levels = vec![Vec::<usize>::new(); longest.saturating_add(1)];
     for (index, length) in reach.iter().copied().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         if let Some(level) = levels.get_mut(length) {
             level.push(index);
         }
@@ -2141,7 +2336,9 @@ fn longest_increasing_backbone_with_control(
     let mut chosen = Vec::with_capacity(longest);
     let mut previous = None;
     for length in (1..=longest).rev() {
-        if length % 1024 == 0 { check_context(context)?; }
+        if length % 1024 == 0 {
+            check_context(context)?;
+        }
         let Some(candidates) = levels.get(length) else {
             break;
         };
@@ -2169,8 +2366,12 @@ fn ordered_digest(
     hash_jcs_string(&mut hasher, policy_version)?;
     hasher.update(b",\"kind\":\"ordered-logical-digest\",\"rows\":[");
     for (index, row) in rows.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if index > 0 { hasher.update(b","); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if index > 0 {
+            hasher.update(b",");
+        }
         let content = if row.blank {
             None
         } else {
@@ -2185,7 +2386,11 @@ fn ordered_digest(
             Some(digest.digest_ref().as_str().to_string())
         };
         hasher.update(b"{\"blank\":");
-        hasher.update(if row.blank { b"true".as_slice() } else { b"false".as_slice() });
+        hasher.update(if row.blank {
+            b"true".as_slice()
+        } else {
+            b"false".as_slice()
+        });
         hasher.update(b",\"content\":");
         hash_optional_jcs_string(&mut hasher, content.as_deref())?;
         hasher.update(b",\"position\":");
@@ -2213,7 +2418,9 @@ fn hash_optional_jcs_string(
     hasher: &mut Sha256,
     text: Option<&str>,
 ) -> Result<(), OrderedCompareError> {
-    if let Some(text) = text { hash_jcs_string(hasher, text) } else {
+    if let Some(text) = text {
+        hash_jcs_string(hasher, text)
+    } else {
         hasher.update(b"null");
         Ok(())
     }
@@ -2239,7 +2446,9 @@ fn blank_extension(
     let mut inserted_count = 0usize;
     let mut deleted_count = 0usize;
     for (index, key) in keys.into_iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         let before_gap = before_gaps.get(&key).copied();
         let current_gap = current_gaps.get(&key).copied();
         let before_count = before_gap.map_or(0, |gap| gap.count);
@@ -2342,7 +2551,9 @@ fn blank_gaps(
     let mut start = 0i64;
     let mut end = 0i64;
     for (index, row) in rows.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
         if row.blank {
             if count == 0 {
                 start = row.position;
@@ -2390,8 +2601,12 @@ fn occupancy_digest(
     let mut hasher = Sha256::new();
     hasher.update(b"[");
     for (index, (key, gap)) in gaps.iter().enumerate() {
-        if index % 1024 == 0 { check_context(context)?; }
-        if index > 0 { hasher.update(b","); }
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        if index > 0 {
+            hasher.update(b",");
+        }
         hasher.update(b"{\"after\":");
         hash_optional_jcs_string(&mut hasher, key.1.as_deref())?;
         hasher.update(b",\"before\":");
@@ -2418,7 +2633,10 @@ fn blank_artifact_key(
     record: &BlankRecordRef,
     table_name: &str,
 ) -> Result<Vec<u8>, OrderedCompareError> {
-    let digest = record.interval.interval_digest.strip_prefix("sha256:")
+    let digest = record
+        .interval
+        .interval_digest
+        .strip_prefix("sha256:")
         .ok_or_else(|| OrderedCompareError::new("DIGEST_FAILED"))?;
     let row = json!({
         "table_name": table_name,
@@ -2438,8 +2656,7 @@ fn blank_artifact_key(
     });
     let bytes = serde_json::to_vec(&row)
         .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?;
-    canonicalize_jcs(&bytes)
-        .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))
+    canonicalize_jcs(&bytes).map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))
 }
 
 fn hex(bytes: &[u8]) -> String {

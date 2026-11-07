@@ -2,7 +2,7 @@
 
 2026-11-07。独审角色 `/root/be_d_review`，Owner 指定 GPT-6.1-Sol / max；实施为 `/root/be_d_impl`，协调为 `/root`。范围按 [D 工作单 §5](p6-be-d-work-order.md#5-启动收口) 包含 D 及既定联合最终验收准备收尾，不新建第三角色。
 
-**当前状态：F1 已关闭；F2／F3 代码与向量修复已核，实际补验待恢复。06 执行编排错误已触发停止，现存失败保留；未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
+**当前状态：Owner 已授权恢复；F1 已关闭，F2／F3 正常向量已运行，F4 架构依赖修复待补验；旧事故及失败保留，未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
 
 ## 1. 固定基线与权限
 
@@ -187,3 +187,26 @@ d0的summary／identity helper都接受1或2个pair，实际v2调用未按reques
 同时静读`18b239a95fdd63b33c41bf03d2d18ab71612bd98`：在已排序closure paths上拒绝普通文件祖先／后代冲突及保留metadata路径的子路径，使用原download owner两个小向量；不引入新状态或重复矩阵。`445a19dfe3`仅同步缺失ref的旧expected文案。7c新增interop生成器实际调用生产assembler／encoder，完整小tar含ASCII／中文／非BMP小Parquet，另输出明确`complete_tar=false`的size header-only向量和合法／畸形PAX记录；仅静读，尚无运行制品或前端互通证据。
 
 本轮已静审产品/工具树以547a的 **`vnext=e7dfe478e5abb721a4f968dd692380b3cb05f28f`** 为准，不用94b旧树代表新增18b。恢复时实际clean SHA还会含审核／批准文档，须核vnext与本树一致后再按其完整HEAD运行。F2／F3证据关闭、受影响focused／serial、五包静态、扩展input、当前Compose／OpenAPI／同tar制品与04／05仍待；当前容器deferred、最后验证镜像仍V2 f8，无carried。Owner回复前全部受影响节点执行继续暂停。
+
+## 11. Owner 恢复授权与实际守卫运行
+
+Owner明确回复“按方案恢复验证”，授权记录 **`c1d1beefb1260f21810a6809cc9f8ffb4b6bf78d`** 已独立核；vnext=e7、guard f830／4eb均与§10相同。源码短窗口内本角色只读、不提交main；实施者确认source_ready后才解除。06于11:35:41Z现场重新取得本人marker，recovery根`/home/dev/gdds-test-tmp/artifacts/p6-be-d/recovery-lpNIMtZE`，不是沿用历史释放。
+
+已读原transfer `transfer-UJm9QCM3/prepare.log` 并重算SHA：11:35:43–11:35:44Z，完整expected／advertised／source_ready=c1d、clean、verify及prepare_exit0；bundle SHA=`7842b52cfd0ed2a106d6f1b43142c6a799a011ef217e0614487ed0d37d203140`，prepare log SHA=`2cf115e8683960fdce93cd6174fccaccb05a6058d55cfa3205b0d4e9c95e32e2`。实际node-run文件独立LAN安装、SHA仍4eb。原WT／legacy／vnext均现场核对，没有旧WT误跑。
+
+| 06唯一run | 原文核收结果 | run.log SHA256 |
+| --- | --- | --- |
+| `run-prerequisites-c2NGDGTX` | 11:36:39–40，local预填uv/Cargo、offline／无proxy、四工具同1.97、legacy正确、扩展expected=installed=e6ac；起止c1d、clean／owner true，command/final0 | `4a0e527b5f4f1c4c906314ceca681f68db7613a722783d85bd15f66412a71ecc` |
+| `run-backend-focused-yPq3ZLFd` | 11:36:52–11:37:18，14文件主体-n4／约定marker，380 passed／2 failed；起止c1d、clean／owner true，command/final1，失败后停后续 | `7ff99fbc8320be840074f44245bf74b403a71344edbd82f030ca96b9511067f8` |
+
+两run各自guard／expected-head／command／run.log四项SHA均已独立重算相符，实际读取prerequisites脚本与完整focused原文。F2首次GET前保护、F3精确FULL及path／资源／HTTP向量在380通过部分；不称整批通过，也不以此冒称当前D GO。
+
+### F4（P2）：download prepare 违反既定层依赖
+
+恢复后的两个既有architecture测试指出四条依赖违例：artifacts.bundle_download→capability contracts／transport，以及两个HTTP orchestration→capability transport错误类型。初轮静审漏看此层边界，现按原架构owner修正，不增加baseline／allowlist。此为正常产品失败、guard正确停止，无新编排事故或Owner恢复停点。
+
+固定修复 **`1e22d018bc5df9dc48f65b6a1e2ffe9ee4c9bc8d`** 已在只读 `/home/dev/gdds-reviews/p6-be-d-code-1e22d018bc` 核clean／legacy和实际diff：prepare协调全部语句移至application，artifacts仅纯Prepared DTO／窄typed error，capability与HTTP／benchmark／tests统一低层error；旧prepare入口删除，无兼容转发。语义与资源生命周期未改。附加原Submit小Compose实际GET OpenAPI／tar media断言和SHA输出，保留原provenance／finally；完整History容器矩阵留04权威，06不重复长旅程。F4代码修复成立，受影响owner运行结果待核。
+
+实际新传输目标采用main当时完整clean **`4c8c367789c742c0e70ca09af01f0539e00a609f`**，未回退1e；1e..4c8只有独立基准docs，产品tree同为 **`f228ca42309b6370b8181b5d5282283b4a535e32`**。已独立读11:41:35–36Z `transfer-CtpxISe2/prepare.log`，expected／advertised／source_ready与node HEAD均4c8、clean、prepare_exit0，bundle SHA=`a80891031e8a9dda01c430c300822ca464c702c49413d967f87283ac1f1444c8`，log SHA=`50ff3db20681f1d1c89d70a92c76f7b9f838f5934e2ad7340b87691c2adc718d`。后续只补移层触及的architecture／download／HTTP／benchmark及必要静态，不机械重复已通过未影响owner；serial／五包／当前Compose／制品仍待。
+
+当前reviewed产品为1e／f228；当前容器仍deferred、最后镜像为V2 f8，无carried。04／05集中执行清单另与协调对齐，host t1采用原实际已过N1／25769803776B，worker N1／M24GiB及32／8 envelope／reserve独立核，不用测试workers或开发节点容量推导。旧事故、原aaa首轮不可复核与误跑排除限制继续保留。

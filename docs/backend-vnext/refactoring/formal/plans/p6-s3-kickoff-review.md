@@ -59,3 +59,22 @@ S2b `p6-s2b-exit` 注释明确实际 V=`a6876d560050285321fd9f62942d590a03f35d64
 残余未知包括：真实 W3/W4/FULL/压力资源与耗时、1024 分组后的 Parquet raw 字节一致性、实际命中率、当前 pair 的最大 Arrow 驻留与风险候选费用、最终 DC33 范围及 CT108 可用安排。它们应由 A–E 及阶段退出证据解决；目前无实测，不预写通过。
 
 请设计者修订 F1/F2、澄清上表已指出的 consumer/重放边界后提交新固定候选；独审只复核该固定增量及其影响。只有完成复审才可给 `READY_FOR_OWNER`；最终范围与实施启动仍由 Owner 决定。本报告不授权产品改动、推送或 tag。
+
+## 5. 固定 d49bb126 复审
+
+2026-11-07；本轮结论：**READY_FOR_OWNER**。首轮对 `6780464793` 的 `CHANGES_REQUIRED` 保持历史原文；本结论仅针对修订候选 **`d49bb126b664af4b09097aee1a6f0b1bf58c9496`** 的 S3 设计与 kickoff。无剩余阻塞 finding，不等于产品实施启动、代码通过、性能达标或阶段退出。
+
+复审在新 detached worktree `/home/dev/gdds-s3-review-d49bb126` 进行，固定候选 clean，`legacy` 链接已准备。实际修订只有 d49bb126 的四个文档：Risk Contract、P6 总设计、S3 详细设计、S3 kickoff；`vnext/` tree 仍为 `56720104af34a1eb677336f57bdbc07444a56615`。两候选之间另有本人首轮报告 `1a62eeff44` 和并行基准文档 `78d737abac`，后者不混入复审结论。没有测试、编译、lint、容器、远端或基准资源操作。
+
+| 首轮项 | 独立复核与处置 |
+| --- | --- |
+| F1/P1 | **关闭。** S3 §9.2 与 Risk Contract 明确 `_TableBudgetExceeded`（含 table wall-time）异常只追加 degraded、不累加 total；诊断预检的正常返回则累加。重新核 `_engine.py:145–158,202–207,214–238`，文字与控制流一致。kickoff §7.1 的 table cap2/pair cap3、A3/B2/C1 向量及诊断预检对照，按源码手工追踪分别得到 A 后0/B后2/C后3与A后1/B后3/C触发pair降级；没有执行该向量，不记测试 PASS。 |
+| F2/P2 | **关闭。** 总设计 §16.2 现给含表名 schema 的 t1/t2 两次 kernel；S3 §5 明确相邻 FULL 变化任务不保证重复、真实0命中合法、不得套用原10–20%收益。复核 Preview 的 baseline→initial/initial→modified 与 History 的相邻 pair，限制正确。人工重复 key 仅证明机制；单侧 ordered 摘要使用独立 task_kind，不能计作行比较收益。完整 schema/scope 身份没有削弱。 |
+| closure 命中与直接 degraded 分支 | **澄清完成。** §9.2 要求序列包含 `CheckRecordsClosure` 等原位置控制步骤，每次按当前 pair 的 comparison/facts digest 与 table 绑定验证；不能复用旧验证结论。诊断预检每次先执行，过滤 Emit 保留。对照 `_engine.py:334–380`，这没有将 closure 检查提前到原上限分支之外，亦未把检查从命中路径删除。 |
+| §9.4 consumer 与读取边界 | **澄清完成。** 全 src/benchmark/Rust 符号检索确认 `benchmarks/bundle_tar.py:97` 调用完整 records validator；`read_records_artifact` 未见其他生产业务 consumer，旧 Rust reader 仅自身向量调用及公开导出。replacement 保留无 records 的独立 envelope；surface 使用小 facts/closure entries；bundle 自有 raw/ref 校验没有冒称 records 内容校验。新增文字不要求每次下载整份解码，也未添加 S5 缓存路径。实际 adapter 测试仍是后续交付条件。 |
+
+潜在回归复核：本增量没有改变 §9.1 的完整 facts JCS payload/summary 前序约束、三族产物 schema/raw golden、§9.3 的有预算保留与安全 miss、N1/32–8–M24、DC78 删除边界或 A–E 授权次序。增加 task_kind 是区分现有行比较与单侧摘要的内部 key 条件，不是新增持久协议或更改业务 digest。没有发现新的实质矛盾。
+
+本轮容器记录：current HEAD=`d49bb126b664af4b09097aee1a6f0b1bf58c9496`；rebuild required=no（仅四个文档修订）；current container gate=`not-applicable`（kickoff 设计复审）。最后已有验证产品/source-tree 仍按 §4 的 BE-a/d 来源引用；本轮没有执行 carried，也没有宣称当前文档候选容器 PASS。产品接入与最终门禁仍在授权后的实施阶段办理。
+
+剩余工作是 Owner 确认实施范围及启动，再由 A–E 交付独立向量、完整 consumer/API 移交、实现与实际验证。§4 所列真实性能、raw 字节、命中率、最大驻留、最终 DC33 范围与节点安排仍未知；此次复审没有把这些未知改记通过。当前不需要为关闭本轮 findings 再增加 nameless 身份、缓存框架或恢复机制。

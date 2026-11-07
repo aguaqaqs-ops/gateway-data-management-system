@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
@@ -12,10 +13,15 @@ from gateway_backend.capabilities.comparison import (
     ComparisonTableStatus,
     DetailedFactsResult,
     compare_plan,
+    comparison_python_memory_upper,
     plan_comparison,
 )
 from gateway_backend.capabilities.comparison.contracts import SchemaEvolution
+from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, KernelMemoryLimit, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
@@ -65,11 +71,11 @@ def _rules(role: TableStaticRole) -> ComparisonRuleSet:
     )
 
 
-def _fact(
+def _plan(
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
     role: TableStaticRole,
-) -> ComparisonTableFact:
+) -> ComparisonPlan:
     request = ComparisonRequest(
         pair_id="role-pair",
         before=before,
@@ -78,7 +84,15 @@ def _fact(
     )
     plan = plan_comparison(request)
     assert isinstance(plan, ComparisonPlan)
-    result = compare_plan(plan)
+    return plan
+
+
+def _fact(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    role: TableStaticRole,
+) -> ComparisonTableFact:
+    result = compare_plan(_plan(before, current, role))
     assert isinstance(result, DetailedFactsResult)
     assert result.facts is not None
     return next(table for table in result.facts.tables if table.table_name == "t")
@@ -167,3 +181,48 @@ def test_non_record_roles_still_show_shared_data_changes_with_added_column(
     assert table.content_changed is True
     assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
     assert table.records == ()
+
+
+@pytest.mark.parametrize("role", (TableStaticRole.BROWSE_ONLY, TableStaticRole.SNAPSHOT_ONLY))
+@pytest.mark.parametrize("columns_added", (True, False), ids=("shared-row-comparison", "metadata-only"))
+def test_non_record_roles_admit_row_growth_only_for_added_columns(
+    role: TableStaticRole, columns_added: bool,
+) -> None:
+    admissions = []
+    for row_count in (1, 256):
+        context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
+        with kernel_execution_scope(context, new_operation=True):
+            before_values = ",".join(f"({i},10)" for i in range(row_count))
+            current_values = ",".join(
+                f"({i},11,'x')" if columns_added else f"({i},11)" for i in range(row_count)
+            )
+            before = _bound(
+                "CREATE TABLE t(id INT NOT NULL PRIMARY KEY,value INT);"
+                f"INSERT INTO t VALUES {before_values};"
+            )
+            current = _bound(
+                "CREATE TABLE t(id INT NOT NULL PRIMARY KEY,value INT"
+                + (",note VARCHAR(8)" if columns_added else "")
+                + f");INSERT INTO t VALUES {current_values};"
+            )
+            plan = _plan(before, current, role)
+            with (
+                patch.object(ArrowSnapshotTableReader, "iter_rows", side_effect=AssertionError("row read")) as rows,
+                patch.object(ArrowSnapshotTableReader, "arrow_stream", side_effect=AssertionError("stream read")) as stream,
+                context.memory.reserve(context.memory.available_bytes - 80 * 1024),
+            ):
+                upper = comparison_python_memory_upper(plan)
+                admissions.append(upper)
+                if columns_added:
+                    with pytest.raises(KernelMemoryLimit):
+                        with context.memory.reserve(upper):
+                            compare_plan(plan)
+                else:
+                    with context.memory.reserve(upper):
+                        assert isinstance(compare_plan(plan), DetailedFactsResult)
+                rows.assert_not_called()
+                stream.assert_not_called()
+    if columns_added:
+        assert admissions[1] > admissions[0]
+    else:
+        assert admissions[1] == admissions[0]

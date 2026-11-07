@@ -2690,3 +2690,13 @@ CT05 `vref-resource-650a-20261107.log` SHA **`c07187baac8d282d6702b0c398b9c95986
 **FULL预制DB来源索引核对通过，仅为PREPARED_ONLY。** CT05 `record-w4full-20261107/source-index-prepared.json` 961B、SHA **`91b27a331459459379b8c821fe9c92416b65b11400bcdb22167e3ba5b5e3e830`** 已独立读取，与审核者§113认证state副本逐项相符：18a、state SHA41b090bf、v2-submit before checkpoint且completed_through=v2-preview、原control路径、tree3854336B/1文件/SHA **`05577662288d708a673eeb40fe219668550fe5f764d6f03dca909f9c47eddfed`**，三个Preview ID分别来自各自真实result。没有访问CT108快照或断言其当前存在/DB行已取到；树摘要不是单一SQLite文件SHA，后续按原树摘要核复制件并另记实际DB文件摘要。原快照及同次步骤补证仍待压力结束后的空闲窗口，本核对不新增GO或允许改原source。
 
 core配套 `derived-core-operations-0cbf/source-index-prepared.json` 1356B、SHA **`11ef88f4a5c01849068a21cad9a9edbd72dac6f59ffe99e35ec3671ba6540fec`** 也已直接读取，与再次核SHA503e73ab的原state逐项相同：bb348、history before checkpoint完成至v2-approve，control/artifact路径及4baede/020488树摘要、bytes/count均与§118一致，三个Preview ID来自该次真实result。仅确认准备来源映射，不表示已读原快照、worker数据已恢复或H1缓存合格；原件补取窗口及限制同上。
+
+## 120. 04待门禁候选及本机离线RS构建路径已核，实际镜像和runner结果待交
+
+**`fcc827aec2750b2cc6d36c241c40de7415c7a1ea` 可作为本冻结参考线的04待门禁工具候选，尚非04通过或整体exit。** 本审核再次只读确认独立集成worktree HEAD精确等于该提交且clean；9704..fcc为18个docs/benchmarks/tests文件、2006增/979删，diff-check通过，没有产品src、依赖锁、部署或诊断Compose变更。各组件必要验证见§117/119，不能用其代替当前候选权威runner。§118历史补证与记录派生仍使用外部来源索引/派生输入，不改原raw或在途STRESS。
+
+04的Repository Service镜像须在backend闭包计算之前固定到候选身份。独立核两套现有harness：backend只核build-input/source-tree，而Repository Service另要求candidate revision及uv-lock。因此若backend先记录旧revision镜像、随后RS门禁才重建同tag，会改变同节点闭包；已直接交实施者先构建并核新tag的revision=fcc，再开始backend manifest/runner，期间不手工改tag。当前候选官方identity的build-input为4497ded8ff3a9156bbe4c7a75ba44ae9e4675792、source-tree为sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027、uv-lock为6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11；实际新镜像完整身份仍待构建产物核验。
+
+最初尝试SSH旧开发地址10.10.60.4超时，不能据此把构建/测试改到任意节点。本机heavy-dev-01与既有CT201构建及LAN传输记录一致，但实施者随后在04找到原保留dependency-base，无需开发节点新构建或传输。本审核先BatchMode确认04，再只读核hostname=gw-dms-test-04及tag `gateway-p2r1-repository:lock-6dc9659f0aee`：本机ID **`sha256:63b7e79899d4379f24a1d58f0e22e1960847733a76e684dd170b8e631e00367f`**，uv-lock label精确等于上述完整锁摘要。此为04本机ID，不充作跨节点config digest。
+
+独立读fcc的官方build脚本和Dockerfile，预置base存在且lock label相等即走USE_PRELOADED_DEPENDENCIES=1分支；已同意实施者在04 clean detached fcc上用该入口、UV_OFFLINE=1及network=none构建新RS tag，按原规则记录base来源及实际完整config digest、有序全部DiffID、身份labels和04本机ID。缓存缺失仍停该步骤，不走公网；不另起重复CT201构建，也不触CT108在途镜像或测量。此处只确认已存在的离线路径与候选准备，未执行测试、构建或假称镜像/runner已通过，无新增Owner/设计/审核GO。

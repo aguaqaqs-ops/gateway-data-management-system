@@ -67,6 +67,23 @@ RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67b
 
 原运行期间不改节点WT、不重tag，暂停启动后续验收/carried。失败整次不能作任何包的合格carried源；旧S2b公共fixtures已变，下一合格最终runner仍须六包。05已启动的fresh原run现command/final0、endclean/owner真，完整JSON/镜像/结束UTC待同审核收；若最终增量确属test-only且产品/consumer不变，可按逐步骤影响审查引用其a999实际来源，不冒称新候选实跑，也不默认重跑整档。
 
-## 7. 最终核收待填
+## 7. 05实际fresh证据与释放
+
+实际a999 fresh于**12:40:42Z**结束，command/final0、endclean/owner真；原run log SHA=`66cdeb8c906434bbdfbdf2b63ee438c4537f1a9aab10bedafe5d3a36189e83c1`。[原结果JSON](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/run-fresh-t1-8skuj66m/final-result.json)为原log offset53374/length40044原字节行，SHA=`505f9731235430c21c53ff39316bec1f0f4e22b7465275bdea12e4a04823cf1d`，18步序完整；v1 identity N/A、v2 SAME_PROJECT、repeat NO_CANONICAL_CHANGE。FULL helper实际严格核完整双pair；result里默认initial_to_modified单view的summary.pair_count=1不等于完整FULL只有一pair。
+
+| 完整tar | 实际bytes | closure entries | 适用逻辑records | GET秒（只报告） |
+| --- | ---: | ---: | ---: | ---: |
+| v1 MODIFIED_ONLY Preview | 2834432 | 354 | 0 | 0.529 |
+| v2 FULL Preview | 2660352 | 118 | 12（2 records closures） | 0.214 |
+| repeat-v1 Preview | 2055680 | 105 | 0 | 0.163 |
+| History | 2153472 | 114 | 12 | 0.183 |
+
+均由原consumer逐项核原metadata/closure/size/raw SHA及适用逻辑摘要；不把小共享header-only向量计入4完整tar。实际镜像身份三config/全部54DiffID已核；bridge来源准确为**原tool报告的image-tag inspect IDs与事后保留镜像同机桥接，加fresh build/up证据**，没有另取running-container ID，不改原证据字段或虚构采样。
+
+LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/`；旧10-run index SHA=`5f551201c49fabaca2cc1e6a86e2cf72283b78b3602068357931a8b3fbbdf459`，释放后[metadata索引](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/release-index.json) SHA=`f0bb6b07ec725f5243105ecb0bca750e5edf2a3553303b4c1ad43e1c66749a87`链接旧index、其生成run及release，共11run四项SHA均独审相符。cleanup12:43:52Z/0，log SHA=`987eaad6058cf1a2289d26e0ab000f9c6b5d110b5956f03951e96fd502f2414d`；**12:46:02Z** cmp本人owner后释放，release log SHA=`f4a1625250c8f88f17db56e1ab4222fbe5d97f8010254d07aff59b78cc661b54`。独审12:47:58Z另核marker不存在、a999 WT clean、项目容器/卷/网络/8000空。WT保留，未清他人资源/缓存/历史证据。
+
+以上只成立a999实际来源。最终全部04失败修复后，仍须逐步骤审查diff是否影响05引用；不预先给2ae/后继候选fresh实跑或沿用结论，不以05成功抵消04失败。
+
+## 8. 最终核收待填
 
 原实际产品tree0301，两test修订后tree220ba5尚待全失败闭环；04 workers48/六包及Compose、05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。当前04有失败，不具最终GO；尚无合格最终六manifest闭包、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

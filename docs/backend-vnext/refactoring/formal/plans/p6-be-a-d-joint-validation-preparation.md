@@ -177,3 +177,7 @@ RS输入预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z/0，log SHA=`4ee45c
 ### 11.2 两包权威实际启动
 
 同49403于**14:14:04Z**启动 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/run-authority-resume-mvzi5dNV`，wrapper读取actual scope仅backend/RS，保留48workers/offline/d054 preload/networknone与prebuilt/BASETemp unset。原runner exit将单独保留，前后RS输入ID硬核130674不变；当前执行中。05保持原a999成功来源/已释放，不重跑。未来postcopy/immutable runtime/manifest及释放证据仍待实际结果，不预先报镜像闭包或联合GO。
+
+实际于**14:40:10Z**正常结束：`original_runner_exit=command_exit=final_exit=0`，endexact49403clean/owner真，`rs_input_id_after=130674…`、`rs_input_unchanged=true`。新run原log SHA=`0d0c69ad1cc24648a6f9abc9c0e66a4b98a66f7a3a96443d16ae2e2af3d62a5e`，command SHA=`ac62cdb623a6e7762d8ab9b48a54b5035e705c9a2c2f6e4e11a06a207d463521`。backend实际parallel3387+serial60通过；RS实际parallel1744+serial207通过、另既定host skip1。四基础包的实际沿用仍直接引用DTW及本次compare；不写六包本次再次实跑。
+
+原审已只读核新末值；按已审新mvzi/resume参数直接做RS后核、awareUTC新provenance/schema唯一copy及snapshot immutable身份、原manifest/索引/LAN和本人cleanup/释放。当前尚未完成以上最后原件核收，不预先记镜像闭包/联合GO；旧RS原件缺失/collector失败原文保留。

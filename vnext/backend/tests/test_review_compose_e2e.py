@@ -17,6 +17,9 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     compose_project_name,
+    assert_running_backend_worker_images_match_build,
+    capture_running_container_provenance,
+    persist_compose_gate_provenance,
     require_docker,
     resolve_main_commit_id,
     run_accept_to_submission_read_journey,
@@ -113,6 +116,8 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
     require_docker()
     env = _compose_env(tmp_path)
     repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
+    assert_running_backend_worker_images_match_build(env)
+    provenance = capture_running_container_provenance(env)
 
     try:
         journey = run_accept_to_submission_read_journey(
@@ -160,6 +165,7 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
         )
         assert main_after_review == main_before_review
     finally:
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")
@@ -167,10 +173,10 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
 
 
 def test_compose_self_only_submit_withdraw_and_upload_again(tmp_path: Path) -> None:
-    from tests.support.compose_gate_harness import capture_running_container_provenance, persist_compose_gate_provenance
     require_docker()
     env = _compose_env(tmp_path)
     _repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
+    assert_running_backend_worker_images_match_build(env)
     provenance = capture_running_container_provenance(env)
     try:
         journey = run_accept_to_submission_read_journey(

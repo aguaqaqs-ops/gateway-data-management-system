@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
+状态：**等待Owner最终资源档位决策**；2026-11-07 02:09Z。当前main产品修复候选 `d6c88cafb38255c66dbb5f8fae091af75e289d62`，资源档仍12GiB envelope/4GiB reserve/M上限8GiB。此前消费者迁移、单侧metadata计费修正及Store mmap源FD早关闭均已独立源码核清。隔离cal候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 保64/16/48与临时日志，仅用于容量诊断；不合main。
 
-当前 pending：**完成原失败现场独立冷拷副本的History局部验证，再交Owner决定最终profile**。Owner已明确批准第三稿，06同profile真实C双312已复现FD耗尽并实施main最小Store修复 `d6c88cafb38255c66dbb5f8fae091af75e289d62`；57项/static及同双312正向对照均通过且独立核清。main仍原12/4/8，无临时日志；隔离cal候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 仅将相同两路径补丁加在原4f上，保64/16/48用于诊断。CT新WT/source/env已核0，具体History driver审核中，尚未coldcopy/up。原4f校准始终History FAIL，未有完整校准PASS；三代原E stopped资源保留。最终六包/最终profile/最终真实旅程与E GO仍未完成。
+当前 pending：**Owner据原失败校准前缀与修复后History局部结果选择最终profile，再完成该最终候选必要门禁和fresh真实旅程**。History独立冷拷副本已于02:09:17Z成功，driver于02:09:25Z exit0、必需证据完整、仅副本清理并释放节点；详见末节。原4f校准始终History FAIL，其17成功业务step只在副本复用，不冒充完整新校准PASS；三代原E stopped资源保留。最终六包/最终profile/最终完整真实旅程与E GO仍未完成。无需等待或重跑既有诊断；未定档前不启动最终门禁。
 
 ## 实际消费者与删除
 
@@ -315,3 +315,35 @@ main产品修复d6仅2路径：LocalArtifactStore.open_buffer在同一readonly m
 CT108新专有WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-history-fd` 固定1f9，原4f WT/资源不动。task ref `refs/codex/s2b-e/calibration-fd/<full1f9>`，bundle SHA `dc337c763ee7e9520e7aaf89c733671c75bce232325f70ade944e34c1816cf34`，实际prerequisite4f在位。01:52:58Z source0 SHA `285b708ab2a694de016e31ca7d1fffc2e2fbf10f642a4788a41c38c5439902ba`，另call源/legacy/四工具0 SHA `f4ab0dfff40a39f3ab71094f527456fb688b110169093886a686803b26b8be7b`；新offline venv/实际四pathdeps/native137/current ownedRS/八包INPUTS_VALID准备0（01:53:34Z，SHA `be7d1d4f1748b55ddf0d7a1a65414c3e48ec5224593eb5f2c050184115a49d17`），01:59:04Z另call独立env0 SHA `20f010131dbf138f611b013da26063221602f8cadce0cff377586dc6d551bea4`。日志位于 `artifacts/s2b-e-history-fd-prepare-1f9df50a/`。当前持此有效prepare owner等待具体driver审，尚未copy/up。
 
 后续仅DC64 History冷拷副本；源state SHA `0b24994ef8334b55a9b94fe9dbb2201c2d2b784d5e34ba30ee0ccb8340753d80`（18keys含_stack=17成功业务step），源repository61b78312-9aef-48ba-8aa1-a024f92c1bfd，v1/v2 commits8bge6neeo2mrg8fmem4uj5257ldrhchg/cdtvk5eutkiu8k8fkonh858q8d6va9l2。源backend/RS WAL实读0B，普通mode=ro会生成derived SHM/空WAL的事实如实保留，不删除或回填旧hash；后续先核stopped/WAL0再immutable只读，整卷包含现sidecar复制并按复制时bytes/mode/uidgid核。现CLI不负责resume build/up；外置仅当前candidate build和bareup，禁止start_three_container_stack的teardown/seed。新project新History key，原source/state不改。时序日志保原timed，另存无timestamps原worker log供counter解析；新worker ready后固定身份，局部峰值与原失败校准各scope最大值分列，不拼成一条完整worker峰值。
+
+
+### 02:09Z：修复后History独立冷拷局部验证通过
+
+已审driver `/tmp/s2b-e-history-copy-driver.py` SHA `560ff052cc316732cabaac978464040d5d07e91eb6d562afad6a6cba98163126`，远端同内容。沿既有prepare owner执行，02:05:03.678Z开始；新project `s2b-e-history-fd-1f9df50a5c`，新WT固定1f9且全程clean。仅从全stopped原cal三卷和state/secrets冷拷，按复制时实际bytes/mode/uidgid/fingerprint核相同；源state仍 `0b24994e…`、源两Submit/commit/scope身份和旧History失败均保留。没有重Submit、seed或修改原三代卷。当前候选本机offline build后保存三镜像IDs/RS revision/source labels，并逐container核对应Image相同；bare up后核两个真实commit的312表typed catalog、ready固定worker身份后才调用现CLI `--from-step history`。复制前17成功业务step仅复用。
+
+History新operation `op-5ad5b9ab937f699652bd2af1`（与旧失败op不同）02:07:26.894Z开始，02:09:17.249Z SUCCEEDED，operation_wall110.355s；公共History record_count168、bundle/surface digest及composite unchanged等既有正确性断言通过。journey0；driver02:09:25.327Z exit0，resource_evidence_complete/calibration_scope_evidence_complete/worker_status_ok均true，无必需缺项。worker `aef38a6d79ba` StartedAt02:05:24.234Z，整个局部验证同Id/StartedAt且RestartCount0；正常stop退出0、无OOM。随后仅清副本containers/三卷/network并释放本owner，原三代各3 stopped containers/各3卷及网络保留。独立审核已核结果与现场。
+
+仅解析一份保存的无timestamps原worker log，3个claim与3个counter逐身份齐（各attempt1）；保timed原log另存，未使用旧脆弱长JSON时间戳解析，未重采样：
+
+| 本次History step | charged highwater/B | scope关闭前used/B | stage数 |
+| --- | ---: | ---: | ---: |
+| materialize_inputs | 398673952 | 398673952 | 1248 |
+| assemble_comparison | 11218037646 | 11217201256 | 626 |
+| publish_result | 3761894 | 2925504 | 0 |
+
+本次History最大charged为11218037646B；与原cal已成功前缀的最大charged13070921208B分别保留，不相加成共存或完整worker峰值。原cal失败前缀worker cgroup peak6999605248B、VmHWM6682916KiB；新副本worker局部生命周期cgroup peak263307264B、VmHWM423704KiB，memory.max68719476736B，memory.events所有项0。两个worker分别启动、卷cache/映射与生命周期不同；cgroup charge和RSS为不同指标，不能拼接为一次修复后fresh全旅程峰值，也不由此宣告最终M16/profile通过。stage temporary_limit依然是准入可用上限而非实际消耗。
+
+证据节点CT108，目录 `/home/dev/gdds-test-tmp/artifacts/s2b-e-history-fd-1f9df50a5c/`：
+
+| 证据 | SHA256 |
+| --- | --- |
+| `journey.log` | `81bc78ced9bd8979dec25b9b48c32647f0733620bac15c62a96995d2343f39ca` |
+| `result.json` | `9f85607d419adb7a7e954633d30cfd1778e7378613a899a876cf370b8b449a02` |
+| `aef38a6d79ba-resources.json` | `bba5880eba229592cf159ca5581bf12c7a6af1b6401cf2e8e16de305b5638507` |
+| `aef38a6d79ba-after-stop-untimed.log` | `37f1bba3f2ff4c9b8c388ba181a6ad39ce1a7ffdd221bbf8e507e2d0f28c9b47` |
+| `aef38a6d79ba-after-stop.log` | `3c36c2dcabc5ef7849c1ac960aa963f1205dfc76343231233f7bc220d78a3969` |
+| `built-images.json` | `682f7c18e3d0b8fba4d24488641414f0a584e259bec7580e0e05ece627b3191c` |
+| `container-image-bindings.json` | `3ee9304c682fcd2d3c155b0fbabac2d5d830c4b1a7739a20f3230121e7726c73` |
+| `clone-ready-and-exact-commits.log` | `87648a2f70d971358b4e517fe913d8e94bc8d652fb0c243a9b3a88afc2122d4e` |
+
+此结果是DC64 History_only_on_cold_copy，通过最小FD修复后补齐原故障路径的正确性与预约记录；原cal journey1/driver1与scope原collector evidencefalse不改。当前各E节点无占用；04 gate WT和全部原证据保留。等待Owner最终profile决定后再冻结实际最终候选/闭包与相应门禁，不在此次局部PASS后自动接全门禁或完整旅程。

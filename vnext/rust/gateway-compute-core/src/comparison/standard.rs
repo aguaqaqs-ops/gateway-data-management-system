@@ -828,9 +828,9 @@ mod tests {
             (1, 0, 1)
         );
         assert_eq!(
-            full.records
+            full.facts_order
                 .iter()
-                .map(|record| record.kind.contract_name())
+                .map(|&index| full.records[index].kind.contract_name())
                 .collect::<Vec<_>>(),
             vec!["ROW_ADDED", "ROW_MODIFIED"]
         );

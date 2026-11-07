@@ -49,6 +49,12 @@ Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 ownin
 - 日志记 hostname、起止 UTC / HEAD、命令/脚本身份、原始 exit 及 SHA；handoff 记节点、缓存来源、镜像身份、起始 manifests 和每包实际运行/合格沿用。清理确认无本任务服务、进程、端口占用后只释放自己的标记，保留证据与必要 WT 至最终绑定完成。
 - 前端判断确实阻塞时给 Owner 具体场景、实际接口/制品、问题与推荐，暂停该依赖等手动转发回复；其余已授权工作继续。未收到回复不能当作同意，也不猜测前端修复完成。
 
-## 5. 最终核收待填
+## 5. 已固定候选及实际准备
+
+完整执行稿ec586已由原独审`467abe6e10`§17静核通过。协调提交当前态后固定clean main **`a999869c7f4714c95ee9a5b82866e52cd265e377`**，vnext仍0301。04于12:26:16Z、05于12:26:17Z分别现场核空闲后原子取得本人marker；新WT及证据根原先不存在。两节点LAN namedHEAD bundle准备分别为04 `transfer-IUOsNXCG`（12:26:25Z）、05 `transfer-cwKZNNWF`（12:26:38Z），均exact a999/clean/prepare0/source_ready。主线短提交窗口已解除，测试WT仍固定该同一SHA。
+
+当前只完成claim/source准备，实际cache/工具链/base config与全部DiffID、对应guard安装和build/runner/journey尚待；不把source_ready记为测试通过。各日志完整SHA及原文由原D独审核收后补最终证据表。04/05独立资源，本任务06已释放，CT108不使用。
+
+## 6. 最终核收待填
 
 产品tree已收敛0301；完整执行稿已固定，04 workers48/六包一次runner及Compose，05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。原独审最后核可及协调固定source后按既有授权执行；当前尚无04/05运行、最终manifests、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

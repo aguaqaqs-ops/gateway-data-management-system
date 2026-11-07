@@ -6,7 +6,7 @@
 
 已预检产品前固定清单 **`2ca25b6514a10fbc29d8d66535f22d0a154e8bc5`**；首轮正式代码对象仅为 native 子候选 **`a500dd81525963775b5ee005a3aa8ba9abc041af`** 的五个 Rust 文件，不包含实施中的 backend 接线。native 修复候选 **`2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`** 的同角色复审与证据见 §5。
 
-**当前结论：native 定向审核通过，F1/N1 关闭；完整 V1 仍需修订和补齐证据。** 已追加完整候选 `3fcea5a2d0` 及修复候选 `499e378b0c` 的代码审（§6–§7），F2 的原 provenance 绑定和验证屏障仍待复核。首轮发现及失败记录保留，尚无完整 V1 GO。
+**当前结论：F1–F4/N1 的产品代码问题已修复，定向证据已核；完整 V1 仍待最终 schema/容器证据。** 最新固定产品/测试候选为 `b73713ea9e`（§8），尚无完整 V1 GO。首轮发现及失败记录保留，不用后续成功覆盖原运行。
 
 只读 detached worktree：`/home/dev/gdds-reviews/p6-v1-native-a500dd8152`，HEAD 固定为上述候选，已链接主仓库 `legacy/`，审核期间保持 clean。未读取 main 中后续 dirty 实现，未修改产品或测试，未运行测试、编译、lint 或容器，未占测试节点；本角色只写本报告。
 
@@ -128,3 +128,46 @@ Required execution point: V1 收敛候选；04 联合权威/必要 Compose、05 
 - **冻结验证仍需补齐。** 新测试证明正常 materialize→assemble→READY 保留 native 时间，但未进入 materialize checkpoint 已存在的恢复分支；TTL 断言只删除 Preview 并直接读 Submission，尚未沿 BaselineNode.source_submission_id 且使旧 SQL 不可用证明独立读取。已请在原 owner 扩展各一个代表屏障。取消/旧 generation 复用原发布测试补无持久 PreviewResult 断言；失租沿既有 lease owner，不新建调度矩阵。T1/finalize 复制和原 replay 的新事实断言已到位，等待实际成功记录。
 
 06 的扩展重装/build input、五包静态、focused 和本节最小容器由实施者在 clean 提交上继续执行；本角色尚未核这些完整候选的成功日志。首轮静态失败日志须保留，不用后续成功替换。当前 `Current reviewed HEAD=499e378b0c`，容器重建仍需于本节收敛候选完成，gate=`deferred`、V1 image revision/source-tree=`none`、`carried=none`；§4 的 06 最小 nodeid、04/05 联合验收落点不变。
+
+## 8. 837e3b016a→c4640fc6fb→b73713ea9e 代码与定向证据复审
+
+分别固定新只读 detached worktree `/home/dev/gdds-reviews/p6-v1-full-837e3b016a`、`/home/dev/gdds-reviews/p6-v1-full-c4640fc6fb`、`/home/dev/gdds-reviews/p6-v1-full-b73713ea9e`，legacy/clean 已核，原工作树保留。最新完整 SHA 为 **`b73713ea9e2cb2588ebaee80e0c30ea53a4f6ded`**；上述区间实际产品修复只有原 manifest provenance 对比及 DDL 末尾列顺序调整，其他是测试/fixture 适配与 F4 回归，不审中间 dirty。
+
+**F2 关闭。** 837 的 baseline 校验现将 facts 原 ruleset digest/projection 与 exact commit 的原 manifest 自身字段比较；继续允许旧 baseline A/current upload B，不与 runtime 误比。原 ADDITIVE 成功测试保留 A/B 断言；同一 Preview owner 新增 source facts 伪造另一合法 ruleset digest 而原 manifest 不变的拒绝向量。未知 projection/scalar 仍严格拒绝，FULL 两上传侧仍绑定本 operation。
+
+**F3 关闭。** 共享上传源校验及 SQLite 独立读取坏 refs 拒绝的原 owner 已实际通过。History consumer 原测试把 source refs 清空作为合法正例，与新必需源绑定冲突，现保留一致的两源正例；没有放宽产品 validator，坏绑定负例仍归唯一 mapper owner。
+
+**F4 关闭。** `f6d1a574f5` 新增真实非法 typed DATETIME 的唯一 Preview wiring smoke：原 `TABLE_READER_UNAVAILABLE`、Operation FAILED、无 READY closure/PreviewResult；在 b737 单独 `-n 0` 实际通过。完整 native grammar 矩阵未复制到 Preview。
+
+恢复测试在 durable materialize checkpoint 已发布、successor 未发布的屏障中止；新建 LeaseSession，禁用 SQL parser 后重入实际已有 checkpoint 分支并继续 READY，冻结 facts 完全一致。初版实例 monkeypatch 与 LeaseSession slots 冲突，c464 改为局部 context 内 class barrier，实际通过。Submit 原事务 owner 证明 T1/finalize 同事实、合法 replay 不改；删除 Preview、阻断原 source store 读取，再经真实 BaselineNode.source_submission_id 读同一 durable Submission。Attempt CAS 拒改 facts、旧 generation 不留下 PreviewResult 行也在原 owner 断言。失租仍由原 LeaseSession 屏障与唯一 owner 保证，未另建调度矩阵。
+
+所有以下原日志由本角色在 **06 / `gw-dms-06`** 只读核验并重新计算 SHA256，目录均为 `/home/dev/gdds-test-tmp/artifacts/p6-v1/`，记录起止 HEAD/UTC/exit；没有在开发主机执行测试：
+
+| 日志 | 固定 HEAD / UTC 起止 / 结果 | 独立 SHA256 |
+| --- | --- | --- |
+| `backend-focused-c4640fc6fb.log` | c464 / 08:52:09–08:52:24 / 320 passed、exit 0；其中两项 serial 当时在 -n4，合格 serial 来源另见下行 | `4c9e119afdfaff35bd87a6b3cc6db4667dcbdbfc3afcd918ea75e64b46cc312a` |
+| `native-adapter-serial-b73713ea9e.log` | b737 / 08:57:10–08:57:11 / adapter 两项 `serial and not parallel_safe`、-n0、2 passed，修正前批次执行条件 | `26be9c5309d8f95f5fe1d15e7fd1a9cc21a71d0b4c7c1168fc1b03123afb3267` |
+| `parser-diagnostic-b73713ea9e.log` | b737 / 08:57:08–08:57:10 / F4 smoke -n0、1 passed、exit 0 | `21ff1b439cf992e5e73112a382b762bc3675b4bb0c480137a62fd3479e0b7b8f` |
+| `backend-consumers-b73713ea9e.log` | b737 / 08:57:11–08:57:50 / 明示非 serial 主体 -n4、453 passed、exit 0 | `f1cdd2e1f0b7c3df49397bd97ad17c2a8ab9fe3934c68fe7bd0125a43a6b041d` |
+| `backend-consumers-serial-b73713ea9e.log` | b737 / 08:57:50–08:57:55 / 明示 serial -n0、5 passed、exit 0 | `d0a86ef3ef74e71d9307172156b0e9370bd3f9b9dfe505531b24715da80f91fc` |
+| `rust-all-c4640fc6fb.log` | c464 / 08:53:03–08:53:32 / cargo test --workspace --locked --offline、exit 0 | `8e33c7d8cd98fbd7074d01a8e0b0958b8d87503774b7178331ea2a6f096c3265` |
+| `extension-build-input-c4640fc6fb.log` | c464 / 08:52:08 / expected=installed=`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`、exit 0 | `a4cf2d92ac05f70f99e5522b34d1a0f8c4e9226f2af0c5165760ff395cb214e1` |
+| `sync-backend-3fcea5a2d0.log` | 3fcea / 08:41:39–08:42:57 / 受控 sync --reinstall-package gateway-compute-python、exit 0 | `f174cc0bd6a8627cb333c0503d5d9c9aca21b0568cebfb2c433f4df34ec3c30d` |
+
+c464 正常非 serial 318 项未为修正两项 serial 重跑。b737 consumer 的精确文件清单在日志 argv 内，覆盖 Workspace/Preview/Submit HTTP 和查询、worker、Review、Archive query/transaction/http/concurrency/audit、History、commit metadata 等实际受影响 consumer；原事实拒绝没有被 skip 或改成默认。最终 DDL 仅把必需 facts 列排在 identity_confirmations 后，与 mapper/raw fixture 顺序一致，NOT NULL/类型 CHECK 不变；新 schema owner 及 fresh DB 最小 Compose 仍待本角色核证。
+
+五包 c464 同 HEAD ruff/mypy 原日志均 exit 0，已逐份读原文并重算 SHA（`final-{ruff|mypy}-{package}-c4640fc6fb.log`）；backend 后续测试变化的最终增量静态尚待核。Rust tree 在 2c6→b737 保持 **`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`**，fmt/clippy 仅限定引用 §5 未变源码结果，不声称权威 Rust 包或容器 carried。
+
+原失败证据均保留并已独立核到根因：
+
+| 原日志 | 实际失败与后续处理 | SHA256 |
+| --- | --- | --- |
+| `ruff-backend-3fcea5a2d0.log` | 3 个测试 unused import；后续删除过时 import | `781258c1b69d64739705d5a8d2ab7e74a485dece5890619c976178f552145c08` |
+| `mypy-backend-3fcea5a2d0.log` | 4 个 cast/optional 类型问题；后续显式收窄 | `150223b8035e55d23b8d9e1d6433bb294cfa43025acd3e3865911027e0601833` |
+| `backend-focused-efcb362bec.log` | 239 passed / 55 failed；fixture 改名 operation 未同步内层 facts 等适配问题，固定提交修正 | `1c466f3d30e610a61ce860ced51cb22f1a846581f140ea5c0c454aab088c4607` |
+| `backend-focused-ef8af78e2c.log` | 318 passed / 2 failed；slots 实例 patch 及剩余 no-change fixture rebind，c464 修正 | `8885f03cdd1437b99d4c2e1066bd098a9bd6bd47bb3a5acb3e4a2dfd53ccd1d6` |
+| `backend-consumers-c4640fc6fb.log` | 169 passed / 7 failed；sibling fixture rebind、raw INSERT 漏必需 BLOB、空 refs 旧正例，5864/b737 显式适配 | `81ab2e0a6e636b863928923f1f5c1315a5dce70c0bb41a95f8af721b2ae810a5` |
+
+另只读核 `checkout-command-error-efcb362bec.log`，SHA `4ba72ca9a87fcd60de6396ceabe6fed15ec426192fca174b52ca6555cb803cbc`：FETCH_HEAD 不存在的自身命令错误，未派发测试、未写 worktree；修正工具后在固定 clean 提交运行。上述运行都不是权威 runner 来源，不作任何包闭包/容器沿用。
+
+当前 `Current reviewed HEAD=b73713ea9e2cb2588ebaee80e0c30ea53a4f6ded`；V1 最小 Compose 正在实施者的 06 clean WT 上执行，schema owner/最后 backend 静态及镜像 provenance 尚待核，故 gate=`deferred`、`carried=none`、无完整 V1 GO。04 联合权威/必要 Compose 与 05 fresh t1 仍未执行，不能由本节定向通过提前关闭。

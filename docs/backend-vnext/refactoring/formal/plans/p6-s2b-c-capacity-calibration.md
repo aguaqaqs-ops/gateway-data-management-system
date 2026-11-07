@@ -2,6 +2,8 @@
 
 状态：C 的既有输入组件校准已完成。2026-11-06 Owner 已选择 A：worker envelope 12 GiB、reserve 4 GiB、显式初始 M=8 GiB/上限 8 GiB，N=1、单 active；D 负责配置接线与实际验收。M 缺失仍须拒启，不建立隐式默认。本文不声明 worker 容量、完整 operation 或 W1/W2 性能通过。
 
+后续配置更新（2026-11-07）：E 的实际 v1/v2 与独立 History 数据补齐后，Owner 已按 [DC87](p6-s0-owner-decisions.md#dc87-s2b-单-worker-的显式资源配置) 选择最终 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB，替代本文 C 当时的 12/4/8 选择。本文保留 C 原始测量与当时判断，不回填 E 结果为 C 的完整 worker 证明。
+
 依据：[C 任务](p6-s2b-c-kickoff.md)、DC42/DC84/DC86、[映射](p6-s2b-arrow-mapping-design.md)、[原输入普查](p6-s2b-capacity-input-census.md)。所有执行在 06 `gw-dms-06`，N=1，clean/committed worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-c-impl`；与 pytest workers、06 的 16 vCPU/32 GiB 分开。06 不提供正式 CT108 性能结果。
 
 ## 1. 实测范围与来源

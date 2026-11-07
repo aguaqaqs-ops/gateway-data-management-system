@@ -75,7 +75,7 @@ implementation_authorized: no
 | DC84 | S2b 容量与 M 分步收口；CT108 无窗口时 W1 诊断最迟 S6 | — | — |
 | DC85 | S2b kickoff 批准，启动 A 节纯内存映射/IPC codec | — | — |
 | DC86 | 授权按既定 kickoff 逐节推进 B–E，每节新建既定实施/审核二角色；额外角色先交 Owner 确认 | — | — |
-| DC87 | S2b 单 worker 选择 A：12 GiB envelope、4 GiB reserve、显式 M=8 GiB，N=1/单 active；D 验真实资源边界 | — | — |
+| DC87 | S2b 单 worker：E 校准后已选 24 GiB envelope、8 GiB reserve、显式 M=16 GiB，N=1/单 active；最终候选验资源边界 | — | — |
 | DC88 | 正常 drain 的 effect 前 PURE_RECOMPUTE 阶段可安全重排队，不消耗失败恢复次数；保留原 checkpoint/保护 | — | — |
 
 ## 2. 决议详情
@@ -937,6 +937,10 @@ DC86 后续模型调整（owner，2026-11-06）：主协调核对 A/B 反复错�
 DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核者改为 GPT-6.1-Sol，按需选择 xhigh/max，并要求协调者在合适节点直接调整。执行节点选为 **C kickoff 创建新角色时**：当前 B 的 Astra/high 审核者完成本节，C–E 审核者使用 **GPT-6.1-Sol，默认 xhigh**；每节创建前依据事务/CAS、租约、冻结恢复和证据冲突复杂度决定是否使用 max，并记录选择。实施者仍 Sol/high。接口可在创建时指定模型/强度，无运行中协作 agent 热切换入口；若需中途额外重建，仍先报告并获确认。每节二角色、独立上下文/只读审核工作区及真实证据要求不变，不以同模型或更高强度替代独立审核。
 
 ### DC87 S2b 单 worker 的显式资源配置
+
+- **当前生效配置（owner，2026-11-07，E 实测后最终选择）**：Owner 选择 **A：24 GiB 容器上限 / 8 GiB 工程预留 / 显式 M=16 GiB**，N=1、单 active operation。分别为 25,769,803,776 / 8,589,934,592 / 17,179,869,184 bytes；M16 同时为本档可配上限，M 必须显式填写，缺失/非法/越界拒绝。此选择替代下列 2026-11-06 的 12/4/8 配置；旧选择与失败证据保留为历史，不把临时 64/16/48 合入最终 main。
+- **选择依据与限制**：宽裕档 v1/v2 前缀最大预约 12.173 GiB，修复 FD 后的独立 History 最大预约 10.448 GiB；M16 对已观测峰值留 3.827 GiB、约 31% 余量。旧 worker 前缀 cgroup peak 6.519 GiB，独立 History 为另一 worker 的局部数据，两者不拼为完整峰值；charged 不含全部 native temporary，故这是经实测支持、仍须最终候选验证的配置，不保证所有输入 quota 同时满额、2×t4 或正式性能达标。8 GiB 是工程 reserve，不是已测固定开销。
+- **直接推进范围**：将最终配置与必要 owner 断言落 main，保留最小 FD 修复，移除临时观测候选差异；按影响面 focused/static 后集中取得最终 04 六包实际门禁及所需当前容器证据、05 t1–t3 与 CT108 同 worker 完整 t4。已有相同 runner 中 Compose 不单独重复，A–D 未受影响语义证据按现规则复用；不逐档试跑，不为既定准备/focused 反复申请运行许可。新实质阻塞仍按 DC80 诊断、明确修正及独立审核；S2b exit 另办理，无推送授权。
 
 - **来源与确认（owner，2026-11-06）**：C 的真实 kernel/IPC/store 双侧校准及 XML/AST/composite 补充测量后，Owner 选择 **A：单 worker 容器内存上限 12 GiB、预留 4 GiB、显式 M=8 GiB**；B 的 24 GiB 方案仅保留为未选备选。N=1、单 active operation，不由本决议放开多 operation 或多 worker 并发。
 - **配置语义**：12 GiB = 12,884,901,888 bytes；reserve 4 GiB = 4,294,967,296 bytes；M 8 GiB = 8,589,934,592 bytes，当前 A 档上限也是 8 GiB。M 是单 operation 活跃资源预约，8 GiB 为部署中显式填写的初始值，不是代码隐式默认；缺失、非法或超出 envelope−reserve 时拒绝启动。部署声明与实际容器限制须一致，不以 06 的 32 GiB 代替生产预算。无需为此新建通用 cgroup 探测或 allocator 追踪框架。

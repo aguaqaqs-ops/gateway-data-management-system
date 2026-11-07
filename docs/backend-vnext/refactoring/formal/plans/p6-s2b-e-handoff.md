@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**同节恢复 / 最终验证进行中**；2026-11-06。产品实现 d0 已获源码审核 clear；当前修复候选为 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1`，仅修剩余测试 fixture/inline adapter。04 已实际通过 Rust-only 权威 runner；首轮五 Python runner 的 backend 失败已定位，不作为任何包的合格来源。尚无 E GO、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
+状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：04 7c023 backend-only 权威整次0及其余四包独立整次0/最终容器绑定；CT108 7c023 fresh t4；05已释放并完成E环境准备后的t1–t3；最终同WT闭包与独立审核。额外工具mypy待决项已于22:46Z关闭。以下早期计划/暂停段落保留当时事实，当前状态以此处和后续时间记录为准。
+当前 pending：1de 的04 backend→Repository Service权威整次0/最终容器绑定；1de fresh t1–t4完整旅程；最终同WT闭包与独立审核。06定向81项及静态已通过；04 Rust、三小包已在同E WT按实际原来源比较可沿用。三节点00:25:56–57Z已取本次准备占用，source/env/另call独立核全0，04 backend权威已启动。05/CT108准备释放收尾命令语法错的原exit2保留，实际marker移除后已另做只读核0，等待独立复核后fresh自取锁。以下按时间保留历史状态；额外工具mypy待决项早已关闭，CT108窗口已确认，不能把早期暂停段当当前待决。
 
 ## 实际消费者与删除
 
@@ -185,3 +185,35 @@ ff970 的04 backend-only 于23:29:03Z自然结束 runner1/driver1，主体3173 p
 新建offline backend venv（未复制）、真实native137/四pathdeps、同节点backend base的config+全19DiffIDs、RS/client锁labels、ownedRS7c本机offline build、现CLI help/八包INPUTS_VALID均0，23:44:38Z结束；env SHA `61d8945c4d7ac6a3310c7e973326ccfad213b2150c8c0339e266a601350ba331`。另call独立env核0 SHA `0baa6c7173e5dc969634b0c2ef0899c90561a711cb0999d066d722f73ed74e97`；23:47:42Z核owner/HEADclean/全机idle后释放准备busy，release SHA `d22116cdfd99e5f5fc10e46befb0301d304879df996683717ee8f10e6cca1f97`。除preflight log外，各路径均在05 `artifacts/s2b-e-t1t3-prepare-7c023971/` 对应source-01/environment-01下。原线三个保留GC卷/原冻结资源不动。
 
 真实t1–t3仍待backend整次0后按tier顺序fresh。已审外置 `/tmp/s2b-e-t1t3-driver.py` SHA `d524f828ffd32510b57c608f49e7465bda4e9892a72e667714693a016f200d06` 由原t4 driver286仅参数化tier/WT/project/purpose/metadata；同一次fresh full加现keep-stack，失败先取证/正常stop、保本E资源与busy交DC80，不自动下一tier/retry/resume；成功且必需证据/cleanup/release齐才下一tier。未启动真实旅程。
+
+
+### 2026-11-07 00:27Z：合格来源、首次真实结果与单侧预算修正
+
+04同E gate WT的7c backend-only于2026-11-06 23:56:36Z自然whole runner0/driver0，主体3173 passed、serial57 passed，HEAD clean且释放。`artifacts/s2b-e-gate-7c023971/backend-authority-01/authoritative-runner.log` SHA `1e81ecf2231559035123468ac6a0d27614d9f4f54cc8720d58dc4e484d9c0a75`；从原日志提取的起始backend manifest文件SHA `822984029a0c83b61e44c0d82124570c3595a8f53e800a0c9f0cce97cbd1796a`、total `7fb9738df11a230574eee2d9e3a6f9182ad98997194b4cba3bdc7fb0e9f51526`。Compose provenance SHA `d7e2f4b20d603397dee4d1015fd241880139a5e3c400bab014bbb0d9bc503750`。1de改backend逻辑，因此此结果仅为旧候选回归来源，必须重新实际运行backend。
+
+其余四包独立whole0在7c、同04WT于23:58:30Z启动、00:11:02Z结束并释放。shared_kernel243、contracts152、client161通过；RS主体1744 passed/1 skipped、serial207 passed。`four-python-authority-01/authoritative-runner.log` SHA `d1d829ea5bfd398f012ed79bfe70e3f3adb15f18317da717b595107e7f9e2d58`。下表来源文件均从这次合格原日志的起始JSON提取，审核者逐对象核合，不用post-run计算冒充来源：
+
+| 包 | 原source total | 原manifest文件SHA |
+| --- | --- | --- |
+| shared_kernel | `26b8a0ba6f67b990433d361aa137dfaeb96d5d0826f6c6e36c2b08d37a98c605` | `d39f3254292f0332859a04e8282a8caeec4273c2c4e7b16eb8309e3964611b2b` |
+| repository_contracts | `eb237e7926624d250119cdb3a755f3e3193432158293108db5085e4ac1af64b5` | `94076325123e76a6ffaa43c307077e75d071354a4d3d219621ed5f772acecb0d` |
+| repository_client | `294456e0d70e11e854243a9947acd8c17b39538475b4a8050215a8747288d213` | `22fdb2180041fae1751c52cfb7bf08b5d293971af01392de1f50f70cab831073` |
+| repository_service | `67e5a5895d42f018d25eede60eb978e332e0001355f79fa292c6f7a38228b402` | `a67b737f8e4909ed9f49866b8e58f41a8b997d6b26bbf13c96ab0c37fb45d585` |
+
+1de同04WT的Rust compare仍等于原d0 total `5dbb8a817e37bad59f5318d63592e405f2bb3dc3886b483bc329a05f77b540ea`；三小包00:26:48–52Z按原HYPOTHESIS路径不存在、实际逐项manifest compare均可沿用（无changed components），`artifacts/s2b-e-gate-1de3fa40/carried-01/closure-compare.log` SHA `269ea1123546cfb2adc361bab78a27a8276b1d0ad8020e6ecfe752151f44692c`。RS的真实`docker:context:vnext`变更，不能沿用，安排backend后独立RS-only。
+
+**7c t1实际PASS**：05 fresh project `s2b-e-t1-7c02397139` 于23:58:30Z启动，00:03:29Z journey0、00:03:36Z driver0/必需资源证据齐/正常停止0/owned cleanup和release完成。`artifacts/s2b-e-t1-7c02397139/journey.log` SHA `f5adef30738d52522c79d4057b865bbbcdc3daf29944a6dc2e4b8a221e6b2f62`；`result.json` SHA `bcec2fce657b0a1671612a78e09295c8747ec82e4054720df80f86f6ccf5da84`。t2/t3未启动；1de需fresh t1，不造已清卷的resume。
+
+**7c t4实际FAIL**：CT108 fresh project `s2b-e-t4-7c02397139` 首v1 Preview（operation `op-c1d2bdb34f8e6eda8b702df5`）在00:01:07.577Z返回`RESOURCE_LIMIT_EXCEEDED / operation memory reservation exceeded`，journey1/driver1。step1 materialize_inputs SUCCEEDED、step2 assemble_preview FAILED。`--scope full`表示完整旅程，实际输入是MODIFIED_ONLY：checkpoint BASELINE/INITIAL均空、MODIFIED312表，不是InputCompleteness.FULL。资源证据本身完整：单一未重启worker/N1/M8589934592/envelope12884901888/reserve4294967296、cgroup memory.max12884901888、memory.peak660467712、OOM事件0、正常stop exit0。660MB只是失败前缀全生命周期cgroup peak，不是RSS/M，也不能证明完整t4的M8容量足够。
+
+CT108 `artifacts/s2b-e-t4-7c02397139/`：journey.log SHA `2a57ee76f3f7d943f78d97f595e424b5a9906df4473f954d16d741dffa9666de`；result.json SHA `032fb2c1b8fb444c91b5c566eb276d617a3526e2795be47156bc6d7f1766a0ab`；worker资源SHA `8ad51eea153c7335ac3a7a06b2e70b5dadf383450a983311feafb3ec3da5e659`。原sha256.json不改。
+
+只读controlDB/checkpoint/metadata诊断不调用Rust、不读取rows、不重跑operation。cpRef SHA `3d3f09d3838939e6aa0a6af193aa75c4c7cf714fa9801edbb1f6ba70ad76945d`/1675B，sidesRef SHA `fda6022369377acc2e61db9292d970466d326f2b8b3610bd47da782bfa469c5e`/513564B，实际modified SQL source SHA `95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675`/5597503B。312任务含278record/34browse-snapshot，全部是单侧ADDED。standard与ordered的single-side分支仅输出table metadata，不读取rows；旧upper却收费rowSum13700821888B+metadata base2621440B，**即使不算非负Arrow.nbytes项也至少13703443328B > M8589934592**。device_st单项rowterm6161836800B。已知部分retained27116864+62330728B，完整当时used/high-water未持久化，不能虚构精确used。`dc80-metadata-budget-01.json` SHA `08f7212bee727d2ce0ff26a800065cf299577f74e4bc9455a9b901dd7f0e166b`已由审核者独立metadata重算；control只读log SHA `fde138e04496792096b075863169387d6ac43d712ef65a41f0b7387b80829ddf`。
+
+root授权保现场释放CT108：00:16:05Z固定7c/clean、owner精确/整机idle后仅删除own marker，`dc80-preserved-postflight-release.log` SHA `e21deb1a6df72eb194c3adc64fb3f908381d2112679be0e10fc6886871f859bf`。保留 stopped worker `c8ee877173ec`、backend `1e898e15bf50`、RS `cf732406a535`，三个同project卷backend-artifacts/backend-control/repository-service-data与网络`a65f15c88439`；无down/rm/prune。未来旅程必须新project，不能复用此失败现场。原线冻结资源另保持不动。
+
+**精准修正1de**：standard.comparison_python_memory_upper仅对before/current任一缺失的单侧任务跳过未消费行项，metadata base保留；真实双侧standard/orderedidentity收费、全部系数与N/M/envelope/input不改。权威comparison owner新增普通/ordered×added/deleted四案例，以真实1/256行Arrow、小剩余额度证明positive metadata charge恒定且rows/stream零调用；真实双侧拒绝继续只由既有preview-job owner两参数证明，重复负向探针已删除。源码独立审核clear。
+
+06 fixed1de source0（SHA `55d0e6e6bd3b2c38ac0e4a13204ea6bf58e90535fb29475a8435f44cec45459a`）、另call实际E四模块/native137/clean核0（SHA `6f99108f38b97556b8ea6bf6ece603f53bd7dde47e54fe62ac344f57ec290c69`），00:18:52–55Z backend Ruff/mypy500及定向**81 passed**，`artifacts/s2b-e-budget-fix-1de3fa40/budget-focused.log` SHA `850c445ad4a79864ed9a1c0d228a07c0512039acb27523a9ff27009866d29747`。命令为wrapper `run --no-sync pytest tests/test_comparison_standard.py tests/test_comparison_ordered.py tests/test_preview_job_assemble.py::test_pair_memory_admission_rejects_before_python_row_comparison -n 4 -q`。00:24:09Z核idle/owner/HEAD后释放，release SHA `8e6bd818fc7f5abfb90dd1084233b62fc6a06ace9fa10f2cb1b81f1b3e4b5405`。
+
+H taskref `refs/codex/s2b-e/budget/<full1de>` bundle SHA `711ecbcf21a309eec0b64323288a0391e3cb6cf046c4c1a956fee07c24b2663c`，仅排除各E WT实际previous7c，分别verify0再fetch，不改rootmain/冻结refs。新H门禁安排为04backend→RS、同WT沿用Rust/三小包；CT108 fresh t4与04backend可并行，05 fresh t1–t3逐档0且证据齐后下一档。若真实读行仍超M则停交Owner，不自行加M/改系数。

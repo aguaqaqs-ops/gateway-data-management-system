@@ -78,7 +78,7 @@ Owning 正文为 Business Lifecycle `4.0.0`、P5-5A Workspace HTTP、P5-5C 状�
 
 OpenAPI导出首次外置script被uv wrapper在执行前拒绝exit2：`openapi-command-rejected-d8bee1a591.log` SHA `79486c208c72e713029c33450d88764b6c10ade461b9ca65c23769564bab25aa`，原raw日志及observed UTC/exit/correction metadata保留。目标未执行且无副作用，按DC68改用入口明确支持的内联`python -c`，从OpenAPI步骤重做一次成功；未改wrapper、未继续失败的产品门禁。
 
-A1不办理联合exit：04的受影响包权威runner/必要容器、05 fresh t1由联合最终候选集中执行，不能把本轮06focused写成权威包沿用。具体容器增量nodeid为本节上述review两条及archive双actor一条；后续V1/V2/D若改变其边界，在04联合候选重建并按当时范围运行，不把d8结果绑定到未知后续HEAD。05真实旅程继续由既有 `vnext/backend/benchmarks/real_dump_journey.py` 承担FULL/MODIFIED_ONLY、Submit/Review/Archive、Preview/History；本角色未编辑或运行该工具。
+A1不办理联合exit：04的受影响包权威runner/必要容器、05 fresh t1由联合最终候选集中执行，不能把本轮06focused写成权威包沿用。具体容器增量nodeid为本节上述review两条及archive双actor一条；后续V1/V2/D若改变其边界，在04联合候选重建并按当时范围运行，不把d8结果绑定到未知后续HEAD。05联合fresh t1须先补齐新产品候选上的真实旅程工具：当前 `vnext/backend/benchmarks/real_dump_journey.py` 仅有MODIFIED_ONLY入口，`_archive`仅消费身份异常，并未覆盖FULL或新增来源/时间异常及完整tar。V2/D须先增加FULL入口、新异常逐项处置消费、Preview/History完整tar校验，再执行联合旅程；不能把既有工具冒称已经覆盖这些目标。本角色未编辑或运行该工具，原冻结V_ref及其工具保持不动。
 
 V1/V2/D仍待交付：时间/内容事实、来源图/逐项接受、完整tar及有理由关闭。APPROVED仍不可本人撤回；没有恢复旧return，也没有把本节pending gate冒称完整归档业务核验完成。没有推送、改写引用提交或启动S3。
 

@@ -661,8 +661,16 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
             assert review.json()["submission_disposition"]["source_kind"] == "MANUAL_CLOSE"
             assert resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN) == main_before
             assert list_repository_commit_ids(env, repository_id, bearer_token=BEARER_TOKEN) == commits_before
+        def corrected_upload(version: int) -> dict[str, tuple[str, bytes, str]]:
+            def package(value: str) -> bytes:
+                sql = ("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value VARCHAR(32));\n"
+                    f"INSERT INTO t VALUES (1, '{value}');\n"
+                    "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, saved_time TEXT);\n"
+                    "INSERT INTO version_manager VALUES ('project-v2', '2026-11-07T12:00:00Z');\n")
+                return pack_tar_gz({"sql/dbcfg.sql": sql.encode("utf-8")})
+            return upload_files(expected_version=version, initial_bytes=package("before"), modified_bytes=package("corrected"))
         reupload = run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-            journey_key_prefix="business-new-upload", token=SESSION_TOKEN)
+            journey_key_prefix="business-new-upload", token=SESSION_TOKEN, upload_files_factory=corrected_upload)
         assert reupload["submission_id"] != original["submission_id"]
         assert reupload["workspace_id"] == original["workspace_id"]
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
@@ -670,6 +678,7 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
             candidates = client.get("/v1/archive-candidates").json()
             selected = _candidate_for_submission(candidates, str(reupload["submission_id"]))
             preview = client.post("/v1/archive-plan-preview", json={"selected": selected}).json()
+            assert not any(item["issue_code"] == "GENERATION_TIME_MISSING" for item in preview["anomalies"])
             head = preview["head"]
             confirmation = client.post("/v1/archive-confirmations", headers=_auth_headers(idempotency_key="business-new-confirm"),
                 json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
@@ -677,7 +686,7 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
                     "expected_sequence": 0, "action": "CONFIRM", "reason": "confirm the new submission after closing the original"})
             assert confirmation.status_code == 201, confirmation.text
             refs = resolve_archive_preview_anomalies(client, preview_body=preview, selected=selected, token=ARCHIVER_TOKEN,
-                idempotency_key_prefix="business-new-accept", reason="the new synthetic input intentionally lacks generation time; explicitly accept each recorded diagnostic")
+                idempotency_key_prefix="business-new-accept", reason="the new input supplies generation time and its recorded project identity is reviewed")
             started = client.post("/v1/archives", headers=_auth_headers(idempotency_key="business-new-start"),
                 json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
                     "selected": selected, "candidate_set_digest": preview["candidate_set_digest"],

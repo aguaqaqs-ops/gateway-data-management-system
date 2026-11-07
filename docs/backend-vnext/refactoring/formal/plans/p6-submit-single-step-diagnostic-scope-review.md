@@ -2552,3 +2552,72 @@ CT05 `timing-provenance-ecc0-20261107.log` SHA **`0725eef38d78f92d89f392cbdb205b
 新派生 `w4-source-visible-ecc0.json` 与 `w4-source-visible-2abc.json`（上述derived-inputs目录）本审核直接比较**逐字节相等**，各1109B、SHA256 **`f6357e4b4ec96c10680eb1a2e9b5bba1f298f99fd13f9dc6d91613c5ad7456d3`**；输入对应行本来就是PASS，所以过滤修订不改变该实际结果。新文件已先产生，均保留，不要求为同值再运行。各派生日志 `w4-source-timing-ecc0-20261107.log` SHA **`3e764ece1459ffdaf44bcee2ac40aacfdbfc9eea985c9c039daca68104c0e793`**（15:48:33–34Z）和 `w4-source-timing-2abc-20261107.log` SHA **`324c350c32f70f3fc5e639989a96f6adfe88e151a8d6fe92ad3fb8d0c99ba163`**（15:50:35Z）起止HEAD分别为各实际工具、exit0。结果取原v2-preview user_visible_seconds=4743.456、record_only、reference/deviation=null，metric_source精确指e798/原b，外层head仍3fd；reference_file_sha `7a688b10c8b39e3a097ce74eb069fb731264b68c51f59a1b8f628d24054b8e17` 与Git中464c原字节独立hash一致。
 
 这关闭的是数值/来源派生小项，不是源W4身份资格或完整record验收。来源RS identity限制必须随条目/总索引保留；107b资源只覆盖新接续步骤，旧W4完整资源资料仍按其原来源处理，不填零或借当前资源。当前普通工具修订及必要后处理已直接与实施者闭环、设计已确认限制；无新重测/GO，不触正式产品或镜像，不访问在途CT108或SQLite，FULL继续原运行。
+
+## 113. W4-FULL真实旅程及取证独审PASS，RS完整身份经原immutable ID后验链接闭合
+
+**CT108 `p6w4full20261107a` 的本次fresh FULL旅程、数据/模式及取证审核PASS。** 运行HEAD为 **`18a4851d8c52d53afdb95ee4df9fae04e6e36d77`**，产品9704及冻结镜像不变；18/18 check均PASS且source_head均18a，没有继承步骤或人工恢复。此结论不等于S5/S6性能目标达标、04最终门禁或全部测量exit；STRESS及剩余诊断/记录继续原授权，无新GO或重跑本次旅程。
+
+11:49:34.763–15:56:39.809Z、gw-dms-test，sampler elapsed **14824.959s**；journey run_result elapsed **14793.296s**，run本身11:49:36.448–15:56:33.811Z，三者端点不互换。controller、launcher、tee及journey均exit0，起止完整18a稳定。审核在旅程结束后将六份已关闭原件经LAN复制到 `/home/dev/gdds-p6-logs/p6-w4-full-review-20261107/p6w4full20261107a/`，逐份独立hash匹配：
+
+| 文件 | bytes / SHA256 |
+| --- | --- |
+| launch.log | 2099684 / `b2daac6179bb68332db64a7cfd647081128d9c26b437061d9f477fe2b9e71674` |
+| evidence/run.json | 33898 / `b03ab360ef8a9d5f02bb4c1951b69489abb6ea61afd2166f9ab728bd6560908d` |
+| evidence/state.json | 87959612 / `41b090bfba3f2346ab19b4ffe9ca57a77656393bd59a47c23b25fd0d71f5fa3c` |
+| resources.json | 6441 / `6eb25f987652dc3f31e14399a32ba2194191de70a5e323da72dd3068a28c1d6e` |
+| resources.input-provenance.json | 2559 / `afaed3de2fb3cc1da3cffe50c8a168f6a456d0b84a51d57964fbf80e3010c5ad` |
+| postflight.log | 697 / `c0ca191d7324825566adde6f2a44df27218376bb77c2068834478fd970bbac49` |
+
+相应关闭preflight文件也已复制并核SHA：controller **`d282bd0c09395632638c38240de2dd6f05f2553fc1bfddf2a760b6af28170661`**，setup **`891189be37e61a85108fd19c5bb2bdb967be62be723bc428b9da6651340b8dca`**，start **`d83d89274e93329ef5dfa91bee2c3f26bdabb629c001ddcb2803322433bab12e`**，manifest-generation **`a0d8f3b8f1d75653fe53fdf3e8a5710fb4b70b8cce5bf00c59eac47c6380fedc`**。setup关联clean detached18a、已预置环境及native expected/installed tree584369相等；不把环境同步当测试。实际argv为§102/106所核full-v2/cold Preview/healthy History及70200s work，没有post-GC resume、v2 archive或v3步骤；17个before checkpoint与18个成功业务步骤准确对应。preflight manifest1924B、SHA **`ae0b281f224f5adabd801ee331e9022b42291399f983db42ef6dd69b2edc143a`**，census04952cb5；原件provenance四个上传角色/bytes/SHA全部MATCH，含FULL v2 INITIAL=v1 74974e5f及MODIFIED=W4 v2 4cb82a16，不拿2×普通v2包替代。
+
+FULL v2 Preview的pair_count=2、table_count=1262、changed=628、failed/degraded=0；首次/重复v1分别631表全变/全未变。冷Preview缓存274项、expired/missing均0，清后0并删548文件。History开始前healthy缓存522项、TTL有效、expired/missing0、removed0，结束663项且expired/missing0。原summary通用键虽叫H1，这是FULL后首次History，不能改作普通H1零读零比证明；FULL例外允许重算变化表。History记录70634条，原bundle/fingerprint与旅程检查通过，不从此粗记录伪填DC63细段。
+
+| 本次操作 | READY / user-visible s | completion s |
+| --- | ---: | ---: |
+| v1 Preview | 1711.256 | 1711.256 |
+| v1 Submit | 1747.996 | 1748.008 |
+| repeat v1 Preview | 1411.651 | 1411.651 |
+| repeat Submit同步NO_CHANGE | 0.008 | 0.008 |
+| FULL v2 Preview | **4007.919** | **4007.919** |
+| v2 Submit | 3949.217 | **3949.229** |
+| History | **1650.446** | **1650.446** |
+
+v2 Submit journey step3952.126s不是上表API端点；prepare **3721.878947s**、submit_import0.301061s、await225.245225s，prepare约占completion94.24%。v1/v2各1 attempt、1 captured await session、3次healthy handoff、timing_complete=true、R5未耗尽且remaining2；Repository公共观察只给import耗时边界，不把await全段充作精确导入时间。History materialize788.533837、assemble855.498409、publish0.032048s，均attempt1。这些是当前实际口径，未作跨模式/版本加速归因。
+
+镜像身份有一项实际记录遗漏并已按最小只读方法闭合。backend/worker在本次run记录config **66e362d4…8e62**及全部15有序DiffID，与冻结target逐项全等。fresh分支8612附近仅post_gc_resume才加入完整RS metadata，所以本次run未直接存11:49 RS config/DiffID；08:29旧loaded-image-identities虽MATCH但没存本机ID，不能伪造同ID关联。本审核核18a producer：fresh `start_three_container_stack` 用新project执行up --no-build；`_run_tier:5566` 在栈启动后、首operation之前按同一所选RS tag调用compose_image_ids，保存的images到最终summary原样输出（6628），不是尾部重新inspect。原summary实际记录RS本机ID **`sha256:a75aa535046937dab51156c8a8acad0deec913a4daaee9a930c4b62d23cc7e39`** 及9项labels；它是当时所选image对象的ID，不是独立保存的container.Image。
+
+按本审核预核、设计确认的可信daemon/协作冻结tag模型，实施者在CT108空闲且持自有占用时，以**该原始immutable ID而非当前tag**调用18a既有 `_compose_repository_service_image_metadata`，16:13:38–42Z保存后验metadata。先核关闭launch SHA及固定identity文件SHA98bfba51，实际返回ID及labels与原summary相等，再对冻结target比较config **`sha256:b81faa1f970999676087a55f0fc63e17d4285fba73b04c5eca6a69612e1419aa`**、全部28有序DiffID和9labels，本审核独立比较亦全等。labels的build-input4497、source-tree319720、revision1f973保持。此处链接的是相同不可变image对象的内容身份，**不称11:49新快照、独立container.Image或跨节点inspect ID比较**，不扩Owner A的旧source输入例外；无重建/改tag/业务重测。
+
+补证原目录 `/home/dev/gdds-p6-logs/baseline/preflight/p6w4full-postrun-immutable-20261107/` 三文件均已读取并复制到审核目录 `/home/dev/gdds-p6-logs/p6-baseline-evidence-review-20261107/full-rs-postrun/`：script **`9ab69a49d156d47d7b49a538f57489164278d44881c2dff3987306502761169e`**，result **`f06154343f34007adfb46f6badc631f239735e27196bb220a73661ee9926dc40`**，run **`fe426de17e672404e47984e892bb5e30105eb0afa96c8432cf291bd87988be4d`**。日志完整18a起止、gw-dms-test、exit0；helper inspect60/save600秒、外层660+5秒限界，实际约5秒。后续新run应在正常预检/producer记录三服务完整身份，避免同一fresh分支遗漏再需补链，不修改旧raw。
+
+资源6762个离散样本，跨容器并发memory.current峰值 **25809965056B /24.04GiB**；各容器memory.peak之和 **26849656832B /25.01GiB** 是保守上界，不是并发峰值或单worker RSS。peak_parallel_cores2.969，temporary disk high-water10407845888B/9.69GiB。短同步步骤有0样本/空CPU/null memory，不能报告实际资源为0。postflight15:56:39Z project down、node检查、cleanup全0、锁释放，三个本项目卷保留；未删旧卷。down出现三条secret环境变量缺省warning，实际退出及静止检查仍0，不改写warning或据此重跑。当前是完整成功样本，不等于3分钟/10分钟等未来性能目标通过。审核只取关闭记录和独立读取原数据，未重跑测试/业务、打开SQLite或探测在途测量；实际只读补证由实施者在空闲节点完成。
+
+## 114. H2-3NODE同operation参考及第14项selector修正闭合
+
+**候选 `0cbf14f611ad0822c7603ef8870fb8740b67cc85` 的代码/必要验证及实际H2派生复核PASS。** 至此§111定位的14项actual selector及H2旧reference口径已修正；各场景完整JSON record/SHA/comparator收口仍另待完成，不将代码修正说成全台账交付。
+
+原参考b96与目标e076的CT05实际副本已独立流式重算SHA并只读解析：b96 run=`98fa0c68…59b4`、state32318173B=`072a2f5a…e56b`；e076 run=`6861b30d…dd60`、state113034451B=`3d8b77e7…cf6e`，均与原S1c/H2登记相等，run/state exit0、失败step null、HEAD分别b96/e076。相应History PASS行也分别保留各原HEAD/log，两个输入包SHA/bytes均为原接受2×，不是W4。实际state同一 `/steps/history/result/operation_timing/completion_seconds` 分别为 **4892.584s**、**4886.678s**；原19361.157s只属于S1c整旅程，不能再作History参考。
+
+_specs和提交JSON仅改H2-3NODE entry：actual从目标state同端点取；reference从b96原state、原SHA及同端点提取，compare/10% threshold保持。独立解析前后JSON只有此entry变，其他项不变；新参考文件原字节SHA **`1c4b3899183d0e2225e8b9ba444239728e11597401f56d7789ed38ba2ba4b272`** 与派生记载相等。新增测试刻意使READY=4000而完成=4886.678，证明取completion，并对齐_spec与JSON；fixture不校原source的限制由这次实际原件核验补足。
+
+CT05 `timing-h2-0cbf-20261107.log` SHA **`0e0f48b1094ef650e1b278ba03229a527136bbe016ffa35d724aaba9040b25b3`**：16:10:06–08Z、gw-dms-test-05、完整0cbf起止、31passed/0.15s、Ruff/mypy500及focused/ruff/mypy/derived四项exit0。实际派生 `derived-inputs/h2-three-node-completion-0cbf.json` 1538B、SHA **`9555ba912211040490b6e00dea3fbd2ac65b5810da18b318428577cd7009f102`** 已独立读取并复制到审核目录h2/；原run/state SHA及metric_source准确保留e076/原三节点log，工具0cbf/CT05不冒充新测量版本/节点。
+
+程序结果relative_deviation **0.0012071330814146472 /约0.1207%**，原偏差规则为“不需补测”。**这不是600s业务目标达标：4892.584/4886.678都超过该目标。** 设计已明确本轮是DC66参考基准，性能未达如实报告，Owner A已关闭场景不因抽取修正或旧跨版本差异机械重测/停整体，也不降低后续S5/S6目标。实际目录是 `ct108-independent-2x-20261104c`，原b路径不存在的只读find错误已留存incident SHA `70a3f3b32de433ba1f9bf5c95edae9f45e779cea60d93bbb2ddbaf0005896feb`；无产品/卷副作用，不另计业务失败或新GO。本轮未启动旧栈、访问旧卷或重新运行History。
+
+## 115. 三组631表旁证独立核验通过，关闭§105实际对照待办
+
+**2× core的v1/v2及H2三节点v3，对S1c vprime对应commit的三组完整表哈希均631/631 MATCH。** 这是复用已认证原最终summary的离线旁证，不是当前重新读取Dolt/复制卷；按Owner A保留bb348/e076/b96各原版本，不改记9704，不借W4不同输入替代。
+
+CT05 `/home/dev/gdds-p6-logs/baseline/derived-631-20261107/` 的脚本 **`50ae08e9af1abcfd2942ca3dbc0b402018cf9859e64e0faa76123dba6aa60bf0`**、result **`088cfa885398c8882fcf6cfcb4f0b5665db793729cb89004370413565a69920b`**、run.log **`054be0f61c93aabc55f34ac9704a42e36f80dc73a3be6a2d4a8a283898fc6838`** 已直接读取、逐份hash并复制到审核者631/目录。16:08:26–27Z、gw-dms-test-05、脚本SHA在执行日志中相同、exit0；它是普通外置只读派生脚本，不称产品测试或权威runner。
+
+审核逐行读脚本：认证三来源各log/run/state，共九原件SHA；检查唯一PASS最终summary及对应HEAD、t4、run/state exit/失败/check；两包恰为接受的74974e5f…/10652436B与121dc3b0…/10649536B。每张map必须631个非空表名及32位合法Dolt hash，随后比较**完整key集合和整个dict相等**，不只交集/计数；还核参考commit固定为原三值，输出实际目标commit。§105已核历史同一副本哈希helper/调用语义，本次不靠当前函数存在倒推历史执行。
+
+本审核另直接只读CT05实际九原件，流式重算均匹配result登记，独立解析每份原log均恰有一份对应HEAD的PASS summary；source run/state也分别为bb348、e076、b96，无失败。原log SHA依次为core **`e0085bad1b9d4e3d1e6e3883e72e818be09933e5b720df02fd6a06eb891d086e`**、H2 **`853d373e22055e0a2932c3ea5a98a616a6151dddffb6029961665daf840d054c`**、vprime **`376a51af9b8e3dbb99c82616aee4097cd60de3fe11a8c8194f2ec9e6f4013bac`**。core state SHA **`503e73ab17b402c5abdb5a537701b818386bb999c65a267f5459de8ffc017898`**、run **`bf3a152818940541bbbcd5b50c4bc0c209b9033d5f6f584c741fac87c69aa18a`**；另两组run/state与§114相同。九条绝对原路径及完整摘要保存在已认证result，不修改原件。
+
+| 对照 | 目标commit /来源HEAD | S1c参考commit /来源HEAD | 结果 |
+| --- | --- | --- | --- |
+| v1 | `081v3bk8jinfcnh5fosup8jabemtmnm2` /bb348 | `gc0j1d5316nui249o5d1petnncn8u881` /b96 | 631/631 MATCH |
+| v2 | `i7vjr58lv5mjrqr83m8246utafgr5lng` /bb348 | `ej01n1u7srga41mdsqbht4lri82kl1mp` /b96 | 631/631 MATCH |
+| v3 | `1juiuh4nnueo3aslmosqc8eqoqqu46h7` /e076 | `jlpa7e30svqudnem8uo40vrbf5j2upt6` /b96 | 631/631 MATCH |
+
+独立读取原summary完整maps后，v1两侧的排序JSON摘要同为30ee5c63…70b9，v2同为fc6398f2…5959，v3同为30ee5c63…70b9；每侧均631。v3回退到v1因此同值是原场景序列，不省掉该组独立匹配，也不将S2直接复用S1当第四组证明。本次不触旧仓库、旧卷或启动旧栈，未重做原journey，结束§105实际对照缺口；其余STRESS/DC63/V5b/record/comparator/04及整体exit仍按原分工推进。

@@ -45,7 +45,7 @@ def _facts_for_record(kwargs: dict[str, Any]) -> ConfigurationFacts:
     source = tuple(kwargs["source_artifact_refs"])[0]
     return make_configuration_facts(workspace_id=kwargs["workspace_id"], upload_revision_id=kwargs["upload_revision_id"],
         generation=kwargs["workspace_generation"], repository_id=kwargs["repository_id"],
-        baseline_node_id=kwargs.get("business_baseline_node_id", kwargs.get("based_on_baseline_node_id")),
+        baseline_node_id=kwargs["business_baseline_node_id"] if "business_baseline_node_id" in kwargs else kwargs["based_on_baseline_node_id"],
         baseline_commit_id=kwargs["business_baseline_commit_id"],
         baseline_head_version=kwargs.get("baseline_head_version", 1), modified_digest=kwargs["canonical_business_digest"],
         initial_source=source, modified_source=source, uploaded_initial=False)

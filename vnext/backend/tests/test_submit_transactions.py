@@ -1566,6 +1566,14 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
         assert get_current_head_from_connection(unit_of_work.connection, seed.workspace.repository_id) == BASELINE_HEAD
     assert submission is not None
     assert submission.submission_id == "sub-1"
+    assert attempt.configuration_facts == seed.preview_result.canonical.configuration_facts
+    assert submission.configuration_facts == attempt.configuration_facts
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute("DELETE FROM preview_result_records WHERE preview_result_id = ?", (attempt.preview_result_id,))
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        archived_source = unit_of_work.submission.get_submission(submission.submission_id)
+    assert archived_source is not None
+    assert archived_source.configuration_facts.to_document() == attempt.configuration_facts.to_document()
     assert canonical_expiry is not None
     assert occupancy is not None
     assert occupancy.active_submission_id == "sub-1"
@@ -1970,6 +1978,10 @@ def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
         now=TS1,
     )
     assert replay.replay is True
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        replay_attempt = unit_of_work.submission.get_submit_attempt(replay.submit_attempt_id)
+    assert replay_attempt is not None
+    assert replay_attempt.configuration_facts == seed.preview_result.canonical.configuration_facts
     assert resolve.calls == 0
 
 

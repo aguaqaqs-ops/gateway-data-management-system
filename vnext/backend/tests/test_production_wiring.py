@@ -541,7 +541,6 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     from gateway_backend.app import create_app
     from gateway_backend.application.workspace import create_or_get_workspace
     from gateway_backend.domain.workspace.models import (
-        PreviewResult,
         PreviewResultDigests,
         SourceArtifactBinding,
         SourceArtifactRole,

@@ -11,6 +11,9 @@ from typing import Any
 import pytest
 import gateway_backend.application.preview_jobs as preview_jobs
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+from gateway_backend.application.canonical_metadata.ports import CommitCanonicalScope
+
 from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
     load_checkpoint_state_artifact,
@@ -357,6 +360,11 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
         assert side_document["contract_version"] == PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION
     canonical = envelope.job_state["canonical_preview"]
     assert isinstance(canonical, dict)
+    configuration_facts = ConfigurationFacts.from_document(canonical["configuration_facts"])
+    assert configuration_facts.initial_origin == "UPLOADED"
+    assert configuration_facts.initial.content_identity.canonical_state_digest == canonical["initial_canonical_state_digest"]
+    assert configuration_facts.modified.content_identity.canonical_state_digest == canonical["modified_canonical_state_digest"]
+    assert configuration_facts.initial.source_artifact_id == harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id
     assert canonical["baseline_canonical_state_digest"].startswith("sha256:")
     assert canonical["modified_canonical_state_digest"].startswith("sha256:")
     assert canonical["storage_projection_ruleset_digest"].startswith("sha256:")
@@ -403,6 +411,15 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
     initial_side = sides["INITIAL"]
     assert isinstance(baseline_side, dict) and isinstance(initial_side, dict)
     assert baseline_side["snapshot_digest"] == initial_side["snapshot_digest"]
+    canonical = envelope.job_state["canonical_preview"]
+    assert isinstance(canonical, dict)
+    facts = ConfigurationFacts.from_document(canonical["configuration_facts"])
+    assert facts.initial_origin == "BASELINE_REUSED"
+    with harness.deps.control_transaction_factory() as unit_of_work:
+        assert facts.baseline_source_submission_id is not None
+        source = unit_of_work.submission.get_submission(facts.baseline_source_submission_id)
+    assert source is not None
+    assert facts.initial == source.configuration_facts.modified
 
 
 def test_unchanged_preview_table_does_not_read_baseline_rows(tmp_path: Path) -> None:
@@ -579,12 +596,11 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
         for table in harness.baseline_provider.catalog.tables
     )
 
-    baseline_metadata = metadata_for_catalog(
-        harness.baseline_provider.catalog,
-        rows_by_table=harness.baseline_provider.rows,
-        ruleset=ruleset_a,
-        initial=False,
-    )
+    original_factory = harness.deps.control_transaction_factory
+    with original_factory() as unit_of_work:
+        baseline_metadata = unit_of_work.commit_canonical_metadata.resolve(repository_id=REPOSITORY_ID,
+            commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            scope=CommitCanonicalScope(gateway_device_external_key="device-1", business_project_id="project-1"))
     assert baseline_metadata.manifest is not None
     assert baseline_metadata.manifest.ruleset_digest.value == ruleset_a_digest
     metadata_port = CatalogCommitCanonicalMetadataPort(
@@ -594,7 +610,10 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     )
 
     def control_uow_factory() -> MetadataControlDbUnitOfWork:
-        return MetadataControlDbUnitOfWork(harness.db_path, metadata_port)
+        unit_of_work = original_factory()
+        assert isinstance(unit_of_work, MetadataControlDbUnitOfWork)
+        unit_of_work._test_metadata_port = metadata_port
+        return unit_of_work
 
     monkeypatch.setattr(preview_jobs, "migrated_table_ruleset_snapshot", lambda: ruleset_b)
     harness.deps = replace(
@@ -648,6 +667,10 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     canonical = materialized_envelope.job_state["canonical_preview"]
     assert isinstance(canonical, dict)
     assert canonical["storage_projection_ruleset_digest"] == ruleset_b_digest
+    configuration_facts = ConfigurationFacts.from_document(canonical["configuration_facts"])
+    assert configuration_facts.baseline_content_identity.storage_projection_ruleset_digest == ruleset_a_digest
+    assert configuration_facts.initial.content_identity == configuration_facts.baseline_content_identity
+    assert configuration_facts.modified.content_identity.storage_projection_ruleset_digest == ruleset_b_digest
     manifest_ref = artifact_ref_from_dict(canonical["canonicalization_manifest_ref"])
     modified_manifest = open_canonicalization_manifest(harness.artifact_store, manifest_ref)
     assert modified_manifest.ruleset_digest == ruleset_b.ruleset_digest
@@ -839,3 +862,46 @@ def test_deterministic_catalog_failure_is_publicly_diagnostic(
     assert persisted.diagnostic is not None
     assert persisted.diagnostic.code == expected_diagnostic_code
     assert wire_code in persisted.diagnostic.message
+
+
+def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.application import preview_jobs
+    harness = build_preview_harness(tmp_path, empty_baseline=True)
+    sql = "CREATE TABLE version_manager (id INT PRIMARY KEY, project_guid TEXT, saved_time TEXT); "
+    initial_sql = sql + "INSERT INTO version_manager VALUES (1,'p','2026-11-07T10:00:00Z');"
+    modified_sql = sql + ("INSERT INTO version_manager VALUES (90,'p','2026-11-07T12:00:00Z'); "
+        "INSERT INTO version_manager VALUES (1,'p','2026-11-07T11:00:00Z');")
+    _replace_projection_failure_packages(harness, initial_sql=initial_sql, modified_sql=modified_sql)
+    harness.seed_workspace()
+    operation_id = "op-frozen-time"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        checkpoint = unit_of_work.operations.get_step(step.step_id).checkpoint_ref
+    assert checkpoint is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, checkpoint)
+    canonical = envelope.job_state["canonical_preview"]
+    assert isinstance(canonical, dict)
+    frozen = ConfigurationFacts.from_document(canonical["configuration_facts"])
+    assert frozen.modified.generated_time is not None
+    assert frozen.modified.generated_time.selected_time_utc == "2026-11-07T11:00:00Z"
+    assert frozen.modified.generated_time.max_valid_source_row == 1
+    assert frozen.modified.generated_time.last_not_max
+    def reject_reextract(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("checkpoint recovery must not reextract SQL facts")
+    monkeypatch.setattr(preview_jobs, "parse_arrow_sql", reject_reextract)
+    for handler in (preview_jobs.PREVIEW_ASSEMBLE_HANDLER, preview_jobs.PREVIEW_PUBLISH_HANDLER):
+        session, control, operation, step = claim_next_step(harness)
+        run_claimed_handler(harness, handler, session, control, operation, step)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert workspace is not None and workspace.current_preview_result_id is not None
+        preview = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
+    assert preview is not None and preview.canonical.configuration_facts == frozen
+    damaged = dict(canonical)
+    del damaged["configuration_facts"]
+    with pytest.raises(preview_jobs.CheckpointDecodeError, match="fields are invalid"):
+        preview_jobs._canonical_preview_metadata_from_document(damaged)

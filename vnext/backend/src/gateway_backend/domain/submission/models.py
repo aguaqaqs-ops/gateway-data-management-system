@@ -217,10 +217,7 @@ class SubmitAttempt:
             business_baseline_node_id=self.business_baseline_node_id,
             business_baseline_commit_id=self.business_baseline_commit_id,
             baseline_head_version=self.baseline_head_version, modified_digest=self.canonical_business_digest)
-        uploaded_sources = (self.configuration_facts.modified.source_artifact_id,) + (
-            (self.configuration_facts.initial.source_artifact_id,) if self.configuration_facts.initial_origin == "UPLOADED" else ())
-        if any(source not in self.source_artifact_refs for source in uploaded_sources):
-            raise ValueError("configuration source artifacts do not match frozen sources")
+        self.configuration_facts.assert_source_artifacts(tuple(self.source_artifact_refs))
         _validate_identity_confirmations(self.identity_confirmations)
         if (self.prepared_canonicalization_manifest_ref is None) != (
             self.prepared_canonicalization_manifest_digest is None
@@ -308,6 +305,7 @@ class Submission:
             repository_id=self.repository_id, business_baseline_node_id=self.based_on_baseline_node_id,
             business_baseline_commit_id=self.business_baseline_commit_id,
             modified_digest=self.canonical_business_digest)
+        self.configuration_facts.assert_source_artifacts(tuple(self.source_artifact_refs))
         _validate_identity_confirmations(self.identity_confirmations)
 
 

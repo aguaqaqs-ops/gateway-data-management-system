@@ -13,7 +13,7 @@
 - `ConfigurationSideFacts`：`content_identity`、`generated_time`、`source_artifact_id`、`sql_source_digest`。真实上传侧后三项必需；INITIAL空基线复用侧三项显式null（N/A），不能虚构业务时间。
 - `ConfigurationFacts`：`schema=backend-vnext/configuration-facts/v1`、`operation_id`、`workspace_id`、`upload_revision_id`、`generation`、`repository_id`、`business_baseline_node_id`、`business_baseline_commit_id`、`baseline_head_version`、`baseline_is_initial`、`baseline_source_submission_id`、`initial_origin=UPLOADED|BASELINE_REUSED|INITIAL_EMPTY`、`baseline_content_identity`、`initial`、`modified`。来源/输入/规则/内容及时间共同进入独立facts身份。序列化为严格JCS `{facts:<上述body>, facts_digest:<sha256>}`；digest为raw SHA256(JCS facts body bytes)，preimage是body，所有嵌套字段精确集合与类型/相互不变量校验，不双读/缺省/回填。PreviewResult ID在publish随机生成，因此事实绑定已有稳定operation_id及exact输入，T1另保留Preview ID绑定。
 
-`preview_jobs._materialize_uploaded_side`从同一parsed结果与staged SQL digest形成源时间事实，随其返回；snapshot materialization/compose不另计算也不改行scalar或业务摘要。`_materialize_all_sides`对FULL initial与modified分别复用完整canonical摘要；对MODIFIED_ONLY读取exact BaselineNode.source_submission_id的持久Submission.modified（INITIAL空节点明确N/A），核repository/commit/content规则及scalar身份，绝不使用 `_unchanged_baseline_identity_table_set` 的规范行来重算时间。已有 `WorkspaceControlTransaction`补足baseline及submission只读端口。
+`preview_jobs._materialize_uploaded_side`从同一parsed结果与staged SQL digest形成源时间事实，随其返回；snapshot materialization/compose不另计算也不改行scalar或业务摘要。`_materialize_all_sides`对FULL initial与modified分别复用完整canonical摘要；对MODIFIED_ONLY读取exact BaselineNode.source_submission_id的持久Submission.modified（INITIAL空节点明确N/A），核repository/commit/manifest/content绑定并保留来源原rules/projection/scalar身份，绝不使用 `_unchanged_baseline_identity_table_set` 的规范行来重算时间。已有 `WorkspaceControlTransaction`补足baseline及submission只读端口。
 
 `_CanonicalPreviewMetadata.configuration_facts`、`PreviewCanonicalBindings.configuration_facts`为必需字段；metadata同时补 `initial_canonical_state_digest`（DigestRef）。现有materialize/assemble checkpoint serialize/decode均严格包含新字段并核payload/side/content绑定；READY沿既有LeaseSession事务整体发布，无旁路。版本改为 `backend-vnext/preview/v2`、`backend-vnext/preview/materialized-sides/v2`、`backend-vnext/preview/assemble-state/v3`；通用checkpoint envelope/Operation runtime版本及canonical table closure版本不变。
 
@@ -41,3 +41,5 @@ HTTP/DTO/OpenAPI本节 **none**：现有Preview/Submit响应形状不变，新�
 ## 3. 实际候选与证据
 
 尚未写入产品；第一份代码候选提交后填写。本文清单为已审语义的具体技术落点，正常技术修订在同页说明，核心业务/权威事实/恢复冲突交协调者设计澄清。
+
+跨版本澄清（设计者经协调者2026-11-07确认，正式设计提交`a24b7034e9`）：已有additive ruleset Preview保持可用；baseline_content_identity保存source Submission原完整身份，MODIFIED_ONLY.initial原样复制，FULL实际上传两侧使用本operation冻结规则。合法版本差异禁止V2直接判等/合并来源节点，不是整批硬门禁；MO旧A→新B为合法边。FULL无已解释同身份来源时使用既定UNEXPLAINED与版本差异诊断，可有理由接受，不新增issue/额度。未知格式/不支持版本与损坏绑定仍硬拒绝。3fcea初稿三侧规则强制相等已删除，不改既有additive regression为拒绝。

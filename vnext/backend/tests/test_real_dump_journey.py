@@ -301,7 +301,7 @@ def _seed_succeeded_submit_control_db(
                 canonical_business_digest="sha256:" + "5" * 64,
                 source_digest="sha256:source",
                 snapshot_digest="sha256:snapshot",
-                source_artifact_refs=(),
+                source_artifact_refs=("source-fixture",),
                 canonical_table_set_closure_ref="table-closure-1",
                 canonical_table_set_closure_digest="sha256:table-closure",
                 preview_ready_closure_ref="preview-closure-1",

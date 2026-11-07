@@ -1217,8 +1217,10 @@ def _materialize_all_sides(
     initial_state_digest = canonical_state_digest_of(sides[_SIDE_INITIAL].summary.tables)
     if initial_state_digest is None:
         raise PreviewJobError("initial canonical state digest is missing")
+    rules_digest = runtime_ruleset.ruleset_digest
     def content(digest: DigestRef) -> CanonicalContentIdentity:
-        return CanonicalContentIdentity(digest.value, runtime_ruleset.ruleset_digest.value,
+        assert rules_digest is not None
+        return CanonicalContentIdentity(digest.value, rules_digest.value,
             STORAGE_PROJECTION_VERSION, SCALAR_ENCODING_VERSION)
     baseline_identity = content(baseline_state_digest)
     with deps.control_transaction_factory() as unit_of_work:
@@ -1235,8 +1237,18 @@ def _materialize_all_sides(
             if source is None or source.repository_id != payload.repository_id or source.repository_commit_id != node.commit_id:
                 raise PreviewJobError("configuration baseline source Submission is missing or inconsistent")
             baseline_side = source.configuration_facts.modified
-            if baseline_side.content_identity != baseline_identity:
-                raise PreviewJobError("configuration baseline content/rules/projection/scalar identity mismatch")
+            if baseline_side.content_identity.canonical_state_digest != baseline_state_digest.value:
+                raise PreviewJobError("configuration baseline content identity mismatch")
+            workspace = unit_of_work.workspace.get_workspace(payload.workspace_id)
+            if workspace is None:
+                raise PreviewJobError("configuration baseline workspace scope is missing")
+            metadata = unit_of_work.commit_canonical_metadata.resolve(repository_id=payload.repository_id,
+                commit_id=payload.business_baseline_commit_id,
+                scope=CommitCanonicalScope(gateway_device_external_key=workspace.gateway_device_external_key,
+                    business_project_id=workspace.business_project_id))
+            if metadata.manifest is None or metadata.manifest.manifest_digest is None or metadata.manifest.manifest_digest.value != source.canonicalization_manifest_digest:
+                raise PreviewJobError("configuration baseline source manifest binding mismatch")
+            baseline_identity = baseline_side.content_identity
     if payload.input_completeness is InputCompleteness.FULL:
         initial_values = uploaded_sides[OperationDiagnosticSide.INITIAL]
         initial_side = ConfigurationSideFacts(content(initial_state_digest), initial_values[3],
@@ -1496,9 +1508,6 @@ def _materialize_uploaded_side(
         dump = resolve_sql_dump_source(staged.required_sql_document_ref)
         sql_bytes = resources.enter_context(reserved_artifact_bytes(store, staged.required_sql_document_ref.artifact_ref))
         parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
-        if parsed.configuration_generated_time is None:
-            raise PreviewJobError("uploaded source time facts are missing")
-        generated_time = ConfigurationGeneratedTime.from_document(dict(parsed.configuration_generated_time))
         sql_request = dataclasses.replace(_sql_materialization_request(parsed, dump.sql_source_digest, ruleset), context=invocation)
         xml_ref = staged.optional_xml_document_ref
         if xml_ref is None:
@@ -1556,6 +1565,9 @@ def _materialize_uploaded_side(
             )
         if business_result.snapshot is None or business_result.table_set is None:
             raise PreviewJobError("uploaded business materialization is incomplete")
+        if parsed.configuration_generated_time is None:
+            raise PreviewJobError("uploaded source time facts are missing")
+        generated_time = ConfigurationGeneratedTime.from_document(dict(parsed.configuration_generated_time))
         projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,

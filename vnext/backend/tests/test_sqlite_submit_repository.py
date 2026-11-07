@@ -279,6 +279,11 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     assert workspace_occupancy.active_submission_id == "sub-1"
     assert workspace_occupancy.active_submit_attempt_id is None
     assert repository_occupancy is None
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute("UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?", (b'["other-source"]', "sub-1"))
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        with pytest.raises(ValueError, match="source artifacts"):
+            unit_of_work.submission.get_submission("sub-1")
 
 
 def _sample_submission() -> Submission:

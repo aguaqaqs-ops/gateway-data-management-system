@@ -69,7 +69,10 @@ def test_missing_business_time_and_initial_not_applicable_are_distinct() -> None
 
 def test_configuration_facts_reject_rule_and_input_identity_mismatch() -> None:
     facts = ConfigurationFacts.from_document(json.loads(_GOLDEN.read_bytes()))
-    changed = replace(facts.initial.content_identity, storage_projection_version="future")
+    for changes in ({"storage_projection_version": "future"}, {"scalar_encoding_version": 999}):
+        with pytest.raises(ValueError, match="unsupported"):
+            replace(facts.initial.content_identity, **changes)
+    changed = replace(facts.initial.content_identity, storage_projection_ruleset_digest="sha256:" + "8" * 64)
     with pytest.raises(ValueError, match="rules/projection/scalar"):
         replace(facts, initial=replace(facts.initial, content_identity=changed))
     binding: dict[str, Any] = dict(workspace_id=facts.workspace_id, upload_revision_id=facts.upload_revision_id,

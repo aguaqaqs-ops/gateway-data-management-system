@@ -362,3 +362,5 @@ S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升）：此前能投影成功
 完整canonical content identity仍复用canonical_state_digest_of全规范表集合，连同原storage projection ruleset digest/version与scalar encoding version用于来源匹配；不排除version_manager.saved_time、不用snapshot/commit/raw SQL hash替代内容身份。新增configuration facts独立raw SHA256(JCS body)，包括实际SQL源序时间及source/输入绑定，绝不改变原canonical业务摘要。
 
 Preview的FULL initial摘要与modified/baseline并列冻结，MODIFIED_ONLY引用baseline.source_submission_id的durable modified facts，INITIAL空节点明确N/A。Attempt/Submission持久小型facts不依赖临时规范artifact/Preview/SQL的TTL；仍遵守T1、LeaseSession、CAS与finalize事务屏障。后续Archive仅从durable facts派生，不在事务里重扫SQL/调用Repository。具体字段/版本见[V1清单](../plans/p6-v1-handoff.md)。
+
+V1跨版本澄清（设计提交`a24b7034e9`）：旧baseline保留source Submission原rules/projection/scalar身份，MODIFIED_ONLY.initial严格复制；FULL两上传侧按本operation冻结规则。合法additive规则变更仍可Preview，不重标baseline，也不要求三侧规则一律相等。V2以完整身份判等，不同身份不直接合并/相连；MO旧身份→新身份为合法边，FULL未知来源沿既定可接受UNEXPLAINED诊断。operation/runtime失配、T1 derived-stale、STORAGE_BREAKING activation与不支持版本/绑定损坏拒绝不变。

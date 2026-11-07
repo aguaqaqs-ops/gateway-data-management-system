@@ -88,7 +88,7 @@ class ConfigurationGeneratedTime:
 
     @classmethod
     def from_document(cls, value: object) -> Self:
-        return cls(**cast(dict[str, object], _shape(value, cls)))  # type: ignore[arg-type]
+        return cls(**_shape(value, cls))  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,12 +103,12 @@ class CanonicalContentIdentity:
         _digest(self.storage_projection_ruleset_digest)
         _text(self.storage_projection_version, "storage_projection_version")
         _integer(self.scalar_encoding_version)
-        if self.scalar_encoding_version < 1:
-            raise ValueError("scalar encoding version must be positive")
+        if self.scalar_encoding_version != 1 or self.storage_projection_version != "3":
+            raise ValueError("unsupported configuration content projection/scalar encoding version")
 
     @classmethod
     def from_document(cls, value: object) -> Self:
-        return cls(**cast(dict[str, object], _shape(value, cls)))  # type: ignore[arg-type]
+        return cls(**_shape(value, cls))  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,14 +175,15 @@ class ConfigurationFacts:
             _text(self.baseline_source_submission_id, "baseline_source_submission_id")
         if type(self.baseline_content_identity) is not CanonicalContentIdentity or any(type(side) is not ConfigurationSideFacts for side in (self.initial, self.modified)):
             raise ValueError("configuration facts require complete side/content identities")
-        identities = (self.baseline_content_identity, self.initial.content_identity, self.modified.content_identity)
-        if len({(item.storage_projection_ruleset_digest, item.storage_projection_version, item.scalar_encoding_version) for item in identities}) != 1:
-            raise ValueError("configuration facts content rules/projection/scalar identity mismatch")
         if self.modified.generated_time is None:
             raise ValueError("modified side requires source time facts")
         if self.initial_origin == "UPLOADED":
             if self.initial.generated_time is None:
                 raise ValueError("uploaded initial requires source time facts")
+            initial_identity = self.initial.content_identity
+            modified_identity = self.modified.content_identity
+            if (initial_identity.storage_projection_ruleset_digest, initial_identity.storage_projection_version, initial_identity.scalar_encoding_version) != (modified_identity.storage_projection_ruleset_digest, modified_identity.storage_projection_version, modified_identity.scalar_encoding_version):
+                raise ValueError("uploaded configuration facts rules/projection/scalar identity mismatch")
         elif self.initial_origin in {"BASELINE_REUSED", "INITIAL_EMPTY"}:
             if self.initial.content_identity != self.baseline_content_identity:
                 raise ValueError("reused initial must match exact baseline content identity")
@@ -227,3 +228,9 @@ class ConfigurationFacts:
             raise ValueError("configuration facts input/baseline binding mismatch")
         if modified_digest is not None and self.modified.content_identity.canonical_state_digest != modified_digest:
             raise ValueError("configuration facts modified content binding mismatch")
+
+    def assert_source_artifacts(self, source_artifact_refs: tuple[str, ...]) -> None:
+        uploaded_sources = (self.modified.source_artifact_id,) + (
+            (self.initial.source_artifact_id,) if self.initial_origin == "UPLOADED" else ())
+        if any(source not in source_artifact_refs for source in uploaded_sources):
+            raise ValueError("configuration source artifacts do not match frozen sources")

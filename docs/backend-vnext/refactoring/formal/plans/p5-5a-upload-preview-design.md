@@ -420,3 +420,5 @@ non-authoritative historical oracle，用于发现capability行为和fixture。�
 ## V1 configuration facts amendment（2026-11-07）
 
 materialize canonical metadata增加必需initial_canonical_state_digest及ConfigurationFacts（backend-vnext/configuration-facts/v1）。源时间在同次Rust source-order转换取得；FULL分别绑定上传两侧，MODIFIED_ONLY从exact baseline source Submission复制，INITIAL空基线为N/A。checkpoint/READY严格校验字段及输入/规则/内容绑定，缺facts硬失败，不默认missing。Preview job v2、materialized sides v2、assemble state v3直接替换旧版本，无兼容读法。取消/失租/旧generation沿原LeaseSession整体屏障，不部分发布。字段与唯一测试owner见[V1清单](p6-v1-handoff.md)。
+
+V1跨版本澄清（设计提交`a24b7034e9`）：旧baseline保留source Submission原rules/projection/scalar身份，MODIFIED_ONLY.initial严格复制；FULL两上传侧按本operation冻结规则。合法additive规则变更仍可Preview，不重标baseline，也不要求三侧规则一律相等。V2以完整身份判等，不同身份不直接合并/相连；MO旧身份→新身份为合法边，FULL未知来源沿既定可接受UNEXPLAINED诊断。operation/runtime失配、T1 derived-stale、STORAGE_BREAKING activation与不支持版本/绑定损坏拒绝不变。

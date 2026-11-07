@@ -172,7 +172,6 @@ def test_get_submit_attempt_hides_stale_mapping(
 def test_get_submission_returns_redacted_submission(seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]]) -> None:
     env, workspace = seeded_env
     accepted = _accept_submit(env, workspace, key="submit-submission-read")
-    from gateway_backend.domain.submission.models import Submission
 
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(accepted["submit_attempt_id"])
@@ -230,7 +229,7 @@ def test_get_submission_hides_stale_mapping(
 ) -> None:
     env, workspace = seeded_env
     accepted = _accept_submit(env, workspace, key="submission-mapping-stale")
-    from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
+    from gateway_backend.domain.submission.models import SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
 
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(accepted["submit_attempt_id"])

@@ -2872,3 +2872,5 @@ SIGINT继承探针在05执行，日志276B、SHA **`2bde62570001f3a664426298c86a
 05 postflight/所有权释放日志340B、SHA **`b0b52b50a44a4b1a5340da981af216df9ac0815d32b575b812af1e16fadbc973`** 及脚本已读：20:51:01Z、准确clean H、相关测试/Dolt/Cargo进程无、容器/8000无，清本会话自有cargo target后核原session owner再释放标记；没有把失败清理当作原INT语义通过。原04外层具体launch命令仍未形成新增独立信号观察，本结论是对已证ambient继承机制和修正后受控入口的验证，不伪造旧进程的历史处置位。
 
 当前交付静态仅backend/RS两包。按AGENTS提交前五Python包要求，已交实施者在05补shared_kernel/repository_contracts/repository_client的Ruff/mypy，刚过两包不重跑；真实时间/节点继续记录，不把两包日志冒称五包。静态补齐可与独立节点的镜像/分段准备并行，不新增审核许可。最终容器/闭包与H绑定仍按§120–122及冻结产品线规则，测量用冻结镜像不替换，最终权威结果尚待实际执行及独审。
+
+**五包静态证据现已补齐并核验通过。** 05 `remaining-three-static-checks.log`836B、SHA **`b792939fe1d75f9e2684c94eaeb423a7110c345bf38809d7e28248d7a6452db3`** 已直接读取、重算SHA并LAN存上述审核目录：20:57:44–49Z、准确78000起止、shared_kernel Ruff/mypy34、repository_contracts Ruff/mypy15、repository_client Ruff/mypy26六项全部通过、总exit0。未重复刚过两包、未跑测试/服务；审核者又独立读05当前HEAD/status，仍精确78000且clean。五包静态及本轮修复必要验证全部闭合，已直接告实施者继续最终H镜像/04权威验证，不等新GO；原fcc失败及其他尚未完成收尾资格保持原判。

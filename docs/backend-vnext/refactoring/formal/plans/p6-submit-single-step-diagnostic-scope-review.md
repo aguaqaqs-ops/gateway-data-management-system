@@ -2924,3 +2924,13 @@ BatchMode确认05连接后已直接读闭合 `ct05-image-guard-validation-6ffb3c
 BatchMode确认05后，直接读取闭合 `ct05-image-guard-validation-d2ffe1ac.log`，SHA **`0d9670a0c8bd3abc93427b44801d14f02e971c07cf808ff6f2eceaedaac65817`**，LAN审核副本存§131同目录，两端重算相等。实际22:26:04–05Z、gw-dms-test-05、完整d2ffe起止clean；Ruff0、两文件 **11 passed/0.64s**、pytest0，**backend mypy504 files/no issues/exit0**。6ffb的mypy四项及a20e的重复flag失败原日志保留，不改为PASS；本结论无需重跑已通过业务、输入校验、其他未改包或大输入旅程。
 
 原§130已核11958真实输入、冻结三镜像/source-tree与诊断build-input差异、未消耗project及77400/78620/79200预算继续适用。实施者正在将准确d2ffe提交同步CT108并更新controller，需核其新required --approved-images、实际HEAD及全部大小写proxy unset是否接通；不是要求新Owner/设计GO或逐摘要许可。当前尚未收到修订实际controller，不宣称DC63已启动/通过或整体exit；镜像保护修复代码无剩余Finding，双方直接完成最后具体接线后沿原授权接续。
+
+## 134. CT108最终controller-r1实际绑定独审PASS，原授权一次接续
+
+**最终待执行 `controller-command-r1.txt` 复核PASS，已直接告唯一实施者按原持续授权执行一次DC63/V5b，不等新GO/回执。** 这是§133最后具体接线核验，不是重新发放逐摘要许可；截至本节只读核验时尚未启动容器、旅程、POST或测量，也不宣称最终结果/整体exit。实际命令原件位于CT108 `baseline/prep/p6dc6320261107a/`，SHA **`541733bb8fbd479c5d30c82a36cc40485cb63f843d110bc0b8e7c064c9c81e28`**，已BatchMode确认连接后完整读取、LAN取§131审核目录，两端重算相等；实施者记录bash -n通过，审核者未执行controller。
+
+命令REPO仍为原bbe577命名的CT108 worktree，但显式HEAD现为完整d2ffe，传入真实chain的expected-head正确；新增--approved-images精确指向同prep/input-images.json。原五个guard位置参数/分隔符及chain project/root/output/scratch参数接通，manifest仍由guard追加到chain。固定root=/home/dev/gateway-real-dumps、project=p6dc6320261107a、三个外置日志/输出/临时路径与§130相同；prebuilt与冻结RS tag保持。HTTP_PROXY/HTTPS_PROXY/ALL_PROXY及各小写、NO_PROXY/no_proxy八项均unset，UV/Cargo离线、PATH/TMPDIR正确。拒绝覆盖controller.log，保留真实guard退出码及最后日志SHA；77400/1200/78620/79200原预算/收尾界不变，无阶段重置。
+
+本审核直接在CT108重算实际approved record SHA仍 **01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01**、真实输入manifest仍 **11958befddf729cfe769cc1d3576321a3a3e89cc8ee4cb80697134ff8a634061**，不是新生成/重新验输入，继续§130的census与冻结身份结论。22:29:55.567296Z只读元数据独立观察hostname=gw-dms-test、实际HEAD精确d2ffe且status空；CHAIN_OUT存在且空，scratch、project runs、controller.log均不存在，node lock也不存在。此前准备期取得锁的§130历史记录保持，不能冒称当前仍持锁。
+
+已明确告实施者：**按原机制先取得自有node lock并做原现场单飞/资源/镜像核对，再执行该命令。** guard自身在进入业务前要求owner文件的session=p6-baseline-measure；当前缺锁不能裸跑，不要求为此改controller、增加许可或另换未用身份。保护器中三镜像完整校验及临近start的同节点重核继续生效，禁止build/pull；失败保存并遵守原停止/收尾，不原样自动重试。后续实际启动与结果仍待实施者交回，测量中审核不作节点探测或大文件取件。04新H门禁及正式record/comparator收口保持独立推进。

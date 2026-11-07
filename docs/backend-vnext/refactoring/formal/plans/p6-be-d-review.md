@@ -2,7 +2,7 @@
 
 2026-11-07。独审角色 `/root/be_d_review`，Owner 指定 GPT-6.1-Sol / max；实施为 `/root/be_d_impl`，协调为 `/root`。范围按 [D 工作单 §5](p6-be-d-work-order.md#5-启动收口) 包含 D 及既定联合最终验收准备收尾，不新建第三角色。
 
-**当前状态：首产品子候选 36edb20086 已静审，F1 待固定修复与证据；未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
+**当前状态：e3b54b8f71 的 F1 代码修复已核；06 首轮 HTTP wiring 验收失败待修前置，未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
 
 ## 1. 固定基线与权限
 
@@ -90,3 +90,35 @@ Required execution point: 产品与工具收敛后按工作单集中验证
 ```
 
 本轮只读静审与 diff 检查，未在开发机或节点运行测试／编译／lint，没有 D 产品 GO。
+
+## 6. e3b54b8f71 同角色复审与首轮 06 失败核收
+
+固定修复 **`e3b54b8f71b21431ce1001efbcf974439e3eea2a`** 已在 `/home/dev/gdds-reviews/p6-be-d-code-e3b54b8f71` 只读 detached WT 核增量，clean／legacy 齐备。前置 `1c145727252c842f439094033f48372471780581` 只删 obsolete imports 并把 Preview fake filename 改 `.tar`；main 后续真实工具 dirty 未审。
+
+F1 的代码修正成立：`BUNDLE_REFERENCE_METADATA_KINDS` 仅含既有有界 surface、records／risk manifests／closures、risk report；generic projection／diagnostics／OTHER JSON 逐块 size/SHA，不新增大小 cap。原 owner 新增三种业务 JSON 的下调 metadata 预算小向量、最终同 ref 不同 path 两个普通成员、path/ref 矛盾参数表、ASGI2.3 receive disconnect 和 task cancellation。后两项直接 cancel/receive 语义，不靠固定 sleep/timeout，无需新 serial 时序矩阵；PAX 原小向量及资源 finally 维持。
+
+### 6.1 实际日志与执行前提
+
+BatchMode `echo OK` 成功后，本角色只读核 06／`gw-dms-06` 的原始脚本、日志与 SHA；证据根 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/`，WT `/home/dev/gdds-test-tmp/wt/p6-be-d`。11:07:55Z 现场快照：本人 D marker 仍在（声明 started=11:01:37Z），WT HEAD=e3、clean、legacy 正确；本角色没有占用或运行产品。
+
+`check.sh`／`check-resume.sh` 每步校 clean 和本人 owner，记录 hostname、起止 UTC／HEAD、argv／exit，使用 UV／Cargo offline、外置 TMPDIR/target、jobs4、规定 PATH 并 unset proxy／toolchain overrides。toolchain 四工具均解析至 1.97.0 selector；36ed 强制重装扩展成功，expected=installed=`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`。当前脚本 focused 为 `-m 'not serial' -n4`，serial 为 `-m serial -n0`；backend 无 parallel_safe，选区与约定相同，已请实施者下一固定脚本使用工作单完整表达式，不为文案变化重复已过 owner。
+
+| 原日志 | 实际结果／UTC | SHA256 |
+| --- | --- | --- |
+| `sync-backend-36edb20086.log` | 11:02:16–11:03:35，offline 强制同步扩展，exit0 | `cc0eacc8f9615a531877837661a3f6165297f7d867f11295229c7eae10a215b6` |
+| `extension-build-input-36edb20086.log` | 11:03:35，expected=installed，exit0 | `1b12990473ed30492e14a01806f4ed8d691b3730e9dd951202f767920945cbb8` |
+| `ruff-backend-36edb20086.log` | 11:03:35，两个 obsolete import，exit1，保留 | `2274c2d154019de8642ed3693ec9e8434cd3f51f56a0972ea764fce20ecfa0d2` |
+| `mypy-backend-1c14572725.log` | 11:04:31–11:04:41，test helper Any return，exit1，保留 | `e11d53006633b920e735fda5b509cab2a6515f765a66d487a76598b42ef62faa` |
+| `ruff-backend-e3b54b8f71.log` | 11:06:21，exit0 | `07ea626dbd224e035c98d1fe3c5fbf713b23ad415896a2cf7e0b52e7f58849b5` |
+| `mypy-backend-e3b54b8f71.log` | 11:06:21–11:06:22，515 files，exit0 | `510f0782e249fdfc862ea850d3899cbab85f3bbd59df6122c5f21da9d09ca66c` |
+| `focused-e3b54b8f71.log` | 11:06:22–11:06:38，142 passed／7 failed／8 errors，exit1 | `e75aeb3b607d4caa17b87bee7550288863b6ed27cb6f958b919989f108f8ac85` |
+
+F1 及纯 download owner 的新增小向量在142通过部分；整次 focused 失败，不报全选通过、权威 carried 或 D GO。失败后未继续 serial／Compose／联合验收。一次 linked WT 的 FETCH_HEAD checkout 在产品运行前 exit128，日志及单次 exact SHA 纠正已留存（`checkout-operation-error.log` SHA=`b0fdba6a7a042ed2445ab9692e2b4f2a813af120c2d713e8689bae9e7ec9a133`）；该操作重做不替代产品失败停止规则。
+
+### 6.2 HTTP wiring 前置错误待修
+
+已从原失败输出与固定源码独立定位并直接交实施者：Preview8个 setup error 是新 fixture 传入 `tmp_path/http` 却未建立 control DB 父目录；History7个失败的响应为授权前置 `RESOURCE_NOT_FOUND`，`history_compare_job_harness.history_compare_operation_document` 写 `business_refs=[]`，公开授权无法取得已存 acceptance 引用，尚未进入 bundle prepare。它们不是缺失/size/SHA 错误分类的反证。
+
+原实施者应让 fixture 经过真实 HTTP 受理或填同一持久 acceptance 的合法 business ref，并建立 DB 父目录；保持当前权限门禁与404／503期望，不改产品授权、不放宽 producer 校验。仅补受影响 HTTP wiring owner，其他已通过小向量不机械重复。修复的固定候选、成功 HTTP／serial 判定、后续工具／Compose及五包静态仍待，本轮没有整体产品结论。
+
+容器决策：Current reviewed HEAD=e3b54b8f71；D 当前镜像仍 deferred，最后验证来源仍为 §4 的 V2 f8；无本轮新容器或 carried。所需执行点仍为 D 收敛候选06与联合04／05。

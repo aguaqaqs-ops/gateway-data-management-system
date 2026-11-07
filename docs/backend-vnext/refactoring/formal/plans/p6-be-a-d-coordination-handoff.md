@@ -19,7 +19,7 @@
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
 | V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 本节无未决；04/05联合、D/FE3仍待，不办理exit |
-| D | **实施中**，clean起点`9ec62e82ad`，启动`dfc8659744`；精确清单`cf2091eadd`、预检`24fe5df709`；[工作单](p6-be-d-work-order.md) | 新`/root/be_d_impl`=6.1-Sol/xhigh、`/root/be_d_review`=6.1-Sol/max，独立上下文；含本节既定联合准备收尾 | 清单无核心阻塞；bounded读/metadata owner→prepare/encoder/双路由→真实工具；尚无D产品/测试证据或占用 | 补PAX临时buffer计账与唯一wiring文件名；固定首产品候选后只读审/06验证；FE3另记 |
+| D | **实施中**，clean起点`9ec62e82ad`，启动`dfc8659744`；精确清单`cf2091eadd`、预检终稿`e29a2c2926`；[工作单](p6-be-d-work-order.md) | 新`/root/be_d_impl`=6.1-Sol/xhigh、`/root/be_d_review`=6.1-Sol/max；审核准备turn结束/idle，固定候选时followup唤醒同角色 | 清单无核心阻塞；bounded读/metadata owner→prepare/encoder/双路由→真实工具；尚无D固定产品/测试证据或占用 | 补PAX临时buffer计账与唯一wiring文件名/GET计时接缝；固定首候选后只读审/06验证；FE3另记 |
 | 联合最终 | 准备已授权，产品未收敛；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 在D既定角色内安排并于启动固定职责；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 公共fixtures变化预计六包实际运行；退出前按DC33确认最终范围，不口头carried |
 
 ## 3. 验证与资源

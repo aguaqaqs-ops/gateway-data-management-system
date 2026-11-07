@@ -4,7 +4,7 @@
 
 ## 1. 收敛条件与角色
 
-A1 最终独审 `c1ee962755`；V1 最终独审 `5dc01deeb5`，产品 `c229582a9e`，旧 V1 `3dd4735dce` 不作最终依据。V2、D 须各自完成固定候选、同角色复审、06 定向证据及清理。最终联合产品提交、vnext tree、各 owning Contract / schema / checkpoint / digest / HTTP 版本、D encoder 制品清单待实际收敛后填写，不能预先用 main dirty 或旧镜像替代。
+A1 最终独审 `c1ee962755`；V1 最终独审 `5dc01deeb5`，产品 `c229582a9e`，旧 V1 `3dd4735dce` 不作最终依据。V2 最终独审 `9ec62e82ad`，产品/Compose `f8fb796f02`、handoff `3cd4400f9f`，06 已10:39:24Z清理释放。D已新建同节实施/独审，须完成固定候选、同角色复审、06定向及既定收尾。最终联合产品提交、vnext tree、各 owning Contract / schema / checkpoint / digest / HTTP 版本、D encoder 制品清单待实际收敛后填写，不能预先用 main dirty 或旧镜像替代。
 
 D 启动时将本工作单及最终工具接线、集中验证执行/证据核收纳入该节已授权实施者和独审者职责；不临时复用已结束小节角色，不新增第三角色。D 小节 GO 与联合最终证据结论分别记录，两角色在其约定收尾职责完成后结束。
 
@@ -20,6 +20,8 @@ D 启动时将本工作单及最终工具接线、集中验证执行/证据核�
 
 `test_input_closure.py::COMMON_GIT_COMPONENTS` 将整个 `vnext/fixtures` 作为各包的 `shared:fixtures`。静态 Git 对象核实：S2b V 的 fixtures tree 为 `9cff7f677d4fda582747e33c1394d1fe2a07d7e1`，V1 c229 / 当前基础候选35c4为 `606b05d28a214369cf842c52fbc2c228e3bd43d2`（新增 facts golden）；六包相对该旧来源均有明确闭包变化。V2 亦计划新增 archive v2 golden。因此不能仅凭某包源码未改而记 carried，也不为争取 carried 删除必要 golden 或改闭包政策。若最终各包均受影响，直接运行六包，无须检出或改动原基准 WT 来制造沿用。若仍有未受影响证据，严格按原合格来源/同节点同 WT/实际 manifest 比较核收，不口头沿用。这是静态范围准备，不是实际 manifest 比较或门禁结果。
 
+V2实际交付后静态更新：f8的fixtures tree为 **`594aa44c74aeb08f4f8ac584963a3634fae6b355`**，已含facts与archive v2 golden；六包共同输入相对S2b仍明确不同。D清单不新增业务golden，但不改变最终实际闭包核收责任。
+
 已有来源仅作定位：S2b V `a6876d560050285321fd9f62942d590a03f35d64`，04 原 WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，原始起始 manifests `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/original-starting-manifests/`。本文没有访问、检出或修改该 WT、镜像、卷或证据。
 
 ## 3. 真实旅程的交付边界
@@ -27,6 +29,8 @@ D 启动时将本工作单及最终工具接线、集中验证执行/证据核�
 现有 `real_dump_journey.py --scope full` 表示步骤范围；它本身不证明上传 manifest 的 `input_completeness=FULL`。D 必须交付实际 FULL 功能入口及必要定向验证，并在此页/实施 handoff 写可复核的最终命令、输入配对和各分支覆盖。正常数据应保持已有比较摘要；时间/来源接受只冻结原诊断和明确理由，不伪造 PASS，不用 force 或无理由自动接受。
 
 当前 `_assert_preview_summaries` 明确假定一个 pair；FULL 实际有 `baseline_to_initial` 与 `initial_to_modified` 两个 pair。建议在同一 fresh t1 的 v1 用 MODIFIED_ONLY、v2 用 FULL（INITIAL=v1、MODIFIED=v2）集中覆盖，实施清单固定最终形态。下游业务摘要/identity consumer 必须按真实 pair 身份适配，完整 tar 验证覆盖两 pair 全部成员及共享 binding；只改 mode 字符串不构成 FULL 证据。
+
+V2主线归档consumer已改为显式`GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON`（`{subject_digest或issue_code:非空reason}`）；缺理由即失败。联合执行清单须写真实采用的理由映射及其验收目的，保留原异常，不捏造数据产生原因或无理由自动接受。D精确清单`cf2091eadd`已选同一次t1 v1 MO/v2 FULL配对，最终以实际落地CLI/断言/证据固定命令。
 
 Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 owning Contract 校验原 manifest / closure、全部普通成员的路径、顺序、尺寸及相应物理/逻辑摘要；不能只解 `manifest.json`。报告单列 GET 开始到读取完成时间及实际字节数；READY / Operation 完成锚保持原定义。这些是本轮功能/传输证据，不作为 W1/W2 或正式性能测量。
 

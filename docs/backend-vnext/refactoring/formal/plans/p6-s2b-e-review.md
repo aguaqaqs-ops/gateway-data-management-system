@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向、04六包实际/当前Compose与最终t1/t2已独审通过，t3与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向、04六包实际/当前Compose与最终t1/t2/t3已独审通过，仅最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -18,7 +18,7 @@
 | 独立语义预期 | mapping bytes、业务摘要、诊断、结构过滤、keyed/keyless/ordered 预期不能随新 actual 自证 | 保既有 Contract/golden/已验证旧值和 Shared Kernel vectors；删除旧 oracle 前把必要动态预期固定。metadata/选表/恢复策略的合法 fixture 可用真实 Rust/C 构造，但不称为 hash 独立证明，也不为每个 fixture 再建 oracle |
 | 保留职责 | 误删仍用 Python IO/规则/编排或外部格式会破坏真实业务消费者 | 保 XML/AST/composite、rules、small metadata/digest、MutationPlanning row-image 摘要、raw/client Parquet、SourcePackage、通用 row reader/DTO；每项按真实 caller 判断，不整文件盲删 |
 | 冻结、恢复与资源控制 | E 差异不能破坏 exact commit、scope、内容身份、T1/PREPARED、StartArchive Head CAS、强引用/TTL；控制误分类或漏预算可污染 durable 状态或导致真实业务失败 | 复用 A–D 已验证 owning tests，只复核 E 差异；初始DC87 12/4/M8及前一24/8/M16已由Owner最终32/8/显式M24替代，拒启/N1单active不变；DC88仅真实PURE、effect前、fresh lease/drain，保checkpoint/保护/attempt/operator，cancel优先、失租禁写 |
-| 最终证据 | 不合格来源、旧 image 或局部旅程不能绑定最终候选 | 06 focused/Contract/五包静态；最终profile触及共同deploy输入，04六包全部实际合格来源；最终H再按同节点同WT闭包/镜像规则绑定。05 t1–t3、CT108 t4既定fresh `real_dump_journey --scope full`，不以capacity、局部或性能延期替代 |
+| 最终证据 | 不合格来源、旧 image 或局部旅程不能绑定最终候选 | 06 focused/Contract/五包静态；最终profile触及共同deploy输入，04六包全部实际合格来源；最终H再按同节点同WT闭包/镜像规则绑定。本轮Owner批准06 fresh t1–t3完整旅程；t4沿用82在CT108的24/8/M16完整结果及具体新增费用/native headroom bound，不冒32/8/M24 t4实测，不以capacity、局部或性能延期替代 |
 
 按Owner 2026-11-07简化规则，节点以现场状态和有效原子标志直接取用，无例行跨会话预约/起止请示；仅真实冲突或他人资源协调。最终必需证据仍未完成前不签GO。所有测试节点沿离线缓存、clean committed WT、有效占用与日志规则；本审核默认只读实施者日志、manifest、source，不争抢其占用。
 
@@ -414,3 +414,23 @@ Owner已确认主案：**envelope34359738368 B（32GiB）、reserve8589934592 B�
 | repository_service | `80203cb5ac294234e4192bc2c6842cbde5d853cec012d6884f54fa15bb0a5960` | `095405d818abe31a7034c0648aa9589eca45fc2fa83eee247633afcbbf5f25b9` |
 
 最终M24 t2原目录 `artifacts/s2b-e-m24-t2-a6876d5600/` 已独立核：04:50:11.425–05:04:10.365Z、fresh full/N1/M24，journey0、driver0、单worker `234e2ce1f33b` 的running/stopped同Id/StartedAt/Restart0；HostConfig.Memory与memory.max均34359738368、reserve8589934592、显式M25769803776。CG lifetime peak **2566234112 B**、VmHWM **2415676 KiB**、events全0、OOMKilled false、正常stop exit0，日志/资源齐、owned cleanup/release/endclean同a687均真。journey SHA **`88666462a8e53b7c4de13df3d7130e1bd9b8d9e06d3c4d0ac3d3b7349c80ca59`**、result **`51a4b6f85a8a7f75e24330017466283da5657d26c3973a087c36a0921e1c9852`**、resources **`2919153cc7ff0afccdc784dbb4fae8cd8d01f28a1d40fabbfc686c8d74e8d91c`**；sha256.json全项重算一致。t1/t2原worker日志无Traceback、lease_lost、RESOURCE_LIMIT_EXCEEDED或PURE_RECOMPUTE_FAILED记录，不据此关闭原冻结基准W4。t3已fresh启动，完整结果/H绑定仍待，E未GO。
+
+
+## 最终M24完整真实旅程齐备（仅H绑定待办）
+
+06最终t3于05:04:56.516–05:27:08.830Z完成，原 `artifacts/s2b-e-m24-t3-a6876d5600/` 已独立核原command/result/inspect/resources/logs及全部sha256.json：fresh `--tier t3 --scope full`、N1/显式M25769803776、没有from-step/resume；v1 Preview、v1 Submit、repeat v1 Preview、v2 Preview、v2 Submit、History六操作均SUCCEEDED。journey0/driver0、resource verdict PASS；worker `bc4356c1ec0d` 在首次业务观测前已启动、running/stopped同Id/StartedAt/Restart0，HostConfig.Memory与memory.max34359738368、reserve8589934592；无OOMKilled，memory.events必需keys均实读0，正常stop exit0。
+
+原journey SHA **`0b7059ad2ca0bacdda2cab76beec002d0e56d2cc5512780d451c20bf9ac4fa31`**、result **`32a028d51f9fc7c4d3ad073c395b643ee18939f767201e3110d416cc9925b78d`**、resources **`eb7ef0bf551ebaaf9b0b49aaf09278d80ce9507f5571154d41b35822fc4889d5`**、worker after-stop log **`a039bbbe52cd67815129fc44f485bdc84ffd0709a29f97ff572bf8e2b3136729`**，全项实物重算合。原worker日志无Traceback、lease_lost、RESOURCE_LIMIT_EXCEEDED或PURE_RECOMPUTE_FAILED命中。end HEAD仍clean a687，logs/resource/owned cleanup/release全真；独立随后核06 marker不存在、无运行container、real WT仍clean a687，04此前同样释放，原gate WT保留。
+
+| 实际旅程与源配置 | worker全生命周期cgroup peak（B） | 主worker VmHWM（KiB） | 本次结论 |
+| --- | ---: | ---: | --- |
+| 06 t1，a687/32-8-M24/N1 | 283107328 | 264192 | fresh full实际PASS，stop/cleanup/release齐 |
+| 06 t2，a687/32-8-M24/N1 | 2566234112 | 2415676 | fresh full实际PASS，stop/cleanup/release齐 |
+| 06 t3，a687/32-8-M24/N1 | 4761649152 | 4419688 | fresh full实际PASS，stop/cleanup/release齐；原M16拒绝位置实际通过 |
+| CT108 t4，82/24-8-M16/N1 | 6991069184 | 6684612 | 原fresh full实际PASS；本轮仅功能与具体bound沿用，不冒32/M24实测 |
+
+前三行同一最终产品fullSHA，04六包来源亦同a687；八份既有输入经本轮现CLI INPUTS_VALID核合，t1/t2/t3与旧对应输入SHA相同。该表是各自worker全生命周期实测，cgroup包括startup/pagecache/helper；VmHWM是主进程RSS，不是operation独占峰，不等于budget charged或全部native temporary上界。临时cal logger不在最终main，未为最终档新增scope观测或allocator探针。当前固定输入/N1容量已由约定实际范围及t4具体bound收口，不能推广为更大输入或正式2×t4性能结论。
+
+**a687的E源码与约定实际验收无剩余Finding；E最终GO及累计S2b功能退出证据条件仅待统一最终H的绑定。** 协调者在实际证据与文档齐后固定唯一H，之后只在合格来源原04/原gate WT计算一次六包closure，并重算RS helper身份对当前label/原Compose provenance；直接引用最初actual a687，不跑新的runner/旅程，不作提前compare。预备稿 `6f4c91831f28196a5dc97363dda854f2f3fed332a835c43182b3f708602cba62` 仅只读核关键范围，不能当作已执行证据。
+
+原82 t3/M16拒绝、7c/1de失败与4f完整cal History失败的结论、原日志/卷/state继续保留，局部History成功和a10校准不反写原FAIL；本轮未触碰05/CT108原保留资源或基准GC文档。W1既有t4首次可读观测代理仍仅单次初诊；正式W1/W2性能最迟S6归原性能owner、W3自S3、原冻结线W4 OPEN均不由本轮通过关闭。阶段exit/tag由Owner或授权协调者按P5§8.1另办，本审核无push/tag。

@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：最后完整门禁来源82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，t3在v2 Preview按现模型M16准入失败；当前源码464289138a补漏预约已过定向/static，main24/8/M16不变，a10宽裕fresh t3全程校准按Owner既有持续授权运行中，最终生产档与DC33范围测后决定，最终H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，82 t3/M16原失败保留；当前源码464289138a补漏预约已过定向/static，隔离a10的64/16/M48 fresh完整t3校准亦独审PASS。main24/8/M16不变，最终生产档与DC33范围待Owner一次决定，最终候选验证/H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -340,3 +340,22 @@ W1初诊只使用这次t4本就导出的timing：首次v1 Preview受理响应后
 CT108新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t3-calibration` 的source0/另call独立source0/env0/独立env0日志SHA依次 `3318b3dfff8460c516d57f35ae8dbe617a991d1ad038e88c93ca0968e6318a74` / `ca90a2f825d8c43a3d3e8788df87f91a4913ae4d3ee08d8ea5c1317e631256ba` / `7bb84a8c90959c7c47ab2cfd3e80cdd691e192ff80c132f8ef246f6c4b86fc0a` / `3593af436ed156fc298f6d44eee366219c893de4c7e93d350e005ae957f981e0` 已独立核。实际a10clean/新venv及模块/native137、依赖base保持本节点已核身份、当前RS build image `sha256:070c9cc4860d87ce82e531e3a23516d0c111501e216ece3353ffc2250b1ad4d1`，org revision a10、helper build-input revision4f/source-tree13cb42af…（build-input依相关路径最后提交计算，不要求等于candidate）。prepare于03:09:46Z释放0，SHA `324a989a46c4ffc3447367121a42b8d5fb0bac71ee4cd47eaafb5c242f42604a`。
 
 实际03:20:23Z，project `s2b-e-cal-t3-full-a10dec894e` 新原子owner，现CLI fresh `--tier t3 --scope full --kernel-threads 1 --kernel-memory-budget-bytes 51539607552 --keep-stack`。已只读核argv，当前仅v1 Preview成功/v1 Submit运行中，完整终态/物理峰/预算摘要未知；E仍NO GO，不预填新档或完整校准PASS。
+
+### a10完整校准结果及一次最终档建议
+
+**该次fresh完整t3校准独审PASS**：03:20:23–03:42:33Z，clean a10、N1/64-16-M48，journey/driver0，同一worker40fd63d49e97自首次空catalog观测至结束、Restart0，normal stop0、资源/日志/counter齐、自有容器/卷/网络cleanup和busy释放齐。原journey SHA **`c51afa1ff606e923c0149b8ebfb5bd45d784c18297af1c650b87c28763f1470f`**、result SHA **`f2f5fb26cfc110048bc73d0db2f34ba82eae7d22d2083dafd10fb5191a8b8b9f`**、command SHA `4731c4a5c147572527853dfd5f89e6652e04070d5945e4a2785720fe7f55da6e` 已独立核。untimed原worker log SHA **`382d1d2fe02101944fe1c4789fe0b20cc1d1b3bc28b32901e3049738d616ddee`**，独立逐序解析18次claim=18条counter、18unique、全attempt1/N1/M48，未报lease_lost/resource failure/Traceback；保存summary SHA `28e2ae76f6b7f6215571a3965875def2b85c7c1dcbc238ffed42dee90a58e3cf` 与原值相符。
+
+六operation各scope预约峰最大值为V1 Preview3798888734 B、V1 Submit9078047792 B、repeat Preview3798888734 B、V2 Preview21281126550 B、V2 Submit9839426576 B、History **21375346635 B（19.907343GiB）**。不跨step/operation相加。对原18条stage数组重新分组可见最高charged在History assemble的Python比较/Parquet阶段；该scope的Rust inspect先发生于retained≤161175242 B，之后无Rust parser/business/codec调用。真正native调用点最大retained为V2 Submit prepare的canonical-ipc-inspect **8995200416 B**；parser/business/encode最大retained仅355789250 B。计数与stage ceiling分开，temporary_limit不是actual need。
+
+单worker全生命周期cgroup peak **4765663232 B（4.438370GiB）**、VmHWM **4415476KiB（4.210926GiB）**、max64GiB，必需events/OOM/kill均0、正常exit0。resources SHA `931370da36cb6bfc8d85a855214fb71b44cc7159dc269e061f3e29dcfdbb9579`，running/stopped inspect SHA `4bb67a57cee7b7f710e29644924dce8639929c99895728239f72a09496b9744e` / `619059af0f61cf49421c55fc2d373e13fc04e5c0bf4ecb0623e85cf40f3bac50` 已核。当前校准worker/backend image为 `sha256:c7a5f3e8b788be1a0f4f742e403f078d20ee3d0b4d7be3a7c5d09a1c06c71cf3` / `sha256:6ff46741b229b64a7daf7010748b0a6c1ac216cca1b5ed3671aae65ed6946380`，RS为上述070c9cc4…、org revision a10/source13cb42af/build-input4f。本轮是隔离64/M48的实际完整数据，不冒最终main容器或32/40GiB新档物理实测。审核另核新project三类资源均0、node idle，原7c/1de/4f三代各3停止容器/3卷与原4f state SHA0b24994e…保留；05原t3 FAIL不改判。
+
+给协调者的最终选择表如下；表中remaining由校准实际retained投影到候选M，**不是这些候选已经实测的cap，更不是native实际need**。最终新档仍须fresh完整t3及必要门禁实际确认。
+
+| 方案（N1/单active） | M / reserve / envelope | 对完整最高charged的余量 | 真实native调用点的最小remaining投影 | 物理证据界限 |
+| --- | --- | --- | --- | --- |
+| 主推荐 | 24 / 8 / 32 GiB | 4394457141 B，4.092657GiB | inspect16774603360 B，15.622567GiB；parser/business/encode至少23.6686GiB | 当前只实测cal64/M48的4.43837GiB CG/4.21093GiB RSS，最终32档待验 |
+| 备选 | 32 / 8 / 40 GiB | 12984391733 B，12.092657GiB | inspect25364537952 B，23.622567GiB | 多8GiB预算/硬限空间，无额外实测优势，不保证更大输入 |
+
+主推荐不是按charged乘比例。最紧native阶段只作canonical IPC验证/借用，现每call input上限1GiB、descriptor metadata16MiB，N1；parser/business/encode在低retained阶段，比较高峰后是已有增长前准入的Python/Arrow/Parquet。既有t4原log550850f0…按已审963c恢复口径再次仅内存解析（仍17records/去32个原Docker片段、逐项与既有恢复报告相同），最大inspect retained5856116946 B；在相同未改收费下映射至已实际通过的82/M16，其窗口约10.546066GiB。新t3 M24的15.622567GiB窗口更宽，且M24满足上述t4 M16+Δ的保守条件。该对照是保留已通过cap的论证，不把旧stage ceiling当实耗，不追加allocator/probe或逐档试。8GiB reserve仍给解释器、未完全计实native与pagecache/平台余量；最终硬限效果以新档实际fresh t3为准，不保证2×t4或正式W1/W2。
+
+06维护另由协调者实核：96GiB/16CPU/cpuset64–79、Docker/Compose与缓存/镜像保留，03:40:47Z释放，核查log SHA `b871048d3922eb58dd53fc5826f85720464712386bf5f59c71695b0324a1cc99`。仅维护，无产品/测试变化；此前06定向仍按原执行时环境引用，后续任务按已恢复节点用途开展。当前main未改最终profile、未启动最终新门禁；表与DC33范围建议一次交Owner选择，E仍NO GO、S2b exit另办。

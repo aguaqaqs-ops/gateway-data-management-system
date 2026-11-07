@@ -85,3 +85,16 @@ E handoff列：实际起止SHA与变更区间、产品/文档候选、逐包运�
 ## 7. 独审前补充约束
 
 Owner 已同意设计者补齐技术缺口，并授权 GPT-6-Astra high 独立 kickoff 审核、直接按finding修订与复审；尚未授权产品实施。A需核收[设计§9](p6-s3-design.md#9-审核前补充摘要与生命周期的具体接口)的逐消费者迁移清单、三种记录逻辑视图及risk emit边界向量；C/D必须验证facts-core流式字节而非table hash拼接、FULL实际驻留、去重不足预算时安全miss。风险纯候选必须保留过滤项，pair/table上限和原降级控制流在消费时重放；不完整/超时结果不复用。代码与证据阶段规则不变。
+
+### 7.1 首轮独审 findings 处置（待复审）
+
+首轮报告 `1a62eeff446fffa5a2fc46fc54f81274592be64c` 审核固定 `6780464793`，结论 CHANGES_REQUIRED。本表是设计者修复说明，不代替审核者关闭：
+
+| finding/澄清 | 修订位置与行为 | 独立预期 |
+| --- | --- | --- |
+| F1/P1 单表异常后的pair计数 | design §9.2：正常返回才累加；table-budget异常追加degraded但不累加；诊断预检正常返回degraded则累加1 | table cap2/pair cap3，A三Emit、B两Emit、C一Emit：A异常后total仍0，B后2，C后3，不触发pair全体降级；对照诊断预检degraded计1，B后3，C触发pair降级 |
+| F2/P2 命中收益与完整身份矛盾 | design §5、总设计§16.2：t1/t2含名称schema→2次kernel；FULL相邻变化任务不承诺命中；0hit合法，不承诺10–20%收益 | 重复key机制向量与真实hit/miss报告分开；单侧ordered摘要用独立task_kind完整key |
+| closure命中/诊断预检 | design §9.2：控制步骤按当前pair重放，不缓存前次验证结论 | 首次closure有效，命中时缺失/错comparison或facts digest应按原分支失败 |
+| 实际consumer与读取边界 | design §9.4与总设计§9/16.1；保留replacement小metadata、risk存在性分支，区分records完整验证与bundle raw/ref校验 | 不新增每次下载全量解码；新Arrow validator通过实际adapter测试 |
+
+上述向量为实施验收要求，本轮未运行。复审通过后仍待Owner确认启动，未把A consumer/API实施标记完成。

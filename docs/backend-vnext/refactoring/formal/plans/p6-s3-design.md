@@ -97,9 +97,9 @@ Python 使用 Arrow C Stream/现有安全库导出 batch，`pa.Table.from_batche
 
 保持 `_engine.py` 的表排序、规则顺序、severity/reason/target、标注 ID、per-table/pair 上限、截断/降级语义；风险消费顺序采用现 facts 顺序的索引视图，不能错误沿用产物排序。先产生不套 pair cap 的有界单表候选标注，再在 pair 汇总按原遍历顺序执行 cap、编号和组合信号规则；达到原限制时照原失败/降级行为，不静默丢弃。若移除 pair cap 使单表计算超过现 per-table/time预算，照原策略结束，不能借去重扩大上限。
 
-去重 map 仅存于一次 operation 的 context，覆盖 FULL 两 pair。纯输入 key 必须包括：方向与两侧内容身份（内容 digest + schema/业务 schema/比较 schema + row count + canonical/projection/scalar版本 + row layout/存储身份）、effective keys、共有/排除列、完整 comparison/risk rules 主体及版本、ordered policy、存储规则、comparison mode/options/detail/artifact scope、算法/记录格式版本及输入 authority。不能只靠 version 或内容 digest。
+去重 map 仅存于一次 operation 的 context，覆盖 FULL 两 pair。纯输入 key 必须包括：task_kind（行比较或单侧摘要等，不可混用）、方向与两侧内容身份（内容 digest + schema/业务 schema/比较 schema + row count + canonical/projection/scalar版本 + row layout/存储身份）、effective keys、共有/排除列、完整 comparison/risk rules 主体及版本、ordered policy、存储规则、comparison mode/options/detail/artifact scope、算法/记录格式版本及输入 authority。不能只靠 version 或内容 digest。
 
-输出是未绑定显示名的纯计算结果/未套 pair cap 的单表风险候选；表名、显示名、标注编号、pair cap、组合信号在当前汇总绑定。**完整身份仍保留 schema 内含表名**：S2b 业务 schema 与 projection digest 可能绑定名称，不重新定义 nameless digest；不同表名因此 miss 是正确结果。相同任务在多个 pair 重复才是可靠命中场景。绑定后重算含 table_name 的 records content_digest/manifest 和 facts digest，不跨表直接复用带表名 bytes。先用真实完整身份列 hit/miss 原因再报告收益。
+输出是未绑定显示名的纯计算结果/未套 pair cap 的单表风险候选；表名、显示名、标注编号、pair cap、组合信号在当前汇总绑定。**完整身份仍保留 schema 内含表名**：S2b 业务 schema 与 projection digest 可能绑定名称，不重新定义 nameless digest；不同表名因此 miss 是正确结果。只有完整相同任务重复才允许命中，不承诺真实FULL变化任务存在重复：baseline→initial与initial→modified相邻有向输入相同通常意味着三侧相同，行比较已被early exit。重复任务测试只证明机制；真实hit/miss必须单独报告，0命中也是合法结果，不据此承诺DC43早期10–20%收益。单侧ordered摘要若当前侧完整身份与有效pair策略相同，可按独立task_kind/key复用；该命中不计作行比较调用削减。绑定后重算含 table_name 的 records content_digest/manifest 和 facts digest，不跨表直接复用带表名 bytes。先用真实完整身份列 hit/miss 原因再报告收益。
 
 map 不存失败、取消、超时或半成品；命中仍检查取消/截止与消费者预算。owner 共享只计一次 backing buffers，风险/写入/重绑定分配单独计费；超预算停止该计算，不留不可见引用。operation 结束全释放。验证开关只在测试注入，不加部署开关。S5 才设计跨操作缓存、TTL/持久引用、History 回填与 H1/H2/H3。
 
@@ -169,15 +169,15 @@ S4 保留存储键全保留列diff、SQL直通、阈值/批量规则复测；S3�
 
 ### 9.2 风险上限：重放 emit 语义，不截断最终标注
 
-现 `_engine.py::_evaluate_table.emit` 在等级过滤前检查 `len(annotations) >= min(table_limit, remaining_pair_limit)`；同时触达两上限时pair优先。pair超限丢弃整个pair全部部分标注，按 `_build_pair_degraded_without_annotations` 对全部可见变化表输出降级；单表超限则产生该表的一条degraded标注，并计入后续pair总数。不能改为取前K个标注。
+现 `_engine.py::_evaluate_table.emit` 在等级过滤前检查 `len(annotations) >= min(table_limit, remaining_pair_limit)`；同时触达两上限时pair优先。pair超限丢弃整个pair全部部分标注，按 `_build_pair_degraded_without_annotations` 对全部可见变化表输出降级；单表预算异常（`_TableBudgetExceeded`，包括table wall-time）产生该表的一条degraded标注，但现外层except分支只append outcome、不增加total_annotations；只有正常返回的outcome才累加其标注数。诊断字节/数量超限则是正常返回degraded outcome，因此仍累加1；两条路径不可合并。不能改为取前K个标注。
 
-把Python规则主体提取为有界、惰性的候选事件迭代：`Emit(rule_id,target_without_binding,evidence)`，按现规则顺序产生；closure缺失等检查作为原位置的验证步骤，不能被投机预取越过。消费端逐事件执行原上限检查→等级过滤→编号/append→原时间检查；异常/取消保持原外层处理。表/显示名与组合信号分支由当前汇总绑定，不能让普通表缓存覆盖composite分支。
+把Python规则主体提取为有界、惰性的候选事件迭代：`Emit(rule_id,target_without_binding,evidence)`，按现规则顺序产生；closure缺失等检查作为原位置的验证步骤，不能被投机预取越过。缓存的可重放序列必须包含这些控制步骤，例如`CheckRecordsClosure`，命中时读取当前pair的closure并校验当前comparison/facts digest与table绑定，不能复用前次验证成功结论。诊断数量/字节的预检与直接返回degraded分支每次先执行，保留其正常返回计数方式；只记录Emit的实现不合格。消费端逐事件执行原上限检查→等级过滤→编号/append→原时间检查；异常/取消保持原外层处理。表/显示名与组合信号分支由当前汇总绑定，不能让普通表缓存覆盖composite分支。
 
 复用的是规则候选序列，不是已套pair上限的最终outcome。首次执行按当前消费者需要惰性产生事件，同时在资源允许时记录；只有自然结束、未失败/超时/取消的完整序列才可复用。因table/pair上限提前结束的不完整序列不缓存；命中时仍按当前table/pair上限重放全部检查。过滤掉的 Emit 也保留，不能只保存可见标注，否则“已到上限后的过滤项”会错误不触发超限。全序列存储按operation M增长前计费；如无法额外保留则停止记录候选缓存，继续正常惰性计算，不改变业务结果或新增风险上限。
 
 时间预算不缓存：每次消费使用当前clock/当前pair与table开始时间，并保留原检查位置；额外取消/operation截止检查可在batch边界执行。去重开关的语义一致断言在相同非超时资源条件下比较；真实wall-time超时不是可缓存的纯结果，不宣称不同执行耗时必然产生相同超时终态。risks key还必须包含完整 RiskOptions、severity/include-level配置及影响规则执行的policy身份；纯候选生成期间读取的facts/diagnostics/selected tables均须纳入输入，不能漏掉只影响risk而不影响comparison_digest的diagnostics。
 
-必要向量：pair剩余额度0；恰好K项后自然结束；第K+1项可见/被过滤；table与pair同时触界；单表降级后下一表；候选命中时不同剩余pair额度；composite分支与普通分支；closure检查恰在超限前后。预期按现函数控制流独立列出，不从新实现生成。
+必要向量：pair剩余额度0；恰好K项后自然结束；第K+1项可见/被过滤；table与pair同时触界；单表预算异常后下一表恰达pair cap（不扣前表降级项）；诊断预算正常返回degraded后下一表（扣1）；候选命中时不同剩余pair额度；首pair closure有效而命中pair closure缺失/错误digest；composite分支与普通分支；closure检查恰在超限前后。预期按现函数控制流独立列出，不从新实现生成。
 
 ### 9.3 操作内去重的保留计划
 
@@ -192,3 +192,21 @@ Preview FULL可在执行前从两pair计划识别完整任务key，History同样
 | 小facts、manifest/ref、surface | 当前operation现有编排需要的期限 | 纳入既有小metadata预算；不得反向持有大records |
 
 命中前预约本消费者的重绑定/写入/风险临时空间；可以先驱逐尚未消费的可重算去重条目释放空间，再判断正常业务是否超M。禁止因为缓存保留挤占本来可以执行的必要计算而报新增资源失败。不增加LRU通用框架、磁盘spill、部署旋钮或持久引用表；只是有限operation map与已知任务计数。验证除事实一致外，覆盖同key两pair释放、无后续用途零保留、保留预算不足的安全miss以及异常退引用。
+
+### 9.4 已核实的直接消费者移交
+
+基于本候选代码树的全src符号搜索，以下是实施清单，不把未来consumer当既有生产调用：
+
+| 现消费者 | 移交要求 |
+| --- | --- |
+| comparison/standard.py::_with_table_digest/_build_facts | 用§9.1的Rust完整payload JCS流计算，不返回逐行Python DTO |
+| comparison/replacement.py | 仍使用共享小metadata payload/helper，records为空；保留dataset-replacement/v1的独立envelope与无records closure，不因删旧比较热点误删 |
+| risk/_facts.py::extract_risk_facts/has_visible_change/_risk_scope | `table.records`改为handle/count与等价存在性判断；不能仅看row_added/deleted/modified而漏schema/degraded records |
+| risk/_facts.py::_ordered_unsupported | 保留extension status、TABLE_DEGRADED记录存在性与diagnostics三来源，可由kernel返回小型布尔事实，不重建ordered元组 |
+| risk/_engine.py::_emit_row_risks/未知target循环 | 按facts序读取kind/identity/changed_columns等必要列，保留三种kind顺序、匹配计数与suppressed/unavailable分支 |
+| comparison/artifacts.py::publish/open/read/restore | producer直接Arrow；open/read校验改Rust流式；restore校验源；新目标不再全份读回。read_records_artifact当前tuple[dict]接口只见测试消费者，改Arrow批读取接口并同步这些测试，不为它保留永久全表dict路径 |
+| surface_assembly/_assembly.py | 消费小facts、extension metadata与closure entries；不需要行records；`records_refs`是artifact引用，不能误删 |
+| bundle_assembly/_assembly.py、应用Preview/History | 消费surface/ref/closure并已有raw/ref校验；保持这些真实调用边界，不注入行DTO |
+| benchmarks/bundle_tar.py::open_records_closure调用 | 是现存完整records读取校验消费者，必须随新validator接线；原固定参考线的benchmark/worktree不改，若工具需修订由其owner协作 |
+
+当前backend生产src中没有另一个调用`read_records_artifact`的业务consumer，Rust旧`read_records_parquet_v1`只在自身固定向量中使用；不能宣称它已覆盖生产读取。§4“真正读取”指现有records验证接口所承诺的raw/schema/count/content保障；bundle传输自身现有raw/ref校验不是整份Parquet语义校验。S3保留各自边界，不把每次下载扩成新全量解码，不借本设计添加S5 History缓存读取路径。原records validator测试必须通过实际新PyO3 Arrow入口，不能只测Rust内部fixture。

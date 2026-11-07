@@ -348,7 +348,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - **共用内核（DC44、V1）：** standard、keyless 与 ordered 在 `gateway-compute-core/src/comparison/` 中共用规范编码、共有列投影（DC40 的语义）、行身份、记录排序、资源上限与 facts 管线；ordered 专属的 LIS 主干、绝对 `no` 位置与空白区间规则留在 ordered 模块。
 - **逐行记录（DC54）：** kernel 按记录族 schema 产出 Arrow 记录列，并用相同 JCS 编码计算 `content_digest`；Python 用 pyarrow 由 Arrow batch 写 Parquet。发布后的整份回读解码删除；实际读取时的 raw、content 与 schema 校验及普通 I/O 失败处理保留。记录产物与 Contract 不变，现有 golden 作为逐字节回归基准；如必须改动格式，按 Contract 变更另行提交 owner。
 - **风险的消费接口：** 风险仍在 Python（DC47 第 1 项）。在 Preview 与 History 的计算路径中，风险直接消费 kernel 在内存中产出的 Arrow 记录，按表、按 batch 有界地读取，只转换风险规则需要的列，不先重建完整的 `ComparisonRecord` 元组；这条路径不从 Parquet 读回，因此没有读取校验成本。约 5 s（W4）的风险段是待 S3 验证的假设；超出 §16.1 预算时，按 DC47 第 1 项的重开条件评估风险热点进入 Rust。
-- **记录的读取校验：** 只发生在从存储读取 closure 时（History 命中 diff/risk 缓存、bundle 组装）：raw、content 与 schema 校验由 Rust 对读出的 Arrow 重算 JCS `content_digest`，计入 H1、H3 与 bundle 的预算（§16.1）。
+- **记录的读取校验：** 现有 records 完整校验接口从存储读取 Arrow 后，由 Rust 重算 JCS `content_digest`，保留 raw/schema/count 校验；当前实际消费者包括 records API 与 benchmark bundle 校验。bundle 组装自身的 raw/ref 校验不能冒称已有完整 records 解码，也不新增每次下载全份解码。S5 的 History 缓存读取接入另按实际路径计入 H1/H3 预算，见 [S3 设计§9.4](p6-s3-design.md#94-已核实的直接消费者移交)。
 - **单次操作内去重（DC43）：** 缓存键为“去掉表名与显示名之后的单表任务输入”的摘要，包含比较与风险规则主体及其版本、两侧有效键与存储规则、schema digest、行数、算法与记录格式版本、artifact scope；表名、显示名、标注编号、pair 上限与组合信号表在汇总步骤绑定。权威测试：开启与关闭去重，facts 与 records 摘要相同。
 - **分歧点：** 浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则，按现行行为写进 Contract，不改语义（§4.6）。
 - **接入：** 替换期差分覆盖第 ① 层语料、随机差分与 t1–t4；接入验证后删除被替代 Python 比较算法，保留独立语义向量、性质与生产边界测试，不新增回退开关（DC78）。
@@ -476,7 +476,7 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
   ```
 
   保留受理到 READY、1 次预热加 3 次测量的统计口径。CT108 可用时补测；若在后续产品测量，须标明实际版本，不回填成 S2b 历史候选已测。S2b 功能退出仍要求正确性、恢复、资源边界和必要门禁。W2 不做行比较，S3 对比较的加速不能计入 W2 的削减。
-- **W4：** 计算路径中不存在未计入的逐行 Python 转换或回读：记录由 Rust 产出（S3），风险消费内存中的 Arrow 记录，Parquet 只写不读；读取校验只在 History 与 bundle 读取 closure 时由 Rust 进行。S3 用 W4 实测核对 g、h；风险段超出预算时按 DC47 第 1 项评估。
+- **W4：** 计算路径中不存在未计入的逐行 Python 转换或回读：记录由 Rust 产出（S3），风险消费内存中的 Arrow 记录，新写 records 不整份回读解码；真正调用 records 校验接口时由 Rust 对 Arrow 重算 content digest。bundle 自身的 raw/ref 读取保留，不能宣称所有 Parquet 文件均无任何读取，S5 History 缓存接线另行验收。S3 用 W4 实测核对 g、h；风险段超出预算时按 DC47 第 1 项评估。
 - 原型吞吐不冒充生产端到端结果；预算用于排序与判停，不作为达标证据。
 
 ### 16.2 计数断言（DC55 第 5 项）
@@ -511,6 +511,8 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 | 规划器的 `changed_row_count` | 保持现行定义（行级修改表为净变化，新增/删除表为 before + after，投影变化表为全表计数），只作报告，不作为验收 | 规划器摘要 |
 | 原样重传（S2） | 不产生 Repository operation | 受理结果 |
 
+去重仅在完整任务key相同且结果可用/预算允许时减少调用。重复同key任务的机制向量可断言2次派发/1次计算，但不能冒充实际FULL变化任务：FULL的baseline→initial与initial→modified相邻有向pair要具有相同输入身份通常意味着三侧相同，届时不做行比较。S3必须报告真实命中范围；允许0命中，不削弱含表名schema或scope换取命中。
+
 **History 的零计算条件：** H1（该 pair 已在 Preview 或 History 中计算、规则相同、缓存健康）与 H3：Dolt 读取数 = 0，kernel 调用数 = 0，单侧摘要计算数 = 0。
 
 **手算示例**（其余表均未变；行级修改示例的前提：表为合格的 keyed 表，约 1,000 行，schema、键与存储视图不变，变化在冻结阈值内，单批不超字节上限）：
@@ -522,7 +524,7 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 | 100 行 keyed 表 t 修改 6 行（6% 超过 1% 阈值） | X={t} | 1 | 1 / 0 | 1 | 整表重建 | 写入 100 行；`changed_row_count`=6，只报告 |
 | 只有新增表 t（n 行） | A={t} | 0 | 0 / 1 | 0 | 整表重建 | 写入 n 行 |
 | 只有删除表 t（10 行） | D={t} | 1（bundle 需要基线侧数据） | 0 / 1 | 0 | `DROP` | 写入 0 行；`changed_row_count`=10，只报告 |
-| 两张同内容表 t1、t2 发生相同变化 | X={t1,t2} | ≤ 2（同内容身份可共享一次读取） | 2 / 0 | 1（去重后） | 各自按表 | 各自按表 |
+| 两张同内容表 t1、t2 发生相同变化，完整schema身份含各自表名 | X={t1,t2} | ≤ 2（只按完整读取身份判断，不能仅凭内容共享） | 2 / 0 | 2（完整任务key不同） | 各自按表 | 各自按表 |
 | History：diff/risk 缓存缺失，但两节点规范表副本健康 | X={t}（非 ordered） | Dolt 0（两侧都从存储读） | 1 / 0 | 1 | — | — |
 | History：diff/risk 缓存缺失；旧节点规范表健康，当前节点 t 的规范表缺失；两侧导出缓存均健康 | X={t}（非 ordered） | Dolt 1（当前 commit 的 t，按 §8.2 回填） | 1 / 0 | 1 | — | — |
 | History：H3 重复查询，缓存健康 | — | Dolt 0 | 派发照常记录 | 0 | — | — |

@@ -1,6 +1,6 @@
 # Phase 6 S3 B 独立审核
 
-**状态：完整 B 验证候选 `4efa4b3ec5457e83e48d9fbf2e18245e67afdc51` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
+**状态：完整 B 验证候选 `4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
 
 ## 1. 固定对象与方法
 
@@ -54,8 +54,16 @@ ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交
 
 Owner 后已明确“允许放行”；同一 06 测试者按上述已审脚本实际恢复一次。本人只读核 `rust-focused.log` SHA256=`5ba79e1bf4c38850f9f35ba1f1ae77b30364e863987eb2a1fefafc167a20cf74`，脚本 SHA 仍为 `841e85777ed758fe85e2de4ebf4225985ea81efa44e1b19c7db872515b68ca1b`：hostname `gw-dms-06`、22:35:01–22:35:15Z、起止 HEAD=b917 且 clean、六锁未变、offline/jobs4/toolchain1.97；fmt exit 0，core clippy exit 101，`standard.rs:487` 两处 `usize` 错误解引用 E0614，按首失败停，focused test 未运行，整体 exit 101。保留该失败，后续只验证修正后的新固定候选，不重跑 b917；此编译错误与预算第二轮无关。
 
+### 3.1 4efa 唯一执行首失败与下一最小修正
+
+06 完整脚本先按原 SHA `5a4a46ed177f030611db3f785e4edf9150ae98f9bc2befee636345bd09b8ff54` 只读审；为符合仓库 Rust selector 前提，同一测试者在启动前把 `cd "$WT/vnext/rust"` 移至 rustup 检查前，最终脚本 SHA256=`90f436b460b5f3228713d2860d6ca64b6df7732fa093158e54ce090b2d2d4825`，输入 SHA helper SHA256=`dac92e185be66cba8178d1e4dbf779fb91fe9158a313b4b9ba27629d3b7555cd`。脚本逐步记录完整 argv/time/exit，核 clean HEAD、legacy、六锁、offline/jobs4、当前 Rust tree build-input，顺序为 workspace fmt/clippy/test → 原生扩展强制重装与 build-input 核验 → Python 6 差分 → 八包 SHA/按表对照 → 五 Python 包 ruff/mypy，首失败停。06 现场数据根目录与 manifest `package.tar.gz` 行形状已只读确认。
+
+4efa 实际 `run-final.log` SHA256=`ee3a15b125830433289684a5ee46334f6ac20286d18a4c07c195b10860791b38`：hostname `gw-dms-06`，23:05:08–23:05:25Z，起止 HEAD 同为 4efa，仓库 `rust-toolchain.toml` 选择 1.97，四工具同 bin，六锁前后相同，`LOCK_DRIFT=0`；fmt exit 0，workspace clippy exit 101，`ordered.rs:561` 的 `option_strings.try_fold` 因绑定非 `mut` 报 E0596；workspace test、后续 Python 与真实按表全部未运行。固定 `4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c` 仅将该绑定改 `let mut option_strings`，detached clean、Rust tree=`edc408d4a9b96af2a1c851eef98e2df3863840ea`；本人静态核为精确语法修正，未重开已关闭预算根因，仍待其 06 新执行。
+
+4efa 之前一次 bundle 传输准备调用在非仓库上下文执行裸 `git bundle verify` 而 exit 1，发生在 fetch/checkout/测试之前。开发侧保存的 `setup-attempt-1.log` SHA256=`b20e21701a211cd8bfa8378ee775eb05798e1ddaf14257b9b40a6b12d6562a61`，文件自述为事后从工具调用与返回誊录，不是原始独立 shell argv 日志；它能支持错误内容和已知作用范围，不能伪称实时原始日志。按 DC68 从 bundle verify 步骤修正仓库上下文一次并继续；该准备错误不计 B 产品失败或预算修订轮。
+
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`4efa4b3ec5457e83e48d9fbf2e18245e67afdc51`（前轮 cab，增量仅 B 临时真实数据 CLI 接线）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/4efa 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/4efa 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c`（前轮 4efa，增量仅编译 iterator 绑定）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/4f1 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/4f1 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

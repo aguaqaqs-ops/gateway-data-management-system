@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from gateway_backend.capabilities.comparison import (
     SchemaEvolution, compare_plan, plan_comparison,
 )
 from gateway_backend.capabilities.comparison import standard as old_standard
+from gateway_backend.capabilities.comparison.contracts import OrderedInterval
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit, _encode_cell
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -195,16 +196,22 @@ def _probe_task(
         policy["unchanged"] = _can_table_early_exit(
             task.before_descriptor, task.current_descriptor, task.policy,
         )
-    before_stream = _canonical_stream(task.before_table)
-    current_stream = _canonical_stream(task.current_table)
+    # The native unchanged path must have no access to the before rows.
+    before_stream = (
+        pa.RecordBatchReader.from_batches(pa.schema([]), [])
+        if ordered and policy["unchanged"] else _canonical_stream(task.before_table)
+    )
     try:
-        output = _s3_compare_probe(
-            "ordered" if ordered else "standard",
-            before_stream, current_stream, json.dumps(policy),
-        )
+        current_stream = _canonical_stream(task.current_table)
+        try:
+            output = _s3_compare_probe(
+                "ordered" if ordered else "standard",
+                before_stream, current_stream, json.dumps(policy),
+            )
+        finally:
+            current_stream.close()
     finally:
         before_stream.close()
-        current_stream.close()
     parsed = json.loads(output)
     assert isinstance(parsed, dict)
     return parsed
@@ -245,6 +252,22 @@ def _project_record(record: dict[str, object]) -> dict[str, object]:
             "before_frames", "current_frames",
         )
     }
+
+
+def _interval_view(interval: OrderedInterval) -> tuple[object, ...]:
+    return (
+        interval.before_start, interval.before_end,
+        interval.current_start, interval.current_end,
+        interval.row_count, _identity(interval.interval_digest),
+    )
+
+
+def _probe_interval_view(interval: dict[str, object]) -> tuple[object, ...]:
+    return (
+        interval["before_start"], interval["before_end"],
+        interval["current_start"], interval["current_end"],
+        interval["row_count"], interval["interval_digest"],
+    )
 
 
 @pytest.mark.parametrize(
@@ -314,6 +337,8 @@ def test_ordered_probe_matches_fixed_python_records_and_digests() -> None:
     )
     ordered = fact.ordered_extension
     blank = fact.blank_extension
+    assert actual["ordered_summary"] == asdict(ordered.ordered_summary)
+    assert actual["blank_summary"] == asdict(blank.blank_summary)
     assert actual["before_ordered_digest"] == _identity(ordered.before_ordered_digest)
     assert actual["current_ordered_digest"] == _identity(ordered.current_ordered_digest)
     assert actual["before_occupancy_digest"] == _identity(blank.before_occupancy_digest)
@@ -350,14 +375,14 @@ def test_ordered_probe_matches_fixed_python_records_and_digests() -> None:
     ]
     assert [
         (
-            item["kind"], item["entity_key_kind"], item["interval"]["interval_digest"],
+            item["kind"], item["entity_key_kind"], _probe_interval_view(item["interval"]),
             item["before_occupancy"], item["current_occupancy"],
         )
         for item in actual["blank_records"]
     ] == [
         (
             item.record_kind.value, item.entity_key_kind.value,
-            _identity(item.interval.interval_digest),
+            _interval_view(item.interval),
             item.before_occupancy, item.current_occupancy,
         )
         for item in blank.records
@@ -395,3 +420,29 @@ def test_ordered_columns_added_uses_full_shared_row_multiset(
     assert actual["content_changed"] is changed
     assert actual["standard_records"] == []
     assert actual["ordered_records"] == []
+
+
+def test_ordered_duplicate_position_degrades_like_fixed_python() -> None:
+    _fixed_reference()
+    before = _bound(
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8));"
+        " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
+    )
+    current = _bound(
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8));"
+        " INSERT INTO t VALUES (1,1,'a'),(2,1,'b');"
+    )
+    plan = _plan(before, current, ordered=True)
+    fact = _fact(plan)
+    assert fact.status.value == "DEGRADED"
+    assert fact.diagnostics == ("ORDER_KEY_DUPLICATE",)
+    actual = _probe(plan, fact, ordered=True)
+    assert actual["status"] == fact.status.value
+    assert len(actual["standard_records"]) == 1
+    assert _project_record(actual["standard_records"][0]) == _expected_standard(
+        fact.records[0], plan.tasks[0].before_descriptor, plan.tasks[0].current_descriptor,
+    )
+    assert fact.ordered_extension is not None
+    assert fact.blank_extension is not None
+    assert actual["ordered_summary"] == asdict(fact.ordered_extension.ordered_summary)
+    assert actual["blank_summary"] == asdict(fact.blank_extension.blank_summary)

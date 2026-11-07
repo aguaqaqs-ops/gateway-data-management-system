@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,8 @@ from gateway_backend.capabilities.table_rules import (
     comparison_rule_set, migrated_table_ruleset_snapshot,
 )
 from tests.test_comparison_s3_b_differential import (
-    _expected_standard, _fixed_reference, _frames, _identity, _probe_task, _project_record,
+    _expected_standard, _fixed_reference, _frames, _identity, _interval_view,
+    _probe_interval_view, _probe_task, _project_record,
 )
 
 from benchmarks.p6_v1_ordered_diff import _close_bound, _materialize_package
@@ -115,6 +117,10 @@ def _check_ordered(
     if actual.get("unchanged") is True:
         if fact.status.value != "UNCHANGED" or actual["row_count"] != fact.row_count_current:
             raise AssertionError("unchanged ordered summary differs")
+        if any(asdict(extension.ordered_summary).values()) or any(asdict(blank.blank_summary).values()):
+            raise AssertionError("frozen unchanged ordered summary has nonzero counts")
+        if actual["records"] != []:
+            raise AssertionError("unchanged ordered emitted records")
     else:
         if actual["status"] != fact.status.value:
             raise AssertionError("ordered table status differs")
@@ -128,6 +134,10 @@ def _check_ordered(
             raise AssertionError("ordered table counts differ")
         if actual["content_changed"] != fact.content_changed:
             raise AssertionError("ordered shared content differs")
+        if actual["ordered_summary"] != asdict(extension.ordered_summary):
+            raise AssertionError("ordered summary counts differ")
+        if actual["blank_summary"] != asdict(blank.blank_summary):
+            raise AssertionError("blank summary counts differ")
         standard = [
             _project_record(actual["standard_records"][index])
             for index in actual["standard_facts_order"]
@@ -160,14 +170,14 @@ def _check_ordered(
             raise AssertionError("ordered row records or canonical frames differ")
         if [
             (
-                row["kind"], row["entity_key_kind"], row["interval"]["interval_digest"],
+                row["kind"], row["entity_key_kind"], _probe_interval_view(row["interval"]),
                 row["before_occupancy"], row["current_occupancy"],
             )
             for row in actual["blank_records"]
         ] != [
             (
                 record.record_kind.value, record.entity_key_kind.value,
-                _identity(record.interval.interval_digest),
+                _interval_view(record.interval),
                 record.before_occupancy, record.current_occupancy,
             )
             for record in blank.records
@@ -205,11 +215,20 @@ def run(root: Path) -> dict[str, Any]:
             unchanged = 0
             for task in plan.tasks:
                 fact = frozen_standard._compare_task_safely(task)
-                if task.before_table is None or task.current_table is None or task.policy is None:
-                    metadata_only += 1
-                    continue
                 if fact.status.value == "DEGRADED":
                     degraded += 1
+                    old_fact = {
+                        "status": fact.status.value,
+                        "diagnostics": fact.diagnostics,
+                        "row_count_before": fact.row_count_before,
+                        "row_count_current": fact.row_count_current,
+                        "record_kinds": [item.record_kind.value for item in fact.records],
+                    }
+                    raise AssertionError(
+                        f"{tier}/{task.table_name}: frozen Python predegraded: {old_fact!r}"
+                    )
+                if task.before_table is None or task.current_table is None or task.policy is None:
+                    metadata_only += 1
                     continue
                 ordered = task.policy.ordered_policy is not None
                 if not ordered and _can_table_early_exit(

@@ -512,7 +512,7 @@ fn compare_keyed(
             !key.contains(name)
                 && !excluded.contains(name)
                 && !incompatible.contains(name)
-                && before_row.frames[*index] != current_row.frames[*index]
+                && before_row.frames[index] != current_row.frames[index]
         });
         if has_change {
             modified += 1;

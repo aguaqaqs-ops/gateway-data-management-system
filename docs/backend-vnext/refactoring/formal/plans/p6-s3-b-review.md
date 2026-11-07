@@ -1,6 +1,6 @@
 # Phase 6 S3 B 独立审核
 
-**状态：完整 B 静态候选 `a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
+**状态：完整 B 验证候选 `cab0656d68dde02074bfe3ebef0393c19b082e0c` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
 
 ## 1. 固定对象与方法
 
@@ -38,7 +38,7 @@ ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交
 
 临时 `comparison/probe.rs` + PyO3 Arrow C Stream 桥只供 B 差分，未被 Python 生产 `compare_plan` 路由调用，E 删除点已列交接；其 test-side 24 GiB 估算不能充当 D 的输入 charge 或 C builder 预算证据。测试先将旧 reader 转真实 S2b canonical IPC，再以固定旧 Python `standard.py`、`ordered.py`、`row_encoding.py` 源 SHA（依次 `3ff92146caac590ac989b3fa08ed1200ac410c2ccb9bd9c8a95f15f73422acf4`、`049ff089f20e8bbc1e72090d54d2ae88ea15ef84e324819241a07e2d68bd160f`、`41fae5ad009edbcc1c947c0266182b99c924cc728db21ad9942770236e7b397e`）锁住旧行为；本人对照固定 4d5 原件核过这三份 SHA。a665 的 synthetic/真实差分已比完整 ordered/blank summary、六个 blank interval 字段、三族行帧/身份及 digests；unchanged ordered 特意给 native 空 before stream，旧事实须为零 summary、无 records；真实 t1–t4 遇到旧 Python predegraded 现在明确失败，不能静默计数跳过。八包 `datasets.json` identity/size/tar SHA 常量与 P5 S4 §8 固定表一致；工具仅逐表调用冻结 Python 及 native probe，非完整旅程。
 
-**尚待核收的证据强度：**a665 随机 batch 测试在 pool 宽度 1/4 各运行单张表的一次 compare，尚未实际覆盖多个比较任务并发调度；旧 prototype 的 proptest 也只把一个 pair 放入 parallel pool。已交实施者最小多任务同池结果对照，不要求新增调度机制或部署旋钮。所有上述静态点仍以 06 当前最终候选的测试原件为准，不把 probe 当 C/D 生产接线。
+**N 与控制的后续补证：**a665 的单任务 pool 证据偏弱；固定 `39bfa7552ed480c625e139c6e7beacbb8e56c154` 增加同一 `KernelContext`、同一 Rayon pool 的 12 项 keyed/keyless/ordered `par_iter`，按输入序收集 N=1/4 的计数、locator、digest 签名，结果释放后核 16 MiB 余额恢复；另加已到期 `Instant` 的 deadline 错误向量。固定 `20e226206d` 增加当前 canonical 伪 GID=-1 与冻结 Python 的诊断差分。`cab0656d68dde02074bfe3ebef0393c19b082e0c` 相对 39b 仅为新测试 Rust 格式调整，vnext tree=`6be70a9dc215d27aa5fcd682e01bd50f43998857`；detached WT clean。静态证据设计缺口已关，仍待唯一 06 当前候选运行，不把 probe 当 C/D 生产接线。
 
 ## 3. 06 执行稿的 DC68 停止复核
 
@@ -52,6 +52,6 @@ Owner 后已明确“允许放行”；同一 06 测试者按上述已审脚本�
 
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df`（上轮完整静态候选 2e975）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/a665 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/a665 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`cab0656d68dde02074bfe3ebef0393c19b082e0c`（前轮完整静态候选 a665，后续 20e/39b 为诊断与 N 测试、107c/cab 为机械格式）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/cab 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/cab 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

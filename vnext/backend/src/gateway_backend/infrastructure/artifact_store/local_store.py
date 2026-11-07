@@ -175,6 +175,10 @@ class LocalArtifactStore:
                 view.release()
             if "sha256:" + hasher.hexdigest() != ref.raw_sha256.value:
                 raise ManifestVerificationError("stored raw_sha256 mismatch")
+            # The borrowed buffer owns the verified mapping independently. Keep
+            # its lifetime while releasing the source FD before many C readers
+            # coexist; no file reopen or payload copy is needed.
+            source.close()
         except (InterruptedError, TimeoutError):
             buffer = None
             if source is not None:

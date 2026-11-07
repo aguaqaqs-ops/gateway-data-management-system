@@ -7,6 +7,7 @@ from tests.support.native_projection import project_canonical_fixture
 import hashlib
 from dataclasses import replace
 from collections.abc import Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
 
@@ -96,6 +97,26 @@ def test_independent_handles_bind_export_order_and_close(tmp_path: Path, local: 
         assert sum(batch.num_rows for batch in second.iter_batches()) == 2
     with pytest.raises(ValueError, match="closed"):
         _ = second.schema
+
+
+def test_borrowed_canonical_readers_keep_mapping_without_open_source_files(tmp_path: Path) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    ref = store.put(stream, bound)
+    with ExitStack() as resources:
+        readers = [resources.enter_context(store.open(ref, bound)) for _ in range(96)]
+        open_artifacts = []
+        for descriptor in Path("/proc/self/fd").iterdir():
+            try:
+                target = descriptor.resolve(strict=True)
+            except FileNotFoundError:
+                continue
+            if target.is_relative_to(backend.artifact_root):
+                open_artifacts.append(target)
+        assert open_artifacts == []
+        for reader in readers:
+            assert sum(batch.num_rows for batch in reader.iter_batches()) == 2
 
 
 def test_content_identity_reuses_ddl_permutation_and_rejects_other_scope(tmp_path: Path) -> None:

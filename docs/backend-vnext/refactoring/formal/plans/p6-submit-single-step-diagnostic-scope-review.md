@@ -1842,3 +1842,41 @@ BatchMode echo OK 后，只读核 CT05 `/home/dev/gdds-p6-logs/worker-gc-schedul
 独立读实施 worktree 实际 diff，只有 scheduler 测试：去掉 worker_runtime_module 导入，三处改 patch 标准 gc.collect；wait 改为具名函数先 append 再 return False。生产 runtime 中 gc 仍是同一个标准模块对象，mock 目标不变；等待函数返回与记录行为不变。**修订方式通过，无新产品 Finding；不添加显式 re-export/兼容别名或 type: ignore 来迁就测试。**
 
 已直接交实施者保留失败，提交此精确 test-only 修订后按既有授权完成受影响 scheduler focused、backend Ruff/mypy，再接续尚未运行的 repository_service 静态，不等新的 Owner/设计/审核许可。其他源码/输入未变且已有完整成功日志的包不因本类型修正重跑；若 SQLite 用例已有合格证据且生产/该用例未变，保留原来源，不重复业务矩阵。最终 clean 提交、各通过/失败日志及身份来源须完整交接，本节不预判这些结果。无镜像、真实 prepare 或正式测量 GO，正式测量 STOP。
+
+## 86. GC 调度候选 9704d0b：代码及定向验证通过，可直接接续新镜像和原单项 Compose
+
+**最终产品候选 `9704d0b286049073529d60036dbd999032f97e0a` 的代码及计划内 focused/五包静态证据通过本次审核，无剩余阻塞 Finding。** 现在可按 §78/80 原范围直接准备新 backend/worker 镜像和 §52 的同一项小 Compose，不需要新的 Owner/设计/审核启动确认。该结论尚不包含未产生的镜像/容器结果、真实 prepare 修复效果或正式测量恢复；H3 原历史 PASS 保留，lease 修复效果及内存代价仍待真实候选验证。
+
+### 最终代码与实际运行环境
+
+本地创建 clean detached `/home/dev/gdds-p6-worker-gc-review-9704d0b` 并链接 legacy，核对冻结 1f 到最终候选仅改 runtime 与两个既有测试文件，diff whitespace 通过。`0c97→eee60c→9704d0b` 的 runtime SHA256 始终 **`e5218425d03e6e2d880f098b04802ff7eaff0ceb3115c5043cfadb35664c3b91`**，SQLite 集成测试文件始终 **`d36a430beac8540b16e9b0a0f4aa8269f407569b2e8febb5812f735c5312de64`**。eee60c→最终提交只有 §85 已审的 scheduler 测试类型写法修正，没有生产/集成用例或其他包变化；§79 产品缺陷及 §84/85 测试问题均已闭合，不重复未变矩阵。
+
+BatchMode echo OK 后，只读 CT05 原始日志及当前 worktree，最终 HEAD 精确匹配且 clean。环境为候选自己的 Python 3.14.6 venv，由受控入口离线 sync；`candidate-env-sync.log` SHA256 **`461f7dac95a61d659b3b8e4e75fec473fa87d53b2676d3f0cc3262186fe01e66`**。Rust 输入未变，未重编；native 从已核冻结 1f 环境复用，实际 `.so` SHA256 `85df42dc6122307edd44d321e7b93282d02e6b886527117b886abdbb315ad71d`、build-input=`58436908aee9dd449f4d3e0542a6a8c1920b6d5e`，与候选 Rust tree 相符；backend 实际模块位置明确指向候选 src，未继续加载旧产品 Python 源码。`candidate-native-identity.log` SHA256 **`32ecfac08b162b1afc7725c8723e247f5045b39c0cf6405dfbf260db2ccb24f5`**，01:18:41–42Z、exit 0。RS 环境 sync 日志 SHA256 `fc3151858875081a01483ac6e5badcc0d06a3a4537a9bf676067876f6739b0cf`，同样离线/受控/exit 0。
+
+最终提交的部分日志 command 行只打印 uv-consume 命令，没有重复写 export 前缀；实施者确认实际外层 `/bin/bash -s` 在执行前 export UV_OFFLINE=1、CARGO_NET_OFFLINE=true、TMPDIR=/home/dev/gdds-test-tmp，原命令保留在其工具调用记录，没有独立脚本文件。本审核没有把这项说明补写成原始日志里的环境行；受控 --no-sync 另先强制 offline lock check，再 locked/no-sync 消费。保留这一记录形式，不因命令展示省略前缀重复已经通过的检查。本审核未运行任何测试或改测试节点状态。
+
+### Focused 与静态证据
+
+CT05 scheduler 在最终候选 01:26:26–27Z，**22 passed / 0.76s、起止 HEAD 精确相同、exit 0**；完整日志 `focused-worker-scheduler-rerun-9704d0b2.log` SHA256 **`530ef22086ab358bfe66bd0e4dd2e62997b174803fec1cacb69ba44e7ce0277a`**。§84 原先未走到的尾部 collect/GC 状态断言现已实际通过。
+
+真实组合 SQLite 新用例在 eee60c 于 01:23:46–47Z，**1 passed / 0.97s、起止该 HEAD、exit 0**；`focused-worker-sqlite-integration-ee60c16.log` SHA256 **`5d434d4d7ff79aa11c837117706ee586397900d35b1e41fee56775cab269141e`**。因生产 runtime、用例、相关输入/依赖未变，可准确关联至最终候选。这里是 focused 证据关联，**不是权威 runner 的按包 carried，也不是 23 项均在最终 HEAD 重跑**。
+
+五包 Ruff/mypy 的十份完整日志逐项读取、重算 SHA，均 exit 0。shared_kernel/contracts/client 在 eee60c 于 01:24:15–24Z，最终仅 backend 测试类型修正，不影响它们；backend 在最终 HEAD 01:26:44Z，repository_service 在最终 HEAD 01:27:09–16Z。日志根为 CT05 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-20261107/`：
+
+| 包 | Ruff 日志 SHA256 | mypy 日志 SHA256 |
+| --- | --- | --- |
+| shared_kernel | `3dc37c4e6e05ddf35eef0041b2032fb766cf67ec5e37bf9c8e6cc404c0279399` | `f90fbe0ccd9591d4677292f3b6d7c1c00881ff927eecf75fd4d3d287537e248f` |
+| repository_contracts | `8dc01e1188c707829fb7e7f191e40d0b8b830462ae8be69990585fbd678132ca` | `bd891a2430658665f58a4586878130688f0ac33f5860f85688eee298fd21d94b` |
+| repository_client | `f8b6ce227bf5439549bb0965131c6f33e6c16800fb03d47dfb58d208570c3a34` | `e02faa9409f77590915230af3a9ede29acd9c091049112c6bae81eeae29765bf` |
+| backend | `15be7bffd23dddb68141e10249976dc66eb8271d37ac89472207aef474137f3b` | `1ea5e71e74fed83f2029ca500576a21bf39b327264e2767c2a77ff893f9caea8` |
+| repository_service | `1462587e221fad72f1a60eacb145702ee14bde8d2fcdd69e5a5a6e74fcb5a608` | `f0aaeee04ef3d41474625045fdb692ce66f4ae41ced8fb62539d35b5ccdacaf4` |
+
+0c97 scheduler exit 1 和 eee60c backend mypy exit 1 的原始日志/提交继续保留，未被替换为通过；本轮没有全量 runner、Rust 门禁或正式基准证据。
+
+### 原范围内镜像和单项容器验证直接接续
+
+生产 runtime 已变，触发新 backend/worker 镜像和容器接线验证；最后验证的 §52/57 backend/worker 仍是旧 1f 镜像，**不能沿用为新产品已验证**。仅从 clean 最终候选按冻结版本 DC67/既有构建路径在 CT201 构建，使用独立 tags，不覆盖已审镜像；LAN 传至05，保留来源提交、输入/构建/传输时间、归档 SHA256、config digest 与全部有序 RootFS DiffID 的跨节点逐项比较，不能拿 inspect ID 替代。保持冻结 Dockerfile/锁/依赖，不迁入 main 的新 dependency-base 流程。RS 只有实际重算有效 build-input/source-tree 等价于 §52 已核身份时才复用；不得跳过身份或为了标签统一无故重建。
+
+CT05 正常取得有效占用后，只对最终镜像运行 §52 已用的 **`tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`**，保持冻结原 harness、离线、prebuilt 及清除代理的既定设置，不追加全量 runner、第二个 Compose、合成 probe 或真实 t1–t4。记录 clean 起止 HEAD、日志/exit、实际三服务运行镜像身份和已审镜像对应关系；使用既有只读 collector，不为取证再启动一轮旅程。按原 harness 回收本次临时项目，保留所有旧候选/真实诊断卷和证据；确认自有资源静止后解锁。失败留证停止，不原样自动重试。
+
+**结论与明确接续许可直接交唯一实施者并同步设计，不再等待回执。** 这些是已通过设计的镜像/单项接线验证，未签真实 prepare GO。镜像/小门禁原始结果随后独审，届时新工具候选须准确传递 join_status 并绑定旧 checkpoint→新产品/三镜像、新 project/key/三卷及完整 manifest；只有候选专属一次 GO 才运行业务诊断。无主线合入/push/tag、正式恢复、提高资源或旧 g 重试许可，正式测量 STOP。

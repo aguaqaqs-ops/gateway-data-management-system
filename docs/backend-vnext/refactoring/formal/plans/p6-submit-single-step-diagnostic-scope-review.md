@@ -2779,3 +2779,15 @@ v2为1 pair/631表/628 changed，failed与degraded均0；repeat Preview changed0
 资源共5051个周期样本：全run并发sampled memory.current峰 **18396356608B / 17.13GiB**；各容器memory.peak和 **19748859904B / 18.39GiB** 是保守上界，不能当同一时刻并发值或worker RSS。全run peak cores2.693、临时磁盘高水位5984108544B/5.57GiB；v2 Preview步骤2127样本、并发memory.current峰10602758144B/9.87GiB、peak cores1.866、worker累计CPU4449.793s。短同步步骤0周期样本仍按§119表达未知峰值，不把raw的0/null扩成实际资源为0。
 
 postflight sampler/Compose down/node check/cleanup均0、锁已释放，三卷保留；down时三项secret路径环境未设的原warning与FULL相同，未据此重跑。旧collector仍仅有v1_submit worker细步骤，Preview原始API计时有效而标准record补证尚待；已指明STRESS最后checkpoint位于v2 Preview之前，补该步骤应从同次停止后的final control卷取私有小副本，按run最终tree **7ace1b8fcbfa6b06cb27d00bd3245d0ac93901902b8fe5dc2a4b9cd73d7dc05b / 3850240B / 1文件** 认证，再只开复制件。FULL/core各自已审快照路线保持，不能开源SQLite或借本压力结果替代H1。实施者可集中完成必要小源取件后启动已审DC63/V5b链，05记录派生与04在途门禁可并行；本节不引入新的等待许可。
+
+## 125. 04 fcc最终runner exit1：两项RS测试环境假设及一项launcher中断超时，待定向修正
+
+**本次04全六包权威runner未通过。** 独立读结束status及原完整日志：19:19:37–19:41:16Z、起止完整fcc且clean、真实runner_exit_code=1；未中断其原定串行批次，也不以部分包通过冒称整次成功。日志及status/sha侧文件已LAN取CT201 `p6-baseline-evidence-review-20261107/ct04-fcc827-runner/`：run-tests.log460719B、SHA **`0170ed2c2d594d2f22df23ea75f50daea80ed85db6a3b5424e0ccc8015ef2b5e`**，与原sha侧文件精确相等；run-tests.status306B、SHA **`9a8747d2deb0be3a3a0ecd81e8d935defc367201339f62cf39ae9b40b593c583`**。源位置同§123。postflight及自有marker释放仍待实施者结果，不能以启动或镜像身份PASS代替此失败。
+
+实际有**三项失败**，不能只记录实施者首报的RS两项。backend parallel status0；serial为1 failed/75 passed/3315 deselected、559.28s、status1。Repository Service parallel为2 failed/1759 passed/1 skipped、46.23s、status1；serial214 passed/1762 deselected、582.61s、status0。各组按权威入口自身流程执行完毕，整次非零结果原样保留。该run整体exit1，不能将其中单独通过的包直接作为规则要求exit0的qualified carried来源；其他既有合格来源仍须独立按原同节点/同worktree闭包规则判定。
+
+**RS根因已从实际失败与源码对齐确认。** 两失败为test_compose_build_harness的rebuilds_when_labels_stale和skips_rebuild_when_labels_match；均断言返回harness.DEFAULT_IMAGE=gateway-repository-service:local，实际为本次必需的p6vref-fcc827-repository-service:latest。DEFAULT_IMAGE自身是固定常量，真实ensure调用resolve_service_image，后者合法读取GATEWAY_REPOSITORY_SERVICE_IMAGE；unit没有显式设置所测环境，错误假设ambient override不存在。保持门禁实际override、真实resolver和重建/身份语义；已交实施者仅修两现有测试的显式输入隔离，可用default/custom小参数表覆盖同一边界，不删断言或全局unset候选image来凑过。
+
+**backend的中断失败另行定位，当前尚不能归因结案。** 精确失败是test_interrupt_stops_isolated_launcher_group_then_runs_cleanup：fixture观察journey_started后向launcher Popen发送SIGINT，随后communicate(timeout15)抛TimeoutExpired，Popen尚未返回。独立读测试和真实launcher：测试直接Popen Bash并继承ambient信号处置；launcher用INT trap停止隔离session再cleanup。候选假设是外层后台/nohup入口继承SIGINT_IGN，需原启动命令及05最小定向证据确认，不能先当作确定根因、仅拉长15s或标flaky。已要求在05核真实信号继承及默认/后台入口差别，保持停止、孙进程收束、cleanup、无卷删除和锁语义断言；没有因此改真实guard或重测已通过FULL/STRESS。
+
+两类普通测试/接线修正继续Owner既有授权，无新Owner/设计GO；先在独立非在途worktree提交最小修订、05必要focused及受影响静态，再交具体代码/结果复核。04原候选、失败日志和身份保留，不原样重跑、改动被测worktree或沿用该失败为PASS。若最终候选改变，镜像candidate revision、实际输入闭包和必要当前候选验证重新按原规则绑定；不因本次04局部失败暂停CT108既定小源取件/分段准备和05记录派生，整体仍未完成。

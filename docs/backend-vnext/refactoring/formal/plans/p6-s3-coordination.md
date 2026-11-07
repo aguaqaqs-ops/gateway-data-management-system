@@ -17,7 +17,7 @@
 | 节 | 实施者 | 独立审核者 | 测试执行者 | 状态 |
 | --- | --- | --- | --- | --- |
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
-| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | A 核收后已直接启动，待实施候选 |
+| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | 静态修订继续；b917 执行前触 DC68，待 Owner 恢复决定 |
 | C–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
@@ -83,3 +83,11 @@ B 原审已对固定检查点提前指出并交原实施者：ordered 仍全值 
 新结构检查点 `a4ff75362737ec4a6e15a2cb6f1ace836ea26657`（5 路径，含 sha2 提升，Cargo.lock 未变）经 06 scratch 格式 patch SHA256=`9db25424367720a7370701457c69f99033d0ea4441026396cf3b250505e22241`，成为 `b91767f5d794701cfebb49b83b64cf5a7130c09a`，待 06 fmt/core clippy/standard 8 case 反馈，仍非完整 B。原审在固定 a4ff 确认 locator、显式 schema 0/N batch、部分 scratch 退账及重循环控制已有代码；同时指出 I-JSON 数字 guard、normal/degraded 记录双源、实际编码 metadata 冲突及预算簇仍待修订。实施者正集中修复，不混入 b917 测试 WT。
 
 预算簇按实质轮次而非候选命名计：**3577 原始问题 → a4ff 第一轮修订（b917 只格式）→ 下一固定预算修订为第二轮**。当前待修包括共享 slice 重复按整 backing 估算、retained metadata 已分配后 grow、scratch/retained 阶段计费。若第二轮原审后同一 M 不变量仍实质未解或持续引入相邻回归，按 Owner 两轮停止条件暂停受影响依赖并提交具体阻塞报告；不能因称“检查点”而免计。JCS 数字等不同根因单列。本轮仍授权完成集中修订和适用验证。
+
+### B 执行触发 DC68：等待 Owner 决定
+
+06 在 b917 脚本已保存、实际 fmt/clippy/test **尚未启动**时，额外可选只读检查第一次因无 `rg` exit127；一次纠正尝试的 shell 引用又 exit127。按 AGENTS DC68 的“重做再次失败……停止交 owner”已停止，没有第三次执行、换角色或换模型绕过。06 本人标记于 **18:55:38Z** 释放，原 WT 保持 clean/b917，源 bundle、脚本和错误摘要保留。
+
+可审工作单为 **`71e28c20eb`** [执行停止与恢复稿](p6-s3-b-execution-stop.md)，原审核者 **`063e94a727`** [停止复核](p6-s3-b-review.md)已核现场及工作单一致；后者仅执行停止审，**没有 B 产品 GO**。脚本 SHA256=`841e85777ed758fe85e2de4ebf4225985ea81efa44e1b19c7db872515b68ca1b`；错误综合摘要 SHA256=`60e8fc6c95ef2d677cb70babc7a6e64e4545d5c917a358071b99b39dbc21d3b0`（非完整原始 argv/输出）；release SHA256=`896fdef8270870edcf874ed51171a2c0a4d9906f1123c45c38a37a2d1a6e229d`。b917 没有测试结果，最近实际仍为 9b34 fmt0/clippy101/test未跑。
+
+协调已向 Owner 发出异步具体问题：是否按原审已核最小稿恢复 06（移除可选 regex/嵌套引用检查，literal bash 已保存脚本，一次启动/首错停）。**尚未收到答复，未把预选或经过时间当授权。** 原测试角色结束本执行回合，无后台/本人标记；若获准恢复，唤醒同一 B 测试角色。B 静态修订及必要文档继续，依赖运行的核收与 C–E 不放行。

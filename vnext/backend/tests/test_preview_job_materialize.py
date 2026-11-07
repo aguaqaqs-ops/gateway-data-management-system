@@ -941,3 +941,21 @@ def test_baseline_time_facts_must_match_original_manifest_rules(tmp_path: Path, 
     payload = decode_preview_payload(decode_payload_object(harness))
     with pytest.raises(PreviewJobError, match="identity does not match source manifest"):
         preview_jobs._materialize_all_sides(payload, harness.deps, operation_id="op-invalid-baseline-facts")
+
+
+def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_facts(tmp_path: Path) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, empty_baseline=True)
+    _replace_projection_failure_packages(harness, initial_sql=None,
+        modified_sql="CREATE TABLE version_manager(saved_time DATETIME); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00+01:00');")
+    harness.seed_workspace()
+    operation_id = "op-invalid-typed-time"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM preview_result_records").fetchone()[0] == 0
+    assert persisted.status is OperationStatus.FAILED
+    assert persisted.diagnostic is not None
+    assert persisted.diagnostic.code == "TABLE_READER_UNAVAILABLE"
+    assert persisted.ready_closure_ref is None

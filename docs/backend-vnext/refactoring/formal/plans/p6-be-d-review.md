@@ -426,3 +426,50 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 | D完整tar／producer保护／资源 | 0ba局部D代码与06证据已核；后续生产代码仅F6 archive selector，encoder／prepare／公开port／response-close／typed HTTP／producer refs及全部tar consumer不变。metadata原字节、路径／尺寸／物理与适用records逻辑摘要按原唯一owner，不造新golden或新机制。 | `test_bundle_download.py`／HTTP共享参数owner、artifact store／READY protection、OpenAPI、`test_real_dump_journey.py`；当前Submit与History两／三节点完整tar Compose。05原a999的MO／FULL／repeat／History四tar及新候选有限步骤引用按§18／20；原生产encoder共享tar b08及FE3 pending独立列明。 |
 
 当前9ec..49403的生产增量仅D及F6，未改Rust／原fixtures／控制DB schema或Review／Submit主体；a999..49403具体四文件已核。公共fixtures相对原S2b来源不同，当前仍完整六包实际运行，无package carried捷径。所有纯shape／digest／规则由原轻量owner承担，HTTP权限矩阵不复制到Compose，后者只保留必要真实接线。**本表不提前确认当前串行用例或整次runner通过；原范围、实际运行来源、最终image身份与FE3／DC33未决在末次核收分别列出。**
+
+## 22. 49403六包实际通过；RS旧运行镜像身份留存缺口仍阻断收尾
+
+### 22.1 合格权威原结果与起始manifest
+
+04固定WT `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-04` 的 **`run-authority-six-final-DTWWhQP4`，13:06:41–13:33:56Z，command/final0，起止完整49403／clean／本人owner true** 已独立核原日志全文、literal argv及四项SHA。原run.log SHA=`35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。使用§17／20既定六包、workers48、offline／预填充／network none／prebuilt unset环境；运行期间被测WT未写、未切源，原runner完成自身两批及Hypothesis／CargoTarget清理。后继普通文档HEAD不是该次实际运行source。
+
+| 实际package | 原结果 | 起始manifest total_digest |
+| --- | --- | --- |
+| rust | fmt／clippy／test均0，180 tests通过 | `ef22a73afe84030fe86118e308c0b558fc76781ce386c6477730439d6ae27fae` |
+| shared_kernel | 243 passed | `ca4de641b0aab156103deaf164daa652ac0536e78281b17166ea19ff564992e1` |
+| repository_contracts | 152 passed | `e6c158219cca2c7856ffddaa260222c7f1bfaa8f689869b0316d20a6be89eddc` |
+| repository_client | 161 passed | `88bece58f8efc862c32a532809d2db1a4a2831a24f38d6e40564aed1531b1e82` |
+| backend | parallel3387／serial60 passed | `68202f739e519be246225008f9a84889a0bf83e38fef6e2c42155d783a9aee43` |
+| repository_service | parallel1744 passed／**1 skipped**，serial207 passed | `ac00797be1a97ff3c54b4057f694bbd3c4ad0cd37ae954f7c2b19468c053fe92` |
+
+六package末status均passed。RS原-q日志未打印skip reason；已按既有源码及运行时只读环境核到 `test_p2_r1_target_cgroup_smoke.py::test_target_container_has_real_delegated_cgroup`，本次host runner未设置 `GATEWAY_P2R1_TARGET_CONTAINER=1`，其明确reason为“runs only inside the delegated target container”。这条skip保留为skip，不计作case通过，也未为获取reason重跑或修改runner。
+
+`starting-manifests-index.json` SHA=`d473e1239e32739d398fc18f6b356bacc06e246955b37e44c366cadc1619efe2`；六份 `original-starting-manifests/*.json` 已逐项与原log准确byte offset／length比原字节，package／49403 HEAD／clean true／SHA／上述total_digest全部一致，未重序列化或运行后重造。**F6产品finding由§20的66项原owner、唯一共用复现以及本次全部60条backend serial实际通过关闭；§21当前功能覆盖闭包成立。** 这不替代下述镜像取证与最后handoff收口。05引用仍只限§18／20的实际a999旧成功步骤，不称49403 fresh，也没有从原失败04取package来源。
+
+### 22.2 实际OpenAPI、原provenance与UTC标签纠正
+
+本次runner原production GET schema已复制到 `final-compose-output-q57wh5vw/production-openapi.json`，SHA=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`，与§15已审实际schema原字节相同；原 `compose-provenance.json` SHA=`fba8467df935a2205c3e314dbf9228ad91c3aa98254c755d101d1ad35b476c4d`，project=`gateway-submit-s8-446348-test_compose_accept_upload_imp0`。保全run `run-preserve-final-compose-UZFqaUIx` SHA=`fd097cdc052805c908ff128c68c2afb68100829a03c466ce19d201a5f19c2cea` 的原脚本用aware UTC起止timestamp校验源mtime闭区间，copy2后比原字节／SHA正确。
+
+该保全日志字段 `source_mtime_utc` 的打印误用了无tz的 `datetime.fromtimestamp`，显示节点+08本地21:22:07；它没有改变前述epoch区间断言或原件。追加 `original-sources.json` SHA=`506410865a182fd15bdfc0c0167d30b060922c59c3a2e2711ba15655488a4fbb` 已独立比两个源文件当前stat／原bytes／SHA：provenance实际UTC=`2026-11-07T13:22:07.834763+00:00`，schema=`2026-11-07T13:22:07.567991+00:00`。原日志及SHA保持，明确只是标签精度纠正，与下一节真实镜像身份差异分开。
+
+### 22.3 镜像collector已停；旧RS config与全部DiffID不可取得
+
+`run-final-image-identities-I8627T4H` **13:37:37Z，command/final1，起止49403／clean／本人owner true**，原log SHA=`f6fe1b6dca1b46822eda78b073278b1f2114056f3e931d302ccf5889e125b3d1` 及其四项SHA均独立核符。实际代码先写上述UTC sidecar，再比较原provenance各运行container的Image与当前tag inspect ID；RS一项assert失败，尚未执行Docker save或写 `final-image-bridge.json`。实施者随即暂停后续取证、cleanup／释放和任何测试／重建／retag；本人仅继续获准只读诊断，没有按DC68盲重做collector。
+
+| 原运行container记录 | 原Image／当前同tag核查 |
+| --- | --- |
+| backend `869b26ec368c` | 原 `sha256:42437a0d4750721f4fe79c71e9565032d6b9a1f978bb42f919c2255c88b79e4c` 与当前tag精确相等，原ID可inspect |
+| worker `c7653535a4a5` | 原 `sha256:4da6b1e4871d7ecf851702a76fcc2067fc5fb9f7b6ec0a30aba018540edbf1e1` 与当前tag精确相等，原ID可inspect |
+| RS `fcf15d08b0fb` | 原 `sha256:15e3ffb4944b672a5e2e6d9c858a57d6a1142d2d17e0feb4f2e56d469c97655e` 已不可inspect；同tag当前为 `sha256:1306744645e34d7dce8e016564517d8864a26e9624cd915a1a6e8e9b1b0f157c` |
+
+RS tag仍 `gateway-repository-service:be-ad-final-04-a999869c7f`；现镜像OCI revision=49403、Created=13:24:11Z，build-input仍a687／source-tree仍13cb／lock仍6dc。固定RS `compose_build_harness.py` 的匹配还要求OCI revision等当前candidate，标签不符时 `ensure_repository_service_image` 正常执行 `_run_build`；RS serial现有Compose调用该入口。其源码路径和时间与后段harness正常重建同tag相符。backend harness仅核build-input／source-tree，故它较早使用原a999 revision符合该owning规则。这里没有把当前tag假写成原运行ID，也不是把container.Image误当跨节点config digest。
+
+原 `run-repository-build-AqbozR9J` buildlog保存旧index／manifest／config摘要：index=15e3，manifest=`sha256:c5a4f79c5525b7cbaf9db8502545232b1478782eeb54e52ac92660447a165d57`，config=`sha256:9e4764cccb55d9a74da73e21ef640c69527fe1233a6f99686dd48d399cb5c577`；未保存旧原config内容或全部28个RootFS DiffID。协调仅授权读取Docker实际 `/run/containerd/containerd.sock`／`moby` 中这三个known blobs，均not found；未切其他namespace／扩展恢复／import／save／tag／gc。剩余两项的原 `run-inspect-old-rs-blobs-aMmhuHEc` log SHA=`910b4ed114a0892fc5247b9de42a90ac0f13fcdbc1b9c467da51a33aa9497d60`，四项SHA已核；其command/final0只说明诊断完成，manifest及config两个原query exit均1。`old-rs-content-qshp65vj/read-only-diagnosis.json` SHA=`f4ba734bdd94414feb90707fcd22552dd50ac6bbeacdfa445d1c7ddd9dac3cbe` 明确original_index_available／complete_index_chain均false，不能称旧镜像身份完整可复核。
+
+### 22.4 policy闭包与当前待决
+
+现有镜像等价规则允许RS以build-input／source-tree标签比较且忽略OCI revision，但没有允许用同源码当前config冒充旧运行config／全部DiffID。并且固定摘要器只排除两个**默认**harness输出tag；本次自定义RS tag明确计入backend及RS两个起始manifest的 `docker_build_inputs.image_ids`，值均为原15e3。因此现tag130674不能口头称其同WT闭包仍相等；后继docs HEAD的package／无标签backend镜像carried尚无合格实际compare，不以RS标签等价跳过该步骤。
+
+**当前结论：49403六包实际通过和F6功能关闭成立；联合最终GO仍pending。** 旧RS原config／全部DiffID缺口、最终镜像／闭包绑定、04最终cleanup／释放／LAN完整副本与固定handoff核收尚未完成。根已收到具体证据及policy限制；任何补验／接受范围须先由协调形成Owner可决定的具体选项，不能靠盲重做、替换旧runtime身份或扩大已有证据口径自行恢复。本角色保持相同审核职责，04本人marker仍保留，后续执行停态不变。
+
+本节审核时shared main为普通文档HEAD `48ef2a2e1c92c7d9266fa347551469de98b60df5`，vnext仍567201，与实测49403同产品树；实际只读产品WT固定49403。F6 runtime变更已触发本次正常backend／worker构建与当前六包，不因本节报告再构建。最后完整config／全部DiffID已核来源仍§18的05 a999；本次04 backend／worker原ID仍可读、RS现revision49403／source13cb已只读核，不能把它们写成尚未完成的完整运行镜像取证。没有新增package/image carried、DC33范围确认／阶段退出、S3／tag／push或FE3同tar OPFS完成声明。

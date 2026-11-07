@@ -530,6 +530,73 @@ def test_time_acceptance_and_revoke_preserve_detected_facts_and_subject_changes_
     assert append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC)).replay
 
 
+def test_same_issue_on_both_sides_has_independent_resolution_subjects(db_path: Path) -> None:
+    import json
+
+    from gateway_backend.application.archive.errors import ArchiveAnomalyUnresolved
+    from gateway_backend.application.archive.queries import preview_archive_plan
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+
+    seed = seed_approved_archive_candidate(db_path)
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, initial=replace(facts.initial, generated_time=missing),
+            modified=replace(facts.modified, generated_time=missing)))
+    seed = refresh_archive_seed(seed)
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path))
+    issues = {item.side: item for item in preview.anomalies if item.issue_code == "GENERATION_TIME_MISSING"}
+    assert set(issues) == {"INITIAL", "MODIFIED"}
+    assert issues["INITIAL"].subject_digest != issues["MODIFIED"].subject_digest
+    assert len({(item.subject_kind, item.issue_code, item.target_submission_id, item.target_candidate_digest)
+        for item in issues.values()}) == 1
+    commands = {
+        side: AppendArchiveAnomalyResolutionCommand(
+            context=seed.archiver_context, idempotency_key=f"accept-{side}",
+            expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            selected=seed.selected_ref, candidate_set_digest=seed.candidate_set_digest,
+            subject_digest=issue.subject_digest, expected_sequence=0,
+            action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_QUALITY,
+            reason=f"the fixture has no generation time on {side}; accept this diagnostic",
+            subject_kind=issue.subject_kind, issue_code=issue.issue_code,
+            target_submission_id=issue.target_submission_id, target_candidate_digest=issue.target_candidate_digest,
+        )
+        for side, issue in issues.items()
+    }
+    now = datetime(2024, 7, 1, tzinfo=UTC)
+    with pytest.raises(BaselineVersionConflict, match="subject digest does not match current anomaly"):
+        append_archive_anomaly_resolution(
+            command=replace(commands["MODIFIED"], idempotency_key="forged-subject", subject_digest="sha256:" + "0" * 64),
+            unit_of_work_factory=_uow_factory(db_path), now=now)
+    # Resolve MODIFIED first: the earlier INITIAL issue has the same four envelope fields.
+    for side in ("MODIFIED", "INITIAL"):
+        result = append_archive_anomaly_resolution(command=commands[side], unit_of_work_factory=_uow_factory(db_path), now=now)
+        assert result.sequence == 1
+        with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+            event = uow.archive.get_resolution_event(seed.repository_id, issues[side].subject_digest, result.sequence)
+            assert event is not None
+            assert json.loads(event.subject_payload_json)["side"] == side
+    revoked = append_archive_anomaly_resolution(
+        command=replace(commands["MODIFIED"], idempotency_key="revoke-modified", expected_sequence=1,
+            action=ArchiveAnomalyResolutionAction.REVOKE, reason="withdraw only MODIFIED acceptance"),
+        unit_of_work_factory=_uow_factory(db_path), now=now)
+    assert revoked.sequence == 2
+    current = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path))
+    current_by_side = {item.side: item for item in current.anomalies if item.issue_code == "GENERATION_TIME_MISSING"}
+    assert (current_by_side["INITIAL"].resolution_status, current_by_side["INITIAL"].latest_sequence) == ("ACCEPTED", 1)
+    assert (current_by_side["MODIFIED"].resolution_status, current_by_side["MODIFIED"].latest_sequence) == ("REVOKED", 2)
+    assert all(current_by_side[side].details == issue.details for side, issue in issues.items())
+    confirmation = append_selection_confirmation(seed)
+    with pytest.raises(ArchiveAnomalyUnresolved):
+        start_archive_for_seed(seed, confirmation_sequence=confirmation,
+            anomaly_resolution_sequences=((issues["INITIAL"].subject_digest, 1), (issues["MODIFIED"].subject_digest, 2)))
+
+
 @pytest.mark.parametrize("column", ["subject_payload_json", "issue_code", "target_candidate_digest"])
 def test_stored_resolution_corruption_is_rejected_by_replay_and_start(db_path: Path, column: str) -> None:
     import json

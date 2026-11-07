@@ -270,20 +270,21 @@ def append_archive_anomaly_resolution(
             command.selected,
             selection_subject_digest,
         )
+        matching_anomalies = tuple(
+            anomaly
+            for anomaly in anomalies
+            if anomaly.subject_kind is command.subject_kind
+            and anomaly.issue_code == command.issue_code
+            and anomaly.target_submission_id == command.target_submission_id
+            and anomaly.target_candidate_digest == command.target_candidate_digest
+        )
+        if not matching_anomalies:
+            raise BaselineVersionConflict("anomaly does not match current snapshot")
         matching_anomaly = next(
-            (
-                anomaly
-                for anomaly in anomalies
-                if anomaly.subject_kind is command.subject_kind
-                and anomaly.issue_code == command.issue_code
-                and anomaly.target_submission_id == command.target_submission_id
-                and anomaly.target_candidate_digest == command.target_candidate_digest
-            ),
+            (anomaly for anomaly in matching_anomalies if anomaly.subject_digest == command.subject_digest),
             None,
         )
         if matching_anomaly is None:
-            raise BaselineVersionConflict("anomaly does not match current snapshot")
-        if command.subject_digest != matching_anomaly.subject_digest:
             raise BaselineVersionConflict("subject digest does not match current anomaly")
         latest_sequence = unit_of_work.archive.get_latest_resolution_sequence(
             snapshot.repository_id,

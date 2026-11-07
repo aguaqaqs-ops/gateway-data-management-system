@@ -1080,8 +1080,8 @@ def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() ->
 @pytest.mark.parametrize("fault", ("none", "length", "digest", "etag"))
 def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fault: str) -> None:
     from benchmarks.bundle_tar import download_bundle_tar
-    from gateway_backend.artifacts.bundle_download import prepare_bundle_download
-    from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+    from gateway_backend.application.bundle_download import prepare_bundle_download
+    from gateway_backend.artifacts.bundle_download import BundleIntegrityError
     from tests.test_bundle_download import published_bundle
     store, ref = published_bundle(tmp_path)
     prepared = prepare_bundle_download(store, ref.artifact_id)

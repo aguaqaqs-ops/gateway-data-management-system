@@ -18,9 +18,10 @@ from typing import Any, BinaryIO, cast
 import httpx
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.capabilities.bundle_assembly.contracts import BundleArtifactKind
 from gateway_backend.capabilities.bundle_assembly.transport import (
-    BUNDLE_REFERENCE_METADATA_KINDS, BundleIntegrityError, read_bundle_transport_metadata, validate_bundle_member_metadata,
+    BUNDLE_REFERENCE_METADATA_KINDS, read_bundle_transport_metadata, validate_bundle_member_metadata,
 )
 from gateway_backend.capabilities.comparison.artifacts import open_records_closure
 

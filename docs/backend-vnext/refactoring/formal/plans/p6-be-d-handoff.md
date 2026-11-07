@@ -99,3 +99,15 @@ scp /home/dev/gdds-be-d-guarded-node-run.sh ct107-gw-dms-06:/home/dev/gdds-test-
 ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' backend-ruff vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync ruff check ."
 ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' backend-focused vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -n 4 -m '(not serial) or parallel_safe' tests/test_bundle_download.py tests/test_bundle_download_http.py tests/test_real_dump_journey.py tests/test_workspace_artifact_store.py"
 ```
+
+## 7. Owner恢复后的首轮与架构修正
+
+Owner明确回复“按方案恢复验证”，授权提交 `c1d1beefb1260f21810a6809cc9f8ffb4b6bf78d`。该提交main clean、vnext=`e7dfe478e5abb721a4f968dd692380b3cb05f28f`，两guard SHA均未改变。11:35:41Z现场核06空闲后重新原子取得本人marker（非沿用11:19释放），owner副本 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/recovery-lpNIMtZE/node-owner.txt`。实际guard transfer目录 `transfer-UJm9QCM3`，完整named HEAD bundle SHA `7842b52cfd0ed2a106d6f1b43142c6a799a011ef217e0614487ed0d37d203140`，prepare原log记录verify/checkout/clean/完整c1d及exit0。node-run独立LAN安装至`guarded-node-run-v1.sh`，实际SHA=已审4eb10…，不是bash-s执行。
+
+06 `run-prerequisites-c2NGDGTX`：11:36:39–11:36:40Z，legacy正确、local预填充uv/Cargo、无proxy、1.97全selector一致、Rust扩展expected=installed=e6ac…，command/final0，原log SHA `4a0e527b5f4f1c4c906314ceca681f68db7613a722783d85bd15f66412a71ecc`。venv沿此前合法强制构建，Rust未变，未无故重建。
+
+06 `run-backend-focused-yPq3ZLFd`：当前c1d实际 **380pass/2fail**，唯一失败为原架构owner的依赖层约束；原command/final1、end c1d clean/本人marker true，log SHA `7ff99fbc8320be840074f44245bf74b403a71344edbd82f030ca96b9511067f8`。这是guard正确运行后的正常产品失败，已停后续serial/static/Compose处理；不适用或冒称DC68操作重做。F2/F3及下载向量在380实际通过项内，但不记整批通过。
+
+最小修正：`artifacts/bundle_download.py`仅保留纯 `PreparedBundleDownload` 和窄 `BundleIntegrityError`，encoder仍在artifacts；prepare/metadata协调移至新 `application/bundle_download.py`，bootstrap从application导入函数。HTTP只导低层typed error，owning capability transport使用同一低层class，不增allowlist、baseline或兼容转发。相关test/benchmark import同步。06收敛Compose固定最小 `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`，其共享consumer实际验证Preview完整tar，并从运行production GET `/openapi.json`保存全量schema及SHA；History两/三节点用原HTTP/job wiring定向证据，最终04 runner仍实际包括已修改的History Compose旅程，不在06重复长旅程。
+
+联合05 fresh t1 host budget经协调从原S2b E fresh t1 `command.json`核实为N1/M25769803776B，后续沿该已过host值；Compose worker独立保持N1/M25769803776B、32GiB envelope/8GiB reserve、单active。此前§5的host48GiB参考现以此实际t1来源修正，不试预算。

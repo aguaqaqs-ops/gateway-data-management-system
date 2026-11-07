@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from gateway_backend.artifacts import put_with_built_ref
-from gateway_backend.artifacts.bundle_download import prepare_bundle_download
+from gateway_backend.application.bundle_download import prepare_bundle_download
 from gateway_backend.artifacts.tar_stream import TarMember, pax_record_chunks
 from gateway_backend.capabilities.bundle_assembly import (
     BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind, BundlePairInput, assemble_bundle,

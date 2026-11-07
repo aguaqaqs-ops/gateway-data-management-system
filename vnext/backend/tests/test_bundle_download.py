@@ -18,14 +18,15 @@ from starlette.requests import ClientDisconnect
 
 from gateway_backend.artifacts import ArtifactRef, put_with_built_ref
 from gateway_backend.artifacts.bounded_store import CleanupClassification, DeleteDisposition
-from gateway_backend.artifacts.bundle_download import prepare_bundle_download
+from gateway_backend.application.bundle_download import prepare_bundle_download
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.tar_stream import TAR_END, TarMember, pax_record_chunks, pax_record_length
 from gateway_backend.capabilities.bundle_assembly import (
     BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind,
     BundleAssemblyStatus, BundlePairInput, assemble_bundle,
 )
-from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError, read_bundle_transport_metadata
+from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.http.bundle_response import BundleStreamingResponse
@@ -185,7 +186,7 @@ def test_final_closure_same_ref_at_two_paths_sends_two_ordinary_members(tmp_path
 def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: BundleArtifactKind,
 ) -> None:
-    import gateway_backend.artifacts.bundle_download as downloads
+    import gateway_backend.application.bundle_download as downloads
     store = LocalArtifactStore(tmp_path)
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
     source = put_with_built_ref(store, data, artifact_id="business-json", media_type="application/json")

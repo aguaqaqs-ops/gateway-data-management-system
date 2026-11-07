@@ -49,7 +49,7 @@ from benchmarks.real_dump_census import (
     compare_composite_packages,
 )
 from benchmarks.bundle_tar import download_bundle_tar
-from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 
 from tests.support.compose_gate_harness import (
     BACKEND_URL,

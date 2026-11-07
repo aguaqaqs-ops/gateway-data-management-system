@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.store import ArtifactUnavailableError
-from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 
 from dataclasses import dataclass
 from datetime import datetime

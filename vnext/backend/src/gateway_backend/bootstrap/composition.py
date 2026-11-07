@@ -40,7 +40,8 @@ from gateway_backend.application.submission.contracts import SubmitImportPublica
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.artifacts.bundle_download import PreparedBundleDownload, prepare_bundle_download
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
+from gateway_backend.application.bundle_download import prepare_bundle_download
 from gateway_backend.domain.workspace.models import (
     PreviewAcceptanceRecord,
     PreviewResult,

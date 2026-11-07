@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.store import ArtifactUnavailableError
-from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.application.workspace.preview import read_preview_result
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.ports import BaselineHeadReadPort, WorkspaceRepository

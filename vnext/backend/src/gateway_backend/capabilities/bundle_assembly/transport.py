@@ -10,6 +10,7 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.capabilities.bundle_assembly._assembly import (
     _bundle_artifact_id,
     _entries_from_document,
@@ -26,10 +27,6 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     BundleArtifactManifest,
     BundleClosureEntry,
 )
-
-
-class BundleIntegrityError(ValueError):
-    """Published bundle bytes contradict their owning contract."""
 
 
 # Only these owners already bound their reference documents to 16 MiB. Generic

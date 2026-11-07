@@ -12,6 +12,7 @@ from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER, PREVIEW_MATERIALIZE_HANDLER, PREVIEW_PUBLISH_HANDLER,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
 from gateway_backend.domain.workspace.models import InputCompleteness
 from gateway_backend.infrastructure.artifact_store import BoundedArtifactStore, LocalArtifactStore
@@ -64,6 +65,13 @@ def _history_http_job(
     harness.job_payload = operation.job_payload
     for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
         run_through_step(harness, handler)
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_STEP_ASSEMBLE, history_compare_step_id
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        step = uow.operations.get_step(history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+    assert step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, step.checkpoint_ref)
+    _assert_published_download_is_protected(harness.db_path, store, store.get_ref(str(envelope.job_state["bundle_artifact_id"])))
     return env, harness
 
 
@@ -94,6 +102,10 @@ def test_preview_job_outputs_download_as_complete_tar(
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
         workspace = uow.workspace.get_workspace(harness.upload_revision.workspace_id)
     assert workspace is not None and workspace.current_preview_result_id is not None
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        published = uow.workspace.get_preview_result(workspace.current_preview_result_id)
+    assert published is not None
+    _assert_published_download_is_protected(harness.db_path, store, store.get_ref(published.bundle_artifact_id))
     url = f"/v1/workspaces/{workspace.workspace_id}/preview-results/{workspace.current_preview_result_id}/bundle"
     response = env.client.get(url, headers=env.auth_headers())
     assert response.status_code == 200, response.text
@@ -102,7 +114,6 @@ def test_preview_job_outputs_download_as_complete_tar(
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == pair_count
     assert response.headers["etag"] == f'"{manifest["bundle_digest"]}"'
-    _assert_published_download_is_protected(harness.db_path, response.content)
     if project_id == "project-b":
         assert b"DATASET_REPLACEMENT" in response.content
 
@@ -116,18 +127,13 @@ def test_history_job_outputs_download_as_complete_tar(tmp_path: Path, node_count
     assert len(response.content) == int(response.headers["content-length"])
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == node_count - 1
-    _assert_published_download_is_protected(harness.db_path, response.content)
 
 
-def _assert_published_download_is_protected(db_path: Path, raw: bytes) -> None:
-    import io
-    import tarfile
+def _assert_published_download_is_protected(db_path: Path, store: LocalArtifactStore, manifest_ref: ArtifactRef) -> None:
     from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
-    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
-        file = archive.extractfile("manifest.json")
-        assert file is not None
-        metadata = read_bundle_transport_metadata(file.read())
+    metadata = read_bundle_transport_metadata(store.locate(manifest_ref))
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.protection.is_protected(manifest_ref.artifact_id)
         assert uow.protection.is_protected(metadata.closure_ref.artifact_id)
         for entry in metadata.entries:
             assert uow.protection.is_protected(entry.artifact_ref.artifact_id)

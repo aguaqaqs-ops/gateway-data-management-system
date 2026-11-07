@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS旧身份原件缺口保留（§12），Owner批准方案A后，同49403四包实际比较沿用＋两包最小权威补验0，当前身份原件及LAN索引收口、04已释放（§13）；最终阶段手续仍由协调/Owner确认；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；联合当前态以§13为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS旧身份原件缺口保留（§12），Owner批准方案A后，同49403四包实际比较沿用＋两包最小权威补验0，当前身份原件及LAN索引收口、04已释放（§13）；Owner已授权正式退出，H0实际六包与镜像等价已核，最终报告F绑定/tag按§14继续；FE3 同字节 OPFS 互通仍独立。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；技术证据见§13，正式退出当前态见§14。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -433,3 +433,34 @@ RS client e2e当前来源单列：`run-client-image-observation-MBOP8YRf` 14:42:
 **14:44:32–33Z cmp本人marker后释放04**；`release-0zzsICrS/release.log` SHA `b904cead22a4999316768c5afe0f8399ac20342ff90c1bd4472c383fb09f87be`，release_exit0/end49403clean；原 `command.sh` SHA `0893866c7d1f5028e4aac919cd9434f7116f31a13a02ae5ab574a0e35501d17b`。不删除WT、镜像、缓存或历史原件，不把此次释放当预约。后释放metadata补充 `resume-a-5OBTboKj/release-index.json` SHA `7df3b602a8e7d6d34f68644a1348589e7ff49bce683af39edb35232905c8be1b` 链接原phase index、自身生成run、cleanup、释放与完整命令源；仅新增metadata，不再使用需要owner的guard或执行测试。补充全部原文件已LAN复制并逐项核size/SHA，原index/原log未覆盖。
 
 本节当前证据结论为**四包直接原49403整次0来源并经实际比较沿用＋两包当前49403最小权威原0**，必要Compose取本次backend批次，不重复旅程；05仅按§10及原审§20限定引用a999成功步骤，不改称49403 fresh、package/image carried或新双subject自然覆盖。最终独审报告在本文固定后由同一角色签收。DC33最终退出范围确认、阶段exit/tag/push/S3与FE3同tar OPFS互通仍由各owner独立处理；本角色没有自行办理或宣称完成。
+
+
+## 14. A1/V1/V2/D正式退出：H0实际绑定与最终F闭环
+
+Owner明确要求“请办理正式退出”，协调固定退出工作单H0 **`479847148e1c50a92993371f004a1a7a032c006b` / vnext56720104af34a1eb677336f57bdbc07444a56615**；DC33已由联合准备§13/Owner记录715e确认，技术GO仍原审ccdd1eb39d§25。本次只完成最终包/镜像绑定和本地退出手续，不改产品/闭包工具/缓存，不重跑六包runner或05 fresh，不push/S3，不替FE3验收。源49403到H0的逐路径diff全为docs，但仍实际在原04同WT生成六包manifest，未以同树替代证据。
+
+15:51:09Z只读快照04可连/空闲并非预约；原审静核四稿后，**15:57:54Z原子取得新本人marker**，新证据root `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-exit-04`，未覆原final-04的owner/日志。`claim-wVX2AhoR/claim.log` SHA `cbbb819e3902094bf2858020974f5ef51eaac400db8530078325123b50de9599`，claim0；安装 `install-JZnF4FqH/install.log` SHA `9d46da66be189f8d1ce969ef5a4df5eb91dc1a486f831516c19688e588bb718c`，四稿实际SHA全符。
+
+外置脚本均位于 `/home/dev/`：`gdds-be-ad-04-exit-claim-v1.sh` SHA `484ffc7a9f9a048b359540d99bb44a1dc29dec4c290d34266f2b048c5026a8a3`；`gdds-be-ad-04-exit-node-run-v1.sh` SHA `98e249fdfc8460b277b3e11a0bdd0054c95ee4e292bcd40390f07313fdd2422d`；`gdds-be-ad-04-exit-transfer-v1.sh` SHA `d11d50828f6615ecad8371d4687956ed154779c91886bdfafb624b8e7c741e74`；原 `gdds-be-ad-04-exit-bind-v1.py` SHA `7ea3ec34736f8b2ab20782a3f8273aca2d540afa91442132baddc7df8d094973`。新bashFILE guard只特化新owner/root，仍前后完整HEAD/clean/owner/原exit/唯一目录；原WT `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-04` 不变。
+
+固定本地readonly detached H0 source WT（含legacy）生成具名HEAD bundle；完整advertised SHA/源前后clean与归档SHA核符，LAN传至新root `transfer-pMOGgdeZ`，**15:58:33Z source_ready H0/prepare0**。prepare.log SHA `a9b51ea04f6aa73e918e897a271eadc75ead3ce4f686c36afc16105bfc9dae19`；bundle SHA `73146b419a05fd0d61bef6538f4e3029397c29706ac065261dd01d7781720e84`。不依赖shared main冻结或FETCH_HEAD身份，也不追随后续main docs。
+
+### 14.1 原H0调用缺陷与DC68唯一纠正
+
+`run-h0-binding-gcQSIwH4` 15:58:59–15:59:08Z **原command/final2**，endH0clean/owner true，log SHA `5b170089126dfdee2d59f26a3e4f1f09b98b0df677e2574bb2ebfabf7c0ca007`；`binding-j4rytau8/binding.json` SHA `a77b0de38f8c9244fdcd0ee80927d233383f69f8c4f180e84f31bb10e2a628cc`。四基础包可沿用，两包backend/RS仅environment:runtime-and-docker-build差异，按规则停止，未拿镜像相等覆盖compare。原审/协调只读逐字段独立核到唯一字段：`setting_fingerprints.GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT`。原runner206–209在五锁snapshot后export1、442外层assert五锁；本次独立metadata命令漏继承该内部profile。source为settrue/SHA(1)=6b86…，current不存在；其余所有Docker/daemon/tool/image/build setting字段完全相同。没有测试/build/uv消费或源/缓存/镜像副作用，不是实际环境恢复。
+
+协调明确按DC68本步骤首次自身调用缺陷授权一次纠正，原审静核后：`gdds-be-ad-04-exit-bind-v2.py` SHA `60bae397a7621317d96d5e5eedaf6eda913cde90e5e940d6df238928240e9ae9` 仅给manifest子进程env副本加原flag1；`gdds-be-ad-04-exit-bind-with-locks-v2.sh` SHA `28f513fede7ea369379f81c90b348e79ee1b793628bc6412d233d9148d5b327e` 调用现有公开五锁snapshot/assert，binding非0也执行外层assert、原binding/lock exit分记，全局flag必须未设。**不是关闭锁保护**，不调用uv/run/sync、ensure/build、retag或清ignored状态；v1和原exit2永久保留。两新文件拒冲突安装/核SHA，`run-install-corrected-sha-HjBth7eg` 16:03:16Z/0，log SHA `e43148e2ec374a7d19642140777b84f78d6562a88092db7e1f479f80ebcf0ea6`。
+
+### 14.2 H0实际六包与容器等价
+
+`run-h0-binding-corrected-e20WQoMR` **16:03:25–16:03:34Z**，`original_binding_exit=outer_five_lock_assert_exit=command_exit=final_exit=0`，endH0clean/owner true；run.log SHA `9ef769cd5d099f69305d22f74a3909d16f22c495d79055d09995c0f68ce14ed9`，binding原metadata为 `binding-4ktnwsu2/binding.json` SHA `d728497e708e02ee282a7893d2cd9ca07082dfa4be38167da8017a2c995274e2`。`lock-check-Is4JscnT/five-locks-before.txt` 与after原bytes SHA均 `769a4ba5409eef9bc8161fb4642f5ad1f26211501a68a8824c5733ce2190d039`；原公开assert实际0。原完整profile仍UV/Cargo offline、Cargo4/pytest48、TMPDIR、preload d054/networknone、customRS及client base、prebuilt/basetemp unset；包专属Hypothesis原绝对路径实际不存在，无sync或缓存清理。
+
+六包实际status均“可沿用”/changed_components=[]，current total_digest分别与§13最终包表相同：rust/shared_kernel/repository_contracts/repository_client直接引用原49403 `run-authority-six-final-DTWWhQP4` 整次0；backend/RS直接引用原49403 `run-authority-resume-mvzi5dNV` 整次0，既不链式沿用，也不引用失败run。每包current manifest原stdout bytes/compare JSON及source/current total/SHA存入binding目录；本轮是实际六包比较，不能称H0又实跑六包或05 fresh。
+
+镜像分开按规则绑定：公开 `build_context_digest.py identity` 在H0重算candidate=H0、build-input仍a687/source13cb；两source标签等于原RS镜像，revision49403按阶段退出规则不参与source等价，未调用会按candidate重建的harness。原三runtime snapshot的immutable IDs读取current inspect，核源原config SHA/全部54项DiffID/labels齐；customRS tag前后均130674，原config13776/28DiffID同§13原件。backend/worker无source标签，以同原WT当前backend manifest对直接mvzi来源实际“可沿用”绑定其原Compose旅程；不是凭本机ID或vnext树口头等价。无重建/retag/新Docker save，旧RS15e3缺失不补造。
+
+### 14.3 H0保全与最终F动作边界
+
+`evidence-index-h0-n9lyd86l/index.json` SHA `2be3e3d480d226faaab880dd28b8dfc5190291f138149a362393ec069eb23cbe` 保存72个原文件size/SHA、原exit2与唯一纠正，排除自身生成run/未来F和release；索引生成 `run-h0-evidence-index-FUIORmDt` 16:04:25Z/0，log SHA `0f67ab27f431ef64887b94180e9b47062b0f9463ccb82b19e65287bd5cf89aa8`。完整新root的LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-exit-04-copy-EudGPi3l/p6-be-ad-exit-04/`，72原文件size/SHA及index逐项相等；原运行/source cfg证据继续指§13既有final-04及其LAN副本，不覆盖或冒称旧缺失原件已恢复。
+
+H0通过后本次只提交本文。原独审将退出报告/执行计划状态合成纯docs提交F；保持当前本人marker和原WT/镜像，不在两次之间释放、retag或改本地输入。F实际完整SHA由原审给后，用同一已审transfer（expected=F/previous=H0）、同profile v2在同原WT再做**一次最终六包compare与镜像绑定**，真实原log/五锁/外置索引与LAN结果交原审最终回执；不为给F回填自身SHA再造G。原审最终GO后协调者直接在F建本地附注p6-be-a-d-exit，验证tag/目标/main/产品树；不push/S3。实际F绑定前不称已正式退出。随后只清本人资源、cmp本人marker释放，原WT/镜像/证据保留；FE3b、前端阶段验收及原基准W1/W2仍独立。

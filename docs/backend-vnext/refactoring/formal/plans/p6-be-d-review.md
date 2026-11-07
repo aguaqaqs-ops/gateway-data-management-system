@@ -378,3 +378,17 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 固定 **`2ae2d825ea775e5ef35c449d924a9edcc6aa8b81`** 在 `/home/dev/gdds-reviews/p6-be-ad-fix-2ae2d825ea` 新只读WT核clean／legacy：仅两个原owner三行match同步，异常类型／fail-closed／未发布断言不变；产品src／consumer／harness／Rust／deploy／scripts／fixtures相对a999 diff为空，vnext仅tests变为`220ba52851eebf2886a109c32d6dd7f8c1ff80a2`。**该已知修订静核通过，实际补验待；不提前定最终候选。** 原runner serial已见失败标记，完整serial trace及总exit尚待，不写被测WT／不重tag／不启动后续验收。
 
 失败整次不得作为任一package carried来源，下一合格权威仍须六包（原S2b公共fixtures闭包不同），不把部分通过拼整次。05成功只绑定实际a999；是否可为后续仅tests变化的候选按步骤引用未影响证据，须等最终diff及对应owner结论，当前不称2ae或新HEAD实跑fresh，也未作image/package carried判定。A1/V1/V2／D联合覆盖与当前04镜像门禁仍待合格原运行收口，FE3同tar OPFS、DC33最终范围与退出手续继续pending；05成功不抵消04失败，本角色继续同一职责。
+
+## 19. F6（P2，既定联合接缝）：同类别不同subject的合法接受被错拒
+
+原04 backend serial最终 **4 failed／56 passed**：Archive dualactor、History zero-write restart、ordered History、Submit removes-deleted四条现有Compose，均在 `resolve_archive_preview_anomalies` 逐项提交实际preview anomaly时返回409 `BASELINE_VERSION_CONFLICT`／`subject digest does not match current anomaly`。本角色独立核四trace和共用helper原文；helper忠实传每项真实subject／target／sequence，并未force、删改diagnostic或伪造fixture。这四失败不能与§18三条旧文案期望混为一类。
+
+固定旧 `application/archive/audit.py` L273–287先按subject kind、issue code、target submission／candidate四字段取首项，再比较command digest。FULL的INITIAL／MODIFIED可合法各有同code的GENERATION_TIME_MISSING，四字段相同而包含side／relations／details的完整business subject不同；第二subject因此被误当作首项摘要矛盾。owning Archive正文及业务设计§6.2／7.1本来就要求逐项完整subject，修复此选择不改变设计、权限或摘要公式；设计者回执亦确认，没有新增审批／角色／威胁模型。
+
+固定 **`eff1dc531b7f011d870bb100912f079cf500c497`** 已在新只读 `/home/dev/gdds-reviews/p6-be-ad-audit-eff1dc531b` 核clean／legacy，vnext **`56720104af34a1eb677336f57bdbc07444a56615`**。实际21行产品diff先构造原四字段候选tuple，空集合仍原409；再于集合内按完整 `command.subject_digest` 选当前项，未命中仍原digest409。不是只信caller digest绕过当前snapshot／四字段；后续latest sequence、server subject_payload、写入、auth／scope／CAS／actor-bound request／成功replay路径完全未改，无Contract／版本／preimage／golden变化。
+
+原 `test_archive_audit.py` 一个67行小向量经真实preview派生FULL双side同code／同四字段／不同digest；先接受MODIFIED，再接受INITIAL，各自seq1并核持久subject_payload.side；伪digest用fresh key硬拒；仅MODIFIED revoke至2，INITIAL仍ACCEPTED1，原details不变，Start仍阻塞。没有mock异常派生或新增Dolt／调度矩阵。**F6代码与向量静核通过，finding仍待原owner／共用wiring实际补验及合格联合门禁后关闭。** a999..eff1除本产品文件及其向量，仅有2ae原两个test的三行消息期望；consumer／harness／事实／Rust／deploy／脚本／fixtures均未改。
+
+05影响的代码论证按实际成功路径限定：旧请求成功必满足原四字段首项 `subject_digest==command.subject_digest`；新搜索仍首先命中同一旧首项，其后校验／sequence／冻结payload／写入沿同一路径。该推论不需要假定自然数据的候选集合基数为1，也不依赖外存全部resolution HTTP响应；它只说明a999已成功路径未因这次精确选择而改变，不冒充新增合法第二subject已有真实数据证明。其余05步骤和完整tar consumer源码亦无diff。**该未影响论证已在实际eff1 diff下成立，正式按步骤引用仍待该候选必要focused／小共用复现验证收敛；来源始终为a999，不称eff1或后继HEAD实际重跑fresh，也不作image/package carried。**
+
+诊断范围与协调／原实施者一致：原audit及两个staging／checkpoint owner主体-n4与serial-n0，空批5=N/A；backend增量ruff／mypy；仅一条现有 `test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables` 作真实FULL双subject→Archive→后续Submit的共用复现，然后下一次合格六包。RS源码a687／13cb未改，可保留本任务既有独立a999 tag并准确记录旧revision；backend／worker须本机当前build。原runner仍完成自身RS serial，未末exit／未清理前不改测试WT或镜像、不启动后续验收；本角色未运行节点命令／被测对象。本节尚无新实际补验、权威总exit通过、04当前镜像或联合最终GO；05原成功及FE3／DC33未决边界按§18保留。

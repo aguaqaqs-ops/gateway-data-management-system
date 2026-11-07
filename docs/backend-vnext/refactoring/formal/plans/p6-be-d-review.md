@@ -301,3 +301,13 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 ```
 
 本角色本轮只静审固定WT、读取节点原证据／制品与现场metadata，未执行测试／编译／lint／容器或重跑consumer。D本地里程碑成立后继续同角色联合收尾，当前没有联合最终GO、DC33 exit、tag／push或S3声明。
+
+## 16. 固定 41386e12e6 本地 handoff 核收
+
+固定 **`41386e12e6e06843e9db85ec34bc8ad950a9a156`** 已在新只读 detached WT `/home/dev/gdds-reviews/p6-be-d-handoff-41386e12e6` 核clean／legacy、实际两文件增量与handoff全文；0ba..41386的vnext diff为空，tree仍 **`0301aee3a39e3a5dfc37360e9c2062e660eb01ea`**。
+
+**本地handoff核收通过。** Contract已准确限定F5：已解析Preview Result的不等／空expected，以及History checkpoint缺失／不等expected在头前typed503／close；原始Preview binding结构缺键沿原mapper分类，没有扩大V1语义。handoff顶部及§8以实际0ba／06结果为当前态，application prepare／公开capability surface、64KiB工作chunk与各16MiB metadata／join开销计账、唯一test owner及06 Submit／04待跑History边界均与固定产品相符；§5已使用原实际t1 host N1／25769803776B，独立列worker32／8 envelope和N1／M24GiB。
+
+逐项对照本角色§11–15原始核收，handoff引用的guard、实际focused成功与失败来源、serial exit5=N/A、五包静态及增量backend静态、当前Compose／OpenAPI、五镜像config及全部DiffID、同24576B tar／八文件index／header-only向量、12:05:24清理和12:05:51本人释放均一致。历史暂停与恢复有明确标签，aaa首轮三原log不可复核及旧误跑排除仍保留；没有把18-run快照、records count0或FE pending扩大成新证明。
+
+当前reviewed handoff HEAD=41386，产品与最后06验证仍绑定0ba／0301；本次仅Contract措辞和实施文档，无新的image/deployment/runtime/container-harness变更，因此不触发额外构建或重复06 Compose。最后验证image revision/source-tree按§15.1记录，未新增package/image carried判定。**本地handoff待办关闭；原两角色继续04六包权威及其必要Compose、05一次fresh t1的固定候选／完整env／CLI／逐项reasons／各节点路径与guard静核及实际证据收口。** 这些联合运行尚未执行，DC33最终范围与阶段退出、FE3同tar OPFS仍pending；本次核收不结束D角色或宣称联合最终GO。

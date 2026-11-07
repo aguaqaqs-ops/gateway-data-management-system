@@ -48,6 +48,8 @@
 
 首轮实际选项固定为 t4、scope=full、MODIFIED_ONLY、resume_step=v2-submit，`full_v2=false`、`three_node_history=false`、`cross_project=false`、`history_cache_mode=none`；不重做旧步骤、不新增 Archive/v3 旅程。实际新步骤为 v2-submit、v2-repository-read、v2-approve、history，以及既有尾部 hash/比较/HTTP artifact 读取和证据收尾。普通 HTTP/归档 helper 若属于这些步骤，其等待计入所属阶段，不另开无界路径。
 
+这里的尾部“归档”仅指 artifact/证据文件打包，**不包含业务 v2-archive**；冻结旅程只有 `three_node_history=true` 才进入该业务步及 v3，本首轮不调用。read/approve 的1800秒也不含它。只请求实际经过的 checkpoint，首轮默认 v2-submit（按需要保存）、v2-repository-read 和 history；不为未执行的 v2-archive/v3 请求 checkpoint，避免成功收尾时产生“缺少断点”的工具错误。额外 before-approve 副本非必要，已完成 Submit 后的断点可保护昂贵 prepare，无需为同一边界多次复制。
+
 | 首轮阶段 | 工具预算（秒） |
 | --- | ---: |
 | 初始化、预检、恢复和必要目标快照 | 1800 |

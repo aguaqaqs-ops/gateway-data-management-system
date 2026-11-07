@@ -2515,6 +2515,8 @@ BatchMode确认后只读CT05 `dc63-guard-52ab-20261107.log`，SHA256 **`65af63d5
 
 **成功退出但残留子进程的状态修正亦已关闭。** 实施者随后发现52ab虽收束残余诊断session，却会沿用chain的0而误报成功；`bbe577c6d8ab9cf11452b3441b85cd9c8d280ea0` /tree `d974f75967053c7212e6b5a1cb20b11ff5ddfcd6` 仅在这一分支将0改125，再沿原stop_watchdog及EXIT清理，既有非零状态不覆盖。新增focused证明正常主进程遗留的孙进程收到TERM、整体125且已安全清理时可解锁；原保卷/残留不明保锁保持。只读CT05 `dc63-guard-bbe5-20261107.log`，SHA256 **`daa70a8e2ba0a422a5466b7f5c78e8e616c8c2f0f029f0dddca38c10002c07fd`**：15:09:15–28Z、起止完整bbe577、43passed/11.42s、Ruff/mypy503/bash-n全0，代码及必要验证PASS。本次未增加deadline或product/runtime修改，未重跑install/业务；实际诊断准备与FULL等待状态同上。
 
+补充直接核CT05 `dc63-entry-bbe5-20261107.log` SHA256 **`65c83018f070cfd111e4b7eb9455aa5d23f18ab114f1362f9bdd712e03257d31`**：15:39:37–38Z、完整bbe577起止、实际路径chain --help及非formal sampler模块 --help均exit0。仅证明CLI导入/解析入口，不是实际chain、容器接线或业务通过；不因此缩减真实启动前提或重复运行。
+
 ## 111. W/H及S2偏差工具误取整旅程：已定位，按原单operation定义修派生
 
 **实施者提示并经本审核独立确认：timing reference工具的14项actual选择存在单operation/整旅程口径错误；修订与实际原件派生尚未交齐，本节不关闭该Finding。** 其中13项为record_only（W1/W2/W3/W3-FULL/W4/W4-FULL/W4-STRESS，H1/H1-FULL/H1-REFILL/H2/H3，S2）；另有compare的H2-3NODE actual及其旧reference同时取整旅程。问题在后处理选择器及参考取值，不是新测量定义；当前在途FULL、原run/state/计时及已完成业务均不修改或重跑。
@@ -2534,3 +2536,19 @@ H2旧参考的S1c b96确为2×、三节点、cold History，原handoff/state SHA
 实际派生须逐项使用各自合格原场景及原版本/cache条件，保留run/state/SHA和工具来源；§101的107b数字只证明字段位置及错误选择的差别，mode=none的History不能替代H1健康缓存或H2/H3，继承W4 Preview也不改记为9704。不能把同一107b依次冠以13个场景标签。实际源与H2原state读取仍等FULL结束后的适当窗口，不因这次代码PASS新增业务重跑或把记录收口宣称完成。
 
 **缺失计时拒绝用例复核PASS。** `464c037000eec37ff6f80cb11835e931ba617387` 相对132ac仅新增一个用例：原run有999s整旅程值但state缺所需operation timing时，实际evaluate抛TimingError，不静默回退。CT05 `timing-selectors-464c-20261107.log` SHA256 **`8517dc9dceb4f1e08252432b4a268abf3dc053ad2fbb74428498219258649694`**，15:23:01Z、完整464c起止、29passed/0.14s、focused_exit0。首次仅提交focused，审核要求对已改测试文件补当前候选backend静态，而非将132ac旧静态冒称464c实际结果；`timing-static-464c-20261107.log` SHA256 **`123e60bad8568e5515daa91bd0272a4e027e1bfb0175a30991db0b44b02d348f`**，15:24:01–02Z、完整464c起止、Ruff/mypy500及exit均0。两日志已直接只读核验；其余包不变沿既有来源，无install/业务/容器或全量runner重跑。本小修订关闭，H2第14项及逐场景实际派生仍未关闭。
+
+## 112. 源W4历史数值派生核验成立，metric_source区分继承操作与外层证据版本
+
+**来源标注工具 `2abcf55c0fbb33148880006ac2e8dd35ae279206` 的代码/必要验证PASS；4743.456s派生仅是旧e798 W4 Preview的历史观测，不升级该运行资格。** Owner A下源RS run-bound full identity仍UNAVAILABLE/source input only，不把此值写成9704实测、完整身份合格或carried。H2-3NODE参考及逐场景记录收口仍待办，当前资源不归继承Preview、none History不占H1/H2/H3。
+
+为避免在途CT108取件，审核者只读复算§101 CT201已认证副本run/state、launch及resources四文件，仍与原SHA精确一致，并将已存路径交实施者经LAN到CT05。本审核又直接hash **CT05实际输入副本** `/home/dev/gdds-p6-logs/baseline/derived-inputs/p6w4resume970420261107b/run.json`（44967B，SHA `2f2197d6…37f07`）及state.json（39934136B，SHA `0281f0e0…5fc897`），精确等于§101原件；不只信派生JSON的自报值。独立解析原run/state，两者的v2-preview PASS行均为source_head=`e798ec87a37330250b0c051162e7962dba1daa60`、source_log=原p6bw4s4h120261105b/launch.log；repeat Submit为20cf原a，新Submit/History为3fd。当前顶层source_head/current_head不能替代这些逐操作来源。
+
+464c初次派生 `w4-source-visible-464c.json`（906B）SHA **`159c8a77a47a63be64f18ec10c28868f6d2d86772875dd6a29213c0523d72fec`**、日志 `w4-source-timing-464c-20261107.log` SHA **`82b78498aef4ac2b0c74e44cfa7f50e6dd8ce9eee6d75ad58976db76588d1a17`** 均已独立核验，CT05 15:45:48Z、464c起止、exit0。数值及selector正确，但measurement.head只有外层3fd，单独引用有误归版本风险；旧文件保留，不改raw或覆盖结果。
+
+最小修订只在state `/steps/<step>/…` 指针上，从已有对应PASS step_check附 `measurement.metric_source={step,head,log}`；保留measurement.head为外层run。缺来源显式为null，不推定run HEAD；来源非字符串则拒绝，不同PASS来源冲突也拒绝，同值重复不捏造新执行。首版ecc0未过滤state行的PASS，而原_validate_journey优先检查run行，审核直接指出后在2ab仅加PASS筛选；正常流程、正式采样/计时、所有数值/参考/policy均不变，不建立新证据状态机或读取旧源栈。现有用例以FAILED干扰行及两份冲突PASS验证不取错误来源，原正常及缺失字段拒绝用例保持。
+
+CT05 `timing-provenance-ecc0-20261107.log` SHA **`0725eef38d78f92d89f392cbdb205bbd159888ab1ad3c5362867fb4d4e659601`**，15:48:15–16Z、完整ecc0起止、30passed/Ruff/mypy500全0；最终 `timing-provenance-2abc-20261107.log` SHA **`994ba48488d0ff50a0e9f1c99c215ae1a72f78d90f299b68a10cbf7633bcdb6a`**，15:50:16Z、完整2ab起止、30passed/0.14s、Ruff/mypy500及三项exit0，均直接只读核验。其余包不变关联原静态来源，不冒称本候选全量runner或carried。
+
+新派生 `w4-source-visible-ecc0.json` 与 `w4-source-visible-2abc.json`（上述derived-inputs目录）本审核直接比较**逐字节相等**，各1109B、SHA256 **`f6357e4b4ec96c10680eb1a2e9b5bba1f298f99fd13f9dc6d91613c5ad7456d3`**；输入对应行本来就是PASS，所以过滤修订不改变该实际结果。新文件已先产生，均保留，不要求为同值再运行。各派生日志 `w4-source-timing-ecc0-20261107.log` SHA **`3e764ece1459ffdaf44bcee2ac40aacfdbfc9eea985c9c039daca68104c0e793`**（15:48:33–34Z）和 `w4-source-timing-2abc-20261107.log` SHA **`324c350c32f70f3fc5e639989a96f6adfe88e151a8d6fe92ad3fb8d0c99ba163`**（15:50:35Z）起止HEAD分别为各实际工具、exit0。结果取原v2-preview user_visible_seconds=4743.456、record_only、reference/deviation=null，metric_source精确指e798/原b，外层head仍3fd；reference_file_sha `7a688b10c8b39e3a097ce74eb069fb731264b68c51f59a1b8f628d24054b8e17` 与Git中464c原字节独立hash一致。
+
+这关闭的是数值/来源派生小项，不是源W4身份资格或完整record验收。来源RS identity限制必须随条目/总索引保留；107b资源只覆盖新接续步骤，旧W4完整资源资料仍按其原来源处理，不填零或借当前资源。当前普通工具修订及必要后处理已直接与实施者闭环、设计已确认限制；无新重测/GO，不触正式产品或镜像，不访问在途CT108或SQLite，FULL继续原运行。

@@ -1,6 +1,6 @@
 # V2 归档界面接口交接（Owner手动转发）
 
-2026-11-07。协调者维护，前端 owner 实施其代码。**当前为固定接口候选 `7878e41ad3`→完整候选 `3cce25c72a` 的提前交接，V2 尚未独审 GO**；后者将subject正文细化为按issue闭合的DTO、保留精确preimage，本页公开流程/字段要点相同。后续修复、最终 OpenAPI 制品/摘要及证据确认后更新本页。A1/V1 已本节 GO；BE-d 完整 tar 与前端 PAX 同制品互通仍另待，不把本页视作 FE3 完成。当前没有等待前端判断的阻塞问题。
+2026-11-07。协调者维护，前端 owner 实施其代码。**V2已本节GO，最终独审`9ec62e82ad`，产品/当前Compose`f8fb796f02`，handoff`3cd4400f9f`**。提前候选7878→完整3c→f8已收敛，subject按issue闭合并保留精确preimage。A1/V1亦已本节GO；04/05联合最终、BE-d完整tar与前端PAX同制品互通仍另待，不把本页视作FE3完成。当前没有等待前端判断的阻塞问题。
 
 ## 1. 预览与逐项接受
 
@@ -34,6 +34,10 @@ Review 的审核 status 继续显示历史状态，新增 required-nullable `sub
 
 History 节点的 `archive_disposition` **直接替换为 `submission_disposition`**，无旧字段别名；增加 disposition_source_kind、disposition_result_id、closure。source_kind 区分 ARCHIVE / MANUAL_CLOSE；手工关闭的 result_id 为null，但已关闭，不能据null误判仍可归档。分页和完整树均采用新事实。Archive响应的 dispositions 也使用统一对象，只有真实ARCHIVE来源关联ArchiveResult。
 
-## 4. 最终转发补件（待）
+## 4. 最终转发制品与证据
 
-待固定V2最终候选：实际生成OpenAPI文件及SHA、权限/错误矩阵、06必要生产旅程及同角色独审报告链接。提前接口来源为 `http/schemas/archive.py`、`archive_business.py`、`history.py`、`review.py` 及 archive routes；此页没有运行或宣称公开接口已通过验收。后续若需前端判断影响后端方案，协调者另给具体问题，等Owner手动转发回复；当前实现不以沉默作确认。
+实际生产 `GET /openapi.json`（同一f8 Compose）副本：[openapi-f8fb796f02.json](/home/dev/gdds-v2-evidence/openapi-f8fb796f02.json)，SHA256=`e937a38e8073abebb406138e9be2ca2bd61eb25ac8fda9d9adabee56fd2abda1`。首次/重放、权限与错误边界按本页§2及实际schema；确认1/异常1601、History改名、Review required-nullable处置和closed union均已核实际制品。前端刷新自己OpenAPI快照/类型，本轮后端没有修改前端源码。
+
+06真实异常拒绝→关闭→新上传补saved_time→新提交/审核→归档旅程1/0，生产镜像/provenance与资源释放由同角色独审核收；全部37运行/13附件索引：[evidence-index.json](/home/dev/gdds-v2-evidence/evidence-index.json)，SHA256=`cc505fe5a1a1776191a8ab599b7433784460a47f004fab2398e3459b9c611efb`。详细结果/失败保留和范围见[V2 handoff §6–9](p6-v2-handoff.md)、[最终独审 §11](p6-v2-review.md)。06于10:39:24Z释放，角色已结束；没有权威包carried或04/05完整旅程声明。
+
+后续若需前端判断影响后端方案，协调者另给具体问题，等Owner手动转发回复；现无这类阻塞。D会另交真实生产encoder同字节tar及摘要，前端修PAX和同制品OPFS证据仍须其owner提供，后端GO不代替FE3。

@@ -1,12 +1,14 @@
 # Phase 6 S3 B 独立审核
 
-**状态：固定 `2b629e4562166de706da984995fc2ebc14fb1252` Rust 与合成差分已在 06 通过；真实按表差分在 t1 首项因临时 CLI 错送非记录角色而停，B 尚无 GO。** `503cfbd4da72b232dc175c3692c040adf499878c` 仅修临时 CLI 角色分流，Rust tree 与 2b 相同，待 06 实测。固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。八包 SHA 已核，t1–t4 按表及五包静态仍待完成；旧镜像结果不作当前 PASS。
+**结论：Phase 6 S3 B 独立审核 GO。** 代码候选 `fbb7fca65d81ff61ecf0022e85da0bdf0f71ae9a`、最终 handoff `4918cc5440d01d2a29224a164f1b56ab1ab1a4b2` 固定，06 的适用 focused 原件已通过；此结论只放行 B 内核与后续 C 实施，不是 S3 ready/生产门禁。2b 的 Rust tree `cef7eaf099937a66ce33c160154936a5c086f0be` 延续至 fbb，后续只改 B 临时 Python 差分工具。固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。旧镜像结果不作当前 PASS。
 
 ## 1. 固定对象与方法
 
 设计 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`、kickoff 复审 `83ba4979044179256aa8c3d5d1d7b3424e648884` §5 已 READY；A 独审 `f28c89eff5ac1e653facb21229c3b5a7d281f971` 最终 GO，A 无剩余 finding。依据 AGENTS、testing conventions、比例化/Rust 政策、S3 设计/kickoff、A handoff 与 Comparison/Ordered Diff/Risk、Shared Canonical Encoding、Canonical Storage、Snapshot Table Access owning Contract，并对照固定 A/旧 Python 生产实现。未重开已关闭的 kickoff 设计。
 
 本人在 `/home/dev/gdds-s3-b-review-3577df18`、`/home/dev/gdds-s3-b-review-a4ff7536`、`/home/dev/gdds-s3-b-review-ac21ad40`、`/home/dev/gdds-s3-b-review-2e975888`、`/home/dev/gdds-s3-b-review-a665a3c0` 五个 detached worktree 只读审核，均固定 HEAD、tracked clean、链接 `legacy/`。a4ff 的 `vnext` tree 为 `de98b3fcedc713e88a0798a1357503e081560a5e`，ac21 为 `e6c464bd343eca865c1274247bfac7438e9942d9`，2e975 为 `97e1bb3e9da32eff5d0120e0cffb99c6817d2875`，a665 为 `5488e79d098c42d928a0e4f7ccfb4ae2aa38497f`。开发主机和审核 worktree 未运行编译、lint、测试、容器或性能测量。
+
+最终阶段另在 `/home/dev/gdds-s3-b-review-2b629e45`、`/home/dev/gdds-s3-b-review-503cfbd4`、`/home/dev/gdds-s3-b-review-fbb7fca6`、`/home/dev/gdds-s3-b-review-h4918cc54` 等 clean detached 固定对象审核；最终 H 相对 fbb **仅**修改实施 handoff，Rust tree 相同，未重跑此前验证。
 
 ## 2. 当前静态核点
 
@@ -80,8 +82,20 @@ b634 唯一 06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-b63409b3/logs/run-fina
 
 非记录角色的 `COLUMNS_ADDED` 分支虽无 records，冻结 Python 仍对共有列 `_read_rows` + `Counter(_row_digest)`；503 的 `metadata_only` 名称包括这支计算，不能当成生产性能替换。D/E 可用 B 现有 keyless 比较，传全部共有列、无 excluded、`columns_added=true`、`emit_add_delete=false`，以 `suppressed_added_count + suppressed_deleted_count > 0` 得到相同 multiset `content_changed`，记录为空；旧 `_row_frame` 与 B `frame_for` 均按列名 UTF-8 序、ULEB 名长和共用 canonical cell frame。`test_comparison_rule_roles.py` 已有两角色的无变化/有变化冻结预期，D 接线须核 status、empty records 和 content_changed，E 删旧 Python 热点。本节不把 503 的临时跳过视为该生产路径已接线。
 
+### 3.4 503 首次四档通过、fbb 完整缩小验证
+
+503 的唯一缩小执行脚本 SHA256=`a37760f82c1f2a17cde3f8862b8a816830da0971514470c61a774da2e49db8ff`；06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-503cfbd4/logs/run-real-static.log` SHA256=`2100c1ea15380859af33a06698a78be0276527a74619b47a67652a9bb3bddcd1`，23:36:04–23:39:59Z、起止 HEAD=503、六锁无漂移。当前扩展 build-input 与八包 SHA 均通过；四档实际按表差分 exit 0，t1/t2/t3/t4 分别计划 125/220/193/312 表，B row-kernel 对照 9/72/76/145 表，旧 Python 预退化均为 0。随后显式检查临时 CLI 本身的 mypy 返回 20 errors/3 files，按首失败停，五包静态未运行。错误分布为旧 `p6_v1_ordered_diff` 被借用关闭 helper 连带引入的 11 条历史类型/API 问题、新 B CLI 8 条任务/descriptor 标注问题、B 差分测试 helper 1 条 `arrow_stream` 协议属性问题；不是 Rust 算法或真实差分失败，也不改旧 expected 消差。
+
+固定 `fbb7fca65d81ff61ecf0022e85da0bdf0f71ae9a` 仅修改两份 B 临时 Python 文件：CLI 内联旧 helper 相同的双 reader 关闭 7 行并删旧 benchmark import，给 task 注明实际 `TableComparisonTask`、early-exit 前确认 descriptor 存在；差分 helper 在 reader reopen 后取 callable `arrow_stream` 局部。本人在 clean detached worktree 核对 diff，旧比较预期、production 路由及 Rust tree 均不变。06 缩小脚本 SHA256=`0c13f470981de362dc912db40315f9c4f7e7ac78db874b2ba18be5f11f99ce4e`，八包 SHA helper 仍为 `dac92e185be66cba8178d1e4dbf779fb91fe9158a313b4b9ba27629d3b7555cd`；本人与测试节点两份脚本的 SHA 相同。06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-fbb7fca6/logs/run-real-static.log` SHA256=`26826be79042550ee2e98f66f8e99b156b2696a27ad053b9e0f01992dd985b1e`：hostname `gw-dms-06`，23:45:00–23:49:11Z，起止 HEAD=fbb 且现场 clean，Rust build-input `cef7eaf099937a66ce33c160154936a5c086f0be` 与 2b 安装扩展一致，六锁无漂移。build-input 核验 exit 0；独立 Python 差分 6/6；八包 manifest/size/SHA 全 match；t1–t4 逐表差分 exit 0，计划表/row-kernel 核数与 503 一致、predegraded=0；CLI 专属 mypy 1 source 无问题；五个 Python 包各 ruff/mypy exit 0；最终脚本 exit 0。按固定 clean/提交/Rust tree 边界，只沿用 2b 已实跑通过的 Rust workspace fmt/clippy/test 和扩展重装，fbb 对新 Python 文件重新实测；未在开发主机运行验证。tester 报 23:50:26Z 释放 06 标记，本人随后只读见标记不存在且无 B 脚本/差分测试进程；无独立释放日志，不将此报告写成原始实时 marker 记录。
+
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`503cfbd4da72b232dc175c3692c040adf499878c`（前轮 2b；只改临时真实表 CLI，Rust tree 不变）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/2b/503 变化；06 的 2b 离线 Rust workspace/扩展构建已实际通过。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 2b/503 已有当前容器 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`fbb7fca65d81ff61ecf0022e85da0bdf0f71ae9a`（前轮 503；只改两份临时 Python，Rust tree 不变，vnext tree=`8fbec78dd3764f690e57e4dc13aa1cce4355c6fa`）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/2b/503/fbb 变化；06 的 2b 离线 Rust workspace/扩展构建及 fbb 适用 Python 验证已实际通过。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 fbb 已有当前容器 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
-完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。
+06 适用 B focused 证据已包含 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止和 t1–t4 v1/v2 按表对照，八包输入 SHA 已逐项匹配 `datasets.json` 与 P5 S4 handoff §8；旧 expected 来自 Contract/A/冻结 Python。它不是完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能，这些留后续阶段对应节点。
+
+## 5. 最终 B 核收与移交
+
+本人在固定 H=`4918cc5440d01d2a29224a164f1b56ab1ab1a4b2` 的 clean detached worktree 核到 H 相对代码 V=fbb 仅更新 `p6-s3-b-handoff.md`，`vnext/rust` tree 仍为 `cef7eaf099937a66ce33c160154936a5c086f0be`；A 后父提交 `ecb96af0092999e54c5499f126ee1436e38ce7fd` 至 fbb 的 `vnext` 恰为 handoff 所列 11 条路径。handoff 的 2b Rust/扩展与 fbb Python/真实/静态分绑定、旧失败保留、四档数量、SHA/起止时间、六锁和 06 离线缓存来源与原件一致；未将 probe、生产容器或正式旅程冒称通过。至此 B 职责内无剩余 finding，签 **B GO**。
+
+C 必须从 B 的 Arrow owner/locator 正常与退化两支构造三族 records、完整未裁剪 facts/JCS，并单独预约 builder/writer 输出；D 必须在实际调用路径持有 caller 已计费的输入 charge 至最后 consumer、接入风险/去重并以 B keyless multiset 替代非记录角色 `COLUMNS_ADDED` 的旧 Counter 布尔判定；E 删除旧 Python 行比较、该 Counter 热点、旧 Rust Vec 原型和 B 临时 probe/差分入口，并在最终 HEAD 的相应节点完成必要镜像重建、容器与 S3 ready 门禁。B 的测试侧 CLI 分流不等于 D/E 的正式接线，GO 不扩至 C/D/E 或 S3 整段。

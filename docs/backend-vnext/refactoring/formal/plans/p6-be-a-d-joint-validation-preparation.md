@@ -181,3 +181,24 @@ RS输入预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z/0，log SHA=`4ee45c
 实际于**14:40:10Z**正常结束：`original_runner_exit=command_exit=final_exit=0`，endexact49403clean/owner真，`rs_input_id_after=130674…`、`rs_input_unchanged=true`。新run原log SHA=`0d0c69ad1cc24648a6f9abc9c0e66a4b98a66f7a3a96443d16ae2e2af3d62a5e`，command SHA=`ac62cdb623a6e7762d8ab9b48a54b5035e705c9a2c2f6e4e11a06a207d463521`。backend实际parallel3387+serial60通过；RS实际parallel1744+serial207通过、另既定host skip1。四基础包的实际沿用仍直接引用DTW及本次compare；不写六包本次再次实跑。
 
 原审已只读核新末值；按已审新mvzi/resume参数直接做RS后核、awareUTC新provenance/schema唯一copy及snapshot immutable身份、原manifest/索引/LAN和本人cleanup/释放。当前尚未完成以上最后原件核收，不预先记镜像闭包/联合GO；旧RS原件缺失/collector失败原文保留。
+
+### 11.3 新阶段原件、六包来源和资源收尾
+
+新postcopy位于恢复目录 `new-authority-compose-53h3ekqp/`，original-sources SHA=`8230879138e66f159d7d2af0e1db3d4373244e0f2b90cca5d48d0fd80cd041f6`，原provenance SHA=`18143d7ddf7ae820cd0f6e25bb6cc50fde7681bf7142f5ec8246f831691742a6`；原mtime14:28:33/34Z在**新14:14:04–14:40:10区间**，schema raw SHA仍`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`。原审独立核区间、来源和原bytes相等，不使用旧q57。
+
+`run-resumed-image-identities-Rv4rWQDT` 14:41:15–25Z/0；report `image-identities-after-authority-c4aqda9v/image-identities.json` SHA=`94a6bad1c17d8c0d633bcd52dfedfa7418eb3ff4fe6fca160e58f560fe4a74de`，三个本次实际container snapshot绑定的immutable images各自原inspect/save-manifest/config、全部54DiffID均已独审逐项核。RS原config bytes/全部28DiffID与14:12预采**精确相同**；`run-runtime-config-bridge-Tgifq1Kk` 14:41:56Z/0，log SHA=`c37e6557b8f3500a75b8dcfdb2248553c2d540c610b8de82ab02bb8d4e7f9d82`。新阶段身份收口无阻塞；不声称旧15e3原件恢复。client仅原inspect核revision49403/lock6e9，bases按既有实际报告，不扩大为新采rawconfig。
+
+所有包候选HEAD同49403，**来源run/environment必须分别记录**：
+
+| 包 | 本轮处置及直接来源 | total_digest |
+| --- | --- | --- |
+| rust | 沿用DTWWhQP4实际通过；本次compare可沿用 | `ef22a73afe84030fe86118e308c0b558fc76781ce386c6477730439d6ae27fae` |
+| shared_kernel | 同上 | `ca4de641b0aab156103deaf164daa652ac0536e78281b17166ea19ff564992e1` |
+| repository_contracts | 同上 | `e6c158219cca2c7856ffddaa260222c7f1bfaa8f689869b0316d20a6be89eddc` |
+| repository_client | 同上 | `88bece58f8efc862c32a532809d2db1a4a2831a24f38d6e40564aed1531b1e82` |
+| backend | 本次mvzi5dNV实际运行0 | `b03ddcd151fe3071c708c83dbabec3b4f9b473013078027b797e60a564e02cc5` |
+| repository_service | 本次mvzi5dNV实际运行0，1既定host skip | `a5ee1cb2c42cb1c803a022c6391aad125ea796db10a5ee36d7e852ae21381161` |
+
+两新manifest原字节/index SHA=`af6c82ad8452ca98e37b07ea783633f9e3212e2692ce94cfb593e4b9d1c7ea31`已独核。完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/`；恢复phase index `evidence-index-tqonz2wu/index.json` SHA=`17d7a6a7de827089d146748d1ca6fbb701ff50b58c599adc91a6a1c00808671d`为**31guard/220文件的当时快照**，索引生成run另列，不把后续cleanup/release写进旧快照。原审逐项核文件size/SHA、guard四SHA、原claim及六包来源成立。
+
+本人cleanup原0已独核无运行容器/卷/网络/8000/Dolt/测试编译和runner HYP/CargoTarget；实施者cmp本人owner后**14:44:32–33Z**释放04，`release-0zzsICrS/release.log` SHA=`b904cead22a4999316768c5afe0f8399ac20342ff90c1bd4472c383fb09f87be`、release0/end49403clean，command SHA=`0893866c7d1f5028e4aac919cd9434f7116f31a13a02ae5ab574a0e35501d17b`。WT/镜像/历史原件均保留。释放后补充索引/LAN及原独审现场/固定最终handoff核收仍待完成，不把候选49403实测扩大成后继main文档HEAD实测或自动退出。

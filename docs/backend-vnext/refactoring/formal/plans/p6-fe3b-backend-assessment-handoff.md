@@ -5,6 +5,7 @@
 ## 1. 评估起点与已解除的依赖
 
 - S2a已退出，仓库存在`p6-s2a-exit`；当前main也已包含S2b生产Rust接线。S2a早期handoff中“生产仍用Python、worker接线留S2b”是历史状态，不应拿来决定当前FE3b行为。前端继续消费HTTP/Bundle Contract，不增加Rust/Python选择器或浏览器SQL计算回退。
+- 解析诊断按公开code和结构字段消费，不匹配Python/Rust内部异常名或message逐字文案；S2a错误差分核对的是约定diagnostic code/table/offset。解析成功也不代表归档来源/时间核验自然通过。
 - BE-a、归档业务核验及BE-d已实现并获联合后端技术GO：实际产品`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`，`vnext` tree=`56720104af34a1eb677336f57bdbc07444a56615`，独审`ccdd1eb39d`§25，最终实施handoff`233e6f788b`。Owner已确认本轮DC33真实数据范围，见[最终协调交接](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)。
 - 旧FE3 kickoff中的三个后端前置已有明确交付：S2a已退出；过期baseline新APPROVE拒绝/同baseline PENDING硬阻塞已实现；tar与最终closure逐entry对应已确定。无需再等原基准性能线或重新选择这些已审业务规则。
 - 后端GO不替代FE3b浏览器验收或FE3退出。当前仍缺前端同字节tar解析/摘要/OPFS证据。
@@ -82,7 +83,7 @@
 - 扩展现smoke框架的真实journeys/t1/input-root，而非只运行原9个smoke。旧smoke曾以出现bundle下载失败提示为成功判据，不能当当前下载/浏览成功证据。
 - FE3a的空INITIAL FULL smoke只证明被接受/可比较；FE3b仍须在归档后证明FULL两pair、身份确认和两/三节点History实际浏览。后端t1四tar通过不替代前端规定的浏览器旅程/三节点历史。
 - 浏览器t1使用完整组态目录（含`.pmc`），不能把仅含SQL/XML的后端规范源包加占位`.pmc`冒充真实输入。05已传原件的历史位置为`/home/dev/gateway-real-dumps/source-dirs/t1-v1`、`t1-v2`；实际执行时按[FE3a交接§4.1](../../../../frontend-vnext/fe3a-handoff.md)重新核原SHA和只读挂载，不将旧存在性当实时证明。
-- t1预期值从同一被测`vnext`树取；FULL显式按pair_id核两个pair，默认单view summary的pair_count不能代表完整FULL。实际后端对照见[原t1结果JSON](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/run-fresh-t1-8skuj66m/final-result.json)。
+- t1预期值从同一被测`vnext`树取；FULL显式按pair_id核`baseline_to_initial`与`initial_to_modified`两pair，默认单view summary的pair_count不能代表完整FULL，业务计数须对应实际所选pair。实际后端对照见[原t1结果JSON](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/run-fresh-t1-8skuj66m/final-result.json)。
 - FE3a M1已获接受：原renderer峰值/外推满足Q12，不默认增加流式上传重构。FE3b按既定t1旅程复核和待带入指标处理；上传打包与下载tar是不同工作面。BE-b/FE4展示导航和首批空基线业务仍按原边界，不能以播种空INITIAL说已经交付。
 - 日常类型/lint/构建/截图/mock优先07（Playwright workers2）；真实backend调试05；最终权威证据04，均clean已提交worktree、离线缓存、镜像身份/日志，截图1280/1920。使用时现场原子核占用；本轮释放事实不是FE3b预留。CT108仍归原基准线。
 - RS harness还比较candidate revision：按FE3b自己的固定候选预建/核齐RS镜像并预先保存原身份；不复用旧a999/49403 tag当新FE候选。取证按实际阶段container.Image→不可变image原config/全部DiffID，不拿末尾tag替前段；custom RS tag参与后端包闭包，不改规则凑等价。详见[本轮身份接缝及补验](p6-be-a-d-joint-validation-preparation.md#10-身份收尾停止与owner选择)。

@@ -1,6 +1,6 @@
 # V1 时间与内容事实：实施准备工作单
 
-2026-11-07。Owner已授权本节，**仅在A1独审通过并结束两角色后启动**，实际main起点/角色在启动记录填写。依据[联合kickoff §1.1](p6-be-a-d-kickoff.md#11-实施授权与实际起点owner2026-11-07)、[业务核验设计 §3–§5/§8–§9](p6-archive-business-validation-design.md)、[设计复审 §6](p6-be-a-d-archive-design-review.md#6-修订候选-16472197b4-复审与最终设计结论)。这里固定实施边界，不重新选择时间语法或业务规则。
+2026-11-07。Owner已授权本节，**A1已获独审GO并结束两角色，现启动V1**，实际起点/角色见§5。依据[联合kickoff §1.1](p6-be-a-d-kickoff.md#11-实施授权与实际起点owner2026-11-07)、[业务核验设计 §3–§5/§8–§9](p6-archive-business-validation-design.md)、[设计复审 §6](p6-be-a-d-archive-design-review.md#6-修订候选-16472197b4-复审与最终设计结论)。这里固定实施边界，不重新选择时间语法或业务规则。
 
 ## 1. 范围与归属
 
@@ -26,7 +26,7 @@ V1交付源序时间提取和initial/modified内容事实，经Rust→Preview ma
 
 ## 3. 固定语义与验收owner
 
-- 完整UTC grammar、ASCII trim、T/单空格、0–6位fraction、offset≤14:00、0001–9999及归一越界、非法/空值分类，严格按业务设计§4.1；不用宿主`fromisoformat`隐式扩展。无zone按UTC，精确微秒比较，无float/tzdb。
+- 完整UTC grammar、ASCII trim、T/单空格、可省略fraction（出现时为1–6位）、offset≤14:00、0001–9999及归一越界、非法/空值分类，严格按业务设计§4.1；不用宿主`fromisoformat`隐式扩展。无zone按UTC，精确微秒比较，无float/tzdb。
 - selected取源序最后有效值；max并列保留首次达到max行号；序号从1跨INSERT/Arrow batch连续，空/非法仍占序号。selected<max单独保存LAST_NOT_MAX，不替换为max，不按规范排序/PK/输出批次猜源序。
 - Rust/native一个权威owner参数化覆盖已审全部单值/源序向量、ASCII/非法/缺表列行/全空、跨INSERT/batch、N/chunk/规范排序不变，保留原typed scalar硬拒绝。纯语法不引入Dolt fixture。
 - Preview owner（`test_preview_job_materialize.py`、相应worker/publish/checkpoint owner）验证重启读取冻结事实、源/规则/内容绑定与缺必需字段损坏，取消/失租/旧generation不能部分发布。复用既有冻结恢复语义屏障，不穷举内部步骤。
@@ -43,4 +43,8 @@ V1交付源序时间提取和initial/modified内容事实，经Rust→Preview ma
 
 ## 5. 启动记录
 
-尚未启动。A1 GO、实际起点、角色及精确清单由协调者/实施者按上述归属补入，未创建V1额外角色、未运行本节验证。
+A1最终独审报告为`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`，F1/F2/N1关闭；产品/容器候选`d8bee1a5914d00f473dc41fb76d9c57ca4b01f48`，交接至`fb53d4f60f73615a6e893f725eae801054351728`。A1实施者已确认本地/06无遗留执行、停止写入；审核者报告已提交并停止本节。工具只有停止能力，角色历史未销毁。
+
+V1实际起点为clean main **`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`**（允许随后本轮协调文档提交，不回退历史候选）。默认顺序仍A1→V1→V2→D。新实施者选择**GPT-6.1-Sol/xhigh**、新独审者**GPT-6.1-Sol/max**；创建后ID记总协调交接。先完成§2精确fields/schema/version/checkpoint/digest/DTO/golden清单，落盘后按已定语义实施；设计冲突再升级，不让缺失事实以默认值进入产品。
+
+06现仅按A1已核08:09:12Z释放记录定位；这不是V1的预约或实时空闲证明。V1执行前重新现场核空闲并原子占用，日志/源码/测试WT与A1分开归属，不删除A1证据、镜像或WT。尚无V1测试证据，04/05联合验收不提前宣称完成。

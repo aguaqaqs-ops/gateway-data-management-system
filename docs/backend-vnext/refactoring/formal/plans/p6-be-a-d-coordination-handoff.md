@@ -16,8 +16,8 @@
 
 | 小节 | 状态/候选 | 角色与模型 | 验证/节点 | 未决与下一步 |
 | --- | --- | --- | --- | --- |
-| A1 | 首个固定代码候选 `adc2863e7f93c34c5e96b298228d38e227772892`（47文件，提交后clean），[实施handoff](p6-be-a1-handoff.md)已落 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，独立上下文 | 06 focused/五包静态/RS unit及受影响小Compose待运行 | 原审核者已触发固定候选只读代码审；实施者准备06原子占用/clean WT。尚无产品GO |
-| V1 | 已授权，A1通过后启动 | 下一节新建两个角色 | Rust/native→checkpoint→Attempt/Submission持久冻结 | UTC grammar已定，不恢复Python路径 |
+| A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
+| V1 | **启动**；实际clean main起点`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`，见[工作单](p6-v1-work-order.md) | 新实施6.1-Sol/xhigh、新独审6.1-Sol/max，创建后补ID | Rust/native→checkpoint→Attempt/Submission持久冻结；尚无本节证据 | 先固定精确fields/schema/version/digest/DTO/golden清单再产品写入，UTC grammar已定，不恢复Python路径 |
 | V2 | 已授权，V1通过后启动 | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
 | D | 已授权，默认V2后；如前端下载阻塞可提前至A1后 | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
 | 联合最终 | 准备已授权，产品未收敛 | 在既定角色内安排；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 退出前按DC33确认最终真实数据范围，不口头carried |
@@ -33,6 +33,8 @@
 固定审 `adc2863e7f`，主要产品diff/consumer初读未见方向性冲突，尚无GO。审核者已直接交实施者：reason共享反例漏必填字段导致收集错误（F1）、finalize后active Attempt→PENDING门禁连续性的代表性验收缺口（F2），另有owning文档残余/混称待修。ABORTED投影已由原Submit owner新增CreateOrGet断言覆盖，审核者明确撤回重复补测要求。后续以同一审核角色的正式报告/复审及06实际日志为准；不将审查预判当作测试结果。
 
 更新：首轮报告 `783be7600513abc9a934f15dfeeafc30975f9aec`，见[A1独审](p6-be-a1-review.md)。修复候选 `2d9a39f191` 已由原审核者在新clean只读WT核实际8文件diff，F1/F2/N1代码修正成立，暂无新增代码finding。06首轮mypy/focused实际暴露F1及测试类型注解错误，失败日志保留；2d9五包十项ruff/mypy已独审核SHA/起止HEAD/exit0。574 focused初轮混含1 serial仅作诊断，正补573并行+1 serial。main后续 `d8bee1a591` 补review smoke镜像provenance，须纳入原角色复审与实际受影响门禁。RS unit和三个Compose仍待，不报A1 GO。
+
+最终收口：报告`c1ee962755`已由同一审核者签**A1本节GO**，上述待项均已实际完成并独审；历史失败/混跑仅诊断保留。2d9正式backend573+1、RS1555+1skip、五包静态通过，d8增量backend静态及三Compose通过，运行/build镜像一致性、config/全部DiffID及cleanup独审齐。副本`/home/dev/gdds-reviews/artifacts/p6-be-a1/SHA256SUMS` SHA=`0011e81b42951b0744f2311c9222052329039857989c48d49d80384fbbe4a4be`。06已08:09:12Z释放；两角色无遗留执行，实施者已由工具interrupt停止，审核者正常结束，均未销毁。已向Owner给可手动转前端的A1 OpenAPI及权限/错误矩阵链接，明确V2/D/FE3仍待。下一小节V1按既有授权继续，不重复申请开工。
 
 06后端focused，05默认真实t1，04最终runner/carried；07由前端owner安排，CT108不使用。使用时现场核查并原子取得本节点标志，结束收尾后释放；尊重有效占用和计时独占。04最终取证期间避免06重负载干扰，不设跨CT常规审批。clean已提交测试worktree、LAN源码/缓存、UV_OFFLINE/CARGO_NET_OFFLINE、日志hostname/起止HEAD/UTC/exit/SHA及镜像身份规则均遵守。缓存或节点前提失效时停止受影响验证并修正，不回退开发主机。
 

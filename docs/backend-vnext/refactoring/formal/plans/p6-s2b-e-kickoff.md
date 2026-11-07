@@ -51,13 +51,13 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 本轮来源核对：原合格五 Python 包来源 `3b037adf4c` 至 E `d0f5602d6f`，`test_input_closure.py::COMMON_GIT_COMPONENTS` 中的 `vnext/scripts` 与 `vnext/deploy` 均已变化，分别涉及新增容量脚本和 Compose 资源接线。因此三小 Python 包也必须实际运行；不是仅因成本小或换 worktree 而默认重跑，且 `vnext/fixtures` 本轮并未变化。04 可新建 E 自有 clean worktree，保留 S2a 原 worktree 与证据。额外工具 mypy 续做待 Owner 时，可在具体 driver/缓存前置独立核准后先运行权威 `rust` 包，整次 exit0 才形成实际来源；后续五 Python 包另行实际运行。若其间仅 Python 工具/测试变化，Rust 仍须在同 E 节点/同 worktree 按该实际来源做闭包比较再沿用；任何一轮失败不作来源，也不把两轮结果写成一次六包 runner。
 
-真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 8589934592`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 12 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。向原线协调 05/CT108 窗口时给出最终候选、实际入口/范围、依据已完成档位估算的占用时长和本任务资源清理范围；原线 STOP 不代表节点已释放。CT108 资源窗口已按 §3 协调，仍不是排他预约。
+真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 8589934592`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 12 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。05/CT108 按最新 DC82 现场核闲并原子取得占用标志直接使用，不以跨会话窗口申请为前置；原线 STOP 不代表节点已释放。仅实际冲突或涉及他人资源时针对性协调。
 
 t4 为收齐同一次完整 worker 的资源证据，在上述 fresh full 命令加现有 `--keep-stack --project-name <E 独占新名>`；不传 `--from-step`，不从任何 checkpoint 续跑。外置 driver 全程持本节点占用，在成功或失败的清理前读取本 project worker 的 StartedAt/RestartCount、12 GiB 配置、OOM 状态、实际 N/M 和 cgroup `memory.max`/`memory.peak`/`memory.events`，再正常 stop、保留日志及停止后的状态/退出码。只有旅程成功且必需证据完整时才清本任务 project 资源并释放占用；真实 journey 非零、资源异常或必需证据不完整时，保本 E 容器/卷与占用并立即交设计协调，按 DC80 主动诊断、最小修正和独立审核，不丢弃 control DB/artifacts、不自动重跑或 resume。诊断后不再需要节点时，按具体保卷与残留核对方案释放，不无限等候。用 StartedAt/RestartCount 核同一 worker；peak 是该 fresh 容器生命周期的 cgroup 高水位，含 startup/page cache 等，不称单进程 RSS 或 M 硬上限。异常退出后不可读的项、`memory.events` 缺失的必需 `oom`/`oom_kill` 键均记 missing/incomplete，不默认零或补 PASS。只保留证据所需字段，不输出凭据；新 runstate 仅归本 E 证据，不作恢复入口。本安排复用现有 CLI 与平台能力，不新增采样服务、不重复旅程；具体 driver 经独立只读核对后执行。
 
 ## 3. 退出记录与后续性能复核
 
-节点协调更新（2026-11-06 19:23:49Z）：原基准设计会话只读确认 CT108 无占用标记、运行容器、8000 监听或相关运行进程；原线正式测量 STOP、无 CT108 恢复 GO，新 GC 诊断仅在 05。E 最终候选与自身验收前置齐备后，可按执行时有效占用原子取得 CT108 运行独立 fresh full t4，不需等基准整体 exit 或原线再次回执。此前“窗口未确认”是协调前状态；本次确认不是立即执行或排他预约，实际前检仍须完成。E 占用期间原线不启动 CT108，E 保留原线全部卷/checkpoint/镜像/证据，不 prune，并同步实际占用与释放。05 的 t1–t3 另按当时原线诊断占用协调；旧旅程耗时不作本候选承诺。
+节点协调更新（2026-11-06 19:23:49Z）：原基准设计会话只读确认 CT108 无占用标记、运行容器、8000 监听或相关运行进程；原线正式测量 STOP、无 CT108 恢复 GO，新 GC 诊断仅在 05。E 最终候选与自身验收前置齐备后，可按执行时有效占用原子取得 CT108 运行独立 fresh full t4，不需等基准整体 exit 或原线再次回执。此前“窗口未确认”是协调前状态；本次确认不是立即执行或排他预约，实际前检仍须完成。E 占用期间原线不启动 CT108，E 保留原线全部卷/checkpoint/镜像/证据，不 prune，后续按 2026-11-07 的 DC82 补充不再例行通报占用与释放。05 的 t1–t3 尊重有效占用、空闲即取用；旧旅程耗时不作本候选承诺。
 
 E handoff 将最终产品候选、删除/保留清单、逐包来源与闭包、容器 provenance、t1–t4、容量/N/M 配置、恢复/控制证据、未决问题集中交独立审核。设计会话不能自行判实施证据。S2b 的阶段退出记录与附注 tag 按既有退出流程办理，不推送、不改写被审核引用的提交。
 

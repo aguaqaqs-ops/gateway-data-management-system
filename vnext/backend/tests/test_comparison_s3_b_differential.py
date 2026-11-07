@@ -26,7 +26,9 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.comparison import standard as old_standard
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit, _encode_cell
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
-from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy, SnapshotTable
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    BlankRowProvenance, MaterializationPolicy, SnapshotTable,
+)
 from gateway_backend.capabilities.table_access import NeverCancel
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
 from tests.support.snapshot_materialization import materialize_sql
@@ -136,6 +138,16 @@ def _canonical_stream(table: SnapshotTable) -> pa.RecordBatchReader:
     return pa.RecordBatchReader.from_batches(schema, batches)
 
 
+def _blank_provenance(table: SnapshotTable) -> str:
+    assert table.ordered_metadata is not None
+    value = table.ordered_metadata.blank_provenance
+    if value is BlankRowProvenance.SOURCE_MISSING_STABLE_KEY:
+        return "source"
+    if value is BlankRowProvenance.CANONICAL_PSEUDO_GID:
+        return "canonical"
+    raise AssertionError("ordered comparison has no trusted blank provenance")
+
+
 def _probe_task(
     task: TableComparisonTask, fact: ComparisonTableFact, *, ordered: bool,
 ) -> dict[str, Any]:
@@ -167,8 +179,8 @@ def _probe_task(
             "raw_content_changed": (
                 task.before_descriptor.raw_content_digest != task.current_descriptor.raw_content_digest
             ),
-            "before_blank_provenance": "source",
-            "current_blank_provenance": "source",
+            "before_blank_provenance": _blank_provenance(task.before_table),
+            "current_blank_provenance": _blank_provenance(task.current_table),
             "schema_changes": {
                 "before_only_columns": list(fact.schema_changes.before_only_columns),
                 "current_only_columns": list(fact.schema_changes.current_only_columns),

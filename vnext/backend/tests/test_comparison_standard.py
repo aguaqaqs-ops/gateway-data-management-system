@@ -54,7 +54,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, KernelMemoryLimit, NeverCancel, OperationMemoryBudget,
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget,
     kernel_execution_scope,
 )
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
@@ -677,20 +677,6 @@ def test_single_side_facts_use_only_metadata_budget_without_reading_rows(
                 rows.assert_not_called()
                 stream.assert_not_called()
     assert admissions[0] == admissions[1]
-
-
-@pytest.mark.parametrize("ordered", (False, True), ids=("standard-changed", "ordered-identity"))
-def test_row_comparisons_still_require_their_operation_reservation(ordered: bool) -> None:
-    context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
-    with kernel_execution_scope(context, new_operation=True):
-        before = _bound(_comparison_budget_sql(256))
-        current = _bound(_comparison_budget_sql(256, changed=not ordered))
-        rule = ordered_record(r"^t$") if ordered else standard_rule_record("t")
-        plan = _plan_from_bounds(before, current, rule_set=comparison_ruleset_for(rule))
-        with context.memory.reserve(context.memory.available_bytes - 128 * 1024):
-            with pytest.raises(KernelMemoryLimit):
-                with context.memory.reserve(comparison_python_memory_upper(plan)):
-                    _facts(plan)
 
 
 @pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))

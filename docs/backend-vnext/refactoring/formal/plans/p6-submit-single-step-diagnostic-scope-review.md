@@ -2347,3 +2347,11 @@ BatchMode echo OK后只读 `/home/dev/gdds-p6-logs/baseline/ct05-w4full-236b5b-v
 该日志没有额外打印起始完整HEAD/clean字段，不补造；18a仅文书改变，不声称这两批测试在18a重新运行。其余四包源码/依赖仍不变，静态来源保持§96的5de实际结果，不写成当前权威runner carried或五包都在236b重跑。11:47:00Z简略postflight SHA256 **`0c69ccb81149f14c5738029a81704e81f5bfe3739b4eab2317ec6ca63a9f3d2d`**，仅记录hostname/锁释放/时间，不扩称独立整机quiet证明。CT108实际现场守卫仍正常执行。
 
 **代码与必要验证已合格，结论直接送现有实施者并同步设计，不要求等待本报告提交或另一份回执。** 本审核未测试、启动容器、复制源卷、访问SQLite或启动业务。继续W4-FULL及A真正剩余范围，真实失败保留现场并停止受影响运行，普通已定位工具错误最小修正直接闭环；严重设计冲突、无法解决或多轮修复仍失败再交设计/Owner，不在本节扩展整体exit权限。
+
+## 103. W4-STRESS参考与S4派生记录取值：保留record_only，修正旧v3指针
+
+**W4-FULL继续运行；本节不形成新的测量启动/恢复门禁。** 在既有范围内并行读取18a冻结工具，确认 W4、W4-FULL、W4-STRESS、S4 均已设为 `record_only`。S1b 的726.647s是输入生成耗时，不能充当压力Preview参考、工具预算依据或10%补测基准；这与DC66既有澄清一致。W4-STRESS工具观察上限需独立明确有限值及实际依据，不能伪造100%产品实测。实施者在CT201准备，不在W4-FULL运行期间另占CT108或更改其worktree。
+
+**发现尚存的S4后处理取值缺口：** `18a4851d8c52d53afdb95ee4df9fae04e6e36d77:vnext/backend/benchmarks/p6_baseline_timing_references.json` 的S4 actual仍为 `/steps/v3-submit/operation_timing/completion_seconds`；`p6_baseline_timing.py` 的spec生成映射同样将S4设为v3-submit。其求值顺序先执行actual JSON pointer及秒值校验，再进入record_only返回分支，所以record_only不会跳过缺失actual。W4两节点旅程不执行v3；已审107b state也只有v2-submit，其 completion=4027.743s，不存在该v3路径。若使用默认选择器，S4派生结果会因缺字段失败，不是新的Submit产品失败。
+
+此处仅需最小修正生成spec/JSON到W4实际v2-submit，或在既有CLI中明确选择正确v2 metric并绑定记录索引；由原evidence重建派生S4材料即可，不改原run/state/log、采样、计时边界或产品，不重跑107b、当前FULL或历史旅程。若已使用显式正确override，保留其实际命令/选择器，不把默认配置也写成正确。该具体缺口已直接通知现有实施者并同步设计，普通工具/文书修正沿原授权闭环，不等新Owner、回执或GO；修正后的实际差异与必要结果仍待核，尚未标关闭。本审核只读Git对象和已有证据，未在开发机执行产品/测试或到测量节点运行新检查。

@@ -143,3 +143,52 @@ S4 保留存储键全保留列diff、SQL直通、阈值/批量规则复测；S3�
 | 1024组/现writer仍出现raw golden差异（尚未发生） | 保持writer或批准产物格式变更，后者可能影响bundle | 保持现格式；仅有最小反例时升级决策 |
 
 这些未知项没有被记成通过。设计独审可提出明确问题；设计者负责决策性澄清，不承担实施日常催进度。
+
+## 9. 审核前补充：摘要与生命周期的具体接口
+
+2026-11-07，Owner 同意先补齐三个技术缺口，再独立审核。本节细化并约束 §3–6，不改变生产语义。本次追加前 main 已有并行证据文档提交，未修改它们；设计起点代码树仍以 §1 为准。
+
+### 9.1 三种逻辑视图与 facts 摘要
+
+`row_encoding.py::_table_digest_payload/_record_digest_payload/_ordered_extension_digest_payload/_blank_extension_digest_payload` 与 `standard.py::_build_facts` 是当前摘要输入定义，不是“把 records content_digest 填进去”的摘要树。必须逐字段保持：facts 值为 canonical scalar/collection frame 的 hex；records Parquet 内容则为 Scalar struct 加 bytes_hex。Blank facts 还包含 entity_key_kind，而 BLANK Parquet schema 没有该列，故公共 Parquet schema 单独不足以恢复 facts payload。
+
+内部 `TableComputation` 持有未裁剪的三族 Arrow 列、facts 所需的小型元数据/额外列（例如 blank entity_key_kind）、facts-order 与 artifact-order 的索引视图。内部额外列不进入 Parquet schema。detail policy 仅用于产物视图；不从裁剪后的产物逆推完整 facts。索引、额外列与重排复制均计费。
+
+| 消费者 | 精确逻辑输入/顺序 | 计算归属与释放条件 |
+| --- | --- | --- |
+| table_fact_digest | 完整 `_table_digest_payload`；其中 standard/ordered/blank 各用原 facts 序；所有 null/省略规则保持 | Rust 流式写 JCS sink，小型 table metadata 由 Python 提供；不得重新建 Python 行 |
+| facts_core_digest | algorithm_version、kind、summary、tables 的原 JCS 对象；tables 保持实际 facts 表序；每个 table 为完整payload而非其digest | 全pair小型facts齐后，Python算summary；Rust接受summary与table handles，顺序流式重放table payload计算SHA |
+| comparison_digest | `_build_facts` envelope，包括snapshot、options、versions、ruleset、policy列表与facts_core_digest | Python小型JCS即可；不含Arrow句柄 |
+| records content_digest | §4三族产物JSON，artifact序、detail裁剪后 | Rust按族输出JCS与Arrow；与facts payload不可互换 |
+| risk | 小型facts + standard facts序的最小列；ordered/blank按实际规则需求读取 | Python规则，见§9.2；不重建ComparisonRecord |
+| surface/bundle/closure | 现有facts摘要、counts、extensions小metadata、manifest与refs | Python原组装；读取侧保留raw/content/schema校验 |
+
+内部 DTO 从强制 `tuple[ComparisonRecord,...]` 改为小型 facts 加 operation-local records handle；该handle不得序列化进checkpoint或持久HTTP文档。A必须列出直接访问 `.records`、extension.records、私有payload helper的所有实际消费者，逐一移交上述接口；持久/外部payload保持逻辑不变。不保留一个隐式“需要时整份转tuple”的兼容属性。替换期旧 DTO 仅在临时差分测试侧存在，E删除。
+
+由于 facts_core 的 JCS `summary` 位于 `tables` 前，不能在summary未知时直接向最终SHA写table字节，也不能拼接table hash代替字节。选择保留当前pair的有预算Arrow records直到summary就绪，再流式重放；不新增磁盘中间格式。顺序为：逐表计算 → summary → table/core摘要 → records发布与风险 → surface绑定。当前pairrecords在其所有这些消费者完成后释放；第二pair只保留确有复用用途且预算允许的owner。
+
+### 9.2 风险上限：重放 emit 语义，不截断最终标注
+
+现 `_engine.py::_evaluate_table.emit` 在等级过滤前检查 `len(annotations) >= min(table_limit, remaining_pair_limit)`；同时触达两上限时pair优先。pair超限丢弃整个pair全部部分标注，按 `_build_pair_degraded_without_annotations` 对全部可见变化表输出降级；单表超限则产生该表的一条degraded标注，并计入后续pair总数。不能改为取前K个标注。
+
+把Python规则主体提取为有界、惰性的候选事件迭代：`Emit(rule_id,target_without_binding,evidence)`，按现规则顺序产生；closure缺失等检查作为原位置的验证步骤，不能被投机预取越过。消费端逐事件执行原上限检查→等级过滤→编号/append→原时间检查；异常/取消保持原外层处理。表/显示名与组合信号分支由当前汇总绑定，不能让普通表缓存覆盖composite分支。
+
+复用的是规则候选序列，不是已套pair上限的最终outcome。首次执行按当前消费者需要惰性产生事件，同时在资源允许时记录；只有自然结束、未失败/超时/取消的完整序列才可复用。因table/pair上限提前结束的不完整序列不缓存；命中时仍按当前table/pair上限重放全部检查。过滤掉的 Emit 也保留，不能只保存可见标注，否则“已到上限后的过滤项”会错误不触发超限。全序列存储按operation M增长前计费；如无法额外保留则停止记录候选缓存，继续正常惰性计算，不改变业务结果或新增风险上限。
+
+时间预算不缓存：每次消费使用当前clock/当前pair与table开始时间，并保留原检查位置；额外取消/operation截止检查可在batch边界执行。去重开关的语义一致断言在相同非超时资源条件下比较；真实wall-time超时不是可缓存的纯结果，不宣称不同执行耗时必然产生相同超时终态。risks key还必须包含完整 RiskOptions、severity/include-level配置及影响规则执行的policy身份；纯候选生成期间读取的facts/diagnostics/selected tables均须纳入输入，不能漏掉只影响risk而不影响comparison_digest的diagnostics。
+
+必要向量：pair剩余额度0；恰好K项后自然结束；第K+1项可见/被过滤；table与pair同时触界；单表降级后下一表；候选命中时不同剩余pair额度；composite分支与普通分支；closure检查恰在超限前后。预期按现函数控制流独立列出，不从新实现生成。
+
+### 9.3 操作内去重的保留计划
+
+Preview FULL可在执行前从两pair计划识别完整任务key，History同样只在本operation已知任务集合内计数。`remaining_uses`只计尚未完成的同key消费者；不同table schema含名称而不相等时明确miss。未提前确定的任务不推测未来引用，不为一次使用留缓存。
+
+| owner | 保留至 | 计费/异常 |
+| --- | --- | --- |
+| 输入canonical/mmap | 当前计算完成及所有借用输出释放；输出若零拷贝则延长owner | 共用backing一次计费，不能以slice大小少算 |
+| 当前pair输出Arrow与facts序索引 | §9.1摘要、records writer、风险全部完成 | 当前pair必要驻留先准入；失败退出释放 |
+| 跨pair待复用输出 | 已知下一消费者完成；remaining_uses归零即释放 | 仅额外保留预算允许时持有；不允许则从map移除，下一任务正常重算 |
+| 风险候选序列 | 已知后续消费完成；仅完整成功序列可留 | 额外保留不足时不缓存；已产生当次风险正常继续 |
+| 小facts、manifest/ref、surface | 当前operation现有编排需要的期限 | 纳入既有小metadata预算；不得反向持有大records |
+
+命中前预约本消费者的重绑定/写入/风险临时空间；可以先驱逐尚未消费的可重算去重条目释放空间，再判断正常业务是否超M。禁止因为缓存保留挤占本来可以执行的必要计算而报新增资源失败。不增加LRU通用框架、磁盘spill、部署旋钮或持久引用表；只是有限operation map与已知任务计数。验证除事实一致外，覆盖同key两pair释放、无后续用途零保留、保留预算不足的安全miss以及异常退引用。

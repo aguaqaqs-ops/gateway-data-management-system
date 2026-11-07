@@ -12,6 +12,8 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
+    ArchiveAnomalyResolutionEvent,
+    affirmative_resolution_action,
     ArchiveConfirmationAction,
     ArchiveSubjectKind,
 )
@@ -77,7 +79,7 @@ def validate_archive_digest(value: str, *, field_name: str) -> str:
 
 def validate_non_negative_int(value: int, *, field_name: str) -> int:
     if type(value) is not int or isinstance(value, bool) or not 0 <= value <= ARCHIVE_MAX_SAFE_INTEGER:
-        raise ArchiveRequestValidation(f"{field_name} must be a non-negative I-JSON safe integer")
+        raise ArchiveRequestValidation(f"{field_name} must be a non-negative integer within the I-JSON safe range")
     return value
 
 
@@ -443,3 +445,46 @@ def compute_close_request_fingerprint(*, repository_id: str, gateway_device_exte
         "expected_baseline_node_id": validate_utf8_id(expected_baseline_node_id, field_name="expected_baseline_node_id"),
         "expected_baseline_head_version": validate_non_negative_int(expected_baseline_head_version, field_name="expected_baseline_head_version"),
         "reason": validate_utf8_reason(reason)})
+
+
+def assert_resolution_event_integrity(event: ArchiveAnomalyResolutionEvent) -> None:
+    """Validate the stored acceptance body and its original request without current gates."""
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    try:
+        subject = json.loads(event.subject_payload_json)
+        payload = json.loads(event.request_payload_json)
+        if type(subject) is not dict or type(payload) is not dict or set(payload) != {
+            "action", "candidate_set_digest", "expected_baseline_head_version", "expected_baseline_node_id",
+            "expected_sequence", "issue_code", "reason", "selected", "subject_kind", "target_candidate_digest",
+            "target_submission_id", "subject_digest"}:
+            raise ValueError("invalid stored resolution shape")
+        kind = "anomaly" if event.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED else (
+            "project-identity-exception" if event.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION else "business-anomaly")
+        if compute_archive_digest(kind, subject) != event.subject_digest:
+            raise ValueError("stored resolution subject digest mismatch")
+        selected = payload["selected"]
+        if type(selected) is not dict or set(selected) != {"submission_id", "expected_candidate_digest"}:
+            raise ValueError("invalid stored selected reference")
+        if (payload["subject_digest"], payload["subject_kind"], payload["issue_code"],
+            payload["target_submission_id"], payload["target_candidate_digest"], payload["reason"], payload["action"]) != (
+            event.subject_digest, event.subject_kind.value, event.issue_code, event.target_submission_id,
+            event.target_candidate_digest, event.reason, event.action.value):
+            raise ValueError("stored resolution event/request mismatch")
+        if validate_archive_sequence(payload["expected_sequence"]) + 1 != event.sequence:
+            raise ValueError("stored resolution sequence mismatch")
+        if event.action not in {affirmative_resolution_action(event.subject_kind), ArchiveAnomalyResolutionAction.REVOKE}:
+            raise ValueError("stored resolution action mismatch")
+        fingerprint = compute_resolution_request_fingerprint(repository_id=event.repository_id,
+            gateway_device_external_key=event.gateway_device_external_key, business_project_id=event.business_project_id,
+            expected_baseline_node_id=payload["expected_baseline_node_id"],
+            expected_baseline_head_version=payload["expected_baseline_head_version"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"],
+            candidate_set_digest=payload["candidate_set_digest"], subject_digest=event.subject_digest,
+            expected_sequence=payload["expected_sequence"], action=event.action, subject_kind=event.subject_kind,
+            reason=event.reason, actor_id=event.actor_id, issue_code=event.issue_code,
+            target_submission_id=event.target_submission_id, target_candidate_digest=event.target_candidate_digest)
+        if fingerprint != event.request_fingerprint:
+            raise ValueError("stored resolution request fingerprint mismatch")
+    except (ValueError, TypeError, KeyError, ArchiveRequestValidation) as exc:
+        raise ArchiveIntegrityFailure("stored archive resolution facts are invalid") from exc

@@ -389,9 +389,13 @@ def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_ba
     assert preview.pending_submission_ids == (other.submission_id,)
     assert "ARCHIVE_PENDING_REVIEW" in preview.blockers
     apply_baseline_head_state(db_path, repository_id=seed.repository_id, baseline_head=replace(
-        BASELINE_HEAD, business_baseline_node_id="new-baseline", business_baseline_commit_id="new-commit",
+        BASELINE_HEAD, business_baseline_node_id="new-baseline", business_baseline_commit_id="commit-new",
         baseline_head_version=BASELINE_HEAD.baseline_head_version + 1,
     ))
+    # A changed Head must still reference real immutable source facts.
+    with ControlDbUnitOfWork(db_path) as transaction:
+        transaction.connection.execute("UPDATE baseline_node_records SET source_submission_id = ? WHERE node_id = 'new-baseline'",
+            (seed.submission_id,))
     advanced = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
     assert advanced.pending_submission_ids == ()
     assert advanced.blockers == ()

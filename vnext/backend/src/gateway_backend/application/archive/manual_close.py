@@ -65,8 +65,15 @@ def close_submission(*, command: CloseSubmissionCommand,
                 command.context.gateway_device_external_key, command.context.business_project_id, command.idempotency_key)
         except (ValueError, TypeError, KeyError) as exc:
             raise ArchiveIntegrityFailure("manual closure facts are invalid") from exc
-        if existing is not None and existing.submission_id != command.submission_id:
-            raise IdempotencyConflict(idempotency_key=command.idempotency_key)
+        if existing is not None:
+            stored_closure = existing.manual_closure
+            stored_submission = None if stored_closure is None else load_archive_submission(uow,
+                existing.submission_id, workspace_id=stored_closure.workspace_id, repository_id=scope.repository_id)
+            if stored_submission is None:
+                raise ArchiveIntegrityFailure("manual closure source submission is missing")
+            _assert_manual_close_binding(existing, stored_submission)
+            if existing.submission_id != command.submission_id:
+                raise IdempotencyConflict(idempotency_key=command.idempotency_key)
         submission = load_archive_submission(uow, command.submission_id,
             workspace_id=workspace.workspace_id, repository_id=scope.repository_id)
         if submission is None:

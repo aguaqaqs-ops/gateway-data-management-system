@@ -9,6 +9,7 @@ from datetime import datetime
 
 from gateway_backend.application.archive.contracts import (
     ArchiveAuditReferenceInput,
+    assert_resolution_event_integrity,
     ArchiveSelectedRef,
     compute_selection_subject_digest,
     compute_start_request_fingerprint,
@@ -37,7 +38,6 @@ from gateway_backend.application.archive.snapshot import (
 )
 from gateway_backend.application.submission.errors import BaselineVersionConflict, IdempotencyConflict
 from gateway_backend.domain.archive.models import (
-    ArchiveAnomalyResolutionAction,
     ArchiveAuditReference,
     ArchiveConfirmationAction,
     SubmissionDisposition,
@@ -45,7 +45,6 @@ from gateway_backend.domain.archive.models import (
     SubmissionDispositionSourceKind,
     ArchivePlan,
     ArchiveResult,
-    ArchiveSubjectKind,
     affirmative_resolution_action,
 )
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
@@ -392,6 +391,8 @@ def _validate_audit_refs(
             anomaly.subject_digest,
             resolution_ref.sequence,
         )
+        if resolution_event is not None:
+            assert_resolution_event_integrity(resolution_event)
         expected_action = affirmative_resolution_action(anomaly.subject_kind)
         if resolution_event is None or resolution_event.action is not expected_action:
             raise CandidateBindingConflict("anomaly resolution audit reference is not affirmative")

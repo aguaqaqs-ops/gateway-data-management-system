@@ -139,8 +139,6 @@ def load_archive_candidate_snapshot(
             or configuration.baseline_source_submission_id != fresh_scope_node_source(unit_of_work, head.business_baseline_node_id)
             or (configuration.initial_origin == "BASELINE_REUSED" and configuration.initial != baseline_side)):
             raise ArchiveIntegrityFailure("candidate configuration baseline source binding mismatch")
-    if baseline_side is None and len({candidate.configuration_facts.baseline_content_identity for candidate in business_candidates}) > 1:
-        raise ArchiveIntegrityFailure("INITIAL baseline content identities disagree")
     validation = derive_archive_business_validation(candidates=tuple(business_candidates),
         baseline=baseline_side, baseline_facts_digest=baseline_facts_digest)
     candidate_set_digest = compute_candidate_set_digest(

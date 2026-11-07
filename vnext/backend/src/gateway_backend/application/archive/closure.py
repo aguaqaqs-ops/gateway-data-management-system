@@ -45,7 +45,10 @@ def assert_archive_candidate_integrity(
         raise ArchiveIntegrityFailure(
             "repository scope does not match candidate workspace"
         ) from exc
-    attempt = unit_of_work.submission.get_submit_attempt(submission.submit_attempt_id)
+    try:
+        attempt = unit_of_work.submission.get_submit_attempt(submission.submit_attempt_id)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ArchiveIntegrityFailure("candidate attempt configuration facts are invalid") from exc
     if attempt is None:
         raise ArchiveIntegrityFailure("submit attempt is missing")
     if attempt.state is not SubmitAttemptState.FINALIZED:

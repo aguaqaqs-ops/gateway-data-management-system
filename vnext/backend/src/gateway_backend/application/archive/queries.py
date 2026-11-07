@@ -11,6 +11,7 @@ from gateway_backend.application.archive.contracts import (
     ArchiveCandidateRef,
     ArchiveSelectedRef,
     ARCHIVE_MAX_ANOMALY_REFS,
+    assert_resolution_event_integrity,
     compute_archive_digest,
     compute_anomaly_subject_digest,
     compute_identity_exception_subject_digest,
@@ -38,7 +39,6 @@ from gateway_backend.application.archive.snapshot import (
     load_archive_candidate_snapshot,
 )
 from gateway_backend.domain.archive.models import (
-    ArchiveAnomalyResolutionAction,
     ArchiveAnomalyResolutionEvent,
     ArchiveConfirmationAction,
     ArchiveConfirmationEvent,
@@ -259,7 +259,7 @@ def list_archive_audit_events(
             events: tuple[ArchiveConfirmationEvent | ArchiveAnomalyResolutionEvent, ...] = (
                 confirmation_events
             )
-        elif subject_kind is not ArchiveSubjectKind.CONFIRM_SELECTION:
+        else:
             resolution_events = unit_of_work.archive.list_resolution_events(
                 fresh_scope.repository_id,
                 context.gateway_device_external_key,
@@ -268,9 +268,9 @@ def list_archive_audit_events(
                 validated_after,
                 validated_limit,
             )
+            for event in resolution_events:
+                assert_resolution_event_integrity(event)
             events = resolution_events
-        else:
-            raise ArchiveRequestValidation("subject_kind is not supported")
         next_after_sequence: int | None = None
         if len(events) == validated_limit:
             next_after_sequence = events[-1].sequence
@@ -489,6 +489,8 @@ def _latest_resolution_is_affirmative(
     if sequence == 0:
         return False
     event = unit_of_work.archive.get_resolution_event(repository_id, subject_digest, sequence)
+    if event is not None:
+        assert_resolution_event_integrity(event)
     if event is None or event.subject_kind is not subject_kind:
         return False
     expected_action = affirmative_resolution_action(subject_kind)
@@ -526,6 +528,8 @@ def _with_resolution(unit_of_work: ArchiveControlTransaction, repository_id: str
     sequence = unit_of_work.archive.get_latest_resolution_sequence(repository_id, anomaly.subject_digest)
     event = None if not sequence else unit_of_work.archive.get_resolution_event(
         repository_id, anomaly.subject_digest, sequence)
+    if event is not None:
+        assert_resolution_event_integrity(event)
     accepted = event is not None and event.subject_kind is anomaly.subject_kind and event.action is affirmative_resolution_action(anomaly.subject_kind)
     return replace(anomaly, latest_sequence=sequence,
         resolution_status="ACCEPTED" if accepted else "REVOKED" if event is not None else "UNRESOLVED",

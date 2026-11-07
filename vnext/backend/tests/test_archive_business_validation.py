@@ -143,3 +143,13 @@ def test_two_hundred_full_candidates_have_two_hundred_modified_time_issues_withi
     assert len(result.issues) == 200
     assert len(result.issues) + 199 == 399
     assert 2 * 200 + 2 * 200 + 2 * 200 + 200 + 199 + 1 + 1 == 8 * 200 + 1 == 1601
+
+
+def test_first_modified_only_initial_is_explicitly_not_applicable() -> None:
+    candidate = _candidate("A", "X", "Y")
+    facts = replace(candidate.configuration_facts, baseline_is_initial=True, baseline_source_submission_id=None,
+        initial_origin="INITIAL_EMPTY", initial=ConfigurationSideFacts(_side("X").content_identity, None, None, None))
+    result = derive_archive_business_validation(candidates=(replace(candidate, configuration_facts=facts),),
+        baseline=None, baseline_facts_digest=None)
+    assert not result.issues
+    assert {value["detected_status"] for value in result.time_comparisons} == {"NOT_APPLICABLE"}

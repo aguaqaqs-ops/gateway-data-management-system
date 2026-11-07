@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from gateway_backend.application.submission.review_contracts import ApplyReviewResult, ReviewFacts
 from gateway_backend.domain.submission.models import SubmitIdentityConfirmation
 from gateway_backend.domain.submission.review import ReviewEvent, ReviewProjection
-from gateway_backend.http.schemas.archive import SubmissionDispositionResponse, _disposition_record_to_response
+from gateway_backend.http.schemas.archive import SubmissionDispositionResponse, submission_disposition_to_response
 from gateway_backend.http.schemas.constraints import BoundedDiagnosticReason, NonNegativeIJsonInt
 
 ReviewActionLiteral = Literal["APPROVE", "REJECT", "WITHDRAW"]
@@ -115,7 +115,7 @@ def review_facts_to_response(facts: ReviewFacts) -> ReviewFactsResponse:
         updated_by=projection.updated_by,
         updated_at=projection.updated_at,
         events=[review_event_to_response(event) for event in facts.events],
-        submission_disposition=None if facts.submission_disposition is None else _disposition_record_to_response(facts.submission_disposition),
+        submission_disposition=None if facts.submission_disposition is None else submission_disposition_to_response(facts.submission_disposition),
         identity_exception=bool(facts.identity_confirmations),
         identity_confirmations=[
             _identity_confirmation_to_response(item) for item in facts.identity_confirmations

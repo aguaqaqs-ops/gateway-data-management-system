@@ -156,7 +156,7 @@ def derive_archive_business_validation(
             ("INITIAL_BEFORE_BASELINE", _selected(facts.initial), baseline_time))
         backward: dict[str, list[str]] = {"MODIFIED": [], "INITIAL": []}
         for relation, left, right in relation_values:
-            status = "NOT_APPLICABLE" if baseline is None and relation != "MODIFIED_BEFORE_INITIAL" else (
+            status = "NOT_APPLICABLE" if baseline is None and (relation != "MODIFIED_BEFORE_INITIAL" or facts.initial_origin == "INITIAL_EMPTY") else (
                 "NOT_COMPARABLE" if left is None or right is None else
                 "BACKWARD" if _instant(left) < _instant(right) else "NORMAL")  # type: ignore[operator]
             comparisons.append({"submission_id": item.submission_id, "relation": relation,

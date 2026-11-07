@@ -57,6 +57,7 @@ EXPECTED_INDEXES = frozenset(
         "archive_confirmation_events_subject",
         "submission_disposition_records_one_selected_per_result",
         "submission_disposition_records_result_id",
+        "submission_disposition_records_manual_key",
         "archive_plan_records_start_key",
         "baseline_node_records_one_initial_per_repository",
         "baseline_node_records_repository_node",
@@ -180,7 +181,7 @@ def test_archive_tables_and_selected_disposition_index_are_created() -> None:
     connection = _memory_connection()
     bootstrap_control_db_schema(connection)
 
-    assert {name for name in _object_names(connection, "table") if name.startswith("archive_")} == ARCHIVE_TABLES
+    assert {name for name in _object_names(connection, "table") if name.startswith("archive_") or name == "submission_disposition_records"} == ARCHIVE_TABLES
     index_sql = connection.execute(
         "SELECT sql FROM sqlite_master WHERE name = 'submission_disposition_records_one_selected_per_result'"
     ).fetchone()[0]

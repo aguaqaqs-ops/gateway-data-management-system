@@ -65,3 +65,15 @@ B 文件归属为 Rust `comparison/{kernel,standard,mod,ordered}.rs` 及必要�
 B 真实差分执行前核 06 实际八份 t1–t4 package 的 size/SHA，对照 datasets.json 与 P5 S4 handoff §8 已接受身份；已有目录或 S2b 的 INPUTS_VALID 不代替本次核验。B 只跑逐表差分，不是全旅程。
 
 后续 D/E W3/W4 工具接线另需注意：当前 main 有 real_dump_journey 与旧 V1 consumer，但完整合成负载/测量工具留在原基准分支（只读核 `p6-baseline@b6070468f6dbf967bc763e9fe7f2d9a23b8bda50`）。该分支 generator 引用旧 parser grammar/storage-projection Python helpers，不能不经适配就当作当前唯一 Rust 路径已能执行。优先复用已核身份的现有输入或职责内最小工具适配，不合入整套旧算法或 evidence 框架；原冻结 worktree、镜像、输入和卷保持不动。此为测量准备提醒，不是已运行或新增核心方案，也不豁免 W3/W4 起测。
+
+### B 首个 Rust 检查点
+
+实施检查点 `3577df182d6481a9c6e49554e445c81071924c09` 仅四个 Rust comparison 文件，不是完整 B 候选。06 在独立 scratch 执行机械格式准备，格式 patch SHA256=`a89f43a7512a808a603eb2d998f17a66d4ed0ebaf28d2c59b1e1f1cd800170a4`，由原实施者在 main 应用为 `9b34be7356a92228ef07ee0c4f01bf215e2bf653`。准备期间相对 Git exclude 路径错误在未格式化/测试前退出，原日志 SHA256=`40f8c23f5af833b10b9c8b2256cda028a277a5fc8f853750b218451a07e2b479`；按 DC68 仅纠正为绝对路径后续行，原件保留。
+
+06 对固定 clean 9b34 的 `cargo fmt --all --check` exit0；`cargo clippy -p gateway-compute-core --locked --offline --all-targets -- -D warnings` **exit101**，因 `ordered.rs` 未用 `ListArray` 与 `batches` 需可变借用。首次失败即停，`cargo test` **未运行**。这是实际编译反馈，不能按 DC68 重跑旧候选或记测试通过；原实施者已将两项普通修正并入后续未提交工作。
+
+原日志 `/home/dev/gdds-test-tmp/p6-s3-b-test-9b34be7356a9/logs/rust-focused.log` SHA256=`c0eecef9412e267f98cef536d91025af4c5209db77ace24f790de27349fc8d6f`；运行前完整脚本 SHA256=`ac6809c5d528e567dfef2c5eaf345bfdee21607181f78c52daa9a47c2e6b3d48`。起止 9b34、WT clean、六锁不变。06 本人标记于 18:36:04Z 释放，release SHA256=`2df6ead5b7dfe9f21805f9d8a4662c01a99fb80086da50558c5ac4dbe0848708`；无本任务进程/容器/8000。保留本节自有 WT、Cargo target 和证据供后续 focused，非权威 carried 来源。
+
+B 原审已对固定检查点提前指出并交原实施者：ordered 仍全值 Vec、0/N batch/空表 schema 不足、记录预约晚于分配与 scratch 退账不足、读完后的索引/LIS/排序/摘要阶段缺控制检查。完整 B 必须本节补齐；C 只接 Arrow builders，不承接这些未完成比较职责。当前不记 B GO。旧 Python 参照拟用 S3 自有固定 A 4d5 的独立只读 WT/venv 进程，E 删除临时 harness，不复制改名永久 oracle。
+
+为流式摘要，B 可将已在 workspace 精确钉版且由 shared-kernel 正式消费的 sha2 从 core dev-dependency 提升为 regular；不改变 preimage、Contract、锁定版本。需实核 Cargo.lock/规定 dependency-base 输入保持及离线命中，E 因 Rust/生产 manifest 改动重建当前候选镜像，不称旧镜像当前 PASS。

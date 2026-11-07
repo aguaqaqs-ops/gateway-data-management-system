@@ -232,3 +232,72 @@ Owner明确回复“按方案恢复验证”，授权记录 **`c1d1beefb1260f218
 最终接缝静核确认：Preview orchestration只取已授权result的artifact ID后返回prepare，未比 `prepared.bundle_digest` 与 `result.digests.bundle_digest`；History亦未比prepare digest与assemble checkpoint已有`bundle_digest`。若已授权own对象的artifact ID错误指向另一份完整有效bundle，现有tar内部预检会全过并返回200／另一份字节；ArtifactRef本身没有scope，包内部闭合不能替代owning envelope绑定。
 
 已直接交原实施者并认领：保留原授权次序，prepare后／响应头前对owning expected digest，矛盾复用typed503并close prepared，避免泄漏借用；不新增port、状态机、权限矩阵或业务digest。原HTTP owner共用一条有效但不匹配bundle引用向量即可。当前Compose／interop尚未dispatch，先修固定最终候选再一次构建，不浪费旧候选容器运行。F5待固定代码与实际补验；Current reviewed tree=603f，容器deferred，最后镜像仍V2 f8，无D GO。
+
+## 14. F5 关闭与当前 06 本地里程碑
+
+固定产品 **`0ba45e5ef83f54bfb2585f963f9518d32086f942`** 在 `/home/dev/gdds-reviews/p6-be-d-code-0ba45e5ef8` 只读 detached WT 复审，clean／legacy正确，**vnext=`0301aee3a39e3a5dfc37360e9c2062e660eb01ea`**。编写本节前main为clean `0a7c34be7c7c37bdd915eb21251336012706e101`，后移只有独立文档；未拿main代替固定产品审核。
+
+F5修复保持授权先行：Preview在已解析Result的prepare之后强比owning digest；History从原assemble checkpoint取artifact ID和非空expected digest，prepare后同样比较。矛盾在创建响应前关闭prepared并抛原typed503，缺expected不能跳过。这里的Preview分类仅指**已解析Result的digest不等／空值**，不宣称原始DB binding缺少结构键也新增503映射；该旧mapper边界未扩展。原共享HTTP向量确实生成第二个完整有效bundle，再只改本对象artifact指向、保留原expected digest；两端均503／无ETag，清理借用可再取得。正向fake／真实fixture显式同步semantic digest，未拿raw SHA代替。
+
+已独立核本次 `transfer-4IYV7WNF/prepare.log`：11:54:37–38Z，expected／advertised／source_ready完整0ba、clean／prepare_exit0；bundle SHA=`6356e7d690aba586299e4983ee8638f2df206ef58039fb1077db1bcb23830f45`，log SHA=`17cd9a4cc674323b0625cb5fd65b3fa566ccaa39241e8b5901b45b40d2585f0a`。下表位于06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/`，LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-d/recovery-copy-9cctQXWi/`；各run完整原文、精确argv、expected-head、guard及四项SHA均核相符，起止0ba、clean／owner true。
+
+| 唯一run | 实际结果／UTC | run.log SHA256 |
+| --- | --- | --- |
+| `run-http-digest-binding-rBoVUD3E` | 11:55:00–14，三个HTTP owner **74 passed，command/final0** | `28daca20f2edd23b85a1fa69e499681efe1321a2098dc01c7c42aa1c73ea0211` |
+| `run-backend-ruff-final-e5Kvyl1I` | 11:55:51，ruff0 | `b1106172e9d9902117080c61b481694f091e8ffd6298ad255e0fabb4e7368b32` |
+| `run-backend-mypy-final-wob5kWWW` | 11:55:51–52，516files，mypy0 | `dde47ec37c282e118fb632b31d82982af32eb5655cff37441e2174d285df437b` |
+| `run-compose-tar-openapi-ZHVSgrfR` | 11:56:53–11:57:26，现有Submit小Compose **1 passed／32.22s，command/final0** | `89120149839192c49e4d5827fbaf3802078573eccb3c155acbc49719ffe145a2` |
+| `run-interop-generate-LZPb1TzQ` | 11:58:36–37，提交内generator实际调用生产assembler／encoder，0 | `457ac3a7da59396008394ebdf62171fa7c2aaf818975a4bec5b7adf7dcb7d455` |
+| `run-image-identities-fJ57ziyb` | 11:59:21–57，五镜像config／全部DiffID及同机running桥接，0 | `08618883a19f08afe40db2c9bb84a2ae092f9b8c990894231d29ca88158a2dfc` |
+| `run-interop-verify-OeWqqKQW` | 12:01:07，wrapper在consumer执行前拒绝外置.py，**command/final2，保留** | `f9827d7ed88809bee522a19bbcf40a7d41af32ff3da207a9707c31c52921f955` |
+| `run-interop-verify-corrected-6TuXooMk` | 12:04:05–06，单次公开python-c纠正，完整tar consumer **command/final0** | `77dc8866fdff679b737740cc129ab3e8fda7c211cbd341b21b31f3626d5f4568` |
+
+最后两run按DC68准确区分：首调用被既有受控wrapper的project target前置检查拒绝，consumer未执行、无副作用；原log／SHA保留后由协调确认仅该步骤单次纠正。纠正后的literal argv仍经 `uv-consume.sh ... run --no-sync python -c`，仅import本提交 `benchmarks.bundle_tar.verify_bundle_tar` 与标准库，两个显式参数为实际tar路径及完整0ba；没有exec外置.py、关闭wrapper或直接python绕锁。不是自动审批拒绝，也不适用来消除§9已运行旧对象的事故。
+
+**F5关闭；F1–F5无未闭合产品finding，D固定代码与06局部验证里程碑通过。** 依据是§11–12实际通过的未受影响owner、两次最小移层补验和本轮三HTTP owner／backend静态／当前小Compose；不拼称一次全选通过、权威runner通过或package carried。原380/2、238/1和所有旧失败、aaa原字节不可复核及旧误跑排除均保留。实施handoff当前态另待固定文档核收；这不构成联合最终GO或角色结束。
+
+## 15. 当前镜像、实际 OpenAPI、同 tar 制品与释放核收
+
+### 15.1 构建与镜像身份
+
+实际最小Compose nodeid为 `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`，明确unset `GATEWAY_COMPOSE_GATE_PREBUILT`，预置dependency-base、`GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、build network=none；原harness实际build backend／worker后启动，未重复同一次Compose。RS先在b1a本机离线build，原脚本 `repository-build-v1.sh` SHA=`4fd1609b0940e1377e9d310b2609201befb49bad718e97bb28e63e69f38c3778`，原build run.log SHA=`f398f85a20e46bd1ff0a8086771367c5afa1a6b06f4ee11932053dd4aa0cf963`。0ba未改RS build输入，harness按当前source identity确认，无须为了revision标签重建相同RS源码。
+
+五镜像原始身份JSON为 `image-identities-k0fu61o4/image-identities.json`，SHA=`184b2994f39de63432f3145bd3786c1eb4c8e300010aee455e0e007e85cd9661`，LAN同名副本已重算。已读实际 `image-identities-v1.py`（SHA=`ee85f0a00aa47dab5b01f3d5a164251566d52411de9067e9da8a335157916815`）：从docker save的**实际config bytes**求digest，将config全部diff_ids与本机inspect RootFS逐项比较；报告保留全部89项，不用本机inspect ID充当跨节点config digest。
+
+| 镜像 | config digest | 全部DiffID项数 |
+| --- | --- | --- |
+| 当前project backend | `sha256:2c2e0adb3ef9bac2f8c88a3ef635d91b888b5f6cc6dd5337f0e56d91774ff582` | 13 |
+| 当前project worker | `sha256:1279f49a9cdd87261f25b8a5dd665331e8c1f08bbd1e41dc2bee5382210a1735` | 13 |
+| `gateway-repository-service:be-d-b1a43480d4` | `sha256:2ac4ad9fda8863bf3a292870f611e61e68992f0096d9c8c6e6540656806cca72` | 28 |
+| `gateway-backend-deps:lock-d054366c02fa` | `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a` | 19 |
+| `gateway-p2r1-repository:lock-6dc9659f0aee` | `sha256:98d0801b1140a903ff72988a2dba5e3f4819b86103bb8cb6e5dbdf7302ad9ec9` | 16 |
+
+`compose-output-eJGTujH4/compose-provenance.json` SHA=`9e3c0e525bb5677d705d870de38e49da309fa988e2077be8926f2c72ba6cea4b`，记录实际三个running容器；本角色逐项核本机image IDs与上述fresh build对应，RS亦一致。backend／worker本来没有revision/source-tree label，准确绑定为guard的clean0ba、当前build context与running同机ID桥接，不能虚构0ba标签。RS实际revision是b1a，build-input-revision=`a6876d560050285321fd9f62942d590a03f35d64`，source-tree=`sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。
+
+### 15.2 实际 schema 与共享字节
+
+实际production GET `/openapi.json` 副本 `compose-output-eJGTujH4/production-openapi.json`，SHA=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`。已独立读完整schema：两个200仅 `application/x-tar`、Content-Length／ETag／Content-Disposition齐备；Preview缺失404 RESOURCE_NOT_FOUND，History包含404 ARTIFACT_UNAVAILABLE，二者503均含BUNDLE_INTEGRITY_FAILURE。HTTP实际typed分类由原74通过owner核，schema不是其替代。
+
+生产encoder共享制品在 `recovery-lpNIMtZE/interop-0ba45e5ef8/`，LAN副本在上述recovery-copy相同子目录。`index.json` SHA=`199d451123df6a0354e51c92e411aad1770553909d18ff07e6d4fecdd14ea38d`；**bundle.tar为24,576bytes，SHA=`b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2`**，semantic digest=`sha256:2be243c36d03ef8f11fe9108283ff814631d1dda4aafa32d45380006fd5ef050`。本角色在06只读逐文件重算八个index数据文件的length／SHA，并读取完整tar原字节：原manifest6062B、原closure5232B在前且与单列原文件完全一致，随后surface2275B及ASCII／中文／非BMP三个长path的Parquet各741B，共6普通成员／4closure entries；路径、顺序、size／raw SHA相符，固定tar metadata与两个零结束块正确。
+
+独立已提交consumer的成功输出还核1个reference metadata，**records closure／logical record count均为0**；此小共享制品不冒充真实records逻辑摘要向量，主旅程及其owner另核records。PAX原字节包含 `12 path=中\n`、相邻record、99／101位数边界和畸形UTF-8／length／newline向量；octal边界／I-JSON max三个size文件仅512／1536／1536B header，均明确 `complete_tar=false`，未造大文件或声称其可完整安装。
+
+协调已以 `57aa092e33` 将同tar／index／实际OpenAPI包提供Owner手动转前端。**FE3/PAX同一tar解析／hash／OPFS安装证据仍pending**，没有FE固定提交及同制品成功证据，不报前端依赖解除或FE互通完成。
+
+### 15.3 释放与当前结论范围
+
+原cleanup脚本已读，`run-cleanup-check-5x362qHI` 12:05:24Z／0，run.log SHA=`4b95b3654f2396026e4d3ca25b03c99922b7ee6dc644f94832fea3bb3083827e`；本人project容器／卷／网络、8000、Dolt／Cargo／pytest／rustc／clippy均为空。`release-O4scz5uE/release.log` SHA=`91da2118722b0ce0801f9ba9eb01b8e715b1efb584dbfeeedae2918adc92047d`，12:05:51Z先cmp本人marker再释放，起止0ba／clean，command/final0。12:07:27Z本角色另只读现场核marker不存在、WT clean0ba、本项目容器／卷／网络和8000均空；未触碰其他角色资源或删除缓存／历史证据。LAN副本20个run的全部四项SHA已重算，18-run索引是cleanup前快照，SHA=`d784bad64ed01670a143c5c05cf5789ff09df1999bd5639d94b558f2db03c7d2`，不称权威runner或包含之后release。
+
+```text
+Current reviewed product HEAD: 0ba45e5ef83f54bfb2585f963f9518d32086f942
+Current reviewed vnext tree: 0301aee3a39e3a5dfc37360e9c2062e660eb01ea
+Rebuild triggered: yes；D HTTP/container consumer与最终交付行为变更
+Last verified backend/worker: clean 0ba context于06当前实际build/run；无原生revision/source标签
+Last verified RS revision/source-tree: b1a43480d4 / sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2
+06 local container gate: passed，Submit最小Compose一次；非权威runner carried
+Carried from: none（未作package或最终image carried判定）
+Deferred: 固定handoff当前态核收；协调对齐04六包权威及其Compose、05 fresh t1；FE3同tar OPFS
+Required execution point: 原两角色既定联合准备/核收；DC33最终范围仍由Owner确认后才谈退出
+```
+
+本角色本轮只静审固定WT、读取节点原证据／制品与现场metadata，未执行测试／编译／lint／容器或重跑consumer。D本地里程碑成立后继续同角色联合收尾，当前没有联合最终GO、DC33 exit、tag／push或S3声明。

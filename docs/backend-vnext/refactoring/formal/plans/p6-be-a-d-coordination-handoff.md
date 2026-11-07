@@ -14,7 +14,7 @@
 
 | 小节 | 状态/候选 | 角色与模型 | 验证/节点 | 未决与下一步 |
 | --- | --- | --- | --- | --- |
-| A1 | 工作单已固定，待创建角色；产品尚未实施 | 实施/独审均GPT-6.1-Sol/xhigh；ID创建后补 | 06 focused/静态/必要小Compose；尚无新证据 | 按[工作单](p6-be-a1-work-order.md)启动，先代码后证据独审闭环 |
+| A1 | 协调kickoff `6599fb8ac9` 已提交，两角色已启动；代码候选待产出 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，独立上下文 | 06 focused/静态/必要小Compose；尚无新证据 | 实施者按[工作单](p6-be-a1-work-order.md)实际实施，审核者先准备、固定候选后只读独审 |
 | V1 | 已授权，A1通过后启动 | 下一节新建两个角色 | Rust/native→checkpoint→Attempt/Submission持久冻结 | UTC grammar已定，不恢复Python路径 |
 | V2 | 已授权，V1通过后启动 | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
 | D | 已授权，默认V2后；如前端下载阻塞可提前至A1后 | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |

@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04权威仍有失败待完整收口/修复；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403定向/最小复现通过，最终六包运行中（§11）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -167,7 +167,7 @@ F5绑定修正：两个已授权路由prepare后、创建响应前比较 `prepar
 
 本地handoff固定后，同两角色继续联合04六包/必要Compose与05一次fresh t1；exact candidate、各节点独立WT/owner/guard路径、完整CLI/env与逐项archive reasons先交协调和原独审静核，未对齐前不启动。05 host N1/M24GiB独立于worker N1/M24GiB和32/8 envelope；不试预算。最终DC33范围确认、阶段exit/tag/push及FE3互通仍分开，不在本地里程碑自行办理。
 
-## 9. 联合04/05执行清单稿（静核/协调对齐后启动，尚未执行）
+## 9. 原固定联合04/05执行清单（已审后按§10执行，当前进度见§11）
 
 本节沿已授权联合收尾，非重复开工/恢复申请。当前产品tree仍0301，最终source expected由协调在本文及独审docs提交后固定**当时clean main完整40位SHA**，先核其vnext=0301；不能把0ba或413旧SHA硬套推进后的main。协调短main提交窗口内，两个source transfer依次完成source_ready即回报解除；此后main的docs推进不改节点固定WT。若发生guard前置HEAD漂移，保留拒绝并协调刷新，不拆开步骤或跑旧WT。
 
@@ -307,3 +307,29 @@ env -u GATEWAY_COMPOSE_GATE_PREBUILT \
 | D / 6ad7e54fa0及cd2d395fbc，本地产品0ba | §4 download/HTTP/real_dump/artifact owner、Submit最小容器与History完整tar原容器 |
 
 静态diff边界：S2b V `a687..a999` 的vnext146文件，D基线 `9ec..a999` 31文件，`0ba..a999` vnext无变化；只是范围盘点，非实际package/image carried比较。各原小节06通过不冒充本轮04/05新证据；最终DC33/阶段手续与FE3依赖仍独立待办。
+
+
+## 11. 04首轮完整失败、F6修复与同源最终门禁
+
+原a999六包run于**12:59:22Z完整结束，command_exit=final_exit=1，end exact a999/clean/owner true**；run.log SHA `d84088eda0bdb8f9995c27ef5dacb5252524ed1343b3d14542d6f053e949ff23`。backend并行3fail/3383pass、serial4fail/56pass；其余五包passed（Rust180、shared243、contracts152、client161、RS1744+207/1skip），不能以其部分通过作任何package carried来源。`run-failed-authority-cleanup-tk1wnYRI` 12:59:57Z/0，log SHA `a1256931a8ea5a51869b3f07592ed259583c0994b460cfad6cc6e52af618260f` 核运行容器/8000/Dolt/pytest/编译均空，runner Hypothesis/cargo target已清；04本人marker保留给同门禁修复，不释放再空占。原run同目录 `original-starting-manifests/*.json` 为六包原stdout JSON字节范围，`starting-manifests-index.json` SHA `af518bd41c7c56940c60bbd14a8d4be3c94ed0db549e928fda636b3a585fca36` 列各包原字节SHA、offset/length、total_digest与来源原logSHA，不重序列化或改失败事实。
+
+两类修复分开：`2ae2d825ea` 只更新两原test owner三行缺失引用旧regex。**F6实际产品缺陷**为 `application/archive/audit.py` 原next只按kind/issue_code/target_submission_id/target_candidate_digest取首项；合法FULL两侧同GENERATION_TIME_MISSING时，第二个真实subject会与第一个digest比较而409。原helper忠实提交preview subject，不能改成force或放宽digest。`eff1dc531b7f011d870bb100912f079cf500c497` 改为原四字段当前候选集合内按command.subject_digest精确选项，保留缺集合/错digest两原409、后续独立latest sequence/CAS、actor-bound replay、精确subject_payload冻结与scope/auth；无Contract/digest/golden/DDL/port变化。原 `test_archive_audit.py` 一个小型SQLite向量覆盖同四字段/同code不同side的两subject：MODIFIED先接受，各seq1/正确持久payload.side；伪digest拒绝；仅MODIFIED撤销到2、INITIAL保持ACCEPTED1且details不改，Start仍阻塞。不是新矩阵或新状态机。
+
+同一独审静核eff1（报告§19）；协调固定actual clean source **`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0` / vnext `56720104af34a1eb677336f57bdbc07444a56615`**，04原WT/原marker下 `transfer-6zMscy3m` 13:02:42Z source_ready/prepare0/clean；prepare.log SHA `58a4091b59382f04958eaf7a3f1d7cedef88d518467c0c7004a3747501c3d9a7`，named HEAD bundle SHA `a7601befad4ee00dbb4bf9a5f478a9c28a133dc43856ffcd20f98f1dbf9040be`。guard SHA仍b86cb3…，不硬套eff1或后移main docs；解除source短窗口后节点保持49403。
+
+已审六项门禁诊断实际按顺序执行，所有run前后exact49403/clean/owner true：
+
+| 唯一run | 结果 | run.log SHA256 |
+| --- | --- | --- |
+| `run-extension-input-Go2XNlez` | e6ac expected=installed，0 | `f7ad658cc4069462105eab9ff8ef1cc7332d3470e70008ad696ae0a55682edda` |
+| `run-audit-owner-focused-6Wj1fzDF` | 三原owner非serial n4，66passed/0 | `f4a1ccb21e02c8e7de47096a49eb725f277aa372857ecb04072a0e097660be69` |
+| `run-audit-owner-serial-HWIvxAoB` | 同三文件serial n0，66deselected，原exit5=N/A | `fff0e3fbfcc3990313d4c84864e35b88bd483bf46a90292ab4e18ae2e801ba06` |
+| `run-backend-ruff-fzwTqR0o` | 0 | `5654feb9015ff19f8f19e3407924f383dbfd152c2587b86bb1db3adf3f58cadc` |
+| `run-backend-mypy-eiFSjHGw` | 516 files，0 | `4f8e2bf1356cd5f3796720b654bc56d92c45e372438b4748b86c1a286da482af` |
+| `run-resolution-compose-cgJnj4OW` | 13:04:28–13:05:21Z，1passed/52.67s，0 | `b9ea0e253ecbcdd0d671d00e2941a54645db1b7806f37783643e599bd4da2f9e` |
+
+三原文件为 `tests/test_archive_audit.py`、`tests/test_artifact_staging_conformance.py`、`tests/test_operation_checkpoint_contracts.py`，受控uv `run --no-sync pytest -q`，两marker分别 `(not serial) or parallel_safe` / `serial and not parallel_safe`。唯一当前容器复现为 `tests/test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables`，受控uv `-q -s -n0 -m 'serial and not parallel_safe'`，d054 preload1/networknone/prebuiltunset；正常build当前backend/worker，RS复用本次自身a999 tag但核未变a687/13cb source identity，不称新RS revision。该FULL→Archive路径实际接受双side同code后继续删除表Submit，新增双subject分支由此及原audit owner证明，不把它写成自然05覆盖。
+
+05既有a999成功步骤的引用待同一独审正式限定：旧成功resolution请求必有原四字段首项digest等command.digest；新实现仅在同集合内按digest查找，仍选该旧首项，其后sequence/冻结payload/事务同路。其余17步产品/consumer/事实代码没有改动。这是对**原a999实跑**的未影响代码推理，不能改称49403 fresh实跑，也不声称05自然数据覆盖F6新增分支。
+
+六项收敛后按原授权，不等待重复开工，**13:06:41Z同49403启动最终六包 `run-authority-six-final-DTWWhQP4`**。完整env沿§9，RS tag仍本次自身a999源未变，TEST_WORKERS48/Cargo4/offline、basetemp unset与prebuilt unset；同一固定WT/source不因main后续纯docs推进而切换。当前仍运行，尚无该整次成功/最终GO声明；全包原manifest/总exit及必要Compose待原始结果，失败则停，不重复同runner Compose。05不重启，04最终清理/释放/绑定待本次实际结果。

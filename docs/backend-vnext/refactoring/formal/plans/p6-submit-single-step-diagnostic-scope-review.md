@@ -2137,3 +2137,13 @@ CT108 按实际现场空闲/有效占用与独占测量规则取锁，满足该�
 另已直接提醒：handoff 尚未给出本轮五包 Ruff/mypy 的合格记录；按 AGENTS 补必要静态检查或明确关联确实未变包的既有合格来源，尤其 backend 新工具/测试须有本轮检查。该项是准备验证待补，不虚构为产品断言失败或要求完整 runner。
 
 **当前结论：固定绑定与代码范围通过，F1 必须在实际业务启动前最小修正；§92 范围许可保持，准备工作继续。** 按上述已审具体修订完成必要检查后直接接续原授权，交修订/日志供短复核，不再请求新的 Owner/范围/最终 manifest GO。没有新产品、依赖、镜像运行边界变化，不据该工具 Finding 无故重建 §87 镜像；04 最终门禁与基准 exit 仍另行收口。
+
+## 94. d426 F1 最小修订短审：外层清理已接入，真实 timeout 的组边界尚须修正
+
+只读审核 **`d42646b7a1f11da3f521a5e2d31466bb5a55757a`** 的 project-scoped guarded launcher、runbook 和两项 serial fixture。产品、共享 sampler/timer 没有改动；本轮无节点访问、测试或运行。工作 INT 改置 sampler 的 journey 子命令，外层独立 sampler watchdog，再由 launcher EXIT trap 做固定 project 的 Compose down（无 -v）、postflight 与条件解锁，符合 §93 最小修订方向。配置等待上限为 `26420+5+185+63=26673s < 27000s`；这是等待预算核对，不是实际耗时或所有命令的独立 wall-time 证明，初始化及正常收尾仍须纳总限。
+
+**F1 尚有同一信号路径缺口：** 真实 GNU timeout 默认创建自己的 process group，内层 `timeout --signal=INT --kill-after=1200s 25200s` 因而可能与 WATCHDOG_SESSION_PID 的外层组分离。手动 INT/TERM 的 stop_watchdog 只 kill 外组；sampler 收 TERM 默认退出，不能据此保证另一个组内的 journey/timeout 被停止。postflight 亦只查外组是否存在，故可在内层仍存活时把外组 quiet 当作充分依据。已有 fixture 的 fake timeout 使用 start_new_session 加主动 signal forward，不能替代真实 GNU nested timeout 的组语义；没有运行这些 fixture，也不宣称已经复现残留。
+
+已直接交实施者继续同一最小修订：内层采用 **`--foreground` 留在已经隔离的外层组**，或同等的自有组停止方式，保持软截止只向旅程发送 INT、手动信号能停全部自有宿主进程，之后仍走 project-only Compose 收束。复用现有停止 fixture，以真实 GNU timeout 和 fake journey/Docker 触发短 deadline/手动中断；仅在 fixture 缩短等待，不能用主动 exit124 代替真实超时，也不新增真实 Compose/prepare 或测试矩阵。保留原 25200/27000 和清理预留，不新造 guardian/IPC/持久机制。
+
+**这是 F1 的接线修正，不是新的范围、Owner 或最终摘要审批。** 实施者直接完成修订、必要 focused/语法/静态及已授权节点准备，交原始结果短复核；§92 的恢复范围与直接接续流程保持，不因本节重开来源或历史矩阵。当前没有把未产生的测试/静态结果认定通过。

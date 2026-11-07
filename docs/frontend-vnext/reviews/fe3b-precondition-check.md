@@ -225,3 +225,14 @@ kickoff 修订后若有变化，以修订后的文本为准。
 - **需要 owner：** 是否拆段（§8.2）。
 - **最费时：** 归档核验与关闭界面的设计（草图或文字规格）及其 kickoff 审核。
 - **发出提示词的前提：** 修订后的 kickoff 经 owner 确认；BE-a、BE-d 退出已汇报（或 owner 豁免）；本会话再现场核对一次接口、镜像与占用。
+
+## 9. 后续核对（2026-11-07，BE-a/BE-d 退出与后端澄清之后）
+
+- **BE-a/BE-d 退出：** 合并为一个附注 tag `p6-be-a-d-exit`（对象 `66b9083941`）→ `77b9aeea74`，在 main 第一父链上；产品 `49403f21aa`，`vnext/` 树仍为 `56720104af`，退出 handoff `9ee1f47b32`。
+  §1 中“阶段退出手续未办”已解决；树未变，§3、§4 的结论不变（依赖镜像仍为 `lock-d054366c02fa`）。
+- **后端澄清**（`20d3b885f6`，只改文档，产品与 tag 未变；见 [BE-d 前端交接 §2.1](../../backend-vnext/refactoring/formal/plans/p6-be-d-frontend-handoff.md)）：
+  - 单个 `logical_path` 的 UTF-8 接收上界 8,388,608 字节（8 MiB），按字节计，不按 JS `length`；后端没有独立的路径长度常量，这是由 manifest/closure 各 16 MiB 推出的保守预算，不保证可达；
+  - 单个局部 PAX payload 上限 16,777,216 字节（16 MiB），不含 512 字节 header 与 padding；先按 header 声明的大小检查，再分配读取；
+  - manifest、closure 仍各 16 MiB（前端 `METADATA_LIMIT` 已是该值）；
+  - 已处置的提交仍可带 `NOT_CANDIDATE_BASE_ADVANCED`，只作历史说明；终局状态看 `submission_disposition`，占用看工作区指针。与 §8.1 第 2 项的建议一致。
+- **§8.4 中两项后端澄清已关闭。** 修订 kickoff 不再缺后端信息；剩余的只有 owner 对 §8.2 拆段的决定（若尚未明确）与设计会话的修订本身。

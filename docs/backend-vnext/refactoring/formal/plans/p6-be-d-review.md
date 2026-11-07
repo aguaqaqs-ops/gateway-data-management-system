@@ -473,3 +473,21 @@ RS tag仍 `gateway-repository-service:be-ad-final-04-a999869c7f`；现镜像OCI 
 **当前结论：49403六包实际通过和F6功能关闭成立；联合最终GO仍pending。** 旧RS原config／全部DiffID缺口、最终镜像／闭包绑定、04最终cleanup／释放／LAN完整副本与固定handoff核收尚未完成。根已收到具体证据及policy限制；任何补验／接受范围须先由协调形成Owner可决定的具体选项，不能靠盲重做、替换旧runtime身份或扩大已有证据口径自行恢复。本角色保持相同审核职责，04本人marker仍保留，后续执行停态不变。
 
 本节审核时shared main为普通文档HEAD `48ef2a2e1c92c7d9266fa347551469de98b60df5`，vnext仍567201，与实测49403同产品树；实际只读产品WT固定49403。F6 runtime变更已触发本次正常backend／worker构建与当前六包，不因本节报告再构建。最后完整config／全部DiffID已核来源仍§18的05 a999；本次04 backend／worker原ID仍可读、RS现revision49403／source13cb已只读核，不能把它们写成尚未完成的完整运行镜像取证。没有新增package/image carried、DC33范围确认／阶段退出、S3／tag／push或FE3同tar OPFS完成声明。
+
+## 23. 固定停态handoff及Owner方案A静核
+
+固定 **`fb7221aa5cba1d69a4eceec0642372c5470176c6`** 已在新只读 detached WT `/home/dev/gdds-reviews/p6-be-ad-stop-fb7221aa5c` 核clean／legacy；仅实施文档变更，vnext仍567201。顶部与§12所列六包原0／1skip、原六manifest byte range索引、实际API／provenance／UTC标签纠正、collector原1、三known blobs notfound、原RS config／全部DiffID不可取得及后继停态，与本报告§22一致。**固定handoff当前事实核收通过；这不是联合GO或恢复授权。** 普通文档指针已由同实施者以 **`03f8585c781f40da9853e945038cdc9d21025bf1`** 一行修正为“06本地结果见§8；联合当前态以§12为准”，固定增量已核，finding闭环；无其他内容或vnext变化。
+
+协调 `8c4f6850e6` 联合准备§10及实施者完整七步literal模板均已静核。方案A保持同04／同WT／完整49403，不追后继docs SHA；先核RS130674的candidate／source／lock并按不可变ID保存当前原config／全部DiffID。四基础包实际manifest compare只以原DTW成功来源为准，各自原Hypothesis绝对路径不存在；工具exit0不代表可沿用，须解析中文status，将“运行”包并入至少backend／RS的权威scope。沿原完整profile／48workers／offline／preload d054／network none／prebuilt及basetemp unset；保留original_runner_exit，前后RS输入ID固定130674，任真实失败或身份变化即停。
+
+新postcopy绑定批准后新guard的实际49403／原0／起止awareUTC及源mtime epoch闭区间，原bytes相等／SHA／唯一目录；schema以resolve后的路径去重，已修静态发现的pytest-current别名重复命中，不曾执行该错误稿。collector仅按本阶段原snapshot的immutable image ID inspect/save，保存原config原字节及全部DiffID，没有tag fallback／旧cfg重造。未来目录／UTC值只在批准后由新guard实际输出绑定再核，不预造、也不用旧q57或13:06区间替代。
+
+| 最终只读核过的外置本地脚本 | SHA256 |
+| --- | --- |
+| `/home/dev/gdds-be-ad-image-identity-collector-v2.py` | `1232b535371a689f8c55d6fbb8b6c36697e30b6cb1b03060b8ea4450487ecbf1` |
+| `/home/dev/gdds-be-ad-04-rs-input-precheck-v1.sh` | `9b304fe33e9d64b1f6e3422a337e5d210471748001791c0ee7bdf345e2971ce2` |
+| `/home/dev/gdds-be-ad-04-compare-four-v1.sh` | `d2bb31f6561142e4c335607776b616594e1cbe39175b8591c206646398c7c7ac` |
+| `/home/dev/gdds-be-ad-04-resume-authority-v1.sh` | `07ef6da40042512e232d4e72a5c45529178d3ff8de6e23471fa957c9d8fa8507` |
+| `/home/dev/gdds-be-ad-04-copy-new-provenance-v1.py` | `2001054e459746b4a03cd497bca770c707cdf7ffe2157458037c7a8a0f645b27` |
+
+**方案A静态可执行性核收通过，无剩余静态阻塞。** 只读核全文／hash／mode664与显式bash FILE或python3 -I入口，未bash-n、访问测试节点、安装／执行脚本、运行collector／测试／编译／lint、cleanup／释放。方案B保留pending后按Owner授权只清本人资源；两方案均不隐去旧原件缺失，不扩产品／闭包工具政策／角色／测试矩阵。Owner选择问题已由协调一次提交，当前尚无明确回复，全部执行继续停；同角色保留后续连续核收职责，不自动解释为A已批准、DC33确认／阶段退出、FE3／S3／tag／push完成。

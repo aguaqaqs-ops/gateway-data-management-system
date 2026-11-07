@@ -7,9 +7,11 @@
 
 mod kernel;
 mod ordered;
+mod probe;
 mod standard;
 
 pub use kernel::{CanonicalBatchSide, KernelContext};
+pub use probe::comparison_probe_json;
 pub use standard::{
     RowLocation, StandardComputation, StandardKind, StandardMode, StandardOptions,
     StandardRecordRef, canonical_cell_frame_at, compare_standard_table,

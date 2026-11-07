@@ -1910,7 +1910,12 @@ fn read_side(
             (BlankProvenance::Missing, _) => {
                 return Err(OrderedCompareError::new("BLANK_PROVENANCE_MISSING"));
             }
-            (_, Some(_)) => return Err(OrderedCompareError::new("SOURCE_GID_INVALID")),
+            (BlankProvenance::CanonicalPseudoGid, Some(_)) => {
+                return Err(OrderedCompareError::new("CANONICAL_GID_INVALID"));
+            }
+            (BlankProvenance::SourceMissingStableKey, Some(_)) => {
+                return Err(OrderedCompareError::new("SOURCE_GID_INVALID"));
+            }
         };
 
         let mut cells = BTreeMap::new();

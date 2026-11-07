@@ -1165,6 +1165,20 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_effective_key_is_a_table_error_for_planner_degradation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let repeated = batch(&[1, 1], &["a", "b"])?;
+        let single = batch(&[1], &["a"])?;
+        assert_eq!(
+            compare(
+                &[repeated], &[single], &options(StandardMode::Keyed), &context(),
+            ).err().map(|error| error.code()),
+            Some("DUPLICATE_EFFECTIVE_KEY"),
+        );
+        Ok(())
+    }
+
+    #[test]
     fn ordered_streaming_jcs_rejects_unsafe_absolute_position()
     -> Result<(), Box<dyn std::error::Error>> {
         let ordered_schema = Arc::new(Schema::new(vec![
@@ -1238,6 +1252,80 @@ mod tests {
         assert_eq!(result.facts_metadata.row_count_current, Some(0));
         drop(result);
         assert_eq!(large.remaining_bytes(), 2 * 1024 * 1024);
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_batch_partitions_and_caller_pool_width_keep_semantic_result()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ordered_schema = Arc::new(Schema::new(vec![
+            field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
+        ]).with_metadata(HashMap::from([(
+            "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+        )])));
+        let make = |gids: Vec<i64>, names: Vec<&str>| RecordBatch::try_new(
+            Arc::clone(&ordered_schema),
+            vec![
+                Arc::new(Int64Array::from(gids)) as ArrayRef,
+                Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5])) as ArrayRef,
+                Arc::new(StringArray::from(names)) as ArrayRef,
+            ],
+        );
+        let before = make(vec![1, 2, 3, 4, 5], vec!["a", "b", "c", "d", "e"])?;
+        let current = make(vec![2, 1, 3, 5, 4], vec!["b", "a", "c", "e", "d"])?;
+        let policy = OrderedCompareOptions::new("t");
+        let full = compare_ordered_batches(OrderedBatchPair {
+            before: Some(std::slice::from_ref(&before)),
+            current: Some(std::slice::from_ref(&current)),
+            before_schema: Some(before.schema()), current_schema: Some(current.schema()),
+            options: &policy,
+        }, &context())?;
+        let expected = (
+            full.facts_metadata.status.clone(),
+            full.facts_metadata.ordered_extension.summary.row_moved_count,
+            full.facts_metadata.ordered_extension.before_ordered_digest.clone(),
+            full.facts_metadata.ordered_extension.current_ordered_digest.clone(),
+            full.ordered_records.iter().map(|item| (
+                item.kind, item.row_identity.clone(), item.before_position, item.current_position,
+            )).collect::<Vec<_>>(),
+        );
+        for width in [1, 4] {
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(width).build()?;
+            for seed in 0usize..32 {
+                let split = |batch: &RecordBatch, mut state: usize| {
+                    let mut start = 0;
+                    let mut output = Vec::new();
+                    while start < batch.num_rows() {
+                        state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                        let count = (1 + state % 3).min(batch.num_rows() - start);
+                        output.push(batch.slice(start, count));
+                        start += count;
+                    }
+                    output
+                };
+                let before_parts = split(&before, seed);
+                let current_parts = split(&current, seed ^ 0x5a5a);
+                let run_context = context();
+                let result = pool.install(|| compare_ordered_batches(OrderedBatchPair {
+                    before: Some(&before_parts), current: Some(&current_parts),
+                    before_schema: Some(before.schema()), current_schema: Some(current.schema()),
+                    options: &policy,
+                }, &run_context))?;
+                let actual = (
+                    result.facts_metadata.status.clone(),
+                    result.facts_metadata.ordered_extension.summary.row_moved_count,
+                    result.facts_metadata.ordered_extension.before_ordered_digest.clone(),
+                    result.facts_metadata.ordered_extension.current_ordered_digest.clone(),
+                    result.ordered_records.iter().map(|item| (
+                        item.kind, item.row_identity.clone(),
+                        item.before_position, item.current_position,
+                    )).collect::<Vec<_>>(),
+                );
+                assert_eq!(actual, expected);
+            }
+        }
         Ok(())
     }
 }

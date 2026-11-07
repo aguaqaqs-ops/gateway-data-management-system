@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod business;
+mod s3_compare_probe;
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -1377,6 +1378,7 @@ const BUILD_INPUT: &str = match option_env!("GATEWAY_RUST_BUILD_INPUT") {
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
+    s3_compare_probe::register(module)?;
     module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;

@@ -50,6 +50,24 @@ fn options() -> OrderedCompareOptions {
     options
 }
 
+#[test]
+fn invalid_gid_diagnostic_keeps_source_and_canonical_provenance_distinct()
+-> Result<(), Box<dyn Error>> {
+    let invalid = batch(&[Some(-1)], &[1], &[Some("x")])?;
+    let mut source = options();
+    source.before_blank_provenance = BlankProvenance::SourceMissingStableKey;
+    source.current_blank_provenance = BlankProvenance::SourceMissingStableKey;
+    let source_result = compare(&invalid, &invalid, &source)?;
+    assert_eq!(source_result.diagnostics, ["SOURCE_GID_INVALID"]);
+
+    let mut canonical = options();
+    canonical.before_blank_provenance = BlankProvenance::CanonicalPseudoGid;
+    canonical.current_blank_provenance = BlankProvenance::CanonicalPseudoGid;
+    let canonical_result = compare(&invalid, &invalid, &canonical)?;
+    assert_eq!(canonical_result.diagnostics, ["CANONICAL_GID_INVALID"]);
+    Ok(())
+}
+
 fn compare<'a>(
     before: &'a RecordBatch,
     current: &'a RecordBatch,

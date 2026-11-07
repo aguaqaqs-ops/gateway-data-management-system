@@ -392,3 +392,24 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 05影响的代码论证按实际成功路径限定：旧请求成功必满足原四字段首项 `subject_digest==command.subject_digest`；新搜索仍首先命中同一旧首项，其后校验／sequence／冻结payload／写入沿同一路径。该推论不需要假定自然数据的候选集合基数为1，也不依赖外存全部resolution HTTP响应；它只说明a999已成功路径未因这次精确选择而改变，不冒充新增合法第二subject已有真实数据证明。其余05步骤和完整tar consumer源码亦无diff。**该未影响论证已在实际eff1 diff下成立，正式按步骤引用仍待该候选必要focused／小共用复现验证收敛；来源始终为a999，不称eff1或后继HEAD实际重跑fresh，也不作image/package carried。**
 
 诊断范围与协调／原实施者一致：原audit及两个staging／checkpoint owner主体-n4与serial-n0，空批5=N/A；backend增量ruff／mypy；仅一条现有 `test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables` 作真实FULL双subject→Archive→后续Submit的共用复现，然后下一次合格六包。RS源码a687／13cb未改，可保留本任务既有独立a999 tag并准确记录旧revision；backend／worker须本机当前build。原runner仍完成自身RS serial，未末exit／未清理前不改测试WT或镜像、不启动后续验收；本角色仅静审与节点只读核收，未运行被测对象／测试／编译／lint。本节尚无新实际补验、权威总exit通过、04当前镜像或联合最终GO；05原成功及FE3／DC33未决边界按§18保留。
+
+## 20. 49403补验完成；05有限步骤引用成立，权威复跑待末结果
+
+原04 `run-authority-six-n3pnBrzg` 已实际结束：**12:32:24–12:59:22Z，command/final1，起止a999／clean／本人owner true**；run.log SHA=`d84088eda0bdb8f9995c27ef5dacb5252524ed1343b3d14542d6f053e949ff23`及四项SHA独立重算相符。Rust180、shared_kernel243、repository_contracts152、repository_client161，RS parallel1744／serial207及1skip在该原失败run中的结果如实保留；backend parallel3fail／3383pass、serial4fail／56pass。**没有任一包把该整次失败作为carried来源。** `original-starting-manifests/`六JSON已逐项比原log准确byte range、package／head／total_digest／SHA全部相符；原范围索引SHA=`af518bd41c7c56940c60bbd14a8d4be3c94ed0db549e928fda636b3a585fca36`，原保全run SHA=`9fbc82b219902dfe6471df8c321753ff77d36daa85a1dbcd10a330015e0490de`。它们是起始原manifest副本，非运行后重算。
+
+04 `run-failed-authority-cleanup-tk1wnYRI` 12:59:57Z／0（log SHA=`a1256931a8ea5a51869b3f07592ed259583c0994b460cfad6cc6e52af618260f`）实际核无运行容器／8000／Dolt／pytest／编译进程，runner Hypothesis及CargoTarget均已清；保留本人marker继续本任务。其后才传协调固定的完整clean **`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`**，产品tree与eff1相同 **`56720104af34a1eb677336f57bdbc07444a56615`**。新 `transfer-6zMscy3m` 原prepare 13:02:41–42Z／0，SHA=`58a4091b59382f04958eaf7a3f1d7cedef88d518467c0c7004a3747501c3d9a7`，bundle SHA=`a7601befad4ee00dbb4bf9a5f478a9c28a133dc43856ffcd20f98f1dbf9040be`；expected／advertised／checkout／source_ready／clean独立核符，guard仍b86cb3…。本角色在04短source窗口只读，source_ready后解除。
+
+| 04当前唯一诊断run／均起止49403 clean／owner true | 实际结果 | run.log SHA256 |
+| --- | --- | --- |
+| `run-extension-input-Go2XNlez` | 13:03:21Z，e6ac expected=installed，command/final0 | `f7ad658cc4069462105eab9ff8ef1cc7332d3470e70008ad696ae0a55682edda` |
+| `run-audit-owner-focused-6Wj1fzDF` | 13:03:22–34Z，原三owner主体-n4，**66passed／0** | `f4a1ccb21e02c8e7de47096a49eb725f277aa372857ecb04072a0e097660be69` |
+| `run-audit-owner-serial-HWIvxAoB` | 13:03:56–57Z，66deselected，**实际command/final5，空批N/A** | `fff0e3fbfcc3990313d4c84864e35b88bd483bf46a90292ab4e18ae2e801ba06` |
+| `run-backend-ruff-fzwTqR0o` | 13:04:08–09Z，ruff0 | `5654feb9015ff19f8f19e3407924f383dbfd152c2587b86bb1db3adf3f58cadc` |
+| `run-backend-mypy-eiFSjHGw` | 13:04:09–18Z，516files，mypy0 | `4f8e2bf1356cd5f3796720b654bc56d92c45e372438b4748b86c1a286da482af` |
+| `run-resolution-compose-cgJnj4OW` | 13:04:28–13:05:21Z，唯一既有Submit removes-deleted共用复现，**1passed／52.67s，command/final0** | `b9ea0e253ecbcdd0d671d00e2941a54645db1b7806f37783643e599bd4da2f9e` |
+
+以上完整原文、精确argv与每run四项SHA均独立核符。新增audit双subject／独立sequence／伪digest及三条旧消息期望已实际补过；共用复现确实经过FULL同code两subject→Archive→后续Submit，保留正常当前backend／worker build、preloaded d054／network none／prebuilt unset。RS沿本任务自身a999 tag，实际source a687／13cb未变；没有为标签改写而重建RS或重复另外四条Compose。**F6本地实现及必要补验已完成，最终finding／联合关闭仍随合格权威门禁核收。**
+
+**对当前49403，可按未影响步骤引用§18的05实际a999成功证据。** 已独立核a999..49403的实际vnext仅audit选择逻辑、其67行向量及原两个test三行消息，eff1..49403 vnext空；consumer、helper、事实、Rust、deploy、脚本、golden均无diff。对05每个旧成功Archive请求，原四字段首项摘要必已等command摘要；新集合内精确digest搜索仍首先返回该同一项，后续sequence／冻结payload／写入不变，成功replay入口亦未改。其余17步沿未变源码，原全程结果与四tar校验可用于这些成功路径的范围结论。**新增合法第二subject由本轮新owner与当前共用复现覆盖，不声称自然05曾覆盖新分支；来源仍是a999，不称49403实跑fresh，不作package/image carried。** 后续如再有产品增量必须重判，不能把此结论当永久沿用授权。
+
+同一04／source49403／WT已于 **13:06:41Z** 实际启动 `run-authority-six-final-DTWWhQP4`；已独立核启动原文与完整六包／48workers／既定env，未切源、未另占05／06，尚无末exit。该轮因audit runtime修复及最终容器门禁需要当前backend／worker构建；完整镜像config／provenance／package manifest及A1/V1/V2/D覆盖闭包在最终运行后核收，最后已完整记录的三运行镜像身份仍为§18的05 a999。本角色只读节点与固定源码，不重跑被测对象；当前没有联合最终GO、04合格权威通过或FE3／DC33退出声明。

@@ -654,7 +654,7 @@ pub fn compare_ordered_batches(
             sort_indices_checked(&work.locators.standard, context, |left, right| {
                 left.kind
                     .contract_name()
-                    .cmp(&right.kind.contract_name())
+                    .cmp(right.kind.contract_name())
                     .then_with(|| left.row_identity.cmp(&right.row_identity))
                     .then_with(|| left.changed_columns.cmp(&right.changed_columns))
             })?;
@@ -662,7 +662,7 @@ pub fn compare_ordered_batches(
         let ordered_facts_order =
             sort_indices_checked(&work.locators.ordered, context, |left, right| {
                 left.kind
-                    .cmp(&right.kind)
+                    .cmp(right.kind)
                     .then_with(|| {
                         left.current_position
                             .or(left.before_position)
@@ -679,7 +679,7 @@ pub fn compare_ordered_batches(
         let ordered_artifact_order =
             sort_indices_checked(&work.locators.ordered, context, |left, right| {
                 left.kind
-                    .cmp(&right.kind)
+                    .cmp(right.kind)
                     .then_with(|| left.row_identity.cmp(&right.row_identity))
                     .then_with(|| {
                         left.before_position
@@ -705,7 +705,7 @@ pub fn compare_ordered_batches(
                 let right = *right;
                 work.locators.blank[left]
                     .kind
-                    .cmp(&work.locators.blank[right].kind)
+                    .cmp(work.locators.blank[right].kind)
                     .then_with(|| blank_keys[left].cmp(&blank_keys[right]))
             })?;
         let OrderedWork { facts, locators } = work;
@@ -918,6 +918,9 @@ struct Gap {
     start: i64,
     end: i64,
 }
+
+type GapAnchors = (Option<String>, Option<String>);
+type GapMap = BTreeMap<GapAnchors, Gap>;
 
 #[derive(Debug, Clone)]
 struct SideRows {
@@ -1361,7 +1364,7 @@ fn compare_ordered_table_inner(
         &backbone,
         options.include_add_delete_records,
         capture_locators,
-        lease.as_deref_mut(),
+        lease,
         context,
     )?;
     locators.blank = blank.locator_records;
@@ -1948,10 +1951,8 @@ fn read_side(
     value_columns.sort();
 
     for row_index in 0..batch.num_rows() {
-        if row_index % 1024 == 0 {
-            if let Some(context) = context {
-                context.check()?;
-            }
+        if row_index % 1024 == 0 && let Some(context) = context {
+            context.check()?;
         }
         let no_array = batch.column(no_index);
         let position = read_integer(no_array.as_ref(), row_index, context.is_none())?
@@ -2623,6 +2624,8 @@ fn hash_jcs_count(hasher: &mut Sha256, value: usize) -> Result<(), OrderedCompar
     hash_jcs_integer(hasher, value)
 }
 
+// Preserve explicit operation control, lease and locator mode at this boundary.
+#[allow(clippy::too_many_arguments)]
 fn blank_extension(
     table_name: &str,
     before_rows: &[OrderedRow],
@@ -2741,7 +2744,7 @@ fn blank_gaps(
     rows: &[OrderedRow],
     anchors: Option<&HashSet<Vec<u8>>>,
     context: Option<&KernelContext>,
-) -> Result<BTreeMap<(Option<String>, Option<String>), Gap>, OrderedCompareError> {
+) -> Result<GapMap, OrderedCompareError> {
     let mut gaps = BTreeMap::new();
     let mut before_anchor: Option<String> = None;
     let mut count = 0usize;

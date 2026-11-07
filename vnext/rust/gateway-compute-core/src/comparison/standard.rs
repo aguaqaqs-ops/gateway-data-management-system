@@ -477,6 +477,8 @@ fn reserve_record(
     Ok(())
 }
 
+// Keep caller-owned control, lease and result vector explicit at this row boundary.
+#[allow(clippy::too_many_arguments)]
 fn compare_keyed(
     before: &[EncodedRow],
     current: &[EncodedRow],
@@ -583,6 +585,8 @@ fn key_index<'a>(
     Ok(index)
 }
 
+// Keep caller-owned control, lease and result vector explicit at this row boundary.
+#[allow(clippy::too_many_arguments)]
 fn compare_keyless(
     before: &[EncodedRow],
     current: &[EncodedRow],
@@ -803,7 +807,7 @@ mod tests {
         let current_b = batch(&[1, 3], &["new", "third"])?;
         let context = context();
         let full = compare(
-            &[before.clone()],
+            std::slice::from_ref(&before),
             &[current_a.clone(), current_b.clone()],
             &options(StandardMode::Keyed),
             &context,
@@ -852,7 +856,7 @@ mod tests {
         let three_b = batch(&[1, 1], &["a", "a"])?;
         let context = context();
         let added = compare(
-            &[two.clone()],
+            std::slice::from_ref(&two),
             &[three_a.clone(), three_b.clone()],
             &options(StandardMode::Keyless),
             &context,
@@ -963,7 +967,7 @@ mod tests {
         )?;
         let policy = options(StandardMode::Keyed);
         assert_eq!(
-            compare(&[wrong], &[valid.clone()], &policy, &context())
+            compare(&[wrong], std::slice::from_ref(&valid), &policy, &context())
                 .err()
                 .map(|error| error.code()),
             Some("CANONICAL_SCHEMA_REQUIRED")
@@ -974,7 +978,12 @@ mod tests {
             None,
         ));
         assert_eq!(
-            compare(&[valid.clone()], &[valid.clone()], &policy, &tiny)
+            compare(
+                std::slice::from_ref(&valid),
+                std::slice::from_ref(&valid),
+                &policy,
+                &tiny,
+            )
                 .err()
                 .map(|error| error.code()),
             Some("RESOURCE_LIMIT_EXCEEDED")
@@ -982,7 +991,12 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(true));
         let stopped = Arc::new(KernelContext::new(1024 * 1024, cancelled, None));
         assert_eq!(
-            compare(&[valid.clone()], &[valid], &policy, &stopped)
+            compare(
+                std::slice::from_ref(&valid),
+                std::slice::from_ref(&valid),
+                &policy,
+                &stopped,
+            )
                 .err()
                 .map(|error| error.code()),
             Some("COMPARISON_CANCELLED")
@@ -994,7 +1008,12 @@ mod tests {
         ));
         let no_rows = batch(&[], &[])?;
         assert_eq!(
-            compare(&[no_rows.clone()], &[no_rows], &policy, &expired)
+            compare(
+                std::slice::from_ref(&no_rows),
+                std::slice::from_ref(&no_rows),
+                &policy,
+                &expired,
+            )
                 .err()
                 .map(|error| error.code()),
             Some("COMPARISON_DEADLINE_EXCEEDED")
@@ -1178,7 +1197,12 @@ mod tests {
             None,
         ));
         let policy = options(StandardMode::Keyed);
-        let one = compare(&[full.clone()], &[full], &policy, &unsplit)?;
+        let one = compare(
+            std::slice::from_ref(&full),
+            std::slice::from_ref(&full),
+            &policy,
+            &unsplit,
+        )?;
         let many = compare(&slices, &slices, &policy, &split)?;
         assert_eq!(one.row_modified_count, many.row_modified_count);
         assert_eq!(one.records.len(), many.records.len());
@@ -1222,8 +1246,8 @@ mod tests {
         )?;
         assert_eq!(
             compare(
-                &[bad_batch.clone()],
-                &[bad_batch],
+                std::slice::from_ref(&bad_batch),
+                std::slice::from_ref(&bad_batch),
                 &options(StandardMode::Keyed),
                 &context()
             )

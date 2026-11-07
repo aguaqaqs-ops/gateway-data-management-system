@@ -2809,3 +2809,31 @@ CT201 `baseline/derived-control-timing-20261107a/worker-step-timings.json`10918B
 实施者独立调查log2533B、SHA **`debbfd64da66e574123b8080e8e4ce7ad50073206393efedc0b396e0af950e33`**、脚本c1358225…3958c与本审核文件元数据/全部SHA/两种tree结果一致，且原core state503e73ab及准备索引11ef88f4仍相同。旧W4源sidecar可逆恢复§97不自动覆盖此源；本次不需要为补metadata修改原目录。
 
 **设计已认可具体有限派生方案，可直接准备：** 原三文件原位保留、当前源full tree继续明确MISMATCH；只将与原checkpoint主文件投影精确一致的DB以保留真实元数据的复制方式放入新私有目录，开库前以未改原算法核该**完整私有目录**精确等于原4baede/1文件/2150400B，再在05私有副本补同run worker步骤/H1历史DB字段。不得作新业务恢复checkpoint或carried，不增加通用WAL/SHM ignore，不为读取派生字段先移动/删除源sidecars；不把唯一确定旧SHM创建者增加为门槛。H1还须独立核原artifact来源及实际缓存对象，不能仅凭DB或旧W2健康值标健康；TTL使用原H1起点UTC及原缓存读取规则，不用当前日期判旧时过期。私有副本实际准备/提取、H1对象证据及05结果仍待交，不停止其他已授权工作。
+
+## 127. 三来源历史worker步骤及core H1输入缓存补证独审PASS
+
+**合并补证 `worker-step-timings-and-h1-source-supplement.json` 16927B、SHA `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de` 独审PASS。** 资格限于core/FULL/STRESS三来源的历史worker步骤及core原H1查询起点输入条件，可作为标准record的明确派生输入/外部索引依据；不改原run/state/log、原none模式或未知cache_after/命中数，不作业务恢复或carried。本结论关闭§118/126在这三来源上的步骤缺采及H1起点条件缺口，不泛化其他来源，也不替代DC63/V5b实际细分、正式record/comparator或最终门禁。JSON中的REVIEW_PENDING保留产生时快照，以本报告记录审核结论，不要求改字节再签。
+
+05源目录 `baseline/derived-control-timing-20261107a-ct05/` 的闭合JSON、脚本及日志已LAN取CT201 `p6-baseline-evidence-review-20261107/historical-control-ct05/`，逐份独立hash相等。`worker-and-h1-history-db-extraction.run.log`2255B、SHA **`3b8301f44e48e5f26232c63c7f162ebb27b923aef45769f5681f0617405c880e`** 记录gw-dms-test-05、20:14:37Z、无冲突/占用、一次extractor exit0及输入/输出SHA。JSON264460B、SHA **`afc0ece772d393b11178bbf5a29b95ddff6387829fd9d6d29337616e2b9b16b1`**；脚本SHA **`de1f3f25e2aacac41d6115573d1b0fa4791a01c45257a3bacc9e455183133132`** 已逐段审阅，先核三私有DB大小/SHA及无WAL/SHM，再仅以mode=ro&immutable=1打开私有件、backup到临时DB，按原SQL验证SUCCEEDED/attempt/顺序/gap及preview_result。初稿CT201节点及88d312副本事实保留，05复提对FULL/STRESS的bindings、preview rows和全部12行数值逐项相同，未冒称初稿原在05。
+
+core私有原main目录开库前的完整树核验日志961B、SHA **`e6e59b4fdd46e4e22722eaaf58e36c87a8eae01fe185ea09ab87471b8cd7f22a`** 已直接核：新目录原算法full tree精确4baede/1文件/2150400B、main SHA9b2c1afc，原源完整目录继续2ce712/3文件；源三文件未移删。05收到main SHA与之相等。此为§126限定私有重建的实际结果，不是对当前源目录过滤后宣称MATCH。
+
+审核者重取05已认证core原state/run/journey副本并独立hash仍为503e73ab/bf3a1528/e0085bad；与已有FULL/STRESS原件逐operation核7组ID、generation、upload_revision_id、原source_head，21行UTC elapsed/gap重新计算全部一致。各行attempt=1，三步骤依次materialize_inputs/assemble_preview/publish_preview：
+
+| 来源 / Preview | materialize / assemble / publish 秒 |
+| --- | ---: |
+| core v1 | 1553.584566 / 160.696548 / 1.506816 |
+| core repeat v1 | 1260.532421 / 148.875345 / 0.564922 |
+| core v2 | 1605.197707 / 1721.657862 / 1.204833 |
+| FULL v1 | 1552.916983 / 154.422832 / 1.505013 |
+| FULL repeat v1 | 1266.030409 / 143.177066 / 0.563616 |
+| FULL v2 | 3116.634867 / 884.797682 / 2.813100 |
+| STRESS v2 | 2255.807895 / 2397.093684 / 3.183598 |
+
+这些是同run原DB的粗worker阶段，未用API差值、跨版本结果或诊断span拼接。不能据这三段进一步推算checkpoint-read/pair/bundle子段；后者仍由DC63/V5b既定实际链完成，也不将不同输入/模式的三来源相互作性能回归结论。
+
+**H1起点条件现有实际对象证明。** 原e008日志独立定位：checkpoint_saved=Nov1 07:36:37.516Z，history_compare_started及step_started=07:36:37.829Z，operation_started=.853Z；05对原core DB342行按该历史compare时刻计算expired0，而非使用今天时钟。对象清单225405B、SHA **`c01805ac16a00938b18cc87ee02bd85d7fc578f73daa5889a7c1c2f211551a4b`** 与DB提取的全部cache rows精确相同；本审核逐项核repository scope等于原_stack.repository_id、artifact_id唯一、原路径hash派生、expiry及所有342对象/引用对应。原API可见/完成时间 **2426.267s** 保持bb348来源，未更改原cache_condition/cache_after缺失或argv默认none的事实。
+
+CT108同run before-History artifact snapshot的只读验证：报告399477B、SHA **`be8ce870330302c9b9352bf11a306bf076dcee1ea4ea8d9f14b1a7156bf848a0`**，运行日志1108B、SHA **`ccb0b30e0368917368aa574227ea00020d61f2d33878599ade64c0bc05a09739`**，20:18:57Z、exit0；脚本SHA **`5086f6875ab5ad48b9f4b04d24a9ed180c4870202d4301ba937f999c3a660539`** 已读，固定原snapshot root，核342对象和342 ref文件均存在、root边界、四字段canonical ref形状/身份及每一对象size/SHA与ref相符，missing/invalid/content mismatch均0。本审核进一步逐项核报告与清单的repo/layout/writer/expiry、object/ref路径与size/SHA相等，且全部对象mtime早于历史起点。报告明确**未重hash整个1043552482B artifact树**；原02048879树身份只作来源索引，本结论仅认证实际342引用范围，符合原缓存健康consumer的行/TTL/对象存在条件，不扩为新业务checkpoint完整资格、实际命中数或History之后状态。
+
+20:22:42Z合并脚本及日志SHA分别7d7ac906/4f0db9d7，绑定上述原输入，已独立核合并结果与提取/对象报告全部相等。已直接通知实施者消费本补证、继续正式record/comparator及既有分段/测试修订，无新GO、不重测core/FULL/STRESS；两类测试修订与05focused实际实施仍由唯一实施者完成，审核者仅只读诊断/独审，避免互等对方写代码。

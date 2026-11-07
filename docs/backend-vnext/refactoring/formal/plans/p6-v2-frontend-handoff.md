@@ -1,6 +1,6 @@
 # V2 归档界面接口交接（Owner手动转发）
 
-2026-11-07。协调者维护，前端 owner 实施其代码。**V2已本节GO，最终独审`9ec62e82ad`，产品/当前Compose`f8fb796f02`，handoff`3cd4400f9f`**。提前候选7878→完整3c→f8已收敛，subject按issue闭合并保留精确preimage。A1/V1亦已本节GO；04/05联合最终、BE-d完整tar与前端PAX同制品互通仍另待，不把本页视作FE3完成。当前没有等待前端判断的阻塞问题。
+2026-11-07。协调者维护，前端 owner 实施其代码。**V2原本节GO为`9ec62e82ad`，产品`f8fb796f02`、handoff`3cd4400f9f`；联合04门禁又发现同码双side的精确subject定位缺陷，修订`eff1dc531b`待独审/实际补验，联合尚未GO**。修复不改公开DTO/权限/摘要语义，subject保留精确preimage。A1/V1及D本地里程碑已通过，05 a999 fresh已通过/释放；04最终与前端PAX同制品互通仍另待，当前态见[联合记录](p6-be-a-d-joint-validation-preparation.md)，不把本页视作FE3完成。当前没有等待前端判断的阻塞问题。
 
 ## 1. 预览与逐项接受
 
@@ -16,7 +16,7 @@
 | CONFIGURATION_TIME_QUALITY | ACKNOWLEDGE_TIME_QUALITY |
 | CONFIGURATION_TIME_ORDER | ACKNOWLEDGE_TIME_ORDER |
 
-沿 `POST /v1/archive-anomaly-resolutions`，每项填写明确 reason，保留 `REVOKE`。使用服务端返回的 subject_digest、issue_code、代表 target_submission_id/target_candidate_digest、当前 expected_sequence，以及同次预览的 Head、selected、candidate_set_digest；不要自行构造 affected 成员集合或将一组异常拆成多份接受。完整组/边由后端派生并冻结，candidate/facts/Head/selection/来源组改变后刷新预览及相应审计引用。
+沿 `POST /v1/archive-anomaly-resolutions`，每项填写明确 reason，保留 `REVOKE`。使用服务端返回的 subject_digest、issue_code、代表 target_submission_id/target_candidate_digest、当前 expected_sequence，以及同次预览的 Head、selected、candidate_set_digest；不要自行构造 affected 成员集合或将一组异常拆成多份接受。**不同subject_digest是独立项**：FULL的INITIAL/MODIFIED可同kind/code/target而side及subject不同，应分别展示/接受/撤销并维护各自sequence，不按issue_code合并；一次接受不代替另一项。完整组/边由后端派生并冻结，candidate/facts/Head/selection/来源组改变后刷新预览及相应审计引用。
 
 原 sibling 排除、project identity 例外与选择确认保留。`POST /v1/archives` 的 `confirmation_refs` 上限为 **1**，`anomaly_resolution_refs` 为 **1601**（候选仍上限200）；引用须无重复、精确匹配最新肯定 sequence。请求 body 上限仍262144 bytes。版本/sequence 使用0..9007199254740991的整数；不要将1601重新限制为旧共用200。
 

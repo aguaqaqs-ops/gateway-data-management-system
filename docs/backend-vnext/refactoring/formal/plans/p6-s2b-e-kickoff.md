@@ -76,7 +76,7 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 - Mapping/业务摘要/诊断/特殊 catalog 与 FULL、MODIFIED_ONLY、DATASET_REPLACEMENT 正确性；W2 结构计数及内容命中不重写。
 - IPC handle、强引用/TTL、Archive CAS、精确 commit 回填、T1/PREPARED 冻结，真实 worker cancel/drain/lease_lost/deadline 与资源拒绝。沿 A–D 已验证 owner 按最终差异核对，不机械重做所有中间测试。
 - 04 权威 runner 与最终候选绑定的容器门禁；Rust 必须覆盖，其余包按同节点、同 worktree 的实际来源 V 和闭包规则判运行/沿用。包沿用和镜像身份等价分别判断；普通 06 focused 不能冒充 04 来源。
-- t1–t3 在 05、t4 在 CT108 完成改动面内的 Preview/History/Submit 生产路径正确性。CT108 忙时尊重有效占用，空闲后原子取得标志直接使用，不例行申请窗口；若要换节点，先向 Owner 给出具体替代方案并取得授权，不能以性能延期豁免 t4。
+- 按本轮 Owner 已确认的 DC33 范围，t1–t3 在 06 fresh 完整运行 Preview/History/Submit；t4 引用 CT108 上 82 的完整成功来源，并核最终差异及已独审费用上界，保留物理数据的原配置标记。该沿用是具体影响论证，不以性能延期豁免正确性；06 本轮用途已获准，无需重复申请。各节点核空闲后原子取得标志，不占用原线资源。
 
 各节点分别按有效占用、clean committed worktree、离线缓存和日志规则执行；正式测试不在开发机运行。runner 非零先停并处理失败，不接着计算 carried；最终门禁提交固定后不在运行中修改 worktree、提交或手工 retag 镜像。保留 04 门禁 worktree 至阶段退出合入，以便同节点同 worktree 判等。
 

@@ -75,6 +75,10 @@
 
 **后续W4-FULL的独立预算：** 本项为冻结runbook所定义的fresh `w4-10pct` 完整旅程，`full_v2=true`、cold Preview、healthy History及FULL两上传角色，不能使用107b的恢复身份或仅四步预算。旧fresh v2 Submit的4055s上限仅略高于107b实测4027.732s API耗时，须在启动前修正必要bench接线；v1 Submit沿4047s，v2 Submit10800s、History7200s，其余沿原步骤上限，计时上限合计61105s，辅助9000s。固定work70200s、cleanup1800s、hard72000s；沿已审session/timeout/清理机制的等待闭包71673s低于hard，不新建guardian。这是一次给足的保守工具上限，不是20小时ETA；完成即收尾。新固定producer前缀、sampler前置校验和实际fresh操作等待保持一致；不改变107b的原配置、共享采样/计时或产品lease/HTTP，必要定向验证后沿原授权执行，普通接线修正不重开GO。
 
+**FULL局部等待与条件恢复限制：** 总work余量不证明所有局部等待均已校准。v2 Preview11300s仍来自旧t4实测2259.980s乘5，并非9704 FULL实测；v1 Submit4047s也沿旧参考。单次HTTP600s、Repository读取300s、快照/哈希3600s各自可能先触发，辅助9000s只是规划余量，并非所有helper最坏上限之和。后续STRESS、分段旁证与04收尾启动前分别核实操作、局部I/O、外层及清理预算，不能仅放大总截止；当前在途FULL不修改或重启。
+
+审核已查明当前工具的cold/healthy校验尚不支持普通FULL checkpoint恢复，且cold准备在Preview计时入口外执行。现在只记录条件方案，不为未发生的失败预跑或修改在途候选。若真实失败，先停止受影响运行并保全源，再沿DC66/DC80认证同9704产品、FULL manifest、原输入/镜像/卷摘要及失败前通过步骤，在新project/key上作必要的有限恢复接线：仅当Preview会实际重执行时进行cold准备，跳过已完成Preview时不再清缓存；保留来源条件/TTL，仅请求恢复边界后的checkpoint。healthy不满足时如实诊断，不改成none、不静默延长TTL或增加通用skip；仍无法证明证据沿用时提出具体问题。既有实施者与接续审核者直接闭环最小bench修正、必要focused和恢复资格，不以当前validator限制盲目重跑全部前缀，也不新增Owner/逐摘要GO。
+
 ## B：保留单一修复版本的完整正式基准（未选）
 
 将目标产品固定为 `9704`，在 CT108 按原口径重新取得所有实际受共享 runtime/RS/JCS 修复影响的场景计时；无法证明未受影响的既有旅程不沿用为该目标产品的结果。不使用缺失正式来源资格的诊断 checkpoint 冒充 carried。

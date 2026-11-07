@@ -165,3 +165,15 @@ Owner新回复明确 **“同意继续最小补验”**，协调于14:09Z收到�
 先重新现场核原本人marker/资源、exact49403clean、当前RS130674/candidate49403/source13cb及五份脚本SHA，再按已审顺序保存当前RS原config/全部DiffID、实际四包compare、依法决定权威子集（至少backend/RS）；不是预先确认四包可沿用。所有实际结果、原exit与前后RS输入身份仍交同一独审；未来新run路径/UTC/schema从真实guard结果取得并执行前核实。05不重跑，不伪补旧RS原件，不把本次恢复当联合GO、DC33范围确认、FE3、退出/tag/push或S3授权。真实缓存/身份/保全异常及runner失败仍沿原停止规则，普通必要修复继续同角色。
 
 本次记录时尚未新执行补验，实际前提/范围/结果随后追加。
+
+### 11.1 实际前提、预采及compare
+
+04原本人marker/owner副本、exact49403clean、legacy/offline/1.97工具链及无运行容器/8000/Dolt/编译测试进程已现场核；`run-resume-a-readiness-339eHy8k` log SHA=`da6b28808cbf8ad5efb1509ad2d27831b7dd5c29af3cce6e04383d89cf2f1b39`/0。五个server新文件无冲突且SHA全符；唯一恢复目录 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/resume-a-5OBTboKj`。
+
+RS输入预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z/0，log SHA=`4ee45ca1e049150ba488754f15716afd9bb51a20e2945b2bcdd111bb60929833`。`run-rs-input-config-2NAkmSb8` 原0，log SHA=`6c83d9494ffbcd6adc2c07e8919edcd53552528b3a928365797809c3158390f4`；本阶段immutable130674的**原config digest `sha256:13776cfb1d842f66ffb46b6d382ab9bdd57a5e4a85a82251a7bda25622ab9432`与全部28DiffID**已保存于恢复目录下 `image-identities-rs-before-resume-hjh4fkki`，report SHA=`9d2b02a2b6672f5ff9d4a10d4406faf609a4d39facddc86edf92726cfa07821f`。同独审逐项核原config/inspect/save-manifest/目录SHA匹配；这是**当前新阶段原件**，不称旧RS原件已恢复。
+
+`run-four-package-compare-5zuLDhdL` 14:12:32–36Z command/final0、end49403clean/owner真，log SHA=`0401fdd84a9cc6e50ec2eea34f3c876200e03eae397b9357c894a391881eece2`。四份JSON及总摘要经原独审核：rust/shared_kernel/repository_contracts/repository_client均实际 **“可沿用”／changed_components=[]**，直接来源同04同WT/49403成功DTWWhQP4；非凭exit0推定。actual scope仅 **backend,repository_service**，决定文件与各compare在恢复目录 `four-package-closure/`。
+
+### 11.2 两包权威实际启动
+
+同49403于**14:14:04Z**启动 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/run-authority-resume-mvzi5dNV`，wrapper读取actual scope仅backend/RS，保留48workers/offline/d054 preload/networknone与prebuilt/BASETemp unset。原runner exit将单独保留，前后RS输入ID硬核130674不变；当前执行中。05保持原a999成功来源/已释放，不重跑。未来postcopy/immutable runtime/manifest及释放证据仍待实际结果，不预先报镜像闭包或联合GO。

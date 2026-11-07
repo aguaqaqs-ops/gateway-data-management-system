@@ -67,6 +67,10 @@ RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67b
 
 原运行期间不改节点WT、不重tag，暂停启动后续验收/carried。失败整次不能作任何包的合格carried源；旧S2b公共fixtures已变，下一合格最终runner仍须六包。05已启动的fresh原run现command/final0、endclean/owner真，完整JSON/镜像/结束UTC待同审核收；若最终增量确属test-only且产品/consumer不变，可按逐步骤影响审查引用其a999实际来源，不冒称新候选实跑，也不默认重跑整档。
 
+04 backend serial完整为**56 passed / 4 failed**、637.99秒（runner记录639秒）。失败为Archive dualactor、History zero-write/restart、ordered History、Submit removed-tables四Compose，均止于共用helper对实际preview逐项resolution POST被409 `BASELINE_VERSION_CONFLICT / subject digest does not match current anomaly`拒绝。根/实施者/同独审分别核原trace及`application/archive/audit.py`273–287：当前next只按kind/code/target四字段取首项，合法FULL同一Submission INITIAL/MODIFIED同时GENERATION_TIME_MISSING有不同subject，第二项被错比首项；不是旧message或caller伪造。
+
+设计者已静核业务设计§6.2/§7.1回执无冲突：这是已审逐项subject实现缺陷，原字段候选集合内再按command.subject_digest精确选取，缺集合/错digest仍拒绝；不能按code合并接受或只信caller digest绕过其余字段/当前snapshot。auth/scope/CAS/actor-bound append/旧成功replay/冻结payload保持，后续sequence及持久subject_payload取该精确项。原audit owner补双side同code独立接受/序列和伪digest拒绝小向量，修后同审；原runner结束后先必要focused/一个共用resolution真实wiring，再六包。当前原RS批次仍自身收尾，不写被测WT、不重tag、不启动外部后继验收；05影响判断暂停直至实际完整修复diff明确。
+
 ## 7. 05实际fresh证据与释放
 
 实际a999 fresh于**12:40:42Z**结束，command/final0、endclean/owner真；原run log SHA=`66cdeb8c906434bbdfbdf2b63ee438c4537f1a9aab10bedafe5d3a36189e83c1`。[原结果JSON](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/run-fresh-t1-8skuj66m/final-result.json)为原log offset53374/length40044原字节行，SHA=`505f9731235430c21c53ff39316bec1f0f4e22b7465275bdea12e4a04823cf1d`，18步序完整；v1 identity N/A、v2 SAME_PROJECT、repeat NO_CANONICAL_CHANGE。FULL helper实际严格核完整双pair；result里默认initial_to_modified单view的summary.pair_count=1不等于完整FULL只有一pair。

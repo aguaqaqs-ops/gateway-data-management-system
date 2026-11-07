@@ -2791,3 +2791,21 @@ postflight sampler/Compose down/node check/cleanup均0、锁已释放，三卷�
 **backend的中断失败另行定位，当前尚不能归因结案。** 精确失败是test_interrupt_stops_isolated_launcher_group_then_runs_cleanup：fixture观察journey_started后向launcher Popen发送SIGINT，随后communicate(timeout15)抛TimeoutExpired，Popen尚未返回。独立读测试和真实launcher：测试直接Popen Bash并继承ambient信号处置；launcher用INT trap停止隔离session再cleanup。候选假设是外层后台/nohup入口继承SIGINT_IGN，需原启动命令及05最小定向证据确认，不能先当作确定根因、仅拉长15s或标flaky。已要求在05核真实信号继承及默认/后台入口差别，保持停止、孙进程收束、cleanup、无卷删除和锁语义断言；没有因此改真实guard或重测已通过FULL/STRESS。
 
 两类普通测试/接线修正继续Owner既有授权，无新Owner/设计GO；先在独立非在途worktree提交最小修订、05必要focused及受影响静态，再交具体代码/结果复核。04原候选、失败日志和身份保留，不原样重跑、改动被测worktree或沿用该失败为PASS。若最终候选改变，镜像candidate revision、实际输入闭包和必要当前候选验证重新按原规则绑定；不因本次04局部失败暂停CT108既定小源取件/分段准备和05记录派生，整体仍未完成。
+
+**04失败运行的收尾证据已补核。** 直接读04 postflight.log1072B、SHA **`b56d6bb2de29c8ec84b5dfd1bed4bf6bc147498dcda5d25a5eaf634a2d0a1de4`**（19:50:56Z）：clean fcc、原runner PID及busy marker已无，Docker/项目容器查询exit0且无结果、8000查询exit0且无监听、所查测试/旅程/runner进程无，backend/RS Hypothesis及Cargo临时目录均无。原件已取CT201审核副本。node-busy-marker-release.log895B、SHA **`f7f791770d94cbc352449da9b7687d051038ce25b58a603051e7fe7ff7ac0e9d`** 直接核明19:43:13Z按准确session/PID/log核对后仅清自有marker，引用原acquisition及上述postflight；后取标记的事实保持。收尾成立不把exit1改作PASS。
+
+## 126. 同run worker旁证绑定已核，core原主DB完整可证明，有限私有派生准备继续
+
+**FULL/STRESS新worker sidecar的数据绑定/UTC计算已核一致，正式提取节点证据仍待05闭合；core当前源全目录仍MISMATCH，原主文件则完整匹配原snapshot。** 这不是重跑业务、改写raw或沿用不符checkpoint的许可。两类旁证准备和§125测试修正继续原授权，无新Owner/设计GO；未将标准record或H1资格提前结案。
+
+CT201 `baseline/derived-control-timing-20261107a/worker-step-timings.json`10918B、SHA **`88d312b5c84fa1b9c0c39581165f89797f9a5ab2b36c249a7cae0f244cf3203d`**，包含STRESS v2及FULL三个Preview。审核者独立用§113/124认证state核四组operation ID、upload_revision_id/generation、真实来源SHA；重算每个UTC elapsed/gap与sidecar相等。私有DB当前主文件SHA分别 **`fddbfba8962cf57a148f251ef091b8642164aee2cb9c29352ebcef8b409510eb`**（STRESS3850240B）、**`84bf3e997b9e3c341ca40399702ce7420c03b0a008ff6a02debc16dc21ebf1b9`**（FULL3854336B）。没有把STRESS before-v2-preview当作完成后快照，采用其final control卷；FULL仍取before-v2-submit。
+
+已直接读source-copy-tree-hash-evidence.log2296B、SHA **`aef553416d8d6c3d44dc887203072683ef0bc633bc8b1349daf470738df73ca2`** 及脚本4b1b1515…5b564：SSH在CT108用原字段算法核两source full tree精确为7ace1b8f/05577662，各原main SHA等于对应私有副本；原run/state/launch、FULL来源索引与state SHA均等已认证值。guard日志1339B、SHA **`ba67446380c494c4b486eaec3960f92addc371fb135cfe0b6e55028412f0ec61`** 另明确core全目录失配，没有将它混为通过。
+
+实际初次SQL及复提节点为**heavy-dev-01/CT201**，不是05，节点事实原样保留。verify-worker-step-timings.py5756B、SHA **`64cc0be38f6a0825aa8d6b369fc5907eb6ccf204888a277b82b6d56b62ec049c`** 仅对私有copy用ro URI、backup到临时DB，按原SELECT验证SUCCEEDED/attempt、step顺序及非负gap，再核preview_result绑定；CT201复提日志877B、SHA **`f5f63b01dec88a38d02ae6d23a8f8a2502a401817d84df5c570dd04c5df03524`** 自报12行全部相同。该节点不能冒称已完成约定的05取证；已要求仅将现有认证私有DB/脚本LAN到05作同查询提取并记录实际hostname/起止及输入输出SHA，可与core私有副本合并安排，不重新取CT108或重测业务，也不与05中断focused并行。审核者此轮只做文件/hash与JSON数学核验，未在CT201开SQLite或运行测试。
+
+**core原主文件的独立只读核验成立。** 19:54:35Z确认CT108无占用标记后，本审核仅lstat/二进制hash原history control目录，不copy、SQL、移删或调整元数据：当前full tree仍 **`2ce71212c8efec1593a6d3ed7763e46a02aeb3ca6d2182a39bcf5efe0f6fdc79`**、3文件/2183168B；只按原算法对原应有control.sqlite3一文件作**明确标注的投影**，精确得到原expected **`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`**、1文件/2150400B。主文件SHA **`9b2c1afc466f1cdad160a1d5bbb6230c3ba0b50f2074eeb73cb86d45f9e500f8`**、mode0644/uid0/gid0、mtime_ns1793518591951172251、ctime仍Nov1 07:36:36Z；读取前后size/mtime/ctime一致。新增SHM32768B/SHAfd4c9fda及WAL0B/空文件SHAe3b0c442，均为**Nov2 07:23:55Z**产生，不能归因本次工具新建。谁创建这些文件尚未唯一确认，但不影响已证明的原main完整性；未将投影冒称当前完整目录MATCH。
+
+实施者独立调查log2533B、SHA **`debbfd64da66e574123b8080e8e4ce7ad50073206393efedc0b396e0af950e33`**、脚本c1358225…3958c与本审核文件元数据/全部SHA/两种tree结果一致，且原core state503e73ab及准备索引11ef88f4仍相同。旧W4源sidecar可逆恢复§97不自动覆盖此源；本次不需要为补metadata修改原目录。
+
+**设计已认可具体有限派生方案，可直接准备：** 原三文件原位保留、当前源full tree继续明确MISMATCH；只将与原checkpoint主文件投影精确一致的DB以保留真实元数据的复制方式放入新私有目录，开库前以未改原算法核该**完整私有目录**精确等于原4baede/1文件/2150400B，再在05私有副本补同run worker步骤/H1历史DB字段。不得作新业务恢复checkpoint或carried，不增加通用WAL/SHM ignore，不为读取派生字段先移动/删除源sidecars；不把唯一确定旧SHM创建者增加为门槛。H1还须独立核原artifact来源及实际缓存对象，不能仅凭DB或旧W2健康值标健康；TTL使用原H1起点UTC及原缓存读取规则，不用当前日期判旧时过期。私有副本实际准备/提取、H1对象证据及05结果仍待交，不停止其他已授权工作。

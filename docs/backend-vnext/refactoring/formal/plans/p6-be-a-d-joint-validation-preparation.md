@@ -157,3 +157,11 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 postcopy仅接受**新**guard原log的49403/实际UTC区间/command-final0/owner真/RS input unchanged，取mtime落新区间的原provenance和唯一原schema（resolve去除pytest-current别名），rawcopy相等/SHA、新目录、awareUTC；不复用q57或旧时间。未来实际目录/时间批准后才产生，届时执行前由原审核实真实参数，不预造未来值。
 
 原独审已全文核五份最终文件/完整七步literal模板并重算五SHA，**方案A整体静核通过**，无剩余静态阻塞；未执行/bash-n/安装/节点操作，不是恢复授权。协调已于13:58Z向Owner正式提交一次A/B选择（推荐最小补验，或保持pending交接释放04），理由明确引用AGENTS DC68身份异常停止条款。**当前尚未收到Owner决定**，后继执行继续暂停；没有自动超时批准，也不把已给的小节开工授权套成本次身份异常恢复许可。方案A使用受影响包完整权威入口及其中Compose，05不重跑；四包是否可沿用仍只按批准后的实际compare。
+
+## 11. Owner批准方案A：恢复最小补验
+
+Owner新回复明确 **“同意继续最小补验”**，协调于14:09Z收到并记录，取代§10末尾此前待答状态。批准范围为已完整独审的方案A/五份最终SHA/七步模板：固定**同49403/同04 WT**，原D实施GPT-6.1-Sol/xhigh与独审GPT-6.1-Sol/max继续，无新角色、产品/闭包工具修改或规则豁免。不能因main后续文档SHA推进切换被测HEAD。
+
+先重新现场核原本人marker/资源、exact49403clean、当前RS130674/candidate49403/source13cb及五份脚本SHA，再按已审顺序保存当前RS原config/全部DiffID、实际四包compare、依法决定权威子集（至少backend/RS）；不是预先确认四包可沿用。所有实际结果、原exit与前后RS输入身份仍交同一独审；未来新run路径/UTC/schema从真实guard结果取得并执行前核实。05不重跑，不伪补旧RS原件，不把本次恢复当联合GO、DC33范围确认、FE3、退出/tag/push或S3授权。真实缓存/身份/保全异常及runner失败仍沿原停止规则，普通必要修复继续同角色。
+
+本次记录时尚未新执行补验，实际前提/范围/结果随后追加。

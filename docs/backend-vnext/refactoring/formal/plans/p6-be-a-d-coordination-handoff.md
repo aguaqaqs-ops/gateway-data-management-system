@@ -20,7 +20,7 @@
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
 | V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 本节无未决；04/05联合、D/FE3仍待，不办理exit |
 | D | **本地里程碑通过**；F1–F5关闭，产品`0ba45e5ef8`/vnext`0301aee3a3`；handoff`41386e12e6`、独审`6ad7e54fa0`/固定handoff核收`cd2d395fbc`；[事件与恢复](p6-be-d-validation-incident.md) | 原实施6.1-Sol/xhigh、独审6.1-Sol/max，继续约定联合收尾，不结束/换审核者 | 06 focused/静态、当前小Compose1/0、实际OpenAPI及同24576B tar均独审核收；12:05:51Z本人清理释放 | 本地无未决finding；保留历史失败/缺失限制；04/05与FE3待 |
-| 联合最终 | **49403六包行为测试全0**/tree567201；F6功能已补验；[当前身份缺口/Owner方案](p6-be-a-d-joint-validation-preparation.md#10-身份收尾停止与owner选择) | 原D两角色保留同finding连续性，仅静审/原件只读，后继执行暂停 | backend3387+60、RS1744+207/skip1；六manifest原字节已核；05原a999成功/释放。收尾collector实际1：RS后段正常重建tag，旧RS config/allDiffID原件不可恢复 | **Owner决定最小补验或保留pending**；不恢复collector/测试/retag/释放04、不报联合GO/退出。DC33/FE3另待 |
+| 联合最终 | **49403六包行为测试全0**/tree567201；身份缺口保留；Owner已明确**同意继续最小补验**，见[批准记录§11](p6-be-a-d-joint-validation-preparation.md#11-owner批准方案a恢复最小补验) | 原D实施6.1-Sol/xhigh、独审6.1-Sol/max按已审A继续，保持同finding连续性，无新角色 | 先重核04本人marker/clean49403/RS130674及五SHA，预采RS身份、实际compare四包，再依法确定至少backend/RS权威范围；05保持已释放 | 本次恢复未开新测试；等实际前提/compare/原exit及同审，不伪补旧RS原件，不报联合GO/退出。DC33/FE3另待 |
 
 ## 3. 验证与资源
 

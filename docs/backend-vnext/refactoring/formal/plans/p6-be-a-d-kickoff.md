@@ -1,6 +1,6 @@
 # BE-a / BE-d 与归档业务核验：联合 kickoff（设计已审）
 
-状态：**设计已独审 GO；Owner 于2026-11-07授权A1→V1→V2→D及联合准备。A1/V1/V2及D本地里程碑已通过；联合49403六包原exit0、05 a999 fresh通过，但RS旧身份原件缺口使正式收尾待Owner恢复选择**。实时候选/角色/证据及已审具体最小方案见[协调交接](p6-be-a-d-coordination-handoff.md)/[联合§10](p6-be-a-d-joint-validation-preparation.md#10-身份收尾停止与owner选择)，当前不执行后继collector/测试/04释放。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
+状态：**设计已独审 GO；Owner 于2026-11-07授权A1→V1→V2→D及联合准备。A1/V1/V2及D本地里程碑已通过；49403六包原exit0、05 a999 fresh通过；RS旧身份缺口保留，Owner已明确同意按已审方案A继续最小补验**。当前按[批准§11](p6-be-a-d-joint-validation-preparation.md#11-owner批准方案a恢复最小补验)保持04同49403 source，原两角色实际compare后依法补验，不按main文档SHA重切，不伪补旧RS原件。实际进度见[协调交接](p6-be-a-d-coordination-handoff.md)，正式联合GO仍待结果。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增安排已通过设计独审，具体实施起点、角色及验收范围仍须在实施kickoff填写确认。BE-b 设计与实现不并入这两项。
 

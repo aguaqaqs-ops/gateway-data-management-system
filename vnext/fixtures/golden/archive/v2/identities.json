@@ -1,0 +1,86 @@
+{
+  "schema": "backend-vnext/archive-digest-golden/v2",
+  "vectors": [
+    {
+      "kind": "candidate",
+      "payload": {
+        "repository_id": "repo-1",
+        "gateway_device_external_key": "device-1",
+        "business_project_id": "project-1",
+        "workspace_id": "workspace-1",
+        "workspace_generation": 1,
+        "submission_id": "submission-1",
+        "submit_attempt_id": "attempt-1",
+        "upload_revision_id": "upload-1",
+        "preview_result_id": "preview-1",
+        "based_on_baseline_node_id": "baseline-1",
+        "business_baseline_commit_id": "commit-1",
+        "repository_commit_id": "commit-2",
+        "canonical_business_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "configuration_facts_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "canonicalization_manifest_ref": "manifest-1",
+        "canonicalization_manifest_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "source_artifact_refs": [
+          "artifact-1",
+          "artifact-2"
+        ],
+        "requested_verification_policy": "STRUCTURAL",
+        "completed_verification_policy": "STRUCTURAL",
+        "review_status": "APPROVED",
+        "review_sequence": 1
+      },
+      "digest": "sha256:dd8526ae6b3fd7f7e42850c3b4f2d17b3ecc6524a368e9faab8321c3487fb3f6"
+    },
+    {
+      "kind": "close-request",
+      "payload": {
+        "command_kind": "CLOSE",
+        "repository_id": "repo-1",
+        "gateway_device_external_key": "device-1",
+        "business_project_id": "project-1",
+        "submission_id": "submission-1",
+        "expected_review_version": 1,
+        "expected_baseline_node_id": "baseline-1",
+        "expected_baseline_head_version": 3,
+        "reason": "source remains unexplained; close without archiving"
+      },
+      "digest": "sha256:4be5d879b8ec175e396b7897f99758baadbe5ca9a404095f2dccec6f61fcee04"
+    },
+    {
+      "kind": "business-anomaly",
+      "payload": {
+        "selection_subject_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "rule_id": "gateway-vnext/archive-business-validation/v1",
+        "subject_kind": "CONFIGURATION_TIME_QUALITY",
+        "issue_code": "GENERATION_TIME_MISSING",
+        "affected_submission_ids": [
+          "submission-1"
+        ],
+        "side": "MODIFIED",
+        "relations": [],
+        "details": {
+          "generated_time": {
+            "rule_id": "gateway-vnext/configuration-generated-time/v1",
+            "status": "TABLE_ABSENT",
+            "selected_time_utc": null,
+            "max_valid_time_utc": null,
+            "valid_count": 0,
+            "empty_count": 0,
+            "invalid_count": 0,
+            "last_valid_source_row": null,
+            "max_valid_source_row": null,
+            "last_not_max": false
+          }
+        },
+        "affected_candidates": [
+          {
+            "submission_id": "submission-1",
+            "candidate_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+            "configuration_facts_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        ]
+      },
+      "digest": "sha256:e195b02546f895d096f18d3fa4b2b154f87509d38c3b47e9e6a10fba5788e486"
+    }
+  ]
+}

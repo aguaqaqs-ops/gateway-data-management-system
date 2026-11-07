@@ -547,3 +547,80 @@ def test_stored_resolution_corruption_is_rejected_by_replay_and_start(db_path: P
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive_for_seed(dual.primary, confirmation_sequence=confirmation,
             anomaly_resolution_sequences=((dual.anomaly_subject_digest, resolution),))
+
+
+def test_unknown_source_acceptance_freezes_all_group_members_and_does_not_explain_them(db_path: Path) -> None:
+    import json
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    from gateway_backend.application.archive.queries import get_archive_candidates, preview_archive_plan
+    from gateway_backend.application.archive.contracts import ArchiveSelectedRef
+    from gateway_backend.domain.submission.review import ReviewAction
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import TS_ARCHIVE
+    from tests.test_review_transactions import _seed_additional_pending_review_submission, _apply_review, _apply_command
+    seed = seed_approved_archive_candidate(db_path)
+    first = start_archive_for_seed(seed, confirmation_sequence=append_selection_confirmation(seed))
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        source = uow.submission.get_submission(seed.submission_id)
+    assert source is not None
+    for sid, modified_digit in (("source-a", "7"), ("source-b", "9")):
+        # Stage the original small fixture before binding it to the archived Head.
+        with ControlDbUnitOfWork(db_path) as uow:
+            uow.connection.execute("UPDATE baseline_head_records SET node_id = ?, optimistic_version = ? WHERE repository_id = ?",
+                (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.baseline_head_version, seed.repository_id))
+        pending = _seed_additional_pending_review_submission(db_path, submission_id=sid,
+            device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+        with ControlDbUnitOfWork(db_path) as uow:
+            submission = uow.submission.get_submission(sid)
+            assert submission is not None
+            facts = submission.configuration_facts
+            facts = replace(facts, baseline_is_initial=False, baseline_source_submission_id=seed.submission_id,
+                business_baseline_node_id=first.baseline_node_id, business_baseline_commit_id=first.baseline_commit_id,
+                baseline_head_version=first.baseline_head_version, initial_origin="UPLOADED",
+                baseline_content_identity=source.configuration_facts.modified.content_identity,
+                initial=replace(facts.initial, content_identity=replace(facts.initial.content_identity, canonical_state_digest="sha256:" + "8" * 64)),
+                modified=replace(facts.modified, content_identity=replace(facts.modified.content_identity, canonical_state_digest="sha256:" + modified_digit * 64)))
+            blob = canonicalize_json_value(facts.to_document())
+            uow.connection.execute("UPDATE baseline_head_records SET node_id = ?, optimistic_version = ? WHERE repository_id = ?",
+                (first.baseline_node_id, first.baseline_head_version, seed.repository_id))
+            uow.connection.execute("""UPDATE submission_records SET based_on_baseline_node_id = ?, business_baseline_commit_id = ?,
+                canonical_business_digest = ?, configuration_facts = ? WHERE submission_id = ?""",
+                (first.baseline_node_id, first.baseline_commit_id, facts.modified.content_identity.canonical_state_digest, blob, sid))
+            uow.connection.execute("""UPDATE submit_attempt_records SET business_baseline_node_id = ?, business_baseline_commit_id = ?,
+                baseline_head_version = ?, canonical_business_digest = ?, configuration_facts = ? WHERE submit_attempt_id = ?""",
+                (first.baseline_node_id, first.baseline_commit_id, first.baseline_head_version,
+                    facts.modified.content_identity.canonical_state_digest, blob, submission.submit_attempt_id))
+        _apply_review(pending, _apply_command(pending, action=ReviewAction.APPROVE, idempotency_key="approve-" + sid))
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    selected = ArchiveSelectedRef(candidates.candidates[0].submission_id, candidates.candidates[0].expected_candidate_digest)
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=selected, unit_of_work_factory=_uow_factory(db_path))
+    anomaly = next(item for item in preview.anomalies if item.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE)
+    assert anomaly.affected_submission_ids == ("source-a", "source-b")
+    command = AppendArchiveAnomalyResolutionCommand(seed.archiver_context, "source-group-accept", first.baseline_node_id,
+        first.baseline_head_version, selected, candidates.candidate_set_digest, anomaly.subject_digest, 0,
+        ArchiveAnomalyResolutionAction.ACKNOWLEDGE_SOURCE_EXCEPTION, "the shared initial source is externally documented and accepted",
+        anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest)
+    accepted = append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    current = preview_archive_plan(context=seed.archiver_context, selected_ref=selected, unit_of_work_factory=_uow_factory(db_path))
+    issue = next(item for item in current.anomalies if item.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE)
+    assert issue.detected_status == "UNEXPLAINED" and issue.resolution_status == "ACCEPTED"
+    assert all(item["detected_status"] == "UNEXPLAINED" for item in current.business_validation.source_diagnostics)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        event = uow.archive.get_resolution_event(seed.repository_id, anomaly.subject_digest, accepted.sequence)
+        assert event is not None
+        body = json.loads(event.subject_payload_json)
+        assert body["affected_submission_ids"] == ["source-a", "source-b"]
+        assert len(body["details"]["states"]) == 3 and len(body["details"]["edges"]) == 2
+        assert len(body["affected_candidates"]) == 2
+
+
+def test_audit_sequence_at_safe_integer_limit_rejects_increment_without_append(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.infrastructure.control_db.sqlite_archive import SQLiteArchiveRepository
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    seed = seed_approved_archive_candidate(db_path)
+    monkeypatch.setattr(SQLiteArchiveRepository, "get_latest_confirmation_sequence", lambda *args: 9007199254740991)
+    with pytest.raises(ArchiveRequestValidation, match="I-JSON"):
+        append_archive_confirmation(command=_confirmation_command(seed, expected_sequence=9007199254740991),
+            unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM archive_confirmation_events").fetchone()[0] == 0

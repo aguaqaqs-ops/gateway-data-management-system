@@ -12,6 +12,7 @@ from gateway_backend.application.archive.contracts import (
     ArchiveSelectedRef,
     ARCHIVE_MAX_ANOMALY_REFS,
     assert_resolution_event_integrity,
+    assert_confirmation_event_integrity,
     compute_archive_digest,
     compute_anomaly_subject_digest,
     compute_identity_exception_subject_digest,
@@ -257,6 +258,8 @@ def list_archive_audit_events(
                 validated_after,
                 validated_limit,
             )
+            for confirmation in confirmation_events:
+                assert_confirmation_event_integrity(confirmation)
             events: tuple[ArchiveConfirmationEvent | ArchiveAnomalyResolutionEvent, ...] = (
                 confirmation_events
             )
@@ -293,13 +296,16 @@ def get_archive_result(
             gateway_device_external_key=context.gateway_device_external_key,
             business_project_id=context.business_project_id,
         )
-        result = unit_of_work.archive.get_result_by_id(archive_result_id, repository_id=fresh_scope.repository_id,
-            gateway_device_external_key=context.gateway_device_external_key, business_project_id=context.business_project_id)
-        if result is None:
-            raise ArchiveResultNotFound(archive_result_id=archive_result_id)
-        plan = unit_of_work.archive.get_plan_by_id(result.plan_id)
-        if plan is None:
-            raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        try:
+            result = unit_of_work.archive.get_result_by_id(archive_result_id, repository_id=fresh_scope.repository_id,
+                gateway_device_external_key=context.gateway_device_external_key, business_project_id=context.business_project_id)
+            if result is None:
+                raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+            plan = unit_of_work.archive.get_plan_by_id(result.plan_id)
+            if plan is None:
+                raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ArchiveIntegrityFailure("stored archive result facts are invalid") from exc
         if (
             plan.repository_id != fresh_scope.repository_id
             or plan.gateway_device_external_key != context.gateway_device_external_key
@@ -479,6 +485,7 @@ def _latest_confirmation_is_affirmative(
     event = unit_of_work.archive.get_confirmation_event(repository_id, subject_digest, sequence)
     if event is None:
         return False
+    assert_confirmation_event_integrity(event)
     return event.action is ArchiveConfirmationAction.CONFIRM
 
 
@@ -528,9 +535,12 @@ def _validate_audit_for_start(
 
 def _with_resolution(unit_of_work: ArchiveControlTransaction, repository_id: str,
         anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomaly:
-    sequence = unit_of_work.archive.get_latest_resolution_sequence(repository_id, anomaly.subject_digest)
-    event = None if not sequence else unit_of_work.archive.get_resolution_event(
-        repository_id, anomaly.subject_digest, sequence)
+    try:
+        sequence = unit_of_work.archive.get_latest_resolution_sequence(repository_id, anomaly.subject_digest)
+        event = None if not sequence else unit_of_work.archive.get_resolution_event(
+            repository_id, anomaly.subject_digest, sequence)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ArchiveIntegrityFailure("stored archive resolution facts are invalid") from exc
     if event is not None:
         assert_resolution_event_integrity(event)
     accepted = event is not None and event.subject_kind is anomaly.subject_kind and event.action is affirmative_resolution_action(anomaly.subject_kind)

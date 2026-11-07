@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
 
 from gateway_backend.application.archive.audit import AppendArchiveAuditResult
 from gateway_backend.application.archive.contracts import (
@@ -539,7 +539,7 @@ def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomal
         target_candidate_digest=anomaly.target_candidate_digest,
         subject_digest=anomaly.subject_digest,
         affected_submission_ids=list(anomaly.affected_submission_ids), side=anomaly.side,
-        relations=list(anomaly.relations), details=ArchiveIssueDetailsResponse.model_validate(anomaly.details),
+        relations=list(anomaly.relations), details=TypeAdapter(ArchiveIssueDetailsResponse).validate_python(anomaly.details),
         detected_status=anomaly.detected_status, resolution_status=cast(ArchiveResolutionStatusLiteral, anomaly.resolution_status),
         latest_sequence=anomaly.latest_sequence, accepted_by=anomaly.accepted_by,
         accepted_at=anomaly.accepted_at, reason=anomaly.reason,

@@ -867,7 +867,6 @@ def test_review_authorizes_target_before_decoding_configuration_facts(
 
 
 def test_self_only_review_reads_its_manual_closure_summary_and_keeps_approved_status(tmp_path: Path) -> None:
-    from dataclasses import replace
     from gateway_backend.application.archive.manual_close import close_submission
     from tests.support.archive_fixtures import seed_approved_archive_candidate, close_command, TS_ARCHIVE
     from tests.test_review_transactions import _uow_factory

@@ -1046,10 +1046,10 @@ def test_two_hundred_full_candidates_with_missing_modified_time_accept_399_exact
             anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest),
             unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
         refs.append((anomaly.subject_digest, result.sequence))
-    result = start_archive_for_seed(seed, confirmation_sequence=confirmation, anomaly_resolution_sequences=tuple(refs))
-    assert len(result.dispositions) == 200
+    archived_result = start_archive_for_seed(seed, confirmation_sequence=confirmation, anomaly_resolution_sequences=tuple(refs))
+    assert len(archived_result.dispositions) == 200
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
-        plan = uow.archive.get_plan_by_id(result.archive_plan_id)
+        plan = uow.archive.get_plan_by_id(archived_result.archive_plan_id)
         assert plan is not None
         frozen = json.loads(plan.frozen_input_json)
         assert len(frozen["anomaly_subjects"]) == 399
@@ -1098,5 +1098,22 @@ def test_successful_archive_replay_rejects_corrupted_frozen_input(db_path: Path,
         frozen[field] = {} if field == "business_validation" else [{"corrupt": True}]
         uow.connection.execute("UPDATE archive_plan_records SET frozen_input_json = ? WHERE plan_id = ?",
             (json.dumps(frozen), plan.plan_id))
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive_for_seed(seed, confirmation_sequence=sequence)
+
+
+@pytest.mark.parametrize("corruption", ["confirmation_missing", "confirmation_body", "selected_commit"])
+def test_successful_archive_replay_keeps_original_confirmation_and_commit_binding(db_path: Path, corruption: str) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    start_archive_for_seed(seed, confirmation_sequence=sequence)
+    with ControlDbUnitOfWork(db_path) as uow:
+        if corruption == "confirmation_missing":
+            uow.connection.execute("DELETE FROM archive_confirmation_events")
+        elif corruption == "confirmation_body":
+            uow.connection.execute("UPDATE archive_confirmation_events SET request_payload_json = '{}' ")
+        else:
+            uow.connection.execute("UPDATE submission_records SET repository_commit_id = 'different-commit' WHERE submission_id = ?", (seed.submission_id,))
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive_for_seed(seed, confirmation_sequence=sequence)

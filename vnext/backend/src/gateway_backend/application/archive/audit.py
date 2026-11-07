@@ -10,6 +10,7 @@ from datetime import datetime
 from gateway_backend.application.archive.contracts import (
     ArchiveSelectedRef,
     assert_resolution_event_integrity,
+    assert_confirmation_event_integrity,
     compute_confirmation_request_fingerprint,
     compute_resolution_request_fingerprint,
     compute_selection_subject_digest,
@@ -121,6 +122,7 @@ def append_archive_confirmation(
             command.idempotency_key,
         )
         if existing is not None:
+            assert_confirmation_event_integrity(existing)
             if existing.request_fingerprint != request_fingerprint:
                 raise IdempotencyConflict(idempotency_key=command.idempotency_key)
             return AppendArchiveAuditResult(

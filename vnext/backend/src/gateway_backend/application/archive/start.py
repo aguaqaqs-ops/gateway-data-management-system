@@ -10,6 +10,7 @@ from datetime import datetime
 from gateway_backend.application.archive.contracts import (
     ArchiveAuditReferenceInput,
     assert_resolution_event_integrity,
+    assert_confirmation_event_integrity,
     ArchiveSelectedRef,
     compute_selection_subject_digest,
     compute_start_request_fingerprint,
@@ -105,12 +106,15 @@ def start_archive(
             confirmation_refs=command.confirmation_refs,
             anomaly_resolution_refs=command.anomaly_resolution_refs,
         )
-        existing_plan = unit_of_work.archive.find_start_plan_by_key(
-            fresh_scope.repository_id,
-            command.context.gateway_device_external_key,
-            command.context.business_project_id,
-            command.idempotency_key,
-        )
+        try:
+            existing_plan = unit_of_work.archive.find_start_plan_by_key(
+                fresh_scope.repository_id,
+                command.context.gateway_device_external_key,
+                command.context.business_project_id,
+                command.idempotency_key,
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ArchiveIntegrityFailure("stored archive plan facts are invalid") from exc
         if existing_plan is not None:
             existing_result = unit_of_work.archive.get_result_by_plan_id(existing_plan.plan_id)
             if existing_result is None:
@@ -127,7 +131,7 @@ def start_archive(
                 archive_plan_id=existing_plan.plan_id,
                 archive_result_id=existing_result.result_id,
                 baseline_node_id=existing_result.baseline_node_id,
-                baseline_commit_id=selected_submission.repository_commit_id,
+                baseline_commit_id=existing_plan.selected_repository_commit_id,
                 baseline_head_version=existing_plan.old_baseline_head_version + 1,
                 selected_submission_id=existing_plan.selected_submission_id,
                 dispositions=existing_result.dispositions,
@@ -371,6 +375,8 @@ def _validate_audit_refs(
         selection_subject_digest,
         confirmation_ref.sequence,
     )
+    if confirmation_event is not None:
+        assert_confirmation_event_integrity(confirmation_event)
     if confirmation_event is None or confirmation_event.action is not ArchiveConfirmationAction.CONFIRM:
         raise CandidateBindingConflict("confirmation audit reference is not affirmative")
     if len(anomaly_resolution_refs) != len(anomalies):

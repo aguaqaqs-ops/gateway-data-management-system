@@ -512,10 +512,10 @@ mapping 不包含 raw reason、token、SQL 或 private path。
 ```text
 ReviewStatus == APPROVED
 submission.based_on_baseline_node_id == current BaselineHead node
-no ArchiveResult disposition
+no SubmissionDisposition（ARCHIVE或MANUAL_CLOSE）
 ```
 
-5D 不反向修改 Review status。StartArchive 释放 occupancy 后，5C archive-closed guard拒绝新动作。
+5D 不反向修改 Review status。StartArchive或CLOSE_NOT_ARCHIVED释放 occupancy 后，5C terminal-closed guard拒绝新动作。
 
 ### 10.2 5E History
 
@@ -585,3 +585,7 @@ p5_5c_design_accepted: yes
 p5_5c_implementation_authorized: yes
 first_authorized_step: P5-5C-S1
 ```
+
+## V2统一终局处置与Review读取补充（2026-11-07）
+
+Review状态/事件保持PENDING/APPROVED/REJECTED/WITHDRAWN，CLOSE_NOT_ARCHIVED不撤销APPROVE、不追加ReviewEvent。closedness只读submission_disposition_records/SubmissionDisposition：ARCHIVE引用真实Result，MANUAL_CLOSE保留首次关闭actor/UTC/reason且result_id=null。GET ReviewFacts增加submission_disposition摘要（disposition/source_kind/result_id/closure），与status分开；self-only仍按持久Submission.created_by授权，最小binding/exact scope先于完整facts和处置读取。合法原Review成功replay仍先于fresh闭包/状态门禁。关闭命令独立归Archive owner且只授archive_submission，不让reviewer-only/self-only自动获得；具体事务/权限/回放见[P5-5D §12](p5-5d-archive-design.md#12-v2-来源时间与手工关闭目标补充)。Review原fingerprint版本不变，无旧字段别名或兼容读取。

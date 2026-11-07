@@ -415,3 +415,17 @@ def test_pending_review_gate_rejects_broken_review_closure(db_path: Path, fault:
             unit_of_work.connection.execute("UPDATE review_projection_records SET status = 'REJECTED' WHERE submission_id = ?", (review.submission_id,))
     with pytest.raises(ArchiveIntegrityFailure):
         get_archive_candidates(context=_archiver_context("device-1", "project-1"), unit_of_work_factory=_uow_factory(db_path))
+
+
+def test_archive_digest_v2_preimages_match_the_frozen_consumer_vectors() -> None:
+    import json
+    from gateway_backend.application.archive.contracts import compute_archive_digest, compute_close_request_fingerprint
+    root = Path(__file__).resolve().parents[2]
+    vectors = json.loads((root / "fixtures/golden/archive/v2/identities.json").read_text())["vectors"]
+    for vector in vectors:
+        payload = vector["payload"]
+        assert compute_archive_digest(vector["kind"], payload) == vector["digest"]
+        if vector["kind"] == "candidate":
+            assert compute_candidate_digest(**payload) == vector["digest"]
+        elif vector["kind"] == "close-request":
+            assert compute_close_request_fingerprint(**{key: value for key, value in payload.items() if key != "command_kind"}) == vector["digest"]

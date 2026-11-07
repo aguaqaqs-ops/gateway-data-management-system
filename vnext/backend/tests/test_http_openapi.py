@@ -183,7 +183,7 @@ def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_sc
     assert models["StartArchiveRequest"]["properties"]["confirmation_refs"]["maxItems"] == 1
     assert models["StartArchiveRequest"]["properties"]["anomaly_resolution_refs"]["maxItems"] == 1601
     for name in ("ArchiveBusinessValidationResponse", "ArchiveSourceDiagnosticResponse", "ArchiveTimeComparisonResponse",
-        "ArchiveBusinessIssueResponse", "ArchiveBusinessSubjectResponse", "ArchiveIssueDetailsResponse", "CloseSubmissionRequest"):
+        "ArchiveBusinessIssueResponse", "ArchiveBusinessSubjectResponse", "ArchiveSourceIssueDetailsResponse", "CloseSubmissionRequest"):
         assert models[name]["additionalProperties"] is False
     assert "submission_disposition" in models["ReviewFactsResponse"]["properties"]
     assert "submission_disposition" in models["HistoryNodeResponse"]["properties"]

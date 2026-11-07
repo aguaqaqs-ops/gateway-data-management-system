@@ -1586,6 +1586,9 @@ def resolve_archive_preview_anomalies(
     action_by_kind = {
         "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
         "PROJECT_IDENTITY_EXCEPTION": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+        "CONFIGURATION_SOURCE": "ACKNOWLEDGE_SOURCE_EXCEPTION",
+        "CONFIGURATION_TIME_QUALITY": "ACKNOWLEDGE_TIME_QUALITY",
+        "CONFIGURATION_TIME_ORDER": "ACKNOWLEDGE_TIME_ORDER",
     }
     references: list[dict[str, Any]] = []
     for index, raw_anomaly in enumerate(preview_body["anomalies"]):
@@ -1594,6 +1597,9 @@ def resolve_archive_preview_anomalies(
         action = action_by_kind.get(subject_kind)
         if action is None:
             raise AssertionError(f"unsupported archive anomaly subject kind: {subject_kind}")
+        if anomaly.get("resolution_status") == "ACCEPTED":
+            references.append({"subject_digest": anomaly["subject_digest"], "sequence": anomaly["latest_sequence"]})
+            continue
         response = client.post(
             "/v1/archive-anomaly-resolutions",
             headers=compose_auth_headers(
@@ -1606,10 +1612,10 @@ def resolve_archive_preview_anomalies(
                 "selected": selected,
                 "candidate_set_digest": preview_body["candidate_set_digest"],
                 "subject_digest": anomaly["subject_digest"],
-                "expected_sequence": 0,
+                "expected_sequence": anomaly["latest_sequence"],
                 "action": action,
                 "subject_kind": subject_kind,
-                "reason": reason,
+                "reason": f"{reason}; issue={anomaly['issue_code']}; side={anomaly.get('side')}; affected={anomaly.get('affected_submission_ids')}",
                 "issue_code": anomaly["issue_code"],
                 "target_submission_id": anomaly["target_submission_id"],
                 "target_candidate_digest": anomaly["target_candidate_digest"],

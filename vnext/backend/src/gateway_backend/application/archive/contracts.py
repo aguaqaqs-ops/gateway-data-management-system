@@ -13,6 +13,7 @@ from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveAnomalyResolutionEvent,
+    ArchiveConfirmationEvent,
     affirmative_resolution_action,
     ArchiveConfirmationAction,
     ArchiveSubjectKind,
@@ -488,3 +489,31 @@ def assert_resolution_event_integrity(event: ArchiveAnomalyResolutionEvent) -> N
             raise ValueError("stored resolution request fingerprint mismatch")
     except (ValueError, TypeError, KeyError, ArchiveRequestValidation) as exc:
         raise ArchiveIntegrityFailure("stored archive resolution facts are invalid") from exc
+
+
+def assert_confirmation_event_integrity(event: ArchiveConfirmationEvent) -> None:
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    try:
+        payload = json.loads(event.request_payload_json)
+        if type(payload) is not dict or set(payload) != {"action", "candidate_set_digest", "expected_baseline_head_version",
+            "expected_baseline_node_id", "expected_sequence", "reason", "selected", "subject_digest"}:
+            raise ValueError("invalid stored confirmation shape")
+        selected = payload["selected"]
+        if type(selected) is not dict or set(selected) != {"submission_id", "expected_candidate_digest"}:
+            raise ValueError("invalid stored selected reference")
+        if (payload["action"], payload["reason"], payload["subject_digest"]) != (event.action.value, event.reason, event.subject_digest) or validate_archive_sequence(payload["expected_sequence"]) + 1 != event.sequence:
+            raise ValueError("stored confirmation event/request mismatch")
+        if compute_selection_subject_digest(candidate_set_digest=payload["candidate_set_digest"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"]) != event.subject_digest:
+            raise ValueError("stored confirmation subject mismatch")
+        fingerprint = compute_confirmation_request_fingerprint(repository_id=event.repository_id,
+            gateway_device_external_key=event.gateway_device_external_key, business_project_id=event.business_project_id,
+            expected_baseline_node_id=payload["expected_baseline_node_id"], expected_baseline_head_version=payload["expected_baseline_head_version"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"],
+            candidate_set_digest=payload["candidate_set_digest"], subject_digest=event.subject_digest, expected_sequence=payload["expected_sequence"],
+            action=event.action, reason=event.reason, actor_id=event.actor_id)
+        if fingerprint != event.request_fingerprint:
+            raise ValueError("stored confirmation request fingerprint mismatch")
+    except (ValueError, TypeError, KeyError, ArchiveRequestValidation) as exc:
+        raise ArchiveIntegrityFailure("stored archive confirmation facts are invalid") from exc

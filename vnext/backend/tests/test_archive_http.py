@@ -1149,8 +1149,8 @@ def test_manual_close_http_replays_across_authorized_actors_and_rechecks_current
         assert conflict.status_code == 409 and conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
     repeated = env.client.post(path, headers=_auth_headers(env, idempotency_key="new-key"), json=_closure_body())
     assert repeated.status_code == 409 and repeated.json()["code"] == "ARCHIVE_CLOSED"
-    deps = env.client.app.state.workspace_http  # type: ignore[union-attr]
-    env.client.app.state.workspace_http = replace(deps, session_port=BearerSessionPort({  # type: ignore[union-attr]
+    deps = env.client.app.state.workspace_http  # type: ignore[attr-defined]
+    env.client.app.state.workspace_http = replace(deps, session_port=BearerSessionPort({  # type: ignore[attr-defined]
         TEST_BEARER: replace(env.identity, permissions=frozenset({"review_submission", "withdraw_own_submission"}))}))
     revoked = env.client.post(path, headers=_auth_headers(env, idempotency_key="close-key"), json=_closure_body())
     assert revoked.status_code == 403
@@ -1213,9 +1213,51 @@ def test_archive_start_supports_expanded_reference_shapes_but_requires_exact_sub
         candidate_set_digest=seed.candidate_set_digest, selected_submission_id=seed.submission_id,
         expected_candidate_digest=seed.selected_ref.expected_candidate_digest,
         confirmation_refs=(ArchiveAuditReferenceInput(seed.selection_subject_digest, sequence),),
-        anomaly_resolution_refs=tuple(ArchiveAuditReferenceInput(str(item["subject_digest"]), int(item["sequence"])) for item in refs))
+        anomaly_resolution_refs=tuple(ArchiveAuditReferenceInput(str(item["subject_digest"]), int(cast(int, item["sequence"]))) for item in refs))
     if count == 1601:
         assert compute_start_request_fingerprint(**application_args).startswith("sha256:")  # type: ignore[arg-type]
     else:
         with pytest.raises(ArchiveRequestValidation):
             compute_start_request_fingerprint(**application_args)  # type: ignore[arg-type]
+
+
+ARCHIVE_UNSAFE_INTEGERS = (True, False, "1", 1.0, 1e3, 9007199254740992, -1)
+
+
+@pytest.mark.parametrize("value", ARCHIVE_UNSAFE_INTEGERS)
+def test_archive_http_and_application_share_safe_integer_rejection(archive_env: WorkspaceHttpTestEnvironment, value: Any) -> None:
+    from gateway_backend.application.archive.contracts import validate_non_negative_int
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    with pytest.raises(ArchiveRequestValidation):
+        validate_non_negative_int(value, field_name="version")
+    response = archive_env.client.post("/v1/archive-confirmations",
+        headers=_auth_headers(archive_env, idempotency_key="invalid-integer"),
+        json={**_confirmation_body(seed), "expected_sequence": value})
+    assert response.status_code == 422
+
+
+def test_public_audit_subject_is_the_exact_digest_preimage_without_inserted_null_fields(archive_env: WorkspaceHttpTestEnvironment) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.contracts import compute_archive_digest
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+    seed = seed_approved_archive_candidate(archive_env.db_path)
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    replace_archive_configuration(archive_env.db_path, seed.submission_id,
+        lambda facts: replace(facts, modified=replace(facts.modified, generated_time=missing)))
+    seed = refresh_archive_seed(seed)
+    preview = archive_env.client.post("/v1/archive-plan-preview", headers=_auth_headers(archive_env), json={"selected": {
+        "submission_id": seed.submission_id, "expected_candidate_digest": seed.selected_ref.expected_candidate_digest}}).json()
+    anomaly = preview["anomalies"][0]
+    response = archive_env.client.post("/v1/archive-anomaly-resolutions", headers=_auth_headers(archive_env, idempotency_key="time-preimage"),
+        json={**_confirmation_body(seed), "subject_digest": anomaly["subject_digest"], "subject_kind": anomaly["subject_kind"],
+            "action": "ACKNOWLEDGE_TIME_QUALITY", "reason": "generation time absent in this explicit fixture",
+            "issue_code": anomaly["issue_code"], "target_submission_id": anomaly["target_submission_id"],
+            "target_candidate_digest": anomaly["target_candidate_digest"]})
+    assert response.status_code == 201, response.text
+    read = archive_env.client.get("/v1/archive-audit-events", headers=_auth_headers(archive_env), params={
+        "subject_kind": anomaly["subject_kind"], "subject_digest": anomaly["subject_digest"]})
+    assert read.status_code == 200, read.text
+    event = read.json()["events"][0]
+    assert compute_archive_digest("business-anomaly", event["subject"]) == anomaly["subject_digest"]
+    assert set(event["subject"]["details"]) == {"generated_time"}

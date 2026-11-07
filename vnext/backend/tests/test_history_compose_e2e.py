@@ -413,7 +413,7 @@ def test_compose_history_compare_journey_zero_write_restart(
             preview = archiver.post("/v1/archive-plan-preview", json={"selected": selected})
             assert preview.status_code == 200, preview.text
             preview_body = cast(dict[str, Any], preview.json())
-            assert len(preview_body["anomalies"]) == 2
+            assert len([item for item in preview_body["anomalies"] if item["subject_kind"] in {"APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"}]) == 2
 
             confirm = archiver.post(
                 "/v1/archive-confirmations",

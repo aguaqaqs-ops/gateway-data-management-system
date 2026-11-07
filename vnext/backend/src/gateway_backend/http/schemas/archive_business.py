@@ -69,13 +69,31 @@ class ArchiveSourceEdgeResponse(ClosedResponse):
     modified: ArchiveContentIdentityResponse
 
 
-class ArchiveIssueDetailsResponse(ClosedResponse):
-    generated_time: ArchiveGeneratedTimeResponse | None = None
-    comparison_status: Literal["NOT_COMPARABLE"] | None = None
-    states: list[ArchiveContentIdentityResponse] | None = None
-    edges: list[ArchiveSourceEdgeResponse] | None = None
-    detected_status: Literal["UNEXPLAINED"] | None = None
-    comparisons: list[ArchiveTimeComparisonResponse] | None = None
+class ArchiveSourceIssueDetailsResponse(ClosedResponse):
+    states: list[ArchiveContentIdentityResponse]
+    edges: list[ArchiveSourceEdgeResponse]
+    detected_status: Literal["UNEXPLAINED"]
+
+
+class ArchiveTimeQualityDetailsResponse(ClosedResponse):
+    generated_time: ArchiveGeneratedTimeResponse
+
+
+class ArchiveBaselineTimeDetailsResponse(ClosedResponse):
+    generated_time: ArchiveGeneratedTimeResponse | None
+    comparison_status: Literal["NOT_COMPARABLE"]
+
+
+class ArchiveTimeRegressionDetailsResponse(ClosedResponse):
+    comparisons: list[ArchiveTimeComparisonResponse]
+
+
+class ArchiveEmptyIssueDetailsResponse(ClosedResponse):
+    pass
+
+
+ArchiveIssueDetailsResponse = (ArchiveSourceIssueDetailsResponse | ArchiveTimeQualityDetailsResponse |
+    ArchiveBaselineTimeDetailsResponse | ArchiveTimeRegressionDetailsResponse | ArchiveEmptyIssueDetailsResponse)
 
 
 class ArchiveBusinessIssueResponse(ClosedResponse):

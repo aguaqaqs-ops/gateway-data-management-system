@@ -1608,3 +1608,40 @@ def test_debug_step_order_covers_every_business_action() -> None:
     assert JOURNEY_STEP_IDS[-1] == "cross-replacement-archive"
     assert "v1-submit" in JOURNEY_STEP_IDS
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS
+
+
+@pytest.mark.parametrize("with_reason", [False, True])
+def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, with_reason: bool) -> None:
+    calls: list[dict[str, Any]] = []
+    selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
+    anomaly = {"subject_kind": "CONFIGURATION_TIME_QUALITY", "issue_code": "GENERATION_TIME_MISSING",
+        "subject_digest": "sha256:" + "2" * 64, "target_submission_id": "sub", "target_candidate_digest": selected["expected_candidate_digest"],
+        "latest_sequence": 4, "resolution_status": "REVOKED"}
+    previews = 0
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal previews
+        if request.url.path == "/v1/archive-candidates":
+            return httpx.Response(200, json={"candidates": [selected]})
+        if request.url.path == "/v1/archive-plan-preview":
+            previews += 1
+            return httpx.Response(200, json={"can_start": previews > 1, "audit_validity": previews > 1,
+                "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
+                "candidate_set_digest": "sha256:" + "3" * 64, "selection_subject_digest": "sha256:" + "4" * 64,
+                "anomalies": [anomaly]})
+        body = json.loads(request.content)
+        calls.append(body)
+        if request.url.path == "/v1/archive-anomaly-resolutions":
+            assert body["expected_sequence"] == 4 and body["action"] == "ACKNOWLEDGE_TIME_QUALITY"
+            return httpx.Response(201, json={"sequence": 5})
+        if request.url.path == "/v1/archives":
+            assert body["anomaly_resolution_refs"] == [{"subject_digest": anomaly["subject_digest"], "sequence": 5}]
+            return httpx.Response(201, json={"archive_result_id": "result"})
+        return httpx.Response(201, json={"sequence": 1})
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({"GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
+    with httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond)) as client:
+        if with_reason:
+            assert real_dump_journey._archive(client, "sub", "consumer")["archive_result_id"] == "result"
+        else:
+            with pytest.raises(JourneyFailure, match="explicit reason"):
+                real_dump_journey._archive(client, "sub", "consumer")
+            assert not any("anomaly_resolution_refs" in item for item in calls)

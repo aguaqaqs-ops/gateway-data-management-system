@@ -1,6 +1,6 @@
 # Worker 活跃 claim 的自动循环 GC 调度修复候选
 
-2026-11-06，p6-backend-design，依据 Owner DC80；接续[结果审核 §77](p6-submit-single-step-diagnostic-scope-review.md)及[GC 观察设计](p6-mutation-plan-gc-window-diagnostic-plan.md)。范围已由 §78 通过，最终产品与定向验证由 §86 通过，新镜像及小 Compose 由 §87 通过；后续测试执行按下述 2026-11-07 Owner 补充授权推进，不授主线合入或正式测量恢复。
+2026-11-06，p6-backend-design，依据 Owner DC80；接续[结果审核 §77](p6-submit-single-step-diagnostic-scope-review.md)及[GC 观察设计](p6-mutation-plan-gc-window-diagnostic-plan.md)。范围已由 §78 通过，最终产品与定向验证由 §86 通过，新镜像及小 Compose 由 §87 通过，真实 prepare 完成性由 §91 限定通过；Owner 已选择[分版本参考接续方案 A](p6-baseline-post-gc-resume-plan.md)。后续按该方案准备及补测，不授主线合入或宣称单版本完整正式基准。
 
 设计指定现有 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 为唯一实施者，`01a182d8-4dfd-7441-b9db-4deefdc4e0ac` 为独立审核者。既有接管/通信条件已完成，范围通过后双方直接准备、修订、定向验证和复审，不重开身份确认或等待 Owner 重复许可。不得新建角色。
 

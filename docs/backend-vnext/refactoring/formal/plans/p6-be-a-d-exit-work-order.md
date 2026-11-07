@@ -31,3 +31,11 @@
 ## 4. 当前进度
 
 Owner授权已记录；原两角色已恢复收尾。实施者15:51:09Z只读核04可连接、无marker/运行容器/8000，原WT exact49403 clean、legacy正确；这是该时点观察，不是占用或未来空闲证明。实际 claim、H0同步、manifest比较、镜像绑定、最终独审及tag尚待执行。
+
+### H0实际绑定与一次调用纠正
+
+H0固定为 **`479847148e1c50a92993371f004a1a7a032c006b`**。04于15:57:54Z实际claim，原WT clean检出H0。首轮`run-h0-binding-gcQSIwH4` 15:58:59–15:59:08Z原exit2：四包可沿用，两包唯一差异为metadata调用遗漏原runner的`GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1`指纹；其余环境及镜像身份相等。原runner先snapshot五锁、设置该内部值、末尾外层assert（`run-tests.sh` 206–209/442）；不是实际Docker/镜像变化，原失败/v1脚本保留。
+
+根协调与原独审确认符合DC68自身命令漏配、未运行被测对象且无副作用的一次纠正条件。v2仅匹配manifest子进程的该源环境值，外层真实执行原五锁snapshot/assert，global flag仍unset，无uv消费/测试/build/retag。`run-h0-binding-corrected-e20WQoMR` **16:03:25–16:03:34Z**，original binding/outer五锁assert/command/final exit全部0、end H0 clean/本人owner真；六包均“可沿用”、changed_components为空。三runtime原config/全部54DiffID、RS公开helper source/build和custom130674前后身份均相等。binding报告SHA **`d728497e708e02ee282a7893d2cd9ca07082dfa4be38167da8017a2c995274e2`**，原log SHA **`9ef769cd5d099f69305d22f74a3909d16f22c495d79055d09995c0f68ce14ed9`**，前后五锁snapshot SHA均`769a4ba5409eef9bc8161fb4642f5ad1f26211501a68a8824c5733ce2190d039`。实际证据root为04 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-exit-04`，不覆盖旧来源。
+
+当前H0已取得实际绑定；原独审核收、退出报告提交F的同WT最终实际绑定、最终回执、本地tag及资源释放仍待，不提前宣布正式退出。

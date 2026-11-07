@@ -311,3 +311,24 @@ Required execution point: 原两角色既定联合准备/核收；DC33最终范�
 逐项对照本角色§11–15原始核收，handoff引用的guard、实际focused成功与失败来源、serial exit5=N/A、五包静态及增量backend静态、当前Compose／OpenAPI、五镜像config及全部DiffID、同24576B tar／八文件index／header-only向量、12:05:24清理和12:05:51本人释放均一致。历史暂停与恢复有明确标签，aaa首轮三原log不可复核及旧误跑排除仍保留；没有把18-run快照、records count0或FE pending扩大成新证明。
 
 当前reviewed handoff HEAD=41386，产品与最后06验证仍绑定0ba／0301；本次仅Contract措辞和实施文档，无新的image/deployment/runtime/container-harness变更，因此不触发额外构建或重复06 Compose。最后验证image revision/source-tree按§15.1记录，未新增package/image carried判定。**本地handoff待办关闭；原两角色继续04六包权威及其必要Compose、05一次fresh t1的固定候选／完整env／CLI／逐项reasons／各节点路径与guard静核及实际证据收口。** 这些联合运行尚未执行，DC33最终范围与阶段退出、FE3同tar OPFS仍pending；本次核收不结束D角色或宣称联合最终GO。
+
+## 17. ec586 联合04／05执行清单与guard静核
+
+固定 **`ec586cbc2d173931aeed942e37ca44037f5ec0ae`** 已在 `/home/dev/gdds-reviews/p6-be-ad-plan-ec586cbc2d` 新只读 detached WT 核clean／legacy、handoff §9与实际消费源码，vnext仍0301。**静核通过，无剩余实际阻塞；可在协调固定当时clean main完整SHA、逐节点现场前提满足后按清单集中执行。** 本角色未执行节点命令、guard、bash-n或被测对象；本节不是运行通过、最终GO或新的恢复申请。
+
+四份实际脚本已全文读取、独立重算SHA并与06已审版逐行diff：仅节点／hostname／WT／artifact／cargo target特化，以及首次detached WT／legacy创建。named HEAD bundle verify／advertised exact SHA、fail-fast、独立node-run安装文件入口、每run唯一目录、精确argv、原command exit／final exit、起止HEAD／clean／本人owner与四项SHA保持；不增加evidence状态机。均mode664，实际须显式bash FILE；初次WT／证据根不存在与现场空闲后原子mkdir本人marker由§9兑现，既有他人目录／占用不能覆盖，后续仅本人cmp下复用clean WT。
+
+| 固定本地脚本 | SHA256 |
+| --- | --- |
+| `/home/dev/gdds-be-ad-04-transfer-v1.sh` | `b4c371a552c26e7470bb97f06177667266ab58bbbb29fb694c203df86ea764b5` |
+| `/home/dev/gdds-be-ad-04-node-run-v1.sh` | `b86cb3c1174899106c12d1245032a957656ce398d118c2165506b1d5b91e31ae` |
+| `/home/dev/gdds-be-ad-05-transfer-v1.sh` | `3b5bfd131af481f922ac454939baee1beac9349c8ec2eccb30c44c3bdb9bcdea` |
+| `/home/dev/gdds-be-ad-05-node-run-v1.sh` | `7e053a42c7f70c3dca7fad714775836bf9851a4d3501bc0b2dcfd5367d58680b` |
+
+04使用本节点新 `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-04` 与对应artifacts，**六包权威入口一次**、正式64vCPU节点workers48、Cargo jobs4；原runner两批marker、隔离Hypothesis／cargo清理、locked同步／强制扩展重装和e6ac input核验均由原入口执行，未指定GATEWAY_TEST_BASETEMP（实际前提再核unset）。prebuilt unset、dependency-base preload=1、build network=none，RS与client base的env名和消费源码吻合；逐节点比config／全部DiffID并保留当前镜像provenance。公共fixtures变化不作package carried；同runner已做Compose不重复。最终权威镜像／包绑定留本WT完成，未拿06小旅程当04门禁。
+
+05使用本节点新 `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-05`，先locked offline强制同步扩展并核input，正式工具仍受控 `run --no-sync python -m benchmarks.real_dump_journey`。实际CLI为 `--tier t1 --scope full --v2-input-completeness FULL --kernel-threads 1 --kernel-memory-budget-bytes 25769803776`，输入根 `/home/dev/gateway-real-dumps`；仅选t1两包并由原工具核原size／SHA，不做额外全输入旅程。fresh UUID／不from-step／keep-stack／cross-project／DC32／debug，当前backend／worker先正常build一次，仅同进程复用，原finally清本project。host N1／M24GiB与worker N1／M24GiB、32／8 envelope及单active分开；GET完整读时间／bytes单列只报告，原READY／operation计时锚不改。
+
+已独立读取纯数据 `/home/dev/gdds-be-ad-05-archive-reasons-v1.json`，**1445bytes，SHA=`2868249c224a94c583b648d2db842cd018f4917add2af77a565fd73d39aca698`**，八项与§9逐字一致：INITIAL_SOURCE_UNEXPLAINED、BASELINE_TIME_UNAVAILABLE、GENERATION_TIME_MISSING／INVALID_VALUES／LAST_NOT_MAX、TIME_ABNORMAL_INITIAL／MODIFIED、APPROVED_SIBLING_EXCLUDED。明确仅对可重建测试库逐项接受，保留原UNKNOWN／诊断／事实与resolution审计。原consumer按actual subject digest或issue code查显式reason；未知code、unsupported subject和identity异常继续失败，无force。实际LAN文件SHA及完整JSON作为单一env argv仍待原run核收。
+
+联合运行尚未启动。接下来协调固定actual clean SHA及短source窗口；本角色在该窗口不提交main，source_ready后继续核原日志／manifest／image身份与完整fresh t1结果。04权威非0或身份／缓存／编排保全异常按既定停止规则处理，不以05成功抵消；任务结束只释放本人资源。产品tree未变，本次无新重建理由，最后06镜像／source记录仍§15；04／05当前镜像门禁与联合最终结论deferred到上述实际运行，FE3同tar OPFS及DC33退出手续仍pending。

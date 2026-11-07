@@ -1922,3 +1922,62 @@ CT201 镜像副本目录 `...-ct201/ct05/remote-evidence-sha256.txt` SHA256 **`9
 只有实际产品语义、输入来源、镜像身份例外、必要守护或资源/运行范围的关键变化，才集中交审核者/设计评估关键差异。真实产品失败仍停止受影响运行并保卷留证，按 DC80 直接诊断/修复；需要关键修正时将代码与恢复资格合并一次审核决定，不再追加最终 manifest GO。没有修正或新依据，不重复同一大输入；既定一次运行和预算不增加。旧 g 不因此恢复或追加执行。
 
 独立职责改为事后核验本次实际执行清单、运行结果/GC 覆盖、停止/回收、资源和证据来源。原 45 分钟观察/3600 秒总限、资源线、身份/缓存与必要守护失败停止、原业务语义和正式基准验收口径不变。**正式基准仍未恢复；主线合入/push/tag、清理旧证据和扩大资源/范围不在本授权内。** 本轮只核已提交政策并直接同步实施者/设计，没有启动测试节点或业务。
+
+## 89. Prepare a 事后独审：观察预算停止；续租稳定且 mutation_plan 已返回，完整 prepare 未完成
+
+**`p6mutationgcwindow20261107a` 的执行范围、停止分类和收尾/保卷证据核验可接受。** 这是 Owner §88 授权的原定一次 prepare-only，已执行；controller/script exit 1、STOPPED / diagnostic_stop / **prepare_observation_budget**，不是 prepare 成功。03:50:22Z 最后可读目标仍 RUNNING，最终 GC summary=MISSING；没有本次 lease_lost 记录。预算内的续租和已闭合阶段提供有效正向证据，但完整修复、正常 GC 恢复/空闲回收及容量安全尚未证明。**不原样自动重跑；正式测量 STOP。**
+
+### 实际清单与一次执行
+
+最终产品 clean `9704d0b286049073529d60036dbd999032f97e0a`，实际 manifest SHA256 **`141158b3b05132e912d86b09fdc2b947d04a666477d5e03aa1a907ff8ccd619b`**。独立核本地与 CT05 15 文件集合、逐文件 SHA/模式、Python AST，全部匹配；preflight 输入/checkpoint/cache 为 MATCH，新 target volumes 原先不存在、原来源仍是 `p6bw4s4h120261105b:v2-preview`。源记录三卷摘要与实际 manifest 一致；本轮不重复扫描原 940745375-byte checkpoint。目标 backend/worker config **`sha256:66e362d44814d3db4a98ac8c0c6b5e9175812cd50bbc0895a822baf790648e62`** 及全部 15 DiffID 对应 §87 已核归档，RS 继续使用该节已核复用身份。
+
+清单忠实记录 Owner scope 授权 c58f227875、authorized_run_count=1、最终字节未事前独审，不要求 POST-GO。其 status/pre_execution_state 保留准备时快照，真实执行由后续结果/日志记录；不因不可变清单仍写 acceptance_post_sent=false 误判没有 POST。新 wrapper 显式透传同一个 join_status 对象，其余 GC observer/resource guardian/原调用语义沿既有范围。CT05 03:01:44–45Z 的受影响 focused 为 **12 passed / 28 deselected / 0.81s、Ruff F821 通过、exit 0**，原 fork deprecation warning 保留；日志 SHA256 `e3ce02e4fc091df77faca2c5234fb1cd2fac1e610c3523c19461f546db69abd1`，worker/test/verifier 摘要与最终文件相同。
+
+运行 CT05 `gw-dms-test-05`，**2026-11-07 03:04:56–03:53:27Z，2910.532s**，起止 clean 最终 HEAD；一次 acceptance attempt/POST，HTTP 202 / RESPONSE_VALIDATED，一次目标 prepare_import claim/attempt_count=1。operation=`op-2d21a29a34fc33119bd9edb3`、attempt=`sa-73ed1728b8432060ff65c250`、step 为该 operation 的 `-step-1`。停止时 operation/step RUNNING、attempt PREPARED、cancel=false、repository_operation_id 均 null，只有目标 prepare active。没有补 POST、第二 claim 或后继执行；最后可读快照不当作清理后最终业务终态。
+
+Worker host PID `3562604`、starttime `203048848`，guardian 绑定首样本 `2030489645377009ns` 先于 wrapper ready `2030490381330928ns` 和 claim entry；实际 wrapper SHA256 `eb9e00cec10e7e62027c8b81b20818107ce7204d5a52376bf658477b362985f8`。实际来源、镜像、原守护和 no-restart 与已审范围一致。本审核只读本地证据和 CT05 原始已关闭文件/项目元数据，未重跑、重启、修改卷或访问 CT108。
+
+### 停止含义与真实进展
+
+controller 保持 post_started+2700s 的绝对观察截止，并受外层 work deadline/cleanup reserve 约束；实际因观察截止而停止，未触 3120s work/3600s 外层硬限。03:50:22.263Z drain_started 是预算停止后的既定清理，03:53:22.268Z drain_timed_out 距其约 180s，是原 drain 收束状态，不能倒置成初始停因。GC summary 缺失未覆盖预算停止或伪造产品失败。
+
+| 原始边界 | UTC / 已返回耗时 |
+| --- | --- |
+| prepare_build_input return | 03:06:33.675 / 66.225s |
+| frozen_projection return | 03:09:52.433 / 90.236s |
+| mutation_snapshots return | 03:13:08.109 / 195.676s |
+| parent_materialization return | 03:27:51.912 / 883.803s |
+| mutation_plan entry → return | 03:27:51.922 → **03:49:24.784 / 1292.862s** |
+| 观察预算停止 | 03:50:22，目标仍 RUNNING |
+
+本次确实通过了此前失租时尚未返回的 mutation_plan，约在预算截止前 57s 正常返回。未记录 canonical_publish entry、claim_exit、clean_drain_requested 或 worker_run_exit。源码在 plan 返回与 canonical publication 之间仍有 schema replay SQL、mutation DML rendering 及拼接；现有粗边界只能界定这一未闭合区间，**不能唯一断言具体哪个子调用正在运行、死锁或其剩余时长**。不以 plan 返回代替完整 prepare/发布/ack，也不据截断时长线性外推完成预算。
+
+### 续租、GC 和资源的有效覆盖
+
+完整事件文件 **1454 条、830799 bytes、最大 797 bytes**，没有事件条数/字节越界。287 次 helper/session 全部正常 return、287 次 heartbeat_succeeded，其中 **269 次在预算停止的 drain_started 之前，18 次在清理中**；没有 lease_lost、heartbeat_busy 或 executor_failed。全部已保存 helper marker 相对 derived due 最大迟到 **0.385090132s**，距实际 deadline 最小余量 **19.614909868s**；session 原调用最大 **0.301487450s**。这表明本轮已覆盖阶段内续租稳定，不把清理后的 18 次计入额外正常观察预算或当作 prepare 已完成。
+
+1148 个 GC snapshot 均 classification=complete、四类错误计数为零。首个 snapshot 含启动期 gen0 73/gen1 7 次，所保留最长区间均早于 claim；之后已保存窗口没有新增 collection 计数或开放窗口，没有 gen2 记录。这与已审产品在 active claim 暂停自动 GC 一致，支持处置方向；**没有单独持久化原/活跃/恢复后的 isenabled 字段，也没有最终 summary，不能据此独立证明整个尾部绝无手动 collection、完整累计统计或 GC 已恢复。** 正常 join 后恢复及 idle collect 在此截断运行中没有完成证据，不为补这一统计重跑本次输入。
+
+最后返回事件携带前 1452 次已完成 emit 的 metrics：encode/lock-wait/write/flush 最大 **0.348255ms / 0.002450ms / 5.138227ms / 0.005120ms**、failure_count=0。它只覆盖已报告操作，不包括该退出记录自身未完成的 emit 或最后尾部，不作为 observer 无扰动证明。
+
+guardian **543 样本**，03:05:06–03:50:17Z，最大间隔 **5.010221738s**；worker RSS 最大 **24260669440 bytes（约 22.6 GiB）**，host available 最小 **42901659648 bytes**，disk free 最小 **202260586496 bytes**，未触原诊断资源线。guardian 于清理开始前 CLOSED/exit 0/reaped，不覆盖随后完整清理期，也不代表 worker 正常退出。该峰值是未完成运行的采样值，既不保证最终峰值，也不满足“已证明主线 12 GiB 预算”的表述。
+
+### 证据、回收与后续边界
+
+本地 `/home/dev/gdds-p6-logs/prepare-step-lease-20261107/p6mutationgcwindow20261107a/collected-run-evidence/scenario-evidence.tar` SHA256 **`1a839f533387d12a20883671e55caec3b1d4705e72830c2bc09b8b1090d39331`**，20 个结构化文件与本地 scenario 副本逐字节一致；关键结果和日志再与 CT05 原件摘要比较相同：
+
+| 证据 | SHA256 |
+| --- | --- |
+| controller-launcher.log | `aad64e82b9e46dd962511a68ec695f19d0fd36d4dab2f1d45fd8669f9522331e` |
+| evidence/prepare-step-result.json | `76f978e4f0fdce95d5f124a45c3317dd691a4938160924c2df32b4988f2d5a69` |
+| postflight.json | `e05150991cdf253f34d0de6ec1b95a2860833a105069cf36db89afa3bbb4cc01` |
+| evidence/worker-events.jsonl | `55472a17de3a63050f63ed3d636dcd2db71eac7409562360c3974d8248f60fdb` |
+| evidence/resource-samples.jsonl | `212f05409307cd1a9e60adce95f8436d6cf4f0258e24230f393e1aac22132e8a` |
+
+tar 没有包含三份 raw service 文件，不能称它单独已含全部原始日志；原件仍在 CT05 scenario 的 evidence/raw-service-logs/，已只读核其 bytes/SHA 与索引相等：backend 54602 bytes / `8a95186627c2d1cf55bc8ccdbaa3835ca54b399966fc444efcba2d123e027122`，RS 220730 bytes / `68cd53c1fcd6d73f4f679a454cdfd5452a44520f35362413f994d0c341c5510a`，worker 0 bytes。pre-down 捕获均 exit 0/reaped/group quiet，无 timeout/truncation；只覆盖捕获时刻，不补造全部清理期间 service log 或正常 worker exit。可后置补齐便携副本，不为复制重跑。
+
+postflight_complete/lock_release_allowed=true，Compose down=0，自有进程/worker/guardian/capture reaped，project 容器/网络 quiet，三个新目标卷完整保留、volumes_removed=false。独立 SSH 另核当前该项目无容器/网络、三卷存在、最终 HEAD clean、占用标记 absent；launcher 已记录安全解锁。missing GC summary 在节点亦确认，没有补写或追跑。
+
+一条审核端本地补充统计命令因 comprehension 的 assignment-expression 语法被拒，未执行读文件主体；更正为普通循环后完成已有证据读取，不触发节点/产品动作。原错误转录 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-review-20261107/prepare-a-local-summary-attempt1.log` SHA256 `4a1189dda68e91e91119b6e2f7c88c7e79d28679166b9bf7959e458b620c4717` 保留，不影响核心结果/停止核验。
+
+**结果直接交实施者并同步设计：原定一次运行已用，执行/预算停止/回收核验可接受，完整 prepare 尚未完成。** 后续基于已保存的 plan 返回、后续源码边界及实际资源决定处置或预算取舍，不自动增加时限或重复同一大输入；关键变化按 §88 集中审，不重新引入逐 manifest GO。保留全部旧/新候选、卷和原始证据，无主线合入/push/tag/正式恢复许可，正式测量 STOP。

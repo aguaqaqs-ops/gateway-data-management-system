@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from tests.support.configuration_facts import replace_preview_with_facts
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 

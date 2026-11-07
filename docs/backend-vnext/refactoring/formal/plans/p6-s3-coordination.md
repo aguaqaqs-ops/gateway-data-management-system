@@ -105,3 +105,11 @@ Owner 对上述已审恢复稿明确回复 **“允许放行”**；DC68 本次�
 暂停期间 B 已提交完整静态代码候选 `2e9758885a8179d0e8e90c9c90a7c244577b9ea2`、[handoff](p6-s3-b-handoff.md) `ee58afaf76ecf509384fb4e79c5cb1145ef40e1c`；仍未 fmt/编译/测试/真实按表验证，不是 B GO。原审报告最新 `ba818b0d8d` 的两项 ordered 诊断差异由后续语义增量处理，待同一原审核收。
 
 协调已唤醒同一 B 实施/独审/测试三角色（合计仍四槽），先由原唯一测试者按已审 literal bash 稿重新核 06 现场并执行保留的 b917 脚本一次；原失败、摘要出处限制和资源释放记录全保留。然后对完整静态候选固定格式与执行稿，按影响完成 Rust/FFI/差分/逐表及静态检查。此放行恢复既有授权范围，不取消未来首错停止、缓存缺失与资源规则，不增加 tag/push 或 DC33 最终范围授权。后续每节核收后仍直接推进，不重复问日常开工许可。
+
+### B 放行后的实际推进
+
+原审 `6d924f719e` 已固定 ac21 第二预算轮静态复核：原重大 M 根因有针对性代码关闭，不触同根两轮阻塞；不能推导运行 PASS。后续 ordered 诊断/Utf8 gid-no 修复及临时 probe、合成/真实差分代码交接为 `2e9758885a81`/`ee58afaf76ec`，仍无运行证据。
+
+22:35:01–22:35:15Z，原唯一测试者按已审脚本一次运行 b917：fmt0、clippy101（standard keyed `any` 闭包两处 usize 错误解引用）、test 未启动；起止 b917/clean、六锁不变、offline、无 cache miss。日志 SHA256=`5ba79e1bf4c38850f9f35ba1f1ae77b30364e863987eb2a1fefafc167a20cf74`，原审现场核符。22:35:56Z 本人释放，release SHA256=`e9b14dea0d77c0fee5442f9d12b6a06b84df32a69ab700d2558135f77786b41e`。详见[恢复单 §5](p6-s3-b-execution-stop.md#5-owner-放行及实际恢复结果)。这是普通编译反馈，已由实施者修正新候选，旧 b917 不重复跑。
+
+完整候选 `a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df` 包含两处机械编译修正及合成/真实差分的完整 ordered/blank summary、blank interval 六字段与 real degraded 明确失败；原审固定对象确认此前差分缺口代码层关闭。后续 Python 诊断向量 `20e226206d` 与 a665 Rust tree 相同。06 scratch 格式 patch SHA256=`efd2222e1b103154172a4b3cce94b4aa296115188253224a60fad1859cc25aa2` 已回原实施者；22:40:48Z 格式准备结束释放，release SHA256=`27c873168174f79cdd10ed18446f31fae3bf2557b075fe3f3886ca370d50b441`。新固定格式/多任务 N1-N4 最小向量候选随后统一验证；尚无 B GO。

@@ -106,6 +106,17 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 ## 9. 最终核收待填
 
-当前候选49403/tree567201，F6及三文案修复的必要诊断均通过；原独审`9c0e098bbe`正式接受05 a999旧成功路径的有限步骤引用，来源/新增分支边界见上文。最终04六包仍在执行，末exit/六manifest/current images/资源收尾及最终handoff待核，尚无联合最终GO。
+当前合格实际来源 **49403/tree567201**，F6及三文案修复的必要诊断均通过；原独审`9c0e098bbe`正式接受05 a999旧成功路径的有限步骤引用，来源/新增分支边界见上文。最终04六包原run **13:06:41–13:33:56Z** 正常结束，command/final0、endexact49403clean/owner真；run.log SHA=`35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。六包均实际运行，无package carried；合格来源仅本次成功run，不引用失败a999 runner。
+
+| 包 | 本次实际结果 |
+| --- | --- |
+| rust | fmt/clippy/test均0；180 tests通过 |
+| shared_kernel | 243 passed |
+| repository_contracts | 152 passed |
+| repository_client | 161 passed |
+| backend | parallel3387 + serial60 passed |
+| repository_service | parallel1744 + serial207 passed；另1 skipped |
+
+唯一skip为 `test_p2_r1_target_cgroup_smoke::test_target_container_has_real_delegated_cgroup`：本次host runner未设置 `GATEWAY_P2R1_TARGET_CONTAINER=1`，按该源码条件跳过，reason为“runs only inside the delegated target container”。定位依据为源码与本次runner/pytest进程该单一env，原-q日志未直接打印case/reason；不计为该case通过、不修改flag或追加重跑。六起始manifest/current images/资源收尾及固定最终handoff仍待原独审核收，当前不预判最终联合GO或退出。
 
 拟提交Owner的DC33最终真实数据范围为：05实际a999一次fresh t1（18步、v1/repeat MODIFIED_ONLY及v2 FULL双pair、四完整Preview/History tar，按实际49403 diff限界引用）；异常/关闭重提/self-only及新增同码双side由04当前Compose、原owner和本次共用复现覆盖。不新增t2/t3/t4或性能测量，不把未知W1/W2值记为通过。此为具体范围提案，**尚未取得Owner最终范围确认**；门禁/独审齐后交Owner确认，再按仓库规定另办退出。FE3同tar解析/摘要/OPFS证据独立pending，不把后端核收当FE3完成。不推送、不改写引用提交、不自动打退出tag、不启动S3。

@@ -1826,3 +1826,11 @@ r2 固定并断言 hostname、仓库根、候选完整 HEAD `0c97cb9c095ef4dde34
 预检通过只证明其实际检查项；仍须按原批准流程准备候选自己的 locked/offline 环境并核扩展身份，不能把源 venv 的 MATCH 写成候选环境已验证，或用复制环境继续加载旧产品源码。随后直接完成 §78/80 必要 focused 与五包 Ruff/mypy并交原始证据，无需新 Owner/设计/协调回执。原代码侧结论保持；测试结果、镜像及一个既有小 Compose 仍待产生和独审。
 
 **恢复许可已直接交唯一实施者并同步设计；只准本次具体工具准备及既定必要验证，不是实际 prepare 的精确 manifest GO，也不准正式测量恢复、旧 g 重试、产品合入/push/tag、清理证据或扩大资源/测试范围。** H3 原历史 PASS 保留，lease 修复效果与内存代价未验证，正式测量 STOP。
+
+## 84. Scheduler focused 两项断言失败：补齐原正常退出事件后直接验证
+
+BatchMode echo OK 后，仅只读 CT05 已关闭的 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-20261107/focused-worker-scheduler.log`，完整 SHA256 **`d91ed98213f437fbf654d34dbe31816a63f8ed4c5e395ed5aea21712678f7c1c`** 与实施者一致。日志记录 `gw-dms-test-05`、2026-11-07 01:19:32–35Z、起止 `0c97cb9c095ef4dde3401ffd874c80ac94d9ac3d`、离线 uv-consume --no-sync/pytest -n 0 的 scheduler 模块，**20 passed / 2 failed / 1.78s，exit 1**。本审核未运行测试、修改被测 worktree 或继续其他节点步骤。
+
+两项失败均是 `test_claim_busy_and_empty_restore_original_gc_state_before_wait_without_collecting[True/False]` 的事件列表断言：当前只期待 CLAIM_BUSY。该用例在第二次 wait 设置 drain，原 `_observe_drain_intent` 发 DRAIN_STARTED，原 `_finish_clean_drain` 发 WORKER_EXITED；这两处生产语义未被本轮产品差异改变。因此完整有序预期应是 **CLAIM_BUSY、DRAIN_STARTED、WORKER_EXITED**，不是删掉产品正常退出事件或过滤掉实际多余事件。wait 顺序、claim 次数及 wait 内 GC 状态断言已走到；**失败行之后的 collect_calls==[] 和最终 GC 状态断言未执行，不能称旧运行已经证明这些尾部条件**。
+
+已直接交实施者保留失败包/日志，只补精确有序事件列表、其他断言不变，不改 runtime。该具体 test-only 修订 clean 提交后，按 §78/80/83 已有授权直接从 scheduler 模块开头重跑，通过后接续既定 SQLite focused/五包静态；不为已经审清的这一断言再等一次 Owner/设计/审核许可。若出现独立新问题，仍按同范围最小修订和受影响验证处理，不原样盲重跑。原 exit 1 不写成通过，不提升为权威 runner/业务诊断证据；没有镜像、真实 prepare 或正式测量 GO，正式测量 STOP。

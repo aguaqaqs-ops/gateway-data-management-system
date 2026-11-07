@@ -202,3 +202,17 @@ RS输入预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z/0，log SHA=`4ee45c
 两新manifest原字节/index SHA=`af6c82ad8452ca98e37b07ea783633f9e3212e2692ce94cfb593e4b9d1c7ea31`已独核。完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/`；恢复phase index `evidence-index-tqonz2wu/index.json` SHA=`17d7a6a7de827089d146748d1ca6fbb701ff50b58c599adc91a6a1c00808671d`为**31guard/220文件的当时快照**，索引生成run另列，不把后续cleanup/release写进旧快照。原审逐项核文件size/SHA、guard四SHA、原claim及六包来源成立。
 
 本人cleanup原0已独核无运行容器/卷/网络/8000/Dolt/测试编译和runner HYP/CargoTarget；实施者cmp本人owner后**14:44:32–33Z**释放04，`release-0zzsICrS/release.log` SHA=`b904cead22a4999316768c5afe0f8399ac20342ff90c1bd4472c383fb09f87be`、release0/end49403clean，command SHA=`0893866c7d1f5028e4aac919cd9434f7116f31a13a02ae5ab574a0e35501d17b`。WT/镜像/历史原件均保留。释放后补充索引/LAN及原独审现场/固定最终handoff核收仍待完成，不把候选49403实测扩大成后继main文档HEAD实测或自动退出。
+
+## 12. 联合技术GO与DC33最终范围确认包
+
+原独审最终报告 **`ccdd1eb39d8b1c8e80fdbc4157f096595ba6ac5f` §25**正式给出**联合后端技术GO，无剩余finding**，固定核收实施handoff `5ac36170bd`/标题精度增量 **`233e6f788b9b9568664f0e427b45d08bf8d22dec`**。技术GO仅绑定实际产品 **49403/tree567201** 与本节A1/V1/V2/D范围；四包直接DTW来源及实际compare、两包mvzi实际0、新三runtime原config/全部54DiffID及RS预后同原bytes、新API/provenance时间区间、两原manifest均已独核。旧RS和aaa缺失/失败永久保留，不伪补，不把后继docsHEAD称作实跑。
+
+04 release-index SHA=`7df3b602a8e7d6d34f68644a1348589e7ff49bce683af39edb35232905c8be1b`，native==LAN；后增15文件size/SHA、所有33个完成guard四SHA及release原pair已核，旧31guard/220文件快照未改。原审14:45:32Z另只读确认marker不存在、WT clean49403、running Docker/8000空；05仍为原a999 fresh成功/12:46:02Z释放，06早已释放。本节原两角色完成技术职责并正常停止，无后台/占用，历史与原审核连续性保留；工具未销毁角色。
+
+提交Owner按[AGENTS DC33](../../../../../AGENTS.md)“阶段退出前由 owner 确认”的最终真实数据范围为：
+
+- **05一次fresh t1**，实际来源a999：18步，v1/repeat MODIFIED_ONLY、v2 FULL双pair，四完整Preview/History tar；按已审old-success→same-subject论证有限引用到49403，不称49403新跑fresh。
+- 异常及边界由**04当前Compose/原owner/本次真实共用复现**覆盖：来源时间拒绝与逐项理由、关闭不归档→新上传重提、self-only、双actor/精确释放、同码双side独立接受/撤销、Preview/History完整tar及损坏/断连等；详细owner映射见独审§21/25。
+- 本轮不新增t2/t3/t4或正式性能测量，不把未知W1/W2记为通过，不接管原基准；前端同tar解析/摘要/OPFS由其owner提供证据，**FE3仍pending**。
+
+技术工作和可审查证据已齐，**DC33最终范围尚待Owner明确确认**；届时最终HEAD退出绑定及仓库退出手续另办，不因技术GO自动tag/push/启动S3或声明FE3完成。

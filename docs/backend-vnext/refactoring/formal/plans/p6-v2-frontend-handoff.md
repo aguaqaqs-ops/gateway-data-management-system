@@ -1,6 +1,6 @@
 # V2 归档界面接口交接（Owner手动转发）
 
-2026-11-07。协调者维护，前端 owner 实施其代码。**V2原本节GO为`9ec62e82ad`，产品`f8fb796f02`、handoff`3cd4400f9f`；联合04门禁又发现同码双side的精确subject定位缺陷，修订`eff1dc531b`待独审/实际补验，联合尚未GO**。修复不改公开DTO/权限/摘要语义，subject保留精确preimage。A1/V1及D本地里程碑已通过，05 a999 fresh已通过/释放；04最终与前端PAX同制品互通仍另待，当前态见[联合记录](p6-be-a-d-joint-validation-preparation.md)，不把本页视作FE3完成。当前没有等待前端判断的阻塞问题。
+2026-11-07。协调者维护，前端 owner 实施其代码。**联合后端技术GO `ccdd1eb39d`，实际产品49403/tree567**：覆盖V2原f8实现及eff1精确subject修复，当前owner/真实接线与两包权威均通过。修复不改公开DTO/权限/摘要语义，subject保留精确preimage。当前实际OpenAPI见§4；FE3同tarOPFS与DC33/退出手续仍独立pending，见[联合确认包](p6-be-a-d-joint-validation-preparation.md)。当前没有等待前端判断的后端阻塞问题。
 
 ## 1. 预览与逐项接受
 
@@ -36,8 +36,10 @@ History 节点的 `archive_disposition` **直接替换为 `submission_dispositio
 
 ## 4. 最终转发制品与证据
 
+**当前联合候选49403实际生产schema**：[production-openapi.json](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/p6-be-ad-final-04/resume-a-5OBTboKj/new-authority-compose-53h3ekqp/production-openapi.json)，SHA=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`；来自mvzi新运行14:14:04–14:40:10Z区间的原字节/新provenance，已独审核对。包含D两个完整tar路由，前端按此刷新当前快照/类型。下述f8制品保留作V2局部历史来源，不替代当前schema。
+
 实际生产 `GET /openapi.json`（同一f8 Compose）副本：[openapi-f8fb796f02.json](/home/dev/gdds-v2-evidence/openapi-f8fb796f02.json)，SHA256=`e937a38e8073abebb406138e9be2ca2bd61eb25ac8fda9d9adabee56fd2abda1`。首次/重放、权限与错误边界按本页§2及实际schema；确认1/异常1601、History改名、Review required-nullable处置和closed union均已核实际制品。前端刷新自己OpenAPI快照/类型，本轮后端没有修改前端源码。
 
 06真实异常拒绝→关闭→新上传补saved_time→新提交/审核→归档旅程1/0，生产镜像/provenance与资源释放由同角色独审核收；全部37运行/13附件索引：[evidence-index.json](/home/dev/gdds-v2-evidence/evidence-index.json)，SHA256=`cc505fe5a1a1776191a8ab599b7433784460a47f004fab2398e3459b9c611efb`。详细结果/失败保留和范围见[V2 handoff §6–9](p6-v2-handoff.md)、[最终独审 §11](p6-v2-review.md)。06于10:39:24Z释放，角色已结束；没有权威包carried或04/05完整旅程声明。
 
-后续若需前端判断影响后端方案，协调者另给具体问题，等Owner手动转发回复；现无这类阻塞。D会另交真实生产encoder同字节tar及摘要，前端修PAX和同制品OPFS证据仍须其owner提供，后端GO不代替FE3。
+后续若需前端判断影响后端方案，协调者另给具体问题，等Owner手动转发回复；现无这类阻塞。D同字节真实encoder tar及摘要已交付，见[完整制品包](p6-be-d-frontend-handoff.md)，前端修PAX和同制品OPFS证据仍须其owner提供，后端GO不代替FE3。

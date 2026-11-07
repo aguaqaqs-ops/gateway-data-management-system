@@ -88,7 +88,7 @@
   - A1本节GO c1ee962755、V1最终GO 5dc01deeb5、V2最终GO 9ec62e82ad（产品/容器f8fb796f02、handoff3cd4400f9f）；D已从clean 9ec启动，新实施/独审6.1-Sol xhigh/max，先精确清单cf2091eadd。实际角色/候选/节点/证据见[持续协调交接](p6-be-a-d-coordination-handoff.md)及[联合kickoff](p6-be-a-d-kickoff.md)。
   - 实施协调会话01a1b4f1-df13-7331-b3c4-77bb560203f2负责正常推进/节点/交接，设计者仅处理设计澄清与决策；前端由Owner手动转发[V2接口包](p6-v2-frontend-handoff.md)，不要求设计者日常催进度。
   - D本地0ba/tree0301、F1–F5已核收；联合eff1修复精确subject F6后，49403/tree567201六包13:33:56Z原exit0（RS按设计1skip），05 a99918步/四tar实跑通过并按有限成功路径引用，05/06已释放。实际交接当前态见[D handoff §12](p6-be-d-handoff.md)及[联合记录§10](p6-be-a-d-joint-validation-preparation.md#10-身份收尾停止与owner选择)。
-  - **正式联合GO仍pending；Owner已明确同意方案A最小补验**（14:09Z记录e5157db91c/[批准§11](p6-be-a-d-joint-validation-preparation.md#11-owner批准方案a恢复最小补验)）。原RS旧config/allDiffID及manifest变化缺口继续保留。原D两角色同配置恢复，固定同49403/同04 WT，预采RS130674当前原身份、实际compare四包、至少backend/RS依法权威补验；不切后继docsHEAD、不重复问开工、不重跑05/改闭包工具/伪补旧原件。前端同tar OPFS、DC33范围确认及退出另待，不启动S3、不动冻结资源、不推送。
+  - **联合后端技术GO `ccdd1eb39d` §25**：固定49403/tree567，最终handoff233e；四包direct DTW原0+实际compare，两包mvzi新原0，新runtime原cfg/54DiffID及RS预后一致、原manifest/LAN/释放均独核。04/05/06已释放，原D两角色完成技术职责、正常停止/历史保留，无新角色。旧RS/aaa缺口和失败不伪补；不称新docsHEAD实跑。[最终DC33范围确认包§12](p6-be-a-d-joint-validation-preparation.md#12-联合技术go与dc33最终范围确认包)待Owner确认；FE3同tarOPFS、最终HEAD退出绑定/手续另待，不tag/push/S3或动冻结资源。
 - **BE-b**：
   - 设计由前端设计会话负责（草案 `docs/frontend-vnext/be-b-navigation-and-presentation-draft.md`）；
   - 实现在 P6 退出后、Phase 8 前（FD8）。

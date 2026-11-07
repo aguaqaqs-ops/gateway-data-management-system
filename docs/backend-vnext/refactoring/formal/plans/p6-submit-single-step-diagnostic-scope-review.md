@@ -1801,3 +1801,14 @@ G1 修正将 thread.start 的异常单独处理：标准未启动失败时 ident
 按现行 AGENTS/testing-conventions 的 DC68，重做再次失败先停是正确历史事实；`f7d53c1c41` 也保留实际失败停止规则，不能把普通 focused 修复流程解释成原样预检无限重试。设计随后明确本次 DC80 的最小修正、独审及合格恢复授权：**具体固定小脚本经本审核核命令、本地 bash -n 与完整 SHA 后，实施者可直接接续 §78/80 必要 focused/五包静态，不等新的 Owner/设计/协调回执。** 不抹掉原两次失败或假称第二次未发生。
 
 已交实施者仅在 CT201 准备独立脚本，避免嵌套引号，固定候选目录和实际所需离线环境/扩展身份前提；Rust/依赖未改，不另加 Rust 编译或门禁，任何版本查询不得隐式下载。原失败证据保留，具体脚本尚待交付/审查，**当前没有工具准备恢复合格结论，节点仍停**；其后正常取得有效占用再执行。本节不设置重新审核产品或扩大测试矩阵的门槛，也不消耗/替代未来真实 prepare 精确 manifest 的一次 GO；正式测量 STOP。
+
+## 82. 固定只读预检脚本首版：语法绑定匹配，两组最小命令修订待关闭
+
+只读核 `/tmp/p6-gc-ct05-readonly-preflight-0c97cb9c.sh` SHA256 **`8f1b93841f3a37f1aa4b66147ba956745f3739a5976febb6e7e23e69c7574e87`**，独立 remote payload `/tmp/p6-gc-ct05-readonly-preflight-0c97cb9c.remote.sh` SHA256 **`ccb962c000476e3ae0bbc922fec9a4147a6b6eaed90ca913ef081917509cfcbf`**。独立 bash -n 均 exit 0，提取内嵌 heredoc 与 remote 文件逐字节相等。只做本地静态检查，未执行 SSH 或脚本，原两次节点准备失败和先停事实不变。**该首版尚不具备工具准备恢复资格**，不据语法通过直接启动节点。
+
+两组最小修订已直接交实施者，不涉及产品差异或新增测试矩阵：
+
+- **Python 禁写字节码的接线失效。** 脚本设置 PYTHONDONTWRITEBYTECODE=1，但 native import 使用 `python -I -c`；[Python 命令行文档](https://docs.python.org/3.14/using/cmdline.html#cmdoption-I)明确 -I 忽略 PYTHON 环境变量，-B 才直接禁止 import 写 pyc。须显式 `-I -B`，不能把当前形式认定为保证不写源/venv 的只读探测。本轮没有实际执行，因此不是已发生的 pycache 写入。
+- **环境来源和失败条件不足。** BASE_BACKEND_PY 指向正在并行开发的 main checkout `.venv`，不适合作为已核冻结 1f 环境；改用已核 `/home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend/.venv/bin/python` 并按候选 Rust tree 实测核身份。当前 extension mismatch/unreadable 分支仅 printf 后继续，须非零停止；不把探测结果默认为满足 focused 前提。同时将已打印的 hostname/root/完整候选 HEAD 加固定等值断言，避免 clean 错提交仍输出预检成功。candidate 自有 venv absent 可以作为待准备信息，不冒称其运行环境已通过。
+
+其余命令沿固定 heredoc、候选 vnext/rust cwd、RUSTUP_AUTO_INSTALL=0 和只读版本查询，不新增 Rust 编译/门禁。执行时已正常取得并持有自己的节点占用是脚本前提，不能抢 E 的有效占用；本轮不提前取锁。保留首版及原失败，修订后重新给脚本/payload 完整 SHA 和本地语法证据，沿 §81 DC80 直接复核；合格即可接续既定必要 focused/五包静态，不等新的 Owner/协调回执。§80 产品代码侧结论持续，无真实 prepare/正式测量 GO。

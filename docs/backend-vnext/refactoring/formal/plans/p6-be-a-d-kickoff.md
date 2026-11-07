@@ -1,6 +1,6 @@
 # BE-a / BE-d 与归档业务核验：联合 kickoff（设计已审）
 
-状态：**设计已独审 GO；Owner 于 2026-11-07 授权 A1→V1→V2→D 及联合最终验收准备。A1已本节GO，V1当前同角色修复F5，V2/D按序待启动**。实时候选/角色/证据见[协调交接](p6-be-a-d-coordination-handoff.md)。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
+状态：**设计已独审 GO；Owner 于 2026-11-07 授权 A1→V1→V2→D 及联合最终验收准备。A1/V1已本节GO（V1 F5闭环，最终报告5dc01deeb5），现启动V2，D按序待启动**。实时候选/角色/证据见[协调交接](p6-be-a-d-coordination-handoff.md)。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增安排已通过设计独审，具体实施起点、角色及验收范围仍须在实施kickoff填写确认。BE-b 设计与实现不并入这两项。
 

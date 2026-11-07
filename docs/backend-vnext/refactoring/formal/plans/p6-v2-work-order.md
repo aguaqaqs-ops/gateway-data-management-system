@@ -1,6 +1,6 @@
-# V2 归档核验与关闭出口：实施准备工作单
+# V2 归档核验与关闭出口：实施与独审工作单
 
-2026-11-07。Owner已授权V2，**V1独审GO并结束本节两角色后才启动**；当前仅准备，不创建产品角色、不宣称已交付。依据[业务核验设计](p6-archive-business-validation-design.md)§3–§10、[联合kickoff](p6-be-a-d-kickoff.md)§1.1/§4/§6及[最终设计独审](p6-be-a-d-archive-design-review.md)§6。时间语法和异常容量已定，不重选B1/B2；MANUAL_CLOSE幂等澄清为设计者提交`043705af06`。
+2026-11-07。Owner已授权V2，**V1最终独审GO且两角色结束，现启动V2**，实际起点见§5。依据[业务核验设计](p6-archive-business-validation-design.md)§3–§10、[联合kickoff](p6-be-a-d-kickoff.md)§1.1/§4/§6及[最终设计独审](p6-be-a-d-archive-design-review.md)§6。时间语法和异常容量已定，不重选B1/B2；MANUAL_CLOSE幂等澄清为设计者提交`043705af06`，跨规则身份为`a24b7034e9`。
 
 ## 1. 实施/文件边界
 
@@ -45,4 +45,8 @@ main `vnext/backend/benchmarks/real_dump_journey.py::_archive`当前只接受身
 
 ## 5. 启动与收口
 
-尚未启动。实际V1 GO/起点/新角色、精确字段清单及06占用/证据在启动后填写。测试/编译/lint全在专用节点，06现场核空闲/原子标志、clean已提交WT/LAN bundle/legacy、离线依赖、日志host/起止HEAD/UTC/exit/SHA按AGENTS，保留前节WT/证据。先固定代码候选只读审，证据由同一审核者复核，普通修复双方直接闭环；核心冲突仅暂停依赖并给具体问题包。前端所需判断经Owner手动转发，真正阻塞时等其回复，无依赖工作继续。通过后结束两角色并自动进入D，不办理联合exit、不宣称FE3完成。
+V1最终同角色独审为 **`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`**，F1–F5/N1全关，取代早先3dd GO的当前完成含义；产品`c229582a9e72a591cf00a70de526b1b0792c1c18`、handoff至`6183ae3ca4`，vnext tree=`954caffe70c00c9268cd026477298a73f8e47976`。原两角色已确认停止写入/执行、无后台或占用，正常结束且历史未销毁。源事实类型与port见[V1 handoff](p6-v1-handoff.md)及其§7，最小binding/scoped SQL在完整facts解码前的外部授权边界必须保留，CLOSE也不能先解未授权目标facts。合法跨ruleset身份、原始时间grammar/原typed失败边界均不重选。
+
+V2实际起点为clean main **`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`**，允许随后协调启动文档提交，不回退历史版本。新实施选择GPT-6.1-Sol/xhigh、独审GPT-6.1-Sol/max（图/审计、事务、统一终局事实与History多consumer相连），创建后ID记总交接。实施者先将本节精确fields/DDL/subject-fingerprint/version/DTO/OpenAPI/golden/owner清单落盘提交，再产品写入。不得因候选facts损坏降格为业务接受；Archive已定typed503沿本owner最小映射，不引入全局异常框架。
+
+06上节09:36:28Z释放只是历史，不是预约/实时空闲证明。测试/编译/lint全在专用节点，实际执行前06现场核空闲/原子标志、clean已提交独立WT/LAN bundle/legacy、离线依赖、日志host/起止HEAD/UTC/exit/SHA按AGENTS，保留前节WT/镜像/成功失败证据。先固定代码候选只读审，证据由同一审核者复核，普通修复双方直接闭环；核心冲突仅暂停依赖并给具体问题包。前端所需判断经Owner手动转发，真正阻塞时等其回复，无依赖工作继续。通过后结束两角色并自动进入D，不办理联合exit、不宣称FE3完成。

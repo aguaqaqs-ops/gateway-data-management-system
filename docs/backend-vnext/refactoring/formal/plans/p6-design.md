@@ -390,7 +390,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 13.1 BE-a 前端对接与归档核验补充（DC75/DC89/DC90）
 
-Owner 2026-11-04 同意Workspace占用指针及本人撤回权限并入BE-a；原kickoff审核`fcbfb4c1a0`只覆盖当时范围。2026-11-07 S2a/S2b已退出，Owner确认DC89/DC90联合补设计：[BE-a](p6-be-a-design.md)保留同快照指针、self-only权限和当前授权replay，新增同baseline的PENDING硬阻塞归档、过期baseline新APPROVE拒绝；[归档业务核验](p6-archive-business-validation-design.md)补源序最后有效生成时间/倒退及来源链与人工接受；[BE-d](p6-be-d-design.md)明确最终closure一对一tar。新增范围待独审，当前未启动产品实现，也不能向FE3报完成。
+Owner 2026-11-04 同意Workspace占用指针及本人撤回权限并入BE-a；原kickoff审核`fcbfb4c1a0`只覆盖当时范围。2026-11-07 S2a/S2b已退出，Owner确认DC89/DC90联合补设计：[BE-a](p6-be-a-design.md)保留同快照指针、self-only权限和当前授权replay，新增同baseline的PENDING硬阻塞归档、过期baseline新APPROVE拒绝；[归档业务核验](p6-archive-business-validation-design.md)补源序最后有效生成时间/倒退及来源链与人工接受；[BE-d](p6-be-d-design.md)明确最终closure一对一tar。新增范围修订候选`16472197b4`已由报告`a5d87540e6`独审GO，待Owner实施kickoff确认；当前未启动产品实现，也不能向FE3报完成。
 
 本项不改变 §16 的性能矩阵或固定基准产品，不重做 S2a parser 差分；BE-a 自身门禁与真实数据范围按 kickoff。Owning Contract、P5-5C 和 HTTP 文档在实施提交同步目标条款，不把本页设计方向表述为已实现接口。
 

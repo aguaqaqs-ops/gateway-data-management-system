@@ -1,6 +1,6 @@
 # 归档业务核验补充：时间、来源链与审核收口
 
-状态：**设计草案，待独立审核与实施 kickoff 确认**。2026-11-07 Owner 已确认业务方向与 §2 的选择；本页的技术形态是待审设计，不是已实现接口。与 BE-a／BE-d 一起收口，不重新实施 S1–S2b，不启动 S3。引用源码核查 main `a8de5e5346d2421e1237d52e8ff3f5025dc84aea`；此后纯基准文档提交不代表核验功能已落地。
+状态：**修订设计已独审 GO，待 Owner 实施 kickoff 确认**。2026-11-07 Owner 已确认业务方向与 §2 的选择；本页技术形态已在候选 `16472197b4` 经报告 `a5d87540e6` 独审 GO，不是已实现接口。与 BE-a／BE-d 一起收口，不重新实施 S1–S2b，不启动 S3。引用源码核查 main `a8de5e5346d2421e1237d52e8ff3f5025dc84aea`；此后纯基准文档提交不代表核验功能已落地。
 
 关联：[Owner 决议 DC89/DC90](p6-s0-owner-decisions.md)、[BE-a](p6-be-a-design.md)、[BE-d](p6-be-d-design.md)、[联合 kickoff](p6-be-a-d-kickoff.md)、[Business Lifecycle](../contracts/business-lifecycle-and-state.md)、[P5 Archive](p5-5d-archive-design.md)。本页暂称“归档核验补充”，不占用已有 BE-b／BE-c 编号。
 

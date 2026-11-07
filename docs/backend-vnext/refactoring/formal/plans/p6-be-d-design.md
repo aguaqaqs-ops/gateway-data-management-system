@@ -1,6 +1,6 @@
 # BE-d：完整 Bundle tar 传输设计
 
-状态：2026-11-07 设计草案，Owner 已确认成员对应方向，待独审及实施 kickoff；未实现。引用当前生产 reader 为 `bootstrap/composition.py::LocalArtifactBundleReader`，仍只读 manifest；FE3 `posix-tar.ts` 已按严格闭包消费。关联 [联合 kickoff](p6-be-a-d-kickoff.md)、[Comparison Bundle](../../../contracts/comparison-bundle.md)、[归档业务核验](p6-archive-business-validation-design.md)。
+状态：2026-11-07 修订设计已独审 GO（候选 `16472197b4`，报告 `a5d87540e6`），Owner 已确认成员对应方向，待实施 kickoff 确认；未实现。引用当前生产 reader 为 `bootstrap/composition.py::LocalArtifactBundleReader`，仍只读 manifest；FE3 `posix-tar.ts` 已按严格闭包消费。关联 [联合 kickoff](p6-be-a-d-kickoff.md)、[Comparison Bundle](../../../contracts/comparison-bundle.md)、[归档业务核验](p6-archive-business-validation-design.md)。
 
 ## 1. 范围与消费者
 

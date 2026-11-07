@@ -218,13 +218,13 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
-### 前端对接前的 BE-a / BE-d 与归档业务核验（修订设计中）
+### 前端对接前的 BE-a / BE-d 与归档业务核验（设计已审，待实施 kickoff）
 
-- **2026-11-07范围更新（DC89/DC90）**：S2a、S2b均已退出；BE-a/BE-d尚未产品交付。Owner授权联合补设计，不因旧基准退出等待，不把S2b开工许可当本任务实现授权。[联合kickoff](p6-be-a-d-kickoff.md)修订后独审再确定实施小节。
+- **2026-11-07范围更新（DC89/DC90）**：S2a、S2b均已退出；BE-a/BE-d尚未产品交付。Owner授权联合补设计，不因旧基准退出等待，不把S2b开工许可当本任务实现授权。[联合kickoff](p6-be-a-d-kickoff.md)修订候选`16472197b4`已由报告`a5d87540e6`独审GO，待Owner确认实施kickoff及小节。
 - [BE-a](p6-be-a-design.md)：原旧动作/状态删除、两创建接口OpenAPI、Workspace占用指针、本人撤回权限继续；新增当前baseline有PENDING时硬阻塞归档及过期baseline新APPROVE拒绝，保留合法replay。旧审核`fcbfb4c1a0`不覆盖新增范围。
 - [归档业务核验补充](p6-archive-business-validation-design.md)：源序最后有效生成时间（UTC）及最后非最大异常，时间倒退/缺失、当前轮次initial/modified来源图、共同未知来源与逐项人工接受；无法接受时可有理由关闭、不归档，保留APPROVED并释放工作区，统一终局处置及History消费。新增小型事实沿Rust→Preview/checkpoint→Attempt/Submission→Archive/基线绑定；不重做S1–S2b、不恢复旧Python或旧batch框架。
 - [BE-d](p6-be-d-design.md)：Preview/History完整tar，最终closure逐entry一对一发送，共享由assembler表达；下载层不额外去重。main旅程工具改解析并校验完整包，原冻结基准资源不变。BE-b导航不并入。
-- 首轮设计独审`e92afaa53f`的技术修订：时间提取闭合grammar/UTC微秒归一及源序规则见业务设计§4.1；200候选采用1601异常引用/1选择确认，256KiB body静态预算见§7.1。BE-d§2.1登记前端UTF-8 PAX byte-length修复和同tar互通作为FE3交接依赖；本轮修订仍待复审，不冒产品GO。
+- 首轮设计独审`e92afaa53f`的技术修订：时间提取闭合grammar/UTC微秒归一及源序规则见业务设计§4.1；200候选采用1601异常引用/1选择确认，256KiB body静态预算见§7.1。BE-d§2.1登记前端UTF-8 PAX byte-length修复和同tar互通作为FE3交接依赖；本轮修订已复审GO，B1/B2关闭；该结论仅为设计GO，不是产品验收或前端互通证据。
 - 建议A1（BE-a）→V1（事实提取/冻结）→V2（业务核验/审计）→D（tar）小步收口；D设计/纯传输准备可独立前置，产品实施顺序与联合最终候选在kickoff确认。FE3接口快照与新增异常页面由前端owner跟进，不宣称现有FE3设计已覆盖。
 - 06/05focused/Contract及必要小Compose，04最终候选权威门禁与容器绑定；05一次fresh t1整合必要真实旅程，异常场景用小型wiring验证。不逐轮全量runner/全旅程/大输入生成，未受影响证据按闭包规则复用。容量、准确范围、独审角色和最终验收另在修订kickoff收口，不启动S3。
 

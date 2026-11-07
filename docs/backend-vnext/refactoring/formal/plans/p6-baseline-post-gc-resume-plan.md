@@ -42,6 +42,8 @@
 
 **开发构建源定位（2026-11-07）：** 原获准CT201开发构建源的实际hostname为当前本机`heavy-dev-01.lan`；本线§87构建原日志首行、标为`source=heavy-dev-01 CT201`的传输记录及S2a handoff §6均可核。本线在同一开发源按固定clean候选/原脚本本地预构建，无需等待不存在的`ct201` SSH别名；先核实际daemon、锁及基镜像并记真实host。节点编号不等于IP末段，当前SSH配置的`.201`属于CT108测量节点，不作为开发构建目标。此处不新增构建节点或改变冻结镜像流程；开发机只构建，测试仍在指定04/05，其他节点取用仍按现场配置和有效占用。
 
+Repository Service原官方预置依赖分支仍可在04离线构建，不被上述开发源定位覆盖。本次04已核`gateway-p2r1-repository:lock-6dc9659f0aee`及lock label匹配，按接续审核核定的clean detached候选和官方脚本、`UV_OFFLINE=1`/build network none直接构建专用RS tag；不用为此等待CT201 SSH或另起重复开发源构建。backend/worker如需旧冻结流程的整镜像预构建，仍使用既有开发源；RS candidate revision在backend manifest前固定，已起的合法构建继续而不双头执行。
+
 **后处理指标口径更正：** owning设计§16.3要求W系列分别保留单operation的READY与完成时间，H1/H1-FULL/H1-回填/H2/H3以READY为主，H2三节点取完成，S1/S3/S4取main前移的Submit完成，S2取同步受理并核无Repository operation。整旅程elapsed单列，不作为这些指标的替代；不得统一改成completion而丢失READY。S2没有新operation不等于受理耗时为零，缺精确受理计时时只单列实际可得的代理口径并说明限制。
 
 已发现部分deviation selector误取整旅程、H2三节点的旧参考19361.157s也取整旅程。现有双方从认证的原run/state/summary中修正派生actual与同operation/同端点reference，保留产品/输入/节点及原SHA，不修改原证据或共享计时；record builder与deviation工具分别核实际影响，不将一个工具的修正泛化成另一个已错。原policy及统计规则保持，不能恢复合法参考时明确UNAVAILABLE/不可比及原因，不伪填或静默改policy。本修正不因错误selector、字段抽取或A下跨版本旧差异触发已关闭业务重跑；实际干扰、数据/身份不符仍按原停止和DC80处置。

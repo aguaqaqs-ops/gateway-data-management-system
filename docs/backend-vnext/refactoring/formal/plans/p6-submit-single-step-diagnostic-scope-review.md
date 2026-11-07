@@ -2686,3 +2686,5 @@ H1也需补既有条件证据，暂不将core History自动签为健康H1。DC38
 CT05 `vref-resource-650a-20261107.log` SHA **`c07187baac8d282d6702b0c398b9c959861a5cb034e2c6f3627ec71fb448d9a2`**（16:40:32–33Z）按准备历史保留；最终 `vref-resource-fcc8-20261107.log` SHA **`8a457f06f09d3aa89444e5ace89485c314ddf8b8c62f04ab56c33d80a7957251`**，16:44:18–19Z、完整fcc起止、8passed/0.12s、Ruff/mypy500、exit0，已直接核验。测试用缺step资源与零周期样本两种情况证明峰值不回退，同时独立完整CPU仍为6.0；已有单字段缺失统计不默默删除样本的用例保持。其余四包无变化关联既有来源，不称本轮全量runner/carried。
 
 两项工具Finding现关闭；数据层面§118历史worker步骤、H1缓存条件及其他原件尚待合并补证，不能把未来采集路径修好当作旧数据已存在。05可继续原版本record准备、04可按既定分工准备最终身份/缓存，冻结前集中完成必要工具，避免测中修改04 worktree；不触CT108在途STRESS、原镜像或旧source，无新Owner/GO。
+
+**FULL预制DB来源索引核对通过，仅为PREPARED_ONLY。** CT05 `record-w4full-20261107/source-index-prepared.json` 961B、SHA **`91b27a331459459379b8c821fe9c92416b65b11400bcdb22167e3ba5b5e3e830`** 已独立读取，与审核者§113认证state副本逐项相符：18a、state SHA41b090bf、v2-submit before checkpoint且completed_through=v2-preview、原control路径、tree3854336B/1文件/SHA **`05577662288d708a673eeb40fe219668550fe5f764d6f03dca909f9c47eddfed`**，三个Preview ID分别来自各自真实result。没有访问CT108快照或断言其当前存在/DB行已取到；树摘要不是单一SQLite文件SHA，后续按原树摘要核复制件并另记实际DB文件摘要。原快照及同次步骤补证仍待压力结束后的空闲窗口，本核对不新增GO或允许改原source。

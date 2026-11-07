@@ -46,6 +46,21 @@
 
 运行前一次给足工具等待预算：冻结工具 t4:v2-submit 当前为 `ceil(810.961×5)=4055s`，而 b 的 prepare 本身已用约3755s，不能机械沿用仅剩约300s余量的等待窗。W4 新目标的 v2-submit 工具等待采用已批10800s观察上限；产品 lease/heartbeat/stall、HTTP单请求及Repository业务超时不改。每个实际运行按所选完整步骤的一次性上限加初始化/清理余量固定总截止，不能把 prepare-only 的14400s总限机械套到多个长步骤的总和，也不在运行中滑动加时。关键恢复核验一并确认这些数值；完成即收尾，不等待用满，不将预算当ETA或性能门槛。
 
+首轮实际选项固定为 t4、scope=full、MODIFIED_ONLY、resume_step=v2-submit，`full_v2=false`、`three_node_history=false`、`cross_project=false`、`history_cache_mode=none`；不重做旧步骤、不新增 Archive/v3 旅程。实际新步骤为 v2-submit、v2-repository-read、v2-approve、history，以及既有尾部 hash/比较/HTTP artifact 读取和证据收尾。普通 HTTP/归档 helper 若属于这些步骤，其等待计入所属阶段，不另开无界路径。
+
+| 首轮阶段 | 工具预算（秒） |
+| --- | ---: |
+| 初始化、预检、恢复和必要目标快照 | 1800 |
+| 完整 v2-submit（包含 prepare） | 10800 |
+| v2-repository-read、v2-approve 及相应普通 HTTP | 1800 |
+| History 与其结果读取 | 7200 |
+| 尾部表哈希/比较、artifact/归档和正常证据收尾 | 3600 |
+| **固定工作截止：以上合计，从 launcher 起点计算** | **25200** |
+| **停止、reap、Compose cleanup/postflight 预留** | **1800** |
+| **全流程 hard 截止：work + cleanup，从同一起点计算** | **27000** |
+
+这是一次充分且有界的首轮安排，不是7.5小时完成预测；完成即退出。每阶段截止为 `min(阶段起点 + 本阶段预算, 固定 work 截止)`，不以进入新阶段重置总截止，初始化/普通HTTP/Repository read/Archive helper不能漏出预算。沿既有外层进程/容器有界收束和保卷逻辑，work耗尽即停止新业务并进入清理，全部收束不得越hard截止；不为此建设另一套guardian或持久状态机。实现/固定runbook应一致，恢复关系审核一次核对即可，不重复Owner或最终manifest签字。
+
 ## B：保留单一修复版本的完整正式基准（未选）
 
 将目标产品固定为 `9704`，在 CT108 按原口径重新取得所有实际受共享 runtime/RS/JCS 修复影响的场景计时；无法证明未受影响的既有旅程不沿用为该目标产品的结果。不使用缺失正式来源资格的诊断 checkpoint 冒充 carried。

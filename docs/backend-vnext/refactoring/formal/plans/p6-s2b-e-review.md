@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，82 t3/M16原失败保留；当前源码464289138a补漏预约已过定向/static，隔离a10的64/16/M48 fresh完整t3校准亦独审PASS。main24/8/M16不变，最终生产档与DC33范围待Owner一次决定，最终候选验证/H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码窄审通过，最终静态/定向、正式实际与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -17,7 +17,7 @@
 | 真实消费者与唯一批量路径 | 上传 FULL 两侧、Preview baseline、History exact commit、RepositoryRef 两 policy、pair/identity/ordered、export/replay、Submit T1/PREPARED，以及 `real_dump_journey → real_dump_census` 和仍继续使用的工具入口；残留旧 caller 会在删除后失效或形成双路径 | 按实际 import/call graph，固定组做原应用/capability owner focused；删除六个旧 parser 模块及六条 temporary UNREACHABLE，清旧 bulk materialize/projection/hash、仅服务旧算法的 helper/mock/probe；不新增假 import 或 baseline |
 | 独立语义预期 | mapping bytes、业务摘要、诊断、结构过滤、keyed/keyless/ordered 预期不能随新 actual 自证 | 保既有 Contract/golden/已验证旧值和 Shared Kernel vectors；删除旧 oracle 前把必要动态预期固定。metadata/选表/恢复策略的合法 fixture 可用真实 Rust/C 构造，但不称为 hash 独立证明，也不为每个 fixture 再建 oracle |
 | 保留职责 | 误删仍用 Python IO/规则/编排或外部格式会破坏真实业务消费者 | 保 XML/AST/composite、rules、small metadata/digest、MutationPlanning row-image 摘要、raw/client Parquet、SourcePackage、通用 row reader/DTO；每项按真实 caller 判断，不整文件盲删 |
-| 冻结、恢复与资源控制 | E 差异不能破坏 exact commit、scope、内容身份、T1/PREPARED、StartArchive Head CAS、强引用/TTL；控制误分类或漏预算可污染 durable 状态或导致真实业务失败 | 复用 A–D 已验证 owning tests，只复核 E 差异；初始DC87 12/4/M8已由Owner最终24/8/显式M16替代，拒启/N1单active不变；DC88仅真实PURE、effect前、fresh lease/drain，保checkpoint/保护/attempt/operator，cancel优先、失租禁写 |
+| 冻结、恢复与资源控制 | E 差异不能破坏 exact commit、scope、内容身份、T1/PREPARED、StartArchive Head CAS、强引用/TTL；控制误分类或漏预算可污染 durable 状态或导致真实业务失败 | 复用 A–D 已验证 owning tests，只复核 E 差异；初始DC87 12/4/M8及前一24/8/M16已由Owner最终32/8/显式M24替代，拒启/N1单active不变；DC88仅真实PURE、effect前、fresh lease/drain，保checkpoint/保护/attempt/operator，cancel优先、失租禁写 |
 | 最终证据 | 不合格来源、旧 image 或局部旅程不能绑定最终候选 | 06 focused/Contract/五包静态；最终profile触及共同deploy输入，04六包全部实际合格来源；最终H再按同节点同WT闭包/镜像规则绑定。05 t1–t3、CT108 t4既定fresh `real_dump_journey --scope full`，不以capacity、局部或性能延期替代 |
 
 按Owner 2026-11-07简化规则，节点以现场状态和有效原子标志直接取用，无例行跨会话预约/起止请示；仅真实冲突或他人资源协调。最终必需证据仍未完成前不签GO。所有测试节点沿离线缓存、clean committed WT、有效占用与日志规则；本审核默认只读实施者日志、manifest、source，不争抢其占用。
@@ -32,7 +32,7 @@ typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d
 
 ## 当前容器记录
 
-Current reviewed code HEAD: `464289138a27f03a4dddc3b825e6bd32907fbf9f`，审核detached WT固定clean464。相对82仅内部Python准入/owner测试，06定向覆盖，未新增06 Compose；最终档/H固定后再完成必要04闭包/门禁。此前82的profile触及Compose/环境，已在04本机离线重建并由六包权威入口运行实际Compose，不重复同候选Compose。最后合格04 backend/worker image为 `sha256:a5e0b1df76750aee55cabc9506f0b89427626dab16060794311548617dd8a72f` / `sha256:99ebe2a031d2fb2c81fbf46a266cd8f8f9ac374d55c0f9f8fbce0f649ae25a5c`，RS image为 `sha256:2536840a18c0eb840e88d040988b203d9025270e55337090dca8e848d5b2b08c`、revision82/source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，provenance SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。backend starting closure total为 `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c`。该结果只绑定实际82，不冒464或旧D/失败/cal的当前容器结论。
+Current reviewed code HEAD: `a6876d560050285321fd9f62942d590a03f35d64`，审核detached WT固定clean a687。相对464仅最终32/8/M24 settings/Compose与resource owner三路径，触发当前候选04本机重建/六包实际Compose；未知结果尚待，不重复06 Compose。此前82的profile触及Compose/环境，已在04本机离线重建并由六包权威入口运行实际Compose，不重复同候选Compose。最后合格04 backend/worker image为 `sha256:a5e0b1df76750aee55cabc9506f0b89427626dab16060794311548617dd8a72f` / `sha256:99ebe2a031d2fb2c81fbf46a266cd8f8f9ac374d55c0f9f8fbce0f649ae25a5c`，RS image为 `sha256:2536840a18c0eb840e88d040988b203d9025270e55337090dca8e848d5b2b08c`、revision82/source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，provenance SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。backend starting closure total为 `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c`。该结果只绑定实际82，不冒a687或旧D/失败/cal的当前容器结论。
 
 82当前容器门禁已通过；最终H的carried仍须按同04/同WT实际闭包与镜像身份规则另办，当前不预填。04 WT保留至stage exit合入。主线读取至36709de375时相对82的vnext无实差异；这仅为差异审计，不代替最终H闭包判定。
 
@@ -242,16 +242,16 @@ Owner已明确选择最终A：**24GiB envelope / 8GiB reserve / 显式M16，N1/�
 
 ## 最终累计条款与既有独审证据映射
 
-累计范围始终为 `53b676a6298d408ccda3a85ee73c7ea223a2311a..82c4251b6cf944526c80a5e9bfe707bc57ab5087`；以下按已交付GO/原测试owner复用，E仅补实际消费者迁移、两项真实故障及最终资源档影响，不重新逐段审核A–D或增加门禁。B引用恢复后的delivery独审，原停止记录不改判。
+当前累计源码范围为 `53b676a6298d408ccda3a85ee73c7ea223a2311a..a6876d560050285321fd9f62942d590a03f35d64`，最终H待协调者统一固定；以下按已交付GO/原测试owner复用，E仅补实际消费者迁移、两项真实故障及最终资源档影响，不重新逐段审核A–D或增加门禁。B引用恢复后的delivery独审，原停止记录不改判。
 
-| 条款/owner | 已有独审/依据 | 82影响及本E收口 |
+| 条款/owner | 已有独审/依据 | 最终影响及本E收口 |
 | --- | --- | --- |
 | Arrow值/profile/声明/空列行数、列序与同bytes确定性；Shared Kernel framing/vector与A codec owner | [A独审](p6-s2b-a-review.md)，产品db7767ffbb/审核83b927207a；[mapping §§2–5](p6-s2b-arrow-mapping-design.md)、Canonical Storage §5.1 | A codec/映射及固定vectors未改；E只移交consumer/删除旧实现，独立旧值冻结与fixture construction分开，未由新actual反写business golden。A能表示的类型不等于B业务白名单支持 |
 | 唯一Rust批量parse→业务验证/materialize→project/hash→A IPC；过滤前全行/列验证、keyed/keyless/ordered/composite语义 | [B恢复交付独审](p6-s2b-b-delivery-review.md)，产品b820321c1e/审核0dc93c09a9；业务kernel、adapter/diagnostic/golden原owner | E最后应用/工具consumer迁移并删除旧bulk parser/projection/materialize/仅diff/hash probes；六条temporary UNREACHABLE随六模块删除，无fake import/cycle/整层native放行。保真实rules/XML/AST/composite、小metadata、MutationPlanning row-image digest、raw/clientParquet与通用reader；类型/过滤/摘要规范未扩 |
 | IPC raw SHA与scope/schema/content绑定、独立handle/borrow/close、same-ref与强引用/TTL | [C独审](p6-s2b-c-review.md)，产品0048040af5/交接7cd2b548c8/审核e9bef6efe8；`test_canonical_table_store`、cache/staging/roundtrip/fault原owner | 仅Store成功校验后早关source FD，保同mapping buffer/内存预约/取消。已由96并存reader owner、真实双312正反对照、修复后实际History补验闭环；无copy/reopen/新reader或broker |
 | exact immutable commit恢复、健康canonical content免重写、T1与PREPARED冻结、Archive Head CAS/引用原子性 | C/D独审与Canonical Storage/业务Lifecycle；`test_canonical_commit_access`、`test_submit_import_builder`/prepare/recovery/worker、`test_submit_transactions`/`test_archive_transactions` | 不改变C恢复选择、frozen T1缺失稳定失败/PREPARED复用、正式引用只在StartArchive Head CAS事务移交；E仅替换真实reader/合法fixture。不能把缓存恢复改成重选HEAD/SourcePackage或在Archive内重新物化 |
 | W2结构计数：baseline逻辑行需求/实际行读取0、行比较按X派发、规范内容命中不重写 | [设计§16.2](p6-design.md#162-计数断言dc55-第-5-项)、总kickoff§6、C/D已核count owner；`test_unchanged_preview_table_does_not_read_baseline_rows`、`test_unchanged_identity_table_reuses_current_rows_without_baseline_read`、`test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds` | 复用结构Contract，不以性能样本替代。普通identity跳双方rows，ordered identity按原owner只读current；raw SHA/必要metadata核验不冒“行读取”，canonical IPC内容免写不等于禁止derived manifest/业务事务写。E删除obsolete probe不删除这些业务断言 |
-| operation单active/N、增长前M准入、实际cancel/drain/lease_lost/deadline及safe publication | [D独审](p6-s2b-d-review.md)，产品93678f8439/交接abfe7cb66b/审核78411aa40b；ExecutionControl/LeaseSession及Preview/History/Submit recovery原owner（D既有422项范围） | DC88真实PURE/effect前/fresh lease+drain可RETRY_WAIT，保cp/priorrefs/保护/attempt/operator，cancel优先/失租禁写/EXTERNAL原规则均未改；无deadline仍None。E修单侧未读rows误收费、FD占用，最终只改24/8/显式M16。D旧12/4/M8及675MB materialize局部不是最终whole-worker容量证据 |
+| operation单active/N、增长前M准入、实际cancel/drain/lease_lost/deadline及safe publication | [D独审](p6-s2b-d-review.md)，产品93678f8439/交接abfe7cb66b/审核78411aa40b；ExecutionControl/LeaseSession及Preview/History/Submit recovery原owner（D既有422项范围） | DC88真实PURE/effect前/fresh lease+drain可RETRY_WAIT，保cp/priorrefs/保护/attempt/operator，cancel优先/失租禁写/EXTERNAL原规则均未改；无deadline仍None。E修单侧未读rows误收费、FD占用及nonrecord新增列实际读行漏预约，最终profile32/8/显式M24。D旧12/4/M8及675MB materialize局部不是最终whole-worker容量证据 |
 | final authority、当前container、真实t1–t4、无fallback/兼容路径 | AGENTS/Testing Conventions、总/E kickoff、ADR0010/0012与比例化policy | 本最终deploy变化令六包actual必需；06不冒04来源，整次失败runner内单包不作来源。最终H按同04/WT实算闭包与image绑定，fresh真实旅程及全worker资源仍待齐；未增加持久evidence状态机/UID或额外角色 |
 
 W2结构条款与W2性能30秒目标分开；W1首次可读观测/单次t4仅为初步诊断，正式2×t4及预热+3次测量未完成不PASS，最迟S6按DC83/DC84归原性能owner；W3自S3，原冻结1f9731dfc3的W4 lease问题继续OPEN，E新运行的未报失租不自动关闭它。InputCompleteness.FULL语义由原D/应用Contract及适用组件证据覆盖，real_dump_journey的`scope full`不冒InputCompleteness.FULL；D局部capacity、4f失败cal前缀及1f9局部History均保持各自准确范围。
@@ -374,3 +374,11 @@ CT108新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t3-calibration` 的source0/另ca
 | 最终H与释放/结论 | 最终H与合格Source V在同04/同gate WT实际逐包closure compare，原Hypothesis路径不存在、环境/本机镜像状态匹配；RS helper重算source/build-input身份，backend按同WT闭包绑定；记录最后current image来源、各node实际释放与证据留存 | 不凭docs-only口头carry，不从失败runner摘包，不链式引用carried。WT留至stage exit，原失败/三代数据保持。W1/W2未知及原W4 OPEN不写PASS；E最终GO/范围与DC86 S2b exit分别办理，push/tag归协调者 |
 
 上述清单不新增容器组、allocator探针、输入生成、持久evidence机制或审批步骤；范围由Owner一次选择，后续只审实际差异与最终原证据。当前仍为准备状态，未执行新验证。
+
+## Owner最终32/8/M24定案与集中验收
+
+Owner已确认主案：**envelope34359738368 B（32GiB）、reserve8589934592 B（8GiB）、显式M25769803776 B（24GiB），N1/单active**；本轮06 fresh完整t1–t3功能/容量、04六包/Compose可并行，t4按本报告具体bound沿用，不复跑完整t4。决议/执行范围 `e2ef52ac6c15b5b73c03cea82af1c8a7d4011a0f` 已读，AGENTS/testing明确06本轮用途，非正式性能/权威runner职责转移；此前默认节点限制由本次明确授权补充，不再重复请示。
+
+固定产品 **`a6876d560050285321fd9f62942d590a03f35d64`** 已独立窄审，审核WT同步clean detached a687。464后严格settings/Compose/test_worker_kernel_resources三路径：精确字节接线、现owner M24+1拒绝及32/8/M24正向/N1/claim1断言。FD早close与nonrecord新增列预约两blob未改，kernel_execution仍无cal logger；缺M拒启、严格类型、M≤envelope-reserve、真实控制/租约/恢复/业务输出/reader/规则/算法均不变。t4数值门槛M≥18678133632 B及实际差异条件满足，沿用82完整业务结果，旧24/M16物理峰不改标成新32/M24实测。
+
+后续按上述一次性清单收06必要profile focused/静态、04六包实际/当前Compose与06 fresh t1–t3原证据；无逐版本准备GO或A–D重复全证。最终H由协调者在实际证据及文档齐全后统一固定，再仅做一次同04原gate WT closure/image绑定，此前任何主线文档HEAD不称最终H。最终结论会分别说明E验收与整个S2b功能退出证据条件，阶段tag按P5§8.1另办；W1/W2正式性能、W3后续与原W4 OPEN均保持原范围/责任。当前源码清楚但实际证据尚待，E不GO，未给未完项预写PASS。

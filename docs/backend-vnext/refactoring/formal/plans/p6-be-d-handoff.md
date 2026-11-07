@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS身份原件缺口使收尾暂停，恢复方案待Owner决定（§12）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；联合当前态以§12为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS旧身份原件缺口保留（§12），Owner已批准方案A，当前同49403执行最小补验（§13）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；联合当前态以§13为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -335,7 +335,7 @@ env -u GATEWAY_COMPOSE_GATE_PREBUILT \
 六项收敛后按原授权，不等待重复开工，**13:06:41Z同49403启动最终六包 `run-authority-six-final-DTWWhQP4`**。完整env沿§9，RS tag仍本次自身a999源未变，TEST_WORKERS48/Cargo4/offline、basetemp unset与prebuilt unset；同一固定WT/source不因main后续纯docs推进而切换。本段记录启动时尚未结束的状态；后续原exit0及RS身份缺口停点见§12。未作最终GO，不重复同runner Compose；05不重启，04最终清理/释放/绑定按后续Owner选择处理。
 
 
-## 12. 49403六包原0与RS身份原件缺口：恢复待Owner
+## 12. 49403六包原0与RS身份原件缺口：当时停止及恢复方案
 
 **实际功能门禁成功事实**：`run-authority-six-final-DTWWhQP4` 13:06:41–13:33:56Z，command_exit=final_exit=0，end exact49403/clean/owner true，原log SHA `35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。六包status全部passed：Rust180、shared_kernel243、repository_contracts152、repository_client161、backend3387+60、RS1744+207，另1 skip。唯一skip为 `test_p2_r1_target_cgroup_smoke::test_target_container_has_real_delegated_cgroup`，源码条件＋本次pytest进程环境定位为 `GATEWAY_P2R1_TARGET_CONTAINER` 未设、reason `runs only inside the delegated target container`；原-q log只打印skip计数，未逐条打印该case/reason，不能伪称来自原log或算passed。不补跑/不改flag。
 
@@ -370,3 +370,16 @@ RS早段runtime ID `sha256:15e3ffb4944b672a5e2e6d9c858a57d6a1142d2d17e0feb4f2e56
 随后实际authority子集最小backend+RS，若上述其它包有真实差异按规则纳入；保持原profile：UV/Cargo offline、TMPDIR、Cargo4、pytest48、preload d054/networknone、现自定义RS tag、client base不变，prebuilt/basetemp unset。wrapper打印原runner_exit，运行前后RS输入ID必须保持130674；任何真失败/身份变化均停。RS candidate已一致避免后段同因重建；不恢复旧tag/换default tag凑等价，不重写起始manifest。
 
 新postcopy只使用**该新guard**实际HEAD49403/原0/起止awareUTC、源mtime epoch落新区间、resolve去重后的新schema和current provenance；唯一原bytes副本/SHA，禁止旧q57/旧时间替换。collector只按该阶段原snapshot内immutable image ID inspect/save，保存原config/allDiffID，新唯一phase文件/awareUTC，不拿终态tag替代旧runtime。新路径/UTC由批准后实际guard产生再原审核，不预造未来值。全部原失败/缺口保留；方案A批准后仍不宣称旧RS原件已补回，只用新的合法验证结果闭合当前绑定。方案B则保留pending交接并按Owner授权清理释放04，不再补验；两者都不自动办理DC33/FE3/exit/tag/push/S3。
+
+
+## 13. Owner批准方案A后的实际最小补验（进行中）
+
+Owner新turn明确“同意继续最小补验”，协调授权记录 `e5157db91c` / 联合准备§11已提交；§12的“尚未执行/回复未到/停止”均为当时历史状态，不再作为重复申请的理由。节点继续固定 **49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0 / vnext56720104af34a1eb677336f57bdbc07444a56615**，不切换后续main纯docs；05不重跑，旧RS15e3原config缺口未补回，也不改写旧原件。
+
+04 BatchMode/原本人marker cmp、现场资源空闲、exact clean/legacy/offline/toolchain1.97及现RS130674 candidate49403在14:11:01–02Z实际复核0，`run-resume-a-readiness-339eHy8k` log SHA `da6b28808cbf8ad5efb1509ad2d27831b7dd5c29af3cce6e04383d89cf2f1b39`。五个新脚本安装前目标路径不存在，经LAN逐个安装并核§12五SHA全符，`run-resume-a-script-sha-3TI1p51M` 14:11:25Z/0，log SHA `b9b7e8d50972426552d8d114365ac50bbe87f0af8b8626cb0fb32a0c2ba7eaeb`。原bashFILE guard SHA b86cb3…不变；每步仍唯一run/原exit/前后exact clean与owner。
+
+唯一恢复数据目录为 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/resume-a-5OBTboKj`。RS预核 `run-rs-input-before-ENkhPtm0` 14:11:38–39Z/0，log SHA `4ee45ca1e049150ba488754f15716afd9bb51a20e2945b2bcdd111bb60929833`。`run-rs-input-config-2NAkmSb8` 14:11:39–45Z/0按已记录不可变ID130674 inspect/save原件，log SHA `6c83d9494ffbcd6adc2c07e8919edcd53552528b3a928365797809c3158390f4`。预采目录 `resume-a-5OBTboKj/image-identities-rs-before-resume-hjh4fkki` 的 `image-identities.json` SHA `9d2b02a2b6672f5ff9d4a10d4406faf609a4d39facddc86edf92726cfa07821f`，原config digest `sha256:13776cfb1d842f66ffb46b6d382ab9bdd57a5e4a85a82251a7bda25622ab9432` 与全部28项DiffID及原inspect/save-manifest/config字节齐；这是当前130674原件，不能冒称旧15e3原件。
+
+`run-four-package-compare-5zuLDhdL` 14:12:32–36Z/0，log SHA `0401fdd84a9cc6e50ec2eea34f3c876200e03eae397b9357c894a391881eece2`。rust/shared_kernel/repository_contracts/repository_client在原04同WT/原完整profile、原逐包Hypothesis绝对路径且不存在的条件下实际compare §12 DTW原0起始manifest，四项status均“可沿用”且changed_components为空；原bytes/current manifests和比较JSON保存在恢复目录 `four-package-closure/`。解析后的 `resume-scope.json` SHA `f2027b0e71b56cb0ea3bfb5126356d0e8fa9c353f118d993692aab35f50b6798` 确定实际需运行 **backend,repository_service**，未预判或人工排除其它差异包；四包直接引用原49403 DTW实际通过来源，不链式引用比较结果。
+
+**14:14:04Z实际启动** `run-authority-resume-mvzi5dNV`，完整路径位于上述04 artifact root。外层完整六包profile保持原环境，已审wrapper根据实际比较结果把runner包集设为backend,repository_service，原log明确打印 `actual_runner_packages=backend,repository_service`。pytest48/Cargo4、UV/Cargo offline、d054 preload1/networknone、原custom RS tag、client base、prebuilt/basetemp unset不变；RS输入现为130674/candidate49403，无手工retag或重建旧镜像。runner按原规则强制重装Rust扩展，e6ac expected输入实际核对。当前backend并行3387passed/0（199.36s），原serial仍运行；**整次尚无退出结果，不宣称当前补验通过**。后续只在整次原0、end exact clean/owner与RS输入不变成立后，按该新guard实际区间复制新production OpenAPI/provenance，再以该阶段snapshot的immutable ID采三runtime原config/全部DiffID，保持新唯一目录与awareUTC。实际结果及清理释放将追加，不复用旧q57/旧时间或05证据冒充当前镜像。

@@ -228,7 +228,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 实际顺序保持A1→V1→V2→D；D新实施/独审均6.1-Sol（xhigh/max），工作单与精确清单见[p6-be-d-work-order](p6-be-d-work-order.md)/[handoff](p6-be-d-handoff.md)，角色同节承接已授权联合最终准备收尾。FE3接口快照、新异常页面与PAX修复由前端owner负责，Owner手动转发[V2实际接口制品](p6-v2-frontend-handoff.md)，不把后端交付当FE3已完成。
 - D本地产品`0ba45e5ef8`/vnext`0301aee3a3`、独审`6ad7e54fa0`及handoff`41386e12e6`核收`cd2d395fbc`已通过，F1–F5关闭，06于12:05:51Z本人释放；同tar及实际OpenAPI已供Owner转前端，FE3仍待。
 - 联合实际证据：05 a999 fresh t1的18步/四完整tar通过，12:46:02Z释放；04 a999首轮七fail已由两test文案同步及eff1精确subject修复，49403六包13:33:56Z原exit0，F6功能关闭。来源/有限步骤引用见[联合记录](p6-be-a-d-joint-validation-preparation.md)。公共fixtures改变，六包均已实际运行，不口头carried。
-- **A1/V1/V2/D联合正式退出审核通过，按[退出报告§6](p6-be-a-d-exit-review.md#6-最终f生效条件外置回执与tag)实际F绑定及原审回执生效**：Owner已确认DC33最终范围并明确授权正式退出；技术GO ccdd1eb39d/产品49403/tree567不变。H0实际六包均可沿用，直接来源四包DTW原0、backend/RS mvzi原0，镜像source/原config/全部54DiffID成立；H0原exit2及DC68唯一调用纠正、所有历史缺失持续保留，实施交接9ee1f47b32。报告提交F在原04同WT完成最终实际六包/镜像绑定后，由协调依既有授权在F建本地附注`p6-be-a-d-exit`，不为填自身SHA循环提交；不push、不实施S3、不动冻结基准。05 a999 fresh的限定步骤引用及04异常接线范围见[联合记录§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)；FE3b/前端验收及原基准性能仍独立，不因本后端退出记完成。
+- **A1/V1/V2/D联合正式退出审核通过，按[退出报告§4](p6-be-a-d-exit-review.md#4-最终f生效条件与本地tag)实际F绑定及原审回执生效**：Owner已确认DC33最终范围并明确授权正式退出；技术GO ccdd1eb39d/产品49403/tree567不变。H0实际六包均可沿用，直接来源四包DTW原0、backend/RS mvzi原0，镜像source/原config/全部54DiffID成立；H0原exit2及DC68唯一调用纠正、所有历史缺失持续保留，实施交接9ee1f47b32。报告提交F在原04同WT完成最终实际六包/镜像绑定后，由协调依既有授权在F建本地附注`p6-be-a-d-exit`，不为填自身SHA循环提交；不push、不实施S3、不动冻结基准。05 a999 fresh的限定步骤引用及04异常接线范围见[联合记录§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)；FE3b/前端验收及原基准性能仍独立，不因本后端退出记完成。
 
 ## 3. 路径预算（主要改动面）
 

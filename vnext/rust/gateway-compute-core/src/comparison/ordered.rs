@@ -503,7 +503,7 @@ pub fn compare_ordered_batches(
             return Err(OrderedCompareError::new("TABLE_LEVEL_SINGLE_SIDE_REQUIRED"));
         }
         let options = pair.options;
-        let option_strings = std::iter::once(options.table_name.as_str())
+        let mut option_strings = std::iter::once(options.table_name.as_str())
             .chain(std::iter::once(options.policy_version.as_str()))
             .chain(options.policy_digest.iter().map(String::as_str))
             .chain(options.value_columns.iter().map(String::as_str))

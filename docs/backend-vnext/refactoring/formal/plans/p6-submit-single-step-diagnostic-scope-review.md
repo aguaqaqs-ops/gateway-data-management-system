@@ -1834,3 +1834,11 @@ BatchMode echo OK 后，仅只读 CT05 已关闭的 `/home/dev/gdds-p6-logs/work
 两项失败均是 `test_claim_busy_and_empty_restore_original_gc_state_before_wait_without_collecting[True/False]` 的事件列表断言：当前只期待 CLAIM_BUSY。该用例在第二次 wait 设置 drain，原 `_observe_drain_intent` 发 DRAIN_STARTED，原 `_finish_clean_drain` 发 WORKER_EXITED；这两处生产语义未被本轮产品差异改变。因此完整有序预期应是 **CLAIM_BUSY、DRAIN_STARTED、WORKER_EXITED**，不是删掉产品正常退出事件或过滤掉实际多余事件。wait 顺序、claim 次数及 wait 内 GC 状态断言已走到；**失败行之后的 collect_calls==[] 和最终 GC 状态断言未执行，不能称旧运行已经证明这些尾部条件**。
 
 已直接交实施者保留失败包/日志，只补精确有序事件列表、其他断言不变，不改 runtime。该具体 test-only 修订 clean 提交后，按 §78/80/83 已有授权直接从 scheduler 模块开头重跑，通过后接续既定 SQLite focused/五包静态；不为已经审清的这一断言再等一次 Owner/设计/审核许可。若出现独立新问题，仍按同范围最小修订和受影响验证处理，不原样盲重跑。原 exit 1 不写成通过，不提升为权威 runner/业务诊断证据；没有镜像、真实 prepare 或正式测量 GO，正式测量 STOP。
+
+## 85. Backend mypy 四项测试类型错误：最小修订可直接验证
+
+BatchMode echo OK 后，只读核 CT05 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-20261107/backend-mypy.log`，完整 SHA256 **`52ba8e462afd36b261dec3948f5e27eb6e36190da80e141b0926bc22fdc50670`**。记录 2026-11-07 01:24:24–34Z、起止 `eee60c165e232c0f5100de4f9d900cbcd7f132ef`、离线 uv-consume --no-sync mypy、499 source files、四项 error、exit 1。三项 attr-defined 指 scheduler 测试通过 worker_runtime_module.gc 访问未显式导出的导入；一项 func-returns-value 指 waits.append(timeout) or False 使用返回 None 的 append。本审核未运行检查或继续节点步骤；不将该失败写为静态通过。
+
+独立读实施 worktree 实际 diff，只有 scheduler 测试：去掉 worker_runtime_module 导入，三处改 patch 标准 gc.collect；wait 改为具名函数先 append 再 return False。生产 runtime 中 gc 仍是同一个标准模块对象，mock 目标不变；等待函数返回与记录行为不变。**修订方式通过，无新产品 Finding；不添加显式 re-export/兼容别名或 type: ignore 来迁就测试。**
+
+已直接交实施者保留失败，提交此精确 test-only 修订后按既有授权完成受影响 scheduler focused、backend Ruff/mypy，再接续尚未运行的 repository_service 静态，不等新的 Owner/设计/审核许可。其他源码/输入未变且已有完整成功日志的包不因本类型修正重跑；若 SQLite 用例已有合格证据且生产/该用例未变，保留原来源，不重复业务矩阵。最终 clean 提交、各通过/失败日志及身份来源须完整交接，本节不预判这些结果。无镜像、真实 prepare 或正式测量 GO，正式测量 STOP。

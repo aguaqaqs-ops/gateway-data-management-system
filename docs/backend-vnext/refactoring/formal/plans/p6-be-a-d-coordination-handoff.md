@@ -18,7 +18,7 @@
 | --- | --- | --- | --- | --- |
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
-| V2 | **现启动**；实际clean main起点`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`；[工作单](p6-v2-work-order.md) | 新实施6.1-Sol/xhigh、新独审6.1-Sol/max，创建后记ID | 纯规则/audit/事务/统一处置/History；尚无V2证据 | 先精确清单，200候选/confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
+| V2 | **已启动**；实际clean main起点`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`；协调启动`d0add6bd16`；[工作单](p6-v2-work-order.md) | `/root/be_v2_impl`=6.1-Sol/xhigh；`/root/be_v2_review`=6.1-Sol/max，独立上下文 | 纯规则/audit/事务/统一处置/History；尚无V2证据 | 先精确清单，200候选/confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
 | D | 已授权，默认V2后；[准备工作单](p6-be-d-work-order.md) `06a849c48e` | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
 | 联合最终 | 准备已授权，产品未收敛 | 在既定角色内安排；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 退出前按DC33确认最终真实数据范围，不口头carried |
 

@@ -49,4 +49,6 @@ V1最终同角色独审为 **`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`**，F1�
 
 V2实际起点为clean main **`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`**，允许随后协调启动文档提交，不回退历史版本。新实施选择GPT-6.1-Sol/xhigh、独审GPT-6.1-Sol/max（图/审计、事务、统一终局事实与History多consumer相连），创建后ID记总交接。实施者先将本节精确fields/DDL/subject-fingerprint/version/DTO/OpenAPI/golden/owner清单落盘提交，再产品写入。不得因候选facts损坏降格为业务接受；Archive已定typed503沿本owner最小映射，不引入全局异常框架。
 
+实际已创建`/root/be_v2_impl`（GPT-6.1-Sol/xhigh）与`/root/be_v2_review`（GPT-6.1-Sol/max），独立上下文；启动协调提交`d0add6bd16`。两角色可直接普通修复闭环，未创建额外角色，未复用已结束V1角色。当前尚无V2测试/产品GO。
+
 06上节09:36:28Z释放只是历史，不是预约/实时空闲证明。测试/编译/lint全在专用节点，实际执行前06现场核空闲/原子标志、clean已提交独立WT/LAN bundle/legacy、离线依赖、日志host/起止HEAD/UTC/exit/SHA按AGENTS，保留前节WT/镜像/成功失败证据。先固定代码候选只读审，证据由同一审核者复核，普通修复双方直接闭环；核心冲突仅暂停依赖并给具体问题包。前端所需判断经Owner手动转发，真正阻塞时等其回复，无依赖工作继续。通过后结束两角色并自动进入D，不办理联合exit、不宣称FE3完成。

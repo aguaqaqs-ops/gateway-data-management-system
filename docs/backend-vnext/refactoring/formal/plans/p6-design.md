@@ -388,11 +388,13 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 镜像 | backend Dockerfile：新 adapter 的 maturin 构建、Rust 依赖；强制重建项 | S2a 起 |
 | Repository Service | 无 Contract 变化（零日期维持拒绝）；defunct 进程问题交 RS owner（可并入 kickoff 小修或 S1a，修复可能涉及 Dockerfile/Compose） | — |
 
-### 13.1 BE-a 前端对接补充（DC75）
+### 13.1 BE-a 前端对接与归档核验补充（DC75/DC89/DC90）
 
-owner 2026-11-04 同意在 S2a 合入后、FE3 前将工作区占用指针及本人撤回权限并入 BE-a；详细设计和验收见 [BE-a 设计补充](p6-be-a-design.md)，kickoff 审核已通过（`fcbfb4c1a0`），待 owner 确认实施。WorkspaceResponse 同快照投影 active_submit_attempt_id/active_submission_id；withdraw_own_submission 只开放 scope 内本人 review facts 与合法 WITHDRAW，review_submission 保持现有能力。工作区版本与审核版本分离，幂等回放每次重验当前授权；状态、占用释放和 Repository 语义保持。
+Owner 2026-11-04 同意Workspace占用指针及本人撤回权限并入BE-a；原kickoff审核`fcbfb4c1a0`只覆盖当时范围。2026-11-07 S2a/S2b已退出，Owner确认DC89/DC90联合补设计：[BE-a](p6-be-a-design.md)保留同快照指针、self-only权限和当前授权replay，新增同baseline的PENDING硬阻塞归档、过期baseline新APPROVE拒绝；[归档业务核验](p6-archive-business-validation-design.md)补源序最后有效生成时间/倒退及来源链与人工接受；[BE-d](p6-be-d-design.md)明确最终closure一对一tar。新增范围待独审，当前未启动产品实现，也不能向FE3报完成。
 
 本项不改变 §16 的性能矩阵或固定基准产品，不重做 S2a parser 差分；BE-a 自身门禁与真实数据范围按 kickoff。Owning Contract、P5-5C 和 HTTP 文档在实施提交同步目标条款，不把本页设计方向表述为已实现接口。
+
+Owner另确认归档核验异常不可接受时可“有理由关闭、不归档”：保留APPROVED历史并释放工作区，不恢复旧退回修改状态，不推进基线。具体终局处置、权限/回放及History消费见业务设计§10，随修订联合kickoff独审，不能仅凭原BE-a授权直接实施。
 
 ## 14. Contract 修订清单
 

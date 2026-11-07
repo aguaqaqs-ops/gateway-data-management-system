@@ -971,6 +971,24 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - **计数与分类**：以独立的正常 drain 诊断区分于故障和 Repository healthy wait，下一次 claim 保持当前 attempt_count，不增加也不重置；operator recovery session 授权语义须保留，不能靠清诊断取得额外自动恢复。重领后的真实失败、crash、失租仍按原 R5 额度和规则处理。不复用 `healthy_external_operation_wait` 冒称远端健康，不改变 `MAX_RECOVERY_SESSIONS` 或外部 effect 后的原 reconcile/冻结规则。
 - **验收与边界**：D 更新 owning lifecycle/recovery 文档，实施者实现、独立审核复核。定向验证 fresh lease/cancel/CAS 与失败回滚、原 checkpoint/保护不变、重领计数及 operator 分支，再做一条真实 worker drain→重领继续的集成验证。无新 schema/status、持久预约或并行租约状态机，不追加内部时序全排列；现有 180 秒 drain timeout、无自动强杀、节点/离线/最终容器门禁不变。此条不证明实现已经通过，不接管原基准，也不授权推送。
 
+### DC89 BE-a/BE-d 重启设计与归档待审核门禁
+
+- **来源与确认（Owner，2026-11-07）**：S2b功能退出后核查FE3依赖，BE-a只有旧kickoff审核、BE-d仍为草案，均未完成产品交付。Owner授权先联合补充设计；不把此前S2b B–E开工/角色授权延续为本轮全部实施授权。
+- **BE-a新增方向已确认**：同exact业务scope、当前baseline下有未关闭PENDING提交，阻塞归档；草稿不阻塞，active SubmitAttempt原规则保留。PENDING必须先通过、退回或撤回，不提供人工忽略按钮。新的APPROVE须在写事务检查当前baseline；过期拒绝，WITHDRAW/REJECT保留出口，合法成功幂等回放不按新动作重新判定。归档仍唯一选中、其余approved sibling按原确认关闭，不合并内容。
+- **BE-d成员规则已确认**：最终closure每entry按顺序对应一个普通tar文件；manifest.json、artifact-closure.json在前。共享由assembler在最终closure中表达，下载层不按source_ref/hash另去重，不用hardlink/symlink省掉路径；若两个合法entry有不同logical_path，则两者都发送。
+- **状态边界**：S2a/S2b前置已满足，不等原基准整体exit；旧BE-a审核`fcbfb4c1a0`仅覆盖原稿，新增范围需独审。原冻结测量线不接管、不改写、不重启；不推送、不重写引用提交、不启动S3。
+- **落点**：[BE-a §9](p6-be-a-design.md#9-待审核阻塞归档与基线前移2026-11-07dc89)、[BE-d设计](p6-be-d-design.md)、[联合kickoff](p6-be-a-d-kickoff.md)。本决议记录业务方向，不声明新接口或门禁已实现。
+
+### DC90 归档时间倒退与来源解释的业务补充
+
+- **来源与确认（Owner，2026-11-07）**：Owner指出旧实现有时间倒退、initial来源不明（可能漏上传）检查，核查确认当前vnext没有等价门禁，且缺口早于S2。Owner同意随BE-a/BE-d补充设计；不重做S1–S2b，也不把旧阶段证据当本能力通过。
+- **来源匹配已确认**：当前baseline X下A:X→Y、B:Y→Z合法，A:X→Y、B:X→Z同样合法；initial可以匹配已解释的initial或modified，不强制线性链。A/B共同未知initial Q仍需处理，不能相互匹配自证来源；共用根因列出受影响提交。范围限当前baseline及同baseline未关闭已通过提交；旧归档历史不自动放行。
+- **人工接受已确认**：时间倒退、来源不明、必要生成时间缺失允许archive_submission权限持有人逐项填写原因后接受，绑定具体输入和影响集合。原始异常不改成自然PASS；损坏、越权、事务/CAS冲突不豁免。复用现有Archive审计，不增加无消费者平台。
+- **时间口径已确认**：采用UTC；无时区按UTC，有offset归一UTC。从version_manager.saved_time取源序最后一个可解析值，不能替换为最大值。若最后有效值不是最大有效值，该差异自身作为数据问题诊断。原始顺序提取必须在Rust规范排序前完成，不能从排序后的存储猜最后值。
+- **闭环缺口及Owner后续确认**：新业务核验可能在APPROVED后阻塞，删除RETURN_FOR_REVISION后若操作者不接受异常将没有正常释放出口。Owner选择新增“有理由关闭、不归档”：保留APPROVED历史、关闭该提交并释放工作区以重提，不伪装成撤回，不推进基线。独立权限/审计/事务与History消费设计见业务设计§10；本条确认方向，具体接口与schema仍待独审。
+- **待审技术细化**：既有canonical内容身份的复用、源时间语法及质量诊断、Checkpoint/Preview/Attempt/Submission/基线的持久绑定、来源图与有界诊断、具体audit/HTTP形态及容量、统一终局处置事实与关闭的权限/回放；详见[归档业务核验设计](p6-archive-business-validation-design.md)。上述不是原产品现状；实现前同步owning Contract/版本/golden并独审。
+- **阶段边界**：设计先收口，新增能力独立列验收；已完成阶段与tag保持历史含义。后续若改Rust/元数据接口只按真实影响定向验证，不恢复被替代Python、不默认重跑全量基准。原测量版本和本轮新语义分别标识。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |

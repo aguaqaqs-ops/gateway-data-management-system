@@ -1,8 +1,8 @@
-# BE-a 设计补充：工作区占用指针与本人撤回（DC75）
+# BE-a 设计补充：工作区占用、本人撤回与归档审核收口
 
-状态：2026-11-04，owner 已同意方案及并入 BE-a；kickoff 审核已通过（报告提交 `fcbfb4c1a0`），待 owner 确认实施。本文不是当前已部署接口或实施结果。
+状态：2026-11-07 修订草案。DC75 原范围曾通过 kickoff 审核（`fcbfb4c1a0`）；Owner 本轮确认加入待审核阻塞归档及过期基线的新 APPROVE 拒绝（DC89，§9）。**旧审核不覆盖新增范围，修订设计待独审，未启动产品实施。** S2a/S2b 已退出；本文不是当前已部署接口或实施结果。
 
-引用基线：main `d0a8143d804e158e16b0712cc5f2aa007066f9cb`。以下源码事实及文档均指此提交；前端问题来源为 `55e6c0083c` 的 [FE2 kickoff Q16](../../../../frontend-vnext/fe2-kickoff.md) 与 [前端 kickoff §3.3](../../../../frontend-vnext/frontend-kickoff.md)。本轮不改产品代码、前端文件、审核报告及治理文件。
+原引用基线：main `d0a8143d804e158e16b0712cc5f2aa007066f9cb`；原前端问题来源为 `55e6c0083c` 的 [FE2 kickoff Q16](../../../../frontend-vnext/fe2-kickoff.md) 与 [前端 kickoff §3.3](../../../../frontend-vnext/frontend-kickoff.md)。本轮按 main `a8de5e5346d2421e1237d52e8ff3f5025dc84aea` 核对占用、审核及归档实际源码；§9 为新目标，旧条款与其冲突时按§9收口。本轮仅设计文档，不改产品、前端或既有审核报告。
 
 ## 1. 目标与范围
 
@@ -10,6 +10,7 @@ BE-a 在原有删除 RETURN_FOR_REVISION/RETURNED_FOR_REVISION、修正两创建
 
 - WorkspaceResponse 的当前占用指针，解决上传顶栏定位提交、刷新后找回 attempt；
 - `withdraw_own_submission` 权限，允许提交人撤回自己的待审核提交，并读取本人提交的 review facts；保留 `review_submission` 的现有跨 actor 审核能力。
+- 当前基线下有未审核提交时阻塞归档，新 APPROVE 不得基于过期基线；具体事务、回放与前端行为见§9。时间／来源链能力单列于[归档核验补充](p6-archive-business-validation-design.md)，不冒称本节已有实现。
 
 新增权限不是 upload_submit_workspace 的隐含权限，也不由“是提交人”自动授予。session claims 显式发放；示例配置与测试身份区分提交人、审核人和无权用户，不把所有用户都赋 review_submission 来通过测试。不新增角色系统、权限存储或认证机制。
 
@@ -45,9 +46,9 @@ RETURN_FOR_REVISION 现状也释放，但由原 BE-a 删除，不进入目标状
 
 | 身份权限 | GET review | POST WITHDRAW | POST APPROVE/REJECT |
 | --- | --- | --- | --- |
-| review_submission | 现有 scope 内全部提交 | 现有 scope 内，按状态/版本等约束 | 保持现有规则 |
+| review_submission | 现有 scope 内全部提交 | 现有 scope 内，按状态/版本等约束 | 保持原权限，APPROVE另加§9当前基线门禁 |
 | 仅 withdraw_own_submission | scope 内本人提交，所有审核状态 | 仅本人 PENDING、未关闭且精确占用匹配 | 403 |
-| 二者都有 | 按 reviewer 能力 | 按 reviewer 能力，无额外本人限制 | 保持现有规则 |
+| 二者都有 | 按 reviewer 能力 | 按 reviewer 能力，无额外本人限制 | 同上 |
 | 二者均无（即使有上传权限） | 403 | 403 | 403 |
 
 GET 返回既有 ReviewFactsResponse（包含状态、版本、事件及身份确认），只对本人提交开放；终态/归档后的本人 review facts 仍可读，不依赖当前占用存在。该权限不授予项目 History、他人 Workspace/Preview、bundle 或 artifact 读取权。
@@ -80,7 +81,7 @@ GET 返回既有 ReviewFactsResponse（包含状态、版本、事件及身份�
 | 落点 | 内容 |
 | --- | --- |
 | P5-5C review design §3、§4.3、§5、HTTP 权限/错误说明与测试矩阵 | 两权限、本人读取、scope/404、幂等回放；删除旧 return 状态/动作；目标授权逻辑按本文 |
-| Business Lifecycle and State §4、Workspace HTTP 设计/响应说明 | 目标 review 状态、指针投影和生命周期；归档释放时点与现有 StartArchive 事务一致，不改变归档算法 |
+| Business Lifecycle and State §4–§5、Workspace HTTP、P5-5D | 目标 review 状态、指针投影和生命周期；按§9增加归档受理门禁，释放时点与现有StartArchive事务一致，不改变唯一选中、sibling处置及Head原子提交 |
 | application/submission/review.py、review_transaction.py 及公共端口/导出 | 共享授权规则、最小对象绑定读取与完整 facts 的先后顺序；命令和查询都覆盖 |
 | application/workspace、control DB 查询/UoW、HTTP mapper/schema/routes | 同快照 WorkspaceResponse；新建与已存在路径均覆盖；不只改 DTO |
 | session 示例配置、HTTP/Compose 测试身份 | 明确独立本人权限与 reviewer 权限，不修改外部实际账号/凭据 |
@@ -105,7 +106,7 @@ HTTP 请求体不新增 caller identity；生成 OpenAPI 中两个指针为 requ
 
 测试以业务行为命名，不枚举内部执行步骤；同构输入使用参数表。不能仅测试 reviewer 同时有全部权限的身份来宣称本人撤回通过。
 
-05：focused（含 RS unit 删除引用回归）、五包 ruff/mypy、门禁前预检；代码通过后 04 权威 runner 与当前候选的容器门禁。真实数据拟沿用原 BE-a 的 05 t1 完整旅程；新增授权矩阵由合成测试与真实服务 Compose 旅程承担，不为本人撤回另跑 t4/2× t4。最终范围随 kickoff 审核确认，退出前 owner 按 DC33 确认。
+06/05：按实际改动focused（含RS过时状态引用的定向回归）、五包ruff/mypy、门禁前预检；代码通过后04运行受影响包权威runner与当前候选容器门禁，未受影响包仅按合格闭包规则沿用。真实数据建议05 fresh t1一次；新增权限和归档竞争由合成HTTP/Compose承担，不为每轮修改另跑t4/2×t4。与BE-d/业务核验共用最终候选时合并一次取证。最终范围随修订kickoff审核确认，退出前Owner按DC33确认。
 
 P6 基准仍测固定 p6-s1c-exit，不因本项重新测量；不重做 S2a parser 差分或计算类 golden。BE-a 本身删除 DB 状态属于既定 schema 变化，仍用新基线 DB，不能把旧旅程 DB 直接续到新候选。任何实际影响计时路径或业务 digest 的额外改动先停下交设计/owner。
 
@@ -113,11 +114,52 @@ P6 基准仍测固定 p6-s1c-exit，不因本项重新测量；不重做 S2a par
 
 - owner 2026-11-04：同意上述方向，要求补充订正并给出各方提示词。
 - kickoff 详细设计/验收审核：[报告](p6-be-a-kickoff-review.md)（提交 `fcbfb4c1a0`，审核候选 `f20f08bea919`），通过、无阻塞项；§3 非阻塞测试归属建议已在本文 §6 采纳。本记录仅引用审核结论，不评价实施结果。
-- 审核后 owner 实施确认、S2a exit 合入提交：待记录；当前不授权提前执行。
-- 顺序：后端审核会话审核 → owner 确认 → S2a 合入后实施 BE-a；前端设计可现在更新缺口登记，FE3 刷新快照并接回入口。BE-d 范围不变。
+- S2a前置已满足：`p6-s2a-exit`→`53b676a6298d408ccda3a85ee73c7ea223a2311a`；S2b亦已退出。Owner本轮授权修订设计，完整修订稿独审与实施kickoff仍待完成，不把S2b角色或开工授权自动延续到这里。
+- 顺序：联合设计收口→修订独审→明确小节/验收/角色后实施。FE3随后按真实后端OpenAPI接回入口；BE-d规则见其新设计。当前不因等待旧基准退出而阻塞本设计。
 
 ## 8. 本次文档检查
+
+本节下方为2026-11-04原设计的历史静态检查，不覆盖2026-11-07新增产品行为。当前修订仅文档；新的审核与产品证据另记，不能沿用原报告宣称新增门禁通过。
 
 仅修改设计/计划文档，不触发镜像重建，不宣称新权限已通过产品测试。提交前在 05 clean checkout `55e6c0083c6e3a05dc97dad86974afd645d89a8e`（与引用基线相同 vnext tree：`2791d3ff3dd62ff454d7e9cac43885d39da8bf96`）运行五包 ruff/mypy，使用已有缓存、受控 uv wrapper、UV_OFFLINE=1、CARGO_NET_OFFLINE=true、no-sync；2026-11-04T02:46:25Z–02:46:26Z，exit 0。日志为 05 `/home/dev/gdds-test-tmp/p6-be-a-design-static-20261104T024625Z.log`，SHA256 `9278890e81be494ddbc2dfad448151101dcb00d34ce14ca81e34c2e6d50ba9a3`。节点占用已释放；不是阶段取证或 carried 判定。
 
 2026-11-04 审核后订正仅改变测试归属说明与审核记录；`vnext/` tree 仍为上述值，沿用本节已通过的同源码静态检查，不重复运行产品检查，不作为新权限的验收证据。
+
+## 9. 待审核阻塞归档与基线前移（2026-11-07，DC89）
+
+### 9.1 业务规则
+
+同一个固定 device/project/Repository scope、基于当前 baseline node/commit 的未关闭 `PENDING` Submission 任一存在，禁止新 StartArchive。范围覆盖同 scope 的所有 actor；新建Workspace、仅上传或仅Preview的草稿不算正式待审核内容。active SubmitAttempt原门禁继续生效，包括结果未知或需人工恢复的未终局Attempt；不得因为没有PENDING就绕过它。
+
+归档预览列出有权限读取的待审核提交ID/计数，并显示 `ARCHIVE_PENDING_REVIEW`；Start仍须在自身写事务重查。无“确认后忽略”的入口。待审核项先APPROVE（进入候选）或REJECT/WITHDRAW（释放占用）后再归档；不能自动退回、自动通过或自动关闭其他人的PENDING。
+
+所有已通过的当前候选仍参与原选择与排除规则：选一个成为新baseline，其余经逐项排除确认后CLOSED_NOT_ARCHIVED，原子释放各Workspace；不合并内容。上传者的self-only权限不因此获得归档列表或他人review权限。
+
+### 9.2 新APPROVE与回放顺序
+
+新增APPROVE在同一fresh control DB写事务内，校验Submission冻结baseline node/commit与当前Head匹配；不匹配以明确409基线冲突拒绝，无事件、projection或占用修改。REJECT/WITHDRAW不要求baseline仍当前，保留旧PENDING的正常退出途径。
+
+原成功幂等请求在每次重新验证当前鉴权、scope及本人资格后按原记录回放，早于新动作的状态／当前baseline／占用检查。不能因随后发生归档而拒绝旧成功APPROVE或WITHDRAW的合法回放，也不能利用回放再次执行状态变更。Review expected version继续是review version，不改为Workspace version。
+
+### 9.3 并发与一致性
+
+| 竞争 | 必须成立的结果 |
+| --- | --- |
+| 有PENDING时先Start | 硬阻塞，Head/Plan/Result/Workspace均不变 |
+| APPROVE先提交，再用旧预览Start | candidate-set变化，旧请求拒绝；刷新完整集合和确认后可开始 |
+| Start已成功，再发旧baseline新APPROVE | 明确拒绝；若该项已归档关闭，可按既有ARCHIVE_CLOSED先拒绝，不伪造新审核结果 |
+| Submit受理先完成 | active Attempt阻塞Start；finalize将其原子切为Submission/PENDING占用，不能产生可见检查空隙 |
+| Start先完成，再受理旧Preview Submit | 既有baseline绑定检查拒绝；旧Preview不能把新Head回滚 |
+| 最后一项REJECT/WITHDRAW与Start竞争 | 前者先完成则可重新计算候选；后者先执行则见PENDING并拒绝，不能预先释放未成功审核的占用 |
+
+复用同一个control DB写事务和既有CAS，不建立独立锁服务／持久pending计数。读模型从一致快照派生，有界查询；不能只查调用人的Workspace或在路由做事务外检查。
+
+### 9.4 文档、前端与验证
+
+目标修订Business Lifecycle、P5-5C/5D审核和归档受理条款、HTTP错误/OpenAPI；原P5“旧baseline APPROVED可RETURN”的说明随BE-a删除，不能继续引用。现有status enum无需新增“过期”或“等待归档审核”状态。
+
+前端归档页显示待审核阻塞与可执行的审核／本人撤回路径；原“APPROVED且基线前移需要管理员处理”的暂定行退出正常流程。UI禁用仅作提示，后端直接HTTP请求仍强制门禁。前端owner据后端正式接口更新FE3文案/场景，后端不直接编辑其源码。
+
+验证归属：`test_archive_queries.py`候选与pending读取，`test_archive_transactions.py`拒绝无副作用，`test_archive_concurrency.py`实际事务竞争；`test_review_http.py`过期APPROVE错误、当前权限下历史回放及self-only边界。复用既有owner参数表；一条真实wiring旅程证明两人的PENDING阻塞→处置→归档释放，不在Compose重复全部状态矩阵。
+
+时间/来源核验按[业务链路设计](p6-archive-business-validation-design.md)另节实施，不由这里的pending gate冒充覆盖。Owner另确认该设计§10的“有理由关闭、不归档”出口：保留APPROVED而释放占用，不恢复旧RETURN、不扩展self-only撤回权限；具体关闭权限、统一处置schema、History/Review DTO在V2收口。本节通过也不表示全部归档业务核验完成。

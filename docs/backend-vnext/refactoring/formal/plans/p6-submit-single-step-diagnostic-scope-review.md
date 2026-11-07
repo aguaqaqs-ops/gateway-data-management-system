@@ -2906,3 +2906,13 @@ chain实际subprocess命令现为p6_dc63_diagnostic_journey.py，向其传projec
 BatchMode确认05连接后，独立直接读并LAN保存已关闭 `ct05-image-guard-validation-8783cf69.log`，SHA **`7fbab55170637851b62ea5f5eb28cf11b69f140cec7b65f5fa351be2dc364ad0`** 与两端重算相等，副本位于CT201 `p6-baseline-evidence-review-20261107/dc63-image-guard-8783cf69/`。日志22:19:42–43Z、gw-dms-test-05、完整8783起止clean，Ruff0、两个文件9 passed/0.63s、pytest0。实施者另报第一轮重复--no-build断言失败已留证；该原件本轮未独立读取，不将其摘要冒称已核。当前交件没有mypy，已要求最终窄修完成backend必要静态，不重复未改四包/已过业务。
 
 最终controller还须随实际候选更新HEAD、补新required --approved-images及NO_PROXY/no_proxy unset；原11958输入manifest、冻结镜像、未使用project、77400/78620/79200预算和Owner持续授权保持。无测量、容器或POST启动，无身份消耗；此普通接线修正由唯一实施者直接闭环，不增Owner/设计GO，也不阻独立新H镜像/04权威门禁及正式记录准备。
+
+## 132. 6ffb运行HEAD修正代码及focused通过，mypy四项普通类型修订待闭合
+
+**`6ffb3ccc8d1b761b3dda503a50057990700b3a6f` 的HEAD修正代码复核PASS，§131旧HEAD阻塞关闭；当前候选静态仍未全部通过。** 增量仅专用journey及对应测试，未改共享harness/Compose/预算或产品。独立读完整diff、diff-check、实际Git祖先关系和Compose SHA，另建立只读detached `/home/dev/gdds-p6-review-dc63-6ffb3ccc`；bbe是该候选实际祖先，Compose仍a7d04f92。现在实际HEAD与launcher的40位expected_head精确比较，clean独立检查，bbe只作reviewed_base_head及祖先核验，不要求新提交等于旧基点。新增参数用例实际调用_assert_fixed_context，仅替换外部Git/identity/resource读取，覆盖相等通过及不等在后续检查前拒绝。
+
+BatchMode确认05连接后已直接读闭合 `ct05-image-guard-validation-6ffb3ccc.log`，SHA **`5ac6ede3c7f311d03ebfd6cf7b2124f8019aaf4b5a918cbef85cec618361206b`**；22:24:27–29Z、gw-dms-test-05、准确6ffb起止clean，Ruff0、两测试文件 **11 passed/0.64s、pytest0**。mypy检查504文件，四项报错、exit1：专用journey及测试引用real_dump_journey未显式re-export的run_compose，测试JSON字典推断为Collection[str]不可indexed赋值，以及测试经diagnostic访问未显式re-export的subprocess。不能将本日志表为静态全绿；已直交实施者仅修局部类型/实际模块patch表达，保持真实接线及断言，不加ignore、不改共享harness、不等新授权。修后当前候选必要静态/受影响focused待交，不重跑业务或未改包。
+
+§131尚未核原件的首轮失败现也直接读取：`ct05-image-guard-validation.log` SHA **`67e0ba757db477b89323b1f9d134c96a434c6ff92e7577a74aca71a8b892f783`**，22:17:42–43Z、cleana20e3bca，真实start路径保留原--no-build后又前置一个，导致1 failed/8 passed；8783用规范化去重复而非删断言修复。上述两份closed日志已LAN存§131审核目录，两端重算SHA精确相等，原失败均保留。查询日志目录时05无rg已改用ls，纯只读目录查询未触被测对象，不算测试/测量失败或重试。
+
+无DC63旅程、容器或POST启动、预算/身份未消耗；运行HEAD修正没有增加Owner/设计/审核GO条件。最终controller/实际环境的required approved-images、准确候选HEAD和八项proxy unset继续在同一集中包核查。独立04新H门禁、标准记录/比较器收口仍按原授权推进，本节不宣称整体exit。

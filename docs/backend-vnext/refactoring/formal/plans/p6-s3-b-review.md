@@ -27,6 +27,11 @@ a4ff 时仍待核以下具体边界；其后静态关闭状态见 §2.1，不把
 
 其它独立根因也见到最小修订：normal/degraded 均走 `StandardRecordRef`，`OrderedKernelResult.facts_metadata` 明示只有小 metadata，完整 facts 仍需 C 从未裁剪 locator/Arrow 值重放；流式 ordered JCS 数字加入 I-JSON safe integer guard；`columns_added` 的 ordered `content_changed` 改用共有全行投影 multiset；编码依赖的 `sql_type`/`declared_type` 参数、kind 与物理类型冲突改为失败。上述均属**静态可见，未有 06 运行证据**。未变化 ordered 的少量摘要字符串输出计费由 C/D 小 facts owner 继续核，现无理由为此另建 allocator registry 或扩大 B 验证范围。
 
+ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交实施者按固定 Python 行为作最小修订并纳入差分：
+
+- `CanonicalPseudoGid` 下非法非空 gid（如 `-1`）在 Rust `read_side` 落入 `SOURCE_GID_INVALID`，固定 Python `_parse_stable` 对该 provenance 给 `CANONICAL_GID_INVALID`；退化诊断参与 facts 摘要。
+- 合法 S2b string/Utf8 字段若被 ordered policy 用作 `gid`/`no`，固定 Python `_integer` 对非空 `StringScalar("1")` 给 `ORDERED_INTEGER_INVALID`，Rust `read_integer` 却解析为整数继续比较。空串在两边均按 missing。若保留旧原型测试宽容行为，新生产入口仍须保持冻结诊断。
+
 ## 3. 06 执行稿的 DC68 停止复核
 
 本人先用 `ssh -o BatchMode=yes ct107-gw-dms-06 'echo OK'` 确认连接，再只读核 `/home/dev/gdds-test-tmp/p6-s3-b-test-b91767f5d794/logs/` 原件。`pre-run-command-errors.log` 现场 SHA256 为 `60e8fc6c95ef2d677cb70babc7a6e64e4545d5c917a358071b99b39dbc21d3b0`，记录第一次可选只读检查因节点无 `rg` 返回 127；第二次改用 `grep` 时 shell 引用错误，把 `WT`/`LOG`/`EXPECTED`/`run_step` 当命令并产生引号 EOF，再返 127。此汇总日志保存了两次错误的 stderr/exit 与作用范围，但没有独立逐字的两次原始 argv，不能据此复原完整命令行。

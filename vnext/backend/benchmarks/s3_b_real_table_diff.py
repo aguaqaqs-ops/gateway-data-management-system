@@ -17,11 +17,15 @@ from pathlib import Path
 from typing import Any
 
 from gateway_backend.artifacts.store import InMemoryArtifactStore
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.capabilities.comparison import (
     ComparisonPlan, ComparisonRequest, ComparisonTableFact, plan_comparison,
 )
 from gateway_backend.capabilities.comparison import standard as frozen_standard
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
 from gateway_backend.capabilities.table_rules import (
     comparison_rule_set, migrated_table_ruleset_snapshot,
 )
@@ -44,6 +48,8 @@ _PACKAGES = {
 }
 _STEMS = {"t1": "rd-t1-a", "t2": "rd-t2-b", "t3": "rd-t3-c", "t4": "rd-t4-d"}
 _ROW_KINDS = {"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED", "TABLE_DEGRADED"}
+_KERNEL_THREADS = 1
+_KERNEL_MEMORY_BUDGET_BYTES = 24 * 1024**3
 
 
 def _validated_packages(root: Path) -> dict[str, bytes]:
@@ -262,7 +268,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(run(args.root.resolve()), sort_keys=True))
+    initialize_compute_kernel(_KERNEL_THREADS)
+    with kernel_execution_scope(
+        KernelExecutionContext(
+            OperationMemoryBudget(_KERNEL_MEMORY_BUDGET_BYTES),
+            NeverCancel(),
+            _KERNEL_THREADS,
+        ),
+        new_operation=True,
+    ):
+        print(json.dumps(run(args.root.resolve()), sort_keys=True))
     return 0
 
 

@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS旧身份原件缺口保留（§12），Owner已批准方案A，当前同49403执行最小补验（§13）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；联合当前态以§13为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS旧身份原件缺口保留（§12），Owner批准方案A后，同49403四包实际比较沿用＋两包最小权威补验0，当前身份原件及LAN索引收口、04已释放（§13）；最终阶段手续仍由协调/Owner确认；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；06本地结果见§8；联合当前态以§13为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -50,7 +50,7 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 | OpenAPI 唯一媒体及 headers/错误声明 | `tests/test_http_openapi.py` |
 | 实际 FULL multipart 输入、双 pair default consumer、tar 全成员/各物理与逻辑摘要、GET完整时间/bytes只报告 | `tests/test_real_dump_journey.py` |
 | 当前06容器下载smoke、production OpenAPI/provenance | `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`（0ba实际通过一次） |
-| History容器两/三节点完整tar | `tests/test_history_compose_e2e.py`（04最终权威runner待跑；06已有上述真实HTTP/job owner，不重复长旅程） |
+| History容器两/三节点完整tar | `tests/test_history_compose_e2e.py`（04最终权威runner已实际覆盖；06已有上述真实HTTP/job owner，不重复长旅程） |
 
 Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整 tar/顺序/头/错误/生命周期/上界），必要真实 port 条款写入该 owning Contract。没有新的业务 golden；原业务 manifest/digest/golden 应原字节保留。共享前端向量由生产 encoder 在06 clean候选生成到 WT 外：同一 tar 包含 ASCII长路径、中文、非BMP，并交原 metadata、各文件/整包 length/SHA、命令/候选/节点；不是新协议 golden。不得改 frontend 或前端文档。
 
@@ -330,7 +330,7 @@ env -u GATEWAY_COMPOSE_GATE_PREBUILT \
 
 三原文件为 `tests/test_archive_audit.py`、`tests/test_artifact_staging_conformance.py`、`tests/test_operation_checkpoint_contracts.py`，受控uv `run --no-sync pytest -q`，两marker分别 `(not serial) or parallel_safe` / `serial and not parallel_safe`。唯一当前容器复现为 `tests/test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables`，受控uv `-q -s -n0 -m 'serial and not parallel_safe'`，d054 preload1/networknone/prebuiltunset；正常build当前backend/worker，RS复用本次自身a999 tag但核未变a687/13cb source identity，不称新RS revision。该FULL→Archive路径实际接受双side同code后继续删除表Submit，新增双subject分支由此及原audit owner证明，不把它写成自然05覆盖。
 
-05既有a999成功步骤的引用待同一独审正式限定：旧成功resolution请求必有原四字段首项digest等command.digest；新实现仅在同集合内按digest查找，仍选该旧首项，其后sequence/冻结payload/事务同路。其余17步产品/consumer/事实代码没有改动。这是对**原a999实跑**的未影响代码推理，不能改称49403 fresh实跑，也不声称05自然数据覆盖F6新增分支。
+05既有a999成功步骤的有限引用已由同一独审 `9c0e098bbe` §20接受：旧成功resolution请求必有原四字段首项digest等command.digest；新实现仅在同集合内按digest查找，仍选该旧首项，其后sequence/冻结payload/事务同路。其余17步产品/consumer/事实代码没有改动。这是对**原a999实跑**的未影响代码推理，不能改称49403 fresh实跑，也不声称05自然数据覆盖F6新增分支。
 
 六项收敛后按原授权，不等待重复开工，**13:06:41Z同49403启动最终六包 `run-authority-six-final-DTWWhQP4`**。完整env沿§9，RS tag仍本次自身a999源未变，TEST_WORKERS48/Cargo4/offline、basetemp unset与prebuilt unset；同一固定WT/source不因main后续纯docs推进而切换。本段记录启动时尚未结束的状态；后续原exit0及RS身份缺口停点见§12。未作最终GO，不重复同runner Compose；05不重启，04最终清理/释放/绑定按后续Owner选择处理。
 
@@ -382,4 +382,54 @@ Owner新turn明确“同意继续最小补验”，协调授权记录 `e5157db91
 
 `run-four-package-compare-5zuLDhdL` 14:12:32–36Z/0，log SHA `0401fdd84a9cc6e50ec2eea34f3c876200e03eae397b9357c894a391881eece2`。rust/shared_kernel/repository_contracts/repository_client在原04同WT/原完整profile、原逐包Hypothesis绝对路径且不存在的条件下实际compare §12 DTW原0起始manifest，四项status均“可沿用”且changed_components为空；原bytes/current manifests和比较JSON保存在恢复目录 `four-package-closure/`。解析后的 `resume-scope.json` SHA `f2027b0e71b56cb0ea3bfb5126356d0e8fa9c353f118d993692aab35f50b6798` 确定实际需运行 **backend,repository_service**，未预判或人工排除其它差异包；四包直接引用原49403 DTW实际通过来源，不链式引用比较结果。
 
-**14:14:04Z实际启动** `run-authority-resume-mvzi5dNV`，完整路径位于上述04 artifact root。外层完整六包profile保持原环境，已审wrapper根据实际比较结果把runner包集设为backend,repository_service，原log明确打印 `actual_runner_packages=backend,repository_service`。pytest48/Cargo4、UV/Cargo offline、d054 preload1/networknone、原custom RS tag、client base、prebuilt/basetemp unset不变；RS输入现为130674/candidate49403，无手工retag或重建旧镜像。runner按原规则强制重装Rust扩展，e6ac expected输入实际核对。当前backend并行3387passed/0（199.36s），原serial仍运行；**整次尚无退出结果，不宣称当前补验通过**。后续只在整次原0、end exact clean/owner与RS输入不变成立后，按该新guard实际区间复制新production OpenAPI/provenance，再以该阶段snapshot的immutable ID采三runtime原config/全部DiffID，保持新唯一目录与awareUTC。实际结果及清理释放将追加，不复用旧q57/旧时间或05证据冒充当前镜像。
+**14:14:04Z实际启动** `run-authority-resume-mvzi5dNV`，完整路径位于上述04 artifact root。外层完整六包profile保持原环境，已审wrapper根据实际比较结果把runner包集设为backend,repository_service，原log明确打印 `actual_runner_packages=backend,repository_service`。pytest48/Cargo4、UV/Cargo offline、d054 preload1/networknone、原custom RS tag、client base、prebuilt/basetemp unset不变；RS输入现为130674/candidate49403，无手工retag或重建旧镜像。runner按原规则强制重装Rust扩展，e6ac expected输入实际核对。本段为启动时记录；整次实际原0、新区间原件/immutable身份及清理释放结果见§13.1–13.3，不复用旧q57/旧时间或05证据冒充当前镜像。
+
+
+### 13.1 两包本次权威原0与最终逐包来源
+
+`run-authority-resume-mvzi5dNV` **14:14:04–14:40:10Z完整结束，original_runner_exit=command_exit=final_exit=0**，end exact49403/clean/owner true；原run.log SHA `0d0c69ad1cc24648a6f9abc9c0e66a4b98a66f7a3a96443d16ae2e2af3d62a5e`，command.txt SHA `ac62cdb623a6e7762d8ab9b48a54b5035e705c9a2c2f6e4e11a06a207d463521`。backend parallel3387/199.36s、serial60/656.76s；RS parallel1744＋1skip/46.12s、serial207/578.92s，全部批次status0。唯一skip沿§12同case/源码条件与本次env定位，原-q仅计数，不算passed，也不额外改flag补跑。
+
+wrapper原退出后实际RS tag ID仍130674，`rs_input_unchanged=true`；`run-rs-input-after-azHdmuHD` 14:40:50Z/0再次核candidate49403/a687/source13cb/lock6dc，log SHA `17c8c16cff5d8dc5d539519438ad4931ecef921e021d89c9d111867f98ea07f1`。输入未在本轮移动，没有重建旧RS或手工retag。
+
+本次两包起始manifest原字节在mvzi同目录 `original-starting-manifests/`；`starting-manifests-index.json` SHA `af6c82ad8452ca98e37b07ea783633f9e3212e2692ce94cfb593e4b9d1c7ea31`。backend源offset2983/length133950/SHA `f870506b19f822704646c836125e612b9234f3938757f1dde156abddc5a06a2c`；RS源offset137072/length132232/SHA `b714373450374a3e499c014759034c643678fe9e789c513c95169cde91e926aa`，均从原stdout按字节范围复制，不重序列化或改原四SHA。保存run `run-preserve-resumed-manifests-k3DfsWFD` 14:42:16Z/0，log SHA `8409229269af845670c8053b49a7d0bfea818017258c051277ced41012f63187`。
+
+以下六包都绑定**同source49403**，但属于两个不同原run/environment，不能写成本轮又六包实跑。四基础包直接引用原DTW完整exit0（log SHA35f15e…，§12完整值），本次同WT实际比较的total_digest相同/changed_components为空；backend/RS引用本次mvzi完整exit0（上列0d0c69…），不用先前失败整次的任何包作来源。
+
+| 包 | 运行/沿用 | 直接实际来源run / passed数 | total_digest |
+| --- | --- | --- | --- |
+| rust | 沿用（本次实际compare无差异） | DTWWhQP4 / 180 | `ef22a73afe84030fe86118e308c0b558fc76781ce386c6477730439d6ae27fae` |
+| shared_kernel | 沿用（本次实际compare无差异） | DTWWhQP4 / 243 | `ca4de641b0aab156103deaf164daa652ac0536e78281b17166ea19ff564992e1` |
+| repository_contracts | 沿用（本次实际compare无差异） | DTWWhQP4 / 152 | `e6c158219cca2c7856ffddaa260222c7f1bfaa8f689869b0316d20a6be89eddc` |
+| repository_client | 沿用（本次实际compare无差异） | DTWWhQP4 / 161 | `88bece58f8efc862c32a532809d2db1a4a2831a24f38d6e40564aed1531b1e82` |
+| backend | 本次实跑/原0 | mvzi5dNV / 3387＋60 | `b03ddcd151fe3071c708c83dbabec3b4f9b473013078027b797e60a564e02cc5` |
+| repository_service | 本次实跑/原0 | mvzi5dNV / 1744＋207；另1 skip | `a5ee1cb2c42cb1c803a022c6391aad125ea796db10a5ee36d7e852ae21381161` |
+
+### 13.2 新区间原件、当前runtime身份与既有base/client来源
+
+`run-new-provenance-copy-DCXM2Abk` 14:40:56Z/0，log SHA `f0e61c9966e2b0232d111e86130355749ca802bf9e3d0dd3307ea32c46e210bb`。新copy `resume-a-5OBTboKj/new-authority-compose-53h3ekqp` 的 `original-sources.json` SHA `8230879138e66f159d7d2af0e1db3d4373244e0f2b90cca5d48d0fd80cd041f6`，读取本次mvzi实际14:14:04–14:40:10 awareUTC区间和末0，原源mtime epoch落闭区间；不是旧q57或旧时间替换。provenance原bytes SHA `18143d7ddf7ae820cd0f6e25bb6cc50fde7681bf7142f5ec8246f831691742a6`（mtime14:28:34.032202UTC），新Submit project为 `gateway-submit-s8-848756-test_compose_accept_upload_imp0`。实际production OpenAPI源 `pytest-171/test_compose_accept_upload_imp0/production-openapi.json`（mtime14:28:33.760682UTC），原bytes SHA仍 `977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`；resolve去重只移除pytest-current别名，不改原源。
+
+`run-resumed-image-identities-Rv4rWQDT` 14:41:15–25Z/0，log SHA `e04307848b3c5c667bdc59673c080deedbd4be330a8ab63e5d74dafbfb3906c4`，按**新snapshot记录的三个immutable image IDs** inspect/save，而非终态tag替换。`resume-a-5OBTboKj/image-identities-after-authority-c4aqda9v/image-identities.json` SHA `94a6bad1c17d8c0d633bcd52dfedfa7418eb3ff4fe6fca160e58f560fe4a74de`，三套原inspect/save-manifest/config字节与全部54项DiffID齐，原文件SHA256SUMS逐项核符：
+
+| 新snapshot runtime | 原config digest | 全部RootFS DiffID数 |
+| --- | --- | --- |
+| backend | `sha256:0ff00d56d7086e5e0cfbc77aa125b429c20fec59b2b20097cee68970b8cde1da` | 13 |
+| repository-service | `sha256:13776cfb1d842f66ffb46b6d382ab9bdd57a5e4a85a82251a7bda25622ab9432` | 28 |
+| worker | `sha256:900b53e3cec31bb6bbdc9abb1dfef8e603c740cec9d08be9927af5032de6135f` | 13 |
+
+`run-runtime-config-bridge-Tgifq1Kk` 14:41:56Z/0，log SHA `c37e6557b8f3500a75b8dcfdb2248553c2d540c610b8de82ab02bb8d4e7f9d82` 明确核RS130674的当前原config digest/全部28DiffID/labels与运行前原件精确一致；同一独审另核原config bytes逐字节相同。旧15e3原config仍缺失，本次合法新绑定不冒称补回旧原件。
+
+base身份来源沿本轮先前实际预核：04 `base-identities-e2nfolpk/base-identities.json` SHA `dee4c57577d2527aa18a56e43f87a4b8d5ac8bf440df381d6e45705d3c46b86e` 有backend d054、RS6dc、Rust、Python及client base五项config/全部DiffID；05 `base-identities-y_o5a51u/base-identities.json` SHA `b5343a80611bc0635e026c0a5ee78041ed01f16c7a3affff9043605a33015ccf` 有前四项。两node这些原config/全部DiffID相同（19/16/5/4），04 client base另9项。它们是先前实际base报告，不能写成本轮新采五base，也不把05未采client项写成已采。依赖来源仍§10 LAN既有预填，无新公网/代理/依赖变更。
+
+RS client e2e当前来源单列：`run-client-image-observation-MBOP8YRf` 14:42:22Z/0，log SHA `4b4b66322b5d600b53c2e22ff5c38cdbaf11112af42a88ff08d34264d86eceb9`；`resume-a-5OBTboKj/client-image-observation-mzguap8b/client-image-observation.json` SHA `5b2ad3492aacf48bf0bad26e3d7977fe48bc57b00e2b84886fbfa95f8c3ccc3f` 保存原docker inspect，实际revision49403/lock6e9cf6…等当前源码。来源为既有ensure_client_image按candidate/lock匹配及当前 `repository_client/tests/Dockerfile`、原client dependency base；不是宣称本次新build。`raw_config_exported=false`，不冒称另采client原config或额外running-container观测。
+
+### 13.3 索引、LAN副本、04清理释放与待办
+
+恢复phase索引 `resume-a-5OBTboKj/evidence-index-tqonz2wu/index.json` SHA `17d7a6a7de827089d146748d1ca6fbb701ff50b58c599adc91a6a1c00808671d`，生成时31个完整guard四SHA均核符，220个原文件列相对path/size/SHA，另列六包direct source/total_digest/实际比较。它明确排除自身生成run和未来cleanup-release，不自称覆盖未来文件；生成run `run-resumed-evidence-index-CymzA1MS` 14:42:31Z/0，log SHA `1cf548b2aae9dd82b66e4de3d836364e9d70f581148736dd8bedaa05a43d0bf3`。
+
+完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/` 含04完整artifact root与原claim-y7TTADuv；phase index原SHA及220个原文件size/SHA逐项相等，失败collector/缺blob诊断/两个authority来源/原manifest及新immutable原件均保留。原06丢失字节不会在该副本中凭空恢复，不能扩大成历史全证据完整。
+
+`run-resumed-cleanup-check-ZeyXcR2u` **14:43:41Z/0**，log SHA `096d6b168ff981ab761235431b50588e41731ed092afd0bedc473c514ef4a5d0`，end exact49403/clean/owner true；新旧指定Submit项目容器/卷/网络均空、全机运行容器/8000/Dolt/pytest/Cargo/rustc/clippy为空、逐包runner Hypothesis和cargo target均不存在，只有assert、未清他人资源。原finally已清本次测试栈。独审已核上述原件/LAN及cleanup，无新增阻塞。
+
+**14:44:32–33Z cmp本人marker后释放04**；`release-0zzsICrS/release.log` SHA `b904cead22a4999316768c5afe0f8399ac20342ff90c1bd4472c383fb09f87be`，release_exit0/end49403clean；原 `command.sh` SHA `0893866c7d1f5028e4aac919cd9434f7116f31a13a02ae5ab574a0e35501d17b`。不删除WT、镜像、缓存或历史原件，不把此次释放当预约。后释放metadata补充 `resume-a-5OBTboKj/release-index.json` SHA `7df3b602a8e7d6d34f68644a1348589e7ff49bce683af39edb35232905c8be1b` 链接原phase index、自身生成run、cleanup、释放与完整命令源；仅新增metadata，不再使用需要owner的guard或执行测试。补充全部原文件已LAN复制并逐项核size/SHA，原index/原log未覆盖。
+
+本节当前证据结论为**四包直接原49403整次0来源并经实际比较沿用＋两包当前49403最小权威原0**，必要Compose取本次backend批次，不重复旅程；05仅按§10及原审§20限定引用a999成功步骤，不改称49403 fresh、package/image carried或新双subject自然覆盖。最终独审报告在本文固定后由同一角色签收。DC33最终退出范围确认、阶段exit/tag/push/S3与FE3同tar OPFS互通仍由各owner独立处理；本角色没有自行办理或宣称完成。

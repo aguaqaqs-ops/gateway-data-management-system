@@ -2526,3 +2526,9 @@ BatchMode确认后只读CT05 `dc63-guard-52ab-20261107.log`，SHA256 **`65af63d5
 只读审核者§101已认证CT201副本即可核出区别：107b run elapsed6522.846s；继承的v2 Preview user_visible/completion各4743.456s；本次History各2352.010s；repeat-v1-submit同步NO_CHANGE各0.008s。它们来自不同实际操作及日期，W4继承Preview不能因为顶层run为3fd/产品9704就改记在9704重测。此处没有在开发机执行benchmark或测试，仅解析已核原JSON；也未访问在途CT108。
 
 H2旧参考的S1c b96确为2×、三节点、cold History，原handoff/state SHA及immutable producer均支持该same-operation路径；**本审核尚未拿到其实际原state副本，不能填History reference数字**。FULL后从已关闭原件认证取同端点值及SHA，再与实际H2操作对照；原19361.157只保留为整旅程历史，不能继续与单History相比较。设计已明确同意最小后处理修正、原policy/统计保持，A已关闭场景仅修派生，不因错误selector或跨版本差异机械补测；参考确实不能恢复则写UNAVAILABLE/不可比及原因，不填零/伪造或静默切record_only，需要新业务取舍才报设计。已直接交实施者在独立工具worktree修订并做必要定向检查，无新GO、不改正式采样/计时或重跑已完成旅程；最终代码及实际派生结果待复核。
+
+**13项record_only选择器代码修订已通过，H2-3NODE及实际逐场景派生仍待闭合。** 独立工具候选 `132ac85f085df5193a11be4de25e50f7c903bfd9` 相对5b仅改timing工具、参考JSON和其测试；13项actual路径与上述映射一致，_specs和提交JSON同步。独立解析两版JSON：仅这13项actual有语义差异，其余entry、policy、reference和顶层threshold均相等；Unicode转义是同值序列化，不当作参考内容变化。H2-3NODE旧entry尚未修，当前不调用它出比较，不声称该第14项或完整Finding已经关闭。
+
+直接读取CT05 `timing-selectors-132a-20261107.log`，SHA256 **`72e99e5fedbc2a8da4934d3514992ed7c9a39a8f0ebfa16691e3723bd0169026`**：gw-dms-test-05、15:15:40–15:16:18Z、起止完整132ac、28passed/0.47s、Ruff/mypy500、三项exit0。新增参数表以各场景真实嵌套结构调用实际evaluate，刻意区分整journey wall、可见及完成三个数，证明取READY；S2用0.008/0.009分辨同步可见字段。未运行真实业务、Compose或全量runner；正式计时、产品及镜像不变，不触发重建。
+
+实际派生须逐项使用各自合格原场景及原版本/cache条件，保留run/state/SHA和工具来源；§101的107b数字只证明字段位置及错误选择的差别，mode=none的History不能替代H1健康缓存或H2/H3，继承W4 Preview也不改记为9704。不能把同一107b依次冠以13个场景标签。实际源与H2原state读取仍等FULL结束后的适当窗口，不因这次代码PASS新增业务重跑或把记录收口宣称完成。

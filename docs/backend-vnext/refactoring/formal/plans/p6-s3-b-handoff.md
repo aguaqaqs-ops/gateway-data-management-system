@@ -2,7 +2,7 @@
 
 状态：实施中；本页的检查点不是 B GO。设计固定 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`，A 已按 `p6-s3-a-review.md` 最终 GO 放行。
 
-当前最后静态 B 代码候选为 `4efa4b3ec5457e83e48d9fbf2e18245e67afdc51`。它包含预算第二轮 `ac21ad4069ab`、临时差分和诊断至 `2e9758885a`、b917 编译修复与差分覆盖 `a665a3c063`、两次 06 scratch 格式补丁 `107c3f7492`/`cab0656d68`、共享 context 的并发多任务性质 `39bfa7552e`、真实逐表 CLI 当前物化接口与 kernel scope `4efa4b3ec5`。最新代码尚未完成 06 编译、测试和真实数据验证，不能记 B GO。
+当前 B 代码候选为 `503cfbd4da72b232dc175c3692c040adf499878c`。它包含预算第二轮 `ac21ad4069ab`、临时差分和诊断至 `2e9758885a`、共享 context 的并发多任务性质 `39bfa7552e`、真实逐表 CLI 当前物化接口与 kernel scope `4efa4b3ec5`、测试 fixture/原型回归/内部排序断言修正至 `2b629e4562`，以及 CLI 非记录 role 分流 `503cfbd4da`。2b 在 06 的 Rust 全 workspace、native build input、Python 六例与八包 SHA 已通过；真实逐表首败 `t1/forwardtable_yx1` 属 CLI 将 `SNAPSHOT_ONLY` 错送 B probe，503 已修且独审准入。503 的逐表差分及五包静态检查仍待 06 clean 候选执行，不能记 B GO。
 
 ## 边界与实现
 
@@ -25,6 +25,7 @@ ac21 的 local scratch 以 `ArrayData::get_slice_memory_size()` 按本 batch 可
 ### 语义核点
 
 - Python planner 继续先处理单侧、role、健康 early exit 与 schema/key 退化，再调用 Rust 行核。非控制类语义异常按现表降级；取消、截止、资源错误直接向 operation 传播。
+- `BROWSE_ONLY`/`SNAPSHOT_ONLY` 的双侧 `COLUMNS_ADDED` 是 D/E 的特殊接线：固定 Python `standard._compare_non_record_role` 对 `schema.selected`（两侧所有共有列，**包括** compare-excluded 列）逐行计算 row digest Counter，`content_changed` 是两侧 Counter 不等，仍无逐行 records。D 应在该分支调用 B 的 `StandardMode::Keyless`，传 `selected_columns=all shared`、`compare_excluded_columns=[]`、`columns_added=true`、`emit_add_delete=false`，以 `suppressed_added_count != 0 || suppressed_deleted_count != 0` 还原布尔值并丢弃计数；保持 caller 输入 owner/charge、M/取消/截止。其余 non-record role 情况沿旧 descriptor 元数据公式，不做行扫描。B 的真实数据 CLI 将这些任务列为 Python-owned `metadata_only` 子集 `python_owned_non_record_role`，其中 `COLUMNS_ADDED` **可能读行**；该计数不能作为零行读取证据。D 用固定 `test_comparison_rule_roles.py` 的双 role 向量核 status、records、content_changed；E 删除旧 `_read_rows`/Counter 热点。原审确认 B 无需为这一后续接线另加固定向量。
 - keyless multiset 对重复行保留次数；occurrence 0 用原 row digest，大于 0 用 `keyless-row-occurrence:v1\0`、digest ASCII、minimal ULEB128 后再做 row-domain SHA。A 的第三份固定 expected 为 `sha256:a30dfdfae0f29e7d4a7da411578d351fac59a100052dc8fd2135f6940f4ba2bb`。
 - facts 摘要使用完整未裁剪 payload 与 facts 顺序；records content 使用 artifact 顺序及 detail 裁剪。Blank 私有 `entity_key_kind` 保留于 facts 源视图，不进 Parquet 物理 schema。facts_core 必须重放 table payload bytes，不能拼 table hash。
 - unchanged ordered 只读当前侧、两侧摘要相同，不运行 LIS、不生成 records。空表与任意 batch 划分仍必须有确定性。ordered 主路径保留 GID/no 绝对位置、LIS 并列、blank gaps 与伪 GID 规则。
@@ -43,5 +44,7 @@ ac21 的 local scratch 以 `ArrayData::get_slice_memory_size()` 按本 batch 可
 原审在 ac21 第二轮静态复核认为已针对性关闭预算根因，但未有完整运行证明，不能据此 GO。另指出两项 ordered 诊断差异：`CanonicalPseudoGid` 的非法非空非零 gid 应报 `CANONICAL_GID_INVALID` 而非 source 诊断；合法 S2b Utf8 字段充当 gid/no 时，非空文本即报 `ORDERED_INTEGER_INVALID`，不能把 `"1"` 解析为数字。后续增量已按冻结 Python `_parse_stable`/`_integer` 修正并加诊断向量；旧原型入口保留替换期 numeric-text 宽容供差分，E 删除。Owner 已放行 DC68 恢复；同一 06 测试者实际重跑 b917 已审脚本，fmt exit 0、clippy 因 `standard.rs` 两处 `usize` 错误解引用 exit 101，focused test 未运行。原日志 SHA256=`5ba79e1bf4c38850f9f35ba1f1ae77b30364e863987eb2a1fefafc167a20cf74`，该编译错误已在 `a665a3c063` 修正；不重跑旧候选。
 
 当前 06 验证顺序：clean 固定候选、外置 target、offline/jobs4；a665 与 39b 的 scratch `cargo fmt --all` 机械补丁均已回传应用并重固定 SHA。随后一次 `cargo fmt --all --check`、`cargo clippy --workspace --locked --offline --all-targets -- -D warnings`、`cargo test --workspace --locked --offline`，首失败即停。core 的 standard 测试现17个，ordered 有10个普通向量与1个性质用例；新 standard 用同一 caller pool/context 并行12个 keyed/keyless/全重排 ordered 任务，比 N1/N4 的有序签名与释放余额，资源向量还核已过期截止。Rust 更动后使用当前提交 `git rev-parse HEAD:vnext/rust` 作为 `GATEWAY_RUST_BUILD_INPUT`，在 backend 受控离线 uv 同步时 `--reinstall-package gateway-compute-python`，通过 build-input check 后仅跑 `tests/test_comparison_s3_b_differential.py`（6个参数化用例）。八包实际 SHA 全核后，单独运行 `python -m benchmarks.s3_b_real_table_diff --root <06实际输入根>`；只做逐表差分。任何 Rust/API/差分失败均保留原日志并停报，不改旧 Python expected 或 golden 消差。
+
+`2b629e4562166de706da984995fc2ebc14fb1252` 的实际 06 focused 运行在 `gw-dms-06`，UTC `2026-11-07T23:27:50Z`–`23:29:23Z`，起止 HEAD 相同、worktree clean、六锁无漂移。Rust tree `cef7eaf099937a66ce33c160154936a5c086f0be`；workspace fmt、clippy、test 均 exit 0，backend 离线强制重装扩展与当前 Rust tree build input 校验 exit 0，固定 Python 六例 `6 passed in 1.65s`，八个真实包 size/SHA/manifest identity 全匹配。真实逐表在 `t1/forwardtable_yx1` 首败，五包静态检查未启动；原日志 `/home/dev/gdds-test-tmp/p6-s3-b-2b629e45/logs/run-final.log` SHA256 `28103b95e234a63dcc24eb1f36fcc641ac2aeb14de119f6def0d413413986f57`。独审按固定 migrated 规则与 resolver rank 核出该表 comparison role 为 `SNAPSHOT_ONLY`，旧 CLI 把它送到 standard probe 导致计数假差异。`503cfbd4da` 只修该 CLI 分流，Rust tree 不变；06 对 503 的逐表与剩余静态检查待运行，不能把 2b 原失败记作通过。
 
 最终 B 验证还须有 C1/C2/C3/C4/O1 独立固定向量、随机 batch/允许 N 的确定性与预算/取消/截止、standard/keyless/ordered 替换期 Python 差分，以及 t1–t4 v1/v2 按表差分。expected 源为 A、owning Contract、已冻结 Python/golden，不从新 Rust 输出生成。真实数据差分前逐 tar 校验 SHA256；本节不跑完整旅程、04 权威 runner、Compose 或正式性能测量。完成后补本页固定候选、06 hostname/起止 HEAD/time/exit/SHA、源码传输和缓存来源、六锁及独审核收。

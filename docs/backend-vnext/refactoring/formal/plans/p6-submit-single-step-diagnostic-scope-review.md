@@ -2853,3 +2853,22 @@ SIGINT继承探针在05执行，日志276B、SHA **`2bde62570001f3a664426298c86a
 **窄修后 `78000beb62e927190092e315135e7bc1cbdda615` 代码复核PASS，实际05验证仍待。** 父e0dd、相对fcc仍仅两测试文件99增/7删；新建只读detached `/home/dev/gdds-p6-review-gate-78000beb`，HEAD/clean及diff-check已独立核。fallback仅从自有trace取>1且非当前SID，使用绝对native pkill -KILL -s、每次2s；超时先记错误再收束launcher，最终communicate也限2s，仍不返回时关闭本端stdout并返回显式reap timeout给原pytest.fail。原15s及全部业务停止/清理断言未弱化，RS原两用例default/custom四分支保持实际resolver。e0dd未在05实际运行，不冒称其有focused结果。
 
 已直接通知实施者代码小项关闭、继续既定05正常/IGN入口及受影响静态，不增加teardown实现镜像测试或新证明矩阵。当前只读源码变化不改冻结产品/真实Compose runtime；最终必要镜像与当前H闭包绑定集中延期到这轮定向结果收敛后，RS的fcc candidate label不能冒充新H，旧fcc失败runner仍不作qualified carried来源。本节未认定新H已过focused、容器门禁或整体退出，也不新增Owner/设计GO。
+
+## 129. 78000两类修正的05必要定向结果独审PASS，待静态补齐及新H权威门禁
+
+**`78000beb62e927190092e315135e7bc1cbdda615` 的两类测试修正现已完成代码及必要定向验证独审PASS，§125修复Finding关闭。** 当前不将原fcc失败runner改为PASS，也不宣称新H通过04或整体exit。实施者可沿原授权直接准备最终H镜像及必要权威验证，无新GO；DC63/V5b和正式record/comparator继续独立推进。
+
+本审核直接读05原脚本及下列closed日志，逐份重算SHA，LAN副本存CT201 `p6-baseline-evidence-review-20261107/gate-fixes-78000-ct05/`，再次核SHA相等；worktree为05独立clean提交78000：
+
+| 结果 | 05日志 / SHA256 |
+| --- | --- |
+| launcher完整模块，普通入口4 passed/10.64s，20:48:15–26Z、exit0 | backend-launcher-focused-normal.log / `68695e82677111885c182fda3246329721faef11b238328d04eea9a3f749b0b4` |
+| 同模块，明确SIGINT_IGN父入口4 passed/10.19s，20:48:49–59Z、exit0 | backend-launcher-focused-sigint-ignored-parent.log / `5eb0d00f9a2bc0697ede14e49cbaf4bec2bf7433397c31605cdc865d16075535` |
+| RS两函数default/custom四项4 passed/41 deselected，20:49:16–17Z、exit0 | repository-service-image-assumptions-focused.log / `3b1556f45eb74f2ebd6af14a622a5aca8d9cbb10828277bdb48b72f60de415c2` |
+| backend Ruff/mypy500及RS Ruff/mypy201均过，20:49:43–20:50:00Z、结束clean | affected-package-static.log / `e45b5d92c6ae57a1a7e1dc9ddadf37027916c3a91e2bddf4bde35bd803d52922` |
+
+实际脚本均用受控uv入口、UV_OFFLINE=1、外置TMPDIR，launcher以-n0跑完整模块；IGN入口先trap忽略INT，并由独立Python确认parent_sigint=1后才启动pytest，未将普通入口也悄改成ignore。新env只恢复被测launcher子进程的初始INT处置；同一原15s及全部断言通过，不靠兜底TERM转成绿色。RS两函数在实resolver上分别显式unset/custom，不调用真实Docker/Dolt；不是删除默认场景。未增加业务旅程、容器矩阵或真实runtime行为变更。
+
+05 postflight/所有权释放日志340B、SHA **`b0b52b50a44a4b1a5340da981af216df9ac0815d32b575b812af1e16fadbc973`** 及脚本已读：20:51:01Z、准确clean H、相关测试/Dolt/Cargo进程无、容器/8000无，清本会话自有cargo target后核原session owner再释放标记；没有把失败清理当作原INT语义通过。原04外层具体launch命令仍未形成新增独立信号观察，本结论是对已证ambient继承机制和修正后受控入口的验证，不伪造旧进程的历史处置位。
+
+当前交付静态仅backend/RS两包。按AGENTS提交前五Python包要求，已交实施者在05补shared_kernel/repository_contracts/repository_client的Ruff/mypy，刚过两包不重跑；真实时间/节点继续记录，不把两包日志冒称五包。静态补齐可与独立节点的镜像/分段准备并行，不新增审核许可。最终容器/闭包与H绑定仍按§120–122及冻结产品线规则，测量用冻结镜像不替换，最终权威结果尚待实际执行及独审。

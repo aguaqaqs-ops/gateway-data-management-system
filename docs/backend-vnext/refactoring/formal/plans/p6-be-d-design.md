@@ -20,7 +20,30 @@ Preview `/bundle` 与 History `/bundle` 一次请求返回完整、不压缩 POS
 
 多个业务引用可通过同一closure entry及其`table_bindings`共享一个文件；相同source_ref/hash如果最终仍声明为两个不同logical_path，则两个成员都必须发送。只发一次是指已由assembler合并成一个entry的共享产物，不是下载时按字节内容去重。
 
-固定向量包括：两个pair/side引用一个shared entry；相同源对应两个合法不同entry；相同内容但不同schema不可误合并；重复/冲突路径拒绝；pax长路径与空文件。与前端fixture逐项核对，发现差异交设计，不强迫前端放宽完整性校验。
+固定向量包括：两个pair/side引用一个shared entry；相同源对应两个合法不同entry；相同内容但不同schema不可误合并；重复/冲突路径拒绝；pax长路径与空文件。与前端fixture逐项核对，发现差异交设计，不强迫前端放宽完整性校验。UTF-8 PAX有已知consumer差异，按§2.1交接，不能把ASCII长路径通过扩称为Unicode互通通过。
+
+### 2.1 UTF-8 PAX与前端交接（独审N1）
+
+PAX记录为`<length> <key>=<value>\n`，length是整条记录的UTF-8**字节数**，包括十进制length本身、空格、等号及换行；前缀位数变化须计算到固定点。tar header中的PAX size、padding和Content-Length也按字节，不能使用Unicode字符数或JS UTF-16 code units。
+
+当前frontend `src/features/bundle/posix-tar.ts::parsePaxPath`先decode全部body，再用text.length/slice推进record offset，不满足该规则。合法`12 path=中\n`为12bytes、10个JS code units，会被现有consumer拒绝；这是静态核查结论，本设计未运行前端测试。
+
+后端按标准字节编码，不修改合法表名、不写非标准字符计数length，不把路径ASCII化来绕过。前端owner修订consumer：先在Uint8Array中读取ASCII十进制length与分隔空格，以字节边界切出record并验证终止换行/总长度，再严格UTF-8解码key/value；不能先整体decode再按字符偏移。保持现有路径、重复成员、closure次序与摘要校验；不增加hardlink/symlink支持。
+
+共享固定向量必须包括：
+
+| 向量 | 证明点 |
+| --- | --- |
+| `path=中`的单PAX记录 | 字面记录`12 path=中\n`，字节长度与JS字符数不同 |
+| ASCII `dir/`重复70次＋`rows.parquet` | 超过普通ustar路径容量，必须走PAX |
+| 中文`目录/`重复60次＋`表.parquet` | 多字节UTF-8长路径及header/padding长度 |
+| 非BMP `😀/`重复60次＋`表.parquet` | UTF-8四字节与UTF-16代理对计数差异 |
+| 相邻两条合法PAX记录、length由两位变三位的边界 | byte offset连续推进与长度前缀固定点；未知合法key按既有策略处理，不污染path |
+| 截断UTF-8、错误byte length、缺终止换行 | 拒绝，不能替换字符后当完整包 |
+
+在D交付后，由后端给出同一真实编码器生成的合法tar、closure及SHA/长度；前端owner在专用节点用这份**同字节制品**验证安装与OPFS路径/摘要，不各自造一个仅自测成功的fixture。前端协议修复与测试在其分支/角色实施，后端本任务不写frontend源码。
+
+后端BE-d的设计/独立后端验收可单独完成；**FE3解除整包对接依赖**还必须有前端consumer修复提交和上述同制品互通证据。该条件已知而非实施时可忽略偏差，本次不自动启动前端改动、不改其计划原文。
 
 ## 3. 传输生命周期与预算
 
@@ -42,10 +65,10 @@ OpenAPI明确200 `application/x-tar`及Content-Length/ETag；删去旧JSON/octet
 
 ## 5. 验证与交接
 
-纯编码/长度/closure匹配用固定小向量；公开HTTP两个路由参数化鉴权/状态/缺失/损坏；生产wiring覆盖Preview FULL/MODIFIED_ONLY/replacement、History两/三节点、共享/长路径/空表。一个代表性stream失败、断连和cleanup并发测试证明资源释放，不穷举内部时序。
+纯编码/长度/closure匹配用固定小向量，包含§2.1 ASCII/中文/非BMP PAX及字节边界；公开HTTP两个路由参数化鉴权/状态/缺失/损坏；生产wiring覆盖Preview FULL/MODIFIED_ONLY/replacement、History两/三节点、共享/长路径/空表。一个代表性stream失败、断连和cleanup并发测试证明资源释放，不穷举内部时序。
 
 06/05定向开发，04最终候选runner包含必要Compose；05一次fresh t1包含Preview与History整包下载，默认不新增t4或完整基准。无真实长路径/共享形态时由合成wiring覆盖，不能要求全量数据重生成。若与归档核验在同一最终候选验收，复用同次旅程/Compose，不为两个任务重复启动。
 
 按包闭包和容器身份等价分别判定沿用；当前路由/harness变更须最终HEAD镜像验证。原基准冻结工具/镜像不改，main旅程tar消费修订只用于新产品候选。前端快照/fixture与实际tar对接由FE3 owner更新，后端提供确切提交、OpenAPI、固定向量和证据。
 
-设计交付不代表新接口已可用；BE-d独审及最终验收完成后才能向FE3报依赖解除。
+设计交付不代表新接口已可用；BE-d独审及后端最终验收完成后可报后端交付，FE3依赖解除还须满足§2.1的前端修复与同tar互通条件。

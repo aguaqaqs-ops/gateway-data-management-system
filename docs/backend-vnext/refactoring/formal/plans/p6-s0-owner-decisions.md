@@ -988,6 +988,7 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - **闭环缺口及Owner后续确认**：新业务核验可能在APPROVED后阻塞，删除RETURN_FOR_REVISION后若操作者不接受异常将没有正常释放出口。Owner选择新增“有理由关闭、不归档”：保留APPROVED历史、关闭该提交并释放工作区以重提，不伪装成撤回，不推进基线。独立权限/审计/事务与History消费设计见业务设计§10；本条确认方向，具体接口与schema仍待独审。
 - **待审技术细化**：既有canonical内容身份的复用、源时间语法及质量诊断、Checkpoint/Preview/Attempt/Submission/基线的持久绑定、来源图与有界诊断、具体audit/HTTP形态及容量、统一终局处置事实与关闭的权限/回放；详见[归档业务核验设计](p6-archive-business-validation-design.md)。上述不是原产品现状；实现前同步owning Contract/版本/golden并独审。
 - **阶段边界**：设计先收口，新增能力独立列验收；已完成阶段与tag保持历史含义。后续若改Rust/元数据接口只按真实影响定向验证，不恢复被替代Python、不默认重跑全量基准。原测量版本和本轮新语义分别标识。
+- **2026-11-07独审后技术细化（设计者制定，待复审；非新增Owner业务决议）**：按`e92afaa53f`的B1/B2，将字段提取语法固定为`gateway-vnext/configuration-generated-time/v1`（完整日期/秒、T或单空格、最多6位fraction、Z/±HH:MM、UTC边界与ASCII trim），不扩展Shared Kernel scalar；200候选的异常数保守上界8N+1，选择确认1、异常引用1601，紧凑Start最坏转义预算197,265bytes小于256KiB。详见业务设计§4.1/§7.1。N1按BE-d§2.1交前端owner修UTF-8 PAX字节计数，并需同tar互通才能报FE3依赖解除；未运行产品测试或启动前端实施。
 
 ## 3. 设计阶段待定项
 

@@ -68,7 +68,44 @@ legacy `backend_vnext/api/formal_state_store.py::_batch_graph_payload` 有生成
 
 从同一次流式扫描产出小型事实，暂定字段：`selected_time_utc`、`max_valid_time_utc`、有效／空／非法计数、last/max 源行序号、源摘要与提取规则标识、质量状态。不保存整列到 Python，不把全部时间值写日志，不重新读取整包。若当前 native 输出 seam 不足，显式修订 Rust adapter/metadata Contract；不增加 Python SQL 回退。
 
-具体语法复用 Shared Kernel 允许的时间值范围并列固定向量：有时区 ISO 值归一 UTC；无时区按 UTC；空/null 单独计数；非空不可解析值标 INVALID，不用 epoch 填充。不得悄悄继承任意 `datetime.fromisoformat` 版本特性。因 SQL 已有非法 typed scalar 而解析失败的输入仍按原边界拒绝，人工接受不得绕过解析器。
+提取规则身份固定为 `gateway-vnext/configuration-generated-time/v1`；它是本字段的业务提取规则，不是修改Shared Kernel table scalar的语法。规则与事实摘要一起冻结；实现不得继承宿主`fromisoformat`的隐式扩展。
+
+语法作用于SQL unquote/unescape后的单元格逻辑文本（typed DATETIME/TIMESTAMP仍先满足原table scalar边界）；仅去掉两端ASCII空格、TAB、CR、LF，即U+0020/U+0009/U+000D/U+000A。null或trim后空串为EMPTY；其他类型不能靠宿主自动转字符串成为时间。DATE-only、数字epoch、Unicode空白／数字等不在允许集。语法为：
+
+```text
+digit     = ASCII "0".."9"
+date      = digit{4} "-" digit{2} "-" digit{2}
+clock     = digit{2} ":" digit{2} ":" digit{2}
+fraction  = "." digit{1..6}
+zone      = "Z" | ("+" | "-") digit{2} ":" digit{2}
+timestamp = date ("T" | U+0020) clock [fraction] [zone]
+```
+
+闭合数值范围：proleptic Gregorian年0001–9999，月01–12、日按闰年/实际月份验证；时00–23、分/秒00–59，不接受leap second、24:00或零/不完整日期。offset为00:00–14:00（14时只准00分），正负均允许，+00:00/-00:00均按零偏移；不接受无冒号offset、offset秒、命名时区、小写t/z。无zone按UTC；有offset以`UTC=local-offset`精确归一，结果越出0001–9999即INVALID，不截断、不回绕、不夹紧。fraction超过6位即INVALID，即使多余位为零也不舍入。
+
+成功输出固定为`YYYY-MM-DDTHH:MM:SS[.fraction]Z`，fraction去尾零，全零则省略；比较使用精确微秒instant，不使用字符串顺序、float、宿主timezone/tzdb。可复用Shared Kernel日期/clock/fraction数值校验；其TIMESTAMP仍只接受既有UTC编码、DATETIME仍是civil值，本规则的空格/offset扩展只属于本字段提取。
+
+物理顺序为version_manager表源行序，序号从1开始跨INSERT/batch连续计数（空/非法行也占序号）；selected取最后有效行，max相同时保留第一次达到max的源行序号，避免并行归并改变诊断身份。表/列缺失分别记录`TABLE_ABSENT`/`COLUMN_ABSENT`；表存在零行、全EMPTY、存在INVALID但无有效值分别记录`NO_ROWS`/`NO_VALUE`/`NO_VALID_VALUE`。没有有效值时selected/max及对应序号均null，不制造时间0；有有效值也保存EMPTY/INVALID计数。未被保存的facts对象/必需字段是完整性损坏，不是上述业务缺失。
+
+对每一行，非EMPTY且不满足本语法/数值范围为INVALID；即使其后有有效行，也不擦除非法计数。因SQL已有非法typed scalar而解析失败的输入仍按原边界硬拒绝，人工接受不得绕过解析器；合法TEXT单元格里的非法时间文本才进入本质量诊断。
+
+固定向量（技术定稿，后续V1在专用节点实际验证）：
+
+| 单值或源序输入 | 预期 |
+| --- | --- |
+| `2026-11-07 12:00:00`、`2026-11-07T12:00:00Z` | 同为`2026-11-07T12:00:00Z` |
+| 两端ASCII空格/TAB/CR/LF，中心为合法值 | trim后有效；内部TAB、两个空格分隔、NBSP均INVALID |
+| `2026-11-07T00:30:00+01:00` | `2026-11-06T23:30:00Z`，允许跨日 |
+| `2026-11-07T12:00:00.120000-00:00` | `2026-11-07T12:00:00.12Z` |
+| `2026-11-07T00:00:00+14:00` | `2026-11-06T10:00:00Z`；+14:01/+15:00 INVALID |
+| `2024-02-29T00:00:00` / `2026-02-29T00:00:00` | 前者有效，后者INVALID |
+| `2026-11-07`、`2026-11-07t12:00:00z`、`.1234567`或`.0000000` fraction、秒60、24:00:00 | INVALID，不补零/舍入/扩大语法 |
+| `0001-01-01T00:00:00Z` / `9999-12-31T23:59:59.999999Z` | 两端边界有效 |
+| `0001-01-01T00:00:00+00:01` / `9999-12-31T23:59:59-00:01` | UTC结果越界，INVALID |
+| 有效12:00、非法date-only、有效11:00（同日），分布于不同INSERT/batch | selected=11:00@3，max=12:00@1，valid2/invalid1，质量与LAST_NOT_MAX两项均存在 |
+| 12:00Z、13:00+01:00（同日） | 相等instant，selected@2/max@1，不报LAST_NOT_MAX |
+
+向量另包含null、空串、全空、全非法、无表/列/行及合法值后的七位fraction；最后一项INVALID不能抢占前一有效selected。线程数、Arrow切块及规范排序改变不得改变提取结果。
 
 | 条件 | 目标结果 |
 | --- | --- |
@@ -76,7 +113,7 @@ legacy `backend_vnext/api/formal_state_store.py::_batch_graph_payload` 有生成
 | selected < max | `GENERATION_TIME_LAST_NOT_MAX`，保留 selected；不得改成 max |
 | 全部有效值相等 | 正常，相等不算倒退 |
 | 表／列缺失、无有效值 | 显式 missing 状态，归档产生必要时间缺失 issue |
-| 存在非空不可解析值，但仍有有效值 | 保留最后有效值及非法计数；建议产生 `GENERATION_TIME_INVALID_VALUES`，可逐项人工接受 |
+| 存在非空不可解析值，但仍有有效值 | 保留最后有效值及非法计数；产生 `GENERATION_TIME_INVALID_VALUES`质量issue，可逐项人工接受 |
 
 本轮不额外要求每相邻两行时间都单调；Owner 确认的是“最后有效值不是最大值”必须可见。各类质量问题合成每侧一个诊断事实，不能无限按行生成 issue。
 
@@ -89,6 +126,8 @@ legacy `backend_vnext/api/formal_state_store.py::_batch_graph_payload` 有生成
 - initial < baseline：`TIME_ABNORMAL_INITIAL`，relation=`INITIAL_BEFORE_BASELINE`。
 
 同一提交的 modified 两个倒退关系可合并为一个 issue，但受影响 relations 必须全部绑定、展示。时间质量、来源不明与倒退分别诊断，不因一个接受而自动覆盖另一类。
+
+baseline来自已归档Submission时，其原有INVALID/LAST_NOT_MAX与接受记录只显示历史来源，不逐轮重开相同旧issue。若本轮需要baseline时间但它确实无有效值，则产生一项新的`BASELINE_TIME_UNAVAILABLE`，绑定当前Head和受影响候选集合，解释“本轮无法完成baseline时间比较”；该问题可有理由接受，但比较结果仍为NOT_COMPARABLE。INITIAL空基线按§3.3不适用，不产生此项。MODIFIED_ONLY复用baseline侧时同一缺失只归此全局项，不为每个initial重复生成质量issue。
 
 ## 5. 数据生命周期与权威绑定
 
@@ -136,8 +175,35 @@ FE3 需接收的说明：旧“已通过且基线过期，找管理员”不再�
 - 在同一个 `BEGIN IMMEDIATE` 内重查 Head、active attempts、PENDING、candidate-set、facts、诊断和接受引用，再做既有 Plan/Result/Head/Workspace 原子提交。不把只读预览结果当权威，不在事务内物化／网络读取。
 - Approve/归档任一先完成：前者改变候选，旧预览需刷新；后者使旧 baseline 的新 approve 被拒绝。Submit 先受理则 active gate 阻塞；归档先完成则旧 Preview 的新 Submit 被既有 baseline gate 拒绝。Finalize 与门禁不得有释放 attempt 后尚未出现 PENDING 的可见空隙。
 - 图规模至多当前候选 200 项，状态节点至多 401；按字典集合与固定点处理，无全历史搜索。PENDING 只做有界计数／列表，超限返回范围错误，不分页冻结部分轮次。
-- 沿用候选 200、审计引用 200／字段、请求 256 KiB 的现有硬上限；新增异常可能使某些 200 候选场景超过审计引用预算，必须显式报 `ARCHIVE_SCOPE_LIMIT_EXCEEDED`，不得漏掉确认。最终 kickoff 用最坏形状核对是否需一并修订容量；未做过样本验证不宣称 200 个全异常候选均可提交。
+- 候选上限保持200、Start body保持256KiB；**选择确认上限1，异常引用上限1601**，替换旧两个字段共用200的限制。精确issue合并/数量与静态请求预算见§7.1，不留给实施者猜测、不合并不同issue来塞入旧限制。
 - 时间扫描增量内存有界，不以候选数保持所有 Parquet FD／mmap。沿 S2b32/8/M24、N1；无需因本设计重跑完整性能基准，实际新增路径计数和资源边界必须验证。
+
+### 7.1 异常上界与请求预算（B2技术定稿）
+
+N为本轮eligible approved候选数，1≤N≤200。固定issue owner与分组如下；诊断flags不是额外的独立接受，确定后的issue必须分别接受：
+
+| issue类别 | 分组与去重 | 上界 |
+| --- | --- | --- |
+| 源时间质量 | 每候选每个实际上传侧最多一项：无有效值为必要时间缺失（附MISSING原因及非法计数），否则有非法值为INVALID_VALUES；两者互斥，EMPTY伴随有效值只计数 | 2N |
+| 源时间顺序 | 每候选每个实际上传侧selected<max单独一项，不并入质量接受；同一冻结产物被多候选引用也按候选绑定 | 2N |
+| 跨侧时间倒退 | 每候选modified一项，relations集合含对initial/baseline的所有已成立关系；initial对baseline另项。不是两种不同issue共享一个接受 | 2N |
+| initial来源未解释 | 尚不可达子图的每个非空分量一项，至少含一份候选；整组成员/边及全部影响绑定 | N |
+| approved sibling排除 | 每未选中候选一项 | N−1 |
+| 选中项工程身份例外 | 既有聚合的身份异常一项 | 1 |
+| 本轮baseline时间不可比较 | §4.2的BASELINE_TIME_UNAVAILABLE全局项，不重复旧历史质量接受 | 1 |
+| **合计** | 保守结构上界，不要求所有类别同时可达 | **8N+1≤1601** |
+
+投影/ruleset身份矛盾、事实损坏、scope/版本等不可豁免项不计入anomaly接受，直接hard blocker；不额外派生不在表中的自由issue。超过1601或算法产生重复/未知类别应失败，不能截断、分页接受或静默扩容；未来新增issue类别须重算此界并修订Contract。
+
+目标常量拆为`ARCHIVE_MAX_CONFIRMATION_REFS=1`、`ARCHIVE_MAX_ANOMALY_REFS=8*ARCHIVE_MAX_CANDIDATES+1`；同步domain/application校验、HTTP schema/OpenAPI、fingerprint/replay校验与所有consumer，删除两字段共用`ARCHIVE_MAX_AUDIT_REFS`的旧路径。Start在形状校验后仍要求exact issue集合与最新sequence；数组预算不是允许填充无关接受。候选N<200时也必须匹配当次实际集合，不按1601配额填充。
+
+Start每引用仅有`subject_digest`（固定71字节ASCII）和`sequence`（I-JSON非负safe整数，最多16位）；reason、target IDs、relations、诊断正文只在独立append和服务端派生/保存的subject中，不重复塞进Start。来源组append请求只传group subject_digest及Head/candidate-set/selected等已有绑定、action/reason/expected_sequence；服务端同事务重算并冻结完整成员，不允许caller传可删减的affected列表，更不能要求200个最大长度ID的转义数组占满请求。
+
+上述sequence/Head version的0..9007199254740991范围同时约束HTTP与application入口；接受append递增超界时明确拒绝，不创建日后无法通过HTTP引用的事件、不回绕。已有成功结果的合法replay仍按原事实返回。引用数字不允许指数或字符串变体突破预算。
+
+静态JSON预算：1601 anomaly refs＋1 confirmation，每项紧凑对象120字节（再计数组逗号）；2个255 UTF-8 bytes ID按最保守ASCII控制字符`\u0001`转义计各1530字节，两个digest固定71字节、Head version取`9007199254740991`，含全部现有Start字段名/括号后共**197,265 bytes**，距离262,144 bytes尚余**64,879 bytes**。该计算使用标准JSON序列化的协议形状，无产品调用/测试。前端发送紧凑UTF-8 JSON；任意增加的whitespace仍受实际body字节上限，不承诺无限排版的请求可接受。后续若新增Start字段必须更新预算，不能侵占余量而不记录。
+
+这明确支持审核B2的正常来源场景：200个FULL、initial有时间、每个modified缺时间，199排除＋200质量＝399 anomaly refs可接受并Start，无需为了旧200限制关闭有效提交。实施阶段小型边界向量验证399、1601形状上限/1602拒绝、exact集合、256KiB字节门禁及200候选规则推导上界；不生成大规模真实数据、不做性能测量。1601是保守协议预算，不要求构造所有类别同时成立的伪业务样本。
 
 ## 8. 分步实施与验证建议（尚未启动）
 
@@ -159,10 +225,10 @@ FE3 需接收的说明：旧“已通过且基线过期，找管理员”不再�
 
 Owner来源范围、共同未知根、人工接受、时间口径及后续发现的关闭出口均已答复，没有继续阻塞本文编写的问题。以下技术细化由设计/独审解决，超出已确认语义才再交Owner：
 
-- 源时间语法、规则版本、native输出seam及诊断非法值细则；不把SQL源序替换为规范行序。
+- 源时间语法/范围/版本/非法值细则已在§4.1定稿，native输出seam及固定向量按此实施；不把SQL源序替换为规范行序。
 - canonical身份复用的全表/规则绑定固定向量；不静默排除额外字段。
 - 初始空基线NOT_APPLICABLE、时间事实在baseline来源中的持久读取与TTL隔离。
-- 新fields/schema/checkpoint/digest/OpenAPI的精确清单及预算，特别是审计引用最坏形状。
+- 新fields/schema/checkpoint/digest/OpenAPI的精确清单按实施小节固定；审计引用及Start最坏形状已在§7.1定稿，不再是Owner待决容量项。
 - 更新Business Lifecycle、P5-5C/5D、Snapshot Materialization、Canonical/Preview/Submit Contract的目标修订；实现同步正文，历史决议与审核报告不改写。
 - 独审本轮修订设计；旧BE-a kickoff审核不覆盖新增门禁和本业务链路。仅文档编辑不宣称产品验证或GO，不以旧S2b退出冒新功能完成。
 

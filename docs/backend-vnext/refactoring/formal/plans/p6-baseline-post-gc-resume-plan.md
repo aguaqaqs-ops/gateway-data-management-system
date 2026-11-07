@@ -52,6 +52,8 @@
 
 **`history_cache_mode=none` 的 TTL 解释（2026-11-07）：** cache/TTL 核查用于记录本轮实际起点，不要求所有 `snapshot_table_export_cache` 条目仍在有效期。冻结产品 `SQLiteSnapshotTableExportCache.lookup_many` 对过期条目按 miss 处理并由正常路径重建，旅程只有非 none 模式才执行缓存条件准备；healthy/refill 的健康 TTL 要求不适用于本首轮。实施者07:58Z报告523条全部过期、缓存artifact缺失0，日志SHA256 `4dac4836be733644015828ea7b723aa57bde5073ff8d9251ef2edb403e361322`；此正常时间流逝不构成来源失效，不需新Owner例外/GO。保留原源、expiry和卷，不手动延长TTL、清缓存或预热；目标产品正常prune/rebuild及其成本如实计入，记录实际cache状态，不冒称warm/healthy或与旧缓存条件相同。权威输入/原artifact完整性仍核；本澄清不推广到H3或明确healthy/refill场景，也不解除F1等实际守护阻塞。
 
+**同次 SQLite 查询副作用的精确可逆恢复（2026-11-07，DC80）：** 后续完整守卫发现源 control 树新增 `control.sqlite3-shm`（32768B）及空 `control.sqlite3-wal`，目录不再匹配原摘要；事故事实保留，不将单文件投影冒称完整目录 MATCH。接续审核者独立只读确认主 DB 3608576B、原内容和元数据稳定，按未修改的原树算法计算其单文件投影精确匹配原 expected。允许在确认相关 SQLite 检查进程已退出、持自有诊断占用时，先在原 checkpoint 之外保全事故三文件副本、完整 SHA/元数据与日志，再仅将本事故确认新增的两个 sidecar 原样移至事故证据目录；不删文件、不改 DB/run/state/expected 或元数据、不增加通用 ignore。移动后用未修改的完整 `_volume_tree_digest` 重核本 control 树；完全回归原 expected 即按原 A 授权接续，恢复记录直接交审核者核验，不再等 Owner 或新 GO。任有额外差异或守卫不匹配即停该步骤，不调整 mtime/权限/摘要凑值；其余两卷不为本事故重新扫描。后续确需源 SQLite 内容时先用私有小副本查询，不能再次以普通 SQLite connect 打开冻结源；不能将本次处置推广到非空 WAL、主 DB 已变或无法证明的来源。原卷、事故与恢复过程均如实保留。
+
 | 首轮阶段 | 工具预算（秒） |
 | --- | ---: |
 | 初始化、预检、恢复和必要目标快照 | 1800 |

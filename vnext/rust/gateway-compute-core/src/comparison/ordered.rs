@@ -1951,7 +1951,9 @@ fn read_side(
     value_columns.sort();
 
     for row_index in 0..batch.num_rows() {
-        if row_index % 1024 == 0 && let Some(context) = context {
+        if row_index % 1024 == 0
+            && let Some(context) = context
+        {
             context.check()?;
         }
         let no_array = batch.column(no_index);

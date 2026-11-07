@@ -984,8 +984,8 @@ mod tests {
                 &policy,
                 &tiny,
             )
-                .err()
-                .map(|error| error.code()),
+            .err()
+            .map(|error| error.code()),
             Some("RESOURCE_LIMIT_EXCEEDED")
         );
         let cancelled = Arc::new(AtomicBool::new(true));
@@ -997,8 +997,8 @@ mod tests {
                 &policy,
                 &stopped,
             )
-                .err()
-                .map(|error| error.code()),
+            .err()
+            .map(|error| error.code()),
             Some("COMPARISON_CANCELLED")
         );
         let expired = Arc::new(KernelContext::new(
@@ -1014,8 +1014,8 @@ mod tests {
                 &policy,
                 &expired,
             )
-                .err()
-                .map(|error| error.code()),
+            .err()
+            .map(|error| error.code()),
             Some("COMPARISON_DEADLINE_EXCEEDED")
         );
         Ok(())

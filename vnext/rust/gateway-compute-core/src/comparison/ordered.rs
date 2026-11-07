@@ -41,9 +41,9 @@ pub const GID_REAL_MIN: i128 = 1;
 pub const GID_REAL_MAX: i128 = 3_999_999_999;
 pub const GID_PSEUDO_MIN: i128 = 4_000_000_000;
 pub const GID_PSEUDO_MAX: i128 = 4_294_967_295;
-pub const DEFAULT_MAX_ORDERED_ROWS: usize = 2_000_000;
+pub const DEFAULT_MAX_ORDERED_ROWS: usize = 10_000_000;
 pub const MAX_ORDERED_THREADS: usize = 256;
-const MAX_ORDERED_COLUMNS: usize = 512;
+const MAX_ORDERED_COLUMNS: usize = 2048;
 const MAX_ORDERED_CELL_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ORDERED_TOTAL_ENCODED_BYTES: usize = 256 * 1024 * 1024;
 
@@ -1575,7 +1575,8 @@ fn ordered_shared_counts(
         }
         let mut frame = encode_uleb128(selected.len() as u64)
             .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?;
-        for name in selected {
+        for (column_index, name) in selected.iter().enumerate() {
+            if column_index % 32 == 0 { check_context(context)?; }
             let cell = row.cells.get(name)
                 .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
             frame.extend(encode_uleb128(name.len() as u64)
@@ -1867,7 +1868,7 @@ fn read_side(
             }
         }
         let no_array = batch.column(no_index);
-        let position = read_integer(no_array.as_ref(), row_index)?
+        let position = read_integer(no_array.as_ref(), row_index, context.is_none())?
             .ok_or_else(|| OrderedCompareError::new("ORDER_KEY_MISSING"))?;
         let position =
             i64::try_from(position).map_err(|_| OrderedCompareError::new("ORDER_KEY_INVALID"))?;
@@ -1879,7 +1880,7 @@ fn read_side(
         }
 
         let gid_array = batch.column(gid_index);
-        let gid = read_integer(gid_array.as_ref(), row_index)?;
+        let gid = read_integer(gid_array.as_ref(), row_index, context.is_none())?;
         let blank = match (blank_provenance, gid) {
             (BlankProvenance::SourceMissingStableKey, None | Some(0)) => true,
             (BlankProvenance::SourceMissingStableKey, Some(value))
@@ -1919,7 +1920,8 @@ fn read_side(
         };
 
         let mut cells = BTreeMap::new();
-        for column in &value_columns {
+        for (column_index, column) in value_columns.iter().enumerate() {
+            if column_index % 32 == 0 { check_context(context)?; }
             let index = *indices
                 .get(column)
                 .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
@@ -1972,7 +1974,11 @@ fn read_side(
     Ok(SideRows { rows })
 }
 
-fn read_integer(array: &dyn Array, row: usize) -> Result<Option<i128>, OrderedCompareError> {
+fn read_integer(
+    array: &dyn Array,
+    row: usize,
+    accept_prototype_numeric_text: bool,
+) -> Result<Option<i128>, OrderedCompareError> {
     if array.is_null(row) {
         return Ok(None);
     }
@@ -1981,12 +1987,18 @@ fn read_integer(array: &dyn Array, row: usize) -> Result<Option<i128>, OrderedCo
         if text.is_empty() {
             return Ok(None);
         }
+        if !accept_prototype_numeric_text {
+            return Err(OrderedCompareError::new("ORDERED_INTEGER_INVALID"));
+        }
         text.parse::<i128>()
             .map_err(|_| OrderedCompareError::new("ORDERED_INTEGER_INVALID"))?
     } else if let Some(values) = array.as_any().downcast_ref::<LargeStringArray>() {
         let text = values.value(row);
         if text.is_empty() {
             return Ok(None);
+        }
+        if !accept_prototype_numeric_text {
+            return Err(OrderedCompareError::new("ORDERED_INTEGER_INVALID"));
         }
         text.parse::<i128>()
             .map_err(|_| OrderedCompareError::new("ORDERED_INTEGER_INVALID"))?
@@ -2225,7 +2237,7 @@ fn typed_value(
 }
 
 fn integer_text(array: &dyn Array, row: usize) -> Result<String, OrderedCompareError> {
-    let value = read_integer(array, row)?
+    let value = read_integer(array, row, true)?
         .ok_or_else(|| OrderedCompareError::new("ORDERED_INTEGER_INVALID"))?;
     Ok(value.to_string())
 }
@@ -2454,7 +2466,8 @@ fn ordered_digest(
             None
         } else {
             let mut frame = Vec::new();
-            for column in value_columns {
+            for (column_index, column) in value_columns.iter().enumerate() {
+                if column_index % 32 == 0 { check_context(context)?; }
                 if let Some(cell) = row.cells.get(column) {
                     frame.extend_from_slice(&cell.frame);
                 }

@@ -18,7 +18,7 @@ use super::kernel::{
 };
 use super::ordered::{OrderedCompareError, encode_cell};
 
-const MAX_COLUMNS: usize = 512;
+const MAX_COLUMNS: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardMode {
@@ -247,7 +247,9 @@ fn compare_standard_table_inner(
             &mut records,
         )?,
     };
-    let ignored_shared_content_changed = if options.columns_added && !excluded.is_empty() {
+    let ignored_shared_content_changed = if options.columns_added
+        && excluded.iter().any(|name| columns.contains(name))
+    {
         row_counts(&before_rows, &columns, &columns, context)?
             != row_counts(&current_rows, &columns, &columns, context)?
     } else {
@@ -392,7 +394,10 @@ fn read_rows(
                 context.check()?;
             }
             let mut frames = Vec::with_capacity(indices.len());
-            for index in &indices {
+            for (column_index, index) in indices.iter().enumerate() {
+                if column_index % 32 == 0 {
+                    context.check()?;
+                }
                 let field = batch.schema().field(*index).clone();
                 let frame = encode_cell(batch.column(*index).as_ref(), row, &field)?.frame;
                 frames.push(frame);
@@ -891,6 +896,20 @@ mod tests {
     }
 
     #[test]
+    fn columns_added_does_not_treat_nonshared_exclusion_as_hidden_content()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let before = batch(&[1], &["old"])?;
+        let current = batch(&[1], &["new"])?;
+        let mut policy = options(StandardMode::Keyed);
+        policy.columns_added = true;
+        policy.compare_excluded_columns = vec!["future_only".to_string()];
+        let result = compare(&[before], &[current], &policy, &context())?;
+        assert_eq!(result.row_modified_count, 1);
+        assert!(!result.ignored_shared_content_changed);
+        Ok(())
+    }
+
+    #[test]
     fn present_zero_batch_table_is_distinct_from_missing_side()
     -> Result<(), Box<dyn std::error::Error>> {
         let current = batch(&[7], &["new"])?;
@@ -1175,6 +1194,53 @@ mod tests {
             ).err().map(|error| error.code()),
             Some("DUPLICATE_EFFECTIVE_KEY"),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_string_gid_or_no_uses_frozen_integer_diagnostic()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for text_gid in [true, false] {
+            let gid_type = if text_gid { DataType::Utf8 } else { DataType::Int64 };
+            let no_type = if text_gid { DataType::Int64 } else { DataType::Utf8 };
+            let schema = Arc::new(Schema::new(vec![
+                field(
+                    "gid", if text_gid { "VARCHAR(8)" } else { "BIGINT" },
+                    "standard", Some(if text_gid { "string" } else { "signed-integer" }),
+                    gid_type,
+                ),
+                field(
+                    "no", if text_gid { "BIGINT" } else { "VARCHAR(8)" },
+                    "standard", Some(if text_gid { "signed-integer" } else { "string" }),
+                    no_type,
+                ),
+            ]).with_metadata(HashMap::from([(
+                "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+            )])));
+            let gid: ArrayRef = if text_gid {
+                Arc::new(StringArray::from(vec!["1"]))
+            } else {
+                Arc::new(Int64Array::from(vec![1]))
+            };
+            let no: ArrayRef = if text_gid {
+                Arc::new(Int64Array::from(vec![1]))
+            } else {
+                Arc::new(StringArray::from(vec!["1"]))
+            };
+            let batch = RecordBatch::try_new(schema, vec![gid, no])?;
+            let policy = OrderedCompareOptions::new("t");
+            let result = compare_ordered_batches(OrderedBatchPair {
+                before: Some(std::slice::from_ref(&batch)),
+                current: Some(std::slice::from_ref(&batch)),
+                before_schema: Some(batch.schema()),
+                current_schema: Some(batch.schema()),
+                options: &policy,
+            }, &context())?;
+            assert_eq!(result.facts_metadata.status, "DEGRADED");
+            assert_eq!(result.facts_metadata.diagnostics, ["ORDERED_INTEGER_INVALID"]);
+            assert_eq!(result.standard_records.len(), 1);
+            assert_eq!(result.standard_records[0].kind, StandardKind::TableDegraded);
+        }
         Ok(())
     }
 

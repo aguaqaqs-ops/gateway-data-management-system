@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**t3真实容量不足，宽裕fresh完整t3校准运行中，最终profile待测后决定**；2026-11-07 03:20Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
+状态：**宽裕fresh完整t3校准已通过，等待Owner测后选择最终profile**；2026-11-07 03:43Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
 
-当前 pending：**CT108隔离64/16/M48/N1一次fresh完整t3校准自然收束，再据实际完整scope/worker峰值重新定档**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
+当前 pending：**Owner依据完整t3校准及既有t4数据确定最终生产profile，再冻结最终产品并做必要门禁/真实旅程与最终H绑定**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
 
 ## 实际消费者与删除
 
@@ -429,3 +429,32 @@ CT108于03:06:58Z闲时原子取prepare owner，新WT `/home/dev/gdds-test-tmp/w
 独立审核者在03:20:03Z释放其CT108短只读占用（release SHA `718870f829feb77281c7f1e53785423cec5ea7f913b655e7c74e39c8fa794921`），确认wholeidle/a10clean。最小fresh driver `/tmp/s2b-e-t3-fresh-calibration-driver.py` SHA `5f724b12e2c604204b971bdabe4c2b874f2525d1791252fb12d927e59c69b91f` 相对已审d44只改tier/newWT/newproject、采用已验证untimed原worker log解析，并分记实际counter记录数与unique scope数；原timed log保留，64硬限/16reserve/M48/N1、同worker/CG/RSS/正常stop/失败现场保全不变，无from-step/恢复逻辑。已独立核无实质边界阻碍。
 
 CT108于 **03:20:23.298329Z** 现场重新原子取得本cal owner，project `s2b-e-cal-t3-full-a10dec894e`，journey原log header03:20:23.457631Z/HEADa10；证据 `/home/dev/gdds-test-tmp/artifacts/s2b-e-cal-t3-full-a10dec894e/`。完整fresh当前自然运行，尚无结果，不改timeout/M/输入。临时scope日志用于真实charged预约高水位（不取stage ceiling），新worker CG/RSS为该完整校准生命周期；仍不冒最终生产档或正式性能PASS。main保464/24-8-M16，原82 t3FAIL及旧4f校准FAIL不改。
+
+
+### 03:43Z：a10 fresh完整t3宽裕校准通过
+
+同一次CT108 fresh full t3于03:42:33.292Z自然收束，journey0/driver0；起止a10clean不变，18实际counter记录/18unique scope逐claim覆盖且全attempt1，calibration_scope_evidence_complete/resource_evidence_complete/worker_status_ok全true，无missing。worker40fd63d49e97全生命周期同StartedAt/Restart0，正常stop退出0、OOM事件0；只清本project containers/三卷/network并释放owner，原05失败卷及CT108三代旧失败资源不动。完整校准是临时64/16/M48档的功能/资源事实，不替代最终生产档门禁。
+
+每scope原始high_water/used-before-close/全部stage_admissions保存在原无timestamps worker log。只从该原log作一次只读JSON汇总，18条记录和18unique均保留，无Docker时间戳修复或重采样。逐scope完整表见 `scope-summary-from-original-untimed-log-01.json`；各operation取其scope最大值，不相加：
+
+| 实际operation（按执行顺序） | 最大scope | charged highwater/B |
+| --- | --- | ---: |
+| V1 Preview op-2970a27327e3af148f017319 | materialize_inputs | 3798888734 |
+| V1 Submit op-d20a4c38587ee7dc4b806b93 | prepare_import | 9078047792 |
+| repeat V1 Preview op-3a9ed8fdeee6b41bc357554b | materialize_inputs | 3798888734 |
+| V2 Preview op-e486d548daf53988760c4623 | assemble_preview | 21281126550 |
+| V2 Submit op-b45d3bda80812ad88ab2933b | prepare_import | 9839426576 |
+| History op-3d5632fe698b1eeaf66d1ccc | assemble_comparison | 21375346635 |
+
+全程最大真实charged预约为 **21375346635B = 19.9073428614GiB**，在History assemble_comparison（387 stages）；不是max stage temporary_limit。完整同worker cgroup memory.max68719476736B、memory.peak4765663232B=4.43836975GiB，VmHWM4415476KiB=4.21092606GiB、memory.events全0。两个指标各自为完整生命周期累计，CG包含startup/helpers/pagecache，RSS为主进程；不把charged当RSS，也不拼到旧cal/独立History worker上。原无timestampslog的lease_lost/RESOURCE_LIMIT_EXCEEDED/Traceback均0。
+
+证据CT108目录 `/home/dev/gdds-test-tmp/artifacts/s2b-e-cal-t3-full-a10dec894e/`：
+
+| 原证据/汇总 | SHA256 |
+| --- | --- |
+| `journey.log` | `c51afa1ff606e923c0149b8ebfb5bd45d784c18297af1c650b87c28763f1470f` |
+| `result.json` | `f2f5fb26cfc110048bc73d0db2f34ba82eae7d22d2083dafd10fb5191a8b8b9f` |
+| `40fd63d49e97-after-stop-untimed.log` | `382d1d2fe02101944fe1c4789fe0b20cc1d1b3bc28b32901e3049738d616ddee` |
+| `scope-summary-from-original-untimed-log-01.json`（仅原log解析） | `28e2ae76f6b7f6215571a3965875def2b85c7c1dcbc238ffed42dee90a58e3cf` |
+
+若Owner选M24，相对本次最大charged余4394457141B=4.0926571386GiB，约高于实测20.5585%；这只是定档所需数字，不先承诺该生产档所有新门禁/未来输入通过。main仍464/24-8-M16、已知t3原FAIL不改，未把a10临时profile/logger合main，未启动新正式runner/最终Hcompare。06扩容已由root在03:40:36Z核96GiB/16CPU并03:40:47Z释放维护标记，后续可按原用途现场取用；没有迁移/重启本次CT108校准。

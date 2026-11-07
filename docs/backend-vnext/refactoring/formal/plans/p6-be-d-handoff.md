@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。04 六包/必要 Compose 与05 fresh t1 联合证据待协调固定清单后执行，尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04权威仍有失败待完整收口/修复；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -220,7 +220,7 @@ runner locked sync五包并强制重装backend扩展，实际核e6ac Rust build-
 
 ### 9.4 05唯一fresh t1与显式理由
 
-05新WT先受控locked backend `sync --reinstall-package gateway-compute-python`，构建env `GATEWAY_RUST_BUILD_INPUT=$(git rev-parse HEAD:vnext/rust)`，随后仓库 `check-rust-extension-build-input.sh` 核expected=installed；无缓存即停。正式工具命令使用 `run --no-sync` 仍经wrapper只读lock核查。输入根 `/home/dev/gateway-real-dumps`，仅t1 `rd-t1-a` / `rd-t1-b` 实际包，现有datasets/census和tool核size/SHA；不改输入，不运行全8输入的额外validate旅程。
+05新WT先受控locked backend `sync --reinstall-package gateway-compute-python`，构建env `GATEWAY_RUST_BUILD_INPUT=$(git rev-parse HEAD:vnext/rust)`，随后仓库 `check-rust-extension-build-input.sh` 核expected=installed；无缓存即停。正式工具命令使用 `run --no-sync` 仍经wrapper只读lock核查。输入根 `/home/dev/gateway-real-dumps`，仅t1 `rd-t1-a-v1` / `rd-t1-a-v2` 实际包，现有datasets/census和tool核size/SHA；不改输入，不运行全8输入的额外validate旅程。
 
 显式reason数据文件本地 `/home/dev/gdds-be-ad-05-archive-reasons-v1.json`，SHA `2868249c224a94c583b648d2db842cd018f4917add2af77a565fd73d39aca698`；经LAN放到05证据根同名 `archive-reasons-v1.json`、比SHA，读作纯JSON数据传一个env参数。清单理由如下，均只对可重建测试库接受流程，不宣称已人工证明真实数据来源/生成原因；保留原detected status/事实/异常和逐项resolution审计。工具只对实际出现的subject逐项引用其issue code对应理由；未支持code/identity异常仍失败，不能force或把UNKNOWN改PASS。
 
@@ -258,3 +258,52 @@ env -u GATEWAY_COMPOSE_GATE_PREBUILT \
 ### 9.5 停止、清理与最终绑定
 
 任何实际缓存/身份不符或再编排/保全异常立即停报；产品失败按原Owner授权最小修并同一独审，不用操作例外抹掉产品失败。04权威非0停止后续验收；若05已跨节点启动，保留其实际状态和必要本人finally清理，不用成功05抵消04失败。清理只本任务project/派生卷与进程，核8000/Dolt/Compose空，cmp本人marker后释放，保留WT至最终镜像/包绑定完成。source/每run/原exit/SHA及逐包原始manifest均交同一独审核收；协调整理DC33最终范围确认包，未经所需最终范围/手续不办理exit/tag/push/S3。FE3同tar OPFS证据独立pending。
+
+
+## 10. 联合首轮a999：05实际通过与04失败待收口
+
+两node相同实际source为 `a999869c7f4714c95ee9a5b82866e52cd265e377` / vnext0301。04/05现场BatchMode、目录初次不存在/整机空闲后分别12:26:16Z、12:26:17Z原子取得本人marker；claim原log分别 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-04-claim-y7TTADuv/claim.log` SHA `f8b93e7c84e643fd88be0d00019c8d6d929eae7d6c63f90440231afc5b6c08fd`、`/home/dev/gdds-test-tmp/artifacts/p6-be-ad-05-claim-KIM5R8lx/claim.log` SHA `8209ed52fc181a0216da3b32f7e9dc251d912a283d1e4fb95c41f7fce55e7a2b`。
+
+两guard分别独立scp并比SHA=§9固定值；source-ready 04 `transfer-IUOsNXCG` 12:26:25Z，prepare.log SHA `bad842fad3f0ac5c12faf803fc42232a235ffb9ef2ae65a9e29460bd033ea25d`；05 `transfer-cwKZNNWF` 12:26:38Z，SHA `f71eb6f26828efb0ad87265ebede6d4976faa79e6de8712db9fe800a4278cd8f`。两者完整expected/advertised/checkout/clean/prepare0已核后即解除main短窗口；后续main文档不改变节点WT。
+
+两node实际prereq、base身份及仓库helper重算dependency input均0，UV/Cargo offline、legacy、unset basetemp和全selector1.97。04/05 backend/RS base的实际config/全部DiffID逐项等06已审来源，Rust/Python和04 client base另存完整身份；依赖/锁未变，无新增预填或代理。d054源链沿本机已有获准LAN预填与06已审来源：CT201来源提交132fc、archive SHA `3fd859201de06757c8ce5af6dd4ad6e26d99b7439bc2edabb59035b5dd0c9ce6` 的原构建/预填时间见node readiness，本文不虚构本轮新预填时间。04 `run-repository-build-AqbozR9J` /05 `run-repository-build-pbMa965Y` 均当前a999本机离线build0，各用§9独立RS tag；源码identity仍a687/13cb。
+
+### 10.1 05 fresh t1的实际范围与结果
+
+原run `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-05/run-fresh-t1-8skuj66m/`，**12:35:37–12:40:42Z，command_exit=final_exit=0，前后a999/clean/owner true**；原run.log SHA `66cdeb8c906434bbdfbdf2b63ee438c4537f1a9aab10bedafe5d3a36189e83c1`。fresh UUID project `s2b-realdata-3917667-5652040c`，当前backend/worker实际build/up、无resume/keep-stack，18步完成，原finally正常down-v。05 fresh环境受控强制sync0及expected=installed e6ac核0，脚本/argv/完整原日志和SHA均保留。
+
+实际输入文件为 `packages/rd-t1-a-v1.tar.gz`（107115B，SHA `42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2`）、`packages/rd-t1-a-v2.tar.gz`（107066B，SHA `4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0`）。v1为MODIFIED_ONLY/identity NOT_APPLICABLE，v2为FULL/identity SAME_PROJECT（INITIAL=v1、MODIFIED=v2），repeat-v1仍MO。FULL的确切两pair由F3生产tool硬断言核，表中summary默认view的pair_count=1只指initial_to_modified，不是FULL退回单pair；其两个records closures另有实际计数。
+
+| 完整tar | actual bytes | closure entries / 普通成员 | records closures / logical records | GET开始→读完秒，仅报告 |
+| --- | --- | --- | --- | --- |
+| v1 Preview MO | 2834432 | 354 / 356 | 1 / 0 | 0.529 |
+| v2 Preview FULL | 2660352 | 118 / 120 | 2 / 12 | 0.214 |
+| repeat-v1 Preview MO | 2055680 | 105 / 107 | 1 / 0 | 0.163 |
+| History | 2153472 | 114 / 116 | 1 / 12 | 0.183 |
+
+这四个是真实完整tar，与§8的size header-only向量明确区分。已审consumer实际逐entry验证原manifest/closure、普通文件顺序/path/size/raw SHA、bounded ref闭合和records owner逻辑摘要；最终JSON仅保留这些汇总/digest/bytes/time，不宣称每成员原字节/每项response另行外置保存。实际Archive consumer按实际subject/sequence逐项消费§9显式reason数据（SHA286824…），保留生产原诊断/事实与resolution审计语义；未知或identity不自动接受。不宣称已外存全套原diagnostic/resolution响应，正常finally清理测试库不是异常丢失。规则负例及关闭重提仍由04对应owner覆盖，05成功不能抵消04失败。
+
+`final-result.json` 是原log中最终JSON整行的**原字节副本**，SHA `505f9731235430c21c53ff39316bec1f0f4e22b7465275bdea12e4a04823cf1d`；同目录 `final-result-source.json` 记原log SHA、offset53374/length40044，不重序列化或改历史。metadata保存run `run-preserve-journey-result-7sFbOrhR`，log SHA `41f7d3383c1e278320bfd7c5d2977c9c6ac9c68fe2954bc095eff31e77c127bf`。
+
+实际runtime镜像全身份 `base-identities-zdhheiw9/base-identities.json` SHA `798515259fbe1fb0a189297e35c10e8f26e6ff76e3680e46f632d99da433cbb2` 保存三config及全54项DiffID（13/28/13）；backend config `sha256:3d47ed71ec272cabc39d71ef6a845f3a4b2d59c979d5f52b483d9dff6d17b21b`，RS `sha256:adde25e06a61e4c35585355490ecea7569220367945c3b4b245e3e73e8d4d053`，worker `sha256:3730d9d2878cc8ddefea51ed368726aa1a7c8af2448c7d3a6d78c0fb0ce18dbe`。`journey-image-bridge.json` SHA `0da27b38f0550ee575d3705ea34e61eaf09d83fab4709cf5de9acca87365c1b3` 核**原tool报告image IDs与保留镜像的同机桥接+fresh build/up**；源码 `compose_image_ids` 本身取tag的image inspect，并非另做container inspect。其原字段虽名running_report/same_node_running_bridge，准确来源以本句为准，不追加虚构running-container观测。
+
+### 10.2 05索引、副本与释放
+
+完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/` 含 `p6-be-ad-final-05/` 与原claim目录。10个完整run及全部原数据文件索引 `evidence-index-3qrxp8ms/index.json` SHA `5f551201c49fabaca2cc1e6a86e2cf72283b78b3602068357931a8b3fbbdf459`；生成时逐run四SHA核相符，排除自身生成run/之后release。释放补充metadata链接 `release-index.json` SHA `f0bb6b07ec725f5243105ecb0bca750e5edf2a3553303b4c1ad43e1c66749a87`，引用旧index/其生成run/release，不覆盖旧index或原log。
+
+`run-cleanup-check-qDu6CB70` 12:43:52Z/0、log SHA `987eaad6058cf1a2289d26e0ab000f9c6b5d110b5956f03951e96fd502f2414d`，本人project容器/卷/网络、全机运行容器、8000与Dolt/Cargo/pytest/rustc/clippy为空。同一独审核原证据/LAN副本后，**12:46:02Z cmp本人marker释放**，`release-8QB9Ypmg/release.log` SHA `f4a1625250c8f88f17db56e1ab4222fbe5d97f8010254d07aff59b78cc661b54`，release0/end clean a999；12:46:56Z再只读核marker不存在/WT clean。保留最终WT、镜像、缓存/原证据，不等待04修复空占05。
+
+### 10.3 04首轮失败与原owner边界
+
+04唯一六包run `run-authority-six-n3pnBrzg` 12:32:24Z开始；Rust180、shared_kernel243、repository_contracts152、repository_client161已通过，backend parallel **3fail/3383pass**，三项均旧message regex `unknown artifact_id` 与D typed unavailable实际文案不符，原异常类型/缺失拒绝/未发布均命中。`2ae2d825ea775e5ef35c449d924a9edcc6aa8b81` 仅两个原test owner三行expected消息修正，产品/consumer/harness无变化；节点仍a999，不在运行中checkout/retag。原runner自身serial另有失败，当前尚待完整trace/整次exit，**不能预判只有三文案或宣称通过**。后继候选与补验等全部原结果固定后由协调/同审收敛，失败整次任何包均不作carried来源，下一合格权威仍六包。05对后继test-only增量是否未影响，由同审核具体diff后决定，不写后继HEAD fresh实跑。
+
+联合范围保持原owner，无新增矩阵：
+
+| 小节/已审来源 | 04原owner与必要容器 |
+| --- | --- |
+| A1 / c1ee962755，产品d8 | Review HTTP授权/replay、Review事务/CAS精确释放、Workspace lifecycle/occupancy、Archive concurrency；`test_review_compose_e2e.py` self-only与reviewer、Archive双actor |
+| V1 / 5dc01deeb5，产品c229 | Rust `configuration_generated_time.rs`、`test_configuration_facts.py`、`test_preview_job_materialize.py`、`test_submit_transactions.py`、原checkpoint/scoped Review owner；既有Submit/Review容器 |
+| V2 / 9ec62e82ad，产品f8 | `test_archive_business_validation.py`/queries/audit/transactions/concurrency/http/schema及History/Review摘要原owner；`test_compose_business_rejection_manual_close_and_fresh_upload_archive` 覆盖异常拒绝→关闭→新上传重提→归档 |
+| D / 6ad7e54fa0及cd2d395fbc，本地产品0ba | §4 download/HTTP/real_dump/artifact owner、Submit最小容器与History完整tar原容器 |
+
+静态diff边界：S2b V `a687..a999` 的vnext146文件，D基线 `9ec..a999` 31文件，`0ba..a999` vnext无变化；只是范围盘点，非实际package/image carried比较。各原小节06通过不冒充本轮04/05新证据；最终DC33/阶段手续与FE3依赖仍独立待办。

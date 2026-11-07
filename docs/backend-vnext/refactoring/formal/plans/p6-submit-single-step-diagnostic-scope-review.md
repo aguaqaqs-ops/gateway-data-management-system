@@ -2849,3 +2849,7 @@ SIGINT继承探针在05执行，日志276B、SHA **`2bde62570001f3a664426298c86a
 新增失败兜底仍有一个有界性缺口：_stop_timed_out_fixture在TERM/10s之后的最终communicate()没有timeout；已交实施者给最后回收明确短上限，超限仍失败，不能由兜底TERM/KILL成功冒充原SIGINT测试通过。另_kill_fixture_sessions使用killpg(session_id)，实际只选择同号PGID；若按函数意图收束整个自有session，应复用已有guard的native pkill -s语义并排除非正/当前session ID。此为本次已出现挂起的fixture收束范围，不新增安全状态机、探针或测试矩阵。
 
 若05已经运行e0dd，先完整保留其结果再提交窄修，不改在途worktree。最终修订须在普通及明确SIGINT_IGN父入口下定向验证相关模块和RS两组用例、受影响两包静态；后续最终H及镜像/闭包/必要权威验证再按原规则一次绑定，不提前将e0dd或旧失败runner称合格最终候选。普通测试修正直接闭环，无新Owner/设计GO，不阻已审DC63/V5b准备与记录派生。
+
+**窄修后 `78000beb62e927190092e315135e7bc1cbdda615` 代码复核PASS，实际05验证仍待。** 父e0dd、相对fcc仍仅两测试文件99增/7删；新建只读detached `/home/dev/gdds-p6-review-gate-78000beb`，HEAD/clean及diff-check已独立核。fallback仅从自有trace取>1且非当前SID，使用绝对native pkill -KILL -s、每次2s；超时先记错误再收束launcher，最终communicate也限2s，仍不返回时关闭本端stdout并返回显式reap timeout给原pytest.fail。原15s及全部业务停止/清理断言未弱化，RS原两用例default/custom四分支保持实际resolver。e0dd未在05实际运行，不冒称其有focused结果。
+
+已直接通知实施者代码小项关闭、继续既定05正常/IGN入口及受影响静态，不增加teardown实现镜像测试或新证明矩阵。当前只读源码变化不改冻结产品/真实Compose runtime；最终必要镜像与当前H闭包绑定集中延期到这轮定向结果收敛后，RS的fcc candidate label不能冒充新H，旧fcc失败runner仍不作qualified carried来源。本节未认定新H已过focused、容器门禁或整体退出，也不新增Owner/设计GO。

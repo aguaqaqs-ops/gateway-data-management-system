@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：7c02397139 的真实 t4 首次 Preview 因预算误收费失败，DC80 窄修及后续证据待齐**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：7c 的 t4 预算误收费已在固定 1de3fa4084 窄修并通过 81 项定向验证；新候选最终门禁与真实数据待齐**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -32,7 +32,7 @@ typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d
 
 ## 当前容器记录
 
-Current reviewed code HEAD: `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1`（相对 d0 仅测试 fixture/harness 迁移）。审核文档提交自身不触发重建；7c 改实际 Compose harness，按既定范围先 06 两个受影响 Compose 定向本机 build，最终 04 候选仍本机 build 及 runner 内 Compose，不为每步重复全 Compose。E 的 startup owner 接线与阶段退出边界不变。D 的 06 局部验证只作其原范围回归来源；当前 ff 的 04 实际 Compose 镜像已构建/运行，backend `sha256:d426a30b774abf2f1e56836130c0d6fb04fa44aa27b8dc395de02bb472d0c74c`、worker `sha256:e6bfc8bd5548ac844381db83d3b075b329dad0b6cef978d22d4da73721e7e5d2`，RS 本机 image `sha256:77dcda8e4a45afad911f797f0a7780734f0f285cdc0f80f60617338210d41aa0`、revision ff、source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`、build-input `c52e9fad62e14b016ed814d0799e08e6d97e82b3`。ff 整次 runner 失败，以上仅记录真实镜像与失败范围，不作最终 HEAD 合格容器来源。
+Current reviewed code HEAD: `1de3fa408433b344faac222d28736a82405e566a`。相对7c仅内部 Python 比较准入及其行为测试；06 focused 已覆盖，未增加06全 Compose。阶段退出仍要求当前候选在04本机 build/权威入口以及既定真实节点完成必要范围。最后合格04容器来源为7c backend-only whole0，backend/worker image `sha256:0eb59bd1f0bc18cf9ae9890b498db80c9ee51c69ab46a38b42ecc3ae1a4c2c85` / `sha256:e4438d254c3c98d51fa99adef17b65264707df7e1eb0517d105b29cce5edc939`，RS image `sha256:ce544459e53d9c318ddabf7274e8d47fbd0b28e7e3ea959cee5f71123dc44de2`、revision7c/source13cb42af/build-inputc52e9fad，backend 起始闭包 total7fb9738d…，详下文原始日志/provenance。1de产品变更使backend及RS完整context变化，不能在当前预先声明 carried；D局部与ff失败容器记录只保其原范围。
 
 本基线不宣称正式 carried 或 E 当前容器门禁通过。阶段最终候选必在 04 绑定合格权威/container 证据，04 WT 保留至 stage exit 合入；E 产品差异收敛后再精确记录是否触发重建及来源。
 
@@ -131,3 +131,11 @@ ff 失败容器 provenance 原文件 SHA `88d5f8ead36087308bc4b4bc96d84c1203c228
 协调者确认这是预算实现偏离真实消费路径的窄修，不变更 DC87：仅 single-side 跳过行模型、保 metadata 基费，双侧与 ordered identity 真实读行预算保持。最小回归归现 comparison owner，普通/ordered×added/deleted 参数化证明小显式 M 下 metadata fact 与零行消费；其余真实读行/资源拒绝 owner 保留。修订后先 06 focused/静态与独立源码复核，不立即盲跑 runner/全旅程；若后续真实读行路径仍超 M，交 Owner 决定，不静默加 M。
 
 后续来源范围：Rust 与三小包待以同 04 WT 的合格 source manifest 实际 compare 确认复用；backend 产品/测试变化必须补。当前四包原始 RS manifest 明确含 `docker:context:vnext` tree `77f8a335362b8c789e72a58761bb0cc38dac35ce`，故预算 src/test 改动将使该真实组件变化，RS 不能仅按功能无关沿用。t1 依 DC64 首受影响步骤为 v1-preview/assemble，旧7c全旅程仅作其准确范围回归；其 owned 卷已按原成功流程清理，run 目录仅 state/secrets，无法从保留卷副本续跑，最终新候选须 fresh t1。t2/t3 未跑、t4 未完成仍须实际 full；先 focused 收敛再排。新最终候选的 t4 可与 04 backend 同 V 跨节点并行；旧7c失败现场完成只读诊断、保留停止容器/卷/镜像/输入/证据并核 idle 后释放旧 owner，新候选另以新 project 原子占用。E 与阶段 exit 仍均未 GO；W1/W2 均未性能 PASS。
+
+## 1de 预算修正与精确补验范围
+
+固定 `ad190ae942…` 及最终 `1de3fa408433b344faac222d28736a82405e566a` 仅改 standard.py 与其 owning test。产品4行在 policy 检查后，对任一侧 descriptor 缺失的 task 跳过行模型；metadata 基费、实际双侧/ordered identity读行公式、全部常数及控制/发布行为不变。新增普通/ordered×added/deleted四项行为参数，用真实1/256行Arrow fixture、显式16MiB构造后留下128KiB余量，证明metadata费用为正、与未读取行量无关、iter_rows/arrow_stream零消费及原ADDED/DELETED事实。新增的重复负向两项已按单owner原则删除；真实双侧/ordered identity低M拒绝继续归现 `test_preview_job_assemble::test_pair_memory_admission_rejects_before_python_row_comparison` 两参数。无新oracle/预期反写/格式/identity/输入或M变更。
+
+06 00:18:52–00:18:55Z（2026-11-07）对 clean1de 实际 Ruff0/mypy500通过、standard/ordered两module及上述既有pipeline拒绝owner共81 PASS，exit0；日志 `artifacts/s2b-e-budget-fix-1de3fa40/budget-focused.log` SHA `850c445ad4a79864ed9a1c0d228a07c0512039acb27523a9ff27009866d29747` 已独立读取并重算。另 call 环境核 SHA `6f99108f38b97556b8ea6bf6ece603f53bd7dde47e54fe62ac344f57ec290c69` actual0，四个实际模块来自本E WT、native137一致；busy已释放。源码及定向复核通过，允许按已确认安排补验；旧7c t4业务失败不改写为通过，新完整t4资源结论仍未知。
+
+7c 的四包权威入口已于2026-11-07 00:11:02Z自然 whole0/driver0并释放，原 log SHA `d1d829ea5bfd398f012ed79bfe70e3f3adb15f18317da717b595107e7f9e2d58` 已独立核（RS parallel1744 PASS/1skip、serial207 PASS）。四个保存的起始manifest均与原log JSON全对象独立核相等、head/package准确；合格原始total为 shared_kernel `26b8a0ba6f67b990433d361aa137dfaeb96d5d0826f6c6e36c2b08d37a98c605`、repository_contracts `eb237e7926624d250119cdb3a755f3e3193432158293108db5085e4ac1af64b5`、repository_client `294456e0d70e11e854243a9947acd8c17b39538475b4a8050215a8747288d213`、RS `67e5a5895d42f018d25eede60eb978e332e0001355f79fa292c6f7a38228b402`。1de实际 `vnext` tree为 `f8e80ac55560e13efbf0768fa9370d50632a2391`，与RS source的77f8…不同，因此后续只补backend→RS两个actual runner；Rust与三小包按同04WT、精确Hypothesis路径不存在、原合格source的实际compare复用。已审三节点固定1de source/env/独立verify、backend/RS-only与三小包compare脚本，均只作候选绑定及必要选择变化；不重跑旧四包，不放宽whole0来源条件。

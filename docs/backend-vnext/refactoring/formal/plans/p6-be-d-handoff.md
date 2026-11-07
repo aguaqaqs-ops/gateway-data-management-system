@@ -3,7 +3,7 @@
 2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
 
 
-**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403定向/最小复现通过，最终六包运行中（§11）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。联合首轮a999已执行：05 fresh t1通过并释放（§10），04首轮7fail已修，49403最终六包已原exit0；RS身份原件缺口使收尾暂停，恢复方案待Owner决定（§12）；尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
@@ -332,4 +332,41 @@ env -u GATEWAY_COMPOSE_GATE_PREBUILT \
 
 05既有a999成功步骤的引用待同一独审正式限定：旧成功resolution请求必有原四字段首项digest等command.digest；新实现仅在同集合内按digest查找，仍选该旧首项，其后sequence/冻结payload/事务同路。其余17步产品/consumer/事实代码没有改动。这是对**原a999实跑**的未影响代码推理，不能改称49403 fresh实跑，也不声称05自然数据覆盖F6新增分支。
 
-六项收敛后按原授权，不等待重复开工，**13:06:41Z同49403启动最终六包 `run-authority-six-final-DTWWhQP4`**。完整env沿§9，RS tag仍本次自身a999源未变，TEST_WORKERS48/Cargo4/offline、basetemp unset与prebuilt unset；同一固定WT/source不因main后续纯docs推进而切换。当前仍运行，尚无该整次成功/最终GO声明；全包原manifest/总exit及必要Compose待原始结果，失败则停，不重复同runner Compose。05不重启，04最终清理/释放/绑定待本次实际结果。
+六项收敛后按原授权，不等待重复开工，**13:06:41Z同49403启动最终六包 `run-authority-six-final-DTWWhQP4`**。完整env沿§9，RS tag仍本次自身a999源未变，TEST_WORKERS48/Cargo4/offline、basetemp unset与prebuilt unset；同一固定WT/source不因main后续纯docs推进而切换。本段记录启动时尚未结束的状态；后续原exit0及RS身份缺口停点见§12。未作最终GO，不重复同runner Compose；05不重启，04最终清理/释放/绑定按后续Owner选择处理。
+
+
+## 12. 49403六包原0与RS身份原件缺口：恢复待Owner
+
+**实际功能门禁成功事实**：`run-authority-six-final-DTWWhQP4` 13:06:41–13:33:56Z，command_exit=final_exit=0，end exact49403/clean/owner true，原log SHA `35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。六包status全部passed：Rust180、shared_kernel243、repository_contracts152、repository_client161、backend3387+60、RS1744+207，另1 skip。唯一skip为 `test_p2_r1_target_cgroup_smoke::test_target_container_has_real_delegated_cgroup`，源码条件＋本次pytest进程环境定位为 `GATEWAY_P2R1_TARGET_CONTAINER` 未设、reason `runs only inside the delegated target container`；原-q log只打印skip计数，未逐条打印该case/reason，不能伪称来自原log或算passed。不补跑/不改flag。
+
+六包起始manifest原字节保存在该run `original-starting-manifests/`；`starting-manifests-index.json` SHA `d473e1239e32739d398fc18f6b356bacc06e246955b37e44c366cadc1619efe2`，每包原byte offset/length/SHA及total_digest齐。保存metadata run `run-preserve-final-manifests-nqS7jeVA`，log SHA `673f19b4ea03afed2410c92453bfb1247bda42b93ea5fd84ce5b931b82b49a5e`。本次原0是合格整次执行的事实；下面身份缺口不能被隐去或口头宣称最终carried。
+
+当前生产provenance原副本 `final-compose-output-q57wh5vw/compose-provenance.json` SHA `fba8467df935a2205c3e314dbf9228ad91c3aa98254c755d101d1ad35b476c4d`，来自本次Submit真实容器快照，project `gateway-submit-s8-446348-test_compose_accept_upload_imp0`。同目录实际production GET OpenAPI SHA仍 `977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`。两源文件mtime epoch已与本次awareUTC闭区间核相符，原字节复制相等。`run-preserve-final-compose-UZFqaUIx` 打印字段名 `source_mtime_utc` 实际naive fromtimestamp为节点+08本地21:22:07，真实UTC为13:22:07；这是derived标签精度，原epoch检查/原件/SHA正确。原log不改，`original-sources.json`另记原epoch和带UTC偏移说明。
+
+### 12.1 失败collector与不可取得的原件
+
+`run-final-image-identities-I8627T4H` 13:37:37Z，command_exit=final_exit=1/end49403 clean/owner true，log SHA `f6fe1b6dca1b46822eda78b073278b1f2114056f3e931d302ccf5889e125b3d1`，实际literal script/argv在其command.txt，SHA `fd4ad88058808f8b07d2c5135beb448d695a02a84ad2e10ed089f968f7c708d4`。collector把当前tag inspect ID与早段真实container snapshot ID相比，在Docker save/最终bridge写入之前拒绝；没有重建、retag、测试、原文件覆写。当前backend/worker tag ID分别42437a…/4da6b1…，均等原snapshot且旧ID可inspect；差异仅RS。
+
+RS早段runtime ID `sha256:15e3ffb4944b672a5e2e6d9c858a57d6a1142d2d17e0feb4f2e56d469c97655e` 原revision=a999，实际build-input=a687/source13cb/lock6dc。后段同tag变为 `sha256:1306744645e34d7dce8e016564517d8864a26e9624cd915a1a6e8e9b1b0f157c`，Created13:24:11Z/revision49403，后三源字段同原。RS `compose_build_harness.py` 匹配也要求candidate_sha；不符走既有 `ensure_repository_service_image→_run_build`，与后段RS实际Compose/时点吻合。不能据source13cb倒推旧config，也不能把当前tag当旧runtime。AGENTS运行中重tag例外文字仅client，与现存RS harness及自定义tag被摘要为input的接缝需Owner/独审判断，不是设计豁免。
+
+原 `run-repository-build-AqbozR9J` buildlog留有index15e3、manifest `sha256:c5a4f79c5525b7cbaf9db8502545232b1478782eeb54e52ac92660447a165d57`、config `sha256:9e4764cccb55d9a74da73e21ef640c69527fe1233a6f99686dd48d399cb5c577`，没有旧RS全部28项DiffID原件。获准只读追溯核Docker实际containerd socket `/run/containerd/containerd.sock` /namespace `moby`；三个known blob分别仅查询一次，均not found。未切history namespace/扫描导出无关内容，没有create/import/tag/gc/prune/save/build/重造旧cfg。两剩余blob诊断 `old-rs-content-qshp65vj/read-only-diagnosis.json` SHA `f4ba734bdd94414feb90707fcd22552dd50ac6bbeacdfa445d1c7ddd9dac3cbe` 明确完整index链false，`run-inspect-old-rs-blobs-aMmhuHEc` log SHA `910b4ed114a0892fc5247b9de42a90ac0f13fcdbc1b9c467da51a33aa9497d60`；该run0仅表示两个只读查询按要求完成，两对象query exit均1，不是身份通过。
+
+当前停止后继collector/补验/测试/安装/cleanup-release/checkout；04本人marker及WT49403保留，05已释放不动。旧授权不自动恢复此身份异常之后的执行。协调已把事实/两选项落 `p6-be-a-d-joint-validation-preparation.md` §10并通过一次Owner问题提交；回复未到，不把超时当批准。
+
+### 12.2 Owner方案A的固定静态稿（尚未执行）
+
+同角色原独审已静核完整七步及以下外置文件；它们未在节点安装/执行，未在开发机测试/bash-n，不改产品、权威runner、闭包脚本、规则或旧原件，不新建角色/状态机。
+
+| 外置本地文件 | SHA256 |
+| --- | --- |
+| `/home/dev/gdds-be-ad-image-identity-collector-v2.py` | `1232b535371a689f8c55d6fbb8b6c36697e30b6cb1b03060b8ea4450487ecbf1` |
+| `/home/dev/gdds-be-ad-04-rs-input-precheck-v1.sh` | `9b304fe33e9d64b1f6e3422a337e5d210471748001791c0ee7bdf345e2971ce2` |
+| `/home/dev/gdds-be-ad-04-compare-four-v1.sh` | `d2bb31f6561142e4c335607776b616594e1cbe39175b8591c206646398c7c7ac` |
+| `/home/dev/gdds-be-ad-04-resume-authority-v1.sh` | `07ef6da40042512e232d4e72a5c45529178d3ff8de6e23471fa957c9d8fa8507` |
+| `/home/dev/gdds-be-ad-04-copy-new-provenance-v1.py` | `2001054e459746b4a03cd497bca770c707cdf7ffe2157458037c7a8a0f645b27` |
+
+方案A固定49403/同04同WT；批准后先核原本人marker/现场/cleanHEAD及五SHA，LAN安装到原artifact root对应新文件名（collector名 `identity-collector-v2.py`），原bash guard不变。每步都用该guard完整49403、唯一run目录/原exit/前后clean+owner；创建唯一 `resume-a-XXXXXXXX` 数据目录。先预核现RS130674的candidate49403/build-inputa687/source13cb/lock6dc并按**该不可变ID**保存原config/全部DiffID。四包rust/shared/contracts/client在同原profile、逐包原Hypothesis绝对路径且不存在的前提下实际manifest compare DTW原0来源；必须解析status，只有“可沿用”才可引用，“运行”并入待执行包，不预判。
+
+随后实际authority子集最小backend+RS，若上述其它包有真实差异按规则纳入；保持原profile：UV/Cargo offline、TMPDIR、Cargo4、pytest48、preload d054/networknone、现自定义RS tag、client base不变，prebuilt/basetemp unset。wrapper打印原runner_exit，运行前后RS输入ID必须保持130674；任何真失败/身份变化均停。RS candidate已一致避免后段同因重建；不恢复旧tag/换default tag凑等价，不重写起始manifest。
+
+新postcopy只使用**该新guard**实际HEAD49403/原0/起止awareUTC、源mtime epoch落新区间、resolve去重后的新schema和current provenance；唯一原bytes副本/SHA，禁止旧q57/旧时间替换。collector只按该阶段原snapshot内immutable image ID inspect/save，保存原config/allDiffID，新唯一phase文件/awareUTC，不拿终态tag替代旧runtime。新路径/UTC由批准后实际guard产生再原审核，不预造未来值。全部原失败/缺口保留；方案A批准后仍不宣称旧RS原件已补回，只用新的合法验证结果闭合当前绑定。方案B则保留pending交接并按Owner授权清理释放04，不再补验；两者都不自动办理DC33/FE3/exit/tag/push/S3。

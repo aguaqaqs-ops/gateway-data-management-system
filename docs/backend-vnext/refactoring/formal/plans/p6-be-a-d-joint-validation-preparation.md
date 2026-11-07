@@ -100,6 +100,10 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 同49403逐项extension核/三原owner两marker-n4/n0（真空5=N/A）/backend ruff+mypy/唯一Submit removes_deleted Compose，prebuilt及BASETemp unset、base preload/networknone不变；RS复用本任务a999tag，源码a687/13cb未变，backend/worker正常当前build。任失败先停原审处理；全部通过后同49403直接新六包，不因后继纯docs提交再改测试WT或重复05。当前仅已开始诊断，未报新权威通过。
 
+修复实际补验：三owner非serial **66 passed**（13:03:22–34Z），`run-audit-owner-focused-6Wj1fzDF` log SHA=`f4a1ccb21e02c8e7de47096a49eb725f277aa372857ecb04072a0e097660be69`；serial66deselected/原exit5=N/A，`run-audit-owner-serial-HWIvxAoB` log SHA=`fff0e3fbfcc3990313d4c84864e35b88bd483bf46a90292ab4e18ae2e801ba06`。extension input0、backendruff0/mypy516files0。唯一共用Submit removes_deleted实际Compose **1 passed / 52.67s / 13:05:21Z command/final0**，`run-resolution-compose-cgJnj4OW` log SHA=`b9ea0e253ecbcdd0d671d00e2941a54645db1b7806f37783643e599bd4da2f9e`，end49403clean/owner真；backend/worker按当前source正常build。此真实复现补合法双subject→Archive路径，不称自然05已覆盖新增双subject分支。
+
+全部必要诊断通过后，同49403于**13:06:41Z**正式启动最终六包 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/run-authority-six-final-DTWWhQP4`，48workers及所有已审离线/base env不变，没有切源、重复05或增加角色。当前执行中，原failed run独立保留，不报最终GO。
+
 ## 9. 最终核收待填
 
 原实际产品tree0301，两test修订后tree220ba5尚待全失败闭环；04 workers48/六包及Compose、05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。当前04有失败，不具最终GO；尚无合格最终六manifest闭包、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

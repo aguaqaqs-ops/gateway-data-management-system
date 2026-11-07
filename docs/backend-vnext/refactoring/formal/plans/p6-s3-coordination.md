@@ -16,8 +16,9 @@
 
 | 节 | 实施者 | 独立审核者 | 测试执行者 | 状态 |
 | --- | --- | --- | --- | --- |
-| A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | 候选 `4d5a4b0d98ee` 在 06 验证中，待原审核证，不预记 GO |
-| B–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
+| A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
+| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | A 核收后已直接启动，待实施候选 |
+| C–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
 
@@ -31,7 +32,7 @@ A 只跑 06 Contract/focused 及适用静态检查；不跑完整 runner、全�
 
 ## 4. 仍待实际交付的事项
 
-当前尚无 A–E 实施 GO、S3 产品 V、最终 H 或 S3 门禁结果。三视图完整摘要、风险上限重放、Arrow schema/raw golden、实际消费者迁移、预算 owner 与 FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除均须逐节交付，不能用设计复审替代。
+A 已完成接口与独立预期准备并获独立 GO；B–E 尚未完成，当前没有 S3 最终产品 V、最终 H 或 S3 门禁结果。三视图完整摘要实现、风险上限重放、Arrow schema/raw golden、实际消费者迁移、预算 owner 与 FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除均须后续逐节交付，不能用设计复审或 A 准备结果替代。
 
 最终预计 rust/backend 受影响；其他包须实际闭包判定，不能口头 carried。阶段最终容器结果需实际绑定；runner 已执行的 Compose 不重复。最终真实范围拟按 kickoff：替换期 t1–t4 逐表差分，05 fresh t1–t3 功能旅程，t4 功能/容量及 W3/W4 根据 CT108 现场安排；退出前向 Owner 提交具体证据、沿用条件与待补项作 DC33 确认。S2b 的 06 全旅程用途例外不继承。
 
@@ -46,3 +47,13 @@ W3/W4 的 MO、FULL、W4 约 10% 混合变化和每表 100% 压力档、1 预热
 06 测试者在 17:36:52Z 现场复核空闲后原子取得 `session=p6-s3-a-test-4d5a4b0d98ee` 标记，经 LAN bundle 同步候选并建立新 detached worktree，按 [A 交接 §4](p6-s3-a-contract-handoff.md#4-验证与边界) 执行 focused、三份 Rust 既有 Parquet 向量和五包 Ruff/mypy。当前没有结果，不能将预检或静态审核记成测试 PASS。测试期 main 的其他文档提交不改变被测 worktree。
 
 A 容器决策为 rebuild=no：仅 Contract/交接与纯测试，未触容器边界；本节容器状态 deferred，不宣称当前候选通过或 carried，最近 BE-a/d image/product 来源只作历史引用。B/C/D 的生产接入及最终容器验证仍按规则进行。
+
+### A 最终核收与 B 启动
+
+A 实测 V=`4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec`，交接 H=`b8c0697df2be6629fb62ef75abc68396e36206bc`（仅文档，`vnext` tree 同 V）；原审核者最终报告 **`f28c89eff5ac1e653facb21229c3b5a7d281f971`，A GO**。A-F1/F2 均关闭，无本节剩余 finding。具体接口、消费者、断言移交与原件见 [A handoff §5](p6-s3-a-contract-handoff.md#5-a-轮验证与交接记录) 和 [A 独审末节](p6-s3-a-review.md)。
+
+06 focused Shared Kernel 132 / backend 40 / Rust 固定 Parquet 3 项、五包 Ruff/mypy 十项全部原 exit0，由原审从节点原件独核。最终索引为 `evidence-index.tsv` SHA256=`86974f17672252e85377d92f3ef41474e7ac149faa9ef66cbc3c87f447130093`；原失败、更正及事后完整 argv 补录均保留，不把补录称为事前脚本。两次无副作用自身命令错误不是产品测试失败：backend sync 前误用旧 Rust tree 的断言，及命令补录生成的 heredoc delimiter 碰撞。候选实际 Rust tree 与已安装扩展 build input 均为 `e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`；无 cache miss。
+
+06 本人标记于 **17:56:56Z** 释放，release log SHA256=`ab398f9a814e915d288d55c867c9c529885af8985580b1b0f1714f339e39f905`。原审现场另核无标记/测试进程/容器/8000；候选 WT 与证据保留，A 三角色正常结束，无后台或节点占用。A 没有运行真实数据或性能，也没有切生产路由。
+
+协调依本轮连续授权直接新建 B 实施/独审/测试三角色，加协调者仍为四槽。B 仅共用比较内核、单侧 ordered 摘要和对应差分/资源边界；先由实施者明确文件归属与内部 API，再固定候选并由唯一测试者在 06 执行。原审为复杂语义/摘要/资源边界使用 Owner 已允许的 Sol max。C/D/E 与 DC33 最终确认仍按原次序，不因 A GO 自动完成。

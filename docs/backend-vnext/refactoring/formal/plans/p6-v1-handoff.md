@@ -1,5 +1,7 @@
 # V1 时间与内容事实交接
 
+当前状态：F5授权读取顺序补验已完成，固定产品候选为`c229582a9e`，实际证据与释放见§7；§3–§6保留先前84bad候选的历史记录，不再以其旧GO代替F5终审。
+
 2026-11-07。实施起点 `72bb929b1f22b17ace85a803ce76a5e9a7b5752a`（A1独审 `c1ee962755` 后的协调文档提交）；清单在产品写入前固定。仅V1，不交付V2规则/审核/关闭或D传输，不推送。
 
 ## 1. 精确字段、版本与owner（实施前清单）
@@ -115,3 +117,44 @@ V1事实提取/完整内容身份/冻结链已交付候选与06证据；V2继续
 联合最终仍**延期到04**实际受影响包权威runner与联合候选所需Compose（按闭包规则判断未变包，不引用本节focused冒充runner）；**05**一次fresh t1 FULL/MODIFIED_ONLY、Submit/Review/Archive、Preview/History完整tar及必要小型异常wiring。具体入口为`vnext/scripts/run-tests.sh`及`vnext/backend/benchmarks/real_dump_journey.py`的联合授权范围，04/05精确组合由联合候选工作单固定；本节精确最小容器nodeid已在§5列出。不办理联合exit、不宣称归档业务核验/V2、tar/D或FE3完成，不延用S2b的06真实完整旅程特许。无剩余产品Finding或缓存阻塞，最终GO由同一独审报告确认。
 
 04联合runner中尚未在本节实际执行的容器owner精确nodeid为：`tests/test_submit_compose_e2e.py::test_compose_three_process_submit_stack_smoke_and_backend_restart`、`tests/test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables`、`tests/test_review_compose_e2e.py::test_compose_submit_to_review_approve_journey`、`tests/test_review_compose_e2e.py::test_compose_self_only_submit_withdraw_and_upload_again`、`tests/test_archive_compose_e2e.py::test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect`、`tests/test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart`。它们在联合最终所选包runner中执行后不再单独重复。05真实入口为`vnext/backend/benchmarks/real_dump_journey.py --tier t1 --scope full`（D按目标tar修consumer后运行；输入/项目等环境参数沿联合kickoff固定）。没有提前把当前focused或A1旧容器结果当作这些联合最终结果。
+
+
+## 7. F5授权读取顺序收口（取代旧GO状态）
+
+原独审在84bad后确认：新ConfigurationFacts完整decode早于target exact scope/created_by校验，坏facts或source refs可抢在既定404前失败。沿既有A1授权边界最小修复，不新增权限、状态或安全框架：`d7c1b8d82e885787e4a39672e752ef4e7ef7f845`先固定scope读取；`c229582a9e72a591cf00a70de526b1b0792c1c18`恢复Review既定完整性响应。当前产品候选为后者，`vnext` tree=`954caffe70c00c9268cd026477298a73f8e47976`；Rust tree仍为`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`。后续本页补证仅docs，不改变产品/镜像输入。
+
+Review同UoW先读持久最小`SubmissionAccessBinding(workspace_id,repository_id,created_by)`，完成当前permission/fresh mapping/exact scope/self-only creator授权后才解完整Submission facts与源绑定；最小binding不替代最终完整模型。授权后full getter已知数据decode/绑定错误，及cross-target existing-key的内部权威引用损坏，窄转换为既有`ReviewIntegrityFailure`→HTTP503 `SERVICE_NOT_READY`，不披露raw row；正常跨目标key仍409。Attempt/Submission点读、SUBMIT Operation以及Preview点读先授权URL workspace/current mapping，再以SQL WHERE workspace+repository过滤目标，mapper只解已绑定目标。Submit受理caller preview_id在HTTP预读和application同样scoped。无权foreign/missing均404；缺permission在业务对象读取前403。其余已授权损坏向量只证明原domain硬拒绝，未宣称新增统一HTTP503分类。生产/facade/fake端口同步；DTO/OpenAPI、DDL、facts/job/checkpoint版本与golden本次均未变。
+
+### 7.1 定向验证与证据
+
+执行节点仍`ct107-gw-dms-06`/`gw-dms-06`。09:26:57Z现场核空闲后原子取得本节marker，09:36:28Z清理并核owner后释放；新独立clean detached WT=`/home/dev/gdds-test-tmp/wt/p6-v1-f5`，最终停留c229。原A1及84bad WT/镜像/证据保留，未占用或清理他人资源。源码经LAN Git bundle/fetch到clean提交；全部编译/测试/lint只在06执行。
+
+新证据根`/home/dev/gdds-test-tmp/artifacts/p6-v1-f5/`；`evidence-index.json`含28份日志和9个sidecar/脚本的完整SHA、hostname、起止HEAD/UTC、argv、exit，SHA256=`e8d464785d53393c2403accda8ba4983a064264575d35699cdde6e29e57513a4`。本机只读索引/镜像/provenance/释放副本在`/home/dev/gdds-v1-f5-evidence/`。以下除明确空串行批次外均exit0：
+
+| 实际候选/结果 | UTC起止 | 日志 | SHA256 |
+| --- | --- | --- | --- |
+| d7受影响非serial358 | 2026-11-07T09:29:17Z–2026-11-07T09:29:42Z | `f5-focused-d7c1b8d82e.log` | `b0ecd2a22eacec1210ebc6e2eb41644b54564d6301ab4aa418971b56d993d236` |
+| d7受影响serial1 | 2026-11-07T09:29:42Z–2026-11-07T09:29:48Z | `f5-focused-serial-d7c1b8d82e.log` | `aed066f128fa476ab64313d2a5f5a438c90a13c1fa91ce574a499c538ab473e4` |
+| c229 Review非serial118 | 2026-11-07T09:33:59Z–2026-11-07T09:34:12Z | `review-focused-c229582a9e.log` | `db01e62834f105c48d1c2d96458c65ab6ec24f4249baa19b98973c32f3e9e8d0` |
+| c229 Review串行空批次N/A；118 deselected，实际exit5 | 2026-11-07T09:34:12Z–2026-11-07T09:34:13Z | `review-focused-serial-c229582a9e.log` | `b935f709e3f14963e67bd9d5a73674faff568d1bf664e78f58fc88a9024f8101` |
+| c229 fresh self-only Review Compose1 | 2026-11-07T09:34:47Z–2026-11-07T09:35:21Z | `compose-review-self-c229582a9e.log` | `99f4f63d33f9af5d17db9d495a9f6ad19ba9054a2485f2e67a641946e0b9671b` |
+
+每次pytest均经`vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync`，非serial为`pytest -n 4 -q --maxfail=5 -m '(not serial) or parallel_safe'`（c229为maxfail3），serial为`pytest -n 0 -q --maxfail=3 -m 'serial and not parallel_safe'`。d7精确文件为`test_review_http.py`、`test_submit_read_http.py`、`test_operation_http.py`、`test_preview_read_http.py`、`test_submit_http.py`、`test_submit_application.py`、`test_submit_transactions.py`、`test_preview_application.py`、`test_sqlite_submit_repository.py`、`test_sqlite_workspace_repository.py`、`test_review_transactions.py`、`test_production_wiring.py`、`test_architecture.py`，均在backend `tests/`。c229只补`test_review_http.py`、`test_review_transactions.py`、`test_review_persistence.py`。c229三文件无serial，exit5原日志保留并记N/A，不计通过、不重跑或补造serial。d7 serial1只作为其原文件范围实际覆盖。新HTTP共享向量仅missing_facts/source_binding两类；原owner证明404/permission-before-object403，Review实际授权503/no raw/no writes及正常跨key409，不复制权限矩阵。
+
+五包ruff/mypy在d7全部exit0（`{ruff,mypy}-{shared_kernel,repository_contracts,repository_client,backend,repository_service}-d7c1b8d82e.log`）；c229只改backend Review接线/测试，backend再次`ruff check .`与mypy通过504源文件，日志SHA分别`eeaafa5a96bec6a61478d48c27d9fbd45e3998f66e59906e05a0b363096ae8a9`、`8a22ad064d23d9e587f7dcfe78252742019b09f786de858e163074bcae42ea01`。d7新WT已offline强制`sync --reinstall-package gateway-compute-python`，build input=e6ac；c229未改Rust，不重复编译。两次`check-rust-extension-build-input.sh`均expected=installed=e6ac，c229日志SHA=`3182583318e9da9203e3c2ad1d1da2880dba09fd0b337f5936f512312e809ddc`。原Rust/业务golden及F1–F4证据保留，未为F5重跑全量runner或真实旅程。
+
+### 7.2 当前最小容器、缓存与释放
+
+Python授权边界变更本可先延期镜像；为本节最终候选绑定当前容器接线，c229在新WT以fresh项目/DB/卷、本机offline build运行既有`tests/test_review_compose_e2e.py::test_compose_self_only_submit_withdraw_and_upload_again`（`pytest -n 0 -q -s -m 'serial and not parallel_safe'`）。覆盖实际生产scoped facade/SQL读、self-only Review读/撤回及再次上传；未新建容器权限矩阵。保留Compose build，未设prebuilt。dependency input仍d054，日志`dependency-input-c229582a9e.log` SHA=`7e4a47d959bb4ba6a15be1ee606272b511a071d2e6e1c855c94067890e296c81`；RS新tag `gateway-repository-service:v1-f5-c229582a9e`构建exit0，日志SHA=`9302818307274309cf06e50a8b8f5e3d9407a068793604592742ee7bb69334b8`。
+
+`review-self-provenance-c229582a9e.json` SHA=`6940d7b6cf1ce5155520e970c8f49d86fed916224162904adf6efb38ba9ab236`；`image-identities-c229582a9e.json` SHA=`cafb565752514e0328764c0c5d750634005f7f38e7a61c9bb97b0e5d1a8195cd`。后者由docker save实际config核出config digest及全部RootFS DiffID，包含三个service和三个dependency base；并非将本机inspect ID当跨节点config identity。
+
+| 当前service | config digest | 全部DiffID数量（完整列表见JSON） |
+| --- | --- | --- |
+| backend | `sha256:7c006bc1b93f925709fbed8d67a4e0af61e5c2015dd07109a4c799cbc3163443` | 13 |
+| worker | `sha256:9c480f9d4792bbb952cf538ccc9c1db2a43f392df7b1e8a05ab6677724566d40` | 13 |
+| RS v1-f5-c229582a9e | `sha256:07193eb2efc33d10af22bf11d496bbcf19eec30d0aef29185dab05896ec25f63` | 28 |
+
+backend/worker绑定clean HEADc229 fresh build与harness运行/构建镜像等式；RS revision=c229，build-input revision仍`a6876d560050285321fd9f62942d590a03f35d64`、source-tree仍`sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。三个dependency base config/全部DiffID均与§5一致。缓存仍为06既有本地预填uv/Rust/Docker，来源提交/摘要/预填时间沿§5和readiness；无依赖、lock或base变化，无新依赖制品传输，无公网访问/转发代理。显式`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`、Cargo jobs4、WT外原Cargo target，PATH及unset RUSTUP/CARGO_HOME/大小写proxy沿§4；Compose env预置dependency开关/tag与`GATEWAY_DOCKER_BUILD_NETWORK=none`沿§5。
+
+Compose已正常down -v/remove-orphans，project=`gateway-review-s5-294147-test_compose_self_only_submit_0`的容器/卷/网络均空，8000无监听，无Dolt/pytest/cargo/rustc进程，WT clean。owner核对后09:36:28Z释放；`node-release-c229582a9e.log` SHA=`0955f25645ed9066cebb00108816871c55a057e1604d28538a4499262ac68d60`。WT、镜像、原始日志和旧证据均保留。F5代码与证据已交原独审闭环；旧3dd GO被本轮追加终审取代，不提前宣称本节退出。04联合runner/其余Compose、05 fresh t1及V2/D/前端范围仍按§6延期；本节06 self-only Review结果只声明此候选实际补验，不冒充联合最终runner。V2继续按a24保存逐侧原身份，合法版本差异不扩大为整批硬拒绝。

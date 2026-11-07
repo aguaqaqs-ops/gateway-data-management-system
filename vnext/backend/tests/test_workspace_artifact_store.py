@@ -54,7 +54,7 @@ def test_put_stream_publishes_exact_ref_and_verifies_read_back(tmp_path: Path) -
 def test_ref_lookup_rejects_an_unknown_artifact_id(tmp_path: Path) -> None:
     store = BoundedArtifactStore(LocalArtifactStore(tmp_path / "artifacts"))
 
-    with pytest.raises(ManifestVerificationError, match="unknown artifact_id"):
+    with pytest.raises(ManifestVerificationError, match="artifact ref is not available"):
         store.get_ref("missing-artifact")
 
 

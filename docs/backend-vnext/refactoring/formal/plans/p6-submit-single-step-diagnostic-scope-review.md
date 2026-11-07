@@ -2707,10 +2707,10 @@ core配套 `derived-core-operations-0cbf/source-index-prepared.json` 1356B、SHA
 
 首次inspect派生曾把containerd本机manifest-list ID写成config digest；原 `image-identity-inspect-attempt1.json` SHA **`b1639e94ca476c691d175c37afecf15968e701195b05bfc17195dded9c7a6473`** 保留且被最终JSON明确supersede，未冒称首版正确。后续只读归档纠正，未重建镜像或重跑业务；两种digest在本结论中严格分开。已直接通知实施者可沿原授权继续backend manifest/最终门禁，另提醒旧backend-only失败的RS host .venv前提须在runner前实际准备；不新增测试轮次或GO。本PASS不把新04镜像替换为CT108正式测量镜像，STRESS及旧快照均未触碰。
 
-## 121. CT201 backend/worker预构建两次自身命令失败，DC68停止该步骤
+## 121. CT201 backend/worker预构建两次自身命令失败，留证并沿普通准备授权最小修正
 
-**实施者已停止CT201 backend/worker预构建，没有第三次启动；本审核确认停止范围限于该构建步骤，04 RS身份PASS及在途CT108压力不撤销。** 这是AGENTS.md DC68所写“重做再次失败……均停止交owner”的实际重复失败，不是新增镜像/测试GO要求或产品失败判定。Owner先前普通修正直接闭环的授权不被用来重置本次重做次数。仍可准备具体修正文本及保全原件，不能先执行第三次再补处置。
+**停止原错误命令、保留两次失败是正确的，但本次普通构建准备不应再次等待Owner。** 本节初稿提交8acf8595de曾机械套用旧DC68次数限制并要求停该步骤等Owner，属审核判断错误，现明确更正。已直接重核[接续计划“普通准备命令与派生日志封口”](p6-baseline-post-gc-resume-plan.md)及Owner连续完成授权，并与本报告§88/97的已核c58授权交叉一致：低风险准备命令留证、查因、最小修正后直接继续，不按累计次数再等Owner；此前失败事实不撤销、不重置或删除。已立即撤回对实施者的等待要求，普通包装修复沿原授权接续，无新GO。04 RS身份PASS及在途CT108压力保持，实际产品/身份/输入/资源异常与权威runner失败规则不放宽。
 
 本审核直接读并重算CT201 `/home/dev/gdds-p6-logs/baseline/preflight/p6-vref-fcc827-ct201/` 原件：18:50:47Z的backend-worker-build-preflight-final.log 283B、SHA **`d0fa892dee3ac4be79dde17705f701a578b91894bb4437ba24bc155e45ede1a2`** 在clean fcc上因当前vnext/目录内再引用vnext/backend/Dockerfile报No such file；18:51:24Z的backend-worker-build-preflight-corrected.log 961B、SHA **`3235bf319ab6a506d2e1e349e8157f72d6242388a2c765f78eddeadce905693e`** 已核正确路径、候选vnext tree f7cee1856bb6927bf53faede412eb90833690e5d、两base镜像及候选两tag不存在、proxy变量未设。后续包装命令又在Bash解析阶段失败，实施者落盘backend-worker-build-launch-error-20261107.log 763B、SHA **`a15d12db62ee00bbe132299219e73a4661fc3c3a345bf47bc709ca4f2413cdcb`**，记unexpected EOF while looking for matching单引号，attempt=2、Docker build未开始。该文件是失败整理记录，不冒充完整原始stderr或已独立定位具体引号源行；已要求交原包装命令/脚本和原失败输出。
 
-审核者另外只读当前CT201 Docker元数据，p6vref-fcc827-gate-backend:latest与p6vref-fcc827-gate-worker:latest均返回No such image，与未产出候选镜像相符；没有执行build、tag或测试。建议修正固定工作目录/绝对路径，并把原构建命令保存为独立脚本文件，移除多层嵌套引号的-c包装，先交可审文本及必要静态准备；精确候选、Dockerfile、完整vnext context、既有pre-exit整镜像流程和输出新tag不变。准备文本不等于授权恢复执行。已通知设计协调者此重复失败例外；STRESS原运行及其他独立取证准备继续，旧卷/证据不清理，最终04 runner尚未启动。
+审核者另外只读当前CT201 Docker元数据，p6vref-fcc827-gate-backend:latest与p6vref-fcc827-gate-worker:latest均返回No such image，与未产出候选镜像相符；没有执行build、tag或测试。建议修正固定工作目录/绝对路径，并把原构建命令保存为独立脚本文件，移除多层嵌套引号的-c包装，交可审文本及必要语法结果以验证具体修正；精确候选、Dockerfile、完整vnext context、既有pre-exit整镜像流程和输出新tag不变。此核验不成为新的摘要/GO前置，具体修正成立即可沿原授权构建。设计协调者已指出适用条款，审核者亦独立核原文并完成上述纠正；STRESS原运行及其他独立取证准备继续，旧卷/证据不清理，最终04 runner尚未启动。

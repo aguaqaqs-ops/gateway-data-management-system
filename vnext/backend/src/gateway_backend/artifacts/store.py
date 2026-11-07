@@ -36,6 +36,18 @@ class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
 
 
+class ArtifactUnavailableError(ManifestVerificationError):
+    """An exact stored artifact is missing or cannot be read."""
+
+
+class ArtifactStreamingStorePort(ArtifactRefLookupPort, Protocol):
+    def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
+        """Read one safe ordinary file in bounded chunks, verifying exact identity."""
+
+    def read_session(self) -> ContextManager[None]:
+        """Keep cooperative cleanup out until the caller closes its read session."""
+
+
 class InMemoryArtifactStore:
     """Hermetic store; provider/root never enters artifact identity."""
 

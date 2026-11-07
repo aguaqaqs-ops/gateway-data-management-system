@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
+from gateway_backend.artifacts.store import ArtifactUnavailableError
+from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
@@ -144,7 +148,7 @@ def read_compare_bundle(
     bundle_reader: BundleReaderPort,
     unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
-) -> tuple[str, object]:
+) -> PreparedBundleDownload:
     if operation.status is not OperationStatus.SUCCEEDED:
         raise ApiError(
             code="RESOURCE_NOT_FOUND",
@@ -157,12 +161,18 @@ def read_compare_bundle(
         artifact_store=artifact_store,
     )
     try:
-        return bundle_reader.read_bundle(bundle_artifact_id)
-    except KeyError:
+        return bundle_reader.prepare_bundle(bundle_artifact_id)
+    except ArtifactUnavailableError:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
             message="bundle is not available",
             status_code=404,
+        ) from None
+    except BundleIntegrityError:
+        raise ApiError(
+            code="BUNDLE_INTEGRITY_FAILURE",
+            message="bundle failed integrity verification",
+            status_code=503,
         ) from None
 
 

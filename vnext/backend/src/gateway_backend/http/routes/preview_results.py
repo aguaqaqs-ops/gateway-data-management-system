@@ -14,6 +14,7 @@ from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_wor
 from gateway_backend.http.mappers import preview_result_to_response
 from gateway_backend.http.orchestration.bundle_stream import stream_preview_bundle
 from gateway_backend.http.schemas.preview import PreviewResultResponse
+from gateway_backend.http.bundle_response import BundleStreamingResponse
 
 router = APIRouter(tags=["preview-results"])
 
@@ -46,18 +47,24 @@ def get_preview_result_route(
 
 @router.get(
     "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    response_class=StreamingResponse,
     responses={
         200: {
             "description": (
                 "Preview bundle. Per-table surface diagnostics_summary may contain the informational "
                 "KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility."
             ),
-            "content": {"application/octet-stream": {}},
+            "content": {"application/x-tar": {}},
+            "headers": {
+                "Content-Length": {"schema": {"type": "integer"}, "description": "Exact complete tar byte count"},
+                "ETag": {"schema": {"type": "string"}, "description": "Quoted bundle digest"},
+                "Content-Disposition": {"schema": {"type": "string"}, "description": "Safe attachment tar filename"},
+            },
         },
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND"},
-        503: {"description": "SERVICE_NOT_READY"},
+        503: {"description": "SERVICE_NOT_READY, BUNDLE_INTEGRITY_FAILURE"},
     },
 )
 def read_preview_bundle_route(
@@ -66,7 +73,7 @@ def read_preview_bundle_route(
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> StreamingResponse:
-    logical_name, stream = stream_preview_bundle(
+    prepared = stream_preview_bundle(
         context=context,
         workspace_id=workspace_id,
         preview_result_id=preview_result_id,
@@ -74,8 +81,4 @@ def read_preview_bundle_route(
         baseline_head_read=deps.baseline_head_read,
         bundle_reader=deps.bundle_reader,
     )
-    return StreamingResponse(
-        stream,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{logical_name}"'},
-    )
+    return BundleStreamingResponse(prepared)

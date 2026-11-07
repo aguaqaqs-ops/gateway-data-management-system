@@ -104,16 +104,12 @@ class BoundedArtifactStore:
         return published
 
     def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
-        target, _sidecar = self._local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
-        stored = self._local_store._load_stored_ref(ref.artifact_id)  # noqa: SLF001
-        if stored != ref:
-            raise ManifestVerificationError("stored artifact identity mismatch")
-        with target.open("rb") as handle:
-            while True:
-                chunk = handle.read(_STREAM_CHUNK_SIZE)
-                if not chunk:
-                    break
-                yield chunk
+        return self._local_store.read_exact(ref)
+
+    @contextmanager
+    def read_session(self) -> Iterator[None]:
+        with self._local_store.read_session():
+            yield
 
     def verify_readable(
         self,
@@ -173,6 +169,16 @@ class BoundedArtifactStore:
         *,
         expected_classification: CleanupClassification,
         now: datetime,
+    ) -> DeleteDisposition:
+        with self._local_store.cleanup_session() as acquired:
+            if not acquired:
+                return DeleteDisposition.RETRYABLE_FAILURE
+            return self._delete_eligible_locked(
+                ref, expected_classification=expected_classification, now=now,
+            )
+
+    def _delete_eligible_locked(
+        self, ref: ArtifactRef, *, expected_classification: CleanupClassification, now: datetime,
     ) -> DeleteDisposition:
         decision = self.classify_cleanup(ref, now)
         if decision.classification is CleanupClassification.PROTECTED:

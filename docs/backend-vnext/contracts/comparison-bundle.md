@@ -164,6 +164,42 @@ TableAliasMapping:
 - `CANONICAL` 只能来自 FINAL summary / repository readback，可被 history compare、archive 和正式 cache 消费。
 - Alias mapping 是正式 bundle/display contract，不得包含 host path、cache-local ref、debug registry 或 repository internal ref。
 
+## 完整 tar 传输
+
+Preview `/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle` 和 History
+`/v1/history-compares/{operation_id}/bundle` 成功时只返回一次完整、不压缩 POSIX tar，媒体类型
+`application/x-tar`。普通文件顺序固定为原发布 `manifest.json`、原发布 `artifact-closure.json`、
+最终 closure 的每个 entry 按原顺序各一个 `logical_path` 文件。PAX 扩展头只是 tar 编码，不是业务
+成员；不添加其他业务成员，不使用 hardlink/symlink，不在下载层按 source ref/hash 再去重。
+assembler 已合并成一个 entry 的共享产物只发一次；同一 ref 若由最终 closure 声明为两个合法
+不同路径，则两个普通文件都发。保留 metadata 路径、绝对路径、空段、`.`/`..`、NUL、反斜线、
+重复/冲突路径及非普通文件均拒绝。
+
+`Content-Length` 是全部 header、PAX、padding、成员及两个512字节零结束块的精确字节数；不加
+record padding。`ETag` 是用 HTTP 双引号包裹的 bundle digest，安全 attachment filename 为
+`bundle-<bundle digest hex>.tar`。uid/gid/mtime=0、mode=0644、uname/gname为空。长路径或
+非 ASCII 路径使用局部 PAX `path` 保留 UTF-8 原值；size 超出11位 octal 时使用标准 PAX
+decimal `size`，不缩小 ArtifactRef 的 I-JSON size 范围。PAX `<length> <key>=<value>\n`
+的 length 按整条 UTF-8 字节数计算到固定点，包括其前缀自身；例如 `12 path=中\n` 为12字节。
+
+当前权限、exact scope、readiness/TTL 检查先于 artifact 读取。同步 `prepare_bundle` 在响应头
+前实际读回并验证 manifest、原 closure 和所有成员：canonical metadata/版本、semantic digest、
+ref/size/raw SHA、JSON metadata 引用闭合及安全普通文件。缺失/不可读保持 Preview 404
+`RESOURCE_NOT_FOUND`、History 404 `ARTIFACT_UNAVAILABLE`；矛盾、损坏、非法路径/文件类型等
+窄完整性错误为503 `BUNDLE_INTEGRITY_FAILURE`，不披露 server path 或业务行。其他鉴权/状态
+错误沿各 owning HTTP Contract，不能统一包装成404或空 tar。
+
+prepare 返回明确的 digest、准确长度、quoted ETag、安全 filename、stream 和幂等 close。
+Local artifact 公开 bounded read session 在已有 root 目录 FD 上持共享 flock；协作 cleanup 在
+同目录排他非阻塞 flock 内重查 eligibility，读流仍活动时返回 retryable。无新 lock 文件或
+durable 下载状态；ADR0012 的可信协作边界不变。准备失败、未开始迭代的响应、正常结束、异常、
+断连和取消均释放借用及当前文件。头后 I/O 失败中断，不补 padding 或成功结束块；预检不保证
+后续 I/O 永不失效。
+
+每次只打开当前成员，root借用 FD 与 artifact FD 合计≤2；无 mmap 或全包 bytes。工作 chunk
+≤64 KiB，PAX 路径按片段编码。manifest / closure 各沿原16 MiB JSON上限；原字节、临时验证
+字节及 parsed metadata/index 单独按这些 metadata 上限计账，不能把任意产物装入内存冒称流式。
+
 ## 建议 Layout
 
 ```text

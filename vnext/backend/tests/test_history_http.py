@@ -392,7 +392,7 @@ def _register_history_compare_bundle(
             assert isinstance(bundle_reader, InMemoryBundleReader)
             bundle_reader.register(
                 bundle_artifact_id,
-                f"history-compare-{operation_id}.bundle",
+                f"history-compare-{operation_id}.tar",
                 payload,
             )
             return
@@ -759,10 +759,9 @@ def test_get_history_compare_bundle_streams_attachment(db_path: Path, tmp_path: 
     )
     assert response.status_code == 200
     assert response.content
-    assert (
-        response.headers["content-disposition"]
-        == f'attachment; filename="history-compare-{operation_id}.bundle"'
-    )
+    assert response.headers["content-type"] == "application/x-tar"
+    assert len(response.content) == int(response.headers["content-length"])
+    assert response.headers["content-disposition"].endswith('.tar"')
 
 
 def test_get_history_compare_result_returns_queued_shape(db_path: Path, tmp_path: Path) -> None:
@@ -1134,10 +1133,9 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     )
     assert response.status_code == 200
     assert response.content
-    assert (
-        response.headers["content-disposition"]
-        == f'attachment; filename="history-compare-{operation_id}.bundle"'
-    )
+    assert response.headers["content-type"] == "application/x-tar"
+    assert response.headers["content-disposition"].endswith('.tar"')
+    assert len(response.content) == int(response.headers["content-length"])
 
 
 def test_accept_history_compare_is_read_only(db_path: Path, tmp_path: Path) -> None:

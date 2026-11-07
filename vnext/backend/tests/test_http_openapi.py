@@ -52,6 +52,17 @@ def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient)
     assert "does not affect risk or submission eligibility" in response["description"]
 
 
+@pytest.mark.parametrize("path", (
+    "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    "/v1/history-compares/{operation_id}/bundle",
+))
+def test_bundle_openapi_declares_only_complete_tar(client: TestClient, path: str) -> None:
+    responses = client.get("/openapi.json").json()["paths"][path]["get"]["responses"]
+    assert set(responses["200"]["content"]) == {"application/x-tar"}
+    assert set(responses["200"]["headers"]) == {"Content-Length", "ETag", "Content-Disposition"}
+    assert "BUNDLE_INTEGRITY_FAILURE" in responses["503"]["description"]
+
+
 def test_openapi_operation_diagnostic_details_match_the_bounded_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()["components"]["schemas"]
     diagnostic = schema["OperationDiagnosticResponse"]

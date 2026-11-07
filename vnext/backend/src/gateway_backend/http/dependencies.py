@@ -20,6 +20,7 @@ from gateway_backend.application.submission.ports import (
     SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.application.workspace.ports import (
@@ -102,8 +103,8 @@ class FailClosedArtifactRefLookup:
 
 @runtime_checkable
 class BundleReaderPort(Protocol):
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
-        """Return logical bundle name and bounded byte stream."""
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
+        """Finish all preflight checks before returning an owned bounded tar stream."""
 
 
 class OpenAdmissionGate:

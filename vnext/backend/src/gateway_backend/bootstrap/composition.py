@@ -40,6 +40,7 @@ from gateway_backend.application.submission.contracts import SubmitImportPublica
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload, prepare_bundle_download
 from gateway_backend.domain.workspace.models import (
     PreviewAcceptanceRecord,
     PreviewResult,
@@ -157,13 +158,8 @@ class LocalArtifactBundleReader:
     def __init__(self, local_store: LocalArtifactStore) -> None:
         self._local_store = local_store
 
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
-        try:
-            ref = self._local_store._load_stored_ref(artifact_id)  # noqa: SLF001
-            payload = self._local_store.locate(ref)
-        except ManifestVerificationError:
-            raise KeyError(artifact_id) from None
-        return artifact_id, iter([payload])
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
+        return prepare_bundle_download(self._local_store, artifact_id)
 
 
 class LocalArtifactRefLookup:

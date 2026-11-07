@@ -29,7 +29,7 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 
 逐成员 prepare 与 send 均使用 64 KiB chunk；root 目录锁一个 FD、当前 artifact 一个 FD，同时最多两个活动句柄，mmap=0。metadata 原 manifest ≤16 MiB、closure ≤16 MiB，保留其原字节用于发送；其解析结构和 entry 索引为 O(metadata bytes) 有界内存，单文件工作 chunk 64 KiB，不能将整包 materialize。PAX body 只为一条路径构造，路径由受限 metadata 上界约束；发送按 ≤1 MiB 切片，handoff 后补实际代表性 chunk/FD 计数。
 
-自有确定性 POSIX ustar/PAX encoder：512-byte header，uid/gid/mtime=0，mode=0644，uname/gname 为空，普通文件 type=0；UTF-8 非 ASCII 或超出 ustar name/prefix 的路径使用一个局部 `path` PAX 扩展（type=x，固定非业务 header 名）。PAX length 按整条 UTF-8 bytes 固定点，字面向量 `12 path=中\n`。总长度与发送共用每 member 的 header/PAX plan，包含 padding 与两个 512-byte 零结束块，不增加 10 KiB record padding。固定小向量独立断言实际长度，Python tar reader 作为互通 consumer。
+自有确定性 POSIX ustar/PAX encoder：512-byte header，uid/gid/mtime=0，mode=0644，uname/gname 为空，普通文件 type=0；UTF-8 非 ASCII 或超出 ustar name 的路径使用局部 `path` PAX 扩展（type=x，固定非业务 header 名）。size 超11位octal使用标准 PAX decimal `size`（普通头size=0），保留ArtifactRef完整I-JSON范围；仅header/length小向量，不建大文件。PAX length 按整条 UTF-8 bytes 固定点，字面向量 `12 path=中\n`。路径逐16Ki code points编码，每块≤64KiB，不构造整条路径/PAX bytes。总长度与发送共用每 member 的 header/PAX plan，包含 padding 与两个 512-byte 零结束块，不增加 10 KiB record padding。固定小向量独立断言实际长度，Python tar reader 作为互通 consumer。
 
 ## 4. 精确文件与唯一测试 owner
 
@@ -40,7 +40,7 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 | tar header/length/PAX UTF-8 固定点、ASCII/中文/非BMP、相邻记录/位数边界/畸形 consumer 向量、每 closure entry 一个普通成员 | `tests/test_bundle_download.py`（新） |
 | metadata/ref/path/digest 预检，流中失败/未开始关闭/断连/cleanup 协作、64 KiB/2FD 代表性计数 | 同上；复用轻量真实 Local/Bounded store，不建 Dolt |
 | 两公开路由授权先行/状态/缺失/typed503、头与关闭接线 | 参数化 `tests/test_bundle_download_http.py`（新）；旧 `tests/test_preview_read_http.py`、`tests/test_history_http.py` 仅更新 fake port/格式断言 |
-| Preview MODIFIED_ONLY/FULL/replacement 与 History 两/三节点真实 job wiring、共享/异schema/空表/closure摘要 | 新 owner 复用 `tests/support/http_workspace_harness.py`、既有 preview/history job harness；既有 job/assembly owner不复制矩阵 |
+| Preview MODIFIED_ONLY/FULL/replacement 与 History 两/三节点真实 job wiring、共享/异schema/空表/closure摘要 | `tests/test_bundle_download_http.py`；复用 `tests/support/http_workspace_harness.py`、既有 preview/history job harness；既有 job/assembly owner不复制矩阵 |
 | OpenAPI 唯一媒体及 headers/错误声明 | `tests/test_http_openapi.py` |
 | 实际 FULL multipart 输入、双 pair default consumer、tar 全成员/各物理与逻辑摘要、GET完整时间/bytes只报告 | `tests/test_real_dump_journey.py` |
 | 当前容器实际下载 smoke 与 provenance | `tests/test_history_compose_e2e.py`（既有旅程加完整 tar 断言；候选收敛后一次） |

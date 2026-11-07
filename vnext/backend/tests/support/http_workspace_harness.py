@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.support.configuration_facts import preview_result_with_facts
 
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,8 @@ from gateway_backend.application.submission.job_payload import (
 )
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
+from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.bounded_store import (
     BoundedArtifactStorePort,
     CleanupClassification,
@@ -212,12 +215,16 @@ class InMemoryBundleReader:
     def register(self, artifact_id: str, logical_name: str, payload: bytes) -> None:
         self._bundles[artifact_id] = (logical_name, payload)
 
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
         try:
             logical_name, payload = self._bundles[artifact_id]
         except KeyError:
-            raise KeyError(artifact_id)
-        return logical_name, iter([payload])
+            raise ArtifactUnavailableError("bundle is not available") from None
+        digest = raw_blob_digest(payload).value
+        return PreparedBundleDownload(
+            bundle_digest=digest, content_length=len(payload), filename=logical_name,
+            etag=f'"{digest}"', stream=iter([payload]), _resources=ExitStack(),
+        )
 
 
 class SqliteWorkspaceRepositoryFacade:

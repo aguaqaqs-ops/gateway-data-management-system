@@ -59,4 +59,4 @@ History `archive_disposition`直接改名 `submission_disposition`（无旧别�
 
 当前 HEAD d0add6bd16；本提交仅清单文档，container rebuild required=no、本提交container gate=not-applicable；最后产品镜像证据为V1 c229（本节不冒充已验证）。V2收敛候选必须06 fresh最小Compose，04联合门禁延期到D后最终候选；无carried声明。
 
-Own​​ing 正文目标：`contracts/business-lifecycle-and-state.md`（6.0.0）、`plans/p5-5d-archive-design.md`（规则、digest v2、audit、Start/关闭与统一处置）、`plans/p5-5c-review-design.md`（closedness/Review摘要）、`plans/p5-5e-history-design.md`（统一处置与两读取入口/DTO）；Snapshot Materialization、Canonical Storage、Preview、Submit Contract 本节无新格式/算法改动（none），V1既定事实/schema/checkpoint版本保留。路径均相对本页的上级 formal 目录。
+Owning 正文目标：`contracts/business-lifecycle-and-state.md`（6.0.0）、`plans/p5-5d-archive-design.md`（规则、digest v2、audit、Start/关闭与统一处置）、`plans/p5-5c-review-design.md`（closedness/Review摘要）、`plans/p5-5e-history-compare-design.md`（统一处置与两读取入口/DTO）；Snapshot Materialization、Canonical Storage、Preview、Submit Contract 本节无新格式/算法改动（none），V1既定事实/schema/checkpoint版本保留。路径均相对本页的上级 formal 目录。

@@ -23,7 +23,7 @@ EXPECTED_TABLES = frozenset(
     {
         "archive_anomaly_resolution_events",
         "archive_confirmation_events",
-        "archive_disposition_records",
+        "submission_disposition_records",
         "archive_plan_records",
         "archive_result_records",
         "artifact_protection_intents",
@@ -55,8 +55,8 @@ EXPECTED_INDEXES = frozenset(
     {
         "archive_anomaly_resolution_events_subject",
         "archive_confirmation_events_subject",
-        "archive_disposition_records_one_selected_per_result",
-        "archive_disposition_records_result_id",
+        "submission_disposition_records_one_selected_per_result",
+        "submission_disposition_records_result_id",
         "archive_plan_records_start_key",
         "baseline_node_records_one_initial_per_repository",
         "baseline_node_records_repository_node",
@@ -78,7 +78,7 @@ ARCHIVE_TABLES = frozenset(
     {
         "archive_anomaly_resolution_events",
         "archive_confirmation_events",
-        "archive_disposition_records",
+        "submission_disposition_records",
         "archive_plan_records",
         "archive_result_records",
     }
@@ -182,7 +182,7 @@ def test_archive_tables_and_selected_disposition_index_are_created() -> None:
 
     assert {name for name in _object_names(connection, "table") if name.startswith("archive_")} == ARCHIVE_TABLES
     index_sql = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE name = 'archive_disposition_records_one_selected_per_result'"
+        "SELECT sql FROM sqlite_master WHERE name = 'submission_disposition_records_one_selected_per_result'"
     ).fetchone()[0]
     assert "WHERE disposition = 'ARCHIVED_BASELINE'" in index_sql
 

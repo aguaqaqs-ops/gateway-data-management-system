@@ -18,9 +18,11 @@ from gateway_backend.domain.archive.models import (
 from gateway_backend.domain.submission.review import ReviewStatus
 
 ARCHIVE_DIGEST_PREFIX = "gateway-vnext:archive:"
-ARCHIVE_DIGEST_VERSION = "v1"
+ARCHIVE_DIGEST_VERSION = "v2"
 ARCHIVE_MAX_CANDIDATES = 200
-ARCHIVE_MAX_AUDIT_REFS = 200
+ARCHIVE_MAX_CONFIRMATION_REFS = 1
+ARCHIVE_MAX_ANOMALY_REFS = 8 * ARCHIVE_MAX_CANDIDATES + 1
+ARCHIVE_MAX_SAFE_INTEGER = 9007199254740991
 ARCHIVE_MAX_REQUEST_BYTES = 256 * 1024
 ARCHIVE_ID_MIN_BYTES = 1
 ARCHIVE_ID_MAX_BYTES = 255
@@ -74,8 +76,8 @@ def validate_archive_digest(value: str, *, field_name: str) -> str:
 
 
 def validate_non_negative_int(value: int, *, field_name: str) -> int:
-    if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise ArchiveRequestValidation(f"{field_name} must be a non-negative integer")
+    if type(value) is not int or isinstance(value, bool) or not 0 <= value <= ARCHIVE_MAX_SAFE_INTEGER:
+        raise ArchiveRequestValidation(f"{field_name} must be a non-negative I-JSON safe integer")
     return value
 
 
@@ -128,6 +130,7 @@ def compute_candidate_digest(
     business_baseline_commit_id: str,
     repository_commit_id: str,
     canonical_business_digest: str,
+    configuration_facts_digest: str,
     canonicalization_manifest_ref: str,
     canonicalization_manifest_digest: str,
     source_artifact_refs: Sequence[str],
@@ -141,6 +144,7 @@ def compute_candidate_digest(
         "business_baseline_commit_id": business_baseline_commit_id,
         "business_project_id": business_project_id,
         "canonical_business_digest": canonical_business_digest,
+        "configuration_facts_digest": validate_archive_digest(configuration_facts_digest, field_name="configuration_facts_digest"),
         "canonicalization_manifest_digest": canonicalization_manifest_digest,
         "canonicalization_manifest_ref": canonicalization_manifest_ref,
         "completed_verification_policy": completed_verification_policy,
@@ -170,6 +174,8 @@ def compute_candidate_set_digest(
     baseline_commit_id: str,
     baseline_head_version: int,
     candidates: Sequence[ArchiveCandidateRef],
+    baseline_facts_digest: str | None,
+    business_rule_id: str,
 ) -> str:
     if len(candidates) > ARCHIVE_MAX_CANDIDATES:
         raise ValueError("candidate set exceeds supported limit")
@@ -187,6 +193,8 @@ def compute_candidate_set_digest(
     if len(set(submission_ids)) != len(submission_ids):
         raise ValueError("duplicate submission ids are not allowed")
     payload = {
+        "baseline_facts_digest": baseline_facts_digest,
+        "business_rule_id": business_rule_id,
         "baseline_commit_id": baseline_commit_id,
         "baseline_head_version": baseline_head_version,
         "baseline_node_id": baseline_node_id,
@@ -249,8 +257,10 @@ def compute_identity_exception_subject_digest(
     candidate_digest: str,
     preview_bundle_digest: str,
     assessment_set_digest: str,
+    selection_subject_digest: str,
 ) -> str:
     payload = {
+        "selection_subject_digest": validate_archive_digest(selection_subject_digest, field_name="selection_subject_digest"),
         "assessment_set_digest": validate_archive_digest(
             assessment_set_digest,
             field_name="assessment_set_digest",
@@ -377,10 +387,10 @@ def compute_start_request_fingerprint(
     confirmation_refs: Sequence[ArchiveAuditReferenceInput],
     anomaly_resolution_refs: Sequence[ArchiveAuditReferenceInput],
 ) -> str:
-    if len(confirmation_refs) > ARCHIVE_MAX_AUDIT_REFS:
-        raise ValueError("confirmation refs exceed supported limit")
-    if len(anomaly_resolution_refs) > ARCHIVE_MAX_AUDIT_REFS:
-        raise ValueError("anomaly resolution refs exceed supported limit")
+    if len(confirmation_refs) > ARCHIVE_MAX_CONFIRMATION_REFS:
+        raise ArchiveRequestValidation("confirmation refs exceed supported limit")
+    if len(anomaly_resolution_refs) > ARCHIVE_MAX_ANOMALY_REFS:
+        raise ArchiveRequestValidation("anomaly resolution refs exceed supported limit")
     confirmation_payload = tuple(
         {
             "sequence": validate_non_negative_int(ref.sequence, field_name="sequence"),
@@ -419,3 +429,17 @@ def compute_start_request_fingerprint(
 
 def review_status_to_archive_value(status: ReviewStatus) -> str:
     return status.value
+
+
+def compute_close_request_fingerprint(*, repository_id: str, gateway_device_external_key: str,
+        business_project_id: str, submission_id: str, expected_review_version: int,
+        expected_baseline_node_id: str, expected_baseline_head_version: int, reason: str) -> str:
+    return compute_archive_digest("close-request", {
+        "command_kind": "CLOSE", "repository_id": validate_utf8_id(repository_id, field_name="repository_id"),
+        "gateway_device_external_key": validate_utf8_id(gateway_device_external_key, field_name="gateway_device_external_key"),
+        "business_project_id": validate_utf8_id(business_project_id, field_name="business_project_id"),
+        "submission_id": validate_utf8_id(submission_id, field_name="submission_id"),
+        "expected_review_version": validate_non_negative_int(expected_review_version, field_name="expected_review_version"),
+        "expected_baseline_node_id": validate_utf8_id(expected_baseline_node_id, field_name="expected_baseline_node_id"),
+        "expected_baseline_head_version": validate_non_negative_int(expected_baseline_head_version, field_name="expected_baseline_head_version"),
+        "reason": validate_utf8_reason(reason)})

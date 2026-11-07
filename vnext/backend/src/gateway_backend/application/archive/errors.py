@@ -116,3 +116,10 @@ class ArchivePendingReview(ArchiveApplicationError):
 
     def __init__(self) -> None:
         super().__init__("current baseline has pending review submissions")
+
+
+class SubmissionClosureNotFound(ArchiveApplicationError):
+    stable_code = "RESOURCE_NOT_FOUND"
+
+    def __init__(self) -> None:
+        super().__init__("submission was not found")

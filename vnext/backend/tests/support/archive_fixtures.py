@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from tests.support.configuration_facts import configuration_facts_blob
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -88,7 +89,7 @@ def assert_archive_durable_state_unchanged(
             "SELECT COUNT(*) FROM archive_result_records"
         ).fetchone()[0]
         disposition_count = unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM archive_disposition_records"
+            "SELECT COUNT(*) FROM submission_disposition_records"
         ).fetchone()[0]
         head = get_current_head_from_connection(unit_of_work.connection, repository_id)
         assert plan_count == 0
@@ -136,6 +137,7 @@ def archive_seed_from_review_seed(review_seed: ReviewSeed) -> ArchiveSeed:
         review_seed.reviewer_context.gateway_device_external_key,
         review_seed.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(review_seed.db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(review_seed.db_path),
@@ -600,6 +602,7 @@ def seed_bulk_approved_archive_candidates(db_path: Path, *, count: int) -> Archi
             business_project_id=seed.archiver_context.business_project_id,
             additional_count=count - 1,
         )
+    normalize_archive_fixture_configuration(db_path)
     return seed
 
 
@@ -634,6 +637,7 @@ def seed_triple_approved_sibling_archive(
         primary_review.reviewer_context.gateway_device_external_key,
         primary_review.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(db_path),
@@ -689,6 +693,7 @@ def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:
         primary_review.reviewer_context.gateway_device_external_key,
         primary_review.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(db_path),
@@ -839,3 +844,24 @@ def prepare_dual_sibling_start(
         now=now,
     )
     return confirmation_sequence, resolution_sequence
+
+
+def normalize_archive_fixture_configuration(db_path: Path) -> None:
+    """Existing archive fixtures start at an INITIAL node and use valid source times."""
+    from gateway_backend.domain.configuration_facts import ConfigurationFacts, ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "VALID", "2024-06-01T12:00:00Z",
+        "2024-06-01T12:00:00Z", 1, 0, 0, 1, 1, False)
+    with ControlDbUnitOfWork(db_path) as uow:
+        rows = uow.connection.execute("""SELECT s.submission_id, s.submit_attempt_id, s.configuration_facts
+            FROM submission_records s JOIN baseline_node_records b ON b.node_id = s.based_on_baseline_node_id
+            WHERE b.kind = 'INITIAL'""").fetchall()
+        for row in rows:
+            facts = ConfigurationFacts.from_document(json.loads(row["configuration_facts"]))
+            facts = replace(facts, baseline_is_initial=True, baseline_source_submission_id=None, initial_origin="UPLOADED",
+                initial=replace(facts.initial, generated_time=time), modified=replace(facts.modified, generated_time=time))
+            blob = canonicalize_json_value(facts.to_document())
+            uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?",
+                (blob, row["submission_id"]))
+            uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
+                (blob, row["submit_attempt_id"]))

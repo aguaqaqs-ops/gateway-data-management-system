@@ -239,7 +239,7 @@ class SQLiteSubmissionRepository:
             FROM submission_records AS s
             LEFT JOIN review_projection_records AS p
                 ON s.submission_id = p.submission_id
-            LEFT JOIN archive_disposition_records AS d
+            LEFT JOIN submission_disposition_records AS d
                 ON s.submission_id = d.submission_id
             WHERE s.repository_id = ?
               AND s.based_on_baseline_node_id = ?

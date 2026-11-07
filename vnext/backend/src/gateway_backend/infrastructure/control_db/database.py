@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.domain.archive.models import SubmissionDisposition
+
 import sqlite3
 import time
 from collections.abc import Callable
@@ -286,6 +288,10 @@ class ControlDbUnitOfWork:
             gateway_device_external_key=gateway_device_external_key,
             business_project_id=business_project_id,
         )
+
+    def get_submission_disposition(self, submission_id: str) -> SubmissionDisposition | None:
+        records = self.archive.list_dispositions_for_submission(submission_id)
+        return records[0] if records else None
 
     def is_submission_closed(self, submission_id: str) -> bool:
         """Return whether one submission appears in any ArchiveResult disposition."""

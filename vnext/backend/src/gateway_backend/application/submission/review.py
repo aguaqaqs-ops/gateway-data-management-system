@@ -285,4 +285,5 @@ def get_review_facts(
             projection=facts.projection,
             events=facts.events,
             identity_confirmations=facts.submission.identity_confirmations,
+            submission_disposition=unit_of_work.get_submission_disposition(submission_id),
         )

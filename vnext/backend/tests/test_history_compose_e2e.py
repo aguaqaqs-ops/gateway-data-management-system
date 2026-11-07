@@ -530,8 +530,8 @@ def test_compose_history_compare_journey_zero_write_restart(
             node_a = _history_node_by_submission(all_nodes, str(journey_a["submission_id"]))
             node_b = _history_node_by_submission(all_nodes, str(journey_b["submission_id"]))
             node_c = _history_node_by_submission(all_nodes, str(journey_c["submission_id"]))
-            assert node_a["archive_disposition"] == "ARCHIVED_BASELINE"
-            assert node_b["archive_disposition"] == "CLOSED_NOT_ARCHIVED"
+            assert node_a["submission_disposition"] == "ARCHIVED_BASELINE"
+            assert node_b["submission_disposition"] == "CLOSED_NOT_ARCHIVED"
             assert node_a["promoted_baseline_node_id"] is not None
             assert node_a["commit_id"] == main_after_a
             assert node_b["commit_id"] == main_after_both

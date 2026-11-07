@@ -25,7 +25,7 @@ from gateway_backend.application.archive.start import StartArchiveCommand
 from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
-    ArchiveDispositionKind,
+    SubmissionDispositionKind,
     ArchiveSubjectKind,
 )
 from gateway_backend.domain.submission.models import (
@@ -549,7 +549,7 @@ def test_start_archive_persists_plan_result_head_and_releases_workspace(db_path:
         assert head.business_baseline_commit_id == result.baseline_commit_id
         disposition = unit_of_work.archive.list_dispositions_for_submission(seed.submission_id)
         assert len(disposition) == 1
-        assert disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
+        assert disposition[0].disposition is SubmissionDispositionKind.ARCHIVED_BASELINE
         submission = unit_of_work.submission.get_submission(seed.submission_id)
         assert submission is not None
         occupancy = unit_of_work.submission.get_workspace_occupancy(submission.workspace_id)
@@ -620,7 +620,7 @@ def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path
 
 
 def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.domain.archive.models import ArchiveDisposition, ArchivePlan, ArchiveResult
+    from gateway_backend.domain.archive.models import SubmissionDisposition, ArchivePlan, ArchiveResult
     from gateway_backend.infrastructure.control_db.sqlite_archive import SQLiteArchiveRepository
 
     seed = seed_approved_archive_candidate(db_path)
@@ -633,7 +633,7 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
         self: SQLiteArchiveRepository,
         plan: ArchivePlan,
         result: ArchiveResult,
-        dispositions: tuple[ArchiveDisposition, ...],
+        dispositions: tuple[SubmissionDisposition, ...],
     ) -> None:
         original_insert(self, plan, result, dispositions)
         raise RuntimeError("simulated late write failure")
@@ -702,8 +702,8 @@ def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> N
         sibling_disposition = unit_of_work.archive.list_dispositions_for_submission(
             dual_seed.target_submission_id
         )
-    assert primary_disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
-    assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED
+    assert primary_disposition[0].disposition is SubmissionDispositionKind.ARCHIVED_BASELINE
+    assert sibling_disposition[0].disposition is SubmissionDispositionKind.CLOSED_NOT_ARCHIVED
 
 
 def test_start_archive_prefers_active_attempt_over_candidate_set_conflict(

@@ -6,6 +6,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from gateway_backend.application.archive.manual_close import CloseSubmissionCommand, close_submission
 from gateway_backend.application.archive.queries import ARCHIVE_AUDIT_EVENTS_MAX_LIMIT
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
@@ -36,6 +37,7 @@ from gateway_backend.http.schemas.archive import (
     PreviewArchivePlanRequest,
     PreviewArchivePlanResponse,
     StartArchiveRequest,
+    CloseSubmissionRequest, CloseSubmissionResponse, close_submission_to_response,
 )
 
 router = APIRouter(tags=["archives"])
@@ -266,3 +268,25 @@ def get_archive_result_route(
         archive_result_id=archive_result_id,
         unit_of_work_factory=deps.archive_unit_of_work_factory,
     )
+
+
+@router.post("/v1/submissions/{submission_id}/closure", response_model=CloseSubmissionResponse,
+    status_code=status.HTTP_201_CREATED, responses={
+        200: {"description": "Idempotent replay", "model": CloseSubmissionResponse},
+        401: {"description": "AUTHENTICATION_REQUIRED"}, 403: {"description": "SCOPE_FORBIDDEN"},
+        404: {"description": "RESOURCE_NOT_FOUND"},
+        409: {"description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, ARCHIVE_CLOSED, WORKSPACE_OCCUPANCY_CONFLICT"},
+        422: {"description": "REQUEST_VALIDATION_FAILED"}, 413: {"description": "REQUEST_TOO_LARGE"},
+        429: {"description": "ADMISSION_LIMIT_REACHED"},
+        503: {"description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"}})
+def close_submission_route(submission_id: str, body: CloseSubmissionRequest, request: Request, response: Response,
+        deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
+        context: Annotated[IdentityContext, Depends(require_identity)]) -> CloseSubmissionResponse:
+    command = CloseSubmissionCommand(context, submission_id,
+        parse_archive_idempotency_key(request.headers.get("Idempotency-Key")),
+        body.expected_review_version, body.expected_baseline_node_id, body.expected_baseline_head_version, body.reason)
+    with acquire_new_work(deps.admission_gate):
+        result = close_submission(command=command, unit_of_work_factory=deps.archive_unit_of_work_factory, now=deps.now())
+    if result.replay:
+        response.status_code = status.HTTP_200_OK
+    return close_submission_to_response(result)

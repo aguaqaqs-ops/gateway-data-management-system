@@ -6,12 +6,14 @@ from contextlib import AbstractContextManager
 from typing import Protocol
 
 from gateway_backend.application.control_transactions import ControlTransaction
+from gateway_backend.domain.archive.models import SubmissionDisposition
 from gateway_backend.domain.archive.ports import ArchiveRepository
 from gateway_backend.domain.baseline.ports import BaselineRepository
 from gateway_backend.domain.submission.models import (
     RepositorySubmitOccupancy,
     SubmitAttempt,
     Submission,
+    SubmissionAccessBinding,
     WorkspaceSubmitOccupancy,
 )
 from gateway_backend.domain.submission.ports import (
@@ -24,12 +26,17 @@ from gateway_backend.domain.workspace.ports import WorkspaceRepository
 
 
 class ArchiveClosureReadPort(Protocol):
+    def get_submission_disposition(self, submission_id: str) -> SubmissionDisposition | None: ...
+
     def is_submission_closed(self, submission_id: str) -> bool:
         """Return whether one submission appears in any ArchiveResult disposition."""
 
 
 class ArchiveSubmissionPort(Protocol):
-    def get_submission(self, submission_id: str) -> Submission | None: ...
+    def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None: ...
+
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+        repository_id: str | None = None) -> Submission | None: ...
 
     def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None: ...
 

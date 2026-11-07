@@ -37,6 +37,7 @@ from gateway_backend.domain.archive.models import (
     ArchiveConfirmationAction,
     ArchiveConfirmationEvent,
     ArchiveSubjectKind,
+    affirmative_resolution_action,
 )
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
@@ -151,7 +152,7 @@ def append_archive_confirmation(
             raise ArchiveAuditVersionConflict(expected=validated_sequence, actual=latest_sequence)
         if command.action is ArchiveConfirmationAction.REVOKE and latest_sequence == 0:
             raise ArchiveAuditVersionConflict(expected=validated_sequence, actual=latest_sequence)
-        next_sequence = latest_sequence + 1
+        next_sequence = validate_archive_sequence(latest_sequence + 1)
         payload = {
             "action": command.action.value,
             "candidate_set_digest": command.candidate_set_digest,
@@ -202,10 +203,7 @@ def append_archive_anomaly_resolution(
         field_name="expected_baseline_head_version",
     )
     validated_reason = validate_utf8_reason(command.reason)
-    expected_action = {
-        ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
-        ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION,
-    }.get(command.subject_kind)
+    expected_action = None if command.subject_kind is ArchiveSubjectKind.CONFIRM_SELECTION else affirmative_resolution_action(command.subject_kind)
     if expected_action is None or command.action not in {
         expected_action,
         ArchiveAnomalyResolutionAction.REVOKE,
@@ -294,7 +292,7 @@ def append_archive_anomaly_resolution(
             and latest_sequence == 0
         ):
             raise ArchiveAuditVersionConflict(expected=validated_sequence, actual=latest_sequence)
-        next_sequence = latest_sequence + 1
+        next_sequence = validate_archive_sequence(latest_sequence + 1)
         payload = {
             "action": command.action.value,
             "candidate_set_digest": command.candidate_set_digest,
@@ -322,6 +320,7 @@ def append_archive_anomaly_resolution(
             sequence=next_sequence,
             action=command.action,
             issue_code=command.issue_code,
+            subject_payload_json=json.dumps(matching_anomaly.subject_payload, separators=(",", ":"), sort_keys=True),
             target_submission_id=command.target_submission_id,
             target_candidate_digest=validate_archive_digest(
                 command.target_candidate_digest,

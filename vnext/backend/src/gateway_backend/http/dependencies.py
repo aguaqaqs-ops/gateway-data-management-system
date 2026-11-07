@@ -370,7 +370,8 @@ class ArchiveRequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        if path not in BODY_LIMIT_POST_PATHS:
+        is_closure = path.startswith("/v1/submissions/") and path.endswith("/closure") and path.count("/") == 4
+        if path not in BODY_LIMIT_POST_PATHS and not is_closure:
             await self.app(scope, receive, send)
             return
 

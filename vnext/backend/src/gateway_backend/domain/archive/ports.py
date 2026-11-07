@@ -7,7 +7,7 @@ from typing import Protocol, runtime_checkable
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionEvent,
     ArchiveConfirmationEvent,
-    ArchiveDisposition,
+    SubmissionDisposition,
     ArchivePlan,
     ArchiveResult,
 )
@@ -108,8 +108,13 @@ class ArchiveRepository(ArchiveAuditWritePort, Protocol):
     def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
         """Load one ArchiveResult by result id."""
 
-    def list_dispositions_for_submission(self, submission_id: str) -> tuple[ArchiveDisposition, ...]:
+    def list_dispositions_for_submission(self, submission_id: str) -> tuple[SubmissionDisposition, ...]:
         """Return all dispositions recorded for one submission."""
+
+    def find_manual_close_by_key(self, repository_id: str, gateway_device_external_key: str,
+        business_project_id: str, idempotency_key: str) -> SubmissionDisposition | None: ...
+
+    def insert_manual_close(self, disposition: SubmissionDisposition) -> None: ...
 
     def is_submission_closed(self, submission_id: str) -> bool:
         """Return whether one submission appears in any ArchiveResult disposition."""
@@ -118,6 +123,6 @@ class ArchiveRepository(ArchiveAuditWritePort, Protocol):
         self,
         plan: ArchivePlan,
         result: ArchiveResult,
-        dispositions: tuple[ArchiveDisposition, ...],
+        dispositions: tuple[SubmissionDisposition, ...],
     ) -> None:
         """Insert immutable plan, result and disposition rows in the current transaction."""

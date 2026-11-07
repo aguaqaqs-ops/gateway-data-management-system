@@ -14,7 +14,7 @@ HISTORY_ZERO_WRITE_TABLES = (
     "review_event_records",
     "baseline_node_records",
     "baseline_head_records",
-    "archive_disposition_records",
+    "submission_disposition_records",
     "workspace_records",
     "provisioned_scope_mappings",
     "upload_revision_records",

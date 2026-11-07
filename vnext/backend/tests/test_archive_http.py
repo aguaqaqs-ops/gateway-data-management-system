@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from gateway_backend.application.archive.contracts import (
-    ARCHIVE_MAX_AUDIT_REFS,
+    ARCHIVE_MAX_CONFIRMATION_REFS,
     ARCHIVE_MAX_REQUEST_BYTES,
     validate_archive_confirmation_reason,
     validate_utf8_id,
@@ -636,7 +636,7 @@ def test_archive_start_rejects_too_many_confirmation_refs(
 ) -> None:
     seed = seed_approved_archive_candidate(archive_env.db_path)
     digest = seed.selection_subject_digest
-    refs = [{"subject_digest": digest, "sequence": index} for index in range(ARCHIVE_MAX_AUDIT_REFS + 1)]
+    refs = [{"subject_digest": digest, "sequence": index} for index in range(ARCHIVE_MAX_CONFIRMATION_REFS + 1)]
     response = archive_env.client.post(
         "/v1/archives",
         headers=_auth_headers(archive_env, idempotency_key="too-many-refs"),

@@ -22,7 +22,7 @@ from gateway_backend.application.history.ports import (
     HistoryReadPort,
     HistorySnapshotLoaderPort,
 )
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import SubmissionDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNodeKind
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -60,6 +60,7 @@ class HttpHistoryReader(HistoryReadPort, HistorySnapshotLoaderPort):
                     submission=row.submission,
                     review_status=row.review_status,
                     disposition=row.disposition,
+                    disposition_record=row.disposition_record,
                 )
                 for row in snapshot.submissions
             ),
@@ -119,8 +120,8 @@ def _map_page_entry(row: object) -> HistoryPageEntry:
     if row.review_status is None or row.based_on_baseline_node_id is None:
         raise ValueError("submission page row is missing required fields")
     disposition = None
-    if row.archive_disposition is not None:
-        disposition = ArchiveDispositionKind(row.archive_disposition)
+    if row.submission_disposition is not None:
+        disposition = SubmissionDispositionKind(row.submission_disposition)
     return HistoryPageEntry(
         ref_kind=HistoryNodeRefKind.SUBMISSION,
         ref_id=row.ref_id,
@@ -129,7 +130,10 @@ def _map_page_entry(row: object) -> HistoryPageEntry:
         created_at=created_at,
         based_on_baseline_node_id=row.based_on_baseline_node_id,
         review_status=ReviewStatus(row.review_status),
-        archive_disposition=disposition,
+        submission_disposition=disposition,
+        disposition_source_kind=None if row.disposition_record is None else row.disposition_record.source_kind,
+        disposition_result_id=None if row.disposition_record is None else row.disposition_record.result_id,
+        closure=None if row.disposition_record is None else row.disposition_record.manual_closure,
         identity_exception=row.identity_exception,
     )
 

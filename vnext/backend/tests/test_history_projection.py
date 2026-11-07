@@ -33,7 +33,7 @@ from gateway_backend.application.history.projection import (
 )
 from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import SubmissionDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import (
     IdentityConfirmationAction,
@@ -164,7 +164,7 @@ def _assert_history_nodes_equal(left: HistoryNode, right: HistoryNode) -> None:
     assert left.created_at == right.created_at
     assert left.baseline_kind == right.baseline_kind
     assert left.review_status == right.review_status
-    assert left.archive_disposition == right.archive_disposition
+    assert left.submission_disposition == right.submission_disposition
     assert left.promoted_baseline_node_id == right.promoted_baseline_node_id
     assert left.eligibility_note == right.eligibility_note
     assert left.identity_exception == right.identity_exception
@@ -351,7 +351,7 @@ def test_projection_builds_baseline_and_submission_nodes_with_parent_edges() -> 
                 HistorySubmissionFact(
                     submission=submission,
                     review_status=ReviewStatus.APPROVED,
-                    disposition=ArchiveDispositionKind.ARCHIVED_BASELINE,
+                    disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 ),
             ),
             head=head,
@@ -461,7 +461,7 @@ def test_projection_preserves_same_commit_dual_identity() -> None:
                 HistorySubmissionFact(
                     submission=submission,
                     review_status=ReviewStatus.APPROVED,
-                    disposition=ArchiveDispositionKind.ARCHIVED_BASELINE,
+                    disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 ),
             ),
             head=BaselineHead(

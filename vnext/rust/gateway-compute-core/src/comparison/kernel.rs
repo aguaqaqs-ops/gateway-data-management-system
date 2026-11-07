@@ -3,9 +3,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
+use std::cmp::Ordering as CompareOrder;
 
 use arrow_array::RecordBatch;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, SchemaRef};
 use serde_json::Value;
 
 use super::ordered::OrderedCompareError;
@@ -16,6 +17,19 @@ pub struct KernelContext {
     remaining_bytes: AtomicUsize,
     cancelled: Arc<AtomicBool>,
     deadline: Option<Instant>,
+}
+
+/// An explicit schema distinguishes a zero-batch empty table from a missing
+/// side. RecordBatch clones retain Arrow buffer Arcs after a reader closes.
+pub struct CanonicalBatchSide<'a> {
+    pub schema: SchemaRef,
+    pub batches: &'a [RecordBatch],
+}
+
+impl<'a> CanonicalBatchSide<'a> {
+    pub fn new(schema: SchemaRef, batches: &'a [RecordBatch]) -> Self {
+        Self { schema, batches }
+    }
 }
 
 impl KernelContext {
@@ -86,6 +100,21 @@ impl KernelLease {
         self.charged_bytes = total;
         Ok(())
     }
+
+    /// Release scratch after the result has been built. `retained_bytes`
+    /// includes the result's own vectors and strings, but not the already
+    /// charged Arrow backing retained through cloned RecordBatch owners.
+    pub fn shrink_to(&mut self, retained_bytes: usize) -> Result<(), OrderedCompareError> {
+        if retained_bytes > self.charged_bytes {
+            self.grow(retained_bytes - self.charged_bytes)?;
+        } else {
+            self.context
+                .remaining_bytes
+                .fetch_add(self.charged_bytes - retained_bytes, Ordering::Release);
+            self.charged_bytes = retained_bytes;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for KernelLease {
@@ -96,14 +125,56 @@ impl Drop for KernelLease {
     }
 }
 
+/// Stable fallible index sort. Batch checks also cover large merge stages;
+/// record payloads stay in their owner and only indexes are rearranged.
+pub(super) fn sort_indices_checked<T>(
+    items: &[T],
+    context: &KernelContext,
+    compare: impl Fn(&T, &T) -> CompareOrder,
+) -> Result<Vec<usize>, OrderedCompareError> {
+    context.check()?;
+    let count = items.len();
+    let mut order: Vec<usize> = (0..count).collect();
+    let mut scratch = Vec::with_capacity(count);
+    let mut width = 1usize;
+    while width < count {
+        scratch.clear();
+        let mut start = 0usize;
+        while start < count {
+            context.check()?;
+            let mid = start.saturating_add(width).min(count);
+            let end = mid.saturating_add(width).min(count);
+            let (mut left, mut right) = (start, mid);
+            while left < mid && right < end {
+                if scratch.len() % 1024 == 0 {
+                    context.check()?;
+                }
+                if compare(&items[order[left]], &items[order[right]]) != CompareOrder::Greater {
+                    scratch.push(order[left]);
+                    left += 1;
+                } else {
+                    scratch.push(order[right]);
+                    right += 1;
+                }
+            }
+            scratch.extend_from_slice(&order[left..mid]);
+            scratch.extend_from_slice(&order[right..end]);
+            start = end;
+        }
+        std::mem::swap(&mut order, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    context.check()?;
+    Ok(order)
+}
+
 /// A new comparison call accepts only the S2b canonical Arrow profile. The
 /// old ordered prototype keeps its fixture-specific metadata until E removes
 /// that test surface; it is not accepted by this entry.
 pub(super) fn validate_canonical_batches(
-    batches: &[RecordBatch],
+    side: &CanonicalBatchSide<'_>,
 ) -> Result<(), OrderedCompareError> {
-    for batch in batches {
-        let schema = batch.schema();
+    let schema = &side.schema;
         if schema
             .metadata()
             .get("gdds.canonical_mapping_version")
@@ -112,7 +183,7 @@ pub(super) fn validate_canonical_batches(
         {
             return Err(OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"));
         }
-        for field in schema.fields() {
+    for field in schema.fields() {
             let metadata = field
                 .metadata()
                 .get("gdds.canonical_type")
@@ -176,6 +247,10 @@ pub(super) fn validate_canonical_batches(
             if !valid {
                 return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
             }
+    }
+    for batch in side.batches {
+        if batch.schema().as_ref() != schema.as_ref() {
+            return Err(OrderedCompareError::new("CANONICAL_SCHEMA_MISMATCH"));
         }
     }
     Ok(())

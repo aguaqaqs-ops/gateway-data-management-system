@@ -9,9 +9,10 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
+use arrow_schema::SchemaRef;
 use gateway_shared_kernel::{DigestKind, canonicalize_identifier, encode_uleb128, semantic_digest};
 
-use super::kernel::{KernelContext, KernelLease, validate_canonical_batches};
+use super::kernel::{CanonicalBatchSide, KernelContext, KernelLease, sort_indices_checked, validate_canonical_batches};
 use super::ordered::{OrderedCompareError, encode_cell};
 
 const MAX_COLUMNS: usize = 512;
@@ -68,6 +69,7 @@ pub struct StandardRecordRef {
     /// FULL facts payload uses these columns and the referenced Arrow cells.
     pub value_columns: Vec<String>,
     pub changed_columns: Vec<String>,
+    pub diagnostics: Vec<String>,
 }
 
 pub struct StandardComputation {
@@ -76,6 +78,8 @@ pub struct StandardComputation {
     /// result exists; `_lease` charges only local frames/indexes/output refs.
     pub before_batches: Vec<RecordBatch>,
     pub current_batches: Vec<RecordBatch>,
+    pub before_schema: SchemaRef,
+    pub current_schema: SchemaRef,
     pub records: Vec<StandardRecordRef>,
     /// Facts and artifact use separate index views, even when equal for a
     /// particular standard table. C adds its full-value JCS tie breaker here.
@@ -100,8 +104,8 @@ struct EncodedRow {
 /// The caller schedules this table on its shared pool. This function creates
 /// no threads and checks the operation's cancellation/deadline while scanning.
 pub fn compare_standard_table(
-    before: &[RecordBatch],
-    current: &[RecordBatch],
+    before: CanonicalBatchSide<'_>,
+    current: CanonicalBatchSide<'_>,
     options: &StandardOptions,
     context: &Arc<KernelContext>,
 ) -> Result<StandardComputation, OrderedCompareError> {
@@ -114,19 +118,37 @@ pub fn compare_standard_table(
 }
 
 fn compare_standard_table_inner(
-    before: &[RecordBatch],
-    current: &[RecordBatch],
+    before: CanonicalBatchSide<'_>,
+    current: CanonicalBatchSide<'_>,
     options: &StandardOptions,
     context: &Arc<KernelContext>,
 ) -> Result<StandardComputation, OrderedCompareError> {
     context.check()?;
-    validate_canonical_batches(before)?;
-    validate_canonical_batches(current)?;
+    let option_bytes = options
+        .selected_columns
+        .iter()
+        .chain(&options.effective_key_before)
+        .chain(&options.effective_key_current)
+        .chain(&options.compare_excluded_columns)
+        .chain(&options.incompatible_columns)
+        .try_fold(4096usize, |total, name| {
+            total.checked_add(name.len().saturating_mul(8).saturating_add(128))
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let _options_lease = context.reserve(option_bytes)?;
+    validate_canonical_batches(&before)?;
+    validate_canonical_batches(&current)?;
+    let before_schema = before.schema;
+    let current_schema = current.schema;
+    let before = before.batches;
+    let current = current.batches;
     let columns = canonical_columns(&options.selected_columns)?;
     let excluded = canonical_columns(&options.compare_excluded_columns)?;
     let incompatible = canonical_columns(&options.incompatible_columns)?;
     let before_key = canonical_columns(&options.effective_key_before)?;
     let current_key = canonical_columns(&options.effective_key_current)?;
+    validate_projection(&before_schema, &columns)?;
+    validate_projection(&current_schema, &columns)?;
     if columns.len() > MAX_COLUMNS
         || before_key != current_key && options.mode == StandardMode::Keyed
     {
@@ -160,9 +182,15 @@ fn compare_standard_table_inner(
         .and_then(|bytes| bytes.checked_add(256))
         .and_then(|bytes| bytes.checked_mul(row_count))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let batch_overhead = before
+        .len()
+        .checked_add(current.len())
+        .and_then(|count| count.checked_mul(std::mem::size_of::<RecordBatch>() + 128))
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let scratch = input_bytes
-        .checked_mul(2)
+        .checked_mul(3)
         .and_then(|bytes| bytes.checked_add(row_overhead))
+        .and_then(|bytes| bytes.checked_add(batch_overhead))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let mut lease = context.reserve(scratch)?;
     let before_rows = read_rows(before, &columns, context)?;
@@ -199,13 +227,25 @@ fn compare_standard_table_inner(
     } else {
         false
     };
-    let mut facts_order: Vec<usize> = (0..records.len()).collect();
-    facts_order
-        .sort_by(|left, right| record_key(&records[*left]).cmp(&record_key(&records[*right])));
+    let facts_order = sort_indices_checked(&records, context, |left, right| {
+        record_key(left).cmp(&record_key(right))
+    })?;
     let artifact_order = facts_order.clone();
+    let before_batches = before.to_vec();
+    let current_batches = current.to_vec();
+    let retained = retained_bytes(
+        &before_batches,
+        &current_batches,
+        &records,
+        &facts_order,
+        &artifact_order,
+    )?;
+    lease.shrink_to(retained)?;
     Ok(StandardComputation {
-        before_batches: before.to_vec(),
-        current_batches: current.to_vec(),
+        before_batches,
+        current_batches,
+        before_schema,
+        current_schema,
         records,
         facts_order,
         artifact_order,
@@ -217,6 +257,50 @@ fn compare_standard_table_inner(
         ignored_shared_content_changed,
         _lease: lease,
     })
+}
+
+fn retained_bytes(
+    before: &Vec<RecordBatch>,
+    current: &Vec<RecordBatch>,
+    records: &Vec<StandardRecordRef>,
+    facts_order: &Vec<usize>,
+    artifact_order: &Vec<usize>,
+) -> Result<usize, OrderedCompareError> {
+    let fixed = before
+        .capacity()
+        .checked_add(current.capacity())
+        .and_then(|count| count.checked_mul(std::mem::size_of::<RecordBatch>()))
+        .and_then(|bytes| {
+            records
+                .capacity()
+                .checked_mul(std::mem::size_of::<StandardRecordRef>())
+                .and_then(|part| bytes.checked_add(part))
+        })
+        .and_then(|bytes| {
+            facts_order
+                .capacity()
+                .checked_add(artifact_order.capacity())
+                .and_then(|count| count.checked_mul(std::mem::size_of::<usize>()))
+                .and_then(|part| bytes.checked_add(part))
+        })
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    records.iter().try_fold(fixed, |total, record| {
+        let strings = record
+            .value_columns
+            .iter()
+            .chain(&record.changed_columns)
+            .chain(&record.diagnostics)
+            .try_fold(record.row_identity.capacity(), |size, name| {
+                size.checked_add(name.capacity())
+            })?;
+        let headers = record
+            .value_columns
+            .capacity()
+            .checked_add(record.changed_columns.capacity())?
+            .checked_add(record.diagnostics.capacity())?
+            .checked_mul(std::mem::size_of::<String>())?;
+        total.checked_add(strings)?.checked_add(headers)
+    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))
 }
 
 fn canonical_columns(input: &[String]) -> Result<Vec<String>, OrderedCompareError> {
@@ -232,6 +316,21 @@ fn canonical_columns(input: &[String]) -> Result<Vec<String>, OrderedCompareErro
     }
     result.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
     Ok(result)
+}
+
+fn validate_projection(schema: &SchemaRef, columns: &[String]) -> Result<(), OrderedCompareError> {
+    let mut available = BTreeSet::new();
+    for field in schema.fields() {
+        let name = canonicalize_identifier(field.name())
+            .map_err(|_| OrderedCompareError::new("COLUMN_NAME_INVALID"))?;
+        if !available.insert(name) {
+            return Err(OrderedCompareError::new("COLUMN_NAME_INVALID"));
+        }
+    }
+    if columns.iter().any(|name| !available.contains(name)) {
+        return Err(OrderedCompareError::new("ROW_SHAPE_MISMATCH"));
+    }
+    Ok(())
 }
 
 fn read_rows(
@@ -321,28 +420,22 @@ fn occurrence_digest(digest: &str, occurrence: usize) -> Result<String, OrderedC
     row_digest(&payload)
 }
 
-fn push_record(
-    records: &mut Vec<StandardRecordRef>,
+fn reserve_record(
     lease: &mut KernelLease,
-    record: StandardRecordRef,
+    value_columns: &[String],
+    changed_columns: &[String],
 ) -> Result<(), OrderedCompareError> {
-    let extra = 256usize
-        .checked_add(record.row_identity.len())
-        .and_then(|size| {
-            size.checked_add(record.value_columns.iter().map(String::len).sum::<usize>())
-        })
-        .and_then(|size| {
-            size.checked_add(
-                record
-                    .changed_columns
-                    .iter()
-                    .map(String::len)
-                    .sum::<usize>(),
-            )
+    // Reserve the row identity, Vec capacities, String headers and text before
+    // any of those output allocations take place. The scratch lease already
+    // covers the temporary frame and iterator state used to find a change.
+    let extra = value_columns
+        .iter()
+        .chain(changed_columns)
+        .try_fold(512usize, |total, name| {
+            total.checked_add(std::mem::size_of::<String>() + name.len())
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     lease.grow(extra)?;
-    records.push(record);
     Ok(())
 }
 
@@ -368,46 +461,51 @@ fn compare_keyed(
         let Some(before_row) = before_index.get(frame) else {
             added += 1;
             if emit_add_delete {
-                push_record(
-                    records,
-                    lease,
-                    StandardRecordRef {
-                        kind: StandardKind::RowAdded,
-                        row_identity: row_digest(frame)?,
-                        before: None,
-                        current: Some(current_row.location),
-                        value_columns: selected.to_vec(),
-                        changed_columns: Vec::new(),
-                    },
-                )?;
+                reserve_record(lease, selected, &[])?;
+                records.push(StandardRecordRef {
+                    kind: StandardKind::RowAdded,
+                    row_identity: row_digest(frame)?,
+                    before: None,
+                    current: Some(current_row.location),
+                    value_columns: selected.to_vec(),
+                    changed_columns: Vec::new(),
+                    diagnostics: Vec::new(),
+                });
             }
             continue;
         };
-        let changed = selected
+        let has_change = selected
             .iter()
             .enumerate()
-            .filter(|(index, name)| {
+            .any(|(index, name)| {
                 !key.contains(name)
                     && !excluded.contains(name)
                     && !incompatible.contains(name)
                     && before_row.frames[*index] != current_row.frames[*index]
-            })
-            .map(|(_, name)| name.clone())
-            .collect::<Vec<_>>();
-        if !changed.is_empty() {
+            });
+        if has_change {
             modified += 1;
-            push_record(
-                records,
-                lease,
-                StandardRecordRef {
-                    kind: StandardKind::RowModified,
-                    row_identity: row_digest(frame)?,
-                    before: Some(before_row.location),
-                    current: Some(current_row.location),
-                    value_columns: changed.clone(),
-                    changed_columns: changed,
-                },
-            )?;
+            reserve_record(lease, selected, selected)?;
+            let changed = selected
+                .iter()
+                .enumerate()
+                .filter(|(index, name)| {
+                    !key.contains(name)
+                        && !excluded.contains(name)
+                        && !incompatible.contains(name)
+                        && before_row.frames[*index] != current_row.frames[*index]
+                })
+                .map(|(_, name)| name.clone())
+                .collect::<Vec<_>>();
+            records.push(StandardRecordRef {
+                kind: StandardKind::RowModified,
+                row_identity: row_digest(frame)?,
+                before: Some(before_row.location),
+                current: Some(current_row.location),
+                value_columns: changed.clone(),
+                changed_columns: changed,
+                diagnostics: Vec::new(),
+            });
         }
     }
     for (frame, before_row) in &before_index {
@@ -415,18 +513,16 @@ fn compare_keyed(
         if !current_index.contains_key(frame) {
             deleted += 1;
             if emit_add_delete {
-                push_record(
-                    records,
-                    lease,
-                    StandardRecordRef {
-                        kind: StandardKind::RowDeleted,
-                        row_identity: row_digest(frame)?,
-                        before: Some(before_row.location),
-                        current: None,
-                        value_columns: selected.to_vec(),
-                        changed_columns: Vec::new(),
-                    },
-                )?;
+                reserve_record(lease, selected, &[])?;
+                records.push(StandardRecordRef {
+                    kind: StandardKind::RowDeleted,
+                    row_identity: row_digest(frame)?,
+                    before: Some(before_row.location),
+                    current: None,
+                    value_columns: selected.to_vec(),
+                    changed_columns: Vec::new(),
+                    diagnostics: Vec::new(),
+                });
             }
         }
     }
@@ -482,18 +578,16 @@ fn compare_keyless(
             context.check()?;
             added += 1;
             if emit_add_delete {
-                push_record(
-                    records,
-                    lease,
-                    StandardRecordRef {
-                        kind: StandardKind::RowAdded,
-                        row_identity: occurrence_digest(identity, occurrence)?,
-                        before: None,
-                        current: None,
-                        value_columns: Vec::new(),
-                        changed_columns: Vec::new(),
-                    },
-                )?;
+                reserve_record(lease, &[], &[])?;
+                records.push(StandardRecordRef {
+                    kind: StandardKind::RowAdded,
+                    row_identity: occurrence_digest(identity, occurrence)?,
+                    before: None,
+                    current: None,
+                    value_columns: Vec::new(),
+                    changed_columns: Vec::new(),
+                    diagnostics: Vec::new(),
+                });
             }
         }
     }
@@ -503,18 +597,16 @@ fn compare_keyless(
             context.check()?;
             deleted += 1;
             if emit_add_delete {
-                push_record(
-                    records,
-                    lease,
-                    StandardRecordRef {
-                        kind: StandardKind::RowDeleted,
-                        row_identity: occurrence_digest(identity, occurrence)?,
-                        before: None,
-                        current: None,
-                        value_columns: Vec::new(),
-                        changed_columns: Vec::new(),
-                    },
-                )?;
+                reserve_record(lease, &[], &[])?;
+                records.push(StandardRecordRef {
+                    kind: StandardKind::RowDeleted,
+                    row_identity: occurrence_digest(identity, occurrence)?,
+                    before: None,
+                    current: None,
+                    value_columns: Vec::new(),
+                    changed_columns: Vec::new(),
+                    diagnostics: Vec::new(),
+                });
             }
         }
     }
@@ -559,7 +651,8 @@ mod tests {
 
     use super::*;
     use crate::comparison::ordered::{
-        BlankProvenance, OrderedCompareOptions, summarize_unchanged_ordered_side,
+        BlankProvenance, OrderedBatchPair, OrderedCompareOptions, compare_ordered_batches,
+        summarize_unchanged_ordered_batches, summarize_unchanged_ordered_side,
     };
 
     fn field(
@@ -588,8 +681,8 @@ mod tests {
         )]))
     }
 
-    fn batch(ids: &[i64], names: &[&str]) -> Result<RecordBatch, arrow_schema::ArrowError> {
-        let schema = Schema::new(vec![
+    fn schema() -> SchemaRef {
+        Arc::new(Schema::new(vec![
             field(
                 "id",
                 "BIGINT",
@@ -608,9 +701,12 @@ mod tests {
         .with_metadata(HashMap::from([(
             "gdds.canonical_mapping_version".to_string(),
             "1".to_string(),
-        )]));
+        )])))
+    }
+
+    fn batch(ids: &[i64], names: &[&str]) -> Result<RecordBatch, arrow_schema::ArrowError> {
         RecordBatch::try_new(
-            Arc::new(schema),
+            schema(),
             vec![
                 Arc::new(Int64Array::from(ids.to_vec())) as ArrayRef,
                 Arc::new(StringArray::from(names.to_vec())) as ArrayRef,
@@ -639,6 +735,22 @@ mod tests {
         ))
     }
 
+    fn compare(
+        before: &[RecordBatch],
+        current: &[RecordBatch],
+        policy: &StandardOptions,
+        context: &Arc<KernelContext>,
+    ) -> Result<StandardComputation, OrderedCompareError> {
+        let before_schema = before.first().map(RecordBatch::schema).unwrap_or_else(schema);
+        let current_schema = current.first().map(RecordBatch::schema).unwrap_or_else(schema);
+        compare_standard_table(
+            CanonicalBatchSide::new(before_schema, before),
+            CanonicalBatchSide::new(current_schema, current),
+            policy,
+            context,
+        )
+    }
+
     #[test]
     fn keyed_compares_shared_columns_across_batch_boundaries()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -646,7 +758,7 @@ mod tests {
         let current_a = batch(&[2], &["same"])?;
         let current_b = batch(&[1, 3], &["new", "third"])?;
         let context = context();
-        let full = compare_standard_table(
+        let full = compare(
             &[before.clone()],
             &[current_a.clone(), current_b.clone()],
             &options(StandardMode::Keyed),
@@ -695,7 +807,7 @@ mod tests {
         let three_a = batch(&[1], &["a"])?;
         let three_b = batch(&[1, 1], &["a", "a"])?;
         let context = context();
-        let added = compare_standard_table(
+        let added = compare(
             &[two.clone()],
             &[three_a.clone(), three_b.clone()],
             &options(StandardMode::Keyless),
@@ -710,7 +822,7 @@ mod tests {
             (1, 0, 0)
         );
         assert_eq!(added.records[0].kind, StandardKind::RowAdded);
-        let deleted = compare_standard_table(
+        let deleted = compare(
             &[three_a, three_b],
             &[two],
             &options(StandardMode::Keyless),
@@ -738,9 +850,22 @@ mod tests {
         let current = batch(&[1], &["new"])?;
         let mut policy = options(StandardMode::Keyed);
         policy.compare_excluded_columns = vec!["name".to_string()];
-        let result = compare_standard_table(&[before], &[current], &policy, &context())?;
+        let result = compare(&[before], &[current], &policy, &context())?;
         assert_eq!(result.row_modified_count, 0);
         assert!(result.records.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn present_zero_batch_table_is_distinct_from_missing_side() -> Result<(), Box<dyn std::error::Error>> {
+        let current = batch(&[7], &["new"])?;
+        let result = compare(&[], &[current], &options(StandardMode::Keyed), &context())?;
+        assert_eq!((result.row_added_count, result.row_deleted_count), (1, 0));
+        assert_eq!(result.records.len(), 1);
+        assert_eq!(result.records[0].kind, StandardKind::RowAdded);
+        let empty = compare(&[], &[], &options(StandardMode::Keyed), &context())?;
+        assert_eq!((empty.row_added_count, empty.row_deleted_count), (0, 0));
+        assert!(empty.records.is_empty());
         Ok(())
     }
 
@@ -779,7 +904,7 @@ mod tests {
         )?;
         let policy = options(StandardMode::Keyed);
         assert_eq!(
-            compare_standard_table(&[wrong], &[valid.clone()], &policy, &context())
+            compare(&[wrong], &[valid.clone()], &policy, &context())
                 .err()
                 .map(|error| error.code()),
             Some("CANONICAL_SCHEMA_REQUIRED")
@@ -790,7 +915,7 @@ mod tests {
             None,
         ));
         assert_eq!(
-            compare_standard_table(&[valid.clone()], &[valid.clone()], &policy, &tiny)
+            compare(&[valid.clone()], &[valid.clone()], &policy, &tiny)
                 .err()
                 .map(|error| error.code()),
             Some("RESOURCE_LIMIT_EXCEEDED")
@@ -798,7 +923,7 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(true));
         let stopped = Arc::new(KernelContext::new(1024 * 1024, cancelled, None));
         assert_eq!(
-            compare_standard_table(&[valid.clone()], &[valid], &policy, &stopped)
+            compare(&[valid.clone()], &[valid], &policy, &stopped)
                 .err()
                 .map(|error| error.code()),
             Some("COMPARISON_CANCELLED")
@@ -846,6 +971,17 @@ mod tests {
         let mut policy = OrderedCompareOptions::new("t");
         policy.current_blank_provenance = BlankProvenance::SourceMissingStableKey;
         let summary = summarize_unchanged_ordered_side(&current, &policy, &context())?;
+        let slices = [current.slice(0, 1), current.slice(1, 1)];
+        let split = summarize_unchanged_ordered_batches(
+            CanonicalBatchSide::new(current.schema(), &slices), &policy, &context(),
+        )?;
+        assert_eq!(summary, split);
+        let empty = summarize_unchanged_ordered_batches(
+            CanonicalBatchSide::new(current.schema(), &[]), &policy, &context(),
+        )?;
+        assert_eq!(empty.row_count, 0);
+        assert_eq!(empty.before_ordered_digest, empty.current_ordered_digest);
+        assert_eq!(empty.before_occupancy_digest, empty.current_occupancy_digest);
         assert_eq!(
             summary.before_ordered_digest,
             summary.current_ordered_digest
@@ -855,6 +991,40 @@ mod tests {
             summary.current_occupancy_digest
         );
         assert_eq!(summary.row_count, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_locator_path_reuses_earliest_lis_tie() -> Result<(), Box<dyn std::error::Error>> {
+        let schema = Arc::new(Schema::new(vec![
+            field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
+        ]).with_metadata(HashMap::from([("gdds.canonical_mapping_version".to_string(), "1".to_string())])));
+        let make = |gids: Vec<i64>, names: Vec<&str>| -> Result<RecordBatch, arrow_schema::ArrowError> {
+            RecordBatch::try_new(Arc::clone(&schema), vec![
+                Arc::new(Int64Array::from(gids)) as ArrayRef,
+                Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef,
+                Arc::new(StringArray::from(names)) as ArrayRef,
+            ])
+        };
+        let before = make(vec![1, 2, 3], vec!["a", "b", "c"])?;
+        let current = make(vec![2, 1, 3], vec!["b", "a", "c"])?;
+        let policy = OrderedCompareOptions::new("t");
+        let result = compare_ordered_batches(OrderedBatchPair {
+            before: Some(std::slice::from_ref(&before)),
+            current: Some(std::slice::from_ref(&current)),
+            before_schema: Some(before.schema()),
+            current_schema: Some(current.schema()),
+            options: &policy,
+        }, &context())?;
+        assert!(result.facts.records.is_empty());
+        assert!(result.facts.ordered_extension.records.is_empty());
+        assert_eq!(result.facts.ordered_extension.summary.row_moved_count, 1);
+        let moved = result.ordered_records.iter().filter(|record| record.kind == "ORDERED_ROW_MOVED").collect::<Vec<_>>();
+        assert_eq!(moved.len(), 1);
+        assert_eq!((moved[0].before_position, moved[0].current_position), (Some(2), Some(1)));
+        assert_eq!(result.standard_records.len(), 0);
         Ok(())
     }
 }

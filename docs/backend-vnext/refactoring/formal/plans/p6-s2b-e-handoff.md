@@ -2,7 +2,7 @@
 
 状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：**先做独立临时64/16/48档的一次完整t4容量校准，再由Owner决定main最终profile**。临时提交 `4f808c111b9b8bf8e1673f1bf9b76b1823b7c31b` 基于1de、独立WT/ref，不进main；06定向静态/30项已通过，CT108专有新WT/离线环境准备中，尚未启动校准旅程。main仍保DC87原12/4/8，1de t4首Submit真实行预约超过M8。04 1de backend权威3177+57已whole0且释放，RS暂缓；1de t1完整PASS/cleanup/release，t2/t3未启动。CT108两代失败现场均stopped保留，旧诊断busy00:44:15Z已释放。新临时校准不跑全六包；最终若改Compose，所有包COMMON deployment变化，最终六包需实际run。此前Rust/三小包的1de sameWTcompare仍是其当时事实。以下历史状态以此处/后续时间记录为准。
+当前 pending：**先做独立临时64/16/48档的一次完整t4容量校准，再由Owner决定main最终profile**。临时提交 `4f808c111b9b8bf8e1673f1bf9b76b1823b7c31b` 基于1de、独立WT/ref，不进main；06定向静态/30项已通过，CT108专有新WT/离线环境核齐后已于00:52:41Z启动一次fresh校准；当前首Preview已过、v1 Submit执行中。main仍保DC87原12/4/8，1de t4首Submit真实行预约超过M8。04 1de backend权威3177+57已whole0且释放，RS暂缓；1de t1完整PASS/cleanup/release，t2/t3未启动。CT108两代失败现场均stopped保留，旧诊断busy00:44:15Z已释放。新临时校准不跑全六包；最终若改Compose，所有包COMMON deployment变化，最终六包需实际run。此前Rust/三小包的1de sameWTcompare仍是其当时事实。以下历史状态以此处/后续时间记录为准。
 
 ## 实际消费者与删除
 
@@ -263,3 +263,8 @@ high_water是每claimed execution/step的真实charged预约峰值；按operatio
 CT108于00:50:32Z现场自取cal准备锁，新专有WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-calibration`（旧t4WT保1de），source0 SHA `601949b15aadc9ca6e261a43d66112874d184d3828aced0a204eeaf8f292af16`；另call HEAD/clean/legacy/四Rust工具0 SHA `e2d7a65658ae7745c75cbc04b9be45e6e37f2f2b66d8e1ae292c4c6d8d426bfa`。新offline backend venv/native与currentRS本机build准备中，无复制环境。base同节点immutable ID d363b45…与先前完整config/19DiffIDs证明相等，审核认可复用，不重复save大归档。
 
 临时driver `/tmp/s2b-e-t4-calibration-driver.py` SHA `d44a347a81dd19b0bf02773818275a36bc0dccca1774ceeeb0bb7544bda6fab8`已审，保原286失败保留/正常stop规则，使用新WT、新project `s2b-e-cal-t4-<cal10>`、显式N1/M48/硬64/reserve16。取现保存worker日志静态对应claim→finally scope identities；必需counter/stage或VmHWM/cgroup缺失不清现场。只一次fresh full，无from-step/resume；任何真实正确性/租约/资源故障或缺必需观测均保现场停报，不自动增档/重试。临时不跑全六包，最终profile定后才做最终必要门禁。
+
+
+00:52:15Z CT108 cal新环境准备actual0（source `601949b1…`/独立源 `e2d7a656…`不重复）：`artifacts/s2b-e-calibration-prepare-4f808c11/environment-01/prepare.log` SHA `a55689d30dcd2219d9d7169f7114c6ca7a85df6c1d15e68311d994a096f157bc`，新backend venv的四pathdeps全部本calWT、native137匹配、五base在位、当前cal RS本机offline build、八包INPUTS_VALID。另call独立env0 SHA `6c8d7cea94b41c995ef6ba0d38c298c2fd5bc6d65eb171c1f6f238b57d7324f4`，00:52:41Z核own/idle/calclean释放准备占用0，release SHA `d41482275586a53b9b0ed4a379b065a48adf61c8912413e87dfcc3bac29a435d`。
+
+随后原已审d44a driver实际SHA匹配，00:52:41.337Z新project `s2b-e-cal-t4-4f808c111b`现场重新原子取锁并启动一次fresh full t4，硬64/M48/reserve16/N1，证据目录 `artifacts/s2b-e-cal-t4-4f808c111b/`。首Preview已成功、进入v1 Submit；审核者只读现worker日志确认3个Preview scope的finally记录齐：materialize_inputs highwater3803370110B（stage1259）、assemble_preview291755426B（stage314）、publish_preview53136194B（stage0），M均48，长stage行JSON完整。此仅证明观测接线和已完成前缀，不是完整校准PASS/最终M选择；当前保持自然运行，不改timeout/信号/输入。

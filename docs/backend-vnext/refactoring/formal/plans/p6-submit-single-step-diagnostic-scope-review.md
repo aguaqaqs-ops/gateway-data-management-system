@@ -2183,3 +2183,30 @@ BatchMode echo OK 后只读 `/home/dev/gdds-p6-logs/baseline/ct05-vref-5de35b60-
 首次 da6 验证 08:08:23–46Z 的原日志继续保留，SHA256 **`2b8bf224129386c663457c46e9ea113ee4977edefdfff94b3faa937d57941855`**：launcher 两项和先行静态通过，backend mypy 报测试 helper no-any-return，整次 exit1；不能写成首次十项全过。5de 的 cast 修正和最终完整重验关闭此项，原失败没有替换为通过，不增加业务失败计数或 Owner 审批。
 
 **修订及验证结论直接交实施者并同步设计，当前无需继续等待工具审核回执。** 保留所有旧失败、源/诊断卷与证据；只按 §92 做 A 分版本接续，不把旧记录改成统一版本、不借本报告办理最终 runner/exit。实际前提或运行失败仍按原停止/保卷/DC80 规则处理。
+
+## 97. 原 control 快照新增 SQLite sidecar：停止正确，允许留证后可逆恢复原已记录形状
+
+**当前 source 目录完整摘要确实 MISMATCH，不能直接续跑或把它标成 MATCH。** 本轮独立证据同时证明原 `control.sqlite3` 的内容及摘要覆盖的元数据仍精确匹配原 checkpoint；没有主 DB 数据丢失证据。按 DC80 对已定位工具操作错误的最小修正，允许以下一次、可逆的原形状恢复：完整保留事故副本，只把两个已确认新增的临时 sidecar 原样移出 control 快照，再由**未修改的完整摘要守卫**核验。此处不改 source 内容资格、expected digest 或产品，不需要重跑旧业务/生成输入，也不新增 Owner/最终 manifest GO。
+
+### 独立只读事实
+
+BatchMode echo OK 后，只读 CT108 原失败核验、incident 与 postflight：SHA256 分别为 **`9a1f34c6445e33ced78fb5bdd50c585d24ef97af779c728281d8a0362def14e2`**、**`e412a2f67006a8c263b9551af0fd7718b2104d1bc12b0cadfd006a4f885f37a0`**、**`931de8672208252d589f8f91f1b373b4bdaf375bea702f442e7eb1e75cb58538`**，均与实施者一致。08:34:49Z 守卫拒绝 control 快照：原 1 文件/3608576 bytes、tree=`623ec7034f89244a7718068a6aacf47955d07bed964a92689ab6edf8ee2a06cd`；当前 3 文件/3641344 bytes、tree=`d3002e4003fad81f33580bb80c60fbfbf0c288f8eb3da8a02ca4aa5eaa7926d7`。新增只有：
+
+- `control.sqlite3-shm`，32768 bytes，SHA256 **`fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb`**。
+- `control.sqlite3-wal`，0 bytes，SHA256 **`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`**。
+
+sidecar 的 mtime 与 07:58:32Z TTL SQL 查询时间一致，支持该检查产生 sidecar 的解释，但不称已唯一证明创建者。`mode=ro` 的 SQLite 连接并不保证不创建 WAL/SHM，§95 的缓存语义结论不等于那条检查对文件系统绝无写入；原“只读检查”操作描述必须保留此次纠正。
+
+本审核没有再用 SQLite 打开快照。只用 raw 文件读取和 lstat，按原 `_volume_tree_digest` 的文件名/类型/mode/uid/gid/mtime_ns/size/字节算法计算**原单文件集合的投影**，结果精确等于原完整 control tree **`sha256:623ec7034f89244a7718068a6aacf47955d07bed964a92689ab6edf8ee2a06cd`**。主 DB 为3608576 bytes，raw SHA256 **`8f0fa78c110dce23c4e6537c22ae623fe320545cf86c5929fb18d39cd1e8678b`**，mode0644、uid/gid0、mtime_ns=1793907257820020960；读取前后这些元数据及 inode 稳定。该投影只证明原文件未变，**不是当前三文件目录 MATCH**。审计输出副本 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-review-20261107/source-control-single-file-readonly-proof.json` SHA256 **`c86c54080f8f0fb311ec8863948513a95556fcc4611b4d8d4c13e945ac1f2dfd`**。
+
+失败日志中 artifacts 快照仍按原完整算法 MATCH；run/state/log 三份 SHA 与固定来源一致。失败发生在 sampler/Compose/目标卷复制/POST 之前，target run 目录及目标卷均不存在。08:38:46Z postflight 记录 clean、无容器/8000/Dolt/pytest/Cargo，自有锁已释放。未消费本次实际业务尝试，不因这个准备事故重复计时或改动镜像。
+
+### 唯一允许的恢复动作与边界
+
+1. 实施者现场核空闲并原子取得自身 CT108 占用，停止本会话所有对该源快照的 SQLite 检查；恢复期间不启动业务。再次确认当前 control 目录仅上述三个普通文件、主 DB 单文件投影仍等原623ec、WAL仍为空、SHM仍为上述固定摘要。条件变化则停止，不把本许可泛化。
+2. 在**所有原 source evidence/checkpoint/卷根之外**的新事故证据目录，按原权限/uid/gid/mtime完整保存当前三文件 control 目录副本、失败日志和上述摘要；副本完整 tree 应等当前 d3002e。保留这份事故原状，不覆盖旧证据。
+3. 只把上述两个新增 `control.sqlite3-shm`、`control.sqlite3-wal` **原样移至该事故证据目录**，不删除、不覆盖、不开 DB，不触碰 `control.sqlite3` 或原 run/state/log/checkpoint JSON，不改任何 expected digest。该操作是移走原 checkpoint 未记录的临时文件并保留全部事故事实，不是授权清理其他源数据或改写业务状态。
+4. 用未改的 `_volume_tree_digest` 及正常 preflight 全量核验三份源快照。control 必须重新为1文件/3608576 bytes/原623ec；另外两份也必须各自匹配原记录，原 run/state/log SHA 和输入绑定保持。单独报告“事故前已记录值、污染后 MISMATCH、留证可逆恢复后实测值”，不得改旧失败日志或声称源一直未变。任何失败保留现场，不再移动其他文件，不改摘要来放行。
+5. 上述完整核验及 §92 其他实际前提通过后，按原授权直接首轮，无第二次 source/manifest GO。只读原文件与可逆恢复不改变代码，**不要求再跑 focused、静态、runner 或真实数据**；保留本次恢复操作、结果和 SHA 即可。今后需要 SQL 查看 checkpoint 时，只查询单独的临时工作副本；原源只作普通文件摘要读取，不再次以 SQLite 打开它。
+
+**原源尚未恢复，本审核未移动/删除/修改任何源文件。** 本处置只覆盖这个已精确证明的主 DB 未变、WAL为空且新增 sidecar 已识别的事故，不提供通用 WAL 忽略、过滤文件计算 MATCH 或新来源映射。§95 的过期缓存正常 miss 解释和 §96 的 F1/工具 PASS 保持；实际恢复和正常前提通过前继续不启动业务。具体步骤直接交实施者并同步设计，不把可逆临时文件修正升级成新的业务/冻结口径取舍。

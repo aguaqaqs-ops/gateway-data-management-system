@@ -236,3 +236,80 @@ kickoff 修订后若有变化，以修订后的文本为准。
   - manifest、closure 仍各 16 MiB（前端 `METADATA_LIMIT` 已是该值）；
   - 已处置的提交仍可带 `NOT_CANDIDATE_BASE_ADVANCED`，只作历史说明；终局状态看 `submission_disposition`，占用看工作区指针。与 §8.1 第 2 项的建议一致。
 - **§8.4 中两项后端澄清已关闭。** 修订 kickoff 不再缺后端信息；剩余的只有 owner 对 §8.2 拆段的决定（若尚未明确）与设计会话的修订本身。
+
+## 10. FE3b 实施提示词草案（owner 2026-11-07 同意拆段）
+
+- **状态：** 审核会话起草。设计会话修订 kickoff 时并入 §13.3，并写 FE3c 的提示词；修订后的 kickoff 与本草案不一致时，以 kickoff 为准，本会话发出前对齐。
+- **发出前提：** 修订后的 kickoff 经 owner 确认；本会话现场再核对一次接口、镜像与节点占用；填好方括号中的值。
+
+> 你是 FE3b 前端实施会话。FE3 已拆成 FE3b（契约与基础）与 FE3c（归档核验与完整旅程），本阶段只做 FE3b。
+>
+> **先读：**
+> - AGENTS：“专用测试节点”“前端测试（FD7）”“Docker / Compose 验证”；testing-conventions“前端测试”；
+> - 前端 kickoff §4.3、§4.4、§7.1；FE2 kickoff §7.5；
+> - FE3 kickoff（main `[kickoff 确认提交]`）全文，重点 §3.2 FE3b 一行、§4、§5、§6、§10、§13.3；
+> - FE3a handoff 与 `reviews/fe3a-*.md`；
+> - `reviews/fe3b-precondition-check.md` 的 §3、§6、§8、§9；
+> - 后端：[FE3b 评估交接](../../backend-vnext/refactoring/formal/plans/p6-fe3b-backend-assessment-handoff.md)、[BE-d 前端交接](../../backend-vnext/refactoring/formal/plans/p6-be-d-frontend-handoff.md)（含 §2.1 接收预算）、[V2 交接](../../backend-vnext/refactoring/formal/plans/p6-v2-frontend-handoff.md) §3、[BE-a 交接](../../backend-vnext/refactoring/formal/plans/p6-be-a1-handoff.md)。
+>
+> **后端事实（已核对，不需要再等后端）：**
+> - `p6-s2a-exit` → `53b676a629`；`p6-be-a-d-exit` → `77b9aeea74`（产品 `49403f21aa`）；当前 main 的 `vnext/` 树 `56720104af`；
+> - 生产 OpenAPI 原件 SHA256 `977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`（路径见 FE3b 评估交接 §2）；
+> - 依赖镜像 `gateway-backend-deps:lock-d054366c02fa`、RS 依赖镜像 `gateway-p2r1-repository:lock-6dc9659f0aee`、工具链镜像在 04、05 上身份一致（config digest 与全部 DiffID）；npm 缓存归档 SHA256 `0d861824…0089f4`（来源提交 `a2fb4a027a`）在 04、05、07 上。不需要预填充。
+>
+> **起点与分支：**
+> - `fe-vnext` 在 `fe-fe3a-exit`（→ `0e7caf66f4`），开发主机 worktree `/home/dev/gdds-fe`；
+> - 先把 main `[合入用 main 提交]` 以 `--no-ff` 合入 `fe-vnext`，不 rebase；合并会带入 main 上的前端提交 `55d56efb6e`（`GATEWAY_FE_TEST_WORKERS`），保留；
+> - 合并后按 kickoff §3.2 做路径核对：候选的 `vnext/` 树等于所合入 main 的 `vnext/` 树（预期 `56720104af`）；相对该 main 的差异只含 `frontend/` 与 `docs/frontend-vnext/`；
+> - 合并后的 HEAD 上 `build-backend-dependency-base.sh --print-input` 必须仍得 `lock-d054366c02fa`，否则停止。
+>
+> **范围（FE3b）：**
+> 1. **快照与清理（kickoff §5）：**
+>    - 用真实 backend 起栈取 `/openapi.json`，按 §5.1 规范化写入 `frontend/openapi.json` 并重新生成类型，同一提交；记录与原件 `977b2258…` 规范化后是否逐字节相同，不同即停止；
+>    - 删除退回动作的全部路径：`client.ts::safeReviewStatus/safeReviewEvent` 的映射、`ComparisonPage.tsx`、`view-model/workspace.ts` 中的状态与文案、模拟数据与用例；
+>    - 删除 201/202 的类型变通；`archive_disposition` 直接改为 `submission_disposition`，不双读；
+>    - 模拟数据按新生成类型，`WorkspaceResponse` 补两个指针（至多一个非空，符合 BE-a 生命周期表，含“operation 终态而 attempt 未结束”）；错误码单测解析新快照；`check-production-build.mjs` 覆盖新增模拟 token。
+> 2. **终局处置只读显示：** 组态树与审核页把审核状态与 `submission_disposition` 分开显示，处置优先于 `NOT_CANDIDATE_BASE_ADVANCED`（该标记只作历史说明）；`MANUAL_CLOSE` 的 `result_id` 为 null 仍是已关闭。文案按修订后的 kickoff。不做关闭操作入口（FE3c）。
+> 3. **上传模式撤回与占用（kickoff §6）：**
+>    - 按修订后的 §6.1 表（暂定行已删除）实现撤回按钮与“提交”“上传”的禁用原因；撤回带 `review_version`；不按 actor 或指针推断可撤回；冲突后重新读取，不自动重发；
+>    - §6.2：按 `active_submit_attempt_id` 与 `job_kind` 恢复，删除 `gateway-submit-operation` 标记；续做读取失败或 `ABORTED` 后先重读工作区，按指针决定“提交”；工作区也读不到时保持禁用并给“重试”（核对报告 §8.1 第 3 项，以修订后的 kickoff 为准）；n3 用例改为基于指针，覆盖不减；
+>    - §6.3 W1–W8：模拟接口全部覆盖；真实 e2e 覆盖 W1–W5、W7、W8，W6 只在模拟接口。
+> 4. **tar 与 OPFS：**
+>    - `posix-tar.ts`：PAX 记录在 `Uint8Array` 中按 UTF-8 字节解析（长度前缀位数进入固定点），严格解码 key/value；支持标准 PAX `size` 覆盖 header 中的八进制 size，校验十进制与安全整数范围；
+>    - 接收预算：单个路径 UTF-8 不超过 8,388,608 字节，单个局部 PAX payload 不超过 16,777,216 字节（不含 header 与 padding），先按声明大小检查再分配；manifest、closure 仍各 16 MiB；
+>    - 路径安全、重复成员、closure 顺序与逐成员摘要校验保留；截断、流错误或摘要不符时中止 OPFS 安装，不提交半包，不显示为“无差异”；
+>    - **同字节互通：** 把后端交付的 `bundle.tar`（24,576 字节，SHA256 `b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2`）与 `pax-records.json`、`size-vectors.json` 及其 header-only 向量原样提交为前端 fixture（文件来源见 BE-d 前端交接 §3），测试先断言 SHA256；用它在浏览器中验证解析、全部摘要与 OPFS 安装（模拟接口 e2e），并有单测覆盖 PAX 字节边界、99→101 位数边界、中文与非 BMP、size 边界与超预算拒绝。不得自造替代 fixture，不生成大文件。
+> 5. **真实 backend 旅程（`--suite journeys`，kickoff §4.7 中属于 FE3b 的部分）：**
+>    - R1；R2（MODIFIED_ONLY 与 FULL，下载 tar 核 `Content-Length`、`ETag` 与逐成员摘要，进入差异浏览，同一 context 再次打开不重新下载）；R3；R4 的提交到 `PENDING`（身份确认留 FE3c）；R5；
+>      R6 改为：审核人 REJECT（必填理由）→ 指针清空 → 重新上传 → 提交 → 通过，另回归审核顶栏撤回；R7；R9 只做两节点；R10 四项；R11；
+>    - 身份按 kickoff §4.6，“提交人（本人撤回）”带 `withdraw_own_submission`、不带 `review_submission`；本人撤回不用审核人或全权限身份代替；保留无权限身份的 403；
+>    - 删除 FE3a smoke 中以“下载比较结果失败”为判据的临时断言；各输入 scope 进入差异浏览后再断言 `pageErrors`（FE3a 复审 N5）。
+> 6. **FE3a 带入：** 为 `e2e*/` 加 tsconfig 并纳入类型检查（N1）；按 tar 的 `ETag`/bundle 摘要记录 bundle 标识（N2）。
+>
+> **不做（FE3c）：** 归档业务核验显示、逐项接受与撤销、关闭出口、待审核阻塞与过期通过的界面、R8、R9 三节点、A–D 序列与 kickoff §4.6 留给后续的各项、t1 旅程、M1 复测。不改 `vnext/`；不在浏览器中重算 SQL、来源或时间。
+>
+> **节点：**
+> - 类型检查、lint、单测、构建、截图、模拟接口 e2e 在 07，设置 `GATEWAY_FE_TEST_WORKERS=2`，不获取占用标记；
+> - 真实 backend e2e 与上传包校验在 05，由脚本按 kickoff §4.2 获取占用（会话名 `fe3b-impl`）与 `flock -n`，结束后清理并释放；
+> - 某节点占用标记的用途为计时测量时，前端在该节点上的任何运行都等待；
+> - 不在 04 上运行，04 取证在审核通过后进行；
+> - 05、07 上运行时按 kickoff §2.2 设置 npm 缓存的三个环境变量；源码经 git bundle 传到节点，在 clean、已提交的 detached worktree 中运行，日志与截图写在 worktree 外。
+>
+> **停止条件：** kickoff §10，以及：
+> - 合入后的接口、运行时 OpenAPI 与修订后的 kickoff 或核对报告 §3 不符；
+> - 真实 e2e 发现后端缺陷或后端不接受输入：保留日志与 trace，交设计会话与后端，不在前端绕过；
+> - 需要后端新增字段或接口；依赖镜像、RS 依赖镜像、工具链或 npm 缓存缺失或身份不符，或构建需要访问网络；需要修改 `vnext/`；清理核对失败；
+> - 脚本自身的错误按 DC68 重做一次，重做再失败即停止；被测对象运行后的失败不按 DC68 重做。
+>
+> **交付：** 07 上 `run-tests.sh --e2e --screenshots`、05 上 `--suite journeys` 与 `validate-upload-package.sh` 各一次通过（均为调试运行）后，提交代码候选与 handoff `docs/frontend-vnext/fe3b-handoff.md`，内容包括：
+> - 合并提交、所合入的 main 与 `vnext/` 树、路径核对结果；
+> - 快照来源与比对结果；清理清单（删除的退回路径与类型变通）；
+> - W1–W8 与用例的对应；旅程各项结果，只由模拟接口覆盖的项及原因；每个 scope 的上传序列；
+> - tar 修复与同字节互通：fixture 的 SHA256、用例名、运行节点与日志 SHA256；预算边界用例；
+> - 截图清单（1280 与 1920）：§6 各状态（撤回可用、§6.1 每种禁用）、撤回对话框、冲突提示、撤回成功后的上传步骤卡、W8、终局处置显示、快照刷新后有变化的页面；
+> - 每次运行的节点、hostname、起止时间、起止 HEAD、exit code、日志 SHA256；工具链（config digest 与全部 DiffID）、npm 缓存（来源提交、归档 SHA256）、依赖镜像（tag、label、config digest、全部 DiffID）与 RS 镜像身份；
+> - 偏差与未决事项。
+>
+> 不推送。
+>
+> **审核通过后的 04 取证（由审核会话指明）：** 在 04 的 clean、已提交 detached worktree 上各运行一次：`run-tests.sh --e2e --screenshots`、`validate-upload-package.sh`、`run-real-backend-e2e.sh --suite journeys`。

@@ -8,6 +8,10 @@
 
 **最终配置后的验证边界：** History 局部结果齐后，向 Owner 提交最终 envelope/reserve/M 方案；临时 64/16/48 不直接成为生产配置。若最终方案修改 `vnext/deploy`，六包 manifest 的共同 deployment 组件均变化，必须在最终产品候选取得六包实际合格来源，不能沿用旧 Rust/三小包的闭包结论；该轮 backend 已覆盖的 Compose 旅程不再另跑。临时校准与 FD 修复只做上述定向验证，不提前重跑六包。既有 A–D 恢复/取消/事务/CAS 等独立证据仍按影响面复用；最终容器绑定、t1–t4 范围和资源边界按本节原验收收齐，不将原失败前缀、局部 History 或性能延期替代最终候选门禁。
 
+**History 局部结果与待选最终配置（2026-11-07）：** 隔离候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 的独立冷拷副本已完成 History，02:09:25Z driver 结束、journey 0、同一新 worker 正常 stop、仅副本清理完成及节点释放，独立审核通过。三个真实 claim/counter 一致，materialize/assemble/publish 预约高水位分别 398,673,952 / 11,218,037,646 / 3,761,894 bytes；History 最大约 10.448 GiB，局部新 worker cgroup peak 263,307,264 bytes、VmHWM 423,704 KiB，无 OOM/失租/重启。原 cal 前缀最大预约 13,070,921,208 bytes（12.173 GiB），cgroup peak 6.519 GiB；两次 worker 峰值分列，不求和或拼为完整校准 PASS。具体 SHA 与副本身份见 handoff/review。
+
+设计推荐与独审意见一致：**最终候选 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB，N1/单 active**；对已观测最大预约留 3.827 GiB（约 31%）余量。备选为 32 GiB envelope / 8 GiB reserve / M24 GiB，增加容量余量。目前仅提交 Owner 选择，main 仍为已确认的 12/4/8，不继续逐档试跑。charged 未覆盖全部 Rust 局部 temporary，因此上述数据与余量支持的是待验证配置，不是严格实耗上界或更大输入承诺；选定后完成最终候选必要门禁及同 worker 完整 t4。W1/W2 和原基准结论仍按既有安排。
+
 前序收敛记录（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
 
 修正候选 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1` 仅改三个测试路径，已获独立源码核对；06 本地 History 27 项、两个原失败 Compose 场景及 Ruff/mypy 已通过并独立核验。随后同 04 E worktree 的 backend-only 权威 runner 于 23:56:36Z 完整退出 0，主体 3173 项、串行 57 项通过。保存完整来源并独立核对后继续其余四个 Python 包；Rust 在同节点同 worktree 比较原合格来源，实际闭包相同。失败整次中通过的包不抽作合格来源；四包镜像构建结束再核 backend 闭包及最终容器绑定。

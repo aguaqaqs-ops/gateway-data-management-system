@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **E 当前收口（2026-11-07）：** `1de3fa4084` 的 04 backend 权威及 05 t1 完整通过。Owner 要求宽裕预算一次校准后定档；隔离候选 `4f808c111b`（64 GiB 容器/16 GiB reserve/M48/N1）的 t4 v1/v2 Preview、Submit 与仓库核验通过，最后 History 因 control DB 打开失败而停止，原校准仍 FAIL。已核预约高水位约 12.173 GiB、同 worker 生命周期 cgroup peak 约 6.519 GiB，尚非完整容量结论。FD 诊断准备连续两次失败后按 DC68 暂停；Owner 已批准独立审过的第三稿续做及明确问题修复后的定向验证。先在 06 确认根因，最小修复/复审后仅对独立冷拷副本验证 History，不重跑全旅程、不改原失败证据。main 最终资源档未改，最终配置与必要门禁/剩余真实数据仍待收口，E 尚未 GO；准确来源及保留资源见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
+- **E 当前收口（2026-11-07）：** `1de3fa4084` 的 04 backend 权威及 05 t1 完整通过。Owner 要求宽裕预算一次校准后定档；隔离 `4f808c111b`（64/16/M48 GiB、N1）的 t4 v1/v2 路径通过，最后 History 因 FD 耗尽导致 control DB 打开失败，原校准仍 FAIL。经 Owner 批准恢复第三稿诊断，已确认 scope 内 FD 达上限；main 窄修 `d6c88cafb3` 与 06 的 57 项/真实双 312 表对照独审通过。隔离同补丁 `1f9df50a5c` 的独立冷拷 History 于 02:09:25Z 完成、journey 0，完整计数及同 worker 资源/正常停止/副本清理均经独审。已观测最大预约仍为原前缀 12.173 GiB，History 10.448 GiB；两次物理峰值分列，不能拼成完整校准 PASS。已提交 Owner 最终配置选择：建议 24/8/M16 GiB、备选 32/8/M24 GiB，均 N1/单 active；main 配置尚未改，最终必要门禁/真实数据待收口，E 尚未 GO。准确来源及保留资源见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
 
 - **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
 

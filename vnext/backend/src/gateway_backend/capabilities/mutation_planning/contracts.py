@@ -69,6 +69,8 @@ class StorageTableSideV1:
     storage_projection_version: str
     stream: pa.RecordBatchReader | None = None
     schema: pa.Schema | None = None
+    input_owner: object | None = None
+    metadata_manifest: CanonicalizationManifest | None = None
 
     def __post_init__(self) -> None:
         if type(self.manifest_table) is not CanonicalizationManifestTable:
@@ -77,10 +79,25 @@ class StorageTableSideV1:
             raise ValueError("storage_view must be StorageRuleView")
         if self.storage_view.canonical_table != self.manifest_table.name:
             raise ValueError("storage view and manifest table must name the same table")
+        if (
+            self.storage_view.canonical_key_policy != self.manifest_table.canonical_key_policy
+            or self.storage_view.ordered_policy != self.manifest_table.ordered_policy
+            or self.storage_view.retained_columns != self.manifest_table.retained_columns
+            or self.storage_view.canonical_key_columns != self.manifest_table.canonical_key_columns
+            or self.storage_view.dropped_columns != self.manifest_table.dropped_columns
+            or self.storage_view.structural_columns != self.manifest_table.structural_columns
+        ):
+            raise ValueError("storage view and manifest table identity disagree")
         if type(self.storage_projection_version) is not str or not self.storage_projection_version:
             raise ValueError("storage_projection_version must be a non-empty string")
         if (self.stream is None) != (self.schema is None):
             raise ValueError("stream and its explicit schema must be present together")
+        if (self.stream is None) != (self.input_owner is None):
+            raise ValueError("present Arrow stream requires its charged input owner")
+        if self.metadata_manifest is not None and type(self.metadata_manifest) is not CanonicalizationManifest:
+            raise ValueError("metadata_manifest must be a canonicalization manifest")
+        if self.stream is None and self.metadata_manifest is None:
+            raise ValueError("metadata-only side requires its complete manifest binding")
 
 
 @dataclass(frozen=True, slots=True)

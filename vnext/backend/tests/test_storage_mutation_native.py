@@ -7,7 +7,9 @@ from dataclasses import replace
 
 import pyarrow as pa
 import pytest
+from gateway_shared_kernel import raw_blob_digest
 
+from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPolicy, MutationThresholdPolicy, StorageNetCounts, StorageTableSideV1,
     StorageTableTaskV1, TableMutationKind,
@@ -17,12 +19,23 @@ from gateway_backend.capabilities.mutation_planning.storage import choose_table_
 from gateway_backend.capabilities.storage_projection.contracts import (
     RepositoryImportColumn, RepositoryImportTable,
 )
+from gateway_backend.capabilities.storage_projection import open_storage_input
+from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
+from gateway_backend.capabilities.snapshot_materialization import (
+    ArrowSnapshotTableReader, snapshot_table_from_arrow, source_descriptor_from_arrow,
+    SnapshotTableArtifact, SnapshotTableArtifactManifest,
+    SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION, ROW_MATERIALIZATION_PROFILE,
+)
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,
+)
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, NeverCancel, OperationMemoryBudget,
-    current_kernel_context, kernel_execution_scope,
+    KernelExecutionContext, KernelMemoryLimit, NeverCancel, OperationMemoryBudget,
+    current_kernel_context, kernel_control_scope, kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
-from tests.support.mutation_contracts import digest, manifest_table, storage_view
+from tests.support.mutation_contracts import digest, manifest, manifest_table, storage_view
+from tests.support.storage_projection import table_descriptor, typed_column
 
 pytestmark = pytest.mark.unit
 
@@ -57,12 +70,63 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
                        canonical_key_columns=())
         manifest = replace(manifest, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
                            canonical_key_columns=())
-    manifest = replace(manifest, source_schema_digest=digest(source_fill),
-                       content_digest=digest(content_fill))
-    return StorageTableSideV1(
-        manifest, view, "3",
-        pa.RecordBatchReader.from_batches(table.schema, table.to_batches()), table.schema,
+    schema_digest = compute_schema_digest(
+        columns=[{"name": name, "nullable": False, "sql_type": "VARCHAR(64)"}
+                 for name in ("board", "link_no", "status")],
+        primary_key=manifest.canonical_key_columns,
     )
+    manifest = replace(manifest, source_schema_digest=digest(source_fill),
+                       canonical_schema_digest=schema_digest, content_digest=digest(content_fill))
+    descriptor = table_descriptor(
+        "orders", [typed_column(name, "VARCHAR(64)") for name in ("board", "link_no", "status")],
+        primary_key_columns=manifest.canonical_key_columns, row_count=table.num_rows,
+        raw_content_digest=manifest.content_digest,
+    )
+    source = source_descriptor_from_arrow({
+        "canonical_name": "orders", "display_name": "orders", "reader_ready": True,
+        "primary_key": list(manifest.canonical_key_columns),
+        "columns": [{"canonical_name": name, "display_name": name, "ordinal": index,
+                     "sql_type": "VARCHAR(64)", "logical_type": "standard", "nullable": False,
+                     "labels": None,
+                     "declared_type": {"kind": "string", "bits": None, "precision": None,
+                                       "scale": None, "bit_width": None}}
+                    for index, name in enumerate(("board", "link_no", "status"))],
+    })
+    canonical = snapshot_table_from_arrow(descriptor, table, source)
+    assert isinstance(canonical.reader, ArrowSnapshotTableReader)
+    canonical.reader.mark_canonical_comparison_verified()  # Fixture stands in for the verified IPC writer.
+    empty_digest = raw_blob_digest(b"")
+    reference = ArtifactRef("storage-fixture-artifact", "application/octet-stream", 0, empty_digest)
+    canonical = replace(canonical, artifact=SnapshotTableArtifact(
+        manifest_ref=reference,
+        manifest=SnapshotTableArtifactManifest(
+            artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
+            snapshot_digest=empty_digest, table_name="orders", descriptor=descriptor,
+            row_file_refs=(reference,), row_format=ROW_FORMAT_CANONICAL_IPC,
+            compression=ARTIFACT_COMPRESSION_NONE,
+            row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+            artifact_content_digest=empty_digest, created_at="2026-11-08T00:00:00Z",
+            repository_id="storage-fixture",
+        ),
+        row_layout_digest=empty_digest,
+    ))
+    context = current_kernel_context()
+    assert context is not None
+    lease = open_storage_input(canonical, manifest, context)
+    return StorageTableSideV1(manifest, view, "3", lease.stream, lease.schema, lease)
+
+
+def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
+    view = storage_view()
+    manifest_item = manifest_table(row_count=table.num_rows)
+    if keyless:
+        view = replace(view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+                       canonical_key_columns=())
+        manifest_item = replace(manifest_item, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+                                canonical_key_columns=())
+    complete = manifest(tables=(manifest_item,))
+    complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
+    return StorageTableSideV1(manifest_item, view, "3", metadata_manifest=complete)
 
 
 def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> StorageTableTaskV1:
@@ -79,64 +143,101 @@ def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> 
     old, new = _table(old_rows), _table(new_rows)
     context = current_kernel_context()
     assert context is not None
-    old_charge = context.memory.retain_arrow(old)
-    new_charge = context.memory.retain_arrow(new)
     before = _side(old, content_fill="1")
     after = _side(new, content_fill="2")
-    baseline = context.memory.used_bytes
-    try:
-        with prepare_storage_table(_task(before, after), context) as handle:
-            summary = handle.summary()
-            assert summary.net_counts == StorageNetCounts(0, 1, 0)
-            assert handle.patch_locator_count == 1
-            assert choose_table_mutation(_task(before, after), summary,
-                policy=MutationPolicy.ADAPTIVE_PATCH,
-                threshold=MutationThresholdPolicy()).operation is TableMutationKind.PATCH_DML
-        assert context.memory.used_bytes == baseline
-    finally:
-        old_charge.close()
-        new_charge.close()
+    with prepare_storage_table(_task(before, after), context) as handle:
+        summary = handle.summary()
+        assert summary.net_counts == StorageNetCounts(0, 1, 0)
+        assert handle.patch_locator_count == 1
+        assert choose_table_mutation(_task(before, after), summary,
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            threshold=MutationThresholdPolicy()).operation is TableMutationKind.PATCH_DML
+    assert context.memory.used_bytes == 0
 
 
 def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() -> None:
     old, new = _table([("1", "0", "x")]), _table([])
     context = current_kernel_context()
     assert context is not None
-    with context.memory.retain_arrow(new):
-        before = replace(_side(old, keyless=True), stream=None, schema=None)
-        after = _side(new, keyless=True, content_fill="3")
-        task = _task(before, after)
-        with prepare_storage_table(task, context) as handle:
-            summary = handle.summary()
-            assert summary.before_rows == 1 and summary.after_rows == 0
-            assert summary.net_counts is None
-            assert summary.before_identity_validated and summary.after_identity_validated
-            decision = choose_table_mutation(task, summary, policy=MutationPolicy.ADAPTIVE_PATCH,
-                                             threshold=MutationThresholdPolicy())
-            assert decision.operation is TableMutationKind.REBUILD_TABLE
-            assert decision.replay_insert_rows == 0
+    before = _metadata_side(old, keyless=True)
+    after = _side(new, keyless=True, content_fill="3")
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        summary = handle.summary()
+        assert summary.before_rows == 1 and summary.after_rows == 0
+        assert summary.net_counts is None
+        assert summary.before_identity_validated and summary.after_identity_validated
+        decision = choose_table_mutation(task, summary, policy=MutationPolicy.ADAPTIVE_PATCH,
+                                         threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.REBUILD_TABLE
+        assert decision.replay_insert_rows == 0
+        handle.apply_decision(decision)
+    assert context.memory.used_bytes == 0
 
 
 def test_source_schema_only_change_is_noop_after_complete_keyed_diff() -> None:
     old, new = _table([("1", "0", "same")]), _table([("1", "0", "same")])
     context = current_kernel_context()
     assert context is not None
-    with context.memory.retain_arrow(old), context.memory.retain_arrow(new):
-        before = _side(old, source_fill="1", content_fill="b")
-        after = _side(new, source_fill="2", content_fill="b")
-        task = _task(before, after)
-        with prepare_storage_table(task, context) as handle:
-            summary = handle.summary()
-            assert summary.net_counts == StorageNetCounts(0, 0, 0)
-            decision = choose_table_mutation(task, summary,
-                policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
-            assert decision.operation is TableMutationKind.NOOP
-            assert decision.reason == "NO_NET_STORAGE_CHANGE"
+    before = _side(old, source_fill="1", content_fill="b")
+    after = _side(new, source_fill="2", content_fill="b")
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        summary = handle.summary()
+        assert summary.net_counts == StorageNetCounts(0, 0, 0)
+        decision = choose_table_mutation(task, summary,
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.NOOP
+        assert decision.reason == "NO_NET_STORAGE_CHANGE"
+        handle.apply_decision(decision)
+    assert context.memory.used_bytes == 0
+
+
+def test_source_only_change_with_metadata_before_rebuilds_without_invented_net_counts() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    old = _side(_table([("1", "0", "same")]), source_fill="1", content_fill="b")
+    complete = manifest(tables=(old.manifest_table,))
+    complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
+    before = replace(old, stream=None, schema=None, input_owner=None, metadata_manifest=complete)
+    assert old.input_owner is not None
+    old.input_owner.close()  # type: ignore[attr-defined]
+    after = _side(_table([("1", "0", "same")]), source_fill="2", content_fill="b")
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        summary = handle.summary()
+        assert summary.net_counts is None
+        decision = choose_table_mutation(task, summary,
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.REBUILD_TABLE
+        assert decision.reason == "BEFORE_ROWS_UNAVAILABLE"
+        handle.apply_decision(decision)
+    assert context.memory.used_bytes == 0
+
+
+def test_storage_rule_digest_only_change_uses_the_shared_comparability_rule() -> None:
+    old, new = _table([("1", "0", "same")]), _table([("1", "0", "same")])
+    context = current_kernel_context()
+    assert context is not None
+    before = _side(old, source_fill="1")
+    after = _side(new, source_fill="2")
+    before = replace(before, storage_view=replace(before.storage_view, storage_rule_digest=digest("1")))
+    after = replace(after, storage_view=replace(after.storage_view, storage_rule_digest=digest("2")))
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        summary = handle.summary()
+        assert summary.net_counts == StorageNetCounts(0, 0, 0)
+        decision = choose_table_mutation(task, summary,
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.NOOP
+        handle.apply_decision(decision)
+    assert context.memory.used_bytes == 0
 
 
 def test_native_entry_rejects_structural_context_and_closed_context() -> None:
     table = _table([])
-    task = _task(None, _side(table))
+    after = _side(table)
+    task = _task(None, after)
     class FakeContext:
         memory = OperationMemoryBudget(1024**2)
         cancel_probe = NeverCancel()
@@ -151,3 +252,75 @@ def test_native_entry_rejects_structural_context_and_closed_context() -> None:
         closed.require_active()
     with pytest.raises(ValueError, match="not active"):
         prepare_storage_table(task, closed)
+    assert after.input_owner is not None
+    after.input_owner.close()  # type: ignore[attr-defined]
+
+
+def test_uncharged_replacement_stream_cannot_claim_a_verified_identity() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    after = _side(_table([("1", "0", "same")]))
+    replacement = _table([("1", "0", "different")])
+    spoofed = replace(after,
+        stream=pa.RecordBatchReader.from_batches(replacement.schema, replacement.to_batches()),
+        schema=replacement.schema)
+    try:
+        with pytest.raises(ValueError, match="verified same-operation input owner"):
+            prepare_storage_table(_task(None, spoofed), context)
+    finally:
+        spoofed.stream.close()  # type: ignore[union-attr]
+        assert after.input_owner is not None
+        after.input_owner.close()  # type: ignore[attr-defined]
+
+
+def test_merged_operation_scope_accepts_its_original_verified_reader() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    after = _side(_table([("1", "0", "same")]))
+    with kernel_control_scope(NeverCancel(), None) as merged:
+        with prepare_storage_table(_task(None, after), merged) as handle:
+            assert handle.summary().after_rows == 1
+            # Closing the operation wrapper cannot release the charge while
+            # its table still owns native Arrow references.
+            handle._operation.close()
+            assert context.memory.used_bytes > 0
+    assert context.memory.used_bytes == 0
+
+
+def test_rebuild_discards_old_arrow_and_patch_locators_before_render() -> None:
+    old = _table([(str(i), "0", "old") for i in range(1001)])
+    new = _table([(str(i), "0", "new") for i in range(1001)])
+    context = current_kernel_context()
+    assert context is not None
+    before = _side(old, content_fill="1")
+    after = _side(new, content_fill="2")
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        decision = choose_table_mutation(task, handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.REBUILD_TABLE
+        assert handle.patch_locator_count == 1000
+        with_old = context.memory.used_bytes
+        handle.apply_decision(decision)
+        assert handle.patch_locator_count == 0
+        assert context.memory.used_bytes < with_old
+        assert context.memory.used_bytes > 0
+    assert context.memory.used_bytes == 0
+
+
+def test_empty_multibatch_input_rejects_header_growth_before_stream_consumption() -> None:
+    schema = _schema()
+    empty = pa.RecordBatch.from_arrays([pa.array([], type=pa.string()) for _ in range(3)], schema=schema)
+    after = _side(pa.Table.from_batches([empty] * 64, schema=schema))
+    context = current_kernel_context()
+    assert context is not None
+    original_limit = context.memory.limit_bytes
+    # Keep the verified input charged, then leave less than the native
+    # all-batch header reservation. The failure must release every owner.
+    context.memory.limit_bytes = context.memory.used_bytes + 64 * 1024**2 + 128 * 1024
+    try:
+        with pytest.raises(KernelMemoryLimit):
+            prepare_storage_table(_task(None, after), context)
+    finally:
+        context.memory.limit_bytes = original_limit
+    assert context.memory.used_bytes == 0

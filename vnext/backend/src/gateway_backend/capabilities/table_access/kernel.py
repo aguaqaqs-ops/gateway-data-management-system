@@ -225,6 +225,14 @@ class KernelExecutionContext:
             raise ValueError("kernel operation context is not active")
         self.checkpoint()
 
+    def require_same_operation(self, other: object) -> None:
+        """Check a retained reader's budget and lifetime against this active scope."""
+        self.require_active()
+        if (type(other) is not KernelExecutionContext
+                or other.memory is not self.memory
+                or other._lifetime is not self._lifetime):
+            raise ValueError("Arrow reader belongs to another kernel operation")
+
 
 _active_context: ContextVar[KernelExecutionContext | None] = ContextVar("operation_kernel_context", default=None)
 

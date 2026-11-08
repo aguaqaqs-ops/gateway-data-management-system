@@ -1,7 +1,9 @@
 """Public surface of the Storage Projection capability."""
 
 from gateway_backend.capabilities.storage_projection.native import (
-    project_arrow_table, require_storage_operation, storage_memory_limit,
+    StorageInputLease, open_storage_input, project_arrow_table,
+    require_storage_input_owner, require_storage_operation, storage_memory_limit,
+    verify_storage_metadata_manifest,
 )
 from gateway_backend.capabilities.storage_projection.arrow import project_canonical_arrow_table_set
 
@@ -65,6 +67,10 @@ __all__ = [
     "compute_schema_digest",
     "project_canonical_arrow_table_set",
     "project_arrow_table",
+    "StorageInputLease",
+    "open_storage_input",
+    "require_storage_input_owner",
+    "verify_storage_metadata_manifest",
     "require_storage_operation",
     "storage_memory_limit",
     "CANONICALIZATION_MANIFEST_CONTRACT",

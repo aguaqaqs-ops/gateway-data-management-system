@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use arrow_array::RecordBatchReader;
-use gateway_compute_core::comparison::KernelContext;
+use arrow_array::{ArrayRef, RecordBatch, RecordBatchReader};
+use gateway_compute_core::comparison::{KernelContext, KernelLease};
 use gateway_compute_core::storage_mutation::{
     StorageSide, StorageTable, prepare_storage_table,
 };
@@ -67,6 +67,7 @@ impl StorageOperation {
 #[pyclass]
 struct StorageHandle {
     table: Option<StorageTable>,
+    header_lease: Option<KernelLease>,
     owner: Option<Arc<PythonChargeOwner>>,
 }
 
@@ -81,8 +82,49 @@ impl StorageHandle {
 
     fn close(&mut self) {
         self.table = None;
+        self.header_lease = None;
         self.owner = None;
     }
+
+    fn discard_before(&mut self) -> PyResult<()> {
+        let table = self.table.as_mut().ok_or_else(|| PyValueError::new_err("storage handle closed"))?;
+        table.discard_before().map_err(|error| PyMemoryError::new_err(error.to_string()))?;
+        if let Some(lease) = &mut self.header_lease {
+            let actual = retained_header_bytes(table).ok_or_else(|| PyMemoryError::new_err("storage header charge overflow"))?;
+            lease.shrink_to(actual).map_err(|error| PyMemoryError::new_err(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+fn header_upper(columns: usize, names_bytes: usize) -> Option<usize> {
+    let per_batch = std::mem::size_of::<RecordBatch>()
+        .checked_add(columns.checked_mul(std::mem::size_of::<ArrayRef>())?)?
+        .checked_add(128)?;
+    // One lookahead batch may be produced while detecting an over-limit stream.
+    4097usize.checked_mul(per_batch)?
+        .checked_add(names_bytes.checked_mul(8)?)?
+        .checked_add(512)
+}
+
+fn storage_control_error(code: &str) -> PyErr {
+    match code {
+        "COMPARISON_CANCELLED" => PyInterruptedError::new_err("storage operation cancelled"),
+        "COMPARISON_DEADLINE_EXCEEDED" => PyTimeoutError::new_err("storage operation deadline elapsed"),
+        _ => PyMemoryError::new_err(code.to_owned()),
+    }
+}
+
+fn retained_header_bytes(table: &StorageTable) -> Option<usize> {
+    let mut total = 4096usize;
+    for side in table.before.iter().chain(table.after.iter()) {
+        total = total.checked_add(side.batches.capacity().checked_mul(std::mem::size_of::<RecordBatch>())?)?;
+        for batch in &side.batches {
+            total = total.checked_add(batch.num_columns().checked_mul(std::mem::size_of::<ArrayRef>())?)?
+                .checked_add(128)?;
+        }
+    }
+    Some(total)
 }
 
 #[pyfunction]
@@ -168,6 +210,16 @@ fn _prepare_storage_table_native(
         (Arc::clone(&owner.context), owner.closed.load(Ordering::Acquire), charge_owner)
     };
     if is_closed { return Err(PyValueError::new_err("storage operation closed")); }
+    let before_present = before_stream.is_some();
+    let after_present = after_stream.is_some();
+    let names_bytes = before_columns.iter().chain(after_columns.iter())
+        .try_fold(0usize, |sum, name| sum.checked_add(name.len()))
+        .ok_or_else(|| PyMemoryError::new_err("storage metadata charge overflow"))?;
+    let header_budget = (if before_present { header_upper(before_columns.len(), names_bytes) } else { Some(0) })
+        .and_then(|left| left.checked_add(if after_present { header_upper(after_columns.len(), names_bytes)? } else { 0 }))
+        .and_then(|size| size.checked_add(4096))
+        .ok_or_else(|| PyMemoryError::new_err("storage header charge overflow"))?;
+    let mut header_lease = context.reserve(header_budget).map_err(|error| storage_control_error(error.code()))?;
     let before = into_stream(before_stream, before_schema, before_rows, before_columns)?;
     let after = into_stream(after_stream, after_schema, after_rows, after_columns)?;
     let result = adapter_boundary(|| Ok(py.detach(|| {
@@ -181,7 +233,10 @@ fn _prepare_storage_table_native(
     })));
     match result {
         Ok(Ok(Ok(table))) => {
-            let handle = StorageHandle { table: Some(table), owner: Some(owner) };
+            let actual = retained_header_bytes(&table).ok_or_else(|| PyMemoryError::new_err("storage header charge overflow"))?;
+            if actual > header_budget { return Err(PyMemoryError::new_err("storage header charge underestimated")); }
+            header_lease.shrink_to(actual).map_err(|error| PyMemoryError::new_err(error.to_string()))?;
+            let handle = StorageHandle { table: Some(table), header_lease: Some(header_lease), owner: Some(owner) };
             if let Err(error) = operation.borrow(py).reconcile(py) {
                 drop(handle);
                 return Err(error);

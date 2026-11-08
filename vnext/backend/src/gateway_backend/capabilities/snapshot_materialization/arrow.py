@@ -61,6 +61,7 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         super().__init__(descriptor, source)
         self._arrow_source = source
         self._canonical_comparison_verified = canonical_comparison_verified
+        self._canonical_artifact_read_verified = False
 
     @property
     def canonical_comparison_verified(self) -> bool:
@@ -70,6 +71,15 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         """Only the successful fresh canonical IPC writer calls this."""
         self._require_open()
         self._canonical_comparison_verified = True
+
+    @property
+    def canonical_artifact_read_verified(self) -> bool:
+        return self._canonical_artifact_read_verified
+
+    def mark_canonical_artifact_read_verified(self) -> None:
+        """Only a successful canonical IPC artifact reader calls this."""
+        self._require_open()
+        self._canonical_artifact_read_verified = True
 
     @property
     def execution_context(self) -> KernelExecutionContext:
@@ -96,10 +106,12 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
 
     def reopen(self) -> ArrowSnapshotTableReader:
         self._require_open()
-        return ArrowSnapshotTableReader(
+        reopened = ArrowSnapshotTableReader(
             self._descriptor, self._arrow_source.reopen(),
             canonical_comparison_verified=self._canonical_comparison_verified,
         )
+        reopened._canonical_artifact_read_verified = self._canonical_artifact_read_verified
+        return reopened
 
 
 class ArrowSnapshotTableBatchReader:

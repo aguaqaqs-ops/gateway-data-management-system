@@ -9,6 +9,28 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationThresholdPolicy,
     TableMutationKind,
 )
+from gateway_backend.capabilities.storage_projection.contracts import (
+    CanonicalKeyPolicy, OrderedPolicy, StorageRuleView,
+)
+
+
+def storage_views_compatible(left: StorageRuleView, right: StorageRuleView) -> bool:
+    return (
+        left.canonical_key_policy == right.canonical_key_policy
+        and left.ordered_policy == right.ordered_policy
+        and left.retained_columns == right.retained_columns
+        and left.canonical_key_columns == right.canonical_key_columns
+        and left.dropped_columns == right.dropped_columns
+        and left.structural_columns == right.structural_columns
+    )
+
+
+def keyed_patchable(view: StorageRuleView) -> bool:
+    return (
+        view.canonical_key_policy not in {CanonicalKeyPolicy.NONE, CanonicalKeyPolicy.EXPLICIT_KEYLESS}
+        and view.ordered_policy in {OrderedPolicy.NONE, OrderedPolicy.GID_NO_V1}
+        and bool(view.canonical_key_columns)
+    )
 
 
 def choose_mutation_kind(

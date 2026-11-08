@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use arrow_array::{Array, RecordBatch};
-use arrow_schema::SchemaRef;
+use arrow_array::{Array, BinaryArray, LargeBinaryArray, LargeStringArray, RecordBatch, StringArray};
+use arrow_schema::{DataType, SchemaRef};
 use gateway_shared_kernel::{
     DeclaredType, NullScalar, RowField, TypedScalar, canonicalize_jcs, encode_row,
 };
@@ -68,6 +68,21 @@ pub struct StorageTable {
     _lease: KernelLease,
 }
 
+impl StorageTable {
+    /// A rebuild or NOOP no longer needs the old Arrow owner or patch locators.
+    pub fn discard_before(&mut self) -> Result<(), StorageError> {
+        self.before = None;
+        self.patch_actions = Vec::new();
+        let retained = self.after_order.capacity().checked_mul(std::mem::size_of::<RowLocation>())
+            .and_then(|size| size.checked_add(self.after.as_ref().map_or(Some(0), |side| {
+                side.batches.capacity().checked_mul(std::mem::size_of::<RecordBatch>())
+            })?))
+            .and_then(|size| size.checked_add(4096))
+            .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+        self._lease.shrink_to(retained).map_err(mapped)
+    }
+}
+
 fn invalid(message: &str) -> StorageError { StorageError(message.to_owned()) }
 fn mapped(error: impl std::fmt::Display) -> StorageError { StorageError(error.to_string()) }
 
@@ -85,6 +100,79 @@ fn checked_rows(side: &StorageSide) -> Result<usize, StorageError> {
         .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     if count != side.expected_rows { return Err(invalid("STORAGE_ROW_COUNT_MISMATCH")); }
     Ok(count)
+}
+
+fn raw_value_bytes(array: &dyn Array, data_type: &DataType, row: usize) -> Result<usize, StorageError> {
+    if array.is_null(row) { return Ok(0); }
+    match data_type {
+        DataType::Utf8 => Ok(array.as_any().downcast_ref::<StringArray>()
+            .ok_or_else(|| invalid("STORAGE_CELL_UNSUPPORTED"))?.value(row).len()),
+        DataType::LargeUtf8 => Ok(array.as_any().downcast_ref::<LargeStringArray>()
+            .ok_or_else(|| invalid("STORAGE_CELL_UNSUPPORTED"))?.value(row).len()),
+        DataType::Binary => Ok(array.as_any().downcast_ref::<BinaryArray>()
+            .ok_or_else(|| invalid("STORAGE_CELL_UNSUPPORTED"))?.value(row).len()),
+        DataType::LargeBinary => Ok(array.as_any().downcast_ref::<LargeBinaryArray>()
+            .ok_or_else(|| invalid("STORAGE_CELL_UNSUPPORTED"))?.value(row).len()),
+        DataType::FixedSizeBinary(width) => usize::try_from(*width)
+            .map_err(|_| invalid("RESOURCE_LIMIT_EXCEEDED")),
+        _ => Ok(128),
+    }
+}
+
+fn row_scratch(side: &StorageSide, batch: &RecordBatch, row: usize,
+               context: &Arc<KernelContext>) -> Result<KernelLease, StorageError> {
+    let mut raw = 0usize;
+    let mut names = 0usize;
+    for (column, field) in side.schema.fields().iter().enumerate() {
+        names = names.checked_add(field.name().len()).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+        raw = raw.checked_add(raw_value_bytes(batch.column(column).as_ref(), field.data_type(), row)?)
+            .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    }
+    // Per row: typed scalar and Value copies (<=4x raw), escaped JSON/JCS
+    // streams (each <=6x raw, with allocator spare capacity), parsed JCS
+    // graph and output. 64x covers all simultaneously live intermediates.
+    let upper = raw.checked_mul(64)
+        .and_then(|size| size.checked_add(names.checked_mul(16)?))
+        .and_then(|size| size.checked_add(side.schema.fields().len().checked_mul(4096)?))
+        .and_then(|size| size.checked_add(4096))
+        .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    context.reserve(upper).map_err(mapped)
+}
+
+fn key_payload_bytes(side: &StorageSide, key_columns: &[String],
+                     context: &Arc<KernelContext>) -> Result<usize, StorageError> {
+    let mut total = 0usize;
+    for name in key_columns {
+        let column = side.schema.index_of(name).map_err(mapped)?;
+        let field = side.schema.field(column);
+        for batch in &side.batches {
+            let array = batch.column(column);
+            for row in 0..batch.num_rows() {
+                if row % 1024 == 0 { context.check().map_err(mapped)?; }
+                total = total.checked_add(raw_value_bytes(array.as_ref(), field.data_type(), row)?)
+                    .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+            }
+        }
+    }
+    Ok(total)
+}
+
+fn validate_cells(side: &StorageSide, context: &Arc<KernelContext>) -> Result<(), StorageError> {
+    for batch in &side.batches {
+        for row in 0..batch.num_rows() {
+            if row % 1024 == 0 { context.check().map_err(mapped)?; }
+            let _scratch = row_scratch(side, batch, row, context)?;
+            for column in 0..batch.num_columns() {
+                if column % 32 == 0 { context.check().map_err(mapped)?; }
+                let field = side.schema.field(column);
+                // Decode every persisted cell, including those outside a key
+                // and every unchanged/rebuild row. SET membership and finite
+                // float rules live in the shared canonical encoder.
+                let _cell = encode_cell(batch.column(column).as_ref(), row, field).map_err(mapped)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn base64url(raw: &[u8]) -> String {
@@ -138,8 +226,10 @@ fn cell_value(batch: &RecordBatch, row: usize, column: usize) -> Result<(Declare
     Ok((declared, typed, document))
 }
 
-fn key_at(side: &StorageSide, location: RowLocation, key_columns: &[String]) -> Result<Vec<u8>, StorageError> {
+fn key_at(side: &StorageSide, location: RowLocation, key_columns: &[String],
+          context: &Arc<KernelContext>) -> Result<Vec<u8>, StorageError> {
     let batch = &side.batches[location.batch];
+    let _scratch = row_scratch(side, batch, location.row, context)?;
     let mut columns = key_columns.to_vec();
     columns.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     let mut document = Vec::<Value>::with_capacity(columns.len());
@@ -154,8 +244,10 @@ fn key_at(side: &StorageSide, location: RowLocation, key_columns: &[String]) -> 
     canonicalize_jcs(&serde_json::to_vec(&document).map_err(mapped)?).map_err(mapped)
 }
 
-fn row_hash_at(side: &StorageSide, location: RowLocation) -> Result<String, StorageError> {
+fn row_hash_at(side: &StorageSide, location: RowLocation,
+               context: &Arc<KernelContext>) -> Result<String, StorageError> {
     let batch = &side.batches[location.batch];
+    let _scratch = row_scratch(side, batch, location.row, context)?;
     let mut fields = Vec::with_capacity(side.retained_columns.len());
     for (column, name) in side.retained_columns.iter().enumerate() {
         let (declared_type, typed_value, _) = cell_value(batch, location.row, column)?;
@@ -181,14 +273,14 @@ fn row_hash_at(side: &StorageSide, location: RowLocation) -> Result<String, Stor
 }
 
 fn indexed_rows(side: &StorageSide, key_columns: &[String], keyless_hash: bool,
-                context: &KernelContext) -> Result<Vec<IndexedRow>, StorageError> {
+                context: &Arc<KernelContext>) -> Result<Vec<IndexedRow>, StorageError> {
     let mut rows = Vec::with_capacity(side.expected_rows);
     for (batch_index, batch) in side.batches.iter().enumerate() {
         for row in 0..batch.num_rows() {
             if row % 1024 == 0 { context.check().map_err(mapped)?; }
             let location = RowLocation { batch: batch_index, row };
-            let key = key_at(side, location, key_columns)?;
-            let row_hash = if keyless_hash { Some(row_hash_at(side, location)?) } else { None };
+            let key = key_at(side, location, key_columns, context)?;
+            let row_hash = if keyless_hash { Some(row_hash_at(side, location, context)?) } else { None };
             rows.push(IndexedRow { key, location, row_hash });
         }
     }
@@ -196,9 +288,11 @@ fn indexed_rows(side: &StorageSide, key_columns: &[String], keyless_hash: bool,
 }
 
 fn row_equal(before: &StorageSide, old: RowLocation, after: &StorageSide, new: RowLocation,
-             context: &KernelContext) -> Result<bool, StorageError> {
+             context: &Arc<KernelContext>) -> Result<bool, StorageError> {
     let before_batch = &before.batches[old.batch];
     let after_batch = &after.batches[new.batch];
+    let _before_scratch = row_scratch(before, before_batch, old.row, context)?;
+    let _after_scratch = row_scratch(after, after_batch, new.row, context)?;
     for column in 0..before.retained_columns.len() {
         if column % 32 == 0 { context.check().map_err(mapped)?; }
         let before_field = before.schema.field(column);
@@ -227,16 +321,16 @@ pub fn prepare_storage_table(before: Option<StorageSide>, after: Option<StorageS
     }
     // Charge index capacity, stable-sort scratch, JCS keys and bounded action
     // refs before any vector growth. Arrow backing is charged by the caller.
-    let indexed_rows = (if diff { before_rows } else { 0 }).checked_add(after_rows)
+    let indexed_count = (if diff { before_rows } else { 0 }).checked_add(after_rows)
         .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
-    let input_bytes = before.iter().chain(after.iter()).flat_map(|side| &side.batches)
-        .flat_map(|batch| batch.columns()).try_fold(0usize, |sum, array| {
-            sum.checked_add(array.get_buffer_memory_size())
-        }).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    let key_payload = after.as_ref().map_or(Ok(0), |side| key_payload_bytes(side, key_columns, &context))?
+        .checked_add(if diff { before.as_ref().map_or(Ok(0), |side| key_payload_bytes(side, key_columns, &context))? }
+                     else { 0 })
+        .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     let key_names = key_columns.iter().try_fold(0usize, |sum, name| sum.checked_add(name.len()))
         .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     let key_per_row = key_columns.len().checked_mul(192)
-        .and_then(|size| size.checked_add(key_names.checked_mul(4)?))
+        .and_then(|size| size.checked_add(key_names.checked_mul(16)?))
         .and_then(|size| size.checked_add(256))
         .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     let rowhash_name_scratch = after.as_ref().map_or(Ok(0usize), |side| {
@@ -247,13 +341,17 @@ pub fn prepare_storage_table(before: Option<StorageSide>, after: Option<StorageS
         after.as_ref().map_or(0, |side| side.retained_columns.len())
             .checked_mul(256).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?
     } else { 0 };
-    let index_upper = indexed_rows.checked_mul(key_per_row)
-        .and_then(|size| size.checked_add(input_bytes.checked_mul(8)?))
+    let index_upper = indexed_count.checked_mul(key_per_row)
+        // Only variable-width key values survive the row. Their JCS escapes
+        // can expand to six bytes per raw byte; 16x includes Vec spare space.
+        .and_then(|size| size.checked_add(key_payload.checked_mul(16)?))
         .and_then(|size| size.checked_add(after_rows.checked_mul(hash_per_row)?))
         .and_then(|size| size.checked_add(rowhash_name_scratch.checked_mul(8)?))
         .and_then(|size| size.checked_add(MAX_PATCH_LOCATORS * std::mem::size_of::<PatchAction>() + 64 * 1024))
         .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     let mut lease = context.reserve(index_upper).map_err(mapped)?;
+    if let Some(side) = &before { validate_cells(side, &context)?; }
+    if let Some(side) = &after { validate_cells(side, &context)?; }
     let mut after_index = if let Some(side) = &after {
         indexed_rows(side, key_columns, key_columns.is_empty(), &context)?
     } else { Vec::new() };
@@ -377,6 +475,19 @@ mod tests {
     }
 
     #[test]
+    fn long_escaped_cell_rejects_before_encoding_when_scratch_exceeds_m() -> Result<(), Box<dyn std::error::Error>> {
+        let control_chars = "\0".repeat(65_536);
+        let side = side(&[1], &[control_chars.as_str()])?;
+        let budget = 3 * 1024 * 1024;
+        let control = Arc::new(KernelContext::new(budget, Arc::new(AtomicBool::new(false)), None));
+        let result = prepare_storage_table(None, Some(side), 0, &["name".into()], false,
+            Arc::clone(&control));
+        assert_eq!(result.err().map(|error| error.0), Some("RESOURCE_LIMIT_EXCEEDED".into()));
+        assert_eq!(control.remaining_bytes(), budget);
+        Ok(())
+    }
+
+    #[test]
     fn persisted_keyed_diff_counts_one_update_for_a_changed_image() -> Result<(), Box<dyn std::error::Error>> {
         let result = prepare_storage_table(Some(side(&[1, 2], &["old", "same"])?),
             Some(side(&[2, 1, 3], &["same", "new", "insert"])?), 2,
@@ -397,7 +508,7 @@ mod tests {
     #[test]
     fn keyless_sort_hash_comes_from_shared_row_encoding() -> Result<(), Box<dyn std::error::Error>> {
         let side = side(&[1, 1], &["a", "b"])?;
-        let first = row_hash_at(&side, RowLocation { batch: 0, row: 0 })?;
+        let first = row_hash_at(&side, RowLocation { batch: 0, row: 0 }, &context())?;
         let expected = encode_row(&[
             RowField { name: "name".into(), declared_type: DeclaredType::string(),
                 typed_value: TypedScalar::String(StringScalar { text: "a".into() }) },
@@ -468,6 +579,26 @@ mod tests {
         let result = prepare_storage_table(Some(make(-0.0)?), Some(make(0.0)?), 1,
             &["id".into()], true, context())?;
         assert_eq!(result.net_counts, Some(NetCounts::default()));
+        Ok(())
+    }
+
+    #[test]
+    fn rebuild_validates_nonkey_set_members_before_claiming_identity() -> Result<(), Box<dyn std::error::Error>> {
+        let set_field = Field::new("members", DataType::Utf8, false).with_metadata(HashMap::from([(
+            "gdds.canonical_type".into(),
+            json!({"declared_type":null,"labels":["allowed"],"logical_type":"set","sql_type":"SET('allowed')"}).to_string(),
+        )]));
+        let schema = Arc::new(Schema::new(vec![
+            field("id", "INT", "signed-integer", DataType::Int64), set_field,
+        ]).with_metadata(HashMap::from([("gdds.canonical_mapping_version".into(), "1".into())])));
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![
+            Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["outside"])) as ArrayRef,
+        ])?;
+        let side = StorageSide { schema, batches: vec![batch], expected_rows: 1,
+            retained_columns: vec!["id".into(), "members".into()] };
+        let result = prepare_storage_table(None, Some(side), 0, &["id".into()], false, context());
+        assert_eq!(result.err().map(|error| error.0), Some("SET_VALUE_INVALID".into()));
         Ok(())
     }
 }

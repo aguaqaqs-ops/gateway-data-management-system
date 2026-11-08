@@ -2,36 +2,23 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.mutation_planning._decision import choose_mutation_kind
+from gateway_backend.capabilities.mutation_planning._decision import (
+    choose_mutation_kind, keyed_patchable, storage_views_compatible,
+)
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPolicy, MutationThresholdPolicy, StorageTableDecision, StorageTableSummary,
     StorageTableTaskV1, TableMutationKind,
 )
-from gateway_backend.capabilities.storage_projection.contracts import CanonicalKeyPolicy, OrderedPolicy
 
 
 def _same_storage_view(task: StorageTableTaskV1) -> bool:
     assert task.before is not None and task.after is not None
-    left, right = task.before.storage_view, task.after.storage_view
-    return (
-        left.canonical_key_policy == right.canonical_key_policy
-        and left.ordered_policy == right.ordered_policy
-        and left.retained_columns == right.retained_columns
-        and left.canonical_key_columns == right.canonical_key_columns
-        and left.dropped_columns == right.dropped_columns
-        and left.structural_columns == right.structural_columns
-    )
+    return storage_views_compatible(task.before.storage_view, task.after.storage_view)
 
 
 def _patchable(task: StorageTableTaskV1) -> bool:
     assert task.before is not None and task.after is not None
-    view = task.after.storage_view
-    return (
-        _same_storage_view(task)
-        and view.canonical_key_policy not in {CanonicalKeyPolicy.NONE, CanonicalKeyPolicy.EXPLICIT_KEYLESS}
-        and view.ordered_policy in {OrderedPolicy.NONE, OrderedPolicy.GID_NO_V1}
-        and bool(view.canonical_key_columns)
-    )
+    return _same_storage_view(task) and keyed_patchable(task.after.storage_view)
 
 
 def choose_table_mutation(
@@ -72,6 +59,8 @@ def choose_table_mutation(
     )
     if same_identity:
         return StorageTableDecision(TableMutationKind.NOOP, "STORAGE_IDENTITY_UNCHANGED", 0)
+    if before.stream is None:
+        return StorageTableDecision(TableMutationKind.REBUILD_TABLE, "BEFORE_ROWS_UNAVAILABLE", summary.after_rows)
     if not _patchable(task) or summary.before_rows == 0:
         return StorageTableDecision(TableMutationKind.REBUILD_TABLE, "PATCH_INELIGIBLE", summary.after_rows)
     if summary.net_counts is None:

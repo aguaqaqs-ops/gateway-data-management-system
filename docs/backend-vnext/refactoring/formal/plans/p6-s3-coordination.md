@@ -172,3 +172,19 @@ Owner放行后，字面HEAD完整bundle成功（SHA `6529d9a26434191719d877f7a15
 `c30fd82022` 补C独立输入support及新入口排序/预算/损坏向量；`526dc49837` 修GIL向量为实际首批读取后后台线程推进/取消，均由原审静态核，需新完整候选实际运行。原审另发现读取的 nullable nested list 不能只用压缩后level/payload bytes推导Arrow解码内存，须用leaf `num_values`；这属于1018→9f读预准入第一轮修订尚有缺口，下一集中修订为第二轮，不能更名重计。builder每批Utf8/Binary/List的i32 offset须append前拒绝，是独立finding；整表不加2GiB假限。实施者集中修这两项后，再由唯一测试者在06独立scratch做机械fmt，原被测9f WT不写。
 
 01:07:51Z CT108只读现场无marker/运行容器，尚未占用，不代表后续正式窗口已取得。01:14:24Z只读核已接受 `w4-generator-correction-20261105b` 根：summary SHA `6b63cf2e8c58cadc96b7ac716a523f9b5554fcb496eea16c0c2f5089199a3896`；2x两包SHA `74974e5f3237ba372e81df95d448602d09713c3cdc8edf6ae5237352a78ebd4c` / `121dc3b0e0418a76e2563111970dd136cf00d0942c83f37b8cc19597995b6d20`；W4-10%/100%包分别 `4cb82a16d7c7801a1d4ecf11828cf8e94a92ed95bd6f89293a75653164bbd27c` / `c6f7c5e74f48715d2e33e9efe32a5679e913caccd8f93398f3ad4d1322eb4ec6`，与既有独审来源一致。对应journey roots/census已定位；未复制、生成、测试或改原线。D仍须在自己的输入副本/当前工具上核实际manifest与census，不能直接沿用旧P5硬编码旅程预期。
+
+## 9. C 最终核收与 D 启动
+
+同一 C 独立审核者最终报告 **`ce217c0ad77783a4a3c0eba3f0033bce356aaa3c` §19：C GO，无剩余 C finding**。产品 V=`854d3888a9de49a666f209145756befec1dd2532`，handoff H=`c5bbc4544f97f7d1c2d7607a7b6d92265b92a67c`，详见 [C handoff](p6-s3-c-handoff.md) 与 [C review](p6-s3-c-review.md)。H仅文档；实际镜像来源仍V，不冒称H重建、权威runner或S3退出。C原实施者确认本人无WIP，main clean。
+
+C累计关闭预算增长前预约、nullable nested `num_values`、每批i32 offset、实际buffer capacity/最后owner、PyO3边界、严格物理Parquet `element`→公共Arrow `item`无逐行转换重绑，以及完整facts/core重放。三原b64 golden的family/version/detail/count/content断言已移至实际Python Parquet→Rust reader；原字节与raw SHA未改，旧无生产consumer的直接Rust Parquet reader已删除。诊断原件 `71961e18b44a1ea5bdf798456c8ba24f393f274301ecbf2002cddc955a9fd2f9`证明canonical schema直写三族raw逐字同冻结输入；首差仅来自错误使用回读schema的测试输入，未批准格式变化。
+
+Rust tree=`0866ac1223177d66cf13dc8b7389875c7bcb39b7`；实际workspace fmt/clippy/test来源为ab610e82日志 `1ba0d0f7da4a8d8e8127b6fa50d39fa7272daccd18e705fbe52524c0ba2f9f07` 的三个exit0分项。该整稿后来Python首败，**不是权威carried来源**。V854在06 **02:48:19–02:49:07Z** 实际强制native重装/input、C focused67、architecture50、五包Ruff/mypy全0，原log SHA=`12f07b3f5aa294cabb66d02e95c7de64c05e0882049369e2906aa994771e45d4`，起止V/clean/六锁稳定。原postflight/release SHA=`cec4684ab6ec752332783b90e018da6518d30258f77a3480c7e0b73698ff5657`，SSH0，02:51:27Z释放。
+
+06当前镜像小门禁 **02:52:14–02:54:13Z** 实际0，vnext tree=`f2b1ca467434730482dbf0a85ba163b59eb2fb59`。offline Compose build backend/worker与镜像内真实Parquet→Rust smoke原log SHA=`97df5395210b420430519268a84c5daf0b74ab902d1f361bb3ed0ba6cbac9f3d`；两镜像config分别backend `sha256:15d83b25314b89a9625f39835970eae8ee24d22ada58ccc947a7d4deaab026ef`、worker `sha256:1ef7719fcbc443abffe52993709d9daefdc42afc8827b5b87e87a226798765a3`，各全13DiffID见identity JSON（SHA=`045ac22b1b2084c262f6cb78b6ea2fde761c370e9576e3aa26c4601b5b064696`），archive SHA=`1a5a447da032b35380ae332e74b591f31b5496ba09c1fced53b46f3f5c0a5d58`。六锁/HEAD稳定，02:54:13Z释放；最后资源只读核02:59:02Z无marker/本project容器，原log SHA=`af884dd793c33f7ae66fdfd6ba524144f5b7e04480d418731d9d23a7ee1325a4`。不是完整Compose旅程或04权威门禁。
+
+新backend dependency base由CT201 clean573构建：tag `gateway-backend-deps:lock-ca0ba0a24a5e`，完整输入 `ca0ba0a24a5e96a435e14a6da80b26cc390d315722f0432be3affe9de3339085`，来源config `sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`与全19DiffID及Rust base config/全5DiffID均独核；归档SHA=`fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136`。06 LAN/load核原件SHA=`c84aaade82bb2d52618d579e9afa634586c7dae2e1924b4b3c0160ffff083d11`，身份全同，非跨节点inspect ID比较。最终若E删未用Cargo依赖改变锁，须另按流程构建/预填，不冒沿用此tag。
+
+全部原失败与修复、证据出处限制由handoff/review保留；ab原27失败实际为20 cast级联、3 raw测试输入、4错误DigestRef API，不能写成全是cast。C操作内API、producer/reader与独立向量现可供D依赖；**唯一生产compare路径、风险Arrow必要列、完整key操作内去重、FULL实际生命周期与W3/W4仍待D**。E仍须删除旧Python/probe与专属重复测试、冻结C动态旧expected、做04最终闭包/镜像门禁及DC33真实范围确认。S4/S5/FE/原基准职责不变。
+
+C三角色完成收尾后结束；协调按Owner授权创建全新的D实施/原审/唯一测试者（最多四活跃含协调者），不等待日常再授权。D保持N1/单active/32GiB worker envelope/8GiB reserve/显式M24GiB；真实数据默认05、正式性能CT108现场核有效占用后取用，C的06小门禁不扩大完整旅程用途。

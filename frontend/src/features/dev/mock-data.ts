@@ -260,6 +260,11 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核权限" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" } },
+  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
   { route: "/v1/history-compares", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
@@ -287,7 +292,8 @@ export const WRITE_SCENARIO_COVERAGE = [
   { method: "POST", route: "/v1/workspaces/{workspace_id}/upload-revisions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/workspaces/{workspace_id}/preview-operations", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/submissions/{submission_id}/closure", outcomes: ["success:201", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:REVIEW_VERSION_CONFLICT"] },
   { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "429:ADMISSION_LIMIT_REACHED"] },
   { method: "POST", route: "/v1/archive-plan-preview", outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"] },
   { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
@@ -372,6 +378,12 @@ export const TEST_REVIEW_APPLIED = {
   submission_id: "submission-1", status: "APPROVED", review_version: 9,
   event: { sequence: 2, event_kind: "APPROVED", to_status: "APPROVED", actor_id: "reviewer", occurred_at: "2026-11-03T09:00:00Z" },
 } satisfies Schemas["ReviewAppliedResponse"];
+
+export const TEST_CLOSE_SUBMISSION = {
+  submission_id: "fe2a-history-ref-old", disposition: "CLOSED_NOT_ARCHIVED", source_kind: "MANUAL_CLOSE",
+  closed_by: "reviewer", closed_at: "2026-11-03T10:00:00Z", reason: "不再需要该提交",
+  released_workspace_id: "workspace-fe2b", workspace_version: 13,
+} satisfies Schemas["CloseSubmissionResponse"];
 
 export const ARCHIVE_ANOMALY_IDENTITY = {
   subject_kind: "PROJECT_IDENTITY_EXCEPTION",
@@ -521,6 +533,8 @@ export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "Archive confirmation", method: "POST", route: "/v1/archive-confirmations", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_CONFIRM_APPEND },
   { name: "Archive anomaly resolution", method: "POST", route: "/v1/archive-anomaly-resolutions", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_RESOLUTION_APPEND },
   { name: "Archive started", method: "POST", route: "/v1/archives", status: 201, schema: "ArchiveStartedResponse", body: TEST_ARCHIVE_STARTED },
+  { name: "Close submission", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 201, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
+  { name: "Close submission idempotent replay", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 200, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
 ] as const;
 
 export const RESPONSE_SCENARIO_STRING_SOURCE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
@@ -543,6 +557,7 @@ const REQUIRED_IDEMPOTENCY_KEY_ROUTES: ReadonlyArray<{ name: string; pattern: Re
   { name: "preview operation", pattern: /^\/v1\/workspaces\/[^/]+\/preview-operations$/ },
   { name: "submit attempt", pattern: /^\/v1\/workspaces\/[^/]+\/submit-attempts$/ },
   { name: "review event", pattern: /^\/v1\/submissions\/[^/]+\/review-events$/ },
+  { name: "submission closure", pattern: /^\/v1\/submissions\/[^/]+\/closure$/ },
   { name: "history compare", pattern: /^\/v1\/history-compares$/ },
   { name: "archive confirmation", pattern: /^\/v1\/archive-confirmations$/ },
   { name: "archive anomaly resolution", pattern: /^\/v1\/archive-anomaly-resolutions$/ },

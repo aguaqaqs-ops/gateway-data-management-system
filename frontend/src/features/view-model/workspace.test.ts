@@ -59,7 +59,7 @@ describe("formal workbench tree and contextual actions", () => {
     expect(deriveWorkbenchActions(pending, 3, false).find((action) => action.id === "join-compare"))
       .toMatchObject({ enabled: false, reason: "比较托盘最多选择 3 个节点" });
     expect(deriveWorkbenchActions(stale, 0, false).find((action) => action.id === "archive-mainline"))
-      .toMatchObject({ enabled: false, reason: "该提交所基于的基线已不是当前基线，不能归档" });
+      .toMatchObject({ enabled: false, reason: "该提交所基于的基线已不是当前基线" });
     const eligible = { ...pending!, reviewStatus: "APPROVED" as const, eligibilityNote: null };
     expect(deriveWorkbenchActions(eligible, 0, false).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: true, reason: null });
@@ -100,6 +100,8 @@ describe("formal workbench tree and contextual actions", () => {
     const approved = HISTORY_PAGE_TWO.nodes.find((node) => node.review_status === "APPROVED")!;
     const archivedNode = {
       ...approved,
+      ref_id: "fe2a-history-ref-d1",
+      commit_id: "commit-d1",
       submission_disposition: "ARCHIVED_BASELINE" as const,
       disposition_source_kind: "ARCHIVE" as const,
       disposition_result_id: "archive-result-1",
@@ -107,12 +109,16 @@ describe("formal workbench tree and contextual actions", () => {
     };
     const closedAtArchive = {
       ...approved,
+      ref_id: "fe2a-history-ref-d2",
+      commit_id: "commit-d2",
       submission_disposition: "CLOSED_NOT_ARCHIVED" as const,
       disposition_source_kind: "ARCHIVE" as const,
       disposition_result_id: "archive-result-1",
     };
     const manualClose = {
       ...approved,
+      ref_id: "fe2a-history-ref-d3",
+      commit_id: "commit-d3",
       submission_disposition: "CLOSED_NOT_ARCHIVED" as const,
       disposition_source_kind: "MANUAL_CLOSE" as const,
       disposition_result_id: null,
@@ -124,14 +130,14 @@ describe("formal workbench tree and contextual actions", () => {
     expect(archived).toMatchObject({ status: "已归档", statusTone: "info", submissionDisposition: "ARCHIVED_BASELINE" });
     expect(deriveWorkbenchActions(archived, 0, false).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已归档" });
-    const closed = rows.find((row) => row.refId === closedAtArchive.ref_id && row.refId !== approved.ref_id) ?? rows.filter((row) => row.refId === closedAtArchive.ref_id)[0]!;
+    const closed = rows.find((row) => row.refId === closedAtArchive.ref_id)!;
     expect(deriveWorkbenchActions(closed, 0, false).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已关闭（未归档）" });
-    const manual = rows.filter((row) => row.refId === manualClose.ref_id)[0]!;
+    const manual = rows.find((row) => row.refId === manualClose.ref_id)!;
     expect(manual.closure).toMatchObject({ closed_by: "owner-1", reason: "有理由关闭" });
     expect(deriveWorkbenchActions(manual, 0, false).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已关闭（未归档）" });
-    const flagOnly = { ...approved, submission_disposition: null, disposition_source_kind: null, disposition_result_id: null, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" as const };
+    const flagOnly = { ...approved, ref_id: "fe2a-history-ref-d5", commit_id: "commit-d5", submission_disposition: null, disposition_source_kind: null, disposition_result_id: null, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" as const };
     const flagHistory = { ...history, nodes: [flagOnly, ...HISTORY_PAGE_ONE.nodes] } satisfies components["schemas"]["HistoryListResponse"];
     const flagRow = buildWorkspaceTree(WORKSPACE_RESPONSE, flagHistory).find((row) => row.refId === flagOnly.ref_id)!;
     expect(flagRow).toMatchObject({ status: "已通过", eligibilityNote: "NOT_CANDIDATE_BASE_ADVANCED", submissionDisposition: null });

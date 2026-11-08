@@ -1034,6 +1034,13 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - Owner确认S4 DC33范围：原N1/32GiB envelope−8GiB reserve/M24下fresh t1–t4完整Preview→Submit→审核→Archive→History；冻结2×t4首次/少量变化/几乎全变Submit各正式组1预热+3测量，保原样重传零Repository operation断言，100%压力单列报告。模式、输入、计数和统计细化见[S4 kickoff §6](p6-s4-kickoff.md#6-owner已确认的dc33范围与统计)。确认范围不授权本轮执行。
 - [S4设计](p6-s4-design.md)/[kickoff](p6-s4-kickoff.md)/[独审提示词](p6-s4-review-prompt.md)为本轮交付；须独立设计审核，再核实施授权。S3仍BLOCKED_CAPACITY，Q18节点证据仍独立，S5前置不变。临时大预算的具体参数仍归S3另案，不由本条批准。
 
+### DC95 S3补测worker资源上调授权（Owner，2026-11-08）
+
+- Owner在授权继续完成Q18与S3剩余工作/退出候选后，明确允许“在容器现有资源范围内增大worker资源（最大32C/64G）”。本条补充DC92的临时增预算方向，允许协调者在上限内提出并固定实际worker envelope/reserve/M及CPU配额，不需要为每个职责内参数选择重复申请；不增加节点或接管他人资源。
+- guest为64GiB，实际配置仍须计入Repository Service/backend/OS余量并符合M≤envelope−reserve；kernel N与测试workers、容器CPU分别设置。当前生产默认N1/32−8/M24未因授权本身变更，支持更大显式配置所需的最小settings/容器/工具调整须固定并独审，不以只改环境变量宣称生效。
+- 原M24的W3基线Submit失败、首次拒绝点未知和未运行项保留。新资源档的完整旅程、统计、容器与真实结果按实际条件取证，不记为旧M24同条件容量通过或同条件性能提升。若作为后续S3候选的资源条件，明确写入交接并交独审核收；正式阶段手续、tag/push仍另办。
+- S4由另对话负责，本条不授权本会话实施S4算法。触及冻结语义/golden/恢复边界等设计冲突仍暂停受影响部分讨论；日志监控与固定稿执行优先由唯一Luna测试者承担。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |

@@ -82,3 +82,9 @@ Owner 授权一轮历史文件清理，本次只读核对**尚未删除文件**�
 建议实现为逐表native storage diff→Python表级policy→Rust精确SQL chunk，表后释放输入/索引；保有界DML字节汇集与原publisher，保持全部DDL先于DML。补齐旧256窗口分批、mutation排序hash和float拼写等隐藏字节约束。三线共享文件与候选隔离见kickoff§3，最终集中证据见§5–7。
 
 设计固定候选`de0eb3a8b2f9881737a183f0a4663dad9a75d67f`已经[Sol连续复审](p6-s4-design-review.md)及Owner另行授权的一次[GPT-6-Astra high独审](p6-s4-astra-review.md)，均为DESIGN_CLEAR_FOR_OWNER；初审F1–F3已关闭，第二次独审无新增阻塞。下一对话核最新并行状态与实施授权后从A开始；本轮没有实施放行。S3原V/H仍BLOCKED_CAPACITY，Q18仅静态CLEAR/证据待核；旧章节保留其当时事实。本轮只读节点快照不构成预约，未执行测试、清理、构建或真实旅程。
+
+## 8. Q18与S3执行恢复及资源授权（2026-11-08，后续增补）
+
+Owner已授权本会话继续完成Q18和S3剩余工作/退出候选，设计冲突或实际阻塞可暂停讨论；S4仍在另对话设计/实施，不由本会话接管。Q18以已独审a1候选先做专用节点focused、五包静态和当前产品容器旅程；原审核者连续核收，测试只有一个Luna执行责任人。
+
+Owner随后明确允许worker在现有容器资源内增大，上限32C/64G（DC95）。这允许固定职责内的新资源档并适用独审后补测；具体envelope/reserve/M须以实际canonical数据和guest中RS/backend/OS余量为依据，不盲扫预算。已知settings当前固定上限也会拒绝大档，故需要最小配置支持与验证，不能只改Compose而假称生效。原生产默认及M24失败不因授权消失，新资源结果与原条件分列。优先先用故障归档的只读副本核真实descriptor/logical bytes与双侧预约，不添加通用诊断框架或重做S4算法。

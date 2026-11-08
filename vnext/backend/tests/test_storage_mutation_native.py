@@ -293,7 +293,24 @@ def test_native_storage_chunks_are_bounded_and_early_close_releases_last_owner()
     del first  # A production caller transfers bytes to its package envelope.
     handle.close()
     assert list(chunks) == []
-    _assert_operation_resources_released(context)
+    context.memory.close()
+    assert context.memory.used_bytes == 1024 * 1024  # Exported bytes live to operation end.
+
+
+def test_operation_scope_closes_unconsumed_storage_render_before_releasing_budget() -> None:
+    context = KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        after = _side(_table([("1", "0", "value")]))
+        task = _task(None, after)
+        handle = prepare_storage_table(task, context)
+        decision = choose_table_mutation(task, handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        chunks = handle.render(decision)
+        assert context.memory.used_bytes > 0
+    assert list(chunks) == []
+    assert isinstance(after.input_owner, StorageInputLease)
+    assert after.input_owner.closed
+    assert context.memory.used_bytes == 0
 
 
 def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() -> None:

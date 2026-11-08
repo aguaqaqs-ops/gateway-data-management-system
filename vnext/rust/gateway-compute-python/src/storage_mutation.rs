@@ -388,7 +388,9 @@ impl StorageRender {
         if self.offset >= self.current.len() {
             self.current = Vec::new();
             self.offset = 0;
-            self.reconcile_bytes()?;
+            if self.queued.is_none() {
+                self.reconcile_bytes()?;
+            }
             if !self.fill()? {
                 return Ok(None);
             }
@@ -401,6 +403,11 @@ impl StorageRender {
             .offset
             .saturating_add(1024 * 1024)
             .min(self.current.len());
+        self.exported_lease
+            .as_mut()
+            .ok_or("STORAGE_RENDER_INVALID")?
+            .grow(end - self.offset)
+            .map_err(|error| error.to_string())?;
         let chunk = self.current[self.offset..end].to_vec();
         self.offset = end;
         Ok(Some(chunk))
@@ -411,20 +418,12 @@ impl StorageRender {
 impl StorageRender {
     fn next_chunk(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyBytes>>> {
         match adapter_boundary(|| py.detach(|| self.next_bytes())) {
-            Ok(Ok(Some(bytes))) => {
-                self.exported_lease
-                    .as_mut()
-                    .ok_or_else(|| PyValueError::new_err("storage render closed"))?
-                    .grow(bytes.len())
-                    .map_err(|error| storage_control_error(error.code()))?;
-                Ok(Some(PyBytes::new(py, &bytes).unbind()))
-            }
+            Ok(Ok(Some(bytes))) => Ok(Some(PyBytes::new(py, &bytes).unbind())),
             Ok(Ok(None)) => Ok(None),
-            Ok(Err(error))
-                if error == "RESOURCE_EXCEEDED" || error == "RESOURCE_LIMIT_EXCEEDED" =>
-            {
+            Ok(Err(error)) if error == "RESOURCE_LIMIT_EXCEEDED" => {
                 Err(PyMemoryError::new_err(error))
             }
+            Ok(Err(error)) if error == "RESOURCE_EXCEEDED" => Err(PyValueError::new_err(error)),
             Ok(Err(error)) if error == "COMPARISON_CANCELLED" => {
                 Err(PyInterruptedError::new_err(error))
             }

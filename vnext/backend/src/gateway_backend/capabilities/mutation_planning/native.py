@@ -94,6 +94,9 @@ class NativeStorageChunks(Iterator[bytes]):
         self._active = active
         self._charge = charge
         self._closed = False
+        # The phase reservation was registered first. ExitStack LIFO closes
+        # this Rust cursor before returning that reservation at scope exit.
+        active.resources.callback(self.close)
 
     def __iter__(self) -> NativeStorageChunks:
         return self
@@ -335,8 +338,10 @@ def prepare_storage_table(
         if not diff and before_owner is not None:
             before_owner.close()
             before_owner = None
-        return NativeStorageTableHandle(handle, native_operation, task, before_owner, after_owner,
-                                        metadata_charge, active)
+        wrapped = NativeStorageTableHandle(handle, native_operation, task, before_owner, after_owner,
+                                           metadata_charge, active)
+        active.resources.callback(wrapped.close)
+        return wrapped
     except MemoryError as exc:
         if handle is not None:
             handle.close()

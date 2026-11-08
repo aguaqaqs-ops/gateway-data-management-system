@@ -61,6 +61,45 @@ pub fn quote_identifier(name: &str) -> Result<String, SqlError> {
     }
     Ok(format!("`{}`", name.replace('`', "``")))
 }
+fn identifier_sql_len(name: &str) -> Result<usize, SqlError> {
+    if name.is_empty() || name.chars().any(|c| matches!(c, '\0' | '/' | '\\')) {
+        return Err(invalid());
+    }
+    name.len()
+        .checked_add(name.bytes().filter(|c| *c == b'`').count())
+        .and_then(|size| size.checked_add(2))
+        .ok_or_else(limit)
+}
+fn checked_total(parts: impl IntoIterator<Item = usize>) -> Result<usize, SqlError> {
+    parts.into_iter().try_fold(0usize, |sum, size| sum.checked_add(size).ok_or_else(limit))
+}
+fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
+    let name_len = identifier_sql_len(&table.name)?;
+    let definition_count = table.columns.len()
+        .checked_add(usize::from(!table.primary_key.is_empty())).ok_or_else(limit)?;
+    let mut definitions = Vec::with_capacity(definition_count);
+    for column in &table.columns {
+        if column.sql_type.is_empty() || column.sql_type.contains('\0') { return Err(invalid()); }
+        definitions.push(checked_total([
+            identifier_sql_len(&column.name)?, 1, column.sql_type.len(), 1,
+            if column.nullable { "NULL".len() } else { "NOT NULL".len() },
+        ])?);
+    }
+    if !table.primary_key.is_empty() {
+        let keys = table.primary_key.iter().map(|name| identifier_sql_len(name))
+            .collect::<Result<Vec<_>, _>>()?;
+        definitions.push(checked_total([
+            "PRIMARY KEY (".len(), checked_total(keys)?,
+            (table.primary_key.len() - 1).checked_mul(2).ok_or_else(limit)?, 1,
+        ])?);
+    }
+    checked_total([
+        "DROP TABLE IF EXISTS ".len(), name_len, ";\n".len(),
+        "CREATE TABLE ".len(), name_len, " (".len(), checked_total(definitions)?,
+        definition_count.saturating_sub(1).checked_mul(2).ok_or_else(limit)?,
+        ");\n".len(),
+    ])
+}
 fn quote_text(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('\'');
@@ -248,6 +287,8 @@ pub fn render_schema(
     let mut out = Vec::new();
     for name in &schema.removed_tables {
         context.check().map_err(|error| SqlError(error.code()))?;
+        let next_len = checked_total(["DROP TABLE IF EXISTS ".len(), identifier_sql_len(name)?, ";\n".len()])?;
+        if out.len().checked_add(next_len).ok_or_else(limit)? > max_bytes { return Err(limit()); }
         append(
             &mut out,
             format!("DROP TABLE IF EXISTS {};\n", quote_identifier(name)?).as_bytes(),
@@ -256,6 +297,9 @@ pub fn render_schema(
     }
     for table in &schema.tables {
         context.check().map_err(|error| SqlError(error.code()))?;
+        if out.len().checked_add(schema_table_sql_len(table)?).ok_or_else(limit)? > max_bytes {
+            return Err(limit());
+        }
         let name = quote_identifier(&table.name)?;
         let mut definitions = Vec::with_capacity(table.columns.len() + 1);
         for col in &table.columns {
@@ -450,38 +494,34 @@ impl SqlBatcher {
         {
             return Err(invalid());
         }
+        let key_literals = if self.operation == "INSERT" {
+            Vec::new()
+        } else {
+            mutation
+                .canonical_storage_key
+                .iter()
+                .map(|cell| literal(&cell.value))
+                .collect::<Result<Vec<_>, SqlError>>()?
+        };
         let key_predicate = if self.operation == "INSERT" {
             String::new()
         } else {
             mutation
                 .canonical_storage_key
                 .iter()
-                .map(|cell| {
-                    Ok(format!(
-                        "{}={}",
-                        quote_identifier(&cell.column)?,
-                        literal(&cell.value)?
-                    ))
-                })
+                .zip(&key_literals)
+                .map(|(cell, value)| Ok(format!("{}={value}", quote_identifier(&cell.column)?)))
                 .collect::<Result<Vec<_>, SqlError>>()?
                 .join(" AND ")
         };
         let where_item = if self.operation == "INSERT" {
             String::new()
         } else if self.key_names.len() == 1 {
-            literal(&mutation.canonical_storage_key[0].value)?
+            key_literals[0].clone()
         } else if self.key_names.is_empty() {
             String::new()
         } else {
-            format!(
-                "({})",
-                mutation
-                    .canonical_storage_key
-                    .iter()
-                    .map(|cell| literal(&cell.value))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ")
-            )
+            format!("({})", key_literals.join(", "))
         };
         let literals = mutation
             .after_image

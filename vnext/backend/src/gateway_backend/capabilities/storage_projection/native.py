@@ -164,18 +164,19 @@ def render_storage_schema_native(payload: bytes, context: KernelExecutionContext
     # Retain the returned bytes until the operation ends. Conversion scratch
     # is distinct from the caller-owned import metadata.
     input_charge = active.memory.reserve(len(payload) * 32 + 4096)
-    output_charge = active.memory.reserve(max_bytes * 8 + len(payload) * 64)
     try:
-        result: bytes = _render_storage_schema_native(
-            payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
-            active.threads,
-        )
-        output_charge.shrink_to(len(result))
-        active.resources.callback(output_charge.close)
-        return result
-    except BaseException:
-        output_charge.close()
-        raise
+        output_charge = active.memory.reserve(max_bytes * 8 + len(payload) * 64)
+        try:
+            result: bytes = _render_storage_schema_native(
+                payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+                active.threads,
+            )
+            output_charge.shrink_to(len(result))
+            active.resources.callback(output_charge.close)
+            return result
+        except BaseException:
+            output_charge.close()
+            raise
     finally:
         input_charge.close()
 

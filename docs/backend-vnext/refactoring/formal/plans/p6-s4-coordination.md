@@ -16,7 +16,7 @@ Q18固定产品仍为a1ca3bad93；原报告已增加focused/容器脚本静审�
 
 ## 3. 逐节状态
 
-A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：按DC96直接实施，新Sol实施者/独审者；C–E待前节核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
+A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：产品788ed36e7742a067bf01c16ad2e6aaed2fed91fb，原审B GO，04 focused209+3及850表差分核收，详见§8与[B原审](p6-s4-b-review.md)。按DC96直接进入C；D–E待后继实际核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
 
 ## 4. A核收后的并行事实
 
@@ -52,3 +52,15 @@ S3资源档产品`e76342ef0b`已在main，修改settings/Compose、worker资源�
 r5起止18:15:58–18:17:51Z，Rust tree=`fdfe6daed59cb58d5c2aa7c39fa3cccba94424d2`，clean/六锁不漂、entry/final/outer1、capture0、marker释放0；18:19现场无本人测试/构建/Dolt/8000。其outer SHA256=`927361995595623984a6d659d18dda42240f7e694ba00490c07dfd7b49926323`，原件目录`/home/dev/gdds-test-tmp/p6-s4-b-r5-ece2ec745f/controller/`。
 
 r5失败是两个Python文件的typing源码问题，不冒DC68工具错误。修复后按实际Rust tree决定受影响复验，不无修改重跑、不宣称失败整次可按包carried。t1–t4 driver还须固定metadata/census摘要、验证完整manifest、独立断言diff资格及净计数存在性；其InMemory与临时旧Python oracle仅供差分正确性，不是生产容量/性能证据。B仍未GO，C–E依赖未放行。
+
+## 8. B实际核收与C接续
+
+B最终产品`788ed36e7742a067bf01c16ad2e6aaed2fed91fb`，原B独审报告已原文归档，SHA256=`bcf325e72bd5a8c48f4c69b8558b9d1c515de3c392e874cb9c830f37dcd68bd5`，结论 **B GO**，F1–F7在B范围内闭合。B实施/原审连续修复及原件见[B handoff](p6-s4-b-handoff.md)、[B review](p6-s4-b-review.md)；全部历史失败仍为失败，不由后继成功倒改。
+
+后续真实数据先后暴露并修复fresh writer缺canonical profile（F6）和fresh profile UTF8物理序与manifest/cached declaration序不同（F7）；共享SnapshotMaterialization view owner供Comparison/Storage双消费，保同M metadata/BIT charge、partial profile拒绝与原S3输出。未改manifest、原输入或SQL/golden迎合。r7外部脚本被uv-consume拒绝属工具错误，r8 stdin修复解除；其后的真实产品失败分别归因。r11 05仅一次busy预检exit2、无staging/节点执行，05当时为S3有效占用，不抢占；04新运行不搬05缓存/包沿用证据。
+
+04 `gw-dms-test-04` r11在clean edfa实际跑Rust fmt/clippy/workspace test三步0（tree fdfe6dae），focused因新cached用例遗漏已有operation-lived manifest AST收费而失败，原件SHA=`e439172505db084aa74d21770d3e76456a584387872508423ce9ee18918a408e`。788只修测试精确结账，保生产收费；04 r12 **未重复Rust三步**，同树先前调试结果不是正式包carried。r12实际19:08:45–19:15:14Z，force native reinstall/check0、五包ruff/mypy十步0，七文件非serial209pass、serial3pass；t1–t4共850表全0。入口/最终/outer/capture均0，起止788 clean、六锁不漂、marker双释放0；19:16现场无测试/构建/Dolt/8000/运行容器。保留本人WT/target/log/input，不清既有carried或他人资源。
+
+原件`/home/dev/gdds-test-tmp/p6-s4-b-r12-04-788ed36e77/controller/`：outer SHA256=`21ecf1714eba271a4c444590d19d0816ce7cfc3f846a762247e4b2b80feb340d`，captured/focused.log=`8fb0db9d7cde02e24d503859dab845295dee655b5abdf9f38f5448a5cce84e28`。按tier表数125/220/193/312；NOOP/PATCH/REBUILD分别121/0/4、159/1/60、139/0/54、285/12/15。实际完成diff的表43/88/71/138均与旧Python oracle独立D/U/I及整数阈值逐项一致，其余`net_counts=None`，不伪造全局净计数。八冻结包、metadata78c7与census733b摘要先核；InMemory/oracle/M24读数仅差分诊断，不是生产M24容量或完整旅程PASS。
+
+C须解决prepare reconcile缩小Python native charge后新render分配的同M预约/封存，不能直接二次消费原Rust剩余额度。C接唯一Rust SQL与两个显式context facade，D接实际Submit并删除旧热路径及两项临时unreachable登记，E才核当前镜像/Compose、完整权威包、真实旅程/资源/性能。C用全新Sol实施/独审，唯一Luna执行者复用；不再申请逐节开工许可，不进入S5或倒签S3 exit。

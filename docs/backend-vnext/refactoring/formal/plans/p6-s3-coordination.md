@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。正式退出、tag、push 另办；DC33 最终真实数据范围仍须退出前确认。本记录不代替实施交接或独立审核结论。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态：A–D GO；E产品V774、04权威及774 t1通过，W3基线Submit在M24拒绝。Owner已选保持边界/保留性能阻塞/完成其余交接，E不GO、S3不退出，tag/push另办。DC33已确认的范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -19,8 +19,8 @@
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
 | B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | GO，报告 `17fd6739b809`；本节三角色已正常结束 |
 | C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | GO，报告 `ce217c0ad777`；本节三角色已正常结束 |
-| D | `/root/s3_d_impl`，GPT-6-Sol xhigh | `/root/s3_d_review`，GPT-6-Sol max | `/root/s3_d_test`，GPT-6-Luna max | Owner已确认恢复执行通道；集中修订与原审继续，未 GO |
-| E | 下一节新建 | 下一节新建 | 按需、错峰 | 依赖 D 实际核收 |
+| D | `/root/s3_d_impl`，GPT-6-Sol xhigh | `/root/s3_d_review`，GPT-6-Sol max | `/root/s3_d_test`，GPT-6-Luna max | GO，报告`055707a98436`；本节三角色已结束 |
+| E | `/root/s3_e_impl`，GPT-6-Sol xhigh | `/root/s3_e_review`，GPT-6-Sol max | `/root/s3_e_test`，GPT-6-Luna max | 代码/功能候选核收中；W3容量真实阻塞，Owner确认保持边界，不GO |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
 
@@ -431,3 +431,15 @@ CT108唯一W3 MO预热于12:52:20Z开始，尚未到任何workspace/Preview业�
 最新固定候选 **`774acf33a3f12eeccfbb440d9446ffde9c1c6d43`**：d7e282修工具及测试两处到现有`rd-t4-d`；774acf增加缺/全keyscan两参数，分别断不会到Git、预检完成才到唯一Git读取。原异常保留、Monitor真实normal/exception测试及原业务断言均保留；原审核者累计静态CLEAR。第三次06 focused已固定稿并派唯一tester，**实际启动/完成尚待原日志，不预记通过**；如本轮仍未解决，停止受影响执行并交Owner，不再自行第4轮。
 
 838的04/CT108准备已自然exit0，未启动任何正式runner或旅程/性能。04原来源WT已checkout838，outer SHA=`31d6b39f7eafef3ad87eee274a0ec85f234d46cd87bcd489b24a26b0ecd03e42`；CT108完成13输入原字节、三workload CLI及独立计数预检和本人新RS tag，outer=`48c8ea5d840cbc068a88526c50df6ba2eb0208e186fb4feb813f3742ce4c2bff`。两次只接准备范围、六锁/释放0，不是838产品/测量PASS。774新集中稿据现场将04同WT起始HEAD守卫改为838，原3a7实际runner源不变；完整bundle SHA=`2bd8015d6bce98277dec4ae14a1c327f11acc3ca7b6383fe804ba6d3c4dfead4`、common=`ded0321664a264eed0940eb382b3a66319bf5371bb139a2e59155b58a6cd02bd`，位于 `/home/dev/gdds-test-tmp/p6-s3-e-tool-final-774acf33a3-fixed/`。原审最新字面静态CLEAR，但所有新集中执行待第三轮focused实际0后再准入；最终H、性能样本及E GO仍未完成。
+
+## 28. Owner确认保持边界及其余交接收口
+
+774第三轮focused已于06实测0并由原审`e5fd3a394f` §53核收：native/checker/Ruff/mypy均0，完整journey测试非serial74、serial3通过，clean/六锁/guarded释放0。原dcfa/838两失败保留。新三节点准备0后，04实际权威原链14:00:56–14:29:14Z整体0，backend3417+74、RS1764(+1skip)+214通过；Rust/Shared Kernel/contracts/client四包按**同04同原来源WT**实比完整闭包相等，直接引用原3a整次runner0来源。当前Compose provenance与save本机tag逐项绑定、config/全DiffID分域留存、外层0；原审`9870143f23` §58独核。H仍须在同WT再实际比六闭包与镜像。
+
+774在06的完整fresh t1亦于14:03–14:07Z actual0并独核，含v1/重复MO、v2 FULL、Submit/真实读取/approve/History及同worker32-8/M24。原3a t2–t4已核收的完整运行只按kickoff §61引用未改consumer业务/资源事实：其项目卷已随成功清理，**不称DC64保卷qualified R或卷副本续跑，不冒774实测及774全部四档fresh全面PASS**。此边界与04保留同来源WT的包沿用判定分开，不能混称。
+
+CT108新W3 MO warm在14:03–14:06Z actual1：已过census到v1 Preview（631新增表、0 native compare），随后v1 Submit op-b945/step1以`operation memory reservation exceeded`拒绝。readonly control诊断已独核；只定位M24操作账本，不知首拒stage/表/need/live，不把Preview另一operation高水或低RSS作Submit预算证明。v2比较/READY未到；W3 FULL、W4 10%/100%各模式与正式1warm+3统计均未测，剩余23队列从未启动。完整原件、证据/推断/未知及阶段顺序冲突在[容量阻塞报告](p6-s3-e-capacity-stop.md)，原审`066844b485` §57已核可作Owner方向依据。
+
+Owner现明确选择：**“保持边界，保留性能阻塞并完成其余交接”**。不改N/M/输入/部署、不开始S4、不豁免原性能场景，不签E GO/S3 exit；不再次申请日常继续。其余代码/功能/候选H及独审交接继续完成，最终报告保持`BLOCKED_CAPACITY`。CT108按审稿归档三停止卷后删除本人资源并释放marker，archive SHA=`ba1b07d4e5d19824532f70a432dc0557cc7781904c26e4f1621a90a16cae4444`、cleanup log=`ca8689f4049e333dc3bb6b7e471179c195c5a7d4fb1717e9dd28f468d30802b3`，实际0且原失败SHA未变；不占节点等Owner，私有archive只留CT108。
+
+累计候选、A–E职责、唯一生产路径/删除清单、独立预期、逐包来源/镜像、真实范围与失败/未知、FE/S4/S5/原基准及资源交接统一见 [S3产品候选交接](p6-s3-candidate-handoff.md)。产品V固定774；本轮最后文档提交形成H后，由同一测试者仅在04原门禁WT实际执行六包与镜像沿用绑定，原审核者独立核收，并明确E整体容量阻塞。正式退出/tag/push仍未办理。

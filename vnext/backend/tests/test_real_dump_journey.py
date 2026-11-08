@@ -1605,6 +1605,7 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
         commit_id="a" * 32,
         expected_tables={"ordered_with_pseudo": 2, "ordered_without_rows": 0},
         expected_row_counts={"ordered_with_pseudo": 3, "ordered_without_rows": 0},
+        expected_catalog_rows={"composite_signal_point": 2},
     )
 
     assert counts == {
@@ -1619,6 +1620,16 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
     }
     assert fake_clients[0].catalog_requests == 1
     assert fake_clients[0].requested_tables == ["ordered_with_pseudo", "ordered_without_rows"]
+
+    with pytest.raises(JourneyFailure, match="catalog table names or per-table rows"):
+        _pseudo_counts_from_http(
+            base_url="http://repository.invalid",
+            repository_id="repository-id",
+            commit_id="a" * 32,
+            expected_tables={"ordered_with_pseudo": 2, "ordered_without_rows": 0},
+            expected_row_counts={"ordered_with_pseudo": 3, "ordered_without_rows": 0},
+            expected_catalog_rows={"composite_signal_point": 3},
+        )
 
 
 @pytest.mark.parametrize(
@@ -2073,7 +2084,7 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
 
 SUBMIT_MAIN_RESPONSE_CASES = (
     (200, {"ref_name": "main", "commit_id": "a" * 32}, None),
-    (200, {"ref_name": "main", "commit_id": "invalid"}, "response is invalid"),
+    (200, {"ref_name": "main", "commit_id": ""}, "response is invalid"),
     (404, {"code": "NOT_FOUND"}, "HTTP 404"),
 )
 
@@ -2201,6 +2212,7 @@ def test_submit_completion_measurement_requires_technical_main_movement(
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
+            clock[0] = 2.0  # POST acceptance is included in the conservative bound.
             return httpx.Response(202, json={"operation_id": "op", "submit_attempt_id": "attempt"})
         if request.url.path.endswith("/submit-attempts/attempt"):
             return httpx.Response(200, json={"state": "FINALIZED", "submission_id": "submission"})
@@ -2226,7 +2238,9 @@ def test_submit_completion_measurement_requires_technical_main_movement(
             result = submit()
             clock[0] += 100.0  # Later evidence capture does not enter the completion clock.
             timing = result["operation_timing"]
-            assert timing["completion_seconds"] == 6.0
-            assert timing["main_forward_verified_seconds"] == 6.0
+            assert timing["completion_seconds"] == 4.0
+            assert timing["main_forward_verified_seconds"] == 4.0
+            assert timing["request_to_main_verified_seconds"] == 6.0
+            assert timing["request_to_completion_seconds"] == 6.0
             assert timing["technical_main_before"] == "a" * 32
             assert timing["technical_main_after"] == "b" * 32

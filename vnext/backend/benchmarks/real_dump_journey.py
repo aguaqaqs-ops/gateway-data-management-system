@@ -2060,6 +2060,18 @@ def _s3_census_baseline(item: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
+def _expected_repository_catalog_rows(item: Mapping[str, Any]) -> dict[str, int]:
+    """Use the frozen source census as the full committed catalog expectation."""
+    raw = item.get("canonical_rows_by_table")
+    if not isinstance(raw, dict) or any(
+        type(name) is not str or type(count) is not int or count < 0
+        for name, count in raw.items()
+    ):
+        raise JourneyFailure("frozen source census has invalid per-table row counts")
+    return {name: count for name, count in raw.items()
+            if name not in DEFAULT_SKIPPED_TABLE_NAMES}
+
+
 def _submit(
     client: httpx.Client,
     *,
@@ -2183,6 +2195,12 @@ def _submit(
             time.monotonic() - accepted_monotonic, 3,
         )
         timing["main_forward_observation"] = "Repository HTTP main read after finalized submission"
+        timing["request_to_main_verified_seconds"] = round(
+            time.monotonic() - request_started, 3,
+        )
+        timing["request_to_main_observation"] = (
+            "client POST start to Repository HTTP main verification; conservative upper bound"
+        )
     _emit_progress(stage, "submit_finalized")
     if collect_timing:
         timing.setdefault(
@@ -2191,6 +2209,7 @@ def _submit(
         )
         timing.setdefault("visibility_observation", "post_terminal_submission_read")
         timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
+        timing["request_to_completion_seconds"] = round(time.monotonic() - request_started, 3)
         submission["operation_timing"] = timing
     return submission
 
@@ -2466,6 +2485,7 @@ def _pseudo_counts_from_http(
     commit_id: str,
     expected_tables: Mapping[str, int],
     expected_row_counts: Mapping[str, int],
+    expected_catalog_rows: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     if set(expected_tables) != set(expected_row_counts):
         raise JourneyFailure("ordered census pseudo and row counts do not cover the same tables")
@@ -2496,6 +2516,11 @@ def _pseudo_counts_from_http(
             raise JourneyFailure("Repository catalog JSON response is invalid") from exc
         if catalog.catalog.commit_id != commit_id:
             raise JourneyFailure("Repository catalog commit ID differs from requested commit")
+        if expected_catalog_rows is not None:
+            actual_catalog_rows = {table.name: table.row_count for table in catalog.catalog.tables}
+            if (len(actual_catalog_rows) != len(catalog.catalog.tables)
+                    or actual_catalog_rows != expected_catalog_rows):
+                raise JourneyFailure("Repository catalog table names or per-table rows differ from frozen census")
         composite_tables = [
             table
             for table in catalog.catalog.tables
@@ -3015,7 +3040,9 @@ def _run_tier(
             repository_id=repository_id,
             operation_id=operation_id,
             root=evidence_root,
-            enforce_three_session_limit=capture_t4_evidence,
+            enforce_three_session_limit=(capture_t4_evidence or (
+                tier == "t4" and submit_measurements is not None
+            )),
         )
         if submit_measurements is not None:
             operation_timings[f"{version}_submit"]["reconciliation"] = facts
@@ -3228,6 +3255,7 @@ def _run_tier(
                 commit_id=v1_commit_id,
                 expected_tables=v1_ordered,
                 expected_row_counts=v1_ordered_row_counts,
+                expected_catalog_rows=_expected_repository_catalog_rows(census[v1_id]),
             )
             _assert_s3_catalog_summary(
                 repository,
@@ -3582,6 +3610,7 @@ def _run_tier(
                 commit_id=v2_commit_id,
                 expected_tables=v2_ordered,
                 expected_row_counts=v2_ordered_row_counts,
+                expected_catalog_rows=_expected_repository_catalog_rows(census[v2_id]),
             )
             _assert_s3_catalog_summary(
                 repository,

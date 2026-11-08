@@ -1440,6 +1440,12 @@ def test_s3_larger_resource_guard_does_not_change_the_default_budget(tmp_path: P
             assert not real_dump_journey._s3_large_resource_guard_required(
                 s3_census=None, scope="t4-identity",
             )
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=None, scope="full",
+            ) is expected
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=census, scope="t4-v1-submit",
+            ) is expected
 
 
 @pytest.mark.parametrize(
@@ -1786,6 +1792,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "debug_t1_submit_probe": False,
         "v2_input_completeness": "MODIFIED_ONLY",
         "s3_census": None,
+        "submit_measurements": None,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -2062,3 +2069,164 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
             with pytest.raises(JourneyFailure, match="explicit reason"):
                 real_dump_journey._archive(client, "sub", "consumer")
             assert not any("anomaly_resolution_refs" in item for item in calls)
+
+
+SUBMIT_MAIN_RESPONSE_CASES = (
+    (200, {"ref_name": "main", "commit_id": "a" * 32}, None),
+    (200, {"ref_name": "main", "commit_id": "invalid"}, "response is invalid"),
+    (404, {"code": "NOT_FOUND"}, "HTTP 404"),
+)
+
+
+@pytest.mark.parametrize(("status", "payload", "error"), SUBMIT_MAIN_RESPONSE_CASES)
+def test_submit_measurement_reads_a_validated_repository_main(
+    monkeypatch: pytest.MonkeyPatch, status: int, payload: dict[str, Any], error: str | None,
+) -> None:
+    client_type = httpx.Client
+    seen: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        assert "Authorization" in request.headers
+        return httpx.Response(status, json=payload)
+
+    def client(**kwargs: Any) -> httpx.Client:
+        return client_type(transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(real_dump_journey.httpx, "Client", client)
+    if error is None:
+        assert real_dump_journey._repository_main_commit("http://repository.test", "repo") == "a" * 32
+    else:
+        with pytest.raises(JourneyFailure, match=error):
+            real_dump_journey._repository_main_commit("http://repository.test", "repo")
+    assert seen == ["/v1/repositories/repo/versioned/refs/main"]
+
+
+def test_repository_mutation_snapshot_observes_async_and_synchronous_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "repository.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript("""
+            CREATE TABLE repository_import_operations (operation_id TEXT PRIMARY KEY);
+            CREATE TABLE mutation_idempotency (id INTEGER PRIMARY KEY, mutation_kind TEXT);
+            CREATE TABLE synchronous_mutation_effects (effect_id INTEGER PRIMARY KEY);
+            INSERT INTO repository_import_operations VALUES ('import-a');
+            INSERT INTO mutation_idempotency VALUES (1, 'create_repository'), (2, 'upload_artifact');
+            INSERT INTO synchronous_mutation_effects VALUES (1), (2);
+        """)
+    finally:
+        connection.close()
+    monkeypatch.setattr(sys, "argv", ["snapshot", str(database)])
+    exec(real_dump_journey.REPOSITORY_MUTATION_IDS_SCRIPT, {})
+    assert json.loads(capsys.readouterr().out) == {
+        "imports": ["import-a"],
+        "synchronous_requests": ["1:create_repository", "2:upload_artifact"],
+        "synchronous_effects": ["1", "2"],
+    }
+
+
+REPEATED_SUBMIT_MUTATION_CHANGES = (
+    None,
+    ("imports", "import-b"),
+    ("synchronous_requests", "3:upload_artifact"),
+    ("synchronous_effects", "3"),
+)
+
+
+@pytest.mark.parametrize("change", REPEATED_SUBMIT_MUTATION_CHANGES)
+def test_repeated_submit_requires_zero_new_repository_mutations(
+    change: tuple[str, str] | None,
+) -> None:
+    before = {
+        "imports": ["import-a"],
+        "synchronous_requests": ["1:create_repository", "2:upload_artifact"],
+        "synchronous_effects": ["1", "2"],
+    }
+    after = {name: list(ids) for name, ids in before.items()}
+    if change is None:
+        assert real_dump_journey._assert_no_repository_mutations(before, after) == {
+            "before": before, "after": after, "new_operation_count": 0,
+        }
+    else:
+        after[change[0]].append(change[1])
+        with pytest.raises(JourneyFailure, match="created Repository mutations"):
+            real_dump_journey._assert_no_repository_mutations(before, after)
+
+
+def test_submit_measurement_cli_passes_its_evidence_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def run(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", run)
+    output = tmp_path / "submit-facts"
+    assert real_dump_journey.main([
+        "--tier", "t4", "--scope", "full", "--v2-input-completeness", "FULL",
+        "--submit-measurements", str(output),
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
+    ]) == 0
+    assert calls["submit_measurements"] == output
+    assert calls["v2_input_completeness"] == "FULL"
+
+
+SUBMIT_MAIN_MOVEMENT_CASES = (
+    ("a" * 32, "b" * 32, None),
+    ("c" * 32, "b" * 32, "parent differs from technical main"),
+    ("a" * 32, "c" * 32, "did not advance technical main"),
+)
+
+
+@pytest.mark.parametrize(("main_before", "main_after", "error"), SUBMIT_MAIN_MOVEMENT_CASES)
+def test_submit_completion_measurement_requires_technical_main_movement(
+    monkeypatch: pytest.MonkeyPatch, main_before: str, main_after: str, error: str | None,
+) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    main_reads = iter((main_before, main_after))
+
+    def read_main(_url: str, _repository: str) -> str:
+        result = next(main_reads)
+        if result == main_after and clock[0] == 5.0:
+            clock[0] = 6.0
+        return result
+
+    def poll(*_args: Any, **_kwargs: Any) -> None:
+        clock[0] = 5.0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(202, json={"operation_id": "op", "submit_attempt_id": "attempt"})
+        if request.url.path.endswith("/submit-attempts/attempt"):
+            return httpx.Response(200, json={"state": "FINALIZED", "submission_id": "submission"})
+        return httpx.Response(200, json={"repository_commit_id": "b" * 32})
+
+    monkeypatch.setattr(real_dump_journey, "_repository_main_commit", read_main)
+    monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
+    with httpx.Client(base_url="http://backend.test", transport=httpx.MockTransport(respond)) as client:
+        def submit() -> dict[str, Any]:
+            return real_dump_journey._submit(
+                client, workspace={"workspace_id": "workspace"}, upload={"upload_revision_id": "upload"},
+                preview={"workspace": {"optimistic_version": 1, "generation": 1},
+                         "result": {"preview_result_id": "preview"}},
+                baseline_node_id="baseline", baseline_head_version=0,
+                idempotency_key="submit", stage="submit-clock", operation_timeout_seconds=100,
+                collect_timing=True, verify_repository=("http://repository.test", "repo", "a" * 32),
+            )
+
+        if error is not None:
+            with pytest.raises(JourneyFailure, match=error):
+                submit()
+        else:
+            result = submit()
+            clock[0] += 100.0  # Later evidence capture does not enter the completion clock.
+            timing = result["operation_timing"]
+            assert timing["completion_seconds"] == 6.0
+            assert timing["main_forward_verified_seconds"] == 6.0
+            assert timing["technical_main_before"] == "a" * 32
+            assert timing["technical_main_after"] == "b" * 32

@@ -42,6 +42,7 @@ import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
+    ResolveVersionedRefResponse,
     encode_commit_id_path_segment,
 )
 
@@ -119,6 +120,48 @@ try:
         print(json.dumps({name: row[name] for name in (
             "status", "created_at", "started_at", "completed_at"
         )}, sort_keys=True))
+    finally:
+        snapshot.close()
+finally:
+    Path(f"{snapshot_path}-shm").unlink(missing_ok=True)
+    Path(f"{snapshot_path}-wal").unlink(missing_ok=True)
+    snapshot_path.unlink(missing_ok=True)
+"""
+REPOSITORY_MUTATION_IDS_SCRIPT = r"""
+import json
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+database_path = sys.argv[1]
+temporary = tempfile.NamedTemporaryFile(prefix="submit-mutation-", suffix=".sqlite3", delete=False)
+snapshot_path = Path(temporary.name)
+temporary.close()
+try:
+    source = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    try:
+        snapshot = sqlite3.connect(snapshot_path)
+        try:
+            source.backup(snapshot)
+        finally:
+            snapshot.close()
+    finally:
+        source.close()
+    snapshot = sqlite3.connect(f"file:{snapshot_path}?mode=ro", uri=True)
+    try:
+        queries = {
+            "imports": "SELECT operation_id FROM repository_import_operations ORDER BY operation_id",
+            "synchronous_requests": "SELECT id, mutation_kind FROM mutation_idempotency ORDER BY id",
+            "synchronous_effects": "SELECT effect_id FROM synchronous_mutation_effects ORDER BY effect_id",
+        }
+        result = {}
+        for name, query in queries.items():
+            rows = snapshot.execute(query).fetchmany(1025)
+            if len(rows) > 1024:
+                raise RuntimeError("fresh measurement mutation ledger exceeds its bounded snapshot")
+            result[name] = [":".join(str(value) for value in row) for row in rows]
+        print(json.dumps(result, sort_keys=True))
     finally:
         snapshot.close()
 finally:
@@ -1300,8 +1343,7 @@ _S3_READY_MEM_AVAILABLE_BYTES = 56 * 1024**3
 def _s3_large_resource_guard_required(*, s3_census: Path | None, scope: str) -> bool:
     context = current_kernel_context()
     return (
-        s3_census is not None
-        and scope == "t4-identity"
+        (scope == "full" or (s3_census is not None and scope in {"t4-identity", "t4-v1-submit"}))
         and context is not None
         and context.memory.limit_bytes == _S3_LARGE_OPERATION_BUDGET_BYTES
     )
@@ -2033,9 +2075,15 @@ def _submit(
     identity_confirmations: Sequence[Mapping[str, str]] = (),
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     collect_timing: bool = False,
+    verify_repository: tuple[str, str, str] | None = None,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     preview_result = cast(Mapping[str, Any], preview["result"])
+    main_before: str | None = None
+    if verify_repository is not None:
+        main_before = _repository_main_commit(verify_repository[0], verify_repository[1])
+        if main_before != verify_repository[2]:
+            raise JourneyFailure("Submit measurement parent differs from technical main")
     request_started = time.monotonic()
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
@@ -2056,6 +2104,11 @@ def _submit(
         if payload.get("code") != "NO_CANONICAL_CHANGE":
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
         no_change_result: dict[str, Any] = {"result": "NO_CANONICAL_CHANGE"}
+        if verify_repository is not None:
+            main_after = _repository_main_commit(verify_repository[0], verify_repository[1])
+            if main_after != main_before:
+                raise JourneyFailure("no-change Submit changed technical main")
+            no_change_result["repository_main_unchanged"] = True
         if collect_timing:
             elapsed = round(time.monotonic() - request_started, 3)
             no_change_result["operation_timing"] = {
@@ -2120,6 +2173,16 @@ def _submit(
     )
     if type(submission.get("repository_commit_id")) is not str:
         raise JourneyFailure("submission did not expose its Repository commit id")
+    if verify_repository is not None:
+        main_after = _repository_main_commit(verify_repository[0], verify_repository[1])
+        if main_after != submission["repository_commit_id"] or main_after == main_before:
+            raise JourneyFailure("Submit did not advance technical main to its reported commit")
+        timing["technical_main_before"] = main_before
+        timing["technical_main_after"] = main_after
+        timing["main_forward_verified_seconds"] = round(
+            time.monotonic() - accepted_monotonic, 3,
+        )
+        timing["main_forward_observation"] = "Repository HTTP main read after finalized submission"
     _emit_progress(stage, "submit_finalized")
     if collect_timing:
         timing.setdefault(
@@ -2130,6 +2193,51 @@ def _submit(
         timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
         submission["operation_timing"] = timing
     return submission
+
+
+def _repository_main_commit(base_url: str, repository_id: str) -> str:
+    with httpx.Client(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
+        timeout=30.0,
+    ) as client:
+        response = client.get(f"/v1/repositories/{repository_id}/versioned/refs/main")
+    if response.status_code != 200:
+        raise JourneyFailure(f"Repository main read returned HTTP {response.status_code}")
+    try:
+        resolved = ResolveVersionedRefResponse.model_validate_json(response.content)
+    except ValueError as exc:
+        raise JourneyFailure("Repository main response is invalid") from exc
+    return resolved.commit_id
+
+
+def _repository_mutation_ids(env: Mapping[str, str]) -> dict[str, list[str]]:
+    result = run_compose(
+        dict(env), "exec", "-T", "repository-service", "python", "-c",
+        REPOSITORY_MUTATION_IDS_SCRIPT, REPOSITORY_SERVICE_CONTROL_DB_PATH,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        raise JourneyFailure(f"Repository mutation snapshot failed with exit {result.returncode}")
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError as exc:
+        raise JourneyFailure("Repository mutation snapshot returned invalid JSON") from exc
+    if (type(payload) is not dict
+            or set(payload) != {"imports", "synchronous_requests", "synchronous_effects"}
+            or any(type(values) is not list
+                   or any(type(value) is not str for value in values)
+                   for values in payload.values())):
+        raise JourneyFailure("Repository mutation snapshot shape is invalid")
+    return cast(dict[str, list[str]], payload)
+
+
+def _assert_no_repository_mutations(
+    before: dict[str, list[str]], after: dict[str, list[str]],
+) -> dict[str, Any]:
+    if before != after:
+        raise JourneyFailure("repeated upload/Preview/Submit created Repository mutations")
+    return {"before": before, "after": after, "new_operation_count": 0}
 
 
 def _canonical_state_digest_from_submission(
@@ -2854,6 +2962,7 @@ def _run_tier(
     collect_timing: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
     s3_diagnostic: bool = False,
+    submit_measurements: Path | None = None,
 ) -> dict[str, Any]:
     operation_timings: dict[str, dict[str, Any]] = {}
     v1_baseline = _s3_census_baseline(census[v1_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v1_id]
@@ -2880,7 +2989,7 @@ def _run_tier(
     def capture_submit_reconciliation(submission: Mapping[str, Any], *, version: str) -> None:
         capture_t4_evidence = tier == "t4" and dc32_metrics is not None
         capture_t1_debug = tier == "t1" and debug_t1_submit_probe
-        if not capture_t4_evidence and not capture_t1_debug:
+        if not capture_t4_evidence and not capture_t1_debug and submit_measurements is None:
             return
         operation_timing = submission.get("operation_timing")
         operation_id = (
@@ -2890,7 +2999,9 @@ def _run_tier(
         )
         if type(operation_id) is not str:
             raise JourneyFailure(f"{tier} {version} Submit evidence identity is unavailable")
-        if capture_t4_evidence:
+        if submit_measurements is not None:
+            evidence_root = submit_measurements / f"{tier}-{version}-submit"
+        elif capture_t4_evidence:
             if dc32_session_root is None or dc32_metrics is None:
                 raise JourneyFailure("t4 Submit evidence output root is unavailable")
             evidence_root = dc32_session_root / f"t4-{version}-submit"
@@ -2906,7 +3017,12 @@ def _run_tier(
             root=evidence_root,
             enforce_three_session_limit=capture_t4_evidence,
         )
-        if capture_t4_evidence:
+        if submit_measurements is not None:
+            operation_timings[f"{version}_submit"]["reconciliation"] = facts
+            _emit_progress(
+                f"{tier} {version} Submit", "submit_measurement_verified", **facts,
+            )
+        elif capture_t4_evidence:
             cast(list[dict[str, Any]], dc32_metrics).append(
                 {
                     "kind": "submit_reconciliation",
@@ -3068,6 +3184,8 @@ def _run_tier(
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
+                verify_repository=(repository_url, repository_id, initial_commit_id)
+                    if submit_measurements is not None else None,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
@@ -3261,6 +3379,9 @@ def _run_tier(
                 "empty_initial_commit_id": initial_commit_id,
             }
 
+        repeat_mutations_before = (
+            _repository_mutation_ids(env) if submit_measurements is not None else None
+        )
         repeat_workspace = runner.run(
             "repeat-v1-workspace",
             lambda: _workspace(client),
@@ -3342,9 +3463,23 @@ def _run_tier(
                 expect_no_change=True,
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
+                verify_repository=(repository_url, repository_id, v1_commit_id)
+                    if submit_measurements is not None else None,
             ),
         )
         record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
+        repeat_mutation_evidence: dict[str, Any] = {}
+        if repeat_mutations_before is not None:
+            repeat_mutations_after = _repository_mutation_ids(env)
+            unchanged = repeat_mutations_before == repeat_mutations_after
+            _emit_progress(
+                f"{tier} repeat v1 Submit", "repeat_repository_mutations_checked",
+                before=repeat_mutations_before, after=repeat_mutations_after,
+                unchanged=unchanged,
+            )
+            repeat_mutation_evidence["repository_mutations"] = _assert_no_repository_mutations(
+                repeat_mutations_before, repeat_mutations_after,
+            )
 
         v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
         v2_upload = runner.run(
@@ -3427,6 +3562,8 @@ def _run_tier(
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
+                verify_repository=(repository_url, repository_id, v1_commit_id)
+                    if submit_measurements is not None else None,
             ),
         )
         v2_submission = cast(dict[str, Any], v2_submission)
@@ -3571,6 +3708,7 @@ def _run_tier(
             "identity": repeat_identity,
             "submit": repeat_submit,
             "bundle_transfer": repeat_preview.get("bundle_transfer"),
+            **repeat_mutation_evidence,
             "keyless_fallback_candidates_unchanged": {
                 "count": len(repeat_keyless_names),
                 "names": list(repeat_keyless_names),
@@ -3946,11 +4084,13 @@ def run_journey(
     debug_t1_submit_probe: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
     s3_census: Path | None = None,
+    submit_measurements: Path | None = None,
 ) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root, census_path=s3_census)
     if s3_census is not None and (
-        tier_filter != "t4" or cross_project or scope not in {"full", "t4-identity"}
+        tier_filter != "t4" or cross_project
+        or scope not in {"full", "t4-identity", "t4-v1-submit"}
     ):
         raise JourneyFailure("S3 synthetic census requires a same-project --tier t4 journey")
     if s3_census is not None:
@@ -4007,6 +4147,14 @@ def run_journey(
         or dc32_output is not None
     ):
         raise JourneyFailure("--debug-submit-probe-t1 requires a fresh full --tier t1 journey")
+    if submit_measurements is not None:
+        if (scope not in {"full", "t4-v1-submit"} or cross_project or from_step is not None
+                or dc32_output is not None or debug_t1_submit_probe):
+            raise JourneyFailure("Submit measurements require a fresh same-project journey")
+        submit_measurements = submit_measurements.resolve()
+        if submit_measurements.is_relative_to(_repo_root().resolve()):
+            raise JourneyFailure("Submit measurement output must be outside the worktree")
+        submit_measurements.mkdir(mode=0o700, parents=True, exist_ok=False)
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
@@ -4203,7 +4351,9 @@ def run_journey(
                                             dc32_output_path is not None
                                             or debug_t1_submit_probe
                                             or tier == "t4"
+                                            or submit_measurements is not None
                                         ),
+                                        submit_measurements=submit_measurements,
                                     )
                                 )
                     except BaseException as error:
@@ -4344,6 +4494,7 @@ def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
                 debug_t1_submit_probe=arguments.debug_submit_probe_t1,
                 v2_input_completeness=arguments.v2_input_completeness,
                 s3_census=arguments.s3_census,
+                submit_measurements=arguments.submit_measurements,
             )
 
 
@@ -4357,7 +4508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
     parser.add_argument(
         "--s3-census", type=Path,
-        help="accepted W3/W4 census for an S3-only T4 diagnostic input root; "
+        help="accepted frozen W3/W4 census for T4 Preview or Submit measurement; "
              "t4-identity stops after v2 Preview, full also verifies History",
     )
     parser.add_argument(
@@ -4389,6 +4540,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--kernel-threads", type=int)
     parser.add_argument("--kernel-memory-budget-bytes", type=int)
+    parser.add_argument(
+        "--submit-measurements", type=Path,
+        help="fresh Submit timing/main/Repository mutation facts in a new worktree-external directory",
+    )
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
@@ -4401,6 +4556,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.project_name is not None,
                 arguments.dc32_output is not None,
                 arguments.debug_submit_probe_t1,
+                arguments.submit_measurements is not None,
                 arguments.v2_input_completeness != "MODIFIED_ONLY",
             )
         ):

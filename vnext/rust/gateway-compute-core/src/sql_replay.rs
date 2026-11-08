@@ -384,6 +384,7 @@ struct PreparedRow {
 
 enum SqlLiteral {
     Encoded(String),
+    Skipped,
     Text(String, usize),
     Binary(Vec<u8>),
     Bit(Vec<u8>),
@@ -392,6 +393,7 @@ impl SqlLiteral {
     fn len(&self) -> usize {
         match self {
             Self::Encoded(text) => text.len(),
+            Self::Skipped => 0,
             Self::Text(_, len) => *len,
             Self::Binary(raw) => 3 + raw.len() * 2,
             Self::Bit(raw) => 3 + raw.len() * 8,
@@ -400,6 +402,7 @@ impl SqlLiteral {
     fn capacity(&self) -> usize {
         match self {
             Self::Encoded(text) | Self::Text(text, _) => text.capacity(),
+            Self::Skipped => 0,
             Self::Binary(raw) | Self::Bit(raw) => raw.capacity(),
         }
     }
@@ -420,6 +423,7 @@ impl SqlLiteral {
             Self::Text(..) => b"'",
             Self::Binary(..) => b"X'",
             Self::Bit(..) => b"b'",
+            Self::Skipped => return Err(internal()),
             Self::Encoded(..) => unreachable!(),
         };
         while position.phase == 0 && out.len() < CHUNK_BYTES {
@@ -438,6 +442,7 @@ impl SqlLiteral {
             let raw: &[u8] = match self {
                 Self::Text(value, _) => value.as_bytes(),
                 Self::Binary(value) | Self::Bit(value) => value,
+                Self::Skipped => return Err(internal()),
                 Self::Encoded(..) => unreachable!(),
             };
             if position.raw_index == raw.len() {
@@ -486,6 +491,7 @@ impl SqlLiteral {
                     }
                     position.pending_len = 8;
                 }
+                Self::Skipped => return Err(internal()),
                 Self::Encoded(..) => unreachable!(),
             }
         }
@@ -872,7 +878,19 @@ impl SqlBatcher {
             .map_or(Ok(Vec::new()), |cells| {
                 cells
                     .iter()
-                    .map(|cell| prepare_literal(&cell.value, context))
+                    .enumerate()
+                    .map(|(index, cell)| {
+                        // UPDATE SET excludes persisted key columns. Their
+                        // validated after-image cells keep shape/index only;
+                        // the key predicate and WHERE share one key literal.
+                        if self.operation == "UPDATE"
+                            && self.set_indices.binary_search(&index).is_err()
+                        {
+                            Ok(SqlLiteral::Skipped)
+                        } else {
+                            prepare_literal(&cell.value, context)
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()
             })?;
         Ok(PreparedRow {

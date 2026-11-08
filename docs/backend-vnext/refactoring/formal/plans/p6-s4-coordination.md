@@ -35,3 +35,20 @@ B首个固定候选`43a8f1e16592ae9726d019e73a2c65a4d03253ec`，直接base`e7634
 并行Q18报告`27eab454b7`/最终交接`964d900d44`已核固定产品`94b25a3279`为 **BE-Q18 GO**：06增量focused74+3、五包静态与四项当前候选Compose均核收；source/原件见[Q18 review §12–13](p6-be-q18-review.md)。FE附加生产OpenAPI抓取curl7/HTTP000仍缺失，不称快照已交付；FE刷新类型与前端真实e2e仍由其owner处理。S4不把Q18证据当自己的Rust/SQL/真实性能通过。
 
 S3资源档产品`e76342ef0b`已在main，修改settings/Compose、worker资源测试和real_dump_journey资源CLI/守卫；B未写这些路径。新资源档和S3-only实测仍由S3原owner独审/执行，S4最终配置须独立记录实际值。S4 E继承当前driver时核精确SHA/差异，正式组同worker/配置守卫不删，S4结果不倒签原S3 V774成功。
+
+## 7. B修复、已通过项与未完成项
+
+原审继续提出B-F5：可变长cell/SET声明metadata解析的同时驻留上界不足；实施者补分阶段预预约、checked容量、同operation真实input owner与完整manifest绑定。原审静核为修复已就绪，仍须实际focused及t1–t4逐表差分，不以静审代替B GO。
+
+05后继调试均在各自clean固定WT、日志/target在外、offline、本人marker内执行；原件保留，不将任何整次非0记为权威包通过：
+
+| 候选/运行 | 实际结果与停止点 | node focused.log SHA256 |
+| --- | --- | --- |
+| 83fd51aeade5 / r2 | Rust tests207pass；fmt1、core clippy101，Python未跑 | df32403ac2eded3e4be6faa61587033199d99d2842baa7d431c21fc8630adc75 |
+| b9c8783cdafc / r3 | fmt0、Rust tests207pass；adapter clippy101，Python未跑 | cd4678ef3bb50c60e79689c90af4408526d16b55058b65764a34d68baf297524 |
+| b7fc36b2d922 / r4 | clippy0、Rust tests207pass；alias格式fmt1，Python未跑 | e687fdeec3d74287e2dd01da44d9c263baadeaf41a6d56c87be5639e2039bd4e |
+| ece2ec745fd1 / r5 | fmt/clippy/tests207pass、native强制重装及build-input0；前三Python包ruff/mypy0、backend Ruff0；backend mypy1后停止，RS static/六focused未跑 | b2af25679405a7f87c76f90f53ba6b3da2dfad52809dc932245a5ffb40d81826 |
+
+r5起止18:15:58–18:17:51Z，Rust tree=`fdfe6daed59cb58d5c2aa7c39fa3cccba94424d2`，clean/六锁不漂、entry/final/outer1、capture0、marker释放0；18:19现场无本人测试/构建/Dolt/8000。其outer SHA256=`927361995595623984a6d659d18dda42240f7e694ba00490c07dfd7b49926323`，原件目录`/home/dev/gdds-test-tmp/p6-s4-b-r5-ece2ec745f/controller/`。
+
+r5失败是两个Python文件的typing源码问题，不冒DC68工具错误。修复后按实际Rust tree决定受影响复验，不无修改重跑、不宣称失败整次可按包carried。t1–t4 driver还须固定metadata/census摘要、验证完整manifest、独立断言diff资格及净计数存在性；其InMemory与临时旧Python oracle仅供差分正确性，不是生产容量/性能证据。B仍未GO，C–E依赖未放行。

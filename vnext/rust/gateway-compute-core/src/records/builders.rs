@@ -32,6 +32,8 @@ pub struct BuiltRecords {
     _charge: Arc<OutputCharge>,
 }
 
+const BUILDER_WORKSPACE_BYTES: usize = 512 * 1024;
+
 struct OutputCharge {
     lease: Mutex<KernelLease>,
     _external_owner: Option<Arc<dyn std::any::Any + Send + Sync>>,
@@ -91,8 +93,13 @@ pub fn build_records_arrow(
     context: &Arc<KernelContext>,
     external_owner: Option<Arc<dyn std::any::Any + Send + Sync>>,
 ) -> Result<BuiltRecords, String> {
-    let mut lease = context.reserve(0).map_err(|error| error.to_string())?;
     let schema = records_schema(family, detail_policy)?;
+    // STANDARD is the widest fixed schema: 48 builder nodes. At 1024 slots,
+    // each variable-width node starts with <= 4100 offset + 1024 value bytes;
+    // the fixed identity starts with 32768 bytes. Headers/validity fit with
+    // these in 512 KiB, held through each group reset. Row charges cover
+    // later capacity growth before append.
+    let mut lease = context.reserve(BUILDER_WORKSPACE_BYTES).map_err(|error| error.to_string())?;
     let mut batches = Vec::new();
     let mut builders = new_builders(&schema);
     let mut record_count = 0usize;
@@ -126,6 +133,8 @@ pub fn build_records_arrow(
             .ok_or("records output budget overflow")?;
         if lease
             .charged_bytes()
+            .checked_sub(BUILDER_WORKSPACE_BYTES)
+            .ok_or("records builder charge underflow")?
             .checked_add(row_charge)
             .ok_or("records output budget overflow")?
             > max_output_bytes
@@ -152,11 +161,23 @@ pub fn build_records_arrow(
         batch_count += 1;
         if batch_count == 1024 {
             batches.push(finish_batch(Arc::clone(&schema), &mut builders)?);
+            let retained = retained_charge(&batches, &schema)?;
+            if retained > max_output_bytes || retained > lease.charged_bytes() {
+                return Err("records output budget exceeded".to_string());
+            }
+            // Keep the finished physical buffers charged and reserve the next
+            // builder's initial capacity before creating it. The former is
+            // already covered by the per-row precharge above.
+            let next = retained.checked_add(BUILDER_WORKSPACE_BYTES)
+                .ok_or("records output budget overflow")?;
+            if next > lease.charged_bytes() {
+                lease.grow(next - lease.charged_bytes())
+                    .map_err(|error| error.to_string())?;
+            } else {
+                lease.shrink_to(next).map_err(|error| error.to_string())?;
+            }
             builders = new_builders(&schema);
             batch_count = 0;
-            lease
-                .shrink_to(retained_charge(&batches, &schema)?)
-                .map_err(|error| error.to_string())?;
         }
     }
     if batch_count != 0 {
@@ -175,6 +196,11 @@ pub fn build_records_arrow(
     if retained > max_output_bytes {
         return Err("records output budget exceeded".to_string());
     }
+    if retained > lease.charged_bytes() {
+        return Err("records physical output charge exceeded its precharge".to_string());
+    }
+    drop(builders);
+    lease.shrink_to(retained).map_err(|error| error.to_string())?;
     // Rebinding retains another bounded set of headers, not a second payload.
     // The per-batch header allowance remains in the output lease.
     let charge = Arc::new(OutputCharge {
@@ -185,12 +211,6 @@ pub fn build_records_arrow(
         .into_iter()
         .map(|batch| charged_batch(batch, &charge))
         .collect::<Result<Vec<_>, _>>()?;
-    charge
-        .lease
-        .lock()
-        .map_err(|_| "records charge lock poisoned".to_string())?
-        .shrink_to(retained)
-        .map_err(|error| error.to_string())?;
     Ok(BuiltRecords {
         schema,
         batches,
@@ -205,7 +225,10 @@ fn retained_charge(batches: &[RecordBatch], schema: &Schema) -> Result<usize, St
         .iter()
         .flat_map(RecordBatch::columns)
         .try_fold(0usize, |sum, array| {
-            sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+            // The final Bytes owner retains the original Arrow allocation,
+            // whose capacity can exceed its logical slice length. Measure it
+            // before charged_batch replaces buffers with external owners.
+            sum.checked_add(array.to_data().get_array_memory_size())
         })
         .ok_or("records output size overflow")?;
     let headers = batches
@@ -539,6 +562,12 @@ mod tests {
                 .value(0),
             "null",
         );
+        let logical = batch.columns().iter().try_fold(0usize, |sum, array| {
+            sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+        }).ok_or("logical size overflow")?;
+        let retained = built._charge.lease.lock()
+            .map_err(|_| "charge lock poisoned")?.charged_bytes();
+        assert!(retained > logical);
         drop(built);
         assert!(context.remaining_bytes() < starting);
         drop(batch);
@@ -609,6 +638,33 @@ mod tests {
                 .ok_or("nested offset must fail")?
                 .contains("offset budget")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn retained_charge_uses_original_buffer_capacity() -> Result<(), String> {
+        let schema = Schema::new(vec![Field::new("text", DataType::Utf8, false)]);
+        let mut builder = StringBuilder::with_capacity(1, 1024);
+        builder.append_value("x");
+        let batch = RecordBatch::try_new(
+            Arc::new(schema.clone()), vec![Arc::new(builder.finish())]
+        ).map_err(|error| error.to_string())?;
+        let data = batch.column(0).to_data();
+        let logical = data.get_slice_memory_size().map_err(|error| error.to_string())?;
+        let physical = data.get_array_memory_size();
+        assert!(physical > logical + 1024);
+        assert!(retained_charge(&[batch], &schema)? >= physical);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_family_builder_initial_capacity_fits_precharge() -> Result<(), String> {
+        for family in ["STANDARD", "ORDERED", "BLANK"] {
+            let schema = records_schema(family, "FULL_BEFORE_AFTER_VALUES")?;
+            let mut builders = new_builders(&schema);
+            let empty = finish_batch(Arc::clone(&schema), &mut builders)?;
+            assert!(retained_charge(&[empty], &schema)? <= BUILDER_WORKSPACE_BYTES);
+        }
         Ok(())
     }
 }

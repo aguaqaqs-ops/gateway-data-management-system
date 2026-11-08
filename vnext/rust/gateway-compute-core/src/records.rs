@@ -86,7 +86,7 @@ impl std::io::Write for CountingJsonWriter {
     }
 }
 
-pub fn json_size(value: &Value) -> Result<usize, String> {
+pub fn json_size<T: serde::Serialize + ?Sized>(value: &T) -> Result<usize, String> {
     let mut writer = CountingJsonWriter(0);
     serde_json::to_writer(&mut writer, value).map_err(|error| error.to_string())?;
     Ok(writer.0)
@@ -312,7 +312,7 @@ pub(crate) fn expected_fields(family: &str) -> Result<Vec<Field>, String> {
         Field::new("boolean", DataType::Boolean, true),
         Field::new(
             "items",
-            DataType::List(Arc::new(Field::new("element", DataType::Utf8, true))),
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             true,
         ),
         Field::new("anomaly_json", DataType::Binary, true),
@@ -321,27 +321,27 @@ pub(crate) fn expected_fields(family: &str) -> Result<Vec<Field>, String> {
         Field::new("column_name", DataType::Utf8, false),
         Field::new("value", scalar.clone(), false),
     ]));
-    let values = DataType::List(Arc::new(Field::new("element", value.clone(), true)));
+    let values = DataType::List(Arc::new(Field::new("item", value.clone(), true)));
     let field_change = DataType::Struct(Fields::from(vec![
         Field::new("column_name", DataType::Utf8, false),
         Field::new("before_value", scalar.clone(), true),
         Field::new("current_value", scalar, true),
     ]));
-    let field_changes = DataType::List(Arc::new(Field::new("element", field_change, true)));
+    let field_changes = DataType::List(Arc::new(Field::new("item", field_change, true)));
     let common = [
         Field::new("table_name", DataType::Utf8, false),
         Field::new("record_kind", DataType::Utf8, false),
         Field::new("row_identity", DataType::FixedSizeBinary(32), true),
         Field::new(
             "changed_columns",
-            DataType::List(Arc::new(Field::new("element", DataType::Utf8, true))),
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             false,
         ),
         Field::new("before_values", values.clone(), false),
         Field::new("current_values", values, false),
         Field::new(
             "diagnostics",
-            DataType::List(Arc::new(Field::new("element", DataType::Utf8, true))),
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
             false,
         ),
     ];

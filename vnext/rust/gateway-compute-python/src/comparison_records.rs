@@ -118,7 +118,9 @@ impl Drop for PythonChargeOwner {
         if let Ok(slot) = self.charge.get_mut()
             && let Some(charge) = slot.take()
         {
-            let _ = Python::try_attach(|py| charge.bind(py).call_method0("close"));
+            let _ = Python::try_attach(|py| {
+                let _ = charge.bind(py).call_method0("close");
+            });
         }
     }
 }
@@ -594,7 +596,8 @@ fn _facts_core_digest_native(
     let _use = OperationUse::begin(&context, &operation.active)?;
     let mut metadata_upper = json_metadata_upper(summary_json).map_err(comparison_error)?;
     for raw in metadata_jsons.iter() {
-        let raw = raw.downcast::<PyString>()?.to_str()?;
+        let raw = raw.cast::<PyString>()?;
+        let raw = raw.to_str()?;
         metadata_upper = metadata_upper
             .checked_add(json_metadata_upper(raw).map_err(comparison_error)?)
             .ok_or_else(|| PyMemoryError::new_err("facts metadata budget overflow"))?;

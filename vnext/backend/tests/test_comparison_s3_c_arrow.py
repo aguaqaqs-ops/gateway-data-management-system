@@ -151,6 +151,9 @@ def test_exported_arrow_buffers_keep_charge_after_handle_and_reader_close() -> N
     reader = handle.record_batches("STANDARD")
     batch = reader.read_next_batch()
     table = pa.Table.from_batches([batch])
+    retained = operation.seal()
+    assert operation_charge.retained_bytes == retained
+    assert retained > batch.nbytes
     reader.close()
     handle.close()
     operation.close()

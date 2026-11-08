@@ -31,3 +31,14 @@ CT201 原件目录 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/logs/`：
 固定 `93589767…` 的恢复稿精确列出：同一 CT201 clean fixed0194 源 WT，用新文件名及字面 `HEAD` 创建全历史 bundle，不选增量 base/负向修订；在 Git repository 上 verify/list-heads 并要求广告 HEAD 指向0194；经获准 LAN 按 SHA 传 06，在本任务 node repo verify/fetch，建新 clean detached0194 WT 与 legacy symlink；确认现场空闲后原子取得本人标记，字面运行原 SHA `041507…54ff` 脚本一次并首失败停，保留原失败和后续原件，不动 B WT 或他人资源。若新完整 C 候选先固定，须由同一 C 独审先核对象与相同机制执行稿，再显式替换 HEAD/WT/日志路径。该稿没有 push/tag/amend、覆盖原件或用 CT201 代测试的步骤，恢复路径**可供 Owner 决定**。
 
 DC68 明确“重做再次失败……均停止交 owner”。第一次准备错误仅按其已知范围记录，第二次纠正仍失败；因此本人不批准、也未执行第三次 bundle、替代传输、测试或 CT201 dependency-base 构建。Owner 若放行，唯一测试者按已审稿恢复；否则维持受影响执行停止。后续 C 固定候选仍须独审、同角色复审与原件核收，包含三族 schema/nullable/1024 rowgroup/raw golden、完整 facts 原序、JCS/content/raw 分层、真实 open/read/restore native 边界、取消/截止/M、导出 owner 直到最后 consumer，以及当前 image/container boundary 的具体判定；06 focused 不等于 04 最终门禁。
+
+### 3.1 固定恢复命令脚本静态核
+
+协调者随后把同一恢复稿写成两份**未执行**外置脚本；本人逐字只读核 SHA、命令顺序与 06 现场，无测试/`bash -n`/bundle 创建：
+
+| 脚本 | SHA256 | 静态核点 |
+| --- | --- | --- |
+| `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/resume-create-source.sh` | `ad3a282502366fbfeaaa2e91d25483e51b73bca9348b38f8980bb563b7a1ff07` | 仅在源 clean HEAD=0194 时，用字面 `HEAD` 创建新的全历史 bundle；在源 Git repo 内 verify/list-heads，并要求唯一广告 `0194… HEAD`，记录 archive SHA，拒覆盖原件。无负向基线、branch/tag/push。 |
+| `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/resume-prepare-node.sh` | `5f1823074cc6e4ac28efc6902dc4cd6dc1dac66de42889448afd8eabfc5905f3` | 核 06 与本会话 marker、传入的 64 hex archive SHA，拒现存 repo/WT/log；在本任务新 bare Git repo 内 verify/fetch bundle 的 `HEAD`，核 FETCH_HEAD=0194，建 clean detached WT 和 legacy symlink/exclude。无其他节点或 B WT 修改。 |
+
+本人以 BatchMode 只读核 06 的 Git 2.47.3，且上述 node repo/WT/log 均不存在；源码和脚本在 CT201 仍固定，archive 尚未生成。两份脚本对 `93589767…` 的命令收敛没有新增机制，**静态执行稿 CLEAR，可供 Owner 作恢复决定**。局域网传输的起止、双端 SHA、06 新 marker 与原脚本执行仍须由唯一测试者在获放行后逐项记录并交本人独核；此 CLEAR 不替代 Owner 放行。

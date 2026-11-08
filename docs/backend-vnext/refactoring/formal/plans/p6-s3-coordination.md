@@ -436,7 +436,7 @@ CT108唯一W3 MO预热于12:52:20Z开始，尚未到任何workspace/Preview业�
 
 774第三轮focused已于06实测0并由原审`e5fd3a394f` §53核收：native/checker/Ruff/mypy均0，完整journey测试非serial74、serial3通过，clean/六锁/guarded释放0。原dcfa/838两失败保留。新三节点准备0后，04实际权威原链14:00:56–14:29:14Z整体0，backend3417+74、RS1764(+1skip)+214通过；Rust/Shared Kernel/contracts/client四包按**同04同原来源WT**实比完整闭包相等，直接引用原3a整次runner0来源。当前Compose provenance与save本机tag逐项绑定、config/全DiffID分域留存、外层0；原审`9870143f23` §58独核。H仍须在同WT再实际比六闭包与镜像。
 
-774在06的完整fresh t1亦于14:03–14:07Z actual0并独核，含v1/重复MO、v2 FULL、Submit/真实读取/approve/History及同worker32-8/M24。原3a t2–t4已核收的完整运行只按kickoff §61引用未改consumer业务/资源事实：其项目卷已随成功清理，**不称DC64保卷qualified R或卷副本续跑，不冒774实测及774全部四档fresh全面PASS**。此边界与04保留同来源WT的包沿用判定分开，不能混称。
+774在06的完整fresh t1亦于14:03–14:07Z actual0并独核，含v1/重复MO、v2 FULL、Submit/真实读取/approve/History及同worker32-8/M24。原3a t2–t4已核收的完整运行只按kickoff §5（第61行）引用未改consumer业务/资源事实：其项目卷已随成功清理，**不称DC64保卷qualified R或卷副本续跑，不冒774实测及774全部四档fresh全面PASS**。此边界与04保留同来源WT的包沿用判定分开，不能混称。
 
 CT108新W3 MO warm在14:03–14:06Z actual1：已过census到v1 Preview（631新增表、0 native compare），随后v1 Submit op-b945/step1以`operation memory reservation exceeded`拒绝。readonly control诊断已独核；只定位M24操作账本，不知首拒stage/表/need/live，不把Preview另一operation高水或低RSS作Submit预算证明。v2比较/READY未到；W3 FULL、W4 10%/100%各模式与正式1warm+3统计均未测，剩余23队列从未启动。完整原件、证据/推断/未知及阶段顺序冲突在[容量阻塞报告](p6-s3-e-capacity-stop.md)，原审`066844b485` §57已核可作Owner方向依据。
 

@@ -63,7 +63,7 @@ Owner另授权的三个最小移植已纳入：claim间GC `028aff2da7e6`、cold 
 
 ## 4. DC33真实范围与未改consumer的原source证据
 
-Owner已确认fresh t1–t4完整功能范围，又专项批准本轮t1–t3从05改06；不继承S2b例外。每档v1/重复Preview MODIFIED_ONLY、v2 FULL，覆盖Submit、实际Repository读取/approve、History，N1/32-8/M24不变。3a7四档已fresh通过；后来774仅改host benchmark及两测试、生产src对象ID不变，又实际重跑774 t1验证新Monitor。t2–t4按kickoff §61作为未改consumer的原source既有证据引用，不能写成774实测。
+Owner已确认fresh t1–t4完整功能范围，又专项批准本轮t1–t3从05改06；不继承S2b例外。每档v1/重复Preview MODIFIED_ONLY、v2 FULL，覆盖Submit、实际Repository读取/approve、History，N1/32-8/M24不变。3a7四档已fresh通过；后来774仅改host benchmark及两测试、生产src对象ID不变，又实际重跑774 t1验证新Monitor。t2–t4按kickoff §5（第61行）作为未改consumer的原source既有证据引用，不能写成774实测。
 
 | 档 | 实际源/节点/result起止UTC（截取整秒） | 直接原件与核收 |
 | --- | --- | --- |

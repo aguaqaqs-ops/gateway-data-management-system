@@ -290,3 +290,7 @@ root 保留未执行 r0，另固定 `/home/dev/gdds-test-tmp/p6-s3-e-final-c0cab
 05 `ct108-gw-dms-05` 的唯一 prepare outer 于 11:38:00–11:38:01Z 原 exit1，`outer.log` SHA256=`d656a9f0c3e9c416678b7c7f0839aa912fc0ca3de4c6e09db87158dadb8ac75c`；本地资产校验及 BatchMode `echo OK` 后即停在远端 admission，未传源码或建本次 EV/WT、未执行节点稿/测试。协调者只读查当时 FE3b 自 11:37:33Z 有效占用 marker、三服务/toolchain 与8000；这是正确拒绝冲突，不是测试或缓存失败，不得自动重试或夺锁。是否改在06跑t1–t3必须先有Owner对节点用途的本轮授权，S2b一次性例外不继承。04/CT108可按各自空闲事实继续。
 
 两份准备 node 原日志的非必要 `dolt version` 都出现 `unable to query latest released Dolt version` 警告；未见实际公网连接成功、对上述固定输入/缓存/源码身份无影响。后续新节点准备稿宜避免此版本查询尝试以保持DC67离线边界清楚；原日志保留、不抹去警告。
+
+## 31. 06 承接 t1–t3 的未授权替代稿静审
+
+因05存在有效FE占用，协调者另备 `/home/dev/gdds-test-tmp/p6-s3-e-final-c0cabd7e60-node06-proposal/`，本人只读与已CLEAR集中r1逐字比较。改动仅将来源/缓存与 fresh journey 的 EV/control 分离到06、actual hostname/alias固定 `gw-dms-06`/`ct107-gw-dms-06`、选择器只收 `t1–t3`、标准八包复制入该节点私有 root，并移除会尝试版本查询的非必需 `dolt version`。c0完整 bundle SHA256=`42f91bba22fc84b0c9e4fba91533f4fc1e85c7ec212fbfc90c345f1dd12baa7e` 仍唯一 HEAD/complete history；Rust tree9d4f、578e依赖基、标准metadata SHA78c7、完整 fresh旅程 v1/repeat MO 与 v2 FULL、N1/32-8-M24、镜像本机ID/全DiffID、资源/cleanup守卫未变。外层 `prepare-run.sh` SHA256=`e289d17804287572e2e59bbce34ea2e57c6451e520adcfcac2f7009d1b193a5c`、`journey-run.sh`=`e95bba54475be5e1f69920723ecf4534e218f508c49144e150b4e1fd999f654f`，common12项 manifest=`fb315cc7b6055bab7ccf91be2746196302c21cedf707e30c2f7989dc37364aef`，本地只读身份核均一致。**替代稿静态 CLEAR，只供 Owner 决定本轮06真实数据用途；未获该授权不得交 tester 执行。** 06与正在跑04权威共享物理宿主，长旅程须按实际干扰错峰；05原拒绝原件不被此稿覆盖。

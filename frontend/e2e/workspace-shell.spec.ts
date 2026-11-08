@@ -1744,7 +1744,7 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptReadFails: false,
-    clearWorkspacePointer: true,
+    clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
     operationStatus: (operationId) => operationId === "submit-op-1"
       ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
@@ -1755,7 +1755,9 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
+  // The resume re-read finds the pointers cleared with the attempt unreadable.
   fixtureOptions.submitAttemptReadFails = true;
+  fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
   await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeEnabled();
@@ -1785,6 +1787,12 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
   const { apiRequests } = await installFixtureRoutes(page, {
     workspaceSequence: [stale, recovered],
     submitAttemptState: "FINALIZED",
+    // The submit operation stays polling (RUNNING): a terminal operation would
+    // resume-navigate the workbench to the review page, while this case asserts
+    // the workbench stays with the upload disabled through the stale window.
+    operationById: {
+      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+    },
   });
   await page.goto("/?page=workspace");
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });

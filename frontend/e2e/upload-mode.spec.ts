@@ -331,7 +331,9 @@ test("W10 陈旧指针重读后恢复可用（一次性重读，B2）", async ({
 test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   // B7: disposition scenarios live in mock-data.ts and are asserted reachable by unit tests.
   // d5 joins only this D5 case dataset (DC89-unreachable, defensive); the head
-  // is the tip of the reachable baseline chain (F4).
+  // is the tip of the reachable baseline chain (F4). Rows are selected by
+  // submission label (creation order: ref-2=1, d-arch=2, d-closed=3,
+  // d-manual=4, d4=5, d5=6), not by DOM position, since parents changed.
   const nodes: Schemas["HistoryNodeResponse"][] = [
     ...HISTORY_PAGE_ONE.nodes,
     ...DISPOSITION_SCENARIO_NODES,
@@ -351,7 +353,7 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   if (await expand.count()) await expand.click();
   await expect(details.locator(".workspace-details__content")).toBeVisible();
 
-  await page.locator("tr", { hasText: "已归档" }).first().click();
+  await page.locator("tr", { hasText: "提交 2" }).click();
   await expect(details.getByText("终局处置")).toBeVisible();
   await expect(details.getByText(/已归档，成为归档基线 \d+/)).toBeVisible();
   await expect(details.getByText("终局状态", { exact: true })).toHaveCount(0);
@@ -359,12 +361,12 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d1-archived", 1280);
 
-  await page.locator("tr", { hasText: "已关闭（未归档）" }).first().click();
+  await page.locator("tr", { hasText: "提交 3" }).click();
   await expect(details.getByText("归档时选中了其他提交")).toBeVisible();
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d2-closed-at-archive", 1280);
 
-  const d3Row = page.locator("tr", { hasText: "已关闭（未归档）" }).nth(1);
+  const d3Row = page.locator("tr", { hasText: "提交 4" });
   await expect(d3Row.locator(".tree-status")).toHaveAttribute("title", "有理由关闭，详情见右侧面板");
   await d3Row.click();
   await expect(details.getByText("关闭人")).toBeVisible();
@@ -378,13 +380,13 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d3-manual-close", 1280);
 
-  const d4Row = page.locator("tr", { hasText: "已归档" }).nth(1);
+  const d4Row = page.locator("tr", { hasText: "提交 5" });
   await d4Row.click();
   await expect(d4Row.locator(".status-tag--warning")).toHaveCount(0);
   await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d4-priority", 1280);
 
-  const d5Row = page.locator("tr", { hasText: "基线已更新" }).first();
+  const d5Row = page.locator("tr", { hasText: "提交 6" });
   await expect(d5Row).toBeVisible();
   await d5Row.click();
   await expect(d5Row.locator(".status-tag--warning")).toHaveText("基线已更新");

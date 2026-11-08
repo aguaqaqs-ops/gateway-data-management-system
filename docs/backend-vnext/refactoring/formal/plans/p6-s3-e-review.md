@@ -23,3 +23,9 @@ E 起点为 D 产品 `a9da0c59277e3179f34d646eabcd9c185917ae05`、Rust tree `b5f
 最终 V 固定代码独审后，06 focused/五包 Ruff+mypy/Rust fmt+Clippy 和适用小容器；04 clean 已提交同一来源 WT 的权威逐包及容器、05 fresh t1–t3、CT108 fresh t4 与 W3/W4 完整 Preview/必要正式统计分别核原始 exit、HEAD、输入、离线缓存、身份与清理。DC33 已确认四档 v1/repeat MO、v2 FULL，包含 Submit、真实 read/approve、History；不重复申请。D 的 06 两表/631表 partial 与 2x Risk 47.022 秒只作预警，不能称完整 READY 或 worker 32 GiB 包络已证。Risk 仍需最小分段与 DC47 语言边界评估；未经 Owner 决定不迁 Rust、不改 N1/M24 或冻结 golden。
 
 当前起点 `d1aad` 相对 D 产品仅交接文档；本次只读初审不触发镜像重建。最后已验证的 D 小 Compose 镜像 revision 为 `a9da`，其不同两套 backend/worker config 与 DiffID 见 D review §31/33；它们不是 E 最终候选的容器门禁。E 产品触及 Rust/worker 与锁时必须对最终 V 的当前镜像重建并按权威入口核收；V→H 是否可 carried 待同节点同来源 WT 的逐包闭包及镜像身份等价实测，不能预判。
+
+## 4. 三项共享修复的首次静态复核
+
+固定候选 `6fae41957540040ca71dceef0632ef63e71f9681` 含分开的 GC `028aff2da7e613ba9241be8f16ae9e86a71b0060`、catalog `c6a2792901ad9e1c90c401b455258685c4f4e2e0`、JCS `968e8ec7ee3f3b51d68026998917b6d199fd9a85` 与本报告初稿。本人在该固定 clean detached WT 逐项比精确来源 Git blob 和产品 diff：GC runtime 与 `0c97cb9c09` 完全相同，catalog 四条路径与最终测试修订 `4497ded8ff` 完全相同，JCS 四条产品路径及 backend mutation 测试与 `1f9731dfc3` 相同；JCS 测试另有一项 UTF-16 supplementary/BMP 键序向量。GC 测试在原来源上另有当前 DC88 pure drain/attempt 语义场景，scheduler 的 gc patch 入口与 shutdown 事件断言按当前代码适配。三项都未携入诊断部署、READY 重复修复或新 N/M；我未发现超出 Owner 授权的产品差异，**静态 CLEAR，可在 06 运行受影响 focused**，尚无当前提交的运行 PASS。
+
+GC 只在已确认 executor join 后恢复进入前的自动 GC 状态，成功 claim 在下一 anchor 前做空闲收集；busy/empty 不全收集，join 未确认不收集。catalog 仍保独立 import 路线，immutable 目录按最多 16 表带 ordinal 的 COUNT，in-flight Future 按 key 共享并在失败时释放；原 8 项/16 MiB 上限未改。JCS 保原 bytes API，只把 ChangeSet 两处 hash-only consumer 改为有界 sink，最终 digest 类型和错误映射未变。这些是源码判断；实际原值/错误/并发与 worker 完成性以节点结果为准。

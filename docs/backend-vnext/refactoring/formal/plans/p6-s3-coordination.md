@@ -345,3 +345,17 @@ Rust manifest裁剪 `87270184a2` 与精确锁提交 **`53746c7236a79c96bd4158716
 | CT108 | `gw-dms-test` / 09:34:00Z | `91721c786aa5f8addd0789887ebf5e9f841c1f0e8efd5f386533ecdf93b36603` |
 
 各原log路径为CT201 `/home/dev/gdds-test-tmp/p6-s3-e-<04|05|06|ct108>-cache-prefill-578e079b/logs/prefill-<同key>.log`，含LAN起止、三源SHA、各全DiffID、节点save归档SHA与释放。05节点释放UTC比控制端结束UTC晚1秒，保留两机原时间，不跨机推耗时或修时间。节点重save tar包装SHA与CT201源归档可不同；跨机只比较config及全部DiffID，不拿inspect ID等价。无产品编译、pytest、Compose、真实旅程或原基准资源修改；四标记已释放，后续唯一测试者重新核现场后使用578e。最终V、H与全部验收仍未完成。
+
+## 21. E 删除静审与 Rust 组件实际核收
+
+Rust清理 `0e62680502` 删除约3,100行原型/临时差分，独有Ordered行为转到现役canonical batch测试。原审要求真实UInt64输入及added-column/excluded关联断言，`36d006f600`补齐；其06首步fmt1，修订`447496aff4`实际fmt0、Clippy因新测试的panic/expect退出101；`93b13aa0c9`改为显式ArrowError传播但新代码fmt1，`2c9eaf72ad`按节点原diff机械修。各失败原件、未执行范围、clean/六锁/释放由 [E review §13](p6-s3-e-review.md) 连续独核；没有改预期、放宽lint或把分项当整轮通过。后续Rust语义改动优先在06独立scratch取formatter patch，避免开发机猜排版。
+
+固定 **`2c9eaf72adaedf99d55da4b85f254baad560cae7`**、Rust tree **`9d4f84ce0897099402226c77c548c487c4912008`** 在06 `gw-dms-06` 于 **10:00:46–10:01:25Z** 实际fmt0、workspace/all-target Clippy `-D warnings`0、locked/offline workspace test0，合计 **197 passed / 0 failed**；零测试/doc summaries另列。HEAD clean、六锁无漂、guarded marker释放0，node/outer/标准capture均0。原审已核收为**仅Rust组件PASS**；未覆盖新Python、重装后的FFI行为、容器、权威runner或真实数据，也不是权威carried来源。
+
+原件在 `/home/dev/gdds-test-tmp/p6-s3-e-rust-2c9eaf72-06/outer/`：outer SHA=`55d7f07fa62578d57e4881791297401ab1a1f082bee2ff0a3b24644d160982ba`；node SHA=`6189ca05999de0d1b1d94143c54053dca98298b283d3380f1422d52e09182d14`；标准manifest SHA=`00880ee765d6c22415d8b686ed4b47b3f3991f3430cd589629ca95a1ed9f8e5e`，capture SHA=`ea9d393c01b3d0b7935000c07029d524d5c64c0786271a373734f47cfe9d28c4`。后续06 focused若Rust tree未变，可引用这项组件原件；04最终六包仍须实跑。
+
+Python整合删除 `cd08d0de36` 覆盖旧standard/ordered行算法、全量tuple publisher、重复row encoder及三旧suite，15文件净602+/4008-；现役small metadata、Submit/replacement与真实records validator保留。原审初审未放行，要求无handle三族总记录限额及旧suite独有业务断言。完整逐函数/参数组owner矩阵已固定在 `df3bb0e916203aa4dd15cfbd6d07f804a4f9b2c2` 的E review §15；随后 `32e6451052` 与集中修订 **`c7ddcc5f6f7b42d476a670093d049cec90f15ac3`** 补现役向量和最小计时。
+
+原审在 `e162f2aa8c5c7fb541976e06e61f843857a47049` 的E review §16核收c7静态CLEAR：Standard键/类型变化与keyless关联、Ordered位次/换gid/排除列/NULL no与处理模式、BLANK占位与区间转移、records DATE/TIMESTAMP精确文本均有明确现役owner；无效的metadata多族测试删除而合计guard保留，既有native合计上限owner保留。固定旧C/D向量与实际consumer一致性断言不变；源码清理没有永久旧oracle或生产fallback。Risk与真实Preview projection/bundle仅增现有入口分段，保包含关系、operation_id及未观测项，不加checkpoint/持久evidence机制。
+
+当前c7仍是**静态CLEAR、尚无Python focused或E GO**；Rust tree与五依赖输入未变。下一06集中稿覆盖重装/校验当前扩展、S3保留语义/reader/records/Risk/Preview/History与三项整合修复（含真实Dolt historical catalog）、五包Ruff/mypy；脚本先由原审逐字核，再由唯一Luna执行。最终V、04六包/容器、05/CT108 fresh与完整W3/W4证据均待集中取证，不把删除代码完成冒称S3交付完成。

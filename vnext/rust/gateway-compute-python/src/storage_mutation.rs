@@ -251,7 +251,11 @@ struct StorageRender {
 impl StorageRender {
     fn reconcile_bytes(&mut self) -> Result<(), String> {
         let pending = self.batcher.as_ref().map_or(0, SqlBatcher::pending_bytes);
-        let queued = self.statements.iter().map(SqlStatement::pending_bytes).sum::<usize>();
+        let queued = self
+            .statements
+            .iter()
+            .map(SqlStatement::pending_bytes)
+            .sum::<usize>();
         let current = self.current.as_ref().map_or(0, SqlStatement::pending_bytes);
         let retained = (64 * 1024usize)
             .checked_add(pending.checked_mul(4).ok_or("RESOURCE_LIMIT_EXCEEDED")?)
@@ -348,7 +352,9 @@ impl StorageRender {
             let Some(mutation) = next else {
                 let finished = if let Some(batcher) = &mut self.batcher {
                     batcher.finish().map_err(|error| error.to_string())?
-                } else { None };
+                } else {
+                    None
+                };
                 if let Some(statement) = finished {
                     self.queue_statement(statement)?;
                 }
@@ -362,7 +368,9 @@ impl StorageRender {
             {
                 let finished = if let Some(batcher) = &mut self.batcher {
                     batcher.finish().map_err(|error| error.to_string())?
-                } else { None };
+                } else {
+                    None
+                };
                 if let Some(statement) = finished {
                     self.queue_statement(statement)?;
                 }
@@ -371,10 +379,15 @@ impl StorageRender {
                 continue;
             }
             if self.batcher.is_none() {
-                self.batcher = Some(SqlBatcher::with_cap(
-                    &mutation, REPLAY_BYTES.checked_sub(self.total_sql)
-                        .ok_or("RESOURCE_EXCEEDED")?,
-                ).map_err(|error| error.to_string())?);
+                self.batcher = Some(
+                    SqlBatcher::with_cap(
+                        &mutation,
+                        REPLAY_BYTES
+                            .checked_sub(self.total_sql)
+                            .ok_or("RESOURCE_EXCEEDED")?,
+                    )
+                    .map_err(|error| error.to_string())?,
+                );
             }
             for statement in self
                 .batcher
@@ -391,9 +404,13 @@ impl StorageRender {
     }
 
     fn queue_statement(&mut self, statement: SqlStatement) -> Result<(), String> {
-        self.total_sql = self.total_sql.checked_add(statement.complete_len())
+        self.total_sql = self
+            .total_sql
+            .checked_add(statement.complete_len())
             .ok_or("RESOURCE_EXCEEDED")?;
-        if self.total_sql > REPLAY_BYTES { return Err("RESOURCE_EXCEEDED".into()); }
+        if self.total_sql > REPLAY_BYTES {
+            return Err("RESOURCE_EXCEEDED".into());
+        }
         self.statements.push_back(statement);
         Ok(())
     }
@@ -407,16 +424,28 @@ impl StorageRender {
             if let Some(current) = &mut self.current {
                 let upper = current.next_chunk_upper();
                 if upper > 0 {
-                    self.copy_lease = Some(self.context.reserve(upper)
-                        .map_err(|error| error.to_string())?);
-                    self.exported_lease.as_mut().ok_or("STORAGE_RENDER_INVALID")?
-                        .grow(upper).map_err(|error| error.to_string())?;
-                    return current.next_chunk(&self.context).map_err(|error| error.to_string());
+                    self.copy_lease = Some(
+                        self.context
+                            .reserve(upper)
+                            .map_err(|error| error.to_string())?,
+                    );
+                    self.exported_lease
+                        .as_mut()
+                        .ok_or("STORAGE_RENDER_INVALID")?
+                        .grow(upper)
+                        .map_err(|error| error.to_string())?;
+                    return current
+                        .next_chunk(&self.context)
+                        .map_err(|error| error.to_string());
                 }
                 self.current = None;
             }
-            if self.queued.is_none() { self.reconcile_bytes()?; }
-            if !self.fill()? { return Ok(None); }
+            if self.queued.is_none() {
+                self.reconcile_bytes()?;
+            }
+            if !self.fill()? {
+                return Ok(None);
+            }
             self.current = self.statements.pop_front();
         }
     }

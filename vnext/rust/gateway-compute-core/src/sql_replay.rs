@@ -72,32 +72,61 @@ fn identifier_sql_len(name: &str) -> Result<usize, SqlError> {
         .ok_or_else(limit)
 }
 fn checked_total(parts: impl IntoIterator<Item = usize>) -> Result<usize, SqlError> {
-    parts.into_iter().try_fold(0usize, |sum, size| sum.checked_add(size).ok_or_else(limit))
+    parts
+        .into_iter()
+        .try_fold(0usize, |sum, size| sum.checked_add(size).ok_or_else(limit))
 }
 fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
     let name_len = identifier_sql_len(&table.name)?;
-    let definition_count = table.columns.len()
-        .checked_add(usize::from(!table.primary_key.is_empty())).ok_or_else(limit)?;
+    let definition_count = table
+        .columns
+        .len()
+        .checked_add(usize::from(!table.primary_key.is_empty()))
+        .ok_or_else(limit)?;
     let mut definitions = Vec::with_capacity(definition_count);
     for column in &table.columns {
-        if column.sql_type.is_empty() || column.sql_type.contains('\0') { return Err(invalid()); }
+        if column.sql_type.is_empty() || column.sql_type.contains('\0') {
+            return Err(invalid());
+        }
         definitions.push(checked_total([
-            identifier_sql_len(&column.name)?, 1, column.sql_type.len(), 1,
-            if column.nullable { "NULL".len() } else { "NOT NULL".len() },
+            identifier_sql_len(&column.name)?,
+            1,
+            column.sql_type.len(),
+            1,
+            if column.nullable {
+                "NULL".len()
+            } else {
+                "NOT NULL".len()
+            },
         ])?);
     }
     if !table.primary_key.is_empty() {
-        let keys = table.primary_key.iter().map(|name| identifier_sql_len(name))
+        let keys = table
+            .primary_key
+            .iter()
+            .map(|name| identifier_sql_len(name))
             .collect::<Result<Vec<_>, _>>()?;
         definitions.push(checked_total([
-            "PRIMARY KEY (".len(), checked_total(keys)?,
-            (table.primary_key.len() - 1).checked_mul(2).ok_or_else(limit)?, 1,
+            "PRIMARY KEY (".len(),
+            checked_total(keys)?,
+            (table.primary_key.len() - 1)
+                .checked_mul(2)
+                .ok_or_else(limit)?,
+            1,
         ])?);
     }
     checked_total([
-        "DROP TABLE IF EXISTS ".len(), name_len, ";\n".len(),
-        "CREATE TABLE ".len(), name_len, " (".len(), checked_total(definitions)?,
-        definition_count.saturating_sub(1).checked_mul(2).ok_or_else(limit)?,
+        "DROP TABLE IF EXISTS ".len(),
+        name_len,
+        ";\n".len(),
+        "CREATE TABLE ".len(),
+        name_len,
+        " (".len(),
+        checked_total(definitions)?,
+        definition_count
+            .saturating_sub(1)
+            .checked_mul(2)
+            .ok_or_else(limit)?,
         ");\n".len(),
     ])
 }
@@ -119,8 +148,12 @@ fn quote_text(value: &str) -> String {
     out
 }
 fn decode_url64_impl(text: &str, context: Option<&KernelContext>) -> Result<Vec<u8>, SqlError> {
-    let capacity = text.len().checked_mul(3).and_then(|size| size.checked_div(4))
-        .and_then(|size| size.checked_add(2)).ok_or_else(limit)?;
+    let capacity = text
+        .len()
+        .checked_mul(3)
+        .and_then(|size| size.checked_div(4))
+        .and_then(|size| size.checked_add(2))
+        .ok_or_else(limit)?;
     let mut out = Vec::with_capacity(capacity);
     let mut bits: u32 = 0;
     let mut count = 0u8;
@@ -301,8 +334,14 @@ pub fn render_schema(
     let mut out = Vec::new();
     for name in &schema.removed_tables {
         context.check().map_err(|error| SqlError(error.code()))?;
-        let next_len = checked_total(["DROP TABLE IF EXISTS ".len(), identifier_sql_len(name)?, ";\n".len()])?;
-        if out.len().checked_add(next_len).ok_or_else(limit)? > max_bytes { return Err(limit()); }
+        let next_len = checked_total([
+            "DROP TABLE IF EXISTS ".len(),
+            identifier_sql_len(name)?,
+            ";\n".len(),
+        ])?;
+        if out.len().checked_add(next_len).ok_or_else(limit)? > max_bytes {
+            return Err(limit());
+        }
         append(
             &mut out,
             format!("DROP TABLE IF EXISTS {};\n", quote_identifier(name)?).as_bytes(),
@@ -311,7 +350,12 @@ pub fn render_schema(
     }
     for table in &schema.tables {
         context.check().map_err(|error| SqlError(error.code()))?;
-        if out.len().checked_add(schema_table_sql_len(table)?).ok_or_else(limit)? > max_bytes {
+        if out
+            .len()
+            .checked_add(schema_table_sql_len(table)?)
+            .ok_or_else(limit)?
+            > max_bytes
+        {
             return Err(limit());
         }
         let name = quote_identifier(&table.name)?;
@@ -393,8 +437,12 @@ impl SqlLiteral {
             Self::Binary(raw) | Self::Bit(raw) => raw.capacity(),
         }
     }
-    fn append(&self, position: &mut LiteralPosition, out: &mut Vec<u8>,
-              context: &KernelContext) -> Result<bool, SqlError> {
+    fn append(
+        &self,
+        position: &mut LiteralPosition,
+        out: &mut Vec<u8>,
+        context: &KernelContext,
+    ) -> Result<bool, SqlError> {
         if let Self::Encoded(value) = self {
             let bytes = value.as_bytes();
             let take = (CHUNK_BYTES - out.len()).min(bytes.len() - position.raw_index);
@@ -411,7 +459,9 @@ impl SqlLiteral {
         while position.phase == 0 && out.len() < CHUNK_BYTES {
             out.push(prefix[position.prefix_index]);
             position.prefix_index += 1;
-            if position.prefix_index == prefix.len() { position.phase = 1; }
+            if position.prefix_index == prefix.len() {
+                position.phase = 1;
+            }
         }
         while position.phase == 1 && out.len() < CHUNK_BYTES {
             if position.pending_at < position.pending_len {
@@ -437,9 +487,13 @@ impl SqlLiteral {
             match self {
                 Self::Text(..) => {
                     let escape = match byte {
-                        b'\\' => Some(b'\\'), b'\'' => Some(b'\''),
-                        b'\n' => Some(b'n'), b'\r' => Some(b'r'),
-                        b'\0' => Some(b'0'), b'\t' => Some(b't'), _ => None,
+                        b'\\' => Some(b'\\'),
+                        b'\'' => Some(b'\''),
+                        b'\n' => Some(b'n'),
+                        b'\r' => Some(b'r'),
+                        b'\0' => Some(b'0'),
+                        b'\t' => Some(b't'),
+                        _ => None,
                     };
                     if let Some(second) = escape {
                         position.pending[0] = b'\\';
@@ -458,7 +512,11 @@ impl SqlLiteral {
                 }
                 Self::Bit(..) => {
                     for bit in 0..8 {
-                        position.pending[bit] = if byte & (1 << (7 - bit)) == 0 { b'0' } else { b'1' };
+                        position.pending[bit] = if byte & (1 << (7 - bit)) == 0 {
+                            b'0'
+                        } else {
+                            b'1'
+                        };
                     }
                     position.pending_len = 8;
                 }
@@ -484,10 +542,16 @@ struct LiteralPosition {
 }
 
 fn prepare_literal(value: &Value, context: &KernelContext) -> Result<SqlLiteral, SqlError> {
-    let kind = value.get("kind").and_then(Value::as_str).ok_or_else(invalid)?;
+    let kind = value
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(invalid)?;
     match kind {
         "string" | "date" | "datetime" | "timestamp" | "time-duration" => {
-            let raw = value.get("text").and_then(Value::as_str).ok_or_else(invalid)?;
+            let raw = value
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(invalid)?;
             let mut len = raw.len().checked_add(2).ok_or_else(limit)?;
             for (index, byte) in raw.bytes().enumerate() {
                 if index % (64 * 1024) == 0 {
@@ -500,12 +564,21 @@ fn prepare_literal(value: &Value, context: &KernelContext) -> Result<SqlLiteral,
             Ok(SqlLiteral::Text(raw.to_owned(), len))
         }
         "binary" | "bit" => {
-            let encoded = value.get("bytes_base64url").and_then(Value::as_str).ok_or_else(invalid)?;
+            let encoded = value
+                .get("bytes_base64url")
+                .and_then(Value::as_str)
+                .ok_or_else(invalid)?;
             let raw = decode_url64_checked(encoded, context)?;
             let factor = if kind == "binary" { 2 } else { 8 };
-            raw.len().checked_mul(factor).and_then(|size| size.checked_add(3))
+            raw.len()
+                .checked_mul(factor)
+                .and_then(|size| size.checked_add(3))
                 .ok_or_else(limit)?;
-            Ok(if kind == "binary" { SqlLiteral::Binary(raw) } else { SqlLiteral::Bit(raw) })
+            Ok(if kind == "binary" {
+                SqlLiteral::Binary(raw)
+            } else {
+                SqlLiteral::Bit(raw)
+            })
         }
         _ => Ok(SqlLiteral::Encoded(literal(value)?)),
     }
@@ -537,7 +610,9 @@ pub struct SqlStatement {
 }
 
 impl SqlStatement {
-    pub fn complete_len(&self) -> usize { self.complete_len }
+    pub fn complete_len(&self) -> usize {
+        self.complete_len
+    }
 
     pub fn next_chunk_upper(&self) -> usize {
         (self.complete_len - self.emitted).min(CHUNK_BYTES)
@@ -551,12 +626,20 @@ impl SqlStatement {
             + self.after.iter().map(String::capacity).sum::<usize>()
             + self.fragments.capacity() * std::mem::size_of::<Fragment>()
             + self.rows.capacity() * std::mem::size_of::<PreparedRow>()
-            + self.rows.iter().map(|row| {
-                row.key_literals.capacity() * std::mem::size_of::<SqlLiteral>()
-                    + row.key_literals.iter().map(SqlLiteral::capacity).sum::<usize>()
-                    + row.literals.capacity() * std::mem::size_of::<SqlLiteral>()
-                    + row.literals.iter().map(SqlLiteral::capacity).sum::<usize>()
-            }).sum::<usize>()
+            + self
+                .rows
+                .iter()
+                .map(|row| {
+                    row.key_literals.capacity() * std::mem::size_of::<SqlLiteral>()
+                        + row
+                            .key_literals
+                            .iter()
+                            .map(SqlLiteral::capacity)
+                            .sum::<usize>()
+                        + row.literals.capacity() * std::mem::size_of::<SqlLiteral>()
+                        + row.literals.iter().map(SqlLiteral::capacity).sum::<usize>()
+                })
+                .sum::<usize>()
     }
 
     fn literal(&self, part: Fragment) -> Option<&SqlLiteral> {
@@ -576,13 +659,18 @@ impl SqlStatement {
         }
     }
     fn part_len(&self, part: Fragment) -> usize {
-        self.literal(part).map_or_else(|| self.bytes(part).len(), SqlLiteral::len)
+        self.literal(part)
+            .map_or_else(|| self.bytes(part).len(), SqlLiteral::len)
     }
 
     pub fn next_chunk(&mut self, context: &KernelContext) -> Result<Option<Vec<u8>>, SqlError> {
         context.check().map_err(|error| SqlError(error.code()))?;
         if self.fragment == self.fragments.len() {
-            return if self.emitted == self.complete_len { Ok(None) } else { Err(invalid()) };
+            return if self.emitted == self.complete_len {
+                Ok(None)
+            } else {
+                Err(invalid())
+            };
         }
         let mut out = Vec::with_capacity(CHUNK_BYTES.min(self.complete_len - self.emitted));
         while out.len() < CHUNK_BYTES && self.fragment < self.fragments.len() {
@@ -614,7 +702,9 @@ impl SqlStatement {
             }
         }
         self.emitted = self.emitted.checked_add(out.len()).ok_or_else(limit)?;
-        if self.emitted > self.complete_len { return Err(invalid()); }
+        if self.emitted > self.complete_len {
+            return Err(invalid());
+        }
         Ok(Some(out))
     }
 }
@@ -645,17 +735,28 @@ impl SqlBatcher {
         let keys = self.key_names.len();
         let columns = self.after_names.len();
         let fragment_count = match self.operation.as_str() {
-            "UPDATE" => rows.saturating_mul(
-                self.set_indices.len().saturating_mul(5usize.saturating_add(keys.saturating_mul(4)))
-                    .saturating_add(keys.saturating_mul(2)).saturating_add(3),
-            ).saturating_add(self.set_indices.len().saturating_mul(5))
-                .saturating_add(keys.saturating_mul(2)).saturating_add(16),
-            "DELETE" => rows.saturating_mul(keys.saturating_mul(2).saturating_add(3))
-                .saturating_add(keys.saturating_mul(2)).saturating_add(16),
-            _ => rows.saturating_mul(columns.saturating_mul(2).saturating_add(3))
-                .saturating_add(columns.saturating_mul(2)).saturating_add(16),
+            "UPDATE" => rows
+                .saturating_mul(
+                    self.set_indices
+                        .len()
+                        .saturating_mul(5usize.saturating_add(keys.saturating_mul(4)))
+                        .saturating_add(keys.saturating_mul(2))
+                        .saturating_add(3),
+                )
+                .saturating_add(self.set_indices.len().saturating_mul(5))
+                .saturating_add(keys.saturating_mul(2))
+                .saturating_add(16),
+            "DELETE" => rows
+                .saturating_mul(keys.saturating_mul(2).saturating_add(3))
+                .saturating_add(keys.saturating_mul(2))
+                .saturating_add(16),
+            _ => rows
+                .saturating_mul(columns.saturating_mul(2).saturating_add(3))
+                .saturating_add(columns.saturating_mul(2))
+                .saturating_add(16),
         };
-        let fragment_upper = fragment_count.saturating_mul(std::mem::size_of::<Fragment>())
+        let fragment_upper = fragment_count
+            .saturating_mul(std::mem::size_of::<Fragment>())
             .saturating_mul(2);
         self.table.capacity()
             + self.operation.capacity()
@@ -667,7 +768,11 @@ impl SqlBatcher {
             + self.quoted_keys.capacity() * std::mem::size_of::<String>()
             + self.quoted_keys.iter().map(String::capacity).sum::<usize>()
             + self.quoted_after.capacity() * std::mem::size_of::<String>()
-            + self.quoted_after.iter().map(String::capacity).sum::<usize>()
+            + self
+                .quoted_after
+                .iter()
+                .map(String::capacity)
+                .sum::<usize>()
             + self.set_indices.capacity() * std::mem::size_of::<usize>()
             + fragment_upper
             + self.rows.capacity() * std::mem::size_of::<PreparedRow>()
@@ -676,7 +781,11 @@ impl SqlBatcher {
                 .iter()
                 .map(|row| {
                     row.key_literals.capacity() * std::mem::size_of::<SqlLiteral>()
-                        + row.key_literals.iter().map(SqlLiteral::capacity).sum::<usize>()
+                        + row
+                            .key_literals
+                            .iter()
+                            .map(SqlLiteral::capacity)
+                            .sum::<usize>()
                         + row.literals.capacity() * std::mem::size_of::<SqlLiteral>()
                         + row.literals.iter().map(SqlLiteral::capacity).sum::<usize>()
                 })
@@ -708,8 +817,10 @@ impl SqlBatcher {
             .iter()
             .map(|name| quote_identifier(name))
             .collect::<Result<Vec<_>, _>>()?;
-        let quoted_after = after_names.iter()
-            .map(|name| quote_identifier(name)).collect::<Result<Vec<_>, _>>()?;
+        let quoted_after = after_names
+            .iter()
+            .map(|name| quote_identifier(name))
+            .collect::<Result<Vec<_>, _>>()?;
         let where_prefix = if quoted_keys.len() == 1 {
             quoted_keys[0].clone()
         } else {
@@ -729,13 +840,11 @@ impl SqlBatcher {
                 }
                 fixed
             }
-            "INSERT" if !after_names.is_empty() => {
-                format!(
-                    "INSERT INTO {quoted_table} ({}) VALUES ;\n",
-                    quoted_after.join(", ")
-                )
-                .len()
-            }
+            "INSERT" if !after_names.is_empty() => format!(
+                "INSERT INTO {quoted_table} ({}) VALUES ;\n",
+                quoted_after.join(", ")
+            )
+            .len(),
             _ => return Err(invalid()),
         };
         Ok(Self {
@@ -754,7 +863,11 @@ impl SqlBatcher {
             window_seen: 0,
         })
     }
-    fn prepare(&self, mutation: &SqlMutation, context: &KernelContext) -> Result<PreparedRow, SqlError> {
+    fn prepare(
+        &self,
+        mutation: &SqlMutation,
+        context: &KernelContext,
+    ) -> Result<PreparedRow, SqlError> {
         if mutation.canonical_table != self.table
             || mutation.operation != self.operation
             || (self.operation != "INSERT"
@@ -791,7 +904,10 @@ impl SqlBatcher {
                     .map(|cell| prepare_literal(&cell.value, context))
                     .collect::<Result<Vec<_>, _>>()
             })?;
-        Ok(PreparedRow { key_literals, literals })
+        Ok(PreparedRow {
+            key_literals,
+            literals,
+        })
     }
     fn added_len(&self, row: &PreparedRow) -> Result<usize, SqlError> {
         let separator = if self.rows.is_empty() { 0 } else { 1 };
@@ -801,7 +917,11 @@ impl SqlBatcher {
             checked_total([
                 2,
                 checked_total(row.key_literals.iter().map(SqlLiteral::len))?,
-                row.key_literals.len().saturating_sub(1).checked_mul(2).ok_or_else(limit)?,
+                row.key_literals
+                    .len()
+                    .saturating_sub(1)
+                    .checked_mul(2)
+                    .ok_or_else(limit)?,
             ])?
         };
         let extra = match self.operation.as_str() {
@@ -811,20 +931,34 @@ impl SqlBatcher {
                     checked_total(self.quoted_keys.iter().map(String::len))?,
                     checked_total(row.key_literals.iter().map(SqlLiteral::len))?,
                     row.key_literals.len(),
-                    row.key_literals.len().saturating_sub(1).checked_mul(5).ok_or_else(limit)?,
+                    row.key_literals
+                        .len()
+                        .saturating_sub(1)
+                        .checked_mul(5)
+                        .ok_or_else(limit)?,
                 ])?;
-                let branches = checked_total(self.set_indices.iter().map(|&index| {
-                    checked_total([5, predicate, 6, row.literals[index].len()])
-                }).collect::<Result<Vec<_>, _>>()?)?;
+                let branches = checked_total(
+                    self.set_indices
+                        .iter()
+                        .map(|&index| checked_total([5, predicate, 6, row.literals[index].len()]))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )?;
                 checked_total([
-                    where_len, branches,
-                    separator.checked_mul(self.set_indices.len() + 1).ok_or_else(limit)?,
+                    where_len,
+                    branches,
+                    separator
+                        .checked_mul(self.set_indices.len() + 1)
+                        .ok_or_else(limit)?,
                 ])?
             }
             "INSERT" => checked_total([
                 2,
                 checked_total(row.literals.iter().map(SqlLiteral::len))?,
-                row.literals.len().saturating_sub(1).checked_mul(2).ok_or_else(limit)?,
+                row.literals
+                    .len()
+                    .saturating_sub(1)
+                    .checked_mul(2)
+                    .ok_or_else(limit)?,
                 separator * 2,
             ])?,
             _ => return Err(invalid()),
@@ -852,29 +986,38 @@ impl SqlBatcher {
             }
             "UPDATE" => {
                 fragments.extend([
-                    Fragment::Static(b"UPDATE "), Fragment::Table, Fragment::Static(b" SET "),
+                    Fragment::Static(b"UPDATE "),
+                    Fragment::Table,
+                    Fragment::Static(b" SET "),
                 ]);
                 for (position, &column) in self.set_indices.iter().enumerate() {
-                    if position > 0 { fragments.push(Fragment::Static(b", ")); }
-                    fragments.extend([
-                        Fragment::AfterName(column), Fragment::Static(b"=CASE "),
-                    ]);
+                    if position > 0 {
+                        fragments.push(Fragment::Static(b", "));
+                    }
+                    fragments.extend([Fragment::AfterName(column), Fragment::Static(b"=CASE ")]);
                     for row in 0..rows.len() {
-                        if row > 0 { fragments.push(Fragment::Static(b" ")); }
+                        if row > 0 {
+                            fragments.push(Fragment::Static(b" "));
+                        }
                         fragments.push(Fragment::Static(b"WHEN "));
                         for key in 0..self.quoted_keys.len() {
-                            if key > 0 { fragments.push(Fragment::Static(b" AND ")); }
+                            if key > 0 {
+                                fragments.push(Fragment::Static(b" AND "));
+                            }
                             fragments.extend([
-                                Fragment::KeyName(key), Fragment::Static(b"="),
+                                Fragment::KeyName(key),
+                                Fragment::Static(b"="),
                                 Fragment::KeyLiteral(row, key),
                             ]);
                         }
                         fragments.extend([
-                            Fragment::Static(b" THEN "), Fragment::AfterLiteral(row, column),
+                            Fragment::Static(b" THEN "),
+                            Fragment::AfterLiteral(row, column),
                         ]);
                     }
                     fragments.extend([
-                        Fragment::Static(b" ELSE "), Fragment::AfterName(column),
+                        Fragment::Static(b" ELSE "),
+                        Fragment::AfterName(column),
                         Fragment::Static(b" END"),
                     ]);
                 }
@@ -882,18 +1025,26 @@ impl SqlBatcher {
             }
             "INSERT" => {
                 fragments.extend([
-                    Fragment::Static(b"INSERT INTO "), Fragment::Table, Fragment::Static(b" ("),
+                    Fragment::Static(b"INSERT INTO "),
+                    Fragment::Table,
+                    Fragment::Static(b" ("),
                 ]);
                 for column in 0..self.quoted_after.len() {
-                    if column > 0 { fragments.push(Fragment::Static(b", ")); }
+                    if column > 0 {
+                        fragments.push(Fragment::Static(b", "));
+                    }
                     fragments.push(Fragment::AfterName(column));
                 }
                 fragments.push(Fragment::Static(b") VALUES "));
                 for row in 0..rows.len() {
-                    if row > 0 { fragments.push(Fragment::Static(b", ")); }
+                    if row > 0 {
+                        fragments.push(Fragment::Static(b", "));
+                    }
                     fragments.push(Fragment::Static(b"("));
                     for column in 0..self.quoted_after.len() {
-                        if column > 0 { fragments.push(Fragment::Static(b", ")); }
+                        if column > 0 {
+                            fragments.push(Fragment::Static(b", "));
+                        }
                         fragments.push(Fragment::AfterLiteral(row, column));
                     }
                     fragments.push(Fragment::Static(b")"));
@@ -917,14 +1068,19 @@ impl SqlBatcher {
         let actual = statement.fragments.iter().try_fold(0usize, |sum, part| {
             sum.checked_add(statement.part_len(*part)).ok_or_else(limit)
         })?;
-        if actual != complete_len { return Err(invalid()); }
+        if actual != complete_len {
+            return Err(invalid());
+        }
         self.variable_len = 0;
         Ok(Some(statement))
     }
     /// Returns one completed statement, if a byte/window boundary was hit.
     /// The caller feeds the same operation and shape until `finish`.
-    pub fn push(&mut self, mutation: &SqlMutation,
-                context: &KernelContext) -> Result<Vec<SqlStatement>, SqlError> {
+    pub fn push(
+        &mut self,
+        mutation: &SqlMutation,
+        context: &KernelContext,
+    ) -> Result<Vec<SqlStatement>, SqlError> {
         let mut emitted = Vec::new();
         if self.operation != "INSERT" && self.window_seen == STATEMENT_ROWS {
             if let Some(value) = self.emit()? {
@@ -977,21 +1133,35 @@ impl SqlBatcher {
 
 fn where_fragments(parts: &mut Vec<Fragment>, rows: usize, keys: usize) {
     parts.push(Fragment::Static(b" WHERE "));
-    if keys > 1 { parts.push(Fragment::Static(b"(")); }
+    if keys > 1 {
+        parts.push(Fragment::Static(b"("));
+    }
     for key in 0..keys {
-        if key > 0 { parts.push(Fragment::Static(b",")); }
+        if key > 0 {
+            parts.push(Fragment::Static(b","));
+        }
         parts.push(Fragment::KeyName(key));
     }
-    if keys > 1 { parts.push(Fragment::Static(b")")); }
+    if keys > 1 {
+        parts.push(Fragment::Static(b")"));
+    }
     parts.push(Fragment::Static(b" IN ("));
     for row in 0..rows {
-        if row > 0 { parts.push(Fragment::Static(b",")); }
-        if keys > 1 { parts.push(Fragment::Static(b"(")); }
+        if row > 0 {
+            parts.push(Fragment::Static(b","));
+        }
+        if keys > 1 {
+            parts.push(Fragment::Static(b"("));
+        }
         for key in 0..keys {
-            if key > 0 { parts.push(Fragment::Static(b", ")); }
+            if key > 0 {
+                parts.push(Fragment::Static(b", "));
+            }
             parts.push(Fragment::KeyLiteral(row, key));
         }
-        if keys > 1 { parts.push(Fragment::Static(b")")); }
+        if keys > 1 {
+            parts.push(Fragment::Static(b")"));
+        }
     }
     parts.push(Fragment::Static(b");\n"));
 }

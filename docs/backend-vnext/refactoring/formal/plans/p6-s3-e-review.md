@@ -131,3 +131,46 @@ Luna 唯一执行 2c9 06 Rust 组件，节点 `gw-dms-06`、clean 起止 HEAD=2c
 固定 clean detached `cd08d0de365fd5f1d3302adf468d138bffab8b55` 删除旧 `standard.compare_plan` 的 keyed/keyless 行遍历、`ordered.compare_ordered_task` 原型、`row_encoding._read_rows` 与旧 tuple records publisher/Parquet writer；`__init__` 不再导出旧比较器和旧 publisher。产品 `production._compare_task_native` 仍按 metadata 单侧/角色/early-exit/schema 走保留小 helper，普通 Standard/Ordered 比较走 Rust native、Arrow records；实际 `rg` 未见旧 Python 行入口的活跃代码引用。`artifacts` 保真实 open/read/restore/validator/closure，no-handle 小 metadata 记录通过 Arrow writer 出版。新 live helper、records/artifacts suite、C 原 validator consumer 均改现役 native+Arrow；这些是源码结构判断，尚无 cd08 focused。
 
 初审 **CHANGES，暂不 CLEAR**：`artifacts._publish_records_closure_arrow_admitted` 在 `handle is None` 分支按 family 发布 metadata records，却未像 handle 分支及旧 tuple publisher 那样对本表三族总数调用 `_enforce_record_count_budget`；多族各自未超限时可越过 `max_records_per_table`。删除的五例 BLANK 中，纯 `no` 重编号保持 occupancy digest/无 records，以及 blank interval 转移同时 DELETE+INSERT，未见现役明确断言 owner；删掉 Ordered suite 后，纯 `no` 大幅重编号仅位置变化、同位置换 gid 不作位置回退、无 schema 改变时 compare-excluded 内容变化但无 row records，也未见对应现役明确 owner。Rust 八例、C/D fixed 与新 live tests 各保部分行为，但不足以逐项证明上述特殊边界。本人已向实施者给出这些具体未覆盖项，要求最小 native/Rust 向量或准确已有 owner，并提交旧 standard/ordered/blank 业务断言的逐项归属；不要求保旧 Python LIS 穷举或旧 mock。
+
+## 15. 被删三套 suite 的逐函数业务断言归属（cd08 静态，待修订）
+
+以下逐项核的是旧测试所断的**业务语义**，不把动态新旧 Rust 自比算作旧 expected。`C/D fixed` 指 06 a9 先冻结的二十 case 和后来的 nodeid13 Risk，而非任意相似 SQL；`Rust batch` 指 2c9 在 06 已过的现役组件测试。`待修` 指实施者尚未提交或尚未证明的 owner，不能据此删整套测试并宣称覆盖。精确函数名均在 cd08 父提交的三个文件。
+
+| 旧 standard 函数/参数组 | 当前单一主要 owner 或处理 | 结论 |
+| --- | --- | --- |
+| `keyed_comparison_emits_added_deleted_modified_and_field_change` | D `production_standard` 固定 facts+RiskRecordView；Rust `keyed_compares_shared_columns_across_batch_boundaries` 管批语义 | 已有 |
+| `null_values_remain_typed_and_are_not_stringified`、`modified_null_value_is_retained_as_typed_null_in_field_change` | live artifacts `publish_and_reopen_standard_records_preserves_typed_null`、records typed test；后者应核真实 `current_value=null` | 部分，待 focused 与具体断言核 |
+| `added_columns_compare_common_columns_without_schema_status_or_record`、`added_column_does_not_hide_changes_in_shared_columns` | C standard fixed、D standard fixed 与 live `standard_added_column_preserves_shared_row_association`；Rust `columns_added...` | 已有，具体原 golden 范围由固定值核 |
+| `added_column_keeps_shared_excluded_value_changes_summary_only` | D nonrecord/fixed keyless 与 live shared-row association；新 Rust shared-column test | 已有 |
+| `added_column_preserves_excluded_values_row_association[keyed,keyless]`、`added_column_and_physical_row_reorder_remain_unchanged[keyed,keyless]` | live keyed 两参数；D fixed keyless added/update-only 与 Rust keyless multiset。keyless 两组原条件的精确 content_changed 真/假未见同一现役业务向量 | 部分，需明确 keyless owner |
+| `enum_and_set_member_additions_are_columns_added`、`enum_and_set_schema_evolution_preserves_exact_label_spelling[六组]` | live `enum_set_label_spelling_changes_schema_and_risk[六组]`，含 risk reason/level | 已有 |
+| `removed_column_is_classified_separately_from_incompatible_schema`、`compare_excluded_only_change_is_visible_without_row_records` | live 同名语义两例 | 已有 |
+| `incompatible_non_key_type_does_not_create_field_change`、`changed_effective_key_degrades_without_positional_fallback` | cd08 现役无精确同条件 owner；实施者在 WIP 补 INT→BIGINT 与 id PK→code PK | 待修 |
+| `keyless_table_degrades_without_a_safe_effective_key`、`raw_primary_key_fallback_compares_keyless_rows_as_a_multiset` | D `source_key_transition` / `keyless_degrade_policy` 固定预期；Rust `keyless_multiset_keeps_third_occurrence_and_reverse_delete`。旧 keyless Risk 不含 KEY_DEGRADED 的断言需与 nodeid13 fixed Risk/规则路径核条件 | 部分，待固定修订核 |
+| `keyless_table_addition_is_table_level_without_row_records`、`whole_table_deletion_is_table_level_without_row_records`、`single_side_facts_use_only_metadata_budget_without_reading_rows[四组]` | D `metadata_only_added_deleted_tables_replay_full_core_without_native_reads` 固定 facts+native_calls/input_reads=0；旧 Python memory upper 属已删实现探针 | 已有业务屏障 |
+| `raw_primary_key_appearance_or_disappearance_is_a_source_schema_change[两组]` | D `source_key_transition` 只含 keyed→keyless；planning `source_ddl_primary_key_change...` 管来源，不等于反向 facts。反向需现役 owner 或旧 Contract 所定等价说明 | 部分，待修/说明 |
+| `update_only_suppresses_records_but_keeps_counts`、`missing_tables_are_not_materialized_as_empty_tables`、`duplicate_effective_key_is_table_degraded_not_fake_update` | D `keyless_columns_added_update_only...` 固定 counts/Risk、D `metadata_only_added_deleted...`、D `duplicate_key_keeps...` 固定诊断 | 已有 |
+| `pair_and_table_early_exit_do_not_iterate_or_reopen_readers`、`table_early_exit_works_when_pair_snapshot_digests_differ` | D cache reuse/metadata-only 与 Rust `unchanged_ordered_reads_current_side_only` 证明部分机制；尚须明确 Standard same-table 异 snapshot digest 的事实和不读/重开屏障 owner | 部分，待修/说明 |
+| `invalid_row_shape_is_degraded_and_never_treated_as_empty` | Rust 对 malformed canonical projection 返回 `ROW_SHAPE_MISMATCH` 错误；D closed/missing reader 是不同故障。旧应为 DEGRADED/诊断的生产映射需明确现役 owner | 部分，待修/说明 |
+| `facts_digest_is_deterministic_and_directional`、`comparison_propagates_operation_stop_and_resource_rejection[三组]` | live directional；C native cancel/deadline/budget 与 D reader cancel，Rust context rejection | 已有 |
+
+| 旧 ordered 函数/参数组 | 当前单一主要 owner 或处理 | 结论 |
+| --- | --- | --- |
+| `ordered_content_and_move_are_separate_records`、`ordered_move_only_has_no_content_update` | D ordered fixed+三族 Parquet；Rust `reverse_reorder...`、现役 batch changed counts | 已有核心；具体 combined kind 待固定修订核 |
+| `comparison_reopens_an_intermediate_snapshot_used_by_multiple_pairs` | History checkpoint 对多个 pair 的真实 native/Arrow 接线；保状态与 kind，动态 digest 等式仅作 binding | 已有业务流程，focused 待核 |
+| `ordered_absolute_renumber_is_position_change_not_move`、`ordered_does_not_use_positional_fallback`、`ordered_compare_excluded_change_is_visible_without_row_change` | cd08 现役无精确 owner；实施者 WIP 增三项 live 向量 | 待修 |
+| `ordered_added_column_compares_shared_excluded_values`、`ordered_added_column_and_physical_row_reorder_remain_unchanged` | D 新 `ordered_added_column_uses_shared_row_association[两组]`，native+三族 0 records | 已有 |
+| `ordered_integrity_faults_degrade_without_records[duplicate no,duplicate gid,no NULL]` | Rust `duplicate_identity_and_position_degrade...` 覆盖前两组；`no=NULL` 的 `ORDER_KEY_MISSING/UNSUPPORTED` 实施者 WIP | 两组已有，一组待修 |
+| `sql_reserved_pseudo_gid_is_rejected_at_materialization_boundary`、`canonical_pseudo_gid_requires_explicit_provenance`、`ordered_missing_provenance_degrades_before_row_interpretation` | materialization 既有 boundary test 与 Rust `pseudo_gid_requires_canonical_provenance...`、`missing_blank_provenance...`；D ordered reader failure固定语义 | 已有，materialization 原精确断言须核 retained test |
+| `ordered_facts_and_extension_digests_are_deterministic` | C/D ordered fixed digest+live directional；外部 checkpoint binding 不作独立语义 oracle | 已有 |
+| `unchanged_ordered_early_exit_matches_full_facts_without_running_diff` | Rust `unchanged_ordered_reads_current_side_only` 证现役 summary/current-only，C/D fixed 给事实摘要；旧 Python `_backbone_indices` 等 mock 属被删实现。相同事实/跳过 old side 是否完整由现役 owner 证明须核 | 部分，待说明 |
+| `backbone_reports_moves_blank_intervals_and_summarised_shifts[20组]` | 业务分类分给 Rust `combines_insert_delete_modify...`、`reverse_reorder_uses_earliest_backbone_tie`、`blank_rows_are_counted...`，D ordered fixed、实施者新增 live 特殊边界；旧 20 组动态 Python 算法矩阵不是必须照搬。`LOCAL_PATCH`、`TAIL_SEGMENT` 若仍是公开模式，需要各自一个明确业务 owner | 部分，待修/说明 |
+| `backbone_is_the_earliest_longest_increasing_run_in_before_order`、`backbone_of_a_long_table_skips_only_the_moved_row` | Rust `ordered_locator_path_reuses_earliest_lis_tie` 与 batch `reverse_reorder...`；旧 Python 内部穷举及 5000 长表微观探针随实现删除 | 已有业务 tie，内部探针删除 |
+
+| 旧 blank 函数 | 当前单一主要 owner 或处理 | 结论 |
+| --- | --- | --- |
+| `blank_payload_change_has_no_ordinary_or_blank_record` | Rust `blank_rows_are_counted_by_backbone_interval_and_ignore_payload`、D ordered fixed，后者验证真实三族 Parquet | 已有 |
+| `blank_occupancy_change_is_an_interval_delete_without_move`、`blank_occupancy_change_is_an_interval_insert_without_move` | Rust blank interval计数、D fixed ordered/blank family；实施者 WIP 增实际产物向量 | 部分，待修订核 |
+| `blank_no_renumber_keeps_occupancy_digest_and_records_stable`、`blank_interval_shift_is_delete_and_insert_without_move_pairing` | cd08 无精确 owner；实施者 WIP 补 live native/Arrow 两例 | 待修 |
+
+另有**三 suite 之外**的 records typed serialization 缺口：旧 `test_records_preserve_null_binary_float_decimal_and_temporal_values` 对 `DateScalar`、`TimestampScalar` 精确 `text` 作断言；cd08 新 `test_records_preserve_binary_float_decimal_time_and_null` 用真实 SQL 只断 `DATETIME` 的 kind，未见 DATE/TIMESTAMP 的同等值断言。需给现役 Contract/Arrow owner 或最小真实向量，不复活旧 tuple writer。以上是删前覆盖审查，不是要求把每个内部步骤或 20 组矩阵原样复制。

@@ -77,7 +77,7 @@ export function treeRow(page: Page, text: string | RegExp): Locator {
 export async function selectTreeRow(page: Page, text: string | RegExp): Promise<void> {
   const row = treeRow(page, text);
   await expect(row).toBeVisible();
-  await row.getByRole("button").first().click();
+  await row.locator("button.workspace-node-label").click();
   await expect(row).toHaveClass(/is-selected/);
 }
 

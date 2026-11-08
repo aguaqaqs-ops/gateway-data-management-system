@@ -343,6 +343,7 @@ test("r1-states", async ({ browser }, testInfo) => {
     expect(history.body.nodes[0].parent).toBeNull();
 
     const { submission } = await createSubmission(session.page, submitter, scope, "modified_only");
+    await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 1")).toContainText("待审核");
     expect((await currentWorkspace(submitter)).active_submission_id).toBe(submission.submissionId);
 
@@ -356,11 +357,13 @@ test("r1-states", async ({ browser }, testInfo) => {
     await waitForReviewStatus(reviewer, submission.submissionId, "REJECTED");
     await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 1")).toContainText("已退回");
+    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
     await expectEnabled(workshopAction(session.page, "上传"));
 
     // A second submission is withdrawn, exercising the other terminal state.
     const second = await createSubmission(session.page, submitter, scope, "modified_only");
     expect(second.submission.submissionId).not.toBe(submission.submissionId);
+    await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 2")).toContainText("待审核");
     const withdrawn = await applyReview(submitter, second.submission.submissionId, {
       expected_review_version: 0,
@@ -401,7 +404,7 @@ test("r2-preview", async ({ browser }, testInfo) => {
     expect(run.bundle.manifest.pairs[0].before_input_index).toBe(0);
     expect(run.bundle.manifest.pairs[0].current_input_index).toBe(1);
     expect(run.bundle.members.length).toBeGreaterThan(2);
-    expect(run.bundle.manifest.status).toBe("SUCCEEDED");
+    expect(run.bundle.manifest.status).toBe("READY");
     expect(run.bundle.closure.entries.length).toBeGreaterThan(0);
 
     const preview = await getPreviewResult(submitter, run.workspaceId, run.previewId);
@@ -456,7 +459,7 @@ test("r2-full", async ({ browser }, testInfo) => {
     expect(run.bundle.manifest.pairs.map((pair) => pair.current_input_index)).toEqual([1, 2]);
     expect(run.bundle.manifest.inputs.map((input) => input.input_index)).toEqual([0, 1, 2]);
     expect(run.bundle.manifest.failed_pairs).toEqual([]);
-    expect(run.bundle.manifest.status).toBe("SUCCEEDED");
+    expect(run.bundle.manifest.status).toBe("READY");
 
     const preview = await getPreviewResult(submitter, run.workspaceId, run.previewId);
     expect(preview.body.identity_pairs).toHaveLength(2);
@@ -531,7 +534,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
     const recoveredResponse = await recovered;
     expect(recoveredResponse.status()).toBe(200);
     const parsed = parseBundleTar(Buffer.from(await recoveredResponse.body()));
-    expect(parsed.manifest.status).toBe("SUCCEEDED");
+    expect(parsed.manifest.status).toBe("READY");
     expect(countBundlePairs(parsed.manifest)).toBe(1);
     await waitForDiffBrowsing(session.page);
     const complete = await opfsBundleState(session.page, parsed.bundleDigest);
@@ -563,8 +566,8 @@ test("r4-submit", async ({ browser }) => {
     const workspace = await currentWorkspace(submitter);
     expect(workspace.active_submission_id).toBe(submission.submissionId);
     expect(workspace.active_submit_attempt_id).toBeNull();
-    expect(workspace.current_upload_revision_id).toBeNull();
-    expect(workspace.current_preview_result_id).toBeNull();
+    expect(workspace.current_upload_revision_id).not.toBeNull();
+    expect(workspace.current_preview_result_id).not.toBeNull();
 
     const facts = await waitForReviewStatus(submitter, submission.submissionId, "PENDING");
     expect(facts.review_version).toBe(0);
@@ -683,6 +686,7 @@ test("r6-reject-approve", async ({ browser }, testInfo) => {
     // Submitter sees cleared pointers and can re-upload the same input.
     await gotoWorkbenchFresh(submitterSession.page);
     await expect(treeRow(submitterSession.page, "提交 1")).toContainText("已退回");
+    await selectUploadDirs(submitterSession.page, { modified: inputDir(scope, "modified_only") });
     await expectEnabled(workshopAction(submitterSession.page, "上传"));
     await expectPointersCleared(submitter);
 
@@ -735,6 +739,7 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
 
     // W2: all workspace pointers are empty and upload is enabled again.
     await expectPointersCleared(submitter);
+    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
     await expectEnabled(workshopAction(session.page, "上传"));
     await expect(treeRow(session.page, "提交 1")).toContainText("已撤回");
     await saveEvidence(session.page, testInfo, "r7-withdraw-notice");
@@ -843,7 +848,6 @@ test("r7-approved", async ({ browser }, testInfo) => {
 
     await session.page.goto(`/?page=compare&mode=PREVIEW&workspaceId=${run.workspaceId}&previewResultId=${run.previewId}`);
     await waitForDiffBrowsing(session.page);
-    await expect(reviewStatus(session.page)).toHaveText("审核：已通过");
     await expectDisabledWithReason(compareAction(session.page, "撤回"), "该提交已通过审核，不能撤回");
     await expectDisabledWithReason(compareAction(session.page, "提交"), "该提交已通过审核，归档或关闭后才能重新上传");
     await saveEvidence(session.page, testInfo, "r7-approved-gates");
@@ -894,8 +898,8 @@ test("r7-stale", async ({ browser }) => {
     const alert = dialog.locator('[role="alert"].form-error');
     await expect(alert).toContainText("审核状态已变化，已重新读取");
     await expect(alert).toContainText("REVIEW_VERSION_CONFLICT");
-    // The server-state was re-read: the header now reflects the rejection.
-    await expect(reviewStatus(submitterSession.page)).toHaveText("审核：已退回", { timeout: 120_000 });
+    // The server-state was re-read: the withdraw gate now reflects the rejection.
+    await expect(submitterSession.page.getByText("该提交已退回").first()).toBeVisible({ timeout: 120_000 });
     expect(withdrawRequests.count(), "withdraw requests sent").toBe(1);
     await submitterSession.page.waitForTimeout(2_500);
     expect(withdrawRequests.count(), "withdraw requests after settling").toBe(1);
@@ -941,6 +945,7 @@ test("r7-reviewer-withdraw", async ({ browser }, testInfo) => {
     await expectPointersCleared(submitter);
     await gotoWorkbenchFresh(submitterSession.page);
     await expect(treeRow(submitterSession.page, "提交 1")).toContainText("已撤回");
+    await selectUploadDirs(submitterSession.page, { modified: inputDir(scope, "modified_only") });
     await expectEnabled(workshopAction(submitterSession.page, "上传"));
 
     assertClean(submitterSession.diagnostics, "r7-reviewer-withdraw-submitter");

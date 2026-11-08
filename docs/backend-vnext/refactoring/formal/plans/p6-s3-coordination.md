@@ -369,3 +369,13 @@ Python整合删除 `cd08d0de36` 覆盖旧standard/ordered行算法、全量tuple
 七失败对应五根项：keyless两参数SQL三列误插四值；schema-only变化应保SCHEMA_CHANGE而无ROW_MODIFIED；ORDER_KEY_MISSING应断业务退化记录而非内部handle为空；NULL scalar应构造实际发生变化的字段；非FULL记录发布存在native固定FULL而publisher请求裁剪schema的真实接线缺口。固定修订`07cf7a96509df062cea43659d89e4f5e2c8bb7f2`与补充`3bdd5a5b75f464490fb8c4cc664552f9a69b4504`保旧独立向量/golden，按plan.options将同档detail policy传native builder及publisher，不在seal后重建占用预算，不恢复Python旧路径。owning comparison Contract §comparison_options明确detail policy进入options、comparison_digest及task key；故跨policy完整facts_core相同而comparison_digest不同，同plan发布前后digest不变。原审撤回先前跨档digest应相同的疑虑，依既有Contract核收。
 
 `8de0559bfe59f9a5b7a367738dc5492a0dcd0412`的E review §21对固定clean detached 3bdd给**静态CLEAR**，Rust tree仍9d4f、五依赖输入未变。当前仍待06受影响Python复验及独立小History Compose；未固定最终V/H，未运行04六包、fresh四档或完整W3/W4。FE3c Q18仍按§16独立交接。
+
+## 23. E 受影响 focused 核收
+
+3bdd的06复验于11:05:19–11:06:41Z在backend mypy两处新detail-policy接线的`str | int | None`参数处退出1；前三包Ruff/mypy六步与backend Ruff为0，所有pytest与RS静态均未执行。原outer SHA=`61e651ad5b8d10e8673565a4d52ecc2a093587382a0f3ba67fdf4e9dec48f9cc`，node SHA=`5cdfc5f29a4c4d16c6fc99ef1ed3fc8e59bea211275a5e6f1a9aecf1939eb3e7`；原审E review §22核收原失败、六锁无漂及标记释放，不把它当作七例业务复验通过。
+
+固定修订 **`c0cabd7e60bfe2d64d2ddcbad6a909cb517127ed`** 两处显式收窄为str、非法类型按既有输入错误拒绝，未用str()/Any/cast吞非法值，未改Contract/golden/Rust或依赖。原审clean detached静审CLEAR后，新clean WT完整focused在06 `gw-dms-06`于 **11:10:17–11:12:16Z**实际全链exit0：五包Ruff/mypy各十步0、native强制重装和build-input expected=installed 9d4f、shared JCS **44 passed / 0.75s**、backend非serial **242 passed / 18.60s**、serial **11 passed / 1.17s**、RS cold/historical catalog **27 passed / 8.00s**。backend serial的242 deselected为选择器分工，不是跳过失败；非serial四个warning、serial一个warning如原日志保留。所选全步骤0，六锁无漂、起止HEAD clean、guarded marker释放、标准capture均0。
+
+原件根`/home/dev/gdds-test-tmp/p6-s3-e-focused-c0cabd-06/outer/`：outer SHA=`b9c9392ad47c7ccc7dad9db9cc158419cee02a76104e117af8bce01e80f48fa6`，node SHA=`4e05a793e58a334744280d85689efa90336eef2a289d5dd928dfd7812ce15907`，manifest SHA=`42d1a29822397dc8dbf6882f1003dfacb47393bc18497ee01c48c112a91c7837`，capture SHA=`1fc0de3c421a00546658c317a29d164c38e29596b61978427feae4cf97fff6f6`。原独审在 **`c11b1df934` E review §23**核收**仅该focused范围PASS**，旧七失败在本轮对应所选节点关闭；Rust组件引用§21未变tree的197项，不重复06编译三步。
+
+History Compose明确未在上述选择器内运行，由实施者按完整预载、当前镜像身份、独立project与收尾另固定一稿，原审后交同一Luna唯一执行。E原审继续A–D累计接口及三项minimal ports核查；协调者完善集中04/05/CT108稿，仍UNFIXED拒执行。最终V/H、04六包/容器、DC33 fresh t1–t4和W3/W4统计仍待，不把focused PASS写成E GO。

@@ -117,6 +117,9 @@ describe("simulated HTTP response contracts", () => {
           expect(node.identity_exception).not.toBe(true);
         } else if (node.node_kind === "SUBMISSION") {
           expect(node.review_status, `${node.ref_id} review_status`).toBeDefined();
+          if ("eligibility_note" in node && node.eligibility_note) {
+            expect(node.review_status, `${node.ref_id} eligibility_note only on APPROVED`).toBe("APPROVED");
+          }
           expect(node).not.toHaveProperty("baseline_kind");
         }
       }

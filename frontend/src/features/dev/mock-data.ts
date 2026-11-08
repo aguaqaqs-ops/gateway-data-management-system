@@ -117,6 +117,7 @@ export const HISTORY_PAGE_TWO = {
       identity_exception: false,
     },
     {
+      // D5 防御性数据：DC89 下不可达的仅 NOT_CANDIDATE_BASE_ADVANCED、无终局处置。
       ref_kind: "submission", ref_id: "fe2a-history-ref-old", node_kind: "SUBMISSION", commit_id: "commit-submission-old",
       created_at: "2026-10-31T09:10:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
       eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: true, review_status: "APPROVED",
@@ -503,7 +504,7 @@ export const TEST_HISTORY_CURSOR_FIRST = {
 
 export const TEST_HISTORY_CURSOR_SECOND = {
   head: TEST_HISTORY_CURSOR_FIRST.head,
-  nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-03T09:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "PENDING" }],
+  nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-03T09:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "APPROVED" }],
   next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
 

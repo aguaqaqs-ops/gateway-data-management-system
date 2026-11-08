@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, replace
 from tempfile import SpooledTemporaryFile
-from typing import Protocol
+from typing import Protocol, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]

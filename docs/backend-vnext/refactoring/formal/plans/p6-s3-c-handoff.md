@@ -33,3 +33,84 @@ serial GIL 向量用惰性 Arrow stream 首批实际拉取事件唤醒后台 Pyt
 唯一 06 tester 在 clean 已提交 detached worktree 用离线缓存按 `AGENTS.md` 跑 Rust fmt/clippy/workspace tests、强制重装 Rust 扩展及 build-input 树校验、backend focused 和五包 ruff/mypy；若新测试工具不在默认 mypy 集合则单独明确运行。不得在开发主机跑测试、编译或 lint。C 修改真实 PyO3 read consumer、Rust 依赖锁及 backend/worker 镜像输入，已触发当前候选 HEAD 的 container-only 边界：需在 06 当前离线 dependency-base 上做小规模 Compose native smoke 并记录实际 image revision/source-tree；E 的 04 六包/正式最终容器门禁另办，不将 B 的延期判断机械沿用。`Cargo.lock` 的直接 `arrow-data 59.1.0` 依赖 checkpoint 为 `573d58248f`，须按 CT201 clean 构建 dependency-base、LAN 转运并记录完整输入摘要、config digest、全部 DiffID、归档 SHA 与时间，不能把开发机或旧镜像当当前候选证据。
 
 06 的 `0194d145bf` core 早期检查点未得到编译结果：LAN bundle 准备按 DC68 纠正后再次 exit 128（尚未触及被测对象），tester 按规则停止并释放 marker；恢复决定由协调者办理。该检查点非 C 验收候选。下次测试只能在固定的新完整候选与获准恢复的传输步骤上进行，原失败日志及 SHA 由 tester/协调记录。
+
+### 06 当前镜像最小 native smoke
+
+以下在 06 已取得节点占用、clean 已提交候选 worktree 的仓库根目录运行；由 tester 把完整 stdout/stderr、起止 UTC/HEAD、exit code 与 SHA256 写到 worktree 外。dependency-base 先按 CT201→LAN 流程在 06 `docker load`，并核 config digest 与全部 RootFS DiffID。脚本只在 worktree 外建立无凭据 Compose 配置，构建当前 HEAD 的 backend/worker，再在实际 backend 镜像内运行真实 records 读侧 `_validate_parquet_bytes`（Python Parquet→Arrow→PyO3 Rust validator）。`open_records_closure` / `restore_records_closure` 的外层 store/ref 路由另由上面的 focused 测试覆盖；这里不声称完整 Compose 旅程。
+
+```bash
+set -euo pipefail
+mkdir -p /home/dev/gdds-test-tmp
+smoke_dir="$(mktemp -d /home/dev/gdds-test-tmp/p6-s3-c-compose.XXXXXX)"
+trap 'rm -rf -- "$smoke_dir"' EXIT
+printf 's3-c-smoke\n' > "$smoke_dir/secret"
+printf '{"mappings":[]}\n' > "$smoke_dir/mapping.json"
+export GATEWAY_P2R2_BEARER_TOKEN_FILE="$smoke_dir/secret"
+export GATEWAY_BACKEND_SESSION_FILE="$smoke_dir/secret"
+export GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE="$smoke_dir/secret"
+export GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE="$smoke_dir/mapping.json"
+base_tag="$(./vnext/scripts/build-backend-dependency-base.sh --print-input \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
+export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE="$base_tag"
+export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
+export GATEWAY_DOCKER_BUILD_NETWORK=none
+unset GATEWAY_COMPOSE_GATE_PREBUILT
+smoke_project="gateway-s3-c-$(git rev-parse --short=8 HEAD)"
+docker compose -f vnext/deploy/compose.yaml -p "$smoke_project" build backend worker
+docker run --rm -i --entrypoint python "${smoke_project}-backend" - <<'PY'
+from contextlib import closing
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+from gateway_compute._native import _init_kernel_native
+from gateway_shared_kernel import DigestRef
+
+from gateway_backend.capabilities.comparison.artifacts import (
+    RecordsPublicationPolicy,
+    _schema_for,
+    _validate_parquet_bytes,
+)
+from gateway_backend.capabilities.comparison.contracts import (
+    RecordsArtifactFamily,
+    RecordsArtifactManifest,
+    RecordsDetailPolicy,
+)
+from gateway_backend.capabilities.comparison.native import validate_records_batches
+
+_init_kernel_native(1)
+family = RecordsArtifactFamily.STANDARD
+detail = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+schema = _schema_for(family, detail_policy=detail)
+batch = pa.RecordBatch.from_pylist([{
+    "table_name": "t",
+    "record_kind": "ROW_MODIFIED",
+    "row_identity": bytes(32),
+    "changed_columns": [],
+    "before_values": [],
+    "current_values": [],
+    "field_changes": [],
+    "diagnostics": [],
+}], schema=schema)
+with closing(pa.RecordBatchReader.from_batches(schema, [batch])) as reader:
+    found_family, version, found_detail, count, digest_text = validate_records_batches(
+        reader, max_records=2, max_batch_bytes=1024 * 1024
+    )
+assert (found_family, version, found_detail, count) == (
+    "STANDARD", "standard-records/v1", "FULL_BEFORE_AFTER_VALUES", 1
+)
+digest = DigestRef.parse(digest_text)
+sink = pa.BufferOutputStream()
+pq.write_table(
+    pa.Table.from_batches([batch], schema=schema), sink,
+    compression="zstd", use_dictionary=False, row_group_size=1,
+)
+raw = sink.getvalue().to_pybytes()
+manifest = RecordsArtifactManifest(
+    table_name="t", family=family, record_format="PARQUET",
+    schema_version=version, row_diff_detail_policy=detail,
+    record_count=1, content_digest=digest,
+)
+assert _validate_parquet_bytes(raw, manifest, RecordsPublicationPolicy()) == (1, digest)
+print("S3_C_NATIVE_PARQUET_SMOKE_OK", digest_text)
+PY
+```

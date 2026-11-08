@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import uuid
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from types import TracebackType
 from typing import ContextManager, cast
 
@@ -224,6 +226,8 @@ from gateway_backend.operations.worker import (
     ExecutionControl,
     ExecutorAcknowledgment,
 )
+
+_LOG = logging.getLogger(__name__)
 
 PREVIEW_JOB_KIND = "backend-vnext/preview"
 PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v2"
@@ -1578,10 +1582,15 @@ def _materialize_uploaded_side(
         if parsed.configuration_generated_time is None:
             raise PreviewJobError("uploaded source time facts are missing")
         generated_time = ConfigurationGeneratedTime.from_document(dict(parsed.configuration_generated_time))
+        projection_started = perf_counter()
         projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,
         )
+        _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+            "stage": "uploaded_projection", "side": side.value,
+            "upstream_projection_seconds": perf_counter() - projection_started,
+        }, sort_keys=True))
         if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
             ordered_diagnostics = tuple(
                 sorted(
@@ -2003,6 +2012,7 @@ def _assemble_preview(
             )
         )
 
+    bundle_started = perf_counter()
     bundle_result = assemble_bundle(
         BundleAssemblyInput(
             bundle_contract_version=BUNDLE_CONTRACT_VERSION,
@@ -2017,6 +2027,11 @@ def _assemble_preview(
             cancel_requested=lambda: control.cancel_requested,
         ),
     )
+    _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+        "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
+        "pair_count": len(bundle_pairs),
+        "bundle_assembly_seconds": perf_counter() - bundle_started,
+    }, sort_keys=True))
     if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
         diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
         raise PreviewJobError(f"bundle assembly failed: {diagnostic}")

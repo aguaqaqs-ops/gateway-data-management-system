@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
+from time import perf_counter
 
 from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.capabilities.comparison.contracts import (
@@ -70,6 +71,14 @@ _LEVEL_RANK: dict[RiskLevel, int] = {
     RiskLevel.MEDIUM_LOW: 2,
     RiskLevel.LOW: 1,
 }
+
+
+def _record_timing(evaluation_input: RiskEvaluationInput, key: str, started: float) -> None:
+    metrics = evaluation_input.record_view_metrics
+    if metrics is not None:
+        metrics[key] = metrics.get(key, 0.0) + perf_counter() - started
+
+
 _MESSAGES: dict[RiskReasonCode, str] = {
     RiskReasonCode.PROJECT_IDENTITY_MISMATCH: "project identity differs; dataset replacement requires review",
     RiskReasonCode.TABLE_ADDED: "table added",
@@ -280,27 +289,35 @@ def evaluate_risk(
                 16 * 1024**2 + table_count * 8192,
                 evaluation_input.risk_cache_session,
             ))
+        rules_started = perf_counter()
         rules = validate_risk_ruleset(evaluation_input.risk_ruleset)
+        _record_timing(evaluation_input, "ruleset_validation_seconds", rules_started)
         if evaluation_input.comparison_facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT:
-            return _publish_result(
+            publication_started = perf_counter()
+            result = _publish_result(
                 evaluation_input,
                 [],
                 artifact_store,
                 execution_policy,
                 degraded=False,
             )
+            _record_timing(evaluation_input, "publication_seconds", publication_started)
+            return result
         source_tables = evaluation_input.comparison_facts.tables
         if len(source_tables) > execution_policy.max_risk_tables_per_pair:
             raise _PairFailure("max_risk_tables_per_pair exceeded")
         _check_pair(context, pair_started, execution_policy)
+        extraction_started = perf_counter()
         extracted = extract_risk_facts(
             evaluation_input.comparison_facts,
             evaluation_input.requested_tables,
             evaluation_input.record_views,
             evaluation_input.record_view_metrics,
         )
+        _record_timing(evaluation_input, "fact_extraction_seconds", extraction_started)
         outcomes: list[_TableOutcome] = []
         total_annotations = 0
+        rules_started = perf_counter()
         for item in extracted:
             _check_pair(context, pair_started, execution_policy)
             try:
@@ -324,12 +341,14 @@ def evaluate_risk(
                 outcomes.append(degraded)
                 pair_charges.enter_context(degraded.charges)
             except _PairAnnotationBudgetExceeded:
+                _record_timing(evaluation_input, "rules_evaluation_seconds", rules_started)
                 return _build_pair_degraded_without_annotations(
                     evaluation_input,
                     extracted,
                     rules,
                     execution_policy,
                 )
+        _record_timing(evaluation_input, "rules_evaluation_seconds", rules_started)
         # A cached replay tuple is only needed while its table is being
         # evaluated. Once every table has returned, the current pair's last
         # known use can release its Risk-only owner before publication/Surface.
@@ -340,13 +359,16 @@ def evaluate_risk(
         # Publication is the terminal commit boundary; cancellation is observed before it,
         # and a result that has crossed the boundary is never converted back to CANCELLED.
         _check_pair(context, pair_started, execution_policy)
-        return _publish_result(
+        publication_started = perf_counter()
+        result = _publish_result(
             evaluation_input,
             outcomes,
             artifact_store,
             execution_policy,
             any(item.degraded for item in outcomes),
         )
+        _record_timing(evaluation_input, "publication_seconds", publication_started)
+        return result
     except _PairCancelled as exc:
         return RiskEvaluationResult(
             status=RiskEvaluationStatus.CANCELLED,
@@ -702,6 +724,7 @@ def _publish_result(
         if outcome.allow_artifact and evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY:
             if artifact_store is None:
                 raise _PairFailure("artifact store is required for annotation details")
+            artifact_started = perf_counter()
             try:
                 artifact = publish_annotation_artifact(
                     artifact_store,
@@ -717,6 +740,8 @@ def _publish_result(
                     raise
                 degraded = True
                 artifact = None
+            finally:
+                _record_timing(evaluation_input, "artifact_publication_seconds", artifact_started)
             if artifact is not None:
                 artifacts.append(artifact)
                 manifest_digests.append(artifact.manifest_digest)
@@ -820,6 +845,7 @@ def _finish_result_admitted(
     if ruleset_digest is None:
         raise _PairFailure("risk ruleset digest is missing")
     manifest_refs = tuple(item for item in manifest_digests)
+    digest_started = perf_counter()
     evaluation_digest = compute_risk_evaluation_digest(
         comparison_digest=evaluation_input.comparison_facts.comparison_digest,
         risk_contract_version=evaluation_input.risk_contract_version,
@@ -829,6 +855,7 @@ def _finish_result_admitted(
         table_risks=table_risks,
         annotation_manifest_digests=manifest_refs,
     )
+    _record_timing(evaluation_input, "digest_jcs_seconds", digest_started)
     annotation_refs = tuple(item.annotation_ref for item in table_risks if item.annotation_ref is not None)
     evaluation = RiskEvaluation(
         risk_evaluation_digest=evaluation_digest,
@@ -847,18 +874,26 @@ def _finish_result_admitted(
         tables=table_risks,
         annotation_refs=annotation_refs,
     )
-    if len(canonicalize_json_value(evaluation.to_document())) > policy.max_risk_evaluation_json_bytes:
+    report_jcs_started = perf_counter()
+    evaluation_size = len(canonicalize_json_value(evaluation.to_document()))
+    _record_timing(evaluation_input, "report_jcs_seconds", report_jcs_started)
+    if evaluation_size > policy.max_risk_evaluation_json_bytes:
         raise _PairFailure("risk evaluation JSON budget exceeded")
-    if len(canonicalize_json_value(report.to_document())) > policy.max_risk_report_json_bytes:
+    report_jcs_started = perf_counter()
+    report_size = len(canonicalize_json_value(report.to_document()))
+    _record_timing(evaluation_input, "report_jcs_seconds", report_jcs_started)
+    if report_size > policy.max_risk_report_json_bytes:
         raise _PairFailure("risk report JSON budget exceeded")
     closure = None
     if closure_entries and artifact_store is not None:
+        artifact_started = perf_counter()
         closure = publish_annotation_closure(
             artifact_store,
             comparison_digest=evaluation_input.comparison_facts.comparison_digest,
             risk_evaluation_digest=evaluation_digest,
             entries=closure_entries,
         )
+        _record_timing(evaluation_input, "artifact_publication_seconds", artifact_started)
     return RiskEvaluationResult(
         status=RiskEvaluationStatus.DEGRADED if degraded else RiskEvaluationStatus.READY,
         risk_evaluation=evaluation,

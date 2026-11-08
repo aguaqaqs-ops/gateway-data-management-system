@@ -466,6 +466,9 @@ def _finish_comparison_risk_surface(
     )
     parquet_seconds = record_timings.get("parquet_write_seconds", 0.0)
     conversion_seconds = risk_conversion.get("necessary_arrow_conversion_seconds", 0.0)
+    extraction_seconds = risk_conversion.get("fact_extraction_seconds", 0.0)
+    rules_seconds = risk_conversion.get("rules_evaluation_seconds", 0.0)
+    publication_seconds = risk_conversion.get("publication_seconds", 0.0)
     _LOG.info("s3_pair_metrics %s", json.dumps({
         "pair_id": request.pair_id,
         "mode": request.mode.value,
@@ -480,7 +483,16 @@ def _finish_comparison_risk_surface(
         "records_publication_other_seconds": max(0.0, record_publication_seconds - parquet_seconds),
         "risk_total_seconds": risk_seconds,
         "risk_necessary_arrow_conversion_seconds": conversion_seconds,
-        "risk_other_seconds": max(0.0, risk_seconds - conversion_seconds),
+        "risk_fact_extraction_seconds": extraction_seconds,
+        "risk_ruleset_validation_seconds": risk_conversion.get("ruleset_validation_seconds", 0.0),
+        "risk_rules_evaluation_seconds": rules_seconds,
+        "risk_publication_seconds": publication_seconds,
+        "risk_digest_jcs_seconds": risk_conversion.get("digest_jcs_seconds", 0.0),
+        "risk_report_jcs_seconds": risk_conversion.get("report_jcs_seconds", 0.0),
+        "risk_artifact_publication_seconds": risk_conversion.get("artifact_publication_seconds", 0.0),
+        "risk_other_seconds": max(
+            0.0, risk_seconds - extraction_seconds - rules_seconds - publication_seconds,
+        ),
         "surface_and_table_export_seconds": surface_seconds,
         "bundle_assembly_seconds": None,
         "charged_high_water_bytes": context.memory.high_water_bytes,

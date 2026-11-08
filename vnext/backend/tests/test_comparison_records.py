@@ -59,15 +59,18 @@ def test_records_sort_is_independent_of_source_row_order() -> None:
 def test_records_preserve_binary_float_decimal_time_and_null() -> None:
     schema = (
         "CREATE TABLE t (id BIGINT PRIMARY KEY, b VARBINARY(8),"
-        " f DOUBLE, amount DECIMAL(10,3), dt DATETIME, nullable VARCHAR(8));"
+        " f DOUBLE, amount DECIMAL(10,3), date_value DATE, dt DATETIME,"
+        " stamp TIMESTAMP, nullable VARCHAR(8));"
     )
     before = schema + (
         " INSERT INTO t VALUES (1,X'00ff',-0.0,12.340,"
-        "'2026-08-20 00:00:00',NULL);"
+        "'2026-08-20','2026-08-20 00:00:00',"
+        "'2026-08-20T00:00:00Z',NULL);"
     )
     current = schema + (
         " INSERT INTO t VALUES (1,X'01fe',1.5,12.350,"
-        "'2026-08-21 00:00:00',NULL);"
+        "'2026-08-21','2026-08-21 00:00:00',"
+        "'2026-08-21T00:00:00Z',NULL);"
     )
     rows, _ = _record_rows(before, current)
     row, = rows
@@ -79,7 +82,9 @@ def test_records_preserve_binary_float_decimal_time_and_null() -> None:
     assert values["b"]["raw_bytes"] == b"\x00\xff"
     assert values["f"]["kind"] == "float64"
     assert values["amount"]["kind"] == "decimal"
+    assert values["date_value"]["text"] == "2026-08-20"
     assert values["dt"]["kind"] == "datetime"
+    assert values["stamp"]["text"] == "2026-08-20T00:00:00Z"
     assert values["nullable"]["kind"] == "null"
 
 

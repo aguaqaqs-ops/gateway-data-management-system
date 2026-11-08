@@ -10,12 +10,14 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.capabilities.comparison import (
-    DetailedFactsResult, RecordsArtifactFamily, RecordsCancelled,
+    DetailedFactsResult, RecordsArtifactFamily, RecordsCancelled, RecordsDetailPolicy,
     RecordsPublicationContext, RecordsPublicationPolicy,
     open_records_closure, rewrite_closure_refs,
 )
 from gateway_backend.capabilities.comparison.artifacts import RecordsPublicationError
-from tests.support.comparison_s3_e_live import native_product, publish_product
+from gateway_backend.capabilities.comparison.production import compare_plan_native
+from tests.support.comparison_s3_c_inputs import plan
+from tests.support.comparison_s3_e_live import canonical_bound, native_product, publish_product
 from tests.support.records_diagnostic import standalone_records_batches
 
 pytestmark = pytest.mark.unit
@@ -266,6 +268,52 @@ def test_publication_enforces_combined_family_record_limit() -> None:
             )
     finally:
         product.close()
+
+
+def test_metadata_only_publication_enforces_combined_family_record_limit() -> None:
+    before = canonical_bound(_ORDERED_BEFORE)
+    current = canonical_bound(_ORDERED_CURRENT)
+    planned = plan(before, current, ordered=True)
+    task = planned.tasks[0]
+    assert task.current_table is not None
+    planned = replace(planned, tasks=(replace(
+        task, current_table=replace(task.current_table, reader=None, batch_reader=None),
+    ),))
+    product = compare_plan_native(planned)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        assert product.handles == {}
+        table, = product.result.facts.tables
+        assert len(table.records) + len(table.ordered_extension.records if table.ordered_extension else ()) > 1
+        with pytest.raises(RecordsPublicationError, match="per-table limit"):
+            publish_product(
+                product, InMemoryArtifactStore(),
+                policy=RecordsPublicationPolicy(max_records_per_table=1),
+            )
+        assert product.result.facts.records_ref is None
+    finally:
+        product.close()
+
+
+@pytest.mark.parametrize("detail_policy", tuple(RecordsDetailPolicy))
+def test_detail_policy_is_manifested_without_changing_comparison_digest(
+    detail_policy: RecordsDetailPolicy,
+) -> None:
+    store = InMemoryArtifactStore()
+    product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        source_digest = product.result.facts.comparison_digest
+        published = publish_product(product, store, detail_policy=detail_policy)
+    finally:
+        product.close()
+    assert published.facts is not None and published.records_closure is not None
+    assert published.facts.comparison_digest == source_digest
+    entry, = published.records_closure.records
+    payload = json.loads(store.locate(entry.records_manifest_ref))
+    assert payload["row_diff_detail_policy"] == detail_policy.value
 
 
 def test_cancellation_and_operation_stop_propagate_without_a_closure() -> None:

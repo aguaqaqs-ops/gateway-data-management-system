@@ -633,7 +633,11 @@ def _publish_records_closure_arrow_admitted(
         if handle is None:
             # Metadata-only tables can still carry a bounded schema/degraded
             # record. They use the established small-record writer.
-            for family, records in _records_by_family(table):
+            metadata_families = _records_by_family(table)
+            _enforce_record_count_budget(
+                sum(len(records) for _, records in metadata_families), limits,
+            )
+            for family, records in metadata_families:
                 if records:
                     from gateway_backend.capabilities.table_access import current_kernel_context
                     operation = current_kernel_context()

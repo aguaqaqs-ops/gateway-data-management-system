@@ -3300,8 +3300,20 @@ mod tests {
         );
         let pool = pool()?;
         let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let encoded_schema = FileReaderBuilder::new()
+            .build(Cursor::new(encoded.as_slice()))?
+            .schema();
+        assert_eq!(profile.as_ref(), encoded_schema.as_ref());
         let decoded = decode_v1(&encoded, &columns, &pool, options())?;
-        assert_eq!(profile.as_ref(), decoded[0].schema().as_ref());
+        let decoded_schema = decoded[0].schema();
+        assert_eq!(
+            decoded_schema
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            vec!["z", "b", "s", "i"],
+        );
 
         let mut wrong_fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
         wrong_fields[0] = Arc::new(Field::new("unexpected", DataType::Int64, true));

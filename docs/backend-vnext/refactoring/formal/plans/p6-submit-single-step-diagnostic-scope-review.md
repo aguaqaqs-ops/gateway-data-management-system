@@ -3116,3 +3116,13 @@ RS在04 01:40:48–52Z按预置lock-base和network=none本机离线构建。闭�
 新CT108预检01:56:53.612Z/SHA **`c95d0c5fb571c9b8c8156c9d841ab8cb200ca65666ef9734070d394fbc36cdea`** 与首包逐项比较，仅entry摘要、UTC/剩余预算和可用资源变化，来源、state/raw/package/三卷/镜像完整层/labels、clean c81/native均相同，remaining65274.264s仍超过既有19200规划量，原20:04:47.876Z SIGINT和20:34:47.876Z hard不动。本审核BatchMode后仅读取CT108包文件摘要和输出存在状态：entry/measure/manifest/该preflight均与本地精确MATCH，controller.log和新output尚不存在；未追加Docker/资源探测。**具体接续可按原持续授权执行，无新Owner/GO；此时仍不能声称实际四段已完成或全测量已收口。**
 
 已尝试将§149/本节结论发主协调，但同一MCP transport仍HTTP失败，未送达；不绕过角色去启动独审对象或唤醒旧实施。主协调可从本报告及准确SHA收取结论，原任务和在途04 runner继续。后续V5b实际raw/六reference/采样/保卷postflight和04最终闭合材料仍分别待真实结果，不能以本节pre-execution PASS替代。
+
+## 151. 04 058最终runner实际exit1：RS串行KeyboardInterrupt，来源尚未定位
+
+§148在途状态现已有真实结束记录：**04 058本轮全六包权威runner未通过**，01:47:10–02:02:29Z，runner_exit=wrapper_exit=1，起止HEAD精确058，结束worktree status为空。完整log461289B/SHA **`7ee5b85980f080a8560b649aa8e00124c646b3dfe3b02668d2314754e40adede`**，status161B/SHA **`ff1ce093a9922225450827fc54c8d2034991d3c38bd7103aa7b264eeac33e3c5`**；本审核只读取得闭合原件，经LAN留 `p6-baseline-evidence-review-20261108/ct04-058-interruption/`，本地摘要与节点原件相同。
+
+Rust/shared_kernel/contracts/client/backend均passed；RS parallel1763 passed/1 skipped，serial运行213.49s、113 passed后出现KeyboardInterrupt，包elapsed214/status1。没有pytest assertion FAILURES；日志仅显示中断交付到 `control_db.py:1279` 的 `connection.execute("PRAGMA journal_mode = WAL").fetchone()`。**该栈位置不证明SQLite/WAL自身有错，也不能据此认定外部SIGINT、某测试主动发送信号、超时或其确切来源。** 当前最少仍需核已保存controller/信号/执行上下文，定位本次中断来源；不改数据库语义、延长时间或把它标flaky后盲重跑。此处明确保留未知，区别于已关闭的058两项单测环境修复。
+
+runner已打印Hypothesis与Cargo target清理；这不替代尚未交付的节点/Compose/owner postflight，本审核未替他人清锁或扫描节点。整次exit1不能作为任何包的qualified carried来源，中间五包passed不能把本次包装为成功runner；§148必要05验证和镜像来源的独立事实保持。后续具体诊断/修正按Owner既有持续授权推进，无新增Owner/第三次GO要求。V5b具体接线§150和core §149结论亦不因独立04中断回退。
+
+已再次尝试把中断原件/准确SHA及现有两个PASS结论回主协调，MCP仍返回相同HTTP transport失败，未送达；本节先形成可转交的准确记录。审核者没有运行测试、触发新runner、修改产品或清理证据。

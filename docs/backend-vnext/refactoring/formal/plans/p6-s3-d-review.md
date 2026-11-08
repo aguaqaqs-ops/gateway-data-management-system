@@ -1,12 +1,12 @@
 # Phase 6 S3 D 独立审核
 
-**当前结论：D CHANGES；Owner 已恢复下一候选执行通道，尚未执行。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 是首个固定实现检查点；其静态问题与 06 Rust fmt 失败均保留原状。`5c47795062937a8db0315640a95ab763d2c2c8ab` 是其后第一轮集中修订的固定产品候选，仍有 §3 所列去重失效，且尚无当前候选的编译、功能或容器证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
+**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab` 的首轮集中修订问题见 §3。新增固定产品候选 `1c25ea68e713fef8718ea499592628dc035a7e94` 仍有 §6 的 reader 可用性及可选 Risk key M finding，且无此候选的编译、功能或容器原件。此结论不是 D GO、S3 GO 或对 C 的重新审批。
 
 ## 1. 审核对象与边界
 
 设计 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`、kickoff 复审 `83ba4979044179256aa8c3d5d1d7b3424e648884` §5 已固定；A/B/C 的既有独审 GO 不重开。本人以仓库 AGENTS、testing conventions、比例化保障与 Rust 安全性能政策 v7、S3 design/kickoff/A–C handoff/review，以及 Comparison、Ordered Diff、Risk、Comparison Bundle/Surface、Snapshot Table Access、Shared Canonical Encoding、Storage/Repository Boundary、Operation Lifecycle 和 Performance owning Contract 为依据。
 
-产品只读审核分别在 clean detached worktree `/home/dev/gdds-s3-d-review-f000e5b075` 和 `/home/dev/gdds-s3-d-review-5c477950` 进行，固定 HEAD、`legacy/` 链接和 worktree clean 已核。main 上与固定 SHA 无关的后续个人 WIP 或并行文档不纳入本轮产品结论。审核工作树和开发主机未运行编译、lint、测试、容器或性能测量；唯一测试者为 `/root/s3_d_test`。
+产品只读审核分别在 clean detached worktree `/home/dev/gdds-s3-d-review-f000e5b075`、`/home/dev/gdds-s3-d-review-5c477950` 和 `/home/dev/gdds-s3-d-review-1c25ea68` 进行，固定 HEAD、`legacy/` 链接和 worktree clean 已核。main 上与固定 SHA 无关的后续个人 WIP 或并行文档不纳入本轮产品结论。审核工作树和开发主机未运行编译、lint、测试、容器或性能测量；唯一测试者为 `/root/s3_d_test`。
 
 本节目标是 Preview/History 共用 pair pipeline 的唯一 Rust compare + Arrow records 路由、facts 原序的 Risk 必要列、FULL 已知用途的 operation 内去重、同一 N1/M24 GiB/取消/截止与 closure 语义，并从 W3/W4 开始诊断。保留小元数据、replacement 和独立的 Submit mutation planner 等 consumer；E 才移除旧算法与临时 probe。D 不得留 Python 比较 fallback 或部署开关。
 
@@ -40,4 +40,14 @@ Owner 后在 `733c4551e5` 所记录的问题中明确回复“确认并继续”
 
 ## 5. 当前验证与镜像判定
 
-5c 触及实际 PyO3 比较/risk production route，必须在本轮收敛后的当前候选于专用节点强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；C 旧镜像仅证明 C 时的路径，不能充当 D 生产路由通过。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，5c 无当前镜像结果；重建延期至执行通道恢复及 D 候选收敛后的 06 小 Compose/04 必要门禁。
+1c25 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在本轮收敛后的当前候选于专用节点强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；C 旧镜像仅证明 C 时的路径，不能充当 D 生产路由通过。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，1c25 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
+
+## 6. 1c25 固定集中修订的增量静态复审
+
+本人在 clean detached 1c25 worktree 核 HEAD 与 Rust tree `45acfe79a0b9bffdf701d5d42be590cba456f092`、`legacy/` exclude、`5c..1c25` diff check。11 个产品路径不改五锁、Cargo.lock、toolchain 或 dependency-base 基础镜像。`evict_for()` 在首个 producer 无缓存时保留 session；`commit_cache()` 将所有声明用途计消费而只留成功完整 fact；replacement 不声明 row task；可选 comparison key 在 `repr` 前作 16 MiB 预约和保守输入预检；失败 attempt 的 metadata charge 在重算前退还。旧 reader closed、keyless 先读、已知重复键诊断、ordered 内外层降级来源及 operation Risk cancel/deadline 接线均已有针对性代码和独立旧 Python/Contract 向量。新 Risk hit/miss 测例覆盖过滤先 cap、table/pair 同时 cap、表超时不计 pair total、诊断预检、当前 closure、取消/截止与 FakeClock 调用数。上述仅为源码与测试设计检查，未将新增测试声明为通过。
+
+**5c reader availability 同一具体根因的首轮针对性修复仍未闭合。** 1c25 的 artifact key 纳入 `reader-none`/reader 类型，却不纳入后续 reader 的可重开状态；`session.lookup()` 命中只做 operation checkpoint。现有测例是 closed first→ready second，首个 DEGRADED 自然不入 cache；反向 ready first→closed second 在同 artifact、descriptor、reader 类型下会命中先前成功 fact，旧 `_read_rows` 应形成普通 `TableAccessError` 降级。即使复用同一 reader 实例，也可在两 pair 间关闭。已交原实施者用旧 Python oracle 补反向 status/facts-core/calls/reads/hit 向量，并在命中前验证当前 reader 或保守 safe miss。此为针对 5c 明确 reader 可用性问题的**第一轮**修复未成；尚未满足连续两轮实修失败的暂停条件。
+
+**1c25 首次定位的独立 M finding。** Risk `_evaluate_table_impl` 可选 cache 分支先 `repr` 包含 table/facts 全局 diagnostics、ruleset、options 的完整 key，再 lookup，却未给该构造和保留的 key 作同池前置预算。`ComparisonFacts.diagnostics` 合同仅检查 tuple/非空字符串；Risk 预检的字节上限只作用于单表投影诊断。临近 M 时可选缓存会先分配未计 Python key。已交实施者在 `repr` 前用局部预算或大输入 safe miss，保留 key 后收费；此为新 finding，不和 reader 同根累计轮次。
+
+**待补动态覆盖。** 当前 D 产品向量已有成功 Standard、keyless、非记录及 ordered 降级，但成功 ORDERED+BLANK 的 `compare_plan_native`/pair pipeline、facts 原序 Risk 与 artifact 排序三视图、三族 Parquet 接线尚缺一个小型旧 oracle 对照；C adapter 的直接测试不能代替 D 生产接线。已交实施者补 move+blank 及必要 metadata-only 单侧向量。`bd752e4c62f0d7d5204094bf2befbc77bf7b3e50` 的 D handoff 初稿明确当前无 D 运行证据、T4 `--s3-census` 仅 partial Preview、E 才删旧算法/oracle；本人的静态核读不将其签为 GO。1c25 的 06 source/node/fmt-scratch 完整字面稿及 focused 原件仍待独审/执行。

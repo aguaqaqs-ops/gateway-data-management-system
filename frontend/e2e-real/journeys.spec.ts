@@ -163,7 +163,7 @@ async function uploadAndPreview(
   expect(bundleResponse.headers()["content-type"] ?? "").toContain(BUNDLE_CONTENT_TYPE);
   const etag = (bundleResponse.headers()["etag"] ?? "").replace(/^W\//, "");
   expect(etag, "bundle ETag").toBe(`"${bundle.manifest.bundle_digest}"`);
-  expect(digestHex(etag), "ETag digest").toBe(bundle.bundleDigest);
+  expect(digestHex(etag.replace(/^"|"$/g, "")), "ETag digest").toBe(bundle.bundleDigest);
 
   const outcome = await waitForPreviewOutcome(page);
   expect(outcome, "preview outcome").toBe("compare");
@@ -520,7 +520,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
     expect(realEtag, "real bundle ETag").toBeTruthy();
     expect(realLength, "real bundle length").toBeGreaterThan(0);
 
-    const etagDigest = digestHex(realEtag as unknown as string);
+    const etagDigest = digestHex(String(realEtag).replace(/^"|"$/g, ""));
     const half = await opfsBundleState(session.page, etagDigest);
     expect(half.hasCompleteMarker, "no completed bundle after truncation").toBe(false);
 

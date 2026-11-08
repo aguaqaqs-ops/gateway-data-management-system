@@ -283,3 +283,15 @@ Owner 于2026-11-08转来前端两项问题，要求核是否修复、建议环�
 **生成时间项是预期修正，当前不需要改后端语义。** `derive_archive_business_validation` 对每个实际上传侧调用 `_append_time_quality`，与baseline是否为None无关。MODIFIED_ONLY的INITIAL_EMPTY/BASELINE_REUSED侧不当作上传侧；MODIFIED仍检查，FULL则检查两个上传侧。空INITIAL只使相应来源/基线比较不适用，不免除上传侧时间质量。因此合成A没有saved_time时，预期为一项 `GENERATION_TIME_MISSING`、side=MODIFIED。FE3 kickoff §4.6已按源码修正表格并注明未经产品实测；05首轮对完整issue集合实测、不符即停交设计判断的安排正确。不要补造时间或改后端使错误的“零异常”预期通过；带有效saved_time的真实t1须按其输入事实另判。
 
 给前端的建议口径：Q18确认存在、仍是FE3c前置，不影响FE3b；建议独立后端补缺并返回归档候选review_version，在固定修复交付前不假定可用。生成时间修正与当前源码一致，保留§4.6预期及05实测停止规则。S3既定实现/审核/验证继续推进。
+
+## 17. D 功能与静态收敛，容器和组件诊断待运行
+
+固定 `ce8c5d6fcd50b81edb219fd4d14a13d862107a77` 在06于06:35:58–06:37:36Z实际强制native/input0、受影响nonserial **91通过**、serial GIL **1通过**；前三Python包Ruff/mypy0，backend Ruff唯一公开导出F401使整轮exit1，后续未跑。原件node SHA=`6531473682243f9b39d7f682e9983749b6f55cc880c1830f093081e8b531fb4a`，outer SHA=`b19d5b4a1041c26f9ff31b53021292d0ec7cd61d0126110e0cb2f9ba8b7e1c63`，标准manifest SHA=`d244e04ad31fa1a570fd7d48d7d97f428fa9cf7c65419f8427367c574431b8e4`，capture receipt SHA=`f7a5e9d0881bcad66093656752aad968f7231102a7199c703221b9b4a9e2564f`。原审已核；不是合格authority carried来源。
+
+`90cb4379d2` 只补公开导出后，07:xx之前的静态首败揭示17项类型问题，含两个具体运行缺口：Preview去重预声明使用domain枚举而identity评估返回capability枚举，实际pair pipeline本已正确，但不同项目会被预声明为DETAILED、产生无用途key/task；metadata-only BLANK publication误取标准记录字段。实施者修正确身份与三族字段准入，并补两项验证；无handle的完整Standard/Ordered行不进入小metadata路径，BLANK能力保留，不建设Python算法fallback。
+
+固定 `af7f145ef931d1aa35e1ba6461ae331010774e9d` 在06于07:03:38–07:05:24Z实际两项业务 **2通过**、architecture **1通过**、native/input0；前三包静态/backend Ruff0，backend mypy仅新增测试引用的显式export问题1项，RS静态未跑。node SHA=`b624635906c188dc2e35eae057afd0057aa4c130c2d1e2b6c52517dac0ea5dc5`、outer SHA=`5b698d1786bb79d305c621bcdf31293644659162a62fbd41de98befd1d9112f0`、manifest SHA=`0c9b1263a8002eb254ef2e600facdaa8f10812345a0294b4575da040b5995caf`、receipt SHA=`28c16d72c076a0dab638e59e37a36bcda84131c5b2a5c68fcd1e117a676cd7d3`，标准check/capture0、07:05:25Z释放，clean/六锁稳定。FULL向量同时核预声明mode、replacement实际native_calls=0和持久化identity_pairs；BLANK向量核无handle Arrow closure与旧writer逐字同字节。
+
+当前产品 **`a9da0c59277e3179f34d646eabcd9c185917ae05`** 仅再改测试从定义owner取原函数，产品逻辑同af7f；Rust tree仍 **`b5f2439384d859bd32df3e3e24979f4f63f0f91b`**。06于 **07:10:17–07:12:04Z** actual fresh offline native/input及**全部五包Ruff/mypy均0**，整稿outer/remote/capture均0。node SHA=`93e0337318808eee63e6194d764b9dd718270ffac3d91e0edbe5a42540c50bec`，outer SHA=`03413c472dc9ffe47e970a260598655982b2cd5307511d411c9d554d6f3236a7`，manifest SHA=`38e14c37ed6b241f8d152ff38e87dcea84e5d2b01a475248ca5910da440c2495`（check0），receipt SHA=`f4329904a6c717b77300720686528f6a112c164988de03ca8588562881678976`，bundle SHA=`3532f8e60d3570fa285986a3c7fb36a199630241a75b9ba997ac011ebdbf6a7a`。起止clean/六锁稳定，07:12:05Z本人marker释放；同原审已独核。只跑静态的成功稿也不是权威runner来源。
+
+下一D核收是a9当前镜像小Compose的既有普通Standard Submit例和ordered FULL/History例，及固定外置脚本SHA=`f5330d9e5f306719a0e3a87cd4265cf69a65198743eba006a1387e18466b0218`的W3/W4 selected-table起测。MO由focused实际native/application路径覆盖，容器分工不宣MO container已测；E最终fresh MO/FULL再补部署范围。外置脚本逻辑静审CLEAR，但完整节点外层/accepted13项输入身份须另核；当前两项均尚未运行。D仍不是GO，E尚未启动。镜像最后实际验证来源仍C的854d3888，不冒称a9已构建。

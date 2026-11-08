@@ -15,7 +15,7 @@ from time import monotonic
 from typing import Callable, Protocol, TypeAlias, runtime_checkable
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
-from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_shared_kernel.jcs import canonical_json_digest, canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.storage_projection.contracts import (
@@ -763,9 +763,7 @@ def compute_change_set_digest(mutations: Sequence[ChangeSetMutation]) -> DigestR
     if any(type(item) is not ChangeSetMutation for item in mutations):
         raise ValueError("mutations must contain ChangeSetMutation")
     validate_change_set_ordering(tuple(mutations))
-    return raw_blob_digest(
-        canonicalize_json_value({"mutations": change_set_mutations_payload(mutations)})
-    )
+    return canonical_json_digest({"mutations": change_set_mutations_payload(mutations)})
 
 
 def change_set_closure_document(artifact: ChangeSetArtifact) -> dict[str, object]:
@@ -778,7 +776,7 @@ def change_set_closure_document(artifact: ChangeSetArtifact) -> dict[str, object
 
 
 def compute_change_set_closure_digest(artifact: ChangeSetArtifact) -> DigestRef:
-    return raw_blob_digest(canonicalize_json_value(change_set_closure_document(artifact)))
+    return canonical_json_digest(change_set_closure_document(artifact))
 
 
 def validate_change_set_ordering(mutations: Sequence[ChangeSetMutation]) -> None:

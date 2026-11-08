@@ -13,7 +13,7 @@ from gateway_shared_kernel.framing import (
     unordered_row_hashes_content_digest_from_sorted_row_buffer,
 )
 from gateway_shared_kernel.identifier import canonicalize_identifier
-from gateway_shared_kernel.jcs import canonicalize_jcs
+from gateway_shared_kernel.jcs import canonical_json_digest, canonicalize_jcs
 from gateway_shared_kernel.scalar import encode_typed_scalar, normalize_logical_literal
 from gateway_shared_kernel.types import (
     AnomalyScalar,
@@ -82,6 +82,7 @@ __all__ = [
     "UnsignedIntegerScalar",
     "Utf8LogicalLiteral",
     "canonicalize_identifier",
+    "canonical_json_digest",
     "canonicalize_jcs",
     "encode_collection",
     "encode_row",

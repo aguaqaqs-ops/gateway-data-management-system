@@ -4,17 +4,54 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any
+import hashlib
+from io import BytesIO
+from typing import Any, IO, Protocol, cast
 
 import rfc8785
 
 from gateway_shared_kernel.errors import CanonicalEncodingError, CanonicalErrorCode
+from gateway_shared_kernel.types import DigestRef
 from gateway_shared_kernel.unicode import decode_utf8, validate_unicode_string
 
 _IJSON_MIN_SAFE_INTEGER = -(2**53) + 1
 _IJSON_MAX_SAFE_INTEGER = (2**53) - 1
 # I-JSON safe integers use at most 16 ASCII digits (excluding optional '-').
 _IJSON_MAX_INTEGER_DIGITS = 16
+_HASH_BUFFER_BYTES = 64 * 1024
+
+
+class _WriteSink(Protocol):
+    def write(self, data: bytes, /) -> int: ...
+
+
+class _HashSink:
+    """Bound only the digest writer's buffer, not the input or encoder allocations."""
+
+    def __init__(self) -> None:
+        self._hash = hashlib.sha256()
+        self._buffer = bytearray(_HASH_BUFFER_BYTES)
+        self._used = 0
+
+    def write(self, data: bytes, /) -> int:
+        if self._used + len(data) >= _HASH_BUFFER_BYTES:
+            self._flush()
+        if len(data) >= _HASH_BUFFER_BYTES:
+            self._hash.update(data)
+        else:
+            end = self._used + len(data)
+            self._buffer[self._used:end] = data
+            self._used = end
+        return len(data)
+
+    def _flush(self) -> None:
+        if self._used:
+            self._hash.update(memoryview(self._buffer)[:self._used])
+            self._used = 0
+
+    def digest(self) -> DigestRef:
+        self._flush()
+        return DigestRef.from_raw_digest(self._hash.digest())
 
 
 def canonicalize_jcs(json_utf8: bytes) -> bytes:
@@ -34,9 +71,22 @@ def canonicalize_jcs(json_utf8: bytes) -> bytes:
 
 def canonicalize_json_value(value: Any) -> bytes:
     """Canonicalize an already-parsed JSON-compatible value."""
+    sink = BytesIO()
+    _write_canonical_json(value, sink)
+    return sink.getvalue()
+
+
+def canonical_json_digest(value: Any) -> DigestRef:
+    """SHA-256 of the same JCS bytes, without aggregating the complete output."""
+    sink = _HashSink()
+    _write_canonical_json(value, sink)
+    return sink.digest()
+
+
+def _write_canonical_json(value: Any, sink: _WriteSink) -> None:
     _validate_unicode_tree(value)
     _validate_ijson_numbers(value)
-    return _serialize_jcs(value)
+    _serialize_jcs(value, sink)
 
 
 def _parse_json_document(text: str) -> Any:
@@ -161,9 +211,10 @@ def _validate_ijson_numbers(value: Any) -> None:
             _validate_ijson_numbers(item)
 
 
-def _serialize_jcs(value: Any) -> bytes:
+def _serialize_jcs(value: Any, sink: _WriteSink) -> None:
     try:
-        return rfc8785.dumps(value)
+        # Pinned rfc8785 0.1.4 annotates IO[bytes] but uses only write(bytes).
+        rfc8785.dump(value, cast(IO[bytes], sink))
     except rfc8785.IntegerDomainError as exc:
         raise CanonicalEncodingError(
             CanonicalErrorCode.CANONICAL_JCS_NUMBER_OUT_OF_RANGE,

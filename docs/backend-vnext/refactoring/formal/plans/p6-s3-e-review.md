@@ -478,3 +478,11 @@ CT108同774源唯一W3 `MODIFIED_ONLY` warm样本14:03:16–14:06:22Z原outer/no
 源码链可限定候选机制：`SubmitImportPublicationAdapter.build_and_publish`在`submit-package-replay`内保留`MAX_MANIFEST_JSON_BYTES*32 + MAX_REPLAY_SQL_BYTES*10 + 16MiB`，按当前16/200MiB上限为2,528MiB；随后对`changed_names`逐表调用`_reserve_submit_python_rows`，每表上界按`reader.logical_size_bytes*32 + row_count*(column_count*1024 + 2048 + names_length*64) + 64KiB`计算，并通过operation `ExitStack`累积保留。初始parent的631张可见表由2x v1提交处理；此路径在M24下有明确累计压力，但缺当次各reader真实descriptor/逻辑字节与首次拒绝账本，任何源DDL粗估都只是上界假说。§55的Preview `charged_high_water_bytes`属于**另一个operation**，不可用其16MiB余量推导Submit拒绝位置；cgroup peak和oom=0只排除物理OOM的表面解释。
 
 本人核CT108准备原件中`validated-2x.json`、`validated-w4-10pct.json`、`validated-w4-100pct.json`：三组v1均是`rd-t4-d-v1`、同一包SHA256=`74974e5f3237ba372e81df95d448602d09713c3cdc8edf6ae5237352a78ebd4c`、10,652,436字节/639源表；三组v2各异。现役journey在同一v1 Submit成功后才走v1 Repository读回、approve/archive及v2 Preview，因此W3本次在共享前置v1 Submit失败，W4两负载各模式尚**未测且受此容量前置阻断**，不能记作已失败的W4试验。W3失败前唯一v1 Preview的`s3_pair_metrics`为631次dispatch、0次native call和0秒native index compare：这是空初始基线的新增表路径，未触达本轮W3目标的v2差分。容量失败不构成S3比较错误证据，也不提供W3差分正确性或性能的新证据；v2 READY未知。保持N1/M24、输入和Submit范围冻结，待准确容量归因及Owner范围判断；04权威runner按独立节点正常收尾，不由此提前判其结果。
+
+## 57. W3容量停点报告独审
+
+本人只读核协调者新报告`p6-s3-e-capacity-stop.md`的`9d4f87b67a`及单路径修订`86aff7ad7a`、`1866253215`、`f9f1ca17a9`。报告所列W3原outer/node/journey/result及worker资源SHA与§55原件一致，终端只读诊断SHA与§56一致；worker VmHWM=`871400KiB`及cgroup peak=`1212547072B`、OOM计数0确见资源JSON。复算不了的20.338GiB源DDL行头部估算已明标“尚无独立核收复算原件”，不用于选M或判首拒stage。
+
+按现役`preview-performance-driver.py`，样本要求自首业务观察起仅一个同worker、normal stop且`acceptance_complete`，`journey-node.sh`再断该成功出口；因此报告第2项“提高未计时准备资源、重启M24 worker”已限定为**另条件诊断**，不能计原W3/W4 warm+3或同worker容量PASS，正式计入须先由Owner修改场景/验收口径并固定新稿。执行计划S4前置S3 exit，报告第1项现明确仅保持S3受阻与预研、不实施S4；提前S4实施属于第3项另需Owner改阶段顺序。末段也分清“另条件诊断”和“原条件完整测量”。
+
+**报告可作为向Owner询问范围方向的事实与选项依据**，不授权任何具体N/M、测试脚本、重新取样或S4实施，不签E GO。04独立权威仍待原完整exit；CT108原项目资源按DC80保留到受控收尾稿独审与实际核收。

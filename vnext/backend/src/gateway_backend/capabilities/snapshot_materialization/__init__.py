@@ -151,6 +151,7 @@ __all__ = [
     "check_metadata_budget",
     "ArtifactReadHandle",
     "CanonicalTableStore",
+    "canonical_comparison_profile",
     "canonical_columns",
     "canonical_table_key",
     "check_canonical_descriptor_budget",

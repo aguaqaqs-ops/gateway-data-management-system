@@ -153,6 +153,26 @@ fn checked_rows(side: &StorageSide) -> Result<usize, StorageError> {
     Ok(count)
 }
 
+fn max_field_metadata_bytes(side: &StorageSide) -> Result<usize, StorageError> {
+    side.schema.fields().iter().try_fold(0usize, |largest, field| {
+        let bytes = field.metadata().iter().try_fold(0usize, |sum, (key, value)| {
+            sum.checked_add(key.len())?.checked_add(value.len())
+        }).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+        Ok(largest.max(bytes))
+    })
+}
+
+fn schema_parse_scratch_upper(side: &StorageSide) -> Result<usize, StorageError> {
+    let names = side.schema.fields().iter().try_fold(0usize, |sum, field| {
+        sum.checked_add(field.name().len())
+    }).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    max_field_metadata_bytes(side)?.checked_mul(64)
+        .and_then(|size| size.checked_add(names.checked_mul(16)?))
+        .and_then(|size| size.checked_add(side.schema.fields().len().checked_mul(4096)?))
+        .and_then(|size| size.checked_add(4096))
+        .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))
+}
+
 fn raw_value_bytes(
     array: &dyn Array,
     data_type: &DataType,
@@ -216,8 +236,12 @@ fn row_scratch(
     // Per row: typed scalar and Value copies (<=4x raw), escaped JSON/JCS
     // streams (each <=6x raw, with allocator spare capacity), parsed JCS
     // graph and output. 64x covers all simultaneously live intermediates.
+    let metadata = max_field_metadata_bytes(side)?;
     let upper = raw
         .checked_mul(64)
+        // SET and declared-type validation parse one field declaration at a
+        // time. A dense labels array can use far more than its JSON byte len.
+        .and_then(|size| size.checked_add(metadata.checked_mul(64)?))
         .and_then(|size| size.checked_add(names.checked_mul(16)?))
         .and_then(|size| size.checked_add(side.schema.fields().len().checked_mul(4096)?))
         .and_then(|size| size.checked_add(4096))
@@ -482,12 +506,19 @@ pub fn prepare_storage_table(
     context: Arc<KernelContext>,
 ) -> Result<StorageTable, StorageError> {
     context.check().map_err(mapped)?;
+    // Canonical schema validation parses field JSON before row/index work.
+    // Only one field's serde graph is live at a time; reserve before parsing.
+    let before_schema_upper = before.as_ref().map_or(Ok(0), schema_parse_scratch_upper)?;
+    let after_schema_upper = after.as_ref().map_or(Ok(0), schema_parse_scratch_upper)?;
+    let schema_upper = before_schema_upper.max(after_schema_upper);
+    let schema_scratch = context.reserve(schema_upper).map_err(mapped)?;
     let after_rows = after.as_ref().map_or(Ok(0), checked_rows)?;
     if let Some(side) = &before {
         if checked_rows(side)? != before_rows {
             return Err(invalid("STORAGE_ROW_COUNT_MISMATCH"));
         }
     }
+    drop(schema_scratch);
     let before_validated = before.is_some();
     let after_validated = after.is_some();
     if diff && (before.is_none() || after.is_none() || key_columns.is_empty()) {
@@ -770,6 +801,36 @@ mod tests {
             result.err().map(|error| error.0),
             Some("RESOURCE_LIMIT_EXCEEDED".into())
         );
+        assert_eq!(control.remaining_bytes(), budget);
+        Ok(())
+    }
+
+    #[test]
+    fn large_set_declaration_rejects_before_parsing_and_returns_its_lease()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let labels: Vec<String> = (0..64)
+            .map(|number| format!("label_{number:02}_{}", "x".repeat(240)))
+            .collect();
+        let sql_type = format!("SET({})", labels.iter()
+            .map(|label| format!("'{label}'"))
+            .collect::<Vec<_>>().join(","));
+        assert!(sql_type.len() < 64 * 1024);
+        let set_field = Field::new("choices", DataType::Utf8, false).with_metadata(HashMap::from([(
+            "gdds.canonical_type".to_owned(),
+            json!({"declared_type":null,"labels":labels,"logical_type":"set","sql_type":sql_type}).to_string(),
+        )]));
+        let schema = Arc::new(Schema::new(vec![set_field]).with_metadata(HashMap::from([(
+            "gdds.canonical_mapping_version".into(), "1".into(),
+        )])));
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![
+            Arc::new(StringArray::from(vec![""])) as ArrayRef,
+        ])?;
+        let side = StorageSide { schema, batches: vec![batch], expected_rows: 1,
+            retained_columns: vec!["choices".into()] };
+        let budget = schema_parse_scratch_upper(&side)? + 64 * 1024;
+        let control = Arc::new(KernelContext::new(budget, Arc::new(AtomicBool::new(false)), None));
+        let result = prepare_storage_table(None, Some(side), 0, &[], false, Arc::clone(&control));
+        assert_eq!(result.err().map(|error| error.0), Some("RESOURCE_LIMIT_EXCEEDED".into()));
         assert_eq!(control.remaining_bytes(), budget);
         Ok(())
     }

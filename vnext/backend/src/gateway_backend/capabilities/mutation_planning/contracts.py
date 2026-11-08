@@ -94,10 +94,13 @@ class StorageTableSideV1:
             raise ValueError("stream and its explicit schema must be present together")
         if (self.stream is None) != (self.input_owner is None):
             raise ValueError("present Arrow stream requires its charged input owner")
-        if self.metadata_manifest is not None and type(self.metadata_manifest) is not CanonicalizationManifest:
-            raise ValueError("metadata_manifest must be a canonicalization manifest")
-        if self.stream is None and self.metadata_manifest is None:
-            raise ValueError("metadata-only side requires its complete manifest binding")
+        manifest = self.metadata_manifest
+        if manifest is None or type(manifest) is not CanonicalizationManifest:
+            raise ValueError("storage side requires its complete canonicalization manifest")
+        if self.manifest_table not in manifest.tables:
+            raise ValueError("storage side table is absent from its complete manifest")
+        if manifest.storage_projection_version != self.storage_projection_version:
+            raise ValueError("storage side projection version differs from its complete manifest")
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,9 +185,11 @@ class StorageTableDecision:
 
 
 class StorageTableHandle(Protocol):
-    """B/C implementation retains the table's Arrow/native leases until close."""
+    """B/C owner; C calls apply_decision before rendering any SQL bytes."""
 
     def summary(self) -> StorageTableSummary: ...
+
+    def apply_decision(self, decision: StorageTableDecision) -> None: ...
 
     def render(self, decision: StorageTableDecision) -> Iterator[bytes]: ...
 

@@ -35,12 +35,15 @@ class StorageInputLease:
     """One verified canonical reader and its charged Arrow/mmap lifetime."""
 
     def __init__(self, table: SnapshotTable, reader: ArrowSnapshotTableReader,
-                 stream: Any, operation: object) -> None:
+                 stream: Any, operation: object, manifest: CanonicalizationManifest,
+                 manifest_table: CanonicalizationManifestTable) -> None:
         self.table = table
         self.reader = reader
         self.stream = stream
         self.schema = stream.schema
         self.operation = operation
+        self.manifest = manifest
+        self.manifest_table = manifest_table
         self.closed = False
 
     def close(self) -> None:
@@ -62,11 +65,20 @@ class StorageInputLease:
 
 
 def open_storage_input(
-    table: SnapshotTable, manifest_table: CanonicalizationManifestTable,
+    table: SnapshotTable, manifest: CanonicalizationManifest,
+    manifest_table: CanonicalizationManifestTable,
     operation: object,
 ) -> StorageInputLease:
-    """Bind one trusted canonical producer to its actual operation M owner."""
+    """Bind one trusted canonical producer to its frozen manifest and M owner.
+
+    The caller opens/verifies the frozen manifest once through its existing
+    publication owner; this per-table path checks membership without rehashing
+    that complete document for every table.
+    """
     active = require_active_kernel_context(operation)
+    if (type(manifest) is not CanonicalizationManifest or manifest.manifest_digest is None
+            or manifest_table not in manifest.tables):
+        raise ValueError("storage input lacks complete frozen manifest membership")
     if type(table) is not SnapshotTable or type(table.reader) is not ArrowSnapshotTableReader:
         raise ValueError("storage input requires a canonical Arrow table reader")
     reader = table.reader
@@ -96,16 +108,23 @@ def open_storage_input(
     isolated = reader.reopen()
     try:
         stream = isolated.arrow_stream()
-        return StorageInputLease(table, isolated, stream, active)
+        return StorageInputLease(table, isolated, stream, active, manifest, manifest_table)
     except BaseException:
         isolated.close()
         raise
 
 
-def require_storage_input_owner(value: object, stream: object, schema: object, operation: object) -> StorageInputLease:
+def require_storage_input_owner(
+    value: object, stream: object, schema: object, operation: object,
+    manifest: CanonicalizationManifest, manifest_table: CanonicalizationManifestTable,
+    projection_version: str,
+) -> StorageInputLease:
     active = require_active_kernel_context(operation)
     if (type(value) is not StorageInputLease or value.closed
-            or value.stream is not stream or value.schema != schema):
+            or value.stream is not stream or value.schema != schema
+            or value.manifest is not manifest or value.manifest_table != manifest_table
+            or manifest_table not in manifest.tables
+            or manifest.storage_projection_version != projection_version):
         raise ValueError("storage Arrow stream lacks its verified same-operation input owner")
     active.require_same_operation(value.operation)
     return value

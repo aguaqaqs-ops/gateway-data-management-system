@@ -34,7 +34,7 @@ from gateway_backend.capabilities.table_access import (
     current_kernel_context, kernel_control_scope, kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
-from tests.support.mutation_contracts import digest, manifest, manifest_table, storage_view
+from tests.support.mutation_contracts import digest, manifest as manifest_document, manifest_table, storage_view
 from tests.support.storage_projection import table_descriptor, typed_column
 
 pytestmark = pytest.mark.unit
@@ -112,8 +112,10 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
     ))
     context = current_kernel_context()
     assert context is not None
-    lease = open_storage_input(canonical, manifest, context)
-    return StorageTableSideV1(manifest, view, "3", lease.stream, lease.schema, lease)
+    complete = manifest_document(tables=(manifest,))
+    complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
+    lease = open_storage_input(canonical, complete, manifest, context)
+    return StorageTableSideV1(manifest, view, "3", lease.stream, lease.schema, lease, complete)
 
 
 def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
@@ -124,7 +126,7 @@ def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
                        canonical_key_columns=())
         manifest_item = replace(manifest_item, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
                                 canonical_key_columns=())
-    complete = manifest(tables=(manifest_item,))
+    complete = manifest_document(tables=(manifest_item,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     return StorageTableSideV1(manifest_item, view, "3", metadata_manifest=complete)
 
@@ -197,7 +199,7 @@ def test_source_only_change_with_metadata_before_rebuilds_without_invented_net_c
     context = current_kernel_context()
     assert context is not None
     old = _side(_table([("1", "0", "same")]), source_fill="1", content_fill="b")
-    complete = manifest(tables=(old.manifest_table,))
+    complete = manifest_document(tables=(old.manifest_table,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     before = replace(old, stream=None, schema=None, input_owner=None, metadata_manifest=complete)
     assert old.input_owner is not None
@@ -269,6 +271,23 @@ def test_uncharged_replacement_stream_cannot_claim_a_verified_identity() -> None
             prepare_storage_table(_task(None, spoofed), context)
     finally:
         spoofed.stream.close()  # type: ignore[union-attr]
+        assert after.input_owner is not None
+        after.input_owner.close()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("field,fill", [("content_digest", "9"), ("source_schema_digest", "8")])
+def test_rebound_manifest_item_cannot_reuse_a_verified_stream(field: str, fill: str) -> None:
+    context = current_kernel_context()
+    assert context is not None
+    after = _side(_table([("1", "0", "same")]))
+    altered = replace(after.manifest_table, **{field: digest(fill)})
+    complete = manifest_document(tables=(altered,))
+    complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
+    spoofed = replace(after, manifest_table=altered, metadata_manifest=complete)
+    try:
+        with pytest.raises(ValueError, match="verified same-operation input owner"):
+            prepare_storage_table(_task(None, spoofed), context)
+    finally:
         assert after.input_owner is not None
         after.input_owner.close()  # type: ignore[attr-defined]
 

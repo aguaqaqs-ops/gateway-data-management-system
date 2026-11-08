@@ -55,7 +55,8 @@ class NativeStorageTableHandle:
         # A metadata-only before side has a validated manifest binding but no
         # parent Arrow to scan. Its net diff remains explicitly unknown.
         before_validated = before_validated or (
-            self._task.before is not None and self._task.before.metadata_manifest is not None
+            self._task.before is not None and self._task.before.stream is None
+            and self._task.before.metadata_manifest is not None
         )
         return StorageTableSummary(
             before_rows, after_rows,
@@ -128,10 +129,12 @@ def prepare_storage_table(
         raise ValueError("after Arrow stream missing")
     before_owner = None if before is None or before.stream is None else require_storage_input_owner(
         before.input_owner, before.stream, before.schema, active,
+        before.metadata_manifest, before.manifest_table, before.storage_projection_version,
     )
     try:
         after_owner = None if after is None or after.stream is None else require_storage_input_owner(
             after.input_owner, after.stream, after.schema, active,
+            after.metadata_manifest, after.manifest_table, after.storage_projection_version,
         )
     except BaseException:
         if before_owner is not None:

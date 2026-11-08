@@ -2060,9 +2060,13 @@ def _s3_census_baseline(item: Mapping[str, Any]) -> dict[str, int]:
     }
 
 
-def _expected_repository_catalog_rows(item: Mapping[str, Any]) -> dict[str, int]:
+def _expected_repository_catalog_rows(item: Mapping[str, Any]) -> dict[str, int] | None:
     """Use the frozen source census as the full committed catalog expectation."""
     raw = item.get("canonical_rows_by_table")
+    if raw is None:
+        # The original t1–t4 census predates per-table counts. Its independent
+        # B-source schema/count expectation is checked by the S4 node driver.
+        return None
     if not isinstance(raw, dict) or any(
         type(name) is not str or type(count) is not int or count < 0
         for name, count in raw.items()

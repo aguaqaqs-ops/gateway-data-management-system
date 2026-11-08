@@ -156,3 +156,26 @@ focused 直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-1e669c053f-focuse
 预热v2操作可见观察599.71s、完成599.72s；可见观察超过W3 60s目标，不能用一次预热签正式达标。完整v2业务步骤含随后身份摘要验证为659.635s，其CPU累计、native records/JCS、Parquet、Risk必要Arrow转换与publication、surface／bundle分段及包含关系见[性能记录§9](p6-s3-performance-report.md#9-首个合格w3-mo预热的实测与范围)。清理后的即时CPU值未采到，不把现有步骤CPU累计误记未知或把缺值当0。
 
 后续23项经原E条件静态CLEAR，唯一Luna按固定顺序逐项推进，首非0停、每组核收后再进下一组；r1已22:00:31Z开始，尚无正式测量完成。实际磁盘与前序收据守卫、四档及首暖完整原SHA、H模板预审闭环见[协调§34](p6-s3-coordination.md#34-四档完整fresh与首暖核收剩余样本逐项授权)。旧V774 M24和V1e M40失败原件全部保留，后续未知继续分列；tag／push及正式退出未办理。
+
+## 11. 当前V4b0逐包直接来源与镜像
+
+本表仅绑定已在原E §92核收的**当前产品V4b0**，与历史§3的V774表分开；最终H仍须在原04同一来源WT实际比较。这些值直接读取当次权威原件`control/captured/manifests/source-<package>.json`，`total_digest`是测试输入闭包总摘要，不是manifest文件SHA。
+
+| 包 | 最初实际运行来源／V4b0动作 | 来源total_digest |
+| --- | --- | --- |
+| rust | V1e实际运行；同WT实比可沿用 | `992f30280206b34b8b343e07cbfd6839e7236f2990424be9dfdc105d03acba57` |
+| shared_kernel | V1e实际运行；同WT实比可沿用 | `9a1e4cc8eeb68e1d4cd937f0d5a5b6cbcc506f621bd3cd19d60257255758599b` |
+| repository_contracts | V1e实际运行；同WT实比可沿用 | `28fb8a9cb8daab21c9acd2cc53a7e4f9c4c3acd3ecc555a12d341867ef9ed668` |
+| repository_client | V1e实际运行；同WT实比可沿用 | `82caf66bb770e6df8c3b3874051cba64b7eaae8deacde92f6b6162241f861082` |
+| backend | V4b0本次实际运行 | `5768e8e9314861958c95ef40fceed82720f3c02bbf52cd99937474b42b633aea` |
+| repository_service | V4b0本次实际运行 | `5b2aa00a30e628dca4287edd9dafdb93b43d79afe8b6b34ac7778eef5ae31347` |
+
+V1e完整SHA=`1e669c053f2486c50a8413c58de11d923d7f3cad`，最初全六实际runner SHA=`66847d88d261bd10e96fbd12ab969b01954796f5b87c9036ca3eb4d55fe13621`；V4b0完整SHA=`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`，当前两包实际runner SHA=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`。均为原04同来源WT的clean、起止HEAD及整次runner0，不以沿用结果充作首次实跑。当前原件根`/home/dev/gdds-test-tmp/p6-s3-v2-sort-authority-4b0a2eec72-fixed/control/`，节点来源WT=`/home/dev/gdds-test-tmp/p6-s3-e-final-3a7e088b2a/wt/subject`，环境、镜像和日志仍保护。
+
+| 当前V4b0当次镜像 | 实际config digest | 全部DiffID |
+| --- | --- | --- |
+| Repository Service | `sha256:aef551dd45e1e3881ddbbd31d7085d93b813e79a00986108d9de6d6c2124a8b3` | image-identities原件全部28项 |
+| backend | `sha256:619d6446e821ea4ebbd62d6e80873a6c485582bef3573f5698d47a68d643658d` | 同原件全部13项 |
+| worker | `sha256:5b64a2cb5c2f032c7a38d587df2c8871a4b9f3dde8ed48a0a539ceeed2b48221` | 同原件全部13项 |
+
+当次image-identities JSON SHA=`72b66ac26f1d6b600aac6e6dca09d1ee787adf98f29be6a34a13dbe2011d697c`、Compose provenance=`fce0e3f7a0c4af44bbf12a81e53d833b10bbc2034bc94982c2dcf3920efc584a`。当前三容器的本机`.Image`与本次保存local ID绑定，config及全部DiffID另由save真实解析；未跨节点混比inspect ID。RS build-input revision为e763、source-tree=`sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646`，candidate标签为V4b0。本节不把当前V容器PASS预签为最终H镜像可沿用。

@@ -98,7 +98,9 @@ def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
     return metadata_upper, bit_upper
 
 
-def canonical_comparison_input(table: SnapshotTable) -> tuple[pa.RecordBatchReader, CanonicalInputOwner]:
+def canonical_comparison_input(
+    table: SnapshotTable, *, field_order: tuple[str, ...] | None = None,
+) -> tuple[pa.RecordBatchReader, CanonicalInputOwner]:
     """Borrow the persisted IPC profile or a verified fresh writer's bounded view."""
     context = current_kernel_context()
     if context is None:
@@ -121,6 +123,18 @@ def canonical_comparison_input(table: SnapshotTable) -> tuple[pa.RecordBatchRead
             profile, indices = canonical_comparison_profile(
                 table.descriptor, schema, metadata_budget_bytes=metadata_upper,
             )
+            if field_order is not None:
+                # The IPC profile uses UTF8 field-name order, while the
+                # verified storage manifest retains declaration order. The
+                # already-reserved profile metadata envelope covers this
+                # bounded schema/index reorder before any record batches.
+                positions = tuple(profile.get_field_index(name) for name in field_order)
+                if (len(positions) != len(profile) or len(set(positions)) != len(profile)
+                        or any(position < 0 for position in positions)):
+                    raise ValueError("canonical view field order differs from frozen descriptor")
+                profile = pa.schema([profile.field(position) for position in positions],
+                                    metadata=profile.metadata)
+                indices = tuple(indices[position] for position in positions)
             for position, source_index in enumerate(indices):
                 target = profile.field(position).type
                 actual = schema.field(source_index).type

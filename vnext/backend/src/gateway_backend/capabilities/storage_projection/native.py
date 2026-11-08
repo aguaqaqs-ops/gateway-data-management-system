@@ -107,7 +107,7 @@ def open_storage_input(
     )
     if schema_digest != manifest_table.canonical_schema_digest:
         raise ValueError("storage input schema digest differs from canonical reader")
-    stream, input_owner = canonical_comparison_input(table)
+    stream, input_owner = canonical_comparison_input(table, field_order=manifest_table.retained_columns)
     try:
         return StorageInputLease(table, input_owner, stream, active, manifest, manifest_table)
     except BaseException:

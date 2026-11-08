@@ -26,7 +26,7 @@ from gateway_backend.capabilities.storage_projection import StorageInputLease, o
 from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, snapshot_table_from_arrow, source_descriptor_from_arrow,
-    publish_canonical_tables,
+    open_snapshot_table_artifact, publish_canonical_tables,
     SnapshotTableArtifact, SnapshotTableArtifactManifest,
     SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION, ROW_MATERIALIZATION_PROFILE,
 )
@@ -66,9 +66,11 @@ def _table(rows: list[tuple[str, str, str]]) -> pa.Table:
 
 
 def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
-          keyless: bool = False) -> StorageTableSideV1:
+          keyless: bool = False,
+          column_names: tuple[str, ...] = ("board", "link_no", "status")) -> StorageTableSideV1:
     view = storage_view()
     manifest = manifest_table(row_count=table.num_rows)
+    manifest = replace(manifest, retained_columns=column_names)
     if keyless:
         view = replace(view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
                        canonical_key_columns=())
@@ -76,13 +78,13 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
                            canonical_key_columns=())
     schema_digest = compute_schema_digest(
         columns=[{"name": name, "nullable": False, "sql_type": "VARCHAR(64)"}
-                 for name in ("board", "link_no", "status")],
+                 for name in column_names],
         primary_key=manifest.canonical_key_columns,
     )
     manifest = replace(manifest, source_schema_digest=digest(source_fill * 2),
                        canonical_schema_digest=schema_digest, content_digest=digest(content_fill * 2))
     descriptor = table_descriptor(
-        "orders", [typed_column(name, "VARCHAR(64)") for name in ("board", "link_no", "status")],
+        "orders", [typed_column(name, "VARCHAR(64)") for name in column_names],
         primary_key_columns=manifest.canonical_key_columns, row_count=table.num_rows,
         raw_content_digest=manifest.content_digest,
     )
@@ -94,7 +96,7 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
                      "labels": None,
                      "declared_type": {"kind": "string", "bits": None, "precision": None,
                                        "scale": None, "bit_width": None}}
-                    for index, name in enumerate(("board", "link_no", "status"))],
+                    for index, name in enumerate(column_names)],
     })
     canonical = snapshot_table_from_arrow(descriptor, table, source)
     assert isinstance(canonical.reader, ArrowSnapshotTableReader)
@@ -138,7 +140,7 @@ def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
 def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> StorageTableTaskV1:
     return StorageTableTaskV1("orders", before, after,
         RepositoryImportTable("orders", tuple(RepositoryImportColumn(name, "VARCHAR(64)", False)
-                                             for name in ("board", "link_no", "status")),
+                                             for name in after.manifest_table.retained_columns),
                               after.manifest_table.canonical_key_columns,
                               after.manifest_table.canonical_row_count))
 
@@ -150,33 +152,57 @@ def _assert_operation_resources_released(context: KernelExecutionContext) -> Non
     assert context.memory.used_bytes == 0
 
 
-def test_fresh_canonical_writer_input_uses_verified_profile_for_storage_diff() -> None:
+def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_diff() -> None:
     context = current_kernel_context()
     assert context is not None
-    before = _side(_table([("1", "0", "old")]))
-    names = ("board", "link_no", "status")
+    names = ("status", "board", "link_no")
     raw_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in names])
-    raw = pa.Table.from_arrays(
-        [pa.array([value], type=pa.string()) for value in ("1", "0", "new")],
-        schema=raw_schema,
-    )
-    candidate = _side(raw)
-    assert isinstance(candidate.input_owner, StorageInputLease)
-    writer_input = candidate.input_owner.table
+    def raw(status: str) -> pa.Table:
+        return pa.Table.from_arrays(
+            [pa.array([value], type=pa.string()) for value in (status, "1", "0")],
+            schema=raw_schema,
+        )
+
+    old_candidate = _side(raw("old"), content_fill="1", column_names=names)
+    new_candidate = _side(raw("new"), content_fill="2", column_names=names)
+    assert isinstance(old_candidate.input_owner, StorageInputLease)
+    assert isinstance(new_candidate.input_owner, StorageInputLease)
     store = InMemoryArtifactStore()
-    fresh, = publish_canonical_tables(
-        (writer_input,), snapshot_digest=digest("ee"), store=store,
+    published_before, fresh_after = publish_canonical_tables(
+        (old_candidate.input_owner.table, new_candidate.input_owner.table),
+        snapshot_digest=digest("ee"), store=store,
         repository_id="storage-fresh-writer",
     )
-    candidate.input_owner.close()
-    assert isinstance(fresh.reader, ArrowSnapshotTableReader)
-    assert fresh.reader.canonical_comparison_verified
-    with closing(fresh.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
+    old_candidate.input_owner.close()
+    new_candidate.input_owner.close()
+    assert published_before.artifact is not None
+    cached_before = open_snapshot_table_artifact(
+        store, published_before.artifact.manifest_ref,
+        repository_id="storage-fresh-writer", canonical_required=True,
+    )
+    assert published_before.reader is not None
+    published_before.reader.close()
+    if published_before.batch_reader is not None:
+        published_before.batch_reader.close()
+    assert isinstance(cached_before.reader, ArrowSnapshotTableReader)
+    assert cached_before.reader.canonical_artifact_read_verified
+    assert isinstance(fresh_after.reader, ArrowSnapshotTableReader)
+    assert fresh_after.reader.canonical_comparison_verified
+    with closing(fresh_after.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
         assert b"gdds.canonical_mapping_version" not in (stream.schema.metadata or {})
         assert all(b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema)
-    assert candidate.metadata_manifest is not None
-    lease = open_storage_input(fresh, candidate.metadata_manifest, candidate.manifest_table, context)
-    after = replace(candidate, stream=lease.stream, schema=lease.schema, input_owner=lease)
+    assert old_candidate.metadata_manifest is not None
+    assert new_candidate.metadata_manifest is not None
+    old_lease = open_storage_input(
+        cached_before, old_candidate.metadata_manifest, old_candidate.manifest_table, context,
+    )
+    new_lease = open_storage_input(
+        fresh_after, new_candidate.metadata_manifest, new_candidate.manifest_table, context,
+    )
+    assert old_lease.schema.names == list(names)
+    assert new_lease.schema.names == list(names)
+    before = replace(old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease)
+    after = replace(new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease)
     task = _task(before, after)
     with prepare_storage_table(task, context) as handle:
         summary = handle.summary()

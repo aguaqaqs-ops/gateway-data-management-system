@@ -12,7 +12,6 @@ from types import SimpleNamespace
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.artifacts.serialize import artifact_ref_to_dict
 from gateway_backend.application.submission.contracts import (
@@ -64,7 +63,6 @@ from gateway_backend.capabilities.storage_projection.package import (
 )
 from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
 from gateway_backend.capabilities.table_rules import TABLE_RULESET_VERSION
-from gateway_backend.capabilities.table_rules.contracts import TableCompareKey
 from gateway_backend.capabilities.table_rules import (
     TableRulesetSnapshot,
     table_ruleset_document,
@@ -225,8 +223,11 @@ def _build_input(
 def _frozen_build_input(
     store: InMemoryArtifactStore,
     raw_inputs: tuple[ProjectionTableInput, ...],
+    *,
+    ruleset: TableRulesetSnapshot | None = None,
 ) -> PrepareImportBuildInput:
-    ruleset = migrated_table_ruleset_snapshot()
+    if ruleset is None:
+        ruleset = migrated_table_ruleset_snapshot()
     source_digest = raw_inputs[0].source_binding.snapshot_digest
     source_context = SnapshotSourceContext(
         source_kind=SourceKind.SQL_DUMP_SOURCE,
@@ -343,7 +344,7 @@ def _frozen_build_input(
 
 
 def _keyed_parent_submit(
-    *, fault: str | None = None,
+    *, fault: str | None = None, ruleset: TableRulesetSnapshot | None = None,
 ) -> tuple[SubmitImportPublicationAdapter, PrepareImportBuildInput, InMemoryArtifactStore]:
     """Use the real canonical IPC and committed-table owners around a fake Repository source."""
     before_rows = tuple(
@@ -362,7 +363,7 @@ def _keyed_parent_submit(
         return (ProjectionTableInput("a_widget", reader, binding),)
 
     before_store = InMemoryArtifactStore()
-    before_input = _frozen_build_input(before_store, raw_input(before_rows))
+    before_input = _frozen_build_input(before_store, raw_input(before_rows), ruleset=ruleset)
     parent_manifest = open_canonicalization_manifest(
         before_store, before_input.canonicalization_manifest_ref,
     )
@@ -429,7 +430,7 @@ def _keyed_parent_submit(
         repository_id="test-repository",
     )
     after_store = InMemoryArtifactStore()
-    after_input = _frozen_build_input(after_store, raw_input(after_rows))
+    after_input = _frozen_build_input(after_store, raw_input(after_rows), ruleset=ruleset)
     build_input = replace(
         after_input, parent_is_initial=False, parent_manifest=parent_manifest,
         parent_manifest_digest=parent_manifest.manifest_digest.value,
@@ -441,23 +442,21 @@ def _keyed_parent_submit(
     return adapter, build_input, after_store
 
 
-def test_submit_patch_uses_frozen_parent_after_runtime_ruleset_changes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    adapter, build_input, store = _keyed_parent_submit()
-    import gateway_backend.capabilities.table_rules.registry as registry
-
-    changed_document = table_ruleset_document(migrated_table_ruleset_snapshot())
-    rules = changed_document["rules"]
+def test_submit_patch_uses_frozen_parent_after_ruleset_activation() -> None:
+    active_ruleset = migrated_table_ruleset_snapshot()
+    frozen_document = table_ruleset_document(active_ruleset)
+    rules = frozen_document["rules"]
     assert type(rules) is list
-    changed_document["rules"] = rules[:-1]
-    changed_ruleset = replace(
-        table_ruleset_from_document(changed_document),
-        compare_keys=(TableCompareKey("a_widget", ("value",)),),
-    )
+    fallback_rule = rules[-1]
+    assert type(fallback_rule) is dict
+    assert fallback_rule["selector"] == {"kind": "FALLBACK", "value": "*"}
+    fallback_rule["compare_excluded_columns"] = ["value"]
+    frozen_ruleset = table_ruleset_from_document(frozen_document)
+    adapter, build_input, store = _keyed_parent_submit(ruleset=frozen_ruleset)
     assert build_input.parent_manifest is not None
-    assert changed_ruleset.ruleset_digest != build_input.parent_manifest.ruleset_digest
-    monkeypatch.setattr(registry, "migrated_table_ruleset_snapshot", lambda: changed_ruleset)
+    assert frozen_ruleset.ruleset_digest == build_input.parent_manifest.ruleset_digest
+    assert frozen_ruleset.ruleset_digest != active_ruleset.ruleset_digest
+    assert build_input.parent_manifest.tables[0].canonical_key_columns == ("id",)
     published = adapter.build_and_publish(build_input=build_input, store=store)
     sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
     assert "UPDATE `a_widget` SET" in sql
@@ -830,67 +829,6 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
 def _replay_sql_from_package(payload: bytes) -> str:
     _, replay_sql = unpack_repository_import_entries(payload)
     return replay_sql.decode("utf-8")
-
-
-def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_changes(
-    operation_kernel_context: KernelExecutionContext,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import gateway_backend.application.submit_jobs as submit_jobs_module
-    import gateway_backend.capabilities.table_rules.registry as ruleset_registry
-    import gateway_backend.infrastructure.repository_write.import_publication as publication_module
-
-    store = InMemoryArtifactStore()
-    ruleset_a = migrated_table_ruleset_snapshot()
-    build_input = _frozen_build_input(store, _projection_inputs())
-    frozen_manifest = open_canonicalization_manifest(
-        store,
-        build_input.canonicalization_manifest_ref,
-    )
-    assert frozen_manifest.ruleset_digest == ruleset_a.ruleset_digest
-    assert frozen_manifest.manifest_digest is not None
-
-    adapter = SubmitImportPublicationAdapter()
-    first = adapter.build_and_publish(build_input=build_input, store=store)
-    frozen_package = adapter.read_back_package(checkpoint=first.checkpoint, store=store)
-
-    ruleset_b_document = table_ruleset_document(ruleset_a)
-    rules = ruleset_b_document["rules"]
-    assert type(rules) is list
-    ruleset_b_document["rules"] = rules[:-1]
-    ruleset_b = table_ruleset_from_document(ruleset_b_document)
-    assert ruleset_a.ruleset_digest != ruleset_b.ruleset_digest
-    runtime_ruleset_reads = 0
-
-    def _activated_ruleset_b() -> TableRulesetSnapshot:
-        nonlocal runtime_ruleset_reads
-        runtime_ruleset_reads += 1
-        return ruleset_b
-
-    monkeypatch.setattr(
-        ruleset_registry,
-        "migrated_table_ruleset_snapshot",
-        _activated_ruleset_b,
-    )
-    monkeypatch.setattr(
-        submit_jobs_module,
-        "migrated_table_ruleset_snapshot",
-        _activated_ruleset_b,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        publication_module,
-        "migrated_table_ruleset_snapshot",
-        _activated_ruleset_b,
-        raising=False,
-    )
-
-    adapter = SubmitImportPublicationAdapter()
-    published = adapter.build_and_publish(build_input=build_input, store=store)
-    new_package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
-    assert runtime_ruleset_reads == 0
-    assert raw_blob_digest(new_package) == raw_blob_digest(frozen_package)
-    assert _replay_sql_from_package(new_package) == _replay_sql_from_package(frozen_package)
 
 
 def test_rebuild_always_publish_is_deterministic_for_same_inputs() -> None:

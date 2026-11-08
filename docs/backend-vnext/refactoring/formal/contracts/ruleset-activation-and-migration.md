@@ -23,8 +23,7 @@ candidate -> validate -> activate -> immutable snapshot
 只有恢复的 operation，上一句在恢复场景下按以下规则理解：纯计算 operation（Preview、History compare）在
 受理时冻结 ruleset digest，恢复时运行期 ruleset 与冻结值不同则稳定失败，由用户重跑，不得静默改用新规则；
 Submit 在 T1 冻结规范产物之后（含 PREPARED）只使用冻结产物，不依赖运行期 ruleset
-（2026-09-27，[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)；实现随 P5 架构收口 S2a、S2b 交付，此前
-现行源码仍按原行为运行）。
+（2026-09-27，[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)）。
 
 Submit 为冻结的 storage diff 读取 parent Repository commit 时，内部 RepositoryRef materializer
 使用完整 parent canonical binding 的 storage view、列和键，不解析激活后的 comparison ruleset；

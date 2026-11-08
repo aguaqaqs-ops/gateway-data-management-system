@@ -226,10 +226,10 @@ def _resource_pass(start: dict[str, Any], end: dict[str, Any]) -> bool:
         if current["rss_hwm_bytes"] is None or current["memory_peak"] < 0:
             return False
     worker = after["worker"]
-    return (worker["memory_max"] == str(WORKER_ENVELOPE)
-            and worker["host_memory_limit"] == WORKER_ENVELOPE
-            and worker["memory_peak"] <= WORKER_ENVELOPE
-            and worker["resource_env"] == RESOURCE_ENV)
+    return bool(worker["memory_max"] == str(WORKER_ENVELOPE)
+                and worker["host_memory_limit"] == WORKER_ENVELOPE
+                and worker["memory_peak"] <= WORKER_ENVELOPE
+                and worker["resource_env"] == RESOURCE_ENV)
 
 
 def _input_manifest(manifest: Path, input_source: Path) -> dict[str, str]:

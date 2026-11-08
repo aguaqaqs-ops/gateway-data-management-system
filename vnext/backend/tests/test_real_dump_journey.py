@@ -2106,7 +2106,7 @@ def test_submit_measurement_reads_a_validated_repository_main(
     def client(**kwargs: Any) -> httpx.Client:
         return client_type(transport=httpx.MockTransport(respond), **kwargs)
 
-    monkeypatch.setattr(real_dump_journey.httpx, "Client", client)
+    monkeypatch.setattr(httpx, "Client", client)
     if error is None:
         assert real_dump_journey._repository_main_commit("http://repository.test", "repo") == "a" * 32
     else:

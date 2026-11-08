@@ -141,6 +141,13 @@ def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> Stora
                               after.manifest_table.canonical_row_count))
 
 
+def _assert_operation_resources_released(context: KernelExecutionContext) -> None:
+    # Flush operation-lived metadata only. Arrow/native reservations must
+    # already be gone after the table handle and input readers close.
+    context.memory.close()
+    assert context.memory.used_bytes == 0
+
+
 def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> None:
     old_rows = [(str(i), "0", "old" if i == 42 else "same") for i in range(100)]
     new_rows = [(str(i), "0", "new" if i == 42 else "same") for i in range(100)]
@@ -156,7 +163,7 @@ def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> 
         assert choose_table_mutation(_task(before, after), summary,
             policy=MutationPolicy.ADAPTIVE_PATCH,
             threshold=MutationThresholdPolicy()).operation is TableMutationKind.PATCH_DML
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() -> None:
@@ -176,7 +183,7 @@ def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() ->
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         assert decision.replay_insert_rows == 0
         handle.apply_decision(decision)
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_source_schema_only_change_is_noop_after_complete_keyed_diff() -> None:
@@ -194,7 +201,7 @@ def test_source_schema_only_change_is_noop_after_complete_keyed_diff() -> None:
         assert decision.operation is TableMutationKind.NOOP
         assert decision.reason == "NO_NET_STORAGE_CHANGE"
         handle.apply_decision(decision)
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_source_only_change_with_metadata_before_rebuilds_without_invented_net_counts() -> None:
@@ -216,7 +223,7 @@ def test_source_only_change_with_metadata_before_rebuilds_without_invented_net_c
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         assert decision.reason == "BEFORE_ROWS_UNAVAILABLE"
         handle.apply_decision(decision)
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_storage_rule_digest_only_change_uses_the_shared_comparability_rule() -> None:
@@ -235,7 +242,7 @@ def test_storage_rule_digest_only_change_uses_the_shared_comparability_rule() ->
             policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
         assert decision.operation is TableMutationKind.NOOP
         handle.apply_decision(decision)
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_native_entry_rejects_structural_context_and_closed_context() -> None:
@@ -309,7 +316,7 @@ def test_merged_operation_scope_accepts_its_original_verified_reader() -> None:
             # its table still owns native Arrow references.
             handle._operation.close()
             assert context.memory.used_bytes > 0
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_rebuild_discards_old_arrow_and_patch_locators_before_render() -> None:
@@ -330,7 +337,7 @@ def test_rebuild_discards_old_arrow_and_patch_locators_before_render() -> None:
         assert handle.patch_locator_count == 0
         assert context.memory.used_bytes < with_old
         assert context.memory.used_bytes > 0
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 def test_empty_multibatch_input_rejects_header_growth_before_stream_consumption() -> None:
@@ -348,7 +355,7 @@ def test_empty_multibatch_input_rejects_header_growth_before_stream_consumption(
             prepare_storage_table(_task(None, after), context)
     finally:
         context.memory.limit_bytes = original_limit
-    assert context.memory.used_bytes == 0
+    _assert_operation_resources_released(context)
 
 
 @pytest.mark.serial
@@ -367,12 +374,12 @@ from gateway_backend.capabilities.mutation_planning.native import prepare_storag
 from tests.test_storage_mutation_native import _side, _table, _task
 
 _init_kernel_native(THREADS)
-context = KernelExecutionContext(OperationMemoryBudget(512 * 1024**2), NeverCancel(), THREADS)
 old_rows = [("1", "0", "a"), ("2", "0", "b"), ("3", "0", "c")]
 new_rows = [("3", "0", "c"), ("2", "0", "changed"), ("4", "0", "d")]
 observed = []
-with kernel_execution_scope(context):
-    for batch_size in (3, 1):
+for batch_size in (3, 1):
+    context = KernelExecutionContext(OperationMemoryBudget(512 * 1024**2), NeverCancel(), THREADS)
+    with kernel_execution_scope(context):
         old = _table(old_rows)
         new = _table(new_rows)
         old = pa.Table.from_batches(old.to_batches(max_chunksize=batch_size), schema=old.schema)
@@ -383,7 +390,7 @@ with kernel_execution_scope(context):
             counts = handle.summary().net_counts
             assert counts is not None
             observed.append((counts.inserted, counts.updated, counts.deleted, handle.patch_locator_count))
-        assert context.memory.used_bytes == 0
+    assert context.memory.used_bytes == 0
 assert observed == [(1, 1, 1, 3), (1, 1, 1, 3)]
 print(json.dumps(observed))
 """.replace("THREADS", str(threads))

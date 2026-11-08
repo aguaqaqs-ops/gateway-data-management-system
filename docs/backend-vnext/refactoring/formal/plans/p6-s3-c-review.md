@@ -1,6 +1,6 @@
 # Phase 6 S3 C 独立审核
 
-**当前结论：C 固定候选 `bd384246bd50320feba1d1cb805a96034ab294c7` 的预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 在 06 的 fmt 首败后停止；`bca590261568e8adeec605ecc00afbb2715782ad` 的 fmt 通过、clippy 编译 E0609 首败，后续 test/native/backend/static 未运行。bd 的运行和当前镜像证据仍待取得。
+**当前结论：C 固定候选 `bd384246bd50320feba1d1cb805a96034ab294c7` 的预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 在 06 的 fmt 首败后停止；`bca590261568e8adeec605ecc00afbb2715782ad` 在 clippy 编译 E0609 首败；bd 的 fmt 通过、clippy 新增代码 lint 首败，test/native/backend/static 均未运行。CT201→06 依赖镜像预填充已按完整身份通过，当前候选镜像与真实 native smoke 仍待取证。
 
 ## 1. 固定对象、职责与方法
 
@@ -100,3 +100,13 @@ CT201 第一次源 WT 准备只因既有日志名拒覆盖，原件 `source-wt-c
 本人逐字核 CT201→06 预填充脚本 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/prefill-06.sh` SHA256=`48017e4e374725c8c7826359f0d46b2d98d6611f05edf1d3ccae7282e334f437`，及随附身份核验脚本 `verify-saved-image.py` SHA256=`bbf4a6ac956ec57cc88bdb496f334306bdfe9e92024a538526cc6b2136ca7d50`。它只在 06 空闲时取得本人原子 marker，经 LAN 校四件源/节点 SHA；以 `docker save` 的 config blob digest 与完整 RootFS DiffID 核 Rust base 5 层、dependency image 19 层并核锁输入 label。已有相同 derived tag 只核不覆盖，缺失才 `docker load`；精准释放本人 marker。Python runtime base 要求本机存在，当前 Compose 后续仍需当前候选镜像实证。此稿**静态 CLEAR，仅备料，不把 CT201 构建或预填充当 C 产品测试**；06 原始执行结果另核。
 
 bd 的源、节点、运行与外层四稿 SHA256 分别为 `6cbc4a132fbdfb65405d9fcb93c12234dc515f20ed6b078120a53036da775b75`、`57a8d2ff0bef7689a6ae3f15d8df86f70b55ea9ce0392b8575cddc29f58c5127`、`c0ddde6d26ce48aad9b9d996919ac164c7640363f62275fca395512758457020`、`748f67ff2f553f021dc6e9872d01ebc5be3dfb45f4961e1fd6685df037141333`。本人逐字核：除了固定 HEAD、证据路径、会话、嵌入脚本 SHA 和 purpose 文字，命令与已审 bca 稿一致；两类 06 操作严格串行，bd 仍从 fmt 重新开始、首败停止。此为**执行稿静态 CLEAR**，不是 bd 编译、测试或 C GO。
+
+### 9.1 06 依赖预填充原件
+
+唯一 tester 在 bca 本人 marker 释放后执行预填充，原始 CT201 日志 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/logs/06-prefill.log` SHA256=`c84aaade82bb2d52618d579e9afa634586c7dae2e1924b4b3c0160ffff083d11`、`FINAL_EXIT=0`。日志记 heavy-dev-01 01:36:33Z 起、06 01:36:36Z 获取本人 marker、LAN 01:36:35–55Z、06 01:37:14–29Z `docker load`、01:37:49Z 释放本人 marker；两个节点四文件 SHA 均正确。06 本机 `docker save` 的 Rust base config=`sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1`、全 5 DiffID，与 CT201 源一致；导入 dependency tag 后 config=`sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`、全 19 DiffID 与锁输入 label 均一致。06 本机 inspect ID 仅参考；本步没有编译、产品测试或 Compose，不能把 bca/bd 失败改记 PASS。
+
+## 10. bd 06 focused 新首败
+
+bd 的源 bundle 日志 SHA256=`7f74bd62e2deda04339b2f8d2af7373efd5663c4d5fe6ff5b2ce778797304456`；节点准备原始日志 SHA256=`7f1345ba8f860e56e90ff48d3f96d660e21a11ed52145fb49c70ec6ec0fe4bdf`，完整历史 bundle verify/fetch、HEAD=bd、clean detached、exit0。外层原始日志 SHA256=`4a948468e0aa82d29b04bf596470b75041985f27a754e29c251c897a1284029f`，01:38:18–26Z、`FINAL_EXIT=101`。06 Rust 原始日志 SHA256=`aa0d1677398b8bbd236411426083a95ac92c121f811f20b4c30118ff97716e5d`，01:38:22–26Z，HEAD=bd、Rust tree=`d2114c5bce35d03b0fedd7ae485890c637ab2e3f`、clean、六锁无漂；fmt exit0，clippy exit101。clippy 报 C 新 `comparison/policy.rs` enum large variant、`records/source.rs` 五个 builder 函数参数数目，以及 C 新 builders/source 单测 25 条 `expect`/`unwrap` lint。既有 E0609 已不再出现，但 workspace test、native 重装、backend focused 与五包静态仍**未运行**。这属于新编译/lint 反馈，未触及读预算或 offset 同根修订轮；交原实施者集中按 Rust policy 最小修，下一固定提交从 fmt 重新跑。
+
+tester 的只读 postflight 原件 SHA256=`009696965544fae611d9efdd50e627a1856b855f8f0d548e8d4268ee86d33df2`，以 `awk`/`tail` 收齐原始日志与诊断、WT=bd clean、本人 marker、无相关进程/容器/8000 listener，SSH exit0。本人 marker 释放原件 SHA256=`5bf70247781662f3fb433a38fa853cd977e8e23f984db6c4972050e114885da3` 是事后誊录的 SSH stdout/exit：01:40:03Z 检查精确 owner/idle 后移除本人 marker，工具 exit0。没有重跑 clippy 或后续步骤。

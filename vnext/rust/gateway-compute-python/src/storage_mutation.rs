@@ -92,18 +92,11 @@ struct StorageHandle {
     owner: Option<Arc<PythonChargeOwner>>,
 }
 
+type StorageSummary = (usize, usize, Option<(usize, usize, usize)>, bool, bool, usize);
+
 #[pymethods]
 impl StorageHandle {
-    fn summary(
-        &self,
-    ) -> PyResult<(
-        usize,
-        usize,
-        Option<(usize, usize, usize)>,
-        bool,
-        bool,
-        usize,
-    )> {
+    fn summary(&self) -> PyResult<StorageSummary> {
         let table = self
             .table
             .as_ref()
@@ -253,13 +246,13 @@ fn consume_stream(
     input: StreamInput,
     context: &KernelContext,
 ) -> Result<Option<StorageSide>, String> {
-    let Some((mut reader, expected_rows, retained_columns)) = input else {
+    let Some((reader, expected_rows, retained_columns)) = input else {
         return Ok(None);
     };
     let schema = reader.schema();
     let mut batches = Vec::new();
     let mut count = 0usize;
-    while let Some(next) = reader.next() {
+    for next in reader {
         context.check().map_err(|error| error.to_string())?;
         if batches.len() >= 4096 {
             return Err("RESOURCE_LIMIT_EXCEEDED".into());

@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { components } from "../api/generated/openapi";
+type HistoryNode = components["schemas"]["HistoryNodeResponse"];
 import {
   ARCHIVE_PLAN_NEEDS_CONFIRMATION, DISPOSITION_D5_NODE, DISPOSITION_HEAD, DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
   HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
@@ -314,12 +316,12 @@ describe("simulated HTTP response contracts", () => {
     type HistoryDataset = {
       name: string;
       headId: string;
-      nodes: typeof HISTORY_PAGE_ONE.nodes;
+      nodes: HistoryNode[];
       d5: string[];
     };
-    const mergedShared = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
-    const mergedCursor = [...TEST_HISTORY_CURSOR_FIRST.nodes, ...TEST_HISTORY_CURSOR_SECOND.nodes];
-    const scenario = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES] as typeof HISTORY_PAGE_ONE.nodes;
+    const mergedShared: HistoryNode[] = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
+    const mergedCursor: HistoryNode[] = [...TEST_HISTORY_CURSOR_FIRST.nodes, ...TEST_HISTORY_CURSOR_SECOND.nodes];
+    const scenario = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES] ;
     const datasets: HistoryDataset[] = [
       { name: "HISTORY_PAGE_ONE", headId: HISTORY_PAGE_ONE.head.node_id, nodes: HISTORY_PAGE_ONE.nodes, d5: [] },
       { name: "HISTORY_PAGE_TWO", headId: HISTORY_PAGE_TWO.head.node_id, nodes: HISTORY_PAGE_TWO.nodes, d5: [] },
@@ -331,7 +333,7 @@ describe("simulated HTTP response contracts", () => {
       { name: "merged cursor pages", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: mergedCursor, d5: ["submission-1"] },
       { name: "disposition scenarios", headId: DISPOSITION_HEAD.node_id, nodes: scenario, d5: [] },
       // D5 case data: the only dataset allowed to carry the D5 shape.
-      { name: "D5 case", headId: DISPOSITION_HEAD.node_id, nodes: [...scenario, DISPOSITION_D5_NODE] as typeof HISTORY_PAGE_ONE.nodes, d5: ["d5"] },
+      { name: "D5 case", headId: DISPOSITION_HEAD.node_id, nodes: [...scenario, DISPOSITION_D5_NODE] , d5: ["d5"] },
     ];
     for (const dataset of datasets) {
       for (const node of dataset.nodes) {
@@ -364,7 +366,7 @@ describe("simulated HTTP response contracts", () => {
     // promoted baseline's parent equals the archiving submission's parent;
     // one parent baseline yields at most one ARCHIVED_BASELINE; archive
     // siblings closed by the same result share the archived parent.
-    const checkChain = (name: string, headId: string, nodes: typeof HISTORY_PAGE_ONE.nodes) => {
+    const checkChain = (name: string, headId: string, nodes: HistoryNode[]) => {
       const byId = new Map(nodes.map((node) => [node.ref_id, node]));
       const archived = nodes.filter((node) =>
         node.node_kind === "SUBMISSION" && node.submission_disposition === "ARCHIVED_BASELINE");
@@ -420,9 +422,9 @@ describe("simulated HTTP response contracts", () => {
         }
       }
     };
-    const mergedShared = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
+    const mergedShared: HistoryNode[] = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
     checkChain("merged shared pages", HISTORY_PAGE_ONE.head.node_id, mergedShared);
-    const scenario = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES] as typeof HISTORY_PAGE_ONE.nodes;
+    const scenario = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES] ;
     checkChain("disposition scenarios", DISPOSITION_HEAD.node_id, scenario);
   });
 });

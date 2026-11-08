@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from functools import cache
 from pathlib import Path
 from typing import Any, cast
@@ -28,4 +29,4 @@ def _cases() -> dict[str, dict[str, Any]]:
 
 def frozen_case(nodeid: str) -> dict[str, Any]:
     """Get a frozen old-source expectation for one exact expanded pytest case."""
-    return _cases()[nodeid]
+    return deepcopy(_cases()[nodeid])

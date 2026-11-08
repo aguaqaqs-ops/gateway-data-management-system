@@ -9,6 +9,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import closing
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -166,7 +167,7 @@ def test_native_standard_arrow_and_complete_facts_match_pre_c_source() -> None:
         RecordsPublicationPolicy(), RecordsPublicationContext(),
     )
     assert hashlib.sha256(new_raw).hexdigest() == old_entry["raw_sha256"]
-    metadata = expected["table_payload"].copy()
+    metadata = deepcopy(expected["table_payload"])
     metadata["records"] = []
     raw = json.dumps(metadata)
     assert handle.table_fact_digest(raw, 8 * 1024**2) == expected["tables"][0]["table_fact_digest"]
@@ -582,7 +583,7 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
                 RecordsPublicationPolicy(), RecordsPublicationContext(),
             )
             assert hashlib.sha256(raw_parquet).hexdigest() == old_entry["raw_sha256"]
-    metadata = expected["table_payload"].copy()
+    metadata = deepcopy(expected["table_payload"])
     metadata["records"] = []
     for extension in ("ordered_extension", "blank_extension"):
         value = metadata.get(extension)

@@ -521,6 +521,66 @@ def test_counts_only_output_budget_excludes_full_sort_blob() -> None:
     operation.close()
 
 
+@pytest.mark.parametrize("detail_policy", ("COUNTS_ONLY", "FULL_BEFORE_AFTER_VALUES"))
+def test_records_sort_cap_scales_without_changing_projected_rows(detail_policy: str) -> None:
+    mib = 1024**2
+    bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL);")
+    assert bound.table_set is not None
+    with closing(_canonical_stream(bound.table_set.tables[0])) as schema_reader:
+        schema = schema_reader.schema
+    note = "x" * (128 * 1024)
+    current_batch = pa.RecordBatch.from_arrays(
+        [pa.array([1], type=schema.field("id").type),
+         pa.array([note], type=schema.field("note").type)],
+        schema=schema,
+    )
+    policy = json.dumps({
+        "mode": "keyed", "selected_columns": ["id", "note"],
+        "effective_key_before": ["id"], "effective_key_current": ["id"],
+        "compare_excluded_columns": [], "incompatible_columns": [],
+        "emit_add_delete": True, "columns_added": False,
+    })
+
+    def compare(sort_cap: int) -> tuple[dict[str, Any] | None, int]:
+        memory = OperationMemoryBudget(64 * mib)
+        native_charge = memory.reserve(48 * mib)
+        input_charge = memory.reserve(mib)
+        operation = _begin_comparison_operation_native(48 * mib, native_charge, NeverCancel())
+        before = pa.RecordBatchReader.from_batches(schema, [])
+        current = pa.RecordBatchReader.from_batches(schema, [current_batch])
+        handle: NativeTestHandle | None = None
+        row: dict[str, Any] | None = None
+        try:
+            handle = cast(NativeTestHandle, _compare_records_native(
+                operation, "standard", "t", before, current, policy,
+                detail_policy, 2_000_000, sort_cap, 4 * mib, 8 * mib, input_charge,
+            ))
+            with closing(handle.record_batches("STANDARD")) as stream:
+                row = cast(dict[str, Any], stream.read_next_batch().to_pylist()[0])
+        finally:
+            if handle is not None:
+                handle.close()
+            before.close()
+            current.close()
+            operation.close()
+            import gc
+            gc.collect()
+            assert memory.used_bytes == 0
+        return row, memory.high_water_bytes
+
+    with pytest.raises(MemoryError, match="records sort budget exceeded"):
+        compare(256 * 1024)
+    row, peak = compare(16 * mib)
+    assert peak <= 64 * mib
+    assert row is not None and row["record_kind"] == "ROW_ADDED"
+    assert row["table_name"] == "t"
+    if detail_policy == "COUNTS_ONLY":
+        assert row["current_values"] == []
+        assert row["changed_columns"] == []
+    else:
+        assert {item["column_name"] for item in row["current_values"]} == {"id", "note"}
+
+
 def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() -> None:
     before = _bound("""
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);

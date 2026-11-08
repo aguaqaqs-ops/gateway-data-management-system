@@ -111,6 +111,8 @@ Arrow/mmap owner 经现 S2b handle 生命周期跨 FFI 持有；Rust detach/GIL 
 
 初始 N1/M24 不变；06 focused 建议 Cargo jobs4/pytest4，与 N 分开。记录 charged high-water、RSS/cgroup及 writer 高水位，不能把它们相加冒总峰值。若 W4 全变化或 FULL 超 M，给表行数/宽度、分项预约、实际峰值与拒绝位置，优先减少重复驻留，再由 Owner 决定范围/配置，不静默抬 M。
 
+S3 临时 48 GiB worker envelope、8 GiB reserve、显式 M40 诊断档仍维持 N1；生产默认 32/8/M24 不因诊断改变。`production.py` 在同一 `OperationMemoryBudget` 内为 native phase 预留 `native_budget=available-concurrent_scratch`，Python Arrow 输入 owner 在余下的并发空间计费，Rust `KernelContext` 则以该 native 预留额管理解析后的输入、表计算、排序和输出。Records sort 的每表 `max_sort_bytes` 使用这个已预留的 native phase 上限，不另设固定 2 GiB 天花板或第二份预算；共享 context 中其他驻留仍能先触发资源拒绝。排序继续用 FULL row/JCS 作产物顺序兜底，即使发布 detail policy 较窄；三族 Arrow 输出仍各受 512 MiB、每表 2m records 与 1024 rows/batch 约束，Parquet writer/reader 的 512 MiB artifact 与 row-group/解码界限不变。取消、deadline、native owner seal/reconcile 和 operation M 的拒绝/释放顺序不变；这项接口修正本身不证明 M40 的真实 W3 warm 已通过。
+
 取消/截止在导入批、索引构建、排序比较循环、LIS、记录/JCS批、writer与风险批检查；复用现 deadline 与错误码。保持 effect 前纯重算 drain 重排队（DC88）、冻结四状态、已有事务/CAS、保护引用和 READY屏障。不得把派生去重结果升级成恢复状态机。
 
 ## 7. 变更与覆盖移交清单

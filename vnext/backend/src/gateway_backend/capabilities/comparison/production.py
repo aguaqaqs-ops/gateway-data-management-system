@@ -508,6 +508,7 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
 def _compare_native(
     operation: object, task: TableComparisonTask, *, kind: str,
     policy: dict[str, object], detail_policy: RecordsDetailPolicy,
+    native_budget_bytes: int,
     session: ComparisonTaskSession | None = None,
     metrics: ComparisonRunMetrics,
 ) -> Any:
@@ -538,7 +539,7 @@ def _compare_native(
                 policy_json=json.dumps(policy, separators=(",", ":")),
                 detail_policy=detail_policy.value,
                 input_owner_charge=owner, max_records=_MAX_RECORDS,
-                max_sort_bytes=2 * 1024**3, max_output_bytes=MAX_NATIVE_RECORD_BYTES,
+                max_sort_bytes=native_budget_bytes, max_output_bytes=MAX_NATIVE_RECORD_BYTES,
                 max_input_bytes=context.memory.limit_bytes,
             )
             input_seconds, compare_seconds, build_seconds = handle.phase_timings()
@@ -749,6 +750,7 @@ def _compare_task_native(
     task: TableComparisonTask, operation: object,
     session: ComparisonTaskSession | None,
     metrics: ComparisonRunMetrics, detail_policy: RecordsDetailPolicy,
+    native_budget_bytes: int,
 ) -> tuple[ComparisonTableFact, Any | None]:
     policy = task.policy
     assert policy is not None
@@ -768,6 +770,7 @@ def _compare_task_native(
                             schema_diagnostics=[])
         probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
                                 detail_policy=detail_policy,
+                                native_budget_bytes=native_budget_bytes,
                                 session=session, metrics=metrics)
         try:
             metadata = json.loads(probe.metadata_json())
@@ -792,6 +795,7 @@ def _compare_task_native(
             return _ordered_unchanged_native(task, operation, schema, session, metrics), None
         handle = _compare_native(operation, task, kind="ordered",
                                  policy=_ordered_policy(task, schema), detail_policy=detail_policy,
+                                 native_budget_bytes=native_budget_bytes,
                                  session=session,
                                  metrics=metrics)
         return _native_fact(task, handle, schema), handle
@@ -814,6 +818,7 @@ def _compare_task_native(
         ), None
     handle = _compare_native(operation, task, kind="standard",
                              policy=_standard_policy(task, schema), detail_policy=detail_policy,
+                             native_budget_bytes=native_budget_bytes,
                              session=session,
                              metrics=metrics)
     return _native_fact(task, handle, schema), handle
@@ -980,7 +985,7 @@ def _compare_plan_native_once(
             try:
                 if cached is None:
                     fact, handle = _compare_task_native(
-                        task, operation, session, metrics, detail_policy,
+                        task, operation, session, metrics, detail_policy, native_budget,
                     )
                 else:
                     fact, handle = cached

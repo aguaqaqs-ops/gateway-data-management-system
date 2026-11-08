@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, closing
 from dataclasses import replace
 from threading import Event
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -22,6 +23,7 @@ from gateway_backend.capabilities.comparison import (
     SchemaEvolution,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison import native as comparison_native
 from gateway_backend.capabilities.comparison.contracts import (
     BlankRecord, BlankRecordKind, BlankSemanticKind, OrderedInterval,
 )
@@ -63,6 +65,65 @@ from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize("route", ("standard", "ordered", "probe"))
+def test_native_sort_cap_uses_the_reserved_phase_budget(
+    route: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if route == "ordered":
+        before = bound("CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
+                       "INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');")
+        current = bound("CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
+                        "INSERT INTO t VALUES (2, 1, 'b'), (1, 2, 'a');")
+        planned = plan(_canonical_bound(before), _canonical_bound(current), ordered=True)
+    elif route == "probe":
+        before = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT); "
+                       "INSERT INTO t VALUES (1, 10);")
+        current = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT, note TEXT); "
+                        "INSERT INTO t VALUES (1, 11, 'new');")
+        planned = role_plan(
+            _canonical_bound(before), _canonical_bound(current), TableStaticRole.BROWSE_ONLY,
+        )
+    else:
+        before = bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); "
+                       "INSERT INTO t VALUES (1, 'before');")
+        current = bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); "
+                        "INSERT INTO t VALUES (1, 'after');")
+        planned = plan(_canonical_bound(before), _canonical_bound(current))
+
+    reserved: list[int] = []
+    calls: list[dict[str, Any]] = []
+    real_begin = comparison_native.begin_records_operation
+    real_compare = comparison_native.compare_records_batches
+
+    def observe_begin(*args: Any, **kwargs: Any) -> Any:
+        reserved.append(kwargs["native_budget_bytes"])
+        return real_begin(*args, **kwargs)
+
+    def observe_compare(*args: Any, **kwargs: Any) -> Any:
+        calls.append({key: kwargs[key] for key in (
+            "max_sort_bytes", "max_records", "max_output_bytes", "max_input_bytes", "kind",
+        )})
+        return real_compare(*args, **kwargs)
+
+    monkeypatch.setattr(comparison_native, "begin_records_operation", observe_begin)
+    monkeypatch.setattr(comparison_native, "compare_records_batches", observe_compare)
+    product = compare_plan_native(planned)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert len(reserved) == len(calls) == 1
+        context = current_kernel_context()
+        assert context is not None
+        assert reserved[0] > 2 * 1024**3
+        assert calls[0]["max_sort_bytes"] == reserved[0]
+        assert calls[0]["max_records"] == 2_000_000
+        assert calls[0]["max_output_bytes"] == 512 * 1024**2
+        assert calls[0]["max_input_bytes"] == context.memory.limit_bytes
+        assert calls[0]["kind"] == ("ordered" if route == "ordered" else "standard")
+        assert context.memory.high_water_bytes <= context.memory.limit_bytes
+    finally:
+        product.close()
 
 
 def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:

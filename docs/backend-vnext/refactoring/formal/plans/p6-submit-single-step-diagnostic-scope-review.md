@@ -3018,3 +3018,13 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 上述两项最小接线及05真实consumer focused/必要静态结果待交，测试节点占用前提继续遵守；不在CT201执行候选/测试。V5b-only具体复用/原绝对截止/局部准备/收尾仍按§138设计边界集中独审，无新Owner/GO、不重跑已完成DC63旅程/seed/POST。record修订、STRESS副本传输及两项04测试修订保持原授权独立推进，不因本小项整体暂停。
 
 **窄接线修订 `f8b08fc13e9a1231b0fb140bc75c741fec8ec6ca` 代码复核PASS，无剩余已知代码Finding，05实际结果仍待交。** 父520bc，仅将V5b helper导入移至backend-root路径设置之后并统一benchmarks package，返回类型从owning comparison直接导入；原策略、真实consumer测试、生产要求及S5默认保持，diff-check已核。已直接告实施者必要focused/静态本已授权，可与只读代码审并行；05自有record步骤结束后按原postflight释放再取测试占用，尊重他人有效占用，不增加代码GO/窗口预约。实施者确认原SIGINT绝对截止Nov8 20:04:47.876Z、hard20:34:47.876Z继续，具体V5b-only接线与实证仍依§138集中核。
+
+## 142. 05默认SSH PATH准备失败：修受控任务环境继续，不等待Owner改全局配置
+
+实施者报告V5b focused前两次预检失败（第二次改bash -lc但PATH相同），UV/pytest未启，以旧DC68计数停下并等待Owner修root PATH/恢复授权。**此处应直接修受控执行入口继续，不新增Owner/代码/manifest GO。** §136既有持续授权和已审§129/133/134入口都包含任务进程显式前置/home/dev/.cargo/bin；先设置所需环境，再验证实际工具链，不能把SSH默认profile当已准备环境或原样猜登录shell。AGENTS的实际PATH/selector要求保持，未获放宽。
+
+本审核已直接读CT201 relay `p6-baseline-evidence-review-20261108/historical-records/` 的两个139B原件ct05-v5b-focused-preflight-attempt1/2.log，SHA均 **`9f067d3446398acd2a2d777abda049b830f97c6776855fd19031296ccd47dc46`**；内容只报告ambient PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin、Rust overrides nonempty={}，没有工具链错误或缓存缺失的实际证据。source import log482B/SHA35245036…15e7ed7记录00:57:43Z、准确f8b08fc clean、legacy链接正确、bundle SHA **`f9310461549725ce46b4fb25fca287d45d5c05f3d2aa8dc561ac33bc5b0b0bad`**，本地归档重算相同。
+
+释放log420B/SHA **`17553526ecad78179578de63f26ebfc51dfe92d56a6297cdbb157848e4bccd1f`** 直接核：01:01:17.909273Z、focused未启动、准确owner match、无活动测试/record/service进程、f8b08fc clean并解锁。初取锁和前record锁按owner释放的日志也已读，不由读取者替他人清占用。设计另在01:02Z只读确认任务PATH前置后cargo/rustc解析至所需目录、uv/python3存在，无缺工具迹象；最终selector/四工具一致性仍由实际执行脚本核验，不冒称已过focused。
+
+已直接告实施者在最终执行shell中先export PATH=/home/dev/.cargo/bin:$PATH、unset RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME，保持UV/Cargo离线和外置TMPDIR，再按selector核工具身份并运行已授权必要focused/静态；不修改全局登录配置、selector、锁或依赖，不等待审核者再看预检脚本，不原样第三试。原失败/释放记录保留，真实工具链或缓存异常另据事实处理；V5b原绝对截止、record语义/producer修订及04两测试修正继续，不整体暂停。审核者未在CT201跑测试或改节点环境。

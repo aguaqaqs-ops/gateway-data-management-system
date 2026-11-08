@@ -6,21 +6,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
+use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
     ParsedComparisonPolicy, StandardComputation, StandardKind, StandardRecordRef,
-    compare_ordered_batches, compare_standard_table,
-    parse_comparison_policy, summarize_unchanged_ordered_batches,
+    compare_ordered_batches, compare_standard_table, parse_comparison_policy,
+    summarize_unchanged_ordered_batches,
 };
 use gateway_compute_core::{
     BuiltRecords, RecordsBatchValidator, TableFactsInput, build_blank_records,
     build_ordered_records, build_standard_records, build_standard_records_from_ordered,
-    charge_arrow_batches, digest_facts_core_json, digest_table_fact_json,
-    json_metadata_upper, json_size,
-    ordered_metadata_json, standard_metadata_json,
+    charge_arrow_batches, digest_facts_core_json, digest_table_fact_json, json_metadata_upper,
+    json_size, ordered_metadata_json, standard_metadata_json,
 };
 use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyOSError, PyRuntimeError, PyTimeoutError, PyValueError,
@@ -262,21 +261,46 @@ impl ComparisonRecordsHandle {
         let result = self.result.as_ref().ok_or_else(closed_handle)?;
         let (records, order) = match result.as_ref() {
             ComparisonResult::Standard(value) => (&value.records, &value.facts_order),
-            ComparisonResult::Ordered(value) => (&value.standard_records, &value.standard_facts_order),
+            ComparisonResult::Ordered(value) => {
+                (&value.standard_records, &value.standard_facts_order)
+            }
         };
         let mut upper = 4096usize;
         for index in order {
             let record = &records[*index];
-            upper = upper.checked_add(1024)
-                .and_then(|size| size.checked_add(record.row_identity.as_ref().map_or(0, String::len).saturating_mul(8)))
-                .and_then(|size| size.checked_add(record.changed_columns.iter().map(String::len).sum::<usize>().saturating_mul(8)))
+            upper = upper
+                .checked_add(1024)
+                .and_then(|size| {
+                    size.checked_add(
+                        record
+                            .row_identity
+                            .as_ref()
+                            .map_or(0, String::len)
+                            .saturating_mul(8),
+                    )
+                })
+                .and_then(|size| {
+                    size.checked_add(
+                        record
+                            .changed_columns
+                            .iter()
+                            .map(String::len)
+                            .sum::<usize>()
+                            .saturating_mul(8),
+                    )
+                })
                 .ok_or_else(|| PyMemoryError::new_err("risk view size overflow"))?;
         }
-        let lease = self.context.reserve(upper).map_err(|error| comparison_error(error.to_string()))?;
+        let lease = self
+            .context
+            .reserve(upper)
+            .map_err(|error| comparison_error(error.to_string()))?;
         let schema = risk_schema();
         let mut batches = Vec::new();
         for chunk in order.chunks(1024) {
-            self.context.check().map_err(|error| comparison_error(error.to_string()))?;
+            self.context
+                .check()
+                .map_err(|error| comparison_error(error.to_string()))?;
             let mut kinds = StringBuilder::new();
             let mut identities = FixedSizeBinaryBuilder::with_capacity(chunk.len(), 32);
             let mut changes = ListBuilder::new(StringBuilder::new());
@@ -284,7 +308,8 @@ impl ComparisonRecordsHandle {
                 let record = &records[*index];
                 kinds.append_value(record.kind.contract_name());
                 if let Some(identity) = &record.row_identity {
-                    identities.append_value(digest_bytes(identity)?)
+                    identities
+                        .append_value(digest_bytes(identity)?)
                         .map_err(|error| PyValueError::new_err(error.to_string()))?;
                 } else {
                     identities.append_null();
@@ -294,28 +319,41 @@ impl ComparisonRecordsHandle {
                 }
                 changes.append(true);
             }
-            batches.push(RecordBatch::try_new(Arc::clone(&schema), vec![
-                Arc::new(kinds.finish()), Arc::new(identities.finish()), Arc::new(changes.finish()),
-            ]).map_err(|error| PyValueError::new_err(error.to_string()))?);
+            batches.push(
+                RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![
+                        Arc::new(kinds.finish()),
+                        Arc::new(identities.finish()),
+                        Arc::new(changes.finish()),
+                    ],
+                )
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+            );
         }
-        let external: Arc<dyn Any + Send + Sync> = self.owner.as_ref()
-            .ok_or_else(closed_handle)?.clone();
-        self.risk_batches = Some(charge_arrow_batches(batches, lease, external)
-            .map_err(comparison_error)?);
+        let external: Arc<dyn Any + Send + Sync> =
+            self.owner.as_ref().ok_or_else(closed_handle)?.clone();
+        self.risk_batches =
+            Some(charge_arrow_batches(batches, lease, external).map_err(comparison_error)?);
         Ok(())
     }
 
     fn risk_record_batches(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let batches = self.risk_batches.as_ref().ok_or_else(||
-            PyValueError::new_err("risk view was not prepared before seal"))?;
+        let batches = self
+            .risk_batches
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("risk view was not prepared before seal"))?;
         let schema = risk_schema();
         let reader = BatchVecReader {
             schema,
             batches: batches.iter().cloned().collect(),
         };
         let bridge = Py::new(py, PyRecordBatchReader::new(Box::new(reader)))?;
-        Ok(py.import("pyarrow")?.getattr("RecordBatchReader")?
-            .call_method1("from_stream", (bridge,))?.unbind())
+        Ok(py
+            .import("pyarrow")?
+            .getattr("RecordBatchReader")?
+            .call_method1("from_stream", (bridge,))?
+            .unbind())
     }
 
     fn is_sealed(&self) -> bool {
@@ -356,10 +394,12 @@ fn comparison_error(error: String) -> PyErr {
     if error.contains("RESOURCE_LIMIT_EXCEEDED") || error.contains("budget exceeded") {
         PyMemoryError::new_err(error)
     } else if error.contains("COMPARISON_CANCELLED")
-        || error.contains("operation control stopped compute") {
+        || error.contains("operation control stopped compute")
+    {
         PyInterruptedError::new_err(error)
     } else if error.contains("COMPARISON_DEADLINE_EXCEEDED")
-        || error.contains("operation compute deadline elapsed") {
+        || error.contains("operation compute deadline elapsed")
+    {
         PyTimeoutError::new_err(error)
     } else if error.contains("COMPARISON_INTERNAL_ERROR") {
         PyRuntimeError::new_err(error)
@@ -406,7 +446,8 @@ fn read_stream(
             loop {
                 context.check().map_err(|error| error.to_string())?;
                 let Some(batch) = reader.next() else { break };
-                let batch = batch.map_err(|error| format!("COMPARISON_INPUT_READ_ERROR:{error}"))?;
+                let batch =
+                    batch.map_err(|error| format!("COMPARISON_INPUT_READ_ERROR:{error}"))?;
                 if batches.len() >= 4096 {
                     return Err("RESOURCE_LIMIT_EXCEEDED: too many input batches".to_string());
                 }
@@ -530,7 +571,8 @@ fn _compare_records_native(
         )?;
         let input_read_seconds = read_started.elapsed().as_secs_f64();
         let external: Arc<dyn Any + Send + Sync> = owner.clone();
-        let schema_diagnostics = py.import("json")?
+        let schema_diagnostics = py
+            .import("json")?
             .call_method1("loads", (policy_json,))?
             .call_method1("get", ("schema_diagnostics",))?
             .extract::<Option<Vec<String>>>()?
@@ -552,15 +594,29 @@ fn _compare_records_native(
                         let schema_lease = if schema_diagnostics.is_empty() {
                             None
                         } else {
-                            let upper = schema_diagnostics.iter().try_fold(4096usize,
-                                |size, item| size.checked_add(item.len().saturating_mul(8)))
-                                .and_then(|size| size.checked_add(
-                                    options.selected_columns.iter().map(String::len).sum::<usize>().saturating_mul(8)))
+                            let upper = schema_diagnostics
+                                .iter()
+                                .try_fold(4096usize, |size, item| {
+                                    size.checked_add(item.len().saturating_mul(8))
+                                })
+                                .and_then(|size| {
+                                    size.checked_add(
+                                        options
+                                            .selected_columns
+                                            .iter()
+                                            .map(String::len)
+                                            .sum::<usize>()
+                                            .saturating_mul(8),
+                                    )
+                                })
                                 .ok_or("schema record budget overflow")?;
-                            let lease = context.reserve(upper).map_err(|error| error.to_string())?;
+                            let lease =
+                                context.reserve(upper).map_err(|error| error.to_string())?;
                             result.records.push(StandardRecordRef {
                                 kind: StandardKind::SchemaChange,
-                                row_identity: None, before: None, current: None,
+                                row_identity: None,
+                                before: None,
+                                current: None,
                                 value_columns: Vec::new(),
                                 changed_columns: options.selected_columns.clone(),
                                 diagnostics: schema_diagnostics.clone(),
@@ -569,8 +625,16 @@ fn _compare_records_native(
                             result.facts_order.sort_by(|left, right| {
                                 let left = &result.records[*left];
                                 let right = &result.records[*right];
-                                (left.kind.contract_name(), left.row_identity.as_deref(), &left.changed_columns)
-                                    .cmp(&(right.kind.contract_name(), right.row_identity.as_deref(), &right.changed_columns))
+                                (
+                                    left.kind.contract_name(),
+                                    left.row_identity.as_deref(),
+                                    &left.changed_columns,
+                                )
+                                    .cmp(&(
+                                        right.kind.contract_name(),
+                                        right.row_identity.as_deref(),
+                                        &right.changed_columns,
+                                    ))
                             });
                             result.artifact_order = result.facts_order.clone();
                             Some(lease)
@@ -585,8 +649,15 @@ fn _compare_records_native(
                             &context,
                             Some(external),
                         )?;
-                        Ok((ComparisonResult::Standard(result), standard, None, None,
-                            schema_lease, compare_seconds, records_started.elapsed().as_secs_f64()))
+                        Ok((
+                            ComparisonResult::Standard(result),
+                            standard,
+                            None,
+                            None,
+                            schema_lease,
+                            compare_seconds,
+                            records_started.elapsed().as_secs_f64(),
+                        ))
                     }
                     ParsedComparisonPolicy::Ordered(options) => {
                         let compare_started = Instant::now();

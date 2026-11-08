@@ -271,7 +271,10 @@ pub fn charge_arrow_batches(
         _lease: Mutex::new(lease),
         _external_owner: Some(external_owner),
     });
-    batches.into_iter().map(|batch| charged_batch(batch, &charge)).collect()
+    batches
+        .into_iter()
+        .map(|batch| charged_batch(batch, &charge))
+        .collect()
 }
 
 fn attach_charge(data: ArrayData, charge: &Arc<OutputCharge>) -> Result<ArrayData, String> {

@@ -356,3 +356,9 @@ controller `prepare-run.sh` SHA256=`6200e083c8e3c683090a30f271cdcd2fc28bf7e29ae0
 三节点均从完整bundle建私有clean linked WT，起止HEAD=`3a7e088b2a1d66a6c7ab847d5119eb465628a601`、Rust tree9d4f，五Python包各离线同步0；backend强制native重装后的独立checker打印expected=installed9d4f，四Rust工具同1.97.0 selector，六锁前后无漂、原子marker guarded释放0。实际backend依赖基`gateway-backend-deps:lock-578e079b762e`经当前`--print-input` SHA578e和本机save verifier核config digest=`sha256:46c00a3b032e93fae3d86b0adb797c16902b0117477b6275c267ab6eec7fe939`及全部19 DiffID；输入中Rust基础config 7ea/5 DiffID只是**基础镜像身份**，不能误标为dependency镜像。RS基锁SHA/label一致，04另核client基。06与CT108两份`standard-input-copy.json`字节SHA相同=`0c6c3864bd65a0dc04286d78b49b57aed9320460c121e13038948d03dec10517`，均固定标准metadata SHA `78c7cbba05acbbe92cc9a22351f8caf800824c4520e0d9685c6e776d6042da4f`及8包逐项bytes/SHA；CT108另固定原性能tar SHA4008、独立copy manifest SHA cc175及13项逐项bytes/SHA，日志`ALL_13_ACCEPTED_PERFORMANCE_INPUTS_MATCH=1`。
 
 **仅接收3a7三节点source/cache/env准备范围。** 准备结束后各节点重新按实际占用准入，04权威六包、06 fresh t1–t3、CT108 fresh t4/正式性能均须各自原始执行与独立核收；此处不记测试、Compose、真实或性能PASS。
+
+## 41. Risk必要Arrow转换的实际计时归属
+
+本人沿a9旧诊断与3a7现役源码核调用时序。现役`risk_evaluation/_engine.py`的`fact_extraction_seconds`只包`extract_risk_facts`（314–322行）；该函数在`_facts.py`为每个需要的表创建懒`RiskRecordView`，并以family summary判断是否有记录，不会在此阶段调用`batch.to_pydict()`。`rules_evaluation_seconds`从规则循环前起到循环后止（325–358行）；`_evaluate_table_impl`内`_emit_row_risks`与后续未知kind检查遍历`item.records`，这才进入`RiskRecordView.__iter__`（60–88行），对必要列调用`to_pydict()`并累加`necessary_arrow_conversion_seconds`。因此**当前E完整成功路径中，必要Arrow转换是rules_evaluation计时的嵌套子段，不属于fact_extraction子段**；若没有记录遍历则不会产生该转换。规则段不能被解释为纯规则引擎成本，不能把conversion再加到规则段或从fact_extraction扣除。
+
+a9旧D原两表2x MO的`necessary_arrow_conversion_seconds=2.8292629141`也由相同懒视图迭代记录，只是D当时未提供E新增的五段Risk子计时。E handoff 24ab末段“conversion inside fact extraction”的文字与此不符；已通知实施者另作纯文档更正，旧原件与冻结产品不改。本项只校正阶段归属，仍须等CT108完整Preview正式测量及规则/JCS/出版分段的实际数据再作DC47判断。

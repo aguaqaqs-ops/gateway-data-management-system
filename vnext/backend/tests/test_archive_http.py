@@ -184,6 +184,12 @@ def test_list_archive_candidates_returns_approved_submission(archive_env: Worksp
     assert body["head"]["baseline_head_version"] == BASELINE_HEAD.baseline_head_version
     assert len(body["candidates"]) == 1
     assert body["candidates"][0]["submission_id"] == seed.submission_id
+    assert body["candidates"][0] == {
+        "submission_id": seed.submission_id,
+        "expected_candidate_digest": seed.selected_ref.expected_candidate_digest,
+        "review_version": 1,
+    }
+    assert body["candidate_set_digest"] == seed.candidate_set_digest
     assert "repository_id" not in body
 
 
@@ -321,6 +327,79 @@ def test_archive_read_without_permission_hides_candidates(tmp_path: Path) -> Non
         headers=_auth_headers(env, bearer=DENIED_ARCHIVER_BEARER),
     )
     assert response.status_code == 403
+
+
+def test_archive_only_actor_reads_candidate_version_and_closes_with_cas(tmp_path: Path) -> None:
+    archive_only = "archive-only-session-token"
+    env = _archive_env(
+        tmp_path,
+        extra_sessions={
+            archive_only: make_identity(
+                actor_id="archive-only-actor",
+                permissions=frozenset({"workspace_read", PERMISSION_ARCHIVE_SUBMISSION}),
+            ),
+            OTHER_SCOPE_BEARER: make_identity(
+                actor_id="foreign-archive-actor",
+                device_key="device-other",
+                permissions=frozenset({"workspace_read", PERMISSION_ARCHIVE_SUBMISSION}),
+            ),
+        },
+    )
+    seed = seed_approved_archive_candidate(env.db_path)
+    _upsert_provisioned_mapping_row(
+        env.db_path,
+        device_key="device-other",
+        repository_id="repo-other",
+        baseline_head=BASELINE_HEAD,
+    )
+    path = f"/v1/submissions/{seed.submission_id}/closure"
+    own_headers = _auth_headers(env, bearer=archive_only)
+    review = env.client.get(f"/v1/submissions/{seed.submission_id}/review", headers=own_headers)
+    assert review.status_code == 403
+    foreign = env.client.get("/v1/archive-candidates", headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER))
+    assert foreign.status_code == 200 and foreign.json()["candidates"] == []
+    foreign_close = env.client.post(
+        path,
+        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, idempotency_key="foreign-close"),
+        json=_closure_body(),
+    )
+    assert foreign_close.status_code == 404 and foreign_close.json()["code"] == "RESOURCE_NOT_FOUND"
+
+    candidates = env.client.get("/v1/archive-candidates", headers=own_headers)
+    assert candidates.status_code == 200
+    candidate_body = candidates.json()
+    candidate = candidate_body["candidates"][0]
+    assert candidate["submission_id"] == seed.submission_id
+    assert candidate["expected_candidate_digest"] == seed.selected_ref.expected_candidate_digest
+    assert candidate_body["candidate_set_digest"] == seed.candidate_set_digest
+    review_version = candidate["review_version"]
+    assert type(review_version) is int and review_version > 0
+    body = {
+        "expected_review_version": review_version,
+        "expected_baseline_node_id": candidate_body["head"]["business_baseline_node_id"],
+        "expected_baseline_head_version": candidate_body["head"]["baseline_head_version"],
+        "reason": "close an approved candidate without granting review read",
+    }
+    stale = env.client.post(
+        path,
+        headers=_auth_headers(env, bearer=archive_only, idempotency_key="stale-close"),
+        json={**body, "expected_review_version": review_version - 1},
+    )
+    assert stale.status_code == 409 and stale.json()["code"] == "REVIEW_VERSION_CONFLICT"
+    first = env.client.post(
+        path,
+        headers=_auth_headers(env, bearer=archive_only, idempotency_key="current-close"),
+        json=body,
+    )
+    assert first.status_code == 201
+    assert first.json()["closed_by"] == "archive-only-actor"
+    replay = env.client.post(
+        path,
+        headers=_auth_headers(env, bearer=archive_only, idempotency_key="current-close"),
+        json=body,
+    )
+    assert replay.status_code == 200 and replay.json() == first.json()
+    assert env.client.get(f"/v1/submissions/{seed.submission_id}/review", headers=own_headers).status_code == 403
 
 
 def test_archive_start_returns_429_when_admission_closed(tmp_path: Path) -> None:

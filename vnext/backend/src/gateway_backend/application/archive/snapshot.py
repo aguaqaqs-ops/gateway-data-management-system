@@ -36,6 +36,13 @@ from gateway_backend.domain.workspace.models import IdentityContext, ResolvedSco
 
 
 @dataclass(frozen=True, slots=True)
+class ArchiveCandidateRead:
+    submission_id: str
+    expected_candidate_digest: str
+    review_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class ArchiveCandidateSnapshot:
     resolved_scope: ResolvedScope
     repository_id: str
@@ -45,6 +52,7 @@ class ArchiveCandidateSnapshot:
     baseline_commit_id: str
     baseline_head_version: int
     candidates: tuple[ArchiveCandidateRef, ...]
+    candidate_reads: tuple[ArchiveCandidateRead, ...]
     candidate_set_digest: str
     active_attempt_ids: tuple[str, ...]
     pending_submission_ids: tuple[str, ...]
@@ -75,6 +83,7 @@ def load_archive_candidate_snapshot(
     except (ValueError, TypeError, KeyError) as exc:
         raise ArchiveIntegrityFailure("candidate configuration facts are invalid") from exc
     candidate_refs: list[ArchiveCandidateRef] = []
+    candidate_reads: list[ArchiveCandidateRead] = []
     business_candidates: list[ArchiveBusinessCandidate] = []
     for fact in facts:
         try:
@@ -107,6 +116,11 @@ def load_archive_candidate_snapshot(
                 expected_candidate_digest=candidate_digest,
             )
         )
+        candidate_reads.append(ArchiveCandidateRead(
+            submission_id=approved_fact.submission.submission_id,
+            expected_candidate_digest=candidate_digest,
+            review_version=projection.optimistic_version,
+        ))
     if len(candidate_refs) > ARCHIVE_MAX_CANDIDATES:
         raise ArchiveScopeLimitExceeded()
     baseline_side, baseline_facts_digest = _load_baseline_configuration(unit_of_work, fresh_scope)
@@ -165,6 +179,7 @@ def load_archive_candidate_snapshot(
         baseline_commit_id=head.business_baseline_commit_id,
         baseline_head_version=head.baseline_head_version,
         candidates=tuple(candidate_refs),
+        candidate_reads=tuple(candidate_reads),
         candidate_set_digest=candidate_set_digest,
         active_attempt_ids=tuple(item.submit_attempt_id for item in active_attempts),
         pending_submission_ids=tuple(pending_ids),

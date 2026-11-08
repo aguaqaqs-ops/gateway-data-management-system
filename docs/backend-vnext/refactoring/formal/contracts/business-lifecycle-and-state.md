@@ -248,6 +248,7 @@ expected BaselineHead version，并在短本地事务中重新校验Head、无ac
 candidate-set digest、confirmation、anomaly resolution与唯一selection。AcceptSubmit和
 StartArchive在同一Repository/BaselineHead scope内通过control DB事务串行验收。
 `ArchiveCandidatesResponse` 与 `PreviewArchivePlanResponse` 展示有权限读取的 `pending_submission_ids`/`pending_submission_count`，有待审核项则 `ARCHIVE_PENDING_REVIEW` 且不可Start；查询有界、完整性损坏不静默忽略，草稿不阻塞，原active Attempt门禁保持。
+`GET /v1/archive-candidates` 仅向当前scope有 `archive_submission` 的身份返回候选；每个 `ArchiveCandidateResponse` 必含非负安全整数 `review_version`，取自该候选同一只读事务中权威 ReviewProjection 的 `optimistic_version`。归档确认人用它填写 `POST /v1/submissions/{submission_id}/closure` 的 `expected_review_version`；版本过期仍返回 `409 REVIEW_VERSION_CONFLICT`。`review_version` 只是候选读取字段，不进入 `ArchiveCandidateRef`、candidate/candidate-set digest、选择或关闭 fingerprint；选择请求仍只接收 `submission_id` 与 `expected_candidate_digest`。此读取不授予 Review GET 权限，后者仍按独立审核权限与本人撤回权限判定。
 Confirmation和AnomalyResolution是append-only审计事实；有效性由当前subject digest和
 sequence派生。AnomalyResolution 包括身份异常 subject：带身份确认记录的 Submission 被选为归档
 对象时，必须有带理由的肯定处置。

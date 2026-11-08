@@ -36,6 +36,7 @@ from gateway_backend.application.archive.ports import (
     ArchiveControlUnitOfWorkFactory,
 )
 from gateway_backend.application.archive.snapshot import (
+    ArchiveCandidateRead,
     ArchiveCandidateSnapshot,
     collect_repository_submit_blockers,
     load_archive_candidate_snapshot,
@@ -62,7 +63,7 @@ ARCHIVE_AUDIT_EVENTS_MAX_LIMIT = 100
 @dataclass(frozen=True, slots=True)
 class ArchiveCandidatesResult:
     head: BaselineHead
-    candidates: tuple[ArchiveCandidateRef, ...]
+    candidates: tuple[ArchiveCandidateRead, ...]
     candidate_set_digest: str
     blockers: tuple[str, ...]
     pending_submission_ids: tuple[str, ...]
@@ -147,7 +148,7 @@ def get_archive_candidates(
             blockers.append("ARCHIVE_PENDING_REVIEW")
         return ArchiveCandidatesResult(
             head=snapshot.resolved_scope.baseline_head,
-            candidates=snapshot.candidates,
+            candidates=snapshot.candidate_reads,
             candidate_set_digest=snapshot.candidate_set_digest,
             blockers=tuple(blockers),
             pending_submission_ids=snapshot.pending_submission_ids,

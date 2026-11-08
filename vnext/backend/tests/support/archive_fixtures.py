@@ -652,9 +652,12 @@ def seed_triple_approved_sibling_archive(
         if candidate.submission_id == primary_review.submission_id
     )
     sibling_refs = tuple(
-        next(candidate for candidate in candidates.candidates if candidate.submission_id == submission_id)
+        ArchiveCandidateRef(candidate.submission_id, candidate.expected_candidate_digest)
         for submission_id in sibling_ids
+        for candidate in candidates.candidates
+        if candidate.submission_id == submission_id
     )
+    assert len(sibling_refs) == len(sibling_ids)
     selection_subject_digest = compute_selection_subject_digest(
         candidate_set_digest=candidates.candidate_set_digest,
         selected_submission_id=primary_ref.submission_id,

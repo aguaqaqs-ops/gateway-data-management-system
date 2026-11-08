@@ -338,6 +338,31 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
     old_published = publish_records_closure(old, old_store)
     assert isinstance(old_published, DetailedFactsResult)
     assert old_published.records_closure is not None
+    blank_extension = old.facts.tables[0].blank_extension
+    ordered_extension = old.facts.tables[0].ordered_extension
+    assert blank_extension is not None and blank_extension.records
+    assert ordered_extension is not None
+    # Isolate the no-handle BLANK publication shape. Both writers consume the
+    # same derived small facts, so the byte comparison tests the Arrow closure
+    # writer's metadata path without using native output as expected bytes.
+    blank_only_fact = replace(
+        old.facts.tables[0], records=(),
+        ordered_extension=replace(ordered_extension, records=()),
+    )
+    blank_only = replace(old, facts=replace(old.facts, tables=(blank_only_fact,)))
+    blank_old_store = InMemoryArtifactStore()
+    blank_new_store = InMemoryArtifactStore()
+    blank_old = publish_records_closure(blank_only, blank_old_store)
+    blank_new = publish_records_closure_arrow(blank_only, {}, blank_new_store)
+    assert isinstance(blank_old, DetailedFactsResult)
+    assert isinstance(blank_new, DetailedFactsResult)
+    assert blank_old.records_closure is not None and blank_new.records_closure is not None
+    assert len(blank_new.records_closure.records) == 1
+    assert blank_new.records_closure.records[0].family.value == "BLANK"
+    assert blank_new.records_closure.closure_manifest_digest == blank_old.records_closure.closure_manifest_digest
+    assert blank_new_store.locate(blank_new.records_closure.records[0].records_ref) == blank_old_store.locate(
+        blank_old.records_closure.records[0].records_ref
+    )
 
     product = compare_plan_native(plan(
         _canonical_bound(before), _canonical_bound(current), ordered=True,

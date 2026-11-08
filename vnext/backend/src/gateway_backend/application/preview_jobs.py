@@ -54,6 +54,9 @@ from gateway_backend.application.pair_pipeline import (
     declare_pair_comparison_session,
     preview_identity_assessment,
 )
+from gateway_backend.capabilities.project_identity import (
+    ProjectIdentityStatus as AssessmentProjectIdentityStatus,
+)
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     NormalPublicationCapability,
@@ -1952,9 +1955,12 @@ def _assemble_preview(
         ) if assess_identity else None)
         dedup_requests.append(ComparisonRequest(
             pair_id=pair_id, before=before, current=current, rule_set=rule_set,
-            mode=(ComparisonMode.DATASET_REPLACEMENT if
-                  assessment is not None and assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
-                  else ComparisonMode.DETAILED),
+            mode=(
+                ComparisonMode.DATASET_REPLACEMENT
+                if assessment is not None
+                and assessment.status is AssessmentProjectIdentityStatus.DIFFERENT_PROJECT
+                else ComparisonMode.DETAILED
+            ),
         ))
     dedup_session = declare_pair_comparison_session(tuple(dedup_requests))
     for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:

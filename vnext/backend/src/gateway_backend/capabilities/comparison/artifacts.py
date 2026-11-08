@@ -766,17 +766,9 @@ def _publish_records_closure_arrow_admitted(
                     if operation is None:
                         raise RecordsPublicationError("native publication requires an operation budget")
                     small_upper = 8 * 1024**2 + sum(
-                        8192 + 64 * (
-                            len(record.table_name)
-                            + sum(len(value) for value in record.changed_columns)
-                            + sum(len(value) for value in record.diagnostics)
-                        )
-                        for record in records
+                        _metadata_record_upper(record) for record in records
                     )
-                    with operation.memory.reserve(min(
-                        2 * limits.max_records_artifact_bytes + 1024 * 1024,
-                        small_upper,
-                    )):
+                    with operation.memory.reserve(small_upper):
                         entries.append(_publish_family(
                             table, family, records, store, limits, control, detail_policy,
                         ))
@@ -1229,6 +1221,44 @@ def _records_by_family(
     if table.blank_extension is not None and table.blank_extension.records:
         result.append((RecordsArtifactFamily.BLANK, tuple(table.blank_extension.records)))
     return tuple(result)
+
+
+def _metadata_record_upper(record: object) -> int:
+    """Charge the three small-record shapes before Python row/Parquet growth."""
+    if isinstance(record, BlankRecord):
+        interval = record.interval
+        variable = (
+            len(record.table_name)
+            + sum(len(value) for value in record.diagnostics)
+            + sum(
+                0 if value is None else value.bit_length() + 2
+                for value in (
+                    interval.before_start, interval.before_end,
+                    interval.current_start, interval.current_end,
+                )
+            )
+            + interval.row_count.bit_length() + 2
+            + (0 if interval.interval_digest is None else len(interval.interval_digest.value))
+        )
+    elif isinstance(record, ComparisonRecord | OrderedRecord):
+        if record.before_values or record.current_values or (
+            isinstance(record, ComparisonRecord) and record.field_changes
+        ):
+            raise RecordsPublicationError("row values require a native records handle")
+        variable = (
+            len(record.table_name)
+            + sum(len(value) for value in record.changed_columns)
+            + sum(len(value) for value in record.diagnostics)
+            + (0 if record.row_identity is None else len(record.row_identity.value))
+        )
+        if isinstance(record, OrderedRecord):
+            variable += sum(
+                0 if value is None else value.bit_length() + 2
+                for value in (record.before_position, record.current_position)
+            )
+    else:
+        raise RecordsPublicationError("metadata-only family contains an invalid record")
+    return 8192 + 64 * variable
 
 
 def _record_to_row(

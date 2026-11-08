@@ -19,6 +19,10 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyResult,
     BundleAssemblyStatus,
 )
+from gateway_backend.capabilities.comparison import (
+    ComparisonMode, ComparisonPlan, ComparisonRequest, ComparisonTaskSession,
+    NativeComparison,
+)
 
 from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
@@ -45,7 +49,7 @@ from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.workspace.models import InputCompleteness
+from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
@@ -488,6 +492,80 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
         (item.applicability.value, item.status.value, item.mode.value)
         for item in preview_result.identity_pairs
     ] == [("APPLICABLE", "SAME_PROJECT", "DETAILED")]
+
+
+def test_full_different_project_declares_replacement_for_matching_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_preview_harness(
+        tmp_path, input_completeness=InputCompleteness.FULL,
+        include_identity_table=True, identity_project_id="project-a",
+    )
+    modified_identity_sql = (
+        "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
+        "INSERT INTO version_manager VALUES ('project-b');\n"
+    )
+    modified_binding = store_source_package(
+        harness.artifact_store, (MODIFIED_SQL + modified_identity_sql).encode("utf-8"),
+        artifact_id="full-modified-different-project",
+    )
+    initial_binding = harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL]
+    harness.upload_revision = build_upload_revision(
+        input_completeness=InputCompleteness.FULL,
+        initial_binding=initial_binding,
+        modified_binding=modified_binding,
+        generation=harness.upload_revision.generation,
+    )
+    harness.job_payload = build_preview_job_payload(
+        workspace_id=harness.upload_revision.workspace_id,
+        upload_revision=harness.upload_revision,
+        repository_id=REPOSITORY_ID,
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+    )
+    declared_modes: list[tuple[ComparisonMode, ...]] = []
+    original = preview_jobs.declare_pair_comparison_session
+    native_modes_and_calls: list[tuple[ComparisonMode, int]] = []
+    original_native = pair_pipeline.compare_plan_native
+
+    def capture_declaration(
+        requests: tuple[ComparisonRequest, ...],
+    ) -> ComparisonTaskSession | None:
+        declared_modes.append(tuple(request.mode for request in requests))
+        return original(requests)
+
+    def capture_native(
+        plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+    ) -> NativeComparison:
+        result = original_native(plan, session=session)
+        assert result.metrics is not None
+        native_modes_and_calls.append((plan.mode, result.metrics.native_calls))
+        return result
+
+    monkeypatch.setattr(preview_jobs, "declare_pair_comparison_session", capture_declaration)
+    monkeypatch.setattr(pair_pipeline, "compare_plan_native", capture_native)
+    _run_through_publish(harness, "op-full-different-project-declaration")
+    assert declared_modes == [
+        (ComparisonMode.DETAILED, ComparisonMode.DATASET_REPLACEMENT),
+    ]
+    assert len(native_modes_and_calls) == 2
+    assert native_modes_and_calls[1] == (ComparisonMode.DATASET_REPLACEMENT, 0)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert workspace is not None and workspace.current_preview_result_id is not None
+        preview_result = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
+    assert preview_result is not None
+    assert [
+        (pair.status.value, pair.mode.value) for pair in preview_result.identity_pairs
+    ] == [
+        ("SAME_PROJECT", "DETAILED"),
+        ("DIFFERENT_PROJECT", "DATASET_REPLACEMENT"),
+    ]
 
 
 @dataclass

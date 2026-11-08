@@ -24,6 +24,27 @@ class CancelProbe(Protocol):
     def is_set(self) -> bool: ...
 
 
+class ComparisonOperation(Protocol):
+    """The coarse native phase owner returned by the PyO3 boundary."""
+
+    def seal(self) -> None: ...
+    def close(self) -> None: ...
+
+
+class ComparisonRecordsHandle(Protocol):
+    """One sealed-table candidate and its bounded Arrow outputs."""
+
+    def phase_timings(self) -> tuple[float, float, float]: ...
+    def metadata_json(self) -> str: ...
+    def prepare_risk_batches(self) -> None: ...
+    def table_fact_digest(self, metadata_json: str, max_jcs_row_bytes: int) -> str: ...
+    def family_summary(self, family: str) -> tuple[int, str]: ...
+    def record_batches(self, family: str) -> pa.RecordBatchReader: ...
+    def risk_record_batches(self) -> pa.RecordBatchReader: ...
+    def is_sealed(self) -> bool: ...
+    def close(self) -> None: ...
+
+
 class _NeverCancel:
     def is_set(self) -> bool:
         return False
@@ -34,7 +55,7 @@ def begin_records_operation(
     native_budget_bytes: int,
     cancel_probe: CancelProbe,
     deadline_monotonic: float | None,
-) -> object:
+) -> ComparisonOperation:
     """Use the caller's existing operation budget and initialized pool.
 
     D owns the operation scope and picks the native reservation. The native
@@ -45,10 +66,10 @@ def begin_records_operation(
         raise RuntimeError("comparison records require an operation scope")
     reservation = operation.memory.reserve(native_budget_bytes)
     try:
-        return _begin_comparison_operation_native(
+        return cast(ComparisonOperation, _begin_comparison_operation_native(
             native_budget_bytes, reservation, cancel_probe, deadline_monotonic,
             id(operation.memory),
-        )
+        ))
     except BaseException:
         reservation.close()
         raise
@@ -68,14 +89,14 @@ def compare_records_batches(
     max_sort_bytes: int,
     max_output_bytes: int,
     max_input_bytes: int,
-) -> object:
+) -> ComparisonRecordsHandle:
     """One coarse Arrow comparison with an explicit unique input owner."""
     try:
-        return _compare_records_native(
+        return cast(ComparisonRecordsHandle, _compare_records_native(
             operation, kind, table_name, before, current, policy_json,
             detail_policy, max_records, max_sort_bytes, max_output_bytes, max_input_bytes,
             input_owner_charge,
-        )
+        ))
     except BaseException:
         close = getattr(input_owner_charge, "close", None)
         if callable(close):

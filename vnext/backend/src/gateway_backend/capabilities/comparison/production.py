@@ -9,7 +9,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, closing
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 
 import pyarrow as pa
 from gateway_shared_kernel import DigestRef
@@ -68,6 +68,10 @@ class _InputCharge:
             if callable(close):
                 close()
         self._charges = ()
+
+
+class _Closable(Protocol):
+    def close(self) -> None: ...
 
 
 class _CompositeArrowOwner:
@@ -544,7 +548,7 @@ class NativeComparison:
             self.operation = None
 
 
-def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
+def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
@@ -962,6 +966,8 @@ def _ordered_unchanged_native(
     before = task.before_descriptor
     current = task.current_descriptor
     assert table is not None and before is not None and current is not None and task.policy is not None
+    ordered_policy = task.policy.ordered_policy
+    assert ordered_policy is not None
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("comparison operation context was lost")
@@ -991,7 +997,7 @@ def _ordered_unchanged_native(
             status=OrderedStatus.UNCHANGED, ordered_summary=OrderedSummary(),
             before_ordered_digest=DigestRef(before_digest), current_ordered_digest=DigestRef(current_digest),
             replay_guarantee=ReplayGuarantee.EXACT,
-            policy_digest=task.policy.ordered_policy.policy_digest,
+            policy_digest=ordered_policy.policy_digest,
         ),
         blank_extension=BlankExtension(
             status=OrderedStatus.UNCHANGED, blank_summary=BlankSummary(),

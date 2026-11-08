@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from typing import cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -81,6 +81,7 @@ def publish_annotation_artifact(
             estimated += len(reason.message) * 64 + 2048
             estimated += sum((len(name) + len(str(value))) * 64 + 256
                              for name, value in reason.evidence)
+    admission: AbstractContextManager[object]
     if operation is None:
         admission = nullcontext()
     else:

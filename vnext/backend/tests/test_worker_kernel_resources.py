@@ -58,10 +58,12 @@ def test_worker_accepts_the_bounded_larger_envelope(tmp_path: Path) -> None:
     ),
 )
 def test_worker_rejects_a_budget_outside_its_bounded_envelope(
-    tmp_path: Path, changes: dict[str, object],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changes: dict[str, object],
 ) -> None:
+    monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
+    valid = make_operation_worker_settings(tmp_path).model_dump()
     with pytest.raises(ValidationError):
-        make_operation_worker_settings(tmp_path, **changes)
+        OperationWorkerSettings.model_validate({**valid, **changes})
 
 
 def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

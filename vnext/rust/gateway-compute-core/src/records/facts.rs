@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 use super::json_metadata_upper;
 use super::source::{cell_upper, standard_upper};
 use crate::comparison::{
-    KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardRecordRef,
+    KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardKind,
+    StandardRecordRef,
     canonical_cell_frame_at,
 };
 
@@ -369,17 +370,24 @@ fn standard_fact(
     before: &[arrow_array::RecordBatch],
     current: &[arrow_array::RecordBatch],
 ) -> Result<Value, String> {
-    let field_changes = record
-        .changed_columns
-        .iter()
-        .map(|column| {
-            Ok(json!({
-                "column": column,
-                "before": frame_at(before, record.before, column)?,
-                "current": frame_at(current, record.current, column)?,
-            }))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let field_changes = if matches!(
+        record.kind,
+        StandardKind::SchemaChange | StandardKind::TableDegraded
+    ) {
+        Vec::new()
+    } else {
+        record
+            .changed_columns
+            .iter()
+            .map(|column| {
+                Ok(json!({
+                    "column": column,
+                    "before": frame_at(before, record.before, column)?,
+                    "current": frame_at(current, record.current, column)?,
+                }))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
     Ok(json!({
         "kind": record.kind.contract_name(),
         "row_identity": record.row_identity,

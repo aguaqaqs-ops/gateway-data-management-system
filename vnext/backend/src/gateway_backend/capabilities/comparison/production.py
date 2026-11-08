@@ -287,6 +287,13 @@ class ComparisonTaskSession:
             _, charges = item
             charges.close()
 
+    def risk_evict_for_output(self) -> None:
+        """Release only optional Risk candidates before necessary output work."""
+        for _, charges in self.risk_candidates.values():
+            charges.close()
+        self.risk_candidates.clear()
+        self.abort_pending_risk()
+
     def evict_for(self, plan: ComparisonPlan) -> None:
         # Proactively release optional retention only when the next mixed
         # pair has too little headroom even for facts/core scratch. Otherwise

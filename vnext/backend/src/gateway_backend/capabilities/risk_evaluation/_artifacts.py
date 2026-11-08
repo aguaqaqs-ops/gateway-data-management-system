@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from typing import cast
 
@@ -70,6 +70,7 @@ def publish_annotation_artifact(
     table_name: str,
     annotations: Sequence[RiskAnnotation],
     max_bytes: int,
+    on_memory_pressure: Callable[[], bool] | None = None,
 ) -> RiskAnnotationArtifact:
     operation = current_kernel_context()
     estimated = 1024 * 1024
@@ -80,9 +81,16 @@ def publish_annotation_artifact(
             estimated += len(reason.message) * 64 + 2048
             estimated += sum((len(name) + len(str(value))) * 64 + 256
                              for name, value in reason.evidence)
-    admission = nullcontext() if operation is None else operation.memory.reserve(
-        estimated + 2 * max_bytes,
-    )
+    if operation is None:
+        admission = nullcontext()
+    else:
+        try:
+            admission = operation.memory.reserve(estimated + 2 * max_bytes)
+        except MemoryError:
+            if on_memory_pressure is None or not on_memory_pressure():
+                raise
+            operation.checkpoint()
+            admission = operation.memory.reserve(estimated + 2 * max_bytes)
     with admission:
         return _publish_annotation_artifact_charged(
             store, table_name=table_name, annotations=annotations, max_bytes=max_bytes,

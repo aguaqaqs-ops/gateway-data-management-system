@@ -65,7 +65,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access import Reservation, current_kernel_context
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
@@ -389,10 +389,20 @@ def _finish_comparison_risk_surface(
     # Surface holds only small facts/refs; its JSON construction and retained
     # result still consume the same operation M after native records seal.
     surface_started = perf_counter()
-    context.resources.enter_context(context.memory.reserve(
+    def reserve_surface(size: int) -> Reservation:
+        try:
+            return context.memory.reserve(size)
+        except MemoryError:
+            if native_comparison.session is None:
+                raise
+            native_comparison.session.risk_evict_for_output()
+            context.checkpoint()
+            return context.memory.reserve(size)
+
+    context.resources.enter_context(reserve_surface(
         16 * 1024**2 + len(comparison_facts.tables) * 65536,
     ))
-    with context.memory.reserve(8 * 16 * 1024**2):
+    with reserve_surface(8 * 16 * 1024**2):
         surface = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=comparison_facts,

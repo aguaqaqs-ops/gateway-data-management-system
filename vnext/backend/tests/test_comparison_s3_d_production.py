@@ -138,10 +138,18 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert actual.tables[0].blank_extension is not None
         assert actual.tables[0].ordered_extension.ordered_summary == old.facts.tables[0].ordered_extension.ordered_summary
         assert actual.tables[0].blank_extension.blank_summary == old.facts.tables[0].blank_extension.blank_summary
-        handle = product.handles["t"]
-        assert tuple(record.record_kind for record in RiskRecordView(handle)) == tuple(
-            record.record_kind for record in old.facts.tables[0].records
-        )
+        # This case has only ordered/blank movement, so row-target Risk does
+        # not request a standard projection before the native phase seals.
+        assert product.risk_handles == {}
+        rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
+        old_risk = evaluate_risk(RiskEvaluationInput(
+            comparison_facts=old.facts, risk_ruleset=rules, risk_options=RiskOptions(),
+        ), artifact_store=InMemoryArtifactStore())
+        new_risk = evaluate_risk(RiskEvaluationInput(
+            comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
+        ), artifact_store=InMemoryArtifactStore())
+        assert old_risk.risk_evaluation is not None and new_risk.risk_evaluation is not None
+        assert new_risk.risk_evaluation.risk_evaluation_digest == old_risk.risk_evaluation.risk_evaluation_digest
         new_store = InMemoryArtifactStore()
         new_published = publish_records_closure_arrow(
             product.result, product.handles, new_store,
@@ -513,7 +521,9 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
         assert candidate.result.facts.facts_core_digest == expected_core
     finally:
         candidate.close()
-    assert context.memory.used_bytes == retained_before + metadata_upper
+    # Reopening both Arrow readers retains two 512-byte source descriptors
+    # through this operation. The failed attempt's metadata charge is gone.
+    assert context.memory.used_bytes == retained_before + metadata_upper + 1024
     assert session.key_charges == {} and session.cached == {}
 
 
@@ -813,7 +823,10 @@ def test_reader_cancel_inside_arrow_stream_stops_before_table_degradation(
         return pa.RecordBatchReader.from_batches(stream.schema, batches())
 
     monkeypatch.setattr(ArrowSnapshotTableReader, "arrow_stream", injected)
-    with kernel_control_scope(stopped, None):
-        with pytest.raises(InterruptedError):
-            compare_plan_native(planned)
+    # The inner call must stop; the control scope also checks the latched
+    # probe on exit, so both checkpoints are inside the expected exception.
+    with pytest.raises(InterruptedError):
+        with kernel_control_scope(stopped, None):
+            with pytest.raises(InterruptedError):
+                compare_plan_native(planned)
     assert stopped.is_set()

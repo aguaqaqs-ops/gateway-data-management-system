@@ -17,6 +17,7 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationStatus, RiskExecutionContext, RiskExecutionPolicy,
     RiskOptions, evaluate_risk,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.test_comparison_s3_contract_vectors import _added_rows, _input
 
 pytestmark = pytest.mark.unit
@@ -74,6 +75,55 @@ class _Candidates:
         if self.charges is not None:
             self.charges.close()
             self.charges = None
+
+
+class _MultiCandidates:
+    """Two retained candidates; the second can crowd the first replay."""
+
+    def __init__(self) -> None:
+        self.remaining_uses = {"a-key": 2, "b-key": 2}
+        self.entries: dict[tuple[str, str], tuple[tuple[object, ...], ExitStack]] = {}
+        self.pressure_on_a = False
+        self.hits = 0
+        self.evictions = 0
+
+    def risk_lookup(self, task_key: str, risk_key: str) -> tuple[object, ...] | None:
+        item = self.entries.get((task_key, risk_key))
+        if item is None:
+            return None
+        self.hits += 1
+        if self.pressure_on_a and task_key == "a-key":
+            self.pressure_on_a = False
+            other = next(charges for (key, _), (_, charges) in self.entries.items()
+                         if key == "b-key")
+            operation = current_kernel_context()
+            assert operation is not None
+            # The charge is a real reservation in the current M. It becomes
+            # reclaimable only when the unrelated B candidate is discarded.
+            other.enter_context(operation.memory.reserve(operation.memory.available_bytes - 1024))
+        return item[0]
+
+    def risk_store(
+        self, task_key: str, risk_key: str,
+        events: tuple[object, ...], charges: ExitStack,
+    ) -> bool:
+        self.entries[(task_key, risk_key)] = (events, charges)
+        return True
+
+    def risk_evict(self, task_key: str, risk_key: str) -> None:
+        item = self.entries.pop((task_key, risk_key), None)
+        if item is not None:
+            item[1].close()
+            self.evictions += 1
+
+    def risk_evict_for_output(self) -> None:
+        for _, charges in self.entries.values():
+            charges.close()
+            self.evictions += 1
+        self.entries.clear()
+
+    def close(self) -> None:
+        self.risk_evict_for_output()
 
 
 class _RecordsAccess:
@@ -343,5 +393,40 @@ def test_large_optional_risk_key_safely_misses_with_same_result() -> None:
         assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
         assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
         assert cache.events is None and cache.hits == 0
+    finally:
+        cache.close()
+
+
+def test_other_optional_candidate_cannot_block_current_risk_output() -> None:
+    tables = tuple(replace(
+        _added_rows(name, 1),
+        table_fact_digest=raw_blob_digest(f"risk-pressure-{name}".encode()),
+    ) for name in ("a", "b"))
+    source = _input(tables)
+    cache = _MultiCandidates()
+    cached_input = replace(
+        source, risk_cache_session=cache,
+        risk_task_keys={"a": "a-key", "b": "b-key"},
+    )
+    try:
+        warm = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        assert warm.status is RiskEvaluationStatus.READY
+        assert len(cache.entries) == 2
+
+        cache.pressure_on_a = True
+        current = replace(cached_input, requested_tables=("a",))
+        candidate = evaluate_risk(current, artifact_store=InMemoryArtifactStore())
+        baseline = evaluate_risk(
+            replace(source, requested_tables=("a",)),
+            artifact_store=InMemoryArtifactStore(),
+        )
+        assert cache.hits == 1 and cache.evictions == 2 and cache.entries == {}
+        assert candidate.status is baseline.status is RiskEvaluationStatus.READY
+        assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
+        assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
+        assert candidate.risk_closure is not None and baseline.risk_closure is not None
+        assert candidate.risk_closure.closure_manifest_digest == baseline.risk_closure.closure_manifest_digest
+        operation = current_kernel_context()
+        assert operation is not None and operation.memory.used_bytes < 128 * 1024**2
     finally:
         cache.close()

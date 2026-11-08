@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 use crate::comparison::kernel::sort_indices_checked;
 use crate::comparison::ordered::{declared_type, scalar_type, typed_value};
 use crate::comparison::{
-    KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardRecordRef,
+    KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardKind,
+    StandardRecordRef,
 };
 
 use super::builders::{BoundedRow, BuiltRecords, build_records_arrow};
@@ -413,7 +414,12 @@ fn standard_row(
     detail: &str,
 ) -> Result<Value, String> {
     let full = detail == "FULL_BEFORE_AFTER_VALUES";
-    let changes = if full {
+    let changes = if full
+        && !matches!(
+            record.kind,
+            StandardKind::SchemaChange | StandardKind::TableDegraded
+        )
+    {
         record
             .changed_columns
             .iter()

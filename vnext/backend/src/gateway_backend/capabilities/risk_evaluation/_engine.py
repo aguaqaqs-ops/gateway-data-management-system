@@ -58,7 +58,9 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
 )
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.capabilities.table_access import Reservation, current_kernel_context
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, Reservation, current_kernel_context,
+)
 
 
 _LEVEL_RANK: dict[RiskLevel, int] = {
@@ -128,6 +130,26 @@ class _RiskCheckClosure:
 
 _CHECK_CLOSURE = _RiskCheckClosure()
 _RISK_CACHE_KEY_PROVISIONAL_BYTES = 16 * 1024**2
+
+
+def _evict_optional_risk_only(cache: object | None) -> bool:
+    evict = None if cache is None else getattr(cache, "risk_evict_for_output", None)
+    if not callable(evict):
+        return False
+    evict()
+    return True
+
+
+def _reserve_risk_output(
+    operation: KernelExecutionContext, size: int, cache: object | None,
+) -> Reservation:
+    try:
+        return operation.memory.reserve(size)
+    except MemoryError:
+        if not _evict_optional_risk_only(cache):
+            raise
+        operation.checkpoint()
+        return operation.memory.reserve(size)
 
 
 def _optional_risk_cache_key(
@@ -254,8 +276,9 @@ def evaluate_risk(
                 len(evaluation_input.comparison_facts.tables),
                 execution_policy.max_risk_tables_per_pair,
             )
-            operation.resources.enter_context(operation.memory.reserve(
+            operation.resources.enter_context(_reserve_risk_output(operation,
                 16 * 1024**2 + table_count * 8192,
+                evaluation_input.risk_cache_session,
             ))
         rules = validate_risk_ruleset(evaluation_input.risk_ruleset)
         if evaluation_input.comparison_facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT:
@@ -294,7 +317,10 @@ def evaluate_risk(
                 pair_charges.enter_context(outcome.charges)
                 total_annotations += len(outcome.annotations)
             except _TableBudgetExceeded:
-                degraded = _degraded_table(item, "risk table budget exceeded", rules)
+                degraded = _degraded_table(
+                    item, "risk table budget exceeded", rules,
+                    evaluation_input.risk_cache_session,
+                )
                 outcomes.append(degraded)
                 pair_charges.enter_context(degraded.charges)
             except _PairAnnotationBudgetExceeded:
@@ -370,7 +396,10 @@ def _evaluate_table_impl(
         or len(canonicalize_json_value(list(item.comparison_facts.diagnostics)))
         > policy.max_diagnostics_bytes_per_table
     ):
-        return _degraded_table(item, "risk diagnostics truncated", rules)
+        return _degraded_table(
+            item, "risk diagnostics truncated", rules,
+            evaluation_input.risk_cache_session,
+        )
 
     def emit(
         rule_id: RiskRuleId,
@@ -396,9 +425,12 @@ def _evaluate_table_impl(
             try:
                 reservation = operation.memory.reserve(size)
             except MemoryError:
-                if recorder is None:
-                    raise
-                recorder.close()
+                if recorder is not None:
+                    recorder.close()
+                if not _evict_optional_risk_only(evaluation_input.risk_cache_session):
+                    if recorder is None:
+                        raise
+                operation.checkpoint()
                 reservation = operation.memory.reserve(size)
             charges.enter_context(reservation)
         annotations.append(
@@ -451,9 +483,10 @@ def _evaluate_table_impl(
                             charges.enter_context(operation.memory.reserve(upper))
                             prepaid_cached_output = True
                         except MemoryError:
-                            evict = getattr(cache, "risk_evict")
-                            evict(task_key, risk_key)
                             cached_events = None
+                            if not _evict_optional_risk_only(cache):
+                                evict = getattr(cache, "risk_evict")
+                                evict(task_key, risk_key)
                             cache_rejected = True
                 if cached_events is None:
                     remaining = getattr(cache, "remaining_uses")
@@ -668,6 +701,9 @@ def _publish_result(
                     table_name=outcome.table_name,
                     annotations=outcome.annotations,
                     max_bytes=policy.max_annotation_artifact_bytes_per_table,
+                    on_memory_pressure=lambda: _evict_optional_risk_only(
+                        evaluation_input.risk_cache_session,
+                    ),
                 )
             except RiskArtifactError as exc:
                 if "exceeds table byte budget" not in str(exc):
@@ -722,10 +758,12 @@ def _finish_result(
     degraded: bool,
 ) -> RiskEvaluationResult:
     operation = current_kernel_context()
-    publication = (nullcontext() if operation is None else operation.memory.reserve(
+    publication = (nullcontext() if operation is None else _reserve_risk_output(
+        operation,
         8 * (policy.max_risk_evaluation_json_bytes
              + policy.max_risk_report_json_bytes)
         + len(table_risks) * 8192,
+        evaluation_input.risk_cache_session,
     ))
     with publication:
         return _finish_result_admitted(
@@ -861,14 +899,17 @@ def _degraded_table(
     item: ExtractedRiskFacts,
     diagnostic: str,
     rules: Mapping[RiskRuleId, RiskRuleSpec],
+    cache: object | None,
 ) -> _TableOutcome:
     rule = rules[RiskRuleId.KEY_DEGRADED]
     reason_code = reason_for(rule)
     with ExitStack() as charges:
         operation = current_kernel_context()
         if operation is not None:
-            charges.enter_context(operation.memory.reserve(
+            charges.enter_context(_reserve_risk_output(
+                operation,
                 4096 + (len(item.table_fact.table_name) + len(diagnostic)) * 32,
+                cache,
             ))
         annotation = RiskAnnotation(
             annotation_id=f"{item.table_fact.table_name}:degraded",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from dataclasses import replace
 
 import pyarrow as pa
@@ -347,3 +349,45 @@ def test_empty_multibatch_input_rejects_header_growth_before_stream_consumption(
     finally:
         context.memory.limit_bytes = original_limit
     assert context.memory.used_bytes == 0
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("threads", [1, 2])
+def test_storage_diff_is_stable_across_batch_boundaries_and_pool_sizes(threads: int) -> None:
+    # Each child initializes the process-wide kernel pool exactly once. The
+    # main pytest process has N=1, so a real N=2 needs its own process.
+    script = """
+import json
+import pyarrow as pa
+from gateway_compute._native import _init_kernel_native
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
+from gateway_backend.capabilities.mutation_planning.native import prepare_storage_table
+from tests.test_storage_mutation_native import _side, _table, _task
+
+_init_kernel_native(THREADS)
+context = KernelExecutionContext(OperationMemoryBudget(512 * 1024**2), NeverCancel(), THREADS)
+old_rows = [("1", "0", "a"), ("2", "0", "b"), ("3", "0", "c")]
+new_rows = [("3", "0", "c"), ("2", "0", "changed"), ("4", "0", "d")]
+observed = []
+with kernel_execution_scope(context):
+    for batch_size in (3, 1):
+        old = _table(old_rows)
+        new = _table(new_rows)
+        old = pa.Table.from_batches(old.to_batches(max_chunksize=batch_size), schema=old.schema)
+        new = pa.Table.from_batches(new.to_batches(max_chunksize=batch_size), schema=new.schema)
+        before = _side(old, content_fill="1")
+        after = _side(new, content_fill="2")
+        with prepare_storage_table(_task(before, after), context) as handle:
+            counts = handle.summary().net_counts
+            assert counts is not None
+            observed.append((counts.inserted, counts.updated, counts.deleted, handle.patch_locator_count))
+        assert context.memory.used_bytes == 0
+assert observed == [(1, 1, 1, 3), (1, 1, 1, 3)]
+print(json.dumps(observed))
+""".replace("THREADS", str(threads))
+    result = subprocess.run([sys.executable, "-c", script], check=False,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [[1, 1, 1, 3], [1, 1, 1, 3]]

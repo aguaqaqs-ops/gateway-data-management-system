@@ -2,7 +2,7 @@
 
 - **状态：** 修订 2，2026-11-07，分两步提交，各自待 kickoff 审核与 owner 确认。
   - Q1–Q12 已确认（owner，2026-11-05）。**FE3a 已退出（2026-11-05，§3.2）**。
-  - owner 2026-11-07 决定把 FE3 剩余工作拆成 FE3b（契约与基础）与 FE3c（归档核验与完整旅程），补记为 §11 Q13。Q14 已决定（owner 2026-11-08）；Q15–Q19 待 owner 决定。
+  - owner 2026-11-07 决定把 FE3 剩余工作拆成 FE3b（契约与基础）与 FE3c（归档核验与完整旅程），补记为 §11 Q13。Q14 已决定（owner 2026-11-08）；Q15–Q20 待 owner 决定（Q20 来自修订 2 审核 C1）。
   - owner 2026-11-08 就 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md) B1 选甲：FE3b 合入 main `748de5034d`（`vnext/` 树仍为 `56720104af`），FE3b 期间不再合入 main（§2.1、§3.2）。
   - 第 1 步（`d702307836`）写定 FE3b 需要的全部内容（§1–§6、§9、§10、§12、§13.3、§13.4、§15.2）。
   - 第 2 步写定 FE3c 的设计：§16 归档界面、§4.6 FE3c 的上传序列与预期异常、§4.7 R8 与 R12、§8 t1 调整、§9 FE3c 截图、§13.5、§13.6、§15.3。
@@ -16,7 +16,7 @@
   - 2026-11-07 修订 2 第 1 步：依据审核会话的 [FE3b 前置条件核对](reviews/fe3b-precondition-check.md)（`5dde965a65` 的 §1–§8，`80e74d116c` 的 §9–§10）、
     后端交接与 DC89、DC90（见“依据”），吸收 BE-a、归档业务核验与 BE-d 的交付，按 owner 决定拆段。逐项见 §15.2。
   - 2026-11-07 修订 2 第 2 步：FE3c 设计，依据同上，另读后端源码 `application/archive/business_validation.py`、`queries.py`、`audit.py`、`manual_close.py` 与 `application/submission/review.py` 核对预期异常与权限。逐项见 §15.3。
-  - 2026-11-08 按 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md)（`d076903d7f`，owner 答复 `244a24b811`）定向修订第 1 步：B1–B3 与 N1–N4（逐条见 §15.4）。
+  - 2026-11-08 按 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md)（`d076903d7f`，owner 答复 `244a24b811`）定向修订：第 1 步 B1–B3 与 N1–N4（`dfdcd00b90`），第 2 步 C1–C3 与 N5–N8（逐条见 §15.4）。
   - 2026-11-08 记录后端对 Q18 与生成时间预期的答复（[S3 协调 §16](../backend-vnext/refactoring/formal/plans/p6-s3-coordination.md#16-fe3c-q18-与生成时间预期当前事实和建议交接)，`1981882cc6`）：Q18 缺口属实，仍是 FE3c 前置；§4.6 的生成时间预期与后端源码一致。不改设计，只改 Q18 的状态与 FE3c 前置的写法（§3.2、§10、§11、§12、§13.5、§13.6、§16.6、§16.9）。
 - **日期：** 2026-11-05；修订 2：2026-11-07。
 - **起点：**
@@ -141,7 +141,7 @@
 | 11 | 同字节互通 | 生产 encoder 生成的 `bundle.tar`（24,576 字节，SHA256 `b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2`）与 PAX、size 向量 | FE3b §5.5 |
 | 12 | 终局处置 | Review：required nullable 对象 `submission_disposition`（`submission_id`、`disposition`、`source_kind`、`result_id`、`closure`）。History 节点：`archive_disposition` 改为 `submission_disposition`（枚举 `ARCHIVED_BASELINE`、`CLOSED_NOT_ARCHIVED`），另有 `disposition_source_kind`（`ARCHIVE`、`MANUAL_CLOSE`）、`disposition_result_id`、`closure`（`closed_by`、`closed_at`、`reason`）；`ArchiveDispositionResponse` 删除，归档结果的 `dispositions` 改用 `SubmissionDispositionResponse` | FE3b §6.4 只读显示；FE3c 在真实 e2e 中覆盖 |
 | 13 | `NOT_CANDIDATE_BASE_ADVANCED` | 仍按“`APPROVED` 且所基于的 baseline 不是当前 head”派生，已处置的提交也带（`application/history/projection.py:210-218`）；只作历史说明，不表示占用或需要处理 | FE3b §6.1、§6.4 |
-| 14 | 关闭出口 | `POST /v1/submissions/{id}/closure`：`Idempotency-Key`；body `expected_review_version`、`expected_baseline_node_id`、`expected_baseline_head_version`、非空 `reason`；只有 `archive_submission`；201 首次、200 回放（返回首次操作者、时间与理由）；409 `IDEMPOTENCY_CONFLICT`、`BASELINE_VERSION_CONFLICT`、`REVIEW_VERSION_CONFLICT`、`REVIEW_TRANSITION_CONFLICT`、`ARCHIVE_CLOSED`、`WORKSPACE_OCCUPANCY_CONFLICT`；另有 403、404、413、422、429、503 | FE3c §16.6。**缺口：** 只有 `archive_submission` 的身份读不到 `review_version`（`GET .../review` 返回 403，候选与预检响应中没有该字段），交后端（§11 Q18）；后端已核实（`1981882cc6`），建议独立补缺，待交付 |
+| 14 | 关闭出口 | `POST /v1/submissions/{id}/closure`：`Idempotency-Key`；body `expected_review_version`、`expected_baseline_node_id`、`expected_baseline_head_version`、`reason`（1–4096 UTF-8 字节，`validate_utf8_reason`）；只有 `archive_submission`；201 首次、200 回放（返回首次操作者、时间与理由）；409 `IDEMPOTENCY_CONFLICT`、`BASELINE_VERSION_CONFLICT`、`REVIEW_VERSION_CONFLICT`、`REVIEW_TRANSITION_CONFLICT`、`ARCHIVE_CLOSED`、`WORKSPACE_OCCUPANCY_CONFLICT`；另有 403、404、413、422、429、503 | FE3c §16.6。**缺口：** 只有 `archive_submission` 的身份读不到 `review_version`（`GET .../review` 返回 403，候选与预检响应中没有该字段），交后端（§11 Q18）；后端已核实（`1981882cc6`），建议独立补缺，待交付 |
 | 15 | 归档业务核验 | `PreviewArchivePlanResponse.business_validation`（`rule_id`、`baseline_facts_digest`、`source_diagnostics`、`time_comparisons`、`issues`）；`ArchivePreviewAnomalyResponse` 新增 `affected_submission_ids`、`side`、`relations`、`details`（按 issue 区分的闭合 union）、`detected_status`、`resolution_status`、`latest_sequence`、`accepted_by`、`accepted_at`、`reason`；新 `subject_kind` 与 action：`CONFIGURATION_SOURCE` → `ACKNOWLEDGE_SOURCE_EXCEPTION`、`CONFIGURATION_TIME_QUALITY` → `ACKNOWLEDGE_TIME_QUALITY`、`CONFIGURATION_TIME_ORDER` → `ACKNOWLEDGE_TIME_ORDER`；`REVOKE` 保留 | FE3c §16；FE3b 只按 §5.3 修正 action 映射 |
 | 16 | 待审核阻塞 | `ArchiveCandidatesResponse`、`PreviewArchivePlanResponse` 新增 required `pending_submission_ids`、`pending_submission_count`，有待审核时 `blockers` 含 `ARCHIVE_PENDING_REVIEW`；`POST /v1/archives` 409 含 `ARCHIVE_PENDING_REVIEW` | FE3c §16；FE3b 只补模拟数据字段 |
 | 17 | 引用上限 | `StartArchiveRequest.confirmation_refs` 上限 1，`anomaly_resolution_refs` 上限 1601（候选仍上限 200，body 上限 262,144 字节） | FE3b 随类型生效；FE3c §16 不分页、不截断 |
@@ -170,7 +170,7 @@
 | --- | --- | --- | --- | --- | --- |
 | FE3a 运行框架与带入项（已退出） | §7 的 M7、n3、n8；§4 运行框架与冒烟；§4.6 上传输入；§5.4 生成类型一致性；M1 的打包测量 | 本文经 owner 确认 | `fe-fe3a-exit` | `fe-fe2c-exit..<FE3a 候选>` | 审核通过；04 上模拟接口全量 runner（含截图）、上传包后端校验、真实 backend 冒烟各一次通过；M1 测量完成并经审核会话与 owner 判断 |
 | FE3b 契约与基础 | `fe-vnext` 合入 main `748de5034d`（含 `p6-be-a-d-exit`，§2.1）；§5.1–§5.3 快照刷新、类型与模拟数据同步、旧路径清理；§5.5 tar 接收修复与同字节 OPFS 互通；§6.1–§6.3 上传模式撤回、占用禁用与刷新恢复（含 n3 改为基于指针）；§6.4 终局处置只读显示；§4.7 中标为 FE3b 的真实旅程（不需要归档）；FE3a 带入的 N1、N2、N5（§15.2） | 本文第 1 步经 kickoff 审核与 owner 确认（含 Q14）；审核会话现场核对接口、镜像与节点占用后发出提示词 | `fe-fe3b-exit` | `fe-fe3a-exit..<FE3b 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图，含 §5.5 的同字节互通用例）、上传包后端校验（`validate-upload-package.sh`）、`--suite journeys`（FE3b 部分）各一次通过；§6、§6.4 截图经 owner 确认 |
-| FE3c 归档核验与完整旅程 | §16 归档业务核验的显示与逐项接受/撤销、关闭出口、待审核阻塞与过期通过的界面；§4.7 中标为 FE3c 的真实旅程（R4 身份确认、R8、R9 三节点、R12 关闭）；§4.6 A–D 序列及其核对；§8 t1 旅程与 M1 复测；FE3 退出 | `fe-fe3b-exit`；本文第 2 步经 kickoff 审核与 owner 确认（含 Q15–Q19）；§11 Q18 的后端补缺已交付（固定的 Contract/OpenAPI 与后端独审结果），前端据此刷新类型并定稿 §16.6；所需草图或文字规格已提交 | `fe-fe3c-exit` | `fe-fe3b-exit..<FE3c 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包后端校验、`--suite journeys`（完整集，含 FE3b 部分）各一次通过；05 上 `--suite t1` 证据运行一次通过（§9）；§16 截图经 owner 确认 |
+| FE3c 归档核验与完整旅程 | §16 归档业务核验的显示与逐项接受/撤销、关闭出口、待审核阻塞与过期通过的界面；§4.7 中标为 FE3c 的真实旅程（R4 身份确认、R8、R9 三节点、R12 关闭）；§4.6 A–D 序列及其核对；§8 t1 旅程与 M1 复测；FE3 退出 | `fe-fe3b-exit`；本文第 2 步经 kickoff 审核与 owner 确认（含 Q15–Q20）；§11 Q18 的后端补缺已交付（固定的 Contract/OpenAPI 与后端独审结果），前端据此刷新类型并定稿 §16.6；所需草图或文字规格已提交 | `fe-fe3c-exit` | `fe-fe3b-exit..<FE3c 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包后端校验、`--suite journeys`（完整集，含 FE3b 部分）各一次通过；05 上 `--suite t1` 证据运行一次通过（§9）；§16 截图经 owner 确认 |
 
 - FE3c 结束即 FE3 结束，FE4 以 `fe-fe3c-exit` 为起点。
 - FE3c 的设计（本文第 2 步）可以在 FE3b 实施期间进行；FE3c 的实施从 `fe-fe3b-exit` 开始。
@@ -397,7 +397,10 @@ FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.
   - 每个未选中的候选一项 `APPROVED_SIBLING_EXCLUDED`；选中项有身份确认时一项 `PROJECT_IDENTITY_EXCEPTION`。
   - **与核对报告 §8.1 第 1 项的推断不同：** 核对报告认为归档 A 没有时间异常；按上述源码，A 的 ② 也有一项 `GENERATION_TIME_MISSING`。以下表格按源码推断。
   - **后端已核对（2026-11-08，`1981882cc6`）：** 上传侧的时间质量检查与基线是否为空无关，合成 A 预期一项 `GENERATION_TIME_MISSING`（`MODIFIED`），与本节一致；后端语义不改。表格仍是未经产品实测的推断，下面的实测校正规则不变。
-- **实测校正（规则）：** FE3c 在 05 调试首轮中，每次打开归档预检时由用例把 `business_validation.issues` 与 `anomalies` 的 `(subject_kind, issue_code, side, 受影响提交)` 集合与下表比较，并写入日志。
+- **实测校正（规则）：** FE3c 在 05 调试首轮中，每次打开归档预检时由用例把 `business_validation.issues` 与 `anomalies` 的 `(subject_kind, issue_code, side, 受影响提交)` 集合与下表比较，并写入日志。比较口径（修订 2 审核 C3）：
+  - 每次比较用**带选中项**（`selected`）的预检：`anomalies` 只在预检带 `selected` 时非空；
+  - `business_validation.issues` 只含三类业务 `subject_kind`（来源、时间质量、时间顺序），与下表**去掉** `APPROVED_SIBLING_EXCLUDED`、`PROJECT_IDENTITY_EXCEPTION` 两类后的集合比较；
+  - `anomalies` 与下表全部项比较（含同级排除与身份例外）；
   不符即停止，交设计会话：设计会话判断推断有误时改正本表；判断为后端缺陷时转后端。不改输入、不放宽判据去迁就。校正后的表写进 FE3c handoff。
 
 **J1：主线、待审核阻塞、两侧独立项与身份确认（R1、R4、R8、R9）**
@@ -414,7 +417,7 @@ FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.
 | 6 | 归档确认人打开 B 的归档主线 | `blockers` 含 `ARCHIVE_PENDING_REVIEW`；待审核列表显示 C 的显示名；“确认归档”禁用 |
 | 7 | 审核人退回 C；s2 重新上传 C → Preview（不提交，作为草稿）；归档确认人重新预检 | 待审核阻塞消失（草稿不阻塞）。异常 3 项：`GENERATION_TIME_MISSING`（`INITIAL`，B）、`GENERATION_TIME_MISSING`（`MODIFIED`，B）、`BASELINE_TIME_UNAVAILABLE`（`BASELINE`，[B]）。来源：B `EXPLAINED`（匹配当前基线） |
 | 8 | 只接受 B 的 `INITIAL` 项 | B 的两张卡分别显示，`MODIFIED` 仍为“未处理”，“确认归档”禁用（两侧独立） |
-| 9 | 接受其余两项；在第二个 context 中撤销 B 的 `MODIFIED` 项；回到第一个 context 点“确认归档” | 服务器拒绝（409，`ARCHIVE_ANOMALY_UNRESOLVED` 或 `ARCHIVE_AUDIT_VERSION_CONFLICT`，以实测为准）；界面提示核验结果已变化，点“重新预检”后 `MODIFIED` 项为“已撤销接受”；不自动重发 |
+| 9 | 接受其余两项；在第二个 context 中撤销 B 的 `MODIFIED` 项；回到第一个 context 点“确认归档” | 服务器拒绝（409 `ARCHIVE_ANOMALY_UNRESOLVED`：`start.py` 先校验审计，B ② 的最新事件是 `REVOKE`；`ARCHIVE_AUDIT_VERSION_CONFLICT` 只由审计追加产生）；界面提示核验结果已变化，点“重新预检”后 `MODIFIED` 项为“已撤销接受”；不自动重发 |
 | 10 | 重新接受 → 确认归档 | head 前移到 B（归档基线 2） |
 | 11 | s2 的草稿基于旧基线，重新上传 C → Preview → 提交；审核人通过；归档确认人打开 C 的归档主线 | 异常 2 项：`GENERATION_TIME_MISSING`（`MODIFIED`，C）、`BASELINE_TIME_UNAVAILABLE`（[C]）。接受后归档，head 前移到 C |
 | 12 | s1 上传 D（MODIFIED_ONLY）→ Preview → 提交 | 身份对为 `DIFFERENT_PROJECT`，提交对话框要求身份确认（R4） |
@@ -431,7 +434,7 @@ FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.
 | 2 | s1 上传 B（FULL）→ 提交；s2 上传 C（MODIFIED_ONLY）→ 提交；s3 上传 E（FULL，① = C 的内容，② = B 的 ②）→ 提交；审核人通过三者 | 三个候选 |
 | 3 | 归档确认人打开 B 的归档主线 | 异常 8 项：`GENERATION_TIME_MISSING` × 5（B ①、B ②、C ②、E ①、E ②），`BASELINE_TIME_UNAVAILABLE`（[B, C, E]），`APPROVED_SIBLING_EXCLUDED` × 2（C、E）。来源：B 匹配当前基线、C 复用当前基线、E 的 ① 匹配 C 的 ②，三者 `EXPLAINED` |
 | 4 | 接受 `BASELINE_TIME_UNAVAILABLE`；在“候选提交”中关闭 C（填写理由）。关闭请求送到 backend 后对浏览器中断一次，前端用同一 key 重试 | 201 后回放 200；界面显示服务器返回的关闭人、时间与理由 |
-| 5 | 关闭后自动重新预检 | 异常 7 项：`INITIAL_SOURCE_UNEXPLAINED`（`INITIAL`，[E]），`GENERATION_TIME_MISSING` × 4（B ①、B ②、E ①、E ②），`BASELINE_TIME_UNAVAILABLE`（[B, E]，受影响集合变化，处理状态回到“未处理”），`APPROVED_SIBLING_EXCLUDED`（E）。界面提示“候选集合已变化，之前的接受不再适用” |
+| 5 | 关闭后自动重新预检 | 异常 7 项：`INITIAL_SOURCE_UNEXPLAINED`（`INITIAL`，[E]），`GENERATION_TIME_MISSING` × 4（B ①、B ②、E ①、E ②），`BASELINE_TIME_UNAVAILABLE`（[B, E]），`APPROVED_SIBLING_EXCLUDED`（E）。**全部项**处理状态为“未处理”：每项的 subject 含 `selection_subject_digest`，它由 `candidate_set_digest` 派生（`queries.py:349-420`），关闭 C 后全部 subject 重新派生，此前接受的 BTU 不再适用（不只是受影响集合变化的项）。界面提示“候选集合已变化，之前的接受不再适用” |
 | 6 | s2 刷新工作台 | 两个指针为空，“上传”可用；树中 C 为“已关闭（未归档）”，详情面板显示关闭人、时间、理由；s2 读取 C 的审核：“已通过”＋“已关闭（未归档）” |
 | 7 | 归档确认人接受全部 7 项（来源项接受后仍显示“来源未解释”）→ 确认归档 | B 成为归档基线 2（“已归档”），E 为“已关闭（未归档）”，原因“归档时选中了其他提交”（D2），s3 工作区释放 |
 | 8 | s2 重新上传 C（基于归档基线 2）→ Preview → 提交；审核人通过；归档确认人打开 C 的归档主线 → 接受 → 归档 | 异常 2 项：`GENERATION_TIME_MISSING`（`MODIFIED`，C）、`BASELINE_TIME_UNAVAILABLE`（[C]）；归档成功 |
@@ -859,8 +862,12 @@ FE3b 不跑 t1。第 2 步按核对报告 §8.3 与 FE3b 评估交接 §6 调整
   - 每个目录、每个场景测 3 次，报告中位数与最大值。
 - **FE3a（已完成）：** 在 05 上用模拟接口测量，结果在 FE3a handoff。
 - **FE3c：** 在 t1 旅程中用生产构建复测，与 FE3a 对照：第 1 步 t1 v1 的 MODIFIED_ONLY，第 4 步的 FULL（① t1 v1 + ② t1 v2）。
-  旅程中每个场景只有一次，不要求 3 次；报告该次的值，并注明与 FE3a“3 次取中位数”的方法差异。renderer 按 §8.4 的标准判断（t1 目录小，外推按目录大小线性计算）。
-- **判断（§11 Q3）：** 默认标准对 MODIFIED_ONLY 与 FULL 都适用：t4 v1 的 renderer 峰值增量不超过 1 GiB；按目录大小线性外推到前端上限 1 GB 时不超过 3 GiB。
+  旅程中每个场景只有一次，不要求 3 次；报告该次的值，并注明与 FE3a“3 次取中位数”的方法差异。
+  **t1 复测只报告、作回归对照，不按线性外推判定（§11 Q20，修订 2 审核 C1）：** t1 目录约 6.5 MiB，增量主要是固定开销（FE3a t1 v1 MODIFIED renderer 24.86 MiB，线性外推到 1 GB 约 3.5 GiB，按比例放大没有意义）。
+  - 回归对照：MODIFIED_ONLY 的 renderer 增量与 FE3a t1 v1 的 24.86 MiB 对照；超过其 2 倍时在 handoff 中报告并交设计会话判断。FE3a 没有 t1 FULL 的数值，FULL 只报告；
+  - 超标判断仍只用 t4（FE3a 的结论，Q12）；
+  - FE3b 或 FE3c 改动了打包代码（`features/upload/` 下的打包、压缩与 `buildTar`，或 `UploadStepCard` 的打包流程）时，按本节方法在 05 用 t4 v1 重测 MODIFIED_ONLY 与 FULL，各 3 次，按下面的判断标准判定。
+- **判断（§11 Q3）：** 默认标准对 MODIFIED_ONLY 与 FULL 都适用：t4 v1 的 renderer 峰值增量不超过 1 GiB；按目录大小线性外推到前端上限 1 GB 时不超过 3 GiB。线性外推只用于 t4 这样的大目录，不用于 t1。
   任一不满足即改为流式打包（逐文件读取、边打包边压缩），FE2 kickoff §7.1 的后端校验继续接受产物，改后重测。
 - **FE3a 的结论（owner 2026-11-05，§11 Q12）：**
   - **判定：** 只看 renderer。t4 v1 renderer 峰值增量最大 676.3 MiB（审核复测 668.2 MiB），线性外推到 1 GB 约 2.08 GiB，两项都满足。不改流式，除非 FE3c 复测时 renderer 不满足上面的标准。
@@ -944,7 +951,7 @@ Q10–Q12 来自 FE3a 审核（`a0b9604ddd`），由 owner 于 2026-11-05 确认
 | Q11 | 组态树的基线是否显示序号 | 甲：树也显示“归档基线 n”，与摘要共用同一个标签函数（§7 M7） |
 | Q12 | M1 的判定是否只看 renderer | 只看 renderer，FE3a 满足，不改流式；浏览器主进程只报告，复测时补记 `RssAnon`、`RssFile`、`RssShmem`（§8.4） |
 
-Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来自第 2 步）。Q13、Q14 已由 owner 决定；其余待 owner 决定，“建议”一列是设计会话的建议，不是定案。
+Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来自第 2 步，Q20 来自修订 2 审核）。Q13、Q14 已由 owner 决定；其余待 owner 决定，“建议”一列是设计会话的建议，不是定案。
 
 | # | 事项 | 建议与理由 | 状态 |
 | --- | --- | --- | --- |
@@ -955,6 +962,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | Q17 | t1 第 4 步是否改为 FULL（核对报告 §8.3；FE3b 评估交接 §6） | **改为 FULL：** ① = t1 v1、② = t1 v2，按 `pair_id` 核对两个比较对（§8.3）。理由：① 后端要求浏览器 t1 覆盖 FULL 两个比较对；② ① 与已归档的 v1 相同，`baseline_to_initial` 必须为 0，是一个独立的强判据；③ `initial_to_modified` 与原 MODIFIED_ONLY 的预期相同，原有判据不丢；④ M1 复测顺带覆盖真实目录的 FULL。MODIFIED_ONLY 仍由第 1 步覆盖 | 待 owner 决定（FE3c） |
 | Q18 | 关闭请求的 `expected_review_version` 从哪里取（§16.6，设计会话核对后端源码发现） | **交 owner 转后端设计会话，前端不假设。** 事实：`CloseSubmissionRequest` 要求 `expected_review_version`；`GET /v1/submissions/{id}/review` 只对 `review_submission` 或本人撤回权限开放（`application/submission/review.py::assert_review_permission`），只有 `archive_submission` 的身份得到 403；`ArchiveCandidateResponse`、`PreviewArchivePlanResponse`、`HistoryNodeResponse` 都没有该字段。后端 Compose 测试用全权限身份并写死 `1`（`tests/test_archive_compose_e2e.py`）。前端可以接受的方向（由后端选择）：在归档候选或预检响应中给出每个候选的 `review_version`；或允许 `archive_submission` 读取当前 scope 候选的 review。不采用前端写死 `1` 或要求归档确认人同时持有审核权限。**后端答复（2026-11-08，`1981882cc6`）：** 缺口属实；建议作为独立的后端补缺，在归档候选只读响应中逐候选增加 `review_version`（同一读事务取自权威 review projection；不改 candidate digest、选择与关闭的 fingerprint、CAS 与审核读取权限），先固定 Contract/OpenAPI，再实施、独审并在 06 验证只有归档权限的身份可完成关闭。该答复不是实施授权 | 待 owner 安排后端补缺；交付后设计会话定稿 §16.6（FE3c 前置） |
 | Q19 | FE3c 的新界面是否需要 HTML 草图 | **不另画草图，用 §16 的文字规格与线框。** 理由：归档对话框在 FE2 也没有草图，按“无草图页面”由审核会话对照 UI 原则核对、owner 看图确认；新内容是对话框内的列表与卡片，沿用现有令牌与组件，线框足以确定位置与层级。owner 希望先看草图时，由设计会话补到 `sketches/s5-archive-validation/`，FE3c 实施等草图确认 | 待 owner 决定（FE3c） |
+| Q20 | FE3c 在 t1 上复测 M1 时如何判定（修订 2 审核 C1；改变 Q3、Q12 下的判定口径） | **t1 只报告并与 FE3a 的 t1 数值作回归对照，超标判断仍只用 t4；打包代码有改动时在 05 重测 t4**（§8.4）。理由：① t1 增量主要是固定开销，按 §8.4 线性外推，FE3a 的 24.86 MiB 已对应约 3.5 GiB，照此判定会误触发改流式；② t4（317 MB）的外推才反映随目录增长的部分，FE3a 已按 t4 判定满足；③ 回归对照（2 倍）能发现打包实现的退化；④ 打包代码改动时重测 t4，保证判定仍基于大目录。不采用：在 t1 上照旧外推（必然“超标”）；FE3c 无条件重测 t4（打包未改时重复 FE3a 的结果） | 待 owner 决定（FE3c） |
 
 ## 12. 开放项
 
@@ -962,7 +970,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | --- | --- | --- |
 | 基线已前移后才通过的提交永久占用工作区（2026-11-05 定向复审 §4） | **已关闭：** DC89 拒绝过期 `APPROVE`，归档关闭其余已通过的同级提交，并有手工关闭出口；20d3b885f6 澄清标记只作历史说明。§6.1 已删除暂定行（§2.3 第 13 行） | — |
 | tar 成员与 closure 的对应（2026-11-05 审核报告 D1） | **已关闭：** DC89 与 BE-d 交接 §3 确认与前端要求一致（§2.3 第 9 行） | — |
-| FE3c 的设计 | 第 2 步已写（§16、§4.6、§4.7、§8、§9、§13.5、§13.6），待 kickoff 审核与 owner 确认 Q15–Q19 | FE3c 开始前 |
+| FE3c 的设计 | 第 2 步已写（§16、§4.6、§4.7、§8、§9、§13.5、§13.6），修订 2 审核为定向修订，C1–C3 已改（§15.4），待定向复核与 owner 确认 Q15–Q20 | FE3c 开始前 |
 | 关闭请求的 `expected_review_version`（§16.6） | 只有归档权限的身份取不到（§11 Q18）。后端已核实并建议在归档候选响应中逐候选返回 `review_version`（`1981882cc6`）；待 owner 安排的后端补缺交付后，设计会话按实际 OpenAPI 定稿 §16.6、§5.3 的模拟规则与 §16.9 V9 | FE3c 开始前（FE3c 前置） |
 | §4.6 预期异常的实测校正 | 预期异常由源码推断，FE3c 05 调试首轮实测，不符即停（§4.6） | FE3c 调试首轮 |
 | FE4 真实数据重拍的节点 | 前端 kickoff §6 写“FE4 在 04 上用真实 backend 与 t1 数据重拍”，但 DC36 规定 t1–t3 在 05。建议 FE4 kickoff 时改为：t1 数据的重拍在 05，04 只跑合成输入的真实 backend e2e；如需在 04 使用 t1 数据，由 owner 作例外决定 | FE4 kickoff |
@@ -1063,7 +1071,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 >
 > 报告写入 `docs/frontend-vnext/reviews/fe3b-review.md`，结论为通过、定向修复或停止；需要设计决定的事项标注“交设计会话”。通过后指明 04 取证项（本文 §9 FE3b 行），取证后做证据核对，并给出 FE3b 退出建议（FE3 在 FE3c 结束时退出）。
 
-### 13.5 FE3c 实施（前置：`fe-fe3b-exit`；第 2 步经 kickoff 审核与 owner 确认，含 Q15–Q19；Q18 的后端补缺已交付且 §16.6 已定稿）
+### 13.5 FE3c 实施（前置：`fe-fe3b-exit`；第 2 步经 kickoff 审核与 owner 确认，含 Q15–Q20；Q18 的后端补缺已交付且 §16.6 已定稿）
 
 > 你是 FE3c 前端实施会话。本阶段完成 FE3：归档业务核验、有理由关闭、待审核阻塞与过期通过的界面，完整真实旅程，t1 旅程与 M1 复测。
 >
@@ -1074,7 +1082,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 > - FE3b handoff 与 `reviews/fe3b-*.md`；
 > - 后端：[V2 交接](../backend-vnext/refactoring/formal/plans/p6-v2-frontend-handoff.md)、[FE3b 评估交接](../backend-vnext/refactoring/formal/plans/p6-fe3b-backend-assessment-handoff.md) §3–§4、[归档业务核验设计](../backend-vnext/refactoring/formal/plans/p6-archive-business-validation-design.md) §4.2、§6、§7.1、§10，以及后端对 Q18 的答复（[S3 协调 §16](../backend-vnext/refactoring/formal/plans/p6-s3-coordination.md#16-fe3c-q18-与生成时间预期当前事实和建议交接)）与补缺的交付 `[补缺交付提交]`。
 >
-> **起点与分支：** `fe-vnext` 在 `fe-fe3b-exit`。先把 main `[合入用 main 提交]` 以 `--no-ff` 合入 `fe-vnext`，不 rebase；按 kickoff §3.2 做路径核对；`--print-input` 必须仍得 `lock-d054366c02fa`（或 Q18 补缺后 main 所需的 tag，届时以审核会话的现场核对为准），否则停止。
+> **起点与分支：** `fe-vnext` 在 `fe-fe3b-exit`。先把 main `[合入用 main 提交]` 以 `--no-ff` 合入 `fe-vnext`，不 rebase；按 kickoff §3.2 做路径核对；`--print-input` 必须得 `[FE3c 依赖镜像 tag]`（审核会话现场核对后填写），且该镜像已按 kickoff §4.3 预填充到 04、05、记录了来源与身份，否则停止。
 > Q18 补缺会改 `vnext/` 与 OpenAPI：按 §5.1 刷新快照与类型，§5.2 的比对原件改用补缺交付的生产 OpenAPI（路径与 SHA256 由审核会话在发出本提示词时填写）。
 >
 > **范围（kickoff §3.2 FE3c 一行）：**
@@ -1083,7 +1091,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 > 3. **审核模式顶栏（§16.7）：** 过期通过的 409、`ARCHIVE_CLOSED`。
 > 4. **模拟数据与错误码（§16.8）：** 按可达组合构造业务核验与关闭的模拟数据；§16.9 的 V1–V13 在模拟接口全部覆盖。
 > 5. **真实旅程：** `--suite journeys` 补入 R4 身份确认、R8、R9 三节点、R12，按 §4.6 的 J1、J2 执行；首轮按 §4.6“实测校正”记录每次预检的异常集合，不符即停。完整集包含 FE3b 的全部旅程。
-> 6. **t1（§8）：** 实现 `--suite t1 --input-root`；按 §8.2 的步骤（第 4 步 FULL）与 §8.3 的判据；M1 复测（§8.4，含 `RssAnon`、`RssFile`、`RssShmem` 采样）。
+> 6. **t1（§8）：** 实现 `--suite t1 --input-root`；按 §8.2 的步骤（第 4 步 FULL）与 §8.3 的判据；M1 复测（§8.4，含 `RssAnon`、`RssFile`、`RssShmem` 采样）：t1 只报告并与 FE3a 的 t1 数值作回归对照，不按外推判定；改动了打包代码时在 05 用 t4 v1 重测并按 §8.4 判定（Q20）。
 >
 > **不做：** 不改 `vnext/`；不在浏览器中重算 SQL、来源或时间；不提供批量接受或默认理由；不给阻断项（完整性、越权、冲突）提供“填写理由继续”的入口。
 >
@@ -1113,7 +1121,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 > 2. **关闭：** 入口位置按 Q16 的决定；对话框文案与 §16.6 一致；201 与 200 回放都显示服务器返回的首次关闭人、时间与理由；关闭后自动重新预检；`expected_review_version` 按 §16.6 的定稿取自补缺交付的字段，没有写死、推断或追加审核权限。
 > 3. **审核顶栏：** 过期通过的 409 与 `ARCHIVE_CLOSED` 按 §16.7。
 > 4. **模拟数据：** 符合 §16.8 的可达组合；错误码单测覆盖关闭路由与归档新码。
-> 5. **真实旅程与 t1：** J1、J2 各步的断言；每次预检的异常集合与 §4.6 的表（或经设计会话校正后的表）一致；t1 按 §8.3 由程序判定，两个比较对按 `pair_id`；复核 M1 数据。
+> 5. **真实旅程与 t1：** J1、J2 各步的断言；每次预检的异常集合与 §4.6 的表（或经设计会话校正后的表）一致；t1 按 §8.3 由程序判定，两个比较对按 `pair_id`；复核 M1 数据（按 Q20：t1 只作回归对照；打包代码有改动时核对 t4 重测）。
 > 6. **探针（用已提交的一次性 worktree）：**
 >    - （07）把同码同目标的两张卡按 `issue_code` 合并：V2 应失败；
 >    - （07）让接受后的卡显示为“通过”：V3 应失败；
@@ -1259,7 +1267,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 
 ### 15.4 修订 2 审核意见的处理（2026-11-08）
 
-依据 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md)（`d076903d7f`）与 owner 答复（同报告 §6，`244a24b811`）。第 1 步的处理如下；第 2 步（C1–C3、N5–N8）见下一次提交。
+依据 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md)（`d076903d7f`）与 owner 答复（同报告 §6，`244a24b811`）。第 1 步在 `dfdcd00b90`，第 2 步在其后的提交。
 
 | # | 意见 | 处理 | 位置 |
 | --- | --- | --- | --- |
@@ -1275,6 +1283,13 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | N3 | R10 ④ 需要已通过的提交节点 | 采纳 | §4.7 |
 | N4 | `client.test.ts` 没有对应用例 | 改为点名 `client.ts` 两处，生成类型随刷新消失 | §5.3 |
 | Q14 | owner 同意建议 | 标为已决定 | §11 |
+| C1 | t1 上的 M1 线性外推会误判超标 | t1 只报告并作回归对照（FE3a t1 的 2 倍）；超标判断只用 t4；打包代码改动时在 05 重测 t4。改变判定口径，交 owner（Q20） | §8.4、§11 Q20 |
+| C2 | 关闭理由缺 4096 字节上限 | §16.6 补上限、禁用原因与计数；§2.3 第 14 行改为 1–4096 UTF-8 字节；V9 补边界 | §2.3、§16.6、§16.9 |
+| C3 | 实测校正的比较口径 | 写明用带 `selected` 的预检；`issues` 与去掉同级、身份两类后的表比较，`anomalies` 与全表比较 | §4.6 |
+| N5 | J2 第 5 步“回到未处理”的原因 | 改为全部 subject 随候选集重新派生 | §4.6 J2、§16.9 V10 |
+| N6 | J1 第 9 步的 409 码 | 写定 `ARCHIVE_ANOMALY_UNRESOLVED` | §4.6 J1 |
+| N7 | V6 的构造；`ARCHIVE_SCOPE_LIMIT_EXCEEDED` | 写明可达的构造；该码给专用文案“候选提交超过归档上限，需要管理员处理” | §16.5、§16.9 |
+| N8 | FE3c 的比对原件与依赖镜像 | §5.1、§10 注明 FE3c 按 §13.5（第 1 步已改）；§4.3 写明预填充（第 1 步已改）；§13.5 的 tag 改为审核会话填写的占位 | §4.3、§5.1、§10、§13.5 |
 
 ## 16. FE3c：归档业务核验、有理由关闭与待审核阻塞
 
@@ -1437,6 +1452,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
   - 409 `ARCHIVE_ANOMALY_UNRESOLVED`、`ARCHIVE_CONFIRMATION_REQUIRED`、`ARCHIVE_AUDIT_VERSION_CONFLICT`、`CANDIDATE_SET_CONFLICT`、`CANDIDATE_BINDING_CONFLICT`、`BASELINE_VERSION_CONFLICT`、`WORKSPACE_OCCUPANCY_CONFLICT`：“归档候选或核验结果已变化，请重新预检”，附“重新预检”；不自动重发；
   - 409 `ARCHIVE_PENDING_REVIEW`：“出现了新的待审核提交，请重新预检”，附“重新预检”；
   - 409 `ACTIVE_SUBMIT_ATTEMPT`：“已有提交正在处理，完成后才能归档”；
+  - 409 `ARCHIVE_SCOPE_LIMIT_EXCEEDED`（候选超过 200 个或引用超过上限；候选查询、预检与开始归档都可能返回）：“候选提交超过归档上限，需要管理员处理”，附错误码；不自动重试；
   - 其他沿用 FE2c（403、`IDEMPOTENCY_CONFLICT` 等）。
 - **成功：** 沿用 FE2c 的结果页；“处理结果”按 `dispositions`（`SubmissionDispositionResponse`）计数“归档 n 项，关闭 m 项”。
 
@@ -1453,7 +1469,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
   - 当前基线不变；
   - 关闭后其余候选的核验结果可能变化，需要重新处理；
   - 关闭不可撤销。
-- 关闭理由（必填）：多行文本，去掉首尾空白后为空时禁用，禁用原因“请填写关闭理由”；
+- 关闭理由（必填）：多行文本；去掉首尾空白后为空、或超过 4096 个 UTF-8 字节时禁用“确认关闭”，禁用原因分别为“请填写关闭理由”“理由不能超过 4096 字节”；超过 3500 字节时显示字节计数（同 §16.4；后端 `validate_utf8_reason` 对关闭同样要求 1–4096 字节）。请求发送用户输入的原文；
 - 确认勾选“我已了解关闭不可撤销”；
 - 危险按钮“确认关闭”。
 
@@ -1510,11 +1526,13 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | V6 | 引用完整 | 200 个 FULL 候选（199 项同级排除、200 项生成时间缺失，共 399 项）全部接受后，开始归档请求含 399 项异常引用与 1 项确认引用；折叠分组不影响引用 |
 | V7 | 阻断项 | `ARCHIVE_INTEGRITY_FAILURE`、`ACTIVE_SUBMIT_ATTEMPT` 只有文字与“重新预检”，没有接受入口 |
 | V8 | 待审核阻塞 | 列出全部待审核提交的显示名与附注；点击名字定位到组态树；开始归档返回 409 `ARCHIVE_PENDING_REVIEW` 时的提示 |
-| V9 | 关闭 | 201 显示服务器返回的关闭人、时间、理由；200 回放时显示首次关闭人（与当前身份不同）；409 各码、403、404、422 的提示；理由为空或未勾选时禁用 |
-| V10 | 关闭后重新核验 | 关闭后自动重新预检，来源项变为未解释，原已接受的基线时间项回到未处理 |
+| V9 | 关闭 | 201 显示服务器返回的关闭人、时间、理由；200 回放时显示首次关闭人（与当前身份不同）；409 各码、403、404、422 的提示；理由为空、超过 4096 字节（含多字节字符的边界：4096 字节可用、4097 字节禁用）或未勾选时禁用 |
+| V10 | 关闭后重新核验 | 关闭后自动重新预检，来源项变为未解释；全部项（含原已接受的基线时间项）回到未处理，因为候选集合变化后全部 subject 重新派生 |
 | V11 | 过期通过 | 审核顶栏 `APPROVE` 返回 `BASELINE_VERSION_CONFLICT`：提示、重新读取，“通过”禁用，“退回”“撤回”可用 |
 | V12 | 已处置 | 审核动作返回 `ARCHIVE_CLOSED`：提示并按 §6.4 显示 |
 | V13 | 开始归档被拒 | 开始归档返回 `ARCHIVE_ANOMALY_UNRESOLVED`：提示“归档候选或核验结果已变化”，点“重新预检”后显示最新状态 |
 
 - 单测覆盖：问题文字与详情的映射、状态标签、`action` 映射、引用的取法（只取 `ACCEPTED`，不受折叠影响）、理由的字节计数。
 - V9 中 `expected_review_version` 的取值随 Q18 补缺交付后的 §16.6 定稿。
+- **V6 的构造（修订 2 审核 N7）：** 按后端规则可达：基线为空 `INITIAL`（无基线时间项，来源 `NOT_APPLICABLE`）；200 个 FULL 候选，① 有有效生成时间、② 缺生成时间（各一项 `GENERATION_TIME_MISSING`，`MODIFIED` 侧；① 有效、② 缺失时比较为 `NOT_COMPARABLE`，不产生时间倒退项）；选中 1 个，其余 199 个各一项同级排除；无身份例外。
+- 另加 `ARCHIVE_SCOPE_LIMIT_EXCEEDED` 的提示断言（§16.5），可并入 V13。

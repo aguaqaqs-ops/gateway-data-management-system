@@ -1,6 +1,6 @@
 # Phase 6 S3 D 独立审核
 
-**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。eaa508 的 06 backend focused 首败见 §11，32a 的 06 Rust fmt 首败见 §14；两次均保原件和后续未执行范围。当前固定产品 `7707042c44240b30ea4e33e7a56a8c7b7948bb62` 在 clean detached worktree 的 Rusttree=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c` 只读增量核为旧失败两处机械格式修正，06 新一体运行、D 当前容器、W3/W4 仍待取证。此结论不是 D GO、S3 GO 或对 C 的重新审批。
+**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。eaa508 的 06 backend focused 首败见 §11，32a 的 06 Rust fmt 首败见 §14。770704 的 06 Rust fmt、Clippy、workspace tests 与 native build-input 已通过，但首批 backend focused 因 writer 压力用例缺必需 artifact 原始 exit1；原件与当前测试夹具修订见 §15。当前固定候选 `de439047cd8719afa6ba64d4d7875734fa0cc7af` 仅修夹具，Rusttree 仍=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c`，尚无自身运行、当前 D 容器或 W3/W4 证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
 
 ## 1. 审核对象与边界
 
@@ -40,7 +40,7 @@ Owner 后在 `733c4551e5` 所记录的问题中明确回复“确认并继续”
 
 ## 5. 当前验证与镜像判定
 
-770704 的 D 生产路由与新 Rusttree 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在专用节点对 clean 新候选强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；C 旧镜像仅证明 C 时的路径，不能充当 D 生产路由通过。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，770704 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
+de439 的 D 生产路由与新 Rusttree 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在专用节点对 clean 新候选强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；770704 的 native 及部分 focused 结果按 §15 精确限用，C 旧镜像仅证明 C 时的路径。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，de439 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
 
 ## 6. 1c25 固定集中修订的增量静态复审
 
@@ -113,3 +113,11 @@ Risk-only 压力释放在 session 只清可重算的 `risk_candidates/pending_ri
 本人在 clean detached `/home/dev/gdds-s3-d-review-7707042c` 核 `7707042c44240b30ea4e33e7a56a8c7b7948bb62`、Rust tree=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c`、legacy exclude、clean 与差分检查。相对 2d885 的产品差分仅 Rust `facts.rs`、`source.rs` 两处格式，逐行与上段 32a 节点原始 fmt diff 一致，无算法、锁或 base 变更。此是机械补正的静态绑定，须在新的完整字面稿获本人 CLEAR 后重新于 06 运行；不能把 32a fmt 失败改成 770704 已通过。
 
 本人随后逐字静态 CLEAR 770704 新完整一体稿 `/home/dev/gdds-test-tmp/p6-s3-d-7707042c-06/prepare-and-validation.sh` SHA256=`43fe9c6af56ecd02bc65cbf14723fc83fdc8b4a659ebb3bbd9f9288c68a7799b`、capture wrapper SHA256=`15a931db3209dbe02c8e1a42e01f6a93749a64a77d3b8f542e7912877fd0db9d`、通用模板 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23`。将 32a 旧稿的固定标识/全新目录机械归一后，差分仅在 priority 首批增加 writer、last-use、Preview metadata 预算三个测试选择器并同步于其余非 serial 批次排除；Rust三步→强制 native/build-input→priority→余 focused→serial GIL→五包静态、首败/锁/marker/原日志/标准清单流程未变。已明确要求唯一 tester 对 source/run/capture 各工具启动严格一次并记录真实 exit，由其启动归属须在本轮清晰留下；此时仍是未执行稿 CLEAR。
+
+## 15. 770704 一体首败原件与 de439 夹具修订
+
+唯一 tester 确认 770704 的 source 生成/传输和 node run 合为**一次** `prepare-and-validation.sh` 工具启动，完整等待原始 exit1；run 关闭且本人 marker 释放后，再**一次**启动 `capture-validation.sh` 并等待 exit0，无重复捕获。本人独核本地外层总日志 SHA256=`e06938f3b510d9970467157ac5ff41df5b1df623701f6aa0f68c4a74c16537c1`、06 原始 `rust-native-backend.log` SHA256=`6e5a154001c623444958942e28416533bee37fe5fdecef8faa424df62bf665e5`、标准 manifest SHA256=`bd283908a3b1f9eda9e7bc757ba4dac56dab1e2855d2f7c77041e98f4add33b6`、捕获收据 SHA256=`0ec3a6993102d45bd19edd0a2ea1908c99975c6447eb0eecb4ea3a4eed190111`。`sha256sum --check` 对原始 node log 为 0，全 HEAD bundle SHA256=`4a000b3b71b8cbe88a2709df28daa0adb5c125eebd4f2f4a273f5ad02514e429` 在 source/node 两端相同。与 §14 的 32a 副本来源缺口分开，本轮 capture 的启动次数和操作者由 tester 明确记录。
+
+06 `gw-dms-06` 2026-11-08T05:06:49–05:09:04Z 起止 HEAD=`7707042c44240b30ea4e33e7a56a8c7b7948bb62`、Rusttree=e6cc、legacy 链接、clean worktree、Rust selector 1.97.0 与四工具同链，UV/Cargo offline、jobs4、六锁无漂；本人 marker guarded 释放 05:09:04Z，postflight SSH0。`cargo fmt --all --check` exit0，workspace Clippy all-targets `-D warnings` exit0，workspace test exit0：各 crate 合计 199 pass/0 fail，doc tests 全 0。强制 backend native 重装 exit0，扩展 `__build_input__` 与 e6cc 完全相等、检查 exit0。首批后端 priority 11 个实例为 **10 pass/1 fail**，pytest 原始 exit1，外层 FINAL_EXIT1；后续其余 nonserial focused、serial GIL 与五包 Ruff/mypy **未运行**。Rust/native 通过只绑定 770704 的同一 Rusttree/代码，不能把整次运行或 de439 说成通过。
+
+唯一失败 `test_second_pair_writer_releases_optional_risk_retention_before_publication` 在**首 pair** Surface artifact 索引构造时被 `PairPipelineError: surface table t is missing its artifact` 拒绝；原测试用 `_canonical_bound(bound(...))` 只生成可读表，没有 `SnapshotTable.artifact`，所以未走到第二 pair 的 writer 预检和同 M 驱逐。该失败不能证明 writer 代码通过或失败，也无需放宽生产 `table_map()` 的 canonical artifact 检查。本人在 clean detached `/home/dev/gdds-s3-d-review-de439047` 核固定 `de439047cd8719afa6ba64d4d7875734fa0cc7af`、legacy exclude、clean、`770704..de439` diff check0；相对父提交的唯一代码差分是该测试的 27 行修订，Rusttree仍=e6cc，锁/base 不变。新夹具借现有 `_artifact_bound`，在同一个 `InMemoryArtifactStore` 经 `materialize_canonical_snapshot` 创建 before/current 真实 canonical artifact 和单行文件引用，两次 Preview 均传与夹具一致的 `repository_id="replacement-fixture"`；首 pair 后保存 records 原字节，再与第二 pair 的 digest/Parquet 原字节比较，不 mock Surface、不改生产 Contract。此修订**静态可进入下一 clean de439 专用节点复验**；尚无 de439 运行结果，writer M 边界和完整 focused/静态仍待原件核收。

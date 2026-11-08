@@ -1,6 +1,6 @@
 # Phase 6 S3 C 独立审核
 
-**当前结论：C 固定 `68a97378e1ff1fee164410baaecb7ee22dd83b92` 两项预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 06 Rust focused 首步 fmt 失败并停止，clippy/test 未运行；68a/后续机械fmt固定候选的 backend/FFI/容器证据和依赖镜像预填充仍待取得。
+**当前结论：C 固定候选 `bca590261568e8adeec605ecc00afbb2715782ad` 的预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 06 Rust focused 首步 fmt 失败并停止，clippy/test 未运行；bca 的 Rust/backend/FFI/容器证据和依赖镜像 06 预填充仍待取得。
 
 ## 1. 固定对象、职责与方法
 
@@ -61,6 +61,8 @@ DC68 明确“重做再次失败……均停止交 owner”。第一次准备错
 
 `68a97378e1ff1fee164410baaecb7ee22dd83b92` 为两项集中固定修订。本人在 clean detached WT 静态复审：读侧遍历每 row group 的全部 Parquet leaf，拒 dictionary/负 `num_values`，以 `16*total_byte_size+512*Σleaf.num_values+2048*num_rows+1 MiB` 取最大组，在 Python decode 前预约/拒绝；固定三族 schema 最深四级 List/Struct/Scalar，512 B/leaf slot 覆盖 Arrow child/offset/validity 与 Value/JCS 结构暂额，16×字节覆盖 plain 可变值及 escape。新增真实 PyArrow 100k nullable `Scalar.items` 元素压缩向量：32 MiB 限先拒、M24 准入时解码 `nbytes` 低于预约；400 MiB plain 宽值仍保可准入。输出侧 Utf8/Binary 检查每批 `values_slice()` 累积字节，List 检查 child 数，递归子 builder；注入小 offset limit 测试覆盖刚好到界、下一 append 增长前拒绝和嵌套。1024 行新 batch 仍独立重置，无全表 2 GiB cap。**这两 finding 在固定代码层静态关闭，实际06运行/高水位仍未取得。** 对读预准入按 1018 初候选→9f 第一修订→68a 第二修订跟踪，尚无“同根两轮修而不解”的事实；后续以实际结果判断。
 
+`bca590261568e8adeec605ecc00afbb2715782ad` 仅将 06 原 `cargo fmt --all` 机械 patch 应用到 8 个 Rust 路径；本人在 clean detached WT 核 HEAD 与 Rust tree=`c5cb5288a62497940bbf5905828f1942b70668ca`，对 `68a..bca` 的 Rust diff 用原 Git 九位 index 缩写生成 SHA256=`234259e6b829553968068880fcbc0e8865f8b65f0a9b776df3aa018f7515d22b`，与 06 原 patch 逐字相同。它不另算一轮预算修订，待新固定候选的06运行。
+
 ## 5. Owner 恢复后的 9f 源端原件
 
 Owner 明确回复“允许按已审恢复稿放行”，协调者记录于 `5036f77f04`；本人原先对 `93589767…` 的“可供 Owner 决定”判断不再是执行阻塞。唯一 tester 将已审脚本只改固定 HEAD、证据目录、会话和 bundle 名，三份 SHA 分别为源端 `b833aeae3953a00a58646972f9f28061e54fc779849b387788ddd593786e9018`、06 准备 `b17e8802e0f7ede620c20413e1de713d54c958e5453c2e2a7dd999db80cb66cb`、06 Rust focused `67bc649956b02142de83398440b07a0618c7987bfefa6f42cc18c2c6bd1d8291`。本人逐字对原模板比对，变化仅上述字段，Rust 顺序仍为 fmt→workspace clippy→workspace test，首败即停。
@@ -78,3 +80,7 @@ CT201 第一次源 WT 准备只因既有日志名拒覆盖，原件 `source-wt-c
 本人逐字核 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/build-and-save.sh` SHA256=`fb05c816aeaebc9907037887ba6510354c46a2372ac6284dca6adaa003445cf1`，只按 clean `573d58248f0dc90e27f1be79ac9f2802211ed738` 用 authority builder `--print-input`→`--save`→`--print-input` 并比同一输入、检查归档 config/全 DiffID/label；不运行产品测试或把 CT201 结果当测试。唯一 tester 的原始 `build-and-save.log` SHA256=`7e1b02db9b823bd4be8c55a4888c2e40b99e83a9320a2919e17c7f18762094d3`，heavy-dev-01 01:22:02–01:24:09Z、起止 HEAD=573、clean、六锁无漂、exit 0。本人在固定 68a detached WT 逐项核五个 backend/worker dependency-base 输入 SHA 与 573 `input-before.json` 相同，573..68a 五路径 diff 为空；以后产品候选须再核这五输入。
 
 输入前后 JSON SHA256 均 `835bb4758561a1c1be509d4778c7310619142d1b5006efd26d948f57aaf30520`，full input SHA256=`ca0ba0a24a5e96a435e14a6da80b26cc390d315722f0432be3affe9de3339085`，tag=`gateway-backend-deps:lock-ca0ba0a24a5e`。归档 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/archives/backend-dependency-base.tar` SHA256=`fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136`；`image-identity.json` SHA256=`3fc8843af9cc6212a25b69e0032813a7362c44ced5c80798676d8ad6f8df2b05`，其中 config digest=`sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`、全部 19 个 RootFS DiffID，源 Rust base config=`sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1` 与 5 个 DiffID 均在原件。该归档在 CT201 build/save 通过；06 的 LAN 传输、`docker load` 后 config/全 DiffID 比对、当前候选离线 Compose 构建和容器 smoke 均待实证。
+
+## 7. 68a 机械格式与 bca 固定候选
+
+本人逐字核格式主体 `/home/dev/gdds-test-tmp/p6-s3-c-format-68a97378/prepare-and-format.sh` SHA256=`844ec577c48daeed3df06c77ad28e25a9a02cf06b8854f750e91e8f8bde996b1`，以及本人 dirty scratch 保护性收尾 `cleanup-format.sh` SHA256=`639eb9ca968e09417149b7451e3534ed01bab53c1ea6048307c83157a9942070`，放行唯一 tester：源 clean detached 68a 与字面 HEAD 完整 bundle，06 原子本人 marker/LAN SHA，独立 68a WT 仅 `cargo fmt --all`，patch/SHA 双端核后才在同 session 删除本人格式 WT、核旧 9f WT clean、释放本人 marker。格式主体原始日志 SHA256=`6dbc44520ad6499000ef82615da5395ee5890eeb325fa189cadc3bf8203deba0`，01:27:25–29Z exit0；06 `format.log` SHA256=`923ac6af1f0923c1db8bac6d2e2ad8e4715238e0d9381c980bd4c9d13457bc9a`，01:27:29–30Z，HEAD=68a、Rust1.97、六锁无漂、8 Rust 路径格式 patch SHA=`234259e6b829553968068880fcbc0e8865f8b65f0a9b776df3aa018f7515d22b`、exit0。收尾原始日志 SHA256=`16327dc30aba5ac7d06f2b7e06588c86ee4e2deeffb2c36ff756bbaf0f5e4adf`，01:28:00–01Z exit0；06 patch 与 live-before-cleanup patch SHA 同，实际仅本人格式 WT 移除、marker 不在、旧9f WT仍精确 HEAD9f且 clean。格式 patch 与 bca 源码一致见 §4.1；本步没有 clippy/test，也不是 bca 验收。

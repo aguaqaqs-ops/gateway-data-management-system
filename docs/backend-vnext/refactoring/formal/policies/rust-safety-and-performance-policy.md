@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`6`（2026-11-06：E 的实际 CLI 消费者复用薄 bootstrap 初始化入口，替换 D 的直接初始化 owner；前版 `5` 补 Table Access/parser 与 worker 初始化边，`4` 纳入 B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
+Policy version：`7`（2026-11-08：按已批准的 Phase 6 S3 设计登记 Comparison records 的精确 native consumer；`6` 由实际 CLI 消费者复用薄 bootstrap 初始化入口，替换 D 的直接初始化 owner；`5` 补 Table Access/parser 与 worker 初始化边，`4` 纳入 S2b B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -85,7 +85,7 @@ PyO3 adapter：
 - 不把Python row/list/dict object graph作为正式bulk path；
 - 不自动引入`combine_chunks()`或逐scalar FFI。
 
-S2b B–E 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
+S2b B–E 与 Phase 6 S3 C 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
 
 | Python owner（`gateway_backend.capabilities.` 下） | 可直接从 `gateway_compute._native` 导入的粗入口 |
 | --- | --- |
@@ -93,6 +93,9 @@ S2b B–E 已批准的 Python 调用侧由下列精确 capability 模块拥有�
 | `snapshot_materialization.native` | `_sql_materialize_native`、`_catalog_filter_native` |
 | `storage_projection.native` | `_canonical_project_native` |
 | `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
+| `comparison.native` | `_begin_comparison_operation_native`、`_compare_records_native`、`_summarize_unchanged_ordered_native`、`_facts_core_digest_native`、`_validate_records_batches_native` |
+
+Comparison 的批量数据只以 owned Arrow C Stream 进入或导出；小型 policy/metadata JSON 不承载整表 rows。`comparison.native` 的 operation 入口复用现有进程池与同一 operation M，显式持有输入 backing charge、native portion、取消与截止；table/core JCS 完成后 `seal()` 收缩 native portion，已导出的 Arrow buffer 与其最后 consumer 保留输出和输入 charge。Python `comparison.artifacts` 的 Parquet 读取经该 facade 调用 `_validate_records_batches_native`，只保 raw ref/Parquet I/O 和小 manifest/closure 责任，不直接导入 `_native`。本增补不授予风险、bundle、workflow 或其他模块直接 FFI 边。
 
 这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。
 

@@ -498,3 +498,7 @@ CT108同774源唯一W3 `MODIFIED_ONLY` warm样本14:03:16–14:06:22Z原outer/no
 ## 59. CT108失败项目一次性私有封存与收尾稿静态审查
 
 协调者固定`/home/dev/gdds-test-tmp/p6-s3-e-w3-capacity-cleanup-774/archive-and-cleanup.py` SHA256=`f4b8e2c757538a5650b0b038415044b8e680b8338310ffdcb208eb1984701401`。本人逐字审其仅固定W3失败project、774和原result SHA，先核exact owner marker、全机无运行容器/8000/dolt/cargo/rustc/pytest、三停止容器与卷/网络标签及所有consumer归属；只读现场三卷确为`_backend-artifacts`、`_backend-control`、`_repository-service-data`，本项目三停容器exit0/0/143、一网络、marker字面一致。脚本核卷Mountpoint在Docker命名卷目录、实际文件量与空盘，再以0700私有目录和umask077把三停卷普通tar封存、计算archive SHA并写metadata；**只有tar成功后**才删自有三容器/三卷/一网络并释放自身marker，前后核原result SHA。归档是保留后续容量只读诊断的一次性私有副本，不是产品evidence新机制；失败会停在资源删除前并保原marker。静态CLEAR交唯一tester一次执行，**实际收尾exit、archive字节及后检仍待原件**，不把清理结果改写为W3成功。
+
+## 60. CT108 W3容量失败项目私有封存与实际释放
+
+唯一tester执行§59固定稿一次，14:33:50–14:33:53Z，controller/SSH均numeric0。本人重算外置`/home/dev/gdds-test-tmp/p6-s3-e-w3-capacity-cleanup-774/archive-cleanup.log` SHA256=`ca8689f4049e333dc3bb6b7e471179c195c5a7d4fb1717e9dd28f468d30802b3`；脚本固定SHA、原失败result SHA=`eef0f203c2c33241e2ba90ba209006383d4ae6446b713a9a98a1f6f5fdde415e`均前后匹配。脚本只读发现exact本project三停容器、三卷、一网；三卷源regular-file合计368,778,533B，先写CT108私有0700目录`/home/dev/gdds-test-tmp/p6-s3-e-tool-final-774acf33a3/w3-capacity-preserved-state/`的`stopped-volumes.tar` 387,051,520B、SHA256=`ba1b07d4e5d19824532f70a432dc0557cc7781904c26e4f1621a90a16cae4444`，本人在节点只读重算相同，`archive.json`保三卷位置与摘要。随后仅删本project三容器/三卷/一网并释放其owner marker；本人只读后检marker、本project资源、全机运行容器、8000均空且exit0。此为**失败项目取证封存和节点释放PASS**，不更改W3原result、原outer/node/journey exit1、容量诊断或W3/W4未测状态。

@@ -1,6 +1,6 @@
 # AGENTS 结构整理对照与交接（2026-11-08）
 
-状态：本地修订，待 owner 安排独立会话审核；未获推送及节点 main 同步授权。
+状态：本文件记录初版 `ea3b17307d` 的整理与核对；后续独审发现的 F1/N1 及修正、有限去重见 [第二轮交接](agents-restructure-2026-11-08-followup.md)。未获推送及节点 main 同步授权。
 
 ## 1. 前提与范围
 
@@ -161,7 +161,7 @@ A = [AGENTS](../../../../../AGENTS.md)；T = [testing-conventions](../../../test
 | 输入来源一句指向 Q10 | 本任务指令、kickoff §4.6 | T“真实 backend e2e”，不复制派生输入清单 |
 | secret 0644/服务用户可读、只外置 | handoff §8.3，实际脚本 session/token chmod | T“真实 backend e2e” |
 | M1 clear_refs=5、VmHWM、renderer 判断、主进程只报告、manifest size、data-phase | handoff §8.4，kickoff §8.4，下面 Q4 | T“真实 backend e2e”；kickoff §8.4 回链并澄清基线 |
-| 全部日志字段及 M1 报告字段 | handoff §8 末段，kickoff §4.9/8.4 | T“真实 backend e2e”；既有 FD7 日志段保留 |
+| 全部日志字段及 M1 报告字段 | handoff §8 末段，kickoff §4.9/8.4 | T“真实 backend e2e”；初版镜像字段范围被独审 F1 指出扩大，按第二轮交接恢复 §4.3 原义；既有 FD7 日志段保留 |
 | 双向引用 | 本任务指令 | kickoff §4、§8.4 → T；T → kickoff §4、§4.6、§8.4 与 handoff §8；kickoff §4.1/§12 更新落文状态，历史审核记录不改 |
 
 以下问题均先提交 owner，本会话未自行定规则；2026-11-08 本会话回复已确认：

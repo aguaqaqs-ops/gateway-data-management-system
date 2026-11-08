@@ -34,11 +34,11 @@
 | `ct108-gw-dms-04` | 门禁：权威全量 runner、容器门禁与 carried |
 | `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
 | `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
-| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose；16 vCPU、96 GiB（2026-11-07 扩容实核）、300 GiB thin；`192.168.233.207` |
-| `ct109-gw-dms-07` | 前端日常开发：类型检查、lint、单元测试、构建、截图、mock e2e；8 vCPU、16 GiB、200 GiB thin；`192.168.233.208` |
+| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose |
+| `ct109-gw-dms-07` | 前端日常开发：类型检查、lint、单元测试、构建、截图、mock e2e |
 
 新增节点不承接权威 runner/carried、正式性能测量或默认真实数据全旅程；前端真实 backend e2e 在 05 调试、04 取证。06/07 日常工作可自主并行，不因与 04 同宿主自动互斥或申请窗口；保留本节点占用、服务/端口及计时独占规则，实际干扰、跨节点操作或明确冲突才协调。新节点结果不作正式性能依据。
-06 初始 pytest workers/Cargo jobs 建议各为 4，产品 kernel N/M 另设；07 设置 `GATEWAY_FE_TEST_WORKERS=2`。节点容量、克隆资源纪律及 S2b E 的一次性用途扩展见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。
+06 初始 pytest workers/Cargo jobs 建议各为 4，产品 kernel N/M 另设；07 设置 `GATEWAY_FE_TEST_WORKERS=2`。节点规格与克隆资源纪律见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)；S2b E 的一次性用途扩展见 [历史阶段说明](docs/backend-vnext/testing-conventions.md#历史阶段说明)。
 
 需要占用的工作核空闲后原子取得标志，完成收尾后释放；无需常规预留、反复申请或通报起止。尊重他人有效占用，实际冲突或涉及他人资源时协调；前端不需整机占用的例外见 FD7。
 
@@ -224,7 +224,7 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 ## 提交前
 
 五个 Python 包都要过 ruff 与 mypy（`repository_service` 为 `strict = true` 且覆盖
-`tests`）。mypy 增量缓存命中时五个包合计约 1.5 秒，不是耗时项，不要为了省时间跳过：
+`tests`），不要为了省时间跳过：
 
 ```bash
 cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy

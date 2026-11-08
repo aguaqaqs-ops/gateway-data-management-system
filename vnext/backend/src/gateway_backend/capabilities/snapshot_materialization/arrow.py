@@ -80,6 +80,16 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         self._require_open()
         return self._arrow_source.logical_size_bytes
 
+    @property
+    def arrow_schema(self) -> pa.Schema:
+        self._require_open()
+        return self._arrow_source.arrow_schema
+
+    @property
+    def arrow_batch_count_upper(self) -> int:
+        self._require_open()
+        return self._arrow_source.arrow_batch_count_upper
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         return self._arrow_source.arrow_stream()

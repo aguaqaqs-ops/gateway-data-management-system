@@ -24,7 +24,8 @@ from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure, publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, _stream, compare_plan_native,
+    ComparisonTaskSession, NativeComparison, _fresh_view_budget, _stream,
+    compare_plan_native,
 )
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation import (
@@ -176,6 +177,41 @@ def test_fresh_profile_metadata_admission_releases_failed_reader() -> None:
         # The new reader wrapper's 512-byte metadata stays with the operation;
         # the failed profile allocation and Arrow backing borrower do not.
         assert context.memory.used_bytes == retained + 512
+
+
+def test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m() -> None:
+    store = InMemoryArtifactStore()
+    bit_columns = ", ".join(f"bit_{index} BIT(64) NULL" for index in range(128))
+    before_values = ["1", *("b'1'" for _ in range(128))]
+    current_values = before_values.copy()
+    current_values[1] = "b'10'"
+
+    def sql(values: list[str]) -> str:
+        return (f"CREATE TABLE t (id BIGINT PRIMARY KEY, {bit_columns}); "
+                f"INSERT INTO t VALUES ({', '.join(values)});")
+
+    before = _artifact_bound(sql(before_values), store)
+    current = _artifact_bound(sql(current_values), store)
+    assert before.table_set is not None and current.table_set is not None
+    before_table = before.table_set.tables[0]
+    current_table = current.table_set.tables[0]
+    assert _fresh_view_budget(before_table)[1] < 4 * 1024**2
+    assert _fresh_view_budget(current_table)[1] < 4 * 1024**2
+
+    old = compare_plan(plan(before, current))
+    assert isinstance(old, DetailedFactsResult) and old.facts is not None
+    product = compare_plan_native(plan(before, current))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        assert product.result.facts.facts_core_digest == old.facts.facts_core_digest
+        assert product.result.facts.tables[0].row_modified_count == 1
+        assert product.metrics is not None and product.metrics.native_calls == 1
+        context = current_kernel_context()
+        assert context is not None
+        assert context.memory.high_water_bytes <= context.memory.limit_bytes
+    finally:
+        product.close()
 
 
 def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> None:

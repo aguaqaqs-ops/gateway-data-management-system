@@ -3281,15 +3281,23 @@ mod tests {
     fn comparison_profile_reuses_ipc_mapping_and_rejects_unbound_schema()
     -> Result<(), Box<dyn Error>> {
         let (columns, batch) = mapping_fixture()?;
-        let (profile, indices) = comparison_profile_v1(
-            &columns,
-            batch.schema().as_ref(),
-            options(),
-        )?;
+        let (profile, indices) =
+            comparison_profile_v1(&columns, batch.schema().as_ref(), options())?;
         assert_eq!(indices, vec![2, 0, 1, 3]);
-        assert_eq!(profile.metadata().get(SCHEMA_VERSION_KEY).map(String::as_str), Some("1"));
+        assert_eq!(
+            profile
+                .metadata()
+                .get(SCHEMA_VERSION_KEY)
+                .map(String::as_str),
+            Some("1")
+        );
         assert_eq!(profile.field(3).data_type(), &DataType::FixedSizeBinary(2));
-        assert!(profile.fields().iter().all(|field| field.metadata().contains_key(FIELD_TYPE_KEY)));
+        assert!(
+            profile
+                .fields()
+                .iter()
+                .all(|field| field.metadata().contains_key(FIELD_TYPE_KEY))
+        );
         let pool = pool()?;
         let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
         let decoded = decode_v1(&encoded, &columns, &pool, options())?;
@@ -3300,13 +3308,19 @@ mod tests {
         let wrong = Schema::new(wrong_fields);
         assert_eq!(
             comparison_profile_v1(&columns, &wrong, options())
-                .err().map(|error| error.kind()),
+                .err()
+                .map(|error| error.kind()),
             Some(CanonicalIpcErrorKind::Schema),
         );
         let large = Schema::new(vec![Field::new("s", DataType::LargeUtf8, true)]);
         let text = vec![column(
-            "s", 0, "LONGTEXT", SqlLogicalType::Standard,
-            Some(DeclaredType::String), true, None,
+            "s",
+            0,
+            "LONGTEXT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
         )];
         let (large_profile, large_indices) = comparison_profile_v1(&text, &large, options())?;
         assert_eq!(large_indices, vec![0]);

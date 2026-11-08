@@ -1078,34 +1078,40 @@ fn _canonical_comparison_profile_native(
             .checked_add(preflight.string_cache_upper_bytes)
             .ok_or_else(|| PyMemoryError::new_err("canonical descriptor storage overflow"))?;
         if owned > budgets.max_codec_peak_bytes {
-            return Err(PyMemoryError::new_err("canonical descriptor exceeds peak budget"));
+            return Err(PyMemoryError::new_err(
+                "canonical descriptor exceeds peak budget",
+            ));
         }
         let mut core_budgets = budgets;
         core_budgets.max_codec_peak_bytes -= owned;
         let input_schema = input_schema.into_inner();
-        let (schema, indices) = py.detach(|| {
-            comparison_profile_v1(
-                &descriptors,
-                input_schema.as_ref(),
-                CanonicalIpcOptions {
-                    budgets: core_budgets,
-                    control: CanonicalIpcControl {
-                        cancel: Some(watch.cancelled.as_ref()),
-                        deadline,
+        let (schema, indices) = py
+            .detach(|| {
+                comparison_profile_v1(
+                    &descriptors,
+                    input_schema.as_ref(),
+                    CanonicalIpcOptions {
+                        budgets: core_budgets,
+                        control: CanonicalIpcControl {
+                            cancel: Some(watch.cancelled.as_ref()),
+                            deadline,
+                        },
                     },
-                },
-            )
-        }).map_err(|error| match error.kind() {
-            CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
-            CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
-            CanonicalIpcErrorKind::Deadline => PyTimeoutError::new_err(error.to_string()),
-            _ => PyValueError::new_err(error.to_string()),
-        })?;
+                )
+            })
+            .map_err(|error| match error.kind() {
+                CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Deadline => PyTimeoutError::new_err(error.to_string()),
+                _ => PyValueError::new_err(error.to_string()),
+            })?;
         python_adapter_control(&watch, deadline)?;
         Ok((PySchema::new(schema).into_pyarrow(py)?.unbind(), indices))
     }) {
         Ok(result) => result,
-        Err(()) => Err(PyRuntimeError::new_err("canonical profile adapter panicked")),
+        Err(()) => Err(PyRuntimeError::new_err(
+            "canonical profile adapter panicked",
+        )),
     }
 }
 
@@ -1439,7 +1445,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;
-    module.add_function(wrap_pyfunction!(_canonical_comparison_profile_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        _canonical_comparison_profile_native,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(_inspect_canonical_ipc_native, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("__build_input__", BUILD_INPUT)?;

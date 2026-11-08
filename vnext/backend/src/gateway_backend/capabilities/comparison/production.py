@@ -34,9 +34,10 @@ from gateway_backend.capabilities.comparison.standard import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_profile, snapshot_arrow_input,
+    try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    BlankRowProvenance, SnapshotTable,
+    BlankRowProvenance, SnapshotTable, normalize_sql_type_spelling,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.capabilities.table_access.contracts import TableAccessError
@@ -76,6 +77,84 @@ class _CompositeArrowOwner:
         manager, self._manager = self._manager, None
         if manager is not None:
             manager.__exit__(None, None, None)
+
+
+def _has_canonical_profile_metadata(schema: pa.Schema) -> bool:
+    return ((schema.metadata is not None
+             and b"gdds.canonical_mapping_version" in schema.metadata)
+            or any(field.metadata is not None
+                   and b"gdds.canonical_type" in field.metadata
+                   for field in schema))
+
+
+def _fresh_view_budget(table: SnapshotTable) -> tuple[int, int]:
+    """Bound only a writer-verified fresh comparison view before native M split."""
+    reader = table.reader
+    if (not isinstance(reader, ArrowSnapshotTableReader)
+            or not reader.canonical_comparison_verified):
+        return 0, 0
+    try:
+        schema = reader.arrow_schema
+        batch_count = reader.arrow_batch_count_upper
+    except TableAccessError:
+        # The existing task boundary will emit its reader degradation.
+        return 0, 0
+    if _has_canonical_profile_metadata(schema):
+        return 0, 0
+    columns = table.descriptor.columns
+    source_bytes = sum(
+        256 + len(column.name) + len(column.display_name)
+        + len(column.scalar_type or "") for column in columns
+    )
+    metadata_upper = 65536 + 64 * source_bytes + 16384 * len(columns)
+    rows = table.descriptor.row_count
+    # A fresh business projection normally has one batch. This upper also
+    # covers the union of all column chunk boundaries and our 65k BIT slices.
+    batches = batch_count + (rows + 65535) // 65536
+    bit_upper = 0
+    for column in columns:
+        declared = try_declared_type_for_sql_spelling(
+            normalize_sql_type_spelling(column.scalar_type or "UNKNOWN")
+        )
+        if (declared is None or declared.kind.value != "bit"
+                or declared.bit_width is None):
+            continue
+        index = schema.get_field_index(column.name)
+        if index < 0 or pa.types.is_fixed_size_binary(schema.field(index).type):
+            continue
+        width = (declared.bit_width + 7) // 8
+        bit_upper += 2 * rows * width + 2 * ((rows + 7) // 8)
+        bit_upper += batches * 1024 + 4096
+    return metadata_upper, bit_upper
+
+
+def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
+    """Mirror only the existing per-task reader admissions for native M split."""
+    before, current = task.before_table, task.current_table
+    policy = task.policy
+    first, second = task.before_descriptor, task.current_descriptor
+    if (before is None or current is None or policy is None
+            or first is None or second is None):
+        return ()
+    try:
+        schema = _schema_view(first, second, policy)
+        if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
+            changes = _schema_changes_from_view(schema, policy)
+            return (before, current) if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else ()
+        if policy.ordered_policy is not None:
+            from gateway_backend.capabilities.comparison.ordered import _ordered_schema_diagnostics
+
+            if _ordered_schema_diagnostics(first, second, policy.ordered_policy, schema):
+                return ()
+            return (current,) if _can_table_early_exit(first, second, policy) else (before, current)
+        if _can_table_early_exit(first, second, policy):
+            return ()
+        if schema.key_invalid or schema.key_changed or not schema.selected:
+            return ()
+    except (ValueError, StandardComparisonError):
+        # The table will follow its existing per-table degraded path.
+        return ()
+    return before, current
 
 
 def _cache_key_fits_prepaid_repr(plan: ComparisonPlan, task: TableComparisonTask) -> bool:
@@ -477,11 +556,7 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
         # final output consumer closes; no IPC copy or Python row bridge.
         original = isolated.arrow_stream()
         schema = original.schema
-        if ((schema.metadata is not None
-             and b"gdds.canonical_mapping_version" in schema.metadata)
-                or any(field.metadata is not None
-                       and b"gdds.canonical_type" in field.metadata
-                       for field in schema)):
+        if _has_canonical_profile_metadata(schema):
             # Persisted IPC and any already-profiled input must pass the native
             # validator unchanged, including partial/malformed metadata.
             return original, isolated
@@ -489,18 +564,12 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
             return original, isolated
         # The fresh canonical writer has already validated this exact backing.
         # Rebind only its comparison view; business/export Arrow stays intact.
-        columns = table.descriptor.columns
-        source_bytes = sum(
-            256 + len(column.name) + len(column.display_name)
-            + len(column.scalar_type or "") for column in columns
-        )
-        metadata_upper = 65536 + 64 * source_bytes + 16384 * len(columns)
+        metadata_upper, bit_upper = _fresh_view_budget(table)
         profile_charge = context.memory.reserve(metadata_upper)
         try:
             profile, indices = canonical_comparison_profile(
                 table.descriptor, schema, metadata_budget_bytes=metadata_upper,
             )
-            bit_upper = 0
             for position, source_index in enumerate(indices):
                 target = profile.field(position).type
                 actual = schema.field(source_index).type
@@ -509,9 +578,6 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
                 if not (pa.types.is_fixed_size_binary(target)
                         and (pa.types.is_binary(actual) or pa.types.is_large_binary(actual))):
                     raise ValueError("canonical comparison view has an unsupported conversion")
-                rows = table.descriptor.row_count
-                bit_upper += 2 * rows * target.byte_width + 2 * ((rows + 7) // 8)
-                bit_upper += 4096 * 1024
             bit_charge = context.memory.reserve(bit_upper) if bit_upper else None
             try:
                 def batches() -> Iterator[pa.RecordBatch]:
@@ -976,7 +1042,14 @@ def _compare_plan_native_once(
     # a fixed future-writer holdback would reject small cached replays.
     try:
         available = context.memory.available_bytes
-        concurrent_scratch = min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2))
+        necessary_view_total = sum(
+            sum(_fresh_view_budget(table))
+            for task in plan.tasks for table in _task_arrow_inputs(task)
+        )
+        concurrent_scratch = max(
+            min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2)),
+            necessary_view_total + 16 * 1024**2,
+        )
         native_budget = available - concurrent_scratch
         if native_budget <= 0:
             raise MemoryError("comparison native phase exceeds operation budget")

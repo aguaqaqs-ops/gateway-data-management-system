@@ -651,6 +651,8 @@ Compose 占 backend 基线约 91.7%；细节与日志见
 
 ### 历史阶段说明
 
-以下保留已退出阶段的一次性授权，不扩为新节点的常设用途。
+以下记录阶段专项用途，不扩为新节点的常设用途。
 
 Owner 于 2026-11-07 按 DC87/DC33 另明确授权：06 在本次 S2b E 最终验收运行 fresh 完整 t1–t3 功能/容量旅程，与 04 六包及 Compose 跨节点并行；t4 按独审具体依据沿用。此为本轮真实数据用途扩展，不改变 04 权威 runner/carried 与 CT108 正式性能职责；06 仍按本节点占用、clean 提交及离线证据规则执行。
+
+Owner 于 2026-11-08 独立明确授权本轮 S3 最终 fresh 完整 t1–t3 从05移到06，原因是05存在FE3b连续轮次的有效占用。固定产品候选在06运行完整Preview→Submit→真实读取/approve→History，v1/重复Preview为MODIFIED_ONLY、v2为FULL；N1、32 GiB worker envelope、8 GiB reserve、显式M24 GiB不变。t4仍在CT108 fresh，04仍为权威runner/carried；06不成为正式性能节点。现场有效标记、离线预填充、clean候选、单档同节点/同worker与失败留证规则不变；按实际干扰协调04/06共享宿主，不自动互斥。此项取代本轮S3的05节点安排，S2b授权仅作历史，不作为本项依据。具体执行与未决门禁见 [S3协调 §24](refactoring/formal/plans/p6-s3-coordination.md#24-固定v集中取证与06专项用途)。

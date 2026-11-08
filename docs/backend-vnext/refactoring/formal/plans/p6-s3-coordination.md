@@ -379,3 +379,17 @@ Python整合删除 `cd08d0de36` 覆盖旧standard/ordered行算法、全量tuple
 原件根`/home/dev/gdds-test-tmp/p6-s3-e-focused-c0cabd-06/outer/`：outer SHA=`b9c9392ad47c7ccc7dad9db9cc158419cee02a76104e117af8bce01e80f48fa6`，node SHA=`4e05a793e58a334744280d85689efa90336eef2a289d5dd928dfd7812ce15907`，manifest SHA=`42d1a29822397dc8dbf6882f1003dfacb47393bc18497ee01c48c112a91c7837`，capture SHA=`1fc0de3c421a00546658c317a29d164c38e29596b61978427feae4cf97fff6f6`。原独审在 **`c11b1df934` E review §23**核收**仅该focused范围PASS**，旧七失败在本轮对应所选节点关闭；Rust组件引用§21未变tree的197项，不重复06编译三步。
 
 History Compose明确未在上述选择器内运行，由实施者按完整预载、当前镜像身份、独立project与收尾另固定一稿，原审后交同一Luna唯一执行。E原审继续A–D累计接口及三项minimal ports核查；协调者完善集中04/05/CT108稿，仍UNFIXED拒执行。最终V/H、04六包/容器、DC33 fresh t1–t4和W3/W4统计仍待，不把focused PASS写成E GO。
+
+## 24. 固定V集中取证与06专项用途
+
+§23后History单例在06固定c0上实际pytest **1 passed / 171.12s、exit0**；原后处理因结果行含括号时长及混比Docker-save config digest/本机containerd image ID而原node/outer **exit95**，如实保留。只读补证在11:35:37–38Z实际exit0，原审`3cdb9ec3a8` §29接收原单例与三镜像身份范围，未重跑产品/重新tag/改原件。原r1 node SHA=`c65b73f3060718f56bda947abf51004aa083ca158ac89f37ffff507ce253e2cf`；补证receipt SHA=`507889ffc66e34a0d9af2e08338f366d937ae65771d78ba40048ad838bb18c7c`，三运行容器Image与同节点tag ID绑定，config及全部13/13/28 DiffID另域核。细节与原始失败均在E handoff/review。
+
+固定产品候选 **V=`c0cabd7e60bfe2d64d2ddcbad6a909cb517127ed`**，Rust tree仍9d4f。集中执行稿r1经原审`177d558b7b` §28 CLEAR，完整HEAD bundle SHA=`42f91bba22fc84b0c9e4fba91533f4fc1e85c7ec212fbfc90c345f1dd12baa7e`、common资产清单SHA=`0ac4de743ef75507ad88f89e198952ef544d719e2d31fda6647852349b932bd7`。04/CT108于11:38–11:39Z来源/缓存/五环境准备actual0，经`e94c5c7b9f` §30独核；只接准备范围，不把它算测试。04随后唯一启动六包官方runner与其中Compose，CT108唯一启动完整fresh t4；当前两条原执行正常收尾中，结果未核收。
+
+05在11:36:37Z短暂空闲后，FE3b自11:37:33Z启动下一轮；S3 prepare于11:38:01Z准入exit1，未传源码/建WT或测试。原outer SHA=`d656a9f0c3e9c416678b7c7f0839aa912fc0ca3de4c6e09db87158dadb8ac75c`保留。协调者11:39:21Z只读核05有效marker、三服务/toolchain和8000占用，不动他人资源、不自动重试。
+
+Owner现已明确回复**“授权06完整t1–t3”**。本轮DC33节点安排因此由05改为06，完整fresh Preview→Submit→真实读取/approve→History、v1/重复Preview MO、v2 FULL以及N1/32-8/M24均不变；t4及W3/W4仍CT108、权威runner/carried仍04。替代具体稿在`/home/dev/gdds-test-tmp/p6-s3-e-final-c0cabd7e60-node06-proposal/`，原审`3ec25a2f76` §31静态CLEAR；prepare SHA=`e289d17804287572e2e59bbce34ea2e57c6451e520adcfcac2f7009d1b193a5c`，journey SHA=`e95bba54475be5e1f69920723ecf4534e218f508c49144e150b4e1fd999f654f`，common SHA=`fb315cc7b6055bab7ccf91be2746196302c21cedf707e30c2f7989dc37364aef`。只改节点/私有根/选择器，移除非必要dolt版本查询；不继承S2b专项，也不扩为06常设职责。按实际共享宿主干扰协调，不自动要求04/06互斥。
+
+06已按该授权启动一次来源/缓存准备，于11:49:27–11:51:04Z实际exit0，五环境/native input、78c7标准metadata/八包、578e缓存、六锁与guarded释放合格，原审已核准备范围；尚未启动任何06真实旅程。原outer SHA=`dd1c3ada018b1e13f86b2542f5949ff7f1b19dfba337862b7263395869aab101`、node SHA=`c1618093af79765e242475e344c095d2dcaade453576e69cb17e0b88a9c25dd1`、manifest SHA=`df504d14a91272ac29b95863d569b64fa5ef76fb647b23fa808916e86f25d7d7`。
+
+当前04原runner的backend非串行组已报告 **3409 passed、4 failed**，官方继续既定serial链、最终exit尚待。原审定位两根项：Comparison/Risk共享kernel上下文的跨capability依赖违反既有DAG；三个真实旅程失败留证测试替身缺新census_path参数。协调者暂停全部新增验收及06旅程/perf，由同一实施者最小修复、原审复核；04/CT已启动执行及06已启动准备不擅杀，原结果留证。V当前不具最终门禁PASS；若产品修订，新V及受影响证据重新固定，不能把本次失败runner分包口头carried。Owner的06用途授权持续有效，无需日常再次申请。

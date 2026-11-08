@@ -40,6 +40,8 @@
 新增节点不承接权威 runner/carried、正式性能测量或默认真实数据全旅程；前端真实 backend e2e 在 05 调试、04 取证。06/07 日常工作可自主并行，不因与 04 同宿主自动互斥或申请窗口；保留本节点占用、服务/端口及计时独占规则，实际干扰、跨节点操作或明确冲突才协调。新节点结果不作正式性能依据。
 06 初始 pytest workers/Cargo jobs 建议各为 4，产品 kernel N/M 另设；07 设置 `GATEWAY_FE_TEST_WORKERS=2`。节点规格与克隆资源纪律见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)；S2b E 的一次性用途扩展见 [历史阶段说明](docs/backend-vnext/testing-conventions.md#历史阶段说明)。
 
+Owner 于 2026-11-08 另明确授权本轮 S3 最终 fresh 完整 t1–t3 改在06，替代被FE3b有效占用的05；v1/重复Preview为MODIFIED_ONLY、v2为FULL，保持N1/32-8/M24。04权威runner/carried与CT108 t4/正式性能职责不变；按实际资源干扰协调，不因共享宿主自动互斥。此为S3本轮专项用途，不沿用S2b例外，也不扩为06常设用途。记录见 [S3协调 §24](docs/backend-vnext/refactoring/formal/plans/p6-s3-coordination.md#24-固定v集中取证与06专项用途)。
+
 需要占用的工作核空闲后原子取得标志，完成收尾后释放；无需常规预留、反复申请或通报起止。尊重他人有效占用，实际冲突或涉及他人资源时协调；前端不需整机占用的例外见 FD7。
 
 网络与缓存遵守 [测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)：

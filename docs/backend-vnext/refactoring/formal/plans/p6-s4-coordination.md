@@ -16,7 +16,7 @@ Q18固定产品仍为a1ca3bad93；原报告已增加focused/容器脚本静审�
 
 ## 3. 逐节状态
 
-A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：产品788ed36e7742a067bf01c16ad2e6aaed2fed91fb，原审B GO，04 focused209+3及850表差分核收，详见§8与[B原审](p6-s4-b-review.md)。按DC96直接进入C；D–E待后继实际核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
+A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：产品788ed36e7742a067bf01c16ad2e6aaed2fed91fb，原审B GO，04 focused209+3及850表差分核收，详见§8与[B原审](p6-s4-b-review.md)。C：产品48053253f9a3c46b0d227167a4d0ca1f8ad94bf3，原审C GO，06 Rust207及focused318+4，详见§10。按DC96直接进入D；E待后继实际核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
 
 ## 4. A核收后的并行事实
 
@@ -84,3 +84,11 @@ r4在06 `gw-dms-06` 20:34:29–20:36:23Z实际Rust fmt/clippy/test全0（207）�
 r5 `f433bbd6d9`在06 20:39:50–20:40:46Z五包静态全0、nonserial315过/3败，serial按失败停止；两项旧native测试误将导出SQL 97/143B的scope-lived费用断为0，另一17MiB测试尾部多写opening quote。原审及根核源码/原始断言后，仅测试修`9c08623dd1`，保手写SQL字节/最后输出费用和scope归零语义，不改产品或golden。r5 node SHA `894bda6cede048c3ea16234c3b2154656f1ad36aeb5c992887597b58d7205340`、outer SHA `614fb86a9c2375d8838676f38c919e9f4b5016602d790e41e0443725930a80cc`，原件保留。
 
 r6 `9c08623dd1bd5f55a7ad6021883002efa9607f56`在06 20:43:26–20:44:29Z实际forceextension/build-input0、五包静态全0、13文件非serial318及serial4全过，entry/final/outer全0、clean/六锁0漂/本人marker双释放0；原C与根已独核。node SHA `ed90fb215bd27832f7b4700b4ea3ad7efcb8ca07028d3b18c61c7c805d7ddc9c`、outer SHA `fffdff9dffc8306f2e81dc81b2ab21ab13d3755dcab59de6a10940745bf01040`，原件`/home/dev/gdds-test-tmp/p6-s4-c-r6-06-9c08623dd1/controller/`。这仍只是C focused成功，不是权威/Compose/性能或S4 exit；原审随后核实施者自查的UPDATE after-image键literal冗余，`48053253f9`改为零heap键槽、CASE/WHERE复用唯一key literal。新Rust tree `e2a901417b19259ece669637a41545e774261445`必须r7重新Rust三步、强制扩展和focused，不能冒r6为新树通过。
+
+## 10. C最终核收、D接续与S3路径预约
+
+C最终产品V=`48053253f9a3c46b0d227167a4d0ca1f8ad94bf3`，handoff最终H=`f4d9e19ac966a9b96d5587bab284bc25a36c4c22`（原bb0790仅被后继纯措辞细化，不改写历史）。原C审核者已在clean detached WT逐一核V/H六包tree相同，并给 **C GO**、所有C源码finding关闭；原文报告[p6-s4-c-review.md](p6-s4-c-review.md) SHA `8df7d838a7ca60fadf1fd26a77da6bd3afbbe9ca6ae825adaa0314abf969ec81`，未由协调者改写。
+
+06 `gw-dms-06` r7于20:49:05–20:50:21Z实际Rust fmt/clippy/test207、强制扩展和build-input e2a9014、五包ruff/mypy、13文件非serial318及serial4均0；entry/final/outer/capture均0，起止480 clean、六锁0漂、本人marker双释放0。原件`/home/dev/gdds-test-tmp/p6-s4-c-r7-06-48053253f9/controller/`，node SHA `fb07cb17000a0c584f38f06ca4e124d9ab6364e5fc0b2a6323ed268c9e16fb27`、outer SHA `41f7068eb86bf8761a5ddf2b162f627a5d76e8a79c63c67314ca29a7410c92a1`。四格式source=result，无额外回填。C全部历史失败及WT/target/log保留；06当前本人资源正常释放，已有来源和他人资源未清。此GO不覆盖生产Submit、组合DDL+DML cap、最终六包/Compose/真实/容量/性能；最后C image revision/source-tree仍none，E最终候选须重建与适用容器门禁。
+
+C实施/原审已完成本节职责；D新Sol xhigh实施者与独立Sol审核者接手唯一Submit生产路径及旧热路径删除，唯一Luna继续专用节点执行。S3原协调者已申请并获短期独占`comparison/production.py`及两份`test_comparison_s3_c_arrow.py`/`test_comparison_s3_d_production.py`，用于把隔离4b0的已预扣sort预算最小移植到main；D避开三路径，收到固定移植候选/释放后才核实际集成，S3-only取证不外推为含S4的main或倒签原V774成功。当前无S4 exit tag，不进入S5。

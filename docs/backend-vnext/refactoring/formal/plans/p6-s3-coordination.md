@@ -321,3 +321,27 @@ E已按生命周期创建新实施者Sol xhigh、新独审Sol max与唯一测试
 E的现役consumer迁移按每项职责静审并待focused实测：census改真实native handle计数；replacement测试直接调用独立replacement owner；Preview取消测试挂现役Arrow writer；planning与non-record role保schema/key、存在性、共有列和变化计数断言。Rust direct Parquet/core dev base64已裁剪声明，shared-kernel实际base64消费者保留；06仅在独立scratch从旧lock离线最小裁剪、逐一核所有保留包身份，commit新lock后才在CT201构建新dependency-base。五包静态、受影响focused和Rust三步仍待当前整合候选实际运行，不能把静审当测试通过。
 
 最终权威范围已由E原审确认：04本S3自有clean WT **六包全部实跑**，无合格D 06权威carried来源；同次Compose不重复。V→H再在该同04 WT逐包/镜像实测沿用。05 fresh t1–t3、CT108 fresh t4沿用Owner已确认DC33范围，v1/repeat MO、v2 FULL；分别保同worker生命周期、32/8/M24资源与真实业务结果。协调者准备相应外层，未固定V/base的草稿均拒执行；不会把准备文件存在或节点只读空闲写成门禁通过。
+
+## 20. E 补充预期关闭与新依赖缓存实备
+
+§19唯一旧Risk补项已由同一原审在 `bb71606170cfc4b892749d5f94e31b77ed022e50` 的E review §8核收：06同clean a9/b5f、nodeid13 **1 passed / 0.62s**、09:21:02–09:21:05Z outer0、native/六锁/释放0。补充JSONL SHA=`bbb260861e7317778375f6f69f94a1879382e1fc94934911d5817919e62a5ae2`，绑定原r3 input/core/comparison/table与同一V1 Risk规则/默认options，旧Risk digest=`sha256:0b383a46b75deede4a692ec08b7a7e9911ebd62bb7775284a59f8d458c4f5122`。删除边界例外解除。固定向量迁移 `9b13dc5518` 与深拷贝修订 `59aaf` 已获增量静审；新fixture SHA=`efd882981ab622bb45461dded5bb879264f0f0cd4efc8bd2545f5cd84687b36f`为上述旧原件的精简子集，尚待当前整合候选focused，未更新冻结raw golden消差。
+
+Rust manifest裁剪 `87270184a2` 与精确锁提交 **`53746c7236a79c96bd41587165e80683da283400`** 已独核：06独立scratch仅运行offline metadata/locked检查，从170→149包，恰删21个Parquet枝包；保留包name/version/source/checksum全相同，shared-kernel实际base64消费者保留。锁SHA=`dfdf894c27abc05fff8c1c9f520e35c846acf397ea452c6cad5da523c754dbd6`；metadata不是Rust编译/测试通过。实际锁原件及独审见E review §7。
+
+协调者在CT201 `heavy-dev-01` **09:20:30–09:26:19Z** 唯一执行原审CLEAR的官方dependency-base固定稿，固定clean53746源WT、官方`--print-input`/`--save`与完整身份导出均0；无产品测试。原源Rust base `rust:1.97.0-bookworm` 的config `sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1`和全5 DiffID与C已核来源精确相同，未擅换基础镜像。新缓存身份：
+
+- tag：`gateway-backend-deps:lock-578e079b762e`；完整input=`578e079b762e170dacf10974ddaf81462fef99c2db355a53af9a49610dac3ff5`。
+- config digest：`sha256:46c00a3b032e93fae3d86b0adb797c16902b0117477b6275c267ab6eec7fe939`；全19 RootFS DiffID在原`archives/image-identity.json`，SHA=`d5ebabf6cf39b98917adca5ebad6f66138e2a9fa00e63eb8e6526956ccdff7c3`。
+- 官方归档SHA=`1b595f069197d75a9226978a530fdb06db93e7df29dbf1f4458e00ec3f6cc648`；完整input JSON SHA=`270ed39e56b2eec16f0a5a1c0e4a57ef5680e8a0f3b8fba8dfdf236140b8d560`。
+- 原件根：`/home/dev/gdds-test-tmp/p6-s3-e-dependency-base-53746c7236a7/`；`logs/build.log` SHA=`eb309da65f5a9ec525900fe4b6022186531ee5009f72529974e176814980c86a`。原审已独算五文件/规范tag-input及tar原config/全DiffID，核收cache-source；这是缓存来源，不是E产品镜像或门禁结果。
+
+四节点预填均由协调者按同原审逐字CLEAR的独立固定稿唯一执行，控制端09:32:05Z开始，现场核空闲后原子占本人标记、LAN传固定源、仅missing-tag分支load且防覆盖。每节点重新docker-save并比Rust base/config+全5、dependency/config+全19 DiffID及input label，实际remote/outer均0、两个`IDENTITY_MATCH`、guarded释放；原审已逐原件核收。
+
+| 节点 | 实际hostname / 节点释放UTC | 原控制端日志SHA256 |
+| --- | --- | --- |
+| 04 | `gw-dms-test-04` / 09:34:32Z | `c5b960cd8c9731f8947e53b2674ac34a62255bb8833bbab4648d14404c57ad8a` |
+| 05 | `gw-dms-test-05` / 09:34:03Z | `2705714d92ef5318630465c2bc8bf4f4ff27df25c64ccdce0277165528ef563e` |
+| 06 | `gw-dms-06` / 09:34:32Z | `762c4b3f828ddee4c618e006f716c4b241cce3d186e18c7d7adb9a39a41c4d97` |
+| CT108 | `gw-dms-test` / 09:34:00Z | `91721c786aa5f8addd0789887ebf5e9f841c1f0e8efd5f386533ecdf93b36603` |
+
+各原log路径为CT201 `/home/dev/gdds-test-tmp/p6-s3-e-<04|05|06|ct108>-cache-prefill-578e079b/logs/prefill-<同key>.log`，含LAN起止、三源SHA、各全DiffID、节点save归档SHA与释放。05节点释放UTC比控制端结束UTC晚1秒，保留两机原时间，不跨机推耗时或修时间。节点重save tar包装SHA与CT201源归档可不同；跨机只比较config及全部DiffID，不拿inspect ID等价。无产品编译、pytest、Compose、真实旅程或原基准资源修改；四标记已释放，后续唯一测试者重新核现场后使用578e。最终V、H与全部验收仍未完成。

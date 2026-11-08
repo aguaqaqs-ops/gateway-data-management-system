@@ -886,7 +886,11 @@ else
         full_initial) cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$input_dir/sql/dbcfg.sql" ;;
         full_modified) cp -- "$INPUT_FIXTURES/sql-initial.sql" "$input_dir/sql/dbcfg.sql" ;;
       esac
-      cp -- "$SHARED_INPUTS/logics-1.xml" "$input_dir/comps/logic/logics.xml"
+      if [ "$input_key" = "full_modified" ]; then
+        cp -- "$SHARED_INPUTS/logics-2.xml" "$input_dir/comps/logic/logics.xml"
+      else
+        cp -- "$SHARED_INPUTS/logics-1.xml" "$input_dir/comps/logic/logics.xml"
+      fi
     done
     log "journey_input_scope=${journey_slug} modified_only_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/sql/dbcfg.sql" | cut -d' ' -f1) full_initial_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_initial/sql/dbcfg.sql" | cut -d' ' -f1) full_modified_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_modified/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/comps/logic/logics.xml" | cut -d' ' -f1)"
   done

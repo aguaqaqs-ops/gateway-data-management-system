@@ -5,6 +5,10 @@
 
 本文定义 backend vNext 整体重构的目标架构、模块边界和依赖规则。本文是重构总纲；详细实施阶段见 [Implementation Stages](../plans/implementation-stages.md)，精确语义由本目录的 owner-oriented contracts 和 ADR 规定。旧架构区的 `flows.md`、`operations.md`、`contracts/`、`capabilities/` 与 ADR 仅作为 legacy 证据；发生冲突时以本目录正式文档为准。
 
+2026-11-08 Owner 授权补充：§7.4 明确解析、比较等计算能力的独立复用要求及实际消费者触发的验收。
+这是长期架构约束，不追溯增加已退出阶段或在途 P6 S3 的退出条件；实现时点见
+[P6 设计 §1.5](../plans/p6-design.md#15-计算能力独立复用2026-11-08-owner-授权补充)。
+
 2026-08-01过渡说明：WP1-R1旧设计checkpoint已经完成。安全、恢复、
 Repository Service范围和交付控制遵循
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)。
@@ -418,6 +422,32 @@ capabilities/comparison/
 - 明确声明的 entrypoint。
 
 调用方不得 import `_internal`，也不应直接依赖 provider selection、cache layout、builder 或算法中间状态。
+
+### 7.4 计算能力独立复用
+
+解析、比较等计算能力必须保持可由独立调用方复用的边界。Python、CLI 或 AI 工具适配层通过公开接口编排计算；
+计算核心不依赖 Preview、Submit、History 等业务流程、持久化服务或部署配置。此要求延续
+[ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 的流程无关入口，不重新定义比较语义。
+
+- **依赖方向：** 业务编排与适配层依赖计算契约；计算核心只依赖必要的公开数据/编码契约和计算库。
+  业务快照、产物定位与存储端口由适配层转换或提供，不能成为调用纯解析、比较内核的必需基础设施。
+  §7.1 的公开正向依赖继续有效，不要求各模块零依赖，也不为拆分重建一套通用表模型。
+- **公开调用边界：** 明确输入、策略与契约版本、结果和错误语义；批量数据保持 Arrow 等类型化表示。
+  外部调用方不依赖私有 native 入口、具体 backend reader、缓存布局或算法中间状态。
+- **执行与生命周期：** 调用方通过公开会话或显式参数提供资源预算、取消与截止时间；初始化、输入借用、结果所有权、
+  关闭及异常释放语义必须明确。内部可复用现有上下文实现，独立调用方无需了解隐式 backend 上下文或加载 worker settings。
+  独立复用不自动意味着多任务并发，实际并发能力按所选执行模型验证。
+- **语义归属：** 同一规范输入和策略下，独立调用与 backend 适配调用遵守同一 owning Contract 和独立语义向量。
+  计算不产生业务权威状态；AI 编排经类型明确的工具适配层调用，业务动作继续由 Application 拥有。
+
+当前架构评审和已有依赖门禁持续约束上述边界。出现并获准接入首个独立消费者时，由能力 owner 和适配层 owner
+共同完成最小独立调用验收：在不启动 backend 服务、worker、Dolt 或 control DB 的环境中，通过公开入口完成解析、比较，
+并验证成功、输入错误、取消/截止、预算拒绝及结果关闭后的资源释放。需要输入/产物适配时使用最小内存或临时适配器；
+复用既有 Contract 向量，不复制全量业务旅程或另建永久算法 oracle。声明为独立发行包时，验收还须不安装 `gateway_backend`。
+
+公共接口收口、独立打包与 AI 工具协议随已确认的消费者落实；不据此提前建设网络计算服务、通用调度框架或多套生产实现。
+Rust/Arrow 具体边界见 [Rust policy §4.1](../policies/rust-safety-and-performance-policy.md#41-独立调用边界)，
+工具化方向见 [分析能力工具化与 AI 编排](future-ai-tool-exposure.md)。
 
 ## 8. Shared Kernel、Contracts 与 Infrastructure
 

@@ -80,6 +80,28 @@ Python 编排是当前业务取舍，新功能可先用 Python 验证，也可�
 
 本修订不改变冻结基准和已引用的 S2a 证据；后续 exit 次序以 DC81 为准。owner 随后授权定向修改设计文档，ADR 0001、ADR 0010 和 Rust policy 的长期双实现定位已同步；实际消费者清单、测试覆盖移交与技术细则仍按阶段审核。
 
+### 1.5 计算能力独立复用（2026-11-08 Owner 授权补充）
+
+解析、比较等计算能力的长期边界由 [架构总纲 §7.4](../architecture/architecture-and-refactoring-plan.md#74-计算能力独立复用)
+统一规定，Rust/Arrow/Python 接入细则见 [Rust policy §4.1](../policies/rust-safety-and-performance-policy.md#41-独立调用边界)。
+P6 保持纯计算 core 与业务适配的单向依赖；公共调用需要显式资源与生命周期契约，能力可复用不等于已交付独立 SDK。
+
+以 `9a15d75031fe94b84f05931b8fe07eb218376ff9` 的定向静态核对为登记起点，尚需在实际独立消费者接入时收口：
+
+| 差距 | 所属 owner / 最小处理 |
+| --- | --- |
+| Python 发行包仍以私有 native 入口为主 | 计算适配层 owner：按真实消费者收窄并公开解析/比较请求、结果与错误接口；不直接公开全部 FFI |
+| operation context 与初始化入口仍位于 backend | 计算适配层与 runtime owner：提供公开会话或显式控制参数，保预算、取消、截止和最后 owner 退账；无需调用方加载 worker settings |
+| 比较生产接线依赖 SnapshotTable 与具体 Arrow reader | Comparison 与 snapshot owner：将业务对象转换留在 backend adapter，核心按规范 Arrow/metadata/策略计算 |
+| 尚无独立消费者的运行验收 | 首个消费者与能力 owner：按架构总纲完成独立调用及适配语义一致性验证，结果归该接入任务 |
+
+上述是接口与提取工作的登记，不是当前功能故障或独立复用已验收的声明。S4/S5 在其正常设计中核对新消费者是否扩大这些依赖；
+S6 记录已完成项和有 owner 的剩余项，不因未出现独立消费者而增加 SDK 交付门槛。实际独立调用、打包或 AI 接入随相应需求授权落实，
+不提前指定协议、包数量、网络服务或调度框架；具体时点见 [执行计划“计算能力独立复用的落实时点”](p6-execution-plan.md#计算能力独立复用的落实时点2026-11-08)。
+
+本次只补充文档要求，不改变已退出 S2a/S2b、在途 S3 的实现/退出范围、现行 N1/单 active/32 GiB envelope/8 GiB reserve/M24，
+不另加 parser 差分或真实旅程。
+
 ## 2. 当前事实（E）
 
 ### 2.1 耗时结构（t4，S5 与 V5/V5b）

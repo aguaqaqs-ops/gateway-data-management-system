@@ -7,6 +7,12 @@
 - 事实基线：`main` @ `218c211240`（代码与 `465b53746a` 相同）
 - 索引：[架构总纲 §16](architecture-and-refactoring-plan.md#16-未来扩展方向)
 
+2026-11-08 补充：长期计算能力复用要求已由 Owner 授权写入
+[架构总纲 §7.4](architecture-and-refactoring-plan.md#74-计算能力独立复用) 与
+[Rust policy §4.1](../policies/rust-safety-and-performance-policy.md#41-独立调用边界)。本方向文档仍不授权工具实现；
+§3 保留上述 2026-09-27 事实基线，不代表 P6 Rust 接入后的独立调用验收。
+当前公共接口、运行上下文与 reader 适配差距见 [P6 设计 §1.5](../plans/p6-design.md#15-计算能力独立复用2026-11-08-owner-授权补充)。
+
 ## 1. 问题
 
 未来是否可以把业务数据解析、差异比较、风险评估等能力从业务流程中剥离，封装为 MCP 工具或其他形式，供 AI 模型动态编排
@@ -14,7 +20,7 @@
 
 ## 2. 结论
 
-1. 可行。收口后的能力层已经具备单独调用的条件，改造不需要重建核心架构。
+1. 可行。流程无关的能力层为独立调用提供基础；面向外部消费者的公共接口、资源生命周期与独立运行仍须按架构总纲 §7.4 验收，不能仅凭依赖图认定已交付独立 SDK。
 2. 能力按性质分两类处理：
    - **分析类**（解析、物化、规范投影、比较、风险评估、结果组装）：无副作用、可复现，可以开放给模型自由编排；
    - **业务动作类**（Submit、Review、Archive、身份确认等产生权威事实的操作）：只能经现有 HTTP API、以调用者身份执行，
@@ -131,9 +137,11 @@ Application 新增临时分析用例：
 
 ### 5.6 打包
 
-能力层目前位于 `gateway_backend` 包内。第一步不需要拆包：MCP 服务可以作为与 HTTP、worker 并列的新入口（composition root）
-复用能力层。只有出现 backend 之外的复用方时，才把 `capabilities/` 与 `artifacts/` 拆为独立发行包（形式与现有
-`shared_kernel` 相同）。依赖图已是由门禁约束的 DAG，拆分主要是机械迁移；拆分后镜像与依赖锁按 AGENTS.md 的规则处理。
+能力层目前位于 `gateway_backend` 包内。第一步可由与 HTTP、worker 并列的入口（composition root）复用能力层；
+独立打包由 backend 之外的实际复用需求触发。按消费者需要提取最小计算契约和适配，不预设整包迁出 `capabilities/` 与 `artifacts/`。
+依赖 DAG 是基础，仍须处理公开 Python API、执行会话/预算、具体 reader 转换与结果生命周期，不能将提取视作仅目录搬迁。
+独立包须在不安装 `gateway_backend`、不启动其服务或 Dolt/control DB 的环境中通过公开入口的最小验收；
+语义向量与资源边界按架构总纲 §7.4 和 Rust policy §4.1 复用。拆分涉及镜像与依赖锁时按 AGENTS.md 处理。
 
 ## 6. 建议路线
 

@@ -158,9 +158,13 @@ D 的实际 caller 复用 `SnapshotTableArtifact` 外层 wrapper：规范 manife
 | 状态 | 缺失或损坏处理 |
 | --- | --- |
 | T1 前上传侧 | 重新 Preview，从 SourcePackage 按适用规则重算 |
-| T1 后、PREPARED 前 | 冻结规范文件缺失或损坏时稳定失败；不从 parent、新 ruleset 或 SourcePackage 重建，不前移 main |
-| PREPARED 后 | 复用已冻结导入包及 raw SHA，沿既有 Submit 恢复；缺失时不得重建包或换 key |
+| T1 后、prepare checkpoint 持久化前 | Attempt 已为 PREPARED；冻结规范文件缺失或损坏时稳定失败，不从 parent、新 ruleset 或 SourcePackage 重建，不前移 main；尚未发表 checkpoint 的纯计算按既有机制重算 |
+| prepare checkpoint 持久化后（含 EFFECT_PENDING） | 复用 checkpoint 绑定的导入包及 raw SHA，沿既有 Submit 恢复；缺失时不得重建包或换 key |
 | 已提交派生副本 | 读取绑定的精确 Dolt commit，按绑定业务摘要核验后回填；不以当前 main 或原始 SourcePackage 替代 |
+
+上述分界按 Owner 2026-11-08 DC94 澄清：`PREPARED` 是 T1 已验收/占用、尚未跨 effect
+边界的 Attempt 状态，不表示导入包已生成；包是否固定以 prepare checkpoint 为准。
+本澄清不改变状态机、checkpoint 载荷或恢复行为。
 
 `CanonicalTableStore.open(ref, bound_descriptor)` 返回受 context manager 管理的 `ArtifactReadHandle`。local handle 持有只读 fd/mapping，在同一 mapping 上分块核 size/raw SHA，再按固定 IPC profile 与绑定 schema/metadata 打开 batch reader；内存实现以 BufferReader 提供同一协议。handle 不暴露 path，同 ref reopen 独立，close 幂等，关闭后 read 稳定失败；arrays/readers 与 Rust 借用须先于 mapping 释放。写入复用 temp/fsync/atomic rename，删除仅为确认成功而整份读回的步骤；实际消费者的读取核验保留。Rust 不接路径/文件 IO，不增加第二个 Python writer。root/symlink、普通 I/O、协作并发与 crash 边界按 ADR 0012；本节不增加同 euid 恶意换名威胁模型。
 
@@ -281,7 +285,10 @@ package semantic/self digest。
 `replay.sql`是受信Storage Projection相对 expected parent 生成的确定性 replay，不是外部用户
 提交的任意SQL。满足完整未变化条件的表不进入 replay；新增或变化表按冻结的修改策略写入，删除表生成
 `DROP`。Package manifest 仍列出目标 ref 的全部表，以便 Repository 校验完整 catalog。Parent 为
-INITIAL、缺少 manifest 或 projection version 不同时，所有当前表均按变化处理。Repository Service
+INITIAL 或 projection version 不同时，所有当前表均按变化处理；INITIAL 必须为空 catalog。
+非 INITIAL 的 parent manifest 缺失、损坏、digest 绑定错误或与精确 parent catalog 不一致时，
+Submit 在 effect 前拒绝，不能伪造空 parent 或全量重建绕过（Owner 2026-11-08 DC94，
+与现行 Submit 行为一致）。Repository Service
 将 replay 限制在 server-owned Repository/Dolt runtime 内执行，不建设完整 SQL grammar 或 semantic
 package validator。若信任边界改变为
 不可信上传者，必须重开ADR 0009。

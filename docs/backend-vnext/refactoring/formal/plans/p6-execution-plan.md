@@ -198,6 +198,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S4 — Submit
 
 - 目标：设计 §10。
+- 具体方案与逐节执行：[S4设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)、[独审提示词](p6-s4-review-prompt.md)。2026-11-08本轮完成设计候选；DC94已确认存储键/恢复澄清和DC33范围，仍须独立设计审核及实施授权。本轮不运行产品测试。
 - 前置：默认 S3 exit；本轮适用 DC92：以已核收的 S3 接口/功能候选为起点，S4 设计与 kickoff 独审通过后可提前实施。S3 容量阻塞继续独立跟踪；S4 实施授权不包含改冻结 SQL/golden、阈值、批量规则、生产 N/M 或 S5。
 - 清理：Rust 渲染与存储 diff 接入验证后删除被替代 Python 算法及重复测试（DC78）；DC45 的通用规划器等独立职责继续保留，不按语言盲删。
 - 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。S1a 终审登记（2026-10-27）：UPDATE、DELETE 分批时每加一行重渲染整批（`_render_limited_mutation_batches`），渲染量随批大小平方增长；整表重建对 parent 每行生成逐键 DELETE，代价随重建表行数放大。t4 未见可测回退，S4 改为按增量累计完整语句字节分批，批次划分与 SQL 字节不变。
@@ -259,7 +260,7 @@ Owner 已授权将长期要求写入 [架构总纲 §7.4](../architecture/archit
 | S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python`（复用为新 parser adapter）、R`gateway-compute-python-impl`（删除）、B`capabilities/table_access/`（O2 参照语义修正）、T`support/table_access_sql.py`（test-only 双实现入口）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
 | S2b | R`gateway-compute-core/src/`（物化、投影、摘要模块）、B`capabilities/snapshot_materialization/`、B`capabilities/storage_projection/`、B`artifacts/` 与 B`infrastructure/artifact_store/`、control DB 基线 schema（BaselineHead owner）、B`settings.py`（N、M）、B`bootstrap/operation_worker.py`（线程池） |
 | S3 | R`gateway-compute-core/src/comparison/`、B`capabilities/comparison/`、B`capabilities/risk_evaluation/`（接口） |
-| S4 | R`gateway-compute-core/src/`（渲染）、B`capabilities/mutation_planning/`、B`infrastructure/repository_write/import_publication.py` |
+| S4 | R`gateway-compute-core/src/storage_mutation/`、`sql_replay/`及最小共用kernel/cell抽取；R`gateway-compute-python/src/storage_mutation.rs`；B`capabilities/mutation_planning/`、`capabilities/storage_projection/import_replay.py`、必要canonical reader接口、`infrastructure/repository_write/import_publication.py`；必要Submit适配/计量、精确import guard、独立SQL向量和focused测试。包publisher/恢复边界保留，详见S4 kickoff§2–4 |
 | S5 | B`application/history/`、B`capabilities/comparison/`（缓存接口）、B`application/submission/finalize*.py`、B`infrastructure/repository_read/`（并发与 503 退避）、control DB 基线 schema（缓存 owner） |
 | S6 | 唯一生产路径与各阶段旧算法清理核对；测量 runbook |
 

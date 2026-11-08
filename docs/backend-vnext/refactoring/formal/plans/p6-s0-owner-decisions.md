@@ -1026,6 +1026,14 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - 目标为归档候选读响应提供同事务权威review_version，供archive-only关闭请求填写expected_review_version；固定Contract/OpenAPI、实现、独审和适用节点/容器证据齐备后才交前端解除前置。生成时间问题保留现代码检查与已修订的异常预期，不混为Q18产品修复。
 - 本轮已形成产品候选a1ca3bad93；节点证据未运行，不能把实现提交或执行稿静态CLEAR写成通过。实际状态见[Q18 handoff](p6-be-q18-handoff.md)与原审核者报告。
 
+### DC94 S4设计澄清与DC33验收范围（Owner，2026-11-08）
+
+- 本轮Owner要求补齐S4全部设计缺口、落成可实施的完整方案和执行计划；只做设计，未授权产品实施或测试。
+- 存储键独立判定：Submit按稳定、唯一的canonical storage key及完整persisted列判断patch；与前端effective compare key不同本身不迫使rebuild。同步修正Storage Mutation §4旧歧义，保持DC45/ADR0014与现行生产SQL；不改变1,000行/1%、256行/4MiB或200MiB规则。
+- 恢复口径：T1即创建PREPARED Attempt，按prepare checkpoint是否已持久化区分构包/复用；非INITIAL缺失或损坏parent manifest继续拒绝。同步修正Canonical Storage §5/§6.1旧文字，不改状态机、checkpoint或产品行为。
+- Owner确认S4 DC33范围：原N1/32GiB envelope−8GiB reserve/M24下fresh t1–t4完整Preview→Submit→审核→Archive→History；冻结2×t4首次/少量变化/几乎全变Submit各正式组1预热+3测量，保原样重传零Repository operation断言，100%压力单列报告。模式、输入、计数和统计细化见[S4 kickoff §6](p6-s4-kickoff.md#6-owner已确认的dc33范围与统计)。确认范围不授权本轮执行。
+- [S4设计](p6-s4-design.md)/[kickoff](p6-s4-kickoff.md)/[独审提示词](p6-s4-review-prompt.md)为本轮交付；须独立设计审核，再核实施授权。S3仍BLOCKED_CAPACITY，Q18节点证据仍独立，S5前置不变。临时大预算的具体参数仍归S3另案，不由本条批准。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |

@@ -70,7 +70,10 @@ changed_row_count / max(before_row_count, after_row_count, 1)
 - canonical key 变化表达为 `DELETE + INSERT`，计两次 physical mutation。
 - 同一 key 的中间变化先归并为最终 before/after；最终无变化为 `NOOP`。
 - `StorageMutationPlan` 使用 canonical storage key，而非仅用于前端 comparison 的
-  `effective compare key`。二者不一致的表首版自动 rebuild。
+  `effective compare key`。生产 Submit 独立按稳定、唯一的存储键及完整 persisted 列判断
+  patch；比较键不同本身不构成 rebuild 条件（Owner 2026-11-08，DC94，澄清 DC45 与
+  ADR0014 的现行边界）。不得以 comparison records、共有列或显示身份替代存储输入；
+  不稳定/缺失键、schema/key/storage projection 变化及其他不合格项仍按 §3 处理。
 
 ## 5. ChangeSetArtifact
 

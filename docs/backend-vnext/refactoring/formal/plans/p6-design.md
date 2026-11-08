@@ -199,7 +199,7 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 
 ### 4.3 Submit 只写变化：表级跳过与阈值行级修改（DC45、DC55 第 5 项）
 
-- **表级跳过：** prepare 取 T1 冻结的上传侧 manifest 与 expected parent 的 manifest，按 §4.2 的完整条件逐表比较；未变化的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL、缺少 metadata 或投影版本不同时全部按变化处理；包 manifest 仍列出全部表（RS STRUCTURAL 校验整个 catalog）。
+- **表级跳过：** prepare 取 T1 冻结的上传侧 manifest 与 expected parent 的 manifest，按 §4.2 的完整条件逐表比较；未变化的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL 或投影版本不同时全部按变化处理；非 INITIAL 缺失/损坏 parent manifest 按现行 Submit 拒绝（DC94）；包 manifest 仍列出全部表（RS STRUCTURAL 校验整个 catalog）。
 - **行级修改：** 生产 policy 改为 `ADAPTIVE_PATCH`；资格按 Storage Mutation §3 修订：keyed 表与有序表（GID_NO_V1，以 `gid` 为存储键、`no` 为普通列）可行级修改；keyless 表与 schema 变化的表整表重建；阈值 1,000 行 / 1%。
 - **parent 行：** 变化表的 parent 行经 RS 读取（S1a），读取结果按 parent manifest 的表摘要校验，不一致时稳定失败；S2b 起优先读规范表存储中该 commit 的副本。正确性前提为 expected-parent CAS、parent 行按 manifest 校验与受信 Repository（DC45 第 6 项）；生产 Dolt 路径不加条件 DML、affected-row 检查或提交后读回（§14 的 ADR 0014 修订）。
 - **实现：** S1a 用现有 Python 规划器与渲染器（`capabilities/mutation_planning/`）；导入路径不再为未变化的表构造变化集。渲染器把同一表的逐行 UPDATE 与 DELETE 合并为按批语句（DC57）：形式先在固定 Dolt 版本上用合成表预检，须语法可执行、按主键查找、Dolt 表哈希与逐行形式相同；逻辑变更与 §16.2 计数不变。逐行变化集对象与无消费方摘要的去除、渲染直通在 S4，S4 对同一输入逐字节回归 S1a 的按批产物。
@@ -377,6 +377,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 10. S4：Submit
 
+2026-11-08 补充设计见 [S4详细设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)和[独审提示词](p6-s4-review-prompt.md)。本轮Owner确认的存储键/恢复文字澄清及DC33范围为DC94；方案待独立设计审核，不是实施放行。具体采用逐表列式diff/渲染、原有界bytes包出版；保留S1a所有SQL字节和原资源配置，S3容量阻塞继续独立跟踪。
+
 - **渲染直通（DC45 第 4 项）：** 变化表直接从冻结规范表（S2b 起为 IPC，mmap）渲染 SQL；导入路径不再构造逐行变化集对象、不计算无消费方的摘要；表级决定仍归规划器。
 - **存储 diff：** 与 S3 共用比较内核，按存储键比较全部保留列。
 - **阈值与批量规则：** 沿用 S1a 冻结值；S4 用最终渲染器与 RS 回放路径复测确认。须调整时作为例外交 owner（DC55 第 5 项）。
@@ -526,7 +528,7 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 | 断言 | 内容 | 观测点 |
 | --- | --- | --- |
-| 表级决定 | 进入 `replay.sql` 的表 = X ∪ A ∪ D；X 中每表的决定为行级修改或整表重建（按 S1a 冻结的阈值），A 为整表重建，D 为 `DROP` | 规划器的表级决定 |
+| 表级决定 | 存储变化表进入 `replay.sql`：X 中最终有 mutation 的表 ∪ A ∪ D；X 按 S1a 冻结阈值选择行级修改或重建，A 重建，D 为 `DROP`。仅 source schema/provenance 初筛不同而 canonical schema/view/rows 相同的现行 planner NOOP 单列，不强制写入（S4设计§3.2） | 规划器的候选/NOOP/最终表级决定 |
 | 行级修改表 | 逻辑变更数 = 独立计算的净 diff：同键 UPDATE 计 1，键变化计 DELETE + INSERT 2，新增行 INSERT 1，删除行 DELETE 1（Storage Mutation §4） | 规划器的变更列表 |
 | 整表重建表 | 写入行数 = 变化后的行数 | 渲染统计 |
 | 删除表 | `DROP` 1 次，写入 0 行 | 渲染统计 |

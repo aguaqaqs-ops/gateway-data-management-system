@@ -74,3 +74,11 @@ Owner 授权一轮历史文件清理，本次只读核对**尚未删除文件**�
 
 本轮输出是节点规则、顺序例外决议及可复制到新对话的设计任务提示词，不启动 S4 设计/实施或测试。
 新对话先核实际 main、并行状态与 S3/Q18 最新证据，再进行 S4 设计讨论；不得因本文决策已确认就省略设计独审。
+
+## 7. S4设计对话交接（2026-11-08，后续增补）
+
+新对话从clean main `572359d3a7` 核查实际源码，已形成[S4设计](p6-s4-design.md)、[逐节kickoff](p6-s4-kickoff.md)及[独审提示词](p6-s4-review-prompt.md)。Owner已在DC94确认storage key独立判定、prepare checkpoint恢复分界/非INITIAL缺parent拒绝的文字澄清和S4真实数据范围；没有实施或运行授权。
+
+建议实现为逐表native storage diff→Python表级policy→Rust精确SQL chunk，表后释放输入/索引；保有界DML字节汇集与原publisher，保持全部DDL先于DML。补齐旧256窗口分批、mutation排序hash和float拼写等隐藏字节约束。三线共享文件与候选隔离见kickoff§3，最终集中证据见§5–7。
+
+设计固定候选和独审结论见随后S4设计审核报告；在报告核收前不宣布可开工。S3原V/H仍BLOCKED_CAPACITY，Q18仅静态CLEAR/证据待核；旧章节保留其当时事实。本轮只读节点快照不构成预约，未执行测试、清理、构建或真实旅程。

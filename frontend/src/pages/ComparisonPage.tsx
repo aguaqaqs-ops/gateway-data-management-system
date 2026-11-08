@@ -374,7 +374,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         return;
       } catch (cause) {
         const details = cause instanceof Error ? cause.message : String(cause);
-        setError({ code: bundleLoadErrorCode(cause), details });
+        setError(cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN" ? { code: "SCOPE_FORBIDDEN", details } : { code: bundleLoadErrorCode(cause), details });
         return;
       }
     }
@@ -419,7 +419,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
-      setError({ code: bundleLoadErrorCode(cause), details });
+      setError(cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN" ? { code: "SCOPE_FORBIDDEN", details } : { code: bundleLoadErrorCode(cause), details });
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
     }

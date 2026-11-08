@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "../../src/features/bundle/sha256";
 
 /**
  * Minimal reader for the deterministic POSIX tar files the backend returns at
@@ -150,9 +151,19 @@ export function parseBundleTar(tar: Buffer): ParsedBundle {
   if (!closureMember) throw new Error("bundle tar 缺少 artifact-closure.json");
   const manifest = JSON.parse(manifestMember.body.toString("utf8")) as BundleManifest;
   const closure = JSON.parse(closureMember.body.toString("utf8")) as BundleClosure;
-  const manifestDigest = sha256Hex(manifestMember.body);
+  // The backend digest is over the manifest semantic payload (JCS canonical
+  // JSON without bundle_digest/closure_manifest_digest/closure_entries), not
+  // over the manifest document bytes; mirrors posix-tar verifyBundleMetadata.
+  const semantic = { ...(manifest as unknown as Record<string, unknown>) };
+  delete semantic.bundle_digest;
+  delete semantic.closure_manifest_digest;
+  delete semantic.closure_entries;
+  const manifestDigest = sha256Hex(Buffer.from(canonicalJson(semantic), "utf8"));
   if (digestHex(closure.bundle_manifest_digest) !== manifestDigest) {
-    throw new Error("closure.bundle_manifest_digest 与 manifest.json 摘要不一致");
+    throw new Error("closure.bundle_manifest_digest 与 manifest 语义摘要不一致");
+  }
+  if (digestHex(manifest.bundle_digest) !== manifestDigest) {
+    throw new Error("manifest.bundle_digest 与 manifest 语义摘要不一致");
   }
   if (digestHex(closure.bundle_digest) !== digestHex(manifest.bundle_digest)) {
     throw new Error("closure.bundle_digest 与 manifest.bundle_digest 不一致");

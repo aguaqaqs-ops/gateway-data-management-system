@@ -70,6 +70,8 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 
 RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准备显式隔离ambient build-network，并保留default/override语义；实际04门禁network-none及真实构建harness不变。两项仅测试输入修正由唯一实施者在独立worktree完成必要focused/静态并交独审，原H780运行/证据自然收尾，不改在途worktree或原样重试，CT108诊断和其他独立收尾保持，无新Owner或逐摘要GO。
 
+**058门禁的Compose环境接线修正（2026-11-08）：** `058e26da3c`全六包运行中，实施者发现`test_ordered_submit_bisect_compose.py::_compose_env`以裸字典替换子进程环境，实际RS容器使用旧`gateway-repository-service:local`，而provenance读取宿主配置后记了新候选tag。该次于02:02Z受控停止并保全，整次runner exit 1，不作为当前镜像门禁或qualified carried。继续沿既有测试工具修复授权，仅修该fixture对已配置镜像及必要离线构建环境的传递，实际容器与provenance须对应；不通过修改记录掩盖旧镜像，不改产品、严格恢复guard或路径白名单。受管门禁子任务完成最小diff、必要focused/静态，关键变化集中独审后，在新clean候选及其实际镜像上完成最终门禁；保留原失败，不原样重试或重开已关测量。镜像重建及逐包沿用仍按实际闭包和容器边界判定，不因测试修复另设性能或历史重核门槛。
+
 ## 工具、镜像和时间预算
 
 允许现有实施者在隔离参考线把已审9704产品与必要恢复工具固定为 clean 候选；只改本次 benchmarks/测试/运行文书，不另改产品语义、不合当前 main。已有 §87 镜像和已核归档可向 CT108 离线预置，比较 config digest/全部有序 DiffID；不为统一标签无故重建，实际边界变化按既有镜像规则处理。

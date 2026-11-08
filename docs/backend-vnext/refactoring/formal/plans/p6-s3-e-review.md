@@ -370,3 +370,7 @@ a9旧D原两表2x MO的`necessary_arrow_conversion_seconds=2.8292629141`也由�
 真实旅程唯一`PASS`结果绑定3a7、标准t1两包原SHA，v1 `MODIFIED_ONLY` Preview/Submit、重复v1仍MO且Preview 0变化/Submit `NO_CANONICAL_CHANGE`，v2 `FULL` Preview/Submit，原Preview changed_table_count依次125/0/4；v1和v2真实Repository catalog/read/approve、History操作均成功，History读回12条记录，非仅本地比较。worker自首业务观察至正常停止为同一个，进程/容器无重启；运行时资源环境N=1、M=`25769803776`、envelope=`34359738368`、reserve=`8589934592`字节，worker HostConfig Memory32GiB，cgroup memory.max32GiB、peak=`268537856`字节、oom/oom_kill=0，VmHWM=`263132`KiB；这些是t1容器/进程观察，不作单operation M实测。backend/worker/RS三容器本机`.Image`分别等于本次save身份的同节点tag ID，另保config digest与全部13/13/28 DiffID。result的`full_journey_completion_guard`、`resource_evidence_complete`、`worker_status_ok`、`runtime_image_export_complete`、`cleanup_complete`、`marker_released`及`acceptance_complete`均true；起止3a7 clean、六锁无漂，项目容器/卷/网络收尾。
 
 **仅接收3a7在06的fresh t1完整功能范围**；可按已审同节点顺序进行t2、t3，但本次不证明其结果，也不证明CT108 t4/正式W3–W4性能或04权威六包/最终H。
+
+## 43. E handoff两项纯文档更正
+
+本人只读增量核实施者`p6-s3-e-handoff.md`的`24ab8f03bf3d0a08f2e365e899454ba00234c003`与`07739a8aee`：前者唯一一行将旧“V-bound 05/CT108 real-data”改为本轮Owner授权的**06完整t1–t3、CT108 t4**，不改05旧准备因有效占用拒绝的原事实；后者唯一一行把必要Arrow转换改写为`RiskRecordView`懒迭代发生于`rules_evaluation_seconds`内部，并把`records_jcs_seconds`改写为read/build之后另计的table/facts-core JCS，明确扣除转换也不能得到纯规则CPU。两项与§32、§39、§41的授权和源码独核一致，**纯文档增量静态接收**；产品3a7、旧原件与最终H所待正式门禁均不因此改变。

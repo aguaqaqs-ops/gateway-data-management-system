@@ -19,7 +19,7 @@
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
 | B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | GO，报告 `17fd6739b809`；本节三角色已正常结束 |
 | C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | GO，报告 `ce217c0ad777`；本节三角色已正常结束 |
-| D | `/root/s3_d_impl`，GPT-6-Sol xhigh | `/root/s3_d_review`，GPT-6-Sol max | `/root/s3_d_test`，GPT-6-Luna max | 固定修订静态复审；两次同根 SHA 解析错误触 DC68，执行停止，未 GO |
+| D | `/root/s3_d_impl`，GPT-6-Sol xhigh | `/root/s3_d_review`，GPT-6-Sol max | `/root/s3_d_test`，GPT-6-Luna max | Owner已确认恢复执行通道；集中修订与原审继续，未 GO |
 | E | 下一节新建 | 下一节新建 | 按需、错峰 | 依赖 D 实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
@@ -203,3 +203,7 @@ copy原日志SHA=`d5b7c112996317ae34a5305b34ae17c171c4ee53b9b942057db42885bf0eed
 原D独审先以 `ffda001b01` 核恢复说明，随后对 `1719ca8f24` 固定的完整未执行捕获模板逐字核收，于 **`1bb081ea19`** [D review §4](p6-s3-d-review.md#4-dc68-取证停止与恢复稿独核)明确：最小恢复方案可交Owner决定，模板静态CLEAR并非D GO。协调已向Owner提交本次D恢复确认，未把此前C的许可或默认选项视作答复。等待决定期间仍只做静态工作；下一固定候选完整 source/node/run/调用字面稿需同原审核收后才能执行。
 
 并行原基准文档 `1d4aa1dd63` 最新将Owner A分版本参考范围的测量交付关闭，仍保留九场景缺合法baseline、旧FAILED来源及其他限制，不宣单版本矩阵、性能目标或Phase6整体exit。S3仅记录此边界变化，既不继承其测量结果，也不据此推定CT108当前现场空闲或取得资源。
+
+### D 恢复获准
+
+Owner 明确回复 **“确认并继续”**，本单已审恢复范围的执行通道恢复。原D三角色连续负责，含协调者仍四槽；唯一测试者已收到恢复，待下一集中固定代码及原审完整字面执行稿核收再启动06。原失败和停止事实不改，不再为同一已授权恢复逐步索要许可。5c第一轮实修未闭的cache有效性/有限用途、旧错误优先级与诊断、Risk当前取消/截止等由原角色集中修订，下一固定候选复审；不能以称为checkpoint重计同根轮次。DC33最终真实范围和正式退出手续仍另按既定要求办理。

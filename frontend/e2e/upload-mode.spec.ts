@@ -30,9 +30,12 @@ async function loadBundle(name: string): Promise<FixtureBundle> {
 
 async function screenshot(page: Page, name: string, width: number) {
   if (!screenshotDirectory) return;
-  await mkdir(join(screenshotDirectory, String(width)), { recursive: true });
+  for (const current of [width, width === 1280 ? 1920 : 1280]) {
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
+    await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
+    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false });
+  }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
-  await page.screenshot({ path: join(screenshotDirectory, String(width), `${name}.png`), fullPage: false });
 }
 
 function json(route: Route, status: number, body: unknown) {

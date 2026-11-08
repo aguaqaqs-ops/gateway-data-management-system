@@ -71,6 +71,8 @@ B 真实差分执行前核 06 实际八份 t1–t4 package 的 size/SHA，对照
 
 当前 main 的 `real_dump_journey._read_metadata` 固定读取仓库 P5 八数据集 census，因此仅换 synthetic data root 不能得到正确 W3/W4 验证。需要 S3 职责内最小测量入口/参数接线，直接复用当前 Preview/History/native 路径与已核的 synthetic census；不得改 P5 census/golden 或从旧分支整套搬回已删除算法。正式 1 预热+3 测量、中位数/范围、MO/FULL/压力和各段计时仍待 D/E 具体执行稿与独审核收。
 
+2026-11-08 **00:14:57Z** 只读核 05（BatchMode OK）：上述 W4 summary 与 10% expected manifest 路径确实存在，分别 551,463 / 1,699 bytes；仅核文件存在/大小，未 hash、未传输或当作输入验证通过。05 当时由 `codex-p6-parallel-closeout-20261107a` 有效占用，00:02:48Z 开始做历史 baseline record/index。协调未取锁、未读大输入或操作其 worktree/资源；D/E 需要取用时重新按现场协调，当前 C 的 06 开发不受该占用影响。
+
 ### B 首个 Rust 检查点
 
 实施检查点 `3577df182d6481a9c6e49554e445c81071924c09` 仅四个 Rust comparison 文件，不是完整 B 候选。06 在独立 scratch 执行机械格式准备，格式 patch SHA256=`a89f43a7512a808a603eb2d998f17a66d4ed0ebaf28d2c59b1e1f1cd800170a4`，由原实施者在 main 应用为 `9b34be7356a92228ef07ee0c4f01bf215e2bf653`。准备期间相对 Git exclude 路径错误在未格式化/测试前退出，原日志 SHA256=`40f8c23f5af833b10b9c8b2256cda028a277a5fc8f853750b218451a07e2b479`；按 DC68 仅纠正为绝对路径后续行，原件保留。

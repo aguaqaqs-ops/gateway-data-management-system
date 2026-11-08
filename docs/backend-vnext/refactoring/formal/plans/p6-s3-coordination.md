@@ -461,3 +461,17 @@ CT108原V774故障归档已由唯一Luna按原E审核的固定稿只读诊断一
 最小测试typing修复已在main显式单路径提交`a39339f18dd45777c1b5f40f34512d60c41271b8`，保七组无效值和ValidationError，改用valid model dump合并后model_validate。其父main已含并行S4B`43a8f1e165`（Rust tree5b87），因此该main提交不直接作为本S3验收V。为保持S3比较算法与已审Rust9d4f独立，按AGENTS确需并行短分支例外，从e763仅接此typing修复形成专用固定候选；不回退/重写main、不移除S4代码、不新增算法双路径。新候选和后续H只绑定各自实际源码/证据，不冒称并行最新main的S4代码已验证；最终版本和复验结果随后追加。
 
 截至本节，S3整体仍BLOCKED_CAPACITY，资源新档/W3/W4/最终新V门禁和真实数据未完成，未办理S3 exit/tag/push。独立工作继续，旧失败及未知保留。
+
+## 30. 隔离V1e门禁核收与两节点剩余执行
+
+固定S3产品 **V=`1e669c053f2486c50a8413c58de11d923d7f3cad`**，从e763只接单测试typing修复，Rust tree仍9d4f；main的a393及其父S4 B43a8不作为本轮被测源。V承载此前已独审的S4 A进程内接口/预期定义（fb9c，原S4 A GO），其未接线、未实现Rust diff/SQL；这些不算S3算法交付或S4 B通过。最终docs-only H在S3短分支固定，再在04原WT做V→H实际六闭包/镜像等价；原E已确认隔离与治理规则相容。
+
+04同一受保护来源WT于17:43:58–18:14:55Z完成当前V权威，**runner、node、capture、outer及runtime镜像出口均0**。实际六包closure compare因shared deployment/fixtures变化全部为“运行”，故六包全部在当前V实跑，**无carried**：Rust fmt/clippy/test0、Shared Kernel261、Contracts152、Client161、backend3435+74、RS1764（另1skip）+214通过。同次Compose不重复运行；三容器provenance与本机tag ID绑定，save解析true config及全部13/13/28 DiffID、RS revision/build-input/source-tree吻合。clean/六锁0漂/本人marker释放0，原WT、环境、镜像和raw tar保留供H绑定。
+
+原件`/home/dev/gdds-test-tmp/p6-s3-resource-authority-1e669c053f-fixed/control/`：outer SHA=`2c73a96b04ffc1eaca02b7360f5d0a9a646edb686760cc5a5bae7d67ef1f632c`，driver=`011edaec7c95a69bea9ea3eb4845e06e19d3be86edb088c051729c52c434f16d`，官方runner=`66847d88d261bd10e96fbd12ab969b01954796f5b87c9036ca3eb4d55fe13621`，image identities=`b62809c52e58fb2dca00da68d241c8b124a3500e2e604b8fe69e2a35210a9050`，runtime tar=`e200986555ec7af63b641f4e53f34d5c2937651e1f5ba55a1e63a04e6cd67cce`。原E独审`1d5cfdaa07` §71已逐件对远端SHA核收PASS，仅指当前V六包/容器范围。
+
+05完整fresh t1–t4固定稿经原E §70静态CLEAR，prepare于18:12:32–18:14:12Z实际0且§72独核：8包metadata78c7/逐包SHA、native9d4f、578e base config46c及19 DiffID、clean/六锁/marker均合格。outer SHA=`f2b1fe962cdb3973348fe54331de9605d0b008f61796b5420d337b88fb3be269`，node/captured=`96f26e123962c3c8cf29f773c045d1d717843f989a2b7597f92eed42187eaf45`，原件`/home/dev/gdds-test-tmp/p6-s3-functional-1e669c053f-fixed/prepare-control/`。随后05被有效S4测试marker占用，t1尚未开始；唯一Luna按现场等待正常释放，再以原子本人标志单档启动，前档原件由原E核收后才开下一档。四档仍默认N1/32−8/M24、v1/重复MO及v2FULL，不因新档性能增预算漂移。
+
+CT108同V的离线13输入/镜像准备已在§69独核0，待04门禁核收的前置现已满足；协调者授权唯一Luna按已审字面`warm-run.sh` SHA=`2d101e167441e3ea0f6d92b96a169af440f3d79673e3babce63758836e1197ac`启动**一次**W3 MO warm（N1/48−8/M40）。执行时仍核现场空闲/marker，不把本授权或prepare记warm成功；该实际结果和剩余23样本尚待。原实施者另起外置目录准备后续固定队列，现首warm的已审SHA不变；首失败停止后续，保原件、正常停容器、不自动重试或加M。
+
+当前S3仍无E GO/最终新H绑定/退出，不tag、不push；Q18独立GO维持，S4另一会话推进、前端与原基准各自核收。

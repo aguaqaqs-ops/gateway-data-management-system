@@ -16,4 +16,8 @@ Q18固定产品仍为a1ca3bad93；原报告已增加focused/容器脚本静审�
 
 ## 3. 逐节状态
 
-A：准备进入实施；B–E：等待前节核收。尚无产品V/H、门禁/容量/性能PASS或exit tag。
+A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：按DC96直接实施，新Sol实施者/独审者；C–E待前节核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
+
+## 4. A核收后的并行事实
+
+main期间新增Q18 `94b25a3279`（真实旅程/三Compose helper只投影selection双字段，原独审及节点由Q18负责），和S3 `99254318c8`资源方案文档。A source fixed fb9c只核本节六文件，不冒用Q18 CLEAR解除FE前置。最新[S3资源方案](p6-s3-resource-profile-plan.md)拟48/8/M40、保持生产默认；明确不写import_publication.py或table_access/kernel.py，S4 B可按既有owner处理kernel最小自检。S4最终增配档尚未选择，不把S3方案自动算本阶段通过。A新增共享fixtures会进入包闭包，E按实际闭包准备六包集中验证，不能用跨节点旧来源口头carried。

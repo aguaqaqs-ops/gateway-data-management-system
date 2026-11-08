@@ -105,3 +105,13 @@ A 实施者未运行任何测试、编译或 lint。worktree 外执行稿：
 Storage Projection schema 与新向量测试，按 marker 两遍。五 Python 包 ruff/mypy 由
 协调者统筹在专用节点执行。A 只触及内部 contract、向量、测试及文档，未触碰镜像/
 deployment/container-only runtime；本节不触发当前 HEAD 镜像重建，最终 B/C/D/E 另判。
+
+## 原审核收与节点结果
+
+A产品候选`fb9c7fbcd95b411d7598ade2a93bc8a7e6514697`，直接父`94b25a32792821cbc5b3230d98a0aa6f13493c32`是Q18并行consumer修正；之后`99254318c8`仅为S3资源方案文档。原审[累计报告](p6-s4-a-review.md)结论 **A GO**，无阻塞finding，指本节接口/预期与focused范围，不代表S4退出。
+
+05 `gw-dms-test-05`实际node UTC16:55:05–16:56:42，clean起止HEAD均fb9c，native强制重装/build-input匹配9d4f；五包ruff/mypy逐项0，五文件非serial **151 passed**，serial **151 deselected/raw exit5**按固定稿记empty。node entry/final、outer、capture均0，六锁无漂，marker释放0，16:57:20只读现场无测试进程/8000/运行容器。日志及WT保留，不清他人/原来源资源。
+
+原件根`/home/dev/gdds-test-tmp/p6-s4-a-plan/controller-fb9c7fbcd9-r1/`：outer.log SHA256=`fe72ab6072f409e27f40f357e0d87d474e049fbd9d987ae734a04bfeabb6d12c`；captured/focused.log=`94cc44639710f344d02624d397d07de5f9020076e074f2eaaa8af666ba39ecc8`。已审node脚本SHA69cf、outer-r1 SHAbcc641、bundle SHAeeb932完整值见原审。首个outer16:50:04 exit1（SHA`b6f54016876749c92afc393446cdd446f5dc993ee22ef8805c2aa2f01fa75c0d`）未到SCP/node/测试；稍后只读diagnostic SHA6bc314仅证明当时前提成立，原瞬时根因仍unknown，不改记成功。未进行authority runner、Compose或性能/真实旅程，不建立A的按包carried来源。
+
+按DC96直接进入B。B/C须落实原审登记的active/closed context最小自检、单向边界与真实row-hash来源，不能用Protocol结构匹配代替真实context。

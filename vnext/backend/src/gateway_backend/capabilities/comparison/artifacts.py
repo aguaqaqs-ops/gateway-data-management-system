@@ -1235,6 +1235,7 @@ def _metadata_record_upper(record: object) -> int:
                 for value in (
                     interval.before_start, interval.before_end,
                     interval.current_start, interval.current_end,
+                    record.before_occupancy, record.current_occupancy,
                 )
             )
             + interval.row_count.bit_length() + 2

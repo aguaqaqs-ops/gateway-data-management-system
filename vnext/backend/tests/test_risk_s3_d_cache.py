@@ -430,3 +430,52 @@ def test_other_optional_candidate_cannot_block_current_risk_output() -> None:
         assert operation is not None and operation.memory.used_bytes < 128 * 1024**2
     finally:
         cache.close()
+
+
+def test_other_optional_candidates_cannot_block_cold_annotation_emit() -> None:
+    warm_tables = tuple(replace(
+        _added_rows(name, 1),
+        table_fact_digest=raw_blob_digest(f"cold-pressure-{name}".encode()),
+    ) for name in ("a", "b"))
+    cache = _MultiCandidates()
+    warm_source = replace(
+        _input(warm_tables), risk_cache_session=cache,
+        risk_task_keys={"a": "a-key", "b": "b-key"},
+    )
+
+    class _PressureClock(_Clock):
+        def __call__(self) -> float:
+            value = super().__call__()
+            if self.calls == 4:
+                operation = current_kernel_context()
+                assert operation is not None
+                other = next(charges for (key, _), (_, charges) in cache.entries.items()
+                             if key == "b-key")
+                # Call 4 is C's table-start clock, after the pair's required
+                # admission and before the first cold Emit reservation.
+                other.enter_context(operation.memory.reserve(operation.memory.available_bytes - 1024))
+            return value
+
+    try:
+        warm = evaluate_risk(warm_source, artifact_store=InMemoryArtifactStore())
+        assert warm.status is RiskEvaluationStatus.READY and len(cache.entries) == 2
+        cold_source = replace(
+            _input(warm_tables + (_added_rows("c", 1),)),
+            requested_tables=("c",),
+        )
+        clock = _PressureClock()
+        candidate = evaluate_risk(
+            replace(cold_source, risk_cache_session=cache),
+            artifact_store=InMemoryArtifactStore(),
+            execution_context=RiskExecutionContext(clock=clock),
+        )
+        baseline = evaluate_risk(cold_source, artifact_store=InMemoryArtifactStore())
+        assert clock.calls >= 4 and cache.hits == 0
+        assert cache.evictions == 2 and cache.entries == {}
+        assert candidate.status is baseline.status is RiskEvaluationStatus.READY
+        assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
+        assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
+        assert candidate.risk_closure is not None and baseline.risk_closure is not None
+        assert candidate.risk_closure.closure_manifest_digest == baseline.risk_closure.closure_manifest_digest
+    finally:
+        cache.close()

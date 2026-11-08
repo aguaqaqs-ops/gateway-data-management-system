@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§34：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO有1次合格预热、0次完成测量，后续固定23项已获逐项条件授权并开始r1。仍无正式性能统计、E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§35：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO有1次合格预热，r1测量执行已原exit0完成、r2运行，完整组独核及统计仍待。仍无正式性能统计、E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -526,3 +526,11 @@ CT108同V新W3 MO首暖于21:07:35–21:50:41Z封口，node／capture／postflig
 执行稿目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/`：sample-run SHA=`16f9976750b40d98d23060ca5007c40b6455475ee2c2b91030dab610a43e5229`、README=`b1729080d63bae62e0726020cce40d9803a0abaa0065fdfffc6e85bcce7d19a0`，其他四固定脚本全SHA见该稿和原E §100。首项r1于22:00:31Z实际入场、空间guard通过，当前未完成；不能因授权整序列把其余项记为已运行。
 
 最终H外置动态绑定模板的两处初审finding已在原E §96复审关闭：初比复现已验V的有效镜像／project／provenance环境，需RUN时切H环境后再六包实比；四包直源同时pin V1e原runner与4b0判定driver并从原runner重新抽manifest核对。模板仍有H／bundle占位，未知H不执行；最终字面H须另固定全SHA和同人复审，04来源WT／环境／镜像继续保留。S3仍未整体GO／正式退出，tag／push未办理。
+
+## 35. 累计代码核收与首个测量原结果
+
+原E报告`6a91c4cf88` §101完成V4b0的累计代码核收，引用A–D及E既有合格证据，未发现新增代码finding；独立旧Python20例expected、唯一native／Arrow生产路径、metadata及单侧边界、风险／预算／取消、三项授权最小整合、局部sort cap与旧实现／独立consumer边界均闭合。候选交接§11当前六包直接来源、三个镜像config／全部DiffID及RS标签已再次对原04原件核对一致。此为代码与来源结论，**不是E整体GO**；性能组、受控聚合及最终H绑定仍待。
+
+W3 MO r1在CT108同V4b0／N1／48−8／M40于22:00:31–22:44:16Z执行封口，node、capture、postflight、outer0，最终控制收据PASS；原E已做单项SHA／前序链预核，完整组资格仍等r2／r3。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/control/s3-v2sort-w3-mo-r1-4b0a2eec72/`：outer SHA=`8ed42213c49d7b0d6175ccf81ac90e71f7df07764cdca161e47f16637294da6b`、result=`0ecd928a7bdaa4e02634c2de00d5fee96bb619a34ad204c3538d35b8f0267059`、manifest=`86c2b3be61ccbb92e542ee83a81bd160311c26a37ce9c1bb42d961134b5a697f`、最终receipt=`ca37606d4cff056208053475016136551655a233bd2b5ad8a68b75e984d97065`、journey=`1c87a959a0bd4f746ab3205b36df0312783ac776781539d0ac0adad609c435dc`。直接记录的可见观察605.877s／完成605.887s均超过各自60s／600s目标，业务及资源守卫通过，**不把时延超目标藏作达标**，也不由一个样本给组median／range。
+
+r1 tar仍747,672,064B；r2已按原固定授权及前序receipt链启动，后续只读磁盘快照118,513,192,960B发生在r2入场后，不冒作r1准入或全队列保证。当前仅W3 MO组的warm及r1执行完成，r2运行／r3未启动；其余模式／工作量未运行，最终聚合未执行。按照原授权，r3合格封口后停组边界交同E核收，合格才继续下一组。旧两档失败、全部保护原件、H模板HOLD、正式退出／tag／push边界均不变。

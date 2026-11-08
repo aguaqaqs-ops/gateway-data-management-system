@@ -179,3 +179,9 @@ V1e完整SHA=`1e669c053f2486c50a8413c58de11d923d7f3cad`，最初全六实际runn
 | worker | `sha256:5b64a2cb5c2f032c7a38d587df2c8871a4b9f3dde8ed48a0a539ceeed2b48221` | 同原件全部13项 |
 
 当次image-identities JSON SHA=`72b66ac26f1d6b600aac6e6dca09d1ee787adf98f29be6a34a13dbe2011d697c`、Compose provenance=`fce0e3f7a0c4af44bbf12a81e53d833b10bbc2034bc94982c2dcf3920efc584a`。当前三容器的本机`.Image`与本次保存local ID绑定，config及全部DiffID另由save真实解析；未跨节点混比inspect ID。RS build-input revision为e763、source-tree=`sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646`，candidate标签为V4b0。本节不把当前V容器PASS预签为最终H镜像可沿用。
+
+## 12. 累计代码结论与剩余退出证据
+
+原E `6a91c4cf88` §101已完成V4b0累计代码与§11来源表核收，无新增finding；引用A–D及E既有独立预期、唯一生产路径、删除及consumer边界、预算／owner／取消、风险控制流和局部sort接口修正，不重做已合格工作。代码结论与主线1ecb限定focused、当前V四fresh／权威／镜像各自证据成立，**尚不签E整体GO**。
+
+性能当前为W3 MO合格预热1次，r1已原exit0封口、r2运行；r1可见605.877s／完成605.887s超过对应目标，完整组核收及统计仍未齐。其余工作量／模式和受控聚合未运行，最终H仍须具体固定、同04逐包／镜像实际绑定及原E最终核收。当前进度、原SHA与目标未达观察见[协调§35](p6-s3-coordination.md#35-累计代码核收与首个测量原结果)及[性能§10](p6-s3-performance-report.md#10-w3-mo首个测量执行结果组统计待齐)。不因已完成代码／功能证据而把剩余未知写为通过；正式退出／tag／push未办理。

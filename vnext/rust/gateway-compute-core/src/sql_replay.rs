@@ -180,7 +180,9 @@ fn decimal<'a>(value: &'a Value, kind: &str, context: &KernelContext) -> Result<
         if byte == b'.' && kind == "decimal" && !dot {
             dot = true;
         } else if byte.is_ascii_digit() {
-            if !dot { integer_digits += 1; }
+            if !dot {
+                integer_digits += 1;
+            }
         } else {
             return Err(invalid());
         }

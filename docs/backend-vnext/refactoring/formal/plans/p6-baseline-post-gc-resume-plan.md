@@ -74,6 +74,8 @@ RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准
 
 **同根因fixture一次收齐（2026-11-08）：** `46e2bb63f7`已由§153通过上述bisect修正及必要05验证，但新runner尚未启动。准备中核对权威runner实际使用的七个Compose fixture，发现`test_ordered_compare_compose.py::_compose_env`也以裸字典丢弃同一环境；其余五个已复制受控环境。有限扩展为该compare fixture同样`import os`与字典首项`**os.environ`两行修正，专属fixture键继续优先。门禁子任务一次交清七个消费者的现有接线清单，并用同一真实Compose config focused覆盖两个修订fixture，集中审核增量及必要验证；其余五个不新增业务重测，不机械重跑已过1+20用例。最终每个既有旅程的实际RS对象均须与当次候选配置对应，不能用最后一次正确provenance替代前序旅程；消费原有取证能力，不为此新增框架或证明矩阵。46e准备态04于02:17:43Z安全释放，旧构建材料保留为准备事实，不能冒充修订后最终候选门禁；新clean候选仍按原授权及实际镜像边界继续，无新Owner或逐摘要GO。
 
+**本次门禁的原生旁路取证：** 已发生的实际RS镜像错位及既有provenance单文件覆盖，支持本次04门禁外部使用标准Docker create事件及原样inspect，按准确project/RS服务过滤、逐container保存实际镜像对象和现有fixture挂载来源。仅在本次wrapper前后启动/有界停止，不改仓库harness、产品或Contract，不新增旅程、服务、持久机制或测试矩阵。具体短入口和候选增量/共同focused集中独审一次；正常镜像准备可并行，不等重复代码GO。采集覆盖缺口、命令失败或超时只列独立取证状态，不能当产品失败或自动中断runner；真实身份不符仍按原停止规则处置。runner真实exit与collector状态分别保留，缺项先核既有原件及必要定向补足，不默认重跑全量。最终资格由独审依据实际材料判断，不因采集器存在就宣逐旅程身份成立。
+
 ## 工具、镜像和时间预算
 
 允许现有实施者在隔离参考线把已审9704产品与必要恢复工具固定为 clean 候选；只改本次 benchmarks/测试/运行文书，不另改产品语义、不合当前 main。已有 §87 镜像和已核归档可向 CT108 离线预置，比较 config digest/全部有序 DiffID；不为统一标签无故重建，实际边界变化按既有镜像规则处理。

@@ -76,7 +76,6 @@ type AttemptPhase = "none" | "executing" | "recovery" | "unknown";
 
 function attemptPhase(input: UploadModeInput): AttemptPhase {
   if (!input.workspace?.active_submit_attempt_id) return "none";
-  if (input.attemptLoading || input.operationLoading) return "unknown";
   if (input.attemptError || input.operationError || !input.attempt) return "unknown";
   const status = input.operation?.status ?? null;
   if (status === "QUEUED" || status === "RUNNING") return "executing";

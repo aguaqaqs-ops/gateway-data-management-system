@@ -1292,6 +1292,7 @@ test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }
     operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]!,
     workspaceSubmitAttemptId: "attempt-1",
     clearWorkspacePointerOnTerminal: true,
+    submissionOne: true,
   });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);

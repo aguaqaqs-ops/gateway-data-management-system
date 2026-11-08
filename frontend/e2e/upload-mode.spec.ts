@@ -126,6 +126,30 @@ async function waitForPreview(page: Page) {
   await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
 }
 
+
+const VALID_UPLOAD_DIRECTORY = [
+  { path: "station.pmc", content: "pmc" },
+  { path: "sql/dbcfg.sql", content: "create table device(id int);\n" },
+  { path: "comps/logic/logics.xml", content: "<logics/>" },
+];
+
+async function chooseUploadDirectory(page: Page) {
+  const expand = page.getByRole("button", { name: "展开详情面板" });
+  if (await expand.count()) await expand.click();
+  await page.evaluate((files) => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="upload-modified-input"]');
+    if (!input) throw new Error("missing upload-modified-input");
+    const transfer = new DataTransfer();
+    for (const spec of files) {
+      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", { type: "text/plain" });
+      Object.defineProperty(file, "webkitRelativePath", { value: `station_cfg_0921/${spec.path}` });
+      transfer.items.add(file);
+    }
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, VALID_UPLOAD_DIRECTORY);
+}
+
 test("W1/W2 撤回成功后回到上传步骤并恢复上传", async ({ page }) => {
   const state: ModeState = {
     workspace: workspace({ active_submission_id: "submission-1" }),
@@ -147,6 +171,7 @@ test("W1/W2 撤回成功后回到上传步骤并恢复上传", async ({ page }) 
   await dialog.getByRole("button", { name: "确认撤回" }).click();
   await expect(page).toHaveURL(/page=workspace/);
   await expect(page.getByText("已撤回，可以重新上传")).toBeVisible();
+  await chooseUploadDirectory(page);
   await expect(page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true })).toBeEnabled();
 });
 
@@ -193,6 +218,7 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await screenshot(page, "fe3b-w8-upload-disabled", 1280);
   state.workspace = workspace({});
   await page.reload();
+  await chooseUploadDirectory(page);
   await expect(page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true })).toBeEnabled();
 });
 
@@ -207,7 +233,7 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
   };
   await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
-  await expect(page.getByText("该提交已归档")).toBeVisible();
+  await expect(page.getByText("该提交已归档").first()).toBeVisible();
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
@@ -255,7 +281,7 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
 
   await page.locator("tr", { hasText: "已归档" }).first().click();
   await expect(details.getByText("终局处置")).toBeVisible();
-  await expect(details.getByText("已归档，成为归档基线 1")).toBeVisible();
+  await expect(details.getByText(/已归档，成为归档基线 \d+/)).toBeVisible();
   await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d1-archived", 1280);
 

@@ -25,6 +25,9 @@ fn invalid() -> SqlError {
 fn limit() -> SqlError {
     SqlError("RESOURCE_EXCEEDED")
 }
+fn internal() -> SqlError {
+    SqlError("SQL_REPLAY_INTERNAL")
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NamedCell {
@@ -130,24 +133,7 @@ fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
         ");\n".len(),
     ])
 }
-fn quote_text(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('\'');
-    for c in value.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\'' => out.push_str("\\'"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\0' => out.push_str("\\0"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(c),
-        }
-    }
-    out.push('\'');
-    out
-}
-fn decode_url64_impl(text: &str, context: Option<&KernelContext>) -> Result<Vec<u8>, SqlError> {
+fn decode_url64(text: &str, context: &KernelContext) -> Result<Vec<u8>, SqlError> {
     let capacity = text
         .len()
         .checked_mul(3)
@@ -159,9 +145,7 @@ fn decode_url64_impl(text: &str, context: Option<&KernelContext>) -> Result<Vec<
     let mut count = 0u8;
     for (index, c) in text.bytes().enumerate() {
         if index % (64 * 1024) == 0 {
-            if let Some(context) = context {
-                context.check().map_err(|error| SqlError(error.code()))?;
-            }
+            context.check().map_err(|error| SqlError(error.code()))?;
         }
         let digit = match c {
             b'A'..=b'Z' => c - b'A',
@@ -184,25 +168,24 @@ fn decode_url64_impl(text: &str, context: Option<&KernelContext>) -> Result<Vec<
     }
     Ok(out)
 }
-fn decode_url64(text: &str) -> Result<Vec<u8>, SqlError> {
-    decode_url64_impl(text, None)
-}
-fn decode_url64_checked(text: &str, context: &KernelContext) -> Result<Vec<u8>, SqlError> {
-    decode_url64_impl(text, Some(context))
-}
-fn decimal(value: &Value, kind: &str) -> Result<&str, SqlError> {
+fn decimal<'a>(value: &'a Value, kind: &str, context: &KernelContext) -> Result<&'a str, SqlError> {
     let text = value.as_str().ok_or_else(invalid)?;
     let body = text.strip_prefix('-').unwrap_or(text);
-    let valid = if kind == "decimal" {
-        let (integer, fraction) = body.split_once('.').unwrap_or((body, ""));
-        !integer.is_empty()
-            && integer.bytes().all(|c| c.is_ascii_digit())
-            && (fraction.is_empty() || fraction.bytes().all(|c| c.is_ascii_digit()))
-            && body.bytes().filter(|c| *c == b'.').count() <= 1
-    } else {
-        !body.is_empty() && body.bytes().all(|c| c.is_ascii_digit())
-    };
-    if !valid || (kind == "unsigned-integer" && text.starts_with('-')) {
+    let mut integer_digits = 0usize;
+    let mut dot = false;
+    for (index, byte) in body.bytes().enumerate() {
+        if index % (64 * 1024) == 0 {
+            context.check().map_err(|error| SqlError(error.code()))?;
+        }
+        if byte == b'.' && kind == "decimal" && !dot {
+            dot = true;
+        } else if byte.is_ascii_digit() {
+            if !dot { integer_digits += 1; }
+        } else {
+            return Err(invalid());
+        }
+    }
+    if integer_digits == 0 || (kind == "unsigned-integer" && text.starts_with('-')) {
         return Err(invalid());
     }
     Ok(text)
@@ -253,7 +236,7 @@ fn float_text(value: f64) -> Result<String, SqlError> {
         ))
     }
 }
-pub fn literal(value: &Value) -> Result<String, SqlError> {
+fn literal(value: &Value, context: &KernelContext) -> Result<String, SqlError> {
     let kind = value
         .get("kind")
         .and_then(Value::as_str)
@@ -271,7 +254,7 @@ pub fn literal(value: &Value) -> Result<String, SqlError> {
         }
         .into()),
         "signed-integer" | "unsigned-integer" | "decimal" => {
-            Ok(decimal(value.get("decimal").ok_or_else(invalid)?, kind)?.to_owned())
+            Ok(decimal(value.get("decimal").ok_or_else(invalid)?, kind, context)?.to_owned())
         }
         "float32" | "float64" => {
             let bits = value
@@ -292,35 +275,6 @@ pub fn literal(value: &Value) -> Result<String, SqlError> {
                 return Err(invalid());
             };
             float_text(n)
-        }
-        "string" | "date" | "datetime" | "timestamp" | "time-duration" => Ok(quote_text(
-            value
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or_else(invalid)?,
-        )),
-        "binary" | "bit" => {
-            let raw = decode_url64(
-                value
-                    .get("bytes_base64url")
-                    .and_then(Value::as_str)
-                    .ok_or_else(invalid)?,
-            )?;
-            if kind == "binary" {
-                let mut out = String::from("X'");
-                for byte in raw {
-                    out.push_str(&format!("{byte:02X}"));
-                }
-                out.push('\'');
-                Ok(out)
-            } else {
-                let mut out = String::from("b'");
-                for byte in raw {
-                    out.push_str(&format!("{byte:08b}"));
-                }
-                out.push('\'');
-                Ok(out)
-            }
         }
         _ => Err(invalid()),
     }
@@ -568,7 +522,7 @@ fn prepare_literal(value: &Value, context: &KernelContext) -> Result<SqlLiteral,
                 .get("bytes_base64url")
                 .and_then(Value::as_str)
                 .ok_or_else(invalid)?;
-            let raw = decode_url64_checked(encoded, context)?;
+            let raw = decode_url64(encoded, context)?;
             let factor = if kind == "binary" { 2 } else { 8 };
             raw.len()
                 .checked_mul(factor)
@@ -580,7 +534,7 @@ fn prepare_literal(value: &Value, context: &KernelContext) -> Result<SqlLiteral,
                 SqlLiteral::Bit(raw)
             })
         }
-        _ => Ok(SqlLiteral::Encoded(literal(value)?)),
+        _ => Ok(SqlLiteral::Encoded(literal(value, context)?)),
     }
 }
 
@@ -669,11 +623,16 @@ impl SqlStatement {
             return if self.emitted == self.complete_len {
                 Ok(None)
             } else {
-                Err(invalid())
+                Err(internal())
             };
         }
         let mut out = Vec::with_capacity(CHUNK_BYTES.min(self.complete_len - self.emitted));
+        let mut fragment_steps = 0usize;
         while out.len() < CHUNK_BYTES && self.fragment < self.fragments.len() {
+            if fragment_steps > 0 && fragment_steps % 1024 == 0 {
+                context.check().map_err(|error| SqlError(error.code()))?;
+            }
+            fragment_steps += 1;
             let part = self.fragments[self.fragment];
             let literal = match part {
                 Fragment::KeyLiteral(row, index) => Some(&self.rows[row].key_literals[index]),
@@ -703,7 +662,7 @@ impl SqlStatement {
         }
         self.emitted = self.emitted.checked_add(out.len()).ok_or_else(limit)?;
         if self.emitted > self.complete_len {
-            return Err(invalid());
+            return Err(internal());
         }
         Ok(Some(out))
     }
@@ -1069,7 +1028,7 @@ impl SqlBatcher {
             sum.checked_add(statement.part_len(*part)).ok_or_else(limit)
         })?;
         if actual != complete_len {
-            return Err(invalid());
+            return Err(internal());
         }
         self.variable_len = 0;
         Ok(Some(statement))

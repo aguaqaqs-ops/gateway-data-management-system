@@ -19,6 +19,7 @@ fn sql_error(error: SqlError) -> PyErr {
         "COMPARISON_CANCELLED" => PyInterruptedError::new_err("SQL rendering cancelled"),
         "COMPARISON_DEADLINE_EXCEEDED" => PyTimeoutError::new_err("SQL rendering deadline elapsed"),
         "RESOURCE_EXCEEDED" => PyValueError::new_err(error.0),
+        "SQL_REPLAY_INTERNAL" => PyRuntimeError::new_err(error.0),
         _ => PyValueError::new_err(error.0),
     }
 }

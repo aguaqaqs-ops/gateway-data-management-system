@@ -438,6 +438,11 @@ impl StorageRender {
                         .next_chunk(&self.context)
                         .map_err(|error| error.to_string());
                 }
+                if current.next_chunk(&self.context).map_err(|error| error.to_string())?
+                    .is_some()
+                {
+                    return Err("SQL_REPLAY_INTERNAL".into());
+                }
                 self.current = None;
             }
             if self.queued.is_none() {
@@ -461,6 +466,9 @@ impl StorageRender {
                 Err(PyMemoryError::new_err(error))
             }
             Ok(Err(error)) if error == "RESOURCE_EXCEEDED" => Err(PyValueError::new_err(error)),
+            Ok(Err(error)) if matches!(error.as_str(), "SQL_REPLAY_INTERNAL" | "STORAGE_RENDER_UNDERCHARGED" | "STORAGE_RENDER_INVALID") => {
+                Err(PyRuntimeError::new_err(error))
+            }
             Ok(Err(error)) if error == "COMPARISON_CANCELLED" => {
                 Err(PyInterruptedError::new_err(error))
             }

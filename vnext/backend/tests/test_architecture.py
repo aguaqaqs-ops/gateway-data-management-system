@@ -875,6 +875,10 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("*",), RULE_LAYER),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute", ("_native",), RULE_LAYER),
     ("gateway_backend.capabilities.table_access.native", "gateway_compute._native", ("_parse_sql_native",), None),
+    ("gateway_backend.capabilities.mutation_planning.native", "gateway_compute._native",
+     ("_begin_storage_operation_native", "_prepare_storage_table_native"), None),
+    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native",
+     ("_begin_storage_operation_native",), RULE_LAYER),
     (
         "gateway_backend.capabilities.comparison.native",
         "gateway_compute._native",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from decimal import Decimal
 
 from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.capabilities.mutation_planning._artifacts import (
@@ -16,6 +15,7 @@ from gateway_backend.capabilities.mutation_planning._changeset import (
     build_change_set_closure,
 )
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
+from gateway_backend.capabilities.mutation_planning._decision import choose_mutation_kind
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationFailureCode,
     MutationPlanStatus,
@@ -244,43 +244,12 @@ def _operation_kind(
     before_row_count: int,
     after_row_count: int,
 ) -> TableMutationKind:
-    if policy is MutationPolicy.REBUILD_ALWAYS:
-        return TableMutationKind.REBUILD_TABLE
-    if before_row_count == 0 and after_row_count > 0:
-        return TableMutationKind.REBUILD_TABLE
-    if not _patch_eligible(
-        before,
-        after,
-        changed_row_count=changed_row_count,
-        before_row_count=before_row_count,
-        after_row_count=after_row_count,
-        threshold=threshold_policy,
-    ):
-        return TableMutationKind.REBUILD_TABLE
-    return TableMutationKind.PATCH_DML
-
-
-def _patch_eligible(
-    before: MutationTableSnapshot,
-    after: MutationTableSnapshot,
-    *,
-    changed_row_count: int,
-    before_row_count: int,
-    after_row_count: int,
-    threshold: MutationThresholdPolicy,
-) -> bool:
-    if before_row_count == 0:
-        return False
-    if not _keyed_patchable(before.storage_view) or not _keyed_patchable(after.storage_view):
-        return False
-    if changed_row_count > threshold.max_patch_changed_rows:
-        return False
-    max_rows = max(before_row_count, after_row_count, 1)
-    ratio = Decimal(threshold.max_patch_change_ratio)
-    numerator, denominator = ratio.as_integer_ratio()
-    if changed_row_count * denominator > max_rows * numerator:
-        return False
-    return True
+    return choose_mutation_kind(
+        policy=policy, threshold=threshold_policy,
+        patchable=_keyed_patchable(before.storage_view) and _keyed_patchable(after.storage_view),
+        before_rows=before_row_count, after_rows=after_row_count,
+        changed_rows=changed_row_count,
+    )
 
 
 def _keyed_patchable(view: StorageRuleView) -> bool:

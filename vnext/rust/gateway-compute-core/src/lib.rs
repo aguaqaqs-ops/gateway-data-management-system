@@ -3,6 +3,7 @@
 pub mod business_kernel;
 pub mod canonical_ipc;
 pub mod comparison;
+pub mod storage_mutation;
 mod records;
 pub mod table_access;
 

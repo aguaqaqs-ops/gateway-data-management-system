@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`8`（2026-11-08：Owner 授权补充 §4.1 独立调用边界及按实际消费者落实的要求，不改变 native consumer 允许列表或当前阶段门禁；`7` 按已批准的 Phase 6 S3 设计登记 Comparison records 的精确 native consumer；`6` 由实际 CLI 消费者复用薄 bootstrap 初始化入口，替换 D 的直接初始化 owner；`5` 补 Table Access/parser 与 worker 初始化边，`4` 纳入 S2b B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
+Policy version：`9`（2026-11-08：P6 S4 B 按固定设计登记 Mutation Planning 两个实际 storage native 入口；`8` 补 §4.1 独立调用边界；`7` 登记 Comparison records；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -94,6 +94,7 @@ S2b B–E 与 Phase 6 S3 C 已批准的 Python 调用侧由下列精确 capabili
 | `storage_projection.native` | `_canonical_project_native` |
 | `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native`、`_canonical_comparison_profile_native` |
 | `comparison.native` | `_begin_comparison_operation_native`、`_compare_records_native`、`_summarize_unchanged_ordered_native`、`_facts_core_digest_native`、`_validate_records_batches_native` |
+| `mutation_planning.native` | `_begin_storage_operation_native`、`_prepare_storage_table_native` |
 
 Comparison 的批量数据只以 owned Arrow C Stream 进入或导出；小型 policy/metadata JSON 不承载整表 rows。`comparison.native` 的 operation 入口复用现有进程池与同一 operation M，显式持有输入 backing charge、native portion、取消与截止；table/core JCS 完成后 `seal()` 收缩 native portion，已导出的 Arrow buffer 与其最后 consumer 保留输出和输入 charge。Python `comparison.artifacts` 的 Parquet 读取经该 facade 调用 `_validate_records_batches_native`，只保 raw ref/Parquet I/O 和小 manifest/closure 责任，不直接导入 `_native`。本增补不授予风险、bundle、workflow 或其他模块直接 FFI 边。
 

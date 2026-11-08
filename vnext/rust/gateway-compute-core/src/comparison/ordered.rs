@@ -797,8 +797,8 @@ fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, Ordered
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct EncodedCell {
-    pub(super) frame: Vec<u8>,
+pub(crate) struct EncodedCell {
+    pub(crate) frame: Vec<u8>,
 }
 
 impl EncodedCell {
@@ -2024,7 +2024,7 @@ fn read_integer(
     Ok(Some(value))
 }
 
-pub(super) fn encode_cell(
+pub(crate) fn encode_cell(
     array: &dyn Array,
     row: usize,
     field: &Field,

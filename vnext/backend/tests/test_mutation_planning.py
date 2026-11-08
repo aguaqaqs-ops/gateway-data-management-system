@@ -27,7 +27,7 @@ from gateway_backend.capabilities.mutation_planning._changeset import (
     TableMutationDecision,
     build_change_set_closure,
 )
-from gateway_backend.capabilities.mutation_planning._planner import _patch_eligible
+from gateway_backend.capabilities.mutation_planning._decision import choose_mutation_kind
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning.contracts import (
     ChangeSetArtifact,
@@ -369,17 +369,15 @@ def test_destructive_confirmation_cases(case_id: str, case: dict[str, object]) -
 
 @pytest.mark.parametrize(("case_id", "case"), THRESHOLD_BOUNDARY_CASES)
 def test_threshold_boundary_cases(case_id: str, case: dict[str, Any]) -> None:
-    before = table_snapshot(rows=(keyed_row(),))
-    after = table_snapshot(rows=(keyed_row(board="9"),))
-    eligible = _patch_eligible(
-        before,
-        after,
-        changed_row_count=int(case["changed_row_count"]),
-        before_row_count=int(case["row_count"]),
-        after_row_count=int(case["row_count"]),
+    kind = choose_mutation_kind(
+        policy=MutationPolicy.ADAPTIVE_PATCH,
         threshold=MutationThresholdPolicy(),
+        patchable=True,
+        changed_rows=int(case["changed_row_count"]),
+        before_rows=int(case["row_count"]),
+        after_rows=int(case["row_count"]),
     )
-    assert eligible is case["eligible"]
+    assert (kind is TableMutationKind.PATCH_DML) is case["eligible"]
 
 
 def test_submit_count_examples_match_hand_computed_net_changes() -> None:

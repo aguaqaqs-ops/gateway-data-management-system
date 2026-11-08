@@ -2,6 +2,7 @@
 
 mod business;
 mod comparison_records;
+mod storage_mutation;
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -1440,6 +1441,7 @@ const BUILD_INPUT: &str = match option_env!("GATEWAY_RUST_BUILD_INPUT") {
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
     comparison_records::register(module)?;
+    storage_mutation::register(module)?;
     module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;

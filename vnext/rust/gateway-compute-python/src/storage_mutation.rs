@@ -92,7 +92,14 @@ struct StorageHandle {
     owner: Option<Arc<PythonChargeOwner>>,
 }
 
-type StorageSummary = (usize, usize, Option<(usize, usize, usize)>, bool, bool, usize);
+type StorageSummary = (
+    usize,
+    usize,
+    Option<(usize, usize, usize)>,
+    bool,
+    bool,
+    usize,
+);
 
 #[pymethods]
 impl StorageHandle {

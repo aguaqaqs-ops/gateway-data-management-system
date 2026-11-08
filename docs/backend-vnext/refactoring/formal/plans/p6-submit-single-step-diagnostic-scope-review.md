@@ -3242,3 +3242,17 @@ collector原status SHA **`8d030bf7af95445ec316fea7a0e8c7595de006e3605d16ecc977ec
 **资源与缓存收尾闭合。** 03:00:01Z postflight1756B/SHA **`9396fd283620001af0988ff5c2fef38e82da39dad391064c02ac0b4b1a2a3d6b`** 直接记录当前H clean、runner0、无运行容器/自有project容器网络/8000/Dolt/Cargo/rustc/pytest，五个包专属Hypothesis路径和runner外置Cargo target均不存在，三个tag保持冻结及最后实际对象对应，准确owner标记检查后释放、postflight_exit0。未要求或执行清理旧失败worktree、镜像、证据或非本次资源，不把这些专属临时缓存清理扩大为全部节点缓存删除。本审核未追加实时节点扫描；原始closed记录和跨节点一致性足以支持本次收尾资格。
 
 结论仅为**本次H的完整功能权威门禁和当前镜像门禁独审PASS**；V5b/H1仍依§155原分版本资格，不把所有材料伪装为同一HEAD，亦不宣phase exit。owning报告提交/原reply更新后，经已验证本机codex queue向同一协调root主动通知一次，保实际排队结果/错误，不等Owner转发或新GO，不联系归档实施者或失效MCP。
+
+## 157. 最终交付索引元数据核对PASS，定稿字节及既有资格保持
+
+**`p6-record-finalize-20261108c-ct201/` 本次最终交付JSON、清单绑定和相对c草稿的元数据增量核对PASS，无新增阻塞Finding。** 仅为交付索引核对，不接管baseline/整体phase exit或timer，不授新运行GO。本轮只读最终包、其中保留的prepared元数据及已引用审核提交的Git blob摘要；没有SSH、重读/重审历史测量原件、重跑record validator/测试、重算业务计时、重生record或改动定稿索引字节。
+
+三项交付pin精确相等：delivery-index.json12969B/SHA **`be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`**；split-version-reference-index.json96412B/SHA **`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`**；SHA256SUMS557B/SHA **`92ef44702fad9ab78e1c88957199aaf3c9479a126bc37adc99634de81be6275a`**。清单恰列六个最终交付JSON/TXT，逐项摘要MATCH，五个JSON严格解析通过（无重复key/非JSON数值）；同目录prepared/preparation材料明确为保留来源，不与正式六项入口混淆。包内16处path/bytes/SHA描述符对应8个不同final/prepared文件的绑定均核对一致；包外历史record/证据仅对照既有描述符，未重开原件。
+
+metadata-diff-from-c.json5834B/SHA **`2ba7defd77825442444ebcd27d680978388d1a1fc0be6a1c52e96fceb7d55f71`** 的声明已独立递归复核：source supplement和总索引各15项实际差异与声明逐项精确相等；delivery另23处差异均属正式状态、完成时间、§156限定gate结论和正式path/bytes/SHA指针。`independent_pending`改名为`independent_outcomes`后，V5b完整对象与c草稿精确相等；gate内仅九处资格/status/审核引用字段变化，真实run/postflight/runtime/manifests、镜像来源及source limits等对象不变。prepared三来源描述符本身摘要也MATCH，没有通过结构改名暗改原始结果。
+
+历史sources、三record descriptors、comparator及既有correctness/coverage/H2口径、V5b/H1内容均与c草稿精确相等，delivery/summary/source supplement对应描述符一致。core **971ed42d…38598**、FULL **66a2728a…f678b**、STRESS **0d597e63…77248** 保持原已审SHA/路径/大小；九个新record场景仍为**无合法独立baseline、未产生comparator PASS**，不同HEAD允许、完整inputs及同场景/同口径要求不放宽。旧FAILED A仅引用已完成段、RS-only采样/nested/probe边界、H1 after/hit未知、历史source RS完整身份UNAVAILABLE/来源例外、分版本及record_only/性能目标未达等限定都保留；21项是索引覆盖，不改称单一冻结版本全矩阵。旧业务/来源条目不因本次元数据PASS升级为新的独立业务或镜像审核。
+
+§147/149 record、§155 V5b/H1、§156当前H gate的引用资格与已审结论一致；48处审核引用的3个唯一commit/path/SHA组合已用对应Git blob摘要核对全部MATCH：52d75bf72f…/99f390d3…15201，6ad793a523…/04ab1347…cebb，c4cce7f795…/**8602f1c86f32c193fed9e694e624e0d536d11e6b15638debaaac2c884b91768e**。gate正式引用准确指向§156 **`c4cce7f7951597373ff42e5181933199e674723e`**，限定当前1e72的全六包实际运行/实际镜像、既定固定project覆盖、闭包来源及有主清理；不扩成future HEAD carried、性能矩阵或phase exit。报告文件今后增加新节不影响这些已固定提交的blob SHA，不能拿当前工作文件摘要去误判历史pin失效。
+
+owner-handoff.txt850B/SHA **`4268f67858526653f846b2de1c525994f7dd81831fba458df43daa60f18bc01d`** 与最终summary的作用范围一致：record/index子任务complete仅表示此项交付完成，overall_phase_exit仍NOT_CONFIRMED_BY_OWNER；无关闭timer、push/tag或主线动作权限。本轮结论只外置写本报告/原reply，**不要求回改已定稿JSON加入本轮审核commit、不形成循环签名**。报告提交/reply更新后按既定codex queue向同一root主动通知一次，记录排队结果；不新增运行GO、接管整体exit或停timer。

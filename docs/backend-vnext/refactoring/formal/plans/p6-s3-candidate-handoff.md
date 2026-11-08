@@ -117,11 +117,13 @@ Q18 已完成：产品 `94b25a32792821cbc5b3230d98a0aa6f13493c32`，原审核报
 | --- | --- | --- |
 | 资源首轮 focused | e763 的 backend mypy exit1；后续步骤未到 | 原失败及 SHA 见协调 §29、E review §68，不改写 |
 | 修复 focused | CT108／V1e669，outer/node 0；102 nonserial +3 serial，backend/RS Ruff、mypy、native input 及两档 Compose config 通过 | 原 E §68 独核；前三包静态同源码事实直接引用 e763 实跑，非权威 carried |
-| 当前六包／容器门禁 | 04／V1e669 实际全六包正在运行；尚无最终整体 exit 及镜像出口核收 | 原 04 同来源 WT 保留；不得提前记 PASS 或 carried |
-| fresh t1–t4 | 05 全四档执行稿已静态 CLEAR；源码／八包输入准备进行中，真实旅程未开始 | 每档完整 v1/重复 MO、v2 FULL，保持 N1/32−8/M24；按 DC33 原范围，不用旧 S2b 或 3a7 代替当前 fresh |
-| 新档 W3/W4 | CT108 离线源／13 输入／镜像准备已实际 0 并独核；首 W3 MO warm 尚未启动 | 等待 04 门禁原件核收；准备不证明 M40 真实容量，更不形成 1warm+3 统计 |
+| 当前六包／容器门禁 | 04／V1e 全六包、同次 Compose、镜像出口实际0，原 E §71已独核 | 六包均因实际闭包变化而重跑，无carried；原04同来源WT保留，最终H绑定仍待 |
+| fresh t1–t4 | 05来源准备0；同根公开源码权限准备0；修订完整t1实际0且原E独核PASS，t2运行中，t3／t4未运行 | 每档完整 v1/重复 MO、v2 FULL，保持 N1/32−8/M24；按 DC33 原范围，不用旧 S2b 或 3a7 代替当前 fresh |
+| 新档 W3/W4 | 首 W3 MO warm在RS启动时actual1，未到业务；权限修复准备已独核0，修订warm正在建立v1基线，v2未到 | 原失败及0有效warm保留；剩余23未启动，尚无M40完整容量或1warm+3统计，见[性能记录](p6-s3-performance-report.md) |
 | E 整体与退出 | **尚未 GO／未退出** | 最终 H、逐包／镜像绑定、fresh 原件和性能报告仍待；tag/push/发布未办理 |
 
 focused 直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-1e669c053f-focused-r1/`，outer SHA=`2b1bbc8095d8622d7c660c0d57aeab82a383ddccd65991e4e63534cd0d0dd7f3`、node/captured SHA=`cbc4c7b32e1ab98cd71940486693c6c43c950a9425b3d770a898776f3ed12d65`。CT108 性能准备直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-performance-e76342ef0b/prepare-control/`，outer SHA=`c32722d0968aae7fe3bcaf526a251a9e79a3796ec38fb201bc91dc5dfc1d874f`、node/captured SHA=`895a6f19b2b0b3ac1206f8963d36143e8b609d4c9b059c71cc6d58db07bf7783`。后者路径名称含旧 e763，实际固定 source 为 1e669；prepared-images.json 的 `config_digest` 字段只是 Docker inspect 本机 ID，不能拿它作跨节点 config。真实 runtime config 与全部 DiffID 由当次 docker-save 原件核收。
 
-恢复后各实际结果及最终核收将追加到本节之后；当前仍保留容量阻塞，未对未知项给通过结论。
+恢复后的权限工具修复、容器收尾次序修订及当前实际原件见协调§31和[性能记录](p6-s3-performance-report.md)。原05全旅程稿2408／18c9与旧CT108r1warm8992／d58c在执行前撤回，修订稿在node marker持有期间封核心原件和大tar哈希，最后释放，经stdout真实事件与控制端独立receipt核实际释放；未修改原失败。05当前新完整稿b82a／e7d8的t1已通过，节点result的pending快照不能冒作最终释放结论，也不因pending否认实际control核收。
+
+当前仍无整体E GO或最终新H绑定，未对未知项给通过结论。后续四档、W3/W4及最终交接按各自原件继续核收。

@@ -46,3 +46,11 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 后续只按实际v2操作／step窗口归属服务日志：compare-read/build包含native records builder及其中未独测artifact JCS；随后table/facts-core JCS另计；Parquet写属于records publication内部。Risk必要Arrow转换属于lazy view遍历时rules evaluation内部，digest/report JCS及artifact publication属于Risk publication内部，不能将嵌套值再次加总或用残差声称纯规则CPU。pair局部未观测的投影／bundle `null`不当0。cgroup各容器生命周期峰、进程RSS峰、操作M预约高水和host可用内存分列，各自峰不代表同一时刻总峰。
 
 后续实际结果、修复复验和独审结论追加到本文；当前没有性能豁免、S3 E GO、最终新H绑定或阶段退出，tag／push／发布均未办理。
+
+## 6. 首轮工具修复准备核收与进行中状态
+
+原 E §74／`70bc1d5dfc`已独核CT108第一轮修复的**准备范围**：从同V1e和bundle新建umask022的运行WT，910 tracked公开文件／95源码目录分别核644／755，旧WT和坏镜像不动；强制native input9d4f、六锁0漂、clean、三镜像真实config／全DiffID及原marker释放0。18:39:08–18:40:29Z outer/node/capture0，直接原件`/home/dev/gdds-test-tmp/p6-s3-resource-repair-r1-1e669c053f/prepare-control/`：outer SHA=`e0dbed5c93495953023603cfbdf9a5b16ab782406eeb2281870c6495f658c0cc`、node=`380a26b8dce86e9cae23150c3573257472496854e6bf7810e4160b76abc97e86`、prepared-images=`0affc906dade8840daf419ed93bc23463dcbc317c1590b5aa16919bd646da1d9`。这是PREP_PASS，不是RS运行或M40容量结论。
+
+未执行的旧r1warm稿因在释放标记后重hash大型tar被撤回；修订稿先在占用内封node核心result、tar SHA及manifest，最后删owner／rmdir，真实释放事件绑定封口SHA经stdout返回，控制端核原exit／远近原件／postflight后另封最终acceptance receipt。node pending快照不预填释放成功；postflight失败仍先捕获原件，再判失败。业务、输入和48/8/M40不改。固定driver SHA=`5bc3a65c1776e66808364a73d621be4981ef33b8a90458fa0606c3d521c20e54`、controller=`cd3d857f36766b03955b80ded88547567bff2e1e731f9222aac81b048fbdb956`，原E静审CLEAR后由同一Luna仅执行一次。
+
+截至本节提交，修订warm已在CT108实际运行，监控观察到三服务ready、首业务前资源guard通过、v1 Preview成功，随后进入v1 Submit；**尚无封口完成结果、v2样本或本轮成功warm**。该监控状态不代替最终原件与独审。第4节仍为0有效样本／UNKNOWN，剩余23未启动。05默认32/8/M24完整功能证据另在累计交接逐档列出，不混入此性能矩阵。

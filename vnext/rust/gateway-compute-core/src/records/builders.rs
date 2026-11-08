@@ -2,14 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use arrow_array::{Array, RecordBatch, make_array};
 use arrow_array::builder::{
-    ArrayBuilder, BinaryBuilder, BooleanBuilder, FixedSizeBinaryBuilder, Int64Builder,
-    ListBuilder, StringBuilder, StructBuilder, make_builder,
+    ArrayBuilder, BinaryBuilder, BooleanBuilder, FixedSizeBinaryBuilder, Int64Builder, ListBuilder,
+    StringBuilder, StructBuilder, make_builder,
 };
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_array::{Array, RecordBatch, make_array};
 use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer};
 use arrow_data::ArrayData;
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use bytes::Bytes;
 use gateway_shared_kernel::{DigestRef, canonicalize_jcs};
 use serde_json::Value;
@@ -58,7 +58,10 @@ pub fn records_schema(family: &str, detail_policy: &str) -> Result<SchemaRef, St
         "BLANK" => "blank-records/v1",
         _ => return Err("unsupported records family".to_string()),
     };
-    if !matches!(detail_policy, "COUNTS_ONLY" | "CHANGED_COLUMNS" | "FULL_BEFORE_AFTER_VALUES") {
+    if !matches!(
+        detail_policy,
+        "COUNTS_ONLY" | "CHANGED_COLUMNS" | "FULL_BEFORE_AFTER_VALUES"
+    ) {
         return Err("unsupported records detail policy".to_string());
     }
     let metadata = [
@@ -70,7 +73,10 @@ pub fn records_schema(family: &str, detail_policy: &str) -> Result<SchemaRef, St
     .into_iter()
     .map(|(key, value)| (format!("{METADATA_PREFIX}{key}"), value.to_string()))
     .collect();
-    Ok(Arc::new(Schema::new_with_metadata(expected_fields(family)?, metadata)))
+    Ok(Arc::new(Schema::new_with_metadata(
+        expected_fields(family)?,
+        metadata,
+    )))
 }
 
 /// Build exact Arrow schema from a stream of one-row objects. The iterator is
@@ -100,28 +106,45 @@ pub fn build_records_arrow(
     for row in rows {
         context.check().map_err(|error| error.to_string())?;
         let row = row?;
-        record_count = record_count.checked_add(1)
+        record_count = record_count
+            .checked_add(1)
             .ok_or_else(|| "records count overflow".to_string())?;
         if record_count > max_records {
             return Err("records per-table limit exceeded".to_string());
         }
         let encoded_size = json_size(&row.value)?;
-        let row_charge = encoded_size.checked_mul(3)
-            .and_then(|size| schema.fields().len().checked_mul(1024)
-                .and_then(|headers| size.checked_add(headers)))
+        let row_charge = encoded_size
+            .checked_mul(3)
+            .and_then(|size| {
+                schema
+                    .fields()
+                    .len()
+                    .checked_mul(1024)
+                    .and_then(|headers| size.checked_add(headers))
+            })
             .and_then(|size| size.checked_add(4096))
             .ok_or("records output budget overflow")?;
-        if lease.charged_bytes().checked_add(row_charge)
-            .ok_or("records output budget overflow")? > max_output_bytes {
+        if lease
+            .charged_bytes()
+            .checked_add(row_charge)
+            .ok_or("records output budget overflow")?
+            > max_output_bytes
+        {
             return Err("records output budget exceeded".to_string());
         }
         lease.grow(row_charge).map_err(|error| error.to_string())?;
-        if record_count != 1 { hasher.update(b","); }
+        if record_count != 1 {
+            hasher.update(b",");
+        }
         let encoded = serde_json::to_vec(&row.value).map_err(|error| error.to_string())?;
         hasher.update(canonicalize_jcs(&encoded).map_err(|error| error.to_string())?);
-        let object = row.value.as_object().ok_or_else(|| "records row must be an object".to_string())?;
+        let object = row
+            .value
+            .as_object()
+            .ok_or_else(|| "records row must be an object".to_string())?;
         for (field, builder) in schema.fields().iter().zip(&mut builders) {
-            let value = object.get(field.name())
+            let value = object
+                .get(field.name())
                 .ok_or_else(|| format!("records field {} is missing", field.name()))?;
             append_value(builder.as_mut(), field, value)?;
         }
@@ -131,84 +154,141 @@ pub fn build_records_arrow(
             batches.push(finish_batch(Arc::clone(&schema), &mut builders)?);
             builders = new_builders(&schema);
             batch_count = 0;
-            lease.shrink_to(retained_charge(&batches, &schema)?)
+            lease
+                .shrink_to(retained_charge(&batches, &schema)?)
                 .map_err(|error| error.to_string())?;
         }
     }
     if batch_count != 0 {
         batches.push(finish_batch(Arc::clone(&schema), &mut builders)?);
     }
-    let schema_version = schema.metadata().get(&format!("{METADATA_PREFIX}schema_version"))
+    let schema_version = schema
+        .metadata()
+        .get(&format!("{METADATA_PREFIX}schema_version"))
         .ok_or("records schema version is missing")?;
     hasher.update(b"],\"schema_version\":\"");
     hasher.update(schema_version.as_bytes());
     hasher.update(b"\"}");
-    let content_digest = DigestRef::from_raw_digest(&hasher.finalize())
-        .map_err(|error| error.to_string())?;
+    let content_digest =
+        DigestRef::from_raw_digest(&hasher.finalize()).map_err(|error| error.to_string())?;
     let retained = retained_charge(&batches, &schema)?;
     if retained > max_output_bytes {
         return Err("records output budget exceeded".to_string());
     }
     // Rebinding retains another bounded set of headers, not a second payload.
     // The per-batch header allowance remains in the output lease.
-    let charge = Arc::new(OutputCharge { lease: Mutex::new(lease), _external_owner: external_owner });
-    let batches = batches.into_iter().map(|batch| charged_batch(batch, &charge))
+    let charge = Arc::new(OutputCharge {
+        lease: Mutex::new(lease),
+        _external_owner: external_owner,
+    });
+    let batches = batches
+        .into_iter()
+        .map(|batch| charged_batch(batch, &charge))
         .collect::<Result<Vec<_>, _>>()?;
-    charge.lease.lock().map_err(|_| "records charge lock poisoned".to_string())?
-        .shrink_to(retained).map_err(|error| error.to_string())?;
-    Ok(BuiltRecords { schema, batches, record_count, content_digest, _charge: charge })
+    charge
+        .lease
+        .lock()
+        .map_err(|_| "records charge lock poisoned".to_string())?
+        .shrink_to(retained)
+        .map_err(|error| error.to_string())?;
+    Ok(BuiltRecords {
+        schema,
+        batches,
+        record_count,
+        content_digest,
+        _charge: charge,
+    })
 }
 
 fn retained_charge(batches: &[RecordBatch], schema: &Schema) -> Result<usize, String> {
-    let data = batches.iter().flat_map(RecordBatch::columns).try_fold(0usize, |sum, array| {
-        sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
-    }).ok_or("records output size overflow")?;
-    let headers = batches.len().checked_mul(schema.fields().len())
+    let data = batches
+        .iter()
+        .flat_map(RecordBatch::columns)
+        .try_fold(0usize, |sum, array| {
+            sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+        })
+        .ok_or("records output size overflow")?;
+    let headers = batches
+        .len()
+        .checked_mul(schema.fields().len())
         .and_then(|count| count.checked_mul(512))
         .and_then(|size| size.checked_add(if batches.is_empty() { 0 } else { 4096 }))
         .ok_or("records output header overflow")?;
-    data.checked_add(headers).ok_or("records output retained overflow".to_string())
+    data.checked_add(headers)
+        .ok_or("records output retained overflow".to_string())
 }
 
 fn charged_batch(batch: RecordBatch, charge: &Arc<OutputCharge>) -> Result<RecordBatch, String> {
     let schema = batch.schema();
-    let columns = batch.columns().iter().map(|array| {
-        let data = attach_charge(array.to_data(), charge)?;
-        Ok(make_array(data))
-    }).collect::<Result<Vec<_>, String>>()?;
+    let columns = batch
+        .columns()
+        .iter()
+        .map(|array| {
+            let data = attach_charge(array.to_data(), charge)?;
+            Ok(make_array(data))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     RecordBatch::try_new(schema, columns).map_err(|error| error.to_string())
 }
 
 fn attach_charge(data: ArrayData, charge: &Arc<OutputCharge>) -> Result<ArrayData, String> {
-    let buffers = data.buffers().iter().map(|buffer| charged_buffer(buffer, charge)).collect();
+    let buffers = data
+        .buffers()
+        .iter()
+        .map(|buffer| charged_buffer(buffer, charge))
+        .collect();
     let nulls = data.nulls().map(|nulls| {
         NullBuffer::new(BooleanBuffer::new(
-            charged_buffer(nulls.buffer(), charge), nulls.offset(), nulls.len()
+            charged_buffer(nulls.buffer(), charge),
+            nulls.offset(),
+            nulls.len(),
         ))
     });
-    let children = data.child_data().iter().cloned()
+    let children = data
+        .child_data()
+        .iter()
+        .cloned()
         .map(|child| attach_charge(child, charge))
         .collect::<Result<Vec<_>, _>>()?;
-    data.into_builder().buffers(buffers).nulls(nulls).child_data(children)
-        .build().map_err(|error| error.to_string())
+    data.into_builder()
+        .buffers(buffers)
+        .nulls(nulls)
+        .child_data(children)
+        .build()
+        .map_err(|error| error.to_string())
 }
 
 fn charged_buffer(buffer: &Buffer, charge: &Arc<OutputCharge>) -> Buffer {
     Buffer::from(Bytes::from_owner(ChargedBuffer {
-        original: buffer.clone(), _charge: Arc::clone(charge),
+        original: buffer.clone(),
+        _charge: Arc::clone(charge),
     }))
 }
 
 fn new_builders(schema: &Schema) -> Vec<Box<dyn ArrayBuilder>> {
-    schema.fields().iter().map(|field| make_builder(field.data_type(), 1024)).collect()
+    schema
+        .fields()
+        .iter()
+        .map(|field| make_builder(field.data_type(), 1024))
+        .collect()
 }
 
-fn finish_batch(schema: SchemaRef, builders: &mut [Box<dyn ArrayBuilder>]) -> Result<RecordBatch, String> {
-    let columns = builders.iter_mut().map(|builder| builder.finish()).collect();
+fn finish_batch(
+    schema: SchemaRef,
+    builders: &mut [Box<dyn ArrayBuilder>],
+) -> Result<RecordBatch, String> {
+    let columns = builders
+        .iter_mut()
+        .map(|builder| builder.finish())
+        .collect();
     RecordBatch::try_new(schema, columns).map_err(|error| error.to_string())
 }
 
-fn append_value(builder: &mut dyn ArrayBuilder, field: &Field, value: &Value) -> Result<(), String> {
+fn append_value(
+    builder: &mut dyn ArrayBuilder,
+    field: &Field,
+    value: &Value,
+) -> Result<(), String> {
     append_value_with_limit(builder, field, value, i32::MAX as usize)
 }
 
@@ -227,42 +307,62 @@ fn append_value_with_limit(
             if let Some(text) = value.as_str() {
                 ensure_offset_growth(builder.values_slice().len(), text.len(), max_offset)?;
                 builder.append_value(text);
+            } else if value.is_null() {
+                builder.append_null();
+            } else {
+                return Err("records string value has wrong type".to_string());
             }
-            else if value.is_null() { builder.append_null(); }
-            else { return Err("records string value has wrong type".to_string()); }
         }
         DataType::Binary => {
             let builder = downcast::<BinaryBuilder>(builder)?;
-            if value.is_null() { builder.append_null(); }
-            else {
-                let bytes_hex = value.get("bytes_hex").and_then(Value::as_str)
+            if value.is_null() {
+                builder.append_null();
+            } else {
+                let bytes_hex = value
+                    .get("bytes_hex")
+                    .and_then(Value::as_str)
                     .ok_or("records binary value must contain bytes_hex")?;
-                ensure_offset_growth(builder.values_slice().len(), bytes_hex.len() / 2, max_offset)?;
+                ensure_offset_growth(
+                    builder.values_slice().len(),
+                    bytes_hex.len() / 2,
+                    max_offset,
+                )?;
                 builder.append_value(bytes_value(value)?);
             }
         }
         DataType::FixedSizeBinary(width) => {
             let builder = downcast::<FixedSizeBinaryBuilder>(builder)?;
-            if value.is_null() { builder.append_null(); }
-            else {
+            if value.is_null() {
+                builder.append_null();
+            } else {
                 let bytes = bytes_value(value)?;
                 if bytes.len() != usize::try_from(*width).map_err(|error| error.to_string())? {
                     return Err("records fixed binary width mismatch".to_string());
                 }
-                builder.append_value(bytes).map_err(|error| error.to_string())?;
+                builder
+                    .append_value(bytes)
+                    .map_err(|error| error.to_string())?;
             }
         }
         DataType::Boolean => {
             let builder = downcast::<BooleanBuilder>(builder)?;
-            if let Some(boolean) = value.as_bool() { builder.append_value(boolean); }
-            else if value.is_null() { builder.append_null(); }
-            else { return Err("records boolean value has wrong type".to_string()); }
+            if let Some(boolean) = value.as_bool() {
+                builder.append_value(boolean);
+            } else if value.is_null() {
+                builder.append_null();
+            } else {
+                return Err("records boolean value has wrong type".to_string());
+            }
         }
         DataType::Int64 => {
             let builder = downcast::<Int64Builder>(builder)?;
-            if let Some(integer) = value.as_i64() { builder.append_value(integer); }
-            else if value.is_null() { builder.append_null(); }
-            else { return Err("records integer value has wrong type".to_string()); }
+            if let Some(integer) = value.as_i64() {
+                builder.append_value(integer);
+            } else if value.is_null() {
+                builder.append_null();
+            } else {
+                return Err("records integer value has wrong type".to_string());
+            }
         }
         DataType::List(element) => {
             let builder = downcast::<ListBuilder<Box<dyn ArrayBuilder>>>(builder)?;
@@ -272,8 +372,11 @@ fn append_value_with_limit(
                     append_value_with_limit(builder.values().as_mut(), element, item, max_offset)?;
                 }
                 builder.append(true);
-            } else if value.is_null() { builder.append(false); }
-            else { return Err("records list value has wrong type".to_string()); }
+            } else if value.is_null() {
+                builder.append(false);
+            } else {
+                return Err("records list value has wrong type".to_string());
+            }
         }
         DataType::Struct(fields) => {
             let builder = downcast::<StructBuilder>(builder)?;
@@ -287,11 +390,17 @@ fn append_value_with_limit(
                 // parent validity bit carries the semantic null.
                 let placeholder = masked_child_value(child);
                 let child_value = if let Some(object) = object {
-                    object.get(child.name()).ok_or_else(||
-                        format!("records field {} is missing", child.name()))?
-                } else { &placeholder };
+                    object
+                        .get(child.name())
+                        .ok_or_else(|| format!("records field {} is missing", child.name()))?
+                } else {
+                    &placeholder
+                };
                 append_value_with_limit(
-                    builder.field_builders_mut()[index].as_mut(), child, child_value, max_offset
+                    builder.field_builders_mut()[index].as_mut(),
+                    child,
+                    child_value,
+                    max_offset,
                 )?;
             }
             builder.append(object.is_some());
@@ -302,7 +411,10 @@ fn append_value_with_limit(
 }
 
 fn ensure_offset_growth(current: usize, additional: usize, limit: usize) -> Result<(), String> {
-    if current.checked_add(additional).is_none_or(|next| next > limit) {
+    if current
+        .checked_add(additional)
+        .is_none_or(|next| next > limit)
+    {
         return Err("records Arrow offset budget exceeded".to_string());
     }
     Ok(())
@@ -318,28 +430,37 @@ fn masked_child_value(field: &Field) -> Value {
         DataType::Boolean => Value::Bool(false),
         DataType::Int64 => serde_json::json!(0),
         DataType::List(_) => Value::Array(Vec::new()),
-        DataType::Struct(fields) => Value::Object(fields.iter().map(|child| (
-            child.name().clone(), masked_child_value(child)
-        )).collect()),
+        DataType::Struct(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|child| (child.name().clone(), masked_child_value(child)))
+                .collect(),
+        ),
         _ => Value::Null,
     }
 }
 
 fn downcast<T: ArrayBuilder + 'static>(builder: &mut dyn ArrayBuilder) -> Result<&mut T, String> {
-    builder.as_any_mut().downcast_mut::<T>()
+    builder
+        .as_any_mut()
+        .downcast_mut::<T>()
         .ok_or_else(|| "records Arrow builder type mismatch".to_string())
 }
 
 fn bytes_value(value: &Value) -> Result<Vec<u8>, String> {
-    let hex = value.get("bytes_hex").and_then(Value::as_str)
+    let hex = value
+        .get("bytes_hex")
+        .and_then(Value::as_str)
         .ok_or_else(|| "records binary value must contain bytes_hex".to_string())?;
     if hex.len() % 2 != 0 || !hex.is_ascii() {
         return Err("records bytes_hex is invalid".to_string());
     }
-    (0..hex.len()).step_by(2).map(|index| {
-        u8::from_str_radix(&hex[index..index + 2], 16)
-            .map_err(|error| error.to_string())
-    }).collect()
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&hex[index..index + 2], 16).map_err(|error| error.to_string())
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -354,7 +475,9 @@ mod tests {
     #[test]
     fn nullable_parent_struct_and_sql_null_scalar_remain_distinct() {
         let context = Arc::new(KernelContext::new(
-            16 * 1024 * 1024, Arc::new(AtomicBool::new(false)), None,
+            16 * 1024 * 1024,
+            Arc::new(AtomicBool::new(false)),
+            None,
         ));
         let starting = context.remaining_bytes();
         let sql_null = json!({
@@ -373,22 +496,48 @@ mod tests {
             "diagnostics": [],
         });
         let built = build_records_arrow(
-            "STANDARD", "FULL_BEFORE_AFTER_VALUES", [Ok(BoundedRow {
+            "STANDARD",
+            "FULL_BEFORE_AFTER_VALUES",
+            [Ok(BoundedRow {
                 value: row,
                 _scratch: context.reserve(4096).expect("row scratch"),
-            })], 1,
-            1024 * 1024, &context, None,
-        ).expect("build nullable field change");
+            })],
+            1,
+            1024 * 1024,
+            &context,
+            None,
+        )
+        .expect("build nullable field change");
         let batch = built.batches[0].clone();
-        let changes = batch.column(6).as_any().downcast_ref::<ListArray>().expect("changes");
+        let changes = batch
+            .column(6)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("changes");
         let values = changes.values();
-        let change = values.as_any().downcast_ref::<StructArray>().expect("change struct");
-        let before = change.column(1).as_any().downcast_ref::<StructArray>().expect("before");
-        let current = change.column(2).as_any().downcast_ref::<StructArray>().expect("current");
+        let change = values
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("change struct");
+        let before = change
+            .column(1)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("before");
+        let current = change
+            .column(2)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("current");
         assert!(before.is_null(0));
         assert!(!current.is_null(0));
         assert_eq!(
-            current.column(0).as_any().downcast_ref::<StringArray>().expect("kind").value(0),
+            current
+                .column(0)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("kind")
+                .value(0),
             "null",
         );
         drop(built);
@@ -403,16 +552,27 @@ mod tests {
         let mut string_builder = StringBuilder::new();
         append_value_with_limit(&mut string_builder, &string, &json!("abc"), 3)
             .expect("limit is inclusive");
-        assert!(append_value_with_limit(&mut string_builder, &string, &json!("d"), 3)
-            .unwrap_err().contains("offset budget"));
+        assert!(
+            append_value_with_limit(&mut string_builder, &string, &json!("d"), 3)
+                .unwrap_err()
+                .contains("offset budget")
+        );
         assert_eq!(string_builder.values_slice(), b"abc");
 
         let binary = Field::new("raw", DataType::Binary, false);
         let mut binary_builder = BinaryBuilder::new();
-        append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "000102"}), 3)
-            .expect("limit is inclusive");
-        assert!(append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "03"}), 3)
-            .unwrap_err().contains("offset budget"));
+        append_value_with_limit(
+            &mut binary_builder,
+            &binary,
+            &json!({"bytes_hex": "000102"}),
+            3,
+        )
+        .expect("limit is inclusive");
+        assert!(
+            append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "03"}), 3)
+                .unwrap_err()
+                .contains("offset budget")
+        );
         assert_eq!(binary_builder.values_slice(), &[0, 1, 2]);
 
         let element = Arc::new(Field::new("item", DataType::Utf8, true));
@@ -420,20 +580,34 @@ mod tests {
         let mut list_builder = make_builder(list.data_type(), 1);
         append_value_with_limit(list_builder.as_mut(), &list, &json!(["a", "b"]), 3)
             .expect("two child slots");
-        assert!(append_value_with_limit(list_builder.as_mut(), &list, &json!(["c", "d"]), 3)
-            .unwrap_err().contains("offset budget"));
-        let child_count = list_builder.as_any_mut()
+        assert!(
+            append_value_with_limit(list_builder.as_mut(), &list, &json!(["c", "d"]), 3)
+                .unwrap_err()
+                .contains("offset budget")
+        );
+        let child_count = list_builder
+            .as_any_mut()
             .downcast_mut::<ListBuilder<Box<dyn ArrayBuilder>>>()
-            .expect("list builder").values_ref().len();
+            .expect("list builder")
+            .values_ref()
+            .len();
         assert_eq!(child_count, 2);
 
         let nested_element = Arc::new(Field::new("item", DataType::Utf8, true));
         let nested_child = Arc::new(Field::new("item", DataType::List(nested_element), true));
         let nested = Field::new("nested", DataType::List(nested_child), false);
         let mut nested_builder = make_builder(nested.data_type(), 1);
-        append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["a", "b", "c"]]), 3)
-            .expect("nested child reaches limit");
-        assert!(append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["d"]]), 3)
-            .unwrap_err().contains("offset budget"));
+        append_value_with_limit(
+            nested_builder.as_mut(),
+            &nested,
+            &json!([["a", "b", "c"]]),
+            3,
+        )
+        .expect("nested child reaches limit");
+        assert!(
+            append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["d"]]), 3)
+                .unwrap_err()
+                .contains("offset budget")
+        );
     }
 }

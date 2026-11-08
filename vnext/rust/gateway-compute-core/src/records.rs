@@ -23,8 +23,14 @@ mod builders;
 mod facts;
 mod source;
 pub use builders::BuiltRecords;
-pub use facts::{TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json, digest_table_fact, digest_table_fact_json};
-pub use source::{build_standard_records, build_standard_records_from_ordered, build_ordered_records, build_blank_records};
+pub use facts::{
+    TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json,
+    digest_table_fact, digest_table_fact_json,
+};
+pub use source::{
+    build_blank_records, build_ordered_records, build_standard_records,
+    build_standard_records_from_ordered,
+};
 
 /// Pre-parse bound for serde values, maps, vectors, strings and one JCS copy.
 /// Structural tokens carry a fixed 256-byte allowance so many empty strings
@@ -35,18 +41,31 @@ pub fn json_metadata_upper(raw: &str) -> Result<usize, String> {
     let mut escaped = false;
     for byte in raw.bytes() {
         if quoted {
-            if escaped { escaped = false; }
-            else if byte == b'\\' { escaped = true; }
-            else if byte == b'"' { quoted = false; }
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
         } else if byte == b'"' {
             quoted = true;
-            structural = structural.checked_add(1).ok_or("metadata charge overflow")?;
+            structural = structural
+                .checked_add(1)
+                .ok_or("metadata charge overflow")?;
         } else if matches!(byte, b'{' | b'}' | b'[' | b']' | b',' | b':') {
-            structural = structural.checked_add(1).ok_or("metadata charge overflow")?;
+            structural = structural
+                .checked_add(1)
+                .ok_or("metadata charge overflow")?;
         }
     }
-    raw.len().checked_mul(8)
-        .and_then(|size| structural.checked_mul(256).and_then(|tokens| size.checked_add(tokens)))
+    raw.len()
+        .checked_mul(8)
+        .and_then(|size| {
+            structural
+                .checked_mul(256)
+                .and_then(|tokens| size.checked_add(tokens))
+        })
         .and_then(|size| size.checked_add(4096))
         .ok_or("metadata charge overflow".to_string())
 }
@@ -55,12 +74,16 @@ struct CountingJsonWriter(usize);
 
 impl std::io::Write for CountingJsonWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 = self.0.checked_add(bytes.len())
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
             .ok_or_else(|| std::io::Error::other("records JSON size overflow"))?;
         Ok(bytes.len())
     }
 
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 pub fn json_size(value: &Value) -> Result<usize, String> {
@@ -69,7 +92,9 @@ pub fn json_size(value: &Value) -> Result<usize, String> {
     Ok(writer.0)
 }
 
-pub fn standard_metadata_json(result: &crate::comparison::StandardComputation) -> Result<String, String> {
+pub fn standard_metadata_json(
+    result: &crate::comparison::StandardComputation,
+) -> Result<String, String> {
     serde_json::to_string(&json!({
         "row_added_count": result.row_added_count,
         "row_deleted_count": result.row_deleted_count,
@@ -78,10 +103,13 @@ pub fn standard_metadata_json(result: &crate::comparison::StandardComputation) -
         "suppressed_deleted_count": result.suppressed_deleted_count,
         "ignored_shared_content_changed": result.ignored_shared_content_changed,
         "record_count": result.records.len(),
-    })).map_err(|error| error.to_string())
+    }))
+    .map_err(|error| error.to_string())
 }
 
-pub fn ordered_metadata_json(result: &crate::comparison::OrderedKernelResult) -> Result<String, String> {
+pub fn ordered_metadata_json(
+    result: &crate::comparison::OrderedKernelResult,
+) -> Result<String, String> {
     serde_json::to_string(&result.facts_metadata).map_err(|error| error.to_string())
 }
 
@@ -111,7 +139,11 @@ pub struct RecordsBatchValidator {
 }
 
 impl RecordsBatchValidator {
-    pub fn new(schema: arrow_schema::SchemaRef, max_records: usize, max_row_bytes: usize) -> Result<Self, String> {
+    pub fn new(
+        schema: arrow_schema::SchemaRef,
+        max_records: usize,
+        max_row_bytes: usize,
+    ) -> Result<Self, String> {
         let metadata = schema.metadata();
         let family = metadata_text(metadata, "family")?;
         let schema_version = metadata_text(metadata, "schema_version")?;
@@ -167,7 +199,9 @@ impl RecordsBatchValidator {
         if batch.schema().metadata() != self.expected_schema.metadata() {
             return Err("records Parquet batch metadata mismatch".to_string());
         }
-        let next_count = self.record_count.checked_add(batch.num_rows())
+        let next_count = self
+            .record_count
+            .checked_add(batch.num_rows())
             .ok_or_else(|| "records per-table limit exceeded".to_string())?;
         if next_count > self.max_records {
             return Err("records per-table limit exceeded".to_string());
@@ -176,10 +210,14 @@ impl RecordsBatchValidator {
             if row % 256 == 0 {
                 check()?;
             }
-            let row_upper = batch.columns().iter().try_fold(4096usize, |sum, array| {
-                let size = array.slice(row, 1).to_data().get_slice_memory_size().ok()?;
-                sum.checked_add(size)
-            }).and_then(|size| size.checked_mul(16))
+            let row_upper = batch
+                .columns()
+                .iter()
+                .try_fold(4096usize, |sum, array| {
+                    let size = array.slice(row, 1).to_data().get_slice_memory_size().ok()?;
+                    sum.checked_add(size)
+                })
+                .and_then(|size| size.checked_mul(16))
                 .ok_or_else(|| "records JCS row budget overflow".to_string())?;
             if row_upper > self.max_row_bytes {
                 return Err("records JCS row budget exceeded".to_string());
@@ -187,9 +225,10 @@ impl RecordsBatchValidator {
             if self.record_count != 0 {
                 self.hasher.update(b",");
             }
-            let encoded = serde_json::to_vec(&batch_row(batch, row)?)
-                .map_err(|error| error.to_string())?;
-            self.hasher.update(canonicalize_jcs(&encoded).map_err(|error| error.to_string())?);
+            let encoded =
+                serde_json::to_vec(&batch_row(batch, row)?).map_err(|error| error.to_string())?;
+            self.hasher
+                .update(canonicalize_jcs(&encoded).map_err(|error| error.to_string())?);
             self.record_count += 1;
         }
         Ok(())
@@ -200,8 +239,8 @@ impl RecordsBatchValidator {
         self.hasher.update(json_string(&self.schema_version)?);
         self.hasher.update(b"}");
         let digest = self.hasher.finalize();
-        let content_digest = DigestRef::from_raw_digest(&digest)
-            .map_err(|error| error.to_string())?;
+        let content_digest =
+            DigestRef::from_raw_digest(&digest).map_err(|error| error.to_string())?;
         Ok(RecordsParquetSummary {
             family: self.family,
             schema_version: self.schema_version,

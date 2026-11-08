@@ -439,13 +439,18 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     )
     current = _artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');", store,
+        "INSERT INTO t VALUES (1, 'before'), (2, 'after');", store,
     )
     rules = comparison_ruleset_for(standard_rule_record("t"))
-    template = plan(before, current)
-    first_plan = replace(template, pair_id="writer-first")
-    second_plan = replace(template, pair_id="writer-second")
+    first_plan = plan_comparison(ComparisonRequest(
+        pair_id="writer-first", before=before, current=current, rule_set=rules,
+    ))
+    second_plan = plan_comparison(ComparisonRequest(
+        pair_id="writer-second", before=before, current=current, rule_set=rules,
+    ))
+    assert isinstance(first_plan, ComparisonPlan) and isinstance(second_plan, ComparisonPlan)
     session = ComparisonTaskSession((first_plan, second_plan))
+    assert tuple(session.remaining_uses.values()) == (2,)
     first = run_preview_pair_pipeline(
         pair_id="writer-first", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: None,
@@ -453,7 +458,9 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
         repository_id="replacement-fixture",
     )
     assert first.records_closure is not None
+    assert first.records_closure.records
     first_records = tuple(store.locate(entry.records_ref) for entry in first.records_closure.records)
+    assert len(session.cached) == 1 and tuple(session.remaining_uses.values()) == (1,)
     assert len(session.risk_candidates) == 1
     context = current_kernel_context()
     assert context is not None

@@ -1,6 +1,6 @@
 # Phase 6 S3 D 独立审核
 
-**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。当前固定产品增量 `eaa508ce4f61c84e724c2c1c25afbcda3f07d4a8` 的 reader/Risk-key 与紧 M 向量已静态复审，backend focused/生产容器/真实数据仍待 06；其 Rust tree=`439426056d3fce9fca6e9cb9e58de4aa4813fda8` 已在 0a7 固定树取得 06 focused Rust 三步原件，见 §9。此结论不是 D GO、S3 GO 或对 C 的重新审批。
+**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。eaa508 的 06 backend focused 首败见 §11，32a 的 06 Rust fmt 首败见 §14；两次均保原件和后续未执行范围。当前固定产品 `7707042c44240b30ea4e33e7a56a8c7b7948bb62` 在 clean detached worktree 的 Rusttree=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c` 只读增量核为旧失败两处机械格式修正，06 新一体运行、D 当前容器、W3/W4 仍待取证。此结论不是 D GO、S3 GO 或对 C 的重新审批。
 
 ## 1. 审核对象与边界
 
@@ -40,7 +40,7 @@ Owner 后在 `733c4551e5` 所记录的问题中明确回复“确认并继续”
 
 ## 5. 当前验证与镜像判定
 
-eaa508 的 D 生产路由及其 0a7 父系 Rust 代码都触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在本轮收敛后的当前候选于专用节点强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；C 旧镜像仅证明 C 时的路径，不能充当 D 生产路由通过。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，eaa508 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
+770704 的 D 生产路由与新 Rusttree 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在专用节点对 clean 新候选强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；C 旧镜像仅证明 C 时的路径，不能充当 D 生产路由通过。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，770704 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
 
 ## 6. 1c25 固定集中修订的增量静态复审
 
@@ -107,3 +107,9 @@ Risk-only 压力释放在 session 只清可重算的 `risk_candidates/pending_ri
 ## 14. 32a 06 Rust fmt 首败原件
 
 唯一 tester 按上述已审一体稿在 06 执行，首步 `cargo fmt --all --check` 原始 exit1，后续 clippy/workspace test/native/focused/五静态均未运行。本人独核外层总日志 SHA256=`a69b401f14f9852918222276d8df22c554dfe128aa70254d1a02c04d89d399fb`/FINAL_EXIT1，06 `rust-native-backend.log` SHA256=`df6444b42a1416d55289353b717516c2d235dc9da54f467a7121efeecfcbb5c3`/COMMAND_EXIT1，标准 manifest SHA256=`3a8769d8d5700255bfec21551990f605f6fde2726530ce9affedb1acde95ffcf`、捕获收据 SHA256=`c547db6204b1dedb05ef029bf1e99e1f1f840890d422024af4b1c805a3d300a0`/exit0、`sha256sum --check`0；全 HEAD bundle SHA256=`ed67b2d09b7ed6e4a7e61c6f46dfcc76bb44558eb6e568571980f66257f31d7a` 两端一致。`gw-dms-06` 2026-11-08T04:59:30–31Z 起止 HEAD=32a、Rust tree=c24da674、Rust1.97.0 同工具链、UV/Cargo offline、六锁无漂、worktree clean；本人 marker guarded 释放 04:59:31Z，postflight SSH0。原始 fmt diff 只有 `records/facts.rs:10` 的 `StandardRecordRef, canonical_cell_frame_at` import 折行与 `records/source.rs:418` 的 `) {` 缩进两处，已精确交实施者据该节点原件机械应用新固定提交。32a 没有任何新 Rust 编译或后端通过证据；旧 32a 不续跑，新候选需重新固定并审完整 literal。
+
+上述 04:59:54Z 的成功 capture receipt 与副本字节/manifest 可以独立核对，但**该次 capture 的实际启动者未获三方确认**，所以仅作来源有限的复制校验线索，不能记为已授权 capture 通过。我本人只作本地 SHA/日志/源码只读检查，从未运行 wrapper、SSH、SCP 或节点命令；此前曾按交付链推断成功 capture 由 tester 启动，现撤回该推断。之后重复调用 capture 被模板拒覆盖、原始本地 exit2，仅有工具输出而无单独落盘，未覆盖成功 receipt，也不启动第三次补采。首步远端 fmt 原始 exit1、原始 diff、固定 HEAD 与六锁证据不依赖这个副本的操作者归属，继续保留；770704 下一次由 tester 明确记录 source/run/capture 各次工具启动和真实 exit。
+
+本人在 clean detached `/home/dev/gdds-s3-d-review-7707042c` 核 `7707042c44240b30ea4e33e7a56a8c7b7948bb62`、Rust tree=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c`、legacy exclude、clean 与差分检查。相对 2d885 的产品差分仅 Rust `facts.rs`、`source.rs` 两处格式，逐行与上段 32a 节点原始 fmt diff 一致，无算法、锁或 base 变更。此是机械补正的静态绑定，须在新的完整字面稿获本人 CLEAR 后重新于 06 运行；不能把 32a fmt 失败改成 770704 已通过。
+
+本人随后逐字静态 CLEAR 770704 新完整一体稿 `/home/dev/gdds-test-tmp/p6-s3-d-7707042c-06/prepare-and-validation.sh` SHA256=`43fe9c6af56ecd02bc65cbf14723fc83fdc8b4a659ebb3bbd9f9288c68a7799b`、capture wrapper SHA256=`15a931db3209dbe02c8e1a42e01f6a93749a64a77d3b8f542e7912877fd0db9d`、通用模板 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23`。将 32a 旧稿的固定标识/全新目录机械归一后，差分仅在 priority 首批增加 writer、last-use、Preview metadata 预算三个测试选择器并同步于其余非 serial 批次排除；Rust三步→强制 native/build-input→priority→余 focused→serial GIL→五包静态、首败/锁/marker/原日志/标准清单流程未变。已明确要求唯一 tester 对 source/run/capture 各工具启动严格一次并记录真实 exit，由其启动归属须在本轮清晰留下；此时仍是未执行稿 CLEAR。

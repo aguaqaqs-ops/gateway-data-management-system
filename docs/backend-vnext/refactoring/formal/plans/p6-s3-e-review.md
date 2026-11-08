@@ -414,3 +414,9 @@ a9旧D原两表2x MO的`necessary_arrow_conversion_seconds=2.8292629141`也由�
 独审独立清理稿 `/home/dev/gdds-test-tmp/p6-s3-e-w3-original-recovery/cleanup-preserved-project.py` SHA256=`d2e59991f64bc56077743c9e4275ec2b6f109ef03a1573e0752a30ee7c1deb6c`：固定hostname、owner完整字面、原result摘要及失败/保留状态；删除前要求全机无运行容器、8000监听或dolt，逐个核仅本project标签的已停容器、卷/网络无外部consumer，删除后复核并只释放本次owner marker，原result前后SHA不变。**静态CLEAR，仅允许唯一tester在CT108执行一次受控收尾**；收尾实际exit/资源后查仍待原件，不能把清理成功当W3通过。
 
 协调文档提交`7693b80972`仅新增§26十行，本人逐字核其四档3a7 fresh、04官方runner0/外层镜像后处理1、W3原失败事实与上述原件/§42–47一致。末段“04六包及fresh四档全重取”是保守**待执行计划**，不是已经完成或不可按DC64逐步骤沿用的规则；“DC68第1轮受影响修复”亦属后续候选，尚无修后节点结果。新T须按实际三文件差异、包闭包及业务步骤建立矩阵，再确定04选择包实跑和fresh哪些步骤能沿用。此协调增量可作为事实与计划记录，**不构成集中执行CLEAR或E GO**。
+
+## 49. W3原失败专属资源清理核收与2x独立预期复核
+
+唯一tester按§48固定SHA脚本在CT108以SSH stdin执行一次，13:32:30–13:32:31Z numeric exit0。本人重算外置`/home/dev/gdds-test-tmp/p6-s3-e-w3-original-recovery/cleanup.log` SHA256=`9204f6488c9caf1f29b8cb1b43677aac6005c96e7851b283c5a973cd202e4477`、先前精确孤儿恢复`recovery.log`=`bca86387e8318b6c1a8cddef69693177e47eb966339ca6e49cf7edc5e8a51781`；日志显示固定owner、原result摘要与failure状态通过守卫，只删除本project的**3个已停容器、3个卷、1个网络**，`OWN_PROJECT_CLEANUP_EXIT=0;ORIGINAL_FAILURE_UNCHANGED=1`。tester后查无本节点marker、本项目资源或8000监听；本人重算原`outer.log`与`result.json`仍为§48原SHA。**仅接收原失败的安全收尾**，不改W3原exit1、首业务观察缺失或正式性能待证状态。
+
+本人另外只读原接受`/home/dev/gdds-test-tmp/p6-s3-input-copy-20261108/source/census/2x.json`的t4两entry与现役TableRules八个精确SKIP名：v1/v2 raw表639、源DDL638，均已含composite 435行；SKIP为8表、各190355行；raw行分别873863/874023。故存储可见表为631，作为现有`+1 composite`断言的非composite基线应为**630**，非composite catalog行分别为**683073/683233**（可见总行含composite为683508/683668）。这些值仅由旧接受输入和owning规则求得，不从新Rust、待测产品或新性能输出回填；T测量工具仍须固定候选后在节点验证。

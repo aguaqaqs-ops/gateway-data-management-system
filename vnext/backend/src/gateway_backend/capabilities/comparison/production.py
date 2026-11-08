@@ -44,7 +44,7 @@ from gateway_backend.capabilities.table_access.contracts import TableAccessError
 
 _MAX_JCS_ROW_BYTES = 8 * 1024**2
 _MAX_RECORDS = 2_000_000
-_MAX_RECORD_BYTES = 512 * 1024**2
+MAX_NATIVE_RECORD_BYTES = 512 * 1024**2
 _CACHE_KEY_PROVISIONAL_BYTES = 16 * 1024**2
 _OLD_CODED_ERRORS = frozenset({
     "BLANK_PROVENANCE_INVALID", "BLANK_PROVENANCE_MISSING",
@@ -514,7 +514,7 @@ def _compare_native(
                 policy_json=json.dumps(policy, separators=(",", ":")),
                 detail_policy="FULL_BEFORE_AFTER_VALUES",
                 input_owner_charge=owner, max_records=_MAX_RECORDS,
-                max_sort_bytes=2 * 1024**3, max_output_bytes=_MAX_RECORD_BYTES,
+                max_sort_bytes=2 * 1024**3, max_output_bytes=MAX_NATIVE_RECORD_BYTES,
                 max_input_bytes=context.memory.limit_bytes,
             )
             input_seconds, compare_seconds, build_seconds = handle.phase_timings()

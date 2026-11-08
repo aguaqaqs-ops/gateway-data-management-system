@@ -13,6 +13,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.capabilities.comparison import (
     ArtifactScope, BoundSnapshotInput, ComparisonMode, ComparisonPlan, ComparisonRequest,
     ComparisonStorageFacts, ComparisonTableStatus, DetailedFactsResult, KeylessPolicy,
@@ -40,8 +41,9 @@ from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy, OrderedPolicy, StorageRuleView, TableStaticRole,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
+from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
-from tests.support.table_rules import comparison_ruleset_for, fallback_record
+from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
 from tests.test_comparison_rule_roles import _plan as role_plan
 
 pytestmark = pytest.mark.unit
@@ -424,6 +426,63 @@ def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
         second_result.close()
     assert session.calls == 1 and session.reads == 2 and session.hits == 1
     assert session.cached == {} and session.remaining_uses == {}
+
+
+def test_second_pair_writer_releases_optional_risk_retention_before_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'before');"
+    ))
+    current = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'after');"
+    ))
+    rules = comparison_ruleset_for(standard_rule_record("t"))
+    template = plan(before, current)
+    first_plan = replace(template, pair_id="writer-first")
+    second_plan = replace(template, pair_id="writer-second")
+    session = ComparisonTaskSession((first_plan, second_plan))
+    first_store = InMemoryArtifactStore()
+    first = run_preview_pair_pipeline(
+        pair_id="writer-first", before=before, current=current,
+        store=first_store, control=ExecutionControl(), on_cancel=lambda: None,
+        rule_set=rules, assess_identity=False, dedup_session=session,
+    )
+    assert first.records_closure is not None
+    assert len(session.risk_candidates) == 1
+    context = current_kernel_context()
+    assert context is not None
+    _, optional_charges = next(iter(session.risk_candidates.values()))
+    optional_charges.enter_context(context.memory.reserve(
+        context.memory.available_bytes - 512 * 1024**2,
+    ))
+    evictions = 0
+    original_evict = session.risk_evict_for_output
+
+    def counted_evict() -> None:
+        nonlocal evictions
+        evictions += 1
+        original_evict()
+
+    monkeypatch.setattr(session, "risk_evict_for_output", counted_evict)
+    second_store = InMemoryArtifactStore()
+    second = run_preview_pair_pipeline(
+        pair_id="writer-second", before=before, current=current,
+        store=second_store, control=ExecutionControl(), on_cancel=lambda: None,
+        rule_set=rules, assess_identity=False, dedup_session=session,
+    )
+    assert evictions >= 1 and session.risk_candidates == {}
+    assert second.records_closure is not None
+    assert second.comparison_digest == first.comparison_digest
+    assert second.risk_digest == first.risk_digest
+    assert tuple((entry.family, entry.records_content_digest) for entry in second.records_closure.records) == tuple(
+        (entry.family, entry.records_content_digest) for entry in first.records_closure.records
+    )
+    assert tuple(second_store.locate(entry.records_ref) for entry in second.records_closure.records) == tuple(
+        first_store.locate(entry.records_ref) for entry in first.records_closure.records
+    )
 
 
 def test_single_pair_declares_no_long_lived_comparison_result() -> None:

@@ -35,9 +35,11 @@ from gateway_backend.capabilities.comparison import (
     plan_comparison,
     RecordsPublicationContext,
 )
-from gateway_backend.capabilities.comparison.artifacts import publish_records_closure_arrow
+from gateway_backend.capabilities.comparison.artifacts import (
+    RecordsPublicationPolicy, publish_records_closure_arrow,
+)
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, compare_plan_native,
+    MAX_NATIVE_RECORD_BYTES, ComparisonTaskSession, NativeComparison, compare_plan_native,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
@@ -344,6 +346,23 @@ def _finish_comparison_risk_surface(
         published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
+        if native_comparison.session is not None:
+            limits = RecordsPublicationPolicy()
+            closure_upper = (
+                4 * limits.max_closure_json_bytes
+                + len(compared.facts.tables) * 4096 + 1024 * 1024
+            )
+            # C retains at most MAX_NATIVE_RECORD_BYTES of Arrow records per
+            # family. The writer reserves its largest family scratch after
+            # prior family puts, so shed optional Risk retention before any
+            # publication side effect when the conservative peak is tight.
+            family_upper = (
+                2 * limits.max_records_artifact_bytes
+                + 2 * MAX_NATIVE_RECORD_BYTES + 1024 * 1024
+            )
+            if context.memory.available_bytes < closure_upper + family_upper:
+                native_comparison.session.risk_evict_for_output()
+                checkpoint()
         closure_result = publish_records_closure_arrow(
             compared, native_comparison.handles, store,
             context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),

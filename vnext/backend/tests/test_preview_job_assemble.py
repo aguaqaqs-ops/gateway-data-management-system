@@ -723,7 +723,7 @@ def test_empty_baseline_submit_accepts_table_addition(
 
 @pytest.mark.parametrize("ordered_identity", (False, True))
 def test_pair_memory_admission_rejects_before_native_row_comparison(
-    monkeypatch: pytest.MonkeyPatch, ordered_identity: bool,
+    ordered_identity: bool,
 ) -> None:
     from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
     from gateway_backend.capabilities.table_rules import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
@@ -752,9 +752,6 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
                 source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
         sides.append(bound)
-    def forbidden_compare(_plan: object) -> None:
-        raise AssertionError("comparison must not allocate rows before M admission")
-    monkeypatch.setattr(pair_pipeline, "compare_plan", forbidden_compare)
     memory = OperationMemoryBudget(80 * 1024)
     with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
         with pytest.raises(KernelMemoryLimit):

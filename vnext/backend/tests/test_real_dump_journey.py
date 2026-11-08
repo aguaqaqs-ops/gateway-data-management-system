@@ -1692,7 +1692,10 @@ def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
     log_directory = tmp_path / "compose-logs"
     monkeypatch.setenv("GATEWAY_REAL_DUMP_LOG_DIR", str(log_directory))
     monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
-    monkeypatch.setattr(real_dump_journey, "_read_metadata", lambda _root: ({}, {}))
+    monkeypatch.setattr(
+        real_dump_journey, "_read_metadata",
+        lambda _root, *, census_path=None: ({}, {}),
+    )
 
     def fake_subprocess_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         stdout = "ee0a4c43a7\n" if command[:2] == ["git", "rev-parse"] else ""

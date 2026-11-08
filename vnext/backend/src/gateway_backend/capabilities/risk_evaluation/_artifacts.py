@@ -24,9 +24,10 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationArtifact,
     RiskAnnotationClosure,
     RiskAnnotationClosureEntry,
+    RiskOperationPort,
+    RiskReservationPort,
     validate_risk_annotation_documents,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context
 
 
 ANNOTATION_MEDIA_TYPE = RISK_ANNOTATION_MEDIA_TYPE
@@ -71,8 +72,8 @@ def publish_annotation_artifact(
     annotations: Sequence[RiskAnnotation],
     max_bytes: int,
     on_memory_pressure: Callable[[], bool] | None = None,
+    operation: RiskOperationPort | None = None,
 ) -> RiskAnnotationArtifact:
-    operation = current_kernel_context()
     estimated = 1024 * 1024
     for annotation in annotations:
         estimated += 8192 + len(annotation.annotation_id) * 64
@@ -81,7 +82,7 @@ def publish_annotation_artifact(
             estimated += len(reason.message) * 64 + 2048
             estimated += sum((len(name) + len(str(value))) * 64 + 256
                              for name, value in reason.evidence)
-    admission: AbstractContextManager[object]
+    admission: AbstractContextManager[object] | RiskReservationPort
     if operation is None:
         admission = nullcontext()
     else:

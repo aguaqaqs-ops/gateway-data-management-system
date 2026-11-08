@@ -406,6 +406,7 @@ def _finish_comparison_risk_surface(
         execution_context=RiskExecutionContext(
             cancel_requested=context.cancel_probe,
             deadline_monotonic=context.deadline_monotonic,
+            operation=context,
         ),
     )
     risk_seconds = perf_counter() - risk_started

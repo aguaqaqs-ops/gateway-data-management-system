@@ -174,7 +174,7 @@ def open_records_closure(
         ):
             raise RecordsPublicationError("records manifest does not match closure entry")
         _enforce_record_count_budget(entry.record_count, limits)
-        from gateway_backend.capabilities.table_access import current_kernel_context
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
         operation = current_kernel_context()
         raw_reservation = (
@@ -291,7 +291,7 @@ def read_records_artifact(
     ):
         raise RecordsPublicationError("records manifest does not match closure entry")
     _enforce_record_count_budget(entry.record_count, limits)
-    from gateway_backend.capabilities.table_access import current_kernel_context
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
     # The only current caller is diagnostic tests. Production open/restore
     # validates entirely inside its operation scope and never exports batches.
@@ -369,7 +369,7 @@ def restore_records_closure(
     source = open_records_closure(source_store, closure_ref, policy=limits)
     replacements: dict[ArtifactRef, ArtifactRef] = {}
     for entry in source.records:
-        from gateway_backend.capabilities.table_access import current_kernel_context
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
         operation = current_kernel_context()
         copy_reservation = (
@@ -531,7 +531,7 @@ def publish_records_family_arrow(
         raise RecordsPublicationError("empty records family has no artifact")
     _enforce_record_count_budget(count, limits)
     content_digest = DigestRef(digest_text)
-    from gateway_backend.capabilities.table_access import current_kernel_context
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
     operation = current_kernel_context()
     writer_peak = (
@@ -598,7 +598,7 @@ def publish_records_closure_arrow(
     context: RecordsPublicationContext | None = None,
 ) -> DetailedFactsResult:
     """Publish sealed native families and the existing closure without a row readback."""
-    from gateway_backend.capabilities.table_access import current_kernel_context
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
     operation = current_kernel_context()
     if operation is None:
@@ -639,7 +639,7 @@ def _publish_records_closure_arrow_admitted(
             )
             for family, records in metadata_families:
                 if records:
-                    from gateway_backend.capabilities.table_access import current_kernel_context
+                    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
                     operation = current_kernel_context()
                     if operation is None:
                         raise RecordsPublicationError("native publication requires an operation budget")
@@ -768,7 +768,7 @@ def _validate_parquet_bytes(
         _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
         admission = _decoded_admission(file, limits)
         _standalone_read_bound(len(raw), admission)
-        from gateway_backend.capabilities.table_access import current_kernel_context
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
         operation = current_kernel_context()
         reservation = operation.memory.reserve(2 * admission) if operation is not None else None

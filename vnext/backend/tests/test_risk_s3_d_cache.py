@@ -8,19 +8,39 @@ from dataclasses import replace
 import pytest
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordsClosure, ComparisonTableFact, ComparisonTableStatus, OrderedRecord,
     RecordsArtifactFamily, RecordsClosureEntry,
 )
 from gateway_backend.capabilities.risk_evaluation import (
-    RiskEvaluationInput, RiskEvaluationStatus, RiskExecutionContext, RiskExecutionPolicy,
+    RiskEvaluationInput, RiskEvaluationResult, RiskEvaluationStatus,
+    RiskExecutionContext, RiskExecutionPolicy,
     RiskOptions, evaluate_risk,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.test_comparison_s3_contract_vectors import _added_rows, _input
 
 pytestmark = pytest.mark.unit
+
+
+def _evaluate_with_operation(
+    evaluation_input: RiskEvaluationInput,
+    *,
+    artifact_store: ArtifactStorePort | None = None,
+    execution_policy: RiskExecutionPolicy = RiskExecutionPolicy(),
+    execution_context: RiskExecutionContext | None = None,
+) -> RiskEvaluationResult:
+    operation = current_kernel_context()
+    assert operation is not None
+    return evaluate_risk(
+        evaluation_input,
+        artifact_store=artifact_store,
+        execution_policy=execution_policy,
+        execution_context=replace(
+            execution_context or RiskExecutionContext(), operation=operation,
+        ),
+    )
 
 
 class _Clock:
@@ -170,7 +190,7 @@ def test_cached_filtered_emit_still_hits_current_pair_cap_in_same_clock_order() 
     cached_input = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
     try:
         warm_clock = _Clock()
-        warm = evaluate_risk(
+        warm = _evaluate_with_operation(
             cached_input, artifact_store=InMemoryArtifactStore(),
             execution_context=RiskExecutionContext(clock=warm_clock),
         )
@@ -179,12 +199,12 @@ def test_cached_filtered_emit_still_hits_current_pair_cap_in_same_clock_order() 
 
         cap = RiskExecutionPolicy(max_annotations_per_pair=1)
         hit_clock = _Clock()
-        hit = evaluate_risk(
+        hit = _evaluate_with_operation(
             cached_input, artifact_store=InMemoryArtifactStore(),
             execution_policy=cap, execution_context=RiskExecutionContext(clock=hit_clock),
         )
         miss_clock = _Clock()
-        miss = evaluate_risk(
+        miss = _evaluate_with_operation(
             source, artifact_store=InMemoryArtifactStore(),
             execution_policy=cap, execution_context=RiskExecutionContext(clock=miss_clock),
         )
@@ -208,7 +228,7 @@ def test_cached_risk_rechecks_current_operation_boundary_at_emit(
     cache = _Candidates()
     cached_input = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
     try:
-        warm = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        warm = _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore())
         assert warm.status is RiskEvaluationStatus.READY
         assert cache.events is not None
 
@@ -220,11 +240,11 @@ def test_cached_risk_rechecks_current_operation_boundary_at_emit(
         else:
             hit_context = RiskExecutionContext(clock=hit_clock, deadline_monotonic=0.007)
             miss_context = RiskExecutionContext(clock=miss_clock, deadline_monotonic=0.007)
-        hit = evaluate_risk(
+        hit = _evaluate_with_operation(
             cached_input, artifact_store=InMemoryArtifactStore(),
             execution_context=hit_context,
         )
-        miss = evaluate_risk(
+        miss = _evaluate_with_operation(
             source, artifact_store=InMemoryArtifactStore(),
             execution_context=miss_context,
         )
@@ -282,13 +302,13 @@ def test_cached_risk_replays_frozen_table_pair_and_preflight_counting(
         source, risk_cache_session=cache, risk_task_keys={cached_name: "t-key"},
     )
     try:
-        warm = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        warm = _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore())
         assert warm.status is RiskEvaluationStatus.READY
         assert cache.events is not None
-        hit = evaluate_risk(
+        hit = _evaluate_with_operation(
             cached_input, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
         )
-        miss = evaluate_risk(
+        miss = _evaluate_with_operation(
             source, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
         )
         assert cache.hits == 1
@@ -314,14 +334,14 @@ def test_cached_table_time_budget_degrades_at_the_same_emit_check() -> None:
     cache = _Candidates()
     cached_input = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
     try:
-        assert evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore()).status is RiskEvaluationStatus.READY
+        assert _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore()).status is RiskEvaluationStatus.READY
         policy = RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.001)
         hit_clock, miss_clock = _Clock(), _Clock()
-        hit = evaluate_risk(
+        hit = _evaluate_with_operation(
             cached_input, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
             execution_context=RiskExecutionContext(clock=hit_clock),
         )
-        miss = evaluate_risk(
+        miss = _evaluate_with_operation(
             source, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
             execution_context=RiskExecutionContext(clock=miss_clock),
         )
@@ -352,17 +372,17 @@ def test_cached_closure_event_checks_the_current_access_at_its_original_point(
         risk_cache_session=cache, risk_task_keys={"t": "t-key"},
     )
     try:
-        warm = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        warm = _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore())
         assert warm.status is RiskEvaluationStatus.READY
         assert cache.events is not None and good_access.calls == 1
         access = None if failure == "missing" else _RecordsAccess(
             _closure_for(source, wrong_digest=True),
         )
-        hit = evaluate_risk(
+        hit = _evaluate_with_operation(
             replace(cached_input, records_access=access),
             artifact_store=InMemoryArtifactStore(),
         )
-        miss = evaluate_risk(
+        miss = _evaluate_with_operation(
             replace(source, records_access=access),
             artifact_store=InMemoryArtifactStore(),
         )
@@ -387,8 +407,8 @@ def test_large_optional_risk_key_safely_misses_with_same_result() -> None:
     cache = _Candidates()
     cached_input = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
     try:
-        candidate = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
-        baseline = evaluate_risk(source, artifact_store=InMemoryArtifactStore())
+        candidate = _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore())
+        baseline = _evaluate_with_operation(source, artifact_store=InMemoryArtifactStore())
         assert candidate.status is baseline.status is RiskEvaluationStatus.READY
         assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
         assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
@@ -409,14 +429,14 @@ def test_other_optional_candidate_cannot_block_current_risk_output() -> None:
         risk_task_keys={"a": "a-key", "b": "b-key"},
     )
     try:
-        warm = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        warm = _evaluate_with_operation(cached_input, artifact_store=InMemoryArtifactStore())
         assert warm.status is RiskEvaluationStatus.READY
         assert len(cache.entries) == 2
 
         cache.pressure_on_a = True
         current = replace(cached_input, requested_tables=("a",))
-        candidate = evaluate_risk(current, artifact_store=InMemoryArtifactStore())
-        baseline = evaluate_risk(
+        candidate = _evaluate_with_operation(current, artifact_store=InMemoryArtifactStore())
+        baseline = _evaluate_with_operation(
             replace(source, requested_tables=("a",)),
             artifact_store=InMemoryArtifactStore(),
         )
@@ -457,19 +477,19 @@ def test_other_optional_candidates_cannot_block_cold_annotation_emit() -> None:
             return value
 
     try:
-        warm = evaluate_risk(warm_source, artifact_store=InMemoryArtifactStore())
+        warm = _evaluate_with_operation(warm_source, artifact_store=InMemoryArtifactStore())
         assert warm.status is RiskEvaluationStatus.READY and len(cache.entries) == 2
         cold_source = replace(
             _input(warm_tables + (_added_rows("c", 1),)),
             requested_tables=("c",),
         )
         clock = _PressureClock()
-        candidate = evaluate_risk(
+        candidate = _evaluate_with_operation(
             replace(cold_source, risk_cache_session=cache),
             artifact_store=InMemoryArtifactStore(),
             execution_context=RiskExecutionContext(clock=clock),
         )
-        baseline = evaluate_risk(cold_source, artifact_store=InMemoryArtifactStore())
+        baseline = _evaluate_with_operation(cold_source, artifact_store=InMemoryArtifactStore())
         assert clock.calls >= 4 and cache.hits == 0
         assert cache.evictions == 2 and cache.entries == {}
         assert candidate.status is baseline.status is RiskEvaluationStatus.READY

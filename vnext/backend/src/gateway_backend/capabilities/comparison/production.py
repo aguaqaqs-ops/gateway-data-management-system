@@ -36,13 +36,11 @@ from gateway_backend.capabilities.comparison.standard import (
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_profile, snapshot_arrow_input,
     check_canonical_descriptor_budget, operation_codec_budgets,
-    try_declared_type_for_sql_spelling,
+    try_declared_type_for_sql_spelling, current_kernel_context, TableAccessError,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, SnapshotTable, normalize_sql_type_spelling,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context
-from gateway_backend.capabilities.table_access.contracts import TableAccessError
 
 
 _MAX_JCS_ROW_BYTES = 8 * 1024**2

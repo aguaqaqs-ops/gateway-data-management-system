@@ -17,7 +17,7 @@ from gateway_compute._native import (
     _validate_records_batches_native,
 )
 
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
 
 class CancelProbe(Protocol):

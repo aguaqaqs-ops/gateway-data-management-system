@@ -43,6 +43,8 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskEvaluationResult,
     RiskEvaluationStatus,
     RiskExecutionContext,
+    RiskOperationPort,
+    RiskReservationPort,
     RiskExecutionPolicy,
     RiskLevel,
     RiskReason,
@@ -59,9 +61,6 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
 )
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, Reservation, current_kernel_context,
-)
 
 
 _LEVEL_RANK: dict[RiskLevel, int] = {
@@ -150,8 +149,8 @@ def _evict_optional_risk_only(cache: object | None) -> bool:
 
 
 def _reserve_risk_output(
-    operation: KernelExecutionContext, size: int, cache: object | None,
-) -> Reservation:
+    operation: RiskOperationPort, size: int, cache: object | None,
+) -> RiskReservationPort:
     try:
         return operation.memory.reserve(size)
     except MemoryError:
@@ -165,9 +164,9 @@ def _optional_risk_cache_key(
     item: ExtractedRiskFacts,
     evaluation_input: RiskEvaluationInput,
     policy: RiskExecutionPolicy,
-) -> tuple[str | None, Reservation | None]:
+    operation: RiskOperationPort | None,
+) -> tuple[str | None, RiskReservationPort | None]:
     """Pay for an optional complete key before its repr can grow."""
-    operation = current_kernel_context()
     digest = item.table_fact.table_fact_digest
     ruleset = evaluation_input.risk_ruleset
     if (operation is None or digest is None
@@ -214,10 +213,14 @@ def _optional_risk_cache_key(
 class _RiskCandidateRecorder:
     """Store complete candidate/control events only for a known later use."""
 
-    def __init__(self, cache: object, task_key: str, risk_key: str) -> None:
+    def __init__(
+        self, cache: object, task_key: str, risk_key: str,
+        operation: RiskOperationPort | None,
+    ) -> None:
         self.cache = cache
         self.task_key = task_key
         self.risk_key = risk_key
+        self.operation = operation
         self.events: list[_RiskEmitEvent | _RiskCheckClosure] = []
         self.charges = ExitStack()
         self.enabled = True
@@ -225,7 +228,7 @@ class _RiskCandidateRecorder:
     def append(self, event: _RiskEmitEvent | _RiskCheckClosure) -> None:
         if not self.enabled:
             return
-        operation = current_kernel_context()
+        operation = self.operation
         if operation is None:
             self.close()
             return
@@ -279,7 +282,7 @@ def evaluate_risk(
     pair_started = context.clock()
     pair_charges = ExitStack()
     try:
-        operation = current_kernel_context()
+        operation = context.operation
         if operation is not None:
             table_count = min(
                 len(evaluation_input.comparison_facts.tables),
@@ -300,6 +303,7 @@ def evaluate_risk(
                 artifact_store,
                 execution_policy,
                 degraded=False,
+                context=context,
             )
             _record_timing(evaluation_input, "publication_seconds", publication_started)
             return result
@@ -313,6 +317,7 @@ def evaluate_risk(
             evaluation_input.requested_tables,
             evaluation_input.record_views,
             evaluation_input.record_view_metrics,
+            context.operation,
         )
         _record_timing(evaluation_input, "fact_extraction_seconds", extraction_started)
         outcomes: list[_TableOutcome] = []
@@ -337,6 +342,7 @@ def evaluate_risk(
                 degraded = _degraded_table(
                     item, "risk table budget exceeded", rules,
                     evaluation_input.risk_cache_session,
+                    context.operation,
                 )
                 outcomes.append(degraded)
                 pair_charges.enter_context(degraded.charges)
@@ -347,6 +353,7 @@ def evaluate_risk(
                     extracted,
                     rules,
                     execution_policy,
+                    context,
                 )
         _record_timing(evaluation_input, "rules_evaluation_seconds", rules_started)
         # A cached replay tuple is only needed while its table is being
@@ -366,6 +373,7 @@ def evaluate_risk(
             artifact_store,
             execution_policy,
             any(item.degraded for item in outcomes),
+            context,
         )
         _record_timing(evaluation_input, "publication_seconds", publication_started)
         return result
@@ -428,6 +436,7 @@ def _evaluate_table_impl(
         return _degraded_table(
             item, "risk diagnostics truncated", rules,
             evaluation_input.risk_cache_session,
+            context.operation,
         )
 
     def emit(
@@ -446,7 +455,7 @@ def _evaluate_table_impl(
         level = level_for(rule)
         if not _include_level(level, evaluation_input):
             return
-        operation = current_kernel_context()
+        operation = context.operation
         if operation is not None and not prepaid_cached_output:
             size = 2048 + len(item.table_fact.table_name) * 16
             size += sum(len(column) * 16 + 128 for column in target.changed_columns)
@@ -489,7 +498,9 @@ def _evaluate_table_impl(
     task_key = None if task_keys is None else task_keys.get(item.table_fact.table_name)
     if (cache is not None and task_key is not None and not item.composite_signal
             and item.table_fact.table_fact_digest is not None):
-        risk_key, key_charge = _optional_risk_cache_key(item, evaluation_input, policy)
+        risk_key, key_charge = _optional_risk_cache_key(
+            item, evaluation_input, policy, context.operation,
+        )
         if risk_key is not None and key_charge is not None:
             try:
                 lookup = getattr(cache, "risk_lookup")
@@ -506,7 +517,7 @@ def _evaluate_table_impl(
                                          for column in event.target.changed_columns)
                             upper += sum((len(name) + len(str(value))) * 16 + 128
                                          for name, value in event.evidence)
-                    operation = current_kernel_context()
+                    operation = context.operation
                     if operation is not None:
                         try:
                             charges.enter_context(operation.memory.reserve(upper))
@@ -520,7 +531,9 @@ def _evaluate_table_impl(
                 if cached_events is None:
                     remaining = getattr(cache, "remaining_uses")
                     if remaining.get(task_key, 0) > 1 and not cache_rejected:
-                        recorder = _RiskCandidateRecorder(cache, task_key, risk_key)
+                        recorder = _RiskCandidateRecorder(
+                            cache, task_key, risk_key, context.operation,
+                        )
                         recorder.charges.enter_context(key_charge)
                         key_charge = None
                         charges.callback(recorder.close)
@@ -537,7 +550,7 @@ def _evaluate_table_impl(
     if cached_events is not None:
         for index, event in enumerate(cached_events):
             if index % 1024 == 0:
-                operation = current_kernel_context()
+                operation = context.operation
                 if operation is not None:
                     operation.checkpoint()
             if isinstance(event, _RiskCheckClosure):
@@ -705,6 +718,7 @@ def _publish_result(
     artifact_store: ArtifactStorePort | None,
     policy: RiskExecutionPolicy,
     degraded: bool,
+    context: RiskExecutionContext,
 ) -> RiskEvaluationResult:
     table_risks: list[RiskTableRisk] = []
     artifacts: list[RiskAnnotationArtifact] = []
@@ -734,6 +748,7 @@ def _publish_result(
                     on_memory_pressure=lambda: _evict_optional_risk_only(
                         evaluation_input.risk_cache_session,
                     ),
+                    operation=context.operation,
                 )
             except RiskArtifactError as exc:
                 if "exceeds table byte budget" not in str(exc):
@@ -776,6 +791,7 @@ def _publish_result(
         artifact_store,
         policy,
         degraded,
+        context,
     )
 
 
@@ -788,8 +804,9 @@ def _finish_result(
     artifact_store: ArtifactStorePort | None,
     policy: RiskExecutionPolicy,
     degraded: bool,
+    context: RiskExecutionContext,
 ) -> RiskEvaluationResult:
-    operation = current_kernel_context()
+    operation = context.operation
     publication = (nullcontext() if operation is None else _reserve_risk_output(
         operation,
         8 * (policy.max_risk_evaluation_json_bytes
@@ -908,6 +925,7 @@ def _build_pair_degraded_without_annotations(
     extracted: tuple[ExtractedRiskFacts, ...],
     rules: Mapping[RiskRuleId, RiskRuleSpec],
     policy: RiskExecutionPolicy,
+    context: RiskExecutionContext,
 ) -> RiskEvaluationResult:
     degraded_rule = rules[RiskRuleId.KEY_DEGRADED]
     table_risks = tuple(
@@ -934,6 +952,7 @@ def _build_pair_degraded_without_annotations(
         None,
         policy,
         True,
+        context,
     )
 
 
@@ -942,11 +961,11 @@ def _degraded_table(
     diagnostic: str,
     rules: Mapping[RiskRuleId, RiskRuleSpec],
     cache: object | None,
+    operation: RiskOperationPort | None,
 ) -> _TableOutcome:
     rule = rules[RiskRuleId.KEY_DEGRADED]
     reason_code = reason_for(rule)
     with ExitStack() as charges:
-        operation = current_kernel_context()
         if operation is not None:
             charges.enter_context(_reserve_risk_output(
                 operation,

@@ -8,7 +8,6 @@ from contextlib import closing, nullcontext
 from time import perf_counter
 
 from gateway_shared_kernel import DigestRef
-from gateway_backend.capabilities.table_access import current_kernel_context
 
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
@@ -25,6 +24,7 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskOptionsPairs,
     RiskRowChangeStats,
     RiskScope,
+    RiskOperationPort,
 )
 
 
@@ -45,9 +45,13 @@ class RiskRecord:
 class RiskRecordView:
     """Reopen the in-memory facts-order minimum projection for each risk rule."""
 
-    def __init__(self, handle: object, metrics: dict[str, float] | None = None) -> None:
+    def __init__(
+        self, handle: object, metrics: dict[str, float] | None = None,
+        operation: RiskOperationPort | None = None,
+    ) -> None:
         self._handle = handle
         self._metrics = metrics
+        self._operation = operation
 
     def __bool__(self) -> bool:
         summary = getattr(self._handle, "family_summary")
@@ -57,7 +61,7 @@ class RiskRecordView:
         reader = getattr(self._handle, "risk_record_batches")()
         with closing(reader):
             for batch in reader:
-                operation = current_kernel_context()
+                operation = self._operation
                 if operation is not None:
                     operation.checkpoint()
                 # One Arrow→Python conversion per needed column/batch. The
@@ -100,6 +104,7 @@ def extract_risk_facts(
     requested_tables: tuple[str, ...] | None,
     record_views: Mapping[str, object] | None = None,
     record_view_metrics: dict[str, float] | None = None,
+    operation: RiskOperationPort | None = None,
 ) -> tuple[ExtractedRiskFacts, ...]:
     requested = None if requested_tables is None else frozenset(requested_tables)
     result: list[ExtractedRiskFacts] = []
@@ -119,7 +124,7 @@ def extract_risk_facts(
         )
         view = None if record_views is None else record_views.get(table.table_name)
         records: tuple[ComparisonRecord, ...] | RiskRecordView = (
-            table.records if view is None else RiskRecordView(view, record_view_metrics)
+            table.records if view is None else RiskRecordView(view, record_view_metrics, operation)
         )
         scope = _risk_scope(table, key_degraded, ordered_unsupported, bool(records))
         degraded_reasons = tuple(

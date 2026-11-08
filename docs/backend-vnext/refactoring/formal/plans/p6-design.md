@@ -528,11 +528,11 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 | 断言 | 内容 | 观测点 |
 | --- | --- | --- |
-| 表级决定 | 存储变化表进入 `replay.sql`：X 中最终有 mutation 的表 ∪ A ∪ D；X 按 S1a 冻结阈值选择行级修改或重建，A 重建，D 为 `DROP`。仅 source schema/provenance 初筛不同而 canonical schema/view/rows 相同的现行 planner NOOP 单列，不强制写入（S4设计§3.2） | 规划器的候选/NOOP/最终表级决定 |
+| 表级决定 | 存储变化表进入 `replay.sql`：X 中最终有 mutation 的表 ∪ A ∪ D；X 按 S1a 冻结阈值选择行级修改或重建，A 重建，D 为 `DROP`。patch-comparable keyed路径仅 source schema 初筛不同、实际读before后 canonical schema/view/rows相同的现行 planner NOOP单列，不强制写入；不扩至keyless（S4设计§3.2） | 规划器的候选/NOOP/最终表级决定 |
 | 行级修改表 | 逻辑变更数 = 独立计算的净 diff：同键 UPDATE 计 1，键变化计 DELETE + INSERT 2，新增行 INSERT 1，删除行 DELETE 1（Storage Mutation §4） | 规划器的变更列表 |
 | 整表重建表 | 写入行数 = 变化后的行数 | 渲染统计 |
 | 删除表 | `DROP` 1 次，写入 0 行 | 渲染统计 |
-| 规划器的 `changed_row_count` | 保持现行定义（行级修改表为净变化，新增/删除表为 before + after，投影变化表为全表计数），只作报告，不作为验收 | 规划器摘要 |
+| 通用规划器的 `changed_row_count` | 保持现行定义，只作报告，不作为验收。S4 Submit不再构造无消费者的通用plan摘要：未做diff的强制rebuild以`net_counts=None`报告，另报before/after及实际写入数；实际已做diff的keyed计数精确保留，不把全表写入数冒充净diff | 通用规划器摘要；S4独立小summary |
 | 原样重传（S2） | 不产生 Repository operation | 受理结果 |
 
 去重仅在完整任务key相同且结果可用/预算允许时减少调用。重复同key任务的机制向量可断言2次派发/1次计算，但不能冒充实际FULL变化任务：FULL的baseline→initial与initial→modified相邻有向pair要具有相同输入身份通常意味着三侧相同，届时不做行比较。S3必须报告真实命中范围；允许0命中，不削弱含表名schema或scope换取命中。

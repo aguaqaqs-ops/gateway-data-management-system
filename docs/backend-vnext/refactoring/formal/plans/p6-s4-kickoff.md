@@ -56,6 +56,8 @@
 
 新增同构输入共享参数表，纯编码/策略不用Dolt fixture。每个不变量一个权威owner；删除旧实现时删专用mock/probe，但不能删除其独有业务断言。renderer大输入边界用合成精确字节，只在专用节点执行；不要靠生成200MiB真实库验证纯size admission。
 
+C必须落实设计§3.4两个保留facade的显式context签名、调用方/fixture迁移及bytes结果预约期限，不能只更换函数内部实现。B/D区分通用planner完整keyless净计数与Submit未读before的`net_counts=None`，保原source-only keyed NOOP/keyless rebuild行为，不补无消费者的parent读取。
+
 ## 5. 执行和集中门禁
 
 本节只是后续命令与规则，**本轮不执行**。以仓库现行AGENTS/testing-conventions为准，DC91覆盖旧节点分工：

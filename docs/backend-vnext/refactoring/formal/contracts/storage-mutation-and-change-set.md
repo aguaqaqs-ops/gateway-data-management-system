@@ -132,8 +132,12 @@ parameterized command stream。renderer capability 必须参与 plan identity；
 发现不支持时返回稳定的 `TARGET_CAPABILITY_UNSUPPORTED`，不得偷偷改变 plan。
 
 artifact 在 Preview/Submit reuse、Dolt replay、可选 external ChangeSet、readback/audit
-完成前保持 pinned。缺失、损坏或 digest 不匹配时，Submit 可从 durable source fallback
-或要求新的 upload attempt。
+完成前保持 pinned。生产 Submit 的冻结/恢复以 Canonical Storage §5 的 prepare checkpoint
+分界为准（Owner 2026-11-08 DC94）：T1 后冻结规范输入缺失或损坏稳定失败，不从 durable
+SourcePackage 重建；prepare checkpoint 持久化后必须复用其包/ref/raw SHA，缺失不得
+重建包或换 key。T1 前可重新 Preview；需要重传时创建新 attempt，不能覆盖已有 effect。
+可选 external ChangeSet 的 source/readback/full-resync 沿该目标 owning Contract，不将
+外部目标的恢复能力套用于已冻结的 Submit。
 
 ## 8. Verification
 

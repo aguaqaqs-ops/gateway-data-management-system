@@ -56,7 +56,7 @@ Python `mutation_planning` 拥有唯一的轻量表级选择函数，通用 plan
 | before=0、after>0 | 不需为阈值读取空 parent | REBUILD_TABLE |
 | unsupported/degraded/重复键/坏绑定/未建模副作用 | 不以重建绕过 | effect 前稳定失败 |
 
-source schema 变化但 canonical schema/view/rows 相同，当前适配器的初筛可选中、通用 planner 最终仍判 NOOP。保留这一现行差异，统计分列 `manifest_candidates`、`storage_noops`、`replay_tables`，不能为满足粗略 X 集合公式强写一张无变化表。projection version 不同必须先于 NOOP 判定。非 INITIAL 缺/坏 parent manifest 或与 parent catalog 不一致继续拒绝，不合成空 parent。
+source schema 变化但 canonical schema/view/rows 相同，在 **patch-comparable keyed、实际读取完整 before** 的路径上，当前适配器的初筛可选中、通用 planner 最终仍判 NOOP。保留这一现行差异，统计分列 `manifest_candidates`、`storage_noops`、`replay_tables`，不能为满足粗略 X 集合公式强写一张无变化表。这个例外不扩至 keyless：现 Submit 不读其 parent rows，初筛选中的 keyless 仍 rebuild。projection version 不同必须先于 NOOP 判定。非 INITIAL 缺/坏 parent manifest 或与 parent catalog 不一致继续拒绝，不合成空 parent。
 
 净 diff：同键完整 persisted image 变化 UPDATE=1；键变化 DELETE+INSERT=2；多列变化不放大；重复键不允许字典覆盖。浮点/DECIMAL 规范负零等价沿 Shared Encoding；SET/ENUM/JSON 按现 canonical adapter 的逻辑值。行比较可逐列借用编码短 scratch，不能先构造全表 scalar graph。
 
@@ -74,19 +74,38 @@ StorageTableTaskV1:
   Arrow streams with explicit schema (empty != absent)
 
 prepare_storage_table(task, operation) -> StorageTableHandle
-handle.summary() -> comparable/counts/validated identities (small)
+handle.summary() -> before_rows/after_rows/comparable/net_counts?/validated identities (small)
 choose_table_mutation(metadata, summary, frozen_threshold) -> decision  [Python]
 handle.render(decision) -> bounded SQL byte chunks
 handle.close()
 ```
 
-prepare 对可比较表建立 `(JCS key, row locator)` 索引并校验唯一，排序 merge 扫描，使用 full persisted 值决定净变化。最多保留1000个 patch action locator；超过上限继续计数但不继续存 mutation 列表。重建只留 after 顺序索引，释放 before/index/patch 临时结果；keyless after 另算旧 mutation 排序 hash。counts 不因提前判 rebuild 被截断。强制重建的 summary 沿原 before+after 全表口径，不伪称做过净 diff。
+prepare 对可比较表建立 `(JCS key, row locator)` 索引并校验唯一，排序 merge 扫描，使用 full persisted 值决定净变化。最多保留1000个 patch action locator；超过上限继续计数但不继续存 mutation 列表。重建只留 after 顺序索引，释放 before/index/patch 临时结果；keyless after 另算旧 mutation 排序 hash。已执行diff的D/U/I计数不因提前判rebuild被截断。
+
+新Submit summary不是通用`TableMutationSummary`：未读取before/未做diff的强制rebuild明确 `net_counts=None`，只报告before/after行数、decision/reason及实际INSERT行数；不得填0或before+after冒充净差。现Submit只消费旧summary.operation（`import_publication.py`279–286）；keyless父表被`_patch_comparable`排除、旧planner收到真实manifest+空rows，旧changed_row_count本来就不是完整keyless净差。删除这个无消费者的Submit摘要，不为了保留它读parent。通用planner/ChangeSet及其完整输入计数完全保留，例如100行仅换1行的keyless净差仍为2；它选择rebuild不将净差改为200。
 
 R `gateway-compute-python/src/storage_mutation.rs` 接 Arrow C Stream 所有权转移，用第三方公开 safe API；粗粒度 table/byte-chunk 调用，compute/sort/render 释放 GIL。B `capabilities/mutation_planning/native.py` 为唯一新增 FFI owner，精确登记 `_begin_storage_operation_native`、`_prepare_storage_table_native`、`_render_change_set_native`；DDL 的 `_render_storage_schema_native` 由已有 `storage_projection.native` owner 暴露薄函数，schema facade 经它调用同一 Rust SQL 模块。**Storage Projection 不反向 import Mutation Planning**，不能为复用产生 capability cycle。最终命名随 A 同步政策和 import guard，不放开整个 capability；调用者不直接 import 私有 native。core 无文件、ArtifactStore、backend 对象或业务状态。
 
 复用进程池 N 和同一个 operation M。native portion 是 Python 已预约的子额度，Rust leases 在其中分配；不得当第二份独立 M。表 handle 无 checkpoint/持久版本轴；V1 只为进程内输入契约辨型，不新增 SDK、服务或部署参数。首个独立消费者的公开 API/打包仍按总设计 §1.5，S4 只落实当前真实消费者的单向边界。
 
 失败映射保留两层语义：core返回code/message和有界stage/table诊断；backend取消/截止/资源错误继续为现`InterruptedError`/`TimeoutError`/`KernelMemoryLimit`，不得全包成publication error丢失worker原分类。一般输入/能力/SQL cap失败通过现ImportReplay/SubmitPublication错误边界；通用renderer继续返回原`ReplayRenderOutcome`的`TARGET_CAPABILITY_UNSUPPORTED`或`RESOURCE_EXCEEDED`。意外panic是内部失败，不返回SQL或假装unsupported；不新增HTTP/Repository public failure code。
+
+### 3.4 两个保留facade的执行契约
+
+本项目没有已部署调用方，不保无预算旧调用签名或隐式初始化兼容层。C直接改为：
+
+```text
+render_change_set_replay(closure, *, context: KernelExecutionContext,
+                        expected_renderer_capability=None) -> ReplayRenderOutcome
+render_repository_import_schema_replay_sql(import_input, *, removed_tables,
+                                          context: KernelExecutionContext) -> bytes
+```
+
+context必填、须处在caller管理的kernel_execution_scope，携带有效M、N、cancel_probe和deadline；公共facade不以ContextVar作为隐藏前置、不自建第二池、不默认M、不在首次调用初始化。进程入口先显式初始化共享池，N不符/池未初始化按现native初始化错误拒绝，关闭context后不能再调用。worker从已建立的operation传同一context；不是给通用消费者绕开准入的接口。
+
+通用closure是调用方已经拥有的结构化输入：其创建/驻留预算由caller负责；facade入口将其作为显式输入驻留计入同M（已由caller登记的同backing不得重复收费），随后先预约转换/Arrow、索引和output上界再分配。转换只服务通用ChangeSet，不是Submit行路径。保留facade返回的bytes/outcome形态：不能早于最后使用释放预约；保守做法是把其结果charge保留到caller的operation scope结束，调用方不得把结果交给另一个未计费operation。转换scratch在调用结束释放。Submit的持续DML汇集由package envelope计费；schema结果如由facade独立保留charge，须从该envelope对应预留中划出或保守额外预约，并在下一阶段明确释放，不能借“已预留”无owner地跳过计费。
+
+迁移点：production `import_publication.py`传当前有效context；删除import wrapper后无旧隐式调用。现通用调用位于`test_dolt_renderer.py`、`test_mutation_planning.py`，schema调用另在`test_storage_projection_import_replay.py`、`test_submit_import_builder.py`、`test_canonical_snapshot_identity.py`和待移除的import replay测试。C让现`tests/conftest.py::operation_kernel_context` fixture显式yield其context给这些调用，仍复用现session pool初始化；不复制新全局fixture/默认预算。加一个真实已安装扩展的显式context调用及无有效context拒绝断言。capability digest、SQL和结果语义不变；这是内部调用签名迁移，不声明独立SDK已交付。
 
 ## 4. SQL 精确字节与分批
 

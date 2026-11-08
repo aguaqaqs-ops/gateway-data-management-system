@@ -165,9 +165,9 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
-      if (!snapshot.workspace) {
-        // The shared refresh swallows the workspace failure into state; the
-        // page-level load still reports it as a load error (as before B4).
+      if (!snapshot.workspace || snapshot.workspaceError) {
+        // The shared refresh keeps stale state on failure; the page-level
+        // load still reports it as a load error (as before B4).
         setLoadError(snapshot.workspaceError ?? { code: "WORKSPACE_LOAD_FAILED", message: "工作区加载失败" });
         setHistory(null);
         return;
@@ -209,7 +209,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
-      if (!snapshot.workspace) return null;
+      if (!snapshot.workspace || snapshot.workspaceError) return null;
       setHistory(loadedHistory);
       return loadedHistory.head;
     } catch {

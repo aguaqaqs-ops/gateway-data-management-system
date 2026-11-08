@@ -210,7 +210,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const withdrawKey = useRef<string | null>(null);
   const { refresh: refreshUploadSnapshot } = uploadMode;
   const refreshUploadMode = useCallback(async () => {
-    const { workspace: loaded, attempt: loadedAttempt } = await refreshUploadSnapshot();
+    const { workspace: loaded, attempt: loadedAttempt, workspaceError } = await refreshUploadSnapshot();
+    if (workspaceError) return;
     if (loaded?.active_submit_attempt_id && loadedAttempt?.operation_id) {
       const urlOperationId = new URL(window.location.href).searchParams.get("operationId");
       if (!urlOperationId) {
@@ -268,7 +269,11 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     withdrawKey.current = key;
     try {
       await gatewayApi.applyReview(workspace.active_submission_id, { expected_review_version: review.review_version, action: "WITHDRAW" }, key);
-      const { workspace: loaded } = await refreshUploadSnapshot();
+      const { workspace: loaded, workspaceError: refreshError } = await refreshUploadSnapshot();
+      if (refreshError) {
+        setWithdrawError({ title: "撤回未完成", code: refreshError.code ?? "REQUEST_FAILED" });
+        return;
+      }
       if (!loaded?.active_submission_id && !loaded?.active_submit_attempt_id && !loaded?.current_upload_revision_id && !loaded?.current_preview_result_id) {
         setWithdrawOpen(false);
         window.location.assign("/?page=workspace&notice=withdrawn");

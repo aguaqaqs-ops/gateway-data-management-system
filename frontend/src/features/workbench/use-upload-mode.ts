@@ -91,6 +91,10 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   workspaceRef.current = workspace;
   const rereadConsumed = useRef<string | null>(null);
 
+  // A failed re-read keeps the last known snapshot and only records the
+  // problem: the gates already report "unknown" from the problem, and the
+  // pages must not flash to an error page (or unmount the resume card)
+  // while stale data is still on screen.
   const readReview = useCallback(async (submissionId: string) => {
     setReviewLoading(true);
     setReviewProblem(null);
@@ -99,7 +103,6 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
       setReview(facts);
       setReviewProblem(null);
     } catch (cause) {
-      setReview(null);
       setReviewProblem(problemFrom(cause));
     } finally {
       setReviewLoading(false);
@@ -122,7 +125,6 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
           setOperation(loadedOperation);
           setOperationProblem(null);
         } catch (cause) {
-          setOperation(null);
           setOperationProblem(problemFrom(cause));
         }
       } else {
@@ -131,10 +133,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
       }
       return loadedAttempt;
     } catch (cause) {
-      setAttempt(null);
       setAttemptProblem(problemFrom(cause));
-      setOperation(null);
-      setOperationProblem(null);
       return null;
     } finally {
       setAttemptLoading(false);
@@ -180,9 +179,11 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         clearAttemptChain();
         return { workspace: loaded, attempt: null, workspaceError: null };
       } catch (cause) {
-        setWorkspace(null);
+        // Keep the last known workspace; only the problem is new. Callers
+        // that need a hard failure (page-level load, reload-head) check
+        // the returned workspaceError.
         setWorkspaceProblem(problemFrom(cause));
-        return { workspace: null, attempt: null, workspaceError: errorFrom(cause) };
+        return { workspace: workspaceRef.current, attempt: null, workspaceError: errorFrom(cause) };
       } finally {
         setWorkspaceLoading(false);
         inflight.current = null;
@@ -254,7 +255,6 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         setWorkspace(loaded);
         setWorkspaceProblem(null);
       } catch (cause) {
-        setWorkspace(null);
         setWorkspaceProblem(problemFrom(cause));
         return { kind: "unknown" };
       }

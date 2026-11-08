@@ -359,3 +359,13 @@ Python整合删除 `cd08d0de36` 覆盖旧standard/ordered行算法、全量tuple
 原审在 `e162f2aa8c5c7fb541976e06e61f843857a47049` 的E review §16核收c7静态CLEAR：Standard键/类型变化与keyless关联、Ordered位次/换gid/排除列/NULL no与处理模式、BLANK占位与区间转移、records DATE/TIMESTAMP精确文本均有明确现役owner；无效的metadata多族测试删除而合计guard保留，既有native合计上限owner保留。固定旧C/D向量与实际consumer一致性断言不变；源码清理没有永久旧oracle或生产fallback。Risk与真实Preview projection/bundle仅增现有入口分段，保包含关系、operation_id及未观测项，不加checkpoint/持久evidence机制。
 
 当前c7仍是**静态CLEAR、尚无Python focused或E GO**；Rust tree与五依赖输入未变。下一06集中稿覆盖重装/校验当前扩展、S3保留语义/reader/records/Risk/Preview/History与三项整合修复（含真实Dolt historical catalog）、五包Ruff/mypy；脚本先由原审逐字核，再由唯一Luna执行。最终V、04六包/容器、05/CT108 fresh与完整W3/W4证据均待集中取证，不把删除代码完成冒称S3交付完成。
+
+## 22. E Python focused 原始失败与修订候选
+
+§21之后的06 focused按同一原审连续核收，未把分段成功冒作整轮通过。c7稿在backend Ruff发现两处旧测试unused binding；修订`ce5b6896d4`只去绑定，随后backend mypy出现六项真实类型错误，尚未进入pytest。`ae987ffff60b1d2815fcc988f3322adb69cdd781`修正显式导出、reader Protocol与optional digest/测试annotation后，06五包Ruff与mypy**十步实际exit0**、强制重装native与build-input校验0；shared_kernel误传该包未安装的xdist参数`-n 0`而usage exit4，无collect，后续未执行。原outer SHA=`df56cc4992823fd0d23f4c53d2ecd088333c1fe54c0ebaf110e08434eecd4f5d`、node SHA=`e34f15ea56f295263fac1afdc6dee7d77f46198b0a6085fcfd6838392f685c19`，原件在`/home/dev/gdds-test-tmp/p6-s3-e-focused-ae987-06/outer/`。
+
+按现行DC68固定命令修订、原审CLEAR后，唯一测试者在同clean ae987 WT于06 **10:45:03–10:45:21Z**复验受影响链：shared JCS **44 passed / 0.74s**，关闭CLI故障的第1/3修复轮；backend非serial **235 passed、7 failed / 14.88s**，原exit1，故serial及RS未执行。六锁无漂、native 9d4f校验0、guarded释放与标准capture0。原件在`/home/dev/gdds-test-tmp/p6-s3-e-focused-ae987-06/resume-r1/outer/`：outer SHA=`32b4a7dd9e8a6086b0227f128ad018f0ea9b0fe19fa6efdb7e394e1978c475dd`、node SHA=`c0700d7f59f32067dcb70143150fffdb5f6d2f609b7436738796e71681000a54`、manifest SHA=`f168fc88eafdfcbf63e01d3e65b9b075ba36cfeb6f401bf2a6f9e629dc9da21c`、capture SHA=`e1ca96d26ed5560a905448e49f0699bf6d51436fdc2c43c8ce5389d3025f7204`。原审已在E review §20独核，结果仍为focused不通过。
+
+七失败对应五根项：keyless两参数SQL三列误插四值；schema-only变化应保SCHEMA_CHANGE而无ROW_MODIFIED；ORDER_KEY_MISSING应断业务退化记录而非内部handle为空；NULL scalar应构造实际发生变化的字段；非FULL记录发布存在native固定FULL而publisher请求裁剪schema的真实接线缺口。固定修订`07cf7a96509df062cea43659d89e4f5e2c8bb7f2`与补充`3bdd5a5b75f464490fb8c4cc664552f9a69b4504`保旧独立向量/golden，按plan.options将同档detail policy传native builder及publisher，不在seal后重建占用预算，不恢复Python旧路径。owning comparison Contract §comparison_options明确detail policy进入options、comparison_digest及task key；故跨policy完整facts_core相同而comparison_digest不同，同plan发布前后digest不变。原审撤回先前跨档digest应相同的疑虑，依既有Contract核收。
+
+`8de0559bfe59f9a5b7a367738dc5492a0dcd0412`的E review §21对固定clean detached 3bdd给**静态CLEAR**，Rust tree仍9d4f、五依赖输入未变。当前仍待06受影响Python复验及独立小History Compose；未固定最终V/H，未运行04六包、fresh四档或完整W3/W4。FE3c Q18仍按§16独立交接。

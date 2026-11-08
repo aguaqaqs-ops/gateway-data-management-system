@@ -141,7 +141,7 @@ class NativeStorageTableHandle:
                  active: StorageTableOperation) -> None:
         self._handle = handle
         self._operation = native_operation
-        self._task = task
+        self._task: StorageTableTaskV1 | None = task
         self._before_owner = before_owner
         self._after_owner = after_owner
         self._metadata_charge = metadata_charge
@@ -153,12 +153,15 @@ class NativeStorageTableHandle:
     def summary(self) -> StorageTableSummary:
         if self._closed:
             raise ValueError("storage table handle closed")
+        task = self._task
+        if task is None:
+            raise ValueError("storage table handle closed")
         before_rows, after_rows, counts, before_validated, after_validated, _ = self._handle.summary()
         # A metadata-only before side has a validated manifest binding but no
         # parent Arrow to scan. Its net diff remains explicitly unknown.
         before_validated = before_validated or (
-            self._task.before is not None and self._task.before.stream is None
-            and self._task.before.metadata_manifest is not None
+            task.before is not None and task.before.stream is None
+            and task.before.metadata_manifest is not None
         )
         return StorageTableSummary(
             before_rows, after_rows,
@@ -194,6 +197,9 @@ class NativeStorageTableHandle:
             raise ValueError("storage table render already closed or started")
         active = cast(StorageTableOperation, require_storage_operation(self._active))
         self.apply_decision(decision)
+        task = self._task
+        if task is None:
+            raise ValueError("storage table handle closed")
         # B's prepare reservation was reconciled to retained Rust bytes. A
         # fresh phase claims the remaining bytes from that same M before any
         # render allocation. It is never reconciled while the cursor can grow.
@@ -211,7 +217,7 @@ class NativeStorageTableHandle:
                 active.threads, id(active.memory),
             ))
             native = self._handle.render(render_operation, decision.operation.value,
-                                         self._task.canonical_table, id(active.memory))
+                                         task.canonical_table, id(active.memory))
             self._chunks = NativeStorageChunks(native, render_operation, active, charge)
             return self._chunks
         except MemoryError as exc:
@@ -248,7 +254,13 @@ class NativeStorageTableHandle:
                     try:
                         self._operation.close()
                     finally:
-                        self._metadata_charge.close()
+                        try:
+                            self._metadata_charge.close()
+                        finally:
+                            self._task = None
+                            self._before_owner = None
+                            self._after_owner = None
+                            self._chunks = None
 
     def __enter__(self) -> NativeStorageTableHandle:
         return self

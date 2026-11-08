@@ -30,7 +30,7 @@ CT108 对原归档只读重构631表、683,508行：实际 Arrow nbytes152,303,2
 
 | 组 | 当前实际执行 | 有效warm／测量 | v2 READY／完成、中位数／范围 |
 | --- | --- | --- | --- |
-| W3 MO | 原M24基线Submit失败；新M40首轮RS启动失败 | 0／0 | UNKNOWN，未到v2 |
+| W3 MO | 原M24基线Submit失败；M40首轮RS启动失败；修订M40 warm在v2 Preview失败 | 0／0 | v2失败尝试221.885s；无成功READY／完成统计 |
 | W3 FULL | 未运行 | 0／0 | UNKNOWN |
 | W4约10% MO | 未运行 | 0／0 | UNKNOWN |
 | W4约10% FULL | 未运行 | 0／0 | UNKNOWN |
@@ -41,7 +41,7 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 
 ## 5. 分项与结论边界
 
-当前完整负载v2尚未到达，比较、records/JCS、Parquet、Risk必要列转换、surface/bundle、native调用／输入读取／去重计数及M40账本高水均 **UNKNOWN**。D阶段两表六场景已核诊断只说明其明确有限范围，不能顶替本矩阵。W2没有行比较，不计入S3比较提速；真实0去重命中合法，不承诺跨表或FULL命中率。
+修订M40 warm已到完整负载v2，但在assemble步骤失败，未形成完整pair／bundle分段。该次已观察的MODIFIED上传投影为5.8700875s；比较、records/JCS、Parquet、Risk必要列转换、surface/bundle、native调用／输入读取／去重计数及v2 M40账本高水仍 **UNKNOWN**。D阶段两表六场景已核诊断只说明其明确有限范围，不能顶替本矩阵。W2没有行比较，不计入S3比较提速；真实0去重命中合法，不承诺跨表或FULL命中率。
 
 后续只按实际v2操作／step窗口归属服务日志：compare-read/build包含native records builder及其中未独测artifact JCS；随后table/facts-core JCS另计；Parquet写属于records publication内部。Risk必要Arrow转换属于lazy view遍历时rules evaluation内部，digest/report JCS及artifact publication属于Risk publication内部，不能将嵌套值再次加总或用残差声称纯规则CPU。pair局部未观测的投影／bundle `null`不当0。cgroup各容器生命周期峰、进程RSS峰、操作M预约高水和host可用内存分列，各自峰不代表同一时刻总峰。
 
@@ -54,3 +54,19 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 未执行的旧r1warm稿因在释放标记后重hash大型tar被撤回；修订稿先在占用内封node核心result、tar SHA及manifest，最后删owner／rmdir，真实释放事件绑定封口SHA经stdout返回，控制端核原exit／远近原件／postflight后另封最终acceptance receipt。node pending快照不预填释放成功；postflight失败仍先捕获原件，再判失败。业务、输入和48/8/M40不改。固定driver SHA=`5bc3a65c1776e66808364a73d621be4981ef33b8a90458fa0606c3d521c20e54`、controller=`cd3d857f36766b03955b80ded88547567bff2e1e731f9222aac81b048fbdb956`，原E静审CLEAR后由同一Luna仅执行一次。
 
 截至本节提交，修订warm已在CT108实际运行，监控观察到三服务ready、首业务前资源guard通过、v1 Preview成功，随后进入v1 Submit；**尚无封口完成结果、v2样本或本轮成功warm**。该监控状态不代替最终原件与独审。第4节仍为0有效样本／UNKNOWN，剩余23未启动。05默认32/8/M24完整功能证据另在累计交接逐档列出，不混入此性能矩阵。
+
+## 7. M40修订warm终局、局部排序限额与新修复候选
+
+§6修订warm现已封口：node18:48:18–19:24:07Z、outer截至19:24:12Z，原exit1，成功warm数0。v1 Preview119.097s、v1 Submit1658.57s及真实read／approve／Archive成功；v2 Preview从19:20:11.233Z到19:23:52.809Z失败，step尝试耗时221.885s，原诊断`RESOURCE_LIMIT_EXCEEDED`。**失败尝试耗时不是成功READY／完成样本**，没有启动后续23项。
+
+直接原件`/home/dev/gdds-test-tmp/p6-s3-resource-repair-r1-1e669c053f/warm-r1-control/`：outer SHA=`026decbb0a245bc76cb303bf3675fa63030c40781305b1de3ed225b6f7eaccf8`，node stdout=`93bd357797d38f304993545d18b61b4b0e0410c0aa07b511d2967a62adc4b50b`，result=`06c0ad41e0aae2a0e1739b6b8534ab9d419228f73b57f138f658559d51431a72`，journey=`7e3201eaa15fe162777b4c8bab47d0f792ace8960c4346a72679622bd42dad33`，manifest=`8ffa2908b930d2513cee4cffad3de7631d88c26d1b17fbb4bdb463436b24cfb5`。原E §78／`1cba6b0331`已逐项对节点原SHA独核。
+
+资源守卫与业务结论分列：同一worker的48/8/M40/N1配置、三服务开始／结束guard、全部OOM三键0、正常SIGTERM、当前镜像绑定、clean／六锁均合格，worker生命周期cgroup峰16,869,629,952B，host MemAvailable起67,335,496,704B／尾64,861,898,752B；这些峰不是原生排序charge或M账本。业务仍exit1、node sealed success=false、acceptance=false、warm=0，失败停资源与原marker保留；`resource_verdict=PASS`不能作为整轮PASS。
+
+只读control DB副本诊断actual0，原E §79／`df50b0058d`核收：materialize_inputs attempt1成功，assemble_preview attempt1失败；持久message长度28、SHA=`0544e9a68fbb93babbd3c2708859535a3e67180a58f6d2393c78f6aa449677b7`，没有原requested／live细节。该SHA精确等于固定Rust源码`records sort budget exceeded`，出自`records/source.rs::build_family`六个局部排序guard；Python比较生产入口每表固定传`max_sort_bytes=2 GiB`，与M40独立。原E §80核收此源码归因。**不能将本次失败称为已证明的M40总预约拒绝，也不能靠单纯增M解除该固定guard。** 具体表、记录族、哪一guard及首次被拒字节数仍UNKNOWN。
+
+可选checkpoint引用盘点首次执行被受控uv wrapper拒绝外部脚本路径，node／outer exit2，尚未读取checkpoint；原E §81保留其原件、未重试。该工具失败不覆盖前述原M40业务失败，引用盘点并非修复必要前置，也不绕过wrapper限制。
+
+原E对局部设计`a01149fc…`给DESIGN_CLEAR：仅把已在Python M账本预扣并交同一Rust KernelContext的`native_budget`透传为排序上限，保留FULL JCS排序、全部增长前租约、M40／N1及现役512MiB输出／reader、2m记录／1024行组界限，无新开关或Rust／FFI改动。第一代码候选acb417只因低cap测试释放断言不可达而修订为 **`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`**，原E §83静态CODE_CLEAR；06 focused于20:14:04–20:15:22Z actual0并在§85／`1207de61b6`独核，native9d4、backend Ruff／mypy0、134 nonserial＋1 serial通过。原expected／golden和业务断言未回填新Rust输出。
+
+新候选尚待集中门禁、当前产品完整fresh及新的W3 MO warm。旧V1e在05的t1–t4已各档fresh且独立PASS，仅记旧源功能回归；不冒新V4b0或M40性能结果。第4节仍0有效warm／0测量，23项及聚合仍HOLD；后续只有新合格warm、独审和实际tar／磁盘准入满足后才推进。

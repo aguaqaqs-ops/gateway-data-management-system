@@ -67,6 +67,10 @@ B 真实差分执行前核 06 实际八份 t1–t4 package 的 size/SHA，对照
 
 后续 D/E W3/W4 工具接线另需注意：当前 main 有 real_dump_journey 与旧 V1 consumer，但完整合成负载/测量工具留在原基准分支（只读核 `p6-baseline@b6070468f6dbf967bc763e9fe7f2d9a23b8bda50`）。该分支 generator 引用旧 parser grammar/storage-projection Python helpers，不能不经适配就当作当前唯一 Rust 路径已能执行。优先复用已核身份的现有输入或职责内最小工具适配，不合入整套旧算法或 evidence 框架；原冻结 worktree、镜像、输入和卷保持不动。此为测量准备提醒，不是已运行或新增核心方案，也不豁免 W3/W4 起测。
 
+只读输入定位补充（2026-11-08，未传输、未重核节点文件、未运行）：上述固定分支 `p6-baseline-handoff.md` 的“输入准备结果”记载已接受 2×t4 包 v1 为 10,652,436 bytes / `74974e5f3237ba372e81df95d448602d09713c3cdc8edf6ae5237352a78ebd4c`，v2 为 10,649,536 bytes / `121dc3b0e0418a76e2563111970dd136cf00d0942c83f37b8cc19597995b6d20`。后续已验收 W4 输入根为 `/home/dev/gdds-p6-logs/baseline/input/w4-generator-correction-20261105b`，summary SHA256=`6b63cf2e8c58cadc96b7ac716a523f9b5554fcb496eea16c0c2f5089199a3896`；10% expected manifest SHA256=`4c5638df32973282507937c1232c09117b40023f8b03f3d94caf7c160f87aac7`。早期多个 W4 根已作废，不能凭同名目录或最初 1ed 根中旧 W4 冒输入有效；2×接受身份与后续 W4接受分开核。D/E 如采用，应从获准副本读取并向 S3 自有目录复制，重核实际包/manifest/summary身份及当前产品完整性，保原文件不动；这段源码定位不替代运行前核验或 DC33。
+
+当前 main 的 `real_dump_journey._read_metadata` 固定读取仓库 P5 八数据集 census，因此仅换 synthetic data root 不能得到正确 W3/W4 验证。需要 S3 职责内最小测量入口/参数接线，直接复用当前 Preview/History/native 路径与已核的 synthetic census；不得改 P5 census/golden 或从旧分支整套搬回已删除算法。正式 1 预热+3 测量、中位数/范围、MO/FULL/压力和各段计时仍待 D/E 具体执行稿与独审核收。
+
 ### B 首个 Rust 检查点
 
 实施检查点 `3577df182d6481a9c6e49554e445c81071924c09` 仅四个 Rust comparison 文件，不是完整 B 候选。06 在独立 scratch 执行机械格式准备，格式 patch SHA256=`a89f43a7512a808a603eb2d998f17a66d4ed0ebaf28d2c59b1e1f1cd800170a4`，由原实施者在 main 应用为 `9b34be7356a92228ef07ee0c4f01bf215e2bf653`。准备期间相对 Git exclude 路径错误在未格式化/测试前退出，原日志 SHA256=`40f8c23f5af833b10b9c8b2256cda028a277a5fc8f853750b218451a07e2b479`；按 DC68 仅纠正为绝对路径后续行，原件保留。

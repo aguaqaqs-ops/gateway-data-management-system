@@ -1,6 +1,6 @@
 # Phase 6 S3 E 独立审核
 
-最终状态：**E BLOCKED_CAPACITY，不签 GO**。产品/功能候选与固定H的04六包和镜像沿用已核；W3基线Submit的M24预约拒绝使完整性能验收未过。本报告由 E 独立审核者连续记录初审、修复复审和集中证据核收；实施者的 handoff 与测试者的原始结果均不能代替本结论。
+当前状态：**V4b0代码与功能候选已核，完整性能统计及最终H绑定待核；E不签GO**。此前V774的M24容量阻塞及固定H685结论仍按§64保留为历史原件；当前V4b0在独立48/8/M40档已有首个合格W3 MO预热，不能据此追认旧失败或替代其余23项。本报告由 E 独立审核者连续记录初审、修复复审和集中证据核收；实施者的 handoff 与测试者的原始结果均不能代替本结论。
 
 ## 1. 固定起点与范围
 
@@ -759,3 +759,15 @@ t4为`scope=full`、v2 `FULL`，默认N1/32GiB worker envelope、8GiB reserve/M2
 本人逐字审外置`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/`六件并重算最新SHA：`sample-driver.py=a55d17174b8b71d1d82a1616c1a9367e36ce15fc9345df2d3d33c2dfc2ac1a4d`、`sample-run.sh=16f9976750b40d98d23060ca5007c40b6455475ee2c2b91030dab610a43e5229`、`aggregate-readonly.py=e256e485ebe73c3a31db576f24d3bf081d3c4c7090567e2c17b1fe778ef17d85`、`aggregate-node.sh=85fa3e9598a547df9520c200339232bdd09b1d3f768b55cf56c8df222960ac9a`、`aggregate-run.sh=6f10ee5cbb89fe9b8d170017946314a49c255010554687017d8812afa26a5eec`、README=`b1729080d63bae62e0726020cce40d9803a0abaa0065fdfffc6e85bcce7d19a0`。每次控制端只接受固定23项中的显式一个，不循环/重试；首项固定§98的outer与最终receipt SHA，后项按前序最终receipt及节点原result/manifest逐SHA。节点先核V4b0 clean、准备RS实际本机ID/全DiffID与V/build/source标签和磁盘余量，再以atomic marker取得本节点占用；marker内复核13输入、六锁、N1/48−8/M40/同worker/三OOM键并运行；结果与大tar SHA在marker内封口，最后释放，control仅node/capture/postflight均0且release绑定时记一项成功。任一非0停止后继，聚合器只读逐项核唯一PASS的v2计时与pair/bundle，缺项/错误标INCOMPLETE或UNKNOWN，不用其他样本补位；只有每组1warm+3测量齐才出中位数及范围，不自动宣S6或S3 GO。
 
 首暖tar=`747672064`B，CT108事后`df`可用=`119668989952`B；按稿公式估计148个同大小archive槽，首项门槛=`10085278720`B。二者只是当前端点预算，不能保证23项可存；driver在**每项实际开始前**重取`statvfs`，以首暖及全部前项最大实际tar核`available≥2×max+8GiB`及剩余槽数，未达则在本项marker/业务前停并形成另案保存决策，不清成功/失败原件。**终版六SHA条件静态CLEAR**：后续逐项须本节点实时空闲和磁盘/前序guard实际成立，root另放唯一tester固定顺序单项执行；23项与聚合截至此段均未运行，不能记统计或性能PASS。
+
+## 101. V4b0累计代码边界与当前逐包直接来源
+
+本人在clean detached V4b0树继续按A f28c89e、B 17fd673、C ce217c0、D 055707a各自限定GO及本报告§15–16、§24、§61的E移交矩阵核累计范围，不重开已有独审。现役pair_pipeline仅以compare_plan_native取得比较产品，并将同一handle交publish_records_closure_arrow；真实Standard、keyless、Ordered三族记录走Rust batch→Arrow→Parquet→真实open/restore/validator。Python standard.py、ordered.py只保metadata、单侧、非记录角色、退化与early-exit；row_encoding.py保schema/digest helper，artifacts.py保有界无handle小metadata记录及真实读写。只读全文检索未见旧compare_plan、tuple publisher、旧Parquet writer、旧行遍历或Ordered Vec/probe的可达入口。History、replacement、Submit和raw/ref消费者仍保各自现役路径。
+
+旧Python独立预期fixture实算SHA256为efd882981ab622bb45461dded5bb879264f0f0cd4efc8bd2545f5cd84687b36f；helper固定a9旧源及4d5算法、精确20个展开nodeid并深拷贝返回。C/D以原输入、facts-core、comparison、table值和C行及三族raw/content、D BLANK-only及两处旧Risk摘要核当前结果；E live/Rust batch的单一owner覆盖Standard、keyless、Ordered、小单侧、schema、方向、NULL/typed rows和提前失败。完整facts-core payload/JCS、三族真实reader、512MiB产物/每表2m记录/row group1024、Risk必要Arrow视图及原规则次序、operation内完整key的有限重放与最后使用释放、预算租约/取消/owner关闭均由§15–16、§24、§61及现役测试归属承接。三项Owner授权最小GC、cold catalog、ChangeSet hash-only JCS移植仍为§24限定范围；本轮未见被删旧算法、重复动态oracle或需恢复的独立消费者。
+
+V1e→V4b0的vnext实比仅comparison/production.py及C/D两份现役测试三路径，Rust tree仍为9d4f84ce0897099402226c77c548c487c4912008。native_budget先在同operation预留，再传给probe、Ordered、Standard三条native调用的sort cap；FULL行JCS、输入与512MiB输出限额、reader、取消及回收未改，低cap异常和高cap成功都在测试finally核租约释放。06当前V focused、04同WT六包权威闭包及Compose、05四档完整fresh、CT108首个W3 MO暖身均已各按前文原件核收；04的六包是四份V1e直接来源加两份V4b0实跑，不冒称本次全六实跑。新增排序额度的有效性能组仍须后续实测。main的1ecb17f6de及Rust e2a901属于另一个S4C API来源及其单独focused，不能混作隔离V4b0的产品或门禁证据。**V4b0累计代码/功能候选目前无新未闭合finding；这不是E整体GO。**
+
+本人另逐项比对候选交接bd08075d1a新增§11与04当次原件：control/captured/manifests/source-*.json六个total_digest依次为rust 992f3028…acba57、shared_kernel 9a1e4cc8…58599b、repository_contracts 28fb8a9c…ed668、repository_client 82caf66b…1082、backend 5768e8e9…33aea、repository_service 5b2aa00a…31347，均与§11逐字相符；前四直接指同04 worktree的V1e整次runner0实跑，后两指V4b0本次runner0实跑，total_digest不是manifest文件SHA。本次image-identities JSON SHA256为72b66ac26f1d6b600aac6e6dca09d1ee787adf98f29be6a34a13dbe2011d697c，Compose provenance SHA256为fce0e3f7a0c4af44bbf12a81e53d833b10bbc2034bc94982c2dcf3920efc584a；RS/backend/worker config分别为aef551dd…24a8b3（28 DiffID）、619d6446…3658d（13）、5b64a2cb…48221（13）。RS原JSON标签的build-input为e76342ef0b58bb0120fc60d8a063d838140ee28d、source-tree为sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646、revision为V4b0。§11仅描述当前V直接来源，不预签最终H沿用。
+
+尚待同V其余23个W3/W4样本按每组1暖3测实核、独立受控聚合/DC47时段归属评估，以及最终H在原04同worktree的六闭包与镜像身份绑定。当前W3 MO r1单项原件已到，须按固定组边界接续核资格；不能以单项通知或首暖代替该组统计。未运行新测试，未修改产品、输入、旧失败或运行证据。

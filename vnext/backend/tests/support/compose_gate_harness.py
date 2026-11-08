@@ -1037,45 +1037,30 @@ with kernel_execution_scope(
     if not isinstance(plan, ComparisonPlan):
         raise RuntimeError("pair planning failed")
     product = compare_plan_native(plan)
-    if not isinstance(product.result, DetailedFactsResult) or product.result.facts is None:
-        raise RuntimeError("pair comparison did not produce facts")
-    facts = product.result.facts
-
-    def _gid_from_record(row):
-        for side in ("before_values", "current_values"):
-            for item in row[side] or []:
-                if item["column_name"] == "gid":
-                    value = item["value"]
-                    return None if value is None else value.get("text")
-        return None
-
-    tables = []
-    for table in facts.tables:
-        ordered_records = []
-        handle = product.handles.get(table.table_name)
-        if handle is not None and table.ordered_extension is not None:
-            with closing(handle.record_batches("ORDERED")) as reader:
-                for batch in reader:
-                    for record in batch.to_pylist():
-                        ordered_records.append(
-                            {{
-                                "record_kind": record["record_kind"],
-                                "gid": _gid_from_record(record),
-                                "row_identity": (
-                                    None if record["row_identity"] is None else
-                                    "sha256:" + record["row_identity"].hex()
-                                ),
-                            }}
+    try:
+        if not isinstance(product.result, DetailedFactsResult) or product.result.facts is None:
+            raise RuntimeError("pair comparison did not produce facts")
+        tables = []
+        for table in product.result.facts.tables:
+            ordered_records = []
+            handle = product.handles.get(table.table_name)
+            if handle is not None and table.ordered_extension is not None:
+                with closing(handle.record_batches("ORDERED")) as reader:
+                    for batch in reader:
+                        ordered_records.extend(
+                            {{"record_kind": record["record_kind"]}}
+                            for record in batch.to_pylist()
                         )
-        tables.append(
-            {{
-                "table_name": table.table_name,
-                "status": table.status.value,
-                "ordered_records": ordered_records,
-            }}
-        )
-    product.close()
-    print(json.dumps({{"tables": tables}}))
+            tables.append(
+                {{
+                    "table_name": table.table_name,
+                    "status": table.status.value,
+                    "ordered_records": ordered_records,
+                }}
+            )
+        print(json.dumps({{"tables": tables}}))
+    finally:
+        product.close()
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:

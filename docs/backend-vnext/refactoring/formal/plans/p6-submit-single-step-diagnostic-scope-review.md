@@ -3096,3 +3096,23 @@ RS在04 01:40:48–52Z按预置lock-base和network=none本机离线构建。闭�
 04实际wrapper清除包选择，按canonical离线环境在clean已提交058运行全六包权威入口，记录自身真实exit；开始前已核自有占用、legacy、整机quiet和三个tag本机身份。当前仅通过BatchMode后读取其**已有log末尾/status文件**：backend parallel3315 passed、serial76 passed，RS parallel1763 passed/1 skipped，RS serial仍在运行，final status尚不存在。上述中间结果不能作为整次qualified runner来源；后续须收到完整HEAD/exit、闭合manifest与postflight后再判门禁及绑定，旧H780整次exit1继续保持失败。审核未在运行中探测Docker、重建/tag、修改被测worktree或清理节点。
 
 本轮尝试经codex_tui向主协调发送本节结论，但本机MCP transport返回HTTP request failed（127.0.0.1:45207），read_thread同样不可用，**不声称本轮消息已送达**；结论先落本报告，待通道恢复由主协调收取。此通信故障不改变已核事实、原连续授权、在途任务或绝对截止，不联系已归档旧实施者。
+
+## 149. p6_record_finalize b包窄修复审PASS：core实例条件Finding关闭
+
+§147之后本地交付目录更新为 `p6-record-finalize-20261108b-ct201/p6-record-finalize-20261108b-ct05/`，本审核继续直接复核，没有因消息通道故障中止可完成的工作。**core最终派生record独审PASS，§147实例ID/UTC条件Finding关闭。** 新record182312B/SHA **`971ed42d46153d49d50693c45e68943f69589d5885fab8967dd4ccfec8438598`**，metadata5454B/SHA **`13a6c9799a9785eee009f0179b80e316c077e8eafc067e6877f781482d45026a`**；24个SHA256SUMS项全部MATCH，manifest SHA **`cb04f30a27f78b56eb8ee24334cb5ec4c6a7c448cb19f4ce8d4ac73ec8442151`**。
+
+独立将新旧core完整对象移除state后比较**精确相等**；实际只改七个baseline和H1 cache共8处字符串，模式、inputs、六Git对象、全部指纹/计数/计时/资源、实测HEAD和原raw绑定均不变。新state写逻辑角色、H1健康起点/原none/after及hit未知，物理commit和原UTC完整保存在external instance_provenance，包括旧精确描述；外部索引40416B/SHA **`8c29de6466b155e247b487f46709d20893117c3951dcff4eb5c0b9fb572ce23e`**，无schema/comparator/归一化修改。FULL/STRESS不重生，仍用§147通过的实际记录。
+
+05真实生成日志明确01:57:45.508–575Z、clean H780、原bf950f61 builder、隔离显式源码入口、exit0；最终postflight01:58:14.555Z/SHA **`1c445fa75dcd3d8ea24ad8d9d503525e2010816cfe35b74b43d98025cfa0d749`**，准确owner释放，无测试或服务。旧a包与全部失败/原件均保留。此PASS仅关闭当前历史派生/条件问题；§147具体comparator不适用原因、split-version资格限制和V5b/完整gate在途状态仍按原边界，不声称统一冻结版全矩阵通过。
+
+## 150. p6_v5b_resume F1/F2窄修复审PASS：具体接续接线可按原授权执行，实测尚未开始
+
+**最终controller接线独审PASS，§146 F1/F2关闭。** 同一交付目录entry19132B/SHA **`5d01789f415dd65959a77dd7f50790ef9214b5101fc584fff5e10bac5c58f70f`**；14项manifest均MATCH，SHA256SUMS SHA **`def30bf9ebccb4e88fe571d593fde3ccabd120c07f74481e34846d9295474149`**。已保存完整r2副本至 `p6-baseline-evidence-review-20261108/v5b-only-r2/`；旧entry及首manifest也保留在包内。measure/launch/c81工具/业务范围均未改变，不重新打开已通过consumer测试或DC63旅程。
+
+直接核完整增量：controller及sample模式先显式恢复INT，controller INT/TERM/HUP通过本地异常进统一finally，返回128+signal；finally的捕获式no-op防止普通重复信号打断收尾，exec的清理子命令恢复标准处置。所有group信号容忍ProcessLookupError；session检查错误被记录后继续RS日志/down路径，postflight仅用已观测HEAD或明确null/unknown，不作deadline耗尽后的额外Git调用。原HARD仍约束外部命令，未能完成清理时记录错误、保自有标记非零，不虚称干净或重置预算。此修正只落既有控制流，没有新监控/恢复框架。
+
+已读实际05短进程fixture源码与日志，未在CT201执行它。源码直接载入同一候选entry，复现Bash setsid后台继承INT忽略，三个实际controller信号场景退出130/143/129、子session清空、down调用一次及标记释放；组合错误场景验证消失group可容忍、辅助错误不跳过down尝试、预算耗尽仍落已知/未知postflight并保锁exit1，无Docker/RS/业务。validation log SHA **`406808b63416652dd3ef2868bbefa69f9d8fea548c1aa67fb4b8f5294fa0d346`** 记05 01:56:05–06Z、准确c81起止、候选/fixture摘要、fixture_exit0；01:56:17Z自有标记释放log SHA **`8eaadbcff7d91e2b5d42bbe24c40c5ffe6942bc7da0bba3d9620e5196db3e16b`**。必要验证范围与两个具体Finding相称。
+
+新CT108预检01:56:53.612Z/SHA **`c95d0c5fb571c9b8c8156c9d841ab8cb200ca65666ef9734070d394fbc36cdea`** 与首包逐项比较，仅entry摘要、UTC/剩余预算和可用资源变化，来源、state/raw/package/三卷/镜像完整层/labels、clean c81/native均相同，remaining65274.264s仍超过既有19200规划量，原20:04:47.876Z SIGINT和20:34:47.876Z hard不动。本审核BatchMode后仅读取CT108包文件摘要和输出存在状态：entry/measure/manifest/该preflight均与本地精确MATCH，controller.log和新output尚不存在；未追加Docker/资源探测。**具体接续可按原持续授权执行，无新Owner/GO；此时仍不能声称实际四段已完成或全测量已收口。**
+
+已尝试将§149/本节结论发主协调，但同一MCP transport仍HTTP失败，未送达；不绕过角色去启动独审对象或唤醒旧实施。主协调可从本报告及准确SHA收取结论，原任务和在途04 runner继续。后续V5b实际raw/六reference/采样/保卷postflight和04最终闭合材料仍分别待真实结果，不能以本节pre-execution PASS替代。

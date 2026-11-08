@@ -89,19 +89,19 @@ async function installModeRoutes(page: Page, state: ModeState) {
     headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
     body: bundle.tar,
   }));
-  await page.route(/\/v1\/workspaces\/[^/]+\/submissions\/[^/]+\/review$/, async (route) => {
+  await page.route(/\/v1\/submissions\/[^/]+\/review$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     if (state.reviewStatus && state.reviewStatus !== 200) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submissions/{submission_id}/review" && item.status === state.reviewStatus);
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review" && item.status === state.reviewStatus);
       return json(route, state.reviewStatus, error?.body ?? { code: "SCOPE_FORBIDDEN", message: "forbidden" });
     }
     return json(route, 200, state.review);
   });
-  await page.route(/\/v1\/workspaces\/[^/]+\/submissions\/[^/]+\/review-events$/, async (route) => {
+  await page.route(/\/v1\/submissions\/[^/]+\/review-events$/, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     if (state.reviewEventsConflictOnce) {
       state.reviewEventsConflictOnce = false;
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submissions/{submission_id}/review-events" && item.status === 409);
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review-events" && item.status === 409);
       return json(route, 409, error?.body ?? { code: "REVIEW_VERSION_CONFLICT", message: "conflict" });
     }
     state.workspace = workspace({ current_upload_revision_id: null, current_preview_result_id: null });
@@ -249,6 +249,9 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await page.goto("/?page=workspace");
   await expect(page.locator(".workspace-table")).toBeVisible();
   const details = page.locator(".workspace-details");
+  const expand = page.getByRole("button", { name: "展开详情面板" });
+  if (await expand.count()) await expand.click();
+  await expect(details.locator(".workspace-details__content")).toBeVisible();
 
   await page.locator("tr", { hasText: "已归档" }).first().click();
   await expect(details.getByText("终局处置")).toBeVisible();

@@ -84,6 +84,7 @@ async function installFixtureRoutes(page: Page, options: {
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
   let workspacePointerCleared = false;
+  let workspaceSubmitSucceeded = false;
   let uploadConflictConsumed = false;
 
   await page.route("**/v1/workspaces", async (route) => {
@@ -105,7 +106,7 @@ async function installFixtureRoutes(page: Page, options: {
       : response.body;
     if (options.workspaceSubmitAttemptId) {
       body = workspacePointerCleared
-        ? { ...body, active_submission_id: null, active_submit_attempt_id: null }
+        ? { ...body, active_submission_id: workspaceSubmitSucceeded ? "submission-1" : null, active_submit_attempt_id: null }
         : { ...body, active_submission_id: null, active_submit_attempt_id: options.workspaceSubmitAttemptId };
     }
     apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(body) });
@@ -258,6 +259,7 @@ async function installFixtureRoutes(page: Page, options: {
         : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId });
     if (options.clearWorkspacePointerOnTerminal && operationId === "submit-op-1" && (result.status === "SUCCEEDED" || result.status === "FAILED" || result.status === "ABORTED")) {
       workspacePointerCleared = true;
+      workspaceSubmitSucceeded = result.status === "SUCCEEDED";
     }
     apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 200, body: JSON.stringify(result) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
@@ -374,8 +376,8 @@ async function installFixtureRoutes(page: Page, options: {
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
     }
     const response = options.submitAborted
-      ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
-      : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
+      ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
+      : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(response) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
   });
@@ -1286,7 +1288,11 @@ test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }
     { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
     { ...MANUAL_RECOVERY_TO_SUCCESS[2]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
   ];
-  await installFixtureRoutes(page, { operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]! });
+  await installFixtureRoutes(page, {
+    operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]!,
+    workspaceSubmitAttemptId: "attempt-1",
+    clearWorkspacePointerOnTerminal: true,
+  });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
@@ -1614,7 +1620,7 @@ test("W9 提交续做读取失败时保持禁用并可重试", async ({ page }) 
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await expect(submit).toBeDisabled();
-  await expect(page.getByText("无法确认提交状态")).toBeVisible();
+  await expect(page.getByText("无法确认提交状态").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "重试读取" })).toBeVisible();
 });
 

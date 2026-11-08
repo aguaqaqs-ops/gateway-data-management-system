@@ -185,7 +185,7 @@ test("installs the backend interop bundle into OPFS with matching sizes and dige
   expect(expected.size).toBe(6);
   const installed = await readInstalledFiles(page, key, Array.from(expected.keys()));
   const topLevelDirs = [...new Set([...expected.keys()].filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))];
-  expect(installed.names.sort()).toEqual([".complete.json", "artifact-closure.json", "manifest.json", ...topLevelDirs].sort());
+  expect(installed.names.sort()).toEqual([".complete.json", ".last-used", "artifact-closure.json", "manifest.json", ...topLevelDirs].sort());
   expect(installed.marker.bundle_digest).toBe(key);
   for (const [path, file] of expected) {
     expect(installed.files[path]?.size).toBe(file.size);

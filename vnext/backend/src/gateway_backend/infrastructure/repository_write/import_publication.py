@@ -88,9 +88,8 @@ from gateway_backend.capabilities.table_rules import (
     ORDERED_POSITION_COLUMN,
     OrderedPolicy,
     StorageRuleView,
-    migrated_table_ruleset_snapshot,
 )
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION, TableRulesetSnapshot
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.domain.submission.models import BackendArtifactRef, BuilderMutationPolicy
 
 __all__ = [
@@ -210,15 +209,12 @@ class SubmitImportPublicationAdapter:
             and parent_by_name[name].canonical_row_count > 0
             and _patch_comparable(parent_by_name[name], frozen_by_name[name])
         )
-        parent_access: tuple[TableRulesetSnapshot, CanonicalBinding, CommittedCanonicalTablesPort] | None = None
+        parent_access: tuple[CanonicalBinding, CommittedCanonicalTablesPort] | None = None
         if parent_read_names:
             if self._repository_provider_factory is None or self._committed_tables is None:
                 raise SubmitImportPublicationError("Repository parent row access is unavailable")
-            parent_ruleset = migrated_table_ruleset_snapshot()
-            if parent_ruleset.ruleset_digest != parent_manifest.ruleset_digest:
-                raise SubmitImportPublicationError("parent manifest ruleset does not match runtime ruleset")
             parent_access = (
-                parent_ruleset, _canonical_binding_from_manifest(parent_manifest),
+                _canonical_binding_from_manifest(parent_manifest),
                 self._committed_tables(store, build_input.repository_id),
             )
         projected_tables: list[ProjectionTable] = []
@@ -419,11 +415,11 @@ class SubmitImportPublicationAdapter:
         build_input: PrepareImportBuildInput,
         *,
         table_name: str,
-        parent_access: tuple[TableRulesetSnapshot, CanonicalBinding, CommittedCanonicalTablesPort],
+        parent_access: tuple[CanonicalBinding, CommittedCanonicalTablesPort],
     ) -> SnapshotTable:
         if self._repository_provider_factory is None:
             raise SubmitImportPublicationError("Repository parent row provider is unavailable")
-        runtime_ruleset, binding, committed_tables = parent_access
+        binding, committed_tables = parent_access
         context = current_kernel_context()
         if context is None:
             raise ValueError("Submit parent reads require an operation kernel context")
@@ -436,7 +432,7 @@ class SubmitImportPublicationAdapter:
                 build_input.repository_id,
                 build_input.expected_parent_commit_id,
             ),
-            ruleset=runtime_ruleset,
+            ruleset=None,
             canonical_binding=binding,
             table_ruleset_version=TABLE_RULESET_VERSION,
             materialization_stage=MaterializationStage.FINAL,
@@ -444,6 +440,7 @@ class SubmitImportPublicationAdapter:
             context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
             requested_tables=(table_name,),
             committed_tables=committed_tables,
+            frozen_storage_only=True,
         )
         result = materialize_repository_ref(request)
         if result.status is not SnapshotMaterializationStatus.COMPLETE or result.table_set is None:

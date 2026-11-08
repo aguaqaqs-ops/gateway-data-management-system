@@ -1657,7 +1657,6 @@ def _build_prepare_import_build_input(
         parent_is_initial=parent_is_initial,
         removed_tables=removed_tables,
         source_artifact_digest=attempt.snapshot_digest,
-        repository_base_digest=attempt.source_digest,
         snapshot_tables=snapshot_tables,
     )
 

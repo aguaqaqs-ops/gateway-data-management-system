@@ -147,7 +147,6 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             parent_is_initial=True,
             removed_tables=(),
             source_artifact_digest=source_digest,
-            repository_base_digest=source_digest,
             snapshot_tables=snapshot_tables,
         )
         first_checkpoint = adapter.build_and_publish(
@@ -236,7 +235,6 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             parent_is_initial=False,
             removed_tables=removed_tables,
             source_artifact_digest=empty_projection.manifest.source_artifact_digest.value,
-            repository_base_digest=source_digest,
             snapshot_tables=(),
         )
         second_checkpoint = adapter.build_and_publish(

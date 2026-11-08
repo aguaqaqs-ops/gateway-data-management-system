@@ -26,6 +26,12 @@ Submit 在 T1 冻结规范产物之后（含 PREPARED）只使用冻结产物，
 （2026-09-27，[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)；实现随 P5 架构收口 S2a、S2b 交付，此前
 现行源码仍按原行为运行）。
 
+Submit 为冻结的 storage diff 读取 parent Repository commit 时，内部 RepositoryRef materializer
+使用完整 parent canonical binding 的 storage view、列和键，不解析激活后的 comparison ruleset；
+其 frozen-storage 请求不携带运行期 ruleset。精确 commit、完整 catalog、行数、canonical schema
+和 content 校验仍由原 materializer/committed access 执行。一般比较读取继续使用调用方的
+运行期 ruleset。
+
 Table ruleset snapshot 可以作为 protected hidden metadata table 随正式 canonical commit
 原子保存，例如保留 `__gateway_meta_*` namespace；它不进入 ordinary listing、comparison、
 risk、bundle、`StorageMutationPlan` 或 external sync。普通上传不得创建、覆盖或删除该

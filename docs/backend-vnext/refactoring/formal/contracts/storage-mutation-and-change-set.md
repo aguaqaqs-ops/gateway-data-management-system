@@ -166,7 +166,9 @@ handle.close()
 缺侧表示表不存在；存在的零行表仍有显式 schema 的空 stream。after 存在时须有完整
 stream 和 DDL layout。before 在强制 rebuild 时可只带 metadata；若拟 patch，必须从精确
 parent 读取完整 before，校验 count/content 与绑定并拒绝重复 storage key。NOOP 也要打开并
-核验冻结 after 输入，不能只信 manifest。`StorageTableSummary.net_counts=None` 明确表示未
+核验冻结 after 输入，不能只信 manifest。读取 parent 的 frozen-storage materializer 不读取当前 comparison ruleset，只用完整 parent
+canonical binding 的 storage view 建立内部 reader；精确 commit、全 catalog/count/content
+校验仍须通过。`StorageTableSummary.net_counts=None` 明确表示未
 读取 before 或未做 diff，不得伪填 0 或 before+after；已完成 diff 的 insert/update/delete
 计数为最终净变化，多列同键更新计一行、键变计 delete+insert。强制 rebuild 的实际 INSERT
 数单列记录，不能冒充净 diff。最多保留 1000 个 patch action locator；超限后仍完成计数。

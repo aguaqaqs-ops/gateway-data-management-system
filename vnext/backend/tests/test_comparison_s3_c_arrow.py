@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import threading
 import time
@@ -10,7 +11,7 @@ from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -27,7 +28,6 @@ from gateway_compute._native import (
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
     NativeRecordsHandle, RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy,
-    _record_sort_key, _record_to_row,
     _canonical_records_batch, _decoded_admission, _schema_matches,
     _standalone_read_bound, _standalone_retained_cap,
     _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
@@ -41,9 +41,6 @@ from gateway_backend.capabilities.comparison.contracts import (
     ArtifactScope, DetailedFactsResult, RecordsArtifactFamily, RecordsArtifactManifest,
     RecordsDetailPolicy, SchemaEvolution,
 )
-from gateway_backend.capabilities.comparison.row_encoding import (
-    _summary_payload, _table_digest_payload,
-)
 from gateway_backend.capabilities.comparison.standard import STANDARD_COMPARISON_ALGORITHM_VERSION
 from gateway_backend.capabilities.table_access import NeverCancel
 from gateway_backend.capabilities.table_access.kernel import OperationMemoryBudget
@@ -54,8 +51,8 @@ from tests.support.comparison_s3_c_inputs import (
     plan as _plan,
 )
 from tests.support.records_diagnostic import standalone_records_batches
+from tests.support.comparison_s3_e_frozen import frozen_case
 from tests.test_comparison_artifacts import _standard_result
-from gateway_backend.capabilities.comparison import compare_plan
 
 pytestmark = pytest.mark.unit
 
@@ -95,19 +92,35 @@ class NativeTestHandle(NativeRecordsHandle, Protocol):
     def close(self) -> None: ...
 
 
-def _native_one() -> tuple[NativeTestOperation, NativeTestHandle, Charge, Charge, DetailedFactsResult]:
+_STANDARD_FROZEN_NODEID = (
+    "tests/test_comparison_s3_c_arrow.py::"
+    "test_native_standard_arrow_and_complete_facts_match_pre_c_source"
+)
+_ORDERED_FROZEN_NODEID = (
+    "tests/test_comparison_s3_c_arrow.py::"
+    "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python"
+)
+
+
+def _captured_row_shape(rows: object) -> Any:
+    def bytes_shape(value: object) -> dict[str, str]:
+        assert isinstance(value, bytes)
+        return {"bytes_hex": value.hex()}
+
+    return cast(Any, json.loads(json.dumps(rows, default=bytes_shape)))
+
+
+def _native_one() -> tuple[NativeTestOperation, NativeTestHandle, Charge, Charge, dict[str, Any]]:
     before = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'before');")
     current = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, NULL);")
     plan = _plan(before, current)
-    expected = compare_plan(plan)
-    assert isinstance(expected, DetailedFactsResult)
-    assert expected.facts is not None
-    table = expected.facts.tables[0]
+    expected = frozen_case(_STANDARD_FROZEN_NODEID)
+    table = expected["table_payload"]
     task = plan.tasks[0]
     assert task.policy is not None
     assert task.before_table is not None and task.current_table is not None
     policy = {
-        "mode": "keyed", "selected_columns": list(table.schema_changes.selected_columns),
+        "mode": "keyed", "selected_columns": table["schema_changes"]["selected"],
         "effective_key_before": list(task.policy.effective_key_before),
         "effective_key_current": list(task.policy.effective_key_current),
         "compare_excluded_columns": [], "incompatible_columns": [],
@@ -135,41 +148,32 @@ def _native_one() -> tuple[NativeTestOperation, NativeTestHandle, Charge, Charge
 
 def test_native_standard_arrow_and_complete_facts_match_pre_c_source() -> None:
     operation, handle, operation_charge, input_charge, expected = _native_one()
-    assert expected.facts is not None
-    fact = expected.facts.tables[0]
     reader = handle.record_batches("STANDARD")
     try:
         built_batches = tuple(reader)
         rows = [row for batch in built_batches for row in batch.to_pylist()]
     finally:
         reader.close()
-    assert rows == [_record_to_row(
-        RecordsArtifactFamily.STANDARD, fact.records[0],
-        RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
-    )]
-    old_store = InMemoryArtifactStore()
-    old_published = publish_records_closure(expected, old_store)
-    assert isinstance(old_published, DetailedFactsResult)
-    assert old_published.records_closure is not None
+    assert _captured_row_shape(rows) == expected["record_rows"]["STANDARD"]
+    old_entry = expected["records"][0]
     assert handle.family_summary("STANDARD") == (
-        1, old_published.records_closure.records[0].records_content_digest.value
+        1, old_entry["content_digest"],
     )
-    old_raw = old_store.locate(old_published.records_closure.records[0].records_ref)
-    assert _write_arrow_parquet(
+    new_raw = _write_arrow_parquet(
         built_batches,
         _schema_for(RecordsArtifactFamily.STANDARD, None,
                     RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
         RecordsPublicationPolicy(), RecordsPublicationContext(),
-    ) == old_raw
-    metadata = _table_digest_payload(fact)
+    )
+    assert hashlib.sha256(new_raw).hexdigest() == old_entry["raw_sha256"]
+    metadata = expected["table_payload"].copy()
     metadata["records"] = []
     raw = json.dumps(metadata)
-    assert fact.table_fact_digest is not None
-    assert handle.table_fact_digest(raw, 8 * 1024**2) == fact.table_fact_digest.value
+    assert handle.table_fact_digest(raw, 8 * 1024**2) == expected["tables"][0]["table_fact_digest"]
     assert _facts_core_digest_native(
         operation, [handle], [raw], STANDARD_COMPARISON_ALGORITHM_VERSION,
-        json.dumps(_summary_payload(expected.facts.summary)), 8 * 1024**2,
-    ) == expected.facts.facts_core_digest.value
+        json.dumps(expected["summary_payload"]), 8 * 1024**2,
+    ) == expected["facts_core_digest"]
     handle.close()
     operation.close()
     # The exported batch buffers still own both charges after their source
@@ -513,15 +517,14 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
         INSERT INTO t VALUES (1, 1, 'a'), (3, 2, 'c'), (2, 3, 'b'), (NULL, 4, 'x');
     """)
     plan = _plan(before, current, ordered=True)
-    expected = compare_plan(plan)
-    assert isinstance(expected, DetailedFactsResult) and expected.facts is not None
-    fact = expected.facts.tables[0]
+    expected = frozen_case(_ORDERED_FROZEN_NODEID)
+    fact = expected["table_payload"]
     task = plan.tasks[0]
     assert task.policy is not None and task.policy.ordered_policy is not None
     assert task.before_table is not None and task.current_table is not None
     assert task.before_descriptor is not None and task.current_descriptor is not None
     ordered_policy = task.policy.ordered_policy
-    changes = fact.schema_changes
+    changes = fact["schema_changes"]
     policy = {
         "table_name": task.table_name,
         "policy_version": ordered_policy.policy_version,
@@ -530,20 +533,20 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
         "digest_value_columns": list(ordered_policy.value_columns),
         "compare_excluded_columns": list(task.policy.compare_excluded_columns),
         "emit_add_delete": task.artifact_scope is ArtifactScope.ALL_CHANGES,
-        "schema_changed": fact.status.value == "SCHEMA_ONLY_CHANGED",
+        "schema_changed": fact["status"] == "SCHEMA_ONLY_CHANGED",
         "raw_content_changed": task.before_descriptor.raw_content_digest != task.current_descriptor.raw_content_digest,
-        "columns_added": changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED,
+        "columns_added": changes["schema_evolution"] == SchemaEvolution.COLUMNS_ADDED.value,
         "before_blank_provenance": _blank_provenance(task.before_table),
         "current_blank_provenance": _blank_provenance(task.current_table),
         "schema_changes": {
-            "before_only_columns": list(changes.before_only_columns),
-            "current_only_columns": list(changes.current_only_columns),
-            "selected_columns": list(changes.selected_columns),
-            "effective_compare_key_before": list(changes.effective_compare_key_before),
-            "effective_compare_key_current": list(changes.effective_compare_key_current),
-            "effective_compare_key_changed": changes.effective_compare_key_changed,
-            "incompatible_columns": list(changes.incompatible_columns),
-            "change_source": None if changes.change_source is None else changes.change_source.value,
+            "before_only_columns": changes["before_only"],
+            "current_only_columns": changes["current_only"],
+            "selected_columns": changes["selected"],
+            "effective_compare_key_before": changes["key_before"],
+            "effective_compare_key_current": changes["key_current"],
+            "effective_compare_key_changed": changes["key_changed"],
+            "incompatible_columns": changes["incompatible"],
+            "change_source": changes["change_source"],
         },
     }
     operation = _begin_comparison_operation_native(2 * 1024**3, Charge(), NeverCancel())
@@ -558,49 +561,39 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
     finally:
         before_stream.close()
         current_stream.close()
-    families = (
-        ("STANDARD", RecordsArtifactFamily.STANDARD, fact.records),
-        ("ORDERED", RecordsArtifactFamily.ORDERED,
-         () if fact.ordered_extension is None else fact.ordered_extension.records),
-        ("BLANK", RecordsArtifactFamily.BLANK,
-         () if fact.blank_extension is None else fact.blank_extension.records),
-    )
-    old_store = InMemoryArtifactStore()
-    old_published = publish_records_closure(expected, old_store)
-    assert isinstance(old_published, DetailedFactsResult)
-    assert old_published.records_closure is not None
-    old_entries = {entry.family: entry for entry in old_published.records_closure.records}
-    for name, family, records in families:
+    old_entries = {entry["family"]: entry for entry in expected["records"]}
+    for name, family in (
+        ("STANDARD", RecordsArtifactFamily.STANDARD),
+        ("ORDERED", RecordsArtifactFamily.ORDERED),
+        ("BLANK", RecordsArtifactFamily.BLANK),
+    ):
         with closing(handle.record_batches(name)) as stream:
             built_batches = tuple(stream)
         rows = [row for batch in built_batches for row in batch.to_pylist()]
-        assert rows == [
-            _record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
-            for record in sorted(records, key=lambda item: _record_sort_key(family, item))
-        ]
-        if records:
-            old_entry = old_entries[family]
+        assert _captured_row_shape(rows) == expected["record_rows"][name]
+        if name in old_entries:
+            old_entry = old_entries[name]
             assert handle.family_summary(name) == (
-                len(records), old_entry.records_content_digest.value
+                old_entry["record_count"], old_entry["content_digest"],
             )
-            assert _write_arrow_parquet(
+            raw_parquet = _write_arrow_parquet(
                 built_batches,
                 _schema_for(family, None, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
                 RecordsPublicationPolicy(), RecordsPublicationContext(),
-            ) == old_store.locate(old_entry.records_ref)
-    metadata = _table_digest_payload(fact)
+            )
+            assert hashlib.sha256(raw_parquet).hexdigest() == old_entry["raw_sha256"]
+    metadata = expected["table_payload"].copy()
     metadata["records"] = []
     for extension in ("ordered_extension", "blank_extension"):
         value = metadata.get(extension)
         if isinstance(value, dict):
             value["records"] = []
     raw = json.dumps(metadata)
-    assert fact.table_fact_digest is not None
-    assert handle.table_fact_digest(raw, 8 * 1024**2) == fact.table_fact_digest.value
+    assert handle.table_fact_digest(raw, 8 * 1024**2) == expected["tables"][0]["table_fact_digest"]
     assert _facts_core_digest_native(
         operation, [handle], [raw], STANDARD_COMPARISON_ALGORITHM_VERSION,
-        json.dumps(_summary_payload(expected.facts.summary)), 8 * 1024**2,
-    ) == expected.facts.facts_core_digest.value
+        json.dumps(expected["summary_payload"]), 8 * 1024**2,
+    ) == expected["facts_core_digest"]
     handle.close()
     operation.close()
 

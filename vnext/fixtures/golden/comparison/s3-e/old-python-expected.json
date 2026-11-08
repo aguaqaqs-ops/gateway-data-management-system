@@ -1,0 +1,839 @@
+{
+  "capture_jsonl_sha256": "7c629fdbe64bc4ffb016135accd86cc74edacd93cd7b32347d4ed2364e0027f9",
+  "cases": {
+    "tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source": {
+      "comparison_digest": "sha256:a8034c55f08a15effc5a8cb25a2746aac4f5316d4aa026390300aa8306143754",
+      "facts_core_digest": "sha256:b8a9aad1bfb074f8eae9cd59bcaab1b0b57fc0fec43ff105de59cd0d6e7424c0",
+      "input_digest": "ca4bf18be6d5e4f1c7eb51deb6c450f123fd6a2df56e84174d542770020dc825",
+      "record_rows": {
+        "BLANK": [],
+        "ORDERED": [],
+        "STANDARD": [
+          {
+            "before_values": [
+              {
+                "column_name": "note",
+                "value": {
+                  "anomaly_json": null,
+                  "boolean": null,
+                  "items": null,
+                  "kind": "string",
+                  "raw_bytes": null,
+                  "text": "before"
+                }
+              }
+            ],
+            "changed_columns": [
+              "note"
+            ],
+            "current_values": [
+              {
+                "column_name": "note",
+                "value": {
+                  "anomaly_json": null,
+                  "boolean": null,
+                  "items": null,
+                  "kind": "null",
+                  "raw_bytes": null,
+                  "text": null
+                }
+              }
+            ],
+            "diagnostics": [],
+            "field_changes": [
+              {
+                "before_value": {
+                  "anomaly_json": null,
+                  "boolean": null,
+                  "items": null,
+                  "kind": "string",
+                  "raw_bytes": null,
+                  "text": "before"
+                },
+                "column_name": "note",
+                "current_value": {
+                  "anomaly_json": null,
+                  "boolean": null,
+                  "items": null,
+                  "kind": "null",
+                  "raw_bytes": null,
+                  "text": null
+                }
+              }
+            ],
+            "record_kind": "ROW_MODIFIED",
+            "row_identity": {
+              "bytes_hex": "7a2fbbb8ee07cc738cbe40d633f2e3fa2c7fc83166083a386ba4c2132d070f72"
+            },
+            "table_name": "t"
+          }
+        ]
+      },
+      "records": [
+        {
+          "content_digest": "sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4",
+          "family": "STANDARD",
+          "raw_sha256": "6f36fec125a0fe48fd021b4cdba4486b280a4e3e596fe44a8f57ebb0ac7fa309",
+          "raw_size": 10021,
+          "record_count": 1,
+          "table_name": "t"
+        }
+      ],
+      "summary_payload": {
+        "added_table_count": 0,
+        "changed_table_count": 1,
+        "degraded_table_count": 0,
+        "deleted_table_count": 0,
+        "row_added_count": 0,
+        "row_deleted_count": 0,
+        "row_modified_count": 1,
+        "schema_changed_table_count": 0,
+        "status": "CHANGED",
+        "suppressed_added_count": 0,
+        "suppressed_deleted_count": 0,
+        "table_count": 1,
+        "unchanged_table_count": 0
+      },
+      "table_payload": {
+        "blank_extension": null,
+        "content_changed": false,
+        "ordered_extension": null,
+        "records": [
+          {
+            "before_values": [
+              [
+                "note",
+                "20066265666f7265"
+              ]
+            ],
+            "changed_columns": [
+              "note"
+            ],
+            "current_values": [
+              [
+                "note",
+                "0000"
+              ]
+            ],
+            "field_changes": [
+              {
+                "before": "20066265666f7265",
+                "column": "note",
+                "current": "0000"
+              }
+            ],
+            "kind": "ROW_MODIFIED",
+            "row_identity": "sha256:7a2fbbb8ee07cc738cbe40d633f2e3fa2c7fc83166083a386ba4c2132d070f72"
+          }
+        ],
+        "row_added_count": 0,
+        "row_count_before": 1,
+        "row_count_current": 1,
+        "row_deleted_count": 0,
+        "row_modified_count": 1,
+        "schema_changes": {
+          "before_only": [],
+          "change_source": null,
+          "current_only": [],
+          "incompatible": [],
+          "key_before": [
+            "id"
+          ],
+          "key_changed": false,
+          "key_current": [
+            "id"
+          ],
+          "schema_evolution": "NONE",
+          "selected": [
+            "id",
+            "note"
+          ]
+        },
+        "status": "MODIFIED",
+        "suppressed_added_count": 0,
+        "suppressed_deleted_count": 0,
+        "table_name": "t"
+      },
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 1
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:c65c8dfb8948272df85c81f926e3a98429bfb6abafbeddc0f70dc78494bdeb4a"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_c_arrow.py::test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python": {
+      "comparison_digest": "sha256:cd23d55ba5b323e6243973a6df7d8f634dbbd64672b44410f76bcba01a9d595d",
+      "facts_core_digest": "sha256:f1cd5ea3447237dd30e85c2ecb2821deed5481adbe1eee5dca0a123f864d20b8",
+      "input_digest": "ef3b8c55bdf37b0d7ca60e24c34739c1e0acf7b80ee600b748161229d8aa1976",
+      "record_rows": {
+        "BLANK": [
+          {
+            "before_occupancy": 1,
+            "current_occupancy": 0,
+            "diagnostics": [],
+            "interval": {
+              "before_end": 2,
+              "before_start": 2,
+              "current_end": null,
+              "current_start": null,
+              "interval_digest": {
+                "bytes_hex": "6adf4fbdc58a526e91ed8ddd264de2beb30ca1df124e103a2cbde7103b31a166"
+              },
+              "row_count": 1
+            },
+            "record_kind": "BLANK_DELETE_INTERVAL",
+            "semantic_kind": "BLANK_DELETE_INTERVAL",
+            "table_name": "t"
+          },
+          {
+            "before_occupancy": 0,
+            "current_occupancy": 1,
+            "diagnostics": [],
+            "interval": {
+              "before_end": null,
+              "before_start": null,
+              "current_end": 4,
+              "current_start": 4,
+              "interval_digest": {
+                "bytes_hex": "275b653eeca833419db116df93a0b1b32b2ab9a7b6bebbe4d275aaa9b202c78c"
+              },
+              "row_count": 1
+            },
+            "record_kind": "BLANK_INSERT_INTERVAL",
+            "semantic_kind": "BLANK_INSERT_INTERVAL",
+            "table_name": "t"
+          }
+        ],
+        "ORDERED": [
+          {
+            "before_position": 4,
+            "before_values": [],
+            "changed_columns": [],
+            "current_position": 2,
+            "current_values": [],
+            "diagnostics": [],
+            "entity_key_kind": "REAL_STABLE",
+            "record_kind": "ORDERED_ROW_MOVED",
+            "row_identity": {
+              "bytes_hex": "529ec358970a6f53f0fe5458a6556ea3c3a4379e48b8d3879c033a41e52c39cf"
+            },
+            "semantic_kind": "MOVE",
+            "table_name": "t"
+          }
+        ],
+        "STANDARD": []
+      },
+      "records": [
+        {
+          "content_digest": "sha256:16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475",
+          "family": "BLANK",
+          "raw_sha256": "b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281",
+          "raw_size": 4692,
+          "record_count": 2,
+          "table_name": "t"
+        },
+        {
+          "content_digest": "sha256:1aa39cbb8229e0a96723d2a96fc2449449919f4456a699b6af6426512273c7b6",
+          "family": "ORDERED",
+          "raw_sha256": "015d384a624dc44d8a1fd92ca0db35e376a39928c5718f499cb3ec830f674f26",
+          "raw_size": 7263,
+          "record_count": 1,
+          "table_name": "t"
+        }
+      ],
+      "summary_payload": {
+        "added_table_count": 0,
+        "changed_table_count": 1,
+        "degraded_table_count": 0,
+        "deleted_table_count": 0,
+        "row_added_count": 0,
+        "row_deleted_count": 0,
+        "row_modified_count": 0,
+        "schema_changed_table_count": 0,
+        "status": "CHANGED",
+        "suppressed_added_count": 0,
+        "suppressed_deleted_count": 0,
+        "table_count": 1,
+        "unchanged_table_count": 0
+      },
+      "table_payload": {
+        "blank_extension": {
+          "before_occupancy_digest": "sha256:362a75ab2076c7debd575d9b85be4186c3e44a89748aa36c3c9da668da772007",
+          "contract_version": "backend-vnext/comparison-blank/v1",
+          "current_occupancy_digest": "sha256:ef90b40047d70d83dee0cf75f0fc7e5e2798961c00bb70fec33d3b9c6823e99d",
+          "records": [
+            {
+              "before_occupancy": 0,
+              "current_occupancy": 1,
+              "entity_key_kind": "PSEUDO_BLANK",
+              "interval": {
+                "before_end": null,
+                "before_start": null,
+                "current_end": 4,
+                "current_start": 4,
+                "interval_digest": "sha256:275b653eeca833419db116df93a0b1b32b2ab9a7b6bebbe4d275aaa9b202c78c",
+                "row_count": 1
+              },
+              "record_kind": "BLANK_INSERT_INTERVAL",
+              "semantic_kind": "BLANK_INSERT_INTERVAL"
+            },
+            {
+              "before_occupancy": 1,
+              "current_occupancy": 0,
+              "entity_key_kind": "PSEUDO_BLANK",
+              "interval": {
+                "before_end": 2,
+                "before_start": 2,
+                "current_end": null,
+                "current_start": null,
+                "interval_digest": "sha256:6adf4fbdc58a526e91ed8ddd264de2beb30ca1df124e103a2cbde7103b31a166",
+                "row_count": 1
+              },
+              "record_kind": "BLANK_DELETE_INTERVAL",
+              "semantic_kind": "BLANK_DELETE_INTERVAL"
+            }
+          ],
+          "replay_guarantee": "EXACT",
+          "status": "ORDERED_CHANGED",
+          "summary": {
+            "changed": 2,
+            "degraded": 0,
+            "deleted": 1,
+            "inserted": 1
+          }
+        },
+        "content_changed": false,
+        "ordered_extension": {
+          "before_ordered_digest": "sha256:841f51f56b1d8774e4e7bc01a3f9910c737e4cbdbf26a45ef0e371e7452b3a6e",
+          "contract_version": "backend-vnext/ordered-diff/v2",
+          "current_ordered_digest": "sha256:e91cd996df111340e313dd58a280d3aa1c84d76371fdad30e87748b71c5f517a",
+          "policy_digest": "sha256:d9b7cdf99a1d55e63dcc8fce5c31e4905923a0bbfdb07b1cc5874a3c5c9ed02e",
+          "records": [
+            {
+              "before_position": 4,
+              "before_values": [],
+              "changed_columns": [],
+              "current_position": 2,
+              "current_values": [],
+              "entity_key_kind": "REAL_STABLE",
+              "record_kind": "ORDERED_ROW_MOVED",
+              "row_identity": "sha256:529ec358970a6f53f0fe5458a6556ea3c3a4379e48b8d3879c033a41e52c39cf",
+              "semantic_kind": "MOVE"
+            }
+          ],
+          "replay_guarantee": "EXACT",
+          "status": "ORDERED_CHANGED",
+          "summary": {
+            "degraded": 0,
+            "position_changed": 0,
+            "row_added": 0,
+            "row_deleted": 0,
+            "row_modified": 0,
+            "row_moved": 1
+          },
+          "table_processing_mode": "ORDERED_REORDER_COMPLEX"
+        },
+        "records": [],
+        "row_added_count": 0,
+        "row_count_before": 4,
+        "row_count_current": 4,
+        "row_deleted_count": 0,
+        "row_modified_count": 0,
+        "schema_changes": {
+          "before_only": [],
+          "change_source": null,
+          "current_only": [],
+          "incompatible": [],
+          "key_before": [
+            "gid"
+          ],
+          "key_changed": false,
+          "key_current": [
+            "gid"
+          ],
+          "schema_evolution": "NONE",
+          "selected": [
+            "gid",
+            "no",
+            "value"
+          ]
+        },
+        "status": "MODIFIED",
+        "suppressed_added_count": 0,
+        "suppressed_deleted_count": 0,
+        "table_name": "t"
+      },
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:6a29c3f9271db39342759449fd65a172ea872e75a18f083019a617c168ee2d53"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_cached_success_is_rechecked_when_the_same_reader_closes": {
+      "comparison_digest": "sha256:c76fe3281e22ec30c24cee9cdfd2acbb0955f5eb31562d42b7cdbc6956f207be",
+      "facts_core_digest": "sha256:dbb67ba3e2702a8be374acb36319f135ab6c26643eeab1783a9bf0268216e15d",
+      "input_digest": "f51a19b04a76a30ee5605d89df7def69becf9b07887532351086d9177702fb64",
+      "tables": [
+        {
+          "diagnostics": [
+            "TableAccessError"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:f0fd0bdee963568d9d6d2a8e557fa363a3dcc2b4c728f95413233d62a821b740"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_closed_reader_is_an_ordinary_per_table_failure[False]": {
+      "comparison_digest": "sha256:a7a40f00fe5343c79e130556df5b067c222963847ff9c3ffeaefd8d7ec19e745",
+      "facts_core_digest": "sha256:97c7d746c1073d5df6fdb8d4030960e485adb075ee4b764f9426c1dd5a867d72",
+      "input_digest": "456992e511a3bb5cc42b22d52661d4d611628f2c664a163cd342e5f7880867c5",
+      "tables": [
+        {
+          "diagnostics": [
+            "TableAccessError"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:0dd6adb7d406478928e7a138a2abeb4d74ae5a1413ce192f15b0969b28588bb9"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_closed_reader_is_an_ordinary_per_table_failure[True]": {
+      "comparison_digest": "sha256:0f9bd79e87ba51ce779edc5724cd446a642626002a6d5d56a8ad69ab80300c01",
+      "facts_core_digest": "sha256:74b3affe614a538e3577df5f5e9d17bde05350100de960a663bc12b57bba9ee1",
+      "input_digest": "39b5bf944807a2a888c93c2231d1c111f97a3d52478a5b225d47265a322247fc",
+      "tables": [
+        {
+          "diagnostics": [
+            "TableAccessError"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:7f175524f5e07afb422854844d4bdf4c84e359103d5e2588b83be4bf69da006d"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_duplicate_key_keeps_the_frozen_table_diagnostic": {
+      "comparison_digest": "sha256:9fd0097add0ac14a9376ea938fc7b91b10c83e828697a5ce0c6df42b3f1beeba",
+      "facts_core_digest": "sha256:b837c47b56164a670b468f2bb96ca2b8ce3d09c92e34655830c4395c02092939",
+      "input_digest": "8ec3d5a77cbc3d4b67a25b7ceeaade6c55668da073d6e0078b64eb03d45ad595",
+      "tables": [
+        {
+          "diagnostics": [
+            "DUPLICATE_EFFECTIVE_KEY:t"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:d678911480230cdaa54025fc65a8dbbcc16d44f42c7a8a190b81bfafe2b94570"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts": {
+      "comparison_digest": "sha256:8a7cb516498fddd7f4fd0274c6d78e8fce5477b2814a00ff44f89362b0f3a931",
+      "facts_core_digest": "sha256:cf130d771c6d08e91fac3c886bdc9ed6b266646e3b5546d1ba56dac08bcb5ef9",
+      "input_digest": "be03d3f2d930de457213295bebe112aeb4fbdaec3a2903320fc900c910aa70df",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 1
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:be70f7100505131f0815101a6b4ab63826c73f2d0f318d1b4fed873ba1663fda"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m": {
+      "comparison_digest": "sha256:8a84937173fa356bba503f104aa248367c6a8b00cbd2956d3bbecea5ca4365b7",
+      "facts_core_digest": "sha256:dd39977aac49c2d65197ad65d997a35118f00286387ac42e2895d8944da19a84",
+      "input_digest": "ad4d26f791800cacf02414c8040ef032852ce54b6de227ed4a7555431e9a5884",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 1
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:1c3b10b3cb042688049a15046fa79cb622d5232a7b1919198d0b6e40cc58ab58"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status": {
+      "comparison_digest": "sha256:86db92cee087f5422776b022b6fea58fb5cadf5f4cd5d996fd61ca01793f1494",
+      "facts_core_digest": "sha256:db2cfc66087d56e01a4f63bd2d08b50418bc5568a4cb4aa48b7a84b220de2181",
+      "input_digest": "67c1d6195bdd6b4a1f0424ad5b64e4e6ac587b9f129bb4c7849608d5c7f7191d",
+      "old_risk": {
+        "options": {
+          "annotation_detail_policy": "TARGETS_ONLY",
+          "include_low_risk": true,
+          "include_unknown": true
+        },
+        "risk_evaluation_digest": "sha256:0b383a46b75deede4a692ec08b7a7e9911ebd62bb7775284a59f8d458c4f5122",
+        "risk_model_version": "backend-vnext/risk-model/v3",
+        "ruleset_digest": "sha256:8fcf6e1fe75a876065f1d392d7b85e7a7b692c4ed0b9266a61f6ca28f44aa677",
+        "ruleset_version": "v3"
+      },
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 1,
+            "deleted": 1,
+            "modified": 0
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:5f16e1be7f336d8c55537f30ccbe46deba1b9caf76d939a6d4ff98b0f5de001f"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_keyless_degrade_policy_still_checks_reader_before_schema_record": {
+      "comparison_digest": "sha256:bdcc79d5c709666a94de6121c8437828d4262671f0f37614eeaa8eac73cfa317",
+      "facts_core_digest": "sha256:6232afbf58d47f54b0e4bc044bae3ac5d1e125f6f8a87d9721e90978e863d8ba",
+      "input_digest": "cd442fe0e64df10ef98e851c1b6c671dd95efbdae48afb3b3ec7df8ca839eb5a",
+      "tables": [
+        {
+          "diagnostics": [
+            "TABLE_READER_UNAVAILABLE"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:8c5f3dd738ec10c617066647cb5111c38afb8bb0749b09b34b04d59b378128b4"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_metadata_only_added_deleted_tables_replay_full_core_without_native_reads": {
+      "comparison_digest": "sha256:466a9184062da33e15fe4d7c043fbab79426454e7e6a1d5a03012516a694c345",
+      "facts_core_digest": "sha256:a2de137d5e4cd60e74354e7bebdc262dc4ee9a86d6ac76017e865e918e4b4362",
+      "input_digest": "3eba1486933a82b86c15ae406e253de2cd006f685c7ba2972540d590056564d3",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DELETED_TABLE",
+          "table_fact_digest": "sha256:b56c7ac9bd70270ebd2b192f889a932a17b024601c02e1d82becb2b57a6e1d7f"
+        },
+        {
+          "diagnostics": [],
+          "name": "u",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "ADDED_TABLE",
+          "table_fact_digest": "sha256:30046f5381a8f6e4500e091265dd1cd4c4066dcd79363de74a63434203e6360a"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_nonrecord_added_column_uses_shared_multiset_without_public_row_counts[BROWSE_ONLY]": {
+      "comparison_digest": "sha256:15640d46dfc6b585eb68fbf6cbca761af76bc51eb4da05183f11a019832af4cf",
+      "facts_core_digest": "sha256:83463439216ffc9c03f4024965f608bb8b10387c2928e7302a2593d6d6ec96f6",
+      "input_digest": "ceaf8a343859a544d9f9d796b778afc27222e3f62cbafea529702bf3d703fcd6",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "UNCHANGED",
+          "table_fact_digest": "sha256:ff69387a1238622347f01e63023a1a5960ea30fc8dbd0ffd1abbee9fc292928d"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_nonrecord_added_column_uses_shared_multiset_without_public_row_counts[SNAPSHOT_ONLY]": {
+      "comparison_digest": "sha256:8da317dc4fc4e81b53b4aff790f749ce23c51692c321014337b7029232250d6a",
+      "facts_core_digest": "sha256:83463439216ffc9c03f4024965f608bb8b10387c2928e7302a2593d6d6ec96f6",
+      "input_digest": "ffe316d65475e53ff3e3968883a18fc6f56fd49f21d89dc11e92e47db0dcc604",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "UNCHANGED",
+          "table_fact_digest": "sha256:ff69387a1238622347f01e63023a1a5960ea30fc8dbd0ffd1abbee9fc292928d"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_ordered_reader_failure_preserves_standard_ordered_and_blank_degradation": {
+      "comparison_digest": "sha256:6c741821049619d4a2fe4c262f368a70a720c49678e3e580ab9bf94a7aedd56a",
+      "facts_core_digest": "sha256:4f569911aa345fc0e17ac422e111435705705a64e5e11bf27f655eb9703d8712",
+      "input_digest": "6e50c05ba78390b0b2e9c5054fe7c19ee20089756530d4a8502d4010f14b42fc",
+      "tables": [
+        {
+          "diagnostics": [
+            "TABLE_READER_UNAVAILABLE"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:99b5a7d0eb1c22c54586de708cecde54429da84f554d748668f37e30caf19778"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets": {
+      "blank_only": {
+        "closure_manifest_digest": "sha256:7b589a48cab57b290cb6b228070e905b9e909dd79908e69c975575a4ffd15349",
+        "raw_sha256": "b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281"
+      },
+      "blank_records": [
+        {
+          "before_occupancy": 0,
+          "current_occupancy": 1,
+          "entity_key_kind": "PSEUDO_BLANK",
+          "interval": {
+            "before_end": null,
+            "before_start": null,
+            "current_end": 4,
+            "current_start": 4,
+            "interval_digest": "sha256:275b653eeca833419db116df93a0b1b32b2ab9a7b6bebbe4d275aaa9b202c78c",
+            "row_count": 1
+          },
+          "record_kind": "BLANK_INSERT_INTERVAL",
+          "semantic_kind": "BLANK_INSERT_INTERVAL"
+        },
+        {
+          "before_occupancy": 1,
+          "current_occupancy": 0,
+          "entity_key_kind": "PSEUDO_BLANK",
+          "interval": {
+            "before_end": 2,
+            "before_start": 2,
+            "current_end": null,
+            "current_start": null,
+            "interval_digest": "sha256:6adf4fbdc58a526e91ed8ddd264de2beb30ca1df124e103a2cbde7103b31a166",
+            "row_count": 1
+          },
+          "record_kind": "BLANK_DELETE_INTERVAL",
+          "semantic_kind": "BLANK_DELETE_INTERVAL"
+        }
+      ],
+      "blank_summary": {
+        "changed": 2,
+        "degraded": 0,
+        "deleted": 1,
+        "inserted": 1
+      },
+      "comparison_digest": "sha256:cd23d55ba5b323e6243973a6df7d8f634dbbd64672b44410f76bcba01a9d595d",
+      "facts_core_digest": "sha256:f1cd5ea3447237dd30e85c2ecb2821deed5481adbe1eee5dca0a123f864d20b8",
+      "input_digest": "ef3b8c55bdf37b0d7ca60e24c34739c1e0acf7b80ee600b748161229d8aa1976",
+      "old_risk": {
+        "options": {
+          "annotation_detail_policy": "TARGETS_ONLY",
+          "include_low_risk": true,
+          "include_unknown": true
+        },
+        "risk_evaluation_digest": "sha256:c33607cced216829fe3e3ce07916e0c0de4ad12acceff2672402bf67acfcc2ad",
+        "risk_model_version": "backend-vnext/risk-model/v3",
+        "ruleset_digest": "sha256:8fcf6e1fe75a876065f1d392d7b85e7a7b692c4ed0b9266a61f6ca28f44aa677",
+        "ruleset_version": "v3"
+      },
+      "ordered_summary": {
+        "degraded": 0,
+        "position_changed": 0,
+        "row_added": 0,
+        "row_deleted": 0,
+        "row_modified": 0,
+        "row_moved": 1
+      },
+      "records": [
+        {
+          "content_digest": "sha256:16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475",
+          "family": "BLANK",
+          "raw_sha256": "b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281",
+          "raw_size": 4692,
+          "record_count": 2,
+          "table_name": "t"
+        },
+        {
+          "content_digest": "sha256:1aa39cbb8229e0a96723d2a96fc2449449919f4456a699b6af6426512273c7b6",
+          "family": "ORDERED",
+          "raw_sha256": "015d384a624dc44d8a1fd92ca0db35e376a39928c5718f499cb3ec830f674f26",
+          "raw_size": 7263,
+          "record_count": 1,
+          "table_name": "t"
+        }
+      ],
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:6a29c3f9271db39342759449fd65a172ea872e75a18f083019a617c168ee2d53"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_production_standard_preserves_fixed_facts_and_facts_order_risk_view[CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'before');-CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, NULL);-record_kinds0]": {
+      "comparison_digest": "sha256:a8034c55f08a15effc5a8cb25a2746aac4f5316d4aa026390300aa8306143754",
+      "facts_core_digest": "sha256:b8a9aad1bfb074f8eae9cd59bcaab1b0b57fc0fec43ff105de59cd0d6e7424c0",
+      "input_digest": "ca4bf18be6d5e4f1c7eb51deb6c450f123fd6a2df56e84174d542770020dc825",
+      "tables": [
+        {
+          "diagnostics": [],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 1
+          },
+          "status": "MODIFIED",
+          "table_fact_digest": "sha256:c65c8dfb8948272df85c81f926e3a98429bfb6abafbeddc0f70dc78494bdeb4a"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_production_standard_preserves_fixed_facts_and_facts_order_risk_view[CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL, obsolete TEXT NULL); INSERT INTO t VALUES (1, 'before', 'old');-CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'after');-record_kinds1]": {
+      "comparison_digest": "sha256:01fe789e2ef827d2b78e35fac2a7666703053c33c4e5c77841466ed032507f06",
+      "facts_core_digest": "sha256:c6c0fab982178d72937ca928dc1d7a3cf3529bf7c394dbf6fa0c50972aa5c29d",
+      "input_digest": "5bc07d9c15b6c1f3362a18f1ad0e9b3ae94ee4986a20c70f1624e8b8a9296f4a",
+      "tables": [
+        {
+          "diagnostics": [
+            "BEFORE_ONLY_COLUMNS"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 1
+          },
+          "status": "SCHEMA_CHANGED",
+          "table_fact_digest": "sha256:1061861d62a49947731f66168d11e1578eaa8ebe065ff88d803a72c0b29c34fd"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_same_artifact_with_missing_reader_cannot_replay_a_cached_table": {
+      "comparison_digest": "sha256:c76fe3281e22ec30c24cee9cdfd2acbb0955f5eb31562d42b7cdbc6956f207be",
+      "facts_core_digest": "sha256:dbb67ba3e2702a8be374acb36319f135ab6c26643eeab1783a9bf0268216e15d",
+      "input_digest": "1f00cc4f41cfc1fcafe1662bd02cd36f5e5a57610ab790efa1e3979b9467f114",
+      "tables": [
+        {
+          "diagnostics": [
+            "TABLE_READER_UNAVAILABLE"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:f0fd0bdee963568d9d6d2a8e557fa363a3dcc2b4c728f95413233d62a821b740"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_source_key_transition_uses_the_keyless_policy[False]": {
+      "comparison_digest": "sha256:ec3e1cb8dd6a98241229dc256bb54bf1d3e5d947b76517c7fb5bdc17cfdde423",
+      "facts_core_digest": "sha256:d73d561a457c3c1adde5407cb63c4a86391fac1672ac4fd6a2c58fc23a56bc21",
+      "input_digest": "e7a1fc3a2d1ff814c2db18476ad8f857560c9a43da11084823e073ed7c9ee0d6",
+      "tables": [
+        {
+          "diagnostics": [
+            "INCOMPATIBLE_SELECTED_COLUMNS",
+            "SOURCE_PRIMARY_KEY_CHANGED"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:b2e4affae0dda078a79e88f0e8bb8ec660a9a39692e52ea2964c3293df8d2deb"
+        }
+      ]
+    },
+    "tests/test_comparison_s3_d_production.py::test_source_key_transition_uses_the_keyless_policy[True]": {
+      "comparison_digest": "sha256:f8c57f4c7ba3c33c731c27e8232d2be7ac38df615f28cb1263ab4de9db117f96",
+      "facts_core_digest": "sha256:d73d561a457c3c1adde5407cb63c4a86391fac1672ac4fd6a2c58fc23a56bc21",
+      "input_digest": "11bb2595d3c709a227946203aeeecebae0fd6e8800f234323485050ab6ddcbb4",
+      "tables": [
+        {
+          "diagnostics": [
+            "INCOMPATIBLE_SELECTED_COLUMNS",
+            "SOURCE_PRIMARY_KEY_CHANGED"
+          ],
+          "name": "t",
+          "row_counts": {
+            "added": 0,
+            "deleted": 0,
+            "modified": 0
+          },
+          "status": "DEGRADED",
+          "table_fact_digest": "sha256:b2e4affae0dda078a79e88f0e8bb8ec660a9a39692e52ea2964c3293df8d2deb"
+        }
+      ]
+    }
+  },
+  "collection_sha256": "ccbec5bde3ea187888ddd5ee065ca040cf259ce3f0810dadd6b485ffcf0812a3",
+  "old_algorithm_source": "4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec",
+  "source_commit": "a9da0c59277e3179f34d646eabcd9c185917ae05",
+  "supplemental_keyless_risk_jsonl_sha256": "bbb260861e7317778375f6f69f94a1879382e1fc94934911d5817919e62a5ae2"
+}

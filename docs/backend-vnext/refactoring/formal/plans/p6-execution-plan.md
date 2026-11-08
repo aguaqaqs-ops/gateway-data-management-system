@@ -198,7 +198,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S4 — Submit
 
 - 目标：设计 §10。
-- 具体方案与逐节执行：[S4设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)、[独审提示词](p6-s4-review-prompt.md)。2026-11-08本轮完成设计候选；DC94已确认存储键/恢复澄清和DC33范围，仍须独立设计审核及实施授权。本轮不运行产品测试。
+- 具体方案与逐节执行：[S4设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)、[独审提示词](p6-s4-review-prompt.md)。2026-11-08固定候选`de0eb3a8b2`已获[Sol复审](p6-s4-design-review.md)及[Astra独审](p6-s4-astra-review.md)DESIGN_CLEAR_FOR_OWNER；DC94已确认存储键/恢复澄清和DC33范围，仍须实施授权。本轮不运行产品测试。
 - 前置：默认 S3 exit；本轮适用 DC92：以已核收的 S3 接口/功能候选为起点，S4 设计与 kickoff 独审通过后可提前实施。S3 容量阻塞继续独立跟踪；S4 实施授权不包含改冻结 SQL/golden、阈值、批量规则、生产 N/M 或 S5。
 - 清理：Rust 渲染与存储 diff 接入验证后删除被替代 Python 算法及重复测试（DC78）；DC45 的通用规划器等独立职责继续保留，不按语言盲删。
 - 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。S1a 终审登记（2026-10-27）：UPDATE、DELETE 分批时每加一行重渲染整批（`_render_limited_mutation_batches`），渲染量随批大小平方增长；整表重建对 parent 每行生成逐键 DELETE，代价随重建表行数放大。t4 未见可测回退，S4 改为按增量累计完整语句字节分批，批次划分与 SQL 字节不变。

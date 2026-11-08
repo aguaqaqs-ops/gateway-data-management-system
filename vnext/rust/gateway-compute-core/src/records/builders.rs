@@ -99,7 +99,9 @@ pub fn build_records_arrow(
     // the fixed identity starts with 32768 bytes. Headers/validity fit with
     // these in 512 KiB, held through each group reset. Row charges cover
     // later capacity growth before append.
-    let mut lease = context.reserve(BUILDER_WORKSPACE_BYTES).map_err(|error| error.to_string())?;
+    let mut lease = context
+        .reserve(BUILDER_WORKSPACE_BYTES)
+        .map_err(|error| error.to_string())?;
     let mut batches = Vec::new();
     let mut builders = new_builders(&schema);
     let mut record_count = 0usize;
@@ -168,10 +170,12 @@ pub fn build_records_arrow(
             // Keep the finished physical buffers charged and reserve the next
             // builder's initial capacity before creating it. The former is
             // already covered by the per-row precharge above.
-            let next = retained.checked_add(BUILDER_WORKSPACE_BYTES)
+            let next = retained
+                .checked_add(BUILDER_WORKSPACE_BYTES)
                 .ok_or("records output budget overflow")?;
             if next > lease.charged_bytes() {
-                lease.grow(next - lease.charged_bytes())
+                lease
+                    .grow(next - lease.charged_bytes())
                     .map_err(|error| error.to_string())?;
             } else {
                 lease.shrink_to(next).map_err(|error| error.to_string())?;
@@ -200,7 +204,9 @@ pub fn build_records_arrow(
         return Err("records physical output charge exceeded its precharge".to_string());
     }
     drop(builders);
-    lease.shrink_to(retained).map_err(|error| error.to_string())?;
+    lease
+        .shrink_to(retained)
+        .map_err(|error| error.to_string())?;
     // Rebinding retains another bounded set of headers, not a second payload.
     // The per-batch header allowance remains in the output lease.
     let charge = Arc::new(OutputCharge {
@@ -562,11 +568,19 @@ mod tests {
                 .value(0),
             "null",
         );
-        let logical = batch.columns().iter().try_fold(0usize, |sum, array| {
-            sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
-        }).ok_or("logical size overflow")?;
-        let retained = built._charge.lease.lock()
-            .map_err(|_| "charge lock poisoned")?.charged_bytes();
+        let logical = batch
+            .columns()
+            .iter()
+            .try_fold(0usize, |sum, array| {
+                sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+            })
+            .ok_or("logical size overflow")?;
+        let retained = built
+            ._charge
+            .lease
+            .lock()
+            .map_err(|_| "charge lock poisoned")?
+            .charged_bytes();
         assert!(retained > logical);
         drop(built);
         assert!(context.remaining_bytes() < starting);
@@ -646,11 +660,13 @@ mod tests {
         let schema = Schema::new(vec![Field::new("text", DataType::Utf8, false)]);
         let mut builder = StringBuilder::with_capacity(1, 1024);
         builder.append_value("x");
-        let batch = RecordBatch::try_new(
-            Arc::new(schema.clone()), vec![Arc::new(builder.finish())]
-        ).map_err(|error| error.to_string())?;
+        let batch =
+            RecordBatch::try_new(Arc::new(schema.clone()), vec![Arc::new(builder.finish())])
+                .map_err(|error| error.to_string())?;
         let data = batch.column(0).to_data();
-        let logical = data.get_slice_memory_size().map_err(|error| error.to_string())?;
+        let logical = data
+            .get_slice_memory_size()
+            .map_err(|error| error.to_string())?;
         let physical = data.get_array_memory_size();
         assert!(physical > logical + 1024);
         assert!(retained_charge(&[batch], &schema)? >= physical);

@@ -72,6 +72,8 @@ RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准
 
 **058门禁的Compose环境接线修正（2026-11-08）：** `058e26da3c`全六包运行中，实施者发现`test_ordered_submit_bisect_compose.py::_compose_env`以裸字典替换子进程环境，实际RS容器使用旧`gateway-repository-service:local`，而provenance读取宿主配置后记了新候选tag。该次于02:02Z受控停止并保全，整次runner exit 1，不作为当前镜像门禁或qualified carried。继续沿既有测试工具修复授权，仅修该fixture对已配置镜像及必要离线构建环境的传递，实际容器与provenance须对应；不通过修改记录掩盖旧镜像，不改产品、严格恢复guard或路径白名单。受管门禁子任务完成最小diff、必要focused/静态，关键变化集中独审后，在新clean候选及其实际镜像上完成最终门禁；保留原失败，不原样重试或重开已关测量。镜像重建及逐包沿用仍按实际闭包和容器边界判定，不因测试修复另设性能或历史重核门槛。
 
+**同根因fixture一次收齐（2026-11-08）：** `46e2bb63f7`已由§153通过上述bisect修正及必要05验证，但新runner尚未启动。准备中核对权威runner实际使用的七个Compose fixture，发现`test_ordered_compare_compose.py::_compose_env`也以裸字典丢弃同一环境；其余五个已复制受控环境。有限扩展为该compare fixture同样`import os`与字典首项`**os.environ`两行修正，专属fixture键继续优先。门禁子任务一次交清七个消费者的现有接线清单，并用同一真实Compose config focused覆盖两个修订fixture，集中审核增量及必要验证；其余五个不新增业务重测，不机械重跑已过1+20用例。最终每个既有旅程的实际RS对象均须与当次候选配置对应，不能用最后一次正确provenance替代前序旅程；消费原有取证能力，不为此新增框架或证明矩阵。46e准备态04于02:17:43Z安全释放，旧构建材料保留为准备事实，不能冒充修订后最终候选门禁；新clean候选仍按原授权及实际镜像边界继续，无新Owner或逐摘要GO。
+
 ## 工具、镜像和时间预算
 
 允许现有实施者在隔离参考线把已审9704产品与必要恢复工具固定为 clean 候选；只改本次 benchmarks/测试/运行文书，不另改产品语义、不合当前 main。已有 §87 镜像和已核归档可向 CT108 离线预置，比较 config digest/全部有序 DiffID；不为统一标签无故重建，实际边界变化按既有镜像规则处理。

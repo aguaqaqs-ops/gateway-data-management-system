@@ -34,7 +34,7 @@
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
 | DC63 #1、V5b A–D | **命令已启动，栈前准备中：** 实施者于2026-11-07 22:36Z回报CT108已持有自有锁，以`d2ffe1ac3af5e06ab6cf2a6f760124e0512e7dd6`启动一次已审诊断命令；专用镜像入口修正获§133代码/05必要验证及最终controller接线复核通过。三冻结镜像完整身份预检MATCH、原输入manifest不变，诊断build-input3456与目标4497差异保留；sampler/launcher/journey存活，初始日志到compose_images_ready，尚无产品操作结果。沿[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)及原预算执行，79200s硬上限不是ETA；21个selector不扩为新矩阵，结果/分段资格待实测与独审。 |
 | JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
-| 04 最终权威 runner | **H780已运行并出现失败，待终态/窄修：** `78000beb62e927190092e315135e7bc1cbdda615`获§129代码/05定向及五包静态通过后，于2026-11-07 23:55:57Z启动全六包；实施者报告backend一项post-GC工具路径守卫失败、RS一项并行失败（待定位），原串行批次自然执行至最终退出，不启动第二次或作carried。backend实际比较9704→H780，仅已审RS测试路径超出旧工具白名单，按下述具体范围修正；真实产品变化仍拒绝。旧fcc全六包exit1及原日志/收尾均保留，不原样重试或重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
+| 04 最终权威 runner | **H780已运行并出现失败，待终态/窄修：** `78000beb62e927190092e315135e7bc1cbdda615`获§129代码/05定向及五包静态通过后，于2026-11-07 23:55:57Z启动全六包；backend固定恢复身份测试随当前HEAD变化而失败，RS默认build-network测试继承门禁none却断言host。原串行批次自然执行至最终退出，不启动第二次或作carried。按下述范围只修历史测试输入及环境隔离，严格guard及实际门禁network-none保持。旧fcc全六包exit1及原日志/收尾均保留，不原样重试或重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 
@@ -60,7 +60,9 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 
-**H780工具路径资格修正（2026-11-08）：** 实际`_require_post_gc_product_transition`以固定target.product_commit=`9704`比较当前候选，source=`e798`用于来源身份核验，不能把e798→9704已审产品修订误报为新候选产品漂移。只读Git核9704→H780的超白名单项仅为§129已审的`vnext/repository_service/tests/test_compose_build_harness.py`；允许将这一测试文件明确纳入工具变化资格，并同步原守卫测试的预期。固定9704祖先及产品tree、来源e798、clean worktree、其他真实产品路径拒绝均保持，不泛化允许src，不跳过守卫。实际失败栈、最小实现及必要定向验证由双方直接闭环；原H780运行/证据保持，不改在途worktree，RS另项失败独立定位，CT108诊断不受此普通测试修正阻断，无新Owner或逐摘要GO。
+**H780历史恢复测试与环境隔离修正（2026-11-08）：** 实际`_require_post_gc_product_transition`以固定target.product_commit=`9704`比较所传候选，source=`e798`用于来源身份核验，不能把e798→9704已审产品修订误报为新候选产品漂移。9704→H780超旧白名单的RS测试文件不属于该固定历史恢复工具的既定路径。本轮采用审核者更小的修法：固定恢复身份测试使用真实已执行恢复提交`3fd64dc2fe9a9c11ceebf8cd458983b9507f5364`，严格guard及路径白名单保持，撤回前一文书允许扩展RS测试路径的实施方向。固定9704祖先/产品tree、来源e798、clean及真实产品路径拒绝不变；历史测试通过不证明H780或未来候选可用于该固定恢复，当前V_ref身份仍按本线实际产品/镜像/闭包核验。
+
+RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准备显式隔离ambient build-network，并保留default/override语义；实际04门禁network-none及真实构建harness不变。两项仅测试输入修正由唯一实施者在独立worktree完成必要focused/静态并交独审，原H780运行/证据自然收尾，不改在途worktree或原样重试，CT108诊断和其他独立收尾保持，无新Owner或逐摘要GO。
 
 ## 工具、镜像和时间预算
 

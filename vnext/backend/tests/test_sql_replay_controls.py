@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 from gateway_shared_kernel import DigestRef
 
-from gateway_backend.capabilities.mutation_planning import render_change_set_replay
 from gateway_backend.capabilities.mutation_planning import native as mutation_native
+from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import render_change_set_replay
 from gateway_backend.capabilities.storage_projection import (
     PACKAGE_VERSION,
     RepositoryImportArtifactInput,
@@ -73,7 +73,7 @@ def test_sql_native_work_releases_gil_and_observes_cancellation(
 ) -> None:
     closure = frozen_replay_cap_closure(0)
     entered, finished, progressed, cancelled = (threading.Event() for _ in range(4))
-    native = mutation_native._render_change_set_native
+    native = getattr(mutation_native, "_render_change_set_native")
 
     def observed_native(*args: Any, **kwargs: Any) -> Any:
         entered.set()

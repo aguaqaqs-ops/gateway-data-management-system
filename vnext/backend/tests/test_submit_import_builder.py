@@ -9,6 +9,7 @@ from dataclasses import replace
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.artifacts.serialize import artifact_ref_to_dict
 from gateway_backend.application.submission.contracts import (
@@ -678,6 +679,7 @@ def _replay_sql_from_package(payload: bytes) -> str:
 
 
 def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_changes(
+    operation_kernel_context: KernelExecutionContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import gateway_backend.application.submit_jobs as submit_jobs_module
@@ -735,12 +737,14 @@ def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_chang
     old_schema_sql = render_repository_import_schema_replay_sql(
         old_projection.import_input,
         removed_tables=build_input.removed_tables,
+        context=operation_kernel_context,
     )
     old_dml = render_import_mutation_dml(
         old_projection,
         after_tables,
         repository_base_digest=DigestRef(build_input.repository_base_digest),
         removed_tables=build_input.removed_tables,
+        context=operation_kernel_context,
     )
     old_publication = publish_canonicalization(
         old_projection,

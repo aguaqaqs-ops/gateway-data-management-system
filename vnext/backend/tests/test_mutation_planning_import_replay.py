@@ -11,6 +11,7 @@ from gateway_shared_kernel import (
     Float64Scalar,
 )
 
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.capabilities.mutation_planning import (
     build_import_mutation_snapshots,
     render_import_mutation_dml,
@@ -52,7 +53,9 @@ def _request(*inputs: ProjectionTableInput) -> ProjectionRequest:
     )
 
 
-def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
+def test_import_replay_sql_includes_drop_create_and_inserts(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     reader, binding = table_input(
         "net_cfg",
         columns=(
@@ -84,12 +87,15 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     )
     snapshots = build_import_mutation_snapshots(projection_snapshots)
     replay_sql = (
-        render_repository_import_schema_replay_sql(result.import_input, removed_tables=())
+        render_repository_import_schema_replay_sql(
+            result.import_input, removed_tables=(), context=operation_kernel_context,
+        )
         + render_import_mutation_dml(
             result,
             snapshots,
             repository_base_digest=digest_ref("aa"),
             removed_tables=(),
+            context=operation_kernel_context,
         )
     ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
@@ -97,7 +103,9 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     assert "INSERT INTO `net_cfg`" in replay_sql
 
 
-def test_import_replay_batches_inserts_without_losing_row_occurrences() -> None:
+def test_import_replay_batches_inserts_without_losing_row_occurrences(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     reader, binding = table_input(
         "batch_widget",
         columns=(int_column("id"), varchar_column("value")),
@@ -132,6 +140,7 @@ def test_import_replay_batches_inserts_without_losing_row_occurrences() -> None:
         build_import_mutation_snapshots(projection_snapshots),
         repository_base_digest=digest_ref("aa"),
         removed_tables=(),
+        context=operation_kernel_context,
     ).decode("utf-8")
 
     insert_statements = [
@@ -142,7 +151,9 @@ def test_import_replay_batches_inserts_without_losing_row_occurrences() -> None:
     assert all(replay_sql.count(f"'row-{index}'") == 1 for index in range(258))
 
 
-def test_import_replay_allocates_ordered_blank_gid() -> None:
+def test_import_replay_allocates_ordered_blank_gid(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     reader, binding = table_input(
         "b1_n1_iec104_syx_list",
         columns=(
@@ -180,11 +191,14 @@ def test_import_replay_allocates_ordered_blank_gid() -> None:
         snapshots,
         repository_base_digest=digest_ref("aa"),
         removed_tables=(),
+        context=operation_kernel_context,
     ).decode("utf-8")
     assert f"VALUES ({GID_PSEUDO_MIN}, 1, 'x')" in replay_sql
 
 
-def test_import_replay_supports_set_columns() -> None:
+def test_import_replay_supports_set_columns(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     reader, binding = table_input(
         "unknown_widget",
         columns=(
@@ -219,6 +233,7 @@ def test_import_replay_supports_set_columns() -> None:
         snapshots,
         repository_base_digest=digest_ref("aa"),
         removed_tables=(),
+        context=operation_kernel_context,
     ).decode("utf-8")
     assert "INSERT INTO `unknown_widget`" in replay_sql
 

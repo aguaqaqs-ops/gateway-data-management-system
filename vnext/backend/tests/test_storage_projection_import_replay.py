@@ -6,6 +6,7 @@ from tests.support.native_projection import project_storage
 
 import pytest
 
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.capabilities.storage_projection import (
     ProjectionInvocationContext,
     ProjectionRequest,
@@ -37,7 +38,9 @@ def _request(*inputs: ProjectionTableInput) -> ProjectionRequest:
     )
 
 
-def test_schema_replay_sql_includes_drop_create() -> None:
+def test_schema_replay_sql_includes_drop_create(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     reader, binding = table_input(
         "net_cfg",
         columns=(
@@ -60,6 +63,7 @@ def test_schema_replay_sql_includes_drop_create() -> None:
     replay_sql = render_repository_import_schema_replay_sql(
         result.import_input,
         removed_tables=(),
+        context=operation_kernel_context,
     ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
     assert "CREATE TABLE `net_cfg`" in replay_sql

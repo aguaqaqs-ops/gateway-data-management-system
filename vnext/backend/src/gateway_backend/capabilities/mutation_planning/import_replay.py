@@ -38,6 +38,7 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     ImportReplayTableSnapshot,
     ProjectionResult,
 )
+from gateway_backend.capabilities.storage_projection import KernelExecutionContext
 
 
 class ImportReplayError(ValueError):
@@ -77,6 +78,7 @@ def render_import_mutation_dml(
     result: ProjectionResult,
     snapshots: tuple[MutationTableSnapshot, ...],
     *,
+    context: KernelExecutionContext,
     repository_base_digest: DigestRef,
     removed_tables: tuple[str, ...],
     before_manifest: CanonicalizationManifest | None = None,
@@ -121,12 +123,13 @@ def render_import_mutation_dml(
         return b""
     if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
         raise ImportReplayError("mutation planning failed for repository import replay")
-    return render_planned_import_mutation_dml(planned, rebuild_tables=rebuild_tables)
+    return render_planned_import_mutation_dml(planned, context=context, rebuild_tables=rebuild_tables)
 
 
 def render_planned_import_mutation_dml(
     planned: MutationPlanningResult,
     *,
+    context: KernelExecutionContext,
     rebuild_tables: tuple[str, ...] = (),
 ) -> bytes:
     if type(rebuild_tables) is not tuple or rebuild_tables != tuple(
@@ -138,7 +141,7 @@ def render_planned_import_mutation_dml(
     if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
         raise ImportReplayError("mutation planning failed for repository import replay")
     closure = _omit_rebuild_deletes(planned.change_set_closure, set(rebuild_tables))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=context)
     if outcome.status != "READY" or outcome.sql_bytes is None:
         raise ImportReplayError("mutation DML rendering failed")
     return outcome.sql_bytes

@@ -215,6 +215,9 @@ class SubmitImportPublicationAdapter:
         store: ArtifactStorePort,
         projection_inputs: tuple[ProjectionTableInput, ...],
     ) -> PrepareImportPublicationResult:
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit publication requires an operation kernel context")
         _assert_adaptive_policy(build_input)
         frozen_manifest = _open_frozen_manifest(build_input, store=store)
         parent_manifest = _parent_manifest_for_plan(build_input, frozen_manifest)
@@ -296,17 +299,16 @@ class SubmitImportPublicationAdapter:
             schema_sql = render_repository_import_schema_replay_sql(
                 schema_import_input,
                 removed_tables=build_input.removed_tables,
+                context=context,
             )
             mutation_dml = render_planned_import_mutation_dml(
                 planned,
                 rebuild_tables=rebuild_tables,
+                context=context,
             )
             replay_sql = schema_sql + mutation_dml
         except (ProjectionImportReplayError, MutationImportReplayError) as exc:
             raise SubmitImportPublicationError(str(exc)) from exc
-        context = current_kernel_context()
-        if context is None:
-            raise ValueError("Submit publication requires an operation kernel context")
         context.checkpoint()
         published = publish_canonicalization(
             projection,

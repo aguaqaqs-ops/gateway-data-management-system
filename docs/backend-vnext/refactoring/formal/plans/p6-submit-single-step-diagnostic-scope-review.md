@@ -3016,3 +3016,5 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 新测试首次将V5b作为benchmarks模块导入，V5b原第21行仍裸import s5_dc32_capability_measurement，且在_BACKEND_ROOT加入sys.path之前；测试/conftest没有把benchmarks目录作为顶层搜索路径，因此不能依赖CLI脚本目录提供这一隐式路径。已交实施者在原backend-root设置后统一从benchmarks package导入helper，使测试与直接CLI消费同一入口，不加fallback/兼容层。新增返回注解还经s5转引非显式re-export的BoundSnapshotInput，需按strict mypy既有前例直接从owning comparison导入类型；此为源码预检，尚未将预测问题冒称05实际失败。
 
 上述两项最小接线及05真实consumer focused/必要静态结果待交，测试节点占用前提继续遵守；不在CT201执行候选/测试。V5b-only具体复用/原绝对截止/局部准备/收尾仍按§138设计边界集中独审，无新Owner/GO、不重跑已完成DC63旅程/seed/POST。record修订、STRESS副本传输及两项04测试修订保持原授权独立推进，不因本小项整体暂停。
+
+**窄接线修订 `f8b08fc13e9a1231b0fb140bc75c741fec8ec6ca` 代码复核PASS，无剩余已知代码Finding，05实际结果仍待交。** 父520bc，仅将V5b helper导入移至backend-root路径设置之后并统一benchmarks package，返回类型从owning comparison直接导入；原策略、真实consumer测试、生产要求及S5默认保持，diff-check已核。已直接告实施者必要focused/静态本已授权，可与只读代码审并行；05自有record步骤结束后按原postflight释放再取测试占用，尊重他人有效占用，不增加代码GO/窗口预约。实施者确认原SIGINT绝对截止Nov8 20:04:47.876Z、hard20:34:47.876Z继续，具体V5b-only接线与实证仍依§138集中核。

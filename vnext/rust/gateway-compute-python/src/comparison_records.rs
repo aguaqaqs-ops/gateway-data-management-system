@@ -31,6 +31,9 @@ use crate::{
     shared_parser_pool,
 };
 
+// A handle owns one result. Keeping the bounded ordered value in this Arc
+// avoids a second heap allocation that would outlive the native parse lease.
+#[allow(clippy::large_enum_variant)]
 enum ComparisonResult {
     Standard(StandardComputation),
     Ordered(OrderedKernelResult),
@@ -701,7 +704,7 @@ fn _validate_records_batches_native(
                 if bytes > max_batch_bytes {
                     return Err("RESOURCE_LIMIT_EXCEEDED".to_string());
                 }
-                validator.push_checked(&batch, || check())?;
+                validator.push_checked(&batch, &check)?;
             }
             check()?;
             validator.finish()

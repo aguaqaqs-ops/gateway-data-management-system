@@ -207,6 +207,8 @@ FE3a 时 backend（vnext 树 `2791d3ff3d`）的两个 bundle 路由只返回 man
 
 ## 4. 真实 backend e2e 的运行框架
 
+通用执行与证据约定见 [testing-conventions「真实 backend e2e」](../backend-vnext/testing-conventions.md#真实-backend-e2e)。
+
 FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.real.config.ts`、`e2e-real/`，见 FE3a handoff）。FE3b、FE3c 在其上增加套件与场景，规则不变。
 
 ### 4.1 入口
@@ -224,7 +226,7 @@ FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.
 - Playwright 使用单独的配置与目录（`playwright.real.config.ts`、`e2e-real/`）；`run-tests.sh` 的 `playwright test` 不收集这些用例。
 - 不修改 `vnext/`。只读使用 `vnext/deploy/compose.yaml`、`vnext/scripts/build-backend-dependency-base.sh --print-input`、
   `vnext/scripts/build-repository-service-image.sh`。需要改它们才能运行时，停下交设计会话（§10）。
-- AGENTS 与 testing-conventions 的 FD7 一节还没有写这个脚本，FE3a handoff §8 的建议条文仍待 owner 转治理会话（§12）。
+- AGENTS FD7 已列独立入口与占用管理；执行细节见 [testing-conventions「真实 backend e2e」](../backend-vnext/testing-conventions.md#真实-backend-e2e)（FE3a handoff §8，owner 2026-11-08 授权治理整理）。
 
 ### 4.2 节点、占用与单飞
 
@@ -798,6 +800,8 @@ FE3b 不跑 t1。第 2 步按核对报告 §8.3 与 FE3b 评估交接 §6 调整
 
 ### 8.4 M1：打包峰值内存
 
+通用方法与日志字段见 [testing-conventions「真实 backend e2e」](../backend-vnext/testing-conventions.md#真实-backend-e2e)；本节保留场景、次数与判断标准。
+
 - **测量内容：** 目录字节数与文件数、压缩后包大小、打包耗时，以及打包期间 Chromium 各进程的内存峰值。
 - **场景：**
   - MODIFIED_ONLY：只打 ② 一个包；
@@ -807,7 +811,7 @@ FE3b 不跑 t1。第 2 步按核对报告 §8.3 与 FE3b 评估交接 §6 调整
   - **新浏览器：** 每次测量启动一个新的浏览器实例；
   - **进程：** 经浏览器级 CDP 会话（`browser.newBrowserCDPSession()`）调用 `SystemInfo.getProcessInfo` 取各进程 PID；拿不到时，从浏览器主进程向下遍历 `/proc` 中的子进程，按命令行中的 `--type=` 区分；
   - **记录全部进程：** renderer、browser 主进程、utility/network、GPU。主指标是 renderer；
-  - **峰值清零：** 在“确认上传”之前，对每个进程向 `/proc/<pid>/clear_refs` 写入 `5`，把 `VmHWM` 清零，并记录此时的 `VmRSS` 作为基线；
+  - **峰值清零：** 在“确认上传”之前，对每个进程向 `/proc/<pid>/clear_refs` 写入 `5`，重置 `VmHWM`，以重置后的 `VmHWM` 为基线，同时记录 `VmRSS`（owner 2026-11-08 确认，与 FE3a 实现一致）；
     上传请求发出后（打包已完成）读取 `VmHWM`。峰值增量 = `VmHWM` − 基线；
   - `performance.memory` 只作参考，它不含 `ArrayBuffer` 的外部内存；
   - **包大小：** 从 multipart 中 `manifest` 部分的 `size_bytes` 读取；
@@ -924,7 +928,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | FE4 真实数据重拍的节点 | 前端 kickoff §6 写“FE4 在 04 上用真实 backend 与 t1 数据重拍”，但 DC36 规定 t1–t3 在 05。建议 FE4 kickoff 时改为：t1 数据的重拍在 05，04 只跑合成输入的真实 backend e2e；如需在 04 使用 t1 数据，由 owner 作例外决定 | FE4 kickoff |
 | 首批空基线（FE2 kickoff Q18） | 仍为缺口，不在 FE3。FE3 的输入都从空的 `INITIAL` 开始，界面不禁用第 ① 步 | 后端提供该事实后 |
 | P6 计时与整包下载（DC74 草案） | t1 旅程的下载耗时与体积只报告；DC74 确认后，按其结论更新前端 kickoff §9 | DC74 确认后 |
-| AGENTS 与 testing-conventions 的真实 e2e 条文 | FE3a handoff §8 的建议条文尚未写入（两文件中都没有 `run-real-backend-e2e`），由 owner 转治理会话；不阻塞 FE3b | 治理会话 |
+| AGENTS 与 testing-conventions 的真实 e2e 条文 | 2026-11-08 已收入 AGENTS FD7 与 [testing-conventions](../backend-vnext/testing-conventions.md#真实-backend-e2e)，待独立审核与 owner 确认；不阻塞 FE3b | 治理会话 |
 | `--color-warning-soft` 未定义（FE3a 复审 N8） | “需要管理员处理”等提示为灰底。owner 已看 FE3a 截图接受，FE3 不改；如要改成黄色，属于设计令牌，在 FE4 视觉微调时由设计会话提出 | FE4 |
 
 ## 13. 实施与审核提示词

@@ -20,7 +20,11 @@ fn field(
         "BIGINT" => ("BIGINT", "signed-integer", Some(64u8)),
         "INT" => ("INT", "signed-integer", Some(32u8)),
         "VARCHAR(64)" => ("VARCHAR(64)", "string", None),
-        _ => return Err(ArrowError::SchemaError("unexpected test scalar type".to_string())),
+        _ => {
+            return Err(ArrowError::SchemaError(
+                "unexpected test scalar type".to_string(),
+            ));
+        }
     };
     let canonical_type = serde_json::json!({
         "declared_type": {"kind": kind, "bits": bits, "precision": null, "scale": null, "bit_width": null},
@@ -28,10 +32,12 @@ fn field(
         "logical_type": "standard",
         "sql_type": sql_type,
     });
-    Ok(Field::new(name, data_type, nullable).with_metadata(HashMap::from([(
-        "gdds.canonical_type".to_string(),
-        canonical_type.to_string(),
-    )])))
+    Ok(
+        Field::new(name, data_type, nullable).with_metadata(HashMap::from([(
+            "gdds.canonical_type".to_string(),
+            canonical_type.to_string(),
+        )])),
+    )
 }
 
 fn batch(

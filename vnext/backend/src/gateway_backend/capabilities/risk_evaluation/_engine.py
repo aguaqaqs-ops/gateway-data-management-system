@@ -330,6 +330,13 @@ def evaluate_risk(
                     rules,
                     execution_policy,
                 )
+        # A cached replay tuple is only needed while its table is being
+        # evaluated. Once every table has returned, the current pair's last
+        # known use can release its Risk-only owner before publication/Surface.
+        cache = evaluation_input.risk_cache_session
+        retire = None if cache is None else getattr(cache, "risk_retire_last_uses", None)
+        if callable(retire) and evaluation_input.risk_task_keys is not None:
+            retire(evaluation_input.risk_task_keys)
         # Publication is the terminal commit boundary; cancellation is observed before it,
         # and a result that has crossed the boundary is never converted back to CANCELLED.
         _check_pair(context, pair_started, execution_policy)

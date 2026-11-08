@@ -294,6 +294,15 @@ class ComparisonTaskSession:
         self.risk_candidates.clear()
         self.abort_pending_risk()
 
+    def risk_retire_last_uses(self, task_keys: Mapping[str, str]) -> None:
+        """Retire replay events after their final table Risk consumer returns."""
+        active_keys = frozenset(task_keys.values())
+        for cache_key in tuple(self.risk_candidates):
+            if (cache_key[0] in active_keys
+                    and self.remaining_uses.get(cache_key[0]) == 1):
+                _, charges = self.risk_candidates.pop(cache_key)
+                charges.close()
+
     def evict_for(self, plan: ComparisonPlan) -> None:
         # Proactively release optional retention only when the next mixed
         # pair has too little headroom even for facts/core scratch. Otherwise

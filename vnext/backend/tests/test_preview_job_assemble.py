@@ -722,7 +722,7 @@ def test_empty_baseline_submit_accepts_table_addition(
 
 
 @pytest.mark.parametrize("ordered_identity", (False, True))
-def test_pair_memory_admission_rejects_before_python_row_comparison(
+def test_pair_memory_admission_rejects_before_native_row_comparison(
     monkeypatch: pytest.MonkeyPatch, ordered_identity: bool,
 ) -> None:
     from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
@@ -761,4 +761,4 @@ def test_pair_memory_admission_rejects_before_python_row_comparison(
             pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
                 store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
                 rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
-    assert memory.stage_admissions[-1]["stage"] == "comparison-python-records"
+    assert memory.stage_admissions[-1]["stage"] == "comparison-metadata"

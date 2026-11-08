@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import closing
+from contextlib import ExitStack, closing
 from dataclasses import replace
 from threading import Event
 
@@ -392,16 +392,27 @@ def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
     first = replace(template, pair_id="baseline-to-initial")
     second = replace(template, pair_id="initial-to-modified")
     session = ComparisonTaskSession((first, second))
+    context = current_kernel_context()
+    assert context is not None
     first_result = compare_plan_native(first, session=session)
     try:
         assert isinstance(first_result.result, DetailedFactsResult)
         assert first_result.result.facts is not None
         first_core = first_result.result.facts.facts_core_digest
+        assert first_result.task_keys is not None
+        key = first_result.task_keys["t"]
+        risk_charge = ExitStack()
+        risk_charge.enter_context(context.memory.reserve(8192))
+        assert session.risk_store(key, "risk-candidate", (), risk_charge)
         first_result.commit_cache()
     finally:
         first_result.close()
     assert session.calls == 1 and session.reads == 2 and session.hits == 0
     assert len(session.cached) == 1
+    retained = context.memory.used_bytes
+    session.risk_retire_last_uses({"t": key})
+    assert context.memory.used_bytes == retained - 8192
+    assert session.risk_candidates == {} and len(session.cached) == 1
 
     second_result = compare_plan_native(second, session=session)
     try:

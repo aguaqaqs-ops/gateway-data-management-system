@@ -11,6 +11,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -308,19 +309,23 @@ def _completed_result(log: Path, head: str, profile: str, mode: str) -> dict[str
                 or mutation.get("before") != mutation.get("after")):
             raise RuntimeError("repeated upload/Preview/Submit changed Repository mutations")
     timings = dataset.get("operation_timings", {})
-    target = {"w3": 120, "w4": 300, "w4-pressure": None}.get(profile, 600)
+    v2_target = {"w3": 120, "w4": 300, "w4-pressure": None}.get(profile, 600)
+    target_results: dict[str, dict[str, int | float | bool | None]] = {}
     for name in ("v1_submit", "v2_submit"):
         timing = timings.get(name, {})
         elapsed = timing.get("request_to_main_verified_seconds")
-        if type(elapsed) not in (int, float) or elapsed < 0:
+        if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
             raise RuntimeError(f"{name} has no verified technical-main completion clock")
         if timing.get("technical_main_before") == timing.get("technical_main_after"):
             raise RuntimeError(f"{name} did not advance technical main")
         if timing.get("reconciliation", {}).get("repository_import_status") != "SUCCEEDED":
             raise RuntimeError(f"{name} lacks successful Repository import reconciliation")
-        if profile != "w4-pressure" and (elapsed > 600 or (name == "v1_submit" and tier == "t4" and elapsed > 300)
-                                          or (name == "v2_submit" and target is not None and elapsed > target)):
-            raise RuntimeError(f"{name} exceeded the frozen Submit target")
+        target = (None if profile == "w4-pressure" else
+                  300 if name == "v1_submit" and tier == "t4" else
+                  v2_target if name == "v2_submit" else 600)
+        target_results[name] = {"elapsed_seconds": elapsed, "target_seconds": target,
+                                "met": None if target is None else elapsed <= target}
+    dataset["submit_target_results"] = target_results
     return results[0]
 
 

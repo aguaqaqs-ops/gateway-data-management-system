@@ -118,3 +118,7 @@ E当前实际候选为 `c9e9b3e74ab2e2895f9e0f6aac78740e7f48f008`（Rust仍为 `
 首轮集中稿在 `ea096ae81ff48958635e1eaae0554f36485cfa0b` 的全新04 WT实际执行至backend mypy停止：22:25:58–22:27:49Z，driver布尔返回的no-any-return与测试间接访问journey.httpx的attr-defined两错误；不是工具DC68错误。后续focused、权威runner和Compose均未开始。原件 `/home/dev/gdds-test-tmp/p6-s4-e-final-ea096ae81f-fixed/controller/`，node SHA `33f1e12b73fe76f60bc7c09401ebb2be56267e62e9dcf3c084415fede57760b5`、outer SHA `99651290a2ac734162823a51b400ed7ef6bb4bf421c849a460386e8bae9426ae`；入口/outer1、六锁无漂、HEAD clean、本人marker双释放0。c9e仅修这两项类型问题，未加ignore或更改预期，原审已连续复审CLEAR。
 
 04 c9e r2完整固定稿已获 **SCRIPT_CLEAR_FOR_c9e_R2_FOCUSED_ALL_SIX_COMPOSE**：`/home/dev/gdds-test-tmp/p6-s4-e-final-r2-c9e9b3e74a-fixed/` 的run SHA `31b7396bcfc4ab6a3d1fcd87a1a2b58573539c25de1a8f1cf82dd1fd07fabe10`、node SHA `acde2c336a03f50eed7e5ba7860ff077e483038a223a6c9539dfc993db959fd2`、assets SHA `4d1219cba9f5b05cf2176a253412b0fc236e7ae152043271d6da0502eb090975`。22:31:48Z唯一Luna已启动，使用全新WT、tag和日志，仅同节点复用旧Cargo编译缓存，不carry任何测试结果。五包静态/必要focused后才全六包权威入口与当前HEAD normal Compose build；任何非0停止。实际结果待原件核收，当前无权威/Compose/真实旅程/资源性能PASS、无S4 exit tag。05准备亦须固定c9e与精确脚本独审；原S3基准、carried WT和原件不改，S5未获授权。
+
+## 13. E 当前DC97口径与后继候选
+
+Owner在本轮直接确认采用[DC97](p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)：5/2/10分钟目标继续逐次报告原秒数和达标事实，纯数值超目标不阻止正确且有效的样本进入1预热＋3测量统计，也不单独阻止S4退出。缺失、负数或非有限计时、技术main未前移、Repository/业务/冻结产物/资源硬边界失败仍拒绝；100%压力档只报告时长。此前c9e的数值超目标即抛错口径须由E最小修订后独审、受影响backend/RS及当前镜像Compose复验；旧c9e脚本与05 stage2尚未运行，不将其静审CLEAR当新候选的实际结果或自动沿用。

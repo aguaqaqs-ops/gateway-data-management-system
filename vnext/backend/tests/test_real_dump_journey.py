@@ -25,7 +25,7 @@ import pyarrow.ipc as pa_ipc
 from gateway_repository_contracts import GetOperationResponse
 
 from benchmarks import real_dump_journey
-from benchmarks.s4_submit_measurement_driver import _submit_event_phases
+from benchmarks.s4_submit_measurement_driver import _completed_result, _submit_event_phases
 from benchmarks.real_dump_journey import (
     INITIAL_OPERATION_TIMEOUT_SECONDS,
     JOURNEY_STEP_IDS,
@@ -2301,3 +2301,57 @@ def test_submit_completion_measurement_requires_technical_main_movement(
             assert timing["request_to_completion_seconds"] == 6.0
             assert timing["technical_main_before"] == "a" * 32
             assert timing["technical_main_after"] == "b" * 32
+
+
+def _s4_successful_journey(v1_seconds: object, v2_seconds: object) -> dict[str, Any]:
+    def submit(seconds: object) -> dict[str, Any]:
+        return {"request_to_main_verified_seconds": seconds,
+                "technical_main_before": "a" * 32, "technical_main_after": "b" * 32,
+                "reconciliation": {"repository_import_status": "SUCCEEDED"}}
+
+    return {"head": "c" * 40, "conclusion": "PASS", "datasets": [{
+        "tier": "t4", "conclusion": "PASS",
+        "datasets": [{"input_completeness": "FULL"}, {"input_completeness": "MODIFIED_ONLY"}],
+        "repeat_v1": {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"},
+        "step_metrics": [],
+        "operation_timings": {"v1_submit": submit(v1_seconds), "v2_submit": submit(v2_seconds)},
+    }]}
+
+
+S4_SLOW_VALID_SUBMITS = (
+    ("w3", 301.0, 121.0, 300, 120),
+    ("w4", 301.0, 301.0, 300, 300),
+    ("w4-pressure", 999.0, 999.0, None, None),
+)
+
+
+@pytest.mark.parametrize(("profile", "v1_seconds", "v2_seconds", "v1_target", "v2_target"),
+                         S4_SLOW_VALID_SUBMITS)
+def test_submit_measurement_reports_valid_slow_completion(
+    tmp_path: Path, profile: str, v1_seconds: float, v2_seconds: float,
+    v1_target: int | None, v2_target: int | None,
+) -> None:
+    log = tmp_path / "journey.log"
+    log.write_text(json.dumps(_s4_successful_journey(v1_seconds, v2_seconds)) + "\n")
+
+    result = _completed_result(log, "c" * 40, profile, "MODIFIED_ONLY")
+
+    targets = result["datasets"][0]["submit_target_results"]
+    assert targets == {
+        "v1_submit": {"elapsed_seconds": v1_seconds, "target_seconds": v1_target,
+                      "met": None if v1_target is None else False},
+        "v2_submit": {"elapsed_seconds": v2_seconds, "target_seconds": v2_target,
+                      "met": None if v2_target is None else False},
+    }
+
+
+S4_INVALID_COMPLETION_CLOCKS = (-1.0, float("nan"), float("inf"), -float("inf"), "121")
+
+
+@pytest.mark.parametrize("seconds", S4_INVALID_COMPLETION_CLOCKS)
+def test_submit_measurement_rejects_invalid_completion_clock(tmp_path: Path, seconds: object) -> None:
+    log = tmp_path / "journey.log"
+    log.write_text(json.dumps(_s4_successful_journey(299.0, seconds)) + "\n")
+
+    with pytest.raises(RuntimeError, match="verified technical-main completion clock"):
+        _completed_result(log, "c" * 40, "w3", "MODIFIED_ONLY")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -20,7 +21,9 @@ from gateway_backend.capabilities.comparison import (
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
+from gateway_backend.capabilities.snapshot_materialization import snapshot_table_from_arrow
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
+from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
@@ -29,6 +32,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     StorageRuleView,
 )
 from tests.support.snapshot_materialization import materialize_sql
+from tests.support.comparison_s3_c_inputs import canonical_stream
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
 pytestmark = pytest.mark.unit
@@ -39,7 +43,19 @@ def _bound(sql: str) -> BoundSnapshotInput:
     assert result.snapshot is not None
     assert result.summary is not None
     assert result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    tables = []
+    for table in result.table_set.tables:
+        assert isinstance(table.reader, BoundSnapshotTableReader)
+        with closing(canonical_stream(table)) as stream:
+            backing = stream.read_all()
+        tables.append(snapshot_table_from_arrow(
+            table.descriptor, backing, table.reader.source_descriptor(),
+            ordered=table.ordered_metadata,
+        ))
+    return BoundSnapshotInput(
+        result.snapshot, result.summary,
+        replace(result.table_set, tables=tuple(tables)),
+    )
 
 
 def _request(

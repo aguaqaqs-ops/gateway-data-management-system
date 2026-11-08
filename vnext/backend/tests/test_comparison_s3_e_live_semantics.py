@@ -20,7 +20,9 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationStatus, RiskOptions, RiskReasonCode,
     RiskRulesetSnapshot, V1_RISK_RULE_SPECS, evaluate_risk,
 )
-from gateway_backend.capabilities.snapshot_materialization import snapshot_table_from_arrow
+from gateway_backend.capabilities.snapshot_materialization import (
+    ArrowSnapshotTableReader, snapshot_table_from_arrow,
+)
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_comparison_profile
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy, OrderedPolicy, STORAGE_PROJECTION_VERSION, StorageRuleView,
@@ -340,10 +342,9 @@ def test_malformed_canonical_row_shape_degrades_instead_of_appearing_empty() -> 
     current = canonical_bound(schema + " INSERT INTO t VALUES (1,'after');")
     assert current.table_set is not None
     original = current.table_set.tables[0]
-    assert original.reader is not None
+    assert isinstance(original.reader, ArrowSnapshotTableReader)
     with closing(original.reader.reopen()) as isolated:
-        arrow_stream = getattr(isolated, "arrow_stream")
-        with closing(arrow_stream()) as stream:
+        with closing(isolated.arrow_stream()) as stream:
             backing = stream.read_all()
     profile, indices = canonical_comparison_profile(
         original.descriptor, backing.schema, metadata_budget_bytes=1024 * 1024,

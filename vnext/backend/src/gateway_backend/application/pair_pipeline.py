@@ -37,7 +37,7 @@ from gateway_backend.capabilities.comparison import (
     NativeComparison,
     plan_comparison,
     compare_plan_native as compare_plan_native,
-    publish_records_closure_arrow,
+    publish_records_closure_arrow as publish_records_closure_arrow,
     RecordsPublicationContext,
     RecordsPublicationPolicy,
 )

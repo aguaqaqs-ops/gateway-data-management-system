@@ -80,6 +80,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     rewrite_closure_refs,
 )
 from gateway_backend.capabilities.comparison.pair_planning import plan_comparison
+from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.production import (
     MAX_NATIVE_RECORD_BYTES,
     ComparisonTaskSession,
@@ -89,7 +90,6 @@ from gateway_backend.capabilities.comparison.production import (
 from gateway_backend.capabilities.comparison.standard import (
     COMPARISON_DIRECTION,
     STANDARD_COMPARISON_ALGORITHM_VERSION,
-    StandardComparisonError,
 )
 
 __all__ = [

@@ -449,6 +449,7 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         # not request a standard projection before the native phase seals.
         assert product.risk_handles == {}
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
+        assert rules.risk_ruleset_digest is not None
         assert rules.risk_ruleset_digest.value == expected["old_risk"]["ruleset_digest"]
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
@@ -672,6 +673,7 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
         assert fact.table_fact_digest is not None
         assert fact.table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
+        assert rules.risk_ruleset_digest is not None
         assert rules.risk_ruleset_digest.value == expected["old_risk"]["ruleset_digest"]
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),

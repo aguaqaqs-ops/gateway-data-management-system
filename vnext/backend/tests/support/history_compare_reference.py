@@ -86,7 +86,7 @@ def compare_bound_snapshots_and_ordered_kinds(
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        kinds = []
+        kinds: list[OrderedRecordKind] = []
         for table_name in sorted(product.handles):
             with closing(product.handles[table_name].record_batches("ORDERED")) as reader:
                 for batch in reader:

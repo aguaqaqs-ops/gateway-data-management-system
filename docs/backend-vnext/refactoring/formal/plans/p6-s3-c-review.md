@@ -1,6 +1,6 @@
 # Phase 6 S3 C 独立审核
 
-**当前结论：C 已有固定代码候选并在同一独审中复审，仍有读预准入与可变宽 offset finding，无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 06 Rust focused 首步 fmt 失败并停止，clippy/test 未运行；当前完整候选的 backend/FFI/容器证据和依赖镜像预填充仍待取得。
+**当前结论：C 固定 `68a97378e1ff1fee164410baaecb7ee22dd83b92` 两项预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 06 Rust focused 首步 fmt 失败并停止，clippy/test 未运行；68a/后续机械fmt固定候选的 backend/FFI/容器证据和依赖镜像预填充仍待取得。
 
 ## 1. 固定对象、职责与方法
 
@@ -55,9 +55,11 @@ DC68 明确“重做再次失败……均停止交 owner”。第一次准备错
 
 ### 4.1 526 续审待修 finding
 
-读侧 `_decoded_admission` 只用 `16*row_group.total_byte_size+group.num_rows*2048+1 MiB`。固定 schema 的 nullable List 可在 1 行放大量 null/空嵌套元素；Parquet definition/repetition levels 可 RLE 为很小的未压缩页，列 `num_values` 却为 N，Arrow child offset/validity/struct slots 在 validator 的 `batch.nbytes` 检查之前已分配 O(N)。当前预留可能仅约 1 MiB，不能保住 M24 的预解码准入。实施者应以现 row-group 列 metadata 的 `num_values` 与固定 schema 叶结构补最小 slot/offset 上界，保持最大组和无字典限制，补稀疏 null List 向量；不建通用解压/allocator 框架。这是 1018→9f 读预算根因的继续修订，下一固定修订按真实效果复审。
+读侧 `_decoded_admission` 在 526 只用 `16*row_group.total_byte_size+group.num_rows*2048+1 MiB`。固定 schema 的 nullable List 可在 1 行放大量 null/空嵌套元素；Parquet definition/repetition levels 可 RLE 为很小的未压缩页，列 `num_values` 却为 N，Arrow child offset/validity/struct slots 在 validator 的 `batch.nbytes` 检查之前已分配 O(N)。原预留可能仅约 1 MiB，不能保住 M24 的预解码准入。这是 1018→9f 读预算根因的继续修订，不把新提交名或机械fmt算独立根因。
 
-输出侧 `records/builders.rs::append_value` 对 Utf8/Binary/List 无每批累计 i32 offset 前置检查。锁定 Arrow 59.1.0 的 `GenericByteBuilder::append_value` 文档/源码明确超 2 GiB 在值 buffer 扩展后 panic；`GenericListBuilder::append` 超 child length 也 panic。`max_output_bytes` 与 artifact policy 可显式提高，N1/M24 GiB 下仍可到达，S3 设计 §4 要求过大 offset/单行不能容纳时报预算拒绝。应在可变宽 builder 增长前拒绝，包含嵌套 child，保留多个各自合法 batch 的总量；不能以全表 2 GiB 新 cap 或 PyO3 panic 捕获替代。两 finding 已交原实施者在 C 职责内修，不向 Owner 请求新的核心方案。
+输出侧 `records/builders.rs::append_value` 在 526 对 Utf8/Binary/List 无每批累计 i32 offset 前置检查。锁定 Arrow 59.1.0 的 `GenericByteBuilder::append_value` 文档/源码明确超 2 GiB 在值 buffer 扩展后 panic；`GenericListBuilder::append` 超 child length 也 panic。`max_output_bytes` 与 artifact policy 可显式提高，N1/M24 GiB 下仍可到达，S3 设计 §4 要求过大 offset/单行不能容纳时报预算拒绝。此项与读预准入分别交原实施者在 C 职责内修，未请求新的核心方案。
+
+`68a97378e1ff1fee164410baaecb7ee22dd83b92` 为两项集中固定修订。本人在 clean detached WT 静态复审：读侧遍历每 row group 的全部 Parquet leaf，拒 dictionary/负 `num_values`，以 `16*total_byte_size+512*Σleaf.num_values+2048*num_rows+1 MiB` 取最大组，在 Python decode 前预约/拒绝；固定三族 schema 最深四级 List/Struct/Scalar，512 B/leaf slot 覆盖 Arrow child/offset/validity 与 Value/JCS 结构暂额，16×字节覆盖 plain 可变值及 escape。新增真实 PyArrow 100k nullable `Scalar.items` 元素压缩向量：32 MiB 限先拒、M24 准入时解码 `nbytes` 低于预约；400 MiB plain 宽值仍保可准入。输出侧 Utf8/Binary 检查每批 `values_slice()` 累积字节，List 检查 child 数，递归子 builder；注入小 offset limit 测试覆盖刚好到界、下一 append 增长前拒绝和嵌套。1024 行新 batch 仍独立重置，无全表 2 GiB cap。**这两 finding 在固定代码层静态关闭，实际06运行/高水位仍未取得。** 对读预准入按 1018 初候选→9f 第一修订→68a 第二修订跟踪，尚无“同根两轮修而不解”的事实；后续以实际结果判断。
 
 ## 5. Owner 恢复后的 9f 源端原件
 
@@ -70,3 +72,9 @@ CT201 第一次源 WT 准备只因既有日志名拒覆盖，原件 `source-wt-c
 首次 06 只读 preflight 的远端 Bash 嵌套引号在命令体前解析失败，`06-preflight-attempt-1.log` SHA256=`766fc5c744d6d5d65fc2a31bf709c94276ed60dd23ea8dd1b3fddd787702e38f` 是事后摘要，原 numeric exit 未捕获。本人逐字审 literal heredoc 修正版 SHA256=`d1bada0b5c2422ff6eaf9b61ed6835dd7fc246b3d065f545befdf53b7be0f1b6`，唯一 tester 执行后原始 `06-preflight-attempt-2.log` SHA256=`574fd350f96ce8b5cbeafffa1124661f48f92d253964e614156a656cca50f280`：01:16:28Z、gw-dms-06/root、无 marker/容器/相关进程，仅 22 监听，SSH exit 0。
 
 本人逐字核外层 `transfer-prepare-run.sh` SHA256=`42ce4a49dddb5f966151e7cd9252ba6997d4608afa3a2ca303bbde7f9697c3f8` 后放行唯一执行。其原始日志 SHA256=`ea8f2270fc9d4241a8b84be6549784e90443328025882f5660f9bd12ea820456`，01:18:11–14Z：本地与 06 的 bundle/node/Rust 三 SHA 均一致，本人 marker 原子取得、LAN 拷贝完成；node prep 日志 SHA256=`3e42b5649c51a44ae8d930ac43b33d3d3714cc3381411f62e2744b7e4d713fec`，完整历史 bundle 在新 bare repo verify/fetch，06 HEAD=9f、clean detached+legacy、exit 0。Rust 日志 SHA256=`c0f7ee16768bc9292666696d2864fd642d729f6e72b795c5cfc7f95628e4ebb6`，01:18:13–14Z，选中 Rust 1.97.0、离线/jobs4、起止 HEAD=9f、工作树 clean、六锁未漂；**`cargo fmt --all --check` 首步 exit 1**，故 clippy/test 均未运行，外层 FINAL_EXIT=1。tester 的只读 postflight 原件 SHA256=`b72b9fc4bcb784c18e301f91a82c550fe15f7e77ff1e9d389d45cbba8f04802a` 核同一 marker、无相关进程、WT clean。其本人 marker 释放原件 `marker-release.log` SHA256=`b8a59b8ee7849659e21c0b9547f991a2284e2984633c8cd256deda121c1b7400` 是事后记录的 SSH stdout/exit：01:21:17Z，owner/进程/port/异己文件 guard PASS，仅删除本人 marker，tool exit 0；不冒称原始自动日志。format 是机械反馈，不计 C 预算同根产品修订轮；须在新固定候选由唯一 tester 重跑。
+
+## 6. CT201 dependency-base 原件
+
+本人逐字核 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/build-and-save.sh` SHA256=`fb05c816aeaebc9907037887ba6510354c46a2372ac6284dca6adaa003445cf1`，只按 clean `573d58248f0dc90e27f1be79ac9f2802211ed738` 用 authority builder `--print-input`→`--save`→`--print-input` 并比同一输入、检查归档 config/全 DiffID/label；不运行产品测试或把 CT201 结果当测试。唯一 tester 的原始 `build-and-save.log` SHA256=`7e1b02db9b823bd4be8c55a4888c2e40b99e83a9320a2919e17c7f18762094d3`，heavy-dev-01 01:22:02–01:24:09Z、起止 HEAD=573、clean、六锁无漂、exit 0。本人在固定 68a detached WT 逐项核五个 backend/worker dependency-base 输入 SHA 与 573 `input-before.json` 相同，573..68a 五路径 diff 为空；以后产品候选须再核这五输入。
+
+输入前后 JSON SHA256 均 `835bb4758561a1c1be509d4778c7310619142d1b5006efd26d948f57aaf30520`，full input SHA256=`ca0ba0a24a5e96a435e14a6da80b26cc390d315722f0432be3affe9de3339085`，tag=`gateway-backend-deps:lock-ca0ba0a24a5e`。归档 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/archives/backend-dependency-base.tar` SHA256=`fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136`；`image-identity.json` SHA256=`3fc8843af9cc6212a25b69e0032813a7362c44ced5c80798676d8ad6f8df2b05`，其中 config digest=`sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`、全部 19 个 RootFS DiffID，源 Rust base config=`sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1` 与 5 个 DiffID 均在原件。该归档在 CT201 build/save 通过；06 的 LAN 传输、`docker load` 后 config/全 DiffID 比对、当前候选离线 Compose 构建和容器 smoke 均待实证。

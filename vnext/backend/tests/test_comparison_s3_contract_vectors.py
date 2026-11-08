@@ -21,7 +21,8 @@ from gateway_backend.capabilities.comparison.artifacts import (
     RecordsPublicationContext,
     RecordsPublicationPolicy,
     _validate_parquet_bytes,
-    _write_parquet,
+    _schema_for,
+    _write_arrow_parquet,
 )
 from gateway_backend.capabilities.comparison.contracts import (
     RECORDS_PARQUET_FORMAT,
@@ -134,12 +135,13 @@ def test_records_writer_uses_1024_rows_then_one_row_group() -> None:
         dict(one_row, row_identity=index.to_bytes(32, "big"))
         for index in range(1025)
     )
-    raw = _write_parquet(
-        RecordsArtifactFamily.STANDARD,
-        rows,
-        RecordsPublicationPolicy(),
-        RecordsPublicationContext(),
+    schema = _schema_for(
+        RecordsArtifactFamily.STANDARD, None,
         RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+    )
+    raw = _write_arrow_parquet(
+        (pa.RecordBatch.from_pylist(list(rows), schema=schema),),
+        schema, RecordsPublicationPolicy(), RecordsPublicationContext(),
     )
     file = pq.ParquetFile(pa.BufferReader(raw))
 

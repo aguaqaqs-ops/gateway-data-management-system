@@ -1035,11 +1035,13 @@ def _real_dump_root() -> Path:
     return root
 
 
-def _read_metadata(root: Path) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+def _read_metadata(
+    root: Path, *, census_path: Path | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     try:
         datasets_document = json.loads((root / "datasets.json").read_text(encoding="utf-8"))
         census_document = json.loads(
-            (_repo_root() / "docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-s1-census.json")
+            (census_path or _repo_root() / "docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-s1-census.json")
             .read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError) as exc:
@@ -1767,12 +1769,13 @@ def _assert_s1b_preview_summary(
     summary: Mapping[str, int],
     *,
     dataset_id: str,
-    expected_changed: int,
+    expected_changed: int | None,
+    baseline: Mapping[str, int] | None = None,
 ) -> None:
-    baseline = S2B_DATASET_BASELINE[dataset_id]
+    baseline = baseline or S2B_DATASET_BASELINE[dataset_id]
     if (
         summary.get("table_count") != baseline["preview_table_count"] + 1
-        or summary.get("changed_table_count") != expected_changed
+        or (expected_changed is not None and summary.get("changed_table_count") != expected_changed)
         or summary.get("degraded_table_count") != 0
         or summary.get("failed_table_count") != 0
     ):
@@ -1784,8 +1787,9 @@ def _assert_s3_catalog_summary(
     *,
     dataset_id: str,
     composite_row_count: int,
+    baseline: Mapping[str, int] | None = None,
 ) -> None:
-    baseline = S2B_DATASET_BASELINE[dataset_id]
+    baseline = baseline or S2B_DATASET_BASELINE[dataset_id]
     if repository.get("catalog_table_count") != baseline["catalog_table_count"] + 1:
         raise JourneyFailure(f"{dataset_id}: Repository Catalog table count differs from the S2b plus composite expectation")
     if repository.get("composite_signal_point_row_count") != composite_row_count:
@@ -1800,10 +1804,24 @@ def _assert_s1b_history_count(
     tier: str,
     actual_record_count: int,
     composite_record_count: int,
+    s3_diagnostic: bool = False,
 ) -> None:
+    if s3_diagnostic:
+        return
     expected = S1B_HISTORY_RECORD_COUNTS[tier] + composite_record_count
     if actual_record_count != expected:
         raise JourneyFailure(f"{tier}: History record count differs from the S1b baseline plus composite records")
+
+
+def _s3_census_baseline(item: Mapping[str, Any]) -> dict[str, int]:
+    """Use synthetic census totals without changing frozen P5 constants."""
+    tables = int(item["table_count"])
+    rows = int(item["row_count_total"])
+    return {
+        "preview_table_count": tables,
+        "catalog_table_count": tables,
+        "catalog_row_count_total": rows,
+    }
 
 
 def _submit(
@@ -2620,8 +2638,15 @@ def _run_tier(
     debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
     collect_timing: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
+    s3_diagnostic: bool = False,
 ) -> dict[str, Any]:
     operation_timings: dict[str, dict[str, Any]] = {}
+    v1_baseline = _s3_census_baseline(census[v1_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v1_id]
+    v2_baseline = _s3_census_baseline(census[v2_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v2_id]
+    v1_pseudo = (int(census[v1_id]["ordered_projection"]["pseudo_rows_total"])
+                 if s3_diagnostic else EXPECTED_PSEUDO_TOTALS[v1_id])
+    v2_pseudo = (int(census[v2_id]["ordered_projection"]["pseudo_rows_total"])
+                 if s3_diagnostic else EXPECTED_PSEUDO_TOTALS[v2_id])
 
     def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
         timing = value.get("operation_timing")
@@ -2703,9 +2728,9 @@ def _run_tier(
     v2_ordered_row_counts = _ordered_table_row_counts(census[v2_id])
     v1_keyless_names = _keyless_fallback_candidates(census[v1_id])
     v2_keyless_names = _keyless_fallback_candidates(census[v2_id])
-    if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v1_id]:
+    if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != v1_pseudo:
         raise JourneyFailure(f"{v1_id}: census pseudo total differs from the accepted baseline")
-    if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v2_id]:
+    if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != v2_pseudo:
         raise JourneyFailure(f"{v2_id}: census pseudo total differs from the accepted baseline")
     if tier == "t1":
         depth = census[v1_id].get("logics_xml_max_depth")
@@ -2784,7 +2809,8 @@ def _run_tier(
             _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v1_id,
-                expected_changed=S2B_DATASET_BASELINE[v1_id]["preview_table_count"] + 1,
+                expected_changed=v1_baseline["preview_table_count"] + 1,
+                baseline=v1_baseline,
             )
             _emit_progress(
                 f"{tier} v1 Preview",
@@ -2874,8 +2900,9 @@ def _run_tier(
                 repository,
                 dataset_id=v1_id,
                 composite_row_count=composite_v1_row_count,
+                baseline=v1_baseline,
             )
-            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
+            if repository["pseudo_rows_total"] != v1_pseudo:
                 raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
             return repository
 
@@ -2927,6 +2954,7 @@ def _run_tier(
                     workspace=cast(Mapping[str, Any], v2_workspace_partial),
                     package=v2_bytes,
                     idempotency_key=f"{project_name}-{tier}-v2-upload",
+                    initial_package=v1_bytes if v2_input_completeness == "FULL" else None,
                 ),
             )
 
@@ -2943,17 +2971,22 @@ def _run_tier(
                     heartbeat_monitor=heartbeat_monitor,
                     collect_timing=collect_timing,
                 )
-                summary = _assert_preview_summaries(manifest, unchanged=False)
-                expected_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+                summary = _assert_preview_summaries(
+                    manifest, unchanged=False, input_completeness=v2_input_completeness,
+                )
+                expected_changed = (None if s3_diagnostic else
+                                    S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed))
                 _assert_s1b_preview_summary(
                     summary,
                     dataset_id=v2_id,
                     expected_changed=expected_changed,
+                    baseline=v2_baseline,
                 )
                 identity = _assert_identity_pair(
                     preview,
                     expected_status="SAME_PROJECT",
                     expected_mode="DETAILED",
+                    input_completeness=v2_input_completeness,
                 )
                 _emit_progress(
                     f"{tier} v2 Preview",
@@ -2973,6 +3006,7 @@ def _run_tier(
             return {
                 "tier": tier,
                 "scope": scope,
+                "v2_input_completeness": v2_input_completeness,
                 "datasets": [
                     {
                         "dataset_id": v1_id,
@@ -3047,6 +3081,7 @@ def _run_tier(
                 summary,
                 dataset_id=v1_id,
                 expected_changed=0,
+                baseline=v1_baseline,
             )
             _emit_progress(
                 f"{tier} repeat v1 Preview",
@@ -3126,11 +3161,13 @@ def _run_tier(
                 unchanged=False,
                 input_completeness=v2_input_completeness,
             )
-            expected_v2_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+            expected_v2_changed = (None if s3_diagnostic else
+                                   S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed))
             _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v2_id,
                 expected_changed=expected_v2_changed,
+                baseline=v2_baseline,
             )
             _emit_progress(
                 f"{tier} v2 Preview",
@@ -3198,8 +3235,9 @@ def _run_tier(
                 repository,
                 dataset_id=v2_id,
                 composite_row_count=composite_v2_row_count,
+                baseline=v2_baseline,
             )
-            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
+            if repository["pseudo_rows_total"] != v2_pseudo:
                 raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
             return repository
 
@@ -3264,6 +3302,7 @@ def _run_tier(
         tier=tier,
         actual_record_count=api_record_count,
         composite_record_count=composite_record_count,
+        s3_diagnostic=s3_diagnostic,
     )
     repeat_keyless_names = v1_keyless_names
     return {
@@ -3325,7 +3364,7 @@ def _run_tier(
         },
         "history": {
             "record_count": api_record_count,
-            "s1b_record_count": S1B_HISTORY_RECORD_COUNTS[tier],
+            "s1b_record_count": None if s3_diagnostic else S1B_HISTORY_RECORD_COUNTS[tier],
             "composite_record_count": composite_record_count,
             "composite_signal_point": composite_counts,
             "bundle_digest": history_result.get("bundle_digest"),
@@ -3691,9 +3730,14 @@ def run_journey(
     dc32_output: Path | None = None,
     debug_t1_submit_probe: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
+    s3_census: Path | None = None,
 ) -> dict[str, Any]:
     root = _real_dump_root()
-    datasets, census = _read_metadata(root)
+    datasets, census = _read_metadata(root, census_path=s3_census)
+    if s3_census is not None and (
+        tier_filter != "t4" or cross_project or scope not in {"full", "t4-identity"}
+    ):
+        raise JourneyFailure("S3 synthetic census requires a same-project --tier t4 journey")
     current_head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_repo_root(),
@@ -3728,8 +3772,11 @@ def run_journey(
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
     if v2_input_completeness not in {"MODIFIED_ONLY", "FULL"}:
         raise JourneyFailure("v2 input completeness is invalid")
-    if v2_input_completeness == "FULL" and (cross_project or dc32_output is not None or from_step is not None or scope != "full"):
-        raise JourneyFailure("FULL v2 input requires a fresh full functional journey")
+    if v2_input_completeness == "FULL" and (
+        cross_project or dc32_output is not None or from_step is not None
+        or (scope != "full" and not (s3_census is not None and scope == "t4-identity"))
+    ):
+        raise JourneyFailure("FULL v2 input requires a fresh full journey or S3 T4 Preview diagnostic")
     if debug_t1_submit_probe and (
         tier_filter != "t1"
         or scope != "full"
@@ -3920,6 +3967,7 @@ def run_journey(
                                         heartbeat_monitor=heartbeat_monitor,
                                         scope=scope,
                                         v2_input_completeness=v2_input_completeness,
+                                        s3_diagnostic=s3_census is not None,
                                         dc32_metrics=dc32_metrics,
                                         dc32_scratch_root=dc32_scratch_root,
                                         dc32_session_root=dc32_session_root,
@@ -4024,11 +4072,15 @@ def run_journey(
     return journey_result
 
 
-def validate_inputs() -> dict[str, Any]:
+def validate_inputs(
+    *, s3_census: Path | None = None, tier_filter: str | None = None,
+) -> dict[str, Any]:
     root = _real_dump_root()
-    datasets, census = _read_metadata(root)
+    datasets, census = _read_metadata(root, census_path=s3_census)
     validated = []
     for dataset_id in sorted(datasets):
+        if tier_filter is not None and datasets[dataset_id].get("tier") != tier_filter:
+            continue
         _package, file_info = _dataset_package(root, datasets[dataset_id])
         ordered = _ordered_tables(census[dataset_id])
         validated.append(
@@ -4063,6 +4115,7 @@ def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
                 dc32_output=arguments.dc32_output,
                 debug_t1_submit_probe=arguments.debug_submit_probe_t1,
                 v2_input_completeness=arguments.v2_input_completeness,
+                s3_census=arguments.s3_census,
             )
 
 
@@ -4074,6 +4127,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument(
+        "--s3-census", type=Path,
+        help="accepted W3/W4 census for an S3-only T4 diagnostic input root; "
+             "t4-identity stops after v2 Preview, full also verifies History",
+    )
     parser.add_argument(
         "--v2-input-completeness", choices=("MODIFIED_ONLY", "FULL"), default="MODIFIED_ONLY",
         help="functional v2 upload mode; FULL uses archived v1 as INITIAL and v2 as MODIFIED",
@@ -4107,7 +4165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.validate_inputs and any(
             (
-                arguments.tier is not None,
+                arguments.tier is not None and arguments.s3_census is None,
                 arguments.scope != "full",
                 arguments.cross_project,
                 arguments.from_step is not None,
@@ -4119,8 +4177,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         ):
             raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
+        if arguments.s3_census is not None and arguments.tier != "t4":
+            raise JourneyFailure("--s3-census requires --tier t4")
         result = (
-            validate_inputs()
+            validate_inputs(s3_census=arguments.s3_census, tier_filter=arguments.tier)
             if arguments.validate_inputs
             else _run_kernel_journey(arguments)
         )

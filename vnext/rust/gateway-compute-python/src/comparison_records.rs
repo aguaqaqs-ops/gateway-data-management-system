@@ -23,7 +23,7 @@ use gateway_compute_core::{
     ordered_metadata_json, standard_metadata_json,
 };
 use pyo3::exceptions::{
-    PyInterruptedError, PyMemoryError, PyRuntimeError, PyTimeoutError, PyValueError,
+    PyInterruptedError, PyMemoryError, PyOSError, PyRuntimeError, PyTimeoutError, PyValueError,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule, PyString};
@@ -145,10 +145,15 @@ struct ComparisonRecordsHandle {
     owner: Option<Arc<PythonChargeOwner>>,
     _watch: Arc<CancelWatch>,
     operation_identity: Option<usize>,
+    phase_timings: (f64, f64, f64),
 }
 
 #[pymethods]
 impl ComparisonRecordsHandle {
+    fn phase_timings(&self) -> (f64, f64, f64) {
+        self.phase_timings
+    }
+
     fn close(&mut self) {
         self.result = None;
         self.standard = None;
@@ -358,6 +363,8 @@ fn comparison_error(error: String) -> PyErr {
         PyTimeoutError::new_err(error)
     } else if error.contains("COMPARISON_INTERNAL_ERROR") {
         PyRuntimeError::new_err(error)
+    } else if error.starts_with("COMPARISON_INPUT_READ_ERROR:") {
+        PyOSError::new_err(error)
     } else {
         PyValueError::new_err(error)
     }
@@ -399,7 +406,7 @@ fn read_stream(
             loop {
                 context.check().map_err(|error| error.to_string())?;
                 let Some(batch) = reader.next() else { break };
-                let batch = batch.map_err(|error| error.to_string())?;
+                let batch = batch.map_err(|error| format!("COMPARISON_INPUT_READ_ERROR:{error}"))?;
                 if batches.len() >= 4096 {
                     return Err("RESOURCE_LIMIT_EXCEEDED: too many input batches".to_string());
                 }
@@ -506,6 +513,7 @@ fn _compare_records_native(
         let policy =
             parse_comparison_policy(kind, policy_json, &context).map_err(PyValueError::new_err)?;
         let mut input_bytes = 0;
+        let read_started = Instant::now();
         let (before_schema, before) = read_stream(
             py,
             before_stream,
@@ -520,6 +528,7 @@ fn _compare_records_native(
             &mut input_bytes,
             max_input_bytes,
         )?;
+        let input_read_seconds = read_started.elapsed().as_secs_f64();
         let external: Arc<dyn Any + Send + Sync> = owner.clone();
         let schema_diagnostics = py.import("json")?
             .call_method1("loads", (policy_json,))?
@@ -530,6 +539,7 @@ fn _compare_records_native(
             .detach(|| {
                 pool.install(|| match policy {
                     ParsedComparisonPolicy::Standard(options) => {
+                        let compare_started = Instant::now();
                         let mut result = compare_standard_table(
                             CanonicalBatchSide::new(before_schema, &before),
                             CanonicalBatchSide::new(current_schema, &current),
@@ -537,6 +547,8 @@ fn _compare_records_native(
                             &context,
                         )
                         .map_err(|error| error.to_string())?;
+                        let compare_seconds = compare_started.elapsed().as_secs_f64();
+                        let records_started = Instant::now();
                         let schema_lease = if schema_diagnostics.is_empty() {
                             None
                         } else {
@@ -573,9 +585,11 @@ fn _compare_records_native(
                             &context,
                             Some(external),
                         )?;
-                        Ok((ComparisonResult::Standard(result), standard, None, None, schema_lease))
+                        Ok((ComparisonResult::Standard(result), standard, None, None,
+                            schema_lease, compare_seconds, records_started.elapsed().as_secs_f64()))
                     }
                     ParsedComparisonPolicy::Ordered(options) => {
+                        let compare_started = Instant::now();
                         let result = compare_ordered_batches(
                             OrderedBatchPair {
                                 before: Some(&before),
@@ -587,6 +601,8 @@ fn _compare_records_native(
                             &context,
                         )
                         .map_err(|error| error.to_string())?;
+                        let compare_seconds = compare_started.elapsed().as_secs_f64();
+                        let records_started = Instant::now();
                         let standard = build_standard_records_from_ordered(
                             table_name,
                             &result,
@@ -623,6 +639,8 @@ fn _compare_records_native(
                             Some(ordered),
                             Some(blank),
                             None,
+                            compare_seconds,
+                            records_started.elapsed().as_secs_f64(),
                         ))
                     }
                 })
@@ -641,6 +659,7 @@ fn _compare_records_native(
             owner: Some(owner),
             _watch: watch,
             operation_identity: operation.operation_identity,
+            phase_timings: (input_read_seconds, output.5, output.6),
         })
     }) {
         Ok(result) => result,

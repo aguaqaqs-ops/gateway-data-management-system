@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
+import logging
+from time import perf_counter
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
@@ -39,6 +42,7 @@ from gateway_backend.capabilities.comparison.production import (
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
+    RiskExecutionContext,
     RiskEvaluationStatus,
     RiskOptions,
     RiskRulesetSnapshot,
@@ -65,6 +69,7 @@ from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
+_LOG = logging.getLogger(__name__)
 
 
 class PairPipelineError(Exception):
@@ -293,7 +298,9 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair planning did not produce a comparison plan")
     if context is None:
         raise PairPipelineError("pair computation requires an operation kernel context")
+    comparison_started = perf_counter()
     with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
+        comparison_elapsed = perf_counter() - comparison_started
         return _finish_comparison_risk_surface(
             native_comparison=native_comparison, request=request,
             view_id=view_id, store=store, control=control,
@@ -301,6 +308,7 @@ def _run_comparison_risk_surface(
             show_keyless_fallback_hint=show_keyless_fallback_hint,
             include_all_before_tables=include_all_before_tables,
             repository_id=repository_id, export_cache=export_cache,
+            comparison_elapsed=comparison_elapsed,
         )
 
 
@@ -317,6 +325,7 @@ def _finish_comparison_risk_surface(
     include_all_before_tables: bool,
     repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None,
+    comparison_elapsed: float,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:
@@ -327,6 +336,8 @@ def _finish_comparison_risk_surface(
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
     published: DetailedFactsResult | DatasetReplacementResult
+    record_publication_started = perf_counter()
+    record_timings: dict[str, float] = {}
     if isinstance(compared, DatasetReplacementResult):
         if compared.facts is None:
             raise PairPipelineError("replacement comparison did not produce facts")
@@ -335,7 +346,7 @@ def _finish_comparison_risk_surface(
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
         closure_result = publish_records_closure_arrow(
             compared, native_comparison.handles, store,
-            context=RecordsPublicationContext(checkpoint=checkpoint),
+            context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),
         )
         checkpoint()
         if isinstance(closure_result, FailedResult):
@@ -349,25 +360,35 @@ def _finish_comparison_risk_surface(
         comparison_facts = closure_facts
     else:
         raise PairPipelineError("pair comparison did not produce facts")
+    record_publication_seconds = perf_counter() - record_publication_started
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
+    risk_conversion: dict[str, float] = {}
+    risk_started = perf_counter()
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(),
             record_views=native_comparison.risk_handles,
+            record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,
         ),
         artifact_store=store,
+        execution_context=RiskExecutionContext(
+            cancel_requested=context.cancel_probe,
+            deadline_monotonic=context.deadline_monotonic,
+        ),
     )
+    risk_seconds = perf_counter() - risk_started
     checkpoint()
     if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
     # Surface holds only small facts/refs; its JSON construction and retained
     # result still consume the same operation M after native records seal.
+    surface_started = perf_counter()
     context.resources.enter_context(context.memory.reserve(
         16 * 1024**2 + len(comparison_facts.tables) * 65536,
     ))
@@ -404,7 +425,38 @@ def _finish_comparison_risk_surface(
     checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
+    surface_seconds = perf_counter() - surface_started
     native_comparison.commit_cache()
+    comparison_metrics = native_comparison.metrics
+    measured = {} if comparison_metrics is None else asdict(comparison_metrics)
+    native_seconds = (
+        measured.get("native_input_read_seconds", 0.0)
+        + measured.get("native_index_compare_seconds", 0.0)
+        + measured.get("native_records_build_seconds", 0.0)
+        + measured.get("ordered_current_summary_seconds", 0.0)
+    )
+    parquet_seconds = record_timings.get("parquet_write_seconds", 0.0)
+    conversion_seconds = risk_conversion.get("necessary_arrow_conversion_seconds", 0.0)
+    _LOG.info("s3_pair_metrics %s", json.dumps({
+        "pair_id": request.pair_id,
+        "mode": request.mode.value,
+        "comparison_total_seconds": comparison_elapsed,
+        "comparison": measured,
+        "comparison_python_other_seconds": max(
+            0.0, measured.get("compare_read_build_seconds", 0.0) - native_seconds,
+        ),
+        "upstream_projection_seconds": None,
+        "records_publication_seconds": record_publication_seconds,
+        "parquet_write_seconds": parquet_seconds,
+        "records_publication_other_seconds": max(0.0, record_publication_seconds - parquet_seconds),
+        "risk_total_seconds": risk_seconds,
+        "risk_necessary_arrow_conversion_seconds": conversion_seconds,
+        "risk_other_seconds": max(0.0, risk_seconds - conversion_seconds),
+        "surface_and_table_export_seconds": surface_seconds,
+        "bundle_assembly_seconds": None,
+        "charged_high_water_bytes": context.memory.high_water_bytes,
+        "charged_live_bytes": context.memory.used_bytes,
+    }, sort_keys=True))
     risk_digest = (
         risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     )

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 from collections import Counter
+from collections.abc import Mapping
 from contextlib import ExitStack, closing
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
+from enum import Enum
 from typing import Any
 
 import pyarrow as pa
@@ -36,11 +39,21 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, SnapshotTable,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access.contracts import TableAccessError
 
 
 _MAX_JCS_ROW_BYTES = 8 * 1024**2
 _MAX_RECORDS = 2_000_000
 _MAX_RECORD_BYTES = 512 * 1024**2
+_CACHE_KEY_PROVISIONAL_BYTES = 16 * 1024**2
+_OLD_CODED_ERRORS = frozenset({
+    "BLANK_PROVENANCE_INVALID", "BLANK_PROVENANCE_MISSING",
+    "CANONICAL_BLANK_PROVENANCE_INVALID", "CANONICAL_GID_INVALID",
+    "ORDERED_INTEGER_INVALID", "ORDER_KEY_DUPLICATE", "ORDER_KEY_INVALID",
+    "ORDER_KEY_MISSING", "ROW_IDENTITY_DUPLICATE", "ROW_SHAPE_MISMATCH",
+    "SCALAR_TYPE_MISMATCH", "SCALAR_TYPE_UNKNOWN", "SCALAR_VALUE_INVALID",
+    "SET_VALUE_INVALID", "SOURCE_GID_INVALID", "SOURCE_RESERVED_PSEUDO_GID",
+})
 
 
 class _InputCharge:
@@ -65,6 +78,52 @@ class _CompositeArrowOwner:
             manager.__exit__(None, None, None)
 
 
+def _cache_key_fits_prepaid_repr(plan: ComparisonPlan, task: TableComparisonTask) -> bool:
+    """Conservatively bound repr growth before constructing an optional key."""
+    remaining = _CACHE_KEY_PROVISIONAL_BYTES - 8192
+    nodes = 0
+
+    def admit(value: object, depth: int = 0) -> bool:
+        nonlocal remaining, nodes
+        nodes += 1
+        remaining -= 4096  # type/field names, delimiters and Python containers
+        if remaining < 0 or nodes > 4096 or depth > 24:
+            return False
+        if isinstance(value, Enum):
+            remaining -= 256 * (len(type(value).__qualname__) + len(str(value.value)))
+        elif isinstance(value, str | bytes):
+            # repr may escape one input character as a ten-character Unicode
+            # sequence; 256 bytes covers intermediate repr strings and the
+            # charged 8x final key copy at the same time.
+            remaining -= 256 * len(value)
+        elif value is None or isinstance(value, bool | float):
+            pass
+        elif isinstance(value, int):
+            if value.bit_length() > 512:
+                return False
+        elif is_dataclass(value) and not isinstance(value, type):
+            return all(admit(getattr(value, field.name), depth + 1) for field in fields(value))
+        elif isinstance(value, tuple | list):
+            return all(admit(item, depth + 1) for item in value)
+        elif isinstance(value, Mapping):
+            return all(admit(key, depth + 1) and admit(item, depth + 1)
+                       for key, item in value.items())
+        else:
+            return False
+        return remaining >= 0
+
+    before_artifact = None if task.before_table is None else task.before_table.artifact
+    current_artifact = None if task.current_table is None else task.current_table.artifact
+    before_ordered = None if task.before_table is None else task.before_table.ordered_metadata
+    current_ordered = None if task.current_table is None else task.current_table.ordered_metadata
+    return admit((
+        task.table_name, task.before_descriptor, task.current_descriptor,
+        before_artifact, current_artifact, before_ordered, current_ordered,
+        task.policy, task.artifact_scope, plan.mode, plan.rule_set,
+        plan.options, plan.contract_versions,
+    ))
+
+
 def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
     before = task.before_descriptor
     current = task.current_descriptor
@@ -86,12 +145,16 @@ def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
             return None
         kind = "row-comparison"
 
-    def identity(table: SnapshotTable | None) -> tuple[str, str, str]:
+    def identity(table: SnapshotTable | None) -> tuple[str, str, str, str]:
         if table is None:
-            return ("missing", "", "")
+            return ("missing", "", "", "reader-none")
+        input_mode = ("reader-none" if table.reader is None else
+                      f"reader:{type(table.reader).__module__}.{type(table.reader).__qualname__}")
         if table.artifact is not None:
-            return ("verified-canonical-artifact", repr(table.artifact), repr(table.ordered_metadata))
-        return ("operation-local-reader", str(id(table.reader)), repr(table.ordered_metadata))
+            return ("verified-canonical-artifact", repr(table.artifact),
+                    repr(table.ordered_metadata), input_mode)
+        return ("operation-local-reader", str(id(table.reader)),
+                repr(table.ordered_metadata), input_mode)
 
     # Complete schema (including name), direction, both authorities, policy
     # bodies and versions remain in the key. Overly narrow reuse is a safe miss.
@@ -116,18 +179,23 @@ class ComparisonTaskSession:
         occurrences: list[tuple[str, str, str, Any]] = []
         try:
             for plan in plans:
+                if plan.mode is not ComparisonMode.DETAILED:
+                    continue
                 for task in plan.tasks:
                     try:
-                        provisional = context.memory.reserve(4 * 1024**2)
+                        provisional = context.memory.reserve(_CACHE_KEY_PROVISIONAL_BYTES)
                     except MemoryError:
                         continue
                     try:
+                        if not _cache_key_fits_prepaid_repr(plan, task):
+                            provisional.close()
+                            continue
                         key = _task_key(plan, task)
                         if key is None:
                             provisional.close()
                             continue
                         actual = len(key) * 8 + 512
-                        if actual > 4 * 1024**2:
+                        if actual > _CACHE_KEY_PROVISIONAL_BYTES:
                             provisional.close()
                             continue
                         provisional.shrink_to(actual)
@@ -220,14 +288,22 @@ class ComparisonTaskSession:
             charges.close()
 
     def evict_for(self, plan: ComparisonPlan) -> None:
-        # A mixed pair has necessary fresh work. Release all re-computable
-        # outputs first so a cache entry cannot cause a new M rejection.
+        # Proactively release optional retention only when the next mixed
+        # pair has too little headroom even for facts/core scratch. Otherwise
+        # preserve actual adjacent-pair hits; a precise M rejection gets one
+        # fresh computation attempt in compare_plan_native below.
+        if not self.cached:
+            return
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison context was lost")
         keys = {self.key_for(plan, task) for task in plan.tasks}
         expected = any((plan.pair_id, task.table_name) in self.declared_keys
                        for task in plan.tasks)
-        if (expected and None in keys) or any(
+        fresh = (expected and None in keys) or any(
             key is not None and key not in self.cached for key in keys
-        ):
+        )
+        if fresh and context.memory.available_bytes < 512 * 1024**2:
             self.close()
 
     def key_for(self, plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
@@ -238,7 +314,9 @@ class ComparisonTaskSession:
         if context is None:
             raise RuntimeError("comparison context was lost")
         try:
-            with context.memory.reserve(4 * 1024**2):
+            with context.memory.reserve(_CACHE_KEY_PROVISIONAL_BYTES):
+                if not _cache_key_fits_prepaid_repr(plan, task):
+                    return None
                 actual = _task_key(plan, task)
                 return declared if actual == declared else None
         except MemoryError:
@@ -258,6 +336,20 @@ class ComparisonTaskSession:
 
 
 @dataclass(slots=True)
+class ComparisonRunMetrics:
+    dispatches: int = 0
+    native_calls: int = 0
+    input_reads: int = 0
+    cache_hits: int = 0
+    compare_read_build_seconds: float = 0.0
+    native_input_read_seconds: float = 0.0
+    native_index_compare_seconds: float = 0.0
+    native_records_build_seconds: float = 0.0
+    ordered_current_summary_seconds: float = 0.0
+    records_jcs_seconds: float = 0.0
+
+
+@dataclass(slots=True)
 class NativeComparison:
     result: DetailedFactsResult | DatasetReplacementResult
     handles: dict[str, Any]
@@ -265,23 +357,26 @@ class NativeComparison:
     operation: Any | None
     session: ComparisonTaskSession | None = None
     task_keys: dict[str, str] | None = None
+    consumed_keys: dict[str, str] | None = None
     committed: bool = False
+    metrics: ComparisonRunMetrics | None = None
 
     def commit_cache(self) -> None:
         if self.committed:
             return
         self.committed = True
-        if self.session is None or self.task_keys is None:
+        if self.session is None or self.task_keys is None or self.consumed_keys is None:
             return
         self.session.commit_pending_risk()
-        for name, key in self.task_keys.items():
+        for name, key in self.consumed_keys.items():
             remaining = self.session.remaining_uses[key] - 1
             if remaining > 0:
                 self.session.remaining_uses[key] = remaining
             else:
                 self.session.remaining_uses.pop(key, None)
             handle = self.handles.get(name)
-            if remaining > 0 and self.session.cached.get(key) is None:
+            if (remaining > 0 and name in self.task_keys
+                    and self.session.cached.get(key) is None):
                 facts = self.result.facts
                 if facts is not None:
                     fact = next(table for table in facts.tables if table.table_name == name)
@@ -351,11 +446,13 @@ def _compare_native(
     operation: object, task: TableComparisonTask, *, kind: str,
     policy: dict[str, object],
     session: ComparisonTaskSession | None = None,
+    metrics: ComparisonRunMetrics,
 ) -> Any:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("comparison operation context was lost")
-    if task.before_table is None or task.current_table is None:
+    if (task.before_table is None or task.current_table is None
+            or task.before_table.reader is None or task.current_table.reader is None):
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
     before, before_charge = _stream(task.before_table)
     try:
@@ -366,11 +463,13 @@ def _compare_native(
         raise
     owner = _InputCharge((before_charge, current_charge))
     try:
+        metrics.native_calls += 1
+        metrics.input_reads += 2
         if session is not None:
             session.calls += 1
             session.reads += 2
         try:
-            return native.compare_records_batches(
+            handle = native.compare_records_batches(
                 operation, kind=kind, table_name=task.table_name,
                 before=before, current=current,
                 policy_json=json.dumps(policy, separators=(",", ":")),
@@ -379,6 +478,11 @@ def _compare_native(
                 max_sort_bytes=2 * 1024**3, max_output_bytes=_MAX_RECORD_BYTES,
                 max_input_bytes=context.memory.limit_bytes,
             )
+            input_seconds, compare_seconds, build_seconds = handle.phase_timings()
+            metrics.native_input_read_seconds += input_seconds
+            metrics.native_index_compare_seconds += compare_seconds
+            metrics.native_records_build_seconds += build_seconds
+            return handle
         except BaseException:
             # A Python reader can fail inside the Arrow C Stream before the
             # native watch samples it. Preserve current stop/deadline priority
@@ -388,6 +492,32 @@ def _compare_native(
     finally:
         before.close()
         current.close()
+
+
+def _scan_keyless_degrade_inputs(
+    task: TableComparisonTask, session: ComparisonTaskSession | None,
+    metrics: ComparisonRunMetrics,
+) -> None:
+    # Frozen keyless degradation comes after both readers were consumed.
+    # Read Arrow batches without constructing Python row values or a false
+    # comparison result, preserving reader/cancel/error precedence.
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("comparison operation context was lost")
+    if (task.before_table is None or task.current_table is None
+            or task.before_table.reader is None or task.current_table.reader is None):
+        raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
+    for table in (task.before_table, task.current_table):
+        stream, owner = _stream(table)
+        try:
+            metrics.input_reads += 1
+            if session is not None:
+                session.reads += 1
+            with closing(stream):
+                for _ in stream:
+                    context.checkpoint()
+        finally:
+            getattr(owner, "close")()
 
 
 def _standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]:
@@ -555,6 +685,7 @@ def _native_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compari
 def _compare_task_native(
     task: TableComparisonTask, operation: object,
     session: ComparisonTaskSession | None,
+    metrics: ComparisonRunMetrics,
 ) -> tuple[ComparisonTableFact, Any | None]:
     policy = task.policy
     assert policy is not None
@@ -573,7 +704,7 @@ def _compare_task_native(
                             emit_add_delete=False, columns_added=True,
                             schema_diagnostics=[])
         probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
-                                session=session)
+                                session=session, metrics=metrics)
         try:
             metadata = json.loads(probe.metadata_json())
         finally:
@@ -594,9 +725,10 @@ def _compare_task_native(
             if task.current_table is None or task.current_table.reader is None:
                 return _degraded_fact(task, before, current, changes,
                                       ("TABLE_READER_UNAVAILABLE",)), None
-            return _ordered_unchanged_native(task, operation, schema, session), None
+            return _ordered_unchanged_native(task, operation, schema, session, metrics), None
         handle = _compare_native(operation, task, kind="ordered",
-                                 policy=_ordered_policy(task, schema), session=session)
+                                 policy=_ordered_policy(task, schema), session=session,
+                                 metrics=metrics)
         return _native_fact(task, handle, schema), handle
     if _can_table_early_exit(before, current, policy):
         return _compare_task(task), None
@@ -606,6 +738,7 @@ def _compare_task_native(
         policy.allow_keyless_key_transition and not schema.current_key
     )
     if is_keyless and policy.keyless_policy is KeylessPolicy.DEGRADE_NO_COMPARE_KEY:
+        _scan_keyless_degrade_inputs(task, session, metrics)
         diagnostics = tuple(_schema_diagnostics(schema, policy)) + ("DEGRADE_NO_COMPARE_KEY",)
         return ComparisonTableFact(
             table_name=task.table_name, status=ComparisonTableStatus.DEGRADED,
@@ -615,7 +748,8 @@ def _compare_task_native(
             records=(_schema_record(task.table_name, diagnostics, schema.selected),),
         ), None
     handle = _compare_native(operation, task, kind="standard",
-                             policy=_standard_policy(task, schema), session=session)
+                             policy=_standard_policy(task, schema), session=session,
+                             metrics=metrics)
     return _native_fact(task, handle, schema), handle
 
 
@@ -633,6 +767,7 @@ def _compare_task_metadata_nonrecord(task: TableComparisonTask, changes: Compari
 def _ordered_unchanged_native(
     task: TableComparisonTask, operation: object, schema: Any,
     session: ComparisonTaskSession | None,
+    metrics: ComparisonRunMetrics,
 ) -> ComparisonTableFact:
     # The unchanged fast path must read only the current side and never run LIS.
     policy = _ordered_policy(task, schema, unchanged=True)
@@ -645,14 +780,18 @@ def _ordered_unchanged_native(
         raise RuntimeError("comparison operation context was lost")
     stream, charge = _stream(table)
     try:
+        metrics.native_calls += 1
+        metrics.input_reads += 1
         if session is not None:
             session.calls += 1
             session.reads += 1
+        summary_started = perf_counter()
         before_digest, current_digest, before_occupancy, current_occupancy, _ = native.summarize_unchanged_ordered(
             operation, current=stream, policy_json=json.dumps(policy),
             input_owner_charge=charge,
             max_input_bytes=context.memory.limit_bytes,
         )
+        metrics.ordered_current_summary_seconds += perf_counter() - summary_started
     finally:
         stream.close()
     return ComparisonTableFact(
@@ -679,11 +818,32 @@ def _ordered_unchanged_native(
 def compare_plan_native(
     plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
 ) -> NativeComparison:
+    metrics = ComparisonRunMetrics()
+    try:
+        return _compare_plan_native_once(plan, session=session, metrics=metrics)
+    except MemoryError:
+        # Optional retained keys/handles may have consumed the room needed
+        # by a real compare. Drop them, then try that same immutable plan once
+        # with no reuse. A second M rejection is the business resource limit.
+        if session is None or (not session.key_charges and not session.cached):
+            raise
+        session.close()
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
+        return _compare_plan_native_once(plan, session=None, metrics=metrics)
+
+
+def _compare_plan_native_once(
+    plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+    metrics: ComparisonRunMetrics,
+) -> NativeComparison:
+    started = perf_counter()
     if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
         replaced = compare_dataset_replacement(plan)
         if not isinstance(replaced, DatasetReplacementResult):
             raise StandardComparisonError("replacement comparison failed")
-        return NativeComparison(replaced, {}, {}, None, session=session)
+        return NativeComparison(replaced, {}, {}, None, session=session, metrics=metrics)
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
@@ -705,44 +865,57 @@ def compare_plan_native(
                     len(diagnostic.message) * 64 + 4096 for diagnostic in descriptor.diagnostics
                 )
     context.memory.record_stage_admission("comparison-metadata", metadata_upper)
-    context.resources.enter_context(context.memory.reserve(metadata_upper))
+    metadata_charge = context.memory.reserve(metadata_upper)
     # The writer and Risk run after seal, when the unused native phase is
     # returned. Leave only the Python facts/core scratch needed concurrently;
     # a fixed future-writer holdback would reject small cached replays.
-    available = context.memory.available_bytes
-    concurrent_scratch = min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2))
-    native_budget = available - concurrent_scratch
-    if native_budget <= 0:
-        raise MemoryError("comparison native phase exceeds operation budget")
-    context.memory.record_stage_admission("comparison-native", native_budget)
-    operation = native.begin_records_operation(
-        native_budget_bytes=native_budget,
-        cancel_probe=context.cancel_probe,
-        deadline_monotonic=context.deadline_monotonic,
-    )
+    try:
+        available = context.memory.available_bytes
+        concurrent_scratch = min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2))
+        native_budget = available - concurrent_scratch
+        if native_budget <= 0:
+            raise MemoryError("comparison native phase exceeds operation budget")
+        context.memory.record_stage_admission("comparison-native", native_budget)
+        operation = native.begin_records_operation(
+            native_budget_bytes=native_budget,
+            cancel_probe=context.cancel_probe,
+            deadline_monotonic=context.deadline_monotonic,
+        )
+    except BaseException:
+        metadata_charge.close()
+        raise
     handles: dict[str, Any] = {}
     risk_handles: dict[str, Any] = {}
     task_keys: dict[str, str] = {}
+    consumed_keys: dict[str, str] = {}
     cached_names: set[str] = set()
     try:
         tables = []
         for task in plan.tasks:
             context.checkpoint()
+            metrics.dispatches += 1
             key = session.key_for(plan, task) if session is not None else None
             cached = None if session is None else session.lookup(key)
             try:
                 if cached is None:
-                    fact, handle = _compare_task_native(task, operation, session)
+                    fact, handle = _compare_task_native(task, operation, session, metrics)
                 else:
                     fact, handle = cached
                     cached_names.add(task.table_name)
+                    metrics.cache_hits += 1
             except (InterruptedError, TimeoutError, MemoryError):
                 raise
-            except (StandardComparisonError, ValueError, OSError, pa.ArrowException) as exc:
+            except (StandardComparisonError, TableAccessError, ValueError, OSError, pa.ArrowException) as exc:
                 context.checkpoint()
                 # Ordinary malformed table data retains the existing per-table
                 # degraded result. Native adapter panic/runtime failures escape.
-                diagnostic = str(exc) if isinstance(exc, StandardComparisonError) else type(exc).__name__
+                coded = str(exc) if isinstance(exc, ValueError) else ""
+                if coded == "DUPLICATE_EFFECTIVE_KEY":
+                    diagnostic = f"DUPLICATE_EFFECTIVE_KEY:{task.table_name}"
+                elif isinstance(exc, StandardComparisonError) or coded in _OLD_CODED_ERRORS:
+                    diagnostic = str(exc)
+                else:
+                    diagnostic = type(exc).__name__
                 schema_changes = ComparisonSchemaChanges()
                 if (task.before_descriptor is not None and task.current_descriptor is not None
                         and task.policy is not None):
@@ -752,20 +925,29 @@ def compare_plan_native(
                         ), task.policy)
                     except ValueError:
                         pass
-                fact = ComparisonTableFact(
-                    table_name=task.table_name, status=ComparisonTableStatus.DEGRADED,
-                    before_descriptor=task.before_descriptor,
-                    current_descriptor=task.current_descriptor,
-                    schema_changes=schema_changes,
-                    row_count_before=None if task.before_descriptor is None else task.before_descriptor.row_count,
-                    row_count_current=None if task.current_descriptor is None else task.current_descriptor.row_count,
-                    diagnostics=(diagnostic,),
-                    records=(ComparisonRecord(
-                        table_name=task.table_name,
-                        record_kind=ComparisonRecordKind.TABLE_DEGRADED,
+                if (task.policy is not None and task.policy.ordered_policy is not None
+                        and (isinstance(exc, StandardComparisonError)
+                             or coded in _OLD_CODED_ERRORS)):
+                    from gateway_backend.capabilities.comparison.ordered import _degraded_fact
+                    fact = _degraded_fact(
+                        task, task.before_descriptor, task.current_descriptor,
+                        schema_changes, (diagnostic,),
+                    )
+                else:
+                    fact = ComparisonTableFact(
+                        table_name=task.table_name, status=ComparisonTableStatus.DEGRADED,
+                        before_descriptor=task.before_descriptor,
+                        current_descriptor=task.current_descriptor,
+                        schema_changes=schema_changes,
+                        row_count_before=None if task.before_descriptor is None else task.before_descriptor.row_count,
+                        row_count_current=None if task.current_descriptor is None else task.current_descriptor.row_count,
                         diagnostics=(diagnostic,),
-                    ),),
-                )
+                        records=(ComparisonRecord(
+                            table_name=task.table_name,
+                            record_kind=ComparisonRecordKind.TABLE_DEGRADED,
+                            diagnostics=(diagnostic,),
+                        ),),
+                    )
                 handle = None
             if handle is not None:
                 handles[task.table_name] = handle
@@ -778,8 +960,12 @@ def compare_plan_native(
                     fact.row_deleted_count > fact.suppressed_deleted_count):
                     risk_handles[task.table_name] = handle
             if key is not None and session is not None and key in session.remaining_uses:
-                task_keys[task.table_name] = key
+                consumed_keys[task.table_name] = key
+                if fact.status is not ComparisonTableStatus.DEGRADED:
+                    task_keys[task.table_name] = key
             tables.append(fact)
+        metrics.compare_read_build_seconds += perf_counter() - started
+        records_jcs_started = perf_counter()
         metadata = []
         table_handles: list[object | None] = []
         with context.memory.reserve(metadata_upper):
@@ -809,13 +995,17 @@ def compare_plan_native(
                 summary_json=summary_json, max_jcs_row_bytes=_MAX_JCS_ROW_BYTES,
             ))
             facts: ComparisonFacts = _build_facts(plan, tuple(tables), core_digest=core)
+        metrics.records_jcs_seconds += perf_counter() - records_jcs_started
         result = DetailedFactsResult(plan.pair_id, facts.summary.status, facts=facts, diagnostics=facts.diagnostics)
         operation.seal()
         context.checkpoint()
+        context.resources.enter_context(metadata_charge)
         return NativeComparison(result, handles, risk_handles, operation,
-                                session=session, task_keys=task_keys)
+                                session=session, task_keys=task_keys,
+                                consumed_keys=consumed_keys, metrics=metrics)
     except BaseException:
         for handle in handles.values():
             handle.close()
         operation.close()
+        metadata_charge.close()
         raise

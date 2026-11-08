@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Iterator, Mapping
 from contextlib import closing, nullcontext
+from time import perf_counter
 
 from gateway_shared_kernel import DigestRef
 from gateway_backend.capabilities.table_access import current_kernel_context
@@ -44,8 +45,9 @@ class RiskRecord:
 class RiskRecordView:
     """Reopen the in-memory facts-order minimum projection for each risk rule."""
 
-    def __init__(self, handle: object) -> None:
+    def __init__(self, handle: object, metrics: dict[str, float] | None = None) -> None:
         self._handle = handle
+        self._metrics = metrics
 
     def __bool__(self) -> bool:
         summary = getattr(self._handle, "family_summary")
@@ -64,16 +66,22 @@ class RiskRecordView:
                     8192 + batch.nbytes * 16 + batch.num_rows * 512,
                 ))
                 with scratch:
+                    started = perf_counter()
                     columns = batch.to_pydict()
-                    for kind, identity, changed in zip(
+                    records = [RiskRecord(
+                        record_kind=ComparisonRecordKind(kind),
+                        row_identity=None if identity is None else DigestRef("sha256:" + identity.hex()),
+                        changed_columns=tuple(changed),
+                    ) for kind, identity, changed in zip(
                         columns["record_kind"], columns["row_identity"],
                         columns["changed_columns"], strict=True,
-                    ):
-                        yield RiskRecord(
-                            record_kind=ComparisonRecordKind(kind),
-                            row_identity=None if identity is None else DigestRef("sha256:" + identity.hex()),
-                            changed_columns=tuple(changed),
+                    )]
+                    if self._metrics is not None:
+                        self._metrics["necessary_arrow_conversion_seconds"] = (
+                            self._metrics.get("necessary_arrow_conversion_seconds", 0.0)
+                            + perf_counter() - started
                         )
+                    yield from records
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +99,7 @@ def extract_risk_facts(
     facts: ComparisonFacts,
     requested_tables: tuple[str, ...] | None,
     record_views: Mapping[str, object] | None = None,
+    record_view_metrics: dict[str, float] | None = None,
 ) -> tuple[ExtractedRiskFacts, ...]:
     requested = None if requested_tables is None else frozenset(requested_tables)
     result: list[ExtractedRiskFacts] = []
@@ -110,7 +119,7 @@ def extract_risk_facts(
         )
         view = None if record_views is None else record_views.get(table.table_name)
         records: tuple[ComparisonRecord, ...] | RiskRecordView = (
-            table.records if view is None else RiskRecordView(view)
+            table.records if view is None else RiskRecordView(view, record_view_metrics)
         )
         scope = _risk_scope(table, key_degraded, ordered_unsupported, bool(records))
         degraded_reasons = tuple(

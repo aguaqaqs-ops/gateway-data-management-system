@@ -1580,6 +1580,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "dc32_output": None,
         "debug_t1_submit_probe": False,
         "v2_input_completeness": "MODIFIED_ONLY",
+        "s3_census": None,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -1603,6 +1604,77 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
     assert calls["scope"] == "t4-v1-submit"
     assert calls["cross_project"] is False
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
+
+
+def test_s3_t4_preview_cli_distinguishes_scope_and_full_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run_journey(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
+    census = tmp_path / "accepted-t4-census.json"
+    result = real_dump_journey.main([
+        "--tier", "t4", "--scope", "t4-identity",
+        "--s3-census", str(census), "--v2-input-completeness", "FULL",
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "25769803776",
+    ])
+    assert result == 0
+    assert calls["tier_filter"] == "t4"
+    assert calls["scope"] == "t4-identity"
+    assert calls["s3_census"] == census
+    assert calls["v2_input_completeness"] == "FULL"
+
+
+def test_s3_t4_census_validates_only_the_two_selected_package_identities(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "synthetic-t4"
+    packages = root / "packages"
+    packages.mkdir(parents=True)
+    datasets: list[dict[str, Any]] = []
+    census: list[dict[str, Any]] = []
+    for _tier, (v1_id, v2_id) in real_dump_journey.EXPECTED_PAIRINGS.items():
+        for dataset_id, pair_of in ((v1_id, None), (v2_id, v1_id)):
+            is_t4 = dataset_id.startswith("rd-t4-")
+            payload = dataset_id.encode("ascii")
+            if is_t4:
+                (packages / f"{dataset_id}.tar.gz").write_bytes(payload)
+            datasets.append({
+                "dataset_id": dataset_id,
+                "tier": "t4" if is_t4 else "other",
+                "pair_of": pair_of,
+                "has_logics_xml": True,
+                "files": [{
+                    "path": "package.tar.gz", "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }],
+            })
+            pseudo = 3 if dataset_id == v2_id and is_t4 else 2 if is_t4 else 0
+            census.append({
+                "dataset_id": dataset_id,
+                "table_count": 1, "row_count_total": 3,
+                "ordered_projection": {
+                    "status": "COMPLETE", "pseudo_rows_total": pseudo,
+                    "tables": {"ordered_t": {"status": "COMPLETE", "pseudo_gid_count": pseudo}},
+                },
+                "effective_key_scan": {"unresolved_tables": []},
+            })
+    (root / "datasets.json").write_text(json.dumps({"datasets": datasets}), encoding="utf-8")
+    census_path = tmp_path / "accepted-census.json"
+    census_path.write_text(json.dumps({"datasets": census}), encoding="utf-8")
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: root)
+    result = real_dump_journey.validate_inputs(s3_census=census_path, tier_filter="t4")
+    assert result["conclusion"] == "INPUTS_VALID"
+    assert [item["dataset_id"] for item in result["datasets"]] == [
+        "rd-t4-d-v1", "rd-t4-d-v2",
+    ]
+    assert [item["pseudo_rows_total"] for item in result["datasets"]] == [2, 3]
 
 
 @pytest.mark.parametrize(

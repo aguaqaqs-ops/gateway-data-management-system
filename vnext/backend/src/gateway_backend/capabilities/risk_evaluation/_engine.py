@@ -215,6 +215,7 @@ def evaluate_risk(
             evaluation_input.comparison_facts,
             evaluation_input.requested_tables,
             evaluation_input.record_views,
+            evaluation_input.record_view_metrics,
         )
         outcomes: list[_TableOutcome] = []
         total_annotations = 0

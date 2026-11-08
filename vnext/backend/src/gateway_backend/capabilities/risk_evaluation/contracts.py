@@ -1118,6 +1118,7 @@ class RiskEvaluationInput:
     cache_policy: RiskCachePolicy | None = None
     # Transient facts-order Arrow views; excluded from the persisted digest/DTO.
     record_views: Mapping[str, object] | None = None
+    record_view_metrics: dict[str, float] | None = None
     risk_cache_session: object | None = None
     risk_task_keys: Mapping[str, str] | None = None
 

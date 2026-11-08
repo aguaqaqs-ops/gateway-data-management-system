@@ -11,6 +11,7 @@ import json
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, replace
+from time import perf_counter
 from tempfile import SpooledTemporaryFile
 from typing import Protocol, cast
 
@@ -119,6 +120,7 @@ class RecordsPublicationContext:
 
     checkpoint: Callable[[], None] = lambda: None
     artifact_id_prefix: str = "comparison"
+    timings: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not callable(self.checkpoint):
@@ -829,6 +831,7 @@ def _write_arrow_parquet(
     limits: RecordsPublicationPolicy,
     control: RecordsPublicationContext,
 ) -> bytes:
+    started = perf_counter()
     spool = SpooledTemporaryFile(
         max_size=min(limits.max_spool_bytes, limits.max_records_artifact_bytes), mode="w+b"
     )
@@ -867,6 +870,11 @@ def _write_arrow_parquet(
         if writer is not None:
             writer.close()
         spool.close()
+        if control.timings is not None:
+            control.timings["parquet_write_seconds"] = (
+                control.timings.get("parquet_write_seconds", 0.0)
+                + perf_counter() - started
+            )
 
 
 def _write_parquet(
@@ -876,6 +884,7 @@ def _write_parquet(
     context: RecordsPublicationContext,
     detail_policy: RecordsDetailPolicy,
 ) -> bytes:
+    started = perf_counter()
     context.checkpoint()
     schema_version = _schema_version(family)
     schema = _schema_for(family, schema_version, detail_policy)
@@ -915,6 +924,11 @@ def _write_parquet(
         if writer is not None:
             writer.close()
         spool.close()
+        if context.timings is not None:
+            context.timings["parquet_write_seconds"] = (
+                context.timings.get("parquet_write_seconds", 0.0)
+                + perf_counter() - started
+            )
 
 
 def _validate_parquet_bytes(

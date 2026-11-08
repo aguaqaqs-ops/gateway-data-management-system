@@ -35,7 +35,7 @@ pub struct BuiltRecords {
 const BUILDER_WORKSPACE_BYTES: usize = 512 * 1024;
 
 struct OutputCharge {
-    lease: Mutex<KernelLease>,
+    _lease: Mutex<KernelLease>,
     _external_owner: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
@@ -210,7 +210,7 @@ pub fn build_records_arrow(
     // Rebinding retains another bounded set of headers, not a second payload.
     // The per-batch header allowance remains in the output lease.
     let charge = Arc::new(OutputCharge {
-        lease: Mutex::new(lease),
+        _lease: Mutex::new(lease),
         _external_owner: external_owner,
     });
     let batches = batches
@@ -577,7 +577,7 @@ mod tests {
             .ok_or("logical size overflow")?;
         let retained = built
             ._charge
-            .lease
+            ._lease
             .lock()
             .map_err(|_| "charge lock poisoned")?
             .charged_bytes();

@@ -18,6 +18,9 @@ from gateway_backend.capabilities.comparison import (
     ComparisonStorageFacts, ComparisonTableStatus, DetailedFactsResult, KeylessPolicy,
     compare_plan, plan_comparison,
 )
+from gateway_backend.capabilities.comparison.artifacts import (
+    publish_records_closure, publish_records_closure_arrow,
+)
 from gateway_backend.capabilities.comparison.production import ComparisonTaskSession, compare_plan_native
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation import (
@@ -99,6 +102,83 @@ def test_production_standard_preserves_fixed_facts_and_facts_order_risk_view(
             assert reader.schema.field("row_identity").type == pa.binary(32)
             assert reader.schema.field("changed_columns").type == pa.list_(pa.string())
         assert tuple(record.record_kind.value for record in RiskRecordView(handle)) == record_kinds
+    finally:
+        product.close()
+
+
+def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets() -> None:
+    before = bound("""
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 1, 'a'), (NULL, 2, 'x'), (2, 3, 'b'), (3, 4, 'c');
+    """)
+    current = bound("""
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 1, 'a'), (3, 2, 'c'), (2, 3, 'b'), (NULL, 4, 'x');
+    """)
+    old = compare_plan(plan(before, current, ordered=True))
+    assert isinstance(old, DetailedFactsResult) and old.facts is not None
+    assert old.facts.tables[0].ordered_extension is not None
+    assert old.facts.tables[0].blank_extension is not None
+    old_store = InMemoryArtifactStore()
+    old_published = publish_records_closure(old, old_store)
+    assert isinstance(old_published, DetailedFactsResult)
+    assert old_published.records_closure is not None
+
+    product = compare_plan_native(plan(
+        _canonical_bound(before), _canonical_bound(current), ordered=True,
+    ))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        actual = product.result.facts
+        assert actual is not None
+        assert actual.facts_core_digest == old.facts.facts_core_digest
+        assert actual.comparison_digest == old.facts.comparison_digest
+        assert actual.tables[0].table_fact_digest == old.facts.tables[0].table_fact_digest
+        assert actual.tables[0].ordered_extension is not None
+        assert actual.tables[0].blank_extension is not None
+        assert actual.tables[0].ordered_extension.ordered_summary == old.facts.tables[0].ordered_extension.ordered_summary
+        assert actual.tables[0].blank_extension.blank_summary == old.facts.tables[0].blank_extension.blank_summary
+        handle = product.handles["t"]
+        assert tuple(record.record_kind for record in RiskRecordView(handle)) == tuple(
+            record.record_kind for record in old.facts.tables[0].records
+        )
+        new_store = InMemoryArtifactStore()
+        new_published = publish_records_closure_arrow(
+            product.result, product.handles, new_store,
+        )
+        assert isinstance(new_published, DetailedFactsResult)
+        assert new_published.records_closure is not None
+        old_entries = {
+            entry.family: entry for entry in old_published.records_closure.records
+        }
+        new_entries = {
+            entry.family: entry for entry in new_published.records_closure.records
+        }
+        assert set(new_entries) == set(old_entries)
+        for family, old_entry in old_entries.items():
+            new_entry = new_entries[family]
+            assert new_entry.records_content_digest == old_entry.records_content_digest
+            assert new_store.locate(new_entry.records_ref) == old_store.locate(old_entry.records_ref)
+    finally:
+        product.close()
+
+
+def test_metadata_only_added_deleted_tables_replay_full_core_without_native_reads() -> None:
+    before = bound("CREATE TABLE t (id INT PRIMARY KEY); INSERT INTO t VALUES (1);")
+    current = bound("CREATE TABLE u (id INT PRIMARY KEY); INSERT INTO u VALUES (2);")
+    old = compare_plan(plan(before, current))
+    assert isinstance(old, DetailedFactsResult) and old.facts is not None
+    product = compare_plan_native(plan(
+        _canonical_bound(before), _canonical_bound(current),
+    ))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        assert product.result.facts.facts_core_digest == old.facts.facts_core_digest
+        assert product.result.facts.comparison_digest == old.facts.comparison_digest
+        assert product.handles == {}
+        assert product.metrics is not None
+        assert product.metrics.native_calls == 0 and product.metrics.input_reads == 0
     finally:
         product.close()
 
@@ -500,6 +580,52 @@ def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
         second_result.close()
     assert session.hits == 0
     assert session.remaining_uses == {}
+
+
+def test_cached_success_is_rechecked_when_the_same_reader_closes() -> None:
+    before = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'before');"
+    ))
+    current = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'after');"
+    ))
+    template = plan(before, current)
+    table = template.tasks[0].current_table
+    assert table is not None and table.reader is not None
+    artifact = _artifact_for(table, current.snapshot.snapshot_digest)
+    task = replace(template.tasks[0], current_table=replace(table, artifact=artifact))
+    first = replace(template, pair_id="ready-first", tasks=(task,))
+    second = replace(template, pair_id="closed-second", tasks=(task,))
+    session = ComparisonTaskSession((first, second))
+    assert len(session.remaining_uses) == 1
+    first_result = compare_plan_native(first, session=session)
+    try:
+        assert isinstance(first_result.result, DetailedFactsResult)
+        assert first_result.result.facts is not None
+        assert first_result.result.facts.tables[0].status is ComparisonTableStatus.MODIFIED
+        first_result.commit_cache()
+    finally:
+        first_result.close()
+    assert len(session.cached) == 1
+    table.reader.close()
+    expected = compare_plan(second)
+    assert isinstance(expected, DetailedFactsResult) and expected.facts is not None
+    second_result = compare_plan_native(second, session=session)
+    try:
+        assert isinstance(second_result.result, DetailedFactsResult)
+        actual = second_result.result.facts
+        assert actual is not None
+        assert actual.tables[0].status is ComparisonTableStatus.DEGRADED
+        assert actual.tables[0].diagnostics == ("TableAccessError",)
+        assert actual.facts_core_digest == expected.facts.facts_core_digest
+        assert actual.comparison_digest == expected.facts.comparison_digest
+        assert session.calls == 1 and session.reads == 2 and session.hits == 0
+        second_result.commit_cache()
+    finally:
+        second_result.close()
+    assert session.cached == {} and session.remaining_uses == {}
 
 
 def test_ordered_reader_failure_preserves_standard_ordered_and_blank_degradation() -> None:

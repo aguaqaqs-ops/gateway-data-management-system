@@ -53,11 +53,12 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskTableRisk,
     RiskTarget,
     RiskTargetType,
+    V1_RISK_RULE_SPECS,
     compute_risk_evaluation_digest,
 )
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access import Reservation, current_kernel_context
 
 
 _LEVEL_RANK: dict[RiskLevel, int] = {
@@ -126,6 +127,56 @@ class _RiskCheckClosure:
 
 
 _CHECK_CLOSURE = _RiskCheckClosure()
+_RISK_CACHE_KEY_PROVISIONAL_BYTES = 16 * 1024**2
+
+
+def _optional_risk_cache_key(
+    item: ExtractedRiskFacts,
+    evaluation_input: RiskEvaluationInput,
+    policy: RiskExecutionPolicy,
+) -> tuple[str | None, Reservation | None]:
+    """Pay for an optional complete key before its repr can grow."""
+    operation = current_kernel_context()
+    digest = item.table_fact.table_fact_digest
+    if (operation is None or digest is None
+            or evaluation_input.risk_ruleset.rules != V1_RISK_RULE_SPECS):
+        return None, None
+    # The v1 rule body and option enum are fixed. Only three diagnostics
+    # vectors have caller-controlled length; count their worst-case repr and
+    # intermediate copies before allocating any key string.
+    upper = 64 * 1024
+    for diagnostics in (
+        item.table_fact.diagnostics,
+        evaluation_input.comparison_facts.diagnostics,
+        item.comparison_facts.diagnostics,
+    ):
+        for diagnostic in diagnostics:
+            upper += 4096 + len(diagnostic) * 256
+            if upper > _RISK_CACHE_KEY_PROVISIONAL_BYTES:
+                return None, None
+    try:
+        charge = operation.memory.reserve(_RISK_CACHE_KEY_PROVISIONAL_BYTES)
+    except MemoryError:
+        return None, None
+    try:
+        key = repr((
+            digest.value,
+            item.table_fact.diagnostics,
+            evaluation_input.comparison_facts.diagnostics,
+            item.comparison_facts.diagnostics,
+            evaluation_input.risk_ruleset,
+            evaluation_input.risk_options,
+            policy.policy_version,
+        ))
+        actual = len(key) * 8 + 512
+        if actual > _RISK_CACHE_KEY_PROVISIONAL_BYTES:
+            charge.close()
+            return None, None
+        charge.shrink_to(actual)
+        return key, charge
+    except BaseException:
+        charge.close()
+        raise
 
 
 class _RiskCandidateRecorder:
@@ -165,14 +216,21 @@ class _RiskCandidateRecorder:
         if self.enabled:
             store = getattr(self.cache, "risk_store")
             transferred = self.charges.pop_all()
-            if not store(self.task_key, self.risk_key, tuple(self.events), transferred):
+            try:
+                stored = store(self.task_key, self.risk_key, tuple(self.events), transferred)
+            except BaseException:
+                transferred.close()
+                raise
+            if not stored:
                 transferred.close()
         self.enabled = False
         self.events.clear()
+        self.risk_key = ""
 
     def close(self) -> None:
         self.enabled = False
         self.events.clear()
+        self.risk_key = ""
         self.charges.close()
 
 
@@ -369,44 +427,44 @@ def _evaluate_table_impl(
     task_key = None if task_keys is None else task_keys.get(item.table_fact.table_name)
     if (cache is not None and task_key is not None and not item.composite_signal
             and item.table_fact.table_fact_digest is not None):
-        risk_key = repr((
-            item.table_fact.table_fact_digest.value,
-            item.table_fact.diagnostics,
-            evaluation_input.comparison_facts.diagnostics,
-            item.comparison_facts.diagnostics,
-            evaluation_input.risk_ruleset,
-            evaluation_input.risk_options,
-            policy.policy_version,
-        ))
-        lookup = getattr(cache, "risk_lookup")
-        cached_events = lookup(task_key, risk_key)
-        if cached_events is not None:
-            # A cached candidate is optional. Admit the maximum annotation
-            # materialization it can cause before replay. If retention would
-            # crowd out this necessary output, release it and execute rules.
-            upper = 0
-            for event in cached_events:
-                if isinstance(event, _RiskEmitEvent):
-                    upper += 2048 + len(item.table_fact.table_name) * 16
-                    upper += sum(len(column) * 16 + 128
-                                 for column in event.target.changed_columns)
-                    upper += sum((len(name) + len(str(value))) * 16 + 128
-                                 for name, value in event.evidence)
-            operation = current_kernel_context()
-            if operation is not None:
-                try:
-                    charges.enter_context(operation.memory.reserve(upper))
-                    prepaid_cached_output = True
-                except MemoryError:
-                    evict = getattr(cache, "risk_evict")
-                    evict(task_key, risk_key)
-                    cached_events = None
-                    cache_rejected = True
-        if cached_events is None:
-            remaining = getattr(cache, "remaining_uses")
-            if remaining.get(task_key, 0) > 1 and not cache_rejected:
-                recorder = _RiskCandidateRecorder(cache, task_key, risk_key)
-                charges.callback(recorder.close)
+        risk_key, key_charge = _optional_risk_cache_key(item, evaluation_input, policy)
+        if risk_key is not None and key_charge is not None:
+            try:
+                lookup = getattr(cache, "risk_lookup")
+                cached_events = lookup(task_key, risk_key)
+                if cached_events is not None:
+                    # A cached candidate is optional. Admit the maximum annotation
+                    # materialization it can cause before replay. If retention would
+                    # crowd out this necessary output, release it and execute rules.
+                    upper = 0
+                    for event in cached_events:
+                        if isinstance(event, _RiskEmitEvent):
+                            upper += 2048 + len(item.table_fact.table_name) * 16
+                            upper += sum(len(column) * 16 + 128
+                                         for column in event.target.changed_columns)
+                            upper += sum((len(name) + len(str(value))) * 16 + 128
+                                         for name, value in event.evidence)
+                    operation = current_kernel_context()
+                    if operation is not None:
+                        try:
+                            charges.enter_context(operation.memory.reserve(upper))
+                            prepaid_cached_output = True
+                        except MemoryError:
+                            evict = getattr(cache, "risk_evict")
+                            evict(task_key, risk_key)
+                            cached_events = None
+                            cache_rejected = True
+                if cached_events is None:
+                    remaining = getattr(cache, "remaining_uses")
+                    if remaining.get(task_key, 0) > 1 and not cache_rejected:
+                        recorder = _RiskCandidateRecorder(cache, task_key, risk_key)
+                        recorder.charges.enter_context(key_charge)
+                        key_charge = None
+                        charges.callback(recorder.close)
+            finally:
+                if key_charge is not None:
+                    key_charge.close()
+                risk_key = None
 
     def require_closure() -> None:
         if recorder is not None:

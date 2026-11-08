@@ -326,3 +326,24 @@ def test_cached_closure_event_checks_the_current_access_at_its_original_point(
             assert access.calls == 2
     finally:
         cache.close()
+
+
+def test_large_optional_risk_key_safely_misses_with_same_result() -> None:
+    table = replace(
+        _added_rows("t", 1), table_fact_digest=raw_blob_digest(b"large-risk-key-table"),
+    )
+    source = _input((table,))
+    source = replace(source, comparison_facts=replace(
+        source.comparison_facts, diagnostics=("x" * 70_000,),
+    ))
+    cache = _Candidates()
+    cached_input = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
+    try:
+        candidate = evaluate_risk(cached_input, artifact_store=InMemoryArtifactStore())
+        baseline = evaluate_risk(source, artifact_store=InMemoryArtifactStore())
+        assert candidate.status is baseline.status is RiskEvaluationStatus.READY
+        assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
+        assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
+        assert cache.events is None and cache.hits == 0
+    finally:
+        cache.close()

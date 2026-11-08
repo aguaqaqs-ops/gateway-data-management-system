@@ -322,7 +322,9 @@ class ComparisonTaskSession:
         except MemoryError:
             return None
 
-    def lookup(self, key: str | None) -> tuple[ComparisonTableFact, Any | None] | None:
+    def lookup(
+        self, key: str | None, task: TableComparisonTask,
+    ) -> tuple[ComparisonTableFact, Any | None] | None:
         if key is None or key not in self.remaining_uses:
             return None
         item = self.cached.get(key)
@@ -331,6 +333,24 @@ class ComparisonTaskSession:
             if context is None:
                 raise RuntimeError("comparison context was lost")
             context.checkpoint()
+            # Artifact identity does not prove that a currently bound reader
+            # remains open. Check the actual reopen capability before using
+            # prior facts; an unavailable reader must take the old per-table
+            # degradation path, without consuming the retained result.
+            for table in (task.before_table, task.current_table):
+                if table is None or table.reader is None:
+                    return None
+                try:
+                    with closing(table.reader.reopen()):
+                        context.checkpoint()
+                except (InterruptedError, TimeoutError, MemoryError):
+                    raise
+                except (TableAccessError, ValueError, OSError, pa.ArrowException):
+                    context.checkpoint()
+                    old = self.cached.pop(key, None)
+                    if old is not None and old[1] is not None:
+                        old[1].close()
+                    return None
             self.hits += 1
         return item
 
@@ -382,7 +402,10 @@ class NativeComparison:
                     fact = next(table for table in facts.tables if table.table_name == name)
                     self.session.cached[key] = (fact, handle)
             if remaining <= 0:
-                self.session.cached.pop(key, None)
+                previous = self.session.cached.pop(key, None)
+                if (previous is not None and previous[1] is not None
+                        and previous[1] is not self.handles.get(name)):
+                    previous[1].close()
                 charge = self.session.key_charges.pop(key, None)
                 if charge is not None:
                     charge.close()
@@ -895,7 +918,7 @@ def _compare_plan_native_once(
             context.checkpoint()
             metrics.dispatches += 1
             key = session.key_for(plan, task) if session is not None else None
-            cached = None if session is None else session.lookup(key)
+            cached = None if session is None else session.lookup(key, task)
             try:
                 if cached is None:
                     fact, handle = _compare_task_native(task, operation, session, metrics)

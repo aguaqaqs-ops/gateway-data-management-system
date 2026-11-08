@@ -1438,7 +1438,7 @@ def test_s3_census_shape_is_checked_before_starting_compose(
                                    real_dump_journey.EXPECTED_PAIRINGS["t4"]}),
     )
     monkeypatch.setattr(
-        real_dump_journey.subprocess,
+        subprocess,
         "run",
         lambda *_args, **_kwargs: pytest.fail("journey proceeded beyond census preflight"),
     )

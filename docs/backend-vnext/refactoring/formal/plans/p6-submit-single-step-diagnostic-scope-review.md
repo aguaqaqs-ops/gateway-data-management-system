@@ -2994,3 +2994,25 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 本审核已独立读H780真实builder及validator：build_record最后先validate_record再写输出；p6_baseline_compare.py的state严格且必需集合为 **{mode, baseline, cache}**，mode只准MODIFIED_ONLY/FULL，后两项须为非空描述字符串。无需改schema或产品；仅将metadata.state映射到这三项，历史UTC、缓存342行/TTL/来源mode=none和after未知等真实补证进入已有counts映射或外部source索引，不能增state键来装证据、把未知写成健康after或改原run/state。§127已审H1历史起点补证保持原资格，不重新开库/取证/测量。
 
 已直接将准确schema位置和处置交实施者，要求读取两失败的具体字段后修正metadata，从record准备步骤继续。当前报告只有摘要/未给新材料准确路径，本审核已查05已知日志与record目录，并要求W4-FULL record、派生journey、metadata/运行日志及core两失败原件的实际位置；**尚未将这些新record或两失败日志判为已独立核验**，待准确原件集中审核。审核者未在CT201运行builder/validator或测试，未修改产品、原始证据或实施者metadata。
+
+## 140. 两份历史record原件已审：数值/指纹派生成立，core条件及旧producer阻塞待修
+
+**当前record包尚不整体PASS。** 05准确目录为 `baseline/derived-control-timing-20261107a-ct05/records/`，已BatchMode后直接读取、LAN存CT201 `p6-baseline-evidence-review-20261108/historical-records/records/`。W4-FULL record7752B/SHA **`66a2728a5699f1250ec241962af8281b200cddca5f0798b8bd0beafeb02f678b`**，派生journey2056979B/SHA **`905b944a8eace904e3de0e00e66d071677628e2c1191fa58d20ef1b8191393cb`**，metadata1729B/SHA650b3d35…d91f7a；core record182814B/SHA **`6292901cfee8044c4005c5e38bec6f08abc6800dc3a89fd61f10cacb4a538ce2`**，派生journey909686B/SHA **`8ac1709b573fcd49d3cf9fe30b7b66b24349b970ea0ce9d4500c9230e50f0db0`**，metadata6068B/SHA41c52222…aa4a1fb。外部索引13542B/SHA **`b0686ba8a4a9caa62acb0c5517ad04d97f970735399e74fb031b59275844ed91`** 及成功/失败日志、旧metadata均已取副本；原件不修改。
+
+**已成立的派生范围已独立核实。** 与§113/127已认证原log作完整final summary对象比较：FULL只增加v2_preview worker rows，core只增加三Preview worker rows；移除这些新增角色后对象精确等于原件，没有改API值、计数、指纹、cache原字段或模式。新增rows（包括_step_id、UTC、elapsed/gap/attempt）逐项等于9bdce65c已审补证。重新按既有规范计算records列表的规范JSON摘要，连同surface/comparison/risk/bundle_closure、Submit canonical_state/Dolt hashes均与record匹配；八个场景的ready/completion单样本统计精确等于原operation端点。core原step_checks全部source_head=bb348，FULL实测18a；未伪装统一9704或H780。六Git对象值可在各自实测HEAD复现：backend取backend/src，其余五项取整个package；该路径映射应在外部索引明确，不把backend/src值误称整个backend包树。
+
+**core metadata的真实条件错误构成阻塞。** §127认证state503e73ab中v1/repeat/v2上传input_completeness全MODIFIED_ONLY，新metadata却把七场景全写FULL。已交实施者纠正，设计进一步明确H1也按普通Preview负载记MODIFIED_ONLY，不能因History读取完整commit改FULL；FULL Preview之后另属H1-FULL。baseline须按真实角色分别写empty-initial→v1、v1→repeat-v1、v1→v2和History v1/v2，而非所有场景共用v1→v2。W2原before/after均有274 cache rows、expired0、missing0、TTL有效，metadata“原journey未记录”不准，应如实说明这些可得观测；hit_count仍null/未暴露。H1的342健康起点及after/hit未知保持§127边界。只改派生metadata/record/index并保旧件，不改raw/schema或补测。
+
+**实际执行producer用了旧代码，资源缺观测错误重现。** 索引/生成日志实际producer=0739d8cba0057e2edfa0ee991d46e1c7282ef31e，builder SHA **17e4f25af03bd455bbd38546538d2cda736b8f37ca8caacb874042bf328357e6**；已审H780 builder应为 **bf950f6176962bbab4b56dd85e0368297fe916ad2e2477371cb73a9901eabad9**。独立Git diff及原resources核：S2周期samples=0，旧record将peak_parallel_cores=0、disk_high_water=0，误把未知记零；§119修正后的H780会三峰null并记operation_resource_peaks unavailable，边界CPU实际0.089s继续保留。已要求直接用正确clean已审producer重生/验证，不为旧工具加新补丁或改字段标签冒充实际执行；producer HEAD外列，record measured HEAD仍18a/bb348，不需业务重测。FULL数值等已核一致，最终producer绑定及core语义修订结果仍待交。
+
+§139两次core失败原日志本轮已直接核明：00:34:50缺baseline/cache、exit2，SHA b6f20dcf…52b0f238；00:36:15多history_input_cache_at_query_start/inputs/source_project键、exit2，SHA1c709751…1f952b78。随后00:39:05用合法三键生成，日志SHA453f9d1f…9d919a4，但schema通过不代替上述语义审计；原两失败与旧metadata保留。
+
+索引将W4-STRESS写为05认证副本中暂缺，这不是原证据丢失或不可恢复：§124认证CT201副本 `p6-w4-stress-review-20261107/p6w4stress20261107a/` 的launch/resources/run/state均在，已直接告实施者按原SHA经LAN到05完成剩余record，不访问/重测CT108。comparator本身允许不同HEAD；是否有同inputs/同scenario且口径可比的实际baseline须按具体原件说明，不能以版本不同为缺项理由、弱化全inputs比较或用self-compare冒充跨版本证据。本包仅有已知t1 full/resumed记录与上述不同场景/输入，具体剩余参考/既有§115旁证在索引如实列明，不扩大测量矩阵。
+
+## 141. V5b 520bc空基线策略修订预审：调用边界成立，package/type接线须收口
+
+**`520bc863b73d992c9c9d4e5126e2bdc4a0eb995e` 的策略边界方向成立，尚未整体PASS。** 父d2ffe，仅改两个测量benchmark和一个既有测试文件，36增/3删；已建只读detached `/home/dev/gdds-p6-review-v5b-520bc863`，完整diff/diff-check已核。S5 helper新增policy参数、默认仍READERS_REQUIRED，只有V5b显式请求ARTIFACTS_REQUIRED；生产materializer/pair pipeline及拒绝语义未改。小fixture调用真实helper，核empty composite已有artifact，再过真实pair消费者到READY，不需Dolt或大输入，覆盖本次实际失败点的方向合适。
+
+新测试首次将V5b作为benchmarks模块导入，V5b原第21行仍裸import s5_dc32_capability_measurement，且在_BACKEND_ROOT加入sys.path之前；测试/conftest没有把benchmarks目录作为顶层搜索路径，因此不能依赖CLI脚本目录提供这一隐式路径。已交实施者在原backend-root设置后统一从benchmarks package导入helper，使测试与直接CLI消费同一入口，不加fallback/兼容层。新增返回注解还经s5转引非显式re-export的BoundSnapshotInput，需按strict mypy既有前例直接从owning comparison导入类型；此为源码预检，尚未将预测问题冒称05实际失败。
+
+上述两项最小接线及05真实consumer focused/必要静态结果待交，测试节点占用前提继续遵守；不在CT201执行候选/测试。V5b-only具体复用/原绝对截止/局部准备/收尾仍按§138设计边界集中独审，无新Owner/GO、不重跑已完成DC63旅程/seed/POST。record修订、STRESS副本传输及两项04测试修订保持原授权独立推进，不因本小项整体暂停。

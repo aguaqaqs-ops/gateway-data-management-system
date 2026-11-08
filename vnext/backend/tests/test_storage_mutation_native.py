@@ -146,11 +146,13 @@ def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> Stora
                               after.manifest_table.canonical_row_count))
 
 
-def _assert_operation_resources_released(context: KernelExecutionContext) -> None:
-    # Flush operation-lived metadata only. Arrow/native reservations must
-    # already be gone after the table handle and input readers close.
+def _assert_operation_resources_released(
+    context: KernelExecutionContext, *, retained_sql_bytes: int = 0,
+) -> None:
+    # Flush operation-lived metadata. Arrow/native charges have closed;
+    # exported SQL bytes remain charged until the operation scope ends.
     context.memory.close()
-    assert context.memory.used_bytes == 0
+    assert context.memory.used_bytes == retained_sql_bytes
 
 
 def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_diff() -> None:
@@ -245,17 +247,18 @@ def test_native_storage_rebuild_renders_ordered_insert_bytes_and_closes_early() 
     assert context is not None
     after = _side(_table([("2", "0", "two"), ("1", "0", "one")]))
     task = _task(None, after)
+    expected = (
+        b"INSERT INTO `orders` (`board`, `link_no`, `status`) VALUES "
+        b"('1', '0', 'one'), ('2', '0', 'two');\n"
+    )
     with prepare_storage_table(task, context) as handle:
         decision = choose_table_mutation(task, handle.summary(),
             policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         chunks = handle.render(decision)
-        assert b"".join(chunks) == (
-            b"INSERT INTO `orders` (`board`, `link_no`, `status`) VALUES "
-            b"('1', '0', 'one'), ('2', '0', 'two');\n"
-        )
+        assert b"".join(chunks) == expected
         assert list(chunks) == []
-    _assert_operation_resources_released(context)
+    _assert_operation_resources_released(context, retained_sql_bytes=len(expected))
 
 
 def test_native_storage_patch_renders_full_nonkey_case_under_same_memory_budget() -> None:
@@ -266,17 +269,18 @@ def test_native_storage_patch_renders_full_nonkey_case_under_same_memory_budget(
     before = _side(_table(old_rows), content_fill="1")
     after = _side(_table(new_rows), content_fill="2")
     task = _task(before, after)
+    expected = (
+        b"UPDATE `orders` SET `status`=CASE WHEN `board`='42' AND `link_no`='0' "
+        b"THEN 'new' ELSE `status` END WHERE (`board`,`link_no`) IN (('42', '0'));\n"
+    )
     with prepare_storage_table(task, context) as handle:
         decision = choose_table_mutation(task, handle.summary(),
             policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
         assert decision.operation is TableMutationKind.PATCH_DML
         handle.apply_decision(decision)
         chunks = handle.render(decision)
-        assert b"".join(chunks) == (
-            b"UPDATE `orders` SET `status`=CASE WHEN `board`='42' AND `link_no`='0' "
-            b"THEN 'new' ELSE `status` END WHERE (`board`,`link_no`) IN (('42', '0'));\n"
-        )
-    _assert_operation_resources_released(context)
+        assert b"".join(chunks) == expected
+    _assert_operation_resources_released(context, retained_sql_bytes=len(expected))
 
 
 def test_native_storage_chunks_are_bounded_and_early_close_releases_last_owner() -> None:

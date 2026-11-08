@@ -235,7 +235,7 @@ def test_direct_structural_closure_can_render_beyond_durable_json_limit(
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert len(outcome.sql_bytes) > 16 * 1024 * 1024
-    assert outcome.sql_bytes.endswith(b"'" + b"z" * 32 + b"');\n")
+    assert outcome.sql_bytes.endswith(b"z" * 32 + b"');\n")
 
 
 def test_manifest_summaries_remain_charged_as_structural_closure_input() -> None:

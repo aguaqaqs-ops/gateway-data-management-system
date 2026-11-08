@@ -30,10 +30,10 @@
 | 已完成 t1–t4、2× core（W1/W2/W3、S1–S3、H1）、W3-FULL/H1-FULL、H1-REFILL、H2 两/三节点、H3 | 保留各原 run 的 HEAD/镜像/节点及实际完成结论，逐项引用旧记录；不重测、不改记为9704。较新完成记录优先于旧待办快照，旧清单仍写未完不自动构成重跑依据。若索引确有实际缺口，明确报告而不补造。 |
 | 首轮 W4/S4/H1 缺口 | **已完成本次有限接续：** `p6w4resume970420261107b`、工具HEAD `3fd64dc2fe`、handoff `945d9141c4`，由接续审核§101（`59b96c3cd9`）独立PASS。从上述source的v2-preview完成态接续，9704产品上的Submit/read/approve/History及收尾通过，完整Submit保留prepare。该项从待办扣除，不重跑；history cache mode=none，不代替healthy History/H3，也不代表完整矩阵或阶段exit。 |
 | W4-FULL | **已独审PASS：** `p6w4full20261107a`、工具HEAD `18a4851d8c`，2026-11-07 11:49:34–15:56:39Z，18步及输入/清理通过，接续审核§113（`0bf7218401`）闭合。RS完整身份用原首operation前记录的同节点immutableID作16:13事后元数据链接，不冒称11:49新快照；不重跑该业务。 |
-| W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，标准record的worker指标补证另行收尾。 |
+| W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，worker指标旁证已由§127通过，标准record派生仍待。 |
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
 | DC63 #1、V5b A–D | **journey/coverage完成，V5b局部修复中：** 接续审核已核d2ffe在CT108的完整journey返回、23:47:34Z History timing及coverage PASS/8 expectations/91 events；V5b测量helper以旧READERS_REQUIRED构造空before，真实pair pipeline要求artifact，00:12:23Z整命令exit1。保原FAILED raw的两段materialization及已完旅程，不判产品缺陷/整链PASS；仅修helper为ARTIFACTS_REQUIRED，按[最小补缺方案有限接续](p6-dc63-v5b-measurement-completion-plan.md)复用本次v1 commit/必要RS做V5b-only，不重跑journey/业务任务。原绝对截止/剩余预算、冻结身份和保卷保持，结果待独审。 |
-| JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
+| JSON/SHA、comparator 与总报告 | 实施者已在05生成W4-FULL与2×core标准record及来源索引，待独审；STRESS所需原launch/resources/run/state已有§124认证的CT201副本，可LAN到05派生，不因当前派生目录缺副本记原证据UNAVAILABLE。按实际版本分列、报告具体差异与缺口；单版本schema不足时用多份真实记录加总索引或最小工具修正，不伪填统一HEAD，不因文案/字段问题重跑产品。 |
 | 04 最终权威 runner | **H780本轮exit1，窄修继续：** `78000beb62e927190092e315135e7bc1cbdda615`获§129代码/05定向及五包静态通过后，于2026-11-07 23:55:57Z启动全六包，实施者报告2026-11-08 00:19:48Z exit1、起止clean，backend/RS各一并行失败、serial已完成。实施者已报告按所有权安全释放04标记、失败材料保留，closed结果/收尾待独审，不原样重跑或作carried。按下述范围只修历史恢复测试输入及RS环境隔离，严格guard及实际门禁network-none保持。旧fcc全六包exit1及原日志/收尾均保留，不重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
@@ -51,6 +51,8 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 **基准性能目标与当前推进分开：** DC66明确本重建对照基准不进行性能门槛判定，Owner也已说明性能指标须结合物理限制评估。H2三节点同operation完成时间已由接续审核§114（`0bf7218401`）认证原state并核验闭合：b96历史参考4892.584s、e076目标4886.678s，取代错误的整旅程比较，原raw保持不变；超过600s目标须如实标未达，不能记性能PASS。此处保留旧版本参考事实及未来S5/S6目标，不降低目标、不改变compare policy，也不把预优化基准的目标未达当产品失败或已关闭业务的重跑理由；原结果/身份异常仍正常处置。
 
 其余13项record-only selector及逐指标来源标注已有定向验证；各场景完整record/comparator的最终汇总仍待完成，不能据局部修正宣称全量收口。
+
+**现有comparator的实际范围：** H780的p6_baseline_compare.compare_records本来用于跨阶段，只比较inputs及相应scenario的result_fingerprint/counts/state，不要求两个record的HEAD相同，timing明确不在其中比较。版本不同本身不是“缺少兼容comparator”的理由；有同输入/同场景及相同解释口径的合法baseline record时使用现有工具。若缺对应baseline record或指标范围已变，外部索引应明确具体缺项/不可比原因及已审§115正确性旁证，不虚构一致、补造统一版本或建设兼容层，也不扩大重测矩阵。H2同端点时长仍由既有timing工具及其原policy单独比较。
 
 **Preview worker步骤漏采的派生补取：** 旧producer从`operation_timing`取operation ID，而真实Preview ID位于`preview.result`，因此FULL及部分core历史summary未存对应DB worker步骤；这不推翻已保存的READY/完成、指纹或资源值。未来非在途producer修正真实消费路径并做必要focused；现有记录优先核已存结构，真缺时在正式压力测量结束后，只取该运行已停control DB/合格checkpoint的私有小副本，沿原SQL和时钟按原operation ID补同次步骤，另记来源SHA及派生，不改raw、复制Repository大卷、起旧栈或重跑产品。DB started/completed时间不冒称DC63 executor细span；仅确实不可恢复时明确UNAVAILABLE及具体资格，不填零或直接弱化record校验。core H1缺后加的显式cache字段也不自动失效，可在同次副本按原History起点UTC核规则/TTL及相关对象，不用今天过期反推历史失效、不追加H3后设字段，也不以重复查询替首查。
 

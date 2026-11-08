@@ -16,9 +16,10 @@ from gateway_backend.capabilities.comparison import (
     ComparisonTableStatus,
     DetailedFactsResult,
     SchemaChangeSource,
-    compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.production import compare_plan_native
+from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
@@ -59,10 +60,13 @@ def _request(
 def _facts(request: ComparisonRequest) -> ComparisonFacts:
     plan = plan_comparison(request)
     assert isinstance(plan, ComparisonPlan)
-    result = compare_plan(plan)
-    assert isinstance(result, DetailedFactsResult)
-    assert result.facts is not None
-    return result.facts
+    product = compare_plan_native(plan)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        return product.result.facts
+    finally:
+        product.close()
 
 
 def _storage_view(
@@ -110,13 +114,22 @@ def test_comparison_aligns_values_by_column_name_and_uses_runtime_effective_keys
     )
     request = _request(before, current, comparison_ruleset_for(standard_rule_record("t")))
 
-    table = _facts(request).tables[0]
+    planned = plan_comparison(request)
+    assert isinstance(planned, ComparisonPlan)
+    product = compare_plan_native(planned)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        table = product.result.facts.tables[0]
+        changed_columns = tuple(record.changed_columns for record in RiskRecordView(product.handles["t"]))
+    finally:
+        product.close()
 
     assert table.schema_changes.selected_columns == ("id", "tenant", "value")
     assert table.schema_changes.effective_compare_key_before == ("tenant", "id")
     assert table.schema_changes.effective_compare_key_current == ("tenant", "id")
     assert table.status is ComparisonTableStatus.MODIFIED
-    assert table.records[0].changed_columns == ("value",)
+    assert changed_columns == (("value",),)
 
 
 @pytest.mark.parametrize(

@@ -153,64 +153,69 @@ def _assert_operation_resources_released(context: KernelExecutionContext) -> Non
 
 
 def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_diff() -> None:
-    context = current_kernel_context()
-    assert context is not None
-    names = ("status", "board", "link_no")
-    raw_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in names])
-    def raw(status: str) -> pa.Table:
-        return pa.Table.from_arrays(
-            [pa.array([value], type=pa.string()) for value in (status, "1", "0")],
-            schema=raw_schema,
-        )
+    context = KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        names = ("status", "board", "link_no")
+        raw_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in names])
 
-    old_candidate = _side(raw("old"), content_fill="1", column_names=names)
-    new_candidate = _side(raw("new"), content_fill="2", column_names=names)
-    assert isinstance(old_candidate.input_owner, StorageInputLease)
-    assert isinstance(new_candidate.input_owner, StorageInputLease)
-    store = InMemoryArtifactStore()
-    published_before, fresh_after = publish_canonical_tables(
-        (old_candidate.input_owner.table, new_candidate.input_owner.table),
-        snapshot_digest=digest("ee"), store=store,
-        repository_id="storage-fresh-writer",
-    )
-    old_candidate.input_owner.close()
-    new_candidate.input_owner.close()
-    assert published_before.artifact is not None
-    cached_before = open_snapshot_table_artifact(
-        store, published_before.artifact.manifest_ref,
-        repository_id="storage-fresh-writer", canonical_required=True,
-    )
-    assert published_before.reader is not None
-    published_before.reader.close()
-    if published_before.batch_reader is not None:
-        published_before.batch_reader.close()
-    assert isinstance(cached_before.reader, ArrowSnapshotTableReader)
-    assert cached_before.reader.canonical_artifact_read_verified
-    assert isinstance(fresh_after.reader, ArrowSnapshotTableReader)
-    assert fresh_after.reader.canonical_comparison_verified
-    with closing(fresh_after.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
-        assert b"gdds.canonical_mapping_version" not in (stream.schema.metadata or {})
-        assert all(b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema)
-    assert old_candidate.metadata_manifest is not None
-    assert new_candidate.metadata_manifest is not None
-    old_lease = open_storage_input(
-        cached_before, old_candidate.metadata_manifest, old_candidate.manifest_table, context,
-    )
-    new_lease = open_storage_input(
-        fresh_after, new_candidate.metadata_manifest, new_candidate.manifest_table, context,
-    )
-    assert old_lease.schema.names == list(names)
-    assert new_lease.schema.names == list(names)
-    before = replace(old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease)
-    after = replace(new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease)
-    task = _task(before, after)
-    with prepare_storage_table(task, context) as handle:
-        summary = handle.summary()
-        assert summary.net_counts == StorageNetCounts(0, 1, 0)
-        decision = choose_table_mutation(task, summary,
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
-        handle.apply_decision(decision)
-    _assert_operation_resources_released(context)
+        def raw(status: str) -> pa.Table:
+            return pa.Table.from_arrays(
+                [pa.array([value], type=pa.string()) for value in (status, "1", "0")],
+                schema=raw_schema,
+            )
+
+        old_candidate = _side(raw("old"), content_fill="1", column_names=names)
+        new_candidate = _side(raw("new"), content_fill="2", column_names=names)
+        assert isinstance(old_candidate.input_owner, StorageInputLease)
+        assert isinstance(new_candidate.input_owner, StorageInputLease)
+        store = InMemoryArtifactStore()
+        published_before, fresh_after = publish_canonical_tables(
+            (old_candidate.input_owner.table, new_candidate.input_owner.table),
+            snapshot_digest=digest("ee"), store=store,
+            repository_id="storage-fresh-writer",
+        )
+        old_candidate.input_owner.close()
+        new_candidate.input_owner.close()
+        assert published_before.artifact is not None
+        cached_before = open_snapshot_table_artifact(
+            store, published_before.artifact.manifest_ref,
+            repository_id="storage-fresh-writer", canonical_required=True,
+        )
+        assert published_before.reader is not None
+        published_before.reader.close()
+        if published_before.batch_reader is not None:
+            published_before.batch_reader.close()
+        assert isinstance(cached_before.reader, ArrowSnapshotTableReader)
+        assert cached_before.reader.canonical_artifact_read_verified
+        assert isinstance(fresh_after.reader, ArrowSnapshotTableReader)
+        assert fresh_after.reader.canonical_comparison_verified
+        with closing(fresh_after.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
+            assert b"gdds.canonical_mapping_version" not in (stream.schema.metadata or {})
+            assert all(b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema)
+        assert old_candidate.metadata_manifest is not None
+        assert new_candidate.metadata_manifest is not None
+        old_lease = open_storage_input(
+            cached_before, old_candidate.metadata_manifest, old_candidate.manifest_table, context,
+        )
+        new_lease = open_storage_input(
+            fresh_after, new_candidate.metadata_manifest, new_candidate.manifest_table, context,
+        )
+        assert old_lease.schema.names == list(names)
+        assert new_lease.schema.names == list(names)
+        before = replace(old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease)
+        after = replace(new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease)
+        with_inputs_used = context.memory.used_bytes
+        task = _task(before, after)
+        with prepare_storage_table(task, context) as handle:
+            summary = handle.summary()
+            assert summary.net_counts == StorageNetCounts(0, 1, 0)
+            decision = choose_table_mutation(task, summary,
+                policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+            handle.apply_decision(decision)
+        assert old_lease.closed and new_lease.closed
+        assert context.memory.used_bytes < with_inputs_used
+    # The cached manifest AST is operation-lived; its reservation ends with the scope.
+    assert context.memory.used_bytes == 0
 
 
 def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> None:

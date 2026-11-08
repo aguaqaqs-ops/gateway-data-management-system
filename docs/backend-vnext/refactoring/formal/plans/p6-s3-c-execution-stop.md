@@ -42,6 +42,13 @@ AGENTS DC68 原文：“重做再次失败、被测对象已运行后的失败�
 
 若恢复前 C 的完整新候选已固定，可由**同一 C 独审**先核新固定对象和相同机制的执行稿、显式替换 HEAD/WT/日志路径后再运行，不为旧检查点重复验证。这个条件只沿用 Owner 原已授予的普通候选修订范围；本次需要 Owner 决定的是恢复执行通道，不是取消后续治理约束。新候选若未固定或未审执行稿，不运行。
 
+以上准备步骤也保存为 CT201 任务目录下的两份字面脚本，**仅写入、未运行**：
+
+- `resume-create-source.sh`，SHA256=`ad3a282502366fbfeaaa2e91d25483e51b73bca9348b38f8980bb563b7a1ff07`：固定源 clean HEAD，先建档案目录，以字面 HEAD 创建完整 bundle，仓库内 verify/list-heads，拒覆盖并记原 exit。
+- `resume-prepare-node.sh`，SHA256=`5f1823074cc6e4ac28efc6902dc4cd6dc1dac66de42889448afd8eabfc5905f3`：待本人重新取得06标记及LAN复制后，以源端归档 SHA 为唯一参数；核 marker/归档，任务新 bare repo 中 init→verify→fetch HEAD，再建固定 detached WT/legacy/common exclude 并核 clean。不使用或改动 B repo/WT。
+
+脚本位于 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/`。执行前仍需同原审静态核上述原件；恢复申请已提交 Owner，未把预选或经过时间当放行。使用这些脚本不是额外重试授权。
+
 ## 4. 影响与待决定事项
 
 C 目前没有任何新的编译/测试证据，不能给 C GO，也不能启动依赖其核收的 D 生产接线。C 静态实现与独审、后续执行稿准备可继续；CT201 dependency-base 构建/向节点预填亦暂不执行，避免用换任务绕过停止。S3 最终容器/真实数据/W3/W4/DC33/退出交接均未完成。

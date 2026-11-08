@@ -293,3 +293,17 @@
 - 节点（只读，07:13Z 与 07:22Z 两次）：`ssh -o BatchMode=yes … 'echo OK'`；`docker image ls/inspect`（含 `ctr -n moby content get` 读 manifest 的 config digest）；`ls`；npm 归档与 t1 清单 `sha256sum`、目录内 `sha256sum -c --quiet`。
   核对脚本对 04、07 上不存在的 `source-dirs/` 执行 `ls` 返回非零（04/07 本就没有 t1 目录），属本会话命令的预期结果，无副作用。
 - 未取占用标记，未运行测试、Compose、构建或浏览器；未改 kickoff、源码与节点状态。
+
+## 6. owner 答复（2026-11-08）
+
+- **B1 选甲：** FE3b 合入 `748de5034d`（`vnext/` 树 `56720104af`，依赖镜像 `lock-d054366c02fa`）。FE3b 期间不再合入 main；FE3c 开始时连同 Q18 补缺合入当时的 main。
+- **Q14：** 同意设计会话的建议（§2.6）。
+- **后端并行：** S3、S4 可以继续在 main 上推进。`748de5034d..d076903d7f` 中 main 只改了 `docs/frontend-vnext/` 下的 kickoff 与本报告，没有改 `frontend/`。
+- **镜像：** 允许按需在节点间拷贝。FE3b 按甲不需要新镜像；FE3c 需要新依赖镜像时，按 AGENTS 记录来源与身份（config digest 与全部 DiffID）。
+
+对实施条件的影响：
+
+- 后端改 main 不影响 FE3b：路径核对以 `748de5034d` 为 `<main>`，候选 `vnext/` 树应为 `56720104af`。后端若改了 `frontend/` 或 `docs/frontend-vnext/`，FE3b 不受影响；到 FE3c 合入时这些改动进入 FE3c 审核范围（同 `55d56efb6e` 的例外）。
+- FE3b 的证据绑定 `p6-be-a-d-exit` 的 backend 树。`fe-fe3b-exit` 合回 main 后，FE3b 前端与 S3 backend 的组合要到 FE3c 才在真实 backend 上验证。
+- 05 与 04 上前端真实 e2e 与后端运行按 DC70 占用标记互斥；用途为计时测量时前端等待。
+- 仍需完成：设计会话修订 B1（按甲改写 §2.1、§3.2、§4.3、§10、§13.3）、B2、B3；本会话定向复核；之后现场核对并发出提示词。

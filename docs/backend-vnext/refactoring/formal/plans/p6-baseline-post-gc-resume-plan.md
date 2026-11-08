@@ -30,11 +30,11 @@
 | 已完成 t1–t4、2× core（W1/W2/W3、S1–S3、H1）、W3-FULL/H1-FULL、H1-REFILL、H2 两/三节点、H3 | 保留各原 run 的 HEAD/镜像/节点及实际完成结论，逐项引用旧记录；不重测、不改记为9704。较新完成记录优先于旧待办快照，旧清单仍写未完不自动构成重跑依据。若索引确有实际缺口，明确报告而不补造。 |
 | 首轮 W4/S4/H1 缺口 | **已完成本次有限接续：** `p6w4resume970420261107b`、工具HEAD `3fd64dc2fe`、handoff `945d9141c4`，由接续审核§101（`59b96c3cd9`）独立PASS。从上述source的v2-preview完成态接续，9704产品上的Submit/read/approve/History及收尾通过，完整Submit保留prepare。该项从待办扣除，不重跑；history cache mode=none，不代替healthy History/H3，也不代表完整矩阵或阶段exit。 |
 | W4-FULL | **已独审PASS：** `p6w4full20261107a`、工具HEAD `18a4851d8c`，2026-11-07 11:49:34–15:56:39Z，18步及输入/清理通过，接续审核§113（`0bf7218401`）闭合。RS完整身份用原首operation前记录的同节点immutableID作16:13事后元数据链接，不冒称11:49新快照；不重跑该业务。 |
-| W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，worker指标旁证已由§127通过，标准record派生仍待。 |
+| W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，worker指标旁证已由§127通过，标准record派生已由§147通过。 |
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
 | DC63 #1、V5b A–D | **测量缺口已关闭：** DC63完整journey/coverage已核，V5b-only `p6v5bonly20261108a` 的四新段B-v1/B-v2/C/D、六reference来源及保卷收尾由接续审核§155（`6ad793a523`）独立PASS。A仍精确引用d2旧FAILED raw中的已完成段，四新段来自c81，不拼统一全绿raw；RS-only采样、准备与嵌套计时、D私有probe等限制保留。H1-REFILL tool HEAD补元数据同节通过，不重审旧业务。该行不再驱动测量或补测。 |
-| JSON/SHA、comparator 与总报告 | **三份派生record已独审，最终总索引待门禁结果：** clean H780 producer实际生成的FULL/STRESS由§147通过，core b由§149通过，记录字节保留。现有comparator按同输入/同场景资格使用；缺合法baseline的具体原因和已审正确性旁证分列，不自比较或补造兼容层。最终索引草稿已登记§155的V5b和H1元数据结论，待本轮04实际closed/独审链接后定稿；不重生已通过记录或重跑产品。 |
-| 04 最终权威 runner | **最终门禁在途：** `1e72b9866e54acc27eaabd6c0579dc50493c76eb` 已由§154（`3ee1e95a28`）集中通过本轮代码、05必要验证、七fixture清单和旁路取证接线，全六包runner已于02:36:57Z启动。当前H实际runner exit、逐旅程镜像/采集覆盖、闭包及保卷收尾仍待运行后独审，不预报通过。旧fcc/H780/058失败及全部原件保留，不作qualified carried来源；不重跑已关测量，不借main/S2b结果。 |
+| JSON/SHA、comparator 与总报告 | **三份record已独审，正式总索引已定稿：** clean H780 producer的FULL/STRESS由§147通过，core b由§149通过，记录字节保留。正式入口为`/home/dev/gdds-p6-logs/p6-record-finalize-20261108c-ct201/delivery-index.json`（SHA256 `be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`）；总索引`split-version-reference-index.json`为`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`，已列§155/156实际资格。九个新record场景缺合法baseline的具体原因与已审旁证分列，未伪造comparator PASS。交付元数据一致性结论外置于owning审核报告，不回改已定稿字节形成循环；不重生记录或重跑产品。 |
+| 04 最终权威 runner | **当前H权威与镜像门禁已独审PASS：** `1e72b9866e54acc27eaabd6c0579dc50493c76eb`于04实际02:36:57–02:58:47Z运行全六包，runner/wrapper exit 0、起止clean；03:00:01Z资源和专属缓存清理后精确释放自有占用。接续审核§156（`c4cce7f795`）已核当前H三镜像、六包闭包、12独立RS原件/七fixture覆盖、真实exit和收尾；84文件/43节点原件MATCH。旧fcc/H780/058失败不作qualified carried，46e仅准备。该PASS只绑定本次H，不宣整体基准或Phase6 exit。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 
@@ -50,11 +50,11 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 
 **基准性能目标与当前推进分开：** DC66明确本重建对照基准不进行性能门槛判定，Owner也已说明性能指标须结合物理限制评估。H2三节点同operation完成时间已由接续审核§114（`0bf7218401`）认证原state并核验闭合：b96历史参考4892.584s、e076目标4886.678s，取代错误的整旅程比较，原raw保持不变；超过600s目标须如实标未达，不能记性能PASS。此处保留旧版本参考事实及未来S5/S6目标，不降低目标、不改变compare policy，也不把预优化基准的目标未达当产品失败或已关闭业务的重跑理由；原结果/身份异常仍正常处置。
 
-其余13项record-only selector及逐指标来源标注已有定向验证；各场景完整record/comparator的最终汇总仍待完成，不能据局部修正宣称全量收口。
+其余13项record-only selector及逐指标来源标注已有定向验证，完整来源和comparator适用条件已列正式总索引；性能目标与参考资格仍按各原policy和实际来源分别报告，不据选择器局部验证外推性能PASS。
 
 **现有comparator的实际范围：** H780的p6_baseline_compare.compare_records本来用于跨阶段，只比较inputs及相应scenario的result_fingerprint/counts/state，不要求两个record的HEAD相同，timing明确不在其中比较。版本不同本身不是“缺少兼容comparator”的理由；有同输入/同场景及相同解释口径的合法baseline record时使用现有工具。若缺对应baseline record或指标范围已变，外部索引应明确具体缺项/不可比原因及已审§115正确性旁证，不虚构一致、补造统一版本或建设兼容层，也不扩大重测矩阵。H2同端点时长仍由既有timing工具及其原policy单独比较。
 
-**派生元数据的场景语义（2026-11-08）：** schema通过只证明形状合法。bb348 core原三upload的input_completeness均为MODIFIED_ONLY，W1/W2/W3及对应S1/S2/S3应按原输入标MODIFIED_ONLY；该负载的H1属于§16.3普通Preview之后的首查，state.mode同样标MODIFIED_ONLY，不能因History读取完整commit或“完整旅程”改记FULL，FULL Preview之后的另列H1-FULL。baseline按各原operation及实际提交关系逐项描述，不把所有场景统一为v1→v2。W2原cache_state_before/after已有行数/TTL/对象文件事实时如实保留，不能写成均未记录；实际命中计数仍未知。H1引用§127起点342对象健康证明，after保留未知。只修派生metadata/record/index并保留初稿，不改raw/schema、不补造字段或重测业务，当前core语义修订及FULL实际计时/旁证仍待独审。
+**派生元数据的场景语义（2026-11-08）：** schema通过只证明形状合法。bb348 core原三upload的input_completeness均为MODIFIED_ONLY，W1/W2/W3及对应S1/S2/S3应按原输入标MODIFIED_ONLY；该负载的H1属于§16.3普通Preview之后的首查，state.mode同样标MODIFIED_ONLY，不能因History读取完整commit或“完整旅程”改记FULL，FULL Preview之后的另列H1-FULL。baseline按各原operation及实际提交关系逐项描述，不把所有场景统一为v1→v2。W2原cache_state_before/after已有行数/TTL/对象文件事实时如实保留，不能写成均未记录；实际命中计数仍未知。H1引用§127起点342对象健康证明，after保留未知。只修派生metadata/record/index并保留初稿，不改raw/schema、不补造字段或重测业务，这些语义与实际计时/旁证已分别由§147/149完成独审，三份定稿record保持已审字节。
 
 **producer与被测来源分开：** 审核发现初稿实际调用0739旧record builder，不含§119/fcc已审资源规则，须在05以clean已审H780 producer真实重建，确认执行/导入路径与代码身份，保留旧输出，不只改标签。record中的被测run HEAD仍为各原18a/bb348等来源；实际producer HEAD、文件SHA/命令及六个Git tree字段的确切路径映射另记外部索引，不伪填统一H780或把可复现的不同路径摘要误报产品漂移。沿已审规则将0周期samples的cores/memory/disk峰值记未知及原因，独立step CPU端点有观测时保留；这不要求新增补丁或业务重测。重建记录、元数据及索引统一交独审，整体资格未提前结案。
 

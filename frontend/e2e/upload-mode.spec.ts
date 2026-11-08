@@ -173,6 +173,7 @@ test("W1/W2 撤回成功后回到上传步骤并恢复上传", async ({ page }) 
   await expect(page.getByText("已撤回，可以重新上传")).toBeVisible();
   await chooseUploadDirectory(page);
   await expect(page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true })).toBeEnabled();
+  await screenshot(page, "fe3b-upload-restored", 1280);
 });
 
 test("W3 没有审核权限的身份不能撤回", async ({ page }) => {
@@ -199,10 +200,12 @@ test("W4 已通过提交不能撤回也不能上传", async ({ page }) => {
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
   await expect(upload).toBeDisabled();
   await expect(page.getByText("该提交已通过审核，归档或关闭后才能重新上传")).toBeVisible();
+  await screenshot(page, "fe3b-w4-approved-upload", 1280);
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("该提交已通过审核，不能撤回")).toBeVisible();
+  await screenshot(page, "fe3b-w4-approved-withdraw", 1280);
 });
 
 test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
@@ -234,10 +237,12 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
   await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
   await expect(page.getByText("该提交已归档").first()).toBeVisible();
+  await screenshot(page, "fe3b-w10-stale-workspace", 1280);
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("该提交已归档").first()).toBeVisible();
+  await screenshot(page, "fe3b-w10-stale-preview", 1280);
 });
 
 test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
@@ -288,16 +293,19 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await page.locator("tr", { hasText: "已关闭（未归档）" }).first().click();
   await expect(details.getByText("归档时选中了其他提交")).toBeVisible();
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await screenshot(page, "fe3b-d2-closed-at-archive", 1280);
 
   await page.locator("tr", { hasText: "已关闭（未归档）" }).nth(1).click();
   await expect(details.getByText("关闭人")).toBeVisible();
   await expect(details.getByText("关闭理由")).toBeVisible();
   await expect(details.getByText(/owner-9/)).toBeVisible();
+  await screenshot(page, "fe3b-d3-manual-close", 1280);
 
   const d4Row = page.locator("tr", { hasText: "已归档" }).nth(1);
   await d4Row.click();
   await expect(d4Row.locator(".status-tag--warning")).toHaveCount(0);
   await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
+  await screenshot(page, "fe3b-d4-priority", 1280);
 
   const d5Row = page.locator("tr", { hasText: "基线已更新" }).first();
   await expect(d5Row).toBeVisible();
@@ -344,9 +352,32 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能撤回")).toBeVisible();
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
+  await screenshot(page, "fe3b-w6-withdraw-busy", 1280);
   await page.goto("/?page=workspace");
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
   await expect(upload).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能继续")).toBeVisible();
   await screenshot(page, "fe3b-w6-attempt-running", 1280);
+});
+
+test("§6.1 没有待审核提交与状态无法确认时的撤回禁用原因", async ({ page }) => {
+  const state: ModeState = { workspace: workspace({}), review: { ...TEST_REVIEW_FACTS, status: "PENDING" as const } };
+  await installModeRoutes(page, state);
+  await page.goto(previewUrl());
+  await waitForPreview(page);
+  await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
+  await expect(page.getByText("当前没有待审核的提交")).toBeVisible();
+  await screenshot(page, "fe3b-withdraw-none", 1280);
+});
+
+test("§6.1 工作区读取失败时撤回显示无法确认提交状态", async ({ page }) => {
+  const state: ModeState = { workspace: workspace({ active_submission_id: "submission-1" }), review: TEST_REVIEW_FACTS };
+  await installModeRoutes(page, state);
+  await page.route("**/v1/workspaces", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "SERVICE_UNAVAILABLE", message: "unavailable" }), headers: { "Access-Control-Allow-Origin": "*" } })
+    : route.fallback());
+  await page.goto(previewUrl());
+  await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
+  await expect(page.getByText("无法确认提交状态").first()).toBeVisible();
+  await screenshot(page, "fe3b-withdraw-unknown", 1280);
 });

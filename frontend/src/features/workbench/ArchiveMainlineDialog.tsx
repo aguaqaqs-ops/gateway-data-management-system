@@ -162,7 +162,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : loading ? "正在预检" : loadError ? (loadError.code === "SCOPE_FORBIDDEN" ? "当前身份没有归档权限" : "预检失败，请先处理错误") : !plan ? "预检失败，请先处理错误" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
   </>}>
     {loading && <p className="subtle-copy">正在读取归档候选并预检…</p>}
-    {loadError && <div role="alert" className="form-error"><span>{loadError.message}</span>{loadError.code && <><span>错误代码：<code>{loadError.code}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(loadError.code ?? "")}>复制错误代码</button></span></>}</div>}
+    {loadError && <div role="alert" className="form-error"><span>{loadError.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : loadError.message}</span>{loadError.code && <><span>错误代码：<code>{loadError.code}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(loadError.code ?? "")}>复制错误代码</button></span></>}</div>}
     {!loading && !result && plan && <>
       <section className="archive-step" aria-label="预检状态">
         <h3>预检状态</h3>

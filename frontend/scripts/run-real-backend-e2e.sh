@@ -545,7 +545,7 @@ session_path, identities_path, scopes_path, input_mount, *specs = sys.argv[1:]
 BASE_PERMISSIONS = ("workspace_read", "read_project_history")
 ROLE_PERMISSIONS = {
     "submitter": ("upload_submit_workspace", "preview_workspace", "withdraw_own_submission"),
-    "submitter-upload-only": ("upload_submit_workspace",),
+    "submitter-upload-only": ("upload_submit_workspace", "preview_workspace"),
     "submitter-no-preview": ("upload_submit_workspace",),
     "reviewer": ("review_submission",),
     "archiver": ("archive_submission",),

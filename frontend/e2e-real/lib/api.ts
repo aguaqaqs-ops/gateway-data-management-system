@@ -89,20 +89,40 @@ export interface ReviewFactsBody {
   identity_confirmations: unknown[];
 }
 
-export interface WorkspaceNode {
-  node_id: string;
-  node_kind: string;
-  version: number | null;
-  parent_node_id: string | null;
-  review_status: ReviewStatus | null;
-  submission_disposition: string | null;
-  review_version: number | null;
-  submission_id: string | null;
+export interface HistoryNodeRef {
+  ref_kind: "baseline_node" | "submission";
+  ref_id: string;
+}
+
+export interface HistoryNode {
+  ref_kind: "baseline_node" | "submission";
+  ref_id: string;
+  node_kind: "BASELINE_NODE" | "SUBMISSION" | "SYSTEM_MIGRATION";
+  commit_id: string;
   created_at: string;
+  parent: HistoryNodeRef | null;
+  baseline_kind: "INITIAL" | "ARCHIVED_SUBMISSION" | null;
+  review_status: ReviewStatus | null;
+  submission_disposition: "ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED" | null;
+  disposition_source_kind: "ARCHIVE" | "MANUAL_CLOSE" | null;
+  disposition_result_id: string | null;
+  promoted_baseline_node_id: string | null;
+  eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" | null;
+  identity_exception: boolean;
+}
+
+/** @deprecated use HistoryNode; the GET /v1/history payload is HistoryNodeResponse. */
+export type WorkspaceNode = HistoryNode;
+
+export interface HistoryHead {
+  node_id: string;
+  commit_id: string;
+  version: number;
 }
 
 export interface HistoryBody {
-  nodes: WorkspaceNode[];
+  head: HistoryHead;
+  nodes: HistoryNode[];
   next_cursor: string | null;
 }
 

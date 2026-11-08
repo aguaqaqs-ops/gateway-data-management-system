@@ -3146,3 +3146,21 @@ runner已打印Hypothesis与Cargo target清理；这不替代尚未交付的节�
 02:02:44Z postflight SHA **`4a24d7e0a506bfdfde7255800fb2fe3c4976455d902e3a1486f9dfbf8397666d`** 明确058 clean、runner真实exit1、无运行容器/8000/Dolt/Cargo/rustc/pytest、专属Hypothesis及Cargo target清理、三个候选tag保持原本机对象、准确owner释放exit0。02:03:25Z incident后检 SHA **`f543760ca454aef7967a8b31c07bb3807495d3e2e73d2f93044ca3dfc67bc511`** 引用同组摘要并记录marker absent；这是已保存后检，不冒称本轮审核实时节点探测。原runner和所有事故证据保留，不清理镜像/卷/旧worktree。
 
 定向结论将简记 `/home/dev/.local/state/gdds-p6-watch/reviewer-reply-20261108.md`，包含本报告准确提交与来源摘要，供主协调在通知故障时直接读取；它只作协调回执，不替代上述权威证据或主报告，不尝试已失效MCP、不唤醒旧实施者，也不新增Owner/GO或测量预算。
+
+## 153. gate 46e第三fixture修订集中复审PASS，按原授权继续新H镜像/门禁
+
+**`46e2bb63f7d4321dc5d4b00ec4a3ec1a049b689d` 的第三测试接线代码及必要05验证独审PASS，§152所述具体代码修复阻塞关闭，无剩余已知代码Finding。** 父精确058，仅 `test_ordered_submit_bisect_compose.py` 增`import os`和返回字典首项`**os.environ`，共+2行；产品、共享harness/provenance、严格resume guard/白名单、锁/依赖/Compose文件均未改。实施worktree `gdds-p6-gate-env-forward-20261108` 本轮只读核HEAD=46e、status为空；另建准确只读detached `/home/dev/gdds-p6-review-gate-46e2bb63`、按约定链接legacy并核完整immutable diff/diff-check。未执行测试或候选fixture。
+
+两行修订准确修复§152机制：Compose子进程接收与宿主ensure/provenance同一门禁配置中的显式镜像、离线build及环境，而后列的project/五个fixture文件路径保持优先，不由ambient覆盖。本轮已核设计范围提交 **`39438f2c4534788a3cb9065df80c5b4c500254dc`**：仅修既有fixture传递、实际容器与provenance对应、保留058受控失败，不改产品/guard或另开历史/性能验证矩阵。没有借此修改记录掩盖旧镜像或重tag local。
+
+材料位于 `baseline/gate-env-forward-20261108a/`；candidate-focused-evidence-index.json SHA **`645107635c62c285ee2a5e40f22e2c2e6aff878d3a10a1fb8e5e61cc4293ad54`** 已精确核对，其11个已闭合文件大小/SHA全部MATCH。真实05 corrected log3450B/SHA **`b79350c690d55992bd80a1305700d27af4be23ff6983425cfbe73f3fa356c8d0`**：02:09:59–02:10:26Z、完整46e起止clean、UV/Cargo offline、network=none、TMPDIR外置、native build-input58436908 MATCH，fixture→真实harness.run_compose config --format json通过，随后五包Ruff和标准mypy34/15/26/500/201全部exit0。
+
+已直接读focused程序3987B/SHA **`b9fca2e93fea62acac5b43d6515c2e68f65c28ea4e5b1911f52fb873b819ae12`** 和受控corrected入口：程序从准确05候选源导入真实_ordered fixture，给显式候选RS tag、prebuilt/预置base/lock和candidate/build-input/source-tree及UV/Cargo offline输入，再走真实run_compose生成配置；不是fake消费者自行接受字典。实际断言RS image为p6vref46e2bb63f7-20261108a-repository-service:latest，三服务build.network均none，RS base/use-preloaded/candidate/build-input/source参数精确匹配，PATH与受控输入保留，五个fixture文件均实际落专属临时目录并覆盖ambient session。仅执行Compose config，没有up/build/retag或业务服务；这证明环境传递边界，不冒称容器实际身份已验证。
+
+首次05 log7505B/SHA **`81362928ae0ab157ffeb94955ac0592c258d6e86651e3f330094cdb2066a6874`** 明确02:08:18–45Z、clean46e；locked离线准备完成后，uv wrapper拒绝project外脚本路径，fixture尚未执行，entry exit2并保锁。corrected入口改为在同一受控backend环境用stdin消费原同摘要程序，没有放宽wrapper或改源码；旧失败字节保留。postflight610B/SHA **`62a493bba999ec3a4cca82fc37f909723dfe7e85cf84e3aaae45b4e1d88d1a18`** 记02:11:01Z、46e clean、无运行容器/8000/Dolt/Cargo/rustc/pytest，准确owner释放exit0。父058的旧1+20focused未机械重跑；本轮新边界与五包静态已有必要实证，不将组件沿用说成失败04 runner的qualified carried。
+
+**镜像身份三字段的区别独立复算成立。** 本审核仅在自己的46e detached运行纯Git/文件身份helper，输出candidate **46e**、build-input **058e26da3c61266c5505f7202f7d7d57ba369070**、source-tree **`sha256:5d40303d00098d6c962377261183c554587c88967d0c68e94005ce4d05a5f5b7`**，与已交rs-canonical-identity.json SHA **`2346a44a10d2b6ebf830c9fc57205f92287f225b244f23083c49d497a2c89ee9`** 精确一致。第三改动是backend测试，不改变RS effective input，故build-input/source不变正确；候选label仍须更新46e，不能用058 candidate label冒充当前H。当前新H镜像/门禁尚未发生，§148旧镜像来源正确不代替新H实际消费证明。
+
+**普通接线已集中通过，按原连续授权继续新clean候选的镜像准备和最终门禁，不另等Owner/代码/manifest/摘要GO。** 只按实际闭包和既有容器规则执行，不改在途/已失败058 worktree，不原样重试、不重开已关真实测量。最终须以实际RS container对象对上所选候选tag及labels，连同当前H运行/闭合manifest/真实exit和postflight判定；所有既有整次exit1继续失败，不作qualified carried来源。此代码/必要验证PASS不预报最终runner或阶段exit通过。
+
+主协调同时通知V5b已在02:05:56Z实际接续，02:06:04Z RS healthy后进入measure；此前“尚未启动”仅为当时交付准备包状态，本节据新通知更新，**不是本审核已核实际四段结果**。原绝对预算保持，CT108测量独占，本审核未探测该节点或重跑任何测试。core b §149/152 PASS已路由；三项工作继续按各自真实来源收尾。集中结论及本节准确提交同步更新原本地reply供协调读取，不调用失效MCP或唤醒旧实施。

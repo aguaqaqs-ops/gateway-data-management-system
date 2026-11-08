@@ -694,7 +694,7 @@ mod tests {
     use super::*;
     use crate::comparison::ordered::{
         BlankProvenance, OrderedBatchPair, OrderedCompareOptions, compare_ordered_batches,
-        summarize_unchanged_ordered_batches, summarize_unchanged_ordered_side,
+        summarize_unchanged_ordered_batches,
     };
 
     fn field(
@@ -1069,7 +1069,11 @@ mod tests {
         )?;
         let mut policy = OrderedCompareOptions::new("t");
         policy.current_blank_provenance = BlankProvenance::SourceMissingStableKey;
-        let summary = summarize_unchanged_ordered_side(&current, &policy, &context())?;
+        let summary = summarize_unchanged_ordered_batches(
+            CanonicalBatchSide::new(current.schema(), std::slice::from_ref(&current)),
+            &policy,
+            &context(),
+        )?;
         let slices = [current.slice(0, 1), current.slice(1, 1)];
         let split = summarize_unchanged_ordered_batches(
             CanonicalBatchSide::new(current.schema(), &slices),

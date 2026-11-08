@@ -192,8 +192,7 @@ pub(crate) fn sort_indices_checked<T>(
 }
 
 /// A new comparison call accepts only the S2b canonical Arrow profile. The
-/// old ordered prototype keeps its fixture-specific metadata until E removes
-/// that test surface; it is not accepted by this entry.
+/// comparison inputs must carry the canonical mapping and declared types.
 pub(super) fn validate_canonical_batches(
     side: &CanonicalBatchSide<'_>,
 ) -> Result<(), OrderedCompareError> {

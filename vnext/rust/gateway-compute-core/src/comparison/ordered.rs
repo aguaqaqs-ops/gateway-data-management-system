@@ -1,7 +1,4 @@
-//! IEC104 `gid` / `no` ordered comparison prototype (GID_NO_V1).
-//!
-//! Inputs are projection-ready Arrow batches. The implementation is table-local;
-//! `compare_ordered_tables_parallel` assigns tables to a caller-owned fixed pool.
+//! IEC104 `gid` / `no` ordered comparison over canonical Arrow batches.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -20,8 +17,6 @@ use gateway_shared_kernel::{
     UnsignedIntegerScalar, canonicalize_identifier, canonicalize_jcs, encode_collection,
     encode_typed_scalar, encode_uleb128, raw_blob_digest, semantic_digest,
 };
-use rayon::ThreadPool;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -42,7 +37,6 @@ pub const GID_REAL_MAX: i128 = 3_999_999_999;
 pub const GID_PSEUDO_MIN: i128 = 4_000_000_000;
 pub const GID_PSEUDO_MAX: i128 = 4_294_967_295;
 pub const DEFAULT_MAX_ORDERED_ROWS: usize = 10_000_000;
-pub const MAX_ORDERED_THREADS: usize = 256;
 const MAX_ORDERED_COLUMNS: usize = 2048;
 const MAX_ORDERED_CELL_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ORDERED_TOTAL_ENCODED_BYTES: usize = 256 * 1024 * 1024;
@@ -126,12 +120,6 @@ impl OrderedCompareOptions {
     }
 }
 
-pub struct OrderedTablePair<'a> {
-    pub before: Option<&'a RecordBatch>,
-    pub current: Option<&'a RecordBatch>,
-    pub options: &'a OrderedCompareOptions,
-}
-
 #[derive(Clone)]
 pub struct OrderedBatchPair<'a> {
     pub before: Option<&'a [RecordBatch]>,
@@ -208,18 +196,6 @@ pub struct UnchangedOrderedSummary {
     pub before_occupancy_digest: String,
     pub current_occupancy_digest: String,
     pub row_count: usize,
-}
-
-pub fn summarize_unchanged_ordered_side(
-    current: &RecordBatch,
-    options: &OrderedCompareOptions,
-    context: &Arc<KernelContext>,
-) -> Result<UnchangedOrderedSummary, OrderedCompareError> {
-    summarize_unchanged_ordered_batches(
-        CanonicalBatchSide::new(current.schema(), std::slice::from_ref(current)),
-        options,
-        context,
-    )
 }
 
 pub fn summarize_unchanged_ordered_batches(
@@ -472,27 +448,8 @@ impl OrderedCompareResult {
 }
 
 /// Compare one table. Unexpected panics are contained at this public core boundary.
-pub fn compare_ordered_table(
-    pair: OrderedTablePair<'_>,
-) -> Result<OrderedCompareResult, OrderedCompareError> {
-    let batches = OrderedBatchPair {
-        before: pair.before.map(std::slice::from_ref),
-        current: pair.current.map(std::slice::from_ref),
-        before_schema: pair.before.map(RecordBatch::schema),
-        current_schema: pair.current.map(RecordBatch::schema),
-        options: pair.options,
-    };
-    match std::panic::catch_unwind(AssertUnwindSafe(|| {
-        compare_ordered_table_inner(&batches, None, None, false).map(|work| work.facts)
-    })) {
-        Ok(result) => result,
-        Err(_) => Err(OrderedCompareError::new("ORDERED_INTERNAL_ERROR")),
-    }
-}
-
 /// Production-oriented batch entry. It uses the caller's operation context
-/// and rejects non-canonical Arrow metadata before looking at rows. The old
-/// one-batch prototype above remains only for frozen differential fixtures.
+/// and rejects non-canonical Arrow metadata before looking at rows.
 pub fn compare_ordered_batches(
     pair: OrderedBatchPair<'_>,
     context: &Arc<KernelContext>,
@@ -837,54 +794,6 @@ fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, Ordered
         .and_then(|bytes| bytes.checked_add(blank_strings))
         .and_then(|bytes| bytes.checked_add(4096))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))
-}
-
-/// Compare a set of table pairs with the caller-owned fixed Rayon pool.
-/// Results are returned in canonical table-name order, independent of scheduling.
-pub fn compare_ordered_tables_parallel(
-    pairs: &[OrderedTablePair<'_>],
-    pool: &ThreadPool,
-) -> Result<Vec<OrderedCompareResult>, OrderedCompareError> {
-    let work = || {
-        let mut results = pairs
-            .par_iter()
-            .map(|pair| {
-                compare_ordered_table(OrderedTablePair {
-                    before: pair.before,
-                    current: pair.current,
-                    options: pair.options,
-                })
-            })
-            .collect::<Vec<_>>();
-        let mut output = Vec::with_capacity(results.len());
-        for result in results.drain(..) {
-            output.push(result?);
-        }
-        output.sort_by(|left, right| left.table_name.cmp(&right.table_name));
-        if output
-            .windows(2)
-            .any(|pair| pair[0].table_name == pair[1].table_name)
-        {
-            return Err(OrderedCompareError::new("DUPLICATE_TABLE_NAME"));
-        }
-        Ok(output)
-    };
-    match std::panic::catch_unwind(AssertUnwindSafe(|| pool.install(work))) {
-        Ok(result) => result,
-        Err(_) => Err(OrderedCompareError::new("ORDERED_INTERNAL_ERROR")),
-    }
-}
-
-/// Builds a bounded fixed-size pool. The caller owns and reuses it.
-pub fn build_ordered_pool(threads: usize) -> Result<ThreadPool, OrderedCompareError> {
-    if !(1..=MAX_ORDERED_THREADS).contains(&threads) {
-        return Err(OrderedCompareError::new("THREAD_COUNT_INVALID"));
-    }
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .thread_name(|index| format!("gdms-ordered-{index}"))
-        .build()
-        .map_err(|_| OrderedCompareError::new("THREAD_POOL_BUILD_FAILED"))
 }
 
 #[derive(Debug, Clone)]
@@ -2148,20 +2057,17 @@ fn scalar_frame(
 }
 
 pub(crate) fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> {
-    if let Some(metadata) = field.metadata().get("gdds.canonical_type") {
-        let value: Value = serde_json::from_str(metadata)
-            .map_err(|_| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
-        return value
-            .get("sql_type")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| OrderedCompareError::new("COLUMN_TYPE_INVALID"));
-    }
-    Ok(field
+    let metadata = field
         .metadata()
-        .get("gdms.scalar_type")
-        .cloned()
-        .unwrap_or_else(|| format!("{:?}", field.data_type())))
+        .get("gdds.canonical_type")
+        .ok_or_else(|| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
+    let value: Value = serde_json::from_str(metadata)
+        .map_err(|_| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
+    value
+        .get("sql_type")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| OrderedCompareError::new("COLUMN_TYPE_INVALID"))
 }
 
 pub(crate) fn declared_type(

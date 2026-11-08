@@ -8,12 +8,10 @@
 pub(crate) mod kernel;
 pub(crate) mod ordered;
 mod policy;
-mod probe;
 mod standard;
 
 pub use kernel::{CanonicalBatchSide, KernelContext, KernelLease};
 pub use policy::{ParsedComparisonPolicy, parse_comparison_policy};
-pub use probe::comparison_probe_json;
 pub use standard::{
     RowLocation, StandardComputation, StandardKind, StandardMode, StandardOptions,
     StandardRecordRef, canonical_cell_frame_at, compare_standard_table,
@@ -21,10 +19,9 @@ pub use standard::{
 
 pub use ordered::{
     BlankExtensionResult, BlankInterval, BlankProvenance, BlankRecord, BlankSummary,
-    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, MAX_ORDERED_THREADS, OrderedBatchPair,
+    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, OrderedBatchPair,
     OrderedCompareError, OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult,
-    OrderedKernelResult, OrderedRecord, OrderedSummary, OrderedTablePair, SchemaChanges,
-    StandardRecord, UnchangedOrderedSummary, build_ordered_pool, compare_ordered_batches,
-    compare_ordered_table, compare_ordered_tables_parallel, summarize_unchanged_ordered_batches,
-    summarize_unchanged_ordered_side,
+    OrderedKernelResult, OrderedRecord, OrderedSummary, SchemaChanges,
+    StandardRecord, UnchangedOrderedSummary, compare_ordered_batches,
+    summarize_unchanged_ordered_batches,
 };

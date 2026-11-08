@@ -17,6 +17,7 @@ import { canonicalJson } from "../../src/features/bundle/sha256";
 export interface TarMember {
   path: string;
   size: number;
+  headerSize: number;
   body: Buffer;
 }
 
@@ -115,7 +116,7 @@ export function readTarMembers(tar: Buffer): TarMember[] {
     if (!Number.isFinite(size) || dataStart + size > tar.length) {
       throw new Error(`tar 成员 ${path} 被截断：声明 ${size} 字节`);
     }
-    members.push({ path, size, body: Buffer.from(tar.subarray(dataStart, dataStart + size)) });
+    members.push({ path, size, headerSize, body: Buffer.from(tar.subarray(dataStart, dataStart + size)) });
     pax = null;
     offset = dataStart + padToBlock(size);
   }
@@ -173,7 +174,7 @@ export function parseBundleTar(tar: Buffer): ParsedBundle {
     if (member.path === "manifest.json" || member.path === "artifact-closure.json") continue;
     const entry = entries.get(member.path);
     if (!entry) throw new Error(`closure 未声明 tar 成员 ${member.path}`);
-    if (entry.size_bytes !== member.body.length) throw new Error(`成员 ${member.path} 大小与 closure 不一致`);
+    if (entry.size_bytes !== member.body.length) throw new Error(`成员 ${member.path} 大小与 closure 不一致（tar=${member.body.length}, closure=${entry.size_bytes}, header=${member.headerSize}）`);
     if (digestHex(entry.raw_sha256) !== sha256Hex(member.body)) throw new Error(`成员 ${member.path} 摘要与 closure 不一致`);
   }
   return {

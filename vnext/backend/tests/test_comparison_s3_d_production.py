@@ -39,7 +39,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy, OrderedPolicy, StorageRuleView, TableStaticRole,
 )
-from gateway_backend.capabilities.table_access import kernel_control_scope
+from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
 from tests.support.table_rules import comparison_ruleset_for, fallback_record
 from tests.test_comparison_rule_roles import _plan as role_plan
@@ -468,6 +468,53 @@ def test_large_optional_cache_key_safely_misses_without_changing_facts() -> None
     finally:
         baseline.close()
         candidate.close()
+
+
+def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt() -> None:
+    before = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
+    ))
+    current = _canonical_bound(bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
+    ))
+    template = plan(before, current)
+    first = replace(template, pair_id="pressure-first")
+    second = replace(template, pair_id="pressure-second")
+    context = current_kernel_context()
+    assert context is not None
+    reference = compare_plan_native(first)
+    try:
+        assert isinstance(reference.result, DetailedFactsResult)
+        assert reference.result.facts is not None
+        expected_core = reference.result.facts.facts_core_digest
+    finally:
+        reference.close()
+    metadata_admissions = [
+        item for item in context.memory.stage_admissions
+        if item["stage"] == "comparison-metadata"
+    ]
+    assert metadata_admissions
+    metadata_upper = int(metadata_admissions[-1]["temporary_limit_bytes"])
+    retained_before = context.memory.used_bytes
+    session = ComparisonTaskSession((first, second))
+    assert session.key_charges
+    # Charge optional operation-local retention from the real shared M so the
+    # first attempt can admit metadata but has no native phase room. The
+    # retry must release both this retention and its failed metadata charge.
+    filler = context.memory.reserve(
+        context.memory.available_bytes - metadata_upper,
+    )
+    session.key_charges["synthetic-optional-pressure"] = filler
+    candidate = compare_plan_native(first, session=session)
+    try:
+        assert candidate.session is None
+        assert isinstance(candidate.result, DetailedFactsResult)
+        assert candidate.result.facts is not None
+        assert candidate.result.facts.facts_core_digest == expected_core
+    finally:
+        candidate.close()
+    assert context.memory.used_bytes == retained_before + metadata_upper
+    assert session.key_charges == {} and session.cached == {}
 
 
 def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotTableArtifact:

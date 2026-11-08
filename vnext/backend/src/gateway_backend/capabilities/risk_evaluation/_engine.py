@@ -49,6 +49,9 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskReport,
     RiskRuleId,
     RiskRuleSpec,
+    RISK_MODEL_VERSION,
+    RISK_RULESET_ID,
+    RISK_RULESET_VERSION,
     RiskSummary,
     RiskTableRisk,
     RiskTarget,
@@ -138,8 +141,12 @@ def _optional_risk_cache_key(
     """Pay for an optional complete key before its repr can grow."""
     operation = current_kernel_context()
     digest = item.table_fact.table_fact_digest
+    ruleset = evaluation_input.risk_ruleset
     if (operation is None or digest is None
-            or evaluation_input.risk_ruleset.rules != V1_RISK_RULE_SPECS):
+            or ruleset.risk_ruleset_id != RISK_RULESET_ID
+            or ruleset.risk_ruleset_version != RISK_RULESET_VERSION
+            or ruleset.risk_model_version != RISK_MODEL_VERSION
+            or ruleset.rules != V1_RISK_RULE_SPECS):
         return None, None
     # The v1 rule body and option enum are fixed. Only three diagnostics
     # vectors have caller-controlled length; count their worst-case repr and

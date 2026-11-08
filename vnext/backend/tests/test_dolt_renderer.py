@@ -14,7 +14,9 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.storage_projection import KernelExecutionContext
-from gateway_backend.capabilities.table_access import NeverCancel, OperationMemoryBudget, kernel_execution_scope
+from gateway_backend.capabilities.table_access import (
+    KernelMemoryLimit, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
 from gateway_backend.capabilities.mutation_planning import (
     MutationFailureCode,
     MutationPlanStatus,
@@ -43,6 +45,7 @@ from tests.support.mutation_contracts import (
     renderer_capability,
     keyed_row,
     table_snapshot,
+    table_summary,
 )
 from tests.support.mutation_renderer_fixtures import (
     load_closure,
@@ -233,6 +236,16 @@ def test_direct_structural_closure_can_render_beyond_durable_json_limit(
     assert outcome.sql_bytes is not None
     assert len(outcome.sql_bytes) > 16 * 1024 * 1024
     assert outcome.sql_bytes.endswith(b"'" + b"z" * 32 + b"');\n")
+
+
+def test_manifest_summaries_remain_charged_as_structural_closure_input() -> None:
+    summaries = tuple(table_summary(table=f"t{index:03d}_" + "x" * 1024) for index in range(100))
+    closure = change_set_closure(summaries=summaries)
+    context = KernelExecutionContext(OperationMemoryBudget(1024 * 1024), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            render_change_set_replay(closure, context=context)
+        assert context.memory.used_bytes == 0
 
 
 def test_update_excludes_key_columns_from_set_clause(operation_kernel_context: KernelExecutionContext) -> None:

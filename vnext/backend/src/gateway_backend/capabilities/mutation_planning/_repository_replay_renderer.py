@@ -69,6 +69,16 @@ def _failed(code: MutationFailureCode) -> ReplayRenderOutcome:
 def _structural_resident_bound(closure: ChangeSetClosure) -> int:
     """Bound the already constructed row graph without serializing it first."""
     total = 4096 + len(closure.mutations) * 2048
+    manifest = closure.manifest
+    # The manifest is part of the same caller-owned closure even when there
+    # are no mutations. Its summary tuple and names can dominate the backing.
+    total += len(manifest.table_summaries) * 2048
+    total += len(manifest.threshold_policy.max_patch_change_ratio) * 8
+    total += (manifest.threshold_policy.max_patch_changed_rows.bit_length() // 8 + 64) * 8
+    for summary in manifest.table_summaries:
+        total += len(summary.canonical_table) * 8
+        for count in (summary.changed_row_count, summary.before_row_count, summary.after_row_count):
+            total += (count.bit_length() // 8 + 64) * 8
     for mutation in closure.mutations:
         total += len(mutation.canonical_table) * 8
         for image in (mutation.canonical_storage_key, mutation.after_image):

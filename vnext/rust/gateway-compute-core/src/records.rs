@@ -1,7 +1,7 @@
-//! Language-neutral reader for S5 comparison-record Parquet artifacts.
+//! Comparison-record Arrow schema and streaming logical-content validation.
 //!
-//! Publication remains owned by the Python artifact store.  This module only validates the public
-//! Parquet schema and recomputes the logical records content digest from Arrow values.
+//! The artifact store owns Parquet I/O and raw-byte identity. This module
+//! validates decoded Arrow batches without collecting the records in a table.
 
 #![allow(clippy::needless_pass_by_value)]
 
@@ -13,10 +13,34 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Fields};
 use bytes::Bytes;
-use gateway_shared_kernel::{DigestRef, canonicalize_jcs, raw_blob_digest};
+use gateway_shared_kernel::{DigestRef, canonicalize_jcs};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
+
+mod builders;
+mod facts;
+mod source;
+pub use builders::BuiltRecords;
+pub use facts::{TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json, digest_table_fact, digest_table_fact_json};
+pub use source::{build_standard_records, build_standard_records_from_ordered, build_ordered_records, build_blank_records};
+
+pub fn standard_metadata_json(result: &crate::comparison::StandardComputation) -> Result<String, String> {
+    serde_json::to_string(&json!({
+        "row_added_count": result.row_added_count,
+        "row_deleted_count": result.row_deleted_count,
+        "row_modified_count": result.row_modified_count,
+        "suppressed_added_count": result.suppressed_added_count,
+        "suppressed_deleted_count": result.suppressed_deleted_count,
+        "ignored_shared_content_changed": result.ignored_shared_content_changed,
+        "record_count": result.records.len(),
+    })).map_err(|error| error.to_string())
+}
+
+pub fn ordered_metadata_json(result: &crate::comparison::OrderedKernelResult) -> Result<String, String> {
+    serde_json::to_string(&result.facts_metadata).map_err(|error| error.to_string())
+}
 
 const METADATA_PREFIX: &str = "gateway-vnext.records.";
 const CONTRACT_VERSION: &str = "backend-vnext/comparison-records/v1";
@@ -30,6 +54,116 @@ pub struct RecordsParquetSummary {
     pub content_digest: DigestRef,
 }
 
+/// Incremental validator for one records family. The caller must keep the
+/// Parquet reader open until `finish`, and only then expose the closure.
+pub struct RecordsBatchValidator {
+    family: String,
+    schema_version: String,
+    row_diff_detail_policy: String,
+    expected_schema: arrow_schema::SchemaRef,
+    hasher: Sha256,
+    record_count: usize,
+    max_records: usize,
+}
+
+impl RecordsBatchValidator {
+    pub fn new(schema: arrow_schema::SchemaRef, max_records: usize) -> Result<Self, String> {
+        let metadata = schema.metadata();
+        let family = metadata_text(metadata, "family")?;
+        let schema_version = metadata_text(metadata, "schema_version")?;
+        let row_diff_detail_policy = metadata_text(metadata, "row_diff_detail_policy")?;
+        if metadata_text(metadata, "contract_version")? != CONTRACT_VERSION {
+            return Err("unsupported records Parquet contract version".to_string());
+        }
+        let expected_schema_version = match family.as_str() {
+            "STANDARD" => "standard-records/v1",
+            "ORDERED" => "ordered-records/v1",
+            "BLANK" => "blank-records/v1",
+            _ => return Err("unsupported records Parquet family".to_string()),
+        };
+        if schema_version != expected_schema_version {
+            return Err("records Parquet schema version does not match family".to_string());
+        }
+        if !matches!(
+            row_diff_detail_policy.as_str(),
+            "COUNTS_ONLY" | "CHANGED_COLUMNS" | "FULL_BEFORE_AFTER_VALUES"
+        ) {
+            return Err("unsupported records Parquet detail policy".to_string());
+        }
+        validate_schema(&family, &schema)?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"{\"family\":");
+        hasher.update(json_string(&family)?);
+        hasher.update(b",\"kind\":\"comparison-records-content\",\"row_diff_detail_policy\":");
+        hasher.update(json_string(&row_diff_detail_policy)?);
+        hasher.update(b",\"rows\":[");
+        Ok(Self {
+            family,
+            schema_version,
+            row_diff_detail_policy,
+            expected_schema: schema,
+            hasher,
+            record_count: 0,
+            max_records,
+        })
+    }
+
+    pub fn push(&mut self, batch: &RecordBatch) -> Result<(), String> {
+        self.push_checked(batch, || Ok(()))
+    }
+
+    pub fn push_checked(
+        &mut self,
+        batch: &RecordBatch,
+        mut check: impl FnMut() -> Result<(), String>,
+    ) -> Result<(), String> {
+        check()?;
+        validate_schema(&self.family, &batch.schema())?;
+        if batch.schema().metadata() != self.expected_schema.metadata() {
+            return Err("records Parquet batch metadata mismatch".to_string());
+        }
+        let next_count = self.record_count.checked_add(batch.num_rows())
+            .ok_or_else(|| "records per-table limit exceeded".to_string())?;
+        if next_count > self.max_records {
+            return Err("records per-table limit exceeded".to_string());
+        }
+        for row in 0..batch.num_rows() {
+            if row % 256 == 0 {
+                check()?;
+            }
+            if self.record_count != 0 {
+                self.hasher.update(b",");
+            }
+            let encoded = serde_json::to_vec(&batch_row(batch, row)?)
+                .map_err(|error| error.to_string())?;
+            self.hasher.update(canonicalize_jcs(&encoded).map_err(|error| error.to_string())?);
+            self.record_count += 1;
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<RecordsParquetSummary, String> {
+        self.hasher.update(b"],\"schema_version\":");
+        self.hasher.update(json_string(&self.schema_version)?);
+        self.hasher.update(b"}");
+        let digest = self.hasher.finalize();
+        let content_digest = DigestRef::from_raw_digest(&digest)
+            .map_err(|error| error.to_string())?;
+        Ok(RecordsParquetSummary {
+            family: self.family,
+            schema_version: self.schema_version,
+            row_diff_detail_policy: self.row_diff_detail_policy,
+            record_count: self.record_count,
+            content_digest,
+        })
+    }
+}
+
+fn json_string(value: &str) -> Result<Vec<u8>, String> {
+    let encoded = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+    canonicalize_jcs(&encoded).map_err(|error| error.to_string())
+}
+
 pub fn read_records_parquet_v1(raw: &[u8]) -> Result<RecordsParquetSummary, String> {
     if raw.is_empty() {
         return Err("records Parquet is empty".to_string());
@@ -37,58 +171,17 @@ pub fn read_records_parquet_v1(raw: &[u8]) -> Result<RecordsParquetSummary, Stri
     let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::copy_from_slice(raw))
         .map_err(|error| format!("records Parquet open failed: {error}"))?;
     let schema = builder.schema().clone();
-    let metadata = schema.metadata();
-    let family = metadata_text(metadata, "family")?;
-    let schema_version = metadata_text(metadata, "schema_version")?;
-    let row_diff_detail_policy = metadata_text(metadata, "row_diff_detail_policy")?;
-    if metadata_text(metadata, "contract_version")? != CONTRACT_VERSION {
-        return Err("unsupported records Parquet contract version".to_string());
-    }
-    let expected_schema_version = match family.as_str() {
-        "STANDARD" => "standard-records/v1",
-        "ORDERED" => "ordered-records/v1",
-        "BLANK" => "blank-records/v1",
-        _ => return Err("unsupported records Parquet family".to_string()),
-    };
-    if schema_version != expected_schema_version {
-        return Err("records Parquet schema version does not match family".to_string());
-    }
-    if !matches!(
-        row_diff_detail_policy.as_str(),
-        "COUNTS_ONLY" | "CHANGED_COLUMNS" | "FULL_BEFORE_AFTER_VALUES"
-    ) {
-        return Err("unsupported records Parquet detail policy".to_string());
-    }
-    validate_schema(&family, &schema)?;
+    let mut validator = RecordsBatchValidator::new(schema, usize::MAX)?;
 
     let reader = builder
         .with_batch_size(1024)
         .build()
         .map_err(|error| format!("records Parquet reader build failed: {error}"))?;
-    let mut rows = Vec::new();
     for batch in reader {
         let batch = batch.map_err(|error| format!("records Parquet batch failed: {error}"))?;
-        for row in 0..batch.num_rows() {
-            rows.push(batch_row(&batch, row)?);
-        }
+        validator.push(&batch)?;
     }
-    let payload = json!({
-        "kind": "comparison-records-content",
-        "family": family,
-        "schema_version": schema_version,
-        "row_diff_detail_policy": row_diff_detail_policy,
-        "rows": rows,
-    });
-    let json = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
-    let canonical = canonicalize_jcs(&json).map_err(|error| error.to_string())?;
-    let content_digest = raw_blob_digest(&canonical).map_err(|error| error.to_string())?;
-    Ok(RecordsParquetSummary {
-        family,
-        schema_version,
-        row_diff_detail_policy,
-        record_count: rows.len(),
-        content_digest,
-    })
+    validator.finish()
 }
 
 fn metadata_text(metadata: &HashMap<String, String>, name: &str) -> Result<String, String> {
@@ -119,7 +212,7 @@ fn validate_schema(family: &str, schema: &arrow_schema::Schema) -> Result<(), St
     Ok(())
 }
 
-fn expected_fields(family: &str) -> Result<Vec<Field>, String> {
+pub(crate) fn expected_fields(family: &str) -> Result<Vec<Field>, String> {
     let scalar = DataType::Struct(Fields::from(vec![
         Field::new("kind", DataType::Utf8, false),
         Field::new("text", DataType::Utf8, true),

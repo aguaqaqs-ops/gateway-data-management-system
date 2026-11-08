@@ -5,13 +5,15 @@
 
 #![forbid(unsafe_code)]
 
-mod kernel;
-mod ordered;
+pub(crate) mod kernel;
+pub(crate) mod ordered;
+mod policy;
 mod probe;
 mod standard;
 
-pub use kernel::{CanonicalBatchSide, KernelContext};
+pub use kernel::{CanonicalBatchSide, KernelContext, KernelLease};
 pub use probe::comparison_probe_json;
+pub use policy::{ParsedComparisonPolicy, parse_comparison_policy};
 pub use standard::{
     RowLocation, StandardComputation, StandardKind, StandardMode, StandardOptions,
     StandardRecordRef, canonical_cell_frame_at, compare_standard_table,

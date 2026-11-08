@@ -128,7 +128,7 @@ impl Drop for KernelLease {
 
 /// Stable fallible index sort. Batch checks also cover large merge stages;
 /// record payloads stay in their owner and only indexes are rearranged.
-pub(super) fn sort_indices_checked<T>(
+pub(crate) fn sort_indices_checked<T>(
     items: &[T],
     context: &KernelContext,
     compare: impl Fn(&T, &T) -> CompareOrder,

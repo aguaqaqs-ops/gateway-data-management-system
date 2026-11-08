@@ -2147,7 +2147,7 @@ fn scalar_frame(
     })
 }
 
-fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> {
+pub(crate) fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> {
     if let Some(metadata) = field.metadata().get("gdds.canonical_type") {
         let value: Value = serde_json::from_str(metadata)
             .map_err(|_| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
@@ -2256,7 +2256,7 @@ fn numeric_parameters(spelling: &str) -> Option<(u8, u8)> {
     Some((first, second))
 }
 
-fn typed_value(
+pub(crate) fn typed_value(
     array: &dyn Array,
     row: usize,
     declared: &DeclaredType,

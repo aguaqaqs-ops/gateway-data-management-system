@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
 
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -20,11 +19,11 @@ from gateway_backend.capabilities.comparison import (
     compare_plan,
     open_records_closure,
     publish_records_closure,
-    read_records_artifact,
     rewrite_closure_refs,
 )
 from tests.test_comparison_ordered import _plan as ordered_plan
 from tests.test_comparison_standard import _plan as standard_plan
+from tests.support.records_diagnostic import standalone_records_batches
 
 pytestmark = pytest.mark.unit
 
@@ -79,8 +78,10 @@ def test_publish_and_reopen_standard_records_preserves_typed_null() -> None:
     assert closure_payload["comparison_digest"] == published.facts.comparison_digest.value
     
     reopened = open_records_closure(store, published.facts.records_ref)
-    with closing(read_records_artifact(store, reopened.records[0])) as batches:
-        rows = [row for batch in batches for row in batch.to_pylist()]
+    rows = [
+        row for batch in standalone_records_batches(store, reopened.records[0])
+        for row in batch.to_pylist()
+    ]
     assert rows[0]["record_kind"] == "ROW_MODIFIED"
     values = rows[0]["current_values"]
     assert isinstance(values, list)

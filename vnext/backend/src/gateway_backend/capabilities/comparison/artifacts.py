@@ -258,7 +258,7 @@ def open_records_closure(
     limits = policy or RecordsPublicationPolicy()
     if closure_ref.size_bytes > limits.max_closure_json_bytes:
         raise RecordsPublicationError("closure JSON budget exceeded")
-    raw = _locate(store, closure_ref)
+    raw = _locate(store, closure_ref, label="records closure")
     if len(raw) > limits.max_closure_json_bytes:
         raise RecordsPublicationError("closure JSON budget exceeded")
     expected_digest = raw_blob_digest(raw)
@@ -286,7 +286,7 @@ def open_records_closure(
             raise RecordsPublicationError("records manifest ref must identify JSON")
         if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
             raise RecordsPublicationError("records manifest JSON budget exceeded")
-        manifest_raw = _locate(store, entry.records_manifest_ref)
+        manifest_raw = _locate(store, entry.records_manifest_ref, label="records manifest")
         if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
             raise RecordsPublicationError("records manifest digest mismatch")
         manifest = _manifest_from_bytes(manifest_raw)
@@ -306,7 +306,7 @@ def open_records_closure(
             if operation is not None else None
         )
         try:
-            artifact_raw = _locate(store, entry.records_ref)
+            artifact_raw = _locate(store, entry.records_ref, label="records artifact")
             actual_count, actual_content = _validate_parquet_bytes(
                 artifact_raw, manifest, limits
             )
@@ -403,7 +403,7 @@ def read_records_artifact(
         raise RecordsPublicationError("records manifest ref must identify JSON")
     if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
         raise RecordsPublicationError("records manifest JSON budget exceeded")
-    manifest_raw = _locate(store, entry.records_manifest_ref)
+    manifest_raw = _locate(store, entry.records_manifest_ref, label="records manifest")
     if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
         raise RecordsPublicationError("records manifest digest mismatch")
     manifest = _manifest_from_bytes(manifest_raw)
@@ -421,7 +421,7 @@ def read_records_artifact(
     # validates entirely inside its operation scope and never exports batches.
     if current_kernel_context() is not None:
         raise RecordsPublicationError("diagnostic records reader cannot escape an operation")
-    raw = _locate(store, entry.records_ref)
+    raw = _locate(store, entry.records_ref, label="records artifact")
     _validate_parquet_bytes(raw, manifest, limits)
     return RecordsArrowBatchStream(
         raw, limits,
@@ -501,7 +501,7 @@ def restore_records_closure(
             if operation is not None else None
         )
         try:
-            records_raw = _locate(source_store, entry.records_ref)
+            records_raw = _locate(source_store, entry.records_ref, label="records artifact")
             records_ref = put_with_built_ref(
                 destination_store,
                 records_raw,
@@ -514,7 +514,7 @@ def restore_records_closure(
                 copy_reservation.close()
         replacements[entry.records_ref] = records_ref
 
-        manifest_raw = _locate(source_store, entry.records_manifest_ref)
+        manifest_raw = _locate(source_store, entry.records_manifest_ref, label="records manifest")
         manifest_ref = put_with_built_ref(
             destination_store,
             manifest_raw,
@@ -1373,7 +1373,7 @@ def _verify_stored_bytes(store: ArtifactStorePort, ref: ArtifactRef, expected: b
         raise RecordsPublicationError("stored artifact bytes changed during publication")
 
 
-def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
+def _locate(store: ArtifactStorePort, ref: ArtifactRef, *, label: str = "stored artifact") -> bytes:
     try:
         raw = store.locate(ref)
     except (InterruptedError, TimeoutError, MemoryError):
@@ -1383,7 +1383,7 @@ def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
     if type(raw) is not bytes:
         raise RecordsPublicationError("artifact store returned non-bytes")
     if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
-        raise RecordsPublicationError("stored artifact raw identity mismatch")
+        raise RecordsPublicationError(f"{label} raw identity mismatch")
     return raw
 
 

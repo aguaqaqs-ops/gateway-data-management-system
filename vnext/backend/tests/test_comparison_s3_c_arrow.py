@@ -26,7 +26,8 @@ from gateway_compute._native import (
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy, _record_to_row,
+    RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy,
+    _record_sort_key, _record_to_row,
     _canonical_records_batch, _decoded_admission, _schema_matches,
     _standalone_read_bound, _standalone_retained_cap,
     _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
@@ -51,6 +52,7 @@ from tests.support.comparison_s3_c_inputs import (
     canonical_stream as _canonical_stream,
     plan as _plan,
 )
+from tests.support.records_diagnostic import standalone_records_batches
 from tests.test_comparison_artifacts import _standard_result
 from gateway_backend.capabilities.comparison import compare_plan
 
@@ -153,6 +155,12 @@ def test_native_standard_arrow_and_complete_facts_match_pre_c_source() -> None:
     ) == expected.facts.facts_core_digest.value
     handle.close()
     operation.close()
+    # The exported batch buffers still own both charges after their source
+    # handle and reader are closed.
+    assert not input_charge.closed and not operation_charge.closed
+    del built_batches
+    import gc
+    gc.collect()
     assert input_charge.closed and operation_charge.closed
 
 
@@ -351,8 +359,9 @@ def test_real_open_read_restore_use_native_arrow_validator(monkeypatch: pytest.M
 
     monkeypatch.setattr(records_artifacts, "validate_records_batches", checked_validate)
     closure = open_records_closure(source_store, published.facts.records_ref)
-    with closing(read_records_artifact(source_store, closure.records[0])) as stream:
-        first = next(stream)
+    with pytest.raises(RecordsPublicationError, match="diagnostic records reader cannot escape"):
+        read_records_artifact(source_store, closure.records[0])
+    first = standalone_records_batches(source_store, closure.records[0])[0]
     assert first.schema.equals(
         _schema_for(
             RecordsArtifactFamily.STANDARD, None,
@@ -549,7 +558,7 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
         rows = [row for batch in built_batches for row in batch.to_pylist()]
         assert rows == [
             _record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
-            for record in records
+            for record in sorted(records, key=lambda item: _record_sort_key(family, item))
         ]
         if records:
             old_entry = old_entries[family]

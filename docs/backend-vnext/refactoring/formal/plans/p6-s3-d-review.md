@@ -24,6 +24,8 @@
 
 **旧错误控制流仍需修复：** `ArrowSnapshotTableReader.reopen()` 可抛稳定的 `TableAccessError(READER_CLOSED)`，5c 的 per-table catch 未纳入它，导致整个 operation 失败；旧 `_compare_task_safely` 将它变为普通 `TABLE_DEGRADED`。标准重复有效键另有已知旧诊断 `DUPLICATE_EFFECTIVE_KEY:<table>`，Rust/PyO3 传为 `ValueError` 后 5c 只取类型名 `ValueError`，使 facts/core/closure 摘要改变。标准 keyless `DEGRADE_NO_COMPARE_KEY` 的旧路径先 `_read_rows` 双侧，5c 在 reader 检查前直接返回该降级，reader 缺席/故障时错误优先级、record 及 digest 不同。Ordered 错误必须按**旧异常来源**区分：reader=None 和旧 `OrderedComparisonError` 走 ordered/blank 三族降级；`reopen()` 抛 `TableAccessError/OSError` 则由旧外层形成普通降级。本人已撤回“所有 ordered reader 错都应补 extension”的过宽说法，要求实现者以旧 Python 控制流及 Contract 为独立 expected。上述均是 f000 reader/keyless/ordered 语义根因在第一轮实修后未闭，不另起 kickoff。
 
+**候选有效性与跨阶段控制仍需修复：** 5c 在 per-table 错误被转成 `DEGRADED` 后仍登记 task key，`commit_cache()` 会缓存 `(失败 fact, None)`，Risk 也可能缓存其事件；失败候选不应入图。声明阶段还把 `DATASET_REPLACEMENT` 的表当作可复用 task 计数，尽管实际 compare 直接返回、这些 task 零次消费。`pair_pipeline` 调 Risk 未传同一 operation 的 cancel probe/deadline，默认 `RiskExecutionContext` 在旧 `_check_pair/_check_table` 位置看不到它们；cache hit 的附加 kernel checkpoint 与 miss 响应不同。上述是 f000 有限 map、失败不缓存和风险当前控制根因在 5c 第一轮实修后未闭。实施者已在 main WIP 回报针对性修订；只在下一固定 clean SHA 对源码及动态独立向量复核。
+
 本轮仍须核完成：按旧 Python 控制流独立生成 keyless/非记录/ordered/BLANK 与 Risk cap、过滤、诊断、closure 期望；真实 Preview MO/FULL、History、小 Compose；cache 失败/取消/超时不留半成品、最后用途退账、低 M 安全 miss；Risk 必要列最后 Arrow owner 与 Python batch 转换峰值；当前生产镜像重建和小 Compose。现有 5c 测试文件仅有两个普通 Standard fixed facts 例子，不能独自覆盖这些高风险路径。静态审核继续，不把未运行测试写成 PASS。
 
 ## 4. DC68 取证停止与恢复稿独核

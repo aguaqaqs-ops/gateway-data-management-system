@@ -29,3 +29,11 @@ E 起点为 D 产品 `a9da0c59277e3179f34d646eabcd9c185917ae05`、Rust tree `b5f
 固定候选 `6fae41957540040ca71dceef0632ef63e71f9681` 含分开的 GC `028aff2da7e613ba9241be8f16ae9e86a71b0060`、catalog `c6a2792901ad9e1c90c401b455258685c4f4e2e0`、JCS `968e8ec7ee3f3b51d68026998917b6d199fd9a85` 与本报告初稿。本人在该固定 clean detached WT 逐项比精确来源 Git blob 和产品 diff：GC runtime 与 `0c97cb9c09` 完全相同，catalog 四条路径与最终测试修订 `4497ded8ff` 完全相同，JCS 四条产品路径及 backend mutation 测试与 `1f9731dfc3` 相同；JCS 测试另有一项 UTF-16 supplementary/BMP 键序向量。GC 测试在原来源上另有当前 DC88 pure drain/attempt 语义场景，scheduler 的 gc patch 入口与 shutdown 事件断言按当前代码适配。三项都未携入诊断部署、READY 重复修复或新 N/M；我未发现超出 Owner 授权的产品差异，**静态 CLEAR，可在 06 运行受影响 focused**，尚无当前提交的运行 PASS。
 
 GC 只在已确认 executor join 后恢复进入前的自动 GC 状态，成功 claim 在下一 anchor 前做空闲收集；busy/empty 不全收集，join 未确认不收集。catalog 仍保独立 import 路线，immutable 目录按最多 16 表带 ordinal 的 COUNT，in-flight Future 按 key 共享并在失败时释放；原 8 项/16 MiB 上限未改。JCS 保原 bytes API，只把 ChangeSet 两处 hash-only consumer 改为有界 sink，最终 digest 类型和错误映射未变。这些是源码判断；实际原值/错误/并发与 worker 完成性以节点结果为准。
+
+## 5. 旧 expected 捕获的执行前审查
+
+实施者提交首版外置 plugin/node/outer 固定 SHA 供审时，06 尚未执行。本人独核 C 两个、D 十四个基础测试函数，四个 D 函数各有两组参数，总计二十个展开 case，现源码每 case 恰调用一次旧 `compare_plan`。旧来源 `4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec` 的 `standard.py` blob=`5bb7b55bda6f4295b246546657ab772523da3389`、`ordered.py`=`d4779c0a297dc5ca2271378e67a0366b0a124bdb`、`row_encoding.py`=`36926ee1815c4ea074acb0e7fadf7d197aaccee8`、`artifacts.py`=`8266fc7789b29e8088dbc38e2a37667dbde038c4`；a9 对应 ordered/row 编码相同，standard 仅可选 core digest 分支，旧调用仍走原分支，artifacts 旧 writer 函数仍在但新增 C/D reader/Arrow 路径。固定旧源可用于删除前取 expected，前提是运行字面稿本身合格。
+
+首版稿 **未 CLEAR、未执行**：06 真实 hostname 是 `gw-dms-06`，稿中断为 SSH 别名；新 a9 WT 没有强制 native 重装/build-input 校验；占用缺 session 身份和守护释放；未核现场 8000/Dolt/Compose 与六锁；outer 未回收 JSONL/原日志成可核原件。此外 pytest 9.1.1 默认把字符串参数的实际 SQL 组成 nodeid，标准两参数例不能写成 `before_sql0-current_sql0-record_kinds0/1`。本人已向实施者发出具体修订边界，等新 plugin、node、outer 的全文与 SHA 再逐字审；执行前静态修订不计 DC68 首败。JSONL 即使生成，也只可从旧源冻结必要 digest/行片段和原 bytes，不作为永久全量 oracle 或从 Rust 反填。
+
+`87270184a2e8df5a820c8e454aef187cc4d99947` 另仅删除 core direct/workspace `parquet` 与 core dev `base64` manifest 引用。只读引用扫描确认 Rust core 无 `parquet::`，shared-kernel 集成测试仍直接用 workspace `base64`，故后者保留正确。`Cargo.lock` 尚未随此提交裁剪；后续须检查 06 离线最小 lock patch 的具体 transitive 差分，再固定新依赖 base，不得将此 manifest 静态判断当锁或构建通过。

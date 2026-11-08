@@ -35,7 +35,7 @@ from gateway_backend.capabilities.comparison.standard import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_input, snapshot_arrow_input,
-    fresh_canonical_view_budget as _fresh_view_budget, current_kernel_context, TableAccessError,
+    fresh_canonical_view_budget, current_kernel_context, TableAccessError,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, SnapshotTable,
@@ -946,7 +946,7 @@ def _compare_plan_native_once(
     try:
         available = context.memory.available_bytes
         necessary_view_total = sum(
-            sum(_fresh_view_budget(table))
+            sum(fresh_canonical_view_budget(table))
             for task in plan.tasks for table in _task_arrow_inputs(task)
         )
         concurrent_scratch = max(

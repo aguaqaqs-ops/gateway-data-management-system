@@ -29,7 +29,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, _fresh_view_budget, _stream,
+    ComparisonTaskSession, NativeComparison, _stream,
     compare_plan_native,
 )
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
@@ -40,7 +40,7 @@ from gateway_backend.capabilities.risk_evaluation import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, open_snapshot_table_artifact, publish_canonical_tables,
-    snapshot_table_from_arrow,
+    snapshot_table_from_arrow, fresh_canonical_view_budget,
 )
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -270,8 +270,8 @@ def test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m(
     assert before.table_set is not None and current.table_set is not None
     before_table = before.table_set.tables[0]
     current_table = current.table_set.tables[0]
-    assert _fresh_view_budget(before_table)[1] < 4 * 1024**2
-    assert _fresh_view_budget(current_table)[1] < 4 * 1024**2
+    assert fresh_canonical_view_budget(before_table)[1] < 4 * 1024**2
+    assert fresh_canonical_view_budget(current_table)[1] < 4 * 1024**2
 
     expected = frozen_case(request.node.nodeid)
     product = compare_plan_native(plan(before, current))

@@ -154,19 +154,30 @@ fn checked_rows(side: &StorageSide) -> Result<usize, StorageError> {
 }
 
 fn max_field_metadata_bytes(side: &StorageSide) -> Result<usize, StorageError> {
-    side.schema.fields().iter().try_fold(0usize, |largest, field| {
-        let bytes = field.metadata().iter().try_fold(0usize, |sum, (key, value)| {
-            sum.checked_add(key.len())?.checked_add(value.len())
-        }).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
-        Ok(largest.max(bytes))
-    })
+    side.schema
+        .fields()
+        .iter()
+        .try_fold(0usize, |largest, field| {
+            let bytes = field
+                .metadata()
+                .iter()
+                .try_fold(0usize, |sum, (key, value)| {
+                    sum.checked_add(key.len())?.checked_add(value.len())
+                })
+                .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+            Ok(largest.max(bytes))
+        })
 }
 
 fn schema_parse_scratch_upper(side: &StorageSide) -> Result<usize, StorageError> {
-    let names = side.schema.fields().iter().try_fold(0usize, |sum, field| {
-        sum.checked_add(field.name().len())
-    }).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
-    max_field_metadata_bytes(side)?.checked_mul(64)
+    let names = side
+        .schema
+        .fields()
+        .iter()
+        .try_fold(0usize, |sum, field| sum.checked_add(field.name().len()))
+        .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    max_field_metadata_bytes(side)?
+        .checked_mul(64)
         .and_then(|size| size.checked_add(names.checked_mul(16)?))
         .and_then(|size| size.checked_add(side.schema.fields().len().checked_mul(4096)?))
         .and_then(|size| size.checked_add(4096))
@@ -513,10 +524,10 @@ pub fn prepare_storage_table(
     let schema_upper = before_schema_upper.max(after_schema_upper);
     let schema_scratch = context.reserve(schema_upper).map_err(mapped)?;
     let after_rows = after.as_ref().map_or(Ok(0), checked_rows)?;
-    if let Some(side) = &before {
-        if checked_rows(side)? != before_rows {
-            return Err(invalid("STORAGE_ROW_COUNT_MISMATCH"));
-        }
+    if let Some(side) = &before
+        && checked_rows(side)? != before_rows
+    {
+        return Err(invalid("STORAGE_ROW_COUNT_MISMATCH"));
     }
     drop(schema_scratch);
     let before_validated = before.is_some();
@@ -583,7 +594,7 @@ pub fn prepare_storage_table(
     if let Some(side) = &after {
         validate_cells(side, &context)?;
     }
-    let mut after_index = if let Some(side) = &after {
+    let after_index = if let Some(side) = &after {
         indexed_rows(side, key_columns, key_columns.is_empty(), &context)?
     } else {
         Vec::new()
@@ -811,26 +822,46 @@ mod tests {
         let labels: Vec<String> = (0..64)
             .map(|number| format!("label_{number:02}_{}", "x".repeat(240)))
             .collect();
-        let sql_type = format!("SET({})", labels.iter()
-            .map(|label| format!("'{label}'"))
-            .collect::<Vec<_>>().join(","));
+        let sql_type = format!(
+            "SET({})",
+            labels
+                .iter()
+                .map(|label| format!("'{label}'"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
         assert!(sql_type.len() < 64 * 1024);
-        let set_field = Field::new("choices", DataType::Utf8, false).with_metadata(HashMap::from([(
+        let set_field = Field::new("choices", DataType::Utf8, false)
+            .with_metadata(HashMap::from([(
             "gdds.canonical_type".to_owned(),
-            json!({"declared_type":null,"labels":labels,"logical_type":"set","sql_type":sql_type}).to_string(),
+            json!({"declared_type":null,"labels":labels,"logical_type":"set","sql_type":sql_type})
+                .to_string(),
         )]));
         let schema = Arc::new(Schema::new(vec![set_field]).with_metadata(HashMap::from([(
-            "gdds.canonical_mapping_version".into(), "1".into(),
+            "gdds.canonical_mapping_version".into(),
+            "1".into(),
         )])));
-        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![
-            Arc::new(StringArray::from(vec![""])) as ArrayRef,
-        ])?;
-        let side = StorageSide { schema, batches: vec![batch], expected_rows: 1,
-            retained_columns: vec!["choices".into()] };
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(StringArray::from(vec![""])) as ArrayRef],
+        )?;
+        let side = StorageSide {
+            schema,
+            batches: vec![batch],
+            expected_rows: 1,
+            retained_columns: vec!["choices".into()],
+        };
         let budget = schema_parse_scratch_upper(&side)? + 64 * 1024;
-        let control = Arc::new(KernelContext::new(budget, Arc::new(AtomicBool::new(false)), None));
+        let control = Arc::new(KernelContext::new(
+            budget,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        ));
         let result = prepare_storage_table(None, Some(side), 0, &[], false, Arc::clone(&control));
-        assert_eq!(result.err().map(|error| error.0), Some("RESOURCE_LIMIT_EXCEEDED".into()));
+        assert_eq!(
+            result.err().map(|error| error.0),
+            Some("RESOURCE_LIMIT_EXCEEDED".into())
+        );
         assert_eq!(control.remaining_bytes(), budget);
         Ok(())
     }

@@ -2954,3 +2954,17 @@ CT108 `node-lock-acquire-r1.log` SHA **`f83f4f3c1e771e400e41cf22cd986bd32286d312
 CT108原监控/预算/进程/tag及在途worktree保持，不新增角色、不推送、不改测量对象；节点分工/离线/锁/保留证据规则保持。本审核已将该明确范围直接回实施者，不再等待额外回执。当前只是工作范围澄清，未宣称04已运行、标准record/comparator完成或DC63整链成功；后续按实际原件分别独审。
 
 设计已将同一澄清落为提交 **`5e93a9b5497a1b1fce25c91847e410c25f58c05c`**，本审核独立读该提交的完整单文档diff，与上文范围一致；准确出处为[接续计划“并行收尾范围澄清”](p6-baseline-post-gc-resume-plan.md)。其中明确同一唯一实施者现在直接并行、不以旧“先只DC63/V5b”摘要等待扩展，04/05现场原子取自有占用、不设置窗口预约/跨会话回执前置，CT108在途边界和新H最终绑定保持。该设计文书补记不触发产品/镜像或在途运行变化，也不新增审核启动条件。
+
+## 137. H780第二轮04门禁出现两项单测失败：归因及原停止规则已独立核实
+
+**H780本轮权威runner已有失败，不能宣称PASS或用单独通过包作qualified carried来源。** 实施者报告该唯一全六包run于Nov7 23:55:57Z启动；Nov8本审核BatchMode确认04后，只读现有 `baseline/parallel-closeout-20261107a/ct04-h780-authoritative-runner.log` 的具体失败和末段，未运行测试或改在途worktree/镜像。backend parallel实际1 failed/3314 passed，serial76 passed；RS parallel实际1 failed/1762 passed/1 skipped，serial在读取时仍自然运行。日志尚未闭合，本节不将其当前字节/SHA封为最终证据，不伪造结束时刻/最终exit或postflight。
+
+**backend的初报归因已校正：guard实际比较9704→H780，而不是e798→H780。** 失败为test_post_gc_resume_identity_and_product_tree_are_fixed，真实current_head=78000。独立读immutable H780 helper及真实Git diff：identity.source=e798用于核来源，实际changed命令以identity.target.product_commit=9704为基点；9704..H780完整19项变化只有docs、backend benchmarks/tests及 `vnext/repository_service/tests/test_compose_build_harness.py`。最后这一项是§129已审的显式镜像环境单测修正，也是唯一不在该固定resume路径前缀中的文件。backend/RS/shared_kernel产品src、Rust、脚本、Compose或锁在这一区间均未变。e798→9704的已批准COUNT/JCS/GC修复不能误记为新H产品漂移。
+
+原guard按其有限关系拒绝该当前checkout，并未证明产品回归；错误在于固定历史身份测试始终把整仓库当前HEAD当作那次有限resume的工具候选。**设计最终统一采用最窄修正：该测试使用§100/101实际已审continuation工具提交3fd64dc2fe9a9c11ceebf8cd458983b9507f5364，生产guard/白名单不改。** 本审核又独立核9704..3fd只有原准许工具路径；保留source=e798、9704祖先/固定树、clean及真实差异断言。历史测试PASS不证明H780可执行该固定resume，当前V_ref产品/镜像身份仍按原规则另核。此前讨论的RS路径扩展不实施，不增加通用tests/support或src资格。
+
+**RS失败根因也已直接核实。** test_build_script_defaults_docker_build_network_to_host实际none≠host；_base_env从os.environ.copy继承门禁必需的GATEWAY_DOCKER_BUILD_NETWORK=none，没有为默认场景移除该输入，而真实build脚本正确使用`${GATEWAY_DOCKER_BUILD_NETWORK:-host}`。保持实际门禁network-none及脚本/harness原语义；仅在unit helper先隔离ambient变量，再由既有extra_env明确覆盖，保留默认/override断言。必要05focused在实际外层none下证明这两个场景，不将全局unset门禁输入作为修复，也不改默认断言为随ambient浮动。
+
+**自然结束在途runner符合权威入口自身行为。** 已独立读H780 run-tests.sh：各pytest批次失败设置test_exit=1并继续原选中批次，最后统一exit test_exit及执行清理；当前不是runner已经exit1后继续carried/另跑验收。无需人工中断剩余串行组；结束后先保留实际exit、closed日志/SHA、起止HEAD/clean和收尾，失败整次结果不得作为qualified carried，不能原样重试。本轮新H780镜像实际构建/传输/启动前材料尚待集中交审，未将旧fcc镜像或通过包追记为当前最终门禁资格。
+
+两项普通工具/测试修订已直接交唯一实施者并与设计统一单一路径，可在独立非在途worktree准备小diff、05必要focused/静态后独审，最终新H的镜像/闭包/权威证据依原规则绑定。保持CT108 DC63原运行/预算/冻结tag及源卷，独立record收口继续；没有新Owner/设计GO、额外旅程或矩阵，也不把本轮局部失败变为整体等待。

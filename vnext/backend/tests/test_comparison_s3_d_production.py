@@ -493,7 +493,11 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     assert (first_fact.row_added_count, first_fact.row_modified_count) == (
         (0, 1) if row_change == "modified" else (1, 0)
     )
-    declared_key = session.declared_keys[("writer-first", "t")]
+    declared_key = session.declared_keys.get(("writer-first", "t"))
+    assert declared_key is not None, (
+        session.remaining_uses, session.calls, session.reads,
+        first_fact.status, first_fact.diagnostics,
+    )
     assert first_native.task_keys == {"t": declared_key}, (
         first_native.task_keys, first_native.consumed_keys,
         session.key_for(actual_plan, actual_plan.tasks[0]) == declared_key,

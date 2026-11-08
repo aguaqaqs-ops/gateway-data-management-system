@@ -12,6 +12,8 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -147,15 +149,26 @@ def main() -> int:
     parser.add_argument("--old-driver-sha256", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    old_worktree = Path(os.environ["GATEWAY_S4_B_WORKTREE"]).resolve()
+    old_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=old_worktree,
+                              check=True, capture_output=True, text=True).stdout.strip()
+    old_status = subprocess.run(["git", "status", "--porcelain"], cwd=old_worktree,
+                                check=True, capture_output=True, text=True).stdout.strip()
+    if old_head != "788ed36e7742a067bf01c16ad2e6aaed2fed91fb" or old_status:
+        raise RuntimeError("independent B source worktree identity is invalid")
     if _sha(args.old_driver) != args.old_driver_sha256:
         raise RuntimeError("old B source driver identity changed")
     if args.output.exists():
         raise RuntimeError("independent expected output already exists")
     result = capture(source_root=args.source_root, datasets_sha256=args.datasets_sha256,
                      package_id=args.package_id, selected_names=args.select, old_driver=args.old_driver)
+    package = args.source_root / "packages" / f"{args.package_id}.tar.gz"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps({"dataset_id": args.package_id,
-                                       "source_commit": "788ed36e7742a067bf01c16ad2e6aaed2fed91fb",
+                                       "source_commit": old_head,
+                                       "datasets_sha256": args.datasets_sha256,
+                                       "package_sha256": _sha(package),
+                                       "old_driver_sha256": args.old_driver_sha256,
                                        "expected": result}, sort_keys=True, indent=2) + "\n")
     print(json.dumps({"dataset_id": args.package_id, "expected_sha256": _sha(args.output),
                       "selected_table_count": len(result["selected_tables"]),

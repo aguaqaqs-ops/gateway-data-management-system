@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -28,10 +29,11 @@ from gateway_backend.capabilities.comparison import (
     ComparisonMode,
     ComparisonRecordsClosure,
     FailedResult,
-    compare_plan, comparison_python_memory_upper,
     plan_comparison,
-    publish_records_closure, RecordsPublicationContext,
+    RecordsPublicationContext,
 )
+from gateway_backend.capabilities.comparison.artifacts import publish_records_closure_arrow
+from gateway_backend.capabilities.comparison.production import NativeComparison, compare_plan_native
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
@@ -266,12 +268,36 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair planning did not produce a comparison plan")
     if context is None:
         raise PairPipelineError("pair computation requires an operation kernel context")
-    upper = comparison_python_memory_upper(plan)
-    context.memory.record_stage_admission("comparison-python-records", upper)
-    # The returned facts/risk/surface objects can survive this function (FULL has
-    # multiple pairs). Keep this conservative envelope until the operation ends.
-    context.resources.enter_context(context.memory.reserve(upper))
-    compared = compare_plan(plan)
+    with closing(compare_plan_native(plan)) as native_comparison:
+        return _finish_comparison_risk_surface(
+            native_comparison=native_comparison, request=request,
+            view_id=view_id, store=store, control=control,
+            on_cancel=on_cancel, identity_annotation=identity_annotation,
+            show_keyless_fallback_hint=show_keyless_fallback_hint,
+            include_all_before_tables=include_all_before_tables,
+            repository_id=repository_id, export_cache=export_cache,
+        )
+
+
+def _finish_comparison_risk_surface(
+    *,
+    native_comparison: NativeComparison,
+    request: ComparisonRequest,
+    view_id: str,
+    store: ArtifactStorePort,
+    control: ExecutionControl,
+    on_cancel: Callable[[], None],
+    identity_annotation: SurfaceIdentityAnnotation | None,
+    show_keyless_fallback_hint: bool,
+    include_all_before_tables: bool,
+    repository_id: str | None,
+    export_cache: SnapshotTableExportCachePort | None,
+) -> _ComparisonRiskSurfaceResult:
+    context = current_kernel_context()
+    if context is None:
+        raise PairPipelineError("operation kernel context was lost")
+    checkpoint = context.checkpoint
+    compared = native_comparison.result
     checkpoint()
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
@@ -282,7 +308,10 @@ def _run_comparison_risk_surface(
         published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
-        closure_result = publish_records_closure(compared, store, context=RecordsPublicationContext(checkpoint=checkpoint))
+        closure_result = publish_records_closure_arrow(
+            compared, native_comparison.handles, store,
+            context=RecordsPublicationContext(checkpoint=checkpoint),
+        )
         checkpoint()
         if isinstance(closure_result, FailedResult):
             raise PairPipelineError(f"records closure failed: {closure_result.diagnostics}")
@@ -303,6 +332,7 @@ def _run_comparison_risk_surface(
             comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(),
+            record_views=native_comparison.handles,
         ),
         artifact_store=store,
     )

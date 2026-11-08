@@ -753,16 +753,24 @@ def _ignored_shared_values_changed(
     return before_content != current_content
 
 
-def _build_facts(plan: ComparisonPlan, tables: tuple[ComparisonTableFact, ...]) -> ComparisonFacts:
+def _build_facts(
+    plan: ComparisonPlan,
+    tables: tuple[ComparisonTableFact, ...],
+    *,
+    core_digest: DigestRef | None = None,
+) -> ComparisonFacts:
     summary = _summary(tables)
-    table_payloads = tuple(_table_digest_payload(table) for table in tables)
-    core_payload = {
-        "kind": "comparison-facts-core",
-        "algorithm_version": STANDARD_COMPARISON_ALGORITHM_VERSION,
-        "summary": _summary_payload(summary),
-        "tables": table_payloads,
-    }
-    facts_core_digest = raw_blob_digest(canonicalize_json_value(core_payload))
+    if core_digest is None:
+        table_payloads = tuple(_table_digest_payload(table) for table in tables)
+        core_payload = {
+            "kind": "comparison-facts-core",
+            "algorithm_version": STANDARD_COMPARISON_ALGORITHM_VERSION,
+            "summary": _summary_payload(summary),
+            "tables": table_payloads,
+        }
+        facts_core_digest = raw_blob_digest(canonicalize_json_value(core_payload))
+    else:
+        facts_core_digest = core_digest
     table_policy_payloads = []
     for task in sorted(plan.tasks, key=lambda item: item.table_name):
         if task.policy is None:

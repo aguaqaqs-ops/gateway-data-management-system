@@ -185,6 +185,7 @@ fn write_value(
                         part,
                         Part::Root | Part::OrderedExtension | Part::BlankExtension
                     )
+                    && (source.standard.is_some() || source.ordered.is_some())
                 {
                     if child.as_array().is_none_or(|items| !items.is_empty()) {
                         return Err("facts metadata must contain empty records arrays".to_string());

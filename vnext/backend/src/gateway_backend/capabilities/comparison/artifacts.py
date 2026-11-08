@@ -712,6 +712,81 @@ def publish_records_family_arrow(
     )
 
 
+def publish_records_closure_arrow(
+    result: DetailedFactsResult,
+    handles: dict[str, NativeRecordsHandle],
+    store: ArtifactStorePort,
+    *,
+    detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+    policy: RecordsPublicationPolicy | None = None,
+    context: RecordsPublicationContext | None = None,
+) -> DetailedFactsResult:
+    """Publish sealed native families and the existing closure without a row readback."""
+    facts = result.facts
+    if facts is None or facts.records_ref is not None:
+        raise RecordsPublicationError("native publication requires unpublished facts")
+    limits = policy or RecordsPublicationPolicy()
+    control = context or RecordsPublicationContext()
+    entries: list[RecordsClosureEntry] = []
+    for table in facts.tables:
+        control.checkpoint()
+        handle = handles.get(table.table_name)
+        if handle is None:
+            # Metadata-only tables can still carry a bounded schema/degraded
+            # record. They use the established small-record writer.
+            for family, records in _records_by_family(table):
+                if records:
+                    from gateway_backend.capabilities.table_access import current_kernel_context
+                    operation = current_kernel_context()
+                    if operation is None:
+                        raise RecordsPublicationError("native publication requires an operation budget")
+                    with operation.memory.reserve(2 * limits.max_records_artifact_bytes + 1024 * 1024):
+                        entries.append(_publish_family(
+                            table, family, records, store, limits, control, detail_policy,
+                        ))
+            continue
+        total = sum(handle.family_summary(family.value)[0] for family in RecordsArtifactFamily)
+        _enforce_record_count_budget(total, limits)
+        for family in RecordsArtifactFamily:
+            if handle.family_summary(family.value)[0]:
+                entries.append(publish_records_family_arrow(
+                    table.table_name, family, handle, store,
+                    detail_policy=detail_policy, policy=limits, context=control,
+                ))
+    control.checkpoint()
+    ordered = tuple(sorted(entries, key=_entry_sort_key))
+    closure_bytes = canonicalize_json_value(_closure_payload(
+        comparison_digest=facts.comparison_digest,
+        facts_core_digest=facts.facts_core_digest,
+        records=ordered,
+    ))
+    if len(closure_bytes) > limits.max_closure_json_bytes:
+        raise RecordsPublicationError("closure JSON budget exceeded")
+    closure_ref = put_with_built_ref(
+        store, closure_bytes,
+        artifact_id=_artifact_id(control, "closure", raw_blob_digest(closure_bytes)),
+        media_type=MANIFEST_MEDIA_TYPE,
+    )
+    _verify_stored_bytes(store, closure_ref, closure_bytes)
+    verified = _load_json_object(_locate(store, closure_ref), "closure")
+    if _entries_from_payload(verified) != ordered:
+        raise RecordsPublicationError("stored closure entries changed during publication")
+    if (_digest_from_payload(verified, "comparison_digest") != facts.comparison_digest
+            or _digest_from_payload(verified, "facts_core_digest") != facts.facts_core_digest):
+        raise RecordsPublicationError("stored closure digests changed during publication")
+    closure = ComparisonRecordsClosure(
+        comparison_digest=facts.comparison_digest,
+        facts_core_digest=facts.facts_core_digest,
+        records=ordered,
+        closure_manifest_digest=raw_blob_digest(closure_bytes),
+    )
+    return DetailedFactsResult(
+        pair_id=result.pair_id, status=result.status,
+        facts=replace(facts, records_ref=closure_ref),
+        records_closure=closure, diagnostics=result.diagnostics,
+    )
+
+
 def _write_arrow_parquet(
     batches: tuple[pa.RecordBatch, ...],
     schema: pa.Schema,

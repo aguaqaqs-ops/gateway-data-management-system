@@ -74,6 +74,7 @@ pub enum StandardKind {
     RowAdded,
     RowDeleted,
     RowModified,
+    SchemaChange,
     TableDegraded,
 }
 
@@ -83,6 +84,7 @@ impl StandardKind {
             Self::RowAdded => "ROW_ADDED",
             Self::RowDeleted => "ROW_DELETED",
             Self::RowModified => "ROW_MODIFIED",
+            Self::SchemaChange => "SCHEMA_CHANGE",
             Self::TableDegraded => "TABLE_DEGRADED",
         }
     }

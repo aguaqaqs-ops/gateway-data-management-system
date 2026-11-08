@@ -137,6 +137,7 @@ def evaluate_risk(
         extracted = extract_risk_facts(
             evaluation_input.comparison_facts,
             evaluation_input.requested_tables,
+            evaluation_input.record_views,
         )
         outcomes: list[_TableOutcome] = []
         total_annotations = 0

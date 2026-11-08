@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from contextlib import closing
+import json
+
+from gateway_shared_kernel import DigestRef
 
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
@@ -30,10 +35,43 @@ KEY_DEGRADED_TOKEN = "KEY_DEGRADED"
 
 
 @dataclass(frozen=True, slots=True)
+class RiskRecord:
+    record_kind: ComparisonRecordKind
+    row_identity: DigestRef | None
+    changed_columns: tuple[str, ...]
+
+
+class RiskRecordView:
+    """Reopen the in-memory facts-order minimum projection for each risk rule."""
+
+    def __init__(self, handle: object) -> None:
+        self._handle = handle
+
+    def __bool__(self) -> bool:
+        summary = getattr(self._handle, "family_summary")
+        return bool(summary("STANDARD")[0])
+
+    def __iter__(self) -> Iterator[RiskRecord]:
+        reader = getattr(self._handle, "risk_record_batches")()
+        with closing(reader):
+            for batch in reader:
+                kinds = batch.column(0)
+                identities = batch.column(1)
+                changes = batch.column(2)
+                for index in range(batch.num_rows):
+                    identity = identities[index].as_py()
+                    yield RiskRecord(
+                        record_kind=ComparisonRecordKind(kinds[index].as_py()),
+                        row_identity=None if identity is None else DigestRef(identity),
+                        changed_columns=tuple(json.loads(changes[index].as_py())),
+                    )
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractedRiskFacts:
     comparison_facts: RiskFacts
     table_fact: ComparisonTableFact
-    records: tuple[ComparisonRecord, ...]
+    records: tuple[ComparisonRecord, ...] | RiskRecordView
     ordered_unsupported: bool
     composite_signal: bool
     comparison_failed: bool
@@ -43,6 +81,7 @@ class ExtractedRiskFacts:
 def extract_risk_facts(
     facts: ComparisonFacts,
     requested_tables: tuple[str, ...] | None,
+    record_views: Mapping[str, object] | None = None,
 ) -> tuple[ExtractedRiskFacts, ...]:
     requested = None if requested_tables is None else frozenset(requested_tables)
     result: list[ExtractedRiskFacts] = []
@@ -60,7 +99,11 @@ def extract_risk_facts(
                 if diagnostic.startswith(UNSUPPORTED_TARGET_PREFIX)
             )
         )
-        scope = _risk_scope(table, key_degraded, ordered_unsupported)
+        view = None if record_views is None else record_views.get(table.table_name)
+        records: tuple[ComparisonRecord, ...] | RiskRecordView = (
+            table.records if view is None else RiskRecordView(view)
+        )
+        scope = _risk_scope(table, key_degraded, ordered_unsupported, bool(records))
         degraded_reasons = tuple(
             sorted(
                 reason
@@ -96,7 +139,7 @@ def extract_risk_facts(
                     diagnostics=_bounded_diagnostics(table_diagnostics),
                 ),
                 table_fact=table,
-                records=table.records,
+                records=records,
                 ordered_unsupported=ordered_unsupported,
                 composite_signal=table.table_name == COMPOSITE_SIGNAL_POINT_TABLE,
                 comparison_failed=comparison_failed,
@@ -117,13 +160,13 @@ def has_visible_change(item: ExtractedRiskFacts) -> bool:
         or table.row_added_count
         or table.row_deleted_count
         or table.row_modified_count
-        or table.records
+        or item.records
         or item.ordered_unsupported
         or item.uncovered_targets
     )
 
 
-def record_kind_name(record: ComparisonRecord) -> str | None:
+def record_kind_name(record: ComparisonRecord | RiskRecord) -> str | None:
     return {
         ComparisonRecordKind.ROW_ADDED: "ROW_ADDED",
         ComparisonRecordKind.ROW_DELETED: "ROW_DELETED",
@@ -135,6 +178,7 @@ def _risk_scope(
     table: ComparisonTableFact,
     key_degraded: bool,
     ordered_unsupported: bool,
+    has_records: bool,
 ) -> RiskScope:
     if table.status in {
         ComparisonTableStatus.ADDED_TABLE,
@@ -145,7 +189,7 @@ def _risk_scope(
         return RiskScope.TABLE
     if key_degraded or ordered_unsupported or table.status is ComparisonTableStatus.DEGRADED:
         return RiskScope.DEGRADED_TABLE
-    if table.row_added_count or table.row_deleted_count or table.row_modified_count or table.records:
+    if table.row_added_count or table.row_deleted_count or table.row_modified_count or has_records:
         return RiskScope.STANDARD_ROWS
     return RiskScope.TABLE
 

@@ -6,11 +6,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use arrow_array::{RecordBatch, RecordBatchReader};
-use arrow_schema::{ArrowError, SchemaRef};
+use arrow_array::{RecordBatch, RecordBatchReader, StringArray};
+use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
-    CanonicalBatchSide, KernelContext, OrderedBatchPair, OrderedKernelResult,
-    ParsedComparisonPolicy, StandardComputation, compare_ordered_batches, compare_standard_table,
+    CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
+    ParsedComparisonPolicy, StandardComputation, StandardKind, StandardRecordRef,
+    compare_ordered_batches, compare_standard_table,
     parse_comparison_policy, summarize_unchanged_ordered_batches,
 };
 use gateway_compute_core::{
@@ -134,6 +135,9 @@ struct ComparisonRecordsHandle {
     standard: Option<BuiltRecords>,
     ordered: Option<BuiltRecords>,
     blank: Option<BuiltRecords>,
+    risk_batches: Option<Vec<RecordBatch>>,
+    risk_lease: Option<KernelLease>,
+    schema_lease: Option<KernelLease>,
     context: Arc<KernelContext>,
     active: Arc<AtomicUsize>,
     owner: Option<Arc<PythonChargeOwner>>,
@@ -147,6 +151,9 @@ impl ComparisonRecordsHandle {
         self.standard = None;
         self.ordered = None;
         self.blank = None;
+        self.risk_batches = None;
+        self.risk_lease = None;
+        self.schema_lease = None;
         self.owner = None;
     }
 
@@ -236,6 +243,70 @@ impl ComparisonRecordsHandle {
         }
         .ok_or_else(closed_handle)?;
         Ok((built.record_count, built.content_digest.to_string()))
+    }
+
+    /// Materialize only Risk's standard kind, identity and changed columns in
+    /// facts order. The three artifact families have a different sort contract.
+    fn prepare_risk_batches(&mut self) -> PyResult<()> {
+        if self.risk_batches.is_some() {
+            return Ok(());
+        }
+        let _use = OperationUse::begin(&self.context, &self.active)?;
+        let result = self.result.as_ref().ok_or_else(closed_handle)?;
+        let records: Vec<_> = match result.as_ref() {
+            ComparisonResult::Standard(value) => value.facts_order.iter()
+                .map(|index| &value.records[*index]).collect(),
+            ComparisonResult::Ordered(value) => value.standard_facts_order.iter()
+                .map(|index| &value.standard_records[*index]).collect(),
+        };
+        let mut upper = 4096usize;
+        for record in &records {
+            upper = upper.checked_add(1024)
+                .and_then(|size| size.checked_add(record.row_identity.as_ref().map_or(0, String::len) * 8))
+                .and_then(|size| size.checked_add(record.changed_columns.iter().map(String::len).sum::<usize>() * 8))
+                .ok_or_else(|| PyMemoryError::new_err("risk view size overflow"))?;
+        }
+        let lease = self.context.reserve(upper).map_err(|error| comparison_error(error.to_string()))?;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("kind", DataType::Utf8, false),
+            Field::new("row_identity", DataType::Utf8, true),
+            Field::new("changed_columns_json", DataType::Utf8, false),
+        ]));
+        let mut batches = Vec::new();
+        for chunk in records.chunks(1024) {
+            self.context.check().map_err(|error| comparison_error(error.to_string()))?;
+            let kinds = StringArray::from_iter_values(chunk.iter().map(|row| row.kind.contract_name()));
+            let identities = StringArray::from(chunk.iter()
+                .map(|row| row.row_identity.as_deref()).collect::<Vec<_>>());
+            let columns = chunk.iter()
+                .map(|row| serde_json::to_string(&row.changed_columns))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+            let changes = StringArray::from(columns);
+            batches.push(RecordBatch::try_new(Arc::clone(&schema), vec![
+                Arc::new(kinds), Arc::new(identities), Arc::new(changes),
+            ]).map_err(|error| PyValueError::new_err(error.to_string()))?);
+        }
+        self.risk_batches = Some(batches);
+        self.risk_lease = Some(lease);
+        Ok(())
+    }
+
+    fn risk_record_batches(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let batches = self.risk_batches.as_ref().ok_or_else(||
+            PyValueError::new_err("risk view was not prepared before seal"))?;
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("kind", DataType::Utf8, false),
+            Field::new("row_identity", DataType::Utf8, true),
+            Field::new("changed_columns_json", DataType::Utf8, false),
+        ]));
+        let reader = BatchVecReader {
+            schema,
+            batches: batches.iter().cloned().collect(),
+        };
+        let bridge = Py::new(py, PyRecordBatchReader::new(Box::new(reader)))?;
+        Ok(py.import("pyarrow")?.getattr("RecordBatchReader")?
+            .call_method1("from_stream", (bridge,))?.unbind())
     }
 
     fn is_sealed(&self) -> bool {
@@ -415,17 +486,50 @@ fn _compare_records_native(
             max_input_bytes,
         )?;
         let external: Arc<dyn Any + Send + Sync> = owner.clone();
+        let schema_diagnostics = serde_json::from_str::<serde_json::Value>(policy_json)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+            .get("schema_diagnostics")
+            .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
+            .transpose()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+            .unwrap_or_default();
         let output = py
             .detach(|| {
                 pool.install(|| match policy {
                     ParsedComparisonPolicy::Standard(options) => {
-                        let result = compare_standard_table(
+                        let mut result = compare_standard_table(
                             CanonicalBatchSide::new(before_schema, &before),
                             CanonicalBatchSide::new(current_schema, &current),
                             &options,
                             &context,
                         )
                         .map_err(|error| error.to_string())?;
+                        let schema_lease = if schema_diagnostics.is_empty() {
+                            None
+                        } else {
+                            let upper = schema_diagnostics.iter().try_fold(4096usize,
+                                |size, item| size.checked_add(item.len().saturating_mul(8)))
+                                .and_then(|size| size.checked_add(
+                                    options.selected_columns.iter().map(String::len).sum::<usize>().saturating_mul(8)))
+                                .ok_or("schema record budget overflow")?;
+                            let lease = context.reserve(upper).map_err(|error| error.to_string())?;
+                            result.records.push(StandardRecordRef {
+                                kind: StandardKind::SchemaChange,
+                                row_identity: None, before: None, current: None,
+                                value_columns: Vec::new(),
+                                changed_columns: options.selected_columns.clone(),
+                                diagnostics: schema_diagnostics.clone(),
+                            });
+                            result.facts_order = (0..result.records.len()).collect();
+                            result.facts_order.sort_by(|left, right| {
+                                let left = &result.records[*left];
+                                let right = &result.records[*right];
+                                (left.kind.contract_name(), left.row_identity.as_deref(), &left.changed_columns)
+                                    .cmp(&(right.kind.contract_name(), right.row_identity.as_deref(), &right.changed_columns))
+                            });
+                            result.artifact_order = result.facts_order.clone();
+                            Some(lease)
+                        };
                         let standard = build_standard_records(
                             table_name,
                             &result,
@@ -436,7 +540,7 @@ fn _compare_records_native(
                             &context,
                             Some(external),
                         )?;
-                        Ok((ComparisonResult::Standard(result), standard, None, None))
+                        Ok((ComparisonResult::Standard(result), standard, None, None, schema_lease))
                     }
                     ParsedComparisonPolicy::Ordered(options) => {
                         let result = compare_ordered_batches(
@@ -485,6 +589,7 @@ fn _compare_records_native(
                             standard,
                             Some(ordered),
                             Some(blank),
+                            None,
                         ))
                     }
                 })
@@ -496,6 +601,9 @@ fn _compare_records_native(
             standard: Some(output.1),
             ordered: output.2,
             blank: output.3,
+            risk_batches: None,
+            risk_lease: None,
+            schema_lease: output.4,
             context,
             active,
             owner: Some(owner),
@@ -593,7 +701,7 @@ fn _facts_core_digest_native(
     if operation.owner.is_none() {
         return Err(closed_handle());
     }
-    let mut results = Vec::<Arc<ComparisonResult>>::new();
+    let mut results = Vec::<Option<Arc<ComparisonResult>>>::new();
     let mut metadata = Vec::<String>::new();
     let context = Arc::clone(&operation.context);
     let _use = OperationUse::begin(&context, &operation.active)?;
@@ -617,14 +725,18 @@ fn _facts_core_digest_native(
         .reserve(metadata_upper)
         .map_err(|error| comparison_error(error.to_string()))?;
     for (handle, raw) in handles.iter().zip(metadata_jsons.iter()) {
-        let handle = handle.extract::<PyRef<'_, ComparisonRecordsHandle>>()?;
-        let result = handle.result.as_ref().ok_or_else(closed_handle)?.clone();
-        if !Arc::ptr_eq(&context, &handle.context) {
-            return Err(PyValueError::new_err(
-                "facts tables must share one operation",
-            ));
+        if !handle.is_none() {
+            let handle = handle.extract::<PyRef<'_, ComparisonRecordsHandle>>()?;
+            let result = handle.result.as_ref().ok_or_else(closed_handle)?.clone();
+            if !Arc::ptr_eq(&context, &handle.context) {
+                return Err(PyValueError::new_err(
+                    "facts tables must share one operation",
+                ));
+            }
+            results.push(Some(result));
+        } else {
+            results.push(None);
         }
-        results.push(result);
         metadata.push(raw.extract::<String>()?);
     }
     let algorithm_version = algorithm_version.to_string();
@@ -633,16 +745,21 @@ fn _facts_core_digest_native(
         let inputs = results
             .iter()
             .zip(&metadata)
-            .map(|(result, raw)| match result.as_ref() {
-                ComparisonResult::Standard(result) => TableFactsInput {
+            .map(|(result, raw)| match result.as_deref() {
+                Some(ComparisonResult::Standard(result)) => TableFactsInput {
                     metadata_json: raw,
                     standard: Some(result),
                     ordered: None,
                 },
-                ComparisonResult::Ordered(result) => TableFactsInput {
+                Some(ComparisonResult::Ordered(result)) => TableFactsInput {
                     metadata_json: raw,
                     standard: None,
                     ordered: Some(result),
+                },
+                None => TableFactsInput {
+                    metadata_json: raw,
+                    standard: None,
+                    ordered: None,
                 },
             })
             .collect::<Vec<_>>();

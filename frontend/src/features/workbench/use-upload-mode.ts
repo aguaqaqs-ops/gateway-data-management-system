@@ -254,6 +254,16 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     if (!enabled || !rereadKey) return;
     if (rereadConsumed.current === rereadKey) return;
     rereadConsumed.current = rereadKey;
+    // A read may still be in flight (e.g. the mount read that produced this
+    // snapshot has not settled its attempt/operation tail): an immediate
+    // refresh would be deduped onto it and the re-read lost. Serialize behind
+    // it so the stale content is always re-read exactly once.
+    const pending = inflight.current;
+    if (pending) {
+      const reread = () => { void refresh(); };
+      void pending.then(reread, reread);
+      return;
+    }
     void refresh();
   }, [enabled, rereadKey, refresh]);
 

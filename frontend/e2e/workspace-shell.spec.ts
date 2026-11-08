@@ -1743,6 +1743,9 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
+    // Like W9②③ the attempt is open at load (the fixture default FINALIZED
+    // would make the load snapshot stale); it is only unreadable at resume.
+    submitAttemptState: "PREPARED",
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },

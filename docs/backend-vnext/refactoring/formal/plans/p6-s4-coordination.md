@@ -64,3 +64,11 @@ B最终产品`788ed36e7742a067bf01c16ad2e6aaed2fed91fb`，原B独审报告已原
 原件`/home/dev/gdds-test-tmp/p6-s4-b-r12-04-788ed36e77/controller/`：outer SHA256=`21ecf1714eba271a4c444590d19d0816ce7cfc3f846a762247e4b2b80feb340d`，captured/focused.log=`8fb0db9d7cde02e24d503859dab845295dee655b5abdf9f38f5448a5cce84e28`。按tier表数125/220/193/312；NOOP/PATCH/REBUILD分别121/0/4、159/1/60、139/0/54、285/12/15。实际完成diff的表43/88/71/138均与旧Python oracle独立D/U/I及整数阈值逐项一致，其余`net_counts=None`，不伪造全局净计数。八冻结包、metadata78c7与census733b摘要先核；InMemory/oracle/M24读数仅差分诊断，不是生产M24容量或完整旅程PASS。
 
 C须解决prepare reconcile缩小Python native charge后新render分配的同M预约/封存，不能直接二次消费原Rust剩余额度。C接唯一Rust SQL与两个显式context facade，D接实际Submit并删除旧热路径及两项临时unreachable登记，E才核当前镜像/Compose、完整权威包、真实旅程/资源/性能。C用全新Sol实施/独审，唯一Luna执行者复用；不再申请逐节开工许可，不进入S5或倒签S3 exit。
+
+## 9. C当前修复与独立预期
+
+C首轮固定候选`ccc46f4a6d`之后，原C审核者在clean detached WT连续审查，尚未给C GO。显式context消费者迁移`bbb9063de5`保留实际调用方、原SQL expected和publisher；Rust renderer/facade不再以Python算法为生产fallback。当前职责内修复包括：大单行prepared-row/有界chunk输出、同表累计200MiB cap与M错误区分、转换graph预预约、导出bytes最后消费者收费、cursor/input引用释放，以及schema真实SQLcap和内存上界分离。仍是实现修复，不重新打开已清除的设计，也不把编译或focused尚未运行写成通过。
+
+固定旧S1a renderer`7d0ce6220ac2541b76ab75191d43ce6113003966`源SHA `761bb6097166edd8720921ca1baa0fc53269404512395af1dec1097cee273cc7`；04原子占用下受控捕获已由原C审核者核收。四组DELETE/UPDATE/INSERT的257行及4MiB交叉窗口expected已登记在`vnext/fixtures/vectors/mutation/sql-replay/v1/batch-boundaries.json`（`ab2c86f52f`），原件`/home/dev/gdds-test-tmp/p6-s4-c-old-sql-capture/controller/`。outer SHA `3a0c0538ae68c33c500a0281a20a1cdce719e07aa527db1fa40497ea44611478`，node log SHA `77d8395e0f506b7c8ec2eb6e2b23616b3ae2dbdd09488c4a0548eb5d4618a114`；这是旧SQL字节来源，不是C或Dolt性能证据。
+
+`a1a1e1bfa5`另登记手算`replay-cap.json`：单UPDATE含200个非键列和长度1,043,309的string key，SQL总长`201L + 10,033 + padding`；padding58/59分别恰209,715,200/209,715,201字节。原C审核者独立复算一致；新Rust输出不参与expected生成，不改六份既有SQL golden。C新固定候选及精确脚本复审后才由唯一Luna运行Rust三步、强制扩展、五包静态和受影响focused，失败先停保原件。当前没有C权威包/Compose/容量或性能PASS；Rust/backend镜像重建延至E最终候选。

@@ -3058,3 +3058,17 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 必要05 focused与五Python包静态由gate子任务按主协调分工准备，可与本只读审并行，不新增代码GO；默认/override需在实际外层none条件下覆盖。当前尚未收到这些实际结果，不将代码PASS表为测试/权威门禁通过。058只改测试，没有新生产行为；阶段最终门禁仍须当前H真实闭包/镜像绑定，RS canonical输入包含其tests，本次新增网络单测变化因此必须重算build-input/source-tree及候选label，不能沿用H780的标签身份或失败runner作qualified carried来源。B/W按已澄清冻结流程最终绑定；CT108冻结9704对象与其他任务不受此测试修订影响。
 
 代码结论已实际回主协调，由其统一通知子任务；后续focused/静态、构建传输/身份及权威runner/收尾原件集中独审，不联系已归档旧实施，不重跑已关业务或扩大测试矩阵。
+
+## 146. p6_v5b_resume首个实际接续包：来源/测量边界成立，controller信号与收尾异常待修
+
+**`p6_v5b_resume` 首包尚不整体PASS，当前两个controller接线Finding，c81已通过代码/05验证不重开。** 主协调投递CT201 `baseline/v5b-only-resume-20261108a/` 的八项包及SHA256SUMS，尚未起RS/业务；本审核已完整只读entry.py/measure.py/launch.sh、REVIEW和closed预检，八项摘要全部MATCH，并留只读来源副本 `p6-baseline-evidence-review-20261108/v5b-only-r1/`。entry16780B/SHA **`8c0f6561ecffef3260381a3b08a79fd413bd092faae6a4bd55c313579a37d002`**，measure10388B/SHA **`587de66ddf535f504c996602ffbc1c8fec8acc3a48c1b0dbc3aa83624723d549`**，launch733B/SHA87962f0f…f2b8bea8，manifest SHA665a8a26…b904a63。未执行候选、测试或Docker。
+
+已成立边界：固定CT108新clean c81 worktree、显式四Python包及benchmarks源路径优先，复用原d2 venv但核native build-input=58436908；旧state e0dd与FAILED raw245232de、manifest11958及两输入包绑定保持。预检01:43:41.654Z的RS旧同节点immutable ID、引用既有config、28有序DiffID/labels经本审核与§124原01cf记录逐项相等，3456诊断/4497冻结build-input差异明确而source319相同，不重新Docker-save或改tag。01:37:53Z自有锁记录、三原卷、约149GB磁盘/102GB available memory、remaining66066s均为预检当时事实；本审核未追加节点探测。
+
+实际RS-only命令up --no-deps --no-build --pull never，仅原项目repository-service，真实Compose的/data mount目标与代码断言一致，运行后检查容器immutable对象/健康/原数据卷及唯一IP；不进入普通seed/harness、backend/worker/journey或业务POST。measure只调用既有c81 B-v1/B-v2/C/D helpers，full312 RepositoryRef结果原本不被下游使用而跳过，selected27 Bound原为进程内临时状态，必要重建清楚列为preparation。旧两个A段仍留原FAILED raw并引用d2/SHA，六reference分别写实际来源，不造统一全绿raw；原SIGINT20:04:47.876Z/KILL20:24:47.876Z/hard20:34:47.876Z，19200规划量不当新增预算或ETA。这些范围/来源/局部准备接线成立，不要求重测已关DC63或新增持久续跑机制。
+
+**F1：实际后台启动没有恢复信号处置，TERM/HUP也未接有界finally。** REVIEW的实际setsid launch.sh &继承Bash异步job的SIGINT_IGN，Python保留被忽略INT；本项目§128已有真实该继承机制证据。entry没有signal.signal，sampler/measure又继承其处置，故固定SIGINT时虽killpg发送INT，可能一直到KILL才实际停止。controller接收TERM/HUP则默认直接终止，绕过Python finally而遗留独立child session/RS。须显式恢复INT、将TERM/HUP接入同一已要求收尾并保准确退出语义；不改变原UTC截止或引入新监控框架。
+
+**F2：finally自身的异常可在RS down/最终记录前短路。** entry第247行最后killpg(SIGKILL)未容忍目标在pgrep后自然退出的ProcessLookupError，可能直接跳出finally、跳过RS down；第282行填summary.end_head时又调用受HARD限制的command(git)，预算已耗尽会抛TimeoutError，postflight都无法写出。须让子进程收束/辅助捕获错误不跳过down及最终错误记录，deadline耗尽后使用已有facts和明确未知/error，不再依赖额外Git/命令才能落postflight；不干净时保锁非零，不假报释放。该修正针对本包实际控制流，不增加更大的安全/恢复状态机。
+
+已将两个具体Finding与成立范围按前缀直接回主协调，由其统一子任务窄修；可复用已有短进程夹具作必要无RS/无业务验证，不扩矩阵、不等Owner或二次GO。当前运行尚未开始、接续身份未消耗；新revision保持旧包/摘要，修正期间本审核并行核已收到record与gate材料。末态实测/锁/卷/来源仍待实际运行原件，不由预检MATCH代替。

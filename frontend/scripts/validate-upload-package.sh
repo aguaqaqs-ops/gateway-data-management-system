@@ -189,7 +189,9 @@ fi
 
 RUN_STAGE="validator-image-build"
 VALIDATE_TAG="gateway-backend-validate:fe-${HEAD_START:0:10}"
-if [[ "$("$ROOT/vnext/scripts/build-backend-dependency-base.sh" --print-input 2>/dev/null)" != "$BACKEND_IMAGE" ]]; then
+PRINT_INPUT_JSON="$("$ROOT/vnext/scripts/build-backend-dependency-base.sh" --print-input 2>/dev/null)"
+PRINT_INPUT_TAG="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["image"])' "$PRINT_INPUT_JSON")"
+if [[ "$PRINT_INPUT_TAG" != "$BACKEND_IMAGE" ]]; then
   log "error=dependency image tag does not match --print-input for this HEAD"
   exit 2
 fi

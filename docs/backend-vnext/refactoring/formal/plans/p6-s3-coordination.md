@@ -210,7 +210,7 @@ Owner 明确回复 **“确认并继续”**，本单已审恢复范围的执行
 
 ## 11. 集中验证与 DC33 待确认范围草案
 
-本节是协调准备，尚非Owner的DC33确认或任何运行结果。最终候选固定、D/E独审及实际节点/缓存前提仍须满足。
+本节范围草案已获Owner明确DC33确认（见下文），不是运行结果。最终候选固定、D/E独审及实际节点/缓存前提仍须满足。
 
 - D先在06完成受影响Rust/backend focused、五包Ruff/mypy和当前镜像的小型真实Preview MO/FULL、History/Compose。W3/W4按已接受合成输入做Preview分段诊断，优先CT108现场可用时使用自己的WT、镜像tag、project和输入副本；不给06继承完整真实旅程例外。04/05/CT108于2026-11-08 04:09:07Z的只读探查无busy/running containers/8000监听，仅为当时现场，不作预约或最终前检。
 - E删除后在06做受影响focused与静态检查，收敛后固定唯一产品V。最终04使用S3自己的clean WT；若没有合格来源在同节点同WT证明某包可沿用，就实际运行该包。不得为取得沿用去修改原基准冻结WT或凭源码相似口头carried。若六包均需运行，使用一次六包权威入口；其中Compose不重复运行。保留此S3 gate WT至最终H绑定及交接完成。
@@ -219,7 +219,7 @@ Owner 明确回复 **“确认并继续”**，本单已审恢复范围的执行
 
 提出上述fresh范围的依据是本轮替换比较、records/JCS、risk和真实reader接线，S2b容量结果不能覆盖新算法。退出前会将具体范围、实际结果、沿用条件与待补项交Owner作DC33确认；此草案不提前豁免t4、W3/W4或最终门禁。最终H逐包闭包/镜像绑定必须在原合格V的同节点同S3 WT完成，直接引用最初实际通过来源和原日志。
 
-协调已将§11具体fresh t1–t4范围作为DC33问题提交Owner，当前待答，不将默认选项视为确认。此项只约束最终真实范围，D现有复审、06 focused及已授权诊断继续。
+Owner 对§11具体问题明确回复 **“确认 fresh t1–t4 范围”**。最终产品V在05 fresh t1–t3、CT108 fresh t4；各档v1/重复Preview为MODIFIED_ONLY、v2为FULL，包含Submit、真实读取/approve、History，N1/M24GiB不变。t4不沿用S2b旧算法结果；W3/W4的MO/FULL/压力阶段诊断另列实际结果与未知。DC33这项范围决定已经取得，不再等待或重复申请同一范围。此确认不代替实际运行、独审核证或正式退出/tag/push。
 
 ## 12. 1c25 固定候选与 CT108 缓存事实
 
@@ -230,3 +230,13 @@ D集中候选为 `1c25ea68e713fef8718ea499592628dc035a7e94`，Rust tree=`45acfe7
 目标ca0依赖tag原本缺席（已审预填分支preflight42，非测试失败）；LAN传输 **04:24:22–04:24:42Z**，`docker load` **04:25:01–04:25:17Z**。源C clean构建提交573d5824、完整inputca0、tag `gateway-backend-deps:lock-ca0ba0a24a5e` 与源归档SHA `fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136` 均按原件绑定。目标核Rust base config `sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1`/全5DiffID、dependency config `sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`/全19DiffID两个IDENTITY_MATCH；没有跨机inspect ID比较，也未覆盖现有tag。
 
 完整控制端原log `/home/dev/gdds-test-tmp/p6-s3-d-ct108-cache-prefill/logs/prefill-ct108.log` SHA=`96c3f6db0b5cb0ac082b35860ddb109cef97d4c2e23933bf21699eb53b672ed8`，保全部DiffID、逐步原exit与释放时间；已交同原审独核。目标同名专用目录的Rust resave tar SHA=`0734b9e84dd0f73b6e6b9d3de9fd6b505f6bb98d849c125bcdac2b738a12941c`、dependency resave tar SHA=`839de70a848c40c1f7c3c8085f08b465f61b7a0e2603fa5403ae498376e54dc2`；重save raw字节不同不作为跨机镜像不等价。原基准WT/镜像/卷/输入未修改，新归档和日志保留，标记已释放。此事实仅为缓存准备，**不证明1c25或S3产品通过**。
+
+## 13. Rust 组件实际通过与后端接线待验
+
+1c25的06独立scratch fmt原件与非空patch经原审核收，patch SHA=`efacb52d13787fd7a5be809a1dd1c7ff7197f4cb2baaed53308637428395857f`，三Rust路径机械应用为 `0a7c9fe89278093c76aa245401428d47e5b28337`；这不是1c25 fmtcheck PASS。0a Rust tree=`439426056d3fce9fca6e9cb9e58de4aa4813fda8`。
+
+06 `gw-dms-06` 固定clean0a于 **04:34:30–04:35:21Z** 实际运行 `cargo fmt --all --check`、workspace/all-target clippy `-D warnings`、workspace test，三步原exit均0，199 passed/0 failed，doc tests0；Rust1.97四工具同selector、offline/jobs4、六锁无漂。本人marker **04:34:28–04:35:21Z** 获取/guarded释放，remote/outer/capture0。同原审已逐项独核，这只核收该Rust组件，不替代后端、04权威入口或D GO。
+
+原件在CT201 `/home/dev/gdds-test-tmp/p6-s3-d-0a7c9fe8-06/`：outer log SHA=`f3e8fefff8c4ef703a1b10dc6d047e5080c9f4004b06474165ce2be0a2d1b94e`，`captured-rust/rust-diagnostics.log` SHA=`3aeb269d6830b1cca6068b02de81a8c5f9621230804d3114c4d57dc732d81008`，标准manifest SHA=`25a68d9c3766e72342023164569453a8cc120981badae2ebd3593c057a1461ba`，capture收据SHA=`9562ee81cbf5665fa5e5410667bdf6ae904f16674b08e18590fa8e2274102575`，全部check0。
+
+完整Python候选已继续固定为 `eaa508ce4f61c84e724c2c1c25afbcda3f07d4a8`，Rust tree仍4394，锁/base不变；ready→closed reader命中隔离、Risk key诊断准入与同池紧M safe retry、成功ORDERED+BLANK三族向量待当前06 native/backend focused实际核。原审撤回了4c Risk ruleset长身份误报：既有前置validator已冻结三身份字段；因此新增重复guard/专属重复测试已从eaa移除，保真正预算修复与向量。后续只对改变的Python接线和适用证据验证，不无故重复同树Rust三步。

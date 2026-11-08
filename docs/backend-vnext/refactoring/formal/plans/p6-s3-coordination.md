@@ -261,3 +261,13 @@ Owner 已明确回复 **“授权三项最小修复纳入”**：在D收敛后�
 | JCS bounded hash sink（P2） | `1f9731dfc3`：仅两处hash-only ChangeSet消费者改流式hash；原bytes API、错误、Unicode/数值/排序/digest保持 | shared_kernel JCS和MutationPlanning独立向量及最终受影响包门禁 |
 
 不整条合并原基准分支，不重复移植已在main的READY32768修复，不搬诊断wrapper/旧资源设置/输入生成器。不改变N1、32GiB worker、8GiB reserve、M24GiB、冻结语义、golden或部署旋钮；不扩到S4/S5、FULL并行或ordered新快路。三项由E新实施/独审角色在同一整合候选中接收，逐项列来源、实际产品提交和证据；原基准冻结WT/镜像/输入/卷/证据保持独立。现四槽D角色继续本节，不另建第五角色。
+
+## 15. D 新 Rust 通过、BIT 测试边界与阶段起测口径
+
+`7378687f32ad68c7033df32da02cf3f2021b242a` 修必要view预算并按4b原件机械格式化。06于06:09:44–06:10:34Z实际fmt0/clippy0，workspace test101，core 73通过/1失败：新测试把IPC规范列序与decode恢复的descriptor列序直接比较。原件 node SHA=`29515003706993aa557ba46a063af343ec9b73b369a617db2edf352c3d91b55b`，outer SHA=`60883a8688f3d9ee278c37b65f026a9ca8fa7a3179eeaaa1bbe2c644b2164261`；后续native/backend均未跑，06:10:35Z释放。原审独核后，`2b3f80267238bd3a288c66313f3d830a4459b634` 只修测试构造：profile严格对照实际IPC文件schema，保独立indices断言，decode另断原descriptor列序；产品mapping/格式未改。
+
+固定2b3（Rust tree=`b5f2439384d859bd32df3e3e24979f4f63f0f91b`）在06于 **06:16:49–06:19:08Z** 实际fmt/clippy/workspace test全0（合计200通过），强制扩展重装与build-input核验全0。受影响nonserial focused为 **88通过/3失败**；serial GIL和五包静态未跑。node原件SHA=`c34682da698f52965ccaa10761cc416dad32b0340f05539b7c0778d995b1c2ec`，outer SHA=`90c457b8e43f58b63a660d5eb7a0192ab9c8ba351d09e9dfff2aff12fb441faf`，manifest SHA=`f4c2f76d7f6197b745920c3c84e31f759600d956d62da43111340f67c6d27c03`（check0），capture receipt SHA=`d420fcddfbeb18ae1ae9387a37f3c55e5a4c4afb0fb06751b843c767041f214b`（exit0），bundle SHA=`f755a4f4049d2ebfad278bf03e7b1932b8f13e4e88a6566673e7b84a62a446d9`。本人标记06:19:09Z释放，起止clean/六锁稳定；同原审已核原件。整轮exit1，不能作权威carried来源。
+
+两BIT失败均在测试的 `table_set.tables[0]` 处IndexError，尚未进入新view/native/M。源码独核确认当前business→storage projection显式不接纳BIT，故旧普通artifact helper的输出为空；本节不得为救测例扩S4投影。修订限BIT专例：READERS_REQUIRED的既有business Arrow经真实canonical publisher，再测试fresh view/持久读取；明确只证明C writer→D adapter对该类型的能力，不宣称当前Preview投影支持BIT。第三失败是pair_pipeline直接导入comparison.artifacts/production，改用comparison公共导出，不扩architecture frozen baseline或豁免。普通writer modified/added两条实际路径断言保留；修订仍需原审核和节点运行。
+
+D的W3/W4起测可在06做明确标记的**选表组件诊断**：保完整输入binding，从完整计划选最大可用Standard/Ordered表，用派生单表task跑当前生产compare→Arrow records→Risk；不修改快照身份/summary/table_set，不输出完整pair/Preview/surface/READY结论。MO为v1→v2；FULL样本明确baseline=v1、initial=v1同对象假定，不能证明真实FULL峰值或收益。保输入/census、选表范围、实际调用/读取/分项、账本high-water及原失败；InMemoryArtifactStore的RSS不证明生产worker envelope。100%压力失败如实停报。完整负载、当前部署Preview、projection/bundle独立计时、DC33 fresh旅程与适用正式统计由E/CT108承接；D部分结果不得冒充完成这些未知项。现成 `real_dump_journey --scope t4-identity` 含v1 Submit/Archive准备，只能在CT108按职责使用自有资源，不借partial名称扩06完整旅程用途。

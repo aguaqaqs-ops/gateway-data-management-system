@@ -445,3 +445,19 @@ CT108新W3 MO warm在14:03–14:06Z actual1：已过census到v1 Preview（631新
 Owner现明确选择：**“保持边界，保留性能阻塞并完成其余交接”**。不改N/M/输入/部署、不开始S4、不豁免原性能场景，不签E GO/S3 exit；不再次申请日常继续。其余代码/功能/候选H及独审交接继续完成，最终报告保持`BLOCKED_CAPACITY`。CT108按审稿归档三停止卷后删除本人资源并释放marker，archive SHA=`ba1b07d4e5d19824532f70a432dc0557cc7781904c26e4f1621a90a16cae4444`、cleanup log=`ca8689f4049e333dc3bb6b7e471179c195c5a7d4fb1717e9dd28f468d30802b3`，实际0且原失败SHA未变；不占节点等Owner，私有archive只留CT108。
 
 累计候选、A–E职责、唯一生产路径/删除清单、独立预期、逐包来源/镜像、真实范围与失败/未知、FE/S4/S5/原基准及资源交接统一见 [S3产品候选交接](p6-s3-candidate-handoff.md)。产品V固定774；本轮最后文档提交形成H后，由同一测试者仅在04原门禁WT实际执行六包与镜像沿用绑定，原审核者独立核收，并明确E整体容量阻塞。正式退出/tag/push仍未办理。
+
+## 29. 恢复执行：Q18交付、资源诊断及并行候选隔离
+
+2026-11-08后续：Owner授权继续完成Q18及S3剩余/退出候选，并按DC95允许worker在现有资源内增大至最多32C/64G；实质设计冲突可暂停讨论。S4另对话按DC96连续实施，不能接管或把其增量归为S3。
+
+**Q18已独立交付。** 最终产品`94b25a32792821cbc5b3230d98a0aa6f13493c32`，原审核收报告`27eab454b7`、最终handoff`8cf472a4dd`及其核收`964d900d44`：BE-Q18 GO。a1未变接口核心181 focused直接来源、94b consumer 74+3 focused、四条当前产品容器旅程实测与镜像绑定全0，均在06；先前同根四处selected整候选转发已修闭。scope与新增review_version/strict selected边界、原始日志SHA、OpenAPI附加抓取缺失和可转前端文字见[Q18最终交接](p6-be-q18-handoff.md)。不把它记为S3六包/真实数据/性能通过，不改生成时间业务预期。
+
+CT108原V774故障归档已由唯一Luna按原E审核的固定稿只读诊断一次，outer/node/capture0，原tar SHA/权限和V774 clean未变；原E在报告§65–67及`f242861169`核收。631表真实descriptor/Arrow nbytes按逐表生命周期**重构**的行预约+reader/replay为29,677,814,302B（27.640GiB），不是原同时驻留实测；original firstpoint/request/live及v2 FULL仍UNKNOWN。原M24失败不倒填为“第468表失败”，M40模型无交叉也不是容量通过。
+
+原E对`e1f789bf6f`[资源小稿](p6-s3-resource-profile-plan.md)给DESIGN_CLEAR_FOR_IMPLEMENTATION：本轮唯一48GiB worker/8GiB reserve/M40、N1/单active，默认32/8/M24不动，支持上限仅48/M40；开始端点三服务ready且首业务前host MemAvailable至少56GiB，结束停容器前至少8GiB，并核身份/OOM/restart/cgroup。端点不冒全程峰值；具体代码、脚本与实际证据仍需原E核收，未放行W3。
+
+资源支持产品`e76342ef0b58bb0120fc60d8a063d838140ee28d`只含6个分配路径、Rust tree仍9d4f，代码静审无阻塞。CT108 focused在17:25:13–17:26:30Z首败于backend mypy：`test_worker_kernel_resources.py:64`负向dict实参展开静态类型不符；Compose render/pytest/W3均未执行。原outer SHA=`b8a80dbc0d361d14a90f4b6107bf5b75bb1e1b31548b1af4c491c9a55e3a710d`、node/capture SHA=`35a8ff4a286860078399a5321f1d3f9f9198a2dea76e7ecc6e413e5c7101196d`；HEAD clean、六锁未漂、marker释放。原件在`/home/dev/gdds-test-tmp/p6-s3-resource-e76342ef0b-fixed/focused-control/`；执行节点确为CT108/gw-dms-test，测试者曾将口头消息误写06，已据原日志纠正，不改变原件或重跑。
+
+最小测试typing修复已在main显式单路径提交`a39339f18dd45777c1b5f40f34512d60c41271b8`，保七组无效值和ValidationError，改用valid model dump合并后model_validate。其父main已含并行S4B`43a8f1e165`（Rust tree5b87），因此该main提交不直接作为本S3验收V。为保持S3比较算法与已审Rust9d4f独立，按AGENTS确需并行短分支例外，从e763仅接此typing修复形成专用固定候选；不回退/重写main、不移除S4代码、不新增算法双路径。新候选和后续H只绑定各自实际源码/证据，不冒称并行最新main的S4代码已验证；最终版本和复验结果随后追加。
+
+截至本节，S3整体仍BLOCKED_CAPACITY，资源新档/W3/W4/最终新V门禁和真实数据未完成，未办理S3 exit/tag/push。独立工作继续，旧失败及未知保留。

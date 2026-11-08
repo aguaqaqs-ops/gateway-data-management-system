@@ -107,7 +107,8 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     return Boolean(id && params.get("operationKind") !== "history-compare" && sessionStorage.getItem("gateway-preview-operation") === id);
   });
   const [resumeSubmitOperationId, setResumeSubmitOperationId] = useState<string | null>(null);
-  const [submitResumeMessage, setSubmitResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
+  // F1: rendered from the hook snapshot; the page keeps no resume copy.
+  const submitResumeNotice = uploadMode.resumeNotice;
   const [notice, setNotice] = useState<string | null>(() => new URLSearchParams(window.location.search).get("notice"));
   const resumePending = useRef(resumePreviewOperation);
   const [uploadLocked, setUploadLocked] = useState(resumePreviewOperation);
@@ -230,16 +231,8 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: outcome.submissionId, workbenchNode: selectedKey }, compareRefs));
       return;
     }
-    if (outcome.kind === "aborted") {
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
       setResumeSubmitOperationId(null);
-      setSubmitResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: outcome.abortCode });
-    } else if (outcome.kind === "unfinished") {
-      setSubmitResumeMessage({ title: "提交结果待确认，需要管理员处理", code: outcome.operationId });
-    } else if (outcome.kind === "unknown") {
-      setSubmitResumeMessage({ title: "无法确认提交状态", code: null });
-    } else {
-      setResumeSubmitOperationId(null);
-      setSubmitResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: null });
     }
     await reloadHistory();
   }, [compareRefs, selectedKey, reloadHistory, uploadMode.resumeAfterOperation]);
@@ -499,7 +492,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
     {notice === "withdrawn" && <div role="status" className="form-success workspace-notice"><span>已撤回，可以重新上传</span><button className="link-button" onClick={() => setNotice(null)}>关闭</button></div>}
-    {submitResumeMessage && <div role="alert" className="form-error workspace-notice"><span>{submitResumeMessage.title}</span>{submitResumeMessage.code && <span>错误代码：<code>{submitResumeMessage.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void load()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
+    {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void load()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{workspace.gateway_device_external_key}</span></div>

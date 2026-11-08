@@ -196,15 +196,44 @@ describe("deriveUploadModeGates", () => {
     expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.recovery });
   });
 
-  it("judges by the submission pointer when the attempt is already closed", () => {
+  it("judges by the submission pointer when a closed attempt is still cached", () => {
+    // A workspace holds at most one pointer (kickoff §5.3): with only the
+    // submission pointer set, a stale cached attempt must not change the
+    // submission judgment.
     const gates = deriveUploadModeGates(input({
-      workspace: workspace({ active_submit_attempt_id: "attempt-1", active_submission_id: "submission-1" }),
+      workspace: workspace({ active_submission_id: "submission-1" }),
       attempt: attempt({ state: "ABORTED" }),
       operation: operation({ status: "FAILED" }),
       review: review({ status: "PENDING" }),
     }));
     expect(gates.withdraw.enabled).toBe(true);
     expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.pending });
+  });
+
+  it("treats a closed attempt behind a still-set attempt pointer as stale", () => {
+    // F2: the workspace snapshot predates the submit finish. Keep everything
+    // disabled with a one-time re-read instead of unlocking.
+    for (const state of ["FINALIZED", "ABORTED"] as const) {
+      const gates = deriveUploadModeGates(input({
+        workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+        attempt: attempt({ state }),
+        operation: operation({ status: "FAILED" }),
+      }));
+      expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.unknown, retry: true, reread: true });
+      expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.unknown, retry: true, reread: true });
+      expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.unknown, retry: true, reread: true });
+    }
+  });
+
+  it("offers a manual refresh without an automatic re-read on review 404", () => {
+    // F3: 404 is user-triggered refresh (§6.1), not one of the four automatic
+    // re-read cases.
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submission_id: "submission-1" }),
+      reviewError: { status: 404, code: "RESOURCE_NOT_FOUND" },
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.notFound, retry: true });
+    expect(gates.withdraw.reread).toBeUndefined();
   });
 
   it("asks for a re-read for the upload gate on terminal review statuses", () => {

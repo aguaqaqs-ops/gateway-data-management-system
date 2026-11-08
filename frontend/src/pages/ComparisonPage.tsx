@@ -202,7 +202,6 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const { workspace, review, attempt } = uploadMode;
   const uploadGates = uploadMode.gates;
   const [resumeOperationId, setResumeOperationId] = useState<string | null>(null);
-  const [resumeMessage, setResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawUnderstood, setWithdrawUnderstood] = useState(false);
@@ -242,6 +241,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     void refreshUploadMode();
   }, [browse.mode, refreshUploadMode]);
   const { resumeAfterOperation } = uploadMode;
+  // F1: the resume notice comes from the hook snapshot (uploadMode.resumeNotice);
+  // the page only clears the operation card for terminal outcomes that leave
+  // no pointer behind. Retry re-runs the read sequence and re-derives the notice.
   const finishSubmitResume = useCallback(async (finishedOperationId: string) => {
     const outcome = await resumeAfterOperation(finishedOperationId);
     if (outcome.kind === "submitted") {
@@ -249,18 +251,11 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       window.location.assign(`/?${params.toString()}`);
       return;
     }
-    if (outcome.kind === "aborted") {
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
       setResumeOperationId(null);
-      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: outcome.abortCode });
-    } else if (outcome.kind === "unfinished") {
-      setResumeMessage({ title: "提交结果待确认，需要管理员处理", code: outcome.operationId });
-    } else if (outcome.kind === "unknown") {
-      setResumeMessage({ title: "无法确认提交状态", code: null });
-    } else {
-      setResumeOperationId(null);
-      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: null });
     }
   }, [resumeAfterOperation]);
+  const resumeNotice = uploadMode.resumeNotice;
   const confirmWithdraw = useCallback(async () => {
     if (!workspace?.active_submission_id || !review) return;
     setWithdrawBusy(true);
@@ -566,7 +561,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
 
   return <main className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
-    {resumeMessage && <div role="alert" className="form-error"><span>{resumeMessage.title}</span>{resumeMessage.code && <span>错误代码：<code>{resumeMessage.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void refreshUploadMode()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
+    {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void refreshUploadMode()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">

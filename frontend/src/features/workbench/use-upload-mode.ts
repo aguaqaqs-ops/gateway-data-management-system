@@ -36,6 +36,18 @@ export type ResumeOutcome =
   | { kind: "empty" }
   | { kind: "unknown" };
 
+/**
+ * F1: the resume notice derives from the same snapshot as the gates (§6.2
+ * steps 1-3). The pages render it without keeping their own copy, so the
+ * prompt and the submit/upload disabled reasons can never disagree.
+ */
+export interface ResumeNotice {
+  title: string;
+  code: string | null;
+  /** How to label the code: the submit operation ID or the backend abort code. */
+  codeLabel: "操作ID" | "原始代码" | null;
+}
+
 export interface UploadModeSnapshot {
   workspace: UploadModeWorkspace | null;
   workspaceLoading: boolean;
@@ -50,6 +62,8 @@ export interface UploadModeSnapshot {
   operationLoading: boolean;
   operationProblem: Problem | null;
   gates: UploadModeGates;
+  /** F1 resume notice derived from the same snapshot as the gates; null before any resume. */
+  resumeNotice: ResumeNotice | null;
   /** Re-runs the full workspace → review/attempt → operation read sequence. */
   refresh: () => Promise<RefreshResult>;
   /**
@@ -73,7 +87,9 @@ export interface UploadModeSnapshot {
 export function useUploadModeState(options: { enabled: boolean }): UploadModeSnapshot {
   const { enabled } = options;
   const [workspace, setWorkspace] = useState<UploadModeWorkspace | null>(null);
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  // N1: start loading so the first frame reports "reading" instead of flashing
+  // "unknown" before the mount read runs. A disabled hook never renders gates.
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceProblem, setWorkspaceProblem] = useState<Problem | null>(null);
   const [review, setReview] = useState<SafeReviewFacts | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -85,6 +101,8 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   const [operationLoading, setOperationLoading] = useState(false);
   const [operationProblem, setOperationProblem] = useState<Problem | null>(null);
 
+  // F1: counts completed resumes; the notice below only appears after a resume.
+  const [resumeSeq, setResumeSeq] = useState(0);
   const inflight = useRef<Promise<RefreshResult> | null>(null);
   const attemptIdRef = useRef<string | null>(null);
   const workspaceRef = useRef<UploadModeWorkspace | null>(null);
@@ -256,6 +274,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         setWorkspaceProblem(null);
       } catch (cause) {
         setWorkspaceProblem(problemFrom(cause));
+        setResumeSeq((seq) => seq + 1);
         return { kind: "unknown" };
       }
       // The known attempt ID survives the pointer being cleared (ABORTED), so
@@ -271,12 +290,14 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         setReviewProblem(null);
         setReviewLoading(false);
         clearAttemptChain();
+        setResumeSeq((seq) => seq + 1);
         return { kind: "empty" };
       }
       const loadedAttempt = await readAttemptChain(loaded.workspace_id, attemptId);
       setReview(null);
       setReviewProblem(null);
       setReviewLoading(false);
+      setResumeSeq((seq) => seq + 1);
       if (!loadedAttempt) return { kind: "unknown" };
       if (loadedAttempt.state === "ABORTED") {
         return { kind: "aborted", abortCode: loadedAttempt.abort_code ?? null };
@@ -289,10 +310,43 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     }
   }, [clearAttemptChain, readAttemptChain, readReview]);
 
+  // F1: the resume notice and the gates come from this same snapshot (§6.2).
+  // ABORTED (pointers cleared, attempt readable) keeps the unfinished-submit
+  // copy with the backend abort code. Cleared pointers with an unreadable
+  // attempt keep the buttons available with the unreadable-result copy.
+  // A readable attempt pointer follows the §6.1 gate reason. Anything else
+  // unreadable reports the unknown copy; retry restarts from step 1.
+  const resumeNotice = useMemo<ResumeNotice | null>(() => {
+    if (resumeSeq === 0) return null;
+    if (!workspace || workspaceProblem) {
+      return { title: "无法确认提交状态", code: null, codeLabel: null };
+    }
+    if (workspace.active_submit_attempt_id) {
+      if (!attempt || attemptProblem || operationProblem) {
+        return { title: "无法确认提交状态", code: null, codeLabel: null };
+      }
+      if (attempt.state === "ABORTED") {
+        return { title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null, codeLabel: "原始代码" };
+      }
+      return { title: gates.submit.reason ?? "无法确认提交状态", code: attempt.operation_id ?? null, codeLabel: "操作ID" };
+    }
+    if (workspace.active_submission_id) {
+      return { title: gates.submit.reason ?? "无法确认提交状态", code: null, codeLabel: null };
+    }
+    if (attempt && attempt.state === "ABORTED") {
+      return { title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null, codeLabel: "原始代码" };
+    }
+    if (attemptProblem) {
+      return { title: "无法读取提交结果，请刷新后重试", code: null, codeLabel: null };
+    }
+    return { title: "提交未完成，请检查上传与 Preview 后重试", code: null, codeLabel: null };
+  }, [resumeSeq, workspace, workspaceProblem, attempt, attemptProblem, operationProblem, gates.submit.reason]);
+
   return {
     workspace,
     workspaceLoading,
     workspaceProblem,
+    resumeNotice,
     review,
     reviewLoading,
     reviewProblem,

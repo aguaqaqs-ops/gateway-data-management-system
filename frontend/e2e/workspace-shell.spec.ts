@@ -54,6 +54,8 @@ async function installFixtureRoutes(page: Page, options: {
   submitAttemptState?: Schemas["SubmitAttemptResponse"]["state"];
   workspaceSubmitAttemptId?: string;
   clearWorkspacePointer?: boolean;
+  /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
+  workspaceSequence?: Schemas["WorkspaceResponse"][];
   operationReadFails?: boolean;
   workspaceReadFails?: boolean;
   operationById?: Record<string, Schemas["OperationResponse"]>;
@@ -109,6 +111,11 @@ async function installFixtureRoutes(page: Page, options: {
       if (!error) throw new Error("POST /v1/workspaces SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "POST", path, status: error.status, body: JSON.stringify(error.body) });
       return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+    }
+    if (options.workspaceSequence?.length) {
+      const next = options.workspaceSequence.shift()!;
+      apiResponses.push({ method: "POST", path, status: 200, body: JSON.stringify(next) });
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(next) });
     }
     workspaceCallCount += 1;
     const response = workspaceCallCount === 1 ? WORKSPACE_CREATED : WORKSPACE_ALREADY_EXISTS;
@@ -1614,6 +1621,13 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
 });
 
+/** Submit button's own disabled reason in the Preview header (never the alert copy). */
+function submitReasonWrap(page: Page) {
+  return page.locator(".compare-actions").locator("span.button-wrap", {
+    has: page.getByRole("button", { name: "提交", exact: true }),
+  });
+}
+
 test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3 可达序列）", async ({ page }) => {
   // Reachable backend sequence: at load the attempt is PREPARED and the
   // operation RUNNING; after the terminal FAILED the attempt is ABORTED with
@@ -1649,7 +1663,7 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
   await expect(submit).toBeEnabled();
 });
 
-test("W9② 操作结束后工作区与 attempt 都读不到时禁用并可重试恢复", async ({ page }) => {
+test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async ({ page }) => {
   let releaseOperation!: () => void;
   const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
   let holdOperation!: () => void;
@@ -1670,14 +1684,20 @@ test("W9② 操作结束后工作区与 attempt 都读不到时禁用并可重�
   await held;
   fixtureOptions.submitAttemptReadFails = true;
   releaseOperation();
-  await expect(page.getByText("无法确认提交状态").first()).toBeVisible({ timeout: 15000 });
+  // F1: the prompt and the submit button's own disabled reason come from the
+  // same snapshot — assert each in its own place, not via first().
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeDisabled();
+  await expect(submitReasonWrap(page).getByText("无法确认提交状态")).toBeVisible();
   // The gates and the notice come from the same re-read snapshot, so the
   // executing copy must be gone once the read fails.
   await expect(page.getByText("提交正在执行，完成后才能继续")).toHaveCount(0);
   fixtureOptions.submitAttemptReadFails = false;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({ timeout: 15000 });
+  await expect(submitReasonWrap(page).getByText("提交结果待确认，需要管理员处理")).toBeVisible();
+  // F1 demo a: retry re-derives the prompt, the old one must be gone.
+  await expect(page.getByText("无法确认提交状态")).toHaveCount(0);
   await expect(submit).toBeDisabled();
 });
 
@@ -1702,12 +1722,81 @@ test("W9③ 操作结束后工作区读不到时禁用并可重试恢复", async
   await held;
   fixtureOptions.workspaceReadFails = true;
   releaseOperation();
-  await expect(page.getByText("无法确认提交状态").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeDisabled();
+  await expect(submitReasonWrap(page).getByText("无法确认提交状态")).toBeVisible();
   fixtureOptions.workspaceReadFails = false;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({ timeout: 15000 });
+  await expect(submitReasonWrap(page).getByText("提交结果待确认，需要管理员处理")).toBeVisible();
+  // F1 demo a: retry re-derives the prompt, the old one must be gone.
+  await expect(page.getByText("无法确认提交状态")).toHaveCount(0);
   await expect(submit).toBeDisabled();
+});
+
+test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重试", async ({ page }) => {
+  // F1 §6.2: both pointers are empty yet the attempt cannot be read — the
+  // submit stays available with the unreadable-result copy.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptReadFails: false,
+    clearWorkspacePointer: true,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  await installFixtureRoutes(page, fixtureOptions);
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  fixtureOptions.submitAttemptReadFails = true;
+  releaseOperation();
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
+  // Retry restarts from step 1: the workspace re-read keeps the cleared
+  // pointers, so the submit stays available with the unfinished-submit copy.
+  fixtureOptions.submitAttemptReadFails = false;
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
+  await expect(page.getByText("无法读取提交结果，请刷新后重试")).toHaveCount(0);
+});
+
+test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", async ({ page }) => {
+  // First read: only the attempt pointer is set but the attempt is already
+  // FINALIZED — a stale snapshot. The hook re-reads once while keeping the
+  // upload disabled; the second read finds the submission pointer (PENDING).
+  const stale = {
+    ...WORKSPACE_CREATED.body,
+    active_submit_attempt_id: "attempt-1",
+    active_submission_id: null,
+  } satisfies Schemas["WorkspaceResponse"];
+  const recovered = {
+    ...WORKSPACE_CREATED.body,
+    active_submission_id: "submission-1",
+    active_submit_attempt_id: null,
+  } satisfies Schemas["WorkspaceResponse"];
+  const { apiRequests } = await installFixtureRoutes(page, {
+    workspaceSequence: [stale, recovered],
+    submitAttemptState: "FINALIZED",
+  });
+  await page.goto("/?page=workspace");
+  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await expect(upload).toBeDisabled({ timeout: 15000 });
+  // The stale snapshot must never unlock the upload; the recovered snapshot
+  // reports the pending submission.
+  await expect(page.locator(".workspace-actions").getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible({ timeout: 15000 });
+  await expect(upload).toBeDisabled();
+  await expect(page.locator(".workspace-actions").getByText("无法确认提交状态")).toHaveCount(0);
+  // Exactly the mount read plus the single stale re-read: without F2 the
+  // stale snapshot unlocks the upload and no re-read happens.
+  expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(2);
 });
 
 test("URL 中的提交操作与指针不一致时以指针为准（job_kind）", async ({ page }) => {

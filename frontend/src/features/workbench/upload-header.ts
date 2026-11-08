@@ -77,12 +77,15 @@ export const UPLOAD_COPY = {
 const TERMINAL = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED"]);
 const ATTEMPT_CLOSED = new Set(["FINALIZED", "ABORTED"]);
 
-type AttemptPhase = "none" | "executing" | "recovery" | "unknown" | "loading";
+type AttemptPhase = "none" | "executing" | "recovery" | "unknown" | "loading" | "stale";
 
 function attemptPhase(input: UploadModeInput): AttemptPhase {
   if (!input.workspace?.active_submit_attempt_id) return "none";
-  // A closed attempt no longer occupies the workspace; judge by the submission pointer.
-  if (input.attempt && ATTEMPT_CLOSED.has(input.attempt.state)) return "none";
+  // A closed attempt behind a still-set attempt pointer means the workspace
+  // snapshot is stale (F2): the submit finished after the workspace was read.
+  // Never unlock on this snapshot; treat it like an unreadable snapshot with
+  // a one-time re-read instead of judging by the submission pointer.
+  if (input.attempt && ATTEMPT_CLOSED.has(input.attempt.state)) return "stale";
   if (input.attemptError || input.operationError) return "unknown";
   if (!input.attempt) return input.attemptLoading ? "loading" : "unknown";
   const status = input.operation?.status ?? null;
@@ -107,6 +110,8 @@ function attemptGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate 
   switch (attemptPhase(input)) {
     case "loading":
       return loadingGate(copy);
+    case "stale":
+      return { enabled: false, reason: copy.unknown, retry: true, reread: true };
     case "unknown":
       return { enabled: false, reason: copy.unknown, retry: true };
     case "recovery":
@@ -122,7 +127,7 @@ function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Ga
   if (input.reviewError) {
     const status = input.reviewError.status ?? null;
     if (mode === "withdraw" && status === 403) return { enabled: false, reason: WITHDRAW_COPY.forbidden };
-    if (mode === "withdraw" && status === 404) return { enabled: false, reason: WITHDRAW_COPY.notFound, reread: true };
+    if (mode === "withdraw" && status === 404) return { enabled: false, reason: WITHDRAW_COPY.notFound, retry: true };
     if (mode === "upload") return { enabled: false, reason: UPLOAD_COPY.inReview };
     return { enabled: false, reason: WITHDRAW_COPY.failed, retry: true };
   }

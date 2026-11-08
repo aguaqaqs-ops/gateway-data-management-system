@@ -117,10 +117,12 @@ export const HISTORY_PAGE_TWO = {
       identity_exception: false,
     },
     {
-      // D5 防御性数据：DC89 下不可达的仅 NOT_CANDIDATE_BASE_ADVANCED、无终局处置。
+      // D4 形态：APPROVED、父基线不是 head（带标记），归档成当前基线 head。
       ref_kind: "submission", ref_id: "fe2a-history-ref-old", node_kind: "SUBMISSION", commit_id: "commit-submission-old",
       created_at: "2026-10-31T09:10:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
       eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: true, review_status: "APPROVED",
+      submission_disposition: "ARCHIVED_BASELINE", disposition_source_kind: "ARCHIVE",
+      disposition_result_id: "archive-result-0", promoted_baseline_node_id: "fe2a-history-ref-1",
     },
   ],
   next_cursor: null,
@@ -326,6 +328,7 @@ function dispositionSubmission(
   refId: string,
   createdAt: string,
   patch: Partial<Schemas["HistoryNodeResponse"]>,
+  parentRefId = "fe2a-history-ref-1",
 ): Schemas["HistoryNodeResponse"] {
   return {
     ref_kind: "submission",
@@ -333,42 +336,56 @@ function dispositionSubmission(
     node_kind: "SUBMISSION",
     commit_id: `commit-${refId}`,
     created_at: createdAt,
-    parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
+    parent: { ref_kind: "baseline_node", ref_id: parentRefId },
     identity_exception: false,
     review_status: "APPROVED",
     ...patch,
   };
 }
 
+// Reachable chain (F4): ref-1 -d-arch-> baseline-arch -d4-> baseline-arch-2
+// (head). d-closed is the sibling closed by the same archive result as d-arch;
+// d-manual sits on the head with no stale note. Every APPROVED submission
+// whose parent is not the head carries the note (projection.py:216); the
+// disposition takes display priority (D4).
 export const DISPOSITION_SCENARIO_NODES: Schemas["HistoryNodeResponse"][] = [
   dispositionSubmission("d-arch", "2026-11-05T01:00:00Z", {
     submission_disposition: "ARCHIVED_BASELINE",
     disposition_source_kind: "ARCHIVE",
     disposition_result_id: "archive-result-1",
     promoted_baseline_node_id: "baseline-arch",
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
   }),
   dispositionSubmission("d-closed", "2026-11-05T02:00:00Z", {
     submission_disposition: "CLOSED_NOT_ARCHIVED",
     disposition_source_kind: "ARCHIVE",
     disposition_result_id: "archive-result-1",
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
   }),
   dispositionSubmission("d-manual", "2026-11-05T03:00:00Z", {
     submission_disposition: "CLOSED_NOT_ARCHIVED",
     disposition_source_kind: "MANUAL_CLOSE",
     closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
-  }),
+  }, "baseline-arch-2"),
   dispositionSubmission("d4", "2026-11-05T04:00:00Z", {
     submission_disposition: "ARCHIVED_BASELINE",
     disposition_source_kind: "ARCHIVE",
     disposition_result_id: "archive-result-2",
     promoted_baseline_node_id: "baseline-arch-2",
-    // Historical note kept alongside the disposition (§5.3/20d3b885f6): the
-    // disposition takes display priority (D4).
     eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
-  }),
-  // DC89-unreachable defensive data (see above): APPROVED plus the note, no disposition.
-  dispositionSubmission("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" }),
+  }, "baseline-arch"),
 ];
+
+// D5 stays out of the shared scenario array: APPROVED plus the stale note
+// with no disposition is DC89-unreachable defensive data, used only by D5 cases.
+// The chain rules below take it as an explicitly listed exception.
+export const DISPOSITION_D5_NODE: Schemas["HistoryNodeResponse"] =
+  dispositionSubmission("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" });
+
+// Head for the D1-D5 tree: the tip of the baseline chain.
+export const DISPOSITION_HEAD: Schemas["HistoryListResponse"]["head"] = {
+  node_id: "baseline-arch-2", commit_id: "commit-baseline-arch-2", version: 23,
+};
 
 export const DISPOSITION_SCENARIO_BASELINES: Schemas["HistoryNodeResponse"][] = [
   DISPOSITION_BASELINE_FIRST,

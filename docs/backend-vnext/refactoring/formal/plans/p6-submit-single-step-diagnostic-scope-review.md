@@ -3180,3 +3180,32 @@ runner已打印Hypothesis与Cargo target清理；这不替代尚未交付的节�
 采集器只记录事件/inspect成功/错误/身份差异/未完成事件数、stream状态和UTC；异常、超时、重复或EOF保留原件并标coverage gap，不向runner发信号、不改runner exit，不把取证失败称产品失败。实际身份不符仍由实施者按原停止规则处置。正常owner stop通过TERM让collector终止自己的events子进程，wait3s后kill/wait2s；wrapper至多15次1s轮询后必要时KILL并wait，独立记录collector exit和forced-kill，runner/wrapper真实exit保持。这个受控单次入口/有界收尾符合范围；没有要求先新增focused矩阵或另起服务来证明旁路。实际某事件inspect失败、短生存容器未被保存或collector被强杀时，只按实际原件判断缺口和必要定向补足，不自动中断/全量重跑，也不能仅凭collector exit0声称逐旅程覆盖成立。
 
 **本轮增量与关键接线已集中通过，可按原持续授权直接完成新H镜像与最终门禁，不再逐代码/文件摘要或manifest GO。** 新H镜像仍在准备、runner尚未启动是本次投递状态；本审核未把准备事实或静态接线判为镜像/门禁通过。最终集中核当前H实际身份、逐ID原始事件/inspect及其真实缺口、各包闭包、runner exit和postflight；所有旧失败保持原资格，闭合历史测量不重开。原报告及本地reply写入本节准确提交供协调读取，不联系归档实施者或失效MCP。
+
+## 155. V5b实际closed结果独审PASS；H1-refill两原件补齐tool HEAD元数据
+
+**`p6v5bonly20261108a` 本次限定V5b接续实际结果、六reference来源及保卷收尾独审PASS，剩余四新段缺口关闭。** 本轮只核已交真实closed结果/来源，不重审§150接线、旧A/已关业务或CT04新在途门禁。closeout-index.json SHA **`227132f83e8a5ca515eee4de9f577006a040eb1fb587dcc353aab5874ae28ce7`** 精确匹配；`baseline/v5b-only-resume-20261108a/closed/` 的17项索引文件大小/SHA全部MATCH，其中CLOSED-SHA256SUMS SHA **39e021f9…2e9faf** 所列15项（含六reference）逐项通过。本审核BatchMode后仅只读CT108这些已闭合小文件及两份历史JSON元数据，没有进程/Docker/数据库探测、起栈或测试；远端15原件、清单、controller、旧FAILED raw及H1-refill两文件共**20项**的bytes/SHA与本地精确MATCH。审核记录 `p6-baseline-evidence-review-20261108/v5b-closed-c81/remote-closed-files-hashes.json` SHA **`73cc9e7100196c0796feb842ff43b8386697f0f0b13255e4f7be7cedf28bdd07`** 保留此次跨节点只读核对。
+
+真实shell启动02:05:56Z，controller02:05:58.459Z；service-binding02:06:04.497Z绑定唯一RS原同节点对象 **a75aa535…cc7e39**、原repository-service-data卷，实际launch identity与已通过预检除UTC/剩余预算/可用资源外逐项一致，c81/source/input/state/raw/native身份保持。原冻结config/完整层及明确诊断build-input差异仍按既有资格，不重新Docker-save或替换冻结镜像。measurement.log SHA **`7d926c54761cec43ed9bdead48557136e1545b0e3bfbf40ee0094c59fba2c3ee`** 记录02:06:04.539–02:28:51.283Z、1366.637s、起止clean c81、exit0；02:28:49Z已写四段PASS，controller/postflight于02:28:53.968Z结束exit0，没有原绝对截止滑动。capability raw本体1363.996432s含必要准备，不冒称此总量是单个B/C/D或业务API延迟。
+
+新raw117099B/SHA **`3c46202196455c63c8759648e7a47c3d8900c6a9cd3a5beb0cc64208aaeba8ac`** 为continuation范围PASS，仅四段B-v1/B-v2/C/D；全部实际stage失败标记false、计时非负。B两个package各312表、246794/246874行、before/current无artifact表均0，真实bundle和records closure显式readback完成；records分别1/36项、436/168条，ready refs1406/930。C含312个唯一frozen-table读取、行数和246874、parent/snapshot/frozen表数312、removed0；D有preview/submit两侧serialize/readback/pin结果，原probe标记保持。新运行为B必要重建两个package Bounds及27表selected Bound已单列preparation，不重做旧A的full312 RepositoryRef读取，也不把这次准备伪装成新A参考。
+
+**六份reference已直接按各自真实raw重新计算并核来源，不拼统一全绿raw：**
+
+| reference | 秒数 | 实际来源 |
+| --- | ---: | --- |
+| A materialize-v1＋readback | 249.300666 | d2ffe旧FAILED raw中已完成A段 |
+| B preview-v1 | 22.135329 | c81本次B/C/D continuation |
+| B preview-v2 | 43.709289 | c81本次B/C/D continuation |
+| C submit-prepare capability | 68.062020 | c81本次B/C/D continuation |
+| D preview-checkpoint | 0.062899 | c81私有checkpoint/pin probe |
+| D submit-checkpoint | 0.040140 | c81私有checkpoint/pin probe |
+
+reference中的source HEAD/path/raw SHA/status与对应原件精确一致，C原浮点值68.06201999999999未重写。旧raw SHA **245232de…9c62fb** 仍FAILED，两个已完成A段仅按原资格引用；其本地已认证副本、当前远端SHA及索引投影相同。B仅加pair_pipeline、独立surface closure、assemble、显式bundle readback和完整records readback五个原外层边界，未再次加嵌套records_closure_generation或store I/O；package preparation中的materialization_artifact_write虽留旧relation标签，索引已明确是nested诊断I/O，不加成独立耗时。C七阶段、D各三阶段逐项和与reference一致，没有从粗UTC推造细阶段。
+
+采样resources SHA **`c7b4209921066040843d12e6b87564d9c2702eecc4407ee74fb634283c25ca51`** 与sampler-controller摘要一致：648个2s周期样本，只覆盖唯一RS容器cgroup及filesystem delta；RS CPU119.584s、sampled concurrent memory.current峰175792128B、sum-container memory.peak上界195993600B、peak cores2.592、磁盘delta高水位242085888B。宿主测量Python的raw thread CPU1289.81875s包含准备，不能用RS数字替代；step_resources为空，不作per-stage cgroup归因。缓存为原保留RS卷/OS cache、重启RS进程、新私有artifact store，无cold claim。D使用私有checkpoint-pinning.sqlite3及`package_ref_is_probe_payload=true`，仅证明serialization/readback/pinning能力，不是业务Submit耗时。以上限制随PASS保留，不宣性能目标或统一版本全矩阵通过。
+
+postflight SHA **`acb1c905a7e71362bb972f3c60be9778f98417cccdce4340b8c6056fa7309e51`** 与controller末记录精确一致：measurement/controller exit0、c81不变、child/log capture无错误、原三卷保留、cleanup_ok和own lock released均true。索引另保02:30:27Z实施者后检quiet/clean事实，本审核不扩写为新的实时节点扫描。旧FAILED raw、新raw、scratch、RS日志与全部保留卷仍在，未清理任何既有证据或重跑已过05验证/业务旅程。
+
+**H1-refill仅补tool HEAD元数据，通过，不重审旧业务。** 同目录h1-refill-metadata/run.json11440B/SHA **`fbb33234f3a071cf324b0e393ff9cf7de20a3c742f9b77be6ce320a84069038e`**、resources.json1749B/SHA **`006f87d44b53901de5e6073fc2fdb8d6f98e340dc174e21585c93272369a01d2`** 均与CT108原 `ct108-h1-refill-20261102b/evidence/run.json` / resources.json逐字节摘要相同。run.head及resources.start/end_head全为 **`0739d8cba0057e2edfa0ee991d46e1c7282ef31e`**，资源head_stable=true、两原件exit0；run.parent_source.head明确另为 **bb348a9299ef58004048cf81cac0caf404eaaaa1**，不可混作本次tool HEAD。由此关闭§147/参考索引中该场景tool HEAD暂缺元数据项；4279.14s仍只是原resources整run口径，不改记History API。未重算旧输入/镜像/卷或把该补元数据升级为新的旧业务审核。
+
+本轮报告提交和原reply更新后，按主协调新通知闭环，使用本机 **`codex queue --thread 01a1a628-e59a-7981-aad5-6bf31e919d38 --message <准确节/提交/结论/路径短摘要> --resume`** 向原同一root主动排队通知一次；不新建会话、改模型、调用失效MCP或等待Owner中继。实际排队/恢复结果及任何错误写原reply，本回执仅作协调索引，不代替本节权威证据。04新门禁按原授权继续，不因本轮V5b事后审核增设新GO。

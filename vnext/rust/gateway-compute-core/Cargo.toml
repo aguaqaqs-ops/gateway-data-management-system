@@ -11,6 +11,7 @@ workspace = true
 gateway-shared-kernel = { path = "../gateway-shared-kernel" }
 arrow-array.workspace = true
 arrow-buffer.workspace = true
+arrow-data.workspace = true
 arrow-ipc.workspace = true
 arrow-schema.workspace = true
 bytes.workspace = true

@@ -16,7 +16,7 @@ Q18固定产品仍为a1ca3bad93；原报告已增加focused/容器脚本静审�
 
 ## 3. 逐节状态
 
-A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：产品788ed36e7742a067bf01c16ad2e6aaed2fed91fb，原审B GO，04 focused209+3及850表差分核收，详见§8与[B原审](p6-s4-b-review.md)。C：产品48053253f9a3c46b0d227167a4d0ca1f8ad94bf3，原审C GO，06 Rust207及focused318+4，详见§10。按DC96直接进入D；E待后继实际核收。尚无S4最终产品V/H、权威/Compose/容量/性能PASS或exit tag。
+A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151pass与五包静态0，详见[A handoff](p6-s4-a-handoff.md)/[原审](p6-s4-a-review.md)。B：产品788ed36e7742a067bf01c16ad2e6aaed2fed91fb，原审B GO，04 focused209+3及850表差分核收，详见§8与[B原审](p6-s4-b-review.md)。C：产品48053253f9a3c46b0d227167a4d0ca1f8ad94bf3，原审C GO，06 Rust207及focused318+4，详见§10。D：产品41d1944208fe99911df0a15641ab651505d1274c，原审D GO，06 focused327+18，详见§11。按DC96直接进入E；最终权威/Compose/真实/资源性能待实测，尚无S4 exit tag。
 
 ## 4. A核收后的并行事实
 
@@ -92,3 +92,17 @@ C最终产品V=`48053253f9a3c46b0d227167a4d0ca1f8ad94bf3`，handoff最终H=`f4d9
 06 `gw-dms-06` r7于20:49:05–20:50:21Z实际Rust fmt/clippy/test207、强制扩展和build-input e2a9014、五包ruff/mypy、13文件非serial318及serial4均0；entry/final/outer/capture均0，起止480 clean、六锁0漂、本人marker双释放0。原件`/home/dev/gdds-test-tmp/p6-s4-c-r7-06-48053253f9/controller/`，node SHA `fb07cb17000a0c584f38f06ca4e124d9ab6364e5fc0b2a6323ed268c9e16fb27`、outer SHA `41f7068eb86bf8761a5ddf2b162f627a5d76e8a79c63c67314ca29a7410c92a1`。四格式source=result，无额外回填。C全部历史失败及WT/target/log保留；06当前本人资源正常释放，已有来源和他人资源未清。此GO不覆盖生产Submit、组合DDL+DML cap、最终六包/Compose/真实/容量/性能；最后C image revision/source-tree仍none，E最终候选须重建与适用容器门禁。
 
 C实施/原审已完成本节职责；D新Sol xhigh实施者与独立Sol审核者接手唯一Submit生产路径及旧热路径删除，唯一Luna继续专用节点执行。S3原协调者已申请并获短期独占`comparison/production.py`及两份`test_comparison_s3_c_arrow.py`/`test_comparison_s3_d_production.py`，用于把隔离4b0的已预扣sort预算最小移植到main；D避开三路径，收到固定移植候选/释放后才核实际集成，S3-only取证不外推为含S4的main或倒签原V774成功。当前无S4 exit tag，不进入S5。
+
+## 11. D核收、真实消费者与E证据接续
+
+D最终产品V=`41d1944208fe99911df0a15641ab651505d1274c`，文档H=`9d91653ac96908cc9cafe159fcb7b76a5a3525bd`，原D独审 **D GO**、F-D1–4关闭；报告[p6-s4-d-review.md](p6-s4-d-review.md) SHA `6ab8e80e37a042ec89c9c5a98d94709b6882f083466c6bef4f35cf544db8badf`，原文归档。H2相对V仅D handoff和S3原审文档，不把S3内容纳D结论。Submit现在用真实逐表storage task/summary/共用policy/SQL，再合完整DDL前缀与DML交原publisher；旧Python行graph、import replay wrapper/专属类型和mock删除，保generic library APIs及实际checkpoint/readback/外部ledger消费者。
+
+原审首先关闭了非INITIAL parent读取依赖runtime ruleset的问题：frozen storage-only请求明确`ruleset=None`，从完整parent binding取storage key，普通comparison路径保原ruleset；full catalog、exact commit、count/content、同M backing不减。合法冻结A与实际runtime B不同的非INITIAL100行/1改回归接真实committed reader/native PATCH，错commit/count/content拒绝；没有造回已删除函数alias的probe。无consumer的Submit-only base digest入参删除，外部ledger同名字段保留。
+
+Ce首轮06 21:26:30–21:27:30Z五包静态0、nonserial326过/1架构失败、serial未跑，node SHA `f46ac480f7aaac9ebc1645933833eb83b83821a819de9c13883c728cb4eddcc0`、outer SHA `298a6e3b9e6bfe771ee139ff23191d5bdd74f6385c89ee753d45b650add1ea16`，原失败保留。原审核明generic `_planner/_changeset/_artifacts/_digest/_repository_replay_renderer` 当前无app/worker运行consumer，external target仅消费DTO；Owner明确保留standalone API，所以按原架构规则以精确5项永久library seam及退休条件收口，不造生产调用、不扩大root图。B临时`storage/native`项已移除。
+
+41d复验06 `gw-dms-06` 21:32:59–21:34:21Z实际forcedextension/build-input e2a9014、五包ruff/mypy均0，16文件非serial327、serial18均过；entry/final/outer/capture全0，起止41d clean、六锁0漂、本人marker双释放0。原件`/home/dev/gdds-test-tmp/p6-s4-d-r2-06-41d1944208/controller/`，node SHA `746e81deb09450194960a823971c198f3f736a514f331677537a958824adc0df`、outer SHA `5c12eb21a7777cfcff473fe7a8685b11a16af097056efdbc3b1590197452b847`；Rust源未变，C r7三步仅作同node调试参考，不是formal carried。日志的`native_calls=2`仅coarse prepare/render入口，不是所有FFI/chunk pulls；`parent_read`不包含frozen after IPC打开，E按明确口径报告。
+
+S3已完成主线最小移植`1ecb17f6de4c71ddb001a6829d2222cd28bacb34`并释放三路径；06 21:01:08–21:02:29Z affected focused134+1、backend静态/forceext0由其原E独核，来源`/home/dev/gdds-test-tmp/p6-s3-main-port-focused-1ecb17f6de-fixed/focused-control/`，node SHA `aff29570a93d3d0a24f2dd0ad98ca29d382bb216915575ad989b8501d2f63ebd`、outer SHA `955b53d3607d9026b2b4da11ebce39e02a4ca33d88124ef61b7978b2c0a15e1e`。仅该main接口移植事实，不等于隔离4b0或原774的容量成功。S3另明确把main `real_dump_journey.py`交S4 root准备Submit测量，隔离4b0/固定driver/输入和原件均不动。
+
+D角色完成职责后E用新实施/原审。root在D期间仅准备了未提交的journey度量/测试两路径（不在D被测V/H）；E先固定独审这些输入与命令，再集中当前候选六包、镜像/Compose、DC33真实旅程/正式统计/S1a复核。资源保持原M24归因与授权内固定增配档分列；没有这些实际原件前不签E/S4 exit，也不进入S5。

@@ -84,6 +84,7 @@ async function installFixtureRoutes(page: Page, options: {
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
   let workspacePointerCleared = false;
+  let submitAttemptPointer: string | null = null;
   let workspaceSubmitSucceeded = false;
   let uploadConflictConsumed = false;
 
@@ -104,10 +105,11 @@ async function installFixtureRoutes(page: Page, options: {
     let body = uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
       ? { ...response.body, optimistic_version: 14 }
       : response.body;
-    if (options.workspaceSubmitAttemptId) {
+    const attemptPointer = options.workspaceSubmitAttemptId ?? submitAttemptPointer;
+    if (attemptPointer) {
       body = workspacePointerCleared
         ? { ...body, active_submission_id: workspaceSubmitSucceeded ? "submission-1" : null, active_submit_attempt_id: null }
-        : { ...body, active_submission_id: null, active_submit_attempt_id: options.workspaceSubmitAttemptId };
+        : { ...body, active_submission_id: null, active_submit_attempt_id: attemptPointer };
     }
     apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(body) });
     return route.fulfill({ status: response.status, contentType: "application/json", body: JSON.stringify(body) });
@@ -117,14 +119,14 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     if (request.method() !== "GET") return route.fallback();
     const url = new URL(request.url());
-    let body = url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
+    let body: Schemas["HistoryListResponse"] = url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
     if (!url.searchParams.has("cursor") && options.approvedSubmission) {
       body = { ...body, nodes: body.nodes.map((node) => node.ref_id === "fe2a-history-ref-2" ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined } : node) };
     }
     if (!url.searchParams.has("cursor") && options.submissionOne) {
       body = { ...body, nodes: [...body.nodes, {
         ref_kind: "submission" as const, ref_id: "submission-1", node_kind: "SUBMISSION" as const, review_status: "PENDING" as const,
-        parent: { ref_kind: "baseline" as const, ref_id: "fe2a-history-ref-1" }, commit_id: "commit-submission-1",
+        parent: { ref_kind: "baseline_node" as const, ref_id: "fe2a-history-ref-1" }, commit_id: "commit-submission-1",
         identity_exception: false, created_at: "2026-11-03T09:05:00Z",
       }] };
     }
@@ -170,7 +172,7 @@ async function installFixtureRoutes(page: Page, options: {
       apiResponses.push({ method: "POST", path, status: 403, body: JSON.stringify(error.body) });
       return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
     }
-    const action = (JSON.parse(body) as { action: Schemas["ReviewFactsResponse"]["status"] }).action;
+    const action = (JSON.parse(body) as Schemas["ApplyReviewRequest"]).action;
     reviewStatus = action === "APPROVE" ? "APPROVED" : action === "REJECT" ? "REJECTED" : "WITHDRAWN";
     const response = { ...TEST_REVIEW_APPLIED, submission_id: submissionId, status: reviewStatus, review_version: 6 };
     apiResponses.push({ method: "POST", path, status: 201, body: JSON.stringify(response) });
@@ -362,6 +364,7 @@ async function installFixtureRoutes(page: Page, options: {
       return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
     }
     const response = { ...TEST_SUBMIT_ACCEPTED, operation_id: "submit-op-1", workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
+    if (options.clearWorkspacePointerOnTerminal && !submitAttemptPointer) submitAttemptPointer = response.submit_attempt_id;
     apiResponses.push({ method: "POST", path, status: 202, body: JSON.stringify(response) });
     return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(response) });
   });
@@ -430,7 +433,7 @@ async function installFixtureRoutes(page: Page, options: {
       ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
       selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
       confirmation_requirements: ["sha256:selection-subject"],
-      anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: candidateId, target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+      anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: candidateId, target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly", accepted_at: null, accepted_by: null, affected_submission_ids: [candidateId], details: {}, detected_status: "UNEXPLAINED", latest_sequence: 0, reason: null, relations: [], resolution_status: "UNRESOLVED", side: null }],
       dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
     };
     apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 200, body: JSON.stringify(response) });
@@ -1099,7 +1102,9 @@ async function freezePageClock(page: Page) {
     const RealDate = Date;
     const fixed = RealDate.parse("2026-11-03T09:00:09Z");
     class FrozenDate extends RealDate {
-      constructor(...args: ConstructorParameters<typeof Date>) { super(...(args.length === 0 ? [fixed] : args)); }
+      constructor(...args: ConstructorParameters<DateConstructor>) {
+        if ((args as unknown[]).length === 0) super(fixed); else super(...args);
+      }
       static now() { return fixed; }
     }
     window.Date = FrozenDate as DateConstructor;
@@ -1290,7 +1295,6 @@ test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }
   ];
   await installFixtureRoutes(page, {
     operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]!,
-    workspaceSubmitAttemptId: "attempt-1",
     clearWorkspacePointerOnTerminal: true,
     submissionOne: true,
   });

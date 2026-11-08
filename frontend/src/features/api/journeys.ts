@@ -66,7 +66,7 @@ export async function pollOperation(api: GatewayApi, operationId: string, option
       reportConnectionStatus("connected");
       options.onUpdate?.(operation);
       if (operation.status === "SUCCEEDED") return operation;
-      if (operation.status === "FAILED" || operation.status === "CANCELLED" || operation.status === "SUPERSEDED") {
+      if (operation.status === "FAILED" || operation.status === "CANCELLED" || operation.status === "SUPERSEDED" || operation.status === "ABORTED") {
         throw new OperationFailedError(operationId, operation.diagnostic);
       }
     } catch (cause) {

@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-# FE3a real-backend e2e runner (frontend kickoff §4).
+# FE3b real-backend e2e runner (frontend kickoff §4.1–§4.9).
 #
 # Standalone script, NOT part of run-tests.sh (kickoff §4.1, owner Q4).
-# Spins up the Compose backend stack on this node, seeds one repository per
-# scope, verifies the running /openapi.json against the committed snapshot
-# through the preview server, then runs the Playwright real-backend suite
-# inside the toolchain container (production build, per-identity contexts).
+# Spins up the Compose backend stack on this node, seeds one independent
+# Repository Service scope per journey on an empty INITIAL baseline, verifies
+# the running /openapi.json against the committed snapshot through the preview
+# server, then runs the Playwright real-backend suite inside the toolchain
+# container (production build, one browser context per identity).
+#
+# Suites:
+#   smoke     FE3a smoke, unchanged: five upload scopes plus the permission
+#             scopes and one identity group.
+#   journeys  FE3b journeys (R1–R7, two-node R9, R10, R11): requires
+#             --subphase fe3b; seeds the 18 independent scopes listed in
+#             JOURNEY_SCOPE_ROLE_SPEC, rebuilds one upload input directory per
+#             scope outside the worktree, and exports GATEWAY_FE_IDENTITIES,
+#             GATEWAY_FE_JOURNEY_SCOPES and GATEWAY_FE_JOURNEY_INPUT_ROOT.
+#   t1        FE3c real-data journeys; rejected with exit 2 until FE3c.
 #
 # Usage:
-#   frontend/scripts/run-real-backend-e2e.sh --suite smoke --session <name> \
+#   frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys --session <name> \
 #     --log-dir <absolute-dir> [--evidence-dir <absolute-dir>] \
 #     [--subphase <name>]
 #
-# Only --suite smoke is implemented in FE3a; journeys/t1 belong to FE3b.
+# Tokens are random per run, never logged and never part of a build product;
+# only identity names and permission strings reach the log.
 #
 # Environment (same npm cache variables as run-tests.sh, kickoff §2.2):
 #   GATEWAY_FRONTEND_NPM_CACHE / _ARCHIVE / _SOURCE_COMMIT
@@ -28,6 +40,7 @@ TOOLCHAIN_IMAGE="mcr.microsoft.com/playwright:v1.64.1-noble"
 SUITE=""
 SESSION=""
 SUBPHASE="fe3a"
+SUBPHASE_SET=0
 LOG_DIR=""
 EVIDENCE_DIR=""
 INPUT_ROOT=""
@@ -36,7 +49,7 @@ RUN_STAGE="argument-validation"
 
 usage() {
   cat <<'USAGE'
-usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke --session <name> [--subphase <name>] [--input-root <dir>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
+usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys --session <name> [--subphase <name>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
 USAGE
 }
 
@@ -44,7 +57,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --suite) [[ -z "$SUITE" && $# -ge 2 ]] || { usage >&2; exit 2; }; SUITE="$2"; shift 2 ;;
     --session) [[ -z "$SESSION" && $# -ge 2 ]] || { usage >&2; exit 2; }; SESSION="$2"; shift 2 ;;
-    --subphase) [[ "$SUBPHASE" == "fe3a" && $# -ge 2 ]] || { usage >&2; exit 2; }; SUBPHASE="$2"; shift 2 ;;
+    --subphase) [[ "$SUBPHASE_SET" == "0" && $# -ge 2 ]] || { usage >&2; exit 2; }; SUBPHASE="$2"; SUBPHASE_SET=1; shift 2 ;;
     --input-root) [[ -z "$INPUT_ROOT" && $# -ge 2 ]] || { usage >&2; exit 2; }; INPUT_ROOT="$2"; shift 2 ;;
     --log-dir) [[ -z "$LOG_DIR" && $# -ge 2 ]] || { usage >&2; exit 2; }; LOG_DIR="$2"; shift 2 ;;
     --evidence-dir) [[ -z "$EVIDENCE_DIR" && $# -ge 2 ]] || { usage >&2; exit 2; }; EVIDENCE_DIR="$2"; shift 2 ;;
@@ -242,14 +255,64 @@ trap 'on_signal INT 130' INT
 trap 'on_signal TERM 143' TERM
 trap 'on_signal HUP 129' HUP
 
-if [[ "$SUITE" != "smoke" ]]; then
-  printf 'error=only --suite smoke is implemented in FE3a; --suite %s belongs to FE3b\n' "$SUITE" >&2
+case "$SUITE" in
+  smoke|journeys) ;;
+  t1)
+    printf 'error=--suite t1 is implemented in FE3c; use --suite smoke or --suite journeys\n' >&2
+    exit 2 ;;
+  *)
+    printf 'error=unknown --suite %s; expected smoke or journeys\n' "$SUITE" >&2
+    exit 2 ;;
+esac
+if [[ "$SUITE" == "journeys" ]]; then
+  [[ "$SUBPHASE_SET" == "1" && "$SUBPHASE" == "fe3b" ]] || {
+    printf 'error=--suite journeys requires --subphase fe3b (got %s)\n' "$SUBPHASE" >&2
+    exit 2
+  }
+elif [[ "$SUBPHASE" != "fe3a" ]]; then
+  printf 'error=--suite smoke only runs with --subphase fe3a (got %s)\n' "$SUBPHASE" >&2
   exit 2
 fi
 if [[ -n "$INPUT_ROOT" ]]; then
-  printf 'error=--input-root is for the FE3b t1 suite; smoke uses the shared upload inputs\n' >&2
+  printf 'error=--input-root is for the FE3c t1 suite; journeys builds its own upload directories\n' >&2
   exit 2
 fi
+
+# Journey scope table (kickoff §4.7). One independent Repository Service scope
+# per journey and one identity per role the journey references. Roles outside
+# the base pair only get the permissions they name (exact strings, no
+# inheritance). Format: <slug>=<role>[,<role>...].
+JOURNEY_SCOPE_ROLE_SPEC=(
+  "r1-states=submitter,reviewer,none"
+  "r2-preview=submitter,reviewer,none"
+  "r2-full=submitter,reviewer,none"
+  "r3-truncated=submitter,reviewer"
+  "r4-submit=submitter,reviewer,none"
+  "r5-idempotency=submitter,reviewer,none"
+  "r6-reject-approve=submitter,reviewer,none"
+  "r7-withdraw=submitter,reviewer,none"
+  "r7-upload-only=submitter-upload-only,reviewer,none"
+  "r7-approved=submitter,reviewer,none"
+  "r7-stale=submitter,reviewer,none"
+  "r7-reviewer-withdraw=submitter,reviewer,none"
+  "r9-history=submitter,reviewer,none"
+  "r10-noperm=submitter,reviewer,none"
+  "r10-no-preview=submitter-no-preview,reviewer,none"
+  "r10-archive=submitter,reviewer,none,archiver"
+  "r11-review-conflict=submitter,reviewer,none"
+  "r11-workspace-conflict=submitter,reviewer,none"
+)
+JOURNEY_SLUGS=()
+for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
+  JOURNEY_SLUGS+=("${journey_spec%%=*}")
+done
+# Container-side mount point for the journey upload inputs (ro) and the
+# host-side root they are generated under; both are set once the suite is
+# known (see the input section).
+JOURNEY_INPUT_MOUNT="/journey-inputs"
+JOURNEY_INPUT_ROOT=""
+IDENTITIES_FILE=""
+SUITE_SPEC=""
 
 RUN_STAGE="occupancy"
 HOSTNAME_START="$(hostname -f 2>/dev/null || hostname)"
@@ -275,8 +338,8 @@ if ! mkdir "$BUSY_DIR" 2>/dev/null; then
   fi
   exit 3
 fi
-printf 'session=%s\npurpose=fe3a-real-backend-e2e-%s\nstarted_at=%s\nhostname=%s\nworktree=%s\nhead=%s\n' \
-  "$SESSION" "$SUITE" "$STARTED_AT" "$HOSTNAME_START" "$REPO_DIR" "$HEAD_START" > "$BUSY_DIR/$SESSION"
+printf 'session=%s\npurpose=%s-real-backend-e2e-%s\nstarted_at=%s\nhostname=%s\nworktree=%s\nhead=%s\n' \
+  "$SESSION" "$SUBPHASE" "$SUITE" "$STARTED_AT" "$HOSTNAME_START" "$REPO_DIR" "$HEAD_START" > "$BUSY_DIR/$SESSION"
 HAVE_BUSY=1
 log "occupancy_marker=$(printf '%s' "$(tr '\n' ';' < "$BUSY_DIR/$SESSION")")"
 log "occupancy_acquired_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -406,19 +469,23 @@ RUN_STAGE="compose-up"
 STAMP="$(date -u +%Y%m%dt%H%M%Sz | tr 'A-Z' 'a-z')"
 PROJECT_NAME="gdds-fe-${SUBPHASE}-${HEAD_START:0:12}-${STAMP}"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
-RUN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe3a-e2e.XXXXXX")"
+RUN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-${SUBPHASE}-e2e.XXXXXX")"
 chmod 0755 "$RUN_ROOT"
 log "compose_project=$PROJECT_NAME"
 log "run_root=$RUN_ROOT"
 
 # Random per-run tokens (never logged, never in build products).
+TOKEN_PREFIX="fe3a"
+if [[ "$SUITE" == "journeys" ]]; then TOKEN_PREFIX="fe3b"; fi
+RS_BEARER="${TOKEN_PREFIX}-rs-$(openssl rand -hex 16)"
+INTERNAL_BEARER="${TOKEN_PREFIX}-internal-$(openssl rand -hex 16)"
+
+if [[ "$SUITE" == "smoke" ]]; then
 SUBMITTER_TOKEN="fe3a-submitter-$(openssl rand -hex 16)"
 NOPREVIEW_TOKEN="fe3a-nopreview-$(openssl rand -hex 16)"
 REVIEWER_TOKEN="fe3a-reviewer-$(openssl rand -hex 16)"
 ARCHIVER_TOKEN="fe3a-archiver-$(openssl rand -hex 16)"
 NOPERM_TOKEN="fe3a-noperm-$(openssl rand -hex 16)"
-RS_BEARER="fe3a-rs-$(openssl rand -hex 16)"
-INTERNAL_BEARER="fe3a-internal-$(openssl rand -hex 16)"
 UPLOAD_DEVICE="fe3a-device-upload-preview"
 UPLOAD_PROJECT="fe3a-project-upload-preview"
 PERMISSION_DEVICE="fe3a-device-permission-denied"
@@ -461,6 +528,106 @@ with open(path, "w", encoding="utf-8") as handle:
     json.dump(data, handle, indent=2)
     handle.write("\n")
 PY
+fi
+
+if [[ "$SUITE" == "journeys" ]]; then
+  # One identity per (journey scope, role); every identity carries its own
+  # random token and actor id, and shares the scope's gateway device and
+  # business project. Tokens never reach the log (names/permissions only).
+  python3 -I - "$RUN_ROOT/session.json" "$RUN_ROOT/journey-identities.json" \
+    "$RUN_ROOT/journey-scopes.json" "$JOURNEY_INPUT_MOUNT" "${JOURNEY_SCOPE_ROLE_SPEC[@]}" <<'PY' | tee -a "$LOG_FILE"
+import json
+import secrets
+import sys
+
+session_path, identities_path, scopes_path, input_mount, *specs = sys.argv[1:]
+
+BASE_PERMISSIONS = ("workspace_read", "read_project_history")
+ROLE_PERMISSIONS = {
+    "submitter": ("upload_submit_workspace", "preview_workspace", "withdraw_own_submission"),
+    "submitter-upload-only": ("upload_submit_workspace",),
+    "submitter-no-preview": ("upload_submit_workspace",),
+    "reviewer": ("review_submission",),
+    "archiver": ("archive_submission",),
+    "none": (),
+}
+
+sessions = []
+identities = []
+scopes = []
+seen_names = set()
+seen_tokens = set()
+seen_actors = set()
+
+for spec in specs:
+    slug, separator, roles_csv = spec.partition("=")
+    roles = [role for role in roles_csv.split(",") if role]
+    if not separator or not slug or not roles:
+        raise SystemExit(f"bad journey scope spec: {spec!r}")
+    device = f"fe3b-device-{slug}"
+    project = f"fe3b-project-{slug}"
+    declared = []
+    for role in roles:
+        role_permissions = ROLE_PERMISSIONS.get(role)
+        if role_permissions is None:
+            raise SystemExit(f"unknown journey role {role!r} in scope {slug}")
+        name = f"{slug}-{role}"
+        token = f"fe3b-{slug}-{role}-{secrets.token_hex(16)}"
+        actor = f"fe3b-{slug}-{role}"
+        for value, seen, label in (
+            (name, seen_names, "identity name"),
+            (token, seen_tokens, "token"),
+            (actor, seen_actors, "actor id"),
+        ):
+            if value in seen:
+                raise SystemExit(f"duplicate journey {label}: {value}")
+            seen.add(value)
+        granted = list(BASE_PERMISSIONS) + list(role_permissions)
+        sessions.append({
+            "token": token,
+            "actor_id": actor,
+            "gateway_device_external_key": device,
+            "business_project_id": project,
+            "permissions": granted,
+        })
+        identities.append({
+            "name": name,
+            "role": role,
+            "scope": slug,
+            "token": token,
+            "actorId": actor,
+            "businessProjectId": project,
+            "gatewayDeviceExternalKey": device,
+        })
+        declared.append({"role": role, "name": name})
+        print(f"identity={name} scope={slug} role={role} permissions={','.join(granted)}")
+    scopes.append({
+        "slug": slug,
+        "roles": declared,
+        "repository_id": "",
+        "initial_commit_id": "",
+        "business_baseline_node_id": f"fe3b-baseline-{slug}",
+        "inputs": {
+            "modified_only": f"{input_mount}/{slug}/modified_only",
+            "full_initial": f"{input_mount}/{slug}/full_initial",
+            "full_modified": f"{input_mount}/{slug}/full_modified",
+        },
+    })
+
+for target, payload in (
+    (session_path, {"sessions": sessions}),
+    (identities_path, identities),
+    (scopes_path, {"scopes": scopes}),
+):
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.write("\n")
+print(f"journey_scopes={len(scopes)} journey_identities={len(identities)}")
+PY
+  chmod 0600 "$RUN_ROOT/journey-identities.json"
+  chmod 0644 "$RUN_ROOT/journey-scopes.json"
+fi
+
 printf '%s\n' "$RS_BEARER" > "$RUN_ROOT/repository-bearer-token"
 printf '%s\n' "$INTERNAL_BEARER" > "$RUN_ROOT/internal-bearer-token"
 chmod 0644 "$RUN_ROOT/session.json" "$RUN_ROOT/repository-bearer-token" "$RUN_ROOT/internal-bearer-token"
@@ -472,14 +639,16 @@ export GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE="$RUN_ROOT/repository-bearer
 export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
 export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE="$DEPENDENCY_TAG"
 export GATEWAY_DOCKER_BUILD_NETWORK=none
-log "identity=submitter scope=upload-preview permissions=workspace_read,read_project_history,upload_submit_workspace,preview_workspace"
-log "identity=reviewer scope=upload-preview permissions=workspace_read,read_project_history,review_submission"
-log "identity=archiver scope=upload-preview permissions=workspace_read,read_project_history,archive_submission"
-log "identity=no-preview scope=permission-denied permissions=workspace_read,read_project_history,upload_submit_workspace"
-log "identity=noperm scope=permission-denied permissions=workspace_read,read_project_history"
-for input_slug in "${INPUT_SCOPE_SLUGS[@]}"; do
-  log "identity=${input_slug} scope=${input_slug} permissions=workspace_read,read_project_history,upload_submit_workspace,preview_workspace"
-done
+if [[ "$SUITE" == "smoke" ]]; then
+  log "identity=submitter scope=upload-preview permissions=workspace_read,read_project_history,upload_submit_workspace,preview_workspace"
+  log "identity=reviewer scope=upload-preview permissions=workspace_read,read_project_history,review_submission"
+  log "identity=archiver scope=upload-preview permissions=workspace_read,read_project_history,archive_submission"
+  log "identity=no-preview scope=permission-denied permissions=workspace_read,read_project_history,upload_submit_workspace"
+  log "identity=noperm scope=permission-denied permissions=workspace_read,read_project_history"
+  for input_slug in "${INPUT_SCOPE_SLUGS[@]}"; do
+    log "identity=${input_slug} scope=${input_slug} permissions=workspace_read,read_project_history,upload_submit_workspace,preview_workspace"
+  done
+fi
 
 # 1. build backend+worker images (offline, preloaded deps).
 if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" build backend worker 2>&1 | tee -a "$LOG_FILE"; then
@@ -508,24 +677,38 @@ if [[ "$RS_READY_OK" != "1" ]]; then
 fi
 log "repository_service_ready=ok"
 
-SCOPE_SLUGS=(upload-preview permission-denied "${INPUT_SCOPE_SLUGS[@]}")
-SCOPE_NAMES=("上传与预览" "权限拒绝" "${INPUT_SCOPE_NAMES[@]}")
+# Smoke seeds the two fixed scopes plus one per upload input; journeys seed
+# one fully independent scope per journey spec (kickoff §4.6).
+if [[ "$SUITE" == "journeys" ]]; then
+  SCOPE_SLUGS=("${JOURNEY_SLUGS[@]}")
+  SCOPE_NAMES=("${JOURNEY_SLUGS[@]}")
+else
+  SCOPE_SLUGS=(upload-preview permission-denied "${INPUT_SCOPE_SLUGS[@]}")
+  SCOPE_NAMES=("上传与预览" "权限拒绝" "${INPUT_SCOPE_NAMES[@]}")
+fi
 SCOPE_ROWS=()
 for index in "${!SCOPE_SLUGS[@]}"; do
   scope="${SCOPE_SLUGS[$index]}"
   scope_name="${SCOPE_NAMES[$index]}"
-  case "$scope" in
-    upload-preview)
-      device_key="$UPLOAD_DEVICE"; business_project="$UPLOAD_PROJECT" ;;
-    permission-denied)
-      device_key="$PERMISSION_DEVICE"; business_project="$PERMISSION_PROJECT" ;;
-    input-*)
-      device_key="fe3a-device-${scope}"; business_project="fe3a-project-${scope}" ;;
-    *)
-      log "error=unknown scope $scope"; exit 2 ;;
-  esac
-  baseline_node="fe3a-baseline-${scope}"
-  seed_key="fe3a-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
+  if [[ "$SUITE" == "journeys" ]]; then
+    device_key="fe3b-device-${scope}"
+    business_project="fe3b-project-${scope}"
+    baseline_node="fe3b-baseline-${scope}"
+    seed_key="fe3b-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
+  else
+    case "$scope" in
+      upload-preview)
+        device_key="$UPLOAD_DEVICE"; business_project="$UPLOAD_PROJECT" ;;
+      permission-denied)
+        device_key="$PERMISSION_DEVICE"; business_project="$PERMISSION_PROJECT" ;;
+      input-*)
+        device_key="fe3a-device-${scope}"; business_project="fe3a-project-${scope}" ;;
+      *)
+        log "error=unknown scope $scope"; exit 2 ;;
+    esac
+    baseline_node="fe3a-baseline-${scope}"
+    seed_key="fe3a-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
+  fi
   if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
 import urllib.request
 req = urllib.request.Request('http://127.0.0.1:8000/v1/repositories', method='POST', headers={'Authorization': 'Bearer $RS_BEARER', 'Idempotency-Key': '$seed_key'})
@@ -536,6 +719,26 @@ print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/
   seed_json="$(cat "$RUN_ROOT/seed-${scope}.json")"
   repo_id="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["repository_id"])' "$seed_json")"
   init_commit="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["initial_commit_id"])' "$seed_json")"
+  if [[ "$SUITE" == "journeys" ]]; then
+    # Fail closed: each journey scope must start from an empty INITIAL commit
+    # (kickoff §4.6; same check as the Compose gate harness).
+    if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
+import base64, json, urllib.request
+encoded = base64.urlsafe_b64encode('$init_commit'.encode()).decode().rstrip('=')
+request = urllib.request.Request(
+    'http://127.0.0.1:8000/v1/repositories/$repo_id/versioned/commits/' + encoded + '/catalog',
+    headers={'Authorization': 'Bearer $RS_BEARER'},
+)
+with urllib.request.urlopen(request, timeout=60.0) as response:
+    catalog = json.loads(response.read().decode())['catalog']
+if catalog['tables']:
+    raise SystemExit('INITIAL commit is not empty')
+" 2>>"$LOG_FILE"; then
+      log "error=journey scope INITIAL commit is not empty or unreadable scope=$scope"
+      exit 2
+    fi
+    log "journey_scope_initial_empty=ok scope=$scope"
+  fi
   SCOPE_ROWS+=("${scope}|${device_key}|${business_project}|${baseline_node}|${repo_id}|${init_commit}")
   log "scope=$scope_name scope_slug=$scope repository_id=$repo_id initial_commit_id=$init_commit business_baseline_node_id=$baseline_node"
 done
@@ -563,6 +766,44 @@ with open(out_path, "w", encoding="utf-8") as handle:
 PY
 chmod 0644 "$RUN_ROOT/provisioned-mapping.json"
 log "provisioned_mappings=$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["mappings"]))' "$RUN_ROOT/provisioned-mapping.json")"
+
+if [[ "$SUITE" == "journeys" ]]; then
+  # Backfill the seeded repository and INITIAL commit into the document the
+  # suite reads through GATEWAY_FE_JOURNEY_SCOPES (lib/env.ts JourneyScope).
+  python3 -I - "$RUN_ROOT/provisioned-mapping.json" "$RUN_ROOT/journey-scopes.json" <<'PY'
+import json
+import sys
+
+mapping_path, scopes_path = sys.argv[1], sys.argv[2]
+mappings = json.load(open(mapping_path, encoding="utf-8"))["mappings"]
+scopes = json.load(open(scopes_path, encoding="utf-8"))
+by_scope = {}
+for mapping in mappings:
+    slug = mapping["business_project_id"].removeprefix("fe3b-project-")
+    by_scope[slug] = mapping
+for scope in scopes["scopes"]:
+    mapping = by_scope.get(scope["slug"])
+    if mapping is None:
+        raise SystemExit(f"missing provisioned mapping for journey scope {scope['slug']}")
+    scope["repository_id"] = mapping["repository_id"]
+    scope["initial_commit_id"] = mapping["business_baseline_commit_id"]
+    scope["business_baseline_node_id"] = mapping["business_baseline_node_id"]
+with open(scopes_path, "w", encoding="utf-8") as handle:
+    json.dump(scopes, handle, indent=2)
+    handle.write("\n")
+PY
+  chmod 0644 "$RUN_ROOT/journey-scopes.json"
+  python3 -I - "$RUN_ROOT/journey-scopes.json" <<'PY' | tee -a "$LOG_FILE"
+import json
+import sys
+
+for scope in json.load(open(sys.argv[1], encoding="utf-8"))["scopes"]:
+    print(
+        f"journey_scope={scope['slug']} repo={scope['repository_id']} "
+        f"initial={scope['initial_commit_id']} baseline={scope['business_baseline_node_id']}"
+    )
+PY
+fi
 
 # 3. up backend+worker, wait /readyz and the worker readiness log line.
 if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" up -d --no-build backend worker 2>&1 | tee -a "$LOG_FILE"; then
@@ -601,42 +842,72 @@ for svc in backend worker; do
 done
 log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --format '{{.Id}}' 2>/dev/null || echo unknown)"
 
-# 4. Smoke input directory: one directory per input scope.
-# Q10 upload inputs: five independent directories, one per input scope.
-# SQL files are the committed derived inputs; logics come from the shared
-# source fixtures without copying them into the worktree.
-SMOKE_INPUT="$RUN_ROOT/inputs"
+# 4. Upload input directories, always outside the worktree.
+# Smoke (FE3a): five independent directories, one per input scope; SQL files
+# are the committed derived inputs, logics come from the shared source
+# fixtures without copying them into the worktree.
+# Journeys (FE3b): three directories per journey scope (modified_only,
+# full_initial, full_modified) so every scope starts from its own SQL
+# baseline; the logics file is shared across the three sides.
 INPUT_FIXTURES="$FRONTEND_DIR/e2e-real/fixtures/upload-inputs"
 SHARED_INPUTS="$FRONTEND_DIR/src/test/fixtures/source/upload-inputs"
-mkdir -p -- "$SMOKE_INPUT"/{a,b,c,d}/{sql,comps/logic}
-for input_name in a b c d; do
-  printf 'fe3a-input-%s\n' "$input_name" > "$SMOKE_INPUT/$input_name/input.pmc"
-done
-cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$SMOKE_INPUT/a/sql/dbcfg.sql"
-cp -- "$INPUT_FIXTURES/sql-initial.sql" "$SMOKE_INPUT/b/sql/dbcfg.sql"
-cp -- "$INPUT_FIXTURES/sql-modified.sql" "$SMOKE_INPUT/c/sql/dbcfg.sql"
-cp -- "$SHARED_INPUTS/sql-replacement-current.sql" "$SMOKE_INPUT/d/sql/dbcfg.sql"
-cp -- "$SHARED_INPUTS/logics-1.xml" "$SMOKE_INPUT/a/comps/logic/logics.xml"
-cp -- "$SHARED_INPUTS/logics-2.xml" "$SMOKE_INPUT/b/comps/logic/logics.xml"
-cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/c/comps/logic/logics.xml"
-cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/d/comps/logic/logics.xml"
-chmod -R a+rX -- "$SMOKE_INPUT"
-log "smoke_input=$SMOKE_INPUT"
-for input_name in a b c d; do
-  log "smoke_input_scope=${input_name} sql_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/comps/logic/logics.xml" | cut -d' ' -f1)"
-done
+
+if [[ "$SUITE" == "smoke" ]]; then
+  SMOKE_INPUT="$RUN_ROOT/inputs"
+  mkdir -p -- "$SMOKE_INPUT"/{a,b,c,d}/{sql,comps/logic}
+  for input_name in a b c d; do
+    printf 'fe3a-input-%s\n' "$input_name" > "$SMOKE_INPUT/$input_name/input.pmc"
+  done
+  cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$SMOKE_INPUT/a/sql/dbcfg.sql"
+  cp -- "$INPUT_FIXTURES/sql-initial.sql" "$SMOKE_INPUT/b/sql/dbcfg.sql"
+  cp -- "$INPUT_FIXTURES/sql-modified.sql" "$SMOKE_INPUT/c/sql/dbcfg.sql"
+  cp -- "$SHARED_INPUTS/sql-replacement-current.sql" "$SMOKE_INPUT/d/sql/dbcfg.sql"
+  cp -- "$SHARED_INPUTS/logics-1.xml" "$SMOKE_INPUT/a/comps/logic/logics.xml"
+  cp -- "$SHARED_INPUTS/logics-2.xml" "$SMOKE_INPUT/b/comps/logic/logics.xml"
+  cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/c/comps/logic/logics.xml"
+  cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/d/comps/logic/logics.xml"
+  chmod -R a+rX -- "$SMOKE_INPUT"
+  log "smoke_input=$SMOKE_INPUT"
+  for input_name in a b c d; do
+    log "smoke_input_scope=${input_name} sql_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/comps/logic/logics.xml" | cut -d' ' -f1)"
+  done
+  INPUT_MOUNT_SOURCE="$SMOKE_INPUT"
+  INPUT_MOUNT_TARGET="/input"
+else
+  JOURNEY_INPUT_ROOT="$RUN_ROOT/journey-inputs"
+  mkdir -p -- "$JOURNEY_INPUT_ROOT"
+  for journey_slug in "${JOURNEY_SLUGS[@]}"; do
+    for input_key in modified_only full_initial full_modified; do
+      input_dir="$JOURNEY_INPUT_ROOT/$journey_slug/$input_key"
+      mkdir -p -- "$input_dir/sql" "$input_dir/comps/logic"
+      printf 'fe3b-%s-%s\n' "$journey_slug" "$input_key" > "$input_dir/upload.pmc"
+      case "$input_key" in
+        modified_only) cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$input_dir/sql/dbcfg.sql" ;;
+        full_initial) cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$input_dir/sql/dbcfg.sql" ;;
+        full_modified) cp -- "$INPUT_FIXTURES/sql-initial.sql" "$input_dir/sql/dbcfg.sql" ;;
+      esac
+      cp -- "$SHARED_INPUTS/logics-1.xml" "$input_dir/comps/logic/logics.xml"
+    done
+    log "journey_input_scope=${journey_slug} modified_only_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/sql/dbcfg.sql" | cut -d' ' -f1) full_initial_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_initial/sql/dbcfg.sql" | cut -d' ' -f1) full_modified_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_modified/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/comps/logic/logics.xml" | cut -d' ' -f1)"
+  done
+  chmod -R a+rX -- "$JOURNEY_INPUT_ROOT"
+  log "journey_input_root=$JOURNEY_INPUT_ROOT"
+  log "journey_input_mount=$JOURNEY_INPUT_MOUNT"
+  INPUT_MOUNT_SOURCE="$JOURNEY_INPUT_ROOT"
+  INPUT_MOUNT_TARGET="$JOURNEY_INPUT_MOUNT"
+fi
 
 # 5. Toolchain container on the compose network, production build from a
 # git archive (never the live worktree), input mounted read-only.
 RUN_STAGE="toolchain"
 git -C "$REPO_DIR" archive --format=tar HEAD frontend > "$RUN_ROOT/frontend.tar"
 TOOLCHAIN_CONTAINER="${PROJECT_NAME}-toolchain"
-if ! docker run -d --init --ipc=host --name "$TOOLCHAIN_CONTAINER" --label "com.docker.compose.project=$PROJECT_NAME" \
+if ! docker run -d --init --ipc=host --name "$TOOLCHAIN_CONTAINER" --label "com.docker.compose.project=$PROJECT_NAME" --label "gateway.fe.session=$SESSION" \
   --network "${PROJECT_NAME}_default" \
   --volume "$RUN_ROOT/frontend.tar:/frontend.tar:ro" \
   --volume "$NPM_CACHE_DIR:/npm-cache:ro" \
   --volume "$LOG_DIR:/results" \
-  --volume "$SMOKE_INPUT:/input:ro" \
+  --volume "${INPUT_MOUNT_SOURCE}:${INPUT_MOUNT_TARGET}:ro" \
   --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
   --env "GATEWAY_FE_SUITE=$SUITE" \
   "$TOOLCHAIN_IMAGE" sleep infinity >/dev/null; then
@@ -723,8 +994,9 @@ log "openapi_compare=match"
 sha256sum "$LOG_DIR/openapi-snapshot.normalized.json" "$LOG_DIR/openapi-runtime.normalized.json" | tee -a "$LOG_FILE"
 
 # 7. Identities JSON for per-context injection (owner Q5). Tokens are random
-# per run; the file stays outside the worktree and is copied into the
-# toolchain container with 0600 permissions.
+# per run; files stay outside the worktree and are copied into the toolchain
+# container with 0600 permissions.
+if [[ "$SUITE" == "smoke" ]]; then
 cat > "$RUN_ROOT/identities.json" <<EOF
 [{"name": "submitter", "token": "$SUBMITTER_TOKEN", "actorId": "fe3a-upload-preview-submitter", "businessProjectId": "$UPLOAD_PROJECT", "gatewayDeviceExternalKey": "$UPLOAD_DEVICE", "scope": "upload-preview"},
  {"name": "reviewer", "token": "$REVIEWER_TOKEN", "actorId": "fe3a-upload-preview-reviewer", "businessProjectId": "$UPLOAD_PROJECT", "gatewayDeviceExternalKey": "$UPLOAD_DEVICE", "scope": "upload-preview"},
@@ -754,27 +1026,133 @@ with open(path, "w", encoding="utf-8") as handle:
     json.dump(data, handle, indent=2)
     handle.write("\n")
 PY
-chmod 0600 "$RUN_ROOT/identities.json"
-docker cp "$RUN_ROOT/identities.json" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
+  IDENTITIES_FILE="$RUN_ROOT/identities.json"
+else
+  IDENTITIES_FILE="$RUN_ROOT/journey-identities.json"
+  # Fail closed before any browser work: every declared (scope, role) has its
+  # identity, every scope has its own seeded INITIAL, and every input file is
+  # present and non-empty (kickoff §4.6, §4.9).
+  if ! python3 -I - "$IDENTITIES_FILE" "$RUN_ROOT/journey-scopes.json" \
+      "$JOURNEY_INPUT_ROOT" "$JOURNEY_INPUT_MOUNT" <<'PY' | tee -a "$LOG_FILE"
+import json
+import os
+import sys
+
+identities_path, scopes_path, input_root, input_mount = sys.argv[1:5]
+
+identities = json.load(open(identities_path, encoding="utf-8"))
+scopes = json.load(open(scopes_path, encoding="utf-8"))["scopes"]
+
+errors = []
+tokens = {}
+actors = {}
+by_identity = {}
+for identity in identities:
+    for field in (
+        "name",
+        "role",
+        "scope",
+        "token",
+        "actorId",
+        "businessProjectId",
+        "gatewayDeviceExternalKey",
+    ):
+        if not identity.get(field):
+            errors.append(f"identity_missing_{field}")
+    for value, seen, label in (
+        (identity["token"], tokens, "token"),
+        (identity["actorId"], actors, "actor"),
+    ):
+        if value in seen:
+            errors.append(f"duplicate_{label}")
+        seen[value] = identity["name"]
+    key = (identity["scope"], identity["role"])
+    if key in by_identity:
+        errors.append(f"duplicate_identity scope={key[0]} role={key[1]}")
+    by_identity[key] = identity
+
+baseline_nodes = {}
+for scope in scopes:
+    slug = scope["slug"]
+    for role in scope["roles"]:
+        identity = by_identity.get((slug, role["role"]))
+        if identity is None:
+            errors.append(f"missing_identity scope={slug} role={role['role']}")
+        elif identity["name"] != role["name"]:
+            errors.append(f"identity_name_mismatch scope={slug} role={role['role']}")
+    if not scope["repository_id"]:
+        errors.append(f"missing_repository_id scope={slug}")
+    if not scope["initial_commit_id"]:
+        errors.append(f"missing_initial_commit scope={slug}")
+    node = scope["business_baseline_node_id"]
+    if node in baseline_nodes:
+        errors.append(f"duplicate_baseline_node={node}")
+    baseline_nodes[node] = slug
+    for key, container_path in scope["inputs"].items():
+        prefix = input_mount + "/"
+        if not container_path.startswith(prefix):
+            errors.append(f"input_outside_mount scope={slug} key={key}")
+            continue
+        host_dir = os.path.join(input_root, container_path[len(prefix):])
+        for relative in ("upload.pmc", "sql/dbcfg.sql", "comps/logic/logics.xml"):
+            candidate = os.path.join(host_dir, relative)
+            if not os.path.isfile(candidate) or os.path.getsize(candidate) == 0:
+                errors.append(f"missing_input scope={slug} key={key} file={relative}")
+
+print(f"journey_scopes={len(scopes)} journey_identities={len(identities)}")
+for scope in scopes:
+    roles = ",".join(role["role"] for role in scope["roles"])
+    print(
+        f"journey_scope={scope['slug']} repo={scope['repository_id']} "
+        f"initial={scope['initial_commit_id']} roles={roles} inputs=ok"
+    )
+for error in errors:
+    print(f"journey_preflight_error={error}")
+sys.exit(1 if errors else 0)
+PY
+  then
+    log "error=journey preflight failed (see journey_preflight_error lines)"
+    exit 2
+  fi
+fi
+
+chmod 0600 "$IDENTITIES_FILE"
+docker cp "$IDENTITIES_FILE" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
+if [[ "$SUITE" == "journeys" ]]; then
+  docker cp "$RUN_ROOT/journey-scopes.json" "$TOOLCHAIN_CONTAINER:/tmp/journey-scopes.json"
+  SUITE_ENV=(
+    --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$JOURNEY_INPUT_MOUNT"
+    --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
+  )
+  SUITE_SPEC="e2e-real/journeys.spec.ts"
+else
+  SUITE_ENV=(--env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input")
+  SUITE_SPEC="e2e-real/smoke.spec.ts"
+fi
 
 # 8. Run the suite; results come from the Playwright JSON reporter in the log
-# directory (B2), not from the tee of the process output.
+# directory (B2), not from the tee of the process output. The spec file is
+# selected explicitly so smoke and journeys never pick up each other's cases.
 RUN_STAGE="suite"
 log "suite_start=$SUITE"
+log "suite_spec=$SUITE_SPEC"
 RESULTS_FILE="$LOG_DIR/results.json"
 rm -f -- "$RESULTS_FILE"
 set +e
 docker exec \
   --env "GATEWAY_FE_SUITE=$SUITE" \
-  --env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input" \
+  "${SUITE_ENV[@]}" \
   --env "GATEWAY_FE_RESULTS_FILE=/results/results.json" \
   --env "GATEWAY_FE_RESULTS_DIR=/results" \
   --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
   "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c '
   cd /tmp/frontend
   export GATEWAY_FE_IDENTITIES="$(cat /tmp/identities.json)"
-  npx playwright test --config playwright.real.config.ts
-' > >(tee -a "$LOG_FILE") 2>&1 &
+  if [[ -f /tmp/journey-scopes.json ]]; then
+    export GATEWAY_FE_JOURNEY_SCOPES="$(cat /tmp/journey-scopes.json)"
+  fi
+  npx playwright test --config playwright.real.config.ts "$1"
+' suite "$SUITE_SPEC" > >(tee -a "$LOG_FILE") 2>&1 &
 SUITE_PID=$!
 wait "$SUITE_PID"
 PLAYWRIGHT_EXIT=$?
@@ -786,13 +1164,13 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
   docker cp "$TOOLCHAIN_CONTAINER:/tmp/frontend/test-results/." "$EVIDENCE_DIR/test-results/" 2>/dev/null || true
 fi
 
-SUITE_EXIT="$(python3 -I - "$RESULTS_FILE" "$LOG_DIR/suite-summary.txt" "$PLAYWRIGHT_EXIT" <<'PY'
+SUITE_EXIT="$(python3 -I - "$RESULTS_FILE" "$LOG_DIR/suite-summary.txt" "$PLAYWRIGHT_EXIT" "$SUITE" <<'PY'
 import datetime
 import json
 import os
 import sys
 
-results_path, summary_path, playwright_exit_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+results_path, summary_path, playwright_exit_raw, suite_name = sys.argv[1:5]
 try:
     playwright_exit = int(playwright_exit_raw)
 except ValueError:
@@ -831,6 +1209,29 @@ else:
                             )
                 walk(suite.get("suites"))
         walk(data.get("suites"))
+
+        def collect_cases(suites):
+            found = []
+            for case_suite in suites or []:
+                for spec in case_suite.get("specs") or []:
+                    statuses = []
+                    for test in spec.get("tests") or []:
+                        results = test.get("results") or []
+                        statuses.append(results[-1].get("status") if results else None)
+                    passed = bool(statuses) and all(status == "passed" for status in statuses)
+                    found.append((spec.get("title") or "", "passed" if passed else "failed"))
+                found.extend(collect_cases(case_suite.get("suites")))
+            return found
+
+        cases = collect_cases(data.get("suites"))
+        for case_title, case_result in cases:
+            lines.append(f"case={case_title} result={case_result}")
+        cases_passed = sum(1 for _title, case_result in cases if case_result == "passed")
+        lines.append(
+            f"suite_cases_total={len(cases)} suite_cases_passed={cases_passed} "
+            f"suite_cases_failed={len(cases) - cases_passed}"
+        )
+
         stats = data.get("stats") or {}
         expected = stats.get("expected") or 0
         unexpected = stats.get("unexpected") or 0
@@ -858,6 +1259,7 @@ for failure in failures:
     lines.append(f"suite_fail_reason={failure}")
 if not failures:
     code = 0
+lines.append(f"suite_name={suite_name}")
 open(summary_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 print(code)
 PY

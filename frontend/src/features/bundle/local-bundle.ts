@@ -23,7 +23,7 @@ interface StorageManagerWithOpfs extends StorageManager {
   getDirectory(): Promise<FileSystemDirectoryHandle>;
 }
 
-interface AsyncDirectoryHandle extends FileSystemDirectoryHandle {
+interface DirectoryEntries {
   entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
 }
 
@@ -185,7 +185,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
     if (currentBytes > this.maxBytes) throw new Error("bundle 超过本地缓存容量");
     const entries: Array<{ name: string; lastUsed: number; bytes: number }> = [];
     let total = 0;
-    for await (const [name, handle] of (root as AsyncDirectoryHandle).entries()) {
+    for await (const [name, handle] of (root as unknown as DirectoryEntries).entries()) {
       if (handle.kind !== "directory") continue;
       try {
         const bundle = handle as FileSystemDirectoryHandle;
@@ -220,7 +220,7 @@ function estimateBytes(manifest: BundleManifest, closure: BundleClosure): number
 
 async function estimateDirectoryBytes(root: FileSystemDirectoryHandle): Promise<number> {
   let total = 0;
-  for await (const [, handle] of (root as AsyncDirectoryHandle).entries()) {
+  for await (const [, handle] of (root as unknown as DirectoryEntries).entries()) {
     if (handle.kind === "file") total += (await (handle as FileSystemFileHandle).getFile()).size;
     else total += await estimateDirectoryBytes(handle as FileSystemDirectoryHandle);
   }

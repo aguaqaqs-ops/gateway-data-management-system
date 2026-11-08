@@ -237,7 +237,7 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
-  await expect(page.getByText("该提交已归档")).toBeVisible();
+  await expect(page.getByText("该提交已归档").first()).toBeVisible();
 });
 
 test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {

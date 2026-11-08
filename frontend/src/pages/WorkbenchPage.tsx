@@ -513,7 +513,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
         />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
-          <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
+          <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && !selected?.submissionDisposition && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
           <div className="workspace-actions">{effectiveActions.map((action) => <div className="workspace-action" key={action.id}>
             <button className={`button ${action.id === "archive-mainline" ? "button--primary" : "button--secondary"}`} disabled={!action.enabled} title={action.reason ?? undefined} onClick={() => runAction(action.id)}>
               {action.id === "join-compare" ? <Plus size={14} /> : action.id === "remove-compare" ? <X size={14} /> : null}{action.label}
@@ -534,7 +534,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
                 <button className="workspace-node-label" onClick={() => setSelectedKey(row.key)}>{row.label}</button>
                 {row.status && <span className={statusClass(row.statusTone)}><i aria-hidden="true" />{row.status}</span>}
                 {row.compareOrder && <span className="compare-order" title={`比较节点 ${row.compareOrder}`}>比较 {row.compareOrder}</span>}
-                {row.eligibilityNote && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线">基线已更新</span>}
+                {row.eligibilityNote && !row.submissionDisposition && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线">基线已更新</span>}
                 {row.identityException && <span className="status-tag status-tag--neutral" title="项目身份例外">项目身份例外</span>}
               </div></td>
               <td>{row.createdAt ? new Date(row.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"}</td>

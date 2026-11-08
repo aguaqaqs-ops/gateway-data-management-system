@@ -1,4 +1,4 @@
-"""Ordered history compare compose journey with policy checkpoint and oracle."""
+"""Ordered History Compose journey with policy checkpoint and local binding check."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from tests.support.compose_gate_harness import (
     compose_project_name,
     list_repository_commit_ids,
     normalize_running_images,
-    oracle_history_compare_digest_from_materialize_checkpoint,
+    local_history_compare_digest_from_materialize_checkpoint,
     ordered_compare_facts_from_materialize_checkpoint,
     ordered_syx_sized_upload_files,
     persist_compose_gate_provenance,
@@ -218,7 +218,7 @@ def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, A
     return cast(dict[str, Any], started.json())
 
 
-def _assert_remote_matches_oracle(
+def _assert_remote_matches_local_binding(
     env: dict[str, str],
     *,
     operation_id: str,
@@ -229,14 +229,16 @@ def _assert_remote_matches_oracle(
 ) -> None:
     job_state = read_history_compare_materialize_job_state(env, operation_id)
     assert "table_policies" not in job_state
-    oracle_digest = oracle_history_compare_digest_from_materialize_checkpoint(
+    local_digest = local_history_compare_digest_from_materialize_checkpoint(
         env,
         operation_id,
         before_commit=before_commit,
         current_commit=current_commit,
         repository_id=repository_id,
     )
-    assert remote_digest == oracle_digest
+    # The local run checks checkpoint input binding; C/D fixed old-source
+    # vectors cover the comparison semantics.
+    assert remote_digest == local_digest
 
 
 def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
@@ -381,7 +383,7 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             assert pair["before_commit"] == main_after_a
             assert pair["current_commit"] == main_after_both
             assert int(pair["record_count"]) > 0
-            _assert_remote_matches_oracle(
+            _assert_remote_matches_local_binding(
                 env,
                 operation_id=operation_id,
                 remote_digest=str(pair["comparison_digest"]),

@@ -903,7 +903,7 @@ print(json.dumps(envelope.job_state))
     return cast(dict[str, object], json.loads(result.stdout.strip()))
 
 
-def oracle_history_compare_digest_from_materialize_checkpoint(
+def local_history_compare_digest_from_materialize_checkpoint(
     env: dict[str, str],
     operation_id: str,
     *,
@@ -967,7 +967,7 @@ with kernel_execution_scope(
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(
-            f"failed to compute history compare oracle digest: "
+            f"failed to compute local history compare digest: "
             f"{result.stderr}\n{result.stdout}"
         )
     return result.stdout.strip()
@@ -994,9 +994,10 @@ from gateway_backend.capabilities.comparison import (
     ComparisonPlan,
     ComparisonRequest,
     DetailedFactsResult,
-    compare_plan,
+    plan_comparison,
 )
-from gateway_backend.capabilities.comparison import plan_comparison
+from gateway_backend.capabilities.comparison.production import compare_plan_native
+from contextlib import closing
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
@@ -1018,7 +1019,7 @@ if row is None or row[0] is None:
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
 initialize_compute_kernel(1)
 with kernel_execution_scope(
-    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
+    KernelExecutionContext(OperationMemoryBudget(24 * 1024**3), NeverCancel(), 1),
     new_operation=True,
 ):
     store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
@@ -1035,31 +1036,37 @@ with kernel_execution_scope(
     plan = plan_comparison(request)
     if not isinstance(plan, ComparisonPlan):
         raise RuntimeError("pair planning failed")
-    compared = compare_plan(plan)
-    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
+    product = compare_plan_native(plan)
+    if not isinstance(product.result, DetailedFactsResult) or product.result.facts is None:
         raise RuntimeError("pair comparison did not produce facts")
-    facts = compared.facts
+    facts = product.result.facts
 
-    def _gid_from_record(record):
-        for label, value in record.before_values + record.current_values:
-            if label == "gid":
-                return value
+    def _gid_from_record(row):
+        for side in ("before_values", "current_values"):
+            for item in row[side] or []:
+                if item["column_name"] == "gid":
+                    value = item["value"]
+                    return None if value is None else value.get("text")
         return None
 
     tables = []
     for table in facts.tables:
         ordered_records = []
-        if table.ordered_extension is not None:
-            for record in table.ordered_extension.records:
-                ordered_records.append(
-                    {{
-                        "record_kind": record.record_kind.value,
-                        "gid": _gid_from_record(record),
-                        "row_identity": (
-                            record.row_identity.value if record.row_identity is not None else None
-                        ),
-                    }}
-                )
+        handle = product.handles.get(table.table_name)
+        if handle is not None and table.ordered_extension is not None:
+            with closing(handle.record_batches("ORDERED")) as reader:
+                for batch in reader:
+                    for record in batch.to_pylist():
+                        ordered_records.append(
+                            {{
+                                "record_kind": record["record_kind"],
+                                "gid": _gid_from_record(record),
+                                "row_identity": (
+                                    None if record["row_identity"] is None else
+                                    "sha256:" + record["row_identity"].hex()
+                                ),
+                            }}
+                        )
         tables.append(
             {{
                 "table_name": table.table_name,
@@ -1067,7 +1074,8 @@ with kernel_execution_scope(
                 "ordered_records": ordered_records,
             }}
         )
-        print(json.dumps({{"tables": tables}}))
+    product.close()
+    print(json.dumps({{"tables": tables}}))
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:

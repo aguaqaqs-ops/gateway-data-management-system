@@ -177,8 +177,9 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
         old_candidate.input_owner.close()
         new_candidate.input_owner.close()
         assert published_before.artifact is not None
+        manifest_ref = published_before.artifact.manifest_ref
         cached_before = open_snapshot_table_artifact(
-            store, published_before.artifact.manifest_ref,
+            store, manifest_ref,
             repository_id="storage-fresh-writer", canonical_required=True,
         )
         assert published_before.reader is not None
@@ -204,7 +205,6 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
         assert new_lease.schema.names == list(names)
         before = replace(old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease)
         after = replace(new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease)
-        with_inputs_used = context.memory.used_bytes
         task = _task(before, after)
         with prepare_storage_table(task, context) as handle:
             summary = handle.summary()
@@ -213,7 +213,10 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
                 policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
             handle.apply_decision(decision)
         assert old_lease.closed and new_lease.closed
-        assert context.memory.used_bytes < with_inputs_used
+        # The existing artifact owner retains only its manifest parse envelope
+        # for this operation; any extra bytes here are table Arrow/native leaks.
+        context.memory.close()  # Flush operation metadata, not Arrow/native reservations.
+        assert context.memory.used_bytes == manifest_ref.size_bytes * 32 + 4096
     # The cached manifest AST is operation-lived; its reservation ends with the scope.
     assert context.memory.used_bytes == 0
 

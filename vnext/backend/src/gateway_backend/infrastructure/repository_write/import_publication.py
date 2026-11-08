@@ -90,7 +90,7 @@ from gateway_backend.capabilities.table_rules import (
     StorageRuleView,
     migrated_table_ruleset_snapshot,
 )
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION, TableRulesetSnapshot
 from gateway_backend.domain.submission.models import BackendArtifactRef, BuilderMutationPolicy
 
 __all__ = [
@@ -203,6 +203,24 @@ class SubmitImportPublicationAdapter:
             raise SubmitImportPublicationError("canonical table artifacts do not match frozen manifest")
         parent_by_name = {item.name: item for item in parent_manifest.tables}
         changed = set(changed_names)
+        parent_read_names = frozenset(
+            name for name in changed_names
+            if name in frozen_by_name and name in parent_by_name
+            and parent_manifest.storage_projection_version == frozen_manifest.storage_projection_version
+            and parent_by_name[name].canonical_row_count > 0
+            and _patch_comparable(parent_by_name[name], frozen_by_name[name])
+        )
+        parent_access: tuple[TableRulesetSnapshot, CanonicalBinding, CommittedCanonicalTablesPort] | None = None
+        if parent_read_names:
+            if self._repository_provider_factory is None or self._committed_tables is None:
+                raise SubmitImportPublicationError("Repository parent row access is unavailable")
+            parent_ruleset = migrated_table_ruleset_snapshot()
+            if parent_ruleset.ruleset_digest != parent_manifest.ruleset_digest:
+                raise SubmitImportPublicationError("parent manifest ruleset does not match runtime ruleset")
+            parent_access = (
+                parent_ruleset, _canonical_binding_from_manifest(parent_manifest),
+                self._committed_tables(store, build_input.repository_id),
+            )
         projected_tables: list[ProjectionTable] = []
         import_tables: list[RepositoryImportTable] = []
         rebuild_tables: list[str] = []
@@ -231,15 +249,11 @@ class SubmitImportPublicationAdapter:
                     table_sql_start = dml_size
                     parent_elapsed = 0.0
                     try:
-                        if (
-                            before_manifest_table is not None
-                            and parent_manifest.storage_projection_version == frozen_manifest.storage_projection_version
-                            and before_manifest_table.canonical_row_count > 0
-                            and _patch_comparable(before_manifest_table, frozen)
-                        ):
+                        if name in parent_read_names:
+                            assert parent_access is not None
                             parent_started = monotonic()
                             parent_table = self._materialize_parent_table(
-                                build_input, parent_manifest=parent_manifest, table_name=name, store=store,
+                                build_input, table_name=name, parent_access=parent_access,
                             )
                             parent_elapsed = monotonic() - parent_started
                             parent_reads += 1
@@ -404,17 +418,12 @@ class SubmitImportPublicationAdapter:
         self,
         build_input: PrepareImportBuildInput,
         *,
-        parent_manifest: CanonicalizationManifest,
-        table_name: str, store: ArtifactStorePort,
+        table_name: str,
+        parent_access: tuple[TableRulesetSnapshot, CanonicalBinding, CommittedCanonicalTablesPort],
     ) -> SnapshotTable:
         if self._repository_provider_factory is None:
             raise SubmitImportPublicationError("Repository parent row provider is unavailable")
-        runtime_ruleset = migrated_table_ruleset_snapshot()
-        if runtime_ruleset.ruleset_digest != parent_manifest.ruleset_digest:
-            raise SubmitImportPublicationError("parent manifest ruleset does not match runtime ruleset")
-        binding = _canonical_binding_from_manifest(parent_manifest)
-        if self._committed_tables is None:
-            raise SubmitImportPublicationError("parent committed canonical table access is unavailable")
+        runtime_ruleset, binding, committed_tables = parent_access
         context = current_kernel_context()
         if context is None:
             raise ValueError("Submit parent reads require an operation kernel context")
@@ -434,7 +443,7 @@ class SubmitImportPublicationAdapter:
             policy=MaterializationPolicy.READERS_REQUIRED,
             context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
             requested_tables=(table_name,),
-            committed_tables=self._committed_tables(store, build_input.repository_id),
+            committed_tables=committed_tables,
         )
         result = materialize_repository_ref(request)
         if result.status is not SnapshotMaterializationStatus.COMPLETE or result.table_set is None:
@@ -861,5 +870,3 @@ def _open_frozen_manifest(
         return open_canonicalization_manifest(store, build_input.canonicalization_manifest_ref)
     except PublicationError as exc:
         raise SubmitImportPublicationError(str(exc)) from exc
-
-

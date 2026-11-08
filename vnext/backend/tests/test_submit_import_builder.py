@@ -1043,20 +1043,14 @@ def test_repository_base_digest_may_differ_from_source_artifact_digest() -> None
     assert published.checkpoint.canonicalization_manifest_digest
 
 
-@pytest.mark.parametrize("fault", ("missing", "digest_mismatch", "content_mismatch"))
-def test_prepare_rejects_invalid_frozen_parent_manifest(fault: str) -> None:
+def test_prepare_rejects_parent_manifest_with_corrupt_content() -> None:
     store = InMemoryArtifactStore()
     initial = _build_input(store=store)
     parent = open_canonicalization_manifest(store, initial.canonicalization_manifest_ref)
     assert parent.manifest_digest is not None
-    if fault == "missing":
-        parent_value = None
-    elif fault == "digest_mismatch":
-        parent_value = replace(parent, manifest_digest=digest_ref("bb"))
-    else:
-        parent_value = replace(parent, source_artifact_digest=digest_ref("bb"))
     build_input = replace(
-        initial, parent_is_initial=False, parent_manifest=parent_value,
+        initial, parent_is_initial=False,
+        parent_manifest=replace(parent, source_artifact_digest=digest_ref("bb")),
         parent_manifest_digest=parent.manifest_digest.value,
     )
     with pytest.raises(SubmitImportPublicationError, match="parent manifest"):

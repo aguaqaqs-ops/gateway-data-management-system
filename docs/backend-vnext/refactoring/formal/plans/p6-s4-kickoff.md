@@ -110,7 +110,7 @@ V→H carried须原来源节点、原WT、原环境和Hypothesis不存在路径�
 
 输入直接核已冻结metadata/census及原包SHA，不重生成/微调以适配实现。S3 coordination已有2×t4/W4来源，E执行稿固定实际路径/SHA/规则并独核；真实数据不进Git。不同节点/配置样本分组，64GiB guest本身不改变worker M24；本次DC96明确授权的增配档按前述规则独立核收。计时driver保same-worker/cgroup guard，基线准备也受原预算；如果准备失败就没有合格正式样本。
 
-S1a阈值复核另用同一冻结真实t4 v2表样本（handoff原件：9822→9828、98逻辑变化、92UPDATE+6INSERT）和实际RS回放，对最终renderer的PATCH与REBUILD表结果/耗时交替比较；只能在本任务仓库副本/正常服务接口运行，不在服务正在用的Dolt目录做root checkout。若1%仍慢于重建，报告实测给Owner，不能自己降低比例/改batch/golden。
+S1a阈值复核另用冻结真实t4 v2表为基础、按旧S1a固定规则增加85行变化的样本（handoff原件：9822→9828、98逻辑变化、92UPDATE+6INSERT）。旧源独立捕获SQL；当前generic planner与Rust facade交替回放到私有Dolt，比较PATCH与REBUILD字节、表结果和耗时。此组件结果不冒称Repository Service或生产StorageTableTask/worker容量证据，也不把合成after的no字段当合法Repository投影。不得在服务正在用的Dolt目录做root checkout。若1%仍慢于重建，报告实测给Owner，不能自己降低比例/改batch/golden。
 
 S3 W3/W4 READY和比较归因另由其owner核收；联合旅程可提供后续J证据，不补成原774成功。S4结果必须分栏：SQL/功能正确、原M24容量、实际增配档容量与适用范围、目标时间及达标事实、压力、未知/失败。按DC97，超目标如实报告并保留全部有效慢样本，不因纯数值超目标拒签S4 exit；业务、资源或测量有效性失败仍不得签。本次授权内固定审核的增配档可用于S4退出，必须标明适用配置与原M24限制；S3另条件诊断不混入本表。
 

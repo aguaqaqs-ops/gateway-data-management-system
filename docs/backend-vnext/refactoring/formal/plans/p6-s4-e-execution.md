@@ -1,10 +1,11 @@
 # P6 S4 E: fixed-source execution and evidence map
 
-Status: execution design only. No E focused, authority, Compose, independent
-expectation capture, real journey or timed sample is claimed here. The final
-handoff names the exact E candidate HEAD after review fixes. The independent E
-reviewer must clear that source and node/controller script bytes before Luna
-runs them.
+Status: execution and evidence map, not an acceptance receipt. The c9e candidate
+has actual 04 all-six authority/Compose and the old B independent expectation
+capture and S1a component replay have actual evidence; the DC97 successor still
+needs affected-package/image review and the 05 complete journeys. The final
+handoff binds exact source, script and raw evidence identities. The independent
+E reviewer clears changed source and node/controller bytes before Luna runs them.
 
 ## Independent input and expected values
 
@@ -102,7 +103,7 @@ Both real Submit commits are
 checked against technical `main` and independent B schema/selected row
 expectations. The business baseline only advances at Archive.
 
-| Group | Input and mode | Run count | Submit target |
+| Group | Input and mode | Run count | Reference Submit target |
 | --- | --- | --- | --- |
 | Functional | Standard fresh t1, t2, t3, t4; v2 FULL | One complete run each | Every Submit ≤10 min; t4 v1 ≤5 min |
 | W3 MO | Frozen 2×t4, MODIFIED_ONLY | 1 warm + 3 successful measurements | v1 ≤5 min; v2 ≤2 min; all ≤10 min |
@@ -113,7 +114,12 @@ expectations. The business baseline only advances at Archive.
 
 The W3 MO group's *one* v1 Submit sample group also supplies the 2×t4
 fresh INITIAL S1 timing; do not mix it with W3 FULL or add a duplicate S1
-title run. No failed or resource-invalid run enters a median/range. Every
+title run. Owner confirmed DC97 for this round: record every valid raw Submit
+time, applicable target and `met` result. A numeric miss remains a valid sample
+and does not by itself block S4 exit; missing, negative or nonfinite clocks,
+missing technical-main movement, and business, Repository or resource failures
+remain hard failures.
+No failed or resource-invalid run enters a median/range. Every
 group's warm and measurements stay on the same actual node, same worker
 profile and storage condition, with no concurrent test task; changing node
 or hardware starts a separate group. The original N1/32−8/M24 failure stays
@@ -133,7 +139,9 @@ retains its project volumes and marker. It extracts D table/summary,
 publish/readback/checkpoint logs and the journey's control DB/RS wait facts.
 The target clock is **POST request start to verified Repository technical main
 read**, a conservative upper bound. The accepted-response clock is separately
-reported. The driver seals `sample_pre_release_pass` with
+reported. Its target result is a report fact, while the valid completion clock
+and business/resource guards remain acceptance conditions. The driver seals
+`sample_pre_release_pass` with
 `acceptance_complete=false`; a sample is accepted only after controller sees
 the unique `s4_sample_release PASS` stdout receipt, entry exit 0 and a
 read-only postrelease marker/host check. A failed sample stops its queue and
@@ -141,7 +149,9 @@ preserves original logs, stopped project and marker for diagnosis. No
 unmodified retry or threshold change is implied.
 
 S1a threshold verification is a separate fixed old-source capture and current
-native/real-Dolt run. Its source table is `b1_n11_iec104_syx_list`, parent
+generic planner/Rust facade replay into a private Dolt repository. This is a
+component scope result, not a production Submit/StorageTableTask or worker
+capacity result. Its source table is `b1_n11_iec104_syx_list`, parent
 9822 → target 9828, 98 logical changes = 92 UPDATE + 6 INSERT + 0 DELETE;
 the extra 85 updated rows are a fixed old S1a synthetic perturbation of
 unchanged t4 rows, not the natural t4 pair. The old JSON/log supplies PATCH

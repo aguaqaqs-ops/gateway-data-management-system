@@ -4,8 +4,8 @@ pub mod business_kernel;
 pub mod canonical_ipc;
 pub mod comparison;
 mod records;
-pub mod storage_mutation;
 pub mod sql_replay;
+pub mod storage_mutation;
 pub mod table_access;
 
 pub use records::{

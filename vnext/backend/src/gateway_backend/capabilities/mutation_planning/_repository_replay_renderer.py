@@ -83,8 +83,12 @@ def _structural_resident_bound(closure: ChangeSetClosure) -> int:
 
 
 def _validated_columns(columns: tuple[tuple[str, dict[str, object]], ...]) -> list[dict[str, object]]:
-    return [{"column": name, "value": validate_canonical_cell_value(cell, name)}
-            for name, cell in columns]
+    result: list[dict[str, object]] = []
+    for name, cell in columns:
+        if cell.get("kind") == "source-literal-anomaly":
+            raise ValueError("source literal anomaly has no SQL encoding")
+        result.append({"column": name, "value": validate_canonical_cell_value(cell, name)})
+    return result
 
 
 def render_change_set_replay(

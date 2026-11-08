@@ -2,8 +2,8 @@
 
 mod business;
 mod comparison_records;
-mod storage_mutation;
 mod sql_replay;
+mod storage_mutation;
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};

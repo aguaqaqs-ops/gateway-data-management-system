@@ -209,20 +209,37 @@ fn finish_batch(schema: SchemaRef, builders: &mut [Box<dyn ArrayBuilder>]) -> Re
 }
 
 fn append_value(builder: &mut dyn ArrayBuilder, field: &Field, value: &Value) -> Result<(), String> {
+    append_value_with_limit(builder, field, value, i32::MAX as usize)
+}
+
+fn append_value_with_limit(
+    builder: &mut dyn ArrayBuilder,
+    field: &Field,
+    value: &Value,
+    max_offset: usize,
+) -> Result<(), String> {
     if value.is_null() && !field.is_nullable() {
         return Err(format!("records field {} cannot be null", field.name()));
     }
     match field.data_type() {
         DataType::Utf8 => {
             let builder = downcast::<StringBuilder>(builder)?;
-            if let Some(text) = value.as_str() { builder.append_value(text); }
+            if let Some(text) = value.as_str() {
+                ensure_offset_growth(builder.values_slice().len(), text.len(), max_offset)?;
+                builder.append_value(text);
+            }
             else if value.is_null() { builder.append_null(); }
             else { return Err("records string value has wrong type".to_string()); }
         }
         DataType::Binary => {
             let builder = downcast::<BinaryBuilder>(builder)?;
             if value.is_null() { builder.append_null(); }
-            else { builder.append_value(bytes_value(value)?); }
+            else {
+                let bytes_hex = value.get("bytes_hex").and_then(Value::as_str)
+                    .ok_or("records binary value must contain bytes_hex")?;
+                ensure_offset_growth(builder.values_slice().len(), bytes_hex.len() / 2, max_offset)?;
+                builder.append_value(bytes_value(value)?);
+            }
         }
         DataType::FixedSizeBinary(width) => {
             let builder = downcast::<FixedSizeBinaryBuilder>(builder)?;
@@ -250,8 +267,9 @@ fn append_value(builder: &mut dyn ArrayBuilder, field: &Field, value: &Value) ->
         DataType::List(element) => {
             let builder = downcast::<ListBuilder<Box<dyn ArrayBuilder>>>(builder)?;
             if let Some(items) = value.as_array() {
+                ensure_offset_growth(builder.values_ref().len(), items.len(), max_offset)?;
                 for item in items {
-                    append_value(builder.values().as_mut(), element, item)?;
+                    append_value_with_limit(builder.values().as_mut(), element, item, max_offset)?;
                 }
                 builder.append(true);
             } else if value.is_null() { builder.append(false); }
@@ -272,11 +290,20 @@ fn append_value(builder: &mut dyn ArrayBuilder, field: &Field, value: &Value) ->
                     object.get(child.name()).ok_or_else(||
                         format!("records field {} is missing", child.name()))?
                 } else { &placeholder };
-                append_value(builder.field_builders_mut()[index].as_mut(), child, child_value)?;
+                append_value_with_limit(
+                    builder.field_builders_mut()[index].as_mut(), child, child_value, max_offset
+                )?;
             }
             builder.append(object.is_some());
         }
         other => return Err(format!("unsupported records Arrow type {other:?}")),
+    }
+    Ok(())
+}
+
+fn ensure_offset_growth(current: usize, additional: usize, limit: usize) -> Result<(), String> {
+    if current.checked_add(additional).is_none_or(|next| next > limit) {
+        return Err("records Arrow offset budget exceeded".to_string());
     }
     Ok(())
 }
@@ -368,5 +395,45 @@ mod tests {
         assert!(context.remaining_bytes() < starting);
         drop(batch);
         assert_eq!(context.remaining_bytes(), starting);
+    }
+
+    #[test]
+    fn variable_width_offsets_reject_before_arrow_builder_growth() {
+        let string = Field::new("text", DataType::Utf8, false);
+        let mut string_builder = StringBuilder::new();
+        append_value_with_limit(&mut string_builder, &string, &json!("abc"), 3)
+            .expect("limit is inclusive");
+        assert!(append_value_with_limit(&mut string_builder, &string, &json!("d"), 3)
+            .unwrap_err().contains("offset budget"));
+        assert_eq!(string_builder.values_slice(), b"abc");
+
+        let binary = Field::new("raw", DataType::Binary, false);
+        let mut binary_builder = BinaryBuilder::new();
+        append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "000102"}), 3)
+            .expect("limit is inclusive");
+        assert!(append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "03"}), 3)
+            .unwrap_err().contains("offset budget"));
+        assert_eq!(binary_builder.values_slice(), &[0, 1, 2]);
+
+        let element = Arc::new(Field::new("item", DataType::Utf8, true));
+        let list = Field::new("items", DataType::List(element), false);
+        let mut list_builder = make_builder(list.data_type(), 1);
+        append_value_with_limit(list_builder.as_mut(), &list, &json!(["a", "b"]), 3)
+            .expect("two child slots");
+        assert!(append_value_with_limit(list_builder.as_mut(), &list, &json!(["c", "d"]), 3)
+            .unwrap_err().contains("offset budget"));
+        let child_count = list_builder.as_any_mut()
+            .downcast_mut::<ListBuilder<Box<dyn ArrayBuilder>>>()
+            .expect("list builder").values_ref().len();
+        assert_eq!(child_count, 2);
+
+        let nested_element = Arc::new(Field::new("item", DataType::Utf8, true));
+        let nested_child = Arc::new(Field::new("item", DataType::List(nested_element), true));
+        let nested = Field::new("nested", DataType::List(nested_child), false);
+        let mut nested_builder = make_builder(nested.data_type(), 1);
+        append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["a", "b", "c"]]), 3)
+            .expect("nested child reaches limit");
+        assert!(append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["d"]]), 3)
+            .unwrap_err().contains("offset budget"));
     }
 }

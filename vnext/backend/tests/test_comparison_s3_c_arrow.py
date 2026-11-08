@@ -284,6 +284,7 @@ def test_standalone_reader_budget_is_m24_not_a_total_i32_limit() -> None:
 def test_plain_400_mib_cell_is_admitted_before_decode() -> None:
     class Column:
         encodings = ("PLAIN", "RLE")
+        num_values = 1
 
     class Group:
         num_rows = 1
@@ -307,6 +308,42 @@ def test_plain_400_mib_cell_is_admitted_before_decode() -> None:
     )
     _standalone_read_bound(1024**2, admission)
     assert admission < 12 * 1024**3
+
+
+def test_sparse_nested_nullable_list_slots_are_charged_before_parquet_decode() -> None:
+    # Parquet definition levels compress these null elements, while Arrow must
+    # still allocate the nested child array and the validator visits each slot.
+    schema = _schema_for(
+        RecordsArtifactFamily.STANDARD, detail_policy=RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+    )
+    row = {
+        "table_name": "t", "record_kind": "ROW_MODIFIED", "row_identity": bytes(32),
+        "changed_columns": [],
+        "before_values": [{"column_name": "x", "value": {
+            "kind": "set", "text": None, "raw_bytes": None, "boolean": None,
+            "items": [None] * 100_000, "anomaly_json": None,
+        }}],
+        "current_values": [], "field_changes": [], "diagnostics": [],
+    }
+    batch = pa.RecordBatch.from_pylist([row], schema=schema)
+    sink = pa.BufferOutputStream()
+    pq.write_table(
+        pa.Table.from_batches([batch], schema=schema), sink,
+        compression="zstd", use_dictionary=False, row_group_size=1,
+    )
+    with closing(pq.ParquetFile(pa.BufferReader(sink.getvalue()))) as file:
+        metadata = file.metadata
+        assert metadata is not None
+        group = metadata.row_group(0)
+        assert group.num_rows == 1
+        assert group.total_byte_size < 1024 * 1024
+        assert max(group.column(index).num_values for index in range(group.num_columns)) >= 100_000
+        with pytest.raises(ValueError, match="decoded batch budget"):
+            _decoded_admission(file, RecordsPublicationPolicy(max_decoded_batch_bytes=32 * 1024**2))
+        admitted = _decoded_admission(file, RecordsPublicationPolicy())
+        assert admitted >= 100_000 * 512
+        decoded = next(file.iter_batches(batch_size=1024, row_groups=[0]))
+        assert decoded.nbytes < admitted
 
 
 def test_counts_only_output_budget_excludes_full_sort_blob() -> None:

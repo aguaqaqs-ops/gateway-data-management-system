@@ -860,9 +860,13 @@ def _validate_parquet_bytes(
 def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -> int:
     """Reserve a conservative upper bound before Arrow decodes a row group.
 
-    Each yielded batch stays within one row group. Dictionary encoding is
-    rejected; the factor covers Arrow offsets, validity, nested arrays, and
-    one per-row JCS tree before the group is decoded.
+    Each yielded batch stays within one row group. Parquet leaf ``num_values``
+    includes repetition/definition-level entries, including nullable elements
+    in the fixed records lists. Those entries can RLE-compress to a few bytes
+    while Arrow still allocates a child slot for each one. Charge each leaf
+    entry for its Arrow slots/offsets/validity and the fixed-schema serde/JCS
+    nodes that can be materialized from it. The byte factor covers variable
+    payloads and escaped JCS. Dictionary encoding is rejected below.
     """
     metadata = file.metadata
     if metadata is None:
@@ -874,13 +878,26 @@ def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -
             raise RecordsPublicationError("records Parquet row group exceeds 1024 rows")
         if group.total_byte_size < 0:
             raise RecordsPublicationError("records Parquet row group size is invalid")
+        leaf_slots = 0
         for column in range(group.num_columns):
-            encodings = (str(item).upper() for item in group.column(column).encodings)
+            leaf = group.column(column)
+            encodings = (str(item).upper() for item in leaf.encodings)
             if any("DICTIONARY" in item for item in encodings):
                 raise RecordsPublicationError("records Parquet dictionary encoding is unsupported")
+            if leaf.num_values < 0:
+                raise RecordsPublicationError("records Parquet leaf value count is invalid")
+            leaf_slots += leaf.num_values
         # Dictionary expansion is excluded by the published writer format.
-        # The factor covers Arrow offsets/validity and one nested JCS row.
-        estimate = 16 * group.total_byte_size + group.num_rows * 2048 + 1024 * 1024
+        # Each fixed-schema leaf crosses at most four list/struct/Scalar nodes.
+        # 512 bytes per entry covers their slots, offsets, validity, serde map
+        # and list nodes, and one row's JCS scratch; the final 2x reservation
+        # also covers simultaneous decoded Arrow and validator temporaries.
+        estimate = (
+            16 * group.total_byte_size
+            + 512 * leaf_slots
+            + group.num_rows * 2048
+            + 1024 * 1024
+        )
         largest = max(largest, estimate)
         if 2 * largest > min(limits.max_decoded_batch_bytes, _N1_OPERATION_MEMORY_BYTES):
             raise RecordsPublicationError("records decoded batch budget exceeded")

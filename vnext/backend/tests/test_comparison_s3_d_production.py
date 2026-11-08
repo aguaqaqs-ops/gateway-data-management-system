@@ -44,6 +44,7 @@ from gateway_backend.capabilities.table_access import current_kernel_context, ke
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
 from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
+from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
 
 pytestmark = pytest.mark.unit
@@ -431,26 +432,28 @@ def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
 def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    before = _canonical_bound(bound(
+    store = InMemoryArtifactStore()
+    before = _artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
-    ))
-    current = _canonical_bound(bound(
+        "INSERT INTO t VALUES (1, 'before');", store,
+    )
+    current = _artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
-    ))
+        "INSERT INTO t VALUES (1, 'after');", store,
+    )
     rules = comparison_ruleset_for(standard_rule_record("t"))
     template = plan(before, current)
     first_plan = replace(template, pair_id="writer-first")
     second_plan = replace(template, pair_id="writer-second")
     session = ComparisonTaskSession((first_plan, second_plan))
-    first_store = InMemoryArtifactStore()
     first = run_preview_pair_pipeline(
         pair_id="writer-first", before=before, current=current,
-        store=first_store, control=ExecutionControl(), on_cancel=lambda: None,
+        store=store, control=ExecutionControl(), on_cancel=lambda: None,
         rule_set=rules, assess_identity=False, dedup_session=session,
+        repository_id="replacement-fixture",
     )
     assert first.records_closure is not None
+    first_records = tuple(store.locate(entry.records_ref) for entry in first.records_closure.records)
     assert len(session.risk_candidates) == 1
     context = current_kernel_context()
     assert context is not None
@@ -467,11 +470,11 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
         original_evict()
 
     monkeypatch.setattr(session, "risk_evict_for_output", counted_evict)
-    second_store = InMemoryArtifactStore()
     second = run_preview_pair_pipeline(
         pair_id="writer-second", before=before, current=current,
-        store=second_store, control=ExecutionControl(), on_cancel=lambda: None,
+        store=store, control=ExecutionControl(), on_cancel=lambda: None,
         rule_set=rules, assess_identity=False, dedup_session=session,
+        repository_id="replacement-fixture",
     )
     assert evictions >= 1 and session.risk_candidates == {}
     assert second.records_closure is not None
@@ -480,9 +483,7 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     assert tuple((entry.family, entry.records_content_digest) for entry in second.records_closure.records) == tuple(
         (entry.family, entry.records_content_digest) for entry in first.records_closure.records
     )
-    assert tuple(second_store.locate(entry.records_ref) for entry in second.records_closure.records) == tuple(
-        first_store.locate(entry.records_ref) for entry in first.records_closure.records
-    )
+    assert tuple(store.locate(entry.records_ref) for entry in second.records_closure.records) == first_records
 
 
 def test_single_pair_declares_no_long_lived_comparison_result() -> None:

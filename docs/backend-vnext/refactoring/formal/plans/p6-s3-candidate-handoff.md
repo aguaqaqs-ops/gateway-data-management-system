@@ -1,4 +1,6 @@
-# S3 累计产品候选与受阻交接
+# S3 累计产品候选与验证交接
+
+**当前恢复状态（2026-11-08）：** Owner 后续已授权 Q18 实现、S3 剩余验证和 DC95 限定增预算诊断；S4 在另一对话按 DC96 独立推进。本稿 §1–6 保留原 V774/H685 的受阻交接事实，其中“Q18 未修”“不开始 S4”“不重启样本”等均为当时边界，不能覆盖后续授权和实际结果。最新候选、隔离范围及恢复状态见 §7；原 M24 失败不撤销，也未因增预算授权变为通过。
 
 2026-11-08。Owner已明确选择：**保持阶段边界，保留性能阻塞，完成其余交接**。这不是性能待项豁免；S3 E不签GO、S3不退出，不提前实施S4，不改N1/32-8/M24，不tag/push/发布。
 
@@ -102,3 +104,24 @@ Owner已确认fresh t1–t4完整功能范围，又专项批准本轮t1–t3从0
 FE3b/FE3c仍由前端Owner核收，不冒认完成。FE3c Q18归档权限用户获取不到close所需expected_review_version的接口缺口仍未修，须独立后端项；空initial上传A缺一次generation time是现规则，不改S3语义。S4/S5只移交接口与容量问题，不在本轮启动；S4前置S3 exit的顺序冲突需要Owner另决，不能自动跨过。原基准性能线保持独立。
 
 剩余责任：原E审核者完成累计A–D/删除/独立expected、真实source证据边界及H绑定核收；产品候选和功能证据可独立复核，整体性能阻塞持续。Owner后续若改变范围/场景/阶段顺序，须另形成固定设计与适用验证；当前不重启样本、不放宽M/输入/同worker守卫，正式退出/tag/push均未办理。
+
+## 7. 恢复执行与隔离候选（取证进行中）
+
+Owner 的 DC91 将五个 32C/64GiB 节点合为按有效 marker 调度的测试池；DC95 允许本轮 worker 在现有资源内上调，最大 32C/64G；DC96 允许 S4 另线设计实施。现按原 E 独审通过的[资源小稿](p6-s3-resource-profile-plan.md)只验证一个新档 **N1、单 active、48GiB worker／8GiB reserve／M40GiB**，生产默认 N1/32−8/M24 不变。增预算结果按实际条件另列；原 M24 W3 基线 Submit 失败、原始日志和私有卷归档保留。
+
+Q18 已完成：产品 `94b25a32792821cbc5b3230d98a0aa6f13493c32`，原审核报告 `27eab454b7`、最终交接 `8cf472a4dd` 及其独审 `964d900d44`，结论 **BE-Q18 GO**。归档候选读取在同一 read transaction 返回必需的 `review_version`，归档请求 `selected` 仍严格只投影原两字段；权限、CAS、schema、digest 和生成时间业务预期不变。06 的 focused 及四条实际 Compose 旅程原件、镜像绑定与可转前端回复见 [Q18 交接](p6-be-q18-handoff.md)。附加 live OpenAPI 抓取缺失，未记通过；FE 快照、类型和 mock 由前端在自己的实际栈更新。Q18 GO 不代替 S3 验收。
+
+资源支持提交 `e76342ef0b58bb0120fc60d8a063d838140ee28d` 仅修改限定 settings、Compose、host benchmark guard、两个 tests 和资源设计文档。main 后续 S4 B 已修改 Rust 树，因此 main 的测试 typing 修复 `a39339f18d` 不直接作为 S3 测量 V。按并行短分支例外，从 e763 只接该单测试文件修复，固定 **V=`1e669c053f2486c50a8413c58de11d923d7f3cad`**，分支 `p6-s3-resource-candidate`；Rust tree 仍 `9d4f84ce0897099402226c77c548c487c4912008`，没有并行 S4 B。main 未回退或改写。新最终 H 将只在这一候选上增加职责内文档并做同来源绑定；任何结果均不冒称并行最新 main 的 S4 代码已经验证。
+
+| 本轮范围 | 截至本次文档提交的实际状态 | 来源及限制 |
+| --- | --- | --- |
+| 资源首轮 focused | e763 的 backend mypy exit1；后续步骤未到 | 原失败及 SHA 见协调 §29、E review §68，不改写 |
+| 修复 focused | CT108／V1e669，outer/node 0；102 nonserial +3 serial，backend/RS Ruff、mypy、native input 及两档 Compose config 通过 | 原 E §68 独核；前三包静态同源码事实直接引用 e763 实跑，非权威 carried |
+| 当前六包／容器门禁 | 04／V1e669 实际全六包正在运行；尚无最终整体 exit 及镜像出口核收 | 原 04 同来源 WT 保留；不得提前记 PASS 或 carried |
+| fresh t1–t4 | 05 全四档执行稿已静态 CLEAR；源码／八包输入准备进行中，真实旅程未开始 | 每档完整 v1/重复 MO、v2 FULL，保持 N1/32−8/M24；按 DC33 原范围，不用旧 S2b 或 3a7 代替当前 fresh |
+| 新档 W3/W4 | CT108 离线源／13 输入／镜像准备已实际 0 并独核；首 W3 MO warm 尚未启动 | 等待 04 门禁原件核收；准备不证明 M40 真实容量，更不形成 1warm+3 统计 |
+| E 整体与退出 | **尚未 GO／未退出** | 最终 H、逐包／镜像绑定、fresh 原件和性能报告仍待；tag/push/发布未办理 |
+
+focused 直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-1e669c053f-focused-r1/`，outer SHA=`2b1bbc8095d8622d7c660c0d57aeab82a383ddccd65991e4e63534cd0d0dd7f3`、node/captured SHA=`cbc4c7b32e1ab98cd71940486693c6c43c950a9425b3d770a898776f3ed12d65`。CT108 性能准备直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-performance-e76342ef0b/prepare-control/`，outer SHA=`c32722d0968aae7fe3bcaf526a251a9e79a3796ec38fb201bc91dc5dfc1d874f`、node/captured SHA=`895a6f19b2b0b3ac1206f8963d36143e8b609d4c9b059c71cc6d58db07bf7783`。后者路径名称含旧 e763，实际固定 source 为 1e669；prepared-images.json 的 `config_digest` 字段只是 Docker inspect 本机 ID，不能拿它作跨节点 config。真实 runtime config 与全部 DiffID 由当次 docker-save 原件核收。
+
+恢复后各实际结果及最终核收将追加到本节之后；当前仍保留容量阻塞，未对未知项给通过结论。

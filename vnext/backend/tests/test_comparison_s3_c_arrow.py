@@ -563,9 +563,9 @@ def test_records_sort_cap_scales_without_changing_projected_rows(detail_policy: 
             before.close()
             current.close()
             operation.close()
-        import gc
-        gc.collect()
-        assert memory.used_bytes == 0
+            import gc
+            gc.collect()
+            assert memory.used_bytes == 0
         return row, memory.high_water_bytes
 
     with pytest.raises(MemoryError, match="records sort budget exceeded"):

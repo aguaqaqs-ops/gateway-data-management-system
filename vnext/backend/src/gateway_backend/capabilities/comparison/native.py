@@ -6,7 +6,7 @@ logical-content validation; raw artifact identity stays with the store.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, cast
 
 import pyarrow as pa
 from gateway_compute._native import (
@@ -91,9 +91,9 @@ def facts_core_digest(
     summary_json: str,
     max_jcs_row_bytes: int,
 ) -> str:
-    return _facts_core_digest_native(
+    return cast(str, _facts_core_digest_native(
         operation, handles, metadata_jsons, algorithm_version, summary_json, max_jcs_row_bytes
-    )
+    ))
 
 
 def summarize_unchanged_ordered(
@@ -105,9 +105,9 @@ def summarize_unchanged_ordered(
     max_input_bytes: int,
 ) -> tuple[str, str, str, str, int]:
     try:
-        return _summarize_unchanged_ordered_native(
+        return cast(tuple[str, str, str, str, int], _summarize_unchanged_ordered_native(
             operation, current, policy_json, max_input_bytes, input_owner_charge
-        )
+        ))
     except BaseException:
         close = getattr(input_owner_charge, "close", None)
         if callable(close):
@@ -123,10 +123,10 @@ def validate_records_batches(
     cancel_probe: CancelProbe | None = None,
     deadline_monotonic: float | None = None,
 ) -> tuple[str, str, str, int, str]:
-    return _validate_records_batches_native(
+    return cast(tuple[str, str, str, int, str], _validate_records_batches_native(
         reader,
         max_records,
         max_batch_bytes,
         cancel_probe or _NeverCancel(),
         deadline_monotonic,
-    )
+    ))

@@ -999,7 +999,7 @@ def _field_matches(
                 for a, e in zip(actual_type, expected_type)
             )
         )
-    return actual_type == expected_type
+    return bool(actual_type == expected_type)
 
 
 def _schema_for(

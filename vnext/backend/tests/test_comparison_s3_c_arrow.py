@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -26,7 +26,7 @@ from gateway_compute._native import (
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy,
+    NativeRecordsHandle, RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy,
     _record_sort_key, _record_to_row,
     _canonical_records_batch, _decoded_admission, _schema_matches,
     _standalone_read_bound, _standalone_retained_cap,
@@ -36,6 +36,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     restore_records_closure,
 )
 from gateway_backend.capabilities.comparison import artifacts as records_artifacts
+from gateway_backend.capabilities.comparison.native import validate_records_batches as real_validate
 from gateway_backend.capabilities.comparison.contracts import (
     ArtifactScope, DetailedFactsResult, RecordsArtifactFamily, RecordsArtifactManifest,
     RecordsDetailPolicy, SchemaEvolution,
@@ -80,7 +81,21 @@ class Charge:
         self.closed = True
 
 
-def _native_one() -> tuple[object, object, Charge, Charge, DetailedFactsResult]:
+class NativeTestOperation(Protocol):
+    def seal(self) -> int: ...
+
+    def close(self) -> None: ...
+
+
+class NativeTestHandle(NativeRecordsHandle, Protocol):
+    def metadata_json(self) -> str: ...
+
+    def table_fact_digest(self, metadata_json: str, max_jcs_row_bytes: int) -> str: ...
+
+    def close(self) -> None: ...
+
+
+def _native_one() -> tuple[NativeTestOperation, NativeTestHandle, Charge, Charge, DetailedFactsResult]:
     before = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'before');")
     current = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, NULL);")
     plan = _plan(before, current)
@@ -88,8 +103,8 @@ def _native_one() -> tuple[object, object, Charge, Charge, DetailedFactsResult]:
     assert isinstance(expected, DetailedFactsResult)
     assert expected.facts is not None
     table = expected.facts.tables[0]
-    assert plan.tasks[0].policy is not None
     task = plan.tasks[0]
+    assert task.policy is not None
     assert task.before_table is not None and task.current_table is not None
     policy = {
         "mode": "keyed", "selected_columns": list(table.schema_changes.selected_columns),
@@ -100,16 +115,18 @@ def _native_one() -> tuple[object, object, Charge, Charge, DetailedFactsResult]:
     }
     operation_charge = Charge()
     input_charge = Charge()
-    operation = _begin_comparison_operation_native(2 * 1024**3, operation_charge, NeverCancel())
+    operation = cast(NativeTestOperation, _begin_comparison_operation_native(
+        2 * 1024**3, operation_charge, NeverCancel(),
+    ))
     before_stream = _canonical_stream(task.before_table)
     current_stream = _canonical_stream(task.current_table)
     try:
-        handle = _compare_records_native(
+        handle = cast(NativeTestHandle, _compare_records_native(
             operation, "standard", "t", before_stream, current_stream, json.dumps(policy),
             "FULL_BEFORE_AFTER_VALUES", 2_000_000, 512 * 1024**2, 512 * 1024**2,
             2 * 1024**3,
             input_charge,
-        )
+        ))
     finally:
         before_stream.close()
         current_stream.close()
@@ -310,6 +327,7 @@ def test_arrow_family_publish_avoids_records_readback() -> None:
 @pytest.mark.parametrize("count", [0, 1, 1023, 1024, 1025])
 def test_native_builder_keeps_1024_batch_boundary(count: int) -> None:
     bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'sample');")
+    assert bound.table_set is not None
     table = bound.table_set.tables[0]
     sample = _canonical_stream(table)
     schema = sample.schema
@@ -349,7 +367,6 @@ def test_real_open_read_restore_use_native_arrow_validator(monkeypatch: pytest.M
     published = publish_records_closure(_standard_result(), source_store)
     assert isinstance(published, DetailedFactsResult)
     assert published.facts is not None and published.facts.records_ref is not None
-    real_validate = records_artifacts.validate_records_batches
     calls = 0
 
     def checked_validate(*args: object, **kwargs: object) -> tuple[str, str, str, int, str]:
@@ -452,6 +469,7 @@ def test_sparse_nested_nullable_list_slots_are_charged_before_parquet_decode() -
 
 def test_counts_only_output_budget_excludes_full_sort_blob() -> None:
     bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL);")
+    assert bound.table_set is not None
     schema_reader = _canonical_stream(bound.table_set.tables[0])
     schema = schema_reader.schema
     schema_reader.close()
@@ -593,6 +611,7 @@ def test_phase_seal_returns_native_scratch_to_same_m_before_writer() -> None:
     native_charge = memory.reserve(64 * mib)
     input_charge = memory.reserve(8 * mib)
     bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'x');")
+    assert bound.table_set is not None
     stream = _canonical_stream(bound.table_set.tables[0])
     schema = stream.schema
     operation = _begin_comparison_operation_native(64 * mib, native_charge, NeverCancel())
@@ -647,6 +666,7 @@ def test_native_budget_failure_releases_input_and_phase_charges(limited: str) ->
     native_charge = memory.reserve(64 * mib)
     input_charge = memory.reserve(8 * mib)
     bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'x');")
+    assert bound.table_set is not None
     current = _canonical_stream(bound.table_set.tables[0])
     schema = current.schema
     operation = _begin_comparison_operation_native(64 * mib, native_charge, NeverCancel())
@@ -692,6 +712,7 @@ def test_native_operation_rejects_cancel_or_expired_deadline_and_releases(contro
 @pytest.mark.serial
 def test_native_arrow_read_releases_gil_for_cancel_monitor() -> None:
     bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL);")
+    assert bound.table_set is not None
     schema_reader = _canonical_stream(bound.table_set.tables[0])
     schema = schema_reader.schema
     schema_reader.close()

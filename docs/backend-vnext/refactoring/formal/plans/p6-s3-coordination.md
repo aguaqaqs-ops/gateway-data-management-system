@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§32：A–D GO、Q18独立GO；原M24和后续M40失败均保留。已授权的资源诊断及局部排序预算修复继续，隔离候选V4b0已通过focused，04门禁及当前产品fresh正在推进，仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§33：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1；main最小移植1ecb亦已获独立代码与节点focused核收。当前产品fresh余档及资源诊断继续，仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -497,3 +497,13 @@ CT108修订M40 warm actual1，v1 Preview／Submit／真实read、approve、Archi
 CT108原M40失败标记已在20:40:43Z按release-only稿收尾，node／outer0并由原E §88独核PASS；**只释放本人标记**，3停容器、3卷、1网络、镜像、原WT／DB／输入／日志和747,672,576B runtime tar均保留。直接control `/home/dev/gdds-test-tmp/p6-s3-failed-marker-closeout-1e669c053f/control/`：outer SHA=`ac65175535afe7eefa9027736c048d9400ee05bd2ac08ef5c2dbae95c1eea09c`、sealed report=`238eb665f64b8d571299144fbd393abbab81f76f2e4897664148df43e67c873b`、最终receipt=`59cceabba4d2c4bb451b509a0aa84b19f9f927e3f1de1a4d308305046b52e9cc`。原失败result06c0／manifest8ffa SHA未变，原warm仍失败，不能把释放核收写成业务PASS。
 
 CT108新V4b0准备稿／warm稿仍须原E核收及现场原子准入；新warm严格等待新04 actual0和镜像绑定核收。新档仍仅48/8/M40、N1，默认32/8/M24不变。剩余23样本和统计尚未执行，必须先有本候选首个合格warm、原E核收与实际归档／磁盘容量；保1warm＋3、六组MO／FULL／压力范围及S6目标，不以0有效样本给统计。最终H、同04逐包／镜像绑定、main最小移植和累计独核仍待收敛；无E GO、tag、push或正式退出。
+
+## 33. V4b0权威核收与main最小移植实证
+
+04原受保护来源WT的V4b0集中取证于20:31:35–21:01:59Z封口，官方runner、node、capture、postflight、outer均原exit0；原E §92／`da66ded9b9`独核PASS。实际闭包为rust／shared_kernel／repository_contracts／repository_client四包直接沿用同04同WT的V1e最初实跑来源，backend／repository_service两包在当前V实跑；不是“六包在4b0全部重跑”。backend3440＋74、RS1764（另1skip）＋214通过，五Python静态0、native9d4输入匹配。当前Compose三容器、save真实config及全部28／13／13 DiffID与RS build-input／source-tree标签吻合。完整原件位于`/home/dev/gdds-test-tmp/p6-s3-v2-sort-authority-4b0a2eec72-fixed/control/`：outer SHA=`03aed7a69e2c3afd71a1feecf9790a790201fc598123e4c9d57a22b204baa4c0`、runner=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`、driver=`f9be9a40d29dce1df31d4313f68325a51af90c1ca29a486b1e8b108285b1a4d4`。HEAD4b0 clean／六锁0漂／marker已释放，来源WT、环境、镜像及日志继续保护至最后H与exit。
+
+新05 t1在20:43:32–20:47:29Z完整fresh actual0，原E §90／`24170a3863`已独核PASS：18步v1／重复MO、v2 FULL、Submit、真实read／approve／Archive／History，默认N1／32−8／M24，同worker、OOM三键0、正常停止及最终控制收据均合格。直接原件`t1-control/` outer SHA=`d533b94531a5014888eb8571015128a2cbc4b0b33bdeba99d2e0664279b1bf3d`、receipt=`dc8c75652fef8d521e11bf69c1dce6e25966e78a4ed61cb4f34aad350cd4c11c`。t2随后20:50:29–21:04:14Z actual0，outer SHA=`33006f6d825081058d80be7e8b902702180bd721739fa7c2167e38adbce337c5`，本节提交时待原E独核；t3／t4未启动，不提前合并为四档PASS。
+
+S4协调者明确移交comparison production与C／D两测试的短期写入归属后，原S3实施者在main单独提交最小移植 **`1ecb17f6de4c71ddb001a6829d2222cd28bacb34`**（父f4d9e19a），仅这三路径及同一S3设计段；不覆盖S4C PublicCanonicalView或重基隔离V。原E §91固定detached静审CODE_CLEAR，随后06于21:01:08–21:02:29Z节点focused actual0并获同人独核PASS：强制原生重装／输入tree **`e2a901417b19259ece669637a41545e774261445`**、backend Ruff／mypy、六个现役C／D／E／独立向量／产物／Risk文件nonserial134＋serial1通过，HEAD1ecb clean、六锁0漂、marker释放。原件`/home/dev/gdds-test-tmp/p6-s3-main-port-focused-1ecb17f6de-fixed/focused-control/` outer SHA=`955b53d3607d9026b2b4da11ebce39e02a4ca33d88124ef61b7978b2c0a15e1e`、node=`aff29570a93d3d0a24f2dd0ad98ca29d382bb216915575ad989b8501d2f63ebd`。这是主线S4C接口上的受影响调试实证，不是其全门禁／容器证明，也不与隔离V4b0的Rust9d4混用。三路径已交回S4，后续benchmark Submit度量路径也经双方确认归S4 root，不动S3已固定source／driver。
+
+CT108新V准备actual0在原E §89核收PREP_PASS；含上述04真实结果及准备原件SHA的首暖终稿已由同E再次静审CLEAR，协调仅交唯一Luna运行一次。准备／镜像配置不证明runtime48／8／M40生效，实际warm需另核；当前仍0个有效warm、后续23及统计未运行。最终H必须同04原来源WT逐包实比，包含完整pytest cache变化；不拿run后manifest冒充起始source或人为改cache强行沿用，实际闭包有变则按规则运行受影响包。正式退出／tag／push仍未办理。

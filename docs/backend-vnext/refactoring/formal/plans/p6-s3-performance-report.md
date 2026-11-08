@@ -72,3 +72,9 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 新候选尚待集中门禁、当前产品完整fresh及新的W3 MO warm。旧V1e在05的t1–t4已各档fresh且独立PASS，仅记旧源功能回归；不冒新V4b0或M40性能结果。第4节仍0有效warm／0测量，23项及聚合仍HOLD；后续只有新合格warm、独审和实际tar／磁盘准入满足后才推进。
 
 20:40:43Z，旧M40失败标记已按原E静审的release-only稿实际释放，node／outer0且原E §88独核PASS。只新增外部收尾报告／receipt并移除本人marker，三停容器／三卷／一网络、旧WT、DB、输入、镜像和runtime tar均保留，原失败result／manifest逐SHA不变。sealed closeout report SHA=`238eb665f64b8d571299144fbd393abbab81f76f2e4897664148df43e67c873b`、control receipt=`59cceabba4d2c4bb451b509a0aa84b19f9f927e3f1de1a4d308305046b52e9cc`，见[协调§32](p6-s3-coordination.md#32-排序预算修复后的当前候选与集中验证)。释放不是warm成功；后续新准备／warm需重新现场准入，未预留CT108。
+
+## 8. 新V4b0首暖前置核收
+
+截至21:05Z，新V4b0的04权威两包实跑＋四包同WT直接原V1e沿用、当前Compose镜像出口均actual0，原E §92／`da66ded9b9`已核PASS；原runner SHA=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`，outer=`03aed7a69e2c3afd71a1feecf9790a790201fc598123e4c9d57a22b204baa4c0`。CT108新source／13输入／镜像准备actual0已在原E §89独核PREP_PASS，outer=`54ac09bc4d7e09aad6ef5e1e5283515d59431f00a2bfb7531338b3ea5bd70a9a`、prepare.log=`f0031eaecced560fd3cdaadc02f7dae9e996fc0fd14307e2383686d64bce46a0`。这些满足首暖稿固定实际来源的前提，**不是首暖或M40业务通过**。
+
+原实施者已把上述真实SHA填入新V4b0 W3 MO稿，原E对字面终稿复审CLEAR，协调只交唯一tester单次执行。driver SHA=`312a9d394a5c9384ee67276b2c97265ddf56bdc794b90af7f3fcad9fc124d967`、controller=`36bcbd3afa49f2c666d8cfe4dd5a15cfc8d789546998fb45c2f55123d2865cd2`、WARM说明=`25b52cc2ae7bbab9821f87ac9a05658bbfe7a2707bee9d46d1036dae1f431514`。后续实际运行时另核48GiB envelope／8GiB reserve／M40／N1、同一worker、三OOM键、真实runtime镜像及全部资源／封口守卫；构建时传配置不代替其生效。当前矩阵仍0有效warm／0测量，剩余23和聚合未执行。main移植1ecb的代码及06 focused PASS另记[协调§33](p6-s3-coordination.md#33-v4b0权威核收与main最小移植实证)，不混入隔离Rust9d4性能源。

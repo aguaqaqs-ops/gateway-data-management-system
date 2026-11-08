@@ -2968,3 +2968,21 @@ CT108原监控/预算/进程/tag及在途worktree保持，不新增角色、不�
 **自然结束在途runner符合权威入口自身行为。** 已独立读H780 run-tests.sh：各pytest批次失败设置test_exit=1并继续原选中批次，最后统一exit test_exit及执行清理；当前不是runner已经exit1后继续carried/另跑验收。无需人工中断剩余串行组；结束后先保留实际exit、closed日志/SHA、起止HEAD/clean和收尾，失败整次结果不得作为qualified carried，不能原样重试。本轮新H780镜像实际构建/传输/启动前材料尚待集中交审，未将旧fcc镜像或通过包追记为当前最终门禁资格。
 
 两项普通工具/测试修订已直接交唯一实施者并与设计统一单一路径，可在独立非在途worktree准备小diff、05必要focused/静态后独审，最终新H的镜像/闭包/权威证据依原规则绑定。保持CT108 DC63原运行/预算/冻结tag及源卷，独立record收口继续；没有新Owner/设计GO、额外旅程或矩阵，也不把本轮局部失败变为整体等待。
+
+## 138. DC63旅程与必需span覆盖已核成立，V5b旧empty输入策略失败，限定剩余接续
+
+**DC63/V5b整链exit1，不能记整体PASS；失败已唯一定位到V5b工具的empty-before构造策略。** 本审核已直接读取CT108 closed controller/launch/postflight和V5b raw，并LAN存CT201 `p6-baseline-evidence-review-20261108/dc63-v5b-failure-d2ffe1ac/` 逐hash相同。sampler实际Nov7 **22:34:47.876Z–Nov8 00:12:23.357Z / 5855.394s**、起止d2ffe/head_stable、exit1；此前转报“00:22退出”是后续发现时刻，不能代替实际结束。controller.log4643B/SHA **`c64a6956e869fa9a7614af45d7f328c573e5ae4a9177c4a0c49e211bd8ab38fc`**；launch.log509887B/SHA **`9f49b75a3a5b5dff0cfebb207ce2eb257b44cc6d4c0bcec429e0d6216e73eb8e`**。
+
+原journey已正常返回conclusion=PASS，包括History成功及timing捕获，未因V5b随后失败而倒改已完成步骤。独立解析唯一final summary与state，实际为312表路径：v1 Preview788.269s、v1 Submit visible670.615/completion670.627s、repeat Preview685.713s、repeat Submit同步0.008s、v2 Preview784.247s、v2 Submit271.871/271.881s、History347.768s；v1/v2 failed与degraded均0，v2普通changed26，offline composite666.232s独立于API。它们是本次带诊断配置/输入下的观测，不作为旧631表FULL/STRESS对比或正式性能目标通过。
+
+**必需DC63覆盖本身独审成立，可保留，无需重跑旅程。** state2163273B、SHA **`e0dd1db681e7cc7950a124853542ac0813215206604f211584814609e5108f50`**，_stack绑定本project/d2ffe及本次repository；coverage1961B、SHA **`5682dc007e26419dd8ae5952a8ebfc9644a815b867a86c5e871010f2f472f0c8`** 精确引用该state SHA；worker.log168359B、SHA **`9d50b95cefbd77c5d4a572de565827384a6ab2cc5c60f82fa2a755643d40015d`**。审核者在CT201仅对JSON作独立证据解析：五个真实operation角色ID互异，八handler集合与state真实字段相符，raw91个span、56个必需stage槽齐全；全部相关elapsed有限非负、outcome ok/complete，History commit_materialization ordinal恰1/2，原failures/missing均空。没有导入或执行产品/coverage工具、测试或打开SQLite。正式selector派生仍按已审实际覆盖边界，不用这些span反填未覆盖旧finish子项。
+
+**V5b的具体错误为工具输入政策错位，生产拒绝保持正确。** raw95598B、SHA **`245232de8bbe6d1e18da27f97449fb95aa0a5e3e96fd7ae432dcb584ac9c62fb`** 记录23:47:35–00:12:18Z、1483.098913s/threadCPU1391.502873s、status=FAILED、failure_type=PairPipelineError、起止d2ffe。真实trace在v1 _measure_bundle→run_preview_pair_pipeline→_surface_table_artifacts→table_map(request.before)，报`surface table composite_signal_point is missing its artifact`。独立源码对齐：s5._empty_baseline使用READERS_REQUIRED；materialize_business_snapshot只在ARTIFACTS_REQUIRED时调用_with_artifacts，而真实pair pipeline要求每张表有artifact。它在bundle动作之前就拒绝，不能由CPU活跃或返回完整journey推断V5b通过。只应把测量helper的empty policy修至ARTIFACTS_REQUIRED并用05真实helper/consumer的小fixture验证，不放宽生产pair要求，不追加Dolt/profiling或重测业务。
+
+FAILED raw已实际完成并保存两个materialization段：full312表 **249.144340s**、selected27表 **59.583654s**，各段readback/计数依原producer在正常返回后追加。按设计认可，这些仅能以精确旧raw/HEAD/来源引用其本身已完成范围，不追改原FAILED为PASS、不将新V5b全部字段冒称同次来源；具体reference派生/复用接线尚待独审。bundle及后续C/D尚未完成。
+
+postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506ebb3ee1`** 直接核：00:12:23–27Z，diagnostic logs/down/node check/cleanup均0，三个服务和网络收束、node_lock_released=true；原down没有-v。实施者另报实际三卷保留、无残留进程/容器/8000和锁ABSENT；本审核未再作运行节点探测或大目录hash，不把静态日志范围扩成新现场审计。
+
+**设计已明确V5b-only最小接续边界，沿DC80直接闭环，无新Owner/GO。** 修helper后仅复用本次已完成v1 commit/隔离RS及保留卷，恢复必要服务供V5b；不启动journey、seed或业务POST，不触旧历史栈/冻结tag。新scratch/output/接续身份准确记录来源，原绝对截止与剩余预算保持，不重新给22h或滑动延时；实际缓存及重复局部准备边界必须真实记录。最小代码/05focused与具体服务复用、已有A段引用、时间预算和收尾待同一审核集中核，已完成DC63不重跑，不建设额外持久续跑状态机。
+
+**04 H780第二轮的closed失败结果也已核实。** 原日志460637B、SHA **`4ffef57bac5bc44ffc08562d6e98f64d54c73ded6da35b457e125ff6787756e9`** 已LAN取 `p6-baseline-evidence-review-20261108/ct04-h780-failure/`；00:19:48Z结束、end_head=78000且clean、runner_exit=1，RSserial214 passed/1764 deselected/581.92s，未增加第三项失败。六包最终状态rust及三个fast包passed、backend/RS failed，Hypothesis/Cargo清理已执行；原两项失败维持§137，整次不能作qualified carried来源。04外层现场收尾/锁释放原件仍待交，不能只据runner结束冒称节点已释放。独立05记录收口及必要工具/测试修订继续，不原样重试整链/POST或失败门禁。

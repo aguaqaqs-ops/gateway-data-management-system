@@ -543,6 +543,7 @@ fn retained_header_bytes(table: &StorageTable) -> Option<usize> {
 }
 
 #[pyfunction]
+#[allow(clippy::too_many_arguments)]
 fn _begin_storage_operation_native(
     py: Python<'_>,
     remaining_bytes: usize,

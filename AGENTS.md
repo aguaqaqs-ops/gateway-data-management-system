@@ -39,6 +39,7 @@ Owner 于 2026-11-08 将五节点统一为 **32 vCPU / 64 GiB**，取消前后�
 
 - 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。已有自行管理标记的入口（前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
 - 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、原 04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
+- 已授权测试不需逐次与并行S4或其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（Owner 2026-11-08补充，DC97）。
 - 正式测量可选池内合格节点；同一统计组的预热和测量留在同一节点与配置，记录冷暖、CPU/内存及存储条件。换节点或硬件配置后的样本分组报告，不能混入旧组或直接宣称同条件提速。
 - pytest workers/Cargo jobs 初始建议各 4；前端设置 `GATEWAY_FE_TEST_WORKERS=2`。测试并发与产品 N/M 分开。64 GiB guest 不改变已冻结的 N1、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB；临时增预算诊断须另外固定参数与证据，不能照搬旧 64 GiB worker 配置。 Owner 随后按 DC95 明确授权本轮 S3 worker 在现有资源内上调、最大 32C/64G；实际资源档须留系统/其他服务余量并固定独审，新档结果与原 M24 失败分列，生产默认不因授权本身自动变更。
 - 缓存不跨节点共享。按包 carried 和镜像等价仍须在来源 V 的同一节点、同一 worktree 判定，不能随调度搬迁证据。旧记录中的实际节点和阶段专项授权保留历史含义，未来调度以本规则为准。
@@ -189,6 +190,8 @@ sha256sum vnext/repository_service/uv.lock
 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
 ## 全局比例化保障
+
+Phase 6退出按[DC97](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)：性能数值目标只报告，是否达标不作退出门槛；仍须完成已确认范围的可靠测量、真实统计、正确性／资源安全／来源与独审核收，失败和未知不得写为通过。可由Luna max只读监视并向协调者汇报；不额外启动测试或替代唯一执行者／独立审核。
 
 Phase 0–9及后续维护统一遵守
 [Proportional Assurance and Risk-Based Verification Policy](docs/backend-vnext/refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)。

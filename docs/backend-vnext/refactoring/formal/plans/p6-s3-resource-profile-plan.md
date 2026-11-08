@@ -2,6 +2,8 @@
 
 2026-11-08；原 E 已给本小稿 `DESIGN_CLEAR_FOR_IMPLEMENTATION`。限定资源支持已形成代码候选；节点测试、容器构建及正式样本仍待独审和执行，本稿不是资源档验收结果。本稿只处理 S3 完整 W3/W4 Preview 测量的 worker 资源配置和证据。依据 [DC95](p6-s0-owner-decisions.md#dc95-s3补测worker资源上调授权owner2026-11-08)、[S3 容量停止报告](p6-s3-e-capacity-stop.md)、[E 终审 §61–64](p6-s3-e-review.md)、[并行边界](p6-s3-s4-parallel-plan.md)及 [S4 kickoff §3](p6-s4-kickoff.md#3-路径所有权与三线协调)。
 
+后续Owner按DC97确认性能指标达标不作退出门槛，只要求可靠测量；本稿的时间目标及历史未知按各自当时事实保留，实际新档／测量结果见[性能报告](p6-s3-performance-report.md)。运行时预算／硬限／资源guard及证据有效性不是性能参考目标，仍须满足已审前提；当前固定执行稿不因治理补充而修改。
+
 ## 1. 已知预算、证据和条件
 
 原 V=`774acf33a3f12eeccfbb440d9446ffde9c1c6d43`、H=`685c97f4e275e5e52b42ea403a07a5e96b0695b2` 仍为 `BLOCKED_CAPACITY`。CT108 原 W3 MODIFIED_ONLY warm 的 v1 Submit 在 M24 预约拒绝，v2 Preview 未到；原失败、私有归档及 04 carried 来源 worktree 保留。原失败的首次 stage、requested/live、表号未知，不从本次模拟倒填。

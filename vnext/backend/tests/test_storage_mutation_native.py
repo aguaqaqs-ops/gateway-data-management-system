@@ -77,8 +77,8 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
                  for name in ("board", "link_no", "status")],
         primary_key=manifest.canonical_key_columns,
     )
-    manifest = replace(manifest, source_schema_digest=digest(source_fill),
-                       canonical_schema_digest=schema_digest, content_digest=digest(content_fill))
+    manifest = replace(manifest, source_schema_digest=digest(source_fill * 2),
+                       canonical_schema_digest=schema_digest, content_digest=digest(content_fill * 2))
     descriptor = table_descriptor(
         "orders", [typed_column(name, "VARCHAR(64)") for name in ("board", "link_no", "status")],
         primary_key_columns=manifest.canonical_key_columns, row_count=table.num_rows,
@@ -232,8 +232,8 @@ def test_storage_rule_digest_only_change_uses_the_shared_comparability_rule() ->
     assert context is not None
     before = _side(old, source_fill="1")
     after = _side(new, source_fill="2")
-    before = replace(before, storage_view=replace(before.storage_view, storage_rule_digest=digest("1")))
-    after = replace(after, storage_view=replace(after.storage_view, storage_rule_digest=digest("2")))
+    before = replace(before, storage_view=replace(before.storage_view, storage_rule_digest=digest("11")))
+    after = replace(after, storage_view=replace(after.storage_view, storage_rule_digest=digest("22")))
     task = _task(before, after)
     with prepare_storage_table(task, context) as handle:
         summary = handle.summary()
@@ -290,10 +290,10 @@ def test_rebound_manifest_item_cannot_reuse_a_verified_stream(field: str, fill: 
     assert context is not None
     after = _side(_table([("1", "0", "same")]))
     if field == "content_digest":
-        altered = replace(after.manifest_table, content_digest=digest(fill))
+        altered = replace(after.manifest_table, content_digest=digest(fill * 2))
     else:
         assert field == "source_schema_digest"
-        altered = replace(after.manifest_table, source_schema_digest=digest(fill))
+        altered = replace(after.manifest_table, source_schema_digest=digest(fill * 2))
     complete = manifest_document(tables=(altered,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     spoofed = replace(after, manifest_table=altered, metadata_manifest=complete)

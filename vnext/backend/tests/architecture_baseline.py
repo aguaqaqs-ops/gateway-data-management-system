@@ -25,5 +25,10 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",
+        # P6 S4 B stages the table-native facade before D wires Submit to it.
+        # D must remove these exact entries when it adds the real consumer;
+        # S4 E may not carry this temporary exemption to exit.
+        "gateway_backend.capabilities.mutation_planning.native",
+        "gateway_backend.capabilities.mutation_planning.storage",
     }
 )

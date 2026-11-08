@@ -151,12 +151,7 @@ pub fn build_ordered_records(
                 } else {
                     &record.changed_columns
                 };
-                return small_row_upper(
-                    table_name,
-                    Some(&record.row_identity),
-                    columns,
-                    &record.diagnostics,
-                );
+                return small_row_upper(table_name, Some(&record.row_identity), columns, &[]);
             }
             record
                 .value_columns

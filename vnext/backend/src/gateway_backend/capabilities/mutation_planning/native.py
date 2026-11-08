@@ -127,15 +127,21 @@ def prepare_storage_table(
         raise ValueError("before Arrow schema missing")
     if after is not None and after.stream is None:
         raise ValueError("after Arrow stream missing")
-    before_owner = None if before is None or before.stream is None else require_storage_input_owner(
-        before.input_owner, before.stream, before.schema, active,
-        before.metadata_manifest, before.manifest_table, before.storage_projection_version,
-    )
-    try:
-        after_owner = None if after is None or after.stream is None else require_storage_input_owner(
-            after.input_owner, after.stream, after.schema, active,
-            after.metadata_manifest, after.manifest_table, after.storage_projection_version,
+    before_owner = None
+    if before is not None and before.stream is not None:
+        assert before.metadata_manifest is not None
+        before_owner = require_storage_input_owner(
+            before.input_owner, before.stream, before.schema, active,
+            before.metadata_manifest, before.manifest_table, before.storage_projection_version,
         )
+    try:
+        after_owner = None
+        if after is not None and after.stream is not None:
+            assert after.metadata_manifest is not None
+            after_owner = require_storage_input_owner(
+                after.input_owner, after.stream, after.schema, active,
+                after.metadata_manifest, after.manifest_table, after.storage_projection_version,
+            )
     except BaseException:
         if before_owner is not None:
             before_owner.close()

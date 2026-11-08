@@ -280,7 +280,11 @@ def test_rebound_manifest_item_cannot_reuse_a_verified_stream(field: str, fill: 
     context = current_kernel_context()
     assert context is not None
     after = _side(_table([("1", "0", "same")]))
-    altered = replace(after.manifest_table, **{field: digest(fill)})
+    if field == "content_digest":
+        altered = replace(after.manifest_table, content_digest=digest(fill))
+    else:
+        assert field == "source_schema_digest"
+        altered = replace(after.manifest_table, source_schema_digest=digest(fill))
     complete = manifest_document(tables=(altered,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     spoofed = replace(after, manifest_table=altered, metadata_manifest=complete)

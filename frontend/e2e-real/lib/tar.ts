@@ -52,12 +52,17 @@ export interface BundleClosureEntry {
   raw_sha256: string;
 }
 
+export interface BundleClosureSemanticEntry {
+  logical_path: string;
+  integrity: { media_type: string; raw_sha256: string; size_bytes: number };
+}
+
 export interface BundleClosure {
   bundle_contract_version: number;
   bundle_digest: string;
   bundle_manifest_digest: string;
-  entries: BundleClosureEntry[];
-  closure_entries: unknown;
+  entries: BundleClosureSemanticEntry[];
+  closure_entries?: BundleClosureEntry[];
 }
 
 const BLOCK = 512;
@@ -169,7 +174,14 @@ export function parseBundleTar(tar: Buffer): ParsedBundle {
   if (digestHex(closure.bundle_digest) !== digestHex(manifest.bundle_digest)) {
     throw new Error("closure.bundle_digest 与 manifest.bundle_digest 不一致");
   }
-  const entries = new Map(closure.entries.map((entry) => [entry.logical_path, entry]));
+  const entries = new Map(
+    (closure.closure_entries ??
+      closure.entries.map((entry) => ({
+        logical_path: entry.logical_path,
+        size_bytes: entry.integrity.size_bytes,
+        raw_sha256: entry.integrity.raw_sha256,
+      }))).map((entry) => [entry.logical_path, entry]),
+  );
   for (const member of members) {
     if (member.path === "manifest.json" || member.path === "artifact-closure.json") continue;
     const entry = entries.get(member.path);

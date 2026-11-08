@@ -461,14 +461,13 @@ impl StorageRender {
 #[pymethods]
 impl StorageRender {
     fn next_chunk(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyBytes>>> {
-        let result = match adapter_boundary(|| {
-            py.detach(|| self.next_bytes()).map_err(storage_sql_error)
-        }) {
-            Ok(Ok(Some(bytes))) => Ok(Some(PyBytes::new(py, &bytes).unbind())),
-            Ok(Ok(None)) => Ok(None),
-            Ok(Err(error)) => Err(error),
-            Err(()) => Err(PyRuntimeError::new_err("storage SQL rendering panicked")),
-        };
+        let result =
+            match adapter_boundary(|| py.detach(|| self.next_bytes()).map_err(storage_sql_error)) {
+                Ok(Ok(Some(bytes))) => Ok(Some(PyBytes::new(py, &bytes).unbind())),
+                Ok(Ok(None)) => Ok(None),
+                Ok(Err(error)) => Err(error),
+                Err(()) => Err(PyRuntimeError::new_err("storage SQL rendering panicked")),
+            };
         self.copy_lease = None;
         result
     }

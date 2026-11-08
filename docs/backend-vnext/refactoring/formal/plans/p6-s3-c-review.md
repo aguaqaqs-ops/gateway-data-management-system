@@ -1,6 +1,6 @@
 # Phase 6 S3 C 独立审核
 
-**当前结论：C 固定候选 `bca590261568e8adeec605ecc00afbb2715782ad` 的预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 06 Rust focused 首步 fmt 失败并停止，clippy/test 未运行；bca 的 Rust/backend/FFI/容器证据和依赖镜像 06 预填充仍待取得。
+**当前结论：C 固定候选 `bd384246bd50320feba1d1cb805a96034ab294c7` 的预算/offset finding 已在代码层静态闭合，仍无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。旧 `9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 在 06 的 fmt 首败后停止；`bca590261568e8adeec605ecc00afbb2715782ad` 的 fmt 通过、clippy 编译 E0609 首败，后续 test/native/backend/static 未运行。bd 的运行和当前镜像证据仍待取得。
 
 ## 1. 固定对象、职责与方法
 
@@ -63,6 +63,8 @@ DC68 明确“重做再次失败……均停止交 owner”。第一次准备错
 
 `bca590261568e8adeec605ecc00afbb2715782ad` 仅将 06 原 `cargo fmt --all` 机械 patch 应用到 8 个 Rust 路径；本人在 clean detached WT 核 HEAD 与 Rust tree=`c5cb5288a62497940bbf5905828f1942b70668ca`，对 `68a..bca` 的 Rust diff 用原 Git 九位 index 缩写生成 SHA256=`234259e6b829553968068880fcbc0e8865f8b65f0a9b776df3aa018f7515d22b`，与 06 原 patch 逐字相同。它不另算一轮预算修订，待新固定候选的06运行。
 
+`bd384246bd50320feba1d1cb805a96034ab294c7` 是 bca clippy 首败后的单文件最小修复。本人在 `/home/dev/gdds-s3-c-review-bd384246` 固定 detached WT 核 HEAD、clean、legacy exclude；单提交只将 ordered 非 FULL 的 `small_row_upper` 调用中不存在的 `OrderedRecordRef.diagnostics` 换成 `&[]`，该行实际构造的 `diagnostics` 已是空数组，不改变语义。五个 backend/worker dependency-base 输入相对 bca 无 diff。此编译反馈不是读预算或 offset 同根的新轮；能否编译及行为仍以该提交的 06 原件为准。
+
 ## 5. Owner 恢复后的 9f 源端原件
 
 Owner 明确回复“允许按已审恢复稿放行”，协调者记录于 `5036f77f04`；本人原先对 `93589767…` 的“可供 Owner 决定”判断不再是执行阻塞。唯一 tester 将已审脚本只改固定 HEAD、证据目录、会话和 bundle 名，三份 SHA 分别为源端 `b833aeae3953a00a58646972f9f28061e54fc779849b387788ddd593786e9018`、06 准备 `b17e8802e0f7ede620c20413e1de713d54c958e5453c2e2a7dd999db80cb66cb`、06 Rust focused `67bc649956b02142de83398440b07a0618c7987bfefa6f42cc18c2c6bd1d8291`。本人逐字对原模板比对，变化仅上述字段，Rust 顺序仍为 fmt→workspace clippy→workspace test，首败即停。
@@ -84,3 +86,17 @@ CT201 第一次源 WT 准备只因既有日志名拒覆盖，原件 `source-wt-c
 ## 7. 68a 机械格式与 bca 固定候选
 
 本人逐字核格式主体 `/home/dev/gdds-test-tmp/p6-s3-c-format-68a97378/prepare-and-format.sh` SHA256=`844ec577c48daeed3df06c77ad28e25a9a02cf06b8854f750e91e8f8bde996b1`，以及本人 dirty scratch 保护性收尾 `cleanup-format.sh` SHA256=`639eb9ca968e09417149b7451e3534ed01bab53c1ea6048307c83157a9942070`，放行唯一 tester：源 clean detached 68a 与字面 HEAD 完整 bundle，06 原子本人 marker/LAN SHA，独立 68a WT 仅 `cargo fmt --all`，patch/SHA 双端核后才在同 session 删除本人格式 WT、核旧 9f WT clean、释放本人 marker。格式主体原始日志 SHA256=`6dbc44520ad6499000ef82615da5395ee5890eeb325fa189cadc3bf8203deba0`，01:27:25–29Z exit0；06 `format.log` SHA256=`923ac6af1f0923c1db8bac6d2e2ad8e4715238e0d9381c980bd4c9d13457bc9a`，01:27:29–30Z，HEAD=68a、Rust1.97、六锁无漂、8 Rust 路径格式 patch SHA=`234259e6b829553968068880fcbc0e8865f8b65f0a9b776df3aa018f7515d22b`、exit0。收尾原始日志 SHA256=`16327dc30aba5ac7d06f2b7e06588c86ee4e2deeffb2c36ff756bbaf0f5e4adf`，01:28:00–01Z exit0；06 patch 与 live-before-cleanup patch SHA 同，实际仅本人格式 WT 移除、marker 不在、旧9f WT仍精确 HEAD9f且 clean。格式 patch 与 bca 源码一致见 §4.1；本步没有 clippy/test，也不是 bca 验收。
+
+## 8. bca 06 focused 首败与只读取证
+
+本人静态逐字核 bca 的源、节点、运行与外层四稿，SHA256 分别为 `a48182538d3cd850c77b4cfa7d587589ee985d3fe2529bb560e80de1dbc79567`、`59c67fb19b69fd43aacbdb48793020a165520d17cb3b064cd640ecd5f2ae248a`、`7221f17d916eeef800ab81733a43651eea34ea31cc84a9048cbd82a22b5cf4df`、`bac2d71d344168914f75c1495eb58567ee471e60af29d8feada7fe331c497aa7`。执行范围是 clean detached bca 源、字面 HEAD 全历史 bundle、06 本人原子 marker 与局域网双端 SHA、clean detached 测试 WT+legacy，Rust fmt→clippy→workspace test，再强制重装 native 并核 build-input、C focused unit、五 Python 包 ruff/mypy；任一步首败即停，不含 Compose。backend `pyproject.toml` 的 mypy `files=["src","tests"]` 已覆盖新的 C 测试与 support 文件。
+
+唯一 tester 的源 bundle 日志 SHA256=`043eb7d52c51053b3340d6e08b8c182c0e1a9213761231806e5d2d58b0a82fec`，archive SHA256=`b02217139d58a439c09a0d4d4ec79675acd61c8ef4dc6bec6bc6f64ed64211d6`；外层原始日志 SHA256=`8558b4f5ddd29fff75c13217e1715851e46da5b37ed791ff4a7e6463f621068c`，01:32:48–56Z，`FINAL_EXIT=101`。06 节点准备原始日志 SHA256=`bc98f5eab88eca34580d6035b982ab16bb02e7dc2d2c7c9304f2e3807fb74749`：完整历史 bundle verify/fetch，HEAD=bca，clean detached，exit0。06 Rust 原始日志 SHA256=`4a647ef7e03dd9c579df0ce23eb3086e31fb3c3e9d3826d6642af651bd287338`：Rust selector/toolchain 1.97.0、HEAD=bca、Rust tree=`c5cb5288a62497940bbf5905828f1942b70668ca`、clean、六锁无漂；`cargo fmt --all --check` exit0，`cargo clippy --workspace --locked --offline --all-targets -- -D warnings` 在 `records/source.rs:158` 报 E0609：`OrderedRecordRef` 无 `diagnostics` 字段，exit101。workspace test、native 重装、backend focused 与五包静态均**未运行**；不能报通过或推断 C 行为。
+
+只读 postflight 原件 SHA256=`936a175aeb8a458fb2a7d0206cd2128368eae99e59548394570eef7ab59691e7`：同一 `rg -n … "$f" | tail -n 100` 在节点上对 node 与 Rust 两个不同日志各报一次 `rg: command not found`，两条管道各自的 numeric exit 未捕获，不能写成查询成功。两条之间没有修正或重做；其后每个文件各用 `tail -n 100` 一次，完整取得原始日志末尾、SHA、clippy 诊断、HEAD、六锁与失败退出。故这是同批两个未成功只读查询，**不是** DC68 意义上的“纠正后再次失败”；postflight 最终 SSH exit0 不替代那两条失败。本人 marker 释放日志 SHA256=`f016d383bc692c56509485e3fc4851310442ec41e2242bcbbb291844988293ae`，明确标为事后誊录的 SSH stdout/exit：01:34:27Z，核精确 owner、无相关进程/容器/8000 listener，才移除本人 marker，工具 exit0。没有继续测试或把失败当 PASS。
+
+## 9. 06 依赖预填充与 bd 重跑稿静态核
+
+本人逐字核 CT201→06 预填充脚本 `/home/dev/gdds-test-tmp/p6-s3-c-dependency-base-573d5824/prefill-06.sh` SHA256=`48017e4e374725c8c7826359f0d46b2d98d6611f05edf1d3ccae7282e334f437`，及随附身份核验脚本 `verify-saved-image.py` SHA256=`bbf4a6ac956ec57cc88bdb496f334306bdfe9e92024a538526cc6b2136ca7d50`。它只在 06 空闲时取得本人原子 marker，经 LAN 校四件源/节点 SHA；以 `docker save` 的 config blob digest 与完整 RootFS DiffID 核 Rust base 5 层、dependency image 19 层并核锁输入 label。已有相同 derived tag 只核不覆盖，缺失才 `docker load`；精准释放本人 marker。Python runtime base 要求本机存在，当前 Compose 后续仍需当前候选镜像实证。此稿**静态 CLEAR，仅备料，不把 CT201 构建或预填充当 C 产品测试**；06 原始执行结果另核。
+
+bd 的源、节点、运行与外层四稿 SHA256 分别为 `6cbc4a132fbdfb65405d9fcb93c12234dc515f20ed6b078120a53036da775b75`、`57a8d2ff0bef7689a6ae3f15d8df86f70b55ea9ce0392b8575cddc29f58c5127`、`c0ddde6d26ce48aad9b9d996919ac164c7640363f62275fca395512758457020`、`748f67ff2f553f021dc6e9872d01ebc5be3dfb45f4961e1fd6685df037141333`。本人逐字核：除了固定 HEAD、证据路径、会话、嵌入脚本 SHA 和 purpose 文字，命令与已审 bca 稿一致；两类 06 操作严格串行，bd 仍从 fmt 重新开始、首败停止。此为**执行稿静态 CLEAR**，不是 bd 编译、测试或 C GO。

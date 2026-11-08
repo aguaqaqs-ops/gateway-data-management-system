@@ -14,7 +14,7 @@
 | B | 产品`fbb7fca65d81`、交接`4918cc5440d0` | `17fd6739b809` B GO；standard/keyless/ordered共用batch核、当前侧ordered摘要、取消/截止/预算、t1–t4替换期逐表差分 |
 | C | 产品`854d3888a9de`、交接`c5bbc4544f97` | `ce217c0ad777` C GO；三族Arrow builder、完整JCS/facts、直接Parquet写、真实读取Arrow→Rust验证、raw golden一致 |
 | D | 产品`a9da0c59277e`、交接`d1aad819be5e` | `055707a98436` D GO；Preview/History唯一生产接线、必要Risk列/原控制流、完整key操作内去重、有限阶段诊断 |
-| E | 当前V774、实施交接`cfecb3873286` | 原E审核者连续核修复及证据；代码清理与功能候选证据收敛，**整体E性能受阻，无E GO** |
+| E | 当前V774、实施交接`36a11750992e` | 原E审核者连续核修复及证据；代码清理与功能候选证据收敛，**整体E性能受阻，无E GO** |
 
 原报告：[A](p6-s3-a-review.md)、[B](p6-s3-b-review.md)、[C](p6-s3-c-review.md)、[D](p6-s3-d-review.md)、[E](p6-s3-e-review.md)。E最终核收须覆盖A–D接口和跨节接线，不能只看删除增量；最终结论以E末节为准。
 
@@ -65,9 +65,9 @@ Owner另授权的三个最小移植已纳入：claim间GC `028aff2da7e6`、cold 
 
 Owner已确认fresh t1–t4完整功能范围，又专项批准本轮t1–t3从05改06；不继承S2b例外。每档v1/重复Preview MODIFIED_ONLY、v2 FULL，覆盖Submit、实际Repository读取/approve、History，N1/32-8/M24不变。3a7四档已fresh通过；后来774仅改host benchmark及两测试、生产src对象ID不变，又实际重跑774 t1验证新Monitor。t2–t4按kickoff §61作为未改consumer的原source既有证据引用，不能写成774实测。
 
-| 档 | 实际源/节点/UTC | 直接原件与核收 |
+| 档 | 实际源/节点/result起止UTC（截取整秒） | 直接原件与核收 |
 | --- | --- | --- |
-| t1 | 774 /06；14:03:17–14:07:18Z | 新control `s3-e-final-t1-774acf33a3/`；E review §55；完整功能、同worker/cgroup/镜像/清理0 |
+| t1 | 774 /06；14:03:18–14:07:14Z | 新control `s3-e-final-t1-774acf33a3/`；E review §55；完整功能、同worker/cgroup/镜像/清理0 |
 | t2 | 3a7 /06；12:35:06–12:48:52Z | 原control `s3-e-final-t2-3a7e088b2a/`；E review §45；原source业务/资源证据 |
 | t3 | 3a7 /06；12:54:17–13:16:24Z | 原control `s3-e-final-t3-3a7e088b2a/`；E review §47；原source业务/资源证据 |
 | t4 | 3a7 /CT108；12:25:24–12:46:16Z | 原control `s3-e-final-t4-3a7e088b2a/`；E review §44；原source业务/资源证据 |

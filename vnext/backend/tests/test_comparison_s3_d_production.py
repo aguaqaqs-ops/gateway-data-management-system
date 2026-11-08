@@ -1158,8 +1158,6 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
         "INSERT INTO t VALUES (1, 'before');"
     )
     current_sql = before_sql.replace("before", "after")
-    before = bound(before_sql)
-    current = bound(current_sql)
     expected = frozen_case(request.node.nodeid)
     native_plan = plan(
         _canonical_bound(bound(before_sql)),

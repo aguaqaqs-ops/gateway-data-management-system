@@ -21,6 +21,7 @@ function operation(overrides: Partial<UploadModeOperation> = {}): UploadModeOper
 function input(overrides: Partial<UploadModeInput> = {}): UploadModeInput {
   return {
     workspace: workspace(),
+    workspaceLoading: false,
     workspaceError: null,
     attempt: null,
     attemptLoading: false,
@@ -132,5 +133,79 @@ describe("deriveUploadModeGates", () => {
       review: review({ status: "WITHDRAWN" }),
     }));
     expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.withdrawn, reread: true });
+  });
+
+  it("reports loading without retry while the first workspace read is in flight", () => {
+    const gates = deriveUploadModeGates(input({ workspace: null, workspaceLoading: true }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.loading });
+    expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.loading });
+    expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.loading });
+    expect(gates.withdraw.retry).toBeUndefined();
+    expect(gates.submit.retry).toBeUndefined();
+  });
+
+  it("reports loading while the attempt read is in flight", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+      attemptLoading: true,
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.loading });
+    expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.loading });
+    expect(gates.withdraw.retry).toBeUndefined();
+  });
+
+  it("requires an administrator when the operation is MANUAL_RECOVERY_REQUIRED", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+      attempt: attempt({ state: "PREPARED" }),
+      operation: operation({ status: "MANUAL_RECOVERY_REQUIRED" }),
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.recovery });
+    expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.recovery });
+    expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.recovery });
+  });
+
+  it("requires an administrator when a CANCELLED operation leaves the attempt open", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+      attempt: attempt({ state: "PREPARED" }),
+      operation: operation({ status: "CANCELLED" }),
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.recovery });
+    expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.recovery });
+  });
+
+  it("requires an administrator when a SUPERSEDED operation leaves the attempt open", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+      attempt: attempt({ state: "EFFECT_PENDING" }),
+      operation: operation({ status: "SUPERSEDED" }),
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.recovery });
+    expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.recovery });
+  });
+
+  it("judges by the submission pointer when the attempt is already closed", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1", active_submission_id: "submission-1" }),
+      attempt: attempt({ state: "ABORTED" }),
+      operation: operation({ status: "FAILED" }),
+      review: review({ status: "PENDING" }),
+    }));
+    expect(gates.withdraw.enabled).toBe(true);
+    expect(gates.upload).toMatchObject({ enabled: false, reason: UPLOAD_COPY.pending });
+  });
+
+  it("asks for a re-read for the upload gate on terminal review statuses", () => {
+    const rejected = deriveUploadModeGates(input({
+      workspace: workspace({ active_submission_id: "submission-1" }),
+      review: review({ status: "REJECTED" }),
+    }));
+    expect(rejected.upload).toMatchObject({ enabled: false, reread: true });
+    const withdrawn = deriveUploadModeGates(input({
+      workspace: workspace({ active_submission_id: "submission-1" }),
+      review: review({ status: "WITHDRAWN" }),
+    }));
+    expect(withdrawn.upload).toMatchObject({ enabled: false, reread: true });
   });
 });

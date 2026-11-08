@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";
 import {
+  DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
   HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, SIMULATED_ERROR_RESPONSES, TEST_OPERATION_SUCCEEDED,
   TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS,
 } from "../src/features/dev/simulated-api";
@@ -48,20 +49,6 @@ function workspace(patch: Partial<Schemas["WorkspaceResponse"]>): Schemas["Works
   return { ...baseWorkspace, active_submission_id: null, active_submit_attempt_id: null, ...patch };
 }
 
-function submissionNode(refId: string, createdAt: string, patch: Partial<Schemas["HistoryNodeResponse"]> = {}): Schemas["HistoryNodeResponse"] {
-  return {
-    ref_kind: "submission" as const,
-    ref_id: refId,
-    node_kind: "SUBMISSION" as const,
-    commit_id: "commit-" + refId,
-    created_at: createdAt,
-    parent: { ref_kind: "baseline_node" as const, ref_id: "fe2a-history-ref-1" },
-    identity_exception: false,
-    review_status: "APPROVED" as const,
-    ...patch,
-  };
-}
-
 interface ModeState {
   workspace: Schemas["WorkspaceResponse"];
   review: Schemas["ReviewFactsResponse"];
@@ -71,13 +58,45 @@ interface ModeState {
   attemptStatus?: number;
   reviewEventsConflictOnce?: boolean;
   operation?: Schemas["OperationResponse"];
+  operationById?: Record<string, Schemas["OperationResponse"]>;
+  /** B2: queued workspace responses; the first read returns stale data, later reads recover. */
+  workspaceSequence?: Schemas["WorkspaceResponse"][];
+  /** REVIEW-mode facts keyed by submission id; falls back to state.review. */
+  reviewBySubmission?: Record<string, Schemas["ReviewFactsResponse"]>;
 }
 
 async function installModeRoutes(page: Page, state: ModeState) {
   const bundle = await loadBundle("preview-full");
+  let workspaceReads = 0;
+  const workspaceReadsOf = () => workspaceReads;
   await page.route("**/v1/workspaces", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
-    return json(route, 200, state.workspace);
+    workspaceReads += 1;
+    const next = state.workspaceSequence?.length ? state.workspaceSequence.shift()! : state.workspace;
+    return json(route, 200, next);
+  });
+  await page.route("**/v1/history-compares", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return json(route, 202, { operation_id: "history-compare-d", status: "QUEUED", replayed: false });
+  });
+  await page.route(/\/v1\/history-compares\/[^/]+\/bundle$/, (route) => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
+    body: bundle.tar,
+  }));
+  await page.route(/\/v1\/history-compares\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return json(route, 200, {
+      operation_id: "history-compare-d",
+      status: "SUCCEEDED",
+      diagnostic: null,
+      result: {
+        bundle_digest: bundle.manifest.bundle_digest,
+        completed_at: "2026-11-03T09:15:00Z",
+        input: { nodes: [] },
+        pairs: [],
+      },
+    });
   });
   await page.route(/\/v1\/history(\?|$)/, async (route) => {
     const history = state.history ?? {
@@ -98,7 +117,8 @@ async function installModeRoutes(page: Page, state: ModeState) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review" && item.status === state.reviewStatus);
       return json(route, state.reviewStatus, error?.body ?? { code: "SCOPE_FORBIDDEN", message: "forbidden" });
     }
-    return json(route, 200, state.review);
+    const submissionId = new URL(route.request().url()).pathname.split("/")[3] ?? "";
+    return json(route, 200, state.reviewBySubmission?.[submissionId] ?? state.review);
   });
   await page.route(/\/v1\/submissions\/[^/]+\/review-events$/, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -116,7 +136,11 @@ async function installModeRoutes(page: Page, state: ModeState) {
     }
     return json(route, 200, state.attempt ?? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full" });
   });
-  await page.route(/\/v1\/operations\/[^/]+$/, (route) => json(route, 200, state.operation ?? { ...TEST_OPERATION_SUCCEEDED, operation_id: route.request().url().split("/").at(-1) }));
+  await page.route(/\/v1\/operations\/[^/]+$/, (route) => {
+    const operationId = route.request().url().split("/").at(-1) ?? "";
+    return json(route, 200, state.operationById?.[operationId] ?? state.operation ?? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId });
+  });
+  return { workspaceReadsOf };
 }
 
 function previewUrl(extra: Record<string, string> = {}) {
@@ -241,11 +265,20 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await expect(upload).toBeDisabled();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible();
   await screenshot(page, "fe3b-w8-upload-disabled", 1280);
+  // B1: the UploadStepCard start button shares the toolbar occupancy reason,
+  // while the directory picker stays enabled.
+  await selectModifiedDirectory(page);
+  const stepCard = page.locator(".upload-card");
+  const stepUpload = stepCard.getByRole("button", { name: "上传并生成预览" });
+  await expect(stepUpload).toBeDisabled();
+  await expect(stepCard.getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible();
+  await expect(stepCard.getByRole("button", { name: "选择目录" }).first()).toBeEnabled();
   state.workspace = workspace({});
   await page.reload();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
   await selectModifiedDirectory(page);
   await expect(upload).toBeEnabled();
+  await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
 });
 
 test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page }) => {
@@ -268,31 +301,39 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
   await screenshot(page, "fe3b-w10-stale-preview", 1280);
 });
 
-test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
-  const archivedBaseline: Schemas["HistoryNodeResponse"] = {
-    ref_kind: "baseline_node", ref_id: "baseline-arch", node_kind: "BASELINE_NODE", baseline_kind: "ARCHIVED_SUBMISSION",
-    commit_id: "commit-baseline-arch", created_at: "2026-11-07T09:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
-    identity_exception: false,
+test("W10 陈旧指针重读后恢复可用（一次性重读，B2）", async ({ page }) => {
+  // The first workspace read is stale; the one-time re-read (reread) recovers.
+  // Removing the re-read logic leaves the terminal reason on screen, so this
+  // case fails without B2. The hook dedupes the mount read, so the recovery
+  // is exactly the second workspace request even under StrictMode.
+  const staleWorkspace = workspace({ active_submission_id: "submission-1" });
+  const state: ModeState = {
+    workspace: workspace({}),
+    workspaceSequence: [staleWorkspace, workspace({})],
+    review: {
+      ...TEST_REVIEW_FACTS,
+      status: "APPROVED" as const,
+      submission_disposition: { submission_id: "submission-1", disposition: "ARCHIVED_BASELINE", source_kind: "ARCHIVE", result_id: "archive-result-1", closure: null },
+    },
   };
+  const { workspaceReadsOf } = await installModeRoutes(page, state);
+  await page.goto("/?page=workspace");
+  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await selectModifiedDirectory(page);
+  await expect(upload).toBeEnabled({ timeout: 15000 });
+  expect(workspaceReadsOf()).toBe(2);
+  await page.goto(previewUrl());
+  await waitForPreview(page);
+  await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
+  await expect(page.getByText("当前没有待审核的提交")).toBeVisible({ timeout: 15000 });
+});
+
+test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
+  // B7: disposition scenarios live in mock-data.ts and are asserted reachable by unit tests.
   const nodes: Schemas["HistoryNodeResponse"][] = [
     ...HISTORY_PAGE_ONE.nodes,
-    submissionNode("d-arch", "2026-11-05T01:00:00Z", {
-      submission_disposition: "ARCHIVED_BASELINE", disposition_source_kind: "ARCHIVE" as const, disposition_result_id: "archive-result-1",
-      promoted_baseline_node_id: "baseline-arch",
-    }),
-    submissionNode("d-closed", "2026-11-05T02:00:00Z", {
-      submission_disposition: "CLOSED_NOT_ARCHIVED", disposition_source_kind: "ARCHIVE" as const, disposition_result_id: "archive-result-1",
-    }),
-    submissionNode("d-manual", "2026-11-05T03:00:00Z", {
-      submission_disposition: "CLOSED_NOT_ARCHIVED", disposition_source_kind: "MANUAL_CLOSE" as const,
-      closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
-    }),
-    submissionNode("d4", "2026-11-05T04:00:00Z", {
-      submission_disposition: "ARCHIVED_BASELINE", disposition_source_kind: "ARCHIVE" as const, disposition_result_id: "archive-result-1",
-      eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" as const,
-    }),
-    submissionNode("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" as const }),
-    archivedBaseline,
+    ...DISPOSITION_SCENARIO_NODES,
+    ...DISPOSITION_SCENARIO_BASELINES,
   ];
   const state: ModeState = {
     workspace: workspace({}),
@@ -310,6 +351,8 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await page.locator("tr", { hasText: "已归档" }).first().click();
   await expect(details.getByText("终局处置")).toBeVisible();
   await expect(details.getByText(/已归档，成为归档基线 \d+/)).toBeVisible();
+  await expect(details.getByText("终局状态", { exact: true })).toHaveCount(0);
+  await expect(details.getByText("审核状态")).toBeVisible();
   await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d1-archived", 1280);
 
@@ -318,10 +361,18 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d2-closed-at-archive", 1280);
 
-  await page.locator("tr", { hasText: "已关闭（未归档）" }).nth(1).click();
+  const d3Row = page.locator("tr", { hasText: "已关闭（未归档）" }).nth(1);
+  await expect(d3Row.locator(".tree-status")).toHaveAttribute("title", "有理由关闭，详情见右侧面板");
+  await d3Row.click();
   await expect(details.getByText("关闭人")).toBeVisible();
   await expect(details.getByText("关闭理由")).toBeVisible();
   await expect(details.getByText(/owner-9/)).toBeVisible();
+  await expect(details.getByTitle("2026-11-06T08:00:00Z")).toContainText("11/06");
+  await expect(details.getByText("展开理由")).toBeVisible();
+  await details.getByText("展开理由").click();
+  await expect(details.getByText("第一行")).toBeVisible();
+  await expect(page.locator(".workspace-actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
+  await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d3-manual-close", 1280);
 
   const d4Row = page.locator("tr", { hasText: "已归档" }).nth(1);
@@ -337,6 +388,58 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(page.locator(".workspace-actions").getByText("该提交所基于的基线已不是当前基线")).toBeVisible();
   await expect(page.getByText("不能归档")).toHaveCount(0);
   await screenshot(page, "fe3b-d5-flag", 1280);
+});
+
+test("D1 审核模式顶栏显示已归档标签与禁用原因", async ({ page }) => {
+  const archived = DISPOSITION_REVIEW_FACTS.find((facts) => facts.submission_id === "d-arch");
+  if (!archived) throw new Error("d-arch review facts missing");
+  const nodes: Schemas["HistoryNodeResponse"][] = [
+    ...HISTORY_PAGE_ONE.nodes,
+    ...DISPOSITION_SCENARIO_NODES,
+    ...DISPOSITION_SCENARIO_BASELINES,
+  ];
+  const state: ModeState = {
+    workspace: workspace({}),
+    review: TEST_REVIEW_FACTS,
+    reviewBySubmission: { "d-arch": archived },
+    history: { head: HISTORY_PAGE_ONE.head, nodes, next_cursor: null },
+  };
+  await installModeRoutes(page, state);
+  await page.goto("/?page=compare&mode=REVIEW&submissionId=d-arch");
+  await expect(page.getByText("审核：已通过")).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText("已归档", { exact: true }).first()).toBeVisible();
+  for (const name of ["撤回", "退回", "审核通过"] as const) {
+    const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
+    await expect(button).toBeDisabled();
+  }
+  await expect(page.locator(".review-actions").getByText("该提交已归档")).toBeVisible();
+  await expect(page.locator(".review-disposition-line")).toHaveCount(0);
+});
+
+test("D2 审核模式顶栏显示归档时关闭的一行说明", async ({ page }) => {
+  const closed = DISPOSITION_REVIEW_FACTS.find((facts) => facts.submission_id === "d-closed");
+  if (!closed) throw new Error("d-closed review facts missing");
+  const nodes: Schemas["HistoryNodeResponse"][] = [
+    ...HISTORY_PAGE_ONE.nodes,
+    ...DISPOSITION_SCENARIO_NODES,
+    ...DISPOSITION_SCENARIO_BASELINES,
+  ];
+  const state: ModeState = {
+    workspace: workspace({}),
+    review: TEST_REVIEW_FACTS,
+    reviewBySubmission: { "d-closed": closed },
+    history: { head: HISTORY_PAGE_ONE.head, nodes, next_cursor: null },
+  };
+  await installModeRoutes(page, state);
+  await page.goto("/?page=compare&mode=REVIEW&submissionId=d-closed");
+  await expect(page.getByText("审核：已通过")).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText("已关闭（未归档）", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".review-disposition-line")).toContainText("归档时选中了其他提交");
+  for (const name of ["撤回", "退回", "审核通过"] as const) {
+    const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
+    await expect(button).toBeDisabled();
+  }
+  await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
 });
 
 test("W5 撤回遇到审核版本冲突时重新读取且不自动重发", async ({ page }) => {
@@ -381,6 +484,44 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   await expect(upload).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能继续")).toBeVisible();
   await screenshot(page, "fe3b-w6-attempt-running", 1280);
+});
+
+test("W6 刷新后找回操作卡片，终态未结束显示需要管理员处理", async ({ page }) => {
+  const state: ModeState = {
+    workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+    review: TEST_REVIEW_FACTS,
+    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", operation_id: "submit-op-1" },
+    operationById: {
+      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+    },
+  };
+  await installModeRoutes(page, state);
+  await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible({ timeout: 15000 });
+  await selectModifiedDirectory(page);
+  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await expect(upload).toBeDisabled();
+  await expect(page.locator(".workspace-actions").getByText("提交正在执行，完成后才能继续")).toBeVisible();
+  await screenshot(page, "fe3b-w6-resumed-card", 1280);
+});
+
+test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async ({ page }) => {
+  const state: ModeState = {
+    workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+    review: TEST_REVIEW_FACTS,
+    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", operation_id: "submit-op-1" },
+    operationById: {
+      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "SUCCEEDED" as const, completed_at: "2026-11-03T09:00:02Z" },
+    },
+  };
+  await installModeRoutes(page, state);
+  await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
+  await selectModifiedDirectory(page);
+  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await expect(upload).toBeDisabled({ timeout: 15000 });
+  await expect(page.locator(".workspace-actions").getByText("提交结果待确认，需要管理员处理")).toBeVisible();
+  await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible();
+  await screenshot(page, "fe3b-w6-recovery", 1280);
 });
 
 test("§6.1 没有待审核提交与状态无法确认时的撤回禁用原因", async ({ page }) => {

@@ -4,6 +4,7 @@ import {
   collectPageDiagnostics,
   compareAction,
   contextForIdentity,
+  expandWorkspaceDetails,
   expectDisabledWithReason,
   expectEnabled,
   gotoWorkbench,
@@ -14,6 +15,7 @@ import {
   selectTreeRow,
   selectUploadDirs,
   startUpload,
+  stepUploadAction,
   treeRow,
   waitForBundleResponse,
   waitForDiffBrowsing,
@@ -578,6 +580,11 @@ test("r4-submit", async ({ browser }) => {
     await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 1")).toContainText("待审核");
     await expectDisabledWithReason(workshopAction(session.page, "上传"), "已有待审核的提交，撤回后才能重新上传");
+    // B1: the UploadStepCard start button is disabled with the same occupancy reason.
+    await selectTreeRow(session.page, /工作区/);
+    await expandWorkspaceDetails(session.page);
+    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
+    await expectDisabledWithReason(stepUploadAction(session.page), "已有待审核的提交，撤回后才能重新上传");
 
     assertClean(session.diagnostics, "r4-submit");
     appendCaseLog(`r4-submit ok submission=${submission.submissionId}`);
@@ -726,9 +733,13 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
     const first = await uploadAndPreview(session.page, submitter, scope, "modified_only");
     const firstSubmission = await submitViaUi(session.page, submitter, first.workspaceId);
 
-    // W8: a PENDING submission blocks re-upload.
+    // W8: a PENDING submission blocks re-upload, including the step card (B1).
     await gotoWorkbenchFresh(session.page);
     await expectDisabledWithReason(workshopAction(session.page, "上传"), "已有待审核的提交，撤回后才能重新上传");
+    await selectTreeRow(session.page, /工作区/);
+    await expandWorkspaceDetails(session.page);
+    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
+    await expectDisabledWithReason(stepUploadAction(session.page), "已有待审核的提交，撤回后才能重新上传");
 
     // W1: withdraw from the PREVIEW header (bundle already installed).
     await session.page.goto(`/?page=compare&mode=PREVIEW&workspaceId=${first.workspaceId}&previewResultId=${first.previewId}`);
@@ -742,6 +753,7 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
     await expectPointersCleared(submitter);
     await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
     await expectEnabled(workshopAction(session.page, "上传"));
+    await expectEnabled(stepUploadAction(session.page));
     await expect(treeRow(session.page, "提交 1")).toContainText("已撤回");
     await saveEvidence(session.page, testInfo, "r7-withdraw-notice");
 
@@ -776,12 +788,6 @@ test("r7-upload-only", async ({ browser }) => {
     await startUpload(session.page);
     expect((await uploadWait).status()).toBe(201);
     const previewResponse = await previewWait;
-    if (previewResponse.status() === 403) {
-      throw new Error(
-        "r7-upload-only needs submitter-upload-only to hold preview_workspace (kickoff §4.6: upload-only = submitter minus withdraw); " +
-          "scripts/run-real-backend-e2e.sh currently grants only upload_submit_workspace (ROLE_PERMISSIONS submitter-upload-only).",
-      );
-    }
     expect(previewResponse.status()).toBe(202);
     const accepted = (await previewResponse.json()) as { operation_id: string };
     expect((await waitForOperation(uploadOnly, accepted.operation_id, 240_000)).status).toBe("SUCCEEDED");
@@ -805,11 +811,10 @@ test("r7-upload-only", async ({ browser }) => {
     await session.page.goto(`/?page=compare&mode=REVIEW&submissionId=${submission.submissionId}`);
     const refused = await review403;
     expect(refused.status()).toBe(403);
-    // Implementation detail: the compare error uses the generic ErrorState title
-    // ("暂时无法显示结果") plus the SCOPE_FORBIDDEN code; the Chinese
-    // "当前身份没有该操作的权限" copy is only used by upload/review actions.
+    // The compare error carries the server code with the matching copy.
     const errorSection = session.page.locator("section.compare-error");
     await expect(errorSection).toBeVisible({ timeout: 120_000 });
+    await expect(errorSection).toContainText("当前身份没有该操作的权限");
     await expect(errorSection).toContainText("SCOPE_FORBIDDEN");
     await expect(session.page.locator(".grid-frame")).toHaveCount(0);
 
@@ -846,6 +851,11 @@ test("r7-approved", async ({ browser }, testInfo) => {
     expect(workspace.active_submission_id, "approved submission pointer is kept").toBe(submission.submissionId);
     await expect(treeRow(session.page, "提交 1")).toContainText("已通过");
     await expectDisabledWithReason(workshopAction(session.page, "上传"), "该提交已通过审核，归档或关闭后才能重新上传");
+    // B1: the UploadStepCard start button is disabled with the same occupancy reason.
+    await selectTreeRow(session.page, /工作区/);
+    await expandWorkspaceDetails(session.page);
+    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
+    await expectDisabledWithReason(stepUploadAction(session.page), "该提交已通过审核，归档或关闭后才能重新上传");
 
     await session.page.goto(`/?page=compare&mode=PREVIEW&workspaceId=${run.workspaceId}&previewResultId=${run.previewId}`);
     await waitForDiffBrowsing(session.page);

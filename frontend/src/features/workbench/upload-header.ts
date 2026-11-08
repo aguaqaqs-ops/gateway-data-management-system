@@ -14,6 +14,8 @@ export interface Problem {
 
 export interface UploadModeInput {
   workspace: UploadModeWorkspace | null;
+  /** True while the first workspace read for this snapshot has not completed. */
+  workspaceLoading: boolean;
   workspaceError: Problem | null;
   attempt: UploadModeAttempt | null;
   attemptLoading: boolean;
@@ -29,7 +31,7 @@ export interface UploadModeInput {
 export interface Gate {
   enabled: boolean;
   reason?: string;
-  /** The page should re-read workspace and review before acting. */
+  /** The page should re-read the workspace once before acting. */
   reread?: boolean;
   /** The caller may offer a retry that restarts the read sequence. */
   retry?: boolean;
@@ -45,8 +47,9 @@ export const WITHDRAW_COPY = {
   executing: "提交正在执行，完成后才能撤回",
   recovery: "提交结果待确认，需要管理员处理",
   unknown: "无法确认提交状态",
+  loading: "正在读取提交状态",
   none: "当前没有待审核的提交",
-  loading: "正在读取审核状态",
+  reading: "正在读取审核状态",
   forbidden: "当前身份没有撤回权限",
   notFound: "未找到该提交，请刷新后重试",
   failed: "无法读取审核状态",
@@ -61,6 +64,7 @@ export const UPLOAD_COPY = {
   executing: "提交正在执行，完成后才能继续",
   recovery: "提交结果待确认，需要管理员处理",
   unknown: "无法确认提交状态",
+  loading: "正在读取提交状态",
   pending: "已有待审核的提交，撤回后才能重新上传",
   approved: "该提交已通过审核，归档或关闭后才能重新上传",
   inReview: "已有提交在处理中，完成后才能重新上传",
@@ -69,30 +73,42 @@ export const UPLOAD_COPY = {
   changed: "提交状态已变化",
 } as const;
 
-const TERMINAL = new Set(["SUCCEEDED", "FAILED", "ABORTED"]);
+/** Backend OperationStatus terminal values (operations/contracts.py). ABORTED is an attempt state, not an operation state. */
+const TERMINAL = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED"]);
 const ATTEMPT_CLOSED = new Set(["FINALIZED", "ABORTED"]);
 
-type AttemptPhase = "none" | "executing" | "recovery" | "unknown";
+type AttemptPhase = "none" | "executing" | "recovery" | "unknown" | "loading";
 
 function attemptPhase(input: UploadModeInput): AttemptPhase {
   if (!input.workspace?.active_submit_attempt_id) return "none";
-  if (input.attemptError || input.operationError || !input.attempt) return "unknown";
+  // A closed attempt no longer occupies the workspace; judge by the submission pointer.
+  if (input.attempt && ATTEMPT_CLOSED.has(input.attempt.state)) return "none";
+  if (input.attemptError || input.operationError) return "unknown";
+  if (!input.attempt) return input.attemptLoading ? "loading" : "unknown";
   const status = input.operation?.status ?? null;
-  if (status === "QUEUED" || status === "RUNNING") return "executing";
-  if (status === "MANUAL_RECOVERY_REQUIRED"
-    || (status !== null && TERMINAL.has(status) && !ATTEMPT_CLOSED.has(input.attempt.state))) {
-    return "recovery";
+  if (status === null) {
+    if (input.operationError) return "unknown";
+    return input.operationLoading ? "loading" : "unknown";
   }
+  if (status === "QUEUED" || status === "RUNNING") return "executing";
+  if (status === "MANUAL_RECOVERY_REQUIRED") return "recovery";
+  if (TERMINAL.has(status)) return "recovery";
   return "executing";
+}
+
+function loadingGate(copy: { loading: string }): Gate {
+  return { enabled: false, reason: copy.loading };
 }
 
 function attemptGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate {
   const copy = mode === "withdraw" ? WITHDRAW_COPY : UPLOAD_COPY;
   switch (attemptPhase(input)) {
+    case "loading":
+      return loadingGate(copy);
     case "unknown":
-      return { enabled: false, reason: WITHDRAW_COPY.unknown, retry: true };
+      return { enabled: false, reason: copy.unknown, retry: true };
     case "recovery":
-      return { enabled: false, reason: WITHDRAW_COPY.recovery };
+      return { enabled: false, reason: copy.recovery };
     default:
       return { enabled: false, reason: copy.executing };
   }
@@ -100,7 +116,7 @@ function attemptGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate 
 
 function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate | null {
   if (!input.workspace?.active_submission_id) return null;
-  if (input.reviewLoading) return { enabled: false, reason: WITHDRAW_COPY.loading };
+  if (input.reviewLoading) return { enabled: false, reason: WITHDRAW_COPY.reading };
   if (input.reviewError) {
     const status = input.reviewError.status ?? null;
     if (mode === "withdraw" && status === 403) return { enabled: false, reason: WITHDRAW_COPY.forbidden };
@@ -135,8 +151,19 @@ function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Ga
  * workspace pointers, the submit attempt/operation and the review facts.
  * See kickoff §6.1: every pointer non-null blocks submit and upload; the
  * withdraw button is always visible but disabled with a reason.
+ *
+ * Loading and unreadable are distinct: while the first workspace read is in
+ * flight the gates report "loading" without a retry affordance; only a
+ * completed read that failed reports "unknown" with a retry.
  */
 export function deriveUploadModeGates(input: UploadModeInput): UploadModeGates {
+  if (input.workspaceLoading && !input.workspace && !input.workspaceError) {
+    return {
+      withdraw: loadingGate(WITHDRAW_COPY),
+      submit: loadingGate(UPLOAD_COPY),
+      upload: loadingGate(UPLOAD_COPY),
+    };
+  }
   if (!input.workspace || input.workspaceError) {
     return {
       withdraw: { enabled: false, reason: WITHDRAW_COPY.unknown, retry: true },

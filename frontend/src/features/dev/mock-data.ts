@@ -261,7 +261,10 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核权限" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" } },
+  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
+  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
+  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" } },
@@ -286,6 +289,130 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" } },
   { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
+  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "ARTIFACT_UNAVAILABLE", message: "比较结果已不可用" } },
+  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+];
+
+// B7: reachable disposition scenarios shared by the D1–D5 e2e and the unit
+// asserts below. One archive result produces at most one ARCHIVED_BASELINE, so
+// d-arch (archive-result-1) and d4 (archive-result-2) promote different
+// baselines. d5 is the single allowed defensive exception: APPROVED plus the
+// stale-baseline note with no disposition is DC89-unreachable and only guards
+// the legacy display fallback.
+export const DISPOSITION_BASELINE_FIRST: Schemas["HistoryNodeResponse"] = {
+  ref_kind: "baseline_node",
+  ref_id: "baseline-arch",
+  node_kind: "BASELINE_NODE",
+  baseline_kind: "ARCHIVED_SUBMISSION",
+  commit_id: "commit-baseline-arch",
+  created_at: "2026-11-07T09:00:00Z",
+  parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
+  identity_exception: false,
+};
+
+export const DISPOSITION_BASELINE_SECOND: Schemas["HistoryNodeResponse"] = {
+  ref_kind: "baseline_node",
+  ref_id: "baseline-arch-2",
+  node_kind: "BASELINE_NODE",
+  baseline_kind: "ARCHIVED_SUBMISSION",
+  commit_id: "commit-baseline-arch-2",
+  created_at: "2026-11-07T10:00:00Z",
+  parent: { ref_kind: "baseline_node", ref_id: "baseline-arch" },
+  identity_exception: false,
+};
+
+function dispositionSubmission(
+  refId: string,
+  createdAt: string,
+  patch: Partial<Schemas["HistoryNodeResponse"]>,
+): Schemas["HistoryNodeResponse"] {
+  return {
+    ref_kind: "submission",
+    ref_id: refId,
+    node_kind: "SUBMISSION",
+    commit_id: `commit-${refId}`,
+    created_at: createdAt,
+    parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
+    identity_exception: false,
+    review_status: "APPROVED",
+    ...patch,
+  };
+}
+
+export const DISPOSITION_SCENARIO_NODES: Schemas["HistoryNodeResponse"][] = [
+  dispositionSubmission("d-arch", "2026-11-05T01:00:00Z", {
+    submission_disposition: "ARCHIVED_BASELINE",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-1",
+    promoted_baseline_node_id: "baseline-arch",
+  }),
+  dispositionSubmission("d-closed", "2026-11-05T02:00:00Z", {
+    submission_disposition: "CLOSED_NOT_ARCHIVED",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-1",
+  }),
+  dispositionSubmission("d-manual", "2026-11-05T03:00:00Z", {
+    submission_disposition: "CLOSED_NOT_ARCHIVED",
+    disposition_source_kind: "MANUAL_CLOSE",
+    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
+  }),
+  dispositionSubmission("d4", "2026-11-05T04:00:00Z", {
+    submission_disposition: "ARCHIVED_BASELINE",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-2",
+    promoted_baseline_node_id: "baseline-arch-2",
+    // Historical note kept alongside the disposition (§5.3/20d3b885f6): the
+    // disposition takes display priority (D4).
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+  }),
+  // DC89-unreachable defensive data (see above): APPROVED plus the note, no disposition.
+  dispositionSubmission("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" }),
+];
+
+export const DISPOSITION_SCENARIO_BASELINES: Schemas["HistoryNodeResponse"][] = [
+  DISPOSITION_BASELINE_FIRST,
+  DISPOSITION_BASELINE_SECOND,
+];
+
+function dispositionReviewFacts(
+  submissionId: string,
+  submissionDisposition: Schemas["ReviewFactsResponse"]["submission_disposition"],
+): Schemas["ReviewFactsResponse"] {
+  return {
+    submission_id: submissionId,
+    status: "APPROVED",
+    review_version: 6,
+    updated_by: "reviewer",
+    updated_at: "2026-11-06T09:00:00Z",
+    identity_exception: false,
+    events: [],
+    submission_disposition: submissionDisposition,
+  };
+}
+
+export const DISPOSITION_REVIEW_FACTS: Schemas["ReviewFactsResponse"][] = [
+  dispositionReviewFacts("d-arch", {
+    submission_id: "d-arch",
+    disposition: "ARCHIVED_BASELINE",
+    source_kind: "ARCHIVE",
+    result_id: "archive-result-1",
+    closure: null,
+  }),
+  dispositionReviewFacts("d-closed", {
+    submission_id: "d-closed",
+    disposition: "CLOSED_NOT_ARCHIVED",
+    source_kind: "ARCHIVE",
+    result_id: "archive-result-1",
+    closure: null,
+  }),
+  dispositionReviewFacts("d-manual", {
+    submission_id: "d-manual",
+    disposition: "CLOSED_NOT_ARCHIVED",
+    source_kind: "MANUAL_CLOSE",
+    result_id: null,
+    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
+  }),
 ];
 
 export const WRITE_SCENARIO_COVERAGE = [

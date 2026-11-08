@@ -2,13 +2,15 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  ARCHIVE_PLAN_NEEDS_CONFIRMATION, HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
+  ARCHIVE_PLAN_NEEDS_CONFIRMATION, DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
+  HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
   MANUAL_RECOVERY_TO_SUCCESS, SIMULATED_ERROR_RESPONSES, SIMULATED_STRING_VALUES, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_CONFIRM_EVENT,
   ARCHIVE_PLAN_READY, COMPLETE_RESPONSE_SCENARIOS, OPERATION_TERMINAL_RESPONSES, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CANDIDATES_BLOCKED,
-  TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WRITE_SCENARIO_COVERAGE, validateSimulatedRequest,
+  TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WORKSPACE_RESPONSE, WRITE_SCENARIO_COVERAGE, validateSimulatedRequest,
 } from "./simulated-api";
 import { OPERATION_STATUS_COPY } from "../view-model/operation-status-copy";
 import { WORKSPACE_STATE_COPY } from "../view-model/workspace-state-copy";
+import { bundleErrorTitle } from "../bundle/local-bundle";
 
 describe("simulated HTTP response contracts", () => {
   it("uses only error codes documented for each route and status", async () => {
@@ -183,5 +185,119 @@ describe("simulated HTTP response contracts", () => {
       .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" });
     expect(validateSimulatedRequest({ method: "GET", url: new URL("http://local/v1/archive-audit-events?subject_digest=sha256:selection-subject"), headers: {} }))
       .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" });
+  });
+
+  it("gives every OpenAPI-listed bundle error a frontend copy (B5)", async () => {
+    const openapi = JSON.parse(await readFile(resolve(process.cwd(), "openapi.json"), "utf8")) as {
+      paths: Record<string, Record<string, { responses?: Record<string, { description?: string }> }>>;
+    };
+    // §5.3 bundle codes: Preview 503 BUNDLE_INTEGRITY_FAILURE; History 404
+    // ARTIFACT_UNAVAILABLE and 503 BUNDLE_INTEGRITY_FAILURE. Every code listed
+    // on the two routes needs copy; the §5.3 codes additionally need a
+    // simulated scenario (parsed by the generic snapshot test above).
+    const simulatedByRoute: Record<string, string[]> = {
+      "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle": [
+        "SERVICE_NOT_READY",
+        "BUNDLE_INTEGRITY_FAILURE",
+      ],
+      "/v1/history-compares/{operation_id}/bundle": ["ARTIFACT_UNAVAILABLE", "BUNDLE_INTEGRITY_FAILURE"],
+    };
+    for (const [route, simulated] of Object.entries(simulatedByRoute)) {
+      const responses = openapi.paths[route]?.get?.responses ?? {};
+      const codes = Object.entries(responses)
+        .filter(([status]) => status !== "200")
+        .flatMap(([, response]) => (response.description ?? "").split(",").map((code) => code.trim()).filter(Boolean))
+        .filter((code) => /^[A-Z][A-Z0-9_]*$/.test(code));
+      expect(codes.length).toBeGreaterThan(0);
+      for (const code of codes) {
+        expect(bundleErrorTitle(code), `${route} ${code}`).toBeDefined();
+      }
+      for (const code of simulated) {
+        expect(codes, `${route} documents ${code}`).toContain(code);
+        expect(
+          SIMULATED_ERROR_RESPONSES.some((entry) => entry.route === route && entry.body.code === code),
+          `${route} ${code} simulated`,
+        ).toBe(true);
+      }
+    }
+    // §2.3 changed codes are covered by the generic snapshot-parsing test above.
+    for (const code of ["BASELINE_VERSION_CONFLICT", "ARCHIVE_CLOSED", "BUNDLE_INTEGRITY_FAILURE", "ARTIFACT_UNAVAILABLE"]) {
+      expect(SIMULATED_ERROR_RESPONSES.some((entry) => entry.body.code === code), code).toBe(true);
+    }
+    expect(
+      SIMULATED_ERROR_RESPONSES.some((entry) => entry.route === "/v1/submissions/{submission_id}/review" && entry.status === 403),
+      "review 403",
+    ).toBe(true);
+    expect(
+      SIMULATED_ERROR_RESPONSES.some((entry) => entry.route === "/v1/submissions/{submission_id}/review" && entry.status === 404),
+      "review 404",
+    ).toBe(true);
+  });
+
+  it("keeps every disposition scenario within the backend reachability rules (B7, §5.3)", () => {
+    const nodes = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES];
+    const archivedByResult = new Map<string, string[]>();
+    for (const node of nodes) {
+      if (node.node_kind === "BASELINE_NODE") {
+        expect(node).not.toHaveProperty("review_status");
+        continue;
+      }
+      expect(node.node_kind).toBe("SUBMISSION");
+      // Dispositions only appear on APPROVED submissions.
+      if (node.submission_disposition) {
+        expect(node.review_status, `${node.ref_id} disposition requires APPROVED`).toBe("APPROVED");
+      }
+      if (node.eligibility_note) {
+        expect(node.review_status, `${node.ref_id} eligibility_note only on APPROVED`).toBe("APPROVED");
+      }
+      if (node.submission_disposition === "ARCHIVED_BASELINE") {
+        expect(node.disposition_source_kind, `${node.ref_id} archive source`).toBe("ARCHIVE");
+        expect(node.disposition_result_id, `${node.ref_id} result`).toBeTruthy();
+        expect(node.closure ?? null, `${node.ref_id} no closure`).toBeNull();
+        expect(node.disposition_source_kind, `${node.ref_id} not manual`).not.toBe("MANUAL_CLOSE");
+        const baseline = nodes.find((candidate) => candidate.ref_id === node.promoted_baseline_node_id);
+        expect(baseline, `${node.ref_id} promoted baseline`).toBeDefined();
+        expect(baseline?.node_kind).toBe("BASELINE_NODE");
+        expect(baseline?.baseline_kind).toBe("ARCHIVED_SUBMISSION");
+        const members = archivedByResult.get(node.disposition_result_id ?? "") ?? [];
+        archivedByResult.set(node.disposition_result_id ?? "", [...members, node.ref_id]);
+      }
+      if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "ARCHIVE") {
+        expect(node.disposition_result_id, `${node.ref_id} result`).toBeTruthy();
+        expect(node.closure ?? null, `${node.ref_id} no closure`).toBeNull();
+      }
+      if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "MANUAL_CLOSE") {
+        expect(node.disposition_result_id ?? null, `${node.ref_id} no result`).toBeNull();
+        expect(node.closure, `${node.ref_id} closure`).toBeDefined();
+        expect(node.closure?.closed_by, `${node.ref_id} closed_by`).toBeTruthy();
+        expect(node.closure?.reason, `${node.ref_id} reason`).toBeTruthy();
+      }
+    }
+    // One archive result produces at most one ARCHIVED_BASELINE.
+    for (const [resultId, members] of archivedByResult) {
+      expect(members.length, `archive result ${resultId}`).toBeLessThanOrEqual(1);
+    }
+    // d5 is the single allowed DC89-unreachable defensive exception.
+    const defensive = DISPOSITION_SCENARIO_NODES.filter((node) => !node.submission_disposition);
+    expect(defensive.map((node) => node.ref_id)).toEqual(["d5"]);
+    // Review facts agree with the History nodes for the same submission.
+    for (const facts of DISPOSITION_REVIEW_FACTS) {
+      const node = DISPOSITION_SCENARIO_NODES.find((candidate) => candidate.ref_id === facts.submission_id);
+      expect(node, `${facts.submission_id} history node`).toBeDefined();
+      expect(node?.submission_disposition).toBe(facts.submission_disposition?.disposition);
+      expect(node?.disposition_source_kind).toBe(facts.submission_disposition?.source_kind);
+      expect(node?.disposition_result_id ?? null).toBe(facts.submission_disposition?.result_id ?? null);
+      expect(node?.closure ?? null).toEqual(facts.submission_disposition?.closure ?? null);
+    }
+    // Disposed submissions are not any workspace's active submission (the W10
+    // stale-workspace race is constructed and documented in the e2e spec).
+    const disposed = new Set(
+      DISPOSITION_SCENARIO_NODES.filter((node) => node.submission_disposition).map((node) => node.ref_id),
+    );
+    for (const fixture of [WORKSPACE_RESPONSE, TEST_WORKSPACE]) {
+      if (fixture.active_submission_id) {
+        expect(disposed.has(fixture.active_submission_id), fixture.active_submission_id).toBe(false);
+      }
+    }
   });
 });

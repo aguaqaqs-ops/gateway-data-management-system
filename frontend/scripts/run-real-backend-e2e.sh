@@ -460,9 +460,24 @@ fi
 export GATEWAY_REPOSITORY_SERVICE_IMAGE="$RS_TAG"
 RS_IMAGE_ID="$(docker image inspect "$RS_TAG" --format '{{.Id}}')"
 RS_LABELS="$(docker image inspect "$RS_TAG" --format '{{json .Config.Labels}}')"
+RS_ROOTFS_LAYERS="$(docker image inspect "$RS_TAG" --format '{{json .RootFS.Layers}}')"
+RS_IDENTITY_ARCHIVE="$(mktemp "$LOG_DIR/.rs-identity.XXXXXX.tar")"
+RS_IDENTITY_JSON=""
+if docker image save --output "$RS_IDENTITY_ARCHIVE" "$RS_TAG" 2>&1 | tee -a "$LOG_FILE"; then
+  RS_IDENTITY_JSON="$(python3 -I "$FRONTEND_DIR/scripts/docker-save-image-identity.py" "$RS_IDENTITY_ARCHIVE")"
+fi
+rm -f -- "$RS_IDENTITY_ARCHIVE"
 log "rs_image_built=$RS_TAG"
 log "rs_image_id=$RS_IMAGE_ID"
 log "rs_image_labels=$RS_LABELS"
+log "rs_image_rootfs_layers=$RS_ROOTFS_LAYERS"
+if [[ -n "$RS_IDENTITY_JSON" ]]; then
+  log "rs_image_config_digest=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["config_digest"])' "$RS_IDENTITY_JSON")"
+  log "rs_image_rootfs_diff_ids=$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["diff_ids"],separators=(",",":")))' "$RS_IDENTITY_JSON")"
+else
+  log "error=rs image identity archive failed"
+  exit 2
+fi
 
 # Project + secrets (outside the worktree, container-readable).
 RUN_STAGE="compose-up"

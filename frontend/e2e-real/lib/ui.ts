@@ -85,6 +85,17 @@ export function workshopAction(page: Page, label: string): Locator {
   return page.locator(".workspace-actions .workspace-action").filter({ hasText: label }).getByRole("button").first();
 }
 
+/** B1: the UploadStepCard start button shares the toolbar occupancy reason. */
+export function stepUploadAction(page: Page): Locator {
+  return page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
+}
+
+export async function expandWorkspaceDetails(page: Page): Promise<void> {
+  const expand = page.getByRole("button", { name: "展开详情面板" });
+  if (await expand.count()) await expand.click();
+  await expect(page.locator(".upload-card")).toBeVisible();
+}
+
 export function compareAction(page: Page, name: "撤回" | "提交"): Locator {
   return page.locator(".compare-actions").getByRole("button", { name, exact: true });
 }

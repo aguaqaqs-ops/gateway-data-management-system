@@ -41,7 +41,7 @@ export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { o
       onUpdate: (value) => {
         setOperation(value);
         setConnectionLost(false);
-        if (!finished.current && ["SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED", "ABORTED"].includes(value.status)) {
+        if (!finished.current && ["SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED"].includes(value.status)) {
           finished.current = true;
           try {
             const url = new URL(window.location.href);

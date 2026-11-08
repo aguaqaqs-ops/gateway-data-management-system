@@ -3,6 +3,8 @@ import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
+
+type Schemas = components["schemas"];
 import { gatewayApi, fetchBundle } from "../features/api/application-api";
 import { pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
@@ -21,22 +23,24 @@ import { Dialog, ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../
 import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
 import { Button } from "../design-system/components";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
-import { currentGatewaySession } from "../features/api/session";
 import { ApiError } from "../features/api/authenticated-fetch";
-import { deriveUploadModeGates, type Problem } from "../features/workbench/upload-header";
+import { bundleErrorTitle } from "../features/bundle/local-bundle";
+import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
 import { SubmitDialog } from "../features/workbench/SubmitDialog";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { ReviewActions } from "../features/workbench/ReviewActions";
+import { ReviewDispositionLine } from "../features/workbench/disposition-display";
 import type { SafeReviewFacts } from "../features/api/client";
 
-function problemFrom(cause: unknown): Problem {
-  return cause instanceof ApiError
-    ? { status: cause.status, code: cause.code ?? null }
-    : { status: null, code: cause instanceof Error ? cause.name : null };
+function bundleErrorState(cause: unknown, details: string): { code: string; details: string } {
+  // B5: the server's ApiError code is carried into the error state verbatim so
+  // it stays visible and copyable; only non-HTTP failures use the generic
+  // bundle-load codes. Never construct an empty bundle from an error response.
+  if (cause instanceof ApiError) return { code: cause.code ?? `HTTP_${cause.status}`, details: cause.message || details };
+  return { code: bundleLoadErrorCode(cause), details };
 }
 
 type PairSummary = { pair_id: string };
-type Schemas = components["schemas"];
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
@@ -192,17 +196,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [workspace, setWorkspace] = useState<Schemas["WorkspaceResponse"] | null>(null);
-  const [workspaceProblem, setWorkspaceProblem] = useState<Problem | null>(null);
-  const [review, setReview] = useState<SafeReviewFacts | null>(null);
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewProblem, setReviewProblem] = useState<Problem | null>(null);
-  const [attempt, setAttempt] = useState<Schemas["SubmitAttemptResponse"] | null>(null);
-  const [attemptLoading, setAttemptLoading] = useState(false);
-  const [attemptProblem, setAttemptProblem] = useState<Problem | null>(null);
-  const [operation, setOperation] = useState<Schemas["OperationResponse"] | null>(null);
-  const [operationLoading, setOperationLoading] = useState(false);
-  const [operationProblem, setOperationProblem] = useState<Problem | null>(null);
+  // Upload-mode occupancy (withdraw/submit/upload gates) is shared with the
+  // workbench through useUploadModeState (B4): a single read sequence for the
+  // workspace, review, attempt and operation, with a one-time re-read (B2) and
+  // a post-terminal resume re-read (B3).
+  const uploadMode = useUploadModeState({ enabled: browse.mode === "PREVIEW" });
+  const { workspace, review, attempt } = uploadMode;
+  const uploadGates = uploadMode.gates;
   const [resumeOperationId, setResumeOperationId] = useState<string | null>(null);
   const [resumeMessage, setResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -210,79 +210,55 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [withdrawUnderstood, setWithdrawUnderstood] = useState(false);
   const [withdrawError, setWithdrawError] = useState<{ title: string; code: string } | null>(null);
   const withdrawKey = useRef<string | null>(null);
-  const uploadGates = useMemo(() => deriveUploadModeGates({
-    workspace, workspaceError: workspaceProblem,
-    attempt, attemptLoading, attemptError: attemptProblem,
-    operation, operationLoading, operationError: operationProblem,
-    review, reviewLoading, reviewError: reviewProblem,
-  }), [workspace, workspaceProblem, attempt, attemptLoading, attemptProblem, operation, operationLoading, operationProblem, review, reviewLoading, reviewProblem]);
+  const { refresh: refreshUploadSnapshot } = uploadMode;
   const refreshUploadMode = useCallback(async () => {
-    if (browse.mode !== "PREVIEW") return;
-    const session = currentGatewaySession();
-    setWorkspaceProblem(null);
-    try {
-      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
-      setWorkspace(loaded);
-      if (loaded.active_submission_id) {
-        setReviewLoading(true); setReviewProblem(null);
-        try { setReview(await gatewayApi.getReviewFacts(loaded.active_submission_id)); }
-        catch (cause) { setReview(null); setReviewProblem(problemFrom(cause)); }
-        finally { setReviewLoading(false); }
-      } else { setReview(null); setReviewProblem(null); setReviewLoading(false); }
-      if (loaded.active_submit_attempt_id) {
-        setAttemptLoading(true); setAttemptProblem(null); setOperationLoading(true); setOperationProblem(null);
-        try {
-          const loadedAttempt = await gatewayApi.getSubmitAttempt(loaded.workspace_id, loaded.active_submit_attempt_id);
-          setAttempt(loadedAttempt);
-          if (loadedAttempt.operation_id) {
-            setResumeOperationId(loadedAttempt.operation_id);
-            const url = new URL(window.location.href);
-            if (url.searchParams.get("operationId") !== loadedAttempt.operation_id) {
-              url.searchParams.set("operationId", loadedAttempt.operation_id);
-              url.searchParams.set("operationKind", "operation");
-              window.history.replaceState(null, "", url);
-            }
-            try { setOperation(await gatewayApi.getOperation(loadedAttempt.operation_id)); }
-            catch (cause) { setOperation(null); setOperationProblem(problemFrom(cause)); }
-          }
-        } catch (cause) { setAttempt(null); setAttemptProblem(problemFrom(cause)); }
-        finally { setAttemptLoading(false); setOperationLoading(false); }
-      } else {
-        setAttempt(null); setAttemptProblem(null); setOperation(null); setOperationProblem(null); setResumeOperationId(null);
-      }
-    } catch (cause) {
-      setWorkspace(null); setWorkspaceProblem(problemFrom(cause));
-    }
-  }, [browse.mode]);
-  useEffect(() => { void refreshUploadMode(); }, [refreshUploadMode]);
-  const finishSubmitResume = useCallback(async (finishedOperationId: string) => {
-    try {
-      const session = currentGatewaySession();
-      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
-      setWorkspace(loaded);
-      if (loaded.active_submission_id) {
-        const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: loaded.active_submission_id });
-        window.location.assign(`/?${params.toString()}`);
-        return;
-      }
-      const attemptId = loaded.active_submit_attempt_id;
-      if (attemptId) {
-        const loadedAttempt = await gatewayApi.getSubmitAttempt(loaded.workspace_id, attemptId);
-        setAttempt(loadedAttempt);
-        if (loadedAttempt.state === "ABORTED") {
-          setResumeOperationId(null);
-          setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: loadedAttempt.abort_code ?? null });
-        } else {
-          setResumeMessage({ title: "提交结果待确认，需要管理员处理", code: finishedOperationId });
+    const { workspace: loaded, attempt: loadedAttempt } = await refreshUploadSnapshot();
+    if (loaded?.active_submit_attempt_id && loadedAttempt?.operation_id) {
+      const url = new URL(window.location.href);
+      const urlOperationId = url.searchParams.get("operationId");
+      if (!urlOperationId) {
+        url.searchParams.set("operationId", loadedAttempt.operation_id);
+        url.searchParams.set("operationKind", "operation");
+        window.history.replaceState(null, "", url);
+      } else if (urlOperationId !== loadedAttempt.operation_id) {
+        // §6.2: a submit operation in the URL that disagrees with the
+        // server-side pointer loses to the pointer; a preview operation in
+        // the URL belongs to the preview flow and is left alone (job_kind).
+        if (await getUrlOperationJobKind(urlOperationId) === "backend-vnext/submit") {
+          url.searchParams.set("operationId", loadedAttempt.operation_id);
+          url.searchParams.set("operationKind", "operation");
+          window.history.replaceState(null, "", url);
         }
-        return;
       }
+      setResumeOperationId(loadedAttempt.operation_id);
+    } else {
       setResumeOperationId(null);
-      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt?.abort_code ?? null });
-    } catch {
-      setResumeMessage({ title: "无法确认提交状态", code: null });
     }
-  }, [attempt]);
+  }, [refreshUploadSnapshot]);
+  useEffect(() => {
+    if (browse.mode !== "PREVIEW") return;
+    void refreshUploadMode();
+  }, [browse.mode, refreshUploadMode]);
+  const { resumeAfterOperation } = uploadMode;
+  const finishSubmitResume = useCallback(async (finishedOperationId: string) => {
+    const outcome = await resumeAfterOperation(finishedOperationId);
+    if (outcome.kind === "submitted") {
+      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: outcome.submissionId });
+      window.location.assign(`/?${params.toString()}`);
+      return;
+    }
+    if (outcome.kind === "aborted") {
+      setResumeOperationId(null);
+      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: outcome.abortCode });
+    } else if (outcome.kind === "unfinished") {
+      setResumeMessage({ title: "提交结果待确认，需要管理员处理", code: outcome.operationId });
+    } else if (outcome.kind === "unknown") {
+      setResumeMessage({ title: "无法确认提交状态", code: null });
+    } else {
+      setResumeOperationId(null);
+      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: null });
+    }
+  }, [resumeAfterOperation]);
   const confirmWithdraw = useCallback(async () => {
     if (!workspace?.active_submission_id || !review) return;
     setWithdrawBusy(true);
@@ -291,10 +267,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     withdrawKey.current = key;
     try {
       await gatewayApi.applyReview(workspace.active_submission_id, { expected_review_version: review.review_version, action: "WITHDRAW" }, key);
-      const session = currentGatewaySession();
-      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
-      setWorkspace(loaded);
-      if (!loaded.active_submission_id && !loaded.active_submit_attempt_id && !loaded.current_upload_revision_id && !loaded.current_preview_result_id) {
+      const { workspace: loaded } = await refreshUploadSnapshot();
+      if (!loaded?.active_submission_id && !loaded?.active_submit_attempt_id && !loaded?.current_upload_revision_id && !loaded?.current_preview_result_id) {
         setWithdrawOpen(false);
         window.location.assign("/?page=workspace&notice=withdrawn");
         return;
@@ -321,7 +295,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     } finally {
       setWithdrawBusy(false);
     }
-  }, [workspace, review, refreshUploadMode]);
+  }, [workspace, review, refreshUploadMode, refreshUploadSnapshot]);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
   const [overflow, setOverflow] = useState(false);
@@ -374,7 +348,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         return;
       } catch (cause) {
         const details = cause instanceof Error ? cause.message : String(cause);
-        setError(cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN" ? { code: "SCOPE_FORBIDDEN", details } : { code: bundleLoadErrorCode(cause), details });
+        setError(bundleErrorState(cause, details));
         return;
       }
     }
@@ -419,7 +393,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
-      setError(cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN" ? { code: "SCOPE_FORBIDDEN", details } : { code: bundleLoadErrorCode(cause), details });
+      setError(bundleErrorState(cause, details));
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
     }
@@ -594,9 +568,19 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
         <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{reviewFacts?.submission_disposition && <span className={`status-tag status-tag--${reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "info" : "neutral"}`} title={reviewFacts.submission_disposition.disposition === "CLOSED_NOT_ARCHIVED" ? (reviewFacts.submission_disposition.source_kind === "ARCHIVE" ? "归档时选中了其他提交" : `由 ${reviewFacts.submission_disposition.closure?.closed_by ?? "未知"} 关闭：${reviewFacts.submission_disposition.closure?.reason ?? ""}`) : undefined}>{reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "已归档" : "已关闭（未归档）"}</span>}{identityControl}
-          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="danger" onClick={() => { setWithdrawUnderstood(false); setWithdrawError(null); withdrawKey.current = crypto.randomUUID(); setWithdrawOpen(true); }} disabled={!uploadGates.withdraw.enabled} disabledReason={uploadGates.withdraw.reason}>撤回</Button>{uploadGates.withdraw.retry && !uploadGates.withdraw.enabled && <button className="link-button" onClick={() => void refreshUploadMode()}>重试读取</button>}<Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle || !uploadGates.submit.enabled} disabledReason={!bundle ? "请等待差异结果加载完成" : uploadGates.submit.reason}>提交</Button></span>}
+          {browse.mode === "PREVIEW" && <PreviewHeaderActions
+            withdrawEnabled={uploadGates.withdraw.enabled}
+            withdrawReason={uploadGates.withdraw.reason}
+            withdrawRetry={Boolean(uploadGates.withdraw.retry && !uploadGates.withdraw.enabled)}
+            submitEnabled={Boolean(bundle) && uploadGates.submit.enabled}
+            submitReason={!bundle ? "请等待差异结果加载完成" : uploadGates.submit.reason}
+            onWithdraw={() => { setWithdrawUnderstood(false); setWithdrawError(null); withdrawKey.current = crypto.randomUUID(); setWithdrawOpen(true); }}
+            onRetry={() => void refreshUploadMode()}
+            onSubmit={() => setSubmitOpen(true)}
+          />}
           {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} />}
         </div>
+        {browse.mode === "REVIEW" && reviewFacts?.submission_disposition && <ReviewDispositionLine facts={reviewFacts} />}
       </div>
       <div className="compare-header__bottom">
         <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>
@@ -605,7 +589,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     </header>
     {activePair && pairDiagnosticDetails(activePair).codes.length > 0 && <div className="pair-diagnostic-strip" role="status">{pairDiagnosticDetails(activePair).codes.map((diagnostic) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <div key={diagnostic}><AlertTriangle size={14} /><span>{formatted.message}</span>{debugMode && <code>{formatted.raw}</code>}</div>; })}</div>}
     {!bundle && !error && <section className="compare-loading"><LoadingSkeleton label={loading.phase} /><div className="loading-progress"><span>{loading.phase}</span><span>{loading.total ? formatBytes(loading.received) + " / " + formatBytes(loading.total) : "正在准备"}</span></div></section>}
-    {error && <section className="compare-error"><ErrorState code={error.code} details={error.details} title={error.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} onRetry={() => void loadBundle()} /></section>}
+    {error && <section className="compare-error"><ErrorState code={error.code} details={error.details} title={error.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : bundleErrorTitle(error.code)} onRetry={() => void loadBundle()} /></section>}
     {bundle && presentation && <div ref={workspaceRef} className={"compare-workspace" + (collapsed ? " sidebar-is-collapsed" : "")} style={{ "--sidebar-width": settings.sidebarWidth + "px" } as CSSProperties}>
       <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div><span>比较内容</span><strong>{presentation.view.tables.length} 张表</strong></div><button className="icon-button" aria-label="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={18} /></button></div>
         <div className="sidebar-search"><Search size={15} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder="搜索组、节点或页签" /></div><div className="sidebar-toolbar"><span>{visibleGroups.length} 个分组</span><button onClick={() => runtime.execute({ name: "set-only-interesting", enabled: !onlyInteresting })}>{onlyInteresting ? "显示全部" : "只看变化 / 风险"}</button></div>
@@ -673,6 +657,23 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     </Dialog>
     {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{browse.mode === "PREVIEW" && <p className="formula-note">改前公式在 BE-b 实现后提供</p>}{formulas.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}</div></aside></div>}
   </main>;
+}
+
+function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, submitEnabled, submitReason, onWithdraw, onRetry, onSubmit }: {
+  withdrawEnabled: boolean;
+  withdrawReason?: string;
+  withdrawRetry: boolean;
+  submitEnabled: boolean;
+  submitReason?: string;
+  onWithdraw: () => void;
+  onRetry: () => void;
+  onSubmit: () => void;
+}) {
+  return <span className="compare-actions">
+    <Button variant="danger" onClick={onWithdraw} disabled={!withdrawEnabled} disabledReason={withdrawReason}>撤回</Button>
+    {withdrawRetry && <button className="link-button" onClick={onRetry}>重试读取</button>}
+    <Button variant="primary" onClick={onSubmit} disabled={!submitEnabled} disabledReason={submitReason}>提交</Button>
+  </span>;
 }
 
 function ChangeNavigator({ locations, riskRows, rowCount, visibleRows, currentIndex, onJump }: {

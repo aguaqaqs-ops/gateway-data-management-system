@@ -81,7 +81,9 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   onUploadStateChange: (active: boolean) => void;
   onReadyChange: (ready: boolean, reason: string | null) => void;
   onComplete: (workspaceId: string, previewResultId: string) => void;
-}>(function UploadStepCard({ head, onReloadHead, onUploadStateChange, onReadyChange, onComplete }, ref) {
+  /** Occupancy reason from the shared upload-mode gates; disables only the start button (B1). */
+  occupancyReason?: string | null;
+}>(function UploadStepCard({ head, onReloadHead, onUploadStateChange, onReadyChange, onComplete, occupancyReason }, ref) {
   const initialInput = useRef<HTMLInputElement>(null);
   const modifiedInput = useRef<HTMLInputElement>(null);
   const progress = useRef(createPreviewJourneyProgress());
@@ -328,7 +330,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <li className="upload-step">
         <div className="upload-step__title"><span className="upload-step__index">3</span><strong>上传</strong></div>
         <div className="upload-step__body">
-          <Button variant="primary" icon={<Upload size={15} />} disabled={busy} disabledReason={!modified.name ? "需先选择本次归档组态目录" : !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : undefined} onClick={() => void start()}>上传并生成预览</Button>
+          <Button variant="primary" icon={<Upload size={15} />} disabled={busy || Boolean(occupancyReason)} disabledReason={busy ? "上传进行中" : occupancyReason ?? (!modified.name ? "需先选择本次归档组态目录" : !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : undefined)} onClick={() => void start()}>上传并生成预览</Button>
           <p className="upload-step__summary">上传方式：{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</p>
           <p className="upload-step__hint">上传完成后自动进入差异浏览。</p>
         </div>

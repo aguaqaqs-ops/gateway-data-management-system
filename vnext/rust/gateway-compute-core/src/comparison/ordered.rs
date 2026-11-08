@@ -2164,7 +2164,7 @@ pub(crate) fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> 
         .unwrap_or_else(|| format!("{:?}", field.data_type())))
 }
 
-pub(super) fn declared_type(
+pub(crate) fn declared_type(
     spelling: &str,
     data_type: &DataType,
 ) -> Result<DeclaredType, OrderedCompareError> {

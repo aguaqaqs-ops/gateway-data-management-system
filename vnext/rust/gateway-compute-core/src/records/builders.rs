@@ -11,16 +11,24 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer};
 use arrow_data::ArrayData;
 use bytes::Bytes;
+use gateway_shared_kernel::{DigestRef, canonicalize_jcs};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::comparison::{KernelContext, KernelLease};
 
-use super::{CONTRACT_VERSION, METADATA_PREFIX, expected_fields};
+use super::{CONTRACT_VERSION, METADATA_PREFIX, expected_fields, json_size};
+
+pub(super) struct BoundedRow {
+    pub(super) value: Value,
+    pub(super) _scratch: KernelLease,
+}
 
 pub struct BuiltRecords {
     pub schema: SchemaRef,
     pub batches: Vec<RecordBatch>,
     pub record_count: usize,
+    pub content_digest: DigestRef,
     _charge: Arc<OutputCharge>,
 }
 
@@ -71,18 +79,24 @@ pub fn records_schema(family: &str, detail_policy: &str) -> Result<SchemaRef, St
 pub fn build_records_arrow(
     family: &str,
     detail_policy: &str,
-    rows: impl IntoIterator<Item = Result<Value, String>>,
+    rows: impl IntoIterator<Item = Result<BoundedRow, String>>,
     max_records: usize,
     max_output_bytes: usize,
     context: &Arc<KernelContext>,
     external_owner: Option<Arc<dyn std::any::Any + Send + Sync>>,
 ) -> Result<BuiltRecords, String> {
-    let mut lease = context.reserve(max_output_bytes).map_err(|error| error.to_string())?;
+    let mut lease = context.reserve(0).map_err(|error| error.to_string())?;
     let schema = records_schema(family, detail_policy)?;
     let mut batches = Vec::new();
     let mut builders = new_builders(&schema);
     let mut record_count = 0usize;
     let mut batch_count = 0usize;
+    let mut hasher = Sha256::new();
+    hasher.update(b"{\"family\":\"");
+    hasher.update(family.as_bytes());
+    hasher.update(b"\",\"kind\":\"comparison-records-content\",\"row_diff_detail_policy\":\"");
+    hasher.update(detail_policy.as_bytes());
+    hasher.update(b"\",\"rows\":[");
     for row in rows {
         context.check().map_err(|error| error.to_string())?;
         let row = row?;
@@ -90,36 +104,70 @@ pub fn build_records_arrow(
             .ok_or_else(|| "records count overflow".to_string())?;
         if record_count > max_records {
             return Err("records per-table limit exceeded".to_string());
-        let object = row.as_object().ok_or_else(|| "records row must be an object".to_string())?;
+        }
+        let encoded_size = json_size(&row.value)?;
+        let row_charge = encoded_size.checked_mul(3)
+            .and_then(|size| schema.fields().len().checked_mul(1024)
+                .and_then(|headers| size.checked_add(headers)))
+            .and_then(|size| size.checked_add(4096))
+            .ok_or("records output budget overflow")?;
+        if lease.charged_bytes().checked_add(row_charge)
+            .ok_or("records output budget overflow")? > max_output_bytes {
+            return Err("records output budget exceeded".to_string());
+        }
+        lease.grow(row_charge).map_err(|error| error.to_string())?;
+        if record_count != 1 { hasher.update(b","); }
+        let encoded = serde_json::to_vec(&row.value).map_err(|error| error.to_string())?;
+        hasher.update(canonicalize_jcs(&encoded).map_err(|error| error.to_string())?);
+        let object = row.value.as_object().ok_or_else(|| "records row must be an object".to_string())?;
         for (field, builder) in schema.fields().iter().zip(&mut builders) {
             let value = object.get(field.name())
                 .ok_or_else(|| format!("records field {} is missing", field.name()))?;
             append_value(builder.as_mut(), field, value)?;
         }
+        drop(row);
         batch_count += 1;
         if batch_count == 1024 {
             batches.push(finish_batch(Arc::clone(&schema), &mut builders)?);
             builders = new_builders(&schema);
             batch_count = 0;
+            lease.shrink_to(retained_charge(&batches, &schema)?)
+                .map_err(|error| error.to_string())?;
         }
     }
     if batch_count != 0 {
         batches.push(finish_batch(Arc::clone(&schema), &mut builders)?);
     }
-    let retained = batches.iter().flat_map(RecordBatch::columns).try_fold(0usize, |sum, array| {
-        sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
-    }).ok_or_else(|| "records output size overflow".to_string())?;
+    let schema_version = schema.metadata().get(&format!("{METADATA_PREFIX}schema_version"))
+        .ok_or("records schema version is missing")?;
+    hasher.update(b"],\"schema_version\":\"");
+    hasher.update(schema_version.as_bytes());
+    hasher.update(b"\"}");
+    let content_digest = DigestRef::from_raw_digest(&hasher.finalize())
+        .map_err(|error| error.to_string())?;
+    let retained = retained_charge(&batches, &schema)?;
     if retained > max_output_bytes {
         return Err("records output budget exceeded".to_string());
     }
-    // Rebinding temporarily retains old and new buffer headers, but not a
-    // second payload allocation. The precharged maximum covers this phase.
+    // Rebinding retains another bounded set of headers, not a second payload.
+    // The per-batch header allowance remains in the output lease.
     let charge = Arc::new(OutputCharge { lease: Mutex::new(lease), _external_owner: external_owner });
     let batches = batches.into_iter().map(|batch| charged_batch(batch, &charge))
         .collect::<Result<Vec<_>, _>>()?;
     charge.lease.lock().map_err(|_| "records charge lock poisoned".to_string())?
         .shrink_to(retained).map_err(|error| error.to_string())?;
-    Ok(BuiltRecords { schema, batches, record_count, _charge: charge })
+    Ok(BuiltRecords { schema, batches, record_count, content_digest, _charge: charge })
+}
+
+fn retained_charge(batches: &[RecordBatch], schema: &Schema) -> Result<usize, String> {
+    let data = batches.iter().flat_map(RecordBatch::columns).try_fold(0usize, |sum, array| {
+        sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+    }).ok_or("records output size overflow")?;
+    let headers = batches.len().checked_mul(schema.fields().len())
+        .and_then(|count| count.checked_mul(512))
+        .and_then(|size| size.checked_add(if batches.is_empty() { 0 } else { 4096 }))
+        .ok_or("records output header overflow")?;
+    data.checked_add(headers).ok_or("records output retained overflow".to_string())
 }
 
 fn charged_batch(batch: RecordBatch, charge: &Arc<OutputCharge>) -> Result<RecordBatch, String> {
@@ -265,4 +313,60 @@ fn bytes_value(value: &Value) -> Result<Vec<u8>, String> {
         u8::from_str_radix(&hex[index..index + 2], 16)
             .map_err(|error| error.to_string())
     }).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use arrow_array::{Array, ListArray, StringArray, StructArray};
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn nullable_parent_struct_and_sql_null_scalar_remain_distinct() {
+        let context = Arc::new(KernelContext::new(
+            16 * 1024 * 1024, Arc::new(AtomicBool::new(false)), None,
+        ));
+        let starting = context.remaining_bytes();
+        let sql_null = json!({
+            "kind": "null", "text": null, "raw_bytes": null,
+            "boolean": null, "items": null, "anomaly_json": null,
+        });
+        let row = json!({
+            "table_name": "t", "record_kind": "ROW_MODIFIED",
+            "row_identity": {"bytes_hex": "00".repeat(32)},
+            "changed_columns": ["value"],
+            "before_values": [], "current_values": [],
+            "field_changes": [{
+                "column_name": "value", "before_value": null,
+                "current_value": sql_null,
+            }],
+            "diagnostics": [],
+        });
+        let built = build_records_arrow(
+            "STANDARD", "FULL_BEFORE_AFTER_VALUES", [Ok(BoundedRow {
+                value: row,
+                _scratch: context.reserve(4096).expect("row scratch"),
+            })], 1,
+            1024 * 1024, &context, None,
+        ).expect("build nullable field change");
+        let batch = built.batches[0].clone();
+        let changes = batch.column(6).as_any().downcast_ref::<ListArray>().expect("changes");
+        let values = changes.values();
+        let change = values.as_any().downcast_ref::<StructArray>().expect("change struct");
+        let before = change.column(1).as_any().downcast_ref::<StructArray>().expect("before");
+        let current = change.column(2).as_any().downcast_ref::<StructArray>().expect("current");
+        assert!(before.is_null(0));
+        assert!(!current.is_null(0));
+        assert_eq!(
+            current.column(0).as_any().downcast_ref::<StringArray>().expect("kind").value(0),
+            "null",
+        );
+        drop(built);
+        assert!(context.remaining_bytes() < starting);
+        drop(batch);
+        assert_eq!(context.remaining_bytes(), starting);
+    }
 }

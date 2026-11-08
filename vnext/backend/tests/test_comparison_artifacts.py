@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -78,7 +79,8 @@ def test_publish_and_reopen_standard_records_preserves_typed_null() -> None:
     assert closure_payload["comparison_digest"] == published.facts.comparison_digest.value
     
     reopened = open_records_closure(store, published.facts.records_ref)
-    rows = read_records_artifact(store, reopened.records[0])
+    with closing(read_records_artifact(store, reopened.records[0])) as batches:
+        rows = [row for batch in batches for row in batch.to_pylist()]
     assert rows[0]["record_kind"] == "ROW_MODIFIED"
     values = rows[0]["current_values"]
     assert isinstance(values, list)

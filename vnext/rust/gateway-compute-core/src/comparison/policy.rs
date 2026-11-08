@@ -1,18 +1,19 @@
 //! Small, versioned policy metadata for the production Arrow comparison entry.
 
 use serde_json::Value;
+use std::sync::Arc;
 
-use super::{BlankProvenance, OrderedCompareOptions, StandardMode, StandardOptions};
+use super::{BlankProvenance, KernelContext, OrderedCompareOptions, StandardMode, StandardOptions};
+use crate::records::json_metadata_upper;
 
 pub enum ParsedComparisonPolicy {
     Standard(StandardOptions),
     Ordered(OrderedCompareOptions),
 }
 
-pub fn parse_comparison_policy(kind: &str, raw: &str) -> Result<ParsedComparisonPolicy, String> {
-    if raw.len() > 1024 * 1024 {
-        return Err("comparison policy metadata exceeds limit".to_string());
-    }
+pub fn parse_comparison_policy(kind: &str, raw: &str, context: &Arc<KernelContext>) -> Result<ParsedComparisonPolicy, String> {
+    let _metadata_charge = context.reserve(json_metadata_upper(raw)?)
+        .map_err(|error| error.to_string())?;
     let value: Value = serde_json::from_str(raw).map_err(|error| error.to_string())?;
     match kind {
         "standard" => {

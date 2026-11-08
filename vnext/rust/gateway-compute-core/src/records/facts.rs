@@ -10,6 +10,8 @@ use crate::comparison::{
     KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardRecordRef,
     canonical_cell_frame_at,
 };
+use super::source::{cell_upper, standard_upper};
+use super::json_metadata_upper;
 
 pub struct TableFactsSource<'a> {
     /// The small `_table_digest_payload` shape with each records array empty.
@@ -30,6 +32,8 @@ pub fn digest_table_fact_json(
     max_jcs_row_bytes: usize,
     context: &Arc<KernelContext>,
 ) -> Result<DigestRef, String> {
+    let _metadata_charge = context.reserve(json_metadata_upper(input.metadata_json)?)
+        .map_err(|error| error.to_string())?;
     let metadata = parse_small_json(input.metadata_json)?;
     digest_table_fact(&TableFactsSource {
         metadata: &metadata, standard: input.standard, ordered: input.ordered,
@@ -43,6 +47,10 @@ pub fn digest_facts_core_json(
     max_jcs_row_bytes: usize,
     context: &Arc<KernelContext>,
 ) -> Result<DigestRef, String> {
+    let total = inputs.iter().try_fold(json_metadata_upper(summary_json)?, |sum, input| {
+        sum.checked_add(json_metadata_upper(input.metadata_json).ok()?)
+    }).ok_or("facts metadata budget overflow")?;
+    let _metadata_charge = context.reserve(total).map_err(|error| error.to_string())?;
     let summary = parse_small_json(summary_json)?;
     let metadata = inputs.iter().map(|input| parse_small_json(input.metadata_json))
         .collect::<Result<Vec<_>, _>>()?;
@@ -53,7 +61,6 @@ pub fn digest_facts_core_json(
 }
 
 fn parse_small_json(raw: &str) -> Result<Value, String> {
-    if raw.len() > 1024 * 1024 { return Err("facts metadata exceeds limit".to_string()); }
     serde_json::from_str(raw).map_err(|error| error.to_string())
 }
 
@@ -70,7 +77,9 @@ pub fn digest_table_fact(
     max_jcs_row_bytes: usize,
     context: &Arc<KernelContext>,
 ) -> Result<DigestRef, String> {
-    let _scratch = context.reserve(max_jcs_row_bytes).map_err(|error| error.to_string())?;
+    let scratch_bytes = max_jcs_row_bytes.checked_mul(3)
+        .ok_or("facts JCS scratch budget overflow")?;
+    let _scratch = context.reserve(scratch_bytes).map_err(|error| error.to_string())?;
     let mut hasher = Sha256::new();
     write_table(&mut hasher, source, max_jcs_row_bytes, context)?;
     digest_ref(hasher)
@@ -85,12 +94,14 @@ pub fn digest_facts_core(
     max_jcs_row_bytes: usize,
     context: &Arc<KernelContext>,
 ) -> Result<DigestRef, String> {
-    let _scratch = context.reserve(max_jcs_row_bytes).map_err(|error| error.to_string())?;
+    let scratch_bytes = max_jcs_row_bytes.checked_mul(3)
+        .ok_or("facts JCS scratch budget overflow")?;
+    let _scratch = context.reserve(scratch_bytes).map_err(|error| error.to_string())?;
     let mut hasher = Sha256::new();
     hasher.update(b"{\"algorithm_version\":");
-    write_small(&mut hasher, &json!(algorithm_version), max_jcs_row_bytes)?;
+    write_small(&mut hasher, &json!(algorithm_version), usize::MAX)?;
     hasher.update(b",\"kind\":\"comparison-facts-core\",\"summary\":");
-    write_small(&mut hasher, summary, max_jcs_row_bytes)?;
+    write_small(&mut hasher, summary, usize::MAX)?;
     hasher.update(b",\"tables\":[");
     for (index, table) in tables.iter().enumerate() {
         context.check().map_err(|error| error.to_string())?;
@@ -125,7 +136,7 @@ fn write_value(
             keys.sort_by(|left, right| left.encode_utf16().cmp(right.encode_utf16()));
             for (index, key) in keys.into_iter().enumerate() {
                 if index != 0 { hasher.update(b","); }
-                write_small(hasher, &json!(key), max_bytes)?;
+                write_small(hasher, &json!(key), usize::MAX)?;
                 hasher.update(b":");
                 let child = object.get(key).ok_or("facts table object changed")?;
                 if key == "records" && matches!(part, Part::Root | Part::OrderedExtension | Part::BlankExtension) {
@@ -152,7 +163,7 @@ fn write_value(
             }
             hasher.update(b"]");
         }
-        _ => write_small(hasher, value, max_bytes)?,
+        _ => write_small(hasher, value, usize::MAX)?,
     }
     Ok(())
 }
@@ -174,9 +185,41 @@ fn write_records(
         Part::Other => return Err("invalid facts records part".to_string()),
     };
     hasher.update(b"[");
+    let table_name = source.metadata.get("table_name").and_then(Value::as_str)
+        .ok_or("facts table_name is missing")?;
     for position in 0..count {
         context.check().map_err(|error| error.to_string())?;
         if position != 0 { hasher.update(b","); }
+        let row_upper = match part {
+            Part::Root => {
+                if let Some(result) = source.standard {
+                    standard_upper(table_name, &result.records[result.facts_order[position]],
+                        &result.before_batches, &result.current_batches)?
+                } else {
+                    let result = source.ordered.ok_or("facts standard source missing")?;
+                    standard_upper(table_name, &result.standard_records[result.standard_facts_order[position]],
+                        &result.before_batches, &result.current_batches)?
+                }
+            }
+            Part::OrderedExtension => {
+                let result = source.ordered.ok_or("facts ordered source missing")?;
+                let record = &result.ordered_records[result.ordered_facts_order[position]];
+                let mut total = table_name.len().saturating_add(512);
+                for column in &record.value_columns {
+                    total = total.checked_add(column.len().saturating_mul(4).saturating_add(512))
+                        .and_then(|size| size.checked_add(cell_upper(&result.before_batches, record.before, column).ok()?))
+                        .and_then(|size| size.checked_add(cell_upper(&result.current_batches, record.current, column).ok()?))
+                        .ok_or("facts row upper overflow")?;
+                }
+                total
+            }
+            Part::BlankExtension => table_name.len().saturating_add(512),
+            Part::Other => return Err("invalid facts records part".to_string()),
+        };
+        if row_upper.checked_mul(4).and_then(|size| size.checked_add(256))
+            .ok_or("facts row upper overflow")? > max_bytes {
+            return Err("facts JCS row budget exceeded".to_string());
+        }
         let value = match part {
             Part::Root => {
                 if let Some(result) = source.standard {

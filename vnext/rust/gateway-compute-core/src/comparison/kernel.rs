@@ -17,6 +17,7 @@ use super::ordered::{OrderedCompareError, declared_type};
 /// memory already pinned and charged by the Arrow input owner.
 pub struct KernelContext {
     remaining_bytes: AtomicUsize,
+    sealed: AtomicBool,
     cancelled: Arc<AtomicBool>,
     deadline: Option<Instant>,
 }
@@ -42,6 +43,7 @@ impl KernelContext {
     ) -> Self {
         Self {
             remaining_bytes: AtomicUsize::new(remaining_bytes),
+            sealed: AtomicBool::new(false),
             cancelled,
             deadline,
         }
@@ -64,6 +66,9 @@ impl KernelContext {
     /// the last result owner drops it; failed work releases it automatically.
     pub fn reserve(self: &Arc<Self>, bytes: usize) -> Result<KernelLease, OrderedCompareError> {
         self.check()?;
+        if self.sealed.load(Ordering::Acquire) {
+            return Err(OrderedCompareError::new("COMPARISON_PHASE_SEALED"));
+        }
         self.remaining_bytes
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
                 left.checked_sub(bytes)
@@ -78,6 +83,16 @@ impl KernelContext {
     pub fn remaining_bytes(&self) -> usize {
         self.remaining_bytes.load(Ordering::Acquire)
     }
+
+    /// The caller seals only after all native compute has quiesced. Existing
+    /// leases may shrink or drop, while later work cannot claim returned bytes.
+    pub fn seal(&self) {
+        self.sealed.store(true, Ordering::Release);
+    }
+
+    pub fn is_sealed(&self) -> bool {
+        self.sealed.load(Ordering::Acquire)
+    }
 }
 
 pub struct KernelLease {
@@ -86,9 +101,16 @@ pub struct KernelLease {
 }
 
 impl KernelLease {
+    pub fn charged_bytes(&self) -> usize {
+        self.charged_bytes
+    }
+
     /// Check and charge before a result index or variable-width field grows.
     pub fn grow(&mut self, bytes: usize) -> Result<(), OrderedCompareError> {
         self.context.check()?;
+        if self.context.is_sealed() {
+            return Err(OrderedCompareError::new("COMPARISON_PHASE_SEALED"));
+        }
         let total = self
             .charged_bytes
             .checked_add(bytes)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import closing
 from typing import cast
 
 import pytest
@@ -124,7 +125,8 @@ def test_records_preserve_null_binary_float_decimal_and_temporal_values() -> Non
     assert published.records_closure is not None
     entry = published.records_closure.records[0]
     assert entry.family is RecordsArtifactFamily.STANDARD
-    row = read_records_artifact(store, entry)[0]
+    with closing(read_records_artifact(store, entry)) as batches:
+        row = next(batches).to_pylist()[0]
     before_values = {
         cast(str, item["column_name"]): cast(dict[str, object], item["value"])
         for item in cast(list[dict[str, object]], row["before_values"])

@@ -51,6 +51,12 @@ class Reservation:
             raise ValueError("only a live single reservation can bind a backing")
         self._keys = (self._owner.bind_backing(self._keys[0], backing),)
 
+    def shrink_to(self, size: int) -> None:
+        """Return unused bytes from one unshared phase reservation."""
+        if self._closed or len(self._keys) != 1:
+            raise ValueError("only a live single reservation can shrink")
+        self._owner.shrink(self._keys[0], size)
+
     def __enter__(self) -> Reservation:
         return self
 
@@ -112,6 +118,13 @@ class OperationMemoryBudget:
             self._live[new] = entry
         del self._live[old]
         return new
+
+    def shrink(self, key: Hashable, size: int) -> None:
+        entry = self._live[key]
+        if type(size) is not int or size < 0 or size > entry.size or entry.borrowers != 1:
+            raise ValueError("phase reservation shrink requires one borrower and a smaller size")
+        self.used_bytes -= entry.size - size
+        entry.size = size
 
     def retain_metadata(self, value: object, size: int) -> None:
         # Descriptors escape individual reader.close() through summaries and

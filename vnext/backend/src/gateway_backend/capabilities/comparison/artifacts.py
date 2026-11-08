@@ -8,10 +8,12 @@ part of the comparison or facts-core digests.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from itertools import chain
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import closing
 from dataclasses import dataclass, replace
 from tempfile import SpooledTemporaryFile
-from typing import cast
+from typing import Protocol
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -65,6 +67,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     RecordsDetailPolicy,
     CancelledResult,
 )
+from gateway_backend.capabilities.comparison.native import validate_records_batches
 
 
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
@@ -74,6 +77,7 @@ _MAX_DEFAULT_ARTIFACT_BYTES = 512 * 1024 * 1024
 _MAX_DEFAULT_MANIFEST_BYTES = 16 * 1024 * 1024
 _MAX_DEFAULT_CLOSURE_BYTES = 16 * 1024 * 1024
 _MAX_DEFAULT_SPOOL_BYTES = 2 * 1024 * 1024 * 1024
+_N1_OPERATION_MEMORY_BYTES = 24 * 1024 * 1024 * 1024
 _METADATA_PREFIX = b"gateway-vnext.records."
 
 
@@ -92,6 +96,9 @@ class RecordsPublicationPolicy:
     max_manifest_json_bytes: int = _MAX_DEFAULT_MANIFEST_BYTES
     max_closure_json_bytes: int = _MAX_DEFAULT_CLOSURE_BYTES
     max_spool_bytes: int = _MAX_DEFAULT_SPOOL_BYTES
+    # Bounds Parquet decode, Arrow buffers, and one JCS row outside an operation
+    # scope too. A row group is at most the writer's 1024 rows.
+    max_decoded_batch_bytes: int = _N1_OPERATION_MEMORY_BYTES
 
     def __post_init__(self) -> None:
         for name in (
@@ -100,6 +107,7 @@ class RecordsPublicationPolicy:
             "max_manifest_json_bytes",
             "max_closure_json_bytes",
             "max_spool_bytes",
+            "max_decoded_batch_bytes",
         ):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
@@ -118,6 +126,14 @@ class RecordsPublicationContext:
             raise ValueError("checkpoint must be callable")
         if type(self.artifact_id_prefix) is not str or self.artifact_id_prefix == "":
             raise ValueError("artifact_id_prefix must be non-empty")
+
+
+class NativeRecordsHandle(Protocol):
+    def is_sealed(self) -> bool: ...
+
+    def family_summary(self, family: str) -> tuple[int, str]: ...
+
+    def record_batches(self, family: str) -> pa.RecordBatchReader: ...
 
 
 def publish_records_closure(
@@ -241,6 +257,8 @@ def open_records_closure(
     if closure_ref.media_type != MANIFEST_MEDIA_TYPE:
         raise RecordsPublicationError("closure ref must identify JSON")
     limits = policy or RecordsPublicationPolicy()
+    if closure_ref.size_bytes > limits.max_closure_json_bytes:
+        raise RecordsPublicationError("closure JSON budget exceeded")
     raw = _locate(store, closure_ref)
     if len(raw) > limits.max_closure_json_bytes:
         raise RecordsPublicationError("closure JSON budget exceeded")
@@ -263,8 +281,12 @@ def open_records_closure(
     for entry in entries:
         if entry.records_ref.media_type != PARQUET_MEDIA_TYPE:
             raise RecordsPublicationError("records ref must identify Parquet")
+        if entry.records_ref.size_bytes > limits.max_records_artifact_bytes:
+            raise RecordsPublicationError("records artifact budget exceeded")
         if entry.records_manifest_ref.media_type != MANIFEST_MEDIA_TYPE:
             raise RecordsPublicationError("records manifest ref must identify JSON")
+        if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
+            raise RecordsPublicationError("records manifest JSON budget exceeded")
         manifest_raw = _locate(store, entry.records_manifest_ref)
         if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
             raise RecordsPublicationError("records manifest digest mismatch")
@@ -277,15 +299,81 @@ def open_records_closure(
         ):
             raise RecordsPublicationError("records manifest does not match closure entry")
         _enforce_record_count_budget(entry.record_count, limits)
-        artifact_raw = _locate(store, entry.records_ref)
-        actual_count, actual_content = _validate_parquet_bytes(
-            artifact_raw,
-            manifest,
-            limits,
+        from gateway_backend.capabilities.table_access import current_kernel_context
+
+        operation = current_kernel_context()
+        raw_reservation = (
+            operation.memory.reserve(2 * entry.records_ref.size_bytes + 1024 * 1024)
+            if operation is not None else None
         )
+        try:
+            artifact_raw = _locate(store, entry.records_ref)
+            actual_count, actual_content = _validate_parquet_bytes(
+                artifact_raw, manifest, limits
+            )
+        finally:
+            if raw_reservation is not None:
+                raw_reservation.close()
         if actual_count != entry.record_count or actual_content != entry.records_content_digest:
             raise RecordsPublicationError("records artifact digest or count mismatch")
     return closure
+
+
+class RecordsArrowBatchStream:
+    """Explicitly closable diagnostic Arrow reader over a validated artifact."""
+
+    def __init__(self, raw: bytes, limits: RecordsPublicationPolicy) -> None:
+        self._raw = raw
+        self._limits = limits
+        self._file: pq.ParquetFile | None = None
+        self._iterator: Iterator[pa.RecordBatch] | None = None
+        self._admission = 0
+        self._emitted_bytes = 0
+        self._retained_cap = 0
+        self._expected_rows = 0
+        self._emitted_rows = 0
+        self._closed = False
+
+    def __iter__(self) -> RecordsArrowBatchStream:
+        return self
+
+    def __next__(self) -> pa.RecordBatch:
+        if self._closed:
+            raise StopIteration
+        try:
+            if self._iterator is None:
+                self._file = pq.ParquetFile(pa.BufferReader(self._raw))
+                self._admission = _decoded_admission(self._file, self._limits)
+                self._retained_cap = _standalone_retained_cap(
+                    len(self._raw), self._admission
+                )
+                metadata = self._file.metadata
+                if metadata is None:
+                    raise RecordsPublicationError("records Parquet metadata is unavailable")
+                self._expected_rows = metadata.num_rows
+                self._iterator = _row_group_batches(self._file)
+            if self._emitted_rows == self._expected_rows:
+                self.close()
+                raise StopIteration
+            if self._emitted_bytes + self._admission > self._retained_cap:
+                raise RecordsPublicationError("records retained Arrow budget exceeded")
+            batch = next(self._iterator)
+            self._emitted_bytes += batch.nbytes
+            self._emitted_rows += batch.num_rows
+            if batch.nbytes > self._admission or self._emitted_bytes > self._retained_cap:
+                raise RecordsPublicationError("records decoded batch budget exceeded")
+            return batch
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        self._closed = True
+        self._iterator = None
+        if self._file is not None:
+            self._file.close()
+        self._file = None
+        self._raw = b""
 
 
 def read_records_artifact(
@@ -293,7 +381,7 @@ def read_records_artifact(
     entry: RecordsClosureEntry,
     *,
     policy: RecordsPublicationPolicy | None = None,
-) -> tuple[dict[str, object], ...]:
+) -> RecordsArrowBatchStream:
     """Read one validated artifact as its language-neutral Arrow row representation."""
 
     if not _is_artifact_store(store):
@@ -301,8 +389,12 @@ def read_records_artifact(
     limits = policy or RecordsPublicationPolicy()
     if entry.records_ref.media_type != PARQUET_MEDIA_TYPE:
         raise RecordsPublicationError("records ref must identify Parquet")
+    if entry.records_ref.size_bytes > limits.max_records_artifact_bytes:
+        raise RecordsPublicationError("records artifact budget exceeded")
     if entry.records_manifest_ref.media_type != MANIFEST_MEDIA_TYPE:
         raise RecordsPublicationError("records manifest ref must identify JSON")
+    if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
+        raise RecordsPublicationError("records manifest JSON budget exceeded")
     manifest_raw = _locate(store, entry.records_manifest_ref)
     if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
         raise RecordsPublicationError("records manifest digest mismatch")
@@ -315,7 +407,15 @@ def read_records_artifact(
     ):
         raise RecordsPublicationError("records manifest does not match closure entry")
     _enforce_record_count_budget(entry.record_count, limits)
-    return _read_parquet_rows(_locate(store, entry.records_ref), manifest, limits)
+    from gateway_backend.capabilities.table_access import current_kernel_context
+
+    # The only current caller is diagnostic tests. Production open/restore
+    # validates entirely inside its operation scope and never exports batches.
+    if current_kernel_context() is not None:
+        raise RecordsPublicationError("diagnostic records reader cannot escape an operation")
+    raw = _locate(store, entry.records_ref)
+    _validate_parquet_bytes(raw, manifest, limits)
+    return RecordsArrowBatchStream(raw, limits)
 
 
 def rewrite_closure_refs(
@@ -382,14 +482,25 @@ def restore_records_closure(
     source = open_records_closure(source_store, closure_ref, policy=limits)
     replacements: dict[ArtifactRef, ArtifactRef] = {}
     for entry in source.records:
-        records_raw = _locate(source_store, entry.records_ref)
-        records_ref = put_with_built_ref(
-            destination_store,
-            records_raw,
-            artifact_id=_artifact_id(control, "records", entry.records_ref.raw_sha256),
-            media_type=entry.records_ref.media_type,
+        from gateway_backend.capabilities.table_access import current_kernel_context
+
+        operation = current_kernel_context()
+        copy_reservation = (
+            operation.memory.reserve(2 * entry.records_ref.size_bytes + 1024 * 1024)
+            if operation is not None else None
         )
-        _verify_stored_bytes(destination_store, records_ref, records_raw)
+        try:
+            records_raw = _locate(source_store, entry.records_ref)
+            records_ref = put_with_built_ref(
+                destination_store,
+                records_raw,
+                artifact_id=_artifact_id(control, "records", entry.records_ref.raw_sha256),
+                media_type=entry.records_ref.media_type,
+            )
+            _verify_stored_bytes(destination_store, records_ref, records_raw)
+        finally:
+            if copy_reservation is not None:
+                copy_reservation.close()
         replacements[entry.records_ref] = records_ref
 
         manifest_raw = _locate(source_store, entry.records_manifest_ref)
@@ -500,6 +611,135 @@ def _publish_family(
     )
 
 
+def publish_records_family_arrow(
+    table_name: str,
+    family: RecordsArtifactFamily,
+    handle: NativeRecordsHandle,
+    store: ArtifactStorePort,
+    *,
+    detail_policy: RecordsDetailPolicy,
+    policy: RecordsPublicationPolicy | None = None,
+    context: RecordsPublicationContext | None = None,
+) -> RecordsClosureEntry:
+    """Publish one already sorted native Arrow family without a records readback.
+
+    The handle supplies both its sealed logical digest and the exact Arrow
+    buffers written to Parquet. A zero-row family has no artifact.
+    """
+    limits = policy or RecordsPublicationPolicy()
+    control = context or RecordsPublicationContext()
+    if not handle.is_sealed():
+        raise RecordsPublicationError("native records phase must be sealed before publication")
+    schema_version = _schema_version(family)
+    schema = _schema_for(family, schema_version, detail_policy)
+    expected_count, digest_text = handle.family_summary(family.value)
+    with closing(handle.record_batches(family.value)) as reader:
+        batches = tuple(reader)
+    if not batches or any(not _schema_matches(batch.schema, schema) for batch in batches):
+        raise RecordsPublicationError("records Arrow schema mismatch")
+    if any(batch.num_rows > 1024 for batch in batches):
+        raise RecordsPublicationError("records Arrow batch exceeds 1024 rows")
+    count = sum(batch.num_rows for batch in batches)
+    if count == 0 or count != expected_count:
+        raise RecordsPublicationError("empty records family has no artifact")
+    _enforce_record_count_budget(count, limits)
+    content_digest = DigestRef.parse(digest_text)
+    from gateway_backend.capabilities.table_access import current_kernel_context
+
+    operation = current_kernel_context()
+    reservation = (
+        operation.memory.reserve(2 * limits.max_records_artifact_bytes)
+        if operation is not None else None
+    )
+    try:
+        parquet_bytes = _write_arrow_parquet(batches, schema, limits, control)
+        records_ref = put_with_built_ref(
+            store,
+            parquet_bytes,
+            artifact_id=_artifact_id(control, family.value.lower(), content_digest),
+            media_type=PARQUET_MEDIA_TYPE,
+        )
+    finally:
+        if reservation is not None:
+            reservation.close()
+    manifest = RecordsArtifactManifest(
+        table_name=table_name,
+        family=family,
+        record_format="PARQUET",
+        schema_version=schema_version,
+        row_diff_detail_policy=detail_policy,
+        record_count=count,
+        content_digest=content_digest,
+    )
+    manifest_bytes = canonicalize_json_value(_manifest_payload(manifest))
+    if len(manifest_bytes) > limits.max_manifest_json_bytes:
+        raise RecordsPublicationError("records manifest JSON budget exceeded")
+    manifest_ref = put_with_built_ref(
+        store,
+        manifest_bytes,
+        artifact_id=_artifact_id(
+            control, f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)
+        ),
+        media_type=MANIFEST_MEDIA_TYPE,
+    )
+    _verify_stored_bytes(store, manifest_ref, manifest_bytes)
+    if _manifest_from_bytes(_locate(store, manifest_ref)) != manifest:
+        raise RecordsPublicationError("stored records manifest changed during publication")
+    return RecordsClosureEntry(
+        table_name=table_name,
+        family=family,
+        records_ref=records_ref,
+        records_manifest_ref=manifest_ref,
+        records_manifest_digest=raw_blob_digest(manifest_bytes),
+        records_content_digest=content_digest,
+        record_count=count,
+    )
+
+
+def _write_arrow_parquet(
+    batches: tuple[pa.RecordBatch, ...],
+    schema: pa.Schema,
+    limits: RecordsPublicationPolicy,
+    control: RecordsPublicationContext,
+) -> bytes:
+    spool = SpooledTemporaryFile(max_size=limits.max_spool_bytes, mode="w+b")
+    writer: pq.ParquetWriter | None = None
+    try:
+        control.checkpoint()
+        writer = pq.ParquetWriter(spool, schema, compression="zstd", use_dictionary=False)
+        for batch in batches:
+            control.checkpoint()
+            writer.write_table(
+                pa.Table.from_batches([batch], schema=schema),
+                row_group_size=batch.num_rows,
+            )
+            spool.seek(0, 2)
+            if spool.tell() > limits.max_records_artifact_bytes or spool.tell() > limits.max_spool_bytes:
+                raise RecordsPublicationError("records artifact or spool budget exceeded")
+        writer.close()
+        writer = None
+        spool.seek(0, 2)
+        size = spool.tell()
+        if size > limits.max_records_artifact_bytes or size > limits.max_spool_bytes:
+            raise RecordsPublicationError("records artifact or spool budget exceeded")
+        spool.seek(0)
+        raw = spool.read()
+        if type(raw) is not bytes or len(raw) != size:
+            raise RecordsPublicationError("records artifact spool read failed")
+        control.checkpoint()
+        return raw
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
+    except (pa.ArrowException, OSError, ValueError) as exc:
+        if isinstance(exc, RecordsPublicationError):
+            raise
+        raise RecordsPublicationError("records Parquet write failed") from exc
+    finally:
+        if writer is not None:
+            writer.close()
+        spool.close()
+
+
 def _write_parquet(
     family: RecordsArtifactFamily,
     rows: tuple[dict[str, object], ...],
@@ -555,6 +795,7 @@ def _validate_parquet_bytes(
 ) -> tuple[int, DigestRef]:
     if len(raw) > limits.max_records_artifact_bytes:
         raise RecordsPublicationError("records artifact budget exceeded")
+    file: pq.ParquetFile | None = None
     try:
         file = pq.ParquetFile(pa.BufferReader(raw))
         expected_schema = _schema_for(
@@ -566,62 +807,97 @@ def _validate_parquet_bytes(
         if not _schema_matches(actual_schema, expected_schema):
             raise RecordsPublicationError("records Parquet schema mismatch")
         _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
-        rows = _read_parquet_rows_from_file(file)
+        admission = _decoded_admission(file, limits)
+        _standalone_retained_cap(len(raw), admission)
+        from gateway_backend.capabilities.table_access import current_kernel_context
+
+        operation = current_kernel_context()
+        reservation = operation.memory.reserve(2 * admission) if operation is not None else None
+        try:
+            if operation is not None:
+                operation.checkpoint()
+            with closing(pa.RecordBatchReader.from_batches(
+                actual_schema, _row_group_batches(file)
+            )) as reader:
+                family, schema_version, detail_policy, count, digest_text = validate_records_batches(
+                    reader,
+                    max_records=limits.max_records_per_table,
+                    max_batch_bytes=admission,
+                    cancel_probe=operation.cancel_probe if operation is not None else None,
+                    deadline_monotonic=operation.deadline_monotonic if operation is not None else None,
+                )
+            if operation is not None:
+                operation.checkpoint()
+        finally:
+            if reservation is not None:
+                reservation.close()
     except (OSError, pa.ArrowException, ValueError) as exc:
         if isinstance(exc, RecordsPublicationError):
             raise
         raise RecordsPublicationError("records Parquet is corrupt") from exc
-    if len(rows) != manifest.record_count:
+    finally:
+        if file is not None:
+            file.close()
+    if (family, schema_version, detail_policy) != (
+        manifest.family.value, manifest.schema_version, manifest.row_diff_detail_policy.value
+    ):
+        raise RecordsPublicationError("records Parquet metadata mismatch")
+    if count != manifest.record_count:
         raise RecordsPublicationError("records Parquet count mismatch")
-    digest = _content_digest(
-        manifest.family,
-        manifest.schema_version,
-        manifest.row_diff_detail_policy,
-        rows,
-    )
+    digest = DigestRef.parse(digest_text)
     if digest != manifest.content_digest:
         raise RecordsPublicationError("records content digest mismatch")
-    return len(rows), digest
+    return count, digest
 
 
-def _read_parquet_rows(
-    raw: bytes,
-    manifest: RecordsArtifactManifest,
-    limits: RecordsPublicationPolicy,
-) -> tuple[dict[str, object], ...]:
-    if len(raw) > limits.max_records_artifact_bytes:
-        raise RecordsPublicationError("records artifact budget exceeded")
-    try:
-        file = pq.ParquetFile(pa.BufferReader(raw))
-        if not _schema_matches(
-            file.schema_arrow,
-            _schema_for(
-                manifest.family,
-                manifest.schema_version,
-                manifest.row_diff_detail_policy,
-            ),
-        ):
-            raise RecordsPublicationError("records Parquet schema mismatch")
-        _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
-        rows = _read_parquet_rows_from_file(file)
-    except (OSError, pa.ArrowException, ValueError) as exc:
-        if isinstance(exc, RecordsPublicationError):
-            raise
-        raise RecordsPublicationError("records Parquet is corrupt") from exc
-    digest = _content_digest(
-        manifest.family,
-        manifest.schema_version,
-        manifest.row_diff_detail_policy,
-        rows,
+def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -> int:
+    """Reserve a conservative upper bound before Arrow decodes a row group.
+
+    Each yielded batch stays within one row group. Dictionary encoding is
+    rejected; the factor covers Arrow offsets, validity, nested arrays, and
+    one per-row JCS tree before the group is decoded.
+    """
+    metadata = file.metadata
+    if metadata is None:
+        raise RecordsPublicationError("records Parquet metadata is unavailable")
+    largest = 1024 * 1024
+    for index in range(metadata.num_row_groups):
+        group = metadata.row_group(index)
+        if group.num_rows > 1024 or group.num_rows < 0:
+            raise RecordsPublicationError("records Parquet row group exceeds 1024 rows")
+        if group.total_byte_size < 0:
+            raise RecordsPublicationError("records Parquet row group size is invalid")
+        for column in range(group.num_columns):
+            encodings = (str(item).upper() for item in group.column(column).encodings)
+            if any("DICTIONARY" in item for item in encodings):
+                raise RecordsPublicationError("records Parquet dictionary encoding is unsupported")
+        # Dictionary expansion is excluded by the published writer format.
+        # The factor covers Arrow offsets/validity and one nested JCS row.
+        estimate = 32 * group.total_byte_size + group.num_rows * 2048 + 1024 * 1024
+        largest = max(largest, estimate)
+        if 2 * largest > min(limits.max_decoded_batch_bytes, _N1_OPERATION_MEMORY_BYTES):
+            raise RecordsPublicationError("records decoded batch budget exceeded")
+    return largest
+
+
+def _row_group_batches(file: pq.ParquetFile) -> Iterator[pa.RecordBatch]:
+    metadata = file.metadata
+    if metadata is None:
+        raise RecordsPublicationError("records Parquet metadata is unavailable")
+    return chain.from_iterable(
+        file.iter_batches(batch_size=1024, row_groups=[index])
+        for index in range(metadata.num_row_groups)
     )
-    if len(rows) != manifest.record_count or digest != manifest.content_digest:
-        raise RecordsPublicationError("records content digest or count mismatch")
-    return rows
 
 
-def _read_parquet_rows_from_file(file: pq.ParquetFile) -> tuple[dict[str, object], ...]:
-    table = file.read()
-    return tuple(cast(tuple[dict[str, object], ...], tuple(table.to_pylist())))
+def _standalone_retained_cap(raw_bytes: int, admission: int) -> int:
+    # Current N1 M24 GiB applies even when a diagnostic caller has no operation
+    # context. Reserve room for raw bytes, the next decoded group and its JCS
+    # scratch while already returned Arrow batches remain live.
+    remaining = _N1_OPERATION_MEMORY_BYTES - 2 * raw_bytes - 2 * admission - 1024 * 1024
+    if remaining < admission:
+        raise RecordsPublicationError("records standalone memory budget exceeded")
+    return remaining
 
 
 def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublicationPolicy) -> None:
@@ -1019,6 +1295,8 @@ def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
         raise RecordsPublicationError("artifact store locate failed") from exc
     if type(raw) is not bytes:
         raise RecordsPublicationError("artifact store returned non-bytes")
+    if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
+        raise RecordsPublicationError("stored artifact raw identity mismatch")
     return raw
 
 

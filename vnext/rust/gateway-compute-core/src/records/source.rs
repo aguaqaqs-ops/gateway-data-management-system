@@ -13,7 +13,8 @@ use crate::comparison::{
 use crate::comparison::kernel::sort_indices_checked;
 use crate::comparison::ordered::{scalar_type, declared_type, typed_value};
 
-use super::builders::{BuiltRecords, build_records_arrow};
+use super::builders::{BoundedRow, BuiltRecords, build_records_arrow};
+use super::json_size;
 
 struct SortEntry {
     index: usize,
@@ -43,6 +44,8 @@ pub fn build_standard_records(
             standard_row(table_name, &result.records[index], &result.before_batches,
                 &result.current_batches, detail)
         },
+        |index, detail| standard_detail_upper(table_name, &result.records[index],
+            &result.before_batches, &result.current_batches, detail),
     )
 }
 
@@ -63,6 +66,8 @@ pub fn build_standard_records_from_ordered(
             standard_row(table_name, &result.standard_records[index], &result.before_batches,
                 &result.current_batches, detail)
         },
+        |index, detail| standard_detail_upper(table_name, &result.standard_records[index],
+            &result.before_batches, &result.current_batches, detail),
     )
 }
 
@@ -95,6 +100,22 @@ pub fn build_ordered_records(
                 "current_values": if full { values_at(&result.current_batches, record.current, &record.value_columns)? } else { Vec::new() },
                 "diagnostics": [],
             }))
+        },
+        |index, detail| {
+            let record = &result.ordered_records[index];
+            if detail != "FULL_BEFORE_AFTER_VALUES" {
+                let columns = if detail == "COUNTS_ONLY" { &[][..] } else { &record.changed_columns };
+                return small_row_upper(table_name, Some(&record.row_identity), columns,
+                    &record.diagnostics);
+            }
+            record.value_columns.iter().map(|column| {
+                Ok(cell_upper(&result.before_batches, record.before, column)?
+                    .checked_add(cell_upper(&result.current_batches, record.current, column)?)
+                    .and_then(|size| size.checked_add(column.len().saturating_mul(4).saturating_add(512)))
+                    .ok_or("records row upper overflow")?)
+            }).try_fold(table_name.len() + 512, |total, part: Result<usize, String>| {
+                total.checked_add(part?).ok_or("records row upper overflow".to_string())
+            })
         },
     )
 }
@@ -131,6 +152,7 @@ pub fn build_blank_records(
                 "diagnostics": [],
             }))
         },
+        |index, _| Ok(table_name.len() + result.blank_records[index].interval.interval_digest.len() + 512),
     )
 }
 
@@ -144,23 +166,47 @@ fn build_family(
     context: &Arc<KernelContext>,
     external_owner: Option<Arc<dyn std::any::Any + Send + Sync>>,
     row: impl Fn(usize, &str) -> Result<Value, String>,
+    row_upper: impl Fn(usize, &str) -> Result<usize, String>,
 ) -> Result<BuiltRecords, String> {
     if count > max_records {
         return Err("records per-table limit exceeded".to_string());
     }
-    let _sort_lease = context.reserve(max_sort_bytes).map_err(|error| error.to_string())?;
+    let entry_headers = count.checked_mul(std::mem::size_of::<SortEntry>())
+        .ok_or("records sort header budget overflow")?;
+    if entry_headers > max_sort_bytes {
+        return Err("records sort budget exceeded".to_string());
+    }
+    let mut sort_lease = context.reserve(entry_headers).map_err(|error| error.to_string())?;
     let mut entries = Vec::with_capacity(count);
-    let mut actual_sort_bytes = 0usize;
     for index in 0..count {
         context.check().map_err(|error| error.to_string())?;
-        let full = row(index, "FULL_BEFORE_AFTER_VALUES")?;
-        let encoded = serde_json::to_vec(&full).map_err(|error| error.to_string())?;
-        let full_jcs = canonicalize_jcs(&encoded).map_err(|error| error.to_string())?;
-        actual_sort_bytes = actual_sort_bytes.checked_add(full_jcs.len() * 2 + 256)
-            .ok_or_else(|| "records sort budget overflow".to_string())?;
-        if actual_sort_bytes > max_sort_bytes {
+        let upper = row_upper(index, "FULL_BEFORE_AFTER_VALUES")?;
+        let value_charge = upper.checked_mul(2).and_then(|size| size.checked_add(4096))
+            .ok_or("records sort row budget overflow")?;
+        if sort_lease.charged_bytes().checked_add(value_charge)
+            .ok_or("records sort budget overflow")? > max_sort_bytes {
             return Err("records sort budget exceeded".to_string());
         }
+        let mut row_scratch = context.reserve(value_charge).map_err(|error| error.to_string())?;
+        let full = row(index, "FULL_BEFORE_AFTER_VALUES")?;
+        let encoded_size = json_size(&full)?;
+        let encoding_charge = encoded_size.checked_mul(2).and_then(|size| size.checked_add(256))
+            .ok_or("records sort encoding budget overflow")?;
+        let peak = sort_lease.charged_bytes().checked_add(row_scratch.charged_bytes())
+            .and_then(|size| size.checked_add(encoding_charge))
+            .ok_or("records sort budget overflow")?;
+        if peak > max_sort_bytes {
+            return Err("records sort budget exceeded".to_string());
+        }
+        row_scratch.grow(encoding_charge).map_err(|error| error.to_string())?;
+        let encoded = serde_json::to_vec(&full).map_err(|error| error.to_string())?;
+        let full_jcs = canonicalize_jcs(&encoded).map_err(|error| error.to_string())?;
+        let item_bytes = full_jcs.len().checked_mul(2).and_then(|size| size.checked_add(256))
+            .ok_or("records sort budget overflow")?;
+        if peak.checked_add(item_bytes).ok_or("records sort budget overflow")? > max_sort_bytes {
+            return Err("records sort budget exceeded".to_string());
+        }
+        sort_lease.grow(item_bytes).map_err(|error| error.to_string())?;
         entries.push(SortEntry {
             index,
             kind: text_field(&full, "record_kind")?.to_string(),
@@ -171,6 +217,14 @@ fn build_family(
             full_jcs,
         });
     }
+    let index_bytes = count.checked_mul(std::mem::size_of::<usize>())
+        .and_then(|size| size.checked_mul(2))
+        .ok_or("records sort index budget overflow")?;
+    if sort_lease.charged_bytes().checked_add(index_bytes)
+        .ok_or("records sort budget overflow")? > max_sort_bytes {
+        return Err("records sort budget exceeded".to_string());
+    }
+    sort_lease.grow(index_bytes).map_err(|error| error.to_string())?;
     let order = sort_indices_checked(&entries, context, |left, right| {
         left.kind.cmp(&right.kind)
             .then_with(|| left.identity.cmp(&right.identity))
@@ -178,16 +232,33 @@ fn build_family(
             .then_with(|| left.current_position.cmp(&right.current_position))
             .then_with(|| left.full_jcs.cmp(&right.full_jcs))
     }).map_err(|error| error.to_string())?;
-    let mut seen = HashSet::with_capacity(count);
+    let mut seen = HashSet::new();
     let rows = order.into_iter().map(|slot| {
         context.check().map_err(|error| error.to_string())?;
+        let upper = row_upper(entries[slot].index, detail_policy)?;
+        let value_charge = upper.checked_mul(2).and_then(|size| size.checked_add(4096))
+            .ok_or("records output row budget overflow")?;
+        let mut row_scratch = context.reserve(value_charge).map_err(|error| error.to_string())?;
         let value = row(entries[slot].index, detail_policy)?;
+        let encoded_size = json_size(&value)?;
+        let encoding_charge = encoded_size.checked_mul(2).and_then(|size| size.checked_add(256))
+            .ok_or("records output JCS budget overflow")?;
+        row_scratch.grow(encoding_charge).map_err(|error| error.to_string())?;
         let encoded = canonicalize_jcs(&serde_json::to_vec(&value)
             .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+        let duplicate_charge = encoded.len().checked_add(128)
+            .ok_or("records duplicate budget overflow")?;
+        if sort_lease.charged_bytes().checked_add(row_scratch.charged_bytes())
+            .and_then(|size| size.checked_add(duplicate_charge))
+            .ok_or("records sort budget overflow")? > max_sort_bytes {
+            return Err("records sort budget exceeded".to_string());
+        }
+        sort_lease.grow(duplicate_charge)
+            .map_err(|error| error.to_string())?;
         if !seen.insert(encoded) {
             return Err("records family contains duplicate logical rows".to_string());
         }
-        Ok(value)
+        Ok(BoundedRow { value, _scratch: row_scratch })
     });
     build_records_arrow(family, detail_policy, rows, max_records, max_output_bytes, context, external_owner)
 }
@@ -219,6 +290,77 @@ fn standard_row(
         "field_changes": changes,
         "diagnostics": record.diagnostics,
     }))
+}
+
+pub(super) fn standard_upper(
+    table_name: &str,
+    record: &StandardRecordRef,
+    before: &[RecordBatch],
+    current: &[RecordBatch],
+) -> Result<usize, String> {
+    let mut total = table_name.len()
+        .checked_add(record.row_identity.as_ref().map_or(0, String::len))
+        .and_then(|size| size.checked_add(512))
+        .ok_or("records row upper overflow")?;
+    for column in record.value_columns.iter().chain(&record.changed_columns) {
+        let before_size = cell_upper(before, record.before, column)?;
+        let current_size = cell_upper(current, record.current, column)?;
+        total = total.checked_add(column.len().saturating_mul(4).saturating_add(512))
+            .and_then(|size| size.checked_add(before_size))
+            .and_then(|size| size.checked_add(current_size))
+            .ok_or("records row upper overflow")?;
+    }
+    for diagnostic in &record.diagnostics {
+        total = total.checked_add(diagnostic.len().saturating_mul(4).saturating_add(128))
+            .ok_or("records row upper overflow")?;
+    }
+    Ok(total)
+}
+
+fn standard_detail_upper(
+    table_name: &str,
+    record: &StandardRecordRef,
+    before: &[RecordBatch],
+    current: &[RecordBatch],
+    detail: &str,
+) -> Result<usize, String> {
+    if detail == "FULL_BEFORE_AFTER_VALUES" {
+        return standard_upper(table_name, record, before, current);
+    }
+    let columns = if detail == "COUNTS_ONLY" { &[][..] } else { &record.changed_columns };
+    small_row_upper(table_name, record.row_identity.as_deref(), columns, &record.diagnostics)
+}
+
+fn small_row_upper(
+    table_name: &str,
+    identity: Option<&str>,
+    changed_columns: &[String],
+    diagnostics: &[String],
+) -> Result<usize, String> {
+    table_name.len()
+        .checked_add(identity.map_or(0, str::len))
+        .and_then(|size| size.checked_add(1024))
+        .and_then(|size| changed_columns.iter().chain(diagnostics).try_fold(size, |sum, text| {
+            sum.checked_add(text.len().checked_mul(6)?.checked_add(128)?)
+        }))
+        .ok_or_else(|| "records detail row upper overflow".to_string())
+}
+
+pub(super) fn cell_upper(
+    batches: &[RecordBatch],
+    location: Option<RowLocation>,
+    column: &str,
+) -> Result<usize, String> {
+    let Some(location) = location else { return Ok(0) };
+    let batch = batches.get(location.batch).ok_or("records row location invalid")?;
+    if location.row >= batch.num_rows() {
+        return Err("records row location invalid".to_string());
+    }
+    let index = batch.schema().fields().iter().position(|field| field.name() == column)
+        .ok_or("records column is missing")?;
+    let slice = batch.column(index).slice(location.row, 1);
+    slice.to_data().get_slice_memory_size()
+        .map_err(|error| error.to_string())
 }
 
 fn values_at(

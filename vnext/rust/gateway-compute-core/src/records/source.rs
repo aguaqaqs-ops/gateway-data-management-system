@@ -463,3 +463,62 @@ fn text_field<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
 fn int_field(value: &Value, name: &str) -> i64 {
     value.get(name).and_then(Value::as_i64).unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use arrow_array::StringArray;
+
+    use super::*;
+
+    fn context() -> Arc<KernelContext> {
+        Arc::new(KernelContext::new(16 * 1024 * 1024,
+            Arc::new(AtomicBool::new(false)), None))
+    }
+
+    fn row(kind: &str, identity: &str, text: &str, detail: &str) -> Value {
+        let scalar = json!({
+            "kind": "string", "text": text, "raw_bytes": null,
+            "boolean": null, "items": null, "anomaly_json": null,
+        });
+        json!({
+            "table_name": "t", "record_kind": kind,
+            "row_identity": {"bytes_hex": identity},
+            "changed_columns": [], "before_values": [],
+            "current_values": if detail == "FULL_BEFORE_AFTER_VALUES" {
+                vec![json!({"column_name": "v", "value": scalar})]
+            } else { Vec::new() },
+            "field_changes": [], "diagnostics": [],
+        })
+    }
+
+    #[test]
+    fn artifact_sort_uses_full_rows_and_rejects_detail_duplicates() {
+        let identity_a = "11".repeat(32);
+        let identity_b = "22".repeat(32);
+        let cases = [
+            ("ROW_DELETED", identity_b.as_str(), "before"),
+            ("ROW_ADDED", identity_a.as_str(), "after"),
+        ];
+        let built = build_family(
+            "STANDARD", cases.len(), "COUNTS_ONLY", 2, 1024 * 1024,
+            1024 * 1024, &context(), None,
+            |index, detail| Ok(row(cases[index].0, cases[index].1, cases[index].2, detail)),
+            |_, _| Ok(1024),
+        ).expect("sorted records");
+        let kinds = built.batches[0].column(1).as_any()
+            .downcast_ref::<StringArray>().expect("kind column");
+        assert_eq!(kinds.value(0), "ROW_ADDED");
+        assert_eq!(kinds.value(1), "ROW_DELETED");
+
+        let duplicate_cases = ["left", "right"];
+        let error = build_family(
+            "STANDARD", duplicate_cases.len(), "COUNTS_ONLY", 2,
+            1024 * 1024, 1024 * 1024, &context(), None,
+            |index, detail| Ok(row("ROW_MODIFIED", &identity_a, duplicate_cases[index], detail)),
+            |_, _| Ok(1024),
+        ).err().expect("duplicate must fail");
+        assert!(error.contains("duplicate logical rows"));
+    }
+}

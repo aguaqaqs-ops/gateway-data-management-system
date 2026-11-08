@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -24,7 +26,8 @@ from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
     RecordsPublicationContext, RecordsPublicationPolicy, _record_to_row,
     _decoded_admission, _standalone_read_bound, _standalone_retained_cap,
-    _schema_for, _write_arrow_parquet, open_records_closure,
+    _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
+    _write_arrow_parquet, open_records_closure,
     publish_records_closure, publish_records_family_arrow, read_records_artifact,
     restore_records_closure,
 )
@@ -39,8 +42,11 @@ from gateway_backend.capabilities.comparison.row_encoding import (
 from gateway_backend.capabilities.comparison.standard import STANDARD_COMPARISON_ALGORITHM_VERSION
 from gateway_backend.capabilities.table_access import NeverCancel
 from gateway_backend.capabilities.table_access.kernel import OperationMemoryBudget
-from tests.test_comparison_s3_b_differential import (
-    _blank_provenance, _bound, _canonical_stream, _plan,
+from tests.support.comparison_s3_c_inputs import (
+    blank_provenance as _blank_provenance,
+    bound as _bound,
+    canonical_stream as _canonical_stream,
+    plan as _plan,
 )
 from tests.test_comparison_artifacts import _standard_result
 from gateway_backend.capabilities.comparison import compare_plan
@@ -489,3 +495,132 @@ def test_facts_core_accepts_metadata_over_one_mib_with_independent_jcs() -> None
         raw_summary, 8 * 1024**2,
     ) == expected.value
     operation.close()
+
+
+@pytest.mark.parametrize("limited", ("input", "output"))
+def test_native_budget_failure_releases_input_and_phase_charges(limited: str) -> None:
+    mib = 1024**2
+    memory = OperationMemoryBudget(128 * mib)
+    native_charge = memory.reserve(64 * mib)
+    input_charge = memory.reserve(8 * mib)
+    bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL); INSERT INTO t VALUES (1, 'x');")
+    current = _canonical_stream(bound.table_set.tables[0])
+    schema = current.schema
+    operation = _begin_comparison_operation_native(64 * mib, native_charge, NeverCancel())
+    try:
+        with pytest.raises(MemoryError, match="RESOURCE_LIMIT_EXCEEDED|budget"):
+            _compare_records_native(
+                operation, "standard", "t", pa.RecordBatchReader.from_batches(schema, []),
+                current,
+                json.dumps({
+                    "mode": "keyed", "selected_columns": ["id", "note"],
+                    "effective_key_before": ["id"], "effective_key_current": ["id"],
+                    "compare_excluded_columns": [], "incompatible_columns": [],
+                    "emit_add_delete": True, "columns_added": False,
+                }),
+                "FULL_BEFORE_AFTER_VALUES", 2_000_000, 16 * mib,
+                1 if limited == "output" else 16 * mib,
+                1 if limited == "input" else 8 * mib, input_charge,
+            )
+    finally:
+        current.close()
+        operation.close()
+    assert memory.used_bytes == 0
+    assert memory.high_water_bytes <= memory.limit_bytes
+
+
+@pytest.mark.parametrize("control", ("cancel", "deadline"))
+def test_native_operation_rejects_cancel_or_expired_deadline_and_releases(control: str) -> None:
+    memory = OperationMemoryBudget(64 * 1024**2)
+    charge = memory.reserve(64 * 1024**2)
+
+    class Probe:
+        def is_set(self) -> bool:
+            return control == "cancel"
+
+    with pytest.raises((InterruptedError, TimeoutError)):
+        _begin_comparison_operation_native(
+            64 * 1024**2, charge, Probe(),
+            time.monotonic() - 1 if control == "deadline" else None,
+        )
+    assert memory.used_bytes == 0
+
+
+@pytest.mark.serial
+def test_native_arrow_read_releases_gil_for_cancel_monitor() -> None:
+    bound = _bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT NULL);")
+    schema_reader = _canonical_stream(bound.table_set.tables[0])
+    schema = schema_reader.schema
+    schema_reader.close()
+    count = 100_000
+    whole = pa.RecordBatch.from_arrays(
+        [pa.array(range(1, count + 1), type=schema.field("id").type),
+         pa.array(["x"] * count, type=schema.field("note").type)],
+        schema=schema,
+    )
+    batches = [whole.slice(offset, min(1024, count - offset)) for offset in range(0, count, 1024)]
+
+    class FlipProbe:
+        calls = 0
+
+        def is_set(self) -> bool:
+            self.calls += 1
+            return self.calls >= 2
+
+    probe = FlipProbe()
+    operation = _begin_comparison_operation_native(2 * 1024**3, Charge(), probe)
+    before = pa.RecordBatchReader.from_batches(schema, [])
+    current = pa.RecordBatchReader.from_batches(schema, batches)
+    try:
+        with pytest.raises(InterruptedError, match="COMPARISON_CANCELLED"):
+            _compare_records_native(
+                operation, "standard", "t", before, current,
+                json.dumps({
+                    "mode": "keyed", "selected_columns": ["id", "note"],
+                    "effective_key_before": ["id"], "effective_key_current": ["id"],
+                    "compare_excluded_columns": [], "incompatible_columns": [],
+                    "emit_add_delete": True, "columns_added": False,
+                }),
+                "COUNTS_ONLY", 2_000_000, 512 * 1024**2,
+                512 * 1024**2, 2 * 1024**3, Charge(),
+            )
+        assert probe.calls >= 2
+    finally:
+        before.close()
+        current.close()
+        operation.close()
+
+
+def test_real_native_read_rejects_correct_raw_with_wrong_content_or_schema() -> None:
+    store = InMemoryArtifactStore()
+    published = publish_records_closure(_standard_result(), store)
+    assert isinstance(published, DetailedFactsResult)
+    assert published.records_closure is not None
+    entry = published.records_closure.records[0]
+    raw = store.locate(entry.records_ref)
+    manifest = _manifest_from_bytes(store.locate(entry.records_manifest_ref))
+    with pytest.raises(ValueError, match="content digest mismatch"):
+        _validate_parquet_bytes(
+            raw, replace(manifest, content_digest=raw_blob_digest(b"other")),
+            RecordsPublicationPolicy(),
+        )
+    with pytest.raises(ValueError, match="schema mismatch"):
+        _validate_parquet_bytes(
+            raw, replace(
+                manifest, family=RecordsArtifactFamily.ORDERED,
+                schema_version="ordered-records/v1",
+            ), RecordsPublicationPolicy(),
+        )
+
+    class FailingReadStore:
+        def put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
+            return store.put(raw_bytes, ref)
+
+        def locate(self, ref: ArtifactRef) -> bytes:
+            if ref == entry.records_ref:
+                raise OSError("read failed")
+            return store.locate(ref)
+
+    assert published.facts is not None and published.facts.records_ref is not None
+    with pytest.raises(ValueError, match="locate failed"):
+        open_records_closure(FailingReadStore(), published.facts.records_ref)

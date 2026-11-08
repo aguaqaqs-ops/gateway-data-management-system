@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from time import perf_counter
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, closing
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
@@ -33,7 +33,7 @@ from gateway_backend.capabilities.comparison.standard import (
     STANDARD_COMPARISON_ALGORITHM_VERSION, _build_facts, _compare_task,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArrowSnapshotTableReader, snapshot_arrow_input,
+    ArrowSnapshotTableReader, canonical_comparison_profile, snapshot_arrow_input,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, SnapshotTable,
@@ -470,12 +470,78 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
     if not isinstance(table.reader, ArrowSnapshotTableReader):
         raise StandardComparisonError("canonical comparison requires an Arrow reader")
     isolated = table.reader.reopen()
+    original: pa.RecordBatchReader | None = None
     try:
         # reopen() borrows the original Arrow buffers through retain_arrow's
         # unique backing keys. The native handle keeps this charge until its
         # final output consumer closes; no IPC copy or Python row bridge.
-        return isolated.arrow_stream(), isolated
+        original = isolated.arrow_stream()
+        schema = original.schema
+        if ((schema.metadata is not None
+             and b"gdds.canonical_mapping_version" in schema.metadata)
+                or any(field.metadata is not None
+                       and b"gdds.canonical_type" in field.metadata
+                       for field in schema)):
+            # Persisted IPC and any already-profiled input must pass the native
+            # validator unchanged, including partial/malformed metadata.
+            return original, isolated
+        if not isolated.canonical_comparison_verified:
+            return original, isolated
+        # The fresh canonical writer has already validated this exact backing.
+        # Rebind only its comparison view; business/export Arrow stays intact.
+        columns = table.descriptor.columns
+        source_bytes = sum(
+            256 + len(column.name) + len(column.display_name)
+            + len(column.scalar_type or "") for column in columns
+        )
+        metadata_upper = 65536 + 64 * source_bytes + 16384 * len(columns)
+        profile_charge = context.memory.reserve(metadata_upper)
+        try:
+            profile, indices = canonical_comparison_profile(
+                table.descriptor, schema, metadata_budget_bytes=metadata_upper,
+            )
+            bit_upper = 0
+            for position, source_index in enumerate(indices):
+                target = profile.field(position).type
+                actual = schema.field(source_index).type
+                if actual == target:
+                    continue
+                if not (pa.types.is_fixed_size_binary(target)
+                        and (pa.types.is_binary(actual) or pa.types.is_large_binary(actual))):
+                    raise ValueError("canonical comparison view has an unsupported conversion")
+                rows = table.descriptor.row_count
+                bit_upper += 2 * rows * target.byte_width + 2 * ((rows + 7) // 8)
+                bit_upper += 4096 * 1024
+            bit_charge = context.memory.reserve(bit_upper) if bit_upper else None
+            try:
+                def batches() -> Iterator[pa.RecordBatch]:
+                    for batch in original:
+                        step = 65536 if bit_upper else max(1, batch.num_rows)
+                        for start in range(0, max(1, batch.num_rows), step):
+                            context.checkpoint()
+                            part = batch.slice(start, min(step, batch.num_rows - start))
+                            arrays = []
+                            for position, source_index in enumerate(indices):
+                                array = part.column(source_index)
+                                target = profile.field(position).type
+                                arrays.append(array if array.type == target else array.cast(target, safe=True))
+                            yield pa.RecordBatch.from_arrays(arrays, schema=profile)
+                    context.checkpoint()
+
+                view = pa.RecordBatchReader.from_batches(profile, batches())
+            except BaseException:
+                if bit_charge is not None:
+                    bit_charge.close()
+                raise
+        except BaseException:
+            profile_charge.close()
+            raise
+        return view, _InputCharge(tuple(
+            item for item in (original, isolated, bit_charge, profile_charge) if item is not None
+        ))
     except BaseException:
+        if original is not None:
+            original.close()
         isolated.close()
         context.checkpoint()
         raise

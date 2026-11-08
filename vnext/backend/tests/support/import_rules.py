@@ -110,7 +110,7 @@ NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
     ),
     "gateway_backend.capabilities.storage_projection.native": frozenset({"_canonical_project_native"}),
     "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
-        {"_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
+        {"_canonical_comparison_profile_native", "_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
     ),
 }
 

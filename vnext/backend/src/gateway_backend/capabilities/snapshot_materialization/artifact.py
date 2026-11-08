@@ -554,6 +554,7 @@ def publish_canonical_tables(
                 except BaseException:
                     reader.close()
                     raise
+                reader.mark_canonical_comparison_verified()
                 published.append(replace(table, reader=reader, batch_reader=batch,
                     artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
         context.checkpoint()

@@ -54,9 +54,22 @@ def operation_codec_budgets() -> dict[str, int]:
 
 
 class ArrowSnapshotTableReader(BoundSnapshotTableReader):
-    def __init__(self, descriptor: SnapshotTableDescriptor, source: ArrowSourceTableReader) -> None:
+    def __init__(
+        self, descriptor: SnapshotTableDescriptor, source: ArrowSourceTableReader,
+        *, canonical_comparison_verified: bool = False,
+    ) -> None:
         super().__init__(descriptor, source)
         self._arrow_source = source
+        self._canonical_comparison_verified = canonical_comparison_verified
+
+    @property
+    def canonical_comparison_verified(self) -> bool:
+        return self._canonical_comparison_verified
+
+    def mark_canonical_comparison_verified(self) -> None:
+        """Only the successful fresh canonical IPC writer calls this."""
+        self._require_open()
+        self._canonical_comparison_verified = True
 
     @property
     def execution_context(self) -> KernelExecutionContext:
@@ -73,7 +86,10 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
 
     def reopen(self) -> ArrowSnapshotTableReader:
         self._require_open()
-        return ArrowSnapshotTableReader(self._descriptor, self._arrow_source.reopen())
+        return ArrowSnapshotTableReader(
+            self._descriptor, self._arrow_source.reopen(),
+            canonical_comparison_verified=self._canonical_comparison_verified,
+        )
 
 
 class ArrowSnapshotTableBatchReader:

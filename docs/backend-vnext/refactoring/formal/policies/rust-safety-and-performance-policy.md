@@ -92,10 +92,12 @@ S2b B–E 与 Phase 6 S3 C 已批准的 Python 调用侧由下列精确 capabili
 | `table_access.native` | `_parse_sql_native` |
 | `snapshot_materialization.native` | `_sql_materialize_native`、`_catalog_filter_native` |
 | `storage_projection.native` | `_canonical_project_native` |
-| `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
+| `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native`、`_canonical_comparison_profile_native` |
 | `comparison.native` | `_begin_comparison_operation_native`、`_compare_records_native`、`_summarize_unchanged_ordered_native`、`_facts_core_digest_native`、`_validate_records_batches_native` |
 
 Comparison 的批量数据只以 owned Arrow C Stream 进入或导出；小型 policy/metadata JSON 不承载整表 rows。`comparison.native` 的 operation 入口复用现有进程池与同一 operation M，显式持有输入 backing charge、native portion、取消与截止；table/core JCS 完成后 `seal()` 收缩 native portion，已导出的 Arrow buffer 与其最后 consumer 保留输出和输入 charge。Python `comparison.artifacts` 的 Parquet 读取经该 facade 调用 `_validate_records_batches_native`，只保 raw ref/Parquet I/O 和小 manifest/closure 责任，不直接导入 `_native`。本增补不授予风险、bundle、workflow 或其他模块直接 FFI 边。
+
+`_canonical_comparison_profile_native` 只由 canonical store owner 对已经写入并验证的 fresh canonical Arrow backing 生成小型 schema 与列索引；它复用 IPC 的字段声明、metadata 和物理映射，不读写整表。比较入口借用原 Arrow buffers，必要 BIT 列转换在同一 operation M 中预约并保留到最后 consumer。已有 canonical profile 的持久 artifact 原样交比较器校验，错误或部分 metadata 不重绑。
 
 这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。
 

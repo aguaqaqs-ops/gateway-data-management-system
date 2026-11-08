@@ -24,7 +24,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure, publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, compare_plan_native,
+    ComparisonTaskSession, NativeComparison, _stream, compare_plan_native,
 )
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation import (
@@ -32,7 +32,8 @@ from gateway_backend.capabilities.risk_evaluation import (
     V1_RISK_RULE_SPECS, evaluate_risk,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArrowSnapshotTableReader, snapshot_table_from_arrow,
+    ArrowSnapshotTableReader, open_snapshot_table_artifact, publish_canonical_tables,
+    snapshot_table_from_arrow,
 )
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -65,6 +66,161 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
             ordered=item.ordered_metadata,
         ))
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
+
+
+def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts() -> None:
+    store = InMemoryArtifactStore()
+    before = _artifact_bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, bits BIT(9) NULL, note LONGTEXT NULL); "
+        "INSERT INTO t VALUES (1, b'000000001', 'before'), (2, NULL, NULL);",
+        store,
+    )
+    current = _artifact_bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, bits BIT(9) NULL, note LONGTEXT NULL); "
+        "INSERT INTO t VALUES (1, b'100000001', 'after'), (2, NULL, NULL);",
+        store,
+    )
+    assert before.table_set is not None and current.table_set is not None
+    fresh = before.table_set.tables[0]
+    assert isinstance(fresh.reader, ArrowSnapshotTableReader)
+    assert fresh.reader.canonical_comparison_verified
+    with closing(fresh.reader.reopen()) as reader:
+        with closing(reader.arrow_stream()) as stream:
+            assert not (stream.schema.metadata or {}).get(b"gdds.canonical_mapping_version")
+            assert pa.types.is_binary(stream.schema.field("bits").type)
+
+    old = compare_plan(plan(before, current))
+    assert isinstance(old, DetailedFactsResult) and old.facts is not None
+    expected = old.facts
+    fresh_product = compare_plan_native(plan(before, current))
+    try:
+        assert isinstance(fresh_product.result, DetailedFactsResult)
+        assert fresh_product.result.facts is not None
+        assert fresh_product.result.facts.facts_core_digest == expected.facts_core_digest
+        assert fresh_product.result.facts.comparison_digest == expected.comparison_digest
+        assert fresh_product.result.facts.tables[0].row_modified_count == 1
+    finally:
+        fresh_product.close()
+
+    # A fresh writer can also validate a LargeUtf8 business projection. The
+    # comparison view keeps that physical offset width and borrows its buffers.
+    with closing(fresh.reader.reopen()) as reader:
+        with closing(reader.arrow_stream()) as stream:
+            projected = stream.read_all()
+    note_index = projected.schema.get_field_index("note")
+    projected = projected.set_column(
+        note_index, pa.field("note", pa.large_string(), nullable=True),
+        projected.column(note_index).cast(pa.large_string()),
+    )
+    large_input = snapshot_table_from_arrow(
+        fresh.descriptor, projected, fresh.reader.source_descriptor(),
+        ordered=fresh.ordered_metadata,
+    )
+    large_fresh, = publish_canonical_tables(
+        (large_input,), snapshot_digest=before.snapshot.snapshot_digest,
+        store=store, repository_id="replacement-fixture",
+    )
+    assert isinstance(large_fresh.reader, ArrowSnapshotTableReader)
+    assert large_fresh.reader.canonical_comparison_verified
+    large_before = replace(before, table_set=replace(before.table_set, tables=(large_fresh,)))
+    large_product = compare_plan_native(plan(large_before, current))
+    try:
+        assert isinstance(large_product.result, DetailedFactsResult)
+        assert large_product.result.facts is not None
+        assert large_product.result.facts.facts_core_digest == expected.facts_core_digest
+    finally:
+        large_product.close()
+
+    opened = []
+    for item in (before, current):
+        assert item.table_set is not None
+        artifact = item.table_set.tables[0].artifact
+        assert artifact is not None
+        table = open_snapshot_table_artifact(
+            store, artifact.manifest_ref, repository_id="replacement-fixture",
+            canonical_required=True,
+        )
+        assert isinstance(table.reader, ArrowSnapshotTableReader)
+        assert not table.reader.canonical_comparison_verified
+        with closing(table.reader.reopen()) as reader:
+            with closing(reader.arrow_stream()) as stream:
+                assert (stream.schema.metadata or {}).get(b"gdds.canonical_mapping_version") == b"1"
+                assert pa.types.is_fixed_size_binary(stream.schema.field("bits").type)
+        opened.append(replace(item, table_set=replace(item.table_set, tables=(table,))))
+    persisted_product = compare_plan_native(plan(*opened))
+    try:
+        assert isinstance(persisted_product.result, DetailedFactsResult)
+        assert persisted_product.result.facts is not None
+        assert persisted_product.result.facts.facts_core_digest == expected.facts_core_digest
+        assert persisted_product.result.facts.comparison_digest == expected.comparison_digest
+    finally:
+        persisted_product.close()
+
+
+def test_fresh_profile_metadata_admission_releases_failed_reader() -> None:
+    store = InMemoryArtifactStore()
+    before = _artifact_bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'before');", store,
+    )
+    assert before.table_set is not None
+    table = before.table_set.tables[0]
+    assert isinstance(table.reader, ArrowSnapshotTableReader)
+    assert table.reader.canonical_comparison_verified
+    context = current_kernel_context()
+    assert context is not None
+    with context.memory.reserve(context.memory.available_bytes - 8192):
+        retained = context.memory.used_bytes
+        with pytest.raises(MemoryError):
+            _stream(table)
+        # The new reader wrapper's 512-byte metadata stays with the operation;
+        # the failed profile allocation and Arrow backing borrower do not.
+        assert context.memory.used_bytes == retained + 512
+
+
+def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> None:
+    store = InMemoryArtifactStore()
+    before = _artifact_bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'before');", store,
+    )
+    current = _artifact_bound(
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+        "INSERT INTO t VALUES (1, 'after');", store,
+    )
+    assert before.table_set is not None
+    original = before.table_set.tables[0]
+    assert isinstance(original.reader, ArrowSnapshotTableReader)
+    with closing(original.reader.reopen()) as reader:
+        with closing(reader.arrow_stream()) as stream:
+            backing = stream.read_all()
+    fields = list(backing.schema)
+    fields[0] = fields[0].with_metadata({b"gdds.canonical_type": b"{}"})
+    partial = pa.Table.from_arrays(
+        [backing.column(index) for index in range(backing.num_columns)],
+        schema=pa.schema(fields),
+    )
+    source = original.reader.source_descriptor()
+    partial_input = snapshot_table_from_arrow(
+        original.descriptor, partial, source, ordered=original.ordered_metadata,
+    )
+    published, = publish_canonical_tables(
+        (partial_input,), snapshot_digest=before.snapshot.snapshot_digest,
+        store=store, repository_id="replacement-fixture",
+    )
+    assert isinstance(published.reader, ArrowSnapshotTableReader)
+    assert published.reader.canonical_comparison_verified
+    changed = replace(before, table_set=replace(before.table_set, tables=(published,)))
+    product = compare_plan_native(plan(changed, current))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        fact = product.result.facts.tables[0]
+        assert fact.status is ComparisonTableStatus.DEGRADED
+        assert fact.diagnostics == ("ValueError",)
+        assert tuple(record.record_kind.value for record in fact.records) == ("TABLE_DEGRADED",)
+    finally:
+        product.close()
 
 
 @pytest.mark.parametrize(
@@ -912,17 +1068,25 @@ def test_duplicate_key_keeps_the_frozen_table_diagnostic() -> None:
         product.close()
 
 
+@pytest.mark.parametrize("fresh", (False, True))
 def test_reader_cancel_inside_arrow_stream_stops_before_table_degradation(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fresh: bool,
 ) -> None:
-    before = _canonical_bound(bound(
+    before_sql = (
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
-    ))
-    current = _canonical_bound(bound(
+    )
+    current_sql = (
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'after');"
-    ))
+    )
+    if fresh:
+        store = InMemoryArtifactStore()
+        before = _artifact_bound(before_sql, store)
+        current = _artifact_bound(current_sql, store)
+    else:
+        before = _canonical_bound(bound(before_sql))
+        current = _canonical_bound(bound(current_sql))
     planned = plan(before, current)
     stopped = Event()
     original = ArrowSnapshotTableReader.arrow_stream

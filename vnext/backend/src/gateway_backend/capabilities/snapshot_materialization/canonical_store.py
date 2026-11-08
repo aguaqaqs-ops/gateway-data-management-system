@@ -13,7 +13,10 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from typing import Any
 
 import pyarrow as pa
-from gateway_compute._native import _encode_canonical_ipc_native, _inspect_canonical_ipc_native
+from gateway_compute._native import (
+    _canonical_comparison_profile_native, _encode_canonical_ipc_native,
+    _inspect_canonical_ipc_native,
+)
 from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts.canonical_table_store import (
@@ -75,6 +78,26 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
             },
         })
     return result
+
+
+def canonical_comparison_profile(
+    descriptor: SnapshotTableDescriptor, input_schema: pa.Schema, *,
+    metadata_budget_bytes: int,
+) -> tuple[pa.Schema, tuple[int, ...]]:
+    """Ask the canonical mapping owner for a schema-only comparison view."""
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("canonical comparison profile requires an operation context")
+    from gateway_backend.capabilities.snapshot_materialization.arrow import operation_codec_budgets
+
+    budgets = operation_codec_budgets()
+    budgets["max_codec_peak_bytes"] = metadata_budget_bytes
+    check_canonical_descriptor_budget(descriptor, budgets)
+    schema, indices = _canonical_comparison_profile_native(
+        canonical_columns(descriptor), input_schema, context.cancel_probe,
+        budgets, context.deadline_monotonic,
+    )
+    return schema, tuple(indices)
 
 
 def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> int:

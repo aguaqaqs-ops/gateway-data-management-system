@@ -18,7 +18,7 @@
 | --- | --- | --- | --- | --- |
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
 | B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | GO，报告 `17fd6739b809`；本节三角色已正常结束 |
-| C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | B GO 后新建，正在实施/准备；未 GO |
+| C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | 静态实施/独审继续；源码传输 DC68 二次失败后执行停止，未 GO |
 | D–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
@@ -146,3 +146,13 @@ fbb 最终受影响验证在 `gw-dms-06` **23:45:00–23:49:11Z**：build-input 
 B GO 后协调直接创建全新的 C 三角色，加协调者仍四槽，不递归扩建。C 实施者负责 records builders/完整 facts 与 JCS/实际 Arrow validator 与读写边界，原审仅维护 C 审核报告，唯一测试者执行 06 的固定已审 focused 稿。C 首先细化输入 charge、B result 与导出 Arrow 的生命周期和文件归属，随后直接实施；不以临时 JSON probe 充当生产 bridge，不加 tuple fallback/部署开关。C 实际新 FFI consumer 的容器边界另按 AGENTS 判定，不能机械继承 B 延期 E 的理由。
 
 C/D 必须保住完整 facts payload、blank 私有字段和三逻辑视图；D/E 另明确迁移 non-record role `COLUMNS_ADDED` 的旧 Python `_read_rows`/Counter 热点，B handoff 已给可复用 keyless 接口与独立业务断言。最终唯一生产路径、风险/去重、W3/W4 起测、集中门禁、DC33 与退出交接仍为未完成事项。
+
+## 8. C 检查点与执行停止
+
+C 依赖快照 `573d58248f0dc90e27f1be79ac9f2802211ed738` 仅给 core manifest/lock 各加现有 workspace `arrow-data=59.1.0` 直接依赖边，同 C 原审核者在 fixed detached WT 已准入制品准备，非产品 GO。锁变化触发 CT201 clean 依赖基镜像构建与目标节点 LAN 预置；当前尚未构建/传输。core 编译反馈检查点为 `0194d145bf7c77c34225298df7b099480b61809c`，9 个 core 路径；PyO3/backend 仍在实施。
+
+00:30Z 左右源码 bundle 准备首次缺 `archives/`，一次纠正后于 **00:31:53Z** 又 empty bundle exit128，触 AGENTS DC68。06 本人标记 00:29:58Z 取得、**00:33:29Z** 释放；source0194仍 clean，候选未传到06、06被测WT未建、Rust/容器/依赖base均未运行。原失败与来源限制、release SHA及具体恢复稿固定于 **`93589767ae`** [C 执行停止单](p6-s3-c-execution-stop.md)，待同原审核收后交 Owner 决定；不执行第三次 bundle 或用替代传输绕过。
+
+只读图谱核定增量并非空（946个提交），Git本机手册明确裸提交 SHA 不满足 bundle 命名引用要求。恢复稿改固定 clean 源 WT 的字面 `HEAD` 全历史 bundle，不用裸SHA/负向基线，仍由原测试者唯一执行、原审核者核稿，后续首失败/缓存/身份规则保持。之前 B 的“允许放行”不自动豁免本次重复错误。
+
+C 静态实现/独审继续：三族 builders、完整table/core JCS、真实 Arrow validator/写入/读取、budget与最后buffer owner均未完成核收；已知 JCS 分配前预约与读侧scope/生命周期问题在同原角色集中修订。D生产接线依赖C实际GO，暂不启动；其余不依赖运行的执行稿/交接准备继续。没有将未知记为通过。

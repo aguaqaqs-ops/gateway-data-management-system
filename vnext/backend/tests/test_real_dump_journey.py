@@ -838,6 +838,30 @@ def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
     assert not monitor._reader_thread.is_alive()
 
 
+@pytest.mark.serial
+def test_worker_heartbeat_monitor_reports_incomplete_cleanup_without_masking_body_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    class StillAliveReader:
+        def join(self, timeout: float | None = None) -> None:
+            assert timeout == 5.0
+
+        def is_alive(self) -> bool:
+            return True
+
+    monitor = WorkerHeartbeatMonitor(
+        env={}, repository_id="repository-1", repository_url="http://repository-service",
+    )
+    monkeypatch.setattr(monitor, "_reader_thread", StillAliveReader())
+    with pytest.raises(JourneyFailure, match="original body failure"):
+        try:
+            raise JourneyFailure("original body failure")
+        except JourneyFailure as error:
+            monitor.__exit__(type(error), error, error.__traceback__)
+            raise
+    assert '"event": "worker_heartbeat_log_cleanup_incomplete"' in capsys.readouterr().out
+
+
 def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

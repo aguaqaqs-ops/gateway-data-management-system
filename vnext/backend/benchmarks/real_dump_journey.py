@@ -1001,8 +1001,9 @@ class WorkerHeartbeatMonitor:
                     pass
                 self._reader_thread.join(timeout=5.0)
             if self._reader_thread.is_alive():
-                original = _exc if isinstance(_exc, BaseException) else None
-                raise JourneyFailure("worker heartbeat log reader did not stop") from original
+                _emit_progress("real-data journey", "worker_heartbeat_log_cleanup_incomplete")
+                if _exc_type is None:
+                    raise JourneyFailure("worker heartbeat log reader did not stop")
 
     def check_operation(self, operation_id: str, status: object, *, stage: str) -> None:
         if self._process is not None and self._process.poll() is not None:

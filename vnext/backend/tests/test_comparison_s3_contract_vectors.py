@@ -140,7 +140,10 @@ def test_records_writer_uses_1024_rows_then_one_row_group() -> None:
         RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
     )
     raw = _write_arrow_parquet(
-        (pa.RecordBatch.from_pylist(list(rows), schema=schema),),
+        (
+            pa.RecordBatch.from_pylist(list(rows[:1024]), schema=schema),
+            pa.RecordBatch.from_pylist(list(rows[1024:]), schema=schema),
+        ),
         schema, RecordsPublicationPolicy(), RecordsPublicationContext(),
     )
     file = pq.ParquetFile(pa.BufferReader(raw))

@@ -280,6 +280,7 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
         source_digest = product.result.facts.comparison_digest
+        source_core_digest = product.result.facts.facts_core_digest
         published = publish_product(product, store, detail_policy=detail_policy)
     finally:
         product.close()
@@ -306,6 +307,15 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
     assert bool(row["current_values"]) is (
         detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
     )
+    if detail_policy is not RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES:
+        full = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
+        try:
+            assert isinstance(full.result, DetailedFactsResult)
+            assert full.result.facts is not None
+            assert full.result.facts.facts_core_digest == source_core_digest
+            assert full.result.facts.comparison_digest != source_digest
+        finally:
+            full.close()
 
 
 def test_cancellation_and_operation_stop_propagate_without_a_closure() -> None:

@@ -1435,7 +1435,7 @@ def test_s3_census_shape_is_checked_before_starting_compose(
         real_dump_journey,
         "_read_metadata",
         lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
-                                   real_dump_journey.EXPECTED_PAIRINGS["t4"]}),
+                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
     )
     monkeypatch.setattr(
         subprocess,

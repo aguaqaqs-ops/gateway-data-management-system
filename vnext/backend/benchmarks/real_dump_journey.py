@@ -3805,7 +3805,7 @@ def run_journey(
     ):
         raise JourneyFailure("S3 synthetic census requires a same-project --tier t4 journey")
     if s3_census is not None:
-        for dataset_id in EXPECTED_PAIRINGS["t4"]:
+        for dataset_id in EXPECTED_PAIRINGS["rd-t4-d"]:
             _s3_census_baseline(census[dataset_id])
             _ordered_tables(census[dataset_id])
             _ordered_table_row_counts(census[dataset_id])

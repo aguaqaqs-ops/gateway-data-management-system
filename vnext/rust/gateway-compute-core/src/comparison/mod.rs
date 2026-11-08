@@ -19,9 +19,8 @@ pub use standard::{
 
 pub use ordered::{
     BlankExtensionResult, BlankInterval, BlankProvenance, BlankRecord, BlankSummary,
-    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, OrderedBatchPair,
-    OrderedCompareError, OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult,
-    OrderedKernelResult, OrderedRecord, OrderedSummary, SchemaChanges,
-    StandardRecord, UnchangedOrderedSummary, compare_ordered_batches,
-    summarize_unchanged_ordered_batches,
+    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, OrderedBatchPair, OrderedCompareError,
+    OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult, OrderedKernelResult,
+    OrderedRecord, OrderedSummary, SchemaChanges, StandardRecord, UnchangedOrderedSummary,
+    compare_ordered_batches, summarize_unchanged_ordered_batches,
 };

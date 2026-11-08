@@ -48,7 +48,11 @@ fn batch_with_extra(
         field(
             "gid",
             if signed_gid { "BIGINT" } else { "INT UNSIGNED" },
-            if signed_gid { DataType::Int64 } else { DataType::UInt64 },
+            if signed_gid {
+                DataType::Int64
+            } else {
+                DataType::UInt64
+            },
             true,
         ),
         field("no", "INT", DataType::Int64, false),

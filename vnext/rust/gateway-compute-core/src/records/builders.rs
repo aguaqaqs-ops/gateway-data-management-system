@@ -473,7 +473,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nullable_parent_struct_and_sql_null_scalar_remain_distinct() {
+    fn nullable_parent_struct_and_sql_null_scalar_remain_distinct() -> Result<(), String> {
         let context = Arc::new(KernelContext::new(
             16 * 1024 * 1024,
             Arc::new(AtomicBool::new(false)),
@@ -500,35 +500,34 @@ mod tests {
             "FULL_BEFORE_AFTER_VALUES",
             [Ok(BoundedRow {
                 value: row,
-                _scratch: context.reserve(4096).expect("row scratch"),
+                _scratch: context.reserve(4096).map_err(|error| error.to_string())?,
             })],
             1,
             1024 * 1024,
             &context,
             None,
-        )
-        .expect("build nullable field change");
+        )?;
         let batch = built.batches[0].clone();
         let changes = batch
             .column(6)
             .as_any()
             .downcast_ref::<ListArray>()
-            .expect("changes");
+            .ok_or("changes")?;
         let values = changes.values();
         let change = values
             .as_any()
             .downcast_ref::<StructArray>()
-            .expect("change struct");
+            .ok_or("change struct")?;
         let before = change
             .column(1)
             .as_any()
             .downcast_ref::<StructArray>()
-            .expect("before");
+            .ok_or("before")?;
         let current = change
             .column(2)
             .as_any()
             .downcast_ref::<StructArray>()
-            .expect("current");
+            .ok_or("current")?;
         assert!(before.is_null(0));
         assert!(!current.is_null(0));
         assert_eq!(
@@ -536,7 +535,7 @@ mod tests {
                 .column(0)
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .expect("kind")
+                .ok_or("kind")?
                 .value(0),
             "null",
         );
@@ -544,17 +543,18 @@ mod tests {
         assert!(context.remaining_bytes() < starting);
         drop(batch);
         assert_eq!(context.remaining_bytes(), starting);
+        Ok(())
     }
 
     #[test]
-    fn variable_width_offsets_reject_before_arrow_builder_growth() {
+    fn variable_width_offsets_reject_before_arrow_builder_growth() -> Result<(), String> {
         let string = Field::new("text", DataType::Utf8, false);
         let mut string_builder = StringBuilder::new();
-        append_value_with_limit(&mut string_builder, &string, &json!("abc"), 3)
-            .expect("limit is inclusive");
+        append_value_with_limit(&mut string_builder, &string, &json!("abc"), 3)?;
         assert!(
             append_value_with_limit(&mut string_builder, &string, &json!("d"), 3)
-                .unwrap_err()
+                .err()
+                .ok_or("string offset must fail")?
                 .contains("offset budget")
         );
         assert_eq!(string_builder.values_slice(), b"abc");
@@ -566,11 +566,11 @@ mod tests {
             &binary,
             &json!({"bytes_hex": "000102"}),
             3,
-        )
-        .expect("limit is inclusive");
+        )?;
         assert!(
             append_value_with_limit(&mut binary_builder, &binary, &json!({"bytes_hex": "03"}), 3)
-                .unwrap_err()
+                .err()
+                .ok_or("binary offset must fail")?
                 .contains("offset budget")
         );
         assert_eq!(binary_builder.values_slice(), &[0, 1, 2]);
@@ -578,17 +578,17 @@ mod tests {
         let element = Arc::new(Field::new("item", DataType::Utf8, true));
         let list = Field::new("items", DataType::List(element), false);
         let mut list_builder = make_builder(list.data_type(), 1);
-        append_value_with_limit(list_builder.as_mut(), &list, &json!(["a", "b"]), 3)
-            .expect("two child slots");
+        append_value_with_limit(list_builder.as_mut(), &list, &json!(["a", "b"]), 3)?;
         assert!(
             append_value_with_limit(list_builder.as_mut(), &list, &json!(["c", "d"]), 3)
-                .unwrap_err()
+                .err()
+                .ok_or("list offset must fail")?
                 .contains("offset budget")
         );
         let child_count = list_builder
             .as_any_mut()
             .downcast_mut::<ListBuilder<Box<dyn ArrayBuilder>>>()
-            .expect("list builder")
+            .ok_or("list builder")?
             .values_ref()
             .len();
         assert_eq!(child_count, 2);
@@ -602,12 +602,13 @@ mod tests {
             &nested,
             &json!([["a", "b", "c"]]),
             3,
-        )
-        .expect("nested child reaches limit");
+        )?;
         assert!(
             append_value_with_limit(nested_builder.as_mut(), &nested, &json!([["d"]]), 3)
-                .unwrap_err()
+                .err()
+                .ok_or("nested offset must fail")?
                 .contains("offset budget")
         );
+        Ok(())
     }
 }

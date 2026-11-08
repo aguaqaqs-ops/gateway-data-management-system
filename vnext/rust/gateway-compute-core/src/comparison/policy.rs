@@ -6,6 +6,9 @@ use std::sync::Arc;
 use super::{BlankProvenance, KernelContext, OrderedCompareOptions, StandardMode, StandardOptions};
 use crate::records::json_metadata_upper;
 
+// One policy is parsed per operation. Keeping this bounded 336-byte value on
+// the stack avoids an uncharged heap allocation after the parse lease drops.
+#[allow(clippy::large_enum_variant)]
 pub enum ParsedComparisonPolicy {
     Standard(StandardOptions),
     Ordered(OrderedCompareOptions),

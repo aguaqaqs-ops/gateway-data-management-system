@@ -27,6 +27,9 @@ struct SortEntry {
 
 /// Build STANDARD from B's facts-order locators, including its degraded branch.
 /// No Python records or JSON bulk input enters this path.
+// Preserve the explicit per-call limits, operation owner, and context at this
+// native boundary; a wrapper would obscure which charge survives export.
+#[allow(clippy::too_many_arguments)]
 pub fn build_standard_records(
     table_name: &str,
     result: &StandardComputation,
@@ -67,6 +70,8 @@ pub fn build_standard_records(
     )
 }
 
+// The same explicit limits/owner contract applies to ordered STANDARD rows.
+#[allow(clippy::too_many_arguments)]
 pub fn build_standard_records_from_ordered(
     table_name: &str,
     result: &OrderedKernelResult,
@@ -107,6 +112,8 @@ pub fn build_standard_records_from_ordered(
     )
 }
 
+// Keep all native budget and owner inputs visible at this family boundary.
+#[allow(clippy::too_many_arguments)]
 pub fn build_ordered_records(
     table_name: &str,
     result: &OrderedKernelResult,
@@ -176,6 +183,8 @@ pub fn build_ordered_records(
     )
 }
 
+// Keep all native budget and owner inputs visible at this family boundary.
+#[allow(clippy::too_many_arguments)]
 pub fn build_blank_records(
     table_name: &str,
     result: &OrderedKernelResult,
@@ -220,6 +229,9 @@ pub fn build_blank_records(
     )
 }
 
+// The two row callbacks share these explicit limits and owner; grouping them
+// would only move the same state into a one-off wrapper.
+#[allow(clippy::too_many_arguments)]
 fn build_family(
     family: &str,
     count: usize,
@@ -760,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_sort_uses_full_rows_and_rejects_detail_duplicates() {
+    fn artifact_sort_uses_full_rows_and_rejects_detail_duplicates() -> Result<(), String> {
         let identity_a = "11".repeat(32);
         let identity_b = "22".repeat(32);
         let cases = [
@@ -778,13 +790,12 @@ mod tests {
             None,
             |index, detail| Ok(row(cases[index].0, cases[index].1, cases[index].2, detail)),
             |_, _| Ok(1024),
-        )
-        .expect("sorted records");
+        )?;
         let kinds = built.batches[0]
             .column(1)
             .as_any()
             .downcast_ref::<StringArray>()
-            .expect("kind column");
+            .ok_or("kind column")?;
         assert_eq!(kinds.value(0), "ROW_ADDED");
         assert_eq!(kinds.value(1), "ROW_DELETED");
 
@@ -809,7 +820,8 @@ mod tests {
             |_, _| Ok(1024),
         )
         .err()
-        .expect("duplicate must fail");
+        .ok_or("duplicate must fail")?;
         assert!(error.contains("duplicate logical rows"));
+        Ok(())
     }
 }

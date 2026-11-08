@@ -27,28 +27,28 @@
 ### 专用测试节点
 
 所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
-原 04、05、CT108 三台节点互不共享硬件。Owner 于 2026-11-06 增加 06、07；**04/06/07 共享物理宿主，06/07 不与 CT108 共享宿主**，不能将五个 CT 当作五套独立硬件。按用途分工：
+Owner 于 2026-11-08 将五节点统一为 **32 vCPU / 64 GiB**，取消前后端、门禁、真实数据和性能的固定节点用途（DC91）。以下任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，不再为池内换节点另申请用途例外：
 
-| 节点（SSH 别名） | 用途 |
+| 节点（SSH 别名） | 当前配置 |
 | --- | --- |
-| `ct108-gw-dms-04` | 门禁：权威全量 runner、容器门禁与 carried |
-| `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
-| `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
-| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose |
-| `ct109-gw-dms-07` | 前端日常开发：类型检查、lint、单元测试、构建、截图、mock e2e |
+| `ct108-gw-dms-04` | 32 vCPU / 64 GiB |
+| `ct108-gw-dms-05` | 32 vCPU / 64 GiB |
+| `ct108-gw-dms` | 32 vCPU / 64 GiB |
+| `ct107-gw-dms-06` | 32 vCPU / 64 GiB |
+| `ct109-gw-dms-07` | 32 vCPU / 64 GiB |
 
-新增节点不承接权威 runner/carried、正式性能测量或默认真实数据全旅程；前端真实 backend e2e 在 05 调试、04 取证。06/07 日常工作可自主并行，不因与 04 同宿主自动互斥或申请窗口；保留本节点占用、服务/端口及计时独占规则，实际干扰、跨节点操作或明确冲突才协调。新节点结果不作正式性能依据。
-06 初始 pytest workers/Cargo jobs 建议各为 4，产品 kernel N/M 另设；07 设置 `GATEWAY_FE_TEST_WORKERS=2`。节点规格与克隆资源纪律见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)；S2b E 的一次性用途扩展见 [历史阶段说明](docs/backend-vnext/testing-conventions.md#历史阶段说明)。
-
-Owner 于 2026-11-08 另明确授权本轮 S3 最终 fresh 完整 t1–t3 改在06，替代被FE3b有效占用的05；v1/重复Preview为MODIFIED_ONLY、v2为FULL，保持N1/32-8/M24。04权威runner/carried与CT108 t4/正式性能职责不变；按实际资源干扰协调，不因共享宿主自动互斥。此为S3本轮专项用途，不沿用S2b例外，也不扩为06常设用途。记录见 [S3协调 §24](docs/backend-vnext/refactoring/formal/plans/p6-s3-coordination.md#24-固定v集中取证与06专项用途)。
-
-需要占用的工作核空闲后原子取得标志，完成收尾后释放；无需常规预留、反复申请或通报起止。尊重他人有效占用，实际冲突或涉及他人资源时协调；前端不需整机占用的例外见 FD7。
+- 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。已有自行管理标记的入口（前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
+- 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、原 04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
+- 正式测量可选池内合格节点；同一统计组的预热和测量留在同一节点与配置，记录冷暖、CPU/内存及存储条件。换节点或硬件配置后的样本分组报告，不能混入旧组或直接宣称同条件提速。
+- pytest workers/Cargo jobs 初始建议各 4；前端设置 `GATEWAY_FE_TEST_WORKERS=2`。测试并发与产品 N/M 分开。64 GiB guest 不改变已冻结的 N1、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB；临时增预算诊断须另外固定参数与证据，不能照搬旧 64 GiB worker 配置。
+- 缓存不跨节点共享。按包 carried 和镜像等价仍须在来源 V 的同一节点、同一 worktree 判定，不能随调度搬迁证据。旧记录中的实际节点和阶段专项授权保留历史含义，未来调度以本规则为准。
+- Owner 同时授权一轮历史测试文件清理：仅删除已确认无运行者、无待用消费者、无需保留的本任务/明确废弃派生文件，逐项留路径、理由及前后空间记录。保留已引用成功/失败原始证据、当前 carried worktree/环境/镜像、真实输入、冻结基准资源及未决故障状态；不按年龄批删，不执行全局 Docker prune，不清他人有效资源。具体白名单及执行记录见 [并行推进计划](docs/backend-vnext/refactoring/formal/plans/p6-s3-s4-parallel-plan.md)。
 
 网络与缓存遵守 [测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)：
 
 - CT201 只作联网开发与获准缓存来源；测试 CT 禁止直连公网，只经获准 LAN 获取源码、依赖、镜像与制品。各节点分别预填充并确认本次缓存端点可达，不能假设缓存跨节点共享。
 - Python runner/同步设置 `UV_OFFLINE=1`；Rust runner 设置 `CARGO_NET_OFFLINE=true`。root SSH 的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME`、`CARGO_HOME`，按仓库 selector 核对四个 Rust 工具为同一工具链。
-- **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。04 runner/carried、CT108 测量及各节点真实数据不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
+- **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
 - **backend/worker（自 `p6-backend-image-exit` 起）：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。旧产品流程见链接中的历史版本说明。
 - **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
 - handoff 记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
@@ -56,10 +56,10 @@ Owner 于 2026-11-08 另明确授权本轮 S3 最终 fresh 完整 t1–t3 改在
 
 权威入口的运行前提（不满足时结果不能作为门禁证据）：
 
-- 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在指定节点 clean、已提交 worktree 运行。节点不可用或前提不满足就等待，不回退开发主机；临时换节点由 owner 决定。
+- 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在指定节点 clean、已提交 worktree 运行。节点不可用或前提不满足可改选池内合格空闲节点，不回退开发主机；carried 的来源节点/worktree 不能更换。
 - 运行期间不写 worktree、不提交、不重建或重新 tag 镜像；client e2e 由门禁正常重建的例外如上。
 - linked worktree（含 detached 审核 worktree）先建 `ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；`legacy/` 不入 Git，由 `.git/info/exclude` 忽略。
-- 各节点分别满足整机单飞；不并行其他 Dolt 进程或 Compose 栈，残留扫描整机 `/proc`，backend 共用 host 8000。不同节点按用途/宿主边界并行；真实数据与门禁可在不同节点测同一 V，同档完整旅程留在同一节点。
+- 各节点分别满足整机单飞；不并行其他 Dolt 进程或 Compose 栈，残留扫描整机 `/proc`，backend 共用 host 8000。不同节点按占用/宿主边界并行；真实数据与门禁可在不同节点测同一 V，同档完整旅程留在同一节点。
 - root SSH 使用磁盘目录 `TMPDIR=/home/dev/gdds-test-tmp`，不改 `/tmp/pytest-of-root` 属主。默认不设 `GATEWAY_TEST_BASETEMP`，显式验证该选项时除外。
 - runner、carried 与真实数据日志放 worktree 外，记录 hostname、起止时间、起止 HEAD、入口自身 exit code（经 `tee` 用 `pipefail` 或 `${PIPESTATUS[0]}`）；handoff 写明节点。
 - runner exit 非 0 时先停止处理失败，不继续 carried 或后续验收；Hypothesis 失败依据输出反例分析，不依赖跨运行缓存。
@@ -85,18 +85,13 @@ Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production
 
 - **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
   权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
-- **节点：**与后端相同，不在开发主机上运行。类型检查、lint、单元测试、构建、截图与 mock e2e 优先在 `ct109-gw-dms-07`；连真实 backend 的 e2e 在 `ct108-gw-dms-05` 调试；
-  阶段退出时在 `ct108-gw-dms-04` 的 clean、已提交 worktree 上用权威入口完整运行一次作为证据。前端不使用
-  `ct108-gw-dms`。
+- **节点：**与后端共用上述五节点池；静态检查、mock/真实 backend e2e 和阶段证据均可在合格空闲节点运行，不在开发主机运行。阶段证据仍使用 clean、已提交 worktree 与权威入口，记录实际节点。
 - **工具链镜像：**测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行（含 Node.js、浏览器与
   系统库）：在 CT201 取得，经 `docker save`/`docker load` 传到节点；跨节点身份比较 config digest 与全部
   RootFS DiffID，不比较 `docker inspect` ID。镜像版本变化时按同一流程重新取得与传输。
 - **npm 缓存：**按 DC67 在 CT201 依 `package-lock.json` 取得缓存，经获准的局域网预填充到实际使用的节点，挂载进
   工具链容器，在容器中 `npm ci --offline`。缓存缺失即停止，补齐后从头运行。
-- **节点协调：**类型检查、lint、单元测试、构建和模拟接口 e2e 不获取节点占用标记，可与后端调试并行。连真实
-  backend 的 e2e 要起 Compose 栈（共享 8000 端口），按 DC70 补充用 `mkdir /home/dev/gdds-node-busy.d` 获取整机
-  占用并写入会话名、用途与开始时间，运行与清理完成后删除。某节点占用标记的用途写明为计时测量时，前端在该节点上的
-  任何运行（含不需要占用标记的项目）都等待其释放。
+- **节点协调：**所有前端运行均遵守上述原子占用规则，取消轻量前端运行不取标记的旧例外。`run-real-backend-e2e.sh` 自行取得/释放标记；外层不得重复取得。核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
 - **日志：**与后端相同，写到 worktree 外，记录 `hostname`、起止时间、起止 HEAD、exit code 与日志 SHA256；
   handoff 另记工具链镜像 tag 与身份（config digest、全部 RootFS DiffID）、npm 缓存来源（来源提交、缓存摘要、
   预填充时间）与运行节点。
@@ -232,7 +227,7 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
 ```
 
-改动 `vnext/rust` 时还要过 rustfmt 与 clippy。它们会编译 crate，在调试节点 `ct108-gw-dms-05` 或后端开发节点 `ct107-gw-dms-06` 上按占用规则运行，
+改动 `vnext/rust` 时还要过 rustfmt 与 clippy。它们会编译 crate，在五节点池内合格空闲节点上按占用规则运行，
 `CARGO_TARGET_DIR` 放在 worktree 外：
 
 ```bash

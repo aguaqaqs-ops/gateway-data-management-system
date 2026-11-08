@@ -274,6 +274,8 @@ D的W3/W4起测可在06做明确标记的**选表组件诊断**：保完整输�
 
 ## 16. FE3c Q18 与生成时间预期：当前事实和建议交接
 
+> **后续状态（2026-11-08）：** 以下段落保留当时源码核对和建议。Owner现已授权Q18独立优先交付/随S3补测；产品候选`a1ca3bad93`已向归档候选响应提供权威`review_version`，尚无节点验证，不称FE3c前置解除。最新实现/独审/证据分别见[Q18 handoff](p6-be-q18-handoff.md)、[Q18 review](p6-be-q18-review.md)。S4设计实施由Owner放到新对话，参见[顺序例外与交接计划](p6-s3-s4-parallel-plan.md)。未来选点以DC91统一节点池为准，以下05/06安排仅保留历史含义。
+
 Owner 于2026-11-08转来前端两项问题，要求核是否修复、建议环节和回复。本节是源码核对与具体修复建议，不是归档API变更实施授权，不改变S3已授权的三项最小整合范围。核对代码起点 `af7f145ef931d1aa35e1ba6461ae331010774e9d`，相关归档/审核接口尚无后续产品变更。
 
 **Q18仍未修复，是实际接口可用性缺口。** `CloseSubmissionRequest.expected_review_version`必填，manual_close将其与review projection的optimistic_version做CAS；review GET先经过 `assert_review_permission`，只有archive_submission不满足审核读取权限。`ArchiveCandidateResponse`只有submission_id/expected_candidate_digest，预检和History也未提供关闭用review_version。现测试的 `_archive_permissions()`含review_submission，关闭body写死1，不能证明archive-only调用者可以独立取得CAS值并完成关闭。不得要求前端猜1、放松CAS或给归档身份额外审核权限来绕过。

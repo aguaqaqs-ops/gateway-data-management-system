@@ -216,7 +216,10 @@ def _approve_submission(
 def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: str) -> dict[str, Any]:
     for candidate in candidates_body["candidates"]:
         if candidate["submission_id"] == submission_id:
-            return cast(dict[str, Any], candidate)
+            return {
+                "submission_id": candidate["submission_id"],
+                "expected_candidate_digest": candidate["expected_candidate_digest"],
+            }
     raise AssertionError(f"candidate not found for submission {submission_id}")
 
 

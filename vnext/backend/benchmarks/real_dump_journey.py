@@ -2033,7 +2033,7 @@ def _archive(
     raw_candidates = candidates.get("candidates")
     if not isinstance(raw_candidates, list):
         raise JourneyFailure("archive candidates response is invalid")
-    selected = next(
+    candidate = next(
         (
             cast(dict[str, Any], item)
             for item in raw_candidates
@@ -2041,8 +2041,20 @@ def _archive(
         ),
         None,
     )
-    if selected is None:
+    if candidate is None:
         raise JourneyFailure("submission was not an archive candidate")
+    candidate_id = candidate.get("submission_id")
+    candidate_digest = candidate.get("expected_candidate_digest")
+    if (type(candidate_id) is not str or type(candidate_digest) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", candidate_digest) is None):
+        raise JourneyFailure("archive candidate reference is invalid")
+    try:
+        candidate_id_bytes = candidate_id.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise JourneyFailure("archive candidate reference is invalid") from exc
+    if not 1 <= len(candidate_id_bytes) <= 255:
+        raise JourneyFailure("archive candidate reference is invalid")
+    selected = {"submission_id": candidate_id, "expected_candidate_digest": candidate_digest}
     preview = _require(
         client.post(
             "/v1/archive-plan-preview",

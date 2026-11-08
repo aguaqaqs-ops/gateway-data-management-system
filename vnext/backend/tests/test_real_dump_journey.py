@@ -1971,6 +1971,7 @@ def test_debug_step_order_covers_every_business_action() -> None:
 def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, with_reason: bool) -> None:
     calls: list[dict[str, Any]] = []
     selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
+    candidate = {**selected, "review_version": 1}
     anomaly = {"subject_kind": "CONFIGURATION_TIME_QUALITY", "issue_code": "GENERATION_TIME_MISSING",
         "subject_digest": "sha256:" + "2" * 64, "target_submission_id": "sub", "target_candidate_digest": selected["expected_candidate_digest"],
         "latest_sequence": 4, "resolution_status": "REVOKED"}
@@ -1978,14 +1979,16 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
     def respond(request: httpx.Request) -> httpx.Response:
         nonlocal previews
         if request.url.path == "/v1/archive-candidates":
-            return httpx.Response(200, json={"candidates": [selected]})
+            return httpx.Response(200, json={"candidates": [candidate]})
+        body = json.loads(request.content)
+        assert set(body["selected"]) == {"submission_id", "expected_candidate_digest"}
+        assert body["selected"] == selected
         if request.url.path == "/v1/archive-plan-preview":
             previews += 1
             return httpx.Response(200, json={"can_start": previews > 1, "audit_validity": previews > 1,
                 "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
                 "candidate_set_digest": "sha256:" + "3" * 64, "selection_subject_digest": "sha256:" + "4" * 64,
                 "anomalies": [anomaly]})
-        body = json.loads(request.content)
         calls.append(body)
         if request.url.path == "/v1/archive-anomaly-resolutions":
             assert body["expected_sequence"] == 4 and body["action"] == "ACKNOWLEDGE_TIME_QUALITY"

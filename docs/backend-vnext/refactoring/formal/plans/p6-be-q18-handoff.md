@@ -29,3 +29,18 @@ tests/test_http_openapi.py::test_openapi_archive_candidate_exposes_required_revi
 ```
 
 本轮改了实际 Compose e2e，按容器边界规则需在 root 指定的节点对固定 HEAD 重建并验证容器门禁；目标旅程为 `tests/test_archive_compose_e2e.py::test_compose_business_rejection_manual_close_and_fresh_upload_archive`。执行者按最新有效的 AGENTS 与 testing-conventions 处理节点空闲标志、离线缓存、预置 backend dependency-base、构建网络、日志/镜像身份和收尾。若合入阶段或最终门禁需要更大范围，按对应阶段规则另行决定。本候选未运行上述验证，尚无通过结论。
+
+## 后续实际消费者补齐
+
+候选响应增加只读 `review_version` 后，严格的 `ArchiveSelectedRefRequest` 仍只接收两个字段。审查发现真实数据旅程及三个既有 Compose helper 原样转发候选响应，会收到请求校验 422。后续候选把四处 `selected` 都显式投影为 `submission_id`、`expected_candidate_digest`；真实数据旅程另核目标 ID 与 digest 的必要形状。`tests/test_real_dump_journey.py::test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject` 的两种参数场景用含 `review_version` 的候选模拟响应，并断言每次预检、确认、逐项接受与开始归档请求的 `selected` 恰含两个字段。原 business reason 与 subject 引用断言保留。
+
+增量 focused 复验只需 backend Ruff/mypy 与上述真实数据 consumer 测试，原候选已合格的四个其他包静态及 181 个 archive focused 不因这次 consumer 修复重复。最终当前 HEAD 的容器证明需在一次后端门禁中涵盖以下受影响旅程，避免为每个 helper 重复起全量 runner：
+
+```text
+tests/test_archive_compose_e2e.py::test_compose_business_rejection_manual_close_and_fresh_upload_archive
+tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey
+tests/test_submit_compose_e2e.py::test_compose_submit_removes_deleted_user_and_sibling_tables
+tests/test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart
+```
+
+四个 nodeid 都是 serial Compose，须 `-m 'serial and not parallel_safe' -n 0`；镜像在最终 HEAD 构建、来源与实际运行节点/提交记录齐全后才可声称通过。

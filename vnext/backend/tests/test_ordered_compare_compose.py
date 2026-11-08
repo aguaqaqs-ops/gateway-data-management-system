@@ -158,11 +158,13 @@ def _approve_submission(client: httpx.Client, submission_id: str, *, idempotency
 def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, Any]:
     candidates = client.get("/v1/archive-candidates")
     assert candidates.status_code == 200, candidates.text
-    selected = next(
+    candidate = next(
         item
         for item in candidates.json()["candidates"]
         if item["submission_id"] == submission_id
     )
+    selected = {"submission_id": candidate["submission_id"],
+        "expected_candidate_digest": candidate["expected_candidate_digest"]}
     preview = client.post("/v1/archive-plan-preview", json={"selected": selected})
     assert preview.status_code == 200, preview.text
     preview_body = cast(dict[str, Any], preview.json())

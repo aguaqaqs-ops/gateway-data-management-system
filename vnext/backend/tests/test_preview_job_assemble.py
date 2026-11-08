@@ -528,7 +528,7 @@ def test_full_different_project_declares_replacement_for_matching_pair(
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     declared_modes: list[tuple[ComparisonMode, ...]] = []
-    original = preview_jobs.declare_pair_comparison_session
+    original = pair_pipeline.declare_pair_comparison_session
     native_modes_and_calls: list[tuple[ComparisonMode, int]] = []
     original_native = pair_pipeline.compare_plan_native
 

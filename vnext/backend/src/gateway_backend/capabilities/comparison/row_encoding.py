@@ -1,4 +1,4 @@
-"""Shared row encoding helpers for standard and ordered comparison."""
+"""Comparison schema metadata and no-handle digest payloads."""
 
 from __future__ import annotations
 
@@ -6,29 +6,9 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterable
 
 from gateway_shared_kernel import (
-    BinaryScalar,
-    BitScalar,
-    BooleanScalar,
-    CanonicalEncodingError,
-    CollectionSemantics,
-    DateScalar,
-    DateTimeScalar,
-    DeclaredType,
-    DeclaredTypeKind,
     DigestKind,
     DigestRef,
-    Float32Scalar,
-    Float64Scalar,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    TimeDurationScalar,
-    TimestampScalar,
-    TypedScalar,
-    UnsignedIntegerScalar,
     canonicalize_identifier,
-    encode_collection,
-    encode_typed_scalar,
     raw_blob_digest,
     semantic_digest,
 )
@@ -48,44 +28,11 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableStatus,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
-from gateway_backend.capabilities.snapshot_materialization import (
-    SqlDeclaredTypeMappingError,
-    declared_type_for_sql_spelling,
-)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotColumnDescriptor,
-    SnapshotTable,
     SnapshotTableDescriptor,
     enum_set_labels_for_sql_spelling,
 )
-
-_TYPED_SCALAR_TYPES = (
-    NullScalar,
-    BooleanScalar,
-    SignedIntegerScalar,
-    UnsignedIntegerScalar,
-    StringScalar,
-    BinaryScalar,
-    BitScalar,
-    DateScalar,
-    DateTimeScalar,
-    TimestampScalar,
-    TimeDurationScalar,
-    Float32Scalar,
-    Float64Scalar,
-)
-
-@dataclass(frozen=True, slots=True)
-class _EncodedRow:
-    values: tuple[tuple[str, object], ...]
-    frames: tuple[tuple[str, bytes], ...]
-
-    def frame_map(self) -> dict[str, bytes]:
-        return dict(self.frames)
-
-    def value_map(self) -> dict[str, object]:
-        return dict(self.values)
-
 
 @dataclass(frozen=True, slots=True)
 class _SchemaView:
@@ -214,71 +161,10 @@ def _schema_only_fact(
     )
 
 
-def _read_rows(
-    table: SnapshotTable | None,
-    descriptor: SnapshotTableDescriptor,
-    selected: tuple[str, ...],
-) -> tuple[_EncodedRow, ...]:
-    if table is None or table.reader is None:
-        raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
-    columns = tuple(descriptor.columns)
-    selected_set = set(selected)
-    rows: list[_EncodedRow] = []
-    reader = table.reader.reopen()
-    try:
-        for raw_row in reader.iter_rows():
-            if type(raw_row) is not tuple or len(raw_row) != len(columns):
-                raise StandardComparisonError("ROW_SHAPE_MISMATCH")
-            values: list[tuple[str, object]] = []
-            frames: list[tuple[str, bytes]] = []
-            for column, cell in zip(columns, raw_row, strict=True):
-                name = canonicalize_identifier(column.name)
-                if name not in selected_set:
-                    continue
-                values.append((name, cell))
-                frames.append((name, _encode_cell(column, cell)))
-            rows.append(
-                _EncodedRow(
-                    values=tuple(sorted(values)),
-                    frames=tuple(sorted(frames)),
-                )
-            )
-    finally:
-        reader.close()
-    return tuple(rows)
 
 
-def _key_index(
-    rows: tuple[_EncodedRow, ...],
-    key_columns: tuple[str, ...],
-    table_name: str,
-) -> dict[bytes, _EncodedRow]:
-    result: dict[bytes, _EncodedRow] = {}
-    for row in rows:
-        key = _row_frame(row.frame_map(), key_columns)
-        if key in result:
-            raise StandardComparisonError(f"DUPLICATE_EFFECTIVE_KEY:{table_name}")
-        result[key] = row
-    return result
 
 
-def _row_record(
-    table_name: str,
-    kind: ComparisonRecordKind,
-    row: _EncodedRow,
-    selected: tuple[str, ...],
-    *,
-    current: bool,
-    identity_columns: tuple[str, ...] | None = None,
-) -> ComparisonRecord:
-    values = tuple((name, row.value_map()[name]) for name in selected if name in row.value_map())
-    return ComparisonRecord(
-        table_name=table_name,
-        record_kind=kind,
-        row_identity=_row_digest(row, identity_columns or selected),
-        before_values=values if not current else (),
-        current_values=values if current else (),
-    )
 
 
 def _schema_record(
@@ -294,16 +180,8 @@ def _schema_record(
     )
 
 
-def _record_sort_key(record: ComparisonRecord) -> tuple[str, str, tuple[str, ...]]:
-    return (
-        record.record_kind.value,
-        "" if record.row_identity is None else record.row_identity.value,
-        record.changed_columns,
-    )
 
 
-def _row_digest(row: _EncodedRow, columns: tuple[str, ...]) -> DigestRef:
-    return semantic_digest(DigestKind.ROW, _row_frame(row.frame_map(), columns)).digest_ref
 
 
 def _row_occurrence_digest(row_digest: DigestRef, occurrence: int) -> DigestRef:
@@ -321,80 +199,12 @@ def _row_occurrence_digest(row_digest: DigestRef, occurrence: int) -> DigestRef:
     return semantic_digest(DigestKind.ROW, payload).digest_ref
 
 
-def _row_frame(frames: dict[str, bytes], columns: tuple[str, ...]) -> bytes:
-    encoded = bytearray(encode_uleb128(len(columns)))
-    for name in sorted(columns, key=lambda item: item.encode("utf-8")):
-        name_bytes = name.encode("utf-8")
-        frame = frames[name]
-        encoded.extend(encode_uleb128(len(name_bytes)))
-        encoded.extend(name_bytes)
-        encoded.extend(frame)
-    return bytes(encoded)
 
 
-def _encode_cell(column: SnapshotColumnDescriptor, cell: object) -> bytes:
-    if type(cell).__name__ == "SqlSetValue":
-        members = getattr(cell, "members", None)
-        if type(members) is not tuple or any(type(item) is not str for item in members):
-            raise StandardComparisonError("SET_VALUE_INVALID")
-        string_type = DeclaredType(kind=DeclaredTypeKind.STRING)
-        return encode_collection(
-            CollectionSemantics.SEQUENCE,
-            items=tuple(
-                encode_typed_scalar(string_type, StringScalar(item)).scalar_frame
-                for item in members
-            ),
-        ).collection_frame
-    if not isinstance(cell, _TYPED_SCALAR_TYPES):
-        raise StandardComparisonError("SCALAR_VALUE_INVALID")
-    if isinstance(cell, NullScalar):
-        return encode_typed_scalar(
-            DeclaredType(kind=DeclaredTypeKind.NULL), cell
-        ).scalar_frame
-    declared = _declared_type(column.scalar_type, cell)
-    try:
-        return encode_typed_scalar(declared, cell).scalar_frame
-    except (CanonicalEncodingError, TypeError, ValueError) as exc:
-        raise StandardComparisonError("SCALAR_TYPE_MISMATCH") from exc
 
 
-def _declared_type(spelling: str | None, cell: TypedScalar) -> DeclaredType:
-    if spelling is None or spelling == "":
-        return _infer_declared_type(cell)
-    try:
-        return declared_type_for_sql_spelling(spelling)
-    except SqlDeclaredTypeMappingError:
-        raise StandardComparisonError("SCALAR_TYPE_UNKNOWN") from None
 
 
-def _infer_declared_type(cell: TypedScalar) -> DeclaredType:
-    if isinstance(cell, NullScalar):
-        return DeclaredType(kind=DeclaredTypeKind.NULL)
-    if isinstance(cell, BooleanScalar):
-        return DeclaredType(kind=DeclaredTypeKind.BOOLEAN)
-    if isinstance(cell, SignedIntegerScalar):
-        return DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=64)
-    if isinstance(cell, UnsignedIntegerScalar):
-        return DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=64)
-    if isinstance(cell, Float32Scalar):
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT32)
-    if isinstance(cell, Float64Scalar):
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT64)
-    if isinstance(cell, StringScalar):
-        return DeclaredType(kind=DeclaredTypeKind.STRING)
-    if isinstance(cell, BinaryScalar):
-        return DeclaredType(kind=DeclaredTypeKind.BINARY)
-    if isinstance(cell, BitScalar):
-        return DeclaredType(kind=DeclaredTypeKind.BIT, bit_width=max(1, len(cell.raw_bytes) * 8))
-    if isinstance(cell, DateScalar):
-        return DeclaredType(kind=DeclaredTypeKind.DATE)
-    if isinstance(cell, DateTimeScalar):
-        return DeclaredType(kind=DeclaredTypeKind.DATETIME)
-    if isinstance(cell, TimestampScalar):
-        return DeclaredType(kind=DeclaredTypeKind.TIMESTAMP)
-    if isinstance(cell, TimeDurationScalar):
-        return DeclaredType(kind=DeclaredTypeKind.TIME_DURATION)
-    raise StandardComparisonError("SCALAR_TYPE_UNKNOWN")
 
 
 def _column_map(descriptor: SnapshotTableDescriptor) -> dict[str, SnapshotColumnDescriptor]:
@@ -603,12 +413,6 @@ def _with_table_digest(fact: ComparisonTableFact) -> ComparisonTableFact:
 
 
 def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
-    before_columns = (
-        _column_map(fact.before_descriptor) if fact.before_descriptor is not None else {}
-    )
-    current_columns = (
-        _column_map(fact.current_descriptor) if fact.current_descriptor is not None else {}
-    )
     return {
         "table_name": fact.table_name,
         "status": fact.status.value,
@@ -636,53 +440,26 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
         "suppressed_added_count": fact.suppressed_added_count,
         "suppressed_deleted_count": fact.suppressed_deleted_count,
         "records": [
-            _record_digest_payload(record, before_columns, current_columns)
+            _record_digest_payload(record)
             for record in fact.records
         ],
-        "ordered_extension": _ordered_extension_digest_payload(
-            fact.ordered_extension, before_columns, current_columns
-        ),
+        "ordered_extension": _ordered_extension_digest_payload(fact.ordered_extension),
         "blank_extension": _blank_extension_digest_payload(fact.blank_extension),
     }
 
 
 def _record_digest_payload(
     record: ComparisonRecord,
-    before_columns: dict[str, SnapshotColumnDescriptor],
-    current_columns: dict[str, SnapshotColumnDescriptor],
 ) -> dict[str, object]:
+    if record.before_values or record.current_values or record.field_changes:
+        raise StandardComparisonError("row values require a native records handle")
     return {
         "kind": record.record_kind.value,
         "row_identity": None if record.row_identity is None else record.row_identity.value,
         "changed_columns": list(record.changed_columns),
-        "before_values": [
-            [
-                name,
-                _value_digest_payload(value, before_columns.get(name)),
-            ]
-            for name, value in record.before_values
-        ],
-        "current_values": [
-            [
-                name,
-                _value_digest_payload(value, current_columns.get(name)),
-            ]
-            for name, value in record.current_values
-        ],
-        "field_changes": [
-            {
-                "column": item.column_name,
-                "before": _value_digest_payload(
-                    item.before_value,
-                    before_columns.get(item.column_name),
-                ),
-                "current": _value_digest_payload(
-                    item.current_value,
-                    current_columns.get(item.column_name),
-                ),
-            }
-            for item in record.field_changes
-        ],
+        "before_values": [],
+        "current_values": [],
+        "field_changes": [],
     }
 
 
@@ -707,11 +484,11 @@ def _ordered_policy_payload(policy: Any) -> dict[str, object] | None:
 
 def _ordered_extension_digest_payload(
     extension: Any,
-    before_columns: dict[str, SnapshotColumnDescriptor],
-    current_columns: dict[str, SnapshotColumnDescriptor],
 ) -> dict[str, object] | None:
     if extension is None:
         return None
+    if any(record.before_values or record.current_values for record in extension.records):
+        raise StandardComparisonError("row values require a native records handle")
     return {
         "contract_version": extension.contract_version,
         "status": extension.status.value,
@@ -743,14 +520,8 @@ def _ordered_extension_digest_payload(
                 "before_position": record.before_position,
                 "current_position": record.current_position,
                 "changed_columns": list(record.changed_columns),
-                "before_values": [
-                    [name, _value_digest_payload(value, before_columns.get(name))]
-                    for name, value in record.before_values
-                ],
-                "current_values": [
-                    [name, _value_digest_payload(value, current_columns.get(name))]
-                    for name, value in record.current_values
-                ],
+                "before_values": [],
+                "current_values": [],
             }
             for record in extension.records
         ],
@@ -805,25 +576,6 @@ def _blank_extension_digest_payload(extension: Any) -> dict[str, object] | None:
     }
 
 
-def _value_digest_payload(
-    value: object,
-    column: SnapshotColumnDescriptor | None,
-) -> str:
-    if isinstance(value, _TYPED_SCALAR_TYPES):
-        if column is None:
-            return encode_typed_scalar(_infer_declared_type(value), value).scalar_frame.hex()
-        return _encode_cell(column, value).hex()
-    if type(value).__name__ == "SqlSetValue":
-        members = getattr(value, "members", ())
-        string_type = DeclaredType(kind=DeclaredTypeKind.STRING)
-        return encode_collection(
-            CollectionSemantics.SEQUENCE,
-            items=tuple(
-                encode_typed_scalar(string_type, StringScalar(item)).scalar_frame
-                for item in members
-            ),
-        ).collection_frame.hex()
-    raise StandardComparisonError("SCALAR_VALUE_INVALID")
 
 
 def _summary_payload(summary: ComparisonSummary) -> dict[str, object]:
@@ -842,7 +594,3 @@ def _summary_payload(summary: ComparisonSummary) -> dict[str, object]:
         "suppressed_added_count": summary.suppressed_added_count,
         "suppressed_deleted_count": summary.suppressed_deleted_count,
     }
-
-
-def _digest_from_key(key: bytes) -> DigestRef:
-    return semantic_digest(DigestKind.ROW, key).digest_ref

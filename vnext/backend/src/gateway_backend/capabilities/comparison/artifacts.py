@@ -1,8 +1,7 @@
-"""S5 comparison records artifacts, closure validation and publication.
+"""Comparison records artifacts, closure validation and publication.
 
-The comparison kernels keep semantic records in immutable Python contracts.  This module owns the
-separate, operation-local Parquet/manifest closure.  Artifact refs and closure metadata are never
-part of the comparison or facts-core digests.
+Native handles own row records; metadata-only facts use a bounded small writer.
+Artifact refs and closure metadata remain outside semantic digests.
 """
 
 from __future__ import annotations
@@ -18,22 +17,7 @@ from typing import Protocol, cast
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from gateway_shared_kernel import (
-    AnomalyScalar,
-    BinaryScalar,
-    BitScalar,
-    BooleanScalar,
-    DateScalar,
-    DateTimeScalar,
-    DecimalScalar,
     DigestRef,
-    Float32Scalar,
-    Float64Scalar,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    TimeDurationScalar,
-    TimestampScalar,
-    UnsignedIntegerScalar,
     raw_blob_digest,
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -53,19 +37,15 @@ from gateway_backend.capabilities.comparison.contracts import (
     RECORDS_CLOSURE_CONTRACT_VERSION,
     STANDARD_RECORDS_SCHEMA_VERSION,
     BlankRecord,
-    ComparisonFacts,
     ComparisonRecord,
     ComparisonRecordsClosure,
     ComparisonTableFact,
     DetailedFactsResult,
-    FailedResult,
     OrderedRecord,
-    PairResultStatus,
     RecordsArtifactFamily,
     RecordsArtifactManifest,
     RecordsClosureEntry,
     RecordsDetailPolicy,
-    CancelledResult,
 )
 from gateway_backend.capabilities.comparison.native import validate_records_batches
 
@@ -135,112 +115,6 @@ class NativeRecordsHandle(Protocol):
     def family_summary(self, family: str) -> tuple[int, str]: ...
 
     def record_batches(self, family: str) -> pa.RecordBatchReader: ...
-
-
-def publish_records_closure(
-    result: DetailedFactsResult,
-    store: ArtifactStorePort,
-    *,
-    policy: RecordsPublicationPolicy | None = None,
-    context: RecordsPublicationContext | None = None,
-    detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
-) -> DetailedFactsResult | CancelledResult | FailedResult:
-    """Publish a complete detailed result behind a fail-closed closure gate."""
-
-    if type(result) is not DetailedFactsResult:
-        raise TypeError("result must be DetailedFactsResult")
-    if not _is_artifact_store(store):
-        raise TypeError("store must implement ArtifactStorePort")
-    limits = policy or RecordsPublicationPolicy()
-    control = context or RecordsPublicationContext()
-    facts = result.facts
-    if not isinstance(facts, ComparisonFacts):
-        raise TypeError("detailed result must contain ComparisonFacts")
-    if facts.records_ref is not None:
-        raise ValueError("facts already has a records_ref")
-    if type(detail_policy) is not RecordsDetailPolicy:
-        raise TypeError("detail_policy must be RecordsDetailPolicy")
-
-    try:
-        entries: list[RecordsClosureEntry] = []
-        for table in facts.tables:
-            control.checkpoint()
-            family_records = _records_by_family(table)
-            total_records = sum(len(records) for _, records in family_records)
-            _enforce_record_count_budget(total_records, limits)
-            for family, records in family_records:
-                if not records:
-                    continue
-                entries.append(
-                    _publish_family(
-                        table,
-                        family,
-                        records,
-                        store,
-                        limits,
-                        control,
-                        detail_policy,
-                    )
-                )
-
-        control.checkpoint()
-        closure_payload = _closure_payload(
-            comparison_digest=facts.comparison_digest,
-            facts_core_digest=facts.facts_core_digest,
-            records=tuple(sorted(entries, key=_entry_sort_key)),
-        )
-        closure_bytes = canonicalize_json_value(closure_payload)
-        if len(closure_bytes) > limits.max_closure_json_bytes:
-            raise RecordsPublicationError("closure JSON budget exceeded")
-        closure_ref = put_with_built_ref(
-            store,
-            closure_bytes,
-            artifact_id=_artifact_id(control, "closure", raw_blob_digest(closure_bytes)),
-            media_type=MANIFEST_MEDIA_TYPE,
-        )
-        _verify_stored_bytes(store, closure_ref, closure_bytes)
-        verified_closure_bytes = _locate(store, closure_ref)
-        verified_closure_payload = _load_json_object(verified_closure_bytes, "closure")
-        if _entries_from_payload(verified_closure_payload) != tuple(
-            sorted(entries, key=_entry_sort_key)
-        ):
-            raise RecordsPublicationError("stored closure entries changed during publication")
-        if (
-            _digest_from_payload(verified_closure_payload, "comparison_digest")
-            != facts.comparison_digest
-            or _digest_from_payload(verified_closure_payload, "facts_core_digest")
-            != facts.facts_core_digest
-        ):
-            raise RecordsPublicationError("stored closure digests changed during publication")
-        closure_digest = raw_blob_digest(closure_bytes)
-        closure = ComparisonRecordsClosure(
-            comparison_digest=facts.comparison_digest,
-            facts_core_digest=facts.facts_core_digest,
-            records=tuple(sorted(entries, key=_entry_sort_key)),
-            closure_manifest_digest=closure_digest,
-        )
-        final_facts = replace(facts, records_ref=closure_ref)
-        return DetailedFactsResult(
-            pair_id=result.pair_id,
-            status=result.status,
-            facts=final_facts,
-            records_closure=closure,
-            diagnostics=result.diagnostics,
-        )
-    except RecordsCancelled as exc:
-        return CancelledResult(
-            pair_id=result.pair_id,
-            status=_cancelled_status(),
-            diagnostics=(str(exc) or "RECORDS_PUBLICATION_CANCELLED",),
-        )
-    except (InterruptedError, TimeoutError, MemoryError):
-        raise
-    except Exception as exc:
-        return FailedResult(
-            pair_id=result.pair_id,
-            status=_failed_status(),
-            diagnostics=(str(exc) or type(exc).__name__,),
-        )
 
 
 def open_records_closure(
@@ -558,9 +432,10 @@ def _publish_family(
     context: RecordsPublicationContext,
     detail_policy: RecordsDetailPolicy,
 ) -> RecordsClosureEntry:
+    """Publish only the bounded metadata records of a table without a native handle."""
     schema_version = _schema_version(family)
     rows = tuple(
-        _record_to_row(family, record, detail_policy)
+        _metadata_record_to_row(family, record, detail_policy)
         for record in sorted(records, key=lambda item: _record_sort_key(family, item))
     )
     row_keys = tuple(
@@ -570,13 +445,12 @@ def _publish_family(
     if len(set(row_keys)) != len(row_keys):
         raise RecordsPublicationError("records family contains duplicate logical rows")
     content_digest = _content_digest(family, schema_version, detail_policy, rows)
-    parquet_bytes = _write_parquet(
-        family,
-        rows,
-        limits,
-        context,
-        detail_policy,
+    schema = _schema_for(family, schema_version, detail_policy)
+    batches = tuple(
+        pa.RecordBatch.from_pylist(list(rows[offset : offset + 1024]), schema=schema)
+        for offset in range(0, len(rows), 1024)
     )
+    parquet_bytes = _write_arrow_parquet(batches, schema, limits, context)
     records_ref = put_with_built_ref(
         store,
         parquet_bytes,
@@ -865,60 +739,6 @@ def _write_arrow_parquet(
         if control.timings is not None:
             control.timings["parquet_write_seconds"] = (
                 control.timings.get("parquet_write_seconds", 0.0)
-                + perf_counter() - started
-            )
-
-
-def _write_parquet(
-    family: RecordsArtifactFamily,
-    rows: tuple[dict[str, object], ...],
-    limits: RecordsPublicationPolicy,
-    context: RecordsPublicationContext,
-    detail_policy: RecordsDetailPolicy,
-) -> bytes:
-    started = perf_counter()
-    context.checkpoint()
-    schema_version = _schema_version(family)
-    schema = _schema_for(family, schema_version, detail_policy)
-    spool = SpooledTemporaryFile(max_size=limits.max_spool_bytes, mode="w+b")
-    writer: pq.ParquetWriter | None = None
-    try:
-        writer = pq.ParquetWriter(spool, schema, compression="zstd", use_dictionary=False)
-        for offset in range(0, len(rows), 1024):
-            context.checkpoint()
-            batch_rows = rows[offset : offset + 1024]
-            table = pa.Table.from_pylist(list(batch_rows), schema=schema)
-            writer.write_table(table, row_group_size=len(batch_rows))
-            spool.seek(0, 2)
-            if spool.tell() > limits.max_records_artifact_bytes:
-                raise RecordsPublicationError("records artifact budget exceeded")
-            if spool.tell() > limits.max_spool_bytes:
-                raise RecordsPublicationError("records spool budget exceeded")
-        writer.close()
-        writer = None
-        spool.seek(0, 2)
-        size = spool.tell()
-        if size > limits.max_records_artifact_bytes or size > limits.max_spool_bytes:
-            raise RecordsPublicationError("records artifact or spool budget exceeded")
-        spool.seek(0)
-        result = spool.read()
-        if type(result) is not bytes or len(result) != size:
-            raise RecordsPublicationError("records artifact spool read failed")
-        context.checkpoint()
-        return result
-    except (InterruptedError, TimeoutError, MemoryError):
-        raise
-    except (pa.ArrowException, OSError, ValueError) as exc:
-        if isinstance(exc, RecordsPublicationError):
-            raise
-        raise RecordsPublicationError("records Parquet write failed") from exc
-    finally:
-        if writer is not None:
-            writer.close()
-        spool.close()
-        if context.timings is not None:
-            context.timings["parquet_write_seconds"] = (
-                context.timings.get("parquet_write_seconds", 0.0)
                 + perf_counter() - started
             )
 
@@ -1262,7 +1082,7 @@ def _metadata_record_upper(record: object) -> int:
     return 8192 + 64 * variable
 
 
-def _record_to_row(
+def _metadata_record_to_row(
     family: RecordsArtifactFamily,
     record: object,
     detail_policy: RecordsDetailPolicy,
@@ -1270,33 +1090,24 @@ def _record_to_row(
     if family is RecordsArtifactFamily.STANDARD:
         if not isinstance(record, ComparisonRecord):
             raise RecordsPublicationError("standard family contains a non-standard record")
-        full = detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+        if record.before_values or record.current_values or record.field_changes:
+            raise RecordsPublicationError("row values require a native records handle")
         columns = list(record.changed_columns) if detail_policy is not RecordsDetailPolicy.COUNTS_ONLY else []
         return {
             "table_name": record.table_name,
             "record_kind": record.record_kind.value,
             "row_identity": _digest_bytes(record.row_identity),
             "changed_columns": columns,
-            "before_values": _values(record.before_values if full else ()),
-            "current_values": _values(record.current_values if full else ()),
-            "field_changes": (
-                [
-                    {
-                        "column_name": item.column_name,
-                        "before_value": _scalar(item.before_value),
-                        "current_value": _scalar(item.current_value),
-                    }
-                    for item in record.field_changes
-                ]
-                if full
-                else []
-            ),
+            "before_values": [],
+            "current_values": [],
+            "field_changes": [],
             "diagnostics": list(record.diagnostics),
         }
     if family is RecordsArtifactFamily.ORDERED:
         if not isinstance(record, OrderedRecord):
             raise RecordsPublicationError("ordered family contains a non-ordered record")
-        full = detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+        if record.before_values or record.current_values:
+            raise RecordsPublicationError("row values require a native records handle")
         return {
             "table_name": record.table_name,
             "record_kind": record.record_kind.value,
@@ -1308,8 +1119,8 @@ def _record_to_row(
             "changed_columns": list(record.changed_columns)
             if detail_policy is not RecordsDetailPolicy.COUNTS_ONLY
             else [],
-            "before_values": _values(record.before_values if full else ()),
-            "current_values": _values(record.current_values if full else ()),
+            "before_values": [],
+            "current_values": [],
             "diagnostics": list(record.diagnostics),
         }
     if not isinstance(record, BlankRecord):
@@ -1333,56 +1144,8 @@ def _record_to_row(
     }
 
 
-def _values(values: tuple[tuple[str, object], ...]) -> list[dict[str, object]]:
-    return [{"column_name": name, "value": _scalar(value)} for name, value in values]
-
-
-def _scalar(value: object) -> dict[str, object]:
-    if isinstance(value, NullScalar) or value is None:
-        return {
-            "kind": "null",
-            "text": None,
-            "raw_bytes": None,
-            "boolean": None,
-            "items": None,
-            "anomaly_json": None,
-        }
-    if isinstance(value, BooleanScalar):
-        return _scalar_base(value.kind, boolean=value.value)
-    if isinstance(value, (SignedIntegerScalar, UnsignedIntegerScalar, DecimalScalar)):
-        return _scalar_base(value.kind, text=value.decimal)
-    if isinstance(value, (Float32Scalar, Float64Scalar)):
-        return _scalar_base(value.kind, text=value.bits_hex)
-    if isinstance(value, (StringScalar, DateScalar, DateTimeScalar, TimestampScalar, TimeDurationScalar)):
-        return _scalar_base(value.kind, text=value.text)
-    if isinstance(value, (BinaryScalar, BitScalar)):
-        return _scalar_base(value.kind, raw_bytes=value.raw_bytes)
-    if isinstance(value, AnomalyScalar):
-        return _scalar_base(
-            value.kind,
-            anomaly_json=canonicalize_json_value(dict(value.envelope)),
-        )
-    members = getattr(value, "members", None)
-    if type(members) is tuple and all(type(item) is str for item in members):
-        return _scalar_base("set", items=list(members))
-    raise RecordsPublicationError(f"unsupported typed record value: {type(value).__name__}")
-
-
-def _scalar_base(kind: str, **values: object) -> dict[str, object]:
-    result: dict[str, object] = {
-        "kind": kind,
-        "text": None,
-        "raw_bytes": None,
-        "boolean": None,
-        "items": None,
-        "anomaly_json": None,
-    }
-    result.update(values)
-    return result
-
-
 def _record_sort_key(family: RecordsArtifactFamily, record: object) -> tuple[object, ...]:
-    row = _record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
+    row = _metadata_record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
     return (
         str(row.get("record_kind", "")),
         _bytes_sort(row.get("row_identity")),
@@ -1607,11 +1370,3 @@ def _json_safe(value: object) -> object:
     if isinstance(value, (tuple, list)):
         return [_json_safe(item) for item in value]
     return value
-
-
-def _cancelled_status() -> PairResultStatus:
-    return PairResultStatus.CANCELLED
-
-
-def _failed_status() -> PairResultStatus:
-    return PairResultStatus.FAILED

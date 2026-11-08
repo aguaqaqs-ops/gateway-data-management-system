@@ -33,7 +33,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     _standalone_read_bound, _standalone_retained_cap,
     _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
     _write_arrow_parquet, open_records_closure,
-    publish_records_closure, publish_records_family_arrow, read_records_artifact,
+    publish_records_family_arrow, read_records_artifact,
     restore_records_closure,
 )
 from gateway_backend.capabilities.comparison import artifacts as records_artifacts
@@ -53,9 +53,22 @@ from tests.support.comparison_s3_c_inputs import (
 )
 from tests.support.records_diagnostic import standalone_records_batches
 from tests.support.comparison_s3_e_frozen import frozen_case
-from tests.test_comparison_artifacts import _standard_result
+from tests.support.comparison_s3_e_live import native_product, publish_product
 
 pytestmark = pytest.mark.unit
+
+
+def _published_standard(store: InMemoryArtifactStore) -> DetailedFactsResult:
+    product = native_product(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8) NULL);"
+        " INSERT INTO t VALUES (1, 'before');",
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8) NULL);"
+        " INSERT INTO t VALUES (1, NULL);",
+    )
+    try:
+        return publish_product(product, store)
+    finally:
+        product.close()
 
 FROZEN_RECORDS_PARQUET = (
     (RecordsArtifactFamily.STANDARD, "standard-records/v1", 1,
@@ -369,7 +382,7 @@ def test_native_builder_keeps_1024_batch_boundary(count: int) -> None:
 
 def test_real_open_read_restore_use_native_arrow_validator(monkeypatch: pytest.MonkeyPatch) -> None:
     source_store = InMemoryArtifactStore()
-    published = publish_records_closure(_standard_result(), source_store)
+    published = _published_standard(source_store)
     assert isinstance(published, DetailedFactsResult)
     assert published.facts is not None and published.facts.records_ref is not None
     calls = 0
@@ -765,7 +778,7 @@ def test_native_arrow_read_releases_gil_for_cancel_monitor() -> None:
 
 def test_real_native_read_rejects_correct_raw_with_wrong_content_or_schema() -> None:
     store = InMemoryArtifactStore()
-    published = publish_records_closure(_standard_result(), store)
+    published = _published_standard(store)
     assert isinstance(published, DetailedFactsResult)
     assert published.records_closure is not None
     entry = published.records_closure.records[0]

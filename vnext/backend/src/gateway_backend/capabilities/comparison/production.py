@@ -30,7 +30,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _summary_payload, _table_digest_payload, _with_table_digest,
 )
 from gateway_backend.capabilities.comparison.standard import (
-    STANDARD_COMPARISON_ALGORITHM_VERSION, _build_facts, _compare_task,
+    STANDARD_COMPARISON_ALGORITHM_VERSION, _build_facts, _compare_task_metadata,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_profile, snapshot_arrow_input,
@@ -883,12 +883,12 @@ def _compare_task_native(
     before = task.before_descriptor
     current = task.current_descriptor
     if before is None or current is None:
-        return _compare_task(task), None
+        return _compare_task_metadata(task), None
     schema = _schema_view(before, current, policy)
     changes = _schema_changes_from_view(schema, policy)
     if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
         if changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
-            return _compare_task(task), None
+            return _compare_task_metadata(task), None
         probe_policy = _standard_policy(task, schema)
         probe_policy.update(mode="keyless", effective_key_before=[],
                             effective_key_current=[], compare_excluded_columns=[],
@@ -922,9 +922,9 @@ def _compare_task_native(
                                  metrics=metrics)
         return _native_fact(task, handle, schema), handle
     if _can_table_early_exit(before, current, policy):
-        return _compare_task(task), None
+        return _compare_task_metadata(task), None
     if schema.key_invalid or schema.key_changed or not schema.selected:
-        return _compare_task(task), None
+        return _compare_task_metadata(task), None
     is_keyless = not schema.before_key or (
         policy.allow_keyless_key_transition and not schema.current_key
     )

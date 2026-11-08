@@ -1,243 +1,34 @@
-"""Neutral standard comparison core and semantic facts digests.
-
-This module deliberately consumes only the public snapshot and comparison contracts.  The Python
-implementation is the small/reference execution path used by unit fixtures; records remain
-in-memory semantic values until the S5 artifact writer owns their durable closure.
-"""
+"""Metadata facts and comparison envelope for the native row kernels."""
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
-from gateway_shared_kernel import (
-    BinaryScalar,
-    BitScalar,
-    BooleanScalar,
-    DateScalar,
-    DateTimeScalar,
-    DigestRef,
-    Float32Scalar,
-    Float64Scalar,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    TimeDurationScalar,
-    TimestampScalar,
-    UnsignedIntegerScalar,
-    canonicalize_identifier,
-    raw_blob_digest,
-)
+from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope,
-    ComparisonFacts,
-    ComparisonMode,
-    ComparisonPlan,
-    ComparisonRecord,
-    ComparisonRecordKind,
-    ComparisonSchemaChanges,
-    ComparisonSummary,
-    ComparisonTableFact,
-    _ComparisonTablePolicy,
-    ComparisonTableStatus,
-    DatasetReplacementResult,
-    DetailedFactsResult,
-    FailedResult,
-    FieldChange,
-    KeylessPolicy,
-    PairResultStatus,
-    SchemaEvolution,
+    ArtifactScope, ComparisonFacts, ComparisonPlan, ComparisonRecord,
+    ComparisonRecordKind, ComparisonSchemaChanges, ComparisonSummary,
+    ComparisonTableFact, ComparisonTableStatus, PairResultStatus,
+    SchemaEvolution, _ComparisonTablePolicy,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _EncodedRow,
-    _SchemaView,
-    _can_table_early_exit,
-    _digest_from_key,
-    _empty_schema_changes,
-    _ignored_values_changed,
-    _is_columns_added,
-    _key_index,
-    _read_rows,
-    _record_sort_key,
-    _row_digest,
-    _row_occurrence_digest,
-    _row_record,
-    _schema_changes_from_view,
-    _schema_diagnostics,
-    _schema_only_fact,
-    _schema_record,
-    _schema_view,
-    _summary_payload,
-    _table_digest_payload,
-    _ordered_policy_payload,
-    _column_map,
-    _with_table_digest,
+    _can_table_early_exit, _column_map, _empty_schema_changes,
+    _ordered_policy_payload, _schema_changes_from_view,
+    _schema_diagnostics, _schema_only_fact, _schema_view,
 )
-from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
-from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    COMPARISON_PROJECTION_CONTRACT_VERSION,
-    SCALAR_ENCODING_VERSION,
-    SnapshotTable,
-    SnapshotTableDescriptor,
+    COMPARISON_PROJECTION_CONTRACT_VERSION, SCALAR_ENCODING_VERSION,
+    SnapshotTable, SnapshotTableDescriptor,
 )
-
 
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
 STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v1"
 
-_TYPED_SCALAR_TYPES = (
-    NullScalar,
-    BooleanScalar,
-    SignedIntegerScalar,
-    UnsignedIntegerScalar,
-    StringScalar,
-    BinaryScalar,
-    BitScalar,
-    DateScalar,
-    DateTimeScalar,
-    TimestampScalar,
-    TimeDurationScalar,
-    Float32Scalar,
-    Float64Scalar,
-)
 
-
-def comparison_python_memory_upper(plan: ComparisonPlan) -> int:
-    """Admit the existing Python comparison/records implementation before row reads.
-
-    The uncompressed Arrow payload is charged 64 times for Unicode values, cell/key
-    frames, JSON escaping plus row-key/digest encoding, Arrow conversion and the
-    simultaneously live Parquet spool/read-back. Per input cell, 2048 covers the
-    SourceScalar/tuple/frame objects and before/current + field-change scalar maps
-    (six-key dictionaries) in records; per row, 4096 covers keyed/Counter/ordered
-    indexes, sorting pointers, records and fixed Parquet row/header overhead. Column
-    names repeated in row JSON/frames have their own escaping/Unicode allowance.
-    Summing all read tables also conservatively keeps returned facts live through
-    risk/surface publication. It does not reserve merely metadata-only/healthy
-    identity hits, and does not infer expansion from compressed artifact bytes.
-    """
-    upper = 64 * 1024 + len(plan.tasks) * 8192
-    if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
-        return upper
-    for task in plan.tasks:
-        policy = task.policy
-        if policy is None:
-            continue
-        if task.before_descriptor is None or task.current_descriptor is None:
-            # Standard and ordered single-side tasks emit table metadata facts;
-            # neither branch reads rows. Their metadata is covered by the base.
-            continue
-        tables = (task.before_table, task.current_table)
-        if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
-            schema = _schema_view(task.before_descriptor, task.current_descriptor, policy)
-            if _schema_changes_from_view(schema, policy).schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
-                continue
-            # Added columns compare shared-column row Counters even for roles
-            # that publish no row records. Admit those real dual-side reads.
-        elif _can_table_early_exit(task.before_descriptor, task.current_descriptor, policy):
-            if policy.ordered_policy is None:
-                continue
-            # Ordered identity hits still read current rows for ordered/occupancy
-            # digests; only the ordinary comparison skips both row readers.
-            tables = (None, task.current_table)
-        for table in tables:
-            if table is None:
-                continue
-            reader = table.reader
-            if not isinstance(reader, ArrowSnapshotTableReader):
-                raise StandardComparisonError("canonical comparison requires an Arrow reader for memory admission")
-            descriptor = table.descriptor
-            names = sum(len(column.name) for column in descriptor.columns)
-            upper += reader.logical_size_bytes * 64 + descriptor.row_count * (
-                len(descriptor.columns) * 2048 + 4096 + names * 64)
-    return upper
-
-
-def compare_plan(
-    plan: ComparisonPlan,
-) -> DetailedFactsResult | DatasetReplacementResult | FailedResult:
-    """Execute one already-bound detailed plan and return neutral semantic facts."""
-
-    if type(plan) is not ComparisonPlan:
-        raise TypeError("plan must be ComparisonPlan")
-    if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
-        return compare_dataset_replacement(plan)
-    if plan.mode is not ComparisonMode.DETAILED:
-        return FailedResult(
-            pair_id=plan.pair_id,
-            status=PairResultStatus.FAILED,
-            diagnostics=("COMPARISON_MODE_NOT_DETAILED",),
-        )
-
-    try:
-        table_facts = tuple(_compare_task_safely(task) for task in plan.tasks)
-        facts = _build_facts(
-            plan,
-            tuple(
-                _with_table_digest(fact)
-                for fact in table_facts
-            ),
-        )
-    except StandardComparisonError as exc:
-        return FailedResult(
-            pair_id=plan.pair_id,
-            status=PairResultStatus.FAILED,
-            diagnostics=(str(exc),),
-        )
-    status = facts.summary.status
-    return DetailedFactsResult(
-        pair_id=plan.pair_id,
-        status=status,
-        facts=facts,
-        diagnostics=facts.diagnostics,
-    )
-
-
-def _compare_task_safely(task: Any) -> ComparisonTableFact:
-    try:
-        return _compare_task(task)
-    except (InterruptedError, TimeoutError, MemoryError):
-        raise
-    except Exception as exc:
-        before = task.before_descriptor
-        current = task.current_descriptor
-        diagnostic = str(exc) if isinstance(exc, StandardComparisonError) else type(exc).__name__
-        schema_changes = ComparisonSchemaChanges()
-        if (
-            before is not None
-            and current is not None
-            and isinstance(task.policy, _ComparisonTablePolicy)
-        ):
-            try:
-                schema_changes = _schema_changes_from_view(
-                    _schema_view(before, current, task.policy), task.policy
-                )
-            except Exception:
-                schema_changes = ComparisonSchemaChanges()
-        return ComparisonTableFact(
-            table_name=task.table_name,
-            status=ComparisonTableStatus.DEGRADED,
-            before_descriptor=before,
-            current_descriptor=current,
-            schema_changes=schema_changes,
-            row_count_before=None if before is None else before.row_count,
-            row_count_current=None if current is None else current.row_count,
-            records=(
-                ComparisonRecord(
-                    table_name=task.table_name,
-                    record_kind=ComparisonRecordKind.TABLE_DEGRADED,
-                    diagnostics=(diagnostic,),
-                ),
-            ),
-            diagnostics=(diagnostic,),
-        )
-
-
-def _compare_task(task: Any) -> ComparisonTableFact:
+def _compare_task_metadata(task: Any) -> ComparisonTableFact:
     if type(task.table_name) is not str:
         raise StandardComparisonError("TABLE_TASK_INVALID")
     policy = task.policy
@@ -246,9 +37,9 @@ def _compare_task(task: Any) -> ComparisonTableFact:
     if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
         return _compare_non_record_role(task, policy)
     if policy.ordered_policy is not None:
-        from gateway_backend.capabilities.comparison.ordered import compare_ordered_task
+        from gateway_backend.capabilities.comparison.ordered import _compare_single_side_ordered
 
-        return compare_ordered_task(task)
+        return _compare_single_side_ordered(task)
     before_descriptor = task.before_descriptor
     current_descriptor = task.current_descriptor
     if before_descriptor is None and current_descriptor is None:
@@ -313,13 +104,7 @@ def _compare_task(task: Any) -> ComparisonTableFact:
             schema_changes=schema_changes,
             row_count_before=before_descriptor.row_count,
             row_count_current=current_descriptor.row_count,
-            content_changed=_ignored_shared_values_changed(
-                task.before_table,
-                before_descriptor,
-                task.current_table,
-                current_descriptor,
-                policy,
-            ),
+            content_changed=before_descriptor.row_count != current_descriptor.row_count,
         )
     if not schema.selected:
         return _schema_only_fact(
@@ -330,40 +115,7 @@ def _compare_task(task: Any) -> ComparisonTableFact:
             schema_diagnostics,
         )
 
-    before_rows = _read_rows(task.before_table, before_descriptor, schema.selected)
-    current_rows = _read_rows(task.current_table, current_descriptor, schema.selected)
-    if not schema.before_key or (
-        policy.allow_keyless_key_transition and not schema.current_key
-    ):
-        fact = _compare_keyless(
-            task.table_name,
-            task.before_table,
-            before_descriptor,
-            task.current_table,
-            current_descriptor,
-            before_rows,
-            current_rows,
-            schema,
-            policy,
-            task.artifact_scope,
-            schema_diagnostics,
-        )
-    else:
-        fact = _compare_keyed(
-            task.table_name,
-            task.before_table,
-            before_descriptor,
-            task.current_table,
-            current_descriptor,
-            before_rows,
-            current_rows,
-            schema,
-            policy,
-            task.artifact_scope,
-            schema_diagnostics,
-        )
-    return fact
-
+    raise StandardComparisonError("METADATA_ROUTE_REQUIRES_NATIVE_ROWS")
 
 def _compare_single_side(
     table_name: str,
@@ -409,7 +161,6 @@ def _compare_single_side(
         row_deleted_count=0,
     )
 
-
 def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> ComparisonTableFact:
     before = task.before_descriptor
     current = task.current_descriptor
@@ -452,11 +203,7 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         )
     )
     if schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED:
-        before_rows = _read_rows(task.before_table, before, schema.selected)
-        current_rows = _read_rows(task.current_table, current, schema.selected)
-        before_content = Counter(_row_digest(row, schema.selected).value for row in before_rows)
-        current_content = Counter(_row_digest(row, schema.selected).value for row in current_rows)
-        content_changed = before_content != current_content
+        raise StandardComparisonError("METADATA_ROLE_REQUIRES_NATIVE_ROWS")
     return ComparisonTableFact(
         table_name=task.table_name,
         status=(
@@ -473,304 +220,14 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         content_changed=content_changed,
     )
 
-
-def _compare_keyed(
-    table_name: str,
-    before_table: SnapshotTable | None,
-    before_descriptor: SnapshotTableDescriptor,
-    current_table: SnapshotTable | None,
-    current_descriptor: SnapshotTableDescriptor,
-    before_rows: tuple[_EncodedRow, ...],
-    current_rows: tuple[_EncodedRow, ...],
-    schema: _SchemaView,
-    policy: _ComparisonTablePolicy,
-    artifact_scope: ArtifactScope,
-    schema_diagnostics: list[str],
-) -> ComparisonTableFact:
-    before_index = _key_index(before_rows, schema.before_key, table_name)
-    current_index = _key_index(current_rows, schema.current_key, table_name)
-    records: list[ComparisonRecord] = []
-    added = sorted(current_index.keys() - before_index.keys())
-    deleted = sorted(before_index.keys() - current_index.keys())
-    modified = 0
-    for key in added:
-        if artifact_scope is ArtifactScope.ALL_CHANGES:
-            records.append(
-                _row_record(
-                    table_name,
-                    ComparisonRecordKind.ROW_ADDED,
-                    current_index[key],
-                    schema.selected,
-                    current=True,
-                    identity_columns=schema.current_key,
-                )
-            )
-    for key in deleted:
-        if artifact_scope is ArtifactScope.ALL_CHANGES:
-            records.append(
-                _row_record(
-                    table_name,
-                    ComparisonRecordKind.ROW_DELETED,
-                    before_index[key],
-                    schema.selected,
-                    current=False,
-                    identity_columns=schema.before_key,
-                )
-            )
-    compare_columns = tuple(
-        column
-        for column in schema.selected
-        if column not in schema.before_key
-        and column not in schema.incompatible
-        and column not in policy.compare_excluded_columns
-    )
-    for key in sorted(before_index.keys() & current_index.keys()):
-        before = before_index[key]
-        current = current_index[key]
-        changed = tuple(
-            column
-            for column in compare_columns
-            if before.frame_map()[column] != current.frame_map()[column]
-        )
-        if not changed:
-            continue
-        modified += 1
-        field_changes = tuple(
-            FieldChange(
-                table_name=table_name,
-                row_identity=_digest_from_key(key),
-                column_name=column,
-                before_value=before.value_map()[column],
-                current_value=current.value_map()[column],
-            )
-            for column in changed
-        )
-        records.append(
-            ComparisonRecord(
-                table_name=table_name,
-                record_kind=ComparisonRecordKind.ROW_MODIFIED,
-                row_identity=_digest_from_key(key),
-                changed_columns=changed,
-                before_values=tuple((column, before.value_map()[column]) for column in changed),
-                current_values=tuple((column, current.value_map()[column]) for column in changed),
-                field_changes=field_changes,
-            )
-        )
-    if schema_diagnostics:
-        records.append(
-            _schema_record(table_name, schema_diagnostics, schema.selected)
-        )
-    status = ComparisonTableStatus.MODIFIED
-    if schema_diagnostics:
-        status = ComparisonTableStatus.SCHEMA_CHANGED
-    content_changed = (
-        not records
-        and not schema_diagnostics
-        and _ignored_content_changed(
-            before_table,
-            before_descriptor,
-            current_table,
-            current_descriptor,
-            _schema_changes_from_view(schema, policy),
-            policy,
-            before_rows=before_rows,
-            current_rows=current_rows,
-        )
-    )
-    if not records and not schema_diagnostics:
-        status = ComparisonTableStatus.UNCHANGED
-    return ComparisonTableFact(
-        table_name=table_name,
-        status=status,
-        before_descriptor=before_descriptor,
-        current_descriptor=current_descriptor,
-        schema_changes=_schema_changes_from_view(schema, policy),
-        row_count_before=before_descriptor.row_count,
-        row_count_current=current_descriptor.row_count,
-        row_added_count=len(added),
-        row_deleted_count=len(deleted),
-        row_modified_count=modified,
-        suppressed_added_count=len(added) if artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        suppressed_deleted_count=len(deleted) if artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        records=tuple(sorted(records, key=_record_sort_key)),
-        diagnostics=tuple(schema_diagnostics),
-        content_changed=content_changed,
-    )
-
-
-def _compare_keyless(
-    table_name: str,
-    before_table: SnapshotTable | None,
-    before_descriptor: SnapshotTableDescriptor,
-    current_table: SnapshotTable | None,
-    current_descriptor: SnapshotTableDescriptor,
-    before_rows: tuple[_EncodedRow, ...],
-    current_rows: tuple[_EncodedRow, ...],
-    schema: _SchemaView,
-    policy: _ComparisonTablePolicy,
-    artifact_scope: ArtifactScope,
-    schema_diagnostics: list[str],
-) -> ComparisonTableFact:
-    if policy.keyless_policy is KeylessPolicy.DEGRADE_NO_COMPARE_KEY:
-        diagnostics = tuple(schema_diagnostics) + ("DEGRADE_NO_COMPARE_KEY",)
-        return ComparisonTableFact(
-            table_name=table_name,
-            status=ComparisonTableStatus.DEGRADED,
-            before_descriptor=before_descriptor,
-            current_descriptor=current_descriptor,
-            schema_changes=_schema_changes_from_view(schema, policy),
-            row_count_before=before_descriptor.row_count,
-            row_count_current=current_descriptor.row_count,
-            diagnostics=diagnostics,
-            records=(_schema_record(table_name, diagnostics, schema.selected),),
-        )
-    row_columns = schema.selected
-    if _is_columns_added(schema):
-        row_columns = tuple(
-            column for column in schema.selected if column not in policy.compare_excluded_columns
-        )
-    before_counts = Counter(_row_digest(row, row_columns).value for row in before_rows)
-    current_counts = Counter(_row_digest(row, row_columns).value for row in current_rows)
-    added_counts = current_counts - before_counts
-    deleted_counts = before_counts - current_counts
-    added = [
-        (identity, occurrence)
-        for identity, count in sorted(added_counts.items())
-        for occurrence in range(before_counts[identity], before_counts[identity] + count)
-    ]
-    deleted = [
-        (identity, occurrence)
-        for identity, count in sorted(deleted_counts.items())
-        for occurrence in range(current_counts[identity], current_counts[identity] + count)
-    ]
-    records: list[ComparisonRecord] = []
-    for identity, occurrence in added:
-        if artifact_scope is ArtifactScope.ALL_CHANGES:
-            records.append(
-                ComparisonRecord(
-                    table_name=table_name,
-                    record_kind=ComparisonRecordKind.ROW_ADDED,
-                    row_identity=_row_occurrence_digest(DigestRef(identity), occurrence),
-                )
-            )
-    for identity, occurrence in deleted:
-        if artifact_scope is ArtifactScope.ALL_CHANGES:
-            records.append(
-                ComparisonRecord(
-                    table_name=table_name,
-                    record_kind=ComparisonRecordKind.ROW_DELETED,
-                    row_identity=_row_occurrence_digest(DigestRef(identity), occurrence),
-                )
-            )
-    if schema_diagnostics:
-        records.append(_schema_record(table_name, schema_diagnostics, schema.selected))
-    status = ComparisonTableStatus.MODIFIED if added or deleted else ComparisonTableStatus.UNCHANGED
-    content_changed = (
-        not added
-        and not deleted
-        and not schema_diagnostics
-        and _ignored_content_changed(
-            before_table,
-            before_descriptor,
-            current_table,
-            current_descriptor,
-            _schema_changes_from_view(schema, policy),
-            policy,
-            before_rows=before_rows,
-            current_rows=current_rows,
-        )
-    )
-    if schema_diagnostics:
-        status = ComparisonTableStatus.SCHEMA_CHANGED
-    return ComparisonTableFact(
-        table_name=table_name,
-        status=status,
-        before_descriptor=before_descriptor,
-        current_descriptor=current_descriptor,
-        schema_changes=_schema_changes_from_view(schema, policy),
-        row_count_before=before_descriptor.row_count,
-        row_count_current=current_descriptor.row_count,
-        row_added_count=len(added),
-        row_deleted_count=len(deleted),
-        suppressed_added_count=len(added) if artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        suppressed_deleted_count=len(deleted) if artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        records=tuple(sorted(records, key=_record_sort_key)),
-        diagnostics=tuple(schema_diagnostics),
-        content_changed=content_changed,
-    )
-
-
-def _ignored_content_changed(
-    before_table: SnapshotTable | None,
-    before_descriptor: SnapshotTableDescriptor,
-    current_table: SnapshotTable | None,
-    current_descriptor: SnapshotTableDescriptor,
-    schema_changes: ComparisonSchemaChanges,
-    policy: _ComparisonTablePolicy,
-    *,
-    before_rows: tuple[_EncodedRow, ...] | None = None,
-    current_rows: tuple[_EncodedRow, ...] | None = None,
-) -> bool:
-    if schema_changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
-        return _ignored_values_changed(before_descriptor, current_descriptor, policy)
-    return _ignored_shared_values_changed(
-        before_table,
-        before_descriptor,
-        current_table,
-        current_descriptor,
-        policy,
-        before_rows=before_rows,
-        current_rows=current_rows,
-    )
-
-
-def _ignored_shared_values_changed(
-    before_table: SnapshotTable | None,
-    before_descriptor: SnapshotTableDescriptor,
-    current_table: SnapshotTable | None,
-    current_descriptor: SnapshotTableDescriptor,
-    policy: _ComparisonTablePolicy,
-    *,
-    before_rows: tuple[_EncodedRow, ...] | None = None,
-    current_rows: tuple[_EncodedRow, ...] | None = None,
-) -> bool:
-    if not policy.compare_excluded_columns:
-        return False
-    before_names = {column.name for column in before_descriptor.columns}
-    current_names = {column.name for column in current_descriptor.columns}
-    excluded_columns = set(policy.compare_excluded_columns) & before_names & current_names
-    if not excluded_columns:
-        return False
-    # Compare complete shared row projections as a multiset. Comparing only the
-    # excluded values loses their association with the row they came from.
-    columns = tuple(sorted(before_names & current_names))
-    if before_rows is None:
-        before_rows = _read_rows(before_table, before_descriptor, columns)
-    if current_rows is None:
-        current_rows = _read_rows(current_table, current_descriptor, columns)
-    before_content = Counter(_row_digest(row, columns).value for row in before_rows)
-    current_content = Counter(_row_digest(row, columns).value for row in current_rows)
-    return before_content != current_content
-
-
 def _build_facts(
     plan: ComparisonPlan,
     tables: tuple[ComparisonTableFact, ...],
     *,
-    core_digest: DigestRef | None = None,
+    core_digest: DigestRef,
 ) -> ComparisonFacts:
     summary = _summary(tables)
-    if core_digest is None:
-        table_payloads = tuple(_table_digest_payload(table) for table in tables)
-        core_payload = {
-            "kind": "comparison-facts-core",
-            "algorithm_version": STANDARD_COMPARISON_ALGORITHM_VERSION,
-            "summary": _summary_payload(summary),
-            "tables": table_payloads,
-        }
-        facts_core_digest = raw_blob_digest(canonicalize_json_value(core_payload))
-    else:
-        facts_core_digest = core_digest
+    facts_core_digest = core_digest
     table_policy_payloads = []
     for task in sorted(plan.tasks, key=lambda item: item.table_name):
         if task.policy is None:
@@ -873,17 +330,4 @@ def _summary(tables: tuple[ComparisonTableFact, ...]) -> ComparisonSummary:
         suppressed_deleted_count=sum(item.suppressed_deleted_count for item in tables),
         diagnostics_count=sum(len(item.diagnostics) for item in tables),
     )
-
-
-from gateway_backend.capabilities.comparison.row_encoding import (  # noqa: E402
-    _declared_type as _declared_type,
-)
-
-__all__ = [
-    "COMPARISON_DIRECTION",
-    "STANDARD_COMPARISON_ALGORITHM_VERSION",
-    "StandardComparisonError",
-    "compare_plan",
-    "_declared_type",
-]
 

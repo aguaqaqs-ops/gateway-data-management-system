@@ -32,7 +32,7 @@ CT108 `gw-dms-test` 在 clean 774、Rust tree `9d4f84ce0897099402226c77c548c487c
 
 已确认 Submit 每个claimed step使用独立操作账本，Preview去重结果不会跨到Submit；Preview另一个operation的25,753,026,560B预约高水不能当作失败Submit的数值。现役 `infrastructure/repository_write/import_publication.py` 外层同时预约约2.469GiB replay上界；changed表按 `logical_size_bytes×32 + rows×(columns×1024 + 2048 + name_bytes×64) + 64KiB` 为Python scalar/行镜像/索引/变化集预约，累积到operation结束。它能够解释账本压力，尚不是已证首次抛点。
 
-实施者从accepted源DDL/行数得到的非composite行头部粗估为20.338GiB，未扣canonical dropped列，也缺实际Arrow logical size，故仅作机制线索，不作安全放宽系数或选择新M的依据。可见631表共683,508行，含composite435行；非composite630表683,073行。
+实施者从accepted源DDL/行数给出非composite行头部粗估20.338GiB，**该静态估算尚无独立核收的复算原件**，未扣canonical dropped列，也缺实际Arrow logical size；仅作机制线索，不作安全放宽系数或选择新M的依据。可见631表共683,508行，含composite435行；非composite630表683,073行。
 
 三workload的v1源包均为10,652,436B、SHA=`74974e5f3237ba372e81df95d448602d09713c3cdc8edf6ae5237352a78ebd4c`。因此W4 10%与100%及FULL运行共享当前受阻的基线前置；后续23样本全部**未运行/受阻**，不是已测失败，也没有median/range。D的六个两表诊断原件仍只证明部分起测，不能冒充最终完整负载。
 
@@ -43,7 +43,7 @@ Owner本轮明确禁止擅改生产N/M、部署旋钮或扩入S4。S3 kickoff §
 可由Owner选择：
 
 1. **保持现有阶段边界。** 完成与此无关的04门禁、DC64真实范围及候选交接；S3 E仍为性能受阻、不签GO。将此容量问题交独立S4设计，解决后在N1/32-8/M24回补完整W3/W4。此项不将待补认作通过，也不自动豁免S3退出要求。
-2. **另行授权测量基线准备的资源例外。** 仍经现有Submit/read/approve/Archive建立基线，仅对未计时准备采用Owner明确批准的临时envelope/M；准备结束后正常停止该worker，恢复新N1/32-8/M24 worker再开始v2测量，单独记录两段条件和生命周期。不得把较大准备预算写成M24容量成功；须先固定具体参数、脚本和资源guard并独审，当前没有这份例外授权或已执行稿，也不能保证不会遇其它容量上限。
+2. **另行授权条件性诊断的准备资源例外。** 仍经现有Submit/read/approve/Archive建立基线，仅对未计时准备采用Owner明确批准的临时envelope/M；准备结束后正常停止该worker，恢复新N1/32-8/M24 worker再开始v2诊断，单独记录两段条件和生命周期。当前已审driver要求只有一个worker、自首业务观察起same worker且normal stop，再由acceptance_complete准入；换worker会违反原守卫。**这只能是另条件诊断，不能口头计入原W3/W4的1warm+3或DC33同worker容量PASS。** 若Owner要把新条件计入正式样本，须先另行修订场景/同worker验收口径，固定具体参数、脚本和资源guard并独审；原场景仍未通过。当前没有例外授权或已执行稿，也不能保证不会遇其它容量上限。
 3. **另行启动提前的S4相关工作。** 按S4 owning范围设计和独审，保SQL/replay逐字节及批量规则，完成其受影响验证后回到S3最终取证；不能把它作为普通S3 finding静默合入。
 
 协调者建议先保持当前范围及失败事实，完成独立工作，**不盲抬M或自动提前S4**；若Owner要求本轮继续完整测量，优先明确是否允许第2项的测试准备例外，再由原角色把具体稿做成可复核结果。无论选择哪项，当前失败均保留，正式退出/tag/push另办。

@@ -133,6 +133,25 @@ const VALID_UPLOAD_DIRECTORY = [
   { path: "comps/logic/logics.xml", content: "<logics/>" },
 ];
 
+async function selectModifiedDirectory(page: Page) {
+  if ((await page.getByTestId("upload-modified-input").count()) === 0) {
+    await page.getByRole("button", { name: "展开详情面板" }).click();
+  }
+  await expect(page.getByTestId("upload-modified-input")).toBeAttached({ timeout: 10000 });
+  await page.evaluate((files) => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="upload-modified-input"]');
+    if (!input) throw new Error("missing upload-modified-input");
+    const transfer = new DataTransfer();
+    for (const spec of files) {
+      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", { type: "text/plain" });
+      Object.defineProperty(file, "webkitRelativePath", { value: `station_cfg_0921/${spec.path}` });
+      transfer.items.add(file);
+    }
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, VALID_UPLOAD_DIRECTORY);
+}
+
 async function chooseUploadDirectory(page: Page) {
   const expand = page.getByRole("button", { name: "展开详情面板" });
   if (await expand.count()) await expand.click();
@@ -222,7 +241,8 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   state.workspace = workspace({});
   await page.reload();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
-  await expect(page.getByText("需先选择本次归档组态目录").first()).toBeVisible();
+  await selectModifiedDirectory(page);
+  await expect(upload).toBeEnabled();
 });
 
 test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page }) => {

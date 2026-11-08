@@ -228,7 +228,14 @@ pub struct SqlBatcher {
 impl SqlBatcher {
     pub fn operation(&self) -> &str { &self.operation }
     pub fn pending_bytes(&self) -> usize {
-        self.rows.capacity() * std::mem::size_of::<PreparedRow>()
+        self.table.capacity() + self.operation.capacity()
+            + self.key_names.capacity() * std::mem::size_of::<String>()
+            + self.key_names.iter().map(String::capacity).sum::<usize>()
+            + self.after_names.capacity() * std::mem::size_of::<String>()
+            + self.after_names.iter().map(String::capacity).sum::<usize>()
+            + self.set_indices.capacity() * std::mem::size_of::<usize>()
+            + (if self.rows.is_empty() { 0 } else { (self.fixed_len + self.variable_len) * 2 })
+            + self.rows.capacity() * std::mem::size_of::<PreparedRow>()
             + self.rows.iter().map(|row| {
                 row.where_item.capacity() + row.key_predicate.capacity()
                     + row.insert_values.capacity()

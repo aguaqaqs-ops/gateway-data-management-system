@@ -297,6 +297,7 @@ impl StorageRender {
         if self.offset >= self.current.len() {
             self.current = Vec::new();
             self.offset = 0;
+            self.reconcile_bytes()?;
             if !self.fill()? { return Ok(None); }
             self.current = self.statements.pop_front().ok_or("STORAGE_RENDER_INVALID")?;
         }

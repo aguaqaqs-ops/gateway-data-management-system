@@ -25,5 +25,17 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",
+        # P6 S4 D retained generic Mutation Planning library seam (design §2, §D):
+        # Submit now uses native table tasks, so no production entrypoint imports
+        # these optional target-neutral planner, ChangeSet publication, digest,
+        # and Rust-backed replay APIs. External target currently consumes only
+        # mutation_planning.contracts, not these execution modules. Keep exactly
+        # this reviewed API surface until a real caller is wired or the generic
+        # Contract is retired; do not add a fake production import.
+        "gateway_backend.capabilities.mutation_planning._artifacts",
+        "gateway_backend.capabilities.mutation_planning._changeset",
+        "gateway_backend.capabilities.mutation_planning._digest",
+        "gateway_backend.capabilities.mutation_planning._planner",
+        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer",
     }
 )

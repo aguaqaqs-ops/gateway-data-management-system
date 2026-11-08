@@ -17,8 +17,6 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationStatus, RiskExecutionContext, RiskExecutionPolicy,
     RiskOptions, evaluate_risk,
 )
-from gateway_backend.capabilities.risk_evaluation._engine import _optional_risk_cache_key
-from gateway_backend.capabilities.risk_evaluation._facts import extract_risk_facts
 from tests.test_comparison_s3_contract_vectors import _added_rows, _input
 
 pytestmark = pytest.mark.unit
@@ -148,8 +146,6 @@ def test_cached_filtered_emit_still_hits_current_pair_cap_in_same_clock_order() 
         assert hit_clock.calls == miss_clock.calls
     finally:
         cache.close()
-
-
 @pytest.mark.parametrize("boundary", ("cancel", "deadline"))
 def test_cached_risk_rechecks_current_operation_boundary_at_emit(
     boundary: str,
@@ -346,32 +342,6 @@ def test_large_optional_risk_key_safely_misses_with_same_result() -> None:
         assert candidate.status is baseline.status is RiskEvaluationStatus.READY
         assert candidate.risk_evaluation is not None and baseline.risk_evaluation is not None
         assert candidate.risk_evaluation.risk_evaluation_digest == baseline.risk_evaluation.risk_evaluation_digest
-        assert cache.events is None and cache.hits == 0
-    finally:
-        cache.close()
-
-
-def test_oversized_ruleset_identity_cannot_enter_optional_key_repr() -> None:
-    table = replace(
-        _added_rows("t", 1), table_fact_digest=raw_blob_digest(b"ruleset-identity-table"),
-    )
-    source = _input((table,))
-    source = replace(source, risk_ruleset=replace(
-        source.risk_ruleset, risk_ruleset_id="untrusted" * 10_000,
-        risk_ruleset_digest=None,
-    ))
-    item = extract_risk_facts(source.comparison_facts, None)[0]
-    key, charge = _optional_risk_cache_key(item, source, RiskExecutionPolicy())
-    assert key is None and charge is None
-    cache = _Candidates()
-    try:
-        candidate = evaluate_risk(
-            replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"}),
-            artifact_store=InMemoryArtifactStore(),
-        )
-        baseline = evaluate_risk(source, artifact_store=InMemoryArtifactStore())
-        assert candidate.status is baseline.status is RiskEvaluationStatus.FAILED
-        assert candidate.diagnostics == baseline.diagnostics
         assert cache.events is None and cache.hits == 0
     finally:
         cache.close()

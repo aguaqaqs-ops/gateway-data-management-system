@@ -475,3 +475,11 @@ CT108原V774故障归档已由唯一Luna按原E审核的固定稿只读诊断一
 CT108同V的离线13输入/镜像准备已在§69独核0，待04门禁核收的前置现已满足；协调者授权唯一Luna按已审字面`warm-run.sh` SHA=`2d101e167441e3ea0f6d92b96a169af440f3d79673e3babce63758836e1197ac`启动**一次**W3 MO warm（N1/48−8/M40）。执行时仍核现场空闲/marker，不把本授权或prepare记warm成功；该实际结果和剩余23样本尚待。原实施者另起外置目录准备后续固定队列，现首warm的已审SHA不变；首失败停止后续，保原件、正常停容器、不自动重试或加M。
 
 当前S3仍无E GO/最终新H绑定/退出，不tag、不push；Q18独立GO维持，S4另一会话推进、前端与原基准各自核收。
+
+## 31. 首个M40 warm启动失败与普通准备修复
+
+CT108首warm于18:19:35–18:23:09Z actual node/outer1：RS容器exit3，无法import `gateway_repository_service.app`，`wait_repository_service_ready`超时；三服务ready/startguard/worker/首业务均未到，成功warm数0，资源证据INCOMPLETE。原 E `e236037ef7` §73已逐件对原SHA独核，不能归为M40预约容量失败，更不能记通过。完整原件和当前六组样本UNKNOWN矩阵见[性能诊断记录](p6-s3-performance-report.md)。原M24失败及归档继续保留，剩余23队列未启动。
+
+只读现场与Dockerfile/entrypoint核对发现：新CT108/05源码WT因umask077而目录0700／文件0600，04通过门禁的WT对应0755／0644；RS COPY后root布局初始化可执行，降gateway后无法读取该源码。原实施者正在固定仅公开tracked源码及祖先目录权限／新RS镜像／fresh复验的最小执行稿，原E连续审稿及核原件；不动产品、Contract、golden、资源档、私有secret/venv/输入或原坏镜像／失败日志。04原来源WT不改，不因另一节点准备权限修复重复权威门禁。按DC68本根因进入第1轮修复准备，尚无修订实际复验；不无修改重试或擅增M。
+
+05 t1**尚未启动**，已因同根源码权限前提暂停，待固定修稿、原子节点准备及原E核收后再启动；此前05 prepare通过的源码／输入字节事实保留，不能由prepare0推断降权容器运行前提满足。S4节点占用已正常释放的事实不豁免这一前提。其余职责内文档与最小修复继续，不需要Owner日常再授权；遇核心设计冲突或修复轮次停止条件再报告。

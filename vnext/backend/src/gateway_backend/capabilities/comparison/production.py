@@ -34,6 +34,7 @@ from gateway_backend.capabilities.comparison.standard import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_profile, snapshot_arrow_input,
+    check_canonical_descriptor_budget, operation_codec_budgets,
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -106,7 +107,22 @@ def _fresh_view_budget(table: SnapshotTable) -> tuple[int, int]:
         256 + len(column.name) + len(column.display_name)
         + len(column.scalar_type or "") for column in columns
     )
-    metadata_upper = 65536 + 64 * source_bytes + 16384 * len(columns)
+    descriptor_upper = 0
+    try:
+        budgets = operation_codec_budgets()
+        context = current_kernel_context()
+        assert context is not None
+        # This is a static descriptor bound. Actual concurrent M admission is
+        # the native split and _stream reserve below, after optional eviction.
+        budgets["max_codec_peak_bytes"] = context.memory.limit_bytes
+        descriptor_upper = 8 * check_canonical_descriptor_budget(table.descriptor, budgets)
+    except MemoryError:
+        # A malformed descriptor follows the existing per-table _stream path;
+        # this preflight only sizes valid writer-verified input.
+        pass
+    metadata_upper = max(
+        65536 + 64 * source_bytes + 16384 * len(columns), descriptor_upper,
+    )
     rows = table.descriptor.row_count
     # A fresh business projection normally has one batch. This upper also
     # covers the union of all column chunk boundaries and our 65k BIT slices.

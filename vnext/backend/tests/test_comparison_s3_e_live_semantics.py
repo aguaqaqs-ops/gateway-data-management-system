@@ -57,7 +57,7 @@ def _facts(before: str, current: str) -> ComparisonFacts:
         product.close()
 
 
-def _fallback_source(sql: str, marker: bytes) -> BoundSnapshotInput:
+def _fallback_source(sql: str) -> BoundSnapshotInput:
     source = canonical_bound(sql)
     descriptor = source.summary.tables[0]
     facts = ComparisonStorageFacts(
@@ -68,7 +68,7 @@ def _fallback_source(sql: str, marker: bytes) -> BoundSnapshotInput:
             retained_columns=tuple(column.name for column in descriptor.columns),
             canonical_key_columns=descriptor.primary_key_columns,
         ),
-        source_schema_digest=raw_blob_digest(marker),
+        source_schema_digest=descriptor.business_schema_digest,
     )
     return replace(source, storage_facts=(facts,))
 
@@ -167,13 +167,11 @@ def test_keyless_added_column_uses_shared_row_multiset(
     before = _fallback_source(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8));"
         " INSERT INTO t VALUES ('a','x'),('b','y');",
-        b"before-keyless-schema",
     )
     rows_with_added = current_rows.replace(")", ",'new')")
     current = _fallback_source(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8), added VARCHAR(8));"
         f" INSERT INTO t VALUES {rows_with_added};",
-        b"current-keyless-schema",
     )
     planned = plan_comparison(ComparisonRequest(
         pair_id="s3-e-keyless-added-association", before=before, current=current,
@@ -265,12 +263,10 @@ def test_changed_effective_key_degrades_without_positional_match() -> None:
 def test_raw_primary_key_appearance_is_a_source_schema_change() -> None:
     keyless = _fallback_source(
         "CREATE TABLE t (value VARCHAR(8)); INSERT INTO t VALUES ('same');",
-        b"source-keyless",
     )
     keyed = _fallback_source(
         "CREATE TABLE t (id INT PRIMARY KEY, value VARCHAR(8));"
         " INSERT INTO t VALUES (1,'same');",
-        b"source-keyed",
     )
 
     planned = plan_comparison(ComparisonRequest(
@@ -411,7 +407,9 @@ def test_blank_position_renumber_keeps_occupancy_without_records() -> None:
         assert (table.blank_extension.before_occupancy_digest
                 == table.blank_extension.current_occupancy_digest)
         assert table.blank_extension.blank_summary.blank_changed_count == 0
-        assert product.handles["t"].family_summary("BLANK")[0] == 0
+        assert all(product.handles["t"].family_summary(family)[0] == 0 for family in (
+            "STANDARD", "ORDERED", "BLANK",
+        ))
     finally:
         product.close()
 
@@ -435,9 +433,10 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
         assert table.blank_extension.blank_summary.interval_deleted_count == 1
         assert table.blank_extension.blank_summary.interval_inserted_count == 1
         assert table.ordered_extension.ordered_summary.row_moved_count == 0
+        assert product.handles["t"].family_summary("STANDARD")[0] == 0
         with closing(product.handles["t"].record_batches("BLANK")) as reader:
-            kinds = {row["record_kind"] for batch in reader for row in batch.to_pylist()}
-        assert kinds == {"BLANK_DELETE_INTERVAL", "BLANK_INSERT_INTERVAL"}
+            kinds = tuple(sorted(row["record_kind"] for batch in reader for row in batch.to_pylist()))
+        assert kinds == ("BLANK_DELETE_INTERVAL", "BLANK_INSERT_INTERVAL")
     finally:
         product.close()
 
@@ -453,9 +452,11 @@ def test_absolute_order_renumber_is_a_position_shift_without_records() -> None:
         table, = product.result.facts.tables
         assert table.ordered_extension is not None
         summary = table.ordered_extension.ordered_summary
+        assert table.row_modified_count == 0
         assert summary.row_moved_count == 0
         assert summary.position_changed_count == 2
         assert table.ordered_extension.table_processing_mode is OrderedTableProcessingMode.SHIFT_REPAIRED
+        assert product.handles["t"].family_summary("STANDARD")[0] == 0
         assert product.handles["t"].family_summary("ORDERED")[0] == 0
     finally:
         product.close()

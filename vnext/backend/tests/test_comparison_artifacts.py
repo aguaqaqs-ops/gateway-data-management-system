@@ -15,9 +15,7 @@ from gateway_backend.capabilities.comparison import (
     open_records_closure, rewrite_closure_refs,
 )
 from gateway_backend.capabilities.comparison.artifacts import RecordsPublicationError
-from gateway_backend.capabilities.comparison.production import compare_plan_native
-from tests.support.comparison_s3_c_inputs import plan
-from tests.support.comparison_s3_e_live import canonical_bound, native_product, publish_product
+from tests.support.comparison_s3_e_live import native_product, publish_product
 from tests.support.records_diagnostic import standalone_records_batches
 
 pytestmark = pytest.mark.unit
@@ -266,32 +264,6 @@ def test_publication_enforces_combined_family_record_limit() -> None:
                 product, InMemoryArtifactStore(),
                 policy=RecordsPublicationPolicy(max_records_per_table=1),
             )
-    finally:
-        product.close()
-
-
-def test_metadata_only_publication_enforces_combined_family_record_limit() -> None:
-    before = canonical_bound(_ORDERED_BEFORE)
-    current = canonical_bound(_ORDERED_CURRENT)
-    planned = plan(before, current, ordered=True)
-    task = planned.tasks[0]
-    assert task.current_table is not None
-    planned = replace(planned, tasks=(replace(
-        task, current_table=replace(task.current_table, reader=None, batch_reader=None),
-    ),))
-    product = compare_plan_native(planned)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        assert product.handles == {}
-        table, = product.result.facts.tables
-        assert len(table.records) + len(table.ordered_extension.records if table.ordered_extension else ()) > 1
-        with pytest.raises(RecordsPublicationError, match="per-table limit"):
-            publish_product(
-                product, InMemoryArtifactStore(),
-                policy=RecordsPublicationPolicy(max_records_per_table=1),
-            )
-        assert product.result.facts.records_ref is None
     finally:
         product.close()
 

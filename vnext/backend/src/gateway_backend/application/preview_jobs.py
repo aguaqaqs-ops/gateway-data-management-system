@@ -835,6 +835,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     lease_session,
                     control,
                     active_rules,
+                    operation_id=operation.operation_id,
                     on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                 )
             except PairPipelineCancelled:
@@ -1152,7 +1153,8 @@ def _materialize_all_sides(
                 runtime_ruleset,
                 repository_id=payload.repository_id,
                 export_cache=deps.snapshot_export_cache,
-                side=side, canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
+                side=side, operation_id=operation_id,
+                canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
             )
         except PreviewJobError as exc:
             upload_errors.append(exc)
@@ -1497,6 +1499,7 @@ def _materialize_uploaded_side(
     repository_id: str,
     export_cache: SnapshotTableExportCachePort | None,
     side: OperationDiagnosticSide,
+    operation_id: str,
     canonical_lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
     canonical_before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef, ConfigurationGeneratedTime, str]:
@@ -1588,7 +1591,7 @@ def _materialize_uploaded_side(
             ruleset,
         )
         _LOG.info("s3_preview_stage_metrics %s", json.dumps({
-            "stage": "uploaded_projection", "side": side.value,
+            "operation_id": operation_id, "stage": "uploaded_projection", "side": side.value,
             "upstream_projection_seconds": perf_counter() - projection_started,
         }, sort_keys=True))
         if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
@@ -1908,6 +1911,7 @@ def _assemble_preview(
     lease_session: LeaseSession,
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
+    operation_id: str,
     on_cancel: Callable[[], None],
     export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
@@ -2028,6 +2032,7 @@ def _assemble_preview(
         ),
     )
     _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+        "operation_id": operation_id,
         "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
         "pair_count": len(bundle_pairs),
         "bundle_assembly_seconds": perf_counter() - bundle_started,

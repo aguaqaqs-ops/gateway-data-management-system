@@ -21,7 +21,7 @@ from gateway_backend.application.submission.ports import (
     ReviewApplyControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
-from gateway_backend.domain.submission.models import Submission, WorkspaceSubmitOccupancy
+from gateway_backend.domain.submission.models import Submission, SubmissionAccessBinding, WorkspaceSubmitOccupancy
 from gateway_backend.domain.submission.review import (
     ReviewAction,
     ReviewEvent,
@@ -35,11 +35,29 @@ from gateway_backend.domain.workspace.policies import assert_permission, assert_
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
 PERMISSION_REVIEW_SUBMISSION = "review_submission"
+PERMISSION_WITHDRAW_OWN_SUBMISSION = "withdraw_own_submission"
+
+
+def assert_review_permission(context: IdentityContext, action: ReviewAction | None = None) -> None:
+    """Check current claims before reading any target or idempotency facts."""
+    if PERMISSION_REVIEW_SUBMISSION in context.permissions:
+        return
+    if action is None or action is ReviewAction.WITHDRAW:
+        assert_permission(context, PERMISSION_WITHDRAW_OWN_SUBMISSION)
+        return
+    assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
+
+
+def assert_review_target_authorized(context: IdentityContext, submission: Submission | SubmissionAccessBinding) -> None:
+    if (
+        PERMISSION_REVIEW_SUBMISSION not in context.permissions
+        and submission.created_by != context.actor_id
+    ):
+        raise ScopeForbidden
 
 _RELEASE_ACTIONS = frozenset(
     {
         ReviewAction.REJECT,
-        ReviewAction.RETURN_FOR_REVISION,
         ReviewAction.WITHDRAW,
     }
 )
@@ -59,7 +77,7 @@ def is_review_release_action(action: ReviewAction) -> bool:
 
 
 def assert_review_scope(
-    submission: Submission,
+    submission: Submission | SubmissionAccessBinding,
     workspace: Workspace,
     resolved_scope: ResolvedScope,
     context: IdentityContext,
@@ -194,6 +212,18 @@ def assert_fresh_scope_matches(fresh_scope: ResolvedScope, expected_scope: Resol
         raise ScopeForbidden
 
 
+def load_review_submission(
+    unit_of_work: ReviewApplyTransaction, submission_id: str, *,
+    workspace_id: str | None = None, repository_id: str | None = None,
+) -> Submission | None:
+    """Decode an already-authorized target or an internal idempotency reference."""
+    try:
+        return unit_of_work.submission.get_submission(submission_id,
+            workspace_id=workspace_id, repository_id=repository_id)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ReviewIntegrityFailure("submission facts are invalid") from exc
+
+
 def load_review_scope_facts(
     unit_of_work: ReviewApplyTransaction,
     *,
@@ -202,13 +232,20 @@ def load_review_scope_facts(
     resolved_scope: ResolvedScope | None = None,
 ) -> ReviewScopeFacts:
     fresh_scope = resolved_scope or resolve_fresh_provisioned_scope(unit_of_work, context)
-    submission = unit_of_work.submission.get_submission(submission_id)
-    if submission is None:
+    binding = unit_of_work.submission.get_submission_access_binding(submission_id)
+    if binding is None:
         raise ScopeForbidden
-    workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+    workspace = unit_of_work.workspace.get_workspace(binding.workspace_id)
     if workspace is None:
         raise ScopeForbidden
+    assert_review_scope(binding, workspace, fresh_scope, context)
+    assert_review_target_authorized(context, binding)
+    submission = load_review_submission(unit_of_work, submission_id,
+        workspace_id=workspace.workspace_id, repository_id=fresh_scope.repository_id)
+    if submission is None:
+        raise ScopeForbidden
     assert_review_scope(submission, workspace, fresh_scope, context)
+    assert_review_target_authorized(context, submission)
     try:
         projection = unit_of_work.review.get_projection(submission_id)
         events = unit_of_work.review.list_events(submission_id)
@@ -233,7 +270,7 @@ def get_review_facts(
     scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
 ) -> ReviewFacts:
-    assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
+    assert_review_permission(context)
     resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
         fresh_scope = resolve_fresh_provisioned_scope(unit_of_work, context)
@@ -248,4 +285,5 @@ def get_review_facts(
             projection=facts.projection,
             events=facts.events,
             identity_confirmations=facts.submission.identity_confirmations,
+            submission_disposition=unit_of_work.get_submission_disposition(submission_id),
         )

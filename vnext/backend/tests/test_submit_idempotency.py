@@ -18,11 +18,11 @@ from gateway_backend.application.submission.contracts import (
 )
 from gateway_backend.application.submission.errors import IdempotencyConflict, PreviewBindingConflict
 from gateway_backend.domain.workspace.models import WorkspaceState
+from tests import test_submit_application as application_fixtures
+from tests.test_submit_application import initialize_preview_binding as initialize_preview_binding
 from tests.test_submit_application import (
     BASELINE_HEAD,
     PREVIEW_READY_CLOSURE_DIGEST,
-    PREVIEW_RESULT,
-    WORKSPACE,
     SubmitApplicationHarness,
     make_accept_command,
     make_submit_application_harness,
@@ -68,35 +68,35 @@ FINGERPRINT_INPUT_CASES = (
 
 def _fingerprint_inputs() -> dict[str, object]:
     return {
-        "workspace_id": WORKSPACE.workspace_id,
-        "owner_actor_id": WORKSPACE.owner_actor_id,
-        "gateway_device_external_key": WORKSPACE.gateway_device_external_key,
-        "business_project_id": WORKSPACE.business_project_id,
-        "repository_id": WORKSPACE.repository_id,
-        "expected_workspace_version": WORKSPACE.optimistic_version,
-        "upload_revision_id": PREVIEW_RESULT.upload_revision_id,
-        "preview_result_id": PREVIEW_RESULT.preview_result_id,
-        "generation": PREVIEW_RESULT.generation,
+        "workspace_id": application_fixtures.WORKSPACE.workspace_id,
+        "owner_actor_id": application_fixtures.WORKSPACE.owner_actor_id,
+        "gateway_device_external_key": application_fixtures.WORKSPACE.gateway_device_external_key,
+        "business_project_id": application_fixtures.WORKSPACE.business_project_id,
+        "repository_id": application_fixtures.WORKSPACE.repository_id,
+        "expected_workspace_version": application_fixtures.WORKSPACE.optimistic_version,
+        "upload_revision_id": application_fixtures.PREVIEW_RESULT.upload_revision_id,
+        "preview_result_id": application_fixtures.PREVIEW_RESULT.preview_result_id,
+        "generation": application_fixtures.PREVIEW_RESULT.generation,
         "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
         "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
         "business_baseline_commit_id": BASELINE_HEAD.business_baseline_commit_id,
-        "canonical_business_digest": PREVIEW_RESULT.canonical.modified_canonical_state_digest.value,
-        "source_digest": PREVIEW_RESULT.digests.source_digest,
-        "snapshot_digest": PREVIEW_RESULT.digests.snapshot_digest,
+        "canonical_business_digest": application_fixtures.PREVIEW_RESULT.canonical.modified_canonical_state_digest.value,
+        "source_digest": application_fixtures.PREVIEW_RESULT.digests.source_digest,
+        "snapshot_digest": application_fixtures.PREVIEW_RESULT.digests.snapshot_digest,
         "source_artifact_refs": ("initial-1", "modified-1"),
         "canonical_table_set_closure_ref": (
-            PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
+            application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),
         "canonical_table_set_closure_digest": (
-            PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
+            application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
         ),
         "canonicalization_manifest_ref": (
-            PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id
+            application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id
         ),
         "canonicalization_manifest_digest": (
-            PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value
+            application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value
         ),
-        "preview_ready_closure_ref": PREVIEW_RESULT.ready_closure_artifact_id,
+        "preview_ready_closure_ref": application_fixtures.PREVIEW_RESULT.ready_closure_artifact_id,
         "preview_ready_closure_digest": PREVIEW_READY_CLOSURE_DIGEST,
         "repository_expected_commit_id": "commit-main",
         "options": {},
@@ -149,8 +149,8 @@ def test_compute_new_accept_fingerprint_rejects_empty_closure_digest(
     with pytest.raises(PreviewBindingConflict, match="preview ready closure digest is required"):
         compute_new_accept_fingerprint(
             command=command,
-            workspace=WORKSPACE,
-            preview_result=PREVIEW_RESULT,
+            workspace=application_fixtures.WORKSPACE,
+            preview_result=application_fixtures.PREVIEW_RESULT,
             upload_revision=upload_revision,
             baseline_head=BASELINE_HEAD,
             repository_expected_commit_id="commit-main",
@@ -173,7 +173,7 @@ def test_validate_accept_submit_rejects_empty_closure_digest(
             occupancy=harness.occupancy,
             main_resolve=harness.main_resolve,
             current_storage_projection_ruleset_digest=(
-                PREVIEW_RESULT.canonical.storage_projection_ruleset_digest.value
+                application_fixtures.PREVIEW_RESULT.canonical.storage_projection_ruleset_digest.value
             ),
             preview_ready_closure_digest="",
         )
@@ -203,7 +203,7 @@ def test_same_key_replay_succeeds_after_workspace_closed(
 ) -> None:
     harness = submit_application_harness
     harness.validate(make_accept_command(idempotency_key="accept-key-1"))
-    current = harness.workspace_repository.get_workspace(WORKSPACE.workspace_id)
+    current = harness.workspace_repository.get_workspace(application_fixtures.WORKSPACE.workspace_id)
     assert current is not None
     closed = replace(current, state=WorkspaceState.CLOSED)
     harness.workspace_repository.save_workspace(
@@ -257,8 +257,8 @@ def test_compute_new_and_replay_fingerprints_match_seeded_attempt(
 
     new_fingerprint = compute_new_accept_fingerprint(
         command=command,
-        workspace=WORKSPACE,
-        preview_result=PREVIEW_RESULT,
+        workspace=application_fixtures.WORKSPACE,
+        preview_result=application_fixtures.PREVIEW_RESULT,
         upload_revision=upload_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
@@ -272,7 +272,7 @@ def test_compute_new_and_replay_fingerprints_match_seeded_attempt(
     replay_fingerprint = compute_replay_accept_fingerprint(
         command=command,
         attempt=attempt_with_prepared_output,
-        workspace=WORKSPACE,
+        workspace=application_fixtures.WORKSPACE,
     )
 
     assert new_fingerprint == replay_fingerprint == attempt.accept_request_fingerprint
@@ -297,13 +297,13 @@ def test_compute_accept_request_fingerprint_includes_scope_and_policy_constants(
         snapshot_digest="d-snapshot",
         source_artifact_refs=("initial-1", "modified-1"),
         canonical_table_set_closure_ref=(
-            PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
+            application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),
         canonical_table_set_closure_digest=(
-            PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
+            application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
         ),
-        canonicalization_manifest_ref=PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id,
-        canonicalization_manifest_digest=PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value,
+        canonicalization_manifest_ref=application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id,
+        canonicalization_manifest_digest=application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value,
         preview_ready_closure_ref="closure-1",
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         repository_expected_commit_id="commit-main",

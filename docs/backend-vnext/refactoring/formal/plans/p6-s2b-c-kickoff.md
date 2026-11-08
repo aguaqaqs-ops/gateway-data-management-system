@@ -1,0 +1,79 @@
+# S2b C：规范表存储、引用与恢复
+
+状态：**C GO**（2026-11-06）。固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8` 已收齐，无未关闭 blocking。C 使用 GPT-6.1-Sol/high 实施者与 Sol/max 审核者，两角色已结束，06 占用已释放。Owner 以 DC87 选择 A 配置；D 接生产调用链并验证真实 worker，C GO 不代表该容量已通过或 S2b 已退出。
+
+## 1. 接入边界
+
+只复用 A 唯一 canonical IPC codec 和 B 已验证的业务 kernel，不另写 Python IPC writer。C 接 `CanonicalTableStore.open(ref, bound_descriptor) -> ContextManager[ArtifactReadHandle]`、atomic put、raw SHA、mmap、内容引用与恢复；D 才接 worker N/M 和全部 operation control，E 才完成最后的生产 caller 迁移与旧算法删除。不建立兼容双读、生产 fallback 或引擎开关。
+
+创建本节角色后，实施与独立审核共同核到当前 Preview 仍为 `project_canonical_table_set → materialize_projected_snapshot → publish_ready_tables(Parquet)`，B native 尚未接生产入口。按总体 kickoff §5.5，**完整 worker/operation caller 切换属于 D**。因此 C 完成真实 B/A/store 闭环、受约束的 exact-commit reader/回填能力和实际 UoW/Archive/终态释放 owner；不为提前切 Preview 增加临时 Python writer 或重复算法。必要的 Repository→Arrow 接入应服务真实精确 commit consumer。C 的组件与事务测试不能表述为生产 Preview→IPC/Submit 全链路已通过，D 必须补实际生产 IPC 路由、控制和冻结恢复接线验收。这是既定切片边界的源码澄清，不取消 C 的 storage/ref/recovery 验收，也不提前删除 raw/client Parquet 的真实消费者。
+
+现有实现落点：`artifacts/store.py` 的 minimal ref/内存实现，`infrastructure/artifact_store/local_store.py` 的 root-bound path、temp/fsync/rename，`control_db/sqlite_protection.py` 的事务保护记录，以及 `sqlite_snapshot_export_cache.py` 的 lookup/put/touch/expiry 模式。保留 `ArtifactStorePort.locate(ref) -> bytes` 的真实非规范表消费者，不为新 API 删除仍有用途的通用读口。
+
+内容身份按 DC42 五项与现有 scope：projection version、business schema digest、row count、table digest、mapping version；business schema 已含 table name。外层保留 DDL/导出 row layout。不能以 raw SHA 替代业务摘要，也不能把当前表名不同的对象当成可跨表去重。具体类型与序列化字段应依 B 最终输出收口，不先造平行通用 DTO。
+
+## 2. 文件和读取生命周期
+
+local handle 持有只读 fd/mapping，在同一 mapping 上分块校验 raw SHA 与 size，再以固定 profile 和绑定声明打开 reader；只暴露 schema/batch reader，不暴露路径。内存实现以 BufferReader 保持同一协议。同 ref 再 open 是独立 handle；close 幂等，关闭后 read 稳定失败。arrays/readers 及 Rust 借用不得超出 handle 生命周期；先释放借用再关闭 mapping。拒绝 schema/metadata/profile 或绑定不符及超预算输入，不把 A 的内存 decoder 当作外来 IPC 业务导入验证器。
+
+写入沿现有临时文件和原子 rename，去掉为确认成功而整份读回。实际消费者读取时的校验保留。Rust 不接路径/文件系统；Python/adapter buffer ownership、C Stream 借用和 mmap 保留期必须在实际调用中成立。使用标准 safe API，不能因接 mmap 放开 Rust unsafe 政策或绕过架构守卫。
+
+root/symlink 边界、普通 I/O 错误、协作并发和 crash 保留；按 ADR 0012 不建设同 euid 恶意换名的 broker、隔离 service、持久发布状态机或额外证据机制。
+
+## 3. 引用、事务与恢复 owner
+
+强引用沿 Preview → T1 Attempt 的真实 owner 转移；正式引用只绑定业务 BaselineHead，旧 head 与无强引用对象按 TTL。最后一个强引用释放与 TTL 登记/触达在同一事务；所有强引用释放且无未过期 TTL 保护才可清理。复用先登记保护再检查文件；lookup 对过期条目拒绝命中。
+
+**Head 事务落点是归档，不是 Submit。** DC42 和 Business Lifecycle Contract §5 对应 `application/archive/start.py::start_archive` 的 `save_archived_node_and_cas_head`；`submission/finalize_transaction.py` 只结束 Submit、释放冻结引用，不移动业务 Head。P6 旧措辞已在 `0484b36f14` 订正。正式引用切换与 Archive Head CAS/业务结果同事务；失败不能留下前缀，合法重放不重复改变引用。初始化与当前 head 的精确 commit 回填也要具有正确 owner。归档事务不能新增物化、Repository import 或长文件读取；缓存丢失不能迫使归档重新计算业务数据。
+
+恢复边界不重新选择来源：
+
+| 状态 | 处理 |
+| --- | --- |
+| T1 前上传侧 | 重新 Preview，从 SourcePackage 重算 |
+| T1 后、PREPARED 前 | 冻结文件缺失/损坏稳定失败，不从 parent、新 ruleset 或 SourcePackage 重建，不前移 main |
+| PREPARED 后 | 复用已冻结导入包及 raw SHA，沿既有 Submit 恢复 |
+| 已提交派生副本 | 读对应精确 Dolt commit，按绑定业务摘要核验后回填；不能读当前 main 代替 |
+
+owning 文档已在 C 设计准备中同步：Canonical Storage `3.7.0` §5 以本节目标替换旧“仅 Preview/Attempt pin”和泛化 source 重建文字；Snapshot Table Access、Snapshot Materialization 明确分开 raw Parquet/internal canonical IPC/客户端 Parquet。C 新角色仍须独立核对实际接线与证据，文档不表示产品已完成。直接修改唯一 control DB 基线 schema，不建迁移/双读。不要将缓存索引缺失提升成新的 durable evidence 状态机。
+
+## 4. 容量校准与 D 前置
+
+在本节真实 kernel/codec/store 上测 canonical 列/行、payload/buffers、IPC file bytes、writer/adapter 复制与临时文件峰值。复用既有输入，按已批准范围做有限校准；不每轮重生成合成输入、跑全旅程或接管 CT108 基准。
+
+FULL 校准按实际同时存活项给出峰值：两侧结果、输入与 parser buffers、排序/filter、IPC 输出与边界复制、当前 operation 打开的 baseline/Attempt mmap、发布前 staging。区分 reservation、实际 RSS、page cache/cgroup 与磁盘；同 mapping 共享引用只预约一次，未打开的全局历史文件不计本次 RAM。所有值注明输入、提交、节点、口径和限制。
+
+D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve 方案，满足 `M <= envelope - reserve`，说明增长前拒绝、单表超限及 FULL 重叠行为。06 的 32 GiB 不是已批准生产 envelope；未知值不填成通过。若实际结果不足以收口，报告具体缺口与方案给 Owner，暂停依赖它的 D 接线，继续不依赖缺口的已授权工作。
+
+## 5. 验证与完成条件
+
+先冻结每个不变量的一个 owner，沿现有 storage/SQLite/Submit/Archive 测试补真实语义，不重复三层矩阵：
+
+- storage：独立 reopen、幂等 close/closed read、借用释放、raw SHA/profile/metadata/绑定拒绝、stream error 无可发布产物、普通 I/O 与真实文件系统原子写入。
+- control DB：共享 refs/强引用/TTL expiry、最后释放触达、当前 head 引用及 Archive CAS 原子性/失败/重放；复用现有 protection/cleanup 行为，不穷举内部 syscall。
+- 恢复：上述四种状态和 exact commit，沿现有 Snapshot artifact faults 与 Submit T1/PREPARED owner；generic lease/CAS/recovery 不另造框架。
+- 容量：实际 IPC/FULL 口径及拒绝边界；EOF/cancel-before-publish 的真实 worker 验证移交 D，不能只凭 store mock 宣称已证明。
+
+C 的 FULL 校准使用真实 B → A → store 的双侧数据、打开句柄与临时重叠，报告注明尚未接 worker 的范围；D 接线后复核真实 worker 峰值与预约偏差。恢复记录区分 C 的实际 store/精确 commit 回填能力、既有 Submit 冻结 owner，以及 D 尚待完成的生产 IPC 路由，不将 seeded 组件测试升级为 application 端到端证据。
+
+阶段内生产可达性：按 `tests/architecture_baseline.py` 既有“explicit, reviewed justification in the same diff”规则，依据 06 实际 gate 报告明确暂记下列五项。它们服务已批准的 D consumer，没有独立的未确认业务需求；实施者须在同一 baseline diff 写明理由和 D 关闭点，由 C 独立审核核对实际输出与精确列表。
+
+| 暂记模块 | 已确认 consumer / D 关闭点 |
+| --- | --- |
+| `gateway_backend.application.canonical_metadata.table_access` | Preview/History exact-commit 规范表读取和回填入口 |
+| `gateway_backend.capabilities.snapshot_materialization.canonical_store` | 生产规范表 IPC writer/handle，承接 Preview/History/Submit 绑定 |
+| `gateway_backend.capabilities.snapshot_materialization.native` | 上传侧 SQL 物化与 filtered catalog/composite 的 Arrow 入口 |
+| `gateway_backend.capabilities.snapshot_materialization.repository_arrow` | 精确 commit 的真实 Repository Arrow 列式适配 |
+| `gateway_backend.capabilities.storage_projection.native` | 上传和 exact-commit 的规范投影入口 |
+
+D 接入真实 consumer 后删除对应条目，不能留到 S2b exit。此决定不允许 import-rule/cycle 例外、通配 unreachable 项或伪造生产 import。实际架构 gate 还暴露通用 layer 规则未表达已批准的 B/C native caller；按 [Rust policy v4 §4](../policies/rust-safety-and-performance-policy.md#4-core-and-adapter-boundary)将三个精确模块/入口纳入正式规则并验证拒绝其他 owner，不通过 baseline 或忽略 guard 放行。core 测试 fixture 改编译期 include，不放宽 production core 无 IO 的约束。
+
+日常在 06 clean、已提交 worktree 做受影响 focused/Contract/SQLite/filesystem integration，遵守离线缓存、节点占用和日志规则；本节最终候选按实际 Python/Rust/镜像边界完成必要静态与容器检查。04 完整阶段门禁及 t1–t4 正确性仍留给最终 S2b 候选；跨节点结果不作 carried。C handoff 必须含固定代码、API/消费者、实际证据、容量报告与 D 尚待决定项，经本节新审核者独立 GO 后才转 D。
+
+## 6. 新角色执行交接
+
+本节已创建 `/root/s2b_c_impl`（GPT-6.1-Sol/high）与 `/root/s2b_c_review`（GPT-6.1-Sol/max），均为全新上下文。实施者拥有产品/测试及 C handoff、容量校准报告；审核者拥有 C 独立审核报告，原则上不改产品/测试；root 拥有本任务、DC、总体计划与 owning 文档。明确小问题可由两角色直接闭环，额外角色或实质设计阻塞仍交 Owner。
+
+实施者先读取 B 最终 handoff 与交付审核，取得 06 自身节点占用，再使用本节 clean、已提交 worktree；审核者在新的只读 detached worktree 审码，两者不复用 B 的角色上下文。不修改 B 保留的证据或 A 的工作区。
+
+源码同步沿用 B 已审并成功执行的外置脚本结构（CT201 `/tmp/s2b-b-publish-source.sh`、`/tmp/s2b-b-sync-resume.sh`，具体成功日志由 B handoff 引用）。为 C 显式调整任务路径、ref 和占用 owner，由审核者核对一次，不重新拼装复杂内联 SSH。previous 读取目标 worktree 实际 HEAD，不能用共享 main 的 `HEAD~1` 推断；candidate 先固定为完整 SHA，以任务自有 `refs/codex/<任务>-transfer/<fullsha>` 打包，bundle 的 advertised ref、校验和与 fetch 使用同一组参数。不能要求其他会话暂停 main 提交来保障同步。先独立检查同步实际 exit 0 与目标 clean HEAD，再发起测试；工具返回非零不会自动阻止下一工具调用，调用者必须显式停止。失败日志保留，按 DC68/DC80 最小诊断和独立复核，不循环试错。

@@ -6,6 +6,7 @@ import pytest
 from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserDiagnosticCode
 from tests.support.table_access_sql import parse_text, tiny_budgets
 
+
 RESOURCE_LIMIT_CASES = (
     (
         "max_tables_per_source",

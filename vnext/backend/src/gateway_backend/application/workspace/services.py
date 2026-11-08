@@ -39,6 +39,8 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.store import OperationStore, RecordNotFound
 
+from gateway_backend.application.workspace.ports import WorkspaceCreateTransaction
+
 PERMISSION_WORKSPACE_READ = "workspace_read"
 PERMISSION_UPLOAD_SUBMIT = "upload_submit_workspace"
 
@@ -52,16 +54,21 @@ def create_or_get_workspace(
     *,
     context: IdentityContext,
     scope_resolution: ScopeResolutionPort,
-    repository: WorkspaceRepository,
+    transaction: WorkspaceCreateTransaction,
     created_at: datetime,
 ) -> CreateOrGetWorkspaceResult:
     assert_permission(context, PERMISSION_WORKSPACE_READ)
     resolved = scope_resolution.resolve(context)
     scope = scope_from_context(context)
+    repository = transaction.workspace
     existing = repository.find_open_by_scope(scope)
     if existing is not None:
         assert_exact_scope(existing, context)
-        return CreateOrGetWorkspaceResult(workspace=existing, replay=True)
+        return CreateOrGetWorkspaceResult(
+            workspace=existing,
+            replay=True,
+            occupancy=transaction.submission.get_workspace_occupancy(existing.workspace_id),
+        )
 
     workspace_id = f"ws-{uuid4()}"
     workspace = Workspace(
@@ -80,7 +87,7 @@ def create_or_get_workspace(
     )
     assert_open_uniqueness(existing, scope=scope, workspace_id=workspace_id)
     saved = repository.save_workspace(workspace, expected_version=0)
-    return CreateOrGetWorkspaceResult(workspace=saved, replay=False)
+    return CreateOrGetWorkspaceResult(workspace=saved, replay=False, occupancy=None)
 
 
 def accept_upload(

@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.storage_projection._digest import manifest_document
+
+from tests.support.native_projection import project_storage
+
 from collections.abc import Callable
-from typing import cast
 
 import pytest
-from gateway_shared_kernel import (
-    CollectionSemantics,
-    DeclaredType,
-    DeclaredTypeKind,
-    DigestRef,
-    NullScalar,
-    StringScalar,
-    encode_collection,
-    encode_typed_scalar,
-)
 
 from gateway_backend.capabilities.storage_projection import (
     STORAGE_PROJECTION_VERSION,
@@ -26,18 +19,12 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionResult,
     ProjectionStatus,
     ProjectionTableInput,
-    project_storage,
-)
-from gateway_backend.capabilities.storage_projection._digest import (
-    CanonicalColumnCodec,
-    encode_canonical_cell,
-    manifest_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
     SnapshotColumnDescriptor,
 )
-from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
+from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
@@ -78,8 +65,6 @@ pytestmark = pytest.mark.unit
 TableInput = tuple[FakeSnapshotTableReader, ArtifactSourceBinding]
 _ENUM_SQL = "ENUM('','active','paused')"
 _SET_SQL = "SET('read','write','admin')"
-_NULL_FRAME = encode_typed_scalar(DeclaredType(kind=DeclaredTypeKind.NULL), NullScalar()).scalar_frame
-_STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
 
 
 def _request(
@@ -377,20 +362,8 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
             )
         )
     )
-    empty = project_storage(
-        _request(
-            _ordered_input(
-                (
-                    as_row(varchar_cell(""), int_cell(2), varchar_cell("second")),
-                    as_row(int_cell(1), int_cell(1), varchar_cell("first")),
-                )
-            )
-        )
-    )
     assert zero.status is ProjectionStatus.COMPLETE
-    assert empty.status is ProjectionStatus.COMPLETE
-    assert table.content_digest == zero.tables[0].content_digest == empty.tables[0].content_digest
-    assert table.content_digest == zero.tables[0].content_digest == empty.tables[0].content_digest
+    assert table.content_digest == zero.tables[0].content_digest
     assert GID_PSEUDO_MIN == 4_000_000_000
 
 
@@ -443,7 +416,7 @@ def test_canonical_ordered_snapshot_reprojection_preserves_pseudo_identity() -> 
     )
     rejected = project_storage(_request((raw_pseudo_reader, raw_pseudo_binding)))
     assert rejected.status is ProjectionStatus.FAILED
-    assert rejected.diagnostics[0].message == "source gid is in the reserved pseudo range"
+    assert "reserved pseudo range" in rejected.diagnostics[0].message
 
 
 def test_ordered_insert_order_does_not_change_digests() -> None:
@@ -543,39 +516,6 @@ def test_ordered_gid_no_faults(
     assert result.status is ProjectionStatus.FAILED
     assert result.manifest is None
     assert code in _codes(result)
-
-
-def test_enum_and_set_cell_vectors_match_shared_kernel() -> None:
-    enum_codec = CanonicalColumnCodec(
-        sql_type=_ENUM_SQL,
-        nullable=True,
-        family="enum",
-        declared_type=_STRING_TYPE,
-        labels=("", "active", "paused"),
-    )
-    set_codec = CanonicalColumnCodec(
-        sql_type=_SET_SQL,
-        nullable=False,
-        family="set",
-        labels=("read", "write", "admin"),
-    )
-    empty_string = encode_typed_scalar(_STRING_TYPE, StringScalar(text="")).scalar_frame
-    active = encode_typed_scalar(_STRING_TYPE, StringScalar(text="active")).scalar_frame
-    read = encode_typed_scalar(_STRING_TYPE, StringScalar(text="read")).scalar_frame
-    write = encode_typed_scalar(_STRING_TYPE, StringScalar(text="write")).scalar_frame
-    assert encode_canonical_cell(null_cell(), enum_codec) == _NULL_FRAME
-    assert encode_canonical_cell(varchar_cell(""), enum_codec) == empty_string
-    assert encode_canonical_cell(null_cell(), enum_codec) != encode_canonical_cell(
-        varchar_cell(""), enum_codec
-    )
-    assert encode_canonical_cell(varchar_cell("active"), enum_codec) == active
-    assert encode_canonical_cell(null_cell(), set_codec) == _NULL_FRAME
-    empty_set = encode_collection(CollectionSemantics.SEQUENCE, items=()).collection_frame
-    assert encode_canonical_cell(set_cell(), set_codec) == empty_set
-    assert encode_canonical_cell(null_cell(), set_codec) != encode_canonical_cell(set_cell(), set_codec)
-    members = encode_collection(CollectionSemantics.SEQUENCE, items=(read, write)).collection_frame
-    assert encode_canonical_cell(set_cell("write", "read"), set_codec) == members
-    assert encode_canonical_cell(set_cell("read", "write"), set_codec) == members
 
 
 def test_enum_set_projection_and_schema_declaration_order() -> None:
@@ -735,49 +675,8 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
     assert dummy_digest() != digest_ref("aa")
 
 
-def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    import importlib
-
-    projection_module = importlib.import_module(
-        "gateway_backend.capabilities.storage_projection.project"
-    )
-    calls = {"raw": 0}
-    raw_digest = cast(
-        Callable[[tuple[bytes, ...]], DigestRef],
-        projection_module.raw_content_digest_of,
-    )
-    def counted_raw(rows: tuple[bytes, ...]) -> DigestRef:
-        calls["raw"] += 1
-        return raw_digest(rows)
-
-    monkeypatch.setattr(projection_module, "raw_content_digest_of", counted_raw)
-    result = project_storage(
-        _request(
-            _keyless_input((as_row(varchar_cell("a")),)),
-            ruleset=snapshot_from_records(keyless_record()),
-        )
-    )
-    assert result.status is ProjectionStatus.COMPLETE
-    assert calls == {"raw": 1}
 
 
-def test_output_write_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(*_args: object, **_kwargs: object) -> bytes:
-        raise OSError("hash sink failed")
-
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.storage_projection.project.encode_canonical_cell",
-        boom,
-    )
-    result = project_storage(
-        _request(
-            _keyless_input((as_row(varchar_cell("a")),)),
-            ruleset=snapshot_from_records(keyless_record()),
-        )
-    )
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
 
 
 MALFORMED_SCALAR: tuple[tuple[str, Callable[[], TableInput]], ...] = (

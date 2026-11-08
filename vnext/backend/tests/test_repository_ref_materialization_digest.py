@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 from dataclasses import replace
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -12,10 +14,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationStatus,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
-    encode_repository_row,
     map_repository_column,
 )
-from gateway_shared_kernel import NullScalar, SignedIntegerScalar, StringScalar
+from gateway_shared_kernel import NullScalar, SignedIntegerScalar
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     canonical_binding_for_catalog,
@@ -66,16 +67,6 @@ def test_identifier_collision_fails_closed() -> None:
     )
 
 
-def test_tuple_null_and_extra_fields() -> None:
-    table = catalog_table("items", (int_id_column(), text_column("name", 1)))
-    padded = encode_repository_row(table.columns, (1, None), table="items")
-    assert padded.cells[0] == SignedIntegerScalar(decimal="1")
-    assert isinstance(padded.cells[1], NullScalar)
-    extra = encode_repository_row(table.columns, (1, "a", "ignored"), table="items")
-    assert extra.cells == (SignedIntegerScalar(decimal="1"), StringScalar(text="a"))
-    assert extra.diagnostics
-
-
 def test_provider_pads_omitted_nulls() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     streamed = {"items": ((1,),)}
@@ -100,13 +91,9 @@ def test_short_row_fails_read() -> None:
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED
 
 
-def test_unknown_type_family_is_text_fallback() -> None:
-    column = table_column_unknown()
-    mapped = map_repository_column(column)
+def test_unknown_type_family_metadata_is_explicit() -> None:
+    mapped = map_repository_column(table_column_unknown())
     assert mapped.unknown_family is True
-    encoded = encode_repository_row((column,), ("keep-me",), table="items")
-    assert encoded.cells == (StringScalar(text="keep-me"),)
-    assert encoded.diagnostics
 
 
 def table_column_unknown() -> RepositoryColumn:
@@ -230,7 +217,7 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
                 canonical_table=name,
                 row_count=descriptor.row_count,
                 source_schema_digest=descriptor.business_schema_digest,
-                canonical_schema_digest=descriptor.business_schema_digest,
+                canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest,
             )
             for name, descriptor in sorted(descriptors.items())

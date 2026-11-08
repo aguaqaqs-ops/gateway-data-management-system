@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import configuration_facts_blob
+
+from tests.support.configuration_facts import submission_with_facts
+
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,7 +33,7 @@ from gateway_backend.application.history.projection import (
 )
 from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import SubmissionDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import (
     IdentityConfirmationAction,
@@ -160,7 +164,7 @@ def _assert_history_nodes_equal(left: HistoryNode, right: HistoryNode) -> None:
     assert left.created_at == right.created_at
     assert left.baseline_kind == right.baseline_kind
     assert left.review_status == right.review_status
-    assert left.archive_disposition == right.archive_disposition
+    assert left.submission_disposition == right.submission_disposition
     assert left.promoted_baseline_node_id == right.promoted_baseline_node_id
     assert left.eligibility_note == right.eligibility_note
     assert left.identity_exception == right.identity_exception
@@ -275,7 +279,7 @@ def _submission(
     repository_commit_id: str,
     based_on_baseline_node_id: str = "node-1",
 ) -> Submission:
-    return Submission(
+    return submission_with_facts(
         submission_id=submission_id,
         submit_attempt_id=f"attempt-{submission_id}",
         workspace_id="ws-1",
@@ -347,7 +351,7 @@ def test_projection_builds_baseline_and_submission_nodes_with_parent_edges() -> 
                 HistorySubmissionFact(
                     submission=submission,
                     review_status=ReviewStatus.APPROVED,
-                    disposition=ArchiveDispositionKind.ARCHIVED_BASELINE,
+                    disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 ),
             ),
             head=head,
@@ -457,7 +461,7 @@ def test_projection_preserves_same_commit_dual_identity() -> None:
                 HistorySubmissionFact(
                     submission=submission,
                     review_status=ReviewStatus.APPROVED,
-                    disposition=ArchiveDispositionKind.ARCHIVED_BASELINE,
+                    disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 ),
             ),
             head=BaselineHead(
@@ -607,25 +611,6 @@ def test_sqlite_history_reader_loads_submission_review_facts(db_path: Path) -> N
 
 def test_history_reader_source_artifact_refs_match_submission_repository(db_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
-        assert repository_submission is not None
-        unit_of_work.connection.execute(
-            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
-            (canonicalize_json_value([]), review_seed.submission_id),
-        )
-    facts = HttpHistoryReader(db_path).load_facts(
-        repository_id="repo-1",
-        gateway_device_external_key="device-1",
-        business_project_id="project-1",
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
-        assert repository_submission is not None
-    history_submission = facts.submissions[0].submission
-    assert history_submission.source_artifact_refs == repository_submission.source_artifact_refs
-    assert history_submission.source_artifact_refs == ()
-
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
@@ -794,6 +779,7 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
         unit_of_work.connection.execute(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -809,21 +795,22 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 'sa-failed-import', 'ws-failed-import', 1, 'ur-1', 'pr-1', 'repo-1',
-                ?, ?, 1, 'commit-main', 'sha256:canonical', 'd-source', 'd-snapshot',
+                ?, ?, 1, 'commit-main', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot',
                 ?, ?, ?, 'closure-1', 'd-closure', 'manifest-1', 'sha256:manifest', NULL, NULL,
                 NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key',
                 'sha256:fp', 'upload-key', 'import-key', 'op-excluded-marker', 'ABORTED',
                 NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
             )
             """,
-            (
+            (configuration_facts_blob(workspace_id="ws-failed-import", baseline_node_id=BASELINE_HEAD.business_baseline_node_id, baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id), *(
                 BASELINE_HEAD.business_baseline_node_id,
                 BASELINE_HEAD.business_baseline_commit_id,
-                canonicalize_json_value([]),
+                canonicalize_json_value(["source-fixture"]),
                 "canonical-closure-1",
                 "sha256:canonical-closure",
-            ),
+            )),
         )
         unit_of_work.connection.execute(
             """

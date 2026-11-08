@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_fact_faults import (
+    CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
+)
+
+from tests.support.configuration_facts import preview_result_with_facts
+
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -54,7 +60,7 @@ def _seed_upload(
 
 def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation_id: str = "op-read") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-read-1",
         workspace_id=workspace["workspace_id"],
         upload_revision_id=upload["upload_revision_id"],
@@ -135,13 +141,39 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     env.repository.save_preview_result(result)
     bundle_reader = env.bundle_reader
     assert isinstance(bundle_reader, InMemoryBundleReader)
-    bundle_reader.register(result.bundle_artifact_id, "preview.bundle", BUNDLE_BYTES)
+    bundle_reader.register(result.bundle_artifact_id, "preview.tar", BUNDLE_BYTES, bundle_digest=result.digests.bundle_digest)
     response = env.client.get(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}/bundle",
         headers=env.auth_headers(),
     )
     assert response.status_code == 200
     assert response.content == BUNDLE_BYTES
-    assert "preview.bundle" in response.headers["content-disposition"]
+    assert "preview.tar" in response.headers["content-disposition"]
     assert "bundle-artifact-1" not in response.text
     assert str(env.db_path) not in response.text
+
+
+@pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
+def test_preview_point_read_filters_workspace_before_configuration_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    env = create_workspace_http_environment(tmp_path, extra_sessions={
+        "other-reader": make_identity(actor_id="other-actor"),
+        "denied": make_identity(permissions=frozenset({"preview_workspace"})),
+    })
+    workspace = _seed_workspace(env.client, env.auth_headers())
+    upload = _seed_upload(env.client, env.auth_headers(), workspace)
+    result = _preview_result(workspace, upload)
+    env.repository.save_preview_result(result)
+    message = corrupt_configuration_body(env.db_path, kind="preview", target_id=result.preview_result_id, fault=fault)
+    other_headers = {"Authorization": "Bearer other-reader"}
+    other = _seed_workspace(env.client, other_headers)
+    own_url = f"/v1/workspaces/{other['workspace_id']}/preview-results/{result.preview_result_id}"
+    target_url = f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}"
+    assert env.client.get(own_url, headers=other_headers).status_code == 404
+    assert env.client.get(target_url, headers=other_headers).status_code == 404
+    with forbid_configuration_object_reads(monkeypatch):
+        assert env.client.get(target_url, headers={"Authorization": "Bearer denied"}).status_code == 403
+    with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
+        with pytest.raises(ValueError, match=message):
+            strict_client.get(target_url, headers=env.auth_headers())

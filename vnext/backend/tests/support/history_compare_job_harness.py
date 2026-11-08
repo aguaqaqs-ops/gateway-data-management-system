@@ -91,7 +91,7 @@ def net_cfg_catalog_table() -> RepositoryCatalogTable:
             RepositoryColumn(name="link_no", ordinal=1, scalar_type="INT", nullable=False),
             RepositoryColumn(name="value", ordinal=2, scalar_type="VARCHAR(8)", nullable=True),
         ),
-        primary_key=(),
+        primary_key=("board", "link_no"),
     )
 
 

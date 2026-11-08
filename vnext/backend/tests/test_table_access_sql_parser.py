@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 from gateway_backend.capabilities.table_access.contracts import ParseStatus
 from tests.support.table_access_fixtures import load_expected, load_text, parse_result_from_expected
-from tests.support.table_access_sql import consumed_rows, parse_text
+from tests.support.table_access_sql import (
+    consumed_rows,
+    parse_text,
+)
+
 
 SQL_GOLDEN_CASES = (
     "sql/valid/s1-minimal-create-insert",
@@ -67,9 +71,9 @@ def test_sql_golden_parser_matches_expected(case_dir: str) -> None:
         else:
             assert got.reader is not None
             assert tuple(got.reader.iter_rows()) == tuple(want.reader.iter_rows())
-    assert [(item.code, item.message, item.byte_offset) for item in actual.diagnostics] == [
-        (item.code, item.message, item.byte_offset) for item in expected.diagnostics
-    ]
+    assert [
+        (item.code, item.table, item.byte_offset) for item in actual.diagnostics
+    ] == [(item.code, item.table, item.byte_offset) for item in expected.diagnostics]
     if actual.status is ParseStatus.FAILED:
         assert all(table.reader is None for table in actual.tables)
 

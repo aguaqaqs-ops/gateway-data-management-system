@@ -56,6 +56,20 @@ def _bound(sql: str) -> BoundSnapshotInput:
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
 
 
+def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
+    from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
+    from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+    from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext
+    from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+    raw = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
+    assert raw.snapshot is not None and raw.table_set is not None
+    projected = project_canonical_arrow_table_set(raw.table_set, migrated_table_ruleset_snapshot())
+    result = materialize_canonical_snapshot(raw.snapshot, projected.tables, artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()), repository_id="replacement-fixture")
+    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+
+
 def _replacement(
     before_sql: str,
     current_sql: str,
@@ -157,15 +171,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
     store = InMemoryArtifactStore()
 
     def bound(sql: str) -> BoundSnapshotInput:
-        result = materialize_sql(
-            sql,
-            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-            artifact_store=store,
-        )
-        assert result.snapshot is not None
-        assert result.summary is not None
-        assert result.table_set is not None
-        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+        return _artifact_bound(sql, store)
 
     before = bound(
         "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, build VARCHAR(16), no INT); "
@@ -183,6 +189,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None
@@ -196,6 +203,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         pair.records_closure,
         before=before,
         current=current,
+        store=store, repository_id="replacement-fixture",
     )
     bundle = assemble_bundle(
         BundleAssemblyInput(
@@ -234,15 +242,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
     store = InMemoryArtifactStore()
 
     def bound(sql: str) -> BoundSnapshotInput:
-        result = materialize_sql(
-            sql,
-            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-            artifact_store=store,
-        )
-        assert result.snapshot is not None
-        assert result.summary is not None
-        assert result.table_set is not None
-        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+        return _artifact_bound(sql, store)
 
     before = bound(
         "CREATE TABLE first_table (id INT NOT NULL PRIMARY KEY, value VARCHAR(8)); "
@@ -264,6 +264,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None
@@ -274,6 +275,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         pair.records_closure,
         before=before,
         current=current,
+        store=store, repository_id="replacement-fixture",
         include_all_tables=True,
     )
     result = assemble_bundle(
@@ -312,15 +314,7 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
     store = InMemoryArtifactStore()
 
     def bound(sql: str) -> BoundSnapshotInput:
-        result = materialize_sql(
-            sql,
-            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-            artifact_store=store,
-        )
-        assert result.snapshot is not None
-        assert result.summary is not None
-        assert result.table_set is not None
-        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+        return _artifact_bound(sql, store)
 
     before = bound(
         "CREATE TABLE shared_table (id INT NOT NULL PRIMARY KEY); "
@@ -342,6 +336,7 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None

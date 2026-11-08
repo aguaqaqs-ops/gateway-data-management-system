@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 from dataclasses import dataclass, fields, replace
 from itertools import combinations, permutations
 from unittest.mock import patch
@@ -99,7 +101,7 @@ def _plan_with_equal_storage_facts(sql: str) -> ComparisonPlan:
             ComparisonStorageFacts(
                 storage_rule_view=view,
                 source_schema_digest=descriptor.business_schema_digest,
-                canonical_schema_digest=descriptor.business_schema_digest,
+                canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest,
                 storage_projection_version=STORAGE_PROJECTION_VERSION,
             ),

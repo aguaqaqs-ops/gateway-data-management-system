@@ -31,7 +31,6 @@ AUTHORITATIVE_ORDER = (
     "backend",
     "repository_service",
 )
-RUST_TEST_EXCLUDES = "--exclude gateway-compute-python --exclude gateway-compute-python-impl"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -67,7 +66,6 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "rust/Cargo.lock",
         "rust/rust-toolchain.toml",
         "rust/gateway-compute-python/Cargo.toml",
-        "rust/gateway-compute-python-impl/Cargo.toml",
         "rust/gateway-compute-core/Cargo.toml",
         "rust/gateway-shared-kernel/Cargo.toml",
         "rust/gateway-architecture-check/Cargo.toml",
@@ -436,7 +434,7 @@ def test_run_tests_rust_package_runs_fmt_clippy_and_test_outside_worktree(
     assert [call[1] for call in calls] == [
         "fmt --all --check",
         "clippy --workspace --locked --offline --all-targets -- -D warnings",
-        f"test --workspace --locked --offline {RUST_TEST_EXCLUDES}",
+        "test --workspace --locked --offline",
     ]
     assert {call[0] for call in calls} == {str(repo_root / "vnext" / "rust")}
     assert {call[2] for call in calls} == {str(cargo_target)}

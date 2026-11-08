@@ -382,6 +382,7 @@ def _build_prepared_attempt(
         for _role, binding in sorted(upload.source_artifacts.items(), key=lambda item: item[0].value)
     )
     return SubmitAttempt(
+        configuration_facts=preview.canonical.configuration_facts,
         submit_attempt_id=submit_attempt_id,
         workspace_id=command.workspace_id,
         workspace_generation=validation.workspace.generation,

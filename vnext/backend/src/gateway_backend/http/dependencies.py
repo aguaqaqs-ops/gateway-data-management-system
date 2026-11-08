@@ -20,6 +20,7 @@ from gateway_backend.application.submission.ports import (
     SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.application.workspace.ports import (
@@ -61,10 +62,12 @@ class ReadOnlyControlDbUnitOfWorkFactory(Protocol):
 
 @runtime_checkable
 class SubmissionReaderPort(Protocol):
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         """Load one SubmitAttempt."""
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         """Load one Submission."""
 
 
@@ -100,8 +103,8 @@ class FailClosedArtifactRefLookup:
 
 @runtime_checkable
 class BundleReaderPort(Protocol):
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
-        """Return logical bundle name and bounded byte stream."""
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
+        """Finish all preflight checks before returning an owned bounded tar stream."""
 
 
 class OpenAdmissionGate:
@@ -198,11 +201,13 @@ class FailClosedOperatorRecoveryPort:
 
 
 class FailClosedSubmissionReader:
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         del submit_attempt_id
         return None
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         del submission_id
         return None
 
@@ -324,13 +329,15 @@ class ReadOnlySubmissionStore:
     def __init__(self, unit_of_work_factory: ReadOnlyControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+            return unit_of_work.submission.get_submit_attempt(submit_attempt_id, workspace_id=workspace_id, repository_id=repository_id)
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submission(submission_id)
+            return unit_of_work.submission.get_submission(submission_id, workspace_id=workspace_id, repository_id=repository_id)
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -364,7 +371,8 @@ class ArchiveRequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        if path not in BODY_LIMIT_POST_PATHS:
+        is_closure = path.startswith("/v1/submissions/") and path.endswith("/closure") and path.count("/") == 4
+        if path not in BODY_LIMIT_POST_PATHS and not is_closure:
             await self.app(scope, receive, send)
             return
 

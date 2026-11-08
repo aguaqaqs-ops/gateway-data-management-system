@@ -1,4 +1,4 @@
-"""Shared history-compare local oracle helpers for unit and compose gates."""
+"""Production-derived history comparison checks for fixtures and Compose gates."""
 
 from __future__ import annotations
 
@@ -24,9 +24,8 @@ from gateway_backend.capabilities.table_rules import comparison_rule_set, migrat
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
-from tests.support.history_compare_job_harness import REPOSITORY_ID
 from tests.support.repository_ref_materialization import (
-    FakeRepositoryTableAccessProvider,
+    FakeRepositoryTableAccessProvider, _bind_fixture_tables,
 )
 from tests.support.canonical_metadata import metadata_for_catalog
 
@@ -45,7 +44,7 @@ def materialize_bound_snapshot(
     )
     canonical_binding = canonical_binding_for_commit(metadata, runtime_ruleset=ruleset)
     request = RepositoryRefMaterializationRequest(
-        repository_ref=RepositoryRef(repository_id=REPOSITORY_ID, ref=commit_id),
+        repository_ref=RepositoryRef(repository_id=provider.catalog.repository_id, ref=commit_id),
         provider=provider,
         ruleset=ruleset,
         canonical_binding=canonical_binding,
@@ -55,7 +54,7 @@ def materialize_bound_snapshot(
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=artifact_store,
     )
-    result = materialize_repository_ref(request)
+    result = materialize_repository_ref(_bind_fixture_tables(request, provider))
     assert result.status.value == "COMPLETE"
     return _bound_from_materialization(result, canonical_binding=canonical_binding)
 

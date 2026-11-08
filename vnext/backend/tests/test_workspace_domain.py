@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 from datetime import UTC, datetime
 
 import pytest
@@ -226,7 +228,7 @@ def test_derive_read_model_label_reflects_current_pointers() -> None:
 
 def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-1",
         workspace_id="ws-1",
         upload_revision_id="ur-1",

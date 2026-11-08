@@ -1,5 +1,8 @@
 """Public surface of the Storage Projection capability."""
 
+from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+from gateway_backend.capabilities.storage_projection.arrow import project_canonical_arrow_table_set
+
 from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_CONTRACT,
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
@@ -44,12 +47,7 @@ from gateway_backend.capabilities.storage_projection.package import (
 )
 from gateway_backend.capabilities.storage_projection.import_replay import (
     ImportReplayError,
-    build_import_projection_snapshots,
     render_repository_import_schema_replay_sql,
-)
-from gateway_backend.capabilities.storage_projection.project import (
-    project_canonical_table_set,
-    project_storage,
 )
 from gateway_backend.capabilities.storage_projection.publish import (
     PublicationError,
@@ -59,7 +57,12 @@ from gateway_backend.capabilities.storage_projection.publish import (
     publish_canonicalization_manifest,
 )
 
+from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
+
 __all__ = [
+    "compute_schema_digest",
+    "project_canonical_arrow_table_set",
+    "project_arrow_table",
     "CANONICALIZATION_MANIFEST_CONTRACT",
     "CANONICALIZATION_MANIFEST_MEDIA_TYPE",
     "MANIFEST_ENTRY_NAME",
@@ -94,14 +97,11 @@ __all__ = [
     "RepositoryImportTable",
     "WrittenImportPackage",
     "ImportReplayError",
-    "build_import_projection_snapshots",
     "build_repository_import_package",
     "canonicalization_manifest_from_bytes",
     "durable_manifest_bytes",
     "open_canonicalization_manifest",
     "open_repository_import_package",
-    "project_canonical_table_set",
-    "project_storage",
     "publish_canonicalization",
     "publish_canonicalization_manifest",
     "render_repository_import_schema_replay_sql",
@@ -109,3 +109,4 @@ __all__ = [
     "repository_import_manifest_bytes",
     "validate_repository_import_package",
 ]
+

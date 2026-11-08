@@ -492,3 +492,202 @@ def test_resolution_replay_rejects_changed_binding_fields(
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 1, tzinfo=UTC),
         )
+
+
+def test_time_acceptance_and_revoke_preserve_detected_facts_and_subject_changes_expire_acceptance(db_path: Path) -> None:
+    from gateway_backend.application.archive.queries import preview_archive_plan
+    from gateway_backend.domain.archive.models import affirmative_resolution_action
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+    seed = seed_approved_archive_candidate(db_path)
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, modified=replace(facts.modified, generated_time=missing)))
+    seed = refresh_archive_seed(seed)
+    def preview() -> Any:
+        return preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref, unit_of_work_factory=_uow_factory(db_path))
+    anomaly = preview().anomalies[0]
+    command = AppendArchiveAnomalyResolutionCommand(seed.archiver_context, "accept-time", BASELINE_HEAD.business_baseline_node_id,
+        BASELINE_HEAD.baseline_head_version, seed.selected_ref, seed.candidate_set_digest, anomaly.subject_digest,
+        0, affirmative_resolution_action(anomaly.subject_kind), "source has no generation time; verified independently",
+        anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest)
+    first = append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    accepted = preview().anomalies[0]
+    assert accepted.detected_status == anomaly.detected_status and accepted.details == anomaly.details
+    assert accepted.resolution_status == "ACCEPTED" and accepted.latest_sequence == first.sequence
+    with pytest.raises(IdempotencyConflict):
+        append_archive_anomaly_resolution(command=replace(command, context=replace(command.context, actor_id="another-archiver")), unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    revoke = replace(command, idempotency_key="revoke-time", expected_sequence=first.sequence,
+        action=ArchiveAnomalyResolutionAction.REVOKE, reason="withdraw the prior acceptance")
+    append_archive_anomaly_resolution(command=revoke, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    assert preview().anomalies[0].resolution_status == "REVOKED"
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, modified=replace(facts.modified, sql_source_digest="sha256:" + "f" * 64)))
+    seed = refresh_archive_seed(seed)
+    fresh = preview().anomalies[0]
+    assert fresh.subject_digest != anomaly.subject_digest and fresh.resolution_status == "UNRESOLVED"
+    # Old successful append is a replay, without rerunning new snapshot gates.
+    assert append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC)).replay
+
+
+def test_same_issue_on_both_sides_has_independent_resolution_subjects(db_path: Path) -> None:
+    import json
+
+    from gateway_backend.application.archive.errors import ArchiveAnomalyUnresolved
+    from gateway_backend.application.archive.queries import preview_archive_plan
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+
+    seed = seed_approved_archive_candidate(db_path)
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, initial=replace(facts.initial, generated_time=missing),
+            modified=replace(facts.modified, generated_time=missing)))
+    seed = refresh_archive_seed(seed)
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path))
+    issues = {item.side: item for item in preview.anomalies if item.issue_code == "GENERATION_TIME_MISSING"}
+    assert set(issues) == {"INITIAL", "MODIFIED"}
+    assert issues["INITIAL"].subject_digest != issues["MODIFIED"].subject_digest
+    assert len({(item.subject_kind, item.issue_code, item.target_submission_id, item.target_candidate_digest)
+        for item in issues.values()}) == 1
+    commands = {
+        side: AppendArchiveAnomalyResolutionCommand(
+            context=seed.archiver_context, idempotency_key=f"accept-{side}",
+            expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            selected=seed.selected_ref, candidate_set_digest=seed.candidate_set_digest,
+            subject_digest=issue.subject_digest, expected_sequence=0,
+            action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_QUALITY,
+            reason=f"the fixture has no generation time on {side}; accept this diagnostic",
+            subject_kind=issue.subject_kind, issue_code=issue.issue_code,
+            target_submission_id=issue.target_submission_id, target_candidate_digest=issue.target_candidate_digest,
+        )
+        for side, issue in issues.items()
+    }
+    now = datetime(2024, 7, 1, tzinfo=UTC)
+    with pytest.raises(BaselineVersionConflict, match="subject digest does not match current anomaly"):
+        append_archive_anomaly_resolution(
+            command=replace(commands["MODIFIED"], idempotency_key="forged-subject", subject_digest="sha256:" + "0" * 64),
+            unit_of_work_factory=_uow_factory(db_path), now=now)
+    # Resolve MODIFIED first: the earlier INITIAL issue has the same four envelope fields.
+    for side in ("MODIFIED", "INITIAL"):
+        result = append_archive_anomaly_resolution(command=commands[side], unit_of_work_factory=_uow_factory(db_path), now=now)
+        assert result.sequence == 1
+        with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+            event = uow.archive.get_resolution_event(seed.repository_id, issues[side].subject_digest, result.sequence)
+            assert event is not None
+            assert json.loads(event.subject_payload_json)["side"] == side
+    revoked = append_archive_anomaly_resolution(
+        command=replace(commands["MODIFIED"], idempotency_key="revoke-modified", expected_sequence=1,
+            action=ArchiveAnomalyResolutionAction.REVOKE, reason="withdraw only MODIFIED acceptance"),
+        unit_of_work_factory=_uow_factory(db_path), now=now)
+    assert revoked.sequence == 2
+    current = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path))
+    current_by_side = {item.side: item for item in current.anomalies if item.issue_code == "GENERATION_TIME_MISSING"}
+    assert (current_by_side["INITIAL"].resolution_status, current_by_side["INITIAL"].latest_sequence) == ("ACCEPTED", 1)
+    assert (current_by_side["MODIFIED"].resolution_status, current_by_side["MODIFIED"].latest_sequence) == ("REVOKED", 2)
+    assert all(current_by_side[side].details == issue.details for side, issue in issues.items())
+    confirmation = append_selection_confirmation(seed)
+    with pytest.raises(ArchiveAnomalyUnresolved):
+        start_archive_for_seed(seed, confirmation_sequence=confirmation,
+            anomaly_resolution_sequences=((issues["INITIAL"].subject_digest, 1), (issues["MODIFIED"].subject_digest, 2)))
+
+
+@pytest.mark.parametrize("column", ["subject_payload_json", "issue_code", "target_candidate_digest"])
+def test_stored_resolution_corruption_is_rejected_by_replay_and_start(db_path: Path, column: str) -> None:
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import append_anomaly_resolution, prepare_dual_sibling_start
+    dual = seed_approved_dual_sibling_archive(db_path)
+    confirmation, resolution = prepare_dual_sibling_start(dual)
+    with ControlDbUnitOfWork(db_path) as uow:
+        value = json.dumps({}) if column == "subject_payload_json" else "altered" if column == "issue_code" else "sha256:" + "0" * 64
+        uow.connection.execute(f"UPDATE archive_anomaly_resolution_events SET {column} = ?", (value,))
+    with pytest.raises(ArchiveIntegrityFailure):
+        append_anomaly_resolution(dual.primary, anomaly_subject_digest=dual.anomaly_subject_digest,
+            target_submission_id=dual.target_submission_id, target_candidate_digest=dual.target_candidate_digest)
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive_for_seed(dual.primary, confirmation_sequence=confirmation,
+            anomaly_resolution_sequences=((dual.anomaly_subject_digest, resolution),))
+
+
+def test_unknown_source_acceptance_freezes_all_group_members_and_does_not_explain_them(db_path: Path) -> None:
+    import json
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    from gateway_backend.application.archive.queries import get_archive_candidates, preview_archive_plan
+    from gateway_backend.application.archive.contracts import ArchiveSelectedRef
+    from gateway_backend.domain.submission.review import ReviewAction
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import TS_ARCHIVE
+    from tests.test_review_transactions import _seed_additional_pending_review_submission, _apply_review, _apply_command
+    seed = seed_approved_archive_candidate(db_path)
+    first = start_archive_for_seed(seed, confirmation_sequence=append_selection_confirmation(seed))
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        source = uow.submission.get_submission(seed.submission_id)
+    assert source is not None
+    for sid, modified_digit in (("source-a", "7"), ("source-b", "9")):
+        # Stage the original small fixture before binding it to the archived Head.
+        with ControlDbUnitOfWork(db_path) as uow:
+            uow.connection.execute("UPDATE baseline_head_records SET node_id = ?, optimistic_version = ? WHERE repository_id = ?",
+                (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.baseline_head_version, seed.repository_id))
+        pending = _seed_additional_pending_review_submission(db_path, submission_id=sid,
+            device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+        with ControlDbUnitOfWork(db_path) as uow:
+            submission = uow.submission.get_submission(sid)
+            assert submission is not None
+            facts = submission.configuration_facts
+            facts = replace(facts, baseline_is_initial=False, baseline_source_submission_id=seed.submission_id,
+                business_baseline_node_id=first.baseline_node_id, business_baseline_commit_id=first.baseline_commit_id,
+                baseline_head_version=first.baseline_head_version, initial_origin="UPLOADED",
+                baseline_content_identity=source.configuration_facts.modified.content_identity,
+                initial=replace(facts.initial, content_identity=replace(facts.initial.content_identity, canonical_state_digest="sha256:" + "8" * 64)),
+                modified=replace(facts.modified, content_identity=replace(facts.modified.content_identity, canonical_state_digest="sha256:" + modified_digit * 64)))
+            blob = canonicalize_json_value(facts.to_document())
+            uow.connection.execute("UPDATE baseline_head_records SET node_id = ?, optimistic_version = ? WHERE repository_id = ?",
+                (first.baseline_node_id, first.baseline_head_version, seed.repository_id))
+            uow.connection.execute("""UPDATE submission_records SET based_on_baseline_node_id = ?, business_baseline_commit_id = ?,
+                canonical_business_digest = ?, configuration_facts = ? WHERE submission_id = ?""",
+                (first.baseline_node_id, first.baseline_commit_id, facts.modified.content_identity.canonical_state_digest, blob, sid))
+            uow.connection.execute("""UPDATE submit_attempt_records SET business_baseline_node_id = ?, business_baseline_commit_id = ?,
+                baseline_head_version = ?, canonical_business_digest = ?, configuration_facts = ? WHERE submit_attempt_id = ?""",
+                (first.baseline_node_id, first.baseline_commit_id, first.baseline_head_version,
+                    facts.modified.content_identity.canonical_state_digest, blob, submission.submit_attempt_id))
+        _apply_review(pending, _apply_command(pending, action=ReviewAction.APPROVE, idempotency_key="approve-" + sid))
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    selected = ArchiveSelectedRef(candidates.candidates[0].submission_id, candidates.candidates[0].expected_candidate_digest)
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=selected, unit_of_work_factory=_uow_factory(db_path))
+    anomaly = next(item for item in preview.anomalies if item.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE)
+    assert anomaly.affected_submission_ids == ("source-a", "source-b")
+    command = AppendArchiveAnomalyResolutionCommand(seed.archiver_context, "source-group-accept", first.baseline_node_id,
+        first.baseline_head_version, selected, candidates.candidate_set_digest, anomaly.subject_digest, 0,
+        ArchiveAnomalyResolutionAction.ACKNOWLEDGE_SOURCE_EXCEPTION, "the shared initial source is externally documented and accepted",
+        anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest)
+    accepted = append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    current = preview_archive_plan(context=seed.archiver_context, selected_ref=selected, unit_of_work_factory=_uow_factory(db_path))
+    issue = next(item for item in current.anomalies if item.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE)
+    assert issue.detected_status == "UNEXPLAINED" and issue.resolution_status == "ACCEPTED"
+    assert all(item["detected_status"] == "UNEXPLAINED" for item in current.business_validation.source_diagnostics)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        event = uow.archive.get_resolution_event(seed.repository_id, anomaly.subject_digest, accepted.sequence)
+        assert event is not None
+        body = json.loads(event.subject_payload_json)
+        assert body["affected_submission_ids"] == ["source-a", "source-b"]
+        assert len(body["details"]["states"]) == 3 and len(body["details"]["edges"]) == 2
+        assert len(body["affected_candidates"]) == 2
+
+
+def test_audit_sequence_at_safe_integer_limit_rejects_increment_without_append(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.infrastructure.control_db.sqlite_archive import SQLiteArchiveRepository
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    seed = seed_approved_archive_candidate(db_path)
+    monkeypatch.setattr(SQLiteArchiveRepository, "get_latest_confirmation_sequence", lambda *args: 9007199254740991)
+    with pytest.raises(ArchiveRequestValidation, match="I-JSON"):
+        append_archive_confirmation(command=_confirmation_command(seed, expected_sequence=9007199254740991),
+            unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM archive_confirmation_events").fetchone()[0] == 0

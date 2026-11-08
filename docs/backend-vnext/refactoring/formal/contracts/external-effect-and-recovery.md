@@ -93,7 +93,7 @@ Repository Operation只公开`QUEUED | RUNNING | SUCCEEDED | FAILED`。
   诊断`r5.effect_identity_mismatch`；不计入恢复会话。只有崩溃或lease丢失、传输错误、结果未知计入三个恢复会话；
 - Submit 只有在已校验本地request fingerprint、并对原operation identity收到HTTP成功的
   `QUEUED`/`RUNNING`时，才把这次健康等待排除在恢复会话计数之外；沿用已存在的checkpoint与safe
-  handoff 的健康等待路径。其他safe handoff不据此改变恢复会话计数。该operation的总等待从Step
+  handoff 的健康等待路径。其他 safe handoff 不借用该健康等待例外改变计数；DC88 的 effect 前 PURE_RECOMPUTE 正常 drain 让出使用独立语义，见 [Operation Lifecycle](operation-lifecycle-and-integrity.md#正常-drain-的纯重算让出dc88)，不放宽本节外部 effect 恢复。该operation的总等待从Step
   `started_at`起，以Repository Service的import与server start预算之和作为继续健康等待的上界。每次
   claim先观察一次原operation；poll deadline为`min(60s, max(剩余预算, 5s))`。匹配的`SUCCEEDED`或
   `FAILED`无论poll是否到达上界都按终态处理；匹配的`QUEUED`/`RUNNING`在上界到达或超过后转人工恢复。

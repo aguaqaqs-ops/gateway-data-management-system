@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_canonical_fixture
+
 from pathlib import Path
 
 import pytest
@@ -22,7 +24,6 @@ from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     durable_manifest_bytes,
     open_canonicalization_manifest,
-    project_canonical_table_set,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
@@ -31,25 +32,33 @@ from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
 )
 from tests.support.snapshot_materialization import materialize_sql
+from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, NeverCancel
 from tests.support.submit_job_harness import repository_service_session
 
 pytestmark = pytest.mark.integration
 
 
 def _canonical_records_state(
-    store: InMemoryArtifactStore,
+    store: InMemoryArtifactStore, repository_id: str,
 ) -> tuple[ArtifactRef, ArtifactRef, tuple[ArtifactRef, ...], str, str]:
     materialized = materialize_sql(
         "CREATE TABLE records (id BIGINT NOT NULL PRIMARY KEY); INSERT INTO records VALUES (1);",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
     assert materialized.status is SnapshotMaterializationStatus.COMPLETE
     assert materialized.table_set is not None
-    table = materialized.table_set.tables[0]
-    assert table.artifact is not None
     ruleset = migrated_table_ruleset_snapshot()
-    projection = project_canonical_table_set(materialized.table_set, ruleset)
+    projection = project_canonical_fixture(materialized.table_set, ruleset)
+    assert materialized.snapshot is not None
+    canonical = materialize_canonical_snapshot(
+        materialized.snapshot, projection.tables, artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()), repository_id=repository_id,
+    )
+    assert canonical.table_set is not None
+    table = canonical.table_set.tables[0]
+    assert table.artifact is not None
     assert projection.manifest is not None
     assert projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(projection.manifest)
@@ -98,24 +107,24 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
     requires_dolt: None,
 ) -> None:
     store = InMemoryArtifactStore()
-    closure_ref, manifest_ref, artifact_refs, source_digest, manifest_digest = (
-        _canonical_records_state(store)
-    )
-    parent_manifest = open_canonicalization_manifest(store, manifest_ref)
-    assert parent_manifest.manifest_digest is not None
-    closure_digest = closure_ref.raw_sha256.value
-    snapshot_tables, _canonical_refs = resolve_canonical_snapshot_bindings(
-        operation_artifact_refs=artifact_refs,
-        canonical_table_set_closure_ref=closure_ref.artifact_id,
-        canonical_table_set_closure_digest=closure_digest,
-        canonicalization_manifest_ref=manifest_ref.artifact_id,
-        canonicalization_manifest_digest=manifest_digest,
-        read_artifact=store.locate,
-    )
     adapter = SubmitImportPublicationAdapter()
 
     with repository_service_session(tmp_path) as service:
         seeded = service.repository_id_factory(idempotency_key="submit-removal-parent")
+        closure_ref, manifest_ref, artifact_refs, source_digest, manifest_digest = (
+            _canonical_records_state(store, seeded.repository_id)
+        )
+        parent_manifest = open_canonicalization_manifest(store, manifest_ref)
+        assert parent_manifest.manifest_digest is not None
+        closure_digest = closure_ref.raw_sha256.value
+        snapshot_tables, _canonical_refs = resolve_canonical_snapshot_bindings(
+            operation_artifact_refs=artifact_refs,
+            canonical_table_set_closure_ref=closure_ref.artifact_id,
+            canonical_table_set_closure_digest=closure_digest,
+            canonicalization_manifest_ref=manifest_ref.artifact_id,
+            canonicalization_manifest_digest=manifest_digest,
+            read_artifact=store.locate,
+        )
         parent_catalog = HttpRepositoryParentCatalogPort(
             base_url=service.base_url,
             bearer_token=service.bearer_token,
@@ -189,7 +198,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         assert empty_materialized.table_set is not None
         assert empty_materialized.table_set.tables == ()
         ruleset = migrated_table_ruleset_snapshot()
-        empty_projection = project_canonical_table_set(empty_materialized.table_set, ruleset)
+        empty_projection = project_canonical_fixture(empty_materialized.table_set, ruleset)
         assert empty_projection.manifest is not None
         assert empty_projection.manifest.manifest_digest is not None
         empty_manifest_bytes = durable_manifest_bytes(empty_projection.manifest)

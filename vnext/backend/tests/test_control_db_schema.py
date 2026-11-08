@@ -23,12 +23,14 @@ EXPECTED_TABLES = frozenset(
     {
         "archive_anomaly_resolution_events",
         "archive_confirmation_events",
-        "archive_disposition_records",
+        "submission_disposition_records",
         "archive_plan_records",
         "archive_result_records",
         "artifact_protection_intents",
         "baseline_head_records",
         "baseline_node_records",
+        "canonical_table_cache",
+        "canonical_commit_tables",
         "history_compare_acceptance_records",
         "operation_records",
         "preview_idempotency_records",
@@ -53,11 +55,14 @@ EXPECTED_INDEXES = frozenset(
     {
         "archive_anomaly_resolution_events_subject",
         "archive_confirmation_events_subject",
-        "archive_disposition_records_one_selected_per_result",
-        "archive_disposition_records_result_id",
+        "submission_disposition_records_one_selected_per_result",
+        "submission_disposition_records_result_id",
+        "submission_disposition_records_manual_key",
         "archive_plan_records_start_key",
         "baseline_node_records_one_initial_per_repository",
         "baseline_node_records_repository_node",
+        "canonical_table_cache_expiry",
+        "canonical_commit_tables_artifact",
         "history_compare_acceptance_scope_idempotency",
         "operation_records_status_readback",
         "provisioned_scope_mappings_one_active_device",
@@ -74,7 +79,7 @@ ARCHIVE_TABLES = frozenset(
     {
         "archive_anomaly_resolution_events",
         "archive_confirmation_events",
-        "archive_disposition_records",
+        "submission_disposition_records",
         "archive_plan_records",
         "archive_result_records",
     }
@@ -176,9 +181,9 @@ def test_archive_tables_and_selected_disposition_index_are_created() -> None:
     connection = _memory_connection()
     bootstrap_control_db_schema(connection)
 
-    assert {name for name in _object_names(connection, "table") if name.startswith("archive_")} == ARCHIVE_TABLES
+    assert {name for name in _object_names(connection, "table") if name.startswith("archive_") or name == "submission_disposition_records"} == ARCHIVE_TABLES
     index_sql = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE name = 'archive_disposition_records_one_selected_per_result'"
+        "SELECT sql FROM sqlite_master WHERE name = 'submission_disposition_records_one_selected_per_result'"
     ).fetchone()[0]
     assert "WHERE disposition = 'ARCHIVED_BASELINE'" in index_sql
 
@@ -296,3 +301,27 @@ def test_file_that_is_not_sqlite_is_rejected_and_not_modified(tmp_path: Path) ->
         initialize_control_db(db_path)
 
     assert db_path.read_bytes() == b"not-a-sqlite-database"
+
+
+@pytest.mark.parametrize(("source", "assignment"), [
+    ("MANUAL_CLOSE", "source_kind = 'ARCHIVE'"),
+    ("MANUAL_CLOSE", "disposition = 'ARCHIVED_BASELINE'"),
+    ("MANUAL_CLOSE", "reason = NULL"),
+    ("MANUAL_CLOSE", "result_id = 'invented-result'"),
+    ("ARCHIVE", "source_kind = 'MANUAL_CLOSE'"),
+    ("ARCHIVE", "result_id = 'invented-result'"),
+])
+def test_submission_disposition_schema_enforces_one_real_terminal_source(db_path: Path, source: str, assignment: str) -> None:
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import (
+        seed_approved_archive_candidate, close_command, append_selection_confirmation, start_archive_for_seed, TS_ARCHIVE,
+    )
+    from tests.test_review_transactions import _uow_factory
+    seed = seed_approved_archive_candidate(db_path)
+    if source == "MANUAL_CLOSE":
+        close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    else:
+        start_archive_for_seed(seed, confirmation_sequence=append_selection_confirmation(seed))
+    with pytest.raises(sqlite3.IntegrityError), ControlDbUnitOfWork(db_path) as uow:
+        uow.connection.execute(f"UPDATE submission_disposition_records SET {assignment}")

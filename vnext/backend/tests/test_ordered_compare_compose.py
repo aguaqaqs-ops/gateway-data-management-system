@@ -225,6 +225,7 @@ def _assert_remote_matches_oracle(
     remote_digest: str,
     before_commit: str,
     current_commit: str,
+    repository_id: str,
 ) -> None:
     job_state = read_history_compare_materialize_job_state(env, operation_id)
     assert "table_policies" not in job_state
@@ -233,6 +234,7 @@ def _assert_remote_matches_oracle(
         operation_id,
         before_commit=before_commit,
         current_commit=current_commit,
+        repository_id=repository_id,
     )
     assert remote_digest == oracle_digest
 
@@ -385,12 +387,14 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
                 remote_digest=str(pair["comparison_digest"]),
                 before_commit=main_after_a,
                 current_commit=main_after_both,
+                repository_id=repository_id,
             )
             facts = ordered_compare_facts_from_materialize_checkpoint(
                 env,
                 operation_id,
                 before_commit=main_after_a,
                 current_commit=main_after_both,
+                repository_id=repository_id,
             )
             tables = cast(list[dict[str, object]], facts["tables"])
             syx = next(

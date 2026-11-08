@@ -38,7 +38,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 
-SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
+SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v2"
 PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v3"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"

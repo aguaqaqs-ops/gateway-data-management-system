@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -79,7 +81,7 @@ def _seed_uploaded_workspace(
 
 def _preview_result(*, generation: int = 1) -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-1",
         workspace_id="ws-1",
         upload_revision_id="ur-1",

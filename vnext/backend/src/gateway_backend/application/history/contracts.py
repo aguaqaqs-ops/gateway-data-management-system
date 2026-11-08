@@ -9,7 +9,8 @@ from enum import StrEnum
 
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import (SubmissionDispositionKind, SubmissionDispositionSourceKind,
+    SubmissionDisposition, ManualSubmissionClosure)
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewStatus
@@ -72,10 +73,13 @@ class HistoryNode:
     parent: HistoryNodeRef | None
     baseline_kind: BaselineNodeKind | None = None
     review_status: ReviewStatus | None = None
-    archive_disposition: ArchiveDispositionKind | None = None
+    submission_disposition: SubmissionDispositionKind | None = None
     promoted_baseline_node_id: str | None = None
     eligibility_note: HistoryEligibilityNote | None = None
     identity_exception: bool = False
+    disposition_source_kind: SubmissionDispositionSourceKind | None = None
+    disposition_result_id: str | None = None
+    closure: ManualSubmissionClosure | None = None
 
     def __post_init__(self) -> None:
         if type(self.ref_kind) is not HistoryNodeRefKind:
@@ -94,8 +98,8 @@ class HistoryNode:
             raise ValueError("baseline_kind must be BaselineNodeKind or None")
         if self.review_status is not None and type(self.review_status) is not ReviewStatus:
             raise ValueError("review_status must be ReviewStatus or None")
-        if self.archive_disposition is not None and type(self.archive_disposition) is not ArchiveDispositionKind:
-            raise ValueError("archive_disposition must be ArchiveDispositionKind or None")
+        if self.submission_disposition is not None and type(self.submission_disposition) is not SubmissionDispositionKind:
+            raise ValueError("submission_disposition must be SubmissionDispositionKind or None")
         if self.promoted_baseline_node_id is not None and (
             type(self.promoted_baseline_node_id) is not str or not self.promoted_baseline_node_id
         ):
@@ -107,7 +111,7 @@ class HistoryNode:
         if self.node_kind is HistoryNodeKind.BASELINE_NODE:
             if self.baseline_kind is None:
                 raise ValueError("baseline nodes require baseline_kind")
-            if self.review_status is not None or self.archive_disposition is not None:
+            if self.review_status is not None or self.submission_disposition is not None:
                 raise ValueError("baseline nodes must not carry submission-only fields")
             if self.identity_exception:
                 raise ValueError("baseline nodes must not carry identity_exception")
@@ -145,7 +149,8 @@ class HistoryHead:
 class HistorySubmissionFact:
     submission: Submission
     review_status: ReviewStatus
-    disposition: ArchiveDispositionKind | None
+    disposition: SubmissionDispositionKind | None
+    disposition_record: SubmissionDisposition | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,8 +179,11 @@ class HistoryPageEntry:
     parent_node_id: str | None = None
     based_on_baseline_node_id: str | None = None
     review_status: ReviewStatus | None = None
-    archive_disposition: ArchiveDispositionKind | None = None
+    submission_disposition: SubmissionDispositionKind | None = None
     identity_exception: bool = False
+    disposition_source_kind: SubmissionDispositionSourceKind | None = None
+    disposition_result_id: str | None = None
+    closure: ManualSubmissionClosure | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,13 +27,23 @@
 ### 专用测试节点
 
 所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
-三台节点互不共享硬件，按用途分工：
+原 04、05、CT108 三台节点互不共享硬件。Owner 于 2026-11-06 增加 06、07；**04/06/07 共享物理宿主，06/07 不与 CT108 共享宿主**，不能将五个 CT 当作五套独立硬件。按用途分工：
 
 | 节点（SSH 别名） | 用途 |
 | --- | --- |
 | `ct108-gw-dms-04` | 门禁：权威全量 runner、容器门禁与 carried |
 | `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
 | `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
+| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose；16 vCPU、96 GiB（2026-11-07 扩容实核）、300 GiB thin；`192.168.233.207` |
+| `ct109-gw-dms-07` | 前端日常开发：类型检查、lint、单元测试、构建、截图、mock e2e；8 vCPU、16 GiB、200 GiB thin；`192.168.233.208` |
+
+新增节点不承接权威 runner/carried、正式性能测量或默认真实数据全旅程；前端真实 backend e2e 仍在 05 调试、04 取证。Owner 已确认 04/06/07 宿主资源宽裕，06/07 日常开发和测试可以自主并行，不因共享宿主自动要求与 04 互斥，不为新节点常规运行占用 04，也无需向原基准总协调申请窗口或汇报资源。保留各节点自身的有效占用、服务/端口及同节点计时独占规则；实际出现资源干扰、跨节点操作或明确冲突时才针对性协调。cpuset 不重叠不证明完全无竞争，新节点结果不作正式性能依据。验收记录见 [06/07 核对报告](docs/backend-vnext/refactoring/formal/plans/p6-node-06-07-readiness.md)。
+
+06 初始 pytest 并行度建议 4、Cargo jobs 4；07 显式设置 `GATEWAY_FE_TEST_WORKERS=2` 限制 Playwright 并行度，不照搬旧节点的 48 workers。产品 kernel 的 N/M 与测试 worker 数分别设置。thin 磁盘的 guest 可用空间不代表宿主 pool 有足够物理容量，管理员继续监测宿主 data/metadata 水位。新节点同样离线预填充；05 的受限转发代理例外不自动扩展到 06/07。克隆带入的历史 worktree、卷和日志不作为新节点证据，也不在节点初始化中擅自清理。
+
+Owner 于 2026-11-07 按 DC87/DC33 另明确授权：06 在本次 S2b E 最终验收运行 fresh 完整 t1–t3 功能/容量旅程，与 04 六包及 Compose 跨节点并行；t4 按独审具体依据沿用。此为本轮真实数据用途扩展，不改变 04 权威 runner/carried 与 CT108 正式性能职责；06 仍按本节点占用、clean 提交及离线证据规则执行。
+
+Owner 于 2026-11-07 简化全部 CT 的常规资源协调：以执行时现场状态与有效占用标志为准，需要占用的工作在核空闲后原子取得标志即可直接使用，完成本任务收尾后释放；无需跨会话或向 Owner 反复申请、预留窗口、确认及例行通报起止。只有实际占用冲突或操作涉及他人资源时才针对性协调；尊重他人有效标志及原有节点用途，不抢占或移除他人占用。前端不需整机占用的既有例外沿用原规则。
 
 网络与缓存约束（owner 2026-10-28）：CT201 是可访问互联网的开发节点，不作为测试节点；测试 CT 禁止直接连接公网，但可以通过局域网访问 CT201 或指定的公共缓存 CT 上获准的依赖、镜像与制品缓存。该许可只用于取回构建和测试所需缓存，不表示测试 CT 获准进行任意公网访问，也不改变测试必须在专用测试节点执行的要求。测试源码须通过获准的局域网 Git/文件传输方式到达节点，并仍以 clean、已提交 worktree 运行。
 
@@ -49,7 +59,7 @@
 - **DC68 取证操作错误：**若失败是尚未触及被测对象的自身命令、脚本或参数错误，或属于 DC66 第 5 项范围内的工具缺陷，且没有副作用，保留失败日志与 SHA256，修正后从该步骤开头重做一次，并在 handoff 记录原因、修正和结果。重做再次失败、被测对象已运行后的失败、缓存缺失或身份不符均停止交 owner；权威 runner 已开始测试后 exit 非 0 时仍按 runner 停止规则处理。
 
 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行。
-下列 Dolt、Compose、端口和日志前提在每台节点上分别满足：同一节点整机单飞，不同节点之间可以并行。
+下列 Dolt、Compose、端口和日志前提在每台节点上分别满足：同一节点整机单飞；不同节点可以按上述物理宿主边界与用途并行。
 carried 必须与来源 V 在同一节点、同一 worktree 计算；闭包 manifest 不记录节点身份，跨节点的结果不得用于判定。
 runner、carried 与真实数据日志开头记录 `hostname` 与起止时间，handoff 写明每次运行所在的节点。
 真实数据可与门禁在不同节点上对同一 V 并行运行，同一档的完整旅程在同一节点内完成。
@@ -71,10 +81,9 @@ worktree 内的 `.hypothesis` 仅供开发者直接运行 focused 测试时使�
 
 `rust` 包在 `vnext/rust` 下依次运行 `cargo fmt --all --check`、
 `cargo clippy --workspace --locked --offline --all-targets -- -D warnings` 与
-`cargo test --workspace --locked --offline`（DC48）；三步都执行，任一失败则该包失败。S2a 删除旧扩展之前，
-`cargo test` 排除 `gateway-compute-python` 与 `gateway-compute-python-impl`：两者的测试在 Rust 中嵌入 Python
-解释器并读取 backend 环境（DC52，owner 2026-10-25 确认同时排除 impl），S2a 删除旧 crate 时一并去掉排除；
-clippy 与 fmt 仍覆盖全部 crate。cargo 的 `CARGO_TARGET_DIR` 固定为 worktree 外的
+`cargo test --workspace --locked --offline`（DC48）；三步都执行，任一失败则该包失败。S2a 已删除旧嵌入 Python 的 crate tests 和
+`gateway-compute-python-impl`，复用 `gateway-compute-python` 提供新 parser adapter；`cargo test` 不再排除 crate。
+新 adapter 的 Python/Arrow 行为由 backend pytest 覆盖，fmt 与 clippy 仍覆盖全部 crate。cargo 的 `CARGO_TARGET_DIR` 固定为 worktree 外的
 `<TMPDIR>/gateway-runner-cargo-target`，只作构建缓存、不进闭包；选中 `rust` 或 backend 时 runner 在使用前删除残留、
 退出时删除。runner 的额外参数只传给 pytest。
 
@@ -161,7 +170,7 @@ Host 依赖准备权威入口：
 ./vnext/scripts/uv-consume.sh -C vnext/<package> <sync|run|lock-check|pip-install> ...
 ```
 
-`run-tests.sh`、`prepare-dev-dependencies.sh`、`native_kernel_component.sh` 与
+`run-tests.sh`、`prepare-dev-dependencies.sh` 与
 `build-repository-service-image.sh` 已接入该 wrapper。普通 `run`/`sync` 默认 `--locked` 并隔离
 ambient index/config；`--no-sync` 路径先执行只读 `uv lock --check --offline`，再
 `uv run --locked --no-sync`。消费入口在执行前后比较五锁 SHA，漂移即非零退出且不自动 restore。
@@ -187,7 +196,7 @@ Docker `host` 网络；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖�
 
 - **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
   权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
-- **节点：**与后端相同，不在开发主机上运行。调试（类型检查、lint、单元测试、构建、e2e）在 `ct108-gw-dms-05`；
+- **节点：**与后端相同，不在开发主机上运行。类型检查、lint、单元测试、构建、截图与 mock e2e 优先在 `ct109-gw-dms-07`；连真实 backend 的 e2e 在 `ct108-gw-dms-05` 调试；
   阶段退出时在 `ct108-gw-dms-04` 的 clean、已提交 worktree 上用权威入口完整运行一次作为证据。前端不使用
   `ct108-gw-dms`。
 - **工具链镜像：**测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行（含 Node.js、浏览器与
@@ -356,7 +365,7 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
 ```
 
-改动 `vnext/rust` 时还要过 rustfmt 与 clippy。它们会编译 crate，按 DC36 在调试节点 `ct108-gw-dms-05` 上运行，
+改动 `vnext/rust` 时还要过 rustfmt 与 clippy。它们会编译 crate，在调试节点 `ct108-gw-dms-05` 或后端开发节点 `ct107-gw-dms-06` 上按占用规则运行，
 `CARGO_TARGET_DIR` 放在 worktree 外：
 
 ```bash

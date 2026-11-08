@@ -15,6 +15,8 @@ Owner：Archive Application / Archive Domain / Baseline Domain（按下文分责
 [External Effect](../contracts/external-effect-and-recovery.md)、
 [Proportional Assurance](../policies/proportional-assurance-and-risk-based-verification-policy.md)。
 
+2026-11-07 V2目标补充：当前规则、digest、单一终局处置及关闭命令以本文§12与[Business Lifecycle 6.0.0](../contracts/business-lifecycle-and-state.md)为准；实现/取证状态见[p6-v2-handoff](p6-v2-handoff.md)，本补充不办理联合exit。
+
 ## 1. Decision and non-goals
 
 Archive 是同步业务命令：唯一选择一个合格 Submission，把它的既有 immutable commit 设为下一业务
@@ -102,13 +104,14 @@ scope 的 mapping 或历史 Workspace/Submission，返回完整性失败，不�
    project Archive 权限允许覆盖其他 actor 的 Workspace。
 2. Review current projection 为 `APPROVED`，其 event/projection closure 有效。
 3. `based_on_baseline_node_id` **及** `business_baseline_commit_id` 匹配 current Head node/commit。
-4. 未出现在任何已提交 ArchiveResult 的 disposition 中（selected 和 sibling 都算关闭）。
+4. 未出现在任何 SubmissionDisposition 中（ARCHIVE selected/sibling与MANUAL_CLOSE均为终局）。
 
 Workspace occupancy/bindings 和 finalized Attempt closure 是 Start 的不可豁免完整性 gate。
 缺失或矛盾时不能悄悄从 candidate set 丢掉一项以缩小 sibling 集合；返回 typed integrity blocker，
-Start fail closed。Review=`PENDING/REJECTED/RETURNED_FOR_REVISION/WITHDRAWN` 不在候选内。
-旧 base approved Submission 留在历史事实中，不属于普通 candidate。旧 base 的 PENDING 后来
-APPROVED 也不自动回归资格：可由 Review return，再基于新 base Preview/Submit；不自动迁移内容。
+Start fail closed。Review=`PENDING/REJECTED/WITHDRAWN` 不在候选内。
+旧 base approved Submission 留在历史事实中，不属于普通 candidate。fresh APPROVE 在同写事务拒绝冻结node/commit过期；旧基线PENDING可REJECT/WITHDRAW后基于新base重新Preview/Submit。成功APPROVE replay仍保留，不自动迁移内容。
+
+同exact scope、当前baseline node/commit的未关闭PENDING由有界一致快照查询，涵盖全部actor；读模型返回pending IDs/count及 `ARCHIVE_PENDING_REVIEW` 硬阻塞。草稿不阻塞；missing/diverged Review closure仍完整性失败。超过200 pending返回范围错误，不返回可Start的部分列表。
 
 稳定引用是 `{submission_id, expected_candidate_digest}`，不是可变 candidate ID。digest 相同
 不合并两个 Submission；选择始终按唯一 Submission ID，两个内容相同的 Submission 也分别审计。
@@ -119,23 +122,23 @@ Archive Application `contracts.py` 拥有纯 codec/validator/digest 规范，复
 `gateway_shared_kernel.jcs.canonicalize_jcs`。不复制 Storage Projection 摘要算法，不依赖私有
 snapshot digest，也不引入 provider/class/运行时间作为身份。
 
-统一 `D(kind, payload) = 'sha256:' + hex_lower(SHA256(UTF8('gateway-vnext:archive:' + kind + ':v1')
+统一 `D(kind, payload) = 'sha256:' + hex_lower(SHA256(UTF8('gateway-vnext:archive:' + kind + ':v2')
 + byte(0) + JCS(payload)))`。payload 仅 strict JSON、I-JSON 安全整数；object unknown keys 拒绝，
 数组按下述规则排序，重复 ID 拒绝；可选字段用显式 null，不能把空值和 omitted 当两个身份。
-此 v1 是 Archive 消费者所需规范版本，不新增通用 policy/version registry。
+此 v2 是 Archive 消费者所需规范版本，不新增通用 policy/version registry。
 
 | kind | 完整语义 preimage（字段名为拟定公共 contract） |
 | --- | --- |
-| `candidate` | `repository_id, gateway_device_external_key, business_project_id, workspace_id, workspace_generation, submission_id, submit_attempt_id, upload_revision_id, preview_result_id, based_on_baseline_node_id, business_baseline_commit_id, repository_commit_id, canonical_business_digest, canonicalization_manifest_ref, canonicalization_manifest_digest, source_artifact_refs`（按 UTF-8 ID 排序）、`requested_verification_policy, completed_verification_policy, review_status, review_sequence` |
-| `candidate-set` | `repository_id, gateway_device_external_key, business_project_id, baseline_node_id, baseline_commit_id, baseline_head_version, candidates`；candidates 为按 UTF-8 submission_id 排序的 `{submission_id, candidate_digest}` 全集 |
+| `candidate` | `repository_id, gateway_device_external_key, business_project_id, workspace_id, workspace_generation, submission_id, submit_attempt_id, upload_revision_id, preview_result_id, based_on_baseline_node_id, business_baseline_commit_id, repository_commit_id, canonical_business_digest, configuration_facts_digest, canonicalization_manifest_ref, canonicalization_manifest_digest, source_artifact_refs`（按 UTF-8 ID 排序）、`requested_verification_policy, completed_verification_policy, review_status, review_sequence` |
+| `candidate-set` | `repository_id, gateway_device_external_key, business_project_id, baseline_node_id, baseline_commit_id, baseline_head_version, baseline_facts_digest, business_rule_id, candidates`；candidates 为按 UTF-8 submission_id 排序的 `{submission_id, candidate_digest}` 全集 |
 | `selection` | `candidate_set_digest, selected_submission_id, expected_candidate_digest`；selection 所指必须在全集中 |
-| `anomaly` | `selection_subject_digest, issue_code, sibling_submission_id, sibling_candidate_digest` |
-| `confirmation-request` / `resolution-request` | exact resolved scope、command kind、`selected={submission_id,expected_candidate_digest}`、`candidate_set_digest`、`subject_digest`、expected Head node/version、expected subject sequence、action、reason、actor_id；resolution 另含 `issue_code,sibling_submission_id,sibling_candidate_digest`；覆盖 §8.1 全部语义 body 字段 |
+| `anomaly` | `selection_subject_digest, issue_code, target_submission_id, target_candidate_digest` |
+| `confirmation-request` / `resolution-request` | exact resolved scope、command kind、`selected={submission_id,expected_candidate_digest}`、`candidate_set_digest`、`subject_digest`、expected Head node/version、expected subject sequence、action、reason、actor_id；resolution 另含 `issue_code,target_submission_id,target_candidate_digest`；覆盖 §8.1 全部语义 body 字段 |
 | `start-request` | exact resolved scope、expected Head node/version、candidate_set_digest、唯一 selected ref、按 subject digest 排序的 exact confirmation/resolution `{subject_digest, sequence}` references；不含 server ID/time、幂等键或当前可变事实 |
 
 `candidate` 不含当前 Workspace version、active Attempt、confirmation sequence 或整个 candidate set；
 这些各自验收，不制造 digest 递归。Review sequence 改变会改变 candidate digest，即使未来状态回到
-APPROVED 也不能复用旧确认。candidate-set 绑定 Head version 防止 ABA；新增 approve/return 会使
+APPROVED 也不能复用旧确认。candidate-set 绑定 Head version 防止 ABA；新增 approve 会使
 集合变化。审计事件的追加不改变 candidate-set；subject digest 也不包含其自身 sequence。
 
 ### 3.3 Queries and PreviewArchivePlan
@@ -163,7 +166,7 @@ Archive 专用约束仅为固定格式 digest、各动作 reason 必填性和集
 SQLite 对新增 Archive 文本使用 `length(CAST(value AS BLOB))` 检查 UTF-8 bytes，不能用
 `length(TEXT)` 替代；迁移不重写已有历史文本，处理命令引用超预算旧 ID 时明确拒绝而非截断。
 
-audit references 最多 200 项；全部数组禁止重复。分页不会用于
+confirmation refs最多1，anomaly refs最多1601=8*200+1；全部数组禁止重复。分页不会用于
 Start 的候选全集，超过上限返回 `ARCHIVE_SCOPE_LIMIT_EXCEEDED`，不可只归档第一页。通过既有
 Review 处置减少集合或重新评估容量预算，不新增后台分批归档。审计历史读取采用每页最多 100 的
 单 subject sequence cursor，不把全历史载入 Start；批量读每个 subject 最新事件与被引用事件。
@@ -183,7 +186,7 @@ PreviewArchivePlan 展示、Start gate 及 ArchiveResult 审计读取。能力�
 - 每个未选 approved sibling 产生 `APPROVED_SIBLING_EXCLUDED` anomaly，subject 用上述 anomaly
   digest；必须以 `ACKNOWLEDGE_EXCLUSION` + 非空 reason 解决。语义是知悉该成功内容未成为新
   baseline，后续采用须重新 Preview/Submit；不是合并冲突修复，也不声称比较了两份内容。
-- 单候选没有 sibling anomaly，resolution refs 必须为空。多候选即使 canonical digest 相等，
+- 单候选没有 sibling anomaly；若也无来源/时间/身份问题，resolution refs 必须为空。多候选即使 canonical digest 相等，
   不省略 sibling 事实或自动确认；选择与 sibling 审计身份不同。
 - 不借 Archive 补签 Submit 的 destructive/identity confirmation，不把 P3 assessment/bundle
   当作已经持久化的 Archive anomaly。没有已冻结的其他 Archive issue producer，V1 不做通用
@@ -244,7 +247,7 @@ anomaly_resolution_refs)`。`selected_ref` 为单个对象；不接受 list sele
    same key/different fingerprint 返回 `IDEMPOTENCY_CONFLICT`。当前 scope/权限永不被 replay 绕过。
 4. 新动作才校验 expected Head node/version；检查 repository occupancy，并查该 Repository 的
    `PREPARED/EFFECT_PENDING` Attempts。任一 active（含 UNKNOWN、MANUAL_RECOVERY_REQUIRED
-   对应的未终局 Attempt）阻塞；两者不一致返回 integrity failure，不清理或推断释放。
+   对应的未终局 Attempt）阻塞；两者不一致返回 integrity failure，不清理或推断释放。另在同写事务重查当前baseline未关闭PENDING，任一存在以 `ARCHIVE_PENDING_REVIEW` 拒绝；不得仅在route外检查。
 5. 同 snapshot 批量读全集，重算 candidate-set/selected digests、Review closure、所有 involved
    Workspace generation/input/preview/active_submission binding；校验 confirmation/anomaly exact
    subject set、sequence 和 affirmative 状态。缺少、多余、跨 scope、重复或 stale 引用都拒绝。
@@ -286,18 +289,19 @@ SQLite 锁是当前单机数据库 writer serialization；语义 scope 仍是 Re
 | --- | --- | --- |
 | AcceptSubmit T1 / Start | T1 先 | Archive 看到 active Attempt，返回 `ACTIVE_SUBMIT_ATTEMPT`；Operation terminal 不替代 Attempt terminal |
 | AcceptSubmit preflight / Start | Archive 先 | T1 重读新 Head，旧 base/preflight 拒绝；不得创建新 Attempt/Operation；以后新 Preview/Submit 合法 |
-| Finalize/Abort / Start | 终局事务先 | Finalize 的 Submission/Review seed/occupancy 或 Abort release 完整可见；PENDING 不进候选；Archive 不读取中间前缀 |
-| Review return/reject/withdraw / Start | Review 先 | candidate digest/set 改变，旧 Start 冲突；Review release 已完成 |
-| Start / 新 Review mutation | Archive 先 | Review 在授权、成功 replay 后查 closure，返回 `ARCHIVE_CLOSED`；selected 和 closed sibling 均不可再 return/withdraw |
+| Finalize/Abort / Start | 终局事务先 | Finalize 的 Submission/Review seed/occupancy 或 Abort release 完整可见；PENDING 不进候选且硬阻塞Start；Archive 不读取中间前缀 |
+| Review approve / Start | Review 先 | PENDING变APPROVED，candidate set改变，旧Start冲突；occupancy保持 |
+| Review reject/withdraw / Start | Review 先 | 清除该PENDING及精确占用；最后一项处置后可按完整候选与审计重新Start |
+| Start / 新 Review mutation | Archive 先 | Review 在授权、成功 replay 后查 closure，返回 `ARCHIVE_CLOSED`；selected 和 closed sibling 均不可再修改review |
 | 两个不同 key Archive | 一个先 | 另一个 Head CAS/precondition 冲突，无第二结果、无 sibling 重释放 |
 | 同 key Archive | 一个先 | 相同 fingerprint 返回原结果；不同 fingerprint 冲突 |
 | 审计 revoke / Start | revoke 先 | 引用 sequence 过期，Start 拒绝；Start 先则归档已成立，revoke 不撤销结果 |
-| 新 approve / Start | approve 先 | candidate set 增大导致旧请求冲突；Start 先则旧 base 的新 approve 仍保留历史，非新候选 |
+| 新 approve / Start | approve 先 | candidate set 增大导致旧请求冲突；Start先则当前baseline PENDING本已阻塞；旧baseline fresh approve以基线冲突拒绝 |
 
 Review closure read port 定义在 Submission Application（consumer-owned
-`ArchiveClosureReadPort`，只返回 closed bool），SQLite adapter 查询 ArchiveResult disposition；
+`ArchiveClosureReadPort`，提供closed bool及typed SubmissionDisposition摘要读取），SQLite adapter 查询单一SubmissionDisposition；
 不能让 Review import Archive Application 的 transaction/service，也不能让 Archive Domain import
-Submission Domain。Review 原成功 approve/return replay 允许在后续归档后返回原事件，但不执行
+Submission Domain。Review 原成功 approve/withdraw replay 允许在后续归档后返回原事件，但不执行
 新状态变化；fresh-scope 比較必须区分 Repository 授权与合法 Head advance。
 
 ## 6. Persistence, migration and initial Baseline
@@ -313,7 +317,7 @@ domain record 不含 SQLite connection、HTTP body、capability/provider 或 Rep
 | `baseline_head_records` / Baseline Domain | repository_id PK、node_id、optimistic_version >=0；同 Repository node FK；commit 从 Node join 派生，不再复制进 Head |
 | `archive_plan_records` / Archive Application | plan_id PK；scope；key/fingerprint；accepted_by/time；old Head identity；canonical frozen input（§5.1）；UNIQUE exact scope+START key；immutable；没有 draft/status |
 | `archive_result_records` / Archive Domain | result_id PK、plan_id UNIQUE FK、baseline_node_id UNIQUE FK；成功时间；只存在成功结果，没有执行四态 |
-| `archive_disposition_records` / Archive Domain（Result children） | submission_id PK、result_id FK、disposition=`ARCHIVED_BASELINE/CLOSED_NOT_ARCHIVED`；每 result 恰好一个 selected，通过 filtered unique + transaction closure 保证；这是 Result 的规范化子记录，不是 Submission 上另一套 archive status |
+| `submission_disposition_records` / Archive Domain | submission_id PK/FK、exact scope、source_kind=ARCHIVE/MANUAL_CLOSE、disposition；ARCHIVE的真实result_id FK必需且manual字段全null；MANUAL_CLOSE只能CLOSED_NOT_ARCHIVED/result null且冻结关闭事实全非null。每result一个selected、manual scope+key filtered unique；这是唯一终局事实，无平行archive status |
 | `archive_confirmation_events` / Archive Domain | §4.2 字段；UNIQUE scope+subject_digest+sequence；UNIQUE scope+CONFIRMATION key；append-only |
 | `archive_anomaly_resolution_events` / Archive Domain | 同上，含 anomaly issue/sibling identity；UNIQUE scope+subject_digest+sequence；UNIQUE scope+RESOLUTION key；append-only |
 
@@ -326,32 +330,9 @@ closure 校验与测试证明；FK/unique/CHECK 负责可直接表达的约束�
 submission_id)` 与 Review join、active Attempt 的 `(repository_id,state)`、audit subject latest
 sequence、Result children result_id。所有 scope、IDs 使用绑定 SQL 参数。
 
-### 6.2 Upgrade from workspace schema v4
+### 6.2 Single baseline schema
 
-保持 operations v1；下一 workspace v5（名称虽为 workspace，现状已经承载 Submit/Review）用现有
-migration ledger 和一个 migration transaction 建表、验证、转移 Head authority、重建 mapping 表。
-若实施前版本已被其他工作占用，重新确认相邻版本，不覆盖历史 migration。
-
-1. 验证 integrity/FK；按 Repository 聚合所有 mapping（包括 disabled），必须只有一个 distinct
-   device/project scope，**即使多个 scope 的 node/commit/version 完全相同也拒绝**。所有历史
-   Workspace/Submission 的冻结 scope 必须与之相同；disabled、旧历史不得作为共享例外。
-   不能沿用 `LIMIT 1` 任选 Head。historical Workspace/Preview/Attempt/
-   Submission 的 Repository/base 引用必须能解释；缺少 mapping 或出现不可重建的历史 base 停止。
-2. 本 slice 自动迁移仅接入已 provision 的 explicit initial Baseline（version=0），保留 exact node ID
-   和 commit ID，建 INITIAL Node 与 Head=0；已存在 v4 Submit/Review 全部保留。不得要求没有
-   Submission，也不得把最新 Submission/main 猜成 base。
-3. 非零 seed version、一个 Repository 多组冲突 Head、同 node ID 跨 scope/Repository、无法证明
-   initial 的历史数据不能伪造 ArchiveResult 或 SYSTEM_MIGRATION；migration fail closed，由
-   provisioning/cutover owner 给出独立数据迁移方案。本设计不授权 legacy cutover。
-4. 重建 `provisioned_scope_mappings` 只保存 device/project/Repository/enabled，保留原有约束并新增全表 `UNIQUE(repository_id)`（不限 enabled），移除
-   三个可变 Head 字段；旧消费者通过 adapter join 新 Head/Node 返回既有三字段 DTO。
-5. 全部校验通过才提交 version=5。失败恢复为完整 v4；fresh DB 从既有 migration 顺序升级，
-   没有 mapping 时先建空表，再由 seed 初始化。禁止自动 downgrade；旧 binary 遇 newer schema
-   按现有 UnsupportedSchemaVersion fail closed。
-
-initial commit 的真实性由外部 provisioning 拥有，迁移只保留已登记事实，不声称校验 Repository
-内容。真实 container 验收另证明从真实 initial empty commit 到新 Baseline 的 journey。非零/矛盾
-数据是迁移停止条件，不把人工编辑 DB 作为正常恢复 API。
+control DB按单一基线schema创建；表/CHECK改动直接更新基线，不提供升级链、历史backfill、兼容字段或双读。schema不符拒绝启动，开发者删除本地DB及-wal/-shm后重建。固定scope、INITIAL identity与当前Head由现有seed和每次scope resolution验证，不推测历史Head或迁移旧数据。首次需要保留数据的部署再引入前向migration。
 
 ### 6.3 Seed and restart invariant
 
@@ -377,10 +358,7 @@ Repository 仍受其固定归属限制。任一冲突使整批 seed/update rollb
 覆盖 HTTP runtime 与 worker startup。不得只修 HTTP seed；worker 重启同样可能覆写。不增加
 新配置服务/同步 daemon。新 Head 每次读来自 DB，不在进程 startup cache 固定。
 
-部署升级先关 admission、drain/停止共享 DB 的旧 HTTP/worker，按既有维护流程保存一致 SQLite
-backup，再迁移并启新进程。不能混跑 v4/v5 writer。迁移前可恢复一致备份；一旦接受新归档，
-恢复旧备份会丢失权威事实，不能当普通 rollback，须停写由 owner 决策。本文只是实施设计，不
-执行维护、备份、权限变更或部署。
+本设计不授权部署、删除实际业务数据或恢复备份；生产保留数据要求出现后按owning Contract另行设计维护流程。
 
 ## 7. Modules, ports and dependency budget
 
@@ -422,10 +400,10 @@ Workspace。内部 Repository bearer 和 admin recovery bearer 都不是此业�
 
 | HTTP | Request | Result |
 | --- | --- | --- |
-| `GET /v1/archive-candidates` | 无业务 body | `ArchiveCandidatesResponse{head,candidates,candidate_set_digest,blockers}` |
-| `POST /v1/archive-plan-preview` | `{selected:{submission_id,expected_candidate_digest}}`；纯读，不要求 key/expected version | `PreviewArchivePlanResponse{head,candidate_set_digest,selected,selection_subject_digest,confirmation_requirements,anomalies,audit_validity,dispositions,workspace_releases,can_start,blockers}`；200 |
+| `GET /v1/archive-candidates` | 无业务 body | `ArchiveCandidatesResponse{head,candidates,candidate_set_digest,pending_submission_ids,pending_submission_count,blockers}` |
+| `POST /v1/archive-plan-preview` | `{selected:{submission_id,expected_candidate_digest}}`；纯读，不要求 key/expected version | `PreviewArchivePlanResponse{head,candidate_set_digest,selected,selection_subject_digest,confirmation_requirements,anomalies,audit_validity,dispositions,workspace_releases,can_start,pending_submission_ids,pending_submission_count,blockers}`；200 |
 | `POST /v1/archive-confirmations` | Idempotency-Key；`{expected_baseline_node_id,expected_baseline_head_version,selected,candidate_set_digest,subject_digest,expected_sequence,action,reason}` | immutable confirmation event；201/200 replay |
-| `POST /v1/archive-anomaly-resolutions` | 同上，另有 `issue_code,sibling_submission_id,sibling_candidate_digest`；action 为 resolution action | immutable resolution event；201/200 replay |
+| `POST /v1/archive-anomaly-resolutions` | 同上，另有 `issue_code,target_submission_id,target_candidate_digest`；action 为 resolution action | immutable resolution event；201/200 replay |
 | `GET /v1/archive-audit-events` | `subject_kind,subject_digest,after_sequence=0,limit=100` | scope 内按 sequence 的 events、next cursor；无任意全项目导出 |
 | `POST /v1/archives` | Idempotency-Key；§5.1 Start DTO | `ArchiveStartedResponse{archive_plan_id,archive_result_id,baseline_node_id,baseline_commit_id,baseline_head_version,selected_submission_id,dispositions,released_workspace_ids,archived_by,archived_at}`；201/200 replay |
 | `GET /v1/archives/{archive_result_id}` | 当前授权 | immutable frozen Plan summary、Result、引用审计事实与其接受时 sequence；200 |
@@ -445,7 +423,7 @@ GET history 和 legacy wire 兼容不在本 slice，Result 读取是当前真实
 | 401 | 沿用 `AUTHENTICATION_REQUIRED`：session 缺失、过期、无效 |
 | 403 | `SCOPE_FORBIDDEN`：权限不足、disabled/missing mapping、跨 scope ref；不得泄漏他项目对象 |
 | 404 | `RESOURCE_NOT_FOUND`：已授权 scope 内无所查 ArchiveResult；未知跨 scope refs 统一不披露 |
-| 409 | `IDEMPOTENCY_CONFLICT`, `BASELINE_VERSION_CONFLICT`, `CANDIDATE_SET_CONFLICT`, `CANDIDATE_BINDING_CONFLICT`, `ACTIVE_SUBMIT_ATTEMPT`, `ARCHIVE_AUDIT_VERSION_CONFLICT`, `ARCHIVE_CONFIRMATION_REQUIRED`, `ARCHIVE_ANOMALY_UNRESOLVED`, `ARCHIVE_CLOSED`, `WORKSPACE_OCCUPANCY_CONFLICT` |
+| 409 | `IDEMPOTENCY_CONFLICT`, `BASELINE_VERSION_CONFLICT`, `CANDIDATE_SET_CONFLICT`, `CANDIDATE_BINDING_CONFLICT`, `ACTIVE_SUBMIT_ATTEMPT`, `ARCHIVE_PENDING_REVIEW`, `ARCHIVE_AUDIT_VERSION_CONFLICT`, `ARCHIVE_CONFIRMATION_REQUIRED`, `ARCHIVE_ANOMALY_UNRESOLVED`, `ARCHIVE_CLOSED`, `WORKSPACE_OCCUPANCY_CONFLICT` |
 | 422 / 413 | `REQUEST_VALIDATION_FAILED`（shape/enum/digest/重复引用等）/ `REQUEST_TOO_LARGE`（body bytes） |
 | 409 | `ARCHIVE_SCOPE_LIMIT_EXCEEDED`：完整集合超预算，提示减少候选或 owner 评估容量，不返回可 Start 的部分集合 |
 | 429 | 既有 `ADMISSION_LIMIT_REACHED` |
@@ -528,3 +506,15 @@ Business Lifecycle §1A/§9A 已接受为 `3.0.0`，S1 Contract 前置已满足�
 consumer、multi-host writer 或业务 Head 等同技术 main 等要求时，停止对应工作，列出与
 Business Lifecycle/P5/External Effect 的冲突，由 owning Contract/ADR 决策后再继续。不能以
 普通 finding 扩大同 euid 威胁模型或引入 broker/sidecar；没有真实 consumer 不增加 outbox。
+
+## 12. V2 来源/时间与手工关闭目标补充
+
+精确类型/DDL/preimage/HTTP字段见[V2 handoff §1–§4](p6-v2-handoff.md)，业务分组与8N+1上界见[业务核验设计 §3–§7.1](p6-archive-business-validation-design.md)。来源从当前baseline按完整内容身份固定点派生；未知弱连通分量整组接受仍UNEXPLAINED。生成时间逐上传侧质量/last-not-max、三关系及全局baseline不可比较独立诊断。首次INITIAL为N/A；MO复用侧不能声称已上传验证。合法跨ruleset边不全局阻塞，不同身份禁止直接合并；不支持格式/损坏不可接受。Preview为纯读；Start/audit同事务重算完整当前全集，不能只核selected。
+
+Archive D前缀版本统一v2，candidate包含configuration_facts_digest；candidate-set额外包含baseline_facts_digest（INITIAL null）及business_rule_id；selected identity subject也绑定selection_subject_digest。新business-anomaly preimage为selection_subject_digest、rule_id、subject_kind、issue_code、完整affected candidates/facts、side、relations、details（来源states/edges/全部成员或原时间事实）；详情不含当前接受状态。新subject为CONFIGURATION_SOURCE/TIME_QUALITY/TIME_ORDER，对应ACKNOWLEDGE_SOURCE_EXCEPTION/TIME_QUALITY/TIME_ORDER，仍可有理由REVOKE。审计追加保存服务器重算的subject_payload_json，拒绝caller删减成员/自由issue。所有原成功append/replay和Start/Result读校原subject正文、actor-bound请求fingerprint与原sequence；不把持久损坏降成普通冲突。
+
+Start只接exact最新肯定ref集合，最大1/1601（拆除旧共用200路径），body262144 bytes。安全整数0..9007199254740991，审计/Head递增超界写前拒绝。frozen_input_json schema=backend-vnext/archive-frozen-input/v2，冻结business validation、facts digests、完整subjects和refs。成功GET/replay核冻结原引用/候选/Plan-Result-Node/处置closure，返回Plan原commit；不重判新Head/当前occupancy/新候选/latest事件，不依赖SQL/Preview TTL或Repository调用。
+
+CLOSE_NOT_ARCHIVED公开POST /v1/submissions/{submission_id}/closure，body为expected_review_version、expected当前baseline node/head version、非空reason，幂等key在header；只授archive_submission，最小target binding/scoped SQL授权早于full facts，跨scope/不存在404、当前缺权403、损坏503。短BEGIN IMMEDIATE内先验当前授权与原成功replay，再验当前Head、APPROVED、未处置、exact generation/upload/preview/occupancy；插入MANUAL_CLOSE唯一处置并CAS清当前输入/Preview、释放占用/version+1，OPEN/generation与APPROVE历史不变，不写Head/main/新Result，不删历史。旧baseline合法占用可关闭，不查全图/其他Attempt，超限仍可关闭。关闭桥接后重新派生可使下游UNKNOWN，无自动接受/级联关闭。
+
+MANUAL_CLOSE actor-independent：exact scope+CLOSE+key，D(close-request)绑定命令/scope/目标/请求review及Head期望/reason，不含actor/time/current状态；另一当前授权actor同payload回放首actor/time/reason，不同payload/目标409，新key再关闭409。原存储关闭事实先完整性校验再普通冲突。所有candidate/closedness/Review/History分页与完整snapshot/Result children统一submission_disposition_records，ARCHIVE与MANUAL_CLOSE来源二选一，不伪造ArchiveResult、无旧类型/表/别名/迁移。每不变量唯一owner与06/04/05验证边界按handoff，不新增Archive Operation或诊断状态机。

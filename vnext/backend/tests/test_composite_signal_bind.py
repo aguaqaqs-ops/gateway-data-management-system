@@ -76,7 +76,11 @@ def test_duplicate_special_point_names_fail() -> None:
         point_name="top",
         payload=(("gid", 99), ("name", "top")),
     )
-    catalog = type(catalog)(devices=catalog.devices, points=(*catalog.points, duplicate))
+    catalog = type(catalog)(
+        devices=catalog.devices,
+        points=(*catalog.points, duplicate),
+        source_device_row_count=catalog.source_device_row_count,
+    )
     xml = load_text("xml/valid/s3-empty-logic-set/input.xml")
     result = materialize_logic(xml, catalog=catalog)
     assert result.status is CompositeSignalStatus.FAILED
@@ -100,6 +104,19 @@ def test_nonempty_device_without_special_identity_fails() -> None:
     catalog = type(catalog)(
         devices=(SpecialDevice(gid=2, dev_addr=10, description="ordinary"),),
         points=(),
+        source_device_row_count=1,
+    )
+    result = materialize_logic(xml, catalog=catalog)
+    assert result.status is CompositeSignalStatus.FAILED
+    assert result.diagnostics[0].code is CompositeDiagnosticCode.SPECIAL_DEVICE_IDENTITY_INVALID
+
+
+def test_filtered_catalog_preserves_nonempty_source_identity_fact() -> None:
+    xml = load_text("xml/valid/s3-empty-logic-set/input.xml")
+    catalog = type(special_catalog(include_device=False))(
+        devices=(),
+        points=(),
+        source_device_row_count=1,
     )
     result = materialize_logic(xml, catalog=catalog)
     assert result.status is CompositeSignalStatus.FAILED

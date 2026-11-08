@@ -941,3 +941,59 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
     assert persisted_step.status is StepStatus.SUCCEEDED
     assert persisted_operation.repository_operation_id == expected_identity
     assert recording_stub.submit_count == 1
+
+
+@pytest.mark.serial
+def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tmp_path: Path) -> None:
+    from gateway_backend.capabilities.table_access import current_kernel_context
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "pure-drain.sqlite3")
+    bootstrap_control_database(settings)
+    operation = operation_record_from_document(_operation_document("operation-pure-drain"))
+    step = step_record_from_document(_step_document(operation.operation_id, "step-pure-drain"))
+    with ControlDbUnitOfWork(settings.control_db_path) as uow:
+        uow.operations.insert_operation_with_initial_step(operation, step)
+    entered, draining, release, stop = Event(), Event(), Event(), Event()
+    events: list[str] = []
+
+    def observe(event: WorkerEvent) -> None:
+        events.append(event.code.value)
+        if event.code.value == "drain_started":
+            draining.set()
+
+    def compute(op: OperationRecord, current: StepRecord, control: ExecutionControl, session: LeaseSession) -> ExecutorAcknowledgment:
+        entered.set()
+        assert release.wait(timeout=5)
+        context = current_kernel_context()
+        assert context is not None and context.deadline_monotonic is None
+        context.checkpoint()
+        raise AssertionError("draining compute returned past the control boundary")
+
+    runtime = build_worker_runtime(settings, observer=observe, job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, compute)}, payload_decoders={REGISTERED_DECODER: lambda payload: payload})
+    runner = Thread(target=runtime.run, args=(stop.is_set, stop.wait), daemon=False)
+    runner.start()
+    try:
+        assert entered.wait(timeout=5)
+        stop.set()
+        runtime.notify_stop_signal()  # The real signal handler wakes the supervisor.
+        assert draining.wait(timeout=5)
+        release.set()
+        runner.join(timeout=5)
+        assert not runner.is_alive()
+    finally:
+        stop.set()
+        release.set()
+        runner.join(timeout=5)
+    assert "safe_handoff" in events
+    assert "executor_failed" not in events
+    with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as uow:
+        yielded = uow.operations.get_step(step.step_id)
+        assert uow.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+    assert yielded.status is StepStatus.RETRY_WAIT and yielded.attempt_count == 1
+    assert yielded.checkpoint_ref is None and yielded.prior_output_refs == ()
+    restarted = build_worker_runtime(settings, observer=lambda event: None,
+        job_definitions=(_registered_definition(),), handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload})
+    assert restarted._startup.startup() is StartupDisposition.READY
+    claimed = restarted._startup.claim_one()
+    assert claimed is not None and claimed.step.attempt_count == 1

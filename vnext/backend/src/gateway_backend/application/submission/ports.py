@@ -20,6 +20,7 @@ from gateway_backend.domain.submission.models import (
     SubmitAcceptanceRecord,
     SubmitAttempt,
     Submission,
+    SubmissionAccessBinding,
     WorkspaceSubmitOccupancy,
 )
 from gateway_backend.domain.submission.ports import (
@@ -93,7 +94,11 @@ class ReviewControlTransaction(ControlTransaction, Protocol):
 
 
 class ReviewApplySubmissionRepository(Protocol):
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None:
+        """Read only durable authorization columns, before decoding the body."""
+
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         """Load one Submission."""
 
     def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None:

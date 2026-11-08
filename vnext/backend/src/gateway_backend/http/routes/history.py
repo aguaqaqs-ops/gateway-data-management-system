@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated, cast
+from gateway_backend.http.bundle_response import BundleStreamingResponse
+
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse
@@ -82,7 +84,9 @@ def list_history_route(
 @router.post(
     "/v1/history-compares",
     response_model=HistoryCompareAcceptResponse,
+    status_code=202,
     responses={
+        200: {"description": "Idempotent replay", "model": HistoryCompareAcceptResponse},
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND"},
@@ -153,10 +157,21 @@ def get_history_compare_route(
 
 @router.get(
     "/v1/history-compares/{operation_id}/bundle",
+    response_class=StreamingResponse,
     responses={
+        200: {
+            "description": "Complete uncompressed POSIX bundle tar",
+            "content": {"application/x-tar": {}},
+            "headers": {
+                "Content-Length": {"schema": {"type": "integer"}, "description": "Exact complete tar byte count"},
+                "ETag": {"schema": {"type": "string"}, "description": "Quoted bundle digest"},
+                "Content-Disposition": {"schema": {"type": "string"}, "description": "Safe attachment tar filename"},
+            },
+        },
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"},
+        503: {"description": "BUNDLE_INTEGRITY_FAILURE"},
     },
 )
 def get_history_compare_bundle_route(
@@ -171,18 +186,10 @@ def get_history_compare_bundle_route(
         operation=operation,
         unit_of_work_factory=deps.unit_of_work_factory,
     )
-    _logical_name, stream = read_compare_bundle(
+    prepared = read_compare_bundle(
         operation=operation,
         bundle_reader=deps.bundle_reader,
         unit_of_work_factory=deps.unit_of_work_factory,
         artifact_store=deps.artifact_store,
     )
-    from collections.abc import Iterable
-
-    return StreamingResponse(
-        cast(Iterable[bytes], stream),
-        media_type="application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="history-compare-{operation_id}.bundle"'
-        },
-    )
+    return BundleStreamingResponse(prepared)

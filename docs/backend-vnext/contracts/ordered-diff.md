@@ -367,3 +367,11 @@ Surface / Bundle：
 - `table_processing_mode` 能区分 tail segment、local patch、shift repaired、complex reorder 和 degraded。
 - ordered logical digest 对 row order 敏感。
 - ordered records refs 可通过 artifact closure 恢复为 operation-local refs。
+
+## S3 确定性澄清（设计候选，待 kickoff 独审）
+
+保持现行 GID_NO_V1 行为，不因 Rust 替换变更算法语义：共同真实实体按 before 顺序排列，取其 current 绝对位置的最长严格递增子序列；多个等长解取 before-index 序列字典序最小者作为 LIS 主干。不得以任意 patience-sort 回溯解替代该并列规则。
+
+facts ordered records 按 kind、`current_position or before_position or 0`、identity（缺省空）排序；这是现行 facts 序，与 Comparison Records 产物的统一排序不同。gid/no 校验、伪 gid provenance、相邻真实 identity 锚定的空白区间及 occupancy digest 均保留；排序中的首尾空锚按空字符串处理。
+
+未变化表仍按本次有效 pair 策略（含共有列）对当前侧计算单侧 ordered/occupancy 摘要并同时填两侧；不得读取 before 行或运行 LIS/生成 records，不在上传阶段提前计算依赖 pair 的摘要。具体 Arrow 接口与验证见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)。

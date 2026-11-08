@@ -52,6 +52,17 @@ def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient)
     assert "does not affect risk or submission eligibility" in response["description"]
 
 
+@pytest.mark.parametrize("path", (
+    "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    "/v1/history-compares/{operation_id}/bundle",
+))
+def test_bundle_openapi_declares_only_complete_tar(client: TestClient, path: str) -> None:
+    responses = client.get("/openapi.json").json()["paths"][path]["get"]["responses"]
+    assert set(responses["200"]["content"]) == {"application/x-tar"}
+    assert set(responses["200"]["headers"]) == {"Content-Length", "ETag", "Content-Disposition"}
+    assert "BUNDLE_INTEGRITY_FAILURE" in responses["503"]["description"]
+
+
 def test_openapi_operation_diagnostic_details_match_the_bounded_contract(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()["components"]["schemas"]
     diagnostic = schema["OperationDiagnosticResponse"]
@@ -156,3 +167,37 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     assert start_archive_request.get("additionalProperties") is False
     archive_started_response = schema["components"]["schemas"]["ArchiveStartedResponse"]
     assert "archive_result_id" in archive_started_response["properties"]
+
+
+def test_openapi_create_statuses_response_models_and_workspace_occupancy(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    for path, statuses, model in (
+        ("/v1/workspaces", ("201", "200"), "WorkspaceResponse"),
+        ("/v1/history-compares", ("202", "200"), "HistoryCompareAcceptResponse"),
+    ):
+        responses = schema["paths"][path]["post"]["responses"]
+        assert {key for key in responses if key.startswith("2")} == set(statuses)
+        for status in statuses:
+            assert responses[status]["content"]["application/json"]["schema"] == {"$ref": f"#/components/schemas/{model}"}
+    workspace = schema["components"]["schemas"]["WorkspaceResponse"]
+    for field in ("active_submit_attempt_id", "active_submission_id"):
+        assert field in workspace["required"]
+        assert workspace["properties"][field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert "RETURN_FOR_REVISION" not in str(schema)
+    assert "RETURNED_FOR_REVISION" not in str(schema)
+    assert "ARCHIVE_PENDING_REVIEW" in schema["paths"]["/v1/archives"]["post"]["responses"]["409"]["description"]
+
+
+def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_schemas(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    models = schema["components"]["schemas"]
+    assert models["StartArchiveRequest"]["properties"]["confirmation_refs"]["maxItems"] == 1
+    assert models["StartArchiveRequest"]["properties"]["anomaly_resolution_refs"]["maxItems"] == 1601
+    for name in ("ArchiveBusinessValidationResponse", "ArchiveSourceDiagnosticResponse", "ArchiveTimeComparisonResponse",
+        "ArchiveBusinessIssueResponse", "ArchiveBusinessSubjectResponse", "ArchiveSourceIssueDetailsResponse", "CloseSubmissionRequest"):
+        assert models[name]["additionalProperties"] is False
+    assert "submission_disposition" in models["ReviewFactsResponse"]["properties"]
+    assert "submission_disposition" in models["HistoryNodeResponse"]["properties"]
+    assert "archive_disposition" not in models["HistoryNodeResponse"]["properties"]
+    route = schema["paths"]["/v1/submissions/{submission_id}/closure"]["post"]
+    assert {"200", "201", "403", "404", "409", "503"} <= set(route["responses"])

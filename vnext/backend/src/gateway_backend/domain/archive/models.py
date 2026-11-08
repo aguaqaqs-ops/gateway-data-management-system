@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 
 
-class ArchiveDispositionKind(StrEnum):
+class SubmissionDispositionKind(StrEnum):
     ARCHIVED_BASELINE = "ARCHIVED_BASELINE"
     CLOSED_NOT_ARCHIVED = "CLOSED_NOT_ARCHIVED"
 
@@ -16,6 +16,9 @@ class ArchiveSubjectKind(StrEnum):
     CONFIRM_SELECTION = "CONFIRM_SELECTION"
     APPROVED_SIBLING_EXCLUDED = "APPROVED_SIBLING_EXCLUDED"
     PROJECT_IDENTITY_EXCEPTION = "PROJECT_IDENTITY_EXCEPTION"
+    CONFIGURATION_SOURCE = "CONFIGURATION_SOURCE"
+    CONFIGURATION_TIME_QUALITY = "CONFIGURATION_TIME_QUALITY"
+    CONFIGURATION_TIME_ORDER = "CONFIGURATION_TIME_ORDER"
 
 
 class ArchiveConfirmationAction(StrEnum):
@@ -26,6 +29,9 @@ class ArchiveConfirmationAction(StrEnum):
 class ArchiveAnomalyResolutionAction(StrEnum):
     ACKNOWLEDGE_EXCLUSION = "ACKNOWLEDGE_EXCLUSION"
     ACKNOWLEDGE_IDENTITY_EXCEPTION = "ACKNOWLEDGE_IDENTITY_EXCEPTION"
+    ACKNOWLEDGE_SOURCE_EXCEPTION = "ACKNOWLEDGE_SOURCE_EXCEPTION"
+    ACKNOWLEDGE_TIME_QUALITY = "ACKNOWLEDGE_TIME_QUALITY"
+    ACKNOWLEDGE_TIME_ORDER = "ACKNOWLEDGE_TIME_ORDER"
     REVOKE = "REVOKE"
 
 
@@ -43,20 +49,68 @@ class ArchiveAuditReference:
     def __post_init__(self) -> None:
         if type(self.subject_digest) is not str or not self.subject_digest:
             raise ValueError("subject_digest must be a non-empty string")
-        if type(self.sequence) is not int or self.sequence < 0:
+        if type(self.sequence) is not int or not 0 <= self.sequence <= 9007199254740991:
             raise ValueError("sequence must be a non-negative integer")
 
 
+class SubmissionDispositionSourceKind(StrEnum):
+    ARCHIVE = "ARCHIVE"
+    MANUAL_CLOSE = "MANUAL_CLOSE"
+
+
 @dataclass(frozen=True, slots=True)
-class ArchiveDisposition:
-    submission_id: str
-    disposition: ArchiveDispositionKind
+class ManualSubmissionClosure:
+    closed_by: str
+    closed_at: datetime
+    reason: str
+    idempotency_key: str
+    request_fingerprint: str
+    expected_review_version: int
+    expected_baseline_node_id: str
+    expected_baseline_head_version: int
+    workspace_id: str
+    workspace_generation: int
+    upload_revision_id: str
+    preview_result_id: str
+    workspace_version: int
+    configuration_facts_digest: str
 
     def __post_init__(self) -> None:
-        if type(self.submission_id) is not str or not self.submission_id:
-            raise ValueError("submission_id must be a non-empty string")
-        if type(self.disposition) is not ArchiveDispositionKind:
-            raise ValueError("disposition must be ArchiveDispositionKind")
+        for name in ("closed_by", "reason", "idempotency_key", "request_fingerprint",
+            "expected_baseline_node_id", "workspace_id", "upload_revision_id", "preview_result_id", "configuration_facts_digest"):
+            value = getattr(self, name)
+            if type(value) is not str or not value or len(value.encode("utf-8")) > (4096 if name == "reason" else 255):
+                raise ValueError("invalid manual closure text binding")
+        for value in (self.expected_review_version, self.expected_baseline_head_version,
+            self.workspace_generation, self.workspace_version):
+            if type(value) is not int or not 0 <= value <= 9007199254740991:
+                raise ValueError("invalid manual closure safe integer")
+        if self.closed_at.tzinfo is None or self.closed_at.utcoffset() is None:
+            raise ValueError("manual closure time must be aware")
+
+
+@dataclass(frozen=True, slots=True)
+class SubmissionDisposition:
+    submission_id: str
+    disposition: SubmissionDispositionKind
+    source_kind: SubmissionDispositionSourceKind
+    result_id: str | None
+    repository_id: str
+    gateway_device_external_key: str
+    business_project_id: str
+    manual_closure: ManualSubmissionClosure | None = None
+
+    def __post_init__(self) -> None:
+        for value in (self.submission_id, self.repository_id, self.gateway_device_external_key, self.business_project_id):
+            if type(value) is not str or not value:
+                raise ValueError("submission disposition requires exact target/scope")
+        if type(self.disposition) is not SubmissionDispositionKind or type(self.source_kind) is not SubmissionDispositionSourceKind:
+            raise ValueError("invalid submission disposition kind/source")
+        if self.source_kind is SubmissionDispositionSourceKind.ARCHIVE:
+            if type(self.result_id) is not str or not self.result_id or self.manual_closure is not None:
+                raise ValueError("archive disposition requires only a real result source")
+        elif self.disposition is not SubmissionDispositionKind.CLOSED_NOT_ARCHIVED or self.result_id is not None or type(self.manual_closure) is not ManualSubmissionClosure:
+            raise ValueError("manual close requires only a closed-not-archived source")
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +165,7 @@ class ArchiveResult:
     plan_id: str
     baseline_node_id: str
     archived_at: datetime
-    dispositions: tuple[ArchiveDisposition, ...]
+    dispositions: tuple[SubmissionDisposition, ...]
 
     def __post_init__(self) -> None:
         if type(self.result_id) is not str or not self.result_id:
@@ -146,7 +200,7 @@ class ArchiveConfirmationEvent:
     def __post_init__(self) -> None:
         if self.subject_kind is not ArchiveSubjectKind.CONFIRM_SELECTION:
             raise ValueError("confirmation event subject_kind must be CONFIRM_SELECTION")
-        if type(self.sequence) is not int or self.sequence < 1:
+        if type(self.sequence) is not int or not 1 <= self.sequence <= 9007199254740991:
             raise ValueError("sequence must be a positive integer")
         if self.action is ArchiveConfirmationAction.REVOKE:
             if type(self.reason) is not str or not self.reason:
@@ -178,16 +232,20 @@ class ArchiveAnomalyResolutionEvent:
     idempotency_key: str
     request_fingerprint: str
     request_payload_json: str
+    subject_payload_json: str
 
     def __post_init__(self) -> None:
         if self.subject_kind not in {
             ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
             ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
+            ArchiveSubjectKind.CONFIGURATION_SOURCE,
+            ArchiveSubjectKind.CONFIGURATION_TIME_QUALITY,
+            ArchiveSubjectKind.CONFIGURATION_TIME_ORDER,
         }:
             raise ValueError(
                 "anomaly resolution event subject_kind must identify an archive anomaly"
             )
-        if type(self.sequence) is not int or self.sequence < 1:
+        if type(self.sequence) is not int or not 1 <= self.sequence <= 9007199254740991:
             raise ValueError("sequence must be a positive integer")
         if type(self.reason) is not str or not self.reason:
             raise ValueError("reason must be a non-empty string")
@@ -204,3 +262,13 @@ class ArchiveAnomalyResolutionEvent:
             raise ValueError("project identity exceptions require ACKNOWLEDGE_IDENTITY_EXCEPTION")
         if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
             raise ValueError("occurred_at must be an aware datetime")
+
+
+def affirmative_resolution_action(kind: ArchiveSubjectKind) -> ArchiveAnomalyResolutionAction:
+    return {
+        ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
+        ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION,
+        ArchiveSubjectKind.CONFIGURATION_SOURCE: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_SOURCE_EXCEPTION,
+        ArchiveSubjectKind.CONFIGURATION_TIME_QUALITY: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_QUALITY,
+        ArchiveSubjectKind.CONFIGURATION_TIME_ORDER: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_ORDER,
+    }[kind]

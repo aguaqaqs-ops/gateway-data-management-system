@@ -1,12 +1,17 @@
 """Run the S2b and S4 real dump journeys from the host.
 
-The source packages are read-only inputs. Journey checks use public HTTP APIs;
-the public History result exposes a pair total and digests, while its bundle
-contains artifact references without a public artifact-content endpoint. No row
-values or row identifiers are emitted.
+The source packages are read-only inputs. Journey checks use public HTTP APIs
+and verify the complete Preview/History tar closure. No row values or row
+identifiers are emitted.
 """
 
 from __future__ import annotations
+
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+)
+from gateway_backend.capabilities.table_access import NeverCancel
 
 import argparse
 import contextlib
@@ -43,6 +48,8 @@ from benchmarks.real_dump_census import (
     CompositeProjectionError,
     compare_composite_packages,
 )
+from benchmarks.bundle_tar import download_bundle_tar
+from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
@@ -1539,12 +1546,13 @@ def _upload_revision(
     workspace: Mapping[str, Any],
     package: bytes,
     idempotency_key: str,
+    initial_package: bytes | None = None,
 ) -> dict[str, Any]:
     expected_version = int(workspace["optimistic_version"])
     digest = hashlib.sha256(package).hexdigest()
-    manifest = {
+    manifest: dict[str, Any] = {
         "expected_workspace_version": expected_version,
-        "input_completeness": "MODIFIED_ONLY",
+        "input_completeness": "MODIFIED_ONLY" if initial_package is None else "FULL",
         "artifacts": {
             "MODIFIED": {
                 "part_name": "modified",
@@ -1554,12 +1562,19 @@ def _upload_revision(
             }
         },
     }
+    files = {"modified": ("package.tar.gz", package, "application/gzip")}
+    if initial_package is not None:
+        manifest["artifacts"]["INITIAL"] = {
+            "part_name": "initial", "media_type": "application/gzip", "size_bytes": len(initial_package),
+            "raw_sha256": "sha256:" + hashlib.sha256(initial_package).hexdigest(),
+        }
+        files["initial"] = ("initial.tar.gz", initial_package, "application/gzip")
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
         headers=compose_auth_headers(idempotency_key=idempotency_key),
         files={
             "manifest": ("manifest.json", json.dumps(manifest).encode("utf-8"), "application/json"),
-            "modified": ("package.tar.gz", package, "application/gzip"),
+            **files,
         },
     )
     return _require_one_of(response, {200, 201}, "upload revision")
@@ -1629,18 +1644,6 @@ def _preview(
         200,
         "preview result",
     )
-    manifest_response = client.get(
-        f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result_id}/bundle"
-    )
-    if manifest_response.status_code != 200:
-        raise JourneyFailure(f"preview bundle: HTTP {manifest_response.status_code}")
-    try:
-        manifest = cast(dict[str, Any], json.loads(manifest_response.content))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise JourneyFailure("preview bundle was not a JSON manifest") from exc
-    summaries = manifest.get("pairs")
-    if not isinstance(summaries, list) or not summaries:
-        raise JourneyFailure("preview bundle did not include a pair summary")
     preview = {"workspace": refreshed, "result": result}
     if collect_timing:
         timing.setdefault(
@@ -1651,6 +1654,13 @@ def _preview(
         timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
         timing["visibility_poll_interval_seconds"] = 2.0
         preview["operation_timing"] = timing
+    try:
+        manifest, transfer = download_bundle_tar(
+            client, f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result_id}/bundle",
+        )
+    except BundleIntegrityError as exc:
+        raise JourneyFailure("preview complete bundle failed verification") from exc
+    preview["bundle_transfer"] = transfer
     return preview, manifest
 
 
@@ -1658,10 +1668,17 @@ def _assert_preview_summaries(
     manifest: Mapping[str, Any],
     *,
     unchanged: bool,
+    input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, int]:
     pairs = manifest.get("pairs")
-    if not isinstance(pairs, list) or len(pairs) != 1:
-        raise JourneyFailure("preview manifest must have exactly one pair")
+    if not isinstance(pairs, list) or not pairs:
+        raise JourneyFailure("preview manifest must have published pairs")
+    pair_ids = [pair.get("pair_id") for pair in pairs if isinstance(pair, dict)]
+    if len(pair_ids) != len(pairs) or len(set(pair_ids)) != len(pairs):
+        raise JourneyFailure("preview manifest pair identities are invalid")
+    expected_pair_ids = {"initial_to_modified", "baseline_to_initial"} if input_completeness == "FULL" else {"initial_to_modified"}
+    if set(pair_ids) != expected_pair_ids:
+        raise JourneyFailure("preview manifest pairs disagree with the requested input completeness")
     totals: Counter[str] = Counter()
     for pair in pairs:
         if not isinstance(pair, dict) or not isinstance(pair.get("summary"), dict):
@@ -1673,8 +1690,12 @@ def _assert_preview_summaries(
         failed = int(summary.get("failed_table_count", -1))
         if min(table_count, changed, degraded, failed) < 0 or table_count == 0:
             raise JourneyFailure("preview table summary is incomplete")
-        if degraded or failed or (unchanged and changed):
+        if degraded or failed or (unchanged and changed and pair.get("pair_id") == "initial_to_modified"):
             raise JourneyFailure("preview table summary violated no-degradation/no-change expectations")
+        if pair.get("pair_id") == "baseline_to_initial" and changed:
+            raise JourneyFailure("FULL initial=v1 must match its current archived v1 baseline")
+        if pair.get("pair_id") != "initial_to_modified":
+            continue
         totals.update(
             {
                 "pair_count": 1,
@@ -1684,6 +1705,8 @@ def _assert_preview_summaries(
                 "failed_table_count": failed,
             }
         )
+    if not totals:
+        raise JourneyFailure("preview manifest has no initial_to_modified pair")
     return dict(totals)
 
 
@@ -1692,6 +1715,7 @@ def _assert_identity_pair(
     *,
     expected_status: str,
     expected_mode: str,
+    input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, str]:
     result = preview.get("result")
     if not isinstance(result, dict):
@@ -1703,9 +1727,25 @@ def _assert_identity_pair(
     ):
         raise JourneyFailure("Preview identity assessment set digest is invalid")
     pairs = result.get("identity_pairs")
-    if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], dict):
-        raise JourneyFailure("Preview identity assessment must contain exactly one pair")
-    pair = cast(dict[str, Any], pairs[0])
+    if not isinstance(pairs, list) or not pairs or any(not isinstance(pair, dict) for pair in pairs):
+        raise JourneyFailure("Preview identity assessment pairs are invalid")
+    expected_pair_ids = {"initial_to_modified", "baseline_to_initial"} if input_completeness == "FULL" else {"initial_to_modified"}
+    if len(pairs) != len(expected_pair_ids) or {pair.get("pair_id") for pair in pairs} != expected_pair_ids:
+        raise JourneyFailure("Preview identity pairs disagree with the requested input completeness")
+    selected = [pair for pair in pairs if pair.get("pair_id") == "initial_to_modified"]
+    if len(selected) != 1:
+        raise JourneyFailure("Preview identity assessment must identify initial_to_modified")
+    pair = cast(dict[str, Any], selected[0])
+    if len(pairs) == 2:
+        baseline = [item for item in pairs if item.get("pair_id") == "baseline_to_initial"]
+        if len(baseline) != 1 or (
+            baseline[0].get("status") != "SAME_PROJECT"
+            or baseline[0].get("mode") != "DETAILED"
+            or baseline[0].get("applicability") != "APPLICABLE"
+        ):
+            raise JourneyFailure("FULL baseline_to_initial identity is not the archived v1 identity")
+    elif len(pairs) != 1:
+        raise JourneyFailure("Preview identity assessment has unexpected pairs")
     expected_applicability = (
         "NOT_APPLICABLE" if expected_status == "NOT_APPLICABLE" else "APPLICABLE"
     )
@@ -1951,8 +1991,21 @@ def _archive(
     other_anomalies = [
         item for item in anomalies if item.get("subject_kind") != "PROJECT_IDENTITY_EXCEPTION"
     ]
-    if other_anomalies:
-        raise JourneyFailure("archive plan contains an unexpected non-identity anomaly")
+    business_actions = {
+        "CONFIGURATION_SOURCE": "ACKNOWLEDGE_SOURCE_EXCEPTION",
+        "CONFIGURATION_TIME_QUALITY": "ACKNOWLEDGE_TIME_QUALITY",
+        "CONFIGURATION_TIME_ORDER": "ACKNOWLEDGE_TIME_ORDER",
+        "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
+    }
+    if any(item.get("subject_kind") not in business_actions for item in other_anomalies):
+        raise JourneyFailure("archive plan contains an unsupported anomaly")
+    try:
+        business_reasons = json.loads(os.environ.get("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", "{}"))
+    except json.JSONDecodeError as exc:
+        raise JourneyFailure("archive business reasons must be a JSON object") from exc
+    if not isinstance(business_reasons, dict) or any(not isinstance(key, str) or not isinstance(value, str) or not value
+        for key, value in business_reasons.items()):
+        raise JourneyFailure("archive business reasons require nonempty reason strings keyed by subject digest or issue code")
     if identity_exception_reason is None and identity_anomalies:
         raise JourneyFailure("archive plan has an unresolved project identity exception")
     if identity_exception_reason is not None and (
@@ -1986,36 +2039,29 @@ def _archive(
         "archive confirmation",
     )
     anomaly_resolution_refs: list[dict[str, Any]] = []
-    if identity_exception_reason is not None:
-        identity_anomaly = identity_anomalies[0]
-        resolution = _require_one_of(
-            client.post(
-                "/v1/archive-anomaly-resolutions",
-                headers=compose_auth_headers(
-                    token=ARCHIVER_TOKEN,
-                    idempotency_key=f"{key_prefix}-identity-resolution",
-                ),
-                json={
-                    "expected_baseline_node_id": head["business_baseline_node_id"],
-                    "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected,
-                    "candidate_set_digest": preview["candidate_set_digest"],
-                    "subject_digest": identity_anomaly["subject_digest"],
-                    "expected_sequence": 0,
-                    "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
-                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
-                    "reason": identity_exception_reason,
-                    "issue_code": identity_anomaly["issue_code"],
-                    "target_submission_id": identity_anomaly["target_submission_id"],
-                    "target_candidate_digest": identity_anomaly["target_candidate_digest"],
-                },
-            ),
-            {200, 201},
-            "identity exception resolution",
-        )
-        anomaly_resolution_refs.append(
-            {"subject_digest": identity_anomaly["subject_digest"], "sequence": resolution["sequence"]}
-        )
+    for index, anomaly in enumerate(anomalies):
+        subject_kind = str(anomaly["subject_kind"])
+        latest_sequence = anomaly.get("latest_sequence")
+        if type(latest_sequence) is not int or not 0 <= latest_sequence <= 9007199254740991:
+            raise JourneyFailure("archive anomaly sequence is invalid")
+        if anomaly.get("resolution_status") == "ACCEPTED":
+            anomaly_resolution_refs.append({"subject_digest": anomaly["subject_digest"], "sequence": latest_sequence})
+            continue
+        reason = identity_exception_reason if subject_kind == "PROJECT_IDENTITY_EXCEPTION" else business_reasons.get(
+            anomaly["subject_digest"], business_reasons.get(anomaly["issue_code"]))
+        if not isinstance(reason, str) or not reason:
+            raise JourneyFailure(f"archive issue requires an explicit reason: {anomaly['issue_code']} subject={anomaly['subject_digest']}")
+        resolution = _require_one_of(client.post("/v1/archive-anomaly-resolutions",
+            headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key=f"{key_prefix}-resolution-{index}"),
+            json={"expected_baseline_node_id": head["business_baseline_node_id"],
+                "expected_baseline_head_version": head["baseline_head_version"], "selected": selected,
+                "candidate_set_digest": preview["candidate_set_digest"], "subject_digest": anomaly["subject_digest"],
+                "expected_sequence": latest_sequence,
+                "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION" if subject_kind == "PROJECT_IDENTITY_EXCEPTION" else business_actions[subject_kind],
+                "subject_kind": subject_kind, "reason": reason, "issue_code": anomaly["issue_code"],
+                "target_submission_id": anomaly["target_submission_id"], "target_candidate_digest": anomaly["target_candidate_digest"]}),
+            {200, 201}, "archive reasoned anomaly resolution")
+        anomaly_resolution_refs.append({"subject_digest": anomaly["subject_digest"], "sequence": resolution["sequence"]})
     ready = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -2481,33 +2527,29 @@ def _history_compare(
         timing["operation_terminal_seconds"] = round(terminal_seconds, 3)
         timing["user_visible_seconds"] = round(terminal_seconds, 3)
         timing["visibility_observation"] = "terminal_history_result"
+        timing["completion_seconds"] = round(terminal_seconds, 3)
     result = terminal.get("result")
     if not isinstance(result, dict) or not isinstance(result.get("pairs"), list) or len(result["pairs"]) != 1:
         raise JourneyFailure("History compare result has an unexpected pair count")
     pair = cast(dict[str, Any], result["pairs"][0])
     if pair.get("before_commit") != v1_commit_id or pair.get("current_commit") != v2_commit_id:
         raise JourneyFailure("History compare did not use the v1 and v2 Repository commits")
-    bundle_response = client.get(
-        f"/v1/history-compares/{operation_id}/bundle",
-        headers=compose_auth_headers(token=HISTORY_READER_TOKEN),
-    )
-    if bundle_response.status_code != 200:
-        raise JourneyFailure(f"History compare bundle HTTP {bundle_response.status_code}")
     try:
-        bundle = cast(dict[str, Any], json.loads(bundle_response.content))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise JourneyFailure("History compare bundle was not a JSON manifest") from exc
-    if not isinstance(bundle.get("closure_entries"), list):
-        raise JourneyFailure("History compare bundle does not have closure entries")
+        bundle, transfer = download_bundle_tar(
+            client, f"/v1/history-compares/{operation_id}/bundle",
+            headers=compose_auth_headers(token=HISTORY_READER_TOKEN),
+        )
+    except BundleIntegrityError as exc:
+        raise JourneyFailure("History complete bundle failed verification") from exc
     _emit_progress(stage, "history_compare_succeeded")
     result_value: dict[str, Any] = {
         "operation_id": operation_id,
         "pair": pair,
         "bundle": bundle,
         "bundle_digest": result.get("bundle_digest"),
+        "bundle_transfer": transfer,
     }
     if collect_timing:
-        timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
         result_value["operation_timing"] = timing
     return result_value, operation_id
 
@@ -2577,9 +2619,14 @@ def _run_tier(
     debug_submit_probe_root: Path | None = None,
     debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
     collect_timing: bool = False,
+    v2_input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, Any]:
+    operation_timings: dict[str, dict[str, Any]] = {}
+
     def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
         timing = value.get("operation_timing")
+        if isinstance(timing, Mapping):
+            operation_timings[operation] = dict(timing)
         if dc32_metrics is not None and isinstance(timing, Mapping):
             dc32_metrics.append(
                 {
@@ -2809,6 +2856,7 @@ def _run_tier(
                     },
                 },
                 "step_metrics": runner.metrics,
+                "operation_timings": operation_timings,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "conclusion": "PASS",
                 "empty_initial_commit_id": initial_commit_id,
@@ -2958,6 +3006,7 @@ def _run_tier(
                 "compose_image_ids": images,
                 "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
                 "step_metrics": runner.metrics,
+                "operation_timings": operation_timings,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "conclusion": "PASS",
                 "empty_initial_commit_id": initial_commit_id,
@@ -3055,6 +3104,7 @@ def _run_tier(
                 workspace=cast(Mapping[str, Any], v2_workspace),
                 package=v2_bytes,
                 idempotency_key=f"{project_name}-{tier}-v2-upload",
+                initial_package=v1_bytes if v2_input_completeness == "FULL" else None,
             ),
         )
 
@@ -3074,6 +3124,7 @@ def _run_tier(
             summary = _assert_preview_summaries(
                 manifest,
                 unchanged=False,
+                input_completeness=v2_input_completeness,
             )
             expected_v2_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
             _assert_s1b_preview_summary(
@@ -3107,6 +3158,7 @@ def _run_tier(
             v2_preview,
             expected_status="SAME_PROJECT",
             expected_mode="DETAILED",
+            input_completeness=v2_input_completeness,
         )
 
         v2_submission = runner.run(
@@ -3229,6 +3281,8 @@ def _run_tier(
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
                 "preview": v1_summary,
+                "input_completeness": "MODIFIED_ONLY",
+                "bundle_transfer": v1_preview.get("bundle_transfer"),
                 "identity": v1_identity,
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
@@ -3248,6 +3302,8 @@ def _run_tier(
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
                 "preview": v2_summary,
+                "input_completeness": v2_input_completeness,
+                "bundle_transfer": v2_preview.get("bundle_transfer"),
                 "identity": v2_identity,
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
@@ -3260,6 +3316,7 @@ def _run_tier(
             "preview": repeat_summary,
             "identity": repeat_identity,
             "submit": repeat_submit,
+            "bundle_transfer": repeat_preview.get("bundle_transfer"),
             "keyless_fallback_candidates_unchanged": {
                 "count": len(repeat_keyless_names),
                 "names": list(repeat_keyless_names),
@@ -3273,16 +3330,17 @@ def _run_tier(
             "composite_signal_point": composite_counts,
             "bundle_digest": history_result.get("bundle_digest"),
             "surface_digest": history_pair.get("surface_digest"),
+            "bundle_transfer": history_result.get("bundle_transfer"),
             "record_kind_counts": None,
             "detail_availability": (
-                "public History HTTP exposes pair record_count and digests; "
-                "bundle artifacts are references without public content retrieval"
+                "complete bundle tar members, physical SHA, semantic metadata and logical records digests verified"
             ),
         },
         "compose_image_ids": images,
         "initial_repository": initial_repository,
         "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
         "step_metrics": runner.metrics,
+        "operation_timings": operation_timings,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
         "empty_initial_commit_id": initial_commit_id,
@@ -3632,6 +3690,7 @@ def run_journey(
     requested_project_name: str | None = None,
     dc32_output: Path | None = None,
     debug_t1_submit_probe: bool = False,
+    v2_input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root)
@@ -3667,6 +3726,10 @@ def run_journey(
         raise JourneyFailure("--scope t4-v1-submit requires a fresh t4 journey")
     if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
+    if v2_input_completeness not in {"MODIFIED_ONLY", "FULL"}:
+        raise JourneyFailure("v2 input completeness is invalid")
+    if v2_input_completeness == "FULL" and (cross_project or dc32_output is not None or from_step is not None or scope != "full"):
+        raise JourneyFailure("FULL v2 input requires a fresh full functional journey")
     if debug_t1_submit_probe and (
         tier_filter != "t1"
         or scope != "full"
@@ -3856,6 +3919,7 @@ def run_journey(
                                         offline_composite=offline_composite,
                                         heartbeat_monitor=heartbeat_monitor,
                                         scope=scope,
+                                        v2_input_completeness=v2_input_completeness,
                                         dc32_metrics=dc32_metrics,
                                         dc32_scratch_root=dc32_scratch_root,
                                         dc32_session_root=dc32_session_root,
@@ -3983,6 +4047,25 @@ def validate_inputs() -> dict[str, Any]:
     return {"datasets": validated, "conclusion": "INPUTS_VALID"}
 
 
+def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
+    if arguments.kernel_threads is None or arguments.kernel_memory_budget_bytes is None:
+        raise JourneyFailure("journey requires explicit --kernel-threads and --kernel-memory-budget-bytes")
+    initialize_compute_kernel(arguments.kernel_threads)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(arguments.kernel_memory_budget_bytes),
+            NeverCancel(), arguments.kernel_threads), new_operation=True):
+        return run_journey(
+                tier_filter=arguments.tier,
+                scope=arguments.scope,
+                cross_project=arguments.cross_project,
+                from_step=arguments.from_step,
+                keep_stack=arguments.keep_stack,
+                requested_project_name=arguments.project_name,
+                dc32_output=arguments.dc32_output,
+                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
+                v2_input_completeness=arguments.v2_input_completeness,
+            )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -3991,6 +4074,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument(
+        "--v2-input-completeness", choices=("MODIFIED_ONLY", "FULL"), default="MODIFIED_ONLY",
+        help="functional v2 upload mode; FULL uses archived v1 as INITIAL and v2 as MODIFIED",
+    )
     parser.add_argument(
         "--scope",
         choices=("full", "t4-identity", "t4-v1-submit"),
@@ -4014,6 +4101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="also capture v1/v2 Submit reconciliation facts during a fresh t1 debug journey",
     )
+    parser.add_argument("--kernel-threads", type=int)
+    parser.add_argument("--kernel-memory-budget-bytes", type=int)
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
@@ -4026,22 +4115,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.project_name is not None,
                 arguments.dc32_output is not None,
                 arguments.debug_submit_probe_t1,
+                arguments.v2_input_completeness != "MODIFIED_ONLY",
             )
         ):
             raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
         result = (
             validate_inputs()
             if arguments.validate_inputs
-            else run_journey(
-                tier_filter=arguments.tier,
-                scope=arguments.scope,
-                cross_project=arguments.cross_project,
-                from_step=arguments.from_step,
-                keep_stack=arguments.keep_stack,
-                requested_project_name=arguments.project_name,
-                dc32_output=arguments.dc32_output,
-                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
-            )
+            else _run_kernel_journey(arguments)
         )
         print(json.dumps(result, sort_keys=True))
     except WorkerStalledFailure as exc:

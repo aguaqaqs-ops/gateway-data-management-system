@@ -22,6 +22,14 @@ _IDENTITY = ImageIdentity(
     build_input_revision=_SHA_B,
     source_tree_sha256=_TREE,
 )
+_SERVICE_IMAGE_ENV_CASES = [
+    pytest.param(None, harness.DEFAULT_IMAGE, id="default"),
+    pytest.param(
+        "gateway-repository-service:test-selected",
+        "gateway-repository-service:test-selected",
+        id="configured",
+    ),
+]
 
 
 def _valid_labels() -> dict[str, str]:
@@ -167,24 +175,48 @@ def test_image_id_distinguishes_immutable_digests() -> None:
 
 
 @pytest.mark.unit
-def test_ensure_repository_service_image_rebuilds_when_labels_stale() -> None:
+@pytest.mark.parametrize(
+    ("configured_image", "expected_image"),
+    _SERVICE_IMAGE_ENV_CASES,
+)
+def test_ensure_repository_service_image_rebuilds_when_labels_stale(
+    monkeypatch: pytest.MonkeyPatch,
+    configured_image: str | None,
+    expected_image: str,
+) -> None:
+    if configured_image is None:
+        monkeypatch.delenv("GATEWAY_REPOSITORY_SERVICE_IMAGE", raising=False)
+    else:
+        monkeypatch.setenv("GATEWAY_REPOSITORY_SERVICE_IMAGE", configured_image)
     with (
         patch.object(harness, "image_matches_build_context", side_effect=[False, True]),
         patch.object(harness, "_run_build") as run_build,
     ):
         image = harness.ensure_repository_service_image()
-        assert image == harness.DEFAULT_IMAGE
-        run_build.assert_called_once_with(harness.DEFAULT_IMAGE)
+        assert image == expected_image
+        run_build.assert_called_once_with(expected_image)
 
 
 @pytest.mark.unit
-def test_ensure_repository_service_image_skips_rebuild_when_labels_match() -> None:
+@pytest.mark.parametrize(
+    ("configured_image", "expected_image"),
+    _SERVICE_IMAGE_ENV_CASES,
+)
+def test_ensure_repository_service_image_skips_rebuild_when_labels_match(
+    monkeypatch: pytest.MonkeyPatch,
+    configured_image: str | None,
+    expected_image: str,
+) -> None:
+    if configured_image is None:
+        monkeypatch.delenv("GATEWAY_REPOSITORY_SERVICE_IMAGE", raising=False)
+    else:
+        monkeypatch.setenv("GATEWAY_REPOSITORY_SERVICE_IMAGE", configured_image)
     with (
         patch.object(harness, "image_matches_build_context", return_value=True),
         patch.object(harness, "_run_build") as run_build,
     ):
         image = harness.ensure_repository_service_image()
-        assert image == harness.DEFAULT_IMAGE
+        assert image == expected_image
         run_build.assert_not_called()
 
 

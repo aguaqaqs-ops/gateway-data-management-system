@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, project_canonical_fixture
+
 import struct
 from collections import Counter
 from pathlib import Path
@@ -31,6 +33,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableSet,
 )
 from gateway_backend.capabilities.snapshot_materialization._digest import snapshot_digest_of
+from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
+from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,
@@ -44,8 +49,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     STORAGE_PROJECTION_VERSION,
     build_repository_import_package,
-    project_canonical_table_set,
-    project_storage,
     render_repository_import_schema_replay_sql,
 )
 from gateway_backend.capabilities.table_access.contracts import (
@@ -247,7 +250,7 @@ def test_canonical_snapshot_identity(
             SnapshotTable(descriptor=composite_binding.descriptor, reader=composite_reader),
         ),
     )
-    canonical = project_canonical_table_set(raw_table_set, _RULESET)
+    canonical = project_canonical_fixture(raw_table_set, _RULESET)
     assert canonical.manifest is not None
     assert len(canonical.tables) == 4
     projection_inputs = (
@@ -323,11 +326,20 @@ def test_canonical_snapshot_identity(
         assert operation.status.value == "SUCCEEDED", operation.error
         assert operation.result is not None
 
-        provider = build_http_repository_provider_factory(
+        providers = build_http_repository_provider_factory(
             base_url=service.base_url,
             bearer_token=service.bearer_token,
             timeout_seconds=30.0,
-        )(seeded.repository_id, operation.result.commit_id)
+        )
+        provider = providers(seeded.repository_id, operation.result.commit_id)
+        control_db = tmp_path / "canonical-index.sqlite3"
+        initialize_control_db(control_db)
+        committed_tables = build_committed_table_access(
+            store=InMemoryArtifactStore(),
+            unit_of_work_factory=lambda: ControlDbUnitOfWork(control_db),
+            repository_provider_factory=providers,
+            repository_id=seeded.repository_id,
+        )
         canonical_binding = canonical_binding_for_commit(
             CommitCanonicalMetadata(
                 repository_id=seeded.repository_id,
@@ -346,6 +358,7 @@ def test_canonical_snapshot_identity(
                     ref=operation.result.commit_id,
                 ),
                 provider=provider,
+                committed_tables=committed_tables,
                 ruleset=_RULESET,
                 canonical_binding=canonical_binding,
                 table_ruleset_version=TABLE_RULESET_VERSION,

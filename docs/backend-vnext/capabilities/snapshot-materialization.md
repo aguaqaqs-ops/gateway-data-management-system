@@ -8,6 +8,8 @@
 > 当前 commit 规范元数据权威是 Backend 持有的 `CanonicalizationManifest`，Repository-ref 采用单遍读取，
 > 不写入、不读取或校验 hidden summary。其他 Snapshot materialization 语义仍按本文与 owning Contract 执行。
 
+S2b 内部规范表采用 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle) 的唯一 canonical IPC、引用与恢复边界（C–E 分节交付）。D 复用 SnapshotTableArtifact wrapper，以 manifest 明示 raw parquet/zstd 或 internal canonical arrow-ipc/none 并绑定 repository scope；严格目标载荷见 [Table Access](../contracts/snapshot-table-access.md#s2b-内部规范表边界)，不保留旧规范格式 fallback。本页 raw Parquet cache 和客户端 Parquet 的独立消费者仍保留；上传 SQL parser rows 不新增落盘。通用 cache recompute 策略不能覆盖 T1/PREPARED 冻结：T1 前可重新 Preview，T1 后缺失不得改选 SourcePackage/parent/新规则，已提交规范副本只能按绑定精确 commit 核验回填。
+
 ## 能力列表
 
 ```text
@@ -362,6 +364,7 @@ repository_server / dolt_repository module
 RepositoryRefMaterializationInput:
   repository_ref
   repository_table_access_provider
+  committed_tables  # 实际选中/导出表所需的规范表 port；INITIAL/identity-only 可无
   digest_contract_version
   parser_version optional
   table_ruleset_version
@@ -387,6 +390,12 @@ SnapshotMaterializationResult:
   cache_diagnostics
   diagnostics
 ```
+
+S2b D 的 `committed_tables` 是本 capability contract 拥有的小型注入 port：输入绑定的精确 commit、已有 `CanonicalTableIdentity`、descriptor/storage view、实际控制及读取 timeout 约束，返回具有正确 reader 生命周期的 `SnapshotTable`。application 用 C 的唯一 canonical store/cache/精确 commit 恢复实现，composition 注入 Preview、History 以及 Repository publication 的 `READERS_REQUIRED` 等真实消费者。capability 继续负责 metadata policy、选表、identity 和 manifest，不反向导入 application 或 Storage Projection 的 native 实现。
+
+application port 在 cache lookup/source 恢复前，沿 Storage Projection 既有 schema digest owner 核对 descriptor 的规范列声明、原列序与主键和 identity 的 `canonical_schema_digest`，同时保持表名、行数与 raw content identity 绑定。不能只以当前 catalog 自证 schema、或用相同值的 row digest 代替 manifest schema 绑定；例如 INT 改为 BIGINT 后值不变仍须拒绝不匹配。DDL-primary-key 策略从同一已绑定 exact catalog 解析 effective key，不改变 keyless/ordered 或比较策略；不新增 digest 版本、兼容路径或重复业务算法。
+
+INITIAL 和纯 identity-only 请求不为此读取行；只有实际选中/导出表才经 port。需要行或规范产物而未注入 port 时明确拒绝，不回退旧 Python rows/digest 路径。returned reader 必须拥有其 handle/borrower 或按绑定来源惰性重开，不能逃出已关闭的 context；恢复仍核 exact commit/expected repository/业务摘要，并保留 caller cancellation、finite deadline 及 repository timeout。raw/client Parquet 的真实用途不改变，不据此放宽冻结来源。
 
 Repository table access provider：
 
@@ -631,7 +640,7 @@ artifact_policy:
 
 - 同一 source 内容、parser/table rules/materialization contract 下，重复 materialization 得到相同 `snapshot_digest`。
 - Summary 可独立用于 provider planning，不打开 row reader。
-- 删除 L3 cache 后，仍能从 L1 source package 或 L2 repository ref 重建 summary/table artifacts。
+- 可重建 L3 cache 缺失时，按绑定来源重建 summary/table artifacts；T1/PREPARED 冻结与已提交规范副本按 Canonical Storage §5，不能泛化为任意 source/ref fallback。
 - Reader 能 streaming 大表，不要求一次性读入内存。
 - Cache hit 后仍校验 descriptor、digest 和 artifact manifest。
 - `READ_COMMIT_VALIDATED_ONLY` 不得读取 `PROVISIONAL` candidate。
@@ -657,3 +666,9 @@ artifact_policy:
 - 引入 projection table cache，但它属于 comparison/projection capability，不并入 raw snapshot table artifact cache。
 - repository server table cache 可加速 repository ref materialization，但仍不能替代 Snapshot descriptor/digest 计算。
 - cache promotion、TTL、cleanup 和跨 operation artifact dedup 后续由 cache/operation 设计补全。
+
+## V1 source-time metadata（2026-11-07）
+
+唯一Rust Table Access解析在成功typed转换行同步产出有界`configuration_generated_time`；SQL unquote/unescape后的逻辑文本使用`gateway-vnext/configuration-generated-time/v1`闭合语法，原table scalar规则不改。metadata含selected/max UTC、valid/empty/invalid counts、last/max源行序及last_not_max；每chunk常数空间，源序合并跨INSERT/chunk连续，max并列首次。TABLE_ABSENT/COLUMN_ABSENT/NO_ROWS/NO_VALUE/NO_VALID_VALUE为明确业务缺失，typed失败仍拒绝。
+
+`ParseResult.configuration_generated_time`是native小型metadata seam，capability不依赖domain或实现第二套时间计算；application在唯一上传物化入口严格转换为业务facts，并与SQL digest、source artifact及完整canonical content identity冻结。Snapshot/summary/canonical state等既有digest算法不加入该metadata。重启读取已冻结checkpoint，不由规范行顺序、Arrow输出批次或复用表重算。详细持久绑定见[Business Lifecycle V1 amendment](../refactoring/formal/contracts/business-lifecycle-and-state.md#v1-configuration-facts-amendment2026-11-07)。

@@ -41,6 +41,7 @@
    - 分歧在编码 owner 或存储表示的选择中修正，不在比较侧特判。
 2. **storage_projection 是规范形态的唯一实现。**
    - `project_canonical_table_set` 输出规范表集、`CanonicalizationManifest` 与全部诊断；投影失败时 Preview 整体 FAILED，并一次列出全部失败的表与列（DC14）；
+   - Phase 6 S2b 实现更新（DC78，2026-11-06）：上项函数名是 P5 接口；S2b 改由 `project_canonical_arrow_table_set`/Rust kernel 承接，并在 E 删除旧 Python 批量实现，不保留别名或回退。规范域、manifest、诊断和 Submit 复用语义不变；具体状态与验证见 [S2b E](../plans/p6-s2b-e-kickoff.md)，此接口说明不提前宣告阶段退出；
    - `publish_canonicalization_manifest` 只发布 manifest；
    - `render_import_schema_sql(import_input, removed_tables)` 渲染 import schema；import DML 仍由 mutation_planning 生成，打包沿用 `pack_repository_import_entries`；三者在 Submit 的 infrastructure publication adapter 中组合，adapter 实现既有 `SubmitImportPublicationPort`；
    - Submit 复用 Preview 的规范投影：Attempt 在 T1 冻结 PreviewResult 的规范表集合闭包与 manifest，prepare 不再二次投影原始快照；

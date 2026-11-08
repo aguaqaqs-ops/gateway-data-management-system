@@ -21,7 +21,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
  -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
     ‖ backend 镜像依赖层调整（DC67 补充第 5 项；已完成 2026-10-31，tag `p6-backend-image-exit`）
- -> S2a SQL 解析器（Rust，test-only 差分）+ 删除旧扩展（DC70：开发与基准正式测量并行，exit 在基准 exit 之后）
+ -> S2a SQL 解析器（Rust，test-only 差分）+ 删除旧扩展（DC70/DC81：与基准并行，exit 不再等待基准整体 exit）
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
  -> S4  Submit 渲染直通
@@ -106,6 +106,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - **输入准备工具并行完善（owner，2026-11-05，DC79）：** 按[独立工具 kickoff](p6-baseline-input-preparation-kickoff.md)补实际表形态小样本预检及生成/验收分段复用；独立 worktree、05 focused 验证，当前 CT108 生成不中断。工具候选经定向审核后协调后续使用，不改本轮完整验收、停止规则或已通过场景，不为采用新工具重复大生成。
 - **后续重开策略（owner，2026-11-05，DC79 补充）：** 当前若失败且按原停止规则获准重开，优先复用有效产物，需重生成时显式使用经审核的多路方案，不再默认单路完整重跑。空闲 05 可推进 kickoff §5.5 的 pair/W4 四任务调度与有界验证；当前流程不中断，正式计时口径与节点单飞不变。
+- **停止后主动处置（owner，2026-11-05，DC80）：** 受影响运行先停止，诊断/最小修复/审核主动继续，不默认等待 owner 催办。本次 READY 闭包容量修正按[定向 kickoff](p6-ready-closure-capacity-kickoff.md)推进；满足精确产品差异、新镜像验证和证据不变条件后，从 W4 `v2-preview` 前快照副本恢复。原样重试、泛化绕过身份、无依据沿用证据均不在范围内。
 
 ### S1c — Submit 等待预算与人工恢复续行修订（DC65）
 
@@ -157,23 +158,33 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
-- 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`，基于 merge commit `49d0846d86`（DC71 第 2 项）；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先；exit 在基准 exit 之后办理（DC70）。
+- 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`，基于 merge commit `49d0846d86`（DC71 第 2 项）；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先。**DC81（owner，2026-11-05）解除 exit 对基准整体 exit 的依赖**：核对现有证据及合入影响后办理，不默认重跑全部，不由设计替代独立证据审核。
 - 内容：补齐诊断与语料；PyO3 adapter；adapter 内进程共享线程池（worker 启动接线在 S2b）；test-only 双实现差分入口，生产仍走 Python（DC72 第 3、6 项）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
+- **收尾来源（2026-11-06）：** 原产品 `3b3d9c97bc`、handoff `c3c95282bf`、证据复核 `7c5cc2a49efb` 保留；与 main 的 READY 32768 修正整合后，由新实施者（Luna/max）和独立审核者（Astra/high）完成影响核对、必要定向门禁及退出审核，结果见下方退出记录。原基准 W4 租约问题继续由原线处理。
 - **kickoff 确认（repository owner，2026-10-31）：** [kickoff](p6-s2a-kickoff.md) 与[审核](p6-s2a-kickoff-review.md)，DC72。
+- **已退出（2026-11-06）：** 附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`。产品候选 `3b037adf4caf33f65e124a34f56f12f42e529641` 已通过 04 五个 Python 包权威 runner（含所需容器旅程）及 06 focused/五包静态检查；Rust 直接沿用原 `3b3d9c97bc`，原第④层逐值差分证据保持有效。最终 H 在原 04 来源工作区的六包闭包比较全部可沿用，RS 镜像身份匹配，独立审核者已给 exit/tag GO；精确来源、最终日志及 SHA 记录在 tag 注释和[收尾审核](p6-s2a-closeout-review.md)。首次 `38ccf8234f` 的失败 runner 保留，不作为任何包来源。原基准 W4 租约故障仍由原线跟踪。后续状态文档不移动此退出 tag，也不冒称为新的门禁来源。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **准备中，未授权开工（2026-11-04）：** [kickoff 设计输入](p6-s2b-kickoff.md)，引用基线 `ebb004738330`。磁盘数值与 DC63 基准子段尚待交付；正式 kickoff 须在 S2a exit 后重核，交审核再由 owner 确认。
-- **设计输入补充（DC76）：** UTC 导出与既有来源/类型由 owner 确认；少数约 100 MB SQL 纳入容量准备。[映射设计候选](p6-s2b-arrow-mapping-design.md)已形成，技术细则待审核；按映射→容量普查→N/M/唯一 Rust 路径与清理→kickoff 收口推进，不改变当前基准范围。
+- **S2b 已功能退出（2026-11-07，Owner 已确认）：** 本地附注 tag `p6-s2b-exit` 指向最终独审报告 `9220f3cdecba7df3e50fec00d77d1dd9efb0f678`，tag object `6076acbd552045c7c1846ce4c8191ebd4605e35f`。实际产品/门禁 V=`a6876d560050285321fd9f62942d590a03f35d64`，最终审核 H=`3580e6649f4b0819156f7f560670b3deee237f42`。最终32/8/M24 GiB、N1：06五包静态/30项定向、04六包权威及Compose、06 fresh完整t1–t3均独审通过；t4按Owner确认的82完整来源及精确费用/headroom条件沿用，旧物理峰仍标原24/M16。H在同04原gateWT的六包闭包和容器身份绑定已独审通过，E GO，无本节遗留阻塞。节点占用已释放，来源WT/镜像/全部成功及失败证据保留。W1/W2正式性能最迟S6，原基准/W4仍独立；本次不启动S3、不推送。精确来源见[E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)和tag注释；后续状态文档不移动tag、不冒新的门禁来源。
+
+- **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
+
+- **kickoff 已批准，A 节已交付（2026-11-06）：** [kickoff](p6-s2b-kickoff.md) 固定候选 `1a4adaae05` 已通过技术审核，Owner 已按 DC85 批准 kickoff 及首节纯内存 mapping/IPC codec。[A 任务单](p6-s2b-a-kickoff.md)产品候选 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a` 已收齐，结论 A GO，无未关闭 Finding；06 的 Rust workspace、五包静态、当前扩展/接口行为及必要容器 health/native 均通过。容量/M 仍按 DC84 分步校准，DC63 基准子段继续独立待补；A 局部向量 bytes 不替代 FULL/worker 校准或 W1/W2。Owner 随后按 DC86 授权逐节推进 B–E，每节新建既定实施/审核二角色；B 交付后按 [C 任务单](p6-s2b-c-kickoff.md)继续，额外角色需另获 Owner 确认。S2b 整体尚未退出。
+- **推进原则更新（DC81，2026-11-05）：** owner 将新开会话推进 S2a 收尾及 S2b 讨论；全量基准由原线继续，不再统一阻塞后续开发。先收口功能、映射、恢复语义与必要资源预算；未交付性能分段明确待补，允许后续小范围定向返工。迭代只做受影响范围验证，完整门禁集中到必要候选，不重复已通过的测量。S2b kickoff 仍须核对，不把本次流程调整表述为所有准备项/性能退出条件已通过。
+- **性能指标解释（DC81 补充，2026-11-06）：** 当前性能指标不是不可调整的硬性门槛。W2 或其他纯性能目标未达时，以实测、物理限制和调整影响交 owner 讨论；现有目标、未知项及测量来源如实保留，不自行判为通过或取消取证。具体验收时点仍在 kickoff 中收口；正确性、资源上限、租约及超时造成的业务失败不适用这一性能解释。
+- **W2 时点已定（DC83，2026-11-06）：** 功能退出与性能复核分开；30 秒目标及统计口径保留，CT108 可用时补测、最迟 S6 收口，未知不记通过。功能候选仍完成正确性、恢复、资源边界和必要权威/容器门禁；handoff 跟踪待测版本、负责人及返工影响。
+- **容量与 W1 时点已定（DC84，2026-11-06）：** kickoff 先依据现有输入和保守估算，映射/固定向量/纯 kernel 先行；writer 完成后校准 IPC，worker 接线前定 M 并核 FULL 峰值，最终候选仍验证资源边界。W1 原则上从 S2b 做诊断测量，若 CT108 至功能 exit 仍无窗口，允许延期、最迟 S6；W3 从 S3 起测，S6 正式取证。阶段诊断、功能验证和正式阈值判定分别记录，不用未知数值放行。
+- **设计输入补充（DC76）：** UTC 导出与既有来源/类型由 owner 确认；少数约 100 MB SQL 纳入容量准备。[映射设计候选](p6-s2b-arrow-mapping-design.md)已完成技术审核，容量/M 按 DC84 与 kickoff 的 A–E 切片收口，不改变原基准范围。
 - **容量输入补充（DC77）：** 首版/长期仓库数为 1,000/10,000，年均每仓库 6–12 次提交；单项目 5 版/日为尚未发生的假设压力，500 仓库同日上传为跨仓库极端场景，不默认组合。S2b 先测单位物理成本并参数化外推，区分 head、durable 历史与临时/TTL；不新增规模门禁或 Phase 7 并发/横向扩展实现。
 
 - **容量方案确认（owner，2026-11-04）：** DC77 容量分层、独立突发场景、测量后外推与 Phase 7 扩展方向已确认；尚未指定硬件数量、磁盘规格、N/M 数值或完成时限，不替代整体 kickoff 审核及开工确认。
 - 目标：设计 §8。
-- 前置：S2a exit；S1c exit（DC65）；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
+- 前置：S2a exit；S1c exit（DC65）；上传侧原始表使用方核清，容量/M 的分步校准计划与前期保守预算按 DC84 审核闭合。
 - 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入、worker 级共享线程池接线与 pyarrow 线程池；直接接入唯一 Rust 生产路径并验证后清理被替代 Python 算法/临时差分入口（DC78；池接线仍按 DC72 第 6 项）；Canonical Storage §5 修订。
-- 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1–W3 测量（ct108）；**W2 可达性检查点**（设计 §16.1：剩余成本不能在 30 s 内闭合时停止，交 owner）；权威 runner 与容器门禁。
+- 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1 诊断按 DC84 安排，W3 起测归 S3；权威 runner 与容器门禁。**W2 性能复核与功能 exit 分开**（DC83、设计 §16.1）：30 秒目标保留，CT108 可用时补测、最迟 S6 收口；待补或未达不写 PASS，结果及调整方案交 owner。
 - 真实数据：t1–t4 端到端摘要一致；测本阶段相关负载。
 
 ### S3 — 比较与逐行记录
@@ -207,11 +218,19 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
-### 前端对接前的后端小任务 BE-a / BE-d（安排草案）
+### 前端对接前的 BE-a / BE-d 与归档业务核验（已正式退出，FE3独立）
 
-- 业务范围依据 `ebb004738330` 的前端 kickoff §5；[任务提示词草案](p6-be-a-d-kickoff.md)待审核和 owner 确认，S2a exit 合入 main 后、FE3 前发出。建议 BE-a 后 BE-d；并行 S2b 时明确文件归属。
-- BE-a 删除退回修改状态/动作/事件及基线 schema 约束，并补两创建接口的成功状态 OpenAPI；按 DC75 增加 Workspace 占用指针的一致查询投影及 withdraw_own_submission 权限（含本人 GET review、WITHDRAW 与 replay）。方向由 owner 2026-11-04 确认，详细条款/验收见 [BE-a 设计补充](p6-be-a-design.md)，BE-a kickoff 审核已通过（`fcbfb4c1a0`），非阻塞测试归属建议已采纳，待 owner 实施确认；这包含授权语义变更，不是纯 DTO 小修。BE-d 闭合 Preview/History 的整包 tar 下载并同步旅程工具；不引入 BE-b 导航产物。
-- 本行是计划正文，不记录实施审核结果或 exit 状态。两任务验收、真实数据建议和停止规则见草案。
+- **2026-11-07范围与授权更新（DC89/DC90）**：S2a、S2b均已退出；[联合kickoff](p6-be-a-d-kickoff.md)设计候选`16472197b4`/终审`a5d87540e6`已GO，Owner随后明确授权A1→V1→V2→D及联合最终准备，正常小节自动推进。A1最终`c1ee962755`、V1最终`5dc01deeb5`、V2最终`9ec62e82ad`均本节GO；D从clean9ec启动。持续状态见[协调交接](p6-be-a-d-coordination-handoff.md)，不重复请求已给出的开工授权，不接管原冻结基准。
+- [BE-a](p6-be-a-design.md)：原旧动作/状态删除、两创建接口OpenAPI、Workspace占用指针、本人撤回权限继续；新增当前baseline有PENDING时硬阻塞归档及过期baseline新APPROVE拒绝，保留合法replay。旧审核`fcbfb4c1a0`不覆盖新增范围。
+- [归档业务核验补充](p6-archive-business-validation-design.md)：源序最后有效生成时间（UTC）及最后非最大异常，时间倒退/缺失、当前轮次initial/modified来源图、共同未知来源与逐项人工接受；无法接受时可有理由关闭、不归档，保留APPROVED并释放工作区，统一终局处置及History消费。新增小型事实沿Rust→Preview/checkpoint→Attempt/Submission→Archive/基线绑定；不重做S1–S2b、不恢复旧Python或旧batch框架。
+- [BE-d](p6-be-d-design.md)：Preview/History完整tar，最终closure逐entry一对一发送，共享由assembler表达；下载层不额外去重。main旅程工具改解析并校验完整包，原冻结基准资源不变。BE-b导航不并入。
+- 首轮设计独审`e92afaa53f`的技术修订：时间提取闭合grammar/UTC微秒归一及源序规则见业务设计§4.1；200候选采用1601异常引用/1选择确认，256KiB body静态预算见§7.1。BE-d§2.1登记前端UTF-8 PAX byte-length修复和同tar互通作为FE3交接依赖；本轮修订已复审GO，B1/B2关闭；该结论仅为设计GO，不是产品验收或前端互通证据。
+- 实际顺序保持A1→V1→V2→D；D新实施/独审均6.1-Sol（xhigh/max），工作单与精确清单见[p6-be-d-work-order](p6-be-d-work-order.md)/[handoff](p6-be-d-handoff.md)，角色同节承接已授权联合最终准备收尾。FE3接口快照、新异常页面与PAX修复由前端owner负责，Owner手动转发[V2实际接口制品](p6-v2-frontend-handoff.md)，不把后端交付当FE3已完成。
+- D本地产品`0ba45e5ef8`/vnext`0301aee3a3`、独审`6ad7e54fa0`及handoff`41386e12e6`核收`cd2d395fbc`已通过，F1–F5关闭，06于12:05:51Z本人释放；同tar及实际OpenAPI已供Owner转前端，FE3仍待。
+- 联合实际证据：05 a999 fresh t1的18步/四完整tar通过，12:46:02Z释放；04 a999首轮七fail已由两test文案同步及eff1精确subject修复，49403六包13:33:56Z原exit0，F6功能关闭。来源/有限步骤引用见[联合记录](p6-be-a-d-joint-validation-preparation.md)。公共fixtures改变，六包均已实际运行，不口头carried。
+- **A1/V1/V2/D联合正式退出审核通过，按[退出报告§4](p6-be-a-d-exit-review.md#4-最终f生效条件与本地tag)实际F绑定及原审回执生效**：Owner已确认DC33最终范围并明确授权正式退出；技术GO ccdd1eb39d/产品49403/tree567不变。H0实际六包均可沿用，直接来源四包DTW原0、backend/RS mvzi原0，镜像source/原config/全部54DiffID成立；H0原exit2及DC68唯一调用纠正、所有历史缺失持续保留，实施交接9ee1f47b32。报告提交F在原04同WT完成最终实际六包/镜像绑定后，由协调依既有授权在F建本地附注`p6-be-a-d-exit`，不为填自身SHA循环提交；不push、不实施S3、不动冻结基准。05 a999 fresh的限定步骤引用及04异常接线范围见[联合记录§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)；FE3b/前端验收及原基准性能仍独立，不因本后端退出记完成。
+
+- **正式退出执行完成（协调依据原独审最终回执同步，2026-11-07）**：上述F生效条件全部实际满足，最终F=`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`在原04同WT六包compare全可沿用/changed为空，RS source/三runtime原config与54DiffID、五锁、最终索引/LAN及释放均原独核通过。16:16:39Z创建本地附注`p6-be-a-d-exit`（tag对象66b9083941），精确指F且在main可达；16:17:03Z本人标记释放，原两角色正常停止。详见[最终交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)。这是post-exit状态记录，不移动tag、不改F报告，不称当前docsHEAD实跑，未push，FE3b/原基准/S3实施仍独立。
 
 ## 3. 路径预算（主要改动面）
 
@@ -219,7 +238,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 | --- | --- |
 | S1a | B`capabilities/storage_projection/`（`_digest.py`、`project.py`、`publish.py`、`contracts.py`、`package.py`、`import_replay.py`）、B`capabilities/table_rules/contracts.py`、B`capabilities/mutation_planning/`、B`capabilities/comparison/standard.py` 与 `ordered.py`、B`application/preview_jobs.py`、B`application/history/compare_jobs.py`、B`application/submission/import_builder.py`、B`infrastructure/repository_write/import_publication.py`、B`application/submit_jobs.py`；golden：storage-projection、mutation |
 | S1b | `vnext/shared_kernel/src/gateway_shared_kernel/scalar.py`（FLOAT 直接舍入）与 shared-kernel 编码向量 golden、B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、B`capabilities/table_rules/`（DC56 规则改动）与 storage-projection 规则集、manifest golden、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner）；B`operations/worker_runtime.py`、B`bootstrap/operation_worker.py`（DC61）；`vnext/scripts/build-repository-service-image.sh` 与其测试（DC61） |
-| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（test-only 差分）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
+| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python`（复用为新 parser adapter）、R`gateway-compute-python-impl`（删除）、B`capabilities/table_access/`（O2 参照语义修正）、T`support/table_access_sql.py`（test-only 双实现入口）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
 | S2b | R`gateway-compute-core/src/`（物化、投影、摘要模块）、B`capabilities/snapshot_materialization/`、B`capabilities/storage_projection/`、B`artifacts/` 与 B`infrastructure/artifact_store/`、control DB 基线 schema（BaselineHead owner）、B`settings.py`（N、M）、B`bootstrap/operation_worker.py`（线程池） |
 | S3 | R`gateway-compute-core/src/comparison/`、B`capabilities/comparison/`、B`capabilities/risk_evaluation/`（接口） |
 | S4 | R`gateway-compute-core/src/`（渲染）、B`capabilities/mutation_planning/`、B`infrastructure/repository_write/import_publication.py` |
@@ -233,6 +252,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 按设计 §15：每个不变量一个权威测试 owner；测试按业务行为命名；删除生产机制（旧扩展、Python 生产路径）时同步删除其 mock 与证明探针。Rust 侧：单元测试、proptest（stable）与确定性测试进入 `rust` 包；需要 Python 解释器的测试用 pytest 测已安装的扩展（DC48）。
 
 ## 5. 命令草案
+
+2026-11-06 节点补充（DC82）：S2b 日常 Rust/Contract/focused 与小规模 Compose 可在 `ct107-gw-dms-06`；前端静态、单元、构建、截图和 mock e2e 优先在 `ct109-gw-dms-07`。04/06/07 同宿主且 Owner 确认资源宽裕，日常自主并行，不设常规整宿主互斥或向原基准线申请窗口；CT108 正式测量与这些节点物理隔离。下面 05 的调试命令在 06 按本节点占用规则同样适用，06 初始 Cargo jobs/pytest workers 建议 4；真实数据和最终门禁节点不因本补充迁移。具体约束见 AGENTS 与[节点核对报告](p6-node-06-07-readiness.md)。
 
 ```bash
 # 调试节点 05：focused 测试（Rust 改动后先强制重装扩展）
@@ -260,7 +281,9 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 
 ## 7. 停止规则
 
-设计 §17 的停止条件（含 S2b 的 W2 可达性检查点）之外：
+设计 §17 的停止条件（W2 性能复核时点按 DC83 与 S2b 功能退出分开）之外：
+
+其中纯性能指标按 DC81 补充及 DC83 处理：保留本次未达或未知的结果，带实测、物理约束与具体方案交 owner 讨论，不将旧阈值解释为不可调整的永久阻塞；不自动改变目标、运行预算或证据口径。以下执行失败与正确性停止规则不变。
 
 - runner exit 非 0 时先处理该失败，不继续 carried 或后续验收（AGENTS）；
 - auto-mode 分类器拒绝的命令不改写绕过，停下报告；

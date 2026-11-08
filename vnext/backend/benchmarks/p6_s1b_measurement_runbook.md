@@ -1,5 +1,16 @@
 # Phase 6 synthetic load inputs
 
+Historical runbook: these commands apply to the frozen S1b/baseline source,
+not current main. S2b E retires the old Python parser and its generator from
+main. Under [DC79](../../../docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc79-基准输入准备工具的并行完善),
+reuse existing verified inputs first; any necessary generation or historical
+measurement uses the original coordinator's reviewed frozen source and its
+matching environment (including the reviewed four-worker integration at
+`4007619abd` where applicable). Do not restore the retired implementation to
+main or modify frozen worktrees, refs, images, inputs, volumes, or evidence to
+follow these examples. Current S2b correctness uses the separately maintained
+`real_dump_journey.py` entry and the [E validation plan](../../../docs/backend-vnext/refactoring/formal/plans/p6-s2b-e-kickoff.md#2-收敛与最终验证).
+
 Run these steps only on the designated measurement node and in its private
 scratch area. Never put extracted SQL, generated SQL, archives, or benchmark
 output under the Git worktree. Use a private copy of the t4 package; the

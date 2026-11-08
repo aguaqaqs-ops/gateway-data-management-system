@@ -37,6 +37,7 @@ PRODUCTION_OPENAPI_PATHS = frozenset(
         "/v1/workspaces/{workspace_id}/submissions/{submission_id}",
         "/v1/submissions/{submission_id}/review-events",
         "/v1/submissions/{submission_id}/review",
+        "/v1/submissions/{submission_id}/closure",
         "/v1/archive-candidates",
         "/v1/archive-plan-preview",
         "/v1/archive-confirmations",

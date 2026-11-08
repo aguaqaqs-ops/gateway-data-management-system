@@ -8,26 +8,18 @@ import logging
 import time
 from datetime import UTC, datetime
 
-from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifier
+from gateway_shared_kernel import canonicalize_identifier
 
-from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, ManifestVerificationError
-from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
-    encode_cell_frame,
-    raw_content_digest_of,
     raw_state_digest_of,
-    row_content_hash,
     snapshot_digest_of,
 )
-from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
     artifact_error_diagnostic,
-    open_cached_snapshot_table,
-    publish_ready_tables,
+    publish_canonical_tables,
     require_artifact_store,
-    row_layout_digest_of,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_MATERIALIZATION_PROFILE,
@@ -35,7 +27,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
     SUMMARY_CONTRACT_VERSION,
     CacheTrustLevel,
-    BlankRowProvenance,
     DegradedReason,
     DiagnosticSeverity,
     MaterializationDiagnostic,
@@ -54,26 +45,21 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotSummary,
     SnapshotColumnDescriptor,
     SnapshotTable,
-    SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
     SnapshotTableSet,
     CanonicalTableIdentity,
     SourceKind,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
-    encode_repository_row,
     map_repository_column,
 )
+from gateway_backend.capabilities.table_access import kernel_control_scope
 from gateway_backend.capabilities.table_access.contracts import (
-    MaterializedTableReader,
     PARSER_VERSION,
     ParserInvocationContext,
-    SourceColumnDescriptor,
-    SourceRow,
     SourceTableDescriptor,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
-    OrderedPolicy,
     StorageRuleView,
     TABLE_RULESET_VERSION,
 )
@@ -109,7 +95,8 @@ def materialize_repository_ref(
     stage = request.materialization_stage
     trust = CacheTrustLevel.CONTENT_VERIFIED
     try:
-        return _materialize(request, stage, trust)
+        with kernel_control_scope(request.context.cancel_requested, request.context.deadline_monotonic):
+            return _materialize(request, stage, trust)
     except ArtifactPublishError as exc:
         return _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     except _Halt as halt:
@@ -225,56 +212,6 @@ def _materialize_open_session(
                 MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                 "canonical metadata is required for tables excluded from row materialization",
             )
-    export_cache = request.export_cache
-    cache_candidates: dict[
-        str,
-        tuple[
-            SnapshotTableDescriptor,
-            tuple[SourceColumnDescriptor, ...],
-            SnapshotTableOrderedMetadata | None,
-            SnapshotTableArtifactCacheKey,
-        ],
-    ] = {}
-    cached_row_refs: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
-    cache_store: ArtifactStorePort | None = None
-    if (
-        request.policy is MaterializationPolicy.READERS_REQUIRED
-        and export_cache is not None
-        and request.artifact_store is not None
-    ):
-        cache_store = require_artifact_store(request.artifact_store)
-        for name in sorted(materialized_set, key=lambda item: item.encode("utf-8")):
-            identity = identities.get(name)
-            if identity is None:
-                continue
-            catalog_table = indexed[name]
-            storage_view = binding_by_name[name]
-            descriptor = _describe_without_rows(request, catalog_table, identity, stage)
-            source_columns = tuple(
-                map_repository_column(column).source for column in catalog_table.columns
-            )
-            ordered_metadata = _ordered_metadata(storage_view)
-            cache_key = SnapshotTableArtifactCacheKey(
-                row_layout_digest=row_layout_digest_of(
-                    descriptor,
-                    source_columns,
-                    ordered_metadata,
-                ),
-                repository_id=request.repository_ref.repository_id,
-            )
-            cache_candidates[name] = (
-                descriptor,
-                source_columns,
-                ordered_metadata,
-                cache_key,
-            )
-        if cache_candidates:
-            try:
-                cached_row_refs = export_cache.lookup_many(
-                    tuple(item[3] for item in cache_candidates.values())
-                )
-            except Exception:
-                cached_row_refs = {}
     diagnostics: list[MaterializationDiagnostic] = []
     published: list[SnapshotTable] = []
     descriptors: list[SnapshotTableDescriptor] = []
@@ -283,40 +220,16 @@ def _materialize_open_session(
         catalog_table = indexed[name]
         storage_view = binding_by_name[name]
         if name in materialized_set:
-            cache_candidate = cache_candidates.get(name)
-            cached_row_ref = (
-                None if cache_candidate is None else cached_row_refs.get(cache_candidate[3])
-            )
-            table = None
-            if cached_row_ref is not None and cache_candidate is not None and cache_store is not None:
-                descriptor, source_columns, ordered_metadata, cache_key = cache_candidate
-                try:
-                    table = open_cached_snapshot_table(
-                        cached_row_ref,
-                        descriptor=descriptor,
-                        source_columns=source_columns,
-                        ordered_metadata=ordered_metadata,
-                        effective_key_columns=descriptor.compare_key_columns,
-                        store=cache_store,
-                    )
-                except (ArtifactPublishError, ManifestVerificationError):
-                    if export_cache is not None:
-                        try:
-                            export_cache.discard_many((cache_key,))
-                        except Exception:
-                            pass
-            if table is None:
-                descriptor, table, table_diagnostics = _read_and_materialize_table(
-                    request,
-                    session,
-                    catalog_table,
-                    storage_view,
-                    stage,
-                    keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
-                )
-            else:
-                descriptor = table.descriptor
-                table_diagnostics = table.diagnostics
+            if request.committed_tables is None:
+                raise ValueError("selected repository tables require committed canonical access")
+            identity = identities.get(name)
+            if identity is None:
+                raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                            "selected repository table is missing its canonical content identity", table=name)
+            descriptor = _describe_without_rows(request, catalog_table, identity, stage)
+            table = request.committed_tables.load_table(commit_id=pinned, descriptor=descriptor, identity=identity,
+                storage_view=storage_view, context=request.context, timeout_policy=request.timeout_policy)
+            table_diagnostics = table.diagnostics
             identity = identities.get(name)
             if identity is not None and (
                 descriptor.row_count != identity.row_count
@@ -470,175 +383,6 @@ def _describe_without_rows(
     )
 
 
-def _read_and_materialize_table(
-    request: RepositoryRefMaterializationRequest,
-    session: RepositoryRefSession,
-    catalog_table: RepositoryCatalogTable,
-    storage_view: StorageRuleView,
-    stage: MaterializationStage,
-    *,
-    keep_rows: bool,
-) -> tuple[SnapshotTableDescriptor, SnapshotTable | None, tuple[MaterializationDiagnostic, ...]]:
-    table_name = canonicalize_identifier(catalog_table.table_name)
-    try:
-        reader = session.open_table_reader(catalog_table.table_name)
-    except RepositoryProviderError as exc:
-        if exc.retryable:
-            raise
-        raise _Halt(exc.code, exc.message, table=table_name) from exc
-    diagnostics: list[MaterializationDiagnostic] = []
-    encoded_rows: list[SourceRow] = []
-    row_hashes: list[bytes] = []
-    mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
-    source_columns = tuple(item.source for item in mapped_columns)
-    source_descriptor = SourceTableDescriptor(
-        display_name=catalog_table.display_table_name or catalog_table.table_name,
-        canonical_name=table_name,
-        columns=source_columns,
-        primary_key_canonical_names=tuple(
-            canonicalize_identifier(name) for name in catalog_table.primary_key_columns
-        ),
-        reader_ready=True,
-    )
-    try:
-        compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
-    except CompareKeyError as exc:
-        reader.close()
-        raise _Halt(
-            MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
-            str(exc),
-            table=table_name,
-        ) from exc
-    schema_digest = compare_schema_digest(
-        table_name,
-        tuple(column.canonical_name for column in source_columns),
-        compare_keys,
-    )
-    name_to_index = {column.canonical_name: index for index, column in enumerate(source_columns)}
-    key_indexes = tuple(name_to_index[name] for name in compare_keys)
-    seen_keys: set[tuple[bytes, ...]] = set()
-    duplicate_key = False
-    actual_count = 0
-    try:
-        for raw in reader.stream_rows():
-            _checkpoint(request.context)
-            try:
-                encoded = encode_repository_row(
-                    catalog_table.columns, raw, table=table_name
-                )
-            except ValueError as exc:
-                raise _Halt(
-                    MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
-                    str(exc) or "repository row is malformed",
-                    table=table_name,
-                ) from exc
-            diagnostics.extend(encoded.diagnostics)
-            actual_count += 1
-            row_hashes.append(row_content_hash(source_columns, encoded.cells))
-            if key_indexes:
-                key = tuple(
-                    encode_cell_frame(source_columns[index], encoded.cells[index])
-                    for index in key_indexes
-                )
-                if key in seen_keys:
-                    duplicate_key = True
-                else:
-                    seen_keys.add(key)
-            if keep_rows:
-                encoded_rows.append(encoded.cells)
-    except RepositoryProviderError as exc:
-        if exc.retryable:
-            raise
-        raise _Halt(exc.code, exc.message, table=table_name) from exc
-    except (CanonicalEncodingError, ValueError) as exc:
-        raise _Halt(
-            MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
-            str(exc) or "repository scalar encoding failed",
-            table=table_name,
-        ) from exc
-    finally:
-        reader.close()
-    if catalog_table.row_count is not None and actual_count != catalog_table.row_count:
-        _LOGGER.warning(
-            "Repository catalog row count differs from streamed row count",
-            extra={
-                "event": "repository_row_count_mismatch",
-                "diagnostic_code": MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH.value,
-                "metric_name": "repository_row_count_mismatch_total",
-                "metric_increment": 1,
-                "repository_id": request.repository_ref.repository_id,
-                "commit_id": request.repository_ref.ref,
-                "table": table_name,
-                "catalog_row_count": catalog_table.row_count,
-                "streamed_row_count": actual_count,
-            },
-        )
-        raise _Halt(
-            MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH,
-            "Repository catalog row count differs from streamed row count",
-            table=table_name,
-        )
-    degraded_reason: DegradedReason | None = None
-    if not compare_keys:
-        degraded_reason = DegradedReason.KEYLESS
-    elif duplicate_key:
-        degraded_reason = DegradedReason.DUPLICATE_EFFECTIVE_KEY
-        diagnostics.append(
-            MaterializationDiagnostic(
-                code=MaterializationDiagnosticCode.DUPLICATE_EFFECTIVE_KEY,
-                severity=DiagnosticSeverity.WARNING,
-                message="duplicate effective key rows were preserved",
-                table=table_name,
-            )
-        )
-    descriptor = SnapshotTableDescriptor(
-        table_name=table_name,
-        display_table_name=source_descriptor.display_name,
-        columns=tuple(
-            SnapshotColumnDescriptor(
-                name=column.canonical_name,
-                display_name=column.display_name,
-                nullable=column.nullable,
-                scalar_type=column.sql_type,
-            )
-            for column in source_columns
-        ),
-        primary_key_columns=source_descriptor.primary_key_canonical_names,
-        compare_key_columns=compare_keys,
-        row_count=actual_count,
-        materialization_stage=stage,
-        compare_schema_digest=schema_digest,
-        table_ruleset_version=request.table_ruleset_version,
-        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
-        degraded_reason=degraded_reason,
-        diagnostics=tuple(diagnostics),
-    )
-    if not keep_rows:
-        return descriptor, None, tuple(diagnostics)
-    source_reader = MaterializedTableReader(source_descriptor, tuple(encoded_rows))
-    ordered_metadata = _ordered_metadata(storage_view)
-    return (
-        descriptor,
-        SnapshotTable(
-            descriptor=descriptor,
-            reader=BoundSnapshotTableReader(descriptor, source_reader),
-            diagnostics=tuple(diagnostics),
-            ordered_metadata=ordered_metadata,
-        ),
-        tuple(diagnostics),
-    )
-
-
-def _ordered_metadata(storage_view: StorageRuleView) -> SnapshotTableOrderedMetadata | None:
-    if storage_view.ordered_policy is not OrderedPolicy.GID_NO_V1:
-        return None
-    return SnapshotTableOrderedMetadata(
-        blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
-    )
-
-
 def _index_catalog(catalog: RepositoryTableCatalog) -> dict[str, RepositoryCatalogTable]:
     indexed: dict[str, RepositoryCatalogTable] = {}
     seen_canonical: set[str] = set()
@@ -740,13 +484,13 @@ def _with_artifacts(
     ):
         return result
     store = require_artifact_store(request.artifact_store)
-    published = publish_ready_tables(
+    published = publish_canonical_tables(
         result.table_set.tables,
         snapshot_digest=result.snapshot.snapshot_digest,
         store=store,
-        context=request.context,
-        export_cache=request.export_cache,
         repository_id=request.repository_ref.repository_id,
+        lookup=None if request.committed_tables is None else request.committed_tables.lookup,
+        before_write=None if request.committed_tables is None else request.committed_tables.register,
     )
     table_set = SnapshotTableSet(
         snapshot_id=result.table_set.snapshot_id,

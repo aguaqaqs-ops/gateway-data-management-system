@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 import json
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from gateway_shared_kernel import NullScalar, raw_blob_digest
@@ -23,6 +26,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonStorageFacts,
     SchemaEvolution,
     compare_plan,
+    comparison_python_memory_upper,
     plan_comparison,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore
@@ -48,9 +52,16 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableReader,
     SnapshotTableSet,
 )
+from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget,
+    kernel_execution_scope,
+)
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from tests.support.snapshot_materialization import materialize_sql
-from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
+from tests.support.table_rules import (
+    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record,
+)
 
 pytestmark = pytest.mark.unit
 _S1B_GOLDEN = (
@@ -622,6 +633,52 @@ def test_whole_table_deletion_is_table_level_without_row_records() -> None:
     assert table.records == ()
 
 
+def _comparison_budget_sql(rows: int, *, changed: bool = False) -> str:
+    values = ",".join(
+        f"({index},{index},'{('changed' if changed and index == rows else 'value')}')"
+        for index in range(1, rows + 1)
+    )
+    return (
+        "CREATE TABLE t (gid INT NOT NULL PRIMARY KEY, no INT NOT NULL, value TEXT);"
+        f" INSERT INTO t VALUES {values};"
+    )
+
+
+@pytest.mark.parametrize("ordered", (False, True), ids=("standard", "ordered"))
+@pytest.mark.parametrize("added", (True, False), ids=("added", "deleted"))
+def test_single_side_facts_use_only_metadata_budget_without_reading_rows(
+    ordered: bool, added: bool,
+) -> None:
+    admissions = []
+    for row_count in (1, 256):
+        context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
+        with kernel_execution_scope(context, new_operation=True):
+            populated = _bound(_comparison_budget_sql(row_count))
+            empty = _bound("")
+            rule = ordered_record(r"^t$") if ordered else standard_rule_record("t")
+            plan = _plan_from_bounds(
+                empty if added else populated, populated if added else empty,
+                rule_set=comparison_ruleset_for(rule),
+            )
+            with (
+                patch.object(ArrowSnapshotTableReader, "iter_rows", side_effect=AssertionError("row read")) as rows,
+                patch.object(ArrowSnapshotTableReader, "arrow_stream", side_effect=AssertionError("stream read")) as stream,
+                context.memory.reserve(context.memory.available_bytes - 128 * 1024),
+            ):
+                upper = comparison_python_memory_upper(plan)
+                admissions.append(upper)
+                retained = context.memory.used_bytes
+                with context.memory.reserve(upper):
+                    assert context.memory.used_bytes > retained  # Metadata still has a charge.
+                    table = _one_table(_facts(plan))
+                assert table.status is (
+                    ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE
+                )
+                rows.assert_not_called()
+                stream.assert_not_called()
+    assert admissions[0] == admissions[1]
+
+
 @pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))
 def test_raw_primary_key_appearance_or_disappearance_is_a_source_schema_change(
     primary_key_appears: bool,
@@ -721,7 +778,7 @@ def test_pair_and_table_early_exit_do_not_iterate_or_reopen_readers() -> None:
                 canonical_key_columns=descriptor.primary_key_columns,
             ),
             source_schema_digest=descriptor.business_schema_digest,
-            canonical_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
             raw_content_digest=descriptor.raw_content_digest,
             storage_projection_version=STORAGE_PROJECTION_VERSION,
         ),
@@ -831,3 +888,16 @@ def _bound_with_fallback_facts(sql: str, source_schema: bytes) -> BoundSnapshotI
         source_schema_digest=raw_blob_digest(source_schema),
     )
     return replace(bound, storage_facts=(facts,))
+
+
+@pytest.mark.parametrize("error_type", (InterruptedError, TimeoutError, MemoryError))
+def test_comparison_propagates_operation_stop_and_resource_rejection(
+    monkeypatch: pytest.MonkeyPatch, error_type: type[Exception],
+) -> None:
+    plan = _plan("CREATE TABLE t (id INT PRIMARY KEY, v TEXT); INSERT INTO t VALUES (1,'a');",
+        "CREATE TABLE t (id INT PRIMARY KEY, v TEXT); INSERT INTO t VALUES (1,'b');")
+    def stopped(_task: object) -> None:
+        raise error_type("operation stopped")
+    monkeypatch.setattr("gateway_backend.capabilities.comparison.standard._compare_task", stopped)
+    with pytest.raises(error_type, match="operation stopped"):
+        compare_plan(plan)

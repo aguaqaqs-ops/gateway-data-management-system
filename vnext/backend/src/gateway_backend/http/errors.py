@@ -320,6 +320,8 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
         )
     if isinstance(exc, ArchiveApplicationError):
         stable_code = getattr(exc, "stable_code", None)
+        if stable_code == "REQUEST_VALIDATION_FAILED":
+            return ApiError(code=stable_code, message="request validation failed", status_code=422)
         if stable_code == "RESOURCE_NOT_FOUND":
             return ApiError(
                 code="RESOURCE_NOT_FOUND",
@@ -340,6 +342,7 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             "ARCHIVE_CONFIRMATION_REQUIRED",
             "ARCHIVE_ANOMALY_UNRESOLVED",
             "ACTIVE_SUBMIT_ATTEMPT",
+            "ARCHIVE_PENDING_REVIEW",
         }:
             return ApiError(
                 code=stable_code,

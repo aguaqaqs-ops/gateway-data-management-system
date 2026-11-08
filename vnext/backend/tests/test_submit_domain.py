@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submit_attempt_with_facts, submission_with_facts
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -50,7 +52,7 @@ REPOSITORY_REF = RepositoryArtifactRef(
 
 
 def _prepared_attempt(**overrides: Any) -> SubmitAttempt:
-    base = SubmitAttempt(
+    base = submit_attempt_with_facts(
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
         workspace_generation=1,
@@ -61,7 +63,7 @@ def _prepared_attempt(**overrides: Any) -> SubmitAttempt:
         business_baseline_commit_id="commit-base",
         baseline_head_version=1,
         repository_expected_commit_id="commit-main",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("source-1",),
@@ -123,7 +125,7 @@ def _aborted_attempt() -> SubmitAttempt:
 
 
 def _submission(**overrides: Any) -> Submission:
-    base = Submission(
+    base = submission_with_facts(
         submission_id="sub-1",
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
@@ -134,7 +136,7 @@ def _submission(**overrides: Any) -> Submission:
         based_on_baseline_node_id="node-1",
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_artifact_refs=("source-1",),
         canonicalization_manifest_ref="manifest-1",
         canonicalization_manifest_digest="sha256:manifest",

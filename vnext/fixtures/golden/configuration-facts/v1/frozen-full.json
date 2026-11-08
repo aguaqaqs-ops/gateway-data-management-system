@@ -1,0 +1,67 @@
+{
+  "facts": {
+    "schema": "backend-vnext/configuration-facts/v1",
+    "operation_id": "op-preview-facts",
+    "workspace_id": "ws-facts",
+    "upload_revision_id": "ur-facts",
+    "generation": 3,
+    "repository_id": "repo-facts",
+    "business_baseline_node_id": "baseline-facts",
+    "business_baseline_commit_id": "commit-facts",
+    "baseline_head_version": 2,
+    "baseline_is_initial": false,
+    "baseline_source_submission_id": "submission-anchor",
+    "initial_origin": "UPLOADED",
+    "baseline_content_identity": {
+      "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "storage_projection_version": "3",
+      "scalar_encoding_version": 1
+    },
+    "initial": {
+      "content_identity": {
+        "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "storage_projection_version": "3",
+        "scalar_encoding_version": 1
+      },
+      "generated_time": {
+        "rule_id": "gateway-vnext/configuration-generated-time/v1",
+        "status": "VALID",
+        "selected_time_utc": "2026-11-07T11:00:00Z",
+        "max_valid_time_utc": "2026-11-07T12:00:00Z",
+        "valid_count": 2,
+        "empty_count": 1,
+        "invalid_count": 1,
+        "last_valid_source_row": 4,
+        "max_valid_source_row": 1,
+        "last_not_max": true
+      },
+      "source_artifact_id": "initial-source",
+      "sql_source_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "modified": {
+      "content_identity": {
+        "canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "storage_projection_version": "3",
+        "scalar_encoding_version": 1
+      },
+      "generated_time": {
+        "rule_id": "gateway-vnext/configuration-generated-time/v1",
+        "status": "VALID",
+        "selected_time_utc": "2026-11-07T11:00:00Z",
+        "max_valid_time_utc": "2026-11-07T12:00:00Z",
+        "valid_count": 2,
+        "empty_count": 1,
+        "invalid_count": 1,
+        "last_valid_source_row": 4,
+        "max_valid_source_row": 1,
+        "last_not_max": true
+      },
+      "source_artifact_id": "modified-source",
+      "sql_source_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    }
+  },
+  "facts_digest": "sha256:c9e48e4e7cc84f91f2d904f3a23077e7070da87bd5a5507a6b67d0bef0539bc4"
+}

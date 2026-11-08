@@ -551,7 +551,7 @@ checkpoint。BackendArtifactRef不能出现在SubmitVersionedImport body。
 
 ```text
 job_kind: backend-vnext/submit
-job_contract_version: backend-vnext/submit/v1
+job_contract_version: backend-vnext/submit/v2
 
 prepare_import -> submit_import -> await_import_result
 ```
@@ -573,7 +573,7 @@ Operation Runtime envelope/version/budget沿用P4。5B inline payload是closed o
 
 ```text
 document_type: submit_job_payload
-contract_version: backend-vnext/submit/v1
+contract_version: backend-vnext/submit/v2
 submit_attempt_id
 workspace_id
 generation
@@ -585,9 +585,13 @@ business_baseline_commit_id
 baseline_head_version
 repository_expected_commit_id
 canonical_business_digest
+configuration_facts_digest
 source_artifact_refs[]
 preview_ready_closure_ref
-snapshot_table_set_digest
+canonical_table_set_closure_ref
+canonical_table_set_closure_digest
+canonicalization_manifest_ref
+canonicalization_manifest_digest
 ruleset_version
 storage_projection_version
 canonicalization_manifest_contract_version
@@ -599,14 +603,16 @@ repository_policy:
   target_ref: main
   verification_policy: STRUCTURAL
   unknown_type_policy: REJECT
-builder_mutation_policy: REBUILD_ALWAYS
+builder_mutation_policy: ADAPTIVE_PATCH
 options: {}
 ```
 
 Decoder要求exact key set、T1 Attempt equality、ref uniqueness、policy constants与version support；
 各表SnapshotTableArtifact refs由Attempt和`preview_ready_closure_ref`加载，并以
-`snapshot_table_set_digest`闭合，不复制进受64-ref预算约束的Operation payload。Payload不是第二个
+`canonical_table_set_closure_digest`闭合，不复制进受64-ref预算约束的Operation payload。Payload不是第二个
 business owner，Attempt是transaction-fresh source of truth。
+
+当前精确closed shape与必需字段以`application/submission/job_payload.py::build_submit_job_payload`、`application/submit_jobs.py::decode_submit_payload`及本文V1 amendment同步为准；新必需`configuration_facts_digest`与Attempt冻结事实核对，不接受旧字段、缺省或兼容别名。
 
 ### 8.3 Job-specific checkpoint schemas
 
@@ -879,3 +885,9 @@ P4 port和existing internal bearer。S0-F3不修改P4 capability guard。下一�
 既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
 后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
 原 owning contract 定义，不能以边界整理为由静默改变。
+
+## V1 configuration facts amendment（2026-11-07）
+
+AcceptSubmit T1从exact Preview复制并核验必需ConfigurationFacts，冻结在Attempt；Submit job v2载荷增加configuration_facts_digest并与Attempt核对。caller不提交通过标志。Attempt CAS更新拒绝facts变化，finalize同事务复制到Submission且replay核原事实；失败无部分权威写，恢复不重提取SQL。唯一基线Attempt/Submission各新增必需configuration_facts BLOB，旧DB拒绝启动，无迁移/双读/默认。
+
+Submission小型facts足以在Preview/SQL过期后独立解释；基线沿BaselineNode.source_submission_id读取modified，不另保存Baseline时间副本，不在归档事务调用Repository。内容哈希保值，facts独立raw SHA256(JCS body)。HTTP DTO不变，具体字段/golden/唯一测试owner见[V1清单](p6-v1-handoff.md)。

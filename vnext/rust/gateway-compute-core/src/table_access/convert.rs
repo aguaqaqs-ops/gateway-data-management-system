@@ -14,7 +14,7 @@ use gateway_shared_kernel::{
 use super::columns::ColumnBuilder;
 use super::cursor::python_strip;
 use super::errors::{Fault, ParserDiagnosticCode as Code};
-use super::json_check::python_json_loads_accepts;
+use super::json_check::valid_json_value;
 use super::literal::Lit;
 use super::model::{ColumnPlan, ValueKind};
 
@@ -39,6 +39,15 @@ pub(crate) fn convert_value(
     max_field_bytes: usize,
     offset: usize,
 ) -> Result<(), ConvError> {
+    if matches!(lit, Lit::BinaryPrefix(_))
+        && !matches!(plan.declared.as_ref(), Some(DeclaredType::Binary))
+    {
+        return Err(illegal(offset, "_binary literal requires a binary column"));
+    }
+    if let Lit::BinaryPrefix(raw) = lit {
+        check_field_bytes(raw.len(), max_field_bytes, offset)?;
+        return out.push_bytes(raw).map_err(ConvError::Table);
+    }
     if matches!(lit, Lit::Null) {
         if !plan.nullable {
             return Err(illegal(offset, "NULL is not allowed for a NOT NULL column"));
@@ -63,7 +72,7 @@ pub(crate) fn convert_value(
         }
         ValueKind::Json => {
             let text = require_text(lit, offset)?;
-            if !python_json_loads_accepts(&text) {
+            if !valid_json_value(&text) {
                 return Err(illegal(offset, "JSON value is not well-formed"));
             }
             check_unicode(&text, offset)?;
@@ -194,11 +203,14 @@ fn check_unicode(text: &str, offset: usize) -> Result<(), ConvError> {
     Ok(())
 }
 
-fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, ConvError> {
+pub(super) fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, ConvError> {
     let bytes: &[u8] = match lit {
         Lit::Keyword(text) => return Ok(Cow::Borrowed(text)),
         Lit::Number(text) => text,
         Lit::Str(raw) => raw,
+        Lit::BinaryPrefix(_) => {
+            return Err(illegal(offset, "_binary literal requires a binary column"));
+        }
         Lit::Bits { text, .. } => text,
         Lit::Hex(raw) => {
             return std::str::from_utf8(raw)
@@ -215,6 +227,7 @@ fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, Con
 fn require_bytes<'b>(lit: &'b Lit<'_>) -> Cow<'b, [u8]> {
     match lit {
         Lit::Str(raw) => Cow::Borrowed(raw),
+        Lit::BinaryPrefix(raw) => Cow::Borrowed(raw),
         Lit::Hex(raw) => Cow::Borrowed(raw),
         Lit::Bits { raw, .. } => Cow::Borrowed(raw),
         Lit::Keyword(text) => Cow::Borrowed(text.as_bytes()),
@@ -276,9 +289,8 @@ fn set_value(lit: &Lit<'_>, plan: &ColumnPlan, offset: usize) -> Result<String, 
     Ok(ordered.join(","))
 }
 
-/// `_bit_bytes`: raw literals keep their bytes (re-padded to the width);
-/// numbers and keywords are read as binary digits when they only contain
-/// `0`/`1`, otherwise as decimal.
+/// `_bit_bytes`: raw literals keep their integer value; numbers and keywords
+/// follow Python's `int(text, 10)` conversion.
 fn bit_bytes(lit: &Lit<'_>, width: u8, offset: usize) -> Result<Vec<u8>, ConvError> {
     let expected = usize::from(width).div_ceil(8);
     let raw = match lit {
@@ -307,19 +319,7 @@ fn bit_bytes(lit: &Lit<'_>, width: u8, offset: usize) -> Result<Vec<u8>, ConvErr
         return Ok(out);
     }
     let text = require_text(lit, offset)?;
-    let value: u128 = if !text.is_empty() && text.bytes().all(|b| b == b'0' || b == b'1') {
-        let digits = text.trim_start_matches('0');
-        if digits.len() > 128 {
-            return Err(illegal(
-                offset,
-                "BIT literal does not fit the declared width",
-            ));
-        }
-        u128::from_str_radix(if digits.is_empty() { "0" } else { digits }, 2)
-            .map_err(|_| illegal(offset, "BIT literal is not convertible"))?
-    } else {
-        parse_python_int10(&text, offset)?
-    };
+    let value = parse_python_int10(&text, offset)?;
     let bytes = value.to_be_bytes();
     let significant = bytes
         .iter()
@@ -612,21 +612,5 @@ mod tests {
         fn float_fast_path_matches_kernel(text in "[+-]?[0-9]{0,20}(\\.[0-9]{0,20})?([eE][+-]?[0-9]{1,3})?") {
             check_float(&text);
         }
-    }
-
-    #[test]
-    fn datetime_spelling_follows_reference() {
-        assert_eq!(
-            sql_datetime_to_canonical("2024-01-02 03:04:05", false),
-            "2024-01-02T03:04:05"
-        );
-        assert_eq!(
-            sql_datetime_to_canonical(" 2024-01-02 03:04:05.10\u{1f}", true),
-            "2024-01-02T03:04:05.10Z"
-        );
-        assert_eq!(
-            sql_datetime_to_canonical("2024-01-02T03:04:05Z", true),
-            "2024-01-02T03:04:05Z"
-        );
     }
 }

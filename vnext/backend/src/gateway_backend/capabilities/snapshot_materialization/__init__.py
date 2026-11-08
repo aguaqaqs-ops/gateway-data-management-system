@@ -1,5 +1,26 @@
 """Public surface of the Snapshot Materialization capability."""
 
+from gateway_backend.capabilities.snapshot_materialization.arrow import (
+    ArrowSnapshotTableReader, operation_business_budgets, operation_codec_budgets,
+    snapshot_arrow_input, snapshot_table_from_arrow,
+)
+from gateway_backend.capabilities.table_access import current_kernel_context, source_descriptor_from_arrow
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+    ArtifactReadHandle,
+    CanonicalTableStore,
+    canonical_columns,
+    canonical_table_key,
+    check_canonical_descriptor_budget,
+)
+from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
+from gateway_backend.capabilities.snapshot_materialization.native import (
+    ArrowMetadata,
+    KernelBudgets,
+    KernelResult,
+    call_arrow_kernel,
+    check_metadata_budget,
+)
+
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     declared_type_for_sql_spelling,
     try_declared_type_for_sql_spelling,
@@ -15,6 +36,7 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     manifest_from_bytes,
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
+    publish_canonical_tables,
     validate_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.batch import (
@@ -101,7 +123,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
-    materialize_projected_snapshot,
+    materialize_canonical_snapshot,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
     materialize_repository_ref,
@@ -114,7 +136,24 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSetValue,
 )
 
+from gateway_backend.capabilities.snapshot_materialization.client_parquet import export_snapshot_table_parquet
+
 __all__ = [
+    "export_snapshot_table_parquet",
+    "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
+    "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
+    "current_kernel_context", "source_descriptor_from_arrow",
+    "ArrowMetadata",
+    "KernelBudgets",
+    "KernelResult",
+    "call_arrow_kernel",
+    "check_metadata_budget",
+    "ArtifactReadHandle",
+    "CanonicalTableStore",
+    "canonical_columns",
+    "canonical_table_key",
+    "check_canonical_descriptor_budget",
+    "canonical_repository_stream",
     "SqlDeclaredTypeMappingError",
     "SourceCell",
     "SourceColumnDescriptor",
@@ -197,7 +236,7 @@ __all__ = [
     "snapshot_summary_to_document",
     "snapshot_to_document",
     "materialize_sql_snapshot",
-    "materialize_projected_snapshot",
+    "materialize_canonical_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",
     "manifest_from_bytes",

@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
@@ -107,15 +109,17 @@ class SQLiteWorkspaceRepository:
             return None
         return upload_revision_from_row(_row_mapping(row))
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         row = self._connection.execute(
             """
             SELECT preview_result_id, workspace_id, upload_revision_id, generation, repository_id,
                    binding, operation_id, created_at_us
             FROM preview_result_records
             WHERE preview_result_id = ?
+              AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)
             """,
-            (preview_result_id,),
+            (preview_result_id, workspace_id, workspace_id, repository_id, repository_id),
         ).fetchone()
         if row is None:
             return None
@@ -398,6 +402,8 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             "bundle_digest": result.digests.bundle_digest,
         },
         "canonical": {
+            "initial_canonical_state_digest": result.canonical.initial_canonical_state_digest.value,
+            "configuration_facts": result.canonical.configuration_facts.to_document(),
             "canonical_table_set_closure_ref": _preview_artifact_ref_to_document(
                 result.canonical.canonical_table_set_closure_ref
             ),
@@ -481,7 +487,8 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
             bundle_digest=str(digests_payload["bundle_digest"]),
         ),
         canonical=PreviewCanonicalBindings(
-            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
+            initial_canonical_state_digest=DigestRef(str(canonical_payload["initial_canonical_state_digest"])),
+            configuration_facts=ConfigurationFacts.from_document(canonical_payload["configuration_facts"]),            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
                 canonical_payload.get("canonical_table_set_closure_ref")
             ),
             canonical_table_set_closure_digest=DigestRef(

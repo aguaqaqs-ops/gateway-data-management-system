@@ -12,15 +12,20 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
+    ArchiveAnomalyResolutionEvent,
+    ArchiveConfirmationEvent,
+    affirmative_resolution_action,
     ArchiveConfirmationAction,
     ArchiveSubjectKind,
 )
 from gateway_backend.domain.submission.review import ReviewStatus
 
 ARCHIVE_DIGEST_PREFIX = "gateway-vnext:archive:"
-ARCHIVE_DIGEST_VERSION = "v1"
+ARCHIVE_DIGEST_VERSION = "v2"
 ARCHIVE_MAX_CANDIDATES = 200
-ARCHIVE_MAX_AUDIT_REFS = 200
+ARCHIVE_MAX_CONFIRMATION_REFS = 1
+ARCHIVE_MAX_ANOMALY_REFS = 8 * ARCHIVE_MAX_CANDIDATES + 1
+ARCHIVE_MAX_SAFE_INTEGER = 9007199254740991
 ARCHIVE_MAX_REQUEST_BYTES = 256 * 1024
 ARCHIVE_ID_MIN_BYTES = 1
 ARCHIVE_ID_MAX_BYTES = 255
@@ -74,8 +79,8 @@ def validate_archive_digest(value: str, *, field_name: str) -> str:
 
 
 def validate_non_negative_int(value: int, *, field_name: str) -> int:
-    if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise ArchiveRequestValidation(f"{field_name} must be a non-negative integer")
+    if type(value) is not int or isinstance(value, bool) or not 0 <= value <= ARCHIVE_MAX_SAFE_INTEGER:
+        raise ArchiveRequestValidation(f"{field_name} must be a non-negative integer within the I-JSON safe range")
     return value
 
 
@@ -128,6 +133,7 @@ def compute_candidate_digest(
     business_baseline_commit_id: str,
     repository_commit_id: str,
     canonical_business_digest: str,
+    configuration_facts_digest: str,
     canonicalization_manifest_ref: str,
     canonicalization_manifest_digest: str,
     source_artifact_refs: Sequence[str],
@@ -141,6 +147,7 @@ def compute_candidate_digest(
         "business_baseline_commit_id": business_baseline_commit_id,
         "business_project_id": business_project_id,
         "canonical_business_digest": canonical_business_digest,
+        "configuration_facts_digest": validate_archive_digest(configuration_facts_digest, field_name="configuration_facts_digest"),
         "canonicalization_manifest_digest": canonicalization_manifest_digest,
         "canonicalization_manifest_ref": canonicalization_manifest_ref,
         "completed_verification_policy": completed_verification_policy,
@@ -170,6 +177,8 @@ def compute_candidate_set_digest(
     baseline_commit_id: str,
     baseline_head_version: int,
     candidates: Sequence[ArchiveCandidateRef],
+    baseline_facts_digest: str | None,
+    business_rule_id: str,
 ) -> str:
     if len(candidates) > ARCHIVE_MAX_CANDIDATES:
         raise ValueError("candidate set exceeds supported limit")
@@ -187,6 +196,8 @@ def compute_candidate_set_digest(
     if len(set(submission_ids)) != len(submission_ids):
         raise ValueError("duplicate submission ids are not allowed")
     payload = {
+        "baseline_facts_digest": baseline_facts_digest,
+        "business_rule_id": business_rule_id,
         "baseline_commit_id": baseline_commit_id,
         "baseline_head_version": baseline_head_version,
         "baseline_node_id": baseline_node_id,
@@ -249,8 +260,10 @@ def compute_identity_exception_subject_digest(
     candidate_digest: str,
     preview_bundle_digest: str,
     assessment_set_digest: str,
+    selection_subject_digest: str,
 ) -> str:
     payload = {
+        "selection_subject_digest": validate_archive_digest(selection_subject_digest, field_name="selection_subject_digest"),
         "assessment_set_digest": validate_archive_digest(
             assessment_set_digest,
             field_name="assessment_set_digest",
@@ -377,10 +390,10 @@ def compute_start_request_fingerprint(
     confirmation_refs: Sequence[ArchiveAuditReferenceInput],
     anomaly_resolution_refs: Sequence[ArchiveAuditReferenceInput],
 ) -> str:
-    if len(confirmation_refs) > ARCHIVE_MAX_AUDIT_REFS:
-        raise ValueError("confirmation refs exceed supported limit")
-    if len(anomaly_resolution_refs) > ARCHIVE_MAX_AUDIT_REFS:
-        raise ValueError("anomaly resolution refs exceed supported limit")
+    if len(confirmation_refs) > ARCHIVE_MAX_CONFIRMATION_REFS:
+        raise ArchiveRequestValidation("confirmation refs exceed supported limit")
+    if len(anomaly_resolution_refs) > ARCHIVE_MAX_ANOMALY_REFS:
+        raise ArchiveRequestValidation("anomaly resolution refs exceed supported limit")
     confirmation_payload = tuple(
         {
             "sequence": validate_non_negative_int(ref.sequence, field_name="sequence"),
@@ -419,3 +432,88 @@ def compute_start_request_fingerprint(
 
 def review_status_to_archive_value(status: ReviewStatus) -> str:
     return status.value
+
+
+def compute_close_request_fingerprint(*, repository_id: str, gateway_device_external_key: str,
+        business_project_id: str, submission_id: str, expected_review_version: int,
+        expected_baseline_node_id: str, expected_baseline_head_version: int, reason: str) -> str:
+    return compute_archive_digest("close-request", {
+        "command_kind": "CLOSE", "repository_id": validate_utf8_id(repository_id, field_name="repository_id"),
+        "gateway_device_external_key": validate_utf8_id(gateway_device_external_key, field_name="gateway_device_external_key"),
+        "business_project_id": validate_utf8_id(business_project_id, field_name="business_project_id"),
+        "submission_id": validate_utf8_id(submission_id, field_name="submission_id"),
+        "expected_review_version": validate_non_negative_int(expected_review_version, field_name="expected_review_version"),
+        "expected_baseline_node_id": validate_utf8_id(expected_baseline_node_id, field_name="expected_baseline_node_id"),
+        "expected_baseline_head_version": validate_non_negative_int(expected_baseline_head_version, field_name="expected_baseline_head_version"),
+        "reason": validate_utf8_reason(reason)})
+
+
+def assert_resolution_event_integrity(event: ArchiveAnomalyResolutionEvent) -> None:
+    """Validate the stored acceptance body and its original request without current gates."""
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    try:
+        subject = json.loads(event.subject_payload_json)
+        payload = json.loads(event.request_payload_json)
+        if type(subject) is not dict or type(payload) is not dict or set(payload) != {
+            "action", "candidate_set_digest", "expected_baseline_head_version", "expected_baseline_node_id",
+            "expected_sequence", "issue_code", "reason", "selected", "subject_kind", "target_candidate_digest",
+            "target_submission_id", "subject_digest"}:
+            raise ValueError("invalid stored resolution shape")
+        kind = "anomaly" if event.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED else (
+            "project-identity-exception" if event.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION else "business-anomaly")
+        if compute_archive_digest(kind, subject) != event.subject_digest:
+            raise ValueError("stored resolution subject digest mismatch")
+        selected = payload["selected"]
+        if type(selected) is not dict or set(selected) != {"submission_id", "expected_candidate_digest"}:
+            raise ValueError("invalid stored selected reference")
+        if (payload["subject_digest"], payload["subject_kind"], payload["issue_code"],
+            payload["target_submission_id"], payload["target_candidate_digest"], payload["reason"], payload["action"]) != (
+            event.subject_digest, event.subject_kind.value, event.issue_code, event.target_submission_id,
+            event.target_candidate_digest, event.reason, event.action.value):
+            raise ValueError("stored resolution event/request mismatch")
+        if validate_archive_sequence(payload["expected_sequence"]) + 1 != event.sequence:
+            raise ValueError("stored resolution sequence mismatch")
+        if event.action not in {affirmative_resolution_action(event.subject_kind), ArchiveAnomalyResolutionAction.REVOKE}:
+            raise ValueError("stored resolution action mismatch")
+        fingerprint = compute_resolution_request_fingerprint(repository_id=event.repository_id,
+            gateway_device_external_key=event.gateway_device_external_key, business_project_id=event.business_project_id,
+            expected_baseline_node_id=payload["expected_baseline_node_id"],
+            expected_baseline_head_version=payload["expected_baseline_head_version"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"],
+            candidate_set_digest=payload["candidate_set_digest"], subject_digest=event.subject_digest,
+            expected_sequence=payload["expected_sequence"], action=event.action, subject_kind=event.subject_kind,
+            reason=event.reason, actor_id=event.actor_id, issue_code=event.issue_code,
+            target_submission_id=event.target_submission_id, target_candidate_digest=event.target_candidate_digest)
+        if fingerprint != event.request_fingerprint:
+            raise ValueError("stored resolution request fingerprint mismatch")
+    except (ValueError, TypeError, KeyError, ArchiveRequestValidation) as exc:
+        raise ArchiveIntegrityFailure("stored archive resolution facts are invalid") from exc
+
+
+def assert_confirmation_event_integrity(event: ArchiveConfirmationEvent) -> None:
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    try:
+        payload = json.loads(event.request_payload_json)
+        if type(payload) is not dict or set(payload) != {"action", "candidate_set_digest", "expected_baseline_head_version",
+            "expected_baseline_node_id", "expected_sequence", "reason", "selected", "subject_digest"}:
+            raise ValueError("invalid stored confirmation shape")
+        selected = payload["selected"]
+        if type(selected) is not dict or set(selected) != {"submission_id", "expected_candidate_digest"}:
+            raise ValueError("invalid stored selected reference")
+        if (payload["action"], payload["reason"], payload["subject_digest"]) != (event.action.value, event.reason, event.subject_digest) or validate_archive_sequence(payload["expected_sequence"]) + 1 != event.sequence:
+            raise ValueError("stored confirmation event/request mismatch")
+        if compute_selection_subject_digest(candidate_set_digest=payload["candidate_set_digest"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"]) != event.subject_digest:
+            raise ValueError("stored confirmation subject mismatch")
+        fingerprint = compute_confirmation_request_fingerprint(repository_id=event.repository_id,
+            gateway_device_external_key=event.gateway_device_external_key, business_project_id=event.business_project_id,
+            expected_baseline_node_id=payload["expected_baseline_node_id"], expected_baseline_head_version=payload["expected_baseline_head_version"],
+            selected_submission_id=selected["submission_id"], expected_candidate_digest=selected["expected_candidate_digest"],
+            candidate_set_digest=payload["candidate_set_digest"], subject_digest=event.subject_digest, expected_sequence=payload["expected_sequence"],
+            action=event.action, reason=event.reason, actor_id=event.actor_id)
+        if fingerprint != event.request_fingerprint:
+            raise ValueError("stored confirmation request fingerprint mismatch")
+    except (ValueError, TypeError, KeyError, ArchiveRequestValidation) as exc:
+        raise ArchiveIntegrityFailure("stored archive confirmation facts are invalid") from exc

@@ -16,6 +16,8 @@ from gateway_backend.capabilities.project_identity import (
     assess_project_identity,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
+from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonRequest,
@@ -26,9 +28,9 @@ from gateway_backend.capabilities.comparison import (
     ComparisonMode,
     ComparisonRecordsClosure,
     FailedResult,
-    compare_plan,
+    compare_plan, comparison_python_memory_upper,
     plan_comparison,
-    publish_records_closure,
+    publish_records_closure, RecordsPublicationContext,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
@@ -55,6 +57,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
@@ -121,6 +124,7 @@ def run_preview_pair_pipeline(
     rule_set: ComparisonRuleSet | None = None,
     assess_identity: bool = True,
     identity_before_table_set: SnapshotTableSet | None = None,
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -161,7 +165,7 @@ def run_preview_pair_pipeline(
             assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
-        include_all_before_tables=False,
+        include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
     )
     records_closure = surface.published.records_closure
     if (
@@ -190,6 +194,7 @@ def run_history_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -204,7 +209,7 @@ def run_history_pair_pipeline(
         store=store,
         control=control,
         on_cancel=on_cancel,
-        include_all_before_tables=True,
+        include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -248,13 +253,26 @@ def _run_comparison_risk_surface(
     identity_annotation: SurfaceIdentityAnnotation | None = None,
     show_keyless_fallback_hint: bool = False,
     include_all_before_tables: bool = False,
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _ComparisonRiskSurfaceResult:
+    context = current_kernel_context()
+    checkpoint = context.checkpoint if context is not None else lambda: None
+    checkpoint()
     plan = plan_comparison(request)
+    checkpoint()
     if isinstance(plan, FailedResult):
         raise PairPipelineError(f"pair planning failed: {plan.diagnostics}")
     if not isinstance(plan, ComparisonPlan):
         raise PairPipelineError("pair planning did not produce a comparison plan")
+    if context is None:
+        raise PairPipelineError("pair computation requires an operation kernel context")
+    upper = comparison_python_memory_upper(plan)
+    context.memory.record_stage_admission("comparison-python-records", upper)
+    # The returned facts/risk/surface objects can survive this function (FULL has
+    # multiple pairs). Keep this conservative envelope until the operation ends.
+    context.resources.enter_context(context.memory.reserve(upper))
     compared = compare_plan(plan)
+    checkpoint()
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
     published: DetailedFactsResult | DatasetReplacementResult
@@ -264,7 +282,8 @@ def _run_comparison_risk_surface(
         published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
-        closure_result = publish_records_closure(compared, store)
+        closure_result = publish_records_closure(compared, store, context=RecordsPublicationContext(checkpoint=checkpoint))
+        checkpoint()
         if isinstance(closure_result, FailedResult):
             raise PairPipelineError(f"records closure failed: {closure_result.diagnostics}")
         if not isinstance(closure_result, DetailedFactsResult):
@@ -287,6 +306,7 @@ def _run_comparison_risk_surface(
         ),
         artifact_store=store,
     )
+    checkpoint()
     if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
     surface = assemble_surface(
@@ -301,7 +321,7 @@ def _run_comparison_risk_surface(
             risk_annotation_closure=risk.risk_closure,
             table_artifacts=(
                 _surface_table_artifacts(
-                    request,
+                    request, store=store, repository_id=repository_id, export_cache=export_cache,
                     include_all_before=(
                         include_all_before_tables
                         or request.mode is ComparisonMode.DATASET_REPLACEMENT
@@ -318,6 +338,7 @@ def _run_comparison_risk_surface(
         ),
         context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
     )
+    checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
     risk_digest = (
@@ -338,6 +359,8 @@ def _surface_table_artifacts(
     request: ComparisonRequest,
     *,
     include_all_before: bool,
+    store: ArtifactStorePort | None = None, repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[SurfaceArtifactIndexEntry, ...]:
     def table_map(bound: BoundSnapshotInput) -> dict[str, ArtifactRef]:
         if bound.table_set is None:
@@ -353,7 +376,8 @@ def _surface_table_artifacts(
                 raise PairPipelineError(
                     f"surface table {table.descriptor.table_name} must have one Parquet row file"
                 )
-            artifacts[table.descriptor.table_name] = row_refs[0]
+            artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=store,
+                repository_id=repository_id, export_cache=export_cache)
         return artifacts
 
     before = table_map(request.before)

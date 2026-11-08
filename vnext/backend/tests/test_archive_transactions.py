@@ -25,7 +25,7 @@ from gateway_backend.application.archive.start import StartArchiveCommand
 from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
-    ArchiveDispositionKind,
+    SubmissionDispositionKind,
     ArchiveSubjectKind,
 )
 from gateway_backend.domain.submission.models import (
@@ -549,7 +549,7 @@ def test_start_archive_persists_plan_result_head_and_releases_workspace(db_path:
         assert head.business_baseline_commit_id == result.baseline_commit_id
         disposition = unit_of_work.archive.list_dispositions_for_submission(seed.submission_id)
         assert len(disposition) == 1
-        assert disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
+        assert disposition[0].disposition is SubmissionDispositionKind.ARCHIVED_BASELINE
         submission = unit_of_work.submission.get_submission(seed.submission_id)
         assert submission is not None
         occupancy = unit_of_work.submission.get_workspace_occupancy(submission.workspace_id)
@@ -558,12 +558,22 @@ def test_start_archive_persists_plan_result_head_and_releases_workspace(db_path:
 
 def test_start_archive_replay_returns_existing_result_after_head_advances(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
+    old_ref, new_ref = _register_canonical_archive_refs(db_path, seed.submission_id, seed.repository_id)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
     first = start_archive_for_seed(
         seed,
         confirmation_sequence=confirmation_sequence,
         now=TS_ARCHIVE,
     )
+    from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import BASELINE_HEAD_OWNER
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        ) == {new_ref}
+        before = tuple(tuple(row) for row in unit_of_work.connection.execute(
+            "SELECT * FROM artifact_protection_intents WHERE artifact_id IN (?, ?) ORDER BY artifact_id, owner_kind, owner_id",
+            (old_ref, new_ref),
+        ))
     replay = start_archive_for_seed(
         seed,
         confirmation_sequence=confirmation_sequence,
@@ -572,6 +582,12 @@ def test_start_archive_replay_returns_existing_result_after_head_advances(db_pat
     assert replay.replay is True
     assert replay.archive_plan_id == first.archive_plan_id
     assert replay.archive_result_id == first.archive_result_id
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        after = tuple(tuple(row) for row in unit_of_work.connection.execute(
+            "SELECT * FROM artifact_protection_intents WHERE artifact_id IN (?, ?) ORDER BY artifact_id, owner_kind, owner_id",
+            (old_ref, new_ref),
+        ))
+        assert after == before
 
 
 def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
@@ -604,10 +620,11 @@ def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path
 
 
 def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.domain.archive.models import ArchiveDisposition, ArchivePlan, ArchiveResult
+    from gateway_backend.domain.archive.models import SubmissionDisposition, ArchivePlan, ArchiveResult
     from gateway_backend.infrastructure.control_db.sqlite_archive import SQLiteArchiveRepository
 
     seed = seed_approved_archive_candidate(db_path)
+    old_ref, new_ref = _register_canonical_archive_refs(db_path, seed.submission_id, seed.repository_id)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
 
     original_insert = SQLiteArchiveRepository.insert_plan_result_and_dispositions
@@ -616,7 +633,7 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
         self: SQLiteArchiveRepository,
         plan: ArchivePlan,
         result: ArchiveResult,
-        dispositions: tuple[ArchiveDisposition, ...],
+        dispositions: tuple[SubmissionDisposition, ...],
     ) -> None:
         original_insert(self, plan, result, dispositions)
         raise RuntimeError("simulated late write failure")
@@ -632,7 +649,34 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
         plan_count = unit_of_work.connection.execute(
             "SELECT COUNT(*) FROM archive_plan_records"
         ).fetchone()[0]
+        from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import BASELINE_HEAD_OWNER
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        ) == {old_ref}
+        assert new_ref not in unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        )
     assert plan_count == 0
+
+
+def _register_canonical_archive_refs(db_path: Path, submission_id: str, repository_id: str) -> tuple[str, str]:
+    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_backend.artifacts.types import ArtifactRef
+    from gateway_shared_kernel import raw_blob_digest
+
+    refs = []
+    with ControlDbUnitOfWork(db_path, now=lambda: TS_ARCHIVE) as unit_of_work:
+        head = get_current_head_from_connection(unit_of_work.connection, repository_id)
+        submission = unit_of_work.submission.get_submission(submission_id)
+        assert submission is not None
+        for commit in (head.business_baseline_commit_id, submission.repository_commit_id):
+            raw = commit.encode()
+            key = CanonicalTableKey(repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(raw))
+            ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(raw), raw_blob_digest(raw))
+            unit_of_work.canonical_tables.register(key, ref)
+            unit_of_work.canonical_tables.bind_commit(repository_id=repository_id, commit_id=commit, refs=(ref,))
+            refs.append(ref.artifact_id)
+    return refs[0], refs[1]
 
 
 def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> None:
@@ -658,8 +702,8 @@ def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> N
         sibling_disposition = unit_of_work.archive.list_dispositions_for_submission(
             dual_seed.target_submission_id
         )
-    assert primary_disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
-    assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED
+    assert primary_disposition[0].disposition is SubmissionDispositionKind.ARCHIVED_BASELINE
+    assert sibling_disposition[0].disposition is SubmissionDispositionKind.CLOSED_NOT_ARCHIVED
 
 
 def test_start_archive_prefers_active_attempt_over_candidate_set_conflict(
@@ -861,3 +905,215 @@ def test_start_archive_rejects_mismatched_active_attempt_and_occupancy(
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
+
+
+def test_start_archive_rechecks_pending_review_without_partial_writes(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchivePendingReview
+    from tests.test_review_transactions import _seed_additional_pending_review_submission
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    pending = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
+        device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        versions = {row["workspace_id"]: row["optimistic_version"] for row in
+                    unit_of_work.connection.execute("SELECT workspace_id, optimistic_version FROM workspace_records")}
+    with pytest.raises(ArchivePendingReview):
+        start_archive_for_seed(seed, confirmation_sequence=sequence)
+    assert_archive_durable_state_unchanged(db_path, repository_id=seed.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version, expected_workspace_versions=versions)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.get_workspace_occupancy(pending.workspace_id) is not None
+
+
+def test_manual_close_preserves_approved_history_and_head_and_replays_first_actor_without_releasing_again(db_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import close_command
+    seed = seed_approved_archive_candidate(db_path)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        submission = uow.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        before = uow.workspace.get_workspace(submission.workspace_id)
+        events = uow.review.list_events(seed.submission_id)
+        head = uow.baseline.get_head_record(seed.repository_id)
+    assert before is not None
+    command = close_command(seed)
+    closed = close_submission(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    assert not closed.replay
+    with ControlDbUnitOfWork(db_path) as uow:
+        after = uow.workspace.get_workspace(before.workspace_id)
+        assert after is not None
+        assert after.state == before.state and after.generation == before.generation
+        assert after.optimistic_version == before.optimistic_version + 1
+        assert after.current_upload_revision_id is None and after.current_preview_result_id is None
+        assert uow.submission.get_workspace_occupancy(before.workspace_id) is None
+        assert uow.review.list_events(seed.submission_id) == events
+        assert uow.review.get_projection(seed.submission_id).status.value == "APPROVED"  # type: ignore[union-attr]
+        assert uow.baseline.get_head_record(seed.repository_id) == head
+        assert uow.connection.execute("SELECT COUNT(*) FROM archive_result_records").fetchone()[0] == 0
+        uow.workspace.save_workspace(replace(after, generation=after.generation + 1, current_upload_revision_id="new-upload",
+            optimistic_version=after.optimistic_version + 1), expected_version=after.optimistic_version)
+        uow.connection.execute("UPDATE baseline_head_records SET optimistic_version = optimistic_version + 1 WHERE repository_id = ?", (seed.repository_id,))
+    replay = close_submission(command=replace(command, context=replace(command.context, actor_id="other-authorized")),
+        unit_of_work_factory=_uow_factory(db_path), now=datetime(2025, 1, 1, tzinfo=UTC))
+    assert replay.replay and replay.disposition == closed.disposition
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.workspace.get_workspace(before.workspace_id).current_upload_revision_id == "new-upload"  # type: ignore[union-attr]
+    with pytest.raises(IdempotencyConflict):
+        close_submission(command=replace(command, reason="different"), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+
+
+def test_manual_close_works_when_graph_is_over_limit_and_other_candidate_facts_are_broken(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.application.archive.manual_close import close_submission
+    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from tests.support.archive_fixtures import close_command, seed_bulk_approved_archive_candidates
+    seed = seed_bulk_approved_archive_candidates(db_path, count=201)
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = 'sub-bulk-2'", (b'{}',))
+        uow.connection.execute("UPDATE baseline_head_records SET optimistic_version = optimistic_version + 1 WHERE repository_id = ?", (seed.repository_id,))
+    def no_graph(*args: object, **kwargs: object) -> object:
+        raise AssertionError("manual close must not load graph or other active attempts")
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_archive_candidate_facts", no_graph)
+    monkeypatch.setattr(SQLiteSubmissionRepository, "list_active_submit_attempts", no_graph)
+    from dataclasses import replace
+    command = replace(close_command(seed), expected_baseline_head_version=BASELINE_HEAD.baseline_head_version + 1)
+    assert not close_submission(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE).replay
+
+
+def test_manual_close_rolls_back_disposition_and_release_after_a_late_failure(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.application.archive.manual_close import close_submission
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import SQLiteWorkspaceRepository
+    from tests.support.archive_fixtures import close_command
+    seed = seed_approved_archive_candidate(db_path)
+    original = SQLiteWorkspaceRepository.save_workspace
+    def fail(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("release failed")
+    monkeypatch.setattr(SQLiteWorkspaceRepository, "save_workspace", fail)
+    with pytest.raises(RuntimeError, match="release failed"):
+        close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    assert_archive_durable_state_unchanged(db_path, repository_id=seed.repository_id, baseline_head_version=BASELINE_HEAD.baseline_head_version)
+    monkeypatch.setattr(SQLiteWorkspaceRepository, "save_workspace", original)
+    assert not close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE).replay
+
+
+@pytest.mark.parametrize("different_target", [False, True])
+def test_manual_close_replay_rejects_corrupt_stored_source_binding_before_conflict(db_path: Path, different_target: bool) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import close_command, seed_approved_dual_sibling_archive
+    dual = seed_approved_dual_sibling_archive(db_path)
+    command = close_command(dual.primary)
+    close_submission(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.connection.execute("UPDATE submission_disposition_records SET configuration_facts_digest = ? WHERE submission_id = ?",
+            ("sha256:" + "0" * 64, dual.primary.submission_id))
+    with pytest.raises(ArchiveIntegrityFailure):
+        close_submission(command=replace(command, submission_id=dual.target_submission_id) if different_target else command,
+            unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+
+
+def test_two_hundred_full_candidates_with_missing_modified_time_accept_399_exact_references(db_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.contracts import ArchiveSelectedRef, compute_selection_subject_digest
+    from gateway_backend.application.archive.queries import get_archive_candidates
+    from gateway_backend.domain.archive.models import affirmative_resolution_action
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from tests.support.archive_fixtures import replace_archive_configuration, seed_bulk_approved_archive_candidates
+    seed = seed_bulk_approved_archive_candidates(db_path, count=200)
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    for item in candidates.candidates:
+        replace_archive_configuration(db_path, item.submission_id,
+            lambda facts: replace(facts, modified=replace(facts.modified, generated_time=missing)))
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    selected = next(item for item in candidates.candidates if item.submission_id == seed.submission_id)
+    seed = replace(seed, selected_ref=ArchiveSelectedRef(selected.submission_id, selected.expected_candidate_digest),
+        candidate_set_digest=candidates.candidate_set_digest,
+        selection_subject_digest=compute_selection_subject_digest(candidate_set_digest=candidates.candidate_set_digest,
+            selected_submission_id=selected.submission_id, expected_candidate_digest=selected.expected_candidate_digest))
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref, unit_of_work_factory=_uow_factory(db_path))
+    assert len(preview.anomalies) == 399
+    confirmation = append_selection_confirmation(seed)
+    refs = []
+    for index, anomaly in enumerate(preview.anomalies):
+        result = append_archive_anomaly_resolution(command=AppendArchiveAnomalyResolutionCommand(
+            seed.archiver_context, f"reason-{index}", BASELINE_HEAD.business_baseline_node_id,
+            BASELINE_HEAD.baseline_head_version, seed.selected_ref, seed.candidate_set_digest,
+            anomaly.subject_digest, 0, affirmative_resolution_action(anomaly.subject_kind),
+            "missing generation time is explicitly accepted for this submitted side" if anomaly.issue_code == "GENERATION_TIME_MISSING"
+                else "this approved sibling is intentionally excluded from the baseline",
+            anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest),
+            unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+        refs.append((anomaly.subject_digest, result.sequence))
+    archived_result = start_archive_for_seed(seed, confirmation_sequence=confirmation, anomaly_resolution_sequences=tuple(refs))
+    assert len(archived_result.dispositions) == 200
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        plan = uow.archive.get_plan_by_id(archived_result.archive_plan_id)
+        assert plan is not None
+        frozen = json.loads(plan.frozen_input_json)
+        assert len(frozen["anomaly_subjects"]) == 399
+        assert frozen["business_validation"]["issues"][0]["details"]["generated_time"]["selected_time_utc"] is None
+
+
+def test_archive_head_at_safe_integer_limit_rejects_advance_without_any_effect(db_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.audit import AppendArchiveConfirmationCommand, append_archive_confirmation
+    from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+    from gateway_backend.application.archive.errors import ArchiveRequestValidation
+    from gateway_backend.application.archive.start import start_archive
+    from gateway_backend.domain.archive.models import ArchiveConfirmationAction
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+    seed = seed_approved_archive_candidate(db_path)
+    maximum = 9007199254740991
+    replace_archive_configuration(db_path, seed.submission_id, lambda facts: replace(facts, baseline_head_version=maximum))
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.connection.execute("UPDATE baseline_head_records SET optimistic_version = ?", (maximum,))
+        uow.connection.execute("UPDATE submit_attempt_records SET baseline_head_version = ?", (maximum,))
+    seed = refresh_archive_seed(seed)
+    confirmation = append_archive_confirmation(command=AppendArchiveConfirmationCommand(seed.archiver_context, "max-confirm",
+        BASELINE_HEAD.business_baseline_node_id, maximum, seed.selected_ref, seed.candidate_set_digest,
+        seed.selection_subject_digest, 0, ArchiveConfirmationAction.CONFIRM, "confirm selection at the maximum version"),
+        unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    command = StartArchiveCommand(seed.archiver_context, "max-start", BASELINE_HEAD.business_baseline_node_id,
+        maximum, seed.candidate_set_digest, seed.selected_ref,
+        (ArchiveAuditReferenceInput(seed.selection_subject_digest, confirmation.sequence),), ())
+    with pytest.raises(ArchiveRequestValidation, match="I-JSON"):
+        start_archive(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    assert_archive_durable_state_unchanged(db_path, repository_id=seed.repository_id, baseline_head_version=maximum)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM baseline_node_records").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("field", ["business_validation", "anomaly_subjects", "configuration_facts"])
+def test_successful_archive_replay_rejects_corrupted_frozen_input(db_path: Path, field: str) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    result = start_archive_for_seed(seed, confirmation_sequence=sequence)
+    with ControlDbUnitOfWork(db_path) as uow:
+        plan = uow.archive.get_plan_by_id(result.archive_plan_id)
+        assert plan is not None
+        frozen = json.loads(plan.frozen_input_json)
+        frozen[field] = {} if field == "business_validation" else [{"corrupt": True}]
+        uow.connection.execute("UPDATE archive_plan_records SET frozen_input_json = ? WHERE plan_id = ?",
+            (json.dumps(frozen), plan.plan_id))
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive_for_seed(seed, confirmation_sequence=sequence)
+
+
+@pytest.mark.parametrize("corruption", ["confirmation_missing", "confirmation_body", "selected_commit"])
+def test_successful_archive_replay_keeps_original_confirmation_and_commit_binding(db_path: Path, corruption: str) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    start_archive_for_seed(seed, confirmation_sequence=sequence)
+    with ControlDbUnitOfWork(db_path) as uow:
+        if corruption == "confirmation_missing":
+            uow.connection.execute("DELETE FROM archive_confirmation_events")
+        elif corruption == "confirmation_body":
+            uow.connection.execute("UPDATE archive_confirmation_events SET request_payload_json = '{}' ")
+        else:
+            uow.connection.execute("UPDATE submission_records SET repository_commit_id = 'different-commit' WHERE submission_id = ?", (seed.submission_id,))
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive_for_seed(seed, confirmation_sequence=sequence)

@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import hashlib
+import errno
+import fcntl
 import os
+import stat
 import tempfile
+from collections.abc import Iterator, Callable
+from contextlib import contextmanager
 from pathlib import Path
+
+import pyarrow as pa
 
 from gateway_shared_kernel import CanonicalEncodingError, raw_blob_digest
 
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
-from gateway_backend.artifacts.store import ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactUnavailableError, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 
@@ -131,11 +138,130 @@ class LocalArtifactStore:
     def get_ref(self, artifact_id: str) -> ArtifactRef:
         try:
             validate_artifact_id(artifact_id)
-            return self._load_stored_ref(artifact_id)
+            ref = self._load_stored_ref(artifact_id)
+            if ref.artifact_id != artifact_id:
+                raise ManifestVerificationError("stored artifact identity mismatch")
+            return ref
         except ManifestVerificationError:
             raise
-        except (OSError, ValueError, CanonicalEncodingError):
+        except OSError as exc:
+            if exc.errno in {errno.ENOENT, errno.EACCES, errno.EPERM}:
+                raise ArtifactUnavailableError("artifact ref is not available") from None
             raise ManifestVerificationError("artifact ref lookup failed") from None
+        except (ValueError, CanonicalEncodingError):
+            raise ManifestVerificationError("artifact ref lookup failed") from None
+
+    @contextmanager
+    def read_session(self) -> Iterator[None]:
+        """Borrow the existing root inode; no lock file or durable read state."""
+        descriptor = os.open(self._artifact_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_SH)
+            yield
+        finally:
+            os.close(descriptor)
+
+    @contextmanager
+    def cleanup_session(self) -> Iterator[bool]:
+        """Try a cooperative exclusive borrow; an active download makes cleanup retry."""
+        descriptor = os.open(self._artifact_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+            else:
+                yield True
+        finally:
+            os.close(descriptor)
+
+    def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
+        """Read without mapping or whole-file allocation; finish only after SHA/size verification."""
+        try:
+            validate_artifact_ref_model(ref)
+            if self.get_ref(ref.artifact_id) != ref:
+                raise ManifestVerificationError("stored artifact identity mismatch")
+            target, sidecar = self._validated_paths(ref.artifact_id)
+            if any(path.is_symlink() for path in (target, sidecar, target.parent, target.parent.parent)):
+                raise ManifestVerificationError("artifact read cannot follow a symlink")
+            descriptor = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise ManifestVerificationError("artifact read requires a regular file")
+                if info.st_size != ref.size_bytes:
+                    raise ManifestVerificationError("stored size_bytes mismatch")
+                hasher = hashlib.sha256()
+                total = 0
+                while chunk := handle.read(64 * 1024):
+                    total += len(chunk)
+                    if total > ref.size_bytes:
+                        raise ManifestVerificationError("stored size_bytes mismatch")
+                    hasher.update(chunk)
+                    yield chunk
+                if total != ref.size_bytes:
+                    raise ManifestVerificationError("stored size_bytes mismatch")
+                if "sha256:" + hasher.hexdigest() != ref.raw_sha256.value:
+                    raise ManifestVerificationError("stored raw_sha256 mismatch")
+        except OSError as exc:
+            if exc.errno in {errno.ENOENT, errno.EACCES, errno.EPERM}:
+                raise ArtifactUnavailableError("artifact is not available") from None
+            raise ManifestVerificationError("artifact read failed") from None
+
+    @contextmanager
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+        """Hash the same readonly mapping subsequently borrowed by the reader."""
+        source: pa.MemoryMappedFile | None = None
+        buffer: pa.Buffer | None = None
+        try:
+            validate_artifact_ref_model(ref)
+            if self._load_stored_ref(ref.artifact_id) != ref:
+                raise ManifestVerificationError("stored artifact identity mismatch")
+            target, _ = self._validated_paths(ref.artifact_id)
+            if any(path.is_symlink() for path in (target, target.parent, target.parent.parent)):
+                raise ManifestVerificationError("artifact mapping cannot follow a symlink")
+            if not target.is_file():
+                raise ManifestVerificationError("artifact mapping requires a regular file")
+            source = pa.memory_map(str(target), "r")
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ManifestVerificationError("artifact mapping requires a regular file")
+            if source.size() != ref.size_bytes:
+                raise ManifestVerificationError("stored size_bytes mismatch")
+            buffer = source.read_buffer(ref.size_bytes)
+            hasher = hashlib.sha256()
+            view = memoryview(buffer)
+            try:
+                for offset in range(0, len(view), 64 * 1024):
+                    if checkpoint is not None:
+                        checkpoint()
+                    hasher.update(view[offset:offset + 64 * 1024])
+                if checkpoint is not None:
+                    checkpoint()
+            finally:
+                view.release()
+            if "sha256:" + hasher.hexdigest() != ref.raw_sha256.value:
+                raise ManifestVerificationError("stored raw_sha256 mismatch")
+            # The borrowed buffer owns the verified mapping independently. Keep
+            # its lifetime while releasing the source FD before many C readers
+            # coexist; no file reopen or payload copy is needed.
+            source.close()
+        except (InterruptedError, TimeoutError):
+            buffer = None
+            if source is not None:
+                source.close()
+            raise
+        except (OSError, ValueError, pa.ArrowException):
+            buffer = None
+            if source is not None:
+                source.close()
+            raise ManifestVerificationError("artifact mapping failed") from None
+        try:
+            assert buffer is not None
+            yield buffer
+        finally:
+            buffer = None
+            if source is not None:
+                source.close()
 
     def _locate(self, ref: ArtifactRef) -> bytes:
         validate_artifact_ref_model(ref)
@@ -145,7 +271,10 @@ class LocalArtifactStore:
         target, _sidecar = self._validated_paths(ref.artifact_id)
         if not target.is_file():
             raise ManifestVerificationError("artifact bytes are missing")
-        raw_bytes = target.read_bytes()
+        with target.open("rb") as source:
+            if os.fstat(source.fileno()).st_size != ref.size_bytes:
+                raise ManifestVerificationError("stored size_bytes mismatch")
+            raw_bytes = source.read(ref.size_bytes + 1)
         self._verify_raw(raw_bytes, ref)
         return raw_bytes
 
@@ -178,8 +307,10 @@ class LocalArtifactStore:
         if cached is not None:
             return cached
         _target, sidecar = self._validated_paths(artifact_id)
+        if any(path.is_symlink() for path in (sidecar, sidecar.parent, sidecar.parent.parent)):
+            raise ManifestVerificationError("artifact ref cannot follow a symlink")
         if not sidecar.is_file():
-            raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}")
+            raise ArtifactUnavailableError("artifact ref is not available")
         stored_ref = artifact_ref_from_json(sidecar.read_bytes())
         self._refs_by_artifact_id[artifact_id] = stored_ref
         return stored_ref

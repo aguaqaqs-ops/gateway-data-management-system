@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import SubmissionDispositionKind, SubmissionDisposition
+from gateway_backend.infrastructure.control_db.sqlite_archive import disposition_from_row
 from gateway_backend.domain.baseline.models import BaselineNode
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewStatus
@@ -45,7 +46,8 @@ _SUBMISSION_KIND_RANK = 1
 class HistorySubmissionRow:
     submission: Submission
     review_status: ReviewStatus
-    disposition: ArchiveDispositionKind | None
+    disposition: SubmissionDispositionKind | None
+    disposition_record: SubmissionDisposition | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +69,9 @@ class HistoryPageRow:
     parent_node_id: str | None
     based_on_baseline_node_id: str | None
     review_status: str | None
-    archive_disposition: str | None
+    submission_disposition: str | None
     identity_exception: bool
+    disposition_record: SubmissionDisposition | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,7 +261,7 @@ def _load_history_page_rows(
                 parent_node_id,
                 NULL AS based_on_baseline_node_id,
                 NULL AS review_status,
-                NULL AS archive_disposition,
+                NULL AS submission_disposition,
                 NULL AS identity_confirmations
             FROM baseline_node_records
             WHERE repository_id = ?
@@ -280,7 +283,7 @@ def _load_history_page_rows(
             FROM submission_records AS s
             INNER JOIN review_projection_records AS p
                 ON p.submission_id = s.submission_id
-            LEFT JOIN archive_disposition_records AS d
+            LEFT JOIN submission_disposition_records AS d
                 ON d.submission_id = s.submission_id
             WHERE s.repository_id = ?
         ) AS history_nodes
@@ -290,10 +293,16 @@ def _load_history_page_rows(
         """,
         tuple(params),
     ).fetchall()
-    return tuple(_history_page_row_from_row(row) for row in rows)
+    submission_ids = tuple(row["ref_id"] for row in rows if row["ref_kind"] == "submission")
+    dispositions: dict[str, SubmissionDisposition] = {}
+    if submission_ids:
+        placeholders = ",".join("?" for _ in submission_ids)
+        dispositions = {record["submission_id"]: disposition_from_row(record) for record in
+            connection.execute(f"SELECT * FROM submission_disposition_records WHERE submission_id IN ({placeholders})", submission_ids).fetchall()}
+    return tuple(_history_page_row_from_row(row, disposition_record=dispositions.get(row["ref_id"])) for row in rows)
 
 
-def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
+def _history_page_row_from_row(row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None) -> HistoryPageRow:
     created_at_us = row["created_at_us"]
     if type(created_at_us) is not int:
         raise ValueError("created_at_us must be an integer")
@@ -309,7 +318,7 @@ def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
     parent_node_id = row["parent_node_id"]
     based_on_baseline_node_id = row["based_on_baseline_node_id"]
     review_status = row["review_status"]
-    archive_disposition = row["archive_disposition"]
+    submission_disposition = row["submission_disposition"]
     identity_confirmations = row["identity_confirmations"]
     return HistoryPageRow(
         ref_kind=ref_kind,
@@ -323,7 +332,8 @@ def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
             None if based_on_baseline_node_id is None else str(based_on_baseline_node_id)
         ),
         review_status=None if review_status is None else str(review_status),
-        archive_disposition=None if archive_disposition is None else str(archive_disposition),
+        submission_disposition=None if submission_disposition is None else str(submission_disposition),
+        disposition_record=disposition_record,
         identity_exception=(
             False
             if identity_confirmations is None
@@ -364,25 +374,27 @@ def _load_submission_rows(
         SELECT
             {submission_columns},
             p.status AS review_status,
-            d.disposition AS archive_disposition
+            d.disposition AS submission_disposition
         FROM submission_records AS s
         INNER JOIN review_projection_records AS p
             ON p.submission_id = s.submission_id
-        LEFT JOIN archive_disposition_records AS d
+        LEFT JOIN submission_disposition_records AS d
             ON d.submission_id = s.submission_id
         WHERE s.repository_id = ?
         ORDER BY s.created_at_us ASC, s.submission_id ASC
         """,
         (repository_id,),
     ).fetchall()
-    return tuple(_submission_row_from_row(row) for row in rows)
+    dispositions = {record["submission_id"]: disposition_from_row(record) for record in
+        connection.execute("SELECT * FROM submission_disposition_records WHERE repository_id = ?", (repository_id,)).fetchall()}
+    return tuple(_submission_row_from_row(row, disposition_record=dispositions.get(row["submission_id"])) for row in rows)
 
 
-def _submission_row_from_row(row: sqlite3.Row) -> HistorySubmissionRow:
+def _submission_row_from_row(row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None) -> HistorySubmissionRow:
     mapping = row_mapping(row)
     submission_mapping = {name: mapping[name] for name in _SUBMISSION_COLUMN_NAMES}
-    disposition_value = mapping["archive_disposition"]
-    disposition = None if disposition_value is None else ArchiveDispositionKind(str(disposition_value))
+    disposition_value = mapping["submission_disposition"]
+    disposition = None if disposition_value is None else SubmissionDispositionKind(str(disposition_value))
     review_status_value = mapping["review_status"]
     if type(review_status_value) is not str or not review_status_value:
         raise ValueError("review_status must be a non-empty string")
@@ -390,6 +402,7 @@ def _submission_row_from_row(row: sqlite3.Row) -> HistorySubmissionRow:
         submission=submission_from_row(submission_mapping),
         review_status=ReviewStatus(review_status_value),
         disposition=disposition,
+        disposition_record=disposition_record,
     )
 
 

@@ -6,7 +6,7 @@ use crate::errors::{CanonicalEncodingError, CanonicalErrorCode};
 pub(crate) const MAX_ULEB128_VALUE: u64 = (1 << 63) - 1;
 
 /// Encode `value` as minimal ULEB128.
-pub(crate) fn encode_uleb128(value: u64) -> Result<Vec<u8>, CanonicalEncodingError> {
+pub fn encode_uleb128(value: u64) -> Result<Vec<u8>, CanonicalEncodingError> {
     if value > MAX_ULEB128_VALUE {
         return Err(CanonicalEncodingError::with_message(
             CanonicalErrorCode::Uleb128Overflow,

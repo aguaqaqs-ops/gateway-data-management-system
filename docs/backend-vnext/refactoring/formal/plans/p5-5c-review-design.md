@@ -33,7 +33,7 @@ repository_effect: forbidden
 operation_runtime: not_used
 worker: not_used
 transaction_model: one_local_sqlite_write_transaction
-review_permission: review_submission
+review_permission: review_submission | withdraw_own_submission (GET/own WITHDRAW only)
 ```
 
 P5-5C 将 Review 实现为 Submission Domain 拥有的 immutable events + current projection。所有 command
@@ -96,14 +96,12 @@ ReviewStatus
   PENDING
   APPROVED
   REJECTED
-  RETURNED_FOR_REVISION
   WITHDRAWN
 
 ReviewEventKind
   SUBMISSION_FINALIZED
   APPROVED
   REJECTED
-  RETURNED_FOR_REVISION
   WITHDRAWN
 ```
 
@@ -134,7 +132,7 @@ notification payload。它的 wire/domain/persistence contract 统一冻结为�
   NFC/NFKC 或大小写转换；校验、fingerprint、event response 使用同一原值；
 - UTF-8 编码长度 `1..4096` bytes（与现有 bounded diagnostic size 一致）；拒绝 U+0000–U+001F、
   U+007F–U+009F、surrogate U+D800–U+DFFF 和 Unicode noncharacter；
-- `REJECT` / `RETURN_FOR_REVISION` 的 reason 还必须至少包含一个非 Unicode whitespace scalar；
+- `REJECT` 的 reason 还必须至少包含一个非 Unicode whitespace scalar；
   `APPROVE` / `WITHDRAW` 可为 `null`，但一旦提供同样不得是 empty/whitespace-only；
 - 错误与日志不得回显完整 reason。
 
@@ -196,99 +194,30 @@ cross-submission 或 fingerprint/event mismatch 均是 `ReviewIntegrityFailure`�
 | --- | --- | --- | --- | --- |
 | `PENDING` | `APPROVE` | `APPROVED` | 要求并保持 exact Submission occupancy | allowed |
 | `PENDING` | `REJECT` | `REJECTED` | clear pointers + release occupancy | allowed |
-| `PENDING` | `RETURN_FOR_REVISION` | `RETURNED_FOR_REVISION` | clear pointers + release occupancy | allowed |
 | `PENDING` | `WITHDRAW` | `WITHDRAWN` | clear pointers + release occupancy | allowed |
-| `APPROVED` | `RETURN_FOR_REVISION` | `RETURNED_FOR_REVISION` | exact occupancy 仍存在时 clear/release | allowed |
 | `APPROVED` | `APPROVE/REJECT/WITHDRAW` | — | none | conflict |
 | terminal | any new key | — | none | conflict |
 
-`REJECT` 和 `RETURN_FOR_REVISION` 必须携带 non-empty reason；`APPROVE` 与 `WITHDRAW` 可省略，若提供
+`REJECT` 必须携带 non-empty reason；`APPROVE` 与 `WITHDRAW` 可省略，若提供
 仍受相同 bounds。状态转换错误稳定返回 `REVIEW_TRANSITION_CONFLICT`。
 
 ### 4.2 Archive race barrier
 
-5D 不存在长时间 `ArchiveExecution`；StartArchive 成功在一个本地 transaction 内消费 selected 与
-sibling occupancy。Review return transaction 要求：
+Review 与 StartArchive 均使用 control DB `BEGIN IMMEDIATE`。同 exact scope/current baseline node/commit 的未关闭 PENDING 阻塞新 StartArchive（`ARCHIVE_PENDING_REVIEW`）；active Attempt 门禁仍保留。APPROVE 必须保持 exact occupancy 且冻结 baseline node/commit 等于事务内当前 Head，否则409 `BASELINE_VERSION_CONFLICT`。REJECT/WITHDRAW 仍可处置旧基线 PENDING，同事务精确释放并递增 Workspace version；APPROVE 不改变 Workspace version。
 
-```text
-workspace_submit_occupancy.active_submission_id == submission_id
-```
-
-Review 与 Archive 均使用 control DB `BEGIN IMMEDIATE`。因此：
-
-- return 先提交：projection 不再 APPROVED、occupancy 已释放，StartArchive 不能选择它；
-- Archive 先提交：occupancy 已释放，return exact precondition 失败；
-- 不需要 archive lock、in-progress state、outbox、tombstone 或 Repository ref probe。
-
-`PENDING -> APPROVED` 也必须在写 event 前证明 exact occupancy 存在；没有该屏障不得产生可供 5D
-选择的 `APPROVED` fact。
+APPROVE 先提交使 candidate set 改变，旧 Start 请求拒绝；最后 REJECT/WITHDRAW 先提交后可重新归档；Start 先运行时见 PENDING 即拒绝。归档关闭后新 Review mutation 为 `ARCHIVE_CLOSED`，成功 replay 保留。不新增锁服务或持久 pending 计数。
 
 ### 4.3 Request and replay ordering
 
-POST、GET 和 replay 共用以下外层授权顺序：
+POST、GET 和 replay 共用：当前 session401；动作permission-before-object403；解析scope；读取持久Submission最小binding（workspace_id/repository_id/created_by）与Workspace并验证 exact scope及仅本人权限的 created_by（不存在/跨scope/非本人统一404）；之后才解完整Submission facts/source绑定与Review closure。授权后解码/绑定损坏（含跨目标existing-key的权威内部引用）转既有ReviewIntegrityFailure，返回503 SERVICE_NOT_READY，不输出raw row。粗粒度GET/WITHDRAW接受 `review_submission` 或 `withdraw_own_submission`；APPROVE/REJECT只接受前者。
 
-1. 验证 current session；缺失、失效或过期返回 `401 AUTHENTICATION_REQUIRED`；
-2. 仅检查 session 中是否含 exact `review_submission` permission，且必须发生在任何 Submission、
-   Workspace、Review event/projection/idempotency object read 之前；缺失统一返回 `403 SCOPE_FORBIDDEN`；
-3. 解析 current device/project provisioned mapping；missing/disabled 返回 `404 RESOURCE_NOT_FOUND`，
-   provider operational failure 返回 `503 DEPENDENCY_UNAVAILABLE`；
-4. 在 resolved project/device/repository scope 中读取对象；Submission/Review absent、cross
-   device/project/repository 或 mapping drift 统一返回 `404 RESOURCE_NOT_FOUND`；
-5. Review closure 损坏返回 `503 SERVICE_NOT_READY`，不得降格为 404。
-
-permission check 只读取认证后的 session claims，不以 object existence 为前提，因此 unknown id、跨 scope
-id 与 same-key replay 均不会绕过 permission-before-object-read。
-
-完成上述门禁后，每个 mutation transaction 按以下顺序处理：
-
-1. 在 write transaction 内重新加载 resolved scope 对应的 Submission/Workspace 和完整 Review closure；
-2. 查 `(business_project_id, idempotency_key)`；
-3. existing + same fingerprint：从原 event 重建原始 `ReviewAppliedResponse`，不读取最新 projection
-   冒充原结果，也不重写 facts；
-4. existing + different fingerprint：`IDEMPOTENCY_CONFLICT`；
-5. 无 existing：校验 expected review version、transition、reason 与 occupancy；
-6. append event、CAS projection、写 idempotency；
-7. 若为 release action，同事务更新 Workspace 与删除 occupancy；
-8. commit 后返回。
-
-Replay 仍执行上述 current-session authentication、permission-before-object-read、mapping 和 scope 检查；
-旧授权不是永久票据。GET 执行同一外层顺序，并在返回前验证 event/projection closure。
+每次 mutation 在写事务重新验证当前权限、mapping、目标scope和本人绑定，再查 actor-independent `(business_project_id,idempotency_key)`。先验证记录 project、Submission、event sequence、fingerprint完整性；same key/same fingerprint从原event重建原响应，保留首次actor，早于当前状态、baseline及occupancy门禁；同项目另一目标key仅返回 `IDEMPOTENCY_CONFLICT`，不披露原结果；损坏记录仍为完整性错误。无existing时校验归档关闭、expected review version、transition/reason、APPROVE当前baseline、exact occupancy，然后append/CAS/idempotency及必要Workspace释放，同事务失败全部回滚。
 
 ## 5. Scope and authorization
 
-### 5.1 Permission
+`review_submission` 为project/device reviewer能力，可读取scope内全部提交并执行APPROVE/REJECT/WITHDRAW，不要求是Workspace owner。`withdraw_own_submission` 必须由session显式发放，不由上传权限或提交人身份隐含授予；仅读取持久 `Submission.created_by == context.actor_id` 的全部状态及撤回本人PENDING。双权限按reviewer能力。
 
-exact permission：
-
-```text
-review_submission
-```
-
-它适用于四条 mutation 和 Review facts read。Review 是 project/device 级职责，允许 reviewer 审核
-不同 owner actor 的 Workspace；不要求 `context.actor_id == workspace.owner_actor_id`。
-
-### 5.2 Scope closure
-
-Application 必须同时校验：
-
-```text
-context.gateway_device_external_key == workspace.gateway_device_external_key
-context.business_project_id == workspace.business_project_id
-resolved_scope.repository_id == workspace.repository_id
-submission.workspace_id == workspace.workspace_id
-submission.repository_id == workspace.repository_id
-```
-
-具体且唯一的 HTTP disclosure policy 是：permission 缺失在任何 object read 前返回 403；object absent、
-跨 device/project/repository、mapping missing/disabled/drift 返回 404；control DB 或 scope provider
-运行故障返回 503。该策略适用于 POST、GET 和 replay。日志只记录 safe request correlation，不记录
-token、reason、artifact path 或 source payload。
-
-### 5.3 Withdraw semantics
-
-`WITHDRAW` 使用相同 project/device reviewer permission，不引入 owner-only special case。若未来产品
-要求 submitter self-withdraw 或 reviewer/submitter 分权，必须在 permission contract、HTTP tests 与
-transition policy 中显式 reopen；不得只在 route 增加 actor comparison。
+授权同时校验context device/project、resolved repository、Submission与Workspace的workspace/repository绑定。仅本人权限使用Submission.created_by，不信任请求actor、最近event、updated_by或occupancy。撤回仅PENDING→WITHDRAWN；APPROVED不允许撤回，后续有理由关闭由V2交付。成功WITHDRAW回放不再要求占用仍存在；新key按终态拒绝。每次replay重新检查当前权限与目标授权，旧授权不是永久票据。
 
 ## 6. Application commands and queries
 
@@ -299,7 +228,7 @@ ApplyReviewCommand (inbound; HTTP caller fields only)
   context
   submission_id
   expected_review_version
-  action: APPROVE | REJECT | RETURN_FOR_REVISION | WITHDRAW
+  action: APPROVE | REJECT | WITHDRAW
   reason optional
   idempotency_key
 
@@ -362,7 +291,7 @@ ReviewFacts
   events ordered by sequence ascending
 ```
 
-当前状态图最多产生三个 events：seed、approve、return。GET 可以一次返回 closed list，不引入 cursor。
+当前状态图最多产生两个 events：seed 与一个用户动作。GET 可以一次返回 closed list，不引入 cursor。
 若将来允许反复 reopen/reapprove 或 comment stream，必须重新评估 bound 和 pagination。
 
 ### 6.3 Ports
@@ -400,8 +329,7 @@ helper。
 
 ### 7.1 Schema component
 
-5C 将现有 `workspace` control schema 从 version 3 升级到 version 4；不创建新的数据库文件或 schema
-ledger。新增表：
+control DB 使用单一基线 schema，不创建 migration ledger。Review 的基线表为：
 
 ```text
 review_event_records
@@ -428,26 +356,9 @@ policy、repository closure validator 与 transaction test 共同强制，不复
 `projection.latest_sequence + 1`，seed 只能是 sequence/version `0`；每次 read/mutation/finalize replay
 都执行 §3.3 closure validator。
 
-### 7.2 Existing-data backfill
+### 7.2 Single baseline schema
 
-v3 -> v4 migration 在同一 migration transaction 内为每个 existing `submission_records` 插入：
-
-```text
-sequence = 0
-event_kind = SUBMISSION_FINALIZED
-from_status = null
-to_status = PENDING
-actor_id = submission.created_by
-occurred_at = submission.created_at
-projection.status = PENDING
-projection.optimistic_version = 0
-projection.latest_sequence = 0
-projection.updated_by = submission.created_by
-projection.updated_at = submission.created_at
-```
-
-Backfill 不生成 user idempotency record，不修改 Submission、Workspace pointer、occupancy 或 artifact。
-Migration 前后执行 integrity/foreign-key checks；schema already v4 时 no-op；newer schema fail closed。
+本项目无历史数据兼容要求。删除的状态/事件直接从基线 CHECK 移除，无迁移、backfill、别名或双读。现有DB与基线schema不符即拒绝启动；开发者删除本地DB及-wal/-shm后重建。首次需要保留数据的部署出现后再引入前向migration。
 
 ### 7.3 Future finalize closure
 
@@ -520,7 +431,7 @@ Closed request：
 }
 ```
 
-`action` only：`APPROVE | REJECT | RETURN_FOR_REVISION | WITHDRAW`。Unknown fields、wrong types、
+`action` only：`APPROVE | REJECT | WITHDRAW`。Unknown fields、wrong types、
 out-of-range integers，以及不满足 §3.2/§6.1 exact character contract 的 keys/reasons 以 closed-schema
 422 拒绝。Path Submission id 不在 body 重复。
 
@@ -538,7 +449,7 @@ ReviewAppliedResponse
   event: ReviewEventResponse
 ```
 
-若原 `APPROVE` 之后已有合法 return，重放 approve key 仍返回原 `APPROVED/version 1` 结果；caller 通过
+若原 `APPROVE` 之后已经归档，重放 approve key 仍返回原 `APPROVED/version 1` 结果；caller 通过
 GET 获取最新 projection。这样满足 same-key replay 返回原结果，而不持久化重复 response blob。
 
 ### 9.2 Get review facts
@@ -576,9 +487,11 @@ ReviewEventResponse
 | Status | Code | Meaning |
 | --- | --- | --- |
 | 401 | `AUTHENTICATION_REQUIRED` | session missing/expired/invalid |
-| 403 | `SCOPE_FORBIDDEN` | `review_submission` permission missing；permission-before-object-read |
-| 404 | `RESOURCE_NOT_FOUND` | object absent/cross-scope，或 mapping missing/disabled/drift |
+| 403 | `SCOPE_FORBIDDEN` | 请求动作所需的当前 permission missing；permission-before-object-read |
+| 404 | `RESOURCE_NOT_FOUND` | object absent/cross-scope/非本人，或 mapping missing/disabled/drift |
 | 409 | `IDEMPOTENCY_CONFLICT` | same key, different fingerprint |
+| 409 | `BASELINE_VERSION_CONFLICT` | fresh APPROVE冻结基线过期 |
+| 409 | `ARCHIVE_CLOSED` | 新动作目标已归档关闭 |
 | 409 | `REVIEW_VERSION_CONFLICT` | expected version stale |
 | 409 | `REVIEW_TRANSITION_CONFLICT` | action invalid for current status |
 | 409 | `WORKSPACE_OCCUPANCY_CONFLICT` | exact active Submission no longer owns Workspace |
@@ -599,16 +512,16 @@ mapping 不包含 raw reason、token、SQL 或 private path。
 ```text
 ReviewStatus == APPROVED
 submission.based_on_baseline_node_id == current BaselineHead node
-no ArchiveResult disposition
+no SubmissionDisposition（ARCHIVE或MANUAL_CLOSE）
 ```
 
-5D 不反向修改 Review status。StartArchive 释放 occupancy 后，5C approved-return guard自然关闭。
+5D 不反向修改 Review status。StartArchive或CLOSE_NOT_ARCHIVED释放 occupancy 后，5C terminal-closed guard拒绝新动作。
 
 ### 10.2 5E History
 
 5C 的 `ReviewFacts` 是 5E HistoryTreeProjection 的输入。5C GET 只提供单 Submission 的 Review facts；
 它不建设 project history listing、cursor、commit resolve、comparison Operation 或 bundle。所有
-Submission commit，包括 rejected/returned/withdrawn，继续保留并可由未来授权 History 读取。
+Submission commit，包括 rejected/withdrawn，继续保留并可由未来授权 History 读取。
 
 ## 11. Deployment and runtime boundary
 
@@ -616,7 +529,7 @@ Submission commit，包括 rejected/returned/withdrawn，继续保留并可由�
 - 不注册 JobDefinition、worker handler 或 recovery command；
 - 不调用 Repository Client，不要求 Dolt；
 - 不改 backend/worker process topology、UID/GID、volume、socket、health/readiness contract；
-- production session fixture/config 在 implementation 时加入 `review_submission`；
+- production session fixture/config 在 implementation 时显式区分 `review_submission` 与 `withdraw_own_submission`；
 - source/schema/route change 会触发最终 current-HEAD backend/worker image rebuild 和 container gate；
 - Repository Service build input若未变，仍按权威 runner/provenance规则验证 current candidate identity。
 
@@ -646,9 +559,9 @@ permission-before-object-read、跨 actor same-key replay 和 403/404/503 taxono
 Stop implementation and reopen owning design/contract if any of the following becomes required：
 
 - reviewer assignment、multi-party quorum、approval chain、comment workflow 或 start-review state；
-- approve/reject/return/withdraw 需要异步 external effect；
+- approve/reject/withdraw 需要异步 external effect；
 - Review must modify/delete Repository commit/ref or business History；
-- submitter self-withdraw requires a distinct owner-only authorization model；
+- 本人撤回若扩展到APPROVED或新scope/其他动作，需重新审定授权与状态模型；
 - Review event stream becomes unbounded and needs paging/retention；
 - external audit/event consumer requires delivery guarantee/outbox；
 - Archive introduces a durable in-progress state instead of one local transaction；
@@ -660,7 +573,7 @@ Design acceptance requires independent docs review to confirm：
 
 - alignment with Business Lifecycle status/owner/short transaction；
 - no `START_REVIEW`, Repository effect, Operation, outbox or duplicated Archive/History state；
-- transition and occupancy matrix closes approved-return vs Archive race；
+- transition and occupancy matrix closes pending Review vs Archive race；
 - migration/backfill and future Finalize seed preserve one projection/event stream per Submission；
 - permission/scope/idempotency/error contracts are closed and testable；
 - execution stages/allowed paths/test owners are proportional and non-overlapping；
@@ -672,3 +585,7 @@ p5_5c_design_accepted: yes
 p5_5c_implementation_authorized: yes
 first_authorized_step: P5-5C-S1
 ```
+
+## V2统一终局处置与Review读取补充（2026-11-07）
+
+Review状态/事件保持PENDING/APPROVED/REJECTED/WITHDRAWN，CLOSE_NOT_ARCHIVED不撤销APPROVE、不追加ReviewEvent。closedness只读submission_disposition_records/SubmissionDisposition：ARCHIVE引用真实Result，MANUAL_CLOSE保留首次关闭actor/UTC/reason且result_id=null。GET ReviewFacts增加submission_disposition摘要（disposition/source_kind/result_id/closure），与status分开；self-only仍按持久Submission.created_by授权，最小binding/exact scope先于完整facts和处置读取。合法原Review成功replay仍先于fresh闭包/状态门禁。关闭命令独立归Archive owner且只授archive_submission，不让reviewer-only/self-only自动获得；具体事务/权限/回放见[P5-5D §12](p5-5d-archive-design.md#12-v2-来源时间与手工关闭目标补充)。Review原fingerprint版本不变，无旧字段别名或兼容读取。

@@ -12,7 +12,6 @@ COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/READ
 COPY rust/Cargo.toml rust/Cargo.lock rust/rust-toolchain.toml /build/rust/
 COPY rust/gateway-architecture-check/Cargo.toml /build/rust/gateway-architecture-check/Cargo.toml
 COPY rust/gateway-compute-core/Cargo.toml /build/rust/gateway-compute-core/Cargo.toml
-COPY rust/gateway-compute-python-impl/Cargo.toml /build/rust/gateway-compute-python-impl/Cargo.toml
 COPY rust/gateway-compute-python/Cargo.toml /build/rust/gateway-compute-python/Cargo.toml
 COPY rust/gateway-shared-kernel/Cargo.toml /build/rust/gateway-shared-kernel/Cargo.toml
 
@@ -28,20 +27,20 @@ RUN if [ "${USE_PRELOADED_DEPENDENCIES}" = "1" ]; then \
       && uv pip install \
           --python "$(uv python find "$(cat .python-version)")" \
           "uv==${UV_VERSION}" \
-      && for crate in gateway-architecture-check gateway-compute-core gateway-compute-python-impl gateway-compute-python gateway-shared-kernel; do \
+      && for crate in gateway-architecture-check gateway-compute-core gateway-compute-python gateway-shared-kernel; do \
            mkdir -p "/build/rust/${crate}/src"; \
          done \
       && touch \
           /build/rust/gateway-architecture-check/src/main.rs \
           /build/rust/gateway-architecture-check/src/lib.rs \
           /build/rust/gateway-compute-core/src/lib.rs \
-          /build/rust/gateway-compute-python-impl/src/lib.rs \
           /build/rust/gateway-compute-python/src/lib.rs \
           /build/rust/gateway-shared-kernel/src/lib.rs \
       && cargo fetch --locked --manifest-path /build/rust/Cargo.toml; \
     fi
 
 FROM dependency-base AS builder
+ARG CARGO_BUILD_JOBS=4
 WORKDIR /build/backend
 COPY rust /build/rust
 COPY shared_kernel /build/shared_kernel

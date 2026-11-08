@@ -15,9 +15,13 @@ from types import FrameType
 from typing import Any, cast
 from uuid import uuid4
 
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
+from gateway_backend.application.history.compare_jobs import publish_stopped_compute_cancelled as publish_history_stop_cancelled
+from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
+from gateway_backend.application.kernel_execution import bind_kernel_execution, build_cooperative_kernel_stop, publish_generic_stopped_compute_cancelled
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -39,6 +43,7 @@ from gateway_backend.application.preview_jobs import (
     bind_control_transaction_factory,
     build_preview_recovery_port,
     preview_composition_bundle,
+    publish_stopped_compute_cancelled as publish_preview_stop_cancelled,
 )
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
@@ -48,6 +53,7 @@ from gateway_backend.application.submit_jobs import (
     bind_submit_control_transaction_factory,
     build_submit_recovery_port,
     submit_composition_bundle,
+    publish_stopped_compute_cancelled as publish_submit_stop_cancelled,
 )
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
@@ -246,6 +252,7 @@ def build_production_submit_dependencies(
         artifact_store=preview_deps.artifact_store,
         publication=build_submit_import_publication_port(
             repository_provider_factory=preview_deps.repository_provider_factory,
+            control_transaction_factory=control_transaction_factory,
         ),
         parent_catalog=HttpRepositoryParentCatalogPort(
             base_url=settings.repository_base_url,
@@ -346,10 +353,11 @@ def build_worker_runtime(
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
+    kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes)
     startup = _R4WorkerStartup(
         read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,
-        registry=recovery_registry,
+        registry=kernel_registry,
         definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
         startup_recovery=startup_recovery,
@@ -390,6 +398,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
+            initialize_compute_kernel(configured.kernel_threads)
             previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
             from gateway_backend.bootstrap.composition import (
                 assert_workspace_registry_ready,
@@ -543,6 +552,19 @@ def _build_recovery_callbacks(
 
 
 @dataclass(frozen=True, slots=True)
+class _KernelWorkerRegistry:
+    _registry: WorkerRegistry
+    _threads: int
+    _memory_budget_bytes: int
+
+    def resolve(self, key: JobStepKey) -> ClaimedExecutor | None:
+        executor = self._registry.resolve(key)
+        if executor is None:
+            return None
+        return bind_kernel_execution(executor, threads=self._threads, memory_budget_bytes=self._memory_budget_bytes)
+
+
+@dataclass(frozen=True, slots=True)
 class _RecoveryAwareWorkerRegistry:
     """Wrap resolved executors with claim-path recovery routing at the JobStepKey boundary."""
 
@@ -559,12 +581,18 @@ class _RecoveryAwareWorkerRegistry:
         definition = self._definition_registry.get(key)
         capability = RecoveryCapabilityValue(definition.recovery_capability.value)
         recovery = self._recovery_by_key.get(key)
+        cooperative_stop = None
+        if capability is RecoveryCapabilityValue.PURE_RECOMPUTE:
+            publishers = {PREVIEW_JOB_KIND: publish_preview_stop_cancelled,
+                SUBMIT_JOB_KIND: publish_submit_stop_cancelled, HISTORY_COMPARE_JOB_KIND: publish_history_stop_cancelled}
+            publish_cancelled = publishers.get(key.job_kind, publish_generic_stopped_compute_cancelled)
+            cooperative_stop = build_cooperative_kernel_stop(publish_cancelled)
         return build_recovery_routed_executor(
             executor,
             recovery,
             capability,
             jitter=self._jitter,
-            now_factory=self._now_factory,
+            now_factory=self._now_factory, cooperative_stop=cooperative_stop,
         )
 
 

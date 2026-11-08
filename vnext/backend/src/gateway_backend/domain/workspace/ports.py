@@ -43,7 +43,8 @@ class WorkspaceRepository(Protocol):
     def get_upload_revision(self, upload_revision_id: str) -> UploadRevision | None:
         """Load one upload revision by id."""
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         """Load one preview result by id."""
 
     def find_upload_idempotency(

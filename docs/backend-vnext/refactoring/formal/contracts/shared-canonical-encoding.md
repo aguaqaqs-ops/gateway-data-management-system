@@ -126,8 +126,8 @@ v1 case 的 bytes 与 success/error 分类不变。
   的 string scalar frame；item 顺序为 **声明顺序**，不是输入顺序。空 SET 是
   长度为 0 的 `sequence_frame`，不得编码为 null。**不再外包另一层 scalar tag**。
 - CanonicalizationManifest 表 content digest 的行/列拼接沿用既有 per-cell 规则；
-  单元格 bytes 按上列定义放入该槽位。不使用 Shared Kernel `encode_row`，不改变
-  Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。
+  单元格 bytes 按上列定义放入该槽位。不使用 Shared Kernel `encode_row`，不升
+  `canonical_encoding_version`。
 - 禁止 ordinal、dictionary index、未规范化的 SET 输入顺序或逗号拼接文本作为
   content preimage。
 - owner 在调用 Shared Kernel 之前完成 label 合法性与声明顺序 canonicalization；
@@ -156,7 +156,7 @@ v1当前保留的production digest kind：
 | `row` | Shared Kernel canonical row frame。 |
 | `raw-content` | Shared Kernel unordered row-hash multiset。 |
 | `collection-item` | Shared Kernel collection item framing。 |
-| `table-schema` | Canonical Row Hash capability declared semantic schema。 |
+| `table-schema` | 保留在 v1 digest registry 和 vectors 中的既有 kind；当前无 production consumer。 |
 
 Phase 1历史使用的`vector-set`、`scenario-input`、`scenario-fixture`、
 `run-evidence`和`canonical-table-result`已由
@@ -238,7 +238,7 @@ ENUM/SET 的 SQL grammar 与 Arrow 转换 golden 不进入本 corpus；见
 [Correctness Golden and Fixture](fixture-oracle-and-conformance.md) §2.1。
 本层只通过既有 string / sequence 规则为那些 case 提供 content bytes。
 
-Test-only scalar representation不得成为production FFI contract。Canonical Row Hash capability如何把Arrow physical value映射到本文logical scalar，由其owning compute-boundary contract版本化；Arrow metadata不得反向改写本文语义。
+Test-only scalar representation不得成为production FFI contract。各 consumer 的 Arrow physical value 到 logical scalar 映射由其 owning Contract 定义；Arrow metadata不得反向改写本文语义。
 
 普通CI不生成或bless golden。v1已有case的bytes、digest或success/error
 classification改变必须发布v2；由既有规则唯一推导的新增case可保留v1。
@@ -264,7 +264,6 @@ Module public：是。Persisted：作为 version/digest marker 被持久化。Wi
 ## 9. 关联文档
 
 - [Correctness Golden and Fixture](fixture-oracle-and-conformance.md)
-- [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [Repository Service](repository-service.md)
 - [ADR 0005](../adr/0005-shared-canonical-encoding.md)

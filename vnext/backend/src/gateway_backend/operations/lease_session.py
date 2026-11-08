@@ -19,6 +19,7 @@ from gateway_backend.operations.persistence import LEASE_DURATION, OperationLife
 from gateway_backend.operations.recovery import RecoveryTransitionIntent
 from gateway_backend.operations.state import (
     DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
+    DIAGNOSTIC_PURE_DRAIN_HANDOFF, DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR,
     DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
     DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
     TransitionDisposition,
@@ -31,7 +32,7 @@ from gateway_backend.operations.store import (
     StaleWrite,
 )
 from gateway_backend.operations.worker import (
-    CheckpointGeneration,
+    CheckpointGeneration, CooperativeExecutionStopped,
     ExecutionControl,
     ExecutorAcknowledgment,
     WorkerEvent,
@@ -60,6 +61,7 @@ class LeaseSession:
         "_closed",
         "_last_checkpoint_generation",
         "_completion_acknowledgment",
+        "_pure_recompute",
     )
 
     def __init__(
@@ -92,8 +94,51 @@ class LeaseSession:
         self._observer = observer
         self._mutation_lock = threading.Lock()
         self._closed = False
+        self._pure_recompute = False
         self._last_checkpoint_generation: CheckpointGeneration | None = None
         self._completion_acknowledgment: ExecutorAcknowledgment | None = None
+
+    def enable_pure_recompute_stop(self) -> None:
+        with self._mutation_lock:
+            self._ensure_open()
+            self._pure_recompute = True
+
+    def release_for_drain(self) -> ExecutorAcknowledgment | None:
+        """DC88: a healthy stop preserves work without consuming a recovery attempt."""
+        with self._mutation_lock:
+            self._ensure_open()
+            if not self._pure_recompute or not self._control.drain_requested:
+                raise ValueError("drain release requires registered PURE_RECOMPUTE and real drain")
+            try:
+                with self._write_uow_factory() as unit_of_work:
+                    _operation, current = self._load_live_records(unit_of_work)
+                    self._ensure_open()  # Runtime may fence the claim while the fresh read was pending.
+                    if self._control.cancel_requested:
+                        return None
+                    now = unit_of_work.operations.transaction_now
+                    operator = current.diagnostic is not None and current.diagnostic.code == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
+                    candidate = dataclasses.replace(current, status=StepStatus.RETRY_WAIT,
+                        diagnostic=OperationDiagnostic(
+                            code=DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR if operator else DIAGNOSTIC_PURE_DRAIN_HANDOFF,
+                            message=current.diagnostic.message if operator and current.diagnostic is not None
+                                else "PURE_RECOMPUTE yielded for worker drain"),
+                        retry_not_before=now, updated_at=now, worker_id=None, lease_token=None,
+                        lease_expires_at=None, completed_at=None, optimistic_version=current.optimistic_version + 1)
+                    self._validate_retry_wait_release_candidate(current, candidate, now)
+                    self._actions(unit_of_work).mutate_live_step(candidate, self._step_precondition(current))
+            except (StaleWrite, LeaseExpired) as exc:
+                self._lose_lease(exc)
+                raise
+            self._closed = True
+            self._completion_acknowledgment = ExecutorAcknowledgment.SAFE_HANDOFF
+            self._emit(WorkerEvent(code=WorkerEventCode.SAFE_HANDOFF, operation_id=self._operation_id,
+                step_id=self._step_id, worker_id=self._worker_id))
+            return ExecutorAcknowledgment.SAFE_HANDOFF
+
+    def _check_pure_publication_control(self, candidate: StepRecord) -> None:
+        if self._pure_recompute and candidate.status in (StepStatus.RUNNING, StepStatus.SUCCEEDED):
+            if self._control.cancel_requested or self._control.drain_requested or self._control.lease_lost:
+                raise CooperativeExecutionStopped("pure computation stopped before publication")
 
     def refresh_control(self) -> None:
         """Reload the active records and propagate cancellation before execution."""
@@ -155,6 +200,7 @@ class LeaseSession:
                     transaction_now = unit_of_work.operations.transaction_now
                     candidate = builder(operation, current_step, transaction_now)
                     self._validate_checkpoint_candidate(current_step, candidate, transaction_now)
+                    self._check_pure_publication_control(candidate)
                     self._actions(unit_of_work).mutate_live_step(
                         candidate,
                         self._step_precondition(current_step),
@@ -196,6 +242,7 @@ class LeaseSession:
                         allow_manual=False,
                     )
                     self._validate_successor_candidate(operation, terminal_step, successor)
+                    self._check_pure_publication_control(terminal_step)
                     dispositions = self._actions(unit_of_work).complete_with_successor(
                         terminal_step,
                         self._step_precondition(current_step),
@@ -237,6 +284,7 @@ class LeaseSession:
                         current_operation,
                         terminal_operation,
                     )
+                    self._check_pure_publication_control(terminal_step)
                     dispositions = self._actions(unit_of_work).complete_operation(
                         terminal_step,
                         self._step_precondition(current_step),

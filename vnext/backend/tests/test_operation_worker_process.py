@@ -48,6 +48,7 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (source_path, environment.get("PYTHONPATH")) if part
     )
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"] = "8589934592"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH"] = str(db_path)
     artifact_root = db_path.parent / "artifacts"
     artifact_root.mkdir(parents=True, exist_ok=True)

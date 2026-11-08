@@ -49,6 +49,7 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     artifact_root = tmp_path / "artifacts"
     token_file = tmp_path / "repository-bearer-token"
     mapping_file = tmp_path / "provisioned-mapping.json"
+    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", "8589934592")
     monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH", str(db_path))
     monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT", str(artifact_root))
     monkeypatch.setenv(

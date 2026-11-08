@@ -83,7 +83,7 @@ PredicatePushdownReader
 
 ## SnapshotTableArtifact
 
-`SnapshotTableArtifact` 是 `SnapshotTableDescriptor + rows` 的物理承载。
+`SnapshotTableArtifact` 是 `SnapshotTableDescriptor + rows` 的公共物理承载 wrapper；format 表达实际用途，不表达可切换的生产引擎。
 
 建议 manifest：
 
@@ -96,13 +96,14 @@ SnapshotTableArtifactManifest:
   row_file_refs
   row_format
   compression
+  repository_id  # canonical 必填；raw 明确为 null
   row_materialization_profile
   artifact_content_digest
   created_at
   diagnostics optional
 ```
 
-第一版推荐：
+通用 raw table artifact 的物理格式：
 
 ```text
 manifest + Parquet rows
@@ -113,7 +114,15 @@ manifest + Parquet rows
 - artifact manifest 必须能还原 `SnapshotTableDescriptor + SnapshotTableReader`。
 - `artifact_content_digest` 校验物理文件，不替代 `raw_content_digest`。
 - artifact 可作为 cache artifact；调用方对外声明 READY 前需要的 artifact 必须进入调用方自己的 artifact closure。
-- `SnapshotTableArtifact` 是 raw table materialization，不包含 ignored columns、effective key 修正后的 projection 语义。
+- raw `parquet/zstd` 载荷是原始 table materialization，不因共用 wrapper 获得 ignored columns、effective key 修正后的 projection 语义。内部 canonical `arrow-ipc/none` 则必须来自 Storage Projection 后的结果，并由 Canonical Storage 拥有内容身份及恢复边界。
+
+### S2b 内部规范表边界
+
+Storage projection 后的内部规范表使用唯一 canonical IPC v1，owner 为 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)；不同于这里的 raw Parquet artifact、面向客户端的 Parquet/export cache，也不同于下文 comparison-derived projection table。SQL parser 原始行不新增落盘。内部 reader 通过有界 `CanonicalTableStore` handle 读取，按外层 descriptor 对齐规范列名并保留导出 row layout；不以 raw Parquet `row_layout_digest` 替代规范内容身份，不保留内部格式生产回退。引用/TTL、T1/PREPARED 冻结和精确 commit 回填以该 owning Contract 为准，S2b C–E 分节实现与迁移。
+
+D 复用现有 artifact wrapper/manifest，避免给每个 SnapshotTable consumer 增设平行 union。目标 manifest 严格区分 `row_format=parquet, compression=zstd` 与 `row_format=arrow-ipc, compression=none`；`repository_id` 字段必须显式存在，raw 为 null，canonical 为有效 repository scope，并与 caller 已绑定的 repository 比较，再验证 C 的内容身份。`row_materialization_profile` 仍描述既有逻辑标量语义，不能因改物理格式改变业务 schema/content digest。reader 按声明格式打开对应真实用途，canonical 只用 C handle；缺损/错误不尝试另一格式或重新选择来源。同步更改 DTO、checkpoint/closure/冻结 reader 与 golden，不接受缺字段的旧 manifest、别名或格式猜测。
+
+客户端 table/bundle/export 仍提供真实 Parquet。内部 canonical IPC 必须经已有导出/cache owner 按外层 DDL/列序有界地转为 Parquet，纳入当前 operation 预算和发布保护，再进入客户端 closure；禁止将 IPC ref 直接标成 `.parquet`。raw Parquet 与内部 IPC 的共存来自不同实际用途，不是生产 fallback。
 
 ## 与 Repository Import 的边界
 
@@ -175,6 +184,15 @@ cache miss、损坏引用或 Parquet 校验失败时回退到规范表读取与�
 `\_` 保留反斜杠。列类型中的 SQL 注释被忽略。JSON 拒绝 `NaN`、`Infinity`、孤立代理与超过
 100 层嵌套的值，深度检查以迭代方式完成。零日期与零日期时间保持拒绝。
 
+
+### S2b 生产 parser 的 operation 预算
+
+D 将 Rust parser 接入生产时，除了既有 source/statement/row/field/diagnostic 配额，还须传入当前 operation 剩余的局部 `max_live_bytes`。该局部预算约束 parser 拥有的元数据、jobs/plans/chunks、列 builder、合并与 Arrow/adapter 转移的同时存活分配；借用 SQL 输入由 operation 持有并计一次，不重复算 parser 自有内存。局部调用完成后，实际 retained Arrow backing 继续计入 operation 预约，不能只在返回后检查已完成的大分配。
+
+采用分配前 checked 的确定性源序预预约，复用已有 scanner 的有界元组统计；估计需覆盖元数据/ordinals、capacity 增长、merge 旧新重叠和转移临时量。不要用并行任务抢占共享计数器决定错误位置，也不建设全局 allocator 框架。新 `max_live_bytes` 不足按既有 `RESOURCE_LIMIT_EXCEEDED` 返回文档级诊断（budget=`max_live_bytes`、byte offset=`0`），不返回可成功发布的部分结果；这是本次新增整体额度的定位规则，不改既有配额的定位与成功输入语义。
+
+具体保守项由实现及独立审核说明，并以有界资源拒绝、宽表/短坏 tuple、N 确定性和真实 worker 校准验证；配置与容量结论按 [D 任务](../refactoring/formal/plans/p6-s2b-d-kickoff.md) 及 DC87。不因补该资源边界重做已通过且不受影响的 S2a 全量逐值差分。
+
 ## Projection Table Boundary
 
 Projection table 是 comparison-derived artifact，不属于 `SnapshotTableArtifact`。
@@ -201,7 +219,13 @@ ProjectionTableArtifact
 - `SnapshotTableReader` 能 streaming 大表，不要求一次性读入内存。
 - Reader digest 校验失败时，该表 resolution 或 validation 明确失败。
 - `SnapshotTableSet` 与 `SnapshotSummary` 的 descriptor/digest 一致。
-- 删除 L3 cache 后，仍能从 L1 source package 或 L2 repository ref 重建 table access。
+- 可重建 L3 cache 缺失时，按绑定来源重建 table access；T1 后冻结文件不适用通用重建规则，已提交规范副本只按精确 commit 回填，见 Canonical Storage §5。
 - Cache hit 后仍校验 descriptor、digest 和 artifact manifest。
 - `SnapshotTableReader` contract 测试不依赖 Dolt 写入。
 - Repository import benchmark 应调用正式 table access / artifact builder，不长期维护独立 row/digest 实现。
+
+## Configuration generated time native metadata（V1）
+
+SQL parser返回独立小型configuration_generated_time metadata，不改变既有parse canonical encoding或scalar grammar。事实在INSERT成功typed转换时、规范排序前累计；source ordinal从1跨INSERT/chunk连续，NULL/empty/invalid占位，selected为最后有效值，max并列保留首次。文本复用原SQL literal解码（含TEXT合法hex），不由宿主自动转换非字符串逻辑类型。业务规则、UTC语法与缺失分类的唯一语义见[业务设计§4.1](../refactoring/formal/plans/p6-archive-business-validation-design.md#41-提取位置与顺序)。
+
+native只传递规则身份、selected/max、三类计数、两序号、status及last_not_max，不搬整列到Python、不重读SQL；取消/截止/预算错误仍按原parser整体失败。domain在application边界严格校验和绑定，缺metadata不是业务missing，不可发布READY。Rust唯一向量owner为gateway-compute-core/tests/configuration_generated_time.rs；adapter仅保留接线smoke。

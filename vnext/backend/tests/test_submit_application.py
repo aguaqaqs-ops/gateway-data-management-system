@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, submission_with_facts
+
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -199,7 +201,7 @@ class SubmitApplicationHarness:
 
 def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-canonical") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
-    return PreviewResult(
+    return preview_result_with_facts(
         preview_result_id="pr-1",
         workspace_id=workspace_id,
         upload_revision_id="ur-1",
@@ -299,7 +301,7 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
     global WORKSPACE, PREVIEW_RESULT
     WORKSPACE = workspace
     PREVIEW_RESULT = preview
-    attempt = SubmitAttempt(
+    attempt = submit_attempt_with_facts(
         submit_attempt_id="sa-1",
         workspace_id=workspace.workspace_id,
         workspace_generation=workspace.generation,
@@ -376,7 +378,13 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
 
 
 WORKSPACE = seed_open_workspace(InMemoryWorkspaceRepository())
-PREVIEW_RESULT = _preview_result(workspace_id=WORKSPACE.workspace_id)
+PREVIEW_RESULT: PreviewResult
+
+
+@pytest.fixture(autouse=True)
+def initialize_preview_binding(operation_kernel_context: None) -> None:
+    global PREVIEW_RESULT
+    PREVIEW_RESULT = _preview_result(workspace_id=WORKSPACE.workspace_id)
 
 
 def test_validate_accept_submit_accepts_current_preview_binding(
@@ -578,7 +586,7 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         size_bytes=10,
         raw_sha256="sha256:repo",
     )
-    return SubmitAttempt(
+    return submit_attempt_with_facts(
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
         workspace_generation=1,
@@ -589,7 +597,7 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         business_baseline_commit_id="commit-base",
         baseline_head_version=1,
         repository_expected_commit_id="commit-main",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("source-1",),
@@ -695,7 +703,7 @@ def test_validate_finalize_replay_rejects_mismatched_artifact_id() -> None:
         submission_id="sub-1",
         finalized_at=TS1,
     )
-    submission = Submission(
+    submission = submission_with_facts(
         submission_id="sub-1",
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
@@ -706,7 +714,7 @@ def test_validate_finalize_replay_rejects_mismatched_artifact_id() -> None:
         based_on_baseline_node_id="node-1",
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_artifact_refs=("source-1",),
         canonicalization_manifest_ref="manifest-1",
         canonicalization_manifest_digest="sha256:manifest",
@@ -803,7 +811,7 @@ def test_finalize_submit_replay_returns_existing_submission() -> None:
         submission_id="sub-1",
         finalized_at=TS1,
     )
-    submission = Submission(
+    submission = submission_with_facts(
         submission_id="sub-1",
         submit_attempt_id="sa-1",
         workspace_id="ws-1",
@@ -814,7 +822,7 @@ def test_finalize_submit_replay_returns_existing_submission() -> None:
         based_on_baseline_node_id="node-1",
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
-        canonical_business_digest="sha256:canonical",
+        canonical_business_digest="sha256:" + "5" * 64,
         source_artifact_refs=("source-1",),
         canonicalization_manifest_ref="manifest-1",
         canonicalization_manifest_digest="sha256:manifest",

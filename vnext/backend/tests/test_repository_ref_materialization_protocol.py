@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 from dataclasses import replace
 import time
 
@@ -131,7 +133,7 @@ def test_requested_tables_filter_does_not_relist() -> None:
             canonical_table=descriptor.table_name,
             row_count=descriptor.row_count,
             source_schema_digest=descriptor.business_schema_digest,
-            canonical_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
             raw_content_digest=descriptor.raw_content_digest,
         )
         for descriptor in full.summary.tables
@@ -163,7 +165,7 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
     elif case == "composite_key":
         target = catalog_table(
             "composite_items",
-            (int_id_column(), text_column("region", 1)),
+            (int_id_column(), text_column("region", 1, nullable=False)),
             primary_key=("id", "region"),
         )
         target_rows = ((1, "north"),)
@@ -208,7 +210,7 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
             canonical_table=item.table_name,
             row_count=item.row_count,
             source_schema_digest=item.business_schema_digest,
-            canonical_schema_digest=item.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(item),
             raw_content_digest=item.raw_content_digest,
         )
         for item in full.summary.tables
@@ -258,7 +260,7 @@ def test_catalog_row_count_mismatch_is_a_regular_failure() -> None:
         MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH
     )
     assert provider.last_session is not None
-    assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
+    assert provider.last_session.table_readers == []
 
 
 def test_initial_binding_rejects_repository_user_tables() -> None:
@@ -315,11 +317,8 @@ def test_artifacts_required_fails_closed() -> None:
 
 def test_cancel_fails_closed_and_closes_session() -> None:
     provider, _rows = minimal_fixture()
-    result = materialize_ref(
-        provider, context=ParserInvocationContext(CountCancel(3))
-    )
-    assert result.status is SnapshotMaterializationStatus.FAILED
-    assert result.diagnostics[0].code is MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED
+    with pytest.raises(InterruptedError):
+        materialize_ref(provider, context=ParserInvocationContext(CountCancel(3)))
     assert provider.last_session is not None
     assert provider.last_session.close_count == 1
 
@@ -340,12 +339,9 @@ def test_retryable_open_ref_timeout_reaches_operation_recovery() -> None:
 
 def test_deadline_fails_closed() -> None:
     provider, _rows = minimal_fixture()
-    result = materialize_ref(
-        provider,
-        context=ParserInvocationContext(CountCancel(10_000), time.monotonic() - 1.0),
-    )
-    assert result.status is SnapshotMaterializationStatus.FAILED
-    assert result.diagnostics[0].code is MaterializationDiagnosticCode.MATERIALIZATION_TIMEOUT
+    with pytest.raises(TimeoutError):
+        materialize_ref(provider,
+            context=ParserInvocationContext(CountCancel(10_000), time.monotonic() - 1.0))
 
 
 def test_catalog_load_failure_is_failed() -> None:

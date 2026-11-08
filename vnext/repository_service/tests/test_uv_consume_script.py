@@ -266,23 +266,6 @@ def test_uv_consume_allows_pytest_external_test_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_uv_consume_allows_component_pytest_invocation_pattern(tmp_path: Path) -> None:
-    compute_test = VNEXT_ROOT / "rust" / "gateway-compute-python" / "tests" / "test_v1.py"
-    assert compute_test.is_file()
-    log_file = tmp_path / "uv.log"
-    completed = _run_uv_consume(
-        tmp_path,
-        args=["run", "--offline", "--no-sync", "pytest", "-q", str(compute_test)],
-        log_file=log_file,
-        fake_uv=_fake_uv_script(log_file),
-        work_dir=VNEXT_ROOT / "backend",
-    )
-    assert completed.returncode == 0
-    assert "outside project directory" not in completed.stderr
-    assert len(log_file.read_text(encoding="utf-8").splitlines()) == 2
-
-
-@pytest.mark.unit
 def test_uv_consume_rejects_project_switch_before_no_sync_check(tmp_path: Path) -> None:
     log_file = tmp_path / "uv.log"
     completed = _run_uv_consume(

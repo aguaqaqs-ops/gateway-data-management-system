@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import gzip
 import io
+import sys
 import tarfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import BinaryIO
+from typing import BinaryIO, Any, cast
 
 import compression.zstd
 
@@ -212,6 +214,89 @@ def _iter_directory(
         )
 
 
+
+class _ArchiveMetadataBudget:
+    """Live archive metadata and conservative stdlib parsing work, not file bytes."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.used = 0
+
+    def reserve(self, size: int) -> None:
+        if size < 0 or self.used + size > self.limit:
+            raise StagingFault(StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED,
+                               "archive metadata memory budget exceeded",
+                               budget_name="max_archive_metadata_bytes")
+        self.used += size
+
+    def copied_dict(self, value: Mapping[str, str]) -> None:
+        if value:
+            # copy() shares strings. Reserve the copied dict's capacity and
+            # transient table allocation, rather than duplicating string payload.
+            self.reserve(sys.getsizeof(value) * 2 + 256)
+
+
+class _MetadataReader:
+    def __init__(self, stream: Any, budget: _ArchiveMetadataBudget) -> None:
+        self.stream = stream
+        self.budget = budget
+
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            self.budget.reserve(self.budget.limit + 1)
+        # Python 3.14 PAX builds raw tuples, byte slices, Unicode keys/values,
+        # regex records and dictionaries. The shortest record is five bytes.
+        # 128 bounds their capacity/decoding overlap; it also covers GNU name
+        # and sparse tuple processing. Decompressor read-ahead is stage scratch.
+        self.budget.reserve(size * 128)
+        return cast(bytes, self.stream.read(size))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.stream, name)
+
+
+@contextmanager
+def _metadata_reads(archive: tarfile.TarFile, budget: _ArchiveMetadataBudget) -> Iterator[None]:
+    original = archive.fileobj
+    # PAX/GNU processing recursively fetches another header. One read must not
+    # be charged again by nested hooks for that same metadata stream.
+    if isinstance(original, _MetadataReader) and original.budget is budget:
+        yield
+        return
+    archive.fileobj = cast(BinaryIO, _MetadataReader(original, budget))
+    try:
+        yield
+    finally:
+        archive.fileobj = original
+
+
+def _bounded_tar_info(budget: _ArchiveMetadataBudget) -> type[tarfile.TarInfo]:
+    # The production interpreter is pinned to CPython 3.14. These hooks keep
+    # stdlib format/offset/PAX/GNU parsing intact while admitting allocations
+    # before its read(self._block(self.size)), including the very first header.
+    class BoundedTarInfo(tarfile.TarInfo):
+        def _proc_pax(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+            if self.type != tarfile.XGLTYPE:
+                budget.copied_dict(archive.pax_headers)
+            with _metadata_reads(archive, budget):
+                return cast(tarfile.TarInfo, getattr(super(), "_proc_pax")(archive))
+
+        def _proc_gnulong(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+            with _metadata_reads(archive, budget):
+                return cast(tarfile.TarInfo, getattr(super(), "_proc_gnulong")(archive))
+
+        def _proc_sparse(self, archive: tarfile.TarFile) -> tarfile.TarInfo:
+            # GNU sparse is a regular type in stdlib. Preserve that result;
+            # extra header blocks must still fit the same metadata reservation.
+            with _metadata_reads(archive, budget):
+                return cast(tarfile.TarInfo, getattr(super(), "_proc_sparse")(archive))
+
+        def _apply_pax_info(self, pax_headers: dict[str, str], encoding: str, errors: str) -> None:
+            budget.copied_dict(pax_headers)
+            getattr(super(), "_apply_pax_info")(pax_headers, encoding, errors)
+
+    return BoundedTarInfo
+
 def _iter_tar_gz(
     payload: bytes | BinaryIO,
     budgets: ResourceBudgets,
@@ -234,7 +319,8 @@ def _iter_tar_gz(
             )
         fileobj = payload
     try:
-        with tarfile.open(fileobj=fileobj, mode="r|gz") as archive:
+        with tarfile.open(fileobj=fileobj, mode="r|gz", tarinfo=_bounded_tar_info(
+            _ArchiveMetadataBudget(budgets.max_archive_metadata_bytes))) as archive:
             while True:
                 member = archive.next()
                 if member is None:

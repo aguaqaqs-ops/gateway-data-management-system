@@ -909,7 +909,9 @@ def oracle_history_compare_digest_from_materialize_checkpoint(
     *,
     before_commit: str,
     current_commit: str,
+    repository_id: str,
 ) -> str:
+    """Check integration consistency through the existing comparison owner, not a golden."""
     materialize_step_id = f"{operation_id}-step-1"
     script = f"""
 import json, sqlite3
@@ -923,10 +925,15 @@ from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.operations.worker import ExecutionControl
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+)
 
 step_id = "{materialize_step_id}"
 before_commit = "{before_commit}"
 current_commit = "{current_commit}"
+repository_id = {repository_id!r}
 conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
 row = conn.execute(
     "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
@@ -935,21 +942,27 @@ row = conn.execute(
 if row is None or row[0] is None:
     raise RuntimeError(f"missing checkpoint for {{step_id}}")
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-ref = artifact_ref_from_dict(checkpoint)
-envelope = load_checkpoint_envelope(store, ref)
-job_state = envelope.job_state
-sides = _sides_from_materialize_checkpoint(job_state, store)
-result = _run_pair_pipeline(
-    pair_id="pair-0",
-    before=sides[before_commit],
-    current=sides[current_commit],
-    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-    store=store,
-    control=ExecutionControl(),
-    on_cancel=lambda: None,
-)
-print(result.comparison_digest)
+initialize_compute_kernel(1)
+with kernel_execution_scope(
+    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
+    new_operation=True,
+):
+    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+    ref = artifact_ref_from_dict(checkpoint)
+    envelope = load_checkpoint_envelope(store, ref)
+    job_state = envelope.job_state
+    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+    result = _run_pair_pipeline(
+        pair_id="pair-0",
+        before=sides[before_commit],
+        current=sides[current_commit],
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+        repository_id=repository_id,
+    )
+    print(result.comparison_digest)
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
@@ -966,6 +979,7 @@ def ordered_compare_facts_from_materialize_checkpoint(
     *,
     before_commit: str,
     current_commit: str,
+    repository_id: str,
 ) -> dict[str, object]:
     materialize_step_id = f"{operation_id}-step-1"
     script = f"""
@@ -985,10 +999,15 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.comparison import plan_comparison
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+)
 
 step_id = "{materialize_step_id}"
 before_commit = "{before_commit}"
 current_commit = "{current_commit}"
+repository_id = {repository_id!r}
 conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
 row = conn.execute(
     "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
@@ -997,53 +1016,58 @@ row = conn.execute(
 if row is None or row[0] is None:
     raise RuntimeError(f"missing checkpoint for {{step_id}}")
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-ref = artifact_ref_from_dict(checkpoint)
-envelope = load_checkpoint_envelope(store, ref)
-job_state = envelope.job_state
-sides = _sides_from_materialize_checkpoint(job_state, store)
-request = ComparisonRequest(
-    pair_id="pair-0",
-    before=sides[before_commit],
-    current=sides[current_commit],
-    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-)
-plan = plan_comparison(request)
-if not isinstance(plan, ComparisonPlan):
-    raise RuntimeError("pair planning failed")
-compared = compare_plan(plan)
-if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
-    raise RuntimeError("pair comparison did not produce facts")
-facts = compared.facts
-
-def _gid_from_record(record):
-    for label, value in record.before_values + record.current_values:
-        if label == "gid":
-            return value
-    return None
-
-tables = []
-for table in facts.tables:
-    ordered_records = []
-    if table.ordered_extension is not None:
-        for record in table.ordered_extension.records:
-            ordered_records.append(
-                {{
-                    "record_kind": record.record_kind.value,
-                    "gid": _gid_from_record(record),
-                    "row_identity": (
-                        record.row_identity.value if record.row_identity is not None else None
-                    ),
-                }}
-            )
-    tables.append(
-        {{
-            "table_name": table.table_name,
-            "status": table.status.value,
-            "ordered_records": ordered_records,
-        }}
+initialize_compute_kernel(1)
+with kernel_execution_scope(
+    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
+    new_operation=True,
+):
+    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+    ref = artifact_ref_from_dict(checkpoint)
+    envelope = load_checkpoint_envelope(store, ref)
+    job_state = envelope.job_state
+    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+    request = ComparisonRequest(
+        pair_id="pair-0",
+        before=sides[before_commit],
+        current=sides[current_commit],
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
     )
-    print(json.dumps({{"tables": tables}}))
+    plan = plan_comparison(request)
+    if not isinstance(plan, ComparisonPlan):
+        raise RuntimeError("pair planning failed")
+    compared = compare_plan(plan)
+    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
+        raise RuntimeError("pair comparison did not produce facts")
+    facts = compared.facts
+
+    def _gid_from_record(record):
+        for label, value in record.before_values + record.current_values:
+            if label == "gid":
+                return value
+        return None
+
+    tables = []
+    for table in facts.tables:
+        ordered_records = []
+        if table.ordered_extension is not None:
+            for record in table.ordered_extension.records:
+                ordered_records.append(
+                    {{
+                        "record_kind": record.record_kind.value,
+                        "gid": _gid_from_record(record),
+                        "row_identity": (
+                            record.row_identity.value if record.row_identity is not None else None
+                        ),
+                    }}
+                )
+        tables.append(
+            {{
+                "table_name": table.table_name,
+                "status": table.status.value,
+                "ordered_records": ordered_records,
+            }}
+        )
+        print(json.dumps({{"tables": tables}}))
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
@@ -1562,6 +1586,9 @@ def resolve_archive_preview_anomalies(
     action_by_kind = {
         "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
         "PROJECT_IDENTITY_EXCEPTION": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+        "CONFIGURATION_SOURCE": "ACKNOWLEDGE_SOURCE_EXCEPTION",
+        "CONFIGURATION_TIME_QUALITY": "ACKNOWLEDGE_TIME_QUALITY",
+        "CONFIGURATION_TIME_ORDER": "ACKNOWLEDGE_TIME_ORDER",
     }
     references: list[dict[str, Any]] = []
     for index, raw_anomaly in enumerate(preview_body["anomalies"]):
@@ -1570,6 +1597,9 @@ def resolve_archive_preview_anomalies(
         action = action_by_kind.get(subject_kind)
         if action is None:
             raise AssertionError(f"unsupported archive anomaly subject kind: {subject_kind}")
+        if anomaly.get("resolution_status") == "ACCEPTED":
+            references.append({"subject_digest": anomaly["subject_digest"], "sequence": anomaly["latest_sequence"]})
+            continue
         response = client.post(
             "/v1/archive-anomaly-resolutions",
             headers=compose_auth_headers(
@@ -1582,10 +1612,10 @@ def resolve_archive_preview_anomalies(
                 "selected": selected,
                 "candidate_set_digest": preview_body["candidate_set_digest"],
                 "subject_digest": anomaly["subject_digest"],
-                "expected_sequence": 0,
+                "expected_sequence": anomaly["latest_sequence"],
                 "action": action,
                 "subject_kind": subject_kind,
-                "reason": reason,
+                "reason": f"{reason}; issue={anomaly['issue_code']}; side={anomaly.get('side')}; affected={anomaly.get('affected_submission_ids')}",
                 "issue_code": anomaly["issue_code"],
                 "target_submission_id": anomaly["target_submission_id"],
                 "target_candidate_digest": anomaly["target_candidate_digest"],
@@ -1669,11 +1699,10 @@ def run_accept_to_submission_read_journey(
         preview_result_body = cast(dict[str, Any], preview_read.json())
         assert preview_result_body["business_baseline_commit_id"] == initial_commit_id
         identity_pairs = cast(list[dict[str, Any]], preview_result_body["identity_pairs"])
-        preview_bundle_response = client.get(
-            f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+        from benchmarks.bundle_tar import download_bundle_tar
+        preview_bundle, _bundle_transfer = download_bundle_tar(
+            client, f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
         )
-        assert preview_bundle_response.status_code == 200, preview_bundle_response.text
-        preview_bundle = cast(dict[str, Any], preview_bundle_response.json())
         preview_summaries = [
             cast(dict[str, Any], pair["summary"])
             for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])

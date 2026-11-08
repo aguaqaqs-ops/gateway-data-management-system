@@ -11,7 +11,7 @@ package surface only.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -493,6 +493,7 @@ class ParseResult:
     status: ParseStatus
     tables: tuple[ParsedTable, ...]
     diagnostics: tuple[ParserDiagnostic, ...]
+    configuration_generated_time: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         if type(self.status) is not ParseStatus:

@@ -335,10 +335,7 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
             .unwrap_or_default();
 
         match member.name.as_str() {
-            "gateway-compute-core"
-            | "gateway-compute-python"
-            | "gateway-compute-python-impl"
-            | "gateway-shared-kernel" => {
+            "gateway-compute-core" | "gateway-compute-python" | "gateway-shared-kernel" => {
                 for dependency in &dependencies {
                     if let Some(violation) =
                         forbidden_dependency_violation(&member.name, dependency)
@@ -397,11 +394,10 @@ const ALLOWED_PRODUCTION_WORKSPACE_MEMBERS: &[&str] = &[
     "gateway-architecture-check",
     "gateway-compute-core",
     "gateway-compute-python",
-    "gateway-compute-python-impl",
     "gateway-shared-kernel",
 ];
 
-const EXPECTED_COMPUTE_PYTHON_CDYLIB_TARGET: &str = "gateway_compute";
+const EXPECTED_COMPUTE_PYTHON_CDYLIB_TARGET: &str = "gateway_compute_native";
 
 fn collect_manifest_feature_names(contents: &str) -> Vec<String> {
     let mut in_features = false;
@@ -434,10 +430,7 @@ fn collect_manifest_feature_names(contents: &str) -> Vec<String> {
 
 pub fn check_forbidden_compute_test_hook_features(rust_workspace_root: &Path) -> Vec<String> {
     let mut violations = Vec::new();
-    let manifests = [
-        rust_workspace_root.join("gateway-compute-python-impl/Cargo.toml"),
-        rust_workspace_root.join("gateway-compute-python/Cargo.toml"),
-    ];
+    let manifests = [rust_workspace_root.join("gateway-compute-python/Cargo.toml")];
 
     for manifest in manifests {
         let contents = match fs::read_to_string(&manifest) {
@@ -541,11 +534,11 @@ pub fn check_production_release_inventory_from_metadata(
         }
     }
 
-    if let Some(dependencies) = package_dependencies.get("gateway-compute-python-impl") {
+    if let Some(dependencies) = package_dependencies.get("gateway-compute-python") {
         for dependency in dependencies {
             if is_suspicious_hook_package(dependency) {
                 violations.push(format!(
-                    "gateway-compute-python-impl must not depend on suspicious hook package `{dependency}`"
+                    "gateway-compute-python must not depend on suspicious hook package `{dependency}`"
                 ));
             }
         }
@@ -747,11 +740,7 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
         "gateway-compute-core" => {
             if matches!(
                 dependency,
-                "pyo3"
-                    | "pyo3-arrow"
-                    | "gateway-compute-python"
-                    | "gateway-compute-python-impl"
-                    | "gateway-artifact-store"
+                "pyo3" | "pyo3-arrow" | "gateway-compute-python" | "gateway-artifact-store"
             ) {
                 return Some(format!("{crate_name} must not depend on {dependency}"));
             }
@@ -761,7 +750,7 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
                 ));
             }
         }
-        "gateway-compute-python" | "gateway-compute-python-impl" => {
+        "gateway-compute-python" => {
             if dependency == "gateway-shared-kernel" {
                 return Some(format!(
                     "{crate_name} must not directly depend on gateway-shared-kernel"
@@ -772,8 +761,7 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
             if dependency.starts_with("arrow-")
                 || dependency.starts_with("pyo3")
                 || dependency == "gateway-compute-core"
-                || dependency == "gateway-compute-python"
-                || dependency == "gateway-compute-python-impl" =>
+                || dependency == "gateway-compute-python" =>
         {
             return Some(format!(
                 "gateway-shared-kernel must not depend on {dependency}"
@@ -787,7 +775,6 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
 fn check_compute_adapter_source_patterns(vnext_root: &Path) -> Vec<String> {
     let mut violations = Vec::new();
     let roots = [
-        vnext_root.join("rust/gateway-compute-python-impl/src"),
         vnext_root.join("rust/gateway-compute-python/src"),
         vnext_root.join("rust/gateway-compute-python/python"),
     ];
@@ -1101,10 +1088,10 @@ mod tests {
     }
 
     #[test]
-    fn compute_python_impl_shared_kernel_dependency_is_forbidden() -> Result<(), String> {
+    fn compute_python_adapter_shared_kernel_dependency_is_forbidden() -> Result<(), String> {
         assert!(
             super::forbidden_dependency_violation(
-                "gateway-compute-python-impl",
+                "gateway-compute-python",
                 "gateway-shared-kernel"
             )
             .is_some()
@@ -1113,23 +1100,20 @@ mod tests {
     }
 
     #[test]
-    fn compute_core_must_not_depend_on_compute_python_impl() -> Result<(), String> {
+    fn compute_core_must_not_depend_on_compute_python() -> Result<(), String> {
         assert!(
-            super::forbidden_dependency_violation(
-                "gateway-compute-core",
-                "gateway-compute-python-impl"
-            )
-            .is_some()
+            super::forbidden_dependency_violation("gateway-compute-core", "gateway-compute-python")
+                .is_some()
         );
         Ok(())
     }
 
     #[test]
-    fn shared_kernel_must_not_depend_on_compute_python_impl() -> Result<(), String> {
+    fn shared_kernel_must_not_depend_on_compute_python() -> Result<(), String> {
         assert!(
             super::forbidden_dependency_violation(
                 "gateway-shared-kernel",
-                "gateway-compute-python-impl"
+                "gateway-compute-python"
             )
             .is_some()
         );
@@ -1140,8 +1124,8 @@ mod tests {
     fn package_resolved_dependency_names_follows_resolve_graph() -> Result<(), String> {
         let metadata = serde_json::json!({
             "packages": [
-                {"id": "path+0", "name": "gateway-compute-python-impl"},
-                {"id": "path+1", "name": "gateway-shared-kernel"}
+                {"id": "path+0", "name": "gateway-compute-python"},
+                {"id": "path+1", "name": "gateway-compute-core"}
             ],
             "resolve": {
                 "nodes": [
@@ -1151,7 +1135,7 @@ mod tests {
             }
         });
         let map = super::package_resolved_dependency_names(&metadata)?;
-        assert!(map["gateway-compute-python-impl"].contains("gateway-shared-kernel"));
+        assert!(map["gateway-compute-python"].contains("gateway-compute-core"));
         Ok(())
     }
 

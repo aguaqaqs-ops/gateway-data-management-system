@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, build_import_projection_snapshots, project_canonical_fixture
+
 from dataclasses import replace
 
 import pytest
@@ -42,11 +44,9 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     ProjectionStatus,
     STORAGE_PROJECTION_VERSION,
-    build_import_projection_snapshots,
     durable_manifest_bytes,
     open_canonicalization_manifest,
-    project_canonical_table_set,
-    project_storage,
+    project_canonical_arrow_table_set,
     publish_canonicalization,
     render_repository_import_schema_replay_sql,
 )
@@ -54,9 +54,9 @@ from gateway_backend.capabilities.mutation_planning import (
     build_import_mutation_snapshots,
     render_import_mutation_dml,
 )
-from gateway_backend.capabilities.snapshot_materialization import materialize_projected_snapshot
+from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
-from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
+from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.storage_projection.package import (
     unpack_repository_import_entries,
     validate_repository_import_package,
@@ -74,7 +74,7 @@ from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
     _open_projection_inputs,
 )
-from tests.support.snapshot_materialization import materialize_sql
+from tests.support.snapshot_materialization import materialize_arrow_sql as materialize_sql, snapshot_table_as_arrow
 from tests.support.storage_projection import (
     as_row,
     digest_ref,
@@ -218,11 +218,11 @@ def _frozen_build_input(
         source_context=source_context,
     )
     source_tables = tuple(
-        SnapshotTable(
+        snapshot_table_as_arrow(SnapshotTable(
             descriptor=item.source_binding.descriptor,
             reader=item.reader.reopen(),
             artifact=item.artifact,
-        )
+        ))
         for item in raw_inputs
     )
     table_set = SnapshotTableSet(
@@ -231,7 +231,7 @@ def _frozen_build_input(
         table_ruleset_version=TABLE_RULESET_VERSION,
         tables=source_tables,
     )
-    frozen = project_canonical_table_set(table_set, ruleset)
+    frozen = project_canonical_arrow_table_set(table_set, ruleset)
     for table in source_tables:
         if table.reader is not None:
             table.reader.close()
@@ -239,11 +239,11 @@ def _frozen_build_input(
     assert frozen.manifest is not None
     assert frozen.manifest.manifest_digest is not None
     try:
-        canonical = materialize_projected_snapshot(
+        canonical = materialize_canonical_snapshot(
             source_snapshot,
             frozen.tables,
             artifact_store=store,
-            context=ParserInvocationContext(NeverCancel()),
+            context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
         )
     finally:
         for table in frozen.tables:
@@ -318,13 +318,13 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     store = InMemoryArtifactStore()
     materialized = materialize_sql(
         "SET FOREIGN_KEY_CHECKS=0;",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
     assert materialized.status is SnapshotMaterializationStatus.COMPLETE
     assert materialized.table_set is not None
     assert materialized.table_set.tables == ()
-    projection = project_canonical_table_set(
+    projection = project_canonical_fixture(
         materialized.table_set,
         migrated_table_ruleset_snapshot(),
     )
@@ -373,12 +373,12 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     store = InMemoryArtifactStore()
     materialized = materialize_sql(
         "SET FOREIGN_KEY_CHECKS=0;",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
     assert materialized.status is SnapshotMaterializationStatus.COMPLETE
     assert materialized.table_set is not None
-    canonical = project_canonical_table_set(
+    canonical = project_canonical_fixture(
         materialized.table_set,
         migrated_table_ruleset_snapshot(),
     )
@@ -487,13 +487,13 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     source = materialize_sql(
         "CREATE TABLE com_cfg (`index` INT NOT NULL, `no` INT NOT NULL, `value` VARCHAR(8), PRIMARY KEY (`index`));"
         "INSERT INTO com_cfg VALUES (1, 10, 'a');",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
     assert source.status is SnapshotMaterializationStatus.COMPLETE
     assert source.snapshot is not None
     assert source.table_set is not None
-    frozen = project_canonical_table_set(
+    frozen = project_canonical_arrow_table_set(
         source.table_set,
         migrated_table_ruleset_snapshot(),
     )
@@ -503,11 +503,11 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     assert "no" in {column.name for column in frozen.manifest.tables[0].dropped_columns}
     assert "no" not in {column.name for column in frozen.tables[0].descriptor.columns}
 
-    canonical_snapshot = materialize_projected_snapshot(
+    canonical_snapshot = materialize_canonical_snapshot(
         source.snapshot,
         frozen.tables,
         artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()),
+        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
     )
     assert canonical_snapshot.status is SnapshotMaterializationStatus.COMPLETE
     assert canonical_snapshot.table_set is not None
@@ -523,7 +523,7 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         if table.artifact is not None
     )
     assert len(bindings) == 1
-    canonical_inputs = _open_projection_inputs(bindings, store=store)
+    canonical_inputs = _open_projection_inputs(bindings, store=store, repository_id="test-repository")
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
         artifact_id="frozen-com_cfg-manifest",
@@ -575,13 +575,13 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         "`gid` INT NULL, `no` INT NOT NULL, `value` VARCHAR(16) NOT NULL, PRIMARY KEY (`no`));"
         "INSERT INTO `b1_n1_iec104_syx_list` VALUES "
         "(NULL, 3, 'blank-last'), (7, 2, 'real'), (NULL, 1, 'blank-first');",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
     assert source.status is SnapshotMaterializationStatus.COMPLETE
     assert source.snapshot is not None
     assert source.table_set is not None
-    frozen = project_canonical_table_set(
+    frozen = project_canonical_arrow_table_set(
         source.table_set,
         migrated_table_ruleset_snapshot(),
     )
@@ -590,11 +590,11 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
     assert frozen.manifest.manifest_digest is not None
     assert frozen.manifest.tables[0].gid_pseudo_count == 2
 
-    canonical_snapshot = materialize_projected_snapshot(
+    canonical_snapshot = materialize_canonical_snapshot(
         source.snapshot,
         frozen.tables,
         artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()),
+        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
     )
     assert canonical_snapshot.status is SnapshotMaterializationStatus.COMPLETE
     assert canonical_snapshot.table_set is not None
@@ -610,7 +610,7 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         if table.artifact is not None
     )
     assert len(bindings) == 1
-    projection_inputs = _open_projection_inputs(bindings, store=store)
+    projection_inputs = _open_projection_inputs(bindings, store=store, repository_id="test-repository")
     assert projection_inputs[0].canonicalized_input is True
 
     canonical_table = canonical_snapshot.table_set.tables[0]
@@ -696,7 +696,7 @@ def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_chang
 
     # Byte-for-byte reference for the pre-fix Submit implementation: reproject the same
     # T1 artifacts under ruleset A, then render using T1's frozen manifest.
-    old_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store)
+    old_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store, repository_id=build_input.repository_id)
     old_request = ProjectionRequest(
         ruleset=ruleset_a,
         storage_projection_version=STORAGE_PROJECTION_VERSION,
@@ -709,7 +709,7 @@ def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_chang
     assert old_projection.import_input is not None
     assert old_projection.manifest.source_artifact_digest.value == build_input.source_artifact_digest
 
-    replay_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store)
+    replay_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store, repository_id=build_input.repository_id)
     replay_request = ProjectionRequest(
         ruleset=ruleset_a,
         storage_projection_version=STORAGE_PROJECTION_VERSION,
@@ -999,17 +999,21 @@ def test_publish_writes_only_manifest_and_package_artifacts() -> None:
     assert not any(artifact_id.startswith("change-set-closure-") for artifact_id in artifact_ids)
 
 
-def test_build_and_publish_from_pinned_parquet_artifact_succeeds() -> None:
+def test_build_and_publish_from_pinned_canonical_ipc_artifact_succeeds() -> None:
     store = InMemoryArtifactStore()
     sql = (
         "CREATE TABLE `unknown_widget` (`id` INT NOT NULL PRIMARY KEY, `flags` SET('x','y') NOT NULL);"
         "INSERT INTO `unknown_widget` VALUES (1, 'x');"
     )
-    result = materialize_sql(
+    source = materialize_sql(
         sql,
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
     )
+    assert source.snapshot is not None and source.table_set is not None
+    projected = project_canonical_arrow_table_set(source.table_set, migrated_table_ruleset_snapshot())
+    result = materialize_canonical_snapshot(source.snapshot, projected.tables, artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository")
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.table_set is not None
     table = result.table_set.tables[0]
@@ -1021,7 +1025,7 @@ def test_build_and_publish_from_pinned_parquet_artifact_succeeds() -> None:
         size_bytes=table.artifact.manifest_ref.size_bytes,
         raw_sha256=table.artifact.manifest_ref.raw_sha256.value,
     )
-    projection_inputs = _open_projection_inputs((binding,), store=store)
+    projection_inputs = _open_projection_inputs((binding,), store=store, repository_id="test-repository")
     build_input = _build_input(
         store=store,
         projection_inputs=projection_inputs,

@@ -203,3 +203,34 @@ def test_local_store_tmp_cleanup_and_no_path_in_refs(tmp_path: Path) -> None:
     assert leftover == []
     opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
     assert opened.descriptor.raw_content_digest == result.summary.tables[0].raw_content_digest
+
+
+def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+    import io
+    from typing import Any
+
+    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+
+    store = LocalArtifactStore(tmp_path / "objects")
+    ref = put_with_built_ref(store, b"small", artifact_id="bounded-input", media_type="application/octet-stream")
+    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
+    target = store.artifact_root / digest[:2] / digest[2:4] / digest
+    target.write_bytes(b"oversize")
+    original = Path.open
+    body_reads: list[int] = []
+
+    class TracedFile(io.BufferedReader):
+        def read(self, size: int | None = -1) -> bytes:
+            body_reads.append(-1 if size is None else size)
+            return super().read(size)
+
+    def open_path(path: Path, *args: Any, **kwargs: Any) -> object:
+        if path == target:
+            return TracedFile(io.FileIO(path, "r"))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", open_path)
+    with pytest.raises(ManifestVerificationError):
+        store.locate(ref)
+    assert body_reads == []

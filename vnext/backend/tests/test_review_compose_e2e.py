@@ -17,6 +17,9 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     compose_project_name,
+    assert_running_backend_worker_images_match_build,
+    capture_running_container_provenance,
+    persist_compose_gate_provenance,
     require_docker,
     resolve_main_commit_id,
     run_accept_to_submission_read_journey,
@@ -26,6 +29,8 @@ from tests.support.compose_gate_harness import (
 from tests.support.container_input_files import write_container_readable_text
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
+
+SELF_TOKEN = "compose-self-only-token"
 
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:
@@ -48,7 +53,14 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                             "preview_workspace",
                             "review_submission",
                         ],
-                    }
+                    },
+                    {
+                        "token": SELF_TOKEN,
+                        "actor_id": "compose-self-only",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": ["workspace_read", "upload_submit_workspace", "preview_workspace", "withdraw_own_submission"],
+                    },
                 ]
             }
         ),
@@ -104,6 +116,8 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
     require_docker()
     env = _compose_env(tmp_path)
     repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
+    assert_running_backend_worker_images_match_build(env)
+    provenance = capture_running_container_provenance(env)
 
     try:
         journey = run_accept_to_submission_read_journey(
@@ -151,6 +165,48 @@ def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
         )
         assert main_after_review == main_before_review
     finally:
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
+        down = run_compose(env, "down", "-v", "--remove-orphans")
+        if down.returncode != 0:
+            pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")
+
+
+
+def test_compose_self_only_submit_withdraw_and_upload_again(tmp_path: Path) -> None:
+    require_docker()
+    env = _compose_env(tmp_path)
+    _repository_id, initial_commit_id = start_three_container_stack(env, tmp_path)
+    assert_running_backend_worker_images_match_build(env)
+    provenance = capture_running_container_provenance(env)
+    try:
+        journey = run_accept_to_submission_read_journey(
+            env, initial_commit_id=initial_commit_id, token=SELF_TOKEN,
+            journey_key_prefix="self-only-first",
+        )
+        with httpx.Client(base_url=BACKEND_URL, headers={"Authorization": f"Bearer {SELF_TOKEN}"}, timeout=60.0) as client:
+            payload = {"gateway_device_external_key": DEVICE_KEY, "business_project_id": PROJECT_ID}
+            workspace = client.post("/v1/workspaces", json=payload)
+            assert workspace.status_code == 200, workspace.text
+            occupied = workspace.json()
+            assert occupied["active_submission_id"] == journey["submission_id"]
+            assert occupied["active_submit_attempt_id"] is None
+            review = client.get(f"/v1/submissions/{journey['submission_id']}/review")
+            assert review.status_code == 200, review.text
+            withdraw = client.post(f"/v1/submissions/{journey['submission_id']}/review-events",
+                headers={"Idempotency-Key": "self-only-withdraw"},
+                json={"expected_review_version": review.json()["review_version"], "action": "WITHDRAW"})
+            assert withdraw.status_code == 201, withdraw.text
+            released = client.post("/v1/workspaces", json=payload).json()
+            assert released["active_submission_id"] is None
+            assert released["active_submit_attempt_id"] is None
+            assert released["optimistic_version"] == occupied["optimistic_version"] + 1
+        repeated = run_accept_to_submission_read_journey(
+            env, initial_commit_id=initial_commit_id, token=SELF_TOKEN,
+            journey_key_prefix="self-only-second", preview_only=True,
+        )
+        assert repeated["workspace_id"] == journey["workspace_id"]
+    finally:
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
             pytest.fail(f"compose down failed: {down.stderr}\n{down.stdout}")

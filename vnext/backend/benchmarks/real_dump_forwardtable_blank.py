@@ -8,6 +8,11 @@ refusals are not bypassed.
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+)
+
 import argparse
 import hashlib
 import json
@@ -38,7 +43,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlParseRequest,
     SqlSourceInput,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_arrow_sql
 from gateway_shared_kernel import raw_blob_digest
 
 from benchmarks.real_dump_keyless_census import (
@@ -125,7 +130,7 @@ def _cell_fingerprint(cell: object) -> bytes:
 def _parse_source_tables(spec: DatasetSpec) -> tuple[dict[str, Any], tuple[Any, ...]]:
     sql_bytes, _xml_bytes, _store = _parse_package(spec.package_path)
     context = ParserInvocationContext(NeverCancel())
-    result = parse_sql(
+    result = parse_arrow_sql(
         SqlParseRequest(
             source=SqlSourceInput(
                 document_content_digest=raw_blob_digest(sql_bytes),
@@ -270,7 +275,7 @@ def _source_order_stats(
         pattern_positions[states][bucket] += 1
 
     return {
-        "source_order_stage": "production SQL parser ParseResult / SqlTableReader, before business materialization and canonical projection",
+        "source_order_stage": "production SQL parser ParseResult / ArrowSourceTableReader, before business materialization and canonical projection",
         "row_count": len(rows),
         "non_empty_point_proxy": {
             "definition": "row with OTHER_NONEMPTY in a non-gid, non-desc payload column; status proxy, not business classification",
@@ -415,7 +420,7 @@ def _empty_table_entry(dataset_id: str, table_name: str) -> dict[str, Any]:
             "gid_non_null_unique": None,
         },
         "source_order": {
-            "source_order_stage": "production SQL parser ParseResult / SqlTableReader, before business materialization and canonical projection",
+            "source_order_stage": "production SQL parser ParseResult / ArrowSourceTableReader, before business materialization and canonical projection",
             "row_count": 0,
             "non_empty_point_proxy": {
                 "definition": "row with OTHER_NONEMPTY in a non-gid, non-desc payload column; status proxy, not business classification",
@@ -491,8 +496,8 @@ def _build_report(specs: tuple[DatasetSpec, ...]) -> dict[str, Any]:
         "datasets": list(_DATASET_IDS),
         "tables": tables,
         "method": {
-            "row_stage": "production SQL parser ParseResult / SqlTableReader, before business materialization and canonical projection",
-            "source_order_check": "parse_sql scans SQL statements in source order; parse_insert appends each tuple span; SqlTableReader.iter_rows yields the stored spans in order",
+            "row_stage": "production SQL parser ParseResult / ArrowSourceTableReader, before business materialization and canonical projection",
+            "source_order_check": "the Rust SQL parser preserves per-table INSERT tuple order in its Arrow output",
             "empty_point_business_definition": "not assigned; state patterns and status-only order proxies are reported for owner classification",
             "classifier_gate": "each present target is materialized and canonically projected first; anything other than SNAPSHOT_ONLY keyless is refused",
         },
@@ -707,8 +712,8 @@ def _render_markdown(report: dict[str, Any]) -> str:
         "## 方法",
         "",
         "- 输入为调试节点上的 t1–t4 v1、v2 共 8 份真实数据；原始 SQL 与单元格值仅在进程内处理，不写入 JSON、日志或本报告。",
-        "- 先通过现有 staging、业务物化与规范投影路径验证 auto-mode 分类；任一目标表不是 `SNAPSHOT_ONLY` 且 keyless 时立即拒绝，不绕过分类器。随后统计取自 production SQL parser 的 `ParseResult` / `SqlTableReader`，在业务物化和规范投影之前。原始解析列与投影列、原始读取行数与投影行数逐表核对。",
-        "- 源顺序核对：`parse_sql` 按 SQL statement 扫描顺序调用 `parse_insert`；后者按 VALUES tuple 顺序追加 `TupleSpan`；`_assemble` 将 span 顺序交给 `SqlTableReader`，其 `iter_rows()` 顺序遍历 span。故此处记录的是各表 INSERT tuple 的源顺序，不是规范投影或重排后的顺序。",
+        "- 先通过现有 staging、业务物化与规范投影路径验证 auto-mode 分类；任一目标表不是 `SNAPSHOT_ONLY` 且 keyless 时立即拒绝，不绕过分类器。随后统计取自 production SQL parser 的 `ParseResult` / `ArrowSourceTableReader`，在业务物化和规范投影之前。原始解析列与投影列、原始读取行数与投影行数逐表核对。",
+        "- 源顺序核对：Rust SQL parser 按 SQL statement 和 VALUES tuple 源顺序生成每表 Arrow rows，`ArrowSourceTableReader.iter_rows()` 保持该顺序。故此处记录的是各表 INSERT tuple 的源顺序，不是规范投影或重排后的顺序。",
         "- 完全重复按解析后的完整行（包含列名、SQL 类型和 typed cell）指纹分组。重复组模式按每列的 `NULL`、`EMPTY_STRING`、`NUMERIC_ZERO`、`OTHER_NONEMPTY` 分类；空字符串只匹配长度为零的字符串，数值零只匹配解析为数值类型且值为零的单元格。指纹只留在进程内。",
         "- “非重复行”指其完整行只出现一次；第 3 项移除完全重复组的全部行后检查其余（单例）行的 gid。NULL 单独计数，重复组只统计非 NULL gid。",
         "- 业务空点定义由 owner 判断，本报告不代为指定。顺序敏感性 proxy 将 `desc` 列排除，`non-empty point proxy` 定义为至少一个其余非 gid payload 列为 `OTHER_NONEMPTY` 的行；`blank point proxy` 是其补集。该列状态约定不是业务分类；逐状态模式给出相对 proxy 行的首部、交错、尾部计数，owner 可按认定的模式汇总。",
@@ -982,7 +987,16 @@ def main() -> None:
     parser.add_argument("--packages-dir", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--markdown-output", type=Path, required=True)
+    parser.add_argument("--kernel-threads", type=int, required=True)
+    parser.add_argument("--kernel-memory-budget-bytes", type=int, required=True)
     args = parser.parse_args()
+    initialize_compute_kernel(args.kernel_threads)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(args.kernel_memory_budget_bytes),
+            NeverCancel(), args.kernel_threads), new_operation=True):
+        _run_census(args)
+
+
+def _run_census(args: argparse.Namespace) -> None:
     try:
         specs = _expected_specs(args.packages_dir)
         report = _build_report(specs)

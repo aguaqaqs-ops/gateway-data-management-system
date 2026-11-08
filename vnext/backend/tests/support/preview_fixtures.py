@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from tests.support.configuration_facts import make_configuration_facts
 from functools import lru_cache
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -13,14 +14,16 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import Mate
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     durable_manifest_bytes,
-    project_canonical_table_set,
+    project_canonical_arrow_table_set,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from gateway_backend.domain.workspace.models import (
     PreviewArtifactRef,
     PreviewCanonicalBindings,
 )
-from tests.support.snapshot_materialization import materialize_sql
+from tests.support.snapshot_materialization import materialize_arrow_sql
+from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, NeverCancel
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,24 +36,25 @@ class CanonicalArtifactFixture:
 
 
 @lru_cache(maxsize=1)
-def make_canonical_artifact_fixture() -> CanonicalArtifactFixture:
+def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalArtifactFixture:
     snapshot_store = InMemoryArtifactStore()
-    materialized = materialize_sql(
+    materialized = materialize_arrow_sql(
         "CREATE TABLE `net_cfg` (`board` VARCHAR NOT NULL, `link_no` INT NOT NULL, "
         "PRIMARY KEY (`board`, `link_no`)); INSERT INTO `net_cfg` VALUES ('eth0', 1);",
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=snapshot_store,
     )
     if materialized.table_set is None or len(materialized.table_set.tables) != 1:
         raise AssertionError("canonical fixture SQL must materialize one table")
-    table = materialized.table_set.tables[0]
+    projected = project_canonical_arrow_table_set(materialized.table_set, migrated_table_ruleset_snapshot())
+    assert materialized.snapshot is not None
+    canonical = materialize_canonical_snapshot(materialized.snapshot, projected.tables, artifact_store=snapshot_store,
+        context=ParserInvocationContext(NeverCancel()), repository_id=repository_id)
+    assert canonical.table_set is not None
+    table = canonical.table_set.tables[0]
     if table.artifact is None:
         raise AssertionError("canonical fixture table must have durable artifacts")
     snapshot_table_ref = table.artifact.manifest_ref
-    projected = project_canonical_table_set(
-        materialized.table_set,
-        migrated_table_ruleset_snapshot(),
-    )
     if projected.manifest is None or projected.manifest.manifest_digest is None:
         raise AssertionError("canonical fixture must project a manifest")
     manifest_bytes = durable_manifest_bytes(projected.manifest)
@@ -78,6 +82,8 @@ def make_canonical_artifact_fixture() -> CanonicalArtifactFixture:
         raw_sha256=raw_blob_digest(closure_bytes),
     )
     bindings = PreviewCanonicalBindings(
+        initial_canonical_state_digest=DigestRef("sha256:" + "4" * 64),
+        configuration_facts=make_configuration_facts(repository_id=repository_id, rules_digest=projected.manifest.ruleset_digest.value),
         canonical_table_set_closure_ref=PreviewArtifactRef(
             artifact_id=closure_ref.artifact_id,
             media_type=closure_ref.media_type,
@@ -109,5 +115,5 @@ def make_canonical_artifact_fixture() -> CanonicalArtifactFixture:
     )
 
 
-def make_preview_canonical_bindings() -> PreviewCanonicalBindings:
-    return make_canonical_artifact_fixture().bindings
+def make_preview_canonical_bindings(repository_id: str = "repo-1") -> PreviewCanonicalBindings:
+    return make_canonical_artifact_fixture(repository_id).bindings

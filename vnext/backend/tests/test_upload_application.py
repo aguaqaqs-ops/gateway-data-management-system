@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from datetime import UTC, datetime
 
 import pytest
@@ -69,13 +71,13 @@ def test_create_or_get_workspace_is_idempotent_for_exact_scope() -> None:
     created = create_or_get_workspace(
         context=context,
         scope_resolution=scope_resolution,
-        repository=repository,
+        transaction=SimpleNamespace(workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)),
         created_at=TS0,
     )
     replay = create_or_get_workspace(
         context=context,
         scope_resolution=scope_resolution,
-        repository=repository,
+        transaction=SimpleNamespace(workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)),
         created_at=TS0,
     )
 

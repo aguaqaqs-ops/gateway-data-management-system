@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
+from typing import ContextManager, cast
+from gateway_backend.application.canonical_metadata.table_access import CanonicalTableTransaction, CanonicalCommittedTableAccess, build_committed_table_access
+from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort
 
 import httpx
 from gateway_repository_client import RepositoryClient
@@ -37,6 +40,8 @@ from gateway_backend.application.submission.contracts import SubmitImportPublica
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
+from gateway_backend.application.bundle_download import prepare_bundle_download
 from gateway_backend.domain.workspace.models import (
     PreviewAcceptanceRecord,
     PreviewResult,
@@ -86,9 +91,6 @@ from gateway_backend.infrastructure.repository_write import (
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
-from gateway_backend.infrastructure.repository_write.import_publication import (
-    SubmitImportPublicationAdapter,
-)
 from gateway_backend.settings import BackendSettings
 
 class TransactionWorkspaceRepository:
@@ -115,9 +117,10 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.get_upload_revision(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         with self._read_uow() as unit_of_work:
-            return unit_of_work.workspace.get_preview_result(preview_result_id)
+            return unit_of_work.workspace.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=repository_id)
 
     def find_upload_idempotency(self, workspace_id: str, idempotency_key: str) -> UploadRevision | None:
         with self._read_uow() as unit_of_work:
@@ -156,13 +159,8 @@ class LocalArtifactBundleReader:
     def __init__(self, local_store: LocalArtifactStore) -> None:
         self._local_store = local_store
 
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
-        try:
-            ref = self._local_store._load_stored_ref(artifact_id)  # noqa: SLF001
-            payload = self._local_store.locate(ref)
-        except ManifestVerificationError:
-            raise KeyError(artifact_id) from None
-        return artifact_id, iter([payload])
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
+        return prepare_bundle_download(self._local_store, artifact_id)
 
 
 class LocalArtifactRefLookup:
@@ -323,7 +321,8 @@ def prepare_backend_runtime(
 
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
-        publication=SubmitImportPublicationAdapter(
+        publication=build_submit_import_publication_port(
+            control_transaction_factory=control_transaction_factory,
             repository_provider_factory=build_http_repository_provider_factory(
                 base_url=settings.repository_base_url,
                 bearer_token=repository_token,
@@ -408,6 +407,7 @@ def prepare_backend_runtime(
 def build_submit_import_publication_port(
     *,
     repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider],
+    control_transaction_factory: Callable[[], ContextManager[CanonicalTableTransaction]],
 ) -> SubmitImportPublicationPort:
     """Production Submit import publication adapter wired at the composition root."""
 
@@ -415,8 +415,12 @@ def build_submit_import_publication_port(
         SubmitImportPublicationAdapter,
     )
 
+    def committed_tables(store: ArtifactStorePort, repository_id: str) -> CanonicalCommittedTableAccess:
+        return build_committed_table_access(store=cast(ArtifactBufferStorePort, store),
+            unit_of_work_factory=control_transaction_factory, repository_provider_factory=repository_provider_factory,
+            repository_id=repository_id)
     return SubmitImportPublicationAdapter(
-        repository_provider_factory=repository_provider_factory,
+        repository_provider_factory=repository_provider_factory, committed_table_factory=committed_tables,
     )
 
 

@@ -701,3 +701,24 @@ def test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering() -> 
             replace(result.bundle, artifact_closure_ref=tampered_semantic_closure_ref),
             source,
         )
+
+
+def test_operation_bundle_admits_complete_closure_bytes_before_locate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.application.kernel_execution import assemble_operation_bundle
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
+    )
+    source = InMemoryArtifactStore()
+    raw = b"x" * (256 * 1024)
+    ref = _raw_ref("shared-binary", raw, "application/octet-stream")
+    source.put(raw, ref)
+    request = _request((BundlePairInput("pair", 0, 1, _surface_result()),), shared=BundleArtifactClosure((
+        BundleArtifactBinding(ref, "shared/data.bin", BundleArtifactKind.OTHER, shared=True),)))
+    def forbidden_locate(_ref: ArtifactRef) -> bytes:
+        raise AssertionError("bundle source reads must follow M admission")
+    monkeypatch.setattr(source, "locate", forbidden_locate)
+    memory = OperationMemoryBudget(2 * 1024**2)
+    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            assemble_operation_bundle(request, source_store=source, context=BundleAssemblyContext())
+    assert memory.stage_admissions[-1]["stage"] == "bundle-publication-staging"

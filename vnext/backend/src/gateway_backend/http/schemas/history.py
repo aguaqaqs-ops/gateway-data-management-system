@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.http.schemas.archive import SubmissionClosureSummaryResponse, closure_summary_to_response
+
 from datetime import datetime
 from typing import Literal, cast
 
@@ -27,10 +29,9 @@ HistoryReviewStatusLiteral = Literal[
     "PENDING",
     "APPROVED",
     "REJECTED",
-    "RETURNED_FOR_REVISION",
     "WITHDRAWN",
 ]
-HistoryArchiveDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
+HistorySubmissionDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 HistoryEligibilityNoteLiteral = Literal["NOT_CANDIDATE_BASE_ADVANCED"]
 
 
@@ -60,7 +61,10 @@ class HistoryNodeResponse(BaseModel):
     parent: HistoryNodeRefResponse | None = None
     baseline_kind: HistoryBaselineKindLiteral | None = None
     review_status: HistoryReviewStatusLiteral | None = None
-    archive_disposition: HistoryArchiveDispositionLiteral | None = None
+    submission_disposition: HistorySubmissionDispositionLiteral | None = None
+    disposition_source_kind: Literal["ARCHIVE", "MANUAL_CLOSE"] | None = None
+    disposition_result_id: str | None = None
+    closure: SubmissionClosureSummaryResponse | None = None
     promoted_baseline_node_id: BoundedOpaqueId | None = None
     eligibility_note: HistoryEligibilityNoteLiteral | None = None
     identity_exception: bool = False
@@ -98,7 +102,9 @@ def history_node_to_response(node: HistoryNode) -> HistoryNodeResponse:
         parent=parent,
         baseline_kind=None if node.baseline_kind is None else node.baseline_kind.value,
         review_status=None if node.review_status is None else node.review_status.value,
-        archive_disposition=None if node.archive_disposition is None else node.archive_disposition.value,
+        submission_disposition=None if node.submission_disposition is None else node.submission_disposition.value,
+        disposition_source_kind=None if node.disposition_source_kind is None else node.disposition_source_kind.value,
+        disposition_result_id=node.disposition_result_id, closure=closure_summary_to_response(node.closure),
         promoted_baseline_node_id=node.promoted_baseline_node_id,
         eligibility_note=(
             None

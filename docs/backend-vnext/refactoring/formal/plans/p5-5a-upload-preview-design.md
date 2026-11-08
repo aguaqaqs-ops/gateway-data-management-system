@@ -150,6 +150,8 @@ Interface registry，不进入domain record或Repository wire：
 Workspace path identity与当前mapping不一致时，按信息披露policy稳定返回`404`；已确认对象存在但
 permission不足时返回`403`。每次read重新授权，不使用创建时权限快照。
 
+创建201与已有200的 WorkspaceResponse 都从同一 control DB 事务取得 Workspace、optimistic_version 与当前占用；两个 active 指针为必需 nullable 键，不新增持久字段、不读最近历史。生命周期见 [Business Lifecycle §3–§4](../contracts/business-lifecycle-and-state.md#4-review) 与 [BE-a §2](p6-be-a-design.md#2-workspaceresponse-查询形态)。review version 独立于 Workspace version，APPROVE 不增加后者。
+
 ### 3.2 Closed DTO shape
 
 所有JSON object拒绝unknown fields。`Idempotency-Key`是AcceptUpload和StartPreview必需header；
@@ -165,6 +167,8 @@ CreateWorkspaceRequest:
 WorkspaceResponse:
   workspace_id, gateway_device_external_key, business_project_id
   state, generation, current_upload_revision_id?, current_preview_result_id?
+  active_submit_attempt_id: string | null  # required, current occupancy
+  active_submission_id: string | null      # required, mutually exclusive
   optimistic_version, created_at, updated_at
 
 UploadManifestPart:
@@ -288,7 +292,7 @@ delete_eligible(ref, expected_classification) -> deleted | absent | retryable_fa
 
 ```text
 job_kind: backend-vnext/preview
-job_contract_version: backend-vnext/preview/v1
+job_contract_version: backend-vnext/preview/v2
 materialize_inputs -> assemble_preview -> publish_preview
 ```
 
@@ -296,7 +300,7 @@ Payload 只含 stable IDs、generation、frozen baseline node/commit/head versio
 digests、ruleset/contract/provider versions、options、idempotency identity；不含 host path、callable、
 bearer、SQLite connection 或大对象。Decoder 拒绝 unknown version/field、缺失 identity 和超预算。
 
-`backend-vnext/preview/v1` payload是closed object：
+`backend-vnext/preview/v2` payload是closed object：
 
 ```text
 workspace_id, upload_revision_id, generation, repository_id
@@ -412,3 +416,9 @@ non-authoritative historical oracle，用于发现capability行为和fixture。�
 既有 port/wire、私有模块调用、编排职责与依赖环问题按总体设计 §2A 的 owner/时机收口；
 后续消费者不得复制这些例外。当前请求/结果、digest、checkpoint 与幂等恢复语义继续由
 原 owning contract 定义，不能以边界整理为由静默改变。
+
+## V1 configuration facts amendment（2026-11-07）
+
+materialize canonical metadata增加必需initial_canonical_state_digest及ConfigurationFacts（backend-vnext/configuration-facts/v1）。源时间在同次Rust source-order转换取得；FULL分别绑定上传两侧，MODIFIED_ONLY从exact baseline source Submission复制，INITIAL空基线为N/A。checkpoint/READY严格校验字段及输入/规则/内容绑定，缺facts硬失败，不默认missing。Preview job v2、materialized sides v2、assemble state v3直接替换旧版本，无兼容读法。取消/失租/旧generation沿原LeaseSession整体屏障，不部分发布。字段与唯一测试owner见[V1清单](p6-v1-handoff.md)。
+
+V1跨版本澄清（设计提交`a24b7034e9`）：旧baseline保留source Submission原rules/projection/scalar身份，MODIFIED_ONLY.initial严格复制；FULL两上传侧按本operation冻结规则。合法additive规则变更仍可Preview，不重标baseline，也不要求三侧规则一律相等。V2以完整身份判等，不同身份不直接合并/相连；MO旧身份→新身份为合法边，FULL未知来源沿既定可接受UNEXPLAINED诊断。operation/runtime失配、T1 derived-stale、STORAGE_BREAKING activation与不支持版本/绑定损坏拒绝不变。

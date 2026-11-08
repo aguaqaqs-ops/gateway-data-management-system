@@ -17,12 +17,13 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable, ContextManager
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.composite_signal.contracts import CompositeLogicSource
 from gateway_backend.capabilities.table_access.contracts import (
@@ -47,6 +48,8 @@ ORDERED_COMPARISON_CONTRACT_VERSION = "backend-vnext/ordered-diff/v2"
 BLANK_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison-blank/v1"
 ROW_MATERIALIZATION_PROFILE = "sql-canonical-v1"
 ROW_FORMAT_PARQUET = "parquet"
+ROW_FORMAT_CANONICAL_IPC = "arrow-ipc"
+ARTIFACT_COMPRESSION_NONE = "none"
 EXPORT_FORMAT_PARQUET = "PARQUET"
 ARTIFACT_COMPRESSION_ZSTD = "zstd"
 ROW_ORDER_CONTRACT_INSERT = "INSERT_ORDER"
@@ -900,6 +903,7 @@ class SnapshotTableArtifactManifest:
     row_materialization_profile: str
     artifact_content_digest: DigestRef
     created_at: str
+    repository_id: str | None = None
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
     ordered_metadata: SnapshotTableOrderedMetadata | None = None
 
@@ -918,10 +922,17 @@ class SnapshotTableArtifactManifest:
         for ref in self.row_file_refs:
             if type(ref) is not ArtifactRef:
                 raise ValueError("row_file_refs must contain ArtifactRef")
-        if self.row_format != ROW_FORMAT_PARQUET:
-            raise ValueError("row_format must be parquet")
-        if self.compression != ARTIFACT_COMPRESSION_ZSTD:
-            raise ValueError("compression must be zstd")
+        if self.row_format == ROW_FORMAT_PARQUET:
+            if self.compression != ARTIFACT_COMPRESSION_ZSTD or self.repository_id is not None:
+                raise ValueError("raw Parquet requires zstd and repository_id null")
+        elif self.row_format == ROW_FORMAT_CANONICAL_IPC:
+            if self.compression != ARTIFACT_COMPRESSION_NONE:
+                raise ValueError("canonical IPC requires compression none")
+            _require_opaque_id(self.repository_id, "repository_id")
+            if self.descriptor.raw_content_digest is None:
+                raise ValueError("canonical IPC requires a bound table digest")
+        else:
+            raise ValueError("unsupported artifact row_format")
         if self.row_materialization_profile != ROW_MATERIALIZATION_PROFILE:
             raise ValueError("row_materialization_profile must be sql-canonical-v1")
         if type(self.artifact_content_digest) is not DigestRef:
@@ -1357,6 +1368,12 @@ class RepositoryRefSession(Protocol):
     def get_catalog(self) -> RepositoryTableCatalog:
         """Eager-load and memoize the business-table catalog."""
 
+    def open_arrow_table_reader(
+        self, table_name: str, *, max_input_bytes: int, max_rows: int,
+        max_columns: int, max_batches: int,
+    ) -> ContextManager[pa.RecordBatchReader]:
+        """Borrow bounded wire Arrow for this session’s pinned commit."""
+
     def open_table_reader(self, table_name: str) -> RepositoryTableReader:
         """Open a tuple reader for a catalog table."""
 
@@ -1375,6 +1392,18 @@ class RepositoryTableAccessProvider(Protocol):
         timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> RepositoryRefSession:
         """Open a read-only session pinned to a resolved commit."""
+
+
+class CommittedCanonicalTablesPort(Protocol):
+    """Application-owned scoped cache/recovery; returned readers own their handles."""
+
+    def load_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
+        context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> SnapshotTable: ...
+
+    def lookup(self, key: CanonicalTableKey) -> ArtifactRef | None: ...
+    def register(self, key: CanonicalTableKey, ref: ArtifactRef) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -1396,6 +1425,7 @@ class RepositoryRefMaterializationRequest:
     parser_version: int | None = None
     artifact_store: object | None = None
     export_cache: SnapshotTableExportCachePort | None = None
+    committed_tables: CommittedCanonicalTablesPort | None = None
 
     def __post_init__(self) -> None:
         if type(self.repository_ref) is not RepositoryRef:

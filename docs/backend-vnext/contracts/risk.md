@@ -489,3 +489,11 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 - degraded/unsupported 表能产生 review-required risk。
 - ordered unsupported 不被误判为 LOW。
 - 大量 annotations 可以落 artifact，RiskReport 只保留 summary/ref。
+
+## S3 Arrow 消费与操作内复用（设计候选，待 kickoff 独审）
+
+风险规则继续由 Python 拥有。当前比较计算可将内存 Arrow records 按表/批交风险消费，仅转换规则需要的列；不要求重建整份 ComparisonRecord tuple，不以先写 Parquet 再读回作为当前风险计算输入。计数/schema 风险仍直接消费 facts。
+
+语言/传输替换不得改变表与规则遍历顺序、target/reason/severity、标注排序及编号、单表限制、pair 上限、截断/降级或组合信号语义。风险行规则使用现 facts 的记录顺序，不能以产物排序替代。单表纯结果可在同一次 operation 内按包含完整 comparison/risk 规则主体及版本的 key 复用；pair 上限、标注编号、表名/显示名和组合信号在当前汇总步骤绑定。纯候选仍受单表资源限制，失败/取消不缓存，跨操作持久缓存属于 S5。接口及覆盖移交见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)。
+
+S3 风险上限重放必须保留当前控制流：在等级过滤前检查上限，同时触达 table/pair 上限时 pair 优先。`_TableBudgetExceeded` 异常分支产生单表 degraded outcome，但不增加后续 pair 的 `total_annotations`；正常返回 outcome 才累加，其中包括诊断数量/字节预检直接返回的 degraded。pair 超限丢弃全部部分标注，不是截取前 K 项。缓存命中仍执行当前 pair 的 closure 检查与当前取消/时间检查，不能复用先前验证结论；本段仅澄清现行语义，非修复算法行为。

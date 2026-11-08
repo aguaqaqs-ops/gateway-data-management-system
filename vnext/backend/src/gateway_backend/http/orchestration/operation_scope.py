@@ -214,36 +214,18 @@ def authorize_operation_read(
             message="resource not found",
             status_code=404,
         )
-    frozen_repository_id: str | None = None
+    workspace = _authorize_workspace_scope(
+        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution)
     if operation.job_kind == SUBMIT_JOB_KIND:
         submit_attempt_id = submit_attempt_id_from_operation(operation)
         if submit_attempt_id is None:
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
-        attempt = submission_reader.get_submit_attempt(submit_attempt_id)
+            raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+        attempt = submission_reader.get_submit_attempt(submit_attempt_id,
+            workspace_id=workspace_id, repository_id=workspace.repository_id)
         if attempt is None:
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
-        if attempt.workspace_id != workspace_id:
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
-        frozen_repository_id = attempt.repository_id
-    return _authorize_workspace_scope(
-        context=context,
-        workspace_id=workspace_id,
-        workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution,
-        frozen_repository_id=frozen_repository_id,
-    )
+            raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+    return workspace
 
 
 def read_submit_attempt(
@@ -256,20 +238,13 @@ def read_submit_attempt(
     scope_resolution: ScopeResolutionPort,
 ) -> SubmitAttempt:
     assert_workspace_read_permission(context)
-    attempt = submission_reader.get_submit_attempt(submit_attempt_id)
-    if attempt is None or attempt.workspace_id != workspace_id:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
-    _authorize_workspace_scope(
-        context=context,
-        workspace_id=workspace_id,
-        workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution,
-        frozen_repository_id=attempt.repository_id,
-    )
+    workspace = _authorize_workspace_scope(
+        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution)
+    attempt = submission_reader.get_submit_attempt(submit_attempt_id,
+        workspace_id=workspace_id, repository_id=workspace.repository_id)
+    if attempt is None:
+        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     return attempt
 
 
@@ -283,18 +258,11 @@ def read_submission(
     scope_resolution: ScopeResolutionPort,
 ) -> Submission:
     assert_workspace_read_permission(context)
-    submission = submission_reader.get_submission(submission_id)
-    if submission is None or submission.workspace_id != workspace_id:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
-    _authorize_workspace_scope(
-        context=context,
-        workspace_id=workspace_id,
-        workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution,
-        frozen_repository_id=submission.repository_id,
-    )
+    workspace = _authorize_workspace_scope(
+        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution)
+    submission = submission_reader.get_submission(submission_id,
+        workspace_id=workspace_id, repository_id=workspace.repository_id)
+    if submission is None:
+        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     return submission

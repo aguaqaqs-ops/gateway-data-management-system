@@ -605,3 +605,16 @@ ComparisonComputeResult:
 - effective key 变化或重复 key 时，表级降级或全表变化，不做复杂映射。
 - 大表 records 可落 artifact，facts 中只保留 counts/ref/digest。
 - Comparison capability 不直接读取 SourcePackage、SqlDumpSource 或 RepositoryImportArtifact。
+
+## S3 语义澄清与单次操作内复用（设计候选，待 kickoff 独审）
+
+本节固化现行行为，不改变 S1b 冻结语义；实施状态见
+[详细设计](../refactoring/formal/plans/p6-s3-design.md)。
+
+- 标量相等/行身份按 Shared Canonical Encoding：float/decimal 负零归正零，NULL 不等于空串或零；字符串保持合法 UTF-8 原值，不 trim/case-fold/normalize。行字段 canonical identifier 按 UTF-8 无符号字节序，JCS property 按 UTF-16 code unit，不能混用。
+- 允许 full-row fallback 的 keyless 比较是 multiset：保留重复次数，只生成增删。新增 occurrence 从 before 的该行计数开始，删除从 current 的该行计数开始；行摘要与 occurrence 共同形成记录 identity，不能用 set 消掉重复。
+- facts 中 standard records 按 record kind、identity（无值为空）、changed columns 排序。产物另按 kind、identity bytes（无值为空）、before position（无值为0）、current position（无值为0）、完整行 JCS 文本排序；排序使用完整 detail，再按请求裁剪内容。batch 划分不改变逻辑顺序。
+- 三族记录 Arrow schema 与现有 Parquet v1 schema 相同；typed scalar、空列表/null、列序和 metadata 不能因实现语言变化而改变。JCS 内容对象与 content_digest、manifest/closure 定义保持，Parquet raw SHA 单独代表实际文件，不能以 content_digest 相同替代 raw 字节校验。
+- 本次新写记录可以不再整份回读解码；writer/发布 I/O 失败仍失败，READY 前必须形成完整 closure。真正读取时仍校验 raw SHA、schema、count 和 content digest，采用 Arrow 批次重算 JCS 不降低完整性要求。
+- 单次 operation 可以复用完全相同的纯单表任务；key 包含两侧完整内容/schema/行数/有效键/存储规则、比较与风险规则主体及版本、算法/记录格式/投影/标量版本、方向/options/detail/artifact scope/authority。外层表名和显示名不充当纯任务参数，但不能删除 schema 内已有表名身份提高命中率。
+- 表名、显示名与当前 pair 绑定在汇总；含表名的 facts/records/manifest 摘要须按绑定后的逻辑内容计算。失败/取消/不完整结果不复用，命中不跳过预算/取消检查。此许可不授权跨 operation 缓存、持久引用登记或 History 回填；后者归 S5。

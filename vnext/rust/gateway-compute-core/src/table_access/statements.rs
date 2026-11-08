@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::ParserBudgets;
-use super::cursor::{Cursor, python_strip};
+use super::cursor::{Cursor, python_strip, starts_dash_comment};
 use super::errors::{Fault, PResult, ParserDiagnostic, ParserDiagnosticCode as Code};
 use super::literal::{LexError, parse_literal};
 use super::model::{ColumnDescriptor, SqlLogicalType};
@@ -623,9 +623,67 @@ fn parse_column_type(cursor: &mut Cursor<'_>, max_ident: usize) -> PResult<Strin
         break;
     }
     let raw = &cursor.data[start..cursor.pos];
-    let text = std::str::from_utf8(raw)
+    let cleaned = strip_sql_comments(raw);
+    let text = std::str::from_utf8(&cleaned)
         .map_err(|_| Fault::malformed(start, "column type is not UTF-8"))?;
     Ok(python_strip(text).to_string())
+}
+
+fn strip_sql_comments(raw: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(raw.len());
+    let mut index = 0;
+    let mut quote = None;
+    while index < raw.len() {
+        let byte = raw[index];
+        if let Some(delimiter) = quote {
+            output.push(byte);
+            if byte == b'\\' && delimiter == b'\'' && index + 1 < raw.len() {
+                index += 1;
+                output.push(raw[index]);
+            } else if byte == delimiter {
+                if raw.get(index + 1) == Some(&delimiter) {
+                    index += 1;
+                    output.push(raw[index]);
+                } else {
+                    quote = None;
+                }
+            }
+            index += 1;
+            continue;
+        }
+        if matches!(byte, b'\'' | b'"' | b'`') {
+            quote = Some(byte);
+            output.push(byte);
+            index += 1;
+            continue;
+        }
+        if raw[index..].starts_with(b"/*") {
+            let end = raw[index + 2..]
+                .windows(2)
+                .position(|window| window == b"*/");
+            match end {
+                Some(end) => {
+                    output.push(b' ');
+                    index += end + 4;
+                }
+                None => {
+                    output.extend_from_slice(&raw[index..]);
+                    break;
+                }
+            }
+            continue;
+        }
+        if byte == b'#' || starts_dash_comment(raw, index, raw.len()) {
+            output.push(b' ');
+            while index < raw.len() && !matches!(raw[index], b'\n' | b'\r') {
+                index += 1;
+            }
+            continue;
+        }
+        output.push(byte);
+        index += 1;
+    }
+    output
 }
 
 fn is_constraint_item(cursor: &mut Cursor<'_>) -> PResult<bool> {

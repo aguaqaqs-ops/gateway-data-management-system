@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import submit_attempt_with_facts
+
 import json
+import hashlib
+from email import policy
+from email.parser import BytesParser
 import sqlite3
 import subprocess
 import sys
@@ -45,7 +50,6 @@ from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
     RepositoryArtifactRef,
-    SubmitAttempt,
     SubmitAttemptState,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
@@ -286,7 +290,7 @@ def _seed_succeeded_submit_control_db(
                 """
             )
             timestamp = datetime(2026, 10, 20, 15, 0, 0, tzinfo=UTC)
-            attempt = SubmitAttempt(
+            attempt = submit_attempt_with_facts(
                 submit_attempt_id="submit-attempt-1",
                 workspace_id="workspace-1",
                 workspace_generation=1,
@@ -297,10 +301,10 @@ def _seed_succeeded_submit_control_db(
                 business_baseline_commit_id="commit-base",
                 baseline_head_version=1,
                 repository_expected_commit_id="commit-expected",
-                canonical_business_digest="sha256:canonical",
+                canonical_business_digest="sha256:" + "5" * 64,
                 source_digest="sha256:source",
                 snapshot_digest="sha256:snapshot",
-                source_artifact_refs=(),
+                source_artifact_refs=("source-fixture",),
                 canonical_table_set_closure_ref="table-closure-1",
                 canonical_table_set_closure_digest="sha256:table-closure",
                 preview_ready_closure_ref="preview-closure-1",
@@ -999,7 +1003,8 @@ def test_preview_summary_requires_one_complete_pair() -> None:
                     "changed_table_count": 0,
                     "degraded_table_count": 0,
                     "failed_table_count": 0,
-                }
+                },
+                "pair_id": "initial_to_modified",
             }
         ]
     }
@@ -1016,6 +1021,115 @@ def test_preview_summary_requires_one_complete_pair() -> None:
         "degraded_table_count": 0,
         "failed_table_count": 0,
     }
+
+
+def test_full_preview_checks_both_pairs_and_selects_modified_business_summary() -> None:
+    baseline = {"pair_id": "baseline_to_initial", "summary": {
+        "table_count": 9, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    modified = {"pair_id": "initial_to_modified", "summary": {
+        "table_count": 9, "changed_table_count": 2, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    summary = _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
+    assert summary["pair_count"] == 1 and summary["changed_table_count"] == 2
+    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
+        {"pair_id": "baseline_to_initial", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+    ]}}
+    assert _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")["status"] == "SAME_PROJECT"
+    baseline["summary"]["changed_table_count"] = 1  # type: ignore[index]
+    with pytest.raises(JourneyFailure, match="archived v1 baseline"):
+        _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
+
+
+def test_full_request_rejects_old_single_pair_summary_and_identity() -> None:
+    pair = {"pair_id": "initial_to_modified", "summary": {
+        "table_count": 1, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    with pytest.raises(JourneyFailure, match="requested input completeness"):
+        _assert_preview_summaries({"pairs": [pair]}, unchanged=False, input_completeness="FULL")
+    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
+        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+    ]}}
+    with pytest.raises(JourneyFailure, match="requested input completeness"):
+        _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")
+
+
+def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() -> None:
+    observed: dict[str, bytes] = {}
+    def transport(request: httpx.Request) -> httpx.Response:
+        message = BytesParser(policy=policy.default).parsebytes(
+            b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n" + request.read(),
+        )
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            assert isinstance(name, str)
+            content = part.get_payload(decode=True)
+            assert isinstance(content, bytes)
+            observed[name] = content
+        return httpx.Response(201, json={"upload_revision_id": "ur-full"})
+    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
+        real_dump_journey._upload_revision(client, workspace={"workspace_id": "ws", "optimistic_version": 3},
+            package=b"modified-v2", initial_package=b"initial-v1", idempotency_key="full-input")
+    manifest = json.loads(observed["manifest"])
+    assert manifest["input_completeness"] == "FULL"
+    assert observed["initial"] == b"initial-v1" and observed["modified"] == b"modified-v2"
+    assert manifest["artifacts"]["INITIAL"]["raw_sha256"] == "sha256:" + hashlib.sha256(b"initial-v1").hexdigest()
+
+
+@pytest.mark.parametrize("fault", ("none", "length", "digest", "etag"))
+def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fault: str) -> None:
+    from benchmarks.bundle_tar import download_bundle_tar
+    from gateway_backend.application.bundle_download import prepare_bundle_download
+    from gateway_backend.artifacts.bundle_download import BundleIntegrityError
+    from tests.test_bundle_download import published_bundle
+    store, ref = published_bundle(tmp_path)
+    prepared = prepare_bundle_download(store, ref.artifact_id)
+    raw = b"".join(prepared.stream)
+    if fault == "digest":
+        # The last ordinary surface member has data before its block padding.
+        import io
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+            offset = archive.getmembers()[-1].offset_data
+        raw = raw[:offset] + bytes([raw[offset] ^ 1]) + raw[offset + 1:]
+    headers = {"Content-Type": "application/x-tar", "Content-Length": str(len(raw) + int(fault == "length")),
+               "ETag": '"wrong"' if fault == "etag" else prepared.etag}
+    with httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=raw, headers=headers)),
+                      base_url="http://bundle.test") as client:
+        if fault != "none":
+            with pytest.raises(BundleIntegrityError):
+                download_bundle_tar(client, "/bundle")
+        else:
+            manifest, metrics = download_bundle_tar(client, "/bundle")
+            assert manifest["bundle_digest"] == prepared.bundle_digest
+            assert metrics["actual_bytes"] == len(raw)
+            assert metrics["ordinary_member_count"] == len(manifest["closure_entries"]) + 2
+
+
+def test_preview_completion_clock_is_frozen_before_complete_bundle_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    workspace = {"workspace_id": "ws", "current_preview_result_id": "pr"}
+    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: workspace)
+    def poll(*_args: object, **_kwargs: object) -> None:
+        clock[0] = 5.0
+    monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
+    def download(*_args: object, **_kwargs: object) -> tuple[dict[str, Any], dict[str, Any]]:
+        clock[0] = 105.0
+        return {"pairs": []}, {"actual_bytes": 2048, "get_to_complete_read_seconds": 100.0}
+    monkeypatch.setattr(real_dump_journey, "download_bundle_tar", download)
+    def transport(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(202, json={"operation_id": "op"}) if request.method == "POST" else httpx.Response(200, json={"operation_id": "op"})
+    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
+        preview, _manifest = real_dump_journey._preview(
+            client, workspace=workspace, upload={"optimistic_version": 1, "upload_revision_id": "ur", "generation": 1},
+            baseline_node_id="bn", baseline_head_version=1, idempotency_key="preview", stage="test",
+            operation_timeout_seconds=100, collect_timing=True,
+        )
+    assert preview["operation_timing"]["completion_seconds"] == 5.0
+    assert preview["operation_timing"]["user_visible_seconds"] == 5.0
+    assert preview["bundle_transfer"]["get_to_complete_read_seconds"] == 100.0
 
 
 @pytest.mark.parametrize(
@@ -1035,6 +1149,7 @@ def test_real_data_journey_requires_the_expected_project_identity(
             "identity_assessment_set_digest": "sha256:" + "a" * 64,
             "identity_pairs": [
                 {
+                    "pair_id": "initial_to_modified",
                     "applicability": applicability,
                     "status": status,
                     "mode": mode,
@@ -1080,6 +1195,7 @@ def test_real_data_journey_stops_when_project_identity_differs(
                     "identity_assessment_set_digest": "sha256:" + "a" * 64,
                     "identity_pairs": [
                         {
+                            "pair_id": "initial_to_modified",
                             "applicability": applicability,
                             "status": actual_status,
                             "mode": actual_mode,
@@ -1105,7 +1221,7 @@ def test_preview_summary_rejects_incomplete_degradation_or_change(
     del case
     with pytest.raises(JourneyFailure):
         _assert_preview_summaries(
-            {"pairs": [{"summary": summary}]},
+            {"pairs": [{"pair_id": "initial_to_modified", "summary": summary}]},
             unchanged=unchanged,
         )
 
@@ -1449,6 +1565,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
             "--keep-stack",
             "--project-name",
             "s2b-debug",
+            "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592",
         ]
     )
 
@@ -1462,6 +1579,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "requested_project_name": "s2b-debug",
         "dc32_output": None,
         "debug_t1_submit_probe": False,
+        "v2_input_completeness": "MODIFIED_ONLY",
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -1478,7 +1596,7 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
 
     monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
 
-    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit"])
+    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit", "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592"])
 
     assert result == 0
     assert calls["tier_filter"] == "t4"
@@ -1606,3 +1724,40 @@ def test_debug_step_order_covers_every_business_action() -> None:
     assert JOURNEY_STEP_IDS[-1] == "cross-replacement-archive"
     assert "v1-submit" in JOURNEY_STEP_IDS
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS
+
+
+@pytest.mark.parametrize("with_reason", [False, True])
+def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, with_reason: bool) -> None:
+    calls: list[dict[str, Any]] = []
+    selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
+    anomaly = {"subject_kind": "CONFIGURATION_TIME_QUALITY", "issue_code": "GENERATION_TIME_MISSING",
+        "subject_digest": "sha256:" + "2" * 64, "target_submission_id": "sub", "target_candidate_digest": selected["expected_candidate_digest"],
+        "latest_sequence": 4, "resolution_status": "REVOKED"}
+    previews = 0
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal previews
+        if request.url.path == "/v1/archive-candidates":
+            return httpx.Response(200, json={"candidates": [selected]})
+        if request.url.path == "/v1/archive-plan-preview":
+            previews += 1
+            return httpx.Response(200, json={"can_start": previews > 1, "audit_validity": previews > 1,
+                "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
+                "candidate_set_digest": "sha256:" + "3" * 64, "selection_subject_digest": "sha256:" + "4" * 64,
+                "anomalies": [anomaly]})
+        body = json.loads(request.content)
+        calls.append(body)
+        if request.url.path == "/v1/archive-anomaly-resolutions":
+            assert body["expected_sequence"] == 4 and body["action"] == "ACKNOWLEDGE_TIME_QUALITY"
+            return httpx.Response(201, json={"sequence": 5})
+        if request.url.path == "/v1/archives":
+            assert body["anomaly_resolution_refs"] == [{"subject_digest": anomaly["subject_digest"], "sequence": 5}]
+            return httpx.Response(201, json={"archive_result_id": "result", "baseline_node_id": "archived-node"})
+        return httpx.Response(201, json={"sequence": 1})
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({"GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
+    with httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond)) as client:
+        if with_reason:
+            assert real_dump_journey._archive(client, "sub", "consumer")["archive_result_id"] == "result"
+        else:
+            with pytest.raises(JourneyFailure, match="explicit reason"):
+                real_dump_journey._archive(client, "sub", "consumer")
+            assert not any("anomaly_resolution_refs" in item for item in calls)

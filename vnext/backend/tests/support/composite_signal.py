@@ -58,7 +58,11 @@ def special_catalog(
         )
         for index, name in enumerate(point_names)
     )
-    return SpecialDeviceCatalog(devices=devices, points=points)
+    return SpecialDeviceCatalog(
+        devices=devices,
+        points=points,
+        source_device_row_count=len(devices),
+    )
 
 
 def materialize_logic(

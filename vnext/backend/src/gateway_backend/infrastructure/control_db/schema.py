@@ -383,6 +383,8 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (abort_code IS NULL OR (typeof(abort_code) = 'text' AND length(abort_code) BETWEEN 1 AND 128)),
         identity_confirmations BLOB NOT NULL DEFAULT X'5B5D'
             CHECK (typeof(identity_confirmations) = 'blob'),
+        configuration_facts BLOB NOT NULL
+            CHECK (typeof(configuration_facts) = 'blob'),
         FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
         FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT
     )
@@ -449,6 +451,8 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(created_at_us) = 'integer'),
         identity_confirmations BLOB NOT NULL DEFAULT X'5B5D'
             CHECK (typeof(identity_confirmations) = 'blob'),
+        configuration_facts BLOB NOT NULL
+            CHECK (typeof(configuration_facts) = 'blob'),
         FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
         FOREIGN KEY (submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id) ON
             DELETE RESTRICT
@@ -533,13 +537,13 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(sequence) = 'integer' AND sequence >= 0),
         event_kind TEXT NOT NULL
             CHECK
-                (typeof(event_kind) = 'text' AND event_kind IN ('SUBMISSION_FINALIZED', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(event_kind) = 'text' AND event_kind IN ('SUBMISSION_FINALIZED', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         from_status TEXT
             CHECK
-                (from_status IS NULL OR (typeof(from_status) = 'text' AND from_status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN'))),
+                (from_status IS NULL OR (typeof(from_status) = 'text' AND from_status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'))),
         to_status TEXT NOT NULL
             CHECK
-                (typeof(to_status) = 'text' AND to_status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(to_status) = 'text' AND to_status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         reason TEXT
             CHECK
                 (reason IS NULL OR (typeof(reason) = 'text' AND length(CAST(reason AS BLOB)) BETWEEN 0 AND 4096)),
@@ -558,7 +562,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
         status TEXT NOT NULL
             CHECK
-                (typeof(status) = 'text' AND status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(status) = 'text' AND status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         optimistic_version INTEGER NOT NULL
             CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
         latest_sequence INTEGER NOT NULL
@@ -644,13 +648,13 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         node_id TEXT NOT NULL
             CHECK (typeof(node_id) = 'text' AND length(node_id) BETWEEN 1 AND 255),
         optimistic_version INTEGER NOT NULL
-            CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version BETWEEN 0 AND 9007199254740991),
         FOREIGN KEY (repository_id, node_id) REFERENCES
             baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
     )
     """,
 
-    # Archive.
+    # Archive and the single submission disposition authority.
     """
     CREATE TABLE archive_plan_records (
         plan_id TEXT NOT NULL PRIMARY KEY
@@ -679,7 +683,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK
                 (typeof(old_baseline_commit_id) = 'text' AND length(CAST(old_baseline_commit_id AS BLOB)) BETWEEN 1 AND 255),
         old_baseline_head_version INTEGER NOT NULL
-            CHECK (typeof(old_baseline_head_version) = 'integer' AND old_baseline_head_version >= 0),
+            CHECK (typeof(old_baseline_head_version) = 'integer' AND old_baseline_head_version BETWEEN 0 AND 9007199254740991),
         candidate_set_digest TEXT NOT NULL
             CHECK
                 (typeof(candidate_set_digest) = 'text' AND length(CAST(candidate_set_digest AS BLOB)) BETWEEN 1 AND 255),
@@ -723,24 +727,50 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
 
     """
-    CREATE TABLE archive_disposition_records (
+    CREATE TABLE submission_disposition_records (
         submission_id TEXT NOT NULL PRIMARY KEY
             CHECK (typeof(submission_id) = 'text' AND length(CAST(submission_id AS BLOB)) BETWEEN 1 AND 255),
-        result_id TEXT NOT NULL
-            CHECK (typeof(result_id) = 'text' AND length(CAST(result_id AS BLOB)) BETWEEN 1 AND 255),
-        disposition TEXT NOT NULL
-            CHECK (typeof(disposition) = 'text' AND disposition IN ('ARCHIVED_BASELINE', 'CLOSED_NOT_ARCHIVED')),
+        result_id TEXT,
+        disposition TEXT NOT NULL CHECK (disposition IN ('ARCHIVED_BASELINE', 'CLOSED_NOT_ARCHIVED')),
+        source_kind TEXT NOT NULL CHECK (source_kind IN ('ARCHIVE', 'MANUAL_CLOSE')),
+        repository_id TEXT NOT NULL CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+        gateway_device_external_key TEXT NOT NULL CHECK (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+        business_project_id TEXT NOT NULL CHECK (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+        closed_by TEXT CHECK (closed_by IS NULL OR (typeof(closed_by) = 'text' AND length(CAST(closed_by AS BLOB)) BETWEEN 1 AND 255)),
+        reason TEXT CHECK (reason IS NULL OR (typeof(reason) = 'text' AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096)),
+        idempotency_key TEXT CHECK (idempotency_key IS NULL OR (typeof(idempotency_key) = 'text' AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255)),
+        request_fingerprint TEXT CHECK (request_fingerprint IS NULL OR (typeof(request_fingerprint) = 'text' AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 255)),
+        expected_baseline_node_id TEXT CHECK (expected_baseline_node_id IS NULL OR (typeof(expected_baseline_node_id) = 'text' AND length(CAST(expected_baseline_node_id AS BLOB)) BETWEEN 1 AND 255)),
+        workspace_id TEXT CHECK (workspace_id IS NULL OR (typeof(workspace_id) = 'text' AND length(CAST(workspace_id AS BLOB)) BETWEEN 1 AND 255)),
+        upload_revision_id TEXT CHECK (upload_revision_id IS NULL OR (typeof(upload_revision_id) = 'text' AND length(CAST(upload_revision_id AS BLOB)) BETWEEN 1 AND 255)),
+        preview_result_id TEXT CHECK (preview_result_id IS NULL OR (typeof(preview_result_id) = 'text' AND length(CAST(preview_result_id AS BLOB)) BETWEEN 1 AND 255)),
+        configuration_facts_digest TEXT CHECK (configuration_facts_digest IS NULL OR (typeof(configuration_facts_digest) = 'text' AND length(CAST(configuration_facts_digest AS BLOB)) BETWEEN 1 AND 255)),
+        expected_review_version INTEGER CHECK (expected_review_version IS NULL OR (typeof(expected_review_version) = 'integer' AND expected_review_version BETWEEN 0 AND 9007199254740991)),
+        expected_baseline_head_version INTEGER CHECK (expected_baseline_head_version IS NULL OR (typeof(expected_baseline_head_version) = 'integer' AND expected_baseline_head_version BETWEEN 0 AND 9007199254740991)),
+        workspace_generation INTEGER CHECK (workspace_generation IS NULL OR (typeof(workspace_generation) = 'integer' AND workspace_generation BETWEEN 0 AND 9007199254740991)),
+        workspace_version INTEGER CHECK (workspace_version IS NULL OR (typeof(workspace_version) = 'integer' AND workspace_version BETWEEN 0 AND 9007199254740991)),
+        closed_at_us INTEGER CHECK (closed_at_us IS NULL OR typeof(closed_at_us) = 'integer'),
+        CHECK ((source_kind = 'ARCHIVE' AND result_id IS NOT NULL AND closed_by IS NULL AND reason IS NULL AND idempotency_key IS NULL AND request_fingerprint IS NULL AND expected_baseline_node_id IS NULL AND workspace_id IS NULL AND upload_revision_id IS NULL AND preview_result_id IS NULL AND configuration_facts_digest IS NULL AND expected_review_version IS NULL AND expected_baseline_head_version IS NULL AND workspace_generation IS NULL AND workspace_version IS NULL AND closed_at_us IS NULL) OR
+               (source_kind = 'MANUAL_CLOSE' AND disposition = 'CLOSED_NOT_ARCHIVED' AND result_id IS NULL AND closed_by IS NOT NULL AND reason IS NOT NULL AND idempotency_key IS NOT NULL AND request_fingerprint IS NOT NULL AND expected_baseline_node_id IS NOT NULL AND workspace_id IS NOT NULL AND upload_revision_id IS NOT NULL AND preview_result_id IS NOT NULL AND configuration_facts_digest IS NOT NULL AND expected_review_version IS NOT NULL AND expected_baseline_head_version IS NOT NULL AND workspace_generation IS NOT NULL AND workspace_version IS NOT NULL AND closed_at_us IS NOT NULL)),
+        FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id) ON DELETE RESTRICT,
         FOREIGN KEY (result_id) REFERENCES archive_result_records(result_id) ON DELETE RESTRICT
     )
     """,
 
     """
-    CREATE UNIQUE INDEX archive_disposition_records_one_selected_per_result ON
-        archive_disposition_records(result_id) WHERE disposition = 'ARCHIVED_BASELINE'
+    CREATE UNIQUE INDEX submission_disposition_records_one_selected_per_result ON
+        submission_disposition_records(result_id) WHERE disposition = 'ARCHIVED_BASELINE'
     """,
 
     """
-    CREATE INDEX archive_disposition_records_result_id ON archive_disposition_records(result_id)
+    CREATE INDEX submission_disposition_records_result_id ON submission_disposition_records(result_id)
+    """,
+
+
+    """
+    CREATE UNIQUE INDEX submission_disposition_records_manual_key ON
+        submission_disposition_records(repository_id, gateway_device_external_key, business_project_id, idempotency_key)
+        WHERE source_kind = 'MANUAL_CLOSE'
     """,
 
     """
@@ -760,7 +790,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         subject_digest TEXT NOT NULL
             CHECK (typeof(subject_digest) = 'text' AND length(CAST(subject_digest AS BLOB)) BETWEEN 1 AND 255),
         sequence INTEGER NOT NULL
-            CHECK (typeof(sequence) = 'integer' AND sequence > 0),
+            CHECK (typeof(sequence) = 'integer' AND sequence BETWEEN 1 AND 9007199254740991),
         action TEXT NOT NULL
             CHECK (typeof(action) = 'text' AND action IN ('CONFIRM', 'REVOKE')),
         reason TEXT
@@ -800,15 +830,15 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK
                 (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
         subject_kind TEXT NOT NULL
-            CHECK (subject_kind IN ('APPROVED_SIBLING_EXCLUDED', 'PROJECT_IDENTITY_EXCEPTION')),
+            CHECK (subject_kind IN ('APPROVED_SIBLING_EXCLUDED', 'PROJECT_IDENTITY_EXCEPTION', 'CONFIGURATION_SOURCE', 'CONFIGURATION_TIME_QUALITY', 'CONFIGURATION_TIME_ORDER')),
         subject_digest TEXT NOT NULL
             CHECK (typeof(subject_digest) = 'text' AND length(CAST(subject_digest AS BLOB)) BETWEEN 1 AND 255),
         sequence INTEGER NOT NULL
-            CHECK (typeof(sequence) = 'integer' AND sequence > 0),
+            CHECK (typeof(sequence) = 'integer' AND sequence BETWEEN 1 AND 9007199254740991),
         action TEXT NOT NULL
             CHECK
                 (typeof(action) = 'text' AND action IN (
-                    'ACKNOWLEDGE_EXCLUSION', 'ACKNOWLEDGE_IDENTITY_EXCEPTION', 'REVOKE'
+                    'ACKNOWLEDGE_EXCLUSION', 'ACKNOWLEDGE_IDENTITY_EXCEPTION', 'ACKNOWLEDGE_SOURCE_EXCEPTION', 'ACKNOWLEDGE_TIME_QUALITY', 'ACKNOWLEDGE_TIME_ORDER', 'REVOKE'
                 )),
         issue_code TEXT NOT NULL
             CHECK (typeof(issue_code) = 'text' AND length(CAST(issue_code AS BLOB)) BETWEEN 1 AND 255),
@@ -829,6 +859,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         request_fingerprint TEXT NOT NULL
             CHECK
                 (typeof(request_fingerprint) = 'text' AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 255),
+        subject_payload_json TEXT NOT NULL CHECK (typeof(subject_payload_json) = 'text'),
         request_payload_json TEXT NOT NULL
             CHECK (typeof(request_payload_json) = 'text'),
         UNIQUE (repository_id, subject_digest, sequence),
@@ -877,6 +908,30 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
 
     # Artifact protection.
+    """
+    CREATE TABLE canonical_table_cache (
+        artifact_id TEXT PRIMARY KEY NOT NULL,
+        repository_id TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (typeof(size_bytes) = 'integer' AND size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL,
+        expires_at_us INTEGER CHECK (expires_at_us IS NULL OR typeof(expires_at_us) = 'integer')
+    )
+    """,
+    """
+    CREATE TABLE canonical_commit_tables (
+        repository_id TEXT NOT NULL,
+        commit_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL REFERENCES canonical_table_cache(artifact_id) ON DELETE CASCADE,
+        PRIMARY KEY (repository_id, commit_id, artifact_id)
+    )
+    """,
+    """
+    CREATE INDEX canonical_table_cache_expiry ON canonical_table_cache(expires_at_us, artifact_id)
+    """,
+    """
+    CREATE INDEX canonical_commit_tables_artifact ON canonical_commit_tables(artifact_id)
+    """,
     """
     CREATE TABLE artifact_protection_intents (
         artifact_id TEXT NOT NULL

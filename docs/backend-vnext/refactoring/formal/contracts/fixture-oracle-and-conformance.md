@@ -76,8 +76,8 @@ vnext/fixtures/vectors/repository/sql-enum-set/v1/
 
 Owner：Repository Service（SQL grammar、Arrow 与 fail-closed 转换）。content bytes
 形状遵循 Shared Canonical Encoding v1 既有 string / sequence 规则，不新增 tag。
-本 corpus 不是 Shared Kernel 的第三 consumer，也不进入 Canonical Row Hash
-mixed-scalar golden。
+本 corpus 不是 Shared Kernel 的 consumer；Repository 的 Arrow 与 parser vectors 各由
+Repository Service 和 Table Access 的 owning Contract 管理。
 
 每个 case 必须有稳定 `case_id`、`case_schema_version: 1`、`operation`、`input` 以及
 `expected` 或 `expected_error.code`。Python 与后续 producer 使用薄只读 loader 消费
@@ -197,6 +197,5 @@ Breaking changes：
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
 - [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
-- [Canonical Row Hash Compute Boundary](canonical-row-hash-compute-boundary.md)
 - [Repository Service](repository-service.md)
 - [Implementation Stages](../plans/implementation-stages.md)

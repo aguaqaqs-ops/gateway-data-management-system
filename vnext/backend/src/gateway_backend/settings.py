@@ -15,6 +15,9 @@ from gateway_backend.application.workspace.upload_limits import (
 )
 
 _MIB = 1024 * 1024
+WORKER_MEMORY_ENVELOPE_BYTES = 32 * 1024**3
+WORKER_MEMORY_RESERVE_BYTES = 8 * 1024**3
+WORKER_MAX_KERNEL_MEMORY_BYTES = 24 * 1024**3
 
 FIXED_HTTP_NEW_WORK_LIMIT = 32
 FIXED_CLEANUP_UNPINNED_TTL_SECONDS = 86_400
@@ -170,6 +173,19 @@ class OperationWorkerSettings(BaseSettings):
     graceful_drain_timeout_seconds: float = 180.0
     max_in_flight: int = 1
     claim_limit: int = 1
+    kernel_threads: int = Field(default=1, ge=1, le=256)
+    kernel_memory_budget_bytes: int = Field(ge=1, le=WORKER_MAX_KERNEL_MEMORY_BYTES)
+    memory_envelope_bytes: int = WORKER_MEMORY_ENVELOPE_BYTES
+    memory_reserve_bytes: int = WORKER_MEMORY_RESERVE_BYTES
+
+    @field_validator("kernel_threads", "kernel_memory_budget_bytes", "memory_envelope_bytes", "memory_reserve_bytes", mode="before")
+    @classmethod
+    def _require_integer_kernel_settings(cls, value: object) -> int:
+        if type(value) is int:
+            return value
+        if type(value) is str and value.isascii() and value.isdecimal():
+            return int(value)
+        raise ValueError("kernel resource settings must be integers")
 
     @field_validator("control_db_path")
     @classmethod
@@ -202,9 +218,13 @@ class OperationWorkerSettings(BaseSettings):
             self,
             {
                 **_WORKER_FIXED_BUDGETS,
+                "memory_envelope_bytes": WORKER_MEMORY_ENVELOPE_BYTES,
+                "memory_reserve_bytes": WORKER_MEMORY_RESERVE_BYTES,
                 "repository_timeout_seconds": FIXED_REPOSITORY_TIMEOUT_SECONDS,
             },
         )
+        if self.kernel_memory_budget_bytes > self.memory_envelope_bytes - self.memory_reserve_bytes:
+            raise ValueError("kernel budget exceeds worker envelope minus reserve")
         if self.heartbeat_interval_seconds > self.lease_duration_seconds / 3:
             raise ValueError("heartbeat_interval_seconds must be at most lease duration / 3")
         return self

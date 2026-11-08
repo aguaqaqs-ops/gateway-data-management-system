@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 import io
 from pathlib import Path
 from uuid import UUID
@@ -527,7 +529,7 @@ def _production_submit_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        *make_canonical_artifact_fixture().refs,
+        *make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID).refs,
     )
 
 
@@ -539,7 +541,6 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     from gateway_backend.app import create_app
     from gateway_backend.application.workspace import create_or_get_workspace
     from gateway_backend.domain.workspace.models import (
-        PreviewResult,
         PreviewResultDigests,
         SourceArtifactBinding,
         SourceArtifactRole,
@@ -569,7 +570,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     db_path = tmp_path / "control" / "control.sqlite3"
     baseline_head = _authoritative_baseline_head(db_path)
     protected_refs = _production_submit_preview_refs()
-    canonical_fixture = make_canonical_artifact_fixture()
+    canonical_fixture = make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID)
     payloads = {
         "initial-1": _PAYLOAD_INITIAL,
         "modified-1": _PAYLOAD_MODIFIED,
@@ -590,7 +591,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=fixed_now,
         )
         workspace = created.workspace
@@ -619,7 +620,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             created_at=fixed_now,
         )
         identity_digest, identity_pairs = make_not_applicable_preview_identity()
-        preview = PreviewResult(
+        preview = preview_result_with_facts(
             preview_result_id="pr-accept-1",
             workspace_id=workspace.workspace_id,
             upload_revision_id=upload_revision.upload_revision_id,
@@ -640,7 +641,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(),
+            canonical=make_preview_canonical_bindings(TEST_MAPPING_REPOSITORY_ID),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",

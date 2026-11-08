@@ -216,6 +216,8 @@ def publish_records_closure(
             status=_cancelled_status(),
             diagnostics=(str(exc) or "RECORDS_PUBLICATION_CANCELLED",),
         )
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         return FailedResult(
             pair_id=result.pair_id,
@@ -534,6 +536,8 @@ def _write_parquet(
             raise RecordsPublicationError("records artifact spool read failed")
         context.checkpoint()
         return result
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except (pa.ArrowException, OSError, ValueError) as exc:
         if isinstance(exc, RecordsPublicationError):
             raise
@@ -1009,6 +1013,8 @@ def _verify_stored_bytes(store: ArtifactStorePort, ref: ArtifactRef, expected: b
 def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
     try:
         raw = store.locate(ref)
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         raise RecordsPublicationError("artifact store locate failed") from exc
     if type(raw) is not bytes:

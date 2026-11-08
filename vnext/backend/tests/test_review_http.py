@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_fact_faults import (
+    CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
+)
+
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -633,16 +637,14 @@ def test_apply_review_returns_archive_closed_after_submission_archived(
     response = _post_review(
         env,
         seed,
-        idempotency_key="return-after-archive",
-        body=_apply_body(expected_review_version=1, action="RETURN_FOR_REVISION", reason="too late"),
+        idempotency_key="withdraw-after-archive",
+        body=_apply_body(expected_review_version=1, action="WITHDRAW", reason="too late"),
     )
     assert response.status_code == 409
     assert response.json()["code"] == "ARCHIVE_CLOSED"
 
 
-def test_apply_review_replays_after_archive_closure(
-    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
-) -> None:
+def test_apply_review_replays_after_archive_closure(tmp_path: Path) -> None:
     from tests.support.archive_fixtures import (
         append_selection_confirmation,
         archive_seed_from_review_seed,
@@ -650,7 +652,9 @@ def test_apply_review_replays_after_archive_closure(
     )
     from tests.test_review_transactions import ReviewSeed
 
-    env, seed = review_env
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "self-after-archive": make_identity(permissions=frozenset({"withdraw_own_submission"})),
+    })
     first = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
     assert first.status_code == 201
     with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
@@ -670,3 +674,210 @@ def test_apply_review_replays_after_archive_closure(
     replay = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
     assert replay.status_code == 200
     assert replay.json() == first.json()
+
+    own_facts = _get_review(env, seed, bearer="self-after-archive")
+    assert own_facts.status_code == 200
+    assert own_facts.json()["status"] == "APPROVED"
+    denied = _post_review(env, seed, idempotency_key="approve-replay-after-archive", bearer="self-after-archive")
+    assert denied.status_code == 403
+
+
+SELF_PERMISSION = "withdraw_own_submission"
+SELF_HTTP_CASES = (
+    ("self-get", "actor-1", frozenset({SELF_PERMISSION}), "GET", 200),
+    ("other-get", "other-actor", frozenset({SELF_PERMISSION}), "GET", 404),
+    ("self-withdraw", "actor-1", frozenset({SELF_PERMISSION}), "WITHDRAW", 201),
+    ("other-withdraw", "other-actor", frozenset({SELF_PERMISSION}), "WITHDRAW", 404),
+    ("self-approve", "actor-1", frozenset({SELF_PERMISSION}), "APPROVE", 403),
+    ("self-reject", "actor-1", frozenset({SELF_PERMISSION}), "REJECT", 403),
+    ("upload-only", "actor-1", frozenset({"upload_submit_workspace"}), "WITHDRAW", 403),
+    ("dual-reviewer", "other-actor", frozenset({SELF_PERMISSION, PERMISSION_REVIEW_SUBMISSION}), "WITHDRAW", 201),
+)
+
+
+@pytest.mark.parametrize(("case", "actor", "permissions", "action", "expected"), SELF_HTTP_CASES,
+                         ids=[case[0] for case in SELF_HTTP_CASES])
+def test_review_current_permission_and_submission_owner(
+    tmp_path: Path, case: str, actor: str, permissions: frozenset[str], action: str, expected: int,
+) -> None:
+    del case
+    env, seed = _review_env(tmp_path, identity=make_identity(actor_id=actor, permissions=permissions))
+    before = _review_counts(env)
+    response = (_get_review(env, seed) if action == "GET" else _post_review(
+        env, seed, idempotency_key="self-policy", body=_apply_body(action=action, reason="review reason"),
+    ))
+    assert response.status_code == expected, response.text
+    if expected in {403, 404}:
+        assert "events" not in response.json()
+        assert _review_counts(env) == before
+
+
+def _review_counts(env: WorkspaceHttpTestEnvironment) -> tuple[int, int]:
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        events = unit_of_work.connection.execute("SELECT COUNT(*) FROM review_event_records").fetchone()[0]
+        keys = unit_of_work.connection.execute("SELECT COUNT(*) FROM review_idempotency_records").fetchone()[0]
+        return events, keys
+
+
+@pytest.mark.parametrize("action", [None, "APPROVE", "REJECT", "WITHDRAW"])
+def test_self_only_reads_own_review_in_every_status(tmp_path: Path, action: str | None) -> None:
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "self-only": make_identity(permissions=frozenset({SELF_PERMISSION})),
+    })
+    if action is not None:
+        response = _post_review(env, seed, idempotency_key="set-status",
+                                body=_apply_body(action=action, reason="review reason"))
+        assert response.status_code == 201
+    facts = _get_review(env, seed, bearer="self-only")
+    assert facts.status_code == 200
+    assert facts.json()["status"] == {None: "PENDING", "APPROVE": "APPROVED",
+                                      "REJECT": "REJECTED", "WITHDRAW": "WITHDRAWN"}[action]
+
+
+def test_withdraw_replay_reauthorizes_and_preserves_first_actor(tmp_path: Path) -> None:
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "self-only": make_identity(permissions=frozenset({SELF_PERMISSION})),
+        REVIEWER_BEARER: make_identity(actor_id="reviewer-2", permissions=frozenset({PERMISSION_REVIEW_SUBMISSION})),
+        "withdraw-revoked": make_identity(permissions=frozenset({"workspace_read"})),
+        "not-owner": make_identity(actor_id="not-owner", permissions=frozenset({SELF_PERMISSION})),
+    })
+    body = _apply_body(action="WITHDRAW")
+    first = _post_review(env, seed, idempotency_key="shared-withdraw", body=body, bearer=REVIEWER_BEARER)
+    replay = _post_review(env, seed, idempotency_key="shared-withdraw", body=body, bearer="self-only")
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.json()["event"]["actor_id"] == "reviewer-2"
+    assert _post_review(env, seed, idempotency_key="shared-withdraw", body=body,
+                        bearer="withdraw-revoked").status_code == 403
+    assert _post_review(env, seed, idempotency_key="shared-withdraw", body=body,
+                        bearer="not-owner").status_code == 404
+    fresh = _post_review(env, seed, idempotency_key="new-withdraw", body=_apply_body(
+        action="WITHDRAW", expected_review_version=1), bearer="self-only")
+    assert fresh.status_code == 409
+    assert fresh.json()["code"] == "REVIEW_TRANSITION_CONFLICT"
+    assert _review_counts(env) == (2, 1)
+
+
+@pytest.mark.parametrize("target", ["missing", "other-scope"])
+def test_self_review_scope_is_hidden_for_read_and_replay(tmp_path: Path, target: str) -> None:
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "other-scope": make_identity(device_key="other-device", permissions=frozenset({SELF_PERMISSION})),
+        "self-only": make_identity(permissions=frozenset({SELF_PERMISSION})),
+    })
+    body = _apply_body(action="WITHDRAW")
+    assert _post_review(env, seed, idempotency_key="scope-replay", body=body).status_code == 201
+    target_seed = replace(seed, submission_id="missing") if target == "missing" else seed
+    bearer = "self-only" if target == "missing" else "other-scope"
+    assert _get_review(env, target_seed, bearer=bearer).status_code == 404
+    assert _post_review(env, target_seed, idempotency_key="scope-replay", body=body, bearer=bearer).status_code == 404
+
+
+def test_self_target_authorization_precedes_review_closure_read(tmp_path: Path) -> None:
+    env, seed = _review_env(tmp_path, identity=make_identity(actor_id="not-owner", permissions=frozenset({SELF_PERMISSION})))
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        unit_of_work.connection.execute("DELETE FROM review_event_records WHERE submission_id = ?", (seed.submission_id,))
+    assert _get_review(env, seed).status_code == 404
+    assert _post_review(env, seed, idempotency_key="no-disclosure", body=_apply_body(action="WITHDRAW")).status_code == 404
+
+
+@pytest.mark.parametrize("fault", (None, *CONFIGURATION_BODY_FAULTS))
+def test_self_authorized_target_cannot_replay_another_submission_key(tmp_path: Path, fault: str | None) -> None:
+    from tests.test_review_transactions import _seed_additional_pending_review_submission
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "second-owner": make_identity(actor_id="actor-sub-2", permissions=frozenset({SELF_PERMISSION})),
+    })
+    body = _apply_body(action="WITHDRAW")
+    assert _post_review(env, seed, idempotency_key="project-key", body=body).status_code == 201
+    second = _seed_additional_pending_review_submission(env.db_path, submission_id="sub-2",
+        device_key="device-1", repository_id="repo-1", project_id="project-1")
+    target = replace(seed, submission_id=second.submission_id)
+    if fault is not None:
+        corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
+    before = _review_counts(env)
+    collision = _post_review(env, target, idempotency_key="project-key", body=body, bearer="second-owner")
+    assert collision.status_code == (409 if fault is None else 503)
+    assert collision.json()["code"] == ("IDEMPOTENCY_CONFLICT" if fault is None else "SERVICE_NOT_READY")
+    assert "event" not in collision.json()
+    assert "other-source" not in collision.text and "configuration_facts" not in collision.text
+    assert _review_counts(env) == before
+
+
+@pytest.mark.parametrize("action", ["APPROVE", "REJECT", "WITHDRAW"])
+def test_fresh_approve_requires_current_baseline_but_release_actions_remain_available(tmp_path: Path, action: str) -> None:
+    from tests.support.baseline_fixtures import apply_baseline_head_state
+    from tests.test_submit_transactions import BASELINE_HEAD
+    env, seed = _review_env(tmp_path)
+    apply_baseline_head_state(env.db_path, repository_id=seed.repository_id, baseline_head=replace(
+        BASELINE_HEAD, business_baseline_node_id="advanced-node", business_baseline_commit_id="advanced-commit",
+        baseline_head_version=BASELINE_HEAD.baseline_head_version + 1,
+    ))
+    before = _review_counts(env)
+    response = _post_review(env, seed, idempotency_key="old-baseline", body=_apply_body(action=action, reason="dispose old pending"))
+    if action == "APPROVE":
+        assert response.status_code == 409
+        assert response.json()["code"] == "BASELINE_VERSION_CONFLICT"
+        assert _review_counts(env) == before
+        with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+            assert unit_of_work.submission.get_workspace_occupancy(seed.workspace_id) is not None
+    else:
+        assert response.status_code == 201
+
+
+def test_removed_review_action_is_rejected_without_writes(review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed]) -> None:
+    env, seed = review_env
+    before = _review_counts(env)
+    response = _post_review(env, seed, idempotency_key="removed-action", body=_apply_body(action="RETURN_FOR_REVISION", reason="obsolete"))
+    assert response.status_code == 422
+    assert _review_counts(env) == before
+
+
+@pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
+def test_review_authorizes_target_before_decoding_configuration_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "own-self": make_identity(permissions=frozenset({SELF_PERMISSION})),
+        "other-self": make_identity(actor_id="other-actor", permissions=frozenset({SELF_PERMISSION})),
+        "foreign-scope": make_identity(device_key="device-2", project_id="project-2", permissions=frozenset({PERMISSION_REVIEW_SUBMISSION})),
+        "denied": make_identity(permissions=frozenset({"workspace_read"})),
+    })
+    body = _apply_body(action="WITHDRAW", reason="finished review")
+    assert _post_review(env, seed, idempotency_key="frozen-review", body=body).status_code == 201
+    before = _review_counts(env)
+    corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
+    for key in ("fresh-review", "frozen-review"):
+        assert _post_review(env, seed, idempotency_key=key, body=body, bearer="other-self").status_code == 404
+    assert _get_review(env, seed, bearer="other-self").status_code == 404
+    _upsert_provisioned_mapping_row(env.db_path, device_key="device-2", project_id="project-2", repository_id="repo-2")
+    env.scope_resolution.repository_id = "repo-2"
+    assert _get_review(env, seed, bearer="foreign-scope").status_code == 404
+    assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="foreign-scope").status_code == 404
+    env.scope_resolution.repository_id = "repo-1"
+    with forbid_configuration_object_reads(monkeypatch):
+        assert _get_review(env, seed, bearer="denied").status_code == 403
+        assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="denied").status_code == 403
+    authorized_get = _get_review(env, seed, bearer="own-self")
+    authorized_post = _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="own-self")
+    for response in (authorized_get, authorized_post):
+        assert response.status_code == 503
+        assert response.json()["code"] == "SERVICE_NOT_READY"
+        assert "other-source" not in response.text and "configuration_facts" not in response.text
+    assert _review_counts(env) == before
+
+
+def test_self_only_review_reads_its_manual_closure_summary_and_keeps_approved_status(tmp_path: Path) -> None:
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import seed_approved_archive_candidate, close_command, TS_ARCHIVE
+    from tests.test_review_transactions import _uow_factory
+    from tests.support.http_workspace_harness import create_workspace_http_environment
+    from tests.support.workspace_fixtures import make_identity
+    env = create_workspace_http_environment(tmp_path,
+        identity=make_identity(permissions=frozenset({"withdraw_own_submission"})))
+    seed = seed_approved_archive_candidate(env.db_path)
+    close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(env.db_path), now=TS_ARCHIVE)
+    response = env.client.get(f"/v1/submissions/{seed.submission_id}/review", headers=env.auth_headers())
+    assert response.status_code == 200
+    assert response.json()["status"] == "APPROVED"
+    assert response.json()["submission_disposition"]["source_kind"] == "MANUAL_CLOSE"
+    assert response.json()["submission_disposition"]["result_id"] is None

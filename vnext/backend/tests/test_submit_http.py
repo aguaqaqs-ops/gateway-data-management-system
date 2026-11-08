@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from tests.support.configuration_facts import replace_preview_with_facts
+from tests.support.configuration_fact_faults import CONFIGURATION_BODY_FAULTS, corrupt_configuration_body
+
 from pathlib import Path
 from typing import Any
 
@@ -273,7 +275,7 @@ def test_accept_submit_rejects_preview_derived_stale(
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         preview = unit_of_work.workspace.get_preview_result(workspace["preview_result_id"])
         assert preview is not None
-        stale_preview = replace(
+        stale_preview = replace_preview_with_facts(
             preview,
             baseline_head_version=preview.baseline_head_version - 1,
             business_baseline_commit_id="commit-stale",
@@ -470,3 +472,25 @@ def test_accept_submit_rejects_admission_limit(tmp_path: Path) -> None:
     )
     assert response.status_code == 429
     assert response.json()["code"] == "ADMISSION_LIMIT_REACHED"
+
+
+@pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
+def test_accept_submit_hides_foreign_preview_before_configuration_decode(
+    tmp_path: Path, fault: str,
+) -> None:
+    from tests.test_preview_read_http import _preview_result, _seed_upload, _seed_workspace
+    env = create_workspace_http_environment(tmp_path, extra_sessions={"other-reader": make_identity(actor_id="other-actor")})
+    seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
+    workspace = _seeded_workspace_dict(seed)
+    headers = {"Authorization": "Bearer other-reader"}
+    foreign_workspace = _seed_workspace(env.client, headers)
+    foreign_upload = _seed_upload(env.client, headers, foreign_workspace)
+    foreign_preview = _preview_result(foreign_workspace, foreign_upload, "op-foreign-preview")
+    env.repository.save_preview_result(foreign_preview)
+    corrupt_configuration_body(env.db_path, kind="preview", target_id=foreign_preview.preview_result_id, fault=fault)
+    body = {**_submit_body(workspace), "preview_result_id": foreign_preview.preview_result_id}
+    response = env.client.post(f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="foreign-preview"), json=body)
+    assert response.status_code == 404
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0

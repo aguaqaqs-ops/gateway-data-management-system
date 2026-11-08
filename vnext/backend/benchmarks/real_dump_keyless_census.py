@@ -7,6 +7,11 @@ fingerprints before cross-dataset comparisons.
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+)
+
 import argparse
 import hashlib
 import itertools
@@ -39,7 +44,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSourceInput,
     SourceCell,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_arrow_sql
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     SelectorPrecedenceClass,
@@ -48,7 +53,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
-from gateway_backend.capabilities.storage_projection import project_canonical_table_set
+from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
 from gateway_backend.capabilities.storage_projection.contracts import (
     CanonicalizationManifestTable,
     ProjectionStatus,
@@ -264,7 +269,7 @@ def _materialize_project(
 ) -> tuple[dict[str, TableMetadata], tuple[SnapshotTable, ...]]:
     sql_bytes, xml_bytes, store = _parse_package(spec.package_path)
     parse_context = ParserInvocationContext(NeverCancel())
-    parse_result = parse_sql(
+    parse_result = parse_arrow_sql(
         SqlParseRequest(
             source=SqlSourceInput(
                 document_content_digest=_ZERO_DIGEST,
@@ -316,7 +321,7 @@ def _materialize_project(
         )
 
     raw_table_set = business.table_set
-    projection = project_canonical_table_set(raw_table_set, ruleset)
+    projection = project_canonical_arrow_table_set(raw_table_set, ruleset)
     _close_readers(raw_table_set.tables)
     if projection.status is not ProjectionStatus.COMPLETE or projection.manifest is None:
         raise CensusRefusal(
@@ -780,7 +785,7 @@ def _render_markdown(report: dict[str, Any]) -> str:
         "## 方法",
         "",
         "- 输入为调试节点上的 t1–t4 v1、v2 共 8 个 SourcePackage；不写回数据包。",
-        "- 每份数据通过现有 staging、SQL/XML 解析、READERS_REQUIRED 业务物化与 `project_canonical_table_set`；仅以规范投影 manifest 中 `canonical_key_columns` 为空的表作为纳入条件。",
+        "- 每份数据通过现有 staging、SQL/XML 解析、READERS_REQUIRED 业务物化与 `project_canonical_arrow_table_set`；仅以规范投影 manifest 中 `canonical_key_columns` 为空的表作为纳入条件。",
         "- 行数、列数与候选键均取自规范投影后的表。被规则丢弃的列已不参与候选键。规则类别取当前规则解析结果。",
         "- 候选键为所有出现数据集中共同存在的列中，均无 NULL 且唯一的最小列组合，最多 3 列。空表不提供唯一性证据；至少一个数据集有行才报告候选键。浮点列参与项单独标记。",
         "- 完全相同行按规范投影后的列名、类型和值指纹计数，报告每组保留一行后多出的行数。新增/删除按整行多重集合差计数；候选键变化按唯一键的插入、删除和整行变化计数。",
@@ -894,7 +899,16 @@ def main() -> None:
     parser.add_argument("--packages-dir", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--markdown-output", type=Path, required=True)
+    parser.add_argument("--kernel-threads", type=int, required=True)
+    parser.add_argument("--kernel-memory-budget-bytes", type=int, required=True)
     args = parser.parse_args()
+    initialize_compute_kernel(args.kernel_threads)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(args.kernel_memory_budget_bytes),
+            NeverCancel(), args.kernel_threads), new_operation=True):
+        _run_census(args)
+
+
+def _run_census(args: argparse.Namespace) -> None:
     try:
         specs = _expected_specs(args.packages_dir)
         report = _build_report(specs)

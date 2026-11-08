@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from tests.support.configuration_facts import configuration_facts_blob
+
+from collections.abc import Callable
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+from gateway_backend.application.archive.manual_close import CloseSubmissionCommand
+from dataclasses import dataclass, replace
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -86,7 +92,7 @@ def assert_archive_durable_state_unchanged(
             "SELECT COUNT(*) FROM archive_result_records"
         ).fetchone()[0]
         disposition_count = unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM archive_disposition_records"
+            "SELECT COUNT(*) FROM submission_disposition_records"
         ).fetchone()[0]
         head = get_current_head_from_connection(unit_of_work.connection, repository_id)
         assert plan_count == 0
@@ -134,6 +140,7 @@ def archive_seed_from_review_seed(review_seed: ReviewSeed) -> ArchiveSeed:
         review_seed.reviewer_context.gateway_device_external_key,
         review_seed.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(review_seed.db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(review_seed.db_path),
@@ -215,13 +222,15 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         attempt_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
                 head_version,
-                b"[]",
+                b'["source-fixture"]',
                 "canonical-closure-1",
                 "sha256:canonical-closure",
                 operation_id,
@@ -230,13 +239,15 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         submission_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 submission_id,
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
-                b"[]",
+                b'["source-fixture"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -287,6 +298,7 @@ def _insert_bulk_approved_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -303,8 +315,9 @@ def _insert_bulk_approved_archive_candidate_rows(
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', 'manifest-1', 'sha256:manifest',
                 NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
@@ -316,6 +329,7 @@ def _insert_bulk_approved_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submission_records (
+                configuration_facts,
                 submission_id, submit_attempt_id, workspace_id, workspace_generation,
                 upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
                 business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -325,8 +339,9 @@ def _insert_bulk_approved_archive_candidate_rows(
                 completed_verification_policy, requested_unknown_type_policy, target_ref,
                 created_by, created_at_us
             ) VALUES (
+                ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
                 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,
@@ -418,13 +433,15 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         attempt_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
                 head_version,
-                b"[]",
+                b'["source-fixture"]',
                 "canonical-closure-1",
                 "sha256:canonical-closure",
                 operation_id,
@@ -433,13 +450,15 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         submission_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 submission_id,
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
-                b"[]",
+                b'["source-fixture"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -490,6 +509,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -505,8 +525,9 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
@@ -517,6 +538,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submission_records (
+                configuration_facts,
                 submission_id, submit_attempt_id, workspace_id, workspace_generation,
                 upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
                 business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -526,8 +548,9 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 completed_verification_policy, requested_unknown_type_policy, target_ref,
                 created_by, created_at_us
             ) VALUES (
+                ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
                 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,
@@ -582,6 +605,7 @@ def seed_bulk_approved_archive_candidates(db_path: Path, *, count: int) -> Archi
             business_project_id=seed.archiver_context.business_project_id,
             additional_count=count - 1,
         )
+    normalize_archive_fixture_configuration(db_path)
     return seed
 
 
@@ -616,6 +640,7 @@ def seed_triple_approved_sibling_archive(
         primary_review.reviewer_context.gateway_device_external_key,
         primary_review.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(db_path),
@@ -671,6 +696,7 @@ def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:
         primary_review.reviewer_context.gateway_device_external_key,
         primary_review.reviewer_context.business_project_id,
     )
+    normalize_archive_fixture_configuration(db_path)
     candidates = get_archive_candidates(
         context=archiver_context,
         unit_of_work_factory=_uow_factory(db_path),
@@ -821,3 +847,51 @@ def prepare_dual_sibling_start(
         now=now,
     )
     return confirmation_sequence, resolution_sequence
+
+
+def normalize_archive_fixture_configuration(db_path: Path) -> None:
+    """Existing archive fixtures start at an INITIAL node and use valid source times."""
+    from gateway_backend.domain.configuration_facts import ConfigurationFacts, ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "VALID", "2024-06-01T12:00:00Z",
+        "2024-06-01T12:00:00Z", 1, 0, 0, 1, 1, False)
+    with ControlDbUnitOfWork(db_path) as uow:
+        rows = uow.connection.execute("""SELECT s.submission_id, s.submit_attempt_id, s.configuration_facts
+            FROM submission_records s JOIN baseline_node_records b ON b.node_id = s.based_on_baseline_node_id
+            WHERE b.kind = 'INITIAL'""").fetchall()
+        for row in rows:
+            facts = ConfigurationFacts.from_document(json.loads(row["configuration_facts"]))
+            facts = replace(facts, baseline_is_initial=True, baseline_source_submission_id=None, initial_origin="UPLOADED",
+                initial=replace(facts.initial, generated_time=time), modified=replace(facts.modified, generated_time=time))
+            blob = canonicalize_json_value(facts.to_document())
+            uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?",
+                (blob, row["submission_id"]))
+            uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
+                (blob, row["submit_attempt_id"]))
+
+
+def close_command(seed: ArchiveSeed, *, key: str = "close-approved", reason: str = "source cannot be accepted; upload a corrected package") -> CloseSubmissionCommand:
+    return CloseSubmissionCommand(seed.archiver_context, seed.submission_id, key, 1,
+        BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.baseline_head_version, reason)
+
+
+def replace_archive_configuration(db_path: Path, submission_id: str,
+        transform: Callable[[ConfigurationFacts], ConfigurationFacts]) -> ConfigurationFacts:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    with ControlDbUnitOfWork(db_path) as uow:
+        submission = uow.submission.get_submission(submission_id)
+        assert submission is not None
+        facts = transform(submission.configuration_facts)
+        blob = canonicalize_json_value(facts.to_document())
+        uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?", (blob, submission_id))
+        uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?", (blob, submission.submit_attempt_id))
+    return facts
+
+
+def refresh_archive_seed(seed: ArchiveSeed) -> ArchiveSeed:
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(seed.db_path))
+    selected = next(item for item in candidates.candidates if item.submission_id == seed.submission_id)
+    return replace(seed, candidate_set_digest=candidates.candidate_set_digest,
+        selected_ref=ArchiveSelectedRef(selected.submission_id, selected.expected_candidate_digest),
+        selection_subject_digest=compute_selection_subject_digest(candidate_set_digest=candidates.candidate_set_digest,
+            selected_submission_id=selected.submission_id, expected_candidate_digest=selected.expected_candidate_digest))

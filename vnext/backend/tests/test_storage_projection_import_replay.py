@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage
+
 import pytest
 
 from gateway_backend.capabilities.storage_projection import (
@@ -11,7 +13,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     STORAGE_PROJECTION_VERSION,
     NeverCancel,
-    project_storage,
     render_repository_import_schema_replay_sql,
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot

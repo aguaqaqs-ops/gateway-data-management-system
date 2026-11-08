@@ -9,16 +9,21 @@ from datetime import datetime
 
 from gateway_backend.application.archive.contracts import (
     ArchiveAuditReferenceInput,
+    assert_resolution_event_integrity,
+    assert_confirmation_event_integrity,
     ArchiveSelectedRef,
     compute_selection_subject_digest,
     compute_start_request_fingerprint,
     validate_utf8_id,
+    validate_non_negative_int,
 )
 from gateway_backend.application.archive.errors import (
     ArchiveIntegrityFailure,
+    ArchivePendingReview,
     CandidateBindingConflict,
     CandidateSetConflict,
 )
+from gateway_backend.application.archive.integrity import assert_archive_result_integrity
 from gateway_backend.application.archive.ports import (
     ArchiveControlTransaction,
     ArchiveControlUnitOfWorkFactory,
@@ -36,14 +41,14 @@ from gateway_backend.application.archive.snapshot import (
 )
 from gateway_backend.application.submission.errors import BaselineVersionConflict, IdempotencyConflict
 from gateway_backend.domain.archive.models import (
-    ArchiveAnomalyResolutionAction,
     ArchiveAuditReference,
     ArchiveConfirmationAction,
-    ArchiveDisposition,
-    ArchiveDispositionKind,
+    SubmissionDisposition,
+    SubmissionDispositionKind,
+    SubmissionDispositionSourceKind,
     ArchivePlan,
     ArchiveResult,
-    ArchiveSubjectKind,
+    affirmative_resolution_action,
 )
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -70,7 +75,7 @@ class StartArchiveResult:
     baseline_commit_id: str
     baseline_head_version: int
     selected_submission_id: str
-    dispositions: tuple[ArchiveDisposition, ...]
+    dispositions: tuple[SubmissionDisposition, ...]
     released_workspace_ids: tuple[str, ...]
     archived_by: str
     archived_at: datetime
@@ -101,18 +106,22 @@ def start_archive(
             confirmation_refs=command.confirmation_refs,
             anomaly_resolution_refs=command.anomaly_resolution_refs,
         )
-        existing_plan = unit_of_work.archive.find_start_plan_by_key(
-            fresh_scope.repository_id,
-            command.context.gateway_device_external_key,
-            command.context.business_project_id,
-            command.idempotency_key,
-        )
+        try:
+            existing_plan = unit_of_work.archive.find_start_plan_by_key(
+                fresh_scope.repository_id,
+                command.context.gateway_device_external_key,
+                command.context.business_project_id,
+                command.idempotency_key,
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ArchiveIntegrityFailure("stored archive plan facts are invalid") from exc
         if existing_plan is not None:
-            if existing_plan.request_fingerprint != request_fingerprint:
-                raise IdempotencyConflict(idempotency_key=command.idempotency_key)
             existing_result = unit_of_work.archive.get_result_by_plan_id(existing_plan.plan_id)
             if existing_result is None:
-                raise RuntimeError("archive plan exists without matching result")
+                raise ArchiveIntegrityFailure("archive plan exists without matching result")
+            assert_archive_result_integrity(unit_of_work, existing_plan, existing_result)
+            if existing_plan.request_fingerprint != request_fingerprint:
+                raise IdempotencyConflict(idempotency_key=command.idempotency_key)
             selected_submission = unit_of_work.submission.get_submission(
                 existing_plan.selected_submission_id
             )
@@ -122,7 +131,7 @@ def start_archive(
                 archive_plan_id=existing_plan.plan_id,
                 archive_result_id=existing_result.result_id,
                 baseline_node_id=existing_result.baseline_node_id,
-                baseline_commit_id=selected_submission.repository_commit_id,
+                baseline_commit_id=existing_plan.selected_repository_commit_id,
                 baseline_head_version=existing_plan.old_baseline_head_version + 1,
                 selected_submission_id=existing_plan.selected_submission_id,
                 dispositions=existing_result.dispositions,
@@ -144,6 +153,8 @@ def start_archive(
         assert_repository_submit_gate(unit_of_work, fresh_scope.repository_id)
 
         snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, fresh_scope)
+        if snapshot.pending_submission_ids:
+            raise ArchivePendingReview()
         if snapshot.candidate_set_digest != command.candidate_set_digest:
             raise CandidateSetConflict()
         if not any(
@@ -207,9 +218,9 @@ def start_archive(
             archived_node,
             expected_head=head_record,
             new_head_node_id=baseline_node_id,
-            new_head_version=head_record.optimistic_version + 1,
+            new_head_version=validate_non_negative_int(head_record.optimistic_version + 1, field_name="next_baseline_head_version"),
         )
-        dispositions = _build_dispositions(snapshot, command.selected_ref)
+        dispositions = _build_dispositions(snapshot, command.selected_ref, result_id=result_id)
         confirmation_audit_refs = tuple(
             ArchiveAuditReference(subject_digest=ref.subject_digest, sequence=ref.sequence)
             for ref in command.confirmation_refs
@@ -223,6 +234,12 @@ def start_archive(
             snapshot=snapshot,
         )
         frozen_input = {
+            "schema": "backend-vnext/archive-frozen-input/v2",
+            "business_validation": snapshot.business_validation.to_document(),
+            "configuration_facts": [{"submission_id": item.submission_id, "configuration_facts_digest": item.configuration_facts.facts_digest}
+                for item in snapshot.business_candidates],
+            "anomaly_subjects": [{"subject_digest": item.subject_digest, "subject": item.subject_payload}
+                for item in anomalies],
             "candidate_refs": [
                 {
                     "expected_candidate_digest": candidate.expected_candidate_digest,
@@ -306,21 +323,28 @@ def start_archive(
 def _build_dispositions(
     snapshot: ArchiveCandidateSnapshot,
     selected: ArchiveSelectedRef,
-) -> tuple[ArchiveDisposition, ...]:
-    dispositions: list[ArchiveDisposition] = []
+    *, result_id: str,
+) -> tuple[SubmissionDisposition, ...]:
+    dispositions: list[SubmissionDisposition] = []
     for candidate in snapshot.candidates:
         if candidate.submission_id == selected.submission_id:
             dispositions.append(
-                ArchiveDisposition(
+                SubmissionDisposition(
                     submission_id=candidate.submission_id,
-                    disposition=ArchiveDispositionKind.ARCHIVED_BASELINE,
+                    source_kind=SubmissionDispositionSourceKind.ARCHIVE, result_id=result_id,
+                    repository_id=snapshot.repository_id, gateway_device_external_key=snapshot.gateway_device_external_key,
+                    business_project_id=snapshot.business_project_id,
+                    disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 )
             )
         else:
             dispositions.append(
-                ArchiveDisposition(
+                SubmissionDisposition(
                     submission_id=candidate.submission_id,
-                    disposition=ArchiveDispositionKind.CLOSED_NOT_ARCHIVED,
+                    source_kind=SubmissionDispositionSourceKind.ARCHIVE, result_id=result_id,
+                    repository_id=snapshot.repository_id, gateway_device_external_key=snapshot.gateway_device_external_key,
+                    business_project_id=snapshot.business_project_id,
+                    disposition=SubmissionDispositionKind.CLOSED_NOT_ARCHIVED,
                 )
             )
     return tuple(dispositions)
@@ -351,6 +375,8 @@ def _validate_audit_refs(
         selection_subject_digest,
         confirmation_ref.sequence,
     )
+    if confirmation_event is not None:
+        assert_confirmation_event_integrity(confirmation_event)
     if confirmation_event is None or confirmation_event.action is not ArchiveConfirmationAction.CONFIRM:
         raise CandidateBindingConflict("confirmation audit reference is not affirmative")
     if len(anomaly_resolution_refs) != len(anomalies):
@@ -374,11 +400,9 @@ def _validate_audit_refs(
             anomaly.subject_digest,
             resolution_ref.sequence,
         )
-        expected_action = (
-            ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION
-            if anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION
-            else ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
-        )
+        if resolution_event is not None:
+            assert_resolution_event_integrity(resolution_event)
+        expected_action = affirmative_resolution_action(anomaly.subject_kind)
         if resolution_event is None or resolution_event.action is not expected_action:
             raise CandidateBindingConflict("anomaly resolution audit reference is not affirmative")
         if resolution_event.subject_kind is not anomaly.subject_kind:
@@ -427,7 +451,7 @@ def _release_workspaces_for_archive(
             workspace,
             current_upload_revision_id=None,
             current_preview_result_id=None,
-            optimistic_version=workspace.optimistic_version + 1,
+            optimistic_version=validate_non_negative_int(workspace.optimistic_version + 1, field_name="next_workspace_version"),
             updated_at=now,
         )
         unit_of_work.workspace.save_workspace(
@@ -444,7 +468,7 @@ def _release_workspaces_for_archive(
 
 def _released_workspace_ids(
     unit_of_work: ArchiveControlTransaction,
-    dispositions: tuple[ArchiveDisposition, ...],
+    dispositions: tuple[SubmissionDisposition, ...],
 ) -> tuple[str, ...]:
     workspace_ids: list[str] = []
     for disposition in dispositions:

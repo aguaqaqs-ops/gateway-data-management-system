@@ -96,6 +96,7 @@ class ResourceBudgets:
     max_xml_document_bytes: int
     max_diagnostics: int
     max_diagnostic_message_bytes: int
+    max_archive_metadata_bytes: int = 256 * _MIB
 
 
 RESOURCE_BUDGETS = ResourceBudgets(

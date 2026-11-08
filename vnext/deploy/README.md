@@ -15,7 +15,8 @@ array. Permission checks are exact string matches with no inheritance.
 | `workspace_read` | Read workspaces, operations, and submission reads |
 | `upload_submit_workspace` | Upload revisions and accept submit attempts |
 | `preview_workspace` | Start preview operations |
-| `review_submission` | Apply review events |
+| `review_submission` | Read scoped reviews and apply APPROVE/REJECT/WITHDRAW |
+| `withdraw_own_submission` | Read own reviews and WITHDRAW own PENDING submissions |
 | `archive_submission` | List candidates, preview plans, append audit facts, and start archives |
 | `read_project_history` | Read project history nodes and start history compares |
 

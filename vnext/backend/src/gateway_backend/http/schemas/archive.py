@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Self
+import json
+from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, model_validator
 
 from gateway_backend.application.archive.audit import AppendArchiveAuditResult
 from gateway_backend.application.archive.contracts import (
-    ARCHIVE_MAX_AUDIT_REFS,
+    ARCHIVE_MAX_CONFIRMATION_REFS,
+    ARCHIVE_MAX_ANOMALY_REFS,
     ArchiveAuditReferenceInput,
     ArchiveSelectedRef,
     validate_archive_confirmation_reason,
@@ -26,14 +28,20 @@ from gateway_backend.application.archive.queries import (
     PreviewArchivePlanResult,
 )
 from gateway_backend.application.archive.start import StartArchiveResult
+from gateway_backend.application.archive.manual_close import CloseSubmissionResult
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionEvent,
     ArchiveConfirmationAction,
     ArchiveConfirmationEvent,
-    ArchiveDisposition,
+    SubmissionDisposition,
+    ManualSubmissionClosure,
     ArchiveSubjectKind,
 )
 from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.http.schemas.archive_business import (
+    ArchiveBusinessValidationResponse, ArchiveIssueDetailsResponse, ArchiveAuditSubjectResponse,
+    ArchiveBusinessSubjectResponse, ArchiveSiblingSubjectResponse, ArchiveIdentitySubjectResponse,
+)
 from gateway_backend.http.schemas.constraints import (
     BoundedDiagnosticReason,
     BoundedOpaqueId,
@@ -44,14 +52,21 @@ ArchiveConfirmationActionLiteral = Literal["CONFIRM", "REVOKE"]
 ArchiveAnomalyResolutionActionLiteral = Literal[
     "ACKNOWLEDGE_EXCLUSION",
     "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+    "ACKNOWLEDGE_SOURCE_EXCEPTION",
+    "ACKNOWLEDGE_TIME_QUALITY",
+    "ACKNOWLEDGE_TIME_ORDER",
     "REVOKE",
 ]
 ArchiveSubjectKindLiteral = Literal[
     "CONFIRM_SELECTION",
     "APPROVED_SIBLING_EXCLUDED",
     "PROJECT_IDENTITY_EXCEPTION",
+    "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER",
 ]
-ArchiveDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
+ArchiveAnomalySubjectKindLiteral = Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"]
+ArchiveResolutionStatusLiteral = Literal["UNRESOLVED", "ACCEPTED", "REVOKED"]
+
+SubmissionDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 
 
 def _validation_value_error(exc: ArchiveRequestValidation) -> ValueError:
@@ -130,7 +145,7 @@ class AppendArchiveAnomalyResolutionRequest(BaseModel):
     expected_sequence: NonNegativeIJsonInt
     action: ArchiveAnomalyResolutionActionLiteral
     reason: BoundedDiagnosticReason
-    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
+    subject_kind: ArchiveAnomalySubjectKindLiteral
     issue_code: BoundedOpaqueId
     target_submission_id: BoundedOpaqueId
     target_candidate_digest: ArchiveDigest
@@ -145,11 +160,11 @@ class StartArchiveRequest(BaseModel):
     selected: ArchiveSelectedRefRequest
     confirmation_refs: list[ArchiveAuditReferenceRequest] = Field(
         default_factory=list,
-        max_length=ARCHIVE_MAX_AUDIT_REFS,
+        max_length=ARCHIVE_MAX_CONFIRMATION_REFS,
     )
     anomaly_resolution_refs: list[ArchiveAuditReferenceRequest] = Field(
         default_factory=list,
-        max_length=ARCHIVE_MAX_AUDIT_REFS,
+        max_length=ARCHIVE_MAX_ANOMALY_REFS,
     )
 
     @model_validator(mode="after")
@@ -176,23 +191,35 @@ class ArchiveCandidatesResponse(BaseModel):
     candidates: list[ArchiveCandidateResponse]
     candidate_set_digest: str
     blockers: list[str]
+    pending_submission_ids: list[BoundedOpaqueId]
+    pending_submission_count: NonNegativeIJsonInt
 
 
 class ArchivePreviewAnomalyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
+    subject_kind: ArchiveAnomalySubjectKindLiteral
     issue_code: str
     target_submission_id: str
     target_candidate_digest: str
     subject_digest: str
+    affected_submission_ids: list[str]
+    side: str | None
+    relations: list[str]
+    details: ArchiveIssueDetailsResponse
+    detected_status: str
+    resolution_status: ArchiveResolutionStatusLiteral
+    latest_sequence: NonNegativeIJsonInt
+    accepted_by: str | None
+    accepted_at: datetime | None
+    reason: str | None
 
 
 class ArchivePreviewDispositionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     submission_id: str
-    disposition: ArchiveDispositionLiteral
+    disposition: SubmissionDispositionLiteral
 
 
 class ArchivePreviewWorkspaceReleaseResponse(BaseModel):
@@ -216,6 +243,9 @@ class PreviewArchivePlanResponse(BaseModel):
     workspace_releases: list[ArchivePreviewWorkspaceReleaseResponse]
     can_start: bool
     blockers: list[str]
+    pending_submission_ids: list[BoundedOpaqueId]
+    pending_submission_count: NonNegativeIJsonInt
+    business_validation: ArchiveBusinessValidationResponse
 
 
 class ArchiveAuditEventResponse(BaseModel):
@@ -232,6 +262,7 @@ class ArchiveAuditEventResponse(BaseModel):
     issue_code: str | None = None
     target_submission_id: str | None = None
     target_candidate_digest: str | None = None
+    subject: ArchiveAuditSubjectResponse | None = None
 
 
 class ArchiveAuditAppendResponse(BaseModel):
@@ -248,11 +279,44 @@ class ArchiveAuditEventsResponse(BaseModel):
     next_after_sequence: int | None = None
 
 
-class ArchiveDispositionResponse(BaseModel):
+class SubmissionClosureSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    closed_by: str
+    closed_at: datetime
+    reason: str
+
+
+class CloseSubmissionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_review_version: NonNegativeIJsonInt
+    expected_baseline_node_id: BoundedOpaqueId
+    expected_baseline_head_version: NonNegativeIJsonInt
+    reason: BoundedDiagnosticReason
+
+
+class CloseSubmissionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     submission_id: str
-    disposition: ArchiveDispositionLiteral
+    disposition: Literal["CLOSED_NOT_ARCHIVED"]
+    source_kind: Literal["MANUAL_CLOSE"]
+    closed_by: str
+    closed_at: datetime
+    reason: str
+    released_workspace_id: str
+    workspace_version: NonNegativeIJsonInt
+
+
+class SubmissionDispositionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    submission_id: str
+    disposition: SubmissionDispositionLiteral
+    source_kind: Literal["ARCHIVE", "MANUAL_CLOSE"]
+    result_id: str | None
+    closure: SubmissionClosureSummaryResponse | None
 
 
 class ArchiveStartedResponse(BaseModel):
@@ -262,9 +326,9 @@ class ArchiveStartedResponse(BaseModel):
     archive_result_id: str
     baseline_node_id: str
     baseline_commit_id: str
-    baseline_head_version: int
+    baseline_head_version: NonNegativeIJsonInt
     selected_submission_id: str
-    dispositions: list[ArchiveDispositionResponse]
+    dispositions: list[SubmissionDispositionResponse]
     released_workspace_ids: list[str]
     archived_by: str
     archived_at: datetime
@@ -284,15 +348,16 @@ class ArchiveResultResponse(BaseModel):
     archive_plan_id: str
     baseline_node_id: str
     baseline_commit_id: str
-    baseline_head_version: int
+    baseline_head_version: NonNegativeIJsonInt
     selected_submission_id: str
     selected_repository_commit_id: str
     candidate_set_digest: str
     confirmation_refs: list[ArchiveAuditReferenceResponse]
     anomaly_resolution_refs: list[ArchiveAuditReferenceResponse]
-    dispositions: list[ArchiveDispositionResponse]
+    dispositions: list[SubmissionDispositionResponse]
     archived_by: str
     archived_at: datetime
+    business_validation: ArchiveBusinessValidationResponse
 
 
 def baseline_head_to_response(head: BaselineHead) -> BaselineHeadResponse:
@@ -329,6 +394,8 @@ def archive_candidates_to_response(result: ArchiveCandidatesResult) -> ArchiveCa
         ],
         candidate_set_digest=result.candidate_set_digest,
         blockers=list(result.blockers),
+        pending_submission_ids=list(result.pending_submission_ids),
+        pending_submission_count=len(result.pending_submission_ids),
     )
 
 
@@ -357,6 +424,9 @@ def preview_plan_to_response(result: PreviewArchivePlanResult) -> PreviewArchive
         ],
         can_start=result.can_start,
         blockers=list(result.blockers),
+        pending_submission_ids=list(result.pending_submission_ids),
+        pending_submission_count=len(result.pending_submission_ids),
+        business_validation=ArchiveBusinessValidationResponse.model_validate(result.business_validation.to_document()),
     )
 
 
@@ -382,7 +452,7 @@ def start_archive_to_response(result: StartArchiveResult) -> ArchiveStartedRespo
         baseline_commit_id=result.baseline_commit_id,
         baseline_head_version=result.baseline_head_version,
         selected_submission_id=result.selected_submission_id,
-        dispositions=[_disposition_record_to_response(item) for item in result.dispositions],
+        dispositions=[submission_disposition_to_response(item) for item in result.dispositions],
         released_workspace_ids=list(result.released_workspace_ids),
         archived_by=result.archived_by,
         archived_at=result.archived_at,
@@ -416,10 +486,11 @@ def archive_result_to_response(result: GetArchiveResultResult) -> ArchiveResultR
             for ref in plan.anomaly_resolution_refs
         ],
         dispositions=[
-            _disposition_record_to_response(item) for item in archive_result.dispositions
+            submission_disposition_to_response(item) for item in archive_result.dispositions
         ],
         archived_by=plan.accepted_by,
         archived_at=archive_result.archived_at,
+        business_validation=ArchiveBusinessValidationResponse.model_validate(json.loads(plan.frozen_input_json)["business_validation"]),
     )
 
 
@@ -461,19 +532,17 @@ def validate_confirmation_reason_field(
 
 
 def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomalyResponse:
-    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
-    if anomaly.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
-        subject_kind = "APPROVED_SIBLING_EXCLUDED"
-    elif anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION:
-        subject_kind = "PROJECT_IDENTITY_EXCEPTION"
-    else:
-        raise ValueError("selection confirmation cannot be represented as an archive anomaly")
     return ArchivePreviewAnomalyResponse(
-        subject_kind=subject_kind,
+        subject_kind=cast(ArchiveAnomalySubjectKindLiteral, anomaly.subject_kind.value),
         issue_code=anomaly.issue_code,
         target_submission_id=anomaly.target_submission_id,
         target_candidate_digest=anomaly.target_candidate_digest,
         subject_digest=anomaly.subject_digest,
+        affected_submission_ids=list(anomaly.affected_submission_ids), side=anomaly.side,
+        relations=list(anomaly.relations), details=TypeAdapter(ArchiveIssueDetailsResponse).validate_python(anomaly.details),
+        detected_status=anomaly.detected_status, resolution_status=cast(ArchiveResolutionStatusLiteral, anomaly.resolution_status),
+        latest_sequence=anomaly.latest_sequence, accepted_by=anomaly.accepted_by,
+        accepted_at=anomaly.accepted_at, reason=anomaly.reason,
     )
 
 
@@ -486,10 +555,12 @@ def _disposition_to_response(
     )
 
 
-def _disposition_record_to_response(disposition: ArchiveDisposition) -> ArchiveDispositionResponse:
-    return ArchiveDispositionResponse(
+def submission_disposition_to_response(disposition: SubmissionDisposition) -> SubmissionDispositionResponse:
+    return SubmissionDispositionResponse(
         submission_id=disposition.submission_id,
         disposition=disposition.disposition.value,
+        source_kind=disposition.source_kind.value, result_id=disposition.result_id,
+        closure=closure_summary_to_response(disposition.manual_closure),
     )
 
 
@@ -519,6 +590,7 @@ def _audit_event_to_response(
         issue_code=event.issue_code,
         target_submission_id=event.target_submission_id,
         target_candidate_digest=event.target_candidate_digest,
+        subject=archive_subject_to_response(event.subject_payload_json),
     )
 
 
@@ -527,3 +599,27 @@ def parse_archive_subject_kind(raw_value: str) -> ArchiveSubjectKind:
         return ArchiveSubjectKind(raw_value)
     except ValueError:
         raise ValueError("subject_kind is not supported") from None
+
+
+def closure_summary_to_response(closure: ManualSubmissionClosure | None) -> SubmissionClosureSummaryResponse | None:
+    return None if closure is None else SubmissionClosureSummaryResponse(
+        closed_by=closure.closed_by, closed_at=closure.closed_at, reason=closure.reason)
+
+
+def close_submission_to_response(result: CloseSubmissionResult) -> CloseSubmissionResponse:
+    record = result.disposition
+    closure = record.manual_closure
+    if closure is None:
+        raise ValueError("manual closure source is missing")
+    return CloseSubmissionResponse(submission_id=record.submission_id, disposition="CLOSED_NOT_ARCHIVED",
+        source_kind="MANUAL_CLOSE", closed_by=closure.closed_by, closed_at=closure.closed_at,
+        reason=closure.reason, released_workspace_id=closure.workspace_id, workspace_version=closure.workspace_version + 1)
+
+
+def archive_subject_to_response(value: str) -> ArchiveAuditSubjectResponse:
+    payload = json.loads(value)
+    if "subject_kind" in payload:
+        return ArchiveBusinessSubjectResponse.model_validate(payload)
+    if "issue_code" in payload:
+        return ArchiveSiblingSubjectResponse.model_validate(payload)
+    return ArchiveIdentitySubjectResponse.model_validate(payload)

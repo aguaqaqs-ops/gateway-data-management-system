@@ -265,7 +265,7 @@ def test_complete_projection_binds_opaque_manifest_digest() -> None:
 
 
 def test_capability_exports_publication_without_host_path_writer() -> None:
-    assert hasattr(storage_projection_public, "project_storage")
+    assert hasattr(storage_projection_public, "project_canonical_arrow_table_set")
     assert hasattr(storage_projection_public, "publish_canonicalization")
     assert hasattr(storage_projection_public, "build_repository_import_package")
     assert hasattr(storage_projection_public, "open_canonicalization_manifest")

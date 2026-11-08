@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.domain.archive.models import SubmissionDisposition
 from gateway_backend.domain.submission.review import (
     ReviewAction,
     ReviewEvent,
@@ -48,6 +49,7 @@ class ReviewFacts:
     projection: ReviewProjection
     events: tuple[ReviewEvent, ...]
     identity_confirmations: tuple[SubmitIdentityConfirmation, ...] = ()
+    submission_disposition: SubmissionDisposition | None = None
 
 
 def compute_review_apply_request_fingerprint(

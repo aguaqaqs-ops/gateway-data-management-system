@@ -20,7 +20,7 @@ from gateway_backend.capabilities.source_package_staging.contracts import (
 from gateway_backend.capabilities.source_package_staging.staging import stage_source_package
 from gateway_backend.capabilities.table_access.contracts import NeverCancel as ParserNeverCancel
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_arrow_sql
 from gateway_backend.capabilities.table_rules.contracts import (
     TABLE_RULESET_VERSION,
     TableCompareKey,
@@ -93,7 +93,7 @@ def test_package_kind_does_not_enter_sql_snapshot_identity() -> None:
     )
     assert staged.required_sql_document_ref is not None
     dump = resolve_sql_dump_source(staged.required_sql_document_ref)
-    parsed = parse_sql(
+    parsed = parse_arrow_sql(
         sql_request(sql, ParserInvocationContext(ParserNeverCancel()))
     )
     packaged = materialize_sql(parsed, sql_source_digest=dump.sql_source_digest)

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.workspace.contracts import PreviewReadState
+from gateway_backend.application.workspace.contracts import CreateOrGetWorkspaceResult, PreviewReadState
 from gateway_backend.domain.workspace.models import (
     SourceArtifactBinding,
     SourceArtifactRole,
     UploadRevision,
-    Workspace,
 )
 from gateway_backend.http.schemas.operation import (
     OperationDiagnosticDetailResponse,
@@ -24,7 +23,9 @@ from gateway_backend.http.schemas.workspace import WorkspaceResponse
 from gateway_backend.operations.contracts import OperationRecord
 
 
-def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
+def workspace_to_response(result: CreateOrGetWorkspaceResult) -> WorkspaceResponse:
+    workspace = result.workspace
+    occupancy = result.occupancy
     return WorkspaceResponse(
         workspace_id=workspace.workspace_id,
         gateway_device_external_key=workspace.gateway_device_external_key,
@@ -33,6 +34,8 @@ def workspace_to_response(workspace: Workspace) -> WorkspaceResponse:
         generation=workspace.generation,
         current_upload_revision_id=workspace.current_upload_revision_id,
         current_preview_result_id=workspace.current_preview_result_id,
+        active_submit_attempt_id=occupancy.active_submit_attempt_id if occupancy else None,
+        active_submission_id=occupancy.active_submission_id if occupancy else None,
         optimistic_version=workspace.optimistic_version,
         created_at=workspace.created_at,
         updated_at=workspace.updated_at,

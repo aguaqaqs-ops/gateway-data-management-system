@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import urllib.request
 from collections.abc import Callable
@@ -20,6 +21,8 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     cleanup_compose_project_artifacts,
+    capture_running_container_provenance,
+    persist_compose_gate_provenance,
     compose_auth_headers,
     compose_project_name,
     read_repository_catalog,
@@ -280,6 +283,19 @@ def test_compose_accept_upload_import_poll_t3_read_journey(tmp_path: Path) -> No
         )
         assert journey["submission_id"]
         assert journey["preview_result_id"].startswith("pr-")
+        with httpx.Client(base_url=BACKEND_URL, headers=compose_auth_headers()) as client:
+            schema = client.get("/openapi.json")
+        assert schema.status_code == 200, schema.text
+        for route in (
+            "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+            "/v1/history-compares/{operation_id}/bundle",
+        ):
+            assert set(schema.json()["paths"][route]["get"]["responses"]["200"]["content"]) == {"application/x-tar"}
+        schema_path = tmp_path / "production-openapi.json"
+        schema_path.write_bytes(schema.content)
+        print(f"production OpenAPI {schema_path} sha256={hashlib.sha256(schema.content).hexdigest()}")
+        provenance = capture_running_container_provenance(env)
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
     finally:
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:

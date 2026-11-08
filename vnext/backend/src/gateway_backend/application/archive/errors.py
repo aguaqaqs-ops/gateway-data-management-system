@@ -107,3 +107,19 @@ class ArchiveResultNotFound(ArchiveApplicationError):
     def __init__(self, *, archive_result_id: str) -> None:
         super().__init__(f"archive result {archive_result_id!r} was not found")
         self.archive_result_id = archive_result_id
+
+
+class ArchivePendingReview(ArchiveApplicationError):
+    """Current-baseline pending submissions must be reviewed before archive."""
+
+    stable_code = "ARCHIVE_PENDING_REVIEW"
+
+    def __init__(self) -> None:
+        super().__init__("current baseline has pending review submissions")
+
+
+class SubmissionClosureNotFound(ArchiveApplicationError):
+    stable_code = "RESOURCE_NOT_FOUND"
+
+    def __init__(self) -> None:
+        super().__init__("submission was not found")

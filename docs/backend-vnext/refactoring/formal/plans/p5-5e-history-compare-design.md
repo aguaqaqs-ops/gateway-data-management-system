@@ -505,3 +505,7 @@ T = `vnext/backend/tests/`。一个行为不变量只有一个 owner；其他层
   8. 比较 policy 绑定发现需要 table-rules 内部算法的私有复制（公共解析结果事实不足）→ 按 P5 §2A 先向 policy owner 提最小公共边界修正，停实现等 owner 交付（先重建公开面，不私下猜算法）；
   9. integrity record 无法实现 Operation Lifecycle §4 任一必需字段的可执行映射 → 停 S2 回设计（F5 停止线）；
 - **5E slice exit ≠ P5 overall 架构/性能收口**：exit 证据只覆盖本文不变量 + AGENTS 门禁规则，不合并签署（执行计划 §7 交付声明）。
+
+## V2统一终局处置读取补充（2026-11-07）
+
+History的分页load_page_in_transaction与完整load_snapshot/load_facts统一读取唯一submission_disposition_records/SubmissionDisposition。HTTP原archive_disposition直接改为submission_disposition（不留别名），增加disposition_source_kind=ARCHIVE|MANUAL_CLOSE、disposition_result_id及closure={closed_by,closed_at,reason}（非manual为null）。Review status独立保持APPROVED；manual关闭没有虚构ArchiveResult/BaselineNode，历史父边、提交内容、比较和授权不变。ARCHIVE来源仍来自真实Result/Plan；同一结果children只组装ARCHIVE行。项目History权限和self-only Review/点读范围不扩权，页游标顺序不因处置变化而重排。该读模型不保存副本，不新增History表、compare job版本或兼容字段；关闭/重新上传与归档的具体权威语义见[Business Lifecycle 6.0.0](../contracts/business-lifecycle-and-state.md#v2-archive-validation-and-manual-closure-amendment2026-11-07)与[P5-5D §12](p5-5d-archive-design.md#12-v2-来源时间与手工关闭目标补充)。

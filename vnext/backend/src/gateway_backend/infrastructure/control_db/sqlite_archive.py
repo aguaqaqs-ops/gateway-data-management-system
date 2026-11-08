@@ -12,8 +12,10 @@ from gateway_backend.domain.archive.models import (
     ArchiveAuditReference,
     ArchiveConfirmationAction,
     ArchiveConfirmationEvent,
-    ArchiveDisposition,
-    ArchiveDispositionKind,
+    SubmissionDisposition,
+    SubmissionDispositionKind,
+    SubmissionDispositionSourceKind,
+    ManualSubmissionClosure,
     ArchivePlan,
     ArchiveResult,
     ArchiveSubjectKind,
@@ -111,8 +113,8 @@ class SQLiteArchiveRepository:
                 event_id, repository_id, gateway_device_external_key, business_project_id,
                 subject_kind, subject_digest, sequence, action, issue_code,
                 target_submission_id, target_candidate_digest, reason, actor_id,
-                occurred_at_us, idempotency_key, request_fingerprint, request_payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                occurred_at_us, idempotency_key, request_fingerprint, request_payload_json, subject_payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.event_id,
@@ -132,6 +134,7 @@ class SQLiteArchiveRepository:
                 event.idempotency_key,
                 event.request_fingerprint,
                 event.request_payload_json,
+                event.subject_payload_json,
             ),
         )
 
@@ -317,42 +320,62 @@ class SQLiteArchiveRepository:
             return None
         return _plan_from_row(row)
 
-    def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
+    def get_result_by_id(self, result_id: str, *, repository_id: str | None = None,
+        gateway_device_external_key: str | None = None, business_project_id: str | None = None) -> ArchiveResult | None:
         row = self._connection.execute(
             """
-            SELECT result_id, plan_id, baseline_node_id, archived_at_us
-            FROM archive_result_records
-            WHERE result_id = ?
+            SELECT r.result_id, r.plan_id, r.baseline_node_id, r.archived_at_us
+            FROM archive_result_records r JOIN archive_plan_records p ON p.plan_id = r.plan_id
+            WHERE r.result_id = ? AND (? IS NULL OR p.repository_id = ?)
+                AND (? IS NULL OR p.gateway_device_external_key = ?)
+                AND (? IS NULL OR p.business_project_id = ?)
             """,
-            (result_id,),
+            (result_id, repository_id, repository_id, gateway_device_external_key, gateway_device_external_key,
+                business_project_id, business_project_id),
         ).fetchone()
         if row is None:
             return None
         return self._result_from_row(row)
 
-    def list_dispositions_for_submission(self, submission_id: str) -> tuple[ArchiveDisposition, ...]:
-        rows = self._connection.execute(
-            """
-            SELECT submission_id, disposition
-            FROM archive_disposition_records
-            WHERE submission_id = ?
-            ORDER BY submission_id
-            """,
-            (submission_id,),
-        ).fetchall()
-        return tuple(
-            ArchiveDisposition(
-                submission_id=row["submission_id"],
-                disposition=ArchiveDispositionKind(row["disposition"]),
-            )
-            for row in rows
-        )
+    def list_dispositions_for_submission(self, submission_id: str) -> tuple[SubmissionDisposition, ...]:
+        row = self._connection.execute("SELECT * FROM submission_disposition_records WHERE submission_id = ?",
+            (submission_id,)).fetchone()
+        return () if row is None else (disposition_from_row(row),)
+
+    def find_manual_close_by_key(self, repository_id: str, gateway_device_external_key: str,
+            business_project_id: str, idempotency_key: str) -> SubmissionDisposition | None:
+        row = self._connection.execute("""SELECT * FROM submission_disposition_records
+            WHERE source_kind = 'MANUAL_CLOSE' AND repository_id = ?
+            AND gateway_device_external_key = ? AND business_project_id = ? AND idempotency_key = ?""",
+            (repository_id, gateway_device_external_key, business_project_id, idempotency_key)).fetchone()
+        return None if row is None else disposition_from_row(row)
+
+    def insert_manual_close(self, disposition: SubmissionDisposition) -> None:
+        self._require_writable()
+        closure = disposition.manual_closure
+        if disposition.source_kind is not SubmissionDispositionSourceKind.MANUAL_CLOSE or closure is None:
+            raise ValueError("manual close requires its immutable source")
+        self._connection.execute("""INSERT INTO submission_disposition_records (
+            submission_id, disposition, source_kind, result_id, repository_id,
+            gateway_device_external_key, business_project_id, closed_by, closed_at_us,
+            reason, idempotency_key, request_fingerprint, expected_review_version,
+            expected_baseline_node_id, expected_baseline_head_version,
+            workspace_id, workspace_generation, upload_revision_id, preview_result_id,
+            workspace_version, configuration_facts_digest
+        ) VALUES (?, ?, 'MANUAL_CLOSE', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (disposition.submission_id, disposition.disposition.value, disposition.repository_id,
+                disposition.gateway_device_external_key, disposition.business_project_id,
+                closure.closed_by, _datetime_to_epoch_us(closure.closed_at), closure.reason,
+                closure.idempotency_key, closure.request_fingerprint, closure.expected_review_version,
+                closure.expected_baseline_node_id, closure.expected_baseline_head_version,
+                closure.workspace_id, closure.workspace_generation, closure.upload_revision_id,
+                closure.preview_result_id, closure.workspace_version, closure.configuration_facts_digest))
 
     def is_submission_closed(self, submission_id: str) -> bool:
         row = self._connection.execute(
             """
             SELECT 1
-            FROM archive_disposition_records
+            FROM submission_disposition_records
             WHERE submission_id = ?
             LIMIT 1
             """,
@@ -364,7 +387,7 @@ class SQLiteArchiveRepository:
         self,
         plan: ArchivePlan,
         result: ArchiveResult,
-        dispositions: tuple[ArchiveDisposition, ...],
+        dispositions: tuple[SubmissionDisposition, ...],
     ) -> None:
         self._require_writable()
         confirmation_refs_json = json.dumps(
@@ -431,19 +454,21 @@ class SQLiteArchiveRepository:
         for disposition in dispositions:
             self._connection.execute(
                 """
-                INSERT INTO archive_disposition_records (
-                    submission_id, result_id, disposition
-                ) VALUES (?, ?, ?)
+                INSERT INTO submission_disposition_records (
+                    submission_id, result_id, disposition, source_kind, repository_id,
+                    gateway_device_external_key, business_project_id
+                ) VALUES (?, ?, ?, 'ARCHIVE', ?, ?, ?)
                 """,
-                (disposition.submission_id, result.result_id, disposition.disposition.value),
+                (disposition.submission_id, result.result_id, disposition.disposition.value, plan.repository_id,
+                    plan.gateway_device_external_key, plan.business_project_id),
             )
 
     def _result_from_row(self, row: sqlite3.Row) -> ArchiveResult:
         dispositions = self._connection.execute(
             """
-            SELECT submission_id, disposition
-            FROM archive_disposition_records
-            WHERE result_id = ?
+            SELECT *
+            FROM submission_disposition_records
+            WHERE result_id = ? AND source_kind = 'ARCHIVE'
             ORDER BY submission_id
             """,
             (row["result_id"],),
@@ -454,10 +479,7 @@ class SQLiteArchiveRepository:
             baseline_node_id=row["baseline_node_id"],
             archived_at=_epoch_us_to_datetime(row["archived_at_us"]),
             dispositions=tuple(
-                ArchiveDisposition(
-                    submission_id=item["submission_id"],
-                    disposition=ArchiveDispositionKind(item["disposition"]),
-                )
+                disposition_from_row(item)
                 for item in dispositions
             ),
         )
@@ -542,6 +564,7 @@ def _resolution_from_row(row: sqlite3.Row) -> ArchiveAnomalyResolutionEvent:
         idempotency_key=row["idempotency_key"],
         request_fingerprint=row["request_fingerprint"],
         request_payload_json=row["request_payload_json"],
+        subject_payload_json=row["subject_payload_json"],
     )
 
 
@@ -561,3 +584,17 @@ def _epoch_us_to_datetime(value: int) -> datetime:
 
 
 __all__ = ["SQLiteArchiveRepository"]
+
+
+def disposition_from_row(row: sqlite3.Row) -> SubmissionDisposition:
+    source = SubmissionDispositionSourceKind(row["source_kind"])
+    closure = None if source is SubmissionDispositionSourceKind.ARCHIVE else ManualSubmissionClosure(
+        closed_by=row["closed_by"], closed_at=_epoch_us_to_datetime(row["closed_at_us"]),
+        reason=row["reason"], idempotency_key=row["idempotency_key"], request_fingerprint=row["request_fingerprint"],
+        expected_review_version=row["expected_review_version"], expected_baseline_node_id=row["expected_baseline_node_id"],
+        expected_baseline_head_version=row["expected_baseline_head_version"], workspace_id=row["workspace_id"],
+        workspace_generation=row["workspace_generation"], upload_revision_id=row["upload_revision_id"],
+        preview_result_id=row["preview_result_id"], workspace_version=row["workspace_version"],
+        configuration_facts_digest=row["configuration_facts_digest"])
+    return SubmissionDisposition(row["submission_id"], SubmissionDispositionKind(row["disposition"]), source,
+        row["result_id"], row["repository_id"], row["gateway_device_external_key"], row["business_project_id"], closure)

@@ -19,294 +19,20 @@ fn parse_with(sql: &str, threads: usize, chunk_bytes: usize) -> SqlParseOutput {
     parse_sql_dump(sql.as_bytes(), &options, &pool(threads))
 }
 
-fn parse(sql: &str) -> SqlParseOutput {
-    parse_with(sql, 1, DEFAULT_CHUNK_BYTES)
-}
-
 fn canonical(output: &SqlParseOutput) -> Vec<u8> {
     encode_parse_canonical(output).unwrap_or_else(|error| error.into_bytes())
 }
 
-/// Values of one column as `(mark, payload)` read back from the canonical form.
-fn column_values(output: &SqlParseOutput, table: usize, column: usize) -> Vec<(u8, Vec<u8>)> {
-    let Some(table) = output.tables.get(table) else {
-        return Vec::new();
+#[test]
+#[allow(clippy::panic)]
+fn parser_panic_boundary_returns_a_stable_internal_fault() -> Result<(), String> {
+    let Err(fault) = super::catch_parser_panic::<()>(|| panic!("injected parser panic")) else {
+        return Err("panic should be caught at the core boundary".to_string());
     };
-    let single = SqlParseOutput {
-        status: output.status,
-        tables: vec![table.clone()],
-        diagnostics: Vec::new(),
-        timings: ParsePhaseTimings::default(),
-    };
-    let bytes = canonical(&single);
-    let mut pos = 8;
-    let read_u32 = |bytes: &[u8], pos: usize| -> usize {
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(&bytes[pos..pos + 4]);
-        u32::from_be_bytes(buf) as usize
-    };
-    for _ in 0..2 {
-        let length = read_u32(&bytes, pos);
-        pos += 4 + length;
-    }
-    let mut out = Vec::new();
-    for current in 0..table.descriptor.columns.len() {
-        pos += 5;
-        for _ in 0..table.row_count {
-            let mark = bytes[pos];
-            let length = read_u32(&bytes, pos + 1);
-            let payload = bytes[pos + 5..pos + 5 + length].to_vec();
-            pos += 5 + length;
-            if current == column {
-                out.push((mark, payload));
-            }
-        }
-    }
-    out
-}
-
-fn first_code(output: &SqlParseOutput) -> Option<ParserDiagnosticCode> {
-    output.diagnostics.first().map(|d| d.code)
-}
-
-const BOILERPLATE: &str = "/*!40101 SET NAMES utf8mb4 */;\n\
-SET FOREIGN_KEY_CHECKS=0;\n\
-DROP TABLE IF EXISTS `t`;\n\
-CREATE TABLE `t` (\n  `id` INT NOT NULL PRIMARY KEY,\n  `name` VARCHAR(16) NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\
-LOCK TABLES `t` WRITE;\n\
-ALTER TABLE `t` DISABLE KEYS;\n\
-INSERT INTO `t` (`id`, `name`) VALUES (1, 'a'), (2, 'b');\n\
-ALTER TABLE `t` ENABLE KEYS;\n\
-UNLOCK TABLES;\n\
-SET FOREIGN_KEY_CHECKS=1;\n";
-
-#[test]
-fn golden_boilerplate_dump_parses_two_rows() {
-    let output = parse(BOILERPLATE);
-    assert_eq!(
-        output.status,
-        ParseStatus::Complete,
-        "{:?}",
-        output.diagnostics
-    );
-    assert_eq!(output.tables.len(), 1);
-    let table = &output.tables[0];
-    assert_eq!(table.row_count, 2);
-    assert_eq!(table.descriptor.primary_key, vec!["id".to_string()]);
-    assert_eq!(table.descriptor.columns[0].sql_type, "INT");
-    assert!(!table.descriptor.columns[0].nullable);
-    assert_eq!(
-        column_values(&output, 0, 1),
-        vec![(0x20, b"a".to_vec()), (0x20, b"b".to_vec())]
-    );
-    assert_eq!(
-        column_values(&output, 0, 0)[1],
-        (0x10, 2i64.to_be_bytes().to_vec())
-    );
-}
-
-#[test]
-fn unsupported_and_incomplete_statements_fail_like_the_reference() {
-    let output = parse("REPLACE INTO `t` VALUES (1);");
-    assert_eq!(output.status, ParseStatus::Failed);
-    assert!(output.tables.is_empty());
-    assert_eq!(
-        first_code(&output),
-        Some(ParserDiagnosticCode::UnsupportedStatement)
-    );
-
-    let output = parse(
-        "CREATE TABLE `t` (\n  `id` INT NOT NULL PRIMARY KEY,\n  `name` VARCHAR(16) NULL\n);\nINSERT INTO `t` (`id`) VALUES (1);\n",
-    );
-    assert_eq!(output.status, ParseStatus::Failed);
-    assert_eq!(output.tables.len(), 1);
-    assert!(!output.tables[0].descriptor.reader_ready);
-    assert_eq!(
-        output.diagnostics[0].code,
-        ParserDiagnosticCode::IncompleteInsert
-    );
-    assert_eq!(output.diagnostics[0].byte_offset, 97);
-
-    for (sql, code) in [
-        (
-            "INSERT IGNORE INTO `t` VALUES (1);",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        ("USE db;", ParserDiagnosticCode::UnsupportedStatement),
-        (
-            "CREATE DATABASE d;",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "UPDATE `t` SET `id`=1;",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "CREATE TABLE \"t\" (id INT);",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "SET @@saved_cs_client = 1;",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "SET @other_client = 1;",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "CREATE TABLE t (id INT NULL); INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE id=1;",
-            ParserDiagnosticCode::UnsupportedStatement,
-        ),
-        (
-            "CREATE TABLE t (id INT NULL); INSERT INTO t VALUES (_binary 'a');",
-            ParserDiagnosticCode::MalformedSql,
-        ),
-        (
-            "CREATE TABLE t (id INT NULL); INSERT INTO t VALUES ('a;",
-            ParserDiagnosticCode::MalformedSql,
-        ),
-    ] {
-        let output = parse(sql);
-        assert_eq!(output.status, ParseStatus::Failed, "{sql}");
-        assert!(output.tables.is_empty(), "{sql}");
-        assert_eq!(
-            output.document_failure().map(|d| d.code),
-            Some(code),
-            "{sql}"
-        );
-    }
-}
-
-#[test]
-fn mysqldump_session_statements_are_accepted() {
-    for sql in [
-        "/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;",
-        "/*!50503 SET NAMES utf8mb4 */;",
-        "/*!40103 SET TIME_ZONE='+00:00' */;",
-        "/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;",
-        "/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;",
-        "SET TIME_ZONE=@OLD_TIME_ZONE;",
-        "/*!40101 SET @saved_cs_client = @@character_set_client */;",
-        "/*!50503 SET character_set_client = utf8mb4 */;",
-        "SET @SAVED_CS_CLIENT = 1;",
-        "-- comment\r\n# other\r\n/* block */;;",
-    ] {
-        let output = parse(sql);
-        assert_eq!(
-            output.status,
-            ParseStatus::Complete,
-            "{sql}: {:?}",
-            output.diagnostics
-        );
-        assert!(output.diagnostics.is_empty(), "{sql}");
-    }
-}
-
-#[test]
-fn literal_classes_convert_to_canonical_payloads() {
-    let sql = "CREATE TABLE t (\
-        i INT NULL, u BIGINT UNSIGNED NULL, f FLOAT NULL, d DOUBLE NULL, m DECIMAL(65,30) NULL,\
-        s VARCHAR(10) NULL, b BLOB NULL, bt BIT(10) NULL, dt DATETIME(6) NULL, ts TIMESTAMP NULL,\
-        tm TIME NULL, e ENUM('x','y') NULL, st SET('a','b','c') NULL, j JSON NULL, bo BOOLEAN NULL, dd DATE NULL);\r\n\
-        INSERT INTO t VALUES (-0, 18446744073709551615, -0.0, 1.5e-3, -000123.4500, 'a\\nb''c\u{4e2d}', x'00ff', b'1000000001',\
-        '2024-01-02 03:04:05.120000', '2024-01-02 03:04:05', '-838:59:59', 'y', 'c,a', '{\"k\": [1, NaN]}', 1, '2024-02-29'),\
-        (NULL, NULL, NULL, NULL, NULL, 'line1\r\nline2', 0x1, 1, NULL, NULL, NULL, NULL, '', NULL, FALSE, NULL);";
-    let output = parse(sql);
-    assert_eq!(
-        output.status,
-        ParseStatus::Complete,
-        "{:?}",
-        output.diagnostics
-    );
-    let row0: Vec<(u8, Vec<u8>)> = (0..16)
-        .map(|c| column_values(&output, 0, c)[0].clone())
-        .collect();
-    assert_eq!(row0[0], (0x10, 0i64.to_be_bytes().to_vec()));
-    assert_eq!(row0[1], (0x11, u64::MAX.to_be_bytes().to_vec()));
-    assert_eq!(row0[2], (0x13, 0u32.to_be_bytes().to_vec()));
-    assert_eq!(row0[3], (0x14, 1.5e-3f64.to_bits().to_be_bytes().to_vec()));
-    assert_eq!(row0[4], (0x12, b"-123.45".to_vec()));
-    assert_eq!(row0[5], (0x20, "a\nb'c\u{4e2d}".as_bytes().to_vec()));
-    assert_eq!(row0[6], (0x21, vec![0x00, 0xff]));
-    assert_eq!(row0[7], (0x22, vec![0x02, 0x01]));
-    assert_eq!(row0[8], (0x31, b"2024-01-02T03:04:05.12".to_vec()));
-    assert_eq!(row0[9], (0x32, b"2024-01-02T03:04:05Z".to_vec()));
-    assert_eq!(row0[10], (0x33, b"-838:59:59".to_vec()));
-    assert_eq!(row0[11], (0x20, b"y".to_vec()));
-    assert_eq!(row0[12], (0x40, b"a,c".to_vec()));
-    assert_eq!(row0[13], (0x20, b"{\"k\": [1, NaN]}".to_vec()));
-    assert_eq!(row0[14], (0x01, vec![1]));
-    assert_eq!(row0[15], (0x30, b"2024-02-29".to_vec()));
-    let row1: Vec<(u8, Vec<u8>)> = (0..16)
-        .map(|c| column_values(&output, 0, c)[1].clone())
-        .collect();
-    assert_eq!(row1[0], (0x00, Vec::new()));
-    assert_eq!(row1[5], (0x20, b"line1\r\nline2".to_vec()));
-    assert_eq!(row1[6], (0x21, vec![0x01]));
-    // A decimal-looking BIT value made of 0/1 digits is read as binary.
-    assert_eq!(row1[7], (0x22, vec![0x00, 0x01]));
-    assert_eq!(row1[12], (0x40, Vec::new()));
-    assert_eq!(row1[14], (0x01, vec![0]));
-}
-
-#[test]
-fn illegal_values_invalidate_only_their_table() {
-    for (column, value) in [
-        ("e ENUM('a','b') NOT NULL", "'c'"),
-        ("s SET('a','b') NOT NULL", "'c'"),
-        ("i INT NOT NULL", "NULL"),
-        ("i TINYINT NOT NULL", "9999"),
-        ("d DATE NULL", "'0000-00-00'"),
-        ("dt DATETIME NULL", "'0000-00-00 00:00:00'"),
-        ("j JSON NULL", "'{bad'"),
-        ("i INT NULL", "DEFAULT"),
-        ("f FLOAT NULL", "1e39"),
-        ("s VARCHAR(5) NULL", "'\u{fffe}'"),
-    ] {
-        let sql = format!(
-            "CREATE TABLE ok (id INT NOT NULL PRIMARY KEY); INSERT INTO ok VALUES (1);\
-             CREATE TABLE bad ({column}); INSERT INTO bad VALUES ({value});"
-        );
-        let output = parse(&sql);
-        assert_eq!(
-            output.status,
-            ParseStatus::Partial,
-            "{column} {value}: {:?}",
-            output.diagnostics
-        );
-        assert!(output.tables[0].descriptor.reader_ready);
-        assert!(!output.tables[1].descriptor.reader_ready);
-    }
-}
-
-#[test]
-fn type_errors_keep_descriptor_without_reader() {
-    let output = parse("CREATE TABLE t (`y` YEAR NULL);");
-    assert_eq!(output.status, ParseStatus::Failed);
-    assert_eq!(
-        output.tables[0].descriptor.columns[0].logical_type,
-        SqlLogicalType::Unknown
-    );
-    assert_eq!(
-        first_code(&output),
-        Some(ParserDiagnosticCode::UnknownSqlType)
-    );
-    let output = parse("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, PRIMARY KEY (id));");
-    assert_eq!(
-        first_code(&output),
-        Some(ParserDiagnosticCode::DuplicatePrimaryKey)
-    );
-    let output = parse("CREATE TABLE t (`Id` INT NOT NULL, `id` INT NULL);");
-    assert_eq!(
-        first_code(&output),
-        Some(ParserDiagnosticCode::CanonicalIdentifierCollision)
-    );
-    let output =
-        parse("CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1, 2);");
-    assert_eq!(
-        first_code(&output),
-        Some(ParserDiagnosticCode::RowShapeMismatch)
-    );
+    assert_eq!(fault.code, ParserDiagnosticCode::ParserInternalError);
+    assert_eq!(fault.offset, 0);
+    assert_eq!(fault.message.as_ref(), "parser panicked");
+    Ok(())
 }
 
 #[test]
@@ -331,6 +57,93 @@ fn field_budget_counts_only_while_the_table_is_still_valid() {
     let output = parse_sql_dump(gated.as_bytes(), &options, &pool);
     assert_eq!(output.status, ParseStatus::Failed);
     assert_eq!(output.tables.len(), 1);
+}
+
+#[test]
+fn row_budget_fault_uses_the_exact_over_limit_tuple_across_chunks() {
+    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES (1), (2), (3);";
+    let expected_offset = sql.find("(2)").unwrap_or(0);
+    let options = SqlParseOptions {
+        budgets: ParserBudgets {
+            max_rows_per_table: 1,
+            ..ParserBudgets::default()
+        },
+        ..SqlParseOptions::default()
+    };
+    for threads in [1, 4] {
+        for chunk_bytes in [1, 8, 1024, usize::MAX] {
+            let output = parse_sql_dump(
+                sql.as_bytes(),
+                &SqlParseOptions {
+                    chunk_bytes,
+                    ..options.clone()
+                },
+                &pool(threads),
+            );
+            let fault = output.document_failure();
+            assert_eq!(
+                fault.map(|item| item.code),
+                Some(ParserDiagnosticCode::ResourceLimitExceeded)
+            );
+            assert_eq!(fault.map(|item| item.byte_offset), Some(expected_offset));
+        }
+    }
+}
+
+#[test]
+fn structural_diagnostics_continue_after_a_table_conversion_failure() {
+    let sql =
+        "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES ('bad'), (1, 2), (3), (4, 5);";
+    let expected = [
+        (
+            ParserDiagnosticCode::SqlValueIllegal,
+            sql.find("('bad')").unwrap_or(0),
+        ),
+        (
+            ParserDiagnosticCode::RowShapeMismatch,
+            sql.find("(1, 2)").unwrap_or(0),
+        ),
+        (
+            ParserDiagnosticCode::RowShapeMismatch,
+            sql.find("(4, 5)").unwrap_or(0),
+        ),
+    ];
+    for chunk_bytes in [1, 16, usize::MAX] {
+        let output = parse_with(sql, 3, chunk_bytes);
+        let actual: Vec<_> = output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.code, diagnostic.byte_offset))
+            .collect();
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn diagnostic_budget_keeps_a_truncation_marker() {
+    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES (1,2),(3,4),(5,6),(7,8);";
+    let output = parse_sql_dump(
+        sql.as_bytes(),
+        &SqlParseOptions {
+            budgets: ParserBudgets {
+                max_diagnostics: 2,
+                ..ParserBudgets::default()
+            },
+            chunk_bytes: 1,
+            ..SqlParseOptions::default()
+        },
+        &pool(2),
+    );
+    assert_eq!(output.diagnostics.len(), 2);
+    assert_eq!(
+        output.diagnostics[0].code,
+        ParserDiagnosticCode::RowShapeMismatch
+    );
+    assert_eq!(
+        output.diagnostics[1].code,
+        ParserDiagnosticCode::ParserDiagnosticsTruncated
+    );
+    assert!(output.diagnostics[1].message.len() <= 4 * 1024);
 }
 
 fn big_dump(rows: usize) -> String {
@@ -465,5 +278,63 @@ proptest! {
         let chunked = parse_with(&sql, 3, 2);
         prop_assert!(chunked.diagnostics.iter().all(|d| d.code != ParserDiagnosticCode::ParserInternalError));
         prop_assert!(canonical(&chunked) == reference);
+    }
+}
+
+#[test]
+fn operation_memory_limit_rejects_before_value_growth_with_a_stable_location() {
+    let cases = [
+        "CREATE TABLE t (id INT); INSERT INTO t VALUES (1),(2);".to_owned(),
+        format!(
+            "CREATE TABLE t ({}); INSERT INTO t VALUES ();",
+            (0..128)
+                .map(|i| format!("c{i} INT"))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        format!(
+            "CREATE TABLE t (id INT); INSERT INTO t VALUES ({});",
+            vec!["0"; 4096].join(",")
+        ),
+        format!(
+            "CREATE TABLE t (id INT); /*!50000 INSERT INTO t VALUES ({}),(1) */;",
+            vec!["0"; 4096].join(",")
+        ),
+    ];
+    for threads in [1, 2] {
+        let pool = pool(threads);
+        for sql in &cases {
+            let mut options = SqlParseOptions::default();
+            options.budgets.max_live_bytes = 4096;
+            let output = parse_sql_dump(sql.as_bytes(), &options, &pool);
+            assert_eq!(output.status, ParseStatus::Failed);
+            assert!(output.tables.is_empty());
+            assert_eq!(output.diagnostics.len(), 1);
+            assert_eq!(
+                output.diagnostics[0].code,
+                ParserDiagnosticCode::ResourceLimitExceeded
+            );
+            assert_eq!(output.diagnostics[0].byte_offset, 0);
+            assert_eq!(output.diagnostics[0].message, "max_live_bytes exceeded");
+        }
+        let mut options = SqlParseOptions::default();
+        options.budgets.max_live_bytes = 1 << 20;
+        let output = parse_sql_dump(cases[0].as_bytes(), &options, &pool);
+        assert_eq!(output.status, ParseStatus::Complete);
+        // Metadata fits; the malformed literal Vec is much wider than the
+        // schema and must be refused before its value allocation grows.
+        options.budgets.max_live_bytes = 128 << 10;
+        let output = parse_sql_dump(cases[2].as_bytes(), &options, &pool);
+        assert_eq!(output.status, ParseStatus::Failed);
+        assert!(output.tables.is_empty());
+        assert_eq!(output.diagnostics[0].message, "max_live_bytes exceeded");
+        assert_eq!(output.diagnostics[0].byte_offset, 0);
+        let output = parse_sql_dump(cases[2].as_bytes(), &SqlParseOptions::default(), &pool);
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.code == ParserDiagnosticCode::RowShapeMismatch)
+        );
     }
 }

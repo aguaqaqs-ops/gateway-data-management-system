@@ -21,8 +21,16 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 所有测试、容器门禁与取证都在专用测试节点上执行（owner 决议 DC34、DC36），不回退到开发主机。分工：
 门禁节点 `ct108-gw-dms-04` 运行权威全量 runner、容器门禁与 carried；调试节点 `ct108-gw-dms-05` 运行
 focused 测试、Rust 编译、解析器差分测试与真实数据 t1–t3；参考节点 `ct108-gw-dms` 用于 Phase 6 性能测量
-（测量期间独占）与真实数据 t4。开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 检查连接。运行前提在每台
-节点上分别满足，同一节点整机单飞，不同节点之间可以并行。carried 与来源 V 必须在同一节点、同一 worktree；
+（测量期间独占）与真实数据 t4。Owner 于 2026-11-06 新增后端开发节点 `ct107-gw-dms-06`（16 vCPU / 96 GiB / 300 GiB thin，`192.168.233.207`；内存于 2026-11-07 从 32 GiB 扩容并实核），用于 Rust、focused/Contract/差分和小规模 Compose；新增前端开发节点 `ct109-gw-dms-07`（8 vCPU / 16 GiB / 200 GiB thin，`192.168.233.208`），用于类型检查、lint、单测、构建、截图与 mock e2e。它们不承接正式性能测量、权威 runner/carried 或默认真实数据全旅程；[节点核对与证据](refactoring/formal/plans/p6-node-06-07-readiness.md)另记。
+
+原 04、05、CT108 互不共享硬件；新增 06/07 与 04 共享物理宿主，不与 CT108 共享宿主。Owner 确认宿主资源宽裕，06/07 日常开发与测试自主并行，不自动与 04 互斥，不为新节点占用 04 或向原基准总协调申请窗口/汇报资源。各节点自身占用、服务/端口及同节点计时独占规则不变；只有实际干扰、跨节点操作或明确冲突才针对性协调，不以存在竞态的跨节点空闲查询建立常规前置。cpuset 分离不证明 SMT、内存和磁盘 I/O 无竞争，新节点不提供正式性能数值。06 初始 pytest workers/Cargo jobs 建议各为 4，与产品 kernel N/M 分开。07 使用 `GATEWAY_FE_TEST_WORKERS=2` 限制 Playwright 并发。宿主 thin pool 的 data/metadata 余量由管理员监测，guest `df` 不能代替；这不作为日常开发的额外审批。克隆的历史 worktree、日志、镜像标签和卷不自动成为新节点证据，初始化不擅自删除。
+
+Owner 于 2026-11-07 按 DC87/DC33 另明确授权：06 在本次 S2b E 最终验收运行 fresh 完整 t1–t3 功能/容量旅程，与 04 六包及 Compose 跨节点并行；t4 按独审具体依据沿用。此为本轮真实数据用途扩展，不改变 04 权威 runner/carried 与 CT108 正式性能职责；06 仍按本节点占用、clean 提交及离线证据规则执行。
+
+Owner 于 2026-11-07 简化全部 CT 的常规资源协调：以执行时现场状态与有效占用标志为准，需要占用的工作在核空闲后原子取得标志即可直接使用，完成本任务收尾后释放；无需跨会话或向 Owner 反复申请、预留窗口、确认及例行通报起止。只有实际占用冲突或操作涉及他人资源时才针对性协调；尊重他人有效标志及原有节点用途，不抢占或移除他人占用。前端不需整机占用的既有例外沿用原规则。
+
+开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 检查连接。运行前提在每台
+节点上分别满足，同一节点整机单飞，不同节点按上述物理宿主边界并行。carried 与来源 V 必须在同一节点、同一 worktree；
 闭包 manifest 不记录节点身份（克隆节点首次重建镜像前 image ID 也相同），因此 runner、carried 与真实数据日志
 开头记录 `hostname` 与起止时间，handoff 写明运行节点，评审逐项核对。SSH 会话以 root 登录时，
 设置磁盘上的 `TMPDIR=/home/dev/gdds-test-tmp`，避免复用其他用户拥有的
@@ -83,20 +91,18 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --locked --offline --all-targets -- -D warnings
-cargo test --workspace --locked --offline --exclude gateway-compute-python --exclude gateway-compute-python-impl
+cargo test --workspace --locked --offline
 ```
 
-- **S2a 之前的排除**：旧扩展的 `gateway-compute-python`（`tests/adapter_errors.rs`）与
-  `gateway-compute-python-impl`（`kernel_component_tests`）的测试在 Rust 中嵌入 Python 解释器，并从
-  `backend/.venv/lib/python3.14/site-packages` 导入 pyarrow；PyO3 默认选中系统 Python 3.13 时失败。两者随旧扩展在
-  S2a 删除（DC52），届时去掉排除；owner 2026-10-25 确认 impl 一并排除。clippy 与 fmt 仍覆盖全部 crate。新扩展需要
-  Python 解释器的测试用 pytest 测已安装的扩展，不在 Rust 中嵌入解释器（DC48）。
+- **S2a 后的 workspace**：旧嵌入 Python 的 adapter tests 与 `gateway-compute-python-impl` 已删除（DC52）；
+  `gateway-compute-python` 复用为新 parser adapter，`cargo test` 不再排除 crate。新扩展需要 Python/Arrow 的行为
+  由 backend pytest 测已安装扩展，不在 Rust 用例中嵌入解释器；clippy 与 fmt 覆盖全部 crate。
 - **离线**：cargo 以 `--locked --offline` 运行，crate 缓存在 `CARGO_HOME`（固定环境下为 `/root/.cargo`）。
 - **`CARGO_TARGET_DIR`**：固定为 worktree 外的 `<TMPDIR>/gateway-runner-cargo-target`（`TMPDIR` 未设置或为空时为
   `/tmp`）。它是构建缓存，不是测试输入，不进闭包。选中 `rust` 或 backend 时，runner 在使用前删除残留、退出时
   （包括失败与可捕获的中断）删除，因此每次门禁都从空目录完整构建（节点 05 实测：空目录下 `rust` 包三步合计约
   26 s，backend 同步中扩展的 release 构建约 27 s）；runner 不再向 worktree 的 `vnext/rust/target` 写入。
-- **`PYO3_PYTHON`**：排除旧扩展的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
+- **`PYO3_PYTHON`**：删除旧嵌入解释器的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
   clippy 仍会运行 PyO3 的构建脚本，它按 `PYO3_PYTHON`、`VIRTUAL_ENV`、`CONDA_PREFIX`、PATH 上的 `python3` 的顺序选择
   解释器；闭包记录 `PYO3_PYTHON` 的值与所选解释器的 `-VV`。今后若有 crate 需要嵌入解释器，通过 `PYO3_PYTHON`
   显式指定，不依赖系统 `python3`。
@@ -108,10 +114,10 @@ uv 默认只在扩展的 `pyproject.toml` 等文件变化时重建路径依赖�
 
 - **强制重装（DC48 3.2 的 B 方案）**：runner 同步 backend 时始终使用
   `uv-consume.sh -C . sync --reinstall-package gateway-compute-python`，`CARGO_TARGET_DIR` 同上。选 B 而不选
-  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；与
-  `native_kernel_component.sh` 的写法一致；代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
+  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；
+  代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
 - **构建输入一致性检查**：runner 以 `GATEWAY_RUST_BUILD_INPUT=<HEAD:vnext/rust 的 Git tree id>` 构建扩展，扩展在编译时用
-  `option_env!` 嵌入该值，暴露为 `gateway_compute.gateway_compute.__build_input__`（未设置时为空串，镜像构建即如此）。
+  `option_env!` 嵌入该值，暴露为 `gateway_compute._native.__build_input__`（未设置时为空串，镜像构建即如此）。
   同步后 `vnext/scripts/check-rust-extension-build-input.sh` 读取已安装扩展的值并与当前提交比较，不一致、为空或无法导入时
   backend 失败，runner 在 manifest 之前以 exit 1 停止。该变量只传给 backend 的同步命令，不导出到 manifest 与 pytest 的环境。
   cargo 跟踪 `option_env!` 读取的变量，值变化时重新编译所在 crate。此机制对任何以 maturin 路径依赖装入 backend 的扩展都成立，
@@ -402,7 +408,8 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 
 | 用途 | 节点 | 内容 |
 | --- | --- | --- |
-| 调试 | `ct108-gw-dms-05` | 类型检查、lint、单元测试、构建、模拟接口 e2e、连真实 backend 的 e2e |
+| 日常开发 | `ct109-gw-dms-07` | 类型检查、lint、单元测试、构建、截图、模拟接口 e2e |
+| 集成调试 | `ct108-gw-dms-05` | 连真实 backend 的 e2e；其他前端调试按协调窗口安排 |
 | 证据 | `ct108-gw-dms-04` | 阶段退出时在 clean、已提交 worktree 上用权威入口完整运行一次 |
 | — | `ct108-gw-dms` | 前端不使用 |
 
@@ -410,7 +417,7 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 
 测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行，镜像包含 Node.js、浏览器与所需系统库：
 
-1. 在 CT201 取得镜像，经 `docker save`/`docker load` 通过获准的局域网传到实际使用的节点（05、04）。
+1. 在 CT201 取得镜像，经 `docker save`/`docker load` 通过获准的局域网传到实际使用的节点（07、05、04）。
 2. 跨节点身份比较 config digest 与全部 RootFS DiffID（同 DC67），不比较 `docker inspect` ID。身份不符即停止。
 3. 镜像版本变化时按同一流程重新取得与传输。
 
@@ -427,6 +434,7 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
   `mkdir /home/dev/gdds-node-busy.d` 原子获取，失败即等待、不抢占；获取后写入会话名、用途与开始时间（UTC）；
   运行与清理完成、确认无本次容器与进程后删除。仍须满足 AGENTS 的整机单飞与运行前残留检查。
 - 某节点占用标记的用途写明为计时测量时，前端在该节点上的任何运行（含不需要占用标记的项目）都等待其释放。
+- 07 与 04 同宿主，但按 Owner 最新资源安排可自主运行，不建立常规整宿主互斥或资源报批；保留本节点规则，实际干扰时协调。
 
 ### 日志与 handoff
 

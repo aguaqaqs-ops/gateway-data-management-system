@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import preview_result_with_facts
+
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +37,8 @@ from gateway_backend.application.submission.job_payload import (
 )
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
+from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.bounded_store import (
     BoundedArtifactStorePort,
     CleanupClassification,
@@ -204,18 +209,21 @@ class InMemoryBoundedArtifactStore:
 
 
 class InMemoryBundleReader:
-    def __init__(self, bundles: dict[str, tuple[str, bytes]] | None = None) -> None:
+    def __init__(self, bundles: dict[str, tuple[str, bytes, str]] | None = None) -> None:
         self._bundles = dict(bundles or {})
 
-    def register(self, artifact_id: str, logical_name: str, payload: bytes) -> None:
-        self._bundles[artifact_id] = (logical_name, payload)
+    def register(self, artifact_id: str, logical_name: str, payload: bytes, *, bundle_digest: str) -> None:
+        self._bundles[artifact_id] = (logical_name, payload, bundle_digest)
 
-    def read_bundle(self, artifact_id: str) -> tuple[str, Iterator[bytes]]:
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
         try:
-            logical_name, payload = self._bundles[artifact_id]
+            logical_name, payload, digest = self._bundles[artifact_id]
         except KeyError:
-            raise KeyError(artifact_id)
-        return logical_name, iter([payload])
+            raise ArtifactUnavailableError("bundle is not available") from None
+        return PreparedBundleDownload(
+            bundle_digest=digest, content_length=len(payload), filename=logical_name,
+            etag=f'"{digest}"', stream=iter([payload]), _resources=ExitStack(),
+        )
 
 
 class SqliteWorkspaceRepositoryFacade:
@@ -242,9 +250,10 @@ class SqliteWorkspaceRepositoryFacade:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.get_upload_revision(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         with self._read_uow() as unit_of_work:
-            return unit_of_work.workspace.get_preview_result(preview_result_id)
+            return unit_of_work.workspace.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=repository_id)
 
     def find_upload_idempotency(self, workspace_id: str, idempotency_key: str) -> UploadRevision | None:
         with self._read_uow() as unit_of_work:
@@ -385,7 +394,7 @@ def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -
     )
 
 
-def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
+def _protected_preview_refs(repository_id: str) -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
             artifact_id="initial-1",
@@ -405,7 +414,7 @@ def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        *make_canonical_artifact_fixture().refs,
+        *make_canonical_artifact_fixture(repository_id).refs,
     )
 
 
@@ -428,7 +437,7 @@ def seed_submit_ready_workspace(
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
         workspace = created.workspace
@@ -457,7 +466,7 @@ def seed_submit_ready_workspace(
             created_at=TS0,
         )
         identity_digest, identity_pairs = make_not_applicable_preview_identity()
-        preview = PreviewResult(
+        preview = preview_result_with_facts(
             preview_result_id="pr-1",
             workspace_id=workspace.workspace_id,
             upload_revision_id=upload_revision.upload_revision_id,
@@ -478,7 +487,7 @@ def seed_submit_ready_workspace(
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(),
+            canonical=make_preview_canonical_bindings(repository_id),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",
@@ -502,7 +511,7 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = preview.operation_id
-        protected_refs = _protected_preview_refs()
+        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
@@ -520,7 +529,7 @@ def seed_submit_ready_workspace(
         "initial-1": _PAYLOAD_INITIAL,
         "modified-1": _PAYLOAD_MODIFIED,
         "closure-1": _PAYLOAD_CLOSURE,
-        **make_canonical_artifact_fixture().payloads,
+        **make_canonical_artifact_fixture(repository_id).payloads,
     }
     for ref in protected_refs:
         artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])

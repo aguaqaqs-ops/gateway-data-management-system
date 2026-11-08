@@ -52,10 +52,10 @@ from gateway_backend.capabilities.mutation_planning import (
     render_planned_import_mutation_dml,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    SqlSetValue,
+    SqlSetValue, ArtifactPublishError,
     enum_set_labels_for_sql_spelling,
     materialize_repository_ref,
-    open_snapshot_table_artifact,
+    open_snapshot_table_artifact, current_kernel_context, ArrowSnapshotTableReader,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
@@ -64,7 +64,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest,
+    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
     RepositoryTableAccessProvider,
     SnapshotMaterializationStatus,
     SnapshotTable,
@@ -79,7 +79,7 @@ from gateway_backend.capabilities.storage_projection import (
     PACKAGE_VERSION,
     ImportReplayError as ProjectionImportReplayError,
     ProjectionTable,
-    ProjectionInvocationContext,
+    ProjectionInvocationContext, MAX_MANIFEST_JSON_BYTES, MAX_REPLAY_SQL_BYTES,
     ProjectionDiagnostic,
     CanonicalizationManifest,
     ProjectionStatus,
@@ -92,7 +92,6 @@ from gateway_backend.capabilities.storage_projection import (
     RepositoryImportTable,
     REPLAY_SQL_ENTRY_NAME,
     WrittenImportPackage,
-    NeverCancel,
     open_canonicalization_manifest,
     publish_canonicalization,
     render_repository_import_schema_replay_sql,
@@ -127,6 +126,32 @@ class RepositoryImportArtifactError(ValueError):
     """Raised when a v1 import package cannot be written."""
 
 
+def _reserve_submit_stage(name: str, upper: int) -> None:
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("Submit allocation requires an operation kernel context")
+    context.checkpoint()
+    context.memory.record_stage_admission(name, upper)
+    context.resources.enter_context(context.memory.reserve(upper))
+
+
+def _reserve_submit_python_rows(reader: SnapshotTableReader) -> None:
+    if not isinstance(reader, ArrowSnapshotTableReader):
+        raise SubmitImportPublicationError("frozen canonical rows require an Arrow memory bound")
+    descriptor = reader.descriptor()
+    # Before/after typed scalar images, row frames/digests, keyed indexes and
+    # adaptive mutation lists coexist. 1024 per cell and 2048 per row cover their
+    # dict/tuple/SourceScalar headers. 32 payload bytes cover UTF-8/Unicode values,
+    # escaped JSON/frame copies and replay literals; repeated names are separate.
+    # Rendering/USTAR/zstd are admitted independently above: manifest JSON AST,
+    # source Unicode fragments+join+UTF-8 at render peak, and the tar/compressed/
+    # decompressed/readback overlap under existing 16/200 MiB package ceilings.
+    names = sum(len(column.name) for column in descriptor.columns)
+    upper = reader.logical_size_bytes * 32 + descriptor.row_count * (
+        len(descriptor.columns) * 1024 + 2048 + names * 64) + 64 * 1024
+    _reserve_submit_stage("submit-python-mutation-rows", upper)
+
+
 def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDiagnostic, ...]) -> str:
     if not diagnostics:
         return f"{prefix}: FAILED"
@@ -152,8 +177,10 @@ class SubmitImportPublicationAdapter:
         self,
         *,
         repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider] | None = None,
+        committed_table_factory: Callable[[ArtifactStorePort, str], CommittedCanonicalTablesPort] | None = None,
     ) -> None:
         self._repository_provider_factory = repository_provider_factory
+        self._committed_tables = committed_table_factory
 
     def build_and_publish(
         self,
@@ -161,19 +188,25 @@ class SubmitImportPublicationAdapter:
         build_input: PrepareImportBuildInput,
         store: ArtifactStorePort,
     ) -> PrepareImportPublicationResult:
-        projection_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store)
-        try:
-            return self._build_and_publish_from_inputs(
-                build_input=build_input,
-                store=store,
-                projection_inputs=projection_inputs,
-            )
-        finally:
-            for item in projection_inputs:
-                try:
-                    item.reader.close()
-                except Exception:
-                    continue
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit publication requires an operation kernel context")
+        upper = MAX_MANIFEST_JSON_BYTES * 32 + MAX_REPLAY_SQL_BYTES * 10 + 16 * 1024**2
+        context.memory.record_stage_admission("submit-package-replay", upper)
+        with context.memory.reserve(upper):
+            projection_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store, repository_id=build_input.repository_id)
+            try:
+                return self._build_and_publish_from_inputs(
+                    build_input=build_input,
+                    store=store,
+                    projection_inputs=projection_inputs,
+                )
+            finally:
+                for item in projection_inputs:
+                    try:
+                        item.reader.close()
+                    except Exception:
+                        continue
 
     def _build_and_publish_from_inputs(
         self,
@@ -201,6 +234,9 @@ class SubmitImportPublicationAdapter:
             raise SubmitImportPublicationError(
                 "removed table set does not match parent and input manifests"
             )
+        for item in projection_inputs:
+            if item.canonical_table in changed_names:
+                _reserve_submit_python_rows(item.reader)
         projection, projection_snapshots = _build_frozen_projection(
             build_input,
             projection_inputs,
@@ -221,7 +257,7 @@ class SubmitImportPublicationAdapter:
                 build_input,
                 parent_manifest=parent_manifest,
                 current_manifest=frozen_manifest,
-                changed_names=changed_names,
+                changed_names=changed_names, store=store,
             )
             before_manifest_tables = {item.name: item for item in parent_manifest.tables}
             before_snapshots: list[MutationTableSnapshot] = []
@@ -268,12 +304,17 @@ class SubmitImportPublicationAdapter:
             replay_sql = schema_sql + mutation_dml
         except (ProjectionImportReplayError, MutationImportReplayError) as exc:
             raise SubmitImportPublicationError(str(exc)) from exc
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit publication requires an operation kernel context")
+        context.checkpoint()
         published = publish_canonicalization(
             projection,
             store=store,
             replay_sql=replay_sql,
-            context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+            context=ProjectionInvocationContext(cancel_requested=context.cancel_probe, deadline_monotonic=context.deadline_monotonic),
         )
+        context.checkpoint()
         if published.status is not ProjectionStatus.COMPLETE or published.publication is None:
             raise SubmitImportPublicationError(
                 _format_projection_diagnostics(
@@ -312,7 +353,7 @@ class SubmitImportPublicationAdapter:
         *,
         parent_manifest: CanonicalizationManifest,
         current_manifest: CanonicalizationManifest,
-        changed_names: tuple[str, ...],
+        changed_names: tuple[str, ...], store: ArtifactStorePort,
     ) -> dict[str, MutationTableSnapshot]:
         if (
             build_input.parent_is_initial
@@ -336,6 +377,11 @@ class SubmitImportPublicationAdapter:
         if runtime_ruleset.ruleset_digest != parent_manifest.ruleset_digest:
             raise SubmitImportPublicationError("parent manifest ruleset does not match runtime ruleset")
         binding = _canonical_binding_from_manifest(parent_manifest)
+        if self._committed_tables is None:
+            raise SubmitImportPublicationError("parent committed canonical table access is unavailable")
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit parent reads require an operation kernel context")
         request = RepositoryRefMaterializationRequest(
             repository_ref=RepositoryRef(
                 repository_id=build_input.repository_id,
@@ -350,8 +396,9 @@ class SubmitImportPublicationAdapter:
             table_ruleset_version=TABLE_RULESET_VERSION,
             materialization_stage=MaterializationStage.FINAL,
             policy=MaterializationPolicy.READERS_REQUIRED,
-            context=ParserInvocationContext(NeverCancel()),
+            context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
             requested_tables=read_names,
+            committed_tables=self._committed_tables(store, build_input.repository_id),
         )
         result = materialize_repository_ref(request)
         if result.status is not SnapshotMaterializationStatus.COMPLETE or result.table_set is None:
@@ -378,6 +425,7 @@ class SubmitImportPublicationAdapter:
             size_bytes=checkpoint.backend_import_artifact_ref.size_bytes,
             raw_sha256=DigestRef(checkpoint.backend_import_artifact_ref.raw_sha256),
         )
+        _reserve_submit_stage("submit-package-readback-bytes", ref.size_bytes * 2 + 128 * 1024)
         try:
             payload = store.locate(ref)
         except ManifestVerificationError as exc:
@@ -394,38 +442,44 @@ class SubmitImportPublicationAdapter:
         checkpoint: PrepareImportCheckpoint,
         store: ArtifactStorePort,
     ) -> None:
-        manifest_ref = ArtifactRef(
-            artifact_id=checkpoint.canonicalization_manifest_ref.artifact_id,
-            media_type=checkpoint.canonicalization_manifest_ref.media_type,
-            size_bytes=checkpoint.canonicalization_manifest_ref.size_bytes,
-            raw_sha256=DigestRef(checkpoint.canonicalization_manifest_ref.raw_sha256),
-        )
-        try:
-            manifest = open_canonicalization_manifest(store, manifest_ref)
-        except PublicationError as exc:
-            raise SubmitImportPublicationError(str(exc)) from exc
-        if manifest.manifest_digest is None:
-            raise SubmitImportPublicationError("stored manifest is missing manifest_digest")
-        semantic_digest = manifest.manifest_digest.value
-        if semantic_digest != checkpoint.canonicalization_manifest_digest:
-            raise SubmitImportPublicationError(
-                "checkpoint semantic manifest digest does not match stored manifest"
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit verification requires an operation kernel context")
+        upper = MAX_MANIFEST_JSON_BYTES * 32 + MAX_REPLAY_SQL_BYTES * 6 + 16 * 1024**2
+        context.memory.record_stage_admission("submit-package-verify", upper)
+        with context.memory.reserve(upper):
+            manifest_ref = ArtifactRef(
+                artifact_id=checkpoint.canonicalization_manifest_ref.artifact_id,
+                media_type=checkpoint.canonicalization_manifest_ref.media_type,
+                size_bytes=checkpoint.canonicalization_manifest_ref.size_bytes,
+                raw_sha256=DigestRef(checkpoint.canonicalization_manifest_ref.raw_sha256),
             )
-        package_ref = ArtifactRef(
-            artifact_id=checkpoint.backend_import_artifact_ref.artifact_id,
-            media_type=checkpoint.backend_import_artifact_ref.media_type,
-            size_bytes=checkpoint.backend_import_artifact_ref.size_bytes,
-            raw_sha256=DigestRef(checkpoint.backend_import_artifact_ref.raw_sha256),
-        )
-        try:
-            package_payload = store.locate(package_ref)
-        except ManifestVerificationError as exc:
-            raise SubmitImportPublicationError(str(exc) or "import package is missing or corrupt") from exc
-        import_input = validate_repository_import_package(package_payload)
-        if import_input.canonicalization_manifest_digest.value != checkpoint.canonicalization_manifest_digest:
-            raise SubmitImportPublicationError(
-                "package manifest digest does not match checkpoint semantic digest"
+            try:
+                manifest = open_canonicalization_manifest(store, manifest_ref)
+            except PublicationError as exc:
+                raise SubmitImportPublicationError(str(exc)) from exc
+            if manifest.manifest_digest is None:
+                raise SubmitImportPublicationError("stored manifest is missing manifest_digest")
+            semantic_digest = manifest.manifest_digest.value
+            if semantic_digest != checkpoint.canonicalization_manifest_digest:
+                raise SubmitImportPublicationError(
+                    "checkpoint semantic manifest digest does not match stored manifest"
+                )
+            package_ref = ArtifactRef(
+                artifact_id=checkpoint.backend_import_artifact_ref.artifact_id,
+                media_type=checkpoint.backend_import_artifact_ref.media_type,
+                size_bytes=checkpoint.backend_import_artifact_ref.size_bytes,
+                raw_sha256=DigestRef(checkpoint.backend_import_artifact_ref.raw_sha256),
             )
+            try:
+                package_payload = store.locate(package_ref)
+            except ManifestVerificationError as exc:
+                raise SubmitImportPublicationError(str(exc) or "import package is missing or corrupt") from exc
+            import_input = validate_repository_import_package(package_payload)
+            if import_input.canonicalization_manifest_digest.value != checkpoint.canonicalization_manifest_digest:
+                raise SubmitImportPublicationError(
+                    "package manifest digest does not match checkpoint semantic digest"
+                )
 
 
 def _assert_adaptive_policy(build_input: PrepareImportBuildInput) -> None:
@@ -591,6 +645,7 @@ def _mutation_snapshots_from_repository(
         reader = table.reader
         if reader is None:
             raise SubmitImportPublicationError(f"parent table {name} has no row reader")
+        _reserve_submit_python_rows(reader)
         columns = table.descriptor.columns
         indexes = {column.name: index for index, column in enumerate(columns)}
         rows: list[MutationKeyedRow] = []
@@ -640,7 +695,7 @@ def _mutation_snapshots_from_repository(
                         ),
                     )
                 )
-        except SubmitImportPublicationError:
+        except (SubmitImportPublicationError, InterruptedError, TimeoutError, MemoryError):
             raise
         except Exception as exc:
             raise SubmitImportPublicationError(f"parent table {name} rows are invalid") from exc
@@ -709,6 +764,8 @@ def _build_frozen_projection(
                 reader = item.reader.reopen()
                 reopened_readers.append(reader)
                 descriptor = reader.descriptor()
+            except (InterruptedError, TimeoutError, MemoryError):
+                raise
             except Exception as exc:
                 raise SubmitImportPublicationError(
                     f"canonical table artifact {table_name} is unavailable or corrupt"
@@ -923,7 +980,7 @@ def _keyed_rows_from_frozen_artifact(
                 )
             )
             observed += 1
-    except SubmitImportPublicationError:
+    except (SubmitImportPublicationError, InterruptedError, TimeoutError, MemoryError):
         raise
     except Exception as exc:
         raise SubmitImportPublicationError(
@@ -1002,7 +1059,7 @@ def _open_frozen_manifest(
 def _open_projection_inputs(
     bindings: tuple[SnapshotTableBinding, ...],
     *,
-    store: ArtifactStorePort,
+    store: ArtifactStorePort, repository_id: str,
 ) -> tuple[ProjectionTableInput, ...]:
     opened: list[ProjectionTableInput] = []
     for binding in bindings:
@@ -1012,7 +1069,12 @@ def _open_projection_inputs(
             size_bytes=binding.size_bytes,
             raw_sha256=DigestRef(binding.raw_sha256),
         )
-        table = open_snapshot_table_artifact(store, manifest_ref)
+        try:
+            table = open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True)
+        except (InterruptedError, TimeoutError, MemoryError):
+            raise
+        except (ArtifactPublishError, ManifestVerificationError, ValueError) as exc:
+            raise SubmitImportPublicationError(f"frozen canonical table {binding.table_name} is unavailable or corrupt") from exc
         if table.reader is None:
             raise SubmitImportPublicationError(f"snapshot table {binding.artifact_id} has no reader")
         if table.artifact is None:
@@ -1021,12 +1083,16 @@ def _open_projection_inputs(
             raise SubmitImportPublicationError("snapshot table name does not match frozen closure")
         source_binding = ArtifactSourceBinding(
             snapshot_digest=table.artifact.manifest.snapshot_digest,
-            descriptor=table.descriptor,
+            descriptor=table.descriptor, repository_id=repository_id,
         )
+        reader = table.reader.reopen()
+        table.reader.close()
+        if table.batch_reader is not None:
+            table.batch_reader.close()
         opened.append(
             ProjectionTableInput(
                 canonical_table=table.descriptor.table_name,
-                reader=table.reader.reopen() if hasattr(table.reader, "reopen") else table.reader,
+                reader=reader,
                 source_binding=source_binding,
                 artifact=table.artifact,
                 canonicalized_input=True,

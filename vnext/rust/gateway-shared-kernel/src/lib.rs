@@ -27,3 +27,4 @@ pub use types::{
     SemanticDigest, SignedIntegerScalar, StringScalar, TimeDurationScalar, TimestampScalar,
     TypeConstructionError, TypedScalar, UnsignedIntegerScalar, Utf8LogicalLiteral,
 };
+pub use uleb128::encode_uleb128;

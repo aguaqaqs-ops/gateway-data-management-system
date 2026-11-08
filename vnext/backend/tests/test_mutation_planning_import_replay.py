@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, build_import_projection_snapshots
+
 import pytest
 from gateway_shared_kernel import (
     DateTimeScalar,
@@ -20,11 +22,9 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     STORAGE_PROJECTION_VERSION,
     NeverCancel,
-    build_import_projection_snapshots,
-    project_storage,
     render_repository_import_schema_replay_sql,
 )
-from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
+from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from tests.support.storage_projection import (
     digest_ref,

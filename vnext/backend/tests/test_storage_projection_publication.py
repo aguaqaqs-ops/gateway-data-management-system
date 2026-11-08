@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage
+
 import json
 import time
 from dataclasses import replace
@@ -31,7 +33,6 @@ from gateway_backend.capabilities.storage_projection import (
     durable_manifest_bytes,
     open_canonicalization_manifest,
     open_repository_import_package,
-    project_storage,
     publish_canonicalization,
     publish_canonicalization_manifest,
     repository_import_manifest_bytes,

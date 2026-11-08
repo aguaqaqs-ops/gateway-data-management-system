@@ -23,6 +23,7 @@ from gateway_backend.application.workspace.upload_limits import (
     FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,  # noqa: F401
     FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,  # noqa: F401
 )
+from gateway_backend.domain.submission.models import WorkspaceSubmitOccupancy
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -34,6 +35,7 @@ PREVIEW_FROZEN_RULESET_VERSION = RULESET_VERSION
 class CreateOrGetWorkspaceResult:
     workspace: Workspace
     replay: bool
+    occupancy: WorkspaceSubmitOccupancy | None
 
 
 @dataclass(frozen=True, slots=True)

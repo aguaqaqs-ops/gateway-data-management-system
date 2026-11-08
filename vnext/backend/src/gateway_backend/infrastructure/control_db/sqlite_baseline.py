@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
 from gateway_backend.domain.baseline.errors import BaselineHeadVersionConflict
 from gateway_backend.domain.baseline.models import (
     BaselineHeadRecord,
@@ -28,10 +29,12 @@ class SQLiteBaselineRepository(BaselineRepository):
         self,
         connection: sqlite3.Connection,
         *,
+        canonical_tables: SQLiteCanonicalTableCache,
         read_only: bool = False,
     ) -> None:
         self._connection = connection
         self._read_only = read_only
+        self._canonical_tables = canonical_tables
 
     def get_head_record(self, repository_id: str) -> BaselineHeadRecord | None:
         row = self._connection.execute(
@@ -116,6 +119,7 @@ class SQLiteBaselineRepository(BaselineRepository):
             """,
             (head.repository_id, head.node_id, head.optimistic_version),
         )
+        self._canonical_tables.move_head(repository_id=node.repository_id, commit_id=node.commit_id)
 
     def save_archived_node_and_cas_head(
         self,
@@ -170,6 +174,7 @@ class SQLiteBaselineRepository(BaselineRepository):
         )
         if cursor.rowcount != 1:
             raise BaselineHeadVersionConflict("baseline head version conflict during archive")
+        self._canonical_tables.move_head(repository_id=node.repository_id, commit_id=node.commit_id)
         return BaselineHeadRecord(
             repository_id=expected_head.repository_id,
             node_id=new_head_node_id,

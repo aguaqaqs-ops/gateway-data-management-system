@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Never, cast
 
 import pytest
 from gateway_backend.application.submission.contracts import RepositoryImportOperation
@@ -69,7 +69,6 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
     WriteUnitOfWorkFactory,
 )
-from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
 )
@@ -146,10 +145,10 @@ def db_path(tmp_path: Path) -> Path:
     return path
 
 
-def _materialize_snapshot(store: InMemoryArtifactStore) -> tuple[ArtifactRef, str]:
+def _materialize_snapshot(store: InMemoryArtifactStore, repository_id: str) -> tuple[ArtifactRef, str]:
     from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
-    fixture = make_canonical_artifact_fixture()
+    fixture = make_canonical_artifact_fixture(repository_id)
     for ref in fixture.refs:
         store.put(fixture.payloads[ref.artifact_id], ref)
     return fixture.snapshot_table_ref, fixture.snapshot_digest
@@ -161,8 +160,8 @@ def _materialize_ready_preview(
 ) -> tuple[SubmitSeed, ArtifactRef, str]:
     from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
-    fixture = make_canonical_artifact_fixture()
+    snapshot_ref, snapshot_digest = _materialize_snapshot(store, seed.workspace.repository_id)
+    fixture = make_canonical_artifact_fixture(seed.workspace.repository_id)
     additional_refs: list[ArtifactRef] = []
     for index in range(70):
         payload = f"preview-output-{index}".encode("ascii")
@@ -176,7 +175,7 @@ def _materialize_ready_preview(
         additional_refs.append(ref)
     ready_closure_ref = put_ready_closure(
         store,
-        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v1"),
+        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v2"),
     )
     protected_refs = tuple(
         ready_closure_ref if ref.artifact_id == seed.preview_result.ready_closure_artifact_id else ref
@@ -428,16 +427,18 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
     store = InMemoryArtifactStore()
     operation_id = _accept_prepared_operation(db_path, store)
 
-    def fail_publish(**_kwargs: object) -> object:
-        raise SubmitImportPublicationError(
-            "storage projection failed: UNSUPPORTED_TABLE: "
-            "column scalar_type is not supported (table=t5)"
-        )
+    # T1 is already accepted. Removing its actual IPC row file must abort from
+    # the frozen closure, without asking any live repository/source to rebuild it.
+    row_id = next(artifact_id for artifact_id, (ref, _raw) in store._artifacts.items()
+        if ref.media_type == "application/vnd.apache.arrow.file")
+    del store._artifacts[row_id]
 
-    monkeypatch.setattr(
-        "gateway_backend.application.submit_jobs.publish_prepare_import_package",
-        fail_publish,
-    )
+    def forbidden_source(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("frozen T1 must never reselect source tables")
+
+    dependencies = replace(_submit_runtime_dependencies(db_path, store), publication=SubmitImportPublicationAdapter(
+        repository_provider_factory=forbidden_source, committed_table_factory=forbidden_source))
+    monkeypatch.setattr("tests.test_submit_job_prepare._submit_runtime_dependencies", lambda *_args, **_kwargs: dependencies)
 
     acknowledgment = _run_prepare_handler(db_path, store, operation_id)
 
@@ -448,8 +449,8 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
     assert operation.status is OperationStatus.FAILED
     assert prepare_step.status is StepStatus.FAILED
     assert operation.diagnostic is not None
-    assert operation.diagnostic.code == "UNSUPPORTED_TABLE"
-    assert "column scalar_type is not supported" in operation.diagnostic.message
+    assert operation.diagnostic.code == "STORAGE_PROJECTION_FAILED"
+    assert "unavailable or corrupt" in operation.diagnostic.message
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         submit_attempt_id = _submit_attempt_id_from_operation(operation)
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
@@ -459,7 +460,7 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
             attempt.repository_id
         )
     assert attempt.state is SubmitAttemptState.ABORTED
-    assert attempt.abort_code == "UNSUPPORTED_TABLE"
+    assert attempt.abort_code == "STORAGE_PROJECTION_FAILED"
     assert workspace_occupancy is None
     assert repository_occupancy is None
 
@@ -864,3 +865,25 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
     )
     assert accepted.operation_id != operation_id
     assert accepted.replay is False
+
+
+def test_prepare_memory_rejection_aborts_frozen_attempt_and_releases_occupancy(db_path: Path) -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+    )
+    store = InMemoryArtifactStore()
+    operation_id = _accept_prepared_operation(db_path, store)
+    memory = OperationMemoryBudget(2 * 1024**3)
+    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+        assert _run_prepare_handler(db_path, store, operation_id) is ExecutorAcknowledgment.PUBLISHED
+    assert any(stage["stage"] == "submit-package-replay" for stage in memory.stage_admissions)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(operation_id)
+        step = uow.operations.get_step(f"{operation_id}-step-1")
+        attempt = uow.submission.get_submit_attempt(_submit_attempt_id_from_operation(operation))
+        assert attempt is not None
+        assert operation.status is OperationStatus.FAILED and step.status is StepStatus.FAILED
+        assert operation.diagnostic is not None and operation.diagnostic.code == "RESOURCE_LIMIT_EXCEEDED"
+        assert attempt.state is SubmitAttemptState.ABORTED and attempt.abort_code == "RESOURCE_LIMIT_EXCEEDED"
+        assert uow.submission.get_workspace_occupancy(attempt.workspace_id) is None
+        assert uow.submission.get_repository_occupancy(attempt.repository_id) is None

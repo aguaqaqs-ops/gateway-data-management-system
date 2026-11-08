@@ -81,7 +81,6 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "operations": frozenset({"operations", "artifacts"}),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
-    "capability:canonical_row_hash": frozenset({ANY_CAPABILITY, "artifacts", "ext:compute"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
     "application": frozenset({"application", "domain", "operations", "artifacts", ANY_CAPABILITY}),
     "http": frozenset({"http", "application", "domain", "operations", "artifacts", "ext:web"}),
@@ -93,6 +92,20 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "infrastructure:repository_write": _REPOSITORY_ADAPTER_EDGES,
 }
 COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
+
+# Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
+# exemption. Other owners, whole-module imports and wildcard imports still fail.
+NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
+    "gateway_backend.bootstrap.compute_kernel": frozenset({"_init_kernel_native"}),
+    "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
+    "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
+        {"_sql_materialize_native", "_catalog_filter_native"}
+    ),
+    "gateway_backend.capabilities.storage_projection.native": frozenset({"_canonical_project_native"}),
+    "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
+        {"_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +336,13 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         # Unowned root modules are reported once by RULE_UNOWNED_ROOT.
         return None
 
+    if target_zone == "ext:compute" and not (
+        edge.target == "gateway_compute._native"
+        and bool(edge.names)
+        and set(edge.names) <= NATIVE_COMPUTE_ENTRYPOINTS.get(edge.source, frozenset())
+    ):
+        return (RULE_LAYER, edge.target)
+
     if target_zone in _FORBIDDEN_EVERYWHERE:
         return (RULE_LAYER, edge.target)
     if (
@@ -335,7 +355,12 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
             "capability" if source_zone.startswith("capability:") else source_zone
         )
         allowed = ALLOWED_ZONE_EDGES.get(allowed_key, frozenset())
-        if not _target_category_allowed(allowed, target_zone, edge.target):
+        approved_native_call = (
+            edge.target == "gateway_compute._native"
+            and bool(edge.names)
+            and set(edge.names) <= NATIVE_COMPUTE_ENTRYPOINTS.get(edge.source, frozenset())
+        )
+        if not _target_category_allowed(allowed, target_zone, edge.target) and not approved_native_call:
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

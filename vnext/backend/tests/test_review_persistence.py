@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import configuration_facts_blob
+
 import re
 import sqlite3
 from datetime import UTC, datetime
@@ -77,6 +79,7 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
         unit_of_work.connection.execute(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -92,18 +95,20 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
             )
             """,
-            (b"[]", "canonical-closure-1", "sha256:canonical-closure"),
+            (configuration_facts_blob(), *(b'["source-fixture"]', "canonical-closure-1", "sha256:canonical-closure")),
         )
         unit_of_work.connection.execute(
             """
             INSERT INTO submission_records (
+                configuration_facts,
                 submission_id, submit_attempt_id, workspace_id, workspace_generation,
                 upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
                 business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -113,13 +118,14 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 completed_verification_policy, requested_unknown_type_policy, target_ref,
                 created_by, created_at_us
             ) VALUES (
+                ?,
                 'sub-1', 'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base',
-                'commit-new', 'sha256:canonical', ?, 'manifest-1', 'sha256:manifest',
+                'commit-new', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest',
                 'sha256:package', 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main',
                 'actor-1', 1
             )
             """,
-            (b"[]",),
+            (configuration_facts_blob(), *(b'["source-fixture"]',)),
         )
         unit_of_work.review.insert_seed(event, projection)
 
@@ -540,6 +546,7 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT INTO submit_attempt_records (
+                configuration_facts,
             submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
             preview_result_id, repository_id, business_baseline_node_id,
             business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -555,18 +562,20 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             optimistic_version, created_by, created_at_us, effect_pending_at_us,
             finalized_at_us, aborted_at_us, abort_code
         ) VALUES (
+                ?,
             'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
-            'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+            'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
             'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
             'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
             'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
         )
         """,
-        (b"[]", "canonical-closure-1", "sha256:canonical-closure"),
+        (configuration_facts_blob(), *(b'["source-fixture"]', "canonical-closure-1", "sha256:canonical-closure")),
     )
     connection.execute(
         """
         INSERT INTO submission_records (
+                configuration_facts,
             submission_id, submit_attempt_id, workspace_id, workspace_generation,
             upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
             business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -576,11 +585,30 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             completed_verification_policy, requested_unknown_type_policy, target_ref,
             created_by, created_at_us
         ) VALUES (
+                ?,
             'sub-1', 'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base',
-            'commit-new', 'sha256:canonical', ?, 'manifest-1', 'sha256:manifest',
+            'commit-new', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest',
             'sha256:package', 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main',
             'actor-1', 1
         )
         """,
-        (b"[]",),
+        (configuration_facts_blob(), *(b'["source-fixture"]',)),
     )
+
+
+@pytest.mark.parametrize(("table", "column"), [
+    ("review_projection_records", "status"),
+    ("review_event_records", "event_kind"),
+    ("review_event_records", "from_status"),
+    ("review_event_records", "to_status"),
+])
+def test_review_baseline_rejects_removed_state_and_event(db_path: Path, table: str, column: str) -> None:
+    event, projection = build_seed_projection(submission_id="sub-1", actor_id="actor-1", occurred_at=TS0)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        unit_of_work.review.insert_seed(event, projection)
+    with pytest.raises(sqlite3.IntegrityError):
+        with ControlDbUnitOfWork(db_path) as unit_of_work:
+            unit_of_work.connection.execute(f"UPDATE {table} SET {column} = ? WHERE submission_id = 'sub-1'", ("RETURNED_FOR_REVISION",))
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.review.get_projection("sub-1") == projection

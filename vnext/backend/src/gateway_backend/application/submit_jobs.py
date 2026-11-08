@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
+from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.application.kernel_execution import reserved_artifact_bytes
 from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus as RepositoryOperationStatus,
@@ -160,6 +162,7 @@ from gateway_backend.operations.state import (
     operator_recovery_session_active,
 )
 from gateway_backend.operations.worker import (
+    LeaseSession as LeaseSessionPort,
     ClaimedExecutor,
     ExecutionControl,
     ExecutorAcknowledgment,
@@ -231,6 +234,7 @@ class SubmitRepositoryPolicy:
 
 @dataclass(frozen=True, slots=True)
 class SubmitJobPayload:
+    configuration_facts_digest: str
     document_type: str
     contract_version: str
     submit_attempt_id: str
@@ -324,6 +328,7 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
     repository_expected_commit_id = _require_non_empty_str(payload_object, "repository_expected_commit_id")
     canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
+    configuration_facts_digest = _require_non_empty_str(payload_object, "configuration_facts_digest")
     source_artifact_refs = _decode_string_tuple(payload_object.get("source_artifact_refs"), label="source_artifact_refs")
     preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
     canonical_table_set_closure_ref = _require_non_empty_str(
@@ -373,6 +378,7 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         builder_mutation_policy=builder_mutation_policy,
     )
     return SubmitJobPayload(
+        configuration_facts_digest=configuration_facts_digest,
         document_type=document_type,
         contract_version=contract_version,
         submit_attempt_id=submit_attempt_id,
@@ -560,6 +566,9 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     operation_record=operation,
                 )
         except SubmitImportPublicationError as exc:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()
             _publish_prepare_projection_failure(lease_session, exc)
             return ExecutorAcknowledgment.PUBLISHED
         except PrepareCheckpointPayloadBindingError:
@@ -580,7 +589,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return execute
+    return _with_resource_failure_terminal(execute)
 
 
 def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecutor:
@@ -1546,6 +1555,17 @@ def _recover_external_effect_step(
     )
 
 
+def _read_prepare_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
+    context = current_kernel_context()
+    if context is None:
+        raise SubmitJobError("prepare manifest read requires an operation context")
+    # Frozen closure/schema JSON and returned bytes remain conservatively charged
+    # through the execution; discarded READY row-file verification is short-lived.
+    context.resources.enter_context(context.memory.reserve(ref.size_bytes * 32 + 4096))
+    with reserved_artifact_bytes(store, ref) as payload:
+        return payload
+
+
 def _build_prepare_import_build_input(
     *,
     payload: SubmitJobPayload,
@@ -1575,7 +1595,7 @@ def _build_prepare_import_build_input(
             canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
             canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
             canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
-            read_artifact=store.locate,
+            read_artifact=lambda ref: _read_prepare_manifest(store, ref),
         )
         canonical_refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
         closure_ref = canonical_refs_by_id[attempt.canonical_table_set_closure_ref]
@@ -1619,6 +1639,8 @@ def _build_prepare_import_build_input(
             parent_table_names=parent_table_names,
             snapshot_tables=snapshot_tables,
         )
+    except CheckpointPublicationError as exc:
+        raise SubmitImportPublicationError("frozen canonical input is unavailable or corrupt: " + str(exc)) from exc
     except SubmitImportBuilderError as exc:
         raise SubmitImportPublicationError(str(exc)) from exc
     return PrepareImportBuildInput(
@@ -2405,6 +2427,8 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
         mismatches.append("baseline_head_version")
     if payload.repository_expected_commit_id != attempt.repository_expected_commit_id:
         mismatches.append("repository_expected_commit_id")
+    if payload.configuration_facts_digest != attempt.configuration_facts.facts_digest:
+        mismatches.append("configuration_facts_digest")
     if payload.canonical_business_digest != attempt.canonical_business_digest:
         mismatches.append("canonical_business_digest")
     if payload.source_artifact_refs != attempt.source_artifact_refs:
@@ -2708,6 +2732,30 @@ def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
 
 
+def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
+    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
+                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+        try:
+            return handler(operation, step, control, lease_session)
+        except MemoryError as error:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
+            lease_session.refresh_control()
+            if control.cancel_requested:
+                lease_session.publish_operation(_make_cancelled_terminal_builder())
+            else:
+                _publish_prepare_terminal_abort(lease_session, OperationDiagnostic(
+                    code="RESOURCE_LIMIT_EXCEEDED", message=(str(error) or "operation memory budget exceeded")[:255]))
+            return ExecutorAcknowledgment.PUBLISHED
+    return execute
+
+
+def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
+    lease_session.publish_operation(_make_cancelled_terminal_builder())
+    return ExecutorAcknowledgment.PUBLISHED
+
+
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:
@@ -2900,6 +2948,7 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "baseline_head_version",
         "repository_expected_commit_id",
         "canonical_business_digest",
+        "configuration_facts_digest",
         "source_artifact_refs",
         "preview_ready_closure_ref",
         "canonical_table_set_closure_ref",

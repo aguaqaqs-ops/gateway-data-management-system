@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 import copy
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,7 +51,7 @@ from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
-from gateway_backend.operations.worker import ExecutorAcknowledgment
+from gateway_backend.operations.worker import ExecutorAcknowledgment, ExecutionControl
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.preview_job_harness import (
     BASELINE_HEAD,
@@ -133,6 +135,8 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
         "initial_canonicalization_manifest_ref",
         "initial_canonicalization_manifest_digest",
         "baseline_canonical_state_digest",
+        "initial_canonical_state_digest",
+        "configuration_facts",
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
         "baseline_is_initial",
@@ -393,7 +397,7 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
                 "materialized_sides_ref": artifact_ref_to_dict(sides_ref),
                 "canonical_preview": {},
             },
-            store,
+            store, repository_id=REPOSITORY_ID,
         )
 
 
@@ -422,7 +426,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store)
+        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID)
 
 
 def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
@@ -446,7 +450,7 @@ def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store)
+        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID)
 
 
 def _run_through_publish(harness: PreviewJobHarness, operation_id: str) -> None:
@@ -715,3 +719,46 @@ def test_empty_baseline_submit_accepts_table_addition(
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("ordered_identity", (False, True))
+def test_pair_memory_admission_rejects_before_python_row_comparison(
+    monkeypatch: pytest.MonkeyPatch, ordered_identity: bool,
+) -> None:
+    from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
+    from gateway_backend.capabilities.table_rules import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
+    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
+    )
+    from gateway_backend.capabilities.snapshot_materialization import MaterializationPolicy
+    from tests.support.snapshot_materialization import materialize_arrow_sql
+    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record, ordered_record
+    sides = []
+    for value in (("a", "a") if ordered_identity else ("a", "b")):
+        sql = ("CREATE TABLE t(gid BIGINT NOT NULL PRIMARY KEY,no INT NOT NULL,v TEXT); INSERT INTO t VALUES (10,1,'a'),(11,2,'b');"
+            if ordered_identity else f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');")
+        result = materialize_arrow_sql(sql,
+            policy=MaterializationPolicy.READERS_REQUIRED)
+        assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+        bound = BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+        if ordered_identity:
+            descriptor = bound.summary.tables[0]
+            assert descriptor.raw_content_digest is not None
+            view = StorageRuleView(canonical_table="t", canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+                ordered_policy=OrderedPolicy.GID_NO_V1, structural_columns=("no",),
+                retained_columns=tuple(column.name for column in descriptor.columns), canonical_key_columns=("gid",))
+            bound = replace(bound, storage_facts=(ComparisonStorageFacts(storage_rule_view=view,
+                source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
+                raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
+        sides.append(bound)
+    def forbidden_compare(_plan: object) -> None:
+        raise AssertionError("comparison must not allocate rows before M admission")
+    monkeypatch.setattr(pair_pipeline, "compare_plan", forbidden_compare)
+    memory = OperationMemoryBudget(80 * 1024)
+    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
+                store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
+                rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
+    assert memory.stage_admissions[-1]["stage"] == "comparison-python-records"

@@ -55,10 +55,8 @@ PATH_DEPENDENCIES: dict[str, tuple[str, ...]] = {
         "vnext/rust/gateway-compute-python",
     ),
     "vnext/rust/gateway-compute-python": (
-        "vnext/rust/gateway-compute-python-impl",
         "vnext/rust/gateway-compute-core",
     ),
-    "vnext/rust/gateway-compute-python-impl": ("vnext/rust/gateway-compute-core",),
     "vnext/rust/gateway-compute-core": ("vnext/rust/gateway-shared-kernel",),
     "vnext/rust/gateway-shared-kernel": (),
     "vnext/rust/gateway-architecture-check": (),

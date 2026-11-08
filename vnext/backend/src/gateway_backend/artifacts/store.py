@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Iterator, Callable
+from contextlib import contextmanager
+from typing import ContextManager, Protocol
+
+import pyarrow as pa
 
 from gateway_shared_kernel import raw_blob_digest
 
@@ -23,8 +27,25 @@ class ArtifactRefLookupPort(Protocol):
         """Resolve the stored minimal ref for one opaque artifact id."""
 
 
+class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> ContextManager[pa.Buffer]:
+        """Borrow verified immutable bytes; the provider owns their lifetime."""
+
+
 class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
+
+
+class ArtifactUnavailableError(ManifestVerificationError):
+    """An exact stored artifact is missing or cannot be read."""
+
+
+class ArtifactStreamingStorePort(ArtifactRefLookupPort, Protocol):
+    def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
+        """Read one safe ordinary file in bounded chunks, verifying exact identity."""
+
+    def read_session(self) -> ContextManager[None]:
+        """Keep cooperative cleanup out until the caller closes its read session."""
 
 
 class InMemoryArtifactStore:
@@ -56,6 +77,15 @@ class InMemoryArtifactStore:
             return self._artifacts[artifact_id][0]
         except KeyError as exc:
             raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}") from exc
+
+    @contextmanager
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+        if checkpoint is not None:
+            checkpoint()
+        buffer = pa.py_buffer(self.locate(ref))
+        if checkpoint is not None:
+            checkpoint()
+        yield buffer
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

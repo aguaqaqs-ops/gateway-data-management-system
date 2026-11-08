@@ -25,10 +25,8 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeSignalResult,
     CompositeSignalStatus,
 )
-from gateway_backend.capabilities.snapshot_materialization._catalog import (
-    CatalogError,
-    extract_special_device_catalog,
-)
+from gateway_backend.capabilities.snapshot_materialization.arrow import extract_arrow_special_device_catalog
+from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     raw_content_digest_of,
@@ -138,7 +136,7 @@ def materialize_business_snapshot(
             ),
         )
     try:
-        catalog = extract_special_device_catalog(sql_result)
+        catalog = extract_arrow_special_device_catalog(sql_result)
     except CatalogError as exc:
         return _failed(
             stage,

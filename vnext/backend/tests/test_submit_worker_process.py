@@ -53,7 +53,7 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
             "business_baseline_commit_id": "commit-base",
             "baseline_head_version": 3,
             "repository_expected_commit_id": "commit-base",
-            "canonical_business_digest": "sha256:canonical",
+            "canonical_business_digest": "sha256:" + "5" * 64,
             "source_artifact_refs": ["source-1"],
             "preview_ready_closure_ref": "closure-1",
             "canonical_table_set_closure_ref": "canonical-table-closure-1",
@@ -125,6 +125,7 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE"] = str(token_file)
     mapping_file = write_mapping_file(db_path.parent / "provisioned-mapping.json")
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"] = "8589934592"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE"] = str(mapping_file)
     return environment
 
@@ -231,7 +232,7 @@ operation = operation_record_from_document({
     "checkpoint_ref": None, "completed_at": None,
     "contract_version": OPERATION_RUNTIME_CONTRACT_VERSION,
     "created_at": "2024-01-02T03:04:05Z", "diagnostic": None,
-    "document_type": "operation", "job_contract_version": "backend-vnext/submit/v1",
+    "document_type": "operation", "job_contract_version": "backend-vnext/submit/v2",
     "job_kind": "backend-vnext/submit", "job_payload": {"submit_attempt_id": "sa-1"},
     "job_payload_ref": None, "operation_id": "operation-submit-checkpoint",
     "optimistic_version": 0, "ready_closure_ref": None, "repository_operation_id": None,

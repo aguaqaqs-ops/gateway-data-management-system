@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import replace_preview_with_facts
+
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -158,7 +160,7 @@ def _seed_additional_pending_review_submission(
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
         workspace = created.workspace
@@ -188,7 +190,7 @@ def _seed_additional_pending_review_submission(
             created_by="actor-1",
             created_at=TS0,
         )
-        preview = replace(
+        preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id),
             preview_result_id=preview_result_id,
             upload_revision_id=upload_revision_id,
@@ -319,13 +321,11 @@ def _apply_review(
 REVIEW_TRANSITION_CASES = (
     (ReviewAction.APPROVE, ReviewStatus.APPROVED, False),
     (ReviewAction.REJECT, ReviewStatus.REJECTED, True),
-    (ReviewAction.RETURN_FOR_REVISION, ReviewStatus.RETURNED_FOR_REVISION, True),
     (ReviewAction.WITHDRAW, ReviewStatus.WITHDRAWN, True),
 )
 
 REVIEW_DENIED_TERMINAL_CASES = (
     (ReviewStatus.REJECTED, ReviewAction.APPROVE),
-    (ReviewStatus.RETURNED_FOR_REVISION, ReviewAction.APPROVE),
     (ReviewStatus.WITHDRAWN, ReviewAction.APPROVE),
 )
 
@@ -355,7 +355,7 @@ def test_apply_review_pending_transitions(
     expected_status: ReviewStatus,
     releases: bool,
 ) -> None:
-    reason = "needs changes" if action in {ReviewAction.REJECT, ReviewAction.RETURN_FOR_REVISION} else None
+    reason = "needs changes" if action is ReviewAction.REJECT else None
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
         workspace_before = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
         assert workspace_before is not None
@@ -388,28 +388,6 @@ def test_apply_review_pending_transitions(
         assert occupancy.active_submission_id == review_seed.submission_id
 
 
-def test_apply_review_approved_return_releases_workspace(review_seed: ReviewSeed) -> None:
-    _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-key"),
-    )
-    result = _apply_review(
-        review_seed,
-        _apply_command(
-            review_seed,
-            action=ReviewAction.RETURN_FOR_REVISION,
-            reason="return for edits",
-            expected_review_version=1,
-            idempotency_key="return-key",
-        ),
-    )
-    assert result.projection.status is ReviewStatus.RETURNED_FOR_REVISION
-    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
-        occupancy = unit_of_work.submission.get_workspace_occupancy(review_seed.workspace_id)
-        workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
-    assert occupancy is None
-    assert workspace is not None
-    assert workspace.current_upload_revision_id is None
 
 
 @pytest.mark.parametrize(("status", "action"), REVIEW_DENIED_TERMINAL_CASES)
@@ -419,8 +397,6 @@ def test_apply_review_rejects_terminal_transition(
     action: ReviewAction,
 ) -> None:
     release_action = ReviewAction.REJECT if status is ReviewStatus.REJECTED else ReviewAction.WITHDRAW
-    if status is ReviewStatus.RETURNED_FOR_REVISION:
-        release_action = ReviewAction.RETURN_FOR_REVISION
     _apply_review(
         review_seed,
         _apply_command(
@@ -766,48 +742,11 @@ def test_apply_review_cross_submission_fails_closed_on_record_submission_closure
     assert idempotency_rows_after == idempotency_rows
 
 
-def test_apply_review_replay_returns_original_result_after_later_mutation(
-    review_seed: ReviewSeed,
-) -> None:
-    approve = _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-replay"),
-    )
-    _apply_review(
-        review_seed,
-        _apply_command(
-            review_seed,
-            action=ReviewAction.RETURN_FOR_REVISION,
-            reason="return later",
-            expected_review_version=1,
-            idempotency_key="return-later",
-        ),
-    )
-    replay = _apply_review(
-        review_seed,
-        _apply_command(
-            review_seed,
-            action=ReviewAction.APPROVE,
-            expected_review_version=0,
-            idempotency_key="approve-replay",
-        ),
-    )
-    assert replay.replay is True
-    assert replay.event.sequence == approve.event.sequence
-    assert replay.projection.status is ReviewStatus.APPROVED
-    with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
-        projection = unit_of_work.review.get_projection(review_seed.submission_id)
-    assert projection is not None
-    assert projection.status is ReviewStatus.RETURNED_FOR_REVISION
 
 
-def test_apply_review_archive_race_barrier_blocks_return_without_occupancy(
+def test_apply_review_archive_race_barrier_blocks_withdraw_without_occupancy(
     review_seed: ReviewSeed,
 ) -> None:
-    _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-race"),
-    )
     with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
         unit_of_work.submission.delete_workspace_submission_occupancy(
             review_seed.workspace_id,
@@ -818,18 +757,18 @@ def test_apply_review_archive_race_barrier_blocks_return_without_occupancy(
             review_seed,
             _apply_command(
                 review_seed,
-                action=ReviewAction.RETURN_FOR_REVISION,
+                action=ReviewAction.WITHDRAW,
                 reason="too late",
-                expected_review_version=1,
-                idempotency_key="return-race",
+                expected_review_version=0,
+                idempotency_key="withdraw-race",
             ),
         )
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
         projection = unit_of_work.review.get_projection(review_seed.submission_id)
         events = unit_of_work.review.list_events(review_seed.submission_id)
     assert projection is not None
-    assert projection.status is ReviewStatus.APPROVED
-    assert len(events) == 2
+    assert projection.status is ReviewStatus.PENDING
+    assert len(events) == 1
 
 
 def test_apply_review_integrity_failure_on_projection_event_divergence(
@@ -1102,7 +1041,7 @@ def test_get_review_facts_rejects_cross_scope_submission(db_path: Path) -> None:
         )
 
 
-def test_apply_review_archive_closed_blocks_new_return(db_path: Path) -> None:
+def test_apply_review_archive_closed_blocks_new_review(db_path: Path) -> None:
     from gateway_backend.application.submission.errors import ArchiveClosed
     from tests.support.archive_fixtures import (
         append_selection_confirmation,
@@ -1126,10 +1065,10 @@ def test_apply_review_archive_closed_blocks_new_return(db_path: Path) -> None:
         apply_review_transaction(
             command=_apply_command(
                 review_seed,
-                action=ReviewAction.RETURN_FOR_REVISION,
+                action=ReviewAction.WITHDRAW,
                 reason="blocked after archive",
                 expected_review_version=1,
-                idempotency_key="return-after-archive-owner",
+                idempotency_key="withdraw-after-archive-owner",
             ),
             scope_resolution=scope_resolution,
             unit_of_work_factory=_uow_factory(db_path),

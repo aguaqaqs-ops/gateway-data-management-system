@@ -5,18 +5,39 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from typing import Protocol
 
-from gateway_backend.application.control_transactions import ControlTransaction
+from gateway_backend.application.control_transactions import ControlTransaction, ReadOnlySubmissionReader
+from gateway_backend.domain.baseline.ports import BaselineRepository
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexPort
 from gateway_backend.domain.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
     WorkspaceRepository,
 )
 from gateway_backend.operations import OperationStore
+from gateway_backend.domain.submission.models import WorkspaceSubmitOccupancy
 
 
-class WorkspaceControlTransaction(ControlTransaction, Protocol):
+class WorkspaceOccupancyReadPort(ReadOnlySubmissionReader, Protocol):
+    def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None: ...
+
+
+class WorkspaceCreateTransaction(Protocol):
+    @property
+    def workspace(self) -> WorkspaceRepository: ...
+
+    @property
+    def submission(self) -> WorkspaceOccupancyReadPort: ...
+
+
+class WorkspaceControlTransaction(ControlTransaction, WorkspaceCreateTransaction, Protocol):
+    @property
+    def baseline(self) -> BaselineRepository: ...
+
+    @property
+    def canonical_tables(self) -> CanonicalTableIndexPort: ...
+
     @property
     def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort: ...
 

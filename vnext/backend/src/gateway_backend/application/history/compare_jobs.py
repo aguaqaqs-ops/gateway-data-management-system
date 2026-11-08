@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import ContextManager, cast
 
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
     CommitCanonicalScope,
@@ -62,10 +63,11 @@ from gateway_backend.application.preview_jobs import (
     _storage_facts_to_documents,
     surface_artifact_closure,
 )
+from gateway_backend.application.kernel_execution import assemble_operation_bundle as assemble_bundle
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
-from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
@@ -76,18 +78,17 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
-    assemble_bundle,
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
-from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
+from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact, current_kernel_context
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest,
+    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
     RepositoryProviderError,
     RepositoryTableAccessProvider,
     SnapshotMaterializationResult,
@@ -101,7 +102,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
 )
-from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (
     OrderedPolicy,
     TABLE_RULESET_VERSION,
@@ -119,6 +120,7 @@ from gateway_backend.operations.contracts import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.recovery import HandlerExecutionFailure
 from gateway_backend.operations.worker import (
+    LeaseSession as LeaseSessionPort,
     ClaimedExecutor,
     ExecutionControl,
     ExecutorAcknowledgment,
@@ -368,7 +370,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 )
             sides = _sides_from_materialize_checkpoint(
                 envelope.job_state,
-                deps.artifact_store,
+                deps.artifact_store, repository_id=payload.repository_id,
             )
             sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
@@ -454,7 +456,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -> ClaimedExecutor:
@@ -500,7 +502,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 "materialize checkpoint does not match the history compare JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store)
+        sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store, repository_id=payload.repository_id)
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -546,7 +548,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                     store=deps.artifact_store,
                     lease_session=lease_session,
                     control=control,
-                    on_cancel=publish_cancelled,
+                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -611,7 +613,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> ClaimedExecutor:
@@ -716,7 +718,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
         lease_session.publish_operation(builder)
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def _materialize_distinct_commits(
@@ -762,6 +764,10 @@ def _materialize_distinct_commits(
             requested_tables=requested_by_commit[commit_id],
             export_tables=export_tables,
             export_cache=deps.snapshot_export_cache,
+            committed_tables=build_committed_table_access(
+                store=cast(ArtifactBufferStorePort, deps.artifact_store),
+                unit_of_work_factory=deps.control_transaction_factory,
+                repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id),
         )
         sides[commit_id] = bound
 
@@ -835,7 +841,11 @@ def _materialize_commit(
     requested_tables: tuple[str, ...] | None = None,
     export_tables: tuple[str, ...] | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
+    committed_tables: CommittedCanonicalTablesPort | None = None,
 ) -> BoundSnapshotInput:
+    operation_context = current_kernel_context()
+    if operation_context is None:
+        raise ValueError("repository materialization requires an operation kernel context")
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
@@ -844,8 +854,9 @@ def _materialize_commit(
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-        context=ParserInvocationContext(NeverCancel()),
-        requested_tables=requested_tables,
+        context=ParserInvocationContext(
+            operation_context.cancel_probe, operation_context.deadline_monotonic),
+        requested_tables=requested_tables, committed_tables=committed_tables,
         export_tables=export_tables,
         artifact_store=store,
         export_cache=export_cache,
@@ -871,6 +882,7 @@ def _assemble_comparison(
     lease_session: LeaseSession,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
@@ -912,7 +924,7 @@ def _assemble_comparison(
             rule_set=rule_set,
             store=store,
             control=control,
-            on_cancel=on_cancel,
+            on_cancel=on_cancel, repository_id=payload.repository_id, export_cache=export_cache,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -928,7 +940,7 @@ def _assemble_comparison(
                     pair_state.records_closure,
                     before=before,
                     current=current,
-                    include_all_tables=True,
+                    include_all_tables=True, store=store, repository_id=payload.repository_id, export_cache=export_cache,
                 ),
             )
         )
@@ -975,7 +987,7 @@ def _assemble_comparison(
         "bundle_digest": bundle_result.bundle.bundle_digest.value,
         "required_refs": [
             artifact_ref_to_dict(item)
-            for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref)
+            for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref, bundle_result.referenced_artifacts)
         ],
     }
     return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
@@ -990,6 +1002,7 @@ def _run_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -999,7 +1012,7 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             store=store,
             control=control,
-            on_cancel=on_cancel,
+            on_cancel=on_cancel, repository_id=repository_id, export_cache=export_cache,
         )
     except PairPipelineCancelled:
         raise
@@ -1099,6 +1112,7 @@ def _publish_commit_unavailable_failure(
 def _required_ready_refs(
     pair_results: list[_PairPipelineResult],
     bundle_manifest_ref: ArtifactRef,
+    bundle_artifacts: tuple[ArtifactRef, ...],
 ) -> tuple[ArtifactRef, ...]:
     from gateway_backend.capabilities.bundle_assembly import collect_surface_refs
 
@@ -1108,6 +1122,7 @@ def _required_ready_refs(
             raise HistoryCompareJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
     refs.append(bundle_manifest_ref)
+    refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
 
@@ -1169,6 +1184,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
 def _sides_from_materialize_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
+    *, repository_id: str,
 ) -> dict[str, BoundSnapshotInput]:
     sides_ref = _materialized_sides_ref_from_checkpoint(job_state)
     document = load_checkpoint_state_artifact(
@@ -1195,7 +1211,7 @@ def _sides_from_materialize_checkpoint(
                 "materialize checkpoint side entry is invalid",
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
-        sides[commit_id] = _bound_from_side_document(entry, store)
+        sides[commit_id] = _bound_from_side_document(entry, store, repository_id=repository_id)
     return sides
 
 
@@ -1269,7 +1285,7 @@ def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> 
         ) from exc
 
 
-def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str) -> BoundSnapshotInput:
     if entry.get("contract_version") != HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION:
         raise CheckpointDecodeError(
             "materialize checkpoint side contract version is invalid",
@@ -1296,7 +1312,7 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             )
         try:
             manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref))
+            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True))
         except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
             raise HistoryCompareJobError("materialize checkpoint table artifact is unreadable") from exc
     try:
@@ -1547,6 +1563,26 @@ def _terminal_step(
         updated_at=transaction_now,
         optimistic_version=step.optimistic_version + 1,
     )
+
+
+def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
+    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
+                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+        try:
+            return handler(operation, step, control, lease_session)
+        except MemoryError as error:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
+            _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation, step=step,
+                diagnostic_code="RESOURCE_LIMIT_EXCEEDED", message=str(error) or "operation memory budget exceeded", control=control)
+            return ExecutorAcknowledgment.PUBLISHED
+    return cast(ClaimedExecutor, execute)
+
+
+def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
+    lease_session.publish_operation(_make_cancelled_terminal_builder())
+    return ExecutorAcknowledgment.PUBLISHED
 
 
 def _make_cancelled_terminal_builder() -> Callable[

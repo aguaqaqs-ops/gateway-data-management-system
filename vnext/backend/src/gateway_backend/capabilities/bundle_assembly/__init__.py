@@ -47,11 +47,18 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     ComparisonBundle,
     validate_logical_path,
 )
+from gateway_backend.capabilities.bundle_assembly.transport import (
+    BUNDLE_REFERENCE_METADATA_KINDS,
+    BundleTransportMetadata,
+    read_bundle_transport_metadata,
+    validate_bundle_member_metadata,
+)
 
 __all__ = [
     "BUNDLE_CLOSURE_MEDIA_TYPE",
     "BUNDLE_CONTRACT_VERSION",
     "BUNDLE_MANIFEST_MEDIA_TYPE",
+    "BUNDLE_REFERENCE_METADATA_KINDS",
     "MAX_BUNDLE_CLOSURE_JSON_BYTES",
     "MAX_BUNDLE_MANIFEST_JSON_BYTES",
     "MAX_BUNDLE_WALL_TIME_SECONDS",
@@ -77,6 +84,7 @@ __all__ = [
     "BundleSummary",
     "BundleTableBinding",
     "BundleTableSide",
+    "BundleTransportMetadata",
     "ComparisonBundle",
     "assemble_bundle",
     "closure_digest",
@@ -84,8 +92,10 @@ __all__ = [
     "compute_bundle_digest",
     "integrity_payload",
     "manifest_semantic_payload",
+    "read_bundle_transport_metadata",
     "validate_bundle",
     "validate_bundle_ref",
     "validate_bundle_refs",
+    "validate_bundle_member_metadata",
     "validate_logical_path",
 ]

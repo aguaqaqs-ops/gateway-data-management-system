@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from gateway_shared_kernel import DateTimeScalar
 
 from gateway_backend.capabilities.snapshot_materialization import (
     normalize_sql_type_spelling,
@@ -33,10 +32,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotColumnDescriptor,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
-    encode_repository_row,
     map_repository_column,
 )
-from gateway_backend.capabilities.table_access.contracts import SqlLogicalType, SqlSetValue
+from gateway_backend.capabilities.table_access.contracts import SqlLogicalType
 
 _OWNER = (
     Path(__file__).resolve().parents[1]
@@ -66,21 +64,6 @@ SQL_TYPE_NORMALIZATION_CASES = (
     ("DATETIME(000)", "DATETIME"),
     ("decimal( 10, 2 )", "DECIMAL(10,2)"),
 )
-
-SET_DECODE_CASES = (
-    (("admin", "read"), SqlSetValue(("read", "admin"))),
-    (("write", "read"), SqlSetValue(("read", "write"))),
-    ((), SqlSetValue(())),
-)
-
-REPOSITORY_DATETIME_CASES = (
-    ("2026-10-11 12:34:56", DateTimeScalar(text="2026-10-11T12:34:56")),
-    (
-        "2026-10-11 12:34:56.123456",
-        DateTimeScalar(text="2026-10-11T12:34:56.123456"),
-    ),
-)
-
 
 def test_versions_and_orthogonal_labels_match_s0() -> None:
     assert SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION == 1
@@ -127,39 +110,9 @@ def test_snapshot_column_descriptor_normalizes_sql_type_spelling(
     assert normalize_sql_type_spelling(spelling) == expected
 
 
-@pytest.mark.parametrize(("wire_members", "expected"), SET_DECODE_CASES)
-def test_repository_set_decoding_uses_declared_label_order(
-    wire_members: tuple[str, ...],
-    expected: SqlSetValue,
-) -> None:
-    column = RepositoryColumn(
-        name="flags",
-        ordinal=0,
-        scalar_type="SET('read','write','admin')",
-        nullable=False,
-    )
+def test_repository_set_metadata_keeps_declared_label_order() -> None:
+    column = RepositoryColumn(name="flags", ordinal=0,
+        scalar_type="SET('read','write','admin')", nullable=False)
     mapped = map_repository_column(column)
-    encoded = encode_repository_row((column,), (list(wire_members),), table="items")
-
     assert mapped.source.logical_type is SqlLogicalType.SET
     assert mapped.source.enum_or_set_labels == ("read", "write", "admin")
-    assert encoded.cells == (expected,)
-    assert encoded.diagnostics == ()
-
-
-@pytest.mark.parametrize(("wire_value", "expected"), REPOSITORY_DATETIME_CASES)
-def test_repository_datetime_decoding_normalizes_dolt_wire_spelling(
-    wire_value: str,
-    expected: DateTimeScalar,
-) -> None:
-    column = RepositoryColumn(
-        name="sampled_at",
-        ordinal=0,
-        scalar_type="DATETIME",
-        nullable=False,
-    )
-
-    encoded = encode_repository_row((column,), (wire_value,), table="items")
-
-    assert encoded.cells == (expected,)
-    assert encoded.diagnostics == ()

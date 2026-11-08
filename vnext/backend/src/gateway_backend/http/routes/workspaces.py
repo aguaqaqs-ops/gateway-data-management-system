@@ -20,7 +20,9 @@ router = APIRouter(tags=["workspaces"])
 @router.post(
     "/v1/workspaces",
     response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
     responses={
+        200: {"description": "Existing workspace", "model": WorkspaceResponse},
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         422: {"description": "REQUEST_VALIDATION_FAILED"},
@@ -50,11 +52,12 @@ def create_or_get_workspace_route(
                 message="resource not found",
                 status_code=404,
             )
-        result = create_or_get_workspace(
-            context=context,
-            scope_resolution=deps.scope_resolution,
-            repository=deps.workspace_repository,
-            created_at=deps.now(),
-        )
+        with deps.workspace_unit_of_work_factory() as transaction:
+            result = create_or_get_workspace(
+                context=context,
+                scope_resolution=deps.scope_resolution,
+                transaction=transaction,
+                created_at=deps.now(),
+            )
     response.status_code = status.HTTP_200_OK if result.replay else status.HTTP_201_CREATED
-    return workspace_to_response(result.workspace)
+    return workspace_to_response(result)

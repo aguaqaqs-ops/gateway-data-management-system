@@ -418,8 +418,7 @@ fn standard_row(
         && !matches!(
             record.kind,
             StandardKind::SchemaChange | StandardKind::TableDegraded
-        )
-    {
+        ) {
         record
             .changed_columns
             .iter()

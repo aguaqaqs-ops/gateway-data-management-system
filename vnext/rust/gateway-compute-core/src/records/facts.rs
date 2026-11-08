@@ -10,8 +10,7 @@ use super::json_metadata_upper;
 use super::source::{cell_upper, standard_upper};
 use crate::comparison::{
     KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardKind,
-    StandardRecordRef,
-    canonical_cell_frame_at,
+    StandardRecordRef, canonical_cell_frame_at,
 };
 
 pub struct TableFactsSource<'a> {

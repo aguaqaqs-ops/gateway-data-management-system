@@ -1,6 +1,6 @@
 # Phase 6 S3 D 取证停止与最小恢复稿
 
-2026-11-08；状态：**Owner 已确认按独审恢复稿继续，D 执行通道恢复；尚无 D GO。** 下文停止与待决定文字保留为历史，最新决定见 §5。C 已由 `ce217c0ad77783a4a3c0eba3f0033bce356aaa3c` §19 独审核收。本次不是 C 恢复决定的追加豁免。
+2026-11-08；当前状态：**§1–5的旧停止已经Owner恢复；§6的新Compose执行范围缺失触发DC68，Compose补跑取证通道停止，待新恢复稿独审与Owner决定。独立未运行的selected-table诊断可继续按既有授权推进。尚无D GO。** C 已由 `ce217c0ad77783a4a3c0eba3f0033bce356aaa3c` §19 独审核收；旧C/D恢复许可不豁免本次新停止。
 
 ## 1. 固定对象与产品结果
 
@@ -55,3 +55,39 @@
 Owner 对固定恢复稿 `7ca300def7`、模板补充 `1719ca8f24` 及原独审 `1bb081ea19` 的恢复问题明确回复 **“确认并继续”**。本次执行通道恢复决定已经取得，不再等待相同许可。原测试者 `/root/s3_d_test` 与原审核者 `/root/s3_d_review` 继续负责；f000 fmt1、两次外层 capture1 及记录缺口全部保留，不补验或改为通过。
 
 等待期间，原审继续核固定5c并追加 `10f2173e55`、`983ca251de` findings；原实施者集中修订，当前 WIP 不能测试。下一固定新候选先由原审核者核 source/node/run/capture 的完整字面稿、HEAD与路径绑定，再由唯一原测试者在06执行。使用字面HEAD完整bundle和本单标准清单模板，不重复旧f000。普通产品反馈按新固定修订闭环，后续首失败、DC68、缓存/身份及同根两轮修复停止条件继续有效。恢复决定不是产品 GO、DC33 最终真实范围确认或退出/tag/push 授权。
+
+## 6. a9 Compose 范围缺失的新停止（旧恢复不适用）
+
+### 6.1 固定对象、实际结果和影响
+
+固定产品 `a9da0c59277e3179f34d646eabcd9c185917ae05`，Rust tree=`b5f2439384d859bd32df3e3e24979f4f63f0f91b`，06 clean subject WT=`/home/dev/gdds-test-tmp/p6-s3-d-a9da0c59-06/wt/subject`。原实施者编写外置稿、原审核者逐字CLEAR、原唯一测试者于 **07:40:20–07:42:32Z** 在 `gw-dms-06` 执行。预定依次运行普通Standard Submit/read和Ordered FULL/History两个既有selector。
+
+**实测仅第一例运行：** `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey` 为 **1 passed，121.80秒，原pytest exit0**。07:42:25Z记录该步结束后直接进入EXIT trap，`TEST_EXIT=not-started`；没有 `STEP=pytest-ordered`、第二例pytest摘要或 `ALL_SELECTED_TESTS_EXIT`。`provenance-ordered.json`仍为 `{"status":"not-produced","selector":"ordered"}`。outer/node/capture均返回0只证明相应命令的原始退出码，**不证明预定两例完整通过**。Ordered/History未运行，不能核D容器闭环或D GO；原审已撤回先前CLEAR作为“两例完整执行有效”的依据。
+
+可限范围核收的是第一例及其当前镜像/运行原件，不能冒称第二例失败或通过。运行结束起止HEAD/Rust/六锁稳定、WT clean；07:42:32Z guarded marker release0，原件显示本任务资源已收尾。停止后不重新占06、不补采旧Compose、不重Submit、不续旧脚本；保留所有原件。a9此前focused/静态结论保持其原范围，E仍依赖D GO。独立未运行的W3/W4 selected-table诊断与静态设计不依赖本次补跑决定，可按原规则继续，不能把组件诊断替代缺失的Ordered/History。
+
+### 6.2 原件绑定和工具边界
+
+原外置目录为CT201及06的 `/home/dev/gdds-test-tmp/p6-s3-d-compose-literal-a9da/`。CT201捕获目录 `captured-compose/` 的标准清单和收据均实际exit0/check0；未重跑或覆盖。
+
+| 原件 | SHA256 / 原始事实 |
+| --- | --- |
+| `prepare-run.sh` | `c953d9cdfaf882b23e20f7f36e2dca97831cc65fb281575ceccd6999fdb87dc7`；把node脚本经 `ssh ... bash -s -- < node-run.sh` 送入远端shell stdin |
+| `node-run.sh` | `bf7a3c180eea42818fdd296f73747f9d51c4a5d4f0572f88f5575e934aaa7c4d`；两selector已写但完成标记未达，trap未将范围缺失置非0 |
+| `outer.log` | `92845ba6d78a0d4887625d751360a2d8a1dc7dc57ff550ebee4b6239f47fb1d0`；外层原exit0 |
+| `captured-compose/compose-run.log` | `11b7b985f05dac434ecf579000a389569190f88bb6746af56a4c1755d99c6299`；仅Submit1pass，随后not-started/EXIT trap，FINAL_EXIT0 |
+| `provenance-submit.json` | `ac2dbab054c564c5c0f6c7a74f0bea3bfc0ac9f884228a25c4d88cc00a20096e`；第一例实际runtime provenance |
+| `provenance-ordered.json` | `69ac91639cdf349ba5921f07dbec71175e6f4b99875dbeffdb60f57e5e81fa75`；明确not-produced占位 |
+| `image-identities.json` | `07c1e099135f07dcf6f11338c8ff744fe0d1a828f58b57f4e9c8a849018fed25`；a9本次实际镜像config与全部DiffID，不能据此推定Ordered运行 |
+| 标准 `artifacts.sha256` | `ab9eccc303efc5009f65c971178dd420e376ca70cf6d0c28aa874c625cb08817`；四项check0 |
+| `captured-compose.capture.log` | `e1347d4022a614d12ca197177438177f6f489d58a90fb1288e155eedd2e19ac8`；捕获一次、exit0 |
+
+旧稿把远端Bash脚本和子进程共用stdin，允许测试中的子进程消费后续脚本行；现象与此风险一致，**具体消费者尚未实证**。不把推断写成已复现的产品原因。执行范围缺失和缺少完成guard由原件及源码成立；修正不需复现或重测Submit。
+
+这是**被测对象已经运行之后的工具/执行范围故障**。按[AGENTS.md DC68](../../../../../AGENTS.md)“重做再次失败、被测对象已运行后的失败、缓存缺失或身份不符均停止交owner”，Compose补跑需本次独审恢复稿及Owner明确决定，不能用§5旧许可、原始exit0或换执行人绕过。
+
+### 6.3 最小恢复方案和待决定事项
+
+推荐仅恢复缺失的 `tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey`，同a9产品、同原实施/审核/唯一测试者、06新独立任务前缀；不重测已通过Submit，不改产品代码/冻结语义/golden/N1/M24或节点职责。新稿将完整node脚本作为实体文件传输、先核SHA再 `bash <实体路径>`，测试stdin显式隔离；仅在预定selector真实完成且completion状态有效时才允许总体0。首失败停止、当前HEAD/clean/六锁、预置依赖身份、私有镜像tag、实际镜像config/全DiffID、仅本人资源清理及标准四原件捕获仍适用。此前散装只读探查只有tool stdout而无独立原日志/SHA的限制保留，不能补造为正式DC68重做原件。
+
+具体新Ordered-only字面稿由原实施者写入新外置目录，原审核者核全文/SHA及本节，再给恢复建议；**固定稿和独审结论尚待追加，当前不是执行许可**。Owner另一个选项是继续暂停Compose补跑，仅推进独立诊断/静态交接。需要Owner决定的只有本次缺失Ordered/History的受影响通道恢复；不扩大S3范围，不代替D GO或正式退出/tag/push。

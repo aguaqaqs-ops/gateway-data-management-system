@@ -13,6 +13,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.capabilities.comparison import (
     ArtifactScope, BoundSnapshotInput, ComparisonMode, ComparisonPlan, ComparisonRequest,
@@ -22,7 +23,9 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure, publish_records_closure_arrow,
 )
-from gateway_backend.capabilities.comparison.production import ComparisonTaskSession, compare_plan_native
+from gateway_backend.capabilities.comparison.production import (
+    ComparisonTaskSession, NativeComparison, compare_plan_native,
+)
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskOptions, RiskRulesetSnapshot,
@@ -444,6 +447,9 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
            else "INSERT INTO t VALUES (1, 'before'), (2, 'after');")
     )
     current = _artifact_bound(current_sql, store)
+    assert before.table_set is not None and current.table_set is not None
+    assert isinstance(before.table_set.tables[0].reader, ArrowSnapshotTableReader)
+    assert isinstance(current.table_set.tables[0].reader, ArrowSnapshotTableReader)
     rules = comparison_ruleset_for(standard_rule_record("t"))
     first_plan = plan_comparison(ComparisonRequest(
         pair_id="writer-first", before=before, current=current, rule_set=rules,
@@ -454,6 +460,17 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     assert isinstance(first_plan, ComparisonPlan) and isinstance(second_plan, ComparisonPlan)
     session = ComparisonTaskSession((first_plan, second_plan))
     assert tuple(session.remaining_uses.values()) == (2,)
+    observed: list[tuple[ComparisonPlan, NativeComparison]] = []
+    real_compare = pair_pipeline.compare_plan_native
+
+    def observe_compare(
+        planned: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+    ) -> NativeComparison:
+        result = real_compare(planned, session=session)
+        observed.append((planned, result))
+        return result
+
+    monkeypatch.setattr(pair_pipeline, "compare_plan_native", observe_compare)
     first = run_preview_pair_pipeline(
         pair_id="writer-first", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: None,
@@ -462,6 +479,26 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     )
     assert first.records_closure is not None
     assert first.records_closure.records
+    assert len(observed) == 1
+    actual_plan, first_native = observed[0]
+    assert isinstance(first_native.result, DetailedFactsResult)
+    assert first_native.result.facts is not None
+    first_fact = first_native.result.facts.tables[0]
+    assert first_fact.status is ComparisonTableStatus.MODIFIED, (
+        first_fact.status, first_fact.diagnostics,
+        tuple(record.record_kind.value for record in first_fact.records),
+        first_fact.row_added_count, first_fact.row_modified_count,
+        None if first_native.metrics is None else first_native.metrics.native_calls,
+    )
+    assert (first_fact.row_added_count, first_fact.row_modified_count) == (
+        (0, 1) if row_change == "modified" else (1, 0)
+    )
+    declared_key = session.declared_keys[("writer-first", "t")]
+    assert first_native.task_keys == {"t": declared_key}, (
+        first_native.task_keys, first_native.consumed_keys,
+        session.key_for(actual_plan, actual_plan.tasks[0]) == declared_key,
+        session.calls, session.reads,
+    )
     first_records = tuple(store.locate(entry.records_ref) for entry in first.records_closure.records)
     assert len(session.cached) == 1 and tuple(session.remaining_uses.values()) == (1,)
     assert len(session.risk_candidates) == 1

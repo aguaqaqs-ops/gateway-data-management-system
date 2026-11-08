@@ -164,3 +164,11 @@ Owner 对固定恢复稿与原审 `08547dc6715645d7a615c49898ccf495ca8e3257` 明
 最新完整固定 C 候选为 **`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4`**（首个完整候选1018之后的读写 admission 修订）。按已审恢复条件，测试者在新任务目录建立 clean detached 源/06 WT，三份脚本显式替换固定对象与路径并由原审快核，再以字面 `HEAD` 完整 bundle 传输，首轮只跑 Rust focused，不测试旧0194。共享 main 已有其他会话文档及 C 后续 WIP，均不触碰、不混入固定对象。CT201 dependency-base 五输入已由原审逐路径确认与573一致，实际构建、完整镜像身份和 LAN 预填仍待执行，不能记为证据通过。
 
 原审核者继续核三族独立预期、native 取消/截止/GIL/M、真实读取逻辑损坏、最后 Arrow buffer owner 与 writer/JCS 分配前预约。普通缺口由原实施者补最小向量并另固定候选；C 暂无运行或容器通过结果，D生产接线、W3/W4与集中验收尚未完成。
+
+### C 首轮实际反馈及当前修订
+
+Owner放行后，字面HEAD完整bundle成功（SHA `6529d9a26434191719d877f7a1542475c23ce737821eb09812ab57c2a5d4a127`），06 node准备通过。固定9f在 **01:18:13–14Z** 实际 fmt exit1、clippy/test未启动，起止clean/六锁不变/selector1.97.0；原Rust日志SHA `c0f7ee16768bc9292666696d2864fd642d729f6e72b795c5cfc7f95628e4ebb6`。完整恢复与自身准备错误出处见 [C恢复单§5.1](p6-s3-c-execution-stop.md#51-实际恢复首轮fmt-首败非-c-go)，原件保留；没有新产品PASS。
+
+`c30fd82022` 补C独立输入support及新入口排序/预算/损坏向量；`526dc49837` 修GIL向量为实际首批读取后后台线程推进/取消，均由原审静态核，需新完整候选实际运行。原审另发现读取的 nullable nested list 不能只用压缩后level/payload bytes推导Arrow解码内存，须用leaf `num_values`；这属于1018→9f读预准入第一轮修订尚有缺口，下一集中修订为第二轮，不能更名重计。builder每批Utf8/Binary/List的i32 offset须append前拒绝，是独立finding；整表不加2GiB假限。实施者集中修这两项后，再由唯一测试者在06独立scratch做机械fmt，原被测9f WT不写。
+
+01:07:51Z CT108只读现场无marker/运行容器，尚未占用，不代表后续正式窗口已取得。01:14:24Z只读核已接受 `w4-generator-correction-20261105b` 根：summary SHA `6b63cf2e8c58cadc96b7ac716a523f9b5554fcb496eea16c0c2f5089199a3896`；2x两包SHA `74974e5f3237ba372e81df95d448602d09713c3cdc8edf6ae5237352a78ebd4c` / `121dc3b0e0418a76e2563111970dd136cf00d0942c83f37b8cc19597995b6d20`；W4-10%/100%包分别 `4cb82a16d7c7801a1d4ecf11828cf8e94a92ed95bd6f89293a75653164bbd27c` / `c6f7c5e74f48715d2e33e9efe32a5679e913caccd8f93398f3ad4d1322eb4ec6`，与既有独审来源一致。对应journey roots/census已定位；未复制、生成、测试或改原线。D仍须在自己的输入副本/当前工具上核实际manifest与census，不能直接沿用旧P5硬编码旅程预期。

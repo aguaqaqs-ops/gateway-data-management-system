@@ -62,3 +62,15 @@ Owner 对本恢复稿及原审 `08547dc6715645d7a615c49898ccf495ca8e3257` 的恢
 暂停期间完整 C 候选已经固定为 **`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4`**。按 §3 最后一段的已审条件，同一测试者 `/root/s3_c_test` 改用此提交的新 clean detached 源/被测 WT，将三份字面脚本的固定 HEAD、任务路径和日志路径一并替换后交同一审核者快核；继续使用字面 `HEAD` 完整 bundle，不选负向基线，不重复测试旧0194。main 中其他会话的文档及 C 实施者后续 WIP 均不进入该固定测试对象，不清理或覆盖。
 
 本次首轮仍仅为 06 Rust focused，测试者唯一启动。原实施者继续职责内普通修复，审核者继续 C 代码与证据核收；新候选需另固定并按影响复测。CT201 依赖基镜像准备亦回到原授权范围，具体构建与向节点预填仍须固定脚本、完整身份和离线规则，不能与被测节点运行期间的镜像写入混用。截至本节记录，最新9f候选尚无编译、测试、容器通过结果；D 生产接线仍依赖 C GO。
+
+### 5.1 实际恢复首轮：fmt 首败，非 C GO
+
+同一测试者以新源 WT `/home/dev/gdds-test-tmp/p6-s3-c-rust-9f6c9ffb/wt/subject` 成功创建字面 `HEAD` 完整 bundle，源日志 `logs/resume-create-source.log` 为 01:11:26–27Z、exit0；SHA256=`d92c3bd3193b3d5a5219696a88da06bd5f92971bdb5e151a2af84dc0ec98aca4`。归档 `archives/source-9f6c9ffb-full-head.bundle` 为18,888,363 bytes、SHA256=`6529d9a26434191719d877f7a1542475c23ce737821eb09812ab57c2a5d4a127`，verify/list-heads 精确固定9f。
+
+原审核准新外层字面稿 `transfer-prepare-run.sh`，SHA256=`42ce4a49dddb5f966151e7cd9252ba6997d4608afa3a2ca303bbde7f9697c3f8`。06 本人标记 01:18:12Z 取得，LAN 双端三件 SHA 一致，node repo 完整 bundle verify/fetch 与新 detached 被测 WT/legacy/clean 均通过，node 准备日志 SHA256=`3e42b5649c51a44ae8d930ac43b33d3d3714cc3381411f62e2744b7e4d713fec`、exit0。
+
+06 Rust 脚本于 **01:18:13–14Z** 实际运行，固定9f、selector1.97.0、offline/jobs4、六锁无漂移。首步 `cargo fmt --all --check` exit1，因此 **clippy/test 未启动**；Rust 原日志 SHA256=`c0f7ee16768bc9292666696d2864fd642d729f6e72b795c5cfc7f95628e4ebb6`。外层日志 SHA256=`ea8f2270fc9d4241a8b84be6549784e90443328025882f5660f9bd12ea820456`、原 exit1。两处日志分别在06同名任务目录与CT201同名任务目录的 `logs/`；首败停止后只读 postflight 确认9f clean、本人 marker、无本任务进程，CT201收据 SHA256=`b72b9fc4bcb784c18e301f91a82c550fe15f7e77ff1e9d389d45cbba8f04802a`。资源释放收据及后续新候选另记，不能提前认定释放或通过。
+
+恢复准备另有三个自身步骤错误，均未触被测计算：retarget 生成器误要求无关占位符（事后摘要、数值exit未知，SHA=`a32a3446ce0f8a92e05921e48b11638bb4b2fda8929b2dc7511a789a91f9adf7`）；source WT 外层先重定向日志再拒覆盖（exit2，SHA=`6c75480fe9027bb81f191ddaec501d9c55d9df0f5898c282e44622030ee28dcd`，一次修正源WT日志SHA=`0dc7ada66340208cc29bc272245604ad6b00ffe3ae4958130bf9c796f36df555`）；06只读 preflight 嵌套引用 parse 错（事后摘要、数值exit未知，SHA=`766fc5c744d6d5d65fc2a31bf709c94276ed60dd23ea8dd1b3fddd787702e38f`）。最后一项经原审字面 heredoc 稿仅纠正一次通过，日志SHA=`574fd350f96ce8b5cbeafffa1124661f48f92d253964e614156a656cca50f280`、SSH exit0。此前错误均保原件与出处限制，不改写成完整实时日志。
+
+本次 Owner 放行的执行通道已实际恢复；fmt反馈按普通机械修正闭环，未取消其他停止规则。原审核者继续核完整候选和真实读写预算，C尚无运行/镜像通过结论，D仍未放行。

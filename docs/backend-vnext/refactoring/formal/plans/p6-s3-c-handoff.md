@@ -1,6 +1,6 @@
 # Phase 6 S3 C 实施交接
 
-状态：C 代码候选待 06 focused 验证与同角色独审；本文不自行宣称 C GO。固定设计为 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`，B 独审已 GO。C 的实际代码候选、06 日志、镜像身份和复审结论在验证后补入。
+状态：C 产品候选 `854d3888a9de49a666f209145756befec1dd2532` 的 06 focused、五包静态和当前镜像小门禁已过，最终独审结论待独立 review 文档；本文不自行宣称 C GO。固定设计为 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`，B 独审已 GO。
 
 ## C 实现与 D 接口
 
@@ -34,7 +34,74 @@ serial GIL 向量用惰性 Arrow stream 首批实际拉取事件唤醒后台 Pyt
 
 唯一 06 tester 在 clean 已提交 detached worktree 用离线缓存按 `AGENTS.md` 跑 Rust fmt/clippy/workspace tests、强制重装 Rust 扩展及 build-input 树校验、backend focused 和五包 ruff/mypy；若新测试工具不在默认 mypy 集合则单独明确运行。不得在开发主机跑测试、编译或 lint。C 修改真实 PyO3 read consumer、Rust 依赖锁及 backend/worker 镜像输入，已触发当前候选 HEAD 的 container-only 边界：需在 06 当前离线 dependency-base 上做小规模 Compose native smoke 并记录实际 image revision/source-tree；E 的 04 六包/正式最终容器门禁另办，不将 B 的延期判断机械沿用。`Cargo.lock` 的直接 `arrow-data 59.1.0` 依赖 checkpoint 为 `573d58248f`，须按 CT201 clean 构建 dependency-base、LAN 转运并记录完整输入摘要、config digest、全部 DiffID、归档 SHA 与时间，不能把开发机或旧镜像当当前候选证据。
 
-06 的 `0194d145bf` core 早期检查点未得到编译结果：LAN bundle 准备按 DC68 纠正后再次 exit 128（尚未触及被测对象），tester 按规则停止并释放 marker；恢复决定由协调者办理。该检查点非 C 验收候选。下次测试只能在固定的新完整候选与获准恢复的传输步骤上进行，原失败日志及 SHA 由 tester/协调记录。
+06 的 `0194d145bf` core 早期检查点未得到编译结果：LAN bundle 准备按 DC68 纠正后再次 exit 128（尚未触及被测对象），tester 按规则停止并释放 marker。Owner 后续按独审通过的恢复稿放行，tester 对 clean、已提交的新候选重新执行；该 0194 错误仍保留原日志与 SHA，不作为 C 产品测试或验收证据。
+
+### 已核 06 focused 与独立 expected
+
+产品候选 V 为 `854d3888a9de49a666f209145756befec1dd2532`，`vnext/rust` tree 为 `0866ac1223177d66cf13dc8b7389875c7bcb39b7`。同一 Rust tree 在 06 的固定 `ab610e82672d83b04bfabe88f2a8a34e0ea5cbbd` clean worktree 上实际执行 `cargo fmt --all --check`、workspace locked/offline clippy、workspace locked/offline test，三步 exit 0；原日志 `06:/home/dev/gdds-test-tmp/p6-s3-c-ab610e82/logs/run-focused.log` SHA256 `1ba0d0f7da4a8d8e8127b6fa50d39fa7272daccd18e705fbe52524c0ba2f9f07`，`02:10:53–02:11:27Z`。该次整稿随后 backend focused 失败，`FINAL_EXIT=1`；只作为同树 Rust focused 原件，不能称权威 runner carried 或 ab 整稿通过。
+
+06 的 V clean detached worktree 在 `02:48:19–02:49:07Z` 强制重装 `gateway-compute-python` 并核扩展 `__build_input__=0866ac...`，backend C focused **67 passed**（三冻结读/三 raw、实际 open/read/restore、typed SQL NULL/binary/float/date/decimal、owner 释放及取消/GIL 等），architecture import shapes **50 passed**，`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service` 五包的 ruff/mypy 均 exit 0。起止 HEAD 精确 V、worktree clean、六锁无漂移、`FINAL_EXIT=0`；原日志 `06:/home/dev/gdds-test-tmp/p6-s3-c-854d3888/logs/run-focused.log` SHA256 `12f07b3f5aa294cabb66d02e95c7de64c05e0882049369e2906aa994771e45d4`。这是阶段 focused，不是 04 权威全量 runner。
+
+三份 pre-C 冻结 Python Parquet b64 的独立期待不取新 Rust 输出；旧 Rust direct reader 的专用测试已由实际 PyArrow→PyO3 validator 对同一 raw、family/version/FULL/count/content 断言接替，空 raw 拒绝另保留。新 builder 三族 raw 逐字对旧 Python writer，亦对照以下固定来源；逻辑 JCS/content digest 与 raw SHA 分开判定。
+
+| Family | Version / count | 冻结 content digest | 冻结 raw SHA256 |
+| --- | --- | --- | --- |
+| STANDARD | `standard-records/v1` / 1 | `sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4` | `6f36fec125a0fe48fd021b4cdba4486b280a4e3e596fe44a8f57ebb0ac7fa309` |
+| ORDERED | `ordered-records/v1` / 1 | `sha256:887e686f96583a28c31f82788608ebd10491b80eb98dc9ab2ada7389ec50468b` | `15b51249f09fd147c77a9cac2ee13cb2bff819a0767aedd0b90564bed07ce331` |
+| BLANK | `blank-records/v1` / 2 | `sha256:5f7d095129a4fdbeba84392206fa857740ecdca6b466f9cc8177d2264bf9c17a` | `39bfb0fb8a026e71c5328c237e89c89baeaa128a88109186a7e052328afc1279` |
+
+失败闭合链保留原件，不靠改 golden 或放宽断言：`0194` source bundle DC68 两次 setup error 后按 Owner 已审恢复稿重做；`9f` fmt、`bca/bd/bf` clippy、`20f` PyO3 编译、`4a` 被替代旧 direct reader 的物理 `element` 测试，分别在后续固定树上修正，最终同树 ab Rust 三步全过。ab 的 backend 首败包含遗漏 `typing.cast`、`DigestRef.parse` 虚构 API 与三 raw footer 差异；`46b` 只修 cast 未运行，随后 `1f` 经真实三 b64 读桥/公共 schema 写入证明 raw 逐字。`1f` 8 个首败依实际边界修：diagnostic standalone 与 autouse operation 区分，已导出 batch 最后 owner 退账，BLANK facts 序与旧 artifact sort 序区分，ref raw identity 在 closure/manifest/records 解析前拒绝并报具体部位；`7c` 06 focused 67/67 与 architecture 50/50 已过，但 backend mypy 26 条类型错误使整稿 `FINAL_EXIT=1`（原日志 SHA256 `11e6c88430f12134fa36f310996476b760e7f7f2fe0da7ae52ef14a6deb43ef9`），由 V 局部精确类型修闭合，V 五包静态全过。早期失败完整来源索引为开发节点 `/home/dev/gdds-test-tmp/p6-s3-c-evidence-index.md`，它只索引原件，不签 GO。
+
+CT201 的 clean 依赖 checkpoint `573d58248f0dc90e27f1be79ac9f2802211ed738` 在 `heavy-dev-01` 于 `01:22:02–01:24:09Z` 按完整输入 SHA256 `ca0ba0a24a5e96a435e14a6da80b26cc390d315722f0432be3affe9de3339085` 构建/保存 `gateway-backend-deps:lock-ca0ba0a24a5e`；归档 SHA256 `fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136`，config digest `sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`。06 经获准 LAN 于 `01:36:35–01:36:55Z` 传输、`01:37:14–01:37:29Z` load，核 config 与以下全部 19 个 RootFS DiffID 相同，未走公网/代理；构建原日志 SHA256 `7e1b02db9b823bd4be8c55a4888c2e40b99e83a9320a2919e17c7f18762094d3`，预填原日志 SHA256 `c84aaade82bb2d52618d579e9afa634586c7dae2e1924b4b3c0160ffff083d11`。当前 V 的五项 dependency-base 输入与该 checkpoint 相同，最终 06 Compose 仍须按实际 `--print-input` 和本机镜像身份复核。
+
+```text
+sha256:f2c42f900cb3b12d5456f76b4fa6454a52df3981323d3a1b1a17fe4c4955ab4a
+sha256:d13007d6a3979078792cbc2afff5c74eb1a14f5a02394f6cae0a873a0752c104
+sha256:af68230260cdbb7ac206fc2f95bf67c1a75ebdcf3e4014accffd3c8bcb478e15
+sha256:ac06852f1f7254083486500d54ef4292d46b2c868df62ba93466e633c78a7cf1
+sha256:a9a1dcf9cd75357904971362ed8395b2feb40790c75a06b85852133a204ba79a
+sha256:c7b432c3f658b7dd011573e85ed7bdbe36769855537890eef470c62367b68c25
+sha256:ca61d18a121a5670b32df53fa9afeeee4290a8f2680c8621a7076d8253151588
+sha256:234dfe258b3d948dab2e1a1c001437fd46b4e71da8f7c1314981acb098d2d547
+sha256:b92b3277af9693a1e9447d275f2028586485b1add134b67565904e6feb30ea2b
+sha256:09700be33d693283b898b565c45fdd1b1565689aff5af92a430c1fd166db69bf
+sha256:4e4ce5587cdaf796f63c5af9693ce2f339a7dc0163e0bd8c529ac363ed450afc
+sha256:7beae3f6038867aa129aca2d5bb3ff21de1b1505ca2f5d8cdaf3b407ce064c9e
+sha256:9e9bd7e3f80137b97b7df080e637dea5f65ec76b2c30bf5c85a5ff1f1c8c9fe6
+sha256:ed736377f94046644118088d441142544466807cd758d68b0a5b6a2d593ed57a
+sha256:1ddd6ddb7206aadbc02d443873544a553fa6ea41bbe46311c282fc1621fd0f77
+sha256:527bb8413693212ca83d05ea064f54b71c9b64577f3324fd5bbe2adc56548d57
+sha256:93bccfc22a8b43705d1a1250974b5845871ae65d1911d68cd0d9d8de46a8a3e3
+sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef
+sha256:3b57bc4f973ed872d72fcea5366bac94c997c415b29d06c28f8e9a631b7a8429
+```
+
+### 当前镜像小门禁与 D/E 待办
+
+唯一 06 tester 在固定 V clean worktree、当前本机预置 dependency-base 上以 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-ca0ba0a24a5e`、`GATEWAY_DOCKER_BUILD_NETWORK=none` 保留 Compose build，实际重建 `gateway-s3-c-854d3888-backend:latest` 与 `gateway-s3-c-854d3888-worker:latest`；没有设置 prebuilt 模式。实际 backend 镜像内用 N1 pool 写一份固定 STANDARD Arrow batch 为 Parquet，再由 `_validate_parquet_bytes` 经 PyArrow row group→真实 PyO3 Rust validator 核 family/version/FULL/count/content，输出 `S3_C_NATIVE_PARQUET_SMOKE_OK sha256:fe356998e284fbbe24af3eb5ebd396fbc6d7f7cddd19a753c87c16187efceeac`。06 日志起止 `2026-11-08T02:52:14–02:54:13Z`、HEAD 精确 V、`vnext` tree `f2b1ca467434730482dbf0a85ba163b59eb2fb59`、Rust tree `0866ac...`，六锁无漂移、worktree clean、`SMOKE_EXIT=0`、`FINAL_EXIT=0`、本人 marker 已释放。原件在开发节点 `/home/dev/gdds-test-tmp/p6-s3-c-compose-854d3888/compose-native.log`，SHA256 `97df5395210b420430519268a84c5daf0b74ab902d1f361bb3ed0ba6cbac9f3d`；当前镜像 archive SHA256 `1a5a447da032b35380ae332e74b591f31b5496ba09c1fced53b46f3f5c0a5d58`，06 `image-identities.json` SHA256 `045ac22b1b2084c262f6cb78b6ea2fde761c370e9576e3aa26c4601b5b064696`。该结果只证明本节当前镜像的小型 native read 边界，不是 04 权威全量 runner 或完整 Compose 服务旅程。
+
+| 06 当前镜像 | config digest | RootFS DiffID |
+| --- | --- | --- |
+| `gateway-s3-c-854d3888-backend:latest` | `sha256:15d83b25314b89a9625f39835970eae8ee24d22ada58ccc947a7d4deaab026ef` | 下列相同 13 层 |
+| `gateway-s3-c-854d3888-worker:latest` | `sha256:1ef7719fcbc443abffe52993709d9daefdc42afc8827b5b87e87a226798765a3` | 下列相同 13 层 |
+
+```text
+sha256:66462cc862fe2053b9863fefa3866e07bb5dfb06f6b3ce3177cc096e4021aabe
+sha256:97c8a655c2dfbb1952cd052cbe11b7e6e00af00f160154b47b0bad29e019b067
+sha256:3fda3219c8f4a902e577efcdb924b514318c606d47db4a53640511b27925da18
+sha256:594ec838d0ae6e04f1fecf3283c6d40f24e0a03b5741d12090cbca47bf416cb5
+sha256:e5d5d6d9e0a5f93b01200d90860522a50d4c4d6d34710c117212d0071e43c150
+sha256:225cd91c26ef9dc0468d190ae99d4b37f57f4c3e6f50259f8c0f1830f8e3d7f8
+sha256:754f547225d914d029db66988a9ab28ec04c54c388c265e95a168cf0b8e03092
+sha256:a73b7714f07f506ab15477b3b06817c04650473022989479e71a06482663d0c3
+sha256:143d43bcc5ef0975b0eb506059f6b597799ed8a904f68ab8583ba41bfbd1c5ee
+sha256:a9880cd756421768ccad0ef9c0c0570c671766c28776cb358f0cf1c5512eca1b
+sha256:f23cf9dcc532b8683deec160ceb90b6ec6e8af58b016008f5071f04dd98022a2
+sha256:7f0d7e5a910dd095513158a1b8bc57ac7a3791a35d5931c5ecfd7a5b530c6e7c
+sha256:64164ec99acd1b7952cfea3b787c6e7d9c18aba73f0f90d1f3da58affd79ba44
+```
+
+D 的唯一生产接线仍须把 Preview/History/risk 从旧 tuple 发布路线改到 C 的 native handle/Arrow 与本节 read validator，并在同一 operation M 账本上按 facts/core→seal→writer/risk 顺序用新 API；C 本节没有开启生产开关或隐式 fallback。D/E 特别要处理 BROWSE_ONLY/SNAPSHOT_ONLY 的 `COLUMNS_ADDED` 旧 `_read_rows+Counter` 热点，使用 B 的 keyless `emit=false` counts→bool 接口并保旧 role 测试。E 负责删除 B JSON locator probe、两份临时 Python 工具与剩余旧 tuple 路线，在最终候选按 04 六包权威 runner、完整容器门禁、DC33 真实数据范围及 W3/W4 测量/测量来源完成阶段退出；本节 focused 与小 smoke 不替代这些证据。
 
 ### 06 当前镜像最小 native smoke
 

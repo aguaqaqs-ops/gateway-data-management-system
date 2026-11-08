@@ -93,7 +93,7 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
 }
 COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 
-# Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
+# Rust policy v7 §4: exact coarse entrypoints, not a capability-wide compute
 # exemption. Other owners, whole-module imports and wildcard imports still fail.
 NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
     "gateway_backend.bootstrap.compute_kernel": frozenset({"_init_kernel_native"}),

@@ -405,5 +405,7 @@ def test_compose_submit_removes_deleted_user_and_sibling_tables(tmp_path: Path) 
             "com_cfg",
             "composite_signal_point",
         }
+        provenance = capture_running_container_provenance(env)
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
     finally:
         cleanup_compose_project_artifacts(env)

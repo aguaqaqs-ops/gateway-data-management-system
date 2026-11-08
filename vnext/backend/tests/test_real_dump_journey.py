@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from tests.support.configuration_facts import submit_attempt_with_facts
 
-import json
+import contextlib
 import hashlib
-from email import policy
-from email.parser import BytesParser
+import json
+import os
 import sqlite3
 import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, cast
 
@@ -36,11 +38,13 @@ from benchmarks.real_dump_journey import (
     _canonical_state_digest_from_submission,
     _history_surface_ref,
     _keyless_fallback_candidates,
+    _keyless_fallback_source,
     _ordered_table_row_counts,
     _operation_timeout_seconds,
     _parse_cpu_stat,
     _pseudo_counts_from_http,
     _require_one_of,
+    _s3_census_baseline,
     _step_measurement,
     WorkerHeartbeatMonitor,
     WorkerHeartbeatTracker,
@@ -792,6 +796,48 @@ def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_rea
     assert events == ["diagnostics", "teardown"]
 
 
+@pytest.mark.serial
+@pytest.mark.parametrize("fail_inside", [False, True], ids=("normal", "exception"))
+def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
+    tmp_path: Path, fail_inside: bool,
+) -> None:
+    marker = tmp_path / "log-child-started"
+    script = (
+        "import pathlib, subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'], "
+        "stdout=sys.stdout, stderr=sys.stderr); "
+        f"pathlib.Path({str(marker)!r}).write_text('started'); "
+        "time.sleep(5)"
+    )
+
+    def popen(_command: list[str], **kwargs: Any) -> subprocess.Popen[str]:
+        return subprocess.Popen([sys.executable, "-c", script], **kwargs)
+
+    monitor = WorkerHeartbeatMonitor(
+        env=dict(os.environ),
+        repository_id="repository-1",
+        repository_url="http://repository-service",
+        popen=popen,
+    )
+    expected = (
+        pytest.raises(JourneyFailure, match="monitor body failed")
+        if fail_inside else contextlib.nullcontext()
+    )
+    with expected:
+        with monitor:
+            deadline = time.monotonic() + 3.0
+            while not marker.is_file():
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            exiting_at = time.monotonic()
+            if fail_inside:
+                raise JourneyFailure("monitor body failed")
+
+    assert time.monotonic() - exiting_at < 2.0
+    assert monitor._reader_thread is not None
+    assert not monitor._reader_thread.is_alive()
+
+
 def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1301,16 +1347,79 @@ def test_additive_column_preview_uses_s1b_changed_table_count() -> None:
     )
 
 
-def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> None:
-    names = _keyless_fallback_candidates(
-        {
-            "effective_key_scan": {
-                "unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]
-            }
-        }
-    )
+@pytest.mark.parametrize(
+    ("census", "expected", "expected_source"),
+    [
+        (
+            {"effective_key_scan": {"unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]}},
+            ("fallback_a", "fallback_b"),
+            "S1 census effective_key_scan.unresolved_tables",
+        ),
+        (
+            {"effective_key_scan_status": "complete", "effective_key_unresolved_tables": []},
+            (),
+            "S3 census effective_key_unresolved_tables",
+        ),
+    ],
+    ids=("s1-nested", "s3-flat-complete"),
+)
+def test_keyless_fallback_candidates_come_from_census_unresolved_tables(
+    census: dict[str, Any], expected: tuple[str, ...], expected_source: str,
+) -> None:
+    assert _keyless_fallback_candidates(census) == expected
+    assert _keyless_fallback_source(census) == expected_source
 
-    assert names == ("fallback_a", "fallback_b")
+
+def _synthetic_census() -> dict[str, Any]:
+    return {
+        "staging_status": "COMPLETE",
+        "materialization_status": "COMPLETE",
+        "composite_stage_status": "COMPLETE",
+        "logics_xml_status": "complete",
+        "duplicate_key_scan_status": "complete",
+        "table_count": 3,
+        "source_ddl_table_count": 2,
+        "row_count_total": 14,
+        "role_table_counts": {"SKIP": 1},
+        "canonical_rows_by_table": {
+            "device_model_table": 5,
+            "value": 7,
+            "composite_signal_point": 2,
+        },
+        "ordered_projection": {
+            "status": "COMPLETE",
+            "pseudo_rows_total": 0,
+            "tables": {},
+        },
+    }
+
+
+def test_s3_census_baseline_excludes_skipped_and_already_included_composite() -> None:
+    assert _s3_census_baseline(_synthetic_census()) == {
+        "preview_table_count": 1,
+        "catalog_table_count": 1,
+        "catalog_row_count_total": 7,
+    }
+
+
+def test_s3_census_shape_is_checked_before_starting_compose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    census = _synthetic_census()
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_read_metadata",
+        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
+                                   real_dump_journey.EXPECTED_PAIRINGS["t4"]}),
+    )
+    monkeypatch.setattr(
+        real_dump_journey.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("journey proceeded beyond census preflight"),
+    )
+    with pytest.raises(JourneyFailure, match="effective-key scan"):
+        real_dump_journey.run_journey(tier_filter="t4", s3_census=tmp_path / "census.json")
 
 
 def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
@@ -1658,12 +1767,30 @@ def test_s3_t4_census_validates_only_the_two_selected_package_identities(
             pseudo = 3 if dataset_id == v2_id and is_t4 else 2 if is_t4 else 0
             census.append({
                 "dataset_id": dataset_id,
-                "table_count": 1, "row_count_total": 3,
+                "table_count": 2 if is_t4 else 1, "row_count_total": 3,
+                **({
+                    "staging_status": "COMPLETE",
+                    "materialization_status": "COMPLETE",
+                    "composite_stage_status": "COMPLETE",
+                    "logics_xml_status": "complete",
+                    "duplicate_key_scan_status": "complete",
+                    "source_ddl_table_count": 1,
+                    "role_table_counts": {"SKIP": 0},
+                    "canonical_rows_by_table": {
+                        "ordered_t": 3,
+                        "composite_signal_point": 0,
+                    },
+                } if is_t4 else {}),
                 "ordered_projection": {
                     "status": "COMPLETE", "pseudo_rows_total": pseudo,
-                    "tables": {"ordered_t": {"status": "COMPLETE", "pseudo_gid_count": pseudo}},
+                    "tables": {"ordered_t": {
+                        "status": "COMPLETE", "pseudo_gid_count": pseudo, "row_count": 3,
+                    }},
                 },
-                "effective_key_scan": {"unresolved_tables": []},
+                **({
+                    "effective_key_scan_status": "complete",
+                    "effective_key_unresolved_tables": [],
+                } if is_t4 else {"effective_key_scan": {"unresolved_tables": []}}),
             })
     (root / "datasets.json").write_text(json.dumps({"datasets": datasets}), encoding="utf-8")
     census_path = tmp_path / "accepted-census.json"

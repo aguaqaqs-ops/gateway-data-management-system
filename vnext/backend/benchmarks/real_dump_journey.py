@@ -12,6 +12,7 @@ from gateway_backend.capabilities.table_access import (
     KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_access import NeverCancel
+from gateway_backend.capabilities.table_rules.registry import DEFAULT_SKIPPED_TABLE_NAMES
 
 import argparse
 import contextlib
@@ -21,6 +22,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -947,6 +949,7 @@ class WorkerHeartbeatMonitor:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
         except OSError as exc:
             raise JourneyFailure("could not start worker heartbeat log stream") from exc
@@ -967,22 +970,39 @@ class WorkerHeartbeatMonitor:
     def _read_heartbeat_log(self) -> None:
         if self._process is None or self._process.stdout is None:
             return
-        for line in self._process.stdout:
-            self.tracker.observe_log_line(line)
+        stream = self._process.stdout
+        try:
+            for line in stream:
+                self.tracker.observe_log_line(line)
+        finally:
+            stream.close()
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
         process = self._process
-        if process is not None and process.poll() is None:
-            process.terminate()
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                process.kill()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process.wait(timeout=5.0)
         if self._reader_thread is not None:
             self._reader_thread.join(timeout=5.0)
-        if process is not None and process.stdout is not None:
-            process.stdout.close()
+            if self._reader_thread.is_alive() and process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self._reader_thread.join(timeout=5.0)
+            if self._reader_thread.is_alive():
+                original = _exc if isinstance(_exc, BaseException) else None
+                raise JourneyFailure("worker heartbeat log reader did not stop") from original
 
     def check_operation(self, operation_id: str, status: object, *, stage: str) -> None:
         if self._process is not None and self._process.poll() is not None:
@@ -1814,13 +1834,49 @@ def _assert_s1b_history_count(
 
 
 def _s3_census_baseline(item: Mapping[str, Any]) -> dict[str, int]:
-    """Use synthetic census totals without changing frozen P5 constants."""
-    tables = int(item["table_count"])
-    rows = int(item["row_count_total"])
+    """Derive stored, non-composite totals from the accepted synthetic census."""
+    if any(
+        item.get(name) != "COMPLETE"
+        for name in ("staging_status", "materialization_status", "composite_stage_status")
+    ) or any(
+        item.get(name) != "complete"
+        for name in ("logics_xml_status", "duplicate_key_scan_status")
+    ):
+        raise JourneyFailure("synthetic census is not complete")
+    raw_rows = item.get("canonical_rows_by_table")
+    raw_roles = item.get("role_table_counts")
+    table_count = item.get("table_count")
+    row_count = item.get("row_count_total")
+    source_ddl_count = item.get("source_ddl_table_count")
+    if (
+        not isinstance(raw_rows, dict)
+        or not isinstance(raw_roles, dict)
+        or type(table_count) is not int
+        or type(row_count) is not int
+        or type(source_ddl_count) is not int
+        or type(raw_roles.get("SKIP")) is not int
+        or table_count < 1
+        or row_count < 0
+        or source_ddl_count != table_count - 1
+        or len(raw_rows) != table_count
+        or any(type(name) is not str or type(count) is not int or count < 0
+               for name, count in raw_rows.items())
+    ):
+        raise JourneyFailure("synthetic census table and row counts are invalid")
+    rows = cast(dict[str, int], raw_rows)
+    if sum(rows.values()) != row_count:
+        raise JourneyFailure("synthetic census row counts do not reconcile")
+    if "composite_signal_point" not in rows:
+        raise JourneyFailure("synthetic census omits the composite table")
+    skipped_names = set(rows).intersection(DEFAULT_SKIPPED_TABLE_NAMES)
+    if len(skipped_names) != raw_roles["SKIP"]:
+        raise JourneyFailure("synthetic census SKIP role count does not reconcile")
+    visible_tables = table_count - len(skipped_names)
+    visible_rows = row_count - sum(rows[name] for name in skipped_names)
     return {
-        "preview_table_count": tables,
-        "catalog_table_count": tables,
-        "catalog_row_count_total": rows,
+        "preview_table_count": visible_tables - 1,
+        "catalog_table_count": visible_tables - 1,
+        "catalog_row_count_total": visible_rows - rows["composite_signal_point"],
     }
 
 
@@ -2574,12 +2630,21 @@ def _history_compare(
 
 def _keyless_fallback_candidates(census: Mapping[str, Any]) -> tuple[str, ...]:
     scan = census.get("effective_key_scan")
-    if not isinstance(scan, dict):
-        raise JourneyFailure("census has no effective-key scan")
-    unresolved = scan.get("unresolved_tables")
+    if isinstance(scan, dict):
+        unresolved = scan.get("unresolved_tables")
+    elif census.get("effective_key_scan_status") == "complete":
+        unresolved = census.get("effective_key_unresolved_tables")
+    else:
+        raise JourneyFailure("census has no complete effective-key scan")
     if not isinstance(unresolved, list) or any(type(item) is not str for item in unresolved):
         raise JourneyFailure("census effective-key unresolved table list is invalid")
     return tuple(sorted(set(cast(list[str], unresolved))))
+
+
+def _keyless_fallback_source(census: Mapping[str, Any]) -> str:
+    if isinstance(census.get("effective_key_scan"), dict):
+        return "S1 census effective_key_scan.unresolved_tables"
+    return "S3 census effective_key_unresolved_tables"
 
 
 def _offline_composite_comparison(
@@ -3326,7 +3391,7 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
                     "names": list(v1_keyless_names),
-                    "source": "S1 census effective_key_scan.unresolved_tables",
+                    "source": _keyless_fallback_source(census[v1_id]),
                 },
             },
             {
@@ -3347,7 +3412,7 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
                     "names": list(v2_keyless_names),
-                    "source": "S1 census effective_key_scan.unresolved_tables",
+                    "source": _keyless_fallback_source(census[v2_id]),
                 },
             },
         ],
@@ -3738,6 +3803,12 @@ def run_journey(
         tier_filter != "t4" or cross_project or scope not in {"full", "t4-identity"}
     ):
         raise JourneyFailure("S3 synthetic census requires a same-project --tier t4 journey")
+    if s3_census is not None:
+        for dataset_id in EXPECTED_PAIRINGS["t4"]:
+            _s3_census_baseline(census[dataset_id])
+            _ordered_tables(census[dataset_id])
+            _ordered_table_row_counts(census[dataset_id])
+            _keyless_fallback_candidates(census[dataset_id])
     current_head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_repo_root(),
@@ -4083,6 +4154,9 @@ def validate_inputs(
             continue
         _package, file_info = _dataset_package(root, datasets[dataset_id])
         ordered = _ordered_tables(census[dataset_id])
+        if s3_census is not None:
+            _s3_census_baseline(census[dataset_id])
+            _ordered_table_row_counts(census[dataset_id])
         validated.append(
             {
                 "dataset_id": dataset_id,

@@ -1,7 +1,7 @@
 # Phase 6 S4：执行计划与开工边界
 
-2026-11-08。状态：固定设计候选 `de0eb3a8b2f9881737a183f0a4663dad9a75d67f` 已获 [Sol 连续复审](p6-s4-design-review.md)及 [GPT-6-Astra high 第二次独审](p6-s4-astra-review.md) **DESIGN_CLEAR_FOR_OWNER**；本轮仅设计，不授权产品实施或任何测试/编译/lint/构建。
-依据 [详细设计](p6-s4-design.md)；Owner已确认本文§6的DC33范围，不等于执行放行。
+2026-11-08。状态：固定设计候选 `de0eb3a8b2f9881737a183f0a4663dad9a75d67f` 已获 [Sol 连续复审](p6-s4-design-review.md)及 [GPT-6-Astra high 第二次独审](p6-s4-astra-review.md) **DESIGN_CLEAR_FOR_OWNER**；本次已按DC96获Owner授权连续实施A–E及必要测试/编译/lint/构建；满足全部退出条件后办理本地附注S4 exit tag，不推送。
+依据 [详细设计](p6-s4-design.md)；Owner已确认本文§6的DC33范围；本次执行放行及资源授权见[DC96](p6-s0-owner-decisions.md#dc96-s4-ae连续实施与资源档授权owner2026-11-08)和[协调记录](p6-s4-coordination.md)。
 
 ## 1. 前置与角色
 
@@ -60,7 +60,7 @@ C必须落实设计§3.4两个保留facade的显式context签名、调用方/fix
 
 ## 5. 执行和集中门禁
 
-本节只是后续命令与规则，**本轮不执行**。以仓库现行AGENTS/testing-conventions为准，DC91覆盖旧节点分工：
+本次按DC96执行以下规则与逐节固定、独审的精确命令。以仓库现行AGENTS/testing-conventions为准，DC91覆盖旧节点分工：
 
 1. 选当时空闲且本次缓存/工具链/输入合格的池内节点，BatchMode连接；核全机`/proc`、Dolt/Compose/8000和有效标志。原子`mkdir /home/dev/gdds-node-busy.d`，记录会话/用途/UTC/HEAD；不抢占他人，已有自管标记入口不重复取。04/06/07共享宿主，实际干扰才协调；正式计时本节点独占。
 2. clean提交经获准LAN bundle同步，linked WT链接legacy；日志、Cargo target和pytest磁盘TMPDIR在WT外。root PATH以`/home/dev/.cargo/bin`起始，核四个Rust工具同selector，不设RUSTUP_TOOLCHAIN/HOME或CARGO_HOME替代选择。
@@ -93,7 +93,7 @@ V→H carried须原来源节点、原WT、原环境和Hypothesis不存在路径�
 
 ## 6. Owner已确认的DC33范围与统计
 
-2026-11-08 本轮Owner明确确认以下**设计验收范围**，没有授权本轮执行。
+2026-11-08 Owner确认以下验收范围，DC96已授权本次执行。原N1/32−8/M24为归因基线；本轮可在32C/64GiB节点内选择经账本核算、固定独审且为RS/backend/系统留余量的资源档，基线准备和正式组全程同档。实际N/M/envelope/reserve/CPU/cgroup与节点记入精确执行稿，保same-worker守卫；增配与原档分列，不自动更改生产默认。
 
 | 范围 | 固定条件/工作 | 验收 |
 | --- | --- | --- |
@@ -106,11 +106,11 @@ V→H carried须原来源节点、原WT、原环境和Hypothesis不存在路径�
 
 正式计时每组1次预热+3次成功测量，给原始值/中位数/范围；一组同节点/硬件/存储/候选/N/M/冷暖条件。每轮fresh的“预热”是业务/OS预热的单独运行，不保留该轮业务状态伪装下一轮fresh。相同真实完整旅程可同时提供功能与对应性能证据，按断言引用，不为两个标题重复跑。
 
-输入直接核已冻结metadata/census及原包SHA，不重生成/微调以适配实现。S3 coordination已有2×t4/W4来源，E执行稿固定实际路径/SHA/规则并独核；真实数据不进Git。不同节点/配置样本分组，64GiB guest不改变worker M24。计时driver保same-worker/cgroup guard，基线准备也受原预算；如果准备失败就没有合格正式样本。
+输入直接核已冻结metadata/census及原包SHA，不重生成/微调以适配实现。S3 coordination已有2×t4/W4来源，E执行稿固定实际路径/SHA/规则并独核；真实数据不进Git。不同节点/配置样本分组，64GiB guest本身不改变worker M24；本次DC96明确授权的增配档按前述规则独立核收。计时driver保same-worker/cgroup guard，基线准备也受原预算；如果准备失败就没有合格正式样本。
 
 S1a阈值复核另用同一冻结真实t4 v2表样本（handoff原件：9822→9828、98逻辑变化、92UPDATE+6INSERT）和实际RS回放，对最终renderer的PATCH与REBUILD表结果/耗时交替比较；只能在本任务仓库副本/正常服务接口运行，不在服务正在用的Dolt目录做root checkout。若1%仍慢于重建，报告实测给Owner，不能自己降低比例/改batch/golden。
 
-S3 W3/W4 READY和比较归因另由其owner核收；联合旅程可提供后续J证据，不补成原774成功。S4结果必须分栏：SQL/功能正确、M24完整容量、目标时间、压力、未知/失败。性能未达按DC81交Owner讨论，保留目标和失败，不自签S4 exit。临时大预算仍是另案，不纳入本表通过。
+S3 W3/W4 READY和比较归因另由其owner核收；联合旅程可提供后续J证据，不补成原774成功。S4结果必须分栏：SQL/功能正确、M24完整容量、目标时间、压力、未知/失败。性能未达按DC81交Owner讨论，保留目标和失败，不自签S4 exit。本次授权内固定审核的增配档可用于S4退出，必须标明适用配置与原M24限制；S3另条件诊断不混入本表。
 
 ## 7. E固定候选与最终交接
 
@@ -118,4 +118,4 @@ E前：A–D代码独审关闭、临时差分和旧算法删除、五包静态/R
 
 handoff必须给：实际起止SHA和并行增量、职责/消费者删除矩阵、独立expected清单、各包运行或carried的源V/闭包/日志、镜像及Compose绑定、每档真实范围/输入/资源/结果、S3-only与joint归因、失败/未知、节点收尾及保护资源。H引用V证据并完成实际同源绑定，原审核者独核E累计A–D和证据，不只看最后删除diff。
 
-本设计轮最终输出固定设计候选和两次独审原文；Sol初审F1–F3经修订关闭，Astra未发现新增阻塞，均为DESIGN_CLEAR_FOR_OWNER。无剩余Owner设计决策，无产品V/性能PASS。下一对话核最新并行状态及实施授权，从A开始；尚未授权时不执行。临时大预算具体参数仍属S3另案，不阻塞本S4设计。不推送、不tag、不改写已引用提交。
+本设计轮最终输出固定设计候选和两次独审原文；Sol初审F1–F3经修订关闭，Astra未发现新增阻塞，均为DESIGN_CLEAR_FOR_OWNER。无剩余Owner设计决策，无产品V/性能PASS。本次依DC96从A连续推进至E，设计历史审核原文不改；S3诊断独立。满足全部退出条件才打本地附注S4 exit tag，不推送、不改写已引用提交。

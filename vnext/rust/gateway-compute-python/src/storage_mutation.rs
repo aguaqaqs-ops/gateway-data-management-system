@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use arrow_array::{ArrayRef, RecordBatch, RecordBatchReader};
 use gateway_compute_core::comparison::{KernelContext, KernelLease};
-use gateway_compute_core::sql_replay::{SqlBatcher, SqlMutation};
+use gateway_compute_core::sql_replay::{REPLAY_BYTES, SqlBatcher, SqlMutation, SqlStatement};
 use gateway_compute_core::storage_mutation::{
     PatchAction, RowLocation, StorageSide, StorageTable, prepare_storage_table, sql_mutation_at,
     sql_row_upper,
@@ -210,6 +210,7 @@ impl StorageHandle {
             context,
             render_lease: Some(render_lease),
             exported_lease: Some(exported_lease),
+            copy_lease: None,
             decision: decision.to_owned(),
             table_name: table_name.to_owned(),
             phase: 0,
@@ -218,8 +219,8 @@ impl StorageHandle {
             batcher: None,
             queued: None,
             statements: VecDeque::new(),
-            current: Vec::new(),
-            offset: 0,
+            current: None,
+            total_sql: 0,
         })
     }
 }
@@ -234,6 +235,7 @@ struct StorageRender {
     context: Arc<KernelContext>,
     render_lease: Option<KernelLease>,
     exported_lease: Option<KernelLease>,
+    copy_lease: Option<KernelLease>,
     decision: String,
     table_name: String,
     phase: u8,
@@ -241,19 +243,20 @@ struct StorageRender {
     rebuild_index: usize,
     batcher: Option<SqlBatcher>,
     queued: Option<SqlMutation>,
-    statements: VecDeque<Vec<u8>>,
-    current: Vec<u8>,
-    offset: usize,
+    statements: VecDeque<SqlStatement>,
+    current: Option<SqlStatement>,
+    total_sql: usize,
 }
 
 impl StorageRender {
     fn reconcile_bytes(&mut self) -> Result<(), String> {
         let pending = self.batcher.as_ref().map_or(0, SqlBatcher::pending_bytes);
-        let queued = self.statements.iter().map(Vec::capacity).sum::<usize>();
+        let queued = self.statements.iter().map(SqlStatement::pending_bytes).sum::<usize>();
+        let current = self.current.as_ref().map_or(0, SqlStatement::pending_bytes);
         let retained = (64 * 1024usize)
             .checked_add(pending.checked_mul(4).ok_or("RESOURCE_LIMIT_EXCEEDED")?)
             .and_then(|size| size.checked_add(queued.checked_mul(4)?))
-            .and_then(|size| size.checked_add(self.current.capacity().checked_mul(4)?))
+            .and_then(|size| size.checked_add(current.checked_mul(4)?))
             .ok_or("RESOURCE_LIMIT_EXCEEDED")?;
         let lease = self.render_lease.as_mut().ok_or("STORAGE_RENDER_INVALID")?;
         if retained > lease.charged_bytes() {
@@ -343,10 +346,11 @@ impl StorageRender {
                 self.action()?
             };
             let Some(mutation) = next else {
-                if let Some(batcher) = &mut self.batcher {
-                    if let Some(statement) = batcher.finish().map_err(|error| error.to_string())? {
-                        self.statements.push_back(statement);
-                    }
+                let finished = if let Some(batcher) = &mut self.batcher {
+                    batcher.finish().map_err(|error| error.to_string())?
+                } else { None };
+                if let Some(statement) = finished {
+                    self.queue_statement(statement)?;
                 }
                 self.batcher = None;
                 return Ok(!self.statements.is_empty());
@@ -356,30 +360,42 @@ impl StorageRender {
                 .as_ref()
                 .is_some_and(|batcher| batcher.operation() != mutation.operation)
             {
-                if let Some(batcher) = &mut self.batcher {
-                    if let Some(statement) = batcher.finish().map_err(|error| error.to_string())? {
-                        self.statements.push_back(statement);
-                    }
+                let finished = if let Some(batcher) = &mut self.batcher {
+                    batcher.finish().map_err(|error| error.to_string())?
+                } else { None };
+                if let Some(statement) = finished {
+                    self.queue_statement(statement)?;
                 }
                 self.batcher = None;
                 self.queued = Some(mutation);
                 continue;
             }
             if self.batcher.is_none() {
-                self.batcher = Some(SqlBatcher::new(&mutation).map_err(|error| error.to_string())?);
+                self.batcher = Some(SqlBatcher::with_cap(
+                    &mutation, REPLAY_BYTES.checked_sub(self.total_sql)
+                        .ok_or("RESOURCE_EXCEEDED")?,
+                ).map_err(|error| error.to_string())?);
             }
             for statement in self
                 .batcher
                 .as_mut()
                 .ok_or("STORAGE_RENDER_INVALID")?
-                .push(&mutation)
+                .push(&mutation, &self.context)
                 .map_err(|error| error.to_string())?
             {
-                self.statements.push_back(statement);
+                self.queue_statement(statement)?;
             }
             self.reconcile_bytes()?;
         }
         Ok(true)
+    }
+
+    fn queue_statement(&mut self, statement: SqlStatement) -> Result<(), String> {
+        self.total_sql = self.total_sql.checked_add(statement.complete_len())
+            .ok_or("RESOURCE_EXCEEDED")?;
+        if self.total_sql > REPLAY_BYTES { return Err("RESOURCE_EXCEEDED".into()); }
+        self.statements.push_back(statement);
+        Ok(())
     }
 
     fn next_bytes(&mut self) -> Result<Option<Vec<u8>>, String> {
@@ -387,39 +403,29 @@ impl StorageRender {
         if self.table.is_none() {
             return Ok(None);
         }
-        if self.offset >= self.current.len() {
-            self.current = Vec::new();
-            self.offset = 0;
-            if self.queued.is_none() {
-                self.reconcile_bytes()?;
+        loop {
+            if let Some(current) = &mut self.current {
+                let upper = current.next_chunk_upper();
+                if upper > 0 {
+                    self.copy_lease = Some(self.context.reserve(upper)
+                        .map_err(|error| error.to_string())?);
+                    self.exported_lease.as_mut().ok_or("STORAGE_RENDER_INVALID")?
+                        .grow(upper).map_err(|error| error.to_string())?;
+                    return current.next_chunk(&self.context).map_err(|error| error.to_string());
+                }
+                self.current = None;
             }
-            if !self.fill()? {
-                return Ok(None);
-            }
-            self.current = self
-                .statements
-                .pop_front()
-                .ok_or("STORAGE_RENDER_INVALID")?;
+            if self.queued.is_none() { self.reconcile_bytes()?; }
+            if !self.fill()? { return Ok(None); }
+            self.current = self.statements.pop_front();
         }
-        let end = self
-            .offset
-            .saturating_add(1024 * 1024)
-            .min(self.current.len());
-        self.exported_lease
-            .as_mut()
-            .ok_or("STORAGE_RENDER_INVALID")?
-            .grow(end - self.offset)
-            .map_err(|error| error.to_string())?;
-        let chunk = self.current[self.offset..end].to_vec();
-        self.offset = end;
-        Ok(Some(chunk))
     }
 }
 
 #[pymethods]
 impl StorageRender {
     fn next_chunk(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyBytes>>> {
-        match adapter_boundary(|| py.detach(|| self.next_bytes())) {
+        let result = match adapter_boundary(|| py.detach(|| self.next_bytes())) {
             Ok(Ok(Some(bytes))) => Ok(Some(PyBytes::new(py, &bytes).unbind())),
             Ok(Ok(None)) => Ok(None),
             Ok(Err(error)) if error == "RESOURCE_LIMIT_EXCEEDED" => {
@@ -434,7 +440,9 @@ impl StorageRender {
             }
             Ok(Err(error)) => Err(PyValueError::new_err(error)),
             Err(()) => Err(PyRuntimeError::new_err("storage SQL rendering panicked")),
-        }
+        };
+        self.copy_lease = None;
+        result
     }
 
     fn close(&mut self) {
@@ -444,9 +452,10 @@ impl StorageRender {
         self.batcher = None;
         self.queued = None;
         self.statements = VecDeque::new();
-        self.current = Vec::new();
+        self.current = None;
         self.render_lease = None;
         self.exported_lease = None;
+        self.copy_lease = None;
         self.render_owner = None;
     }
 }

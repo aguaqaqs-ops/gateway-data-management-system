@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from threading import Event
 from contextlib import closing
 from dataclasses import replace
 
@@ -34,7 +35,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,
 )
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, KernelMemoryLimit, NeverCancel, OperationMemoryBudget,
+    KernelExecutionContext, KernelMemoryLimit, KernelStopped, NeverCancel, OperationMemoryBudget,
     current_kernel_context, kernel_control_scope, kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
@@ -295,6 +296,26 @@ def test_native_storage_chunks_are_bounded_and_early_close_releases_last_owner()
     assert list(chunks) == []
     context.memory.close()
     assert context.memory.used_bytes == 1024 * 1024  # Exported bytes live to operation end.
+
+
+def test_storage_render_cancellation_after_first_chunk_closes_input_owner() -> None:
+    cancelled = Event()
+    context = KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), cancelled, 1)
+    with kernel_execution_scope(context, new_operation=True):
+        after = _side(_table([("1", "0", "x" * (2 * 1024 * 1024))]))
+        task = _task(None, after)
+        with prepare_storage_table(task, context) as handle:
+            decision = choose_table_mutation(task, handle.summary(),
+                policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+            chunks = handle.render(decision)
+            assert len(next(chunks)) == 1024 * 1024
+            cancelled.set()
+            with pytest.raises(KernelStopped):
+                next(chunks)
+            assert list(chunks) == []
+        assert isinstance(after.input_owner, StorageInputLease)
+        assert after.input_owner.closed
+    assert context.memory.used_bytes == 0
 
 
 def test_operation_scope_closes_unconsumed_storage_render_before_releasing_budget() -> None:

@@ -43,16 +43,16 @@ from tests.support.mutation_contracts import (
     renderer_capability,
     keyed_row,
     table_snapshot,
-    table_summary,
 )
 from tests.support.mutation_renderer_fixtures import (
     load_closure,
     load_expected_sql,
 )
+from tests.support.sql_replay_inputs import frozen_replay_cap_closure
 from tests.support.mutation_contracts import int_cell, row_image, storage_key
-from gateway_backend.capabilities.mutation_planning.contracts import TableMutationKind
 
 pytestmark = pytest.mark.unit
+_VECTORS = Path(__file__).parents[2] / "fixtures/vectors/mutation/sql-replay/v1"
 
 R7_RENDERER_GOLDEN_CASES: tuple[tuple[str, str], ...] = (
     ("patch-single-update", "valid/patch-single-update"),
@@ -190,22 +190,6 @@ def test_renderer_rejects_closed_and_structural_contexts(
         render_change_set_replay(closure, context=Lookalike())  # type: ignore[arg-type]
 
 
-def test_replay_size_cap_rejects_without_partial_output(monkeypatch: pytest.MonkeyPatch, operation_kernel_context: KernelExecutionContext) -> None:
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer.MAX_REPLAY_SQL_BYTES",
-        64,
-    )
-    mutations = tuple(insert_mutation(board=str(i), link_no=str(i + 1)) for i in range(8))
-    closure = change_set_closure(
-        summaries=(table_summary(operation=TableMutationKind.REBUILD_TABLE),),
-        mutations=mutations,
-    )
-    outcome = render_change_set_replay(closure, context=operation_kernel_context)
-    assert outcome.status == "FAILED"
-    assert outcome.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
-    assert outcome.sql_bytes is None
-
-
 def test_replay_size_cap_boundary_accepts_under_limit(operation_kernel_context: KernelExecutionContext) -> None:
     # One INSERT line is far below MAX_REPLAY_SQL_BYTES.
     closure = change_set_closure(mutations=(insert_mutation(),))
@@ -215,23 +199,22 @@ def test_replay_size_cap_boundary_accepts_under_limit(operation_kernel_context: 
     assert len(outcome.sql_bytes) < MAX_REPLAY_SQL_BYTES
 
 
-def test_replay_cap_accepts_equality_and_rejects_one_byte_over(
-    monkeypatch: pytest.MonkeyPatch, operation_kernel_context: KernelExecutionContext,
-) -> None:
-    closure = load_closure("valid/patch-single-update")
-    expected = load_expected_sql("valid/patch-single-update")
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer.MAX_REPLAY_SQL_BYTES",
-        len(expected),
-    )
-    equal = render_change_set_replay(closure, context=operation_kernel_context)
-    assert equal.status == "READY" and equal.sql_bytes == expected
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer.MAX_REPLAY_SQL_BYTES",
-        len(expected) - 1,
-    )
-    over = render_change_set_replay(closure, context=operation_kernel_context)
-    assert over.status == "FAILED" and over.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
+@pytest.mark.parametrize("case_index", (0, 1))
+def test_replay_frozen_cap_accepts_equality_and_rejects_one_byte_over(case_index: int) -> None:
+    vector = json.loads((_VECTORS / "replay-cap.json").read_text())
+    case = vector["cases"][case_index]
+    closure = frozen_replay_cap_closure(case_index)
+    context = KernelExecutionContext(OperationMemoryBudget(4 * 1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        outcome = render_change_set_replay(closure, context=context)
+        assert outcome.status == case["expected_status"]
+        if case["expected_status"] == "READY":
+            assert outcome.sql_bytes is not None
+            assert len(outcome.sql_bytes) == case["complete_statement_bytes"] == vector["sql_cap_bytes"]
+        else:
+            assert outcome.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
+            assert outcome.sql_bytes is None
+            assert case["complete_statement_bytes"] == vector["sql_cap_bytes"] + 1
 
 
 def test_direct_structural_closure_can_render_beyond_durable_json_limit(
@@ -492,23 +475,20 @@ def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...], context:
 
 def _value_size_for_statement(
     operation: RowMutationOperation,
-    context: KernelExecutionContext,
     *,
     target_size: int,
     row_count: int,
 ) -> int:
+    # Hand-counted from the fixed S1a grammar and the helper's concrete
+    # wide_keys/wide_values shapes. The two-row baseline includes the first
+    # row's 32 UTF8 bytes; no new renderer output determines a boundary.
+    base = {
+        RowMutationOperation.DELETE: (46, 83),
+        RowMutationOperation.UPDATE: (135, 213),
+        RowMutationOperation.INSERT: (76, 120),
+    }
     assert row_count in {1, 2}
-    if row_count == 1:
-        mutations: tuple[ChangeSetMutation, ...] = (
-            _mutation_with_text_value(operation, index=1, value_size=0),
-        )
-    else:
-        mutations = (
-            _mutation_with_text_value(operation, index=1, value_size=32),
-            _mutation_with_text_value(operation, index=2, value_size=0),
-        )
-    baseline_size = _rendered_statement_sizes(mutations, context)[0]
-    payload_size = target_size - baseline_size
+    payload_size = target_size - base[operation][row_count - 1]
     assert payload_size >= 0
     return payload_size
 
@@ -528,7 +508,6 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
     byte_limit = 4 * 1024 * 1024
     exact_value_size = _value_size_for_statement(
         operation,
-        context=operation_kernel_context,
         target_size=byte_limit,
         row_count=2,
     )
@@ -554,7 +533,6 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
 
     oversized_value_size = _value_size_for_statement(
         operation,
-        context=operation_kernel_context,
         target_size=byte_limit + 1,
         row_count=1,
     )

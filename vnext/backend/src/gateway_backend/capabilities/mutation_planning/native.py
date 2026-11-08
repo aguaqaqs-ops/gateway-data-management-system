@@ -74,7 +74,11 @@ class _RenderCharge:
         active.resources.callback(reservation.close)
 
     def add_exported(self, size: int) -> None:
-        if self._closed or size < 0 or size > self._output_limit - self._exported:
+        if self._closed or size < 0:
+            raise RuntimeError("storage render result owner closed")
+        if size > MAX_REPLAY_SQL_BYTES - self._exported:
+            raise ValueError("RESOURCE_EXCEEDED")
+        if size > self._output_limit - self._exported:
             raise storage_memory_limit("storage render output exceeds its same-M reservation")
         self._exported += size
 

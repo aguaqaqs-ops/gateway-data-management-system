@@ -158,19 +158,21 @@ def storage_memory_limit(message: str) -> KernelMemoryLimit:
 
 
 def render_storage_schema_native(payload: bytes, context: KernelExecutionContext,
-                                 max_bytes: int) -> bytes:
+                                 max_bytes: int, output_upper: int) -> bytes:
     """Render schema through the one Rust SQL encoder under the caller's M."""
     active = require_active_kernel_context(context)
     # Retain the returned bytes until the operation ends. Conversion scratch
     # is distinct from the caller-owned import metadata.
     input_charge = active.memory.reserve(len(payload) * 32 + 4096)
     try:
-        output_charge = active.memory.reserve(max_bytes * 8 + len(payload) * 64)
+        output_charge = active.memory.reserve(output_upper * 8 + len(payload) * 64)
         try:
             result: bytes = _render_storage_schema_native(
                 payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
                 active.threads,
             )
+            if len(result) > output_upper:
+                raise RuntimeError("schema SQL output memory bound underestimated")
             output_charge.shrink_to(len(result))
             active.resources.callback(output_charge.close)
             return result

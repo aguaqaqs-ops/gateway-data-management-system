@@ -189,3 +189,13 @@ Rust tree=`0866ac1223177d66cf13dc8b7389875c7bcb39b7`；实际workspace fmt/clipp
 全部原失败与修复、证据出处限制由handoff/review保留；ab原27失败实际为20 cast级联、3 raw测试输入、4错误DigestRef API，不能写成全是cast。C操作内API、producer/reader与独立向量现可供D依赖；**唯一生产compare路径、风险Arrow必要列、完整key操作内去重、FULL实际生命周期与W3/W4仍待D**。E仍须删除旧Python/probe与专属重复测试、冻结C动态旧expected、做04最终闭包/镜像门禁及DC33真实范围确认。S4/S5/FE/原基准职责不变。
 
 C三角色完成收尾后结束；协调按Owner授权创建全新的D实施/原审/唯一测试者（最多四活跃含协调者），不等待日常再授权。D保持N1/单active/32GiB worker envelope/8GiB reserve/显式M24GiB；真实数据默认05、正式性能CT108现场核有效占用后取用，C的06小门禁不扩大完整旅程用途。
+
+## 10. D 固定修订、取证停止与输入准备
+
+D 首检查点 `f000e5b075408455a35e8ae3dededc28036c73c6` 仅在06实际运行 fmt，03:36:30Z exit1；clippy未启动，backend/native重装、测试、容器均未运行。起止f000/clean、六锁无漂移。run原件SHA=`6bd909e6ceeca3b168a078b0544c4a3e276be380de6c5895543ecc5a7a7a483c`。随后postflight及一次修正抓取两次同根 `FIELD=hash` 前缀解析错误均外层exit1；远端收尾SSH0，本人标记03:36:56Z已释放。新DC68停止依据、原件与缺少组合stdout原文件的限制、最小恢复方案固定于 **`7ca300def7`** [D执行停止单](p6-s3-d-execution-stop.md)。不追加f000比对或以C旧许可豁免。
+
+原D角色继续静态实施/独审。第二固定产品检查点 **`5c47795062937a8db0315640a95ab763d2c2c8ab`** 包含17显式路径，锁/toolchain/base未改；原审在固定detached WT核f000 findings及跨节接口。5c无编译/测试/镜像结果，仍非D GO。首复审已发现去重会话首对误清声明导致不能命中，原实施者在后续WIP修订；人工重复key只证明机制，实际FULL和跨表0命中合法。
+
+停止前，协调已从CT108已接受的 `w4-generator-correction-20261105b` 根只读复制2x、W4-10%、W4-100%的T4 v1/v2及metadata/census至CT201私有目录 `/home/dev/gdds-test-tmp/p6-s3-input-copy-20261108/source/`。源端本人短时标记03:25:00–03:25:02Z取得和释放，无测试/生成/原WT或镜像/卷修改。各root实际仅有 `packages/<T4-id>.tar.gz` 两包，虽然datasets.json列八个ID；不能把旧八包固定校验原样套用这些根。首次只读探路误假定 `<root>/<id>/package.tar.gz` 后按现代码查到正确路径，无产品或证据生成；不把探路错误写成输入缺失。
+
+copy原日志SHA=`d5b7c112996317ae34a5305b34ae17c171c4ee53b9b942057db42885bf0eed60`，机器身份清单 `copied-inputs.json` SHA=`cc175d99a627cd7e2e40364847dc9cfc59fb2b342b543c2f3ba6e89e2d5216b3`（13件：六包、七metadata，各size/SHA匹配）。CT201与源端时钟秒级差异不作性能计时。summary仍为§8的6b63，四个合成包SHA亦同§8；原输入绝未重生成或修改。本项仅输入缓存准备，**不是S3真实功能、性能或DC33通过**。执行通道恢复前不再做传输/缓存补验。

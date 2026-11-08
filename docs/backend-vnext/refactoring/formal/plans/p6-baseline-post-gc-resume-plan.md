@@ -33,7 +33,7 @@
 | W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，worker指标旁证已由§127通过，标准record派生已由§147通过。 |
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
 | DC63 #1、V5b A–D | **测量缺口已关闭：** DC63完整journey/coverage已核，V5b-only `p6v5bonly20261108a` 的四新段B-v1/B-v2/C/D、六reference来源及保卷收尾由接续审核§155（`6ad793a523`）独立PASS。A仍精确引用d2旧FAILED raw中的已完成段，四新段来自c81，不拼统一全绿raw；RS-only采样、准备与嵌套计时、D私有probe等限制保留。H1-REFILL tool HEAD补元数据同节通过，不重审旧业务。该行不再驱动测量或补测。 |
-| JSON/SHA、comparator 与总报告 | **三份record已独审，正式总索引已定稿：** clean H780 producer的FULL/STRESS由§147通过，core b由§149通过，记录字节保留。正式入口为`/home/dev/gdds-p6-logs/p6-record-finalize-20261108c-ct201/delivery-index.json`（SHA256 `be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`）；总索引`split-version-reference-index.json`为`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`，已列§155/156实际资格。九个新record场景缺合法baseline的具体原因与已审旁证分列，未伪造comparator PASS。交付元数据一致性结论外置于owning审核报告，不回改已定稿字节形成循环；不重生记录或重跑产品。 |
+| JSON/SHA、comparator 与总报告 | **三份record已独审，正式总索引已定稿：** clean H780 producer的FULL/STRESS由§147通过，core b由§149通过，记录字节保留。正式入口为`/home/dev/gdds-p6-logs/p6-record-finalize-20261108c-ct201/delivery-index.json`（SHA256 `be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`）；总索引`split-version-reference-index.json`为`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`，已列§155/156实际资格。九个新record场景缺合法baseline的具体原因与已审旁证分列，未伪造comparator PASS。最终交付元数据由§157（`89b864c74c`）核对PASS，结论外置于owning审核报告，不回改已定稿字节形成循环；不重生记录或重跑产品。 |
 | 04 最终权威 runner | **当前H权威与镜像门禁已独审PASS：** `1e72b9866e54acc27eaabd6c0579dc50493c76eb`于04实际02:36:57–02:58:47Z运行全六包，runner/wrapper exit 0、起止clean；03:00:01Z资源和专属缓存清理后精确释放自有占用。接续审核§156（`c4cce7f795`）已核当前H三镜像、六包闭包、12独立RS原件/七fixture覆盖、真实exit和收尾；84文件/43节点原件MATCH。旧fcc/H780/058失败不作qualified carried，46e仅准备。该PASS只绑定本次H，不宣整体基准或Phase6 exit。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
@@ -122,6 +122,12 @@ RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准
 将目标产品固定为 `9704`，在 CT108 按原口径重新取得所有实际受共享 runtime/RS/JCS 修复影响的场景计时；无法证明未受影响的既有旅程不沿用为该目标产品的结果。不使用缺失正式来源资格的诊断 checkpoint 冒充 carried。
 
 同样复用合格的 SQL 输入、缓存及已验证工具，不重生成数据；按影响面进行必要门禁及计时，不无依据加矩阵。代价是多档长旅程，需要更多计算时间，目前不提供无证据的完成估计。纯工具或确实不受影响的结果仍按原规则独立判定，无需一律重跑。
+
+## 本轮交付收尾
+
+Owner A分版本参考范围内的计划内长测量、真实来源与资格汇总、最终H权威/镜像门禁和交付元数据已完成，独审分别见§147/149、§155、§156、§157。正式入口及摘要见上表，已定稿索引字节保持；不存在待跑测量、测试或需要重生的记录。九场景缺合法baseline、旧FAILED A来源、历史完整身份缺项及其他已批准限制按索引如实保留，不宣单版本全矩阵或性能目标PASS。
+
+此处关闭本次测量交付工作，不代替整体基准/Phase6/S2a阶段exit，不新增push/tag或主线产品合入权限。巡检停用仍按Owner原条件：原基准审核者明确确认exit/收尾且无待办，或Owner直接要求停止；现有接续独审不自动承接该权限。
 
 ## Owner A 选择后的直接执行方式
 

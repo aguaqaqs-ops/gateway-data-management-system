@@ -271,3 +271,15 @@ Owner 已明确回复 **“授权三项最小修复纳入”**：在D收敛后�
 两BIT失败均在测试的 `table_set.tables[0]` 处IndexError，尚未进入新view/native/M。源码独核确认当前business→storage projection显式不接纳BIT，故旧普通artifact helper的输出为空；本节不得为救测例扩S4投影。修订限BIT专例：READERS_REQUIRED的既有business Arrow经真实canonical publisher，再测试fresh view/持久读取；明确只证明C writer→D adapter对该类型的能力，不宣称当前Preview投影支持BIT。第三失败是pair_pipeline直接导入comparison.artifacts/production，改用comparison公共导出，不扩architecture frozen baseline或豁免。普通writer modified/added两条实际路径断言保留；修订仍需原审核和节点运行。
 
 D的W3/W4起测可在06做明确标记的**选表组件诊断**：保完整输入binding，从完整计划选最大可用Standard/Ordered表，用派生单表task跑当前生产compare→Arrow records→Risk；不修改快照身份/summary/table_set，不输出完整pair/Preview/surface/READY结论。MO为v1→v2；FULL样本明确baseline=v1、initial=v1同对象假定，不能证明真实FULL峰值或收益。保输入/census、选表范围、实际调用/读取/分项、账本high-water及原失败；InMemoryArtifactStore的RSS不证明生产worker envelope。100%压力失败如实停报。完整负载、当前部署Preview、projection/bundle独立计时、DC33 fresh旅程与适用正式统计由E/CT108承接；D部分结果不得冒充完成这些未知项。现成 `real_dump_journey --scope t4-identity` 含v1 Submit/Archive准备，只能在CT108按职责使用自有资源，不借partial名称扩06完整旅程用途。
+
+## 16. FE3c Q18 与生成时间预期：当前事实和建议交接
+
+Owner 于2026-11-08转来前端两项问题，要求核是否修复、建议环节和回复。本节是源码核对与具体修复建议，不是归档API变更实施授权，不改变S3已授权的三项最小整合范围。核对代码起点 `af7f145ef931d1aa35e1ba6461ae331010774e9d`，相关归档/审核接口尚无后续产品变更。
+
+**Q18仍未修复，是实际接口可用性缺口。** `CloseSubmissionRequest.expected_review_version`必填，manual_close将其与review projection的optimistic_version做CAS；review GET先经过 `assert_review_permission`，只有archive_submission不满足审核读取权限。`ArchiveCandidateResponse`只有submission_id/expected_candidate_digest，预检和History也未提供关闭用review_version。现测试的 `_archive_permissions()`含review_submission，关闭body写死1，不能证明archive-only调用者可以独立取得CAS值并完成关闭。不得要求前端猜1、放松CAS或给归档身份额外审核权限来绕过。
+
+建议作为**独立BE-Q18接口补缺**，在FE3c关闭功能接线/验收前完成，不塞入S4/S5，也不无授权混入S3冻结HTTP接口。推荐在归档候选只读响应中逐候选增加 `review_version`，从现有同一读事务的权威review projection取值；前端以它填写expected_review_version。仅扩读模型/DTO，不改变candidate digest、归档选择/关闭fingerprint、CAS或审核读取权限。先固定owning Contract/OpenAPI的精确字段与scope，再由归档后端实施/独审，06跑archive-only读取候选→取得版本→关闭成功、stale版本409、scope拒绝；随后按接口影响完成静态/容器验证。前端收到固定后端候选/独审结果后刷新生成类型与mock，再定稿FE3 kickoff §16.6并跑05 R12。本文不把该建议标为已实现、已测或已解除FE3c前置。
+
+**生成时间项是预期修正，当前不需要改后端语义。** `derive_archive_business_validation` 对每个实际上传侧调用 `_append_time_quality`，与baseline是否为None无关。MODIFIED_ONLY的INITIAL_EMPTY/BASELINE_REUSED侧不当作上传侧；MODIFIED仍检查，FULL则检查两个上传侧。空INITIAL只使相应来源/基线比较不适用，不免除上传侧时间质量。因此合成A没有saved_time时，预期为一项 `GENERATION_TIME_MISSING`、side=MODIFIED。FE3 kickoff §4.6已按源码修正表格并注明未经产品实测；05首轮对完整issue集合实测、不符即停交设计判断的安排正确。不要补造时间或改后端使错误的“零异常”预期通过；带有效saved_time的真实t1须按其输入事实另判。
+
+给前端的建议口径：Q18确认存在、仍是FE3c前置，不影响FE3b；建议独立后端补缺并返回归档候选review_version，在固定修复交付前不假定可用。生成时间修正与当前源码一致，保留§4.6预期及05实测停止规则。S3既定实现/审核/验证继续推进。

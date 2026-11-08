@@ -79,7 +79,7 @@ fn checked_total(parts: impl IntoIterator<Item = usize>) -> Result<usize, SqlErr
         .into_iter()
         .try_fold(0usize, |sum, size| sum.checked_add(size).ok_or_else(limit))
 }
-fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
+fn schema_table_sql_len(table: &SqlTable, context: &KernelContext) -> Result<usize, SqlError> {
     let name_len = identifier_sql_len(&table.name)?;
     let definition_count = table
         .columns
@@ -87,7 +87,10 @@ fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
         .checked_add(usize::from(!table.primary_key.is_empty()))
         .ok_or_else(limit)?;
     let mut definitions = Vec::with_capacity(definition_count);
-    for column in &table.columns {
+    for (index, column) in table.columns.iter().enumerate() {
+        if index.is_multiple_of(1024) {
+            context.check().map_err(|error| SqlError(error.code()))?;
+        }
         if column.sql_type.is_empty() || column.sql_type.contains('\0') {
             return Err(invalid());
         }
@@ -104,11 +107,13 @@ fn schema_table_sql_len(table: &SqlTable) -> Result<usize, SqlError> {
         ])?);
     }
     if !table.primary_key.is_empty() {
-        let keys = table
-            .primary_key
-            .iter()
-            .map(|name| identifier_sql_len(name))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut keys = Vec::with_capacity(table.primary_key.len());
+        for (index, name) in table.primary_key.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                context.check().map_err(|error| SqlError(error.code()))?;
+            }
+            keys.push(identifier_sql_len(name)?);
+        }
         definitions.push(checked_total([
             "PRIMARY KEY (".len(),
             checked_total(keys)?,
@@ -144,7 +149,7 @@ fn decode_url64(text: &str, context: &KernelContext) -> Result<Vec<u8>, SqlError
     let mut bits: u32 = 0;
     let mut count = 0u8;
     for (index, c) in text.bytes().enumerate() {
-        if index % (64 * 1024) == 0 {
+        if index.is_multiple_of(64 * 1024) {
             context.check().map_err(|error| SqlError(error.code()))?;
         }
         let digit = match c {
@@ -174,7 +179,7 @@ fn decimal<'a>(value: &'a Value, kind: &str, context: &KernelContext) -> Result<
     let mut integer_digits = 0usize;
     let mut dot = false;
     for (index, byte) in body.bytes().enumerate() {
-        if index % (64 * 1024) == 0 {
+        if index.is_multiple_of(64 * 1024) {
             context.check().map_err(|error| SqlError(error.code()))?;
         }
         if byte == b'.' && kind == "decimal" && !dot {
@@ -308,7 +313,7 @@ pub fn render_schema(
         context.check().map_err(|error| SqlError(error.code()))?;
         if out
             .len()
-            .checked_add(schema_table_sql_len(table)?)
+            .checked_add(schema_table_sql_len(table, context)?)
             .ok_or_else(limit)?
             > max_bytes
         {
@@ -316,7 +321,10 @@ pub fn render_schema(
         }
         let name = quote_identifier(&table.name)?;
         let mut definitions = Vec::with_capacity(table.columns.len() + 1);
-        for col in &table.columns {
+        for (index, col) in table.columns.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                context.check().map_err(|error| SqlError(error.code()))?;
+            }
             if col.sql_type.is_empty() || col.sql_type.contains('\0') {
                 return Err(invalid());
             }
@@ -328,11 +336,13 @@ pub fn render_schema(
             ));
         }
         if !table.primary_key.is_empty() {
-            let keys = table
-                .primary_key
-                .iter()
-                .map(|c| quote_identifier(c))
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut keys = Vec::with_capacity(table.primary_key.len());
+            for (index, name) in table.primary_key.iter().enumerate() {
+                if index.is_multiple_of(1024) {
+                    context.check().map_err(|error| SqlError(error.code()))?;
+                }
+                keys.push(quote_identifier(name)?);
+            }
             definitions.push(format!("PRIMARY KEY ({})", keys.join(", ")));
         }
         append(
@@ -434,7 +444,7 @@ impl SqlLiteral {
                 position.phase = 2;
                 break;
             }
-            if position.raw_index % (64 * 1024) == 0 {
+            if position.raw_index.is_multiple_of(64 * 1024) {
                 context.check().map_err(|error| SqlError(error.code()))?;
             }
             let byte = raw[position.raw_index];
@@ -510,7 +520,7 @@ fn prepare_literal(value: &Value, context: &KernelContext) -> Result<SqlLiteral,
                 .ok_or_else(invalid)?;
             let mut len = raw.len().checked_add(2).ok_or_else(limit)?;
             for (index, byte) in raw.bytes().enumerate() {
-                if index % (64 * 1024) == 0 {
+                if index.is_multiple_of(64 * 1024) {
                     context.check().map_err(|error| SqlError(error.code()))?;
                 }
                 if matches!(byte, b'\\' | b'\'' | b'\n' | b'\r' | b'\0' | b'\t') {
@@ -631,7 +641,7 @@ impl SqlStatement {
         let mut out = Vec::with_capacity(CHUNK_BYTES.min(self.complete_len - self.emitted));
         let mut fragment_steps = 0usize;
         while out.len() < CHUNK_BYTES && self.fragment < self.fragments.len() {
-            if fragment_steps > 0 && fragment_steps % 1024 == 0 {
+            if fragment_steps > 0 && fragment_steps.is_multiple_of(1024) {
                 context.check().map_err(|error| SqlError(error.code()))?;
             }
             fragment_steps += 1;
@@ -1145,6 +1155,9 @@ pub fn render_mutations(
                 && mutations[i].canonical_table == *table
                 && mutations[i].canonical_storage_key.is_empty()
             {
+                if i.is_multiple_of(1024) {
+                    context.check().map_err(|error| SqlError(error.code()))?;
+                }
                 i += 1;
             }
             if cleared.insert(table.as_str()) {
@@ -1167,6 +1180,9 @@ pub fn render_mutations(
                     && key_shape(&mutations[i]) == key_shape(first)
                     && after_shape(&mutations[i]) == after_shape(first))
         {
+            if i.is_multiple_of(1024) {
+                context.check().map_err(|error| SqlError(error.code()))?;
+            }
             i += 1;
         }
         let mut batcher = SqlBatcher::with_cap(first, cap.saturating_sub(out.len()))?;

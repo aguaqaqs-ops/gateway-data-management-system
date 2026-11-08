@@ -461,30 +461,12 @@ impl StorageRender {
 #[pymethods]
 impl StorageRender {
     fn next_chunk(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyBytes>>> {
-        let result = match adapter_boundary(|| py.detach(|| self.next_bytes())) {
+        let result = match adapter_boundary(|| {
+            py.detach(|| self.next_bytes()).map_err(storage_sql_error)
+        }) {
             Ok(Ok(Some(bytes))) => Ok(Some(PyBytes::new(py, &bytes).unbind())),
             Ok(Ok(None)) => Ok(None),
-            Ok(Err(error)) if error == "RESOURCE_LIMIT_EXCEEDED" => {
-                Err(PyMemoryError::new_err(error))
-            }
-            Ok(Err(error)) if error == "RESOURCE_EXCEEDED" => Err(PyValueError::new_err(error)),
-            Ok(Err(error))
-                if matches!(
-                    error.as_str(),
-                    "SQL_REPLAY_INTERNAL"
-                        | "STORAGE_RENDER_UNDERCHARGED"
-                        | "STORAGE_RENDER_INVALID"
-                ) =>
-            {
-                Err(PyRuntimeError::new_err(error))
-            }
-            Ok(Err(error)) if error == "COMPARISON_CANCELLED" => {
-                Err(PyInterruptedError::new_err(error))
-            }
-            Ok(Err(error)) if error == "COMPARISON_DEADLINE_EXCEEDED" => {
-                Err(PyTimeoutError::new_err(error))
-            }
-            Ok(Err(error)) => Err(PyValueError::new_err(error)),
+            Ok(Err(error)) => Err(error),
             Err(()) => Err(PyRuntimeError::new_err("storage SQL rendering panicked")),
         };
         self.copy_lease = None;
@@ -524,6 +506,19 @@ fn storage_control_error(code: &str) -> PyErr {
             PyTimeoutError::new_err("storage operation deadline elapsed")
         }
         _ => PyMemoryError::new_err(code.to_owned()),
+    }
+}
+
+fn storage_sql_error(error: String) -> PyErr {
+    match error.as_str() {
+        "RESOURCE_LIMIT_EXCEEDED" => PyMemoryError::new_err(error),
+        "RESOURCE_EXCEEDED" => PyValueError::new_err(error),
+        "COMPARISON_CANCELLED" => PyInterruptedError::new_err(error),
+        "COMPARISON_DEADLINE_EXCEEDED" => PyTimeoutError::new_err(error),
+        "SQL_REPLAY_INTERNAL" | "STORAGE_RENDER_UNDERCHARGED" | "STORAGE_RENDER_INVALID" => {
+            PyRuntimeError::new_err(error)
+        }
+        _ => PyValueError::new_err(error),
     }
 }
 

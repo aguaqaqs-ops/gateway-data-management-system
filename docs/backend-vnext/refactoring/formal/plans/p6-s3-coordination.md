@@ -295,3 +295,17 @@ Owner 于2026-11-08转来前端两项问题，要求核是否修复、建议环�
 当前产品 **`a9da0c59277e3179f34d646eabcd9c185917ae05`** 仅再改测试从定义owner取原函数，产品逻辑同af7f；Rust tree仍 **`b5f2439384d859bd32df3e3e24979f4f63f0f91b`**。06于 **07:10:17–07:12:04Z** actual fresh offline native/input及**全部五包Ruff/mypy均0**，整稿outer/remote/capture均0。node SHA=`93e0337318808eee63e6194d764b9dd718270ffac3d91e0edbe5a42540c50bec`，outer SHA=`03413c472dc9ffe47e970a260598655982b2cd5307511d411c9d554d6f3236a7`，manifest SHA=`38e14c37ed6b241f8d152ff38e87dcea84e5d2b01a475248ca5910da440c2495`（check0），receipt SHA=`f4329904a6c717b77300720686528f6a112c164988de03ca8588562881678976`，bundle SHA=`3532f8e60d3570fa285986a3c7fb36a199630241a75b9ba997ac011ebdbf6a7a`。起止clean/六锁稳定，07:12:05Z本人marker释放；同原审已独核。只跑静态的成功稿也不是权威runner来源。
 
 下一D核收是a9当前镜像小Compose的既有普通Standard Submit例和ordered FULL/History例，及固定外置脚本SHA=`f5330d9e5f306719a0e3a87cd4265cf69a65198743eba006a1387e18466b0218`的W3/W4 selected-table起测。MO由focused实际native/application路径覆盖，容器分工不宣MO container已测；E最终fresh MO/FULL再补部署范围。外置脚本逻辑静审CLEAR，但完整节点外层/accepted13项输入身份须另核；当前两项均尚未运行。D仍不是GO，E尚未启动。镜像最后实际验证来源仍C的854d3888，不冒称a9已构建。
+
+## 18. D 独审核收与 E 启动
+
+§17保留当时状态；现由后续实际证据更新：D 产品固定为 `a9da0c59277e3179f34d646eabcd9c185917ae05`，Rust tree=`b5f2439384d859bd32df3e3e24979f4f63f0f91b`，handoff=`d1aad819be5e632a66f0f8cbbd3722a5ebafee36`；原独审在 `055707a98436128c7484c92877df3fc17d33035f` 的 [D review §35](p6-s3-d-review.md) 签署 **D GO**。该结论接收本节适用 focused、静态、两个小 Compose 选择器与 selected-table 起测，不代替 E 的删除审核、04权威门禁、DC33 fresh四档或完整性能取证。
+
+06小Compose实际为两段独立原件：首次Submit **1 passed**，随后Ordered未启动而整体exit0，原稿不能记两例通过；保留该范围错误及原始SHA，并按Owner恢复执行已审Ordered-only修订稿，实际 **1 passed / 54.41s**、显式完成和原exit0。Submit原件SHA=`11b7b985f05dac434ecf579000a389569190f88bb6746af56a4c1755d99c6299`；Ordered原件SHA=`411fa24578db3b8be8285aef811e428f41e998a1d5af831c53d273b64da1c054`、外层SHA=`c4d263ff779ded4353ae45e11f05b26b6b0b9e7969dcff7e7fe8c89322530adf`。a9当前backend/worker与RS完整镜像身份、原始命令、收尾、失败闭环由D handoff/review直接绑定；这不是当前E镜像结果。
+
+06 selected-table修订稿于 **08:11:01–08:19:55Z** 对2x、W4约10%、W4 100%各MO/FULL共六项实际exit0，完整计划631表中仅选Standard 92,428行与Ordered 9,822/9,828行两表。原始node SHA=`20271ee0fc5dff6c3c0560be00773ed365a32c02e0b4e1eba75176faa0abe8d9`，outer SHA=`11d33b96d59db5a743f11b64022a8e31021a5263250ec14e93c5d4a2821a3a7f`，标准manifest SHA=`60105fc5e5b322a77d32378658554f7469e947123a3313330fe0af285b77a26b`。初稿在uv wrapper拒绝外部脚本时尚未进入诊断Python，原失败保留，修订显式离线lock-check后使用同clean WT已安装解释器，不修改消费wrapper。六项仅证明组件起测；FULL的baseline=v1/initial=v1同对象假设、InMemory store及未归属cgroup历史峰值均保留限制。
+
+2x变化对comparison **48.292s**；native records build **38.291s（含JCS 8.273s）**；publication **0.299s（含Parquet 0.256s）**；Risk **47.022s（含必要Arrow转换2.829s）**。这些包含关系不能相加成独立分项，0.299s也不是全部records成本。10%/100%的Risk约2.738s/26.948s。该局部2x结果对W3 READY目标构成性能预警，但没有完整Preview/READY边界，不能正式判定目标通过或失败。E在现役入口补最小rules/report-JCS/publication、projection/bundle分段，并据完整负载作DC47语言边界评估；不据此自动迁Rust或改N/M。账本high-water不是物理峰值，selected压力成功不是完整容量通过。
+
+Owner最新“允许3次自行修复尝试”已在 `c47f2fccd014a7799fda613d611149b23a640407` 同步AGENTS、testing-conventions与DC68现行补充，并获原审核者静态CLEAR。首次工具/操作失败后，同一具体根因最多三轮修复、适用独审和受影响复验；仍首败停本次执行、保存原始exit/日志/SHA、确认安全收尾，不无修改重试，不重计同根，不放宽产品/frozen/身份/缓存边界。历史停止稿不再作为“一次即停”的现行依据。
+
+E已按生命周期创建新实施者Sol xhigh、新独审Sol max与唯一测试者Luna max，连协调共四槽，D角色已结束。E独审初稿为 `6fae419575` 的 [E review](p6-s3-e-review.md)，尚无E GO。三项最小整合已分别固定为GC `028aff2da7`、catalog `c6a2792901`、JCS `968e8ec7ee`；独审首轮确认精确源包与范围，实际测试仍待执行。下一步先从06固定旧a9源冻结C/D的独立expected，再删除旧行算法、writer与替换期桥；不从新Rust结果反填预期。最终V、H、门禁、fresh t1–t4和完整W3/W4仍待集中取证；FE3c Q18仍按§16独立交接，未混入S3。

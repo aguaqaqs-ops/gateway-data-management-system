@@ -126,3 +126,9 @@ root 提示真实消费者后，本人回查固定 `a1ca3bad93`：`vnext/backend
 六锁前后逐字一致、`lock_drift=0`；起止 HEAD=`94b25a3279…`、worktree clean、每例自身项目容器/卷/网络清零，最终标记文件/目录释放 exit 0。本人现场复核 06 marker absent、Docker running 0、host 8000 无 listener。同一来源 worktree 与四份 runtime tar 留在 06，供后续 H/阶段绑定核验；不擅自清理。§9 消费者 finding 因 `94b` 的静态复审、真实旅程 focused 与四例当前 HEAD 容器实际通过而**关闭**，固定候选 **BE-Q18 GO**。
 
 FE 附加的生产 OpenAPI 单次只读抓取在 archive 容器健康/8000 监听观察后遇 curl exit 7、HTTP 000，未生成响应文件，也未重试/重启；原观察记录 SHA256=`be9044d5a81ca486866fd920b1c3080ae7813233017589840caff72757ad8925`。此缺失不写成 OpenAPI 快照已交付；旧 `a1` 的 OpenAPI 必填字段 focused 与未变的 `94b` DTO、真实容器 API 旅程足以支持本次接口结论，FE3c 自行按固定后端刷新快照与生成类型。Q18 GO 不解除 S3 `BLOCKED_CAPACITY`、不代表六包权威 runner/真实 t1–t4/正式性能或 S4 代码已验证。
+
+## 14. 最终交接文档独立核收
+
+本人只读审核 root 的单路径交接提交 `8cf472a4dd`（`p6-be-q18-handoff.md`），与固定产品 `94b25a32792821cbc5b3230d98a0aa6f13493c32`、本报告 §8/§12/§13 的原始日志及四例镜像/容器证据逐项对照。交接明确区分 a1 未变接口核心的 181 个 focused、94b 增量的 74＋3 个 focused、94b 四例容器各 1 passed；没有把本项 GO 扩大成 S3 容量、全量 runner、真实数据、S4 或前端退出。附加 production OpenAPI 抓取缺失与前端自行刷新也如实保留。
+
+本人重算外置 `captured-json.sha256` SHA256=`8d822d319df52d9618a9af098eba7e877d6f2847eb9585da32c8dc7afab00fe2`，逐项 `sha256sum -c` 核对四组 runtime identity、四组 provenance、repository build identity、RS base observation 共十份同字节副本均通过；交接中的路径与摘要匹配。该提交仅改交接文档，`git diff --check` 通过。**交接文档核收 CLEAR，无新增 Q18 finding；§13 的固定 94b BE-Q18 GO 结论不变。** 此次仅审核文档，没有重跑测试、重建镜像或判定后续 main 的 carried。

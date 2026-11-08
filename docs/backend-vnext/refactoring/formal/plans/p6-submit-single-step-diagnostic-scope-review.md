@@ -3126,3 +3126,23 @@ Rust/shared_kernel/contracts/client/backend均passed；RS parallel1763 passed/1 
 runner已打印Hypothesis与Cargo target清理；这不替代尚未交付的节点/Compose/owner postflight，本审核未替他人清锁或扫描节点。整次exit1不能作为任何包的qualified carried来源，中间五包passed不能把本次包装为成功runner；§148必要05验证和镜像来源的独立事实保持。后续具体诊断/修正按Owner既有持续授权推进，无新增Owner/第三次GO要求。V5b具体接线§150和core §149结论亦不因独立04中断回退。
 
 已再次尝试把中断原件/准确SHA及现有两个PASS结论回主协调，MCP仍返回相同HTTP transport失败，未送达；本节先形成可转交的准确记录。审核者没有运行测试、触发新runner、修改产品或清理证据。
+
+## 152. 主协调定向复核：V5b/core PASS保持，058受控停止与真实RS身份错位已定位
+
+主协调通过恢复后的原会话通知投递三项定向复核，并要求本报告及外部回执；原TUI MCP端口45207已无监听，不新建会话或改模型。本轮只读本地已交材料/准确058源码、计算文件摘要及JSON差异，**没有重跑测试、启动CT108、修改产品或任何实施worktree**。V5b最终14项manifest和core b包24项manifest重新逐项核对全部MATCH，分别保持§150与§149的既有独审PASS，不扩大到实际测量或总门禁。
+
+**V5b F1/F2修订未变。** entry SHA仍 **`5d01789f415dd65959a77dd7f50790ef9214b5101fc584fff5e10bac5c58f70f`**，manifest仍def30bf9…474149；已对照f1f2-controller.diff和05 validation.log，原INT/TERM/HUP、消失进程组、辅助错误/预算耗尽收尾结论保持。主协调确认CT108尚未启动，本轮不追加节点探测。具体接续接线可按原持续授权执行，原绝对截止不动；实际四新段/六reference/采样及保卷postflight尚待结果，不冒称V5b完成。
+
+**core b仅8处逻辑state变化得到再次独立确认。** 对完整新旧core对象递归求差，精确等于core-state-field-diff.json所列七baseline加H1 cache，diff SHA **`320740bbfd821afae0986a684a8c514e19a61e8f80324e47dbcc23f6dd61dd2a`**；core仍971ed42d…38598。全部数字、指纹、计数、计时/资源、模式、run/input/tree及原件绑定不变；新外部索引仍引用FULL **66a2728a…f678b**、STRESS **0d597e63…77248** 原记录，二者未重生。§149实例值Finding保持关闭，旧包/失败记录保留。
+
+**§151的中断来源现已定位，058门禁仍明确不通过。** 新closed-failure-evidence-index.json SHA **`6a15aed68bfadada343b851a71861019748af8ca3375f02d97167adf0f8d2352`**，51项已闭合文件大小/SHA全部MATCH。02:02:28.214543Z controlled-stop log SHA **`3ef0a772c279e6ea89d8f9ff5baec57efc0e41e065427488205ee7617bdc3c44`** 明确发现实际backend Compose的RS容器用了不同local镜像，随后仅向当时匹配的RS pytest PID2313834发送SIGINT，让pytest/runner正常清理，02:02:29Z真实exit1。因此先前KeyboardInterrupt是该受控停止的结果；control_db.py:1279仅为信号交付时的栈位置，不能认定SQLite/WAL缺陷或另有随机中断。
+
+**身份错位根因与真实代码/原件对齐。** 准确058的 `test_ordered_submit_bisect_compose.py::_compose_env` 从头构造只含project及fixture文件接线的字典，没有继承显式GATEWAY_REPOSITORY_SERVICE_IMAGE及受控build设置。`run_compose`把该字典直接作为subprocess.env，Compose遂使用默认gateway-repository-service:local；而宿主ensure和persist_compose_gate_provenance另从os.environ读取指定候选tag。后者只校验所选tag labels，再与已捕获container列表并列写出，未把RS实际container image与该tag对象作相等绑定，故新tag的正确预构建证据未能证明实际消费它。
+
+原运行provenance SHA **`7bd30906c52fdf40e040cdd43431ba5300463528f1e4ad88e44363ead6911bcc`** 直接同时记录：实际RS容器image为同节点immutable **`421d85c2eeb7f6e2662b2a06b2484f425b865dd5478deb6df6ca711feef74b08`**，所选058 tag却是 **`e432b3716f060b8536d90ed155f2f89abbb91857ff592414af6acd78efad2967`**。旧对象inspect SHA **`3882984f4e4b64cf23bb73db192133bb319bc3554a67bd3a55627374f0b86ea1`** 与实际ID精确相等，tag local、revision **3b3d9c97bcb6d79d6c087099fbe6353f170bf68f**、source **ee92f50f…fe4015**；与058已核source5d4030…5f5b7不同，28有序DiffID中有7项不同。这里比较同节点对象并核完整层列表，不混用跨节点inspect ID。候选tag结束仍未变，所以这不是合格镜像传输失败或运行期间候选tag被覆盖。
+
+最小修订方向是让这个既有测试的Compose环境继承门禁受控输入，再覆盖自身project/fixture文件；保持产品、共享guard、镜像身份规则与离线build条件，不以重tag旧local或删掉显式新tag掩盖错位。第三测试修订的最终候选/代码尚未在本轮定向材料中独审，不先判其PASS、不由审核者实施或重跑。后续最终容器证据必须让实际RS container image与候选对象接上，不能只展示正确tag的inspect。§148的预构建/来源正确和05两测试验证事实保持，**058整次exit1及该错位Compose结果不能作为候选门禁通过或任何包qualified carried来源**。
+
+02:02:44Z postflight SHA **`4a24d7e0a506bfdfde7255800fb2fe3c4976455d902e3a1486f9dfbf8397666d`** 明确058 clean、runner真实exit1、无运行容器/8000/Dolt/Cargo/rustc/pytest、专属Hypothesis及Cargo target清理、三个候选tag保持原本机对象、准确owner释放exit0。02:03:25Z incident后检 SHA **`f543760ca454aef7967a8b31c07bb3807495d3e2e73d2f93044ca3dfc67bc511`** 引用同组摘要并记录marker absent；这是已保存后检，不冒称本轮审核实时节点探测。原runner和所有事故证据保留，不清理镜像/卷/旧worktree。
+
+定向结论将简记 `/home/dev/.local/state/gdds-p6-watch/reviewer-reply-20261108.md`，包含本报告准确提交与来源摘要，供主协调在通知故障时直接读取；它只作协调回执，不替代上述权威证据或主报告，不尝试已失效MCP、不唤醒旧实施者，也不新增Owner/GO或测量预算。

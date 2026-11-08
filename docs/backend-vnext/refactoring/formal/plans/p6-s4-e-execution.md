@@ -109,7 +109,7 @@ expectations. The business baseline only advances at Archive.
 | W3 FULL | Frozen 2×t4, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
 | W4 10% MO cold | Frozen W4-10%, MODIFIED_ONLY | 1 warm + 3 successful measurements | v2 ≤5 min; all ≤10 min |
 | W4 10% FULL | Frozen W4-10%, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
-| W4 100% stress MO/FULL | Frozen W4-100%, separate modes | Each mode separately; record warm and three runs if treated as formal sample groups | No time threshold; business/resource failure still fails |
+| W4 100% stress MO/FULL | Frozen W4-100%, separate modes | Each mode: 1 warm + 3 successful measurements | No time threshold; business/resource failure still fails |
 
 The W3 MO group's *one* v1 Submit sample group also supplies the 2×t4
 fresh INITIAL S1 timing; do not mix it with W3 FULL or add a duplicate S1

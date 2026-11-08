@@ -21,3 +21,17 @@ A：产品fb9c7fbcd95b411d7598ade2a93bc8a7e6514697，原审A GO，05 focused151p
 ## 4. A核收后的并行事实
 
 main期间新增Q18 `94b25a3279`（真实旅程/三Compose helper只投影selection双字段，原独审及节点由Q18负责），和S3 `99254318c8`资源方案文档。A source fixed fb9c只核本节六文件，不冒用Q18 CLEAR解除FE前置。最新[S3资源方案](p6-s3-resource-profile-plan.md)拟48/8/M40、保持生产默认；明确不写import_publication.py或table_access/kernel.py，S4 B可按既有owner处理kernel最小自检。S4最终增配档尚未选择，不把S3方案自动算本阶段通过。A新增共享fixtures会进入包闭包，E按实际闭包准备六包集中验证，不能用跨节点旧来源口头carried。
+
+## 5. B首候选、原审与调试失败
+
+B首个固定候选`43a8f1e16592ae9726d019e73a2c65a4d03253ec`，直接base`e76342ef0b58bb0120fc60d8a063d838140ee28d`含S3资源档产品；本节20文件是storage core/native/共用policy/context及测试/精确FFI登记。Rust tree=`5b87acea208ec03af3e22c1b6a61b4f584eda059`。新B原审在clean detached WT静核，报告[p6-s4-b-review.md](p6-s4-b-review.md)，**CHANGES_REQUIRED**：B-F1真实输入backing同M/最后owner未接实，B-F2 schema/count冒称完整身份/NOOP风险，B-F3 native与唯一policy可比条件分叉，B-F4输入batch头部先分配后预约。rebuild决定后before/actions早释放也须在后继接口接实。均属职责内实现修复，非Owner设计冲突，不进入C。
+
+原审允许唯一Luna跑首候选小fixture focused调试，05实际17:25:36–17:26:01Z：fmt **1**（格式diff），clippy **101**、workspace test **101**（同E0618：局部usize `indexed_rows`遮蔽函数，230→258/275）。三步实际执行后停止，未运行native重装/五包静态/Python/真实逐表差分/Compose；不得写成这些项已过。起止HEAD43a8 clean、六锁无漂、node/outer1、capture0、marker释放0，17:27:20现场无构建/测试/8000/运行容器，原件与WT保留。此为产品源码/格式失败，不冒工具故障、不无修改重试。
+
+原件`/home/dev/gdds-test-tmp/p6-s4-b-plan/controller-43a8f1e165/`：outer SHA256=`097660e1215789933580dbedce4772373126bcfcc2998b7ff6f18600e0937470`，captured/focused.log=`ae385835712c1ef48f9211ce8bc9fdba2a665e10e4adba6f1c673f971efb9080`，与节点sidecar同值。后继实施接实既有canonical reader/进程内stream lease的来源、绑定、费用及最后owner，不建新持久证明/协议；由原审连续复核，再固定新候选/适用脚本。
+
+## 6. Q18最新独立核收与S3写入
+
+并行Q18报告`27eab454b7`/最终交接`964d900d44`已核固定产品`94b25a3279`为 **BE-Q18 GO**：06增量focused74+3、五包静态与四项当前候选Compose均核收；source/原件见[Q18 review §12–13](p6-be-q18-review.md)。FE附加生产OpenAPI抓取curl7/HTTP000仍缺失，不称快照已交付；FE刷新类型与前端真实e2e仍由其owner处理。S4不把Q18证据当自己的Rust/SQL/真实性能通过。
+
+S3资源档产品`e76342ef0b`已在main，修改settings/Compose、worker资源测试和real_dump_journey资源CLI/守卫；B未写这些路径。新资源档和S3-only实测仍由S3原owner独审/执行，S4最终配置须独立记录实际值。S4 E继承当前driver时核精确SHA/差异，正式组同worker/配置守卫不删，S4结果不倒签原S3 V774成功。

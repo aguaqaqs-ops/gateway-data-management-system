@@ -309,3 +309,15 @@ Owner 于2026-11-08转来前端两项问题，要求核是否修复、建议环�
 Owner最新“允许3次自行修复尝试”已在 `c47f2fccd014a7799fda613d611149b23a640407` 同步AGENTS、testing-conventions与DC68现行补充，并获原审核者静态CLEAR。首次工具/操作失败后，同一具体根因最多三轮修复、适用独审和受影响复验；仍首败停本次执行、保存原始exit/日志/SHA、确认安全收尾，不无修改重试，不重计同根，不放宽产品/frozen/身份/缓存边界。历史停止稿不再作为“一次即停”的现行依据。
 
 E已按生命周期创建新实施者Sol xhigh、新独审Sol max与唯一测试者Luna max，连协调共四槽，D角色已结束。E独审初稿为 `6fae419575` 的 [E review](p6-s3-e-review.md)，尚无E GO。三项最小整合已分别固定为GC `028aff2da7`、catalog `c6a2792901`、JCS `968e8ec7ee`；独审首轮确认精确源包与范围，实际测试仍待执行。下一步先从06固定旧a9源冻结C/D的独立expected，再删除旧行算法、writer与替换期桥；不从新Rust结果反填预期。最终V、H、门禁、fresh t1–t4和完整W3/W4仍待集中取证；FE3c Q18仍按§16独立交接，未混入S3。
+
+## 19. E 独立预期冻结与集中取证准备
+
+原独审已在 `80d71e4983b97e366d9035fcf9ca99298fa6ee04` 的 [E review §5](p6-s3-e-review.md) 核收旧来源 **20例facts/records预期**。06 `gw-dms-06` 固定clean a9/Rust b5f于09:06:34–09:08:00Z实际强制native/input、pytest **20 passed / 2.25s**、六锁无漂及本人marker guarded释放0；outer与标准capture均0。每个expanded nodeid一次旧Python调用，原审逐项重算20 input_digest、21 table digest、18 records项，并核C三族raw b64及D ordered blank-only/旧Risk、C/D两对相同输入的一致性。来源是固定a9的旧Python及4d5算法血缘，不是新Rust输出。原始JSONL SHA=`7c629fdbe64bc4ffb016135accd86cc74edacd93cd7b32347d4ed2364e0027f9`、collection SHA=`ccbec5bde3ea187888ddd5ee065ca040cf259ce3f0810dadd6b485ffcf0812a3`、node SHA=`96fde94d2382461f22e1b5e2e1e9fe3b7704875178b99bcfefba6103230e5e59`、outer SHA=`b8fcd5e89418cfc4cc7ad69b506d69c1e93e4a116849db0007de8a6ded62153b`，标准manifest SHA=`85546cbc385fa612e30f8908dd69739feeac102eb5bb774414dad604c9eace9d`。原件保留在CT201 `/home/dev/gdds-test-tmp/p6-s3-e-old-freeze-outer-a9-20261108-r3/` 与06独立来源WT。
+
+冻结仍有**明确补项**：D keyless COLUMNS_ADDED/UPDATE_ONLY单例原有旧Risk摘要断言未被r3插件捕获；其facts/records已核收，但Risk断言删除边界暂扣。实施者从同a9旧源仅补这一nodeid、绑定原input/core/table及rules/options/digest，原审核收后再固定该断言，不用删断言代替补证，也不重跑已合格20例。其余只允许先提取最小必要固定值并提交独审；20例取证不是E产品GO。
+
+此前r0缺Node主仓库a9对象、r1默认clone不抓custom bundle ref而为空bare、r2私有库未忽略legacy导致dirty，均未进入native或pytest；原失败日志/独立postflight保留，标记均释放。原审按现行DC68代码传输/检出准备例外判0/3，不将这些记成产品失败或成功；最终通过稿显式full-history bundle、bare init+精确fetch、private exclude及clean链接，不再借Node主仓库对象或metadata前提。
+
+E的现役consumer迁移按每项职责静审并待focused实测：census改真实native handle计数；replacement测试直接调用独立replacement owner；Preview取消测试挂现役Arrow writer；planning与non-record role保schema/key、存在性、共有列和变化计数断言。Rust direct Parquet/core dev base64已裁剪声明，shared-kernel实际base64消费者保留；06仅在独立scratch从旧lock离线最小裁剪、逐一核所有保留包身份，commit新lock后才在CT201构建新dependency-base。五包静态、受影响focused和Rust三步仍待当前整合候选实际运行，不能把静审当测试通过。
+
+最终权威范围已由E原审确认：04本S3自有clean WT **六包全部实跑**，无合格D 06权威carried来源；同次Compose不重复。V→H再在该同04 WT逐包/镜像实测沿用。05 fresh t1–t3、CT108 fresh t4沿用Owner已确认DC33范围，v1/repeat MO、v2 FULL；分别保同worker生命周期、32/8/M24资源与真实业务结果。协调者准备相应外层，未固定V/base的草稿均拒执行；不会把准备文件存在或节点只读空闲写成门禁通过。

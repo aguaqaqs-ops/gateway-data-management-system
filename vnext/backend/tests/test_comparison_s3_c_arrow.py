@@ -6,6 +6,7 @@ import base64
 import json
 from contextlib import closing
 from pathlib import Path
+from typing import cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -22,7 +23,8 @@ from gateway_compute._native import (
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
     RecordsPublicationContext, RecordsPublicationPolicy, _record_to_row,
-    _standalone_retained_cap, _write_arrow_parquet, open_records_closure,
+    _decoded_admission, _standalone_read_bound, _standalone_retained_cap,
+    _schema_for, _write_arrow_parquet, open_records_closure,
     publish_records_closure, publish_records_family_arrow, read_records_artifact,
     restore_records_closure,
 )
@@ -117,7 +119,9 @@ def test_native_standard_arrow_and_complete_facts_match_pre_c_source() -> None:
     )
     old_raw = old_store.locate(old_published.records_closure.records[0].records_ref)
     assert _write_arrow_parquet(
-        built_batches, built_batches[0].schema,
+        built_batches,
+        _schema_for(RecordsArtifactFamily.STANDARD, None,
+                    RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
         RecordsPublicationPolicy(), RecordsPublicationContext(),
     ) == old_raw
     metadata = _table_digest_payload(fact)
@@ -264,8 +268,37 @@ def test_real_open_read_restore_use_native_arrow_validator(monkeypatch: pytest.M
 def test_standalone_reader_budget_is_m24_not_a_total_i32_limit() -> None:
     gib = 1024**3
     assert _standalone_retained_cap(512 * 1024**2, gib) > 2 * gib
+    _standalone_read_bound(1024**2, 10 * gib)
     with pytest.raises(ValueError, match="standalone memory budget"):
         _standalone_retained_cap(512 * 1024**2, 12 * gib)
+
+
+def test_plain_400_mib_cell_is_admitted_before_decode() -> None:
+    class Column:
+        encodings = ("PLAIN", "RLE")
+
+    class Group:
+        num_rows = 1
+        num_columns = 1
+        total_byte_size = 400 * 1024**2
+
+        def column(self, _index: int) -> Column:
+            return Column()
+
+    class Metadata:
+        num_row_groups = 1
+
+        def row_group(self, _index: int) -> Group:
+            return Group()
+
+    class File:
+        metadata = Metadata()
+
+    admission = _decoded_admission(
+        cast(pq.ParquetFile, File()), RecordsPublicationPolicy()
+    )
+    _standalone_read_bound(1024**2, admission)
+    assert admission < 12 * 1024**3
 
 
 def test_counts_only_output_budget_excludes_full_sort_blob() -> None:
@@ -384,7 +417,8 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
                 len(records), old_entry.records_content_digest.value
             )
             assert _write_arrow_parquet(
-                built_batches, built_batches[0].schema,
+                built_batches,
+                _schema_for(family, None, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
                 RecordsPublicationPolicy(), RecordsPublicationContext(),
             ) == old_store.locate(old_entry.records_ref)
     metadata = _table_digest_payload(fact)

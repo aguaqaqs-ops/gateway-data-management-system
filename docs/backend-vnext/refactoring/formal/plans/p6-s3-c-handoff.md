@@ -20,7 +20,9 @@ Python operation 先独占 reserve 一个明确 native portion，输入唯一 ba
 
 ## 真实读侧
 
-`open_records_closure`、诊断 `read_records_artifact` 与 `restore_records_closure` 的验证实际走 Python Parquet→逐 row-group Arrow→`_validate_records_batches_native`。在 ctx 内先按 records ref size 预约 raw 与小 footer，再按 Parquet metadata 的 1024 行组、禁止 dictionary 的写入格式及未压缩大小×32+offset/validity/JCS 额度，在解码前预约；Rust validator 逐批核 exact schema/nullable/metadata/count/content，单行 Value/JCS 在构造前检查上界，取消/截止在批和行边界检查。raw ref size/SHA 与 content digest 分开校。ctx 外的 open/restore 仍按现有 policy hard cap 和 N1 M24 GiB 上界 fail closed；诊断 reader 只允许 ctx 外、显式 `close()`、累计返回 Arrow 与下一组解码一同受 M24 上界，不作生产下载时的新增全份解码。`bundle_tar` 使用同一 open 边界。生产读侧不经 B 临时 JSON probe。
+`open_records_closure`、诊断 `read_records_artifact` 与 `restore_records_closure` 的验证实际走 Python Parquet→逐 row-group Arrow→`_validate_records_batches_native`。在 ctx 内先按 records ref size 预约 raw 与小 footer，再按 Parquet metadata 的 1024 行组、禁止 dictionary 的写入格式及未压缩大小×16+offset/validity/JCS 额度，在解码前预约；无字典的 plain 值即使 UTF8 控制字节需最多六倍 JSON escape，两份编码/JCS 与 Value/Arrow/offset 仍在十六倍内。Rust validator 逐批核 exact schema/nullable/metadata/count/content，单行 Value/JCS 在构造前同十六倍检查上界，取消/截止在批和行边界检查。raw ref size/SHA 与 content digest 分开校。ctx 外的真实 open/restore 只需 raw+单组 Arrow/JCS 的 M24 上界；诊断 reader 还为已返回批次和下一组预留累计额度，显式 `close()`，不作生产下载时的新增全份解码。`bundle_tar` 使用同一 open 边界。生产读侧不经 B 临时 JSON probe。
+
+新 writer 的 RAM spool 阈值不超过 `max_records_artifact_bytes`；同 operation 在写前预约 `2×max_artifact + 2×最大输出 batch.nbytes + 1 MiB`，分别覆盖 spool/raw 双份与单组 Parquet 页编码/压缩暂额，超额在写前拒绝。它仍按每 1024 行独立 `write_table`，不会合并成一份 Python rows/table；直写实际 raw golden 逐字节对照旧 writer。
 
 ## 验证与容器判定
 

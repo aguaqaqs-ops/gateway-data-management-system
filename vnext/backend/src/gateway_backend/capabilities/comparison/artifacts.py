@@ -647,8 +647,13 @@ def publish_records_family_arrow(
     from gateway_backend.capabilities.table_access import current_kernel_context
 
     operation = current_kernel_context()
+    writer_peak = (
+        2 * limits.max_records_artifact_bytes
+        + 2 * max(batch.nbytes for batch in batches)
+        + 1024 * 1024
+    )
     reservation = (
-        operation.memory.reserve(2 * limits.max_records_artifact_bytes)
+        operation.memory.reserve(writer_peak)
         if operation is not None else None
     )
     try:
@@ -702,7 +707,9 @@ def _write_arrow_parquet(
     limits: RecordsPublicationPolicy,
     control: RecordsPublicationContext,
 ) -> bytes:
-    spool = SpooledTemporaryFile(max_size=limits.max_spool_bytes, mode="w+b")
+    spool = SpooledTemporaryFile(
+        max_size=min(limits.max_spool_bytes, limits.max_records_artifact_bytes), mode="w+b"
+    )
     writer: pq.ParquetWriter | None = None
     try:
         control.checkpoint()
@@ -808,7 +815,7 @@ def _validate_parquet_bytes(
             raise RecordsPublicationError("records Parquet schema mismatch")
         _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
         admission = _decoded_admission(file, limits)
-        _standalone_retained_cap(len(raw), admission)
+        _standalone_read_bound(len(raw), admission)
         from gateway_backend.capabilities.table_access import current_kernel_context
 
         operation = current_kernel_context()
@@ -873,7 +880,7 @@ def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -
                 raise RecordsPublicationError("records Parquet dictionary encoding is unsupported")
         # Dictionary expansion is excluded by the published writer format.
         # The factor covers Arrow offsets/validity and one nested JCS row.
-        estimate = 32 * group.total_byte_size + group.num_rows * 2048 + 1024 * 1024
+        estimate = 16 * group.total_byte_size + group.num_rows * 2048 + 1024 * 1024
         largest = max(largest, estimate)
         if 2 * largest > min(limits.max_decoded_batch_bytes, _N1_OPERATION_MEMORY_BYTES):
             raise RecordsPublicationError("records decoded batch budget exceeded")
@@ -894,10 +901,18 @@ def _standalone_retained_cap(raw_bytes: int, admission: int) -> int:
     # Current N1 M24 GiB applies even when a diagnostic caller has no operation
     # context. Reserve room for raw bytes, the next decoded group and its JCS
     # scratch while already returned Arrow batches remain live.
+    _standalone_read_bound(raw_bytes, admission)
     remaining = _N1_OPERATION_MEMORY_BYTES - 2 * raw_bytes - 2 * admission - 1024 * 1024
     if remaining < admission:
         raise RecordsPublicationError("records standalone memory budget exceeded")
     return remaining
+
+
+def _standalone_read_bound(raw_bytes: int, admission: int) -> None:
+    # open/restore validate one group at a time and do not retain returned
+    # batches. Only the diagnostic stream needs additional retained-batch room.
+    if 2 * raw_bytes + 2 * admission + 1024 * 1024 > _N1_OPERATION_MEMORY_BYTES:
+        raise RecordsPublicationError("records standalone memory budget exceeded")
 
 
 def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublicationPolicy) -> None:

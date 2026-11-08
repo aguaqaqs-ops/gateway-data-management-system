@@ -179,7 +179,7 @@ impl RecordsBatchValidator {
             let row_upper = batch.columns().iter().try_fold(4096usize, |sum, array| {
                 let size = array.slice(row, 1).to_data().get_slice_memory_size().ok()?;
                 sum.checked_add(size)
-            }).and_then(|size| size.checked_mul(32))
+            }).and_then(|size| size.checked_mul(16))
                 .ok_or_else(|| "records JCS row budget overflow".to_string())?;
             if row_upper > self.max_row_bytes {
                 return Err("records JCS row budget exceeded".to_string());

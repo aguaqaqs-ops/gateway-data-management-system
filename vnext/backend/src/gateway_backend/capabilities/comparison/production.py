@@ -1044,9 +1044,12 @@ def _compare_plan_native_once(
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
-    detail_policy = RecordsDetailPolicy(
-        dict(plan.options).get("row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
+    detail_policy_value = dict(plan.options).get(
+        "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES.value,
     )
+    if not isinstance(detail_policy_value, str):
+        raise ValueError("row_diff_detail_policy is invalid")
+    detail_policy = RecordsDetailPolicy(detail_policy_value)
     context.checkpoint()
     if session is not None:
         session.evict_for(plan)

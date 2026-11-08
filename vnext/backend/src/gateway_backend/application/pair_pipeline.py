@@ -364,13 +364,14 @@ def _finish_comparison_risk_surface(
             if context.memory.available_bytes < closure_upper + family_upper:
                 native_comparison.session.risk_evict_for_output()
                 checkpoint()
+        detail_policy_value = dict(request.options).get(
+            "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES.value,
+        )
+        if not isinstance(detail_policy_value, str):
+            raise ValueError("row_diff_detail_policy is invalid")
         closure_result = publish_records_closure_arrow(
             compared, native_comparison.handles, store,
-            detail_policy=RecordsDetailPolicy(
-                dict(request.options).get(
-                    "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
-                )
-            ),
+            detail_policy=RecordsDetailPolicy(detail_policy_value),
             context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),
         )
         checkpoint()

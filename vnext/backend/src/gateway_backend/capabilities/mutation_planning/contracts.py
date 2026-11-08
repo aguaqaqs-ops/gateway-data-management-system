@@ -199,6 +199,8 @@ class StorageTableHandle(Protocol):
 class StorageTableReservation(Protocol):
     def close(self) -> None: ...
 
+    def shrink_to(self, size: int) -> None: ...
+
 
 class StorageTableBudget(Protocol):
     """The existing operation M ledger; the native portion is charged within it."""

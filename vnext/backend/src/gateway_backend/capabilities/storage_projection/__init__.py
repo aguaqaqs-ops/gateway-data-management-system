@@ -3,8 +3,9 @@
 from gateway_backend.capabilities.storage_projection.native import (
     StorageInputLease, open_storage_input, project_arrow_table,
     require_storage_input_owner, require_storage_operation, storage_memory_limit,
-    verify_storage_metadata_manifest,
+    verify_storage_metadata_manifest, render_storage_schema_native,
 )
+from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 from gateway_backend.capabilities.storage_projection.arrow import project_canonical_arrow_table_set
 
 from gateway_backend.capabilities.storage_projection.contracts import (
@@ -73,6 +74,8 @@ __all__ = [
     "verify_storage_metadata_manifest",
     "require_storage_operation",
     "storage_memory_limit",
+    "KernelExecutionContext",
+    "render_storage_schema_native",
     "CANONICALIZATION_MANIFEST_CONTRACT",
     "CANONICALIZATION_MANIFEST_MEDIA_TYPE",
     "MANIFEST_ENTRY_NAME",

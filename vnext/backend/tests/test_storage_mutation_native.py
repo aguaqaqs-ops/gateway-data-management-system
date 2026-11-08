@@ -239,6 +239,63 @@ def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> 
     _assert_operation_resources_released(context)
 
 
+def test_native_storage_rebuild_renders_ordered_insert_bytes_and_closes_early() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    after = _side(_table([("2", "0", "two"), ("1", "0", "one")]))
+    task = _task(None, after)
+    with prepare_storage_table(task, context) as handle:
+        decision = choose_table_mutation(task, handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.REBUILD_TABLE
+        chunks = handle.render(decision)
+        assert b"".join(chunks) == (
+            b"INSERT INTO `orders` (`board`, `link_no`, `status`) VALUES "
+            b"('1', '0', 'one'), ('2', '0', 'two');\n"
+        )
+        assert list(chunks) == []
+    _assert_operation_resources_released(context)
+
+
+def test_native_storage_patch_renders_full_nonkey_case_under_same_memory_budget() -> None:
+    old_rows = [(str(i), "0", "old" if i == 42 else "same") for i in range(100)]
+    new_rows = [(str(i), "0", "new" if i == 42 else "same") for i in range(100)]
+    context = current_kernel_context()
+    assert context is not None
+    before = _side(_table(old_rows), content_fill="1")
+    after = _side(_table(new_rows), content_fill="2")
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        decision = choose_table_mutation(task, handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        assert decision.operation is TableMutationKind.PATCH_DML
+        handle.apply_decision(decision)
+        chunks = handle.render(decision)
+        assert b"".join(chunks) == (
+            b"UPDATE `orders` SET `status`=CASE WHEN `board`='42' AND `link_no`='0' "
+            b"THEN 'new' ELSE `status` END WHERE (`board`,`link_no`) IN (('42', '0'));\n"
+        )
+    _assert_operation_resources_released(context)
+
+
+def test_native_storage_chunks_are_bounded_and_early_close_releases_last_owner() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    after = _side(_table([("1", "0", "x" * (2 * 1024 * 1024))]))
+    task = _task(None, after)
+    handle = prepare_storage_table(task, context)
+    decision = choose_table_mutation(task, handle.summary(),
+        policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+    chunks = handle.render(decision)
+    first = next(chunks)
+    assert len(first) == 1024 * 1024
+    assert context.memory.used_bytes > 0
+    del first  # A production caller transfers bytes to its package envelope.
+    handle.close()
+    assert list(chunks) == []
+    _assert_operation_resources_released(context)
+
+
 def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() -> None:
     old, new = _table([("1", "0", "x")]), _table([])
     context = current_kernel_context()

@@ -5,7 +5,7 @@ from gateway_backend.capabilities.snapshot_materialization.arrow import (
     snapshot_arrow_input, snapshot_table_from_arrow,
 )
 from gateway_backend.capabilities.table_access import (
-    KernelMemoryLimit, TableAccessError, current_kernel_context, require_active_kernel_context,
+    KernelExecutionContext, KernelMemoryLimit, TableAccessError, current_kernel_context, require_active_kernel_context,
     source_descriptor_from_arrow,
 )
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
@@ -149,7 +149,7 @@ __all__ = [
     "export_snapshot_table_parquet",
     "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
     "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
-    "current_kernel_context", "require_active_kernel_context", "KernelMemoryLimit", "source_descriptor_from_arrow",
+    "current_kernel_context", "require_active_kernel_context", "KernelExecutionContext", "KernelMemoryLimit", "source_descriptor_from_arrow",
     "TableAccessError",
     "ArrowMetadata",
     "KernelBudgets",

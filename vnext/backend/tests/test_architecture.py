@@ -876,7 +876,7 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute", ("_native",), RULE_LAYER),
     ("gateway_backend.capabilities.table_access.native", "gateway_compute._native", ("_parse_sql_native",), None),
     ("gateway_backend.capabilities.mutation_planning.native", "gateway_compute._native",
-     ("_begin_storage_operation_native", "_prepare_storage_table_native"), None),
+     ("_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native"), None),
     ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native",
      ("_begin_storage_operation_native",), RULE_LAYER),
     (
@@ -896,7 +896,7 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.capabilities.comparison.standard", "gateway_compute._native", ("_compare_records_native",), RULE_LAYER),
     ("gateway_backend.capabilities.table_access.native", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
     ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_sql_materialize_native", "_catalog_filter_native"), None),
-    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native", ("_canonical_project_native",), None),
+    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native", ("_canonical_project_native", "_render_storage_schema_native"), None),
     ("gateway_backend.capabilities.snapshot_materialization.canonical_store", "gateway_compute._native", ("_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"), None),
     ("gateway_backend.capabilities.comparison.standard", "gateway_compute._native", ("_sql_materialize_native",), RULE_LAYER),
     ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),

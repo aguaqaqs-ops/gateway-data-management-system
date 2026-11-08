@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast
+from typing import Iterator, Protocol, cast
 
 from gateway_compute._native import (
     _begin_storage_operation_native,
     _prepare_storage_table_native,
+    _render_change_set_native,
 )
 
 from gateway_backend.capabilities.mutation_planning._decision import (
     keyed_patchable, storage_views_compatible,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
-    StorageNetCounts, StorageTableOperation, StorageTableReservation, StorageTableSideV1, StorageTableSummary,
+    MAX_REPLAY_SQL_BYTES, StorageNetCounts, StorageTableOperation, StorageTableReservation, StorageTableSideV1, StorageTableSummary,
     StorageTableTaskV1, StorageTableDecision, TableMutationKind,
 )
 from gateway_backend.capabilities.storage_projection import (
@@ -27,10 +28,104 @@ class _NativeOperation(Protocol):
     def reconcile(self) -> int: ...
 
 
+def render_change_set_native(payload: bytes, context: StorageTableOperation,
+                             max_bytes: int, output_upper: int) -> bytes:
+    active = cast(StorageTableOperation, require_storage_operation(context))
+    # Rust output and its FFI copy overlap. Keep the Python result charged to
+    # the caller's operation end; the structural closure is charged separately.
+    output_charge = active.memory.reserve(output_upper * 8 + len(payload) * 64)
+    try:
+        result: bytes = _render_change_set_native(
+            payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+            active.threads,
+        )
+        if len(result) > output_upper:
+            raise RuntimeError("SQL replay output memory bound underestimated")
+        output_charge.shrink_to(len(result))
+        active.resources.callback(output_charge.close)
+        return result
+    except BaseException:
+        output_charge.close()
+        raise
+
+
 class _NativeHandle(Protocol):
     def summary(self) -> tuple[int, int, tuple[int, int, int] | None, bool, bool, int]: ...
     def discard_before(self) -> None: ...
+    def render(self, operation: _NativeOperation, decision: str, table_name: str,
+               operation_identity: int) -> _NativeRender: ...
     def close(self) -> None: ...
+
+
+class _NativeRender(Protocol):
+    def next_chunk(self) -> bytes | None: ...
+    def close(self) -> None: ...
+
+
+class _RenderCharge:
+    """Keep exported chunk bytes charged after the Rust cursor has closed."""
+
+    def __init__(self, reservation: StorageTableReservation, active: StorageTableOperation,
+                 output_limit: int) -> None:
+        self._reservation = reservation
+        self._output_limit = output_limit
+        self._exported = 0
+        self._closed = False
+        active.resources.callback(reservation.close)
+
+    def add_exported(self, size: int) -> None:
+        if self._closed or size < 0 or size > self._output_limit - self._exported:
+            raise storage_memory_limit("storage render output exceeds its same-M reservation")
+        self._exported += size
+
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._reservation.shrink_to(self._exported)
+
+
+class NativeStorageChunks(Iterator[bytes]):
+    """Own the Rust table and its same-M render phase until final chunk."""
+
+    def __init__(self, native: _NativeRender, operation: _NativeOperation,
+                 active: StorageTableOperation, charge: _RenderCharge) -> None:
+        self._native = native
+        self._operation = operation
+        self._active = active
+        self._charge = charge
+        self._closed = False
+
+    def __iter__(self) -> NativeStorageChunks:
+        return self
+
+    def __next__(self) -> bytes:
+        if self._closed:
+            raise StopIteration
+        try:
+            require_storage_operation(self._active)
+            chunk = self._native.next_chunk()
+            if chunk is None:
+                self.close()
+                raise StopIteration
+            self._charge.add_exported(len(chunk))
+            return chunk
+        except StopIteration:
+            raise
+        except MemoryError as exc:
+            self.close()
+            raise storage_memory_limit(str(exc)) from exc
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._native.close()
+        finally:
+            self._operation.close()
 
 
 class NativeStorageTableHandle:
@@ -39,13 +134,17 @@ class NativeStorageTableHandle:
     def __init__(self, handle: _NativeHandle, native_operation: _NativeOperation,
                  task: StorageTableTaskV1, before_owner: StorageInputLease | None,
                  after_owner: StorageInputLease | None,
-                 metadata_charge: StorageTableReservation) -> None:
+                 metadata_charge: StorageTableReservation,
+                 active: StorageTableOperation) -> None:
         self._handle = handle
         self._operation = native_operation
         self._task = task
         self._before_owner = before_owner
         self._after_owner = after_owner
         self._metadata_charge = metadata_charge
+        self._active = active
+        self._applied: StorageTableDecision | None = None
+        self._chunks: NativeStorageChunks | None = None
         self._closed = False
 
     def summary(self) -> StorageTableSummary:
@@ -73,6 +172,10 @@ class NativeStorageTableHandle:
     def apply_decision(self, decision: StorageTableDecision) -> None:
         if self._closed:
             raise ValueError("storage table handle closed")
+        if self._applied is not None:
+            if self._applied != decision:
+                raise ValueError("storage table decision changed")
+            return
         if decision.operation is not TableMutationKind.PATCH_DML:
             self._handle.discard_before()
             try:
@@ -81,12 +184,55 @@ class NativeStorageTableHandle:
                 if self._before_owner is not None:
                     self._before_owner.close()
                     self._before_owner = None
+        self._applied = decision
+
+    def render(self, decision: StorageTableDecision) -> Iterator[bytes]:
+        if self._closed or self._chunks is not None:
+            raise ValueError("storage table render already closed or started")
+        active = cast(StorageTableOperation, require_storage_operation(self._active))
+        self.apply_decision(decision)
+        # B's prepare reservation was reconciled to retained Rust bytes. A
+        # fresh phase claims the remaining bytes from that same M before any
+        # render allocation. It is never reconciled while the cursor can grow.
+        phase_limit = active.memory.available_bytes
+        reservation = active.memory.reserve(phase_limit)
+        output_limit = min(MAX_REPLAY_SQL_BYTES, phase_limit)
+        charge = _RenderCharge(reservation, active, output_limit)
+        # Rust reserves each exported chunk against this same phase before
+        # PyBytes is created; no fixed 200 MiB headroom is imposed on small SQL.
+        native_limit = phase_limit
+        render_operation: _NativeOperation | None = None
+        try:
+            render_operation = cast(_NativeOperation, _begin_storage_operation_native(
+                native_limit, charge, active.cancel_probe, active.deadline_monotonic,
+                active.threads, id(active.memory),
+            ))
+            native = self._handle.render(render_operation, decision.operation.value,
+                                         self._task.canonical_table, id(active.memory))
+            self._chunks = NativeStorageChunks(native, render_operation, active, charge)
+            return self._chunks
+        except MemoryError as exc:
+            if render_operation is not None:
+                render_operation.close()
+            else:
+                charge.close()
+            raise storage_memory_limit(str(exc)) from exc
+        except BaseException:
+            if render_operation is not None:
+                render_operation.close()
+            else:
+                charge.close()
+            raise
 
     def close(self) -> None:
         if not self._closed:
             self._closed = True
             try:
-                self._handle.close()
+                try:
+                    if self._chunks is not None:
+                        self._chunks.close()
+                finally:
+                    self._handle.close()
             finally:
                 try:
                     try:
@@ -190,7 +336,7 @@ def prepare_storage_table(
             before_owner.close()
             before_owner = None
         return NativeStorageTableHandle(handle, native_operation, task, before_owner, after_owner,
-                                        metadata_charge)
+                                        metadata_charge, active)
     except MemoryError as exc:
         if handle is not None:
             handle.close()

@@ -105,13 +105,15 @@ NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
         "_validate_records_batches_native",
     }),
     "gateway_backend.capabilities.mutation_planning.native": frozenset({
-        "_begin_storage_operation_native", "_prepare_storage_table_native",
+        "_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native",
     }),
     "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
     "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
         {"_sql_materialize_native", "_catalog_filter_native"}
     ),
-    "gateway_backend.capabilities.storage_projection.native": frozenset({"_canonical_project_native"}),
+    "gateway_backend.capabilities.storage_projection.native": frozenset({
+        "_canonical_project_native", "_render_storage_schema_native",
+    }),
     "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
         {"_canonical_comparison_profile_native", "_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
     ),

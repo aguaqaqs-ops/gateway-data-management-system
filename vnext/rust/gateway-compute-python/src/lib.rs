@@ -3,6 +3,7 @@
 mod business;
 mod comparison_records;
 mod storage_mutation;
+mod sql_replay;
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -1442,6 +1443,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
     comparison_records::register(module)?;
     storage_mutation::register(module)?;
+    sql_replay::register(module)?;
     module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;

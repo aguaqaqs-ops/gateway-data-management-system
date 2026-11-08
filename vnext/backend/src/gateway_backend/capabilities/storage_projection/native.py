@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from gateway_compute._native import _canonical_project_native
+from gateway_compute._native import _canonical_project_native, _render_storage_schema_native
 
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowMetadata,
     ArrowSnapshotTableReader,
     CanonicalInputOwner,
     KernelBudgets,
+    KernelExecutionContext,
     KernelMemoryLimit,
     KernelResult,
     call_arrow_kernel,
@@ -154,6 +155,29 @@ def require_storage_operation(value: object) -> object:
 
 def storage_memory_limit(message: str) -> KernelMemoryLimit:
     return KernelMemoryLimit(message)
+
+
+def render_storage_schema_native(payload: bytes, context: KernelExecutionContext,
+                                 max_bytes: int) -> bytes:
+    """Render schema through the one Rust SQL encoder under the caller's M."""
+    active = require_active_kernel_context(context)
+    # Retain the returned bytes until the operation ends. Conversion scratch
+    # is distinct from the caller-owned import metadata.
+    input_charge = active.memory.reserve(len(payload) * 32 + 4096)
+    output_charge = active.memory.reserve(max_bytes * 8 + len(payload) * 64)
+    try:
+        result: bytes = _render_storage_schema_native(
+            payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+            active.threads,
+        )
+        output_charge.shrink_to(len(result))
+        active.resources.callback(output_charge.close)
+        return result
+    except BaseException:
+        output_charge.close()
+        raise
+    finally:
+        input_charge.close()
 
 
 def build_projection_plan(

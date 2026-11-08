@@ -3048,3 +3048,13 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 设计协调者转报Owner已授权其改为主协调、按任务组织新实施代理，原唯一实施者先安全交接进程/锁/HEAD/dirty/续跑包再结束；不得杀在途。**本审核维持原独立审核职责和本报告归属，后续材料与结论统一回主协调，不再触发旧实施会话。** 当前已审场景/证据和§143修复验证全部保留，不重开历史审核，不清worktree/缓存/镜像/卷或修改冻结产品。新任务ID及具体审核包由主协调投递；该流程切换不构成新的技术GO或变更原预算。
 
 已实际向主协调交清最近独核状态：§143 c81代码/必要05验证PASS，最后05 01:22:02精确owner释放且clean；§138 CT108最后00:12:27保卷down/解锁、DC63旅程及8handler/91span覆盖成立。这些是最后已核记录，**不是切换时实时进程/锁断言**，实时交接由协调者收原实施安全状态，不由审核者重复探测或替他人解锁。剩余V5b-only具体entry/RS及旧A段复用/有界收尾、§140 records语义与producer修订/来源索引、04两测试修复及最终H门禁/收尾材料仍待交。原Nov8 20:04:47.876Z SIGINT及20:34:47.876Z hard继续，不能随会话/代理切换重置；未宣称全部测量/收口/阶段exit完成。
+
+## 145. 新gate子任务058e两测试修复代码独审PASS，必要验证与最终门禁待交
+
+主协调报告旧实施已在安全交接后于01:35:14Z归档，并统一投递新gate子任务的候选。**`058e26da3c61266c5505f7202f7d7d57ba369070` 两项修正代码复核PASS，无新增代码Finding。** 父精确H780，仅两个既有测试文件+2/-10；已独立读完整immutable diff/父链，实施worktree `gdds-p6-gate-closeout-20261108` 此轮只读status为空，另建准确detached `/home/dev/gdds-p6-review-gate-058e26da`。未在CT201运行测试或修改产品/实施worktree。
+
+固定历史resume测试现直接传§100/101真实测量工具3fd，而不读取当前整仓库HEAD；source=e798、固定9704 product/tree、候选tree及准许工具差异的原断言全部保留，真实严格guard/白名单未变。它验证历史关系，不证明当前058可重新执行那次固定resume，也不把历史产品改动误记当前漂移。RS _base_env仅在复制的unit子进程环境移除ambient GATEWAY_DOCKER_BUILD_NETWORK，_run_build_script的extra_env仍在后面显式覆盖；原默认host与override断言都在，门禁自身network-none、build脚本/harness及全局环境未改。两行增量准确落实§137最终单一路径。
+
+必要05 focused与五Python包静态由gate子任务按主协调分工准备，可与本只读审并行，不新增代码GO；默认/override需在实际外层none条件下覆盖。当前尚未收到这些实际结果，不将代码PASS表为测试/权威门禁通过。058只改测试，没有新生产行为；阶段最终门禁仍须当前H真实闭包/镜像绑定，RS canonical输入包含其tests，本次新增网络单测变化因此必须重算build-input/source-tree及候选label，不能沿用H780的标签身份或失败runner作qualified carried来源。B/W按已澄清冻结流程最终绑定；CT108冻结9704对象与其他任务不受此测试修订影响。
+
+代码结论已实际回主协调，由其统一通知子任务；后续focused/静态、构建传输/身份及权威runner/收尾原件集中独审，不联系已归档旧实施，不重跑已关业务或扩大测试矩阵。

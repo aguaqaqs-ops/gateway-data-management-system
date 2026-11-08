@@ -549,7 +549,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R4 — submit creates a PENDING submission (no approval).
 // ---------------------------------------------------------------------------
-test("r4-submit", async ({ browser }, testInfo) => {
+test("r4-submit", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r4-submit");
   const submitter = identityFor(scope, "submitter");
@@ -585,7 +585,7 @@ test("r4-submit", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R5 — idempotent submit retry after the browser response is lost.
 // ---------------------------------------------------------------------------
-test("r5-idempotency", async ({ browser }, testInfo) => {
+test("r5-idempotency", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r5-idempotency");
   const submitter = identityFor(scope, "submitter");
@@ -756,7 +756,7 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R7 W3 — upload-only cannot withdraw; review facts return 403.
 // ---------------------------------------------------------------------------
-test("r7-upload-only", async ({ browser }, testInfo) => {
+test("r7-upload-only", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r7-upload-only");
   const uploadOnly = identityFor(scope, "submitter-upload-only");
@@ -858,7 +858,7 @@ test("r7-approved", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R7 W5 — a withdrawn dialog races the reviewer; one request, no auto-resend.
 // ---------------------------------------------------------------------------
-test("r7-stale", async ({ browser }, testInfo) => {
+test("r7-stale", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r7-stale");
   const submitter = identityFor(scope, "submitter");
@@ -1012,7 +1012,7 @@ test("r9-history", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R10 #1/#2 — upload without permission and review mode without permission.
 // ---------------------------------------------------------------------------
-test("r10-noperm", async ({ browser }, testInfo) => {
+test("r10-noperm", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r10-noperm");
   const submitter = identityFor(scope, "submitter");
@@ -1061,7 +1061,7 @@ test("r10-noperm", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R10 #2' — identity with upload but without preview: starting preview is 403.
 // ---------------------------------------------------------------------------
-test("r10-no-preview", async ({ browser }, testInfo) => {
+test("r10-no-preview", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r10-no-preview");
   const noPreview = identityFor(scope, "submitter-no-preview");
@@ -1094,7 +1094,7 @@ test("r10-no-preview", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R10 #3 — no-permission archive-mainline candidate query (approved submission).
 // ---------------------------------------------------------------------------
-test("r10-archive", async ({ browser }, testInfo) => {
+test("r10-archive", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r10-archive");
   const submitter = identityFor(scope, "submitter");
@@ -1204,7 +1204,7 @@ test("r11-review-conflict", async ({ browser }, testInfo) => {
 // ---------------------------------------------------------------------------
 // R11 — workspace-version conflict: another preview invalidates the dialog.
 // ---------------------------------------------------------------------------
-test("r11-workspace-conflict", async ({ browser }, testInfo) => {
+test("r11-workspace-conflict", async ({ browser }) => {
   requireJourneyEnv();
   const scope = scopeBySlug("r11-workspace-conflict");
   const submitter = identityFor(scope, "submitter");

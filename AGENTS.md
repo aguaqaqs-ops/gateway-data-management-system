@@ -50,7 +50,7 @@
 - **backend/worker（自 `p6-backend-image-exit` 起）：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。旧产品流程见链接中的历史版本说明。
 - **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
 - handoff 记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
-- **DC68 取证操作错误：**尚未触及被测对象、无副作用的自身命令/脚本/参数错误或 DC66 第 5 项工具缺陷，保留失败日志及 SHA256，修正后从该步骤开头重做一次，记录原因、修正与结果。重做再次失败、被测对象已运行后的失败、缓存缺失或身份不符均停止交 owner。
+- **DC68 工具/取证错误（Owner 2026-11-08 修订）：**首次失败后，同一具体故障允许最多三轮自行修复、适用独审与受影响步骤复验；不因被测对象已经运行就立即交 owner。每轮先停止该次执行、保留原始失败及日志/SHA、确认收尾，再固定修订稿复验；三轮仍未解决、原因/副作用不明或超出既有授权时交 owner。不得无修改自动重试、改预期掩盖结果或跳过身份/缓存前提；产品 finding 按阶段已有修复与停止规则办理。只读后处理/预检、代码传输准备的不计次数澄清继续适用。细则见 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则与 [Owner 决议](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md)。
 
 权威入口的运行前提（不满足时结果不能作为门禁证据）：
 

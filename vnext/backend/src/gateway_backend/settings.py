@@ -17,7 +17,8 @@ from gateway_backend.application.workspace.upload_limits import (
 _MIB = 1024 * 1024
 WORKER_MEMORY_ENVELOPE_BYTES = 32 * 1024**3
 WORKER_MEMORY_RESERVE_BYTES = 8 * 1024**3
-WORKER_MAX_KERNEL_MEMORY_BYTES = 24 * 1024**3
+WORKER_MAX_MEMORY_ENVELOPE_BYTES = 48 * 1024**3
+WORKER_MAX_KERNEL_MEMORY_BYTES = 40 * 1024**3
 
 FIXED_HTTP_NEW_WORK_LIMIT = 32
 FIXED_CLEANUP_UNPINNED_TTL_SECONDS = 86_400
@@ -148,8 +149,7 @@ class OperationWorkerSettings(BaseSettings):
     """Settings owned exclusively by the process-local operation worker.
 
     The worker is intentionally configured independently from ``BackendSettings``.  Its
-    budgets are part of the R3 lifecycle contract, so they are exposed for diagnostics and
-    dependency injection but cannot be changed through environment configuration.
+    memory budget is required and bounded by the worker envelope and fixed reserve.
     """
 
     model_config = SettingsConfigDict(
@@ -175,7 +175,9 @@ class OperationWorkerSettings(BaseSettings):
     claim_limit: int = 1
     kernel_threads: int = Field(default=1, ge=1, le=256)
     kernel_memory_budget_bytes: int = Field(ge=1, le=WORKER_MAX_KERNEL_MEMORY_BYTES)
-    memory_envelope_bytes: int = WORKER_MEMORY_ENVELOPE_BYTES
+    memory_envelope_bytes: int = Field(
+        default=WORKER_MEMORY_ENVELOPE_BYTES, ge=1, le=WORKER_MAX_MEMORY_ENVELOPE_BYTES,
+    )
     memory_reserve_bytes: int = WORKER_MEMORY_RESERVE_BYTES
 
     @field_validator("kernel_threads", "kernel_memory_budget_bytes", "memory_envelope_bytes", "memory_reserve_bytes", mode="before")
@@ -218,7 +220,6 @@ class OperationWorkerSettings(BaseSettings):
             self,
             {
                 **_WORKER_FIXED_BUDGETS,
-                "memory_envelope_bytes": WORKER_MEMORY_ENVELOPE_BYTES,
                 "memory_reserve_bytes": WORKER_MEMORY_RESERVE_BYTES,
                 "repository_timeout_seconds": FIXED_REPOSITORY_TIMEOUT_SECONDS,
             },

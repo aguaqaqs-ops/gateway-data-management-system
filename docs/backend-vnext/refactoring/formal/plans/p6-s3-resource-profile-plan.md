@@ -1,6 +1,6 @@
 # P6 S3 容量补测资源档：最小配置与执行候选
 
-2026-11-08；**待原 E 独审的小范围方案，不是已实施/已通过的资源档**。本稿只处理 S3 完整 W3/W4 Preview 测量的 worker 资源配置和证据。产品改动、节点测试、容器构建及正式样本均尚未执行。依据 [DC95](p6-s0-owner-decisions.md#dc95-s3补测worker资源上调授权owner2026-11-08)、[S3 容量停止报告](p6-s3-e-capacity-stop.md)、[E 终审 §61–64](p6-s3-e-review.md)、[并行边界](p6-s3-s4-parallel-plan.md)及 [S4 kickoff §3](p6-s4-kickoff.md#3-路径所有权与三线协调)。
+2026-11-08；原 E 已给本小稿 `DESIGN_CLEAR_FOR_IMPLEMENTATION`。限定资源支持已形成代码候选；节点测试、容器构建及正式样本仍待独审和执行，本稿不是资源档验收结果。本稿只处理 S3 完整 W3/W4 Preview 测量的 worker 资源配置和证据。依据 [DC95](p6-s0-owner-decisions.md#dc95-s3补测worker资源上调授权owner2026-11-08)、[S3 容量停止报告](p6-s3-e-capacity-stop.md)、[E 终审 §61–64](p6-s3-e-review.md)、[并行边界](p6-s3-s4-parallel-plan.md)及 [S4 kickoff §3](p6-s4-kickoff.md#3-路径所有权与三线协调)。
 
 ## 1. 已知预算、证据和条件
 
@@ -44,7 +44,7 @@ CT108 guest `MemTotal=67,108,864 kB`（64 GiB）。本稿只读现场的 `MemAva
 
 ## 4. 验证与首轮执行停止线
 
-本稿阶段 **不运行**。代码独审通过后，先在专用空闲节点按 DC91 marker/离线工具链规则做 settings focused、Compose 默认/48/8/M40 展开核对、五 Python 包 Ruff/mypy；固定提交、clean detached worktree、原 E 复审，再用当前 HEAD 重建适用 backend/worker 镜像并跑受影响 backend 权威包及其 Compose。若某依赖/镜像输入变化，先按 DC67 补齐实际节点缓存；不在 CT201 跑测试。按包闭包与镜像等价分别依据当前来源和实际变更判定，不预写 carried。
+代码候选阶段 **尚未运行**。代码独审通过后，先在专用空闲节点按 DC91 marker/离线工具链规则做 settings focused、Compose 默认/48/8/M40 展开核对、五 Python 包 Ruff/mypy；固定提交、clean detached worktree、原 E 复审，再用当前 HEAD 重建适用 backend/worker 镜像并跑受影响 backend 权威包及其 Compose。默认 focused/权威 runner 清除宿主的两个 worker 资源环境变量；显式 48/8/M40 仅用于单独 Compose 展开和新档真实 W3 warm，避免污染默认 32/8/M24 断言。若某依赖/镜像输入变化，先按 DC67 补齐实际节点缓存；不在 CT201 跑测试。按包闭包与镜像等价分别依据当前来源和实际变更判定，不预写 carried。
 
 首轮只固定 **W3 MODIFIED_ONLY warm**。命令骨架由独审后的外置 controller 在合格节点发起，node driver 保原子 marker，外层不重复取：
 

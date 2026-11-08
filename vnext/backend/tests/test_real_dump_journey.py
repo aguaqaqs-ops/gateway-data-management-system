@@ -59,6 +59,9 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
 from gateway_backend.infrastructure.control_db.database import (
     connect_control_db,
     initialize_control_db,
@@ -1424,6 +1427,60 @@ def test_s3_census_baseline_excludes_skipped_and_already_included_composite() ->
         "catalog_table_count": 1,
         "catalog_row_count_total": 7,
     }
+
+
+def test_s3_larger_resource_guard_does_not_change_the_default_budget(tmp_path: Path) -> None:
+    census = tmp_path / "accepted.json"
+    for budget, expected in ((24 * 1024**3, False), (40 * 1024**3, True)):
+        context = KernelExecutionContext(OperationMemoryBudget(budget), NeverCancel(), 1)
+        with kernel_execution_scope(context, new_operation=True):
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=census, scope="t4-identity",
+            ) is expected
+            assert not real_dump_journey._s3_large_resource_guard_required(
+                s3_census=None, scope="t4-identity",
+            )
+
+
+@pytest.mark.parametrize(
+    ("available_bytes", "backend_oom", "worker_hard_bytes", "expected"),
+    (
+        (56 * 1024**3, 0, 48 * 1024**3, "PASS"),
+        (56 * 1024**3 - 1, 0, 48 * 1024**3, "FAILED"),
+        (56 * 1024**3, 1, 48 * 1024**3, "FAILED"),
+        (56 * 1024**3, 0, 32 * 1024**3, "FAILED"),
+    ),
+)
+def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    available_bytes: int, backend_oom: int, worker_hard_bytes: int, expected: str,
+) -> None:
+    services: dict[str, dict[str, Any]] = {}
+    for service in ("backend", "worker", "repository-service"):
+        services[service] = {
+            "container_id": service, "restart_count": 0,
+            "memory_max": str(worker_hard_bytes) if service == "worker" else "max",
+            "memory_events": {"oom": backend_oom if service == "backend" else 0,
+                              "oom_kill": 0, "oom_group_kill": 0},
+            "host_config_memory_bytes": worker_hard_bytes if service == "worker" else 0,
+            "resource_env": {
+                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(40 * 1024**3),
+                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(48 * 1024**3),
+                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+            } if service == "worker" else {},
+        }
+    monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
+                        lambda _env: {"mem_available_bytes": available_bytes, "services": services})
+    if expected == "FAILED":
+        with pytest.raises(JourneyFailure, match="before first business observation"):
+            real_dump_journey._check_s3_ready_resource_guard({})
+    else:
+        real_dump_journey._check_s3_ready_resource_guard({})
+    event = json.loads(capsys.readouterr().out)
+    assert event["event"] == "s3_resource_start_guard"
+    assert event["status"] == expected
+    assert event["mem_available_bytes"] == available_bytes
 
 
 @pytest.mark.parametrize(

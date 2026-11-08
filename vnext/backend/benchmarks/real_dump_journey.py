@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+    KernelExecutionContext, OperationMemoryBudget, current_kernel_context,
+    kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_access import NeverCancel
 from gateway_backend.capabilities.table_rules.registry import DEFAULT_SKIPPED_TABLE_NAMES
@@ -1289,6 +1290,142 @@ def _emit_progress(stage: str, event: str, **details: Any) -> None:
         ),
         flush=True,
     )
+
+
+_S3_LARGE_WORKER_ENVELOPE_BYTES = 48 * 1024**3
+_S3_LARGE_OPERATION_BUDGET_BYTES = 40 * 1024**3
+_S3_READY_MEM_AVAILABLE_BYTES = 56 * 1024**3
+
+
+def _s3_large_resource_guard_required(*, s3_census: Path | None, scope: str) -> bool:
+    context = current_kernel_context()
+    return (
+        s3_census is not None
+        and scope == "t4-identity"
+        and context is not None
+        and context.memory.limit_bytes == _S3_LARGE_OPERATION_BUDGET_BYTES
+    )
+
+
+def _s3_ready_resource_snapshot(env: Mapping[str, str]) -> dict[str, Any]:
+    try:
+        meminfo = Path("/proc/meminfo").read_text(encoding="ascii")
+    except OSError as exc:
+        raise JourneyFailure("could not read host available memory") from exc
+    available = re.findall(r"^MemAvailable:\s+(\d+) kB$", meminfo, re.MULTILINE)
+    if len(available) != 1:
+        raise JourneyFailure("host available memory is unavailable")
+    services: dict[str, dict[str, Any]] = {}
+    cgroup_root = Path("/sys/fs/cgroup").resolve()
+    for service in ("backend", "worker", "repository-service"):
+        try:
+            listed = run_compose(dict(env), "ps", "-q", service)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise JourneyFailure("S3 resource guard could not list service containers") from exc
+        ids = listed.stdout.strip().splitlines()
+        if listed.returncode != 0 or len(ids) != 1:
+            raise JourneyFailure("S3 resource guard could not resolve one service container")
+        try:
+            inspected = subprocess.run(
+                ["docker", "inspect", ids[0]], check=False, capture_output=True,
+                text=True, timeout=30.0,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise JourneyFailure("S3 resource guard could not inspect a service container") from exc
+        if inspected.returncode != 0:
+            raise JourneyFailure("S3 resource guard could not inspect a service container")
+        try:
+            payload = json.loads(inspected.stdout)
+            container = payload[0]
+            labels = container["Config"]["Labels"]
+            if (
+                len(payload) != 1
+                or labels["com.docker.compose.project"] != env["COMPOSE_PROJECT_NAME"]
+                or labels["com.docker.compose.service"] != service
+                or container["State"]["Running"] is not True
+            ):
+                raise ValueError("service container identity mismatch")
+            pid = container["State"]["Pid"]
+            restart_count = container["RestartCount"]
+            if type(pid) is not int or pid <= 0 or type(restart_count) is not int:
+                raise ValueError("service process identity is invalid")
+            cgroup_lines = (
+                (Path("/proc") / str(pid) / "cgroup").read_text(encoding="ascii").splitlines()
+            )
+            unified = [line.partition("::")[2] for line in cgroup_lines if line.startswith("0::")]
+            if len(unified) != 1 or not unified[0]:
+                raise ValueError("service cgroup identity is invalid")
+            directory = (cgroup_root / unified[0].lstrip("/")).resolve()
+            if not directory.is_relative_to(cgroup_root):
+                raise ValueError("service cgroup escaped host root")
+            memory_max = (directory / "memory.max").read_text(encoding="ascii").strip()
+            events: dict[str, int] = {}
+            for line in (directory / "memory.events").read_text(encoding="ascii").splitlines():
+                key, value = line.split()
+                if key in events or not value.isdecimal():
+                    raise ValueError("service memory.events is invalid")
+                events[key] = int(value)
+            if not {"oom", "oom_kill", "oom_group_kill"} <= events.keys():
+                raise ValueError("service memory.events lacks OOM counters")
+            resource_env = (
+                {
+                    key: value
+                    for entry in container["Config"]["Env"]
+                    for key, _, value in (entry.partition("="),)
+                    if key in {
+                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES",
+                    }
+                }
+                if service == "worker" else {}
+            )
+            services[service] = {
+                "container_id": ids[0], "restart_count": restart_count,
+                "memory_max": memory_max, "memory_events": events,
+                "host_config_memory_bytes": container["HostConfig"]["Memory"],
+                "resource_env": resource_env,
+            }
+        except (IndexError, KeyError, TypeError, ValueError, OSError) as exc:
+            raise JourneyFailure("S3 resource guard could not validate a service cgroup") from exc
+    return {"mem_available_bytes": int(available[0]) * 1024, "services": services}
+
+
+def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
+    snapshot = _s3_ready_resource_snapshot(env)
+    services = cast(dict[str, dict[str, Any]], snapshot["services"])
+    worker = services["worker"]
+    expected_env = {
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(
+            _S3_LARGE_OPERATION_BUDGET_BYTES
+        ),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(
+            _S3_LARGE_WORKER_ENVELOPE_BYTES
+        ),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+    }
+    admitted = (
+        snapshot["mem_available_bytes"] >= _S3_READY_MEM_AVAILABLE_BYTES
+        and worker["memory_max"] == str(_S3_LARGE_WORKER_ENVELOPE_BYTES)
+        and worker["host_config_memory_bytes"] == _S3_LARGE_WORKER_ENVELOPE_BYTES
+        and worker["resource_env"] == expected_env
+        and all(
+            item["restart_count"] == 0
+            and all(
+                item["memory_events"][name] == 0
+                for name in ("oom", "oom_kill", "oom_group_kill")
+            )
+            for item in services.values()
+        )
+    )
+    _emit_progress(
+        "S3 worker resource guard", "s3_resource_start_guard",
+        status="PASS" if admitted else "FAILED", **snapshot,
+    )
+    if not admitted:
+        raise JourneyFailure("S3 worker resource guard failed before first business observation")
 
 
 def _parse_cpu_stat(payload: str) -> dict[str, int]:
@@ -4009,6 +4146,10 @@ def run_journey(
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
+                        if from_step is None and _s3_large_resource_guard_required(
+                            s3_census=s3_census, scope=scope,
+                        ):
+                            _check_s3_ready_resource_guard(env)
                         with WorkerHeartbeatMonitor(
                             env=env,
                             repository_id=repository_id,

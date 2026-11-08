@@ -227,14 +227,14 @@ def test_cancel_inside_pair_pipeline_leaves_operation_cancelled(
     operation_id = "op-assemble-cancel-pair-pipeline"
     _run_materialize(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
-    original = getattr(pair_pipeline, "publish_records_closure")
+    original = pair_pipeline.publish_records_closure_arrow
 
     def publish_records_then_cancel(*args: Any, **kwargs: Any) -> Any:
         result = original(*args, **kwargs)
         control.request_cancel()
         return result
 
-    monkeypatch.setattr(pair_pipeline, "publish_records_closure", publish_records_then_cancel)
+    monkeypatch.setattr(pair_pipeline, "publish_records_closure_arrow", publish_records_then_cancel)
     acknowledgment = run_claimed_handler(
         harness,
         PREVIEW_ASSEMBLE_HANDLER,

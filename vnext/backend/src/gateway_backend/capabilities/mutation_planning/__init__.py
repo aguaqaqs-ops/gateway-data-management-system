@@ -6,16 +6,11 @@ from gateway_backend.capabilities.mutation_planning._artifacts import (
     validate_published_change_set_closure,
 )
 from gateway_backend.capabilities.mutation_planning._planner import plan_storage_mutation
+from gateway_backend.capabilities.mutation_planning.native import prepare_storage_table
+from gateway_backend.capabilities.mutation_planning.storage import choose_table_mutation
 from gateway_backend.capabilities.mutation_planning._digest import (
     key_bytes_for_ordering,
     row_digest_from_image,
-)
-from gateway_backend.capabilities.mutation_planning.import_replay import (
-    ImportReplayError,
-    build_import_mutation_snapshots,
-    plan_import_mutation,
-    render_import_mutation_dml,
-    render_planned_import_mutation_dml,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
     CANONICAL_ENCODING_VERSION,
@@ -46,6 +41,10 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPlanningResult,
     MutationPlanStatus,
     MutationPolicy,
+    StorageTableSideV1,
+    StorageTableTaskV1,
+    StorageTableSummary,
+    StorageTableDecision,
     MutationProjectionBinding,
     MutationRepositoryBase,
     MutationSourceIdentity,
@@ -101,6 +100,12 @@ __all__ = [
     "MutationPlanningResult",
     "MutationPlanStatus",
     "MutationPolicy",
+    "StorageTableSideV1",
+    "StorageTableTaskV1",
+    "StorageTableSummary",
+    "StorageTableDecision",
+    "choose_table_mutation",
+    "prepare_storage_table",
     "MutationProjectionBinding",
     "MutationRepositoryBase",
     "MutationSourceIdentity",
@@ -122,14 +127,9 @@ __all__ = [
     "compute_change_set_digest",
     "compute_mutation_plan_identity_digest",
     "mutation_plan_identity_payload",
-    "ImportReplayError",
-    "build_import_mutation_snapshots",
     "key_bytes_for_ordering",
-    "plan_import_mutation",
     "row_digest_from_image",
-    "render_planned_import_mutation_dml",
     "plan_storage_mutation",
-    "render_import_mutation_dml",
     "publish_change_set_closure",
     "validate_canonical_cell_value",
     "validate_change_set_ordering",

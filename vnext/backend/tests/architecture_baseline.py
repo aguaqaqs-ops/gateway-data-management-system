@@ -25,8 +25,5 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",
-        # P6 S4 D will remove the remaining table-policy exemption when it
-        # connects Submit. C's generic renderer already consumes native.py.
-        "gateway_backend.capabilities.mutation_planning.storage",
     }
 )

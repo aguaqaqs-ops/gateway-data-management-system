@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.support.native_projection import project_storage, build_import_projection_snapshots, project_canonical_fixture
+from tests.support.native_projection import project_storage, project_canonical_fixture
 
 from dataclasses import replace
 
@@ -17,6 +17,7 @@ from gateway_backend.application.submission.contracts import (
     SnapshotTableBinding,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    ArtifactSourceBinding,
     MaterializationStage,
     MaterializationPolicy,
     ROW_MATERIALIZATION_PROFILE,
@@ -35,7 +36,7 @@ from gateway_backend.application.submission.import_builder import (
     resolve_canonical_snapshot_bindings,
     reuse_prepare_import_checkpoint,
 )
-from gateway_backend.application.submission.errors import PrepareCheckpointPayloadBindingError
+from gateway_backend.application.submission.errors import PrepareCheckpointPayloadBindingError, SubmitImportPublicationError
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     NeverCancel,
@@ -48,14 +49,8 @@ from gateway_backend.capabilities.storage_projection import (
     durable_manifest_bytes,
     open_canonicalization_manifest,
     project_canonical_arrow_table_set,
-    publish_canonicalization,
-    render_repository_import_schema_replay_sql,
 )
-from gateway_backend.capabilities.mutation_planning import (
-    build_import_mutation_snapshots,
-    render_import_mutation_dml,
-)
-from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot, open_snapshot_table_artifact
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.storage_projection.package import (
@@ -73,7 +68,6 @@ from gateway_backend.capabilities.table_rules.registry import migrated_table_rul
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
 from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
-    _open_projection_inputs,
 )
 from tests.support.snapshot_materialization import materialize_arrow_sql as materialize_sql, snapshot_table_as_arrow
 from tests.support.storage_projection import (
@@ -102,6 +96,32 @@ _NET_CFG_ROWS = (
     as_row(varchar_cell("eth1"), int_cell(2), int_cell(20)),
 )
 _SNAPSHOT_DIGEST = dummy_digest().value
+
+
+def _open_projection_inputs(
+    bindings: tuple[SnapshotTableBinding, ...], *, store: InMemoryArtifactStore,
+    repository_id: str,
+) -> tuple[ProjectionTableInput, ...]:
+    """Test setup for projecting already published canonical artifacts."""
+    inputs: list[ProjectionTableInput] = []
+    for binding in bindings:
+        ref = ArtifactRef(binding.artifact_id, binding.media_type, binding.size_bytes,
+                          DigestRef(binding.raw_sha256))
+        table = open_snapshot_table_artifact(store, ref, repository_id=repository_id,
+                                             canonical_required=True)
+        assert table.reader is not None and table.artifact is not None
+        reader = table.reader.reopen()
+        table.reader.close()
+        if table.batch_reader is not None:
+            table.batch_reader.close()
+        inputs.append(ProjectionTableInput(
+            canonical_table=binding.table_name, reader=reader,
+            source_binding=ArtifactSourceBinding(
+                snapshot_digest=table.artifact.manifest.snapshot_digest,
+                descriptor=table.descriptor, repository_id=repository_id,
+            ), artifact=table.artifact, canonicalized_input=True,
+        ))
+    return tuple(inputs)
 
 
 def _project_inputs(inputs: tuple[ProjectionTableInput, ...]) -> ProjectionResult:
@@ -696,65 +716,9 @@ def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_chang
     assert frozen_manifest.ruleset_digest == ruleset_a.ruleset_digest
     assert frozen_manifest.manifest_digest is not None
 
-    # Byte-for-byte reference for the pre-fix Submit implementation: reproject the same
-    # T1 artifacts under ruleset A, then render using T1's frozen manifest.
-    old_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store, repository_id=build_input.repository_id)
-    old_request = ProjectionRequest(
-        ruleset=ruleset_a,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        tables=old_inputs,
-        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-    )
-    old_projection = project_storage(old_request)
-    assert old_projection.status is ProjectionStatus.COMPLETE
-    assert old_projection.manifest is not None
-    assert old_projection.import_input is not None
-    assert old_projection.manifest.source_artifact_digest.value == build_input.source_artifact_digest
-
-    replay_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store, repository_id=build_input.repository_id)
-    replay_request = ProjectionRequest(
-        ruleset=ruleset_a,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        tables=replay_inputs,
-        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-    )
-    try:
-        projection_snapshots = build_import_projection_snapshots(replay_request, old_projection)
-    finally:
-        for item in replay_inputs:
-            item.reader.close()
-    after_tables = build_import_mutation_snapshots(projection_snapshots)
-    assert frozen_manifest.manifest_digest is not None
-    old_projection = replace(
-        old_projection,
-        manifest=frozen_manifest,
-        import_input=replace(
-            old_projection.import_input,
-            canonicalization_manifest_digest=frozen_manifest.manifest_digest,
-        ),
-    )
-    assert old_projection.import_input is not None
-    old_schema_sql = render_repository_import_schema_replay_sql(
-        old_projection.import_input,
-        removed_tables=build_input.removed_tables,
-        context=operation_kernel_context,
-    )
-    old_dml = render_import_mutation_dml(
-        old_projection,
-        after_tables,
-        repository_base_digest=DigestRef(build_input.repository_base_digest),
-        removed_tables=build_input.removed_tables,
-        context=operation_kernel_context,
-    )
-    old_publication = publish_canonicalization(
-        old_projection,
-        store=store,
-        replay_sql=old_schema_sql + old_dml,
-        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-    )
-    assert old_publication.status is ProjectionStatus.COMPLETE
-    assert old_publication.publication is not None
-    old_package = store.locate(old_publication.publication.package_ref)
+    adapter = SubmitImportPublicationAdapter()
+    first = adapter.build_and_publish(build_input=build_input, store=store)
+    frozen_package = adapter.read_back_package(checkpoint=first.checkpoint, store=store)
 
     ruleset_b_document = table_ruleset_document(ruleset_a)
     rules = ruleset_b_document["rules"]
@@ -791,8 +755,8 @@ def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_chang
     published = adapter.build_and_publish(build_input=build_input, store=store)
     new_package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     assert runtime_ruleset_reads == 0
-    assert raw_blob_digest(new_package) == raw_blob_digest(old_package)
-    assert _replay_sql_from_package(new_package).encode("utf-8") == old_schema_sql + old_dml
+    assert raw_blob_digest(new_package) == raw_blob_digest(frozen_package)
+    assert _replay_sql_from_package(new_package) == _replay_sql_from_package(frozen_package)
 
 
 def test_rebuild_always_publish_is_deterministic_for_same_inputs() -> None:
@@ -834,6 +798,29 @@ def test_rebuild_replay_includes_ddl_and_inserts() -> None:
     assert "CREATE TABLE `net_cfg`" in replay_sql
     assert "INSERT INTO `net_cfg`" in replay_sql
     assert "VALUES ('eth0', 1)" in replay_sql
+
+
+def test_submit_places_every_rebuilt_schema_before_table_rows() -> None:
+    store = InMemoryArtifactStore()
+    second_reader, second_binding = table_input(
+        "a_widget", columns=(int_column("id"), varchar_column("value")),
+        primary_key_columns=("id",),
+        rows=(as_row(int_cell(1), varchar_cell("first")),),
+    )
+    raw_inputs = _projection_inputs() + (
+        ProjectionTableInput(
+            canonical_table="a_widget", reader=second_reader,
+            source_binding=second_binding,
+        ),
+    )
+    build_input = _frozen_build_input(store, raw_inputs)
+    adapter = SubmitImportPublicationAdapter()
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
+    assert sql.index("DROP TABLE IF EXISTS `a_widget`") < sql.index("CREATE TABLE `a_widget`")
+    assert sql.index("CREATE TABLE `a_widget`") < sql.index("DROP TABLE IF EXISTS `net_cfg`")
+    assert sql.index("CREATE TABLE `net_cfg`") < sql.index("INSERT INTO `a_widget`")
+    assert sql.index("INSERT INTO `a_widget`") < sql.index("INSERT INTO `net_cfg`")
 
 
 def test_ordered_blank_gid_replay_matches_projection() -> None:
@@ -1056,36 +1043,24 @@ def test_repository_base_digest_may_differ_from_source_artifact_digest() -> None
     assert published.checkpoint.canonicalization_manifest_digest
 
 
-def test_repository_base_digest_reaches_mutation_planner(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.capabilities.mutation_planning._planner import plan_storage_mutation as real_plan
-    from gateway_backend.capabilities.mutation_planning.contracts import MutationPlanningRequest
-
-    captured: list[MutationPlanningRequest] = []
-
-    def _capture(request: MutationPlanningRequest) -> object:
-        captured.append(request)
-        return real_plan(request)
-
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning.import_replay.plan_storage_mutation",
-        _capture,
-    )
-    adapter = SubmitImportPublicationAdapter()
+@pytest.mark.parametrize("fault", ("missing", "digest_mismatch", "content_mismatch"))
+def test_prepare_rejects_invalid_frozen_parent_manifest(fault: str) -> None:
     store = InMemoryArtifactStore()
-    base_digest = digest_ref("cc")
+    initial = _build_input(store=store)
+    parent = open_canonicalization_manifest(store, initial.canonicalization_manifest_ref)
+    assert parent.manifest_digest is not None
+    if fault == "missing":
+        parent_value = None
+    elif fault == "digest_mismatch":
+        parent_value = replace(parent, manifest_digest=digest_ref("bb"))
+    else:
+        parent_value = replace(parent, source_artifact_digest=digest_ref("bb"))
     build_input = replace(
-        _build_input(store=store),
-        repository_base_digest=base_digest.value,
+        initial, parent_is_initial=False, parent_manifest=parent_value,
+        parent_manifest_digest=parent.manifest_digest.value,
     )
-    source_digest = dummy_digest()
-    adapter.build_and_publish(
-        build_input=build_input,
-        store=store,
-    )
-    assert captured
-    request = captured[0]
-    assert request.planning_input.repository_base.base_repository_ref_digest == base_digest
-    assert request.planning_input.source_identity.source_identity_digest == source_digest
+    with pytest.raises(SubmitImportPublicationError, match="parent manifest"):
+        SubmitImportPublicationAdapter().build_and_publish(build_input=build_input, store=store)
 
 
 def test_reuse_rejects_mismatched_semantic_manifest_digest() -> None:

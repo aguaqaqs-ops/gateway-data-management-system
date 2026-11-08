@@ -17,6 +17,7 @@ import pytest
 from gateway_backend.application.canonical_metadata.table_access import CanonicalCommittedTableAccess
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import CanonicalTableStore, canonical_table_key
+from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryProviderError, SnapshotTableDescriptor, CanonicalTableIdentity
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_rules import resolve_table_rule
@@ -248,6 +249,11 @@ def test_returned_committed_reader_cleanup_releases_mapping_after_stop(db_path: 
         )
         table = access.load_table(commit_id=COMMIT, descriptor=bound, identity=_identity(bound), storage_view=_view(bound),
             context=ParserInvocationContext(NeverCancel()), timeout_policy=None)
+        assert isinstance(table.reader, ArrowSnapshotTableReader)
+        assert table.reader.canonical_committed_read_verified
+        isolated = table.reader.reopen()
+        assert isolated.canonical_committed_read_verified
+        isolated.close()
         assert context.memory._mappings
         stop.set()
         assert table.reader is not None and table.batch_reader is not None

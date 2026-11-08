@@ -62,6 +62,7 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         self._arrow_source = source
         self._canonical_comparison_verified = canonical_comparison_verified
         self._canonical_artifact_read_verified = False
+        self._canonical_committed_read_verified = False
 
     @property
     def canonical_comparison_verified(self) -> bool:
@@ -80,6 +81,15 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         """Only a successful canonical IPC artifact reader calls this."""
         self._require_open()
         self._canonical_artifact_read_verified = True
+
+    @property
+    def canonical_committed_read_verified(self) -> bool:
+        return self._canonical_committed_read_verified
+
+    def mark_canonical_committed_read_verified(self) -> None:
+        """Only exact-commit committed canonical access calls this after verification."""
+        self._require_open()
+        self._canonical_committed_read_verified = True
 
     @property
     def execution_context(self) -> KernelExecutionContext:
@@ -111,6 +121,7 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
             canonical_comparison_verified=self._canonical_comparison_verified,
         )
         reopened._canonical_artifact_read_verified = self._canonical_artifact_read_verified
+        reopened._canonical_committed_read_verified = self._canonical_committed_read_verified
         return reopened
 
 

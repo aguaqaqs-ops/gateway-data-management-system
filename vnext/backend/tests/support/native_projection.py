@@ -14,7 +14,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_CONTRACT, PACKAGE_VERSION, STORAGE_PROJECTION_VERSION,
-    CanonicalizationManifest, CanonicalizationManifestTable, ImportReplayTableSnapshot, CanonicalProjectionResult,
+    CanonicalizationManifest, CanonicalizationManifestTable, CanonicalProjectionResult,
     ProjectionDiagnostic, ProjectionDiagnosticCode, ProjectionDiagnosticSeverity,
     ProjectionRequest, ProjectionResult, ProjectionStatus, ProjectionTable,
     RepositoryImportArtifactInput, RepositoryImportColumn, RepositoryImportTable,
@@ -110,27 +110,6 @@ def project_storage(request: ProjectionRequest) -> ProjectionResult:
         if table.batch_reader is not None:
             table.batch_reader.close()
     return result
-
-
-def build_import_projection_snapshots(request: ProjectionRequest, result: ProjectionResult) -> tuple[ImportReplayTableSnapshot, ...]:
-    """Build typed images through the actual Submit consumer after Rust projection."""
-    from gateway_backend.infrastructure.repository_write.import_publication import _keyed_rows_from_frozen_artifact
-    _, tables = projected_fixture_tables(request)
-    assert result.manifest is not None
-    manifests = {t.name: t for t in result.manifest.tables}
-    views = {t.canonical_table: t.storage_view for t in result.tables}
-    snapshots = []
-    for table in tables:
-        assert table.reader is not None
-        manifest = manifests[table.descriptor.table_name]
-        try:
-            rows = _keyed_rows_from_frozen_artifact(table.reader, descriptor=table.descriptor, manifest_table=manifest)
-            snapshots.append(ImportReplayTableSnapshot(manifest, views[manifest.name], rows))
-        finally:
-            table.reader.close()
-            if table.batch_reader is not None:
-                table.batch_reader.close()
-    return tuple(snapshots)
 
 
 def project_canonical_fixture(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot) -> CanonicalProjectionResult:

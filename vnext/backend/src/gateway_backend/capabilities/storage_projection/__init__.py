@@ -62,10 +62,11 @@ from gateway_backend.capabilities.storage_projection.publish import (
     publish_canonicalization_manifest,
 )
 
-from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
+from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
 
 __all__ = [
     "compute_schema_digest",
+    "compute_manifest_digest",
     "project_canonical_arrow_table_set",
     "project_arrow_table",
     "StorageInputLease",

@@ -86,11 +86,12 @@ def open_storage_input(
         raise ValueError("storage input requires a canonical Arrow table reader")
     reader = table.reader
     active.require_same_operation(reader.execution_context)
-    if table.artifact is None or table.artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC:
+    committed = reader.canonical_committed_read_verified
+    if not committed and (table.artifact is None or table.artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC):
         raise ValueError("storage input requires a canonical IPC artifact binding")
-    if not (reader.canonical_comparison_verified or reader.canonical_artifact_read_verified):
+    if not (reader.canonical_comparison_verified or reader.canonical_artifact_read_verified or committed):
         raise ValueError("storage input has no verified canonical producer")
-    if table.artifact.manifest.descriptor != table.descriptor:
+    if table.artifact is not None and table.artifact.manifest.descriptor != table.descriptor:
         raise ValueError("storage artifact descriptor binding changed")
     descriptor = table.descriptor
     if (

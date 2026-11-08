@@ -18,7 +18,7 @@ from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexP
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.store import ManifestVerificationError, ArtifactBufferStorePort
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArtifactReadHandle,
+    ArtifactReadHandle, ArrowSnapshotTableReader,
     CanonicalTableStore,
     check_canonical_descriptor_budget,
     canonical_columns,
@@ -241,9 +241,12 @@ class CanonicalCommittedTableAccess:
                     "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
                 def close_handle() -> None:
                     manager.__exit__(None, None, None)
-                return snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle,
+                table = snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle,
                     ordered=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
                     if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
+                assert isinstance(table.reader, ArrowSnapshotTableReader)
+                table.reader.mark_canonical_committed_read_verified()
+                return table
             except BaseException:
                 manager.__exit__(None, None, None)
                 raise

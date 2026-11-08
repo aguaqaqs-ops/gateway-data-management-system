@@ -3,8 +3,6 @@ import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
-
-type Schemas = components["schemas"];
 import { gatewayApi, fetchBundle } from "../features/api/application-api";
 import { pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
@@ -201,7 +199,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   // workspace, review, attempt and operation, with a one-time re-read (B2) and
   // a post-terminal resume re-read (B3).
   const uploadMode = useUploadModeState({ enabled: browse.mode === "PREVIEW" });
-  const { workspace, review, attempt } = uploadMode;
+  const { workspace, review } = uploadMode;
   const uploadGates = uploadMode.gates;
   const [resumeOperationId, setResumeOperationId] = useState<string | null>(null);
   const [resumeMessage, setResumeMessage] = useState<{ title: string; code: string | null } | null>(null);

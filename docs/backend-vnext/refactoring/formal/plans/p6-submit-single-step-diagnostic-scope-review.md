@@ -2986,3 +2986,11 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 **设计已明确V5b-only最小接续边界，沿DC80直接闭环，无新Owner/GO。** 修helper后仅复用本次已完成v1 commit/隔离RS及保留卷，恢复必要服务供V5b；不启动journey、seed或业务POST，不触旧历史栈/冻结tag。新scratch/output/接续身份准确记录来源，原绝对截止与剩余预算保持，不重新给22h或滑动延时；实际缓存及重复局部准备边界必须真实记录。最小代码/05focused与具体服务复用、已有A段引用、时间预算和收尾待同一审核集中核，已完成DC63不重跑，不建设额外持久续跑状态机。
 
 **04 H780第二轮的closed失败结果也已核实。** 原日志460637B、SHA **`4ffef57bac5bc44ffc08562d6e98f64d54c73ded6da35b457e125ff6787756e9`** 已LAN取 `p6-baseline-evidence-review-20261108/ct04-h780-failure/`；00:19:48Z结束、end_head=78000且clean、runner_exit=1，RSserial214 passed/1764 deselected/581.92s，未增加第三项失败。六包最终状态rust及三个fast包passed、backend/RS failed，Hypothesis/Cargo清理已执行；原两项失败维持§137，整次不能作qualified carried来源。04外层现场收尾/锁释放原件仍待交，不能只据runner结束冒称节点已释放。独立05记录收口及必要工具/测试修订继续，不原样重试整链/POST或失败门禁。
+
+## 139. core record两次metadata错误的处置：按严格三字段state修正继续，不新增等待
+
+实施者报告W4-FULL标准record生成成功（record SHA66a2728a…f678b、派生journey SHA905b944a…93cb、实际测量HEAD18a4851d），core则先因H1 state缺baseline/cache、再因state含额外字段而失败，未写core record、原件保持；随后以旧DC68两次计数停止。**该停止不应转为新的Owner/第三次GO等待或先记不可恢复gap。** 依据§136/接续计划Owner连续完成授权，普通可逆派生准备错误须先保留日志/失败metadata，核实际schema后最小修正并合格接续，不原样盲跑；V5b及两项测试修订独立继续。设计已同样直接澄清，无新Owner/设计取舍。
+
+本审核已独立读H780真实builder及validator：build_record最后先validate_record再写输出；p6_baseline_compare.py的state严格且必需集合为 **{mode, baseline, cache}**，mode只准MODIFIED_ONLY/FULL，后两项须为非空描述字符串。无需改schema或产品；仅将metadata.state映射到这三项，历史UTC、缓存342行/TTL/来源mode=none和after未知等真实补证进入已有counts映射或外部source索引，不能增state键来装证据、把未知写成健康after或改原run/state。§127已审H1历史起点补证保持原资格，不重新开库/取证/测量。
+
+已直接将准确schema位置和处置交实施者，要求读取两失败的具体字段后修正metadata，从record准备步骤继续。当前报告只有摘要/未给新材料准确路径，本审核已查05已知日志与record目录，并要求W4-FULL record、派生journey、metadata/运行日志及core两失败原件的实际位置；**尚未将这些新record或两失败日志判为已独立核验**，待准确原件集中审核。审核者未在CT201运行builder/validator或测试，未修改产品、原始证据或实施者metadata。

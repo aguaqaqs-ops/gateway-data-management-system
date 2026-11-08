@@ -1,6 +1,6 @@
 # S3 W3/W4 诊断与容量补测记录
 
-2026-11-08，**执行中记录，尚无完整负载 v2 Preview 的有效样本或 S3 E GO**。本文把实测、重构及未运行分开；不将准备、失败或未知计为通过。当前源码与门禁见[累计交接](p6-s3-candidate-handoff.md)、[协调 §30](p6-s3-coordination.md#30-隔离v1e门禁核收与两节点剩余执行)及原 E [独审 §68 起](p6-s3-e-review.md)。
+2026-11-08，**执行中记录：新V4b0有1次完整负载W3 MO合格预热、0次完成测量，尚无正式统计或S3 E GO**。本文把实测、重构及未运行分开；不将准备、失败或未知计为通过。早期§1–8按各自当时事实保留，最新首暖与分段见§9。当前源码与门禁见[累计交接](p6-s3-candidate-handoff.md)、[协调§34](p6-s3-coordination.md#34-四档完整fresh与首暖核收剩余样本逐项授权)及原 E [独审 §68 起](p6-s3-e-review.md)。
 
 ## 1. 固定条件与计时范围
 
@@ -78,3 +78,36 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 截至21:05Z，新V4b0的04权威两包实跑＋四包同WT直接原V1e沿用、当前Compose镜像出口均actual0，原E §92／`da66ded9b9`已核PASS；原runner SHA=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`，outer=`03aed7a69e2c3afd71a1feecf9790a790201fc598123e4c9d57a22b204baa4c0`。CT108新source／13输入／镜像准备actual0已在原E §89独核PREP_PASS，outer=`54ac09bc4d7e09aad6ef5e1e5283515d59431f00a2bfb7531338b3ea5bd70a9a`、prepare.log=`f0031eaecced560fd3cdaadc02f7dae9e996fc0fd14307e2383686d64bce46a0`。这些满足首暖稿固定实际来源的前提，**不是首暖或M40业务通过**。
 
 原实施者已把上述真实SHA填入新V4b0 W3 MO稿，原E对字面终稿复审CLEAR，协调只交唯一tester单次执行。driver SHA=`312a9d394a5c9384ee67276b2c97265ddf56bdc794b90af7f3fcad9fc124d967`、controller=`36bcbd3afa49f2c666d8cfe4dd5a15cfc8d789546998fb45c2f55123d2865cd2`、WARM说明=`25b52cc2ae7bbab9821f87ac9a05658bbfe7a2707bee9d46d1036dae1f431514`。后续实际运行时另核48GiB envelope／8GiB reserve／M40／N1、同一worker、三OOM键、真实runtime镜像及全部资源／封口守卫；构建时传配置不代替其生效。当前矩阵仍0有效warm／0测量，剩余23和聚合未执行。main移植1ecb的代码及06 focused PASS另记[协调§33](p6-s3-coordination.md#33-v4b0权威核收与main最小移植实证)，不混入隔离Rust9d4性能源。
+
+## 9. 首个合格W3 MO预热的实测与范围
+
+新V4b0／Rust9d4在CT108以N1／单active／48GiB worker／8GiB reserve／M40运行首暖，21:07:35–21:50:41Z node／capture／postflight／outer全0，原E §98／`6e30955ff4`独核PASS；真实基线v1 Preview、Submit、read／approve／Archive以及v2 Preview／身份摘要均成功。直接control路径见协调§34，outer SHA=`cb3d4403df16b78272be052d46bc3163c41a0430048e1649e762ea964618162a`、journey=`87d7c55822ec64df83a887361e50722a141df2aac9dd776e38632540f0bba7b1`、最终receipt=`626ccab83ae5a235a5d4f2e979ee5db082e22671ff97e09582aae7e5d7408b73`。该receipt是1次成功warm、0次测量；节点sealed pending快照不回填释放事实。
+
+v2 Preview操作从21:39:21.383Z到21:49:21.093Z，旅程记录`user_visible_seconds=599.71`、`completion_seconds=599.72`，可见观察方式`operation_terminal_result`、poll间隔2s；不是服务器内部精确READY瞬间。**该预热可见值超过W3 60s目标；完成值接近600s，不能据一次预热签正式达标。** 身份摘要核验在21:50:20.448Z完成；v2业务step整体窗口21:39:21.084–21:50:20.719Z、wall659.635s，包含这段后置核验，不与操作完成时间混称。该step原CPU累计backend17.489s／RS13.912s／worker561.726s，counter reset列表为空；这是完整step CPU，非仅599.72s操作窗口。另行请求的事后即时CPU／current memory因容器已正常清理而未采到，仍UNKNOWN；无需重启或补造。
+
+同一v2 step内的唯一worker日志`3ccbc8c6d5e8-before-stop.log` SHA=`9ec066f2fa75949dd3e72d627f5656c9489b3b3820455ca7cd3df10c87a360f3`，含唯一v2 pair及bundle阶段事件。以下仅是这一预热的wall分段，不是1warm＋3统计，嵌套子段不能相加：
+
+| 分段 | 本次秒数 | 包含关系／限制 |
+| --- | ---: | --- |
+| MODIFIED上传投影 | 5.795 | 独立stage观察 |
+| comparison总计 | 310.394 | 含read/build268.373及随后table／facts-core JCS42.021 |
+| native索引／比较 | 14.083 | read/build内部 |
+| native records builder | 252.827 | read/build内部，包含其内部未单独量出的artifact JCS／排序，不能全称纯JCS |
+| native输入桥计时／ordered当前侧摘要 | 0.003／0.378 | read/build内部，输入桥不覆盖全部上游I/O |
+| records publication／其中Parquet写 | 3.199／1.168 | Parquet为publication子段 |
+| Risk总计／rules | 110.255／12.293 | rules为Risk子段 |
+| Risk必要Arrow转换 | 6.402 | rules内部，不另加到Risk总计 |
+| Risk publication／其中artifact publication | 97.625／97.533 | 含digest／report JCS，后两者另记0.003／0.009s |
+| surface／table export | 13.698 | 独立pair段 |
+| bundle assembly | 104.783 | 独立stage；pair内null不当0 |
+
+native dispatch631、实际calls182、input reads232、cache hits0，0命中是本次事实，不由人工重复key向量冒收益。上述分段并非端到端全部等待／解析／调度，不把残差称为纯Python；普通值／记录JCS及Risk转换的现有边界不隐去。比较账本high-water42,933,014,528B含native phase事先预约，不等于必要内存最小值；worker生命周期cgroup峰16,863,698,944B、VmHWM16,169,332KiB包括基线Submit及v2，不当作v2专属峰，也不与账本相加。Host MemAvailable开始67,315,010,560B／结束64,123,972,608B、三服务OOM三键全0、同worker／镜像／clean／六锁／正常stop／实际释放均合格。
+
+| 组 | 当前合格warm／完成测量 | 当前可声明 |
+| --- | --- | --- |
+| W3 MO | 1／0 | warm业务／资源PASS；r1已开始，尚无正式统计 |
+| W3 FULL | 0／0 | NOT_RUN |
+| W4约10% MO／FULL | 各0／0 | NOT_RUN |
+| W4 100% MO／FULL | 各0／0 | NOT_RUN；压力失败仍不能记成功 |
+
+首暖tar747,672,064B／SHA=`17606ad458fc5138f0d4a97d3d24a33bbe322b5b8a676961ee8c15b280410177`及磁盘端点支持原E §100对后续固定稿的条件静态核收，实际每项仍核前序收据、输入／镜像／配置与空间。23项已获协调逐项条件授权，22:00:31Z首项r1开始；每组1warm＋3齐后交原E核收，最终再单独放行受控只读聚合。未完／失败不补位、不记通过，S6目标及旧两档失败均保留，最终H和S3整体核收仍待。

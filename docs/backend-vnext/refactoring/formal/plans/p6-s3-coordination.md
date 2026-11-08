@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§33：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1；main最小移植1ecb亦已获独立代码与节点focused核收。当前产品fresh余档及资源诊断继续，仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§34：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO有1次合格预热、0次完成测量，后续固定23项已获逐项条件授权并开始r1。仍无正式性能统计、E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -507,3 +507,22 @@ CT108新V4b0准备稿／warm稿仍须原E核收及现场原子准入；新warm�
 S4协调者明确移交comparison production与C／D两测试的短期写入归属后，原S3实施者在main单独提交最小移植 **`1ecb17f6de4c71ddb001a6829d2222cd28bacb34`**（父f4d9e19a），仅这三路径及同一S3设计段；不覆盖S4C PublicCanonicalView或重基隔离V。原E §91固定detached静审CODE_CLEAR，随后06于21:01:08–21:02:29Z节点focused actual0并获同人独核PASS：强制原生重装／输入tree **`e2a901417b19259ece669637a41545e774261445`**、backend Ruff／mypy、六个现役C／D／E／独立向量／产物／Risk文件nonserial134＋serial1通过，HEAD1ecb clean、六锁0漂、marker释放。原件`/home/dev/gdds-test-tmp/p6-s3-main-port-focused-1ecb17f6de-fixed/focused-control/` outer SHA=`955b53d3607d9026b2b4da11ebce39e02a4ca33d88124ef61b7978b2c0a15e1e`、node=`aff29570a93d3d0a24f2dd0ad98ca29d382bb216915575ad989b8501d2f63ebd`。这是主线S4C接口上的受影响调试实证，不是其全门禁／容器证明，也不与隔离V4b0的Rust9d4混用。三路径已交回S4，后续benchmark Submit度量路径也经双方确认归S4 root，不动S3已固定source／driver。
 
 CT108新V准备actual0在原E §89核收PREP_PASS；含上述04真实结果及准备原件SHA的首暖终稿已由同E再次静审CLEAR，协调仅交唯一Luna运行一次。准备／镜像配置不证明runtime48／8／M40生效，实际warm需另核；当前仍0个有效warm、后续23及统计未运行。最终H必须同04原来源WT逐包实比，包含完整pytest cache变化；不拿run后manifest冒充起始source或人为改cache强行沿用，实际闭包有变则按规则运行受影响包。正式退出／tag／push仍未办理。
+
+## 34. 四档完整fresh与首暖核收、剩余样本逐项授权
+
+新V4b0的05 t3于21:07:34–21:29:37Z、t4于21:32:24–21:52:43Z均actual0，原E §97、§99独核PASS，报告提交`6e30955ff4cbd6271438646621e459e2a37bd480`已累计固定t1–t4同节点同V完整fresh通过。均为默认N1／32GiB worker／8GiB reserve／M24，v1／重复MO、v2 FULL及Submit、真实读取／approve／Archive／History；各档同worker、OOM三键0、原始镜像／RS同t1身份、六锁／clean／实际释放与控制端最终收据均核收。没有从旧V1e或S2b沿用新产品的四档结果。
+
+| 当前V4b0新档 | outer SHA | 最终控制收据SHA |
+| --- | --- | --- |
+| 05 t3 | `f275c9c3ea6aa7ace312fb84fc33e715c1bb7dd86854417e4656ab9f089240d2` | `191c669b06486e216e933cac6b13969d0c1c5520198326891f7f261e78bc70e1` |
+| 05 t4 | `1b35fd66a064e69c3b7e6d01d9eba685c1cf816d7f4ecf2424a341bb7d5bcfc2` | `3248638d57f2ec3900dfea853149dca1ef4624175b6a18a4ed79054a2ee968b7` |
+
+直接原件在新V4b0 `-fixed/t3-control/`、`t4-control/`，完整路径前缀及t1／t2来源见§33和原E §90、94、97、99。
+
+CT108同V新W3 MO首暖于21:07:35–21:50:41Z封口，node／capture／postflight／outer0，原E §98独核PASS：真实v1 Preview／Submit／read／approve／Archive及v2 Preview／身份摘要成功，实际同一worker N1／48GiB hard／8GiB reserve／M40、准备镜像身份／全部DiffID、输入13项、三服务OOM三键0、六锁／clean／实际释放及最终控制收据均合格。直接原件`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-4b0a2eec72-fixed/warm-control/` outer SHA=`cb3d4403df16b78272be052d46bc3163c41a0430048e1649e762ea964618162a`、result=`941cef594fa27b45d936b2f30a39dbb32f601d2b318d88306b8bbb512218894e`、manifest=`4df6ba684ee131a798e0dad3f30488eed7af478025f4c0f990fd179cdb5bd2f3`、控制receipt=`626ccab83ae5a235a5d4f2e979ee5db082e22671ff97e09582aae7e5d7408b73`。**仅1次成功预热／0次完成测量**；v2可见观察599.71s／操作完成599.72s，预热可见值超过W3 60s目标，不冒正式统计或S6达标。分段、CPU窗口与未知见[性能记录§9](p6-s3-performance-report.md#9-首个合格w3-mo预热的实测与范围)。
+
+首暖runtime tar实际747,672,064B、sealed SHA=`17606ad458fc5138f0d4a97d3d24a33bbe322b5b8a676961ee8c15b280410177`；事后CT108可用119,668,989,952B。原E §100条件静态CLEAR剩余23及聚合固定稿，磁盘148槽／首门槛10,085,278,720B只是端点推算，每项仍须实时取空间并以已完成最大tar复算。协调已授权唯一Luna按原稿固定23项逐项执行：W3 MO r1–r3，其后W3 FULL、W4约10% MO／FULL、100%压力MO／FULL各warm＋r1–r3；每项必须前序原exit0／最终receipt／远端result及manifest SHA、同源／配置／输入／镜像与原子占用全部合格。任何非0立即停后继，不补位、不自动重试；每组齐全后停组边界交同E核收，合格后才继续下一组。聚合仍须最后实际范围确定及协调另一次放行。
+
+执行稿目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/`：sample-run SHA=`16f9976750b40d98d23060ca5007c40b6455475ee2c2b91030dab610a43e5229`、README=`b1729080d63bae62e0726020cce40d9803a0abaa0065fdfffc6e85bcce7d19a0`，其他四固定脚本全SHA见该稿和原E §100。首项r1于22:00:31Z实际入场、空间guard通过，当前未完成；不能因授权整序列把其余项记为已运行。
+
+最终H外置动态绑定模板的两处初审finding已在原E §96复审关闭：初比复现已验V的有效镜像／project／provenance环境，需RUN时切H环境后再六包实比；四包直源同时pin V1e原runner与4b0判定driver并从原runner重新抽manifest核对。模板仍有H／bundle占位，未知H不执行；最终字面H须另固定全SHA和同人复审，04来源WT／环境／镜像继续保留。S3仍未整体GO／正式退出，tag／push未办理。

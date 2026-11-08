@@ -429,18 +429,21 @@ def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
     assert session.cached == {} and session.remaining_uses == {}
 
 
+@pytest.mark.parametrize("row_change", ("modified", "added"))
 def test_second_pair_writer_releases_optional_risk_retention_before_publication(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, row_change: str,
 ) -> None:
     store = InMemoryArtifactStore()
     before = _artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');", store,
     )
-    current = _artifact_bound(
+    current_sql = (
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before'), (2, 'after');", store,
+        + ("INSERT INTO t VALUES (1, 'after');" if row_change == "modified"
+           else "INSERT INTO t VALUES (1, 'before'), (2, 'after');")
     )
+    current = _artifact_bound(current_sql, store)
     rules = comparison_ruleset_for(standard_rule_record("t"))
     first_plan = plan_comparison(ComparisonRequest(
         pair_id="writer-first", before=before, current=current, rule_set=rules,

@@ -1,12 +1,12 @@
 # Phase 6 S3 C 独立审核
 
-**当前结论：C 产品候选尚未固定，无 C GO；源码传输执行已按 DC68 停止。** 本人对固定的 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 及两次原件作独立只读核收：其最小恢复路径**可供 Owner 决定**，此判断不授权第三次 bundle、测试或依赖镜像构建。C 实施和不依赖节点运行的静态修订可继续，正式 C 初审待完整已提交候选。
+**当前结论：C 已有固定代码候选并在同一独审中复审，无 C GO。** Owner 已允许按已审 [C 执行停止与恢复稿](p6-s3-c-execution-stop.md) `93589767aebfa889a5d1244afd34bb54642bc575` 恢复执行；这只恢复测试通道，不是产品通过。`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 的 CT201 源工作树与完整历史 bundle 已核收，06 Rust focused、当前完整候选的 backend/FFI/容器证据和依赖镜像预填充仍待取得。
 
 ## 1. 固定对象、职责与方法
 
 设计 `d49bb126b664af4b09097aee1a6f0b1bf58c9496` 与 kickoff 复审 `83ba4979044179256aa8c3d5d1d7b3424e648884` §5 已 READY，A 独审 `f28c89eff5ac1e653facb21229c3b5a7d281f971` GO，B 最终独审 `17fd6739b809f048ac7b2f45cb784c144e2d98ad` GO；不重开这些已关闭结论。C 的范围是从 B retained Arrow/locator 建三族记录 Arrow、完整未裁剪 facts/table/core 流式 JCS、真实 Parquet 读取校验、输入与导出 owner/预算交接；D 才接唯一生产 comparison route，E 才清理旧热点并做最终门禁。B 临时 JSON probe 不能充当 C/D 生产桥。
 
-本人依据仓库 AGENTS、testing conventions、比例化与 Rust 安全性能政策、S3 设计/kickoff/A/B handoff 与独审，以及 Comparison、Ordered Diff、Risk、Shared Canonical、Storage、Operation Lifecycle、Performance owning Contract 审核。在 `/home/dev/gdds-s3-c-review-573d5824`、`/home/dev/gdds-s3-c-review-0194d145`、`/home/dev/gdds-s3-c-review-93589767` 固定 detached worktree 只读核对象，均核 HEAD、tracked clean、`legacy/` symlink。审核工作树与开发主机均未运行编译、lint、测试、容器或性能测量；唯一测试者为 `/root/s3_c_test`。
+本人依据仓库 AGENTS、testing conventions、比例化与 Rust 安全性能政策、S3 设计/kickoff/A/B handoff 与独审，以及 Comparison、Ordered Diff、Risk、Shared Canonical、Storage、Operation Lifecycle、Performance owning Contract 审核。在 `/home/dev/gdds-s3-c-review-573d5824`、`/home/dev/gdds-s3-c-review-0194d145`、`/home/dev/gdds-s3-c-review-93589767`、`/home/dev/gdds-s3-c-review-1018d8f5`、`/home/dev/gdds-s3-c-review-9f6c9ffb`、`/home/dev/gdds-s3-c-review-c30fd820`、`/home/dev/gdds-s3-c-review-526dc498` 固定 detached worktree 只读核对象，均核 HEAD、tracked clean、`legacy/` symlink。审核工作树与开发主机均未运行编译、lint、测试、容器或性能测量；唯一测试者为 `/root/s3_c_test`。
 
 依赖检查点 `573d58248f0dc90e27f1be79ac9f2802211ed738` 仅在 core Cargo.toml/Cargo.lock 各加一行已锁 workspace `arrow-data=59.1.0` direct dependency，未引入新 crate/version；这是 CT201 dependency-base 备料的静态准入，**不是 C 产品 GO**。最终候选仍须逐项比 backend/worker dependency-base 五输入摘要与该来源，并在 CT201 clean 来源构建、LAN 预填到实际测试节点，核 archive SHA、config digest 与全部 RootFS DiffID。
 
@@ -42,3 +42,19 @@ DC68 明确“重做再次失败……均停止交 owner”。第一次准备错
 | `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/resume-prepare-node.sh` | `5f1823074cc6e4ac28efc6902dc4cd6dc1dac66de42889448afd8eabfc5905f3` | 核 06 与本会话 marker、传入的 64 hex archive SHA，拒现存 repo/WT/log；在本任务新 bare Git repo 内 verify/fetch bundle 的 `HEAD`，核 FETCH_HEAD=0194，建 clean detached WT 和 legacy symlink/exclude。无其他节点或 B WT 修改。 |
 
 本人以 BatchMode 只读核 06 的 Git 2.47.3，且上述 node repo/WT/log 均不存在；源码和脚本在 CT201 仍固定，archive 尚未生成。两份脚本对 `93589767…` 的命令收敛没有新增机制，**静态执行稿 CLEAR，可供 Owner 作恢复决定**。局域网传输的起止、双端 SHA、06 新 marker 与原脚本执行仍须由唯一测试者在获放行后逐项记录并交本人独核；此 CLEAR 不替代 Owner 放行。
+
+## 4. C 固定候选初审与复审
+
+`1018d8f54d15e28b3b8f0edbfd55e7e47b712c66` 是首个完整 C 代码与 handoff 固定候选。本人在 detached worktree 初审，确认新接口以 B retained Arrow/locator 输入、三族 Arrow 输出，facts 依 B 原序而 artifact 全局排序，FULL 排序后再投影 detail，完整未裁剪 table/core payload 流式 JCS，Python Arrow Parquet 直写以及 open/restore 经 Python Parquet→Arrow→真实 PyO3 validator 的路径。`Bytes::from_owner` 递归包装 ArrayData 的值、validity、offset 和 children buffer，charge owner 无明显 batch 回环；此为静态判断，实际 capsule/最后借用输出释放仍须 06 取证。旧 tuple route 在 C 尚未接唯一生产 route 时暂存，D 接线、E 删除义务仍在。
+
+首候选的同一读写预算问题有两个具体表现：真实 open/restore 用诊断 reader 的 retained-batch 上界，给不会导出 batch 的流式校验额外扣一次容量；32×row-group 未压缩字节上界会使合法 400 MiB 单 UTF8 值在 M24 GiB 下假拒。writer 以 2 GiB 内存 spool 阈值写受 512 MiB artifact 限制的文件，在产物上限核验前可能超过 writer 预留。`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4` 将真实读与诊断导出分别准入、无字典固定 schema 的预解码/JCS 系数收为有解释的 16×并逐行复核；writer spool 阈值改为 `min(spool, artifact)`，增长前预留 `2*max_artifact+2*max(batch.nbytes)+1 MiB`。对应边界测试已写入。**这两项在代码复审层面关闭，运行和真实高水位证明待 06。** 此处是 1018 首候选→9f 一轮实质修订，不把未执行的编译、机械格式修复或先前 WIP 提醒机械算成同根第三轮。
+
+`c30fd820223740f1f436d2f52af7c199700d3da8` 补了 C 自有输入 helper，避免 E 删除 B 差分桥后 C 测试断裂；加入三族 raw/content 对旧 Python、FULL 排序/裁剪后重复、预算拒绝退账、取消/截止、真实读内容/schema/I/O 故障等向量。当前旧 Python expected 来自冻结旧实现与 Contract，不以 B 新输出充当 expected；E 删旧路径前须将动态旧输出固定为独立 fixture/golden。该提交的 GIL 向量只用第二次 cancel poll，可能在 native 真正拉取 Arrow 前通过；本人指出后，`526dc4983731107148d3188a726559d90ca97207` 改为惰性 `RecordBatchReader`，构造后断未预取，首批由 native `read_stream` 拉取才唤醒后台 Python 线程，断线程进度、取消异常与收尾。此项静态修复已核，仍须在含 526 的固定候选上由 06 运行。
+
+目前尚不能签 C GO：上述静态复审不替代 06 对 Rust/FFI、三族 raw golden、真实 native read、GIL、取消/截止、同 M phase seal、导出 Arrow 最后 owner 的 focused 原件，也不替代当前镜像 native consumer 的小容器门禁。D 生产接线与 E 清理/最终 04 门禁各按其职责办理。依赖基础镜像最终输入摘要及 CT201 构建、06 预填身份仍待核。
+
+## 5. Owner 恢复后的 9f 源端原件
+
+Owner 明确回复“允许按已审恢复稿放行”，协调者记录于 `5036f77f04`；本人原先对 `93589767…` 的“可供 Owner 决定”判断不再是执行阻塞。唯一 tester 将已审脚本只改固定 HEAD、证据目录、会话和 bundle 名，三份 SHA 分别为源端 `b833aeae3953a00a58646972f9f28061e54fc779849b387788ddd593786e9018`、06 准备 `b17e8802e0f7ede620c20413e1de713d54c958e5453c2e2a7dd999db80cb66cb`、06 Rust focused `67bc649956b02142de83398440b07a0618c7987bfefa6f42cc18c2c6bd1d8291`。本人逐字对原模板比对，变化仅上述字段，Rust 顺序仍为 fmt→workspace clippy→workspace test，首败即停。
+
+CT201 第一次源 WT 准备只因既有日志名拒覆盖，原件 `source-wt-create.log` SHA256=`6c75480fe9027bb81f191ddaec501d9c55d9df0f5898c282e44622030ee28dcd`、exit 2，未触源 WT；tester 保留该失败并从步骤开头重做，`source-wt-create-attempt-2.log` SHA256=`0dc7ada66340208cc29bc272245604ad6b00ffe3ae4958130bf9c796f36df555`，01:10:36–37Z、HEAD 精确 9f、clean detached、legacy exclude 命中、exit 0。源端 bundle 脚本原件 `resume-create-source.log` SHA256=`d92c3bd3193b3d5a5219696a88da06bd5f92971bdb5e151a2af84dc0ec98aca4`，01:11:26–27Z、起止 HEAD=9f、exit 0；repo 内 verify 明示完整历史，list-heads 唯一 `9f… HEAD`，归档 SHA256=`6529d9a26434191719d877f7a1542475c23ce737821eb09812ab57c2a5d4a127`。本人另读源 WT 的 HEAD/status/legacy exclude，仍精确且 clean。06 LAN 接收、marker、node WT 与 Rust focused 尚无原件；这些执行步骤仍由唯一 tester 完成后交独核。

@@ -1602,6 +1602,9 @@ test("FE3a 提交续做时 ABORTED 后提交恢复可用", async ({ page }) => {
     workspaceSubmitAttemptId: "attempt-1",
     clearWorkspacePointerOnTerminal: true,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   });
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
   await waitForBrowse(page);

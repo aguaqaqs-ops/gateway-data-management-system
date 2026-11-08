@@ -1,0 +1,23 @@
+[
+  {
+    "size_bytes": 8589934591,
+    "header_only_file": "size-8589934591-header-only.bin",
+    "header_length": 512,
+    "complete_tar": false,
+    "framed_size": 8589935104
+  },
+  {
+    "size_bytes": 8589934592,
+    "header_only_file": "size-8589934592-header-only.bin",
+    "header_length": 1536,
+    "complete_tar": false,
+    "framed_size": 8589936128
+  },
+  {
+    "size_bytes": 9007199254740991,
+    "header_only_file": "size-9007199254740991-header-only.bin",
+    "header_length": 1536,
+    "complete_tar": false,
+    "framed_size": 9007199254742528
+  }
+]

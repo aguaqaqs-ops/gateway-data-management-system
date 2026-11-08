@@ -44,11 +44,11 @@ export const SIMULATED_STRING_VALUES = {
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:*_ISSUE",
   },
   "PreviewArchivePlanResponse.blockers": {
-    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_INTEGRITY_FAILURE"],
+    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
     source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "ArchiveCandidatesResponse.blockers": {
-    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_INTEGRITY_FAILURE"],
+    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
     source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "PreviewArchivePlanResponse.confirmation_requirements": {
@@ -56,15 +56,15 @@ export const SIMULATED_STRING_VALUES = {
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:selection_subject_digest",
   },
   "ArchiveAuditEventResponse.subject_kind": {
-    values: ["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"],
+    values: ["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"],
     source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveSubjectKind",
   },
   "ArchiveAuditEventResponse.action": {
-    values: ["CONFIRM", "REVOKE", "ACKNOWLEDGE_EXCLUSION", "ACKNOWLEDGE_IDENTITY_EXCEPTION"],
+    values: ["CONFIRM", "REVOKE", "ACKNOWLEDGE_EXCLUSION", "ACKNOWLEDGE_IDENTITY_EXCEPTION", "ACKNOWLEDGE_SOURCE_EXCEPTION", "ACKNOWLEDGE_TIME_QUALITY", "ACKNOWLEDGE_TIME_ORDER"],
     source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveConfirmationAction, ArchiveAnomalyResolutionAction",
   },
   "ArchiveAuditEventResponse.issue_code": {
-    values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", null],
+    values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "INITIAL_SOURCE_UNEXPLAINED", "GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES", "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL", "BASELINE_TIME_UNAVAILABLE", null],
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:*_ISSUE",
   },
   "HistoryNodeResponse.eligibility_note": {
@@ -84,6 +84,8 @@ export const WORKSPACE_RESPONSE = {
   updated_at: "2026-11-03T09:14:00Z",
   current_upload_revision_id: "upload-fe2b-3",
   current_preview_result_id: "preview-full",
+  active_submission_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const WORKSPACE_CREATED = { status: 201, body: WORKSPACE_RESPONSE } as const;
@@ -131,6 +133,7 @@ export const REVIEW_FACTS = {
   updated_at: "2026-11-02T09:10:00Z",
   identity_exception: false,
   events: [{ sequence: 1, event_kind: "SUBMISSION_FINALIZED", to_status: "PENDING", actor_id: "submitter", occurred_at: "2026-11-02T09:10:00Z" }],
+  submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
 export const HISTORY_COMPARE_REQUEST = {
@@ -313,6 +316,8 @@ export const TEST_WORKSPACE = {
   workspace_id: "ws-1", gateway_device_external_key: "device-1", business_project_id: "project-1", state: "OPEN",
   generation: 4, optimistic_version: 10, created_at: "2026-11-03T09:00:00Z", updated_at: "2026-11-03T09:00:00Z",
   current_preview_result_id: "preview-1",
+  active_submission_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const TEST_UPLOAD_FULL = {
@@ -351,6 +356,7 @@ export const TEST_SUBMISSION = {
 export const TEST_REVIEW_FACTS = {
   submission_id: "fe2a-history-ref-2", status: "PENDING", review_version: 5, updated_by: "reviewer",
   updated_at: "2026-11-03T09:00:00Z", identity_exception: false, events: [],
+  submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
 export const TEST_REVIEW_HISTORY = {
@@ -367,24 +373,53 @@ export const TEST_REVIEW_APPLIED = {
   event: { sequence: 2, event_kind: "APPROVED", to_status: "APPROVED", actor_id: "reviewer", occurred_at: "2026-11-03T09:00:00Z" },
 } satisfies Schemas["ReviewAppliedResponse"];
 
+export const ARCHIVE_ANOMALY_IDENTITY = {
+  subject_kind: "PROJECT_IDENTITY_EXCEPTION",
+  issue_code: "PROJECT_IDENTITY_EXCEPTION",
+  target_submission_id: "submission-1",
+  target_candidate_digest: "sha256:candidate",
+  subject_digest: "sha256:anomaly",
+  accepted_at: null,
+  accepted_by: null,
+  affected_submission_ids: ["submission-1"],
+  details: {},
+  detected_status: "UNEXPLAINED",
+  latest_sequence: 0,
+  reason: null,
+  relations: [],
+  resolution_status: "UNRESOLVED",
+  side: null,
+} satisfies Schemas["ArchivePreviewAnomalyResponse"];
+
+export const EMPTY_BUSINESS_VALIDATION = {
+  rule_id: "gateway-vnext/archive-business-validation/v1",
+  baseline_facts_digest: null,
+  issues: [],
+  source_diagnostics: [],
+  time_comparisons: [],
+} satisfies Schemas["ArchiveBusinessValidationResponse"];
+
 export const ARCHIVE_PLAN_READY = {
   head: { business_baseline_node_id: "baseline-4", business_baseline_commit_id: "commit-a", baseline_head_version: 21 },
   selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
   selection_subject_digest: "sha256:selection-subject",
   candidate_set_digest: "sha256:candidates", confirmation_requirements: ["sha256:selection-subject"],
-  anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+  anomalies: [ARCHIVE_ANOMALY_IDENTITY],
   audit_validity: true,
   dispositions: [], workspace_releases: [], can_start: true, blockers: [],
+  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
   ...ARCHIVE_PLAN_READY, confirmation_requirements: ["sha256:selection-subject"],
-  anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+  anomalies: [ARCHIVE_ANOMALY_IDENTITY],
   can_start: false, blockers: [], audit_validity: false,
+  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {
   head: ARCHIVE_PLAN_READY.head, candidates: [{ submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" }], candidate_set_digest: "sha256:candidates", blockers: [],
+  pending_submission_ids: [], pending_submission_count: 0,
 } satisfies Schemas["ArchiveCandidatesResponse"];
 export const TEST_ARCHIVE_CANDIDATES_BLOCKED = {
   ...TEST_ARCHIVE_CANDIDATES, blockers: ["ARCHIVE_INTEGRITY_FAILURE"],
@@ -414,6 +449,7 @@ export const TEST_ARCHIVE_RESULT = {
   baseline_head_version: 21, selected_submission_id: "submission-1", selected_repository_commit_id: "commit-b",
   candidate_set_digest: "sha256:candidates", confirmation_refs: [], anomaly_resolution_refs: [], dispositions: [],
   archived_by: "owner", archived_at: "2026-11-03T09:00:00Z",
+  business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["ArchiveResultResponse"];
 
 export const TEST_OPERATION_ACCEPTED = {

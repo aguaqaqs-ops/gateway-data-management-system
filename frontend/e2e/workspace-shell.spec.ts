@@ -51,6 +51,8 @@ async function installFixtureRoutes(page: Page, options: {
   submitForbidden?: boolean;
   submitConflict?: "WORKSPACE_VERSION_CONFLICT";
   submitAttemptReadFails?: boolean;
+  workspaceSubmitAttemptId?: string;
+  clearWorkspacePointerOnTerminal?: boolean;
   submitAborted?: boolean;
   submitTimeoutFirst?: boolean;
   uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
@@ -81,6 +83,7 @@ async function installFixtureRoutes(page: Page, options: {
   const operationCounts = new Map<string, number>();
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
+  let workspacePointerCleared = false;
   let uploadConflictConsumed = false;
 
   await page.route("**/v1/workspaces", async (route) => {
@@ -97,9 +100,14 @@ async function installFixtureRoutes(page: Page, options: {
     }
     workspaceCallCount += 1;
     const response = workspaceCallCount === 1 ? WORKSPACE_CREATED : WORKSPACE_ALREADY_EXISTS;
-    const body = uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
+    let body = uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
       ? { ...response.body, optimistic_version: 14 }
       : response.body;
+    if (options.workspaceSubmitAttemptId) {
+      body = workspacePointerCleared
+        ? { ...body, active_submission_id: null, active_submit_attempt_id: null }
+        : { ...body, active_submission_id: null, active_submit_attempt_id: options.workspaceSubmitAttemptId };
+    }
     apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(body) });
     return route.fulfill({ status: response.status, contentType: "application/json", body: JSON.stringify(body) });
   });
@@ -248,6 +256,9 @@ async function installFixtureRoutes(page: Page, options: {
       ?? (options.uploadHoldPolls && operationId.startsWith("preview-op") && count <= options.uploadHoldPolls
         ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "RUNNING" as const, completed_at: null }
         : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId });
+    if (options.clearWorkspacePointerOnTerminal && operationId === "submit-op-1" && (result.status === "SUCCEEDED" || result.status === "FAILED" || result.status === "ABORTED")) {
+      workspacePointerCleared = true;
+    }
     apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 200, body: JSON.stringify(result) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
   });
@@ -1245,7 +1256,7 @@ test("FE2c 审核退回必须填写理由并可撤回", async ({ page }) => {
   await expect.poll(async () => reject.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await confirm.click();
-  await expect(page.getByText("审核：已拒绝")).toBeVisible();
+  await expect(page.getByText("审核：已退回")).toBeVisible();
   expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
 });
 
@@ -1577,48 +1588,34 @@ test("FE3a 提交续做时 ABORTED 后提交恢复可用", async ({ page }) => {
   const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
   await installFixtureRoutes(page, {
     submitAborted: true,
+    workspaceSubmitAttemptId: "attempt-1",
+    clearWorkspacePointerOnTerminal: true,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
   });
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
-  await page.evaluate(() => {
-    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
-  });
-  await page.reload();
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
   await expect(submit).toBeDisabled();
-  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
+  await expect(page.getByText("提交正在执行，完成后才能继续")).toBeVisible();
   releaseOperation();
   await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
 });
 
-test("FE3a 提交续做时读取失败后提交恢复可用", async ({ page }) => {
-  let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
-  let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+test("W9 提交续做读取失败时保持禁用并可重试", async ({ page }) => {
   await installFixtureRoutes(page, {
     submitAttemptReadFails: true,
-    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    workspaceSubmitAttemptId: "attempt-1",
   });
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
-  await page.evaluate(() => {
-    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
-  });
-  await page.reload();
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
-  await held;
-  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
   await expect(submit).toBeDisabled();
-  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
-  releaseOperation();
-  await expect(page.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
-  await expect(submit).toBeEnabled();
+  await expect(page.getByText("无法确认提交状态")).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试读取" })).toBeVisible();
 });
 
 test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {

@@ -6,6 +6,7 @@ import { createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys
 import { Button, Dialog } from "../../design-system/components";
 
 type Schemas = components["schemas"];
+
 type Plan = Schemas["PreviewArchivePlanResponse"];
 type Result = Schemas["ArchiveResultResponse"];
 type Anomaly = Plan["anomalies"][number];
@@ -32,8 +33,21 @@ function archiveError(cause: unknown): { title: string; code: string; refresh: b
   return { title: cause instanceof Error ? cause.message : "归档失败", code: "ARCHIVE_FAILED", refresh: false };
 }
 
-function anomalyAction(anomaly: Anomaly): "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" {
-  return anomaly.subject_kind === "PROJECT_IDENTITY_EXCEPTION" ? "ACKNOWLEDGE_IDENTITY_EXCEPTION" : "ACKNOWLEDGE_EXCLUSION";
+type AnomalyAction = Schemas["AppendArchiveAnomalyResolutionRequest"]["action"];
+
+function anomalyAction(anomaly: Anomaly): AnomalyAction {
+  switch (anomaly.subject_kind) {
+    case "APPROVED_SIBLING_EXCLUDED": return "ACKNOWLEDGE_EXCLUSION";
+    case "PROJECT_IDENTITY_EXCEPTION": return "ACKNOWLEDGE_IDENTITY_EXCEPTION";
+    case "CONFIGURATION_SOURCE": return "ACKNOWLEDGE_SOURCE_EXCEPTION";
+    case "CONFIGURATION_TIME_QUALITY": return "ACKNOWLEDGE_TIME_QUALITY";
+    case "CONFIGURATION_TIME_ORDER": return "ACKNOWLEDGE_TIME_ORDER";
+    default: return assertNever(anomaly.subject_kind);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`未知异常类型：${String(value)}`);
 }
 
 interface ArchiveMainlineDialogProps {

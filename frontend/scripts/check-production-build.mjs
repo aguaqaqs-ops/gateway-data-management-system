@@ -23,7 +23,7 @@ const forbidden = [
   /simulated[-_ ]api/i,
   /GatewaySimulatedApiModule/,
   /identity[-_ ]selector/i,
-  /模拟身份|dev-token-(?:submitter|reviewer|archive-confirmer|no-permission)/,
+  /模拟身份|dev-token-(?:submitter|reviewer|archive-confirmer|no-permission|upload-only|no-preview)/,
   /mock[-_ ]identity/i,
   /__gatewayTestConfig/,
 ];

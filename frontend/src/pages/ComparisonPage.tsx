@@ -17,16 +17,26 @@ import { SurfaceChangeBadge, TableFailureNotice, surfaceChangePresentation, tabl
 import { presentViewStatus } from "../features/view-model/view-status";
 import { BrowseCommandRuntime, decodeBrowseState, type BrowseState } from "../features/view-model/commands";
 import { createTableTheme } from "../design-system/theme";
-import { ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-system/components";
+import { Dialog, ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-system/components";
 import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
 import { Button } from "../design-system/components";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
+import { currentGatewaySession } from "../features/api/session";
+import { ApiError } from "../features/api/authenticated-fetch";
+import { deriveUploadModeGates, type Problem } from "../features/workbench/upload-header";
 import { SubmitDialog } from "../features/workbench/SubmitDialog";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { ReviewActions } from "../features/workbench/ReviewActions";
 import type { SafeReviewFacts } from "../features/api/client";
 
+function problemFrom(cause: unknown): Problem {
+  return cause instanceof ApiError
+    ? { status: cause.status, code: cause.code ?? null }
+    : { status: null, code: cause instanceof Error ? cause.name : null };
+}
+
 type PairSummary = { pair_id: string };
+type Schemas = components["schemas"];
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
@@ -35,7 +45,7 @@ const DEFAULT_SETTINGS: Settings = { sidebarWidth: 288, sidebarCollapsed: false,
 
 function reviewStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    PENDING: "待审核", APPROVED: "已通过", REJECTED: "已拒绝", RETURNED_FOR_REVISION: "需修改", WITHDRAWN: "已撤回",
+    PENDING: "待审核", APPROVED: "已通过", REJECTED: "已退回", WITHDRAWN: "已撤回",
   };
   return labels[status] ?? "状态未知";
 }
@@ -182,34 +192,136 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
-  const [submitResume] = useState<{ operationId: string; workspaceId: string; submitAttemptId: string } | null>(() => {
-    if (browse.mode !== "PREVIEW" || !browse.operationId) return null;
+  const [workspace, setWorkspace] = useState<Schemas["WorkspaceResponse"] | null>(null);
+  const [workspaceProblem, setWorkspaceProblem] = useState<Problem | null>(null);
+  const [review, setReview] = useState<SafeReviewFacts | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewProblem, setReviewProblem] = useState<Problem | null>(null);
+  const [attempt, setAttempt] = useState<Schemas["SubmitAttemptResponse"] | null>(null);
+  const [attemptLoading, setAttemptLoading] = useState(false);
+  const [attemptProblem, setAttemptProblem] = useState<Problem | null>(null);
+  const [operation, setOperation] = useState<Schemas["OperationResponse"] | null>(null);
+  const [operationLoading, setOperationLoading] = useState(false);
+  const [operationProblem, setOperationProblem] = useState<Problem | null>(null);
+  const [resumeOperationId, setResumeOperationId] = useState<string | null>(null);
+  const [resumeMessage, setResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [withdrawUnderstood, setWithdrawUnderstood] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<{ title: string; code: string } | null>(null);
+  const withdrawKey = useRef<string | null>(null);
+  const uploadGates = useMemo(() => deriveUploadModeGates({
+    workspace, workspaceError: workspaceProblem,
+    attempt, attemptLoading, attemptError: attemptProblem,
+    operation, operationLoading, operationError: operationProblem,
+    review, reviewLoading, reviewError: reviewProblem,
+  }), [workspace, workspaceProblem, attempt, attemptLoading, attemptProblem, operation, operationLoading, operationProblem, review, reviewLoading, reviewProblem]);
+  const refreshUploadMode = useCallback(async () => {
+    if (browse.mode !== "PREVIEW") return;
+    const session = currentGatewaySession();
+    setWorkspaceProblem(null);
     try {
-      const marker = JSON.parse(sessionStorage.getItem("gateway-submit-operation") ?? "null") as { operationId?: string; workspaceId?: string; submitAttemptId?: string } | null;
-      if (marker?.operationId !== browse.operationId || !marker.workspaceId || !marker.submitAttemptId) return null;
-      return { operationId: browse.operationId, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
-    } catch { return null; }
-  });
-  const [submitResumeActive, setSubmitResumeActive] = useState(submitResume !== null);
-  const [submitResumeError, setSubmitResumeError] = useState<{ title: string; code: string | null } | null>(null);
-  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
-    if (!submitResume || submitResume.operationId !== finishedOperationId) return;
+      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
+      setWorkspace(loaded);
+      if (loaded.active_submission_id) {
+        setReviewLoading(true); setReviewProblem(null);
+        try { setReview(await gatewayApi.getReviewFacts(loaded.active_submission_id)); }
+        catch (cause) { setReview(null); setReviewProblem(problemFrom(cause)); }
+        finally { setReviewLoading(false); }
+      } else { setReview(null); setReviewProblem(null); setReviewLoading(false); }
+      if (loaded.active_submit_attempt_id) {
+        setAttemptLoading(true); setAttemptProblem(null); setOperationLoading(true); setOperationProblem(null);
+        try {
+          const loadedAttempt = await gatewayApi.getSubmitAttempt(loaded.workspace_id, loaded.active_submit_attempt_id);
+          setAttempt(loadedAttempt);
+          if (loadedAttempt.operation_id) {
+            setResumeOperationId(loadedAttempt.operation_id);
+            const url = new URL(window.location.href);
+            if (url.searchParams.get("operationId") !== loadedAttempt.operation_id) {
+              url.searchParams.set("operationId", loadedAttempt.operation_id);
+              url.searchParams.set("operationKind", "operation");
+              window.history.replaceState(null, "", url);
+            }
+            try { setOperation(await gatewayApi.getOperation(loadedAttempt.operation_id)); }
+            catch (cause) { setOperation(null); setOperationProblem(problemFrom(cause)); }
+          }
+        } catch (cause) { setAttempt(null); setAttemptProblem(problemFrom(cause)); }
+        finally { setAttemptLoading(false); setOperationLoading(false); }
+      } else {
+        setAttempt(null); setAttemptProblem(null); setOperation(null); setOperationProblem(null); setResumeOperationId(null);
+      }
+    } catch (cause) {
+      setWorkspace(null); setWorkspaceProblem(problemFrom(cause));
+    }
+  }, [browse.mode]);
+  useEffect(() => { void refreshUploadMode(); }, [refreshUploadMode]);
+  const finishSubmitResume = useCallback(async (finishedOperationId: string) => {
     try {
-      const attempt = await gatewayApi.getSubmitAttempt(submitResume.workspaceId, submitResume.submitAttemptId);
-      sessionStorage.removeItem("gateway-submit-operation");
-      if (attempt.state === "ABORTED" || !attempt.submission_id) {
-        setSubmitResumeActive(false);
-        setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null });
+      const session = currentGatewaySession();
+      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
+      setWorkspace(loaded);
+      if (loaded.active_submission_id) {
+        const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: loaded.active_submission_id });
+        window.location.assign(`/?${params.toString()}`);
         return;
       }
-      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: attempt.submission_id });
-      window.location.assign(`/?${params.toString()}`);
+      const attemptId = loaded.active_submit_attempt_id;
+      if (attemptId) {
+        const loadedAttempt = await gatewayApi.getSubmitAttempt(loaded.workspace_id, attemptId);
+        setAttempt(loadedAttempt);
+        if (loadedAttempt.state === "ABORTED") {
+          setResumeOperationId(null);
+          setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: loadedAttempt.abort_code ?? null });
+        } else {
+          setResumeMessage({ title: "提交结果待确认，需要管理员处理", code: finishedOperationId });
+        }
+        return;
+      }
+      setResumeOperationId(null);
+      setResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt?.abort_code ?? null });
     } catch {
-      sessionStorage.removeItem("gateway-submit-operation");
-      setSubmitResumeActive(false);
-      setSubmitResumeError({ title: "无法读取提交结果，请刷新后重试", code: null });
+      setResumeMessage({ title: "无法确认提交状态", code: null });
     }
-  }, [submitResume]);
+  }, [attempt]);
+  const confirmWithdraw = useCallback(async () => {
+    if (!workspace?.active_submission_id || !review) return;
+    setWithdrawBusy(true);
+    setWithdrawError(null);
+    const key = withdrawKey.current ?? crypto.randomUUID();
+    withdrawKey.current = key;
+    try {
+      await gatewayApi.applyReview(workspace.active_submission_id, { expected_review_version: review.review_version, action: "WITHDRAW" }, key);
+      const session = currentGatewaySession();
+      const loaded = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
+      setWorkspace(loaded);
+      if (!loaded.active_submission_id && !loaded.active_submit_attempt_id && !loaded.current_upload_revision_id && !loaded.current_preview_result_id) {
+        setWithdrawOpen(false);
+        window.location.assign("/?page=workspace&notice=withdrawn");
+        return;
+      }
+      await refreshUploadMode();
+    } catch (cause) {
+      if (cause instanceof ApiError) {
+        const conflict = ["REVIEW_VERSION_CONFLICT", "REVIEW_TRANSITION_CONFLICT", "WORKSPACE_OCCUPANCY_CONFLICT", "ARCHIVE_CLOSED"].includes(cause.code ?? "");
+        if (conflict) {
+          setWithdrawError({ title: "审核状态已变化，已重新读取", code: cause.code ?? "REVIEW_STATE_CHANGED" });
+          await refreshUploadMode();
+        } else if (cause.status === 403) {
+          setWithdrawError({ title: "当前身份没有撤回权限", code: cause.code ?? "SCOPE_FORBIDDEN" });
+        } else if (cause.status === 404) {
+          setWithdrawError({ title: "未找到该提交，请刷新后重试", code: cause.code ?? "RESOURCE_NOT_FOUND" });
+        } else {
+          setWithdrawError({ title: "撤回未完成", code: cause.code ?? `HTTP_${cause.status}` });
+        }
+        if (cause.status < 500 && cause.status !== 429) withdrawKey.current = null;
+      } else {
+        setWithdrawError({ title: "撤回未完成", code: "REQUEST_FAILED" });
+        withdrawKey.current = null;
+      }
+    } finally {
+      setWithdrawBusy(false);
+    }
+  }, [workspace, review, refreshUploadMode]);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
   const [overflow, setOverflow] = useState(false);
@@ -473,16 +585,16 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   return <main className="comparison-page">
-    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => { setSubmitResumeActive(false); setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: null }); sessionStorage.removeItem("gateway-submit-operation"); }} /></div>}
-    {submitResumeError && <div role="alert" className="form-error"><span>{submitResumeError.title}</span>{submitResumeError.code && <span>错误代码：<code>{submitResumeError.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
+    {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
+    {resumeMessage && <div role="alert" className="form-error"><span>{resumeMessage.title}</span>{resumeMessage.code && <span>错误代码：<code>{resumeMessage.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void refreshUploadMode()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">
         <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
-        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{identityControl}
-          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle || submitResumeActive} disabledReason={!bundle ? "请等待差异结果加载完成" : submitResumeActive ? "提交结果确认中，请稍候" : undefined}>提交</Button></span>}
+        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{reviewFacts?.submission_disposition && <span className={`status-tag status-tag--${reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "info" : "neutral"}`} title={reviewFacts.submission_disposition.disposition === "CLOSED_NOT_ARCHIVED" ? (reviewFacts.submission_disposition.source_kind === "ARCHIVE" ? "归档时选中了其他提交" : `由 ${reviewFacts.submission_disposition.closure?.closed_by ?? "未知"} 关闭：${reviewFacts.submission_disposition.closure?.reason ?? ""}`) : undefined}>{reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "已归档" : "已关闭（未归档）"}</span>}{identityControl}
+          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="danger" onClick={() => { setWithdrawUnderstood(false); setWithdrawError(null); withdrawKey.current = crypto.randomUUID(); setWithdrawOpen(true); }} disabled={!uploadGates.withdraw.enabled} disabledReason={uploadGates.withdraw.reason}>撤回</Button>{uploadGates.withdraw.retry && !uploadGates.withdraw.enabled && <button className="link-button" onClick={() => void refreshUploadMode()}>重试读取</button>}<Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle || !uploadGates.submit.enabled} disabledReason={!bundle ? "请等待差异结果加载完成" : uploadGates.submit.reason}>提交</Button></span>}
           {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} />}
         </div>
       </div>
@@ -551,6 +663,14 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       for (const ref of browse.comparisonNodeRefs) params.append("compare", ref);
       window.location.assign(`/?${params.toString()}`);
     }} />}
+    <Dialog open={withdrawOpen} title="撤回提交" onClose={() => { if (!withdrawBusy) setWithdrawOpen(false); }} actions={<>
+      <Button variant="secondary" onClick={() => setWithdrawOpen(false)} disabled={withdrawBusy}>取消</Button>
+      <Button variant="danger" onClick={() => void confirmWithdraw()} disabled={withdrawBusy || !withdrawUnderstood} disabledReason={!withdrawUnderstood ? "请先确认已了解撤回影响" : undefined}>{withdrawBusy ? "撤回中…" : "确认撤回"}</Button>
+    </>}>
+      <p className="confirm-impact">撤回后该提交不再进入归档候选，也无法继续审核；提交人需要重新上传并提交。此操作不可撤销。</p>
+      <label className="confirm-checkbox"><input type="checkbox" checked={withdrawUnderstood} onChange={(event) => setWithdrawUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
+      {withdrawError && <div role="alert" className="form-error"><span>{withdrawError.title}</span><span>错误代码：<code>{withdrawError.code}</code></span></div>}
+    </Dialog>
     {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{browse.mode === "PREVIEW" && <p className="formula-note">改前公式在 BE-b 实现后提供</p>}{formulas.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}</div></aside></div>}
   </main>;
 }

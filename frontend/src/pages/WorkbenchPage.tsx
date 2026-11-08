@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Folder, GitBranch, GitCommitHorizontal, Layers, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { components } from "../features/api/generated/openapi";
 import { gatewayApi } from "../features/api/application-api";
+import type { SafeReviewFacts } from "../features/api/client";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
 import { ApiError } from "../features/api/authenticated-fetch";
 import { reportConnectionStatus } from "../features/api/connection-status";
@@ -98,16 +99,13 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     const id = params.get("operationId");
     return Boolean(id && params.get("operationKind") !== "history-compare" && sessionStorage.getItem("gateway-preview-operation") === id);
   });
-  const [resumeSubmitOperation] = useState<{ operationId: string; workspaceId: string; submitAttemptId: string } | null>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get("operationId");
-    if (!id || params.get("operationKind") === "history-compare") return null;
-    try {
-      const marker = JSON.parse(sessionStorage.getItem("gateway-submit-operation") ?? "null") as { operationId?: string; workspaceId?: string; submitAttemptId?: string } | null;
-      if (marker?.operationId !== id || !marker.workspaceId || !marker.submitAttemptId) return null;
-      return { operationId: id, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
-    } catch { return null; }
-  });
+  const [resumeSubmitOperationId, setResumeSubmitOperationId] = useState<string | null>(null);
+  const [submitResumeMessage, setSubmitResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
+  const [activeReview, setActiveReview] = useState<SafeReviewFacts | null>(null);
+  const [activeReviewUnreadable, setActiveReviewUnreadable] = useState(false);
+  const [attemptState, setAttemptState] = useState<Schemas["SubmitAttemptResponse"] | null>(null);
+  const [attemptUnreadable, setAttemptUnreadable] = useState(false);
+  const [notice, setNotice] = useState<string | null>(() => new URLSearchParams(window.location.search).get("notice"));
   const resumePending = useRef(resumePreviewOperation);
   const [uploadLocked, setUploadLocked] = useState(resumePreviewOperation);
   const [uploadReady, setUploadReady] = useState(false);
@@ -138,18 +136,6 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     }
   }, [compareRefs, selectedKey]);
 
-  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
-    if (!resumeSubmitOperation || resumeSubmitOperation.operationId !== finishedOperationId) return;
-    try {
-      const attempt = await gatewayApi.getSubmitAttempt(resumeSubmitOperation.workspaceId, resumeSubmitOperation.submitAttemptId);
-      sessionStorage.removeItem("gateway-submit-operation");
-      if (!attempt.submission_id) return;
-      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: attempt.submission_id });
-      window.location.assign(`/?${params.toString()}`);
-    } catch {
-      sessionStorage.removeItem("gateway-submit-operation");
-    }
-  }, [resumeSubmitOperation]);
 
   const load = useCallback(async () => {
     const session = currentGatewaySession();
@@ -167,6 +153,26 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         gatewayApi.listHistory(),
       ]);
       setData({ workspace, history });
+      if (workspace.active_submit_attempt_id) {
+        try {
+          const attempt = await gatewayApi.getSubmitAttempt(workspace.workspace_id, workspace.active_submit_attempt_id);
+          setAttemptState(attempt);
+          setAttemptUnreadable(false);
+          if (attempt.operation_id) {
+            setResumeSubmitOperationId(attempt.operation_id);
+            const url = new URL(window.location.href);
+            if (url.searchParams.get("operationId") !== attempt.operation_id) {
+              url.searchParams.set("operationId", attempt.operation_id);
+              url.searchParams.set("operationKind", "operation");
+              window.history.replaceState(null, "", url);
+            }
+          }
+        } catch { setAttemptState(null); setAttemptUnreadable(true); }
+      } else { setAttemptState(null); setAttemptUnreadable(false); setResumeSubmitOperationId(null); }
+      if (workspace.active_submission_id) {
+        try { setActiveReview(await gatewayApi.getReviewFacts(workspace.active_submission_id)); setActiveReviewUnreadable(false); }
+        catch { setActiveReview(null); setActiveReviewUnreadable(true); }
+      } else { setActiveReview(null); setActiveReviewUnreadable(false); }
       setLoadError(null);
     } catch (cause) {
       const message = messageFrom(cause);
@@ -192,6 +198,34 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       return null;
     }
   }, []);
+
+  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
+    const session = currentGatewaySession();
+    try {
+      const workspace = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
+      if (workspace.active_submission_id) {
+        window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: workspace.active_submission_id, workbenchNode: selectedKey }, compareRefs));
+        return;
+      }
+      const attemptId = workspace.active_submit_attempt_id;
+      if (attemptId) {
+        const attempt = await gatewayApi.getSubmitAttempt(workspace.workspace_id, attemptId);
+        setAttemptState(attempt);
+        if (attempt.state === "ABORTED") {
+          setResumeSubmitOperationId(null);
+          setSubmitResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null });
+        } else {
+          setSubmitResumeMessage({ title: "提交结果待确认，需要管理员处理", code: finishedOperationId });
+        }
+      } else {
+        setResumeSubmitOperationId(null);
+        setSubmitResumeMessage({ title: "提交未完成，请检查上传与 Preview 后重试", code: null });
+      }
+      await load();
+    } catch {
+      setSubmitResumeMessage({ title: "无法确认提交状态", code: null });
+    }
+  }, [compareRefs, selectedKey, load]);
 
   useEffect(() => {
     void load();
@@ -429,8 +463,27 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     return () => { cancelled = true; };
   }, [historyBundle, compareState]);
 
+  const uploadOccupancy = useMemo(() => {
+    const workspace = data?.workspace;
+    if (!workspace) return null;
+    if (workspace.active_submit_attempt_id) {
+      if (attemptUnreadable) return "无法确认提交状态";
+      if (!attemptState) return "正在读取提交状态";
+      if (attemptState.state === "ABORTED") return "提交未完成，请检查上传与 Preview 后重试";
+      if (attemptState.state === "EFFECT_PENDING") return "提交结果待确认，需要管理员处理";
+      return "提交正在执行，完成后才能继续";
+    }
+    if (workspace.active_submission_id) {
+      if (activeReviewUnreadable) return "已有提交在处理中，完成后才能重新上传";
+      if (activeReview?.submission_disposition) return activeReview.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）";
+      if (!activeReview) return "正在读取审核状态";
+      if (activeReview.status === "PENDING") return "已有待审核的提交，撤回后才能重新上传";
+      if (activeReview.status === "APPROVED") return "该提交已通过审核，归档或关闭后才能重新上传";
+    }
+    return null;
+  }, [data, attemptUnreadable, attemptState, activeReview, activeReviewUnreadable]);
   const effectiveActions = actions.map((action) => action.id === "upload"
-    ? { ...action, enabled: action.enabled && uploadReady, reason: uploadBlockedReason ?? action.reason }
+    ? { ...action, enabled: action.enabled && uploadReady && !uploadOccupancy, reason: uploadOccupancy ?? uploadBlockedReason ?? action.reason }
     : action);
 
   const showHistoryDrawer = Boolean(historyCompareOperationId);
@@ -442,6 +495,8 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
+    {notice === "withdrawn" && <div role="status" className="form-success workspace-notice"><span>已撤回，可以重新上传</span><button className="link-button" onClick={() => setNotice(null)}>关闭</button></div>}
+    {submitResumeMessage && <div role="alert" className="form-error workspace-notice"><span>{submitResumeMessage.title}</span>{submitResumeMessage.code && <span>错误代码：<code>{submitResumeMessage.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void load()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{data.workspace.gateway_device_external_key}</span></div>
@@ -452,7 +507,11 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         <div className="workspace-tree-heading"><h1>组态树</h1><label className="workspace-search"><Search size={15} /><input ref={searchRef} aria-label="搜索工作区与 History 节点" placeholder="搜索节点" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></label><span className="workspace-tree-heading__spacer" />
           <label className="workspace-checkbox"><input type="checkbox" checked={currentBaselineOnly} onChange={(event) => setCurrentBaselineOnly(event.currentTarget.checked)} />只显示当前基线</label>
         </div>
-        {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && <OperationStatusPanel operationId={operationId} onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : resumeSubmitOperation ? (id) => void resumeSubmitFromOperation(id) : undefined} onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperation ? () => sessionStorage.removeItem("gateway-submit-operation") : undefined} />}
+        {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && <OperationStatusPanel
+          operationId={operationId}
+          onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
+          onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
+        />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
           <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
           <div className="workspace-actions">{effectiveActions.map((action) => <div className="workspace-action" key={action.id}>
@@ -475,7 +534,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
                 <button className="workspace-node-label" onClick={() => setSelectedKey(row.key)}>{row.label}</button>
                 {row.status && <span className={statusClass(row.statusTone)}><i aria-hidden="true" />{row.status}</span>}
                 {row.compareOrder && <span className="compare-order" title={`比较节点 ${row.compareOrder}`}>比较 {row.compareOrder}</span>}
-                {row.eligibilityNote && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线，不能归档">基线已更新</span>}
+                {row.eligibilityNote && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线">基线已更新</span>}
                 {row.identityException && <span className="status-tag status-tag--neutral" title="项目身份例外">项目身份例外</span>}
               </div></td>
               <td>{row.createdAt ? new Date(row.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"}</td>
@@ -531,7 +590,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
             <UploadStepCard ref={uploadRef} head={data.history.head} onReloadHead={reloadHead} onUploadStateChange={(active) => { if (active) resumePending.current = false; if (active || !resumePending.current) setUploadLocked(active); }} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
               onComplete={(workspaceId, previewResultId) => window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId, previewResultId, workbenchNode: selectedKey }, compareRefs))} />
           </>}
-          {selected?.kind !== "workspace" && selected && <dl className="details-list"><div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div><div><dt>状态</dt><dd>{selected.status || "—"}</dd></div><div><dt>节点 ID</dt><dd>{selected.refId}</dd></div><div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>{selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}{selected.eligibilityNote && <div className="details-list__long"><dt>归档原因</dt><dd><details><summary>展开原因</summary>该提交所基于的基线已不是当前基线，不能归档</details></dd></div>}{selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}</dl>}
+          {selected?.kind !== "workspace" && selected && <dl className="details-list"><div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div><div><dt>{selected.submissionDisposition ? "终局状态" : "状态"}</dt><dd>{selected.status || "—"}</dd></div>{selected.submissionDisposition && <div><dt>审核状态</dt><dd>已通过</dd></div>}{selected.submissionDisposition && <div className="details-list__long"><dt>终局处置</dt><dd>{selected.submissionDisposition === "ARCHIVED_BASELINE" ? (selected.dispositionBaselineLabel ? `已归档，成为${selected.dispositionBaselineLabel}` : "已归档") : "已关闭（未归档）"}</dd></div>}{selected.submissionDisposition === "CLOSED_NOT_ARCHIVED" && selected.dispositionSourceKind === "ARCHIVE" && <div className="details-list__long"><dt>原因</dt><dd>归档时选中了其他提交</dd></div>}{selected.closure && <><div><dt>关闭人</dt><dd>{selected.closure.closed_by}</dd></div><div><dt>关闭时间</dt><dd title={selected.closure.closed_at}>{new Date(selected.closure.closed_at).toLocaleString("zh-CN")}</dd></div><div className="details-list__long"><dt>关闭理由</dt><dd><details><summary>展开理由</summary><span style={{ whiteSpace: "pre-wrap" }}>{selected.closure.reason}</span></details></dd></div></>}<div><dt>节点 ID</dt><dd>{selected.refId}</dd></div><div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>{selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}{selected.eligibilityNote && !selected.submissionDisposition && <div className="details-list__long"><dt>基线说明</dt><dd><details><summary>展开说明</summary>该提交所基于的基线已不是当前基线</details></dd></div>}{selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}</dl>}
           {selectedReviewFacts && <p className="subtle-copy">{selectedReviewFacts}</p>}
         </div> : <div className="workspace-details__collapsed"><span>详情</span></div>}
       </aside>

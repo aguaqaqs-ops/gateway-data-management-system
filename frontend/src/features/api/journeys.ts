@@ -371,7 +371,7 @@ export async function applyReviewAction(api: GatewayApi, submissionId: string, r
 export interface ArchiveJourneyInput {
   selected: Schemas["ArchiveSelectedRefRequest"];
   confirmations?: Array<{ subjectDigest: string; action: "CONFIRM" | "REVOKE"; reason?: string | null; idempotencyKey?: string }>;
-  anomalyResolutions?: Array<{ subjectDigest: string; action: "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" | "REVOKE"; reason: string; idempotencyKey?: string }>;
+  anomalyResolutions?: Array<{ subjectDigest: string; action: Schemas["AppendArchiveAnomalyResolutionRequest"]["action"]; reason: string; idempotencyKey?: string }>;
   startIdempotencyKey?: string;
   idempotencyKey?: string;
 }
@@ -395,7 +395,7 @@ export function createArchiveJourneyProgress(): ArchiveJourneyProgress {
   return { confirmations: new Map(), anomalyResolutions: new Map() };
 }
 
-export type ArchiveSubjectKind = "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+export type ArchiveSubjectKind = NonNullable<Schemas["ArchiveAuditEventResponse"]["subject_kind"]>;
 
 async function listSubjectEvents(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<Schemas["ArchiveAuditEventResponse"][]> {
   const events: Schemas["ArchiveAuditEventResponse"][] = [];

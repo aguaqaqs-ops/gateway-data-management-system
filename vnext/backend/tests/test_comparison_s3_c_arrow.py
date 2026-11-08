@@ -26,8 +26,9 @@ from gateway_compute._native import (
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, _record_to_row,
-    _decoded_admission, _standalone_read_bound, _standalone_retained_cap,
+    RecordsPublicationContext, RecordsPublicationError, RecordsPublicationPolicy, _record_to_row,
+    _canonical_records_batch, _decoded_admission, _schema_matches,
+    _standalone_read_bound, _standalone_retained_cap,
     _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
     _write_arrow_parquet, open_records_closure,
     publish_records_closure, publish_records_family_arrow, read_records_artifact,
@@ -180,17 +181,24 @@ def test_exported_arrow_buffers_keep_charge_after_handle_and_reader_close() -> N
 def test_arrow_writer_preserves_fixed_python_parquet_raw_bytes(family: str) -> None:
     path = Path(__file__).resolve().parents[2] / f"fixtures/vectors/comparison/records/{family}-v1.parquet.b64"
     raw = base64.b64decode(path.read_text(encoding="ascii"))
-    source = pq.ParquetFile(pa.BufferReader(raw))
-    batches = tuple(source.iter_batches(batch_size=1024))
+    schema = _schema_for(
+        RecordsArtifactFamily(family.upper()), None,
+        RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+    )
+    with closing(pq.ParquetFile(pa.BufferReader(raw))) as source:
+        batches = tuple(
+            _canonical_records_batch(batch, schema)
+            for batch in source.iter_batches(batch_size=1024)
+        )
     assert batches
     rebuilt = _write_arrow_parquet(
-        batches, source.schema_arrow, RecordsPublicationPolicy(), RecordsPublicationContext()
+        batches, schema, RecordsPublicationPolicy(), RecordsPublicationContext()
     )
     assert rebuilt == raw
-    reader = pa.RecordBatchReader.from_batches(source.schema_arrow, batches)
-    result = _validate_records_batches_native(
-        reader, 2_000_000, 2 * 1024**3, NeverCancel()
-    )
+    with closing(pa.RecordBatchReader.from_batches(schema, batches)) as reader:
+        result = _validate_records_batches_native(
+            reader, 2_000_000, 2 * 1024**3, NeverCancel()
+        )
     assert result[3] == sum(batch.num_rows for batch in batches)
 
 
@@ -204,7 +212,7 @@ def test_frozen_python_parquet_vectors_use_real_native_reader(
         f"fixtures/vectors/comparison/records/{family.value.lower()}-v1.parquet.b64"
     )
     raw = base64.b64decode(path.read_text(encoding="ascii"))
-    digest = DigestRef.parse(content_digest)
+    digest = DigestRef(content_digest)
     manifest = RecordsArtifactManifest(
         table_name="t", family=family, record_format="PARQUET",
         schema_version=version,
@@ -212,6 +220,54 @@ def test_frozen_python_parquet_vectors_use_real_native_reader(
         record_count=count, content_digest=digest,
     )
     assert _validate_parquet_bytes(raw, manifest, RecordsPublicationPolicy()) == (count, digest)
+
+
+@pytest.mark.parametrize("shape", ("list_child", "nullable_field", "metadata"))
+def test_actual_records_reader_rejects_noncanonical_parquet_shape(shape: str) -> None:
+    family, version, count, digest_text = FROZEN_RECORDS_PARQUET[0]
+    path = Path(__file__).resolve().parents[2] / (
+        "fixtures/vectors/comparison/records/standard-v1.parquet.b64"
+    )
+    source_raw = base64.b64decode(path.read_text(encoding="ascii"))
+    with closing(pq.ParquetFile(pa.BufferReader(source_raw))) as source:
+        schema = source.schema_arrow
+        batch = next(source.iter_batches(batch_size=1024))
+    fields = list(schema)
+    if shape == "list_child":
+        fields[3] = pa.field(
+            "changed_columns", pa.list_(pa.field("rogue", pa.string())), nullable=False
+        )
+    elif shape == "nullable_field":
+        fields[0] = pa.field("table_name", pa.string(), nullable=True)
+    metadata = dict(schema.metadata or {})
+    if shape == "metadata":
+        metadata[b"gateway-vnext.records.family"] = b"UNSUPPORTED"
+    malformed = pa.schema(fields, metadata=metadata)
+    assert not _schema_matches(
+        malformed,
+        _schema_for(family, version, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
+        parquet_lists=True,
+    )
+    malformed_batch = pa.RecordBatch.from_arrays(batch.columns, schema=malformed)
+    with pytest.raises(RecordsPublicationError, match="batch schema mismatch"):
+        _canonical_records_batch(
+            malformed_batch,
+            _schema_for(family, version, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
+        )
+    if shape != "list_child":
+        sink = pa.BufferOutputStream()
+        pq.write_table(
+            pa.Table.from_batches([malformed_batch], schema=malformed), sink,
+            compression="zstd", use_dictionary=False, row_group_size=1,
+        )
+        manifest = RecordsArtifactManifest(
+            table_name="t", family=family, record_format="PARQUET",
+            schema_version=version,
+            row_diff_detail_policy=RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+            record_count=count, content_digest=DigestRef(digest_text),
+        )
+        with pytest.raises(RecordsPublicationError, match="schema mismatch"):
+            _validate_parquet_bytes(sink.getvalue().to_pybytes(), manifest, RecordsPublicationPolicy())
 
 
 def test_arrow_family_publish_avoids_records_readback() -> None:
@@ -297,6 +353,13 @@ def test_real_open_read_restore_use_native_arrow_validator(monkeypatch: pytest.M
     closure = open_records_closure(source_store, published.facts.records_ref)
     with closing(read_records_artifact(source_store, closure.records[0])) as stream:
         first = next(stream)
+    assert first.schema.equals(
+        _schema_for(
+            RecordsArtifactFamily.STANDARD, None,
+            RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+        ),
+        check_metadata=True,
+    )
     assert first.to_pylist()[0]["record_kind"] == "ROW_MODIFIED"
     restored = restore_records_closure(
         source_store, InMemoryArtifactStore(), published.facts.records_ref

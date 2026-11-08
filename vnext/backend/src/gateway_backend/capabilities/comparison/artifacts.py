@@ -8,7 +8,6 @@ part of the comparison or facts-core digests.
 from __future__ import annotations
 
 import json
-from itertools import chain
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, replace
@@ -322,9 +321,12 @@ def open_records_closure(
 class RecordsArrowBatchStream:
     """Explicitly closable diagnostic Arrow reader over a validated artifact."""
 
-    def __init__(self, raw: bytes, limits: RecordsPublicationPolicy) -> None:
+    def __init__(
+        self, raw: bytes, limits: RecordsPublicationPolicy, expected_schema: pa.Schema
+    ) -> None:
         self._raw = raw
         self._limits = limits
+        self._expected_schema = expected_schema
         self._file: pq.ParquetFile | None = None
         self._iterator: Iterator[pa.RecordBatch] | None = None
         self._admission = 0
@@ -343,6 +345,10 @@ class RecordsArrowBatchStream:
         try:
             if self._iterator is None:
                 self._file = pq.ParquetFile(pa.BufferReader(self._raw))
+                if not _schema_matches(
+                    self._file.schema_arrow, self._expected_schema, parquet_lists=True
+                ):
+                    raise RecordsPublicationError("records Parquet schema mismatch")
                 self._admission = _decoded_admission(self._file, self._limits)
                 self._retained_cap = _standalone_retained_cap(
                     len(self._raw), self._admission
@@ -351,14 +357,16 @@ class RecordsArrowBatchStream:
                 if metadata is None:
                     raise RecordsPublicationError("records Parquet metadata is unavailable")
                 self._expected_rows = metadata.num_rows
-                self._iterator = _row_group_batches(self._file)
+                self._iterator = _row_group_batches(self._file, self._expected_schema)
             if self._emitted_rows == self._expected_rows:
                 self.close()
                 raise StopIteration
             if self._emitted_bytes + self._admission > self._retained_cap:
                 raise RecordsPublicationError("records retained Arrow budget exceeded")
             batch = next(self._iterator)
-            self._emitted_bytes += batch.nbytes
+            # The predecode admission includes the new Arrow batch/schema
+            # header; retained diagnostic batches keep that small fee too.
+            self._emitted_bytes += batch.nbytes + 4096 + 256 * batch.num_columns
             self._emitted_rows += batch.num_rows
             if batch.nbytes > self._admission or self._emitted_bytes > self._retained_cap:
                 raise RecordsPublicationError("records decoded batch budget exceeded")
@@ -415,7 +423,10 @@ def read_records_artifact(
         raise RecordsPublicationError("diagnostic records reader cannot escape an operation")
     raw = _locate(store, entry.records_ref)
     _validate_parquet_bytes(raw, manifest, limits)
-    return RecordsArrowBatchStream(raw, limits)
+    return RecordsArrowBatchStream(
+        raw, limits,
+        _schema_for(manifest.family, manifest.schema_version, manifest.row_diff_detail_policy),
+    )
 
 
 def rewrite_closure_refs(
@@ -643,7 +654,7 @@ def publish_records_family_arrow(
     if count == 0 or count != expected_count:
         raise RecordsPublicationError("empty records family has no artifact")
     _enforce_record_count_budget(count, limits)
-    content_digest = DigestRef.parse(digest_text)
+    content_digest = DigestRef(digest_text)
     from gateway_backend.capabilities.table_access import current_kernel_context
 
     operation = current_kernel_context()
@@ -811,7 +822,7 @@ def _validate_parquet_bytes(
             manifest.row_diff_detail_policy,
         )
         actual_schema = file.schema_arrow
-        if not _schema_matches(actual_schema, expected_schema):
+        if not _schema_matches(actual_schema, expected_schema, parquet_lists=True):
             raise RecordsPublicationError("records Parquet schema mismatch")
         _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
         admission = _decoded_admission(file, limits)
@@ -824,7 +835,7 @@ def _validate_parquet_bytes(
             if operation is not None:
                 operation.checkpoint()
             with closing(pa.RecordBatchReader.from_batches(
-                actual_schema, _row_group_batches(file)
+                expected_schema, _row_group_batches(file, expected_schema)
             )) as reader:
                 family, schema_version, detail_policy, count, digest_text = validate_records_batches(
                     reader,
@@ -851,7 +862,7 @@ def _validate_parquet_bytes(
         raise RecordsPublicationError("records Parquet metadata mismatch")
     if count != manifest.record_count:
         raise RecordsPublicationError("records Parquet count mismatch")
-    digest = DigestRef.parse(digest_text)
+    digest = DigestRef(digest_text)
     if digest != manifest.content_digest:
         raise RecordsPublicationError("records content digest mismatch")
     return count, digest
@@ -904,14 +915,24 @@ def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -
     return largest
 
 
-def _row_group_batches(file: pq.ParquetFile) -> Iterator[pa.RecordBatch]:
+def _row_group_batches(
+    file: pq.ParquetFile, expected_schema: pa.Schema
+) -> Iterator[pa.RecordBatch]:
     metadata = file.metadata
     if metadata is None:
         raise RecordsPublicationError("records Parquet metadata is unavailable")
-    return chain.from_iterable(
-        file.iter_batches(batch_size=1024, row_groups=[index])
-        for index in range(metadata.num_row_groups)
-    )
+    for index in range(metadata.num_row_groups):
+        for batch in file.iter_batches(batch_size=1024, row_groups=[index]):
+            yield _canonical_records_batch(batch, expected_schema)
+
+
+def _canonical_records_batch(batch: pa.RecordBatch, expected_schema: pa.Schema) -> pa.RecordBatch:
+    if not _schema_matches(batch.schema, expected_schema, parquet_lists=True):
+        raise RecordsPublicationError("records Parquet batch schema mismatch")
+    # Parquet's physical List child is named ``element``. The public Arrow
+    # schema uses ``item``; reuse the decoded arrays and only replace headers.
+    # The existing decoded-group reservation covers these small batch headers.
+    return pa.RecordBatch.from_arrays(batch.columns, schema=expected_schema)
 
 
 def _standalone_retained_cap(raw_bytes: int, admission: int) -> int:
@@ -939,12 +960,46 @@ def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublic
         raise RecordsPublicationError("records per-table limit exceeded")
 
 
-def _schema_matches(actual: pa.Schema, expected: pa.Schema) -> bool:
-    if not actual.equals(expected, check_metadata=False):
+def _schema_matches(
+    actual: pa.Schema, expected: pa.Schema, *, parquet_lists: bool = False
+) -> bool:
+    if (actual.metadata or {}) != (expected.metadata or {}):
         return False
-    expected_metadata = expected.metadata or {}
-    actual_metadata = actual.metadata or {}
-    return all(actual_metadata.get(key) == value for key, value in expected_metadata.items())
+    if len(actual) != len(expected):
+        return False
+    return all(
+        _field_matches(actual_field, expected_field, parquet_lists=parquet_lists)
+        for actual_field, expected_field in zip(actual, expected)
+    )
+
+
+def _field_matches(
+    actual: pa.Field, expected: pa.Field, *, parquet_lists: bool, list_child: bool = False
+) -> bool:
+    expected_name = "element" if parquet_lists and list_child else expected.name
+    if (
+        actual.name != expected_name
+        or actual.nullable != expected.nullable
+        or (actual.metadata or {}) != (expected.metadata or {})
+    ):
+        return False
+    actual_type = actual.type
+    expected_type = expected.type
+    if isinstance(expected_type, pa.ListType):
+        return isinstance(actual_type, pa.ListType) and _field_matches(
+            actual_type.value_field, expected_type.value_field,
+            parquet_lists=parquet_lists, list_child=True,
+        )
+    if isinstance(expected_type, pa.StructType):
+        return (
+            isinstance(actual_type, pa.StructType)
+            and len(actual_type) == len(expected_type)
+            and all(
+                _field_matches(a, e, parquet_lists=parquet_lists)
+                for a, e in zip(actual_type, expected_type)
+            )
+        )
+    return actual_type == expected_type
 
 
 def _schema_for(

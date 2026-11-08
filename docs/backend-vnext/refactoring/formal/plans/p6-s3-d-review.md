@@ -20,7 +20,7 @@
 
 固定 5c 的 17 个产品路径不改五个 uv lock、Cargo.lock、toolchain 或 backend dependency-base 输入；f000 的整表 codec 重编码已改为普通 SQL/History 的 `ArrowSnapshotTableReader.reopen().arrow_stream()`，`composite_signal_point` 仅以既有 `snapshot_arrow_input` 有界转换进入 Rust。C 的 facts/artifact 两序分离仍在：Risk 新导出 facts 原序的 kind、32 字节 identity 和 changed-columns Arrow 视图，物理 batch 的 owner 链沿 `charge_arrow_batches` 留到最后 buffer。metadata-only facts core 允许 `None` handle 但传完整 table payload；summary 位于 tables 前，跨 phase handle 要求同一 operation identity 且来源已 seal。这些是静态结构判断，当前候选尚待 06 动态证明 Parquet/JCS/owner/M。
 
-**仍需修复：** `production.py` 的 `ComparisonTaskSession.evict_for()` 在首个 pair 入口看到 `cached={}`，任何已声明重复 key 都“不在缓存”，立即 `close()` 清空声明、用途和 key charges。于是首个 producer 不会留候选，FULL 第二 pair 不可能命中；这是实际控制流确定的失效，不应以“真实任务 0 hit 合法”解释。已交实施者修 first producer 与必要新工作前驱逐/安全 miss，并要求真实可复用输入的 calls/reads/hits 独立测例。实施者已在 main WIP 报告修订，下一固定 SHA 才复审，不把 WIP 当 5c 的修复证据。
+**仍需修复：** `production.py` 的 `ComparisonTaskSession.evict_for()` 在首个 pair 入口看到 `cached={}`，任何已声明重复 key 都“不在缓存”，立即 `close()` 清空声明、用途和 key charges。于是首个 producer 不会留候选，FULL 第二 pair 不可能命中；这是实际控制流确定的失效，不应以“真实任务 0 hit 合法”解释。同一完整 key 根因还包括 artifact 身份分支只写 artifact/ordered metadata、忽略 `SnapshotTable.reader is None`：Contract 允许非失败表有同一 artifact/descriptor 但 reader 缺席，后一 pair 本应降级，却可重放前对成功事实。已交实施者修 first producer、reader availability 与必要新工作前驱逐/安全 miss，并要求可复用及 reader 缺席向量的 calls/reads/hits 独立测例。这些是 f000 dedup 根因在第一轮实修后未闭，实施者当前 main WIP 的修订要等下一固定 SHA 才复审。
 
 本轮仍须核完成：按旧 Python 控制流独立生成 keyless/非记录/ordered/BLANK 与 Risk cap、过滤、诊断、closure 期望；真实 Preview MO/FULL、History、小 Compose；cache 失败/取消/超时不留半成品、最后用途退账、低 M 安全 miss；Risk 必要列最后 Arrow owner 与 Python batch 转换峰值；当前生产镜像重建和小 Compose。现有 5c 测试文件仅有两个普通 Standard fixed facts 例子，不能独自覆盖这些高风险路径。静态审核继续，不把未运行测试写成 PASS。
 
@@ -28,7 +28,7 @@
 
 本人只读核固定恢复说明 `7ca300def7b1f56b9dd4629184fc0fe72ebec35b`，即 [p6-s3-d-execution-stop.md](p6-s3-d-execution-stop.md)。它把 f000 产品 fmt exit1 与两次外层日志抓取 exit1 分开：首次脚本将 `PREP_LOG_SHA256=<hash>` 当纯 hash 比较；唯一纠正又将 `RUN_LOG_SHA256=<hash>` 当纯 hash 比较。第二次 SCP 自身 exit0，但组合命令 exit1、组合 stdout 未单独落盘，不能补记为原始完整日志。06 postflight SSH 本身 exit0 且本人 marker 已释放。本人事后曾做第三次纯本地只读 SHA 比较并表示 CLEAR；现明确撤回它作为恢复依据的结论，文件字节相同不能改写两次外层失败或取得 DC68 放行。
 
-AGENTS DC68 的“重做再次失败……均停止交 owner”适用同根取证错误。本人的独立结论：**7ca 恢复说明可供 Owner 决定，执行通道仍暂停**。其 §3 的下一候选标准 `sha256sum` 清单、清单外收据与 `sha256sum --check` 是针对已发生前缀解析故障的最小方案；不追加 f000 比较、不重跑旧 f000 fmt、不覆盖原件。具体新候选脚本和捕获模板尚须同一独审逐字核对象、路径、命令及 SHA，且 Owner 放行前不得执行。此稿本身不是执行 CLEAR、D GO 或对旧失败的豁免。
+AGENTS DC68 的“重做再次失败……均停止交 owner”适用同根取证错误。本人的独立结论：**固定 `7ca300def7b1f56b9dd4629184fc0fe72ebec35b` 恢复说明及 `1719ca8f243180335ec9e9d1c6f3ec0585dbf284` 模板绑定补充可供 Owner 决定，执行通道仍暂停**。其 §3 的下一候选标准 `sha256sum` 清单、清单外收据与 `sha256sum --check` 是针对已发生前缀解析故障的最小方案；不追加 f000 比较、不重跑旧 f000 fmt、不覆盖原件。同一 tester 后写的**未执行** `/home/dev/gdds-test-tmp/p6-s3-d-capture-template/capture-artifacts.sh` 本人已逐字静态 CLEAR，独立核其文件 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23` 与 1719 记录一致：活动收据位于新本地捕获目录外，远端拒覆盖并生成标准清单，SCP 与本地 `sha256sum --check` 各保原 exit/stdout/stderr，无标签 hash 提取或自动重试。此 CLEAR 只覆盖通用捕获模板；下一固定候选的完整 source/node/run/调用字面稿仍须本人核 HEAD、路径、命令及 SHA，Owner 放行前不得执行。恢复稿及模板均不是 D GO 或对旧失败的豁免。
 
 ## 5. 当前验证与镜像判定
 

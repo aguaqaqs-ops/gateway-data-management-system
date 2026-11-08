@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -307,6 +308,101 @@ def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
         stop.set()
         runner.join(timeout=5)
 
+    assert events[:1] == ["worker_ready"]
+    assert events[-2:] == ["drain_started", "worker_exited"]
+
+
+@pytest.mark.serial
+def test_composed_file_backed_worker_claims_publishes_and_acks_while_gc_is_paused(
+    tmp_path: Path,
+) -> None:
+    original_gc_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        settings = make_operation_worker_settings(
+            tmp_path,
+            control_db_path=tmp_path / "gc-scheduling" / "control.sqlite3",
+        )
+        bootstrap_control_database(settings)
+        operation = operation_record_from_document(
+            _operation_document("operation-worker-gc-scheduling")
+        )
+        step = step_record_from_document(
+            _step_document(operation.operation_id, "step-worker-gc-scheduling")
+        )
+        with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+            assert (
+                unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+                is TransitionDisposition.APPLY
+            )
+
+        events: list[str] = []
+        gc_states: list[bool] = []
+        stop = Event()
+
+        def observe(event: WorkerEvent) -> None:
+            events.append(event.code.value)
+
+        def publish_success(
+            _operation: OperationRecord,
+            _step: StepRecord,
+            _control: ExecutionControl,
+            lease_session: LeaseSession,
+        ) -> ExecutorAcknowledgment:
+            gc_states.append(gc.isenabled())
+
+            def complete(
+                current_operation: OperationRecord,
+                current_step: StepRecord,
+                now: datetime,
+            ) -> tuple[StepRecord, OperationRecord]:
+                return (
+                    dataclasses.replace(
+                        current_step,
+                        status=StepStatus.SUCCEEDED,
+                        completed_at=now,
+                        worker_id=None,
+                        lease_token=None,
+                        lease_expires_at=None,
+                        updated_at=now,
+                        optimistic_version=current_step.optimistic_version + 1,
+                    ),
+                    dataclasses.replace(
+                        current_operation,
+                        status=OperationStatus.SUCCEEDED,
+                        completed_at=now,
+                        updated_at=now,
+                        optimistic_version=current_operation.optimistic_version + 1,
+                    ),
+                )
+
+            lease_session.publish_operation(complete)
+            stop.set()
+            return ExecutorAcknowledgment.PUBLISHED
+
+        runtime = build_worker_runtime(
+            settings,
+            observer=observe,
+            job_definitions=(_registered_definition(),),
+            handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, publish_success)},
+            payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+        )
+        runtime.run(stop.is_set, stop.wait)
+        gc_enabled_after_run = gc.isenabled()
+
+        with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
+            persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+            persisted_step = unit_of_work.operations.get_step(step.step_id)
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+    assert gc_states == [False]
+    assert gc_enabled_after_run
+    assert persisted_operation.status is OperationStatus.SUCCEEDED
+    assert persisted_step.status is StepStatus.SUCCEEDED
     assert events[:1] == ["worker_ready"]
     assert events[-2:] == ["drain_started", "worker_exited"]
 

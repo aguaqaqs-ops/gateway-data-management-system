@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import gc
 import random
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 from gateway_backend.operations.lease_session import LeaseSession
@@ -35,6 +37,9 @@ _DEFAULT_BUSY_BACKOFF_MAX = 10.0
 class _ExecutorThread(Protocol):
     @property
     def daemon(self) -> bool: ...
+
+    @property
+    def ident(self) -> int | None: ...
 
     def start(self) -> None: ...
 
@@ -69,10 +74,35 @@ def _default_jitter(lower: float, upper: float) -> float:
 _NO_EXECUTOR_VALUE = object()
 
 
+class _ClaimCycleResult(Enum):
+    CLAIM_BUSY = "claim_busy"
+    EMPTY = "empty"
+    CLAIMED = "claimed"
+
+
+@dataclass(slots=True)
+class _ExecutorJoinStatus:
+    confirmed: bool = True
+
+
 @dataclass(slots=True)
 class _ExecutorOutcome:
     value: object = _NO_EXECUTOR_VALUE
     error: BaseException | None = None
+
+
+def _add_secondary_failure_note(
+    error: BaseException,
+    context: str,
+    failure: BaseException | None,
+) -> None:
+    try:
+        if failure is None:
+            error.add_note(context)
+        else:
+            error.add_note(f"{context} raised {type(failure).__name__}")
+    except BaseException:
+        pass
 
 
 class WorkerRuntime:
@@ -193,10 +223,8 @@ class WorkerRuntime:
             if self._lifecycle.state is WorkerLifecycle.DRAINING_TIMEOUT:
                 raise RuntimeError("worker drain timed out")
 
-            claim_anchor = self._monotonic()
-            try:
-                work = self._startup.claim_one()
-            except StoreBusy:
+            result = self._run_claim_cycle(drain_requested)
+            if result is _ClaimCycleResult.CLAIM_BUSY:
                 claim_busy_attempt += 1
                 self._emit(
                     WorkerEvent(
@@ -208,11 +236,10 @@ class WorkerRuntime:
                 continue
 
             claim_busy_attempt = 0
-            if work is None:
+            if result is _ClaimCycleResult.EMPTY:
                 self._wait_interruptibly(self._idle_poll, drain_requested, wait)
                 continue
 
-            self._run_claim(work, drain_requested, claim_anchor=claim_anchor)
             state: WorkerLifecycle = self._lifecycle.state
             if state is WorkerLifecycle.QUIESCED:
                 self._finish_clean_drain()
@@ -220,13 +247,71 @@ class WorkerRuntime:
             if state is WorkerLifecycle.DRAINING_TIMEOUT:
                 raise RuntimeError("worker drain timed out")
 
+    def _run_claim_cycle(self, drain_requested: DrainRequested) -> _ClaimCycleResult:
+        """Claim and finish one item with automatic GC confined to the idle gap."""
+
+        gc_was_enabled = gc.isenabled()
+        join_status = _ExecutorJoinStatus()
+        work: ClaimedWork | None = None
+        result = _ClaimCycleResult.EMPTY
+        collect_after_claim = False
+        primary_error: BaseException | None = None
+        try:
+            if gc_was_enabled:
+                gc.disable()
+            claim_anchor = self._monotonic()
+            try:
+                work = self._startup.claim_one()
+            except StoreBusy:
+                result = _ClaimCycleResult.CLAIM_BUSY
+            else:
+                if work is not None:
+                    self._run_claim(
+                        work,
+                        drain_requested,
+                        claim_anchor=claim_anchor,
+                        join_status=join_status,
+                    )
+                    result = _ClaimCycleResult.CLAIMED
+                    collect_after_claim = gc_was_enabled
+        except BaseException as error:
+            primary_error = error
+            raise
+        finally:
+            # Release the claim before collecting; _run_claim's executor/session locals
+            # have already left scope, and the executor join has been confirmed.
+            work = None
+            if gc_was_enabled and join_status.confirmed:
+                try:
+                    gc.enable()
+                    if collect_after_claim:
+                        gc.collect()
+                except BaseException as cleanup_error:
+                    if primary_error is None:
+                        raise
+                    _add_secondary_failure_note(
+                        primary_error,
+                        "worker automatic GC restoration or collection",
+                        cleanup_error,
+                    )
+            elif gc_was_enabled and primary_error is not None:
+                _add_secondary_failure_note(
+                    primary_error,
+                    "automatic GC remains disabled because executor join was not confirmed",
+                    None,
+                )
+        return result
+
     def _run_claim(
         self,
         work: ClaimedWork,
         drain_requested: DrainRequested,
         *,
         claim_anchor: float,
+        join_status: _ExecutorJoinStatus | None = None,
     ) -> None:
+        if join_status is None:
+            join_status = _ExecutorJoinStatus()
         worker_id = work.step.worker_id
         lease_token = work.step.lease_token
         if not isinstance(worker_id, str) or not worker_id:
@@ -273,14 +358,26 @@ class WorkerRuntime:
         thread = self._thread_factory(execute)
         if thread.daemon:
             raise ValueError("executor thread must be non-daemon")
-        thread.start()
-
-        pending_drain = self._lifecycle.state is WorkerLifecycle.DRAINING
-        if pending_drain or drain_requested():
-            self._wake_event.set()
-        next_heartbeat = claim_anchor + self._heartbeat_interval
-
+        join_status.confirmed = False
         try:
+            thread.start()
+        except BaseException as start_error:
+            if thread.ident is None:
+                join_status.confirmed = True
+            else:
+                try:
+                    thread.join()
+                except BaseException as join_error:
+                    _add_secondary_failure_note(start_error, "executor join", join_error)
+                else:
+                    join_status.confirmed = True
+            raise
+        try:
+            pending_drain = self._lifecycle.state is WorkerLifecycle.DRAINING
+            if pending_drain or drain_requested():
+                self._wake_event.set()
+            next_heartbeat = claim_anchor + self._heartbeat_interval
+
             while not completed.is_set():
                 self._observe_drain_intent(drain_requested, control)
                 pending_drain = pending_drain or self._lifecycle.state is WorkerLifecycle.DRAINING
@@ -315,11 +412,23 @@ class WorkerRuntime:
 
                 self._wake_event.wait(timeout)
                 self._wake_event.clear()
-        except BaseException:
-            thread.join()
+        except BaseException as error:
+            try:
+                thread.join()
+            except BaseException as join_error:
+                _add_secondary_failure_note(error, "executor join", join_error)
+            else:
+                join_status.confirmed = True
             raise
 
-        thread.join()
+        try:
+            thread.join()
+        except BaseException as join_error:
+            if outcome.error is None:
+                raise
+            _add_secondary_failure_note(outcome.error, "executor join", join_error)
+            raise outcome.error
+        join_status.confirmed = True
         if self._lifecycle.check_timeout():
             self._emit_drain_timeout()
         self._observe_drain_intent(drain_requested, control)

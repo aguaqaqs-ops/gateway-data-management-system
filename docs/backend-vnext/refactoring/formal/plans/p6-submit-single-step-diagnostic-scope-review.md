@@ -3028,3 +3028,17 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 释放log420B/SHA **`17553526ecad78179578de63f26ebfc51dfe92d56a6297cdbb157848e4bccd1f`** 直接核：01:01:17.909273Z、focused未启动、准确owner match、无活动测试/record/service进程、f8b08fc clean并解锁。初取锁和前record锁按owner释放的日志也已读，不由读取者替他人清占用。设计另在01:02Z只读确认任务PATH前置后cargo/rustc解析至所需目录、uv/python3存在，无缺工具迹象；最终selector/四工具一致性仍由实际执行脚本核验，不冒称已过focused。
 
 已直接告实施者在最终执行shell中先export PATH=/home/dev/.cargo/bin:$PATH、unset RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME，保持UV/Cargo离线和外置TMPDIR，再按selector核工具身份并运行已授权必要focused/静态；不修改全局登录配置、selector、锁或依赖，不等待审核者再看预检脚本，不原样第三试。原失败/释放记录保留，真实工具链或缓存异常另据事实处理；V5b原绝对截止、record语义/producer修订及04两测试修正继续，不整体暂停。审核者未在CT201跑测试或改节点环境。
+
+## 143. V5b empty artifact修复c81代码与必要05实证独审PASS，待具体仅余步骤接续包
+
+**`c81f2fbceac24e0ffef56565a9ab10ab3956613e` 的V5b工具修复代码及必要05验证独审PASS，§138/141–142具体修复/验证阻塞关闭。** 不是V5b业务已完成或新运行已启动。f8的真实empty helper→pair消费者1 passed/1.79s及三文件Ruff通过；c81只作owning reader/session协议类型及probe provider类型修订，代码复核与最终标准mypy/受影响Ruff通过，未机械重跑已过consumer。原生产pair artifact拒绝、S5默认、计时边界、产品/依赖/Compose均未改变。
+
+已直接读CT201 relay原entry和closed日志、重算全部SHA。entry5143B/SHA **`86047f5860bd3696b5b73a55de23bc1dc21309679c958a0234ee8ba9ff77de1a`** 先设置canonical PATH、unset三Rust overrides及八proxy、UV/Cargo离线与外置TMPDIR/自有Cargo target，再核HEAD/clean/legacy/owner/节点前提。05 f8实际01:10:26–57Z，Rust selector1.97.0、四工具来自同一resolved bin，backend locked离线同步及extension build-input精确58436908通过，随后唯一consumer和Ruff通过。整份command log14448B/SHA **`d872fa66651da06e43ffb77e3422df7a59a568115de24a7471235d6417255aed`** 最终exit2，是后续直接指定benchmark文件的mypy命令产生import-untyped/双模块名；该整log不能标整体PASS，但前面实际组件结果有效。entry/失败字节保持。
+
+纠正为仓库标准mypy后，05 01:15:08–18Z实际报四个真实类型问题，log1192B/SHA **`3269e47db98c0e0414c3b59ff3a59476d307cc478fdd04e18e5695010933cab1`** 已读：两个Any return及provider lambda返回None两项，不是全部归为命令错误。c81增量只将reader/session改用owning RepositoryTableReader/RepositoryRefSession，probe factory改为NoReturn fail-fast；本审核已建立准确只读detached `/home/dev/gdds-p6-review-v5b-c81f2fbc` 并核完整diff。真实_measure_checkpoints_and_pins仅将preview_deps传给_pin_preview_refs；该函数只用control_transaction_factory/set_artifact_protection，dataclass构造也不调用factory，故有效probe路径不会触发新fail-fast，无需新增stub测试或重跑empty consumer。此前“不重复Ruff”只适用于源码未改的命令纠正；c81已改文件因此实际补Ruff，没有跳过必要静态。
+
+最终05 c81 static log608B/SHA **`ae07be28727513d997ffaf978e3054bc96aae49075856a06ca55e59495df10a8`** 直接核：01:21:01–02Z、准确c81起止clean、canonical环境，受影响V5b Ruff通过，标准backend mypy **504 files/no issues**、static_exit0，无skip/ignore改动。01:20:10Z源码导入log407B/SHA **`a5c0b4e37d73205af444a6249bbf87eddd83ad546e4fb2e2c25a7966dda7db0c`** 及937B bundle SHA **`23694bfb7ee527f34e73bec474080411d517fcb5c90e6bd334672e8f38a8a6a3`** 均已核。释放log340B/SHA **`b232d0f56502f923ca5a284e2233b1d6150101d98d462d9b83404f6111e367ee`** 记01:22:02.132437Z、c81 clean、无活动进程/项目容器、owner精确匹配并释放；聚合结果不冒称consumer在c81重跑，也不是权威runner carried。
+
+已直告实施者不等组件回执，直接准备一份具体V5b-only实际entry/来源包集中核：clean c81；本次e0dd state绑定原repository/v1 commit和保留卷，仅必要RS、禁止build/pull、无journey/seed/POST；旧245232de FAILED raw的两个已完成A段精确引用并区分必要Bound重建/缓存；原Nov8 **20:04:47.876Z SIGINT / 20:34:47.876Z hard**及剩余预算，含清理不滑动；新scratch/output/接续身份、自有节点锁及有界保卷收尾。具体运行材料尚未交，不提前宣称V5b已接续或缺口全关，不增加Owner/GO或新证明矩阵。
+
+本次改的是宿主测量helper/测试，不重建或替换CT108冻结9704镜像；最后三镜像身份仍§135已核config/全部DiffID/labels、RS源树319及其明确诊断build-input差异。正式V_ref后续若纳入这些工具修订，最终H的闭包/镜像/门禁另按原规则绑定，不能拿失败H780 runner作合格来源。records的真实模式/缓存/正确producer修订、STRESS认证副本传输与04两测试修订保持原持续授权，不因本长步骤准备整体等待。审核者未在CT201执行候选、测试或验证器。

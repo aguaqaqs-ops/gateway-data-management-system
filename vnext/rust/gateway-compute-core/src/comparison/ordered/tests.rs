@@ -4,14 +4,16 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use arrow_array::{Int64Array, RecordBatch, StringArray};
+use arrow_array::{Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow_schema::{ArrowError, DataType, Field, Schema};
 
 use super::*;
 
 fn field(name: &str, scalar_type: &str, data_type: DataType, nullable: bool) -> Field {
     let (sql_type, kind, bits) = match scalar_type {
-        "INT UNSIGNED" | "INT" => ("BIGINT", "signed-integer", Some(64u8)),
+        "INT UNSIGNED" => ("INT UNSIGNED", "unsigned-integer", Some(32u8)),
+        "BIGINT" => ("BIGINT", "signed-integer", Some(64u8)),
+        "INT" => ("INT", "signed-integer", Some(32u8)),
         "VARCHAR(64)" => ("VARCHAR(64)", "string", None),
         _ => panic!("unexpected test scalar type: {scalar_type}"),
     };
@@ -41,13 +43,28 @@ fn batch_with_extra(
     names: &[Option<&str>],
     extra: Option<&[Option<&str>]>,
 ) -> Result<RecordBatch, ArrowError> {
+    let signed_gid = gids.iter().flatten().any(|gid| *gid < 0);
     let mut fields = vec![
-        field("gid", "INT UNSIGNED", DataType::Int64, true),
+        field(
+            "gid",
+            if signed_gid { "BIGINT" } else { "INT UNSIGNED" },
+            if signed_gid { DataType::Int64 } else { DataType::UInt64 },
+            true,
+        ),
         field("no", "INT", DataType::Int64, false),
         field("name", "VARCHAR(64)", DataType::Utf8, true),
     ];
+    let gid_array: arrow_array::ArrayRef = if signed_gid {
+        Arc::new(Int64Array::from(gids.to_vec()))
+    } else {
+        Arc::new(UInt64Array::from(
+            gids.iter()
+                .map(|gid| gid.map(|value| u64::try_from(value).expect("non-negative test gid")))
+                .collect::<Vec<_>>(),
+        ))
+    };
     let mut arrays: Vec<arrow_array::ArrayRef> = vec![
-        std::sync::Arc::new(Int64Array::from(gids.to_vec())),
+        gid_array,
         std::sync::Arc::new(Int64Array::from(positions.to_vec())),
         std::sync::Arc::new(StringArray::from(names.to_vec())),
     ];
@@ -99,13 +116,16 @@ fn compare<'a>(
         Arc::new(AtomicBool::new(false)),
         None,
     ));
-    let result = compare_ordered_batches(OrderedBatchPair {
-        before: Some(&before_batches),
-        current: Some(&current_batches),
-        before_schema: Some(before.schema()),
-        current_schema: Some(current.schema()),
-        options,
-    }, &context)?;
+    let result = compare_ordered_batches(
+        OrderedBatchPair {
+            before: Some(&before_batches),
+            current: Some(&current_batches),
+            before_schema: Some(before.schema()),
+            current_schema: Some(current.schema()),
+            options,
+        },
+        &context,
+    )?;
     Ok(TestedComparison {
         standard_count: result.standard_records.len(),
         ordered_count: result.ordered_records.len(),

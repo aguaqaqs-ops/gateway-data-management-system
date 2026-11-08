@@ -19,6 +19,7 @@ from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.capabilities.comparison import (
     ArtifactScope, BoundSnapshotInput, ComparisonMode, ComparisonPlan, ComparisonRequest,
     ComparisonStorageFacts, ComparisonTableStatus, DetailedFactsResult, KeylessPolicy,
+    SchemaEvolution,
     plan_comparison,
 )
 from gateway_backend.capabilities.comparison.contracts import (
@@ -55,7 +56,9 @@ from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
 from tests.support.comparison_s3_e_frozen import frozen_case
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
-from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
+from tests.support.table_rules import (
+    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record,
+)
 from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
 
@@ -74,6 +77,53 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
             ordered=item.ordered_metadata,
         ))
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
+
+
+@pytest.mark.parametrize(
+    ("current_rows", "content_changed"),
+    (
+        ("(2,2,'b','y'),(1,1,'a','x')", False),
+        ("(2,2,'b','x'),(1,1,'a','y')", True),
+    ),
+    ids=("added-column-and-physical-reorder", "excluded-values-swap-association"),
+)
+def test_ordered_added_column_uses_shared_row_association(
+    current_rows: str, content_changed: bool,
+) -> None:
+    before = _canonical_bound(bound(
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8));"
+        " INSERT INTO t VALUES (1,1,'a','x'),(2,2,'b','y');"
+    ))
+    rows_with_added = current_rows.replace(")", ",'z')")
+    current = _canonical_bound(bound(
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8),"
+        " added VARCHAR(8));"
+        f" INSERT INTO t VALUES {rows_with_added};"
+    ))
+    planned = plan_comparison(ComparisonRequest(
+        pair_id="ordered-added-column-association", before=before, current=current,
+        rule_set=comparison_ruleset_for(ordered_record(
+            r"^t$", compare_excluded_columns=("secret",),
+        )),
+    ))
+    assert isinstance(planned, ComparisonPlan)
+    product = compare_plan_native(planned)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        fact, = product.result.facts.tables
+        assert fact.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+        assert fact.status is ComparisonTableStatus.UNCHANGED
+        assert fact.content_changed is content_changed
+        assert fact.records == ()
+        assert fact.ordered_extension is not None
+        assert fact.ordered_extension.records == ()
+        handle = product.handles["t"]
+        assert all(handle.family_summary(family)[0] == 0 for family in (
+            "STANDARD", "ORDERED", "BLANK",
+        ))
+    finally:
+        product.close()
 
 
 def _bit_artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:

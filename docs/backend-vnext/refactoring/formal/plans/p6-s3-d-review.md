@@ -1,6 +1,6 @@
 # Phase 6 S3 D 独立审核
 
-**当前结论：D CHANGES，执行通道暂停。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 是首个固定实现检查点；其静态问题与 06 Rust fmt 失败均保留原状。`5c47795062937a8db0315640a95ab763d2c2c8ab` 是其后第一轮集中修订的固定产品候选，仍有 §3 所列去重失效，且尚无当前候选的编译、功能或容器证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
+**当前结论：D CHANGES；Owner 已恢复下一候选执行通道，尚未执行。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 是首个固定实现检查点；其静态问题与 06 Rust fmt 失败均保留原状。`5c47795062937a8db0315640a95ab763d2c2c8ab` 是其后第一轮集中修订的固定产品候选，仍有 §3 所列去重失效，且尚无当前候选的编译、功能或容器证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
 
 ## 1. 审核对象与边界
 
@@ -32,7 +32,9 @@
 
 本人只读核固定恢复说明 `7ca300def7b1f56b9dd4629184fc0fe72ebec35b`，即 [p6-s3-d-execution-stop.md](p6-s3-d-execution-stop.md)。它把 f000 产品 fmt exit1 与两次外层日志抓取 exit1 分开：首次脚本将 `PREP_LOG_SHA256=<hash>` 当纯 hash 比较；唯一纠正又将 `RUN_LOG_SHA256=<hash>` 当纯 hash 比较。第二次 SCP 自身 exit0，但组合命令 exit1、组合 stdout 未单独落盘，不能补记为原始完整日志。06 postflight SSH 本身 exit0 且本人 marker 已释放。本人事后曾做第三次纯本地只读 SHA 比较并表示 CLEAR；现明确撤回它作为恢复依据的结论，文件字节相同不能改写两次外层失败或取得 DC68 放行。
 
-AGENTS DC68 的“重做再次失败……均停止交 owner”适用同根取证错误。本人的独立结论：**固定 `7ca300def7b1f56b9dd4629184fc0fe72ebec35b` 恢复说明及 `1719ca8f243180335ec9e9d1c6f3ec0585dbf284` 模板绑定补充可供 Owner 决定，执行通道仍暂停**。其 §3 的下一候选标准 `sha256sum` 清单、清单外收据与 `sha256sum --check` 是针对已发生前缀解析故障的最小方案；不追加 f000 比较、不重跑旧 f000 fmt、不覆盖原件。同一 tester 后写的**未执行** `/home/dev/gdds-test-tmp/p6-s3-d-capture-template/capture-artifacts.sh` 本人已逐字静态 CLEAR，独立核其文件 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23` 与 1719 记录一致：活动收据位于新本地捕获目录外，远端拒覆盖并生成标准清单，SCP 与本地 `sha256sum --check` 各保原 exit/stdout/stderr，无标签 hash 提取或自动重试。此 CLEAR 只覆盖通用捕获模板；下一固定候选的完整 source/node/run/调用字面稿仍须本人核 HEAD、路径、命令及 SHA，Owner 放行前不得执行。恢复稿及模板均不是 D GO 或对旧失败的豁免。
+AGENTS DC68 的“重做再次失败……均停止交 owner”适用同根取证错误。本人当时的独立结论：**固定 `7ca300def7b1f56b9dd4629184fc0fe72ebec35b` 恢复说明及 `1719ca8f243180335ec9e9d1c6f3ec0585dbf284` 模板绑定补充可供 Owner 决定；未获确认时执行通道暂停**。其 §3 的下一候选标准 `sha256sum` 清单、清单外收据与 `sha256sum --check` 是针对已发生前缀解析故障的最小方案；不追加 f000 比较、不重跑旧 f000 fmt、不覆盖原件。同一 tester 后写的**未执行** `/home/dev/gdds-test-tmp/p6-s3-d-capture-template/capture-artifacts.sh` 本人已逐字静态 CLEAR，独立核其文件 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23` 与 1719 记录一致：活动收据位于新本地捕获目录外，远端拒覆盖并生成标准清单，SCP 与本地 `sha256sum --check` 各保原 exit/stdout/stderr，无标签 hash 提取或自动重试。此 CLEAR 只覆盖通用捕获模板；下一固定候选的完整 source/node/run/调用字面稿仍须本人核 HEAD、路径、命令及 SHA。恢复稿及模板均不是 D GO 或对旧失败的豁免。
+
+Owner 后在 `733c4551e5` 所记录的问题中明确回复“确认并继续”，因此**仅下一新候选的 D 执行通道已恢复**；无需重问相同许可。f000 原始 fmt1、两次 capture1 和组合 stdout 缺口原样保留。测试者仍须先交下一固定 HEAD 的完整字面稿，由本人核 CLEAR 后才在专用节点执行；Owner 恢复不把 5c 静态 CHANGES 或旧模板升级成产品/执行通过。
 
 ## 5. 当前验证与镜像判定
 

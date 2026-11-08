@@ -18,8 +18,9 @@
 | --- | --- | --- | --- | --- |
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
 | B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | GO，报告 `17fd6739b809`；本节三角色已正常结束 |
-| C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | 静态实施/独审继续；源码传输 DC68 二次失败后执行停止，未 GO |
-| D–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
+| C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | GO，报告 `ce217c0ad777`；本节三角色已正常结束 |
+| D | `/root/s3_d_impl`，GPT-6-Sol xhigh | `/root/s3_d_review`，GPT-6-Sol max | `/root/s3_d_test`，GPT-6-Luna max | 固定修订静态复审；两次同根 SHA 解析错误触 DC68，执行停止，未 GO |
+| E | 下一节新建 | 下一节新建 | 按需、错峰 | 依赖 D 实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
 
@@ -33,7 +34,7 @@ A 只跑 06 Contract/focused 及适用静态检查；不跑完整 runner、全�
 
 ## 4. 仍待实际交付的事项
 
-A 已完成接口与独立预期准备，B 共用内核已获独立 GO；C 正在实施，D–E 尚未完成，当前没有 S3 最终产品 V、最终 H 或 S3 门禁结果。三视图完整摘要实现、风险上限重放、Arrow schema/raw golden、实际消费者迁移、预算 owner 与 FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除均须后续逐节交付，不能用设计复审或 A/B GO 替代。
+A 已完成接口与独立预期准备，B 共用内核和 C Arrow 记录/读写已获独立 GO；D 正在实施，E 尚未完成，当前没有 S3 最终产品 V、最终 H 或 S3 门禁结果。C 三视图/完整摘要/schema/raw golden 和 owner 的具体核收见 §9；风险重放、生产消费者迁移、FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除仍须后续交付，不能用设计复审或 A–C GO 替代。
 
 最终预计 rust/backend 受影响；其他包须实际闭包判定，不能口头 carried。阶段最终容器结果需实际绑定；runner 已执行的 Compose 不重复。最终真实范围拟按 kickoff：替换期 t1–t4 逐表差分，05 fresh t1–t3 功能旅程，t4 功能/容量及 W3/W4 根据 CT108 现场安排；退出前向 Owner 提交具体证据、沿用条件与待补项作 DC33 确认。S2b 的 06 全旅程用途例外不继承。
 

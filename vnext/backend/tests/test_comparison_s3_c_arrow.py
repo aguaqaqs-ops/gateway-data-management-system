@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
+from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
@@ -560,17 +562,27 @@ def test_native_arrow_read_releases_gil_for_cancel_monitor() -> None:
     )
     batches = [whole.slice(offset, min(1024, count - offset)) for offset in range(0, count, 1024)]
 
-    class FlipProbe:
-        calls = 0
+    entered_native_read = threading.Event()
+    python_progressed = threading.Event()
+    cancelled = threading.Event()
 
-        def is_set(self) -> bool:
-            self.calls += 1
-            return self.calls >= 2
+    def lazy_batches() -> Iterator[pa.RecordBatch]:
+        for index, batch in enumerate(batches):
+            if index == 0:
+                entered_native_read.set()
+            yield batch
 
-    probe = FlipProbe()
-    operation = _begin_comparison_operation_native(2 * 1024**3, Charge(), probe)
+    def cancel_after_actual_read() -> None:
+        if entered_native_read.wait(timeout=5):
+            python_progressed.set()
+            cancelled.set()
+
+    operation = _begin_comparison_operation_native(2 * 1024**3, Charge(), cancelled)
     before = pa.RecordBatchReader.from_batches(schema, [])
-    current = pa.RecordBatchReader.from_batches(schema, batches)
+    current = pa.RecordBatchReader.from_batches(schema, lazy_batches())
+    assert not entered_native_read.is_set()
+    watcher = threading.Thread(target=cancel_after_actual_read)
+    watcher.start()
     try:
         with pytest.raises(InterruptedError, match="COMPARISON_CANCELLED"):
             _compare_records_native(
@@ -584,8 +596,12 @@ def test_native_arrow_read_releases_gil_for_cancel_monitor() -> None:
                 "COUNTS_ONLY", 2_000_000, 512 * 1024**2,
                 512 * 1024**2, 2 * 1024**3, Charge(),
             )
-        assert probe.calls >= 2
+        assert entered_native_read.is_set()
+        assert python_progressed.is_set()
     finally:
+        cancelled.set()
+        watcher.join(timeout=5)
+        assert not watcher.is_alive()
         before.close()
         current.close()
         operation.close()

@@ -70,7 +70,7 @@ def test_records_preserve_binary_float_decimal_time_and_null() -> None:
     current = schema + (
         " INSERT INTO t VALUES (1,X'01fe',1.5,12.350,"
         "'2026-08-21','2026-08-21 00:00:00',"
-        "'2026-08-21T00:00:00Z',NULL);"
+        "'2026-08-21T00:00:00Z','present');"
     )
     rows, _ = _record_rows(before, current)
     row, = rows

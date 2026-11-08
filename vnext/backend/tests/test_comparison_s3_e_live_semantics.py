@@ -158,8 +158,8 @@ def test_standard_added_column_preserves_shared_row_association(
 @pytest.mark.parametrize(
     ("current_rows", "changed"),
     (
-        ("(2,'b','y'),(1,'a','x')", False),
-        ("(2,'b','x'),(1,'a','y')", True),
+        ("('b','y','new'),('a','x','new')", False),
+        ("('b','x','new'),('a','y','new')", True),
     ),
     ids=("keyless-physical-reorder", "keyless-excluded-association"),
 )
@@ -170,10 +170,9 @@ def test_keyless_added_column_uses_shared_row_multiset(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8));"
         " INSERT INTO t VALUES ('a','x'),('b','y');",
     )
-    rows_with_added = current_rows.replace(")", ",'new')")
     current = _fallback_source(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8), added VARCHAR(8));"
-        f" INSERT INTO t VALUES {rows_with_added};",
+        f" INSERT INTO t VALUES {current_rows};",
     )
     planned = plan_comparison(ComparisonRequest(
         pair_id="s3-e-keyless-added-association", before=before, current=current,
@@ -239,7 +238,11 @@ def test_incompatible_non_key_type_has_no_value_change_record() -> None:
         assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
         assert table.schema_changes.incompatible_columns == ("value",)
         assert table.row_modified_count == 0
-        assert product.handles["t"].family_summary("STANDARD")[0] == 0
+        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
+            records = [row for batch in reader for row in batch.to_pylist()]
+        assert len(records) == 1
+        assert records[0]["record_kind"] == "SCHEMA_CHANGE"
+        assert records[0]["field_changes"] == []
     finally:
         product.close()
 
@@ -526,7 +529,12 @@ def test_missing_order_key_degrades_ordered_replay() -> None:
         assert "ORDER_KEY_MISSING" in table.diagnostics
         assert table.ordered_extension is not None
         assert table.ordered_extension.replay_guarantee.value == "UNSUPPORTED"
-        assert product.handles == {}
+        assert product.handles["t"].family_summary("STANDARD")[0] == 1
+        assert product.handles["t"].family_summary("ORDERED")[0] == 0
+        assert product.handles["t"].family_summary("BLANK")[0] == 0
+        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
+            records = [row for batch in reader for row in batch.to_pylist()]
+        assert tuple(row["record_kind"] for row in records) == ("TABLE_DEGRADED",)
     finally:
         product.close()
 

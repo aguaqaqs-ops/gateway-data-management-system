@@ -273,7 +273,9 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
     detail_policy: RecordsDetailPolicy,
 ) -> None:
     store = InMemoryArtifactStore()
-    product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
+    product = native_product(
+        _STANDARD_BEFORE, _STANDARD_CURRENT, detail_policy=detail_policy,
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
@@ -282,10 +284,28 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
     finally:
         product.close()
     assert published.facts is not None and published.records_closure is not None
+    assert published.facts.records_ref is not None
     assert published.facts.comparison_digest == source_digest
     entry, = published.records_closure.records
     payload = json.loads(store.locate(entry.records_manifest_ref))
     assert payload["row_diff_detail_policy"] == detail_policy.value
+    reopened = open_records_closure(store, published.facts.records_ref)
+    assert reopened.records == (entry,)
+    batches = standalone_records_batches(store, entry)
+    row, = [row for batch in batches for row in batch.to_pylist()]
+    assert batches[0].schema.metadata is not None
+    assert batches[0].schema.metadata[
+        b"gateway-vnext.records.row_diff_detail_policy"
+    ] == detail_policy.value.encode()
+    assert row["changed_columns"] == (
+        [] if detail_policy is RecordsDetailPolicy.COUNTS_ONLY else ["note"]
+    )
+    assert bool(row["before_values"]) is (
+        detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+    )
+    assert bool(row["current_values"]) is (
+        detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+    )
 
 
 def test_cancellation_and_operation_stop_propagate_without_a_closure() -> None:

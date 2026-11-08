@@ -20,6 +20,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonPlan, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
     ComparisonRecord, ComparisonRecordKind, DetailedFactsResult, DatasetReplacementResult,
     KeylessPolicy, OrderedExtension, OrderedStatus, OrderedSummary, OrderedTableProcessingMode,
+    RecordsDetailPolicy,
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
@@ -635,7 +636,7 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
 
 def _compare_native(
     operation: object, task: TableComparisonTask, *, kind: str,
-    policy: dict[str, object],
+    policy: dict[str, object], detail_policy: RecordsDetailPolicy,
     session: ComparisonTaskSession | None = None,
     metrics: ComparisonRunMetrics,
 ) -> Any:
@@ -664,7 +665,7 @@ def _compare_native(
                 operation, kind=kind, table_name=task.table_name,
                 before=before, current=current,
                 policy_json=json.dumps(policy, separators=(",", ":")),
-                detail_policy="FULL_BEFORE_AFTER_VALUES",
+                detail_policy=detail_policy.value,
                 input_owner_charge=owner, max_records=_MAX_RECORDS,
                 max_sort_bytes=2 * 1024**3, max_output_bytes=MAX_NATIVE_RECORD_BYTES,
                 max_input_bytes=context.memory.limit_bytes,
@@ -876,7 +877,7 @@ def _native_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compari
 def _compare_task_native(
     task: TableComparisonTask, operation: object,
     session: ComparisonTaskSession | None,
-    metrics: ComparisonRunMetrics,
+    metrics: ComparisonRunMetrics, detail_policy: RecordsDetailPolicy,
 ) -> tuple[ComparisonTableFact, Any | None]:
     policy = task.policy
     assert policy is not None
@@ -895,6 +896,7 @@ def _compare_task_native(
                             emit_add_delete=False, columns_added=True,
                             schema_diagnostics=[])
         probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
+                                detail_policy=detail_policy,
                                 session=session, metrics=metrics)
         try:
             metadata = json.loads(probe.metadata_json())
@@ -918,7 +920,8 @@ def _compare_task_native(
                                       ("TABLE_READER_UNAVAILABLE",)), None
             return _ordered_unchanged_native(task, operation, schema, session, metrics), None
         handle = _compare_native(operation, task, kind="ordered",
-                                 policy=_ordered_policy(task, schema), session=session,
+                                 policy=_ordered_policy(task, schema), detail_policy=detail_policy,
+                                 session=session,
                                  metrics=metrics)
         return _native_fact(task, handle, schema), handle
     if _can_table_early_exit(before, current, policy):
@@ -939,7 +942,8 @@ def _compare_task_native(
             records=(_schema_record(task.table_name, diagnostics, schema.selected),),
         ), None
     handle = _compare_native(operation, task, kind="standard",
-                             policy=_standard_policy(task, schema), session=session,
+                             policy=_standard_policy(task, schema), detail_policy=detail_policy,
+                             session=session,
                              metrics=metrics)
     return _native_fact(task, handle, schema), handle
 
@@ -1040,6 +1044,9 @@ def _compare_plan_native_once(
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
+    detail_policy = RecordsDetailPolicy(
+        dict(plan.options).get("row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
+    )
     context.checkpoint()
     if session is not None:
         session.evict_for(plan)
@@ -1098,7 +1105,9 @@ def _compare_plan_native_once(
             cached = None if session is None else session.lookup(key, task)
             try:
                 if cached is None:
-                    fact, handle = _compare_task_native(task, operation, session, metrics)
+                    fact, handle = _compare_task_native(
+                        task, operation, session, metrics, detail_policy,
+                    )
                 else:
                     fact, handle = cached
                     cached_names.add(task.table_name)

@@ -43,6 +43,7 @@ def native_product(
     ordered: bool = False,
     compare_excluded_columns: tuple[str, ...] = (),
     artifact_scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
+    detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
 ) -> NativeComparison:
     before, current = canonical_bound(before_sql), canonical_bound(current_sql)
     rule = (
@@ -55,6 +56,9 @@ def native_product(
     planned = plan_comparison(ComparisonRequest(
         pair_id="s3-e-live-consumer", before=before, current=current,
         rule_set=comparison_ruleset_for(rule),
+        options=() if detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES else (
+            ("row_diff_detail_policy", detail_policy.value),
+        ),
     ))
     assert isinstance(planned, ComparisonPlan)
     return compare_plan_native(planned)

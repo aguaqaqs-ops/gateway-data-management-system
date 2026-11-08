@@ -40,6 +40,7 @@ from gateway_backend.capabilities.comparison import (
     publish_records_closure_arrow as publish_records_closure_arrow,
     RecordsPublicationContext,
     RecordsPublicationPolicy,
+    RecordsDetailPolicy,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
@@ -365,6 +366,11 @@ def _finish_comparison_risk_surface(
                 checkpoint()
         closure_result = publish_records_closure_arrow(
             compared, native_comparison.handles, store,
+            detail_policy=RecordsDetailPolicy(
+                dict(request.options).get(
+                    "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+                )
+            ),
             context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),
         )
         checkpoint()

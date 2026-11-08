@@ -240,3 +240,24 @@ D集中候选为 `1c25ea68e713fef8718ea499592628dc035a7e94`，Rust tree=`45acfe7
 原件在CT201 `/home/dev/gdds-test-tmp/p6-s3-d-0a7c9fe8-06/`：outer log SHA=`f3e8fefff8c4ef703a1b10dc6d047e5080c9f4004b06474165ce2be0a2d1b94e`，`captured-rust/rust-diagnostics.log` SHA=`3aeb269d6830b1cca6068b02de81a8c5f9621230804d3114c4d57dc732d81008`，标准manifest SHA=`25a68d9c3766e72342023164569453a8cc120981badae2ebd3593c057a1461ba`，capture收据SHA=`9562ee81cbf5665fa5e5410667bdf6ae904f16674b08e18590fa8e2274102575`，全部check0。
 
 完整Python候选已继续固定为 `eaa508ce4f61c84e724c2c1c25afbcda3f07d4a8`，Rust tree仍4394，锁/base不变；ready→closed reader命中隔离、Risk key诊断准入与同池紧M safe retry、成功ORDERED+BLANK三族向量待当前06 native/backend focused实际核。原审撤回了4c Risk ruleset长身份误报：既有前置validator已冻结三身份字段；因此新增重复guard/专属重复测试已从eaa移除，保真正预算修复与向量。后续只对改变的Python接线和适用证据验证，不无故重复同树Rust三步。
+
+## 14. D 实际接线反馈与最小整合授权
+
+以下是后续固定候选的实际反馈，完整原件、逐步状态与修复出处由 [D handoff](p6-s3-d-handoff.md) 和原审核者的 [D review](p6-s3-d-review.md) 连续维护；不是 D GO 或合格权威 carried 来源。
+
+- `7707042c44240b30ea4e33e7a56a8c7b7948bb62` 在06于05:06:49–05:09:04Z通过 Rust fmt/clippy/workspace test（199项）和强制 native/input；随后 focused 为10通过、1失败，原始 run SHA=`6e5a154001c623444958942e28416533bee37fe5fdecef8faa424df62bf665e5`。后续候选修订真实 artifact 绑定及诊断；原失败不改。
+- `9ef4b0954a951a570d23320b9dbb8c86cf1ac9d9` 在06于05:29:13–05:30:40Z通过强制 native/input，受影响非串行 focused 为83通过、2失败，原始 run SHA=`887a8f65cb5461de0c0ee002fbb198fe0a57478fc9578936de7c93a3611a443f`。串行和静态未运行；不得将83分项通过写成整轮通过。
+- `d67440b592bb583e15f91252b018d98e4ab3047d` 在06于05:39:28–05:40:52Z通过强制 native/input，两个 writer 向量暴露真实第一对比较已返回 `DEGRADED/ValueError/TABLE_DEGRADED`；原始 run SHA=`ed556507e89627e618b2a35df2f708de2b46c6956401c2ab93502485f382e70b`。日志未暴露底层 ValueError 文本。源码独核定位 fresh business Arrow 缺 canonical profile metadata；`CANONICAL_SCHEMA_REQUIRED` 是源码推断，不能冒称原始异常消息。
+- 产品 `4b224865e42e4c3ea4a5d9d595a36ca34db0b874`（Rust tree=`bb3383ff30e538aa8f3f6beb3d1c879c524379ec`）补 fresh verified canonical backing 的 schema-only view：复用 canonical owner 的小型 FFI，普通数组共享，BIT 按列转换，持久化/已有或部分 profile 仍走严格 validator。不重新全表编码 IPC，不放松校验，不变 producer/public schema 与 raw golden。06于05:59:07Z首步 fmtcheck exit1，仅两 Rust 文件七个格式 hunk；后续 clippy/test/native/pytest/串行/静态均未运行。node raw SHA=`94b9b92f8e4c2e0453d7675697063ee003556f3c9654f888fbe0e854939a22a7`，outer SHA=`bcbdbc68d50f850a944b9b0c834fbb57d6b6526c9e5fe788bbd584c00ea9b548`，manifest SHA=`09d9a89f8365430b204425382084e3178f742089862add239d759aa76f4f9257`，capture receipt SHA=`b528c442de1b727a4fc56827bee4362b9fdefc8ca02edd0cca52fe3d4ad9920b`。原审已核；clean/六锁稳定、05:59:08Z释放本人占用。
+
+原审另确认4b的必要BIT view预算存在独立高列数假拒绝：native portion先占用大部分M，随后每BIT列固定预约4MiB header，会使很小的宽表不能在M24运行。实施者集中修必要转换的真实有界计费及格式；不抬M，不通过少记native可用额绕过。普通独立finding不按“cache/M/reader”等大类合并为同根两轮；同一根因须依据具体修复与复审事实计数。
+
+Owner 已明确回复 **“授权三项最小修复纳入”**：在D收敛后、E最终产品V冻结前整合下列已独审修复及必要验证。具体审稿为工作区外 `/home/dev/gdds-p6-logs/analysis-handoff-20261108/review/integration-review.md` 和 `implementation-plan.md`；它们不替代S3本轮独审和实际证据。
+
+| 授权项 | 精确源提交与适配边界 | 本轮核收 |
+| --- | --- | --- |
+| GC claim间调度（P1） | `0c97cb9c09`、`eee60c165e`、`9704d0b286`：保初始GC状态，活跃claim/executor期间暂停，join确认后才收集，下一anchor前空闲收集；保现DC88 drain/续租/取消与attempt预算 | worker scheduler/integration focused及适用本机容器，最终代表性prepare仍用32/8/M24 |
+| 冷catalog批COUNT与同key合并（P2） | `dae01d557e`、`4497ded8ff`：bounded batch16及ordinal校验、同key in-flight；保8项/16MiB和现timeout，错误清理，不缓存半成品，保独立import catalog路径 | focused及一次真实Dolt historical commit integration，最终RS门禁 |
+| JCS bounded hash sink（P2） | `1f9731dfc3`：仅两处hash-only ChangeSet消费者改流式hash；原bytes API、错误、Unicode/数值/排序/digest保持 | shared_kernel JCS和MutationPlanning独立向量及最终受影响包门禁 |
+
+不整条合并原基准分支，不重复移植已在main的READY32768修复，不搬诊断wrapper/旧资源设置/输入生成器。不改变N1、32GiB worker、8GiB reserve、M24GiB、冻结语义、golden或部署旋钮；不扩到S4/S5、FULL并行或ordered新快路。三项由E新实施/独审角色在同一整合候选中接收，逐项列来源、实际产品提交和证据；原基准冻结WT/镜像/输入/卷/证据保持独立。现四槽D角色继续本节，不另建第五角色。

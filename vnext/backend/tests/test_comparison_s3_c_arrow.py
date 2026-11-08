@@ -15,7 +15,7 @@ from typing import cast
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
-from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_compute._native import (
     _begin_comparison_operation_native,
@@ -35,8 +35,8 @@ from gateway_backend.capabilities.comparison.artifacts import (
 )
 from gateway_backend.capabilities.comparison import artifacts as records_artifacts
 from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope, DetailedFactsResult, RecordsArtifactFamily, RecordsDetailPolicy,
-    SchemaEvolution,
+    ArtifactScope, DetailedFactsResult, RecordsArtifactFamily, RecordsArtifactManifest,
+    RecordsDetailPolicy, SchemaEvolution,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
     _summary_payload, _table_digest_payload,
@@ -54,6 +54,15 @@ from tests.test_comparison_artifacts import _standard_result
 from gateway_backend.capabilities.comparison import compare_plan
 
 pytestmark = pytest.mark.unit
+
+FROZEN_RECORDS_PARQUET = (
+    (RecordsArtifactFamily.STANDARD, "standard-records/v1", 1,
+     "sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4"),
+    (RecordsArtifactFamily.ORDERED, "ordered-records/v1", 1,
+     "sha256:887e686f96583a28c31f82788608ebd10491b80eb98dc9ab2ada7389ec50468b"),
+    (RecordsArtifactFamily.BLANK, "blank-records/v1", 2,
+     "sha256:5f7d095129a4fdbeba84392206fa857740ecdca6b466f9cc8177d2264bf9c17a"),
+)
 
 
 class Charge:
@@ -183,6 +192,26 @@ def test_arrow_writer_preserves_fixed_python_parquet_raw_bytes(family: str) -> N
         reader, 2_000_000, 2 * 1024**3, NeverCancel()
     )
     assert result[3] == sum(batch.num_rows for batch in batches)
+
+
+@pytest.mark.parametrize(("family", "version", "count", "content_digest"), FROZEN_RECORDS_PARQUET)
+def test_frozen_python_parquet_vectors_use_real_native_reader(
+    family: RecordsArtifactFamily, version: str, count: int, content_digest: str,
+) -> None:
+    # The same three fixed vectors and independent expected digests formerly
+    # exercised the superseded direct Rust Parquet reader.
+    path = Path(__file__).resolve().parents[2] / (
+        f"fixtures/vectors/comparison/records/{family.value.lower()}-v1.parquet.b64"
+    )
+    raw = base64.b64decode(path.read_text(encoding="ascii"))
+    digest = DigestRef.parse(content_digest)
+    manifest = RecordsArtifactManifest(
+        table_name="t", family=family, record_format="PARQUET",
+        schema_version=version,
+        row_diff_detail_policy=RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+        record_count=count, content_digest=digest,
+    )
+    assert _validate_parquet_bytes(raw, manifest, RecordsPublicationPolicy()) == (count, digest)
 
 
 def test_arrow_family_publish_avoids_records_readback() -> None:
@@ -655,6 +684,8 @@ def test_real_native_read_rejects_correct_raw_with_wrong_content_or_schema() -> 
     entry = published.records_closure.records[0]
     raw = store.locate(entry.records_ref)
     manifest = _manifest_from_bytes(store.locate(entry.records_manifest_ref))
+    with pytest.raises(records_artifacts.RecordsPublicationError, match="Parquet is corrupt"):
+        _validate_parquet_bytes(b"", manifest, RecordsPublicationPolicy())
     with pytest.raises(ValueError, match="content digest mismatch"):
         _validate_parquet_bytes(
             raw, replace(manifest, content_digest=raw_blob_digest(b"other")),

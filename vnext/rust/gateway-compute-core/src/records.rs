@@ -12,9 +12,7 @@ use arrow_array::{
     RecordBatch, StringArray, StructArray, UInt64Array,
 };
 use arrow_schema::{DataType, Field, Fields};
-use bytes::Bytes;
 use gateway_shared_kernel::{DigestRef, canonicalize_jcs};
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -256,26 +254,6 @@ fn json_string(value: &str) -> Result<Vec<u8>, String> {
     canonicalize_jcs(&encoded).map_err(|error| error.to_string())
 }
 
-pub fn read_records_parquet_v1(raw: &[u8]) -> Result<RecordsParquetSummary, String> {
-    if raw.is_empty() {
-        return Err("records Parquet is empty".to_string());
-    }
-    let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::copy_from_slice(raw))
-        .map_err(|error| format!("records Parquet open failed: {error}"))?;
-    let schema = builder.schema().clone();
-    let mut validator = RecordsBatchValidator::new(schema, usize::MAX, usize::MAX)?;
-
-    let reader = builder
-        .with_batch_size(1024)
-        .build()
-        .map_err(|error| format!("records Parquet reader build failed: {error}"))?;
-    for batch in reader {
-        let batch = batch.map_err(|error| format!("records Parquet batch failed: {error}"))?;
-        validator.push(&batch)?;
-    }
-    validator.finish()
-}
-
 fn metadata_text(metadata: &HashMap<String, String>, name: &str) -> Result<String, String> {
     metadata
         .get(&format!("{METADATA_PREFIX}{name}"))
@@ -488,69 +466,4 @@ fn hex_encode(bytes: &[u8]) -> String {
         result.push_str(&format!("{byte:02x}"));
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use base64::Engine;
-
-    use super::read_records_parquet_v1;
-
-    #[test]
-    fn empty_payload_is_rejected_before_reader_creation() {
-        assert!(read_records_parquet_v1(&[]).is_err());
-    }
-
-    #[test]
-    fn python_standard_vector_has_the_same_logical_digest() -> Result<(), String> {
-        assert_python_vector(
-            include_str!("../../../fixtures/vectors/comparison/records/standard-v1.parquet.b64"),
-            "STANDARD",
-            "standard-records/v1",
-            1,
-            "sha256:22bfb26abb0aaeb3d279cdae0614d2733bebbd8cdf8021cfa6751c690db561d4",
-        )
-    }
-
-    #[test]
-    fn python_ordered_vector_has_the_same_logical_digest() -> Result<(), String> {
-        assert_python_vector(
-            include_str!("../../../fixtures/vectors/comparison/records/ordered-v1.parquet.b64"),
-            "ORDERED",
-            "ordered-records/v1",
-            1,
-            "sha256:887e686f96583a28c31f82788608ebd10491b80eb98dc9ab2ada7389ec50468b",
-        )
-    }
-
-    #[test]
-    fn python_blank_vector_has_the_same_logical_digest() -> Result<(), String> {
-        assert_python_vector(
-            include_str!("../../../fixtures/vectors/comparison/records/blank-v1.parquet.b64"),
-            "BLANK",
-            "blank-records/v1",
-            2,
-            "sha256:5f7d095129a4fdbeba84392206fa857740ecdca6b466f9cc8177d2264bf9c17a",
-        )
-    }
-
-    fn assert_python_vector(
-        encoded: &str,
-        family: &str,
-        schema_version: &str,
-        record_count: usize,
-        expected_digest: &str,
-    ) -> Result<(), String> {
-        let raw = base64::engine::general_purpose::STANDARD
-            .decode(encoded.trim())
-            .map_err(|error| format!("golden Parquet vector must be valid base64: {error}"))?;
-        let summary = read_records_parquet_v1(&raw)
-            .map_err(|error| format!("Python vector must be readable: {error}"))?;
-        assert_eq!(summary.family, family);
-        assert_eq!(summary.schema_version, schema_version);
-        assert_eq!(summary.row_diff_detail_policy, "FULL_BEFORE_AFTER_VALUES");
-        assert_eq!(summary.record_count, record_count);
-        assert_eq!(summary.content_digest.as_str(), expected_digest);
-        Ok(())
-    }
 }

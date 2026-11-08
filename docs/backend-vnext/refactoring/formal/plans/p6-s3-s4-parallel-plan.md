@@ -55,7 +55,7 @@ DC91 已将五节点改为统一池，各为 32 vCPU / 64 GiB，未来前后端/
 执行时核空闲并原子获取本节点标记；工具链、离线缓存及同节点 carried 条件不因配置一致而豁免。
 正式样本同组同节点同配置，硬件调整前后分别报告。规范见 [AGENTS](../../../../../AGENTS.md) 与 [testing-conventions](../../../testing-conventions.md)。
 
-本轮只读实核：五节点 BatchMode 均成功，`nproc=32`、MemTotal=`67,108,864 kB`；核对时标记缺席、Docker 容器/8000 监听及目标测试进程均无。
+本轮只读实核：五节点 BatchMode 均成功，`nproc=32`、MemTotal=`67,108,864 kB`；核对时标记缺席，未见运行中的 Docker 容器、8000 监听及目标测试进程。
 这只是现场快照，不是后续预约或工具链全部就绪的证明。07 未见本次 backend dependency-base tag，04/05/CT108 的 SSH 默认 PATH 未包含 Cargo；实际执行仍需按规则显式设置 PATH、检查 selector 与缓存。
 原件 `/home/dev/gdds-test-tmp/p6-node-pool-20261108/readonly-node-pool-audit.log`，UTC 15:32:32–15:35:55、exit0，
 SHA256=`abc2f4ff632e8ebed6be6068f582302f79b1ae8f9a1d6d6b533637a0304c8d3d`。

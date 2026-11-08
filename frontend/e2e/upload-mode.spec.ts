@@ -221,8 +221,8 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await screenshot(page, "fe3b-w8-upload-disabled", 1280);
   state.workspace = workspace({});
   await page.reload();
-  await chooseUploadDirectory(page);
-  await expect(page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true })).toBeEnabled();
+  await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
+  await expect(upload).toHaveAttribute("title", "需先选择本次归档组态目录");
 });
 
 test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page }) => {

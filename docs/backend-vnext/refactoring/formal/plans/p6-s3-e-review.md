@@ -771,3 +771,9 @@ V1e→V4b0的vnext实比仅comparison/production.py及C/D两份现役测试三�
 本人另逐项比对候选交接bd08075d1a新增§11与04当次原件：control/captured/manifests/source-*.json六个total_digest依次为rust 992f3028…acba57、shared_kernel 9a1e4cc8…58599b、repository_contracts 28fb8a9c…ed668、repository_client 82caf66b…1082、backend 5768e8e9…33aea、repository_service 5b2aa00a…31347，均与§11逐字相符；前四直接指同04 worktree的V1e整次runner0实跑，后两指V4b0本次runner0实跑，total_digest不是manifest文件SHA。本次image-identities JSON SHA256为72b66ac26f1d6b600aac6e6dca09d1ee787adf98f29be6a34a13dbe2011d697c，Compose provenance SHA256为fce0e3f7a0c4af44bbf12a81e53d833b10bbc2034bc94982c2dcf3920efc584a；RS/backend/worker config分别为aef551dd…24a8b3（28 DiffID）、619d6446…3658d（13）、5b64a2cb…48221（13）。RS原JSON标签的build-input为e76342ef0b58bb0120fc60d8a063d838140ee28d、source-tree为sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646、revision为V4b0。§11仅描述当前V直接来源，不预签最终H沿用。
 
 尚待同V其余23个W3/W4样本按每组1暖3测实核、独立受控聚合/DC47时段归属评估，以及最终H在原04同worktree的六闭包与镜像身份绑定。当前W3 MO r1单项原件已到，须按固定组边界接续核资格；不能以单项通知或首暖代替该组统计。未运行新测试，未修改产品、输入、旧失败或运行证据。
+
+## 102. DC97性能测量与节点协调规则的独立静审
+
+本人在clean detached worktree审核Owner DC97文档落实提交`d8ca058328f4ba58e5a13e36b80bdaf74a1dbbc9`及单文档修订`eaba3fce544f4d99f848cf620d64fba11f4a779a`，后者diff-check为0。初稿中`p6-design.md`仍可把未达到性能数值目标读成停测条件；修订已在§16.3把时间目标明确为可靠测量后报告差距，保留1次预热、3次测量、中位数/范围、失败另列，以及零读/零比较等计数要求。§17(2)(4)(7)现将单纯数值未达与业务失败、资源越界、来源或测量有效性不合格分开；提出修改冻结阈值或批量规则仍须交Owner。该普通finding已闭合。
+
+其余DC97文档明确：性能目标是否达标不再作为Phase 6退出依据；可靠测量、真实统计、正确性、资源硬限、来源和独立核收仍为必要条件；已授权节点工作以实时空闲和原子marker准入，不因S4并行例行预约；Luna max可只读监视，不替代唯一执行者或独立审核。**DC97文档静态CLEAR**，没有产品、golden、执行稿或已运行原件变化。W3/W4完整组统计和最终H仍待实际证据，本段不签E整体GO。

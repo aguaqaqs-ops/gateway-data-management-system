@@ -7,7 +7,7 @@
 
 起点main=`572359d3a7`；开工重新核actual HEAD、status/index/untracked、tags、worktree和并行路径，不回退历史起点。S3 A–D已GO、E仍BLOCKED_CAPACITY；DC92允许S4设计独审后提前实施，S3 exit不是本阶段开工前置。设计独审和届时实施授权仍是前置；S5仍需S3/S4各自exit。
 
-本轮设计材料固定后可按任务提示创建一个独立设计审核者，Sol xhigh（必要时max），在clean detached WT只读审核；设计者不能自签独审。后续实施者Sol xhigh、独审者独立且连续负责同节复审，测试执行者Luna max，含协调者最多四活跃槽，不递归扩队。每次运行只有一个责任人；机械执行脚本先固定并由原审核者检查。角色配置只是计划，未启动实施/测试角色。
+本次每节新建Sol xhigh实施者和独立审核者，在固定clean detached WT审核；同节原审连续负责修复复审和证据核收，设计者/实施者不能自签。唯一测试执行者Luna max，含协调者最多四活跃槽，不递归扩队。每次运行只有一个责任人；精确执行脚本先固定并由原审核者检查。实际角色及节点状态见协调记录。
 
 每节顺序：实施与必要focused → 固定提交 → 独审 → 修复及原审复审 → 适用证据核收 → 下一节。明确授权仅覆盖A时，不自动进入B；若Owner授权A–E连续推进，日常范围内修复不反复申请。存在需改变冻结边界的finding，先处理设计/Owner决策。
 
@@ -23,7 +23,7 @@
 | D Submit唯一接线、资源和删除 | 输入B/C独审；输出：lazy逐表打开→native summary→planner decision→DML汇集→DDL前置→原publisher。路径：`infrastructure/repository_write/import_publication.py`、必要canonical reader接口/exports、`application/submission`及`submit_jobs.py`仅适配/计量需要、旧import wrapper删除与测试移交 | 真实已安装扩展小型Submit；U/X/A/D及source-only NOOP；parent错count/content/commit拒绝；frozen坏/缺；普通I/O/预算/取消；表A结束再表B不保留A输入/索引；checkpoint复用与unknown outcome不再渲染；旧行物化/ChangeSet调用计数为0；通用/外部ledger仍正常；删除临时双实现 |
 | E 最终固定V、集中证据与退出交接 | 输入A–D全部代码finding收敛及预检；输出：产品V、逐包与容器证据、§6真实范围、性能/容量账本、累计handoff H及独审核收。路径：benchmarks/必要driver及tests、S4 handoff/review/协调引用；脚本先审后跑 | 权威受影响包整次exit0；当前镜像Compose绑定；fresh t1–t4、2×t4统计、S1a阈值/真实Dolt表结果；原失败保留；V→H在来源节点同WT比较闭包/镜像；分别写S4及联合候选的结论，不倒签S3 |
 
-每节单独交接固定SHA、实际差异、独立预期来源、已跑/待跑项、容器是否触发及理由。B/C可以在同一实施者上下文连续开发，但后节依赖只有在前节独审核收后启用；禁止为切节把Arrow owner生命周期拆成不成立的中间产品路径。
+每节单独交接固定SHA、实际差异、独立预期来源、已跑/待跑项、容器是否触发及理由。各节新建实施者和独审者，通过固定交接承接；后节依赖只有在前节独审核收后启用；禁止为切节把Arrow owner生命周期拆成不成立的中间产品路径。
 
 ## 3. 路径所有权与三线协调
 
@@ -98,7 +98,7 @@ V→H carried须原来源节点、原WT、原环境和Hypothesis不存在路径�
 | 范围 | 固定条件/工作 | 验收 |
 | --- | --- | --- |
 | t1–t4 | 每档fresh、全档同节点同worker；v1/重复Preview MO、v2 FULL；真实Preview→Submit→读取/审核→Archive→History。Archive异常按真实输入和现有有理由接受流程，不造时间、跳Review或直改DB | canonical结果、表集合/schema/count/必要独立表hash、冻结SQL、业务状态/CAS/保护和资源正确；不沿用旧Submit算法证明S4 |
-| 首次Submit（负载S1） | 冻结2×t4 v1，fresh INITIAL，N1/32−8/M24 | 接受到完成且技术main前移≤5min；全目标表rebuild；业务Archive后head才前移 |
+| 首次Submit（负载S1） | 冻结2×t4 v1，fresh INITIAL；N1，使用本轮固定独审资源档（原32−8/M24单列） | 接受到完成且技术main前移≤5min；全目标表rebuild；业务Archive后head才前移 |
 | 原样重传（S2） | 同规范状态重新上传/Preview | AcceptSubmit `NO_CANONICAL_CHANGE`，零Repository operation，不计一个假Submit用时 |
 | 少量变化（S3） | 冻结W3/2×t4 v2，在同worker真实准备/Submit/Archive的v1基线上；MO及FULL分别成组 | Submit完成≤2min；PATCH净计数、NOOP跳表与真实表结果 |
 | 几乎全变（S4） | 冻结W4-10%输入，MO冷条件及FULL分别成组；不能用100%输入替代10%目标组 | Submit完成≤5min，所有Submit≤10min；实际策略/计数/结果 |
@@ -110,7 +110,7 @@ V→H carried须原来源节点、原WT、原环境和Hypothesis不存在路径�
 
 S1a阈值复核另用同一冻结真实t4 v2表样本（handoff原件：9822→9828、98逻辑变化、92UPDATE+6INSERT）和实际RS回放，对最终renderer的PATCH与REBUILD表结果/耗时交替比较；只能在本任务仓库副本/正常服务接口运行，不在服务正在用的Dolt目录做root checkout。若1%仍慢于重建，报告实测给Owner，不能自己降低比例/改batch/golden。
 
-S3 W3/W4 READY和比较归因另由其owner核收；联合旅程可提供后续J证据，不补成原774成功。S4结果必须分栏：SQL/功能正确、M24完整容量、目标时间、压力、未知/失败。性能未达按DC81交Owner讨论，保留目标和失败，不自签S4 exit。本次授权内固定审核的增配档可用于S4退出，必须标明适用配置与原M24限制；S3另条件诊断不混入本表。
+S3 W3/W4 READY和比较归因另由其owner核收；联合旅程可提供后续J证据，不补成原774成功。S4结果必须分栏：SQL/功能正确、原M24容量、实际增配档容量与适用范围、目标时间、压力、未知/失败。性能未达按DC81交Owner讨论，保留目标和失败，不自签S4 exit。本次授权内固定审核的增配档可用于S4退出，必须标明适用配置与原M24限制；S3另条件诊断不混入本表。
 
 ## 7. E固定候选与最终交接
 

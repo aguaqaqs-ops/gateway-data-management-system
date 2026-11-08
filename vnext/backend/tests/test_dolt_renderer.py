@@ -118,6 +118,25 @@ def test_source_literal_anomaly_fixture_fails_closed(operation_kernel_context: K
     assert outcome.sql_bytes is None
 
 
+@pytest.mark.parametrize("invalid_cell", (
+    {"kind": "signed-integer", "decimal": "1-2"},
+    {"kind": "binary", "bytes_base64url": "A"},
+    {"kind": "string", "text": 9},
+))
+def test_mutated_structural_cell_is_rejected_before_sql_effect(
+    invalid_cell: dict[str, object], operation_kernel_context: KernelExecutionContext,
+) -> None:
+    closure = load_closure("valid/first-load-insert")
+    assert closure.mutations[0].after_image is not None
+    cell = closure.mutations[0].after_image.columns[0][1]
+    cell.clear()
+    cell.update(invalid_cell)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
+    assert outcome.status == "FAILED"
+    assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
+    assert outcome.sql_bytes is None
+
+
 def test_wrong_renderer_capability_digest_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
     closure = change_set_closure(mutations=(delete_mutation(),))
     wrong_capability = RendererCapabilityDeclaration(

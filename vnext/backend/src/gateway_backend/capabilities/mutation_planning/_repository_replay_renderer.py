@@ -16,6 +16,7 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationFailureCode,
     MutationTargetKind,
     RendererCapabilityDeclaration,
+    validate_canonical_cell_value,
 )
 from gateway_backend.capabilities.mutation_planning.native import render_change_set_native
 from gateway_backend.capabilities.storage_projection import KernelExecutionContext, require_storage_operation
@@ -76,8 +77,14 @@ def _structural_resident_bound(closure: ChangeSetClosure) -> int:
             for name, cell in image.columns:
                 total += len(name) * 8 + 512
                 for key, value in cell.items():
-                    total += len(key) * 8 + len(str(value)) * 8 + 128
+                    total += (len(key) * 8 if type(key) is str else 1024)
+                    total += (len(value) * 8 if type(value) is str else 1024) + 128
     return total
+
+
+def _validated_columns(columns: tuple[tuple[str, dict[str, object]], ...]) -> list[dict[str, object]]:
+    return [{"column": name, "value": validate_canonical_cell_value(cell, name)}
+            for name, cell in columns]
 
 
 def render_change_set_replay(
@@ -98,14 +105,18 @@ def render_change_set_replay(
     active.memory.retain_metadata(closure, structural * 4)
     conversion = active.memory.reserve(structural * 16)
     try:
-        payload = json.dumps(
-            [{"canonical_table": mutation.canonical_table,
-              "operation": mutation.operation.value,
-              "canonical_storage_key": mutation.canonical_storage_key.to_document(),
-              "after_image": None if mutation.after_image is None else mutation.after_image.to_document()}
-             for mutation in closure.mutations],
-            separators=(",", ":"), ensure_ascii=False,
-        ).encode("utf-8")
+        try:
+            payload = json.dumps(
+                [{"canonical_table": mutation.canonical_table,
+                  "operation": mutation.operation.value,
+                  "canonical_storage_key": _validated_columns(mutation.canonical_storage_key.columns),
+                  "after_image": None if mutation.after_image is None
+                    else _validated_columns(mutation.after_image.columns)}
+                 for mutation in closure.mutations],
+                separators=(",", ":"), ensure_ascii=False,
+            ).encode("utf-8")
+        except (ValueError, TypeError):
+            return _failed(MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED)
         # A CASE repeats each key predicate once per persisted nonkey column.
         # This is only a conservative memory bound, never a SQL size policy.
         case_columns = max((len(m.after_image.columns) for m in closure.mutations

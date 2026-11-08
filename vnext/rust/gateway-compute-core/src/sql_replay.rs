@@ -88,14 +88,21 @@ fn decode_url64(text: &str) -> Result<Vec<u8>, SqlError> {
             bits &= (1 << count) - 1;
         }
     }
-    if count > 0 && bits != 0 { return Err(invalid()); }
+    if count == 6 || (count > 0 && bits != 0) { return Err(invalid()); }
     Ok(out)
 }
-fn decimal(value: &Value) -> Result<&str, SqlError> {
+fn decimal(value: &Value, kind: &str) -> Result<&str, SqlError> {
     let text = value.as_str().ok_or_else(invalid)?;
-    if text.is_empty() || !text.bytes().all(|c| c.is_ascii_digit() || c == b'-' || c == b'.') {
-        return Err(invalid());
-    }
+    let body = text.strip_prefix('-').unwrap_or(text);
+    let valid = if kind == "decimal" {
+        let (integer, fraction) = body.split_once('.').unwrap_or((body, ""));
+        !integer.is_empty() && integer.bytes().all(|c| c.is_ascii_digit())
+            && (fraction.is_empty() || fraction.bytes().all(|c| c.is_ascii_digit()))
+            && body.bytes().filter(|c| *c == b'.').count() <= 1
+    } else {
+        !body.is_empty() && body.bytes().all(|c| c.is_ascii_digit())
+    };
+    if !valid || (kind == "unsigned-integer" && text.starts_with('-')) { return Err(invalid()); }
     Ok(text)
 }
 /// Python .15g uses 15 significant decimal places and switches notation at
@@ -133,9 +140,12 @@ pub fn literal(value: &Value) -> Result<String, SqlError> {
     match kind {
         "null" => Ok("NULL".into()),
         "boolean" => Ok(if value.get("value").and_then(Value::as_bool).ok_or_else(invalid)? { "TRUE" } else { "FALSE" }.into()),
-        "signed-integer" | "unsigned-integer" | "decimal" => Ok(decimal(value.get("decimal").ok_or_else(invalid)?)?.to_owned()),
+        "signed-integer" | "unsigned-integer" | "decimal" => Ok(decimal(value.get("decimal").ok_or_else(invalid)?, kind)?.to_owned()),
         "float32" | "float64" => {
             let bits = value.get("bits_hex").and_then(Value::as_str).ok_or_else(invalid)?;
+            if !bits.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+                return Err(invalid());
+            }
             let n = if kind == "float32" && bits.len() == 8 {
                 f32::from_bits(u32::from_str_radix(bits, 16).map_err(|_| invalid())?) as f64
             } else if kind == "float64" && bits.len() == 16 {

@@ -1,6 +1,6 @@
 # Phase 6 S3 D 独立审核
 
-**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。eaa508 的 06 backend focused 首败见 §11，32a 的 06 Rust fmt 首败见 §14。770704 的 Rust/native 分项与 backend focused 失败见 §15；de439 的 writer 用例在首 pair 后发现自然 Risk 候选为 0，原始 exit1 见 §16。当前固定候选 `e26ba97c657dc9fb306908378a4b132803ad8cd9` 仅增量修测试向量，Rusttree 仍=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c`，尚无自身运行、当前 D 容器或 W3/W4 证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
+**当前结论：D CHANGES；Owner 已恢复新候选执行通道。** 本人是 S3 D 的同一独立审核者。`f000e5b075408455a35e8ae3dededc28036c73c6` 的静态问题与 06 Rust fmt 失败保留原状；`5c47795062937a8db0315640a95ab763d2c2c8ab`、`1c25ea68e713fef8718ea499592628dc035a7e94` 的实修链见 §3、§6。eaa508 的 06 backend focused 首败见 §11，32a 的 06 Rust fmt 首败见 §14。770704 的 Rust/native 分项与 backend focused 失败见 §15；de439 的 writer 用例在首 pair 后发现自然 Risk 候选为 0，原始 exit1 见 §16。当前固定候选 `9ef4b0954a951a570d23320b9dbb8c86cf1ac9d9` 保留原行修改和新增行两类 writer 压力向量，Rusttree 仍=`e6cc3f25fa91ec6c19736dfc36b4d1d3809f889c`，06 新稿仅获静态 CLEAR，当前 D 容器或 W3/W4 仍无证据。此结论不是 D GO、S3 GO 或对 C 的重新审批。
 
 ## 1. 审核对象与边界
 
@@ -40,7 +40,7 @@ Owner 后在 `733c4551e5` 所记录的问题中明确回复“确认并继续”
 
 ## 5. 当前验证与镜像判定
 
-e26 的 D 生产路由与新 Rusttree 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在专用节点对 clean 新候选强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；770704 的 Rust/native 及部分 focused、de439 的 native 分项按 §15–16 精确限用，C 旧镜像仅证明 C 时的路径。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，e26 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
+9ef 的 D 生产路由与新 Rusttree 触及实际 PyO3 比较/risk production route 与真实数据诊断工具，必须在专用节点对 clean 新候选强制 native 重装、核 build input，进行 focused/Contract、真实 Preview/History/Compose 与当前 backend/worker 容器门禁；770704 的 Rust/native 及部分 focused、de439 的 native 分项按 §15–16 精确限用，C 旧镜像仅证明 C 时的路径。五锁/toolchain/base 输入未变时，可按完整输入身份复用既有 dependency-base，但必须记录来源、config digest 和全部 RootFS DiffID。04 权威 runner/carried 与最终容器、05 t1–t3、CT108 正式性能/t4 仍各按节点职责和 DC33 判定；06 W3/W4 只能称诊断，未做正式性能测量。当前最后经验证的镜像 revision 仍是 C 产品 `854d3888a9de49a666f209145756befec1dd2532`，9ef 无当前镜像结果；重建延期至 D 候选收敛后的 06 小 Compose/04 必要门禁。
 
 ## 6. 1c25 固定集中修订的增量静态复审
 
@@ -131,3 +131,9 @@ tester 确认该次 source/run **一次启动并完整等待**原始 exit1，关
 writer 唯一 pytest 选择器原始 exit1：首 pair 已越过先前缺 artifact 的 Surface 门禁，接着 `assert len(session.risk_candidates) == 1` 实为 0；**尚未触及**人为 M 压力、第二 pair writer 驱逐或 Parquet 对照。后续其余 nonserial focused、serial GIL、五包静态因首失败停而未运行。原日志没有 session 的声明键、remaining uses、首 pair 表状态、Risk 命中/事件等中间值，不能据 0 候选断定具体是完整 key 准入、业务无可见变化、Risk 可选键拒绝或候选过早退账；尤其既有 `plan()` helper 与测试 `rules` 表面使用同一标准规则，不能只凭猜测写成规则错。此为 de439 才暴露的新测试前置/可能生产失效，不与 770 的 artifact 缺失机械合计同根修复轮次。
 
 本人在 clean detached `/home/dev/gdds-s3-d-review-e26ba97c` 核固定 `e26ba97c657dc9fb306908378a4b132803ad8cd9`、legacy exclude、clean、相对 de439 diff check0；唯一代码差分是 writer 测试：同一 `rules` 对象给两份明确 `ComparisonRequest` 生成已知两用途 plan，并与实际 Preview 共用；current 加第二个 id 行明确产生 `ROW_ADDED`；在压力前依次断言声明 uses=2、首 pair records 非空、comparison cache=1/remaining=1、自然 Risk candidate=1。保留真实同 M filler、writer 前驱逐次数、比较/Risk digest 与 Parquet 原字节对照，未把预期改0或人工塞入候选。Rusttree=e6cc、五锁/base 不变。**e26 单独改用 ROW_ADDED 不能解释 de439 的 ROW_MODIFIED 自然候选为何为 0**；本人已要求下一固定稿保留原行修改与新增行两分支，逐一证明已知用途、真实 Risk 候选与 writer 压力，不能仅靠其他人工插入 Risk 候选的测试替代。下一新候选在 06 用一次受影响的非 serial focused 文件集合覆盖新旧用例，serial GIL 另测，任一非0即停；不续跑旧 de439。若新稿此前还未跑的组件再被 writer 单例阻断，可把同一独立 focused/serial/静态范围置于 writer 单例前，以提高首败证据覆盖，仍不改变首败停止规则。
+
+## 17. 9ef 双场景固定静审与 06 字面稿
+
+本人在 clean detached `/home/dev/gdds-s3-d-review-9ef4b095` 核固定 `9ef4b0954a951a570d23320b9dbb8c86cf1ac9d9`、legacy exclude、clean 与相对 e26 diff check0；唯一代码差分把 writer 压力测试参数化为原 de439 的 `ROW_MODIFIED` SQL 和 e26 的 `ROW_ADDED` SQL。两分支分别用同一完整 rules 对两 pair 声明、核 known-use2、首 pair comparison cache/remaining、自然 Risk candidate，然后在同一 M 给第二 pair writer 施压并比 digest/Parquet 原字节。没有生产代码、Rusttree、五锁或 dependency-base 输入变化；这仅是针对 de439 未定位候选0的**测试设计静审**，不能提前判断哪个分支会通过，也不能据同 rules 对象认定旧失败根因已明。
+
+本人逐字静态 CLEAR 新 06 完整 source/node/run/postflight 稿 `/home/dev/gdds-test-tmp/p6-s3-d-9ef4b095-06/prepare-and-validation.sh` SHA256=`279582f6d4ff5c59b6bafbd5798fb551163c83e7b8320092acee07da9f2f2c03`、捕获 wrapper SHA256=`bb987ec508f70ffd56adf46a59d382acf33eeb066a95ae6e978b31676873c916`、标准 manifest 模板 SHA256=`1c8dd8c56518499dd98f2506333451d122f85f6bf525a757864534e0a6e2aa23`。相对 de439 归一化字面差分只把 writer 单例和复杂 `-k` 排除改为**一次**受影响 nonserial 文件集合（D production 两参数、Risk cache/旧 Contract 向量、Preview/History/CLI），并加回 Preview metadata 预算测试；之后 serial GIL、五包 Ruff/mypy。固定 clean 9ef/e6cc 全 HEAD bundle、06 本人原子 marker、离线强制 native 重装/build-input、首失败停/六锁/guarded release、关闭 node 日志后标准清单捕获；同 Rusttree 的 Rust 三步见 770 原件，不在本次稿，Compose/runner/真实旅程亦不在。**此刻只核未执行稿**；任何运行结论待唯一 tester 的原件与本人独核。

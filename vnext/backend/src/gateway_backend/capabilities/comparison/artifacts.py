@@ -722,11 +722,34 @@ def publish_records_closure_arrow(
     context: RecordsPublicationContext | None = None,
 ) -> DetailedFactsResult:
     """Publish sealed native families and the existing closure without a row readback."""
+    from gateway_backend.capabilities.table_access import current_kernel_context
+
+    operation = current_kernel_context()
+    if operation is None:
+        raise RecordsPublicationError("native publication requires an operation budget")
+    limits = policy or RecordsPublicationPolicy()
+    control = context or RecordsPublicationContext()
+    facts = result.facts
+    count = 0 if facts is None else len(facts.tables)
+    # Cover entries, closure payload/bytes, store verification and returned
+    # small DTO before any of them grow. Family Parquet has its own phase.
+    with operation.memory.reserve(4 * limits.max_closure_json_bytes + count * 4096 + 1024 * 1024):
+        return _publish_records_closure_arrow_admitted(
+            result, handles, store, detail_policy, limits, control,
+        )
+
+
+def _publish_records_closure_arrow_admitted(
+    result: DetailedFactsResult,
+    handles: dict[str, NativeRecordsHandle],
+    store: ArtifactStorePort,
+    detail_policy: RecordsDetailPolicy,
+    limits: RecordsPublicationPolicy,
+    control: RecordsPublicationContext,
+) -> DetailedFactsResult:
     facts = result.facts
     if facts is None or facts.records_ref is not None:
         raise RecordsPublicationError("native publication requires unpublished facts")
-    limits = policy or RecordsPublicationPolicy()
-    control = context or RecordsPublicationContext()
     entries: list[RecordsClosureEntry] = []
     for table in facts.tables:
         control.checkpoint()
@@ -740,14 +763,27 @@ def publish_records_closure_arrow(
                     operation = current_kernel_context()
                     if operation is None:
                         raise RecordsPublicationError("native publication requires an operation budget")
-                    with operation.memory.reserve(2 * limits.max_records_artifact_bytes + 1024 * 1024):
+                    small_upper = 8 * 1024**2 + sum(
+                        8192 + 64 * (
+                            len(record.table_name)
+                            + sum(len(value) for value in record.changed_columns)
+                            + sum(len(value) for value in record.diagnostics)
+                        )
+                        for record in records
+                    )
+                    with operation.memory.reserve(min(
+                        2 * limits.max_records_artifact_bytes + 1024 * 1024,
+                        small_upper,
+                    )):
                         entries.append(_publish_family(
                             table, family, records, store, limits, control, detail_policy,
                         ))
             continue
-        total = sum(handle.family_summary(family.value)[0] for family in RecordsArtifactFamily)
+        families = ((RecordsArtifactFamily.STANDARD,) if table.ordered_extension is None
+                    else tuple(RecordsArtifactFamily))
+        total = sum(handle.family_summary(family.value)[0] for family in families)
         _enforce_record_count_budget(total, limits)
-        for family in RecordsArtifactFamily:
+        for family in families:
             if handle.family_summary(family.value)[0]:
                 entries.append(publish_records_family_arrow(
                     table.table_name, family, handle, store,

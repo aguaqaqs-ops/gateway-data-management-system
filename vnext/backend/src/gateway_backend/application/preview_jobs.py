@@ -46,10 +46,13 @@ from gateway_backend.application.checkpoints import (
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
+    ComparisonTaskSession,
     PairPipelineCancelled,
     PairPipelineError,
     PreviewPairPipelineResult as _PairPipelineResult,
     run_preview_pair_pipeline,
+    declare_pair_comparison_session,
+    preview_identity_assessment,
 )
 from gateway_backend.application.job_definitions import (
     JobDefinition,
@@ -100,6 +103,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
+    ComparisonRequest,
     ComparisonMode,
     ComparisonRecordsClosure,
     ComparisonStorageFacts,
@@ -1937,6 +1941,22 @@ def _assemble_preview(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
+    dedup_requests: list[ComparisonRequest] = []
+    for pair_id, before, current, assess_identity, reuse_identity in pair_specs:
+        assessment = (preview_identity_assessment(
+            before, current,
+            before_table_set=(
+                _unchanged_baseline_identity_table_set(before, current)
+                if reuse_identity else None
+            ),
+        ) if assess_identity else None)
+        dedup_requests.append(ComparisonRequest(
+            pair_id=pair_id, before=before, current=current, rule_set=rule_set,
+            mode=(ComparisonMode.DATASET_REPLACEMENT if
+                  assessment is not None and assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
+                  else ComparisonMode.DETAILED),
+        ))
+    dedup_session = declare_pair_comparison_session(tuple(dedup_requests))
     for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -1952,6 +1972,7 @@ def _assemble_preview(
             on_cancel=on_cancel,
             assess_identity=assess_identity,
             repository_id=payload.repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
             identity_before_table_set=(
                 _unchanged_baseline_identity_table_set(before, current)
                 if assess_identity and reuse_unchanged_baseline_identity
@@ -2034,6 +2055,7 @@ def _run_pair_pipeline(
     assess_identity: bool,
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -2047,6 +2069,7 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             assess_identity=assess_identity,
             identity_before_table_set=identity_before_table_set, repository_id=repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
         )
     except PairPipelineCancelled:
         raise

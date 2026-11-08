@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from contextlib import closing
+from collections import Counter
+from contextlib import ExitStack, closing
 from dataclasses import dataclass, replace
 from typing import Any
 
 import pyarrow as pa
-from gateway_compute._native import _encode_canonical_ipc_native
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.capabilities.comparison import native
@@ -29,14 +29,15 @@ from gateway_backend.capabilities.comparison.row_encoding import (
 from gateway_backend.capabilities.comparison.standard import (
     STANDARD_COMPARISON_ALGORITHM_VERSION, _build_facts, _compare_task,
 )
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
+from gateway_backend.capabilities.snapshot_materialization import (
+    ArrowSnapshotTableReader, snapshot_arrow_input,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, SnapshotTable,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 
 
-_MAX_CODEC_BYTES = 1024**3
 _MAX_JCS_ROW_BYTES = 8 * 1024**2
 _MAX_RECORDS = 2_000_000
 _MAX_RECORD_BYTES = 512 * 1024**2
@@ -54,16 +55,261 @@ class _InputCharge:
         self._charges = ()
 
 
+class _CompositeArrowOwner:
+    def __init__(self, manager: Any) -> None:
+        self._manager = manager
+
+    def close(self) -> None:
+        manager, self._manager = self._manager, None
+        if manager is not None:
+            manager.__exit__(None, None, None)
+
+
+def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
+    before = task.before_descriptor
+    current = task.current_descriptor
+    policy = task.policy
+    if before is None or current is None or policy is None:
+        return None
+    if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
+        changes = _schema_changes_from_view(_schema_view(before, current, policy), policy)
+        if changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
+            return None
+        kind = "nonrecord-shared-multiset"
+    elif policy.ordered_policy is not None and _can_table_early_exit(before, current, policy):
+        kind = "ordered-current-summary"
+    elif _can_table_early_exit(before, current, policy):
+        return None
+    else:
+        schema = _schema_view(before, current, policy)
+        if schema.key_invalid or schema.key_changed or not schema.selected:
+            return None
+        kind = "row-comparison"
+
+    def identity(table: SnapshotTable | None) -> tuple[str, str, str]:
+        if table is None:
+            return ("missing", "", "")
+        if table.artifact is not None:
+            return ("verified-canonical-artifact", repr(table.artifact), repr(table.ordered_metadata))
+        return ("operation-local-reader", str(id(table.reader)), repr(table.ordered_metadata))
+
+    # Complete schema (including name), direction, both authorities, policy
+    # bodies and versions remain in the key. Overly narrow reuse is a safe miss.
+    return repr((
+        kind, "BEFORE_TO_CURRENT", task.table_name,
+        before, current, identity(task.before_table), identity(task.current_table),
+        policy, task.artifact_scope, plan.mode, plan.rule_set,
+        plan.options, plan.contract_versions,
+    ))
+
+
+class ComparisonTaskSession:
+    """Known-use, operation-local native handle retention for adjacent pairs."""
+
+    def __init__(self, plans: tuple[ComparisonPlan, ...]) -> None:
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison dedup requires an operation context")
+        # Admit each candidate key before repr() allocates it. Keep the
+        # charge only for keys with a known later consumer; one-use entries
+        # are discarded after this declaration pass.
+        occurrences: list[tuple[str, str, str, Any]] = []
+        try:
+            for plan in plans:
+                for task in plan.tasks:
+                    try:
+                        provisional = context.memory.reserve(4 * 1024**2)
+                    except MemoryError:
+                        continue
+                    try:
+                        key = _task_key(plan, task)
+                        if key is None:
+                            provisional.close()
+                            continue
+                        actual = len(key) * 8 + 512
+                        if actual > 4 * 1024**2:
+                            provisional.close()
+                            continue
+                        provisional.shrink_to(actual)
+                        occurrences.append((plan.pair_id, task.table_name, key, provisional))
+                    except MemoryError:
+                        provisional.close()
+                        continue
+                    except BaseException:
+                        provisional.close()
+                        raise
+            counts = Counter(key for _, _, key, _ in occurrences)
+            self.remaining_uses = Counter({key: uses for key, uses in counts.items() if uses > 1})
+            self.declared_keys = {
+                (pair_id, name): key for pair_id, name, key, _ in occurrences
+                if key in self.remaining_uses
+            }
+            self.key_charges: dict[str, Any] = {}
+            retained: set[str] = set()
+            for _, _, key, charge in occurrences:
+                if key not in self.remaining_uses or key in retained:
+                    charge.close()
+                else:
+                    self.key_charges[key] = charge
+                    retained.add(key)
+        except BaseException:
+            for _, _, _, charge in occurrences:
+                charge.close()
+            raise
+        self.cached: dict[str, tuple[ComparisonTableFact, Any | None]] = {}
+        self.risk_candidates: dict[tuple[str, str], tuple[tuple[object, ...], ExitStack]] = {}
+        self.pending_risk: dict[tuple[str, str], tuple[tuple[object, ...], ExitStack]] = {}
+        self.calls = 0
+        self.hits = 0
+        self.reads = 0
+        try:
+            self._map_charge = context.memory.reserve(4096 + len(self.remaining_uses) * 512)
+        except BaseException:
+            for charge in self.key_charges.values():
+                charge.close()
+            self.key_charges.clear()
+            raise
+        context.resources.callback(self.close)
+
+    def close(self) -> None:
+        for _, handle in self.cached.values():
+            if handle is not None:
+                handle.close()
+        self.cached.clear()
+        for _, charges in self.risk_candidates.values():
+            charges.close()
+        self.risk_candidates.clear()
+        self.abort_pending_risk()
+        for charge in self.key_charges.values():
+            charge.close()
+        self.key_charges.clear()
+        self.remaining_uses.clear()
+        self.declared_keys.clear()
+        self._map_charge.close()
+
+    def abort_pending_risk(self) -> None:
+        for _, charges in self.pending_risk.values():
+            charges.close()
+        self.pending_risk.clear()
+
+    def commit_pending_risk(self) -> None:
+        self.risk_candidates.update(self.pending_risk)
+        self.pending_risk.clear()
+
+    def risk_lookup(self, task_key: str, risk_key: str) -> tuple[object, ...] | None:
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison context was lost")
+        context.checkpoint()
+        item = self.risk_candidates.get((task_key, risk_key))
+        return None if item is None else item[0]
+
+    def risk_store(
+        self, task_key: str, risk_key: str,
+        events: tuple[object, ...], charges: ExitStack,
+    ) -> bool:
+        if self.remaining_uses.get(task_key, 0) <= 1:
+            return False
+        self.pending_risk[(task_key, risk_key)] = (events, charges)
+        return True
+
+    def risk_evict(self, task_key: str, risk_key: str) -> None:
+        item = self.risk_candidates.pop((task_key, risk_key), None)
+        if item is not None:
+            _, charges = item
+            charges.close()
+
+    def evict_for(self, plan: ComparisonPlan) -> None:
+        # A mixed pair has necessary fresh work. Release all re-computable
+        # outputs first so a cache entry cannot cause a new M rejection.
+        keys = {self.key_for(plan, task) for task in plan.tasks}
+        expected = any((plan.pair_id, task.table_name) in self.declared_keys
+                       for task in plan.tasks)
+        if (expected and None in keys) or any(
+            key is not None and key not in self.cached for key in keys
+        ):
+            self.close()
+
+    def key_for(self, plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
+        declared = self.declared_keys.get((plan.pair_id, task.table_name))
+        if declared is None or declared not in self.remaining_uses:
+            return None
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison context was lost")
+        try:
+            with context.memory.reserve(4 * 1024**2):
+                actual = _task_key(plan, task)
+                return declared if actual == declared else None
+        except MemoryError:
+            return None
+
+    def lookup(self, key: str | None) -> tuple[ComparisonTableFact, Any | None] | None:
+        if key is None or key not in self.remaining_uses:
+            return None
+        item = self.cached.get(key)
+        if item is not None:
+            context = current_kernel_context()
+            if context is None:
+                raise RuntimeError("comparison context was lost")
+            context.checkpoint()
+            self.hits += 1
+        return item
+
+
 @dataclass(slots=True)
 class NativeComparison:
     result: DetailedFactsResult | DatasetReplacementResult
     handles: dict[str, Any]
+    risk_handles: dict[str, Any]
     operation: Any | None
+    session: ComparisonTaskSession | None = None
+    task_keys: dict[str, str] | None = None
+    committed: bool = False
+
+    def commit_cache(self) -> None:
+        if self.committed:
+            return
+        self.committed = True
+        if self.session is None or self.task_keys is None:
+            return
+        self.session.commit_pending_risk()
+        for name, key in self.task_keys.items():
+            remaining = self.session.remaining_uses[key] - 1
+            if remaining > 0:
+                self.session.remaining_uses[key] = remaining
+            else:
+                self.session.remaining_uses.pop(key, None)
+            handle = self.handles.get(name)
+            if remaining > 0 and self.session.cached.get(key) is None:
+                facts = self.result.facts
+                if facts is not None:
+                    fact = next(table for table in facts.tables if table.table_name == name)
+                    self.session.cached[key] = (fact, handle)
+            if remaining <= 0:
+                self.session.cached.pop(key, None)
+                charge = self.session.key_charges.pop(key, None)
+                if charge is not None:
+                    charge.close()
+                for identity in tuple(self.session.declared_keys):
+                    if self.session.declared_keys[identity] == key:
+                        self.session.declared_keys.pop(identity)
+                for risk_key in tuple(self.session.risk_candidates):
+                    if risk_key[0] == key:
+                        _, charges = self.session.risk_candidates.pop(risk_key)
+                        charges.close()
+        for name, key in self.task_keys.items():
+            if key in self.session.cached:
+                self.handles.pop(name, None)
+
 
     def close(self) -> None:
+        if not self.committed and self.session is not None:
+            self.session.abort_pending_risk()
         for handle in self.handles.values():
             handle.close()
         self.handles.clear()
+        self.risk_handles.clear()
         if self.operation is not None:
             self.operation.close()
             self.operation = None
@@ -73,55 +319,42 @@ def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, object]:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
-    # The codec output is a new backing. Charge its maximum before encoding;
-    # shrink only after the canonical IPC file has been built.
-    charge = context.memory.reserve(_MAX_CODEC_BYTES)
+    if table.descriptor.table_name == "composite_signal_point" and not isinstance(
+        table.reader, ArrowSnapshotTableReader,
+    ):
+        # The composition producer still owns a bounded derived row table.
+        # Reuse its existing Arrow conversion at this boundary; all ordinary
+        # SQL/History tables arrive as retained canonical Arrow already.
+        manager = snapshot_arrow_input(table)
+        try:
+            metadata, _ = manager.__enter__()
+            return metadata["arrow_stream"], _CompositeArrowOwner(manager)
+        except BaseException:
+            manager.__exit__(None, None, None)
+            context.checkpoint()
+            raise
+    if not isinstance(table.reader, ArrowSnapshotTableReader):
+        raise StandardComparisonError("canonical comparison requires an Arrow reader")
+    isolated = table.reader.reopen()
     try:
-        budgets = {
-            "max_columns": 2048, "max_input_batches": 4096,
-            "max_rows": 10_000_000, "max_descriptor_bytes": 16 * 1024**2,
-            "max_input_bytes": _MAX_CODEC_BYTES,
-            "max_output_bytes": _MAX_CODEC_BYTES,
-            "max_codec_peak_bytes": min(context.memory.available_bytes, 4 * 1024**3),
-        }
-        if table.reader is not None and callable(getattr(table.reader, "arrow_stream", None)):
-            isolated = table.reader.reopen()
-            try:
-                with closing(isolated.arrow_stream()) as source:
-                    raw = _encode_canonical_ipc_native(
-                        canonical_columns(table.descriptor), source,
-                        context.cancel_probe, budgets, context.deadline_monotonic,
-                    )
-            finally:
-                isolated.close()
-        elif table.batch_reader is not None:
-            isolated_batch = table.batch_reader.reopen()
-            try:
-                with closing(pa.RecordBatchReader.from_batches(
-                    isolated_batch.schema(), isolated_batch.iter_record_batches(),
-                )) as source:
-                    raw = _encode_canonical_ipc_native(
-                        canonical_columns(table.descriptor), source,
-                        context.cancel_probe, budgets, context.deadline_monotonic,
-                    )
-            finally:
-                isolated_batch.close()
-        else:
-            raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
-        charge.shrink_to(len(raw))
-        with closing(pa.ipc.open_file(pa.BufferReader(raw))) as file:
-            batches = [file.get_batch(index) for index in range(file.num_record_batches)]
-            stream = pa.RecordBatchReader.from_batches(file.schema, batches)
-        return stream, charge
+        # reopen() borrows the original Arrow buffers through retain_arrow's
+        # unique backing keys. The native handle keeps this charge until its
+        # final output consumer closes; no IPC copy or Python row bridge.
+        return isolated.arrow_stream(), isolated
     except BaseException:
-        charge.close()
+        isolated.close()
+        context.checkpoint()
         raise
 
 
 def _compare_native(
     operation: object, task: TableComparisonTask, *, kind: str,
     policy: dict[str, object],
+    session: ComparisonTaskSession | None = None,
 ) -> Any:
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("comparison operation context was lost")
     if task.before_table is None or task.current_table is None:
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
     before, before_charge = _stream(task.before_table)
@@ -133,15 +366,25 @@ def _compare_native(
         raise
     owner = _InputCharge((before_charge, current_charge))
     try:
-        return native.compare_records_batches(
-            operation, kind=kind, table_name=task.table_name,
-            before=before, current=current,
-            policy_json=json.dumps(policy, separators=(",", ":")),
-            detail_policy="FULL_BEFORE_AFTER_VALUES",
-            input_owner_charge=owner, max_records=_MAX_RECORDS,
-            max_sort_bytes=2 * 1024**3, max_output_bytes=_MAX_RECORD_BYTES,
-            max_input_bytes=2 * _MAX_CODEC_BYTES + 8 * 1024**2,
-        )
+        if session is not None:
+            session.calls += 1
+            session.reads += 2
+        try:
+            return native.compare_records_batches(
+                operation, kind=kind, table_name=task.table_name,
+                before=before, current=current,
+                policy_json=json.dumps(policy, separators=(",", ":")),
+                detail_policy="FULL_BEFORE_AFTER_VALUES",
+                input_owner_charge=owner, max_records=_MAX_RECORDS,
+                max_sort_bytes=2 * 1024**3, max_output_bytes=_MAX_RECORD_BYTES,
+                max_input_bytes=context.memory.limit_bytes,
+            )
+        except BaseException:
+            # A Python reader can fail inside the Arrow C Stream before the
+            # native watch samples it. Preserve current stop/deadline priority
+            # before ordinary table error classification.
+            context.checkpoint()
+            raise
     finally:
         before.close()
         current.close()
@@ -158,12 +401,16 @@ def _standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object
         "incompatible_columns": list(schema.incompatible),
         "emit_add_delete": task.artifact_scope is ArtifactScope.ALL_CHANGES,
         "columns_added": _is_columns_added(schema),
-        "mode": "keyed" if schema.before_key else "keyless",
+        "mode": ("keyless" if not schema.before_key or
+                 (policy.allow_keyless_key_transition and not schema.current_key)
+                 else "keyed"),
         "schema_diagnostics": _schema_diagnostics(schema, policy),
     }
 
 
-def _ordered_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]:
+def _ordered_policy(
+    task: TableComparisonTask, schema: Any, *, unchanged: bool = False,
+) -> dict[str, object]:
     policy = task.policy
     assert policy is not None and policy.ordered_policy is not None
     ordered = policy.ordered_policy
@@ -194,7 +441,9 @@ def _ordered_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]
             and changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED
         ),
         "raw_content_changed": before.raw_content_digest != current.raw_content_digest,
-        "before_blank_provenance": provenance(task.before_table),
+        "before_blank_provenance": (
+            provenance(task.current_table) if unchanged else provenance(task.before_table)
+        ),
         "current_blank_provenance": provenance(task.current_table),
         "schema_changes": {
             "before_only_columns": list(changes.before_only_columns),
@@ -277,10 +526,16 @@ def _native_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compari
         )
     diagnostics = tuple(_schema_diagnostics(schema, policy))
     count = data["record_count"]
+    changed_rows = bool(data["row_added_count"] or data["row_deleted_count"])
+    is_keyless = not schema.before_key or (
+        policy.allow_keyless_key_transition and not schema.current_key
+    )
     status = (ComparisonTableStatus.SCHEMA_CHANGED if diagnostics else
-        ComparisonTableStatus.MODIFIED if count else ComparisonTableStatus.UNCHANGED)
+        ComparisonTableStatus.MODIFIED if (count or (is_keyless and changed_rows))
+        else ComparisonTableStatus.UNCHANGED)
     content_changed = False
-    if count == 0 and not diagnostics:
+    if (count == 0 and not diagnostics and
+            (not is_keyless or not changed_rows)):
         content_changed = (data["ignored_shared_content_changed"] if
             changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else
             _ignored_values_changed(before, current, policy))
@@ -297,7 +552,10 @@ def _native_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compari
     )
 
 
-def _compare_task_native(task: TableComparisonTask, operation: object) -> tuple[ComparisonTableFact, Any | None]:
+def _compare_task_native(
+    task: TableComparisonTask, operation: object,
+    session: ComparisonTaskSession | None,
+) -> tuple[ComparisonTableFact, Any | None]:
     policy = task.policy
     assert policy is not None
     before = task.before_descriptor
@@ -314,7 +572,8 @@ def _compare_task_native(task: TableComparisonTask, operation: object) -> tuple[
                             effective_key_current=[], compare_excluded_columns=[],
                             emit_add_delete=False, columns_added=True,
                             schema_diagnostics=[])
-        probe = _compare_native(operation, task, kind="standard", policy=probe_policy)
+        probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
+                                session=session)
         try:
             metadata = json.loads(probe.metadata_json())
         finally:
@@ -332,14 +591,21 @@ def _compare_task_native(task: TableComparisonTask, operation: object) -> tuple[
         if diagnostics:
             return _degraded_fact(task, before, current, changes, diagnostics), None
         if _can_table_early_exit(before, current, policy):
-            return _ordered_unchanged_native(task, operation, schema), None
-        handle = _compare_native(operation, task, kind="ordered", policy=_ordered_policy(task, schema))
+            if task.current_table is None or task.current_table.reader is None:
+                return _degraded_fact(task, before, current, changes,
+                                      ("TABLE_READER_UNAVAILABLE",)), None
+            return _ordered_unchanged_native(task, operation, schema, session), None
+        handle = _compare_native(operation, task, kind="ordered",
+                                 policy=_ordered_policy(task, schema), session=session)
         return _native_fact(task, handle, schema), handle
     if _can_table_early_exit(before, current, policy):
         return _compare_task(task), None
     if schema.key_invalid or schema.key_changed or not schema.selected:
         return _compare_task(task), None
-    if not schema.before_key and policy.keyless_policy is KeylessPolicy.DEGRADE_NO_COMPARE_KEY:
+    is_keyless = not schema.before_key or (
+        policy.allow_keyless_key_transition and not schema.current_key
+    )
+    if is_keyless and policy.keyless_policy is KeylessPolicy.DEGRADE_NO_COMPARE_KEY:
         diagnostics = tuple(_schema_diagnostics(schema, policy)) + ("DEGRADE_NO_COMPARE_KEY",)
         return ComparisonTableFact(
             table_name=task.table_name, status=ComparisonTableStatus.DEGRADED,
@@ -348,7 +614,8 @@ def _compare_task_native(task: TableComparisonTask, operation: object) -> tuple[
             row_count_current=current.row_count, diagnostics=diagnostics,
             records=(_schema_record(task.table_name, diagnostics, schema.selected),),
         ), None
-    handle = _compare_native(operation, task, kind="standard", policy=_standard_policy(task, schema))
+    handle = _compare_native(operation, task, kind="standard",
+                             policy=_standard_policy(task, schema), session=session)
     return _native_fact(task, handle, schema), handle
 
 
@@ -363,18 +630,28 @@ def _compare_task_metadata_nonrecord(task: TableComparisonTask, changes: Compari
     )
 
 
-def _ordered_unchanged_native(task: TableComparisonTask, operation: object, schema: Any) -> ComparisonTableFact:
+def _ordered_unchanged_native(
+    task: TableComparisonTask, operation: object, schema: Any,
+    session: ComparisonTaskSession | None,
+) -> ComparisonTableFact:
     # The unchanged fast path must read only the current side and never run LIS.
-    policy = _ordered_policy(task, schema)
+    policy = _ordered_policy(task, schema, unchanged=True)
     table = task.current_table
     before = task.before_descriptor
     current = task.current_descriptor
     assert table is not None and before is not None and current is not None and task.policy is not None
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("comparison operation context was lost")
     stream, charge = _stream(table)
     try:
+        if session is not None:
+            session.calls += 1
+            session.reads += 1
         before_digest, current_digest, before_occupancy, current_occupancy, _ = native.summarize_unchanged_ordered(
             operation, current=stream, policy_json=json.dumps(policy),
-            input_owner_charge=charge, max_input_bytes=_MAX_CODEC_BYTES + 4 * 1024**2,
+            input_owner_charge=charge,
+            max_input_bytes=context.memory.limit_bytes,
         )
     finally:
         stream.close()
@@ -399,20 +676,43 @@ def _ordered_unchanged_native(task: TableComparisonTask, operation: object, sche
     )
 
 
-def compare_plan_native(plan: ComparisonPlan) -> NativeComparison:
+def compare_plan_native(
+    plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+) -> NativeComparison:
     if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
         replaced = compare_dataset_replacement(plan)
         if not isinstance(replaced, DatasetReplacementResult):
             raise StandardComparisonError("replacement comparison failed")
-        return NativeComparison(replaced, {}, None)
+        return NativeComparison(replaced, {}, {}, None, session=session)
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
     context.checkpoint()
-    # Leave an independent writer/risk reservation after native seal. The
-    # native owner shrinks this phase to actual retained allocations at seal.
-    native_budget = context.memory.available_bytes - 2 * 1024**3
-    if native_budget < 64 * 1024**2:
+    if session is not None:
+        session.evict_for(plan)
+    # Small Python descriptors/facts and their JSON copies survive native
+    # sealing and, in FULL, the next pair. Bound them before any table work.
+    metadata_upper = 16 * 1024**2 + len(plan.tasks) * 1024**2
+    for task in plan.tasks:
+        for descriptor in (task.before_descriptor, task.current_descriptor):
+            if descriptor is not None:
+                metadata_upper += len(descriptor.columns) * 16 * 1024
+                metadata_upper += sum(
+                    (len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 64
+                    for column in descriptor.columns
+                )
+                metadata_upper += sum(
+                    len(diagnostic.message) * 64 + 4096 for diagnostic in descriptor.diagnostics
+                )
+    context.memory.record_stage_admission("comparison-metadata", metadata_upper)
+    context.resources.enter_context(context.memory.reserve(metadata_upper))
+    # The writer and Risk run after seal, when the unused native phase is
+    # returned. Leave only the Python facts/core scratch needed concurrently;
+    # a fixed future-writer holdback would reject small cached replays.
+    available = context.memory.available_bytes
+    concurrent_scratch = min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2))
+    native_budget = available - concurrent_scratch
+    if native_budget <= 0:
         raise MemoryError("comparison native phase exceeds operation budget")
     context.memory.record_stage_admission("comparison-native", native_budget)
     operation = native.begin_records_operation(
@@ -421,15 +721,25 @@ def compare_plan_native(plan: ComparisonPlan) -> NativeComparison:
         deadline_monotonic=context.deadline_monotonic,
     )
     handles: dict[str, Any] = {}
+    risk_handles: dict[str, Any] = {}
+    task_keys: dict[str, str] = {}
+    cached_names: set[str] = set()
     try:
         tables = []
         for task in plan.tasks:
             context.checkpoint()
+            key = session.key_for(plan, task) if session is not None else None
+            cached = None if session is None else session.lookup(key)
             try:
-                fact, handle = _compare_task_native(task, operation)
+                if cached is None:
+                    fact, handle = _compare_task_native(task, operation, session)
+                else:
+                    fact, handle = cached
+                    cached_names.add(task.table_name)
             except (InterruptedError, TimeoutError, MemoryError):
                 raise
-            except (StandardComparisonError, ValueError) as exc:
+            except (StandardComparisonError, ValueError, OSError, pa.ArrowException) as exc:
+                context.checkpoint()
                 # Ordinary malformed table data retains the existing per-table
                 # degraded result. Native adapter panic/runtime failures escape.
                 diagnostic = str(exc) if isinstance(exc, StandardComparisonError) else type(exc).__name__
@@ -459,11 +769,20 @@ def compare_plan_native(plan: ComparisonPlan) -> NativeComparison:
                 handle = None
             if handle is not None:
                 handles[task.table_name] = handle
-                handle.prepare_risk_batches()
+                if cached is None and (fact.row_modified_count or
+                    fact.row_added_count > fact.suppressed_added_count or
+                    fact.row_deleted_count > fact.suppressed_deleted_count):
+                    handle.prepare_risk_batches()
+                if (fact.row_modified_count or
+                    fact.row_added_count > fact.suppressed_added_count or
+                    fact.row_deleted_count > fact.suppressed_deleted_count):
+                    risk_handles[task.table_name] = handle
+            if key is not None and session is not None and key in session.remaining_uses:
+                task_keys[task.table_name] = key
             tables.append(fact)
         metadata = []
         table_handles: list[object | None] = []
-        with context.memory.reserve(8192 + len(tables) * 65536):
+        with context.memory.reserve(metadata_upper):
             for fact in tables:
                 handle = handles.get(fact.table_name)
                 if handle is None:
@@ -476,7 +795,7 @@ def compare_plan_native(plan: ComparisonPlan) -> NativeComparison:
                     if isinstance(payload["blank_extension"], dict):
                         payload["blank_extension"]["records"] = []
                 raw = json.dumps(payload, separators=(",", ":"))
-                if handle is not None:
+                if handle is not None and fact.table_name not in cached_names:
                     fact = replace(fact, table_fact_digest=DigestRef(
                         handle.table_fact_digest(raw, _MAX_JCS_ROW_BYTES)))
                 metadata.append(raw)
@@ -493,7 +812,8 @@ def compare_plan_native(plan: ComparisonPlan) -> NativeComparison:
         result = DetailedFactsResult(plan.pair_id, facts.summary.status, facts=facts, diagnostics=facts.diagnostics)
         operation.seal()
         context.checkpoint()
-        return NativeComparison(result, handles, operation)
+        return NativeComparison(result, handles, risk_handles, operation,
+                                session=session, task_keys=task_keys)
     except BaseException:
         for handle in handles.values():
             handle.close()

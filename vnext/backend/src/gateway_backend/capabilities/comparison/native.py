@@ -46,7 +46,8 @@ def begin_records_operation(
     reservation = operation.memory.reserve(native_budget_bytes)
     try:
         return _begin_comparison_operation_native(
-            native_budget_bytes, reservation, cancel_probe, deadline_monotonic
+            native_budget_bytes, reservation, cancel_probe, deadline_monotonic,
+            id(operation.memory),
         )
     except BaseException:
         reservation.close()

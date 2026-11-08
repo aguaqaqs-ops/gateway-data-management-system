@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Iterator, Mapping
-from contextlib import closing
-import json
+from contextlib import closing, nullcontext
 
 from gateway_shared_kernel import DigestRef
+from gateway_backend.capabilities.table_access import current_kernel_context
 
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
@@ -55,16 +55,25 @@ class RiskRecordView:
         reader = getattr(self._handle, "risk_record_batches")()
         with closing(reader):
             for batch in reader:
-                kinds = batch.column(0)
-                identities = batch.column(1)
-                changes = batch.column(2)
-                for index in range(batch.num_rows):
-                    identity = identities[index].as_py()
-                    yield RiskRecord(
-                        record_kind=ComparisonRecordKind(kinds[index].as_py()),
-                        row_identity=None if identity is None else DigestRef(identity),
-                        changed_columns=tuple(json.loads(changes[index].as_py())),
-                    )
+                operation = current_kernel_context()
+                if operation is not None:
+                    operation.checkpoint()
+                # One Arrow→Python conversion per needed column/batch. The
+                # full values/field changes never cross into Risk.
+                scratch = (nullcontext() if operation is None else operation.memory.reserve(
+                    8192 + batch.nbytes * 16 + batch.num_rows * 512,
+                ))
+                with scratch:
+                    columns = batch.to_pydict()
+                    for kind, identity, changed in zip(
+                        columns["record_kind"], columns["row_identity"],
+                        columns["changed_columns"], strict=True,
+                    ):
+                        yield RiskRecord(
+                            record_kind=ComparisonRecordKind(kind),
+                            row_identity=None if identity is None else DigestRef("sha256:" + identity.hex()),
+                            changed_columns=tuple(changed),
+                        )
 
 
 @dataclass(frozen=True, slots=True)

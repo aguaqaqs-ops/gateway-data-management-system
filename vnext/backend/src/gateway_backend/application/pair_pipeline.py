@@ -33,7 +33,9 @@ from gateway_backend.capabilities.comparison import (
     RecordsPublicationContext,
 )
 from gateway_backend.capabilities.comparison.artifacts import publish_records_closure_arrow
-from gateway_backend.capabilities.comparison.production import NativeComparison, compare_plan_native
+from gateway_backend.capabilities.comparison.production import (
+    ComparisonTaskSession, NativeComparison, compare_plan_native,
+)
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
@@ -114,6 +116,24 @@ def preview_identity_assessment(
     )
 
 
+def declare_pair_comparison_session(
+    requests: tuple[ComparisonRequest, ...],
+) -> ComparisonTaskSession | None:
+    """Declare exactly the comparison tasks reachable in this operation."""
+    plans: list[ComparisonPlan] = []
+    for request in requests:
+        plan = plan_comparison(request)
+        if not isinstance(plan, ComparisonPlan):
+            raise PairPipelineError("comparison task declaration failed")
+        plans.append(plan)
+    try:
+        return ComparisonTaskSession(tuple(plans))
+    except MemoryError:
+        # The optional reuse index may be denied by the same M budget. The
+        # pair still executes normally with no retained comparison cache.
+        return None
+
+
 def run_preview_pair_pipeline(
     *,
     pair_id: str,
@@ -127,6 +147,7 @@ def run_preview_pair_pipeline(
     assess_identity: bool = True,
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -168,6 +189,7 @@ def run_preview_pair_pipeline(
         ),
         show_keyless_fallback_hint=True,
         include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
+        dedup_session=dedup_session,
     )
     records_closure = surface.published.records_closure
     if (
@@ -197,6 +219,7 @@ def run_history_pair_pipeline(
     control: ExecutionControl,
     on_cancel: Callable[[], None],
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -212,6 +235,7 @@ def run_history_pair_pipeline(
         control=control,
         on_cancel=on_cancel,
         include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
+        dedup_session=dedup_session,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -256,6 +280,7 @@ def _run_comparison_risk_surface(
     show_keyless_fallback_hint: bool = False,
     include_all_before_tables: bool = False,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -268,7 +293,7 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair planning did not produce a comparison plan")
     if context is None:
         raise PairPipelineError("pair computation requires an operation kernel context")
-    with closing(compare_plan_native(plan)) as native_comparison:
+    with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
         return _finish_comparison_risk_surface(
             native_comparison=native_comparison, request=request,
             view_id=view_id, store=store, control=control,
@@ -332,14 +357,22 @@ def _finish_comparison_risk_surface(
             comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(),
-            record_views=native_comparison.handles,
+            record_views=native_comparison.risk_handles,
+            risk_cache_session=native_comparison.session,
+            risk_task_keys=native_comparison.task_keys,
         ),
         artifact_store=store,
     )
     checkpoint()
     if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
-    surface = assemble_surface(
+    # Surface holds only small facts/refs; its JSON construction and retained
+    # result still consume the same operation M after native records seal.
+    context.resources.enter_context(context.memory.reserve(
+        16 * 1024**2 + len(comparison_facts.tables) * 65536,
+    ))
+    with context.memory.reserve(8 * 16 * 1024**2):
+        surface = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=comparison_facts,
             surface_id=f"surface-{request.pair_id}",
@@ -367,10 +400,11 @@ def _finish_comparison_risk_surface(
             identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
         ),
         context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
-    )
+        )
     checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
+    native_comparison.commit_cache()
     risk_digest = (
         risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     )

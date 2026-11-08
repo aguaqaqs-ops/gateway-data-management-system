@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Callable
 from contextlib import contextmanager, ExitStack
+import json
 from typing import Any
 
 import pyarrow as pa
@@ -231,9 +232,24 @@ def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any],
             for index, column in enumerate(source.columns):
                 kind = None if column.declared_type is None else column.declared_type.kind.value
                 physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.string()
-                fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
+                declared = column.declared_type
+                canonical_type = {
+                    "declared_type": None if declared is None else {
+                        "kind": declared.kind.value, "bits": declared.bits,
+                        "precision": declared.precision, "scale": declared.scale,
+                        "bit_width": declared.bit_width,
+                    },
+                    "labels": None, "logical_type": column.logical_type.value,
+                    "sql_type": column.sql_type,
+                }
+                fields.append(pa.field(
+                    column.canonical_name, physical, nullable=column.nullable,
+                    metadata={b"gdds.canonical_type": json.dumps(canonical_type).encode("utf-8")},
+                ))
                 arrays.append(pa.array(columns[index], type=physical))
-            backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            backing = pa.Table.from_arrays(arrays, schema=pa.schema(
+                fields, metadata={b"gdds.canonical_mapping_version": b"1"},
+            ))
             # Conversion is eager before the caller snapshots native remaining M.
             # Drop the Python lists/array wrappers before moving the Arrow backing
             # from this temporary envelope into its shared retained reservation.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from contextlib import nullcontext
 from typing import cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -25,6 +26,7 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationClosureEntry,
     validate_risk_annotation_documents,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
 
 
 ANNOTATION_MEDIA_TYPE = RISK_ANNOTATION_MEDIA_TYPE
@@ -63,6 +65,31 @@ def annotation_manifest_payload(
 
 
 def publish_annotation_artifact(
+    store: ArtifactStorePort,
+    *,
+    table_name: str,
+    annotations: Sequence[RiskAnnotation],
+    max_bytes: int,
+) -> RiskAnnotationArtifact:
+    operation = current_kernel_context()
+    estimated = 1024 * 1024
+    for annotation in annotations:
+        estimated += 8192 + len(annotation.annotation_id) * 64
+        estimated += sum(len(column) * 64 + 256 for column in annotation.target.changed_columns)
+        for reason in annotation.reasons:
+            estimated += len(reason.message) * 64 + 2048
+            estimated += sum((len(name) + len(str(value))) * 64 + 256
+                             for name, value in reason.evidence)
+    admission = nullcontext() if operation is None else operation.memory.reserve(
+        estimated + 2 * max_bytes,
+    )
+    with admission:
+        return _publish_annotation_artifact_charged(
+            store, table_name=table_name, annotations=annotations, max_bytes=max_bytes,
+        )
+
+
+def _publish_annotation_artifact_charged(
     store: ArtifactStorePort,
     *,
     table_name: str,

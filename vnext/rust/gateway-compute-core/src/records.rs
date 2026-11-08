@@ -20,7 +20,7 @@ use std::sync::Arc;
 mod builders;
 mod facts;
 mod source;
-pub use builders::BuiltRecords;
+pub use builders::{BuiltRecords, charge_arrow_batches};
 pub use facts::{
     TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json,
     digest_table_fact, digest_table_fact_json,

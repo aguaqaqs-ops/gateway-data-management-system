@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use arrow_array::{RecordBatch, RecordBatchReader, StringArray};
+use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
@@ -17,7 +18,8 @@ use gateway_compute_core::comparison::{
 use gateway_compute_core::{
     BuiltRecords, RecordsBatchValidator, TableFactsInput, build_blank_records,
     build_ordered_records, build_standard_records, build_standard_records_from_ordered,
-    digest_facts_core_json, digest_table_fact_json, json_metadata_upper, json_size,
+    charge_arrow_batches, digest_facts_core_json, digest_table_fact_json,
+    json_metadata_upper, json_size,
     ordered_metadata_json, standard_metadata_json,
 };
 use pyo3::exceptions::{
@@ -67,6 +69,7 @@ struct ComparisonOperation {
     owner: Option<Arc<PythonChargeOwner>>,
     watch: Arc<CancelWatch>,
     deadline: Option<Instant>,
+    operation_identity: Option<usize>,
 }
 
 #[pymethods]
@@ -136,12 +139,12 @@ struct ComparisonRecordsHandle {
     ordered: Option<BuiltRecords>,
     blank: Option<BuiltRecords>,
     risk_batches: Option<Vec<RecordBatch>>,
-    risk_lease: Option<KernelLease>,
-    schema_lease: Option<KernelLease>,
+    _schema_lease: Option<KernelLease>,
     context: Arc<KernelContext>,
     active: Arc<AtomicUsize>,
     owner: Option<Arc<PythonChargeOwner>>,
     _watch: Arc<CancelWatch>,
+    operation_identity: Option<usize>,
 }
 
 #[pymethods]
@@ -152,8 +155,7 @@ impl ComparisonRecordsHandle {
         self.ordered = None;
         self.blank = None;
         self.risk_batches = None;
-        self.risk_lease = None;
-        self.schema_lease = None;
+        self._schema_lease = None;
         self.owner = None;
     }
 
@@ -253,53 +255,55 @@ impl ComparisonRecordsHandle {
         }
         let _use = OperationUse::begin(&self.context, &self.active)?;
         let result = self.result.as_ref().ok_or_else(closed_handle)?;
-        let records: Vec<_> = match result.as_ref() {
-            ComparisonResult::Standard(value) => value.facts_order.iter()
-                .map(|index| &value.records[*index]).collect(),
-            ComparisonResult::Ordered(value) => value.standard_facts_order.iter()
-                .map(|index| &value.standard_records[*index]).collect(),
+        let (records, order) = match result.as_ref() {
+            ComparisonResult::Standard(value) => (&value.records, &value.facts_order),
+            ComparisonResult::Ordered(value) => (&value.standard_records, &value.standard_facts_order),
         };
         let mut upper = 4096usize;
-        for record in &records {
+        for index in order {
+            let record = &records[*index];
             upper = upper.checked_add(1024)
-                .and_then(|size| size.checked_add(record.row_identity.as_ref().map_or(0, String::len) * 8))
-                .and_then(|size| size.checked_add(record.changed_columns.iter().map(String::len).sum::<usize>() * 8))
+                .and_then(|size| size.checked_add(record.row_identity.as_ref().map_or(0, String::len).saturating_mul(8)))
+                .and_then(|size| size.checked_add(record.changed_columns.iter().map(String::len).sum::<usize>().saturating_mul(8)))
                 .ok_or_else(|| PyMemoryError::new_err("risk view size overflow"))?;
         }
         let lease = self.context.reserve(upper).map_err(|error| comparison_error(error.to_string()))?;
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("kind", DataType::Utf8, false),
-            Field::new("row_identity", DataType::Utf8, true),
-            Field::new("changed_columns_json", DataType::Utf8, false),
-        ]));
+        let schema = risk_schema();
         let mut batches = Vec::new();
-        for chunk in records.chunks(1024) {
+        for chunk in order.chunks(1024) {
             self.context.check().map_err(|error| comparison_error(error.to_string()))?;
-            let kinds = StringArray::from_iter_values(chunk.iter().map(|row| row.kind.contract_name()));
-            let identities = StringArray::from(chunk.iter()
-                .map(|row| row.row_identity.as_deref()).collect::<Vec<_>>());
-            let columns = chunk.iter()
-                .map(|row| serde_json::to_string(&row.changed_columns))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| PyValueError::new_err(error.to_string()))?;
-            let changes = StringArray::from(columns);
+            let mut kinds = StringBuilder::new();
+            let mut identities = FixedSizeBinaryBuilder::with_capacity(chunk.len(), 32);
+            let mut changes = ListBuilder::new(StringBuilder::new());
+            for index in chunk {
+                let record = &records[*index];
+                kinds.append_value(record.kind.contract_name());
+                if let Some(identity) = &record.row_identity {
+                    identities.append_value(digest_bytes(identity)?)
+                        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                } else {
+                    identities.append_null();
+                }
+                for column in &record.changed_columns {
+                    changes.values().append_value(column);
+                }
+                changes.append(true);
+            }
             batches.push(RecordBatch::try_new(Arc::clone(&schema), vec![
-                Arc::new(kinds), Arc::new(identities), Arc::new(changes),
+                Arc::new(kinds.finish()), Arc::new(identities.finish()), Arc::new(changes.finish()),
             ]).map_err(|error| PyValueError::new_err(error.to_string()))?);
         }
-        self.risk_batches = Some(batches);
-        self.risk_lease = Some(lease);
+        let external: Arc<dyn Any + Send + Sync> = self.owner.as_ref()
+            .ok_or_else(closed_handle)?.clone();
+        self.risk_batches = Some(charge_arrow_batches(batches, lease, external)
+            .map_err(comparison_error)?);
         Ok(())
     }
 
     fn risk_record_batches(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let batches = self.risk_batches.as_ref().ok_or_else(||
             PyValueError::new_err("risk view was not prepared before seal"))?;
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("kind", DataType::Utf8, false),
-            Field::new("row_identity", DataType::Utf8, true),
-            Field::new("changed_columns_json", DataType::Utf8, false),
-        ]));
+        let schema = risk_schema();
         let reader = BatchVecReader {
             schema,
             batches: batches.iter().cloned().collect(),
@@ -318,13 +322,42 @@ fn closed_handle() -> PyErr {
     PyValueError::new_err("comparison records handle is closed")
 }
 
+fn risk_schema() -> SchemaRef {
+    Arc::new(Schema::new(vec![
+        Field::new("record_kind", DataType::Utf8, false),
+        Field::new("row_identity", DataType::FixedSizeBinary(32), true),
+        Field::new(
+            "changed_columns",
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            false,
+        ),
+    ]))
+}
+
+fn digest_bytes(value: &str) -> PyResult<[u8; 32]> {
+    let text = value.strip_prefix("sha256:").unwrap_or(value);
+    if text.len() != 64 || !text.is_ascii() {
+        return Err(PyValueError::new_err("risk row identity is not SHA256"));
+    }
+    let mut output = [0u8; 32];
+    for (index, slot) in output.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
+            .map_err(|_| PyValueError::new_err("risk row identity has invalid hex"))?;
+    }
+    Ok(output)
+}
+
 fn comparison_error(error: String) -> PyErr {
     if error.contains("RESOURCE_LIMIT_EXCEEDED") || error.contains("budget exceeded") {
         PyMemoryError::new_err(error)
-    } else if error.contains("COMPARISON_CANCELLED") {
+    } else if error.contains("COMPARISON_CANCELLED")
+        || error.contains("operation control stopped compute") {
         PyInterruptedError::new_err(error)
-    } else if error.contains("COMPARISON_DEADLINE_EXCEEDED") {
+    } else if error.contains("COMPARISON_DEADLINE_EXCEEDED")
+        || error.contains("operation compute deadline elapsed") {
         PyTimeoutError::new_err(error)
+    } else if error.contains("COMPARISON_INTERNAL_ERROR") {
+        PyRuntimeError::new_err(error)
     } else {
         PyValueError::new_err(error)
     }
@@ -400,13 +433,14 @@ fn read_stream(
 }
 
 #[pyfunction]
-#[pyo3(signature = (remaining_bytes, operation_charge, cancel_probe, deadline_monotonic=None))]
+#[pyo3(signature = (remaining_bytes, operation_charge, cancel_probe, deadline_monotonic=None, operation_identity=None))]
 fn _begin_comparison_operation_native(
     py: Python<'_>,
     remaining_bytes: usize,
     operation_charge: Py<PyAny>,
     cancel_probe: Py<PyAny>,
     deadline_monotonic: Option<f64>,
+    operation_identity: Option<usize>,
 ) -> PyResult<ComparisonOperation> {
     match adapter_boundary(|| {
         shared_parser_pool(None)?;
@@ -428,6 +462,7 @@ fn _begin_comparison_operation_native(
             owner: Some(owner),
             watch,
             deadline,
+            operation_identity,
         })
     }) {
         Ok(result) => result,
@@ -486,12 +521,10 @@ fn _compare_records_native(
             max_input_bytes,
         )?;
         let external: Arc<dyn Any + Send + Sync> = owner.clone();
-        let schema_diagnostics = serde_json::from_str::<serde_json::Value>(policy_json)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?
-            .get("schema_diagnostics")
-            .map(|value| serde_json::from_value::<Vec<String>>(value.clone()))
-            .transpose()
-            .map_err(|error| PyValueError::new_err(error.to_string()))?
+        let schema_diagnostics = py.import("json")?
+            .call_method1("loads", (policy_json,))?
+            .call_method1("get", ("schema_diagnostics",))?
+            .extract::<Option<Vec<String>>>()?
             .unwrap_or_default();
         let output = py
             .detach(|| {
@@ -602,12 +635,12 @@ fn _compare_records_native(
             ordered: output.2,
             blank: output.3,
             risk_batches: None,
-            risk_lease: None,
-            schema_lease: output.4,
+            _schema_lease: output.4,
             context,
             active,
             owner: Some(owner),
             _watch: watch,
+            operation_identity: operation.operation_identity,
         })
     }) {
         Ok(result) => result,
@@ -728,9 +761,12 @@ fn _facts_core_digest_native(
         if !handle.is_none() {
             let handle = handle.extract::<PyRef<'_, ComparisonRecordsHandle>>()?;
             let result = handle.result.as_ref().ok_or_else(closed_handle)?.clone();
-            if !Arc::ptr_eq(&context, &handle.context) {
+            let same_phase = Arc::ptr_eq(&context, &handle.context);
+            let same_operation = operation.operation_identity.is_some()
+                && operation.operation_identity == handle.operation_identity;
+            if !same_phase && !(same_operation && handle.context.is_sealed()) {
                 return Err(PyValueError::new_err(
-                    "facts tables must share one operation",
+                    "facts tables must share the active phase or a sealed source phase",
                 ));
             }
             results.push(Some(result));

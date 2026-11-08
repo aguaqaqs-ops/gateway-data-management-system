@@ -8,7 +8,7 @@ pub mod table_access;
 
 pub use records::{
     BuiltRecords, RecordsBatchValidator, RecordsParquetSummary, TableFactsInput, TableFactsSource,
-    build_blank_records, build_ordered_records, build_standard_records,
+    build_blank_records, build_ordered_records, build_standard_records, charge_arrow_batches,
     build_standard_records_from_ordered, digest_facts_core, digest_facts_core_json,
     digest_table_fact, digest_table_fact_json, json_metadata_upper, json_size,
     ordered_metadata_json, standard_metadata_json,

@@ -260,6 +260,20 @@ fn charged_batch(batch: RecordBatch, charge: &Arc<OutputCharge>) -> Result<Recor
     RecordBatch::try_new(schema, columns).map_err(|error| error.to_string())
 }
 
+/// Retain the native lease and input parent through every exported Arrow
+/// buffer, including null and nested child buffers.
+pub fn charge_arrow_batches(
+    batches: Vec<RecordBatch>,
+    lease: KernelLease,
+    external_owner: Arc<dyn std::any::Any + Send + Sync>,
+) -> Result<Vec<RecordBatch>, String> {
+    let charge = Arc::new(OutputCharge {
+        _lease: Mutex::new(lease),
+        _external_owner: Some(external_owner),
+    });
+    batches.into_iter().map(|batch| charged_batch(batch, &charge)).collect()
+}
+
 fn attach_charge(data: ArrayData, charge: &Arc<OutputCharge>) -> Result<ArrayData, String> {
     let buffers = data
         .buffers()

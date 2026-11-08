@@ -4,7 +4,7 @@
 
 ## 1. 固定条件与计时范围
 
-产品 V=`1e669c053f2486c50a8413c58de11d923d7f3cad`，Rust tree=`9d4f84ce0897099402226c77c548c487c4912008`，与 main 后续 S4 B 算法隔离。CT108／`gw-dms-test`，32 vCPU／64GiB guest；本次唯一增预算档为 **48GiB worker hard envelope、8GiB reserve、M40GiB、N1、单 active**。生产默认仍32/8/M24。实际容器及端点资源守卫须逐次取证，授权与静态配置不证明生效。
+已失败新档来源产品 V=`1e669c053f2486c50a8413c58de11d923d7f3cad`；局部排序预算修复候选为V4b0，见§7，尚无成功warm。两者Rust tree均=`9d4f84ce0897099402226c77c548c487c4912008`，与 main 后续 S4 B/C 算法隔离。CT108／`gw-dms-test`，32 vCPU／64GiB guest；本次唯一增预算档为 **48GiB worker hard envelope、8GiB reserve、M40GiB、N1、单 active**。生产默认仍32/8/M24。实际容器及端点资源守卫须逐次取证，授权与静态配置不证明生效。
 
 性能范围为现役 `--scope t4-identity`：fresh v1 Preview→Submit→Archive 建立基线，再测 v2 Preview；省略重复 Preview、v2 Submit 和 History。完整功能由另组默认 N1/32−8/M24 的 fresh t1–t4 证明，两种范围不相互替代。READY 观察是接受响应到首次可见结果／终端的 host 端计时，保留实际 polling 粒度；不冒充服务器内部精确 READY 瞬间。每组需1次成功预热和3次成功测量，预热不进入中位数／范围，失败不补位。
 
@@ -70,3 +70,5 @@ S3诊断起测与S6正式取证分开。保留S6 W3 READY≤60s、W4 READY≤180
 原E对局部设计`a01149fc…`给DESIGN_CLEAR：仅把已在Python M账本预扣并交同一Rust KernelContext的`native_budget`透传为排序上限，保留FULL JCS排序、全部增长前租约、M40／N1及现役512MiB输出／reader、2m记录／1024行组界限，无新开关或Rust／FFI改动。第一代码候选acb417只因低cap测试释放断言不可达而修订为 **`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`**，原E §83静态CODE_CLEAR；06 focused于20:14:04–20:15:22Z actual0并在§85／`1207de61b6`独核，native9d4、backend Ruff／mypy0、134 nonserial＋1 serial通过。原expected／golden和业务断言未回填新Rust输出。
 
 新候选尚待集中门禁、当前产品完整fresh及新的W3 MO warm。旧V1e在05的t1–t4已各档fresh且独立PASS，仅记旧源功能回归；不冒新V4b0或M40性能结果。第4节仍0有效warm／0测量，23项及聚合仍HOLD；后续只有新合格warm、独审和实际tar／磁盘准入满足后才推进。
+
+20:40:43Z，旧M40失败标记已按原E静审的release-only稿实际释放，node／outer0且原E §88独核PASS。只新增外部收尾报告／receipt并移除本人marker，三停容器／三卷／一网络、旧WT、DB、输入、镜像和runtime tar均保留，原失败result／manifest逐SHA不变。sealed closeout report SHA=`238eb665f64b8d571299144fbd393abbab81f76f2e4897664148df43e67c873b`、control receipt=`59cceabba4d2c4bb451b509a0aa84b19f9f927e3f1de1a4d308305046b52e9cc`，见[协调§32](p6-s3-coordination.md#32-排序预算修复后的当前候选与集中验证)。释放不是warm成功；后续新准备／warm需重新现场准入，未预留CT108。

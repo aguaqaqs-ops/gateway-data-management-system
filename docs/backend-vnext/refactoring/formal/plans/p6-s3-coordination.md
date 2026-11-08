@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态：A–D GO；E产品V774、04权威及774 t1通过，W3基线Submit在M24拒绝。Owner已选保持边界/保留性能阻塞/完成其余交接，E不GO、S3不退出，tag/push另办。DC33已确认的范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§32：A–D GO、Q18独立GO；原M24和后续M40失败均保留。已授权的资源诊断及局部排序预算修复继续，隔离候选V4b0已通过focused，04门禁及当前产品fresh正在推进，仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -483,3 +483,17 @@ CT108首warm于18:19:35–18:23:09Z actual node/outer1：RS容器exit3，无法i
 只读现场与Dockerfile/entrypoint核对发现：新CT108/05源码WT因umask077而目录0700／文件0600，04通过门禁的WT对应0755／0644；RS COPY后root布局初始化可执行，随后import失败的现象与降权后无法读取源码一致，这是尚未在容器内单独重演的强推断。原实施者正在固定仅公开tracked源码及祖先目录权限／新RS镜像／fresh复验的最小执行稿，原E连续审稿及核原件；不动产品、Contract、golden、资源档、私有secret/venv/输入或原坏镜像／失败日志。04原来源WT不改，不因另一节点准备权限修复重复权威门禁。按DC68本根因进入第1轮修复准备，尚无修订实际复验；不无修改重试或擅增M。
 
 05 t1**尚未启动**，已因同根源码权限前提暂停，待固定修稿、原子节点准备及原E核收后再启动；此前05 prepare通过的源码／输入字节事实保留，不能由prepare0推断降权容器运行前提满足。S4节点占用已正常释放的事实不豁免这一前提。其余职责内文档与最小修复继续，不需要Owner日常再授权；遇核心设计冲突或修复轮次停止条件再报告。
+
+## 32. 排序预算修复后的当前候选与集中验证
+
+截至2026-11-08 20:43Z，§31准备权限根因已用新公开源码022 WT／新镜像修复，原失败原件不覆盖。旧V1e在05的t1–t4默认N1/32−8/M24完整fresh已逐档actual0，由原E §75、77、80、82独核；它们是旧产品直接功能回归，不冒后续修复候选的fresh。
+
+CT108修订M40 warm actual1，v1 Preview／Submit／真实read、approve、Archive已通过，v2 Preview在assemble阶段失败，成功warm仍0。只读DB诊断message SHA与Rust `records sort budget exceeded`精确一致，源码归因于Python每表固定2GiB局部sort cap，**不是已证明的M40总预约拒绝**；首表／记录族／具体guard及requested/live仍未知。失败原件、资源分域、诊断和独核见[性能记录§7](p6-s3-performance-report.md#7-m40修订warm终局局部排序限额与新修复候选)。未用增加M绕过局部guard，也未改冻结输出／reader界限。
+
+最小修复固定为 **V=`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`**，仅在隔离S3分支将已在Python操作账本预扣、交同一Rust KernelContext的`native_budget`透传为排序cap，保全部增长前租约和完整JCS排序；另两测试及设计说明，Rust tree仍9d4，未混入main的S4 B/C。原E §81设计CLEAR、§83代码CLEAR、§85／`1207de61b6`核06 focused actual0：backend Ruff／mypy、native强制重装／input核验、134 nonserial＋1 serial均通过。尚未移植main，不能声称并行main的S4实现已验证。
+
+新04集中稿在原受保护来源WT按V1e的六个直接合格来源逐包实比，backend强制实际运行、其余由实际闭包决定；当前HEAD Compose正常构建、镜像true config／全DiffID和runtime provenance独立绑定。20:33:51Z官方runner启动，尚无整轮封口结论；监控中的单批通过不代替整轮exit。新05准备20:32:27–20:34:07Z actual0并在原E §87核PREP_PASS，full fresh稿也已静态CLEAR，协调仅放行单档t1；04若失败停止未启动后续，已开始的旅程正常结束保原件。t2–t4仍逐档实际0及原E核收后启动，不自动排队。
+
+CT108原M40失败标记已在20:40:43Z按release-only稿收尾，node／outer0并由原E §88独核PASS；**只释放本人标记**，3停容器、3卷、1网络、镜像、原WT／DB／输入／日志和747,672,576B runtime tar均保留。直接control `/home/dev/gdds-test-tmp/p6-s3-failed-marker-closeout-1e669c053f/control/`：outer SHA=`ac65175535afe7eefa9027736c048d9400ee05bd2ac08ef5c2dbae95c1eea09c`、sealed report=`238eb665f64b8d571299144fbd393abbab81f76f2e4897664148df43e67c873b`、最终receipt=`59cceabba4d2c4bb451b509a0aa84b19f9f927e3f1de1a4d308305046b52e9cc`。原失败result06c0／manifest8ffa SHA未变，原warm仍失败，不能把释放核收写成业务PASS。
+
+CT108新V4b0准备稿／warm稿仍须原E核收及现场原子准入；新warm严格等待新04 actual0和镜像绑定核收。新档仍仅48/8/M40、N1，默认32/8/M24不变。剩余23样本和统计尚未执行，必须先有本候选首个合格warm、原E核收与实际归档／磁盘容量；保1warm＋3、六组MO／FULL／压力范围及S6目标，不以0有效样本给统计。最终H、同04逐包／镜像绑定、main最小移植和累计独核仍待收敛；无E GO、tag、push或正式退出。

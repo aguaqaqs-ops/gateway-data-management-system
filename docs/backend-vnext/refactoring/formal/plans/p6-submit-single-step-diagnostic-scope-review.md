@@ -3209,3 +3209,36 @@ postflight SHA **`acb1c905a7e71362bb972f3c60be9778f98417cccdce4340b8c6056fa7309e
 **H1-refill仅补tool HEAD元数据，通过，不重审旧业务。** 同目录h1-refill-metadata/run.json11440B/SHA **`fbb33234f3a071cf324b0e393ff9cf7de20a3c742f9b77be6ce320a84069038e`**、resources.json1749B/SHA **`006f87d44b53901de5e6073fc2fdb8d6f98e340dc174e21585c93272369a01d2`** 均与CT108原 `ct108-h1-refill-20261102b/evidence/run.json` / resources.json逐字节摘要相同。run.head及resources.start/end_head全为 **`0739d8cba0057e2edfa0ee991d46e1c7282ef31e`**，资源head_stable=true、两原件exit0；run.parent_source.head明确另为 **bb348a9299ef58004048cf81cac0caf404eaaaa1**，不可混作本次tool HEAD。由此关闭§147/参考索引中该场景tool HEAD暂缺元数据项；4279.14s仍只是原resources整run口径，不改记History API。未重算旧输入/镜像/卷或把该补元数据升级为新的旧业务审核。
 
 本轮报告提交和原reply更新后，按主协调新通知闭环，使用本机 **`codex queue --thread 01a1a628-e59a-7981-aad5-6bf31e919d38 --message <准确节/提交/结论/路径短摘要> --resume`** 向原同一root主动排队通知一次；不新建会话、改模型、调用失效MCP或等待Owner中继。实际排队/恢复结果及任何错误写原reply，本回执仅作协调索引，不代替本节权威证据。04新门禁按原授权继续，不因本轮V5b事后审核增设新GO。
+
+## 156. 当前H 1e72最终全六包及实际镜像门禁闭合独审PASS，不宣整体phase exit
+
+**`1e72b9866e54acc27eaabd6c0579dc50493c76eb` 本次04完整权威runner、当前H实际镜像/限定运行身份覆盖、闭包来源和有主收尾独审PASS，无阻塞Finding。** 六包均在该H实际运行，整次runner/wrapper exit0，可作为本次H合格实际运行来源；没有使用旧失败或46e准备作为carried。本轮只核当前closed包，不重审历史、§154代码或§155 V5b/H1，不把本结论扩大为整体phase exit、统一版本性能矩阵、主线合入/push/tag或后续任意HEAD自动沿用。
+
+final-gate-evidence-index.json SHA **`f9fc29dbc264e9c84b5bfb3408fad9c58205908d2dcfe68eed23e2b1891fd182`** 精确匹配，84项已交文件大小/SHA全部MATCH。BatchMode后只读04已闭合小原件，34项closed校验原件及9项镜像准备原记录共**43项**与CT201 LAN副本bytes/SHA逐项相等；没有运行测试/Compose/采集器、查询实时进程/Docker、修改被测worktree或清理资源。只读审核记录 `p6-baseline-evidence-review-20261108/gate-1e72-final/remote-closed-files-hashes.json` SHA **`a4ca0a80cad32b63d36155d20759d2e39cdedc37a449019dd84d108fdf32b669`** 已留。六份manifest由源runner原始JSON直接提取，本审核逐对象核与源log精确相等，不依赖实施者摘要或在另一worktree重算运行环境。
+
+**真实完整执行及clean资格成立。** CT04 gw-dms-test-04，02:36:57–02:58:47Z，原权威入口实际调用一次、选全六包；起止HEAD精确1e72、开始CLEAN，结束`git status --porcelain`实际为空，03:00:01Z postflight另明确CLEAN，没有把空字符串当缺失字段。runner log462327B/SHA **`30e42c95cceab569250401864d7c43c3e274871e5840039879face09bffdbe29`**，status224B/SHA **`04457a282b2c38287fd4d75a2e64b3766a466a24456db0ae30315d25a8ba7bd4`**：Rust fmt/clippy/test全0；shared_kernel260、contracts152、client161 passed；backend parallel3315、serial76 passed；RS parallel1763 passed/1 skipped、serial214 passed；六包终态全passed，runner_exit=wrapper_exit=0，非中间批次成功或外层取回成功冒充整次成功。
+
+**六包闭包和运行来源独立成立。** 六manifest均schema9、clean=true、head/worktree_head=1e72，与源log相等；按原canonical JSON规则重新计算六个总摘要及环境values摘要，并对28个不同Git路径对象独立批量复算全部MATCH，重复路径无冲突。package-closure-index.json SHA **`ca7318e6af1e0be2c2613001f503878376c7d6934a789cffbbeeccce6bbed764`** 的action全run、source_V全当前H、来源同一整次exit0日志，与实际manifest/包终态一致。当前H六包总摘要如下：
+
+| 包 | total_digest |
+| --- | --- |
+| rust | `ad949c31f1b88e537f29bd6d059fe4b6443a8cf42450de2d26d54721b67d9473` |
+| shared_kernel | `9e461672b48f33c3c1b3ac081e7b97a88c9b0d6d829daa045e7fd172c1663080` |
+| repository_contracts | `6d729a0484fd5f42b5d579b7e33b51b3a511e32ed7af4073f3bc40fac036fae4` |
+| repository_client | `caadfacd19a3e799a0288b32112f05c1000e6298701b02f44abc0465739d3ddf` |
+| backend | `2d06fc13382b2170466e7a4b13beeec1175a10f8737e9a1398760345cf0e9f3f` |
+| repository_service | `bf73bf2eeff505ef53f00d3f41be7f2a70c01d880f1bc2dc45e88ae9645be7e1` |
+
+backend/RS的实际environment组件含当前RS本机对象e79d11…11a94a、预置lock-base和network=none；backend prebuilt inventory明确含本次B/W两tag的7857fd…0e269b及RS tag。source context vnext tree **de59b0b3563144165bda54502abaff893c3b120c** 与当前H相等；完整tracked权限/non-Git/uv/legacy/pytest-cache及包专属Hypothesis路径等原输入仍按运行manifest记录，不拿退出后的缓存状态重建初始闭包。日志/有效指纹一致表明UV_OFFLINE=1、CARGO_NET_OFFLINE=true、canonical PATH/selector1.97四工具、Rust overrides和proxy unset、外置TMPDIR；cache来源为各节点既有uv/Cargo/images及04 exact-lock RS base，没有依赖/锁变更或转发代理。含凭据设置只保原摘要，不输出原值。
+
+**当前H三镜像准备、实际对象及结束冻结一致。** mirror-preparation-index.json SHA **`e6eee763a2de4f9394dbc864354587a41d8f62714ee5effb257db91f818de409`** 及其17项原件大小/SHA已核。CT201 clean1e72于02:27:06–02:29:30Z只构建B/W，无测试/Compose；02:31:57–02:32:01Z经LAN无proxy传输，04 02:32:09–18Z加载。源397096448B tar已在CT201独立全量复算SHA **`00f0b62278ab53404ff0ae5c459515aca2f6f7119a62388a5aa8a030b3062afe`**，直接读config blob复算config digest **`6d91e13a1b9b8f1c6cd29a4584310e1b3e606de8757449abc2447e8d99f604e2`**，全部15有序DiffID和labels与04原target身份精确相等，不比较跨节点inspect ID或强求roundtrip tar封装SHA相同。
+
+RS于04 clean1e72在02:27:09–14Z按预置exact-lock base、network=none本机离线构建；原archive身份记录config **`8aaf18872dc7a96cc1acae09f884fae699b404536521454c85fac1e0bc1fddc8`**、全部28有序DiffID及完整labels与04原inspect相等。当前canonical记录与运行前重算相同：candidate=1e72、build-input=058、source **5d40303d…5f5b7**，含准确uv-lock6dc9659f…68b11，符合§154已核有效输入关系。04开始冻结对象B/W同为 **`7857fdcbbcfbc0b6b0e2a6b9404ab93d6272d297c03c30fa9929e7dc3c0e269b`**、RS为 **`e79d11a025c07957f811a7b1493b58a17791955c72a949bf7074261fd211a94a`**；最终三个tag的本机对象、完整层及labels逐项未变，最终真实B/W/RS provenance也分别对上这些对象。旧local、旧失败及46e准备没有替代当前H消费对象。
+
+**12事件/12独立原样inspect确实覆盖本次固定project的七backend Compose fixture，未用最后JSON替代前序。** 原events19092B/SHA **`329b3cb8305f675bd4dc5c94c7e7fd0078b5f9b3d6a8cf6345a5fb29bf7d6c0f`**、observations8037B/SHA **`003085ce07161943456719e37034504af05284e553ba61bdc67d40807a87a21d`** 已直接逐条核：12个Actor.ID唯一，逐ID原始inspect.Id相等，所有实际.Image均RS冻结e79d11…、Config.Image均本次1e72 tag，完整镜像身份labels同时与event/原冻结inspect一致，Created及原Mounts也与derived记录一致，12份stderr全空，无缺失/错误/身份差异。依据原pytest Mounts目录前缀与准确1e72源码test function逐条唯一匹配，归属archive/backend-http/history/ordered-compare/ordered-bisect/review/submit分别 **1/1/1/1/4/1/3**，与源码实际RS启动路径一致；backend-http另一个仅检查image entrypoint的用例不启动RS，不能把其一次env构造误计为缺失create。bisect的empty-baseline/baseline/ordered-vocabulary三个子目录及worker-restart分别有独立ID。coverage投影 SHA **`477e4256d113d0a86ea0d65ea460cc83960d086ce6bf0d3aaed965e0fef8bc82`** 由上述原件独立核实，unmapped/ambiguous/missing均0；仅按已约定固定backend project/RS采集范围判定，不扩大为其他未采集project的事件证明。
+
+collector原status SHA **`8d030bf7af95445ec316fea7a0e8c7595de006e3605d16ecc977ecc4d18e2a51`**、日志、原wrapper闭合字段一致：02:36:57.733517Z开始、02:58:46.910459Z结束、events=success=12，inspect_errors/uninspected/mismatch均0、无stream_error/capture_error、events stderr空。**stream143发生于owner stop_requested=true的自有TERM收尾，collector_exit0、forced_kill0且wrapper已wait回收，符合已审停止控制流；不单凭143报采集故障或产品失败。** 该解释据原始状态/日志及既有entry，而非将所有非零子stream都泛化豁免；本次没有取证覆盖缺口需补测。
+
+**资源与缓存收尾闭合。** 03:00:01Z postflight1756B/SHA **`9396fd283620001af0988ff5c2fef38e82da39dad391064c02ac0b4b1a2a3d6b`** 直接记录当前H clean、runner0、无运行容器/自有project容器网络/8000/Dolt/Cargo/rustc/pytest，五个包专属Hypothesis路径和runner外置Cargo target均不存在，三个tag保持冻结及最后实际对象对应，准确owner标记检查后释放、postflight_exit0。未要求或执行清理旧失败worktree、镜像、证据或非本次资源，不把这些专属临时缓存清理扩大为全部节点缓存删除。本审核未追加实时节点扫描；原始closed记录和跨节点一致性足以支持本次收尾资格。
+
+结论仅为**本次H的完整功能权威门禁和当前镜像门禁独审PASS**；V5b/H1仍依§155原分版本资格，不把所有材料伪装为同一HEAD，亦不宣phase exit。owning报告提交/原reply更新后，经已验证本机codex queue向同一协调root主动通知一次，保实际排队结果/错误，不等Owner转发或新GO，不联系归档实施者或失效MCP。

@@ -17,8 +17,9 @@
 | 节 | 实施者 | 独立审核者 | 测试执行者 | 状态 |
 | --- | --- | --- | --- | --- |
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
-| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | Owner 已放行恢复；同三角色继续验证/修复/独审，尚未 GO |
-| C–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
+| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | GO，报告 `17fd6739b809`；本节三角色已正常结束 |
+| C | `/root/s3_c_impl`，GPT-6-Sol xhigh | `/root/s3_c_review`，GPT-6-Sol max | `/root/s3_c_test`，GPT-6-Luna max | B GO 后新建，正在实施/准备；未 GO |
+| D–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
 
@@ -32,7 +33,7 @@ A 只跑 06 Contract/focused 及适用静态检查；不跑完整 runner、全�
 
 ## 4. 仍待实际交付的事项
 
-A 已完成接口与独立预期准备并获独立 GO；B–E 尚未完成，当前没有 S3 最终产品 V、最终 H 或 S3 门禁结果。三视图完整摘要实现、风险上限重放、Arrow schema/raw golden、实际消费者迁移、预算 owner 与 FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除均须后续逐节交付，不能用设计复审或 A 准备结果替代。
+A 已完成接口与独立预期准备，B 共用内核已获独立 GO；C 正在实施，D–E 尚未完成，当前没有 S3 最终产品 V、最终 H 或 S3 门禁结果。三视图完整摘要实现、风险上限重放、Arrow schema/raw golden、实际消费者迁移、预算 owner 与 FULL 驻留、操作内完整 key、安全 miss、唯一生产路径及旧代码删除均须后续逐节交付，不能用设计复审或 A/B GO 替代。
 
 最终预计 rust/backend 受影响；其他包须实际闭包判定，不能口头 carried。阶段最终容器结果需实际绑定；runner 已执行的 Compose 不重复。最终真实范围拟按 kickoff：替换期 t1–t4 逐表差分，05 fresh t1–t3 功能旅程，t4 功能/容量及 W3/W4 根据 CT108 现场安排；退出前向 Owner 提交具体证据、沿用条件与待补项作 DC33 确认。S2b 的 06 全旅程用途例外不继承。
 
@@ -125,3 +126,17 @@ Owner 对上述已审恢复稿明确回复 **“允许放行”**；DC68 本次�
 本轮实际 4efa 在 23:05:08–23:05:25Z fmt0、workspace clippy101，`ordered.rs` 具名迭代器调用 `try_fold` 缺 `mut`，workspace test 与后续未执行；日志 SHA256=`ee3a15b125830433289684a5ee46334f6ac20286d18a4c07c195b10860791b38`，本人标记 23:06:17Z 释放。最小修正 `4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c` 经同一原审准入后，同一测试者复用本 B 外置 Cargo cache，以新脚本 SHA256=`deb6067775f1935b42c5746677d3254d59fc57996605b58ba95235637d0f636e` 唯一执行。23:08:53–23:08:56Z fmt0、clippy101，编译已越过该错误，现报 19 条 lint；workspace test、Python、真实差分与五包静态均未启动。日志 SHA256=`a42bdce9329c5d69aa532ba5c768d347bfc87a42fbc5a21b1784c04829251a29`；23:10:44Z 释放本人标记。两次起止 HEAD/clean、selector1.97、六锁不变均由原审从原件独核；普通编译/lint 修正不重开已关闭的预算根因，也不把未运行项记通过。
 
 23:07:32Z 再次只读核 CT108：原基准 `p6-baseline-measure` 的 DC63/V5b 单次诊断有效标记于 22:33:24Z 开始，固定其自有 `d2ffe1ac...` WT，三服务运行、8000 占用。S3 未取标记或改动其资源；正式测量窗口仍未知，D/E 的 06 阶段诊断准备继续，不能冒正式结果。
+
+## 7. B 最终独审核收与 C 启动
+
+B 起点 `ecb96af0092999e54c5499f126ee1436e38ce7fd`，最终代码 V=`fbb7fca65d81ff61ecf0022e85da0bdf0f71ae9a`，handoff H=`4918cc5440d01d2a29224a164f1b56ab1ab1a4b2`。同一原审核者最终报告 **`17fd6739b809f048ac7b2f45cb784c144e2d98ad`，B GO，无剩余 B finding**。实际 11 个 `vnext` 路径及职责见 [B handoff](p6-s3-b-handoff.md)；区间并行基准/前端文档不混为 B。所有原失败、修正与预期来源均已列手册并由原审独核，未放宽 Contract/validator/golden。
+
+06 的 2b 固定源 `2b629e4562166de706da984995fc2ebc14fb1252` 实际 workspace fmt/clippy/test、native 强制重装/input 校验通过；Rust tree=`cef7eaf099937a66ce33c160154936a5c086f0be`。该轮后续因临时逐表工具把 SNAPSHOT_ONLY 送入行核而 exit1，不能作为权威 runner/carried 来源；合格的 Rust focused 分项原件 SHA256=`28103b95e234a63dcc24eb1f36fcc641ac2aeb14de119f6def0d413413986f57`。503 修复分流后四档逐表通过，但显式工具 mypy 20 条错误首败；fbb 仅修两份临时 Python 工具/测试类型与关闭 helper 导入，Rust tree 相同。原审核收来源严格区分，不把整体失败稿写成整体通过。
+
+fbb 最终受影响验证在 `gw-dms-06` **23:45:00–23:49:11Z**：build-input 与上述 tree 一致；Python 六例、八包 size/SHA、t1–t4 逐表差分、CLI 自身 mypy、五包 Ruff/mypy 全 exit0，起止 fbb/clean、六锁不变、整体 exit0。原日志 SHA256=`26826be79042550ee2e98f66f8e99b156b2696a27ad053b9e0f01992dd985b1e`；脚本 SHA256=`0c13f470981de362dc912db40315f9c4f7e7ac78db874b2ba18be5f11f99ce4e`。四档 planned=125/220/193/312，`row_kernel_checked`=9/72/76/145，predegraded 全0；行核字段含 unchanged ordered 单侧摘要，不能据此宣称双侧比较次数、读取数或性能收益。metadata/non-record/early-exit 分项见手册。真实逐表步骤 **23:45:01–23:48:49Z**，不是正式性能测量或完整旅程。
+
+06 本人标记于 **23:50:26Z** 释放。释放来源为测试者原 SSH 返回，没有另造实时日志；原审核者随后独立核无 marker、无本任务进程，最终原件 SHA 未变。B source WT、任务 Cargo cache、全部日志与脚本保留；三角色正常结束。B 没有生产路由、HTTP/Contract/golden/锁/部署变更，没有 Compose 或当前镜像通过声明，最终 E 容器门禁仍待办。
+
+B GO 后协调直接创建全新的 C 三角色，加协调者仍四槽，不递归扩建。C 实施者负责 records builders/完整 facts 与 JCS/实际 Arrow validator 与读写边界，原审仅维护 C 审核报告，唯一测试者执行 06 的固定已审 focused 稿。C 首先细化输入 charge、B result 与导出 Arrow 的生命周期和文件归属，随后直接实施；不以临时 JSON probe 充当生产 bridge，不加 tuple fallback/部署开关。C 实际新 FFI consumer 的容器边界另按 AGENTS 判定，不能机械继承 B 延期 E 的理由。
+
+C/D 必须保住完整 facts payload、blank 私有字段和三逻辑视图；D/E 另明确迁移 non-record role `COLUMNS_ADDED` 的旧 Python `_read_rows`/Counter 热点，B handoff 已给可复用 keyless 接口与独立业务断言。最终唯一生产路径、风险/去重、W3/W4 起测、集中门禁、DC33 与退出交接仍为未完成事项。

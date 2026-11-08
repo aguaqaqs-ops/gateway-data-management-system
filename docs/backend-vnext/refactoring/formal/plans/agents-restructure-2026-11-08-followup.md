@@ -1,6 +1,6 @@
 # AGENTS 独审修正与有限去重（2026-11-08）
 
-状态：第二轮候选，等待独审定向复核；不预先宣称通过。首轮固定候选 `ea3b17307d067163c576a4f90b640366f98ef151`；首轮 [115 项对照](agents-restructure-2026-11-08.md)与[451 条引用原文](agents-restructure-2026-11-08-references.tsv)继续保留。
+状态：固定候选 `f08f596c0f792c1fa25c5ed7985585465023147c` 经 GPT-6-Astra（high）独立定向复核通过，F1/N1 关闭，无新增 finding；待 owner 接受，未推送或同步节点。首轮固定候选 `ea3b17307d067163c576a4f90b640366f98ef151`；首轮 [115 项对照](agents-restructure-2026-11-08.md)与[451 条引用原文](agents-restructure-2026-11-08-references.tsv)继续保留。
 
 ## 1. 独立审核与修正
 
@@ -45,6 +45,8 @@ A = [AGENTS](../../../../../AGENTS.md)；T = [testing-conventions](../../../test
 
 ## 4. 接受与后续
 
-修正后的固定提交再由同一独审 agent 在新的只读 detached worktree 定向核对 F1/N1 和上述各组迁移；初审不预先覆盖未知候选。复核报告单独落盘，既有初审结论不改写。独审通过后交 owner 确认，推送和三个节点 main 的 fast-forward 仍须后续明确授权；不切换任何在用 worktree。
+同一独审 agent 在新的只读 detached worktree `/home/dev/gdds-agents-rereview-20261108` 对固定候选 `f08f596c0f792c1fa25c5ed7985585465023147c` 完成定向复核：F1/N1 均关闭，上述各组迁移保留原约束，无新增 finding，接受本轮治理候选。报告见[独立定向复核](agents-restructure-2026-11-08-independent-rereview.md)，原件及入库副本 SHA256 均为 `00387fb690395441e9078b33714adc65a2e322c79f26c387767a93b425d0ae35`；既有初审报告保持原字节和当时结论。独审未运行产品测试或节点操作，结论仅覆盖本轮治理文件，不覆盖并行产品提交。
+
+本次后续提交只归档复核报告并更新本交接状态，不修改规则正文。独审通过后交 owner 确认，推送和三个节点 main 的 fast-forward 仍须后续明确授权；不切换任何在用 worktree。
 
 本轮文档自检：A 原 12 个标题、T 原 30 个标题按原序保留；48 个本地链接有效；451 条引用原文不变，核对结果仅更新 R443；uv 排除项/no-sync 限制/G11 数值/S2b E 原文均保留且完整定义去重；`git diff --check` 通过。记录：CT201 `/home/dev/gdds-agents-restructure-20261108/document-check-round2.log`，SHA256 `664c24817736270161fff7851bf2ef9dc8ef03c4736a759a6d2ef422fe7808f3`。A 12,813 → 12,733 字符（仍 240 行），T 33,849 → 33,394 字符（651 → 650 行）；迁移历史说明、增加精确链接与修正 F1 均计入净值，不以压行数替代结构改善。

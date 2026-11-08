@@ -128,7 +128,10 @@ class NativeStorageChunks(Iterator[bytes]):
         try:
             self._native.close()
         finally:
-            self._operation.close()
+            try:
+                self._charge.close()
+            finally:
+                self._operation.close()
 
 
 class NativeStorageTableHandle:
@@ -213,23 +216,25 @@ class NativeStorageTableHandle:
         render_operation: _NativeOperation | None = None
         try:
             render_operation = cast(_NativeOperation, _begin_storage_operation_native(
-                native_limit, charge, active.cancel_probe, active.deadline_monotonic,
-                active.threads, id(active.memory),
+                native_limit, reservation, active.cancel_probe, active.deadline_monotonic,
+                active.threads, id(active.memory), True,
             ))
             native = self._handle.render(render_operation, decision.operation.value,
                                          task.canonical_table, id(active.memory))
             self._chunks = NativeStorageChunks(native, render_operation, active, charge)
             return self._chunks
         except MemoryError as exc:
-            if render_operation is not None:
-                render_operation.close()
-            else:
+            try:
+                if render_operation is not None:
+                    render_operation.close()
+            finally:
                 charge.close()
             raise storage_memory_limit(str(exc)) from exc
         except BaseException:
-            if render_operation is not None:
-                render_operation.close()
-            else:
+            try:
+                if render_operation is not None:
+                    render_operation.close()
+            finally:
                 charge.close()
             raise
 
@@ -331,7 +336,7 @@ def prepare_storage_table(
         reservation = active.memory.reserve(native_limit)
         native_operation = cast(_NativeOperation, _begin_storage_operation_native(
             native_limit, reservation, active.cancel_probe, active.deadline_monotonic,
-            active.threads, id(active.memory),
+            active.threads, id(active.memory), False,
         ))
         handle = cast(_NativeHandle, _prepare_storage_table_native(
             native_operation,

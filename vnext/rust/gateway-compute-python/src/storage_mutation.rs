@@ -35,12 +35,14 @@ struct StorageOperation {
 
 struct PythonChargeOwner {
     charge: Mutex<Option<Py<PyAny>>>,
+    python_retains_charge: bool,
 }
 
 impl Drop for PythonChargeOwner {
     fn drop(&mut self) {
         if let Ok(slot) = self.charge.get_mut()
             && let Some(charge) = slot.take()
+            && !self.python_retains_charge
         {
             let _ = Python::try_attach(|py| {
                 let _ = charge.bind(py).call_method0("close");
@@ -500,6 +502,7 @@ fn _begin_storage_operation_native(
     deadline_monotonic: Option<f64>,
     pool_threads: usize,
     operation_identity: usize,
+    python_retains_charge: bool,
 ) -> PyResult<StorageOperation> {
     match adapter_boundary(|| {
         shared_parser_pool(Some(pool_threads))?;
@@ -515,6 +518,7 @@ fn _begin_storage_operation_native(
             initial_budget: remaining_bytes,
             owner: Mutex::new(Some(Arc::new(PythonChargeOwner {
                 charge: Mutex::new(Some(operation_charge)),
+                python_retains_charge,
             }))),
             _watch: watch,
             closed: AtomicBool::new(false),

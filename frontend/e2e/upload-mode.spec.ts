@@ -222,7 +222,7 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   state.workspace = workspace({});
   await page.reload();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
-  await expect(upload).toHaveAttribute("title", "需先选择本次归档组态目录");
+  await expect(page.getByText("需先选择本次归档组态目录").first()).toBeVisible();
 });
 
 test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page }) => {

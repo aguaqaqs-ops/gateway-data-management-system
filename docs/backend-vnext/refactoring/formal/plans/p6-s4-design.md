@@ -82,9 +82,11 @@ handle.close()
 
 prepare 对可比较表建立 `(JCS key, row locator)` 索引并校验唯一，排序 merge 扫描，使用 full persisted 值决定净变化。最多保留1000个 patch action locator；超过上限继续计数但不继续存 mutation 列表。重建只留 after 顺序索引，释放 before/index/patch 临时结果；keyless after 另算旧 mutation 排序 hash。counts 不因提前判 rebuild 被截断。强制重建的 summary 沿原 before+after 全表口径，不伪称做过净 diff。
 
-R `gateway-compute-python/src/storage_mutation.rs` 接 Arrow C Stream 所有权转移，用第三方公开 safe API；粗粒度 table/byte-chunk 调用，compute/sort/render 释放 GIL。B `capabilities/mutation_planning/native.py` 为唯一新 FFI owner，精确登记入口 `_begin_storage_operation_native`、`_prepare_storage_table_native`、`_render_change_set_native`、`_render_storage_schema_native`。最终命名随 A 同步政策和 import guard，不放开整个 capability；调用者不直接 import 私有 native。core 无文件、ArtifactStore、backend 对象或业务状态。
+R `gateway-compute-python/src/storage_mutation.rs` 接 Arrow C Stream 所有权转移，用第三方公开 safe API；粗粒度 table/byte-chunk 调用，compute/sort/render 释放 GIL。B `capabilities/mutation_planning/native.py` 为唯一新增 FFI owner，精确登记 `_begin_storage_operation_native`、`_prepare_storage_table_native`、`_render_change_set_native`；DDL 的 `_render_storage_schema_native` 由已有 `storage_projection.native` owner 暴露薄函数，schema facade 经它调用同一 Rust SQL 模块。**Storage Projection 不反向 import Mutation Planning**，不能为复用产生 capability cycle。最终命名随 A 同步政策和 import guard，不放开整个 capability；调用者不直接 import 私有 native。core 无文件、ArtifactStore、backend 对象或业务状态。
 
 复用进程池 N 和同一个 operation M。native portion 是 Python 已预约的子额度，Rust leases 在其中分配；不得当第二份独立 M。表 handle 无 checkpoint/持久版本轴；V1 只为进程内输入契约辨型，不新增 SDK、服务或部署参数。首个独立消费者的公开 API/打包仍按总设计 §1.5，S4 只落实当前真实消费者的单向边界。
+
+失败映射保留两层语义：core返回code/message和有界stage/table诊断；backend取消/截止/资源错误继续为现`InterruptedError`/`TimeoutError`/`KernelMemoryLimit`，不得全包成publication error丢失worker原分类。一般输入/能力/SQL cap失败通过现ImportReplay/SubmitPublication错误边界；通用renderer继续返回原`ReplayRenderOutcome`的`TARGET_CAPABILITY_UNSUPPORTED`或`RESOURCE_EXCEEDED`。意外panic是内部失败，不返回SQL或假装unsupported；不新增HTTP/Repository public failure code。
 
 ## 4. SQL 精确字节与分批
 

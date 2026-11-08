@@ -3072,3 +3072,27 @@ postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506e
 **F2：finally自身的异常可在RS down/最终记录前短路。** entry第247行最后killpg(SIGKILL)未容忍目标在pgrep后自然退出的ProcessLookupError，可能直接跳出finally、跳过RS down；第282行填summary.end_head时又调用受HARD限制的command(git)，预算已耗尽会抛TimeoutError，postflight都无法写出。须让子进程收束/辅助捕获错误不跳过down及最终错误记录，deadline耗尽后使用已有facts和明确未知/error，不再依赖额外Git/命令才能落postflight；不干净时保锁非零，不假报释放。该修正针对本包实际控制流，不增加更大的安全/恢复状态机。
 
 已将两个具体Finding与成立范围按前缀直接回主协调，由其统一子任务窄修；可复用已有短进程夹具作必要无RS/无业务验证，不扩矩阵、不等Owner或二次GO。当前运行尚未开始、接续身份未消耗；新revision保持旧包/摘要，修正期间本审核并行核已收到record与gate材料。末态实测/锁/卷/来源仍待实际运行原件，不由预检MATCH代替。
+
+## 147. p6_record_finalize新包独审：FULL/STRESS派生成立，core比较条件仍须去除运行实例值
+
+新包位于CT201 `p6-record-finalize-20261108a-ct201/p6-record-finalize-20261108a-ct05/`；本审核直接读取新source index及真实producer日志，逐项重算SHA256SUMS的**54个文件全部MATCH**。索引34959B/SHA **`dcc36925491d883380c2c955b32c296d96fda6f3596bcba4905ad4b9ac49f4e8`**；实际producer为clean H780，builder SHA **bf950f61…eabad9**，隔离系统Python明确从该worktree运行纯stdlib builder/comparator，非旧0739代码或仅改标签。记录的实测HEAD仍分别bb348、18a、1742；六项Git路径映射明确backend/src，其余整package，三份共18个对象值均已独立用Git复算MATCH。生成与索引各自postflight均记录clean、无测试/服务、准确owner释放；没有回到CT108重测或开原SQLite。
+
+**W4-FULL和W4-STRESS新record的派生/来源字段独审成立。** FULL 7752B/SHA **`66a2728a5699f1250ec241962af8281b200cddca5f0798b8bd0beafeb02f678b`** 与§140已核结果逐字相同，现绑定真实H780生成日志609e5e7f…bd6cdc。STRESS 7647B/SHA **`0d597e63b99c68d3d640ffa6e822d51dea2987dded253428949efbc507977248`**，派生journey990278B/SHA **`0c512eb19413101d5c90fa0a2e5d3d3bba52e70d2f762ea0fb4c22cce3ebcc84`**；本审核与§124认证launch作完整final summary对象比较，精确只新增v2 Preview worker rows，且新增rows逐项等于§127补证。重新计算records列表规范JSON摘要及全部其他指纹、631/628/failed0/degraded0计数、4661.281s端点和每个worker单样本统计，均MATCH；2127个实际周期样本对应的三项峰值也与原resources相等，不使用不同时间的容器峰值之和。STRESS仍只到v2 Preview，无v2 Submit/History、不作性能目标PASS。FULL/stress的baseline和cache描述为稳定逻辑条件，未混入实例ID。
+
+**core旧问题大部分修正，但该record仍未整体PASS。** 当前182841B/SHA **`1a43d7310663acb9befa28d3b376868abed6219df6f2c41334a88c60d74667f4`**：七场景全MODIFIED_ONLY正确，W2实际before/after274、expired/missing0与TTL、H1真实起点342及after/hits未知保留；S2三项无周期样本峰值现在全null并有unavailable说明，边界CPU原值0.08900000000000001继续保留，未因浮点显示重写数据。然而state.baseline写入本次物理Dolt commit ID，H1 state.cache还嵌入本次绝对UTC。已审comparator逐字比较state，即使相同输入和逻辑基线，下一次合法运行的实例ID/UTC不同也会产生假的INCONSISTENT。应只在外部source索引保留实际commit/UTC，标准state写稳定的empty-initial→v1、v1→repeat-v1、v1→v2及History v1/v2角色与真实缓存条件；不改schema/comparator、不增加归一化兼容层或业务补测。该窄metadata Finding已在前轮回主协调，新revision尚未收到；旧字节与失败记录保持。
+
+新的split-version索引覆盖21个要求场景，明确属于既有不同版本参考索引，不冒充统一冻结版本矩阵或为旧闭合场景要求格式迁移/重测。FULL、refill等原tool HEAD不在本次简表时仍写null和准确原目录/产品tag/缺项原因，不猜相邻运行。comparator资格矩阵明确不同HEAD本身不是障碍，但现有t1 full/resumed只有t1且inputs为空，与九个新record场景/完整输入映射均不符，因此未执行、未声称跨版本record比较PASS；既有§115三个631表逐项hash正确性旁证及§114 H2计时比较分别保留。H2实际4886.678s对参考4892.584s偏差约0.12%，保留“不需补测”，也明确未达到600s目标，不将两种结论混同。V5b和最终gate仍单列待真实闭合结果。
+
+最初STRESS pretty JSON不符合逐行读取、后续外部浮点断言过严的准备失败及修正均已保留，最终实际builder运行不是由审核者在CT201执行。本节只记录独立只读/JSON/数学/Git审计，不代替尚待修订的core条件或后续总体收口。
+
+## 148. p6_gate_closeout 058必要05验证和镜像来源独审PASS，04完整runner仍在途
+
+**§145的代码修正及必要05验证、当前058门禁镜像来源已独核PASS；尚无最终完整runner结论。** 本审核读pre-gate index SHA **`806c68b9305f54c36224e16eeb1cf93b8256060ff38ad513f52d56d9c2236721`**，33个已闭合文件摘要全部MATCH，索引没有把在途runner先列为closed。05 focused/static log9233B/SHA **`0751822e97c8eefd1f49f2cb4e48feeaa8db71c61b0ac54dd12a85c602796310`** 记录01:45:17–01:46:16Z、准确058起止clean、外层真实network=none：固定历史resume用例1 passed/1.89s、RS build-script完整unit模块20 passed/1.07s，五Python包Ruff及标准mypy全部通过。canonical Rust selector/四工具、UV/Cargo offline和native tree58436908 MATCH；没有改严guard或production build网络。05 postflight448B/SHA **`8fe8871a67ae38aeba62cbbbbf70722f2e3b8c8206481763231faa8190c5898e`** 记01:46:25Z clean、无残留测试/服务/8000监听、准确owner释放exit0。
+
+B/W在CT201以058 clean来源构建后，经有起止时间的LAN传输到04，01:42:43–47Z、无proxy。源397096448B归档SHA **`bbd79c27cea8d2983f27a4506e1895d36b8ada5bb75028f914f4d3b03447e833`** 已在CT201独立全文件重算；直接读取归档config blob复算config digest **`47822160e7173b8c80b7916c29218de28814135c320828126f3f5ea754bb7a64`** 和全部15有序DiffID，与04闭合roundtrip身份逐项相等。初次无时间戳副本原样保留，最终有时间戳payload另传并校验；跨节点不比较inspect ID，也不将两份不同封装tar的总SHA强求相同。
+
+RS在04 01:40:48–52Z按预置lock-base和network=none本机离线构建。闭合归档身份config **`c9b61ca65df1efef65e779d68def21d1ac588f6275d6881fb9e2b1a25e1fcae3`**、全部28有序DiffID及完整labels与构建后inspect相同。本审核在自己的准确058只读detached worktree运行**纯Git/文件身份计算helper**，独立重算candidate/build-input均058、source-tree **`sha256:5d40303d00098d6c962377261183c554587c88967d0c68e94005ce4d05a5f5b7`**，与04实际canonical输出及labels一致；未在CT201运行测试、builder/validator或DUT。没有替换CT108的冻结9704三镜像。
+
+04实际wrapper清除包选择，按canonical离线环境在clean已提交058运行全六包权威入口，记录自身真实exit；开始前已核自有占用、legacy、整机quiet和三个tag本机身份。当前仅通过BatchMode后读取其**已有log末尾/status文件**：backend parallel3315 passed、serial76 passed，RS parallel1763 passed/1 skipped，RS serial仍在运行，final status尚不存在。上述中间结果不能作为整次qualified runner来源；后续须收到完整HEAD/exit、闭合manifest与postflight后再判门禁及绑定，旧H780整次exit1继续保持失败。审核未在运行中探测Docker、重建/tag、修改被测worktree或清理节点。
+
+本轮尝试经codex_tui向主协调发送本节结论，但本机MCP transport返回HTTP request failed（127.0.0.1:45207），read_thread同样不可用，**不声称本轮消息已送达**；结论先落本报告，待通道恢复由主协调收取。此通信故障不改变已核事实、原连续授权、在途任务或绝对截止，不联系已归档旧实施者。

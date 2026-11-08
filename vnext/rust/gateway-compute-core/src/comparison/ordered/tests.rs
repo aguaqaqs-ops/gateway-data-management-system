@@ -9,13 +9,18 @@ use arrow_schema::{ArrowError, DataType, Field, Schema};
 
 use super::*;
 
-fn field(name: &str, scalar_type: &str, data_type: DataType, nullable: bool) -> Field {
+fn field(
+    name: &str,
+    scalar_type: &str,
+    data_type: DataType,
+    nullable: bool,
+) -> Result<Field, ArrowError> {
     let (sql_type, kind, bits) = match scalar_type {
         "INT UNSIGNED" => ("INT UNSIGNED", "unsigned-integer", Some(32u8)),
         "BIGINT" => ("BIGINT", "signed-integer", Some(64u8)),
         "INT" => ("INT", "signed-integer", Some(32u8)),
         "VARCHAR(64)" => ("VARCHAR(64)", "string", None),
-        _ => panic!("unexpected test scalar type: {scalar_type}"),
+        _ => return Err(ArrowError::SchemaError("unexpected test scalar type".to_string())),
     };
     let canonical_type = serde_json::json!({
         "declared_type": {"kind": kind, "bits": bits, "precision": null, "scale": null, "bit_width": null},
@@ -23,10 +28,10 @@ fn field(name: &str, scalar_type: &str, data_type: DataType, nullable: bool) -> 
         "logical_type": "standard",
         "sql_type": sql_type,
     });
-    Field::new(name, data_type, nullable).with_metadata(HashMap::from([(
+    Ok(Field::new(name, data_type, nullable).with_metadata(HashMap::from([(
         "gdds.canonical_type".to_string(),
         canonical_type.to_string(),
-    )]))
+    )])))
 }
 
 fn batch(
@@ -54,18 +59,19 @@ fn batch_with_extra(
                 DataType::UInt64
             },
             true,
-        ),
-        field("no", "INT", DataType::Int64, false),
-        field("name", "VARCHAR(64)", DataType::Utf8, true),
+        )?,
+        field("no", "INT", DataType::Int64, false)?,
+        field("name", "VARCHAR(64)", DataType::Utf8, true)?,
     ];
     let gid_array: arrow_array::ArrayRef = if signed_gid {
         Arc::new(Int64Array::from(gids.to_vec()))
     } else {
-        Arc::new(UInt64Array::from(
-            gids.iter()
-                .map(|gid| gid.map(|value| u64::try_from(value).expect("non-negative test gid")))
-                .collect::<Vec<_>>(),
-        ))
+        let unsigned = gids
+            .iter()
+            .map(|gid| gid.map(u64::try_from).transpose())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ArrowError::SchemaError(error.to_string()))?;
+        Arc::new(UInt64Array::from(unsigned))
     };
     let mut arrays: Vec<arrow_array::ArrayRef> = vec![
         gid_array,
@@ -73,7 +79,7 @@ fn batch_with_extra(
         std::sync::Arc::new(StringArray::from(names.to_vec())),
     ];
     if let Some(values) = extra {
-        fields.push(field("extra", "VARCHAR(64)", DataType::Utf8, true));
+        fields.push(field("extra", "VARCHAR(64)", DataType::Utf8, true)?);
         arrays.push(std::sync::Arc::new(StringArray::from(values.to_vec())));
     }
     let schema = Schema::new(fields).with_metadata(HashMap::from([(

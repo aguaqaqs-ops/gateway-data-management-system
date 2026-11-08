@@ -25,6 +25,7 @@ import pyarrow.ipc as pa_ipc
 from gateway_repository_contracts import GetOperationResponse
 
 from benchmarks import real_dump_journey
+from benchmarks.s4_submit_measurement_driver import _submit_event_phases
 from benchmarks.real_dump_journey import (
     INITIAL_OPERATION_TIMEOUT_SECONDS,
     JOURNEY_STEP_IDS,
@@ -2226,6 +2227,20 @@ def test_s4_cold_repeat_skip_rejects_full_input_before_evidence_creation(
             skip_repeat_v1=True,
         )
     assert not output.exists()
+
+
+def test_fresh_submit_attribution_requires_table_events_for_both_versions() -> None:
+    phases = [
+        [{"event": "submit_storage_table", "table": "one"},
+         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
+         {"event": "submit_package_readback"}],
+        [{"event": "submit_storage_table", "table": "two"},
+         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
+         {"event": "submit_package_readback"}],
+    ]
+    assert len(_submit_event_phases(phases[0] + phases[1])) == 2
+    with pytest.raises(RuntimeError, match="distinct table segment"):
+        _submit_event_phases(phases[0] + phases[1][1:])
 
 
 SUBMIT_MAIN_MOVEMENT_CASES = (

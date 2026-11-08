@@ -1,10 +1,10 @@
 # P6 S4 E: fixed-source execution and evidence map
 
 Status: execution design only. No E focused, authority, Compose, independent
-expectation capture, real journey or timed sample is claimed here. The E source
-candidate is `11a93946b617d73ade307c8417d2a43736b64f25`; later narrow
-review fixes replace that candidate explicitly. The independent E reviewer
-must clear exact source and node/controller script bytes before Luna runs them.
+expectation capture, real journey or timed sample is claimed here. The final
+handoff names the exact E candidate HEAD after review fixes. The independent E
+reviewer must clear that source and node/controller script bytes before Luna
+runs them.
 
 ## Independent input and expected values
 

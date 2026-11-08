@@ -324,6 +324,42 @@ def _completed_result(log: Path, head: str, profile: str, mode: str) -> dict[str
     return results[0]
 
 
+def _submit_event_phases(events: list[dict[str, Any]]) -> list[dict[str, int]]:
+    """Bind ordered worker attribution to each fresh Submit; recovery verify is optional."""
+    names = ("submit_storage_table", "submit_storage_summary", "submit_package_publish",
+             "submit_package_readback", "submit_checkpoint_verify")
+    phases: list[dict[str, int]] = []
+    current = dict.fromkeys(names, 0)
+    for event in events:
+        name = event.get("event")
+        if name not in current:
+            continue
+        if name == "submit_storage_table":
+            if current["submit_storage_summary"]:
+                if not current["submit_package_readback"]:
+                    raise RuntimeError("next Submit table preceded previous package readback")
+                phases.append(current)
+                current = dict.fromkeys(names, 0)
+        elif name == "submit_storage_summary":
+            if not current["submit_storage_table"] or current[name]:
+                raise RuntimeError("Submit storage summary lacks its distinct table segment")
+        elif name == "submit_package_publish":
+            if not current["submit_storage_summary"] or current[name]:
+                raise RuntimeError("Submit package publish lacks its storage summary")
+        elif name == "submit_package_readback":
+            if not current["submit_package_publish"]:
+                raise RuntimeError("Submit package readback lacks its publication")
+        elif not current["submit_package_readback"]:
+            raise RuntimeError("checkpoint verification lacks package readback")
+        current[name] += 1
+    if any(current.values()):
+        phases.append(current)
+    required = names[:4]
+    if len(phases) != 2 or any(any(not phase[name] for name in required) for phase in phases):
+        raise RuntimeError("both Submit operations need table, summary, publish and readback events")
+    return phases
+
+
 def _stop_normally(container_id: str, worktree: Path, env: dict[str, str]) -> None:
     if not _inspect(container_id, worktree, env)["State"]["Running"]:
         return
@@ -598,10 +634,10 @@ def main() -> int:
                                      "submit_package_publish", "submit_package_readback",
                                      "submit_checkpoint_verify")
                     }
-                    if any(result["submit_event_counts"][name] < 2 for name in (
-                        "submit_storage_table", "submit_storage_summary", "submit_package_publish",
-                        "submit_package_readback", "submit_checkpoint_verify")):
-                        cleanup_errors.append("worker Submit attribution events are incomplete")
+                    result["submit_event_phases"] = {
+                        version: counts for version, counts in zip(
+                            ("v1", "v2"), _submit_event_phases(submit_events), strict=True)
+                    }
             except BaseException as exc:
                 cleanup_errors.append(f"container logs: {type(exc).__name__}: {exc}")
         if end is not None:

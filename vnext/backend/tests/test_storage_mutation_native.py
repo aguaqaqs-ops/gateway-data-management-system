@@ -68,7 +68,7 @@ def _table(rows: list[tuple[str, str, str]]) -> pa.Table:
 def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
           keyless: bool = False,
           column_names: tuple[str, ...] = ("board", "link_no", "status")) -> StorageTableSideV1:
-    view = storage_view()
+    view = replace(storage_view(), retained_columns=column_names)
     manifest = manifest_table(row_count=table.num_rows)
     manifest = replace(manifest, retained_columns=column_names)
     if keyless:

@@ -31,15 +31,15 @@ from gateway_backend.capabilities.comparison import (
     ComparisonFacts,
     ComparisonMode,
     ComparisonRecordsClosure,
+    ComparisonTaskSession,
     FailedResult,
+    MAX_NATIVE_RECORD_BYTES,
+    NativeComparison,
     plan_comparison,
+    compare_plan_native,
+    publish_records_closure_arrow,
     RecordsPublicationContext,
-)
-from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationPolicy, publish_records_closure_arrow,
-)
-from gateway_backend.capabilities.comparison.production import (
-    MAX_NATIVE_RECORD_BYTES, ComparisonTaskSession, NativeComparison, compare_plan_native,
+    RecordsPublicationPolicy,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (

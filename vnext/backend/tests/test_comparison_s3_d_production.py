@@ -48,6 +48,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
+from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
 from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
@@ -69,14 +70,30 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
 
 
+def _bit_artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
+    # The current storage projection excludes BIT; exercise the real canonical
+    # writer from a test Arrow conversion of the business reader without
+    # changing that frozen boundary or claiming a Preview BIT producer.
+    source = bound(sql)
+    assert source.table_set is not None and len(source.table_set.tables) == 1
+    assert source.table_set.tables[0].descriptor.table_name == "t"
+    table = snapshot_table_as_arrow(source.table_set.tables[0])
+    published = publish_canonical_tables(
+        (table,), snapshot_digest=source.snapshot.snapshot_digest,
+        store=store, repository_id="replacement-fixture",
+    )
+    assert len(published) == 1 and published[0].artifact is not None
+    return replace(source, table_set=replace(source.table_set, tables=published))
+
+
 def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts() -> None:
     store = InMemoryArtifactStore()
-    before = _artifact_bound(
+    before = _bit_artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, bits BIT(9) NULL, note LONGTEXT NULL); "
         "INSERT INTO t VALUES (1, b'000000001', 'before'), (2, NULL, NULL);",
         store,
     )
-    current = _artifact_bound(
+    current = _bit_artifact_bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, bits BIT(9) NULL, note LONGTEXT NULL); "
         "INSERT INTO t VALUES (1, b'100000001', 'after'), (2, NULL, NULL);",
         store,
@@ -190,8 +207,8 @@ def test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m(
         return (f"CREATE TABLE t (id BIGINT PRIMARY KEY, {bit_columns}); "
                 f"INSERT INTO t VALUES ({', '.join(values)});")
 
-    before = _artifact_bound(sql(before_values), store)
-    current = _artifact_bound(sql(current_values), store)
+    before = _bit_artifact_bound(sql(before_values), store)
+    current = _bit_artifact_bound(sql(current_values), store)
     assert before.table_set is not None and current.table_set is not None
     before_table = before.table_set.tables[0]
     current_table = current.table_set.tables[0]

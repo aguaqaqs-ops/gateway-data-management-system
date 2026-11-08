@@ -1,19 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { gatewayApi } from "../api/application-api";
+import { ApiError } from "../api/authenticated-fetch";
 import { currentGatewaySession } from "../api/session";
 import { deriveUploadModeGates, type Problem, type UploadModeAttempt, type UploadModeGates, type UploadModeOperation, type UploadModeWorkspace } from "./upload-header";
 import type { SafeReviewFacts } from "../api/client";
 
 function problemFrom(cause: unknown): Problem {
-  if (cause && typeof cause === "object" && "status" in cause) {
-    const status = (cause as { status?: unknown }).status;
-    const code = (cause as { code?: unknown }).code;
-    return {
-      status: typeof status === "number" ? status : null,
-      code: typeof code === "string" ? code : null,
-    };
+  if (cause instanceof ApiError) {
+    return { status: cause.status, code: cause.code ?? null };
   }
   return { status: null, code: cause instanceof Error ? cause.name : null };
+}
+
+export interface RefreshResult {
+  workspace: UploadModeWorkspace | null;
+  attempt: UploadModeAttempt | null;
+  /** Set when the workspace read itself failed (never thrown). */
+  workspaceError: { code: string; message: string } | null;
+}
+
+function errorFrom(cause: unknown): { code: string; message: string } {
+  if (cause instanceof ApiError) {
+    return { code: cause.code ?? `HTTP_${cause.status}`, message: cause.message };
+  }
+  return {
+    code: cause instanceof Error ? cause.name : "REQUEST_FAILED",
+    message: cause instanceof Error ? cause.message : String(cause),
+  };
 }
 
 export type ResumeOutcome =
@@ -38,7 +51,7 @@ export interface UploadModeSnapshot {
   operationProblem: Problem | null;
   gates: UploadModeGates;
   /** Re-runs the full workspace → review/attempt → operation read sequence. */
-  refresh: () => Promise<{ workspace: UploadModeWorkspace | null; attempt: UploadModeAttempt | null }>;
+  refresh: () => Promise<RefreshResult>;
   /**
    * B3: after a submit operation reaches a terminal state, re-reads the
    * workspace and — using the known attempt ID — the attempt (for abort_code)
@@ -72,7 +85,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   const [operationLoading, setOperationLoading] = useState(false);
   const [operationProblem, setOperationProblem] = useState<Problem | null>(null);
 
-  const inflight = useRef<Promise<{ workspace: UploadModeWorkspace | null; attempt: UploadModeAttempt | null }> | null>(null);
+  const inflight = useRef<Promise<RefreshResult> | null>(null);
   const attemptIdRef = useRef<string | null>(null);
   const workspaceRef = useRef<UploadModeWorkspace | null>(null);
   workspaceRef.current = workspace;
@@ -162,14 +175,14 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         if (loaded.active_submit_attempt_id) {
           attemptIdRef.current = loaded.active_submit_attempt_id;
           const loadedAttempt = await readAttemptChain(loaded.workspace_id, loaded.active_submit_attempt_id);
-          return { workspace: loaded, attempt: loadedAttempt };
+          return { workspace: loaded, attempt: loadedAttempt, workspaceError: null };
         }
         clearAttemptChain();
-        return { workspace: loaded, attempt: null };
+        return { workspace: loaded, attempt: null, workspaceError: null };
       } catch (cause) {
         setWorkspace(null);
         setWorkspaceProblem(problemFrom(cause));
-        return { workspace: null, attempt: null };
+        return { workspace: null, attempt: null, workspaceError: errorFrom(cause) };
       } finally {
         setWorkspaceLoading(false);
         inflight.current = null;

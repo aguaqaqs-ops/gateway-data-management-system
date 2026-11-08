@@ -412,7 +412,7 @@ test("D1 审核模式顶栏显示已归档标签与禁用原因", async ({ page 
     const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
     await expect(button).toBeDisabled();
   }
-  await expect(page.locator(".review-actions").getByText("该提交已归档")).toBeVisible();
+  await expect(page.locator(".review-actions").getByText("该提交已归档").first()).toBeVisible();
   await expect(page.locator(".review-disposition-line")).toHaveCount(0);
 });
 
@@ -439,7 +439,7 @@ test("D2 审核模式顶栏显示归档时关闭的一行说明", async ({ page 
     const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
     await expect(button).toBeDisabled();
   }
-  await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
 });
 
 test("W5 撤回遇到审核版本冲突时重新读取且不自动重发", async ({ page }) => {

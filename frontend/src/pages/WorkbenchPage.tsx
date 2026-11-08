@@ -161,12 +161,20 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     setLoading(true);
     setLoadError(null);
     try {
-      const [{ workspace: loadedWorkspace, attempt: loadedAttempt }, loadedHistory] = await Promise.all([
+      const [snapshot, loadedHistory] = await Promise.all([
         uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
+      if (!snapshot.workspace) {
+        // The shared refresh swallows the workspace failure into state; the
+        // page-level load still reports it as a load error (as before B4).
+        setLoadError(snapshot.workspaceError ?? { code: "WORKSPACE_LOAD_FAILED", message: "工作区加载失败" });
+        setHistory(null);
+        return;
+      }
       setHistory(loadedHistory);
-      if (loadedWorkspace?.active_submit_attempt_id && loadedAttempt?.operation_id) {
+      const loadedAttempt = snapshot.attempt;
+      if (snapshot.workspace.active_submit_attempt_id && loadedAttempt?.operation_id) {
         const url = new URL(window.location.href);
         const urlOperationId = url.searchParams.get("operationId");
         if (urlOperationId !== loadedAttempt.operation_id) {
@@ -179,7 +187,6 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
             window.history.replaceState(null, "", url);
           }
         }
-        setResumeSubmitOperationId(loadedAttempt.operation_id);
       } else {
         setResumeSubmitOperationId(null);
       }
@@ -198,16 +205,24 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     const session = currentGatewaySession();
     if (!session.businessProjectId || !session.gatewayDeviceExternalKey) return null;
     try {
-      const [, loadedHistory] = await Promise.all([
+      const [snapshot, loadedHistory] = await Promise.all([
         uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
+      if (!snapshot.workspace) return null;
       setHistory(loadedHistory);
       return loadedHistory.head;
     } catch {
       return null;
     }
   }, [uploadMode.refresh]);
+
+  // The resume card mounts as soon as the attempt is known, without waiting
+  // for the (possibly long-polling) operation read inside the same refresh.
+  const resumeAttemptOperationId = uploadMode.attempt?.operation_id ?? null;
+  useEffect(() => {
+    if (resumeAttemptOperationId) setResumeSubmitOperationId(resumeAttemptOperationId);
+  }, [resumeAttemptOperationId]);
 
   const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
     const outcome = await uploadMode.resumeAfterOperation(finishedOperationId);

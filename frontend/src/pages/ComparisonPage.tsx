@@ -199,7 +199,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   // workspace, review, attempt and operation, with a one-time re-read (B2) and
   // a post-terminal resume re-read (B3).
   const uploadMode = useUploadModeState({ enabled: browse.mode === "PREVIEW" });
-  const { workspace, review } = uploadMode;
+  const { workspace, review, attempt } = uploadMode;
   const uploadGates = uploadMode.gates;
   const [resumeOperationId, setResumeOperationId] = useState<string | null>(null);
   const [resumeMessage, setResumeMessage] = useState<{ title: string; code: string | null } | null>(null);
@@ -228,11 +228,17 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           window.history.replaceState(null, "", url);
         }
       }
-      setResumeOperationId(loadedAttempt.operation_id);
     } else {
       setResumeOperationId(null);
     }
   }, [refreshUploadSnapshot]);
+
+  // The resume card mounts as soon as the attempt is known, without waiting
+  // for the (possibly long-polling) operation read inside the same refresh.
+  const resumeAttemptOperationId = attempt?.operation_id ?? null;
+  useEffect(() => {
+    if (resumeAttemptOperationId) setResumeOperationId(resumeAttemptOperationId);
+  }, [resumeAttemptOperationId]);
   useEffect(() => {
     if (browse.mode !== "PREVIEW") return;
     void refreshUploadMode();

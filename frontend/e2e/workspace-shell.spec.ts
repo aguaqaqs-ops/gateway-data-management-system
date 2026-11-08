@@ -1676,7 +1676,7 @@ test("W9② 操作结束后工作区与 attempt 都读不到时禁用并可重�
   // executing copy must be gone once the read fails.
   await expect(page.getByText("提交正在执行，完成后才能继续")).toHaveCount(0);
   fixtureOptions.submitAttemptReadFails = false;
-  await page.getByRole("button", { name: "重试" }).click();
+  await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeDisabled();
 });
@@ -1705,7 +1705,7 @@ test("W9③ 操作结束后工作区读不到时禁用并可重试恢复", async
   await expect(page.getByText("无法确认提交状态").first()).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeDisabled();
   fixtureOptions.workspaceReadFails = false;
-  await page.getByRole("button", { name: "重试" }).click();
+  await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeDisabled();
 });

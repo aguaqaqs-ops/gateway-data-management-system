@@ -218,3 +218,15 @@ Owner 明确回复 **“确认并继续”**，本单已审恢复范围的执行
 - W3、W4约10%混合变化分别补MO与FULL，W4每表100%变化补压力诊断；输入来自§10的已接受副本，实际统计与census须核当前工具支持的T4 pair。S3阶段诊断报告实际版本、分段、调用/读取/派发、内存和冷暖条件；只跑诊断时不宣正式READY目标或1预热+3测量已完成。若取得正式统计，严格保留1预热+3测量、中位数/范围、失败样本和CT108独占；S6正式取证职责与W3≤60秒/W4≤3分钟READY、完成≤10分钟目标不变，压力失败不记成功。完整旅程的Submit/History不为比较段统计无依据重复。
 
 提出上述fresh范围的依据是本轮替换比较、records/JCS、risk和真实reader接线，S2b容量结果不能覆盖新算法。退出前会将具体范围、实际结果、沿用条件与待补项交Owner作DC33确认；此草案不提前豁免t4、W3/W4或最终门禁。最终H逐包闭包/镜像绑定必须在原合格V的同节点同S3 WT完成，直接引用最初实际通过来源和原日志。
+
+协调已将§11具体fresh t1–t4范围作为DC33问题提交Owner，当前待答，不将默认选项视为确认。此项只约束最终真实范围，D现有复审、06 focused及已授权诊断继续。
+
+## 12. 1c25 固定候选与 CT108 缓存事实
+
+D集中候选为 `1c25ea68e713fef8718ea499592628dc035a7e94`，Rust tree=`45acfe79a0b9bffdf701d5d42be590cba456f092`，交接初稿 `bd752e4c62`（随后doc补充 `5c066fbedd`）。原审固定报告 `bdaadf21f0` 保留reader ready→closed命中隔离、Risk可选key分配前准入和成功ORDERED+BLANK生产三族覆盖待修/待证；原实施者继续后续WIP，不能据此改写1c25。06首轮仅在独立scratch做格式patch准备，完整字面稿先由原审核收；截至本节记录还没有1c25编译/测试/镜像通过。
+
+为与06准备并行，协调明确接管CT108独立cache-only准备，原测试者停止写该稿、仍唯一负责D产品测试。原审逐字CLEAR脚本SHA=`cfe4432e057f4ea56433bfda68f5539cc179d39aa58c9a749295eb62445a7b38`，保原rc的失败收尾只可释放精确本人session且无任务进程/服务的标记。协调实际运行于CT201控制端 **04:24:18–04:25:39Z**，CT108 `gw-dms-test` 本人标记 **04:24:22–04:25:39Z**，remote与overall exit0；无产品编译、测试、Compose或性能测量。
+
+目标ca0依赖tag原本缺席（已审预填分支preflight42，非测试失败）；LAN传输 **04:24:22–04:24:42Z**，`docker load` **04:25:01–04:25:17Z**。源C clean构建提交573d5824、完整inputca0、tag `gateway-backend-deps:lock-ca0ba0a24a5e` 与源归档SHA `fb30d4666cf5466c66ca464c9db7103457cec92f4eb9003980f6c1a2e3dfc136` 均按原件绑定。目标核Rust base config `sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1`/全5DiffID、dependency config `sha256:15a18396cec14ec488f47c7a1c7fe73575ea2849c77e24593cfcf0ed99f41c9c`/全19DiffID两个IDENTITY_MATCH；没有跨机inspect ID比较，也未覆盖现有tag。
+
+完整控制端原log `/home/dev/gdds-test-tmp/p6-s3-d-ct108-cache-prefill/logs/prefill-ct108.log` SHA=`96c3f6db0b5cb0ac082b35860ddb109cef97d4c2e23933bf21699eb53b672ed8`，保全部DiffID、逐步原exit与释放时间；已交同原审独核。目标同名专用目录的Rust resave tar SHA=`0734b9e84dd0f73b6e6b9d3de9fd6b505f6bb98d849c125bcdac2b738a12941c`、dependency resave tar SHA=`839de70a848c40c1f7c3c8085f08b465f61b7a0e2603fa5403ae498376e54dc2`；重save raw字节不同不作为跨机镜像不等价。原基准WT/镜像/卷/输入未修改，新归档和日志保留，标记已释放。此事实仅为缓存准备，**不证明1c25或S3产品通过**。

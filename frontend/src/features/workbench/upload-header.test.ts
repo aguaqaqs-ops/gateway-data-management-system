@@ -154,6 +154,17 @@ describe("deriveUploadModeGates", () => {
     expect(gates.withdraw.retry).toBeUndefined();
   });
 
+  it("stays executing while the known attempt's operation is still being read", () => {
+    const gates = deriveUploadModeGates(input({
+      workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
+      attempt: attempt({ state: "PREPARED" }),
+      operationLoading: true,
+    }));
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.executing });
+    expect(gates.submit).toMatchObject({ enabled: false, reason: UPLOAD_COPY.executing });
+    expect(gates.withdraw.retry).toBeUndefined();
+  });
+
   it("requires an administrator when the operation is MANUAL_RECOVERY_REQUIRED", () => {
     const gates = deriveUploadModeGates(input({
       workspace: workspace({ active_submit_attempt_id: "attempt-1" }),

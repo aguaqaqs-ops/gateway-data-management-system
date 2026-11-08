@@ -194,6 +194,12 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
 
   useEffect(() => {
     if (!enabled) return;
+    // Like the old page-level loads, the mount read waits for an identity:
+    // the simulated identity arrives lazily and publishes a session-change
+    // event, which the pages use to trigger their load. Fetching without a
+    // session would send an unauthenticated first request.
+    const session = currentGatewaySession();
+    if (!session.businessProjectId || !session.gatewayDeviceExternalKey) return;
     void refresh();
   }, [enabled, refresh]);
 

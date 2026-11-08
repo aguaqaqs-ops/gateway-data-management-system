@@ -88,7 +88,9 @@ function attemptPhase(input: UploadModeInput): AttemptPhase {
   const status = input.operation?.status ?? null;
   if (status === null) {
     if (input.operationError) return "unknown";
-    return input.operationLoading ? "loading" : "unknown";
+    // The attempt is known but its operation is still being read: the submit
+    // is still in flight, same as an explicit QUEUED/RUNNING status.
+    return "executing";
   }
   if (status === "QUEUED" || status === "RUNNING") return "executing";
   if (status === "MANUAL_RECOVERY_REQUIRED") return "recovery";

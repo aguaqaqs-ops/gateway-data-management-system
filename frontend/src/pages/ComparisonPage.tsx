@@ -212,26 +212,23 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const refreshUploadMode = useCallback(async () => {
     const { workspace: loaded, attempt: loadedAttempt } = await refreshUploadSnapshot();
     if (loaded?.active_submit_attempt_id && loadedAttempt?.operation_id) {
-      const url = new URL(window.location.href);
-      const urlOperationId = url.searchParams.get("operationId");
+      const urlOperationId = new URL(window.location.href).searchParams.get("operationId");
       if (!urlOperationId) {
-        url.searchParams.set("operationId", loadedAttempt.operation_id);
-        url.searchParams.set("operationKind", "operation");
-        window.history.replaceState(null, "", url);
+        runtime.execute({ name: "set-operation", operationId: loadedAttempt.operation_id, operationKind: "operation" }, "external");
       } else if (urlOperationId !== loadedAttempt.operation_id) {
         // §6.2: a submit operation in the URL that disagrees with the
         // server-side pointer loses to the pointer; a preview operation in
         // the URL belongs to the preview flow and is left alone (job_kind).
+        // The runtime state is updated (not just the URL) so later browse
+        // commands do not restore the stale operation id.
         if (await getUrlOperationJobKind(urlOperationId) === "backend-vnext/submit") {
-          url.searchParams.set("operationId", loadedAttempt.operation_id);
-          url.searchParams.set("operationKind", "operation");
-          window.history.replaceState(null, "", url);
+          runtime.execute({ name: "set-operation", operationId: loadedAttempt.operation_id, operationKind: "operation" }, "external");
         }
       }
     } else {
       setResumeOperationId(null);
     }
-  }, [refreshUploadSnapshot]);
+  }, [refreshUploadSnapshot, runtime]);
 
   // The resume card mounts as soon as the attempt is known, without waiting
   // for the (possibly long-polling) operation read inside the same refresh.

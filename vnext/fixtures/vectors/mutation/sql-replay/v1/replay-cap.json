@@ -1,0 +1,52 @@
+{
+  "fixture_version": 1,
+  "expected_origin": "independent manual count of frozen single-row CASE UPDATE grammar; no new renderer output used",
+  "grammar_reference": {
+    "revision": "7d0ce6220ac2541b76ab75191d43ce6113003966",
+    "path": "vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py",
+    "source_sha256": "761bb6097166edd8720921ca1baa0fc53269404512395af1dec1097cee273cc7"
+  },
+  "input": {
+    "canonical_table": "t",
+    "operation": "UPDATE",
+    "canonical_key_column": "k",
+    "key_kind": "string",
+    "key_fill": "x",
+    "key_text_bytes": 1043309,
+    "non_key_column_count": 200,
+    "non_key_column_format": "v000 through v199 in ascending order",
+    "ordinary_value_kind": "string",
+    "ordinary_value_text": "s",
+    "padding_column": "v199",
+    "padding_fill": "x"
+  },
+  "manual_length": {
+    "symbol_N": "non-key column count",
+    "symbol_L": "key text byte count",
+    "symbol_P": "extra ASCII characters appended to the last value",
+    "prefix_bytes": 15,
+    "assignment_bytes": "L + 48",
+    "assignment_separator_bytes": "2 * (N - 1)",
+    "where_and_terminator_bytes": "L + 20",
+    "complete_statement_bytes": "(N + 1) * L + 50 * N + 33 + P",
+    "key_literal_occurrences": 201
+  },
+  "sql_cap_bytes": 209715200,
+  "cases": [
+    {
+      "name": "cap-equality",
+      "last_value_padding_bytes": 58,
+      "complete_statement_bytes": 209715200,
+      "expected_status": "READY"
+    },
+    {
+      "name": "cap-one-byte-over",
+      "last_value_padding_bytes": 59,
+      "complete_statement_bytes": 209715201,
+      "expected_status": "FAILED",
+      "expected_failure_code": "RESOURCE_EXCEEDED",
+      "expected_sql_bytes": null
+    }
+  ],
+  "scope": "pure renderer admission and oversized-row output; no Dolt execution, image, capacity or performance claim"
+}

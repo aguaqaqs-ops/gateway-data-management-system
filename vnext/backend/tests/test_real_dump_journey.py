@@ -1804,6 +1804,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "v2_input_completeness": "MODIFIED_ONLY",
         "s3_census": None,
         "submit_measurements": None,
+        "skip_repeat_v1": False,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -2184,6 +2185,47 @@ def test_submit_measurement_cli_passes_its_evidence_directory(
     ]) == 0
     assert calls["submit_measurements"] == output
     assert calls["v2_input_completeness"] == "FULL"
+
+
+def test_s4_cold_measurement_cli_passes_repeat_skip_only_for_synthetic_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def run(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", run)
+    assert real_dump_journey.main([
+        "--tier", "t4", "--scope", "full", "--s3-census", str(tmp_path / "census.json"),
+        "--v2-input-completeness", "MODIFIED_ONLY", "--s4-skip-repeat-v1",
+        "--submit-measurements", str(tmp_path / "submit-facts"),
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
+    ]) == 0
+    assert calls["skip_repeat_v1"] is True
+
+
+def test_s4_cold_repeat_skip_rejects_full_input_before_evidence_creation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    census = _synthetic_census()
+    census["effective_key_scan_status"] = "complete"
+    census["effective_key_unresolved_tables"] = []
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        real_dump_journey, "_read_metadata",
+        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
+                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
+    )
+    output = tmp_path / "submit-facts"
+    with pytest.raises(JourneyFailure, match="cold modified-only measurement"):
+        real_dump_journey.run_journey(
+            tier_filter="t4", s3_census=tmp_path / "census.json", scope="full",
+            v2_input_completeness="FULL", submit_measurements=output,
+            skip_repeat_v1=True,
+        )
+    assert not output.exists()
 
 
 SUBMIT_MAIN_MOVEMENT_CASES = (

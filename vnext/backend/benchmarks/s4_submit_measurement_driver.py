@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import threading
@@ -34,6 +35,7 @@ RESOURCE_ENV = {
     "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(WORKER_RESERVE),
 }
 LOADS = {"w3": "2x", "w4": "w4-10pct", "w4-pressure": "w4-100pct"}
+SYNTHETIC_MANIFEST_SHA = "cc175d99a627cd7e2e40364847dc9cfc59fb2b342b543c2f3ba6e89e2d5216b3"
 OFFICIAL_TIERS = {"t1", "t2", "t3", "t4"}
 SAMPLES = {"warm", "r1", "r2", "r3"}
 PROCESS_NAMES = {
@@ -91,6 +93,57 @@ def _owned_containers(project: str, worktree: Path, env: dict[str, str]) -> list
         ["docker", "container", "ls", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
         cwd=worktree, env=env,
     ).split()
+
+
+def _owned_ids(kind: str, project: str, worktree: Path, env: dict[str, str]) -> list[str]:
+    if kind not in {"volume", "network"}:
+        raise ValueError("only own project volume/network inventory is supported")
+    return command(["docker", kind, "ls", "-q", "--filter",
+                    f"label=com.docker.compose.project={project}"], cwd=worktree, env=env).split()
+
+
+def _archive_stopped_volumes(
+    *, project: str, containers: list[str], docker_root: Path,
+    evidence: Path, worktree: Path, env: dict[str, str],
+) -> dict[str, Any]:
+    volumes = _owned_ids("volume", project, worktree, env)
+    expected_names = {project + suffix for suffix in (
+        "_backend-control", "_backend-artifacts", "_repository-service-data")}
+    if len(containers) != 3 or set(volumes) != expected_names:
+        raise RuntimeError("owned stopped stack volume inventory is incomplete")
+    container_ids = {_inspect(cid, worktree, env)["Id"] for cid in containers}
+    locations: dict[str, str] = {}
+    sources = []
+    source_bytes = 0
+    for volume in sorted(volumes):
+        details = _json_command(["docker", "volume", "inspect", volume], cwd=worktree, env=env)
+        if type(details) is not list or len(details) != 1:
+            raise RuntimeError("owned volume inspection shape is invalid")
+        item = details[0]
+        if item["Labels"].get("com.docker.compose.project") != project:
+            raise RuntimeError("volume is not owned by the measured project")
+        consumers = set(command(["docker", "ps", "-aq", "--no-trunc", "--filter",
+                                 "volume=" + volume], cwd=worktree, env=env).split())
+        if not consumers <= container_ids:
+            raise RuntimeError("a volume has another project's consumer")
+        location = Path(item["Mountpoint"])
+        if (not location.is_dir() or location.is_symlink() or location.resolve() != location
+                or location != docker_root / "volumes" / volume / "_data"):
+            raise RuntimeError("volume mountpoint differs from the owned Docker root")
+        locations[volume] = str(location)
+        sources.append(volume + "/_data")
+        source_bytes += sum(path.stat().st_size for path in location.rglob("*")
+                            if path.is_file() and not path.is_symlink())
+    if shutil.disk_usage(evidence).free <= source_bytes * 2 + 256 * 1024**2:
+        raise RuntimeError("insufficient free storage to preserve stopped volumes")
+    archive = evidence / "stopped-volumes.tar"
+    if archive.exists():
+        raise RuntimeError("stopped volume archive already exists")
+    command(["tar", "--create", "--file", str(archive), "--directory",
+             str(docker_root / "volumes"), "--one-file-system", "--", *sources],
+            cwd=worktree, env=env, timeout=1800)
+    return {"archive": str(archive), "sha256": sha(archive), "bytes": archive.stat().st_size,
+            "source_file_bytes": source_bytes, "volumes": locations}
 
 
 def _inspect(container_id: str, worktree: Path, env: dict[str, str]) -> dict[str, Any]:
@@ -239,11 +292,21 @@ def _completed_result(log: Path, head: str, profile: str, mode: str) -> dict[str
             or versions[1].get("input_completeness") != mode):
         raise RuntimeError("journey scope or input completeness differs from the sample")
     repeat = dataset.get("repeat_v1", {})
-    mutation = repeat.get("repository_mutations", {})
-    if (repeat.get("submit", {}).get("result") != "NO_CANONICAL_CHANGE"
-            or mutation.get("new_operation_count") != 0
-            or mutation.get("before") != mutation.get("after")):
-        raise RuntimeError("repeated upload/Preview/Submit changed Repository mutations")
+    cold_modified_only = profile in LOADS and mode == "MODIFIED_ONLY"
+    if cold_modified_only:
+        if repeat != {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"}:
+            raise RuntimeError("cold modified-only sample warmed the v1 baseline")
+        if {"repeat_v1_preview", "repeat_v1_submit"} & set(dataset.get("operation_timings", {})):
+            raise RuntimeError("cold modified-only sample recorded repeated v1 operations")
+        if any(item.get("step_id") in {"repeat-v1-workspace", "repeat-v1-upload", "repeat-v1-preview", "repeat-v1-submit"}
+               for item in dataset.get("step_metrics", [])):
+            raise RuntimeError("cold modified-only sample ran a repeated v1 step")
+    else:
+        mutation = repeat.get("repository_mutations", {})
+        if (repeat.get("submit", {}).get("result") != "NO_CANONICAL_CHANGE"
+                or mutation.get("new_operation_count") != 0
+                or mutation.get("before") != mutation.get("after")):
+            raise RuntimeError("repeated upload/Preview/Submit changed Repository mutations")
     timings = dataset.get("operation_timings", {})
     target = {"w3": 120, "w4": 300, "w4-pressure": None}.get(profile, 600)
     for name in ("v1_submit", "v2_submit"):
@@ -349,13 +412,16 @@ def main() -> int:
         evidence.mkdir(parents=True, exist_ok=False)
         (evidence / "owner.txt").write_text(owner)
         _host_idle(worktree, env)  # The pre-ownership observation is not the admission check.
+        result["input_manifest_sha256"] = sha(args.input_manifest)
+        if synthetic and result["input_manifest_sha256"] != SYNTHETIC_MANIFEST_SHA:
+            raise RuntimeError("synthetic 13-file manifest differs from the frozen identity")
         result["input_sha256"] = _input_manifest(args.input_manifest, source)
         if synthetic and (len(result["input_sha256"]) != 13 or
                           result["input_sha256"].get("input-summary.json") !=
                           "6b63cf2e8c58cadc96b7ac716a523f9b5554fcb496eea16c0c2f5089199a3896"):
             raise RuntimeError("accepted synthetic input copy must contain the exact 13 pinned files")
         metadata_relative = (f"roots/{workload}/datasets.json" if synthetic else
-                             str(root.resolve().relative_to(source)) + "/datasets.json")
+                             str((root / "datasets.json").resolve().relative_to(source)))
         if metadata_relative not in result["input_sha256"]:
             raise RuntimeError("profile metadata was not included in the fixed input manifest")
         expected_images = json.loads(args.prepared_image_ids.read_text())
@@ -393,6 +459,8 @@ def main() -> int:
                         "--keep-stack", "--project-name", project]
         if synthetic:
             journey_args.extend(["--s3-census", str(census)])
+        if synthetic and args.mode == "MODIFIED_ONLY":
+            journey_args.append("--s4-skip-repeat-v1")
         (evidence / "command.json").write_text(json.dumps(journey_args) + "\n")
         disk_stop = threading.Event()
         disk_thread = threading.Thread(target=_sample_disk_usage,
@@ -531,7 +599,7 @@ def main() -> int:
                                      "submit_checkpoint_verify")
                     }
                     if any(result["submit_event_counts"][name] < 2 for name in (
-                        "submit_storage_summary", "submit_package_publish",
+                        "submit_storage_table", "submit_storage_summary", "submit_package_publish",
                         "submit_package_readback", "submit_checkpoint_verify")):
                         cleanup_errors.append("worker Submit attribution events are incomplete")
             except BaseException as exc:
@@ -560,11 +628,20 @@ def main() -> int:
             cleanup_errors.append(f"postflight: {type(exc).__name__}: {exc}")
         if cleanup_errors:
             result["cleanup_errors"] = cleanup_errors
+        if (not cleanup_errors and result.get("business_pass") and result.get("normal_shutdown")):
+            try:
+                result["stopped_volumes_archive"] = _archive_stopped_volumes(
+                    project=project, containers=containers, docker_root=docker_root,
+                    evidence=evidence, worktree=worktree, env=env)
+            except BaseException as exc:
+                cleanup_errors.append(f"stopped volume archive: {type(exc).__name__}: {exc}")
+                result["cleanup_errors"] = cleanup_errors
         result["sample_pre_release_pass"] = bool(
             result.get("business_pass") and result["resource_pass"]
             and result["image_ids_match_prepared"] and result.get("normal_shutdown")
             and lock_paths and result.get("lock_after") == locks
             and result.get("end_head") == args.head and result.get("end_clean")
+            and result.get("stopped_volumes_archive")
             and not cleanup_errors and error is None
         )
         result["end_utc"] = utc()
@@ -578,8 +655,7 @@ def main() -> int:
             try:
                 command(["docker", "rm", *containers], cwd=worktree, env=env)
                 for kind in ("volume", "network"):
-                    ids = command(["docker", kind, "ls", "-q", "--filter",
-                                   f"label=com.docker.compose.project={project}"], cwd=worktree, env=env).split()
+                    ids = _owned_ids(kind, project, worktree, env)
                     if ids:
                         command(["docker", kind, "rm", *ids], cwd=worktree, env=env)
                 _host_idle(worktree, env)

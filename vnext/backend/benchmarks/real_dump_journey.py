@@ -2992,6 +2992,7 @@ def _run_tier(
     v2_input_completeness: str = "MODIFIED_ONLY",
     s3_diagnostic: bool = False,
     submit_measurements: Path | None = None,
+    skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
     operation_timings: dict[str, dict[str, Any]] = {}
     v1_baseline = _s3_census_baseline(census[v1_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v1_id]
@@ -3411,107 +3412,122 @@ def _run_tier(
                 "empty_initial_commit_id": initial_commit_id,
             }
 
-        repeat_mutations_before = (
-            _repository_mutation_ids(env) if submit_measurements is not None else None
-        )
-        repeat_workspace = runner.run(
-            "repeat-v1-workspace",
-            lambda: _workspace(client),
-        )
-        repeat_upload = runner.run(
-            "repeat-v1-upload",
-            lambda: _upload_revision(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                package=v1_bytes,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
-            ),
-        )
+        repeat_result: dict[str, Any] = {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"}
+        if not skip_repeat_v1:
+            repeat_mutations_before = (
+                _repository_mutation_ids(env) if submit_measurements is not None else None
+            )
+            repeat_workspace = runner.run(
+                "repeat-v1-workspace",
+                lambda: _workspace(client),
+            )
+            repeat_upload = runner.run(
+                "repeat-v1-upload",
+                lambda: _upload_revision(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    package=v1_bytes,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
+                ),
+            )
 
-        def repeat_v1_preview_action() -> dict[str, Any]:
-            preview, manifest = _preview(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                upload=cast(Mapping[str, Any], repeat_upload),
-                baseline_node_id=baseline_node_id,
-                baseline_head_version=baseline_head_version,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
-                stage=f"{tier} repeat v1 Preview",
-                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
-                heartbeat_monitor=heartbeat_monitor,
-                collect_timing=collect_timing,
+            def repeat_v1_preview_action() -> dict[str, Any]:
+                preview, manifest = _preview(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    upload=cast(Mapping[str, Any], repeat_upload),
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
+                    stage=f"{tier} repeat v1 Preview",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
+                    heartbeat_monitor=heartbeat_monitor,
+                    collect_timing=collect_timing,
+                )
+                summary = _assert_preview_summaries(
+                    manifest,
+                    unchanged=True,
+                )
+                _assert_s1b_preview_summary(
+                    summary,
+                    dataset_id=v1_id,
+                    expected_changed=0,
+                    baseline=v1_baseline,
+                )
+                _emit_progress(
+                    f"{tier} repeat v1 Preview",
+                    "preview_summary_verified",
+                    summary=summary,
+                    source_census_table_count=int(census[v1_id]["table_count"]),
+                    composite_row_count=composite_v1_row_count,
+                )
+                if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
+                    raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
+                return {
+                    "preview": preview,
+                    "manifest": manifest,
+                    "summary": summary,
+                    "keyless_fallback_candidates": list(v1_keyless_names),
+                }
+
+            repeat_preview_state = cast(
+                dict[str, Any],
+                runner.run("repeat-v1-preview", repeat_v1_preview_action),
             )
-            summary = _assert_preview_summaries(
-                manifest,
-                unchanged=True,
+            repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
+            record_operation_timing("repeat_v1_preview", repeat_preview)
+            repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
+            repeat_identity = _assert_identity_pair(
+                repeat_preview,
+                expected_status="SAME_PROJECT",
+                expected_mode="DETAILED",
             )
-            _assert_s1b_preview_summary(
-                summary,
-                dataset_id=v1_id,
-                expected_changed=0,
-                baseline=v1_baseline,
+
+            repeat_submit = runner.run(
+                "repeat-v1-submit",
+                lambda: _submit(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    upload=cast(Mapping[str, Any], repeat_upload),
+                    preview=repeat_preview,
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
+                    stage=f"{tier} repeat v1 Submit",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
+                    expect_no_change=True,
+                    heartbeat_monitor=heartbeat_monitor,
+                    collect_timing=collect_timing,
+                    verify_repository=(repository_url, repository_id, v1_commit_id)
+                        if submit_measurements is not None else None,
+                ),
             )
-            _emit_progress(
-                f"{tier} repeat v1 Preview",
-                "preview_summary_verified",
-                summary=summary,
-                source_census_table_count=int(census[v1_id]["table_count"]),
-                composite_row_count=composite_v1_row_count,
-            )
-            if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
-                raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
-            return {
-                "preview": preview,
-                "manifest": manifest,
-                "summary": summary,
-                "keyless_fallback_candidates": list(v1_keyless_names),
+            record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
+            repeat_mutation_evidence: dict[str, Any] = {}
+            if repeat_mutations_before is not None:
+                repeat_mutations_after = _repository_mutation_ids(env)
+                unchanged = repeat_mutations_before == repeat_mutations_after
+                _emit_progress(
+                    f"{tier} repeat v1 Submit", "repeat_repository_mutations_checked",
+                    before=repeat_mutations_before, after=repeat_mutations_after,
+                    unchanged=unchanged,
+                )
+                repeat_mutation_evidence["repository_mutations"] = _assert_no_repository_mutations(
+                    repeat_mutations_before, repeat_mutations_after,
+                )
+
+            repeat_result = {
+                "preview": repeat_summary,
+                "identity": repeat_identity,
+                "submit": repeat_submit,
+                "bundle_transfer": repeat_preview.get("bundle_transfer"),
+                **repeat_mutation_evidence,
+                "keyless_fallback_candidates_unchanged": {
+                    "count": len(v1_keyless_names),
+                    "names": list(v1_keyless_names),
+                    "evidence": "all-table preview summary has changed_table_count=0",
+                },
             }
-
-        repeat_preview_state = cast(
-            dict[str, Any],
-            runner.run("repeat-v1-preview", repeat_v1_preview_action),
-        )
-        repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
-        record_operation_timing("repeat_v1_preview", repeat_preview)
-        repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
-        repeat_identity = _assert_identity_pair(
-            repeat_preview,
-            expected_status="SAME_PROJECT",
-            expected_mode="DETAILED",
-        )
-
-        repeat_submit = runner.run(
-            "repeat-v1-submit",
-            lambda: _submit(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                upload=cast(Mapping[str, Any], repeat_upload),
-                preview=repeat_preview,
-                baseline_node_id=baseline_node_id,
-                baseline_head_version=baseline_head_version,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
-                stage=f"{tier} repeat v1 Submit",
-                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
-                expect_no_change=True,
-                heartbeat_monitor=heartbeat_monitor,
-                collect_timing=collect_timing,
-                verify_repository=(repository_url, repository_id, v1_commit_id)
-                    if submit_measurements is not None else None,
-            ),
-        )
-        record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
-        repeat_mutation_evidence: dict[str, Any] = {}
-        if repeat_mutations_before is not None:
-            repeat_mutations_after = _repository_mutation_ids(env)
-            unchanged = repeat_mutations_before == repeat_mutations_after
-            _emit_progress(
-                f"{tier} repeat v1 Submit", "repeat_repository_mutations_checked",
-                before=repeat_mutations_before, after=repeat_mutations_after,
-                unchanged=unchanged,
-            )
-            repeat_mutation_evidence["repository_mutations"] = _assert_no_repository_mutations(
-                repeat_mutations_before, repeat_mutations_after,
-            )
 
         v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
         v2_upload = runner.run(
@@ -3689,7 +3705,6 @@ def _run_tier(
         composite_record_count=composite_record_count,
         s3_diagnostic=s3_diagnostic,
     )
-    repeat_keyless_names = v1_keyless_names
     return {
         "tier": tier,
         "datasets": [
@@ -3736,18 +3751,7 @@ def _run_tier(
                 },
             },
         ],
-        "repeat_v1": {
-            "preview": repeat_summary,
-            "identity": repeat_identity,
-            "submit": repeat_submit,
-            "bundle_transfer": repeat_preview.get("bundle_transfer"),
-            **repeat_mutation_evidence,
-            "keyless_fallback_candidates_unchanged": {
-                "count": len(repeat_keyless_names),
-                "names": list(repeat_keyless_names),
-                "evidence": "all-table preview summary has changed_table_count=0",
-            },
-        },
+        "repeat_v1": repeat_result,
         "history": {
             "record_count": api_record_count,
             "s1b_record_count": None if s3_diagnostic else S1B_HISTORY_RECORD_COUNTS[tier],
@@ -4118,6 +4122,7 @@ def run_journey(
     v2_input_completeness: str = "MODIFIED_ONLY",
     s3_census: Path | None = None,
     submit_measurements: Path | None = None,
+    skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root, census_path=s3_census)
@@ -4187,6 +4192,14 @@ def run_journey(
         submit_measurements = submit_measurements.resolve()
         if submit_measurements.is_relative_to(_repo_root().resolve()):
             raise JourneyFailure("Submit measurement output must be outside the worktree")
+    if skip_repeat_v1 and not (
+        s3_census is not None and tier_filter == "t4" and scope == "full"
+        and v2_input_completeness == "MODIFIED_ONLY"
+        and submit_measurements is not None and from_step is None and not cross_project
+        and dc32_output is None and not debug_t1_submit_probe
+    ):
+        raise JourneyFailure("S4 cold modified-only measurement requires a fresh synthetic full journey")
+    if submit_measurements is not None:
         submit_measurements.mkdir(mode=0o700, parents=True, exist_ok=False)
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
@@ -4387,6 +4400,7 @@ def run_journey(
                                             or submit_measurements is not None
                                         ),
                                         submit_measurements=submit_measurements,
+                                        skip_repeat_v1=skip_repeat_v1,
                                     )
                                 )
                     except BaseException as error:
@@ -4528,6 +4542,7 @@ def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
                 v2_input_completeness=arguments.v2_input_completeness,
                 s3_census=arguments.s3_census,
                 submit_measurements=arguments.submit_measurements,
+                skip_repeat_v1=arguments.s4_skip_repeat_v1,
             )
 
 
@@ -4574,6 +4589,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--kernel-threads", type=int)
     parser.add_argument("--kernel-memory-budget-bytes", type=int)
     parser.add_argument(
+        "--s4-skip-repeat-v1", action="store_true",
+        help="S4 cold synthetic MODIFIED_ONLY measurement: skip the cache-warming repeat v1 steps",
+    )
+    parser.add_argument(
         "--submit-measurements", type=Path,
         help="fresh Submit timing/main/Repository mutation facts in a new worktree-external directory",
     )
@@ -4590,6 +4609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.dc32_output is not None,
                 arguments.debug_submit_probe_t1,
                 arguments.submit_measurements is not None,
+                arguments.s4_skip_repeat_v1,
                 arguments.v2_input_completeness != "MODIFIED_ONLY",
             )
         ):

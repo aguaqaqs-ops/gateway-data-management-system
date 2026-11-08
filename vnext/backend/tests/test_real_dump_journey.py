@@ -1426,10 +1426,22 @@ def test_s3_census_baseline_excludes_skipped_and_already_included_composite() ->
     }
 
 
+@pytest.mark.parametrize(
+    ("complete_keyscan", "expected_failure", "expected_git_calls"),
+    [
+        (False, "effective-key scan", 0),
+        (True, "census preflight completed", 1),
+    ],
+    ids=("missing-keyscan", "complete-keyscan"),
+)
 def test_s3_census_shape_is_checked_before_starting_compose(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    complete_keyscan: bool, expected_failure: str, expected_git_calls: int,
 ) -> None:
     census = _synthetic_census()
+    if complete_keyscan:
+        census["effective_key_scan_status"] = "complete"
+        census["effective_key_unresolved_tables"] = []
     monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
     monkeypatch.setattr(
         real_dump_journey,
@@ -1437,13 +1449,16 @@ def test_s3_census_shape_is_checked_before_starting_compose(
         lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
                                    real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
     )
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda *_args, **_kwargs: pytest.fail("journey proceeded beyond census preflight"),
-    )
-    with pytest.raises(JourneyFailure, match="effective-key scan"):
+    git_calls: list[list[str]] = []
+
+    def stop_after_preflight(command: list[str], **_kwargs: Any) -> None:
+        git_calls.append(command)
+        raise JourneyFailure("census preflight completed")
+
+    monkeypatch.setattr(subprocess, "run", stop_after_preflight)
+    with pytest.raises(JourneyFailure, match=expected_failure):
         real_dump_journey.run_journey(tier_filter="t4", s3_census=tmp_path / "census.json")
+    assert git_calls == [["git", "rev-parse", "HEAD"]] * expected_git_calls
 
 
 def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(

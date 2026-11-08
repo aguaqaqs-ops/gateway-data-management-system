@@ -97,8 +97,13 @@ pub fn sql_mutation_at(
     context: &Arc<KernelContext>,
 ) -> Result<SqlMutation, StorageError> {
     context.check().map_err(mapped)?;
-    let batch = side.batches.get(location.batch).ok_or_else(|| invalid("STORAGE_ROW_INVALID"))?;
-    if location.row >= batch.num_rows() { return Err(invalid("STORAGE_ROW_INVALID")); }
+    let batch = side
+        .batches
+        .get(location.batch)
+        .ok_or_else(|| invalid("STORAGE_ROW_INVALID"))?;
+    if location.row >= batch.num_rows() {
+        return Err(invalid("STORAGE_ROW_INVALID"));
+    }
     let _scratch = row_scratch(side, batch, location.row, context)?;
     let mut keys = key_columns.to_vec();
     keys.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -106,44 +111,77 @@ pub fn sql_mutation_at(
     for name in keys {
         let column = side.schema.index_of(&name).map_err(mapped)?;
         let (_, _, value) = cell_value(batch, location.row, column)?;
-        canonical_storage_key.push(NamedCell { column: name, value });
+        canonical_storage_key.push(NamedCell {
+            column: name,
+            value,
+        });
     }
-    let after_image = if operation == "DELETE" { None } else {
+    let after_image = if operation == "DELETE" {
+        None
+    } else {
         let mut columns = side.retained_columns.iter().enumerate().collect::<Vec<_>>();
         columns.sort_by(|a, b| a.1.as_bytes().cmp(b.1.as_bytes()));
         let mut image = Vec::with_capacity(columns.len());
         for (index, name) in columns {
             let (_, _, value) = cell_value(batch, location.row, index)?;
-            image.push(NamedCell { column: name.clone(), value });
+            image.push(NamedCell {
+                column: name.clone(),
+                value,
+            });
         }
         Some(image)
     };
-    Ok(SqlMutation { canonical_table: String::new(), operation: operation.to_owned(),
-                     canonical_storage_key, after_image })
+    Ok(SqlMutation {
+        canonical_table: String::new(),
+        operation: operation.to_owned(),
+        canonical_storage_key,
+        after_image,
+    })
 }
 
 /// Conservative simultaneous typed/document/SQL fragment bound before a
 /// locator is decoded. CASE repeats the key predicate once per nonkey column.
 pub fn sql_row_upper(
-    side: &StorageSide, location: RowLocation, key_columns: &[String],
+    side: &StorageSide,
+    location: RowLocation,
+    key_columns: &[String],
 ) -> Result<usize, StorageError> {
-    let batch = side.batches.get(location.batch).ok_or_else(|| invalid("STORAGE_ROW_INVALID"))?;
-    if location.row >= batch.num_rows() { return Err(invalid("STORAGE_ROW_INVALID")); }
+    let batch = side
+        .batches
+        .get(location.batch)
+        .ok_or_else(|| invalid("STORAGE_ROW_INVALID"))?;
+    if location.row >= batch.num_rows() {
+        return Err(invalid("STORAGE_ROW_INVALID"));
+    }
     let mut raw = 0usize;
     let mut names = 0usize;
     for (column, field) in side.schema.fields().iter().enumerate() {
-        names = names.checked_add(field.name().len()).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
-        raw = raw.checked_add(raw_value_bytes(batch.column(column).as_ref(), field.data_type(), location.row)?)
+        names = names
+            .checked_add(field.name().len())
+            .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+        raw = raw
+            .checked_add(raw_value_bytes(
+                batch.column(column).as_ref(),
+                field.data_type(),
+                location.row,
+            )?)
             .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     }
     let mut key_raw = 0usize;
     for name in key_columns {
         let index = side.schema.index_of(name).map_err(mapped)?;
         let field = side.schema.field(index);
-        key_raw = key_raw.checked_add(raw_value_bytes(batch.column(index).as_ref(), field.data_type(), location.row)?)
+        key_raw = key_raw
+            .checked_add(raw_value_bytes(
+                batch.column(index).as_ref(),
+                field.data_type(),
+                location.row,
+            )?)
             .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     }
-    let repeated = key_raw.checked_mul(side.retained_columns.len()).ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
+    let repeated = key_raw
+        .checked_mul(side.retained_columns.len())
+        .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
     raw.checked_add(repeated)
         .and_then(|size| size.checked_mul(64))
         .and_then(|size| size.checked_add(names.checked_mul(32)?))
@@ -169,7 +207,9 @@ impl StorageTable {
                 })?)
             })
             .and_then(|size| size.checked_add(4096))
-            .and_then(|size| size.checked_add(self.key_columns.iter().map(String::len).sum::<usize>()))
+            .and_then(|size| {
+                size.checked_add(self.key_columns.iter().map(String::len).sum::<usize>())
+            })
             .ok_or_else(|| invalid("RESOURCE_LIMIT_EXCEEDED"))?;
         self._lease.shrink_to(retained).map_err(mapped)
     }

@@ -1,13 +1,16 @@
 //! Python-owned Arrow C Streams for one storage table; no Python row graph.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
 
 use arrow_array::{ArrayRef, RecordBatch, RecordBatchReader};
 use gateway_compute_core::comparison::{KernelContext, KernelLease};
-use gateway_compute_core::storage_mutation::{PatchAction, RowLocation, StorageSide, StorageTable, prepare_storage_table, sql_mutation_at, sql_row_upper};
 use gateway_compute_core::sql_replay::{SqlBatcher, SqlMutation};
+use gateway_compute_core::storage_mutation::{
+    PatchAction, RowLocation, StorageSide, StorageTable, prepare_storage_table, sql_mutation_at,
+    sql_row_upper,
+};
 use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyRuntimeError, PyTimeoutError, PyValueError,
 };
@@ -146,40 +149,75 @@ impl StorageHandle {
         Ok(())
     }
 
-    fn render(&mut self, py: Python<'_>, render_operation: Py<StorageOperation>,
-              decision: &str, table_name: &str, operation_identity: usize) -> PyResult<StorageRender> {
+    fn render(
+        &mut self,
+        py: Python<'_>,
+        render_operation: Py<StorageOperation>,
+        decision: &str,
+        table_name: &str,
+        operation_identity: usize,
+    ) -> PyResult<StorageRender> {
         let (context, owner) = {
             let operation = render_operation.borrow(py);
-            if operation.identity != operation_identity || operation.closed.load(Ordering::Acquire) {
-                return Err(PyValueError::new_err("storage render operation identity invalid"));
+            if operation.identity != operation_identity || operation.closed.load(Ordering::Acquire)
+            {
+                return Err(PyValueError::new_err(
+                    "storage render operation identity invalid",
+                ));
             }
-            let owner = operation.owner.lock()
+            let owner = operation
+                .owner
+                .lock()
                 .map_err(|_| PyRuntimeError::new_err("storage charge lock poisoned"))?
-                .as_ref().cloned().ok_or_else(|| PyValueError::new_err("storage render operation closed"))?;
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| PyValueError::new_err("storage render operation closed"))?;
             (Arc::clone(&operation.context), owner)
         };
-        let table = self.table.as_ref().ok_or_else(|| PyValueError::new_err("storage handle closed"))?;
+        let table = self
+            .table
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("storage handle closed"))?;
         if !matches!(decision, "PATCH_DML" | "REBUILD_TABLE" | "NOOP") {
             return Err(PyValueError::new_err("storage render decision invalid"));
         }
-        if decision == "PATCH_DML" && (table.before.is_none() || table.net_counts.is_none()
-            || table.net_counts.is_some_and(|counts| counts.changed() != table.patch_actions.len())) {
+        if decision == "PATCH_DML"
+            && (table.before.is_none()
+                || table.net_counts.is_none()
+                || table
+                    .net_counts
+                    .is_some_and(|counts| counts.changed() != table.patch_actions.len()))
+        {
             return Err(PyValueError::new_err("storage patch locators unavailable"));
         }
         // Removed tables have no DML; their DROP belongs to the schema pass.
         // The complete Python render subbudget is charged before this fixed
         // native statement/chunk envelope, under the same active operation M.
-        let render_lease = context.reserve(64 * 1024)
+        let render_lease = context
+            .reserve(64 * 1024)
             .map_err(|error| storage_control_error(error.code()))?;
-        let exported_lease = context.reserve(0)
+        let exported_lease = context
+            .reserve(0)
             .map_err(|error| storage_control_error(error.code()))?;
         Ok(StorageRender {
-            table: self.table.take(), header_lease: self.header_lease.take(),
-            old_owner: self.owner.take(), render_owner: Some(owner), _render_operation: render_operation,
-            context, render_lease: Some(render_lease), exported_lease: Some(exported_lease),
+            table: self.table.take(),
+            header_lease: self.header_lease.take(),
+            old_owner: self.owner.take(),
+            render_owner: Some(owner),
+            _render_operation: render_operation,
+            context,
+            render_lease: Some(render_lease),
+            exported_lease: Some(exported_lease),
             decision: decision.to_owned(),
-            table_name: table_name.to_owned(), phase: 0, scan_index: 0, rebuild_index: 0,
-            batcher: None, queued: None, statements: VecDeque::new(), current: Vec::new(), offset: 0,
+            table_name: table_name.to_owned(),
+            phase: 0,
+            scan_index: 0,
+            rebuild_index: 0,
+            batcher: None,
+            queued: None,
+            statements: VecDeque::new(),
+            current: Vec::new(),
+            offset: 0,
         })
     }
 }
@@ -216,42 +254,80 @@ impl StorageRender {
             .and_then(|size| size.checked_add(self.current.capacity().checked_mul(4)?))
             .ok_or("RESOURCE_LIMIT_EXCEEDED")?;
         let lease = self.render_lease.as_mut().ok_or("STORAGE_RENDER_INVALID")?;
-        if retained > lease.charged_bytes() { return Err("STORAGE_RENDER_UNDERCHARGED".into()); }
+        if retained > lease.charged_bytes() {
+            return Err("STORAGE_RENDER_UNDERCHARGED".into());
+        }
         lease.shrink_to(retained).map_err(|error| error.to_string())
     }
 
     fn action(&mut self) -> Result<Option<SqlMutation>, String> {
-        let Some(table) = self.table.as_ref() else { return Ok(None); };
-        if self.decision == "NOOP" { return Ok(None); }
-        let choice: Option<(&str, RowLocation, &StorageSide)> = if self.decision == "REBUILD_TABLE" {
-            let Some(&location) = table.after_order.get(self.rebuild_index) else { return Ok(None); };
+        let Some(table) = self.table.as_ref() else {
+            return Ok(None);
+        };
+        if self.decision == "NOOP" {
+            return Ok(None);
+        }
+        let choice: Option<(&str, RowLocation, &StorageSide)> = if self.decision == "REBUILD_TABLE"
+        {
+            let Some(&location) = table.after_order.get(self.rebuild_index) else {
+                return Ok(None);
+            };
             self.rebuild_index += 1;
-            Some(("INSERT", location, table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?))
+            Some((
+                "INSERT",
+                location,
+                table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?,
+            ))
         } else {
             loop {
-                if self.phase >= 3 { break None; }
+                if self.phase >= 3 {
+                    break None;
+                }
                 let mut found = None;
                 while let Some(action) = table.patch_actions.get(self.scan_index) {
                     self.scan_index += 1;
                     found = match (self.phase, action) {
-                        (0, PatchAction::Delete(location)) => Some(("DELETE", *location, table.before.as_ref().ok_or("STORAGE_BEFORE_MISSING")?)),
-                        (1, PatchAction::Update(_, location)) => Some(("UPDATE", *location, table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?)),
-                        (2, PatchAction::Insert(location)) => Some(("INSERT", *location, table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?)),
+                        (0, PatchAction::Delete(location)) => Some((
+                            "DELETE",
+                            *location,
+                            table.before.as_ref().ok_or("STORAGE_BEFORE_MISSING")?,
+                        )),
+                        (1, PatchAction::Update(_, location)) => Some((
+                            "UPDATE",
+                            *location,
+                            table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?,
+                        )),
+                        (2, PatchAction::Insert(location)) => Some((
+                            "INSERT",
+                            *location,
+                            table.after.as_ref().ok_or("STORAGE_AFTER_MISSING")?,
+                        )),
                         _ => None,
                     };
-                    if found.is_some() { break; }
+                    if found.is_some() {
+                        break;
+                    }
                 }
-                if found.is_some() { break found; }
+                if found.is_some() {
+                    break found;
+                }
                 self.phase += 1;
                 self.scan_index = 0;
             }
         };
-        let Some((operation, location, side)) = choice else { return Ok(None); };
-        let upper = sql_row_upper(side, location, &table.key_columns).map_err(|error| error.to_string())?;
-        self.render_lease.as_mut().ok_or("STORAGE_RENDER_INVALID")?
-            .grow(upper).map_err(|error| error.to_string())?;
-        let mut result = sql_mutation_at(side, location, &table.key_columns, operation, &self.context)
+        let Some((operation, location, side)) = choice else {
+            return Ok(None);
+        };
+        let upper =
+            sql_row_upper(side, location, &table.key_columns).map_err(|error| error.to_string())?;
+        self.render_lease
+            .as_mut()
+            .ok_or("STORAGE_RENDER_INVALID")?
+            .grow(upper)
             .map_err(|error| error.to_string())?;
+        let mut result =
+            sql_mutation_at(side, location, &table.key_columns, operation, &self.context)
+                .map_err(|error| error.to_string())?;
         result.canonical_table.clone_from(&self.table_name);
         Ok(Some(result))
     }
@@ -259,7 +335,11 @@ impl StorageRender {
     fn fill(&mut self) -> Result<bool, String> {
         while self.statements.is_empty() {
             self.context.check().map_err(|error| error.to_string())?;
-            let next = if let Some(value) = self.queued.take() { Some(value) } else { self.action()? };
+            let next = if let Some(value) = self.queued.take() {
+                Some(value)
+            } else {
+                self.action()?
+            };
             let Some(mutation) = next else {
                 if let Some(batcher) = &mut self.batcher {
                     if let Some(statement) = batcher.finish().map_err(|error| error.to_string())? {
@@ -269,7 +349,11 @@ impl StorageRender {
                 self.batcher = None;
                 return Ok(!self.statements.is_empty());
             };
-            if self.batcher.as_ref().is_some_and(|batcher| batcher.operation() != mutation.operation) {
+            if self
+                .batcher
+                .as_ref()
+                .is_some_and(|batcher| batcher.operation() != mutation.operation)
+            {
                 if let Some(batcher) = &mut self.batcher {
                     if let Some(statement) = batcher.finish().map_err(|error| error.to_string())? {
                         self.statements.push_back(statement);
@@ -282,8 +366,13 @@ impl StorageRender {
             if self.batcher.is_none() {
                 self.batcher = Some(SqlBatcher::new(&mutation).map_err(|error| error.to_string())?);
             }
-            for statement in self.batcher.as_mut().ok_or("STORAGE_RENDER_INVALID")?
-                .push(&mutation).map_err(|error| error.to_string())? {
+            for statement in self
+                .batcher
+                .as_mut()
+                .ok_or("STORAGE_RENDER_INVALID")?
+                .push(&mutation)
+                .map_err(|error| error.to_string())?
+            {
                 self.statements.push_back(statement);
             }
             self.reconcile_bytes()?;
@@ -293,15 +382,25 @@ impl StorageRender {
 
     fn next_bytes(&mut self) -> Result<Option<Vec<u8>>, String> {
         self.context.check().map_err(|error| error.to_string())?;
-        if self.table.is_none() { return Ok(None); }
+        if self.table.is_none() {
+            return Ok(None);
+        }
         if self.offset >= self.current.len() {
             self.current = Vec::new();
             self.offset = 0;
             self.reconcile_bytes()?;
-            if !self.fill()? { return Ok(None); }
-            self.current = self.statements.pop_front().ok_or("STORAGE_RENDER_INVALID")?;
+            if !self.fill()? {
+                return Ok(None);
+            }
+            self.current = self
+                .statements
+                .pop_front()
+                .ok_or("STORAGE_RENDER_INVALID")?;
         }
-        let end = self.offset.saturating_add(1024 * 1024).min(self.current.len());
+        let end = self
+            .offset
+            .saturating_add(1024 * 1024)
+            .min(self.current.len());
         let chunk = self.current[self.offset..end].to_vec();
         self.offset = end;
         Ok(Some(chunk))
@@ -313,15 +412,25 @@ impl StorageRender {
     fn next_chunk(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyBytes>>> {
         match adapter_boundary(|| py.detach(|| self.next_bytes())) {
             Ok(Ok(Some(bytes))) => {
-                self.exported_lease.as_mut()
+                self.exported_lease
+                    .as_mut()
                     .ok_or_else(|| PyValueError::new_err("storage render closed"))?
-                    .grow(bytes.len()).map_err(|error| storage_control_error(error.code()))?;
+                    .grow(bytes.len())
+                    .map_err(|error| storage_control_error(error.code()))?;
                 Ok(Some(PyBytes::new(py, &bytes).unbind()))
             }
             Ok(Ok(None)) => Ok(None),
-            Ok(Err(error)) if error == "RESOURCE_EXCEEDED" || error == "RESOURCE_LIMIT_EXCEEDED" => Err(PyMemoryError::new_err(error)),
-            Ok(Err(error)) if error == "COMPARISON_CANCELLED" => Err(PyInterruptedError::new_err(error)),
-            Ok(Err(error)) if error == "COMPARISON_DEADLINE_EXCEEDED" => Err(PyTimeoutError::new_err(error)),
+            Ok(Err(error))
+                if error == "RESOURCE_EXCEEDED" || error == "RESOURCE_LIMIT_EXCEEDED" =>
+            {
+                Err(PyMemoryError::new_err(error))
+            }
+            Ok(Err(error)) if error == "COMPARISON_CANCELLED" => {
+                Err(PyInterruptedError::new_err(error))
+            }
+            Ok(Err(error)) if error == "COMPARISON_DEADLINE_EXCEEDED" => {
+                Err(PyTimeoutError::new_err(error))
+            }
             Ok(Err(error)) => Err(PyValueError::new_err(error)),
             Err(()) => Err(PyRuntimeError::new_err("storage SQL rendering panicked")),
         }

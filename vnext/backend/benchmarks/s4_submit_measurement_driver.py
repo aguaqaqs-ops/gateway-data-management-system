@@ -337,7 +337,9 @@ def main() -> int:
     result: dict[str, Any] = {"head": args.head, "hostname": socket.gethostname(),
                               "profile": args.profile, "mode": args.mode, "sample": args.sample,
                               "project": project, "start_utc": utc(), "journey_exit": None,
-                              "sample_pre_release_pass": False, "acceptance_complete": False}
+                              "sample_pre_release_pass": False,
+                              "acceptance_complete": False,
+                              "acceptance_rule": "requires stdout s4_sample_release PASS, exit 0 and controller read-only postflight after marker release"}
     error: BaseException | None = None
     lock_paths: list[Path] = []
     locks: dict[str, str] = {}
@@ -594,7 +596,9 @@ def main() -> int:
                           "released_utc": utc()}, sort_keys=True), flush=True)
         return 0
     print(json.dumps({"event": "s4_sample_release", "status": "HELD", "project": project,
-                      "reason": result.get("error", result.get("cleanup_error", "sample not accepted"))}, sort_keys=True), flush=True)
+                      "result_sha256": sha(evidence / "result.json") if (evidence / "result.json").is_file() else None,
+                      "reason": result.get("release_error") or result.get("error") or
+                                result.get("cleanup_errors") or "sample not accepted"}, sort_keys=True), flush=True)
     return 1
 
 

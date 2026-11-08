@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from contextlib import closing
 from dataclasses import replace
 
 import pyarrow as pa
 import pytest
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPolicy, MutationThresholdPolicy, StorageNetCounts, StorageTableSideV1,
     StorageTableTaskV1, TableMutationKind,
@@ -21,10 +22,11 @@ from gateway_backend.capabilities.mutation_planning.storage import choose_table_
 from gateway_backend.capabilities.storage_projection.contracts import (
     RepositoryImportColumn, RepositoryImportTable,
 )
-from gateway_backend.capabilities.storage_projection import open_storage_input
+from gateway_backend.capabilities.storage_projection import StorageInputLease, open_storage_input
 from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, snapshot_table_from_arrow, source_descriptor_from_arrow,
+    publish_canonical_tables,
     SnapshotTableArtifact, SnapshotTableArtifactManifest,
     SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION, ROW_MATERIALIZATION_PROFILE,
 )
@@ -146,6 +148,43 @@ def _assert_operation_resources_released(context: KernelExecutionContext) -> Non
     # already be gone after the table handle and input readers close.
     context.memory.close()
     assert context.memory.used_bytes == 0
+
+
+def test_fresh_canonical_writer_input_uses_verified_profile_for_storage_diff() -> None:
+    context = current_kernel_context()
+    assert context is not None
+    before = _side(_table([("1", "0", "old")]))
+    names = ("board", "link_no", "status")
+    raw_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in names])
+    raw = pa.Table.from_arrays(
+        [pa.array([value], type=pa.string()) for value in ("1", "0", "new")],
+        schema=raw_schema,
+    )
+    candidate = _side(raw)
+    assert isinstance(candidate.input_owner, StorageInputLease)
+    writer_input = candidate.input_owner.table
+    store = InMemoryArtifactStore()
+    fresh, = publish_canonical_tables(
+        (writer_input,), snapshot_digest=digest("ee"), store=store,
+        repository_id="storage-fresh-writer",
+    )
+    candidate.input_owner.close()
+    assert isinstance(fresh.reader, ArrowSnapshotTableReader)
+    assert fresh.reader.canonical_comparison_verified
+    with closing(fresh.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
+        assert b"gdds.canonical_mapping_version" not in (stream.schema.metadata or {})
+        assert all(b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema)
+    assert candidate.metadata_manifest is not None
+    lease = open_storage_input(fresh, candidate.metadata_manifest, candidate.manifest_table, context)
+    after = replace(candidate, stream=lease.stream, schema=lease.schema, input_owner=lease)
+    task = _task(before, after)
+    with prepare_storage_table(task, context) as handle:
+        summary = handle.summary()
+        assert summary.net_counts == StorageNetCounts(0, 1, 0)
+        decision = choose_table_mutation(task, summary,
+            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        handle.apply_decision(decision)
+    _assert_operation_resources_released(context)
 
 
 def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> None:

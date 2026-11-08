@@ -9,10 +9,12 @@ from gateway_compute._native import _canonical_project_native
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowMetadata,
     ArrowSnapshotTableReader,
+    CanonicalInputOwner,
     KernelBudgets,
     KernelMemoryLimit,
     KernelResult,
     call_arrow_kernel,
+    canonical_comparison_input,
     check_metadata_budget,
     enum_set_labels_for_sql_spelling,
     require_active_kernel_context,
@@ -34,11 +36,11 @@ from gateway_backend.capabilities.storage_projection.contracts import (
 class StorageInputLease:
     """One verified canonical reader and its charged Arrow/mmap lifetime."""
 
-    def __init__(self, table: SnapshotTable, reader: ArrowSnapshotTableReader,
+    def __init__(self, table: SnapshotTable, input_owner: CanonicalInputOwner,
                  stream: Any, operation: object, manifest: CanonicalizationManifest,
                  manifest_table: CanonicalizationManifestTable) -> None:
         self.table = table
-        self.reader = reader
+        self.input_owner = input_owner
         self.stream = stream
         self.schema = stream.schema
         self.operation = operation
@@ -54,7 +56,7 @@ class StorageInputLease:
             self.stream.close()
         finally:
             try:
-                self.reader.close()
+                self.input_owner.close()
             finally:
                 try:
                     if self.table.batch_reader is not None:
@@ -105,12 +107,14 @@ def open_storage_input(
     )
     if schema_digest != manifest_table.canonical_schema_digest:
         raise ValueError("storage input schema digest differs from canonical reader")
-    isolated = reader.reopen()
+    stream, input_owner = canonical_comparison_input(table)
     try:
-        stream = isolated.arrow_stream()
-        return StorageInputLease(table, isolated, stream, active, manifest, manifest_table)
+        return StorageInputLease(table, input_owner, stream, active, manifest, manifest_table)
     except BaseException:
-        isolated.close()
+        try:
+            stream.close()
+        finally:
+            input_owner.close()
         raise
 
 

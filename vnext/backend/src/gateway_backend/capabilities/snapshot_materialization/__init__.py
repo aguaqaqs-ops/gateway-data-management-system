@@ -16,6 +16,9 @@ from gateway_backend.capabilities.snapshot_materialization.canonical_store impor
     canonical_table_key,
     check_canonical_descriptor_budget,
 )
+from gateway_backend.capabilities.snapshot_materialization.canonical_view import (
+    CanonicalInputOwner, canonical_comparison_input, fresh_canonical_view_budget,
+)
 from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
 from gateway_backend.capabilities.snapshot_materialization.native import (
     ArrowMetadata,
@@ -156,6 +159,7 @@ __all__ = [
     "ArtifactReadHandle",
     "CanonicalTableStore",
     "canonical_comparison_profile",
+    "CanonicalInputOwner", "canonical_comparison_input", "fresh_canonical_view_budget",
     "canonical_columns",
     "canonical_table_key",
     "check_canonical_descriptor_budget",

@@ -1,6 +1,6 @@
 # Phase 6 S3 E 独立审核
 
-状态：**审核中，尚无 E GO**。本报告由 E 独立审核者连续记录初审、修复复审和集中证据核收；实施者的 handoff 与测试者的原始结果均不能代替本结论。
+最终状态：**E BLOCKED_CAPACITY，不签 GO**。产品/功能候选与固定H的04六包和镜像沿用已核；W3基线Submit的M24预约拒绝使完整性能验收未过。本报告由 E 独立审核者连续记录初审、修复复审和集中证据核收；实施者的 handoff 与测试者的原始结果均不能代替本结论。
 
 ## 1. 固定起点与范围
 
@@ -493,7 +493,7 @@ CT108同774源唯一W3 `MODIFIED_ONLY` warm样本14:03:16–14:06:22Z原outer/no
 
 来源3a7**官方runner自身**SHA=`0b8c865d77d8a9818eee80a2180385e1643b8772dc34e1fede6da1209855b88e`，起止HEAD3a7 clean、六包均`status=passed`且`RUNNER_EXIT=0`；其旧outer镜像后处理exit1事实仍见§46，不将旧outer改写为0。774同一04同一WT、同Hypothesis包路径先实际比较六包source/current closure：rust、shared_kernel、repository_contracts、repository_client各`status=可沿用`且total digest逐一相等/`changed_components=[]`；backend、repository_service各`status=运行`且有实际变化。774官方入口选这两包实跑，backend非serial **3417 passed**、serial **74 passed**，RS非serial **1764 passed/1 skipped**、serial **214 passed**，四段均exit0，包汇总均passed，官方runner起止HEAD774、`RUNNER_EXIT=0`。因此六包结果为**四包直接沿用最初3a7实跑 + 两包774实际运行**，满足按包闭包，不宣称774重跑了前四包。
 
-当次backend串行测试留下project`gateway-s3-e-774acf33a3-gate`的三运行容器provenance。本人从捕获JSON逐项比较：backend `.Image=sha256:f6a40f4b1143e8c6bc621c8cf3a305d69d94dcc53b00b50b9ad48ffc12ada5ce`、worker `sha256:b581c287c0e1a4d8262f6e2fb21cb4f282ac6761c729dab86f600654800c95af`、RS `sha256:f4ea605b35bf8a093a94863ed9e09d4553aef6ca8e54cc6a2554e406e855946c`均等于本节点当前save archive相应tag的`local_image_ids`；另存backend/worker/RS config digest与全13/13/28个RootFS DiffID，不拿跨节点config与本机ID混比。RS镜像label中的774 revision、build-input及source-tree与本次`repository-build-identity.json`三项完全一致，外层`COMPOSE_RUNNING_IMAGES_BOUND_TO_SAVED_TAGS=1`、runtime export0。**接收774在04的六包权威闭包与同次Compose镜像门禁**；CT108 W3业务容量失败、DC64旧t2–t4逐步沿用、正式H和E GO各按自身条件独立判定。
+当次backend串行测试留下project`gateway-s3-e-774acf33a3-gate`的三运行容器provenance。本人从捕获JSON逐项比较：backend `.Image=sha256:f6a40f4b1143e8c6bc621c8cf3a305d69d94dcc53b00b50b9ad48ffc12ada5ce`、worker `sha256:b581c287c0e1a4d8262f6e2fb21cb4f282ac6761c729dab86f600654800c95af`、RS `sha256:f4ea605b35bf8a093a94863ed9e09d4553aef6ca8e54cc6a2554e406e855946c`均等于本节点当前save archive相应tag的`local_image_ids`；另存backend/worker/RS config digest与全13/13/28个RootFS DiffID，不拿跨节点config与本机ID混比。RS镜像label中的774 revision、build-input及source-tree与本次`repository-build-identity.json`三项完全一致，外层`COMPOSE_RUNNING_IMAGES_BOUND_TO_SAVED_TAGS=1`、runtime export0。**接收774在04的六包权威闭包与同次Compose镜像门禁**；CT108 W3业务容量失败、旧t2–t4来源限制与正式H分别见§62–64。
 
 ## 59. CT108失败项目一次性私有封存与收尾稿静态审查
 
@@ -502,3 +502,38 @@ CT108同774源唯一W3 `MODIFIED_ONLY` warm样本14:03:16–14:06:22Z原outer/no
 ## 60. CT108 W3容量失败项目私有封存与实际释放
 
 唯一tester执行§59固定稿一次，14:33:50–14:33:53Z，controller/SSH均numeric0。本人重算外置`/home/dev/gdds-test-tmp/p6-s3-e-w3-capacity-cleanup-774/archive-cleanup.log` SHA256=`ca8689f4049e333dc3bb6b7e471179c195c5a7d4fb1717e9dd28f468d30802b3`；脚本固定SHA、原失败result SHA=`eef0f203c2c33241e2ba90ba209006383d4ae6446b713a9a98a1f6f5fdde415e`均前后匹配。脚本只读发现exact本project三停容器、三卷、一网；三卷源regular-file合计368,778,533B，先写CT108私有0700目录`/home/dev/gdds-test-tmp/p6-s3-e-tool-final-774acf33a3/w3-capacity-preserved-state/`的`stopped-volumes.tar` 387,051,520B、SHA256=`ba1b07d4e5d19824532f70a432dc0557cc7781904c26e4f1621a90a16cae4444`，本人在节点只读重算相同，`archive.json`保三卷位置与摘要。随后仅删本project三容器/三卷/一网并释放其owner marker；本人只读后检marker、本project资源、全机运行容器、8000均空且exit0。此为**失败项目取证封存和节点释放PASS**，不更改W3原result、原outer/node/journey exit1、容量诊断或W3/W4未测状态。
+
+## 61. 累计产品、旧预期和最小移植在774的最终代码范围
+
+本人从A `f28c89e`、B `17fd673`、C `ce217c0`、D `055707a`各自限定GO及E §15–16、§24逐函数归属继续核当前774固定Git对象，不重开A–D设计或把先前GO冒作E门禁。a9→774实际删除四套旧Python比较/差分suite、两个B临时差分脚本、Rust旧Ordered Vec例子/probe；`pair_pipeline.py`的Preview/History只调用`compare_plan_native`，将同一native handle交`publish_records_closure_arrow`，真实三族records经Arrow写入及真实open/restore/validator。当前树全文检索未见旧`compare_plan(`、旧`publish_records_closure(`、`_write_parquet`、`_read_ordered_rows`或Rust临时probe现役入口。`standard.py`/`ordered.py`留下metadata、单侧、非记录角色、退化与early-exit小路线；`row_encoding.py`留下schema/digest helper；`artifacts.py`留下真正Arrow出版和有界无handle metadata记录；`replacement`、Submit、History、records validator及raw/ref消费者仍可达。旧suite特有断言按§15–16转移到C/D固定向量、E live/records/artifacts/role/planning/replacement及Rust batch owner，不以删除文件本身代替覆盖。
+
+冻结fixture `vnext/fixtures/golden/comparison/s3-e/old-python-expected.json`的实际SHA256=`efd882981ab622bb45461dded5bb879264f0f0cd4efc8bd2545f5cd84687b36f`，固定来源a9、旧算法4d5、原06 JSONL SHA=`7c629fdbe64bc4ffb016135accd86cc74edacd93cd7b32347d4ed2364e0027f9`、collection SHA=`ccbec5bde3ea187888ddd5ee065ca040cf259ce3f0810dadd6b485ffcf0812a3`及补充keyless Risk原件SHA=`bbb260861e7317778375f6f69f94a1879382e1fc94934911d5817919e62a5ae2`。本人只读解析现fixture恰20个精确展开nodeid、每个有旧输入摘要和facts-core/comparison/table预期；C两例另保行/三族content与raw，D ordered另保BLANK-only closure/raw及Risk，keyless例保独立补证Risk。`frozen_case`按精确nodeid查并deepcopy，调用者不能改缓存原值。来源是删除前旧Python在06通过的20例各一旧调用，不由新Rust动态反填；04 backend当前全包0与06 focused补足现役回归，但不替代原旧源独立性。
+
+§24的三个Owner授权最小移植在774仍为原GC claim间收集、cold catalog至多16表COUNT/同key in-flight和两个ChangeSet有界hash sink；相对3a7的`vnext/`仅三条host benchmark/测试路径改变，产品源码、Rust tree9d4f、Cargo.lock、Python锁及部署对象均相同。06早期Rust fmt/Clippy/workspace197、五包Ruff/mypy、SK JCS44、RS cold/historical27与适用backend focused已独核；774的04权威backend/RS实跑及四包同WT闭包来源见§58。故**774累计代码与功能门禁范围目前无未关闭的新增finding**，但W3完整性能是独立未过的E必需条件；此判断不是E GO。候选H文档相对774及同04来源WT闭包/镜像的独立实际核收见§63。
+
+## 62. 774与3a7真实旅程的逐断言来源边界
+
+本人只读比较3a7→774的`vnext/`改动：仅`benchmarks/real_dump_journey.py`、其测试和末Submit Compose测试；`backend/src`两端Git tree同为`5778810f161741f68d0924a88d498acd70925e72`，Rust tree同为9d4f，`repository_service/src`及相关锁/容器部署亦无差异。06/CT108两版本`standard-input-copy.json`的`metadata_sha256`均=`78c7cbba05acbbe92cc9a22351f8caf800824c4520e0d9685c6e776d6042da4f`，八包`dataset_id/bytes/sha256`和`copied_packages=8`逐项相等；copy JSON自身因目标目录不同而不相同。两版本fresh driver只变候选、来源WT和输入目录字面，仍用`--scope full`、v1/重复MO、v2 FULL、N1/M24和同worker守卫。host工具的S3 synthetic census前检仅在提供`s3_census`时运行，标准fresh不传；旧nested effective-key消费分支保留；Monitor变更限于日志子进程session/有界收尾与异常保留，业务operation观察不变。774在06的74+3 focused含真实子进程normal/异常，且774 t1完整fresh实际0，证明新工具成功路径并非只靠静态推断。
+
+| 断言范围 | 直接合格来源 | 对774可说明的界限 |
+| --- | --- | --- |
+| t1完整v1/重复MO、v2 FULL、Submit/真实读取/approve/History、同worker N1/32-8/M24与当次镜像/清理 | 774/06 result SHA=`f407a9c35e49be603e6fbf663f751f8cba34380e7c7c25baa6ba6ee026372171`；§55 | **当前774实测PASS**，仅t1 |
+| t2完整业务、记录/History与原运行资源、镜像、清理 | 3a7/06 result SHA=`4187ea79029387bb4641137024b1fd3177c292d0c760234c45bd54967dbd66c9`；§45 | 仅引用产品与输入不变的原source业务/资源事实，不能说774新运行或新镜像/容量PASS |
+| t3同范围 | 3a7/06 result SHA=`25b2a678ea78ea8758d172110f6ba3ba42517a3040fa20791a3a5fd20583d8d8`；§47 | 同上 |
+| t4同范围 | 3a7/CT108 result SHA=`87c9b4fa57e048a0800c8e84781717dc512f2b15de5c946147caa36b0207b6f8`；§44 | 同上，不能充当774在CT108的当前完整容量证据 |
+
+三份旧3a7结果的`journey_exit=0`、`acceptance_complete/full_journey_completion_guard/resource_evidence_complete/runtime_image_binding_complete/cleanup_complete/marker_released=true`、`resource_verdict=PASS`均绑定各自旧source；成功收尾时项目卷已删。因此它们**不符合DC64需保留卷的qualified source R，也无可继续的checkpoint副本**；本表只按kickoff §5第61行引用“未改消费者/恢复不变量”的既有业务断言，不作DC64 resume、774四档fresh、774 t2–t4资源验收或完整DC33最终范围PASS。W3/W4任何正式测量与受阻容量均不能从这三份旧结果沿用。04按包来源有保留同WT并实比闭包，是§58另一套独立资格，不与本表混称。
+
+## 63. 固定H同04来源WT的六包与镜像沿用核收
+
+最终blocked候选**H=`685c97f4e275e5e52b42ea403a07a5e96b0695b2`**仅改`p6-s3-candidate-handoff.md`、协调、容量报告、E handoff与本审核报告五份文档；V774与H的`vnext` Git tree均为`9cd4162ee60f1ab53a523b762257f06c072beb9e`，无Docker/Compose测试、harness、依赖、源码或部署差异。本人对未执行的H binding r0指出原来源六manifest、runner和image身份未按§58原字节pin；协调者保留r0并修成独立r1。r1固定outer `/home/dev/gdds-test-tmp/p6-s3-e-h-binding-685c97f4e2-r1/binding-run.sh` SHA256=`6f9b93c0ef94a8c1e3929b4a6bf08ddc9c8cb83387257e283677de3f762740d4`、node `binding-node.sh`=`8295d1fa0d39353a40ee4da39a9e7c14f79f001d2b42d677a3bf283cd20b7b08`、完整HEAD bundle=`a7fa4f8cd50658710854f773e804a1ef7ae9ae543e1d3c0ebe97236456d3a9db`、原774 authority outer copy=`a9bb2f0ff2d635e4e28526560fa4fc2a4b295daab8d4992630bdf5a9cb35038c`。本人逐字增量复审r1：新增八条精确原SHA guard，原3a全六runner另pin、同04原WT clean V774→H、同官方环境/包Hypothesis路径、六manifest actual compare、RS当前build identity对原镜像label、首败停/14件capture/guarded marker均保；无sync、pytest、编译、Compose、build或retag。**r1静态CLEAR，r0未执行。**
+
+唯一tester在04 `gw-dms-test-04` 于14:54:53–14:55:06Z运行r1一次，controller outer与node原exit均0。本人独立重算外置`/home/dev/gdds-test-tmp/p6-s3-e-h-binding-685c97f4e2-r1/outer/`：`outer.log` SHA256=`9a389ea0457ee55b199c7d6af8604270a0f4114f20f6d076565cb18cf74583ca`、`captured/binding.log`=`ac1fd855535622805b76e73dda8801d65ceeca7b629265c9552d57ded43ba5f9`、capture manifest=`9195518b6188a628a3da03bd0052660858bc41310e35714298c98119562868af`、capture log=`bcc0359398e89ee7f67cf7c856bb2b43533610b9e6264d0290aa8f4609ff5c55`、当前RS identity=`082faaaeb8cabd166100fd3d64adcc457a16595d9b02f151e1661f0d2c3f8994`。manifest列`binding.log`、六current、六compare及RS identity **14件逐项SHA check OK**，标准capture exit0。节点原log逐项核原774 outer、六source manifest、原774 runner/image JSON、原3a runner及H bundle SHA均OK；完整bundle只公布H，原同04 WT clean从V774 checkout H，结束仍clean，六锁无漂、marker释放0。本人只读节点后检HEAD H、marker absent、Docker运行容器与8000监听皆空。
+
+六份原件`compare-*.json`的`status`全为`可沿用`、`changed_components=[]`、source/current total digest逐一相等；rust、shared_kernel、repository_contracts、repository_client直接指**最初实跑且整次runner0的3a7**，backend、repository_service直接指**实际包运行且整次runner0/outer0的774**，current_head全为H。六总digest依次为`a0c39ae3942c1446faed5354768d0ef48a113b52e377421bf09762bff802c0f9`、`ae3f5a4d585baf032c2d087d961878d7d4d586c0c6757f5d613161e755556436`、`713fa6e1db03f194e6d2adc1e7591996929e6c606162a4f2b37fbe4cab2791f4`、`129ae16353fb52b5f1147fca831dee92f376fa2c3e0394fd987b34dd31a49e5e`、`47662ae45adc05c4ecdbb7c0bc763cdb3ed3665cd5ffb5272a8f03783846e3a8`、`140fc887f95d517bcbfba2201b9047dd5e02f2637208e2e6e158babd9aa7612c`。H当前RS identity的`candidate_sha=H`，`build_input_revision=c6a2792901ad9e1c90c401b455258685c4f4e2e0`及`source_tree_sha256=sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646`与已pin原774镜像label逐项相同；backend/worker由**同04同来源WT的backend闭包**等价§58已通过的774 Compose容器门禁，原774三运行容器与当次save本机ID的绑定仍由§58原件承担，不在H重跑容器。`H_PACKAGE_AND_IMAGE_BINDING_COMPLETE=1`在原outer、`ALL_SIX_PACKAGE_CLOSURES_CARRIED_DIRECT_ORIGINAL_SOURCES=1`/`SOURCE_COMPOSE_CARRIED_BY_SAME_WT_BACKEND_CLOSURE=1`/`REPOSITORY_SOURCE_IMAGE_IDENTITY_CARRIED=1`在原node均有成功前置。**接收固定H的六包按包沿用和阶段候选容器镜像等价范围**；这不是发布/最终production gate，也不将3a7旧outer1改写为0。
+
+## 64. 最终独立结论与未完成项
+
+A–D各自限定GO、E旧Python独立expected及删除/消费者移交、三项Owner最小移植、774代码与04功能/Compose、774 fresh t1及H同04同WT闭包/镜像均按上述直接证据核收；当前无另一项待修的E代码finding。3a7 t2–t4只能引用原source未改消费者的业务/资源断言（§62），不满足保卷DC64 source R，也不构成774四档fresh或其资源验收。CT108原W3 MO warm在v1 Submit发生已独核的`RESOURCE_LIMIT_EXCEEDED: operation memory reservation exceeded`，v2 READY未到；W3 FULL、W4两档各模式、正式warm+3统计与DC47最终完整比较评估均未知。此为必需性能/容量前置阻塞，不能用04、06 focused或旧D两表部分诊断替代。
+
+Owner已选择保持S3/S4边界并保留性能阻塞，未授权N/M、输入、Submit范围、场景或阶段顺序例外。**最终裁定：E BLOCKED_CAPACITY，不签E GO；H仅为代码/功能/交接的受阻候选，不办理S3 exit/tag/push。** 原W3失败及CT108私有归档保留，节点已释放；后续若另决定解决容量或调整阶段范围，须形成新固定方案、适用独审并重新取必需的完整业务/资源/性能证据。本文审核报告的随后单路径提交用于记录H结论，不改变固定H对象或追认为新H门禁。

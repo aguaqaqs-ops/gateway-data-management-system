@@ -234,10 +234,13 @@ _EXACT_METADATA_ROW_SCHEMAS: dict[str, frozenset[str]] = {
     "candidate_parent": frozenset({"parents"}),
     "commit_exists": frozenset({"commit_hash"}),
     "catalog_count": frozenset({"row_count"}),
+    "catalog_counts": frozenset({"ordinal", "row_count"}),
     "branch_heads": frozenset({"name", "hash"}),
     "marker_commits": frozenset({"commit_hash", "message"}),
     "marker_direct_refs": frozenset({"name", "parents"}),
 }
+
+_CATALOG_COUNT_BATCH_TABLES = 16
 
 
 def _validate_metadata_rows(kind: str, rows: list[dict[str, Any]]) -> None:
@@ -583,20 +586,55 @@ class CandidateADoltCli:
             if table_type == "VIEW":
                 continue
             table_names.append(table_name)
+        batches = [
+            tuple(table_names[start : start + _CATALOG_COUNT_BATCH_TABLES])
+            for start in range(0, len(table_names), _CATALOG_COUNT_BATCH_TABLES)
+        ]
         workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
         if workers <= 1:
-            tables = [self._load_table_catalog(name, target_literal) for name in table_names]
+            schemas = [self._load_table_schema(name, target_literal) for name in table_names]
+            count_batches = [self._load_table_counts(batch, target_literal) for batch in batches]
         else:
+            # Both phases share one pool and the existing total concurrency cap.
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                tables = list(
+                schemas = list(
                     executor.map(
-                        lambda name: self._load_table_catalog(name, target_literal),
+                        lambda name: self._load_table_schema(name, target_literal),
                         table_names,
                     )
                 )
+                count_batches = list(
+                    executor.map(lambda batch: self._load_table_counts(batch, target_literal), batches)
+                )
+        counts = {name: count for batch in count_batches for name, count in batch.items()}
+        tables = [TableCatalog(table.name, table.columns, counts[table.name]) for table in schemas]
         catalog = tuple(sorted(tables, key=lambda table: table.name))
         self._store_cached_catalog(commit_id, catalog)
         return catalog
+
+    def _load_table_counts(
+        self, table_names: tuple[str, ...], target_literal: str
+    ) -> dict[str, int]:
+        # One bounded statement retains the original timeout and capture limit. Each
+        # result ordinal binds to our input, independent of the database's row order.
+        query = "\nUNION ALL\n".join(
+            f"SELECT {ordinal} AS ordinal, COUNT(*) AS row_count "
+            f"FROM {quote_identifier(name)} AS OF {target_literal}"
+            for ordinal, name in enumerate(table_names)
+        )
+        rows = self.query_json("catalog_counts", query + ";\n")
+        counts: dict[str, int] = {}
+        for row in rows:
+            ordinal = value(row, "ordinal", 0)
+            if type(ordinal) is not int or not 0 <= ordinal < len(table_names):
+                raise DoltCliError("Dolt catalog_counts ordinal is invalid")
+            name = table_names[ordinal]
+            if name in counts:
+                raise DoltCliError("Dolt catalog_counts returned duplicate ordinals")
+            counts[name] = _parse_non_negative_row_count(value(row, "row_count", 1), "catalog_counts")
+        if len(counts) != len(table_names):
+            raise DoltCliError("Dolt catalog_counts returned incomplete ordinals")
+        return counts
 
     def stream_table(
         self,

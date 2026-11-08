@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from dataclasses import dataclass
 from sys import getsizeof
 from threading import Lock
@@ -49,43 +50,61 @@ class _VersionedCatalogCache:
         self._entries: OrderedDict[tuple[UUID, str], _CatalogCacheEntry] = OrderedDict()
         self._size_bytes = 0
         self._lock = Lock()
+        self._inflight: dict[tuple[UUID, str], Future[tuple[TableCatalog, ...]]] = {}
 
     def get_or_load(
         self,
         key: tuple[UUID, str],
         loader: Callable[[], tuple[TableCatalog, ...]],
     ) -> tuple[TableCatalog, ...]:
-        cached = self._get(key)
-        if cached is not None:
-            return cached
-
-        catalog = loader()
-        size_bytes = _catalog_cache_size(key, catalog)
-        if size_bytes > _VERSIONED_CATALOG_CACHE_BYTES:
-            return catalog
-
-        with self._lock:
-            existing = self._entries.get(key)
-            if existing is not None:
-                self._entries.move_to_end(key)
-                return existing.catalog
-            while self._entries and (
-                len(self._entries) >= _VERSIONED_CATALOG_CACHE_ENTRIES
-                or self._size_bytes + size_bytes > _VERSIONED_CATALOG_CACHE_BYTES
-            ):
-                _evicted_key, evicted = self._entries.popitem(last=False)
-                self._size_bytes -= evicted.size_bytes
-            self._entries[key] = _CatalogCacheEntry(catalog, size_bytes)
-            self._size_bytes += size_bytes
-        return catalog
-
-    def _get(self, key: tuple[UUID, str]) -> tuple[TableCatalog, ...] | None:
         with self._lock:
             cached = self._entries.get(key)
-            if cached is None:
-                return None
-            self._entries.move_to_end(key)
-            return cached.catalog
+            if cached is not None:
+                self._entries.move_to_end(key)
+                return cached.catalog
+            pending = self._inflight.get(key)
+            leader = pending is None
+            if pending is None:
+                pending = Future()
+                self._inflight[key] = pending
+        if not leader:
+            return pending.result()
+
+        # The request thread remains the loader; followers never hold the cache lock.
+        # Include accounting/publication in the failure boundary, not just provider I/O.
+        try:
+            catalog = loader()
+            size_bytes = _catalog_cache_size(key, catalog)
+            with self._lock:
+                if size_bytes <= _VERSIONED_CATALOG_CACHE_BYTES:
+                    self._store(key, catalog, size_bytes)
+                pending.set_result(catalog)
+                del self._inflight[key]
+            return catalog
+        except BaseException as exc:
+            with self._lock:
+                # Publication may have failed partway through a bounded LRU update.
+                self._entries.pop(key, None)
+                self._size_bytes = sum(entry.size_bytes for entry in self._entries.values())
+                pending.set_exception(exc)
+                del self._inflight[key]
+            raise
+
+    def _store(
+        self,
+        key: tuple[UUID, str],
+        catalog: tuple[TableCatalog, ...],
+        size_bytes: int,
+    ) -> None:
+        """Publish while the caller holds the cache lock."""
+        while self._entries and (
+            len(self._entries) >= _VERSIONED_CATALOG_CACHE_ENTRIES
+            or self._size_bytes + size_bytes > _VERSIONED_CATALOG_CACHE_BYTES
+        ):
+            _evicted_key, evicted = self._entries.popitem(last=False)
+            self._size_bytes -= evicted.size_bytes
+        self._entries[key] = _CatalogCacheEntry(catalog, size_bytes)
+        self._size_bytes += size_bytes
 
 
 def _catalog_cache_size(

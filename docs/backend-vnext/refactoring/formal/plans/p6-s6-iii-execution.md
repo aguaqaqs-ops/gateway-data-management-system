@@ -43,8 +43,8 @@ They are not production mechanisms or new evidence protocols.
 
 | File | SHA256 | Role |
 | --- | --- | --- |
-| `authority-node.sh` | `26278b9239e8dbf248f7f80d975936bbc5421b76eb0e0a51012016f5336a3252` | inherited II node admission/process-group/exit/marker lifecycle; full final runner |
-| `real-node.sh` | `84317b9e72b7fcd81a96d7a0d45b6ef86f27e42683ba20979423417a9a43f51e` | exact II t4-node lifecycle/business calls plus pre/post image facts and external draft syntax checks |
+| `authority-node-r2.sh` (installed as `authority-node.sh` in the new final draft root) | `6e909393e933c376c7e505b6a48b32bb68fa5d63cb7cc0587feff7ca3ed13a65` | inherited II admission/exit/marker lifecycle; full final runner; bounded owned-group completion checks below |
+| `real-node-r2.sh` (installed as `real-node.sh` in the new final draft root) | `d114ad77e3f0930b71011dc2e4b582c52c0fab44dba16acfb9436483a0dd9acf` | unchanged II t4 business calls/image facts; same bounded owned-group completion checks |
 | `image-facts.py` | `43fd2130eaabd2d05a6213f073c10247e431d51a76f2dc0c14a7701b429c6908` | Docker-save true config bytes/SHA and every DiffID; numeric subprocess capture |
 | `dependency-identities.json` | `a588bb8528baef75185ea58bfbbcfad4bc905aa8152b39c594a813e53af665a2` | fixed existing backend/RS/client dependency identities, complete arrays and lock/input labels |
 
@@ -53,6 +53,51 @@ The real driver remains unchanged from II: tracked `t4-evidence.py` SHA256
 its source wrapper `t4-node.sh` is
 `43b20af3ff8d1b3a80fbe19c6a75a4009063e90415cb1b2aedbf48ec1a132ca7`.
 No oracle, M24, timeout, expected result, runtime or real scope changes.
+
+### First actual final-authority preparation failure and forward correction
+
+At prior H `16382d9f55fe855f70ee5ad60eb294ee062d785b`, authority stopped
+before toolchain/cache/image-build/six-package runner/Compose. `dolt version`
+was waited with child exit0; the wrapper's immediate `kill -0 -843650` check
+then reported `COMMAND_DESCENDANTS_REMAIN`. No process identity/state snapshot
+was saved. The original evidence cannot establish which descendant existed,
+whether it was a transient completion/reaping window, or a persistent leak.
+Do not report any of those hypotheses as an observed root cause.
+
+Original controller result SHA256
+`ef90c2a1fdad7005a6926fc09014906045f71203c005e6cda65a5b4cee0b2bbc`
+and authority stdout SHA256
+`5be891f28e1014754a009f7323956e9e5ae9d26a6ed0b0acf52524c8f33b404b`
+are retained in `final/16382d9f55fe855f70ee5ad60eb294ee062d785b/execution/sequence-06-r1/`.
+Original node `authority-evidence-r1/dolt-version.log` under that H's task root
+has SHA256 `11ea2607101bfb5eb99c586d75ac6bf3b1387fadc708d341511a168390e5f2f0`,
+20 bytes containing only `dolt version 2.1.11`. Cleanup wait0, actual idle
+postflight, own-marker release0 and correct END H exit1 are in the original
+stdout. Later readonly inspection found no such group/Dolt or marker; this
+supports actual closure, not reconstruction of the missing original identity.
+The failed outer tee had an absent parent directory. Its merged transcript
+copy SHA256 `fe0739318e8eb8cd29cf7eac3636947aff11c82e51799d4c504f733c3e5da7af`
+is labelled a copy; it is not a replacement realtime original. The controller's
+independent per-SSH originals remain authoritative. No t4 started.
+
+The r2 external wrappers preserve child numeric exit before group classification,
+then allow at most twenty 100ms sleeps for the same owned group to disappear
+naturally. On first/final observed survival they save PID/PPID/PGID/SID/state/
+start ticks, without command arguments. They do not ignore zombies or permit a
+surviving group to pass. Remaining/unknown groups still fail into the existing
+owned-group cleanup; unknown cleanup retains the marker. A failure's command-log
+hash is explicitly a snapshot pending cleanup; immutable final SHA is taken
+after actual closure. No product operation timeout, drain policy, budget,
+expected output or business assertion changes.
+
+Changing these page-pinned wrapper bytes requires this forward tracked revision
+and a new final H, new independent source/draft review and safe shallow source
+stage/install. Do not use the old H's archive or subjects as the new H, or edit
+the original failed draft/logs. The new candidate still requires actual full
+six-package/current-H local container gate and the unrun real chain. The final
+launch must first create its external log parent and successfully open the
+original outer log before starting the controller; it must preserve the actual
+controller numeric exit. Do not rely on a tee whose output could not be opened.
 
 ## Source, input and dependency admission
 

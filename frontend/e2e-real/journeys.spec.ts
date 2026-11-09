@@ -1619,7 +1619,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await compareAction(s1Session.page, "提交").click({ timeout: 120_000 });
     const submitDialog = s1Session.page.getByRole("dialog");
     await expect(submitDialog).toBeVisible();
-    await expect(submitDialog.getByText(/项目身份/)).toBeVisible({ timeout: 60_000 });
+    await expect(submitDialog.locator(".confirm-requirement").first()).toBeVisible({ timeout: 60_000 });
     for (const requirement of await submitDialog.locator(".confirm-requirement").all()) {
       await requirement.getByRole("checkbox").check({ timeout: 120_000 });
       await requirement.getByRole("textbox").fill("j1 已核对项目身份差异", { timeout: 120_000 });

@@ -1597,3 +1597,20 @@ def test_history_fresh_authority_keeps_original_provider_failure_classification(
         assert operation.status is OperationStatus.FAILED
         assert operation.diagnostic is not None and operation.diagnostic.code == expected_code
     assert all(not _reader_names(source) for source in harness.providers.values())
+
+
+def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_history_compare_harness(tmp_path)
+    insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    def failed_pipeline(**kwargs: Any) -> Any:
+        raise compare_jobs.HistoryCompareJobError("risk evaluation failed")
+    monkeypatch.setattr(compare_jobs, "_assemble_comparison", failed_pipeline)
+    with pytest.raises(compare_jobs.HistoryCompareJobError, match="risk evaluation failed"):
+        run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+    assert operation.status is OperationStatus.RUNNING
+    assert operation.diagnostic is None

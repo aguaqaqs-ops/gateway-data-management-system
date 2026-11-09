@@ -178,6 +178,10 @@ class HistoryCompareJobError(ValueError):
         self.diagnostic_code = diagnostic_code
 
 
+class HistoryCompareInputError(HistoryCompareJobError):
+    """Known exact-commit authority failure before comparison publication."""
+
+
 class HistoryCompareRulesetVersionMismatch(HistoryCompareJobError):
     """Raised when frozen compare ruleset version does not match runtime."""
 
@@ -522,15 +526,6 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
         assembled_result: tuple[dict[str, object], ArtifactRef, str] | None = None
         try:
             _validate_described_sides(payload, deps, sides)
-            if step.checkpoint_ref is None:
-                assembled_result = _assemble_comparison(
-                    payload=payload, operation_id=operation.operation_id, sides=sides,
-                    rule_set=rule_set, store=deps.artifact_store,
-                    lease_session=lease_session, control=control, on_cancel=publish_cancelled,
-                    export_cache=deps.snapshot_export_cache, dependencies=deps,
-                )
-        except PairPipelineCancelled:
-            return ExecutorAcknowledgment.PUBLISHED
         except HistoryCompareRulesetVersionMismatch as exc:
             _publish_ruleset_mismatch_failure(lease_session=lease_session, operation=operation,
                 step=step, message=str(exc), control=control)
@@ -549,6 +544,28 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation,
                 step=step, message=str(exc), diagnostic_code=exc.diagnostic_code, control=control)
             return ExecutorAcknowledgment.PUBLISHED
+
+        if step.checkpoint_ref is None:
+            try:
+                assembled_result = _assemble_comparison(
+                    payload=payload, operation_id=operation.operation_id, sides=sides,
+                    rule_set=rule_set, store=deps.artifact_store,
+                    lease_session=lease_session, control=control, on_cancel=publish_cancelled,
+                    export_cache=deps.snapshot_export_cache, dependencies=deps,
+                )
+            except PairPipelineCancelled:
+                return ExecutorAcknowledgment.PUBLISHED
+            except RepositoryProviderError as exc:
+                if exc.retryable:
+                    raise HandlerExecutionFailure(retryable=True,
+                        diagnostic_code=f"repository.{exc.code.value.lower()}", reason=exc.message) from exc
+                _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation,
+                    step=step, message=exc.message, diagnostic_code=exc.code.value, control=control)
+                return ExecutorAcknowledgment.PUBLISHED
+            except HistoryCompareInputError as exc:
+                _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation,
+                    step=step, message=str(exc), diagnostic_code=exc.diagnostic_code, control=control)
+                return ExecutorAcknowledgment.PUBLISHED
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -1076,12 +1093,15 @@ def _ensure_history_demands_once(
             assert bound.table_set is not None
             with deps.control_transaction_factory() as uow:
                 control_metadata_resolves += 1
-                metadata = uow.commit_canonical_metadata.resolve(repository_id=payload.repository_id, commit_id=commit,
-                    scope=CommitCanonicalScope(gateway_device_external_key=payload.gateway_device_external_key,
-                        business_project_id=payload.business_project_id))
+                try:
+                    metadata = uow.commit_canonical_metadata.resolve(repository_id=payload.repository_id, commit_id=commit,
+                        scope=CommitCanonicalScope(gateway_device_external_key=payload.gateway_device_external_key,
+                            business_project_id=payload.business_project_id))
+                except CommitCanonicalMetadataError as exc:
+                    raise HistoryCompareInputError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
             binding = canonical_binding_for_commit(metadata, runtime_ruleset=rule_set.snapshot)
             if _storage_facts_for_binding(binding, {table.table_name for table in bound.summary.tables}) != bound.storage_facts:
-                raise HistoryCompareJobError("exact commit storage binding differs from frozen metadata")
+                raise HistoryCompareInputError("exact commit storage binding differs from frozen metadata")
             tables = ensure_committed_tables(bound.table_set,
                 repository_ref=RepositoryRef(repository_id=payload.repository_id, ref=commit),
                 canonical_binding=binding, committed_tables=access,
@@ -1497,7 +1517,7 @@ def _storage_facts_for_binding(
     canonical_binding: CanonicalBinding, names: set[str],
 ) -> tuple[ComparisonStorageFacts, ...]:
     if {view.canonical_table for view in canonical_binding.tables} != names:
-        raise HistoryCompareJobError("canonical binding table set differs from frozen metadata")
+        raise HistoryCompareInputError("canonical binding table set differs from frozen metadata")
     identities = {item.canonical_table: item for item in canonical_binding.table_identities}
     return tuple(ComparisonStorageFacts(
         storage_rule_view=view,

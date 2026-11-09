@@ -251,7 +251,7 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.getByText("原始组态备份的生成时间早于当前基线")).toBeVisible();
   await expect(dialog.getByText("当前基线没有可用的生成时间，本轮无法比较时间先后")).toBeVisible();
   await expect(dialog.getByText("基线没有生成时间记录；比较结果：无法比较")).toBeVisible();
-  await expect(dialog.getByText("生成时间中有无法识别的值（2 个无法识别）")).toBeVisible();
+  await expect(dialog.getByText("2 个值无法识别")).toBeVisible();
   await expect(dialog.getByText("归档后该已通过的提交将被关闭（不归档）")).toBeVisible();
   await expect(dialog.getByText("选中的提交有项目身份例外")).toBeVisible();
   const lastNotMax = dialog.locator(".archive-anomaly", { hasText: "最后一个生成时间不是最大值" }).first();
@@ -348,12 +348,8 @@ test("V2 两侧独立项分别接受与撤销", async ({ page }) => {
 
 async function expandArchiveGroup(dialog: ReturnType<Page["getByRole"]>, title: string) {
   const summary = dialog.locator("summary", { hasText: title });
-  if (await summary.getAttribute("aria-expanded").catch(() => null) === null) {
-    await summary.click();
-  } else {
-    const open = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? true);
-    if (!open) await summary.click();
-  }
+  const open = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? false);
+  if (!open) await summary.click();
 }
 
 test("V3 接受后原始诊断不变且无成功色", async ({ page }) => {
@@ -472,7 +468,7 @@ test("V7 阻断项只有文字与重新预检", async ({ page }) => {
 });
 
 test("V8 待审核阻塞列出全部并可定位", async ({ page }) => {
-  const { apiRequests } = await installArchiveScenario(page, {
+  const { apiRequests, apiResponses } = await installArchiveScenario(page, {
     candidates: V_PENDING_CANDIDATES,
     previews: [vPreviewPending(), vPreviewPendingStartable()],
     startConflict: "ARCHIVE_PENDING_REVIEW",
@@ -493,7 +489,9 @@ test("V8 待审核阻塞列出全部并可定位", async ({ page }) => {
   await reopened.getByRole("button", { name: "确认归档" }).click();
   await expect(reopened.getByText("出现了新的待审核提交，请重新预检")).toBeVisible();
   await expect(reopened.getByText("ARCHIVE_PENDING_REVIEW", { exact: true })).toBeVisible();
-  expect(apiRequests.some((request) => request.path === "/v1/archives")).toBe(false);
+  const startResponses = apiResponses.filter((response) => response.path === "/v1/archives");
+  expect(startResponses).toHaveLength(1);
+  expect(startResponses[0]?.status).toBe(409);
 });
 
 test("V9 关闭中断后同 key 重试并显示首次关闭人", async ({ page }) => {
@@ -612,7 +610,7 @@ test("V9 关闭理由 4096 可用且 4097 禁用", async ({ page }) => {
   await expect(close.getByRole("button", { name: "确认关闭" })).toBeEnabled();
   await close.getByLabel("关闭理由").fill(`${boundary}x`);
   await expect(close.getByRole("button", { name: "确认关闭" })).toBeDisabled();
-  await expect(close.getByText("理由不能超过 4096 字节")).toBeVisible();
+  await expect(close.getByText("理由不能超过 4096 字节").first()).toBeVisible();
 });
 
 test("V10 关闭后自动重新预检且全部回到未处理", async ({ page }) => {

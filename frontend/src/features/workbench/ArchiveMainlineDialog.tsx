@@ -61,6 +61,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
   const [confirmSelection, setConfirmSelection] = useState(false);
   const [collectionNotice, setCollectionNotice] = useState<string | null>(null);
   const previousDigest = useRef<string | null>(null);
+  const pendingNotice = useRef<string | null>(null);
   const [acceptTarget, setAcceptTarget] = useState<Anomaly | null>(null);
   const [acceptReason, setAcceptReason] = useState("");
   const [acceptKey, setAcceptKey] = useState<string | null>(null);
@@ -138,7 +139,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
         loaded = reloaded;
       }
       if (previousDigest.current !== null && previousDigest.current !== loaded.candidate_set_digest) {
-        setCollectionNotice("候选集合已变化，之前的接受不再适用，请重新核对");
+        setCollectionNotice(pendingNotice.current ?? "候选集合已变化，之前的接受不再适用，请重新核对");
+        pendingNotice.current = null;
       }
       previousDigest.current = loaded.candidate_set_digest;
       setCandidates(listed);
@@ -162,6 +164,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     setResult(null);
     setFailure(null);
     setCollectionNotice(null);
+    pendingNotice.current = null;
     setConfirmSelection(false);
     previousDigest.current = null;
     progress.current = createArchiveJourneyProgress();
@@ -263,7 +266,9 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     } catch (cause) {
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
-        setCollectionNotice(cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检");
+        const notice = cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
+        setCollectionNotice(notice);
+        pendingNotice.current = notice;
         refresh();
         return;
       }
@@ -291,7 +296,9 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     } catch (cause) {
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
-        setCollectionNotice(cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检");
+        const notice = cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
+        setCollectionNotice(notice);
+        pendingNotice.current = notice;
         refresh();
         return;
       }

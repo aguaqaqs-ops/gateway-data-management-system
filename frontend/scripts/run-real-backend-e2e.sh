@@ -656,6 +656,9 @@ for spec in specs:
     if slug == "j1-archive-mainline":
         # D (R4 identity confirmation): shared replacement SQL + logics-3.
         inputs["replacement"] = f"{input_mount}/{slug}/replacement"
+    if slug in ("j1-archive-mainline", "j2-manual-close"):
+        # C (MODIFIED_ONLY with the modified content, kickoff §4.6).
+        inputs["modified_c"] = f"{input_mount}/{slug}/modified_c"
     if slug == "j2-manual-close":
         # E (J2 step 2): ① takes C's content, ② takes B's modified side.
         inputs["e_initial"] = f"{input_mount}/{slug}/e_initial"
@@ -988,13 +991,23 @@ else
         cp -- "$SHARED_INPUTS/logics-1.xml" "$input_dir/comps/logic/logics.xml"
       fi
     done
-    # FE3c extras: D for j1 (identity confirmation), E for j2 (close bridge).
+    # FE3c extras: D for j1 (identity confirmation), E for j2 (close bridge),
+    # C for j1/j2 (MODIFIED_ONLY with the modified content; the shared
+    # modified_only dir carries the baseline content and would not change).
     if [[ "$journey_slug" == "j1-archive-mainline" ]]; then
       extra_dir="$JOURNEY_INPUT_ROOT/$journey_slug/replacement"
       mkdir -p -- "$extra_dir/sql" "$extra_dir/comps/logic"
       printf 'fe3b-%s-replacement\n' "$journey_slug" > "$extra_dir/upload.pmc"
       cp -- "$SHARED_INPUTS/sql-replacement-current.sql" "$extra_dir/sql/dbcfg.sql"
       cp -- "$SHARED_INPUTS/logics-3.xml" "$extra_dir/comps/logic/logics.xml"
+    fi
+    if [[ "$journey_slug" == "j1-archive-mainline" || "$journey_slug" == "j2-manual-close" ]]; then
+      c_dir="$JOURNEY_INPUT_ROOT/$journey_slug/modified_c"
+      mkdir -p -- "$c_dir/sql" "$c_dir/comps/logic"
+      printf 'fe3b-%s-modified_c\n' "$journey_slug" > "$c_dir/upload.pmc"
+      cp -- "$INPUT_FIXTURES/sql-modified.sql" "$c_dir/sql/dbcfg.sql"
+      cp -- "$SHARED_INPUTS/logics-3.xml" "$c_dir/comps/logic/logics.xml"
+      log "journey_input_scope=${journey_slug} modified_c_sql_sha256=$(sha256sum "$c_dir/sql/dbcfg.sql" | cut -d' ' -f1) modified_c_logics_sha256=$(sha256sum "$c_dir/comps/logic/logics.xml" | cut -d' ' -f1)"
     fi
     if [[ "$journey_slug" == "j2-manual-close" ]]; then
       # E ① takes C's content, ② takes B's modified side (kickoff §4.6 E).

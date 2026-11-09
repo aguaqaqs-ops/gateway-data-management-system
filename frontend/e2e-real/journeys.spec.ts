@@ -1512,7 +1512,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
     const s2Session = await openSession(browser, s2);
     await gotoWorkbenchFresh(s2Session.page);
-    let runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    let runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_c") });
     const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
     await approveByReviewer(reviewer, submitB.submissionId);
 
@@ -1534,7 +1534,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     expect(factsC.status, "j1-step7 C still pending").toBe("PENDING");
     await applyReview(reviewer, submitC.submissionId, { expected_review_version: factsC.review_version, action: "REJECT", reason: "j1 退回重传" });
     await gotoWorkbenchFresh(s2Session.page);
-    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_c") });
     const digestB = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitB.submissionId)!.expected_candidate_digest;
     const planB = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
     expectAnomalySets(planB, [
@@ -1592,7 +1592,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     // Step 11: re-upload C on baseline 2, approve, archive as baseline 3.
     // (The archive-result dialog from step 10 is still open; start fresh.)
     await gotoWorkbenchFresh(s2Session.page);
-    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_c") });
     const submitC2 = await submitViaUi(s2Session.page, s2, runC.workspaceId);
     await approveByReviewer(reviewer, submitC2.submissionId);
     const digestC2 = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitC2.submissionId)!.expected_candidate_digest;
@@ -1713,7 +1713,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
     const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
     await gotoWorkbenchFresh(s2Session.page);
-    const runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_c") });
     const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
     await gotoWorkbenchFresh(s3Session.page);
     const runE = await uploadDirsAndPreview(s3Session.page, s3, scope, { modified: inputDir(scope, "e_modified"), initial: inputDir(scope, "e_initial") });
@@ -1828,7 +1828,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
 
     // Step 8: C re-uploaded on baseline 2, approved, archived as baseline 3.
     await gotoWorkbenchFresh(s2Session.page);
-    const runC2 = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const runC2 = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_c") });
     const submitC2 = await submitViaUi(s2Session.page, s2, runC2.workspaceId);
     await approveByReviewer(reviewer, submitC2.submissionId);
     const digestC2 = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitC2.submissionId)!.expected_candidate_digest;

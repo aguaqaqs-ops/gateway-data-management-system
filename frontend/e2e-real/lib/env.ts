@@ -34,6 +34,8 @@ export interface JourneyInputs {
   full_modified: string;
   /** J1 only: DIFFERENT_PROJECT replacement upload input (kickoff §4.6 D). */
   replacement?: string;
+  /** J1/J2: MODIFIED_ONLY with the modified content for C (kickoff §4.6). */
+  modified_c?: string;
   /** J2 only: FULL ① with C's content (kickoff §4.6 E). */
   e_initial?: string;
   /** J2 only: FULL ② with B's modified side (kickoff §4.6 E). */

@@ -1085,7 +1085,9 @@ fn _restore_comparison_table_native(
             neutral.ordered.iter().map(RecordBatch::num_rows).sum(),
             neutral.blank.iter().map(RecordBatch::num_rows).sum(),
         ];
-        metadata.validate(kind, counts).map_err(PyValueError::new_err)?;
+        metadata
+            .validate(kind, counts)
+            .map_err(PyValueError::new_err)?;
         let expected_families: &[&str] = if kind == "ordered" {
             &["STANDARD", "ORDERED", "BLANK"]
         } else {

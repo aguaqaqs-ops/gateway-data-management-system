@@ -522,11 +522,7 @@ pub fn validate_facts_row(family: &str, raw: &[u8]) -> Result<(), String> {
 
 /// Validate the existing producer's small metadata and required family counts.
 /// This proves format completeness, not an additional cross-view authenticity protocol.
-fn validate_cache_metadata(
-    kind: &str,
-    value: &Value,
-    counts: [usize; 3],
-) -> Result<(), String> {
+fn validate_cache_metadata(kind: &str, value: &Value, counts: [usize; 3]) -> Result<(), String> {
     let standard_keys = [
         "row_added_count",
         "row_deleted_count",

@@ -1,5 +1,7 @@
 # Phase 6 S4：执行计划与开工边界
 
+**退出状态（2026-11-09）：A–E已原审核收GO，产品V6786、交接H1e778及本地附注`p6-s4-exit`已完成。** 实际范围、原配置/增配档限制及原件见[累计交接](p6-s4-handoff.md)和[最终独审](p6-s4-exit-review.md)；下文开工前状态与旧矩阵保留历史含义，不作为新执行授权。未push，不进入S5。
+
 **2026-11-09当前验收范围：Owner已按[DC98](p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)同意[业务正确性收敛清单](p6-s4-business-validation-scope.md)。下文§6的旧全旅程/合成放大/1暖3测安排及其后继28队列不再执行；旧数据和审核保留历史含义。当前先关闭实际finding，再以一组真实t4输入定向核生产Submit及真实表结果，复用已合格证据，不追逐细段时间；不放宽SQL、CAS/恢复或有限资源等业务屏障。**
 
 2026-11-08。状态：固定设计候选 `de0eb3a8b2f9881737a183f0a4663dad9a75d67f` 已获 [Sol 连续复审](p6-s4-design-review.md)及 [GPT-6-Astra high 第二次独审](p6-s4-astra-review.md) **DESIGN_CLEAR_FOR_OWNER**；本次已按DC96获Owner授权连续实施A–E及必要测试/编译/lint/构建；满足全部退出条件后办理本地附注S4 exit tag，不推送。

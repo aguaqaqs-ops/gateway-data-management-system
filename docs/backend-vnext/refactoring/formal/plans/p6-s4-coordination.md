@@ -186,3 +186,13 @@ worker原日志记录首次312个TABLE_ADDED REBUILD、净计数全未计算，S
 固定N1/envelope48GiB/reserve8GiB/M40；实际guest32CPU/affinity0–31，worker HostConfig NanoCpus0/cpuset空（guest内无额外CPU硬限），实际cgroup memory.max=51,539,607,552B。worker cgroup peak926,642,176B、RSS HWM648,097,792B，三服务OOM/重启均0，同容器/配置守卫通过。账本预约high-water为42,949,672,960B，summary used为2,817,757,936/2,759,311,116B，预约口径不等于RSS需求，不据此降M或改默认。TERM后worker/backend exit0，RS exit143且stderr有正常application shutdown complete；全部停止，cleanup_errors空，本人标记释放。成功停机资源及既有失败/私有卷保留。
 
 原E已暂停其完整报告供原文归档，SHA `978fb940253e55665aefefd4774963b330999e59d7d33bbfad16d94c7c02f7f9`。最终产品V仍6786，交接H为本节、累计handoff及原审快照的固定提交；正式S4 exit以H在原04 authority WT实际六closure/RS与原镜像身份绑定且原E最终核收为条件。未提前tag/push，不授权S5，原M24/合成大负载/稳定统计未知及失败持续分列。
+
+## 20. 最终H实际绑定与本地S4 exit
+
+最终H=`1e778aae0522db75ea1f507ecfa83a6d7b714d65`已在原04 authority同WT实际绑定，原E签署 **S4_EXIT_GO**。初次H绑定r0因SSH缺Cargo PATH前缀失败，未进行六包compare，原result `35f86963f0c7a1fdc5cb75aa07591c4e31a724483cedda8142c343861f96d549`、manifest `0bcc208e116109dec4e188524b47d3f1e9609f5024b6f42116eea6924a343701`保留；原审固定受控恢复在03:06:26–27Z把同WT从H回到V、六锁相等/clean后仅释放本人marker，outer SHA `a82ff1498ecab6fc6176a458e8fcdbd6d63211afa1bfd62278bd7df5988eb56b`、receipt `9fed9ff6bedde6f132ecfb911502582858380dfd7dd326410cb59a155f1cd572`，不抹旧失败。
+
+DC68首轮修订r1精确复制原authority的SSH PATH及四项unset，保原node守卫；04外层03:07:49–03:07:59Z、节点03:07:51.850–03:08:00.358Z（各机原时钟）实际outer/node/capture0。原件`/home/dev/gdds-test-tmp/p6-s4-e-final-h-1e778aae-04-r1-control/`，outer SHA `a42395b7769cd79ab6ee1acb0a3994bac6f7b4f188acb15c05dbf335c7240d95`，result `9387cdffedb67b176fbf1037006a3e309321e92872a040ed9e09566629a540da`，14实体manifest `d4800968be0566e0d56018529ee37eeba75dd1238e42cb1cb56d44a5bdb8215c`；root/原E逐SHA重算均零失配。六包ALL_CARRY/changed_components空，直接四包c9e、backend/RS 6786；原RS build-input/source-tree及三runtime本机ID/全部28、13、13 DiffID/labels精确等原身份。无runner/sync/build/retag，两个本人marker均已释放，来源WT终态H clean。
+
+原E原创[最终退出回执](p6-s4-exit-review.md)SHA `510b035244c1b8e65a4cac9b7a1d85b30d68c1467760b8b20271c0f96fa0c05e`原文归档，确认A–E和H退出条件全部满足；不改写H内978fb940原审快照。协调依DC96既有授权于**2026-11-09 03:11:54Z**创建本地附注`p6-s4-exit`，tag对象`93b251daf2b436baca5593f10e180831294d0af6`，peeled commit精确H且main可达。本节及最终回执为退出后状态归档，不移动H/tag，不冒当前补记提交的新测试/镜像结果。
+
+保留：04原authority/carried WT/env/images与引用原始成功/失败证据、冻结输入/旧expected；04失败/私有停止卷和05成功停止卷/容器供核查。04/05本任务标记已释放、本人服务在收尾时全部停止；不清其他会话资源、不整机保留。正式统计/合成大负载及M24未测不补PASS、不自动转S6/P7；S3/Q18/FE结论各自独立，未push、不进入S5。S4协调及本节实施/原审/唯一测试者职责完成。

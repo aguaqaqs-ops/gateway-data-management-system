@@ -199,6 +199,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S4 — Submit
 
+- **正式退出（2026-11-09）：**A–E原审GO，最终产品`6786b28a3506feab3d8eac7d1288c8b22525bb8f`、交接H=`1e778aae0522db75ea1f507ecfa83a6d7b714d65`，本地附注`p6-s4-exit`已指H。DC98真实t4首次/增量业务和N1/48−8/M40资源已实核；六包按原04同WT实际闭包和镜像身份合格沿用，来源直接四包c9e、backend/RS 6786。旧失败、M24未知及取消统计范围照留；见[累计交接](p6-s4-handoff.md)/[最终独审](p6-s4-exit-review.md)。下列设计期开工边界为历史，已由DC96实施授权和DC97/DC98更新；不代S3 exit、不push、不授权S5。
 - 目标：设计 §10。
 - 具体方案与逐节执行：[S4设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)、[独审提示词](p6-s4-review-prompt.md)。2026-11-08固定候选`de0eb3a8b2`已获[Sol复审](p6-s4-design-review.md)及[Astra独审](p6-s4-astra-review.md)DESIGN_CLEAR_FOR_OWNER；DC94已确认存储键/恢复澄清和DC33范围，仍须实施授权。本轮不运行产品测试。
 - 前置：默认 S3 exit；本轮适用 DC92：以已核收的 S3 接口/功能候选为起点，S4 设计与 kickoff 独审通过后可提前实施。S3 容量阻塞继续独立跟踪；S4 实施授权不包含改冻结 SQL/golden、阈值、批量规则、生产 N/M 或 S5。

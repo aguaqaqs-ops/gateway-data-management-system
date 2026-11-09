@@ -1,5 +1,7 @@
 # P6 S4 E: fixed-source execution and evidence map
 
+**Completed, 2026-11-09:** S4 exited at product V6786 / handoff H1e778 with local annotated `p6-s4-exit`. The [final independent receipt](p6-s4-exit-review.md) accepts actual DC98 real t4 business/resource evidence and same-04-worktree H closure/image binding. The preparation status and withdrawn matrix below are historical; see the [handoff](p6-s4-handoff.md) for final actual/carried sources and retained failures. No push or S5 authorization.
+
 **Current scope, Owner 2026-11-09 (DC98):** this document's 28-journey,
 synthetic stress and warm-plus-three matrix is historical and withdrawn.
 Use the [business validation scope](p6-s4-business-validation-scope.md): close

@@ -1,7 +1,7 @@
 # P6 S4 累计交接
 
-当前状态（2026-11-09）：**A–D GO，E实现与DC98真实业务在V6786已原审GO；S4正式退出尚待最终H实际来源绑定。**
-本页与原E报告同次固定的交接提交为H，完整H由最终绑定回执和附注tag精确指明，不为本页自填SHA循环提交。
+当前状态（2026-11-09）：**A–E GO，S4已正式退出。** 最终产品V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`，最终交接H=`1e778aae0522db75ea1f507ecfa83a6d7b714d65`。
+本地附注`p6-s4-exit`于03:11:54Z创建，tag对象`93b251daf2b436baca5593f10e180831294d0af6`精确指H；[最终原审回执](p6-s4-exit-review.md)结论 **S4_EXIT_GO**。本次补记为退出后文档，不移动H/tag，不宣称在补记提交上新跑门禁。
 不授权S5，不推送，不代签S3。
 
 ## 固定候选与原审
@@ -15,7 +15,7 @@
 | B | `788ed36e7742a067bf01c16ad2e6aaed2fed91fb` | GO，F1–F7关闭；[handoff](p6-s4-b-handoff.md)、[原审](p6-s4-b-review.md) |
 | C | `48053253f9a3c46b0d227167a4d0ca1f8ad94bf3` | GO；H=`f4d9e19ac966a9b96d5587bab284bc25a36c4c22`；[handoff](p6-s4-c-handoff.md)、[原审](p6-s4-c-review.md) |
 | D | `41d1944208fe99911df0a15641ab651505d1274c` | GO，F-D1–4关闭；H=`9d91653ac96908cc9cafe159fcb7b76a5a3525bd`；[handoff](p6-s4-d-handoff.md)、[原审](p6-s4-d-review.md) |
-| E | 最终产品V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` | `E_IMPL_AND_DC98_REAL_BUSINESS_GO_AT_V6786`；[原审快照](p6-s4-e-review.md)，最终H绑定仍是退出生效条件 |
+| E | 最终产品V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` | GO；[原审快照](p6-s4-e-review.md)与[最终实际核收回执](p6-s4-exit-review.md)，H绑定条件已实际满足 |
 
 A–D逐节focused、修复与失败原件均在各节handoff及[协调记录](p6-s4-coordination.md)，不由后继成功覆盖。
 当前Rust tree=`e2a901417b19259ece669637a41545e774261445`。
@@ -35,9 +35,9 @@ E当前V相对`c9e9b3e74ab2e2895f9e0f6aac78740e7f48f008`只改benchmark时间判
 
 以下均由唯一Luna在04 `gw-dms-test-04`执行、原E独立核原件。来源WT为
 `/home/dev/gdds-test-tmp/p6-s4-e-final-r2-c9e9b3e74a-node/wt/subject`，
-当前持续保护其环境、按包路径和镜像，最终H仍须在该同节点/同WT实际比对。
+当前持续保护其环境、按包路径和镜像；最终H已在该同节点/同WT实际比对，六包全部可沿用。
 
-| 包 | 当前V方式 | 直接实际通过来源 |
+| 包 | 产品V6786的方式 | 直接实际通过来源 |
 | --- | --- | --- |
 | rust | carried | c9e全六包runner：fmt/clippy/test均0，207 tests |
 | shared_kernel | carried | 同c9e原runner，261 |
@@ -61,9 +61,9 @@ config digest、全部DiffID、labels及本机容器image ID的原件identity SH
 `1d349eba449e9fa5b8fc3293a9277eb850c6f7b3b28edf1ba72e4a4a8af94411`，
 runtime tar SHA `5d476b9634dc64ba2a87c3d1ae98cc70d8423c386c033be89101b831f5431785`（747,837,440B）。
 缓存/两dependency-base/跨05传输和04隔离real WT实际身份核对见[协调§16](p6-s4-coordination.md#16-2026-11-09-权威封口镜像修复与真实旅程调度)，不以inspect.Id冒保存config字节SHA。
-最终H容器等价和逐包carried仍待实际绑定，不能只凭文档无源码改动代替。
+最终H容器等价和逐包carried已于04实际绑定：六包changed_components均空，四包直接c9e、backend/RS直接6786；H RS build-input/source-tree等原标签，三镜像本机ID/全部DiffID/labels等原身份，未重建、重tag或运行runner。原件见[协调§20](p6-s4-coordination.md#20-最终h实际绑定与本地s4-exit)。
 
-## 当前真实业务缺口与取消项
+## 真实业务核收与取消项
 
 04 W3 FULL warm的journey本身0、独立Repository核对1，未记为合格warm或成功统计。
 私有RS副本只读诊断已将差异缩到`app_cfg__x2`的24行；v1/v2的631表完整schema/count及其余四代表表内容均与固定旧B一致。
@@ -84,10 +84,10 @@ mapped JSON SHA=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19
 原样重传零Repo operation等已有合格业务断言复用，按实际改动补必要focused；时间顺带记录，不新设每段耗时验收。
 取消项记范围取消/未验证，不记PASS，不自动搬到S6/P7。
 
-## 配置归因、保留与退出前工作
+## 配置归因、保留与退出收尾
 
 - 原基线N1/envelope32GiB/reserve8GiB/M24保留；S3原M24容量失败仍属S3。S4未完成M24生产容量测量，不写M24成功或从S4倒签S3。
 - 本轮选定显式N1/envelope48GiB/reserve8GiB/M40，RS及系统留余量；05真实短验证资源已通过，guest32CPU/affinity0–31、worker无额外NanoCpus/cpuset限制、kernel仍N1，实际cgroup限48GiB。仅覆盖本次真实输入，不外推大负载容量；原失败样本的低RSS或无OOM本身不等于容量PASS，不降估算、不改生产默认。
 - 原失败/工具失败、被冻结输入、旧expected及新明细、日志、WT/env/镜像均保留；04失败卷/私有副本已停，本人原HELD标记02:21:32Z实际受控释放，后续旧B映射捕获亦已释放自己的标记。不得动S3/Q18/FE资源，05仍按本人失败处置及实时准入执行。
-- 最终须完成：H在原04来源WT实际逐包/镜像绑定及原E回执；满足条件后才创建本地附注S4 exit tag。源码V及Rust没有因工具修订变化，不重复已合格权威包/业务旅程；如实际闭包不等，先停止按真实结果处理。
-- 本次归档[原E快照](p6-s4-e-review.md)原文SHA=`978fb940253e55665aefefd4774963b330999e59d7d33bbfad16d94c7c02f7f9`，仅H实际绑定尚待；绑定后原审附注可另行归档，不移动已经核收的H/tag。保留原04来源WT/env/images、引用成功/失败原件及真实输入；05成功停机卷/容器与04失败/私有卷均保留供核查，整机标记不因此保留。S3/Q18/FE结论各自独立，未push、不进入S5。
+- 最终H实际逐包/镜像绑定、原E回执及本地附注tag均已完成。源码V及Rust没有因工具修订变化，未重复已合格权威包/业务旅程；H绑定r0的PATH工具失败及受控恢复也按原值保留。
+- H内[原E快照](p6-s4-e-review.md)原文SHA=`978fb940253e55665aefefd4774963b330999e59d7d33bbfad16d94c7c02f7f9`；退出后归档[最终独立回执](p6-s4-exit-review.md)原文SHA=`510b035244c1b8e65a4cac9b7a1d85b30d68c1467760b8b20271c0f96fa0c05e`，未改写快照/H/tag。保留原04来源WT/env/images、引用成功/失败原件及真实输入；05成功停机卷/容器与04失败/私有卷均保留供核查，04/05本人标记已释放，整机不因此保留。S3/Q18/FE结论各自独立，未push、不进入S5。

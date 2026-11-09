@@ -23,7 +23,8 @@ mod facts;
 mod source;
 pub use builders::{BuiltRecords, charge_arrow_batches, restore_records_batches};
 pub use cache::{
-    NeutralFacts, export_facts_family, facts_schema, validate_cache_metadata, validate_facts_row,
+    CacheMetadata, NeutralFacts, export_neutral_facts, facts_schema, validate_facts_row,
+    validate_neutral_risk_column,
 };
 pub use facts::{
     TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json,

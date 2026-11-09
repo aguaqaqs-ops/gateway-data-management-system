@@ -18,12 +18,12 @@ use gateway_compute_core::comparison::{
     summarize_unchanged_ordered_batches,
 };
 use gateway_compute_core::{
-    BuiltRecords, NeutralFacts, RecordsBatchValidator, TableFactsInput, TableFactsSource,
+    BuiltRecords, CacheMetadata, NeutralFacts, RecordsBatchValidator, TableFactsInput,
     build_blank_records, build_ordered_records, build_standard_records,
     build_standard_records_from_ordered, charge_arrow_batches, digest_facts_core_json,
-    digest_table_fact_json, export_facts_family, facts_schema, json_metadata_upper, json_size,
+    digest_table_fact_json, export_neutral_facts, facts_schema, json_metadata_upper, json_size,
     ordered_metadata_json, restore_records_batches, standard_metadata_json,
-    validate_cache_metadata,
+    validate_neutral_risk_column,
 };
 use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyOSError, PyRuntimeError, PyTimeoutError, PyValueError,
@@ -442,44 +442,12 @@ impl ComparisonRecordsHandle {
             self.owner.as_ref().ok_or_else(closed_handle)?.clone();
         let facts = py
             .detach(|| {
-                let metadata = serde_json::json!({"table_name": "neutral"});
-                let source = match result.as_ref() {
-                    ComparisonResult::Standard(value) => TableFactsSource {
-                        metadata: &metadata,
-                        standard: Some(value),
-                        ordered: None,
-                        neutral: None,
-                    },
-                    ComparisonResult::Ordered(value) => TableFactsSource {
-                        metadata: &metadata,
-                        standard: None,
-                        ordered: Some(value),
-                        neutral: None,
-                    },
-                    ComparisonResult::Restored { facts, .. } => TableFactsSource {
-                        metadata: &metadata,
-                        standard: None,
-                        ordered: None,
-                        neutral: Some(facts),
-                    },
+                let (standard, ordered, neutral) = match result.as_ref() {
+                    ComparisonResult::Standard(value) => (Some(value), None, None),
+                    ComparisonResult::Ordered(value) => (None, Some(value), None),
+                    ComparisonResult::Restored { facts, .. } => (None, None, Some(facts)),
                 };
-                Ok::<NeutralFacts, String>(NeutralFacts {
-                    standard: export_facts_family(
-                        &source,
-                        "STANDARD",
-                        max_row_bytes,
-                        &context,
-                        owner.clone(),
-                    )?,
-                    ordered: export_facts_family(
-                        &source,
-                        "ORDERED",
-                        max_row_bytes,
-                        &context,
-                        owner.clone(),
-                    )?,
-                    blank: export_facts_family(&source, "BLANK", max_row_bytes, &context, owner)?,
-                })
+                export_neutral_facts(standard, ordered, neutral, max_row_bytes, &context, owner)
             })
             .map_err(comparison_error)?;
         self.cache_facts = Some(facts);
@@ -656,9 +624,8 @@ fn validate_risk_projection(batches: &[RecordBatch], context: &Arc<KernelContext
                     return Err(PyValueError::new_err("neutral risk changed column is null"));
                 }
                 let name = names.value(index);
-                let canonical = gateway_shared_kernel::canonicalize_identifier(name)
-                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
-                if canonical != name || !seen.insert(name) {
+                validate_neutral_risk_column(name).map_err(PyValueError::new_err)?;
+                if !seen.insert(name) {
                     return Err(PyValueError::new_err(
                         "neutral risk changed column is invalid",
                     ));
@@ -1084,11 +1051,7 @@ fn _restore_comparison_table_native(
         let metadata_lease = context
             .reserve(json_metadata_upper(metadata_json).map_err(comparison_error)?)
             .map_err(|error| comparison_error(error.to_string()))?;
-        let metadata: serde_json::Value = serde_json::from_str(metadata_json)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        if !metadata.is_object() {
-            return Err(PyValueError::new_err("neutral metadata must be an object"));
-        }
+        let metadata = CacheMetadata::parse(metadata_json).map_err(PyValueError::new_err)?;
         let mut input_bytes = 0;
         let mut facts = Vec::new();
         for stream in facts_streams.iter() {
@@ -1122,7 +1085,7 @@ fn _restore_comparison_table_native(
             neutral.ordered.iter().map(RecordBatch::num_rows).sum(),
             neutral.blank.iter().map(RecordBatch::num_rows).sum(),
         ];
-        validate_cache_metadata(kind, &metadata, counts).map_err(PyValueError::new_err)?;
+        metadata.validate(kind, counts).map_err(PyValueError::new_err)?;
         let expected_families: &[&str] = if kind == "ordered" {
             &["STANDARD", "ORDERED", "BLANK"]
         } else {

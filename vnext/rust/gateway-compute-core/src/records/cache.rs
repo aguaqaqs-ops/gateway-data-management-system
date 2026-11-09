@@ -5,13 +5,37 @@ use std::sync::Arc;
 use arrow_array::builder::{LargeBinaryBuilder, UInt32Builder};
 use arrow_array::{Array, LargeBinaryArray, RecordBatch, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use gateway_shared_kernel::canonicalize_jcs;
+use gateway_shared_kernel::{canonicalize_identifier, canonicalize_jcs};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::builders::charge_arrow_batches;
 use super::facts::{Part, TableFactsSource, fact_row_upper, fact_row_value, facts_count};
-use crate::comparison::KernelContext;
+use crate::comparison::{KernelContext, OrderedKernelResult, StandardComputation};
+
+/// Parsed small metadata stays in the core, where JSON validation is owned.
+pub struct CacheMetadata(Value);
+
+impl CacheMetadata {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let value: Value = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+        if !value.is_object() {
+            return Err("neutral metadata must be an object".to_string());
+        }
+        Ok(Self(value))
+    }
+
+    pub fn validate(&self, kind: &str, counts: [usize; 3]) -> Result<(), String> {
+        validate_cache_metadata(kind, &self.0, counts)
+    }
+}
+
+pub fn validate_neutral_risk_column(name: &str) -> Result<(), String> {
+    if canonicalize_identifier(name).map_err(|error| error.to_string())? != name {
+        return Err("neutral risk changed column is invalid".to_string());
+    }
+    Ok(())
+}
 
 pub struct NeutralFacts {
     pub standard: Vec<RecordBatch>,
@@ -135,7 +159,30 @@ impl NeutralFacts {
     }
 }
 
-pub fn export_facts_family(
+/// Export the existing facts orders without exposing JSON values to the FFI.
+pub fn export_neutral_facts(
+    standard: Option<&StandardComputation>,
+    ordered: Option<&OrderedKernelResult>,
+    neutral: Option<&NeutralFacts>,
+    max_row_bytes: usize,
+    context: &Arc<KernelContext>,
+    owner: Arc<dyn std::any::Any + Send + Sync>,
+) -> Result<NeutralFacts, String> {
+    let metadata = serde_json::json!({"table_name": "neutral"});
+    let source = TableFactsSource {
+        metadata: &metadata,
+        standard,
+        ordered,
+        neutral,
+    };
+    Ok(NeutralFacts {
+        standard: export_facts_family(&source, "STANDARD", max_row_bytes, context, owner.clone())?,
+        ordered: export_facts_family(&source, "ORDERED", max_row_bytes, context, owner.clone())?,
+        blank: export_facts_family(&source, "BLANK", max_row_bytes, context, owner)?,
+    })
+}
+
+fn export_facts_family(
     source: &TableFactsSource<'_>,
     family: &str,
     max_row_bytes: usize,
@@ -475,7 +522,7 @@ pub fn validate_facts_row(family: &str, raw: &[u8]) -> Result<(), String> {
 
 /// Validate the existing producer's small metadata and required family counts.
 /// This proves format completeness, not an additional cross-view authenticity protocol.
-pub fn validate_cache_metadata(
+fn validate_cache_metadata(
     kind: &str,
     value: &Value,
     counts: [usize; 3],

@@ -864,9 +864,15 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     assert [item["pair_id"] for item in cold_metrics] == ["baseline_to_initial", "initial_to_modified"]
     assert sum(item["comparison"]["native_calls"] for item in cold_metrics) > 0
     caplog.clear()
-    next_payload = json.loads(harness.job_payload)
-    next_payload["idempotency_key"] = "persistent-full-warm-new-key"
-    harness.job_payload = json.dumps(next_payload).encode("utf-8")
+    harness.job_payload = build_preview_job_payload(
+        workspace_id=harness.upload_revision.workspace_id, upload_revision=harness.upload_revision,
+        repository_id=REPOSITORY_ID,
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        idempotency_key="persistent-full-warm-new-key",
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+    )
     with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
         _run_through_publish(harness, "op-persistent-full-warm")
     warm_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])

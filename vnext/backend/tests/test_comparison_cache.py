@@ -625,8 +625,9 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
                     assert product.metrics.cache_hits == (0 if run == "cold" else 1)
                     assert product.metrics.input_reads == (2 if run == "cold" else 0)
                     if run == "warm":
-                        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
+                        with closing(product.handles["t"].record_batches("ORDERED" if ordered else "STANDARD")) as reader:
                             retained_arrow = reader.read_all()
+                        assert retained_arrow.num_rows > 0
                     product.commit_cache()
                 if run == "warm":
                     session.close()

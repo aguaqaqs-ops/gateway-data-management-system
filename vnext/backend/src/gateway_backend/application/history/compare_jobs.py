@@ -381,7 +381,39 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 envelope.job_state,
                 deps.artifact_store, repository_id=payload.repository_id,
             )
-            _validate_described_sides(payload, deps, sides)
+        try:
+            if step.checkpoint_ref is None:
+                sides = _materialize_distinct_commits(payload, deps)
+            else:
+                _validate_described_sides(payload, deps, sides)
+        except HistoryCompareRulesetVersionMismatch as exc:
+            _publish_ruleset_mismatch_failure(
+                lease_session=lease_session,
+                operation=operation,
+                step=step,
+                message=str(exc),
+                control=control,
+            )
+            return ExecutorAcknowledgment.PUBLISHED
+        except RepositoryProviderError as exc:
+            assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
+            raise HandlerExecutionFailure(
+                retryable=True,
+                diagnostic_code=f"repository.{exc.code.value.lower()}",
+                reason=exc.message,
+            ) from exc
+        except HistoryCompareJobError as exc:
+            _publish_commit_unavailable_failure(
+                lease_session=lease_session,
+                operation=operation,
+                step=step,
+                message=str(exc),
+                diagnostic_code=exc.diagnostic_code,
+                control=control,
+            )
+            return ExecutorAcknowledgment.PUBLISHED
+
+        if step.checkpoint_ref is not None:
             sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
                 deps,
@@ -391,35 +423,6 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 intent="materialize-checkpoint",
             )
         else:
-            try:
-                sides = _materialize_distinct_commits(payload, deps)
-            except HistoryCompareRulesetVersionMismatch as exc:
-                _publish_ruleset_mismatch_failure(
-                    lease_session=lease_session,
-                    operation=operation,
-                    step=step,
-                    message=str(exc),
-                    control=control,
-                )
-                return ExecutorAcknowledgment.PUBLISHED
-            except RepositoryProviderError as exc:
-                assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
-                raise HandlerExecutionFailure(
-                    retryable=True,
-                    diagnostic_code=f"repository.{exc.code.value.lower()}",
-                    reason=exc.message,
-                ) from exc
-            except HistoryCompareJobError as exc:
-                _publish_commit_unavailable_failure(
-                    lease_session=lease_session,
-                    operation=operation,
-                    step=step,
-                    message=str(exc),
-                    diagnostic_code=exc.diagnostic_code,
-                    control=control,
-                )
-                return ExecutorAcknowledgment.PUBLISHED
-
             sides_ref = put_checkpoint_state_artifact(
                 deps.artifact_store,
                 {
@@ -513,7 +516,39 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
         sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store, repository_id=payload.repository_id)
-        _validate_described_sides(payload, deps, sides)
+        def publish_cancelled() -> None:
+            lease_session.publish_operation(_make_cancelled_terminal_builder())
+
+        assembled_result: tuple[dict[str, object], ArtifactRef, str] | None = None
+        try:
+            _validate_described_sides(payload, deps, sides)
+            if step.checkpoint_ref is None:
+                assembled_result = _assemble_comparison(
+                    payload=payload, operation_id=operation.operation_id, sides=sides,
+                    rule_set=rule_set, store=deps.artifact_store,
+                    lease_session=lease_session, control=control, on_cancel=publish_cancelled,
+                    export_cache=deps.snapshot_export_cache, dependencies=deps,
+                )
+        except PairPipelineCancelled:
+            return ExecutorAcknowledgment.PUBLISHED
+        except HistoryCompareRulesetVersionMismatch as exc:
+            _publish_ruleset_mismatch_failure(lease_session=lease_session, operation=operation,
+                step=step, message=str(exc), control=control)
+            return ExecutorAcknowledgment.PUBLISHED
+        except RepositoryProviderError as exc:
+            if exc.retryable:
+                raise HandlerExecutionFailure(
+                    retryable=True,
+                    diagnostic_code=f"repository.{exc.code.value.lower()}",
+                    reason=exc.message,
+                ) from exc
+            _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation,
+                step=step, message=exc.message, diagnostic_code=exc.code.value, control=control)
+            return ExecutorAcknowledgment.PUBLISHED
+        except HistoryCompareJobError as exc:
+            _publish_commit_unavailable_failure(lease_session=lease_session, operation=operation,
+                step=step, message=str(exc), diagnostic_code=exc.diagnostic_code, control=control)
+            return ExecutorAcknowledgment.PUBLISHED
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -547,22 +582,8 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 intent="assemble-checkpoint",
             )
         else:
-            def publish_cancelled() -> None:
-                lease_session.publish_operation(_make_cancelled_terminal_builder())
-
-            try:
-                assemble_state, bundle_manifest_ref, bundle_digest = _assemble_comparison(
-                    payload=payload,
-                    operation_id=operation.operation_id,
-                    sides=sides,
-                    rule_set=rule_set,
-                    store=deps.artifact_store,
-                    lease_session=lease_session,
-                    control=control,
-                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache, dependencies=deps,
-                )
-            except PairPipelineCancelled:
-                return ExecutorAcknowledgment.PUBLISHED
+            assert assembled_result is not None
+            assemble_state, bundle_manifest_ref, bundle_digest = assembled_result
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,

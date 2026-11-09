@@ -425,10 +425,11 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     baseline_session = harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session
     current_session = harness.providers["commit-b"].last_session
     assert baseline_session is not None and current_session is not None
-    baseline_reader_names = _reader_names(harness.providers[BASELINE_HEAD.business_baseline_commit_id])
-    assert baseline_reader_names == ("t",)
-    current_reader_names = _reader_names(harness.providers["commit-b"])
-    assert current_reader_names == ()  # Same scoped canonical content reuses C.
+    # Exact commits are restored from a canonical JSON map; either identical
+    # side may populate the shared canonical content first. Count real readers
+    # across all sessions/commits rather than depending on metadata map order.
+    all_reader_names = tuple(name for provider in harness.providers.values() for name in _reader_names(provider))
+    assert all_reader_names == ("t",)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
@@ -834,9 +835,6 @@ def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> 
         commit_id=commit_id,
         row_count=2,
         declared_rows={"t": ((1,), (2,))},
-        # The immutable manifest facts are valid; only the runtime wire source
-        # truncates the rows. The first open binds catalog, the next recovers C.
-        per_read_rows=({"t": ((1,),)}, {"t": ((1,),)}),
     )
     harness = build_history_compare_harness(
         tmp_path,
@@ -846,16 +844,20 @@ def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> 
         },
         idempotency_key="history-compare-row-count-mismatch",
     )
+    # Freeze valid two-row authority, then truncate every actual runtime row
+    # stream. Metadata-only opens do not consume this fault or read any row.
+    provider.declared_rows = {"t": ((1,),)}
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
-        materialize_step = unit_of_work.operations.get_step(
-            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
         )
     assert operation.status is OperationStatus.FAILED
-    assert materialize_step.status is StepStatus.FAILED
+    assert assemble_step.status is StepStatus.FAILED
     assert operation.diagnostic is not None
     assert operation.diagnostic.code == "REPOSITORY_ROW_COUNT_MISMATCH"
 
@@ -1376,6 +1378,8 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_backend.capabilities.snapshot_materialization import ensure_committed_tables
+    from gateway_backend.capabilities.table_access import TableAccessError
+    from gateway_backend.capabilities.table_access.contracts import ParserDiagnosticCode
     from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 
     harness = build_history_compare_harness(tmp_path)
@@ -1398,8 +1402,9 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     assert len(captured) == 1
     table, = captured[0].tables
     assert table.reader is not None and table.batch_reader is not None
-    with pytest.raises(ValueError, match="closed"):
+    with pytest.raises(TableAccessError) as closed:
         table.reader.reopen()
+    assert closed.value.code is ParserDiagnosticCode.READER_CLOSED
     with pytest.raises(ValueError, match="closed"):
         table.batch_reader.schema()
     assert all(table.reader is None and table.batch_reader is None
@@ -1424,9 +1429,11 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
     from tests.support.canonical_metadata import CatalogCommitCanonicalMetadataPort
+    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
     from tests.support import preview_job_harness as preview_support
 
     preview = preview_support.build_preview_harness(tmp_path / "preview", input_completeness=InputCompleteness.FULL)
+    seed_provisioned_mapping_with_head(preview.db_path, baseline_head=BASELINE_HEAD)
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(preview.db_path)
     cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "computation-cache"))
@@ -1557,3 +1564,36 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
             assert all(not _reader_names(provider) for provider in providers.values())
         seen_content[name] = content
         seen_producers[name] = history.operation_id
+
+
+AUTHORITY_RESTORE_FAILURES = (
+    ("open_timeout", "repository.repository_ref_open_timeout"),
+    ("catalog_error", "REPOSITORY_CATALOG_LOAD_FAILED"),
+)
+
+
+@pytest.mark.parametrize(("fault", "expected_code"), AUTHORITY_RESTORE_FAILURES)
+def test_history_fresh_authority_keeps_original_provider_failure_classification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str, expected_code: str,
+) -> None:
+    from gateway_backend.operations.recovery import HandlerExecutionFailure
+
+    harness = build_history_compare_harness(tmp_path)
+    insert_history_compare_operation(harness)
+    materialized = run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    assert materialized.status is StepStatus.SUCCEEDED
+    provider = harness.providers[BASELINE_HEAD.business_baseline_commit_id]
+    monkeypatch.setattr(provider, fault, True)
+    if fault == "open_timeout":
+        with pytest.raises(HandlerExecutionFailure) as failure:
+            run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+        assert failure.value.retryable is True
+        assert failure.value.diagnostic_code == expected_code
+    else:
+        assembled = run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+        assert assembled.status is StepStatus.FAILED
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            operation = uow.operations.get_operation(harness.operation_id)
+        assert operation.status is OperationStatus.FAILED
+        assert operation.diagnostic is not None and operation.diagnostic.code == expected_code
+    assert all(not _reader_names(source) for source in harness.providers.values())

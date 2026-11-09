@@ -1,6 +1,6 @@
 # S6 设计独审记录
 
-状态：固定设计候选待审。审核者为本轮新建`s6_design_review`，非S5/E复用。
+状态：**DESIGN_GO**，固定候选`9b466d788f00ea1edb9e98b88f1746f2a7bcfee7`，原审R2无剩余阻塞。审核者为本轮新建`s6_design_review`，非S5/E复用。
 设计者不代签。这里只记录设计审查，不运行产品检查，不代替CODE/EVIDENCE/EXIT_GO。
 
 ## R0 基线原始结论
@@ -61,3 +61,26 @@ F1直接统一owning Contract旧条文；F2在设计§4.2/kickoff I列具体scop
 ### 设计者R1修订
 
 收窄provider表到两侧有效ordered任务，整表增删不要求extension；订正`_run_tier`；设计§4.2.1固定datasets/census、旧B独立oracle及SET摘要、分层计数与实际HTTP正校准、缺失停止规则；kickoff链接该表；总设计目标句明确历史背景。待原审复核，不自签关闭。
+
+## R2 连续复审原始结论
+
+**R2：DESIGN_GO。固定候选 `9b466d788f00ea1edb9e98b88f1746f2a7bcfee7` 无剩余阻塞 finding。**
+
+在 clean、只读 detached `/home/dev/gdds-reviews/p6-s6-design-9b466d788f`（legacy 已接）连续复核 `d4b952..9b466`，并核整体 `p6-s5-exit..9b466`：
+
+- **F1 CLOSED**：provider 条款已限定两侧存在的有效 ordered 比较任务，整表新增/删除不被迫新增 extension。
+- **F2 CLOSED（设计）**：实际入口名订正为 `_run_tier`；scope、合法前置、停止点、拒绝参数及唯一测试 owner 明确。
+- **F3 CLOSED（设计）**：保留响应后可读/终态观察及2秒轮询限制，不冒精确 READY 或重复统计。
+- **F4 CLOSED（设计）**：§4.2.1 固定输入、旧B与SET预期来源；逻辑需求、native计数和实际RS请求分开；正校准与窗口绑定明确，必需计数 UNKNOWN 阻止证据核收。已核所列摘要及解释与 S4 归档文档一致，未重新运行旧 oracle。
+
+范围、N1/M24、最终六包实跑、最终 H 本机重建/容器、外置结果绑定、失败处理及逐节新角色规则保持正确。产品树仍为 `fb92c475…` / Rust `c0213e18…`；本轮没有产品实现或实测。
+
+**非阻塞编辑收尾**：总设计§8.3仍有旧“N按曲线暂定、S6定稿”句，应按已确认§12统一为本轮保N1、取消曲线；无需新业务决议。
+
+R1 关于 FE3 并行文档无需勘误：两次实际 `git diff p6-s5-exit..候选` 均包含 `docs/frontend-vnext/fe3-kickoff.md`（24增/3删），来自并行 Q22/Q23 合入。本审不代签其验收。
+
+此 GO 仅表示设计可提交实施确认；不构成 CODE_GO、EVIDENCE_GO、EXIT_GO，也不授权测试、测量、tag 或推送。
+
+### 归档收尾
+
+原审要求的非阻塞§8.3措辞已按Owner范围统一；本归档只转录GO、当前状态和并行合入事实，不声称原审核过尚未形成的归档提交，不改变固定设计候选或产品树。

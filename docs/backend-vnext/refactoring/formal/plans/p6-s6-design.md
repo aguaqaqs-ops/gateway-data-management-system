@@ -1,6 +1,6 @@
 # Phase 6 S6 详细设计
 
-状态：设计候选，待新 S6 原审核收；仅授权设计、文档与设计独审，未授权产品执行。
+状态：**DESIGN_GO**；固定设计候选`9b466d788f00ea1edb9e98b88f1746f2a7bcfee7`经新S6原审连续复审，F1–F4关闭。仅授权设计、文档与设计独审，未授权产品执行。
 日期：2026-11-09。范围决定来自本轮 Owner 三项明确答复，见 [协调记录](p6-s6-coordination.md)。
 实施入口：[kickoff](p6-s6-kickoff.md)。独审：[review](p6-s6-design-review.md)。
 

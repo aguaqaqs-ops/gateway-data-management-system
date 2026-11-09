@@ -1,6 +1,6 @@
 # Phase 6 S6 实施计划
 
-状态：设计候选；尚未获实施授权。依据 [详细设计](p6-s6-design.md) 与本轮Owner已确认范围。
+状态：**DESIGN_GO**（固定候选`9b466d788f00ea1edb9e98b88f1746f2a7bcfee7`）；尚未获实施授权。依据 [详细设计](p6-s6-design.md) 与本轮Owner已确认范围。
 本计划规定授权后的完整顺序，设计GO不代替CODE/EVIDENCE/EXIT_GO。
 
 ## 1. 三节依赖与角色

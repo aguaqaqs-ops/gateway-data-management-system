@@ -6,7 +6,7 @@
 
 起点 main `c391524061f0ffbabc4fc95f3ceb713b1b99526e`，工作区 `/home/dev/gdds-s5-design-main`；clean现场及S5退出tag/原件摘要已核，产品树与S5 V2/H一致。当前文档候选由本页提交之后的Git HEAD解析，不写自身SHA。
 
-入口：[设计](p6-s6-design.md)、[kickoff](p6-s6-kickoff.md)、[独审](p6-s6-design-review.md)。最终执行仍待设计独审及Owner实施确认。
+入口：[设计](p6-s6-design.md)、[kickoff](p6-s6-kickoff.md)、[独审](p6-s6-design-review.md)。设计独审已GO，最终执行仍待Owner实施确认。
 
 ## Owner本轮确认（原答复）
 
@@ -28,3 +28,11 @@
 - 真实计数须有实际来源，缺日志不是0；已有响应后计时保原观察标签。
 - 当前无证实需新增删除的产品对象；通用外部目标planner、XML、risk与native测试适配有consumer。
 - 设计完成前独核Contract修正文义、最小scope/停止点、独立预期和最终HEAD收口顺序；实施者只按明确scope执行，不自行扩大真实范围。
+
+## 设计交付收尾
+
+新原审R2对固定`9b466d788f00ea1edb9e98b88f1746f2a7bcfee7`签DESIGN_GO，F1–F4关闭；原文归档review。按其非阻塞建议统一总设计§8.3旧曲线句，未增加业务范围。当前无剩余阻塞设计决定；下一步仅在Owner确认实施后按kickoff I→II→III推进。
+
+设计期间main经`1be218b6b5`正常合入前端Q22/Q23文档，本轮保留未覆盖；产品树仍fb92/c021。FE3c修复/证据与验收仍归前端，不能将文档合入记前端通过。
+
+本轮只完成只读源码/Contract/Git/既有原件核对、文档差异/相对文件链接核对及设计独审；无产品测试/语法检查/lint/编译/镜像/原型/测量、无资源清理、无tag或push。最终设计报告归档提交不冒为被测产品候选。

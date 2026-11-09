@@ -165,6 +165,8 @@ def _optional_risk_cache_key(
         return None, None
     try:
         key = candidate.task_digest()
+        assert operation is not None
+        operation.checkpoint()
         charge.shrink_to(2048)
         return key, charge
     except BaseException:

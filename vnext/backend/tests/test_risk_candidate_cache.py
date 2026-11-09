@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 import pytest
@@ -30,7 +30,7 @@ from gateway_backend.capabilities.risk_evaluation.candidates import (
     optional_candidate_input,
 )
 from gateway_backend.capabilities.risk_evaluation._facts import extract_risk_facts
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access import OperationMemoryBudget, current_kernel_context
 from tests.test_comparison_s3_contract_vectors import _added_rows, _input
 
 pytestmark = pytest.mark.unit
@@ -105,6 +105,39 @@ def test_candidate_codec_rejects_incomplete_or_mismatched_values(field_name: str
     raw = canonicalize_json_value({**_PORTABLE_DOCUMENT, field_name: value})
     with pytest.raises(ValueError):
         decode_risk_candidates(raw, "risk-key", operation)
+    assert operation.memory.available_bytes == before
+
+
+@dataclass
+class _CodecStop:
+    stop_at: int
+    stop_error: type[Exception] = TimeoutError
+    memory: OperationMemoryBudget = field(default_factory=lambda: OperationMemoryBudget(64 * 1024**2))
+    resources: ExitStack = field(default_factory=ExitStack)
+    calls: int = 0
+
+    def checkpoint(self) -> None:
+        self.calls += 1
+        if self.calls >= self.stop_at:
+            raise self.stop_error("current operation stopped codec")
+
+
+@pytest.mark.parametrize("direction", ("encode", "decode"))
+@pytest.mark.parametrize("stop_at", (1, 2))
+@pytest.mark.parametrize("stop_error", (InterruptedError, TimeoutError))
+def test_empty_candidate_codec_observes_current_control_and_releases_reservations(
+    direction: str, stop_at: int, stop_error: type[Exception],
+) -> None:
+    operation = _CodecStop(stop_at, stop_error)
+    before = operation.memory.available_bytes
+    with pytest.raises(stop_error, match="current operation stopped"):
+        if direction == "encode":
+            encode_risk_candidates((), "risk-key", operation)
+        else:
+            decode_risk_candidates(
+                b'{"complete":true,"events":[],"format":"risk-table-candidates/v1","task_digest":"risk-key"}',
+                "risk-key", operation,
+            )
     assert operation.memory.available_bytes == before
 
 
@@ -501,7 +534,7 @@ def test_cached_table_time_budget_degrades_at_the_same_emit_check() -> None:
             "max_annotations_per_pair exceeded"),
         # A filtered candidate does not perform an emit-local time check.
         (1, False, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.0001),
-            RiskEvaluationStatus.READY, (0,), None),
+            RiskEvaluationStatus.READY, (), None),
         # The last retained emit still performs its original post-append check.
         (1, True, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.001),
             RiskEvaluationStatus.DEGRADED, (1,), "risk table budget exceeded"),

@@ -117,6 +117,7 @@ def optional_candidate_input(
     """Admit a canonical key, or leave the unchanged lazy evaluator uncached."""
     if operation is None or item.composite_signal:
         return None, None
+    operation.checkpoint()
     upper = 64 * 1024 + sum(_input_upper(value) for value in (
         comparison_task_digest, item.comparison_facts,
         item.table_fact.diagnostics,
@@ -162,11 +163,9 @@ def optional_candidate_input(
         if actual > _KEY_RESERVATION_BYTES:
             charge.close()
             return None, None
+        operation.checkpoint()
         charge.shrink_to(actual)
         return candidate, charge
-    except (ValueError, OverflowError):
-        charge.close()
-        return None, None
     except BaseException:
         charge.close()
         raise
@@ -217,8 +216,11 @@ def encode_risk_candidates(
     Iterate events rather than constructing another whole list of dictionaries.
     Both temporary encoding and retained bytes are admitted before allocation.
     """
+    operation.checkpoint()
     upper = 4096 + len(task_digest) * 32
-    for event in events:
+    for index, event in enumerate(events):
+        if index % 1024 == 0:
+            operation.checkpoint()
         upper += _input_upper(event)
         if upper > MAX_CANDIDATE_BYTES:
             return None
@@ -242,8 +244,10 @@ def encode_risk_candidates(
         if len(raw) > MAX_CANDIDATE_BYTES:
             charge.close()
             return None
+        operation.checkpoint()
         result = EncodedRiskCandidates(bytes(raw), charge)
         charge.shrink_to(len(raw) * 2 + 1024)
+        operation.checkpoint()
         return result
     except BaseException:
         charge.close()
@@ -289,6 +293,7 @@ def _target_from_document(value: object) -> RiskTarget:
 def decode_risk_candidates(
     raw: bytes, task_digest: str, operation: RiskOperationPort,
 ) -> DecodedRiskCandidates:
+    operation.checkpoint()
     if len(raw) > MAX_CANDIDATE_BYTES:
         raise ValueError("risk candidate payload exceeds retention bound")
     charge = operation.memory.reserve(8192 + len(raw) * 64)
@@ -302,6 +307,7 @@ def decode_risk_candidates(
                 or not isinstance(document["events"], list)
                 or canonicalize_json_value(document) != raw):
             raise ValueError("invalid risk candidate envelope")
+        operation.checkpoint()
         events: list[RiskCandidateEvent] = []
         for index, value in enumerate(document["events"]):
             if index % 1024 == 0:
@@ -329,7 +335,9 @@ def decode_risk_candidates(
                 RiskRuleId(value["rule_id"]), _target_from_document(value["target"]),
                 tuple(evidence),
             ))
-        return DecodedRiskCandidates(tuple(events), charge)
+        result = DecodedRiskCandidates(tuple(events), charge)
+        operation.checkpoint()
+        return result
     except BaseException:
         charge.close()
         raise

@@ -64,3 +64,5 @@ Owner于2026-11-09明确要求完整执行实施提示词并持续完成A–E。
 当前采用main现行DC91/DC97统一池、N1/单active、worker32GiB−reserve8GiB/M24；真实范围仍为已确认标准t1必要冷查、新operation复查、实际records与完整bundle读取。A聚焦完整任务身份、neutral三族facts/artifact加STANDARD risk视图、风险完整事件和原控制点；B/C/D/E按依赖推进，权限无需小节间再申请。
 
 测试者只读核五节点BatchMode均可达；06初步工具链/离线镜像条件较齐，实际执行仍须重新核空闲并取得本人标记。历史t1卷属于冻结/他人来源线索，未挂载或启动；新唯一schema若不适配旧状态，只在本人隔离栈补标准t1必要合法前置，不迁移旧库。此处尚无产品检查、Compose、真实结果或carried结论；A当前container gate为deferred，未触碰依赖/部署/container-only边界时集中E最终候选。
+
+A/Risk子候选`17255de2222df61e45206e96f51d39ea8dd788aa`先独立固定；原审在`/home/dev/gdds-s5-review-a-risk-17255de222`clean detached核查，外置报告`/home/dev/gdds-s5-logs/reviews/a-risk-r1.md`，SHA256=`b27a860fa7c725860f7754e030aa104e22f8f038739c083eba96cb13c857976b`。结论CODE_CHANGES_REQUIRED：codec空序列和批量JSON前后缺operation控制检查；过滤后无标注的原RiskReport.tables为空，新增向量应期望`()`。修订仅补同operation checkpoint/异常释放小向量并纠正测试预期，不改emit业务clock、cap/过滤顺序或golden，等待原审核者连续复审及专用节点focused/五包静态；未将原审发现当作测试失败，也未运行原候选后无修改重试。

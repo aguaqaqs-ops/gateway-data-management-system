@@ -36,3 +36,9 @@
 `p6-s3-exit` 实际是附注 tag 对象 `cdfe49ccea0ad51d1ea1798e851736644830984e`，其目标精确为 H=`f9ef26081dfd4710d3709d9f5fbca24543f84de4`。附注引用本报告提交前版本 `c1ed5981280e31c5e1e2e6e8ca8d212330105f05`、该版文件SHA256=`e5f5e6597ae86e52357086c368b0cc6c5f1a84633116eb54325364e7bfc6346a`、技术GO `90ca3ebec400ea91da173e2caf89d2682a2654a6`、post-H独审 `03abc1d912d2f1ecee7b9b5eef90eba623dd272c`、H绑定outer SHA及Owner授权；原M24失败、FULL/W4未知、取消18项和“不push/S5”均明列。本人从 `c1ed:path` 独立重算了附注中固定的文件SHA；本节是tag之后的记录，不回写tag或H，也不要求把自身新SHA嵌入tag。
 
 实际合回提交 `87f4ae305c48cd06dfd3033f41c5a8b50ac3ebfc` 的两父严格依次为本报告提交前版本 `c1ed5981280e31c5e1e2e6e8ca8d212330105f05` 和 H，合并树=`43efa62e3418e8c795b113b26c79aaee6d6919a3`，与第一父树完全相同；`vnext`树=`6368c9c40cf08a97eecf2a0c457a6c16ce448080`亦未变。`git diff`第一父至merge为空，H现为main祖先；原raw记录tag、无内容改动的合并及祖先检查均exit0，收尾clean。该合并仅连接已另行适配进入main的历史，**不是**在main的S4树上重新验证S3产品。正式本地退出与短支线合回手续据此核收完成；仍未授权push、发布或S5，04原来源及原始证据继续保护。
+
+## 5. 正式退出后的状态文档归档核收
+
+本人在clean detached worktree只读审核主线 `71fde55965f709cf58456b8073d7ace4e66d1022`：相对父`5e82866b66a303ef5315c48c104e352db9eb469a`仅修改执行计划、S3累计交接、协调、范围补充和性能报告五个文档，`git diff --check`为0，`vnext`树仍是合回第一父的`6368c9c40cf08a97eecf2a0c457a6c16ce448080`。五文档把tag对象`cdfe49ccea0ad51d1ea1798e851736644830984e`、H、19路径合回`87f4ae305c48cd06dfd3033f41c5a8b50ac3ebfc`的双亲及等树、正式报告提交前SHA、外置receipt/raw/mapping SHA转录准确；最新状态明确H才是S3已核产品源、历史段落只记录当时状态。原M24失败、FULL统计UNKNOWN、W4未运行、18取消项、不push/发布/S5及04原件保护均照实保留。
+
+初稿累计交接首段的“Q18／FE／S4／S5与原基准分别核收”会误示S5已经核收；协调者只改该处并提交`15e4845497bcb51887e1e5bd2372e9ef3bfde1b8`，现明确Q18独立核收、FE／S4与原基准各守来源、S5未启动。本人复核该唯一文案差异和五文件累计差异，diff-check为0，tag目标仍是H、H与merge树均未移动。**POST_EXIT_DOC_CLEAR；本地S3正式退出、历史合回及其状态归档均完成独立核收。** 本次没有运行节点、门禁、测量或新增H绑定；仍不宣称push、发布、S5及已取消或未知场景通过。

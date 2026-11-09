@@ -48,8 +48,9 @@ They are not production mechanisms or new evidence protocols.
 | `image-facts.py` | `43fd2130eaabd2d05a6213f073c10247e431d51a76f2dc0c14a7701b429c6908` | Docker-save true config bytes/SHA and every DiffID; numeric subprocess capture |
 | `dependency-identities.json` | `a588bb8528baef75185ea58bfbbcfad4bc905aa8152b39c594a813e53af665a2` | fixed existing backend/RS/client dependency identities, complete arrays and lock/input labels |
 
-The real driver remains unchanged from II: tracked `t4-evidence.py` SHA256
-`da76f0b50b8537053bf2edae5cceb4e9bef5d719a5018d82dbbe43f840575e25`;
+The real driver uses the owning CommitId path encoder in its exact HTTP log
+matcher (the H2 tool correction below): tracked `t4-evidence.py` SHA256
+`0e9f698f9bcac68d6b0a2b976e96f37e93da8d8bf27791203fdda8e260439830`;
 its source wrapper `t4-node.sh` is
 `43b20af3ff8d1b3a80fbe19c6a75a4009063e90415cb1b2aedbf48ec1a132ca7`.
 No oracle, M24, timeout, expected result, runtime or real scope changes.
@@ -98,6 +99,47 @@ six-package/current-H local container gate and the unrun real chain. The final
 launch must first create its external log parent and successfully open the
 original outer log before starting the controller; it must preserve the actual
 controller numeric exit. Do not rely on a tee whose output could not be opened.
+
+### H2 real Preview log-target correction
+
+H2 `b4de25594741591b1f5e9388ac62c6898857c7f0` completed its actual all-six/
+current-H2 local applicable container gate, then its real chain stopped after
+one successful first Preview/full GET. Original `real-evidence-r2/t4.log` SHA256
+`fbe0b00079be5fb5641056c878abe7e84a9bf5243b5fdfe389fe4f1afa08d188` and
+`journey/result.json` SHA256
+`2cba80e2007e902cd50bd205c95d1792954ea8934187196ea7dcd6312ce96884` remain
+FAILED/exit1. The evidence driver's `window()` compared a logical CommitId
+directly with the encoded HTTP path, so a valid exact-target catalog200 was
+counted as another target. Repository Service Contract requires canonical
+unpadded base64url. The existing owning `encode_commit_id_path_segment` is
+now used by the common log matcher; exact-target equality, all200 status checks,
+full byte-prefix/windows, positive calibration and W2 actual rows0 remain.
+
+The unchanged log guard is extracted as a pure `repository_access_counts`
+helper for its sole unit owner `vnext/backend/tests/test_real_dump_log_window.py`:
+fixed canonical path positive, healthcheck-only zero, shared negative vectors
+for wrong repository, wrong commit and unsuccessful data response. No Dolt,
+stack or new business matrix is needed for these parser/attribution checks.
+The scope owner `test_real_dump_journey.py` and all original business assertions
+remain unchanged. The new final candidate requires five-package static and
+these focused checks on a dedicated CT before final evidence.
+
+The original stopped DB, read `mode=ro&immutable=1` with no WAL/SHM and unchanged
+SHA, contains one SUCCEEDED Preview, one workspace/result, INITIAL Head/version0,
+Submission0 and ArchivePlan/Result0. Old-B/Submit/Archive/W2 were not reached.
+W1 reservation HWM25645861504 was within M24; no OOM/restart occurred. The
+complete first tar7193088 bytes has SHA256
+`6268127896dfc9b12c421d3df7c6eab3ed7f7267c01aefd3fd308a9ba63bec8b`.
+These are partial observed facts from an overall failed chain, not proof of
+the unrun M24 Submit/W2 or independent old-B content checks. Normal own stops,
+idle postflight/marker release0 and original artifacts remain preserved.
+
+This tracked driver/pin correction creates a new final H3. H2 authority remains
+historical evidence only. Source review/shallow transfer and actual full six/
+current-H3 local containers plus a fresh minimal t4 chain must bind H3. Do not
+reuse the now-populated H2 task as a cold chain, resume with forbidden from-step,
+alter oracle/budget or convert its original failed exit. The source policy and
+all later source/launch steps below apply to the new final candidate.
 
 ## Source, input and dependency admission
 

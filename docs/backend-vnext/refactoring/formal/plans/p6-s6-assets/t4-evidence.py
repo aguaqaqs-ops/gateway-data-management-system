@@ -41,6 +41,8 @@ SET_TYPE = "SET('1','3','5','7')"
 M = 25769803776
 ENVELOPE = 34359738368
 SERVICES = ("worker", "backend", "repository-service")
+COMMAND_ROOT = None
+COMMAND_SEQUENCE = 0
 
 
 def require(value, message):
@@ -64,9 +66,34 @@ def write(path, value):
 
 
 def command(argv, **kwargs):
-    result = subprocess.run(argv, check=False, capture_output=True, timeout=180, **kwargs)
-    require(result.returncode == 0, f"command {argv[:2]} exit {result.returncode}")
+    global COMMAND_SEQUENCE
+    require(COMMAND_ROOT is not None, 'external command evidence configured before subprocess')
+    COMMAND_SEQUENCE += 1
+    prefix = COMMAND_ROOT/f'{COMMAND_SEQUENCE:05d}'
+    text_mode = kwargs.pop('text',False)
+    timeout = kwargs.pop('timeout',180)
+    started = utc()
+    try:
+        result = subprocess.run(argv,check=False,capture_output=True,timeout=timeout,**kwargs)
+    except (subprocess.TimeoutExpired,OSError) as exc:
+        prefix.with_suffix('.stdout.log').write_bytes(getattr(exc,'stdout',None) or b'')
+        prefix.with_suffix('.stderr.log').write_bytes(getattr(exc,'stderr',None) or b'')
+        write(prefix.with_suffix('.json'),{'command_prefix':argv[:2],'start_utc':started,'end_utc':utc(),
+              'numeric_exit':None,'exception_type':type(exc).__name__,'timeout_seconds':timeout})
+        raise
+    prefix.with_suffix('.stdout.log').write_bytes(result.stdout)
+    prefix.with_suffix('.stderr.log').write_bytes(result.stderr)
+    write(prefix.with_suffix('.json'),{'command_prefix':argv[:2],'start_utc':started,'end_utc':utc(),
+          'numeric_exit':result.returncode,'stdout_sha256':sha(prefix.with_suffix('.stdout.log')),
+          'stderr_sha256':sha(prefix.with_suffix('.stderr.log'))})
+    require(result.returncode == 0, f"command {argv[:2]} exit {result.returncode}; originals {prefix}")
+    if text_mode:
+        return subprocess.CompletedProcess(result.args,result.returncode,result.stdout.decode('utf-8'),result.stderr.decode('utf-8'))
     return result
+
+
+def resource_command(argv, *, cwd, env, timeout=60):
+    return command(argv,cwd=cwd,env=env,timeout=timeout,text=True).stdout
 
 
 def digest_typed(rows):
@@ -250,6 +277,7 @@ def inputs(args):
 
 
 def main():
+    global COMMAND_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worktree',type=Path,required=True)
     parser.add_argument('--candidate-head',required=True)
@@ -259,14 +287,24 @@ def main():
     parser.add_argument('--compose-name',required=True)
     parser.add_argument('--prepare-only',action='store_true')
     args = parser.parse_args()
-    expected,mapped = inputs(args)
-    if args.prepare_only:
-        print(json.dumps({'status':'PREPARATION_PASS','head':args.candidate_head,'datasets_sha256':DATASETS_SHA,
-                          'census_sha256':CENSUS_SHA,'expected_sha256':EXPECTED_SHA,'mapped_sha256':MAPPED_SHA}))
-        return 0
-    output = args.evidence.resolve()
-    worktree = args.worktree.resolve()
+    output,worktree = args.evidence.resolve(),args.worktree.resolve()
     require(not output.is_relative_to(worktree) and not output.exists(), 'new external evidence directory')
+    output.mkdir(parents=True,mode=0o700)
+    COMMAND_ROOT = output/'commands'
+    COMMAND_ROOT.mkdir(mode=0o700)
+    resource.command = resource_command
+    try:
+        expected,mapped = inputs(args)
+    except BaseException as exc:
+        write(output/'preparation.json',{'status':'PREPARATION_FAIL','head':args.candidate_head,
+              'failure_type':type(exc).__name__,'message':str(exc),'product_started':False})
+        raise
+    if args.prepare_only:
+        facts = {'status':'PREPARATION_PASS','head':args.candidate_head,'datasets_sha256':DATASETS_SHA,
+                 'census_sha256':CENSUS_SHA,'expected_sha256':EXPECTED_SHA,'mapped_sha256':MAPPED_SHA}
+        write(output/'preparation.json',facts)
+        print(json.dumps(facts))
+        return 0
     require(re.fullmatch(r's6-t4-[a-z0-9-]+',args.compose_name), 'owned fresh S6 project namespace')
     require(os.environ.get('UV_OFFLINE') == '1' and os.environ.get('CARGO_NET_OFFLINE') == 'true'
             and os.environ.get('GATEWAY_DOCKER_BUILD_NETWORK') == 'none'
@@ -280,7 +318,6 @@ def main():
     require(not resource._owned_containers(args.compose_name,worktree,dict(os.environ))
             and not resource._owned_ids('volume',args.compose_name,worktree,dict(os.environ))
             and not resource._owned_ids('network',args.compose_name,worktree,dict(os.environ)), 'fresh project has no existing resources')
-    output.mkdir(parents=True,mode=0o700)
     result = {'start_head':args.candidate_head,'hostname':socket.gethostname(),'start_utc':utc(),
               'scope':'t4-w1-w2','N':1,'M':M,'worker_envelope':ENVELOPE,'reserve':8589934592,
               'expected_sha256':EXPECTED_SHA,'mapped_sha256':MAPPED_SHA,'status':'FAIL','windows':[]}
@@ -434,21 +471,36 @@ def main():
             env = context['env']
             try:
                 ids = resource._owned_containers(args.compose_name,worktree,env)
-                for cid in ids:
+            except BaseException as exc:
+                errors.append('stop inventory: '+type(exc).__name__+': '+str(exc))
+                ids = [service['id'] for service in context.get('services',{}).values()]
+            for cid in ids:
+                name = next((key for key,value in context.get('services',{}).items() if value['id'] == cid),cid)
+                try:
                     info = resource._inspect(cid,worktree,env)
                     name = info['Config']['Labels']['com.docker.compose.service']
+                    require(info['Config']['Labels']['com.docker.compose.project'] == args.compose_name and name in SERVICES,
+                            'stop only known owned project services')
                     resource._stop_normally(cid,worktree,env)
                     stopped = resource._inspect(cid,worktree,env)
+                    result.setdefault('stopped_services',{})[name] = {'container_id':cid,'exit_code':stopped['State']['ExitCode'],
+                        'running':stopped['State']['Running'],'oom_killed':stopped['State']['OOMKilled'],
+                        'restart_count':stopped['RestartCount'],'image_id':stopped['Image']}
                     accepted_exits = {0,143} if name == 'repository-service' else {0}
-                    require(not stopped['State']['Running'] and stopped['State']['ExitCode'] in accepted_exits and not stopped['State']['OOMKilled'] and stopped['RestartCount'] == 0, 'normal owned service termination without OOM/restart')
-                    raw = command(['docker','logs','--timestamps',cid])
-                    (output/f'final-{name}.stdout.log').write_bytes(raw.stdout)
-                    (output/f'final-{name}.stderr.log').write_bytes(raw.stderr)
-                    result.setdefault('stopped_services',{})[name] = {'container_id':cid,'exit_code':stopped['State']['ExitCode'],'running':False,'oom_killed':False,'restart_count':0,'image_id':stopped['Image']}
-                if context.get('services'):
-                    require(set(result.get('stopped_services',{})) == set(SERVICES), 'all started owned services stopped')
-            except BaseException as exc:
-                errors.append(type(exc).__name__+': '+str(exc))
+                    require(not stopped['State']['Running'] and stopped['State']['ExitCode'] in accepted_exits
+                            and not stopped['State']['OOMKilled'] and stopped['RestartCount'] == 0,
+                            'normal owned service termination without OOM/restart')
+                except BaseException as exc:
+                    errors.append(str(name)+' stop: '+type(exc).__name__+': '+str(exc))
+                finally:
+                    try:
+                        raw = command(['docker','logs','--timestamps',cid])
+                        (output/f'final-{cid}.stdout.log').write_bytes(raw.stdout)
+                        (output/f'final-{cid}.stderr.log').write_bytes(raw.stderr)
+                    except BaseException as exc:
+                        errors.append(str(name)+' final logs: '+type(exc).__name__+': '+str(exc))
+            if context.get('services') and set(result.get('stopped_services',{})) != set(SERVICES):
+                errors.append('all started owned services require actual stopped-service receipts')
         end_head = command(['git','-C',str(worktree),'rev-parse','HEAD'],text=True).stdout.strip()
         end_dirty = command(['git','-C',str(worktree),'status','--porcelain'],text=True).stdout
         if end_head != args.candidate_head or end_dirty:

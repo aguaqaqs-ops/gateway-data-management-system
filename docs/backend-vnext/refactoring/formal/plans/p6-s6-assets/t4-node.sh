@@ -106,6 +106,17 @@ finish() {
   printf 'CHECKS_EXIT=%s\n' "$result"
   stop_active_group || cleanup_ok=0
   idle_scene postflight || cleanup_ok=0
+  if test "${t4_started:-0}" -eq 1; then
+    python3 - "$evidence/journey/result.json" <<'PYCLOSE' || cleanup_ok=0
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+assert p.is_file()
+r=json.loads(p.read_bytes())
+assert r.get('stop_errors') == []
+print('OWNED_T4_STOP_RECEIPT_PRESENT=1')
+PYCLOSE
+  fi
   git status --short
   if test "$(git rev-parse HEAD)" != "$expected" || test -n "$(git status --porcelain)"; then
     result=1
@@ -157,12 +168,14 @@ export CARGO_TARGET_DIR="$evidence/cargo-target"
 mkdir -p "$TMPDIR"
 printf 'cache_source=preloaded_per_node_uv_and_cargo; network=offline\n'
 run_check() {
-  local label=$1 result
+  local label=$1 result command_stdin
   shift
   printf 'STEP_START %s utc=%s\n' "$label" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   active_label=$label
-  setsid "$@" > "$evidence/$label.log" 2>&1 &
+  exec {command_stdin}<&0
+  setsid "$@" <&"$command_stdin" > "$evidence/$label.log" 2>&1 &
   active_pid=$!
+  exec {command_stdin}<&-
   printf 'COMMAND_START label=%s pid=%s pgid=%s\n' "$label" "$active_pid" "$active_pid"
   set +e
   wait "$active_pid"
@@ -202,12 +215,46 @@ run_check sync-backend env GATEWAY_RUST_BUILD_INPUT="$build_input" \
   ./vnext/scripts/uv-consume.sh -C vnext/backend sync --reinstall-package gateway-compute-python
 run_check native-build-input ./vnext/scripts/check-rust-extension-build-input.sh
 run_check repository-image ./vnext/scripts/build-repository-service-image.sh
+t4_started=0
 run_check prepare ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python - \
   --worktree "$subject" --candidate-head "$expected" --input-root "$input_root" \
-  --assets "$oracle_root" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
+  --assets "$oracle_root" --evidence "$evidence/preparation" --compose-name "s6-t4-${expected:0:12}" \
   --prepare-only < "$assets/t4-evidence.py"
+run_check preparation-postcondition python3 - "$evidence/prepare.log" "$evidence/preparation/preparation.json" "$expected" <<'PYPREP'
+import json,sys
+from pathlib import Path
+log,result,head=sys.argv[1:]
+lines=[json.loads(line) for line in Path(log).read_text().splitlines() if line.startswith('{')]
+matched=[r for r in lines if r.get('status') == 'PREPARATION_PASS']
+assert len(matched) == 1 and matched[0]['head'] == head
+assert json.loads(Path(result).read_bytes()) == matched[0]
+assert matched[0]['expected_sha256'] == '0e67afac5eb529282b2aa59ed833ccf40cbb3ab82b2da64861e1b904079e7915'
+assert matched[0]['mapped_sha256'] == '258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19f'
+print('PREPARATION_POSTCONDITION_PASS=1')
+PYPREP
+t4_started=1
 run_check t4 ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python - \
   --worktree "$subject" --candidate-head "$expected" --input-root "$input_root" \
   --assets "$oracle_root" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
   < "$assets/t4-evidence.py"
+run_check t4-postcondition python3 - "$evidence/journey" "$expected" <<'PYRESULT'
+import json,sys
+from pathlib import Path
+root,head=Path(sys.argv[1]),sys.argv[2]
+r=json.loads((root/'result.json').read_bytes())
+assert r['status'] == 'PASS' and r['exit_code'] == 0 and r['start_head'] == r['end_head'] == head
+assert r['end_worktree_clean'] and r['stop_errors'] == []
+assert [w['label'] for w in r['windows']] == ['w1','w2']
+assert r['repository_oracle']['matches_independent_expectation']
+assert set(r['stopped_services']) == {'backend','worker','repository-service'}
+assert all(not s['running'] and not s['oom_killed'] and s['restart_count'] == 0 for s in r['stopped_services'].values())
+assert r['stopped_services']['worker']['exit_code'] == r['stopped_services']['backend']['exit_code'] == 0
+assert r['stopped_services']['repository-service']['exit_code'] in (0,143)
+assert len(list(root.glob('preview-*.tar'))) == 2
+for i in range(2):
+    f=json.loads((root/f'preview-{i}-transfer.json').read_bytes())
+    assert (root/f'preview-{i}.tar').stat().st_size == f['actual_bytes'] == f['content_length']
+assert json.loads((root/'w2-canonical-identities.json').read_bytes())['logical_baseline_row_demand'] == 0
+print('T4_POSTCONDITION_PASS=1')
+PYRESULT
 run_check disk-after df -B1 "$subject" "$evidence" /var/lib/docker

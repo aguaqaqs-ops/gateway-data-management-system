@@ -66,7 +66,7 @@ reviewed before execution. No runtime instrumentation, new DB schema, cache
 reset, direct baseline write or alternate business path is introduced.
 
 1. Unique III Luna checks BatchMode SSH, current node availability, offline
-   toolchain/LAN-prefill identity and actual cache records; transfers clean H,
+   toolchain/LAN-prefill identity and actual cache records; transfers the verified independent shallow repository at H,
    both fixed JSON assets to an external node directory and own standard input copy. Set node alias, input
    root and `GATEWAY_S6_ORACLE_ROOT` in the command environment. The wrapper itself atomically acquires the
    node marker; do not take a second outer marker. The worktree is clean,
@@ -208,3 +208,65 @@ remain0; all started owned services must be present and stopped with zero OOM
 and restart. This changes tool acceptance only, never a product signal policy.
 S4 original result: `/home/dev/gdds-test-tmp/p6-s4-e-dc98-minimal-t4-r1-plan/control-r1/captured/business-result.json`,
 SHA256 `3cf9db7a9e8dc7a76a7f871497dbaebacc339628c27e986a6a430e4d4a5d89cb`.
+
+## R2 continuous-review corrections
+
+The original II R1 findings II-F1/F2/F3 are addressed together before execution.
+The removed payload blobs remain in the referenced local historical commit.
+A normal incremental/full-history bundle from main would still carry them;
+therefore **do not transfer main using a Git bundle or ordinary full clone**.
+
+[shallow-source.py](p6-s6-assets/shallow-source.py) stages a new independent repo
+on CT201 with `file://`, `--no-local --depth=1 --single-branch --no-tags`, fixed
+main/HEAD H before and after cloning, then detaches H and removes the fetch
+remote. It verifies exactly one H shallow boundary, only one local main ref, no
+tags/remotes/alternates/linked common directory, full physical object inventory
+exactly equal to the shallow reachable closure, and only H as physical commit.
+Sensitive old blobs `21623404c7bf7f512b4b57b34ed0712f2d1f46a9` and
+`b04388d041ed4b35849f05c05e5326a8e56caeb9` must be absent both from that complete
+inventory and from `git cat-file -e`; no lazy fetch is permitted. It runs Git
+fsck on this isolated repo and emits `source-repo.tar`, `objects.txt` and a plain
+receipt with their SHA256. This source preparation never rewrites main history.
+
+Only that standalone complete repo archive and inventory/receipt are copied
+over approved LAN. On the chosen node, `install` checks the independently
+pinned archive/inventory SHA, ordinary archive paths/types, extracted shallow
+boundary, exact H and entire object inventory again, then adds only the standard
+node-local legacy symlink through its local Git exclude. It does not fetch or
+run product code. The installed clean committed detached repository is the
+II/III subject; a linked worktree of the deep main repository is not its
+substitute. Exact literal H/archive/inventory SHA are written in the controller
+execution receipt before node checks. Oracle payload JSON and the four saved
+tars are separate private evidence inputs, never in the repo archive.
+
+```bash
+python3 <reviewed-shallow-source.py> stage --head <literal-H> \
+  --source /home/dev/gdds-s5-design-main --output <new-CT201-source-stage>
+# LAN-copy only source-repo.tar, objects.txt and receipt.json from this stage.
+python3 <reviewed-shallow-source.py> install --head <literal-H> \
+  --archive <LAN-copy>/source-repo.tar --archive-sha256 <pinned-SHA> \
+  --objects <LAN-copy>/objects.txt --objects-sha256 <pinned-SHA> \
+  --output <new-node-source-root>
+```
+
+Both node drafts now save their caller's stdin to a foreground-opened FD,
+explicitly redirect the background `setsid` command from that FD and close the
+parent copy immediately after launch. They retain process-group wait/termination
+and numeric exits. Preparation must emit exactly one PREPARATION_PASS for H
+and both fixed oracle SHA and save matching `preparation.json`; the historical
+consumer must create a four-bundle PASS JSON. Real execution must create its
+new result.json with matching start/end H, clean status, two required windows,
+old-B success, two saved tars and all three stopped-service receipts. Exit0
+without these files/values fails. `--prepare-only` writes only its new external
+preparation/command evidence, never a stack or business operation.
+
+Every external driver subprocess preserves original stdout/stderr and numeric
+exit in its private `commands/` before a nonzero is raised; timeout records
+preserve available raw streams and identify the exception without inventing a
+process exit. S4 resource helper subprocesses go through that same raw capture.
+Stopping catches per-service failures, saves each final log and continues normal
+TERM of the remaining known owned services, then reports all errors together.
+Missing/invalid stop receipts or any stop error retain the node marker; the
+wrapper never treats an idle snapshot alone as proof of unknown driver cleanup.
+No failed original or previous fixed draft is overwritten. No real chain or
+product check has been performed by the implementation role.

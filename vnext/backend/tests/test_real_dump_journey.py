@@ -1919,6 +1919,88 @@ W1_W2_CHAIN_FAULTS = (
 )
 
 
+def test_w1_w2_provisioned_submitters_create_separate_open_workspaces(tmp_path: Path) -> None:
+    from gateway_backend.domain.workspace.models import IdentityContext
+    from tests.support.http_workspace_harness import create_workspace_http_environment
+
+    real_dump_journey._write_compose_secrets(tmp_path / "secrets")
+    sessions = json.loads((tmp_path / "secrets/session.json").read_text())["sessions"]
+    identities = {
+        item["token"]: IdentityContext(
+            actor_id=item["actor_id"],
+            gateway_device_external_key=item["gateway_device_external_key"],
+            business_project_id=item["business_project_id"],
+            permissions=frozenset(item["permissions"]),
+        ) for item in sessions
+    }
+    first_identity = identities[real_dump_journey.SESSION_TOKEN]
+    repeat_identity = identities[real_dump_journey.REPEAT_SUBMITTER_TOKEN]
+    assert first_identity.actor_id != repeat_identity.actor_id
+    assert first_identity.gateway_device_external_key == repeat_identity.gateway_device_external_key
+    assert first_identity.business_project_id == repeat_identity.business_project_id
+    assert repeat_identity.permissions == frozenset({
+        "workspace_read", "upload_submit_workspace", "preview_workspace",
+    })
+    env = create_workspace_http_environment(tmp_path, identity=first_identity, extra_sessions=identities)
+    body = {"gateway_device_external_key": real_dump_journey.DEVICE_KEY,
+            "business_project_id": real_dump_journey.PROJECT_ID}
+    first = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers())
+    same_actor = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers())
+    repeat = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers(
+        token=real_dump_journey.REPEAT_SUBMITTER_TOKEN))
+    assert [first.status_code, same_actor.status_code, repeat.status_code] == [201, 200, 201]
+    assert first.json()["workspace_id"] == same_actor.json()["workspace_id"]
+    assert first.json()["workspace_id"] != repeat.json()["workspace_id"]
+    assert first.json()["state"] == repeat.json()["state"] == "OPEN"
+
+
+def test_w1_w2_upload_preview_and_submit_keep_the_repeat_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[str] = []
+    token = real_dump_journey.REPEAT_SUBMITTER_TOKEN
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == f"Bearer {token}"
+        requests.append(request.url.path)
+        if request.url.path.endswith("/upload-revisions"):
+            assert request.headers["Idempotency-Key"] == "repeat-upload"
+            return httpx.Response(201, json={"upload_revision_id": "upload"})
+        if request.url.path.endswith("/preview-operations"):
+            assert request.headers["Idempotency-Key"] == "repeat-preview"
+            return httpx.Response(202, json={"operation_id": "preview-operation"})
+        if request.url.path.endswith("/submit-attempts"):
+            assert request.headers["Idempotency-Key"] == "repeat-submit"
+            return httpx.Response(409, json={"code": "NO_CANONICAL_CHANGE"})
+        return httpx.Response(200, json={"preview_result_id": "result"})
+
+    monkeypatch.setattr(real_dump_journey, "_poll_operation", lambda *_a, **_kw: None)
+    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: {
+        "current_preview_result_id": "result", "optimistic_version": 2, "generation": 1})
+    monkeypatch.setattr(real_dump_journey, "download_bundle_tar", lambda *_a, **_kw: ({}, {}))
+    with httpx.Client(base_url="http://backend.test", headers=real_dump_journey.compose_auth_headers(
+            token=token), transport=httpx.MockTransport(respond)) as client:
+        upload = real_dump_journey._upload_revision(
+            client, workspace={"workspace_id": "repeat", "optimistic_version": 0},
+            package=b"v1", idempotency_key="repeat-upload", token=token,
+        )
+        upload.update({"optimistic_version": 1, "generation": 1})
+        preview, _manifest = real_dump_journey._preview(
+            client, workspace={"workspace_id": "repeat"}, upload=upload,
+            baseline_node_id="archived", baseline_head_version=1,
+            idempotency_key="repeat-preview", stage="repeat", operation_timeout_seconds=60,
+            token=token,
+        )
+        result = real_dump_journey._submit(
+            client, workspace={"workspace_id": "repeat"}, upload=upload, preview=preview,
+            baseline_node_id="archived", baseline_head_version=1,
+            idempotency_key="repeat-submit", stage="repeat", operation_timeout_seconds=60,
+            expect_no_change=True, token=token,
+        )
+    assert result == {"result": "NO_CANONICAL_CHANGE"}
+    assert len(requests) == 4
+
+
 @pytest.mark.parametrize("fault", W1_W2_CHAIN_FAULTS)
 def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str | None,
@@ -1947,16 +2029,35 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
         assert dataset["dataset_id"] == "rd-t4-d-v1", "W1/W2 opened a v2 package"
         return b"v1", {"sha256": "a" * 64, "bytes": 2}
 
-    workspaces = iter(({"workspace_id": "first"}, {"workspace_id": "repeat"}))
+    workspaces_by_actor: dict[str, dict[str, str]] = {}
 
-    def preview(_client: Any, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    def workspace(client: httpx.Client) -> dict[str, str]:
+        actor = client.headers["Authorization"]
+        if actor not in workspaces_by_actor:
+            name = "first" if actor.endswith(real_dump_journey.SESSION_TOKEN) else "repeat"
+            workspaces_by_actor[actor] = {"workspace_id": name}
+        return workspaces_by_actor[actor]
+
+    def upload(client: httpx.Client, **kwargs: Any) -> dict[str, str]:
+        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        assert client.headers["Authorization"] == f"Bearer {token}"
+        assert kwargs["workspace"] == workspace(client)
+        return {"upload_revision_id": kwargs["workspace"]["workspace_id"]}
+
+    def preview(client: httpx.Client, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        assert client.headers["Authorization"] == f"Bearer {token}"
+        assert kwargs["workspace"] == workspace(client)
         name = kwargs["workspace"]["workspace_id"]
         return {"result": {"operation_id": "first" if fault == "reused-operation" else name,
                            "preview_result_id": name, "workspace_id": name},
                 "bundle_transfer": {"bytes": 1024},
                 "operation_timing": {"visibility_observation": "post_terminal_result_read"}}, {}
 
-    def submit(_client: Any, **kwargs: Any) -> dict[str, Any]:
+    def submit(client: httpx.Client, **kwargs: Any) -> dict[str, Any]:
+        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        assert client.headers["Authorization"] == f"Bearer {token}"
+        assert kwargs["workspace"] == workspace(client)
         verified_mains.append(kwargs["verify_repository"])
         if kwargs.get("expect_no_change"):
             if fault == "repeat-head":
@@ -1980,9 +2081,14 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
         snapshots.append(result)
         return result
 
-    client = httpx.Client(base_url="http://backend.test", transport=httpx.MockTransport(
-        lambda _request: httpx.Response(200, json={"head": head})))
-    monkeypatch.setattr(real_dump_journey.httpx, "Client", lambda **_kwargs: client)
+    http_client = httpx.Client
+
+    def client(**kwargs: Any) -> httpx.Client:
+        return http_client(base_url="http://backend.test", headers=kwargs["headers"],
+                           transport=httpx.MockTransport(
+                               lambda _request: httpx.Response(200, json={"head": head})))
+
+    monkeypatch.setattr(real_dump_journey.httpx, "Client", client)
     monkeypatch.setattr(real_dump_journey, "JourneyStepRunner", StepRunner)
     monkeypatch.setattr(real_dump_journey, "_dataset_package", package)
     monkeypatch.setattr(real_dump_journey, "_ordered_tables", lambda _item: {})
@@ -1991,9 +2097,8 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     monkeypatch.setattr(real_dump_journey, "compose_image_ids", lambda _env: {})
     monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://rs.test")
     monkeypatch.setattr(real_dump_journey, "_assert_initial_repository_commit_empty", lambda **_kw: {})
-    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: next(workspaces))
-    monkeypatch.setattr(real_dump_journey, "_upload_revision", lambda _client, **kw: {
-        "upload_revision_id": kw["workspace"]["workspace_id"]})
+    monkeypatch.setattr(real_dump_journey, "_workspace", workspace)
+    monkeypatch.setattr(real_dump_journey, "_upload_revision", upload)
     monkeypatch.setattr(real_dump_journey, "_preview", preview)
     monkeypatch.setattr(real_dump_journey, "_submit", submit)
     monkeypatch.setattr(real_dump_journey, "_approve", lambda *_a: None)
@@ -2035,6 +2140,7 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
         assert verified_mains == [("http://rs.test", "repository", "initial"),
                                   ("http://rs.test", "repository", "commit-v1")]
         assert len(snapshots) == 2
+        assert len(workspaces_by_actor) == 2
         assert result["dataset"]["head_after_submit"] == initial_head
         assert result["dataset"]["head_after_archive"] == archived_head
         assert result["repeat_v1"]["business_baseline_head"] == archived_head

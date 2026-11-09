@@ -171,6 +171,7 @@ finally:
 """
 ARCHIVER_TOKEN = "s2b-realdata-archiver-token"
 HISTORY_READER_TOKEN = "s2b-realdata-history-reader-token"
+REPEAT_SUBMITTER_TOKEN = "s6-realdata-repeat-submitter-token"
 PSEUDO_GID_MIN = 4_000_000_000
 EXPECTED_PSEUDO_TOTALS = {
     "rd-t1-a-v1": 4,
@@ -1225,6 +1226,15 @@ def _write_compose_secrets(root: Path) -> dict[str, str]:
                         "business_project_id": PROJECT_ID,
                         "permissions": ["workspace_read", "read_project_history"],
                     },
+                    {
+                        "token": REPEAT_SUBMITTER_TOKEN,
+                        "actor_id": "s6-realdata-repeat-submitter",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": [
+                            "workspace_read", "upload_submit_workspace", "preview_workspace",
+                        ],
+                    },
                 ]
             }
         ),
@@ -1776,6 +1786,7 @@ def _upload_revision(
     package: bytes,
     idempotency_key: str,
     initial_package: bytes | None = None,
+    token: str = SESSION_TOKEN,
 ) -> dict[str, Any]:
     expected_version = int(workspace["optimistic_version"])
     digest = hashlib.sha256(package).hexdigest()
@@ -1800,7 +1811,7 @@ def _upload_revision(
         files["initial"] = ("initial.tar.gz", initial_package, "application/gzip")
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
-        headers=compose_auth_headers(idempotency_key=idempotency_key),
+        headers=compose_auth_headers(token=token, idempotency_key=idempotency_key),
         files={
             "manifest": ("manifest.json", json.dumps(manifest).encode("utf-8"), "application/json"),
             **files,
@@ -1821,10 +1832,11 @@ def _preview(
     operation_timeout_seconds: int,
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     collect_timing: bool = False,
+    token: str = SESSION_TOKEN,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
-        headers=compose_auth_headers(idempotency_key=idempotency_key),
+        headers=compose_auth_headers(token=token, idempotency_key=idempotency_key),
         json={
             "expected_workspace_version": upload["optimistic_version"],
             "upload_revision_id": upload["upload_revision_id"],
@@ -2119,6 +2131,7 @@ def _submit(
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     collect_timing: bool = False,
     verify_repository: tuple[str, str, str] | None = None,
+    token: str = SESSION_TOKEN,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     preview_result = cast(Mapping[str, Any], preview["result"])
@@ -2130,7 +2143,7 @@ def _submit(
     request_started = time.monotonic()
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
-        headers=compose_auth_headers(idempotency_key=idempotency_key),
+        headers=compose_auth_headers(token=token, idempotency_key=idempotency_key),
         json={
             "expected_workspace_version": workspace_state["optimistic_version"],
             "upload_revision_id": upload["upload_revision_id"],
@@ -3187,11 +3200,10 @@ def _run_tier(
         state_path=state_path,
     )
 
-    with httpx.Client(
-        base_url=BACKEND_URL,
-        headers=compose_auth_headers(),
-        timeout=600.0,
-    ) as client:
+    with (
+        httpx.Client(base_url=BACKEND_URL, headers=compose_auth_headers(), timeout=600.0) as client,
+        contextlib.ExitStack() as repeat_clients,
+    ):
         if w1_w2:
             _assert_business_baseline_head(
                 client, node_id=BASELINE_NODE_ID, commit_id=initial_commit_id, version=0,
@@ -3486,23 +3498,31 @@ def _run_tier(
                 _repository_mutation_ids(env)
                 if submit_measurements is not None or w1_w2 else None
             )
+            repeat_token = REPEAT_SUBMITTER_TOKEN if w1_w2 else SESSION_TOKEN
+            repeat_client = (
+                repeat_clients.enter_context(httpx.Client(
+                    base_url=BACKEND_URL, headers=compose_auth_headers(token=repeat_token),
+                    timeout=600.0,
+                )) if w1_w2 else client
+            )
             repeat_workspace = runner.run(
                 "repeat-v1-workspace",
-                lambda: _workspace(client),
+                lambda: _workspace(repeat_client),
             )
             repeat_upload = runner.run(
                 "repeat-v1-upload",
                 lambda: _upload_revision(
-                    client,
+                    repeat_client,
                     workspace=cast(Mapping[str, Any], repeat_workspace),
                     package=v1_bytes,
                     idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
+                    token=repeat_token,
                 ),
             )
 
             def repeat_v1_preview_action() -> dict[str, Any]:
                 preview, manifest = _preview(
-                    client,
+                    repeat_client,
                     workspace=cast(Mapping[str, Any], repeat_workspace),
                     upload=cast(Mapping[str, Any], repeat_upload),
                     baseline_node_id=baseline_node_id,
@@ -3512,6 +3532,7 @@ def _run_tier(
                     operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
                     heartbeat_monitor=heartbeat_monitor,
                     collect_timing=collect_timing,
+                    token=repeat_token,
                 )
                 summary = _assert_preview_summaries(
                     manifest,
@@ -3561,7 +3582,7 @@ def _run_tier(
             repeat_submit = runner.run(
                 "repeat-v1-submit",
                 lambda: _submit(
-                    client,
+                    repeat_client,
                     workspace=cast(Mapping[str, Any], repeat_workspace),
                     upload=cast(Mapping[str, Any], repeat_upload),
                     preview=repeat_preview,
@@ -3575,6 +3596,7 @@ def _run_tier(
                     collect_timing=collect_timing,
                     verify_repository=(repository_url, repository_id, v1_commit_id)
                         if submit_measurements is not None or w1_w2 else None,
+                    token=repeat_token,
                 ),
             )
             record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))

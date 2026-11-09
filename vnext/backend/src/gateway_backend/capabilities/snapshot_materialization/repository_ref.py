@@ -94,13 +94,19 @@ class _Halt(Exception):
 def materialize_repository_ref(
     request: RepositoryRefMaterializationRequest,
 ) -> SnapshotMaterializationResult:
+    return _run_materializer(request, complete_table_set=False)
+
+
+def _run_materializer(
+    request: RepositoryRefMaterializationRequest, *, complete_table_set: bool,
+) -> SnapshotMaterializationResult:
     if type(request) is not RepositoryRefMaterializationRequest:
         raise ValueError("request must be RepositoryRefMaterializationRequest")
     stage = request.materialization_stage
     trust = CacheTrustLevel.CONTENT_VERIFIED
     try:
         with kernel_control_scope(request.context.cancel_requested, request.context.deadline_monotonic):
-            return _materialize(request, stage, trust)
+            return _materialize(request, stage, trust, complete_table_set=complete_table_set)
     except ArtifactPublishError as exc:
         return _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     except _Halt as halt:
@@ -126,8 +132,9 @@ def describe_repository_ref(
         return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
             (_error(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
                     "canonical description requires an exact immutable commit"),))
-    result = materialize_repository_ref(dataclasses.replace(request,
-        policy=MaterializationPolicy.READERS_REQUIRED, requested_tables=(), export_tables=()))
+    result = _run_materializer(dataclasses.replace(request,
+        policy=MaterializationPolicy.READERS_REQUIRED, requested_tables=(), export_tables=()),
+        complete_table_set=True)
     if (result.snapshot is not None
             and result.snapshot.source_context.resolved_commit_hash != ref):
         return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
@@ -204,6 +211,7 @@ def _materialize(
     request: RepositoryRefMaterializationRequest,
     stage: MaterializationStage,
     trust: CacheTrustLevel,
+    *, complete_table_set: bool,
 ) -> SnapshotMaterializationResult:
     _checkpoint(request.context)
     mismatch = _ruleset_mismatch(request)
@@ -218,7 +226,8 @@ def _materialize(
     close_diagnostic: MaterializationDiagnostic | None = None
     try:
         session = working.provider.open_ref(working.repository_ref, working.timeout_policy)
-        result = _materialize_open_session(working, session, stage, trust)
+        result = _materialize_open_session(working, session, stage, trust,
+            complete_table_set=complete_table_set)
         if original_policy is MaterializationPolicy.ARTIFACTS_REQUIRED:
             result = _with_artifacts(result, request)
     except ArtifactPublishError as exc:
@@ -261,6 +270,7 @@ def _materialize_open_session(
     session: RepositoryRefSession,
     stage: MaterializationStage,
     trust: CacheTrustLevel,
+    *, complete_table_set: bool,
 ) -> SnapshotMaterializationResult:
     _checkpoint(request.context)
     pinned = session.pinned_commit_hash()
@@ -390,7 +400,8 @@ def _materialize_open_session(
             snapshot_id=snapshot_id,
             snapshot_digest=snapshot_digest,
             table_ruleset_version=request.table_ruleset_version,
-            tables=tuple(published),
+            tables=tuple(table for table in published
+                if complete_table_set or table.descriptor.table_name in materialized_set),
             diagnostics=tuple(diagnostics),
         )
     return SnapshotMaterializationResult(

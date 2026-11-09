@@ -389,11 +389,14 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 11. S5：History 与跨操作缓存
 
-- **diff/risk 缓存（DC43）：** 只缓存纯函数结果——单表比较结果与未套用 pair 上限的单表风险标注；键同 §9 的单次去重键（含规则主体与版本、scope）；pair 上限、组合信号表与表名在汇总步骤绑定，命中后的结果与当前 operation 的 closure 重新绑定。条目作为 artifact 存放并经保护表登记引用；在计算时形成（Preview 或 History），按 TTL 保留；Submit finalize 在移动 head 的同一事务中给该 Submit 对应 Preview 的条目登记引用。
-- **History 按表拼接（DC38）：** 两侧满足 §4.2 的完整条件 → 未变化（ordered 表的 facts 按 §4.1 用当前节点的行计算，或取自 diff/risk 缓存）；否则查 diff/risk 缓存 → 读表缓存 → Dolt 兜底并回填；pair 级 surface 与 bundle 由单表结果汇总。
-- **Dolt 并发读取：** 同 §8.3。
-- **计数与例外：** 见 §16.2 与 §16.3（H1 的零比较只在“该 pair 已计算、规则相同、缓存健康”时成立；FULL 模式 Preview 之后的首次 History 允许重算，DC38 第 4 项；缓存文件缺失或损坏时走回填，作为正确性场景单独验收）。
-- **H2 定稿：** 两节点 2× t4 派生缓存全 miss 旅程验收；三节点补测一次，只报告。
+详细目标、源码缺口与失败语义见[S5设计](p6-s5-design.md)，分节实施、唯一验证owner与成本见[S5 kickoff](p6-s5-kickoff.md)。当前仅设计讨论与独审获授权，S3/S4 exit不等于S5实施授权。
+
+- **单表diff/risk（DC43）：** 从去外层绑定的完整语义任务生成key，保规则主体/版本、两侧effective key与storage事实、schema/count/profile、diagnostics/detail及repository scope。比较值保存可重放的neutral facts/records，风险值仅完整纯候选事件；当前closure、pair上限、时间/取消、编号、表名与组合信号仍在本次执行。不得持久化native handle或已截断最终outcome。
+- **按需History：** 先核精确commit metadata/catalog、完整结构条件，查diff与独立导出缓存，再合并必要行需求；读规范表副本，miss由exact commit Dolt回填。未变ordered facts来自本pair current或合法缓存。不能先物化全部表再声称缓存消除了读取。
+- **引用：** Preview/History成功计算形成TTL派生条目。Submit T3在原control DB finalize事务中可选触达该Preview对应的已有cache引用；不运行文件读取/重算，不推进业务BaselineHead。Repository技术main/CAS不在该事务；业务Head及正式规范表引用仅由StartArchive CAS推进。cache缺失不阻止合法finalize/replay，不沿commit链长期pin。
+- **资源：** 复用同operation M及固定N；hit校验/恢复也有预算，optional缓存优先释放。RS读取≤min(N,有效RS容量)，已有有界502/503重试继承取消/截止，不套第二层重试。N1不变为8。
+- **计数：** H1/H3零比较/单侧摘要以该有向pair已计算、完整key相同、diff条目健康且可用为前提；零Dolt行读还要求完整bundle/composite需求有健康导出或规范副本。metadata、cache读取、records验证和digest重绑另计。FULL未算baseline→modified的首次History允许重算，不提前多算pair。
+- **验证：** Owner本轮确认标准t1 v1/v2的必要History冷查、复查与真实records/bundle读取，合法已提交状态可复用；FULL、三节点、坏缓存/恢复以focused/Contract证明。不做合成2×t4、fresh t1–t4或1暖3测。时间只观察，项目最终/发布六包要求不变。
 
 ## 12. S6：收尾
 
@@ -540,7 +543,7 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 去重仅在完整任务key相同且结果可用/预算允许时减少调用。重复同key任务的机制向量可断言2次派发/1次计算，但不能冒充实际FULL变化任务：FULL的baseline→initial与initial→modified相邻有向pair要具有相同输入身份通常意味着三侧相同，届时不做行比较。S3必须报告真实命中范围；允许0命中，不削弱含表名schema或scope换取命中。
 
-**History 的零计算条件：** H1（该 pair 已在 Preview 或 History 中计算、规则相同、缓存健康）与 H3：Dolt 读取数 = 0，kernel 调用数 = 0，单侧摘要计算数 = 0。
+**History 的零计算条件：** H1/H3在该有向pair已计算、完整任务/规则相同、diff条目健康且预算可用时，行比较kernel与单侧摘要计算为0；Dolt行读取为0还要求全部bundle/composite需求能由健康导出或规范副本满足。metadata/catalog、缓存/IPC读取、restore、records验证与digest重绑分别计数，不是零I/O。FULL例外与精确口径见[S5设计§9](p6-s5-design.md#9-计数口径与h1-full例外)。
 
 **手算示例**（其余表均未变；行级修改示例的前提：表为合格的 keyed 表，约 1,000 行，schema、键与存储视图不变，变化在冻结阈值内，单批不超字节上限）：
 

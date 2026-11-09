@@ -27,7 +27,7 @@
 ### 专用测试节点
 
 所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
-Owner 于 2026-11-08 将五节点统一为 **32 vCPU / 64 GiB**，取消前后端、门禁、真实数据和性能的固定节点用途（DC91）。以下任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，不再为池内换节点另申请用途例外：
+五节点均为 **32 vCPU / 64 GiB**，组成无固定功能分工的资源池（DC91）。以下任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，池内换节点无需另申请用途例外：
 
 | 节点（SSH 别名） | 当前配置 |
 | --- | --- |
@@ -39,19 +39,19 @@ Owner 于 2026-11-08 将五节点统一为 **32 vCPU / 64 GiB**，取消前后�
 
 - 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。已有自行管理标记的入口（前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
 - 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、原 04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
-- 已授权测试不需逐次与并行S4或其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（Owner 2026-11-08补充，DC97）。
-- Owner于2026-11-09重申：五节点只按实际空闲选取，不再作任何功能分工；既有工具链、缓存及原子占用前提照常检查。长测由唯一测试执行者负责等待异常／完成事件，常规巡视可降至小时级；协调者等待其唤醒，不重复巡检、转述分钟级进度或逐次跨会话通报。异常仍及时保留原始exit／日志并按现行规则处理，完成后核收与收尾；具体分工见[测试执行与监视](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)。
+- 已授权测试不需逐次与其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（DC97）。
+- 长测由唯一测试执行者负责等待异常／完成事件，常规巡视可降至小时级；协调者等待其唤醒，不重复巡检、转述分钟级进度或逐次跨会话通报。异常及时保留原始exit／日志并按现行规则处理，完成后核收与收尾；具体分工见[测试执行与监视](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)。
 - 正式测量可选池内合格节点；同一统计组的预热和测量留在同一节点与配置，记录冷暖、CPU/内存及存储条件。换节点或硬件配置后的样本分组报告，不能混入旧组或直接宣称同条件提速。
-- pytest workers/Cargo jobs 初始建议各 4；前端设置 `GATEWAY_FE_TEST_WORKERS=2`。测试并发与产品 N/M 分开。64 GiB guest 不改变已冻结的 N1、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB；临时增预算诊断须另外固定参数与证据，不能照搬旧 64 GiB worker 配置。 Owner 随后按 DC95 明确授权本轮 S3 worker 在现有资源内上调、最大 32C/64G；实际资源档须留系统/其他服务余量并固定独审，新档结果与原 M24 失败分列，生产默认不因授权本身自动变更。
-- 缓存不跨节点共享。按包 carried 和镜像等价仍须在来源 V 的同一节点、同一 worktree 判定，不能随调度搬迁证据。旧记录中的实际节点和阶段专项授权保留历史含义，未来调度以本规则为准。
-- Owner 同时授权一轮历史测试文件清理：仅删除已确认无运行者、无待用消费者、无需保留的本任务/明确废弃派生文件，逐项留路径、理由及前后空间记录。保留已引用成功/失败原始证据、当前 carried worktree/环境/镜像、真实输入、冻结基准资源及未决故障状态；不按年龄批删，不执行全局 Docker prune，不清他人有效资源。具体白名单及执行记录见 [并行推进计划](docs/backend-vnext/refactoring/formal/plans/p6-s3-s4-parallel-plan.md)。
+- pytest workers/Cargo jobs 初始建议各 4；前端设置 `GATEWAY_FE_TEST_WORKERS=2`。测试并发与产品 N/M 分开。生产默认 N1、单 active、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB；节点容量不构成增预算授权。其他资源档须有适用授权、固定参数及独审，并留系统/其他服务余量，结果按配置分列。
+- 缓存不跨节点共享。按包 carried 和镜像等价须在来源 V 的同一节点、同一 worktree 判定，不能随调度搬迁证据。
+- 清理仅限已授权且确认无运行者、无待用消费者、无需保留的本人或明确废弃派生文件，逐项留路径、理由及前后空间记录。保留已引用成功/失败原始证据、当前 carried worktree/环境/镜像、真实输入、冻结基准资源及未决故障状态；不按年龄批删，不执行全局 Docker prune，不清他人有效资源。
 
 网络与缓存遵守 [测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)：
 
 - CT201 只作联网开发与获准缓存来源；测试 CT 禁止直连公网，只经获准 LAN 获取源码、依赖、镜像与制品。各节点分别预填充并确认本次缓存端点可达，不能假设缓存跨节点共享。
 - Python runner/同步设置 `UV_OFFLINE=1`；Rust runner 设置 `CARGO_NET_OFFLINE=true`。root SSH 的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME`、`CARGO_HOME`，按仓库 selector 核对四个 Rust 工具为同一工具链。
 - **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
-- **backend/worker（自 `p6-backend-image-exit` 起）：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。旧产品流程见链接中的历史版本说明。
+- **backend/worker：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
 - **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
 - handoff 记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
 - **DC68 工具/取证错误（Owner 2026-11-08 修订）：**首次失败后，同一具体故障允许最多三轮自行修复、适用独审与受影响步骤复验；不因被测对象已经运行就立即交 owner。每轮先停止该次执行、保留原始失败及日志/SHA、确认收尾，再固定修订稿复验；三轮仍未解决、原因/副作用不明或超出既有授权时交 owner。不得无修改自动重试、改预期掩盖结果或跳过身份/缓存前提；产品 finding 按阶段已有修复与停止规则办理。只读后处理/预检、代码传输准备的不计次数澄清继续适用。细则见 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则与 [Owner 决议](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md)。
@@ -93,7 +93,7 @@ Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production
   RootFS DiffID，不比较 `docker inspect` ID。镜像版本变化时按同一流程重新取得与传输。
 - **npm 缓存：**按 DC67 在 CT201 依 `package-lock.json` 取得缓存，经获准的局域网预填充到实际使用的节点，挂载进
   工具链容器，在容器中 `npm ci --offline`。缓存缺失即停止，补齐后从头运行。
-- **节点协调：**所有前端运行均遵守上述原子占用规则，取消轻量前端运行不取标记的旧例外。`run-real-backend-e2e.sh` 自行取得/释放标记；外层不得重复取得。核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
+- **节点协调：**所有前端运行均遵守上述原子占用规则。`run-real-backend-e2e.sh` 自行取得/释放标记；外层不得重复取得。核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
 - **日志：**与后端相同，写到 worktree 外，记录 `hostname`、起止时间、起止 HEAD、exit code 与日志 SHA256；
   handoff 另记工具链镜像 tag 与身份（config digest、全部 RootFS DiffID）、npm 缓存来源（来源提交、缓存摘要、
   预填充时间）与运行节点。
@@ -194,7 +194,7 @@ sha256sum vnext/repository_service/uv.lock
 
 Phase 6退出按[DC97](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)：性能数值目标只报告，是否达标不作退出门槛；仍须完成已确认范围的可靠测量、真实统计、正确性／资源安全／来源与独审核收，失败和未知不得写为通过。可由Luna max只读监视并向协调者汇报；不额外启动测试或替代唯一执行者／独立审核。
 
-Owner于2026-11-09按[DC98](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)补充：各阶段以新增/受影响业务正确性为主，不默认逐阶段全量测量、合成放大、预热加重复采样或细粒度profiling；性能/容量专项按明确目的、范围和成本另定。合格来源依原规则复用，最终必要门禁、冻结语义、资源硬边界与已发现finding不因裁剪取消。S4旧28旅程已撤回，按真实代表输入的Submit定向清单收敛；S3具体新范围仍由原协调者/原审提出并确认，不把讨论建议直接当通过。
+按[DC98](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)，各阶段以新增/受影响业务正确性为主，不默认逐阶段全量测量、合成放大、预热加重复采样或细粒度profiling；性能/容量专项按明确目的、范围和成本另定。合格来源依原规则复用，最终必要门禁、冻结语义、资源硬边界与已发现finding不因裁剪取消。真实数据按改动面提出最小范围，由Owner确认；未运行或未知不写通过，取消项不自动转交后续阶段。
 
 Phase 0–9及后续维护统一遵守
 [Proportional Assurance and Risk-Based Verification Policy](docs/backend-vnext/refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)。
@@ -228,6 +228,8 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 
 五个 Python 包都要过 ruff 与 mypy（`repository_service` 为 `strict = true` 且覆盖
 `tests`），不要为了省时间跳过：
+
+纯文档、设计或只读审核且明确未授权产品执行的任务，只做文档差异、链接和源码依据核对，不为文档提交启动这些产品检查；包含代码改动的提交仍遵守下列要求。
 
 ```bash
 cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy

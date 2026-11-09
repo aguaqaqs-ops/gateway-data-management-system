@@ -210,11 +210,11 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S5 — History 与跨操作缓存
 
-- 验证成本按[DC98](p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)：下列缓存命中/缺失/损坏等是业务断言清单，不自动解释为每项都跑真实完整旅程或重复性能采样。开工时按实际变化确定最小代表输入及测试owner，复用合格来源。
-- 目标：设计 §11。
-- 前置：S3、S4 exit。
-- 内容：diff/risk 缓存（只缓存纯函数结果，pair 上限在汇总绑定）与 finalize 登记引用；History 按表拼接（完整条件）；Dolt 并发读取（≤ min(N, RS 容量)，503 有界退避，继承取消与截止时间）；H2 冷读验收。
-- 验收：设计 §16.3 中 H1、H1-FULL、H1-回填、H2、H2-三节点（只报告）、H3 各场景；计数断言按 §16.2 的条件判定；缓存只缓存纯函数结果的权威测试；权威 runner 与容器门禁。
+- S3/S4均已exit；当前仅设计与独审授权，产品实施待Owner另行确认。
+- [详细设计](p6-s5-design.md)、[A–E实施与验证计划](p6-s5-kickoff.md)、[独审提示词](p6-s5-review-prompt.md)统一拥有当前具体范围。
+- 内容：完整单表任务key、neutral diff/纯risk候选缓存、TTL/protection及T3可选引用触达；History metadata先行与按需读取、当前operation重绑；现RS有界重试的取消/截止接线。Submit不推进业务BaselineHead，保T1/PREPARED/Repository CAS与原恢复。
+- Owner本轮按DC33/DC98确认标准t1 v1/v2，合法存量提交可复用，仅必要History冷查/复查/真实records与bundle读取；FULL例外、三节点、损坏回填、恢复由focused/Contract证明。性能只观察，不执行合成2×t4、fresh t1–t4或1暖3测。
+- A–D必要focused，E集中必要权威/Compose；闭包变化包实跑，carry仍须同来源节点/WT；最终项目/发布六包全量。节点与执行纪律按现行AGENTS，不沿用阶段固定节点安排。
 
 ### S6 — 收尾
 

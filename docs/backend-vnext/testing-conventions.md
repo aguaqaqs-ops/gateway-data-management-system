@@ -1,10 +1,6 @@
 # Testing Conventions
 
-状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则；
-2026-08-13 冻结Docker/Compose触发式重建、评审记录、全局风险验证与artifact cleanup规则
-2026-10-25 增加 `rust` 包、backend Rust 扩展强制重装与构建输入一致性检查（DC48），门禁 worktree 保留规则（DC51）
-2026-11-02 增加前端测试规则（FD7）
-2026-11-08 从 AGENTS 收拢执行细节，收入 FE3a 真实 e2e 约定；相关措辞按 owner 确认澄清
+状态：现行执行要求；决议依据见各节链接。
 
 本文规定 vNext 各包（五个 Python 包与 `rust` 包）的测试分层、执行入口与性能约束；前端（`frontend/`）的运行位置、
 工具链与证据见“前端测试（FD7）”一节。Fixture 材料语义由
@@ -19,13 +15,13 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 ./vnext/scripts/run-tests.sh
 ```
 
-所有测试、容器门禁与取证都在专用测试节点上执行（DC34、DC36），不回退开发主机。Owner 于 2026-11-08 将五节点统一为 **32 vCPU / 64 GiB**，并取消固定用途（DC91）：`ct108-gw-dms-04`、`ct108-gw-dms-05`、`ct108-gw-dms`、`ct107-gw-dms-06`、`ct109-gw-dms-07` 均可承接前后端调试、权威 runner、容器、真实数据或正式性能测量。选择执行时空闲且本次工具链、离线缓存、输入合格的节点，池内换节点无需另请用途授权；配置相同不证明缓存齐全或旧证据可搬迁。
+所有测试、容器门禁与取证都在专用测试节点上执行（DC34、DC36），不回退开发主机。五节点均为 **32 vCPU / 64 GiB**，组成统一资源池（DC91）：`ct108-gw-dms-04`、`ct108-gw-dms-05`、`ct108-gw-dms`、`ct107-gw-dms-06`、`ct109-gw-dms-07` 均可承接前后端调试、权威 runner、容器、真实数据或正式性能测量。选择执行时空闲且本次工具链、离线缓存、输入合格的节点，池内换节点无需另请用途授权；配置相同不证明缓存齐全或旧证据可搬迁。
 
-所有测试、编译、lint、构建、mock/真实 e2e、取证和有写入的清理均原子 `mkdir /home/dev/gdds-node-busy.d` 获取本节点占用，记录会话、用途和开始 UTC；失败不抢占，完成本次运行与资源收尾后仅释放本人标记。已有自行取得标记的入口不在外层重复取得。只读现场核对无需标记。取消此前前端轻量运行不取标记的例外；不以旧空闲快照作为预约。
+所有测试、编译、lint、构建、mock/真实 e2e、取证和有写入的清理均原子 `mkdir /home/dev/gdds-node-busy.d` 获取本节点占用，记录会话、用途和开始 UTC；失败不抢占，完成本次运行与资源收尾后仅释放本人标记。已有自行取得标记的入口不在外层重复取得。只读现场核对无需标记。不以旧空闲快照作为预约。
 
-已知物理拓扑仍为 04/06/07 共享宿主、原 04/05/CT108 分属不同宿主；配置调整不证明物理隔离变化。不同节点不自动互斥，实际干扰时协调；同节点整机单飞，计时独占。正式统计组的预热和全部测量留在同一节点、配置及存储条件，硬件或节点变化另组记录，不能与旧条件混成同一性能对照。pytest workers/Cargo jobs 初始各 4，前端 `GATEWAY_FE_TEST_WORKERS=2`；产品 kernel N/M 独立设置，仍为 N1、32 GiB worker/8 GiB reserve/M24 GiB。64 GiB guest 不构成增大生产预算授权。 Owner 后续 DC95 单独授权本轮 S3 worker 可在现有资源内增大至最多 32C/64G；具体资源档固定独审，留其他服务/系统余量，新结果与原 M24 失败分列，不因该授权自动改生产默认。宿主 thin pool 水位仍由管理员监测，guest 可用磁盘不能证明宿主余量。
+已知物理拓扑仍为 04/06/07 共享宿主、原 04/05/CT108 分属不同宿主；配置调整不证明物理隔离变化。不同节点不自动互斥，实际干扰时协调；同节点整机单飞，计时独占。正式统计组的预热和全部测量留在同一节点、配置及存储条件，硬件或节点变化另组记录，不能与旧条件混成同一性能对照。pytest workers/Cargo jobs 初始各 4，前端 `GATEWAY_FE_TEST_WORKERS=2`；产品 kernel N/M 独立设置，仍为 N1、32 GiB worker/8 GiB reserve/M24 GiB。64 GiB guest 不构成增大生产预算授权。 其他资源档须有适用授权、固定参数与独审，保留系统及其他服务余量，结果按配置分别报告。宿主 thin pool 水位仍由管理员监测，guest 可用磁盘不能证明宿主余量。
 
-Owner 授权一轮无法复用的历史测试文件清理：先确认无执行者、无保留消费者，再按明确路径删除并记录空间变化。引用的成功/失败证据、当前 carried worktree/环境/镜像、冻结基准、真实输入与未决故障状态保留；不按年龄批删、不全局 Docker prune、不接管他人资源。详见 [并行推进计划](refactoring/formal/plans/p6-s3-s4-parallel-plan.md)。过去的阶段节点记录仍反映当时实际执行，不重写为新配置。
+清理仅限已授权且确认无执行者、无待用消费者、无需保留的本人或明确废弃派生文件；逐项记录路径、理由和空间变化。保护已引用成功/失败证据、当前carried worktree/环境/镜像、冻结基准、真实输入与未决故障状态，不按年龄批删、不全局prune、不接管他人资源。
 
 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 检查连接。运行前提在每台
 节点上分别满足，同一节点整机单飞，不同节点按上述物理宿主边界并行。carried 与来源 V 必须在同一节点、同一 worktree；
@@ -36,7 +32,7 @@ Owner 授权一轮无法复用的历史测试文件清理：先确认无执行�
 
 ### 长时间执行与分工（Owner 2026-11-09）
 
-Owner重申DC91/DC97：五节点是统一空闲资源池，没有前端、后端、门禁、真实数据或性能的固定功能分工；任一空闲节点均可选用，选后满足本次工具链、离线缓存与输入前提，不为旧用途分工另请许可。执行时核现场并原子取本人标记，无需常规跨会话预约、批准或逐次通报；仅真实占用／资源干扰、同路径写入或涉及他人资源时协调。同节点单飞、04/06/07共享宿主、同统计组同节点／配置、carried同来源节点／worktree规则保持。
+按DC91/DC97，五节点是统一空闲资源池，没有前端、后端、门禁、真实数据或性能的固定功能分工；任一空闲节点均可选用，选后满足本次工具链、离线缓存与输入前提，池内换点无需另请用途许可。执行时核现场并原子取本人标记，无需常规跨会话预约、批准或逐次通报；仅真实占用／资源干扰、同路径写入或涉及他人资源时协调。同节点单飞、04/06/07共享宿主、同统计组同节点／配置、carried同来源节点／worktree规则保持。
 
 长测由唯一测试执行者负责执行与监视。启动及必要预检完成后，优先等待既有进程的异常／退出事件；常规巡视按预计时长降低频率，可以间隔小时级时间，不要求分钟级轮询或定期逐项进度转述。出现失败、需要协调的异常或执行完成时，测试者主动汇报并唤醒协调者；协调者等待事件，不重复巡视同一执行。实施者和独审者在固定候选、修复或原件核收时介入，无需同步轮询。按需只读监视角色仍与唯一执行责任人合并或错峰，不启动第二份测试、不自行重试／终止、不代签通过。
 
@@ -58,9 +54,8 @@ CT201 是联网开发节点，不用于运行测试。专用测试 CT 禁止直�
 - **Rust：**测试节点的权威 runner 设置 `CARGO_NET_OFFLINE=true`；对应 rustup toolchain 与 crates 必须预先齐全。root SSH 环境的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设置 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME` 或 `CARGO_HOME`；在 `vnext/rust` 下用仓库 selector 检查 `rustc` 版本，并确认 `cargo`、`rustfmt` 与 `clippy-driver` 使用同一工具链。不可依赖测试节点联网安装工具链。
 - **DC67 预填充与代理：**依赖、锁文件或基础镜像变化时，先在 CT201 取得制品，经获准的局域网预填充到实际使用的节点；handoff 记录来源节点/提交、制品摘要与预填充时间。任何池内节点的权威 runner、carried、正式测量与真实数据取证均不经转发代理；缓存缺失即停止，完成预填充后从头运行。仅 05 调试构建可临时使用受限转发代理：只放行所需主机、不传凭据、用完即停；handoff 记录放行主机范围、起止时间与用途，调试结果不作证据。
 - **Docker/Compose：** 基础镜像须已在节点本地或可从批准的 LAN registry/cache 获取。Dockerfile 下载的 uv、Python、Dolt 与 Python 包须命中现有构建层、预置依赖镜像或 LAN 制品缓存。Repository Service 可使用已校验的依赖基础镜像；使用 `build-repository-service-image.sh` 的 `GATEWAY_P2R1_CACHE_URL` 时，须设置为该节点实际可达的获准缓存地址（owner 2026-11-08 确认保留两种方式）；默认 `172.17.0.1:18080` 是本机 Docker bridge gateway 的假设，不是通用 CT 地址。
-- **backend/worker dependency-base（自 `p6-backend-image-exit` 起）：** `vnext/backend/pyproject.toml`、`vnext/backend/uv.lock`、`vnext/backend/.python-version`、`vnext/rust/Cargo.lock`、`vnext/rust/rust-toolchain.toml` 或 Rust 基础镜像变化时，在 CT201 的 clean worktree 执行 `vnext/scripts/build-backend-dependency-base.sh --save <归档>`，构建 `gateway-backend-deps:lock-<12>`。通过获准 LAN 传到实际使用的测试节点后执行 `docker load`。handoff 记录来源提交、完整输入摘要、tag、config digest、全部 RootFS DiffID、归档 SHA256、构建/传输起止时间与缓存来源类别/端点标识，不记录凭据；inspect ID 仅作参考。
+- **backend/worker dependency-base：** `vnext/backend/pyproject.toml`、`vnext/backend/uv.lock`、`vnext/backend/.python-version`、`vnext/rust/Cargo.lock`、`vnext/rust/rust-toolchain.toml` 或 Rust 基础镜像变化时，在 CT201 的 clean worktree 执行 `vnext/scripts/build-backend-dependency-base.sh --save <归档>`，构建 `gateway-backend-deps:lock-<12>`。通过获准 LAN 传到实际使用的测试节点后执行 `docker load`。handoff 记录来源提交、完整输入摘要、tag、config digest、全部 RootFS DiffID、归档 SHA256、构建/传输起止时间与缓存来源类别/端点标识，不记录凭据；inspect ID 仅作参考。
   - backend/worker 特有的 build 设置为 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=<lock-tag>`、`GATEWAY_DOCKER_BUILD_NETWORK=none`。保留 Compose build，由节点在无构建网络时本机实际构建 backend/worker；不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
-  - 历史版本说明：`p6-backend-image-exit` 之前的产品提交（包括 S1c 候选 V 与 `p6-s1c-exit`）仍使用旧 Dockerfile，按 DC67 补充第 2 项由 CT201 预构建并传输完整 backend/worker 镜像。
 - **跨节点镜像身份：**传输镜像用 config digest 与全部 RootFS DiffID 逐项比较，不比较 `docker inspect` ID；containerd store 的 inspect ID 是本机生成的 manifest digest。同节点闭包 manifest 与按包 carried 判定使用本机 image ID；这不改变下文容器门禁镜像等价规则。
 - **Repository Service 与 client e2e：**继续使用各自的预置依赖模式。若 client e2e 镜像的 revision label 与当前 HEAD 不同，门禁会在本机重建，这是正常行为；不要手工执行 `docker rmi`。
 - **本地运行依赖：** Dolt、Compose 本地网络、真实数据文件、Docker daemon 和测试端口仍须在各测试节点就绪；断公网不应影响节点 loopback、容器间网络或获准 LAN 缓存连接。
@@ -103,34 +98,29 @@ cargo clippy --workspace --locked --offline --all-targets -- -D warnings
 cargo test --workspace --locked --offline
 ```
 
-- **S2a 后的 workspace**：旧嵌入 Python 的 adapter tests 与 `gateway-compute-python-impl` 已删除（DC52）；
-  `gateway-compute-python` 复用为新 parser adapter，`cargo test` 不再排除 crate。新扩展需要 Python/Arrow 的行为
+- **Workspace**：`cargo test` 覆盖全部crate。扩展的Python/Arrow行为
   由 backend pytest 测已安装扩展，不在 Rust 用例中嵌入解释器；clippy 与 fmt 覆盖全部 crate。
 - **离线**：cargo 以 `--locked --offline` 运行，crate 缓存在 `CARGO_HOME`（固定环境下为 `/root/.cargo`）。
 - **`CARGO_TARGET_DIR`**：固定为 worktree 外的 `<TMPDIR>/gateway-runner-cargo-target`（`TMPDIR` 未设置或为空时为
   `/tmp`）。它是构建缓存，不是测试输入，不进闭包。选中 `rust` 或 backend 时，runner 在使用前删除残留、退出时
-  （包括失败与可捕获的中断）删除，因此每次门禁都从空目录完整构建（节点 05 实测：空目录下 `rust` 包三步合计约
-  26 s，backend 同步中扩展的 release 构建约 27 s）；runner 不再向 worktree 的 `vnext/rust/target` 写入。
-- **`PYO3_PYTHON`**：删除旧嵌入解释器的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
+  （包括失败与可捕获的中断）删除，因此每次门禁都从空目录完整构建；runner 不再向 worktree 的 `vnext/rust/target` 写入。
+- **`PYO3_PYTHON`**：`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
   clippy 仍会运行 PyO3 的构建脚本，它按 `PYO3_PYTHON`、`VIRTUAL_ENV`、`CONDA_PREFIX`、PATH 上的 `python3` 的顺序选择
   解释器；闭包记录 `PYO3_PYTHON` 的值与所选解释器的 `-VV`。今后若有 crate 需要嵌入解释器，通过 `PYO3_PYTHON`
   显式指定，不依赖系统 `python3`。
 - runner 的额外命令行参数只传给 pytest，不传给 cargo。
 
 backend 以 maturin 路径依赖安装 Rust 扩展（`gateway-compute-python = { path = "../rust/gateway-compute-python" }`）。
-uv 默认只在扩展的 `pyproject.toml` 等文件变化时重建路径依赖；节点 05 实测只提交 `.rs` 改动后 `uv sync`
-不重建，Python 测试继续使用旧的 `.so`。为此：
+只改Rust源码也必须重建路径依赖，不能使用旧扩展。
 
-- **强制重装（DC48 3.2 的 B 方案）**：runner 同步 backend 时始终使用
-  `uv-consume.sh -C . sync --reinstall-package gateway-compute-python`，`CARGO_TARGET_DIR` 同上。选 B 而不选
-  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；
-  代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
+- **强制重装（DC48）**：runner 同步 backend 时始终使用
+  `uv-consume.sh -C . sync --reinstall-package gateway-compute-python`，`CARGO_TARGET_DIR` 同上。
 - **构建输入一致性检查**：runner 以 `GATEWAY_RUST_BUILD_INPUT=<HEAD:vnext/rust 的 Git tree id>` 构建扩展，扩展在编译时用
   `option_env!` 嵌入该值，暴露为 `gateway_compute._native.__build_input__`（未设置时为空串，镜像构建即如此）。
   同步后 `vnext/scripts/check-rust-extension-build-input.sh` 读取已安装扩展的值并与当前提交比较，不一致、为空或无法导入时
   backend 失败，runner 在 manifest 之前以 exit 1 停止。该变量只传给 backend 的同步命令，不导出到 manifest 与 pytest 的环境。
   cargo 跟踪 `option_env!` 读取的变量，值变化时重新编译所在 crate。此机制对任何以 maturin 路径依赖装入 backend 的扩展都成立，
-  S2a 的新 crate 沿用：在扩展的 `#[pymodule]` 中同样导出 `__build_input__`。
+  扩展的 `#[pymodule]` 中同样导出 `__build_input__`。
 - 开发者在 Rust 改动后跑 backend focused 测试时，同样先用 `--reinstall-package gateway-compute-python` 同步。
 
 ### Hypothesis 隔离与按包闭包沿用
@@ -228,7 +218,7 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 `-m "serial and not parallel_safe" -n 0`。其余三个包单进程运行。`rust` 包最先运行，由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
 两遍拆分避免 timing-sensitive 测试争用 CPU；`parallel_safe` 只包括下文经逐项隔离审查的例外，backend 当前没有此例外。其余三个 Python 包的 worker 启动开销超过并行收益，因此保持单进程。
 
-非串行 worker 默认 `auto`，可在 CPU 充足的测试节点设置 `GATEWAY_TEST_WORKERS=48`；06/07 按上文各自并行度，不照搬该值。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：
+非串行worker默认`auto`；初始建议`GATEWAY_TEST_WORKERS=4`，按本次资源调整。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：
 
 ```bash
 cd vnext/backend
@@ -263,54 +253,9 @@ remount 限制；其余测试仍使用 tmpfs。
 HEAD 与 exit code）见 [AGENTS.md](../../AGENTS.md)“跑测试”一节；不满足时结果不能作为门禁
 证据。
 
-### P2后半段的功能门禁与最终container门禁
+### Compose 门禁串行与端口
 
-本节保留 P2 后半段的历史阶段安排；当时的功能门禁与最终 container 门禁规则见本节与 [AGENTS.md](../../AGENTS.md)。
-历史 P2 execution checklist 见 tag `docs/p2-p3-cleanup-pre-20260817`。
-从P2-R4 post-audit后续修复到R5，在未触碰build/deployment boundary时，允许把镜像构建、
-跨主机传输和实际Compose测试合并到R6最终候选一次执行。期间整仓功能门禁仍使用权威脚本，
-只精确排除实际启动Docker的测试文件：
-
-```bash
-./vnext/scripts/run-tests.sh \
-  --ignore=tests/test_import_compose_e2e.py \
-  --ignore=tests/test_versioned_read_compose_e2e.py \
-  --ignore=tests/test_compose_lifecycle_negative_probes.py
-```
-
-当时的延期inventory为（P2-R6-S7 已在 candidate `5f474ce2` 上收集并通过；S10 仍须在最终
-P2 candidate 上重跑，不得从 inventory 删除）：
-
-```text
-tests/test_import_compose_e2e.py::test_compose_repository_service_import_restart_replay
-tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_inside_network
-tests/test_versioned_read_compose_e2e.py::test_compose_remote_client_commit_pinned_read_from_gate_host
-tests/test_versioned_read_compose_e2e.py::test_compose_repository_service_fresh_restart_restored_lifecycle
-```
-
-`tests/test_compose_lifecycle_negative_probes.py` 是 expected-failure cleanup 的独立
-probe（missing readiness / wrong token / wrong network / non-empty restore），不是第五个
-S7 PASS nodeid，同样按精确 path ignore，不用宽泛 marker。
-静态Dockerfile/Compose测试、build script/harness单测和真实Dolt integration仍属于功能门禁，
-不得一并跳过。以后新增实际Docker测试时，round handoff必须登记精确path/nodeid并同步更新
-调用参数；不新增宽泛`container` marker来隐式改变现有三类marker语义。
-
-此命令不是新的全局权威入口，也不能用于Phase 2最终退出。R6必须对最终source tree运行无
-`--ignore`的`./vnext/scripts/run-tests.sh`，完成production image build/provenance、镜像传输、
-全部延期Compose nodeid和资源清理后，才可宣布P2完成。任何Dockerfile、production依赖闭包、
-Compose/container wiring或container harness变更都会提前终止延期，并要求在所属round执行
-相应容器门禁。
-
-### P5-5E S3 compose 门禁串行（port 8000 + flock）
-
-`test_ordered_compare_compose.py`、`test_ordered_submit_bisect_compose.py`、
-`test_history_compose_e2e.py` 共享 host `127.0.0.1:8000`，**必须串行**执行。
-
-- harness 在 `start_three_container_stack` 入口先对 `/tmp/gateway-compose-gate.lock` 加 `flock`，
-  再检查 port 8000；`cleanup_compose_project_artifacts` 释放锁。并发会话会阻塞等待（默认 30 分钟上限）。
-- compose project 名默认含会话成分（`GATEWAY_COMPOSE_GATE_SESSION` 或 pid），避免跨会话
-  project/卷/网络碰撞；可用 `GATEWAY_COMPOSE_GATE_PROJECT_NAME` 显式覆盖。
-- **S4 权威 runner 必须单飞**：不得并行跑上述三门禁或与其它占用 8000 的 compose 栈混跑。
+backend Compose旅程共用host `127.0.0.1:8000`，同节点必须串行。现harness在启动入口对`/tmp/gateway-compose-gate.lock`加flock并检查端口，cleanup释放锁；项目名保留会话隔离。外层仍先取得节点占用，不把flock等待当作节点预约。`GATEWAY_COMPOSE_GATE_SESSION`或既有project-name覆盖用于本任务唯一命名，不复用他人栈。
 
 ### Docker / Compose触发式重建
 
@@ -362,10 +307,9 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
      `V`门禁的同一worktree中检出最终HEAD，用`python3 -I vnext/scripts/test_input_closure.py manifest
      --package backend`计算，与`V`那次runner起始时记录的backend manifest用`compare`逐项比较，必须
      为“可沿用”。完整输入成分见 [Hypothesis 隔离与按包闭包沿用](#hypothesis-隔离与按包闭包沿用)。
-     专用测试节点使用containerd image store，同一棵树
-     连续两次全缓存构建的image ID也不相同（G12终审实测），因此不再比较image ID（owner决议DC34）。
+     专用测试节点使用containerd image store，重建可能生成不同本机image ID；镜像等价按此处的同来源manifest判定。
      manifest 包含 worktree 本机权限、非 Git context 内容与测试缓存等本地状态，Git 不会规范化这些状态；
-     换 worktree 可能得到不同摘要，因此 G13 复核后保留“同一 worktree”限制（治理修订计划 G6b）；不得用另一个
+     换 worktree 可能得到不同摘要，因此要求同一worktree；不得用另一个
      worktree 的结果判定“等价”或“不等价”。同一 worktree 也意味着同一节点（owner 决议 DC36）。
      因此阶段的门禁 worktree 保留到该阶段 exit 合入之后再清理（owner 决议 DC51）。
 
@@ -414,7 +358,7 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 
 ### 节点
 
-与后端共用上述五节点池，不在开发主机运行；静态检查、mock/真实 backend e2e 和阶段退出证据可选任一合格空闲节点。阶段证据仍在 clean、已提交 worktree 用权威入口完整运行，记录实际节点；不再保留“前端不使用 CT108”或固定 07/05/04 的限制。
+与后端共用上述五节点池，不在开发主机运行；静态检查、mock/真实 backend e2e 和阶段退出证据可选任一合格空闲节点。阶段证据仍在 clean、已提交 worktree 用权威入口完整运行，记录实际节点。
 
 ### 工具链镜像
 
@@ -432,7 +376,7 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 
 ### 节点协调（DC70 补充）
 
-- 所有前端运行均按本节执行入口取得原子占用；取消轻量测试无标记的旧例外。核本机进程、Compose 与端口，计时占用期间等待释放。
+- 所有前端运行均按本节执行入口取得原子占用；核本机进程、Compose 与端口，计时占用期间等待释放。
 - `frontend/scripts/run-real-backend-e2e.sh` 自行取得/释放 DC70 标记，外层不要重复获取；其他入口由执行者获取，完成本人运行、清理容器和进程后释放。
 - 跨节点按实际资源干扰协调，不建立常规整宿主互斥或报批；不得删除他人标记。
 
@@ -510,11 +454,6 @@ backend 的 `tests/conftest.py` 保留默认 `unit` 分类：未标 `integration
 `xdist_group("serial")`，除非它们显式标了 `parallel_safe`。所有通过
 `requires_dolt` 或其他方式依赖真实 Dolt 的 backend 测试显式标 `integration`。
 
-G11 将 backend 也按上述两遍执行。kickoff base 收集到 2,847 项，其中 2,665 项有
-`unit`、205 项有 `integration`、56 项有 `serial`；后三项计数会重叠。
-改动前 7 个 Compose 旅程文件耗时约 1,575 秒，其他 serial 用例约 38 秒，剩余用例约
-100 秒。Compose 旅程的精确耗时构成见 G11 handoff。
-
 ### 新增测试时
 
 - 测试通过 `lifecycle_settings()`、`ServiceRuntime.start()`、`DoltRunner()` 等方式
@@ -532,7 +471,7 @@ mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
 uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
 ```
 
-这是唯一可靠的判据，静态扫描做不到。建立本规范时用它发现了 13 个漏标的测试。
+这是唯一可靠的判据，静态扫描做不到。
 
 ## 性能约束
 
@@ -613,49 +552,9 @@ SCM_RIGHTS、pidfd或sidecar收敛重新设为S2/S3硬门。
 - PENDING/QUEUED/RUNNING/manual-recovery保留，admission pin与cleaner协作竞态；
 - server-owned root、caller path拒绝、symlink/regular-file/scope与跨repository边界；
 - 业务成功持久化前、成功后cleanup前、cleanup失败后重试三个crash/restart语义屏障；
-- bounded candidate pagination、shutdown无遗留线程，以及一条legacy sidecar/DB fixture路径。
-
-以下不再是权威验证：
-
-- `r8_*`、`r9_*`至`r22_*`按历史修复轮次命名的quarantine/detach/unlink-verify/stage、
-  generation、receipt、residual proof或broker syscall-window矩阵；
-- 同euid恶意ancestor/pathname替换、broker partial frame、capability/peer角色、fd/pidfd与双UID
-  隔离证明。生产机制删除时对应测试一并删除，不保留mock实现考古。
+- bounded candidate pagination、shutdown无遗留线程，既有受保护与失败重试路径。
 
 不可逆或大故障域不变量不能因本次简化而降级：Dolt commit/main CAS、control DB transaction、
 跨repository/root误操作和protected artifact误删仍需强验证。但测试语义屏障，不穷举每两个
 系统调用之间的调度窗口。同一Contract不变量只保留一处权威断言，同构shape用共享参数表；
 保留的测试不得继续使用round编号命名。
-
-## 历史基线
-
-| 阶段 | `repository_service` 全量耗时 |
-| --- | ---: |
-| 整改前 | 46m47s |
-| 关闭 dolt 版本检查后 | 4m14s |
-| 叠加 xdist 并行后 | 2m03s |
-| 长历史 fixture 改批量提交后 | 63s |
-
-整仓五个 Python 包合计 1031 项测试，`run-tests.sh` 全程约 1m07s。
-
-测量过程原文见 tag `docs/p2-p3-cleanup-pre-20260817` 中的
-`docs/backend-vnext/notes/test-suite-runtime-investigation.md`。
-
-### G11 与静态检查历史观测
-
-G11 kickoff base
-`676110a74b68` 的 backend 基线为 2,847 passed；marker 数为 `unit` 2,665、
-`integration` 205、`serial` 56（marker 可重叠）。`--durations=0` 的可见阶段耗时为
-Compose 1,575.36 秒、其他 serial 37.97 秒、其余用例 100.30 秒，基线墙钟 1,717.23 秒。
-Compose 占 backend 基线约 91.7%；细节与日志见
-[G11 handoff](refactoring/formal/plans/p5-arch-closure-g11-handoff.md)。
-
-整理前 AGENTS（`4b224865e4`）曾记录：mypy 增量缓存命中时五个包合计约 1.5 秒。该值为当时的历史观测，不作为当前耗时承诺；五包提交前静态检查要求仍见 [AGENTS「提交前」](../../AGENTS.md#提交前)。
-
-### 历史阶段说明
-
-以下保留当时阶段专项用途与实际证据来源；2026-11-08 DC91 已将未来调度改为统一池。这些旧限制不再限制后续选点，也不改变过去证据的真实节点、配置或有效性范围。
-
-Owner 于 2026-11-07 按 DC87/DC33 另明确授权：06 在本次 S2b E 最终验收运行 fresh 完整 t1–t3 功能/容量旅程，与 04 六包及 Compose 跨节点并行；t4 按独审具体依据沿用。此为本轮真实数据用途扩展，不改变 04 权威 runner/carried 与 CT108 正式性能职责；06 仍按本节点占用、clean 提交及离线证据规则执行。
-
-Owner 于 2026-11-08 独立明确授权本轮 S3 最终 fresh 完整 t1–t3 从05移到06，原因是05存在FE3b连续轮次的有效占用。固定产品候选在06运行完整Preview→Submit→真实读取/approve→History，v1/重复Preview为MODIFIED_ONLY、v2为FULL；N1、32 GiB worker envelope、8 GiB reserve、显式M24 GiB不变。t4仍在CT108 fresh，04仍为权威runner/carried；06不成为正式性能节点。现场有效标记、离线预填充、clean候选、单档同节点/同worker与失败留证规则不变；按实际干扰协调04/06共享宿主，不自动互斥。此项取代本轮S3的05节点安排，S2b授权仅作历史，不作为本项依据。具体执行与未决门禁见 [S3协调 §24](refactoring/formal/plans/p6-s3-coordination.md#24-固定v集中取证与06专项用途)。

@@ -1805,7 +1805,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await saveEvidence(s2Session.page, testInfo, "j2-disposition-closed");
     const factsC = (await getReviewFacts(s2, submitC.submissionId)).body;
     expect(factsC.status, "j2-step6 review keeps APPROVED").toBe("APPROVED");
-    expect(factsC.submission_disposition, "j2-step6 disposition").toBe("CLOSED_NOT_ARCHIVED");
+    const dispositionC = factsC.submission_disposition as unknown as { disposition?: string } | null;
+    expect(typeof dispositionC === "object" ? dispositionC?.disposition : dispositionC, "j2-step6 disposition").toBe("CLOSED_NOT_ARCHIVED");
     assertClean(s2Session.diagnostics, "j2-closed-read");
 
     // Step 7: accept all seven; B archived, E closed at archive (D2 real).

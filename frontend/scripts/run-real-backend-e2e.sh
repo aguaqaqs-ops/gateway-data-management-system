@@ -949,7 +949,21 @@ elif [[ "$SUITE" == "t1" ]]; then
     [[ -f "$INPUT_ROOT/$t1_dir/sql/dbcfg.sql" ]] || { log "error=t1 input dir missing sql/dbcfg.sql: $t1_dir"; exit 2; }
     [[ -f "$INPUT_ROOT/$t1_dir/comps/logic/logics.xml" ]] || { log "error=t1 input dir missing comps/logic/logics.xml: $t1_dir"; exit 2; }
     log "t1_input_dir=${t1_dir} files=$(find "$INPUT_ROOT/$t1_dir" -type f | wc -l) bytes=$(du -sb "$INPUT_ROOT/$t1_dir" | cut -f1)"
-    (cd "$INPUT_ROOT" && sha256sum "$t1_dir"/sql/dbcfg.sql "$t1_dir"/comps/logic/logics.xml) | tee -a "$LOG_FILE"
+    case "$t1_dir" in
+      t1-v1) expected_manifest=cdb598cdd30198ee94e56469c0c289be1ad1e1e8524e5da13b9d00249eed0163 ;;
+      t1-v2) expected_manifest=fa2450fac17f5011fee31eb0b163a7355846932c973dedf86bfe10532c32a96a ;;
+      *) log "error=unexpected t1 dir: $t1_dir"; exit 2 ;;
+    esac
+    manifest="$INPUT_ROOT/SHA256SUMS-$t1_dir.txt"
+    [[ -f "$manifest" ]] || { log "error=t1 checksum manifest missing: $manifest"; exit 2; }
+    actual_manifest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+    log "t1_manifest=${t1_dir} path=${manifest} sha256=${actual_manifest}"
+    if [[ "$actual_manifest" != "$expected_manifest" ]]; then
+      log "error=t1 manifest sha256 mismatch: $t1_dir expected=$expected_manifest actual=$actual_manifest"
+      exit 2
+    fi
+    (cd "$INPUT_ROOT/$t1_dir" && sha256sum -c -- "$manifest") | tee -a "$LOG_FILE"
+    log "t1_manifest_verified=${t1_dir} files=$(wc -l < "$manifest")"
   done
   T1_INPUT_MOUNT="/t1-inputs"
   INPUT_MOUNT_SOURCE="$INPUT_ROOT"

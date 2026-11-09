@@ -8,11 +8,16 @@ import {
   vCandidates200,
   vPreview399,
   vPreview399Accepted,
+  vPreviewAcceptedSourceRevoked,
   vPreviewAfterClose,
   vPreviewAllKinds,
   vPreviewBlocked,
+  vPreviewModifiedOnly,
   vPreviewPending,
   vPreviewTwoSided,
+  vPreviewTwoSidedBothAccepted,
+  vPreviewTwoSidedBothRevoked,
+  vPreviewTwoSidedInitialRevoked,
   vPreviewUnknownCode,
   vReviewFacts,
 } from "./simulated-api";
@@ -114,6 +119,47 @@ describe("archive validation fixtures", () => {
       expect(plan.audit_validity, "audit_validity").toBe(false);
       expect(plan.can_start, "can_start").toBe(false);
       if (plan.selection_subject_digest) expect(plan.confirmation_requirements).toContain(plan.selection_subject_digest);
+    }
+  });
+  it("only emits REVOKED/ACCEPTED with the §16.8 field combinations", () => {
+    for (const anomaly of vPreviewTwoSidedBothAccepted().anomalies) {
+      expect(anomaly.resolution_status).toBe("ACCEPTED");
+      expect(anomaly.latest_sequence).toBeGreaterThan(0);
+      expect(anomaly.accepted_by).toBeTruthy();
+      expect(anomaly.accepted_at).toBeTruthy();
+      expect(anomaly.reason).toBeTruthy();
+    }
+    const revoked = [
+      ...vPreviewTwoSidedInitialRevoked().anomalies,
+      ...vPreviewTwoSidedBothRevoked().anomalies,
+      ...vPreviewAcceptedSourceRevoked().anomalies,
+    ].filter((anomaly) => anomaly.resolution_status === "REVOKED");
+    expect(revoked.length).toBeGreaterThanOrEqual(3);
+    for (const anomaly of revoked) {
+      expect(anomaly.latest_sequence).toBeGreaterThanOrEqual(2);
+      expect(anomaly.accepted_by).toBeNull();
+      expect(anomaly.accepted_at).toBeNull();
+      expect(anomaly.reason).toBeTruthy();
+    }
+  });
+
+  it("checks only the MODIFIED side for MODIFIED_ONLY uploads (§16.8)", () => {
+    const preview = vPreviewModifiedOnly();
+    expect(preview.anomalies).toHaveLength(1);
+    expect(preview.anomalies.every((anomaly) => anomaly.side === "MODIFIED")).toBe(true);
+    expect(preview.anomalies.some((anomaly) => anomaly.side === "INITIAL")).toBe(false);
+  });
+
+  it("keeps every reachable preview within the 8N+1 item bound (§16.8)", () => {
+    for (const [plan, candidateCount] of [
+      [vPreviewAllKinds(), 3],
+      [vPreviewTwoSided(), 3],
+      [vPreviewModifiedOnly(), 3],
+      [vPreviewAfterClose(), 3],
+      [vPreviewPending(), 2],
+      [vPreview399(), 200],
+    ] as const) {
+      expect(plan.anomalies.length, plan.candidate_set_digest).toBeLessThanOrEqual(8 * candidateCount + 1);
     }
   });
 });

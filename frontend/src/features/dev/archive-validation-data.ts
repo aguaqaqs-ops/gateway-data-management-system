@@ -89,6 +89,14 @@ export function vAnomaly(overrides: Partial<Anomaly> & { issue_code: Anomaly["is
   } satisfies Anomaly;
 }
 
+function vAccepted(anomaly: Anomaly, sequence: number, reason: string): Anomaly {
+  return { ...anomaly, resolution_status: "ACCEPTED", latest_sequence: sequence, accepted_by: "archiver-1", accepted_at: "2026-11-07T15:20:00Z", reason };
+}
+
+function vRevoked(anomaly: Anomaly, sequence: number, reason: string): Anomaly {
+  return { ...anomaly, resolution_status: "REVOKED", latest_sequence: sequence, accepted_by: null, accepted_at: null, reason };
+}
+
 function vGeneratedTime(status: Schemas["ArchiveGeneratedTimeResponse"]["status"]): Schemas["ArchiveGeneratedTimeResponse"] {
   return {
     empty_count: 0,
@@ -217,22 +225,55 @@ export function vPreviewTwoSided(): Preview {
   return vPlan({ anomalies, business_validation: vValidationFor() });
 }
 
+/** MODIFIED_ONLY: only the ② side is checked, so no INITIAL item is reachable. */
+export function vPreviewModifiedOnly(): Preview {
+  const modified = vAnomaly({
+    issue_code: "GENERATION_TIME_MISSING", subject_kind: "CONFIGURATION_TIME_QUALITY",
+    subject_digest: "sha256:v-twoside-modified", side: "MODIFIED",
+    details: { generated_time: vGeneratedTime("COLUMN_ABSENT") },
+  });
+  return vPlan({ anomalies: [modified], business_validation: vValidationFor() });
+}
+
 /** V13: both sides accepted, so the dialog allows start (the stub rejects it). */
 export function vPreviewTwoSidedAccepted(): Preview {
   const base = vPreviewTwoSided();
   return {
     ...base,
-    anomalies: base.anomalies.map((anomaly) => ({
-      ...anomaly,
-      resolution_status: "ACCEPTED" as const,
-      latest_sequence: 2,
-      accepted_by: "archiver-1",
-      accepted_at: "2026-11-07T15:20:00Z",
-      reason: "两侧已核对",
-    })),
+    anomalies: base.anomalies.map((anomaly) => vAccepted(anomaly, 2, "两侧已核对")),
     audit_validity: true,
     can_start: true,
   };
+}
+
+/** V2: both sides accepted, sequence follows the order the test accepts them. */
+export function vPreviewTwoSidedBothAccepted(): Preview {
+  const accepted = vPreviewTwoSidedAccepted().anomalies;
+  const [initial, modified] = accepted;
+  return vPlan({
+    anomalies: [{ ...initial!, latest_sequence: 4, reason: "① 已核对" }, { ...modified!, latest_sequence: 5, reason: "② 已核对" }],
+    business_validation: vValidationFor(),
+    audit_validity: true,
+    can_start: true,
+  });
+}
+
+/** V2: ① was accepted then revoked; ② stays accepted. */
+export function vPreviewTwoSidedInitialRevoked(): Preview {
+  const [initial, modified] = vPreviewTwoSidedBothAccepted().anomalies;
+  return vPlan({
+    anomalies: [vRevoked(initial!, 6, "① 撤销理由"), modified!],
+    business_validation: vValidationFor(),
+  });
+}
+
+/** V2: both sides accepted then revoked. */
+export function vPreviewTwoSidedBothRevoked(): Preview {
+  const [initial, modified] = vPreviewTwoSidedBothAccepted().anomalies;
+  return vPlan({
+    anomalies: [vRevoked(initial!, 6, "① 撤销理由"), vRevoked(modified!, 7, "② 撤销理由")],
+    business_validation: vValidationFor(),
+  });
 }
 
 /** V3/V4: an accepted source item keeps "来源未解释" next to "已接受". */
@@ -256,6 +297,13 @@ export function vPreviewAcceptedSource(): Preview {
   });
   const anomalies = [accepted, pending];
   return vPlan({ anomalies, business_validation: vValidationFor() });
+}
+
+/** V4: the accepted source item is revoked and needs processing again. */
+export function vPreviewAcceptedSourceRevoked(): Preview {
+  const base = vPreviewAcceptedSource();
+  const [source, pending] = base.anomalies;
+  return { ...base, anomalies: [vRevoked(source!, 4, "需要重新核对来源"), pending!] };
 }
 
 /** V1 unknown-code probe: no accept entry, start stays disabled. */
@@ -363,6 +411,14 @@ export function vPreviewBlocked(blocker: "ARCHIVE_INTEGRITY_FAILURE" | "ACTIVE_S
 export const V_CANDIDATES_AFTER_CLOSE: Candidates = {
   ...V_CANDIDATES,
   candidate_set_digest: "sha256:v-candidates-after-close",
+};
+
+/** B4: the set changes after the first candidate read and v-s1 gets a new candidate digest. */
+export const V_CANDIDATES_RECHANGED: Candidates = {
+  ...V_CANDIDATES_AFTER_CLOSE,
+  candidates: V_CANDIDATES_AFTER_CLOSE.candidates.map((candidate) =>
+    candidate.submission_id === "v-s1" ? { ...candidate, expected_candidate_digest: "sha256:v-candidate-v-s1-refreshed" } : candidate,
+  ),
 } satisfies Candidates;
 
 /** V2: the INITIAL side already accepted; the MODIFIED side still pending. */
@@ -406,6 +462,18 @@ export function vPreviewPending(): Preview {
   });
 }
 
+/** V8: a startable preview for the same pending candidate set, so the 409 can be exercised. */
+export function vPreviewPendingStartable(): Preview {
+  const base = vPreviewTwoSidedAccepted();
+  return {
+    ...base,
+    candidate_set_digest: "sha256:v-pending-candidates",
+    blockers: [],
+    pending_submission_ids: [],
+    pending_submission_count: 0,
+  };
+}
+
 /** V10: after closing v-s2, the bridge source is gone: v-s1 INITIAL is unexplained again. */
 export function vPreviewAfterClose(): Preview {
   const source = vAnomaly({
@@ -427,6 +495,14 @@ export function vPreviewAfterClose(): Preview {
     anomalies,
     business_validation: vValidationFor(),
   });
+}
+
+/** B4: the second preview is built from the refreshed candidate digest. */
+export function vPreviewRechanged(): Preview {
+  return {
+    ...vPreviewAfterClose(),
+    selected: { submission_id: "v-s1", expected_candidate_digest: "sha256:v-candidate-v-s1-refreshed" },
+  };
 }
 
 /** V9/V10 review facts: candidate review_version equals the review version. */

@@ -8,7 +8,16 @@ set -Eeuo pipefail
 FRONTEND_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ROOT="$(cd -- "$(git -C "$FRONTEND_DIR" rev-parse --show-toplevel)" && pwd -P)"
 FE_IMAGE="${GATEWAY_FE_PACKAGE_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble}"
-BACKEND_IMAGE="${GATEWAY_BACKEND_DEPS_IMAGE:-gateway-backend-deps:lock-d054366c02fa}"
+BACKEND_IMAGE="${GATEWAY_BACKEND_DEPS_IMAGE:-}"
+if [[ -z "$BACKEND_IMAGE" ]]; then
+  BACKEND_IMAGE="$(python3 -I - "$ROOT" <<'PY'
+import json, subprocess, sys
+root = sys.argv[1]
+out = subprocess.run([f"{root}/vnext/scripts/build-backend-dependency-base.sh", "--print-input"], check=True, capture_output=True, text=True).stdout
+print(json.loads(out)["image"])
+PY
+)"
+fi
 VALIDATE_TAG=""
 VALIDATE_BUILT=0
 OUT=""

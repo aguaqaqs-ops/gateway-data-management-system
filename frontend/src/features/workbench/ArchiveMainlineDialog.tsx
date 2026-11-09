@@ -4,6 +4,29 @@ import { ApiError } from "../api/authenticated-fetch";
 import { gatewayApi } from "../api/application-api";
 import { buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys";
 import { Button, Dialog } from "../../design-system/components";
+import {
+  anomalyAction,
+  anomalyDetailText,
+  anomalyGroupKey,
+  archiveError,
+  blockerCopy,
+  closeError,
+  detectedStatusCopy,
+  formatReasonLimitError,
+  formatServerTimeUtc,
+  GROUP_DEFS,
+  ISSUE_COPY,
+  KNOWN_ISSUE_CODES,
+  RELATION_COPY,
+  COMPARISON_STATUS_COPY,
+  resolutionError,
+  resolutionStatusCopy,
+  resolutionStatusTone,
+  SIDE_COPY,
+  startDisabledReason as computeStartDisabledReason,
+  statusTagClass,
+  utf8Length,
+} from "../view-model/archive-dialog";
 
 type Schemas = components["schemas"];
 
@@ -13,154 +36,6 @@ type Plan = Schemas["PreviewArchivePlanResponse"];
 type Anomaly = Plan["anomalies"][number];
 type Result = Schemas["ArchiveResultResponse"];
 type CloseResult = Schemas["CloseSubmissionResponse"];
-
-const KNOWN_ISSUE_CODES = new Set([
-  "INITIAL_SOURCE_UNEXPLAINED",
-  "GENERATION_TIME_MISSING",
-  "GENERATION_TIME_INVALID_VALUES",
-  "GENERATION_TIME_LAST_NOT_MAX",
-  "TIME_ABNORMAL_MODIFIED",
-  "TIME_ABNORMAL_INITIAL",
-  "BASELINE_TIME_UNAVAILABLE",
-  "APPROVED_SIBLING_EXCLUDED",
-  "PROJECT_IDENTITY_EXCEPTION",
-]);
-
-const ISSUE_COPY: Record<string, string> = {
-  INITIAL_SOURCE_UNEXPLAINED: "原始组态备份的来源无法解释",
-  GENERATION_TIME_MISSING: "缺少组态生成时间",
-  GENERATION_TIME_INVALID_VALUES: "生成时间中有无法识别的值",
-  GENERATION_TIME_LAST_NOT_MAX: "最后一个生成时间不是最大值",
-  TIME_ABNORMAL_MODIFIED: "本次归档组态的生成时间早于对照",
-  TIME_ABNORMAL_INITIAL: "原始组态备份的生成时间早于当前基线",
-  BASELINE_TIME_UNAVAILABLE: "当前基线没有可用的生成时间",
-  APPROVED_SIBLING_EXCLUDED: "归档后该已通过的提交将被关闭（不归档）",
-  PROJECT_IDENTITY_EXCEPTION: "选中的提交有项目身份例外",
-};
-
-const SIDE_COPY: Record<string, string> = {
-  INITIAL: "①原始组态备份",
-  MODIFIED: "②本次归档组态",
-  BASELINE: "当前基线",
-};
-
-const RELATION_COPY: Record<string, string> = {
-  MODIFIED_BEFORE_INITIAL: "②与①比较",
-  MODIFIED_BEFORE_BASELINE: "②与当前基线比较",
-  INITIAL_BEFORE_BASELINE: "①与当前基线比较",
-};
-
-const COMPARISON_STATUS_COPY: Record<string, string> = {
-  NORMAL: "正常",
-  BACKWARD: "倒退",
-  NOT_COMPARABLE: "无法比较",
-  NOT_APPLICABLE: "不适用",
-};
-
-const GENERATED_TIME_STATUS_COPY: Record<string, string> = {
-  TABLE_ABSENT: "SQL 中没有 version_manager 表",
-  COLUMN_ABSENT: "version_manager 表没有 saved_time 列",
-  NO_ROWS: "version_manager 表没有数据行",
-  NO_VALUE: "saved_time 全部为空",
-  NO_VALID_VALUE: "saved_time 没有可识别的时间",
-};
-
-const GROUP_DEFS: ReadonlyArray<{ key: string; title: string; kinds: ReadonlyArray<Anomaly["subject_kind"]> }> = [
-  { key: "source", title: "原始组态来源", kinds: ["CONFIGURATION_SOURCE"] },
-  { key: "time", title: "生成时间", kinds: ["CONFIGURATION_TIME_QUALITY"] },
-  { key: "baseline-time", title: "基线时间", kinds: ["CONFIGURATION_TIME_QUALITY"] },
-  { key: "order", title: "生成时间先后", kinds: ["CONFIGURATION_TIME_ORDER"] },
-  { key: "sibling", title: "同级提交", kinds: ["APPROVED_SIBLING_EXCLUDED"] },
-  { key: "identity", title: "项目身份", kinds: ["PROJECT_IDENTITY_EXCEPTION"] },
-];
-
-function anomalyGroupKey(anomaly: Anomaly): string {
-  if (anomaly.subject_kind === "CONFIGURATION_TIME_QUALITY" && anomaly.issue_code === "BASELINE_TIME_UNAVAILABLE") return "baseline-time";
-  return GROUP_DEFS.find((group) => group.key !== "baseline-time" && group.kinds.includes(anomaly.subject_kind))?.key ?? "source";
-}
-
-function utf8Length(text: string): number {
-  return new TextEncoder().encode(text).length;
-}
-
-/** Server UTC instants are shown as entered, without local conversion. */
-function formatServerTimeUtc(value: string): string {
-  return `${value.replace("T", " ").replace(/Z$/, "")} UTC`;
-}
-
-function generatedTimeStatusText(status: string): string {
-  return GENERATED_TIME_STATUS_COPY[status] ?? status;
-}
-
-function detectedStatusCopy(anomaly: Anomaly): string {
-  if (anomaly.subject_kind === "CONFIGURATION_SOURCE") return "来源未解释";
-  return "已发现";
-}
-
-function resolutionStatusCopy(status: Anomaly["resolution_status"]): string {
-  if (status === "ACCEPTED") return "已接受";
-  if (status === "REVOKED") return "已撤销接受，需要重新处理";
-  return "未处理";
-}
-
-function formatReasonLimitError(kind: "accept" | "revoke" | "close", trimmed: string, bytes: number): string | undefined {
-  if (trimmed.length === 0) return kind === "close" ? "请填写关闭理由" : kind === "accept" ? "请填写接受理由" : "请填写撤销理由";
-  if (bytes > 4096) return "理由不能超过 4096 字节";
-  return undefined;
-}
-
-type AnomalyAction = Schemas["AppendArchiveAnomalyResolutionRequest"]["action"];
-
-function anomalyAction(anomaly: Anomaly): AnomalyAction {
-  switch (anomaly.subject_kind) {
-    case "APPROVED_SIBLING_EXCLUDED": return "ACKNOWLEDGE_EXCLUSION";
-    case "PROJECT_IDENTITY_EXCEPTION": return "ACKNOWLEDGE_IDENTITY_EXCEPTION";
-    case "CONFIGURATION_SOURCE": return "ACKNOWLEDGE_SOURCE_EXCEPTION";
-    case "CONFIGURATION_TIME_QUALITY": return "ACKNOWLEDGE_TIME_QUALITY";
-    case "CONFIGURATION_TIME_ORDER": return "ACKNOWLEDGE_TIME_ORDER";
-    default: return assertNever(anomaly.subject_kind);
-  }
-}
-
-function assertNever(value: never): never {
-  throw new Error(`未知异常类型：${String(value)}`);
-}
-
-function archiveError(cause: unknown): { title: string; code: string; refresh: boolean } {
-  if (cause instanceof ApiError) {
-    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", refresh: false };
-    if (cause.code === "ARCHIVE_PENDING_REVIEW") return { title: "出现了新的待审核提交，请重新预检", code: "ARCHIVE_PENDING_REVIEW", refresh: true };
-    if (cause.code === "ACTIVE_SUBMIT_ATTEMPT") return { title: "已有提交正在处理，完成后才能归档", code: "ACTIVE_SUBMIT_ATTEMPT", refresh: false };
-    if (cause.code === "ARCHIVE_SCOPE_LIMIT_EXCEEDED") return { title: "候选提交超过归档上限，需要管理员处理", code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", refresh: false };
-    if (cause.code === "ARCHIVE_ANOMALY_UNRESOLVED" || cause.code === "ARCHIVE_CONFIRMATION_REQUIRED" || cause.code === "ARCHIVE_AUDIT_VERSION_CONFLICT" || cause.code === "CANDIDATE_SET_CONFLICT" || cause.code === "CANDIDATE_BINDING_CONFLICT" || cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT") {
-      return { title: "归档候选或核验结果已变化，请重新预检", code: cause.code, refresh: true };
-    }
-    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次操作与服务器记录不一致，请关闭对话框后重试", code: "IDEMPOTENCY_CONFLICT", refresh: false };
-    return { title: cause.message || "归档失败", code: cause.code ?? "ARCHIVE_FAILED", refresh: false };
-  }
-  return { title: cause instanceof Error ? cause.message : "归档失败", code: "ARCHIVE_FAILED", refresh: false };
-}
-
-function resolutionError(cause: unknown): { title: string; code: string } {
-  if (cause instanceof ApiError) {
-    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN" };
-    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次操作与服务器记录不一致，请关闭对话框后重试", code: "IDEMPOTENCY_CONFLICT" };
-    if (cause.code === "REQUEST_VALIDATION_FAILED" || cause.code === "UNPROCESSABLE_ENTITY") return { title: "理由或请求不符合要求", code: cause.code };
-    if (cause.code) return { title: cause.message || "操作未完成", code: cause.code };
-  }
-  return { title: cause instanceof Error ? cause.message : "操作未完成", code: "ARCHIVE_RESOLUTION_FAILED" };
-}
-
-function closeError(cause: unknown): { title: string; code: string } {
-  if (cause instanceof ApiError) {
-    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN" };
-    if (cause.code === "ARCHIVE_CLOSED") return { title: "该提交已归档或关闭", code: "ARCHIVE_CLOSED" };
-    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次操作与服务器记录不一致，请关闭对话框后重试", code: "IDEMPOTENCY_CONFLICT" };
-    if (cause.code === "REQUEST_VALIDATION_FAILED" || cause.code === "UNPROCESSABLE_ENTITY") return { title: "理由或请求不符合要求", code: cause.code };
-    if (cause.code) return { title: cause.message || "关闭未完成", code: cause.code };
-  }
-  return { title: cause instanceof Error ? cause.message : "关闭未完成", code: "ARCHIVE_CLOSE_FAILED" };
-}
 
 interface ArchiveMainlineDialogProps {
   open: boolean;
@@ -219,15 +94,15 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     setFailure(null);
     let stage: "candidates" | "preview" = "candidates";
     try {
-      const listed = await gatewayApi.listArchiveCandidates();
-      const candidate = listed.candidates.find((item) => item.submission_id === target);
+      let listed = await gatewayApi.listArchiveCandidates();
+      let candidate = listed.candidates.find((item) => item.submission_id === target);
       if (!candidate) {
         setLoadError({ message: "所选提交不在当前归档候选集合中，请刷新归档候选。", code: null });
         setPlan(null);
         return;
       }
       stage = "preview";
-      const selected = buildArchiveSelectedRef(candidate);
+      let selected = buildArchiveSelectedRef(candidate);
       let loaded = await gatewayApi.previewArchive({ selected });
       if (loaded.selected && loaded.selected.submission_id !== target) {
         setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
@@ -235,7 +110,26 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
         return;
       }
       if (loaded.candidate_set_digest !== listed.candidate_set_digest) {
+        // §16.2 “一次加载”: the candidate read and the preview must agree. Redo
+        // both once, rebuilding selected from the second candidate read.
+        stage = "candidates";
+        const reloadedList = await gatewayApi.listArchiveCandidates();
+        stage = "preview";
+        const reloadedCandidate = reloadedList.candidates.find((item) => item.submission_id === target);
+        if (!reloadedCandidate) {
+          setLoadError({ message: "所选提交不在当前归档候选集合中，请刷新归档候选。", code: null });
+          setPlan(null);
+          return;
+        }
+        listed = reloadedList;
+        candidate = reloadedCandidate;
+        selected = buildArchiveSelectedRef(candidate);
         const reloaded = await gatewayApi.previewArchive({ selected });
+        if (reloaded.selected && reloaded.selected.submission_id !== target) {
+          setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
+          setPlan(null);
+          return;
+        }
         if (reloaded.candidate_set_digest !== listed.candidate_set_digest) {
           setLoadError({ message: "归档候选集合已变化，请重新预检。", code: null });
           setPlan(null);
@@ -369,7 +263,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     } catch (cause) {
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
-        setCollectionNotice(cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭，已重新预检" : "提交或基线已变化，已重新预检");
+        setCollectionNotice(cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检");
         refresh();
         return;
       }
@@ -397,7 +291,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     } catch (cause) {
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
-        setCollectionNotice("提交或基线已变化，已重新预检");
+        setCollectionNotice(cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检");
         refresh();
         return;
       }
@@ -437,14 +331,16 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
   }
 
   function startDisabledReason(): string | undefined {
-    if (loading) return "正在预检";
-    if (blocked) return "当前预检存在阻断项";
-    if (unknownCount > 0) return "存在当前版本不能处理的项";
-    if (unprocessedCount > 0) return `还有 ${unprocessedCount} 项未处理`;
-    if (!confirmSelection) return "请确认归档选择";
-    if (loadError) return loadError.code === "SCOPE_FORBIDDEN" ? "当前身份没有归档权限" : "预检失败，请先处理错误";
-    if (!plan) return "预检失败，请先处理错误";
-    return undefined;
+    return computeStartDisabledReason({
+      loading,
+      loadError,
+      plan,
+      blockerCount: plan?.blockers.length ?? 0,
+      unknownCount,
+      unprocessedCount,
+      confirmSelection,
+      running,
+    });
   }
 
   const archivedCount = result?.dispositions.filter((item) => item.disposition === "ARCHIVED_BASELINE").length ?? 0;
@@ -457,57 +353,6 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
   const hasPendingBlocker = Boolean(plan?.blockers.includes("ARCHIVE_PENDING_REVIEW"));
   const validation = plan?.business_validation;
 
-  function renderDetailText(anomaly: Anomaly): string {
-    const details = anomaly.details as Record<string, unknown>;
-    switch (anomaly.issue_code) {
-      case "INITIAL_SOURCE_UNEXPLAINED": {
-        const edges = (details.edges as Array<{ submission_id: string; initial: { canonical_state_digest: string }; modified: { canonical_state_digest: string } }> | undefined) ?? [];
-        const states = (details.states as Array<{ canonical_state_digest: string }> | undefined) ?? [];
-        const edgeText = edges.map((edge) => `${displayName(edge.submission_id)}的①/②（${edge.initial.canonical_state_digest.slice(0, 12)}…/${edge.modified.canonical_state_digest.slice(0, 12)}…）`).join("、");
-        return `与当前基线及本轮已通过的提交都对不上，可能漏传了现场的改动。候选：${edgeText || "无"}；状态数 ${states.length}。`;
-      }
-      case "GENERATION_TIME_MISSING": {
-        const generated = details.generated_time as { status: string; empty_count?: number; invalid_count?: number } | undefined;
-        const status = generated?.status;
-        if (!generated || !status) return "基线没有生成时间记录";
-        if (status === "VALID") return "生成时间有效";
-        if (status === "NO_VALUE") return `saved_time 全部为空（${generated.empty_count ?? 0} 行）`;
-        if (status === "NO_VALID_VALUE") return `saved_time 没有可识别的时间（${generated.invalid_count ?? 0} 个无法识别）`;
-        return generatedTimeStatusText(status);
-      }
-      case "GENERATION_TIME_INVALID_VALUES": {
-        const generated = details.generated_time as { invalid_count?: number; selected_time_utc?: string | null; last_valid_source_row?: number | null } | undefined;
-        return `${generated?.invalid_count ?? 0} 个值无法识别，采用最后一个有效值 ${generated?.selected_time_utc ?? "—"}（第 ${generated?.last_valid_source_row ?? "—"} 行）。`;
-      }
-      case "GENERATION_TIME_LAST_NOT_MAX": {
-        const generated = details.generated_time as { selected_time_utc?: string | null; max_valid_time_utc?: string | null; last_valid_source_row?: number | null; max_valid_source_row?: number | null } | undefined;
-        return `采用最后一个有效值 ${generated?.selected_time_utc ?? "—"}（第 ${generated?.last_valid_source_row ?? "—"} 行），最大值为 ${generated?.max_valid_time_utc ?? "—"}（第 ${generated?.max_valid_source_row ?? "—"} 行）。不会自动改用最大值。`;
-      }
-      case "TIME_ABNORMAL_MODIFIED":
-      case "TIME_ABNORMAL_INITIAL": {
-        const comparisons = (details.comparisons as Array<{ relation: string; left_time_utc: string | null; right_time_utc: string | null }> | undefined) ?? [];
-        return comparisons.map((comparison) => {
-          const left = comparison.left_time_utc ? formatServerTimeUtc(comparison.left_time_utc) : "—";
-          const right = comparison.right_time_utc ? formatServerTimeUtc(comparison.right_time_utc) : "—";
-          if (anomaly.issue_code === "TIME_ABNORMAL_MODIFIED") {
-            return comparison.relation === "MODIFIED_BEFORE_INITIAL" ? `② ${left} 早于 ① ${right}` : `② ${left} 早于当前基线 ${right}`;
-          }
-          return `① ${left} 早于当前基线 ${right}`;
-        }).join("；") || "时间对照异常";
-      }
-      case "BASELINE_TIME_UNAVAILABLE": {
-        const generated = details.generated_time as { status: string } | null | undefined;
-        const statusText = generated ? generatedTimeStatusText(generated.status) : "基线没有生成时间记录";
-        return `${statusText}；比较结果：无法比较`;
-      }
-      case "APPROVED_SIBLING_EXCLUDED":
-        return `目标提交${displayName(anomaly.target_submission_id)}`;
-      case "PROJECT_IDENTITY_EXCEPTION":
-        return "该提交的项目身份与当前基线不一致，需要人工确认";
-      default:
-        return anomaly.issue_code;
-    }
-  }
 
   function renderAnomalyCard(anomaly: Anomaly) {
     const known = KNOWN_ISSUE_CODES.has(anomaly.issue_code);
@@ -516,9 +361,9 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       <strong>{displayName(anomaly.target_submission_id)}{side ? ` · ${side}` : ""}：{ISSUE_COPY[anomaly.issue_code] ?? anomaly.issue_code}</strong>
       <p>
         <span className="status-tag status-tag--warning">原始诊断：{detectedStatusCopy(anomaly)}</span>
-        <span className={anomaly.resolution_status === "ACCEPTED" ? "status-tag" : "status-tag status-tag--warning"}>处理：{resolutionStatusCopy(anomaly.resolution_status)}</span>
+        <span className={statusTagClass(resolutionStatusTone(anomaly.resolution_status))}>处理：{resolutionStatusCopy(anomaly.resolution_status)}</span>
       </p>
-      <p>{renderDetailText(anomaly)}</p>
+      <p>{anomalyDetailText(anomaly, displayName)}</p>
       <p>受影响提交：{anomaly.affected_submission_ids.map(displayName).join("、") || "—"}</p>
       {anomaly.resolution_status === "ACCEPTED" && <p>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</p>}
       {anomaly.resolution_status === "REVOKED" && <p>已撤销，原因：{anomaly.reason}</p>}
@@ -571,7 +416,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
             <div><dt>当前基线</dt><dd>{headLabel}{headVersion !== undefined ? `（版本 ${headVersion}）` : ""}</dd></div>
             <div><dt>选中</dt><dd>{submissionId ? displayName(submissionId) : "—"}</dd></div>
           </dl>
-          {plan.blockers.length > 0 && <div role="alert" className="archive-blockers"><strong>归档被阻止</strong><ul>{plan.blockers.map((code) => <li key={code}>{code === "ARCHIVE_PENDING_REVIEW" ? "待审核的提交" : code}<code>{code}</code></li>)}</ul></div>}
+          {plan.blockers.length > 0 && <div role="alert" className="archive-blockers"><strong>归档被阻止</strong><ul>{plan.blockers.map((code) => { const copy = blockerCopy(code); return <li key={code}><span>{copy.text}</span><span className="subtle-copy">错误代码：<code title={code}>{code}</code></span></li>; })}</ul></div>}
           {hasPendingBlocker && <>
             <p>有 {pendingCount} 个待审核的提交，审核通过、退回或撤回后才能归档：{pendingIds.map((id) => onSelectSubmission
               ? <button key={id} className="link-button" onClick={() => { onClose(); onSelectSubmission(id); }}>{displayName(id)}</button>
@@ -678,7 +523,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
         {renderReasonField("close", closeReason, setCloseReason, "关闭理由")}
         <label className="confirm-checkbox"><input type="checkbox" checked={closeUnderstood} onChange={(event) => setCloseUnderstood(event.currentTarget.checked)} />我已了解关闭不可撤销</label>
         {closeErrorState && <div role="alert" className="form-error"><span>{closeErrorState.title}</span><span>错误代码：<code>{closeErrorState.code}</code></span><span className="form-error__actions">{closeRetry && <Button variant="secondary" onClick={() => void retryClose()} disabled={closeBusy}>重试</Button>}</span></div>}
-        {closeResult && <div role="status" className="confirm-impact"><p>已关闭。</p>
+        {closeResult && <div role="status" aria-label="关闭结果" className="confirm-impact"><p>已关闭。</p>
           <p>关闭人：{closeResult.closed_by}；关闭时间：{formatServerTimeUtc(closeResult.closed_at)}；理由：{closeResult.reason}</p>
         </div>}
       </>}

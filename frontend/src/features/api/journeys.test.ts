@@ -209,16 +209,17 @@ describe("simulated user journey data flows", () => {
     expect(api.startArchive).toHaveBeenCalledWith(expect.objectContaining({ confirmation_refs: [{ subject_digest: "sha256:selection-subject", sequence: 6 }], anomaly_resolution_refs: [{ subject_digest: "sha256:anomaly", sequence: 7 }] }), expect.any(String));
   });
 
-  it("covers every accepted anomaly without filtering by visibility", async () => {
+  it("covers every accepted anomaly and skips unresolved items", async () => {
     const firstAnomaly = ARCHIVE_PLAN_NEEDS_CONFIRMATION.anomalies[0]!;
     const acceptedSecond = { ...firstAnomaly, subject_digest: "sha256:anomaly-2", target_submission_id: "submission-2", resolution_status: "ACCEPTED" as const, latest_sequence: 8 };
+    const unresolved = { ...firstAnomaly, subject_digest: "sha256:anomaly-3", resolution_status: "UNRESOLVED" as const, latest_sequence: 3 };
     const acceptedFirst = { ...firstAnomaly, resolution_status: "ACCEPTED" as const, latest_sequence: 7 };
     const twoAnomaliesPlan = {
       ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
       confirmation_requirements: [],
       can_start: true,
       audit_validity: true,
-      anomalies: [acceptedFirst, acceptedSecond],
+      anomalies: [acceptedFirst, unresolved, acceptedSecond],
     };
     const api = {
       listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
@@ -234,6 +235,7 @@ describe("simulated user journey data flows", () => {
       { subject_digest: "sha256:anomaly", sequence: 7 },
       { subject_digest: "sha256:anomaly-2", sequence: 8 },
     ]);
+    expect(vi.mocked(api.startArchive).mock.calls[0]?.[0].anomaly_resolution_refs).not.toContainEqual({ subject_digest: "sha256:anomaly-3", sequence: 3 });
   });
 
   it("resumes archive retries after a failed start without resending audit events", async () => {

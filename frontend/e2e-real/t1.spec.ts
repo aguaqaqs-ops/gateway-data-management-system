@@ -347,13 +347,15 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(Number(bti.changed_table_count), "baseline_to_initial changed").toBe(0);
     expect(Number(bti.degraded_table_count), "baseline_to_initial degraded").toBe(0);
     expect(Number(bti.failed_table_count), "baseline_to_initial failed").toBe(0);
+    appendCaseLog(`t1-step4 baseline_to_initial.table_count=${bti.table_count}`);
     const itm = pairSummary(bundle2 as ParsedBundle, "initial_to_modified");
     expect(Number(itm.table_count), "initial_to_modified table_count").toBe(v2PreviewCount + 1);
     expect(Number(itm.degraded_table_count), "initial_to_modified degraded").toBe(0);
     expect(Number(itm.failed_table_count), "initial_to_modified failed").toBe(0);
     const composite = compositeChanged(bundle2 as ParsedBundle, "initial_to_modified");
     appendCaseLog(`t1-step4 composite_changed=${composite}`);
-    const changedExpected = v2Changed + (composite ?? 0);
+    expect(composite, "initial_to_modified comparison surface exposes composite_signal_point").not.toBeNull();
+    const changedExpected = v2Changed + (composite as number);
     expect(Number(itm.changed_table_count), "initial_to_modified changed").toBe(changedExpected);
     await waitForDiffBrowsing(page);
     const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });

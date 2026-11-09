@@ -1296,15 +1296,18 @@ function anomalySet(plan: ArchivePlanBody): string[] {
 
 function businessIssueSet(plan: ArchivePlanBody): string[] {
   return plan.business_validation.issues
-    .filter((issue) => issue.subject_kind !== "APPROVED_SIBLING_EXCLUDED" && issue.subject_kind !== "PROJECT_IDENTITY_EXCEPTION")
-    .map((issue) => [issue.subject_kind, issue.issue_code, issue.side ?? "-"].join("|"))
+    .filter((issue) => issue.issue_code !== "APPROVED_SIBLING_EXCLUDED" && issue.issue_code !== "PROJECT_IDENTITY_EXCEPTION")
+    .map((issue) => [issue.subject_kind, issue.issue_code, issue.side ?? "-", [...issue.affected_submission_ids].sort().join(",")].join("|"))
     .sort();
 }
 
 function expectAnomalySets(plan: ArchivePlanBody, expected: string[], phase: string): void {
   const actual = anomalySet(plan);
-  appendCaseLog(`${phase} anomalies=${JSON.stringify(actual)}`);
+  const actualIssues = businessIssueSet(plan);
+  const expectedIssues = expected.filter((line) => !line.startsWith("APPROVED_SIBLING_EXCLUDED|") && !line.startsWith("PROJECT_IDENTITY_EXCEPTION|"));
+  appendCaseLog(`${phase} anomalies=${JSON.stringify(actual)} business_issues=${JSON.stringify(actualIssues)}`);
   expect(actual, `${phase}: anomaly set differs from the kickoff table (stop for design review)`).toEqual([...expected].sort());
+  expect(actualIssues, `${phase}: business issue set differs from the kickoff table (stop for design review)`).toEqual([...expectedIssues].sort());
 }
 
 async function uploadDirsAndPreview(
@@ -1445,6 +1448,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
   const s1Session = await openSession(browser, s1);
   const archiverSession = await openSession(browser, archiver);
   const archiverSecondSession = await openSession(browser, archiver);
+  const reviewerSession = await openSession(browser, reviewer);
 
   try {
     // Steps 1–3: A archived with accept → revoke → re-accept in the UI.
@@ -1458,7 +1462,6 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const digestA = listedA.candidates[0]!.expected_candidate_digest;
     const planA = (await previewArchivePlan(archiver, { submission_id: submitA.submissionId, expected_candidate_digest: digestA })).body;
     expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j1-step2");
-    expect(businessIssueSet(planA), "j1-step2 business issues").toEqual(["CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED"]);
     // Empty INITIAL baseline: one NOT_APPLICABLE source row, no baseline-time item.
     const diagnosticsA = planA.business_validation.source_diagnostics as Array<{ detected_status: string; initial_origin: string; submission_id: string }>;
     expect(diagnosticsA.map((diagnostic) => [diagnostic.submission_id, diagnostic.detected_status, diagnostic.initial_origin].join("|")), "j1-step2 source diagnostics").toEqual([
@@ -1468,10 +1471,10 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
     const startA = dialogA.getByRole("button", { name: "确认归档" });
     await expect(startA).toBeDisabled();
-    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
+    await expect(dialogA.getByText("还有 1 项异常未处理")).toBeVisible();
     await dialogA.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await expect(startA).toBeDisabled();
-    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
+    await expect(dialogA.getByText("还有 1 项异常未处理")).toBeVisible();
     const cardA = dialogA.locator(".archive-anomaly");
     await cardA.getByRole("button", { name: "接受" }).click({ timeout: 120_000 });
     const acceptA = archiverSession.page.getByRole("dialog", { name: "接受异常" });
@@ -1483,7 +1486,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const revokeA = archiverSession.page.getByRole("dialog", { name: "撤销接受" });
     await revokeA.getByLabel("撤销理由").fill("j1 重新核对", { timeout: 120_000 });
     await revokeA.getByRole("button", { name: "确认撤销" }).click({ timeout: 120_000 });
-    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
+    await expect(dialogA.getByText("还有 1 项异常未处理")).toBeVisible();
     await cardA.getByRole("button", { name: "接受" }).click({ timeout: 120_000 });
     const acceptA2 = archiverSession.page.getByRole("dialog", { name: "接受异常" });
     await acceptA2.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间", { timeout: 120_000 });
@@ -1502,6 +1505,13 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await archiverSession.page.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
     await expect(archiverSession.page.locator(".workspace-details").getByText("已归档，成为归档基线 1")).toBeVisible();
     await saveEvidence(archiverSession.page, testInfo, "j1-disposition-archived");
+    // D1 under the real backend: the review top bar keeps the approved tag and
+    // disables every review action with the archived reason.
+    await openReviewPage(reviewerSession.page, submitA.submissionId);
+    await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已通过");
+    await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已归档");
+    await saveEvidence(reviewerSession.page, testInfo, "j1-review-disposition-archived");
+    assertClean(reviewerSession.diagnostics, "j1-review-archived");
 
     // Step 4: FULL B over A — baseline_to_initial empty, initial_to_modified ≥ 1.
     await gotoWorkbenchFresh(s1Session.page);
@@ -1550,6 +1560,10 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitB.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId}`,
     ], "j1-step7");
+    const diagnosticsB = planB.business_validation.source_diagnostics as Array<{ submission_id: string; detected_status: string; matching_sources: Array<{ source_kind: string }> }>;
+    const bDiagnostic = diagnosticsB.find((diagnostic) => diagnostic.submission_id === submitB.submissionId)!;
+    expect(bDiagnostic.detected_status, "j1-step7 B source explained").toBe("EXPLAINED");
+    expect(bDiagnostic.matching_sources.some((source) => source.source_kind === "BASELINE"), "j1-step7 B matches current baseline").toBe(true);
     appendCaseLog(`j1-step7 ok submission=${submitB.submissionId}`);
 
     // Step 8: accept only the INITIAL side; MODIFIED stays unprocessed.
@@ -1573,7 +1587,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const revokeSecond = archiverSecondSession.page.getByRole("dialog", { name: "撤销接受" });
     await revokeSecond.getByLabel("撤销理由").fill("j1 第二个上下文复核后撤销", { timeout: 120_000 });
     await revokeSecond.getByRole("button", { name: "确认撤销" }).click({ timeout: 120_000 });
-    await expect(dialogRevoke.getByText("还有 1 项未处理")).toBeVisible({ timeout: 120_000 });
+    await expect(dialogRevoke.getByText("还有 1 项异常未处理")).toBeVisible({ timeout: 120_000 });
     await dialogB3.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogB3.getByText("归档候选或核验结果已变化，请重新预检")).toBeVisible({ timeout: 120_000 });
     await dialogB3.locator("footer").getByRole("button", { name: "重新预检" }).click({ timeout: 120_000 });
@@ -1667,6 +1681,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     assertClean(s1Session.diagnostics, "j1-history");
     appendCaseLog("j1 ok three-node history compare browsed");
   } finally {
+    await closeSession(reviewerSession);
     await closeSession(archiverSecondSession);
     await closeSession(archiverSession);
     await closeSession(s1Session);
@@ -1689,6 +1704,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
   const s2Session = await openSession(browser, s2);
   const s3Session = await openSession(browser, s3);
   const archiverSession = await openSession(browser, archiver);
+  const reviewerSession = await openSession(browser, reviewer);
 
   try {
     // Step 1: A submitted, approved, archived.
@@ -1741,20 +1757,43 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expect(diagnostics3.length, "j2-step3 source diagnostics").toBe(3);
     for (const diagnostic of diagnostics3) expect(diagnostic.detected_status, `j2-step3 source ${diagnostic.submission_id}`).toBe("EXPLAINED");
 
-    // Step 4: close C with a reason; interrupt once, retry with the same key.
+    // Step 4: accept BASELINE_TIME_UNAVAILABLE in the UI, then close C;
+    // forward the first attempt to the backend, abort the browser, and retry
+    // with the same key (R5 pattern, kickoff §4.6 J2 step 4).
+    const btu3 = plan3.anomalies.find((anomaly) => anomaly.issue_code === "BASELINE_TIME_UNAVAILABLE")!;
+    const dialogAccept = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await expandArchiveGroupUi(dialogAccept, "基线时间");
+    const btuCard = dialogAccept.locator(".archive-anomaly", { hasText: "当前基线没有可用的生成时间" });
+    await expect(btuCard.getByText("未处理")).toBeVisible();
+    await btuCard.getByRole("button", { name: "接受" }).click({ timeout: 120_000 });
+    const acceptBtu = archiverSession.page.getByRole("dialog", { name: "接受异常" });
+    await acceptBtu.getByLabel("接受理由").fill("j2 接受基线时间缺失", { timeout: 120_000 });
+    await acceptBtu.getByRole("button", { name: "确认接受" }).click({ timeout: 120_000 });
+    await expect(btuCard.getByText("已接受")).toBeVisible();
+    await dialogAccept.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
+
+    let reviewGets = 0;
+    archiverSession.page.on("request", (request) => {
+      if (request.method() === "GET" && /\/v1\/submissions\/[^/]+\/review$/.test(new URL(request.url()).pathname)) reviewGets += 1;
+    });
     const digestC = listed.candidates.find((candidate) => candidate.submission_id === submitC.submissionId)!;
-    const closureBodies: string[] = [];
-    let closureAborted = false;
+    const closureRequests: Array<{ key: string; body: string }> = [];
+    const closureStatuses: number[] = [];
+    const closurePayloads: Array<{ closed_by: string; closed_at: string; reason: string }> = [];
+    let closureForwarded = false;
     await archiverSession.page.route("**/v1/submissions/*/closure", async (route) => {
-      if (!closureAborted) {
-        closureAborted = true;
+      const request = route.request();
+      closureRequests.push({ key: request.headers()["idempotency-key"] ?? "", body: request.postData() ?? "" });
+      const response = await route.fetch();
+      const buffer = await response.body();
+      closureStatuses.push(response.status());
+      closurePayloads.push(JSON.parse(buffer.toString("utf8")) as { closed_by: string; closed_at: string; reason: string });
+      if (!closureForwarded) {
+        closureForwarded = true;
         await route.abort("failed");
         return;
       }
-      await route.fallback();
-    });
-    archiverSession.page.on("request", (request) => {
-      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/closure")) closureBodies.push(request.postData() ?? "");
+      await route.fulfill({ status: response.status(), headers: { "content-type": response.headers()["content-type"] ?? "application/json" }, body: buffer });
     });
     // Candidate order is backend-defined; target C by its tree display name
     // ("提交 3": third created submission), not by list position.
@@ -1766,21 +1805,35 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await closeDialog.getByRole("button", { name: "确认关闭" }).click({ timeout: 120_000 });
     await expect(closeDialog.getByText("关闭请求未能送达，可以重试")).toBeVisible({ timeout: 120_000 });
     await closeDialog.getByRole("button", { name: "重试" }).click({ timeout: 120_000 });
-    await expect(closeDialog.getByText("已关闭")).toBeVisible({ timeout: 120_000 });
+    const closeResult = closeDialog.locator('[aria-label="关闭结果"]');
+    await expect(closeResult).toBeVisible({ timeout: 120_000 });
     await saveEvidence(archiverSession.page, testInfo, "j2-close-result");
-    expect(closureBodies.length, "closure sends (abort + retry)").toBe(2);
-    const firstClose = JSON.parse(closureBodies[0]!) as { expected_review_version: number; reason: string };
-    const retryClose = JSON.parse(closureBodies[1]!) as { expected_review_version: number; reason: string };
+    expect(closureStatuses, "first close creates, retry replays").toEqual([201, 200]);
+    expect(closureRequests.length, "closure sends (abort + retry)").toBe(2);
+    expect(closureRequests[0]!.key, "first closure carries an idempotency key").toBeTruthy();
+    expect(closureRequests[1]!.key, "retry reuses the same key").toBe(closureRequests[0]!.key);
+    expect(closureRequests[1]!.body, "retry reuses the same body").toBe(closureRequests[0]!.body);
+    const firstClose = JSON.parse(closureRequests[0]!.body) as { expected_review_version: number; reason: string };
     expect(firstClose.expected_review_version, "close takes the candidate review_version").toBe(digestC.review_version);
-    expect(retryClose, "retry reuses the same key and body").toEqual(firstClose);
-    expect(retryClose.reason).toBe("C 的业务口径已变化，先关闭");
-    appendCaseLog(`j2-step4 ok closed=${submitC.submissionId} review_version=${firstClose.expected_review_version}`);
+    expect(firstClose.reason).toBe("C 的业务口径已变化，先关闭");
+    const firstPayload = closurePayloads[0]!;
+    expect(firstPayload.closed_by, "closer is the archiver actor").toBe(archiver.actorId);
+    expect(firstPayload.reason).toBe(firstClose.reason);
+    const expectedClosedAt = `${firstPayload.closed_at.replace("T", " ").replace(/Z$/, "")} UTC`;
+    await expect(closeResult).toContainText(`关闭人：${archiver.actorId}`);
+    await expect(closeResult).toContainText(`关闭时间：${expectedClosedAt}`);
+    await expect(closeResult).toContainText(`理由：${firstPayload.reason}`);
+    expect(reviewGets, "archiver session never reads review facts").toBe(0);
+    appendCaseLog(`j2-step4 ok closed=${submitC.submissionId} review_version=${firstClose.expected_review_version} key=${closureRequests[0]!.key} statuses=${closureStatuses.join(",")}`);
     await archiverSession.page.unroute("**/v1/submissions/*/closure");
     await closeDialog.getByRole("button", { name: "取消" }).click({ timeout: 120_000 });
     await expect(dialogClose.getByText("候选集合已变化，之前的接受不再适用，请重新核对")).toBeVisible();
 
-    // Step 5: the set is re-derived; everything is unprocessed again.
-    const plan5 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
+    // Step 5: the set is re-derived; everything is unprocessed again and the
+    // previously accepted baseline-time subject is gone.
+    const listedAfterClose = (await listArchiveCandidates(archiver)).body;
+    const digestBAfterClose = listedAfterClose.candidates.find((candidate) => candidate.submission_id === submitB.submissionId)!.expected_candidate_digest;
+    const plan5 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestBAfterClose })).body;
     expectAnomalySets(plan5, [
       `CONFIGURATION_SOURCE|INITIAL_SOURCE_UNEXPLAINED|INITIAL|${submitE.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitB.submissionId}`,
@@ -1791,8 +1844,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
       `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitE.submissionId}`,
     ], "j2-step5");
     expect(plan5.anomalies.every((anomaly) => anomaly.resolution_status === "UNRESOLVED"), "j2-step5 all unprocessed").toBe(true);
+    expect(plan5.anomalies.some((anomaly) => anomaly.subject_digest === btu3.subject_digest), "j2-step5 accepted BTU subject is gone").toBe(false);
     expect(plan5.candidate_set_digest, "j2-step5 set re-derived").not.toBe(plan3.candidate_set_digest);
-
     // Step 6: s2's workspace is released; C reads closed; review shows both.
     const workspaceC = await currentWorkspace(s2);
     expect(workspaceC.active_submission_id, "s2 pointer cleared").toBeNull();
@@ -1808,6 +1861,16 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     const dispositionC = factsC.submission_disposition as unknown as { disposition?: string } | null;
     expect(typeof dispositionC === "object" ? dispositionC?.disposition : dispositionC, "j2-step6 disposition").toBe("CLOSED_NOT_ARCHIVED");
     assertClean(s2Session.diagnostics, "j2-closed-read");
+    // D3 under the real backend: review top bar names the closer, time and the
+    // expandable reason.
+    await openReviewPage(reviewerSession.page, submitC.submissionId);
+    await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已通过");
+    const reviewClosed = reviewerSession.page.locator(".review-disposition-line");
+    await expect(reviewClosed).toContainText(`由 ${archiver.actorId} 于`);
+    await reviewClosed.locator("summary").click({ timeout: 120_000 });
+    await expect(reviewClosed).toContainText("C 的业务口径已变化，先关闭");
+    await saveEvidence(reviewerSession.page, testInfo, "j2-review-disposition-closed");
+    assertClean(reviewerSession.diagnostics, "j2-review-closed");
 
     // Step 7: accept all seven; B archived, E closed at archive (D2 real).
     await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j2 接受余下全部");
@@ -1828,6 +1891,13 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await expect(detailsE.getByText("已关闭（未归档）").first()).toBeVisible();
     await expect(detailsE.getByText("归档时选中了其他提交")).toBeVisible();
     await saveEvidence(archiverSession.page, testInfo, "j2-disposition-closed-at-archive");
+    // D2 under the real backend: archive-time closure line in the review top bar.
+    await openReviewPage(reviewerSession.page, submitE.submissionId);
+    await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已通过");
+    await expect(reviewerSession.page.locator(".review-disposition-line")).toHaveText("归档时选中了其他提交");
+    await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已关闭（未归档）");
+    await saveEvidence(reviewerSession.page, testInfo, "j2-review-disposition-closed-at-archive");
+    assertClean(reviewerSession.diagnostics, "j2-review-closed-at-archive");
 
     // Step 8: C re-uploaded on baseline 2, approved, archived as baseline 3.
     await gotoWorkbenchFresh(s2Session.page);
@@ -1851,6 +1921,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     assertClean(s3Session.diagnostics, "j2-e");
     assertClean(archiverSession.diagnostics, "j2-archive");
   } finally {
+    await closeSession(reviewerSession);
     await closeSession(archiverSession);
     await closeSession(s3Session);
     await closeSession(s2Session);

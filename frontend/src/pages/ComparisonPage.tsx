@@ -240,7 +240,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     if (browse.mode !== "PREVIEW") return;
     void refreshUploadMode();
   }, [browse.mode, refreshUploadMode]);
-  const { resumeAfterOperation } = uploadMode;
+  const { resumeAfterOperation, retryResume } = uploadMode;
   // F1: the resume notice comes from the hook snapshot (uploadMode.resumeNotice);
   // the page only clears the operation card for terminal outcomes that leave
   // no pointer behind. Retry re-runs the read sequence and re-derives the notice.
@@ -255,6 +255,20 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       setResumeOperationId(null);
     }
   }, [resumeAfterOperation]);
+  // G1 (§6.2 step 2): the notice retry re-runs the resume sequence from step
+  // 1 via the hook entry, so both pages share one implementation and empty
+  // pointers still re-read the known attempt ID.
+  const retryResumeNotice = useCallback(async () => {
+    const outcome = await retryResume();
+    if (outcome.kind === "submitted") {
+      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: outcome.submissionId });
+      window.location.assign(`/?${params.toString()}`);
+      return;
+    }
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
+      setResumeOperationId(null);
+    }
+  }, [retryResume]);
   const resumeNotice = uploadMode.resumeNotice;
   const confirmWithdraw = useCallback(async () => {
     if (!workspace?.active_submission_id || !review) return;
@@ -561,7 +575,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
 
   return <main className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
-    {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void refreshUploadMode()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
+    {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">
@@ -573,6 +587,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             withdrawEnabled={uploadGates.withdraw.enabled}
             withdrawReason={uploadGates.withdraw.reason}
             withdrawRetry={Boolean(uploadGates.withdraw.retry && !uploadGates.withdraw.enabled)}
+            withdrawRetryLabel={uploadGates.withdraw.retryLabel ?? "重试读取"}
             submitEnabled={Boolean(bundle) && uploadGates.submit.enabled}
             submitReason={!bundle ? "请等待差异结果加载完成" : uploadGates.submit.reason}
             onWithdraw={() => { setWithdrawUnderstood(false); setWithdrawError(null); withdrawKey.current = crypto.randomUUID(); setWithdrawOpen(true); }}
@@ -660,10 +675,11 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   </main>;
 }
 
-function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, submitEnabled, submitReason, onWithdraw, onRetry, onSubmit }: {
+function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, withdrawRetryLabel, submitEnabled, submitReason, onWithdraw, onRetry, onSubmit }: {
   withdrawEnabled: boolean;
   withdrawReason?: string;
   withdrawRetry: boolean;
+  withdrawRetryLabel: "刷新" | "重试读取";
   submitEnabled: boolean;
   submitReason?: string;
   onWithdraw: () => void;
@@ -672,7 +688,7 @@ function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, 
 }) {
   return <span className="compare-actions">
     <Button variant="danger" onClick={onWithdraw} disabled={!withdrawEnabled} disabledReason={withdrawReason}>撤回</Button>
-    {withdrawRetry && <button className="link-button" onClick={onRetry}>重试读取</button>}
+    {withdrawRetry && <button className="link-button" onClick={onRetry}>{withdrawRetryLabel}</button>}
     <Button variant="primary" onClick={onSubmit} disabled={!submitEnabled} disabledReason={submitReason}>提交</Button>
   </span>;
 }

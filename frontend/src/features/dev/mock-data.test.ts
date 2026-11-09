@@ -237,47 +237,77 @@ describe("simulated HTTP response contracts", () => {
   });
 
   it("keeps every disposition scenario within the backend reachability rules (B7, §5.3)", () => {
-    const nodes = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES];
-    const archivedByResult = new Map<string, string[]>();
-    for (const node of nodes) {
-      if (node.node_kind === "BASELINE_NODE") {
-        expect(node).not.toHaveProperty("review_status");
-        continue;
+    // G3 (§5.3): the disposition combination rules run on every simulated
+    // History dataset listed in the reachability test below (shared pages,
+    // cursor pages, merged pages, scenario set, D5 case), not only on the
+    // scenario array. Probe Q4b (ARCHIVED_BASELINE + MANUAL_CLOSE in the
+    // shared HISTORY_PAGE_TWO) must fail here.
+    const checkDispositionCombinationRules = (datasetName: string, headId: string, datasetNodes: HistoryNode[]) => {
+      const archivedByResult = new Map<string, string[]>();
+      for (const node of datasetNodes) {
+        if (node.node_kind === "BASELINE_NODE") {
+          expect(node, `${datasetName} ${node.ref_id}`).not.toHaveProperty("review_status");
+          continue;
+        }
+        expect(node.node_kind).toBe("SUBMISSION");
+        // Dispositions only appear on APPROVED submissions.
+        if (node.submission_disposition) {
+          expect(node.review_status, `${datasetName} ${node.ref_id} disposition requires APPROVED`).toBe("APPROVED");
+        }
+        if (node.eligibility_note) {
+          expect(node.review_status, `${datasetName} ${node.ref_id} eligibility_note only on APPROVED`).toBe("APPROVED");
+        }
+        if (node.submission_disposition === "ARCHIVED_BASELINE") {
+          expect(node.disposition_source_kind, `${datasetName} ${node.ref_id} archive source`).toBe("ARCHIVE");
+          expect(node.disposition_result_id, `${datasetName} ${node.ref_id} result`).toBeTruthy();
+          expect(node.closure ?? null, `${datasetName} ${node.ref_id} no closure`).toBeNull();
+          expect(node.disposition_source_kind, `${datasetName} ${node.ref_id} not manual`).not.toBe("MANUAL_CLOSE");
+          const baseline = datasetNodes.find((candidate) => candidate.ref_id === node.promoted_baseline_node_id);
+          if (!baseline) {
+            // Shared page slices keep the promoted head outside the nodes
+            // array; the head itself is the only allowed off-array target.
+            expect(node.promoted_baseline_node_id, `${datasetName} ${node.ref_id} promoted is head`).toBe(headId);
+          } else {
+            expect(baseline?.node_kind).toBe("BASELINE_NODE");
+            expect(
+              (baseline as Extract<HistoryNode, { node_kind: "BASELINE_NODE" }>).baseline_kind,
+              `${datasetName} ${node.ref_id} promoted baseline kind`,
+            ).toBe("ARCHIVED_SUBMISSION");
+          }
+          const members = archivedByResult.get(node.disposition_result_id ?? "") ?? [];
+          archivedByResult.set(node.disposition_result_id ?? "", [...members, node.ref_id]);
+        }
+        if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "ARCHIVE") {
+          expect(node.disposition_result_id, `${datasetName} ${node.ref_id} result`).toBeTruthy();
+          expect(node.closure ?? null, `${datasetName} ${node.ref_id} no closure`).toBeNull();
+        }
+        if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "MANUAL_CLOSE") {
+          expect(node.disposition_result_id ?? null, `${datasetName} ${node.ref_id} no result`).toBeNull();
+          expect(node.closure, `${datasetName} ${node.ref_id} closure`).toBeDefined();
+          expect(node.closure?.closed_by, `${datasetName} ${node.ref_id} closed_by`).toBeTruthy();
+          expect(node.closure?.reason, `${datasetName} ${node.ref_id} reason`).toBeTruthy();
+        }
       }
-      expect(node.node_kind).toBe("SUBMISSION");
-      // Dispositions only appear on APPROVED submissions.
-      if (node.submission_disposition) {
-        expect(node.review_status, `${node.ref_id} disposition requires APPROVED`).toBe("APPROVED");
+      // One archive result produces at most one ARCHIVED_BASELINE.
+      for (const [resultId, members] of archivedByResult) {
+        expect(members.length, `${datasetName} archive result ${resultId}`).toBeLessThanOrEqual(1);
       }
-      if (node.eligibility_note) {
-        expect(node.review_status, `${node.ref_id} eligibility_note only on APPROVED`).toBe("APPROVED");
-      }
-      if (node.submission_disposition === "ARCHIVED_BASELINE") {
-        expect(node.disposition_source_kind, `${node.ref_id} archive source`).toBe("ARCHIVE");
-        expect(node.disposition_result_id, `${node.ref_id} result`).toBeTruthy();
-        expect(node.closure ?? null, `${node.ref_id} no closure`).toBeNull();
-        expect(node.disposition_source_kind, `${node.ref_id} not manual`).not.toBe("MANUAL_CLOSE");
-        const baseline = nodes.find((candidate) => candidate.ref_id === node.promoted_baseline_node_id);
-        expect(baseline, `${node.ref_id} promoted baseline`).toBeDefined();
-        expect(baseline?.node_kind).toBe("BASELINE_NODE");
-        expect(baseline?.baseline_kind).toBe("ARCHIVED_SUBMISSION");
-        const members = archivedByResult.get(node.disposition_result_id ?? "") ?? [];
-        archivedByResult.set(node.disposition_result_id ?? "", [...members, node.ref_id]);
-      }
-      if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "ARCHIVE") {
-        expect(node.disposition_result_id, `${node.ref_id} result`).toBeTruthy();
-        expect(node.closure ?? null, `${node.ref_id} no closure`).toBeNull();
-      }
-      if (node.submission_disposition === "CLOSED_NOT_ARCHIVED" && node.disposition_source_kind === "MANUAL_CLOSE") {
-        expect(node.disposition_result_id ?? null, `${node.ref_id} no result`).toBeNull();
-        expect(node.closure, `${node.ref_id} closure`).toBeDefined();
-        expect(node.closure?.closed_by, `${node.ref_id} closed_by`).toBeTruthy();
-        expect(node.closure?.reason, `${node.ref_id} reason`).toBeTruthy();
-      }
-    }
-    // One archive result produces at most one ARCHIVED_BASELINE.
-    for (const [resultId, members] of archivedByResult) {
-      expect(members.length, `archive result ${resultId}`).toBeLessThanOrEqual(1);
+    };
+    const mergedShared: HistoryNode[] = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
+    const mergedCursor: HistoryNode[] = [...TEST_HISTORY_CURSOR_FIRST.nodes, ...TEST_HISTORY_CURSOR_SECOND.nodes];
+    const scenarioNodes: HistoryNode[] = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES];
+    const dispositionDatasets: Array<{ name: string; headId: string; nodes: HistoryNode[] }> = [
+      { name: "HISTORY_PAGE_ONE", headId: HISTORY_PAGE_ONE.head.node_id, nodes: HISTORY_PAGE_ONE.nodes },
+      { name: "HISTORY_PAGE_TWO", headId: HISTORY_PAGE_TWO.head.node_id, nodes: HISTORY_PAGE_TWO.nodes },
+      { name: "merged shared pages", headId: HISTORY_PAGE_ONE.head.node_id, nodes: mergedShared },
+      { name: "TEST_HISTORY_CURSOR_FIRST", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: TEST_HISTORY_CURSOR_FIRST.nodes },
+      { name: "TEST_HISTORY_CURSOR_SECOND", headId: TEST_HISTORY_CURSOR_SECOND.head.node_id, nodes: TEST_HISTORY_CURSOR_SECOND.nodes },
+      { name: "merged cursor pages", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: mergedCursor },
+      { name: "disposition scenarios", headId: DISPOSITION_HEAD.node_id, nodes: scenarioNodes },
+      { name: "D5 case", headId: DISPOSITION_HEAD.node_id, nodes: [...scenarioNodes, DISPOSITION_D5_NODE] },
+    ];
+    for (const dataset of dispositionDatasets) {
+      checkDispositionCombinationRules(dataset.name, dataset.headId, dataset.nodes);
     }
     // The shared scenario array carries no D5 shape: D5 lives only in D5 case
     // data (DISPOSITION_D5_NODE), asserted below.

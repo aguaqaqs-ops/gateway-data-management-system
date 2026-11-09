@@ -419,6 +419,8 @@ test("D1 审核模式顶栏显示已归档标签与禁用原因", async ({ page 
   }
   await expect(page.locator(".review-actions").getByText("该提交已归档").first()).toBeVisible();
   await expect(page.locator(".review-disposition-line")).toHaveCount(0);
+  // N1: wait for the bundle so the top bar is not shot over the skeleton.
+  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d1-review-topbar", 1280);
 });
 
@@ -446,6 +448,8 @@ test("D2 审核模式顶栏显示归档时关闭的一行说明", async ({ page 
     await expect(button).toBeDisabled();
   }
   await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
+  // N1: wait for the bundle so the top bar is not shot over the skeleton.
+  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d2-review-topbar", 1280);
 });
 
@@ -477,10 +481,14 @@ test("D3 审核模式顶栏显示关闭人与理由展开", async ({ page }) => 
     await expect(button).toBeDisabled();
   }
   await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
+  // N1: wait for the bundle so the top bar is not shot over the skeleton.
+  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d3-review-topbar", 1280);
 });
 
 test("F3 review 查询 404 时只读一次工作区，刷新后重读", async ({ page }) => {
+  // G2 (§6.1): the 404 row labels its entry "刷新" while the other retry rows
+  // keep "重试读取". Clicking it re-runs the read sequence.
   const state: ModeState = {
     workspace: workspace({ active_submission_id: "submission-1" }),
     review: TEST_REVIEW_FACTS,
@@ -491,9 +499,10 @@ test("F3 review 查询 404 时只读一次工作区，刷新后重读", async ({
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("未找到该提交，请刷新后重试")).toBeVisible();
-  await expect(page.getByRole("button", { name: "重试读取" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重试读取", exact: true })).toHaveCount(0);
   expect(workspaceReadsOf()).toBe(1);
-  await page.getByRole("button", { name: "重试读取" }).click();
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
   await expect.poll(() => workspaceReadsOf(), { timeout: 15000 }).toBe(2);
   await expect(page.getByText("未找到该提交，请刷新后重试")).toBeVisible();
 });

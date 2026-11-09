@@ -237,6 +237,20 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     await reloadHistory();
   }, [compareRefs, selectedKey, reloadHistory, uploadMode.resumeAfterOperation]);
 
+  // G1 (§6.2 step 2): the notice retry shares the hook entry with the Preview
+  // page, so empty pointers still re-read the known attempt ID.
+  const retryResumeNotice = useCallback(async () => {
+    const outcome = await uploadMode.retryResume();
+    if (outcome.kind === "submitted") {
+      window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: outcome.submissionId, workbenchNode: selectedKey }, compareRefs));
+      return;
+    }
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
+      setResumeSubmitOperationId(null);
+    }
+    await reloadHistory();
+  }, [compareRefs, selectedKey, reloadHistory, uploadMode.retryResume]);
+
   useEffect(() => {
     void load();
     const onSessionChange = () => { void load(); };
@@ -492,7 +506,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
     {notice === "withdrawn" && <div role="status" className="form-success workspace-notice"><span>已撤回，可以重新上传</span><button className="link-button" onClick={() => setNotice(null)}>关闭</button></div>}
-    {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void load()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
+    {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{workspace.gateway_device_external_key}</span></div>

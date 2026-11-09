@@ -226,14 +226,19 @@ describe("deriveUploadModeGates", () => {
   });
 
   it("offers a manual refresh without an automatic re-read on review 404", () => {
-    // F3: 404 is user-triggered refresh (§6.1), not one of the four automatic
-    // re-read cases.
+    // G2 (§6.1): 404 labels its retry affordance "刷新" while the other retry
+    // rows keep "重试读取". The behavior is the same re-read sequence.
     const gates = deriveUploadModeGates(input({
       workspace: workspace({ active_submission_id: "submission-1" }),
       reviewError: { status: 404, code: "RESOURCE_NOT_FOUND" },
     }));
-    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.notFound, retry: true });
+    expect(gates.withdraw).toMatchObject({ enabled: false, reason: WITHDRAW_COPY.notFound, retry: true, retryLabel: "刷新" });
     expect(gates.withdraw.reread).toBeUndefined();
+    const failed = deriveUploadModeGates(input({
+      workspace: workspace({ active_submission_id: "submission-1" }),
+      reviewError: { status: 500, code: "SERVICE_NOT_READY" },
+    }));
+    expect(failed.withdraw).toMatchObject({ enabled: false, retry: true, retryLabel: "重试读取" });
   });
 
   it("asks for a re-read for the upload gate on terminal review statuses", () => {

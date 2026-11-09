@@ -35,6 +35,11 @@ export interface Gate {
   reread?: boolean;
   /** The caller may offer a retry that restarts the read sequence. */
   retry?: boolean;
+  /**
+   * G2 (§6.1): the 404 row labels its retry affordance "刷新" while the other
+   * retry rows keep "重试读取". The behavior is the same re-read sequence.
+   */
+  retryLabel?: "刷新" | "重试读取";
 }
 
 export interface UploadModeGates {
@@ -111,9 +116,9 @@ function attemptGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate 
     case "loading":
       return loadingGate(copy);
     case "stale":
-      return { enabled: false, reason: copy.unknown, retry: true, reread: true };
+      return { enabled: false, reason: copy.unknown, retry: true, reread: true, retryLabel: "重试读取" };
     case "unknown":
-      return { enabled: false, reason: copy.unknown, retry: true };
+      return { enabled: false, reason: copy.unknown, retry: true, retryLabel: "重试读取" };
     case "recovery":
       return { enabled: false, reason: copy.recovery };
     default:
@@ -127,9 +132,9 @@ function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Ga
   if (input.reviewError) {
     const status = input.reviewError.status ?? null;
     if (mode === "withdraw" && status === 403) return { enabled: false, reason: WITHDRAW_COPY.forbidden };
-    if (mode === "withdraw" && status === 404) return { enabled: false, reason: WITHDRAW_COPY.notFound, retry: true };
+    if (mode === "withdraw" && status === 404) return { enabled: false, reason: WITHDRAW_COPY.notFound, retry: true, retryLabel: "刷新" };
     if (mode === "upload") return { enabled: false, reason: UPLOAD_COPY.inReview };
-    return { enabled: false, reason: WITHDRAW_COPY.failed, retry: true };
+    return { enabled: false, reason: WITHDRAW_COPY.failed, retry: true, retryLabel: "重试读取" };
   }
   const disposition = input.review?.submission_disposition ?? null;
   if (disposition) {
@@ -173,9 +178,9 @@ export function deriveUploadModeGates(input: UploadModeInput): UploadModeGates {
   }
   if (!input.workspace || input.workspaceError) {
     return {
-      withdraw: { enabled: false, reason: WITHDRAW_COPY.unknown, retry: true },
-      submit: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true },
-      upload: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true },
+      withdraw: { enabled: false, reason: WITHDRAW_COPY.unknown, retry: true, retryLabel: "重试读取" },
+      submit: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true, retryLabel: "重试读取" },
+      upload: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true, retryLabel: "重试读取" },
     };
   }
 

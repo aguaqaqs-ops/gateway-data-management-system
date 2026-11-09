@@ -73,6 +73,15 @@ export interface UploadModeSnapshot {
    * the gates and the resume notice derive from the same snapshot.
    */
   resumeAfterOperation: (finishedOperationId: string) => Promise<ResumeOutcome>;
+  /**
+   * G1 (§6.2 step 2): the retry affordance on the resume notice re-runs the
+   * resume sequence from step 1 instead of only re-reading the workspace.
+   * Both pages share this entry so the prompt and the gates stay derived
+   * from the same snapshot. When both pointers are empty the known attempt
+   * ID is still used: a readable ABORTED keeps the unfinished copy with the
+   * original code, an unreadable attempt keeps the unreadable copy.
+   */
+  retryResume: () => Promise<ResumeOutcome>;
 }
 
 /**
@@ -267,8 +276,10 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     void refresh();
   }, [enabled, rereadKey, refresh]);
 
-  const resumeAfterOperation = useCallback(async (finishedOperationId: string): Promise<ResumeOutcome> => {
-    void finishedOperationId;
+  // G1 (§6.2 step 2): retry re-runs the resume sequence from step 1. The
+  // known attempt ID survives the pointers being cleared (ABORTED), so the
+  // empty-pointer branch still re-reads the attempt instead of clearing it.
+  const retryResume = useCallback(async (): Promise<ResumeOutcome> => {
     setWorkspaceLoading(true);
     setAttemptLoading(true);
     setOperationLoading(true);
@@ -320,6 +331,11 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     }
   }, [clearAttemptChain, readAttemptChain, readReview]);
 
+  const resumeAfterOperation = useCallback(async (finishedOperationId: string): Promise<ResumeOutcome> => {
+    void finishedOperationId;
+    return retryResume();
+  }, [retryResume]);
+
   // F1: the resume notice and the gates come from this same snapshot (§6.2).
   // ABORTED (pointers cleared, attempt readable) keeps the unfinished-submit
   // copy with the backend abort code. Cleared pointers with an unreadable
@@ -369,6 +385,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     gates,
     refresh,
     resumeAfterOperation,
+    retryResume,
   };
 }
 

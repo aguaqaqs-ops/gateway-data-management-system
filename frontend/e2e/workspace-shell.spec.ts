@@ -1661,6 +1661,13 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
   await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
+  // G1 (r2a): retry keeps the original prompt and code instead of clearing
+  // the attempt. Both pointers are empty, so the hook re-reads the attempt
+  // by the known ID and stays on the ABORTED copy.
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(submit).toBeEnabled();
 });
 
 test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async ({ page }) => {
@@ -1734,9 +1741,61 @@ test("W9③ 操作结束后工作区读不到时禁用并可重试恢复", async
   await expect(submit).toBeDisabled();
 });
 
+test("W9③b 工作区恢复后指针为空时按已知ID重读attempt", async ({ page }) => {
+  // G1 §6.2 step 2d: retry finds the workspace readable with both pointers
+  // empty, so it re-reads the attempt by the known ID and renders the prompt
+  // from that read. Only calling refresh() would leave no attempt read.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptState: "PREPARED",
+    workspaceReadFails: false,
+    submitAttemptReadFails: false,
+    clearWorkspacePointer: false,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  fixtureOptions.workspaceReadFails = true;
+  releaseOperation();
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeDisabled();
+  // Workspace recovers with both pointers empty; the attempt is ABORTED and
+  // readable by the known ID.
+  fixtureOptions.workspaceReadFails = false;
+  fixtureOptions.clearWorkspacePointer = true;
+  fixtureOptions.submitAttemptState = "ABORTED";
+  const attemptReadsBefore = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const workspaceReadsBefore = apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length;
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(submit).toBeEnabled();
+  expect(apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length)
+    .toBeGreaterThan(workspaceReadsBefore);
+  const attemptReads = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/"));
+  expect(attemptReads.length).toBeGreaterThan(attemptReadsBefore);
+  expect(attemptReads.some((request) => request.path.includes("attempt-1"))).toBe(true);
+});
+
 test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重试", async ({ page }) => {
-  // F1 §6.2: both pointers are empty yet the attempt cannot be read — the
-  // submit stays available with the unreadable-result copy.
+  // G1 §6.2 step 2: both pointers are empty yet the attempt cannot be read —
+  // the submit stays available with the unreadable-result copy. Retry keeps
+  // the original prompt while the attempt stays unreadable, and shows the
+  // ABORTED copy with the original code once the attempt becomes readable.
   let releaseOperation!: () => void;
   const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
   let holdOperation!: () => void;
@@ -1753,7 +1812,7 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
       ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
-  await installFixtureRoutes(page, fixtureOptions);
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
@@ -1764,11 +1823,24 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   releaseOperation();
   await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeEnabled();
-  // Retry restarts from step 1: the workspace re-read keeps the cleared
-  // pointers, so the submit stays available with the unfinished-submit copy.
+  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  // Retry while the attempt is still unreadable keeps the original prompt
+  // (the hook re-reads the attempt by the known ID instead of clearing it).
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
+  await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
+  expect(apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length)
+    .toBeGreaterThan(attemptReadsBeforeRetry);
+  // The attempt becomes readable as ABORTED: retry shows the unfinished copy
+  // with the original code.
   fixtureOptions.submitAttemptReadFails = false;
+  fixtureOptions.submitAttemptState = "ABORTED";
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toHaveCount(0);
 });

@@ -259,6 +259,7 @@ test("V2 两侧独立项分别接受与撤销", async ({ page }) => {
   await initialCard.getByRole("button", { name: "接受" }).click();
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await expect(accept.getByRole("button", { name: "确认接受" })).toBeDisabled();
+  await screenshot(page, "fe3c-accept-dialog", 1920);
   await accept.getByLabel("接受理由").fill("① 已核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
   await expect(dialog.getByText("已接受")).toBeVisible();

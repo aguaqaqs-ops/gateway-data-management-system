@@ -169,7 +169,7 @@ FULL r1已在原E `e88ece5c98` §106核收单次测量资格PASS；唯一Luna于
 | --- | --- | --- | --- |
 | comparison total | 309.9643607160542 | 309.98104098206386 | 含read/build与随后facts/records JCS |
 | native records build | 252.80942216799997 | 252.17699095599997 | read/build内部，含native排序及内部产物JCS |
-| 随后records JCS | 41.52512506581843 | 41.61196280200966 | 完整payload由Rust生成；Python只小metadata，不是逐行Python编码 |
+| 随后records JCS | 41.52512506581843 | 41.61196280200966 | Python编码每表／summary metadata，Rust在handle中纳入记录计算完整facts-core JCS；无逐行Python记录编码 |
 | records publication | 3.062593827024102 | 3.0712150188628584 | 内含Parquet写1.1709966640919447／1.1596696821507066 |
 | Risk total | 113.35153992590494 | 110.59572038683109 | 必要Arrow转换6.523780236253515／6.432785206940025属于rules内部 |
 | surface／table export | 13.457606365904212 | 21.831863838015124 | pair范围；bundle assembly另属整operation |

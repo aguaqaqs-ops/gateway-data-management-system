@@ -71,8 +71,10 @@ A/Risk子候选`17255de2222df61e45206e96f51d39ea8dd788aa`先独立固定；原�
 
 A产品候选为`ad043152b1604da1ff56ec67f1513e4fd9b66456`，Rust tree=`00fda965165d64ff8846d2205754f38d4cd4630c`。实现包含同一语义投影驱动native/key、Comparison owner的neutral facts/artifact/risk codec与真实facade恢复、完整Risk事件及当前operation重放。持久索引、应用接线和T3触达尚属B–D，不宣称当前已有跨operation命中。
 
-独立Sol原审核者连续关闭Risk R1、Comparison R1/R2发现：补operation控制，修正过滤空报告和冻结context测试；支持SET typed frame、完整两侧storage binding、同operation native restore、任务种类/族闭合与KEYLESS完整结果；公开真实owner调用入口。最后`5a74dfd068`为功能CODE_GO，`ad043152b1`仅应用06生成的Rust格式补丁，R4核机械等价后CODE_GO。六份逐字原文和各SHA见[A审核归档](p6-s5-a-review.md)，归档整体SHA256=`c96c13fea94e108e231aba0783dbd52273f5161a04430f2950fff3d9a6fb1f42`。该结论尚不等于证据GO。
+独立Sol原审核者连续关闭Risk R1、Comparison R1/R2发现：补operation控制，修正过滤空报告和冻结context测试；支持SET typed frame、完整两侧storage binding、同operation native restore、任务种类/族闭合与KEYLESS完整结果；公开真实owner调用入口。`5a74dfd068`为功能CODE_GO，`ad043152b1`仅应用06生成的Rust格式补丁，R4核机械等价后CODE_GO。逐字原文和各SHA见[A审核归档](p6-s5-a-review.md)；R4归档版本SHA256=`c96c13fea94e108e231aba0783dbd52273f5161a04430f2950fff3d9a6fb1f42`，追加R5/R6后的当前版本SHA256=`9ba3c10f59332005cb38913e8649cb51f3b958a61a94cadebd82a50870bfbc4f`。该结论尚不等于证据GO。
 
 并行前端收口使main从`ad043152b1`前进至`0e39898265ddb1b9df92708e0988f78852894996`；已核区间仅`frontend/`与`docs/frontend-vnext/`，完整`vnext` tree仍为`f31f9ce2aef5c45675ddf15beadd468b7caf06ca`。不reset或覆盖前端工作，A验证固定ad043，后续实现基于实际最新main。
 
 唯一测试者在06重新核空闲并原子取得本人标记，已将LAN Git bundle（SHA256=`1c6a8ef66807982b1a1acbd8136b6d72e79124b72fe3e2d586e9b3ed62490509`）校验并建立clean detached被测worktree。执行稿`/home/dev/gdds-s5-logs/execution/a-focused.sh` SHA256=`cec9a69d6d7d27cdf261ce7a8fc9ce56346e71ecf284c766022a02307bc01fa6`；修稿在产品执行前发现并纠正目录准备、失败现场保留和日志最终SHA问题，没有把准备失败当产品测试。现在按offline强制重装native/build-input→五包ruff/mypy→Rust fmt/clippy/focused→backend受影响focused运行；首非零即停，失败现场保留，日志在worktree外。A证据核收前B不启动，完整runner/Compose与最小t1仍集中E按最终闭包判定。
+
+首次ad043实际native编译因FFI错误引用两个未声明直接依赖而exit1停止；后续检查全部未运行，未沿用为PASS，失败日志/资源收尾详见[A交接](p6-s5-a-handoff.md)。修订535117将这些逻辑移回已有core facade，未改依赖或锁；R5源码GO，07机械格式准备后形成最终c1a533，R6源码GO。06他人有效占用期间改用合格07做format，准备脚本目录错误保留并修正，没有因常规资源协调请求Owner。06释放后于06:39:49Z开始固定c1a533的正式必要重验，新的独立runroot/WT及原件保留规则见交接；仍待实际结果与原审核者证据核收。

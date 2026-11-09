@@ -1,6 +1,6 @@
 # S5 A 独立产品审核归档
 
-截至R4，固定候选 `ad043152b1604da1ff56ec67f1513e4fd9b66456` 源码 **CODE_GO**；实际 focused、Rust 与五包静态证据尚待核收，A尚无证据GO，B未放行。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
+截至R6，修后固定候选 `c1a5332a8722d3736280d8b60059944e329b8697` 源码 **CODE_GO**；首次ad043编译失败原件保留，修后实际 focused、Rust 与五包静态证据尚待核收，A尚无证据GO，B未放行。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
 
 原件 Risk R1：`/home/dev/gdds-s5-logs/reviews/a-risk-r1.md`；SHA256：`b27a860fa7c725860f7754e030aa104e22f8f038739c083eba96cb13c857976b`。
 
@@ -355,3 +355,88 @@ Current HEAD：`ad043152b1604da1ff56ec67f1513e4fd9b66456`。Container rebuild re
 
 ---
 
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r5-compile.md`；SHA256：`7eb2a42c1de2b15ff0e2a3550629cd61ece2aa8e74e6b0d1b8b6f9e3ce490055`。
+
+---
+
+# P6 S5 A 连续产品复审 R5（首次编译失败修复）
+
+结论：**CODE_GO（固定功能源码范围，待最终格式化比对与实际重验）**。首次 native 编译暴露的四个 E0433 原因已在源码中关闭；本轮没有发现新代码阻塞。尚无当前修订的编译成功证据，A 证据 GO 与 B 放行继续等待。
+
+## 1. 固定对象与原失败
+
+- Candidate：`5351170224c6bbe4997074338292fb04b380e64f`；Rust tree：`aeae50698611cd2803e8c7ca466f7a999565aff8`。
+- 原被测候选：`ad043152b1604da1ff56ec67f1513e4fd9b66456`；完整审核 base 仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读 detached worktree：`/home/dev/gdds-s5-review-a-5351170224`；创建后及报告前核 exact HEAD、detached、index/tracked/untracked clean，已按规定建立正确 legacy 符号链接。
+- `ad043..535117` 的 vnext 变化只有四个 Rust 路径；Cargo.toml、Cargo.lock、其他依赖锁与 backend Python 树未改。并行 FE3b 合并仅影响 frontend/docs/frontend，`6ec37dde9a` 仅归档 S5 审核文档；本轮不重审前端或代签前端结论。
+- 本人未实现本轮被审代码，未改产品、测试、Contract 或被审 worktree，未执行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子 agent、push/tag。
+
+独核首次执行原件：`/home/dev/gdds-s5-logs/execution/a-focused/20261109T061526Z-ad043152b1604da1ff56ec67f1513e4fd9b66456/remote-evidence/backend-native-sync.log`，SHA256=`16905a439faa5a29a7f458dada14fd8f57739daf83a6e6ebd67382e2e3599067`。06 的 steps/session 记录 2026-11-09 06:15:29Z–06:16:28Z、精确 ad043 与 Rust tree `00fda965165d64ff8846d2205754f38d4cd4630c`，native sync command exit 1、tee exit 0；工作区检查后仍 clean，失败临时状态保留，占用标志已释放。
+
+这是产品失败：`gateway-compute-python/src/comparison_records.rs` 中直接使用 `serde_json::json!`、`serde_json::Value`、`serde_json::from_str` 和 `gateway_shared_kernel::canonicalize_identifier`，而该 crate 无两者直接依赖，产生四个 E0433，maturin/cargo 编译退出失败。既有源码审核漏掉了该依赖解析错误；没有将它归类为工具故障、缓存缺失或无产品运行的脚本错误。原件保留，后续 focused/static/Rust 检查未运行，不能由 R4 CODE_GO 反推其通过。
+
+## 2. 修复边界与关键逐字段核查
+
+| 边界 | 当前修订及独核 | 结论 |
+| --- | --- | --- |
+| FFI 依赖解析 | FFI 不再引用 serde_json 或 gateway_shared_kernel，改消费已有 gateway-compute-core facade 的 `CacheMetadata`、`export_neutral_facts`、`validate_neutral_risk_column`。core 本来已有 JSON/shared-kernel 直接依赖；未新增依赖、锁变化或 re-export 第三方 JSON 类型。 | 四个已知 E0433 源码原因 CLOSED；实际编译待验 |
+| opaque metadata | core 的 `CacheMetadata(Value)` 字段私有，`parse` 保原 JSON parse/object 拒绝条件及错误；`validate(kind, counts)` 调原精确 metadata validator，原 keys、枚举、版本、summary/count/family 规则未改，底层 Value validator改私有。FFI 中先 same-operation/active owner/control，随后 `context.reserve(json_metadata_upper(...))`，再 `CacheMetadata::parse`；facts 读取/validate 后才传三 family counts验证。没有把 parse 移到预算前，也没有绕过后续 family、risk 或 artifact/schema/count 闭合。 | 静态通过 |
+| neutral facts 导出 | 原 FFI detach 内三个互斥 result 分支，改为相同 `standard/ordered/neutral` 三个 Option 借用，交 core helper。core 内仍构造相同 neutral table metadata 和 TableFactsSource，并按 STANDARD、ORDERED、BLANK 顺序调用原 exporter，前两次 clone owner，最后一次 move owner；context、max_row_bytes、原 lease/1024 batch/ordinal/frame 行为未变。公开的逐 family JSON源接口收为私有，真实 consumer 是新的整体 export helper。 | 静态通过 |
+| 风险列校验 | core helper仍调用同一 canonicalize_identifier并比较原始列名；FFI仍先 null拒绝、同样逐列调用、再以同一 HashSet 拒绝重复；原错误类型/消息与循环控制点保留。没有降低 canonical/重复列约束或更改 Risk emit/业务clock。 | 静态通过 |
+| M/control/资源寿命 | metadata lease仍先于解析，成功时仍转入恢复handle的 `_schema_lease`；失败时局部metadata/facts/lease/Arc owner按原栈释放。export结果仅整体成功后写入 `self.cache_facts/cache_metadata/_cache_metadata_lease`，部分失败不发布候选。same-operation identity、当前cancel/deadline、OperationUse、PythonChargeOwner和parent/last-consumer链未改。 | 静态通过，原资源向量仍待实跑 |
+
+四路径为 core lib.rs、records.rs、records/cache.rs 和 Python adapter comparison_records.rs。完整差异已核，没有改既有 SET/scalar frame、summary/count 计算、facts digest、records family、Risk 控制顺序、M24、SQL、scope/恢复屏障或独立 golden。未引入额外治理、持久 proof 或新 DAG 边。
+
+R1–R3 已关闭 A1–A4、Risk R2、版本常量/FFI/DAG和真实 codec owner/KEYLESS 向量的功能结论保持；本轮为编译失败做局部连续复审，不扩大原阶段范围。
+
+## 3. 待核事项与执行状态
+
+当前 **FINAL FORMAT / CURRENT NATIVE COMPILE / FOCUSED / STATIC / RUST = NOT_RUN**（本报告核收状态）。唯一测试角色将本固定修订在 06 的隔离 worktree 生成机械格式补丁；入最终 clean 提交后由原审核者再比对格式差异。随后以该最终提交重新开始必要 native sync/build-input、focused、五 Python 包 ruff/mypy 和 Rust 检查。首次 ad043 失败不作来源 PASS、不沿用未执行步骤；失败按原规则保原件并先修，不推进 B。
+
+R4 原件 `/home/dev/gdds-s5-logs/reviews/a-r4-format.md` SHA256=`dc44e3d802004594b3c2aebcfbfb4921e94bd0746cfcd525ca4db610a399b150`，保留未改。本次源码 CODE_GO 仅授权继续验证输入，不代表当前编译或 A 必要执行证据已经通过。
+
+## 4. 容器状态
+
+Current HEAD：`5351170224c6bbe4997074338292fb04b380e64f`。Container rebuild required：本 A 子节未单独触发，依赖/锁/部署/container harness/container-only 行为均未改。Container gate for current HEAD：**deferred**，必要执行点仍为 E 最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史 S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` 交接线索，本审核未重算镜像或新增 carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r6-format.md`；SHA256：`a6f223d72da27015d99946a25e5f562024a61c550b0db2a21ac0ad902b29519b`。
+
+---
+
+# P6 S5 A 连续产品复审 R6（编译修复的最终格式候选）
+
+结论：**CODE_GO，绑定 `c1a5332a8722d3736280d8b60059944e329b8697`**。R5 至本轮仅三处 Rust 文件机械排版，原编译失败的源码修复结论保持。可交唯一测试角色正式开始 A 重验；实际编译、focused、静态及 Rust 证据仍待核，A 证据 GO 和 B 继续等待。
+
+## 1. 固定对象与补丁身份
+
+- Candidate：`c1a5332a8722d3736280d8b60059944e329b8697`。
+- 上轮功能 Candidate：`5351170224c6bbe4997074338292fb04b380e64f`；中间 `3af4` 只写 handoff 文档。完整审核 base 仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读 detached worktree：`/home/dev/gdds-s5-review-a-c1a5332a87`；创建后与报告前核 exact HEAD、detached、index/tracked/untracked clean，legacy 链接正确。
+- Rust tree：`180d191566f9eb95729994ea9ef3284e7fa54b78`；backend tree仍为 `240d6ccd86ca0df0df053d752e592838e626d9a8`，与 R5 完全相同。
+- 07 原机械补丁：`/home/dev/gdds-s5-logs/execution/a-format-prep-07/continuation/20261109T063645Z-5351170224c6bbe4997074338292fb04b380e64f/format-continuation-1/cargo-fmt.patch`，2,980 字节，SHA256=`6c5d54755170626dd1d928a8339e0124fffd2237905e9fc991283fa59655dedf`。摘要已核；最终候选上 `git apply --reverse --check` exit 0；`core.abbrev=8` 的 `git diff --no-ext-diff --binary 5351170224c6bbe4997074338292fb04b380e64f HEAD -- vnext/rust` 与原补丁逐字同 SHA。
+- 本人未改被审产品、测试、Contract 或 worktree；未执行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子 agent、push/tag。
+
+## 2. 机械差异与结论绑定
+
+完整核对三路径，只有 core lib.rs 的同集合导出换行、records/cache.rs 的 validator 函数签名合并为一行、comparison_records.rs 的 `metadata.validate(...).map_err(...)` 拆为多行。没有 import 成员、参数、分支、字符串、JSON/schema/family/count 条件、控制检查、预算/lease/owner 次序或固定向量变化。vnext 之外只有本轮 handoff 文档，不作为新的产品改动审核。
+
+因此 R5 的 opaque core metadata、neutral facts 整体导出、canonical 风险列验证与 FFI 不再引用缺失直接依赖的结论，连同既有 A1–A4、Risk R2、同 M、DAG、版本/FFI 和 owner/KEYLESS 向量核查，绑定至本最终候选。没有新代码 finding。
+
+R5 原件 `/home/dev/gdds-s5-logs/reviews/a-r5-compile.md` SHA256=`7eb2a42c1de2b15ff0e2a3550629cd61ece2aa8e74e6b0d1b8b6f9e3ce490055`，保留未改。首次 ad043 编译失败及其原件仍有效，不以本次格式比对改写为通过。
+
+## 3. 执行稿与待验状态
+
+只读窄核后续执行稿 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，与首次执行稿相比未见真实阻塞：候选/Rust tree 的 40hex 校验、五节点枚举、clean main、候选 ancestor 与后续完整 vnext tree 相同均在 remote 调用前；派生路径/refs/session 只含固定字符；Cargo target 归本人 runroot，不再触碰共享 target；离线、Rust 环境约束、首失败停止、日志与 owned marker 释放均保留。此稿未由本人执行，不据此宣称检查通过。
+
+正式参数应固定 `S5_A_CANDIDATE=c1a5332a8722d3736280d8b60059944e329b8697`、`S5_A_RUST_TREE=180d191566f9eb95729994ea9ef3284e7fa54b78`，节点由唯一测试角色只读核现场空闲与合格缓存后从授权池选择。当前 **NATIVE COMPILE / BUILD-INPUT / FOCUSED / STATIC / RUST = NOT_RUN**（本报告核收状态）。实际成功原件返回并经原审核者核收后，才能形成 A 必要证据 GO，不提前 B。
+
+## 4. 容器状态
+
+Current HEAD：`c1a5332a8722d3736280d8b60059944e329b8697`。Container rebuild required：本 A 子节无独立触发，未改依赖/锁/部署/container harness/container-only 行为。Container gate for current HEAD：**deferred**，必要执行点仍为 E 最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史 S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` 交接线索，本审核未重算镜像或新增 carried。

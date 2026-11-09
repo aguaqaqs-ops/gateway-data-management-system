@@ -1,6 +1,6 @@
 # Phase 6 S5 A 交接
 
-当前状态：源码修订与复审中，**证据尚未通过，B未启动**。设计CLEAR、源码CODE_GO与实际验证分别记载。
+当前状态：修后候选`c1a5332a8722d3736280d8b60059944e329b8697`源码CODE_GO，06复验进行中，**证据尚未通过，B未启动**。设计CLEAR、源码CODE_GO与实际验证分别记载。
 
 ## 实现与独审
 
@@ -22,7 +22,9 @@ A实现了完整单表有向语义身份、同源native输入投影、Comparison
 
 原件目录：`/home/dev/gdds-s5-logs/execution/a-focused/20261109T061526Z-ad043152b1604da1ff56ec67f1513e4fd9b66456/`。关键step log：`remote-evidence/backend-native-sync.log`，SHA256=`16905a439faa5a29a7f458dada14fd8f57739daf83a6e6ebd67382e2e3599067`；完整stdout SHA256=`15094ca2f2a622b76a7ff8fe73ee167f30b51a5918c673b83dbb15981b2dbd73`。环境使用本节点预填uv/Cargo缓存、无公网或代理；工具链1.97.0四工具均解析到`/home/dev/.cargo/bin`，uv0.11.28，TMPDIR位于磁盘`/home/dev/gdds-test-tmp`。源码通过获准LAN bundle传入，bundle SHA见协调记录。
 
-失败属于产品源码：FFI新增直接引用未声明的`serde_json`和`gateway_shared_kernel`。修订`5351170224c6bbe4997074338292fb04b380e64f`将JSON解析/元数据构造与identifier检查移到已有core owner的实际helper，FFI只调用core facade；四个Rust文件，无依赖或锁修改。Rust tree=`aeae50698611cd2803e8c7ca466f7a999565aff8`。待同一原审窄审、专用节点格式准备和修后新候选必要复验，不能将此静态修复写为编译PASS。
+失败属于产品源码：FFI新增直接引用未声明的`serde_json`和`gateway_shared_kernel`。修订`5351170224c6bbe4997074338292fb04b380e64f`将JSON解析/元数据构造与identifier检查移到已有core owner的实际helper，FFI只调用core facade；四个Rust文件，无依赖或锁修改。同一原审R5为CODE_GO。07格式准备曾因未进入Rust selector目录而停止，修正后同一步从头完成`cargo fmt --all`（06:36:46–06:36:47Z、exit0），旧错误日志保留；06当时他人有效占用的准入冲突也保留，未抢占资源。最终三文件纯格式补丁SHA256=`6c5d54755170626dd1d928a8339e0124fffd2237905e9fc991283fa59655dedf`，应用为`c1a5332a87`，R6逐字核补丁并CODE_GO，Rust tree=`180d191566f9eb95729994ea9ef3284e7fa54b78`。
+
+06再次空闲且离线缓存合格后，唯一测试者按已窄审的参数化稿`a-focused-next.sh`（SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`）原子取得本人标记，传输并校验固定c1a533源码bundle（SHA256=`994f8daba45d13971c2a3f4855d8d1ad53eb1a3e86e2665ea59d03e0151f00d2`），在clean detached WT于06:39:49Z开始修后检查。Cargo target置于本次独立runroot，未删除首次失败的共享target/现场。当前仅知道native sync已启动，尚不宣称编译或后续检查PASS。
 
 ## 容器与剩余边界
 

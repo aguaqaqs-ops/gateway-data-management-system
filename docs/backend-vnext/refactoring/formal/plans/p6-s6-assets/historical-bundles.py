@@ -7,13 +7,13 @@ from benchmarks.bundle_tar import verify_bundle_tar
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 
 p = argparse.ArgumentParser()
-p.add_argument('--index',type=Path,required=True)
+p.add_argument('--bundle-index',type=Path,required=True)
 p.add_argument('--tar-root',type=Path,required=True)
 p.add_argument('--output',type=Path,required=True)
 a = p.parse_args()
 initialize_compute_kernel(1)
 result = []
-for row in json.loads(a.index.read_bytes())['bundles']:
+for row in json.loads(a.bundle_index.read_bytes())['bundles']:
     path = a.tar_root / row['path']
     with path.open('rb') as source:
         digest = hashlib.file_digest(source,'sha256').hexdigest()

@@ -303,3 +303,35 @@ checks and fsck remain mandatory. No failed archive or original clone is reused,
 no parent history rewritten, no test/transfer retried by the implementation
 role. The fixed candidate/draft needs original review before the unique
 executor performs source preparation again in a new external directory.
+
+## Actual II R4 check result and historical-only caller repair
+
+06 R4 on `9fc84b4a06a4555905cdb5c779142c4737a24794` passed all five-package
+Ruff/Mypy, forced native input, 132 focused cases, fixed-draft compilation/Bash
+syntax and exact old-B preparation/postcondition. Historical BE-c then stopped
+with exit2 **before its Python checker entered**: uv-consume correctly rejected
+the caller's `--index` option as an index override. Outer run exit2 stays2;
+these earlier individual successes do not turn it into a complete run PASS.
+The postflight was idle and the original owner marker release0.
+
+Original node outer `/home/dev/gdds-test-tmp/s6-ii-r4-run-9fc84b.outer.log`,
+SHA256 `c418a26b0f1e20cb9e4fa437216c15f231e9bb4d436d982d46fc22db89fee2a6`;
+original historical log
+`/home/dev/gdds-test-tmp/s6-ii-r4-evidence-9fc84b/historical-bec.log`, SHA256
+`0ee2570f2766ce521655b23cbfc8ceabf4b4c167b9e5a496d747cf3a940a3c2c`.
+The implemented correction only renames this caller-owned argument to
+`--bundle-index` in the fixed historical consumer and new narrow node draft.
+It does not alter uv-consume's protections, locked/offline consumption, input,
+expected, original history-index, tar bytes or validation algorithm.
+
+Only the uncompleted historical checker needs actual completion. After original
+review, use a new independently staged/verified shallow repo at the new exact
+clean candidate, preserving the old R4 subject/environment and all evidence.
+The R5 draft checks the unchanged c990 vnext/c021 Rust trees, prepares only the
+backend locked/offline environment and exact native build-input as needed for
+its new source path, compiles the changed helper without pycache, then performs
+saved-four-tar complete verification and actual four-result postcondition.
+No static/focused/prepare-only rerun or new real chain/GET/stack is added.
+Prior successes remain explicitly attributed to 9fc84b R4; this is neither a
+new full-runner result nor package carried. No retry occurs until the original
+reviewer clears the new fixed candidate and R5 draft.

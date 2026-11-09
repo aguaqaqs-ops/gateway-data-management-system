@@ -1,4 +1,4 @@
-# Phase 6 S5 设计协调记录
+# Phase 6 S5 协调记录
 
 ## 1. 起点与现场
 
@@ -66,3 +66,13 @@ Owner于2026-11-09明确要求完整执行实施提示词并持续完成A–E。
 测试者只读核五节点BatchMode均可达；06初步工具链/离线镜像条件较齐，实际执行仍须重新核空闲并取得本人标记。历史t1卷属于冻结/他人来源线索，未挂载或启动；新唯一schema若不适配旧状态，只在本人隔离栈补标准t1必要合法前置，不迁移旧库。此处尚无产品检查、Compose、真实结果或carried结论；A当前container gate为deferred，未触碰依赖/部署/container-only边界时集中E最终候选。
 
 A/Risk子候选`17255de2222df61e45206e96f51d39ea8dd788aa`先独立固定；原审在`/home/dev/gdds-s5-review-a-risk-17255de222`clean detached核查，外置报告`/home/dev/gdds-s5-logs/reviews/a-risk-r1.md`，SHA256=`b27a860fa7c725860f7754e030aa104e22f8f038739c083eba96cb13c857976b`。结论CODE_CHANGES_REQUIRED：codec空序列和批量JSON前后缺operation控制检查；过滤后无标注的原RiskReport.tables为空，新增向量应期望`()`。修订仅补同operation checkpoint/异常释放小向量并纠正测试预期，不改emit业务clock、cap/过滤顺序或golden，等待原审核者连续复审及专用节点focused/五包静态；未将原审发现当作测试失败，也未运行原候选后无修改重试。
+
+## 9. A固定候选、连续复审与验证
+
+A产品候选为`ad043152b1604da1ff56ec67f1513e4fd9b66456`，Rust tree=`00fda965165d64ff8846d2205754f38d4cd4630c`。实现包含同一语义投影驱动native/key、Comparison owner的neutral facts/artifact/risk codec与真实facade恢复、完整Risk事件及当前operation重放。持久索引、应用接线和T3触达尚属B–D，不宣称当前已有跨operation命中。
+
+独立Sol原审核者连续关闭Risk R1、Comparison R1/R2发现：补operation控制，修正过滤空报告和冻结context测试；支持SET typed frame、完整两侧storage binding、同operation native restore、任务种类/族闭合与KEYLESS完整结果；公开真实owner调用入口。最后`5a74dfd068`为功能CODE_GO，`ad043152b1`仅应用06生成的Rust格式补丁，R4核机械等价后CODE_GO。六份逐字原文和各SHA见[A审核归档](p6-s5-a-review.md)，归档整体SHA256=`c96c13fea94e108e231aba0783dbd52273f5161a04430f2950fff3d9a6fb1f42`。该结论尚不等于证据GO。
+
+并行前端收口使main从`ad043152b1`前进至`0e39898265ddb1b9df92708e0988f78852894996`；已核区间仅`frontend/`与`docs/frontend-vnext/`，完整`vnext` tree仍为`f31f9ce2aef5c45675ddf15beadd468b7caf06ca`。不reset或覆盖前端工作，A验证固定ad043，后续实现基于实际最新main。
+
+唯一测试者在06重新核空闲并原子取得本人标记，已将LAN Git bundle（SHA256=`1c6a8ef66807982b1a1acbd8136b6d72e79124b72fe3e2d586e9b3ed62490509`）校验并建立clean detached被测worktree。执行稿`/home/dev/gdds-s5-logs/execution/a-focused.sh` SHA256=`cec9a69d6d7d27cdf261ce7a8fc9ce56346e71ecf284c766022a02307bc01fa6`；修稿在产品执行前发现并纠正目录准备、失败现场保留和日志最终SHA问题，没有把准备失败当产品测试。现在按offline强制重装native/build-input→五包ruff/mypy→Rust fmt/clippy/focused→backend受影响focused运行；首非零即停，失败现场保留，日志在worktree外。A证据核收前B不启动，完整runner/Compose与最小t1仍集中E按最终闭包判定。

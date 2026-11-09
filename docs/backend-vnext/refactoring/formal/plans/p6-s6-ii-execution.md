@@ -270,3 +270,12 @@ Missing/invalid stop receipts or any stop error retain the node marker; the
 wrapper never treats an idle snapshot alone as proof of unknown driver cleanup.
 No failed original or previous fixed draft is overwritten. No real chain or
 product check has been performed by the implementation role.
+
+The R2 continuous reviewer closed II-F2/F3 statically and identified one
+remaining overly strict Git-tool exit assumption in II-F1: `cat-file -e` for an
+absent complete object ID can return 1 as well as 128. The final draft requires
+nonzero and preserves that actual exit. Its primary exclusion remains the
+complete physical object inventory, already required to equal the shallow
+reachable closure and to omit both sensitive IDs. It does not infer absence
+from an arbitrary command failure alone. No transfer/check had been run with
+the overly strict draft; prior referenced source and draft remain unchanged.

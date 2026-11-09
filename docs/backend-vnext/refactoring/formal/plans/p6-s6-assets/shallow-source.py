@@ -77,7 +77,7 @@ def inspect(repo, head):
     for oid in SENSITIVE:
         require(oid not in actual, 'sensitive prior oracle blob absent from complete object inventory')
         result = git(repo,'cat-file','-e',oid,ok=False)
-        require(result.returncode == 128, 'sensitive blob unavailable locally; no lazy fetch')
+        require(result.returncode != 0, 'sensitive blob query fails; complete physical inventory already excludes it; no lazy fetch')
     git(repo,'fsck','--full')
     return ('\n'.join(sorted(rows))+'\n').encode()
 

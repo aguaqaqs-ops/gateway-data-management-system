@@ -1470,6 +1470,33 @@ def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
         raise JourneyFailure("S3 worker resource guard failed before first business observation")
 
 
+def _check_w1_w2_ready_resource_guard(env: Mapping[str, str]) -> None:
+    snapshot = _s3_ready_resource_snapshot(env)
+    services = cast(dict[str, dict[str, Any]], snapshot["services"])
+    worker = services["worker"]
+    expected_env = {
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(24 * 1024**3),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(32 * 1024**3),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+    }
+    admitted = (
+        worker["memory_max"] == str(32 * 1024**3)
+        and worker["host_config_memory_bytes"] == 32 * 1024**3
+        and worker["resource_env"] == expected_env
+        and all(
+            item["restart_count"] == 0
+            and all(item["memory_events"][name] == 0
+                    for name in ("oom", "oom_kill", "oom_group_kill"))
+            for item in services.values()
+        )
+    )
+    _emit_progress("t4 W1/W2 resource guard", "w1_w2_resource_start_guard",
+                   status="PASS" if admitted else "FAILED", **snapshot)
+    if not admitted:
+        raise JourneyFailure("W1/W2 worker resource guard failed before first business observation")
+
+
 def _parse_cpu_stat(payload: str) -> dict[str, int]:
     values: dict[str, int] = {}
     for line in payload.splitlines():
@@ -2263,6 +2290,26 @@ def _assert_no_repository_mutations(
     return {"before": before, "after": after, "new_operation_count": 0}
 
 
+def _assert_business_baseline_head(
+    client: httpx.Client, *, node_id: str, commit_id: str, version: int,
+) -> dict[str, Any]:
+    candidates = _require(
+        client.get("/v1/archive-candidates", headers=compose_auth_headers(token=ARCHIVER_TOKEN)),
+        200,
+        "business baseline head",
+    )
+    expected = {
+        "business_baseline_node_id": node_id,
+        "business_baseline_commit_id": commit_id,
+        "baseline_head_version": version,
+    }
+    head = candidates.get("head")
+    if (head != expected or not isinstance(head, dict)
+            or type(head.get("baseline_head_version")) is not int):
+        raise JourneyFailure("business baseline head differs from the expected Archive binding")
+    return expected
+
+
 def _canonical_state_digest_from_submission(
     submission: Mapping[str, Any],
     *,
@@ -2994,6 +3041,10 @@ def _run_tier(
     submit_measurements: Path | None = None,
     skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
+    w1_w2 = scope == "t4-w1-w2"
+    if w1_w2:
+        # This scope has no v2 consumer, including the host-side composite check.
+        v2_id = v1_id
     operation_timings: dict[str, dict[str, Any]] = {}
     v1_baseline = _s3_census_baseline(census[v1_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v1_id]
     v2_baseline = _s3_census_baseline(census[v2_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v2_id]
@@ -3141,6 +3192,10 @@ def _run_tier(
         headers=compose_auth_headers(),
         timeout=600.0,
     ) as client:
+        if w1_w2:
+            _assert_business_baseline_head(
+                client, node_id=BASELINE_NODE_ID, commit_id=initial_commit_id, version=0,
+            )
         v1_workspace = runner.run("v1-workspace", lambda: _workspace(client))
         v1_upload = runner.run(
             "v1-upload",
@@ -3217,7 +3272,7 @@ def _run_tier(
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
                 verify_repository=(repository_url, repository_id, initial_commit_id)
-                    if submit_measurements is not None else None,
+                    if submit_measurements is not None or w1_w2 else None,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
@@ -3228,6 +3283,11 @@ def _run_tier(
         v1_canonical_state_digest = _canonical_state_digest_from_submission(
             v1_submission,
             stage=f"{tier} v1 Submit",
+        )
+        head_after_submit = (
+            _assert_business_baseline_head(
+                client, node_id=BASELINE_NODE_ID, commit_id=initial_commit_id, version=0,
+            ) if w1_w2 else None
         )
         if scope == "t4-v1-submit":
             return {
@@ -3310,6 +3370,14 @@ def _run_tier(
         archive = cast(dict[str, Any], runner.run("v1-archive", archive_v1_action))
         baseline_node_id = str(archive["baseline_node_id"])
         baseline_head_version = int(archive["baseline_head_version"])
+        head_after_archive = None
+        if w1_w2:
+            if baseline_node_id == BASELINE_NODE_ID or baseline_head_version != 1:
+                raise JourneyFailure("v1 Archive did not advance the empty business baseline")
+            head_after_archive = _assert_business_baseline_head(
+                client, node_id=baseline_node_id, commit_id=v1_commit_id,
+                version=baseline_head_version,
+            )
 
         if scope == "t4-identity":
             v2_workspace_partial = runner.run("v2-workspace", lambda: _workspace(client))
@@ -3415,7 +3483,8 @@ def _run_tier(
         repeat_result: dict[str, Any] = {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"}
         if not skip_repeat_v1:
             repeat_mutations_before = (
-                _repository_mutation_ids(env) if submit_measurements is not None else None
+                _repository_mutation_ids(env)
+                if submit_measurements is not None or w1_w2 else None
             )
             repeat_workspace = runner.run(
                 "repeat-v1-workspace",
@@ -3475,6 +3544,12 @@ def _run_tier(
                 runner.run("repeat-v1-preview", repeat_v1_preview_action),
             )
             repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
+            if w1_w2 and (
+                repeat_workspace["workspace_id"] == v1_workspace["workspace_id"]
+                or repeat_upload["upload_revision_id"] == v1_upload["upload_revision_id"]
+                or repeat_preview["result"]["operation_id"] == v1_preview["result"]["operation_id"]
+            ):
+                raise JourneyFailure("W2 requires a new workspace, upload and Preview operation")
             record_operation_timing("repeat_v1_preview", repeat_preview)
             repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
             repeat_identity = _assert_identity_pair(
@@ -3499,7 +3574,7 @@ def _run_tier(
                     heartbeat_monitor=heartbeat_monitor,
                     collect_timing=collect_timing,
                     verify_repository=(repository_url, repository_id, v1_commit_id)
-                        if submit_measurements is not None else None,
+                        if submit_measurements is not None or w1_w2 else None,
                 ),
             )
             record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
@@ -3527,6 +3602,43 @@ def _run_tier(
                     "names": list(v1_keyless_names),
                     "evidence": "all-table preview summary has changed_table_count=0",
                 },
+            }
+            if w1_w2:
+                repeat_result["preview_binding"] = dict(repeat_preview["result"])
+                repeat_result["business_baseline_head"] = _assert_business_baseline_head(
+                    client, node_id=baseline_node_id, commit_id=v1_commit_id,
+                    version=baseline_head_version,
+                )
+
+        if w1_w2:
+            return {
+                "tier": tier,
+                "scope": scope,
+                "input_completeness": "MODIFIED_ONLY",
+                "dataset": {
+                    "dataset_id": v1_id,
+                    "sha256": v1_file["sha256"],
+                    "package_bytes": v1_file["bytes"],
+                    "table_count": census[v1_id]["table_count"],
+                    "row_count_total": census[v1_id]["row_count_total"],
+                    "preview": v1_summary,
+                    "preview_binding": dict(v1_preview["result"]),
+                    "identity": v1_identity,
+                    "bundle_transfer": v1_preview.get("bundle_transfer"),
+                    "submit": v1_submission,
+                    "repository": v1_repository,
+                    "head_after_submit": head_after_submit,
+                    "archive": archive,
+                    "head_after_archive": head_after_archive,
+                },
+                "repeat_v1": repeat_result,
+                "initial_repository": initial_repository,
+                "empty_initial_commit_id": initial_commit_id,
+                "compose_image_ids": images,
+                "step_metrics": runner.metrics,
+                "operation_timings": operation_timings,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "conclusion": "PASS",
             }
 
         v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
@@ -4109,6 +4221,22 @@ def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Pat
     return log_path
 
 
+def _validate_w1_w2_scope(
+    *, scope: str, tier_filter: str | None, cross_project: bool,
+    from_step: str | None, v2_input_completeness: str, s3_census: Path | None,
+    skip_repeat_v1: bool,
+) -> None:
+    if scope == "t4-w1-w2" and (
+        tier_filter != "t4" or cross_project or from_step is not None
+        or v2_input_completeness != "MODIFIED_ONLY" or s3_census is not None
+        or skip_repeat_v1
+    ):
+        raise JourneyFailure(
+            "--scope t4-w1-w2 requires fresh standard --tier t4 MODIFIED_ONLY "
+            "without cross-project, s3-census, from-step or skip-repeat"
+        )
+
+
 def run_journey(
     *,
     tier_filter: str | None = None,
@@ -4124,6 +4252,11 @@ def run_journey(
     submit_measurements: Path | None = None,
     skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
+    _validate_w1_w2_scope(
+        scope=scope, tier_filter=tier_filter, cross_project=cross_project,
+        from_step=from_step, v2_input_completeness=v2_input_completeness,
+        s3_census=s3_census, skip_repeat_v1=skip_repeat_v1,
+    )
     root = _real_dump_root()
     datasets, census = _read_metadata(root, census_path=s3_census)
     if s3_census is not None and (
@@ -4161,7 +4294,7 @@ def run_journey(
         or keep_stack
     ):
         raise JourneyFailure("--dc32-output requires the complete fresh same-project journey")
-    if scope not in {"full", "t4-identity", "t4-v1-submit"}:
+    if scope not in {"full", "t4-identity", "t4-v1-submit", "t4-w1-w2"}:
         raise JourneyFailure("requested real-data scope is unknown")
     if scope == "t4-identity" and (tier_filter != "t4" or cross_project):
         raise JourneyFailure("--scope t4-identity requires --tier t4")
@@ -4186,7 +4319,8 @@ def run_journey(
     ):
         raise JourneyFailure("--debug-submit-probe-t1 requires a fresh full --tier t1 journey")
     if submit_measurements is not None:
-        if (scope not in {"full", "t4-v1-submit"} or cross_project or from_step is not None
+        if (scope not in {"full", "t4-v1-submit", "t4-w1-w2"}
+                or cross_project or from_step is not None
                 or dc32_output is not None or debug_t1_submit_probe):
             raise JourneyFailure("Submit measurements require a fresh same-project journey")
         submit_measurements = submit_measurements.resolve()
@@ -4292,7 +4426,7 @@ def run_journey(
                     else _offline_composite_comparison(
                         tier=tier,
                         v1_id=v1_id,
-                        v2_id=v2_id,
+                        v2_id=v1_id if scope == "t4-w1-w2" else v2_id,
                         root=root,
                         datasets=datasets,
                     )
@@ -4344,6 +4478,8 @@ def run_journey(
                             s3_census=s3_census, scope=scope,
                         ):
                             _check_s3_ready_resource_guard(env)
+                        if scope == "t4-w1-w2":
+                            _check_w1_w2_ready_resource_guard(env)
                         with WorkerHeartbeatMonitor(
                             env=env,
                             repository_id=repository_id,
@@ -4527,6 +4663,10 @@ def validate_inputs(
 def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
     if arguments.kernel_threads is None or arguments.kernel_memory_budget_bytes is None:
         raise JourneyFailure("journey requires explicit --kernel-threads and --kernel-memory-budget-bytes")
+    if arguments.scope == "t4-w1-w2" and (
+        arguments.kernel_threads != 1 or arguments.kernel_memory_budget_bytes != 24 * 1024**3
+    ):
+        raise JourneyFailure("t4-w1-w2 requires N1 and explicit M24 (25769803776 bytes)")
     initialize_compute_kernel(arguments.kernel_threads)
     with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(arguments.kernel_memory_budget_bytes),
             NeverCancel(), arguments.kernel_threads), new_operation=True):
@@ -4565,7 +4705,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--scope",
-        choices=("full", "t4-identity", "t4-v1-submit"),
+        choices=("full", "t4-identity", "t4-v1-submit", "t4-w1-w2"),
         default="full",
     )
     parser.add_argument(
@@ -4598,6 +4738,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     try:
+        _validate_w1_w2_scope(
+            scope=arguments.scope, tier_filter=arguments.tier,
+            cross_project=arguments.cross_project, from_step=arguments.from_step,
+            v2_input_completeness=arguments.v2_input_completeness,
+            s3_census=arguments.s3_census, skip_repeat_v1=arguments.s4_skip_repeat_v1,
+        )
         if arguments.validate_inputs and any(
             (
                 arguments.tier is not None and arguments.s3_census is None,

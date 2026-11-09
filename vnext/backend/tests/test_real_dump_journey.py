@@ -1810,6 +1810,241 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
+W1_W2_INVALID_CONTROLS = (
+    ({"tier_filter": None}, []),
+    ({"tier_filter": "t1"}, ["--tier", "t1"]),
+    ({"cross_project": True}, ["--tier", "t4", "--cross-project"]),
+    ({"from_step": "v1-preview"}, ["--tier", "t4", "--from-step", "v1-preview"]),
+    ({"s3_census": Path("derived.json")}, ["--tier", "t4", "--s3-census", "derived.json"]),
+    ({"skip_repeat_v1": True}, ["--tier", "t4", "--s4-skip-repeat-v1"]),
+    ({"v2_input_completeness": "FULL"}, ["--tier", "t4", "--v2-input-completeness", "FULL"]),
+)
+
+
+@pytest.mark.parametrize(("overrides", "cli"), W1_W2_INVALID_CONTROLS)
+def test_w1_w2_rejects_controls_before_reading_inputs_or_initializing_kernel(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any], cli: list[str],
+    tmp_path: Path,
+) -> None:
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("invalid scope reached inputs, kernel or stack")
+
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", forbidden)
+    monkeypatch.setattr(real_dump_journey, "initialize_compute_kernel", forbidden)
+    monkeypatch.setattr(real_dump_journey, "start_three_container_stack", forbidden)
+    output = tmp_path / "submit-facts"
+    options: dict[str, Any] = {"tier_filter": "t4", "scope": "t4-w1-w2",
+                               "submit_measurements": output, **overrides}
+    with pytest.raises(JourneyFailure, match="requires fresh standard"):
+        real_dump_journey.run_journey(**options)
+    assert real_dump_journey.main([
+        "--scope", "t4-w1-w2", *cli, "--submit-measurements", str(output),
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "25769803776",
+    ]) == 1
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(("threads", "budget"), ((2, 25769803776), (1, 42949672960)))
+def test_w1_w2_cli_rejects_resource_overrides_before_kernel_initialization(
+    monkeypatch: pytest.MonkeyPatch, threads: int, budget: int,
+) -> None:
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("invalid resource configuration reached the kernel")
+
+    monkeypatch.setattr(real_dump_journey, "initialize_compute_kernel", forbidden)
+    assert real_dump_journey.main([
+        "--scope", "t4-w1-w2", "--tier", "t4", "--kernel-threads", str(threads),
+        "--kernel-memory-budget-bytes", str(budget),
+    ]) == 1
+
+
+def test_cli_passes_fresh_t4_w1_w2_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, Any] = {}
+
+    def run(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", run)
+    assert real_dump_journey.main([
+        "--scope", "t4-w1-w2", "--tier", "t4", "--kernel-threads", "1",
+        "--kernel-memory-budget-bytes", "25769803776",
+    ]) == 0
+    assert calls["scope"] == "t4-w1-w2"
+    assert calls["tier_filter"] == "t4"
+    assert calls["v2_input_completeness"] == "MODIFIED_ONLY"
+    assert calls["skip_repeat_v1"] is False
+
+
+W1_W2_RESOURCE_FAULTS = (None, "budget", "hard_limit", "restart", "oom")
+
+
+@pytest.mark.parametrize("fault", W1_W2_RESOURCE_FAULTS)
+def test_w1_w2_checks_the_running_worker_resource_boundary(
+    monkeypatch: pytest.MonkeyPatch, fault: str | None,
+) -> None:
+    worker = {
+        "memory_max": str(32 * 1024**3), "host_config_memory_bytes": 32 * 1024**3,
+        "restart_count": 0,
+        "memory_events": {"oom": 0, "oom_kill": 0, "oom_group_kill": 0},
+        "resource_env": {
+            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(24 * 1024**3),
+            "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(32 * 1024**3),
+            "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+        },
+    }
+    if fault == "budget":
+        cast(dict[str, str], worker["resource_env"])[
+            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"
+        ] = str(40 * 1024**3)
+    elif fault == "hard_limit":
+        worker["memory_max"] = "max"
+    elif fault == "restart":
+        worker["restart_count"] = 1
+    elif fault == "oom":
+        cast(dict[str, int], worker["memory_events"])["oom_kill"] = 1
+    monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
+                        lambda _env: {"services": {"worker": worker}})
+    if fault is None:
+        real_dump_journey._check_w1_w2_ready_resource_guard({})
+    else:
+        with pytest.raises(JourneyFailure, match="resource guard failed"):
+            real_dump_journey._check_w1_w2_ready_resource_guard({})
+
+
+W1_W2_CHAIN_FAULTS = (
+    None, "v1-repository-read", "v1-approve", "v1-archive", "repeat-v1-preview",
+    "mutation", "submit-head", "archive-head", "repeat-head", "reused-operation",
+)
+
+
+@pytest.mark.parametrize("fault", W1_W2_CHAIN_FAULTS)
+def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str | None,
+) -> None:
+    steps: list[str] = []
+    verified_mains: list[tuple[str, str, str]] = []
+    snapshots: list[dict[str, list[str]]] = []
+    initial_head = {"business_baseline_node_id": real_dump_journey.BASELINE_NODE_ID,
+                    "business_baseline_commit_id": "initial", "baseline_head_version": 0}
+    archived_head = {"business_baseline_node_id": "archived-v1",
+                     "business_baseline_commit_id": "commit-v1", "baseline_head_version": 1}
+    head = dict(initial_head)
+
+    class StepRunner:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.metrics: list[dict[str, Any]] = []
+
+        def run(self, step_id: str, action: Any) -> Any:
+            assert step_id in real_dump_journey.JOURNEY_STEP_IDS[:11]
+            steps.append(step_id)
+            if step_id == fault:
+                raise JourneyFailure("failed precondition")
+            return action()
+
+    def package(_root: Path, dataset: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+        assert dataset["dataset_id"] == "rd-t4-d-v1", "W1/W2 opened a v2 package"
+        return b"v1", {"sha256": "a" * 64, "bytes": 2}
+
+    workspaces = iter(({"workspace_id": "first"}, {"workspace_id": "repeat"}))
+
+    def preview(_client: Any, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        name = kwargs["workspace"]["workspace_id"]
+        return {"result": {"operation_id": "first" if fault == "reused-operation" else name,
+                           "preview_result_id": name, "workspace_id": name},
+                "bundle_transfer": {"bytes": 1024},
+                "operation_timing": {"visibility_observation": "post_terminal_result_read"}}, {}
+
+    def submit(_client: Any, **kwargs: Any) -> dict[str, Any]:
+        verified_mains.append(kwargs["verify_repository"])
+        if kwargs.get("expect_no_change"):
+            if fault == "repeat-head":
+                head["baseline_head_version"] = 2
+            return {"result": "NO_CANONICAL_CHANGE", "repository_main_unchanged": True}
+        if fault == "submit-head":
+            head.update(archived_head)
+        return {"submission_id": "submission", "repository_commit_id": "commit-v1",
+                "canonical_business_digest": "sha256:" + "b" * 64}
+
+    def archive(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        head.update(archived_head)
+        if fault == "archive-head":
+            head["business_baseline_commit_id"] = "other"
+        return {"baseline_node_id": "archived-v1", "baseline_commit_id": "commit-v1",
+                "baseline_head_version": 1}
+
+    def mutation_ids(_env: Any) -> dict[str, list[str]]:
+        result = {"imports": ["v1"] + (["unexpected"] if snapshots and fault == "mutation" else []),
+                  "synchronous_requests": [], "synchronous_effects": []}
+        snapshots.append(result)
+        return result
+
+    client = httpx.Client(base_url="http://backend.test", transport=httpx.MockTransport(
+        lambda _request: httpx.Response(200, json={"head": head})))
+    monkeypatch.setattr(real_dump_journey.httpx, "Client", lambda **_kwargs: client)
+    monkeypatch.setattr(real_dump_journey, "JourneyStepRunner", StepRunner)
+    monkeypatch.setattr(real_dump_journey, "_dataset_package", package)
+    monkeypatch.setattr(real_dump_journey, "_ordered_tables", lambda _item: {})
+    monkeypatch.setattr(real_dump_journey, "_ordered_table_row_counts", lambda _item: {})
+    monkeypatch.setattr(real_dump_journey, "_keyless_fallback_candidates", lambda _item: ())
+    monkeypatch.setattr(real_dump_journey, "compose_image_ids", lambda _env: {})
+    monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://rs.test")
+    monkeypatch.setattr(real_dump_journey, "_assert_initial_repository_commit_empty", lambda **_kw: {})
+    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: next(workspaces))
+    monkeypatch.setattr(real_dump_journey, "_upload_revision", lambda _client, **kw: {
+        "upload_revision_id": kw["workspace"]["workspace_id"]})
+    monkeypatch.setattr(real_dump_journey, "_preview", preview)
+    monkeypatch.setattr(real_dump_journey, "_submit", submit)
+    monkeypatch.setattr(real_dump_journey, "_approve", lambda *_a: None)
+    monkeypatch.setattr(real_dump_journey, "_archive", archive)
+    monkeypatch.setattr(real_dump_journey, "_repository_mutation_ids", mutation_ids)
+    monkeypatch.setattr(real_dump_journey, "_pseudo_counts_from_http", lambda **_kw: {
+        "pseudo_rows_total": real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]})
+    monkeypatch.setattr(real_dump_journey, "_assert_s3_catalog_summary", lambda *_a, **_kw: None)
+    monkeypatch.setattr(real_dump_journey, "_assert_s1b_preview_summary", lambda *_a, **_kw: None)
+    monkeypatch.setattr(real_dump_journey, "_assert_preview_summaries", lambda *_a, **kw: {
+        "changed_table_count": 0 if kw["unchanged"] else 1})
+    monkeypatch.setattr(real_dump_journey, "_assert_identity_pair", lambda *_a, **kw: {
+        "status": kw["expected_status"], "mode": kw["expected_mode"]})
+
+    def run() -> dict[str, Any]:
+        return real_dump_journey._run_tier(
+            tier="t4", v1_id="rd-t4-d-v1", v2_id="rd-t4-d-v2", root=tmp_path,
+            datasets={"rd-t4-d-v1": {"dataset_id": "rd-t4-d-v1"}},
+            census={"rd-t4-d-v1": {"table_count": 1, "row_count_total": 2,
+                    "ordered_projection": {"pseudo_rows_total":
+                        real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]}}},
+            env={}, project_name="w1-w2", repository_id="repository",
+            initial_commit_id="initial", step_state={}, from_step=None, state_path=None,
+            offline_composite={"counts": {"before_row_count": 0, "current_row_count": 0,
+                                           "status": "UNCHANGED"}}, scope="t4-w1-w2",
+        )
+
+    if fault is not None:
+        with pytest.raises(JourneyFailure):
+            run()
+        assert "v2-workspace" not in steps
+        if fault in {"v1-repository-read", "v1-approve", "v1-archive", "submit-head", "archive-head"}:
+            assert "repeat-v1-workspace" not in steps
+        elif fault in {"repeat-v1-preview", "reused-operation"}:
+            assert "repeat-v1-submit" not in steps
+    else:
+        result = run()
+        assert steps == list(real_dump_journey.JOURNEY_STEP_IDS[:11])
+        assert verified_mains == [("http://rs.test", "repository", "initial"),
+                                  ("http://rs.test", "repository", "commit-v1")]
+        assert len(snapshots) == 2
+        assert result["dataset"]["head_after_submit"] == initial_head
+        assert result["dataset"]["head_after_archive"] == archived_head
+        assert result["repeat_v1"]["business_baseline_head"] == archived_head
+        assert result["repeat_v1"]["repository_mutations"]["new_operation_count"] == 0
+        assert result["dataset"]["bundle_transfer"] == {"bytes": 1024}
+        assert result["repeat_v1"]["bundle_transfer"] == {"bytes": 1024}
+        assert result["dataset"]["preview_binding"]["operation_id"] == "first"
+        assert result["repeat_v1"]["preview_binding"]["operation_id"] == "repeat"
+
+
 def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

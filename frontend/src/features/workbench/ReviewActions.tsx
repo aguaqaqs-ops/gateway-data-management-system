@@ -111,16 +111,20 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     } catch (cause) {
       if (cause instanceof ApiError && (cause.status < 500 && cause.status !== 429)) dialogKey.current = null;
       const failure = actionError(cause, failedDialog);
-      if (failure.expiredApprove) {
-        setExpiredApprove(true);
+      if (failure.expiredApprove || failure.closed) {
+        // Expired approvals and closed submissions refresh the facts behind
+        // the notice (§16.7); ordinary version conflicts keep the dialog open
+        // until the user refreshes (FE2c R6 behavior).
+        if (failure.expiredApprove) setExpiredApprove(true);
         setDialog(null);
-      }
-      if (failure.closed) setDialog(null);
-      setError({ title: failure.title, code: failure.code });
-      try {
-        onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
-      } catch {
-        // Keep the failure notice when the refresh itself fails.
+        setError({ title: failure.title, code: failure.code });
+        try {
+          onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+        } catch {
+          // Keep the failure notice when the refresh itself fails.
+        }
+      } else {
+        setError({ title: failure.title, code: failure.code });
       }
     } finally {
       setBusy(false);

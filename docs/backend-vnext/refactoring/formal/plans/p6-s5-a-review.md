@@ -1,6 +1,6 @@
 # S5 A 独立产品审核归档
 
-截至R10，修后固定候选 `eb64578925398a6402f6e7b21790226c5f4e78e6` 源码 **CODE_GO**；历次实际失败原件保留，当前候选的完整实际证据尚待核收，A尚无证据GO，B未放行。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
+固定产品候选 `eb64578925398a6402f6e7b21790226c5f4e78e6` **A CODE_GO / EVIDENCE_GO**，可进入B；历次实际失败原件保留。该结论限A，不是权威runner、Compose、t1或S5退出GO。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
 
 原件 Risk R1：`/home/dev/gdds-s5-logs/reviews/a-risk-r1.md`；SHA256：`b27a860fa7c725860f7754e030aa104e22f8f038739c083eba96cb13c857976b`。
 
@@ -615,3 +615,78 @@ ORDERED仍由原ordered_policy读取两侧blank provenance，且继续把完整O
 沿已核 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，参数固定本candidate及不变Rust tree；唯一测试角色核空闲/缓存后实际重验。当前必要native/build-input、五静态、Rust及focused核收状态仍为 **NOT_RUN**；源码GO不代替本轮执行，不提前B。
 
 Current HEAD：`eb64578925398a6402f6e7b21790226c5f4e78e6`。Container rebuild required：本A子节无独立触发，未改依赖/锁/部署/container harness/container-only行为。Container gate for current HEAD：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-evidence-review.md`；SHA256：`59ad4241f82584c7eabb97d785519026d7ccd4a46021f876a1049ccec2c10e05`。
+
+---
+
+# P6 S5 A 独立执行证据核收
+
+结论：**A EVIDENCE_GO，可进入 B**。此结论仅覆盖已审 A 纯任务身份、neutral codec、真实 facade 恢复与 Risk 候选/重放所需的 focused 和静态证据；不等于六包权威 runner、qualified runner 来源、Compose、真实 t1、S5 E 退出或性能测量通过，不作 carried 判定。
+
+## 1. 精确输入与独立性
+
+- 实际成功被测候选：`eb64578925398a6402f6e7b21790226c5f4e78e6`；Rust tree：`c0213e18a9645c5cfbd39f310f532273a03a10cb`。CODE_GO 原件为R10，SHA256=`91a07eda1a5d32f83a9272b0d406b32484462d55400cf26a1b5cc796fdf157ed`。
+- 核收时文档候选：`22a1168a5c23bc403971a312be67eb1a6b0f88b0`，只读detached worktree `/home/dev/gdds-s5-review-a-22a1168a5c`；exact HEAD、detached、index/tracked/untracked clean、正确legacy链接均已核。
+- eb645与22a116的完整vnext tree同为 `82db2123363c543a02d745bbe03dea2e226c4305`。区间仅审核归档/handoff/coordinator及Comparison Contract两句说明；Contract精确表述R10已核STANDARD无consumer的metadata不入key、ORDERED保实际provenance，未新增业务或执行边界。
+- R7、R8、R9、R10外置原件的全部字节分别在22a116审核归档中出现恰好一次，摘要与原件均一致；未将修订摘要替换为原审报告。
+- 本人是原独立审核角色，未实现被审产品/测试/Contract，未在开发机或其他节点执行产品检查，未写被审worktree、未启动额外诊断/测试、未创建子agent、push/tag。本轮仅核Git、原件、摘要和执行稿，报告写worktree外。
+
+## 2. 成功运行原件与身份
+
+原件根：`/home/dev/gdds-s5-logs/execution/a-focused/20261109T070802Z-eb64578925398a6402f6e7b21790226c5f4e78e6`。
+
+| 对象 | SHA256 |
+| --- | --- |
+| source.bundle | `cdc25cc8508a7e3c0d41113a7afe154ddc40f611c6305d9654fe02a61ab86e12` |
+| remote-evidence/session.log | `42165529ec42ee26e805fb635bc2daa7cb52d89e8f77790cf2b3497cc629c04b` |
+| remote-evidence/steps.tsv | `b42d2cbfdeb658d44b85aabce280c1ed7df90b1812af1336dc433496ebbdcd87` |
+| local SHA256SUMS | `f8ceec080d1925f5e7f2f392355acf4f4072d5f06fd0c8aa9f13ac10dd2b7026` |
+| remote-evidence/SHA256SUMS | `7ede28a093558196bf2b79ce67f86bfabbaa66ad62ccbd8f7ed2d8f62a8637dd` |
+| backend-focused-parallel.log | `82c3fcef4fa64213d66afe838b03c4f8597af63db666bd32ffa7aa4fbd896d53` |
+| backend-focused-serial.log | `0f5f3a4a5c582839880bbff3606cae6d7e891db88d03ac7e427d94a5f0e61c48` |
+
+本人逐项重算最终local清单33项、remote清单24项的文件摘要，均匹配；清单自身的SHA256SUMS.sha256和orchestrator.log.sha256也分别匹配。remote清单按复制后的同名原件核对，未把原绝对测试节点路径不存在误当摘要差异。另逐行核steps的全部日志SHA、HEAD、command/tee exit；实际为 **21个执行步骤，22行含表头**，全为0。交接文字中候选/时间/步骤计数笔误已更正，以下均以固定原件为准。
+
+现场与来源：BatchMode SSH接通，06原子获取本人标志前后均核空闲，admission记录Compose为空、8000未监听；固定bundle经LAN传输后摘要与remote verify相符。测试worktree为已提交clean detached输入。执行稿为已独核 `a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，没有另跑诊断稿或无修改重跑旧失败候选。
+
+## 3. 实际结果与工具/资源边界
+
+运行节点 `gw-dms-06.lan`，session UTC为 **2026-11-09 07:08:05Z–07:10:14Z**；开始/结束及每步HEAD均为eb645，Rust tree精确一致。UV_OFFLINE=1、CARGO_NET_OFFLINE=true，使用本节点预填缓存；PATH以/home/dev/.cargo/bin开头，禁止设置RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME的入口守卫保持。selector、rustc/cargo/rustfmt/clippy-driver均为同一1.97.0工具链；uv为0.11.28。未新增依赖或修改lock，也未从开发机运行测试。
+
+| 步骤组 | 实际结果 |
+| --- | --- |
+| 五包locked offline sync | 通过；backend显式 `--reinstall-package gateway-compute-python` 并带当前 `GATEWAY_RUST_BUILD_INPUT`，日志确认实际构建native。 |
+| extension build-input | 通过；expected=installed=`c0213e18a9645c5cfbd39f310f532273a03a10cb`。 |
+| 五包ruff/mypy | shared_kernel、repository_contracts、repository_client、backend、repository_service各自通过；mypy实际分别检查34/15/26/536/201个source files。 |
+| Rust fmt/clippy | `cargo fmt --all --check`及workspace/locked/offline/all-targets clippy -D warnings通过。 |
+| Rust core cache focused | 4 passed、0 failed；覆盖独立三family facts、固定完整JCS replay、scalar/SET分立帧规则及非法blank/frame。其余过滤项未冒称运行。 |
+| backend parallel focused | 278 passed；7个已审范围文件，4 workers，按非serial/parallel_safe表达式执行。 |
+| backend serial focused | 1 passed、278 deselected；按serial且非parallel_safe、-n0执行，未将deselected误计为运行。 |
+
+实际backend范围为新Comparison cache、现Comparison production/session、Arrow/frozen、小型Contract vectors、architecture/import guard、Risk candidate cache和Risk evaluation。独立冻结facts/Parquet向量、完整binding变更、异scope/同M控制与释放、empty schema、SET/NULL、KEYLESS multiset、Risk空编码/解码控制及资源向量由上述实际focused执行覆盖。没有重录业务golden或为了通过修改旧算法expected。
+
+session最终记录worktree_clean_after_checks=yes、successful_run_temp_state_cleanup=attempted、cleanup_status=0、marker_released=yes、original_or_final_exit_code=0；受核执行稿只在dolt/pytest/cargo/uv/rustc/clippy进程、容器和8000均空时清本人runroot临时资源与释放标志。local兜底release随后记录标志已释放/非本人且exit0，没有移除他人占用；日志复制、SSH/tee及local orchestrator均exit0。失败旧runroot按原约束保留，未借本次成功清理他人或历史证据。生产N1/单active/M24与测试workers独立，未增加预算或扩大真实范围。
+
+## 4. 五次原失败与闭合
+
+五次失败原件均保留在a-focused目录。本人对各次local/remote原始清单、清单自身及orchestrator摘要重新核对，分别核20、46、54、58、58项，全部匹配；数字包含清单/日志重复绑定，不代表测试数。每次原首失败及后续未运行项目仍按原件记载，未将失败run变成PASS来源。
+
+| 原候选 | 原首失败 | 连续修订及当前闭合 |
+| --- | --- | --- |
+| ad043 | native compile exit1，4个E0433 | R5/R6移回core facade、保预算/owner顺序；最终native构建及build-input实际通过。 |
+| c1a533 | 新测试mypy20项，exit1 | R7显式字段/narrowing/变量名；最终五包静态通过。 |
+| ee234 | restore函数参数数clippy，exit101 | R8仅局部allow与既有边界说明；最终workspace clippy通过。 |
+| 0ddc | parallel56失败/222通过，exit1 | R9显式fixture角色与owning writer schema，保完整guard和golden；最终同范围focused通过。 |
+| 18b | parallel3失败/275通过，exit1 | R10按native consumer分类provenance，并据固定旧源修新增KEYLESS/SET向量；最终同范围278+1通过。 |
+
+Risk R1/R2、A1–A4和后续源码findings均已原审连续关闭；本轮实际原件补齐A所需执行证据。未留需Owner选择的新业务语义或本范围阻塞。**现在可以在实际最新main继续B**，B持久entries/uses/TTL、operation强pin事务/lease/root read_session及其focused仍须作为新范围独审，不能由A结果预签。
+
+## 5. 容器与退出边界
+
+Current reviewed docs HEAD：`22a1168a5c23bc403971a312be67eb1a6b0f88b0`；实际被测产品HEAD：eb645。Container rebuild required：本A子节无独立触发，未改依赖/锁/部署/container harness/container-only行为。Current container gate：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。
+
+本次不是run-tests.sh权威完整运行，没有qualified runner闭包manifest，也没有Compose、真实t1或性能测量结果。E仍须按最终实际闭包完成规定全六包/容器/最小真实旅程及独立退出核收，不能据本报告提前标记S5 exit。

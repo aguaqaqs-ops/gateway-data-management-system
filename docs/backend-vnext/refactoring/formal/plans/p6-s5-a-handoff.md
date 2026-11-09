@@ -1,6 +1,6 @@
 # Phase 6 S5 A 交接
 
-当前状态：修后候选`eb64578925398a6402f6e7b21790226c5f4e78e6`源码CODE_GO，06复验进行中，**证据尚未通过，B未启动**。设计CLEAR、源码CODE_GO与实际验证分别记载。
+当前状态：固定产品候选`eb64578925398a6402f6e7b21790226c5f4e78e6` **A CODE_GO / EVIDENCE_GO，可进入B**。该结论限A，不是权威runner、Compose、t1或S5退出结论。
 
 ## 实现与独审
 
@@ -48,6 +48,25 @@ A实现了完整单表有向语义身份、同源native输入投影、Comparison
 | `20261109T064827Z-0ddc7ec6485aa3b373934dea1a4daccec87b6490` | `be4d3bf38e6c64ef89ac84a6c4c77bff3533bc959c96a5a02ae6834e82006b06` | `342d63bc08b549db252094dbec1877bb72183a0e19d308d67c160ea9feb62afb` |
 | `20261109T065929Z-18b79112fafa55cf4a318585328fefa079c6481a` | `1df0e5a7bb56111c1e8449188d6987fa5373c9aab4938477929b89affff67ead` | `20568aba4a40a346a35a87169979ebf4c58d24d4954358d9cdbe2acfea86c619` |
 
+## A最终实际证据与核收
+
+06固定eb645的原session为2026-11-09 **07:08:05Z–07:10:14Z**，起止HEAD均为上述完整提交，worktree clean。共21步骤（steps.tsv的22行含表头），全部command/tee exit0，入口exit0、cleanup0、本人标记释放；唯一测试者已核无相关进程、容器或8000 listener。使用本节点预填缓存、offline、jobs4、N1；未扩大M24授权。
+
+实跑通过：五包locked sync、native强制重装及Rust tree build-input核对、五包ruff/mypy、Rust fmt/clippy、core cache focused **4 passed**、backend parallel **278 passed**、serial **1 passed / 278 deselected**。成功收尾按执行稿清理本run临时环境/Cargo/pytest缓存，失败run原件和现场仍保留。
+
+原件目录：`/home/dev/gdds-s5-logs/execution/a-focused/20261109T070802Z-eb64578925398a6402f6e7b21790226c5f4e78e6/`。
+
+| 原件 | SHA256 |
+| --- | --- |
+| session.log | `42165529ec42ee26e805fb635bc2daa7cb52d89e8f77790cf2b3497cc629c04b` |
+| steps.tsv | `b42d2cbfdeb658d44b85aabce280c1ed7df90b1812af1336dc433496ebbdcd87` |
+| backend parallel | `82c3fcef4fa64213d66afe838b03c4f8597af63db666bd32ffa7aa4fbd896d53` |
+| backend serial | `0f5f3a4a5c582839880bbff3606cae6d7e891db88d03ac7e427d94a5f0e61c48` |
+| core cache focused | `100d87ea07c564526fa00c1a2af6b215241370eb2d9b2086557541c8149830c0` |
+| 最终本地证据清单 | `f8ceec080d1925f5e7f2f392355acf4f4072d5f06fd0c8aa9f13ac10dd2b7026` |
+
+同一独立原审核对最终local/remote清单、全部step SHA与5次失败清单、资源/clean及文档产品树等价，原文`a-evidence-review.md` SHA256=`59ad4241f82584c7eabb97d785519026d7ccd4a46021f876a1049ccec2c10e05`逐字归档。两次文字转录笔误（候选误写18b、开始小时06）已按原件更正：18b始终3失败，通过者为eb645；原session和manifest未改。
+
 ## 容器与剩余边界
 
-本轮未改Dockerfile、锁、部署、entrypoint、容器harness或仅容器可证明的边界，A容器构建集中E最终候选。最后已验证镜像仅为S4 handoff的历史来源线索，本轮没有取得当前候选镜像GO或carried。A通过后再进入B；最终六包/Compose与已确认最小t1仍按最终实际闭包和退出条件执行，不推送、不提前标记exit。
+本轮未改Dockerfile、锁、部署、entrypoint、容器harness或仅容器可证明的边界，A容器构建集中E最终候选。最后已验证镜像仅为S4 handoff的历史来源线索，本轮没有取得当前候选镜像GO或carried。A focused不构成qualified runner来源；B–D及最终六包/Compose与已确认最小t1仍按最终实际闭包和退出条件执行，不推送、不提前标记exit。

@@ -80,3 +80,9 @@ A产品候选为`ad043152b1604da1ff56ec67f1513e4fd9b66456`，Rust tree=`00fda965
 首次ad043实际native编译因FFI错误引用两个未声明直接依赖而exit1停止；后续检查全部未运行，未沿用为PASS，失败日志/资源收尾详见[A交接](p6-s5-a-handoff.md)。修订535117将这些逻辑移回已有core facade，未改依赖或锁；R5源码GO，07机械格式准备后形成最终c1a533，R6源码GO。06他人有效占用期间改用合格07做format，准备脚本目录错误保留并修正，没有因常规资源协调请求Owner。06释放后于06:39:49Z开始固定c1a533的正式必要重验，新的独立runroot/WT及原件保留规则见交接；仍待实际结果与原审核者证据核收。
 
 截至R10的当前A候选为`eb64578925398a6402f6e7b21790226c5f4e78e6`，Rust tree=`c0213e18a9645c5cfbd39f310f532273a03a10cb`。c1a533/ee234/0ddc/18b的首失败分别为测试mypy、局部clippy、fixture/writer-schema、纯身份投影及新增向量语义；原始numeric exit、阶段内部分通过与未跑项均保留在交接，不据失败重录golden。修订由原审连续关闭；STANDARD只排除无consumer的ordered metadata，ORDERED保全部实际provenance。真实Preview的canonical STD owner本来给None，未把raw SQL fixture差异误当已发生H1生产问题。当前eb645正在06同稿必要复验，A证据GO后再进入B；未扩大真实范围、M24或容器取证声明。
+
+## 10. A关闭与B开工
+
+eb645在06的07:08:05–07:10:14Z完整A focused为入口exit0：21步骤全command/tee0、五包静态/native build-input/Rust fmt-clippy/core4/backend278+1均通过，clean/资源/占用释放及全部SHA由原审核者独立核收为 **A CODE_GO / EVIDENCE_GO**。精确原件、历次失败/修复及未测边界见[A交接](p6-s5-a-handoff.md)；证据审核原文SHA256=`59ad4241f82584c7eabb97d785519026d7ccd4a46021f876a1049ccec2c10e05`，追加该原文后的审核归档整体SHA256=`0dd1ec21087217bf196e51cd65cbadbd5facda48484186f596a1cf9eabfd5d49`。该focused不是qualified runner来源，无Compose/t1或carried结论。
+
+现正式进入B，无需Owner再次许可。协调者拥有纯ArtifactRef cache端口、唯一基线schema/UOW/SQLite/protection与Artifacts Contract；实施者拥有`test_computation_cache.py`和基线schema测试，原审继续独立，唯一测试者按固定候选执行。复用root read/cleanup借用和现operation保护；重叠lease关闭不删除共享operation pin，批次消费者全部关闭后窄释放cache intent，READY不长期强pin内部cache；不新增持久refcount/journal或兼容层。B只做必要真实SQLite/文件系统focused及五包静态，Rust未变不扩大Rust验证矩阵；最终容器与已确认最小t1仍集中E。

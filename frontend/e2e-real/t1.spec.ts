@@ -283,18 +283,29 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
         reason: `t1 证据运行：${anomaly.issue_code}`,
       });
     }
-    await gotoWorkbench(page);
-    await page.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
-    await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
-    const archiveDialog = page.getByRole("dialog", { name: "归档主基线" });
-    await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
-    await archiveDialog.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
-    await archiveDialog.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
-    await expect(archiveDialog.getByText("归档完成")).toBeVisible({ timeout: 300_000 });
+    // The archive dialog needs the archiver identity (only archive_submission
+    // may list candidates); the submitter's page would get a 403 here.
+    const archiverContext = await contextForIdentity(browser, archiver);
+    const archiverPage = await archiverContext.newPage();
+    await archiverPage.setViewportSize({ width: 1920, height: 1080 });
+    const archiverDiagnostics = collectPageDiagnostics(archiverPage);
+    try {
+      await gotoWorkbench(archiverPage);
+      await archiverPage.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
+      await archiverPage.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
+      const archiveDialog = archiverPage.getByRole("dialog", { name: "归档主基线" });
+      await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
+      await archiveDialog.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+      await archiveDialog.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
+      await expect(archiveDialog.getByText("归档完成")).toBeVisible({ timeout: 300_000 });
+      await saveEvidence(archiverPage, testInfo, "t1-archive-v1");
+      expectNoPageErrors(archiverDiagnostics, "t1-archive");
+    } finally {
+      await archiverContext.close().catch(() => undefined);
+    }
     const headAfterArchive = (await listHistory(submitter)).body.head.version;
     appendCaseLog(`t1-step3 archived submission=${submissionV1} head=${headAfterArchive}`);
     expect(headAfterArchive, "t1-step3 head moved").toBe(1);
-    await saveEvidence(page, testInfo, "t1-archive-v1");
 
     // Steps 4–5: FULL ①=t1-v1 ②=t1-v2, then approve.
     await gotoWorkbench(page);

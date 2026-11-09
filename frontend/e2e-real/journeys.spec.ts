@@ -1552,34 +1552,26 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await expect(dialogB2.getByRole("button", { name: "确认归档" })).toBeDisabled();
     await dialogB2.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
 
-    // Step 9: accept the remaining items, then revoke MODIFIED in a second
-    // context; the first context's start is rejected and the re-preview
-    // shows the revoked item.
+    // Step 9: accept the remaining items, open the dialog in the first
+    // context, then revoke MODIFIED in a second context; the first
+    // context's start is rejected and the re-preview shows the revoked item.
     await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 接受其余两项");
-    const planB2 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
-    const modifiedItem = planB2.anomalies.find((anomaly) => anomaly.side === "MODIFIED");
-    expect(modifiedItem, "j1-step9 modified item accepted").toBeTruthy();
-    await appendArchiveAnomalyResolution(archiver, {
-      expected_baseline_node_id: planB2.head.business_baseline_node_id,
-      expected_baseline_head_version: planB2.head.baseline_head_version,
-      candidate_set_digest: planB2.candidate_set_digest,
-      selected: { submission_id: submitB.submissionId, expected_candidate_digest: digestB },
-      subject_digest: modifiedItem!.subject_digest,
-      subject_kind: modifiedItem!.subject_kind,
-      issue_code: modifiedItem!.issue_code,
-      target_submission_id: modifiedItem!.target_submission_id,
-      target_candidate_digest: modifiedItem!.target_candidate_digest,
-      expected_sequence: modifiedItem!.latest_sequence,
-      action: "REVOKE",
-      reason: "j1 第二个身份复核后撤销",
-    });
     const dialogB3 = await openArchiveDialogUi(archiverSession.page, "提交 2");
     await dialogB3.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await expect(dialogB3.getByRole("button", { name: "确认归档" })).toBeEnabled();
+    const dialogRevoke = await openArchiveDialogUi(archiverSecondSession.page, "提交 2");
+    await expandArchiveGroupUi(dialogRevoke, "生成时间");
+    await dialogRevoke.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByRole("button", { name: "撤销接受", exact: true }).click({ timeout: 120_000 });
+    const revokeSecond = archiverSecondSession.page.getByRole("dialog", { name: "撤销接受" });
+    await revokeSecond.getByLabel("撤销理由").fill("j1 第二个上下文复核后撤销", { timeout: 120_000 });
+    await revokeSecond.getByRole("button", { name: "确认撤销" }).click({ timeout: 120_000 });
+    await expect(dialogRevoke.getByText("还有 1 项未处理")).toBeVisible({ timeout: 120_000 });
     await dialogB3.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogB3.getByText("归档候选或核验结果已变化，请重新预检")).toBeVisible({ timeout: 120_000 });
-    await dialogB3.getByRole("button", { name: "重新预检" }).click({ timeout: 120_000 });
+    await dialogB3.locator("footer").getByRole("button", { name: "重新预检" }).click({ timeout: 120_000 });
     await expect(dialogB3.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("已撤销接受，需要重新处理")).toBeVisible();
     assertClean(archiverSession.diagnostics, "j1-revoke-conflict");
+    assertClean(archiverSecondSession.diagnostics, "j1-revoke-second");
 
     // Step 10: re-accept and archive B as baseline 2.
     await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 重新接受②");

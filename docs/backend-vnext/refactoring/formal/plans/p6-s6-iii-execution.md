@@ -50,7 +50,7 @@ They are not production mechanisms or new evidence protocols.
 
 The real driver uses the owning CommitId path encoder in its exact HTTP log
 matcher (the H2 tool correction below): tracked `t4-evidence.py` SHA256
-`0e9f698f9bcac68d6b0a2b976e96f37e93da8d8bf27791203fdda8e260439830`;
+`a6bf30de57e386cd899f86e4508056935940645aa184777fadb2b6816538bea1`;
 its source wrapper `t4-node.sh` is
 `43b20af3ff8d1b3a80fbe19c6a75a4009063e90415cb1b2aedbf48ec1a132ca7`.
 No oracle, M24, timeout, expected result, runtime or real scope changes.
@@ -115,14 +115,18 @@ unpadded base64url. The existing owning `encode_commit_id_path_segment` is
 now used by the common log matcher; exact-target equality, all200 status checks,
 full byte-prefix/windows, positive calibration and W2 actual rows0 remain.
 
-The unchanged log guard is extracted as a pure `repository_access_counts`
-helper for its sole unit owner `vnext/backend/tests/test_real_dump_log_window.py`:
+The log guard has a single pure `repository_access_counts` implementation in
+`vnext/backend/benchmarks/real_dump_log_window.py`, imported normally by the
+docs driver and its sole unit owner `vnext/backend/tests/test_real_dump_log_window.py`:
 fixed canonical path positive, healthcheck-only zero, shared negative vectors
 for wrong repository, wrong commit and unsuccessful data response. No Dolt,
 stack or new business matrix is needed for these parser/attribution checks.
 The scope owner `test_real_dump_journey.py` and all original business assertions
 remain unchanged. The new final candidate requires five-package static and
 these focused checks on a dedicated CT before final evidence.
+Both tested implementation and test are inside the existing backend/vnext Git
+closure; pytest does not load the root docs driver. Thin docs call wiring and
+its pin remain part of fixed source/real-execution review.
 
 The original stopped DB, read `mode=ro&immutable=1` with no WAL/SHM and unchanged
 SHA, contains one SUCCEEDED Preview, one workspace/result, INITIAL Head/version0,
@@ -134,9 +138,13 @@ These are partial observed facts from an overall failed chain, not proof of
 the unrun M24 Submit/W2 or independent old-B content checks. Normal own stops,
 idle postflight/marker release0 and original artifacts remain preserved.
 
-This tracked driver/pin correction creates a new final H3. H2 authority remains
-historical evidence only. Source review/shallow transfer and actual full six/
-current-H3 local containers plus a fresh minimal t4 chain must bind H3. Do not
+The first H3 candidate `f73e0bafa816185a80d8fa965428fb9e260a4baf` is retained
+as HOLD: its unit dynamically loaded the root docs driver outside backend's
+modeled test closure. The forward H4 correction moves the sole helper into the
+existing backend benchmark and deletes that loading/duplicated logic; no closure
+platform change is needed. H2 authority remains historical evidence only.
+Source review/shallow transfer and actual full six/current-final-H local
+containers plus a fresh minimal t4 chain must bind H4. Do not
 reuse the now-populated H2 task as a cold chain, resume with forbidden from-step,
 alter oracle/budget or convert its original failed exit. The source policy and
 all later source/launch steps below apply to the new final candidate.

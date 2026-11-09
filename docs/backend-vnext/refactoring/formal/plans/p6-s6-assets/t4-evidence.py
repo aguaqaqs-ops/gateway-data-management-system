@@ -29,6 +29,7 @@ from benchmarks import real_dump_journey as j
 from benchmarks import s4_repository_identity as identity
 from benchmarks import s4_submit_measurement_driver as resource
 from benchmarks.bundle_tar import download_bundle_tar
+from benchmarks.real_dump_log_window import repository_access_counts
 
 DATASET = "rd-t4-d-v1"
 B_SOURCE = "788ed36e7742a067bf01c16ad2e6aaed2fed91fb"
@@ -63,19 +64,6 @@ def write(path, value):
     with path.open("x") as target:
         json.dump(value, target, sort_keys=True, indent=2)
         target.write("\n")
-
-
-def repository_access_counts(text: str, repository_id: str, commit_id: str) -> tuple[int, int]:
-    prefix = (r'"GET /v1/repositories/' + re.escape(repository_id) +
-              r'/versioned/commits/' + re.escape(encode_commit_id_path_segment(commit_id)))
-    rows = re.findall(prefix+r'/rows\?[^\s"]* HTTP/[^\s"]+" (\d{3})',text)
-    catalogs = re.findall(prefix+r'/catalog HTTP/[^\s"]+" (\d{3})',text)
-    # Reject other targets even when the expected target has no matches.
-    all_rows = re.findall(r'"GET /v1/repositories/[^\s"]+/versioned/commits/[^\s"]+/rows\?[^\s"]* HTTP/',text)
-    all_catalogs = re.findall(r'"GET /v1/repositories/[^\s"]+/versioned/commits/[^\s"]+/catalog HTTP/',text)
-    require(len(rows) == len(all_rows) and len(catalogs) == len(all_catalogs), 'all actual data HTTP scoped to exact repository/commit')
-    require(all(status == '200' for status in rows+catalogs), 'actual RS data HTTP successful')
-    return len(rows), len(catalogs)
 
 
 def command(argv, **kwargs):

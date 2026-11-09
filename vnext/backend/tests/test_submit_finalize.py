@@ -244,18 +244,24 @@ def test_conflicting_preview_scope_is_not_an_optional_cache_miss(db_path: Path, 
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
     request = _request(db_path, seed, attempt)
+    scope_changes = {
+        "repository": {"repository_id": "foreign-repository"},
+        "producer": {"operation_id": "another-preview-operation"},
+    }
+    if fault == "workspace":
+        other_seed = seed_submit_ready_workspace(db_path, actor_id="another-actor")
+        scope_changes["workspace"] = {"workspace_id": other_seed.workspace.workspace_id}
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         if fault == "workspace-repository":
+            current = unit_of_work.workspace.get_workspace(attempt.workspace_id)
+            assert current is not None
             unit_of_work.workspace.save_workspace(
-                replace(seed.workspace, repository_id="foreign-repository",
-                        optimistic_version=seed.workspace.optimistic_version + 1),
-                expected_version=seed.workspace.optimistic_version,
+                replace(current, repository_id="foreign-repository",
+                        optimistic_version=current.optimistic_version + 1),
+                expected_version=current.optimistic_version,
             )
         else:
-            changes = {"workspace": {"workspace_id": "foreign-workspace"},
-                       "repository": {"repository_id": "foreign-repository"},
-                       "producer": {"operation_id": "another-preview-operation"}}[fault]
-            preview = replace_preview_with_facts(seed.preview_result, **changes)
+            preview = replace_preview_with_facts(seed.preview_result, **scope_changes[fault])
             row = preview_result_to_row(preview)
             unit_of_work.connection.execute(
                 "UPDATE preview_result_records SET workspace_id=?,repository_id=?,binding=?,operation_id=? "

@@ -51,6 +51,18 @@ async function screenshot(page: Page, name: string, width: number) {
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
 }
 
+async function cardScreenshot(page: Page, name: string, width: number, locator: ReturnType<Page["locator"]>) {
+  if (!screenshotDirectory) return;
+  for (const current of [width, width === 1280 ? 1920 : 1280]) {
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
+    await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
+    await locator.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(50);
+    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false });
+  }
+  await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
+}
+
 interface ArchiveScenario {
   candidates?: Schemas["ArchiveCandidatesResponse"];
   /** Consumed in order per list call (last repeats): models the set change. */
@@ -255,14 +267,11 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.getByText("归档后该已通过的提交将被关闭（不归档）")).toBeVisible();
   await expect(dialog.getByText("选中的提交有项目身份例外")).toBeVisible();
   const lastNotMax = dialog.locator(".archive-anomaly", { hasText: "最后一个生成时间不是最大值" }).first();
-  await lastNotMax.scrollIntoViewIfNeeded();
-  await screenshot(page, "fe3c-last-not-max-card", 1280);
+  await cardScreenshot(page, "fe3c-last-not-max-card", 1280, lastNotMax);
   const regressed = dialog.locator(".archive-anomaly", { hasText: "本次归档组态的生成时间早于对照" }).first();
-  await regressed.scrollIntoViewIfNeeded();
-  await screenshot(page, "fe3c-time-regression-card", 1280);
+  await cardScreenshot(page, "fe3c-time-regression-card", 1280, regressed);
   const initialRegression = dialog.locator(".archive-anomaly", { hasText: "原始组态备份的生成时间早于当前基线" }).first();
-  await initialRegression.scrollIntoViewIfNeeded();
-  await screenshot(page, "fe3c-time-regression-initial-card", 1280);
+  await cardScreenshot(page, "fe3c-time-regression-initial-card", 1280, initialRegression);
   await screenshot(page, "fe3c-validation-overview", 1920);
 });
 

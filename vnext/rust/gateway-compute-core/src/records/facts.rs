@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::json_metadata_upper;
+use super::cache::NeutralFacts;
 use super::source::{cell_upper, standard_upper};
 use crate::comparison::{
     KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardKind,
@@ -19,12 +20,14 @@ pub struct TableFactsSource<'a> {
     pub metadata: &'a Value,
     pub standard: Option<&'a StandardComputation>,
     pub ordered: Option<&'a OrderedKernelResult>,
+    pub neutral: Option<&'a NeutralFacts>,
 }
 
 pub struct TableFactsInput<'a> {
     pub metadata_json: &'a str,
     pub standard: Option<&'a StandardComputation>,
     pub ordered: Option<&'a OrderedKernelResult>,
+    pub neutral: Option<&'a NeutralFacts>,
 }
 
 pub fn digest_table_fact_json(
@@ -41,6 +44,7 @@ pub fn digest_table_fact_json(
             metadata: &metadata,
             standard: input.standard,
             ordered: input.ordered,
+            neutral: input.neutral,
         },
         max_jcs_row_bytes,
         context,
@@ -73,6 +77,7 @@ pub fn digest_facts_core_json(
             metadata: value,
             standard: input.standard,
             ordered: input.ordered,
+            neutral: input.neutral,
         })
         .collect::<Vec<_>>();
     digest_facts_core(
@@ -89,7 +94,7 @@ fn parse_small_json(raw: &str) -> Result<Value, String> {
 }
 
 #[derive(Clone, Copy)]
-enum Part {
+pub(super) enum Part {
     Root,
     OrderedExtension,
     BlankExtension,
@@ -185,7 +190,7 @@ fn write_value(
                         part,
                         Part::Root | Part::OrderedExtension | Part::BlankExtension
                     )
-                    && (source.standard.is_some() || source.ordered.is_some())
+                    && (source.standard.is_some() || source.ordered.is_some() || source.neutral.is_some())
                 {
                     if child.as_array().is_none_or(|items| !items.is_empty()) {
                         return Err("facts metadata must contain empty records arrays".to_string());
@@ -224,7 +229,39 @@ fn write_records(
     max_bytes: usize,
     context: &KernelContext,
 ) -> Result<(), String> {
-    let count = match part {
+    if let Some(neutral) = source.neutral {
+        return neutral.write_family(hasher, part, context);
+    }
+    let count = facts_count(source, part)?;
+    hasher.update(b"[");
+    let table_name = source
+        .metadata
+        .get("table_name")
+        .and_then(Value::as_str)
+        .ok_or("facts table_name is missing")?;
+    for position in 0..count {
+        context.check().map_err(|error| error.to_string())?;
+        if position != 0 {
+            hasher.update(b",");
+        }
+        let row_upper = fact_row_upper(source, part, position, table_name)?;
+        if row_upper
+            .checked_mul(4)
+            .and_then(|size| size.checked_add(256))
+            .ok_or("facts row upper overflow")?
+            > max_bytes
+        {
+            return Err("facts JCS row budget exceeded".to_string());
+        }
+        let value = fact_row_value(source, part, position)?;
+        write_small(hasher, &value, max_bytes)?;
+    }
+    hasher.update(b"]");
+    Ok(())
+}
+
+pub(super) fn facts_count(source: &TableFactsSource<'_>, part: Part) -> Result<usize, String> {
+    Ok(    match part {
         Part::Root => source.standard.map_or_else(
             || {
                 source
@@ -240,19 +277,13 @@ fn write_records(
             .ordered
             .map_or(0, |result| result.blank_facts_order.len()),
         Part::Other => return Err("invalid facts records part".to_string()),
-    };
-    hasher.update(b"[");
-    let table_name = source
-        .metadata
-        .get("table_name")
-        .and_then(Value::as_str)
-        .ok_or("facts table_name is missing")?;
-    for position in 0..count {
-        context.check().map_err(|error| error.to_string())?;
-        if position != 0 {
-            hasher.update(b",");
-        }
-        let row_upper = match part {
+    })
+}
+
+pub(super) fn fact_row_upper(
+    source: &TableFactsSource<'_>, part: Part, position: usize, table_name: &str,
+) -> Result<usize, String> {
+    Ok(    match part {
             Part::Root => {
                 if let Some(result) = source.standard {
                     standard_upper(
@@ -294,16 +325,13 @@ fn write_records(
             }
             Part::BlankExtension => table_name.len().saturating_add(512),
             Part::Other => return Err("invalid facts records part".to_string()),
-        };
-        if row_upper
-            .checked_mul(4)
-            .and_then(|size| size.checked_add(256))
-            .ok_or("facts row upper overflow")?
-            > max_bytes
-        {
-            return Err("facts JCS row budget exceeded".to_string());
-        }
-        let value = match part {
+        })
+}
+
+pub(super) fn fact_row_value(
+    source: &TableFactsSource<'_>, part: Part, position: usize,
+) -> Result<Value, String> {
+    Ok(match part {
             Part::Root => {
                 if let Some(result) = source.standard {
                     let index = result.facts_order[position];
@@ -357,11 +385,7 @@ fn write_records(
                 })
             }
             Part::Other => return Err("invalid facts records part".to_string()),
-        };
-        write_small(hasher, &value, max_bytes)?;
-    }
-    hasher.update(b"]");
-    Ok(())
+        })
 }
 
 fn standard_fact(

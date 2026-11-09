@@ -103,6 +103,7 @@ NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
         "_facts_core_digest_native",
         "_summarize_unchanged_ordered_native",
         "_validate_records_batches_native",
+        "_restore_comparison_table_native",
     }),
     "gateway_backend.capabilities.mutation_planning.native": frozenset({
         "_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native",

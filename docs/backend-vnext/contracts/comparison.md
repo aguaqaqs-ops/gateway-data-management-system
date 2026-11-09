@@ -493,52 +493,37 @@ ComparisonRecordsClosure:
 - records artifact 按 table 生成。
 - table-level comparison cache 后续再设计。
 
-## Comparison Core Cache
+## Comparison Table Cache
 
-`comparison_core_cache` 缓存 directed comparison capability 输出。
+S5 使用 `comparison-table-cache/v1` 逐表有向纯任务；不缓存 pair、surface 或 bundle 的最终结果。
+唯一输入 `TableTaskInputV1` 同时构造 native 请求和 cache identity。key 为带域前缀的规范 JCS
+SHA256，含 repository/server-resolved scope、完整 before/current FINAL descriptor（含业务 schema
+内表名）、存储事实与有效 key、resolved policy/rules 主体和版本、diagnostics、方向、mode、
+options、detail、算法/标量/records/codec 版本。只移除当前 operation/pair、commit、display binding、
+文件路径/ref 和 reader identity；authority 仍由原 owner 先核验。provisional/信息不足/可选 key
+预算不足为 miss，不缩小原计算接受范围。新 task/plan 字段须先分类，不得静默遗漏。
 
-Key 输入：
+值是完整成功的 neutral 小型 outcome metadata，和至多七个不压缩 IPC 视图：
 
-```text
-before_snapshot_digest
-current_snapshot_digest
-comparison_contract_version
-projection_contract_version
-table_ruleset_version
-scalar_encoding_version
-requested_tables
-comparison_options
-```
+- STANDARD/ORDERED/BLANK 各一份 facts 序（`ordinal:UInt32!`, `row_jcs:LargeBinary!`），
+  与各一份去掉 `table_name` 的 artifact 序；STANDARD 另存一份 facts 序 risk projection。
+- facts JCS 完整保留 typed canonical frames 与 BLANK `entity_key_kind`；Comparison Rust owner
+  批量验证规范 JCS、精确形状、类型、frame、连续 ordinal、count/schema。artifact schema/类型、
+  detail、顺序及原每 batch 行数保持；每 batch 最多1024行，不能重分 batch 改变 Parquet row group。
+- 空视图不要求文件。manifest 闭合成员的 raw SHA/size/schema/count/batch rows 与完整成功标记；
+  STANDARD risk projection 与 facts 行数相同。不能用客户端 Parquet 恢复完整内部 facts。
 
-输出：
+冷 native 与 restored handle 使用同一 table/core facts digest、records batch/summary 和 risk
+batch 消费协议。Rust core 只接内存 Arrow/metadata；I/O、scope 与 ref 校验归 Python owner。
+恢复入口只经 `comparison.native` 的 `_restore_comparison_table_native`；不得暴露旧绑定摘要。
+当前 task 重绑 table/descriptor，再以原公式生成当前 facts、records manifest/closure、risk、surface
+及完整 bundle。真正 records reader 保留完整语义验证；新写 records 不增加整份写后回读。
 
-```text
-ComparisonFacts
-ComparisonRecords artifacts optional
-ComparisonRecordsClosure optional
-comparison diagnostics
-```
-
-规则：
-
-- Cache key 不包含 flow ID、operation ID、workspace ID、history request ID、artifact ref 或 host path。
-- Cache hit 不能跳过 artifact manifest 和 digest 校验。
-- `comparison_core_cache` 不缓存 risk evaluation 或 surface assembly。
-- Projection cache 命中只减少 projection/table IO，不代表 comparison core cache 命中。
-- 第一版 `comparison_core_cache` 是 pair-level core cache；不做 table-level comparison facts cache，也不承担 surface / bundle 的 pair-total 结果缓存。
-- Cache entry 保存 neutral facts core 和 records closure；命中后必须恢复为 operation-local artifact closure。
-- Cache entry validation status 不应高于输入 Snapshot/Table artifacts 的最低可信等级。
-- Provider name 默认不进入 key；只有会改变 canonical comparison 语义的 provider semantic change 才应进入 `comparison_options` 或 contract version。
-- Provider raw output 不得作为 `comparison_core_cache` value；cache value 必须是 canonical `ComparisonFacts + ComparisonRecordsClosure`。
-- `PROVISIONAL_FAST` alias 只能写入/读取 provisional preview cache，不得 promotion 为 history/archive 可直接消费的权威事实。
-- `CANONICAL` alias cache 必须绑定 FINAL summary / repository-backed identity；cache hit 恢复到 operation/bundle 时仍需闭合 canonical records 和 alias mapping。
-
-后续可扩展：
-
-- table-level comparison cache。
-- records artifact 压缩和列式格式。
-- projection table cache 与 comparison core cache 的联合规划。
-- cache promotion、eviction、dedup 和跨 operation hardlink 优化。
+ordered-current-summary 仅存原四摘要及小型 facts；nonrecord-shared-multiset 仅存原统计。
+A/D/普通 U 的 metadata 直接重建，DATASET_REPLACEMENT 保持独立路径。
+失败、截断、取消和超时前缀不得保留；可选 cache 输出预约失败不撤销当前必要结果。
+命中时 IPC backing/FFI/header/native 输出/重绑同 M，最后 consumer 释放；不将 mmap 当免费。
+TTL/uses/protection 与条件失效见 Artifacts Contract；缓存不成为恢复权威。
 
 ## Capability Boundary
 
@@ -606,7 +591,7 @@ ComparisonComputeResult:
 - 大表 records 可落 artifact，facts 中只保留 counts/ref/digest。
 - Comparison capability 不直接读取 SourcePackage、SqlDumpSource 或 RepositoryImportArtifact。
 
-## S3 语义澄清与单次操作内复用（设计候选，待 kickoff 独审）
+## S3 语义澄清与单次操作内复用（已实现语义，S5扩展跨操作复用）
 
 本节固化现行行为，不改变 S1b 冻结语义；实施状态见
 [详细设计](../refactoring/formal/plans/p6-s3-design.md)。
@@ -617,7 +602,7 @@ ComparisonComputeResult:
 - 三族记录 Arrow schema 与现有 Parquet v1 schema 相同；typed scalar、空列表/null、列序和 metadata 不能因实现语言变化而改变。JCS 内容对象与 content_digest、manifest/closure 定义保持，Parquet raw SHA 单独代表实际文件，不能以 content_digest 相同替代 raw 字节校验。
 - 本次新写记录可以不再整份回读解码；writer/发布 I/O 失败仍失败，READY 前必须形成完整 closure。真正读取时仍校验 raw SHA、schema、count 和 content digest，采用 Arrow 批次重算 JCS 不降低完整性要求。
 - 单次 operation 可以复用完全相同的纯单表任务；key 包含两侧完整内容/schema/行数/有效键/存储规则、比较与风险规则主体及版本、算法/记录格式/投影/标量版本、方向/options/detail/artifact scope/authority。外层表名和显示名不充当纯任务参数，但不能删除 schema 内已有表名身份提高命中率。
-- 表名、显示名与当前 pair 绑定在汇总；含表名的 facts/records/manifest 摘要须按绑定后的逻辑内容计算。失败/取消/不完整结果不复用，命中不跳过预算/取消检查。此许可不授权跨 operation 缓存、持久引用登记或 History 回填；后者归 S5。
+- 表名、显示名与当前 pair 绑定在汇总；含表名的 facts/records/manifest 摘要须按绑定后的逻辑内容计算。失败/取消/不完整结果不复用，命中不跳过预算/取消检查。S5按上述单表缓存协议扩展跨 operation 复用、TTL登记与 History 按需回填；原权威绑定和冻结语义保持。
 
 ### S3 内部计算边界
 

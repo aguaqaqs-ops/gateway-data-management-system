@@ -888,6 +888,7 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
             "_facts_core_digest_native",
             "_summarize_unchanged_ordered_native",
             "_validate_records_batches_native",
+            "_restore_comparison_table_native",
         ),
         None,
     ),

@@ -12,6 +12,7 @@ import pyarrow as pa
 from gateway_compute._native import (
     _begin_comparison_operation_native,
     _compare_records_native,
+    _restore_comparison_table_native,
     _facts_core_digest_native,
     _summarize_unchanged_ordered_native,
     _validate_records_batches_native,
@@ -37,6 +38,12 @@ class ComparisonRecordsHandle(Protocol):
     def phase_timings(self) -> tuple[float, float, float]: ...
     def metadata_json(self) -> str: ...
     def prepare_risk_batches(self) -> None: ...
+    def prepare_cache_views(self, max_row_bytes: int) -> None: ...
+    def discard_cache_views(self) -> None: ...
+    def cache_metadata_json(self) -> str: ...
+    def cache_family_names(self) -> list[str]: ...
+    def facts_batches(self, family: str) -> pa.RecordBatchReader: ...
+    def neutral_record_batches(self, family: str) -> pa.RecordBatchReader: ...
     def table_fact_digest(self, metadata_json: str, max_jcs_row_bytes: int) -> str: ...
     def family_summary(self, family: str) -> tuple[int, str]: ...
     def record_batches(self, family: str) -> pa.RecordBatchReader: ...
@@ -152,3 +159,22 @@ def validate_records_batches(
         cancel_probe or _NeverCancel(),
         deadline_monotonic,
     ))
+
+
+def restore_table_cache(
+    operation: ComparisonOperation, *, table_name: str, metadata_json: str,
+    detail_policy: str, family_names: list[str], facts: list[pa.RecordBatchReader],
+    artifacts: list[pa.RecordBatchReader], risk: pa.RecordBatchReader,
+    input_owner_charge: object, max_records: int, max_row_bytes: int, max_input_bytes: int,
+) -> ComparisonRecordsHandle:
+    """Restore complete neutral Arrow views under the caller's active M phase."""
+    try:
+        return cast(ComparisonRecordsHandle, _restore_comparison_table_native(
+            operation, table_name, metadata_json, detail_policy, family_names, facts,
+            artifacts, risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
+        ))
+    except BaseException:
+        close = getattr(input_owner_charge, "close", None)
+        if callable(close):
+            close()
+        raise

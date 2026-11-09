@@ -9,6 +9,7 @@ pub mod storage_mutation;
 pub mod table_access;
 
 pub use records::{
+    NeutralFacts, facts_schema, export_facts_family, validate_facts_row, restore_records_batches,
     BuiltRecords, RecordsBatchValidator, RecordsParquetSummary, TableFactsInput, TableFactsSource,
     build_blank_records, build_ordered_records, build_standard_records,
     build_standard_records_from_ordered, charge_arrow_batches, digest_facts_core,

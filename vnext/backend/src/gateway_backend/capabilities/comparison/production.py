@@ -7,8 +7,7 @@ from time import perf_counter
 from collections import Counter
 from collections.abc import Mapping
 from contextlib import ExitStack, closing
-from dataclasses import dataclass, fields, is_dataclass, replace
-from enum import Enum
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 import pyarrow as pa
@@ -16,7 +15,7 @@ from gateway_shared_kernel import DigestRef
 
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope, BlankExtension, BlankSummary, ComparisonFacts, ComparisonMode,
+    BlankExtension, BlankSummary, ComparisonFacts, ComparisonMode,
     ComparisonPlan, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
     ComparisonRecord, ComparisonRecordKind, DetailedFactsResult, DatasetReplacementResult,
     KeylessPolicy, OrderedExtension, OrderedStatus, OrderedSummary, OrderedTableProcessingMode,
@@ -25,8 +24,11 @@ from gateway_backend.capabilities.comparison.contracts import (
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
+from gateway_backend.capabilities.comparison.task_input import (
+    TableTaskInputV1, build_table_task_input,
+)
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _can_table_early_exit, _ignored_values_changed, _is_columns_added,
+    _can_table_early_exit, _ignored_values_changed,
     _schema_changes_from_view, _schema_diagnostics, _schema_record, _schema_view,
     _summary_payload, _table_digest_payload, _with_table_digest,
 )
@@ -38,7 +40,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
     fresh_canonical_view_budget, current_kernel_context, TableAccessError,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    BlankRowProvenance, SnapshotTable,
+    SnapshotTable,
 )
 
 
@@ -111,92 +113,16 @@ def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
     return before, current
 
 
-def _cache_key_fits_prepaid_repr(plan: ComparisonPlan, task: TableComparisonTask) -> bool:
-    """Conservatively bound repr growth before constructing an optional key."""
-    remaining = _CACHE_KEY_PROVISIONAL_BYTES - 8192
-    nodes = 0
-
-    def admit(value: object, depth: int = 0) -> bool:
-        nonlocal remaining, nodes
-        nodes += 1
-        remaining -= 4096  # type/field names, delimiters and Python containers
-        if remaining < 0 or nodes > 4096 or depth > 24:
-            return False
-        if isinstance(value, Enum):
-            remaining -= 256 * (len(type(value).__qualname__) + len(str(value.value)))
-        elif isinstance(value, str | bytes):
-            # repr may escape one input character as a ten-character Unicode
-            # sequence; 256 bytes covers intermediate repr strings and the
-            # charged 8x final key copy at the same time.
-            remaining -= 256 * len(value)
-        elif value is None or isinstance(value, bool | float):
-            pass
-        elif isinstance(value, int):
-            if value.bit_length() > 512:
-                return False
-        elif is_dataclass(value) and not isinstance(value, type):
-            return all(admit(getattr(value, field.name), depth + 1) for field in fields(value))
-        elif isinstance(value, tuple | list):
-            return all(admit(item, depth + 1) for item in value)
-        elif isinstance(value, Mapping):
-            return all(admit(key, depth + 1) and admit(item, depth + 1)
-                       for key, item in value.items())
-        else:
-            return False
-        return remaining >= 0
-
-    before_artifact = None if task.before_table is None else task.before_table.artifact
-    current_artifact = None if task.current_table is None else task.current_table.artifact
-    before_ordered = None if task.before_table is None else task.before_table.ordered_metadata
-    current_ordered = None if task.current_table is None else task.current_table.ordered_metadata
-    return admit((
-        task.table_name, task.before_descriptor, task.current_descriptor,
-        before_artifact, current_artifact, before_ordered, current_ordered,
-        task.policy, task.artifact_scope, plan.mode, plan.rule_set,
-        plan.options, plan.contract_versions,
-    ))
-
-
 def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
-    before = task.before_descriptor
-    current = task.current_descriptor
-    policy = task.policy
-    if before is None or current is None or policy is None:
-        return None
-    if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
-        changes = _schema_changes_from_view(_schema_view(before, current, policy), policy)
-        if changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
-            return None
-        kind = "nonrecord-shared-multiset"
-    elif policy.ordered_policy is not None and _can_table_early_exit(before, current, policy):
-        kind = "ordered-current-summary"
-    elif _can_table_early_exit(before, current, policy):
-        return None
-    else:
-        schema = _schema_view(before, current, policy)
-        if schema.key_invalid or schema.key_changed or not schema.selected:
-            return None
-        kind = "row-comparison"
-
-    def identity(table: SnapshotTable | None) -> tuple[str, str, str, str]:
-        if table is None:
-            return ("missing", "", "", "reader-none")
-        input_mode = ("reader-none" if table.reader is None else
-                      f"reader:{type(table.reader).__module__}.{type(table.reader).__qualname__}")
-        if table.artifact is not None:
-            return ("verified-canonical-artifact", repr(table.artifact),
-                    repr(table.ordered_metadata), input_mode)
-        return ("operation-local-reader", str(id(table.reader)),
-                repr(table.ordered_metadata), input_mode)
-
-    # Complete schema (including name), direction, both authorities, policy
-    # bodies and versions remain in the key. Overly narrow reuse is a safe miss.
-    return repr((
-        kind, "BEFORE_TO_CURRENT", task.table_name,
-        before, current, identity(task.before_table), identity(task.current_table),
-        policy, task.artifact_scope, plan.mode, plan.rule_set,
-        plan.options, plan.contract_versions,
-    ))
+    from gateway_backend.capabilities.comparison.task_input import (
+        TableTaskIdentity, build_table_task_identity,
+    )
+    repository = (plan.current.snapshot.source_context.repository_id
+                  or plan.before.snapshot.source_context.repository_id or "operation-local")
+    identity = build_table_task_identity(
+        plan, task, repository_id=repository, artifact_scope=task.artifact_scope.value,
+    )
+    return identity.task_digest.value if isinstance(identity, TableTaskIdentity) else None
 
 
 class ComparisonTaskSession:
@@ -206,7 +132,7 @@ class ComparisonTaskSession:
         context = current_kernel_context()
         if context is None:
             raise RuntimeError("comparison dedup requires an operation context")
-        # Admit each candidate key before repr() allocates it. Keep the
+        # Admit each candidate key before its canonical projection allocates. Keep the
         # charge only for keys with a known later consumer; one-use entries
         # are discarded after this declaration pass.
         occurrences: list[tuple[str, str, str, Any]] = []
@@ -220,9 +146,6 @@ class ComparisonTaskSession:
                     except MemoryError:
                         continue
                     try:
-                        if not _cache_key_fits_prepaid_repr(plan, task):
-                            provisional.close()
-                            continue
                         key = _task_key(plan, task)
                         if key is None:
                             provisional.close()
@@ -364,8 +287,6 @@ class ComparisonTaskSession:
             raise RuntimeError("comparison context was lost")
         try:
             with context.memory.reserve(_CACHE_KEY_PROVISIONAL_BYTES):
-                if not _cache_key_fits_prepaid_repr(plan, task):
-                    return None
                 actual = _task_key(plan, task)
                 return declared if actual == declared else None
         except MemoryError:
@@ -584,72 +505,6 @@ def _scan_keyless_degrade_inputs(
             getattr(owner, "close")()
 
 
-def _standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]:
-    policy = task.policy
-    assert policy is not None
-    return {
-        "selected_columns": list(schema.selected),
-        "effective_key_before": list(schema.before_key),
-        "effective_key_current": list(schema.current_key),
-        "compare_excluded_columns": list(policy.compare_excluded_columns),
-        "incompatible_columns": list(schema.incompatible),
-        "emit_add_delete": task.artifact_scope is ArtifactScope.ALL_CHANGES,
-        "columns_added": _is_columns_added(schema),
-        "mode": ("keyless" if not schema.before_key or
-                 (policy.allow_keyless_key_transition and not schema.current_key)
-                 else "keyed"),
-        "schema_diagnostics": _schema_diagnostics(schema, policy),
-    }
-
-
-def _ordered_policy(
-    task: TableComparisonTask, schema: Any, *, unchanged: bool = False,
-) -> dict[str, object]:
-    policy = task.policy
-    assert policy is not None and policy.ordered_policy is not None
-    ordered = policy.ordered_policy
-    before = task.before_descriptor
-    current = task.current_descriptor
-    assert before is not None and current is not None
-
-    def provenance(table: SnapshotTable | None) -> str:
-        if table is None or table.ordered_metadata is None:
-            raise StandardComparisonError("ORDERED_PROVENANCE_MISSING")
-        value = table.ordered_metadata.blank_provenance
-        if value is BlankRowProvenance.SOURCE_MISSING_STABLE_KEY:
-            return "source"
-        if value is BlankRowProvenance.CANONICAL_PSEUDO_GID:
-            return "canonical"
-        raise StandardComparisonError("ORDERED_PROVENANCE_INVALID")
-
-    changes = _schema_changes_from_view(schema, policy)
-    return {
-        **_standard_policy(task, schema),
-        "table_name": task.table_name,
-        "policy_version": ordered.policy_version,
-        "policy_digest": None if ordered.policy_digest is None else ordered.policy_digest.value,
-        "value_columns": list(ordered.value_columns),
-        "digest_value_columns": list(ordered.value_columns),
-        "schema_changed": (
-            before.business_schema_digest != current.business_schema_digest
-            and changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED
-        ),
-        "raw_content_changed": before.raw_content_digest != current.raw_content_digest,
-        "before_blank_provenance": (
-            provenance(task.current_table) if unchanged else provenance(task.before_table)
-        ),
-        "current_blank_provenance": provenance(task.current_table),
-        "schema_changes": {
-            "before_only_columns": list(changes.before_only_columns),
-            "current_only_columns": list(changes.current_only_columns),
-            "selected_columns": list(changes.selected_columns),
-            "effective_compare_key_before": list(changes.effective_compare_key_before),
-            "effective_compare_key_current": list(changes.effective_compare_key_current),
-            "effective_compare_key_changed": changes.effective_compare_key_changed,
-            "incompatible_columns": list(changes.incompatible_columns),
-            "change_source": None if changes.change_source is None else changes.change_source.value,
-        },
-    }
 
 
 def _optional_digest(value: object) -> DigestRef | None:
@@ -750,7 +605,7 @@ def _compare_task_native(
     task: TableComparisonTask, operation: object,
     session: ComparisonTaskSession | None,
     metrics: ComparisonRunMetrics, detail_policy: RecordsDetailPolicy,
-    native_budget_bytes: int,
+    native_budget_bytes: int, plan: ComparisonPlan,
 ) -> tuple[ComparisonTableFact, Any | None]:
     policy = task.policy
     assert policy is not None
@@ -760,14 +615,12 @@ def _compare_task_native(
         return _compare_task_metadata(task), None
     schema = _schema_view(before, current, policy)
     changes = _schema_changes_from_view(schema, policy)
+    def native_input() -> TableTaskInputV1:
+        return build_table_task_input(plan, task, include_identity=False)
     if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
         if changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
             return _compare_task_metadata(task), None
-        probe_policy = _standard_policy(task, schema)
-        probe_policy.update(mode="keyless", effective_key_before=[],
-                            effective_key_current=[], compare_excluded_columns=[],
-                            emit_add_delete=False, columns_added=True,
-                            schema_diagnostics=[])
+        probe_policy = json.loads(native_input().native_policy())
         probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
                                 detail_policy=detail_policy,
                                 native_budget_bytes=native_budget_bytes,
@@ -792,9 +645,9 @@ def _compare_task_native(
             if task.current_table is None or task.current_table.reader is None:
                 return _degraded_fact(task, before, current, changes,
                                       ("TABLE_READER_UNAVAILABLE",)), None
-            return _ordered_unchanged_native(task, operation, schema, session, metrics), None
+            return _ordered_unchanged_native(task, operation, schema, session, metrics, native_input()), None
         handle = _compare_native(operation, task, kind="ordered",
-                                 policy=_ordered_policy(task, schema), detail_policy=detail_policy,
+                                 policy=json.loads(native_input().native_policy()), detail_policy=detail_policy,
                                  native_budget_bytes=native_budget_bytes,
                                  session=session,
                                  metrics=metrics)
@@ -817,7 +670,7 @@ def _compare_task_native(
             records=(_schema_record(task.table_name, diagnostics, schema.selected),),
         ), None
     handle = _compare_native(operation, task, kind="standard",
-                             policy=_standard_policy(task, schema), detail_policy=detail_policy,
+                             policy=json.loads(native_input().native_policy()), detail_policy=detail_policy,
                              native_budget_bytes=native_budget_bytes,
                              session=session,
                              metrics=metrics)
@@ -838,10 +691,10 @@ def _compare_task_metadata_nonrecord(task: TableComparisonTask, changes: Compari
 def _ordered_unchanged_native(
     task: TableComparisonTask, operation: object, schema: Any,
     session: ComparisonTaskSession | None,
-    metrics: ComparisonRunMetrics,
+    metrics: ComparisonRunMetrics, task_input: TableTaskInputV1,
 ) -> ComparisonTableFact:
     # The unchanged fast path must read only the current side and never run LIS.
-    policy = _ordered_policy(task, schema, unchanged=True)
+    policy = json.loads(task_input.native_policy())
     table = task.current_table
     before = task.before_descriptor
     current = task.current_descriptor
@@ -890,10 +743,11 @@ def _ordered_unchanged_native(
 
 def compare_plan_native(
     plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+    retain_cache_candidates: bool = False,
 ) -> NativeComparison:
     metrics = ComparisonRunMetrics()
     try:
-        return _compare_plan_native_once(plan, session=session, metrics=metrics)
+        return _compare_plan_native_once(plan, session=session, metrics=metrics, retain_cache_candidates=retain_cache_candidates)
     except MemoryError:
         # Optional retained keys/handles may have consumed the room needed
         # by a real compare. Drop them, then try that same immutable plan once
@@ -904,12 +758,12 @@ def compare_plan_native(
         context = current_kernel_context()
         if context is not None:
             context.checkpoint()
-        return _compare_plan_native_once(plan, session=None, metrics=metrics)
+        return _compare_plan_native_once(plan, session=None, metrics=metrics, retain_cache_candidates=retain_cache_candidates)
 
 
 def _compare_plan_native_once(
     plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
-    metrics: ComparisonRunMetrics,
+    metrics: ComparisonRunMetrics, retain_cache_candidates: bool = False,
 ) -> NativeComparison:
     started = perf_counter()
     if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
@@ -986,6 +840,7 @@ def _compare_plan_native_once(
                 if cached is None:
                     fact, handle = _compare_task_native(
                         task, operation, session, metrics, detail_policy, native_budget,
+                        plan,
                     )
                 else:
                     fact, handle = cached
@@ -1085,6 +940,14 @@ def _compare_plan_native_once(
             facts: ComparisonFacts = _build_facts(plan, tuple(tables), core_digest=core)
         metrics.records_jcs_seconds += perf_counter() - records_jcs_started
         result = DetailedFactsResult(plan.pair_id, facts.summary.status, facts=facts, diagnostics=facts.diagnostics)
+        if retain_cache_candidates:
+            for handle in handles.values():
+                if handle.is_sealed():
+                    continue
+                try:
+                    handle.prepare_cache_views(_MAX_JCS_ROW_BYTES)
+                except MemoryError:
+                    handle.discard_cache_views()
         operation.seal()
         context.checkpoint()
         context.resources.enter_context(metadata_charge)

@@ -273,65 +273,26 @@ sort_or_row_order_contract
 - 不支持跨 project/repository_id 全局复用。
 - 不包含 operation id、workspace id、preview id、history operation id 或 host path。
 
-`comparison_core_cache` 第一版 scope：
+计算缓存分为独立的单表 comparison 和 risk candidates 层，不使用 pair-level JSONL/core entry。
+`comparison-table-cache/v1` 的完整有向任务身份、至多3 facts+3 artifact+1 STANDARD risk IPC
+视图、两个顺序与原 batch 边界由 [Comparison Contract](contracts/comparison.md#comparison-table-cache)
+拥有。manifest 保存 scope/key/version、完整成功标记、neutral outcome 及每成员 raw SHA/size/
+schema/count/batch rows；空视图无文件。命中必须按本次 operation/pair 重算 facts、records 和闭包，
+不能返回旧 bundle 或旧绑定摘要。FINAL 输入 authority 先校验；已提交规范副本、导出和计算缓存
+分别 lookup，不将单层 hit 冒充零行读取。
 
-```text
-before_snapshot_digest
-current_snapshot_digest
-comparison_contract_version
-projection_contract_version
-scalar_encoding_version
-table_ruleset_digest
-requested_tables
-comparison_options
-```
+`risk-table-candidates/v1` 保存 Risk owner 的完整中性事件序列（ordinal/结束标记），包括当前
+closure 核验位置与被 level 过滤的候选；不保存 annotation id、旧 closure 验证结论或最终截断 outcome。
+重放调用原 emit 的当前 cap、level、预约、编号和原时间检查；组合信号仍当前汇总。
 
-第一版 cache entry：
-
-```text
-comparison-core-cache/
-  cache-entry.json
-  facts-core.json
-  records/
-    <table>.records.jsonl
-    <table>.records.manifest.json
-  records-closure.json
-```
-
-规则：
-
-- 第一版使用 pair-level comparison core entry，不做 table-level comparison cache，也不把 surface/bundle 合并成单一 pair-total cache。
-- `facts-core.json` 使用 neutral refs 或无 refs；命中恢复时生成 operation-local refs。
-- `records-closure.json` 在 cache entry 内闭合 cache-local records，同时命中恢复时必须生成 operation-local closure。
-- `comparison_core_cache` 不缓存 risk evaluation、ComparisonSurface 或 WorkbenchBundle。
-- 后续可增加 table-level comparison cache、records 压缩/列式格式、dedup、promotion 和 eviction 策略。
-
-Provider-neutral 规则：
-
-- `comparison_core_cache` key 默认不包含 provider name；同一 pair/rules/options 的 SQL path、Snapshot path、Dolt native path 可以共享 canonical cache。
-- cache value 必须是 canonical `ComparisonFacts + ComparisonRecordsClosure`，不是 provider raw output。
-- provider semantic version 只有在会改变 canonical comparison 语义时才进入 comparison options / contract version；纯性能路线或输出顺序差异不进入 key。
-- records 顺序差异必须通过 canonical sort 或 order-insensitive digest 消解。
-- provider-local raw diff cache 如有需要，应单独命名，不得替代 comparison core cache。
-- Dolt native provider 只有在完成 projection/schema/scalar/key/counter 归一化后，才能写入 provider-neutral comparison core cache。
-- Ordered diff records 进入 comparison core cache 时必须作为 canonical comparison facts/records extension，而不是 surface-only artifact。
-
-`risk_evaluation_cache` 第一版不要求实现，只保留边界。未来 cache key 至少包含：
-
-```text
-comparison_digest
-risk_contract_version
-risk_model_version
-risk_ruleset_digest
-risk_options
-annotation_artifact_contract_version
-```
-
-规则：
-
-- `risk_evaluation_cache` 不缓存 ComparisonSurface 或 WorkbenchBundle。
-- `comparison_core_cache` 命中不等于 `risk_evaluation_cache` 命中。
-- risk cache hit 仍需校验 annotation artifact manifest/content digest。
+两层均是可丢失 L3 派生状态。默认 TTL86400秒，成功使用/首次 Submit finalize 从当前事务 UTC续期。
+索引为 `(repository_id, kind, task_digest)`；uses绑定真实成功 producer operation 和该精确 manifest。
+所有成员先由当前 operation 临时保护，完整成员/manifest 后短事务登记 entries、TTL intents 和 uses。
+lookup 在 root read session 内短事务 pin 全部成员，再校验文件；不持 DB 事务 hash/计算。
+活动 reader 的独立 pin 和 shared borrow 保到最后消费，替换旧条目不能使旧 reader 失效。
+失效按 manifest identity 条件删除，不能删除新 writer 条目或其他 owner；expiry 每批64清理，不增线程。
+Submit T3只触达对应 Preview 的匹配现存条目，不推进业务 BaselineHead、不跨服务原子化。
+cache miss/可选写失败不改变业务结果；控制取消/截止、真正 M不足与未知 DB错误不吞为 miss。
 
 `comparison_surface_cache` 第一版不要求实现，只保留边界。未来 key 至少包含：
 

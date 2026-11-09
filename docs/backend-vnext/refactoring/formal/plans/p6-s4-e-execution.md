@@ -1,5 +1,12 @@
 # P6 S4 E: fixed-source execution and evidence map
 
+**Current scope, Owner 2026-11-09 (DC98):** this document's 28-journey,
+synthetic stress and warm-plus-three matrix is historical and withdrawn.
+Use the [business validation scope](p6-s4-business-validation-scope.md): close
+the actual Repository finding, reuse qualified gates, and validate production
+Submit on one frozen real t4 v1/v2 pair with necessary prerequisites and real
+table checks. No History or repeated performance matrix; raw failures remain.
+
 Status: execution and evidence map, not an acceptance receipt. The c9e candidate
 has actual 04 all-six authority/Compose and the old B independent expectation
 capture and S1a component replay have actual evidence; the DC97 successor still

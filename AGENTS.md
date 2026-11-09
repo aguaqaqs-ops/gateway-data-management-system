@@ -194,6 +194,8 @@ sha256sum vnext/repository_service/uv.lock
 
 Phase 6退出按[DC97](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)：性能数值目标只报告，是否达标不作退出门槛；仍须完成已确认范围的可靠测量、真实统计、正确性／资源安全／来源与独审核收，失败和未知不得写为通过。可由Luna max只读监视并向协调者汇报；不额外启动测试或替代唯一执行者／独立审核。
 
+Owner于2026-11-09按[DC98](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)补充：各阶段以新增/受影响业务正确性为主，不默认逐阶段全量测量、合成放大、预热加重复采样或细粒度profiling；性能/容量专项按明确目的、范围和成本另定。合格来源依原规则复用，最终必要门禁、冻结语义、资源硬边界与已发现finding不因裁剪取消。S4旧28旅程已撤回，按真实代表输入的Submit定向清单收敛；S3具体新范围仍由原协调者/原审提出并确认，不把讨论建议直接当通过。
+
 Phase 0–9及后续维护统一遵守
 [Proportional Assurance and Risk-Based Verification Policy](docs/backend-vnext/refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)。
 

@@ -1,5 +1,7 @@
 # Phase 6 S4：执行计划与开工边界
 
+**2026-11-09当前验收范围：Owner已按[DC98](p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)同意[业务正确性收敛清单](p6-s4-business-validation-scope.md)。下文§6的旧全旅程/合成放大/1暖3测安排及其后继28队列不再执行；旧数据和审核保留历史含义。当前先关闭实际finding，再以一组真实t4输入定向核生产Submit及真实表结果，复用已合格证据，不追逐细段时间；不放宽SQL、CAS/恢复或有限资源等业务屏障。**
+
 2026-11-08。状态：固定设计候选 `de0eb3a8b2f9881737a183f0a4663dad9a75d67f` 已获 [Sol 连续复审](p6-s4-design-review.md)及 [GPT-6-Astra high 第二次独审](p6-s4-astra-review.md) **DESIGN_CLEAR_FOR_OWNER**；本次已按DC96获Owner授权连续实施A–E及必要测试/编译/lint/构建；满足全部退出条件后办理本地附注S4 exit tag，不推送。
 依据 [详细设计](p6-s4-design.md)；Owner已确认本文§6的DC33范围；本次执行放行及资源授权见[DC96](p6-s0-owner-decisions.md#dc96-s4-ae连续实施与资源档授权owner2026-11-08)和[协调记录](p6-s4-coordination.md)。
 

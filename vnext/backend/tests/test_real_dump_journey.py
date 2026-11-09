@@ -68,6 +68,13 @@ from gateway_backend.infrastructure.control_db.database import (
     initialize_control_db,
 )
 from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_to_row
+from tests.support.compose_gate_harness import (
+    BASELINE_NODE_ID,
+    DEVICE_KEY,
+    PROJECT_ID,
+    SESSION_TOKEN,
+    compose_auth_headers,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -1810,7 +1817,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
-W1_W2_INVALID_CONTROLS = (
+W1_W2_INVALID_CONTROLS: tuple[tuple[dict[str, Any], list[str]], ...] = (
     ({"tier_filter": None}, []),
     ({"tier_filter": "t1"}, ["--tier", "t1"]),
     ({"cross_project": True}, ["--tier", "t4", "--cross-project"]),
@@ -1933,7 +1940,7 @@ def test_w1_w2_provisioned_submitters_create_separate_open_workspaces(tmp_path: 
             permissions=frozenset(item["permissions"]),
         ) for item in sessions
     }
-    first_identity = identities[real_dump_journey.SESSION_TOKEN]
+    first_identity = identities[SESSION_TOKEN]
     repeat_identity = identities[real_dump_journey.REPEAT_SUBMITTER_TOKEN]
     assert first_identity.actor_id != repeat_identity.actor_id
     assert first_identity.gateway_device_external_key == repeat_identity.gateway_device_external_key
@@ -1942,11 +1949,10 @@ def test_w1_w2_provisioned_submitters_create_separate_open_workspaces(tmp_path: 
         "workspace_read", "upload_submit_workspace", "preview_workspace",
     })
     env = create_workspace_http_environment(tmp_path, identity=first_identity, extra_sessions=identities)
-    body = {"gateway_device_external_key": real_dump_journey.DEVICE_KEY,
-            "business_project_id": real_dump_journey.PROJECT_ID}
-    first = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers())
-    same_actor = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers())
-    repeat = env.client.post("/v1/workspaces", json=body, headers=real_dump_journey.compose_auth_headers(
+    body = {"gateway_device_external_key": DEVICE_KEY, "business_project_id": PROJECT_ID}
+    first = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers())
+    same_actor = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers())
+    repeat = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers(
         token=real_dump_journey.REPEAT_SUBMITTER_TOKEN))
     assert [first.status_code, same_actor.status_code, repeat.status_code] == [201, 200, 201]
     assert first.json()["workspace_id"] == same_actor.json()["workspace_id"]
@@ -1978,7 +1984,7 @@ def test_w1_w2_upload_preview_and_submit_keep_the_repeat_session(
     monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: {
         "current_preview_result_id": "result", "optimistic_version": 2, "generation": 1})
     monkeypatch.setattr(real_dump_journey, "download_bundle_tar", lambda *_a, **_kw: ({}, {}))
-    with httpx.Client(base_url="http://backend.test", headers=real_dump_journey.compose_auth_headers(
+    with httpx.Client(base_url="http://backend.test", headers=compose_auth_headers(
             token=token), transport=httpx.MockTransport(respond)) as client:
         upload = real_dump_journey._upload_revision(
             client, workspace={"workspace_id": "repeat", "optimistic_version": 0},
@@ -2008,7 +2014,7 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     steps: list[str] = []
     verified_mains: list[tuple[str, str, str]] = []
     snapshots: list[dict[str, list[str]]] = []
-    initial_head = {"business_baseline_node_id": real_dump_journey.BASELINE_NODE_ID,
+    initial_head = {"business_baseline_node_id": BASELINE_NODE_ID,
                     "business_baseline_commit_id": "initial", "baseline_head_version": 0}
     archived_head = {"business_baseline_node_id": "archived-v1",
                      "business_baseline_commit_id": "commit-v1", "baseline_head_version": 1}
@@ -2034,18 +2040,18 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     def workspace(client: httpx.Client) -> dict[str, str]:
         actor = client.headers["Authorization"]
         if actor not in workspaces_by_actor:
-            name = "first" if actor.endswith(real_dump_journey.SESSION_TOKEN) else "repeat"
+            name = "first" if actor.endswith(SESSION_TOKEN) else "repeat"
             workspaces_by_actor[actor] = {"workspace_id": name}
         return workspaces_by_actor[actor]
 
     def upload(client: httpx.Client, **kwargs: Any) -> dict[str, str]:
-        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        token = kwargs.get("token", SESSION_TOKEN)
         assert client.headers["Authorization"] == f"Bearer {token}"
         assert kwargs["workspace"] == workspace(client)
         return {"upload_revision_id": kwargs["workspace"]["workspace_id"]}
 
     def preview(client: httpx.Client, **kwargs: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        token = kwargs.get("token", SESSION_TOKEN)
         assert client.headers["Authorization"] == f"Bearer {token}"
         assert kwargs["workspace"] == workspace(client)
         name = kwargs["workspace"]["workspace_id"]
@@ -2055,7 +2061,7 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
                 "operation_timing": {"visibility_observation": "post_terminal_result_read"}}, {}
 
     def submit(client: httpx.Client, **kwargs: Any) -> dict[str, Any]:
-        token = kwargs.get("token", real_dump_journey.SESSION_TOKEN)
+        token = kwargs.get("token", SESSION_TOKEN)
         assert client.headers["Authorization"] == f"Bearer {token}"
         assert kwargs["workspace"] == workspace(client)
         verified_mains.append(kwargs["verify_repository"])
@@ -2088,7 +2094,7 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
                            transport=httpx.MockTransport(
                                lambda _request: httpx.Response(200, json={"head": head})))
 
-    monkeypatch.setattr(real_dump_journey.httpx, "Client", client)
+    monkeypatch.setattr(httpx, "Client", client)
     monkeypatch.setattr(real_dump_journey, "JourneyStepRunner", StepRunner)
     monkeypatch.setattr(real_dump_journey, "_dataset_package", package)
     monkeypatch.setattr(real_dump_journey, "_ordered_tables", lambda _item: {})

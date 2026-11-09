@@ -1,6 +1,6 @@
 # S5 A 独立产品审核归档
 
-截至R6，修后固定候选 `c1a5332a8722d3736280d8b60059944e329b8697` 源码 **CODE_GO**；首次ad043编译失败原件保留，修后实际 focused、Rust 与五包静态证据尚待核收，A尚无证据GO，B未放行。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
+截至R10，修后固定候选 `eb64578925398a6402f6e7b21790226c5f4e78e6` 源码 **CODE_GO**；历次实际失败原件保留，当前候选的完整实际证据尚待核收，A尚无证据GO，B未放行。以下为新独立Sol原审及连续复审逐字原文；设计CLEAR未用作产品GO。各原件的SHA与本归档文件整体SHA分别记录。
 
 原件 Risk R1：`/home/dev/gdds-s5-logs/reviews/a-risk-r1.md`；SHA256：`b27a860fa7c725860f7754e030aa104e22f8f038739c083eba96cb13c857976b`。
 
@@ -440,3 +440,178 @@ R5 原件 `/home/dev/gdds-s5-logs/reviews/a-r5-compile.md` SHA256=`7eb2a42c1de2b
 ## 4. 容器状态
 
 Current HEAD：`c1a5332a8722d3736280d8b60059944e329b8697`。Container rebuild required：本 A 子节无独立触发，未改依赖/锁/部署/container harness/container-only 行为。Container gate for current HEAD：**deferred**，必要执行点仍为 E 最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史 S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` 交接线索，本审核未重算镜像或新增 carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r7-types.md`；SHA256：`10c9fc61961005acc2312de715e05889f71fd380c45ccaa5237e071b710760c0`。
+
+---
+
+# P6 S5 A 连续产品复审 R7（测试类型修复）
+
+结论：**CODE_GO，绑定 `ee234028e04578e923c10969b239c41c272e259e`**。20 项已知 mypy 错误的源码原因已逐项修订，测试输入及断言未降级；可沿已核执行稿正式重验。当前修订的 mypy/后续检查尚待实际原件，A 证据 GO 与 B 继续等待。
+
+## 1. 固定对象与独立性
+
+- Candidate：`ee234028e04578e923c10969b239c41c272e259e`；上轮被测候选：`c1a5332a8722d3736280d8b60059944e329b8697`。
+- Rust tree仍为 `180d191566f9eb95729994ea9ef3284e7fa54b78`，精确不变，无须另做 Rust 格式准备；完整审核 base仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读 detached worktree：`/home/dev/gdds-s5-review-a-ee234028e0`；创建后及报告前核 exact HEAD、detached、index/tracked/untracked clean，legacy 链接正确。
+- `c1a533..ee234` 唯一 vnext 路径为 `vnext/backend/tests/test_comparison_cache.py`，41 增 33 删；中间 `8925` 只归档文档。产品代码、Contract、锁、Rust 和依赖均未改。
+- 本人未实现本次被审修订，未改产品、测试、Contract 或被审 worktree，未执行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子 agent、push/tag。
+
+## 2. 失败原件与实际运行边界
+
+独核 `/home/dev/gdds-s5-logs/execution/a-focused/20261109T063945Z-c1a5332a8722d3736280d8b60059944e329b8697/remote-evidence/mypy-backend.log`，SHA256=`03ac3643943e472b10bb08ef201889d4b0d8efd437230c766afd2724f75cb90e`；同目录 steps.tsv SHA256=`bedb28c0d21e67f2eec2c8b570e79ceda5098e05ffde2853f6ec9e395aba78a3`，均与交接一致。
+
+该次在 06 固定 c1a533/Rust tree运行：native sync、精确 extension build-input、五包环境同步、shared_kernel/repository_contracts/repository_client 的 ruff/mypy、backend ruff均 exit 0；backend mypy在 536 个 source files中报告本新测试文件20项错误，command exit 1、tee exit 0后停止。session记录工作区仍clean、失败状态保留、占用已释放。repository_service静态、Rust和backend focused未运行。该次不是完整 A GO，也不是 qualified runner 来源；部分实际成功不能冒称后续成功或当前 ee234 全部通过。
+
+## 3. 单文件逐项修订核查
+
+| 错误组 | 当前修订与对照结果 |
+| --- | --- |
+| descriptor动态字段字典 | row_count/content/schema/compare_key四分支改为显式replace，分别仍为原+1、different-content摘要、different-schema摘要及空key；仍只去掉current reader而保descriptor mutation。四种输入、参数表和identity差异断言不变。 |
+| Optional policy | 先取局部policy并assert非None，再复用该局部替换policy/storage字段；没有移除原有效性assert，也没有将可空类型强行cast。 |
+| 两侧storage动态替换 | before/current facts、descriptor和最终policy字段显式分支，`ComparisonStorageFacts | None`只表达原本允许的missing mutation。missing、source_schema、canonical_schema、content、projection、view、effective_key、partial_schema、partial_projection、partial_content十项均与原字典值和侧别逐项一致；其余参数表及NotCacheable/摘要改变断言原样保留。 |
+| KEYLESS变量类型冲突 | SQL循环字符串改名insert_rows，解析facts列表改名fact_rows，所有使用点一致。2增1删0改、三occurrence identity、frozen a/b frame、family/count与restore digest断言不变。 |
+
+完整差异没有新增ignore、cast或Any；既有Any未扩大。没有修改业务expected、frozen向量、错误类型、当前M/控制/释放向量，也没有跳过测试。20项已知类型错误的源码原因静态关闭，但是否通过mypy仍须实际执行。
+
+R6及之前的产品源码结论原样保持，R6原件 `/home/dev/gdds-s5-logs/reviews/a-r6-format.md` SHA256=`a6f223d72da27015d99946a25e5f562024a61c550b0db2a21ac0ad902b29519b`，保留未改。未借本次测试修复重开设计或扩大测试矩阵。
+
+## 4. 下一次输入与容器状态
+
+沿已核 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，正式参数绑定本 candidate及上述不变Rust tree；唯一测试角色核空闲/合格缓存后实际执行，保首失败停止规则。当前候选 **NATIVE/BUILD-INPUT / FIVE-PACKAGE STATIC / RUST / FOCUSED = NOT_RUN**（本报告核收状态）；既有c1a533部分成功只记录为其自身运行事实，不作为包闭包沿用或完整门禁来源。
+
+Current HEAD：`ee234028e04578e923c10969b239c41c272e259e`。Container rebuild required：本 A 子节无独立触发，未改依赖/锁/部署/container harness/container-only 行为。Container gate for current HEAD：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r8-clippy.md`；SHA256：`29d48f17d2238797b5f0a4cfdb2e4352b754e9e7dd10b4ac0440af11226bfbc9`。
+
+---
+
+# P6 S5 A 连续产品复审 R8（局部 clippy 收口）
+
+结论：**CODE_GO，绑定 `0ddc7ec6485aa3b373934dea1a4daccec87b6490`**。局部 too_many_arguments 豁免有明确既有边界依据，未改执行语义；可交唯一测试角色按同稿重验，无须另做格式准备。实际 fmt/clippy/core/focused仍待当前候选原件，A 证据 GO 与 B 继续等待。
+
+## 1. 固定对象与独立性
+
+- Candidate：`0ddc7ec6485aa3b373934dea1a4daccec87b6490`；Rust tree：`c0213e18a9645c5cfbd39f310f532273a03a10cb`。
+- 上轮被测候选：`ee234028e04578e923c10969b239c41c272e259e`；完整审核 base仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读 detached worktree：`/home/dev/gdds-s5-review-a-0ddc7ec648`；创建后及报告前核 exact HEAD、detached、index/tracked/untracked clean，legacy链接正确。
+- `ee234..0ddc` 唯一差异为 `vnext/rust/gateway-compute-core/src/records/builders.rs` 新增三行，没有其他产品、测试、Contract、依赖或锁变化。
+- 本人未实现本次修订，未改产品、测试、Contract或被审worktree，未执行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子agent、push/tag。
+
+## 2. 原失败与修订核查
+
+独核 `/home/dev/gdds-s5-logs/execution/a-focused/20261109T064444Z-ee234028e04578e923c10969b239c41c272e259e/remote-evidence/rust-clippy.log`，SHA256=`c277a511c4feace32df88e9e9a65627372ceac2cbee6a4e100393a2ad46b1031`，与交接一致。原失败为恢复函数8参数超过clippy阈值7，command exit101、tee exit0；属于实际产品静态失败，原件保留。
+
+同目录steps/session记录06固定ee234运行：native sync、精确extension build-input、五包ruff/mypy和Rust fmt均exit0，clippy首失败后停止。工作区仍clean、失败临时状态保留、占用已释放；core cache tests与backend focused未运行。该次不能作完整A GO或qualified runner来源。
+
+本次只在 `restore_records_batches` 紧邻处增加两行说明及 `#[allow(clippy::too_many_arguments)]`。说明要求显式保留每次调用的limits、当前operation context和存活external owner；与同模块族 `source.rs::build_standard_records` / `build_standard_records_from_ordered` 已有同名局部豁免及owner说明一致。该豁免仅作用于本函数，未扩至module/workspace或其他lint。
+
+逐字对照函数签名与函数体，无参数、分支、限额、校验、资源释放、输出/schema/batch边界或固定expected变化。保留显式family/detail/table/neutral/max_records/max_row_bytes/context/owner有助核对恢复边界；为满足参数数量新建包装类型没有当前需要。本次不扩大机制，也不修改业务算法。
+
+已知clippy阻塞的源码原因关闭，无新代码finding；先前A1–A4、Risk R2、同M、DAG、FFI和R7测试类型结论保持。R7原件 `/home/dev/gdds-s5-logs/reviews/a-r7-types.md` SHA256=`10c9fc61961005acc2312de715e05889f71fd380c45ccaa5237e071b710760c0`，保留未改。
+
+## 3. 实际重验与容器状态
+
+继续使用已核 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，参数固定本candidate及Rust tree，由唯一测试角色核空闲/缓存后运行。手工新增注释/attribute不需另产格式补丁；正式 `cargo fmt --all --check`仍执行，未以本代码审核代替fmt结果。当前候选必要native/build-input、五静态、Rust和focused执行核收状态均为 **NOT_RUN**，既有ee234成功只记为其实际部分事实。
+
+Current HEAD：`0ddc7ec6485aa3b373934dea1a4daccec87b6490`。Container rebuild required：本A子节无独立触发，未改依赖/锁/部署/container harness/container-only行为。Container gate for current HEAD：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r9-fixtures.md`；SHA256：`30c90acb5d137d85477e39eb7ca0a0942975dcb07237c1a46e3223c16a028699`。
+
+---
+
+# P6 S5 A 连续产品复审 R9（完整 fixture 与 owning writer schema）
+
+结论：**CODE_GO，绑定 `18b79112fafa55cf4a318585328fefa079c6481a`**。两处测试修订对应已核失败原因，未削弱完整绑定或改变冻结业务预期；可交唯一测试角色同稿正式重验。当前focused成功及完整A证据仍待实际原件，B继续等待。
+
+## 1. 固定对象与独立性
+
+- Candidate：`18b79112fafa55cf4a318585328fefa079c6481a`；上轮被测候选：`0ddc7ec6485aa3b373934dea1a4daccec87b6490`。
+- Rust tree仍为 `c0213e18a9645c5cfbd39f310f532273a03a10cb`，精确不变；完整审核base仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读detached worktree：`/home/dev/gdds-s5-review-a-18b79112fa`；创建后及报告前核exact HEAD、detached、index/tracked/untracked clean，legacy链接正确。
+- `0ddc..18b` 唯一vnext差异为tests/support/comparison_cache_inputs.py与test_comparison_cache.py，共7增7删；中间仅并行前端文档合并，不属于本轮产品审核。产品guard/Contract/Rust/锁/依赖未改。
+- 本人未实现本修订，未改产品、测试、Contract或被审worktree，未运行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子agent、push/tag。仅作源码、Git和既有原件核查；外置诊断脚本未作为执行证据。
+
+## 2. 首次 focused 原件与根因
+
+独核 `/home/dev/gdds-s5-logs/execution/a-focused/20261109T064827Z-0ddc7ec6485aa3b373934dea1a4daccec87b6490/remote-evidence/backend-focused-parallel.log`，SHA256=`be4d3bf38e6c64ef89ac84a6c4c77bff3533bc959c96a5a02ae6834e82006b06`。同目录steps.tsv实际SHA256=`342d63bc08b549db252094dbec1877bb72183a0e19d308d67c160ea9feb62afb`。
+
+06固定0ddc运行中，native/build-input、五包ruff/mypy、Rust fmt/clippy及core cache focused均exit0；backend parallel focused为56失败、222通过，command exit1、tee exit0后停止，serial未启动。工作区仍clean、失败临时状态保留、占用已释放。失败并未被解释成工具故障，也不能把前面的局部成功视为完整A GO或qualified runner来源。
+
+独核两项实际问题：
+
+1. Snapshot Materialization的 `materialize_source_arrow` 对所有成功表都携带SOURCE_MISSING_STABLE_KEY的SnapshotTableOrderedMetadata；该metadata表达可用来源事实，并不是ORDERED角色声明。原helper以metadata非None推断ordered，从而对STD(id,note)虚造GID_NO_V1/structural(no)，被 `_complete_side` 的完整列集合守卫正确拒绝；S3D session同用此helper，无法得到声明key。该guard及真实canonical writer proof应保留。
+2. ORDERED roundtrip失败已通过identity、restore和facts digest，在Parquet rawSHA比对失败，不属于上述binding拒绝。新测试把native reader.schema直接交 `_write_arrow_parquet`；真实 `publish_records_family_arrow` 及既有frozen S3C测试则采用owning `_schema_for`。native Arrow metadata来自Rust HashMap，语义相同schema不能替代既有writer schema的固定序列化。应接回原writer路径，不能修改golden或新增产品排序机制来适配测试。
+
+## 3. 固定修订逐项核查
+
+- helper新增keyword-only `ordered: bool=False`并删除由ordered_metadata推断角色的语句。现有storage_facts存在时仍优先保留原storage_rule_view；无原facts时才按调用方明确角色构造小fixture view，canonical writer、schema/content/version值保持。
+- 核对所有调用点：`_planned(ordered)`的before/current两侧均传同一实际声明；S3D `_session_bound`、second-pair writer、SET和KEYLESS输入均为STANDARD，保持默认False。没有将列名或reader availability当作角色推断依据。
+- roundtrip Parquet调用改用 `_schema_for(RecordsArtifactFamily(family), None, identity.task_input.detail_policy)`，与既有S3C/真实publisher同一owner schema；实际batch仍是恢复handle导出的batch，未改数据、batch边界、family、detail或预期来源。
+- 冻结raw SHA/content digest、完整facts digest、KEYLESS净计数/occurrence/frame与所有negative/资源断言均原样保留。无新增ignore、cast、产品guard放松、expected更新或测试跳过。
+
+两项根因在源码中关闭，没有新代码finding；R1–R8既有产品语义、同M/控制/owner、完整binding、DAG/FFI和风险冻结核查结论保持。R8原件 `/home/dev/gdds-s5-logs/reviews/a-r8-clippy.md` SHA256=`29d48f17d2238797b5f0a4cfdb2e4352b754e9e7dd10b4ac0440af11226bfbc9`，保留未改。
+
+## 4. 实际重验与容器状态
+
+沿已核 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，参数固定本candidate及上述不变Rust tree；唯一测试角色核空闲/缓存后执行。当前候选必要native/build-input、五静态、Rust及focused核收状态仍为 **NOT_RUN**，实际通过后再核原件形成A证据结论，不提前B。
+
+Current HEAD：`18b79112fafa55cf4a318585328fefa079c6481a`。Container rebuild required：本A子节无独立触发，未改依赖/锁/部署/container harness/container-only行为。Container gate for current HEAD：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。
+
+
+---
+
+原件：`/home/dev/gdds-s5-logs/reviews/a-r10-semantics.md`；SHA256：`91a07eda1a5d32f83a9272b0d406b32484462d55400cf26a1b5cc796fdf157ed`。
+
+---
+
+# P6 S5 A 连续产品复审 R10（三项语义修订）
+
+结论：**CODE_GO，绑定最终 `eb64578925398a6402f6e7b21790226c5f4e78e6`**。STANDARD 无关 provenance 导致的 key 差异已修，两个新增测试预期依据固定旧源修正而非按本次actual重录；可交唯一测试角色同稿正式重验。完整A证据与B继续等待。
+
+## 1. 固定对象与原失败
+
+- Candidate：`eb64578925398a6402f6e7b21790226c5f4e78e6`；上轮被测候选：`18b79112fafa55cf4a318585328fefa079c6481a`。中间单测试提交cc3b不单独作为本轮候选，未改写已引用提交。
+- Rust tree仍为 `c0213e18a9645c5cfbd39f310f532273a03a10cb`；完整审核base仍为 `fd9e383d76642037e4b3246c847222ea9483e033`。
+- 只读detached worktree：`/home/dev/gdds-s5-review-a-eb64578925`；创建后及报告前核exact HEAD、detached、index/tracked/untracked clean，legacy链接正确。
+- `18b..eb` 仅task_input.py及test_comparison_cache.py，20增6删。未改golden、Contract、算法、锁、版本、Rust或依赖。
+- 本人未实现被审修订，未改产品、测试、Contract或被审worktree，未运行产品测试、语法检查、编译、fmt、lint、镜像或真实旅程，未创建子agent、push/tag。
+
+独核 `/home/dev/gdds-s5-logs/execution/a-focused/20261109T065929Z-18b79112fafa55cf4a318585328fefa079c6481a/remote-evidence/backend-focused-parallel.log`，SHA256=`1df0e5a7bb56111c1e8449188d6987fa5373c9aab4938477929b89affff67ead`。06固定18b运行，native/build-input、五包静态、Rust fmt/clippy/core cache focused均通过；parallel focused275通过、3失败，command exit1/tee exit0后停止，serial未启动。session记录HEAD仍18b且clean，失败状态保留、占用已释放。失败原件不覆盖、不当qualified runner来源，未跑项不写通过。
+
+## 2. 旧源依据与逐项修订
+
+### STANDARD reader载体与key
+
+所有成功Snapshot Materialization表均可携带OrderedMetadata，STANDARD native请求不消费该metadata。原任务projection无条件纳入before/current ordered metadata，移除table资源时变None，导致相同STANDARD纯任务key变化。当前仅在 `native_kind == "ordered"` 时保留两项metadata；STANDARD两项投影为None，其他descriptor、完整storagefacts、resolved policy/rules、scope、方向、diagnostics、detail、版本和native request原样保留。
+
+ORDERED仍由原ordered_policy读取两侧blank provenance，且继续把完整OrderedMetadata写入projection；没有通过全局删除provenance或未分类字段来缩小key。缺必要ORDERED输入仍走原拒绝/不可缓存路径。原table=None等key断言保留，并新增只清reader/artifact/batch_reader三项资源、保descriptor/provenance的等key断言，覆盖两种资源表达。
+
+### KEYLESS values
+
+固定 `vnext/fixtures/golden/comparison/s3-e/old-python-expected.json` 声明old_algorithm_source=`4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec`、source_commit=`a9da0c59277e3179f34d646eabcd9c185917ae05`。本人分别用Git只读核两份固定旧源：standard.py::_compare_keyless647–663仅构造kind与occurrence identity，不附before/current values；S5前base fd9e的Rust compare_keyless也明确before/current=None、value_columns为空。
+
+因此本新增test改为明确断言三条记录的两侧values均空，有独立冻结来源依据。2增1删0改、ROW_ADDED/ROW_ADDED/ROW_DELETED序、三个不同occurrence identity、restore记录数/完整digest断言全部保留；未改业务实现以输出原不存在的values，也未改既有golden。
+
+### SET与NULL frame
+
+同固定旧源a9da standard.py528–555的keyed modified只输出changed列；fd9e Rust亦以changed作为value_columns。原新增输入note两侧NULL，note不该出现在modified values。当前改输入为NULL→`x`，使note确为changed列，保留测试的NULL覆盖目标。
+
+独立逐字核预期：NULL scalar frame为`0000`，string `x` 为tag20/length01/payload78，即`200178`；非空SET仍为冻结sequence `020320016103200162`，空SET仍为`00`。before/current列序、fact/restore digest和资源finally保持。源注释指向的a9da行号/实现已核，不据新actual生成expected。
+
+本轮三个原因在源码中关闭，无新代码finding；原A1–A4、Risk R2、同M/控制/owner、完整binding、DAG/FFI等结论保持。R9原件 `/home/dev/gdds-s5-logs/reviews/a-r9-fixtures.md` SHA256=`30c90acb5d137d85477e39eb7ca0a0942975dcb07237c1a46e3223c16a028699`，保留未改。
+
+## 3. 待验与容器状态
+
+沿已核 `/home/dev/gdds-s5-logs/execution/a-focused-next.sh`，SHA256=`fb7ad84fa7a4e7d9641dd2f802e2e51c314f063e8e28703f200d0d2d3c933d8e`，参数固定本candidate及不变Rust tree；唯一测试角色核空闲/缓存后实际重验。当前必要native/build-input、五静态、Rust及focused核收状态仍为 **NOT_RUN**；源码GO不代替本轮执行，不提前B。
+
+Current HEAD：`eb64578925398a6402f6e7b21790226c5f4e78e6`。Container rebuild required：本A子节无独立触发，未改依赖/锁/部署/container harness/container-only行为。Container gate for current HEAD：**deferred**，必要执行点仍为E最终候选或后续实际触发边界；Carried from：none。Last verified image/source-tree仍仅历史S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`交接线索，本审核未重算镜像或新增carried。

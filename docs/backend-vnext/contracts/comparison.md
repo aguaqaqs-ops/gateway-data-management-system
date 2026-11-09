@@ -507,6 +507,8 @@ canonical schema 绑定由原 authority owner 核验，content/key/columns 与�
 writer/artifact-read/committed-read 证明；metadata-only 描述允许无 reader，但不能缺 side facts。
 标准算法、ordered format/version、scalar、mapping、projection、records/closure 等均进入唯一投影；
 Rust已有 ordered/mapping 常量通过 Comparison facade 的小型版本入口读取，不增版本轴。
+ORDERED输入保留实际消费的完整ordered metadata与blank provenance；STANDARD不消费该metadata，
+不因其reader载体携带或省略而改变纯任务身份。
 
 
 值是完整成功的 neutral 小型 outcome metadata，和至多七个不压缩 IPC 视图：

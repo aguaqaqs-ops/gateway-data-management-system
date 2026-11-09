@@ -8,18 +8,20 @@ import {
   contextForIdentity,
   expectNoPageErrors,
   gotoWorkbench,
+  recordBundleResponses,
   saveEvidence,
   selectTreeRow,
   selectUploadDirs,
   startUpload,
-  waitForBundleResponse,
   waitForDiffBrowsing,
+  waitForInstalledBundle,
   waitForPreviewOutcome,
   workshopAction,
 } from "./lib/ui";
 import {
   appendArchiveAnomalyResolution,
   applyReview,
+  getPreviewResult,
   getReviewFacts,
   listArchiveCandidates,
   listHistory,
@@ -27,7 +29,7 @@ import {
   waitForOperation,
   waitForPendingSubmission,
 } from "./lib/api";
-import { parseBundleTar, type ParsedBundle } from "./lib/tar";
+import { digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
 import { identityFor, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
 /**
@@ -199,7 +201,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // Baselines go in after directory selection, immediately before packaging.
     await gotoWorkbench(page);
     await selectUploadDirs(page, { modified: v1Dir });
-    const bundleWait1 = waitForBundleResponse(page, 300_000);
+    const recording1 = recordBundleResponses(page);
     const uploadWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
     const previewWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
     const measured1 = await measurePackaging(browser, async () => {
@@ -212,19 +214,33 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(preview1.status(), "step1 preview status").toBe(202);
     const operation1 = await waitForOperation(submitter, ((await preview1.json()) as { operation_id: string }).operation_id, 600_000);
     expect(operation1.status, "step1 preview operation").toBe("SUCCEEDED");
-    const bundleResponse1 = await bundleWait1;
-    const bundle1 = parseBundleTar(Buffer.from(await bundleResponse1.body()));
     m1.push({ step: "t1-v1-modified", rendererIncrementBytes: measured1.rendererIncrementBytes, maxRssAnon: measured1.maxRssAnon, maxRssFile: measured1.maxRssFile, maxRssShmem: measured1.maxRssShmem });
-    const summary1 = pairSummary(bundle1, "initial_to_modified");
+    expect(await waitForPreviewOutcome(page)).toBe("compare");
+    const compareUrl1 = new URL(page.url());
+    const workspaceId = compareUrl1.searchParams.get("workspaceId");
+    const previewId1 = compareUrl1.searchParams.get("previewResultId");
+    expect(workspaceId, "step1 workspaceId").toBeTruthy();
+    expect(previewId1, "step1 previewId").toBeTruthy();
+    const previewResult1 = (await getPreviewResult(submitter, workspaceId as string, previewId1 as string)).body;
+    await waitForInstalledBundle(page, digestHex(previewResult1.bundle_digest));
+    let bundle1: ParsedBundle | null = null;
+    for (const recorded of [...recording1.responses].reverse()) {
+      try {
+        expect(recorded.status(), "step1 bundle status").toBe(200);
+        bundle1 = parseBundleTar(Buffer.from(await recorded.body()));
+        break;
+      } catch {
+        continue;
+      }
+    }
+    expect(bundle1, "step1 bundle downloaded and installed").toBeTruthy();
+    recording1.dispose();
+    const summary1 = pairSummary(bundle1 as ParsedBundle, "initial_to_modified");
     expect(Number(summary1.table_count), "step1 table_count").toBe(v1PreviewCount + 1);
     expect(Number(summary1.changed_table_count), "step1 changed").toBe(v1PreviewCount + 1);
     expect(Number(summary1.degraded_table_count), "step1 degraded").toBe(0);
     expect(Number(summary1.failed_table_count), "step1 failed").toBe(0);
-    expect(await waitForPreviewOutcome(page)).toBe("compare");
     await waitForDiffBrowsing(page);
-    const compareUrl1 = new URL(page.url());
-    const workspaceId = compareUrl1.searchParams.get("workspaceId");
-    expect(workspaceId, "step1 workspaceId").toBeTruthy();
     await saveEvidence(page, testInfo, "t1-v1-diff");
 
     // Submit v1.
@@ -283,7 +299,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // Steps 4–5: FULL ①=t1-v1 ②=t1-v2, then approve.
     await gotoWorkbench(page);
     await selectUploadDirs(page, { modified: v2Dir, initial: v1Dir });
-    const bundleWait2 = waitForBundleResponse(page, 300_000);
+    const recording2 = recordBundleResponses(page);
     const previewWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
     const uploadWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
     const measured2 = await measurePackaging(browser, async () => {
@@ -295,25 +311,40 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(preview2.status(), "step4 preview status").toBe(202);
     const operation2 = await waitForOperation(submitter, ((await preview2.json()) as { operation_id: string }).operation_id, 900_000);
     expect(operation2.status, "step4 preview operation").toBe("SUCCEEDED");
-    const bundleResponse2 = await bundleWait2;
-    const bundle2 = parseBundleTar(Buffer.from(await bundleResponse2.body()));
-    expect(bundle2.manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
-    const bti = pairSummary(bundle2, "baseline_to_initial");
+    expect(await waitForPreviewOutcome(page)).toBe("compare");
+    const compareUrl2 = new URL(page.url());
+    const previewId2 = compareUrl2.searchParams.get("previewResultId");
+    const workspaceId2 = compareUrl2.searchParams.get("workspaceId");
+    expect(previewId2, "step4 previewId").toBeTruthy();
+    expect(workspaceId2, "step4 workspaceId").toBeTruthy();
+    const previewResult2 = (await getPreviewResult(submitter, workspaceId2 as string, previewId2 as string)).body;
+    await waitForInstalledBundle(page, digestHex(previewResult2.bundle_digest));
+    let bundle2: ParsedBundle | null = null;
+    for (const recorded of [...recording2.responses].reverse()) {
+      try {
+        expect(recorded.status(), "step4 bundle status").toBe(200);
+        bundle2 = parseBundleTar(Buffer.from(await recorded.body()));
+        break;
+      } catch {
+        continue;
+      }
+    }
+    expect(bundle2, "step4 bundle downloaded and installed").toBeTruthy();
+    recording2.dispose();
+    expect((bundle2 as ParsedBundle).manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
+    const bti = pairSummary(bundle2 as ParsedBundle, "baseline_to_initial");
     expect(Number(bti.changed_table_count), "baseline_to_initial changed").toBe(0);
     expect(Number(bti.degraded_table_count), "baseline_to_initial degraded").toBe(0);
     expect(Number(bti.failed_table_count), "baseline_to_initial failed").toBe(0);
-    const itm = pairSummary(bundle2, "initial_to_modified");
+    const itm = pairSummary(bundle2 as ParsedBundle, "initial_to_modified");
     expect(Number(itm.table_count), "initial_to_modified table_count").toBe(v2PreviewCount + 1);
     expect(Number(itm.degraded_table_count), "initial_to_modified degraded").toBe(0);
     expect(Number(itm.failed_table_count), "initial_to_modified failed").toBe(0);
-    const composite = compositeChanged(bundle2, "initial_to_modified");
+    const composite = compositeChanged(bundle2 as ParsedBundle, "initial_to_modified");
     appendCaseLog(`t1-step4 composite_changed=${composite}`);
     const changedExpected = v2Changed + (composite ?? 0);
     expect(Number(itm.changed_table_count), "initial_to_modified changed").toBe(changedExpected);
-    expect(await waitForPreviewOutcome(page)).toBe("compare");
     await waitForDiffBrowsing(page);
-    const compareUrl2 = new URL(page.url());
-    const workspaceId2 = compareUrl2.searchParams.get("workspaceId");
     const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
     await compareAction(page, "提交").click();
     await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click();

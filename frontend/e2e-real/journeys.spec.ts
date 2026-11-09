@@ -9,6 +9,7 @@ import {
   expectEnabled,
   gotoWorkbench,
   opfsBundleState,
+  recordBundleResponses,
   reviewAction,
   reviewStatus,
   saveEvidence,
@@ -19,6 +20,7 @@ import {
   treeRow,
   waitForBundleResponse,
   waitForDiffBrowsing,
+  waitForInstalledBundle,
   waitForPreviewOutcome,
   workshopAction,
 } from "./lib/ui";
@@ -1310,31 +1312,50 @@ async function uploadDirsAndPreview(
   scope: JourneyScope,
   dirs: { modified: string; initial?: string },
 ): Promise<UploadRun> {
-  const bundleWait = waitForBundleResponse(page, 300_000);
-  const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
-  const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
-  await selectUploadDirs(page, dirs);
-  await startUpload(page);
-  const upload = await uploadWait;
-  expect(upload.status(), "upload-revisions status").toBe(201);
-  const preview = await previewWait;
-  expect(preview.status(), "preview-operations status").toBe(202);
-  const accepted = (await preview.json()) as { operation_id: string };
-  const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
-  expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
-  const bundleResponse = await bundleWait;
-  expect(bundleResponse.status(), "bundle status").toBe(200);
-  const body = Buffer.from(await bundleResponse.body());
-  const bundle = parseBundleTar(body);
-  const outcome = await waitForPreviewOutcome(page);
-  expect(outcome, "preview outcome").toBe("compare");
-  await waitForDiffBrowsing(page);
-  const url = new URL(page.url());
-  const previewId = url.searchParams.get("previewResultId");
-  const workspaceId = url.searchParams.get("workspaceId");
-  expect(previewId, "previewResultId in compare URL").toBeTruthy();
-  expect(workspaceId, "workspaceId in compare URL").toBeTruthy();
-  return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle, status: upload.status(), previewStatus: preview.status(), etag: bundleResponse.headers()["etag"] ?? "" };
+  const bundleRecording = recordBundleResponses(page);
+  try {
+    const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
+    const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    await selectUploadDirs(page, dirs);
+    await startUpload(page);
+    const upload = await uploadWait;
+    expect(upload.status(), "upload-revisions status").toBe(201);
+    const preview = await previewWait;
+    expect(preview.status(), "preview-operations status").toBe(202);
+    const accepted = (await preview.json()) as { operation_id: string };
+    const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
+    expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
+    // Outcome first: a failed preview surfaces here instead of masking as a
+    // missing bundle download.
+    const outcome = await waitForPreviewOutcome(page);
+    expect(outcome, "preview outcome").toBe("compare");
+    const url = new URL(page.url());
+    const previewId = url.searchParams.get("previewResultId");
+    const workspaceId = url.searchParams.get("workspaceId");
+    expect(previewId, "previewResultId in compare URL").toBeTruthy();
+    expect(workspaceId, "workspaceId in compare URL").toBeTruthy();
+    const previewResult = (await getPreviewResult(identity, workspaceId as string, previewId as string)).body;
+    await waitForInstalledBundle(page, digestHex(previewResult.bundle_digest));
+    // Prefer the newest recorded download; fall back to earlier ones.
+    let bundle: ParsedBundle | null = null;
+    let bundleResponse: PlaywrightResponse | null = null;
+    for (const recorded of [...bundleRecording.responses].reverse()) {
+      try {
+        expect(recorded.status(), "bundle status").toBe(200);
+        bundle = parseBundleTar(Buffer.from(await recorded.body()));
+        bundleResponse = recorded;
+        break;
+      } catch {
+        continue;
+      }
+    }
+    expect(bundle, "bundle downloaded and installed").toBeTruthy();
+    expect(bundleResponse, "bundle response recorded").toBeTruthy();
+    await waitForDiffBrowsing(page);
+    return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle: bundle as ParsedBundle, status: upload.status(), previewStatus: preview.status(), etag: (bundleResponse as PlaywrightResponse).headers()["etag"] ?? "" };
+  } finally {
+    bundleRecording.dispose();
+  }
 }
 
 async function approveByReviewer(reviewer: JourneyIdentity, submissionId: string): Promise<number> {
@@ -1431,7 +1452,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
     const startA = dialogA.getByRole("button", { name: "确认归档" });
     await expect(startA).toBeDisabled();
-    await expect(dialogA.getByText("请确认归档选择")).toBeVisible();
+    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
     await dialogA.getByRole("checkbox", { name: /确认把/ }).check();
     await expect(startA).toBeDisabled();
     await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();

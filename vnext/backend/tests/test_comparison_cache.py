@@ -104,15 +104,19 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
 def test_task_identity_ignores_only_outer_binding_and_reader_authority() -> None:
     planned = _planned()
     original = _identity(planned)
+    rebound = replace(planned, pair_id="another-current-pair", tasks=(replace(
+        planned.tasks[0], before_table=None, current_table=None,
+    ),))
+    assert _identity(rebound).task_digest == original.task_digest
     task = planned.tasks[0]
     assert task.before_table is not None and task.current_table is not None
     # Keep descriptor/provenance semantics while dropping only resource owners.
-    rebound = replace(planned, pair_id="another-current-pair", tasks=(replace(
+    resources_released = replace(planned, pair_id="another-current-pair", tasks=(replace(
         task,
         before_table=replace(task.before_table, reader=None, artifact=None, batch_reader=None),
         current_table=replace(task.current_table, reader=None, artifact=None, batch_reader=None),
     ),))
-    assert _identity(rebound).task_digest == original.task_digest
+    assert _identity(resources_released).task_digest == original.task_digest
     assert original.task_digest.value.startswith("sha256:")
     assert original.task_input.native_policy_jcs == original.task_input.native_policy().encode()
 

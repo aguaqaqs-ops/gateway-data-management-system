@@ -235,8 +235,10 @@ def build_table_task_input(
         "before": semantic_value(before), "current": semantic_value(current),
         "business_schema_before": None if before is None else before.business_schema_digest.value,
         "business_schema_current": None if current is None else current.business_schema_digest.value,
-        "before_ordered": semantic_value(None if task.before_table is None else task.before_table.ordered_metadata),
-        "current_ordered": semantic_value(None if task.current_table is None else task.current_table.ordered_metadata),
+        "before_ordered": semantic_value(None if native_kind != "ordered" or task.before_table is None
+                                         else task.before_table.ordered_metadata),
+        "current_ordered": semantic_value(None if native_kind != "ordered" or task.current_table is None
+                                          else task.current_table.ordered_metadata),
         "policy": semantic_value(policy), "rules": semantic_value(plan.rule_set),
         "mode": plan.mode.value, "options": semantic_value(plan.options),
         "contracts": semantic_value(plan.contract_versions), "diagnostics": list(plan.diagnostics),

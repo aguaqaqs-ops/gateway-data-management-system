@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -10,10 +11,71 @@ import httpx
 import pytest
 
 from gateway_repository_client import RepositoryClient, RepositoryClientError, RepositoryProtocolError
+from gateway_repository_client.errors import RepositoryClientTimeoutError
 
 REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
 OP_ID = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c22")
 COMMIT_ID = "commit-c1"
+
+CONTROL_STOPS = (
+    pytest.param("cancel", InterruptedError, id="cancel"),
+    pytest.param("deadline", RepositoryClientTimeoutError, id="deadline"),
+)
+
+
+@pytest.mark.parametrize(("stop", "expected"), CONTROL_STOPS)
+async def test_catalog_control_stops_after_closed_attempt_before_next_retry(
+    stop: str, expected: type[Exception],
+) -> None:
+    now = [0.0]
+    cancelled = [False]
+    responses: list[httpx.Response] = []
+    sleeps: list[float] = []
+    def handler(_request: httpx.Request) -> httpx.Response:
+        response = httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            headers={"X-Request-ID": "controlled-attempt"})
+        responses.append(response)
+        return response
+    async def sleeper(delay: float) -> None:
+        assert responses[-1].is_closed
+        sleeps.append(delay)
+        cancelled[0] = stop == "cancel"
+        now[0] = 1.0 if stop == "deadline" else now[0]
+    client = RepositoryClient(base_url="http://repository.test", bearer_token="token",
+        transport=httpx.MockTransport(handler), sleeper=sleeper, clock=lambda: now[0])
+    with pytest.raises(expected):
+        await client.get_versioned_catalog(repository_id=REPO_ID, commit_id=COMMIT_ID,
+            cancel_requested=lambda: cancelled[0], deadline_at=0.5)
+    assert len(responses) == 1 and all(response.is_closed for response in responses)
+    assert sleeps == [0.05]
+
+
+@pytest.mark.serial
+async def test_catalog_cancellation_interrupts_a_pending_http_attempt() -> None:
+    started = asyncio.Event()
+    cancelled = [False]
+    abandoned = asyncio.Event()
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            abandoned.set()
+        raise AssertionError("pending request unexpectedly completed")
+    client = RepositoryClient(base_url="http://repository.test", bearer_token="token",
+        transport=httpx.MockTransport(handler))
+    pending = asyncio.create_task(client.get_versioned_catalog(repository_id=REPO_ID, commit_id=COMMIT_ID,
+        cancel_requested=lambda: cancelled[0]))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+        cancelled[0] = True
+        with pytest.raises(InterruptedError):
+            await asyncio.wait_for(pending, timeout=2.0)
+        assert abandoned.is_set()
+    finally:
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
 
 
 def _operation_payload(*, status: str = "SUCCEEDED") -> dict[str, object]:

@@ -1019,6 +1019,28 @@ def test_checkpoint_reuse_read_back_preserves_package_identity() -> None:
     assert len(payload) == published.checkpoint.package_raw_size
 
 
+def test_checkpoint_reuse_rejects_missing_frozen_package_without_rebuilding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = SubmitImportPublicationAdapter()
+    store = InMemoryArtifactStore()
+    build_input = _build_input(store=store)
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    checkpoint = published.checkpoint
+    del store._artifacts[checkpoint.backend_import_artifact_ref.artifact_id]
+    remaining_artifacts = dict(store._artifacts)
+
+    def forbid_rebuild(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("checkpoint recovery must not rebuild a missing frozen package")
+
+    monkeypatch.setattr(adapter, "build_and_publish", forbid_rebuild)
+    with pytest.raises(SubmitImportPublicationError):
+        reuse_prepare_import_checkpoint(
+            build_input=build_input, checkpoint=checkpoint, publication=adapter, store=store,
+        )
+    assert store._artifacts == remaining_artifacts
+
+
 def test_orphan_bytes_before_checkpoint_do_not_change_published_identity() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()

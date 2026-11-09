@@ -30,7 +30,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
-from gateway_repository_client.deadline import validate_deadline_seconds
+from gateway_repository_client.deadline import CancelRequested, validate_deadline_seconds
 from gateway_repository_client.errors import RepositoryClientError, RepositoryProtocolError
 from gateway_repository_client.paths import encode_commit_id_path, encode_path_segment
 from gateway_repository_client.poll import (
@@ -340,6 +340,8 @@ class RepositoryClient:
         *,
         repository_id: UUID,
         commit_id: CommitIdString,
+        cancel_requested: CancelRequested | None = None,
+        deadline_at: float | None = None,
     ) -> GetVersionedCatalogResponse:
         validated_commit_id = _validate_commit_id(commit_id)
         encoded_commit_id = encode_commit_id_path(validated_commit_id)
@@ -351,6 +353,7 @@ class RepositoryClient:
                     f"/v1/repositories/{repository_id}"
                     f"/versioned/commits/{encoded_commit_id}/catalog",
                     headers={"Authorization": f"Bearer {self._bearer_token}"},
+                    timeout=_timeout_with_deadline(self._request_timeout, deadline_at, self._clock),
                 )
                 response = await client.send(request, stream=True)
                 return await parse_json_response(
@@ -365,6 +368,8 @@ class RepositoryClient:
             _send,
             sleeper=self._sleeper,
             clock=self._clock,
+            cancel_requested=cancel_requested,
+            deadline_at=deadline_at,
         )
 
     def stream_versioned_table_rows(
@@ -374,6 +379,8 @@ class RepositoryClient:
         commit_id: CommitIdString,
         table_name: VersionedTableNameString,
         unknown_type_policy: UnknownTypePolicy = UnknownTypePolicy.REJECT,
+        cancel_requested: CancelRequested | None = None,
+        deadline_at: float | None = None,
     ) -> ArrowIpcByteStream:
         validated_commit_id = _validate_commit_id(commit_id)
         encoded_commit_id = encode_commit_id_path(validated_commit_id)
@@ -401,6 +408,7 @@ class RepositoryClient:
                     path,
                     headers={"Authorization": f"Bearer {self._bearer_token}"},
                     params=params,
+                    timeout=_timeout_with_deadline(self._stream_timeout, deadline_at, self._clock),
                 )
                 response = await client.send(request, stream=True)
             except BaseException:
@@ -411,6 +419,9 @@ class RepositoryClient:
         return ArrowIpcByteStream(
             open_attempt=_open_attempt,
             sleeper=self._sleeper,
+            cancel_requested=cancel_requested,
+            deadline_at=deadline_at,
+            clock=self._clock,
         )
 
     def _json_client(self) -> httpx.AsyncClient:
@@ -419,6 +430,16 @@ class RepositoryClient:
             timeout=self._request_timeout,
             transport=self._transport,
         )
+
+
+def _timeout_with_deadline(timeout: httpx.Timeout, deadline_at: float | None, clock: Clock | None) -> httpx.Timeout:
+    if deadline_at is None:
+        return timeout
+    remaining = max(0.0, deadline_at - (clock or time.monotonic)())
+    def bounded(value: float | None) -> float:
+        return remaining if value is None else min(value, remaining)
+    return httpx.Timeout(connect=bounded(timeout.connect), read=bounded(timeout.read),
+                         write=bounded(timeout.write), pool=bounded(timeout.pool))
 
 
 async def _async_chunk_stream(source: UploadBodySource) -> AsyncIterator[bytes]:

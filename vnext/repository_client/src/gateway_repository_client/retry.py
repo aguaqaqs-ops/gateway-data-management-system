@@ -8,7 +8,7 @@ from typing import TypeAlias, TypeVar
 
 import httpx
 
-from gateway_repository_client.deadline import MonotonicDeadline
+from gateway_repository_client.deadline import CancelRequested, RequestControl
 from gateway_repository_client.errors import (
     RepositoryClientError,
     RepositoryClientTimeoutError,
@@ -40,25 +40,20 @@ async def retry_idempotent_request(
     sleeper: Sleeper | None = None,
     deadline_at: float | None = None,
     clock: Clock | None = None,
+    cancel_requested: CancelRequested | None = None,
 ) -> T:
     """Retry transient network or gateway failures for the same idempotent request."""
 
     sleep = sleeper or _default_sleeper
-    monotonic_deadline = (
-        MonotonicDeadline.at(deadline_at, clock=clock) if deadline_at is not None else None
-    )
+    control = RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
     attempt = 0
     while True:
-        if monotonic_deadline is not None:
-            monotonic_deadline.check()
+        control.check()
         attempt += 1
         try:
-            if monotonic_deadline is not None:
-                remaining = monotonic_deadline.remaining()
-                if remaining <= 0:
-                    monotonic_deadline.check()
-                return await asyncio.wait_for(operation(), timeout=remaining)
-            return await operation()
+            result = await control.run(operation)
+            control.check()
+            return result
         except asyncio.TimeoutError as exc:
             raise RepositoryClientTimeoutError() from exc
         except httpx.TransportError:
@@ -75,7 +70,4 @@ async def retry_idempotent_request(
                 raise
         if attempt < max_attempts:
             delay = base_delay_seconds * (2 ** (attempt - 1))
-            if monotonic_deadline is not None:
-                await monotonic_deadline.sleep_bounded(sleep, delay)
-            else:
-                await sleep(delay)
+            await control.sleep(sleep, delay)

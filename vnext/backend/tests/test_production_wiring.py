@@ -5,6 +5,8 @@ from __future__ import annotations
 from tests.support.configuration_facts import preview_result_with_facts
 
 import io
+import time
+from threading import Event
 from pathlib import Path
 from uuid import UUID
 
@@ -21,6 +23,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     RepositoryProviderError,
     RepositoryRef,
+    RepositoryRefTimeoutPolicy,
 )
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.http.auth import LiveFileSessionPort
@@ -63,6 +66,63 @@ pytestmark = pytest.mark.unit
 
 REPO_ID = UUID(TEST_MAPPING_REPOSITORY_ID)
 COMMIT_ID = "commit-c1"
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("endpoint", ("catalog", "rows"))
+def test_http_arrow_passes_current_controls_without_an_outer_retry(endpoint: str) -> None:
+    from gateway_backend.capabilities.table_access import KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope
+
+    stop = Event()
+    requests: list[str] = []
+    timeouts: list[float] = []
+    responses: list[httpx.Response] = []
+    catalog = {"commit_id": COMMIT_ID, "tables": [{"name": "items", "columns": [
+        {"name": "id", "sql_type": "INT", "nullable": False}], "primary_key": ["id"], "row_count": 1}]}
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        timeout = request.extensions["timeout"]
+        assert isinstance(timeout, dict)
+        read = timeout["read"]
+        assert isinstance(read, float) and 0 < read <= 10.0
+        timeouts.append(read)
+        if endpoint == "rows" and request.url.path.endswith("/catalog"):
+            response = httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "current-catalog"})
+        else:
+            stop.set()
+            response = httpx.Response(503, json={"code": SERVICE_NOT_READY_CODE, "message": "not ready"},
+                headers={"X-Request-ID": "cancelled-attempt"})
+        responses.append(response)
+        return response
+    factory = build_http_repository_provider_factory(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0, transport=httpx.MockTransport(handler))
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(256 * 1024**2), stop, 1,
+            deadline_monotonic=time.monotonic() + 10.0), new_operation=True):
+        session = factory(str(REPO_ID), COMMIT_ID).open_ref(RepositoryRef(str(REPO_ID), COMMIT_ID), None)
+        with pytest.raises(InterruptedError):
+            if endpoint == "catalog":
+                session.get_catalog()
+            else:
+                with session.open_arrow_table_reader("items", max_input_bytes=1024**2, max_rows=10,
+                        max_columns=10, max_batches=10):
+                    pytest.fail("cancelled read must not return a table")
+        assert len(requests) == (1 if endpoint == "catalog" else 2)
+        assert timeouts and all(response.is_closed for response in responses)
+        session.close()
+
+
+def test_http_arrow_policy_deadline_is_a_control_failure_before_any_request() -> None:
+    requests: list[httpx.Request] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise AssertionError("expired session must not make an HTTP attempt")
+    provider = build_http_repository_provider_factory(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0, transport=httpx.MockTransport(handler))(str(REPO_ID), COMMIT_ID)
+    session = provider.open_ref(RepositoryRef(str(REPO_ID), COMMIT_ID), RepositoryRefTimeoutPolicy(operation_timeout_ms=0))
+    with pytest.raises(TimeoutError):
+        session.get_catalog()
+    assert requests == []
+    session.close()
 
 
 def _authoritative_baseline_head(db_path: Path) -> BaselineHead:

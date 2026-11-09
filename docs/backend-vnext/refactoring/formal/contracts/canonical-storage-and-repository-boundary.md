@@ -151,6 +151,14 @@ D 的实际 caller 复用 `SnapshotTableArtifact` 外层 wrapper：规范 manife
 
 业务 Head 推进发生在 `StartArchive` 的 `save_archived_node_and_cas_head` 事务，正式引用移交与 Head CAS、归档结果原子提交；失败回滚，不留前缀，合法重放不重复增减引用。Submit finalize 只结束自己的冻结引用，不推进业务 Head。归档事务内不新增物化、Repository import 或长文件读取；派生文件缺失不能要求归档重新计算，后续真实读者按精确 commit 回填。
 
+S5的Submit T3在MatchingFinalizeFacts校验后，仅SQL触达Attempt所绑定Preview真实producer的
+匹配现存计算cache/uses及成员TTL；与Submission、Attempt、occupancy、ReviewSeed同一事务，
+合法FINALIZED replay不再次续期。T1后权威冻结来源已在Attempt，原T3不依赖临时Preview行；
+缺该行只跳过可选cache定位，不新增业务前提、不猜producer。存在行的workspace/repository/
+冻结facts矛盾或解码失败仍传播。坏派生payload的窄SAVEPOINT及未知DB错误边界由
+[Artifacts](../../../artifacts.md#cache-artifact)与[Operation Lifecycle](operation-lifecycle-and-integrity.md#submit-finalize与可选计算缓存s5)约束，
+不改变下述prepare checkpoint恢复屏障，不新增跨服务事务或恢复journal。
+
 释放最后一个强引用时，在同一事务登记/触达 TTL 保护；共享文件只有在全部强引用释放且无未过期 TTL 保护时才可清理。复用先登记保护，再检查文件；lookup 拒绝过期缓存项。复用既有 artifact protection 与有界 expiry/lookup/put/touch，不新增 durable evidence 状态机或容量淘汰策略。control DB 直接修改唯一基线 schema，不增加迁移或双读。
 
 长期审计/恢复权威仍为 durable SourcePackageArtifact、accepted canonical Dolt commit 和 CanonicalizationManifest；恢复必须按冻结状态选择来源：

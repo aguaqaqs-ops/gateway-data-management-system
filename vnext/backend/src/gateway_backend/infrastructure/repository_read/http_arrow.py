@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -17,6 +18,7 @@ from gateway_repository_client import RepositoryClient
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
 from gateway_repository_client.errors import (
     RepositoryClientError,
+    RepositoryClientTimeoutError,
     RepositoryProtocolError,
     RepositoryStreamError,
 )
@@ -69,6 +71,9 @@ class HttpArrowRepositoryTableAccessProvider:
         repository_ref: RepositoryRef,
         timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> HttpArrowRepositoryRefSession:
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
         if repository_ref.repository_id != self._repository_id:
             raise RepositoryProviderError(
                 MaterializationDiagnosticCode.REPOSITORY_REF_NOT_FOUND,
@@ -91,6 +96,8 @@ class HttpArrowRepositoryTableAccessProvider:
             ),
             repository_id=self._repository_id,
             commit_id=self._commit_id,
+            deadline_monotonic=(None if timeout_policy is None or timeout_policy.operation_timeout_ms is None
+                else time.monotonic() + timeout_policy.operation_timeout_ms / 1000.0),
         )
 
 
@@ -101,10 +108,12 @@ class HttpArrowRepositoryRefSession:
         client: RepositoryClient,
         repository_id: str,
         commit_id: str,
+        deadline_monotonic: float | None = None,
     ) -> None:
         self._client = client
         self._repository_id = repository_id
         self._commit_id = commit_id
+        self._deadline_monotonic = deadline_monotonic
         self._catalog: RepositoryTableCatalog | None = None
         self._closed = False
 
@@ -113,6 +122,9 @@ class HttpArrowRepositoryRefSession:
 
     def get_catalog(self) -> RepositoryTableCatalog:
         self._ensure_open()
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
         if self._catalog is None:
             response = cast(GetVersionedCatalogResponse, _run(self._load_catalog()))
             self._catalog = _catalog_from_response(
@@ -172,7 +184,11 @@ class HttpArrowRepositoryRefSession:
             with context.memory.reserve(max_input_bytes + 128 * 1024):
                 path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
         except (InterruptedError, TimeoutError):
+            context.checkpoint()
             raise
+        except RepositoryClientTimeoutError as exc:
+            context.checkpoint()
+            raise TimeoutError("repository Arrow deadline exceeded") from exc
         except (
             RepositoryClientError, RepositoryProtocolError, RepositoryStreamError,
             httpx.HTTPError, OSError,
@@ -225,12 +241,17 @@ class HttpArrowRepositoryRefSession:
             )
 
     async def _load_catalog(self) -> GetVersionedCatalogResponse:
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
         try:
             response = cast(
                 GetVersionedCatalogResponse,
                 await self._client.get_versioned_catalog(
                     repository_id=_as_uuid(self._repository_id),
                     commit_id=self._commit_id,
+                    cancel_requested=None if context is None else context.cancel_probe.is_set,
+                    deadline_at=self._read_deadline(),
                 ),
             )
             if str(response.catalog.commit_id) != self._commit_id:
@@ -239,12 +260,32 @@ class HttpArrowRepositoryRefSession:
                     "catalog commit does not match the pinned exact commit",
                 )
             return response
+        except (InterruptedError, TimeoutError):
+            if context is not None:
+                context.checkpoint()
+            raise
+        except RepositoryClientTimeoutError as exc:
+            if context is not None:
+                context.checkpoint()
+            raise TimeoutError("repository catalog deadline exceeded") from exc
         except (RepositoryClientError, RepositoryProtocolError, httpx.HTTPError) as exc:
+            if context is not None:
+                context.checkpoint()
             raise _repository_read_error("catalog read", exc) from exc
 
     def _iter_table_rows(self, table_name: str) -> Iterator[tuple[object | None, ...]]:
         try:
             ipc_path = cast(str, _run(self._spool_table_ipc(table_name)))
+        except (InterruptedError, TimeoutError):
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()
+            raise
+        except RepositoryClientTimeoutError as exc:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()
+            raise TimeoutError("repository Arrow deadline exceeded") from exc
         except (
             RepositoryClientError,
             RepositoryProtocolError,
@@ -252,9 +293,18 @@ class HttpArrowRepositoryRefSession:
             httpx.HTTPError,
             OSError,
         ) as exc:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()
             raise _repository_read_error("table row read", exc, table=table_name) from exc
         try:
-            yield from _iter_rows_from_ipc_path(ipc_path)
+            for row in _iter_rows_from_ipc_path(ipc_path):
+                context = current_kernel_context()
+                if context is not None:
+                    context.checkpoint()
+                yield row
+        except (InterruptedError, TimeoutError):
+            raise
         except (OSError, pa.ArrowException, ValueError) as exc:
             raise RepositoryProviderError(
                 MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
@@ -265,12 +315,24 @@ class HttpArrowRepositoryRefSession:
             Path(ipc_path).unlink(missing_ok=True)
 
     async def _spool_table_ipc(self, table_name: str, *, max_bytes: int | None = None) -> str:
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
         stream = self._client.stream_versioned_table_rows(
             repository_id=_as_uuid(self._repository_id),
             commit_id=self._commit_id,
             table_name=table_name,
+            cancel_requested=None if context is None else context.cancel_probe.is_set,
+            deadline_at=self._read_deadline(),
         )
         return await _spool_arrow_ipc(stream, max_bytes=max_bytes)
+
+    def _read_deadline(self) -> float | None:
+        context = current_kernel_context()
+        operation = None if context is None else context.deadline_monotonic
+        if operation is None:
+            return self._deadline_monotonic
+        return operation if self._deadline_monotonic is None else min(operation, self._deadline_monotonic)
 
 
 class HttpArrowRepositoryTableReader:

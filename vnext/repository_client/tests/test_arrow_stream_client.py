@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from gateway_repository_client import (
     RepositoryStreamError,
 )
 from gateway_repository_client.arrow_stream import _close_pair
+from gateway_repository_client.errors import RepositoryClientTimeoutError
 from gateway_repository_contracts import VERSIONED_READ_ARROW_MEDIA_TYPE
 
 REPO_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11")
@@ -25,6 +27,117 @@ ARROW_HEADERS = {
     "X-Request-ID": "req-arrow",
     "Content-Type": VERSIONED_READ_ARROW_MEDIA_TYPE,
 }
+
+
+ARROW_CONTROL_STOPS = (
+    pytest.param("cancel", InterruptedError, id="cancel"),
+    pytest.param("deadline", RepositoryClientTimeoutError, id="deadline"),
+)
+
+
+@pytest.mark.parametrize(("stop", "expected"), ARROW_CONTROL_STOPS)
+@pytest.mark.parametrize("stage", ("backoff", "read"))
+async def test_stream_controls_preserve_attempt_limit_and_close_owned_transport(
+    stop: str, expected: type[Exception], stage: str,
+) -> None:
+    now = [0.0]
+    cancelled = [False]
+    requests: list[httpx.Request] = []
+    responses: list[httpx.Response] = []
+    closed: list[str] = []
+    def stop_caller() -> None:
+        cancelled[0] = stop == "cancel"
+        now[0] = 1.0 if stop == "deadline" else now[0]
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"first"
+            stop_caller()
+            yield b"second"
+        async def aclose(self) -> None:
+            closed.append("body")
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if stage == "backoff":
+            response = httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+                headers={"X-Request-ID": "stopping-backoff"})
+        else:
+            response = httpx.Response(200, headers=ARROW_HEADERS, stream=Body())
+        responses.append(response)
+        return response
+    async def sleeper(_delay: float) -> None:
+        assert responses[-1].is_closed
+        stop_caller()
+    client = RepositoryClient(base_url="http://repository.test", bearer_token="token",
+        transport=httpx.MockTransport(handler), sleeper=sleeper, clock=lambda: now[0])
+    stream = client.stream_versioned_table_rows(repository_id=REPO_ID, commit_id=COMMIT_ID,
+        table_name="items", cancel_requested=lambda: cancelled[0], deadline_at=0.5)
+    chunks: list[bytes] = []
+    with pytest.raises(expected):
+        async with stream:
+            async for chunk in stream.aiter_bytes():
+                chunks.append(chunk)
+    assert len(requests) == 1 and all(response.is_closed for response in responses)
+    assert chunks == ([] if stage == "backoff" else [b"first"])
+    if stage == "read":
+        assert closed == ["body"]
+
+
+@pytest.mark.serial
+async def test_deadline_interrupts_a_pending_byte_read_without_retry() -> None:
+    entered = asyncio.Event()
+    closed: list[str] = []
+    attempts = 0
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            entered.set()
+            await asyncio.Event().wait()
+            yield b"unreachable"
+        async def aclose(self) -> None:
+            closed.append("body")
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(200, headers=ARROW_HEADERS, stream=Body())
+    client = RepositoryClient(base_url="http://repository.test", bearer_token="token", transport=httpx.MockTransport(handler))
+    stream = client.stream_versioned_table_rows(repository_id=REPO_ID, commit_id=COMMIT_ID,
+        table_name="items", deadline_at=time.monotonic() + 0.2)
+    with pytest.raises(RepositoryClientTimeoutError):
+        async with stream:
+            await asyncio.wait_for(anext(stream.aiter_bytes()), timeout=2.0)
+    assert entered.is_set() and attempts == 1 and closed == ["body"]
+
+
+@pytest.mark.serial
+async def test_cancelled_open_closes_a_result_completed_during_cancellation() -> None:
+    started = asyncio.Event()
+    cancelled = [False]
+    clients: list[httpx.AsyncClient] = []
+    responses: list[httpx.Response] = []
+    async def open_attempt() -> tuple[httpx.AsyncClient, httpx.Response]:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+        response = httpx.Response(200, headers=ARROW_HEADERS, content=b"owned")
+        clients.append(client)
+        responses.append(response)
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return client, response
+        raise AssertionError("open unexpectedly completed")
+    stream = ArrowIpcByteStream(open_attempt=open_attempt, cancel_requested=lambda: cancelled[0])
+    pending = asyncio.create_task(stream.__aenter__())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+        cancelled[0] = True
+        with pytest.raises(InterruptedError):
+            await asyncio.wait_for(pending, timeout=2.0)
+        assert clients and all(client.is_closed for client in clients)
+        assert all(response.is_closed for response in responses)
+    finally:
+        if not pending.done():
+            pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await stream.aclose()
 
 
 @pytest.mark.asyncio

@@ -50,7 +50,7 @@ class RepositoryStreamError(RuntimeError):
 
 
 class RepositoryClientTimeoutError(RuntimeError):
-    """Raised when wait_operation exceeds its monotonic poll deadline."""
+    """Raised when a request or wait_operation exceeds its caller deadline."""
 
     def __init__(self, message: str = "operation poll deadline exceeded") -> None:
         self.message = message

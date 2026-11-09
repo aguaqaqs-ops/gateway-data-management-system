@@ -11,6 +11,7 @@ from gateway_backend.application.submission.contracts import (
     MatchingFinalizeFacts,
 )
 from gateway_backend.application.submission.errors import (
+    FinalizeBindingMismatch,
     FinalizeRecoveryRequired,
     ReviewIntegrityFailure,
 )
@@ -87,6 +88,22 @@ def finalize_submit_transaction(
         ),
         existing_submission=existing_submission,
     )
+    if workspace.repository_id != attempt.repository_id:
+        raise FinalizeBindingMismatch("workspace repository scope does not match attempt")
+    # T1 already froze authority into Attempt. A missing temporary Preview only
+    # prevents this optional producer lookup; never infer a producer from pins.
+    preview = unit_of_work.workspace.get_preview_result(attempt.preview_result_id)
+    if preview is not None:
+        if (
+            preview.workspace_id != attempt.workspace_id
+            or preview.repository_id != attempt.repository_id
+            or preview.canonical.configuration_facts != attempt.configuration_facts
+        ):
+            raise FinalizeBindingMismatch("preview producer scope does not match frozen attempt")
+        unit_of_work.touch_computation_cache_producer(
+            producer_operation_id=preview.operation_id,
+            repository_id=attempt.repository_id,
+        )
     if not result.replay:
         unit_of_work.submission.insert_submission(result.submission)
         _insert_finalize_review_seed(unit_of_work, result.submission)

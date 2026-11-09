@@ -146,6 +146,11 @@ class SubmitFinalizeControlTransaction(
 ):
     """Submit transaction surface required to atomically seed Review at finalize."""
 
+    def touch_computation_cache_producer(
+        self, *, producer_operation_id: str, repository_id: str,
+    ) -> None:
+        """Touch bounded optional cache uses inside an isolated SQL savepoint."""
+
 
 class SubmissionRepository(Protocol):
     def find_submit_idempotency(

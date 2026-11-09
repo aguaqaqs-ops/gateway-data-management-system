@@ -214,3 +214,20 @@ assemble 恢复重新核当前 scope 下相同 exact-commit authority/catalog �
 当前记录闭包、风险、surface 与完整 bundle 仍经原三 step 发布；内部缓存没有进入 READY
 闭包，所有 lease/consumer 关闭后、READY 前及异常 finally 释放本 operation 的 cache intent，
 不覆盖原 workflow/source/checkpoint/result 保护。
+
+### Submit finalize与可选计算缓存（S5）
+
+原MatchingFinalizeFacts通过后，T3按Attempt.preview_result_id解析真实Preview producer，
+核workspace/repository和已冻结configuration facts绑定，再在原Submission/Attempt/
+occupancy/ReviewSeed事务中触达至多64个未过期且当前manifest匹配的cache uses及成员TTL。
+不读文件、调用Repository或运行比较，不推进业务BaselineHead；Head CAS仍只归Archive。
+T1已冻结Attempt，不把临时Preview存在性新增为T3强前提：缺行仅跳过不可定位的可选触达；
+不猜producer、不回填。存在行解码失败、scope或冻结facts矛盾沿原绑定失败传播。
+
+可选维护使用窄SAVEPOINT；只允许已知typed坏cache payload在SAVEPOINT回滚成功、外层事务
+仍active后脱敏记录并继续。未知SQLite错误（含未精确证明为cache自身的约束失败）、
+IOERR/CORRUPT/FULL/BUSY、CAS、scope错误或外层事务丢失不能吞掉。之后的权威写入失败
+仍回滚全部T3及本次TTL。合法FINALIZED replay先核原业务闭合后早返回，不重复触达TTL；
+response loss沿原事务/recovery处理，不增加journal、重试状态或跨服务原子事务。
+T1即PREPARED但不代表已有包，prepare checkpoint前后的冻结恢复界限仍由
+[Canonical Storage §5](canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)拥有。

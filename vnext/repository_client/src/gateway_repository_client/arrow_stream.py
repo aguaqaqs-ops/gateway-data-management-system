@@ -12,9 +12,11 @@ import httpx
 from gateway_repository_contracts import MAX_WIRE_ERROR_JSON_BYTES
 from gateway_repository_client.errors import (
     RepositoryClientError,
+    RepositoryClientTimeoutError,
     RepositoryProtocolError,
     RepositoryStreamError,
 )
+from gateway_repository_client.deadline import CancelRequested, Clock, RequestControl
 from gateway_repository_client.protocol import (
     _attach_close_notes,
     _iter_close_error_notes,
@@ -48,11 +50,15 @@ class ArrowIpcByteStream:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         base_delay_seconds: float = DEFAULT_BASE_DELAY_SECONDS,
         sleeper: Sleeper | None = None,
+        cancel_requested: CancelRequested | None = None,
+        deadline_at: float | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._open_attempt = open_attempt
         self._max_attempts = max_attempts
         self._base_delay_seconds = base_delay_seconds
         self._sleeper = sleeper
+        self._control = RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
         self._client: httpx.AsyncClient | None = None
         self._response: httpx.Response | None = None
         self._request_id: str | None = None
@@ -112,11 +118,36 @@ class ArrowIpcByteStream:
                 if response is None:
                     raise RuntimeError("Arrow stream is closed")
                 try:
-                    async for chunk in response.aiter_bytes():
-                        if chunk:
-                            self._bytes_exposed = True
-                            yield chunk
+                    iterator = response.aiter_bytes()
+                    read_error: BaseException | None = None
+                    try:
+                        while True:
+                            try:
+                                chunk = await self._control.run(iterator.__anext__)
+                            except StopAsyncIteration:
+                                break
+                            self._control.check()
+                            if chunk:
+                                self._bytes_exposed = True
+                                yield chunk
+                        self._control.check()
+                    except BaseException as exc:
+                        read_error = exc
+                        raise
+                    finally:
+                        close_iterator = getattr(iterator, "aclose", None)
+                        if callable(close_iterator):
+                            try:
+                                await close_iterator()
+                            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+                                raise
+                            except Exception as cleanup:
+                                if read_error is None:
+                                    raise
+                                _attach_close_notes(read_error, [cleanup])
                     return
+                except (InterruptedError, TimeoutError, RepositoryClientTimeoutError):
+                    raise
                 except (httpx.HTTPError, OSError) as exc:
                     if self._bytes_exposed:
                         raise RepositoryStreamError(
@@ -172,7 +203,7 @@ class ArrowIpcByteStream:
             response: httpx.Response | None = None
             try:
                 try:
-                    client, response = await self._open_attempt()
+                    client, response = await self._control.run(self._open_attempt, abandon=_close_opened_pair)
                 except httpx.TransportError as exc:
                     last_error = exc
                     if attempt >= self._max_attempts:
@@ -183,7 +214,9 @@ class ArrowIpcByteStream:
 
                 try:
                     self._ensure_open()
-                    await self._validate_open_response(response)
+                    candidate_response = response
+                    await self._control.run(lambda: self._validate_open_response(candidate_response))
+                    self._ensure_open()
                     self._client = client
                     self._response = response
                     client = None
@@ -267,14 +300,12 @@ class ArrowIpcByteStream:
 
     async def _backoff(self, attempt: int) -> None:
         delay = self._base_delay_seconds * (2 ** (attempt - 1))
-        if self._sleeper is None:
-            await asyncio.sleep(delay)
-        else:
-            await self._sleeper(delay)
+        await self._control.sleep(self._sleeper or asyncio.sleep, delay)
 
     def _ensure_open(self) -> None:
         if self._close_requested or self._closed:
             raise RuntimeError("Arrow stream is closed")
+        self._control.check()
 
     def _record_close_errors(self, close_errors: list[Exception]) -> None:
         for error in close_errors:
@@ -327,3 +358,7 @@ async def _close_pair(
         if len(close_errors) == 1:
             raise close_errors[0]
         raise ExceptionGroup("failed to close Arrow stream transport", close_errors)
+
+
+async def _close_opened_pair(opened: tuple[httpx.AsyncClient, httpx.Response]) -> None:
+    await _close_pair(*opened)

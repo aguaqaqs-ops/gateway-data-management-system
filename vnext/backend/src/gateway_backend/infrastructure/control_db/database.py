@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.domain.archive.models import SubmissionDisposition
 
+import logging
 import sqlite3
 import time
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Self
 
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.computation_cache import InvalidComputationCachePayload
 from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteArtifactProtectionStore
 from gateway_backend.operations import OperationStore, StoreBusy
 
@@ -41,6 +43,8 @@ from gateway_backend.infrastructure.control_db.control_db_connect import (
     BUSY_TIMEOUT_MS,
     connect_control_db,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ControlDbIntegrityError(RuntimeError):
@@ -185,6 +189,33 @@ class ControlDbUnitOfWork:
         if self._computation_cache is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._computation_cache
+
+    def touch_computation_cache_producer(
+        self, *, producer_operation_id: str, repository_id: str,
+    ) -> None:
+        """Keep optional cache payload failure within T3's still-active transaction.
+
+        Unknown SQLite failures (including constraint failures without a proven
+        cache-local cause) propagate to the original transaction/recovery owner.
+        """
+        connection = self.connection
+        if self._read_only or not connection.in_transaction:
+            raise RuntimeError("cache touch requires an active write transaction")
+        connection.execute("SAVEPOINT submit_computation_cache_touch")
+        try:
+            self.computation_cache.touch_producer(
+                producer_operation_id=producer_operation_id, repository_id=repository_id,
+            )
+        except InvalidComputationCachePayload:
+            connection.execute("ROLLBACK TO SAVEPOINT submit_computation_cache_touch")
+            connection.execute("RELEASE SAVEPOINT submit_computation_cache_touch")
+            if not connection.in_transaction:
+                raise RuntimeError("cache touch lost the outer transaction") from None
+            _LOGGER.warning("submit finalize skipped malformed optional computation cache")
+        else:
+            connection.execute("RELEASE SAVEPOINT submit_computation_cache_touch")
+            if not connection.in_transaction:
+                raise RuntimeError("cache touch lost the outer transaction")
 
     @property
     def review(self) -> SQLiteReviewRepository:

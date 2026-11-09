@@ -326,8 +326,15 @@ TTL owner与上述活动owner独立，批次释放后健康内部cache只剩8640
 
 expiry每次至多清理64个entry与64个uses；direct lookup始终另核当前expiry，不因清理批次上限命中
 过期值。T3派生维护每次至多触达64个仍健康、scope与manifest匹配的uses，按kind/task排序，
-不延长其他producer/repository或已被替换的条目；未触达条目仍按原TTL自然淘汰。D接线在原T3
-窄SAVEPOINT内调用此SQL participant，不读文件，不推进BaselineHead。
+不延长其他producer/repository或已被替换的条目；未触达条目仍按原TTL自然淘汰。T3在原
+MatchingFinalizeFacts通过后，按Attempt的preview_result_id解析真实Preview operation，核
+workspace/repository及冻结configuration facts绑定，在同一Submission/Attempt/occupancy/
+ReviewSeed事务内窄SAVEPOINT调用SQL participant，不读文件，不推进BaselineHead。
+只有typed坏cache payload在SAVEPOINT成功回滚且外层事务仍active时脱敏记录并跳过；未知
+SQLite约束、IOERR/CORRUPT/FULL/BUSY、scope矛盾、CAS或外层事务丢失继续交原恢复owner。
+FINALIZED replay保持原闭合校验后早返回，不再续TTL。T1已将权威冻结输入移交Attempt；若
+临时Preview行缺失，仅跳过无法定位producer的可选触达，不猜producer或回填，也不新增T3
+业务前提；存在的Preview行解码/绑定错误不能按可选cache错误吞掉。
 
 `comparison_surface_cache` 第一版不要求实现，只保留边界。未来 key 至少包含：
 

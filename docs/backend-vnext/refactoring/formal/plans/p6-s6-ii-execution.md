@@ -279,3 +279,27 @@ complete physical object inventory, already required to equal the shallow
 reachable closure and to omit both sensitive IDs. It does not infer absence
 from an arbitrary command failure alone. No transfer/check had been run with
 the overly strict draft; prior referenced source and draft remain unchanged.
+
+## First actual source-stage failure and correction
+
+The R3 source preparation on CT201 at H `619fadbd19e769443748ad6704923058f53d8658`
+failed before any archive/transfer/node occupancy: clone0 and remote-remove0
+left a loose `refs/remotes/origin/HEAD` symbolic ref pointing to the removed
+`refs/remotes/origin/main`. The valid-ref listing omitted this dangling ref;
+`git fsck --full` caught it and returned2, outer stage1. This is a source-tool
+reference cleanup failure, not a product/real-data or sensitive-object pass.
+Original directory `/home/dev/gdds-s6-logs/ii/shallow-stage-r3-619fad/` stays
+unchanged. Final outer SHA256
+`a4c87caf9c95b0035013219560526fcaca0a2c77380bcda3a9ec1a08b698067a`,
+`commands/00019.stderr.log` SHA256
+`5806eae3e29344dfa90872b7ae3615b1b46cae290d8c11bf70061dee7b5d4c6e`.
+
+In a new clone only, the corrected stage first resolves the clone-owned remote
+HEAD and requires its exact target `refs/remotes/origin/main`, deletes that
+symbolic ref with `git symbolic-ref --delete`, then removes origin normally.
+Both stage/install inspection explicitly reject a leftover loose origin/HEAD.
+The complete physical-object exclusion, exact H/shallow/independence, clean/ref
+checks and fsck remain mandatory. No failed archive or original clone is reused,
+no parent history rewritten, no test/transfer retried by the implementation
+role. The fixed candidate/draft needs original review before the unique
+executor performs source preparation again in a new external directory.

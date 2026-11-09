@@ -64,6 +64,8 @@ def inspect(repo, head):
     require(git(repo,'rev-parse','HEAD').stdout.decode().strip() == head, 'exact H')
     require(git(repo,'rev-list','--count','--all').stdout.strip() == b'1', 'exactly one reachable commit')
     require(not git(repo,'tag','--list').stdout and not git(repo,'remote').stdout, 'no tags or fetch remotes')
+    origin_head = repo/'.git/refs/remotes/origin/HEAD'
+    require(not origin_head.exists() and not origin_head.is_symlink(), 'no leftover loose remote HEAD symbolic reference')
     refs = git(repo,'for-each-ref','--format=%(objectname) %(refname)').stdout.decode().splitlines()
     require(refs == [head+' refs/heads/main'], 'only fixed local main ref')
     require(not git(repo,'status','--porcelain').stdout, 'clean committed checkout')
@@ -118,6 +120,9 @@ def main():
         (output/'clone.stderr.log').write_bytes(result.stderr)
         write(output/'clone-exit.json',{'numeric_exit':result.returncode})
         require(result.returncode == 0, 'depth1 file-protocol clone completed')
+        remote_head = git(repo,'symbolic-ref','--quiet','refs/remotes/origin/HEAD').stdout.decode().strip()
+        require(remote_head == 'refs/remotes/origin/main', 'clone remote HEAD points only to fixed origin/main')
+        git(repo,'symbolic-ref','--delete','refs/remotes/origin/HEAD')
         git(repo,'remote','remove','origin')
         git(repo,'checkout','--detach',a.head)
         with (repo/'.git/info/exclude').open('a') as f:

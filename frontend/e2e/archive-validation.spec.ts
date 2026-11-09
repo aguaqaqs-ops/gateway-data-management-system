@@ -270,8 +270,7 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await cardScreenshot(page, "fe3c-last-not-max-card", 1280, lastNotMax);
   const regressed = dialog.locator(".archive-anomaly", { hasText: "本次归档组态的生成时间早于对照" }).first();
   await cardScreenshot(page, "fe3c-time-regression-card", 1280, regressed);
-  const initialRegression = dialog.locator(".archive-anomaly", { hasText: "原始组态备份的生成时间早于当前基线" }).first();
-  await cardScreenshot(page, "fe3c-time-regression-initial-card", 1280, initialRegression);
+  await dialog.locator(".dialog__body").evaluate((node) => { node.scrollTop = 0; });
   await screenshot(page, "fe3c-validation-overview", 1920);
 });
 

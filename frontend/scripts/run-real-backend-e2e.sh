@@ -1165,8 +1165,15 @@ else
   # Fail closed before any browser work: every declared (scope, role) has its
   # identity, every scope has its own seeded INITIAL, and every input file is
   # present and non-empty (kickoff §4.6, §4.9).
+  if [[ "$SUITE" == "t1" ]]; then
+    PREFLIGHT_INPUT_ROOT="$INPUT_ROOT"
+    PREFLIGHT_INPUT_MOUNT="$T1_INPUT_MOUNT"
+  else
+    PREFLIGHT_INPUT_ROOT="$JOURNEY_INPUT_ROOT"
+    PREFLIGHT_INPUT_MOUNT="$JOURNEY_INPUT_MOUNT"
+  fi
   if ! python3 -I - "$IDENTITIES_FILE" "$RUN_ROOT/journey-scopes.json" \
-      "$JOURNEY_INPUT_ROOT" "$JOURNEY_INPUT_MOUNT" <<'PY' | tee -a "$LOG_FILE"
+      "$PREFLIGHT_INPUT_ROOT" "$PREFLIGHT_INPUT_MOUNT" <<'PY' | tee -a "$LOG_FILE"
 import json
 import os
 import sys

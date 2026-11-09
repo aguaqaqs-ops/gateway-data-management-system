@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§35–36：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO有1次合格预热，r1测量执行已原exit0完成、r2运行，完整组独核及统计仍待。Owner按DC97确认性能数值是否达标不作退出依据，仍须可靠测量与剩余候选绑定。仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§35–37：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO的1预热＋3测量已获原E组资格核收，现推进W3 FULL；其余组、正式聚合及最终H仍待。Owner按DC97确认性能数值是否达标不作退出依据，仍须可靠测量与剩余候选绑定。仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
 
 ## 1. 起点与并行边界
 
@@ -542,3 +542,17 @@ Owner明确“性能指标本身是否达标不再作为退出依据，只可靠
 Owner另确认不需逐次与并行S4沟通测试：按现场空闲及原子标记使用节点，不预约或例行通报，实际资源／占用或文件写入冲突才协调。规范已同步AGENTS、Phase 6设计／执行计划及S3 kickoff；不更改当前已审／已启动采样稿、固定输入、源码或资源配置。
 
 Owner允许Luna max监视检查。工具初次新增角色因四线程上限拒绝；协调让已结束Q18审核与当前无待办实施者完成收尾、释放活跃占用后，成功创建`/root/s3_log_monitor`（Luna max）。初期由它只读现有日志／已采资源与有限服务／marker状态，向原执行者及协调汇报。Owner随后明确可减频、甚至异常触发而不周期巡查：现已取消外部周期轮询与心跳，监视者交回最后已有状态后结束turn释放槽，待异常／封口等事件再按需唤醒只读复核；不增常驻observer或修改采样稿，不干预产品原有健康检查／租约心跳。原`/root/node_pool_audit`仍是唯一执行者，等待既有进程并负责固定入口、前序收据和实时门禁、原exit及封口；监视者不启动／修改／重试／终止测试，也不代判通过。协调等待实质事件汇报，处理文档、审核和决策，不重复发送无变化状态；所有角色仍按四槽错峰，不增第五活跃角色。
+
+## 37. W3 MODIFIED_ONLY首组样本资格闭合（2026-11-09）
+
+原E报告`296a46770e` §103核收同CT108／V4b0／Rust9d4、13输入、t4-identity／MODIFIED_ONLY、N1／48GiB hard／8GiB reserve／M40的warm＋r1＋r2＋r3样本资格PASS。每次node／capture／postflight／outer原exit0，逐次本地捕获件及节点原result／manifest／journey／images SHA相等；前序receipt／result从warm连续到r3。真实三operation、631表／64变更／0失败降级、同worker／运行镜像及准备来源、资源guard／三OOM键0、正常stop与实际释放均合格。节点sealed结果的pending状态没有回填；各最终控制收据绑定唯一release事件后各记1个measurement，warm不混入测量。
+
+| 样本 | outer SHA | 最终receipt SHA | 可见／完成秒（直接原字段） |
+| --- | --- | --- | --- |
+| r1 | `8ed42213c49d7b0d6175ccf81ac90e71f7df07764cdca161e47f16637294da6b` | `ca37606d4cff056208053475016136551655a233bd2b5ad8a68b75e984d97065` | 605.877／605.887 |
+| r2 | `f95d313d9bf38350604e2d1226f4177ebffa886a2087c49e414d56ad8c3bcd8c` | `c20628bf5e9815babea2d4ce9b0ee16287b51362bc0ada213d8daca3e91bcaaf` | 595.743／595.752 |
+| r3 | `af020a266375412c6a9f5973da6ade6bf638e804e8de94b50089343dbfd0ef2f` | `90b8b0e66dae2a5c7aa761cdd4125ffefdda9c01b8b57ebe4cee2e06801db0ca` | 595.870／595.879 |
+
+r2原node为11-08 22:45:41–23:28:39Z、outer至23:28:44Z；r3原node为11-08 23:30:21–11-09 00:13:22Z、outer至00:13:27Z。直接control为固定remaining目录下`control/s3-v2sort-w3-mo-r{1,2,3}-4b0a2eec72/`；r2／r3的result、manifest、journey完整SHA及warm原件在原E §103，不从沿用结果生新源。此处只抄原时间，未在开发机执行统计程序；正式median／range与分段汇总仍待最后受控聚合。
+
+组边界核收后，协调依既有固定23项授权唤唯一Luna下一组W3 FULL warm（不是重跑MO），继续每项前序／原子marker／磁盘／同源资源守卫和首非0停止；FULL必须实际验证两pair及对应驻留，MO成功不代替FULL。当前没有后续组PASS、聚合结果或最终H／E整体GO；数值达标不作退出依据，未测与无效证据仍不写通过。

@@ -225,7 +225,7 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.locator("dt", { hasText: "当前基线" })).toBeVisible();
   await expect(dialog.getByText(/归档基线 1/)).toBeVisible();
   await expect(dialog.getByText("待处理项")).toBeVisible();
-  await expect(dialog.getByText("未解释")).toBeVisible();
+  await expect(dialog.locator(".archive-overview").getByText("未解释", { exact: true })).toBeVisible();
   await expect(dialog.getByText("缺少组态生成时间")).toBeVisible();
   await expect(dialog.getByText("生成时间中有无法识别的值")).toBeVisible();
   await expect(dialog.getByText("最后一个生成时间不是最大值")).toBeVisible();
@@ -234,7 +234,6 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.getByText("当前基线没有可用的生成时间")).toBeVisible();
   await expect(dialog.getByText("归档后该已通过的提交将被关闭（不归档）")).toBeVisible();
   await expect(dialog.getByText("选中的提交有项目身份例外")).toBeVisible();
-  await expect(dialog.locator(".archive-overview").getByText("未解释")).toBeVisible();
   await screenshot(page, "fe3c-validation-overview", 1920);
 });
 

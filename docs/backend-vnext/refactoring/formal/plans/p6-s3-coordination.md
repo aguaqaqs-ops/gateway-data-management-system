@@ -556,3 +556,9 @@ Owner允许Luna max监视检查。工具初次新增角色因四线程上限拒�
 r2原node为11-08 22:45:41–23:28:39Z、outer至23:28:44Z；r3原node为11-08 23:30:21–11-09 00:13:22Z、outer至00:13:27Z。直接control为固定remaining目录下`control/s3-v2sort-w3-mo-r{1,2,3}-4b0a2eec72/`；r2／r3的result、manifest、journey完整SHA及warm原件在原E §103，不从沿用结果生新源。此处只抄原时间，未在开发机执行统计程序；正式median／range与分段汇总仍待最后受控聚合。
 
 组边界核收后，协调依既有固定23项授权唤唯一Luna下一组W3 FULL warm（不是重跑MO），继续每项前序／原子marker／磁盘／同源资源守卫和首非0停止；FULL必须实际验证两pair及对应驻留，MO成功不代替FULL。当前没有后续组PASS、聚合结果或最终H／E整体GO；数值达标不作退出依据，未测与无效证据仍不写通过。
+
+## 38. Owner确认最小剩余取证范围（2026-11-09）
+
+Owner在并行S4会话询问S3能否按业务正确性优先收敛；协调先HOLD未启动项、让当前W3 FULL r1自然运行，再由原E评估缺口，形成`cc60c95d47`／修订`ffa1ee70bb`[具体清单](p6-s3-e-scope-supplement.md)。原E `25bf0cdac6` §104–105核收W3 FULL单次预热原件与同一Preview实际两pair、owner／资源守卫，并静态CLEAR具体清单；两侧同时驻留字节未独测。随后Owner在本S3会话直接回复“确认按最小清单收敛（推荐）”，不是借用S4范围授权。
+
+18个未启动项正式取消：W3 FULL r2/r3；W4约10%与100%压力各MO/FULL四组各warm+r1/r2/r3。它们不自动移到S6，不记成功。已核05 fresh t1–t4、04六包来源／Compose、W3 MO一暖三测不重跑；W3 FULL r1当前仍待自然封口及原E核收。随后只运行一次已审原聚合器，W3 MO给实际统计，FULL单列已有观察，其余NOT_RUN／UNKNOWN及all_groups_complete=false照实保留，再做最终H同04实际闭包／镜像绑定及同E总核收。原M24及旧M40失败、默认32/8/M24与诊断48/8/M40分别保留；未签E GO／正式退出，未tag／push。

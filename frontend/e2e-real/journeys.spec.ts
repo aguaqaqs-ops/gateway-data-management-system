@@ -211,7 +211,8 @@ async function submitViaUi(page: Page, identity: JourneyIdentity, workspaceId: s
   await dialog.getByRole("button", { name: "确认提交", exact: true }).click();
 
   const response = await accepted;
-  expect(response.status(), "submit-attempts status").toBe(202);
+  const responseBody = await response.text().catch(() => "");
+  expect(response.status(), `submit-attempts status body=${responseBody.slice(0, 500)}`).toBe(202);
   const result = page.locator('section[aria-label="提交结果"]');
   await expect(result).toBeVisible({ timeout: 240_000 });
   await expect(result).toContainText("提交成功，已生成待审核提交。");

@@ -7,6 +7,13 @@ will be placed at `/home/dev/gdds-s6-logs/final/<H>/`; local `p6-s6-exit` and
 `p6-exit`, if legitimately created after EXIT_GO, resolve that same tested H.
 Do not create H2 merely to write results into this page.
 
+Final launch/source/draft and stopping rules are fixed in
+[III execution](p6-s6-iii-execution.md). Actual CODE_GO, gate results and tag
+targets must be read from the final-H external receipt, not inferred from the
+presence of these tracked pages. The evidence SHA manifest excludes itself;
+the immutable final receipt records its SHA. Subsequent local tag facts go in
+their own external tag receipt so no self hash or tag/receipt cycle is needed.
+
 ## Required external files
 
 | External file | Required content |
@@ -69,6 +76,9 @@ Do not create H2 merely to write results into this page.
 | Obligation | Existing authority / S6 disposition | Limits / next owner or trigger |
 | --- | --- | --- |
 | S1 upload/materialize/checkpoint/bundle boundaries | S1 exits and applicable final six-package regression; S6 t4 exercises current happy path | immutable source and T1/PREPARED recovery/CAS remain owning Contract; no new recovery platform |
+| S1b O1 signal-handler narrow self-lock window | [S1b final review §4.3](p6-s1b-final-review.md#43-不阻塞的遗留项建议登记不阻塞-exit), DC63 item3 register the pre-existing main-thread `Event.set` risk | OPEN maintenance item, not newly proven fixed by final regression; worker runtime owner acts on a reproduced drain/signal hang or an explicitly authorized short maintenance task; lease takeover after forced stop is not a fix |
+| S1b O2 JSON exponent overflow | DC72; [S2a code review §1](p6-s2a-code-review.md) and [handoff §1](p6-s2a-handoff.md): `229845a6c97786c4c8384607733bff2363b4a62f` first rejects decoded nonfinite JSON floats including `1e400` as table-level `SQL_VALUE_ILLEGAL`; Rust aligns | CLOSED by that existing implementation/review/test source, not a new S6 semantic decision; parser owner retains the shared reject/differential vectors |
+| S1c exhausted non-operator startup/readiness | [S1c final review §4.3](p6-s1c-final-review.md#43-遗留非-operator-会话的-startup-阻断建议登记), DC71 item3: expired RUNNING with exhausted sessions can become manual and return `BLOCK_STARTUP_FATAL`, differing from P4 R5 §8's manual-record readiness prose | OPEN worker runtime maintenance/documentation alignment, explicitly nonblocking in DC71; no claim all manual records permit readiness. Reopen for reproduced startup blockage, changed readiness/recovery policy or an Owner-authorized focused task; not moved into parser/S6 scope |
 | S2a/S2b parser/business/canonical production switch and old deletion | accepted S2 exits / DC78; actual default N1/32−8/M24 t1–t3 and qualified historical t4 sources | historical M16/M24 capacity bounds retain their source; S6 t4 measures only its current one chain |
 | W1/W2 deferred DC83/DC84 | Owner replaces with current true t4 v1 N1/M24 minimal chain | requires actual III evidence, calibrated rows0 and logic demand0; no 2×t4 / one-warm-three / median |
 | S3 comparison/records/risk and cleanup | S3 exit `p6-s3-exit`, handoff/performance report and final regression | MO M40 three samples retained; FULL warm+r1 incomplete; 18 cancelled; W4 UNKNOWN; old M24 and tool failures remain |

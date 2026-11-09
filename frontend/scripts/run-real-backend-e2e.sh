@@ -1234,10 +1234,19 @@ for scope in scopes:
             errors.append(f"input_outside_mount scope={slug} key={key}")
             continue
         host_dir = os.path.join(input_root, container_path[len(prefix):])
-        for relative in ("upload.pmc", "sql/dbcfg.sql", "comps/logic/logics.xml"):
+        for relative in ("sql/dbcfg.sql", "comps/logic/logics.xml"):
             candidate = os.path.join(host_dir, relative)
             if not os.path.isfile(candidate) or os.path.getsize(candidate) == 0:
                 errors.append(f"missing_input scope={slug} key={key} file={relative}")
+        # Exactly one top-level .pmc per upload directory: "upload.pmc" for
+        # script-built journey inputs, the original name for real data dirs.
+        try:
+            pmc_names = [name for name in os.listdir(host_dir) if name.endswith(".pmc")]
+        except OSError:
+            pmc_names = []
+        pmc_ok = len(pmc_names) == 1 and os.path.getsize(os.path.join(host_dir, pmc_names[0])) > 0
+        if not pmc_ok:
+            errors.append(f"missing_input scope={slug} key={key} file=*.pmc")
 
 print(f"journey_scopes={len(scopes)} journey_identities={len(identities)}")
 for scope in scopes:

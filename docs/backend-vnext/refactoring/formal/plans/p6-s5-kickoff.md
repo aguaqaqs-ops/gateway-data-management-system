@@ -131,6 +131,7 @@ S4四包c9e、backend/RS 6786只是可审来源线索，不是预先批准S5 car
 - root PATH以`/home/dev/.cargo/bin`开头，不设RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME；TMPDIR为磁盘`/home/dev/gdds-test-tmp`；UV_OFFLINE=1、CARGO_NET_OFFLINE=true。Rust四工具与selector一致，Cargo target在worktree外；Rust改后强制重装扩展并核build input。
 - 所有uv消费走`vnext/scripts/uv-consume.sh`，不改锁或引入依赖；若确需依赖变化先取得授权/CT201预填充。backend/worker保dependency-base及network=none、本机Compose build，不设prebuilt。
 - 唯一后续测试/等待者按提示词Luna max，普通角色不能另启动一份长测。资源/规则由设计与实施owner决定，不交Luna自行改变。总活跃≤4，独审新角色；本次设计审核使用用户临时授权的GPT-6-Astra high，该授权不延伸后续阶段。
+- 协调者保持连续；按A/B/C/D/E小节新建实施、独审、测试/等待子agent，不跨小节复用角色。阶段内finding仍由该节原审连续复核，固定交接和执行收尾完成后换新角色；新角色读取必要文件/原件，不默认继承旧子agent对话或临时授权。Owner于B进行中补充此规则，本轮从C起执行，A/B历史原文不改，切换不另申请许可。
 - 每节交接记录HEAD、改动/Contract/golden、focused结果或未运行、重建触发理由、最后验证image revision/source-tree、延期节点/来源；文档设计不做虚假container carry。
 - 同根工具故障按DC68最多三轮有修订复验，每轮停止原次、保原exit/log/SHA并收尾；产品语义/资源失败按所属规则，不借工具重试改变预期。
 - exit需A–D独审关闭、E必要实跑/合法carry绑定最终H、Owner确认真实范围完成、当前源码与镜像明确、未知/取消项列清。需要改变冻结业务语义、M、SQL/算法golden、跨scope或威胁模型时先回Owner。

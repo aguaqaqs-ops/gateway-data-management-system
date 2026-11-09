@@ -86,3 +86,7 @@ A产品候选为`ad043152b1604da1ff56ec67f1513e4fd9b66456`，Rust tree=`00fda965
 eb645在06的07:08:05–07:10:14Z完整A focused为入口exit0：21步骤全command/tee0、五包静态/native build-input/Rust fmt-clippy/core4/backend278+1均通过，clean/资源/占用释放及全部SHA由原审核者独立核收为 **A CODE_GO / EVIDENCE_GO**。精确原件、历次失败/修复及未测边界见[A交接](p6-s5-a-handoff.md)；证据审核原文SHA256=`59ad4241f82584c7eabb97d785519026d7ccd4a46021f876a1049ccec2c10e05`，追加该原文后的审核归档整体SHA256=`0dd1ec21087217bf196e51cd65cbadbd5facda48484186f596a1cf9eabfd5d49`。该focused不是qualified runner来源，无Compose/t1或carried结论。
 
 现正式进入B，无需Owner再次许可。协调者拥有纯ArtifactRef cache端口、唯一基线schema/UOW/SQLite/protection与Artifacts Contract；实施者拥有`test_computation_cache.py`和基线schema测试，原审继续独立，唯一测试者按固定候选执行。复用root read/cleanup借用和现operation保护；重叠lease关闭不删除共享operation pin，批次消费者全部关闭后窄释放cache intent，READY不长期强pin内部cache；不新增持久refcount/journal或兼容层。B只做必要真实SQLite/文件系统focused及五包静态，Rust未变不扩大Rust验证矩阵；最终容器与已确认最小t1仍集中E。
+
+## 11. 后续按小节新建子agent
+
+Owner于B原审及同轮修订期间明确要求后续按阶段新建，并写入角色/子agent说明。协调者保留；当前B的两项finding由本节原审连续收口，执行完成并形成固定handoff后，从C开始，为C、D、E各节分别新建实施、独审和测试/等待角色，不再以follow-up复用A/B角色。创建前核并发槽，旧角色退出活动分工，总活跃含协调者≤4，不递归扩队；新角色只接固定候选、Contract、handoff及必要原件，模型与临时权限按当前授权重新明确。规则已同步[AGENTS](../../../../../AGENTS.md)、kickoff及实施提示词；A/B历史分工和逐字审核原文保持真实，不回写成“当时已按节新建”。

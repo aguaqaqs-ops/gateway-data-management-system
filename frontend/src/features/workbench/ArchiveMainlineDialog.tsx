@@ -250,7 +250,6 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       setCandidates(listed);
       setSelectedDigest(candidate.expected_candidate_digest);
       setPlan(loaded);
-      setConfirmSelection(false);
     } catch (cause) {
       const message = cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN"
         ? (stage === "preview" ? "当前身份没有预检归档方案的权限" : "当前身份没有该操作的权限")
@@ -269,6 +268,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     setResult(null);
     setFailure(null);
     setCollectionNotice(null);
+    setConfirmSelection(false);
     previousDigest.current = null;
     progress.current = createArchiveJourneyProgress();
     void load(submissionId);

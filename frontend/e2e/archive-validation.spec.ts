@@ -222,7 +222,7 @@ async function openArchiveDialog(page: Page, submission: string) {
 test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await installArchiveScenario(page);
   const dialog = await openArchiveDialog(page, "提交 1");
-  await expect(dialog.getByText("当前基线")).toBeVisible();
+  await expect(dialog.locator("dt", { hasText: "当前基线" })).toBeVisible();
   await expect(dialog.getByText("归档基线 1", { exact: true })).toBeVisible();
   await expect(dialog.getByText("待处理项")).toBeVisible();
   await expect(dialog.getByText("未解释")).toBeVisible();
@@ -445,8 +445,7 @@ test("V9 关闭理由字节边界与409提示", async ({ page }) => {
   await expect(dialog.getByText("提交或基线已变化，已重新预检")).toBeVisible();
   await page.unrouteAll();
   await installArchiveScenario(page, { closure: [{ status: 403, code: "SCOPE_FORBIDDEN" }] });
-  await page.reload();
-  const reopened = page.getByRole("dialog", { name: "归档主基线" });
+  const reopened = await openArchiveDialog(page, "提交 1");
   await reopened.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
   const close2 = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close2.getByLabel("关闭理由").fill("重试关闭");

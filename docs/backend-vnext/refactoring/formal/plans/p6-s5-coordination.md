@@ -110,3 +110,37 @@ B三角色执行/审核已收尾；固定本交接后退出活动分工。C将�
 并发槽≤4执行；新角色以当前main、AGENTS、设计/Contract、A/B交接和原件为输入，不继承旧
 子agent对话。C应用接线、metadata先行/按需行、当前出版与checkpoint恢复尚未实现，不能
 用B的SQLite/文件证明代签；不再为正常C开工向Owner申请许可。
+
+## 13. C 新角色实施、连续修复与证据关闭
+
+B 收口后实际为 C 新建 `c_implement`、`c_review`、`c_test`，均从固定文件/接口与必要原件
+接手，不继承 A/B 对话或临时权限；协调者持续、活跃总数不超过4。C 独审仍使用 Sol xhigh，
+唯一执行/等待使用 Luna max，没有使用 Astra。D、E 继续分别新建，不跨节复用。
+
+C 固定最终产品 `fdb2a69a437f669150f9c3c2eed15f220e77f7f3`，vnext tree
+`e2bca77c31c3faccf277fdccf890ba50e0530c16`，Rust tree 仍为
+`c0213e18a9645c5cfbd39f310f532273a03a10cb`。Preview/History 真实接入单表 diff/完整纯 Risk
+候选，成功 pair 后登记 uses；History 完整 exact-commit metadata 先行，diff/export 分别
+查，再按需读行，当前 records/risk/surface/完整 bundle 出版。完整占位形态只属于新 describe/
+ensure API，通用 materialize 保留实际行需求，避免影响 Submit 单表与 Preview artifact consumer。
+
+原审 R1–R7 连续关闭 C1 失败/取消 reader+batch 释放、C2 可选持久 identity/JCS 的同 M 回退、
+C3 真 Preview→History/FULL 首次例外与风险实际 lookup/store 判据、C4 新输入错误的精确
+分类。新 ensure 暴露的确定性 provider 错误与 fresh authority/resume 按原 typed 分类处理；
+原计算/records/risk/surface/bundle 错误保持原 runtime 边界，不宽 catch、不加重试。
+
+唯一测试者在06固定 clean fdb2，09:33:20–09:35:24Z 实际17步 command/tee全0，native
+强制重装/build-input、五包ruff/mypy、15文件 **420 passed / 31.68s**，原入口0、clean、
+cleanup0和本人占用释放。前三次3895 ruff1、07a1 mypy1、addc focused1（410+7）全部保原值
+与原件；ad8f只审代码未执行，原失败不改成成功，不按DC68工具重试计。
+
+同一原审核者逐件核 manifest、每步 HEAD/exit/日志SHA、native输入身份、失败原件和资源
+释放，给出 **C CODE_GO / EVIDENCE_GO，可进入D**。详见[C交接](p6-s5-c-handoff.md)与
+[逐字归档](p6-s5-c-review.md)；证据原文 SHA256=
+`5aee78c21953eeed134d50cd73dc074d1ebe01c88c16d77646bdab1d8e7c5fff`，归档整体 SHA256=
+`a02621fc964d5b25aa5e1090fb6d9e560c9afb593580414acda25962bca54c19`。
+
+C 未改 Rust/依赖/部署/container-only 边界，没有 qualified runner、Compose、carried 或
+t1 结论；容器仍集中 E 最终候选，M24、统一池和已确认最小 t1 范围不变。固定本交接后让
+C 三角色退出活动分工，再为 D 新建实施、独审、唯一测试角色。D 接 T3 精确触达、通用 RS/
+client 控制与现恢复屏障，不重问正常开工许可；没有 push 或提前 S5 exit 标记。

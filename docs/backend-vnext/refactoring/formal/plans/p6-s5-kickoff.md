@@ -1,6 +1,6 @@
 # Phase 6 S5 实施与验证计划
 
-状态：**DESIGN_CLEAR；A/B实现与必要证据已独审GO，准备C**；A产品`eb64578925`、B产品`e1098b2a62`，实际证据与未测范围见各节handoff。设计独审绑定候选仍为`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`。设计见[p6-s5-design](p6-s5-design.md)，设计源码起点main `4c648965286ec751c4395cd6111f11838610299c`。当前授权及协调角色见[实施任务提示词](p6-s5-implementation-prompt.md)：直接完整推进A–E，仅实质阻塞需确认；从C起各节新建三类子agent。
+状态：**DESIGN_CLEAR；A/B/C实现与必要证据已独审GO，准备D**；A产品`eb64578925`、B产品`e1098b2a62`、C产品`fdb2a69a43`，实际证据与未测范围见各节handoff。设计独审绑定候选仍为`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`。设计见[p6-s5-design](p6-s5-design.md)，设计源码起点main `4c648965286ec751c4395cd6111f11838610299c`。当前授权及协调角色见[实施任务提示词](p6-s5-implementation-prompt.md)：直接完整推进A–E，仅实质阻塞需确认；从C起各节新建三类子agent。
 
 ## 1. 已确认输入与交付边界
 
@@ -94,11 +94,11 @@ S5完成目标：单表diff/risk跨operation复用、History按需读表、当�
 | 范围 | A–D | E计划 | 当前状态 |
 | --- | --- | --- | --- |
 | rust | codec/restore改变时focused、fmt/clippy，backend前强制native重装 | 实跑，因Rust树变化 | A fmt/clippy/core focused4通过，权威全包未跑 |
-| backend | 按节focused/必要集成，serial -n0 | 实跑权威包，含现History/Submit/ordered等Compose | A focused278+1、B focused162通过；B空serial工具续步已核，权威/Compose未跑 |
+| backend | 按节focused/必要集成，serial -n0 | 实跑权威包，含现History/Submit/ordered等Compose | A focused278+1、B focused162、C focused420通过；B空serial工具续步已核，权威/Compose未跑 |
 | repository_client | D通用控制变更focused | 实跑权威包 | 未运行 |
 | shared_kernel / repository_contracts | 无语义改动时不新增测试矩阵 | 优先核原来源同WT闭包；不同即实跑 | 尚无carried判定 |
 | repository_service | 产品未改，保原wire/容量 | Docker context等闭包很可能变化；按真实manifest决定，变化必实跑 | 尚无carried判定 |
-| 五Python包ruff/mypy | 有代码提交按AGENTS执行 | 最终受影响修订复验 | A/B固定候选分别实际通过；后续改动仍需复验 |
+| 五Python包ruff/mypy | 有代码提交按AGENTS执行 | 最终受影响修订复验 | A/B/C固定候选分别实际通过；后续改动仍需复验 |
 | frontend | 无产品文件变更 | 无新增FE门禁；若发现breaking DTO则停止修设计/范围 | 不代表FE阶段验收 |
 | t1真实History | 不在每节重复旅程 | §5一次 | 未运行 |
 

@@ -163,76 +163,46 @@ def read_repository(
     return summary
 
 
-# Only metadata and owning checkpoint/manifest validators; no Repository calls,
-# cache lookup/touch, row reader, bootstrap, migration or persistent writes.
+# Only typed metadata/ref validation; no Repository calls, IPC opening, cache
+# lookup/touch, row reader, bootstrap, migration or persistent writes.
 CANONICAL = r'''
 import json, sqlite3, sys
-from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
-from gateway_backend.artifacts import artifact_ref_from_dict, artifact_ref_to_dict
-from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_shared_kernel import DigestRef
 from gateway_backend.application import preview_jobs as p
-from gateway_backend.application.canonical_metadata.binding import _storage_rule_view
-from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
+from gateway_backend.application.payloads import load_job_payload_bytes
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
+from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
+from gateway_backend.operations import OperationStatus, StepStatus
+from benchmarks.real_dump_canonical_metadata import verify_repeat_canonical_metadata
 repo, op, commit = json.loads(sys.argv[1])
 path = Path('/var/lib/gateway/control/control.sqlite3')
 verify_control_db_file(path)
 c = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True, isolation_level=None)
+c.row_factory = sqlite3.Row
 c.execute('PRAGMA query_only=ON')
 c.execute('BEGIN')
 try:
-    step = c.execute('SELECT checkpoint_ref,status,operation_id,step_name FROM step_records WHERE step_id=?',
-        (p._successor_step_id(op,p.PREVIEW_STEP_MATERIALIZE),)).fetchone()
-    assert step and tuple(step[1:]) == ('SUCCEEDED',op,p.PREVIEW_STEP_MATERIALIZE)
-    assert c.execute('SELECT status FROM operation_records WHERE operation_id=?',(op,)).fetchone() == ('SUCCEEDED',)
+    operations = SQLiteOperationStore(c,transaction_now=datetime.now(UTC),read_only=True)
+    step = operations.get_step(p._successor_step_id(op,p.PREVIEW_STEP_MATERIALIZE))
+    operation = operations.get_operation(op)
+    if ((step.status,step.operation_id,step.step_name) != (StepStatus.SUCCEEDED,op,p.PREVIEW_STEP_MATERIALIZE)
+        or step.checkpoint_ref is None or operation.status is not OperationStatus.SUCCEEDED
+        or (operation.job_kind,operation.job_contract_version) != (p.PREVIEW_JOB_KIND,p.PREVIEW_JOB_CONTRACT_VERSION)):
+        raise ValueError('exact SQL operation/step/status/job binding mismatch')
     row = c.execute('SELECT canonicalization_manifest_ref,canonicalization_manifest_digest FROM submission_records WHERE repository_id=? AND repository_commit_id=?',(repo,commit)).fetchall()
-    assert len(row) == 1
+    if len(row) != 1:
+        raise ValueError('exact prior Submission canonical manifest required')
     store = LocalArtifactStore(Path('/var/lib/gateway/artifacts'))
     with store.read_session():
-        ref = artifact_ref_from_dict(json.loads(step[0]))
-        envelope = load_checkpoint_envelope(store,ref)
-        assert (envelope.operation_id,envelope.step_name,envelope.job_kind) == (op,p.PREVIEW_STEP_MATERIALIZE,p.PREVIEW_JOB_KIND)
-        inputs = p._materialized_preview_inputs_from_checkpoint(envelope.job_state,store,repository_id=repo)
-        assert not inputs.canonical.baseline_is_initial
-        before_ref = store.get_ref(row[0][0])
-        before_manifest = open_canonicalization_manifest(store,before_ref)
-        after_manifest = open_canonicalization_manifest(store,inputs.canonical.canonicalization_manifest_ref)
-        assert before_manifest.manifest_digest.value == row[0][1]
-        before = inputs.sides[p._SIDE_BASELINE]
-        current = inputs.sides[p._SIDE_MODIFIED]
-        assert inputs.sides[p._SIDE_INITIAL] == before
-        assert inputs.canonical.baseline_canonical_state_digest == inputs.canonical.modified_canonical_state_digest
-        def identities(manifest, bound):
-            descriptors = {t.table_name:t for t in bound.summary.tables}
-            facts = {t.storage_rule_view.canonical_table:t for t in bound.storage_facts}
-            assert set(descriptors) == set(facts) == {t.name for t in manifest.tables}
-            result = {}
-            for t in manifest.tables:
-                d, f = descriptors[t.name], facts[t.name]
-                assert t.content_digest and t.source_schema_digest and t.canonical_schema_digest
-                view = _storage_rule_view(t)
-                assert d.row_count == t.canonical_row_count and d.raw_content_digest == t.content_digest
-                assert f.raw_content_digest == t.content_digest and f.source_schema_digest == t.source_schema_digest
-                assert f.canonical_schema_digest == t.canonical_schema_digest and f.storage_rule_view == view
-                assert f.storage_projection_version == manifest.storage_projection_version
-                result[t.name] = {'row_count':d.row_count,'raw_content_digest':d.raw_content_digest.value,
-                    'business_schema_digest':d.business_schema_digest.value,
-                    'source_schema_digest':t.source_schema_digest.value,'canonical_schema_digest':t.canonical_schema_digest.value,
-                    'storage_rule_view':asdict(view),'storage_projection_version':manifest.storage_projection_version}
-            return result
-        b, a = identities(before_manifest,before), identities(after_manifest,current)
-        u = sorted(n for n in b.keys() & a.keys() if b[n] == a[n])
-        x = sorted(n for n in b.keys() & a.keys() if b[n] != a[n])
-        added, deleted = sorted(a.keys()-b.keys()), sorted(b.keys()-a.keys())
-        assert not x and not deleted and not added and len(u) == 312
-        print(json.dumps({'repository_id':repo,'operation_id':op,'exact_commit':commit,
-            'checkpoint_ref':artifact_ref_to_dict(ref),'baseline_manifest_ref':artifact_ref_to_dict(before_ref),
-            'current_manifest_ref':artifact_ref_to_dict(inputs.canonical.canonicalization_manifest_ref),
-            'U':u,'X':x,'A':added,'D':deleted,'logical_baseline_row_demand':0,
-            'before_identities':b,'current_identities':a,
-            'policy':'full schema/count/content/storage view/projection identity, metadata only; independent of HTTP count'},sort_keys=True))
+        payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation,store)))
+        logical = verify_repeat_canonical_metadata(store,checkpoint_ref=step.checkpoint_ref,
+            operation_id=op,repository_id=repo,commit_id=commit,payload=payload,
+            submission_manifest_ref=store.get_ref(row[0][0]),
+            submission_manifest_digest=DigestRef(row[0][1]))
+        print(json.dumps(logical,sort_keys=True))
 finally:
     c.execute('ROLLBACK')
     c.close()

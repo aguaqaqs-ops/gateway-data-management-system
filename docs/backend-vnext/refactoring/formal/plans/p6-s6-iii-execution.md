@@ -50,7 +50,7 @@ They are not production mechanisms or new evidence protocols.
 
 The real driver uses the owning CommitId path encoder in its exact HTTP log
 matcher (the H2 tool correction below): tracked `t4-evidence.py` SHA256
-`a6bf30de57e386cd899f86e4508056935940645aa184777fadb2b6816538bea1`;
+`246366f703d64bc0bdd2e3c00704788cd9d5e87d75f100ba1608f2b8881005f3`;
 its source wrapper `t4-node.sh` is
 `43b20af3ff8d1b3a80fbe19c6a75a4009063e90415cb1b2aedbf48ec1a132ca7`.
 No oracle, M24, timeout, expected result, runtime or real scope changes.
@@ -149,10 +149,55 @@ guards; no actual Ruff failure or H4 test result is invented. H4 stage is
 retained, and source/check bindings must use the new candidate. H2 authority
 remains historical evidence only.
 Source review/shallow transfer and actual full six/current-final-H local
-containers plus a fresh minimal t4 chain must bind H5. Do not
+containers plus a fresh minimal t4 chain must bind the current final candidate. Do not
 reuse the now-populated H2 task as a cold chain, resume with forbidden from-step,
 alter oracle/budget or convert its original failed exit. The source policy and
 all later source/launch steps below apply to the new final candidate.
+
+### H5 repeat Preview metadata-verifier failure and forward correction
+
+H5 `93bd9a5b06637612407141160bf775261bdf7cc5` actually passed all six and
+current-H5 local applicable containers. Its fresh t4 reached successful first
+Preview/Submit/real Repository read/independent old-B verification/approve/
+Archive, then successful repeat Preview and complete second tar. The evidence
+CANONICAL command failed because it used the row-restoring
+`_materialized_preview_inputs_from_checkpoint`, whose canonical IPC reader
+correctly requires an operation kernel context. That restore path is not
+metadata-only. Original t4 log SHA256
+`2ed5ea2c5937f2d49e64c85ada6b552eb27a7931c4aa38e4e0f524df322207eb`, result
+`c247a54dabbe71c5179b67e83324cc94e0b6393bf976a62ad57758da7c20e7c3` and
+command00048 stderr `ebb537f821ab272f16c11aa692957a1c2af9fbd4460b46a922005645eb9f63ce`
+remain failure originals. No-change Submit and full canonical proof did not
+complete. W2 kernel0/actual rows0, positive calibration6/1 and old-B equality
+had passed; they do not replace canonical metadata demand proof. W2 reservation
+HWM25714930944<=M24, no OOM/restarts, clean normal stops/idle/release0; no budget,
+semantic or independent-oracle conflict was observed. First Submit/Archive are
+real durable effects, with business Head at archived version1, not an empty
+attempt. Details, DB/WAL/SHM unchanged readonly hashes and remaining limitations
+are in external `h5-t4-repeat-preview-diagnosis-r1.md` SHA256
+`93d6ecada28594807e2e2883b78a843822f86e6eda62f0eb15508ddaae6f21f7`.
+
+The forward correction puts the single metadata verifier in backend benchmark
+`real_dump_canonical_metadata.py`, normally imported by the docs driver and
+`test_real_dump_canonical_metadata.py` inside the backend input closure. The
+owning SQLite operation/step models and payload decoder retain SQL scope and
+success checks. The helper uses owning checkpoint/state, snapshot/summary,
+descriptor/storage-fact and manifest parsers, verifies canonicalIPC metadata
+repository/row-ref/artifact-content bindings without opening row bytes, retains
+exact original MODIFIED closure JCS bytes, configuration/three-side digests,
+Submission persisted manifest digest and complete U312/X/A/D identities. It
+explicitly rejects FULL/initial-baseline mixing; missing or contradictory
+metadata fails. IPC physical content validation remains the actual Preview's
+responsibility. No fake row readers, guard removal, added context or budget
+change. Typed synthetic fixtures with shared binding-fault vectors use a store
+that rejects IPC access and writes; no Dolt/stack is needed. A separately pinned
+readonly probe of retained H5 metadata may be reviewed for06 without new requests.
+
+H5 authority remains historical, and its partial t4 remains overall exit1.
+This tracked correction changes the final candidate: source review, safe new
+shallow stage/install, applicable dedicated static/focused checks and actual
+complete six/current-final-H local containers plus a fully fresh same-H t4
+are required. No carried H5 authority or resumed populated H5 chain.
 
 ## Source, input and dependency admission
 
@@ -325,7 +370,10 @@ tag-object/target receipt. No push, FE signature, P7 or production release.
 
 Current implementation review record: container rebuild is required for III's
 project-final gate, deferred until this fixed candidate's CODE_GO. Last prior
-verified product remains S5 V2 `2d8b29d332ceb467ba77bb4826fb0925653ebb4e` / S5
+verified all-six/current local applicable containers are H5
+`93bd9a5b06637612407141160bf775261bdf7cc5`; H5 real is partial/failed as above.
+Earlier verified product remains S5 V2 `2d8b29d332ceb467ba77bb4826fb0925653ebb4e` / S5
 H `e80f6ddbac88b47b6c41d8d2faa21e39c24dbd53`; no current-H equivalence is
-claimed. This change adds only execution/report documentation, with no product,
-Rust, lock, deployment, independent oracle or t4 driver change.
+claimed. This change corrects the evidence driver with a backend benchmark helper/unit
+owner and tracked driver pin; product runtime, Rust, locks, deployment, oracle
+and real journey assertions/budget are unchanged.

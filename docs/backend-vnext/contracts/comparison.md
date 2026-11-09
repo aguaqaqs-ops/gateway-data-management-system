@@ -491,7 +491,7 @@ ComparisonRecordsClosure:
 
 - records closure 按 comparison pair 生成。
 - records artifact 按 table 生成。
-- table-level comparison cache 后续再设计。
+- 单表比较缓存按下节已确定的 neutral 格式与当前绑定恢复协议执行。
 
 ## Comparison Table Cache
 
@@ -502,6 +502,12 @@ SHA256，含 repository/server-resolved scope、完整 before/current FINAL desc
 options、detail、算法/标量/records/codec 版本。只移除当前 operation/pair、commit、display binding、
 文件路径/ref 和 reader identity；authority 仍由原 owner 先核验。provisional/信息不足/可选 key
 预算不足为 miss，不缩小原计算接受范围。新 task/plan 字段须先分类，不得静默遗漏。
+两侧均须有完整 storage view/source schema/canonical schema/raw content/projection version；
+canonical schema 绑定由原 authority owner 核验，content/key/columns 与当前 descriptor 闭合。现存 reader 还须有 canonical owner 的成功
+writer/artifact-read/committed-read 证明；metadata-only 描述允许无 reader，但不能缺 side facts。
+标准算法、ordered format/version、scalar、mapping、projection、records/closure 等均进入唯一投影；
+Rust已有 ordered/mapping 常量通过 Comparison facade 的小型版本入口读取，不增版本轴。
+
 
 值是完整成功的 neutral 小型 outcome metadata，和至多七个不压缩 IPC 视图：
 

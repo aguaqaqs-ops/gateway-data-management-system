@@ -18,6 +18,7 @@ pub use standard::{
 };
 
 pub use ordered::{
+    ORDERED_COMPARE_FORMAT, ORDERED_COMPARE_VERSION,
     BlankExtensionResult, BlankInterval, BlankProvenance, BlankRecord, BlankSummary,
     CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, OrderedBatchPair, OrderedCompareError,
     OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult, OrderedKernelResult,

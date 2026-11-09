@@ -9,10 +9,10 @@ pub mod storage_mutation;
 pub mod table_access;
 
 pub use records::{
-    NeutralFacts, facts_schema, export_facts_family, validate_facts_row, restore_records_batches,
-    BuiltRecords, RecordsBatchValidator, RecordsParquetSummary, TableFactsInput, TableFactsSource,
-    build_blank_records, build_ordered_records, build_standard_records,
+    BuiltRecords, NeutralFacts, RecordsBatchValidator, RecordsParquetSummary, TableFactsInput,
+    TableFactsSource, build_blank_records, build_ordered_records, build_standard_records,
     build_standard_records_from_ordered, charge_arrow_batches, digest_facts_core,
-    digest_facts_core_json, digest_table_fact, digest_table_fact_json, json_metadata_upper,
-    json_size, ordered_metadata_json, standard_metadata_json,
+    digest_facts_core_json, digest_table_fact, digest_table_fact_json, export_facts_family,
+    facts_schema, json_metadata_upper, json_size, ordered_metadata_json, restore_records_batches,
+    standard_metadata_json, validate_cache_metadata, validate_facts_row,
 };

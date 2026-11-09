@@ -6,8 +6,8 @@ use gateway_shared_kernel::{DigestRef, canonicalize_jcs};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::json_metadata_upper;
 use super::cache::NeutralFacts;
+use super::json_metadata_upper;
 use super::source::{cell_upper, standard_upper};
 use crate::comparison::{
     KernelContext, OrderedKernelResult, RowLocation, StandardComputation, StandardKind,
@@ -190,7 +190,9 @@ fn write_value(
                         part,
                         Part::Root | Part::OrderedExtension | Part::BlankExtension
                     )
-                    && (source.standard.is_some() || source.ordered.is_some() || source.neutral.is_some())
+                    && (source.standard.is_some()
+                        || source.ordered.is_some()
+                        || source.neutral.is_some())
                 {
                     if child.as_array().is_none_or(|items| !items.is_empty()) {
                         return Err("facts metadata must contain empty records arrays".to_string());
@@ -261,7 +263,7 @@ fn write_records(
 }
 
 pub(super) fn facts_count(source: &TableFactsSource<'_>, part: Part) -> Result<usize, String> {
-    Ok(    match part {
+    Ok(match part {
         Part::Root => source.standard.map_or_else(
             || {
                 source
@@ -281,111 +283,116 @@ pub(super) fn facts_count(source: &TableFactsSource<'_>, part: Part) -> Result<u
 }
 
 pub(super) fn fact_row_upper(
-    source: &TableFactsSource<'_>, part: Part, position: usize, table_name: &str,
+    source: &TableFactsSource<'_>,
+    part: Part,
+    position: usize,
+    table_name: &str,
 ) -> Result<usize, String> {
-    Ok(    match part {
-            Part::Root => {
-                if let Some(result) = source.standard {
-                    standard_upper(
-                        table_name,
-                        &result.records[result.facts_order[position]],
-                        &result.before_batches,
-                        &result.current_batches,
-                    )?
-                } else {
-                    let result = source.ordered.ok_or("facts standard source missing")?;
-                    standard_upper(
-                        table_name,
-                        &result.standard_records[result.standard_facts_order[position]],
-                        &result.before_batches,
-                        &result.current_batches,
-                    )?
-                }
+    Ok(match part {
+        Part::Root => {
+            if let Some(result) = source.standard {
+                standard_upper(
+                    table_name,
+                    &result.records[result.facts_order[position]],
+                    &result.before_batches,
+                    &result.current_batches,
+                )?
+            } else {
+                let result = source.ordered.ok_or("facts standard source missing")?;
+                standard_upper(
+                    table_name,
+                    &result.standard_records[result.standard_facts_order[position]],
+                    &result.before_batches,
+                    &result.current_batches,
+                )?
             }
-            Part::OrderedExtension => {
-                let result = source.ordered.ok_or("facts ordered source missing")?;
-                let record = &result.ordered_records[result.ordered_facts_order[position]];
-                let mut total = table_name.len().saturating_add(512);
-                for column in &record.value_columns {
-                    total = total
-                        .checked_add(column.len().saturating_mul(4).saturating_add(512))
-                        .and_then(|size| {
-                            size.checked_add(
-                                cell_upper(&result.before_batches, record.before, column).ok()?,
-                            )
-                        })
-                        .and_then(|size| {
-                            size.checked_add(
-                                cell_upper(&result.current_batches, record.current, column).ok()?,
-                            )
-                        })
-                        .ok_or("facts row upper overflow")?;
-                }
-                total
+        }
+        Part::OrderedExtension => {
+            let result = source.ordered.ok_or("facts ordered source missing")?;
+            let record = &result.ordered_records[result.ordered_facts_order[position]];
+            let mut total = table_name.len().saturating_add(512);
+            for column in &record.value_columns {
+                total = total
+                    .checked_add(column.len().saturating_mul(4).saturating_add(512))
+                    .and_then(|size| {
+                        size.checked_add(
+                            cell_upper(&result.before_batches, record.before, column).ok()?,
+                        )
+                    })
+                    .and_then(|size| {
+                        size.checked_add(
+                            cell_upper(&result.current_batches, record.current, column).ok()?,
+                        )
+                    })
+                    .ok_or("facts row upper overflow")?;
             }
-            Part::BlankExtension => table_name.len().saturating_add(512),
-            Part::Other => return Err("invalid facts records part".to_string()),
-        })
+            total
+        }
+        Part::BlankExtension => table_name.len().saturating_add(512),
+        Part::Other => return Err("invalid facts records part".to_string()),
+    })
 }
 
 pub(super) fn fact_row_value(
-    source: &TableFactsSource<'_>, part: Part, position: usize,
+    source: &TableFactsSource<'_>,
+    part: Part,
+    position: usize,
 ) -> Result<Value, String> {
     Ok(match part {
-            Part::Root => {
-                if let Some(result) = source.standard {
-                    let index = result.facts_order[position];
-                    standard_fact(
-                        &result.records[index],
-                        &result.before_batches,
-                        &result.current_batches,
-                    )?
-                } else {
-                    let result = source.ordered.ok_or("facts standard source missing")?;
-                    let index = result.standard_facts_order[position];
-                    standard_fact(
-                        &result.standard_records[index],
-                        &result.before_batches,
-                        &result.current_batches,
-                    )?
-                }
+        Part::Root => {
+            if let Some(result) = source.standard {
+                let index = result.facts_order[position];
+                standard_fact(
+                    &result.records[index],
+                    &result.before_batches,
+                    &result.current_batches,
+                )?
+            } else {
+                let result = source.ordered.ok_or("facts standard source missing")?;
+                let index = result.standard_facts_order[position];
+                standard_fact(
+                    &result.standard_records[index],
+                    &result.before_batches,
+                    &result.current_batches,
+                )?
             }
-            Part::OrderedExtension => {
-                let result = source.ordered.ok_or("facts ordered source missing")?;
-                let record = &result.ordered_records[result.ordered_facts_order[position]];
-                json!({
-                    "record_kind": record.kind,
-                    "semantic_kind": record.semantic_kind,
-                    "entity_key_kind": record.entity_key_kind,
-                    "row_identity": record.row_identity,
-                    "before_position": record.before_position,
-                    "current_position": record.current_position,
-                    "changed_columns": record.changed_columns,
-                    "before_values": frame_values(&result.before_batches, record.before, &record.value_columns)?,
-                    "current_values": frame_values(&result.current_batches, record.current, &record.value_columns)?,
-                })
-            }
-            Part::BlankExtension => {
-                let result = source.ordered.ok_or("facts blank source missing")?;
-                let record = &result.blank_records[result.blank_facts_order[position]];
-                json!({
-                    "record_kind": record.kind,
-                    "semantic_kind": record.semantic_kind,
-                    "entity_key_kind": record.entity_key_kind,
-                    "interval": {
-                        "before_start": record.interval.before_start,
-                        "before_end": record.interval.before_end,
-                        "current_start": record.interval.current_start,
-                        "current_end": record.interval.current_end,
-                        "row_count": record.interval.row_count,
-                        "interval_digest": record.interval.interval_digest,
-                    },
-                    "before_occupancy": record.before_occupancy,
-                    "current_occupancy": record.current_occupancy,
-                })
-            }
-            Part::Other => return Err("invalid facts records part".to_string()),
-        })
+        }
+        Part::OrderedExtension => {
+            let result = source.ordered.ok_or("facts ordered source missing")?;
+            let record = &result.ordered_records[result.ordered_facts_order[position]];
+            json!({
+                "record_kind": record.kind,
+                "semantic_kind": record.semantic_kind,
+                "entity_key_kind": record.entity_key_kind,
+                "row_identity": record.row_identity,
+                "before_position": record.before_position,
+                "current_position": record.current_position,
+                "changed_columns": record.changed_columns,
+                "before_values": frame_values(&result.before_batches, record.before, &record.value_columns)?,
+                "current_values": frame_values(&result.current_batches, record.current, &record.value_columns)?,
+            })
+        }
+        Part::BlankExtension => {
+            let result = source.ordered.ok_or("facts blank source missing")?;
+            let record = &result.blank_records[result.blank_facts_order[position]];
+            json!({
+                "record_kind": record.kind,
+                "semantic_kind": record.semantic_kind,
+                "entity_key_kind": record.entity_key_kind,
+                "interval": {
+                    "before_start": record.interval.before_start,
+                    "before_end": record.interval.before_end,
+                    "current_start": record.interval.current_start,
+                    "current_end": record.interval.current_end,
+                    "row_count": record.interval.row_count,
+                    "interval_digest": record.interval.interval_digest,
+                },
+                "before_occupancy": record.before_occupancy,
+                "current_occupancy": record.current_occupancy,
+            })
+        }
+        Part::Other => return Err("invalid facts records part".to_string()),
+    })
 }
 
 fn standard_fact(

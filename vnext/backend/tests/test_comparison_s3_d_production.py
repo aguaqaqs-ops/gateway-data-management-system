@@ -56,6 +56,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream, plan
+from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_frozen import frozen_case
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from tests.support.table_rules import (
@@ -138,6 +139,10 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
             ordered=item.ordered_metadata,
         ))
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
+
+
+def _session_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
+    return complete_canonical_bound(_canonical_bound(source))
 
 
 @pytest.mark.parametrize(
@@ -746,11 +751,11 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
 
 
 def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'after');"
     ))
@@ -806,7 +811,8 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
         + ("INSERT INTO t VALUES (1, 'after');" if row_change == "modified"
            else "INSERT INTO t VALUES (1, 'before'), (2, 'after');")
     )
-    current = _artifact_bound(current_sql, store)
+    current = complete_canonical_bound(_artifact_bound(current_sql, store))
+    before = complete_canonical_bound(before)
     assert before.table_set is not None and current.table_set is not None
     assert isinstance(before.table_set.tables[0].reader, ArrowSnapshotTableReader)
     assert isinstance(current.table_set.tables[0].reader, ArrowSnapshotTableReader)
@@ -898,10 +904,10 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
 
 
 def test_single_pair_declares_no_long_lived_comparison_result() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
     ))
     single = plan(before, current)
@@ -917,10 +923,10 @@ def test_single_pair_declares_no_long_lived_comparison_result() -> None:
 
 
 def test_replacement_plans_declare_no_row_comparison_uses() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
     ))
     template = replace(plan(before, current), mode=ComparisonMode.DATASET_REPLACEMENT)
@@ -934,10 +940,10 @@ def test_replacement_plans_declare_no_row_comparison_uses() -> None:
 
 
 def test_large_optional_cache_key_safely_misses_without_changing_facts() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
     ))
     template = replace(plan(before, current), options=(("large_optional_identity", "x" * 70_000),))
@@ -961,10 +967,10 @@ def test_large_optional_cache_key_safely_misses_without_changing_facts() -> None
 
 
 def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
     ))
     template = plan(before, current)
@@ -1030,11 +1036,11 @@ def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotT
 def test_same_artifact_with_missing_reader_cannot_replay_a_cached_table(
     request: pytest.FixtureRequest,
 ) -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'after');"
     ))
@@ -1051,7 +1057,8 @@ def test_same_artifact_with_missing_reader_cannot_replay_a_cached_table(
     ),))
     expected = frozen_case(request.node.nodeid)
     session = ComparisonTaskSession((first, unavailable))
-    assert session.remaining_uses == {}
+    # Reader availability is a current resource fact, not a semantic key field.
+    assert len(session.remaining_uses) == 1
     first_result = compare_plan_native(first, session=session)
     try:
         first_result.commit_cache()
@@ -1071,7 +1078,7 @@ def test_same_artifact_with_missing_reader_cannot_replay_a_cached_table(
 
 
 def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
     ))
@@ -1079,8 +1086,8 @@ def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'after');"
     )
-    failed_current = _canonical_bound(bound(current_sql))
-    ready_current = _canonical_bound(bound(current_sql))
+    failed_current = _session_bound(bound(current_sql))
+    ready_current = _session_bound(bound(current_sql))
     failed = plan(before, failed_current)
     ready = plan(before, ready_current)
     failed_table = failed.tasks[0].current_table
@@ -1125,11 +1132,11 @@ def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
 def test_cached_success_is_rechecked_when_the_same_reader_closes(
     request: pytest.FixtureRequest,
 ) -> None:
-    before = _canonical_bound(bound(
+    before = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
     ))
-    current = _canonical_bound(bound(
+    current = _session_bound(bound(
         "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
         "INSERT INTO t VALUES (1, 'after');"
     ))
@@ -1223,8 +1230,8 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
     current_sql = before_sql.replace("before", "after")
     expected = frozen_case(request.node.nodeid)
     native_plan = plan(
-        _canonical_bound(bound(before_sql)),
-        _canonical_bound(bound(current_sql)),
+        _session_bound(bound(before_sql)),
+        _session_bound(bound(current_sql)),
         ordered=ordered,
     )
     assert native_plan.tasks[0].current_table is not None
@@ -1284,10 +1291,11 @@ def test_reader_cancel_inside_arrow_stream_stops_before_table_degradation(
     if fresh:
         store = InMemoryArtifactStore()
         before = _artifact_bound(before_sql, store)
-        current = _artifact_bound(current_sql, store)
+        current = complete_canonical_bound(_artifact_bound(current_sql, store))
+    before = complete_canonical_bound(before)
     else:
-        before = _canonical_bound(bound(before_sql))
-        current = _canonical_bound(bound(current_sql))
+        before = _session_bound(bound(before_sql))
+        current = _session_bound(bound(current_sql))
     planned = plan(before, current)
     stopped = Event()
     original = ArrowSnapshotTableReader.arrow_stream

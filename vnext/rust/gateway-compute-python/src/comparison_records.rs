@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
-use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_array::{Array, FixedSizeBinaryArray, ListArray, RecordBatch, RecordBatchReader, StringArray};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
@@ -17,7 +17,7 @@ use gateway_compute_core::comparison::{
 };
 use gateway_compute_core::{
     BuiltRecords, NeutralFacts, RecordsBatchValidator, TableFactsInput, TableFactsSource, build_blank_records,
-    export_facts_family, facts_schema, restore_records_batches,
+    export_facts_family, facts_schema, restore_records_batches, validate_cache_metadata,
     build_ordered_records, build_standard_records, build_standard_records_from_ordered,
     charge_arrow_batches, digest_facts_core_json, digest_table_fact_json, json_metadata_upper,
     json_size, ordered_metadata_json, standard_metadata_json,
@@ -40,7 +40,10 @@ use crate::{
 enum ComparisonResult {
     Standard(StandardComputation),
     Ordered(OrderedKernelResult),
-    Restored { metadata_json: String, facts: NeutralFacts },
+    Restored {
+        metadata_json: String,
+        facts: NeutralFacts,
+    },
 }
 
 struct PythonChargeOwner {
@@ -87,6 +90,14 @@ impl ComparisonOperation {
         }
         self.context.seal();
         self.reconcile_retained(py)
+    }
+
+    fn require_operation(&self, operation_identity: usize) -> PyResult<()> {
+        if self.operation_identity != Some(operation_identity) || self.owner.is_none() {
+            return Err(PyValueError::new_err("comparison phase belongs to another operation"));
+        }
+        if self.context.is_sealed() { return Err(PyValueError::new_err("comparison operation is sealed")); }
+        python_adapter_control(&self.watch, self.deadline)
     }
 
     fn reconcile_retained(&self, py: Python<'_>) -> PyResult<usize> {
@@ -142,6 +153,7 @@ struct ComparisonRecordsHandle {
     risk_batches: Option<Vec<RecordBatch>>,
     cache_facts: Option<NeutralFacts>,
     cache_metadata: Option<String>,
+    cache_created_risk: bool,
     _cache_metadata_lease: Option<KernelLease>,
     _schema_lease: Option<KernelLease>,
     context: Arc<KernelContext>,
@@ -154,6 +166,13 @@ struct ComparisonRecordsHandle {
 
 #[pymethods]
 impl ComparisonRecordsHandle {
+    fn require_operation(&self, operation_identity: usize) -> PyResult<()> {
+        if self.operation_identity != Some(operation_identity) || self.owner.is_none() {
+            return Err(PyValueError::new_err("comparison table belongs to another operation"));
+        }
+        self.context.check().map_err(|error| comparison_error(error.to_string()))
+    }
+
     fn phase_timings(&self) -> (f64, f64, f64) {
         self.phase_timings
     }
@@ -166,6 +185,7 @@ impl ComparisonRecordsHandle {
         self.risk_batches = None;
         self.cache_facts = None;
         self.cache_metadata = None;
+        self.cache_created_risk = false;
         self._cache_metadata_lease = None;
         self._schema_lease = None;
         self.owner = None;
@@ -226,7 +246,10 @@ impl ComparisonRecordsHandle {
                     neutral: None,
                 },
                 ComparisonResult::Restored { facts, .. } => TableFactsInput {
-                    metadata_json: &raw, standard: None, ordered: None, neutral: Some(facts),
+                    metadata_json: &raw,
+                    standard: None,
+                    ordered: None,
+                    neutral: Some(facts),
                 },
             };
             digest_table_fact_json(input, max_jcs_row_bytes, &context)
@@ -279,7 +302,9 @@ impl ComparisonRecordsHandle {
             ComparisonResult::Ordered(value) => {
                 (&value.standard_records, &value.standard_facts_order)
             }
-            ComparisonResult::Restored { .. } => return Err(PyValueError::new_err("restored risk view missing")),
+            ComparisonResult::Restored { .. } => {
+                return Err(PyValueError::new_err("restored risk view missing"));
+            }
         };
         let mut upper = 4096usize;
         for index in order {
@@ -376,42 +401,72 @@ impl ComparisonRecordsHandle {
     /// reservation never changes the completed business result.
     fn prepare_cache_views(&mut self, py: Python<'_>, max_row_bytes: usize) -> PyResult<()> {
         if self.cache_facts.is_some() { return Ok(()); }
+        if self.risk_batches.is_none() { self.cache_created_risk = true; }
         self.prepare_risk_batches()?;
         let _use = OperationUse::begin(&self.context, &self.active)?;
         let result = self.result.as_ref().ok_or_else(closed_handle)?.clone();
         let estimate = match result.as_ref() {
             ComparisonResult::Standard(_) => 4096,
-            ComparisonResult::Ordered(value) => json_size(&value.facts_metadata).map_err(comparison_error)?,
+            ComparisonResult::Ordered(value) => {
+                json_size(&value.facts_metadata).map_err(comparison_error)?
+            }
             ComparisonResult::Restored { metadata_json, .. } => metadata_json.len(),
         };
-        let metadata_lease = self.context.reserve(estimate.saturating_mul(16).saturating_add(65536))
+        let metadata_lease = self
+            .context
+            .reserve(estimate.saturating_mul(16).saturating_add(65536))
             .map_err(|error| comparison_error(error.to_string()))?;
         let metadata = match result.as_ref() {
             ComparisonResult::Standard(value) => standard_metadata_json(value),
             ComparisonResult::Ordered(value) => ordered_metadata_json(value),
             ComparisonResult::Restored { metadata_json, .. } => Ok(metadata_json.clone()),
-        }.map_err(PyValueError::new_err)?;
+        }
+        .map_err(PyValueError::new_err)?;
         let context = Arc::clone(&self.context);
-        let owner: Arc<dyn Any + Send + Sync> = self.owner.as_ref().ok_or_else(closed_handle)?.clone();
-        let facts = py.detach(|| {
-            let metadata = serde_json::json!({"table_name": "neutral"});
-            let source = match result.as_ref() {
-                ComparisonResult::Standard(value) => TableFactsSource {
-                    metadata: &metadata, standard: Some(value), ordered: None, neutral: None,
-                },
-                ComparisonResult::Ordered(value) => TableFactsSource {
-                    metadata: &metadata, standard: None, ordered: Some(value), neutral: None,
-                },
-                ComparisonResult::Restored { facts, .. } => TableFactsSource {
-                    metadata: &metadata, standard: None, ordered: None, neutral: Some(facts),
-                },
-            };
-            Ok::<NeutralFacts, String>(NeutralFacts {
-                standard: export_facts_family(&source, "STANDARD", max_row_bytes, &context, owner.clone())?,
-                ordered: export_facts_family(&source, "ORDERED", max_row_bytes, &context, owner.clone())?,
-                blank: export_facts_family(&source, "BLANK", max_row_bytes, &context, owner)?,
+        let owner: Arc<dyn Any + Send + Sync> =
+            self.owner.as_ref().ok_or_else(closed_handle)?.clone();
+        let facts = py
+            .detach(|| {
+                let metadata = serde_json::json!({"table_name": "neutral"});
+                let source = match result.as_ref() {
+                    ComparisonResult::Standard(value) => TableFactsSource {
+                        metadata: &metadata,
+                        standard: Some(value),
+                        ordered: None,
+                        neutral: None,
+                    },
+                    ComparisonResult::Ordered(value) => TableFactsSource {
+                        metadata: &metadata,
+                        standard: None,
+                        ordered: Some(value),
+                        neutral: None,
+                    },
+                    ComparisonResult::Restored { facts, .. } => TableFactsSource {
+                        metadata: &metadata,
+                        standard: None,
+                        ordered: None,
+                        neutral: Some(facts),
+                    },
+                };
+                Ok::<NeutralFacts, String>(NeutralFacts {
+                    standard: export_facts_family(
+                        &source,
+                        "STANDARD",
+                        max_row_bytes,
+                        &context,
+                        owner.clone(),
+                    )?,
+                    ordered: export_facts_family(
+                        &source,
+                        "ORDERED",
+                        max_row_bytes,
+                        &context,
+                        owner.clone(),
+                    )?,
+                    blank: export_facts_family(&source, "BLANK", max_row_bytes, &context, owner)?,
+                })
             })
-        }).map_err(comparison_error)?;
+            .map_err(comparison_error)?;
         self.cache_facts = Some(facts);
         self.cache_metadata = Some(metadata);
         self._cache_metadata_lease = Some(metadata_lease);
@@ -419,36 +474,71 @@ impl ComparisonRecordsHandle {
     }
 
     fn cache_metadata_json(&self) -> PyResult<&str> {
-        self.cache_metadata.as_deref().ok_or_else(|| PyValueError::new_err("neutral metadata not prepared"))
+        self.cache_metadata
+            .as_deref()
+            .ok_or_else(|| PyValueError::new_err("neutral metadata not prepared"))
     }
 
     fn discard_cache_views(&mut self) {
+        if self.cache_created_risk { self.risk_batches = None; }
+        self.cache_created_risk = false;
         self.cache_facts = None;
         self.cache_metadata = None;
         self._cache_metadata_lease = None;
     }
 
     fn facts_batches(&self, py: Python<'_>, family: &str) -> PyResult<Py<PyAny>> {
-        let facts = self.cache_facts.as_ref().ok_or_else(|| PyValueError::new_err("neutral facts not prepared"))?;
-        export_batches(py, facts_schema(), facts.family(family).map_err(PyValueError::new_err)?)
+        let facts = self
+            .cache_facts
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("neutral facts not prepared"))?;
+        export_batches(
+            py,
+            facts_schema(),
+            facts.family(family).map_err(PyValueError::new_err)?,
+        )
     }
 
     fn cache_family_names(&self) -> Vec<&str> {
-        [("STANDARD", &self.standard), ("ORDERED", &self.ordered), ("BLANK", &self.blank)]
-            .into_iter().filter_map(|(family, built)| built.as_ref().map(|_| family)).collect()
+        [
+            ("STANDARD", &self.standard),
+            ("ORDERED", &self.ordered),
+            ("BLANK", &self.blank),
+        ]
+        .into_iter()
+        .filter_map(|(family, built)| built.as_ref().map(|_| family))
+        .collect()
     }
 
     fn neutral_record_batches(&self, py: Python<'_>, family: &str) -> PyResult<Py<PyAny>> {
         let built = match family {
-            "STANDARD" => self.standard.as_ref(), "ORDERED" => self.ordered.as_ref(),
-            "BLANK" => self.blank.as_ref(), _ => return Err(PyValueError::new_err("unknown family")),
-        }.ok_or_else(closed_handle)?;
+            "STANDARD" => self.standard.as_ref(),
+            "ORDERED" => self.ordered.as_ref(),
+            "BLANK" => self.blank.as_ref(),
+            _ => return Err(PyValueError::new_err("unknown family")),
+        }
+        .ok_or_else(closed_handle)?;
         let schema = Arc::new(Schema::new_with_metadata(
-            built.schema.fields().iter().skip(1).cloned().collect::<Vec<_>>(), built.schema.metadata().clone(),
+            built
+                .schema
+                .fields()
+                .iter()
+                .skip(1)
+                .cloned()
+                .collect::<Vec<_>>(),
+            built.schema.metadata().clone(),
         ));
-        let batches = built.batches.iter().map(|batch| RecordBatch::try_new(
-            Arc::clone(&schema), batch.columns().iter().skip(1).cloned().collect(),
-        )).collect::<Result<Vec<_>, _>>().map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let batches = built
+            .batches
+            .iter()
+            .map(|batch| {
+                RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    batch.columns().iter().skip(1).cloned().collect(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
         export_batches(py, schema, &batches)
     }
 
@@ -457,11 +547,21 @@ impl ComparisonRecordsHandle {
     }
 }
 
-fn export_batches(py: Python<'_>, schema: SchemaRef, batches: &[RecordBatch]) -> PyResult<Py<PyAny>> {
-    let reader = BatchVecReader { schema, batches: batches.iter().cloned().collect() };
+fn export_batches(
+    py: Python<'_>,
+    schema: SchemaRef,
+    batches: &[RecordBatch],
+) -> PyResult<Py<PyAny>> {
+    let reader = BatchVecReader {
+        schema,
+        batches: batches.iter().cloned().collect(),
+    };
     let bridge = Py::new(py, PyRecordBatchReader::new(Box::new(reader)))?;
-    Ok(py.import("pyarrow")?.getattr("RecordBatchReader")?
-        .call_method1("from_stream", (bridge,))?.unbind())
+    Ok(py
+        .import("pyarrow")?
+        .getattr("RecordBatchReader")?
+        .call_method1("from_stream", (bridge,))?
+        .unbind())
 }
 
 fn closed_handle() -> PyErr {
@@ -478,6 +578,39 @@ fn risk_schema() -> SchemaRef {
             false,
         ),
     ]))
+}
+
+fn validate_risk_projection(batches: &[RecordBatch], context: &Arc<KernelContext>) -> PyResult<()> {
+    for batch in batches {
+        context.check().map_err(|error| comparison_error(error.to_string()))?;
+        let _scratch = context.reserve(batch.get_array_memory_size().saturating_mul(4).saturating_add(4096))
+            .map_err(|error| comparison_error(error.to_string()))?;
+        let kinds = batch.column(0).as_any().downcast_ref::<StringArray>().ok_or_else(closed_handle)?;
+        let identities = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().ok_or_else(closed_handle)?;
+        let columns = batch.column(2).as_any().downcast_ref::<ListArray>().ok_or_else(closed_handle)?;
+        for row in 0..batch.num_rows() {
+            if row % 256 == 0 { context.check().map_err(|error| comparison_error(error.to_string()))?; }
+            if kinds.is_null(row) || columns.is_null(row) {
+                return Err(PyValueError::new_err("neutral risk required value is null"));
+            }
+            let kind = kinds.value(row);
+            if !matches!(kind, "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED" | "SCHEMA_CHANGE" | "TABLE_DEGRADED")
+                || (matches!(kind, "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED") && identities.is_null(row)) {
+                return Err(PyValueError::new_err("neutral risk kind/identity is invalid"));
+            }
+            let values = columns.value(row);
+            let names = values.as_any().downcast_ref::<StringArray>().ok_or_else(closed_handle)?;
+            let mut seen = std::collections::HashSet::new();
+            for index in 0..names.len() {
+                if names.is_null(index) { return Err(PyValueError::new_err("neutral risk changed column is null")); }
+                let name = names.value(index);
+                let canonical = gateway_shared_kernel::canonicalize_identifier(name)
+                    .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                if canonical != name || !seen.insert(name) { return Err(PyValueError::new_err("neutral risk changed column is invalid")); }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn digest_bytes(value: &str) -> PyResult<[u8; 32]> {
@@ -581,6 +714,13 @@ fn read_stream(
         .map_err(comparison_error)?;
     *total_input_bytes = input_bytes;
     Ok((schema, batches))
+}
+
+#[pyfunction]
+fn _comparison_format_versions_native() -> (&'static str, u32, &'static str) {
+    (gateway_compute_core::comparison::ORDERED_COMPARE_FORMAT,
+     gateway_compute_core::comparison::ORDERED_COMPARE_VERSION,
+     gateway_compute_core::canonical_ipc::CANONICAL_MAPPING_VERSION)
 }
 
 #[pyfunction]
@@ -828,7 +968,7 @@ fn _compare_records_native(
             blank: output.3,
             risk_batches: None,
             cache_facts: None,
-            cache_metadata: None, _cache_metadata_lease: None,
+            cache_metadata: None, cache_created_risk: false, _cache_metadata_lease: None,
             _schema_lease: output.4,
             context,
             active,
@@ -848,13 +988,14 @@ fn _compare_records_native(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn _restore_comparison_table_native(
-    py: Python<'_>, operation: PyRef<'_, ComparisonOperation>, table_name: &str,
+    py: Python<'_>, operation: PyRef<'_, ComparisonOperation>, operation_identity: usize, table_name: &str, kind: &str,
     metadata_json: &str, detail_policy: &str, family_names: Vec<String>,
     facts_streams: Bound<'_, PyList>, artifact_streams: Bound<'_, PyList>,
     risk_stream: PyRecordBatchReader, max_records: usize, max_row_bytes: usize,
     max_input_bytes: usize, owner_charge: Py<PyAny>,
 ) -> PyResult<ComparisonRecordsHandle> {
     match adapter_boundary(|| {
+        operation.require_operation(operation_identity)?;
         if facts_streams.len() != 3 || family_names.len() != artifact_streams.len()
             || family_names.len() > 3 {
             return Err(PyValueError::new_err("cache families/streams mismatch"));
@@ -862,24 +1003,39 @@ fn _restore_comparison_table_native(
         let parent = operation.owner.as_ref().ok_or_else(closed_handle)?.clone();
         let context = Arc::clone(&operation.context);
         let _use = OperationUse::begin(&context, &operation.active)?;
-        let owner = Arc::new(PythonChargeOwner { charge: Mutex::new(Some(owner_charge)), _parent: Some(parent) });
+        let owner = Arc::new(PythonChargeOwner {
+            charge: Mutex::new(Some(owner_charge)),
+            _parent: Some(parent),
+        });
         let external: Arc<dyn Any + Send + Sync> = owner.clone();
         python_adapter_control(&operation.watch, operation.deadline)?;
-        let metadata_lease = context.reserve(json_metadata_upper(metadata_json).map_err(comparison_error)?)
+        let metadata_lease = context
+            .reserve(json_metadata_upper(metadata_json).map_err(comparison_error)?)
             .map_err(|error| comparison_error(error.to_string()))?;
         let metadata: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        if !metadata.is_object() { return Err(PyValueError::new_err("neutral metadata must be an object")); }
+        if !metadata.is_object() {
+            return Err(PyValueError::new_err("neutral metadata must be an object"));
+        }
         let mut input_bytes = 0;
         let mut facts = Vec::new();
         for stream in facts_streams.iter() {
-            let (schema, batches) = read_stream(py, stream.extract()?, &context, &mut input_bytes, max_input_bytes)?;
+            let (schema, batches) = read_stream(
+                py,
+                stream.extract()?,
+                &context,
+                &mut input_bytes,
+                max_input_bytes,
+            )?;
             if schema.as_ref() != facts_schema().as_ref() {
                 return Err(PyValueError::new_err("neutral facts schema mismatch"));
             }
-            let lease = context.reserve(batches.len().saturating_mul(4096))
+            let lease = context
+                .reserve(batches.len().saturating_mul(4096))
                 .map_err(|error| comparison_error(error.to_string()))?;
-            facts.push(charge_arrow_batches(batches, lease, external.clone()).map_err(comparison_error)?);
+            facts.push(
+                charge_arrow_batches(batches, lease, external.clone()).map_err(comparison_error)?,
+            );
         }
         let mut facts_iter = facts.into_iter();
         let neutral = NeutralFacts {
@@ -888,55 +1044,71 @@ fn _restore_comparison_table_native(
             blank: facts_iter.next().ok_or_else(closed_handle)?,
         };
         py.detach(|| neutral.validate(max_records, max_row_bytes, &context)).map_err(comparison_error)?;
+        let counts = [neutral.standard.iter().map(RecordBatch::num_rows).sum(),
+            neutral.ordered.iter().map(RecordBatch::num_rows).sum(), neutral.blank.iter().map(RecordBatch::num_rows).sum()];
+        validate_cache_metadata(kind, &metadata, counts).map_err(PyValueError::new_err)?;
+        let expected_families: &[&str] = if kind == "ordered" { &["STANDARD", "ORDERED", "BLANK"] } else { &["STANDARD"] };
+        if !family_names.iter().map(String::as_str).eq(expected_families.iter().copied()) {
+            return Err(PyValueError::new_err("native cache family closure mismatch"));
+        }
         let (schema, risk) = read_stream(py, risk_stream, &context, &mut input_bytes, max_input_bytes)?;
         if schema.as_ref() != risk_schema().as_ref() || risk.iter().any(|batch| batch.num_rows() > 1024) {
             return Err(PyValueError::new_err("neutral risk schema/batch mismatch"));
         }
+        validate_risk_projection(&risk, &context)?;
         let standard_count: usize = neutral.standard.iter().map(RecordBatch::num_rows).sum();
         if risk.iter().map(RecordBatch::num_rows).sum::<usize>() != standard_count {
             return Err(PyValueError::new_err("neutral risk/facts counts mismatch"));
         }
-        let risk_lease = context.reserve(risk.len().saturating_mul(4096))
+        let risk_lease = context
+            .reserve(risk.len().saturating_mul(4096))
             .map_err(|error| comparison_error(error.to_string()))?;
-        let risk = charge_arrow_batches(risk, risk_lease, external.clone()).map_err(comparison_error)?;
+        let risk =
+            charge_arrow_batches(risk, risk_lease, external.clone()).map_err(comparison_error)?;
         let mut standard = None;
         let mut ordered = None;
         let mut blank = None;
         for (family, stream) in family_names.iter().zip(artifact_streams.iter()) {
-            let (_, batches) = read_stream(py, stream.extract()?, &context, &mut input_bytes, max_input_bytes)?;
+            let (input_schema, batches) = read_stream(py, stream.extract()?, &context, &mut input_bytes, max_input_bytes)?;
             let expected = neutral.family(family).map_err(PyValueError::new_err)?.iter().map(RecordBatch::num_rows).sum::<usize>();
             let restored = py.detach(|| restore_records_batches(
                 family, detail_policy, table_name, batches, max_records, max_row_bytes,
                 &context, external.clone(),
             )).map_err(comparison_error)?;
+            let expected_schema = Schema::new_with_metadata(restored.schema.fields().iter().skip(1).cloned().collect::<Vec<_>>(), restored.schema.metadata().clone());
+            if input_schema.as_ref() != &expected_schema { return Err(PyValueError::new_err("neutral artifact schema mismatch")); }
             if restored.record_count != expected { return Err(PyValueError::new_err("neutral artifact/facts counts mismatch")); }
             let slot = match family.as_str() {
-                "STANDARD" => &mut standard, "ORDERED" => &mut ordered, "BLANK" => &mut blank,
+                "STANDARD" => &mut standard,
+                "ORDERED" => &mut ordered,
+                "BLANK" => &mut blank,
                 _ => return Err(PyValueError::new_err("unknown neutral family")),
             };
-            if slot.is_some() { return Err(PyValueError::new_err("duplicate neutral family")); }
+            if slot.is_some() {
+                return Err(PyValueError::new_err("duplicate neutral family"));
+            }
             *slot = Some(restored);
         }
-        if standard.is_none() || (ordered.is_none() && !neutral.ordered.is_empty())
-            || (blank.is_none() && !neutral.blank.is_empty()) {
+        if standard.is_none()
+            || (ordered.is_none() && !neutral.ordered.is_empty())
+            || (blank.is_none() && !neutral.blank.is_empty())
+        {
             return Err(PyValueError::new_err("missing neutral family"));
-        }
-        if metadata.get("record_count").and_then(serde_json::Value::as_u64)
-            .is_some_and(|count| usize::try_from(count).ok() != Some(standard_count)) {
-            return Err(PyValueError::new_err("neutral metadata count mismatch"));
         }
         python_adapter_control(&operation.watch, operation.deadline)?;
         Ok(ComparisonRecordsHandle {
             result: Some(Arc::new(ComparisonResult::Restored { metadata_json: metadata_json.to_string(), facts: neutral })),
             standard, ordered, blank, risk_batches: Some(risk), cache_facts: None,
-            cache_metadata: None, _cache_metadata_lease: None,
+            cache_metadata: None, cache_created_risk: false, _cache_metadata_lease: None,
             _schema_lease: Some(metadata_lease), context,
             active: Arc::clone(&operation.active), owner: Some(owner), _watch: Arc::clone(&operation.watch),
             operation_identity: operation.operation_identity, phase_timings: (0.0, 0.0, 0.0),
         })
     }) {
         Ok(result) => result,
-        Err(()) => Err(PyRuntimeError::new_err("comparison restore adapter panicked")),
+        Err(()) => Err(PyRuntimeError::new_err(
+            "comparison restore adapter panicked",
+        )),
     }
 }
 
@@ -1085,7 +1257,10 @@ fn _facts_core_digest_native(
                     neutral: None,
                 },
                 Some(ComparisonResult::Restored { facts, .. }) => TableFactsInput {
-                    metadata_json: raw, standard: None, ordered: None, neutral: Some(facts),
+                    metadata_json: raw,
+                    standard: None,
+                    ordered: None,
+                    neutral: Some(facts),
                 },
                 None => TableFactsInput {
                     metadata_json: raw,
@@ -1182,6 +1357,7 @@ fn _validate_records_batches_native(
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ComparisonOperation>()?;
+    module.add_function(wrap_pyfunction!(_comparison_format_versions_native, module)?)?;
     module.add_class::<ComparisonRecordsHandle>()?;
     module.add_function(wrap_pyfunction!(
         _begin_comparison_operation_native,

@@ -22,7 +22,7 @@ mod cache;
 mod facts;
 mod source;
 pub use builders::{BuiltRecords, charge_arrow_batches, restore_records_batches};
-pub use cache::{NeutralFacts, facts_schema, export_facts_family, validate_facts_row};
+pub use cache::{NeutralFacts, facts_schema, export_facts_family, validate_facts_row, validate_cache_metadata};
 pub use facts::{
     TableFactsInput, TableFactsSource, digest_facts_core, digest_facts_core_json,
     digest_table_fact, digest_table_fact_json,

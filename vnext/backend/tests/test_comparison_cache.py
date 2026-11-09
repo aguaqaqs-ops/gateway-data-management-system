@@ -25,6 +25,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.support.comparison_s3_c_inputs import plan
 from tests.support.comparison_s3_e_live import canonical_bound
+from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_frozen import frozen_case
 
 pytestmark = pytest.mark.unit
@@ -43,11 +44,12 @@ _ORDERED = (
 
 def _planned(ordered: bool = False) -> ComparisonPlan:
     source = _ORDERED if ordered else _STANDARD
-    return plan(canonical_bound(source[0]), canonical_bound(source[1]), ordered=ordered)
+    return plan(complete_canonical_bound(canonical_bound(source[0])),
+                complete_canonical_bound(canonical_bound(source[1])), ordered=ordered)
 
 
 def _identity(planned: ComparisonPlan) -> TableTaskIdentity:
-    identity = build_table_task_identity(planned, planned.tasks[0], repository_id="repository", artifact_scope="scope")
+    identity = build_table_task_identity(planned, planned.tasks[0], repository_id="replacement-fixture", artifact_scope="scope")
     assert isinstance(identity, TableTaskIdentity)
     return identity
 
@@ -65,7 +67,7 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     current = task.current_descriptor
     assert current is not None and task.policy is not None
     reference = _identity(planned)
-    repository, scope = "repository", "scope"
+    repository, scope = "replacement-fixture", "scope"
     if change == "direction":
         task = replace(task, before_descriptor=task.current_descriptor, current_descriptor=task.before_descriptor,
                        before_table=task.current_table, current_table=task.before_table)
@@ -88,7 +90,10 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     elif change == "diagnostics":
         planned = replace(planned, diagnostics=("different-diagnostic",))
     elif change == "storage":
-        task = replace(task, policy=replace(task.policy, policy_version="new-storage-policy"))
+        facts = task.policy.storage_facts_current
+        assert facts is not None
+        task = replace(task, policy=replace(task.policy, storage_facts_current=replace(
+            facts, storage_projection_version="another-actual-projection-version")))
     actual = build_table_task_identity(planned, task, repository_id=repository, artifact_scope=scope)
     assert isinstance(actual, NotCacheable) or actual.task_digest != reference.task_digest
 
@@ -166,3 +171,313 @@ def test_cache_restore_rejects_other_scope_before_native_work() -> None:
     finally:
         operation.close()
         payload.close()
+
+
+STORAGE_MUTATIONS = ("missing", "source_schema", "canonical_schema", "content", "projection",
+                     "view", "effective_key", "partial_schema", "partial_projection", "partial_content")
+
+
+@pytest.mark.parametrize("side", ("before", "current"))
+@pytest.mark.parametrize("change", STORAGE_MUTATIONS)
+def test_both_canonical_sides_require_complete_bound_storage_facts(side: str, change: str) -> None:
+    planned = _planned()
+    reference = _identity(planned)
+    task = planned.tasks[0]
+    policy = task.policy
+    assert policy is not None
+    field_name = "storage_facts_" + side
+    facts = getattr(policy, field_name)
+    assert facts is not None
+    if change == "missing":
+        updated = None
+    elif change == "effective_key":
+        policy = replace(policy, **{"effective_key_" + side: ("note",)})
+        updated = facts
+    elif change == "view":
+        from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+        descriptor = getattr(task, side + "_descriptor")
+        assert descriptor is not None
+        view = replace(facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+                       canonical_key_columns=descriptor.primary_key_columns)
+        updated = replace(facts, storage_rule_view=view)
+    else:
+        field, value = {
+            "source_schema": ("source_schema_digest", raw_blob_digest(b"other-source-schema")),
+            "canonical_schema": ("canonical_schema_digest", raw_blob_digest(b"other-canonical-schema")),
+            "content": ("raw_content_digest", raw_blob_digest(b"other-content")),
+            "projection": ("storage_projection_version", "another-valid-projection"),
+            "partial_schema": ("canonical_schema_digest", None),
+            "partial_projection": ("storage_projection_version", None),
+            "partial_content": ("raw_content_digest", None),
+        }[change]
+        updated = replace(facts, **{field: value})
+    task = replace(task, policy=replace(policy, **{field_name: updated}))
+    result = build_table_task_identity(planned, task, repository_id=reference.repository_id, artifact_scope=reference.artifact_scope)
+    assert isinstance(result, NotCacheable) or result.task_digest != reference.task_digest
+
+
+def _encoded(ordered: bool = False) -> tuple[ComparisonPlan, TableTaskIdentity, Any]:
+    planned = _planned(ordered)
+    identity = _identity(planned)
+    context = current_kernel_context()
+    assert context is not None
+    product = compare_plan_native(planned, retain_cache_candidates=True)
+    try:
+        assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+        return planned, identity, ComparisonCacheCodec.encode(product.handles["t"], identity,
+            product.result.facts.tables[0], context)
+    finally:
+        product.close()
+
+
+def _changed_view(payload: Any, name: str, update: Any) -> None:
+    import io
+    import pyarrow as pa
+    views = []
+    for view in payload.views:
+        if view.name != name:
+            views.append(view)
+            continue
+        with pa.ipc.open_stream(pa.BufferReader(view.raw)) as reader:
+            batches = list(reader)
+        batch = batches[0]
+        batches[0] = update(batch)
+        with io.BytesIO() as sink:
+            with pa.ipc.new_stream(sink, view.schema) as writer:
+                for item in batches:
+                    writer.write_batch(item)
+            raw = sink.getvalue()
+        views.append(replace(view, raw=raw, raw_digest=raw_blob_digest(raw)))
+    payload.views = tuple(views)
+
+
+CACHE_FORMAT_FAULTS = ("missing_rows", "missing_count", "count_type", "count_mismatch",
+                       "outcome_count", "empty_schema", "risk_kind", "risk_column", "ordinal")
+
+
+@pytest.mark.parametrize("fault", CACHE_FORMAT_FAULTS)
+def test_neutral_format_faults_are_rejected_before_publication(fault: str) -> None:
+    import pyarrow as pa
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    planned, identity, payload = _encoded(ordered=fault == "empty_schema")
+    context = current_kernel_context()
+    assert context is not None
+    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    retained = context.memory.used_bytes
+    try:
+        if fault == "missing_rows":
+            payload.native_metadata_json = None
+            payload.views = ()
+            payload.families = ()
+        elif fault in {"missing_count", "count_type", "count_mismatch"}:
+            data = json.loads(payload.native_metadata_json)
+            if fault == "missing_count":
+                data.pop("record_count")
+            else:
+                data["record_count"] = "one" if fault == "count_type" else 2
+            payload.native_metadata_json = json.dumps(data)
+        elif fault == "outcome_count":
+            data = json.loads(payload.table_fact_jcs)
+            data["row_modified_count"] += 1
+            payload.table_fact_jcs = canonicalize_json_value(data)
+        elif fault == "empty_schema":
+            target = next(view for view in payload.views if view.name == "artifact/STANDARD")
+            assert target.batch_rows == () and target.raw == b""
+            payload.views = tuple(replace(view, schema=pa.schema([("wrong", pa.string())]))
+                                  if view is target else view for view in payload.views)
+        elif fault in {"risk_kind", "risk_column"}:
+            def change_risk(batch: Any) -> Any:
+                columns = list(batch.columns)
+                if fault == "risk_kind":
+                    columns[0] = pa.array(["ROGUE"], type=pa.string())
+                else:
+                    columns[2] = pa.array([[None]], type=batch.schema.field(2).type)
+                return pa.RecordBatch.from_arrays(columns, schema=batch.schema)
+            _changed_view(payload, "risk/STANDARD", change_risk)
+        else:
+            _changed_view(payload, "facts/STANDARD", lambda batch: pa.RecordBatch.from_arrays(
+                [pa.array([1], type=pa.uint32()), batch.column(1)], schema=batch.schema))
+        with pytest.raises(ValueError):
+            ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert context.memory.used_bytes == retained
+    finally:
+        operation.close()
+        payload.close()
+
+
+def test_zero_standard_family_keeps_its_schema_and_empty_risk_projection() -> None:
+    planned, identity, payload = _encoded(ordered=True)
+    context = current_kernel_context()
+    assert context is not None
+    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    handle = None
+    try:
+        _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert handle is not None and handle.family_summary("STANDARD")[0] == 0
+        with closing(handle.record_batches("STANDARD")) as records, closing(handle.risk_record_batches()) as risk:
+            assert records.schema.field(0).name == "table_name"
+            assert risk.schema.field(0).name == "record_kind"
+            assert list(records) == list(risk) == []
+    finally:
+        if handle is not None:
+            handle.close()
+        operation.close()
+        payload.close()
+
+
+def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> None:
+    import pyarrow as pa
+    source = (
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, flags SET('a','b'), note TEXT);"
+        "INSERT INTO t VALUES (1,'a,b',NULL);",
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, flags SET('a','b'), note TEXT);"
+        "INSERT INTO t VALUES (1,'',NULL);",
+    )
+    planned = plan(*(complete_canonical_bound(canonical_bound(sql)) for sql in source))
+    identity = _identity(planned)
+    context = current_kernel_context()
+    assert context is not None
+    product = compare_plan_native(planned, retain_cache_candidates=True)
+    assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+    fact = product.result.facts.tables[0]
+    payload = ComparisonCacheCodec.encode(product.handles["t"], identity, fact, context)
+    product.close()
+    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    handle = None
+    try:
+        view = next(item for item in payload.views if item.name == "facts/STANDARD")
+        with pa.ipc.open_stream(pa.BufferReader(view.raw)) as reader:
+            row = json.loads(next(iter(reader)).column(1)[0].as_py())
+        assert row["before_values"] == [["flags", "020320016103200162"], ["note", "0000"]]
+        assert row["current_values"] == [["flags", "00"], ["note", "0000"]]
+        restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert handle is not None and fact.table_fact_digest is not None
+        assert handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2) == fact.table_fact_digest.value
+    finally:
+        if handle is not None:
+            handle.close()
+        operation.close()
+        payload.close()
+
+
+@pytest.mark.parametrize("stop", ("foreign", "cancel", "deadline", "budget"))
+def test_restore_uses_only_the_active_operation_budget_and_control(stop: str) -> None:
+    from threading import Event
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+    )
+    planned, identity, payload = _encoded()
+    source_context = current_kernel_context()
+    assert source_context is not None
+    source_operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
+        cancel_probe=source_context.cancel_probe, deadline_monotonic=source_context.deadline_monotonic)
+    source_used = source_context.memory.used_bytes
+    cancel = Event()
+    context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), cancel, 1)
+    try:
+        with kernel_execution_scope(context):
+            operation = source_operation if stop == "foreign" else native.begin_records_operation(
+                native_budget_bytes=64 * 1024**2, cancel_probe=cancel, deadline_monotonic=None)
+            filler = None
+            if stop == "cancel":
+                cancel.set()
+            elif stop == "deadline":
+                context.deadline_monotonic = 0.0
+            elif stop == "budget":
+                filler = context.memory.reserve(context.memory.available_bytes - 1)
+            retained = context.memory.used_bytes
+            try:
+                error = {"foreign": ValueError, "cancel": InterruptedError, "deadline": TimeoutError, "budget": MemoryError}[stop]
+                with pytest.raises(error):
+                    ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+                assert context.memory.used_bytes == retained
+                assert source_context.memory.used_bytes == source_used
+            finally:
+                if filler is not None:
+                    filler.close()
+                if operation is not source_operation:
+                    operation.close()
+            assert context.memory.used_bytes == 0
+    finally:
+        source_operation.close()
+        payload.close()
+
+
+def test_restored_arrow_keeps_its_charge_until_the_last_consumer() -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+    )
+    planned, identity, payload = _encoded()
+    context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), NeverCancel(), 1)
+    try:
+        with kernel_execution_scope(context):
+            operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
+                cancel_probe=context.cancel_probe, deadline_monotonic=None)
+            _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+            assert handle is not None
+            with closing(handle.record_batches("STANDARD")) as reader:
+                retained_table = reader.read_all()
+            operation.seal()
+            handle.close()
+            operation.close()
+            payload.close()
+            assert context.memory.used_bytes > 0
+            del retained_table
+            assert context.memory.used_bytes == 0
+    finally:
+        payload.close()
+
+
+def test_cache_identity_rejects_a_reader_without_canonical_owner_verification() -> None:
+    planned = _planned()
+    task = planned.tasks[0]
+    unverified = canonical_bound(_STANDARD[0])
+    assert unverified.table_set is not None and task.before_table is not None
+    invalid = replace(task, before_table=replace(task.before_table,
+        reader=unverified.table_set.tables[0].reader))
+    result = build_table_task_identity(planned, invalid,
+        repository_id="replacement-fixture", artifact_scope="scope")
+    assert isinstance(result, NotCacheable)
+
+
+def test_optional_cache_row_bound_keeps_the_completed_business_result() -> None:
+    from gateway_backend.capabilities.comparison.production import _InputCharge, _stream
+    from gateway_backend.capabilities.comparison.row_encoding import _schema_view
+    planned = _planned()
+    identity = _identity(planned)
+    task = planned.tasks[0]
+    assert task.before_table is not None and task.current_table is not None and task.policy is not None
+    assert task.before_descriptor is not None and task.current_descriptor is not None
+    context = current_kernel_context()
+    assert context is not None
+    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    before, before_owner = _stream(task.before_table)
+    current, current_owner = _stream(task.current_table)
+    handle = None
+    try:
+        handle = native.compare_records_batches(operation, kind=identity.task_input.native_kind,
+            table_name="t", before=before, current=current, policy_json=identity.task_input.native_policy(),
+            detail_policy=identity.task_input.detail_policy.value,
+            input_owner_charge=_InputCharge((before_owner, current_owner)), max_records=2_000_000,
+            max_sort_bytes=128 * 1024**2, max_output_bytes=128 * 1024**2,
+            max_input_bytes=context.memory.limit_bytes)
+        fact = native.table_fact(task, handle, _schema_view(task.before_descriptor, task.current_descriptor, task.policy))
+        metadata = json.dumps(_table_digest_payload(fact))
+        expected = frozen_case("tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source")["tables"][0]["table_fact_digest"]
+        assert handle.table_fact_digest(metadata, 8 * 1024**2) == expected
+        retained = context.memory.used_bytes
+        with pytest.raises(MemoryError, match="budget exceeded"):
+            handle.prepare_cache_views(1)
+        handle.discard_cache_views()
+        assert context.memory.used_bytes == retained
+        assert handle.table_fact_digest(metadata, 8 * 1024**2) == expected
+    finally:
+        if handle is not None:
+            handle.close()
+        before.close()
+        current.close()
+        operation.close()

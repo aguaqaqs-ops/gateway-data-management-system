@@ -25,7 +25,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 from gateway_backend.capabilities.comparison.task_input import (
     TABLE_CACHE_FORMAT, TableTaskIdentity, semantic_value,
 )
-from gateway_backend.capabilities.table_access.kernel import KernelExecutionContext
+from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 
 MAX_CACHE_MANIFEST_BYTES = 1024 * 1024
 MAX_CACHE_VIEW_BYTES = 1024 * 1024**2
@@ -183,11 +183,19 @@ class ComparisonCacheCodec:
     def encode(handle: native.ComparisonRecordsHandle | None, identity: TableTaskIdentity,
                fact: ComparisonTableFact, context: KernelExecutionContext) -> ComparisonCachePayload:
         context.require_active()
+        if handle is not None:
+            handle.require_operation(id(context.memory))
+        if (identity.task_input.kind == "row-comparison") != (handle is not None):
+            raise ValueError("cache candidate requires the complete native row handle")
         charges = ExitStack()
         try:
             charges.enter_context(context.memory.reserve(MAX_CACHE_MANIFEST_BYTES * 4))
             fact_jcs = _neutral_fact(fact)
-            metadata = None if handle is None else handle.cache_metadata_json()
+            metadata = None
+            if handle is not None:
+                native_data = json.loads(handle.cache_metadata_json())
+                native_data.pop("table_name", None)
+                metadata = canonicalize_json_value(native_data).decode("utf-8")
             if len(fact_jcs) + len((metadata or "").encode()) > MAX_CACHE_MANIFEST_BYTES:
                 raise MemoryError("optional neutral cache manifest is too large")
             families: tuple[str, ...] = ()
@@ -211,6 +219,8 @@ class ComparisonCacheCodec:
                 task: TableComparisonTask, operation: native.ComparisonOperation,
                 context: KernelExecutionContext) -> tuple[ComparisonTableFact, native.ComparisonRecordsHandle | None]:
         context.require_active()
+        operation.require_operation(id(context.memory))
+        context.checkpoint()
         if (payload.format != TABLE_CACHE_FORMAT or not payload.complete
                 or payload.repository_id != identity.repository_id
                 or payload.artifact_scope != identity.artifact_scope
@@ -222,13 +232,26 @@ class ComparisonCacheCodec:
             raise ValueError("neutral cache manifest exceeds bound")
         upper = 4 * (sum(len(view.raw) for view in payload.views) + MAX_CACHE_MANIFEST_BYTES)
         owner = _RestoreOwner(context.memory.reserve(upper), payload)
+        handle: native.ComparisonRecordsHandle | None = None
         try:
             fact = restore_table_fact(payload.table_fact_jcs, task)
+            for name, descriptor in (("row_count_before", task.before_descriptor), ("row_count_current", task.current_descriptor)):
+                if getattr(fact, name) != (None if descriptor is None else descriptor.row_count):
+                    raise ValueError("neutral table count differs from task descriptor")
             if payload.native_metadata_json is None:
-                if payload.views or payload.families:
-                    raise ValueError("metadata-only cache has row views")
+                if (payload.task_kind not in {"ordered-current-summary", "nonrecord-shared-multiset"}
+                        or payload.views or payload.families or fact.row_added_count
+                        or fact.row_deleted_count or fact.row_modified_count):
+                    raise ValueError("row-comparison cache is missing its complete row views")
                 owner.close()
                 return fact, None
+            if payload.task_kind != "row-comparison":
+                raise ValueError("metadata task cannot carry native row views")
+            native_data = json.loads(payload.native_metadata_json)
+            if not isinstance(native_data, dict) or "table_name" in native_data:
+                raise ValueError("neutral native metadata must omit current table binding")
+            if identity.task_input.native_kind == "ordered":
+                native_data["table_name"] = task.table_name
             expected = tuple(f"facts/{family}" for family in FAMILIES) + tuple(
                 f"artifact/{family}" for family in payload.families) + ("risk/STANDARD",)
             if (len(payload.views) > 7 or tuple(view.name for view in payload.views) != expected
@@ -238,12 +261,22 @@ class ComparisonCacheCodec:
             with ExitStack() as streams:
                 readers = {view.name: streams.enter_context(closing(_open_view(view, context))) for view in payload.views}
                 handle = native.restore_table_cache(operation, table_name=task.table_name,
-                    metadata_json=payload.native_metadata_json, detail_policy=payload.detail_policy,
+                    kind=identity.task_input.native_kind,
+                    metadata_json=json.dumps(native_data, separators=(",", ":")), detail_policy=payload.detail_policy,
                     family_names=list(payload.families), facts=[readers[f"facts/{family}"] for family in FAMILIES],
                     artifacts=[readers[f"artifact/{family}"] for family in payload.families],
                     risk=readers["risk/STANDARD"], input_owner_charge=owner,
                     max_records=MAX_CACHE_ROWS, max_row_bytes=MAX_FACT_ROW_BYTES, max_input_bytes=upper)
+            from gateway_backend.capabilities.comparison.row_encoding import _schema_view
+            if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:
+                raise ValueError("row task requires complete current descriptors")
+            expected_fact = native.table_fact(task, handle, _schema_view(task.before_descriptor, task.current_descriptor, task.policy))
+            if _neutral_fact(fact) != _neutral_fact(expected_fact):
+                raise ValueError("neutral table/native metadata outcome mismatch")
+            context.checkpoint()
             return fact, handle
         except BaseException:
+            if handle is not None:
+                handle.close()
             owner.close()
             raise

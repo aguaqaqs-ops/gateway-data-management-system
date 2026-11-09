@@ -228,22 +228,34 @@ pub fn build_records_arrow(
 
 /// Rebind neutral artifact batches without sorting or changing batch boundaries.
 pub fn restore_records_batches(
-    family: &str, detail_policy: &str, table_name: &str, neutral: Vec<RecordBatch>,
-    max_records: usize, max_row_bytes: usize, context: &Arc<KernelContext>,
+    family: &str,
+    detail_policy: &str,
+    table_name: &str,
+    neutral: Vec<RecordBatch>,
+    max_records: usize,
+    max_row_bytes: usize,
+    context: &Arc<KernelContext>,
     external_owner: Arc<dyn std::any::Any + Send + Sync>,
 ) -> Result<BuiltRecords, String> {
     let schema = records_schema(family, detail_policy)?;
     let neutral_schema = Schema::new_with_metadata(
-        schema.fields().iter().skip(1).cloned().collect::<Vec<_>>(), schema.metadata().clone(),
+        schema.fields().iter().skip(1).cloned().collect::<Vec<_>>(),
+        schema.metadata().clone(),
     );
-    let upper = neutral.iter().try_fold(4096usize, |sum, batch| {
-        batch.num_rows().checked_mul(table_name.len().saturating_mul(4).saturating_add(64))
-            .and_then(|size| size.checked_add(schema.fields().len().saturating_mul(1024)))
-            .and_then(|size| sum.checked_add(size))
-    }).ok_or("restored records size overflow")?;
+    let upper = neutral
+        .iter()
+        .try_fold(4096usize, |sum, batch| {
+            batch
+                .num_rows()
+                .checked_mul(table_name.len().saturating_mul(4).saturating_add(64))
+                .and_then(|size| size.checked_add(schema.fields().len().saturating_mul(1024)))
+                .and_then(|size| sum.checked_add(size))
+        })
+        .ok_or("restored records size overflow")?;
     let lease = context.reserve(upper).map_err(|error| error.to_string())?;
     let mut batches = Vec::new();
-    let mut validator = super::RecordsBatchValidator::new(Arc::clone(&schema), max_records, max_row_bytes)?;
+    let mut validator =
+        super::RecordsBatchValidator::new(Arc::clone(&schema), max_records, max_row_bytes)?;
     for batch in neutral {
         context.check().map_err(|error| error.to_string())?;
         if batch.schema().as_ref() != &neutral_schema || batch.num_rows() > 1024 {
@@ -251,17 +263,32 @@ pub fn restore_records_batches(
         }
         let mut columns = Vec::with_capacity(schema.fields().len());
         columns.push(Arc::new(arrow_array::StringArray::from_iter_values(
-            std::iter::repeat_n(table_name, batch.num_rows()))) as arrow_array::ArrayRef);
+            std::iter::repeat_n(table_name, batch.num_rows()),
+        )) as arrow_array::ArrayRef);
         columns.extend(batch.columns().iter().cloned());
-        let bound = RecordBatch::try_new(Arc::clone(&schema), columns).map_err(|error| error.to_string())?;
-        validator.push_checked(&bound, || context.check().map_err(|error| error.to_string()))?;
+        let bound = RecordBatch::try_new(Arc::clone(&schema), columns)
+            .map_err(|error| error.to_string())?;
+        validator.push_checked(&bound, || {
+            context.check().map_err(|error| error.to_string())
+        })?;
         batches.push(bound);
     }
     let summary = validator.finish()?;
-    let charge = Arc::new(OutputCharge { _lease: Mutex::new(lease), _external_owner: Some(external_owner) });
-    let batches = batches.into_iter().map(|batch| charged_batch(batch, &charge)).collect::<Result<Vec<_>, _>>()?;
-    Ok(BuiltRecords { schema, batches, record_count: summary.record_count,
-        content_digest: summary.content_digest, _charge: charge })
+    let charge = Arc::new(OutputCharge {
+        _lease: Mutex::new(lease),
+        _external_owner: Some(external_owner),
+    });
+    let batches = batches
+        .into_iter()
+        .map(|batch| charged_batch(batch, &charge))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(BuiltRecords {
+        schema,
+        batches,
+        record_count: summary.record_count,
+        content_digest: summary.content_digest,
+        _charge: charge,
+    })
 }
 
 fn retained_charge(batches: &[RecordBatch], schema: &Schema) -> Result<usize, String> {

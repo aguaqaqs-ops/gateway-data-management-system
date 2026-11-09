@@ -18,7 +18,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     BlankExtension, BlankSummary, ComparisonFacts, ComparisonMode,
     ComparisonPlan, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
     ComparisonRecord, ComparisonRecordKind, DetailedFactsResult, DatasetReplacementResult,
-    KeylessPolicy, OrderedExtension, OrderedStatus, OrderedSummary, OrderedTableProcessingMode,
+    KeylessPolicy, OrderedExtension, OrderedStatus, OrderedSummary,
     RecordsDetailPolicy,
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
 )
@@ -322,6 +322,9 @@ class ComparisonTaskSession:
                         old[1].close()
                     return None
             self.hits += 1
+            fact, handle = item
+            return replace(fact, table_name=task.table_name,
+                before_descriptor=task.before_descriptor, current_descriptor=task.current_descriptor), handle
         return item
 
 
@@ -507,98 +510,6 @@ def _scan_keyless_degrade_inputs(
 
 
 
-def _optional_digest(value: object) -> DigestRef | None:
-    return None if value is None else DigestRef(str(value))
-
-
-def _ordered_extension(data: dict[str, Any]) -> OrderedExtension:
-    summary = data["summary"]
-    return OrderedExtension(
-        status=OrderedStatus(data["status"]),
-        ordered_summary=OrderedSummary(
-            row_added_count=summary["row_added_count"],
-            row_deleted_count=summary["row_deleted_count"],
-            row_modified_count=summary["row_modified_count"],
-            row_moved_count=summary["row_moved_count"],
-            position_changed_count=summary["position_changed_count"],
-            degraded_count=summary["degraded_count"],
-        ),
-        before_ordered_digest=_optional_digest(data["before_ordered_digest"]),
-        current_ordered_digest=_optional_digest(data["current_ordered_digest"]),
-        replay_guarantee=ReplayGuarantee(data["replay_guarantee"]),
-        table_processing_mode=(None if data["table_processing_mode"] is None else
-            OrderedTableProcessingMode(data["table_processing_mode"])),
-        diagnostics=tuple(data["diagnostics"]),
-        contract_version=data["contract_version"],
-        policy_digest=_optional_digest(data["policy_digest"]),
-    )
-
-
-def _blank_extension(data: dict[str, Any]) -> BlankExtension:
-    summary = data["summary"]
-    return BlankExtension(
-        status=OrderedStatus(data["status"]),
-        blank_summary=BlankSummary(
-            interval_inserted_count=summary["interval_inserted_count"],
-            interval_deleted_count=summary["interval_deleted_count"],
-            blank_changed_count=summary["blank_changed_count"],
-            degraded_count=summary["degraded_count"],
-        ),
-        before_occupancy_digest=_optional_digest(data["before_occupancy_digest"]),
-        current_occupancy_digest=_optional_digest(data["current_occupancy_digest"]),
-        replay_guarantee=ReplayGuarantee(data["replay_guarantee"]),
-        diagnostics=tuple(data["diagnostics"]),
-        contract_version=data["contract_version"],
-    )
-
-
-def _native_fact(task: TableComparisonTask, handle: Any, schema: Any) -> ComparisonTableFact:
-    before = task.before_descriptor
-    current = task.current_descriptor
-    policy = task.policy
-    assert before is not None and current is not None and policy is not None
-    data: dict[str, Any] = json.loads(handle.metadata_json())
-    changes = _schema_changes_from_view(schema, policy)
-    if policy.ordered_policy is not None:
-        return ComparisonTableFact(
-            table_name=task.table_name, status=ComparisonTableStatus(data["status"]),
-            before_descriptor=before, current_descriptor=current,
-            schema_changes=changes, row_count_before=before.row_count,
-            row_count_current=current.row_count,
-            row_added_count=data["row_added_count"], row_deleted_count=data["row_deleted_count"],
-            row_modified_count=data["row_modified_count"],
-            suppressed_added_count=data["suppressed_added_count"],
-            suppressed_deleted_count=data["suppressed_deleted_count"],
-            diagnostics=tuple(data["diagnostics"]), content_changed=data["content_changed"],
-            ordered_extension=_ordered_extension(data["ordered_extension"]),
-            blank_extension=_blank_extension(data["blank_extension"]),
-        )
-    diagnostics = tuple(_schema_diagnostics(schema, policy))
-    count = data["record_count"]
-    changed_rows = bool(data["row_added_count"] or data["row_deleted_count"])
-    is_keyless = not schema.before_key or (
-        policy.allow_keyless_key_transition and not schema.current_key
-    )
-    status = (ComparisonTableStatus.SCHEMA_CHANGED if diagnostics else
-        ComparisonTableStatus.MODIFIED if (count or (is_keyless and changed_rows))
-        else ComparisonTableStatus.UNCHANGED)
-    content_changed = False
-    if (count == 0 and not diagnostics and
-            (not is_keyless or not changed_rows)):
-        content_changed = (data["ignored_shared_content_changed"] if
-            changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else
-            _ignored_values_changed(before, current, policy))
-    return ComparisonTableFact(
-        table_name=task.table_name, status=status,
-        before_descriptor=before, current_descriptor=current,
-        schema_changes=changes, row_count_before=before.row_count,
-        row_count_current=current.row_count,
-        row_added_count=data["row_added_count"], row_deleted_count=data["row_deleted_count"],
-        row_modified_count=data["row_modified_count"],
-        suppressed_added_count=data["suppressed_added_count"],
-        suppressed_deleted_count=data["suppressed_deleted_count"],
-        diagnostics=diagnostics, content_changed=content_changed,
-    )
 
 
 def _compare_task_native(
@@ -651,7 +562,7 @@ def _compare_task_native(
                                  native_budget_bytes=native_budget_bytes,
                                  session=session,
                                  metrics=metrics)
-        return _native_fact(task, handle, schema), handle
+        return native.table_fact(task, handle, schema), handle
     if _can_table_early_exit(before, current, policy):
         return _compare_task_metadata(task), None
     if schema.key_invalid or schema.key_changed or not schema.selected:
@@ -674,7 +585,7 @@ def _compare_task_native(
                              native_budget_bytes=native_budget_bytes,
                              session=session,
                              metrics=metrics)
-    return _native_fact(task, handle, schema), handle
+    return native.table_fact(task, handle, schema), handle
 
 
 def _compare_task_metadata_nonrecord(task: TableComparisonTask, changes: ComparisonSchemaChanges) -> ComparisonTableFact:

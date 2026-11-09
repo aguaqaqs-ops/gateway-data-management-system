@@ -1,6 +1,6 @@
 # S3 W3/W4 诊断与容量补测记录
 
-2026-11-09最新：**新V4b0的W3 MO一预热三测量、W3 FULL单次预热已独核；当前FULL r1自然运行。Owner已确认取消其余18项，随后只聚合实际证据、完成最终H绑定及原E总核收。** 本文把实测、重构及未运行分开；不将准备、失败或未知计为通过。早期各节按其当时事实保留，最新范围见§12，首组原始值见§11。当前源码与门禁见[累计交接](p6-s3-candidate-handoff.md)、[协调§38](p6-s3-coordination.md#38-owner确认最小剩余取证范围2026-11-09)及原E[独审§104–105](p6-s3-e-review.md)。
+2026-11-09最新：**新V4b0的W3 MO一预热三测量、W3 FULL预热及r1已独核；Owner已确认取消其余18项。一次现有证据聚合原exit0，W3 MO实际统计见§13，待原E核收；随后只余最终H绑定及原E总核收。** 本文把实测、重构及未运行分开；不将准备、失败或未知计为通过。早期各节按其当时事实保留，最新范围见§12。源码与门禁见[累计交接](p6-s3-candidate-handoff.md)、[协调§39](p6-s3-coordination.md#39-full-r1及一次现有证据聚合)及原E[独审](p6-s3-e-review.md)。
 
 **Owner最新口径（2026-11-08，DC97）：性能指标是否达标不再作为退出依据，只要求可靠测量。** 本文60／180／600秒等值保留参考，“未达／未知”不改成达标；未达本身不阻塞退出。剩余退出取证关注已确认范围、真实统计／来源与限制、业务／资源安全、独审和最终H绑定，不要求把慢样本优化到目标内。
 
@@ -149,3 +149,30 @@ Owner已直接确认原E静态CLEAR的[最小清单](p6-s3-e-scope-supplement.md
 W3 FULL预热于CT108 00:20:34–01:04:52Z封口，原E `25bf0cdac6` §104核收：node／outer／capture／postflight0、同V4b0／13输入／N1／48−8／M40，实际同一Preview两pair、bundle pair_count2、631可见表／64变更／0失败降级，资源／镜像与最终真实释放合格。原字段可见670.932s／完成670.942s仅为预热观察；worker生命周期物理峰16,851,574,784B，不当作v2独占或两侧同时驻留量。完整SHA及原件见该独审段。
 
 FULL r1已开始、尚无终局。待其自然封口及独核后，执行一次原固定受控聚合：W3 MO的完整组出三测median／range；FULL只有warm和r1则统计UNKNOWN，原始观察单列；W4四组全表输出／容量／性能NOT_RUN／UNKNOWN。`all_groups_complete=false`与聚合过程exit0可以同时存在，不能改表填数或丢慢样本。默认M24原W3基线Submit失败及首次拒绝点未知仍保留；新档结果不证明原档同条件通过。最终H及S3整体E仍待实际绑定和独核。
+
+## 13. 本次已批准范围的受控报告
+
+FULL r1已在原E `e88ece5c98` §106核收单次测量资格PASS；唯一Luna于CT108 01:54:35–01:54:39Z运行一次原已审聚合稿。原node／capture／postflight／outer exit0，固定V4b0 clean／六锁0漂，报告与最终控制收据完成；本节数值只转录节点报告，未在开发机运行统计。原件根、完整report／receipt／outer SHA见[协调§39](p6-s3-coordination.md#39-full-r1及一次现有证据聚合)，report SHA=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。原E正在核收该报告，不以执行者通知代独审。
+
+| 负载／模式 | 实际样本 | 可见观察秒 | 操作完成秒 | 统计限制 |
+| --- | --- | --- | --- | --- |
+| W3 MO | 1warm＋3measurement | median595.870；range595.743–605.877 | median595.879；range595.752–605.887 | 预热599.710／599.720不入统计 |
+| W3 FULL | warm＋r1 | warm670.932；r1 669.540 | warm670.942；r1 669.550 | INCOMPLETE；三样本统计UNKNOWN；r2/r3取消 |
+| W4约10% MO／FULL | 0 | UNKNOWN | UNKNOWN | 全组取消，原始NOT_RUN；全表输出与容量同样未测 |
+| W4 100%压力MO／FULL | 0 | UNKNOWN | UNKNOWN | 全组取消，原始NOT_RUN；无成功压力结论 |
+
+报告`all_groups_complete=false`、`s6_verdict=NOT_ASSESSED`保留；退出按已确认最小范围，不冒原计划六组完成。可见计时为2秒poll的operation terminal observation，不是服务器内部精确READY。W3输入为2×t4派生负载、资源N1/48−8/M40，不是原M24容量证明；数值超过参考目标不构成退出门槛。
+
+报告还保留六次原样本逐pair的实测分段、native计数及预约高水，不生成跨组加总。以下只列MO r1与FULL r1中initial_to_modified的**原字段**，展示已测职责及包含关系，不是各段median：
+
+| 字段 | MO r1秒 | FULL r1第二pair秒 | 包含关系 |
+| --- | --- | --- | --- |
+| comparison total | 309.9643607160542 | 309.98104098206386 | 含read/build与随后facts/records JCS |
+| native records build | 252.80942216799997 | 252.17699095599997 | read/build内部，含native排序及内部产物JCS |
+| 随后records JCS | 41.52512506581843 | 41.61196280200966 | 完整payload由Rust生成；Python只小metadata，不是逐行Python编码 |
+| records publication | 3.062593827024102 | 3.0712150188628584 | 内含Parquet写1.1709966640919447／1.1596696821507066 |
+| Risk total | 113.35153992590494 | 110.59572038683109 | 必要Arrow转换6.523780236253515／6.432785206940025属于rules内部 |
+| surface／table export | 13.457606365904212 | 21.831863838015124 | pair范围；bundle assembly另属整operation |
+| bundle assembly | 109.3270913651213 | 107.38398779486306 | 各operation一次，FULL不是第二pair专有耗时 |
+
+Risk publication内部还含标注JSON生成／验证，不能全称纯I/O；嵌套子段不能重复加总到READY。FULL第一pair也实际执行，两个pair的native calls分别144／182、input reads144／232；MO r1为182／232，cache_hits均0，0命中合法，不据此声称去重提速。两侧同时驻留量未单列；M40预约高水含预留，不当作最小所需RAM；worker物理峰是生命周期峰，不当作v2独占。CPU累计的现有step窗口与清理后即时值限制沿§9，不补未知为0。W2无行比较，不计S3比较收益。

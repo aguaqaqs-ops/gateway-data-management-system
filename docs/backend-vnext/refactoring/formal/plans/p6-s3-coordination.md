@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态见§35–37：A–D GO、Q18独立GO；原M24和后续M40失败均保留。隔离候选V4b0已通过focused、04权威六包来源／容器及05 fresh t1–t4；main最小移植1ecb亦已获独立代码与节点focused核收。新档W3 MO的1预热＋3测量已获原E组资格核收，现推进W3 FULL；其余组、正式聚合及最终H仍待。Owner按DC97确认性能数值是否达标不作退出依据，仍须可靠测量与剩余候选绑定。仍无E整体GO／S3退出，tag/push另办。DC33范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮Owner已授权A→B→C→D→E实施、修复、逐节独审及验收推进。最新状态见§38–39：A–D GO、Q18独立GO；V4b0通过累计代码核收、focused、04六包来源／容器、05 fresh t1–t4、W3 MO一暖三测及FULL warm/r1。Owner直接确认取消18未启动测量，不自动顺延；一次实际证据聚合已原exit0，待同E核收，随后只余最终H实际六闭包／镜像及原E总核收。W4全表NOT_RUN／UNKNOWN，原M24／旧M40失败保留。main最小移植1ecb有独立限定focused，不混S4联合来源。数值目标不作退出门槛（DC97），可靠测量与业务／资源安全仍保留；当前无E整体GO／正式退出，不tag/push。早期各节保留当时事实，当前边界见[累计候选交接](p6-s3-candidate-handoff.md)。
 
 ## 1. 起点与并行边界
 
@@ -562,3 +562,9 @@ r2原node为11-08 22:45:41–23:28:39Z、outer至23:28:44Z；r3原node为11-08 2
 Owner在并行S4会话询问S3能否按业务正确性优先收敛；协调先HOLD未启动项、让当前W3 FULL r1自然运行，再由原E评估缺口，形成`cc60c95d47`／修订`ffa1ee70bb`[具体清单](p6-s3-e-scope-supplement.md)。原E `25bf0cdac6` §104–105核收W3 FULL单次预热原件与同一Preview实际两pair、owner／资源守卫，并静态CLEAR具体清单；两侧同时驻留字节未独测。随后Owner在本S3会话直接回复“确认按最小清单收敛（推荐）”，不是借用S4范围授权。
 
 18个未启动项正式取消：W3 FULL r2/r3；W4约10%与100%压力各MO/FULL四组各warm+r1/r2/r3。它们不自动移到S6，不记成功。已核05 fresh t1–t4、04六包来源／Compose、W3 MO一暖三测不重跑；W3 FULL r1当前仍待自然封口及原E核收。随后只运行一次已审原聚合器，W3 MO给实际统计，FULL单列已有观察，其余NOT_RUN／UNKNOWN及all_groups_complete=false照实保留，再做最终H同04实际闭包／镜像绑定及同E总核收。原M24及旧M40失败、默认32/8/M24与诊断48/8/M40分别保留；未签E GO／正式退出，未tag／push。
+
+## 39. FULL r1及一次现有证据聚合
+
+FULL r1在CT108于01:06:32–01:50:50Z自然封口，node／capture／postflight／outer0、实际release PASS；原E `e88ece5c98` §106独核原件与六成功receipt链PASS。v2可见669.540s／完成669.550s，仅1measurement；同一Preview的两pair及bundle pair_count2、631表／64变更／0失败降级、N1／48−8／M40同worker／三OOM键0／镜像及正常收尾合格。完整控制原SHA见该独审段。
+
+按Owner已确认范围及原E适用CLEAR，唯一Luna在CT108于01:54:35–01:54:39Z运行一次原`aggregate-run.sh`，原node／capture／postflight／outer0、六锁／clean V4b0及真实释放合格。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/aggregate-control/`，outer SHA=`ce7acc9c915c79fbec2053523c3bea57da70b81a7f53c84bf1edb45809122504`、最终receipt=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`、report=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。节点产生的W3 MO统计为可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s；FULL统计UNKNOWN、W4四组NOT_RUN／UNKNOWN、all_groups_complete=false、S6 NOT_ASSESSED全部保留，未在开发机重新计算。聚合原件待原E核收；没有新样本、重跑或强行填齐。最终H未知，原04来源WT／环境／镜像继续保护，具体字面绑定稿准备中。

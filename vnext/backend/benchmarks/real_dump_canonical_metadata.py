@@ -12,7 +12,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
@@ -120,8 +120,11 @@ def _side(raw: Any, store: ArtifactStorePort, repository_id: str) -> _MetadataSi
     names = [item.get("table_name") for item in summary_raw["tables"] if type(item) is dict]
     _require(len(names) == len(summary_raw["tables"]) == len(set(names))
              and set(names) == set(descriptors), "summary descriptor set/uniqueness mismatch")
+    # The equality guard above establishes the exact string-key set. Preserve
+    # its ordering and runtime validation while making that narrowing explicit.
+    ordered_names = cast(list[str], names)
     summary = snapshot_summary_from_document(
-        summary_raw, snapshot=snapshot, tables=tuple(descriptors[name] for name in names))
+        summary_raw, snapshot=snapshot, tables=tuple(descriptors[name] for name in ordered_names))
     facts = p._storage_facts_from_documents(raw.get("storage_facts"))
     fact_names = [f.storage_rule_view.canonical_table for f in facts]
     _require(len(fact_names) == len(set(fact_names)) and set(fact_names) == set(descriptors),

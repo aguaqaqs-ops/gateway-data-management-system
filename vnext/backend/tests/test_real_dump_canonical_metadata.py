@@ -243,7 +243,7 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(fault: str
     current = f.sides[p._SIDE_MODIFIED]
     canonical = f.state["canonical_preview"]
     envelope = None
-    ref_changes = None
+    ref_changes: dict[str, Any] | None = None
     if fault == "checkpoint operation":
         envelope = {"operation_id": "other-op"}
     elif fault == "checkpoint version":
@@ -271,8 +271,8 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(fault: str
         current["tables"][0]["row_file_refs"] = []
     elif fault == "missing current ref":
         entry = current["tables"].pop(0)
-        manifest = manifest_from_bytes(f.store.locate(artifact_ref_from_dict(entry["manifest_ref"])))
-        current["unmaterialized_descriptors"].append(p._snapshot_descriptor_to_document(manifest.descriptor))
+        table_manifest = manifest_from_bytes(f.store.locate(artifact_ref_from_dict(entry["manifest_ref"])))
+        current["unmaterialized_descriptors"].append(p._snapshot_descriptor_to_document(table_manifest.descriptor))
         closure = canonicalize_json_value({"contract_version": p._CANONICAL_TABLE_CLOSURE_CONTRACT,
             "tables": [{"table_name": t["table_name"], "manifest_ref": t["manifest_ref"]}
                        for t in current["tables"]]})
@@ -287,13 +287,15 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(fault: str
     elif fault == "persisted manifest digest":
         f.submission_digest = DigestRef(OTHER_DIGEST)
     elif fault == "missing identity":
-        manifest = canonicalization_manifest_from_bytes(f.store.locate(f.submission_ref))
-        manifest = replace(manifest, tables=(replace(manifest.tables[0], source_schema_digest=None),
-            *manifest.tables[1:]), manifest_digest=None)
-        manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
-        assert manifest.manifest_digest is not None
-        f.submission_digest = manifest.manifest_digest
-        f.submission_ref = f.put(durable_manifest_bytes(manifest), CANONICALIZATION_MANIFEST_MEDIA_TYPE)
+        canonical_manifest = canonicalization_manifest_from_bytes(f.store.locate(f.submission_ref))
+        canonical_manifest = replace(canonical_manifest,
+            tables=(replace(canonical_manifest.tables[0], source_schema_digest=None),
+                    *canonical_manifest.tables[1:]), manifest_digest=None)
+        canonical_manifest = replace(canonical_manifest,
+            manifest_digest=compute_manifest_digest(canonical_manifest))
+        assert canonical_manifest.manifest_digest is not None
+        f.submission_digest = canonical_manifest.manifest_digest
+        f.submission_ref = f.put(durable_manifest_bytes(canonical_manifest), CANONICALIZATION_MANIFEST_MEDIA_TYPE)
     else:
         raise AssertionError(fault)
     with pytest.raises(ValueError, match=message):

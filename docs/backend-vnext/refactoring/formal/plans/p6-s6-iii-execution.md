@@ -215,6 +215,35 @@ shallow stage/install, applicable dedicated static/focused checks and actual
 complete six/current-final-H local containers plus a fully fresh same-H t4
 are required. No carried H5 authority or resumed populated H5 chain.
 
+### H7 limited static failure and forward type-only correction
+
+H7 `f74707a156242883da4655798fd9c55046d4d70e` source stage and independent
+06 LAN installs passed. Its limited verification stopped at backend mypy with
+12 errors: a summary name list was not narrowed after its complete string-key
+set guard; the heterogeneous ref-change test dictionary inferred a DigestRef
+value type; two fault branches reused one variable for different manifest model
+classes. Prior same-run sync/Ruff/native checks passed; repository_service's
+later static steps, all24 planned focused cases and retained-H5 probe were not
+reached. Original limited stdout SHA256
+`35b175ea4353d118b02ab06d9e4efa37ca2ac576cf7e535d28330267f32b5e77`, result
+`7e70afbe3297880f723ba0e289c61b73e38014a822654a3664a0f4d00306ffa7` remain
+exit1 with original idle postflight/marker release0/clean END H7. This is an
+actual mypy failure, not a product/metadata result or an unrun test failure.
+
+The forward correction explicitly casts the already-guarded name list without
+changing its values/order/guard, annotates the test ref override dictionary's
+existing heterogeneous type and gives the two manifest model locals distinct
+names. No assertion, vector, decoder, data, budget or expected result changes.
+The same driver da00fa pin reads the new clean-H helper source bytes through its
+existing source guard; no stale fixed helper bytes are embedded in the driver.
+Current helper SHA256 is
+`0367912c8e82d42118c6d77d5864a54883939275137da9e42da30167f74f2340`;
+unit owner SHA256
+`22b6deeb17d2bb538dcd8c9b4dccc8511bb949ca78951b5a0e89e451e4807337`.
+H7 originals/source/drafts remain; new candidate/source-stage/LAN/static/focused/
+probe receipts must use this forward H. Final actual six/local applicable
+containers and fresh true minimal t4 still require the same final new H.
+
 ## Source, input and dependency admission
 
 1. Freeze all tracked content in final clean main H. Create a clean detached

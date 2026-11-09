@@ -69,9 +69,10 @@ COMMIT_ID = "commit-c1"
 
 
 @pytest.mark.serial
-@pytest.mark.parametrize("endpoint", ("catalog", "rows"))
-def test_http_arrow_passes_current_controls_without_an_outer_retry(endpoint: str) -> None:
+@pytest.mark.parametrize("endpoint", ("catalog", "rows", "parent-catalog"))
+def test_repository_read_adapters_pass_current_controls_without_an_outer_retry(endpoint: str) -> None:
     from gateway_backend.capabilities.table_access import KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope
+    from gateway_backend.infrastructure.repository_read import HttpRepositoryParentCatalogPort
 
     stop = Event()
     requests: list[str] = []
@@ -100,13 +101,16 @@ def test_http_arrow_passes_current_controls_without_an_outer_retry(endpoint: str
             deadline_monotonic=time.monotonic() + 10.0), new_operation=True):
         session = factory(str(REPO_ID), COMMIT_ID).open_ref(RepositoryRef(str(REPO_ID), COMMIT_ID), None)
         with pytest.raises(InterruptedError):
-            if endpoint == "catalog":
+            if endpoint == "parent-catalog":
+                HttpRepositoryParentCatalogPort(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
+                    transport=httpx.MockTransport(handler)).get_table_names(repository_id=str(REPO_ID), commit_id=COMMIT_ID)
+            elif endpoint == "catalog":
                 session.get_catalog()
             else:
                 with session.open_arrow_table_reader("items", max_input_bytes=1024**2, max_rows=10,
                         max_columns=10, max_batches=10):
                     pytest.fail("cancelled read must not return a table")
-        assert len(requests) == (1 if endpoint == "catalog" else 2)
+        assert len(requests) == (2 if endpoint == "rows" else 1)
         assert timeouts and all(response.is_closed for response in responses)
         session.close()
 

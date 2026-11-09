@@ -83,7 +83,8 @@ semantic package签名或防篡改体系。
 
 ## 4. Contract and compatibility
 
-Backend commit reads传入当前operation的通用`cancel_requested`/absolute monotonic `deadline_at`；
+Backend HTTPArrow精确commit/catalog/row及Submit parent catalog adapter传入当前operation的
+通用`cancel_requested`/absolute monotonic `deadline_at`；
 client不依赖Backend。catalog、Arrow open/error-body/read/每chunk及backoff都检查同一控制，
 等待中的attempt/read可取消并关闭本次response/client；恰在取消时完成的open结果也由原owner
 关闭。每请求沿原502/503/transport策略最多3次尝试，退避先释放attempt资源，不叠Backend外层

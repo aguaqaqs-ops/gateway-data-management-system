@@ -142,9 +142,14 @@ The first H3 candidate `f73e0bafa816185a80d8fa965428fb9e260a4baf` is retained
 as HOLD: its unit dynamically loaded the root docs driver outside backend's
 modeled test closure. The forward H4 correction moves the sole helper into the
 existing backend benchmark and deletes that loading/duplicated logic; no closure
-platform change is needed. H2 authority remains historical evidence only.
+platform change is needed. H4's source stage passed, but before node execution
+a redundant placeholder-free test f-string was found by source inspection.
+H5 removes only that prefix, preserving the exact test vector value and all
+guards; no actual Ruff failure or H4 test result is invented. H4 stage is
+retained, and source/check bindings must use the new candidate. H2 authority
+remains historical evidence only.
 Source review/shallow transfer and actual full six/current-final-H local
-containers plus a fresh minimal t4 chain must bind H4. Do not
+containers plus a fresh minimal t4 chain must bind H5. Do not
 reuse the now-populated H2 task as a cold chain, resume with forbidden from-step,
 alter oracle/budget or convert its original failed exit. The source policy and
 all later source/launch steps below apply to the new final candidate.

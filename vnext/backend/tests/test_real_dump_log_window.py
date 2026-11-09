@@ -12,7 +12,7 @@ REPOSITORY = "00000000-0000-0000-0000-000000000001"
 LOGICAL_COMMIT = "commit-c1"
 PATH_PREFIX = f"/v1/repositories/{REPOSITORY}/versioned/commits/Y29tbWl0LWMx"
 INVALID_REQUESTS = (
-    (f'"GET /v1/repositories/00000000-0000-0000-0000-000000000002/versioned/commits/Y29tbWl0LWMx/catalog HTTP/1.1" 200 OK\n', "exact repository/commit"),
+    ('"GET /v1/repositories/00000000-0000-0000-0000-000000000002/versioned/commits/Y29tbWl0LWMx/catalog HTTP/1.1" 200 OK\n', "exact repository/commit"),
     (f'"GET /v1/repositories/{REPOSITORY}/versioned/commits/Y29tbWl0LWMy/rows?table_name=t HTTP/1.1" 200 OK\n', "exact repository/commit"),
     (f'"GET {PATH_PREFIX}/rows?table_name=t HTTP/1.1" 503 Service Unavailable\n', "HTTP successful"),
 )

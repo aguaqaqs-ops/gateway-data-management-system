@@ -903,6 +903,99 @@ print(json.dumps(envelope.job_state))
     return cast(dict[str, object], json.loads(result.stdout.strip()))
 
 
+def _history_checkpoint_readers_script(
+    operation_id: str,
+    *,
+    repository_id: str,
+) -> str:
+    """Give the two diagnostic consumers real rows from their exact checkpoint commits."""
+    return f"""
+operation_id = {operation_id!r}
+repository_id = {repository_id!r}
+gateway_device_external_key = {DEVICE_KEY!r}
+business_project_id = {PROJECT_ID!r}
+""" + """
+import json, os, sqlite3
+from contextlib import closing, contextmanager
+from dataclasses import replace
+from pathlib import Path
+from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.application.history.compare_jobs import _sides_from_materialize_checkpoint
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.manifest_reader import ArtifactBackedCanonicalizationManifestReader
+from gateway_backend.application.canonical_metadata.ports import CommitCanonicalScope
+from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.snapshot_materialization import ensure_committed_tables
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+)
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.infrastructure.repository_read import (
+    build_http_repository_provider_factory, load_repository_bearer_token,
+)
+
+@contextmanager
+def checkpoint_readers():
+    initialize_compute_kernel(1)
+    context = KernelExecutionContext(OperationMemoryBudget(24 * 1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        store = LocalArtifactStore(Path('/var/lib/gateway/artifacts'))
+        manifest_reader = ArtifactBackedCanonicalizationManifestReader(artifact_store=store, artifact_refs=store)
+        def uow_factory():
+            return ControlDbUnitOfWork(Path('/var/lib/gateway/control/control.sqlite3'),
+                canonicalization_manifest_reader=manifest_reader)
+        provider_factory = build_http_repository_provider_factory(
+            base_url=os.environ['GATEWAY_BACKEND_REPOSITORY_BASE_URL'],
+            bearer_token=load_repository_bearer_token(Path(os.environ['GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE'])),
+            timeout_seconds=float(os.environ['GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS']))
+        access = build_committed_table_access(store=store, unit_of_work_factory=uow_factory,
+            repository_provider_factory=provider_factory, repository_id=repository_id)
+        with closing(sqlite3.connect('/var/lib/gateway/control/control.sqlite3')) as conn:
+            row = conn.execute('SELECT checkpoint_ref FROM step_records WHERE step_id=?',
+                (operation_id + '-step-1',)).fetchone()
+        if row is None or row[0] is None:
+            raise RuntimeError('missing History materialize checkpoint')
+        checkpoint = json.loads(row[0].decode('utf-8') if isinstance(row[0], bytes) else row[0])
+        envelope = load_checkpoint_envelope(store, artifact_ref_from_dict(checkpoint))
+        sides = _sides_from_materialize_checkpoint(envelope.job_state, store, repository_id=repository_id)
+        rule_set = comparison_rule_set(migrated_table_ruleset_snapshot())
+        loaded = {}
+        try:
+            for commit, bound in sides.items():
+                if bound.table_set is None:
+                    raise RuntimeError('History checkpoint has no complete table description')
+                with uow_factory() as uow:
+                    metadata = uow.commit_canonical_metadata.resolve(repository_id=repository_id, commit_id=commit,
+                        scope=CommitCanonicalScope(gateway_device_external_key=gateway_device_external_key,
+                            business_project_id=business_project_id))
+                binding = canonical_binding_for_commit(metadata, runtime_ruleset=rule_set.snapshot)
+                # Both diagnostics consume all tables: one publishes the full
+                # surface, the other checks every table's ordered records.
+                tables = ensure_committed_tables(bound.table_set,
+                    repository_ref=RepositoryRef(repository_id=repository_id, ref=commit),
+                    canonical_binding=binding, committed_tables=access,
+                    requested_tables=tuple(table.descriptor.table_name for table in bound.table_set.tables),
+                    context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic))
+                loaded[commit] = replace(bound, table_set=tables)
+            yield store, loaded, rule_set
+        finally:
+            for bound in loaded.values():
+                for table in bound.table_set.tables:
+                    try:
+                        if table.reader is not None:
+                            table.reader.close()
+                    finally:
+                        if table.batch_reader is not None:
+                            table.batch_reader.close()
+"""
+
+
 def local_history_compare_digest_from_materialize_checkpoint(
     env: dict[str, str],
     operation_id: str,
@@ -912,55 +1005,16 @@ def local_history_compare_digest_from_materialize_checkpoint(
     repository_id: str,
 ) -> str:
     """Check integration consistency through the existing comparison owner, not a golden."""
-    materialize_step_id = f"{operation_id}-step-1"
-    script = f"""
-import json, sqlite3
-from pathlib import Path
-from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.compare_jobs import (
-    _run_pair_pipeline,
-    _sides_from_materialize_checkpoint,
-)
-from gateway_backend.artifacts.serialize import artifact_ref_from_dict
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+    script = _history_checkpoint_readers_script(operation_id, repository_id=repository_id) + f"""
+from gateway_backend.application.history.compare_jobs import _run_pair_pipeline
 from gateway_backend.operations.worker import ExecutionControl
-from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
-from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
-)
 
-step_id = "{materialize_step_id}"
-before_commit = "{before_commit}"
-current_commit = "{current_commit}"
-repository_id = {repository_id!r}
-conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
-row = conn.execute(
-    "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
-    (step_id,),
-).fetchone()
-if row is None or row[0] is None:
-    raise RuntimeError(f"missing checkpoint for {{step_id}}")
-checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-initialize_compute_kernel(1)
-with kernel_execution_scope(
-    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
-    new_operation=True,
-):
-    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-    ref = artifact_ref_from_dict(checkpoint)
-    envelope = load_checkpoint_envelope(store, ref)
-    job_state = envelope.job_state
-    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+with checkpoint_readers() as (store, sides, rule_set):
     result = _run_pair_pipeline(
-        pair_id="pair-0",
-        before=sides[before_commit],
-        current=sides[current_commit],
-        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-        store=store,
-        control=ExecutionControl(),
-        on_cancel=lambda: None,
-        repository_id=repository_id,
+        pair_id='pair-0',
+        before=sides[{before_commit!r}], current=sides[{current_commit!r}],
+        rule_set=rule_set, store=store, control=ExecutionControl(),
+        on_cancel=lambda: None, repository_id=repository_id,
     )
     print(result.comparison_digest)
 """
@@ -981,84 +1035,38 @@ def ordered_compare_facts_from_materialize_checkpoint(
     current_commit: str,
     repository_id: str,
 ) -> dict[str, object]:
-    materialize_step_id = f"{operation_id}-step-1"
-    script = f"""
-import json, sqlite3
-from pathlib import Path
-from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.compare_jobs import (
-    _sides_from_materialize_checkpoint,
-)
-from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+    script = _history_checkpoint_readers_script(operation_id, repository_id=repository_id) + f"""
 from gateway_backend.capabilities.comparison import (
-    ComparisonPlan,
-    ComparisonRequest,
-    DetailedFactsResult,
-    plan_comparison,
+    ComparisonPlan, ComparisonRequest, DetailedFactsResult, plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
-from contextlib import closing
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
-from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
-)
 
-step_id = "{materialize_step_id}"
-before_commit = "{before_commit}"
-current_commit = "{current_commit}"
-repository_id = {repository_id!r}
-conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
-row = conn.execute(
-    "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
-    (step_id,),
-).fetchone()
-if row is None or row[0] is None:
-    raise RuntimeError(f"missing checkpoint for {{step_id}}")
-checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-initialize_compute_kernel(1)
-with kernel_execution_scope(
-    KernelExecutionContext(OperationMemoryBudget(24 * 1024**3), NeverCancel(), 1),
-    new_operation=True,
-):
-    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-    ref = artifact_ref_from_dict(checkpoint)
-    envelope = load_checkpoint_envelope(store, ref)
-    job_state = envelope.job_state
-    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+with checkpoint_readers() as (store, sides, rule_set):
     request = ComparisonRequest(
-        pair_id="pair-0",
-        before=sides[before_commit],
-        current=sides[current_commit],
-        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        pair_id='pair-0', before=sides[{before_commit!r}],
+        current=sides[{current_commit!r}], rule_set=rule_set,
     )
     plan = plan_comparison(request)
     if not isinstance(plan, ComparisonPlan):
-        raise RuntimeError("pair planning failed")
+        raise RuntimeError('pair planning failed')
     product = compare_plan_native(plan)
     try:
         if not isinstance(product.result, DetailedFactsResult) or product.result.facts is None:
-            raise RuntimeError("pair comparison did not produce facts")
+            raise RuntimeError('pair comparison did not produce facts')
         tables = []
         for table in product.result.facts.tables:
             ordered_records = []
             handle = product.handles.get(table.table_name)
             if handle is not None and table.ordered_extension is not None:
-                with closing(handle.record_batches("ORDERED")) as reader:
+                with closing(handle.record_batches('ORDERED')) as reader:
                     for batch in reader:
                         ordered_records.extend(
-                            {{"record_kind": record["record_kind"]}}
+                            {{'record_kind': record['record_kind']}}
                             for record in batch.to_pylist()
                         )
-            tables.append(
-                {{
-                    "table_name": table.table_name,
-                    "status": table.status.value,
-                    "ordered_records": ordered_records,
-                }}
-            )
-        print(json.dumps({{"tables": tables}}))
+            tables.append({{'table_name': table.table_name, 'status': table.status.value,
+                            'ordered_records': ordered_records}})
+        print(json.dumps({{'tables': tables}}))
     finally:
         product.close()
 """

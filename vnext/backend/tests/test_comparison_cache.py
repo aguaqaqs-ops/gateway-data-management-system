@@ -12,7 +12,7 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.cache_codec import ComparisonCacheCodec
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonPlan, ComparisonStorageFacts, DetailedFactsResult,
+    ComparisonPlan, ComparisonStorageFacts, DetailedFactsResult, RecordsArtifactFamily,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
@@ -20,7 +20,7 @@ from gateway_backend.capabilities.comparison.task_input import (
     NotCacheable, TableTaskIdentity, build_table_task_identity,
 )
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, _write_arrow_parquet,
+    RecordsPublicationContext, RecordsPublicationPolicy, _schema_for, _write_arrow_parquet,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.support.comparison_s3_c_inputs import plan
@@ -44,8 +44,8 @@ _ORDERED = (
 
 def _planned(ordered: bool = False) -> ComparisonPlan:
     source = _ORDERED if ordered else _STANDARD
-    return plan(complete_canonical_bound(canonical_bound(source[0])),
-                complete_canonical_bound(canonical_bound(source[1])), ordered=ordered)
+    return plan(complete_canonical_bound(canonical_bound(source[0]), ordered=ordered),
+                complete_canonical_bound(canonical_bound(source[1]), ordered=ordered), ordered=ordered)
 
 
 def _identity(planned: ComparisonPlan) -> TableTaskIdentity:
@@ -143,7 +143,8 @@ def test_neutral_round_trip_matches_independent_facts_and_parquet(ordered: bool)
         for family in payload.families:
             with closing(handle.record_batches(family)) as reader:
                 batches = tuple(reader)
-                raw = _write_arrow_parquet(batches, reader.schema,
+                raw = _write_arrow_parquet(batches,
+                    _schema_for(RecordsArtifactFamily(family), None, identity.task_input.detail_policy),
                     RecordsPublicationPolicy(), RecordsPublicationContext())
             if family in frozen_records:
                 assert raw_blob_digest(raw).value == "sha256:" + frozen_records[family]["raw_sha256"]

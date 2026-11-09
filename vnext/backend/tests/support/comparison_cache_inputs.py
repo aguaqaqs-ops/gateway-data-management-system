@@ -13,7 +13,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 
-def complete_canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
+def complete_canonical_bound(source: BoundSnapshotInput, *, ordered: bool = False) -> BoundSnapshotInput:
     assert source.table_set is not None
     tables = publish_canonical_tables(source.table_set.tables,
         snapshot_digest=source.snapshot.snapshot_digest, store=InMemoryArtifactStore(),
@@ -23,7 +23,6 @@ def complete_canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     for table in tables:
         descriptor = table.descriptor
         previous = original.get(descriptor.table_name)
-        ordered = table.ordered_metadata is not None
         view = previous.storage_rule_view if previous is not None else StorageRuleView(
             canonical_table=descriptor.table_name,
             canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY if descriptor.primary_key_columns else CanonicalKeyPolicy.EXPLICIT_KEYLESS,

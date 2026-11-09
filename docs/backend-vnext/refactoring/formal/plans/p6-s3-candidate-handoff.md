@@ -1,6 +1,6 @@
 # S3 累计产品候选与验证交接
 
-**当前恢复状态（2026-11-09）：** Owner后续授权Q18实现、S3剩余验证和DC95限定增预算诊断，随后直接确认§15最小清单。当前V4b0代码、四fresh、权威／Compose、W3 MO一暖三测和FULL warm/r1已独核，一次现有证据聚合原exit0待独核；最终H实际绑定及E总核收仍待。§1–6是原V774/H685历史受阻事实，不能覆盖后续结果，最新见§7–16。原M24失败不撤销，W4全表NOT_RUN／UNKNOWN，不自动顺延取消项。S4另会话独立推进，main移植不混作S3-only证据；无正式退出／tag／push。
+**当前恢复状态（2026-11-09）：** Owner后续授权Q18实现、S3剩余验证和DC95限定增预算诊断，随后直接确认§15最小清单。当前V4b0代码、四fresh、权威／Compose、W3 MO一暖三测和FULL warm/r1已独核，一次现有证据聚合已由原E `40c84bb8be` §107核收；最终H实际绑定及E总核收仍待。§1–6是原V774/H685历史受阻事实，不能覆盖后续结果，最新见§7–16。原M24失败不撤销，W4全表NOT_RUN／UNKNOWN，不自动顺延取消项。S4另会话独立推进，main移植不混作S3-only证据；无正式退出／tag／push。
 
 2026-11-08。Owner已明确选择：**保持阶段边界，保留性能阻塞，完成其余交接**。这不是性能待项豁免；S3 E不签GO、S3不退出，不提前实施S4，不改N1/32-8/M24，不tag/push/发布。
 
@@ -206,6 +206,14 @@ Owner确认性能指标是否达标不再作为退出依据，只要求可靠测
 
 ## 16. 当前已完成测量与最后绑定范围
 
-原E `e88ece5c98` §106核FULL r1 actual0及同一Preview两pair／资源／镜像／实际释放；六成功receipt链完整。CT108 01:54:35–01:54:39Z的一次受控聚合已原exit0，最终receipt SHA=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`，report SHA=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。其W3 MO可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s直接来自节点报告；FULL r1可见669.540s／完成669.550s仅单次观察，组统计UNKNOWN。W4四组NOT_RUN／UNKNOWN、all_groups_complete=false保留。范围、分段包含关系及全部原件索引见[性能§13](p6-s3-performance-report.md#13-本次已批准范围的受控报告)，待原E核聚合原件。
+原E `e88ece5c98` §106核FULL r1 actual0及同一Preview两pair／资源／镜像／实际释放；六成功receipt链完整。CT108 01:54:35–01:54:39Z的一次受控聚合已原exit0，最终receipt SHA=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`，report SHA=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。其W3 MO可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s直接来自节点报告；FULL r1可见669.540s／完成669.550s仅单次观察，组统计UNKNOWN。W4四组NOT_RUN／UNKNOWN、all_groups_complete=false保留。范围、分段包含关系及全部原件索引见[性能§13](p6-s3-performance-report.md#13-本次已批准范围的受控报告)，原E `40c84bb8be` §107已逐SHA独核聚合原件与实际释放PASS。
 
 最终产品仍V4b0（完整SHA及Rust／逐包直接source／真实镜像见§11），默认32/8/M24与诊断48/8/M40分列；不混入main S4产品。最后docs-only H须固定字面SHA、源bundle及执行稿、保持V4b0 vnext tree，在原04同WT实际比较并绑定六包／镜像；不能因only docs便声称carried。H不在本文循环填写自身SHA，最终实际值与原exit／日志／SHA由外置binding收据及原E最后独审节记载。当前仍无H结果及E整体GO。
+
+## 17. 最终H前的交接边界与资源保留
+
+产品范围由§1的A–D限定GO及原E §101累计代码结论承接，E清理、三项最小移植和sort cap接口修复均已闭合普通finding；当前无待修产品finding。源区间为设计起点`5dde965a65`至隔离V4b0，期间并行文档不算S3产品改动；最终V:vnext tree=`5610b7137b97196433cc08797d58165b9880e848`、Rust tree9d4f不含后续S4 B/C/D。§2列唯一生产路径、实际删除与断言移交，§11列当前六包直接原source和镜像，§15–16及性能§13列Owner具体范围／可靠部分测量；没有改冻结golden、产物schema／digest或默认N1/32−8/M24。
+
+Q18已独立GO：产品`94b25a3279`、交接`8cf472a4dd`、原审核`27eab454b7`与末次`964d900d44`，供archive-only从候选同事务取得review_version并填写关闭CAS；不把生成时间初始A缺失异常改成无异常，不宣称FE3b／FE3c已验收。Q18可选live OpenAPI curl缺失仍非PASS。S4收到main最小移植1ecb及各自Rust e2a901 focused来源，后续S4结果由其独立候选核收；S5读取／持久缓存、FE和原基准资源不由本次接管。风险约110s级等热点只作已有事实与后续讨论输入，不在S3擅迁语言边界或追加优化。
+
+05四档完整fresh、CT108六样本及受控聚合均已完成正常收尾并释放本人marker，未保留整机预约。原M24失败归档、旧M40失败现场、所有引用成功／失败原件和真实输入继续保留。04来源WT `/home/dev/gdds-test-tmp/p6-s3-e-final-3a7e088b2a/wt/subject`及其环境／镜像保护至H绑定和正式退出后再按DC51处置；不清理他人资源，不全局prune。尚待的是最终H固定／实际六闭包和镜像绑定、同E累计结论与退出交接候选；正式退出手续、附注tag和push仍另办，当前不宣称已退出／发布。

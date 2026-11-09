@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮Owner已授权A→B→C→D→E实施、修复、逐节独审及验收推进。最新状态见§38–39：A–D GO、Q18独立GO；V4b0通过累计代码核收、focused、04六包来源／容器、05 fresh t1–t4、W3 MO一暖三测及FULL warm/r1。Owner直接确认取消18未启动测量，不自动顺延；一次实际证据聚合已原exit0，待同E核收，随后只余最终H实际六闭包／镜像及原E总核收。W4全表NOT_RUN／UNKNOWN，原M24／旧M40失败保留。main最小移植1ecb有独立限定focused，不混S4联合来源。数值目标不作退出门槛（DC97），可靠测量与业务／资源安全仍保留；当前无E整体GO／正式退出，不tag/push。早期各节保留当时事实，当前边界见[累计候选交接](p6-s3-candidate-handoff.md)。
+2026-11-07起；本轮Owner已授权A→B→C→D→E实施、修复、逐节独审及验收推进。最新状态见§38–39：A–D GO、Q18独立GO；V4b0通过累计代码核收、focused、04六包来源／容器、05 fresh t1–t4、W3 MO一暖三测及FULL warm/r1。Owner直接确认取消18未启动测量，不自动顺延；一次实际证据聚合已原exit0并由同E §107核收，当前只余最终H实际六闭包／镜像及原E总核收。W4全表NOT_RUN／UNKNOWN，原M24／旧M40失败保留。main最小移植1ecb有独立限定focused，不混S4联合来源。数值目标不作退出门槛（DC97），可靠测量与业务／资源安全仍保留；当前无E整体GO／正式退出，不tag/push。早期各节保留当时事实，当前边界见[累计候选交接](p6-s3-candidate-handoff.md)。
 
 ## 1. 起点与并行边界
 
@@ -567,4 +567,4 @@ Owner在并行S4会话询问S3能否按业务正确性优先收敛；协调先HO
 
 FULL r1在CT108于01:06:32–01:50:50Z自然封口，node／capture／postflight／outer0、实际release PASS；原E `e88ece5c98` §106独核原件与六成功receipt链PASS。v2可见669.540s／完成669.550s，仅1measurement；同一Preview的两pair及bundle pair_count2、631表／64变更／0失败降级、N1／48−8／M40同worker／三OOM键0／镜像及正常收尾合格。完整控制原SHA见该独审段。
 
-按Owner已确认范围及原E适用CLEAR，唯一Luna在CT108于01:54:35–01:54:39Z运行一次原`aggregate-run.sh`，原node／capture／postflight／outer0、六锁／clean V4b0及真实释放合格。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/aggregate-control/`，outer SHA=`ce7acc9c915c79fbec2053523c3bea57da70b81a7f53c84bf1edb45809122504`、最终receipt=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`、report=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。节点产生的W3 MO统计为可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s；FULL统计UNKNOWN、W4四组NOT_RUN／UNKNOWN、all_groups_complete=false、S6 NOT_ASSESSED全部保留，未在开发机重新计算。聚合原件待原E核收；没有新样本、重跑或强行填齐。最终H未知，原04来源WT／环境／镜像继续保护，具体字面绑定稿准备中。
+按Owner已确认范围及原E适用CLEAR，唯一Luna在CT108于01:54:35–01:54:39Z运行一次原`aggregate-run.sh`，原node／capture／postflight／outer0、六锁／clean V4b0及真实释放合格。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/aggregate-control/`，outer SHA=`ce7acc9c915c79fbec2053523c3bea57da70b81a7f53c84bf1edb45809122504`、最终receipt=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`、report=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。节点产生的W3 MO统计为可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s；FULL统计UNKNOWN、W4四组NOT_RUN／UNKNOWN、all_groups_complete=false、S6 NOT_ASSESSED全部保留，未在开发机重新计算。聚合原件已由原E `40c84bb8be` §107逐SHA独核PASS；没有新样本、重跑或强行填齐。最终H未知，原04来源WT／环境／镜像继续保护，具体字面绑定稿准备中。

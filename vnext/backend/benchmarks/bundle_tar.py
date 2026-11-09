@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tarfile
 import tempfile
 import time
@@ -112,9 +113,11 @@ def verify_bundle_tar(source: BinaryIO, *, total_bytes: int) -> tuple[dict[str, 
 
 def download_bundle_tar(
     client: httpx.Client, url: str, *, headers: Mapping[str, str] | None = None,
+    destination: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     started = time.monotonic()
     actual = 0
+    raw_digest = hashlib.sha256()
     with tempfile.TemporaryFile("w+b") as source:
         with client.stream("GET", url, headers=headers) as response:
             if response.status_code != 200:
@@ -128,6 +131,7 @@ def download_bundle_tar(
             etag = response.headers.get("etag")
             for chunk in response.iter_bytes(chunk_size=64 * 1024):
                 source.write(chunk)
+                raw_digest.update(chunk)
                 actual += len(chunk)
             finished = time.monotonic()
         if actual != expected or actual < 2048:
@@ -135,6 +139,14 @@ def download_bundle_tar(
         manifest, metrics = verify_bundle_tar(source, total_bytes=actual)
         if etag != f'"{manifest["bundle_digest"]}"':
             raise BundleIntegrityError("bundle ETag disagrees with the published digest")
+        if destination is not None:
+            source.seek(0)
+            with destination.open("xb") as target:
+                shutil.copyfileobj(source, target, length=64 * 1024)
+        metrics["raw_tar_sha256"] = raw_digest.hexdigest()
+        metrics["content_length"] = expected
+        metrics["etag"] = etag
+        metrics["saved_tar_path"] = None if destination is None else str(destination)
         metrics["get_to_complete_read_seconds"] = round(finished - started, 3)
         metrics["timing_policy"] = "report_only; GET start through complete response read"
         return manifest, metrics

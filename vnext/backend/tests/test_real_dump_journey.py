@@ -1178,14 +1178,23 @@ def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fau
                "ETag": '"wrong"' if fault == "etag" else prepared.etag}
     with httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=raw, headers=headers)),
                       base_url="http://bundle.test") as client:
+        saved = tmp_path / "complete.tar"
         if fault != "none":
             with pytest.raises(BundleIntegrityError):
-                download_bundle_tar(client, "/bundle")
+                download_bundle_tar(client, "/bundle", destination=saved)
+            assert not saved.exists()
         else:
-            manifest, metrics = download_bundle_tar(client, "/bundle")
+            manifest, metrics = download_bundle_tar(client, "/bundle", destination=saved)
             assert manifest["bundle_digest"] == prepared.bundle_digest
             assert metrics["actual_bytes"] == len(raw)
             assert metrics["ordinary_member_count"] == len(manifest["closure_entries"]) + 2
+            assert saved.read_bytes() == raw
+            assert metrics["raw_tar_sha256"] == hashlib.sha256(raw).hexdigest()
+            assert metrics["content_length"] == len(raw)
+            assert metrics["etag"] == prepared.etag
+            with pytest.raises(FileExistsError):
+                download_bundle_tar(client, "/bundle", destination=saved)
+            assert saved.read_bytes() == raw
 
 
 def test_preview_completion_clock_is_frozen_before_complete_bundle_download(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,0 +1,65 @@
+{
+  "captures_sha256": {
+    "rd-t4-d-v1": "f6b510c924170dd997f7a09942451904b5e5af41706a14d82ae0e7c0b43d8f57",
+    "rd-t4-d-v2": "d8c7358888182b286dae047fbbbac4803f6414e395ea0c1ba40c226da190e117"
+  },
+  "datasets": {
+    "rd-t4-d-v1": {
+      "catalog_schema_sha256": "sha256:26677e772c8ad022c4b570fdaf566c78073041be73e9cda42f13398bce1c37b0",
+      "catalog_table_count": 312,
+      "schema_version": "s4-repository-identity/v1",
+      "selected_tables": {
+        "app_cfg": {
+          "row_count": 24,
+          "row_digest": "sha256:1ac38b4634a80eb8f1d42d13ce197a507781317869f554a1a8418d1d71427149"
+        },
+        "b1_n11_iec104_dyk_list": {
+          "row_count": 0,
+          "row_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "b1_n11_iec104_syx_list": {
+          "row_count": 9822,
+          "row_digest": "sha256:417655e992b49f074eff137a915bac7e62de4417a58b854644935abf8bfc48ef"
+        },
+        "cnt_manage_cfg": {
+          "row_count": 0,
+          "row_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "composite_signal_point": {
+          "row_count": 435,
+          "row_digest": "sha256:4b4bb429b95042557ee50b5ad4263ca63164232652d38cf00763454d13848370"
+        }
+      }
+    },
+    "rd-t4-d-v2": {
+      "catalog_schema_sha256": "sha256:59b804f6680942c3abb83a9d9e8b5957403dd6a833256533f6f53de1def75f31",
+      "catalog_table_count": 312,
+      "schema_version": "s4-repository-identity/v1",
+      "selected_tables": {
+        "app_cfg": {
+          "row_count": 24,
+          "row_digest": "sha256:1ac38b4634a80eb8f1d42d13ce197a507781317869f554a1a8418d1d71427149"
+        },
+        "b1_n11_iec104_dyk_list": {
+          "row_count": 0,
+          "row_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "b1_n11_iec104_syx_list": {
+          "row_count": 9828,
+          "row_digest": "sha256:88c4d636b4a65fbd3ff9292b8e429a8117231359e47a31153b5bf219b536ed8a"
+        },
+        "cnt_manage_cfg": {
+          "row_count": 0,
+          "row_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "composite_signal_point": {
+          "row_count": 435,
+          "row_digest": "sha256:4b4bb429b95042557ee50b5ad4263ca63164232652d38cf00763454d13848370"
+        }
+      }
+    }
+  },
+  "profile": "t4",
+  "schema_version": "s4-independent-repository-expectations/v1",
+  "source_commit": "788ed36e7742a067bf01c16ad2e6aaed2fed91fb"
+}

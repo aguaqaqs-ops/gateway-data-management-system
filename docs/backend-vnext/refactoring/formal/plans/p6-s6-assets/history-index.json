@@ -1,0 +1,65 @@
+{
+  "bundles": [
+    {
+      "actual_bytes": 2834432,
+      "input": "standard t1 v1/v2",
+      "mode": "MODIFIED_ONLY",
+      "node": "ct108-gw-dms-04",
+      "original_integrity": "S5 E accepted; cold original overall exit1 retained, saved tar subsequently independently accepted",
+      "original_integrity_owner": "p6-s5-handoff.md sections standard t1 / cold recheck / warm r3",
+      "pair_count": 1,
+      "path": "bundle-00/complete.tar",
+      "role": "v1-preview",
+      "source_commit": "2d8b29d332ceb467ba77bb4826fb0925653ebb4e",
+      "source_path": "/home/dev/gdds-s5-logs/execution/e-t1-run/2d8b29d332ceb467ba77bb4826fb0925653ebb4e-7665a6ef4fbc-pf3/remote-evidence/journey/bundle-00",
+      "tar_sha256": "9f4615c083a2f7a618cc813055e2fc4b227b7d031d0bd759506f1c3d3c634fd4",
+      "transfer_path": "bundle-00/transfer.json"
+    },
+    {
+      "actual_bytes": 2095616,
+      "input": "standard t1 v1/v2",
+      "mode": "MODIFIED_ONLY",
+      "node": "ct108-gw-dms-04",
+      "original_integrity": "S5 E accepted; cold original overall exit1 retained, saved tar subsequently independently accepted",
+      "original_integrity_owner": "p6-s5-handoff.md sections standard t1 / cold recheck / warm r3",
+      "pair_count": 1,
+      "path": "bundle-01/complete.tar",
+      "role": "v2-preview",
+      "source_commit": "2d8b29d332ceb467ba77bb4826fb0925653ebb4e",
+      "source_path": "/home/dev/gdds-s5-logs/execution/e-t1-run/2d8b29d332ceb467ba77bb4826fb0925653ebb4e-7665a6ef4fbc-pf3/remote-evidence/journey/bundle-01",
+      "tar_sha256": "cc929ff2d5c9f3dc5b1e244dbf97dbf283da58003a4f9a3f33959de48f2bcd0a",
+      "transfer_path": "bundle-01/transfer.json"
+    },
+    {
+      "actual_bytes": 2153472,
+      "input": "standard t1 v1/v2",
+      "mode": "MODIFIED_ONLY",
+      "node": "ct108-gw-dms-04",
+      "original_integrity": "S5 E accepted; cold original overall exit1 retained, saved tar subsequently independently accepted",
+      "original_integrity_owner": "p6-s5-handoff.md sections standard t1 / cold recheck / warm r3",
+      "pair_count": 1,
+      "path": "bundle-02/complete.tar",
+      "role": "cold-history",
+      "source_commit": "2d8b29d332ceb467ba77bb4826fb0925653ebb4e",
+      "source_path": "/home/dev/gdds-s5-logs/execution/e-t1-run/2d8b29d332ceb467ba77bb4826fb0925653ebb4e-7665a6ef4fbc-pf3/remote-evidence/journey/bundle-02",
+      "tar_sha256": "93da19c776c8840338ab2f89b8450a4c7572bda742d55ea06fd52fc066b769b7",
+      "transfer_path": "bundle-02/transfer.json"
+    },
+    {
+      "actual_bytes": 2153472,
+      "input": "standard t1 v1/v2",
+      "mode": "MODIFIED_ONLY",
+      "node": "ct108-gw-dms-04",
+      "original_integrity": "S5 E accepted; cold original overall exit1 retained, saved tar subsequently independently accepted",
+      "original_integrity_owner": "p6-s5-handoff.md sections standard t1 / cold recheck / warm r3",
+      "pair_count": 1,
+      "path": "bundle-03/complete.tar",
+      "role": "warm-history",
+      "source_commit": "2d8b29d332ceb467ba77bb4826fb0925653ebb4e",
+      "source_path": "/home/dev/gdds-s5-logs/execution/e-t1-warm-continuation/2d8b29d332ceb467ba77bb4826fb0925653ebb4e-e4b4dac49cc1-warm-continuation-r3/remote-evidence/warm/bundle-03",
+      "tar_sha256": "d2c5940e157e2ef31a02b36a6c7fb9bf9c0ffbe0b1874fbf9faaaef26013f7e6",
+      "transfer_path": "bundle-03/transfer.json"
+    }
+  ],
+  "source": "S5 saved complete tars; copies only, no new GET"
+}

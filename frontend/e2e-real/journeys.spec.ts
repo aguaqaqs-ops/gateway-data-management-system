@@ -1411,6 +1411,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
 
   try {
     // Steps 1–3: A archived with accept → revoke → re-accept in the UI.
+    await gotoWorkbenchFresh(s1Session.page);
     const runA = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "modified_only") });
     const submitA = await submitViaUi(s1Session.page, s1, runA.workspaceId);
     await approveByReviewer(reviewer, submitA.submissionId);
@@ -1654,6 +1655,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
 
   try {
     // Step 1: A submitted, approved, archived.
+    await gotoWorkbenchFresh(s1Session.page);
     const runA = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "modified_only") });
     const submitA = await submitViaUi(s1Session.page, s1, runA.workspaceId);
     await approveByReviewer(reviewer, submitA.submissionId);

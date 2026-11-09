@@ -1552,8 +1552,10 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await expect(dialogB2.getByRole("button", { name: "确认归档" })).toBeDisabled();
     await dialogB2.getByRole("button", { name: "关闭对话框" }).click();
 
-    // Step 9: revoke MODIFIED in a second context; the first context's start
-    // is rejected and the re-preview shows the revoked item.
+    // Step 9: accept the remaining items, then revoke MODIFIED in a second
+    // context; the first context's start is rejected and the re-preview
+    // shows the revoked item.
+    await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 接受其余两项");
     const planB2 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
     const modifiedItem = planB2.anomalies.find((anomaly) => anomaly.side === "MODIFIED");
     expect(modifiedItem, "j1-step9 modified item accepted").toBeTruthy();
@@ -1733,7 +1735,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitE.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitE.submissionId}`,
-      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId},${submitC.submissionId},${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${[submitB.submissionId, submitC.submissionId, submitE.submissionId].sort().join(",")}`,
       `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitC.submissionId}`,
       `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitE.submissionId}`,
     ], "j2-step3");
@@ -1785,7 +1787,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitB.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitE.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitE.submissionId}`,
-      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId},${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${[submitB.submissionId, submitE.submissionId].sort().join(",")}`,
       `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitE.submissionId}`,
     ], "j2-step5");
     expect(plan5.anomalies.every((anomaly) => anomaly.resolution_status === "UNRESOLVED"), "j2-step5 all unprocessed").toBe(true);

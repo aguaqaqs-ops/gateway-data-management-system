@@ -1375,6 +1375,7 @@ def _replace_comparison_cache_with_bad_neutral_payload(cache: Any, store: Any, h
 def test_history_failed_export_closes_both_new_canonical_consumers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from gateway_backend.capabilities.snapshot_materialization import ensure_committed_tables
     from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 
     harness = build_history_compare_harness(tmp_path)
@@ -1382,7 +1383,7 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     sides = compare_jobs._materialize_distinct_commits(payload, harness.deps)
     rules = compare_jobs._assert_runtime_ruleset(payload)
     captured: list[SnapshotTableSet] = []
-    original = compare_jobs.ensure_committed_tables
+    original = ensure_committed_tables
     def ensure(table_set: SnapshotTableSet, **kwargs: Any) -> SnapshotTableSet:
         result = original(table_set, **kwargs)
         captured.append(result)

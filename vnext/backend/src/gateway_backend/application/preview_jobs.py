@@ -1887,15 +1887,15 @@ def surface_artifact_closure(
                 raise PreviewJobError("complete table bundle is missing a canonical table set")
             for snapshot_table in bound.table_set.tables:
                 table_name = snapshot_table.descriptor.table_name
-                ref = (None if table_exports is None else
+                export_ref = (None if table_exports is None else
                     table_exports.get(bound.snapshot.snapshot_id, {}).get(table_name))
-                if ref is None:
-                    ref = export_snapshot_table_parquet(snapshot_table, store=store,
+                if export_ref is None:
+                    export_ref = export_snapshot_table_parquet(snapshot_table, store=store,
                         repository_id=repository_id, export_cache=export_cache)
-                for index, ref in enumerate((ref,)):
+                for export_index, required_export_ref in enumerate((export_ref,)):
                     add(
-                        ref,
-                        f"{prefix}/tables/{side}/{table_name}/rows/{index:06d}.parquet",
+                        required_export_ref,
+                        f"{prefix}/tables/{side}/{table_name}/rows/{export_index:06d}.parquet",
                         BundleArtifactKind.SNAPSHOT_TABLE,
                         table_name=table_name,
                     )

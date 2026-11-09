@@ -6,7 +6,7 @@ from dataclasses import replace
 from threading import Event
 
 import pytest
-from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel import SignedIntegerScalar, raw_blob_digest
 
 from gateway_backend.capabilities.snapshot_materialization import (
     describe_repository_ref,
@@ -58,7 +58,7 @@ def test_complete_description_opens_no_rows_then_ensure_opens_only_the_merged_de
     assert supplied.snapshot_digest == result.table_set.snapshot_digest
     assert supplied.tables[0] is result.table_set.tables[0]
     assert supplied.tables[1].reader is not None
-    assert tuple(supplied.tables[1].reader.iter_rows()) == ((2,), (3,))
+    assert tuple(supplied.tables[1].reader.iter_rows()) == ((SignedIntegerScalar("2"),), (SignedIntegerScalar("3"),))
     assert [reader.catalog_table().table_name for session in provider.sessions for reader in session.table_readers] == ["z"]
     again = ensure_committed_tables(supplied, repository_ref=request.repository_ref,
         canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
@@ -115,7 +115,7 @@ def test_ensure_failed_return_closes_new_borrows_and_preserves_existing_reader(
     stop.clear()
     assert set(active.memory._mappings) == existing_mappings
     assert first.tables[0].reader is not None and first.tables[0].batch_reader is not None
-    assert tuple(first.tables[0].reader.iter_rows()) == ((1,),)
+    assert tuple(first.tables[0].reader.iter_rows()) == ((SignedIntegerScalar("1"),),)
     assert sum(batch.num_rows for batch in first.tables[0].batch_reader.iter_record_batches()) == 1
     first.tables[0].reader.close()
     first.tables[0].batch_reader.close()

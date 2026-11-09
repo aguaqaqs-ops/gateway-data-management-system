@@ -556,11 +556,11 @@ def _surface_table_artifacts(
         if bound.table_set is None:
             raise PairPipelineError("surface bundle requires canonical table artifacts")
         if table_exports is not None:
-            artifacts = dict(table_exports.get(bound.snapshot.snapshot_id, {}))
+            validated_artifacts = dict(table_exports.get(bound.snapshot.snapshot_id, {}))
             expected = {table.descriptor.table_name for table in bound.table_set.tables}
-            if set(artifacts) != expected:
+            if set(validated_artifacts) != expected:
                 raise PairPipelineError("prevalidated table exports do not cover the complete snapshot")
-            return artifacts
+            return validated_artifacts
         artifacts: dict[str, ArtifactRef] = {}
         for table in bound.table_set.tables:
             artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=store,

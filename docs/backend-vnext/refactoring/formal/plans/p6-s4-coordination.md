@@ -148,3 +148,15 @@ Owner在本轮直接确认采用[DC97](p6-s0-owner-decisions.md#dc97-性能可�
 实际调度按[执行稿](p6-s4-e-execution.md)整组分配：05为4官方FULL与W3 MO/W4 FULL/100% MO共16旅程；04为W3 FULL/W4 MO/100% FULL共12旅程，各正式组1warm+3测量，不跨节点混样本、不比较跨宿主模式提速。48GiB envelope/8GiB reserve/M40/N1均固定，不改生产默认。04队列已启动W3 FULL warm；05首次入口00:35:47Z被FE在00:35:43Z先取得的有效标记正确拒绝，未进样本。占用拒绝outer SHA `b7da0f58100dfd459b056bae2b203a7a0a6f42b5b7bbe33467b1922dd684ba8e`保留，不计DC68或成功样本；仅换独立CONTROL的新外层SHA `fd15d7092a1a97333a806a7385ab67fce0fe06afa4d59fb0e11720f15bc253ca`已原审CLEAR，待05实时空闲后执行一次，不动FE资源。原四包carried来源WT/env/镜像始终保留，当前仍无S4 exit。
 
 Owner随后明确的低频事件监视、五节点无功能分工已落入 `0551f4a94e` 并获原审文档CLEAR。测试者等待异常/完成唤醒，稳定长测可小时级只读巡视；协调者不重复轮询或转述分钟进度。五节点均只按实时空闲与既有准入选取，本次04/05分组不是未来用途绑定。只有实际资源冲突/同路径写入/他人资源才协调，未缩减任何核收条件。
+
+## 17. DC98收敛与04失败定向诊断（2026-11-09）
+
+**当前执行范围覆盖上节历史调度。**Owner已明确缩减验证，以业务正确性为主，见[业务验证清单](p6-s4-business-validation-scope.md)。`75a0e2a867`固定DC98，原E核收S4范围文案CLEAR；旧28旅程、04/05的12/16队列及after-FE恢复稿全部撤回，不再派执行。剩余为关闭当前Repository差异、一组真实t4 v1/v2的首次/增量生产Submit及必要合法前置、最终来源绑定和原E核收，不跑History/重复性能/合成压力。`94200deb30`澄清DC33与DC50的历史范围，`c72b87e4a1`补具名大表并行优化只参考现有真实样本、真实规模接入后按分布决定，均获原E文档CLEAR；不改小型正确性向量、表名业务规则、N1或预算，不自动转S6/P7任务。
+
+04首个W3 FULL warm于00:35:50–01:15:30Z运行，journey本身0、外层独立Repository核对1，**不是合格预热或成功统计样本**。原项目`s4-w3-full-warm-6786b28a35`的三个容器停止、卷及本人HELD标记保留；05在有效他人占用处拒绝，未产生样本。04原件位于`/home/dev/gdds-test-tmp/p6-s4-e-04-6786-real-node/samples/01-w3-full-warm`及原plan的`samples-control/captured/`；result SHA `4cb46452aa8fcbcd828f70b3d3e6fd224fec54720b3faf3a0af114530486fe79`，manifest `65a1e5395ec89e5d891e6b90d685386955afe032b80ae872a3f45ca2fca20bd4`，queue outer `fc64e0b8eae246aa182d9dcfa804bd03e33b2eccbea2caa7bfbf438e645a3ef9`。原时长仍保留，不将失败混入成功统计。
+
+原E已确认两项过强工具假设不作为业务finding：同源码第二次正常build不保证与prebuild本机ID相等（DC34），运行容器须绑定实际build来源与当前镜像；worker INFO默认stderr，而旧采集只解析stdout，原日志实际存在。RS退出143如实记录；私有诊断容器同样143且原日志含完整Uvicorn正常shutdown，不能据143或停机前采集不到shutdown直接判数据损坏，也不改产品以强凑0。
+
+针对原Repository失败，只克隆停止的RS卷到私有副本，以相同已验证镜像、loopback 18080/8GiB/4CPU做exact-commit只读诊断，无Preview/Submit/History。r0因token权限失败，r1因uv-consume拒绝外部script失败，原件分别保留；r2改固定reader经stdin传入，于01:59:12–02:01:41Z实际entry/capture/outer全0。原卷before/copy/after指纹均为`600e0321504919bbb7e2a941e9e35f90b60cf58b97ad3fab804d1d67caac5e6a`，100,622,533B/18 files，原marker/容器未动，私有容器已停止、无OOM。原件`/home/dev/gdds-test-tmp/p6-s4-e-04-6786-real-plan/private-repo-diagnostic-r2-control/captured/`，outer SHA `a34fde734d730f2339ab7f7903efd874bc0143c2f1be07e21d0a19fc25463ff9`，result `73d816ceedb2c50907f4b9b8bf911c78ca287cf04630db3879a2162232358962`，actual `38abd1c8e271035e1a75bca60f257bf98d3f8ec21a1fe83a36080c8c2bb97868`，manifest `54582128c3ef9910bb72e30f6ba3c74f063567ff5e55175901c87df921daa91f`。
+
+**诊断过程完成，业务差异尚未关闭。**exact v1 `1mt1esgnm6lldejke8hbe47r4p0bome8`与v2 `h44k3alqnj79fid3iob3b9am3fquin4g`的631表完整schema/count摘要均与固定旧B预期一致；五个代表表的row_count和其余四表typed multiset摘要均一致，唯keyless `app_cfg__x2`的24行两版均有同一差异：actual `sha256:36a3ac30031fcd987f448ebd25a6846998686a56ecf1e19395f2e500d7bb06b1`，旧B expected `sha256:52ad359c677d92bd131518221c945758f99537542cf08e6aa10ae3db41035ec6`。下一步仅24行逐列typed值/重复行重数对照，双侧各自强核上述旧digest，依据具体差异归因，不删断言、不用当前输出反填预期。当前仍无E GO或S4 exit tag；原04 authority/carried WT、环境和镜像持续保护。

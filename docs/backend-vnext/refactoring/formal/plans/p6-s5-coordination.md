@@ -144,3 +144,29 @@ C 未改 Rust/依赖/部署/container-only 边界，没有 qualified runner、Co
 t1 结论；容器仍集中 E 最终候选，M24、统一池和已确认最小 t1 范围不变。固定本交接后让
 C 三角色退出活动分工，再为 D 新建实施、独审、唯一测试角色。D 接 T3 精确触达、通用 RS/
 client 控制与现恢复屏障，不重问正常开工许可；没有 push 或提前 S5 exit 标记。
+
+
+## 14. D 新角色、精确触达与控制关闭
+
+C固定交接后新建d_implement、d_review、d_test，实施Sol high、独审Sol xhigh、唯一执行Luna
+max，协调者持续。D固定最终产品 `cb2ad300845f73f12ae5367d247829623b728f18`、vnext tree
+`8a28a9ab172d967eb526132084ec2b43b34b7c04`，Rust仍c021。T3真实Preview producer/完整scope
+核验后窄SAVEPOINT触达bounded现存cache；缺临时Preview跳过可选触达，存在矛盾必须失败，
+不吞未知SQL、不推进BaselineHead。通用client控制覆盖catalog/Arrow在途与退避、abandon
+关闭，backend实际HTTPArrow和Submit parent catalog都传当前context，原poll终态观察保持。
+
+原审R1–R3连续关闭poll截止完成、parent catalog漏接线、client类型和两个非法fixture前置；
+06两次实际失败保numeric exit1与全部原件。第二次251过5败包含两fixture错误和三RS标准
+.venv路径前置错误，不能整体叫工具问题；仅后者按DC68首轮执行profile窄修，成功闭合。
+详见[D交接](p6-s5-d-handoff.md)与[逐字归档](p6-s5-d-review.md)。
+
+06 / gw-dms-06.lan最终cb2于10:34:06Z–10:36:18Z remote session完成，19步command/tee
+全0，native强制重装/build-input、五包ruff/mypy、client74、backend256 parallel+4serial；
+clean、cleanup0、本人marker释放。原审独核成功local31/remote22项及两失败完整manifest、
+每步HEAD/exit/SHA，结论 **D CODE_GO / EVIDENCE_GO，可进入E**。证据原文SHA256=
+`70c06d1ccf7a38e083e3e386800bdfe3434fb9e5f761f9c3b3fc09b568a16405`；归档整体SHA256=
+`51183ad55e63c4cd8a55f3343165f57ce53f3eb35cab79471cd72f3f4c8e149a`。
+
+D无qualified runner、Compose、真实t1或carried；容器仍集中E。生产N1/单active/M24与统一池
+不变。固定交接后D角色退出活动分工，E新建三角色并从当前产品、A–D接口/Contract和必要
+原件接手；不得以D focused代签最终全六包/容器/最小t1，E独立核收后才标本地exit，不push。

@@ -1,7 +1,7 @@
 # Phase 6 S5 History 与跨操作缓存详细设计
 
 状态：**DESIGN_CLEAR；Owner已授权完整实施A–E，A/B/C已独审GO，准备D**。当前权限见[实施任务提示词](p6-s5-implementation-prompt.md)。设计独审绑定候选`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`及原审原文保持；设计源码基线 `4c648965286ec751c4395cd6111f11838610299c`（main），2026-11-09。
-实施顺序与当前验证见 [kickoff](p6-s5-kickoff.md)，固定设计候选独审见 [review](p6-s5-design-review.md)。本稿描述完整目标，§1的实现观察以设计源码基线为准；实际已交付及未测边界分别见[A交接](p6-s5-a-handoff.md)、[B交接](p6-s5-b-handoff.md)、[C交接](p6-s5-c-handoff.md)，不以设计CLEAR代替产品或阶段退出GO。
+实施顺序与当前验证见 [kickoff](p6-s5-kickoff.md)，固定设计候选独审见 [review](p6-s5-design-review.md)。本稿描述完整目标，§1的实现观察以设计源码基线为准；实际已交付及未测边界分别见[A交接](p6-s5-a-handoff.md)、[B交接](p6-s5-b-handoff.md)、[C交接](p6-s5-c-handoff.md)、[D交接](p6-s5-d-handoff.md)，不以设计CLEAR代替产品或阶段退出GO。
 
 ## 1. 范围、事实与决定
 

@@ -75,7 +75,7 @@ def _integer(value: object) -> int:
 def _entry_from_row(key: ComputationCacheKey, row: tuple[object, ...]) -> ComputationCacheEntry:
     try:
         return _parse_entry_row(key, row)
-    except (TypeError, ValueError, CanonicalEncodingError):
+    except (TypeError, ValueError, RecursionError, CanonicalEncodingError):
         raise InvalidComputationCachePayload("invalid computation cache index payload") from None
 
 
@@ -352,8 +352,13 @@ class _ReadLease:
     def mark_used(self) -> bool:
         self._require_open()
         self._checkpoint()
-        with self._reserve(_DB_METADATA_BYTES), self._cache._uow() as uow:
-            return uow.computation_cache.mark_used(self._entry, self._owner)
+        with ExitStack() as reservations:
+            try:
+                reservations.enter_context(self._reserve(_DB_METADATA_BYTES))
+            except MemoryError:
+                return False
+            with self._cache._uow() as uow:
+                return uow.computation_cache.mark_used(self._entry, self._owner)
 
     def discard(self) -> bool:
         self._require_open()

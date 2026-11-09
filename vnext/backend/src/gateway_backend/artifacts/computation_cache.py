@@ -114,7 +114,7 @@ def encode_cache_manifest(
 def decode_cache_manifest(raw: bytes, entry: ComputationCacheEntry) -> dict[str, object]:
     try:
         return _decode_cache_manifest(raw, entry)
-    except (ValueError, TypeError, CanonicalEncodingError):
+    except (ValueError, TypeError, RecursionError, CanonicalEncodingError):
         raise InvalidComputationCachePayload("invalid computation cache manifest") from None
 
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.application.history.compare import validate_history_compare_binding
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
@@ -249,6 +250,7 @@ def build_history_compare_harness(
     artifact_store: ArtifactStorePort | None = None,
     snapshot_export_cache: SnapshotTableExportCachePort | None = None,
     computation_cache: ComputationCachePort | None = None,
+    commit_metadata_port: CommitCanonicalMetadataPort | None = None,
     node_specs: tuple[tuple[str, str], ...] = (
         (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
         ("bn-b", "commit-b"),
@@ -285,7 +287,7 @@ def build_history_compare_harness(
             for commit_id in distinct_commits
         }
     resolved_artifact_store = artifact_store or InMemoryArtifactStore()
-    metadata_port = CatalogCommitCanonicalMetadataPort(
+    metadata_port = commit_metadata_port or CatalogCommitCanonicalMetadataPort(
         {
             (REPOSITORY_ID, commit_id): metadata_for_catalog(
                 provider.catalog,

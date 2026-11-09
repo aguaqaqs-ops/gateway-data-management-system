@@ -57,7 +57,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
     map_repository_column,
 )
-from gateway_backend.capabilities.table_access import kernel_control_scope
+from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
 from gateway_backend.capabilities.table_access.contracts import (
     PARSER_VERSION,
     ParserInvocationContext,
@@ -150,16 +150,30 @@ def ensure_committed_tables(
     timeout_policy: RepositoryRefTimeoutPolicy | None = None,
 ) -> SnapshotTableSet:
     """Fill only missing readers for this exact metadata/commit, retaining the full set."""
-    with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
-        upper = 64 * 1024 + len(table_set.tables) * 1024
-        upper += sum(len(table.descriptor.table_name) * 64 for table in table_set.tables)
-        upper += sum(len(name) * 64 + 1024 for name in requested_tables)
-        with active.memory.reserve(upper):
-            result = _ensure_committed_tables(table_set, repository_ref=repository_ref,
-                canonical_binding=canonical_binding, committed_tables=committed_tables,
-                requested_tables=requested_tables, context=context, timeout_policy=timeout_policy)
-            active.memory.retain_metadata(result, 4096 + len(result.tables) * 512)
-            return result
+    result: SnapshotTableSet | None = None
+    try:
+        with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
+            upper = 64 * 1024 + len(table_set.tables) * 1024
+            upper += sum(len(table.descriptor.table_name) * 64 for table in table_set.tables)
+            upper += sum(len(name) * 64 + 1024 for name in requested_tables)
+            with active.memory.reserve(upper):
+                result = _ensure_committed_tables(table_set, repository_ref=repository_ref,
+                    canonical_binding=canonical_binding, committed_tables=committed_tables,
+                    requested_tables=requested_tables, context=context, timeout_policy=timeout_policy)
+                active.memory.retain_metadata(result, 4096 + len(result.tables) * 512)
+                return result
+    except BaseException:
+        if result is not None:
+            for previous, table in zip(table_set.tables, result.tables, strict=True):
+                if table is previous:
+                    continue
+                try:
+                    if table.reader is not None:
+                        table.reader.close()
+                finally:
+                    if table.batch_reader is not None:
+                        table.batch_reader.close()
+        raise
 
 
 def _ensure_committed_tables(
@@ -168,7 +182,10 @@ def _ensure_committed_tables(
     requested_tables: tuple[str, ...], context: ParserInvocationContext,
     timeout_policy: RepositoryRefTimeoutPolicy | None,
 ) -> SnapshotTableSet:
-    _checkpoint(context)
+    active = current_kernel_context()
+    if active is None:
+        raise ValueError("row demands require an operation kernel context")
+    active.checkpoint()
     commit_id = repository_ref.ref
     if not commit_id or commit_id in ("main", "HEAD") or commit_id.startswith("refs/"):
         raise ValueError("row materialization requires an exact immutable commit")
@@ -183,10 +200,16 @@ def _ensure_committed_tables(
     if (set(tables) != set(views) or set(identities) != set(views)
             or any(name not in tables for name in names)):
         raise ValueError("row demands and complete canonical binding disagree")
+    for name, current in tables.items():
+        described = committed_tables.describe_table(commit_id=commit_id, descriptor=current.descriptor,
+            identity=identities[name], storage_view=views[name], context=context,
+            timeout_policy=timeout_policy)
+        if described.ordered_metadata != current.ordered_metadata:
+            raise ValueError("row demand ordered provenance differs from the complete metadata")
     loaded: list[SnapshotTable] = []
     try:
         for name in names:
-            _checkpoint(context)
+            active.checkpoint()
             current = tables[name]
             if current.reader is not None:
                 continue
@@ -195,7 +218,7 @@ def _ensure_committed_tables(
                 timeout_policy=timeout_policy)
             loaded.append(table)
             tables[name] = table
-        _checkpoint(context)
+        active.checkpoint()
         return dataclasses.replace(table_set,
             tables=tuple(tables[table.descriptor.table_name] for table in table_set.tables))
     except BaseException:

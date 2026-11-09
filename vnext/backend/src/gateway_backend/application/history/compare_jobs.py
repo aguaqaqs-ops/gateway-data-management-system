@@ -1041,6 +1041,11 @@ def _ensure_history_demands_once(
                 refs[table.descriptor.table_name] = ref
     export_hits = sum(len(refs) for refs in exports.values())
     loaded: dict[str, BoundSnapshotInput] = {}
+    existing_readers = {id(table.reader) for bound in sides.values() if bound.table_set is not None
+        for table in bound.table_set.tables if table.reader is not None}
+    existing_batches = {id(table.batch_reader) for bound in sides.values() if bound.table_set is not None
+        for table in bound.table_set.tables if table.batch_reader is not None}
+    control_metadata_resolves = 0
     access = build_committed_table_access(store=cast(ArtifactBufferStorePort, deps.artifact_store),
         unit_of_work_factory=deps.control_transaction_factory,
         repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id)
@@ -1049,10 +1054,13 @@ def _ensure_history_demands_once(
             context.checkpoint()
             assert bound.table_set is not None
             with deps.control_transaction_factory() as uow:
+                control_metadata_resolves += 1
                 metadata = uow.commit_canonical_metadata.resolve(repository_id=payload.repository_id, commit_id=commit,
                     scope=CommitCanonicalScope(gateway_device_external_key=payload.gateway_device_external_key,
                         business_project_id=payload.business_project_id))
             binding = canonical_binding_for_commit(metadata, runtime_ruleset=rule_set.snapshot)
+            if _storage_facts_for_binding(binding, {table.table_name for table in bound.summary.tables}) != bound.storage_facts:
+                raise HistoryCompareJobError("exact commit storage binding differs from frozen metadata")
             tables = ensure_committed_tables(bound.table_set,
                 repository_ref=RepositoryRef(repository_id=payload.repository_id, ref=commit),
                 canonical_binding=binding, committed_tables=access,
@@ -1068,12 +1076,13 @@ def _ensure_history_demands_once(
         for completed in loaded.values():
             if completed.table_set is not None:
                 for table in completed.table_set.tables:
-                    close = getattr(table.reader, "close", None)
-                    if callable(close):
-                        close()
+                    if table.reader is not None and id(table.reader) not in existing_readers:
+                        table.reader.close()
+                    if table.batch_reader is not None and id(table.batch_reader) not in existing_batches:
+                        table.batch_reader.close()
         raise
     _LOG.info("s5_history_demands %s", json.dumps({"demanded_tables": sum(map(len, demands.values())),
-        "export_cache_hits": export_hits}))
+        "export_cache_hits": export_hits, "control_metadata_resolves": control_metadata_resolves}))
     return loaded, exports
 
 
@@ -1458,20 +1467,24 @@ def _bound_from_materialization(
         raise HistoryCompareJobError("materialization failed")
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
-    descriptors = {item.table_name: item for item in result.summary.tables}
-    identities = {item.canonical_table: item for item in canonical_binding.table_identities}
-    storage_facts = tuple(
-        ComparisonStorageFacts(
-            storage_rule_view=view,
-            source_schema_digest=identities[view.canonical_table].source_schema_digest,
-            canonical_schema_digest=identities[view.canonical_table].canonical_schema_digest,
-            raw_content_digest=identities[view.canonical_table].raw_content_digest,
-            storage_projection_version=canonical_binding.storage_projection_version,
-        )
-        for view in canonical_binding.tables
-        if view.canonical_table in descriptors
-    )
+    storage_facts = _storage_facts_for_binding(canonical_binding,
+        {item.table_name for item in result.summary.tables})
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
+
+
+def _storage_facts_for_binding(
+    canonical_binding: CanonicalBinding, names: set[str],
+) -> tuple[ComparisonStorageFacts, ...]:
+    if {view.canonical_table for view in canonical_binding.tables} != names:
+        raise HistoryCompareJobError("canonical binding table set differs from frozen metadata")
+    identities = {item.canonical_table: item for item in canonical_binding.table_identities}
+    return tuple(ComparisonStorageFacts(
+        storage_rule_view=view,
+        source_schema_digest=identities[view.canonical_table].source_schema_digest,
+        canonical_schema_digest=identities[view.canonical_table].canonical_schema_digest,
+        raw_content_digest=identities[view.canonical_table].raw_content_digest,
+        storage_projection_version=canonical_binding.storage_projection_version,
+    ) for view in canonical_binding.tables)
 
 
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:

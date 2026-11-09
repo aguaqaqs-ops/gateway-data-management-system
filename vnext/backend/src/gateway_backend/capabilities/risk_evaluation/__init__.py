@@ -73,7 +73,10 @@ from gateway_backend.capabilities.risk_evaluation.candidates import (
     encode_risk_candidates,
 )
 
+from gateway_backend.capabilities.risk_evaluation.persistence import PersistentRiskCandidates
+
 __all__ = [
+    "PersistentRiskCandidates",
     "CHECK_RECORDS_CLOSURE",
     "RISK_CANDIDATES_FORMAT",
     "RiskCandidateEvent",

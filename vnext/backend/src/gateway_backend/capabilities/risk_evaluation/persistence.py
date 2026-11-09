@@ -14,7 +14,7 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.risk_evaluation.candidates import (
     MAX_CANDIDATE_BYTES, RISK_CANDIDATES_FORMAT, RiskCandidateEvent, decode_risk_candidates, encode_risk_candidates,
 )
-from gateway_backend.capabilities.table_access import KernelExecutionContext
+from gateway_backend.capabilities.risk_evaluation.contracts import RiskOperationPort
 
 
 def _ref(raw: bytes, media_type: str) -> ArtifactRef:
@@ -24,7 +24,7 @@ def _ref(raw: bytes, media_type: str) -> ArtifactRef:
 
 class PersistentRiskCandidates:
     def __init__(self, cache: ComputationCachePort, owner: CacheOperationOwner,
-                 repository_id: str, context: KernelExecutionContext) -> None:
+                 repository_id: str, context: RiskOperationPort) -> None:
         self.cache, self.owner, self.repository_id, self.context = cache, owner, repository_id, context
         self.leases: dict[str, ComputationCacheLease] = {}
         self.decoded: dict[str, ExitStack] = {}

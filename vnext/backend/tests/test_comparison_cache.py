@@ -562,8 +562,9 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
 
 
 @pytest.mark.parametrize("ordered", (False, True))
+@pytest.mark.parametrize("deny_admission", (False, True))
 def test_single_use_persistent_task_restores_in_a_new_operation_without_input_readers(
-    tmp_path: Path, db_path: Path, ordered: bool,
+    tmp_path: Path, db_path: Path, ordered: bool, deny_admission: bool, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_backend.artifacts.computation_cache import CacheOperationOwner
     from gateway_backend.capabilities.comparison.production import ComparisonTaskSession
@@ -600,7 +601,23 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
                 persistent_owner=owner, repository_id="replacement-fixture")
             try:
                 assert not session.remaining_uses
+                session.prepare_persistent(planned)
+                original_reserve = context.memory.reserve
+                refused = False
+                def reserve(size: int, *, backing: object | None = None) -> Any:
+                    nonlocal refused
+                    if (deny_admission and run == "warm" and session.persistent_identity_charges and context.memory.stage_admissions
+                            and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"):
+                        refused = True
+                        raise MemoryError("single-use optional retention must yield")
+                    return original_reserve(size, backing=backing)
+                monkeypatch.setattr(context.memory, "reserve", reserve)
                 with closing(compare_plan_native(planned, session=session)) as product:
+                    assert refused is (deny_admission and run == "warm")
+                    if deny_admission and run == "warm":
+                        assert not session.persistent_identity_charges
+                        assert not session.persistent_identities
+                        assert not product.cache_identities
                     assert product.result.facts is not None and product.metrics is not None
                     assert product.result.facts.tables[0].table_fact_digest is not None
                     assert product.result.facts.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
@@ -622,3 +639,51 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
             finally:
                 session.close()
                 cache.release_operation_pins(owner)
+
+
+def test_single_use_cold_identity_yields_before_necessary_native_admission(
+    tmp_path: Path, db_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.artifacts.computation_cache import CacheOperationOwner
+    from gateway_backend.capabilities.comparison.production import ComparisonTaskSession
+    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    context = current_kernel_context()
+    assert context is not None
+    planned = _planned()
+    def transaction() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path)
+    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "cold-admission-cache"))
+    owner = CacheOperationOwner("history-compare-operation", "single-cold-admission")
+    session = ComparisonTaskSession((planned,), persistent_cache=cache,
+        persistent_owner=owner, repository_id="replacement-fixture")
+    session.prepare_persistent(planned)
+    assert session.persistent_identity_charges and not session.persistent_ready
+    assert not session.remaining_uses and not session.key_charges and not session.cached
+    original = context.memory.reserve
+    denied = 0
+    def reserve(size: int, *, backing: object | None = None) -> Any:
+        nonlocal denied
+        if (session.persistent_identity_charges and context.memory.stage_admissions
+                and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"):
+            denied += 1
+            raise MemoryError("optional cold identity still holds its reservation")
+        return original(size, backing=backing)
+    monkeypatch.setattr(context.memory, "reserve", reserve)
+    try:
+        with closing(compare_plan_native(planned, session=session)) as product:
+            assert denied == 1
+            assert product.session is None
+            assert not session.persistent_identity_charges and not session.persistent_identities
+            assert not product.cache_identities and not product.persistent_keys
+            assert product.metrics is not None and product.result.facts is not None
+            assert product.metrics.native_calls == 1 and product.metrics.input_reads == 2
+            expected = frozen_case("tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source")
+            fact, = product.result.facts.tables
+            assert fact.table_fact_digest is not None
+            assert fact.table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+    finally:
+        session.close()
+        cache.release_operation_pins(owner)

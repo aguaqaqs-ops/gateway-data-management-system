@@ -1371,3 +1371,168 @@ def _replace_comparison_cache_with_bad_neutral_payload(cache: Any, store: Any, h
     lease.close()
     assert cache.store(entry, blobs, owner=owner, checkpoint=context.checkpoint, reserve=context.memory.reserve)
     cache.release_operation_pins(owner)
+
+
+def test_history_failed_export_closes_both_new_canonical_consumers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
+
+    harness = build_history_compare_harness(tmp_path)
+    payload = compare_jobs.decode_history_compare_payload(json.loads(harness.job_payload))
+    sides = compare_jobs._materialize_distinct_commits(payload, harness.deps)
+    rules = compare_jobs._assert_runtime_ruleset(payload)
+    captured: list[SnapshotTableSet] = []
+    original = compare_jobs.ensure_committed_tables
+    def ensure(table_set: SnapshotTableSet, **kwargs: Any) -> SnapshotTableSet:
+        result = original(table_set, **kwargs)
+        captured.append(result)
+        return result
+    def denied_export(*args: Any, **kwargs: Any) -> Any:
+        raise MemoryError("required export budget")
+    monkeypatch.setattr(compare_jobs, "ensure_committed_tables", ensure)
+    monkeypatch.setattr(compare_jobs, "export_snapshot_table_parquet", denied_export)
+    with pytest.raises(MemoryError, match="required export budget"):
+        compare_jobs._ensure_history_demands_once(payload, harness.deps, sides,
+            [("failed-admission-pair", payload.nodes[0], payload.nodes[1])], rules, None)
+    assert len(captured) == 1
+    table, = captured[0].tables
+    assert table.reader is not None and table.batch_reader is not None
+    with pytest.raises(ValueError, match="closed"):
+        table.reader.reopen()
+    with pytest.raises(ValueError, match="closed"):
+        table.batch_reader.schema()
+    assert all(table.reader is None and table.batch_reader is None
+        for bound in sides.values() if bound.table_set is not None for table in bound.table_set.tables)
+
+
+def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    from dataclasses import replace
+    from gateway_backend.application import preview_jobs
+    from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadata, CommitCanonicalScope
+    from gateway_backend.application.workspace.preview import build_preview_job_payload
+    from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+    from gateway_backend.capabilities.comparison import open_records_closure
+    from gateway_backend.capabilities.risk_evaluation.contracts import RISK_ANNOTATION_MEDIA_TYPE
+    from gateway_backend.capabilities.storage_projection import canonicalization_manifest_from_bytes
+    from gateway_backend.domain.workspace.models import InputCompleteness
+    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
+    from tests.support.canonical_metadata import CatalogCommitCanonicalMetadataPort
+    from tests.support import preview_job_harness as preview_support
+
+    preview = preview_support.build_preview_harness(tmp_path / "preview", input_completeness=InputCompleteness.FULL)
+    def transaction() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(preview.db_path)
+    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "computation-cache"))
+    exports = ControlDbSnapshotTableExportCache(transaction)
+    sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES ({value});"
+    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="h1-initial-two")
+    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="h1-modified-three")
+    preview.upload_revision = preview_support.build_upload_revision(input_completeness=InputCompleteness.FULL,
+        initial_binding=initial, modified_binding=modified, generation=preview.upload_revision.generation)
+    preview.job_payload = build_preview_job_payload(workspace_id=preview.upload_revision.workspace_id,
+        upload_revision=preview.upload_revision, repository_id=REPOSITORY_ID,
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key="h1-preview-full",
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest())
+    _, handlers, _ = preview_jobs.preview_composition_bundle(replace(preview.deps,
+        computation_cache=cache, snapshot_export_cache=exports))
+    preview.handlers = dict(handlers)
+    producer = "op-preview-history-producer"
+    preview_support.insert_preview_operation(preview, producer)
+    for handler in (preview_jobs.PREVIEW_MATERIALIZE_HANDLER, preview_jobs.PREVIEW_ASSEMBLE_HANDLER, preview_jobs.PREVIEW_PUBLISH_HANDLER):
+        lease, control, operation, step = preview_support.claim_next_step(preview)
+        preview_support.run_claimed_handler(preview, handler, lease, control, operation, step)
+    with transaction() as uow:
+        step = uow.operations.get_step(preview_support.step_id_for(producer, "materialize_inputs"))
+    assert step.checkpoint_ref is not None
+    checkpoint = load_checkpoint_envelope(preview.artifact_store, step.checkpoint_ref)
+    inputs = preview_jobs._materialized_preview_inputs_from_checkpoint(checkpoint.job_state,
+        preview.artifact_store, repository_id=REPOSITORY_ID)
+    canonical = inputs.canonical
+    assert canonical.initial_canonicalization_manifest_ref is not None
+    manifests = {
+        "a": preview_support._canonical_baseline_data()[2],
+        "b": canonicalization_manifest_from_bytes(preview.artifact_store.locate(canonical.initial_canonicalization_manifest_ref)),
+        "c": canonicalization_manifest_from_bytes(preview.artifact_store.locate(canonical.canonicalization_manifest_ref)),
+    }
+    commits = {"a": BASELINE_HEAD.business_baseline_commit_id, "b": "commit-h1-initial", "c": "commit-h1-modified"}
+    side_names = {"a": "BASELINE", "b": "INITIAL", "c": "MODIFIED"}
+    values = {"a": 1, "b": 2, "c": 3}
+    metadata = CatalogCommitCanonicalMetadataPort({(REPOSITORY_ID, commits[label]): CommitCanonicalMetadata(
+        REPOSITORY_ID, commits[label], CommitCanonicalScope("device-1", "project-1"), False,
+        manifests[label], inputs.sides[side_names[label]].snapshot.snapshot_digest,
+    ) for label in commits})
+    seen_content: dict[str, tuple[str, ...]] = {}
+    seen_producers: dict[str, str] = {}
+    for name, before_label, current_label, expected_native in (
+        ("h1", "b", "c", 0), ("full-first", "a", "c", 1), ("full-warm", "a", "c", 0),
+    ):
+        providers = {commits[label]: FakeRepositoryTableAccessProvider(catalog=make_catalog(
+            preview.baseline_provider.catalog.tables, repository_id=REPOSITORY_ID, ref=commits[label], commit=commits[label]),
+            rows={"t": ((values[label],),)}, declared_rows={"t": ((values[label],),)}, current_commit=commits[label])
+            for label in (before_label, current_label)}
+        nodes = tuple((BASELINE_HEAD.business_baseline_node_id if label == "a" else f"bn-{name}-{index}", commits[label])
+            for index, label in enumerate((before_label, current_label)))
+        history = build_history_compare_harness(tmp_path / name, db_path=preview.db_path,
+            artifact_store=preview.artifact_store, custom_providers=providers, node_specs=nodes,
+            idempotency_key="history-new-operation-" + name, computation_cache=cache,
+            snapshot_export_cache=exports, commit_metadata_port=metadata)
+        caplog.clear()
+        with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
+            run_full_history_compare_job(history)
+        metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1]) for record in caplog.records
+            if record.message.startswith("s3_pair_metrics ")]
+        assert len(metrics) == 1 and metrics[0]["comparison_kernel_calls"] == expected_native
+        rows, _ = _history_snapshot_bundle_data(history)
+        pair_id = history.operation_id + "-p0"
+        assert rows[pair_id, "before", "t"] == [{"id": str(values[before_label])}]
+        assert rows[pair_id, "current", "t"] == [{"id": str(values[current_label])}]
+        with transaction() as uow:
+            current_uses = set(uow.connection.execute(
+                "SELECT kind, task_digest, manifest_artifact_id FROM computation_cache_uses WHERE producer_operation_id=?",
+                (history.operation_id,)))
+            assert {row[0] for row in current_uses} == {"comparison", "risk"}
+            source_producer = producer if name == "h1" else seen_producers.get("full-first") if name == "full-warm" else None
+            if source_producer is not None:
+                source_uses = set(uow.connection.execute(
+                    "SELECT kind, task_digest, manifest_artifact_id FROM computation_cache_uses WHERE producer_operation_id=?",
+                    (source_producer,)))
+                assert {row[0] for row in current_uses & source_uses} == {"comparison", "risk"}
+            assemble = uow.operations.get_step(history_compare_step_id(history.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+        assert assemble.checkpoint_ref is not None
+        state = _history_assemble_state(history, load_checkpoint_envelope(history.artifact_store, assemble.checkpoint_ref).job_state)
+        current_pair = cast(list[dict[str, Any]], state["pairs"])[0]
+        annotations: list[dict[str, Any]] = []
+        for document in cast(list[dict[str, object]], state["required_refs"]):
+            ref = artifact_ref_from_dict(document)
+            if ref.media_type == RISK_ANNOTATION_MEDIA_TYPE:
+                annotation_document = json.loads(history.artifact_store.locate(ref))
+                assert annotation_document["table_name"] == "t"
+                annotations = annotation_document["annotations"]
+                break
+        assert annotations
+        assert [item["annotation_id"] for item in annotations] == [f"t:{index:08d}" for index in range(len(annotations))]
+        assert all(item["target"]["table_name"] == "t" for item in annotations)
+        closures = []
+        for document in cast(list[dict[str, object]], state["required_refs"]):
+            ref = artifact_ref_from_dict(document)
+            if ref.media_type == "application/json":
+                raw = json.loads(history.artifact_store.locate(ref))
+                if isinstance(raw, dict) and "closure_contract_version" in raw and "facts_core_digest" in raw:
+                    closures.append(open_records_closure(history.artifact_store, ref))
+                    break
+        assert len(closures) == 1
+        assert closures[0].comparison_digest.value == current_pair["comparison_digest"]
+        assert sum(entry.record_count for entry in closures[0].records) == 2
+        content = tuple(entry.records_content_digest.value for entry in closures[0].records)
+        if name == "full-warm":
+            assert content == seen_content["full-first"]
+            assert all(not _reader_names(provider) for provider in providers.values())
+        seen_content[name] = content
+        seen_producers[name] = history.operation_id

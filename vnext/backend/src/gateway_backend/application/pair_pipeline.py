@@ -11,7 +11,6 @@ from time import perf_counter
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
-from gateway_backend.capabilities.risk_evaluation.persistence import PersistentRiskCandidates
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
 
@@ -46,6 +45,7 @@ from gateway_backend.capabilities.comparison import (
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
+    PersistentRiskCandidates,
     RiskEvaluationInput,
     RiskExecutionContext,
     RiskEvaluationStatus,

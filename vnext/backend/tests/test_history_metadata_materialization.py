@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from threading import Event
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -16,8 +17,12 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     RepositoryRef,
     RepositoryRefMaterializationRequest,
+    RepositoryProviderError,
     SnapshotMaterializationStatus,
+    SnapshotTableSet,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
@@ -75,6 +80,58 @@ def test_bad_unrequested_manifest_is_rejected_before_any_selected_rows() -> None
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.table_set is None
     assert "manifest schema/content" in result.diagnostics[0].message
+    assert all(not session.table_readers for session in provider.sessions)
+
+
+@pytest.mark.parametrize("failure", ("metadata", "cancel-at-return"))
+def test_ensure_failed_return_closes_new_borrows_and_preserves_existing_reader(
+    monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    _provider, request = _request()
+    stop = Event()
+    request = replace(request, context=ParserInvocationContext(stop))
+    described = describe_repository_ref(request)
+    assert described.table_set is not None and request.committed_tables is not None
+    first = ensure_committed_tables(described.table_set, repository_ref=request.repository_ref,
+        canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
+        requested_tables=("a",), context=request.context)
+    active = current_kernel_context()
+    assert active is not None
+    existing_mappings = set(active.memory._mappings)
+    retain = active.memory.retain_metadata
+
+    def reject_result(value: object, size: int) -> None:
+        if isinstance(value, SnapshotTableSet):
+            if failure == "metadata":
+                raise MemoryError("injected result metadata admission failure")
+            stop.set()
+        retain(value, size)
+
+    monkeypatch.setattr(active.memory, "retain_metadata", reject_result)
+    with pytest.raises(MemoryError if failure == "metadata" else InterruptedError):
+        ensure_committed_tables(first, repository_ref=request.repository_ref,
+            canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
+            requested_tables=("a", "z"), context=request.context)
+    stop.clear()
+    assert set(active.memory._mappings) == existing_mappings
+    assert first.tables[0].reader is not None and first.tables[0].batch_reader is not None
+    assert tuple(first.tables[0].reader.iter_rows()) == ((1,),)
+    assert sum(batch.num_rows for batch in first.tables[0].batch_reader.iter_record_batches()) == 1
+    first.tables[0].reader.close()
+    first.tables[0].batch_reader.close()
+
+
+def test_ensure_rechecks_the_complete_frozen_metadata_before_admitting_new_rows() -> None:
+    provider, request = _request()
+    result = describe_repository_ref(request)
+    assert result.table_set is not None and request.committed_tables is not None
+    first, second = request.canonical_binding.table_identities
+    changed_binding = replace(request.canonical_binding, table_identities=(first,
+        replace(second, raw_content_digest=raw_blob_digest(b"different-authority"))))
+    with pytest.raises(RepositoryProviderError, match="manifest schema/content"):
+        ensure_committed_tables(result.table_set, repository_ref=request.repository_ref,
+            canonical_binding=changed_binding, committed_tables=request.committed_tables,
+            requested_tables=("a",), context=request.context)
     assert all(not session.table_readers for session in provider.sessions)
 
 

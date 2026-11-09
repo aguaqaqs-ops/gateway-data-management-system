@@ -916,7 +916,7 @@ gateway_device_external_key = {DEVICE_KEY!r}
 business_project_id = {PROJECT_ID!r}
 """ + """
 import json, os, sqlite3
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, ExitStack
 from dataclasses import replace
 from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
@@ -966,7 +966,7 @@ def checkpoint_readers():
         sides = _sides_from_materialize_checkpoint(envelope.job_state, store, repository_id=repository_id)
         rule_set = comparison_rule_set(migrated_table_ruleset_snapshot())
         loaded = {}
-        try:
+        with ExitStack() as readers:
             for commit, bound in sides.items():
                 if bound.table_set is None:
                     raise RuntimeError('History checkpoint has no complete table description')
@@ -982,17 +982,13 @@ def checkpoint_readers():
                     canonical_binding=binding, committed_tables=access,
                     requested_tables=tuple(table.descriptor.table_name for table in bound.table_set.tables),
                     context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic))
+                for table in tables.tables:
+                    if table.reader is not None:
+                        readers.callback(table.reader.close)
+                    if table.batch_reader is not None:
+                        readers.callback(table.batch_reader.close)
                 loaded[commit] = replace(bound, table_set=tables)
             yield store, loaded, rule_set
-        finally:
-            for bound in loaded.values():
-                for table in bound.table_set.tables:
-                    try:
-                        if table.reader is not None:
-                            table.reader.close()
-                    finally:
-                        if table.batch_reader is not None:
-                            table.batch_reader.close()
 """
 
 

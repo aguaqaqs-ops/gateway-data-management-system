@@ -3,7 +3,7 @@
 Status: execution and evidence map, not an acceptance receipt. The c9e candidate
 has actual 04 all-six authority/Compose and the old B independent expectation
 capture and S1a component replay have actual evidence; the DC97 successor still
-needs affected-package/image review and the 05 complete journeys. The final
+needs affected-package/image review and the 05/04 complete journeys. The final
 handoff binds exact source, script and raw evidence identities. The independent
 E reviewer clears changed source and node/controller bytes before Luna runs them.
 
@@ -103,14 +103,15 @@ Both real Submit commits are
 checked against technical `main` and independent B schema/selected row
 expectations. The business baseline only advances at Archive.
 
-| Group | Input and mode | Run count | Reference Submit target |
-| --- | --- | --- | --- |
-| Functional | Standard fresh t1, t2, t3, t4; v2 FULL | One complete run each | Every Submit ≤10 min; t4 v1 ≤5 min |
-| W3 MO | Frozen 2×t4, MODIFIED_ONLY | 1 warm + 3 successful measurements | v1 ≤5 min; v2 ≤2 min; all ≤10 min |
-| W3 FULL | Frozen 2×t4, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
-| W4 10% MO cold | Frozen W4-10%, MODIFIED_ONLY | 1 warm + 3 successful measurements | v2 ≤5 min; all ≤10 min |
-| W4 10% FULL | Frozen W4-10%, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
-| W4 100% stress MO/FULL | Frozen W4-100%, separate modes | Each mode: 1 warm + 3 successful measurements | No time threshold; business/resource failure still fails |
+| Group | Node | Input and mode | Run count | Reference Submit target |
+| --- | --- | --- | --- | --- |
+| Functional | 05 | Standard fresh t1, t2, t3, t4; v2 FULL | One complete run each | Every Submit ≤10 min; t4 v1 ≤5 min |
+| W3 MO | 05 | Frozen 2×t4, MODIFIED_ONLY | 1 warm + 3 successful measurements | v1 ≤5 min; v2 ≤2 min; all ≤10 min |
+| W3 FULL | 04 | Frozen 2×t4, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
+| W4 10% MO cold | 04 | Frozen W4-10%, MODIFIED_ONLY | 1 warm + 3 successful measurements | v2 ≤5 min; all ≤10 min |
+| W4 10% FULL | 05 | Frozen W4-10%, FULL | 1 warm + 3 successful measurements | Same; separate statistic group |
+| W4 100% stress MO | 05 | Frozen W4-100%, MODIFIED_ONLY | 1 warm + 3 successful measurements | No time threshold; business/resource failure still fails |
+| W4 100% stress FULL | 04 | Frozen W4-100%, FULL | 1 warm + 3 successful measurements | No time threshold; business/resource failure still fails |
 
 The W3 MO group's *one* v1 Submit sample group also supplies the 2×t4
 fresh INITIAL S1 timing; do not mix it with W3 FULL or add a duplicate S1
@@ -126,6 +127,15 @@ or hardware starts a separate group. The original N1/32−8/M24 failure stays
 in its own column. Current explicit profile is worker envelope 48 GiB,
 reserve 8 GiB, operation M40 GiB, kernel N1 and one active operation;
 production defaults remain 32/8/M24.
+The split is 05: four functional journeys plus three formal groups (16 total),
+and 04: three formal groups (12 total). The two nodes are on distinct physical
+hosts; do not merge their samples or infer an MO-versus-FULL speedup from
+groups on different hosts. Each node uses its own clean real-journey worktree,
+source environment, input copies, marker and original evidence directory.
+The external queue records its cgroup CPU quota/cpuset inheritance chain,
+affinity, `nproc`, memory total and kernel identity, plus the actual worker
+Docker CPU allocation/cpuset. A formal group rejects changed node or worker
+CPU conditions across its warm and three measured runs.
 
 The `s4_submit_measurement_driver.py` checks input and independent expected
 SHA, exact final HEAD/clean worktree, actual three-service ready guard before

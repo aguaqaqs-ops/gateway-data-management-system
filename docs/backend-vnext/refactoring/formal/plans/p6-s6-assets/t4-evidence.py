@@ -30,6 +30,7 @@ from benchmarks import s4_repository_identity as identity
 from benchmarks import s4_submit_measurement_driver as resource
 from benchmarks.bundle_tar import download_bundle_tar
 from benchmarks.real_dump_log_window import repository_access_counts
+from benchmarks import real_dump_canonical_metadata as canonical_metadata
 
 DATASET = "rd-t4-d-v1"
 B_SOURCE = "788ed36e7742a067bf01c16ad2e6aaed2fed91fb"
@@ -163,50 +164,19 @@ def read_repository(
     return summary
 
 
-# Only typed metadata/ref validation; no Repository calls, IPC opening, cache
-# lookup/touch, row reader, bootstrap, migration or persistent writes.
-CANONICAL = r'''
-import json, sqlite3, sys
-from datetime import UTC, datetime
-from pathlib import Path
-from gateway_shared_kernel import DigestRef
-from gateway_backend.application import preview_jobs as p
-from gateway_backend.application.payloads import load_job_payload_bytes
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
-from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
-from gateway_backend.operations import OperationStatus, StepStatus
-from benchmarks.real_dump_canonical_metadata import verify_repeat_canonical_metadata
-repo, op, commit = json.loads(sys.argv[1])
-path = Path('/var/lib/gateway/control/control.sqlite3')
-verify_control_db_file(path)
-c = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True, isolation_level=None)
-c.row_factory = sqlite3.Row
-c.execute('PRAGMA query_only=ON')
-c.execute('BEGIN')
-try:
-    operations = SQLiteOperationStore(c,transaction_now=datetime.now(UTC),read_only=True)
-    step = operations.get_step(p._successor_step_id(op,p.PREVIEW_STEP_MATERIALIZE))
-    operation = operations.get_operation(op)
-    if ((step.status,step.operation_id,step.step_name) != (StepStatus.SUCCEEDED,op,p.PREVIEW_STEP_MATERIALIZE)
-        or step.checkpoint_ref is None or operation.status is not OperationStatus.SUCCEEDED
-        or (operation.job_kind,operation.job_contract_version) != (p.PREVIEW_JOB_KIND,p.PREVIEW_JOB_CONTRACT_VERSION)):
-        raise ValueError('exact SQL operation/step/status/job binding mismatch')
-    row = c.execute('SELECT canonicalization_manifest_ref,canonicalization_manifest_digest FROM submission_records WHERE repository_id=? AND repository_commit_id=?',(repo,commit)).fetchall()
-    if len(row) != 1:
-        raise ValueError('exact prior Submission canonical manifest required')
-    store = LocalArtifactStore(Path('/var/lib/gateway/artifacts'))
-    with store.read_session():
-        payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation,store)))
-        logical = verify_repeat_canonical_metadata(store,checkpoint_ref=step.checkpoint_ref,
-            operation_id=op,repository_id=repo,commit_id=commit,payload=payload,
-            submission_manifest_ref=store.get_ref(row[0][0]),
-            submission_manifest_digest=DigestRef(row[0][1]))
-        print(json.dumps(logical,sort_keys=True))
-finally:
-    c.execute('ROLLBACK')
-    c.close()
-'''
+def canonical_program(worktree):
+    # Runtime images have src/, not host benchmarks. Send this single imported
+    # implementation's exact committed source to the existing Python -c entry.
+    path = Path(canonical_metadata.__file__)
+    expected = worktree/'vnext/backend/benchmarks/real_dump_canonical_metadata.py'
+    require(path.suffix == '.py' and path.is_file() and not path.is_symlink()
+            and path.absolute() == expected and path.resolve() == expected,
+            'canonical verifier must be the current subject ordinary Python source')
+    source = path.read_bytes()
+    committed = command(['git','-C',str(worktree),'show',
+                         'HEAD:vnext/backend/benchmarks/real_dump_canonical_metadata.py']).stdout
+    require(source == committed, 'canonical verifier bytes equal clean committed subject')
+    return source.decode('utf-8')
 
 
 def inputs(args):
@@ -266,6 +236,7 @@ def main():
     resource.command = resource_command
     try:
         expected,mapped = inputs(args)
+        canonical = canonical_program(worktree)
     except BaseException as exc:
         write(output/'preparation.json',{'status':'PREPARATION_FAIL','head':args.candidate_head,
               'failure_type':type(exc).__name__,'message':str(exc),'product_started':False})
@@ -386,7 +357,7 @@ def main():
             require('calibration' in context and context['calibration']['rows_HTTP_requests'] > 0, 'positive calibration precedes W2')
             require(metric['comparison_kernel_calls'] == 0 and value['rows_HTTP_requests'] == 0, 'W2 kernel and actual RS rows zero')
             backend = after['resources']['services']['backend']['id']
-            raw = command(['docker','exec',backend,'python','-c',CANONICAL,json.dumps([context['repo'],operation,context['commit']])],text=True)
+            raw = command(['docker','exec',backend,'python','-c',canonical,json.dumps([context['repo'],operation,context['commit']])],text=True)
             (output/'w2-canonical.stdout.log').write_text(raw.stdout)
             (output/'w2-canonical.stderr.log').write_text(raw.stderr)
             logical = json.loads(raw.stdout)

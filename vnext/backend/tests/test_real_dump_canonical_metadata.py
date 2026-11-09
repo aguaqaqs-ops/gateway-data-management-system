@@ -25,6 +25,7 @@ from gateway_backend.capabilities.snapshot_materialization._digest import (
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     artifact_content_digest_of,
+    manifest_from_bytes,
     manifest_to_payload,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -168,7 +169,7 @@ def _fixture() -> MetadataFixture:
             snapshot.raw_state_digest, snapshot.materialization_stage, 1, 1, 1,
             len(descriptors), descriptors, context, (), len(descriptors))
         entries = []
-        for d in descriptors[1:]:
+        for d in (() if role == p._SIDE_BASELINE else descriptors):
             # Metadata references absent IPC, not a dummy row-reader implementation.
             row_ref = ArtifactRef(f"ipc-{d.table_name}", CANONICAL_IPC_MEDIA_TYPE, 17,
                                   raw_blob_digest(b"IPC not opened by metadata proof"))
@@ -184,7 +185,8 @@ def _fixture() -> MetadataFixture:
             "snapshot": snapshot_to_document(snapshot), "summary": snapshot_summary_to_document(summary),
             "snapshot_digest": snapshot.snapshot_digest.value,
             "raw_state_digest": snapshot.raw_state_digest.value,
-            "unmaterialized_descriptors": [p._snapshot_descriptor_to_document(descriptors[0])],
+            "unmaterialized_descriptors": [p._snapshot_descriptor_to_document(d) for d in descriptors]
+                if role == p._SIDE_BASELINE else [],
             "storage_facts": p._storage_facts_to_documents(storage_facts),
             "tables": entries, "source_ref": None if role == p._SIDE_BASELINE else
                 artifact_ref_to_dict(p._artifact_ref_from_binding(source)),
@@ -227,6 +229,7 @@ FAULTS = (
     ("source schema", "side identities"),
     ("projection", "side identities"),
     ("row refs", "side row refs"),
+    ("missing current ref", "complete MODIFIED manifest ref set"),
     ("artifact content", "artifact content digest"),
     ("closure", "closure bytes"),
     ("persisted manifest digest", "manifest digest/ruleset"),
@@ -266,6 +269,14 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(fault: str
         current["storage_facts"][0][key] = OTHER_DIGEST if fault == "source schema" else "unsupported"
     elif fault == "row refs":
         current["tables"][0]["row_file_refs"] = []
+    elif fault == "missing current ref":
+        entry = current["tables"].pop(0)
+        manifest = manifest_from_bytes(f.store.locate(artifact_ref_from_dict(entry["manifest_ref"])))
+        current["unmaterialized_descriptors"].append(p._snapshot_descriptor_to_document(manifest.descriptor))
+        closure = canonicalize_json_value({"contract_version": p._CANONICAL_TABLE_CLOSURE_CONTRACT,
+            "tables": [{"table_name": t["table_name"], "manifest_ref": t["manifest_ref"]}
+                       for t in current["tables"]]})
+        canonical["canonical_table_set_closure_ref"] = artifact_ref_to_dict(f.put(closure))
     elif fault == "artifact content":
         entry = current["tables"][0]
         raw = json.loads(f.store.locate(artifact_ref_from_dict(entry["manifest_ref"])))

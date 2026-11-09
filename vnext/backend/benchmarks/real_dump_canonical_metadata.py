@@ -6,7 +6,12 @@ owns physical row validation. Missing or contradictory metadata fails closed.
 
 from __future__ import annotations
 
+import json
+import sqlite3
+import sys
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from gateway_shared_kernel import DigestRef
@@ -18,6 +23,7 @@ from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
     load_checkpoint_state_artifact,
 )
+from gateway_backend.application.payloads import load_job_payload_bytes
 from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, artifact_ref_from_dict
 from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE
 from gateway_backend.artifacts.serialize import artifact_ref_to_dict
@@ -42,6 +48,10 @@ from gateway_backend.capabilities.storage_projection import (
     open_canonicalization_manifest,
 )
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
+from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
+from gateway_backend.operations import OperationStatus, StepStatus
 
 
 def _require(value: object, message: str) -> None:
@@ -233,6 +243,10 @@ def verify_repeat_canonical_metadata(
              "MODIFIED canonical table closure bytes mismatch")
     before_manifest = open_canonicalization_manifest(store, submission_manifest_ref)
     after_manifest = open_canonicalization_manifest(store, canonical.canonicalization_manifest_ref)
+    current_names = [name for name, _ref in current.table_refs]
+    _require(len(current_names) == len(set(current_names))
+             and set(current_names) == {table.name for table in after_manifest.tables},
+             "complete MODIFIED manifest ref set required")
     _require(before_manifest.manifest_digest == submission_manifest_digest
              and after_manifest.manifest_digest == canonical.canonicalization_manifest_digest
              and before_manifest.ruleset_digest == after_manifest.ruleset_digest
@@ -252,3 +266,52 @@ def verify_repeat_canonical_metadata(
             "U": u, "X": x, "A": added, "D": deleted, "logical_baseline_row_demand": 0,
             "before_identities": before, "current_identities": after,
             "policy": "owning typed metadata/ref bindings only; IPC physical reads remain Preview-owned; independent of HTTP count"}
+
+
+def main() -> None:
+    """Existing docker-exec evidence call; this exact file is sent as Python code.
+
+    Production images intentionally do not include host benchmark modules. The
+    docs consumer imports this module and supplies these same source bytes to
+    Python -c. Unit imports never run this readonly control/metadata entry.
+    """
+    repository_id, operation_id, commit_id = json.loads(sys.argv[1])
+    path = Path("/var/lib/gateway/control/control.sqlite3")
+    verify_control_db_file(path)
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only=ON")
+    connection.execute("BEGIN")
+    try:
+        operations = SQLiteOperationStore(connection, transaction_now=datetime.now(UTC), read_only=True)
+        step = operations.get_step(p._successor_step_id(operation_id, p.PREVIEW_STEP_MATERIALIZE))
+        operation = operations.get_operation(operation_id)
+        _require((step.status, step.operation_id, step.step_name)
+                 == (StepStatus.SUCCEEDED, operation_id, p.PREVIEW_STEP_MATERIALIZE)
+                 and step.checkpoint_ref is not None
+                 and operation.status is OperationStatus.SUCCEEDED
+                 and (operation.job_kind, operation.job_contract_version)
+                 == (p.PREVIEW_JOB_KIND, p.PREVIEW_JOB_CONTRACT_VERSION),
+                 "exact SQL operation/step/status/job binding mismatch")
+        if step.checkpoint_ref is None:
+            raise ValueError("materialize step checkpoint ref is missing")
+        rows = connection.execute(
+            "SELECT canonicalization_manifest_ref,canonicalization_manifest_digest "
+            "FROM submission_records WHERE repository_id=? AND repository_commit_id=?",
+            (repository_id, commit_id)).fetchall()
+        _require(len(rows) == 1, "exact prior Submission canonical manifest required")
+        store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+        with store.read_session():
+            payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
+            logical = verify_repeat_canonical_metadata(store, checkpoint_ref=step.checkpoint_ref,
+                operation_id=operation_id, repository_id=repository_id, commit_id=commit_id,
+                payload=payload, submission_manifest_ref=store.get_ref(rows[0][0]),
+                submission_manifest_digest=DigestRef(rows[0][1]))
+            print(json.dumps(logical, sort_keys=True))
+    finally:
+        connection.execute("ROLLBACK")
+        connection.close()
+
+
+if __name__ == "__main__":
+    main()

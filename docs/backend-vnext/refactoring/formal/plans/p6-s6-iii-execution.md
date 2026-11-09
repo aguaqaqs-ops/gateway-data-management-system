@@ -50,7 +50,7 @@ They are not production mechanisms or new evidence protocols.
 
 The real driver uses the owning CommitId path encoder in its exact HTTP log
 matcher (the H2 tool correction below): tracked `t4-evidence.py` SHA256
-`246366f703d64bc0bdd2e3c00704788cd9d5e87d75f100ba1608f2b8881005f3`;
+`da00faecd25a4b018b401c92e12b8531f407cd9365afae806c66649ff00ae0cd`;
 its source wrapper `t4-node.sh` is
 `43b20af3ff8d1b3a80fbe19c6a75a4009063e90415cb1b2aedbf48ec1a132ca7`.
 No oracle, M24, timeout, expected result, runtime or real scope changes.
@@ -192,6 +192,22 @@ responsibility. No fake row readers, guard removal, added context or budget
 change. Typed synthetic fixtures with shared binding-fault vectors use a store
 that rejects IPC access and writes; no Dolt/stack is needed. A separately pinned
 readonly probe of retained H5 metadata may be reviewed for06 without new requests.
+
+The first metadata candidate H6 `31f888889f24a7895ae533b9bfaaf4b02dc3d6b8`
+remains HOLD for two static findings, with no new runtime/test failure invented:
+backend images copy src but not benchmarks, and a current table could be left
+unmaterialized while its reduced closure remained self-consistent. The forward
+correction gives the same helper a guarded narrow SQL CLI; docs imports it on
+host, requires its ordinary nonsymlink .py path in this subject and exact bytes
+from committed Git source, then sends those bytes to the existing container
+Python -c call. Container code imports only stdlib and packaged gateway modules,
+not benchmarks. Unit import never runs CLI. No Dockerfile or runtime expansion.
+Current closure ref names must equal the full current manifest table set, with
+no duplicates, matching owning import_builder. The valid synthetic fixture uses
+actual H5 shape BASELINE0 refs/312 unmaterialized and MODIFIED312 refs/0
+unmaterialized; a shared fault moves one current entry to unmaterialized and
+reissues a consistent reduced closure, which must still fail. Both static
+findings and H6 source/drafts remain preserved, not rewritten or executed.
 
 H5 authority remains historical, and its partial t4 remains overall exit1.
 This tracked correction changes the final candidate: source review, safe new

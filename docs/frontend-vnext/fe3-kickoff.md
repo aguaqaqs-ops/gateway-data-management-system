@@ -8,7 +8,7 @@
   - 第 1 步（`d702307836`）写定 FE3b 需要的全部内容（§1–§6、§9、§10、§12、§13.3、§13.4、§15.2）。
   - 第 2 步写定 FE3c 的设计：§16 归档界面、§4.6 FE3c 的上传序列与预期异常、§4.7 R8 与 R12、§8 t1 调整、§9 FE3c 截图、§13.5、§13.6、§15.3。
   - 修订 3：Q18 已由后端交付（`94b25a3279`，独审 GO），§16.6 定稿：`expected_review_version` 取自同一次候选读取中目标候选的 `review_version`。
-    **FE3c 提示词在后端为 `vnext/` 树 `6368c9c40c` 补交生产 OpenAPI 原件后才发出（§5.2、§13.5）。**
+    后端已为 `vnext/` 树 `6368c9c40c` 补交生产 OpenAPI 原件（2026-11-09，SHA256 `ce58f20a…c079`，设计会话已核，§5.2），FE3c 提示词的前置条件已全部满足，待审核会话核对本修订后发出。
 - **修订记录：**
   - 初稿 `5c360bfb1b` 经 [kickoff 审核](reviews/fe3-kickoff-review.md)（`920f068da4`），结论为定向修订；
     修订 1 `de9cd5cb6f` 处理 B1–B4 与采纳的非阻塞意见（逐条见 §15）；
@@ -42,6 +42,7 @@
     [Q18 交接](../backend-vnext/refactoring/formal/plans/p6-be-q18-handoff.md)（最终产品 `94b25a3279`，[独审](../backend-vnext/refactoring/formal/plans/p6-be-q18-review.md) GO）；
   - FE3b 使用的生产 OpenAPI 原件（`vnext/` 树 `56720104af`；FE3c 的比对原件见 §5.2）：`/home/dev/gdds-reviews/artifacts/p6-be-ad-final-04-copy-mop1T4t8/p6-be-ad-final-04/resume-a-5OBTboKj/new-authority-compose-53h3ekqp/production-openapi.json`，
     SHA256 `977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`（设计会话已核）；
+  - FE3c 的生产 OpenAPI 原件（`vnext/` 树 `6368c9c40c`）：`/home/dev/gdds-reviews/artifacts/p6-openapi-6368c9c40c/production-openapi.json`，SHA256 `ce58f20a209883983d270e6f9d758044a22ce35e15e11eee137d1595f92ac079`（设计会话已核，§5.2）；
   - AGENTS（“专用测试节点”“前端测试（FD7）”“Docker / Compose 验证”）、testing-conventions“前端测试（FD7）”。
 - **会话分工：** 与前端 kickoff §10 相同。本文由前端设计会话维护。后端由 `p6-backend-design`（DC73）负责，
   前端设计会话不写后端提示词；需要后端新增字段或发现 Contract 冲突时，交 owner 转后端，不在本文中假设。
@@ -64,7 +65,7 @@
 
 ### 2.1 后端依赖
 
-全部已交付，不再有等待项（核对报告 §1、§9）。Q18 已于 2026-11-08 交付（§2.3 第 19 行）；FE3c 另需后端为 `vnext/` 树 `6368c9c40c` 补交生产 OpenAPI 原件（§5.2）。
+全部已交付，不再有等待项（核对报告 §1、§9）。Q18 已于 2026-11-08 交付（§2.3 第 19 行）；FE3c 的生产 OpenAPI 原件已于 2026-11-09 补交（§5.2）。
 
 | 项 | 状态 |
 | --- | --- |
@@ -584,9 +585,14 @@ FE3a 已实现本节（`frontend/scripts/run-real-backend-e2e.sh`、`playwright.
 **FE3c 的比对原件（修订 3）：**
 
 - FE3c 合入 `fd9e383d76`（`vnext/` 树 `6368c9c40c`）后，按 §5.1 刷新快照与类型；§5.1 的“与后端原件比对”与本节的运行时比对，都用后端为 `vnext/` 树 `6368c9c40c` 补交的生产 OpenAPI 原件。
-  Q18 交接没有交付新的原件（交接 §5：单次读取 `/openapi.json` 失败，未生成文件），已另请后端补交。
-- 原件路径与 SHA256 由审核会话在发出 FE3c 提示词时填写到 §13.5。**原件未交付前不发提示词**；不以前端自己起栈取得的 `/openapi.json` 代替原件。
-- 预期差异：相对 FE3b 快照，只有 §2.3 第 19 行的 `ArchiveCandidateResponse.review_version`。出现其他差异时按上文停下交设计会话。
+  Q18 交接没有交付新的原件（交接 §5：单次读取 `/openapi.json` 失败，未生成文件），由后端另行补交。
+- **已交付（2026-11-09）：** `/home/dev/gdds-reviews/artifacts/p6-openapi-6368c9c40c/production-openapi.json`，SHA256 `ce58f20a209883983d270e6f9d758044a22ce35e15e11eee137d1595f92ac079`，79,082 字节，未规范化，权限 0444。
+  - 取件：节点 `ct107-gw-dms-06`（hostname `gw-dms-06`），clean detached worktree `/home/dev/gdds-test-tmp/p6-openapi-6368c9c40c/wt`，起止 HEAD `fd9e383d76642037e4b3246c847222ea9483e033`，`HEAD:vnext` `6368c9c40c`；2026-11-09 06:30:14–06:32:22 UTC，单次 GET 返回 200，无重试，exit 0；起止 worktree clean，资源已清理，占用已释放；
+  - 方法与 BE-a/BE-d 相同（生产 Compose helper、`httpx.Client.get("/openapi.json")`、`response.content` 直接写入），指定依赖镜像 `lock-578e079b762e`、本机构建、build network none，未用代理或公网。范围差别：省略取件前的上传业务旅程，在生产栈 ready 后读取（schema 只由路由与 DTO 决定）；
+  - 运行日志 `/home/dev/gdds-reviews/artifacts/p6-openapi-6368c9c40c/node/run.log`，SHA256 `65052f8d6403eee52797cf473685bc9e403859b5a4b5621236ac0bc7ee35ff9e`；后端的规范化 diff 与交接记录在同目录的 `openapi.normalized.diff`、`handoff.txt`。
+- **设计会话核对（2026-11-09，开发主机只读）：** 原件与日志的 SHA256、长度、权限与上文一致；按 §5.1 规则规范化后（SHA256 `4c2ddca7d64ec77029528f5a6f03f73b17185784091530c7086fa67d484d620a`），与 FE3b 原件（`977b2258…b8a7`）只差两处：`ArchiveCandidateResponse.properties` 新增整数 `review_version`（0–9007199254740991），`required` 新增 `review_version`。`fe-fe3b-exit` 的 `frontend/openapi.json` 已是规范化形式，与 FE3b 原件规范化后逐字节相同。因此 FE3c 刷新快照后的差异应恰好是这两处，与 §2.3 第 19 行一致。
+- 发出提示词前，审核会话在 §13.5 填写原件路径与 SHA256 并重算核对；不以前端自己起栈取得的 `/openapi.json` 代替原件。
+- 预期差异：相对 FE3b 快照，只有上述两处。出现其他差异时按上文停下交设计会话。
 
 ### 5.3 刷新后的同步（FE3b）
 
@@ -1050,7 +1056,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | tar 成员与 closure 的对应（2026-11-05 审核报告 D1） | **已关闭：** DC89 与 BE-d 交接 §3 确认与前端要求一致（§2.3 第 9 行） | — |
 | FE3c 的设计 | 第 2 步已写（§16、§4.6、§4.7、§8、§9、§13.5、§13.6），修订 2 审核为定向修订，C1–C3 已改（§15.4）；owner 2026-11-09 已确认 Q15–Q20；修订 3 补齐 §16.6 定稿与合入点（§15.5），待审核会话核对 | 发出 FE3c 提示词前 |
 | 关闭请求的 `expected_review_version`（§16.6） | **已交付：** Q18 最终产品 `94b25a3279`（独审 GO），归档候选逐项返回 `review_version`（§2.3 第 19 行）。修订 3 已定稿 §16.6、§5.3 的模拟规则与 §16.9 V9、V14 | — |
-| FE3c 的生产 OpenAPI 原件 | Q18 没有交付新的原件，已另请后端为 `vnext/` 树 `6368c9c40c` 补交；路径与 SHA256 由审核会话在发出提示词时填写（§5.2、§13.5） | 发出 FE3c 提示词前（FE3c 前置） |
+| FE3c 的生产 OpenAPI 原件 | **已交付（2026-11-09）：** SHA256 `ce58f20a…c079`，设计会话已核，与 FE3b 原件规范化后只差 `review_version` 两处（§5.2）；审核会话发出提示词时填入 §13.5 并重算 | — |
 | 比较诊断码的变化（§2.3 末段，§11 Q21） | 三个旧码不再产生、四个新码可能出现，交 owner 转后端确认；答复前前端保留现状 | 后端答复后（不阻塞 FE3c） |
 | §4.6 预期异常的实测校正 | 预期异常由源码推断，FE3c 05 调试首轮实测，不符即停（§4.6） | FE3c 调试首轮 |
 | FE4 真实数据重拍的节点 | 前端 kickoff §6 写“FE4 在 04 上用真实 backend 与 t1 数据重拍”，但 DC36 规定 t1–t3 在 05。建议 FE4 kickoff 时改为：t1 数据的重拍在 05，04 只跑合成输入的真实 backend e2e；如需在 04 使用 t1 数据，由 owner 作例外决定 | FE4 kickoff |
@@ -1394,6 +1400,7 @@ Q13 起来自 2026-11-07 的修订 2（Q13、Q14 来自第 1 步，Q15–Q19 来
 | 11 | E1 | §5.5 与 §13.3 的“10 个文件”改为 9 个原件加 `SHA256SUMS` | §5.5、§13.3 |
 | 12 | R1 | §16.5 括注改为：`ARCHIVE_SCOPE_LIMIT_EXCEEDED` 只在候选或待审核提交的读取超过上限时返回；请求中引用超过 maxItems 返回 422；异常数超过 8N+1 返回 503 `ARCHIVE_INTEGRITY_FAILURE`（已按 `6368c9c40c` 的 `application/archive/snapshot.py`、`contracts.py`、`queries.py` 核对） | §16.5 |
 | 13 | 审核提示词 | §13.6 补 V14 与两个探针（预检转发整个候选、关闭用 Review 或工作区的版本号） | §13.6 |
+| 14 | FE3c 生产 OpenAPI 原件交付（修订 3 追加） | 记录后端 2026-11-09 补交的原件（路径、SHA256 `ce58f20a…c079`、节点、worktree、起止 HEAD、取件方法与范围差别、日志 SHA256）；设计会话独立规范化核对：与 FE3b 原件只差 `review_version` 两处，FE3b 快照与 FE3b 原件规范化后相同。§12 该前置标为已交付；§13.5 的路径与 SHA256 仍由审核会话在发出时填入并重算 | 文首状态、依据、§2.1、§5.2、§12 |
 
 ## 16. FE3c：归档业务核验、有理由关闭与待审核阻塞
 

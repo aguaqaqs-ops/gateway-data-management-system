@@ -245,8 +245,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
 
     // Submit v1.
     const submitWait = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
-    await compareAction(page, "提交").click();
-    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click();
+    await compareAction(page, "提交").click({ timeout: 120_000 });
+    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
     expect((await submitWait).status(), "step1 submit status").toBe(202);
     const { submission } = await waitForPendingSubmission(submitter, workspaceId as string, 600_000);
     const submissionV1 = submission.submission_id;
@@ -284,12 +284,12 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
       });
     }
     await gotoWorkbench(page);
-    await page.getByRole("button", { name: "提交 1", exact: true }).click();
-    await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+    await page.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
+    await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
     const archiveDialog = page.getByRole("dialog", { name: "归档主基线" });
     await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
-    await archiveDialog.getByRole("checkbox", { name: /确认把/ }).check();
-    await archiveDialog.getByRole("button", { name: "确认归档" }).click();
+    await archiveDialog.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await archiveDialog.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(archiveDialog.getByText("归档完成")).toBeVisible({ timeout: 300_000 });
     const headAfterArchive = (await listHistory(submitter)).body.head.version;
     appendCaseLog(`t1-step3 archived submission=${submissionV1} head=${headAfterArchive}`);
@@ -346,8 +346,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(Number(itm.changed_table_count), "initial_to_modified changed").toBe(changedExpected);
     await waitForDiffBrowsing(page);
     const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
-    await compareAction(page, "提交").click();
-    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click();
+    await compareAction(page, "提交").click({ timeout: 120_000 });
+    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
     expect((await submitWait2).status(), "step4 submit status").toBe(202);
     const { submission: submissionV2 } = await waitForPendingSubmission(submitter, workspaceId2 as string, 600_000);
     const factsV2 = (await getReviewFacts(reviewer, submissionV2.submission_id)).body;
@@ -358,20 +358,20 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // Step 6: three-node history compare (INITIAL, archived v1, v2 submission).
     await gotoWorkbench(page);
     await selectTreeRow(page, "初始基线");
-    await workshopAction(page, "加入比较").click();
+    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
     await selectTreeRow(page, "归档基线 1");
-    await workshopAction(page, "加入比较").click();
+    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
     await selectTreeRow(page, "提交 2");
-    await workshopAction(page, "加入比较").click();
+    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
     const compareResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 300_000 });
-    await page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
+    await page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);
     const drawer = page.locator('section[aria-label="历史比较结果抽屉"]');
     await expect(drawer).toBeVisible({ timeout: 120_000 });
     await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 600_000 });
     await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
     await saveEvidence(page, testInfo, "t1-history-three-nodes");
-    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
+    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click({ timeout: 120_000 });
     await waitForDiffBrowsing(page);
 
     // M1 report (single in-journey samples; FE3a t1 v1 MODIFIED renderer 24.86 MiB).

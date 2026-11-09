@@ -1404,8 +1404,8 @@ async function acceptAllAnomalies(archiver: JourneyIdentity, submissionId: strin
 
 async function openArchiveDialogUi(page: Page, submissionLabel: string) {
   await gotoWorkbenchFresh(page);
-  await page.getByRole("button", { name: submissionLabel, exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.getByRole("button", { name: submissionLabel, exact: true }).click({ timeout: 120_000 });
+  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
   return dialog;
@@ -1415,7 +1415,7 @@ async function openArchiveDialogUi(page: Page, submissionLabel: string) {
 async function expandArchiveGroupUi(dialog: ReturnType<Page["getByRole"]>, title: string): Promise<void> {
   const summary = dialog.locator("summary", { hasText: title });
   const open = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? true).catch(() => true);
-  if (!open) await summary.click();
+  if (!open) await summary.click({ timeout: 120_000 });
 }
 
 async function historyHeadVersion(identity: JourneyIdentity): Promise<number> {
@@ -1461,37 +1461,37 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const startA = dialogA.getByRole("button", { name: "确认归档" });
     await expect(startA).toBeDisabled();
     await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
-    await dialogA.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogA.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await expect(startA).toBeDisabled();
     await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
     const cardA = dialogA.locator(".archive-anomaly");
-    await cardA.getByRole("button", { name: "接受" }).click();
+    await cardA.getByRole("button", { name: "接受" }).click({ timeout: 120_000 });
     const acceptA = archiverSession.page.getByRole("dialog", { name: "接受异常" });
-    await acceptA.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间");
-    await acceptA.getByRole("button", { name: "确认接受" }).click();
+    await acceptA.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间", { timeout: 120_000 });
+    await acceptA.getByRole("button", { name: "确认接受" }).click({ timeout: 120_000 });
     await expandArchiveGroupUi(dialogA, "生成时间");
     await expect(cardA.getByText("已接受")).toBeVisible();
-    await cardA.getByRole("button", { name: "撤销接受" }).click();
+    await cardA.getByRole("button", { name: "撤销接受" }).click({ timeout: 120_000 });
     const revokeA = archiverSession.page.getByRole("dialog", { name: "撤销接受" });
-    await revokeA.getByLabel("撤销理由").fill("j1 重新核对");
-    await revokeA.getByRole("button", { name: "确认撤销" }).click();
+    await revokeA.getByLabel("撤销理由").fill("j1 重新核对", { timeout: 120_000 });
+    await revokeA.getByRole("button", { name: "确认撤销" }).click({ timeout: 120_000 });
     await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
-    await cardA.getByRole("button", { name: "接受" }).click();
+    await cardA.getByRole("button", { name: "接受" }).click({ timeout: 120_000 });
     const acceptA2 = archiverSession.page.getByRole("dialog", { name: "接受异常" });
-    await acceptA2.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间");
-    await acceptA2.getByRole("button", { name: "确认接受" }).click();
+    await acceptA2.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间", { timeout: 120_000 });
+    await acceptA2.getByRole("button", { name: "确认接受" }).click({ timeout: 120_000 });
     await expect(startA).toBeEnabled();
     await saveEvidence(archiverSession.page, testInfo, "j1-archive-dialog");
-    await startA.click();
+    await startA.click({ timeout: 120_000 });
     await expect(dialogA.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(1);
     await saveEvidence(archiverSession.page, testInfo, "j1-archive-result");
     assertClean(archiverSession.diagnostics, "j1-archive");
     appendCaseLog(`j1-archive-a ok submission=${submitA.submissionId} head=1`);
     // D1 real coverage: tree shows 已归档, details show 成为归档基线 1.
-    await dialogA.getByRole("button", { name: "完成" }).click();
+    await dialogA.getByRole("button", { name: "完成" }).click({ timeout: 120_000 });
     await gotoWorkbenchFresh(archiverSession.page);
-    await archiverSession.page.getByRole("button", { name: "提交 1", exact: true }).click();
+    await archiverSession.page.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
     await expect(archiverSession.page.locator(".workspace-details").getByText("已归档，成为归档基线 1")).toBeVisible();
     await saveEvidence(archiverSession.page, testInfo, "j1-disposition-archived");
 
@@ -1527,7 +1527,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await expect(dialogB.getByRole("button", { name: "确认归档" })).toBeDisabled();
     await expect(dialogB.getByText("当前预检存在阻断项")).toBeVisible();
     await saveEvidence(archiverSession.page, testInfo, "j1-pending-blocked");
-    await dialogB.getByRole("button", { name: "关闭对话框" }).click();
+    await dialogB.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
 
     // Step 7: reject C, re-upload C as a draft; the three expected anomalies.
     const factsC = (await getReviewFacts(reviewer, submitC.submissionId)).body;
@@ -1548,9 +1548,9 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await acceptAnomalies(archiver, submitB.submissionId, digestB, "j1 只接受①", (side) => side === "INITIAL");
     const dialogB2 = await openArchiveDialogUi(archiverSession.page, "提交 2");
     await expect(dialogB2.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("未处理")).toBeVisible();
-    await dialogB2.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogB2.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await expect(dialogB2.getByRole("button", { name: "确认归档" })).toBeDisabled();
-    await dialogB2.getByRole("button", { name: "关闭对话框" }).click();
+    await dialogB2.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
 
     // Step 9: accept the remaining items, then revoke MODIFIED in a second
     // context; the first context's start is rejected and the re-preview
@@ -1574,18 +1574,18 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
       reason: "j1 第二个身份复核后撤销",
     });
     const dialogB3 = await openArchiveDialogUi(archiverSession.page, "提交 2");
-    await dialogB3.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogB3.getByRole("button", { name: "确认归档" }).click();
+    await dialogB3.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogB3.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogB3.getByText("归档候选或核验结果已变化，请重新预检")).toBeVisible({ timeout: 120_000 });
-    await dialogB3.getByRole("button", { name: "重新预检" }).click();
+    await dialogB3.getByRole("button", { name: "重新预检" }).click({ timeout: 120_000 });
     await expect(dialogB3.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("已撤销接受，需要重新处理")).toBeVisible();
     assertClean(archiverSession.diagnostics, "j1-revoke-conflict");
 
     // Step 10: re-accept and archive B as baseline 2.
     await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 重新接受②");
     const dialogB4 = await openArchiveDialogUi(archiverSession.page, "提交 2");
-    await dialogB4.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogB4.getByRole("button", { name: "确认归档" }).click();
+    await dialogB4.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogB4.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogB4.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(2);
     appendCaseLog(`j1-step10 ok submission=${submitB.submissionId} head=2`);
@@ -1605,8 +1605,8 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     ], "j1-step11");
     await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j1 接受 C");
     const dialogC = await openArchiveDialogUi(archiverSecondSession.page, "提交 4");
-    await dialogC.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogC.getByRole("button", { name: "确认归档" }).click();
+    await dialogC.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogC.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogC.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(3);
     appendCaseLog(`j1-step11 ok submission=${submitC2.submissionId} head=3`);
@@ -1618,15 +1618,15 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     expect(await waitForPreviewOutcome(s1Session.page)).toBe("compare");
     await waitForDiffBrowsing(s1Session.page);
     const submitResponse = s1Session.page.waitForResponse((response) => isPost(response, "/submit-attempts"), { timeout: 300_000 });
-    await compareAction(s1Session.page, "提交").click();
+    await compareAction(s1Session.page, "提交").click({ timeout: 120_000 });
     const submitDialog = s1Session.page.getByRole("dialog");
     await expect(submitDialog).toBeVisible();
     await expect(submitDialog.getByText(/项目身份/)).toBeVisible({ timeout: 60_000 });
     for (const requirement of await submitDialog.locator(".confirm-requirement").all()) {
-      await requirement.getByRole("checkbox").check();
-      await requirement.getByRole("textbox").fill("j1 已核对项目身份差异");
+      await requirement.getByRole("checkbox").check({ timeout: 120_000 });
+      await requirement.getByRole("textbox").fill("j1 已核对项目身份差异", { timeout: 120_000 });
     }
-    await submitDialog.getByRole("button", { name: "确认提交", exact: true }).click();
+    await submitDialog.getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
     const submitted = await submitResponse;
     expect(submitted.status(), "D submit status").toBe(202);
     const { submission: submissionD } = await waitForPendingSubmission(s1, runA.workspaceId, 240_000);
@@ -1640,8 +1640,8 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     ], "j1-step13");
     await acceptAllAnomalies(archiver, submissionD.submission_id, digestD, "j1 接受 D 含身份例外");
     const dialogD = await openArchiveDialogUi(archiverSession.page, "提交 5");
-    await dialogD.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogD.getByRole("button", { name: "确认归档" }).click();
+    await dialogD.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogD.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogD.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(4);
     appendCaseLog(`j1-step13 ok submission=${submissionD.submission_id} head=4`);
@@ -1651,20 +1651,20 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     // Step 14: three-node history compare (INITIAL, baselines 1 and 2).
     await gotoWorkbenchFresh(s1Session.page);
     await selectTreeRow(s1Session.page, "初始基线");
-    await workshopAction(s1Session.page, "加入比较").click();
+    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
     await selectTreeRow(s1Session.page, "归档基线 1");
-    await workshopAction(s1Session.page, "加入比较").click();
+    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
     await selectTreeRow(s1Session.page, "归档基线 2");
-    await workshopAction(s1Session.page, "加入比较").click();
+    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
     const compareResponse = s1Session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
-    await s1Session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
+    await s1Session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);
     const drawer = s1Session.page.locator('section[aria-label="历史比较结果抽屉"]');
     await expect(drawer).toBeVisible({ timeout: 60_000 });
     await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 300_000 });
     await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
     await saveEvidence(s1Session.page, testInfo, "j1-history-three-nodes");
-    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
+    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click({ timeout: 120_000 });
     await waitForDiffBrowsing(s1Session.page);
     assertClean(s1Session.diagnostics, "j1-history");
     appendCaseLog("j1 ok three-node history compare browsed");
@@ -1703,8 +1703,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j2-step1");
     await acceptAllAnomalies(archiver, submitA.submissionId, digestA, "j2 t1 证据运行");
     const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
-    await dialogA.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogA.getByRole("button", { name: "确认归档" }).click();
+    await dialogA.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogA.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogA.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(1);
     appendCaseLog(`j2-step1 ok submission=${submitA.submissionId} head=1`);
@@ -1759,13 +1759,13 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
       if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/closure")) closureBodies.push(request.postData() ?? "");
     });
     const dialogClose = await openArchiveDialogUi(archiverSession.page, "提交 2");
-    await dialogClose.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+    await dialogClose.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click({ timeout: 120_000 });
     const closeDialog = archiverSession.page.getByRole("dialog", { name: "关闭提交（不归档）" });
-    await closeDialog.getByLabel("关闭理由").fill("C 的业务口径已变化，先关闭");
-    await closeDialog.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
-    await closeDialog.getByRole("button", { name: "确认关闭" }).click();
+    await closeDialog.getByLabel("关闭理由").fill("C 的业务口径已变化，先关闭", { timeout: 120_000 });
+    await closeDialog.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check({ timeout: 120_000 });
+    await closeDialog.getByRole("button", { name: "确认关闭" }).click({ timeout: 120_000 });
     await expect(closeDialog.getByText("关闭请求未能送达，可以重试")).toBeVisible({ timeout: 120_000 });
-    await closeDialog.getByRole("button", { name: "重试" }).click();
+    await closeDialog.getByRole("button", { name: "重试" }).click({ timeout: 120_000 });
     await expect(closeDialog.getByText("已关闭")).toBeVisible({ timeout: 120_000 });
     await saveEvidence(archiverSession.page, testInfo, "j2-close-result");
     expect(closureBodies.length, "closure sends (abort + retry)").toBe(2);
@@ -1776,7 +1776,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expect(retryClose.reason).toBe("C 的业务口径已变化，先关闭");
     appendCaseLog(`j2-step4 ok closed=${submitC.submissionId} review_version=${firstClose.expected_review_version}`);
     await archiverSession.page.unroute("**/v1/submissions/*/closure");
-    await closeDialog.getByRole("button", { name: "取消" }).click();
+    await closeDialog.getByRole("button", { name: "取消" }).click({ timeout: 120_000 });
     await expect(dialogClose.getByText("候选集合已变化，之前的接受不再适用，请重新核对")).toBeVisible();
 
     // Step 5: the set is re-derived; everything is unprocessed again.
@@ -1798,7 +1798,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expect(workspaceC.active_submission_id, "s2 pointer cleared").toBeNull();
     expect(workspaceC.active_submit_attempt_id, "s2 attempt cleared").toBeNull();
     await gotoWorkbenchFresh(s2Session.page);
-    await s2Session.page.getByRole("button", { name: "提交 3", exact: true }).click();
+    await s2Session.page.getByRole("button", { name: "提交 3", exact: true }).click({ timeout: 120_000 });
     const detailsC = s2Session.page.locator(".workspace-details");
     await expect(detailsC.getByText("已关闭（未归档）").first()).toBeVisible();
     await expect(detailsC.getByText(archiver.actorId)).toBeVisible();
@@ -1812,8 +1812,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     // Step 7: accept all seven; B archived, E closed at archive (D2 real).
     await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j2 接受余下全部");
     const dialogStart = await openArchiveDialogUi(archiverSession.page, "提交 2");
-    await dialogStart.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogStart.getByRole("button", { name: "确认归档" }).click();
+    await dialogStart.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogStart.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogStart.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     await expect(dialogStart.getByText("归档 1 项，关闭 1 项")).toBeVisible();
     expect(await historyHeadVersion(s1)).toBe(2);
@@ -1821,9 +1821,9 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expect(workspaceE.active_submission_id, "s3 workspace released").toBeNull();
     await saveEvidence(archiverSession.page, testInfo, "j2-archive-result");
     appendCaseLog(`j2-step7 ok archived=${submitB.submissionId} closed=${submitE.submissionId} head=2`);
-    await dialogStart.getByRole("button", { name: "完成" }).click();
+    await dialogStart.getByRole("button", { name: "完成" }).click({ timeout: 120_000 });
     await gotoWorkbenchFresh(archiverSession.page);
-    await archiverSession.page.getByRole("button", { name: "提交 4", exact: true }).click();
+    await archiverSession.page.getByRole("button", { name: "提交 4", exact: true }).click({ timeout: 120_000 });
     const detailsE = archiverSession.page.locator(".workspace-details");
     await expect(detailsE.getByText("已关闭（未归档）").first()).toBeVisible();
     await expect(detailsE.getByText("归档时选中了其他提交")).toBeVisible();
@@ -1842,8 +1842,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     ], "j2-step8");
     await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j2 重新接受 C");
     const dialogC2 = await openArchiveDialogUi(archiverSession.page, "提交 5");
-    await dialogC2.getByRole("checkbox", { name: /确认把/ }).check();
-    await dialogC2.getByRole("button", { name: "确认归档" }).click();
+    await dialogC2.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
+    await dialogC2.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogC2.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
     expect(await historyHeadVersion(s1)).toBe(3);
     appendCaseLog(`j2-step8 ok submission=${submitC2.submissionId} head=3`);

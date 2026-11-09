@@ -163,6 +163,9 @@ export async function apiRequest<T>(
 ): Promise<ApiEnvelope<T>> {
   const init: RequestInit = {
     method,
+    // Bound every backend call: a wedged backend must fail the test fast
+    // with its URL attached, not hang the suite until the test timeout.
+    signal: AbortSignal.timeout(120_000),
     headers: headersFor(identity, {
       ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
       ...options.headers,

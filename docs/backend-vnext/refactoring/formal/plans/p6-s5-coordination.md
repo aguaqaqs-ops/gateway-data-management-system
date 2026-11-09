@@ -90,3 +90,23 @@ eb645在06的07:08:05–07:10:14Z完整A focused为入口exit0：21步骤全comm
 ## 11. 后续按小节新建子agent
 
 Owner于B原审及同轮修订期间明确要求后续按阶段新建，并写入角色/子agent说明。协调者保留；当前B的两项finding由本节原审连续收口，执行完成并形成固定handoff后，从C开始，为C、D、E各节分别新建实施、独审和测试/等待角色，不再以follow-up复用A/B角色。创建前核并发槽，旧角色退出活动分工，总活跃含协调者≤4，不递归扩队；新角色只接固定候选、Contract、handoff及必要原件，模型与临时权限按当前授权重新明确。规则已同步[AGENTS](../../../../../AGENTS.md)、kickoff及实施提示词；A/B历史分工和逐字审核原文保持真实，不回写成“当时已按节新建”。
+
+## 12. B关闭与C新角色交接
+
+B固定产品`e1098b2a62daaf779b758de80ffd0013b17650a2`、vnext tree
+`3a75a5be00d48895c265dcb7cbe5c3c50ba00040`。原审R1仅两项finding（可选mark_used预约、
+深JSON派生解析边界），同原审R2全部关闭。06原运行17项必要检查全command/tee0、backend
+162 passed；末个多余空serial选择真实exit5保留。DC68第1修复轮仅collect-only确认同162
+项全deselected、pytest5/tee0，续步exit0；原产品步骤未重跑，原入口不改成0。
+
+原审核者核两组原件/完整manifest/脚本SHA/clean与资源释放后给出 **B CODE_GO / EVIDENCE_GO，
+可进入C**。精确来源和未测边界见[B交接](p6-s5-b-handoff.md)，逐字原审/复审/证据核收见
+[B归档](p6-s5-b-review.md)；证据原文SHA256=
+`6b59ce4987b3e77e06d6466b1aeb8a725f88de138ab32dc491b69003094c166d`，归档整体SHA256=
+`933a4e6fc2c79095e350c0661b7c74ae5e7e6e4c394c8054199047f7b9b53fec`。B不是qualified runner
+来源，没有Compose、t1或carried结论；E必要范围保持。
+
+B三角色执行/审核已收尾；固定本交接后退出活动分工。C将新建三角色，协调者持续，按实际
+并发槽≤4执行；新角色以当前main、AGENTS、设计/Contract、A/B交接和原件为输入，不继承旧
+子agent对话。C应用接线、metadata先行/按需行、当前出版与checkpoint恢复尚未实现，不能
+用B的SQLite/文件证明代签；不再为正常C开工向Owner申请许可。

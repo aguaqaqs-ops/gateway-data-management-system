@@ -28,7 +28,7 @@ S3/S4已正式退出，不重审整轮或复跑证据。当前产品Rust tree应
 3. neutral格式能否保持facts序、artifact序、blank entity_key_kind、keyless multiplicity、typed frames和Parquet batch边界？当前table/pair/records closure如何重绑并保持各digest？不能序列化native pointer或仅拷Parquet自称零比较。
 4. 风险事件是否完整、过滤前计cap、pair优先、diagnostics不同degraded分支、CheckRecordsClosure每次执行、当前clock/cancel与编号都正确？是否错误持久化截断/超时前缀或为cache额外执行规则？
 5. 索引/uses/成员保护/TTL是否最小且有真实consumer？文件与DB发布窗口、reader/cleanup协作、条件discard、过期/损坏/写失败是否安全有界？不新增journal、sidecar或同euid恶意替换证明。
-6. T3触达是否精确归属于该Preview、scope不串用、与原finalize事务原子？savepoint边界是否会吞真正事务错误？T1/PREPARED、Repository effect/main CAS与Archive BaselineHead是否保持分离？
+6. T3触达是否精确归属于该Preview、scope不串用、与原finalize事务原子？savepoint边界是否会吞真正事务错误？T1即PREPARED与prepare checkpoint包冻结屏障、Repository effect/main CAS与Archive BaselineHead是否保持分离？
 7. 同M是否覆盖缓存hit及miss的mapping/FFI/capacity/索引/导出bytes、最后consumer与取消释放？可选cache能否挤占必须计算？N1是否仍读并发1？已有三次503是否被外层重试放大？
 8. 真实records reader/restore与完整bundle/tar是否覆盖；有无虚构records HTTP API或把raw/ref当语义验证？capability DAG/native import边界与真实library facade是否保留？
 9. H1/H3零Dolt是否准确限定导出/规范副本需求；FULL未计算pair例外、H2与三节点是否有唯一验证owner？计数是否隐藏restore/metadata/validator/native调用？

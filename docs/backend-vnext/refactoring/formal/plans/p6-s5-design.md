@@ -112,15 +112,15 @@ cache key和neutral payload SHA是内部派生身份，不能直接作为table/c
 
 manifest包括：format、task key、repository scope、两侧语义identity摘要、task kind、record detail、完整成功标记、每族ref/raw SHA/size/row count/schema version、neutral outcome metadata。metadata保status、counts、schema evolution/diagnostics、ordered/blank摘要等现有纯table outcome；排除operation/pair/display绑定、当前artifact ref和已绑定table digest。
 
-每个standard、ordered、blank族保存三种中性视图，直接服务当前三类consumer；不重建持有两侧输入的`StandardComputation`：
+STANDARD、ORDERED、BLANK每族各保存facts序和artifact序，另只为STANDARD保存一份risk序投影；最多7个视图加1个manifest。空族无需单独文件，由manifest的零count明确表达。不重建持有两侧输入的`StandardComputation`：
 
 | 视图 | 物理载荷及用途 |
 | --- | --- |
 | facts序 | IPC列`ordinal:UInt32(non-null)`、`row_jcs:LargeBinary(non-null)`；row_jcs是现Rust `records/facts.rs`产出的neutral事实记录规范JCS，含typed canonical frames及blank `entity_key_kind`，不含table_name。用于同一事实摘要流重放 |
-| artifact序 | 现对应family records Arrow schema去掉`table_name`列，保持原detail policy、类型、nullability和顺序；manifest保存每个原batch的row_count序列（现上限1024个batch），恢复时保持batch/Parquet row-group边界 |
-| risk序 | facts序的最小风险投影`record_kind`、`row_identity`、`changed_columns`及现`RiskRecordView`所需字段，类型直接由同一family record schema/适配owner定义；不是按artifact排序逆推 |
+| artifact序 | 现对应family records Arrow schema去掉`table_name`列，保持原detail policy、类型、nullability和顺序；manifest保存每个原batch的row_count序列（现每batch最多1024行，不能误当最多1024个batch），恢复时保持batch/Parquet row-group边界 |
+| risk序（仅STANDARD） | STANDARD facts序的最小投影：`record_kind:Utf8(non-null)`、`row_identity:FixedSizeBinary(32)(nullable)`、`changed_columns:List(item:Utf8 nullable)(non-null)`，精确复用`comparison_records.rs::risk_schema`。每batch最多1024行；ORDERED结果仅投影其中的`standard_records/standard_facts_order`，不为ORDERED/BLANK扩展族增加无consumer视图，也不按artifact排序逆推 |
 
-三视图由同一次完成计算生成，manifest闭合三者的长度、schema版本、raw SHA、数量及family summary；现记录数上限2,000,000保证UInt32 ordinal可表示，验证ordinal连续且无重复，保keyless重复记录。事实JCS按现canonical validator检查形状/字段/类型，采用Rust批量迭代，不在Python逐行parse；scope/key/raw SHA与可信producer共同保证关联，不额外构建缓存防篡改证明。所有新payload为内部格式，不能改变客户端Parquet schema。
+这些视图由同一次完成计算生成，manifest闭合各族长度、schema版本、raw SHA、数量及family summary，并核STANDARD risk行数与其facts行数一致；现记录数上限2,000,000保证UInt32 ordinal可表示，验证ordinal连续且无重复，保keyless重复记录。事实JCS由Comparison owner新增facts-row validator，复用现JCS/typed-frame规则检查形状/字段/类型（现artifact-row validator不等于已有facts-row validator），采用Rust批量迭代，不在Python逐行parse；scope/key/raw SHA与可信producer共同保证关联，不额外构建缓存防篡改证明。所有新payload为内部格式，不能改变客户端Parquet schema。可选manifest容量不足只记not_retained，不缩小原产品接受范围或重分batch。
 
 新facade把facts序JCS作为现table/core摘要流的输入，artifact序经Arrow批量添加当前table_name列后交原Parquet writer，risk按第三视图消费。当前pair小metadata由本次plan重新绑定；descriptor、旧pair/operation ref不从cache拿。命中保持原batch边界是必要条件：现`_write_arrow_parquet`每batch写一个row group，仅逻辑content相同不足以证明raw SHA相同。不得随意rechunk或从新实现重录golden。
 
@@ -154,7 +154,7 @@ Risk新增`RiskCandidateInputV1`：comparison纯任务与neutral完整facts/reco
 
 序列含ordinal和完整结束标记，可用有界JCS事件artifact；不含最终annotation id、pair/table绑定、最终risk outcome/截断结果。保留将被等级过滤的候选，因为上限检查发生在过滤之前。组合信号仍在当前汇总执行，不能缓存composite最终表/跨表聚合。
 
-沿现`_engine.py`的单一emit控制实现重放：diagnostics预检→按事件位置closure check→每次emit前当前取消/截止/table与pair时间检查→当前上限（同时触界pair优先）→level过滤→编号/输出。table cap异常的degraded outcome不增加后续pair total，正常返回的diagnostics degraded仍按原规则累计；pair cap丢弃全部部分标注。命中不能用“上次没超时”替代当前检查。
+沿现`_engine.py::_evaluate_table_impl`的同一emit闭包重放，保留原控制点：diagnostics预检；`CHECK_RECORDS_CLOSURE`在原事件位置检查当前closure；每个`EMIT`先检查当前annotation上限（同时触界pair优先），再记录可选候选、解析rule/level、执行level过滤；被过滤的候选直接返回，不新增table/pair时间检查。仅保留的标注在必要输出预约后编号/append，随后调用原`_check_table`检查当前控制与时间。外层、records迭代和缓存重放每1024事件的operation checkpoint仍按现位置执行；不把`_check_table`提前到emit之前，也不借codec新增业务时间检查点。table cap异常的degraded outcome不增加后续pair total，正常返回的diagnostics degraded仍按原规则累计；pair cap丢弃全部部分标注。命中不能用“上次没超时”替代当前检查。
 
 仅自然走到单表序列末尾且当前pair成功的完整候选可持久化。不得为了填缓存继续运行已被当前上限/超时停止的规则；不存截断、取消或超时前缀。健康diff、risk miss时可从恢复的facts-order record view重新执行风险，无需Dolt或比较kernel。风险候选读入或输出预留失败先释放可选缓存并执行原lazy风险路径；不将optional retention转为资源失败。
 
@@ -168,7 +168,7 @@ Risk新增`RiskCandidateInputV1`：comparison纯任务与neutral完整facts/reco
 
 | 结构 | 字段与用途 |
 | --- | --- |
-| `computation_cache_entries` | PK(repository_id, kind, task_digest)；entry manifest完整ArtifactRef、member_refs_json（comparison最多9视图+manifest，risk事件+manifest）、format、expires_at_us。kind为comparison/risk；manifest闭合payload refs |
+| `computation_cache_entries` | PK(repository_id, kind, task_digest)；entry manifest完整ArtifactRef、member_refs_json（comparison最多7视图+manifest，risk事件+manifest）、format、expires_at_us。kind为comparison/risk；manifest闭合payload refs |
 | `computation_cache_uses` | PK(producer_operation_id, repository_id, kind, task_digest)；记录成功Preview/History本次使用的entry manifest id与同TTL期限，供对应Preview的Submit finalize精确触达；无commit历史链、无状态机 |
 | `artifact_protection_intents` | 复用TTL owner `comparison-table-cache`/`risk-table-cache`，owner id从scope+kind+key派生；每个manifest及成员单独登记。活动读取另用原operation/checkpoint强owner |
 
@@ -185,13 +185,16 @@ writer先以operation临时保护发布成员及manifest，全部完整后在同
 | Preview/History计算并成功出版pair | 登记完整diff/risk候选；uses绑定真实producer operation；当前operation保护覆盖生成/消费窗口 |
 | Preview READY / History READY | 成品结果闭包按原owner保护；内部cache独立TTL，不使ready result依赖cache文件 |
 | T1 AcceptSubmit | 原Preview→Attempt冻结canonical/ready保护移交不变；cache不成为T1必备，不延伸其冻结语义 |
-| T2与PREPARED重试 | 复用原prepare/import包及effect key；不以cache缺失重建包，不改PREPARED边界 |
+| T1后、prepare checkpoint持久化前 | Attempt已为PREPARED，但包尚未固定。冻结canonical缺失/损坏稳定失败，不从parent/SourcePackage/新ruleset重建；完整输入下尚未发表checkpoint的纯计算按现机制重算，cache不是恢复依据 |
+| prepare checkpoint持久化后（含EFFECT_PENDING） | 仅复用checkpoint绑定的原import包/raw SHA及effect key；包缺失/损坏按原稳定失败，不重建包或换key；是否有包不能由PREPARED状态推断 |
 | T3 finalize | 原MatchingFinalizeFacts校验后，在Submission/Attempt/occupancy/ReviewSeed同一control DB事务里，按attempt.preview_result_id解析真实producer并触达仍存在的匹配entry+成员TTL/uses |
 | finalize response loss/replay | 原事务要么全部提交要么回滚；合法FINALIZED replay核原闭合后返回，不重复新增引用/无限续TTL；缺cache不使replay失败 |
 | FAILED/ABORTED/cancel/recovery | 原attempt/operation释放逻辑照旧；只释放本人活动cache pins；可选TTL可留至到期，不改变Repository事实 |
 | Archive | 仅原业务Head CAS/规范表正式引用移交；不把diff/risk挂head，不沿commit链永久保留 |
 
 finalize内部cache维护用窄SAVEPOINT包围预先有界SQL触达：已过期/缺失直接跳过；仅已知optional cache载荷畸形或cache自身约束冲突，且savepoint回滚成功、外层事务仍active时，记录脱敏诊断并继续原finalize。SQLITE_IOERR/CORRUPT/FULL/BUSY、外层事务已回滚、CAS失败、scope矛盾或未知异常均不能吞掉；这些按原恢复处理。事务内不读文件、不调用Repository、不运行比较或cache回填。uses是可丢失派生定位，不写入Submission权威digest。
+
+恢复分界以Canonical Storage §5及DC94的prepare checkpoint屏障为准，T1即创建PREPARED不等于已构包；S5不改此状态机或恢复行为。
 
 Repository技术main CAS已经在Repository import服务发生，不能与control DB的T3称作同一个跨服务事务。Submit不推进业务BaselineHead；该head在`application/archive/start.py`的`save_archived_node_and_cas_head`事务推进。现effect/checkpoint/recovery完整保留。
 
@@ -203,8 +206,9 @@ Repository技术main CAS已经在Repository import服务发生，不能与contro
 | 持久cache可选写失败/额度不足 | 当前业务结果继续；有限诊断，不循环重写、不降标准 |
 | 已提交canonical副本损坏 | `CanonicalCommittedTableAccess`核exact commit catalog、schema/count/raw业务摘要后回填；流与mmap由原owner释放 |
 | 导出Parquet缺失/损坏 | 原导出owner核完整row-layout/writer/scope，按需读取规范表后重新导出；不使用diff records拼整表 |
-| T1冻结未提交canonical缺失 | 原稳定失败，不用parent、运行期ruleset或计算cache替代 |
-| PREPARED后缺原canonical副本 | 沿原冻结包恢复，不重新planner/SQL；冻结包自身错误按原恢复边界 |
+| T1前上传侧规范文件缺失/损坏 | 重新Preview，从SourcePackage按适用规则重算；不得把cache当上传验证的替代 |
+| T1后、prepare checkpoint前冻结canonical缺失/损坏 | 原稳定失败，不用parent、SourcePackage、运行期ruleset或计算cache替代，不前移main；不能恢复尚不存在的导入包 |
+| prepare checkpoint持久化后缺原canonical副本 | 沿checkpoint已绑定的冻结包/raw SHA恢复，不重新planner/SQL；冻结包自身缺失/损坏按原恢复边界稳定失败，不重建或换key |
 | 权威metadata、source commit、scope、ruleset、checkpoint绑定错误 | 现稳定失败/完整性路径，不降级为cache miss |
 | 取消、截止、drain、lease lost | 即时传播原控制结果，释放所有资源，不重试为miss、不缓存前缀 |
 | 真正计算所需M不足 | 释放optional缓存后重做准入一次；仍不足按原资源失败；不修改M或去掉charge |
@@ -228,7 +232,7 @@ Repository技术main CAS已经在Repository import服务发生，不能与contro
 
 RS表读取上限`C=min(N, effective_RS_capacity)`，当前有效RS容量8；N1实读并发为1。使用operation内有界需求队列，最多C个已预约任务；每个任务独立session和明确传入同一context，不能依赖线程自动继承ContextVar。先以可用M准入再派发，预算不足时等待当前已派发任务释放并重新检查控制；无在途任务仍不足则资源失败。不新增跨operation许可协调；现单active不变。计算仍复用固定Rayon池，不在每表创建计算池；Python有界I/O执行器只负责阻塞HTTP读取，operation结束join并关闭全部stream。
 
-client已有502/503 max_attempts=3、base_delay=0.05秒指数退避，保持总尝试上限，不外层重试相乘。增加通用可选cancel probe/deadline参数传到catalog及Arrow open/read/backoff，backend adapter从当前context显式传入；检查等待前后、每chunk与重试边界。backoff释放HTTP attempt资源；部分stream消费后不从头拼接重复批次。deadline取operation与原请求超时的较小值，取消/超时不被包装成普通缓存miss。client只接受通用控制值，不import backend context。
+client已有502/503 max_attempts=3、base_delay=0.05秒指数退避，保持单次client请求的总尝试上限，不新增外层HTTP重试相乘；耗尽后的retryable provider failure及durable step恢复仍由原Operation Lifecycle owner处理，不新建S5全局三次状态机。增加通用可选cancel probe/deadline参数传到catalog及Arrow open/read/backoff，backend adapter从当前context显式传入；检查等待前后、每chunk与重试边界。backoff释放HTTP attempt资源；部分stream消费后不从头拼接重复批次。deadline取operation与原请求超时的较小值，取消/超时不被包装成普通缓存miss。client只接受通用控制值，不import backend context。
 
 ## 9. 计数口径与H1 FULL例外
 

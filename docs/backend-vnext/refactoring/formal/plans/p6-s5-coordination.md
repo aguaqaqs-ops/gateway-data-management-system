@@ -30,3 +30,13 @@ S3/S4 tag精确指各自H，main Rust tree=e2a901417b19259ece669637a41545e774261
 - 文档提交检查：Git差异、空白、相对链接与源码符号/来源核对；明确设计任务不运行产品ruff/mypy，AGENTS记录当前纯文档边界，代码提交五包检查仍保留。
 - Container rebuild required: no，纯文档。Last verified product/image source仅引用S4 V6786交接，不声明当前HEAD gate passed/carried；Container gate for this design: not-applicable。产品阶段E须按真实闭包/镜像完成验证。
 - 独审原文与固定候选见`p6-s5-design-review.md`。设计CLEAR不授权S5实施、push或exit tag。
+
+## 5. 固定候选原审与修订
+
+R1候选`309571984d96d171e9b0c3e24a9cb82ec64c2ead`在`/home/dev/gdds-s5-design-review-r1`只读detached审核，原文/SHA见[独审归档](p6-s5-design-review.md)。GPT-6-Astra high独立结论为DESIGN_CHANGES_REQUIRED，三项均不需新增Owner决策：
+
+- R1风险控制：恢复cap→候选记录→level过滤→预约/编号/append→原`_check_table`；批次operation检查与table/pair时间分开，补cap/时间同时触界、过滤和末条emit向量归属。
+- R2恢复来源：按T1前、T1后至prepare checkpoint前、checkpoint持久化后三段写明；PREPARED不表示已有包，遵守DC94，不改Submit状态机。
+- R3缓存格式：3 facts + 3 artifact + 1 STANDARD risk视图，精确risk schema；每batch至多1024行而非1024个batch；修正Rust records路径，新增facts-row validator归属明确。
+
+一并澄清client三次是单请求上限，durable retry归原Lifecycle；继续清除AGENTS/testing conventions的过往S3 ready、固定全量runner句及过时计数。没有扩大真实范围、生产M或测试矩阵。修订候选须由原审核者连续复审关闭；本轮仍未运行产品测试/构建，也未修改产品源码。

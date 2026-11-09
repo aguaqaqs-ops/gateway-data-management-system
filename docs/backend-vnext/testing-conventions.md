@@ -19,7 +19,7 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 
 所有测试、编译、lint、构建、mock/真实 e2e、取证和有写入的清理均原子 `mkdir /home/dev/gdds-node-busy.d` 获取本节点占用，记录会话、用途和开始 UTC；失败不抢占，完成本次运行与资源收尾后仅释放本人标记。已有自行取得标记的入口不在外层重复取得。只读现场核对无需标记。不以旧空闲快照作为预约。
 
-已知物理拓扑仍为 04/06/07 共享宿主、原 04/05/CT108 分属不同宿主；配置调整不证明物理隔离变化。不同节点不自动互斥，实际干扰时协调；同节点整机单飞，计时独占。正式统计组的预热和全部测量留在同一节点、配置及存储条件，硬件或节点变化另组记录，不能与旧条件混成同一性能对照。pytest workers/Cargo jobs 初始各 4，前端 `GATEWAY_FE_TEST_WORKERS=2`；产品 kernel N/M 独立设置，仍为 N1、32 GiB worker/8 GiB reserve/M24 GiB。64 GiB guest 不构成增大生产预算授权。 其他资源档须有适用授权、固定参数与独审，保留系统及其他服务余量，结果按配置分别报告。宿主 thin pool 水位仍由管理员监测，guest 可用磁盘不能证明宿主余量。
+已知物理拓扑仍为 04/06/07 共享宿主、04/05/CT108 分属不同宿主；配置调整不证明物理隔离变化。不同节点不自动互斥，实际干扰时协调；同节点整机单飞，计时独占。正式统计组的预热和全部测量留在同一节点、配置及存储条件，硬件或节点变化另组记录，不能与旧条件混成同一性能对照。pytest workers/Cargo jobs 初始各 4，前端 `GATEWAY_FE_TEST_WORKERS=2`；产品 kernel N/M 独立设置，仍为 N1、32 GiB worker/8 GiB reserve/M24 GiB。64 GiB guest 不构成增大生产预算授权。其他资源档须有适用授权、固定参数与独审，保留系统及其他服务余量，结果按配置分别报告。宿主 thin pool 水位仍由管理员监测，guest 可用磁盘不能证明宿主余量。
 
 清理仅限已授权且确认无执行者、无待用消费者、无需保留的本人或明确废弃派生文件；逐项记录路径、理由和空间变化。保护已引用成功/失败证据、当前carried worktree/环境/镜像、冻结基准、真实输入与未决故障状态，不按年龄批删、不全局prune、不接管他人资源。
 
@@ -70,8 +70,8 @@ CT201 是联网开发节点，不用于运行测试。专用测试 CT 禁止直�
 - 缓存缺失、镜像/HEAD/输入身份不符、结果不一致时不得继续该次验收。明确由错误工具/命令选择引起的，可按本条修正后重新核验；可按DC67既有授权准备正确缓存，但不绕过预置来源/离线规则或接受错误身份。真实来源/正确性冲突未解决时交Owner。
 - runner已开始测试后exit非0仍先停止后续carried/验收并处理失败；确认属于工具故障后，可在上述三轮和适用独审内恢复，不能直接继续原失败链。原始失败与修正、每轮结果及计数写入普通handoff即可，不增建持久计数/evidence机制。
 
-linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，缺它时 backend 的
-`test_table_rules_resolver.py` 有 58 个用例失败），再执行上面的两步。
+linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，backend 的
+`test_table_rules_resolver.py` 依赖该链接），再执行上面的两步。
 
 `prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 先跑 `rust` 包，再按正确顺序跑
 完全部 Python 包：
@@ -224,7 +224,7 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 cd vnext/backend
 ../scripts/uv-consume.sh -C . run pytest -m unit
 cd ../repository_service
-../scripts/uv-consume.sh -C . run pytest -m unit          # 约 1490 项，无外部依赖，约 12 秒
+../scripts/uv-consume.sh -C . run pytest -m unit          # 不依赖外部服务
 ../scripts/uv-consume.sh -C . run pytest -m integration   # 需要真实 dolt
 ../scripts/uv-consume.sh -C . run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
 ../scripts/uv-consume.sh -C . run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
@@ -271,8 +271,8 @@ backend Compose旅程共用host `127.0.0.1:8000`，同节点必须串行。现ha
 - startup/shutdown、signal、子进程监督或filesystem行为的正确性依赖容器用户、PID namespace、
   mount namespace或双UID隔离；
 - 修改实际Docker/Compose e2e、container harness，或评审结论要声称当前HEAD已经通过容器门禁；
-- 阶段退出、S3 ready、发布或最终production gate。发布与最终production gate必须在最终候选
-  HEAD重新构建并核对provenance，不能用祖先提交的镜像替代；阶段退出与S3 ready可按下文
+- 阶段退出、发布或最终production gate。发布与最终production gate必须在最终候选
+  HEAD重新构建并核对provenance，不能用祖先提交的镜像替代；阶段退出可按下文
   “镜像身份等价与结果沿用”沿用已验证提交的结果。
 
 通常可以延期到必要节点：
@@ -288,7 +288,7 @@ backend Compose旅程共用host `127.0.0.1:8000`，同节点必须串行。现ha
 
 ### 镜像身份等价与结果沿用
 
-适用范围：阶段退出与S3 ready；发布与最终production gate不适用。目的是让门禁之后只改
+适用范围：阶段退出；发布与最终production gate不适用。目的是让门禁之后只改
 handoff、评审报告或普通文档的提交不必重跑Compose，而不是放宽容器门禁本身。
 
 已验证提交`V`与最终HEAD同时满足以下条件时，`V`的容器门禁结果视为最终HEAD的结果，
@@ -337,12 +337,12 @@ Last verified source-tree/image id: <digest | none>
 Container gate for current HEAD: passed | carried | deferred | stale | not-applicable
 Carried from: <V sha、门禁日志、逐镜像身份比较结果 | none>
 Deferred gates/nodeids: <精确命令、path或nodeid>
-Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发布前>
+Required execution point: <本轮结束 | 阶段最终候选 | 发布前>
 ```
 
 若`Container rebuild required: yes`，评审不得用旧镜像结果关闭相关finding；若为`no`，评审应
 检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让容器门禁结果
-绑定到最终HEAD：要么在最终HEAD执行权威Compose/production gate，要么在阶段退出、S3 ready
+绑定到最终HEAD：要么在最终HEAD执行权威Compose/production gate，要么在阶段退出
 节点满足上文镜像身份等价并记为`carried`。
 
 ## 前端测试（FD7）
@@ -537,13 +537,13 @@ process boundary 的生产语义，不仅服务于测试提速。全新 HOME 下
 tombstone或同机恶意actor调度证明，不是普通测试扩展；必须先有owning Contract/ADR接受的威胁、
 损失和验收场景。安全探针可以交给实现者执行，但探针不能自行扩大当前威胁模型。
 
-## Artifact cleanup 比例化验证（S2）
+## Artifact cleanup 比例化验证
 
 权威边界见
 [ADR 0012](refactoring/formal/adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)：
 V1把同euid本地进程视为可信部署组件，不对抗恶意pathname换名。测试必须证明功能自身在
 协作并发、崩溃和普通I/O错误下健壮，不得把directory-broker、inode-CAS unlink、双UID、
-SCM_RIGHTS、pidfd或sidecar收敛重新设为S2/S3硬门。
+SCM_RIGHTS、pidfd或sidecar设为验收硬门。
 
 保留的核心验证按业务后果组织：
 

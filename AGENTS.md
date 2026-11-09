@@ -38,7 +38,7 @@
 | `ct109-gw-dms-07` | 32 vCPU / 64 GiB |
 
 - 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。已有自行管理标记的入口（前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
-- 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、原 04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
+- 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
 - 已授权测试不需逐次与其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（DC97）。
 - 长测由唯一测试执行者负责等待异常／完成事件，常规巡视可降至小时级；协调者等待其唤醒，不重复巡检、转述分钟级进度或逐次跨会话通报。异常及时保留原始exit／日志并按现行规则处理，完成后核收与收尾；具体分工见[测试执行与监视](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)。
 - 正式测量可选池内合格节点；同一统计组的预热和测量留在同一节点与配置，记录冷暖、CPU/内存及存储条件。换节点或硬件配置后的样本分组报告，不能混入旧组或直接宣称同条件提速。
@@ -116,7 +116,7 @@ Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production
 
 ```bash
 mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
-uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
+./vnext/scripts/uv-consume.sh -C vnext/repository_service run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
 ```
 
 ## 测试性能红线
@@ -149,8 +149,7 @@ sha256sum vnext/repository_service/uv.lock
 - 阶段边界用附注 tag（例如 `p5-s1-exit`）标记；审核对象是 `<上一阶段 tag>..<候选提交>` 的提交区间。
 - 审核与复审在只读 detached worktree 中进行（`git worktree add --detach`），不在主工作区运行测试；
   测试运行期间任何人都不得在被测 worktree 中写入。
-- 调试与取证分开（P5 决议 DC30）：调试期间只跑 focused 测试与出问题的那一段真实数据，不跑完整 runner；收敛后在最终门禁提交上
-  完整运行权威 runner 一次、运行真实数据一次作为证据。真实数据的范围由阶段改动面决定，在 kickoff 时写明、阶段退出前由 owner 确认（DC33）。细节见执行计划 §8.9。
+- 调试与取证分开：调试期间只跑必要 focused 测试与受影响的真实数据段；收敛后在最终候选集中完成必要权威包、容器门禁及 Owner 确认的最小真实范围。阶段按实际闭包运行或合格沿用，不默认完整旅程或重复性能采样；项目最终/发布门禁仍运行全部六包。真实范围在 kickoff 写明、阶段退出前由 Owner 确认（DC33、DC98）。
 - 未经 owner 授权不推送，不改写已被审核引用的提交。流程细节见
   [P5 收口执行计划 §8](docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md)。
 
@@ -167,15 +166,15 @@ sha256sum vnext/repository_service/uv.lock
 - UID/GID、目录权限、volume/mount、socket、pidfile、broker/helper；
 - 依赖容器用户、PID、signal、mount 或 filesystem 隔离才能证明的 startup/shutdown 行为；
 - 修改实际 Docker/Compose e2e 或 container harness，或本轮要宣称当前 HEAD 已通过容器门禁；
-- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 必须有绑定到它的容器
-  门禁结果：发布与最终 production gate 必须在最终 HEAD 重建并完整运行；阶段退出与 S3 ready
+- 阶段退出、发布或最终 production gate。最终候选 HEAD 必须有绑定到它的容器
+  门禁结果：发布与最终 production gate 必须在最终 HEAD 重建并完整运行；阶段退出
   可按下文“镜像身份等价”沿用已验证提交的结果。
 
 纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖
 且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
 表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
 
-镜像身份等价（仅阶段退出、S3 ready）：已验证提交 `V` 与最终 HEAD 同时满足以下条件时，`V`
+镜像身份等价（仅阶段退出）：已验证提交 `V` 与最终 HEAD 同时满足以下条件时，`V`
 的容器门禁结果视为最终 HEAD 的结果，记为 `carried`，不重跑 Compose：
 
 1. `V` 的门禁在已提交的 clean worktree 上由权威入口执行，日志记录 HEAD 与 exit code，运行期间

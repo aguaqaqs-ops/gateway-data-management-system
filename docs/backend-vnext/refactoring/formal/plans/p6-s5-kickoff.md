@@ -22,11 +22,11 @@ S5完成目标：单表diff/risk跨operation复用、History按需读表、当�
 
 输入：现ComparisonPlan/TableComparisonTask、S3 facts/core与三族records、risk候选控制顺序、S4共用context。输出：完整纯任务输入类型/稳定key、neutral比较codec及risk事件接口、独立小向量、owning Contract目标形态。
 
-- Comparison owner：B`capabilities/comparison/{contracts,pair_planning,production,native,artifacts}.py`及必要新增`cache.py/cache_codec.py`；Rust `gateway-compute-core/src/comparison/records/`与`gateway-compute-python/src/comparison*`的粗粒度restore/export。
+- Comparison owner：B`capabilities/comparison/{contracts,pair_planning,production,native,artifacts}.py`及必要新增`cache.py/cache_codec.py`；Rust `gateway-compute-core/src/records/`与`gateway-compute-python/src/comparison*`的粗粒度restore/export。
 - Risk owner：B`capabilities/risk_evaluation/{contracts,_engine}.py`及neutral事件模块；缓存仅复用完整候选，emit与时间/上限仍一份。
 - 文档：Comparison/Risk/Artifacts、Rust policy精确FFI、相关import guard；不追加架构违例基线。
 - 交付顺序：先共同语义输入→neutral facts/record views→内存round-trip→风险事件。先完成codec可独立调用验证，再接DB。
-- 最小验证：Rust固定facts/三族语义；backend真实adapter round-trip与当前绑定digest/Parquet；风险控制小向量；import guard允许/拒绝。不建Dolt仓库验证key或codec。
+- 最小验证：Rust固定facts/三族语义；backend真实adapter round-trip与当前绑定digest/Parquet；风险控制小向量（含cap与到期同时发生、被过滤候选、末条emit的原时间检查位置）；import guard允许/拒绝。不建Dolt仓库验证key或codec。
 - 无持久缓存发布、无History切换。默认不触发Compose重建；若变更production依赖或container boundary则按触发规则重建受影响门禁。
 
 ### B TTL存储、引用和失败隔离
@@ -53,11 +53,11 @@ S5完成目标：单表diff/risk跨operation复用、History按需读表、当�
 
 输入：B索引/uses，C生产者与consumer。输出：T3可选触达、取消/截止与有界503接线、资源生命周期和旧入口删除。
 
-- Submission owner：B`application/submission/{finalize_transaction,ports,artifact_release}.py`；不改S4 planner、SQL、publisher、T1 PREPARED及Repository effect/CAS。
+- Submission owner：B`application/submission/{finalize_transaction,ports,artifact_release}.py`；不改S4 planner、SQL、publisher、T1 PREPARED及Repository effect/CAS；恢复按DC94以prepare checkpoint是否持久化分界，PREPARED本身不证明已有导入包。
 - Read owner：B`infrastructure/repository_read/http_arrow.py`、必要operation read scheduler；`vnext/repository_client/src/gateway_repository_client/{client,arrow_stream,retry}.py`只增通用控制参数/有限等待，不import backend。
 - 上限：RS≤min(N,8)，N1为1；不创建每表计算池，所有read/restore/FFI/输出同M。原client重试总attempt上限保持，取消deadline到open/read/backoff。
 - 删除被替换的repr identity、History全表预读假设、无consumer的map-only mock/probe；保真实generic facade、原artifact validator和独立golden。
-- 验证owner：`test_submit_finalize.py`/既有事务测试拥有T3成功回滚/response-loss replay、cache缺失不阻业务、BaselineHead不动；client原retry/arrow测试拥有有界重试及通用deadline；backend HTTP adapter测试只证operation控制传到实际client，单一并发/M与释放owner覆盖hit/miss/cancel/exception。
+- 验证owner：`test_submit_finalize.py`/既有事务测试拥有T3成功回滚/response-loss replay、cache缺失不阻业务、BaselineHead不动；既有prepare恢复测试保有checkpoint前冻结输入缺失稳定失败、checkpoint后固定包复用/缺包失败的唯一owner，不复制新矩阵；client原retry/arrow测试拥有有界重试及通用deadline；backend HTTP adapter测试只证operation控制传到实际client，单一并发/M与释放owner覆盖hit/miss/cancel/exception。
 - 提交前五Python包ruff/mypy；Rust受影响则fmt/clippy，均在专用节点。修改container harness即在本节最终候选重建适用Compose；否则集中E。
 
 ### E 最终固定候选与独立核收

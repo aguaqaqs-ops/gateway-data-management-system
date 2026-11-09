@@ -1881,12 +1881,14 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  // The mount read follows the attempt chain into the held operation, so the
+  // workbench stays on its loading skeleton until the operation is released.
   await held;
   // The terminal FAILED clears both pointers while the attempt is ABORTED.
   fixtureOptions.submitAttemptState = "ABORTED";
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 15000 });
   const notice = page.locator(".workspace-notice[role=\"alert\"]");
   await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
@@ -1933,11 +1935,13 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  // The mount read follows the attempt chain into the held operation, so the
+  // workbench stays on its loading skeleton until the operation is released.
   await held;
   fixtureOptions.submitAttemptReadFails = true;
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 15000 });
   const notice = page.locator(".workspace-notice[role=\"alert\"]");
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);

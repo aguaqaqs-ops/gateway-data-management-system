@@ -1,5 +1,5 @@
 import type { components } from "../api/generated/openapi";
-import { baselineDisplayLabel } from "./baseline-labels";
+import { baselineDisplayLabel, baselineDisplayLabelFor } from "./baseline-labels";
 
 type Schemas = components["schemas"];
 
@@ -27,16 +27,29 @@ export type WorkspaceTreeRow = {
   previewResultId?: string | null;
   uploadRevisionId?: string | null;
   workspaceState?: Schemas["WorkspaceResponse"]["state"];
+  submissionDisposition?: Schemas["HistoryNodeResponse"]["submission_disposition"];
+  dispositionSourceKind?: Schemas["HistoryNodeResponse"]["disposition_source_kind"];
+  dispositionResultId?: string | null;
+  closure?: Schemas["SubmissionClosureSummaryResponse"] | null;
+  promotedBaselineNodeId?: string | null;
+  dispositionBaselineLabel?: string | null;
 };
+
+function dispositionStatus(node: Schemas["HistoryNodeResponse"]): string | null {
+  if (node.submission_disposition === "ARCHIVED_BASELINE") return "已归档";
+  if (node.submission_disposition === "CLOSED_NOT_ARCHIVED") return "已关闭（未归档）";
+  return null;
+}
 
 function historyStatus(node: Schemas["HistoryNodeResponse"], isHead: boolean): string {
   if (node.node_kind === "BASELINE_NODE") return isHead ? "当前基线" : "";
   if (node.node_kind === "SYSTEM_MIGRATION") return "";
+  const disposition = dispositionStatus(node);
+  if (disposition) return disposition;
   switch (node.review_status) {
     case "PENDING": return "待审核";
     case "APPROVED": return "已通过";
-    case "REJECTED":
-    case "RETURNED_FOR_REVISION": return "已退回";
+    case "REJECTED": return "已退回";
     case "WITHDRAWN": return "已撤回";
     default: return "状态未知";
   }
@@ -45,11 +58,12 @@ function historyStatus(node: Schemas["HistoryNodeResponse"], isHead: boolean): s
 function historyStatusTone(node: Schemas["HistoryNodeResponse"], isHead: boolean): WorkspaceTreeRow["statusTone"] {
   if (node.node_kind === "BASELINE_NODE") return isHead ? "info" : "neutral";
   if (node.node_kind === "SYSTEM_MIGRATION") return "neutral";
+  if (node.submission_disposition === "ARCHIVED_BASELINE") return "info";
+  if (node.submission_disposition === "CLOSED_NOT_ARCHIVED") return "neutral";
   switch (node.review_status) {
     case "PENDING": return "pending";
     case "APPROVED": return "success";
-    case "REJECTED":
-    case "RETURNED_FOR_REVISION": return "warning";
+    case "REJECTED": return "warning";
     default: return "neutral";
   }
 }
@@ -126,6 +140,12 @@ export function buildWorkspaceTree(
       identityException: node.identity_exception,
       isHead: current,
       compareOrder: compareOrder.get(key),
+      submissionDisposition: node.submission_disposition,
+      dispositionSourceKind: node.disposition_source_kind,
+      dispositionResultId: node.disposition_result_id,
+      closure: node.closure,
+      promotedBaselineNodeId: node.promoted_baseline_node_id,
+      dispositionBaselineLabel: node.promoted_baseline_node_id ? baselineDisplayLabelFor(history, node.promoted_baseline_node_id) : null,
     });
   };
 
@@ -244,15 +264,21 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonC
         : enabled("join-compare", "加入比较");
   if (row.kind === "baseline") return [compareAction];
   if (row.kind === "submission") {
-    const archiveReady = row.reviewStatus === "APPROVED" && row.eligibilityNote == null;
+    const dispositionReason = row.submissionDisposition === "ARCHIVED_BASELINE"
+      ? "该提交已归档"
+      : row.submissionDisposition === "CLOSED_NOT_ARCHIVED"
+        ? "该提交已关闭（未归档）"
+        : null;
     return [
       comparisonLocked
         ? blocked("view-diff", "查看差异", "历史比较执行中，暂不能发起新比较")
         : row.parentRef ? enabled("view-diff", "查看差异") : blocked("view-diff", "查看差异", "提交缺少基线节点"),
       compareAction,
-      archiveReady
-        ? enabled("archive-mainline", "归档主线")
-        : blocked("archive-mainline", "归档主线", row.eligibilityNote ? "该提交所基于的基线已不是当前基线，不能归档" : row.reviewStatus === "PENDING" ? "提交尚未审核通过" : "当前提交不符合归档条件"),
+      dispositionReason
+        ? blocked("archive-mainline", "归档主线", dispositionReason)
+        : row.reviewStatus === "APPROVED" && row.eligibilityNote == null
+          ? enabled("archive-mainline", "归档主线")
+          : blocked("archive-mainline", "归档主线", row.eligibilityNote ? "该提交所基于的基线已不是当前基线" : row.reviewStatus === "PENDING" ? "提交尚未审核通过" : "当前提交不符合归档条件"),
     ];
   }
   return [];

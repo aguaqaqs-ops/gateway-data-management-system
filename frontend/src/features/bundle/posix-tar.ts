@@ -2,8 +2,14 @@ import { canonicalJson, normalizeSha256, Sha256 } from "./sha256";
 
 const BLOCK = 512;
 const METADATA_LIMIT = 16 * 1024 * 1024;
-const PAX_LIMIT = 1024 * 1024;
+
+/** Budget for one local PAX payload, counted from the header-declared size. */
+export const MAX_PAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
+/** Budget for one member path, applied to PAX `path` records and ustar name/prefix. */
+export const MAX_PATH_UTF8_BYTES = 8 * 1024 * 1024;
+
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
+const textEncoder = new TextEncoder();
 
 export interface BundleIntegrity {
   media_type: string;
@@ -79,6 +85,16 @@ export interface BundleStore {
 export interface BundleDownloadProgress {
   receivedBytes: number;
   contentLength: number;
+}
+
+export interface PaxRecord {
+  key: string;
+  value: string;
+}
+
+export interface MemberPaxHeader {
+  path: string | null;
+  size: number | null;
 }
 
 export class BundleIntegrityError extends Error {
@@ -182,39 +198,104 @@ function validatePath(path: string): string {
   return path;
 }
 
-function parseHeader(header: Uint8Array): { path: string; size: number; type: string } {
+function checkPathBudget(path: string): string {
+  if (textEncoder.encode(path).byteLength > MAX_PATH_UTF8_BYTES) throw new BundleIntegrityError("bundle 成员路径超过允许大小");
+  return path;
+}
+
+/** Parses a 512-byte ustar header; PAX overrides are applied by the installer. */
+export function parseTarHeader(header: Uint8Array): { path: string; size: number; type: string } {
   const stored = octal(header, 148, 156, "校验和");
   let checksum = 0;
   for (let i = 0; i < header.byteLength; i += 1) checksum += i >= 148 && i < 156 ? 32 : (header[i] ?? 0);
   if (checksum !== stored) throw new BundleIntegrityError("tar header 校验和不匹配");
   const name = fieldString(header, 0, 100);
   const prefix = fieldString(header, 345, 500);
-  const path = validatePath(prefix ? `${prefix}/${name}` : name);
+  const path = checkPathBudget(validatePath(prefix ? `${prefix}/${name}` : name));
   const typeByte = header[156] ?? 0;
   const type = typeByte === 0 ? "0" : String.fromCharCode(typeByte);
   const size = octal(header, 124, 136, "成员大小");
   return { path, size, type };
 }
 
-function parsePaxPath(bytes: Uint8Array): string | null {
-  if (bytes.byteLength > PAX_LIMIT) throw new BundleIntegrityError("pax 头超过允许大小");
-  let text: string;
-  try { text = textDecoder.decode(bytes); } catch { throw new BundleIntegrityError("pax header 不是有效 UTF-8"); }
+interface RawPaxRecord {
+  key: string;
+  valueBytes: Uint8Array;
+}
+
+function decodeUtf8(bytes: Uint8Array, label: string): string {
+  try { return textDecoder.decode(bytes); } catch { throw new BundleIntegrityError(`${label} 不是有效 UTF-8`); }
+}
+
+/**
+ * Splits a local PAX payload at byte boundaries. Each record starts with an
+ * ASCII decimal length and one space; the length counts the prefix, the space,
+ * `key=value`, and the trailing newline. Values stay as bytes so a per-key
+ * budget can be applied before the string is allocated.
+ */
+function splitPaxRecords(payload: Uint8Array): RawPaxRecord[] {
+  const records: RawPaxRecord[] = [];
   let offset = 0;
-  let result: string | null = null;
-  while (offset < text.length) {
-    const space = text.indexOf(" ", offset);
-    if (space < 0) throw new BundleIntegrityError("pax 记录格式无效");
-    const length = Number.parseInt(text.slice(offset, space), 10);
-    if (!Number.isSafeInteger(length) || length <= space - offset + 1 || offset + length > text.length) {
-      throw new BundleIntegrityError("pax 记录长度无效");
-    }
-    const record = text.slice(space + 1, offset + length - 1);
-    const separator = record.indexOf("=");
-    if (separator > 0 && record.slice(0, separator) === "path") result = record.slice(separator + 1);
-    offset += length;
+  while (offset < payload.byteLength) {
+    let digitsEnd = offset;
+    while (digitsEnd < payload.byteLength && payload[digitsEnd] >= 0x30 && payload[digitsEnd] <= 0x39) digitsEnd += 1;
+    if (digitsEnd === offset || payload[digitsEnd] !== 0x20) throw new BundleIntegrityError("pax 记录长度格式无效");
+    let digits = "";
+    for (let index = offset; index < digitsEnd; index += 1) digits += String.fromCharCode(payload[index]);
+    const length = Number(digits);
+    if (!Number.isSafeInteger(length) || length <= digitsEnd - offset + 1) throw new BundleIntegrityError("pax 记录长度无效");
+    const recordEnd = offset + length;
+    if (recordEnd > payload.byteLength) throw new BundleIntegrityError("pax 记录越过 payload");
+    if (payload[recordEnd - 1] !== 0x0a) throw new BundleIntegrityError("pax 记录缺少结尾换行");
+    const bodyStart = digitsEnd + 1;
+    let separator = bodyStart;
+    while (separator < recordEnd - 1 && payload[separator] !== 0x3d) separator += 1;
+    if (separator === bodyStart || separator >= recordEnd - 1) throw new BundleIntegrityError("pax 记录缺少 key 或分隔符");
+    records.push({
+      key: decodeUtf8(payload.subarray(bodyStart, separator), "pax key"),
+      valueBytes: payload.subarray(separator + 1, recordEnd - 1),
+    });
+    offset = recordEnd;
   }
-  return result;
+  return records;
+}
+
+/** Record-splitter layer: decodes every `(key, value)` pair with strict UTF-8. */
+export function parsePaxRecords(payload: Uint8Array): PaxRecord[] {
+  return splitPaxRecords(payload).map((record) => ({ key: record.key, value: decodeUtf8(record.valueBytes, `pax ${record.key}`) }));
+}
+
+function parsePaxSize(value: string): number {
+  if (!/^[0-9]+$/.test(value)) throw new BundleIntegrityError("pax size 不是十进制非负整数");
+  const size = Number(value);
+  if (!Number.isSafeInteger(size)) throw new BundleIntegrityError("pax size 超出安全整数范围");
+  return size;
+}
+
+/**
+ * Member layer: a member's local PAX header may carry only `path` and `size`.
+ * Duplicate keys, any other key, and empty values abort the install.
+ */
+export function parseMemberPaxHeader(payload: Uint8Array): MemberPaxHeader {
+  let path: string | null = null;
+  let size: number | null = null;
+  for (const record of splitPaxRecords(payload)) {
+    if (record.key === "path") {
+      if (path !== null) throw new BundleIntegrityError("pax 头包含重复的 path");
+      if (record.valueBytes.byteLength === 0) throw new BundleIntegrityError("pax 头 path 为空");
+      if (record.valueBytes.byteLength > MAX_PATH_UTF8_BYTES) throw new BundleIntegrityError("pax 头 path 超过允许大小");
+      path = decodeUtf8(record.valueBytes, "pax path");
+      continue;
+    }
+    if (record.key === "size") {
+      if (size !== null) throw new BundleIntegrityError("pax 头包含重复的 size");
+      if (record.valueBytes.byteLength === 0) throw new BundleIntegrityError("pax 头 size 为空");
+      size = parsePaxSize(decodeUtf8(record.valueBytes, "pax size"));
+      continue;
+    }
+    throw new BundleIntegrityError(`pax 头包含不支持的 key：${record.key}`);
+  }
+  return { path, size };
 }
 
 function parseJson<T>(bytes: Uint8Array, label: string): T {
@@ -370,7 +451,7 @@ export async function installBundleTar(options: {
   if (!options.etag) throw new BundleIntegrityError("响应缺少 ETag");
   const transaction = await options.store.begin(normalizeSha256(options.expectedBundleDigest));
   const reader = new StreamReader(options.body);
-  let pendingPaxPath: string | null = null;
+  let pendingPax: MemberPaxHeader | null = null;
   try {
     let manifest: BundleManifest | null = null;
     let closure: BundleClosure | null = null;
@@ -380,45 +461,53 @@ export async function installBundleTar(options: {
       if (!header) throw new BundleIntegrityError("tar 缺少结束标记");
       options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });
       if (header.every((byte) => byte === 0)) {
+        if (pendingPax) throw new BundleIntegrityError("pax 扩展头没有后继成员");
         const second = await reader.readExactly(BLOCK);
         if (!second || !second.every((byte) => byte === 0)) throw new BundleIntegrityError("tar 结束块无效");
         break;
       }
-      const parsed = parseHeader(header);
-      const path = pendingPaxPath ?? parsed.path;
-      pendingPaxPath = null;
+      const parsed = parseTarHeader(header);
       if (parsed.type === "x") {
+        if (pendingPax) throw new BundleIntegrityError("pax 扩展头不能连续出现");
+        if (parsed.size > MAX_PAX_PAYLOAD_BYTES || parsed.size > contentLength - reader.consumedBytes) {
+          throw new BundleIntegrityError("pax 头超过允许大小");
+        }
         const pax = await readMemberBytes(reader, parsed.size, "pax header");
-        pendingPaxPath = parsePaxPath(pax);
+        pendingPax = parseMemberPaxHeader(pax);
         await discardPadding(reader, parsed.size);
         continue;
       }
       if (parsed.type !== "0") throw new BundleIntegrityError(`不支持 tar 成员类型：${parsed.type}`);
+      const inheritedPax = pendingPax;
+      pendingPax = null;
+      const path = checkPathBudget(validatePath(inheritedPax?.path ?? parsed.path));
+      const size = inheritedPax?.size ?? parsed.size;
+      if (size > contentLength - reader.consumedBytes) throw new BundleIntegrityError(`tar 成员超出 Content-Length：${path}`);
       if (!manifest) {
         if (path !== "manifest.json") throw new BundleIntegrityError("tar 第一个成员必须是 manifest.json");
-        const bytes = await readMemberBytes(reader, parsed.size, "bundle manifest");
+        const bytes = await readMemberBytes(reader, size, "bundle manifest");
         manifest = parseJson<BundleManifest>(bytes, "bundle manifest");
-        await discardPadding(reader, parsed.size);
+        await discardPadding(reader, size);
         options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });
         continue;
       }
       if (!closure) {
         if (path !== "artifact-closure.json") throw new BundleIntegrityError("tar 第二个成员必须是 artifact-closure.json");
-        const bytes = await readMemberBytes(reader, parsed.size, "bundle closure");
+        const bytes = await readMemberBytes(reader, size, "bundle closure");
         closure = parseJson<BundleClosure>(bytes, "bundle closure");
         await verifyBundleMetadata(manifest, closure, options.expectedBundleDigest, options.etag);
-        await discardPadding(reader, parsed.size);
+        await discardPadding(reader, size);
         options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });
         continue;
       }
       const entry = manifest.closure.entries[entryIndex];
       if (!entry) throw new BundleIntegrityError(`tar 中存在未声明成员：${path}`);
       if (path !== entry.logical_path) throw new BundleIntegrityError(`tar 成员顺序或路径不匹配：预期 ${entry.logical_path}，收到 ${path}`);
-      if (parsed.size !== entry.integrity.size_bytes) throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
+      if (size !== entry.integrity.size_bytes) throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
       await readArtifact(reader, entry, transaction, (receivedBytes) => options.onProgress?.({ receivedBytes, contentLength }), contentLength);
       entryIndex += 1;
     }
-
+    if (pendingPax) throw new BundleIntegrityError("pax 扩展头没有后继成员");
     if (!manifest || !closure) throw new BundleIntegrityError("tar 缺少 bundle manifest 或 closure");
     if (entryIndex !== manifest.closure.entries.length) throw new BundleIntegrityError("tar 未包含全部 closure 产物");
     let hasNonZeroTrailer = false;

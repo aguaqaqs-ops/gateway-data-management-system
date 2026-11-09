@@ -478,6 +478,9 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .operation-status-card__id .button, .operation-status-card > .button { justify-self: start; min-height: 30px; font-size: var(--font-size-xs); }
 .compare-status .connection-status { font-size: 11px; }
 .review-facts-status { color: var(--color-text-muted); font-size: 10px; white-space: nowrap; }
+.review-disposition-line { margin: 2px 0 0; color: var(--color-text-subtle); font-size: var(--font-size-xs); line-height: 1.4; }
+.review-disposition-line details { margin-top: 2px; }
+.review-disposition-line summary { cursor: pointer; }
 
 @media (max-width: 1440px) {
   .workspace-layout { grid-template-columns: minmax(0, 1fr) 42px; }

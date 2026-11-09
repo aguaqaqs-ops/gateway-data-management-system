@@ -70,6 +70,9 @@
             "enum": [
               "ACKNOWLEDGE_EXCLUSION",
               "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+              "ACKNOWLEDGE_SOURCE_EXCEPTION",
+              "ACKNOWLEDGE_TIME_QUALITY",
+              "ACKNOWLEDGE_TIME_ORDER",
               "REVOKE"
             ],
             "title": "Action",
@@ -113,7 +116,10 @@
           "subject_kind": {
             "enum": [
               "APPROVED_SIBLING_EXCLUDED",
-              "PROJECT_IDENTITY_EXCEPTION"
+              "PROJECT_IDENTITY_EXCEPTION",
+              "CONFIGURATION_SOURCE",
+              "CONFIGURATION_TIME_QUALITY",
+              "CONFIGURATION_TIME_ORDER"
             ],
             "title": "Subject Kind",
             "type": "string"
@@ -213,7 +219,6 @@
             "enum": [
               "APPROVE",
               "REJECT",
-              "RETURN_FOR_REVISION",
               "WITHDRAW"
             ],
             "title": "Action",
@@ -242,6 +247,30 @@
           "action"
         ],
         "title": "ApplyReviewRequest",
+        "type": "object"
+      },
+      "ArchiveAffectedCandidateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_digest": {
+            "title": "Candidate Digest",
+            "type": "string"
+          },
+          "configuration_facts_digest": {
+            "title": "Configuration Facts Digest",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "candidate_digest",
+          "configuration_facts_digest"
+        ],
+        "title": "ArchiveAffectedCandidateResponse",
         "type": "object"
       },
       "ArchiveAuditAppendResponse": {
@@ -309,6 +338,23 @@
             "title": "Sequence",
             "type": "integer"
           },
+          "subject": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveBusinessSubjectResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveSiblingSubjectResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveIdentitySubjectResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
           "subject_digest": {
             "title": "Subject Digest",
             "type": "string"
@@ -317,7 +363,10 @@
             "enum": [
               "CONFIRM_SELECTION",
               "APPROVED_SIBLING_EXCLUDED",
-              "PROJECT_IDENTITY_EXCEPTION"
+              "PROJECT_IDENTITY_EXCEPTION",
+              "CONFIGURATION_SOURCE",
+              "CONFIGURATION_TIME_QUALITY",
+              "CONFIGURATION_TIME_ORDER"
             ],
             "title": "Subject Kind",
             "type": "string"
@@ -425,6 +474,286 @@
         "title": "ArchiveAuditReferenceResponse",
         "type": "object"
       },
+      "ArchiveBaselineTimeDetailsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_status": {
+            "const": "NOT_COMPARABLE",
+            "title": "Comparison Status",
+            "type": "string"
+          },
+          "generated_time": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveGeneratedTimeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "generated_time",
+          "comparison_status"
+        ],
+        "title": "ArchiveBaselineTimeDetailsResponse",
+        "type": "object"
+      },
+      "ArchiveBusinessIssueResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Submission Ids",
+            "type": "array"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveSourceIssueDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeQualityDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveBaselineTimeDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeRegressionDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveEmptyIssueDetailsResponse"
+              }
+            ],
+            "title": "Details"
+          },
+          "issue_code": {
+            "enum": [
+              "INITIAL_SOURCE_UNEXPLAINED",
+              "GENERATION_TIME_MISSING",
+              "GENERATION_TIME_INVALID_VALUES",
+              "GENERATION_TIME_LAST_NOT_MAX",
+              "TIME_ABNORMAL_MODIFIED",
+              "TIME_ABNORMAL_INITIAL",
+              "BASELINE_TIME_UNAVAILABLE"
+            ],
+            "title": "Issue Code",
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "enum": [
+                "MODIFIED_BEFORE_INITIAL",
+                "MODIFIED_BEFORE_BASELINE",
+                "INITIAL_BEFORE_BASELINE"
+              ],
+              "type": "string"
+            },
+            "title": "Relations",
+            "type": "array"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "enum": [
+                  "INITIAL",
+                  "MODIFIED",
+                  "BASELINE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "subject_kind": {
+            "enum": [
+              "CONFIGURATION_SOURCE",
+              "CONFIGURATION_TIME_QUALITY",
+              "CONFIGURATION_TIME_ORDER"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_kind",
+          "issue_code",
+          "affected_submission_ids",
+          "side",
+          "relations",
+          "details"
+        ],
+        "title": "ArchiveBusinessIssueResponse",
+        "type": "object"
+      },
+      "ArchiveBusinessSubjectResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "affected_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAffectedCandidateResponse"
+            },
+            "title": "Affected Candidates",
+            "type": "array"
+          },
+          "affected_submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Submission Ids",
+            "type": "array"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveSourceIssueDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeQualityDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveBaselineTimeDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeRegressionDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveEmptyIssueDetailsResponse"
+              }
+            ],
+            "title": "Details"
+          },
+          "issue_code": {
+            "enum": [
+              "INITIAL_SOURCE_UNEXPLAINED",
+              "GENERATION_TIME_MISSING",
+              "GENERATION_TIME_INVALID_VALUES",
+              "GENERATION_TIME_LAST_NOT_MAX",
+              "TIME_ABNORMAL_MODIFIED",
+              "TIME_ABNORMAL_INITIAL",
+              "BASELINE_TIME_UNAVAILABLE"
+            ],
+            "title": "Issue Code",
+            "type": "string"
+          },
+          "relations": {
+            "items": {
+              "enum": [
+                "MODIFIED_BEFORE_INITIAL",
+                "MODIFIED_BEFORE_BASELINE",
+                "INITIAL_BEFORE_BASELINE"
+              ],
+              "type": "string"
+            },
+            "title": "Relations",
+            "type": "array"
+          },
+          "rule_id": {
+            "const": "gateway-vnext/archive-business-validation/v1",
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "selection_subject_digest": {
+            "title": "Selection Subject Digest",
+            "type": "string"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "enum": [
+                  "INITIAL",
+                  "MODIFIED",
+                  "BASELINE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "subject_kind": {
+            "enum": [
+              "CONFIGURATION_SOURCE",
+              "CONFIGURATION_TIME_QUALITY",
+              "CONFIGURATION_TIME_ORDER"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_kind",
+          "issue_code",
+          "affected_submission_ids",
+          "side",
+          "relations",
+          "details",
+          "selection_subject_digest",
+          "rule_id",
+          "affected_candidates"
+        ],
+        "title": "ArchiveBusinessSubjectResponse",
+        "type": "object"
+      },
+      "ArchiveBusinessValidationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_facts_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Facts Digest"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveBusinessIssueResponse"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "rule_id": {
+            "const": "gateway-vnext/archive-business-validation/v1",
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "source_diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSourceDiagnosticResponse"
+            },
+            "title": "Source Diagnostics",
+            "type": "array"
+          },
+          "time_comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveTimeComparisonResponse"
+            },
+            "title": "Time Comparisons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rule_id",
+          "baseline_facts_digest",
+          "source_diagnostics",
+          "time_comparisons",
+          "issues"
+        ],
+        "title": "ArchiveBusinessValidationResponse",
+        "type": "object"
+      },
       "ArchiveCandidateResponse": {
         "additionalProperties": false,
         "properties": {
@@ -467,26 +796,192 @@
           },
           "head": {
             "$ref": "#/components/schemas/BaselineHeadResponse"
+          },
+          "pending_submission_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Pending Submission Count",
+            "type": "integer"
+          },
+          "pending_submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending Submission Ids",
+            "type": "array"
           }
         },
         "required": [
           "head",
           "candidates",
           "candidate_set_digest",
-          "blockers"
+          "blockers",
+          "pending_submission_ids",
+          "pending_submission_count"
         ],
         "title": "ArchiveCandidatesResponse",
         "type": "object"
       },
-      "ArchiveDispositionResponse": {
+      "ArchiveContentIdentityResponse": {
         "additionalProperties": false,
         "properties": {
-          "disposition": {
-            "enum": [
-              "ARCHIVED_BASELINE",
-              "CLOSED_NOT_ARCHIVED"
+          "canonical_state_digest": {
+            "title": "Canonical State Digest",
+            "type": "string"
+          },
+          "scalar_encoding_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Scalar Encoding Version",
+            "type": "integer"
+          },
+          "storage_projection_ruleset_digest": {
+            "title": "Storage Projection Ruleset Digest",
+            "type": "string"
+          },
+          "storage_projection_version": {
+            "title": "Storage Projection Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "canonical_state_digest",
+          "storage_projection_ruleset_digest",
+          "storage_projection_version",
+          "scalar_encoding_version"
+        ],
+        "title": "ArchiveContentIdentityResponse",
+        "type": "object"
+      },
+      "ArchiveEmptyIssueDetailsResponse": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "ArchiveEmptyIssueDetailsResponse",
+        "type": "object"
+      },
+      "ArchiveGeneratedTimeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "empty_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Empty Count",
+            "type": "integer"
+          },
+          "invalid_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Invalid Count",
+            "type": "integer"
+          },
+          "last_not_max": {
+            "title": "Last Not Max",
+            "type": "boolean"
+          },
+          "last_valid_source_row": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Disposition",
+            "title": "Last Valid Source Row"
+          },
+          "max_valid_source_row": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Valid Source Row"
+          },
+          "max_valid_time_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Valid Time Utc"
+          },
+          "rule_id": {
+            "const": "gateway-vnext/configuration-generated-time/v1",
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "selected_time_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Time Utc"
+          },
+          "status": {
+            "enum": [
+              "VALID",
+              "TABLE_ABSENT",
+              "COLUMN_ABSENT",
+              "NO_ROWS",
+              "NO_VALUE",
+              "NO_VALID_VALUE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "valid_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Valid Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id",
+          "status",
+          "selected_time_utc",
+          "max_valid_time_utc",
+          "valid_count",
+          "empty_count",
+          "invalid_count",
+          "last_valid_source_row",
+          "max_valid_source_row",
+          "last_not_max"
+        ],
+        "title": "ArchiveGeneratedTimeResponse",
+        "type": "object"
+      },
+      "ArchiveIdentitySubjectResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_set_digest": {
+            "title": "Assessment Set Digest",
+            "type": "string"
+          },
+          "candidate_digest": {
+            "title": "Candidate Digest",
+            "type": "string"
+          },
+          "preview_bundle_digest": {
+            "title": "Preview Bundle Digest",
+            "type": "string"
+          },
+          "selection_subject_digest": {
+            "title": "Selection Subject Digest",
             "type": "string"
           },
           "submission_id": {
@@ -495,18 +990,119 @@
           }
         },
         "required": [
+          "selection_subject_digest",
           "submission_id",
-          "disposition"
+          "candidate_digest",
+          "preview_bundle_digest",
+          "assessment_set_digest"
         ],
-        "title": "ArchiveDispositionResponse",
+        "title": "ArchiveIdentitySubjectResponse",
         "type": "object"
       },
       "ArchivePreviewAnomalyResponse": {
         "additionalProperties": false,
         "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "accepted_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted By"
+          },
+          "affected_submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Submission Ids",
+            "type": "array"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveSourceIssueDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeQualityDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveBaselineTimeDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveTimeRegressionDetailsResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ArchiveEmptyIssueDetailsResponse"
+              }
+            ],
+            "title": "Details"
+          },
+          "detected_status": {
+            "title": "Detected Status",
+            "type": "string"
+          },
           "issue_code": {
             "title": "Issue Code",
             "type": "string"
+          },
+          "latest_sequence": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Latest Sequence",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "relations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Relations",
+            "type": "array"
+          },
+          "resolution_status": {
+            "enum": [
+              "UNRESOLVED",
+              "ACCEPTED",
+              "REVOKED"
+            ],
+            "title": "Resolution Status",
+            "type": "string"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
           },
           "subject_digest": {
             "title": "Subject Digest",
@@ -515,7 +1111,10 @@
           "subject_kind": {
             "enum": [
               "APPROVED_SIBLING_EXCLUDED",
-              "PROJECT_IDENTITY_EXCEPTION"
+              "PROJECT_IDENTITY_EXCEPTION",
+              "CONFIGURATION_SOURCE",
+              "CONFIGURATION_TIME_QUALITY",
+              "CONFIGURATION_TIME_ORDER"
             ],
             "title": "Subject Kind",
             "type": "string"
@@ -534,7 +1133,17 @@
           "issue_code",
           "target_submission_id",
           "target_candidate_digest",
-          "subject_digest"
+          "subject_digest",
+          "affected_submission_ids",
+          "side",
+          "relations",
+          "details",
+          "detected_status",
+          "resolution_status",
+          "latest_sequence",
+          "accepted_by",
+          "accepted_at",
+          "reason"
         ],
         "title": "ArchivePreviewAnomalyResponse",
         "type": "object"
@@ -613,12 +1222,17 @@
             "type": "string"
           },
           "baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
             "title": "Baseline Head Version",
             "type": "integer"
           },
           "baseline_node_id": {
             "title": "Baseline Node Id",
             "type": "string"
+          },
+          "business_validation": {
+            "$ref": "#/components/schemas/ArchiveBusinessValidationResponse"
           },
           "candidate_set_digest": {
             "title": "Candidate Set Digest",
@@ -633,7 +1247,7 @@
           },
           "dispositions": {
             "items": {
-              "$ref": "#/components/schemas/ArchiveDispositionResponse"
+              "$ref": "#/components/schemas/SubmissionDispositionResponse"
             },
             "title": "Dispositions",
             "type": "array"
@@ -660,7 +1274,8 @@
           "anomaly_resolution_refs",
           "dispositions",
           "archived_by",
-          "archived_at"
+          "archived_at",
+          "business_validation"
         ],
         "title": "ArchiveResultResponse",
         "type": "object"
@@ -682,6 +1297,199 @@
           "expected_candidate_digest"
         ],
         "title": "ArchiveSelectedRefRequest",
+        "type": "object"
+      },
+      "ArchiveSiblingSubjectResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "issue_code": {
+            "const": "APPROVED_SIBLING_EXCLUDED",
+            "title": "Issue Code",
+            "type": "string"
+          },
+          "selection_subject_digest": {
+            "title": "Selection Subject Digest",
+            "type": "string"
+          },
+          "target_candidate_digest": {
+            "title": "Target Candidate Digest",
+            "type": "string"
+          },
+          "target_submission_id": {
+            "title": "Target Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "selection_subject_digest",
+          "issue_code",
+          "target_submission_id",
+          "target_candidate_digest"
+        ],
+        "title": "ArchiveSiblingSubjectResponse",
+        "type": "object"
+      },
+      "ArchiveSourceDiagnosticResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveContentIdentityResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detected_status": {
+            "enum": [
+              "NOT_APPLICABLE",
+              "UNEXPLAINED",
+              "EXPLAINED"
+            ],
+            "title": "Detected Status",
+            "type": "string"
+          },
+          "initial_identity": {
+            "$ref": "#/components/schemas/ArchiveContentIdentityResponse"
+          },
+          "initial_origin": {
+            "enum": [
+              "UPLOADED",
+              "BASELINE_REUSED",
+              "INITIAL_EMPTY"
+            ],
+            "title": "Initial Origin",
+            "type": "string"
+          },
+          "matching_sources": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSourceReferenceResponse"
+            },
+            "title": "Matching Sources",
+            "type": "array"
+          },
+          "rules_identity_differs_from_baseline": {
+            "title": "Rules Identity Differs From Baseline",
+            "type": "boolean"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "initial_origin",
+          "detected_status",
+          "initial_identity",
+          "baseline_identity",
+          "rules_identity_differs_from_baseline",
+          "matching_sources"
+        ],
+        "title": "ArchiveSourceDiagnosticResponse",
+        "type": "object"
+      },
+      "ArchiveSourceEdgeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_digest": {
+            "title": "Candidate Digest",
+            "type": "string"
+          },
+          "configuration_facts_digest": {
+            "title": "Configuration Facts Digest",
+            "type": "string"
+          },
+          "initial": {
+            "$ref": "#/components/schemas/ArchiveContentIdentityResponse"
+          },
+          "modified": {
+            "$ref": "#/components/schemas/ArchiveContentIdentityResponse"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "candidate_digest",
+          "configuration_facts_digest",
+          "initial",
+          "modified"
+        ],
+        "title": "ArchiveSourceEdgeResponse",
+        "type": "object"
+      },
+      "ArchiveSourceIssueDetailsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detected_status": {
+            "const": "UNEXPLAINED",
+            "title": "Detected Status",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSourceEdgeResponse"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveContentIdentityResponse"
+            },
+            "title": "States",
+            "type": "array"
+          }
+        },
+        "required": [
+          "states",
+          "edges",
+          "detected_status"
+        ],
+        "title": "ArchiveSourceIssueDetailsResponse",
+        "type": "object"
+      },
+      "ArchiveSourceReferenceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "side": {
+            "enum": [
+              "INITIAL",
+              "MODIFIED"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "BASELINE",
+              "SUBMISSION"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          }
+        },
+        "required": [
+          "source_kind",
+          "side"
+        ],
+        "title": "ArchiveSourceReferenceResponse",
         "type": "object"
       },
       "ArchiveStartedResponse": {
@@ -709,6 +1517,8 @@
             "type": "string"
           },
           "baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
             "title": "Baseline Head Version",
             "type": "integer"
           },
@@ -718,7 +1528,7 @@
           },
           "dispositions": {
             "items": {
-              "$ref": "#/components/schemas/ArchiveDispositionResponse"
+              "$ref": "#/components/schemas/SubmissionDispositionResponse"
             },
             "title": "Dispositions",
             "type": "array"
@@ -750,6 +1560,95 @@
         "title": "ArchiveStartedResponse",
         "type": "object"
       },
+      "ArchiveTimeComparisonResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detected_status": {
+            "enum": [
+              "NOT_APPLICABLE",
+              "NOT_COMPARABLE",
+              "BACKWARD",
+              "NORMAL"
+            ],
+            "title": "Detected Status",
+            "type": "string"
+          },
+          "left_time_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Time Utc"
+          },
+          "relation": {
+            "enum": [
+              "MODIFIED_BEFORE_INITIAL",
+              "MODIFIED_BEFORE_BASELINE",
+              "INITIAL_BEFORE_BASELINE"
+            ],
+            "title": "Relation",
+            "type": "string"
+          },
+          "right_time_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Right Time Utc"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "relation",
+          "left_time_utc",
+          "right_time_utc",
+          "detected_status"
+        ],
+        "title": "ArchiveTimeComparisonResponse",
+        "type": "object"
+      },
+      "ArchiveTimeQualityDetailsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "generated_time": {
+            "$ref": "#/components/schemas/ArchiveGeneratedTimeResponse"
+          }
+        },
+        "required": [
+          "generated_time"
+        ],
+        "title": "ArchiveTimeQualityDetailsResponse",
+        "type": "object"
+      },
+      "ArchiveTimeRegressionDetailsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveTimeComparisonResponse"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "comparisons"
+        ],
+        "title": "ArchiveTimeRegressionDetailsResponse",
+        "type": "object"
+      },
       "BaselineHeadResponse": {
         "additionalProperties": false,
         "properties": {
@@ -774,6 +1673,93 @@
           "baseline_head_version"
         ],
         "title": "BaselineHeadResponse",
+        "type": "object"
+      },
+      "CloseSubmissionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "expected_review_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Review Version",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_review_version",
+          "expected_baseline_node_id",
+          "expected_baseline_head_version",
+          "reason"
+        ],
+        "title": "CloseSubmissionRequest",
+        "type": "object"
+      },
+      "CloseSubmissionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "title": "Closed By",
+            "type": "string"
+          },
+          "disposition": {
+            "const": "CLOSED_NOT_ARCHIVED",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "released_workspace_id": {
+            "title": "Released Workspace Id",
+            "type": "string"
+          },
+          "source_kind": {
+            "const": "MANUAL_CLOSE",
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "workspace_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Workspace Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "submission_id",
+          "disposition",
+          "source_kind",
+          "closed_by",
+          "closed_at",
+          "reason",
+          "released_workspace_id",
+          "workspace_version"
+        ],
+        "title": "CloseSubmissionResponse",
         "type": "object"
       },
       "CreateWorkspaceRequest": {
@@ -1159,21 +2145,6 @@
       "HistoryNodeResponse": {
         "additionalProperties": false,
         "properties": {
-          "archive_disposition": {
-            "anyOf": [
-              {
-                "enum": [
-                  "ARCHIVED_BASELINE",
-                  "CLOSED_NOT_ARCHIVED"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Archive Disposition"
-          },
           "baseline_kind": {
             "anyOf": [
               {
@@ -1189,6 +2160,16 @@
             ],
             "title": "Baseline Kind"
           },
+          "closure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionClosureSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "commit_id": {
             "maxLength": 1024,
             "minLength": 1,
@@ -1199,6 +2180,32 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "disposition_result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition Result Id"
+          },
+          "disposition_source_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ARCHIVE",
+                  "MANUAL_CLOSE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposition Source Kind"
           },
           "eligibility_note": {
             "anyOf": [
@@ -1266,7 +2273,6 @@
                   "PENDING",
                   "APPROVED",
                   "REJECTED",
-                  "RETURNED_FOR_REVISION",
                   "WITHDRAWN"
                 ],
                 "type": "string"
@@ -1276,6 +2282,21 @@
               }
             ],
             "title": "Review Status"
+          },
+          "submission_disposition": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ARCHIVED_BASELINE",
+                  "CLOSED_NOT_ARCHIVED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Disposition"
           }
         },
         "required": [
@@ -1615,6 +2636,9 @@
             "title": "Blockers",
             "type": "array"
           },
+          "business_validation": {
+            "$ref": "#/components/schemas/ArchiveBusinessValidationResponse"
+          },
           "can_start": {
             "title": "Can Start",
             "type": "boolean"
@@ -1639,6 +2663,19 @@
           },
           "head": {
             "$ref": "#/components/schemas/BaselineHeadResponse"
+          },
+          "pending_submission_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Pending Submission Count",
+            "type": "integer"
+          },
+          "pending_submission_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending Submission Ids",
+            "type": "array"
           },
           "selected": {
             "anyOf": [
@@ -1678,7 +2715,10 @@
           "dispositions",
           "workspace_releases",
           "can_start",
-          "blockers"
+          "blockers",
+          "pending_submission_ids",
+          "pending_submission_count",
+          "business_validation"
         ],
         "title": "PreviewArchivePlanResponse",
         "type": "object"
@@ -1866,7 +2906,6 @@
               "PENDING",
               "APPROVED",
               "REJECTED",
-              "RETURNED_FOR_REVISION",
               "WITHDRAWN"
             ],
             "title": "Status",
@@ -1898,7 +2937,6 @@
               "SUBMISSION_FINALIZED",
               "APPROVED",
               "REJECTED",
-              "RETURNED_FOR_REVISION",
               "WITHDRAWN"
             ],
             "title": "Event Kind",
@@ -1911,7 +2949,6 @@
                   "PENDING",
                   "APPROVED",
                   "REJECTED",
-                  "RETURNED_FOR_REVISION",
                   "WITHDRAWN"
                 ],
                 "type": "string"
@@ -1947,7 +2984,6 @@
               "PENDING",
               "APPROVED",
               "REJECTED",
-              "RETURNED_FOR_REVISION",
               "WITHDRAWN"
             ],
             "title": "To Status",
@@ -1994,11 +3030,20 @@
               "PENDING",
               "APPROVED",
               "REJECTED",
-              "RETURNED_FOR_REVISION",
               "WITHDRAWN"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "submission_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionDispositionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "submission_id": {
             "title": "Submission Id",
@@ -2020,6 +3065,7 @@
           "review_version",
           "updated_by",
           "updated_at",
+          "submission_disposition",
           "identity_exception"
         ],
         "title": "ReviewFactsResponse",
@@ -2100,7 +3146,7 @@
             "items": {
               "$ref": "#/components/schemas/ArchiveAuditReferenceRequest"
             },
-            "maxItems": 200,
+            "maxItems": 1601,
             "title": "Anomaly Resolution Refs",
             "type": "array"
           },
@@ -2112,7 +3158,7 @@
             "items": {
               "$ref": "#/components/schemas/ArchiveAuditReferenceRequest"
             },
-            "maxItems": 200,
+            "maxItems": 1,
             "title": "Confirmation Refs",
             "type": "array"
           },
@@ -2183,6 +3229,86 @@
           "expected_baseline_head_version"
         ],
         "title": "StartPreviewRequest",
+        "type": "object"
+      },
+      "SubmissionClosureSummaryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "title": "Closed By",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "closed_by",
+          "closed_at",
+          "reason"
+        ],
+        "title": "SubmissionClosureSummaryResponse",
+        "type": "object"
+      },
+      "SubmissionDispositionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "closure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubmissionClosureSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "ARCHIVED_BASELINE",
+              "CLOSED_NOT_ARCHIVED"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "source_kind": {
+            "enum": [
+              "ARCHIVE",
+              "MANUAL_CLOSE"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "disposition",
+          "source_kind",
+          "result_id",
+          "closure"
+        ],
+        "title": "SubmissionDispositionResponse",
         "type": "object"
       },
       "SubmissionResponse": {
@@ -2558,6 +3684,28 @@
       "WorkspaceResponse": {
         "additionalProperties": false,
         "properties": {
+          "active_submission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Submission Id"
+          },
+          "active_submit_attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Submit Attempt Id"
+          },
           "business_project_id": {
             "title": "Business Project Id",
             "type": "string"
@@ -2621,6 +3769,8 @@
           "business_project_id",
           "state",
           "generation",
+          "active_submit_attempt_id",
+          "active_submission_id",
           "optimistic_version",
           "created_at",
           "updated_at"
@@ -2814,7 +3964,10 @@
               "enum": [
                 "CONFIRM_SELECTION",
                 "APPROVED_SIBLING_EXCLUDED",
-                "PROJECT_IDENTITY_EXCEPTION"
+                "PROJECT_IDENTITY_EXCEPTION",
+                "CONFIGURATION_SOURCE",
+                "CONFIGURATION_TIME_QUALITY",
+                "CONFIGURATION_TIME_ORDER"
               ],
               "title": "Subject Kind",
               "type": "string"
@@ -3068,7 +4221,7 @@
             "description": "SCOPE_FORBIDDEN"
           },
           "409": {
-            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_CONFIRMATION_REQUIRED, ARCHIVE_ANOMALY_UNRESOLVED, ARCHIVE_AUDIT_VERSION_CONFLICT, ACTIVE_SUBMIT_ATTEMPT, ARCHIVE_SCOPE_LIMIT_EXCEEDED, WORKSPACE_OCCUPANCY_CONFLICT"
+            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_CONFIRMATION_REQUIRED, ARCHIVE_ANOMALY_UNRESOLVED, ARCHIVE_AUDIT_VERSION_CONFLICT, ACTIVE_SUBMIT_ATTEMPT, ARCHIVE_PENDING_REVIEW, ARCHIVE_SCOPE_LIMIT_EXCEEDED, WORKSPACE_OCCUPANCY_CONFLICT"
           },
           "413": {
             "description": "REQUEST_TOO_LARGE"
@@ -3253,6 +4406,16 @@
                 }
               }
             },
+            "description": "Idempotent replay"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCompareAcceptResponse"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "401": {
@@ -3357,11 +4520,29 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              }
+              "application/x-tar": {}
             },
-            "description": "Successful Response"
+            "description": "Complete uncompressed POSIX bundle tar",
+            "headers": {
+              "Content-Disposition": {
+                "description": "Safe attachment tar filename",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "Exact complete tar byte count",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "ETag": {
+                "description": "Quoted bundle digest",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "description": "AUTHENTICATION_REQUIRED"
@@ -3381,6 +4562,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "BUNDLE_INTEGRITY_FAILURE"
           }
         },
         "summary": "Get History Compare Bundle Route",
@@ -3440,6 +4624,82 @@
         "summary": "Get Operation Route",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/v1/submissions/{submission_id}/closure": {
+      "post": {
+        "operationId": "close_submission_route_v1_submissions__submission_id__closure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseSubmissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseSubmissionResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloseSubmissionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, ARCHIVE_CLOSED, WORKSPACE_OCCUPANCY_CONFLICT"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Close Submission Route",
+        "tags": [
+          "archives"
         ]
       }
     },
@@ -3552,7 +4812,7 @@
             "description": "RESOURCE_NOT_FOUND"
           },
           "409": {
-            "description": "IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT"
+            "description": "IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT, BASELINE_VERSION_CONFLICT, ARCHIVE_CLOSED"
           },
           "422": {
             "description": "REQUEST_VALIDATION_FAILED"
@@ -3585,6 +4845,16 @@
         },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Existing workspace"
+          },
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
@@ -3765,12 +5035,29 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              },
-              "application/octet-stream": {}
+              "application/x-tar": {}
             },
-            "description": "Preview bundle. Per-table surface diagnostics_summary may contain the informational KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility."
+            "description": "Preview bundle. Per-table surface diagnostics_summary may contain the informational KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "Safe attachment tar filename",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "Exact complete tar byte count",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "ETag": {
+                "description": "Quoted bundle digest",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "description": "AUTHENTICATION_REQUIRED"
@@ -3792,7 +5079,7 @@
             "description": "Validation Error"
           },
           "503": {
-            "description": "SERVICE_NOT_READY"
+            "description": "SERVICE_NOT_READY, BUNDLE_INTEGRITY_FAILURE"
           }
         },
         "summary": "Read Preview Bundle Route",

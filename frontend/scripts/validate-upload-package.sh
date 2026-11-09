@@ -9,6 +9,8 @@ FRONTEND_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 ROOT="$(cd -- "$(git -C "$FRONTEND_DIR" rev-parse --show-toplevel)" && pwd -P)"
 FE_IMAGE="${GATEWAY_FE_PACKAGE_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble}"
 BACKEND_IMAGE="${GATEWAY_BACKEND_DEPS_IMAGE:-gateway-backend-deps:lock-d054366c02fa}"
+VALIDATE_TAG=""
+VALIDATE_BUILT=0
 OUT=""
 LOG_DIR=""
 LOG_FILE=""
@@ -76,6 +78,9 @@ finish() {
     printf 'exit_code=%s\n' "$exit_code"
   } >> "$LOG_FILE" 2>/dev/null || true
   for archive in "${IDENTITY_ARCHIVES[@]:-}"; do [[ -n "$archive" ]] && rm -f -- "$archive"; done
+  if [[ "$VALIDATE_BUILT" == "1" && -n "$VALIDATE_TAG" ]]; then
+    docker rmi "$VALIDATE_TAG" >> "$LOG_FILE" 2>&1 || true
+  fi
   sha256sum "$LOG_FILE" > "$LOG_FILE.sha256" 2>/dev/null || true
   printf 'log_file=%s\n' "$LOG_FILE"
   cat "$LOG_FILE.sha256" 2>/dev/null || true
@@ -126,6 +131,7 @@ for input in \
   vnext/backend/pyproject.toml \
   vnext/backend/uv.lock \
   vnext/backend/.python-version \
+  vnext/backend/Dockerfile \
   vnext/rust/Cargo.lock \
   vnext/rust/rust-toolchain.toml \
   frontend/scripts/build-upload-validation-fixtures.mjs \
@@ -181,8 +187,32 @@ else
   exit "$preflight_exit"
 fi
 
+RUN_STAGE="validator-image-build"
+VALIDATE_TAG="gateway-backend-validate:fe-${HEAD_START:0:10}"
+PRINT_INPUT_JSON="$("$ROOT/vnext/scripts/build-backend-dependency-base.sh" --print-input 2>/dev/null)"
+PRINT_INPUT_TAG="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["image"])' "$PRINT_INPUT_JSON")"
+if [[ "$PRINT_INPUT_TAG" != "$BACKEND_IMAGE" ]]; then
+  log "error=dependency image tag does not match --print-input for this HEAD"
+  exit 2
+fi
+log "validator_image_tag=$VALIDATE_TAG"
+if docker image inspect "$VALIDATE_TAG" >/dev/null 2>&1; then
+  log "error=validator tag already exists, refusing to reuse: $VALIDATE_TAG"
+  exit 2
+fi
+if ! docker build --network=none \
+  -f "$ROOT/vnext/backend/Dockerfile" \
+  --build-arg "DEPENDENCY_BASE_IMAGE=$BACKEND_IMAGE" \
+  --build-arg "USE_PRELOADED_DEPENDENCIES=1" \
+  -t "$VALIDATE_TAG" "$ROOT/vnext" 2>&1 | tee -a "$LOG_FILE"; then
+  log "error=validator backend image build failed (cache miss or network needed, stop)"
+  exit 2
+fi
+VALIDATE_BUILT=1
+log "validator_image_built=$VALIDATE_TAG"
+
 RUN_STAGE="image-identity"
-for pair in "toolchain:$FE_IMAGE" "dependency:$BACKEND_IMAGE"; do
+for pair in "toolchain:$FE_IMAGE" "dependency:$BACKEND_IMAGE" "validator:$VALIDATE_TAG"; do
   label="${pair%%:*}"
   image="${pair#*:}"
   archive="$(mktemp "$LOG_DIR/.identity-${label}.XXXXXX.tar")"
@@ -204,7 +234,7 @@ RUN_STAGE="validate-backend"
 docker run --rm --network none \
   -v "$ROOT:/src:ro" -v "$OUT:/out:ro" -w /src \
   -e PYTHONPATH=/src/vnext/backend/src:/src/vnext/shared_kernel/src:/src/vnext/repository_contracts/src:/src/vnext/repository_client/src \
-  "$BACKEND_IMAGE" /build/backend/.venv/bin/python frontend/scripts/validate_upload_package.py /out 2>&1 | tee -a "$LOG_FILE"
+  "$VALIDATE_TAG" /app/backend/.venv/bin/python frontend/scripts/validate_upload_package.py /out 2>&1 | tee -a "$LOG_FILE"
 
 RUN_STAGE="package-sha256"
 sha256sum "$OUT"/*.tar.gz | tee -a "$LOG_FILE"

@@ -61,7 +61,7 @@ export interface GatewayApi {
   getHistoryCompare(operationId: string, signal?: AbortSignal): Promise<Schemas["HistoryCompareResultResponse"]>;
   getHistoryBundle(operationId: string, signal?: AbortSignal): Promise<Response>;
   listArchiveCandidates(): Promise<Schemas["ArchiveCandidatesResponse"]>;
-  listArchiveEvents(query: { subjectKind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION"; subjectDigest: string; afterSequence?: number; limit?: number }): Promise<Schemas["ArchiveAuditEventsResponse"]>;
+  listArchiveEvents(query: { subjectKind: Schemas["ArchiveAuditEventResponse"]["subject_kind"]; subjectDigest: string; afterSequence?: number; limit?: number }): Promise<Schemas["ArchiveAuditEventsResponse"]>;
   previewArchive(body: Schemas["PreviewArchivePlanRequest"]): Promise<Schemas["PreviewArchivePlanResponse"]>;
   appendArchiveConfirmation(body: Schemas["AppendArchiveConfirmationRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
   appendArchiveAnomalyResolution(body: Schemas["AppendArchiveAnomalyResolutionRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
@@ -90,12 +90,11 @@ async function sha256(file: File): Promise<string> {
 
 function safeReviewStatus(value: string): ReviewStatus {
   if (value === "PENDING" || value === "APPROVED" || value === "REJECTED" || value === "WITHDRAWN") return value;
-  if (value === "RETURNED_FOR_REVISION") return "REJECTED";
   throw new Error(`未知审核状态：${value}`);
 }
 
 function safeReviewEvent(event: Schemas["ReviewEventResponse"]): SafeReviewEvent {
-  const kind = event.event_kind === "RETURNED_FOR_REVISION" ? "REJECTED" : event.event_kind;
+  const kind = event.event_kind;
   if (kind !== "SUBMISSION_FINALIZED" && kind !== "APPROVED" && kind !== "REJECTED" && kind !== "WITHDRAWN") {
     throw new Error(`未知审核事件：${event.event_kind}`);
   }

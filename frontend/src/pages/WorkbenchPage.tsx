@@ -4,9 +4,12 @@ import type { components } from "../features/api/generated/openapi";
 import { gatewayApi } from "../features/api/application-api";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
 import { ApiError } from "../features/api/authenticated-fetch";
+import { bundleErrorTitle } from "../features/bundle/local-bundle";
 import { reportConnectionStatus } from "../features/api/connection-status";
 import { PollingConnectionLostError, pollHistoryCompare } from "../features/api/journeys";
 import { currentGatewaySession, historyCompareRequestTimeoutMs } from "../features/api/session";
+import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
+import { ClosureReason, formatDispositionTime } from "../features/workbench/disposition-display";
 import { ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
 import { ErrorState, LoadingSkeleton } from "../design-system/components";
@@ -54,7 +57,12 @@ function showOperationForCompare(operationId: string | null, state: Schemas["His
 }
 
 export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode }) {
-  const [data, setData] = useState<{ workspace: Schemas["WorkspaceResponse"]; history: Schemas["HistoryListResponse"] } | null>(null);
+  // Upload-mode occupancy (submit/upload gates, step-card reason) is shared
+  // with the Preview page through useUploadModeState (B4): a single read
+  // sequence for the workspace, review, attempt and operation.
+  const uploadMode = useUploadModeState({ enabled: true });
+  const workspace = uploadMode.workspace;
+  const [history, setHistory] = useState<Schemas["HistoryListResponse"] | null>(null);
   const [loadError, setLoadError] = useState<{ code: string; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -98,16 +106,10 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     const id = params.get("operationId");
     return Boolean(id && params.get("operationKind") !== "history-compare" && sessionStorage.getItem("gateway-preview-operation") === id);
   });
-  const [resumeSubmitOperation] = useState<{ operationId: string; workspaceId: string; submitAttemptId: string } | null>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get("operationId");
-    if (!id || params.get("operationKind") === "history-compare") return null;
-    try {
-      const marker = JSON.parse(sessionStorage.getItem("gateway-submit-operation") ?? "null") as { operationId?: string; workspaceId?: string; submitAttemptId?: string } | null;
-      if (marker?.operationId !== id || !marker.workspaceId || !marker.submitAttemptId) return null;
-      return { operationId: id, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
-    } catch { return null; }
-  });
+  const [resumeSubmitOperationId, setResumeSubmitOperationId] = useState<string | null>(null);
+  // F1: rendered from the hook snapshot; the page keeps no resume copy.
+  const submitResumeNotice = uploadMode.resumeNotice;
+  const [notice, setNotice] = useState<string | null>(() => new URLSearchParams(window.location.search).get("notice"));
   const resumePending = useRef(resumePreviewOperation);
   const [uploadLocked, setUploadLocked] = useState(resumePreviewOperation);
   const [uploadReady, setUploadReady] = useState(false);
@@ -138,60 +140,116 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     }
   }, [compareRefs, selectedKey]);
 
-  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
-    if (!resumeSubmitOperation || resumeSubmitOperation.operationId !== finishedOperationId) return;
+
+  const reloadHistory = useCallback(async (): Promise<Schemas["HistoryListResponse"] | null> => {
     try {
-      const attempt = await gatewayApi.getSubmitAttempt(resumeSubmitOperation.workspaceId, resumeSubmitOperation.submitAttemptId);
-      sessionStorage.removeItem("gateway-submit-operation");
-      if (!attempt.submission_id) return;
-      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: attempt.submission_id });
-      window.location.assign(`/?${params.toString()}`);
+      const loaded = await gatewayApi.listHistory();
+      setHistory(loaded);
+      return loaded;
     } catch {
-      sessionStorage.removeItem("gateway-submit-operation");
+      return null;
     }
-  }, [resumeSubmitOperation]);
+  }, []);
 
   const load = useCallback(async () => {
     const session = currentGatewaySession();
     if (!session.businessProjectId || !session.gatewayDeviceExternalKey) {
       setLoadError({ code: "SESSION_REQUIRED", message: "当前会话没有业务项目与网关设备身份" });
-      setData(null);
+      setHistory(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     setLoadError(null);
     try {
-      const [workspace, history] = await Promise.all([
-        gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey }),
+      const [snapshot, loadedHistory] = await Promise.all([
+        uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
-      setData({ workspace, history });
+      if (!snapshot.workspace || snapshot.workspaceError) {
+        // The shared refresh keeps stale state on failure; the page-level
+        // load still reports it as a load error (as before B4).
+        setLoadError(snapshot.workspaceError ?? { code: "WORKSPACE_LOAD_FAILED", message: "工作区加载失败" });
+        setHistory(null);
+        return;
+      }
+      setHistory(loadedHistory);
+      const loadedAttempt = snapshot.attempt;
+      if (snapshot.workspace.active_submit_attempt_id && loadedAttempt?.operation_id) {
+        const url = new URL(window.location.href);
+        const urlOperationId = url.searchParams.get("operationId");
+        if (urlOperationId !== loadedAttempt.operation_id) {
+          // §6.2: only a submit operation in the URL loses to the pointer;
+          // a preview operation belongs to the preview flow (job_kind).
+          const jobKind = urlOperationId ? await getUrlOperationJobKind(urlOperationId) : null;
+          if (!urlOperationId || jobKind === "backend-vnext/submit") {
+            url.searchParams.set("operationId", loadedAttempt.operation_id);
+            url.searchParams.set("operationKind", "operation");
+            window.history.replaceState(null, "", url);
+          }
+        }
+      } else {
+        setResumeSubmitOperationId(null);
+      }
       setLoadError(null);
     } catch (cause) {
       const message = messageFrom(cause);
       if (isTemporaryError(cause)) reportConnectionStatus("interrupted");
       setLoadError(message);
-      setData(null);
+      setHistory(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [uploadMode.refresh]);
 
   const reloadHead = useCallback(async (): Promise<Schemas["HistoryListResponse"]["head"] | null> => {
     const session = currentGatewaySession();
     if (!session.businessProjectId || !session.gatewayDeviceExternalKey) return null;
     try {
-      const [workspace, history] = await Promise.all([
-        gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey }),
+      const [snapshot, loadedHistory] = await Promise.all([
+        uploadMode.refresh(),
         gatewayApi.listHistory(),
       ]);
-      setData({ workspace, history });
-      return history.head;
+      if (!snapshot.workspace || snapshot.workspaceError) return null;
+      setHistory(loadedHistory);
+      return loadedHistory.head;
     } catch {
       return null;
     }
-  }, []);
+  }, [uploadMode.refresh]);
+
+  // The resume card mounts as soon as the attempt is known, without waiting
+  // for the (possibly long-polling) operation read inside the same refresh.
+  const resumeAttemptOperationId = uploadMode.attempt?.operation_id ?? null;
+  useEffect(() => {
+    if (resumeAttemptOperationId) setResumeSubmitOperationId(resumeAttemptOperationId);
+  }, [resumeAttemptOperationId]);
+
+  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
+    const outcome = await uploadMode.resumeAfterOperation(finishedOperationId);
+    if (outcome.kind === "submitted") {
+      window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: outcome.submissionId, workbenchNode: selectedKey }, compareRefs));
+      return;
+    }
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
+      setResumeSubmitOperationId(null);
+    }
+    await reloadHistory();
+  }, [compareRefs, selectedKey, reloadHistory, uploadMode.resumeAfterOperation]);
+
+  // G1 (§6.2 step 2): the notice retry shares the hook entry with the Preview
+  // page, so empty pointers still re-read the known attempt ID.
+  const retryResumeNotice = useCallback(async () => {
+    const outcome = await uploadMode.retryResume();
+    if (outcome.kind === "submitted") {
+      window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: outcome.submissionId, workbenchNode: selectedKey }, compareRefs));
+      return;
+    }
+    if (outcome.kind === "aborted" || outcome.kind === "empty") {
+      setResumeSubmitOperationId(null);
+    }
+    await reloadHistory();
+  }, [compareRefs, selectedKey, reloadHistory, uploadMode.retryResume]);
 
   useEffect(() => {
     void load();
@@ -200,7 +258,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     return () => window.removeEventListener("gateway-session-change", onSessionChange);
   }, [load]);
 
-  const rows = useMemo(() => data ? buildWorkspaceTree(data.workspace, data.history, compareRefs) : [], [data, compareRefs]);
+  const rows = useMemo(() => workspace && history ? buildWorkspaceTree(workspace, history, compareRefs) : [], [workspace, history, compareRefs]);
   useEffect(() => {
     if (!rows.length) return;
     const queryNode = new URLSearchParams(window.location.search).get("workbenchNode");
@@ -264,10 +322,10 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   };
 
   const openPreview = (pair?: string) => {
-    if (!data?.workspace.current_preview_result_id) return;
+    if (!workspace?.current_preview_result_id) return;
     window.location.assign(pageUrl("compare", {
-      mode: "PREVIEW", workspaceId: data.workspace.workspace_id,
-      previewResultId: data.workspace.current_preview_result_id, workbenchNode: selectedKey, pair,
+      mode: "PREVIEW", workspaceId: workspace.workspace_id,
+      previewResultId: workspace.current_preview_result_id, workbenchNode: selectedKey, pair,
     }, compareRefs));
   };
 
@@ -351,7 +409,9 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         setBundleStatus("ready");
       } catch (cause) {
         if (controller.signal.aborted) return;
-        setCompareError(cause instanceof Error ? cause.message : String(cause));
+        // B5: the server's bundle error code is carried into the message so
+        // it stays visible; the title copy comes from bundleErrorTitle.
+        setCompareError(historyBundleErrorMessage(cause));
         setBundleStatus("failed");
       }
     }).catch((cause: unknown) => {
@@ -429,22 +489,27 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     return () => { cancelled = true; };
   }, [historyBundle, compareState]);
 
+  // B1/B4: the toolbar upload action and the UploadStepCard share the same
+  // occupancy gate from the hook; the page no longer keeps its own rule.
+  const occupancyReason = uploadMode.gates.upload.enabled ? null : uploadMode.gates.upload.reason ?? null;
   const effectiveActions = actions.map((action) => action.id === "upload"
-    ? { ...action, enabled: action.enabled && uploadReady, reason: uploadBlockedReason ?? action.reason }
+    ? { ...action, enabled: action.enabled && uploadReady && !occupancyReason, reason: occupancyReason ?? uploadBlockedReason ?? action.reason }
     : action);
 
   const showHistoryDrawer = Boolean(historyCompareOperationId);
   const showOperationStatus = operationId !== null && (operationKind === null || operationKind === "operation");
 
   if (loading) return <main className="workspace-page"><LoadingSkeleton label="加载工作区与 History" /></main>;
-  if (loadError || !data) return <main className="workspace-page workspace-page--error"><ErrorState code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
+  if (loadError || !workspace || !history) return <main className="workspace-page workspace-page--error"><ErrorState code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
 
   const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
+    {notice === "withdrawn" && <div role="status" className="form-success workspace-notice"><span>已撤回，可以重新上传</span><button className="link-button" onClick={() => setNotice(null)}>关闭</button></div>}
+    {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
-      <div className="workspace-brand"><strong>网关数据工作台</strong><span>{data.workspace.gateway_device_external_key}</span></div>
+      <div className="workspace-brand"><strong>网关数据工作台</strong><span>{workspace.gateway_device_external_key}</span></div>
       <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}</div>
     </header>
     <div className="workspace-layout" {...(uploadLocked ? { inert: "" } as object : {})}>
@@ -452,9 +517,13 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         <div className="workspace-tree-heading"><h1>组态树</h1><label className="workspace-search"><Search size={15} /><input ref={searchRef} aria-label="搜索工作区与 History 节点" placeholder="搜索节点" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></label><span className="workspace-tree-heading__spacer" />
           <label className="workspace-checkbox"><input type="checkbox" checked={currentBaselineOnly} onChange={(event) => setCurrentBaselineOnly(event.currentTarget.checked)} />只显示当前基线</label>
         </div>
-        {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && <OperationStatusPanel operationId={operationId} onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : resumeSubmitOperation ? (id) => void resumeSubmitFromOperation(id) : undefined} onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperation ? () => sessionStorage.removeItem("gateway-submit-operation") : undefined} />}
+        {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && <OperationStatusPanel
+          operationId={operationId}
+          onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
+          onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
+        />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
-          <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
+          <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && !selected?.submissionDisposition && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
           <div className="workspace-actions">{effectiveActions.map((action) => <div className="workspace-action" key={action.id}>
             <button className={`button ${action.id === "archive-mainline" ? "button--primary" : "button--secondary"}`} disabled={!action.enabled} title={action.reason ?? undefined} onClick={() => runAction(action.id)}>
               {action.id === "join-compare" ? <Plus size={14} /> : action.id === "remove-compare" ? <X size={14} /> : null}{action.label}
@@ -473,9 +542,9 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
                 {row.hasChildren ? <button className="workspace-tree-toggle" aria-label={`${collapsedNodes.has(row.key) ? "展开" : "折叠"}${row.label}`} aria-expanded={!collapsedNodes.has(row.key)} onClick={(event) => { event.stopPropagation(); setCollapsedNodes((current) => { const next = new Set(current); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; }); }}>{collapsedNodes.has(row.key) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</button> : <span className="workspace-tree-toggle-placeholder" />}
                 {row.kind === "baseline" ? <Layers size={16} /> : row.kind === "workspace" ? <Folder size={16} /> : row.kind === "migration" ? <GitBranch size={16} /> : <GitCommitHorizontal size={16} />}
                 <button className="workspace-node-label" onClick={() => setSelectedKey(row.key)}>{row.label}</button>
-                {row.status && <span className={statusClass(row.statusTone)}><i aria-hidden="true" />{row.status}</span>}
+                {row.status && <span className={statusClass(row.statusTone)} title={row.submissionDisposition === "CLOSED_NOT_ARCHIVED" && row.closure?.reason ? "有理由关闭，详情见右侧面板" : undefined}><i aria-hidden="true" />{row.status}</span>}
                 {row.compareOrder && <span className="compare-order" title={`比较节点 ${row.compareOrder}`}>比较 {row.compareOrder}</span>}
-                {row.eligibilityNote && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线，不能归档">基线已更新</span>}
+                {row.eligibilityNote && !row.submissionDisposition && <span className="status-tag status-tag--warning" title="该提交所基于的基线已不是当前基线">基线已更新</span>}
                 {row.identityException && <span className="status-tag status-tag--neutral" title="项目身份例外">项目身份例外</span>}
               </div></td>
               <td>{row.createdAt ? new Date(row.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"}</td>
@@ -525,17 +594,46 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           <p className="eyebrow">{selected?.kind === "workspace" ? "工作区详情" : selected?.kind === "submission" ? "提交详情" : "历史节点详情"}</p>
           <h2>{selected?.label ?? "未选择节点"}</h2><p className={selected ? statusClass(selected.statusTone) : "tree-status tree-status--neutral"}><i aria-hidden="true" />{selected?.status || "—"}</p>
           {selected?.kind === "workspace" && <>
-            <dl className="details-list"><div><dt>网关设备</dt><dd>{data.workspace.gateway_device_external_key}</dd></div><div><dt>业务项目</dt><dd>{data.workspace.business_project_id}</dd></div><div><dt>工作区状态</dt><dd>{WORKSPACE_STATE_COPY[data.workspace.state as keyof typeof WORKSPACE_STATE_COPY] ?? "状态未知"}</dd></div><div><dt>组态代次</dt><dd>{data.workspace.generation}</dd></div><div><dt>当前 Preview</dt><dd>{data.workspace.current_preview_result_id ?? "—"}</dd></div></dl>
-            <button className="button button--secondary workspace-details__action" disabled={!data.workspace.current_preview_result_id} title={data.workspace.current_preview_result_id ? undefined : "当前工作区还没有 Preview 结果"} onClick={() => openPreview("initial_to_modified")}>查看本次组态差异</button>
-            {!data.workspace.current_preview_result_id && <p className="disabled-reason">当前工作区还没有 Preview 结果</p>}
-            <UploadStepCard ref={uploadRef} head={data.history.head} onReloadHead={reloadHead} onUploadStateChange={(active) => { if (active) resumePending.current = false; if (active || !resumePending.current) setUploadLocked(active); }} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
+            <dl className="details-list"><div><dt>网关设备</dt><dd>{workspace.gateway_device_external_key}</dd></div><div><dt>业务项目</dt><dd>{workspace.business_project_id}</dd></div><div><dt>工作区状态</dt><dd>{WORKSPACE_STATE_COPY[workspace.state as keyof typeof WORKSPACE_STATE_COPY] ?? "状态未知"}</dd></div><div><dt>组态代次</dt><dd>{workspace.generation}</dd></div><div><dt>当前 Preview</dt><dd>{workspace.current_preview_result_id ?? "—"}</dd></div></dl>
+            <button className="button button--secondary workspace-details__action" disabled={!workspace.current_preview_result_id} title={workspace.current_preview_result_id ? undefined : "当前工作区还没有 Preview 结果"} onClick={() => openPreview("initial_to_modified")}>查看本次组态差异</button>
+            {!workspace.current_preview_result_id && <p className="disabled-reason">当前工作区还没有 Preview 结果</p>}
+            <UploadStepCard ref={uploadRef} head={history.head} onReloadHead={reloadHead} onUploadStateChange={(active) => { if (active) resumePending.current = false; if (active || !resumePending.current) setUploadLocked(active); }} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
+              occupancyReason={occupancyReason}
               onComplete={(workspaceId, previewResultId) => window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId, previewResultId, workbenchNode: selectedKey }, compareRefs))} />
           </>}
-          {selected?.kind !== "workspace" && selected && <dl className="details-list"><div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div><div><dt>状态</dt><dd>{selected.status || "—"}</dd></div><div><dt>节点 ID</dt><dd>{selected.refId}</dd></div><div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>{selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}{selected.eligibilityNote && <div className="details-list__long"><dt>归档原因</dt><dd><details><summary>展开原因</summary>该提交所基于的基线已不是当前基线，不能归档</details></dd></div>}{selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}</dl>}
+          {selected?.kind !== "workspace" && selected && <DispositionDetails selected={selected} />}
           {selectedReviewFacts && <p className="subtle-copy">{selectedReviewFacts}</p>}
         </div> : <div className="workspace-details__collapsed"><span>详情</span></div>}
       </aside>
     </div>
     <ArchiveMainlineDialog open={archiveSubmissionId !== null} submissionId={archiveSubmissionId} onClose={() => setArchiveSubmissionId(null)} onArchived={() => window.location.assign(pageUrl("workspace", {}, compareRefs))} />
   </main>;
+}
+
+function historyBundleErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    const title = cause.code ? bundleErrorTitle(cause.code) : undefined;
+    const head = cause.code ? `${cause.code}：` : "";
+    return `${title ? `${title}。` : ""}${head}${cause.message}`;
+  }
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function DispositionDetails({ selected }: { selected: WorkspaceTreeRow }) {
+  return <dl className="details-list">
+    <div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div>
+    <div><dt>审核状态</dt><dd>{selected.submissionDisposition ? "已通过" : selected.status || "—"}</dd></div>
+    {selected.submissionDisposition && <div className="details-list__long"><dt>终局处置</dt><dd>{selected.submissionDisposition === "ARCHIVED_BASELINE" ? (selected.dispositionBaselineLabel ? `已归档，成为${selected.dispositionBaselineLabel}` : "已归档") : "已关闭（未归档）"}</dd></div>}
+    {selected.submissionDisposition === "CLOSED_NOT_ARCHIVED" && selected.dispositionSourceKind === "ARCHIVE" && <div className="details-list__long"><dt>原因</dt><dd>归档时选中了其他提交</dd></div>}
+    {selected.closure && <>
+      <div><dt>关闭人</dt><dd>{selected.closure.closed_by}</dd></div>
+      <div><dt>关闭时间</dt><dd title={selected.closure.closed_at}>{formatDispositionTime(selected.closure.closed_at)}</dd></div>
+      <div className="details-list__long"><dt>关闭理由</dt><dd><ClosureReason reason={selected.closure.reason} /></dd></div>
+    </>}
+    <div><dt>节点 ID</dt><dd>{selected.refId}</dd></div>
+    <div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>
+    {selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}
+    {selected.eligibilityNote && !selected.submissionDisposition && <div className="details-list__long"><dt>基线说明</dt><dd><details><summary>展开说明</summary>该提交所基于的基线已不是当前基线</details></dd></div>}
+    {selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}
+  </dl>;
 }

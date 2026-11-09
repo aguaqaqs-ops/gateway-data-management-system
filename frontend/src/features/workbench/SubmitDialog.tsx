@@ -170,19 +170,11 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         onOperationAccepted: (operationId) => {
           setOperationId(operationId);
           try {
-            sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId, workspaceId, submitAttemptId: "" }));
-          } catch { /* sessionStorage 不可用时忽略 */ }
-          try {
             const url = new URL(window.location.href);
             url.searchParams.set("operationId", operationId);
             url.searchParams.set("operationKind", "operation");
             window.history.replaceState(null, "", url);
           } catch { /* URL 不可用时仍继续轮询 */ }
-        },
-        onAccepted: (accepted) => {
-          try {
-            sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: accepted.operation_id, workspaceId, submitAttemptId: accepted.submit_attempt_id }));
-          } catch { /* sessionStorage 不可用时忽略 */ }
         },
         identityConfirmations: requiredPairs.map((pair) => ({
           action: CONFIRMATION_ACTION[pair.status],

@@ -1,0 +1,71 @@
+{
+  "candidate": "0ba45e5ef83f54bfb2585f963f9518d32086f942",
+  "production_encoder": "gateway_backend.artifacts.tar_stream",
+  "bundle_digest": "sha256:2be243c36d03ef8f11fe9108283ff814631d1dda4aafa32d45380006fd5ef050",
+  "content_length": 24576,
+  "files": [
+    {
+      "path": "artifact-closure.json",
+      "length": 5232,
+      "sha256": "becf0b703c3dad4bf033341c88c3580ecdc66ae695a728bce5d912cf79f8897a"
+    },
+    {
+      "path": "bundle.tar",
+      "length": 24576,
+      "sha256": "b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2"
+    },
+    {
+      "path": "manifest.json",
+      "length": 6062,
+      "sha256": "320f44e71bdf70f802a83c3362515a7399694a400b88551b9da41be9c8fb4f67"
+    },
+    {
+      "path": "pax-records.json",
+      "length": 733,
+      "sha256": "0fa31f374dd1b5aa3abe21444b897b45230c9271d7c0bf03f46e2fc34cef0f69"
+    },
+    {
+      "path": "size-8589934591-header-only.bin",
+      "length": 512,
+      "sha256": "113775f2209f4f8b282db49432606cbc247aabc8415fbd1293d352f63be30d53"
+    },
+    {
+      "path": "size-8589934592-header-only.bin",
+      "length": 1536,
+      "sha256": "06a761a2e0494b34d01327b7a4d81b1207e3de6a46fa777ec4b9a47766d91581"
+    },
+    {
+      "path": "size-9007199254740991-header-only.bin",
+      "length": 1536,
+      "sha256": "877b1ea28bfb63210a770c187703ec165ffe0062b5c2662629d832cbfee9bf64"
+    },
+    {
+      "path": "size-vectors.json",
+      "length": 566,
+      "sha256": "b8d23e94143fa6cf0b2899ca3b88492e99215d6e19ffd412b4ddd7dcab51c06d"
+    }
+  ],
+  "ordinary_artifacts": [
+    {
+      "logical_path": "pairs/pair/comparison-surface.json",
+      "size_bytes": 2275,
+      "raw_sha256": "sha256:388ed96e5b6c70ae7c94b3752d9e5e6cc838988fabff9ec1c1df50a7fb263d58"
+    },
+    {
+      "logical_path": "shared/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/dir/rows.parquet",
+      "size_bytes": 741,
+      "raw_sha256": "sha256:478e3bbd0d4b9be18b9e2ad16d1d2a38cc290b219d6892c8ea74d44fbbd0b6a7"
+    },
+    {
+      "logical_path": "shared/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/目录/表.parquet",
+      "size_bytes": 741,
+      "raw_sha256": "sha256:a9994fefe7208074b180040fcd2a36117a4eece5b5b98c25a24d135b025b8bf4"
+    },
+    {
+      "logical_path": "shared/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/😀/表.parquet",
+      "size_bytes": 741,
+      "raw_sha256": "sha256:6e0a24a9b15edaaf48398ae0a148db04c03baa856c4b7cc9e0bff4b385839c16"
+    }
+  ],
+  "frontend_interop_status": "pending; this exact bundle.tar must be used for parsing/hash/OPFS"
+}

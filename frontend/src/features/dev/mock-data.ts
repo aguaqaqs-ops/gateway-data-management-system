@@ -44,11 +44,11 @@ export const SIMULATED_STRING_VALUES = {
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:*_ISSUE",
   },
   "PreviewArchivePlanResponse.blockers": {
-    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_INTEGRITY_FAILURE"],
+    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
     source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "ArchiveCandidatesResponse.blockers": {
-    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_INTEGRITY_FAILURE"],
+    values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
     source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "PreviewArchivePlanResponse.confirmation_requirements": {
@@ -56,15 +56,15 @@ export const SIMULATED_STRING_VALUES = {
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:selection_subject_digest",
   },
   "ArchiveAuditEventResponse.subject_kind": {
-    values: ["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"],
+    values: ["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"],
     source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveSubjectKind",
   },
   "ArchiveAuditEventResponse.action": {
-    values: ["CONFIRM", "REVOKE", "ACKNOWLEDGE_EXCLUSION", "ACKNOWLEDGE_IDENTITY_EXCEPTION"],
+    values: ["CONFIRM", "REVOKE", "ACKNOWLEDGE_EXCLUSION", "ACKNOWLEDGE_IDENTITY_EXCEPTION", "ACKNOWLEDGE_SOURCE_EXCEPTION", "ACKNOWLEDGE_TIME_QUALITY", "ACKNOWLEDGE_TIME_ORDER"],
     source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveConfirmationAction, ArchiveAnomalyResolutionAction",
   },
   "ArchiveAuditEventResponse.issue_code": {
-    values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", null],
+    values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "INITIAL_SOURCE_UNEXPLAINED", "GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES", "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL", "BASELINE_TIME_UNAVAILABLE", null],
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:*_ISSUE",
   },
   "HistoryNodeResponse.eligibility_note": {
@@ -84,6 +84,8 @@ export const WORKSPACE_RESPONSE = {
   updated_at: "2026-11-03T09:14:00Z",
   current_upload_revision_id: "upload-fe2b-3",
   current_preview_result_id: "preview-full",
+  active_submission_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const WORKSPACE_CREATED = { status: 201, body: WORKSPACE_RESPONSE } as const;
@@ -115,9 +117,12 @@ export const HISTORY_PAGE_TWO = {
       identity_exception: false,
     },
     {
+      // D4 形态：APPROVED、父基线不是 head（带标记），归档成当前基线 head。
       ref_kind: "submission", ref_id: "fe2a-history-ref-old", node_kind: "SUBMISSION", commit_id: "commit-submission-old",
       created_at: "2026-10-31T09:10:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
       eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: true, review_status: "APPROVED",
+      submission_disposition: "ARCHIVED_BASELINE", disposition_source_kind: "ARCHIVE",
+      disposition_result_id: "archive-result-0", promoted_baseline_node_id: "fe2a-history-ref-1",
     },
   ],
   next_cursor: null,
@@ -131,6 +136,7 @@ export const REVIEW_FACTS = {
   updated_at: "2026-11-02T09:10:00Z",
   identity_exception: false,
   events: [{ sequence: 1, event_kind: "SUBMISSION_FINALIZED", to_status: "PENDING", actor_id: "submitter", occurred_at: "2026-11-02T09:10:00Z" }],
+  submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
 export const HISTORY_COMPARE_REQUEST = {
@@ -257,6 +263,14 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核权限" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" } },
+  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
+  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
+  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
+  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
   { route: "/v1/history-compares", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
@@ -277,6 +291,145 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" } },
   { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
+  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "ARTIFACT_UNAVAILABLE", message: "比较结果已不可用" } },
+  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+];
+
+// B7: reachable disposition scenarios shared by the D1–D5 e2e and the unit
+// asserts below. One archive result produces at most one ARCHIVED_BASELINE, so
+// d-arch (archive-result-1) and d4 (archive-result-2) promote different
+// baselines. d5 is the single allowed defensive exception: APPROVED plus the
+// stale-baseline note with no disposition is DC89-unreachable and only guards
+// the legacy display fallback.
+export const DISPOSITION_BASELINE_FIRST: Schemas["HistoryNodeResponse"] = {
+  ref_kind: "baseline_node",
+  ref_id: "baseline-arch",
+  node_kind: "BASELINE_NODE",
+  baseline_kind: "ARCHIVED_SUBMISSION",
+  commit_id: "commit-baseline-arch",
+  created_at: "2026-11-07T09:00:00Z",
+  parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
+  identity_exception: false,
+};
+
+export const DISPOSITION_BASELINE_SECOND: Schemas["HistoryNodeResponse"] = {
+  ref_kind: "baseline_node",
+  ref_id: "baseline-arch-2",
+  node_kind: "BASELINE_NODE",
+  baseline_kind: "ARCHIVED_SUBMISSION",
+  commit_id: "commit-baseline-arch-2",
+  created_at: "2026-11-07T10:00:00Z",
+  parent: { ref_kind: "baseline_node", ref_id: "baseline-arch" },
+  identity_exception: false,
+};
+
+function dispositionSubmission(
+  refId: string,
+  createdAt: string,
+  patch: Partial<Schemas["HistoryNodeResponse"]>,
+  parentRefId = "fe2a-history-ref-1",
+): Schemas["HistoryNodeResponse"] {
+  return {
+    ref_kind: "submission",
+    ref_id: refId,
+    node_kind: "SUBMISSION",
+    commit_id: `commit-${refId}`,
+    created_at: createdAt,
+    parent: { ref_kind: "baseline_node", ref_id: parentRefId },
+    identity_exception: false,
+    review_status: "APPROVED",
+    ...patch,
+  };
+}
+
+// Reachable chain (F4): ref-1 -d-arch-> baseline-arch -d4-> baseline-arch-2
+// (head). d-closed is the sibling closed by the same archive result as d-arch;
+// d-manual sits on the head with no stale note. Every APPROVED submission
+// whose parent is not the head carries the note (projection.py:216); the
+// disposition takes display priority (D4).
+export const DISPOSITION_SCENARIO_NODES: Schemas["HistoryNodeResponse"][] = [
+  dispositionSubmission("d-arch", "2026-11-05T01:00:00Z", {
+    submission_disposition: "ARCHIVED_BASELINE",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-1",
+    promoted_baseline_node_id: "baseline-arch",
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+  }),
+  dispositionSubmission("d-closed", "2026-11-05T02:00:00Z", {
+    submission_disposition: "CLOSED_NOT_ARCHIVED",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-1",
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+  }),
+  dispositionSubmission("d-manual", "2026-11-05T03:00:00Z", {
+    submission_disposition: "CLOSED_NOT_ARCHIVED",
+    disposition_source_kind: "MANUAL_CLOSE",
+    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
+  }, "baseline-arch-2"),
+  dispositionSubmission("d4", "2026-11-05T04:00:00Z", {
+    submission_disposition: "ARCHIVED_BASELINE",
+    disposition_source_kind: "ARCHIVE",
+    disposition_result_id: "archive-result-2",
+    promoted_baseline_node_id: "baseline-arch-2",
+    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+  }, "baseline-arch"),
+];
+
+// D5 stays out of the shared scenario array: APPROVED plus the stale note
+// with no disposition is DC89-unreachable defensive data, used only by D5 cases.
+// The chain rules below take it as an explicitly listed exception.
+export const DISPOSITION_D5_NODE: Schemas["HistoryNodeResponse"] =
+  dispositionSubmission("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" });
+
+// Head for the D1-D5 tree: the tip of the baseline chain.
+export const DISPOSITION_HEAD: Schemas["HistoryListResponse"]["head"] = {
+  node_id: "baseline-arch-2", commit_id: "commit-baseline-arch-2", version: 23,
+};
+
+export const DISPOSITION_SCENARIO_BASELINES: Schemas["HistoryNodeResponse"][] = [
+  DISPOSITION_BASELINE_FIRST,
+  DISPOSITION_BASELINE_SECOND,
+];
+
+function dispositionReviewFacts(
+  submissionId: string,
+  submissionDisposition: Schemas["ReviewFactsResponse"]["submission_disposition"],
+): Schemas["ReviewFactsResponse"] {
+  return {
+    submission_id: submissionId,
+    status: "APPROVED",
+    review_version: 6,
+    updated_by: "reviewer",
+    updated_at: "2026-11-06T09:00:00Z",
+    identity_exception: false,
+    events: [],
+    submission_disposition: submissionDisposition,
+  };
+}
+
+export const DISPOSITION_REVIEW_FACTS: Schemas["ReviewFactsResponse"][] = [
+  dispositionReviewFacts("d-arch", {
+    submission_id: "d-arch",
+    disposition: "ARCHIVED_BASELINE",
+    source_kind: "ARCHIVE",
+    result_id: "archive-result-1",
+    closure: null,
+  }),
+  dispositionReviewFacts("d-closed", {
+    submission_id: "d-closed",
+    disposition: "CLOSED_NOT_ARCHIVED",
+    source_kind: "ARCHIVE",
+    result_id: "archive-result-1",
+    closure: null,
+  }),
+  dispositionReviewFacts("d-manual", {
+    submission_id: "d-manual",
+    disposition: "CLOSED_NOT_ARCHIVED",
+    source_kind: "MANUAL_CLOSE",
+    result_id: null,
+    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
+  }),
 ];
 
 export const WRITE_SCENARIO_COVERAGE = [
@@ -284,7 +437,8 @@ export const WRITE_SCENARIO_COVERAGE = [
   { method: "POST", route: "/v1/workspaces/{workspace_id}/upload-revisions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/workspaces/{workspace_id}/preview-operations", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/submissions/{submission_id}/closure", outcomes: ["success:201", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:REVIEW_VERSION_CONFLICT"] },
   { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "429:ADMISSION_LIMIT_REACHED"] },
   { method: "POST", route: "/v1/archive-plan-preview", outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"] },
   { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
@@ -313,6 +467,8 @@ export const TEST_WORKSPACE = {
   workspace_id: "ws-1", gateway_device_external_key: "device-1", business_project_id: "project-1", state: "OPEN",
   generation: 4, optimistic_version: 10, created_at: "2026-11-03T09:00:00Z", updated_at: "2026-11-03T09:00:00Z",
   current_preview_result_id: "preview-1",
+  active_submission_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const TEST_UPLOAD_FULL = {
@@ -351,6 +507,7 @@ export const TEST_SUBMISSION = {
 export const TEST_REVIEW_FACTS = {
   submission_id: "fe2a-history-ref-2", status: "PENDING", review_version: 5, updated_by: "reviewer",
   updated_at: "2026-11-03T09:00:00Z", identity_exception: false, events: [],
+  submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
 export const TEST_REVIEW_HISTORY = {
@@ -367,24 +524,59 @@ export const TEST_REVIEW_APPLIED = {
   event: { sequence: 2, event_kind: "APPROVED", to_status: "APPROVED", actor_id: "reviewer", occurred_at: "2026-11-03T09:00:00Z" },
 } satisfies Schemas["ReviewAppliedResponse"];
 
+export const TEST_CLOSE_SUBMISSION = {
+  submission_id: "fe2a-history-ref-old", disposition: "CLOSED_NOT_ARCHIVED", source_kind: "MANUAL_CLOSE",
+  closed_by: "reviewer", closed_at: "2026-11-03T10:00:00Z", reason: "不再需要该提交",
+  released_workspace_id: "workspace-fe2b", workspace_version: 13,
+} satisfies Schemas["CloseSubmissionResponse"];
+
+export const ARCHIVE_ANOMALY_IDENTITY = {
+  subject_kind: "PROJECT_IDENTITY_EXCEPTION",
+  issue_code: "PROJECT_IDENTITY_EXCEPTION",
+  target_submission_id: "submission-1",
+  target_candidate_digest: "sha256:candidate",
+  subject_digest: "sha256:anomaly",
+  accepted_at: null,
+  accepted_by: null,
+  affected_submission_ids: ["submission-1"],
+  details: {},
+  detected_status: "UNEXPLAINED",
+  latest_sequence: 0,
+  reason: null,
+  relations: [],
+  resolution_status: "UNRESOLVED",
+  side: null,
+} satisfies Schemas["ArchivePreviewAnomalyResponse"];
+
+export const EMPTY_BUSINESS_VALIDATION = {
+  rule_id: "gateway-vnext/archive-business-validation/v1",
+  baseline_facts_digest: null,
+  issues: [],
+  source_diagnostics: [],
+  time_comparisons: [],
+} satisfies Schemas["ArchiveBusinessValidationResponse"];
+
 export const ARCHIVE_PLAN_READY = {
   head: { business_baseline_node_id: "baseline-4", business_baseline_commit_id: "commit-a", baseline_head_version: 21 },
   selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
   selection_subject_digest: "sha256:selection-subject",
   candidate_set_digest: "sha256:candidates", confirmation_requirements: ["sha256:selection-subject"],
-  anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+  anomalies: [ARCHIVE_ANOMALY_IDENTITY],
   audit_validity: true,
   dispositions: [], workspace_releases: [], can_start: true, blockers: [],
+  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
   ...ARCHIVE_PLAN_READY, confirmation_requirements: ["sha256:selection-subject"],
-  anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+  anomalies: [ARCHIVE_ANOMALY_IDENTITY],
   can_start: false, blockers: [], audit_validity: false,
+  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {
   head: ARCHIVE_PLAN_READY.head, candidates: [{ submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" }], candidate_set_digest: "sha256:candidates", blockers: [],
+  pending_submission_ids: [], pending_submission_count: 0,
 } satisfies Schemas["ArchiveCandidatesResponse"];
 export const TEST_ARCHIVE_CANDIDATES_BLOCKED = {
   ...TEST_ARCHIVE_CANDIDATES, blockers: ["ARCHIVE_INTEGRITY_FAILURE"],
@@ -414,6 +606,7 @@ export const TEST_ARCHIVE_RESULT = {
   baseline_head_version: 21, selected_submission_id: "submission-1", selected_repository_commit_id: "commit-b",
   candidate_set_digest: "sha256:candidates", confirmation_refs: [], anomaly_resolution_refs: [], dispositions: [],
   archived_by: "owner", archived_at: "2026-11-03T09:00:00Z",
+  business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["ArchiveResultResponse"];
 
 export const TEST_OPERATION_ACCEPTED = {
@@ -455,7 +648,7 @@ export const TEST_HISTORY_CURSOR_FIRST = {
 
 export const TEST_HISTORY_CURSOR_SECOND = {
   head: TEST_HISTORY_CURSOR_FIRST.head,
-  nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-03T09:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "PENDING" }],
+  nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-03T09:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "APPROVED" }],
   next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
 
@@ -485,6 +678,8 @@ export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "Archive confirmation", method: "POST", route: "/v1/archive-confirmations", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_CONFIRM_APPEND },
   { name: "Archive anomaly resolution", method: "POST", route: "/v1/archive-anomaly-resolutions", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_RESOLUTION_APPEND },
   { name: "Archive started", method: "POST", route: "/v1/archives", status: 201, schema: "ArchiveStartedResponse", body: TEST_ARCHIVE_STARTED },
+  { name: "Close submission", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 201, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
+  { name: "Close submission idempotent replay", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 200, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
 ] as const;
 
 export const RESPONSE_SCENARIO_STRING_SOURCE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
@@ -507,6 +702,7 @@ const REQUIRED_IDEMPOTENCY_KEY_ROUTES: ReadonlyArray<{ name: string; pattern: Re
   { name: "preview operation", pattern: /^\/v1\/workspaces\/[^/]+\/preview-operations$/ },
   { name: "submit attempt", pattern: /^\/v1\/workspaces\/[^/]+\/submit-attempts$/ },
   { name: "review event", pattern: /^\/v1\/submissions\/[^/]+\/review-events$/ },
+  { name: "submission closure", pattern: /^\/v1\/submissions\/[^/]+\/closure$/ },
   { name: "history compare", pattern: /^\/v1\/history-compares$/ },
   { name: "archive confirmation", pattern: /^\/v1\/archive-confirmations$/ },
   { name: "archive anomaly resolution", pattern: /^\/v1\/archive-anomaly-resolutions$/ },

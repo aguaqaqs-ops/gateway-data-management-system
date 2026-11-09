@@ -8,6 +8,33 @@ export function bundleLoadErrorCode(error: unknown): "BUNDLE_INTEGRITY_MISMATCH"
   return error instanceof BundleIntegrityError ? "BUNDLE_INTEGRITY_MISMATCH" : "BUNDLE_LOAD_FAILED";
 }
 
+/**
+ * B5: frontend copy for the error codes the OpenAPI documents on the two
+ * bundle routes (Preview bundle 503 BUNDLE_INTEGRITY_FAILURE; History bundle
+ * 404 ARTIFACT_UNAVAILABLE, 503 BUNDLE_INTEGRITY_FAILURE). Returns undefined
+ * for codes without a dedicated copy so callers fall back to the generic title.
+ */
+export function bundleErrorTitle(code: string): string | undefined {
+  switch (code) {
+    case "BUNDLE_INTEGRITY_FAILURE":
+      return "比较结果完整性校验失败";
+    case "ARTIFACT_UNAVAILABLE":
+      return "比较结果已不可用";
+    case "SERVICE_NOT_READY":
+      return "比较结果暂时不可用";
+    case "BUNDLE_INTEGRITY_MISMATCH":
+      return "本地 bundle 校验失败";
+    case "SCOPE_FORBIDDEN":
+      return "当前身份没有该操作的权限";
+    case "RESOURCE_NOT_FOUND":
+      return "未找到比较结果";
+    case "AUTHENTICATION_REQUIRED":
+      return "需要身份验证，请重新选择身份";
+    default:
+      return undefined;
+  }
+}
+
 export interface InstalledBundle {
   manifest: BundleManifest;
   closure: BundleClosure;
@@ -23,7 +50,7 @@ interface StorageManagerWithOpfs extends StorageManager {
   getDirectory(): Promise<FileSystemDirectoryHandle>;
 }
 
-interface AsyncDirectoryHandle extends FileSystemDirectoryHandle {
+interface DirectoryEntries {
   entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
 }
 
@@ -185,7 +212,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
     if (currentBytes > this.maxBytes) throw new Error("bundle 超过本地缓存容量");
     const entries: Array<{ name: string; lastUsed: number; bytes: number }> = [];
     let total = 0;
-    for await (const [name, handle] of (root as AsyncDirectoryHandle).entries()) {
+    for await (const [name, handle] of (root as unknown as DirectoryEntries).entries()) {
       if (handle.kind !== "directory") continue;
       try {
         const bundle = handle as FileSystemDirectoryHandle;
@@ -220,7 +247,7 @@ function estimateBytes(manifest: BundleManifest, closure: BundleClosure): number
 
 async function estimateDirectoryBytes(root: FileSystemDirectoryHandle): Promise<number> {
   let total = 0;
-  for await (const [, handle] of (root as AsyncDirectoryHandle).entries()) {
+  for await (const [, handle] of (root as unknown as DirectoryEntries).entries()) {
     if (handle.kind === "file") total += (await (handle as FileSystemFileHandle).getFile()).size;
     else total += await estimateDirectoryBytes(handle as FileSystemDirectoryHandle);
   }

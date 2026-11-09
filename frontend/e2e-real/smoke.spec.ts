@@ -371,11 +371,11 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   expect(previewBody.preview_result_id).toBe(workspace.current_preview_result_id);
   expect(previewBody.workspace_id).toBe(workspace.workspace_id);
 
-  // Preview success downloads the bundle before entering compare; the current
-  // backend returns JSON, so wait for the stable download-failure prompt
-  // before asserting no uncaught page error (B5).
+  // Preview success downloads and installs the real tar bundle, then enters
+  // diff browsing; only then assert no uncaught page error (FE3a N5 / §4.7).
   await bundleResponse;
-  await expect(page.getByText("预览已生成，但下载比较结果失败，请重试")).toBeVisible({ timeout: 120000 });
+  await page.waitForURL(/page=compare/, { timeout: 120000 });
+  await expect(page.locator(".compare-workspace")).toBeVisible({ timeout: 120000 });
   expect(pageErrors).toEqual([]);
   await context.close();
 });

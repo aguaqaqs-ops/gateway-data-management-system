@@ -6,6 +6,7 @@ import { createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys
 import { Button, Dialog } from "../../design-system/components";
 
 type Schemas = components["schemas"];
+
 type Plan = Schemas["PreviewArchivePlanResponse"];
 type Result = Schemas["ArchiveResultResponse"];
 type Anomaly = Plan["anomalies"][number];
@@ -32,8 +33,21 @@ function archiveError(cause: unknown): { title: string; code: string; refresh: b
   return { title: cause instanceof Error ? cause.message : "归档失败", code: "ARCHIVE_FAILED", refresh: false };
 }
 
-function anomalyAction(anomaly: Anomaly): "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" {
-  return anomaly.subject_kind === "PROJECT_IDENTITY_EXCEPTION" ? "ACKNOWLEDGE_IDENTITY_EXCEPTION" : "ACKNOWLEDGE_EXCLUSION";
+type AnomalyAction = Schemas["AppendArchiveAnomalyResolutionRequest"]["action"];
+
+function anomalyAction(anomaly: Anomaly): AnomalyAction {
+  switch (anomaly.subject_kind) {
+    case "APPROVED_SIBLING_EXCLUDED": return "ACKNOWLEDGE_EXCLUSION";
+    case "PROJECT_IDENTITY_EXCEPTION": return "ACKNOWLEDGE_IDENTITY_EXCEPTION";
+    case "CONFIGURATION_SOURCE": return "ACKNOWLEDGE_SOURCE_EXCEPTION";
+    case "CONFIGURATION_TIME_QUALITY": return "ACKNOWLEDGE_TIME_QUALITY";
+    case "CONFIGURATION_TIME_ORDER": return "ACKNOWLEDGE_TIME_ORDER";
+    default: return assertNever(anomaly.subject_kind);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`未知异常类型：${String(value)}`);
 }
 
 interface ArchiveMainlineDialogProps {
@@ -60,6 +74,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     setLoading(true);
     setLoadError(null);
     setFailure(null);
+    let stage: "candidates" | "preview" = "candidates";
     try {
       const candidates = await gatewayApi.listArchiveCandidates();
       const candidate = candidates.candidates.find((item) => item.submission_id === target);
@@ -68,6 +83,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
         setPlan(null);
         return;
       }
+      stage = "preview";
       const loaded = await gatewayApi.previewArchive({ selected: candidate });
       if (loaded.selected && loaded.selected.submission_id !== target) {
         setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
@@ -79,7 +95,10 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       setConfirmations({});
       setAnomalyResolutions({});
     } catch (cause) {
-      setLoadError(cause instanceof ApiError ? { message: cause.message, code: cause.code ?? `HTTP_${cause.status}` } : { message: cause instanceof Error ? cause.message : String(cause), code: null });
+      const message = cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN"
+        ? (stage === "preview" ? "当前身份没有预检归档方案的权限" : "当前身份没有该操作的权限")
+        : cause instanceof Error ? cause.message : String(cause);
+      setLoadError({ message, code: cause instanceof ApiError ? (cause.code ?? `HTTP_${cause.status}`) : null });
       setPlan(null);
     } finally {
       setLoading(false);

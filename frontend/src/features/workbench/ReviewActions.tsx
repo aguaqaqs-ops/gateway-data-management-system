@@ -38,7 +38,11 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const [error, setError] = useState<{ title: string; code: string } | null>(null);
   const dialogKey = useRef<string | null>(null);
   const pending = facts.status === "PENDING";
-  const blockedReason = !bundleReady ? "请等待历史比较 bundle 下载完成" : pending ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核";
+  const disposition = facts.submission_disposition;
+  const dispositionReason = disposition
+    ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
+    : undefined;
+  const blockedReason = dispositionReason ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : pending ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
 
   function open(next: DialogKind) {
     setDialog(next);

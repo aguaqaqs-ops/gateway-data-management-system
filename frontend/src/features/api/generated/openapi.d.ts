@@ -259,6 +259,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/submissions/{submission_id}/closure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Submission Route */
+        post: operations["close_submission_route_v1_submissions__submission_id__closure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/submissions/{submission_id}/review": {
         parameters: {
             query?: never;
@@ -459,7 +476,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" | "REVOKE";
+            action: "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" | "ACKNOWLEDGE_SOURCE_EXCEPTION" | "ACKNOWLEDGE_TIME_QUALITY" | "ACKNOWLEDGE_TIME_ORDER" | "REVOKE";
             /** Candidate Set Digest */
             candidate_set_digest: string;
             /** Expected Baseline Head Version */
@@ -479,7 +496,7 @@ export interface components {
              * Subject Kind
              * @enum {string}
              */
-            subject_kind: "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+            subject_kind: "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION" | "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
             /** Target Candidate Digest */
             target_candidate_digest: string;
             /** Target Submission Id */
@@ -512,11 +529,20 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "APPROVE" | "REJECT" | "RETURN_FOR_REVISION" | "WITHDRAW";
+            action: "APPROVE" | "REJECT" | "WITHDRAW";
             /** Expected Review Version */
             expected_review_version: number;
             /** Reason */
             reason?: string | null;
+        };
+        /** ArchiveAffectedCandidateResponse */
+        ArchiveAffectedCandidateResponse: {
+            /** Candidate Digest */
+            candidate_digest: string;
+            /** Configuration Facts Digest */
+            configuration_facts_digest: string;
+            /** Submission Id */
+            submission_id: string;
         };
         /** ArchiveAuditAppendResponse */
         ArchiveAuditAppendResponse: {
@@ -544,13 +570,15 @@ export interface components {
             reason?: string | null;
             /** Sequence */
             sequence: number;
+            /** Subject */
+            subject?: components["schemas"]["ArchiveBusinessSubjectResponse"] | components["schemas"]["ArchiveSiblingSubjectResponse"] | components["schemas"]["ArchiveIdentitySubjectResponse"] | null;
             /** Subject Digest */
             subject_digest: string;
             /**
              * Subject Kind
              * @enum {string}
              */
-            subject_kind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+            subject_kind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION" | "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
             /** Target Candidate Digest */
             target_candidate_digest?: string | null;
             /** Target Submission Id */
@@ -577,6 +605,82 @@ export interface components {
             /** Subject Digest */
             subject_digest: string;
         };
+        /** ArchiveBaselineTimeDetailsResponse */
+        ArchiveBaselineTimeDetailsResponse: {
+            /**
+             * Comparison Status
+             * @constant
+             */
+            comparison_status: "NOT_COMPARABLE";
+            generated_time: components["schemas"]["ArchiveGeneratedTimeResponse"] | null;
+        };
+        /** ArchiveBusinessIssueResponse */
+        ArchiveBusinessIssueResponse: {
+            /** Affected Submission Ids */
+            affected_submission_ids: string[];
+            /** Details */
+            details: components["schemas"]["ArchiveSourceIssueDetailsResponse"] | components["schemas"]["ArchiveTimeQualityDetailsResponse"] | components["schemas"]["ArchiveBaselineTimeDetailsResponse"] | components["schemas"]["ArchiveTimeRegressionDetailsResponse"] | components["schemas"]["ArchiveEmptyIssueDetailsResponse"];
+            /**
+             * Issue Code
+             * @enum {string}
+             */
+            issue_code: "INITIAL_SOURCE_UNEXPLAINED" | "GENERATION_TIME_MISSING" | "GENERATION_TIME_INVALID_VALUES" | "GENERATION_TIME_LAST_NOT_MAX" | "TIME_ABNORMAL_MODIFIED" | "TIME_ABNORMAL_INITIAL" | "BASELINE_TIME_UNAVAILABLE";
+            /** Relations */
+            relations: ("MODIFIED_BEFORE_INITIAL" | "MODIFIED_BEFORE_BASELINE" | "INITIAL_BEFORE_BASELINE")[];
+            /** Side */
+            side: ("INITIAL" | "MODIFIED" | "BASELINE") | null;
+            /**
+             * Subject Kind
+             * @enum {string}
+             */
+            subject_kind: "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
+        };
+        /** ArchiveBusinessSubjectResponse */
+        ArchiveBusinessSubjectResponse: {
+            /** Affected Candidates */
+            affected_candidates: components["schemas"]["ArchiveAffectedCandidateResponse"][];
+            /** Affected Submission Ids */
+            affected_submission_ids: string[];
+            /** Details */
+            details: components["schemas"]["ArchiveSourceIssueDetailsResponse"] | components["schemas"]["ArchiveTimeQualityDetailsResponse"] | components["schemas"]["ArchiveBaselineTimeDetailsResponse"] | components["schemas"]["ArchiveTimeRegressionDetailsResponse"] | components["schemas"]["ArchiveEmptyIssueDetailsResponse"];
+            /**
+             * Issue Code
+             * @enum {string}
+             */
+            issue_code: "INITIAL_SOURCE_UNEXPLAINED" | "GENERATION_TIME_MISSING" | "GENERATION_TIME_INVALID_VALUES" | "GENERATION_TIME_LAST_NOT_MAX" | "TIME_ABNORMAL_MODIFIED" | "TIME_ABNORMAL_INITIAL" | "BASELINE_TIME_UNAVAILABLE";
+            /** Relations */
+            relations: ("MODIFIED_BEFORE_INITIAL" | "MODIFIED_BEFORE_BASELINE" | "INITIAL_BEFORE_BASELINE")[];
+            /**
+             * Rule Id
+             * @constant
+             */
+            rule_id: "gateway-vnext/archive-business-validation/v1";
+            /** Selection Subject Digest */
+            selection_subject_digest: string;
+            /** Side */
+            side: ("INITIAL" | "MODIFIED" | "BASELINE") | null;
+            /**
+             * Subject Kind
+             * @enum {string}
+             */
+            subject_kind: "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
+        };
+        /** ArchiveBusinessValidationResponse */
+        ArchiveBusinessValidationResponse: {
+            /** Baseline Facts Digest */
+            baseline_facts_digest: string | null;
+            /** Issues */
+            issues: components["schemas"]["ArchiveBusinessIssueResponse"][];
+            /**
+             * Rule Id
+             * @constant
+             */
+            rule_id: "gateway-vnext/archive-business-validation/v1";
+            /** Source Diagnostics */
+            source_diagnostics: components["schemas"]["ArchiveSourceDiagnosticResponse"][];
+            /** Time Comparisons */
+            time_comparisons: components["schemas"]["ArchiveTimeComparisonResponse"][];
+        };
         /** ArchiveCandidateResponse */
         ArchiveCandidateResponse: {
             /** Expected Candidate Digest */
@@ -593,28 +697,100 @@ export interface components {
             /** Candidates */
             candidates: components["schemas"]["ArchiveCandidateResponse"][];
             head: components["schemas"]["BaselineHeadResponse"];
+            /** Pending Submission Count */
+            pending_submission_count: number;
+            /** Pending Submission Ids */
+            pending_submission_ids: string[];
         };
-        /** ArchiveDispositionResponse */
-        ArchiveDispositionResponse: {
+        /** ArchiveContentIdentityResponse */
+        ArchiveContentIdentityResponse: {
+            /** Canonical State Digest */
+            canonical_state_digest: string;
+            /** Scalar Encoding Version */
+            scalar_encoding_version: number;
+            /** Storage Projection Ruleset Digest */
+            storage_projection_ruleset_digest: string;
+            /** Storage Projection Version */
+            storage_projection_version: string;
+        };
+        /** ArchiveEmptyIssueDetailsResponse */
+        ArchiveEmptyIssueDetailsResponse: Record<string, never>;
+        /** ArchiveGeneratedTimeResponse */
+        ArchiveGeneratedTimeResponse: {
+            /** Empty Count */
+            empty_count: number;
+            /** Invalid Count */
+            invalid_count: number;
+            /** Last Not Max */
+            last_not_max: boolean;
+            /** Last Valid Source Row */
+            last_valid_source_row: number | null;
+            /** Max Valid Source Row */
+            max_valid_source_row: number | null;
+            /** Max Valid Time Utc */
+            max_valid_time_utc: string | null;
             /**
-             * Disposition
+             * Rule Id
+             * @constant
+             */
+            rule_id: "gateway-vnext/configuration-generated-time/v1";
+            /** Selected Time Utc */
+            selected_time_utc: string | null;
+            /**
+             * Status
              * @enum {string}
              */
-            disposition: "ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED";
+            status: "VALID" | "TABLE_ABSENT" | "COLUMN_ABSENT" | "NO_ROWS" | "NO_VALUE" | "NO_VALID_VALUE";
+            /** Valid Count */
+            valid_count: number;
+        };
+        /** ArchiveIdentitySubjectResponse */
+        ArchiveIdentitySubjectResponse: {
+            /** Assessment Set Digest */
+            assessment_set_digest: string;
+            /** Candidate Digest */
+            candidate_digest: string;
+            /** Preview Bundle Digest */
+            preview_bundle_digest: string;
+            /** Selection Subject Digest */
+            selection_subject_digest: string;
             /** Submission Id */
             submission_id: string;
         };
         /** ArchivePreviewAnomalyResponse */
         ArchivePreviewAnomalyResponse: {
+            /** Accepted At */
+            accepted_at: string | null;
+            /** Accepted By */
+            accepted_by: string | null;
+            /** Affected Submission Ids */
+            affected_submission_ids: string[];
+            /** Details */
+            details: components["schemas"]["ArchiveSourceIssueDetailsResponse"] | components["schemas"]["ArchiveTimeQualityDetailsResponse"] | components["schemas"]["ArchiveBaselineTimeDetailsResponse"] | components["schemas"]["ArchiveTimeRegressionDetailsResponse"] | components["schemas"]["ArchiveEmptyIssueDetailsResponse"];
+            /** Detected Status */
+            detected_status: string;
             /** Issue Code */
             issue_code: string;
+            /** Latest Sequence */
+            latest_sequence: number;
+            /** Reason */
+            reason: string | null;
+            /** Relations */
+            relations: string[];
+            /**
+             * Resolution Status
+             * @enum {string}
+             */
+            resolution_status: "UNRESOLVED" | "ACCEPTED" | "REVOKED";
+            /** Side */
+            side: string | null;
             /** Subject Digest */
             subject_digest: string;
             /**
              * Subject Kind
              * @enum {string}
              */
-            subject_kind: "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+            subject_kind: "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION" | "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
             /** Target Candidate Digest */
             target_candidate_digest: string;
             /** Target Submission Id */
@@ -658,12 +834,13 @@ export interface components {
             baseline_head_version: number;
             /** Baseline Node Id */
             baseline_node_id: string;
+            business_validation: components["schemas"]["ArchiveBusinessValidationResponse"];
             /** Candidate Set Digest */
             candidate_set_digest: string;
             /** Confirmation Refs */
             confirmation_refs: components["schemas"]["ArchiveAuditReferenceResponse"][];
             /** Dispositions */
-            dispositions: components["schemas"]["ArchiveDispositionResponse"][];
+            dispositions: components["schemas"]["SubmissionDispositionResponse"][];
             /** Selected Repository Commit Id */
             selected_repository_commit_id: string;
             /** Selected Submission Id */
@@ -675,6 +852,79 @@ export interface components {
             expected_candidate_digest: string;
             /** Submission Id */
             submission_id: string;
+        };
+        /** ArchiveSiblingSubjectResponse */
+        ArchiveSiblingSubjectResponse: {
+            /**
+             * Issue Code
+             * @constant
+             */
+            issue_code: "APPROVED_SIBLING_EXCLUDED";
+            /** Selection Subject Digest */
+            selection_subject_digest: string;
+            /** Target Candidate Digest */
+            target_candidate_digest: string;
+            /** Target Submission Id */
+            target_submission_id: string;
+        };
+        /** ArchiveSourceDiagnosticResponse */
+        ArchiveSourceDiagnosticResponse: {
+            baseline_identity: components["schemas"]["ArchiveContentIdentityResponse"] | null;
+            /**
+             * Detected Status
+             * @enum {string}
+             */
+            detected_status: "NOT_APPLICABLE" | "UNEXPLAINED" | "EXPLAINED";
+            initial_identity: components["schemas"]["ArchiveContentIdentityResponse"];
+            /**
+             * Initial Origin
+             * @enum {string}
+             */
+            initial_origin: "UPLOADED" | "BASELINE_REUSED" | "INITIAL_EMPTY";
+            /** Matching Sources */
+            matching_sources: components["schemas"]["ArchiveSourceReferenceResponse"][];
+            /** Rules Identity Differs From Baseline */
+            rules_identity_differs_from_baseline: boolean;
+            /** Submission Id */
+            submission_id: string;
+        };
+        /** ArchiveSourceEdgeResponse */
+        ArchiveSourceEdgeResponse: {
+            /** Candidate Digest */
+            candidate_digest: string;
+            /** Configuration Facts Digest */
+            configuration_facts_digest: string;
+            initial: components["schemas"]["ArchiveContentIdentityResponse"];
+            modified: components["schemas"]["ArchiveContentIdentityResponse"];
+            /** Submission Id */
+            submission_id: string;
+        };
+        /** ArchiveSourceIssueDetailsResponse */
+        ArchiveSourceIssueDetailsResponse: {
+            /**
+             * Detected Status
+             * @constant
+             */
+            detected_status: "UNEXPLAINED";
+            /** Edges */
+            edges: components["schemas"]["ArchiveSourceEdgeResponse"][];
+            /** States */
+            states: components["schemas"]["ArchiveContentIdentityResponse"][];
+        };
+        /** ArchiveSourceReferenceResponse */
+        ArchiveSourceReferenceResponse: {
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "INITIAL" | "MODIFIED";
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "BASELINE" | "SUBMISSION";
+            /** Submission Id */
+            submission_id?: string | null;
         };
         /** ArchiveStartedResponse */
         ArchiveStartedResponse: {
@@ -696,11 +946,39 @@ export interface components {
             /** Baseline Node Id */
             baseline_node_id: string;
             /** Dispositions */
-            dispositions: components["schemas"]["ArchiveDispositionResponse"][];
+            dispositions: components["schemas"]["SubmissionDispositionResponse"][];
             /** Released Workspace Ids */
             released_workspace_ids: string[];
             /** Selected Submission Id */
             selected_submission_id: string;
+        };
+        /** ArchiveTimeComparisonResponse */
+        ArchiveTimeComparisonResponse: {
+            /**
+             * Detected Status
+             * @enum {string}
+             */
+            detected_status: "NOT_APPLICABLE" | "NOT_COMPARABLE" | "BACKWARD" | "NORMAL";
+            /** Left Time Utc */
+            left_time_utc: string | null;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "MODIFIED_BEFORE_INITIAL" | "MODIFIED_BEFORE_BASELINE" | "INITIAL_BEFORE_BASELINE";
+            /** Right Time Utc */
+            right_time_utc: string | null;
+            /** Submission Id */
+            submission_id: string;
+        };
+        /** ArchiveTimeQualityDetailsResponse */
+        ArchiveTimeQualityDetailsResponse: {
+            generated_time: components["schemas"]["ArchiveGeneratedTimeResponse"];
+        };
+        /** ArchiveTimeRegressionDetailsResponse */
+        ArchiveTimeRegressionDetailsResponse: {
+            /** Comparisons */
+            comparisons: components["schemas"]["ArchiveTimeComparisonResponse"][];
         };
         /** BaselineHeadResponse */
         BaselineHeadResponse: {
@@ -710,6 +988,45 @@ export interface components {
             business_baseline_commit_id: string;
             /** Business Baseline Node Id */
             business_baseline_node_id: string;
+        };
+        /** CloseSubmissionRequest */
+        CloseSubmissionRequest: {
+            /** Expected Baseline Head Version */
+            expected_baseline_head_version: number;
+            /** Expected Baseline Node Id */
+            expected_baseline_node_id: string;
+            /** Expected Review Version */
+            expected_review_version: number;
+            /** Reason */
+            reason: string;
+        };
+        /** CloseSubmissionResponse */
+        CloseSubmissionResponse: {
+            /**
+             * Closed At
+             * Format: date-time
+             */
+            closed_at: string;
+            /** Closed By */
+            closed_by: string;
+            /**
+             * Disposition
+             * @constant
+             */
+            disposition: "CLOSED_NOT_ARCHIVED";
+            /** Reason */
+            reason: string;
+            /** Released Workspace Id */
+            released_workspace_id: string;
+            /**
+             * Source Kind
+             * @constant
+             */
+            source_kind: "MANUAL_CLOSE";
+            /** Submission Id */
+            submission_id: string;
+            /** Workspace Version */
+            workspace_version: number;
         };
         /** CreateWorkspaceRequest */
         CreateWorkspaceRequest: {
@@ -834,10 +1151,9 @@ export interface components {
         };
         /** HistoryNodeResponse */
         HistoryNodeResponse: {
-            /** Archive Disposition */
-            archive_disposition?: ("ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED") | null;
             /** Baseline Kind */
             baseline_kind?: ("INITIAL" | "ARCHIVED_SUBMISSION") | null;
+            closure?: components["schemas"]["SubmissionClosureSummaryResponse"] | null;
             /** Commit Id */
             commit_id: string;
             /**
@@ -845,6 +1161,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Disposition Result Id */
+            disposition_result_id?: string | null;
+            /** Disposition Source Kind */
+            disposition_source_kind?: ("ARCHIVE" | "MANUAL_CLOSE") | null;
             /** Eligibility Note */
             eligibility_note?: "NOT_CANDIDATE_BASE_ADVANCED" | null;
             /**
@@ -868,7 +1188,9 @@ export interface components {
              */
             ref_kind: "baseline_node" | "submission";
             /** Review Status */
-            review_status?: ("PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN") | null;
+            review_status?: ("PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN") | null;
+            /** Submission Disposition */
+            submission_disposition?: ("ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED") | null;
         };
         /** OperationAcceptedResponse */
         OperationAcceptedResponse: {
@@ -979,6 +1301,7 @@ export interface components {
             audit_validity: boolean;
             /** Blockers */
             blockers: string[];
+            business_validation: components["schemas"]["ArchiveBusinessValidationResponse"];
             /** Can Start */
             can_start: boolean;
             /** Candidate Set Digest */
@@ -988,6 +1311,10 @@ export interface components {
             /** Dispositions */
             dispositions: components["schemas"]["ArchivePreviewDispositionResponse"][];
             head: components["schemas"]["BaselineHeadResponse"];
+            /** Pending Submission Count */
+            pending_submission_count: number;
+            /** Pending Submission Ids */
+            pending_submission_ids: string[];
             selected?: components["schemas"]["ArchiveSelectedRefRequest"] | null;
             /** Selection Subject Digest */
             selection_subject_digest?: string | null;
@@ -1067,7 +1394,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN";
+            status: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN";
             /** Submission Id */
             submission_id: string;
         };
@@ -1079,9 +1406,9 @@ export interface components {
              * Event Kind
              * @enum {string}
              */
-            event_kind: "SUBMISSION_FINALIZED" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN";
+            event_kind: "SUBMISSION_FINALIZED" | "APPROVED" | "REJECTED" | "WITHDRAWN";
             /** From Status */
-            from_status?: ("PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN") | null;
+            from_status?: ("PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN") | null;
             /**
              * Occurred At
              * Format: date-time
@@ -1095,7 +1422,7 @@ export interface components {
              * To Status
              * @enum {string}
              */
-            to_status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN";
+            to_status: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN";
         };
         /** ReviewFactsResponse */
         ReviewFactsResponse: {
@@ -1111,7 +1438,8 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "APPROVED" | "REJECTED" | "RETURNED_FOR_REVISION" | "WITHDRAWN";
+            status: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN";
+            submission_disposition: components["schemas"]["SubmissionDispositionResponse"] | null;
             /** Submission Id */
             submission_id: string;
             /**
@@ -1181,6 +1509,36 @@ export interface components {
             options?: components["schemas"]["StartPreviewOptions"];
             /** Upload Revision Id */
             upload_revision_id: string;
+        };
+        /** SubmissionClosureSummaryResponse */
+        SubmissionClosureSummaryResponse: {
+            /**
+             * Closed At
+             * Format: date-time
+             */
+            closed_at: string;
+            /** Closed By */
+            closed_by: string;
+            /** Reason */
+            reason: string;
+        };
+        /** SubmissionDispositionResponse */
+        SubmissionDispositionResponse: {
+            closure: components["schemas"]["SubmissionClosureSummaryResponse"] | null;
+            /**
+             * Disposition
+             * @enum {string}
+             */
+            disposition: "ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED";
+            /** Result Id */
+            result_id: string | null;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "ARCHIVE" | "MANUAL_CLOSE";
+            /** Submission Id */
+            submission_id: string;
         };
         /** SubmissionResponse */
         SubmissionResponse: {
@@ -1324,6 +1682,10 @@ export interface components {
         };
         /** WorkspaceResponse */
         WorkspaceResponse: {
+            /** Active Submission Id */
+            active_submission_id: string | null;
+            /** Active Submit Attempt Id */
+            active_submit_attempt_id: string | null;
             /** Business Project Id */
             business_project_id: string;
             /**
@@ -1549,7 +1911,7 @@ export interface operations {
     list_archive_audit_events_route_v1_archive_audit_events_get: {
         parameters: {
             query: {
-                subject_kind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+                subject_kind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION" | "CONFIGURATION_SOURCE" | "CONFIGURATION_TIME_QUALITY" | "CONFIGURATION_TIME_ORDER";
                 subject_digest: string;
                 after_sequence?: number;
                 limit?: number;
@@ -1840,7 +2202,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_CONFIRMATION_REQUIRED, ARCHIVE_ANOMALY_UNRESOLVED, ARCHIVE_AUDIT_VERSION_CONFLICT, ACTIVE_SUBMIT_ATTEMPT, ARCHIVE_SCOPE_LIMIT_EXCEEDED, WORKSPACE_OCCUPANCY_CONFLICT */
+            /** @description IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_CONFIRMATION_REQUIRED, ARCHIVE_ANOMALY_UNRESOLVED, ARCHIVE_AUDIT_VERSION_CONFLICT, ACTIVE_SUBMIT_ATTEMPT, ARCHIVE_PENDING_REVIEW, ARCHIVE_SCOPE_LIMIT_EXCEEDED, WORKSPACE_OCCUPANCY_CONFLICT */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2002,8 +2364,17 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Idempotent replay */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryCompareAcceptResponse"];
+                };
+            };
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2139,13 +2510,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Complete uncompressed POSIX bundle tar */
             200: {
                 headers: {
+                    /** @description Safe attachment tar filename */
+                    "Content-Disposition"?: string;
+                    /** @description Exact complete tar byte count */
+                    "Content-Length"?: number;
+                    /** @description Quoted bundle digest */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/x-tar": unknown;
                 };
             };
             /** @description AUTHENTICATION_REQUIRED */
@@ -2177,6 +2554,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description BUNDLE_INTEGRITY_FAILURE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2231,6 +2615,97 @@ export interface operations {
                 };
             };
             /** @description SERVICE_NOT_READY */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    close_submission_route_v1_submissions__submission_id__closure_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseSubmissionRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloseSubmissionResponse"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloseSubmissionResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, ARCHIVE_CLOSED, WORKSPACE_OCCUPANCY_CONFLICT */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ADMISSION_LIMIT_REACHED */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2352,7 +2827,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT */
+            /** @description IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT, BASELINE_VERSION_CONFLICT, ARCHIVE_CLOSED */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2395,8 +2870,17 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Existing workspace */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2584,11 +3068,16 @@ export interface operations {
             /** @description Preview bundle. Per-table surface diagnostics_summary may contain the informational KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility. */
             200: {
                 headers: {
+                    /** @description Safe attachment tar filename */
+                    "Content-Disposition"?: string;
+                    /** @description Exact complete tar byte count */
+                    "Content-Length"?: number;
+                    /** @description Quoted bundle digest */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                    "application/octet-stream": unknown;
+                    "application/x-tar": unknown;
                 };
             };
             /** @description AUTHENTICATION_REQUIRED */
@@ -2621,7 +3110,7 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description SERVICE_NOT_READY */
+            /** @description SERVICE_NOT_READY, BUNDLE_INTEGRITY_FAILURE */
             503: {
                 headers: {
                     [name: string]: unknown;

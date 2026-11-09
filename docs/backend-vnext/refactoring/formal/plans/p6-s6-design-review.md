@@ -30,3 +30,34 @@
 ## 设计者处置（不是审核结论）
 
 F1直接统一owning Contract旧条文；F2在设计§4.2/kickoff I列具体scope/参数/停止点及测试owner；F3使用现观察字段并明确限制，不新建时钟机制。清理矩阵逐项保留真实consumer，无新增产品删除。正式固定候选审及后续原文在此追加；未审核前不签整体GO。
+
+## R1 固定候选原始结论
+
+以下为同一审核者原文：
+
+**R1：HOLD（需文档小修后连续复审），不签整体设计 GO。**
+
+审核对象：`d4b952c778a03899393c0f475fedc6f7d0ac45df`，区间 `p6-s5-exit..d4b952`。工作区 `/home/dev/gdds-reviews/p6-s6-design-d4b952c778` 为 clean detached，legacy 已接。只读核对文档、源码及引用；未修改文件、运行产品检查或访问测试 CT。区间含并行 FE3 文档合入，其验收不由本审代签。
+
+- **F1 部分关闭，剩余一处措辞过宽。**  
+  Summary Early Exit、ordered-diff 旧条款已正确区分 metadata-only 与 ordered 单侧摘要/缓存恢复。可是 `comparison.md:302` 新 provider 表写“ordered表保留ordered/blank extension”，覆盖面大于实际行为：`comparison/ordered.py::_compare_single_side` 对正常整表新增/删除返回 `ADDED_TABLE/DELETED_TABLE`，不产生上述 extension。应限定为两侧存在且适用 ordered 比较的任务，并明确不改变整表增删路径。只需文档修正，不能为了满足新措辞改产品或 golden。
+
+- **F2 设计处置关闭；产品实现仍未执行。**  
+  新 `t4-w1-w2` scope、fresh/MODIFIED_ONLY 约束、repeat 后停止、无变更 mutation/main/head 断言和唯一测试 owner 已明确。小修：设计§4.2 的 `_run_dataset` 应为实际 `_run_tier`（`real_dump_journey.py:2967`）。
+
+- **F3 设计处置关闭。**  
+  已准确限定受理响应后起点、2秒轮询、首次可读/终态代理，明确不冒精确 READY、median 或同条件提速。BE-c 将 READY 前组装与 GET 封装/发送分开，范围和限制充分。
+
+- **F4 新增：计数和独立预期来源尚未具体到可执行，阻塞设计整体 GO。**  
+  `kickoff:28–31`、设计§4.2目前仅写“现指标”“已有独立代表预期”“必要工具采集在I/II固定”。实施者仍需决定关键验收如何成立。应补一张紧凑来源表：
+  1. `pair_pipeline.py` 的 `s3_pair_metrics` 按真实 operation/pair 归属，分别消费 kernel、ordered、restore、records validation、rebind；不能拿 `native input_reads` 当 Dolt 请求。
+  2. W2 **逻辑基线需求**与**实际RS行请求**分开。明确前者的既有 owner/断言来源；后者指定限定业务窗口的 access 日志、完整性和正校准依据。无法观察的字段保持 UNKNOWN，并明确是否由既有测试证明承担，不临场把缺日志解释为零。
+  3. 写明标准 datasets/census 和 S4 已核独立旧源 expected 的具体归档入口/固定版本及摘要，明确完整 catalog/schema/count与代表 keyed/ordered/keyless/composite 的各自来源、SET 逻辑映射规则。若既有材料不适用于本轮 t4 v1，先停止补来源，不能从新结果生成 expected。
+
+其他已核：三项 Owner 收敛决定落实；最终六包实跑和最终 H 本机重建/容器要求保留；外置结果避免自身 SHA 循环；未知与取消项没有变为 PASS；N1/M24、节点池、离线规则、DC68 与角色新建规则一致；清理矩阵保留有真实 consumer 的 Python 职责，未发现需要新增产品删除的证据。
+
+另建议将总设计§1.1仍直接写“规模2×t4…完整场景”的目标句标明历史背景并指向§12现行范围，以免只读摘要者误执行旧矩阵。现§16已有明确覆盖声明，此项为非阻塞一致性修订。
+
+### 设计者R1修订
+
+收窄provider表到两侧有效ordered任务，整表增删不要求extension；订正`_run_tier`；设计§4.2.1固定datasets/census、旧B独立oracle及SET摘要、分层计数与实际HTTP正校准、缺失停止规则；kickoff链接该表；总设计目标句明确历史背景。待原审复核，不自签关闭。

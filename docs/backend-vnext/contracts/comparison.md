@@ -299,7 +299,7 @@ ComparisonPlan:
 | --- | --- | --- |
 | `PROJECTION_TABLE_COMPARE` | projection artifact 已存在时复用 | 读取 projection table artifact 后比较。 |
 | `DOLT_NATIVE` | repository 两侧可原生比较时 | 必须经 canonicalizer 输出同一 `ComparisonFacts` contract；设计见 `../capabilities/dolt-native-provider.md`。 |
-| `ORDERED_TABLE_COMPARE` | 有序表语义比较 | ordered表保留ordered/blank extension；完全未变化时通过current单侧摘要或健康缓存恢复，不省略所需facts。contract 见 `ordered-diff.md`，实现设计见 `../capabilities/ordered-diff-compute.md`。 |
+| `ORDERED_TABLE_COMPARE` | 有序表语义比较 | 两侧存在且进入有效ordered比较的任务保留ordered/blank extension；未变化任务通过current单侧摘要或健康缓存恢复。整表新增/删除保持表级facts，不因此要求extension。contract 见 `ordered-diff.md`，实现设计见 `../capabilities/ordered-diff-compute.md`。 |
 
 规则：
 

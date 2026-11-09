@@ -59,11 +59,27 @@ A类事实：审批、业务BaselineHead、Repository commit/main、权威绑定
 
 在`vnext/backend/benchmarks/real_dump_journey.py`新增明确scope `t4-w1-w2`，只允许`--tier t4`、fresh、MODIFIED_ONLY、无cross-project/派生s3 census/skip-repeat/from-step。不改变旧scope语义；参数不合法在起栈/写入前拒绝。
 
-复用`_run_dataset`现v1及repeat步骤，repeat结果完成即返回，不进入v2 workspace或History。scope结果包含实际输入SHA/规模、首次/重复Preview与Submit身份、审批Archive绑定、重复Repository mutation集合前后、timing及bundle_transfer。无变更Submit既核`NO_CANONICAL_CHANGE`，又核无新增Repository operation、main不动、业务head不动。首次Submit后业务head仍为空基线；Archive后指v1且版本递增，重复请求使用该合法head。不能直接改DB构造前置。
+复用`_run_tier`现v1及repeat步骤，repeat结果完成即返回，不进入v2 workspace或History。scope结果包含实际输入SHA/规模、首次/重复Preview与Submit身份、审批Archive绑定、重复Repository mutation集合前后、timing及bundle_transfer。无变更Submit既核`NO_CANONICAL_CHANGE`，又核无新增Repository operation、main不动、业务head不动。首次Submit后业务head仍为空基线；Archive后指v1且版本递增，重复请求使用该合法head。不能直接改DB构造前置。
 
 现 `_repository_mutation_ids` 与catalog/真实内容核对仅在特定模式启用；新scope显式复用这些真实校验，不以返回码替代。输入依标准datasets/census及冻结业务向量，不从本次输出反填expected；SET跨物理profile按owning逻辑值比对。真实catalog/schema/count与已有独立代表keyed/ordered/keyless/composite预期都保留。不因空records天然无差异新增全记录算法测试。
 
 唯一新增测试owner `tests/test_real_dump_journey.py`：参数共享负例表；成功链在repeat结束且不调用v2/History；任何前置/重复校验失败停止；新scope必采无变更mutation校验。仅mock步骤调度/边界，业务正确性继续由既有owner及真实运行证明。
+
+### 4.2.1 独立预期与计数采集的固定来源
+
+输入固定为标准`/home/dev/gateway-real-dumps/datasets.json` SHA256 `78c7cbba05acbbe92cc9a22351f8caf800824c4520e0d9685c6e776d6042da4f`及仓库census SHA256 `733b506e43164a62f30d3a1d665449471e8edf25b515701150f6e73a824a6988`，t4 v1包的size/SHA从该metadata读取并逐件验证（不采用2×t4派生清单）。
+
+真实表oracle直接引用[S4交接“真实业务核收”](p6-s4-handoff.md#真实业务核收与取消项)和[协调§18/19](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)：旧B `788ed36e7742a067bf01c16ad2e6aaed2fed91fb`，不运行旧算法重新捕获。采用其已保存的标准t4 v1完整312表schema/count及五代表表预期；SET `app_cfg`24行使用已独核mapped JSON，SHA256=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19f`，从原B raw摘要`1ac38b4634a80eb8f1d42d13ce197a507781317869f554a1a8418d1d71427149`按声明映射，wire摘要`2c9c580537840e71b6d35f4704a9ade016adbc8521894e1483621d28da696a93`。源目录为原04 `/home/dev/gdds-test-tmp/p6-s4-e-04-6786-real-plan/appcfg-t4-b-mapped-r0-control/`，其他四表/全catalog预期循S4协调§18固定assets清单取同字节只读副本；不启动旧服务、不改旧expected。先核清单/摘要，无法定位则停止准备并报告缺失，不用当前结果替代。
+
+| 本轮字段/断言 | 采集与核验方法 | 缺失处理 |
+| --- | --- | --- |
+| W2逻辑基线行需求=0 | 新scope由已核两侧完整canonical manifest按`preview_jobs._changed_canonical_tables`的owning完整身份规则独立列U/X/A/D；X/D为空，结合重复字节和现Preview owner断言，不从RS请求数倒推逻辑需求 | metadata缺失/矛盾为完整性失败 |
+| kernel/ordered/restore/validation/rebind | 原worker `s3_pair_metrics`，由`application/pair_pipeline.py`输出；锁定本scope两个operation及各自pair，分别取`comparison_kernel_calls`、`ordered_single_side_calls`、`cache_restore_calls`、`cache_records_validation_calls`、`digest_rebinds` | 事件缺失记UNKNOWN，先修工具归属/日志捕获，不默认0 |
+| 实际RS rows/catalog HTTP | 同RS容器完整带timestamp access日志按repository/exact commit及repeat Preview独占窗口计数；先用合法前置的Repository真实内容读取正校准rows通道，校准在W2窗口外。保原日志及前后边界，拒绝容器重启/截断/无正校准下推零 | UNKNOWN不满足本轮实际读取核验，停止证据核收；仅修捕获，若原件可只读补核不重跑业务 |
+| native `input_reads` | 仅报告native Arrow输入读取，可能为current单侧，不能当Dolt/HTTP请求 | 与HTTP分列 |
+| W2无Repository mutation | 现`_repository_mutation_ids`在repeat前后真实查询，另核technical main/head；本scope无条件开启，不依赖旧submit_measurements选项偶然启用 | 任一变化/缺失均失败 |
+
+复用S5已核HTTP日志解析方法（原`e-t1-warm-resume-r3.py::access_counts`及S5交接），不复用其业务ID/时间窗。W2 current单侧摘要允许非0；真正比较kernel应为0，restore和重绑不是比较。SQL/read计数不得把验证器自己的前置读请求混入W2。若当前现成观察无法证明某必需断言，先形成具体工具修订并独审，不新增production计时/持久evidence机制。
 
 ### 4.3 计时与BE-c（独审F3）
 

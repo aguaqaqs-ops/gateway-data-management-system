@@ -474,6 +474,9 @@ def _open_canonical_artifact(
             ordered=manifest.ordered_metadata, close=handle.close)
         layout = row_layout_digest_of(manifest.descriptor, source.columns, manifest.ordered_metadata)
         context.checkpoint()
+        assert isinstance(result.reader, ArrowSnapshotTableReader)
+        # CanonicalTableStore.open verified the content ref, IPC and bound descriptor.
+        result.reader.mark_canonical_artifact_read_verified()
         return replace(result, artifact=SnapshotTableArtifact(manifest_ref, manifest, layout))
     except BaseException:
         handle.close()
@@ -554,6 +557,7 @@ def publish_canonical_tables(
                 except BaseException:
                     reader.close()
                     raise
+                reader.mark_canonical_comparison_verified()
                 published.append(replace(table, reader=reader, batch_reader=batch,
                     artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
         context.checkpoint()

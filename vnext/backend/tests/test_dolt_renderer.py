@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
+import json
+import struct
+from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
-from gateway_backend.capabilities.mutation_planning import _repository_replay_renderer as replay_renderer
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
+from gateway_backend.capabilities.storage_projection import KernelExecutionContext
+from gateway_backend.capabilities.table_access import (
+    KernelMemoryLimit, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+)
 from gateway_backend.capabilities.mutation_planning import (
     MutationFailureCode,
     MutationPlanStatus,
@@ -43,10 +51,11 @@ from tests.support.mutation_renderer_fixtures import (
     load_closure,
     load_expected_sql,
 )
+from tests.support.sql_replay_inputs import frozen_replay_cap_closure
 from tests.support.mutation_contracts import int_cell, row_image, storage_key
-from gateway_backend.capabilities.mutation_planning.contracts import TableMutationKind
 
 pytestmark = pytest.mark.unit
+_VECTORS = Path(__file__).parents[2] / "fixtures/vectors/mutation/sql-replay/v1"
 
 R7_RENDERER_GOLDEN_CASES: tuple[tuple[str, str], ...] = (
     ("patch-single-update", "valid/patch-single-update"),
@@ -59,25 +68,25 @@ R7_RENDERER_GOLDEN_CASES: tuple[tuple[str, str], ...] = (
 
 
 @pytest.mark.parametrize(("case_id", "relative_dir"), R7_RENDERER_GOLDEN_CASES)
-def test_renderer_golden_cases(case_id: str, relative_dir: str) -> None:
+def test_renderer_golden_cases(case_id: str, relative_dir: str, operation_kernel_context: KernelExecutionContext) -> None:
     closure = load_closure(relative_dir)
     expected = load_expected_sql(relative_dir)
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY", case_id
     assert outcome.sql_bytes == expected
     assert outcome.sql_digest == raw_blob_digest(expected)
 
 
-def test_renderer_is_deterministic_for_golden_closure() -> None:
+def test_renderer_is_deterministic_for_golden_closure(operation_kernel_context: KernelExecutionContext) -> None:
     closure = load_closure("valid/patch-single-update")
-    first = render_change_set_replay(closure)
-    second = render_change_set_replay(closure)
+    first = render_change_set_replay(closure, context=operation_kernel_context)
+    second = render_change_set_replay(closure, context=operation_kernel_context)
     assert first == second
     assert first.sql_bytes is not None
     assert first.sql_digest == raw_blob_digest(first.sql_bytes)
 
 
-def test_planner_ready_closure_renders_successfully() -> None:
+def test_planner_ready_closure_renders_successfully(operation_kernel_context: KernelExecutionContext) -> None:
     result = plan_storage_mutation(
         planning_request(
             policy=MutationPolicy.ADAPTIVE_PATCH,
@@ -87,15 +96,15 @@ def test_planner_ready_closure_renders_successfully() -> None:
     )
     assert result.status is MutationPlanStatus.READY
     assert result.change_set_closure is not None
-    outcome = render_change_set_replay(result.change_set_closure)
+    outcome = render_change_set_replay(result.change_set_closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert outcome.sql_bytes.endswith(b"\n")
 
 
-def test_multi_table_sql_statement_order_matches_mutations() -> None:
+def test_multi_table_sql_statement_order_matches_mutations(operation_kernel_context: KernelExecutionContext) -> None:
     closure = load_closure("valid/multi-table-patch")
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.sql_bytes is not None
     statements = [line for line in outcome.sql_bytes.decode("utf-8").splitlines() if line]
     assert len(statements) <= len(closure.mutations)
@@ -104,15 +113,34 @@ def test_multi_table_sql_statement_order_matches_mutations() -> None:
         assert statement.endswith(";")
 
 
-def test_source_literal_anomaly_fixture_fails_closed() -> None:
+def test_source_literal_anomaly_fixture_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
     closure = load_closure("capability-failures/source-literal-anomaly")
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "FAILED"
     assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
     assert outcome.sql_bytes is None
 
 
-def test_wrong_renderer_capability_digest_fails_closed() -> None:
+@pytest.mark.parametrize("invalid_cell", (
+    {"kind": "signed-integer", "decimal": "1-2"},
+    {"kind": "binary", "bytes_base64url": "A"},
+    {"kind": "string", "text": 9},
+))
+def test_mutated_structural_cell_is_rejected_before_sql_effect(
+    invalid_cell: dict[str, object], operation_kernel_context: KernelExecutionContext,
+) -> None:
+    closure = load_closure("valid/first-load-insert")
+    assert closure.mutations[0].after_image is not None
+    cell = closure.mutations[0].after_image.columns[0][1]
+    cell.clear()
+    cell.update(invalid_cell)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
+    assert outcome.status == "FAILED"
+    assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
+    assert outcome.sql_bytes is None
+
+
+def test_wrong_renderer_capability_digest_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
     closure = change_set_closure(mutations=(delete_mutation(),))
     wrong_capability = RendererCapabilityDeclaration(
         target_kind=MutationTargetKind.CANONICAL_REPOSITORY_REPLAY,
@@ -126,12 +154,12 @@ def test_wrong_renderer_capability_digest_fails_closed() -> None:
         target_identity=wrong_capability,
     )
     patched = ChangeSetClosure(manifest=patched_manifest, mutations=closure.mutations)
-    outcome = render_change_set_replay(patched)
+    outcome = render_change_set_replay(patched, context=operation_kernel_context)
     assert outcome.status == "FAILED"
     assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
 
 
-def test_external_reference_renderer_capability_fails_closed() -> None:
+def test_external_reference_renderer_capability_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
     closure = change_set_closure(mutations=(delete_mutation(),))
     external = renderer_capability(target_kind=MutationTargetKind.EXTERNAL_REFERENCE)
     patched_manifest = replace(
@@ -140,39 +168,89 @@ def test_external_reference_renderer_capability_fails_closed() -> None:
         target_identity=external,
     )
     patched = ChangeSetClosure(manifest=patched_manifest, mutations=closure.mutations)
-    outcome = render_change_set_replay(patched)
+    outcome = render_change_set_replay(patched, context=operation_kernel_context)
     assert outcome.status == "FAILED"
     assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
 
 
-def test_replay_size_cap_rejects_without_partial_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.mutation_planning._repository_replay_renderer.MAX_REPLAY_SQL_BYTES",
-        64,
-    )
-    mutations = tuple(insert_mutation(board=str(i), link_no=str(i + 1)) for i in range(8))
-    closure = change_set_closure(
-        summaries=(table_summary(operation=TableMutationKind.REBUILD_TABLE),),
-        mutations=mutations,
-    )
-    outcome = render_change_set_replay(closure)
-    assert outcome.status == "FAILED"
-    assert outcome.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
-    assert outcome.sql_bytes is None
+def test_renderer_rejects_closed_and_structural_contexts(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
+    closure = load_closure("valid/patch-single-update")
+    closed = KernelExecutionContext(OperationMemoryBudget(1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(closed, new_operation=True):
+        closed.require_active()
+    with pytest.raises(ValueError, match="not active"):
+        render_change_set_replay(closure, context=closed)
+
+    class Lookalike:
+        memory = operation_kernel_context.memory
+        cancel_probe = operation_kernel_context.cancel_probe
+        threads = operation_kernel_context.threads
+        deadline_monotonic = operation_kernel_context.deadline_monotonic
+
+    with pytest.raises(ValueError, match="real kernel operation context"):
+        render_change_set_replay(closure, context=Lookalike())  # type: ignore[arg-type]
 
 
-def test_replay_size_cap_boundary_accepts_under_limit() -> None:
+def test_replay_size_cap_boundary_accepts_under_limit(operation_kernel_context: KernelExecutionContext) -> None:
     # One INSERT line is far below MAX_REPLAY_SQL_BYTES.
     closure = change_set_closure(mutations=(insert_mutation(),))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert len(outcome.sql_bytes) < MAX_REPLAY_SQL_BYTES
 
 
-def test_update_excludes_key_columns_from_set_clause() -> None:
+@pytest.mark.parametrize("case_index", (0, 1))
+def test_replay_frozen_cap_accepts_equality_and_rejects_one_byte_over(case_index: int) -> None:
+    vector = json.loads((_VECTORS / "replay-cap.json").read_text())
+    case = vector["cases"][case_index]
+    closure = frozen_replay_cap_closure(case_index)
+    context = KernelExecutionContext(OperationMemoryBudget(4 * 1024**3), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        outcome = render_change_set_replay(closure, context=context)
+        assert outcome.status == case["expected_status"]
+        if case["expected_status"] == "READY":
+            assert outcome.sql_bytes is not None
+            assert len(outcome.sql_bytes) == case["complete_statement_bytes"] == vector["sql_cap_bytes"]
+        else:
+            assert outcome.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
+            assert outcome.sql_bytes is None
+            assert case["complete_statement_bytes"] == vector["sql_cap_bytes"] + 1
+
+
+def test_direct_structural_closure_can_render_beyond_durable_json_limit(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
+    base = insert_mutation()
+    assert base.after_image is not None
+    text = "z" * (17 * 1024 * 1024)
+    image = PersistedRowImage(tuple(
+        (name, {"kind": "string", "text": text}) if name == "status" else (name, cell)
+        for name, cell in base.after_image.columns
+    ))
+    outcome = render_change_set_replay(change_set_closure(mutations=(replace(base, after_image=image),)),
+                                       context=operation_kernel_context)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    assert len(outcome.sql_bytes) > 16 * 1024 * 1024
+    assert outcome.sql_bytes.endswith(b"z" * 32 + b"');\n")
+
+
+def test_manifest_summaries_remain_charged_as_structural_closure_input() -> None:
+    summaries = tuple(table_summary(table=f"t{index:03d}_" + "x" * 1024) for index in range(100))
+    closure = change_set_closure(summaries=summaries)
+    context = KernelExecutionContext(OperationMemoryBudget(1024 * 1024), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            render_change_set_replay(closure, context=context)
+        assert context.memory.used_bytes == 0
+
+
+def test_update_excludes_key_columns_from_set_clause(operation_kernel_context: KernelExecutionContext) -> None:
     closure = load_closure("valid/patch-single-update")
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.sql_bytes is not None
     text = outcome.sql_bytes.decode("utf-8")
     assert "SET `status`=CASE WHEN" in text
@@ -200,7 +278,7 @@ def _sort_by_key(mutations: tuple[ChangeSetMutation, ...]) -> tuple[ChangeSetMut
     return tuple(sorted(mutations, key=lambda item: key_bytes_for_ordering(item.canonical_storage_key)))
 
 
-def test_renderer_batches_delete_update_and_insert_at_256_rows() -> None:
+def test_renderer_batches_delete_update_and_insert_at_256_rows(operation_kernel_context: KernelExecutionContext) -> None:
     deletes = _sort_by_key(
         tuple(delete_mutation(board="1", link_no=str(index)) for index in range(257))
     )
@@ -219,7 +297,7 @@ def test_renderer_batches_delete_update_and_insert_at_256_rows() -> None:
         tuple(insert_mutation(board="3", link_no=str(index)) for index in range(257))
     )
     closure = change_set_closure(mutations=(*deletes, *updates, *inserts))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     statements = outcome.sql_bytes.decode("utf-8").splitlines()
@@ -236,7 +314,7 @@ def test_renderer_batches_delete_update_and_insert_at_256_rows() -> None:
     assert all(len(statement.encode("utf-8")) <= 4 * 1024 * 1024 for statement in statements)
 
 
-def test_renderer_batches_composite_keys_and_mixed_mutations() -> None:
+def test_renderer_batches_composite_keys_and_mixed_mutations(operation_kernel_context: KernelExecutionContext) -> None:
     deletes = _sort_by_key(
         (
             delete_mutation(board="1", link_no="2"),
@@ -263,7 +341,7 @@ def test_renderer_batches_composite_keys_and_mixed_mutations() -> None:
         (insert_mutation(board="3", link_no="6"), insert_mutation(board="3", link_no="7"))
     )
     outcome = render_change_set_replay(
-        change_set_closure(mutations=(*deletes, *updates, *inserts))
+        change_set_closure(mutations=(*deletes, *updates, *inserts)), context=operation_kernel_context
     )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
@@ -281,7 +359,7 @@ def test_renderer_batches_composite_keys_and_mixed_mutations() -> None:
     assert statements[2].count("), (") == 1
 
 
-def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value() -> None:
+def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value(operation_kernel_context: KernelExecutionContext) -> None:
     mutations: list[ChangeSetMutation] = []
     for index in (1, 2):
         gid = 4_000_000_000 + index
@@ -304,7 +382,7 @@ def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value() -> N
             )
         )
     outcome = render_change_set_replay(
-        change_set_closure(mutations=_sort_by_key(tuple(mutations)))
+        change_set_closure(mutations=_sort_by_key(tuple(mutations))), context=operation_kernel_context
     )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
@@ -315,7 +393,7 @@ def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value() -> N
     assert "WHERE `gid` IN (4000000001,4000000002);" in statement
 
 
-def test_renderer_splits_update_batches_at_the_statement_byte_limit() -> None:
+def test_renderer_splits_update_batches_at_the_statement_byte_limit(operation_kernel_context: KernelExecutionContext) -> None:
     payload = "x" * 2_100_000
     mutations = tuple(
         _update_mutation(
@@ -333,7 +411,7 @@ def test_renderer_splits_update_batches_at_the_statement_byte_limit() -> None:
         for index in range(2)
     )
     closure = change_set_closure(mutations=_sort_by_key(mutations))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     statements = outcome.sql_bytes.decode("utf-8").splitlines()
@@ -342,27 +420,26 @@ def test_renderer_splits_update_batches_at_the_statement_byte_limit() -> None:
 
 
 def test_renderer_splits_delete_batches_at_the_statement_byte_limit(
-    monkeypatch: pytest.MonkeyPatch,
+    operation_kernel_context: KernelExecutionContext,
 ) -> None:
-    monkeypatch.setattr(replay_renderer, "_MAX_DELETE_STATEMENT_BYTES", 1_500)
     deletes = tuple(
         ChangeSetMutation(
             canonical_table="wide_keys",
             operation=RowMutationOperation.DELETE,
             canonical_storage_key=CanonicalStorageKey(
-                columns=(("id", {"kind": "string", "text": f"key-{index}-" + "x" * 900}),)
+                columns=(("id", {"kind": "string", "text": f"key-{index}-" + "x" * 2_100_000}),)
             ),
             before_row_digest=raw_blob_digest(f"wide-before-{index}".encode("utf-8")),
         )
         for index in range(2)
     )
     closure = change_set_closure(mutations=_sort_by_key(deletes))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     statements = outcome.sql_bytes.splitlines()
     assert len(statements) == 2
-    assert all(len(statement) <= 1_500 for statement in statements)
+    assert all(len(statement) <= 4 * 1024 * 1024 for statement in statements)
 
 
 def _mutation_with_text_value(
@@ -402,8 +479,8 @@ def _mutation_with_text_value(
     return replace(base, after_image=image)
 
 
-def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...]) -> tuple[int, ...]:
-    outcome = render_change_set_replay(change_set_closure(mutations=mutations))
+def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...], context: KernelExecutionContext) -> tuple[int, ...]:
+    outcome = render_change_set_replay(change_set_closure(mutations=mutations), context=context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     return tuple(len(statement) for statement in outcome.sql_bytes.splitlines(keepends=True))
@@ -415,18 +492,16 @@ def _value_size_for_statement(
     target_size: int,
     row_count: int,
 ) -> int:
+    # Hand-counted from the fixed S1a grammar and the helper's concrete
+    # wide_keys/wide_values shapes. The two-row baseline includes the first
+    # row's 32 UTF8 bytes; no new renderer output determines a boundary.
+    base = {
+        RowMutationOperation.DELETE: (46, 83),
+        RowMutationOperation.UPDATE: (135, 213),
+        RowMutationOperation.INSERT: (76, 120),
+    }
     assert row_count in {1, 2}
-    if row_count == 1:
-        mutations: tuple[ChangeSetMutation, ...] = (
-            _mutation_with_text_value(operation, index=1, value_size=0),
-        )
-    else:
-        mutations = (
-            _mutation_with_text_value(operation, index=1, value_size=32),
-            _mutation_with_text_value(operation, index=2, value_size=0),
-        )
-    baseline_size = _rendered_statement_sizes(mutations)[0]
-    payload_size = target_size - baseline_size
+    payload_size = target_size - base[operation][row_count - 1]
     assert payload_size >= 0
     return payload_size
 
@@ -440,17 +515,10 @@ def _value_size_for_statement(
     ),
 )
 def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
-    monkeypatch: pytest.MonkeyPatch,
+    operation_kernel_context: KernelExecutionContext,
     operation: RowMutationOperation,
 ) -> None:
     byte_limit = 4 * 1024 * 1024
-    limit_name = {
-        RowMutationOperation.INSERT: "_MAX_INSERT_STATEMENT_BYTES",
-        RowMutationOperation.UPDATE: "_MAX_UPDATE_STATEMENT_BYTES",
-        RowMutationOperation.DELETE: "_MAX_DELETE_STATEMENT_BYTES",
-    }[operation]
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
-
     exact_value_size = _value_size_for_statement(
         operation,
         target_size=byte_limit,
@@ -460,10 +528,9 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
         _mutation_with_text_value(operation, index=1, value_size=32),
         _mutation_with_text_value(operation, index=2, value_size=exact_value_size),
     )
-    assert _rendered_statement_sizes((exact_mutations[0],))[0] < byte_limit
-    assert _rendered_statement_sizes((exact_mutations[1],))[0] < byte_limit
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
-    assert _rendered_statement_sizes(exact_mutations) == (byte_limit,)
+    assert _rendered_statement_sizes((exact_mutations[0],), operation_kernel_context)[0] < byte_limit
+    assert _rendered_statement_sizes((exact_mutations[1],), operation_kernel_context)[0] < byte_limit
+    assert _rendered_statement_sizes(exact_mutations, operation_kernel_context) == (byte_limit,)
 
     over_limit_mutations = (
         exact_mutations[0],
@@ -473,10 +540,7 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
             value_size=exact_value_size + 1,
         ),
     )
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
-    assert _rendered_statement_sizes(over_limit_mutations) == (byte_limit + 1,)
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
-    split_sizes = _rendered_statement_sizes(over_limit_mutations)
+    split_sizes = _rendered_statement_sizes(over_limit_mutations, operation_kernel_context)
     assert len(split_sizes) == 2
     assert all(size <= byte_limit for size in split_sizes)
 
@@ -490,13 +554,10 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
         index=3,
         value_size=oversized_value_size,
     )
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
-    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
-    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
-    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
+    assert _rendered_statement_sizes((oversized_mutation,), operation_kernel_context) == (byte_limit + 1,)
 
 
-def test_string_escape_in_sql_literal() -> None:
+def test_string_escape_in_sql_literal(operation_kernel_context: KernelExecutionContext) -> None:
     image = PersistedRowImage(
         columns=(
             ("board", {"kind": "string", "text": "a'b\\n"}),
@@ -516,7 +577,99 @@ def test_string_escape_in_sql_literal() -> None:
         after_image=image,
     )
     closure = change_set_closure(mutations=(mutation,))
-    outcome = render_change_set_replay(closure)
+    outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert b"a\\'b\\\\n" in outcome.sql_bytes
+
+
+# A's independently hand-fixed .15g vectors are the sole scalar registry.
+_FLOAT_CASES = cast(list[dict[str, str]], json.loads((
+    Path(__file__).parents[2] / "fixtures/vectors/mutation/storage-table/v1/cases.json"
+).read_text())["float_15g"])
+
+
+@pytest.mark.parametrize("case", _FLOAT_CASES, ids=[case["reason"] for case in _FLOAT_CASES])
+def test_frozen_float_literal_boundaries(
+    case: dict[str, str], operation_kernel_context: KernelExecutionContext,
+) -> None:
+    kind = case["input_kind"]
+    bits = (case["bits_hex"] if kind == "float32" else
+            struct.pack(">d", float(case["decimal_value"])).hex())
+    expected = case["expected_sql"].encode("ascii")
+    base = insert_mutation()
+    assert base.after_image is not None
+    image = PersistedRowImage(tuple(
+        (name, {"kind": kind, "bits_hex": bits}) if name == "status" else (name, cell)
+        for name, cell in base.after_image.columns
+    ))
+    outcome = render_change_set_replay(change_set_closure(mutations=(replace(base, after_image=image),)),
+                                       context=operation_kernel_context)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    assert outcome.sql_bytes.endswith(b", " + expected + b");\n")
+
+
+# The only C batch expected registry is the independently reviewed S1a
+# capture: source 7d0ce622, hand-derived statement lengths, frozen SQL hashes.
+class _WindowCase(TypedDict):
+    name: str
+    operation: str
+    giant_row_zero_based: int | None
+    statement_rows: list[int]
+    statement_lengths: list[int]
+    sql_sha256: str
+    statement_sha256: list[str]
+
+
+_WINDOW_FIXTURE = cast(dict[str, object], json.loads((
+    Path(__file__).parents[2] / "fixtures/vectors/mutation/sql-replay/v1/batch-boundaries.json"
+).read_text()))
+_WINDOW_CASES = tuple(cast(list[_WindowCase], _WINDOW_FIXTURE["cases"]))
+
+
+@pytest.mark.parametrize("case", _WINDOW_CASES, ids=[case["name"] for case in _WINDOW_CASES])
+def test_frozen_sql_window_and_byte_flush(
+    case: _WindowCase, operation_kernel_context: KernelExecutionContext,
+) -> None:
+    operation = RowMutationOperation(case["operation"])
+    giant = case["giant_row_zero_based"] is not None
+    row_counts = tuple(case["statement_rows"])
+    lengths = tuple(case["statement_lengths"])
+    expected_sha = case["sql_sha256"]
+    limit = 4 * 1024 * 1024
+    mutations = []
+    for row in range(257):
+        key_text = f"{row:03}"
+        value = "s"
+        if giant and row == 254:
+            if operation is RowMutationOperation.DELETE:
+                key_text += "x" * (limit - 35 - len(key_text))
+            elif operation is RowMutationOperation.UPDATE:
+                value = "x" * (limit - 82)
+            else:
+                value = "x" * (limit - 47)
+        key = CanonicalStorageKey((("k", {"kind": "string", "text": key_text}),))
+        image = None if operation is RowMutationOperation.DELETE else PersistedRowImage((
+            ("k", {"kind": "string", "text": key_text}),
+            ("v", {"kind": "string", "text": value}),
+        ))
+        mutations.append(ChangeSetMutation(
+            canonical_table="t", operation=operation, canonical_storage_key=key,
+            before_row_digest=None if operation is RowMutationOperation.INSERT
+                else raw_blob_digest(f"before-{row}".encode()),
+            after_image=image,
+        ))
+    outcome = render_change_set_replay(change_set_closure(mutations=tuple(mutations)),
+                                       context=operation_kernel_context)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statements = outcome.sql_bytes.splitlines(keepends=True)
+    assert tuple(len(statement) for statement in statements) == lengths
+    if operation is RowMutationOperation.INSERT:
+        actual_counts = tuple(part.count(b"), (") + 1 for part in statements)
+    else:
+        actual_counts = tuple(part.rsplit(b" IN (", 1)[1].count(b",") + 1 for part in statements)
+    assert actual_counts == row_counts
+    assert sha256(outcome.sql_bytes).hexdigest() == expected_sha
+    assert [sha256(part).hexdigest() for part in statements] == case["statement_sha256"]

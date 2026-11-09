@@ -42,6 +42,19 @@ def test_openapi_archive_paths_match_literal_baseline(client: TestClient) -> Non
     assert FROZEN_ARCHIVE_OPENAPI_PATHS <= paths
 
 
+def test_openapi_archive_candidate_exposes_required_review_version(client: TestClient) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    candidate = schemas["ArchiveCandidateResponse"]
+    assert candidate["additionalProperties"] is False
+    assert set(candidate["properties"]) == {"submission_id", "expected_candidate_digest", "review_version"}
+    assert set(candidate["required"]) == {"submission_id", "expected_candidate_digest", "review_version"}
+    assert candidate["properties"]["review_version"]["type"] == "integer"
+    assert candidate["properties"]["review_version"]["minimum"] == 0
+    assert candidate["properties"]["review_version"]["maximum"] == 2**53 - 1
+    selected = schemas["ArchiveSelectedRefRequest"]
+    assert set(selected["properties"]) == {"submission_id", "expected_candidate_digest"}
+
+
 def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     response = schema["paths"][

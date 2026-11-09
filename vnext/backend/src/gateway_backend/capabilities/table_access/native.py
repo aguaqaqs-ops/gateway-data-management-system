@@ -87,6 +87,19 @@ class ArrowSourceTableReader:
         assert self._table is not None
         return int(self._table.nbytes)
 
+    @property
+    def arrow_schema(self) -> pa.Schema:
+        self._require_open()
+        assert self._table is not None
+        return self._table.schema
+
+    @property
+    def arrow_batch_count_upper(self) -> int:
+        """Each distinct chunk boundary can add at most one output batch."""
+        self._require_open()
+        assert self._table is not None
+        return 1 + sum(max(0, len(column.chunks) - 1) for column in self._table.columns)
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         assert self._table is not None

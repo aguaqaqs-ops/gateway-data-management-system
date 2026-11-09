@@ -11,7 +11,7 @@ from gateway_backend.application.preview_jobs import (
     decode_preview_payload,
 )
 from gateway_backend.capabilities.comparison import ComparisonTableStatus
-from tests.support.history_compare_oracle import compare_bound_snapshots
+from tests.support.history_compare_reference import compare_bound_snapshots
 from tests.support.preview_job_harness import (
     build_preview_harness,
     decode_payload_object,

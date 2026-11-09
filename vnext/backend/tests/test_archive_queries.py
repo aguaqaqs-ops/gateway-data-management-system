@@ -29,6 +29,8 @@ def test_archive_candidates_include_only_approved_current_base_submissions(db_pa
     )
     assert len(result.candidates) == 1
     assert result.candidates[0].submission_id == seed.submission_id
+    assert result.candidates[0].expected_candidate_digest == seed.selected_ref.expected_candidate_digest
+    assert result.candidates[0].review_version == 1
     assert result.candidate_set_digest.startswith("sha256:")
     assert result.blockers == ()
 

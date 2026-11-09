@@ -14,18 +14,56 @@ from tests.support.runtime_settings import make_operation_worker_settings
 
 
 @pytest.mark.parametrize("value", (0, -1, True, 1.5, "1.5", "", 25769803777))
-def test_worker_rejects_invalid_or_excessive_kernel_budget(tmp_path: Path, value: object) -> None:
+def test_worker_rejects_invalid_or_excessive_kernel_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: object,
+) -> None:
+    monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
     with pytest.raises(ValidationError):
         make_operation_worker_settings(tmp_path, kernel_memory_budget_bytes=value)
 
 
-def test_worker_deployment_profile_has_explicit_budget_and_one_active_operation(tmp_path: Path) -> None:
+def test_worker_deployment_profile_has_explicit_budget_and_one_active_operation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
     settings = make_operation_worker_settings(tmp_path, kernel_memory_budget_bytes=24 * 1024**3)
     assert settings.memory_envelope_bytes == 32 * 1024**3
     assert settings.memory_reserve_bytes == 8 * 1024**3
     assert settings.kernel_memory_budget_bytes == 24 * 1024**3
     assert settings.kernel_threads == 1
     assert settings.max_in_flight == settings.claim_limit == 1
+
+
+def test_worker_accepts_the_bounded_larger_envelope(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(
+        tmp_path, memory_envelope_bytes=48 * 1024**3,
+        kernel_memory_budget_bytes=40 * 1024**3,
+    )
+    assert settings.memory_envelope_bytes == 48 * 1024**3
+    assert settings.memory_reserve_bytes == 8 * 1024**3
+    assert settings.kernel_memory_budget_bytes == 40 * 1024**3
+    assert settings.kernel_threads == settings.max_in_flight == settings.claim_limit == 1
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"memory_envelope_bytes": 32 * 1024**3, "kernel_memory_budget_bytes": 24 * 1024**3 + 1},
+        {"memory_envelope_bytes": 48 * 1024**3, "kernel_memory_budget_bytes": 40 * 1024**3 + 1},
+        {"memory_envelope_bytes": 48 * 1024**3 + 1, "kernel_memory_budget_bytes": 40 * 1024**3},
+        {"memory_envelope_bytes": 48 * 1024**3, "memory_reserve_bytes": 8 * 1024**3 + 1},
+        {"memory_envelope_bytes": True, "kernel_memory_budget_bytes": 24 * 1024**3},
+        {"memory_envelope_bytes": "48.0", "kernel_memory_budget_bytes": 24 * 1024**3},
+        {"memory_reserve_bytes": 8.0},
+    ),
+)
+def test_worker_rejects_a_budget_outside_its_bounded_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changes: dict[str, object],
+) -> None:
+    monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
+    valid = make_operation_worker_settings(tmp_path).model_dump()
+    with pytest.raises(ValidationError):
+        OperationWorkerSettings.model_validate({**valid, **changes})
 
 
 def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

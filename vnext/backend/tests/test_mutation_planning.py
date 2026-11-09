@@ -10,6 +10,7 @@ import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.mutation_planning import (
     MutationExecutionContext,
@@ -27,7 +28,7 @@ from gateway_backend.capabilities.mutation_planning._changeset import (
     TableMutationDecision,
     build_change_set_closure,
 )
-from gateway_backend.capabilities.mutation_planning._planner import _patch_eligible
+from gateway_backend.capabilities.mutation_planning._decision import choose_mutation_kind
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning.contracts import (
     ChangeSetArtifact,
@@ -369,17 +370,15 @@ def test_destructive_confirmation_cases(case_id: str, case: dict[str, object]) -
 
 @pytest.mark.parametrize(("case_id", "case"), THRESHOLD_BOUNDARY_CASES)
 def test_threshold_boundary_cases(case_id: str, case: dict[str, Any]) -> None:
-    before = table_snapshot(rows=(keyed_row(),))
-    after = table_snapshot(rows=(keyed_row(board="9"),))
-    eligible = _patch_eligible(
-        before,
-        after,
-        changed_row_count=int(case["changed_row_count"]),
-        before_row_count=int(case["row_count"]),
-        after_row_count=int(case["row_count"]),
+    kind = choose_mutation_kind(
+        policy=MutationPolicy.ADAPTIVE_PATCH,
         threshold=MutationThresholdPolicy(),
+        patchable=True,
+        changed_rows=int(case["changed_row_count"]),
+        before_rows=int(case["row_count"]),
+        after_rows=int(case["row_count"]),
     )
-    assert eligible is case["eligible"]
+    assert (kind is TableMutationKind.PATCH_DML) is case["eligible"]
 
 
 def test_submit_count_examples_match_hand_computed_net_changes() -> None:
@@ -701,7 +700,9 @@ def test_mixed_plan_closure_manifest_keeps_noop_table_summary() -> None:
     assert {item.canonical_table for item in result.change_set_closure.mutations} == {"orders"}
 
 
-def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase() -> None:
+def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     before_rows_by_number = {
         number: keyed_row(board=str(number), link_no="0")
         for number in range(400)
@@ -795,7 +796,7 @@ def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase() ->
     assert insert.before_row_digest is None
     assert insert.after_image == after_rows_by_number[400].image
 
-    rendered = render_change_set_replay(closure)
+    rendered = render_change_set_replay(closure, context=operation_kernel_context)
     assert rendered.status == "READY"
     assert rendered.sql_bytes is not None
     statements = rendered.sql_bytes.decode().splitlines()
@@ -892,7 +893,9 @@ def test_non_keyed_table_with_row_changes_rebuilds() -> None:
     assert result.plan.table_summaries[0].operation is TableMutationKind.REBUILD_TABLE
 
 
-def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop() -> None:
+def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     before = _keyless_snapshot(_keyless_rows("9", "9", "1"))
     same = _keyless_snapshot(_keyless_rows("1", "9", "9"))
     changed = _keyless_snapshot(_keyless_rows("0", "9", "9"))
@@ -918,7 +921,7 @@ def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop() -> 
     assert changed_result.plan.table_summaries[0].operation is TableMutationKind.REBUILD_TABLE
     assert changed_result.plan.table_summaries[0].changed_row_count == 2
     assert changed_result.change_set_closure is not None
-    rendered = render_change_set_replay(changed_result.change_set_closure)
+    rendered = render_change_set_replay(changed_result.change_set_closure, context=operation_kernel_context)
     assert rendered.status == "READY"
     assert rendered.sql_bytes is not None
     assert rendered.sql_bytes.count(b"DELETE FROM `orders`;") == 1

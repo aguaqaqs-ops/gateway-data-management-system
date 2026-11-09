@@ -618,3 +618,11 @@ ComparisonComputeResult:
 - 本次新写记录可以不再整份回读解码；writer/发布 I/O 失败仍失败，READY 前必须形成完整 closure。真正读取时仍校验 raw SHA、schema、count 和 content digest，采用 Arrow 批次重算 JCS 不降低完整性要求。
 - 单次 operation 可以复用完全相同的纯单表任务；key 包含两侧完整内容/schema/行数/有效键/存储规则、比较与风险规则主体及版本、算法/记录格式/投影/标量版本、方向/options/detail/artifact scope/authority。外层表名和显示名不充当纯任务参数，但不能删除 schema 内已有表名身份提高命中率。
 - 表名、显示名与当前 pair 绑定在汇总；含表名的 facts/records/manifest 摘要须按绑定后的逻辑内容计算。失败/取消/不完整结果不复用，命中不跳过预算/取消检查。此许可不授权跨 operation 缓存、持久引用登记或 History 回填；后者归 S5。
+
+### S3 内部计算边界
+
+`compare_table(input, context) -> TableComputation` 是单表纯计算边界，不是持久或 HTTP DTO。`input` 提供有向 before/current descriptor、两侧 Arrow owner/stream、完整 schema 与内容身份、有效 pair/table policy、共有列、版本和 records detail/artifact scope；`context` 提供现有 operation 的共享 kernel pool、剩余内存预算、取消检查及单调截止时间。输入 owner 在借用它的输出释放前保持有效。失败、取消或预算拒绝均不得返回可发布的部分结果。
+
+`TableComputation` 在 operation 内持有小型 table facts、三族未裁剪的记录列、facts 顺序索引、产物顺序索引和逐族 count/content digest。blank 的 `entity_key_kind` 等仅用于 facts 摘要的额外列留在内部，不进入 BLANK Parquet schema。消费者按需投影 Arrow batches；该 handle 不写入 checkpoint、surface、bundle 或 HTTP 文档，也不提供整份转回 `ComparisonRecord` 元组的隐式路径。
+
+摘要有三个不同逻辑视图：`table_fact_digest` 对完整 table payload（包括三族 facts 序记录）作 JCS；`facts_core_digest` 在 summary 就绪后对 `{algorithm_version,kind,summary,tables}` 中完整 table payload 逐字节重放，不用 table digest 拼接；`comparison_digest` 对现有 envelope 作小型 JCS。records content digest 对 detail 裁剪后的产物序逐族 JCS，Parquet raw digest另由实际文件字节计算。当前 pair 的大记录 owner 至少保留到 facts/core 摘要、writer 和 risk 消费完成；跨 pair 只在已知再次使用且预算准入时保留。详细字段与释放表见 [S3 A 交接](../refactoring/formal/plans/p6-s3-a-contract-handoff.md)。

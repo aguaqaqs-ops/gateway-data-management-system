@@ -93,17 +93,29 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
 }
 COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 
-# Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
+# Rust policy §4: exact coarse entrypoints, not a capability-wide compute
 # exemption. Other owners, whole-module imports and wildcard imports still fail.
 NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
     "gateway_backend.bootstrap.compute_kernel": frozenset({"_init_kernel_native"}),
+    "gateway_backend.capabilities.comparison.native": frozenset({
+        "_begin_comparison_operation_native",
+        "_compare_records_native",
+        "_facts_core_digest_native",
+        "_summarize_unchanged_ordered_native",
+        "_validate_records_batches_native",
+    }),
+    "gateway_backend.capabilities.mutation_planning.native": frozenset({
+        "_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native",
+    }),
     "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
     "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
         {"_sql_materialize_native", "_catalog_filter_native"}
     ),
-    "gateway_backend.capabilities.storage_projection.native": frozenset({"_canonical_project_native"}),
+    "gateway_backend.capabilities.storage_projection.native": frozenset({
+        "_canonical_project_native", "_render_storage_schema_native",
+    }),
     "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
-        {"_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
+        {"_canonical_comparison_profile_native", "_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
     ),
 }
 

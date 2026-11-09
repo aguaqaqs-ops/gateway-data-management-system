@@ -79,10 +79,11 @@ from tests.support.repository_ref_materialization import (
 )
 from gateway_backend.operations.contracts import BusinessReference
 
-from tests.support.history_compare_oracle import (
+from tests.support.history_compare_reference import (
     compare_bound_snapshots,
+    compare_bound_snapshots_and_ordered_kinds,
     materialize_bound_snapshot,
-    oracle_comparison_digest,
+    local_comparison_digest,
 )
 from tests.support.history_zero_write_tables import capture_business_table_state
 
@@ -479,7 +480,7 @@ def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_comp
     assert isinstance(pairs, list)
     pair = pairs[0]
     assert isinstance(pair, dict)
-    assert pair["comparison_digest"] == oracle_comparison_digest(
+    assert pair["comparison_digest"] == local_comparison_digest(
         before_provider=providers[before_commit],
         current_provider=providers[current_commit],
         before_commit=before_commit,
@@ -809,7 +810,7 @@ def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
     assert isinstance(pairs, list)
     pair = pairs[0]
     assert isinstance(pair, dict)
-    assert pair["comparison_digest"] == oracle_comparison_digest(
+    assert pair["comparison_digest"] == local_comparison_digest(
         before_provider=providers[before_commit],
         current_provider=providers[current_commit],
         before_commit=before_commit,
@@ -1074,14 +1075,14 @@ def test_f1_policy_binding_integration_cases(
     run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
-    oracle_digest = oracle_comparison_digest(
+    local_digest = local_comparison_digest(
         before_provider=providers[before_commit],
         current_provider=providers[current_commit],
         before_commit=before_commit,
         current_commit=current_commit,
         artifact_store=harness.artifact_store,
     )
-    facts = compare_bound_snapshots(
+    facts, kinds = compare_bound_snapshots_and_ordered_kinds(
         materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
@@ -1093,12 +1094,7 @@ def test_f1_policy_binding_integration_cases(
             artifact_store=harness.artifact_store,
         ),
     )
-    kinds: list[OrderedRecordKind] = []
-    for table in facts.tables:
-        extension = table.ordered_extension
-        if extension is not None:
-            kinds.extend(record.record_kind for record in extension.records)
-    assert kinds == list(expected_kinds)
+    assert kinds == expected_kinds
     modified_count = sum(table.row_modified_count for table in facts.tables)
     assert modified_count == expected_modified
 
@@ -1113,7 +1109,7 @@ def test_f1_policy_binding_integration_cases(
     assert isinstance(pairs, list)
     pair = pairs[0]
     assert isinstance(pair, dict)
-    assert pair["comparison_digest"] == oracle_digest
+    assert pair["comparison_digest"] == local_digest
 
 
 def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Path) -> None:
@@ -1149,7 +1145,7 @@ def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Pat
     run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
-    facts = compare_bound_snapshots(
+    facts, kinds = compare_bound_snapshots_and_ordered_kinds(
         materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
@@ -1161,12 +1157,7 @@ def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Pat
             artifact_store=harness.artifact_store,
         ),
     )
-    kinds: list[OrderedRecordKind] = []
-    for table in facts.tables:
-        extension = table.ordered_extension
-        if extension is not None:
-            kinds.extend(record.record_kind for record in extension.records)
-    assert kinds == []
+    assert kinds == ()
     modified_count = sum(table.row_modified_count for table in facts.tables)
     assert modified_count == 0
     assert facts.tables[0].status is ComparisonTableStatus.UNCHANGED

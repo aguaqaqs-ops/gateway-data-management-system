@@ -20,6 +20,7 @@ from gateway_shared_kernel import (
     raw_blob_digest,
 )
 
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.capabilities.snapshot_materialization import (
     canonical_state_digest_of,
     materialize_repository_ref,
@@ -204,6 +205,7 @@ _COMPOSITE_ROWS = (
 
 
 def test_canonical_snapshot_identity(
+    operation_kernel_context: KernelExecutionContext,
     tmp_path: Path,
     requires_dolt: None,
 ) -> None:
@@ -293,6 +295,7 @@ def test_canonical_snapshot_identity(
     replay_sql = render_repository_import_schema_replay_sql(
         projection.import_input,
         removed_tables=(),
+        context=operation_kernel_context,
     )
     replay_sql += _render_canonical_inserts(canonical.tables, canonical_rows)
     package = build_repository_import_package(

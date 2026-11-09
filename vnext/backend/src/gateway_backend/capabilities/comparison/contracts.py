@@ -1217,6 +1217,10 @@ def _validate_options(value: object, label: str) -> None:
         seen.add(key)
         if option is not None and type(option) not in {str, int, bool}:
             raise ValueError(f"{label} values must be scalar JSON values")
+        if key == "row_diff_detail_policy" and option not in {
+            policy.value for policy in RecordsDetailPolicy
+        }:
+            raise ValueError("row_diff_detail_policy is invalid")
 
 
 def _validate_contract_versions(value: object) -> None:

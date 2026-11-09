@@ -43,6 +43,7 @@ from tests.support.source_package_fixtures import pack_tar_gz
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 ARCHIVER_TOKEN = "compose-archiver-token"
+ARCHIVE_ONLY_TOKEN = "compose-archive-only-token"
 ACTOR2_TOKEN = "compose-actor-2-token"
 
 
@@ -90,6 +91,13 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                             "preview_workspace",
                             "review_submission",
                         ],
+                    },
+                    {
+                        "token": ARCHIVE_ONLY_TOKEN,
+                        "actor_id": "compose-archive-only",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": ["workspace_read", "archive_submission"],
                     },
                 ]
             }
@@ -166,7 +174,10 @@ def _approve_submission(
 def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: str) -> dict[str, Any]:
     for candidate in candidates_body["candidates"]:
         if candidate["submission_id"] == submission_id:
-            return cast(dict[str, Any], candidate)
+            return {
+                "submission_id": candidate["submission_id"],
+                "expected_candidate_digest": candidate["expected_candidate_digest"],
+            }
     raise AssertionError(f"candidate not found for submission {submission_id}")
 
 
@@ -649,12 +660,30 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
             assert blocked.status_code == 409 and blocked.json()["code"] == "ARCHIVE_ANOMALY_UNRESOLVED"
             main_before = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
             commits_before = list_repository_commit_ids(env, repository_id, bearer_token=BEARER_TOKEN)
-            closed = client.post(f"/v1/submissions/{original['submission_id']}/closure",
-                headers=_auth_headers(idempotency_key="business-close-original"),
-                json={"expected_review_version": 1, "expected_baseline_node_id": head["business_baseline_node_id"],
-                    "expected_baseline_head_version": head["baseline_head_version"],
-                    "reason": "generation time cannot be accepted for this input; close and upload again"})
-            assert closed.status_code == 201, closed.text
+            with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN), timeout=60.0) as archive_only:
+                hidden_review = archive_only.get(f"/v1/submissions/{original['submission_id']}/review")
+                assert hidden_review.status_code == 403, hidden_review.text
+                own_candidates = archive_only.get("/v1/archive-candidates")
+                assert own_candidates.status_code == 200, own_candidates.text
+                own_body = cast(dict[str, Any], own_candidates.json())
+                own_candidate = next(item for item in own_body["candidates"] if item["submission_id"] == original["submission_id"])
+                assert _candidate_for_submission(own_body, str(original["submission_id"])) == selected
+                review_version = own_candidate["review_version"]
+                assert type(review_version) is int and review_version > 0
+                close_body = {"expected_review_version": review_version,
+                    "expected_baseline_node_id": own_body["head"]["business_baseline_node_id"],
+                    "expected_baseline_head_version": own_body["head"]["baseline_head_version"],
+                    "reason": "generation time cannot be accepted for this input; close and upload again"}
+                stale = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-stale-close-original"),
+                    json={**close_body, "expected_review_version": review_version - 1})
+                assert stale.status_code == 409 and stale.json()["code"] == "REVIEW_VERSION_CONFLICT", stale.text
+                closed = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"), json=close_body)
+                assert closed.status_code == 201, closed.text
+                replay = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"), json=close_body)
+                assert replay.status_code == 200 and replay.json() == closed.json(), replay.text
             assert client.get("/v1/archive-candidates").json()["head"] == head
             review = client.get(f"/v1/submissions/{original['submission_id']}/review")
             assert review.status_code == 200 and review.json()["status"] == "APPROVED"

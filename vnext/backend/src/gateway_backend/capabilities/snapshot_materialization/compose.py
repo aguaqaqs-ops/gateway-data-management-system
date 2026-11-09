@@ -77,6 +77,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SourceTableDescriptor,
     SqlLogicalType,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
 
 _BIGINT = DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=64)
 _TEXT = DeclaredType(kind=DeclaredTypeKind.STRING)
@@ -303,6 +304,21 @@ def _derived_table(
     table_ruleset_version: int,
     policy: MaterializationPolicy,
 ) -> tuple[SnapshotTableDescriptor, SnapshotTable]:
+    context = current_kernel_context()
+    if context is not None:
+        # The composed Python rows remain behind MaterializedTableReader while
+        # the comparison boundary may also retain an Arrow view. Charge that
+        # unique row backing before encoding, through the operation's last
+        # table consumer. The per-row allowance includes the source objects,
+        # scalar wrappers, row hashes and string allocator overhead.
+        row_upper = 4096 + sum(
+            8192 + 8 * sum(len(value) for value in (
+                row.source_table, row.point_name, row.point_payload_json,
+                row.formula_digest or "", row.formula_ast_json or "",
+            ))
+            for row in rows
+        )
+        context.resources.enter_context(context.memory.reserve(row_upper))
     source_columns = tuple(
         SourceColumnDescriptor(
             display_name=name,

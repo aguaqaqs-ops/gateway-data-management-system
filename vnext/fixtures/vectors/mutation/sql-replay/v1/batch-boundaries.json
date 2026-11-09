@@ -1,0 +1,142 @@
+{
+  "fixture_version": 1,
+  "source": {
+    "renderer_revision": "7d0ce6220ac2541b76ab75191d43ce6113003966",
+    "renderer_path": "vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py",
+    "renderer_sha256": "761bb6097166edd8720921ca1baa0fc53269404512395af1dec1097cee273cc7",
+    "capture_driver_sha256": "5bb0f3c5d1ceffc2c756907aeef982217e4a1a68206fa6276863d9cc58b44197",
+    "capture_input_contract_revision": "788ed36e7742a067bf01c16ad2e6aaed2fed91fb",
+    "capture_node": "ct108-gw-dms-04",
+    "capture_start_utc": "2026-11-08T19:29:42Z",
+    "capture_end_utc": "2026-11-08T19:29:52Z",
+    "capture_outer_sha256": "3a0c0538ae68c33c500a0281a20a1cdce719e07aa527db1fa40497ea44611478",
+    "capture_node_log_sha256": "77d8395e0f506b7c8ec2eb6e2b23616b3ae2dbdd09488c4a0548eb5d4618a114",
+    "raw_artifacts": "/home/dev/gdds-test-tmp/p6-s4-c-old-sql-capture/controller/raw/captured/",
+    "independent_review": "p6-s4-c-review.md: CLEAR_FOR_C_DIFFERENTIAL",
+    "expected_origin": "hand-derived row counts and complete statement lengths; bytes captured from fixed old renderer",
+    "evidence_scope": "frozen SQL bytes; no new renderer, Dolt, Compose, capacity or performance claim"
+  },
+  "input": {
+    "canonical_table": "t",
+    "canonical_key_columns": [
+      "k"
+    ],
+    "image_columns": [
+      "k",
+      "v"
+    ],
+    "rows": 257,
+    "key_kind": "string",
+    "key_text_format": "three-digit decimal, zero padded",
+    "ordinary_value": {
+      "kind": "string",
+      "text": "s"
+    },
+    "giant_row_zero_based": 254,
+    "giant_fill": "x",
+    "statement_limit_bytes": 4194304,
+    "row_limit": 256,
+    "giant_delete_key_text_bytes": 4194269,
+    "giant_delete_key_prefix": "254",
+    "giant_update_value_text_bytes": 4194222,
+    "giant_insert_value_text_bytes": 4194257,
+    "manual_single_statement_text_offsets": {
+      "DELETE": 35,
+      "UPDATE": 82,
+      "INSERT": 47
+    }
+  },
+  "cases": [
+    {
+      "name": "delete-257",
+      "operation": "DELETE",
+      "giant_row_zero_based": null,
+      "statement_rows": [
+        256,
+        1
+      ],
+      "statement_lengths": [
+        1568,
+        38
+      ],
+      "sql_sha256": "773e0d626487a2924585a7c56b6209864638d3fe8d661780aad3308d87bc2827",
+      "sql_bytes": 1606,
+      "statement_sha256": [
+        "aafbe64070879a3993c28dd6ab745cda364c66b5eecebcdffb20f949f3d04c42",
+        "3f43a808e1915a66e2d9d60872b608be3143c7a88eac253d818c3472c7bd1c7f"
+      ]
+    },
+    {
+      "name": "delete-byte-window",
+      "operation": "DELETE",
+      "giant_row_zero_based": 254,
+      "statement_rows": [
+        254,
+        1,
+        1,
+        1
+      ],
+      "statement_lengths": [
+        1556,
+        4194304,
+        38,
+        38
+      ],
+      "sql_sha256": "bc73cee4bcc1630091a7c8eea73d0a8b39ebd6ae863d7b827c449dd595df5c25",
+      "sql_bytes": 4195936,
+      "statement_sha256": [
+        "9931618496838c42cc6ed9281b1b35c4c39891fef768569be5c579054d7aca28",
+        "70af5eaafe7224178edf2bdfd6e3e828ab3818c61b533843c4800cf202e21f10",
+        "32d30e7338b7a0a49d3b771a306aadc26c7b5a1e3a6d77a9c4505c2f57ad0477",
+        "3f43a808e1915a66e2d9d60872b608be3143c7a88eac253d818c3472c7bd1c7f"
+      ]
+    },
+    {
+      "name": "update-byte-window",
+      "operation": "UPDATE",
+      "giant_row_zero_based": 254,
+      "statement_rows": [
+        254,
+        1,
+        1,
+        1
+      ],
+      "statement_lengths": [
+        7673,
+        4194304,
+        83,
+        83
+      ],
+      "sql_sha256": "e35384d5a26e806246d0e3c3e36d0f4c2d5639a941a470ebc830087d4235dac8",
+      "sql_bytes": 4202143,
+      "statement_sha256": [
+        "06bdfd50cfddedbc5a7d59d177fedbc9e75e27b044ab72cff2917cd00684d2c2",
+        "9f1826f3c0a4868560e5c01bea5f4dbede5406270f09c1b43a8f12a6faaba646",
+        "ade8159c6b71769610ea9ee031b5fa80626c84d2a3b3d3d44b3abf37bdf845eb",
+        "025b15ce6cbc6c9cdd725c6885c2a4651f8f0feab1be0f619a14bb54da8920a4"
+      ]
+    },
+    {
+      "name": "insert-byte-greedy",
+      "operation": "INSERT",
+      "giant_row_zero_based": 254,
+      "statement_rows": [
+        254,
+        1,
+        2
+      ],
+      "statement_lengths": [
+        3590,
+        4194304,
+        62
+      ],
+      "sql_sha256": "d443ccb884f0a8e0438ecd3880b79dc7f7b4428834d00690c529c942b0c4baa8",
+      "sql_bytes": 4197956,
+      "statement_sha256": [
+        "4c422a04629fc81d42541d7eeb40e6316318cc18f2f1ffd7df0c657d1513e3b2",
+        "46c0a4f45e2352a9ebe8ba4f6a0166b078c073bb80cf5e959bb738fa1117736e",
+        "efbe5c94d1308f55fb0e54cd0300508efe71ffb7c9329610407fbf2c9a02c911"
+      ]
+    }
+  ]
+}

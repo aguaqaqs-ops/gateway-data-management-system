@@ -74,18 +74,22 @@ from gateway_backend.capabilities.comparison.artifacts import (
     RecordsPublicationPolicy,
     RestoredRecordsClosure,
     open_records_closure,
-    publish_records_closure,
+    publish_records_closure_arrow,
     read_records_artifact,
     restore_records_closure,
     rewrite_closure_refs,
 )
-from gateway_backend.capabilities.comparison.ordered import compare_ordered_task
 from gateway_backend.capabilities.comparison.pair_planning import plan_comparison
+from gateway_backend.capabilities.comparison.errors import StandardComparisonError
+from gateway_backend.capabilities.comparison.production import (
+    MAX_NATIVE_RECORD_BYTES,
+    ComparisonTaskSession,
+    NativeComparison,
+    compare_plan_native,
+)
 from gateway_backend.capabilities.comparison.standard import (
     COMPARISON_DIRECTION,
     STANDARD_COMPARISON_ALGORITHM_VERSION,
-    StandardComparisonError,
-    compare_plan, comparison_python_memory_upper,
 )
 
 __all__ = [
@@ -135,6 +139,9 @@ __all__ = [
     "DetailedFactsResult",
     "FailedResult",
     "KeylessPolicy",
+    "MAX_NATIVE_RECORD_BYTES",
+    "ComparisonTaskSession",
+    "NativeComparison",
     "OrderedEntityKeyKind",
     "OrderedExtension",
     "OrderedInterval",
@@ -162,11 +169,10 @@ __all__ = [
     "SchemaChangeSource",
     "StandardComparisonError",
     "TableComparisonTask",
-    "compare_ordered_task",
-    "compare_plan", "comparison_python_memory_upper",
+    "compare_plan_native",
     "open_records_closure",
     "plan_comparison",
-    "publish_records_closure",
+    "publish_records_closure_arrow",
     "read_records_artifact",
     "restore_records_closure",
     "rewrite_closure_refs",

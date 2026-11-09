@@ -20,6 +20,7 @@ import re
 import tarfile
 from collections import Counter
 from collections.abc import Iterable
+from contextlib import closing
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonRequest,
     ComparisonStorageFacts,
     DetailedFactsResult,
-    compare_plan,
+    compare_plan_native,
     plan_comparison,
 )
 from gateway_backend.capabilities.snapshot_materialization.compose import materialize_business_snapshot
@@ -555,28 +556,31 @@ def compare_composite_packages(
         )
         if not isinstance(plan, ComparisonPlan):
             raise CompositeProjectionError("production comparison could not plan the composite table")
-        result = compare_plan(plan)
-        if not isinstance(result, DetailedFactsResult) or result.facts is None:
-            raise CompositeProjectionError("production comparison did not return detailed composite facts")
-        if len(result.facts.tables) != 1:
-            raise CompositeProjectionError("production comparison returned more than the composite table")
-        table_fact = result.facts.tables[0]
-        if table_fact.table_name != "composite_signal_point":
-            raise CompositeProjectionError("production comparison returned an unexpected table")
-        row_change_count = (
-            table_fact.row_added_count + table_fact.row_deleted_count + table_fact.row_modified_count
-        )
-        if len(table_fact.records) != row_change_count:
-            raise CompositeProjectionError("composite production record count did not reconcile")
-        return CompositePairCensus(
-            status=table_fact.status.value,
-            before_row_count=before.row_count,
-            current_row_count=current.row_count,
-            added_count=table_fact.row_added_count,
-            removed_count=table_fact.row_deleted_count,
-            modified_count=table_fact.row_modified_count,
-            history_record_count=len(table_fact.records),
-        )
+        with closing(compare_plan_native(plan)) as product:
+            result = product.result
+            if not isinstance(result, DetailedFactsResult) or result.facts is None:
+                raise CompositeProjectionError("production comparison did not return detailed composite facts")
+            if len(result.facts.tables) != 1:
+                raise CompositeProjectionError("production comparison returned more than the composite table")
+            table_fact = result.facts.tables[0]
+            if table_fact.table_name != "composite_signal_point":
+                raise CompositeProjectionError("production comparison returned an unexpected table")
+            row_change_count = (
+                table_fact.row_added_count + table_fact.row_deleted_count + table_fact.row_modified_count
+            )
+            handle = product.handles.get(table_fact.table_name)
+            actual_records = 0 if handle is None else handle.family_summary("STANDARD")[0]
+            if actual_records != row_change_count:
+                raise CompositeProjectionError("composite production record count did not reconcile")
+            return CompositePairCensus(
+                status=table_fact.status.value,
+                before_row_count=before.row_count,
+                current_row_count=current.row_count,
+                added_count=table_fact.row_added_count,
+                removed_count=table_fact.row_deleted_count,
+                modified_count=table_fact.row_modified_count,
+                history_record_count=actual_records,
+            )
     finally:
         for snapshot in (before, current):
             if snapshot.bound.table_set is None:

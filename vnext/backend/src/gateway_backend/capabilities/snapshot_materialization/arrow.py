@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Callable
 from contextlib import contextmanager, ExitStack
+import json
 from typing import Any
 
 import pyarrow as pa
@@ -53,9 +54,42 @@ def operation_codec_budgets() -> dict[str, int]:
 
 
 class ArrowSnapshotTableReader(BoundSnapshotTableReader):
-    def __init__(self, descriptor: SnapshotTableDescriptor, source: ArrowSourceTableReader) -> None:
+    def __init__(
+        self, descriptor: SnapshotTableDescriptor, source: ArrowSourceTableReader,
+        *, canonical_comparison_verified: bool = False,
+    ) -> None:
         super().__init__(descriptor, source)
         self._arrow_source = source
+        self._canonical_comparison_verified = canonical_comparison_verified
+        self._canonical_artifact_read_verified = False
+        self._canonical_committed_read_verified = False
+
+    @property
+    def canonical_comparison_verified(self) -> bool:
+        return self._canonical_comparison_verified
+
+    def mark_canonical_comparison_verified(self) -> None:
+        """Only the successful fresh canonical IPC writer calls this."""
+        self._require_open()
+        self._canonical_comparison_verified = True
+
+    @property
+    def canonical_artifact_read_verified(self) -> bool:
+        return self._canonical_artifact_read_verified
+
+    def mark_canonical_artifact_read_verified(self) -> None:
+        """Only a successful canonical IPC artifact reader calls this."""
+        self._require_open()
+        self._canonical_artifact_read_verified = True
+
+    @property
+    def canonical_committed_read_verified(self) -> bool:
+        return self._canonical_committed_read_verified
+
+    def mark_canonical_committed_read_verified(self) -> None:
+        """Only exact-commit committed canonical access calls this after verification."""
+        self._require_open()
+        self._canonical_committed_read_verified = True
 
     @property
     def execution_context(self) -> KernelExecutionContext:
@@ -66,13 +100,29 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         self._require_open()
         return self._arrow_source.logical_size_bytes
 
+    @property
+    def arrow_schema(self) -> pa.Schema:
+        self._require_open()
+        return self._arrow_source.arrow_schema
+
+    @property
+    def arrow_batch_count_upper(self) -> int:
+        self._require_open()
+        return self._arrow_source.arrow_batch_count_upper
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         return self._arrow_source.arrow_stream()
 
     def reopen(self) -> ArrowSnapshotTableReader:
         self._require_open()
-        return ArrowSnapshotTableReader(self._descriptor, self._arrow_source.reopen())
+        reopened = ArrowSnapshotTableReader(
+            self._descriptor, self._arrow_source.reopen(),
+            canonical_comparison_verified=self._canonical_comparison_verified,
+        )
+        reopened._canonical_artifact_read_verified = self._canonical_artifact_read_verified
+        reopened._canonical_committed_read_verified = self._canonical_committed_read_verified
+        return reopened
 
 
 class ArrowSnapshotTableBatchReader:
@@ -231,9 +281,24 @@ def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any],
             for index, column in enumerate(source.columns):
                 kind = None if column.declared_type is None else column.declared_type.kind.value
                 physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.string()
-                fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
+                declared = column.declared_type
+                canonical_type = {
+                    "declared_type": None if declared is None else {
+                        "kind": declared.kind.value, "bits": declared.bits,
+                        "precision": declared.precision, "scale": declared.scale,
+                        "bit_width": declared.bit_width,
+                    },
+                    "labels": None, "logical_type": column.logical_type.value,
+                    "sql_type": column.sql_type,
+                }
+                fields.append(pa.field(
+                    column.canonical_name, physical, nullable=column.nullable,
+                    metadata={b"gdds.canonical_type": json.dumps(canonical_type).encode("utf-8")},
+                ))
                 arrays.append(pa.array(columns[index], type=physical))
-            backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            backing = pa.Table.from_arrays(arrays, schema=pa.schema(
+                fields, metadata={b"gdds.canonical_mapping_version": b"1"},
+            ))
             # Conversion is eager before the caller snapshots native remaining M.
             # Drop the Python lists/array wrappers before moving the Arrow backing
             # from this temporary envelope into its shared retained reservation.

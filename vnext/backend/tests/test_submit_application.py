@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from gateway_backend.capabilities.table_access import KernelExecutionContext
 from gateway_backend.application.submission.accept import validate_accept_submit
 from gateway_backend.application.submission.abort import validate_abort_proof
 from gateway_backend.application.submission.contracts import (
@@ -382,7 +383,7 @@ PREVIEW_RESULT: PreviewResult
 
 
 @pytest.fixture(autouse=True)
-def initialize_preview_binding(operation_kernel_context: None) -> None:
+def initialize_preview_binding(operation_kernel_context: KernelExecutionContext) -> None:
     global PREVIEW_RESULT
     PREVIEW_RESULT = _preview_result(workspace_id=WORKSPACE.workspace_id)
 

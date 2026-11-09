@@ -1410,7 +1410,7 @@ class CommittedCanonicalTablesPort(Protocol):
 class RepositoryRefMaterializationRequest:
     repository_ref: RepositoryRef
     provider: RepositoryTableAccessProvider
-    ruleset: TableRulesetSnapshot
+    ruleset: TableRulesetSnapshot | None
     canonical_binding: CanonicalBinding
     table_ruleset_version: int
     materialization_stage: MaterializationStage
@@ -1426,13 +1426,19 @@ class RepositoryRefMaterializationRequest:
     artifact_store: object | None = None
     export_cache: SnapshotTableExportCachePort | None = None
     committed_tables: CommittedCanonicalTablesPort | None = None
+    frozen_storage_only: bool = False
 
     def __post_init__(self) -> None:
         if type(self.repository_ref) is not RepositoryRef:
             raise ValueError("repository_ref must be RepositoryRef")
         if not isinstance(self.provider, RepositoryTableAccessProvider):
             raise ValueError("provider must implement RepositoryTableAccessProvider")
-        if type(self.ruleset) is not TableRulesetSnapshot:
+        if type(self.frozen_storage_only) is not bool:
+            raise ValueError("frozen_storage_only must be bool")
+        if self.frozen_storage_only:
+            if self.ruleset is not None:
+                raise ValueError("frozen storage read must not use a runtime ruleset")
+        elif type(self.ruleset) is not TableRulesetSnapshot:
             raise ValueError("ruleset must be TableRulesetSnapshot")
         if type(self.canonical_binding) is not CanonicalBinding:
             raise ValueError("canonical_binding must be CanonicalBinding")

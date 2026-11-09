@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from gateway_shared_kernel import DeclaredTypeKind, NullScalar
-
-from gateway_backend.capabilities.comparison.standard import (
-    StandardComparisonError,
-    _declared_type,
-)
+from gateway_shared_kernel import DeclaredTypeKind
 from gateway_backend.capabilities.snapshot_materialization import (
     SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
+    try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import _declared_type_for
 
@@ -57,7 +53,7 @@ def test_sql_spelling_maps_consistently_across_materialize_and_compare(
 ) -> None:
     shared = declared_type_for_sql_spelling(spelling)
     materialize_declared, unknown = _declared_type_for(spelling)
-    compare_declared = _declared_type(spelling, NullScalar())
+    compare_declared = try_declared_type_for_sql_spelling(spelling)
 
     assert shared.kind is expected_kind
     if expected_kind in {DeclaredTypeKind.SIGNED_INTEGER, DeclaredTypeKind.UNSIGNED_INTEGER}:
@@ -88,6 +84,4 @@ def test_sql_spelling_mapper_rejects_malformed_arguments(spelling: str) -> None:
     ids=tuple(f"compare-{item}" for item in _SQL_DECLARED_TYPE_NEGATIVE_CASES),
 )
 def test_compare_declared_type_fail_closed_for_malformed_spelling(spelling: str) -> None:
-    with pytest.raises(StandardComparisonError) as exc_info:
-        _declared_type(spelling, NullScalar())
-    assert str(exc_info.value) == "SCALAR_TYPE_UNKNOWN"
+    assert try_declared_type_for_sql_spelling(spelling) is None

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from typing import cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -23,6 +24,8 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationArtifact,
     RiskAnnotationClosure,
     RiskAnnotationClosureEntry,
+    RiskOperationPort,
+    RiskReservationPort,
     validate_risk_annotation_documents,
 )
 
@@ -63,6 +66,40 @@ def annotation_manifest_payload(
 
 
 def publish_annotation_artifact(
+    store: ArtifactStorePort,
+    *,
+    table_name: str,
+    annotations: Sequence[RiskAnnotation],
+    max_bytes: int,
+    on_memory_pressure: Callable[[], bool] | None = None,
+    operation: RiskOperationPort | None = None,
+) -> RiskAnnotationArtifact:
+    estimated = 1024 * 1024
+    for annotation in annotations:
+        estimated += 8192 + len(annotation.annotation_id) * 64
+        estimated += sum(len(column) * 64 + 256 for column in annotation.target.changed_columns)
+        for reason in annotation.reasons:
+            estimated += len(reason.message) * 64 + 2048
+            estimated += sum((len(name) + len(str(value))) * 64 + 256
+                             for name, value in reason.evidence)
+    admission: AbstractContextManager[object] | RiskReservationPort
+    if operation is None:
+        admission = nullcontext()
+    else:
+        try:
+            admission = operation.memory.reserve(estimated + 2 * max_bytes)
+        except MemoryError:
+            if on_memory_pressure is None or not on_memory_pressure():
+                raise
+            operation.checkpoint()
+            admission = operation.memory.reserve(estimated + 2 * max_bytes)
+    with admission:
+        return _publish_annotation_artifact_charged(
+            store, table_name=table_name, annotations=annotations, max_bytes=max_bytes,
+        )
+
+
+def _publish_annotation_artifact_charged(
     store: ArtifactStorePort,
     *,
     table_name: str,

@@ -4,22 +4,184 @@ from __future__ import annotations
 
 from typing import Any
 
-from gateway_compute._native import _canonical_project_native
+from gateway_compute._native import _canonical_project_native, _render_storage_schema_native
 
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowMetadata,
+    ArrowSnapshotTableReader,
+    CanonicalInputOwner,
     KernelBudgets,
+    KernelExecutionContext,
+    KernelMemoryLimit,
     KernelResult,
     call_arrow_kernel,
+    canonical_comparison_input,
     check_metadata_budget,
     enum_set_labels_for_sql_spelling,
+    require_active_kernel_context,
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    ROW_FORMAT_CANONICAL_IPC,
+    SnapshotTable,
     SnapshotTableDescriptor,
     normalize_sql_type_spelling,
 )
 from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, StorageRuleView
+from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
+from gateway_backend.capabilities.storage_projection.contracts import (
+    CanonicalizationManifest, CanonicalizationManifestTable,
+)
+
+
+class StorageInputLease:
+    """One verified canonical reader and its charged Arrow/mmap lifetime."""
+
+    def __init__(self, table: SnapshotTable, input_owner: CanonicalInputOwner,
+                 stream: Any, operation: object, manifest: CanonicalizationManifest,
+                 manifest_table: CanonicalizationManifestTable) -> None:
+        self.table = table
+        self.input_owner = input_owner
+        self.stream = stream
+        self.schema = stream.schema
+        self.operation = operation
+        self.manifest = manifest
+        self.manifest_table = manifest_table
+        self.closed = False
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.stream.close()
+        finally:
+            try:
+                self.input_owner.close()
+            finally:
+                try:
+                    if self.table.batch_reader is not None:
+                        self.table.batch_reader.close()
+                finally:
+                    if self.table.reader is not None:
+                        self.table.reader.close()
+
+
+def open_storage_input(
+    table: SnapshotTable, manifest: CanonicalizationManifest,
+    manifest_table: CanonicalizationManifestTable,
+    operation: object,
+) -> StorageInputLease:
+    """Bind one trusted canonical producer to its frozen manifest and M owner.
+
+    The caller opens/verifies the frozen manifest once through its existing
+    publication owner; this per-table path checks membership without rehashing
+    that complete document for every table.
+    """
+    active = require_active_kernel_context(operation)
+    if (type(manifest) is not CanonicalizationManifest or manifest.manifest_digest is None
+            or manifest_table not in manifest.tables):
+        raise ValueError("storage input lacks complete frozen manifest membership")
+    if type(table) is not SnapshotTable or type(table.reader) is not ArrowSnapshotTableReader:
+        raise ValueError("storage input requires a canonical Arrow table reader")
+    reader = table.reader
+    active.require_same_operation(reader.execution_context)
+    committed = reader.canonical_committed_read_verified
+    if not committed and (table.artifact is None or table.artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC):
+        raise ValueError("storage input requires a canonical IPC artifact binding")
+    if not (reader.canonical_comparison_verified or reader.canonical_artifact_read_verified or committed):
+        raise ValueError("storage input has no verified canonical producer")
+    if table.artifact is not None and table.artifact.manifest.descriptor != table.descriptor:
+        raise ValueError("storage artifact descriptor binding changed")
+    descriptor = table.descriptor
+    if (
+        descriptor.table_name != manifest_table.name
+        or descriptor.row_count != manifest_table.canonical_row_count
+        or descriptor.raw_content_digest != manifest_table.content_digest
+        or descriptor.primary_key_columns != manifest_table.canonical_key_columns
+        or tuple(column.name for column in descriptor.columns) != manifest_table.retained_columns
+    ):
+        raise ValueError("storage input manifest binding differs from canonical reader")
+    schema_digest = compute_schema_digest(
+        columns=[{"name": column.name, "nullable": column.nullable, "sql_type": column.scalar_type}
+                 for column in descriptor.columns],
+        primary_key=descriptor.primary_key_columns,
+    )
+    if schema_digest != manifest_table.canonical_schema_digest:
+        raise ValueError("storage input schema digest differs from canonical reader")
+    stream, input_owner = canonical_comparison_input(table, field_order=manifest_table.retained_columns)
+    try:
+        return StorageInputLease(table, input_owner, stream, active, manifest, manifest_table)
+    except BaseException:
+        try:
+            stream.close()
+        finally:
+            input_owner.close()
+        raise
+
+
+def require_storage_input_owner(
+    value: object, stream: object, schema: object, operation: object,
+    manifest: CanonicalizationManifest, manifest_table: CanonicalizationManifestTable,
+    projection_version: str,
+) -> StorageInputLease:
+    active = require_active_kernel_context(operation)
+    if (type(value) is not StorageInputLease or value.closed
+            or value.stream is not stream or value.schema != schema
+            or value.manifest is not manifest or value.manifest_table != manifest_table
+            or manifest_table not in manifest.tables
+            or manifest.storage_projection_version != projection_version):
+        raise ValueError("storage Arrow stream lacks its verified same-operation input owner")
+    active.require_same_operation(value.operation)
+    return value
+
+
+def verify_storage_metadata_manifest(
+    manifest: CanonicalizationManifest, table: CanonicalizationManifestTable,
+    projection_version: str,
+) -> None:
+    """Verify a metadata-only before side against the complete frozen manifest."""
+    if (type(manifest) is not CanonicalizationManifest
+            or manifest.manifest_digest is None
+            or compute_manifest_digest(manifest) != manifest.manifest_digest
+            or manifest.storage_projection_version != projection_version
+            or table not in manifest.tables):
+        raise ValueError("storage metadata side lacks a complete manifest binding")
+
+
+def require_storage_operation(value: object) -> object:
+    """Pass the owning Table Access identity check through the existing DAG."""
+    return require_active_kernel_context(value)
+
+
+def storage_memory_limit(message: str) -> KernelMemoryLimit:
+    return KernelMemoryLimit(message)
+
+
+def render_storage_schema_native(payload: bytes, context: KernelExecutionContext,
+                                 max_bytes: int, output_upper: int) -> bytes:
+    """Render schema through the one Rust SQL encoder under the caller's M."""
+    active = require_active_kernel_context(context)
+    # Retain the returned bytes until the operation ends. Conversion scratch
+    # is distinct from the caller-owned import metadata.
+    input_charge = active.memory.reserve(len(payload) * 32 + 4096)
+    try:
+        output_charge = active.memory.reserve(output_upper * 8 + len(payload) * 64)
+        try:
+            result: bytes = _render_storage_schema_native(
+                payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+                active.threads,
+            )
+            if len(result) > output_upper:
+                raise RuntimeError("schema SQL output memory bound underestimated")
+            output_charge.shrink_to(len(result))
+            active.resources.callback(output_charge.close)
+            return result
+        except BaseException:
+            output_charge.close()
+            raise
+    finally:
+        input_charge.close()
 
 
 def build_projection_plan(

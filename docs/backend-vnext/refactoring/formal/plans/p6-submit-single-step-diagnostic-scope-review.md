@@ -2690,3 +2690,569 @@ CT05 `vref-resource-650a-20261107.log` SHA **`c07187baac8d282d6702b0c398b9c95986
 **FULL预制DB来源索引核对通过，仅为PREPARED_ONLY。** CT05 `record-w4full-20261107/source-index-prepared.json` 961B、SHA **`91b27a331459459379b8c821fe9c92416b65b11400bcdb22167e3ba5b5e3e830`** 已独立读取，与审核者§113认证state副本逐项相符：18a、state SHA41b090bf、v2-submit before checkpoint且completed_through=v2-preview、原control路径、tree3854336B/1文件/SHA **`05577662288d708a673eeb40fe219668550fe5f764d6f03dca909f9c47eddfed`**，三个Preview ID分别来自各自真实result。没有访问CT108快照或断言其当前存在/DB行已取到；树摘要不是单一SQLite文件SHA，后续按原树摘要核复制件并另记实际DB文件摘要。原快照及同次步骤补证仍待压力结束后的空闲窗口，本核对不新增GO或允许改原source。
 
 core配套 `derived-core-operations-0cbf/source-index-prepared.json` 1356B、SHA **`11ef88f4a5c01849068a21cad9a9edbd72dac6f59ffe99e35ec3671ba6540fec`** 也已直接读取，与再次核SHA503e73ab的原state逐项相同：bb348、history before checkpoint完成至v2-approve，control/artifact路径及4baede/020488树摘要、bytes/count均与§118一致，三个Preview ID来自该次真实result。仅确认准备来源映射，不表示已读原快照、worker数据已恢复或H1缓存合格；原件补取窗口及限制同上。
+
+## 120. 04待门禁候选及本机离线RS构建路径已核，实际镜像和runner结果待交
+
+**`fcc827aec2750b2cc6d36c241c40de7415c7a1ea` 可作为本冻结参考线的04待门禁工具候选，尚非04通过或整体exit。** 本审核再次只读确认独立集成worktree HEAD精确等于该提交且clean；9704..fcc为18个docs/benchmarks/tests文件、2006增/979删，diff-check通过，没有产品src、依赖锁、部署或诊断Compose变更。各组件必要验证见§117/119，不能用其代替当前候选权威runner。§118历史补证与记录派生仍使用外部来源索引/派生输入，不改原raw或在途STRESS。
+
+04的Repository Service镜像须在backend闭包计算之前固定到候选身份。独立核两套现有harness：backend只核build-input/source-tree，而Repository Service另要求candidate revision及uv-lock。因此若backend先记录旧revision镜像、随后RS门禁才重建同tag，会改变同节点闭包；已直接交实施者先构建并核新tag的revision=fcc，再开始backend manifest/runner，期间不手工改tag。当前候选官方identity的build-input为4497ded8ff3a9156bbe4c7a75ba44ae9e4675792、source-tree为sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027、uv-lock为6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11；实际新镜像完整身份仍待构建产物核验。
+
+最初尝试SSH旧开发地址10.10.60.4超时，不能据此把构建/测试改到任意节点。本机heavy-dev-01与既有CT201构建及LAN传输记录一致，但实施者随后在04找到原保留dependency-base，无需开发节点新构建或传输。本审核先BatchMode确认04，再只读核hostname=gw-dms-test-04及tag `gateway-p2r1-repository:lock-6dc9659f0aee`：本机ID **`sha256:63b7e79899d4379f24a1d58f0e22e1960847733a76e684dd170b8e631e00367f`**，uv-lock label精确等于上述完整锁摘要。此为04本机ID，不充作跨节点config digest。
+
+独立读fcc的官方build脚本和Dockerfile，预置base存在且lock label相等即走USE_PRELOADED_DEPENDENCIES=1分支；已同意实施者在04 clean detached fcc上用该入口、UV_OFFLINE=1及network=none构建新RS tag，按原规则记录base来源及实际完整config digest、有序全部DiffID、身份labels和04本机ID。缓存缺失仍停该步骤，不走公网；不另起重复CT201构建，也不触CT108在途镜像或测量。此处只确认已存在的离线路径与候选准备，未执行测试、构建或假称镜像/runner已通过，无新增Owner/设计/审核GO。
+
+**04实际RS构建及完整身份现已复核PASS，权威runner仍未由本节判定。** 源证据目录 `/home/dev/gdds-p6-logs/baseline/preflight/p6-vref-fcc827-ct04/`，审核者BatchMode确认后直接读全preflight/build/identity，六份小原件经LAN存入CT201 `p6-baseline-evidence-review-20261107/ct04-rs-fcc827/` 并逐份重算SHA相同。build-preflight.json 3147B、SHA **`597e0114a8a8f09b4e873e4fbd86b040eace6f359592f554c267d5eaa0fd1367`** 固定04、clean fcc、新tag此前不存在、lock匹配的base及离线/network=none；build.log 5226B、SHA **`94a1a486609daf7ddff71f980acb45425e61ea0933b3cccb77c216c414d8b3b7`** 记录18:32:33–37Z、fcc起止、官方入口实际走保留base分支、版本/uv pip check和五锁检查通过、exit0，未运行测试或业务。
+
+最终image-identity.json 4758B、SHA **`26aeb529cb65ef1863cbf260c363ff2371df323befd29205e4393e7856009111`** 绑定新tag `p6vref-fcc827-repository-service:latest`，config digest **`sha256:4bae0e8e09191e90502e16f82c89ab568d45ef035d2fb4eb1841eace3f4b2a4e`**、28个有序RootFS DiffID，以及04 containerd本机ID **`sha256:368c4295355fcc7840865c31da0c768ebcd494d601a1178710d0cddef6fc35d9`**。四个候选身份labels与本节预期精确相等，其余版本labels完整保留。审核者在04独立重读660680192B docker-save归档并重算完整SHA **`5e2ac2b9b882bf69e77116ef1befe78a4b4d138ee903eb70d31114a499cc7d30`**，由tar manifest所指真实config字节另算config SHA，逐项比较全部有序DiffID/labels，再与当下tag的本机ID、RootFS和labels比较，均MATCH；再次确认对应detached worktree HEAD=fcc且clean。archive-identity.json SHA **`28d4c2f590425560e6613013fc05d0b318b26e2ccb1b26e6650c999ddbfadbeb`** 与最终JSON引用相同，不只采用实施者自报MATCH。
+
+首次inspect派生曾把containerd本机manifest-list ID写成config digest；原 `image-identity-inspect-attempt1.json` SHA **`b1639e94ca476c691d175c37afecf15968e701195b05bfc17195dded9c7a6473`** 保留且被最终JSON明确supersede，未冒称首版正确。后续只读归档纠正，未重建镜像或重跑业务；两种digest在本结论中严格分开。已直接通知实施者可沿原授权继续backend manifest/最终门禁，另提醒旧backend-only失败的RS host .venv前提须在runner前实际准备；不新增测试轮次或GO。本PASS不把新04镜像替换为CT108正式测量镜像，STRESS及旧快照均未触碰。
+
+## 121. CT201 backend/worker预构建两次自身命令失败，留证并沿普通准备授权最小修正
+
+**停止原错误命令、保留两次失败是正确的，但本次普通构建准备不应再次等待Owner。** 本节初稿提交8acf8595de曾机械套用旧DC68次数限制并要求停该步骤等Owner，属审核判断错误，现明确更正。已直接重核[接续计划“普通准备命令与派生日志封口”](p6-baseline-post-gc-resume-plan.md)及Owner连续完成授权，并与本报告§88/97的已核c58授权交叉一致：低风险准备命令留证、查因、最小修正后直接继续，不按累计次数再等Owner；此前失败事实不撤销、不重置或删除。已立即撤回对实施者的等待要求，普通包装修复沿原授权接续，无新GO。04 RS身份PASS及在途CT108压力保持，实际产品/身份/输入/资源异常与权威runner失败规则不放宽。
+
+本审核直接读并重算CT201 `/home/dev/gdds-p6-logs/baseline/preflight/p6-vref-fcc827-ct201/` 原件：18:50:47Z的backend-worker-build-preflight-final.log 283B、SHA **`d0fa892dee3ac4be79dde17705f701a578b91894bb4437ba24bc155e45ede1a2`** 在clean fcc上因当前vnext/目录内再引用vnext/backend/Dockerfile报No such file；18:51:24Z的backend-worker-build-preflight-corrected.log 961B、SHA **`3235bf319ab6a506d2e1e349e8157f72d6242388a2c765f78eddeadce905693e`** 已核正确路径、候选vnext tree f7cee1856bb6927bf53faede412eb90833690e5d、两base镜像及候选两tag不存在、proxy变量未设。后续包装命令又在Bash解析阶段失败，实施者落盘backend-worker-build-launch-error-20261107.log 763B、SHA **`a15d12db62ee00bbe132299219e73a4661fc3c3a345bf47bc709ca4f2413cdcb`**，记unexpected EOF while looking for matching单引号，attempt=2、Docker build未开始。该文件是失败整理记录，不冒充完整原始stderr或已独立定位具体引号源行；已要求交原包装命令/脚本和原失败输出。
+
+审核者另外只读当前CT201 Docker元数据，p6vref-fcc827-gate-backend:latest与p6vref-fcc827-gate-worker:latest均返回No such image，与未产出候选镜像相符；没有执行build、tag或测试。建议修正固定工作目录/绝对路径，并把原构建命令保存为独立脚本文件，移除多层嵌套引号的-c包装，交可审文本及必要语法结果以验证具体修正；精确候选、Dockerfile、完整vnext context、既有pre-exit整镜像流程和输出新tag不变。此核验不成为新的摘要/GO前置，具体修正成立即可沿原授权构建。设计协调者已指出适用条款，审核者亦独立核原文并完成上述纠正；STRESS原运行及其他独立取证准备继续，旧卷/证据不清理，最终04 runner尚未启动。
+
+**落盘包装的具体修正已复核PASS，可直接恢复本次构建。** `backend-worker-prebuild.sh` 5174B、SHA **`fc16f7bbab80186f66e1db78d21e7f4e5cf0abcd34dbe8f71e2a1c46bed09736`** 已逐行独立读取并在CT201以bash-n检查exit0；这是构建准备的语法核验，未执行build或产品测试。脚本先固定候选repo root并核HEAD/tree/clean及四输入文件SHA，再在repo/vnext中使用backend/Dockerfile和完整点目录context；无原多层-c包装。实际命令为CT201 docker build、network=host、新backend tag，成功后把同一image tag为新worker；记录build/tag退出码、本机ID、起止时间/HEAD及结束clean，失败不接续。现有base和未设代理的原构建输入/流程保持，不套main后续dependency-base流程。
+
+18:58:49Z实际preflight日志 `backend-worker-build-script-preflight.log` 1244B、SHA **`41924d09c46f247d6f4282c743400e9badd55cb2df9ad7a41d2505a8e2b42666`**，固定heavy-dev-01、default context/overlay2 daemon、两精确base ID、无代理及候选tag不存在。本审核独立重读候选Git HEAD/tree/clean及Dockerfile/.dockerignore/backend uv.lock/Cargo.lock四SHA，与日志精确一致；再读Docker确认两新tag仍无、实际build日志尚未创建。已立即通知实施者按Owner既有授权只恢复该已修正脚本的build模式一次，实际产物/归档完整身份另交结果复核；没有宣称B/W构建、04 runner或整个基准完成，亦无新Owner/设计GO。
+
+**随后CT201实际backend/worker构建及源归档身份复核PASS。** `backend-worker-build-script.log` 9925B、SHA **`c2757f0410417d47a7b69345c7953ebfac7c0e1577a3ebdd4ca5dba92dc30209`** 记录19:01:40–19:03:01Z、heavy-dev-01、fcc起点、完整vnext context和上述Dockerfile、实际build与tag各exit0、结束HEAD断言及clean通过；日志中只有镜像依赖准备/编译，没有产品测试。CT201按原许可取构建所需制品，不代表测试节点可联网。审核者再次独立读Git HEAD/tree/status，仍为精确fcc/f7cee185且clean。
+
+19:04:18–20Z docker-save exit0，源归档397096448B，SHA **`7b3771afb7409eb313de15c97c25017e5bceeef2d085eac69f914e92cc66aa4f`**；`backend-worker-image-identity.json` 3136B、SHA **`2796f44dd7bbdfbace2dbf63444ab5e3aa2841396faa1d783956f8b582d73c78`**。审核者独立重算整个tar的SHA，从manifest分别解析backend/worker实际config字节，各得 **`sha256:ab2f029188ebdad5e6942e59f3d4b8427b20d12c948361a587e54cfb52931d24`**，逐项比较全部15个有序RootFS DiffID及空labels，两tag完全相同且与当前源daemon inspect一致。此源daemon为overlay2，恰好本机ID等于config digest；不能将此事实套到04 containerd或作跨节点ID比较。已直接通知实施者可LAN传04/load，比较config/全部有序DiffID/labels并另记04本机ID；04加载身份及runner结果仍待，不更换CT108冻结测量镜像。
+
+metadata helper不支持--help的自有命令失败亦保留：`archive-identity-help-command-failure.log` 309B、SHA **`21318eba7cf501cc691850e51b2b0b476a6980021196c13887c3e8ab688fc95b`**；按其既有位置参数archive/output提取后成功，实际helper日志SHA **`0c27fa4794690351d334bd297cc6a96d90e89dbd54eed221958279db2bf93b76`**、save日志SHA **`8e2214fbbbf2f4b3ab0326558c5c86d3e398a383690b6fb25c4769b11dbd85ac`** 均已直接核验。该准备纠正未重建镜像、运行测试或业务，无新GO。
+
+## 122. 04 backend/worker加载后的完整身份独审PASS，最终runner待结果
+
+**04加载及round-trip完整镜像身份PASS；可沿原授权继续该V_ref的最终权威runner，无新GO。** 这只关闭镜像准备，不等于测试已开始/通过、完整record已生成或整体exit。源仍是§121的clean fcc CT201构建，目标仅04新tag，不触CT108冻结测量镜像或在途STRESS。
+
+直接读取CT201 transfer日志753B、SHA **`7b72a20fe44eb8aa30c5718a28b047b01a104e8c1ba64b9b5b30d4612f3a7109`**：19:06:24–28Z、SCP经批准LAN到04，397096448B归档目标SHA等于源7b3771af；04 load日志704B、SHA **`9ecbb6cf649162ae3de87492ff6f2ba1fdf781bef4903c74b71800b0b1b5370b`**，19:07:12–16Z、原两tag不存在、load exit0。04两tag本机ID均 **`sha256:0b84061f0976b2be8451d96f8288949b058096428340abed4bf28d88233dbd29`**，与CT201 ID不同是containerd store的正常本机manifest身份，不判作跨节点失配。
+
+目标 `backend-worker-target-image-identity.json` 3177B、SHA **`fa0ad4cf1cb5ae6b551050dc7c2c19a71249497cdb28ef48a37f76cf8187224d`**；04 round-trip tar397075456B、SHA **`9b1b178806cdea3aae6a70e882879e9a43b7764aae0fd718301e7d3943b7ff55`**。审核者BatchMode后在04独立重算整个目标tar SHA，由manifest解析两tag的实际config字节，各得源config **`sha256:ab2f029188ebdad5e6942e59f3d4b8427b20d12c948361a587e54cfb52931d24`**；全部15个有序DiffID与空labels，逐项精确等于已核源JSON和当前04 inspect，两个tag也相同。04收到的源JSON完整SHA仍为2796f44d…73c78，不只信helper的source_identity_match=true；两份save tar的封装SHA不同不影响这些已逐项相等的镜像身份。save/helper日志SHA分别为 **`c046790900107ef6610e9d5dd99f0712d58906dce1f037c87b6e6f769aa92576`** / **`b1e864b8dd1b647c54ec5a3497605d4e17e6f3c9dc052965307513ef9747bd14`**，闭合小原件已LAN存CT201 `p6-baseline-evidence-review-20261107/ct04-bw-fcc827/` 并逐份核SHA相同。
+
+同时独立只读确认RS当前tag的本机ID、全部28层及全部labels仍等于§120，04对应worktree仍为clean fcc；runner期间不得手工改tag/写worktree。实际RS host环境已离线同步、辅助Python可用，sync日志SHA **`5515b35f593a19139cb52bd029d3f937a054344c84114f33a490745d8073871d`**、起止fcc/lock稳定/exit0，旧backend-only缺RS环境前提已处理。rust-toolchain-preflight日志SHA **`6de9c115eb38df1cd7809be427f8fe7aac7c1f0b7dae4920754535ec6f445769`** 在vnext/rust按selector确认1.97及cargo/rustfmt/clippy同工具链；先前repo根目录因没有全局default而报错的原日志SHA da158f19…24c9保留，不能将其当作selector目录缺缓存或擅装default。已直接告实施者继续原离线、legacy、TMPDIR、取锁及起止HEAD/exit规则；本节未运行测试或获取在途CT108状态。
+
+## 123. 04最终六包runner已实际启动，启动记录与后取占用标记已核
+
+**04于2026-11-07 19:19:37Z在clean fcc启动本次全六包权威runner，结果待运行结束。** 审核者只读外部日志header和status，直接确认gw-dms-test-04、准确HEAD、./vnext/scripts/run-tests.sh、packages=all-six、TMPDIR=/home/dev/gdds-test-tmp、UV_OFFLINE=1/CARGO_NET_OFFLINE=true、旧产品线prebuilt开关、项目p6vref-fcc827-gate、已核RS tag及B/W本机ID。日志/状态位于04 `/home/dev/gdds-p6-logs/baseline/runners/p6vref-fcc827-ct04-20261107T1914Z/`；目录标签1914不冒充实际启动时刻。没有hash尚未封口的run-tests.log或认定任何最终包结果。
+
+已直接读04外置 `run-full-gate.sh` 3581B、SHA **`532de75ce315923bdb6c3b075bfe211bb7742c1bdab17760fd4f97405544792d`**：拒绝覆盖旧日志、核准确clean HEAD及主机前提、设置上述离线/项目/env、清Rustup/Cargo home覆盖与全部代理，选包变量unset使权威入口运行全六包；最终trap将另记end HEAD/clean/runner真实exit和完整日志SHA。本次runner中不改worktree或镜像tag，不能拿header替代尚未产生的结束信息。
+
+CT201保存的04 `full-run-preflight-corrected.log` 1780B、SHA **`15d4acdb928a969ff2d40e73227e0fc9eae721baacc4fdbd91150c4befa24664`** 已独立读全并hash：19:14:18Z、准确clean fcc，legacy符号链接、TMPDIR与RS host .venv可用，无Dolt/pytest/cargo/Compose冲突进程且8000空闲、三镜像为已核本机ID；PATH前缀正确、Rustup/Cargo home变量unset，selector目录四工具同1.97；all-six、无代理、preflight/SSH exit0。先前路径错误的准备记录保留，修正后沿Owner普通准备授权接续，不新增GO。
+
+**占用标记是启动后补取，未倒填。** 审核读wrapper发现只检查busy目录不存在而未mkdir，遂要求实施者按现有节点协调方式补记，不中断在途测试或改worktree/tag。`node-busy-marker-acquisition.log` 447B、SHA **`bb185c48a3926f3795bc1d46c170bc3172d9794f6b5d87ff4377484ff47b04b0`** 已独立核，且只读04实际session.txt内容一致：session=p6vref-fcc827-ct04-final-gate、runner PID1245677、runner_started_at=19:19:37Z、marker_acquired_at=19:23:20Z，明确后取。本节不将后取记录当作启动前已持锁的证明；已通知结束时按session所有权及postflight仅清自有marker。当前只是启动与协调补记核验，不宣称runner/整体exit，也未干预CT108在途STRESS。
+
+## 124. W4-STRESS真实旅程与取证独审PASS，100%压力Preview已完成
+
+**CT108 `p6w4stress20261107a` 的本次fresh压力旅程及取证独审PASS。** 工具HEAD **`1742a8bcd62287fd9eb9fbd0a839615a470b2664`**、产品9704、§116冻结三镜像及输入保持；14/14 step check均为本run/同1742来源，没有继承或恢复，13个before checkpoint与既定清单相同。实际scope=t4-v2-preview、MODIFIED_ONLY、full_v2/cross_project均false、cold Preview；没有执行v2 Submit或History。此结论关闭压力样本的实际旅程/取证，不宣称性能目标、全部标准record、04门禁或整体exit通过，无需重跑STRESS或新GO。
+
+审核先在已结束节点直接读小原件与closed controller，再将下列六份闭合原件及小preflight资料经LAN只读取到CT201 `/home/dev/gdds-p6-logs/p6-w4-stress-review-20261107/p6w4stress20261107a/`，逐份独立hash；此后从副本审核，不与新计时叠加源节点大件读取：
+
+| 原件 | bytes / SHA256 |
+| --- | --- |
+| launch.log | 1066632 / `d02900afbf675c66448a076e2c1f3b64fd863069c807bbd728b2516fc7659b93` |
+| evidence/run.json | 27320 / `356ead5183c0960bd8e953c42274824be9080ef94cc50f1e293e06aa2784ad96` |
+| evidence/state.json | 42428808 / `c2fbdbce37f009df65a7183788ded191efbd6ba723f0fc32675690a5a19535f5` |
+| resources.json | 5176 / `cca7d76ed7244a2c578eb46231fbf169154207ac194b9abd86450abee6632ab1` |
+| resources.input-provenance.json | 1990 / `e167dbaa2ecc22eae8bf1018ed630da4f7a0ffbdcd0521f640caef5df9e5bb84` |
+| postflight.log | 699 / `9b134ac00e6a4147f01b58ad574453dded417b56adf48645369bfe18273489d0` |
+
+controller.log 4195B、SHA **`91c70e7510de81291800b42a1e3d410850bd99d1b6c8d2a9b03c428fad4b95a9`** 记录16:21:02–19:24:06Z、1742起止、launcher_exit0；实际sampler **16:21:02.742–19:24:06.572Z / 10983.743s**、exit0/head_stable，run metadata为16:21:03.509–19:24:01.692Z，run_result elapsed **9731.384s**。这三个窗口按各自定义保留，不互相代用。原日志另有计时入口外offline composite computation 1222.909s，不能把整段sampler或run wall误写成单Preview。所有数据来自认证原件，无时间戳差推算worker细段。
+
+独立解析launch唯一final summary并与state逐操作同字段比较：
+
+| operation | user_visible / completion 秒 |
+| --- | ---: |
+| v1 Preview | 1725.233 / 1725.233 |
+| v1 Submit | 1766.107 / 1766.118 |
+| repeat v1 Preview | 1421.759 / 1421.759 |
+| repeat v1 Submit | 0.010 / 0.010，同步NO_CANONICAL_CHANGE |
+| v2 Preview | **4661.281 / 4661.281** |
+
+v2为1 pair/631表/628 changed，failed与degraded均0；repeat Preview changed0，S2 no_repository_operation=true。cold准备日志在18:06:10Z显示274缓存行清至0、548文件移除、此前expired/missing均0；W2之前/之后274行且TTL健康是另一个实际窗口，不改记为压力Preview缓存命中数。该压力场景按既定record_only如实记录；这些分钟级值不被宣传为S5/S6目标达成，也不对不同输入/模式的FULL数值作性能回归判定。
+
+输入provenance的三项实际upload bytes/SHA/role均MATCH、无issues，绑定state完整SHA及manifest **cf288bdd…62830**，census **29c1e25c…45fe6** 与§116一致。副本input-images.json完整SHA **`01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01`**、start-preflight SHA a95282bb、controller脚本SHA71812d33仍等已审启动原件。独立将三服务config digest/全部有序DiffID/labels与冻结identity文件（SHA98bfba51）逐项比较相等；run的B/W identity及本机ID也与preflight相同。fresh分支原run metadata只包含B/W，RS完整身份引用§116启动前对实际tag解析immutable ID的全量证据及启动前重核，按既有受控冻结tag模型绑定；没有伪造运行中container.Image观察或要求重复postrun Docker取证。
+
+资源共5051个周期样本：全run并发sampled memory.current峰 **18396356608B / 17.13GiB**；各容器memory.peak和 **19748859904B / 18.39GiB** 是保守上界，不能当同一时刻并发值或worker RSS。全run peak cores2.693、临时磁盘高水位5984108544B/5.57GiB；v2 Preview步骤2127样本、并发memory.current峰10602758144B/9.87GiB、peak cores1.866、worker累计CPU4449.793s。短同步步骤0周期样本仍按§119表达未知峰值，不把raw的0/null扩成实际资源为0。
+
+postflight sampler/Compose down/node check/cleanup均0、锁已释放，三卷保留；down时三项secret路径环境未设的原warning与FULL相同，未据此重跑。旧collector仍仅有v1_submit worker细步骤，Preview原始API计时有效而标准record补证尚待；已指明STRESS最后checkpoint位于v2 Preview之前，补该步骤应从同次停止后的final control卷取私有小副本，按run最终tree **7ace1b8fcbfa6b06cb27d00bd3245d0ac93901902b8fe5dc2a4b9cd73d7dc05b / 3850240B / 1文件** 认证，再只开复制件。FULL/core各自已审快照路线保持，不能开源SQLite或借本压力结果替代H1。实施者可集中完成必要小源取件后启动已审DC63/V5b链，05记录派生与04在途门禁可并行；本节不引入新的等待许可。
+
+## 125. 04 fcc最终runner exit1：两项RS测试环境假设及一项launcher中断超时，待定向修正
+
+**本次04全六包权威runner未通过。** 独立读结束status及原完整日志：19:19:37–19:41:16Z、起止完整fcc且clean、真实runner_exit_code=1；未中断其原定串行批次，也不以部分包通过冒称整次成功。日志及status/sha侧文件已LAN取CT201 `p6-baseline-evidence-review-20261107/ct04-fcc827-runner/`：run-tests.log460719B、SHA **`0170ed2c2d594d2f22df23ea75f50daea80ed85db6a3b5424e0ccc8015ef2b5e`**，与原sha侧文件精确相等；run-tests.status306B、SHA **`9a8747d2deb0be3a3a0ecd81e8d935defc367201339f62cf39ae9b40b593c583`**。源位置同§123。postflight及自有marker释放仍待实施者结果，不能以启动或镜像身份PASS代替此失败。
+
+实际有**三项失败**，不能只记录实施者首报的RS两项。backend parallel status0；serial为1 failed/75 passed/3315 deselected、559.28s、status1。Repository Service parallel为2 failed/1759 passed/1 skipped、46.23s、status1；serial214 passed/1762 deselected、582.61s、status0。各组按权威入口自身流程执行完毕，整次非零结果原样保留。该run整体exit1，不能将其中单独通过的包直接作为规则要求exit0的qualified carried来源；其他既有合格来源仍须独立按原同节点/同worktree闭包规则判定。
+
+**RS根因已从实际失败与源码对齐确认。** 两失败为test_compose_build_harness的rebuilds_when_labels_stale和skips_rebuild_when_labels_match；均断言返回harness.DEFAULT_IMAGE=gateway-repository-service:local，实际为本次必需的p6vref-fcc827-repository-service:latest。DEFAULT_IMAGE自身是固定常量，真实ensure调用resolve_service_image，后者合法读取GATEWAY_REPOSITORY_SERVICE_IMAGE；unit没有显式设置所测环境，错误假设ambient override不存在。保持门禁实际override、真实resolver和重建/身份语义；已交实施者仅修两现有测试的显式输入隔离，可用default/custom小参数表覆盖同一边界，不删断言或全局unset候选image来凑过。
+
+**backend的中断失败另行定位，当前尚不能归因结案。** 精确失败是test_interrupt_stops_isolated_launcher_group_then_runs_cleanup：fixture观察journey_started后向launcher Popen发送SIGINT，随后communicate(timeout15)抛TimeoutExpired，Popen尚未返回。独立读测试和真实launcher：测试直接Popen Bash并继承ambient信号处置；launcher用INT trap停止隔离session再cleanup。候选假设是外层后台/nohup入口继承SIGINT_IGN，需原启动命令及05最小定向证据确认，不能先当作确定根因、仅拉长15s或标flaky。已要求在05核真实信号继承及默认/后台入口差别，保持停止、孙进程收束、cleanup、无卷删除和锁语义断言；没有因此改真实guard或重测已通过FULL/STRESS。
+
+两类普通测试/接线修正继续Owner既有授权，无新Owner/设计GO；先在独立非在途worktree提交最小修订、05必要focused及受影响静态，再交具体代码/结果复核。04原候选、失败日志和身份保留，不原样重跑、改动被测worktree或沿用该失败为PASS。若最终候选改变，镜像candidate revision、实际输入闭包和必要当前候选验证重新按原规则绑定；不因本次04局部失败暂停CT108既定小源取件/分段准备和05记录派生，整体仍未完成。
+
+**04失败运行的收尾证据已补核。** 直接读04 postflight.log1072B、SHA **`b56d6bb2de29c8ec84b5dfd1bed4bf6bc147498dcda5d25a5eaf634a2d0a1de4`**（19:50:56Z）：clean fcc、原runner PID及busy marker已无，Docker/项目容器查询exit0且无结果、8000查询exit0且无监听、所查测试/旅程/runner进程无，backend/RS Hypothesis及Cargo临时目录均无。原件已取CT201审核副本。node-busy-marker-release.log895B、SHA **`f7f791770d94cbc352449da9b7687d051038ce25b58a603051e7fe7ff7ac0e9d`** 直接核明19:43:13Z按准确session/PID/log核对后仅清自有marker，引用原acquisition及上述postflight；后取标记的事实保持。收尾成立不把exit1改作PASS。
+
+## 126. 同run worker旁证绑定已核，core原主DB完整可证明，有限私有派生准备继续
+
+**FULL/STRESS新worker sidecar的数据绑定/UTC计算已核一致，正式提取节点证据仍待05闭合；core当前源全目录仍MISMATCH，原主文件则完整匹配原snapshot。** 这不是重跑业务、改写raw或沿用不符checkpoint的许可。两类旁证准备和§125测试修正继续原授权，无新Owner/设计GO；未将标准record或H1资格提前结案。
+
+CT201 `baseline/derived-control-timing-20261107a/worker-step-timings.json`10918B、SHA **`88d312b5c84fa1b9c0c39581165f89797f9a5ab2b36c249a7cae0f244cf3203d`**，包含STRESS v2及FULL三个Preview。审核者独立用§113/124认证state核四组operation ID、upload_revision_id/generation、真实来源SHA；重算每个UTC elapsed/gap与sidecar相等。私有DB当前主文件SHA分别 **`fddbfba8962cf57a148f251ef091b8642164aee2cb9c29352ebcef8b409510eb`**（STRESS3850240B）、**`84bf3e997b9e3c341ca40399702ce7420c03b0a008ff6a02debc16dc21ebf1b9`**（FULL3854336B）。没有把STRESS before-v2-preview当作完成后快照，采用其final control卷；FULL仍取before-v2-submit。
+
+已直接读source-copy-tree-hash-evidence.log2296B、SHA **`aef553416d8d6c3d44dc887203072683ef0bc633bc8b1349daf470738df73ca2`** 及脚本4b1b1515…5b564：SSH在CT108用原字段算法核两source full tree精确为7ace1b8f/05577662，各原main SHA等于对应私有副本；原run/state/launch、FULL来源索引与state SHA均等已认证值。guard日志1339B、SHA **`ba67446380c494c4b486eaec3960f92addc371fb135cfe0b6e55028412f0ec61`** 另明确core全目录失配，没有将它混为通过。
+
+实际初次SQL及复提节点为**heavy-dev-01/CT201**，不是05，节点事实原样保留。verify-worker-step-timings.py5756B、SHA **`64cc0be38f6a0825aa8d6b369fc5907eb6ccf204888a277b82b6d56b62ec049c`** 仅对私有copy用ro URI、backup到临时DB，按原SELECT验证SUCCEEDED/attempt、step顺序及非负gap，再核preview_result绑定；CT201复提日志877B、SHA **`f5f63b01dec88a38d02ae6d23a8f8a2502a401817d84df5c570dd04c5df03524`** 自报12行全部相同。该节点不能冒称已完成约定的05取证；已要求仅将现有认证私有DB/脚本LAN到05作同查询提取并记录实际hostname/起止及输入输出SHA，可与core私有副本合并安排，不重新取CT108或重测业务，也不与05中断focused并行。审核者此轮只做文件/hash与JSON数学核验，未在CT201开SQLite或运行测试。
+
+**core原主文件的独立只读核验成立。** 19:54:35Z确认CT108无占用标记后，本审核仅lstat/二进制hash原history control目录，不copy、SQL、移删或调整元数据：当前full tree仍 **`2ce71212c8efec1593a6d3ed7763e46a02aeb3ca6d2182a39bcf5efe0f6fdc79`**、3文件/2183168B；只按原算法对原应有control.sqlite3一文件作**明确标注的投影**，精确得到原expected **`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`**、1文件/2150400B。主文件SHA **`9b2c1afc466f1cdad160a1d5bbb6230c3ba0b50f2074eeb73cb86d45f9e500f8`**、mode0644/uid0/gid0、mtime_ns1793518591951172251、ctime仍Nov1 07:36:36Z；读取前后size/mtime/ctime一致。新增SHM32768B/SHAfd4c9fda及WAL0B/空文件SHAe3b0c442，均为**Nov2 07:23:55Z**产生，不能归因本次工具新建。谁创建这些文件尚未唯一确认，但不影响已证明的原main完整性；未将投影冒称当前完整目录MATCH。
+
+实施者独立调查log2533B、SHA **`debbfd64da66e574123b8080e8e4ce7ad50073206393efedc0b396e0af950e33`**、脚本c1358225…3958c与本审核文件元数据/全部SHA/两种tree结果一致，且原core state503e73ab及准备索引11ef88f4仍相同。旧W4源sidecar可逆恢复§97不自动覆盖此源；本次不需要为补metadata修改原目录。
+
+**设计已认可具体有限派生方案，可直接准备：** 原三文件原位保留、当前源full tree继续明确MISMATCH；只将与原checkpoint主文件投影精确一致的DB以保留真实元数据的复制方式放入新私有目录，开库前以未改原算法核该**完整私有目录**精确等于原4baede/1文件/2150400B，再在05私有副本补同run worker步骤/H1历史DB字段。不得作新业务恢复checkpoint或carried，不增加通用WAL/SHM ignore，不为读取派生字段先移动/删除源sidecars；不把唯一确定旧SHM创建者增加为门槛。H1还须独立核原artifact来源及实际缓存对象，不能仅凭DB或旧W2健康值标健康；TTL使用原H1起点UTC及原缓存读取规则，不用当前日期判旧时过期。私有副本实际准备/提取、H1对象证据及05结果仍待交，不停止其他已授权工作。
+
+## 127. 三来源历史worker步骤及core H1输入缓存补证独审PASS
+
+**合并补证 `worker-step-timings-and-h1-source-supplement.json` 16927B、SHA `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de` 独审PASS。** 资格限于core/FULL/STRESS三来源的历史worker步骤及core原H1查询起点输入条件，可作为标准record的明确派生输入/外部索引依据；不改原run/state/log、原none模式或未知cache_after/命中数，不作业务恢复或carried。本结论关闭§118/126在这三来源上的步骤缺采及H1起点条件缺口，不泛化其他来源，也不替代DC63/V5b实际细分、正式record/comparator或最终门禁。JSON中的REVIEW_PENDING保留产生时快照，以本报告记录审核结论，不要求改字节再签。
+
+05源目录 `baseline/derived-control-timing-20261107a-ct05/` 的闭合JSON、脚本及日志已LAN取CT201 `p6-baseline-evidence-review-20261107/historical-control-ct05/`，逐份独立hash相等。`worker-and-h1-history-db-extraction.run.log`2255B、SHA **`3b8301f44e48e5f26232c63c7f162ebb27b923aef45769f5681f0617405c880e`** 记录gw-dms-test-05、20:14:37Z、无冲突/占用、一次extractor exit0及输入/输出SHA。JSON264460B、SHA **`afc0ece772d393b11178bbf5a29b95ddff6387829fd9d6d29337616e2b9b16b1`**；脚本SHA **`de1f3f25e2aacac41d6115573d1b0fa4791a01c45257a3bacc9e455183133132`** 已逐段审阅，先核三私有DB大小/SHA及无WAL/SHM，再仅以mode=ro&immutable=1打开私有件、backup到临时DB，按原SQL验证SUCCEEDED/attempt/顺序/gap及preview_result。初稿CT201节点及88d312副本事实保留，05复提对FULL/STRESS的bindings、preview rows和全部12行数值逐项相同，未冒称初稿原在05。
+
+core私有原main目录开库前的完整树核验日志961B、SHA **`e6e59b4fdd46e4e22722eaaf58e36c87a8eae01fe185ea09ab87471b8cd7f22a`** 已直接核：新目录原算法full tree精确4baede/1文件/2150400B、main SHA9b2c1afc，原源完整目录继续2ce712/3文件；源三文件未移删。05收到main SHA与之相等。此为§126限定私有重建的实际结果，不是对当前源目录过滤后宣称MATCH。
+
+审核者重取05已认证core原state/run/journey副本并独立hash仍为503e73ab/bf3a1528/e0085bad；与已有FULL/STRESS原件逐operation核7组ID、generation、upload_revision_id、原source_head，21行UTC elapsed/gap重新计算全部一致。各行attempt=1，三步骤依次materialize_inputs/assemble_preview/publish_preview：
+
+| 来源 / Preview | materialize / assemble / publish 秒 |
+| --- | ---: |
+| core v1 | 1553.584566 / 160.696548 / 1.506816 |
+| core repeat v1 | 1260.532421 / 148.875345 / 0.564922 |
+| core v2 | 1605.197707 / 1721.657862 / 1.204833 |
+| FULL v1 | 1552.916983 / 154.422832 / 1.505013 |
+| FULL repeat v1 | 1266.030409 / 143.177066 / 0.563616 |
+| FULL v2 | 3116.634867 / 884.797682 / 2.813100 |
+| STRESS v2 | 2255.807895 / 2397.093684 / 3.183598 |
+
+这些是同run原DB的粗worker阶段，未用API差值、跨版本结果或诊断span拼接。不能据这三段进一步推算checkpoint-read/pair/bundle子段；后者仍由DC63/V5b既定实际链完成，也不将不同输入/模式的三来源相互作性能回归结论。
+
+**H1起点条件现有实际对象证明。** 原e008日志独立定位：checkpoint_saved=Nov1 07:36:37.516Z，history_compare_started及step_started=07:36:37.829Z，operation_started=.853Z；05对原core DB342行按该历史compare时刻计算expired0，而非使用今天时钟。对象清单225405B、SHA **`c01805ac16a00938b18cc87ee02bd85d7fc578f73daa5889a7c1c2f211551a4b`** 与DB提取的全部cache rows精确相同；本审核逐项核repository scope等于原_stack.repository_id、artifact_id唯一、原路径hash派生、expiry及所有342对象/引用对应。原API可见/完成时间 **2426.267s** 保持bb348来源，未更改原cache_condition/cache_after缺失或argv默认none的事实。
+
+CT108同run before-History artifact snapshot的只读验证：报告399477B、SHA **`be8ce870330302c9b9352bf11a306bf076dcee1ea4ea8d9f14b1a7156bf848a0`**，运行日志1108B、SHA **`ccb0b30e0368917368aa574227ea00020d61f2d33878599ade64c0bc05a09739`**，20:18:57Z、exit0；脚本SHA **`5086f6875ab5ad48b9f4b04d24a9ed180c4870202d4301ba937f999c3a660539`** 已读，固定原snapshot root，核342对象和342 ref文件均存在、root边界、四字段canonical ref形状/身份及每一对象size/SHA与ref相符，missing/invalid/content mismatch均0。本审核进一步逐项核报告与清单的repo/layout/writer/expiry、object/ref路径与size/SHA相等，且全部对象mtime早于历史起点。报告明确**未重hash整个1043552482B artifact树**；原02048879树身份只作来源索引，本结论仅认证实际342引用范围，符合原缓存健康consumer的行/TTL/对象存在条件，不扩为新业务checkpoint完整资格、实际命中数或History之后状态。
+
+20:22:42Z合并脚本及日志SHA分别7d7ac906/4f0db9d7，绑定上述原输入，已独立核合并结果与提取/对象报告全部相等。已直接通知实施者消费本补证、继续正式record/comparator及既有分段/测试修订，无新GO、不重测core/FULL/STRESS；两类测试修订与05focused实际实施仍由唯一实施者完成，审核者仅只读诊断/独审，避免互等对方写代码。
+
+## 128. e0dd两测试修正只读初审：环境隔离方向成立，新增兜底回收仍需收口
+
+**`e0dd178d8c8c3111b57b2f0be2bcb5b12f29ad89` 尚未整体判PASS。** 父为fcc，仅改backend与RS两个既有测试文件，85增/7删；已建立只读detached审核worktree `/home/dev/gdds-p6-review-gate-e0dd178d`，HEAD准确且clean、diff-check通过。生产src、真实launcher/harness、依赖及计时均未变；05定向验证由实施者在clean已提交worktree执行，审核者未在开发机跑测试。原04失败结果仍保留。
+
+RS的两现有用例共用default-unset/custom参数表，按场景显式delenv或setenv，仍调用实际resolve_service_image，检查预期image及是否重建，monkeypatch作用域结束自动恢复外层真实门禁image。没有将默认断言改成随ambient浮动、删检查或修改实际harness；该代码方向成立，当前候选实际focused/静态结果待交。
+
+SIGINT继承探针在05执行，日志276B、SHA **`2bde62570001f3a664426298c86a442d1bf5586e470d0637bf0ac187cbc41fca`** 已直接只读核：20:34:15Z，前台Python及直接子进程为default_int_handler，Bash异步job的Python及直接子进程为SIG_IGN。该机制有实际探针支持；原04外层具体launch命令的关联仍已要求补记，不以一般机制伪造原进程已退出后的信号观察。已分别读05/04的GNU env帮助确认支持--default-signal。测试只在launcher Popen argv前加 `/usr/bin/env --default-signal=INT`，恢复该子进程初始处置；原15s、exit130、journey TERM、孙进程静止、Compose down及锁释放断言保持，不改真实guard或全局信号。
+
+新增失败兜底仍有一个有界性缺口：_stop_timed_out_fixture在TERM/10s之后的最终communicate()没有timeout；已交实施者给最后回收明确短上限，超限仍失败，不能由兜底TERM/KILL成功冒充原SIGINT测试通过。另_kill_fixture_sessions使用killpg(session_id)，实际只选择同号PGID；若按函数意图收束整个自有session，应复用已有guard的native pkill -s语义并排除非正/当前session ID。此为本次已出现挂起的fixture收束范围，不新增安全状态机、探针或测试矩阵。
+
+若05已经运行e0dd，先完整保留其结果再提交窄修，不改在途worktree。最终修订须在普通及明确SIGINT_IGN父入口下定向验证相关模块和RS两组用例、受影响两包静态；后续最终H及镜像/闭包/必要权威验证再按原规则一次绑定，不提前将e0dd或旧失败runner称合格最终候选。普通测试修正直接闭环，无新Owner/设计GO，不阻已审DC63/V5b准备与记录派生。
+
+**窄修后 `78000beb62e927190092e315135e7bc1cbdda615` 代码复核PASS，实际05验证仍待。** 父e0dd、相对fcc仍仅两测试文件99增/7删；新建只读detached `/home/dev/gdds-p6-review-gate-78000beb`，HEAD/clean及diff-check已独立核。fallback仅从自有trace取>1且非当前SID，使用绝对native pkill -KILL -s、每次2s；超时先记错误再收束launcher，最终communicate也限2s，仍不返回时关闭本端stdout并返回显式reap timeout给原pytest.fail。原15s及全部业务停止/清理断言未弱化，RS原两用例default/custom四分支保持实际resolver。e0dd未在05实际运行，不冒称其有focused结果。
+
+已直接通知实施者代码小项关闭、继续既定05正常/IGN入口及受影响静态，不增加teardown实现镜像测试或新证明矩阵。当前只读源码变化不改冻结产品/真实Compose runtime；最终必要镜像与当前H闭包绑定集中延期到这轮定向结果收敛后，RS的fcc candidate label不能冒充新H，旧fcc失败runner仍不作qualified carried来源。本节未认定新H已过focused、容器门禁或整体退出，也不新增Owner/设计GO。
+
+## 129. 78000两类修正的05必要定向结果独审PASS，待静态补齐及新H权威门禁
+
+**`78000beb62e927190092e315135e7bc1cbdda615` 的两类测试修正现已完成代码及必要定向验证独审PASS，§125修复Finding关闭。** 当前不将原fcc失败runner改为PASS，也不宣称新H通过04或整体exit。实施者可沿原授权直接准备最终H镜像及必要权威验证，无新GO；DC63/V5b和正式record/comparator继续独立推进。
+
+本审核直接读05原脚本及下列closed日志，逐份重算SHA，LAN副本存CT201 `p6-baseline-evidence-review-20261107/gate-fixes-78000-ct05/`，再次核SHA相等；worktree为05独立clean提交78000：
+
+| 结果 | 05日志 / SHA256 |
+| --- | --- |
+| launcher完整模块，普通入口4 passed/10.64s，20:48:15–26Z、exit0 | backend-launcher-focused-normal.log / `68695e82677111885c182fda3246329721faef11b238328d04eea9a3f749b0b4` |
+| 同模块，明确SIGINT_IGN父入口4 passed/10.19s，20:48:49–59Z、exit0 | backend-launcher-focused-sigint-ignored-parent.log / `5eb0d00f9a2bc0697ede14e49cbaf4bec2bf7433397c31605cdc865d16075535` |
+| RS两函数default/custom四项4 passed/41 deselected，20:49:16–17Z、exit0 | repository-service-image-assumptions-focused.log / `3b1556f45eb74f2ebd6af14a622a5aca8d9cbb10828277bdb48b72f60de415c2` |
+| backend Ruff/mypy500及RS Ruff/mypy201均过，20:49:43–20:50:00Z、结束clean | affected-package-static.log / `e45b5d92c6ae57a1a7e1dc9ddadf37027916c3a91e2bddf4bde35bd803d52922` |
+
+实际脚本均用受控uv入口、UV_OFFLINE=1、外置TMPDIR，launcher以-n0跑完整模块；IGN入口先trap忽略INT，并由独立Python确认parent_sigint=1后才启动pytest，未将普通入口也悄改成ignore。新env只恢复被测launcher子进程的初始INT处置；同一原15s及全部断言通过，不靠兜底TERM转成绿色。RS两函数在实resolver上分别显式unset/custom，不调用真实Docker/Dolt；不是删除默认场景。未增加业务旅程、容器矩阵或真实runtime行为变更。
+
+05 postflight/所有权释放日志340B、SHA **`b0b52b50a44a4b1a5340da981af216df9ac0815d32b575b812af1e16fadbc973`** 及脚本已读：20:51:01Z、准确clean H、相关测试/Dolt/Cargo进程无、容器/8000无，清本会话自有cargo target后核原session owner再释放标记；没有把失败清理当作原INT语义通过。原04外层具体launch命令仍未形成新增独立信号观察，本结论是对已证ambient继承机制和修正后受控入口的验证，不伪造旧进程的历史处置位。
+
+当前交付静态仅backend/RS两包。按AGENTS提交前五Python包要求，已交实施者在05补shared_kernel/repository_contracts/repository_client的Ruff/mypy，刚过两包不重跑；真实时间/节点继续记录，不把两包日志冒称五包。静态补齐可与独立节点的镜像/分段准备并行，不新增审核许可。最终容器/闭包与H绑定仍按§120–122及冻结产品线规则，测量用冻结镜像不替换，最终权威结果尚待实际执行及独审。
+
+**五包静态证据现已补齐并核验通过。** 05 `remaining-three-static-checks.log`836B、SHA **`b792939fe1d75f9e2684c94eaeb423a7110c345bf38809d7e28248d7a6452db3`** 已直接读取、重算SHA并LAN存上述审核目录：20:57:44–49Z、准确78000起止、shared_kernel Ruff/mypy34、repository_contracts Ruff/mypy15、repository_client Ruff/mypy26六项全部通过、总exit0。未重复刚过两包、未跑测试/服务；审核者又独立读05当前HEAD/status，仍精确78000且clean。五包静态及本轮修复必要验证全部闭合，已直接告实施者继续最终H镜像/04权威验证，不等新GO；原fcc失败及其他尚未完成收尾资格保持原判。
+
+## 130. DC63实际启动材料核查：输入/预算成立，RS来源校验会重建冻结tag，先修诊断入口
+
+**本次实际启动前存在一个真实阻塞：bbe诊断Compose参与canonical build-input revision，普通stack harness会因与冻结RS label不等而调用构建脚本。** 尚未启动容器、旅程、POST或测量，不计失败运行/消耗一次身份；不能因此改冻结tag或使用新建未核RS。输入、预算及普通工具修复授权保持，不重开Owner/逐摘要GO。设计已确认在非正式DC63入口做严格、有限的source→冻结target绑定，具体修正和必要focused待交。
+
+先前实施者曾预报77400s timeout会被metadata当作Python；其自行撤回后，本审核也独立读bbe的run_sampled及p6_dc63_resource_runner确认：wrapper明确expected_input_manifest=None，_launch_metadata仅非None时执行，实际Popen保留完整timeout向量。疑点不成立，没有改代码/加测试或产生失败尝试。
+
+实际CT108 clean工具HEAD为bbe577c6d8ab9cf11452b3441b85cd9c8d280ea0；离线同步/扩展核验log SHA **`0f79ce0ea920aed8467f4cda9d67c828f5fc1140603674696d70b28f0d4e519d`** 已直接核：21:27:23–50Z、Python/uv缓存可用，Rust1.97四工具同selector、PATH前缀正确及覆盖unset、UV_OFFLINE=1/CARGO_NET_OFFLINE=true，已安装扩展build_input精确58436908，结束HEAD/clean稳定。21:26:54Z取得本次node lock，新project路径/资源无、整机空闲；21:42:56Z launch-preflight SHA **`2c8a7d6b6e51e66017065d576c0e361b06e39222be0f2a3d6ce6e3c0a7203e68`** 再核同条件、LOG/CHAIN_OUT为空新目录、SCRATCH和project data/容器/卷/网络均无、锁owner匹配，MemAvailable约100323842KiB、同一文件系统可用140GiB，不将TMPDIR/Docker所在同一设备容量相加。
+
+real manifest1551B、SHA **`11958befddf729cfe769cc1d3576321a3a3e89cc8ee4cb80697134ff8a634061`** 绑定root=/home/dev/gateway-real-dumps、real/t4/full、full_v2/cross_project false。独立比较Git中已接受census（733b506e…6988）的两个t4 package字段：v1/repeat均5597503B、SHA95408cc3…a1675，v2为5596595B、SHA5a7cd54d…e3611，与实际manifest/节点包hash一致；census320总项、8SKIP，对应普通312表路径。不是只用当前datasets.json自证来源。第一次--validate-inputs误带journey controls的239B失败log SHA2c40e8f6保留；修正为纯--validate-inputs后INPUTS_VALID、exit0、clean，6198B日志SHA **`d846cbe8385547cef6dc6940557b2a75a5bbd88a277efc668d9c2d40dddffb85`** 已读，未执行业务。
+
+三冻结镜像当前快照6518B、SHA **`1637d003488f7e4b2b447772dd35f248caad2f5815a7552745f7987494f8cd37`**；比较JSON2409B、SHA **`d8c4664efa7f3369ebb522f3e2d440efb9c10830a4f7634bdc2e7baf773fbf94`** 绑定§116原全身份01cf16ea，当前同节点immutable ID和全部15/28/15有序DiffID等于原冻结记录，config digest由同一已核immutable对象关联，没有把本机ID当config SHA。最初缺本project B/W别名的实际映射已由审核指出；21:41:59Z仅从已核同节点ID生成新p6dc6320261107a-backend/worker别名，3244B记录SHA **`bf352e0d0dc9cd2d93e4b23331c2dc1b04a862b6a0aa34ae911c06f7a7387a05`** 核两者ID/全部15层一致，未build或修改原STRESS tag。RS仍显式选冻结p6jcsgate20261106a-repository-service:latest。
+
+完整尚未执行controller规格1526B、SHA **`dc93a191c2a31dbf455847b065440a4ebf4b35fb60bac6bdeb848ca5aac0f4e8`** 已直接读：repo/project/manifest/root和guard/chain映射相同；LOG=scenarios/p6dc6320261107a，CHAIN_OUT=diagnostics/p6dc6320261107a-output，SCRATCH=diagnostics/p6dc6320261107a，均在worktree外；普通keep-stack旅程后从同project state绑定v1 commit及live RS，不新增Archive/v3。work77400、INT后最多1200、watch78620及原配置尾部最坏79098<79200预算未变、各阶段不重置；不是ETA或充分性保证。已要求新controller随必要诊断修正更新准确HEAD，并补NO_PROXY/no_proxy unset使“全部代理清除”一致，不重生成已核manifest、不重跑输入校验或换未使用身份。上述小原件已LAN存CT201 `p6-baseline-evidence-review-20261107/dc63-preparation-bbe577/` 逐hash相同，后续从副本审核。
+
+**RS阻塞的直接证据与消费者路径：** 本审核在CT108实际clean bbe worktree只运行官方identity元数据入口，返回build_input_revision **`3456bd7fbbd6a6c7ae807303a54f5548a4136a7f`**，source_tree_sha256仍 **`sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`**。冻结RS label的build-input为4497ded8ff3a9156bbe4c7a75ba44ae9e4675792，源树相同。canonical manifest明确将deploy/compose.yaml列为build definition；调用start_three_container_stack会调用build_compose_stack_images，后者在判断prebuilt之前先ensure_repository_service_image，严格比较build-input/source-tree两字段，不等即调用构建脚本。若按当前显式冻结RS tag启动，会尝试向该tag构建；镜像快照MATCH和新别名无法替代这个真实消费者检查。
+
+已直接告实施者先不启动此旧路径。设计认可仅该非正式诊断子入口记录诊断HEAD/Compose→冻结产品镜像关系，核当前RS source-tree仍等冻结产品及实际三镜像config/全部有序DiffID/目标labels精确匹配，再消费预置镜像并禁止build/pull；3456与4497差异保持真实，不重tag凑label、不改普通门禁/共享harness比较、不加通用skip。chain原来通过subprocess执行journey，修正必须进入实际子入口，父进程patch不算接通。实施者负责最小接线/05必要focused，审核者集中核具体代码及结果后沿原预算接续，不扩大旅程或新建证明矩阵。
+
+## 131. 8783诊断镜像保护已接真实子入口，旧HEAD硬编码仍会拒绝新候选
+
+**`bbe577c6..8783cf69e175d86ec4f0b27ca177fac490144efa` 的冻结镜像保护接线方向成立，当前尚未整体PASS。** 两提交a20e3bca/8783cf69仅改chain、增加专用journey及对应两组测试，4文件691增/2删；普通harness、产品、Compose及guard预算未改。只读detached审核worktree `/home/dev/gdds-p6-review-dc63-8783cf69` 绑定准确候选；审核者只读Git/源码和已有日志，未跑测试、Docker或业务。
+
+chain实际subprocess命令现为p6_dc63_diagnostic_journey.py，向其传project、expected-head、approved-images、output及原journey参数。该子进程先核固定已审W4三镜像记录原始SHA01cf16ea、目标project refs、当前官方RS身份和Compose字节，再用原metadata helper取得实际config digest/全部有序DiffID/labels。与冻结记录逐项核三服务；3456诊断build-input与4497冻结label明确分列false，source-tree319相等，没有把诊断来源冒称冻结label MATCH。临近真实start时再核同节点immutable ID/全部层/labels，关联此前完整config证明；未修改冻结tag。
+
+专用进程替换harness模块中的ensure及run_compose，同时替换real_dump_journey导入的run_compose；真实start_three_container_stack的模块全局查找确会消费这些guard。普通build_compose_stack_images仍按prebuilt返回，up统一规范为单个--no-build与--pull never，显式build/pull或up的重建/拉取覆盖均拒绝；共享实现文件未变。现有focused通过真实start_three_container_stack控制流观察两次guarded up，保留缺/不符镜像在journey前拒绝，没有靠只patch父进程认定接线成功。
+
+**确定阻塞为新入口DIAGNOSTIC_HEAD仍字面bbe577c6。** `_assert_fixed_context`既要求传入expected_head==bbe，又要求实际git HEAD==bbe，所以clean8783无论传当前还是旧HEAD均不可能通过。当前两entry测试整体stub该函数，9项绿色没有覆盖此真实入口错误。已直接交实施者：运行HEAD与外部固定expected_head精确比较，bbe只作已审来源/Compose基点记录；不尝试将提交自身hash硬编码进自身。用实际context函数的最小focused核相等及不等拒绝，可替换外部Git/metadata命令，不能再整体替换此函数来证明该修正；不增业务旅程或矩阵。
+
+BatchMode确认05连接后，独立直接读并LAN保存已关闭 `ct05-image-guard-validation-8783cf69.log`，SHA **`7fbab55170637851b62ea5f5eb28cf11b69f140cec7b65f5fa351be2dc364ad0`** 与两端重算相等，副本位于CT201 `p6-baseline-evidence-review-20261107/dc63-image-guard-8783cf69/`。日志22:19:42–43Z、gw-dms-test-05、完整8783起止clean，Ruff0、两个文件9 passed/0.63s、pytest0。实施者另报第一轮重复--no-build断言失败已留证；该原件本轮未独立读取，不将其摘要冒称已核。当前交件没有mypy，已要求最终窄修完成backend必要静态，不重复未改四包/已过业务。
+
+最终controller还须随实际候选更新HEAD、补新required --approved-images及NO_PROXY/no_proxy unset；原11958输入manifest、冻结镜像、未使用project、77400/78620/79200预算和Owner持续授权保持。无测量、容器或POST启动，无身份消耗；此普通接线修正由唯一实施者直接闭环，不增Owner/设计GO，也不阻独立新H镜像/04权威门禁及正式记录准备。
+
+## 132. 6ffb运行HEAD修正代码及focused通过，mypy四项普通类型修订待闭合
+
+**`6ffb3ccc8d1b761b3dda503a50057990700b3a6f` 的HEAD修正代码复核PASS，§131旧HEAD阻塞关闭；当前候选静态仍未全部通过。** 增量仅专用journey及对应测试，未改共享harness/Compose/预算或产品。独立读完整diff、diff-check、实际Git祖先关系和Compose SHA，另建立只读detached `/home/dev/gdds-p6-review-dc63-6ffb3ccc`；bbe是该候选实际祖先，Compose仍a7d04f92。现在实际HEAD与launcher的40位expected_head精确比较，clean独立检查，bbe只作reviewed_base_head及祖先核验，不要求新提交等于旧基点。新增参数用例实际调用_assert_fixed_context，仅替换外部Git/identity/resource读取，覆盖相等通过及不等在后续检查前拒绝。
+
+BatchMode确认05连接后已直接读闭合 `ct05-image-guard-validation-6ffb3ccc.log`，SHA **`5ac6ede3c7f311d03ebfd6cf7b2124f8019aaf4b5a918cbef85cec618361206b`**；22:24:27–29Z、gw-dms-test-05、准确6ffb起止clean，Ruff0、两测试文件 **11 passed/0.64s、pytest0**。mypy检查504文件，四项报错、exit1：专用journey及测试引用real_dump_journey未显式re-export的run_compose，测试JSON字典推断为Collection[str]不可indexed赋值，以及测试经diagnostic访问未显式re-export的subprocess。不能将本日志表为静态全绿；已直交实施者仅修局部类型/实际模块patch表达，保持真实接线及断言，不加ignore、不改共享harness、不等新授权。修后当前候选必要静态/受影响focused待交，不重跑业务或未改包。
+
+§131尚未核原件的首轮失败现也直接读取：`ct05-image-guard-validation.log` SHA **`67e0ba757db477b89323b1f9d134c96a434c6ff92e7577a74aca71a8b892f783`**，22:17:42–43Z、cleana20e3bca，真实start路径保留原--no-build后又前置一个，导致1 failed/8 passed；8783用规范化去重复而非删断言修复。上述两份closed日志已LAN存§131审核目录，两端重算SHA精确相等，原失败均保留。查询日志目录时05无rg已改用ls，纯只读目录查询未触被测对象，不算测试/测量失败或重试。
+
+无DC63旅程、容器或POST启动、预算/身份未消耗；运行HEAD修正没有增加Owner/设计/审核GO条件。最终controller/实际环境的required approved-images、准确候选HEAD和八项proxy unset继续在同一集中包核查。独立04新H门禁、标准记录/比较器收口仍按原授权推进，本节不宣称整体exit。
+
+## 133. d2ffe诊断镜像保护代码与必要05验证独审PASS，实际controller绑定待核
+
+**`d2ffe1ac3af5e06ab6cf2a6f760124e0512e7dd6` 的本轮诊断镜像保护、HEAD绑定及必要05验证独审PASS，§130–132具体代码/静态阻塞关闭。** 相对6ffb仅改四项类型/模块patch写法：真实journey模块同名属性用setattr安装、测试JSON显式dict[str, Any]、测试直接patch已import的subprocess对象，以及用monkeypatch登记真实journey别名以恢复测试作用域。真实guard、三镜像完整校验、当前/基点HEAD语义、start控制流与所有断言保持，没有type-ignore、共享harness/产品/Compose或预算变化。独立读完整diff/diff-check，建立准确只读detached `/home/dev/gdds-p6-review-dc63-d2ffe1ac`；未在CT201执行测试。
+
+BatchMode确认05后，直接读取闭合 `ct05-image-guard-validation-d2ffe1ac.log`，SHA **`0d9670a0c8bd3abc93427b44801d14f02e971c07cf808ff6f2eceaedaac65817`**，LAN审核副本存§131同目录，两端重算相等。实际22:26:04–05Z、gw-dms-test-05、完整d2ffe起止clean；Ruff0、两文件 **11 passed/0.64s**、pytest0，**backend mypy504 files/no issues/exit0**。6ffb的mypy四项及a20e的重复flag失败原日志保留，不改为PASS；本结论无需重跑已通过业务、输入校验、其他未改包或大输入旅程。
+
+原§130已核11958真实输入、冻结三镜像/source-tree与诊断build-input差异、未消耗project及77400/78620/79200预算继续适用。实施者正在将准确d2ffe提交同步CT108并更新controller，需核其新required --approved-images、实际HEAD及全部大小写proxy unset是否接通；不是要求新Owner/设计GO或逐摘要许可。当前尚未收到修订实际controller，不宣称DC63已启动/通过或整体exit；镜像保护修复代码无剩余Finding，双方直接完成最后具体接线后沿原授权接续。
+
+## 134. CT108最终controller-r1实际绑定独审PASS，原授权一次接续
+
+**最终待执行 `controller-command-r1.txt` 复核PASS，已直接告唯一实施者按原持续授权执行一次DC63/V5b，不等新GO/回执。** 这是§133最后具体接线核验，不是重新发放逐摘要许可；截至本节只读核验时尚未启动容器、旅程、POST或测量，也不宣称最终结果/整体exit。实际命令原件位于CT108 `baseline/prep/p6dc6320261107a/`，SHA **`541733bb8fbd479c5d30c82a36cc40485cb63f843d110bc0b8e7c064c9c81e28`**，已BatchMode确认连接后完整读取、LAN取§131审核目录，两端重算相等；实施者记录bash -n通过，审核者未执行controller。
+
+命令REPO仍为原bbe577命名的CT108 worktree，但显式HEAD现为完整d2ffe，传入真实chain的expected-head正确；新增--approved-images精确指向同prep/input-images.json。原五个guard位置参数/分隔符及chain project/root/output/scratch参数接通，manifest仍由guard追加到chain。固定root=/home/dev/gateway-real-dumps、project=p6dc6320261107a、三个外置日志/输出/临时路径与§130相同；prebuilt与冻结RS tag保持。HTTP_PROXY/HTTPS_PROXY/ALL_PROXY及各小写、NO_PROXY/no_proxy八项均unset，UV/Cargo离线、PATH/TMPDIR正确。拒绝覆盖controller.log，保留真实guard退出码及最后日志SHA；77400/1200/78620/79200原预算/收尾界不变，无阶段重置。
+
+本审核直接在CT108重算实际approved record SHA仍 **01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01**、真实输入manifest仍 **11958befddf729cfe769cc1d3576321a3a3e89cc8ee4cb80697134ff8a634061**，不是新生成/重新验输入，继续§130的census与冻结身份结论。22:29:55.567296Z只读元数据独立观察hostname=gw-dms-test、实际HEAD精确d2ffe且status空；CHAIN_OUT存在且空，scratch、project runs、controller.log均不存在，node lock也不存在。此前准备期取得锁的§130历史记录保持，不能冒称当前仍持锁。
+
+已明确告实施者：**按原机制先取得自有node lock并做原现场单飞/资源/镜像核对，再执行该命令。** guard自身在进入业务前要求owner文件的session=p6-baseline-measure；当前缺锁不能裸跑，不要求为此改controller、增加许可或另换未用身份。保护器中三镜像完整校验及临近start的同节点重核继续生效，禁止build/pull；失败保存并遵守原停止/收尾，不原样自动重试。后续实际启动与结果仍待实施者交回，测量中审核不作节点探测或大文件取件。04新H门禁及正式record/comparator收口保持独立推进。
+
+## 135. DC63单次启动已报，closed锁/三镜像预检原件独立核验通过
+
+实施者报告按§134原命令于22:34Z单次启动，当前仅至初始化阶段；本节**核验启动前材料，不认定业务步骤或最终结果通过**，不以存活PID、CPU/RSS或compose_images_ready代替成功。原预算/停止/保留证据条件保持，不重置时钟、不重试。审核者测量中只读取下面两份closed小日志，经LAN存§131审核目录；未探测进程/容器/端口、重算Docker身份或扫描数据目录。
+
+CT108 `node-lock-acquire-r1.log` SHA **`f83f4f3c1e771e400e41cf22cd986bd32286d312c1c18fad5ba5d8934bc360a8`**、`prestart-image-identity-r1.log` SHA **`173f9ffa5d00b86485b35f68fc0cf5c58c4fe430d10cddf28c5fda246257b92f`** 已BatchMode确认后直接读取、两端重算相等。原件位于 `baseline/prep/p6dc6320261107a/`。前者22:33:24Z、gw-dms-test、d2ffe clean，记载running/project containers、项目volumes/networks和8000均空，成功取得准确session=p6-baseline-measure、project/worktree/HEAD及用途对应，preflight0；这是当时预检结果，不是审核者新做的现场扫描。
+
+后者22:34:08–19Z、起止d2ffe clean、readonly_identity_exit0；实际context官方身份3456/319，冻结RS label4497/319，build_input_revision_match=false、source_tree_match=true、compose build/pull=false。审核者在CT201只读解析已复制JSON，先重hash§124已认证原input-images.json仍精确01cf16ea，再独立逐服务比较config digest、全部有序DiffID、labels及同节点immutable ID/approved source tag，backend/worker各15层、RS28层均相同；不是仅信JSON自报MATCH，也不把跨节点inspect ID当config SHA。wrapper原文件SHA **`4465c9f9bec7abb6b5517350dcbf7269df9c0d079e8b6665f501aa2882f248b4`** 与本审核d2ffe detached副本字节精确相等。
+
+上述启动前两项材料无新增Finding，结论直接交实施者；实际controller/旅程/coverage/V5b及收尾的最终原件仍待运行交回集中独审。测量期间仅必要既有阶段/采样日志低频观察，不追加大取件或全身份重扫；04新H门禁和正式记录在独立节点继续，不因等待本长运行新增许可或整体暂停。
+
+## 136. 剩余独立收尾范围澄清：无Owner后续收窄，沿既有授权并行推进
+
+实施者在DC63低频状态更新中将当前交接摘要理解为“只推进DC63/V5b，未获用户/设计者扩展前不另启04/record”，故尚未启动这两条独立收尾线。本审核指出与§129/133–135既有剩余范围不一致，直接交设计核最近真实指令；**设计明确确认没有本轮Owner后续收窄指令，已直接通知实施者现在并行收尾。** 依据是Owner持续完成授权及接续计划场景表，且交接本身允许设计明确范围；这是消除旧交接摘要/当前分工差异，不是重新请求Owner GO，也不把范围核实变为暂停在途DC63的理由。
+
+设计澄清的具体范围保持既有冻结线：H780 backend/worker在CT201按旧冻结整镜像流程构建、经LAN到04；RS在04用官方既有预置dependency-base离线构建独立tag，重算canonical identity，不能以旧fcc身份或CT108冻结测量镜像代替。04取得现场自有锁，在clean已提交worktree按原规则运行全六包；05独立worktree完成标准record、SHA、comparator及逐版本来源外部索引，不要求重跑已通过业务。必要工具若后续形成新H，最终闭包/镜像及权威证据仍按原规则绑定，未运行780不能提前称gate PASS。
+
+CT108原监控/预算/进程/tag及在途worktree保持，不新增角色、不推送、不改测量对象；节点分工/离线/锁/保留证据规则保持。本审核已将该明确范围直接回实施者，不再等待额外回执。当前只是工作范围澄清，未宣称04已运行、标准record/comparator完成或DC63整链成功；后续按实际原件分别独审。
+
+设计已将同一澄清落为提交 **`5e93a9b5497a1b1fce25c91847e410c25f58c05c`**，本审核独立读该提交的完整单文档diff，与上文范围一致；准确出处为[接续计划“并行收尾范围澄清”](p6-baseline-post-gc-resume-plan.md)。其中明确同一唯一实施者现在直接并行、不以旧“先只DC63/V5b”摘要等待扩展，04/05现场原子取自有占用、不设置窗口预约/跨会话回执前置，CT108在途边界和新H最终绑定保持。该设计文书补记不触发产品/镜像或在途运行变化，也不新增审核启动条件。
+
+## 137. H780第二轮04门禁出现两项单测失败：归因及原停止规则已独立核实
+
+**H780本轮权威runner已有失败，不能宣称PASS或用单独通过包作qualified carried来源。** 实施者报告该唯一全六包run于Nov7 23:55:57Z启动；Nov8本审核BatchMode确认04后，只读现有 `baseline/parallel-closeout-20261107a/ct04-h780-authoritative-runner.log` 的具体失败和末段，未运行测试或改在途worktree/镜像。backend parallel实际1 failed/3314 passed，serial76 passed；RS parallel实际1 failed/1762 passed/1 skipped，serial在读取时仍自然运行。日志尚未闭合，本节不将其当前字节/SHA封为最终证据，不伪造结束时刻/最终exit或postflight。
+
+**backend的初报归因已校正：guard实际比较9704→H780，而不是e798→H780。** 失败为test_post_gc_resume_identity_and_product_tree_are_fixed，真实current_head=78000。独立读immutable H780 helper及真实Git diff：identity.source=e798用于核来源，实际changed命令以identity.target.product_commit=9704为基点；9704..H780完整19项变化只有docs、backend benchmarks/tests及 `vnext/repository_service/tests/test_compose_build_harness.py`。最后这一项是§129已审的显式镜像环境单测修正，也是唯一不在该固定resume路径前缀中的文件。backend/RS/shared_kernel产品src、Rust、脚本、Compose或锁在这一区间均未变。e798→9704的已批准COUNT/JCS/GC修复不能误记为新H产品漂移。
+
+原guard按其有限关系拒绝该当前checkout，并未证明产品回归；错误在于固定历史身份测试始终把整仓库当前HEAD当作那次有限resume的工具候选。**设计最终统一采用最窄修正：该测试使用§100/101实际已审continuation工具提交3fd64dc2fe9a9c11ceebf8cd458983b9507f5364，生产guard/白名单不改。** 本审核又独立核9704..3fd只有原准许工具路径；保留source=e798、9704祖先/固定树、clean及真实差异断言。历史测试PASS不证明H780可执行该固定resume，当前V_ref产品/镜像身份仍按原规则另核。此前讨论的RS路径扩展不实施，不增加通用tests/support或src资格。
+
+**RS失败根因也已直接核实。** test_build_script_defaults_docker_build_network_to_host实际none≠host；_base_env从os.environ.copy继承门禁必需的GATEWAY_DOCKER_BUILD_NETWORK=none，没有为默认场景移除该输入，而真实build脚本正确使用`${GATEWAY_DOCKER_BUILD_NETWORK:-host}`。保持实际门禁network-none及脚本/harness原语义；仅在unit helper先隔离ambient变量，再由既有extra_env明确覆盖，保留默认/override断言。必要05focused在实际外层none下证明这两个场景，不将全局unset门禁输入作为修复，也不改默认断言为随ambient浮动。
+
+**自然结束在途runner符合权威入口自身行为。** 已独立读H780 run-tests.sh：各pytest批次失败设置test_exit=1并继续原选中批次，最后统一exit test_exit及执行清理；当前不是runner已经exit1后继续carried/另跑验收。无需人工中断剩余串行组；结束后先保留实际exit、closed日志/SHA、起止HEAD/clean和收尾，失败整次结果不得作为qualified carried，不能原样重试。本轮新H780镜像实际构建/传输/启动前材料尚待集中交审，未将旧fcc镜像或通过包追记为当前最终门禁资格。
+
+两项普通工具/测试修订已直接交唯一实施者并与设计统一单一路径，可在独立非在途worktree准备小diff、05必要focused/静态后独审，最终新H的镜像/闭包/权威证据依原规则绑定。保持CT108 DC63原运行/预算/冻结tag及源卷，独立record收口继续；没有新Owner/设计GO、额外旅程或矩阵，也不把本轮局部失败变为整体等待。
+
+## 138. DC63旅程与必需span覆盖已核成立，V5b旧empty输入策略失败，限定剩余接续
+
+**DC63/V5b整链exit1，不能记整体PASS；失败已唯一定位到V5b工具的empty-before构造策略。** 本审核已直接读取CT108 closed controller/launch/postflight和V5b raw，并LAN存CT201 `p6-baseline-evidence-review-20261108/dc63-v5b-failure-d2ffe1ac/` 逐hash相同。sampler实际Nov7 **22:34:47.876Z–Nov8 00:12:23.357Z / 5855.394s**、起止d2ffe/head_stable、exit1；此前转报“00:22退出”是后续发现时刻，不能代替实际结束。controller.log4643B/SHA **`c64a6956e869fa9a7614af45d7f328c573e5ae4a9177c4a0c49e211bd8ab38fc`**；launch.log509887B/SHA **`9f49b75a3a5b5dff0cfebb207ce2eb257b44cc6d4c0bcec429e0d6216e73eb8e`**。
+
+原journey已正常返回conclusion=PASS，包括History成功及timing捕获，未因V5b随后失败而倒改已完成步骤。独立解析唯一final summary与state，实际为312表路径：v1 Preview788.269s、v1 Submit visible670.615/completion670.627s、repeat Preview685.713s、repeat Submit同步0.008s、v2 Preview784.247s、v2 Submit271.871/271.881s、History347.768s；v1/v2 failed与degraded均0，v2普通changed26，offline composite666.232s独立于API。它们是本次带诊断配置/输入下的观测，不作为旧631表FULL/STRESS对比或正式性能目标通过。
+
+**必需DC63覆盖本身独审成立，可保留，无需重跑旅程。** state2163273B、SHA **`e0dd1db681e7cc7950a124853542ac0813215206604f211584814609e5108f50`**，_stack绑定本project/d2ffe及本次repository；coverage1961B、SHA **`5682dc007e26419dd8ae5952a8ebfc9644a815b867a86c5e871010f2f472f0c8`** 精确引用该state SHA；worker.log168359B、SHA **`9d50b95cefbd77c5d4a572de565827384a6ab2cc5c60f82fa2a755643d40015d`**。审核者在CT201仅对JSON作独立证据解析：五个真实operation角色ID互异，八handler集合与state真实字段相符，raw91个span、56个必需stage槽齐全；全部相关elapsed有限非负、outcome ok/complete，History commit_materialization ordinal恰1/2，原failures/missing均空。没有导入或执行产品/coverage工具、测试或打开SQLite。正式selector派生仍按已审实际覆盖边界，不用这些span反填未覆盖旧finish子项。
+
+**V5b的具体错误为工具输入政策错位，生产拒绝保持正确。** raw95598B、SHA **`245232de8bbe6d1e18da27f97449fb95aa0a5e3e96fd7ae432dcb584ac9c62fb`** 记录23:47:35–00:12:18Z、1483.098913s/threadCPU1391.502873s、status=FAILED、failure_type=PairPipelineError、起止d2ffe。真实trace在v1 _measure_bundle→run_preview_pair_pipeline→_surface_table_artifacts→table_map(request.before)，报`surface table composite_signal_point is missing its artifact`。独立源码对齐：s5._empty_baseline使用READERS_REQUIRED；materialize_business_snapshot只在ARTIFACTS_REQUIRED时调用_with_artifacts，而真实pair pipeline要求每张表有artifact。它在bundle动作之前就拒绝，不能由CPU活跃或返回完整journey推断V5b通过。只应把测量helper的empty policy修至ARTIFACTS_REQUIRED并用05真实helper/consumer的小fixture验证，不放宽生产pair要求，不追加Dolt/profiling或重测业务。
+
+FAILED raw已实际完成并保存两个materialization段：full312表 **249.144340s**、selected27表 **59.583654s**，各段readback/计数依原producer在正常返回后追加。按设计认可，这些仅能以精确旧raw/HEAD/来源引用其本身已完成范围，不追改原FAILED为PASS、不将新V5b全部字段冒称同次来源；具体reference派生/复用接线尚待独审。bundle及后续C/D尚未完成。
+
+postflight974B/SHA **`0f406a9a686cb1be60ff0bcc6d16058b768c8373982cbbc8a57104506ebb3ee1`** 直接核：00:12:23–27Z，diagnostic logs/down/node check/cleanup均0，三个服务和网络收束、node_lock_released=true；原down没有-v。实施者另报实际三卷保留、无残留进程/容器/8000和锁ABSENT；本审核未再作运行节点探测或大目录hash，不把静态日志范围扩成新现场审计。
+
+**设计已明确V5b-only最小接续边界，沿DC80直接闭环，无新Owner/GO。** 修helper后仅复用本次已完成v1 commit/隔离RS及保留卷，恢复必要服务供V5b；不启动journey、seed或业务POST，不触旧历史栈/冻结tag。新scratch/output/接续身份准确记录来源，原绝对截止与剩余预算保持，不重新给22h或滑动延时；实际缓存及重复局部准备边界必须真实记录。最小代码/05focused与具体服务复用、已有A段引用、时间预算和收尾待同一审核集中核，已完成DC63不重跑，不建设额外持久续跑状态机。
+
+**04 H780第二轮的closed失败结果也已核实。** 原日志460637B、SHA **`4ffef57bac5bc44ffc08562d6e98f64d54c73ded6da35b457e125ff6787756e9`** 已LAN取 `p6-baseline-evidence-review-20261108/ct04-h780-failure/`；00:19:48Z结束、end_head=78000且clean、runner_exit=1，RSserial214 passed/1764 deselected/581.92s，未增加第三项失败。六包最终状态rust及三个fast包passed、backend/RS failed，Hypothesis/Cargo清理已执行；原两项失败维持§137，整次不能作qualified carried来源。04外层现场收尾/锁释放原件仍待交，不能只据runner结束冒称节点已释放。独立05记录收口及必要工具/测试修订继续，不原样重试整链/POST或失败门禁。
+
+## 139. core record两次metadata错误的处置：按严格三字段state修正继续，不新增等待
+
+实施者报告W4-FULL标准record生成成功（record SHA66a2728a…f678b、派生journey SHA905b944a…93cb、实际测量HEAD18a4851d），core则先因H1 state缺baseline/cache、再因state含额外字段而失败，未写core record、原件保持；随后以旧DC68两次计数停止。**该停止不应转为新的Owner/第三次GO等待或先记不可恢复gap。** 依据§136/接续计划Owner连续完成授权，普通可逆派生准备错误须先保留日志/失败metadata，核实际schema后最小修正并合格接续，不原样盲跑；V5b及两项测试修订独立继续。设计已同样直接澄清，无新Owner/设计取舍。
+
+本审核已独立读H780真实builder及validator：build_record最后先validate_record再写输出；p6_baseline_compare.py的state严格且必需集合为 **{mode, baseline, cache}**，mode只准MODIFIED_ONLY/FULL，后两项须为非空描述字符串。无需改schema或产品；仅将metadata.state映射到这三项，历史UTC、缓存342行/TTL/来源mode=none和after未知等真实补证进入已有counts映射或外部source索引，不能增state键来装证据、把未知写成健康after或改原run/state。§127已审H1历史起点补证保持原资格，不重新开库/取证/测量。
+
+已直接将准确schema位置和处置交实施者，要求读取两失败的具体字段后修正metadata，从record准备步骤继续。当前报告只有摘要/未给新材料准确路径，本审核已查05已知日志与record目录，并要求W4-FULL record、派生journey、metadata/运行日志及core两失败原件的实际位置；**尚未将这些新record或两失败日志判为已独立核验**，待准确原件集中审核。审核者未在CT201运行builder/validator或测试，未修改产品、原始证据或实施者metadata。
+
+## 140. 两份历史record原件已审：数值/指纹派生成立，core条件及旧producer阻塞待修
+
+**当前record包尚不整体PASS。** 05准确目录为 `baseline/derived-control-timing-20261107a-ct05/records/`，已BatchMode后直接读取、LAN存CT201 `p6-baseline-evidence-review-20261108/historical-records/records/`。W4-FULL record7752B/SHA **`66a2728a5699f1250ec241962af8281b200cddca5f0798b8bd0beafeb02f678b`**，派生journey2056979B/SHA **`905b944a8eace904e3de0e00e66d071677628e2c1191fa58d20ef1b8191393cb`**，metadata1729B/SHA650b3d35…d91f7a；core record182814B/SHA **`6292901cfee8044c4005c5e38bec6f08abc6800dc3a89fd61f10cacb4a538ce2`**，派生journey909686B/SHA **`8ac1709b573fcd49d3cf9fe30b7b66b24349b970ea0ce9d4500c9230e50f0db0`**，metadata6068B/SHA41c52222…aa4a1fb。外部索引13542B/SHA **`b0686ba8a4a9caa62acb0c5517ad04d97f970735399e74fb031b59275844ed91`** 及成功/失败日志、旧metadata均已取副本；原件不修改。
+
+**已成立的派生范围已独立核实。** 与§113/127已认证原log作完整final summary对象比较：FULL只增加v2_preview worker rows，core只增加三Preview worker rows；移除这些新增角色后对象精确等于原件，没有改API值、计数、指纹、cache原字段或模式。新增rows（包括_step_id、UTC、elapsed/gap/attempt）逐项等于9bdce65c已审补证。重新按既有规范计算records列表的规范JSON摘要，连同surface/comparison/risk/bundle_closure、Submit canonical_state/Dolt hashes均与record匹配；八个场景的ready/completion单样本统计精确等于原operation端点。core原step_checks全部source_head=bb348，FULL实测18a；未伪装统一9704或H780。六Git对象值可在各自实测HEAD复现：backend取backend/src，其余五项取整个package；该路径映射应在外部索引明确，不把backend/src值误称整个backend包树。
+
+**core metadata的真实条件错误构成阻塞。** §127认证state503e73ab中v1/repeat/v2上传input_completeness全MODIFIED_ONLY，新metadata却把七场景全写FULL。已交实施者纠正，设计进一步明确H1也按普通Preview负载记MODIFIED_ONLY，不能因History读取完整commit改FULL；FULL Preview之后另属H1-FULL。baseline须按真实角色分别写empty-initial→v1、v1→repeat-v1、v1→v2和History v1/v2，而非所有场景共用v1→v2。W2原before/after均有274 cache rows、expired0、missing0、TTL有效，metadata“原journey未记录”不准，应如实说明这些可得观测；hit_count仍null/未暴露。H1的342健康起点及after/hit未知保持§127边界。只改派生metadata/record/index并保旧件，不改raw/schema或补测。
+
+**实际执行producer用了旧代码，资源缺观测错误重现。** 索引/生成日志实际producer=0739d8cba0057e2edfa0ee991d46e1c7282ef31e，builder SHA **17e4f25af03bd455bbd38546538d2cda736b8f37ca8caacb874042bf328357e6**；已审H780 builder应为 **bf950f6176962bbab4b56dd85e0368297fe916ad2e2477371cb73a9901eabad9**。独立Git diff及原resources核：S2周期samples=0，旧record将peak_parallel_cores=0、disk_high_water=0，误把未知记零；§119修正后的H780会三峰null并记operation_resource_peaks unavailable，边界CPU实际0.089s继续保留。已要求直接用正确clean已审producer重生/验证，不为旧工具加新补丁或改字段标签冒充实际执行；producer HEAD外列，record measured HEAD仍18a/bb348，不需业务重测。FULL数值等已核一致，最终producer绑定及core语义修订结果仍待交。
+
+§139两次core失败原日志本轮已直接核明：00:34:50缺baseline/cache、exit2，SHA b6f20dcf…52b0f238；00:36:15多history_input_cache_at_query_start/inputs/source_project键、exit2，SHA1c709751…1f952b78。随后00:39:05用合法三键生成，日志SHA453f9d1f…9d919a4，但schema通过不代替上述语义审计；原两失败与旧metadata保留。
+
+索引将W4-STRESS写为05认证副本中暂缺，这不是原证据丢失或不可恢复：§124认证CT201副本 `p6-w4-stress-review-20261107/p6w4stress20261107a/` 的launch/resources/run/state均在，已直接告实施者按原SHA经LAN到05完成剩余record，不访问/重测CT108。comparator本身允许不同HEAD；是否有同inputs/同scenario且口径可比的实际baseline须按具体原件说明，不能以版本不同为缺项理由、弱化全inputs比较或用self-compare冒充跨版本证据。本包仅有已知t1 full/resumed记录与上述不同场景/输入，具体剩余参考/既有§115旁证在索引如实列明，不扩大测量矩阵。
+
+## 141. V5b 520bc空基线策略修订预审：调用边界成立，package/type接线须收口
+
+**`520bc863b73d992c9c9d4e5126e2bdc4a0eb995e` 的策略边界方向成立，尚未整体PASS。** 父d2ffe，仅改两个测量benchmark和一个既有测试文件，36增/3删；已建只读detached `/home/dev/gdds-p6-review-v5b-520bc863`，完整diff/diff-check已核。S5 helper新增policy参数、默认仍READERS_REQUIRED，只有V5b显式请求ARTIFACTS_REQUIRED；生产materializer/pair pipeline及拒绝语义未改。小fixture调用真实helper，核empty composite已有artifact，再过真实pair消费者到READY，不需Dolt或大输入，覆盖本次实际失败点的方向合适。
+
+新测试首次将V5b作为benchmarks模块导入，V5b原第21行仍裸import s5_dc32_capability_measurement，且在_BACKEND_ROOT加入sys.path之前；测试/conftest没有把benchmarks目录作为顶层搜索路径，因此不能依赖CLI脚本目录提供这一隐式路径。已交实施者在原backend-root设置后统一从benchmarks package导入helper，使测试与直接CLI消费同一入口，不加fallback/兼容层。新增返回注解还经s5转引非显式re-export的BoundSnapshotInput，需按strict mypy既有前例直接从owning comparison导入类型；此为源码预检，尚未将预测问题冒称05实际失败。
+
+上述两项最小接线及05真实consumer focused/必要静态结果待交，测试节点占用前提继续遵守；不在CT201执行候选/测试。V5b-only具体复用/原绝对截止/局部准备/收尾仍按§138设计边界集中独审，无新Owner/GO、不重跑已完成DC63旅程/seed/POST。record修订、STRESS副本传输及两项04测试修订保持原授权独立推进，不因本小项整体暂停。
+
+**窄接线修订 `f8b08fc13e9a1231b0fb140bc75c741fec8ec6ca` 代码复核PASS，无剩余已知代码Finding，05实际结果仍待交。** 父520bc，仅将V5b helper导入移至backend-root路径设置之后并统一benchmarks package，返回类型从owning comparison直接导入；原策略、真实consumer测试、生产要求及S5默认保持，diff-check已核。已直接告实施者必要focused/静态本已授权，可与只读代码审并行；05自有record步骤结束后按原postflight释放再取测试占用，尊重他人有效占用，不增加代码GO/窗口预约。实施者确认原SIGINT绝对截止Nov8 20:04:47.876Z、hard20:34:47.876Z继续，具体V5b-only接线与实证仍依§138集中核。
+
+## 142. 05默认SSH PATH准备失败：修受控任务环境继续，不等待Owner改全局配置
+
+实施者报告V5b focused前两次预检失败（第二次改bash -lc但PATH相同），UV/pytest未启，以旧DC68计数停下并等待Owner修root PATH/恢复授权。**此处应直接修受控执行入口继续，不新增Owner/代码/manifest GO。** §136既有持续授权和已审§129/133/134入口都包含任务进程显式前置/home/dev/.cargo/bin；先设置所需环境，再验证实际工具链，不能把SSH默认profile当已准备环境或原样猜登录shell。AGENTS的实际PATH/selector要求保持，未获放宽。
+
+本审核已直接读CT201 relay `p6-baseline-evidence-review-20261108/historical-records/` 的两个139B原件ct05-v5b-focused-preflight-attempt1/2.log，SHA均 **`9f067d3446398acd2a2d777abda049b830f97c6776855fd19031296ccd47dc46`**；内容只报告ambient PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin、Rust overrides nonempty={}，没有工具链错误或缓存缺失的实际证据。source import log482B/SHA35245036…15e7ed7记录00:57:43Z、准确f8b08fc clean、legacy链接正确、bundle SHA **`f9310461549725ce46b4fb25fca287d45d5c05f3d2aa8dc561ac33bc5b0b0bad`**，本地归档重算相同。
+
+释放log420B/SHA **`17553526ecad78179578de63f26ebfc51dfe92d56a6297cdbb157848e4bccd1f`** 直接核：01:01:17.909273Z、focused未启动、准确owner match、无活动测试/record/service进程、f8b08fc clean并解锁。初取锁和前record锁按owner释放的日志也已读，不由读取者替他人清占用。设计另在01:02Z只读确认任务PATH前置后cargo/rustc解析至所需目录、uv/python3存在，无缺工具迹象；最终selector/四工具一致性仍由实际执行脚本核验，不冒称已过focused。
+
+已直接告实施者在最终执行shell中先export PATH=/home/dev/.cargo/bin:$PATH、unset RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME，保持UV/Cargo离线和外置TMPDIR，再按selector核工具身份并运行已授权必要focused/静态；不修改全局登录配置、selector、锁或依赖，不等待审核者再看预检脚本，不原样第三试。原失败/释放记录保留，真实工具链或缓存异常另据事实处理；V5b原绝对截止、record语义/producer修订及04两测试修正继续，不整体暂停。审核者未在CT201跑测试或改节点环境。
+
+## 143. V5b empty artifact修复c81代码与必要05实证独审PASS，待具体仅余步骤接续包
+
+**`c81f2fbceac24e0ffef56565a9ab10ab3956613e` 的V5b工具修复代码及必要05验证独审PASS，§138/141–142具体修复/验证阻塞关闭。** 不是V5b业务已完成或新运行已启动。f8的真实empty helper→pair消费者1 passed/1.79s及三文件Ruff通过；c81只作owning reader/session协议类型及probe provider类型修订，代码复核与最终标准mypy/受影响Ruff通过，未机械重跑已过consumer。原生产pair artifact拒绝、S5默认、计时边界、产品/依赖/Compose均未改变。
+
+已直接读CT201 relay原entry和closed日志、重算全部SHA。entry5143B/SHA **`86047f5860bd3696b5b73a55de23bc1dc21309679c958a0234ee8ba9ff77de1a`** 先设置canonical PATH、unset三Rust overrides及八proxy、UV/Cargo离线与外置TMPDIR/自有Cargo target，再核HEAD/clean/legacy/owner/节点前提。05 f8实际01:10:26–57Z，Rust selector1.97.0、四工具来自同一resolved bin，backend locked离线同步及extension build-input精确58436908通过，随后唯一consumer和Ruff通过。整份command log14448B/SHA **`d872fa66651da06e43ffb77e3422df7a59a568115de24a7471235d6417255aed`** 最终exit2，是后续直接指定benchmark文件的mypy命令产生import-untyped/双模块名；该整log不能标整体PASS，但前面实际组件结果有效。entry/失败字节保持。
+
+纠正为仓库标准mypy后，05 01:15:08–18Z实际报四个真实类型问题，log1192B/SHA **`3269e47db98c0e0414c3b59ff3a59476d307cc478fdd04e18e5695010933cab1`** 已读：两个Any return及provider lambda返回None两项，不是全部归为命令错误。c81增量只将reader/session改用owning RepositoryTableReader/RepositoryRefSession，probe factory改为NoReturn fail-fast；本审核已建立准确只读detached `/home/dev/gdds-p6-review-v5b-c81f2fbc` 并核完整diff。真实_measure_checkpoints_and_pins仅将preview_deps传给_pin_preview_refs；该函数只用control_transaction_factory/set_artifact_protection，dataclass构造也不调用factory，故有效probe路径不会触发新fail-fast，无需新增stub测试或重跑empty consumer。此前“不重复Ruff”只适用于源码未改的命令纠正；c81已改文件因此实际补Ruff，没有跳过必要静态。
+
+最终05 c81 static log608B/SHA **`ae07be28727513d997ffaf978e3054bc96aae49075856a06ca55e59495df10a8`** 直接核：01:21:01–02Z、准确c81起止clean、canonical环境，受影响V5b Ruff通过，标准backend mypy **504 files/no issues**、static_exit0，无skip/ignore改动。01:20:10Z源码导入log407B/SHA **`a5c0b4e37d73205af444a6249bbf87eddd83ad546e4fb2e2c25a7966dda7db0c`** 及937B bundle SHA **`23694bfb7ee527f34e73bec474080411d517fcb5c90e6bd334672e8f38a8a6a3`** 均已核。释放log340B/SHA **`b232d0f56502f923ca5a284e2233b1d6150101d98d462d9b83404f6111e367ee`** 记01:22:02.132437Z、c81 clean、无活动进程/项目容器、owner精确匹配并释放；聚合结果不冒称consumer在c81重跑，也不是权威runner carried。
+
+已直告实施者不等组件回执，直接准备一份具体V5b-only实际entry/来源包集中核：clean c81；本次e0dd state绑定原repository/v1 commit和保留卷，仅必要RS、禁止build/pull、无journey/seed/POST；旧245232de FAILED raw的两个已完成A段精确引用并区分必要Bound重建/缓存；原Nov8 **20:04:47.876Z SIGINT / 20:34:47.876Z hard**及剩余预算，含清理不滑动；新scratch/output/接续身份、自有节点锁及有界保卷收尾。具体运行材料尚未交，不提前宣称V5b已接续或缺口全关，不增加Owner/GO或新证明矩阵。
+
+本次改的是宿主测量helper/测试，不重建或替换CT108冻结9704镜像；最后三镜像身份仍§135已核config/全部DiffID/labels、RS源树319及其明确诊断build-input差异。正式V_ref后续若纳入这些工具修订，最终H的闭包/镜像/门禁另按原规则绑定，不能拿失败H780 runner作合格来源。records的真实模式/缓存/正确producer修订、STRESS认证副本传输与04两测试修订保持原持续授权，不因本长步骤准备整体等待。审核者未在CT201执行候选、测试或验证器。
+
+## 144. 主协调切换通知与独审交接边界
+
+设计协调者转报Owner已授权其改为主协调、按任务组织新实施代理，原唯一实施者先安全交接进程/锁/HEAD/dirty/续跑包再结束；不得杀在途。**本审核维持原独立审核职责和本报告归属，后续材料与结论统一回主协调，不再触发旧实施会话。** 当前已审场景/证据和§143修复验证全部保留，不重开历史审核，不清worktree/缓存/镜像/卷或修改冻结产品。新任务ID及具体审核包由主协调投递；该流程切换不构成新的技术GO或变更原预算。
+
+已实际向主协调交清最近独核状态：§143 c81代码/必要05验证PASS，最后05 01:22:02精确owner释放且clean；§138 CT108最后00:12:27保卷down/解锁、DC63旅程及8handler/91span覆盖成立。这些是最后已核记录，**不是切换时实时进程/锁断言**，实时交接由协调者收原实施安全状态，不由审核者重复探测或替他人解锁。剩余V5b-only具体entry/RS及旧A段复用/有界收尾、§140 records语义与producer修订/来源索引、04两测试修复及最终H门禁/收尾材料仍待交。原Nov8 20:04:47.876Z SIGINT及20:34:47.876Z hard继续，不能随会话/代理切换重置；未宣称全部测量/收口/阶段exit完成。
+
+## 145. 新gate子任务058e两测试修复代码独审PASS，必要验证与最终门禁待交
+
+主协调报告旧实施已在安全交接后于01:35:14Z归档，并统一投递新gate子任务的候选。**`058e26da3c61266c5505f7202f7d7d57ba369070` 两项修正代码复核PASS，无新增代码Finding。** 父精确H780，仅两个既有测试文件+2/-10；已独立读完整immutable diff/父链，实施worktree `gdds-p6-gate-closeout-20261108` 此轮只读status为空，另建准确detached `/home/dev/gdds-p6-review-gate-058e26da`。未在CT201运行测试或修改产品/实施worktree。
+
+固定历史resume测试现直接传§100/101真实测量工具3fd，而不读取当前整仓库HEAD；source=e798、固定9704 product/tree、候选tree及准许工具差异的原断言全部保留，真实严格guard/白名单未变。它验证历史关系，不证明当前058可重新执行那次固定resume，也不把历史产品改动误记当前漂移。RS _base_env仅在复制的unit子进程环境移除ambient GATEWAY_DOCKER_BUILD_NETWORK，_run_build_script的extra_env仍在后面显式覆盖；原默认host与override断言都在，门禁自身network-none、build脚本/harness及全局环境未改。两行增量准确落实§137最终单一路径。
+
+必要05 focused与五Python包静态由gate子任务按主协调分工准备，可与本只读审并行，不新增代码GO；默认/override需在实际外层none条件下覆盖。当前尚未收到这些实际结果，不将代码PASS表为测试/权威门禁通过。058只改测试，没有新生产行为；阶段最终门禁仍须当前H真实闭包/镜像绑定，RS canonical输入包含其tests，本次新增网络单测变化因此必须重算build-input/source-tree及候选label，不能沿用H780的标签身份或失败runner作qualified carried来源。B/W按已澄清冻结流程最终绑定；CT108冻结9704对象与其他任务不受此测试修订影响。
+
+代码结论已实际回主协调，由其统一通知子任务；后续focused/静态、构建传输/身份及权威runner/收尾原件集中独审，不联系已归档旧实施，不重跑已关业务或扩大测试矩阵。
+
+## 146. p6_v5b_resume首个实际接续包：来源/测量边界成立，controller信号与收尾异常待修
+
+**`p6_v5b_resume` 首包尚不整体PASS，当前两个controller接线Finding，c81已通过代码/05验证不重开。** 主协调投递CT201 `baseline/v5b-only-resume-20261108a/` 的八项包及SHA256SUMS，尚未起RS/业务；本审核已完整只读entry.py/measure.py/launch.sh、REVIEW和closed预检，八项摘要全部MATCH，并留只读来源副本 `p6-baseline-evidence-review-20261108/v5b-only-r1/`。entry16780B/SHA **`8c0f6561ecffef3260381a3b08a79fd413bd092faae6a4bd55c313579a37d002`**，measure10388B/SHA **`587de66ddf535f504c996602ffbc1c8fec8acc3a48c1b0dbc3aa83624723d549`**，launch733B/SHA87962f0f…f2b8bea8，manifest SHA665a8a26…b904a63。未执行候选、测试或Docker。
+
+已成立边界：固定CT108新clean c81 worktree、显式四Python包及benchmarks源路径优先，复用原d2 venv但核native build-input=58436908；旧state e0dd与FAILED raw245232de、manifest11958及两输入包绑定保持。预检01:43:41.654Z的RS旧同节点immutable ID、引用既有config、28有序DiffID/labels经本审核与§124原01cf记录逐项相等，3456诊断/4497冻结build-input差异明确而source319相同，不重新Docker-save或改tag。01:37:53Z自有锁记录、三原卷、约149GB磁盘/102GB available memory、remaining66066s均为预检当时事实；本审核未追加节点探测。
+
+实际RS-only命令up --no-deps --no-build --pull never，仅原项目repository-service，真实Compose的/data mount目标与代码断言一致，运行后检查容器immutable对象/健康/原数据卷及唯一IP；不进入普通seed/harness、backend/worker/journey或业务POST。measure只调用既有c81 B-v1/B-v2/C/D helpers，full312 RepositoryRef结果原本不被下游使用而跳过，selected27 Bound原为进程内临时状态，必要重建清楚列为preparation。旧两个A段仍留原FAILED raw并引用d2/SHA，六reference分别写实际来源，不造统一全绿raw；原SIGINT20:04:47.876Z/KILL20:24:47.876Z/hard20:34:47.876Z，19200规划量不当新增预算或ETA。这些范围/来源/局部准备接线成立，不要求重测已关DC63或新增持久续跑机制。
+
+**F1：实际后台启动没有恢复信号处置，TERM/HUP也未接有界finally。** REVIEW的实际setsid launch.sh &继承Bash异步job的SIGINT_IGN，Python保留被忽略INT；本项目§128已有真实该继承机制证据。entry没有signal.signal，sampler/measure又继承其处置，故固定SIGINT时虽killpg发送INT，可能一直到KILL才实际停止。controller接收TERM/HUP则默认直接终止，绕过Python finally而遗留独立child session/RS。须显式恢复INT、将TERM/HUP接入同一已要求收尾并保准确退出语义；不改变原UTC截止或引入新监控框架。
+
+**F2：finally自身的异常可在RS down/最终记录前短路。** entry第247行最后killpg(SIGKILL)未容忍目标在pgrep后自然退出的ProcessLookupError，可能直接跳出finally、跳过RS down；第282行填summary.end_head时又调用受HARD限制的command(git)，预算已耗尽会抛TimeoutError，postflight都无法写出。须让子进程收束/辅助捕获错误不跳过down及最终错误记录，deadline耗尽后使用已有facts和明确未知/error，不再依赖额外Git/命令才能落postflight；不干净时保锁非零，不假报释放。该修正针对本包实际控制流，不增加更大的安全/恢复状态机。
+
+已将两个具体Finding与成立范围按前缀直接回主协调，由其统一子任务窄修；可复用已有短进程夹具作必要无RS/无业务验证，不扩矩阵、不等Owner或二次GO。当前运行尚未开始、接续身份未消耗；新revision保持旧包/摘要，修正期间本审核并行核已收到record与gate材料。末态实测/锁/卷/来源仍待实际运行原件，不由预检MATCH代替。
+
+## 147. p6_record_finalize新包独审：FULL/STRESS派生成立，core比较条件仍须去除运行实例值
+
+新包位于CT201 `p6-record-finalize-20261108a-ct201/p6-record-finalize-20261108a-ct05/`；本审核直接读取新source index及真实producer日志，逐项重算SHA256SUMS的**54个文件全部MATCH**。索引34959B/SHA **`dcc36925491d883380c2c955b32c296d96fda6f3596bcba4905ad4b9ac49f4e8`**；实际producer为clean H780，builder SHA **bf950f61…eabad9**，隔离系统Python明确从该worktree运行纯stdlib builder/comparator，非旧0739代码或仅改标签。记录的实测HEAD仍分别bb348、18a、1742；六项Git路径映射明确backend/src，其余整package，三份共18个对象值均已独立用Git复算MATCH。生成与索引各自postflight均记录clean、无测试/服务、准确owner释放；没有回到CT108重测或开原SQLite。
+
+**W4-FULL和W4-STRESS新record的派生/来源字段独审成立。** FULL 7752B/SHA **`66a2728a5699f1250ec241962af8281b200cddca5f0798b8bd0beafeb02f678b`** 与§140已核结果逐字相同，现绑定真实H780生成日志609e5e7f…bd6cdc。STRESS 7647B/SHA **`0d597e63b99c68d3d640ffa6e822d51dea2987dded253428949efbc507977248`**，派生journey990278B/SHA **`0c512eb19413101d5c90fa0a2e5d3d3bba52e70d2f762ea0fb4c22cce3ebcc84`**；本审核与§124认证launch作完整final summary对象比较，精确只新增v2 Preview worker rows，且新增rows逐项等于§127补证。重新计算records列表规范JSON摘要及全部其他指纹、631/628/failed0/degraded0计数、4661.281s端点和每个worker单样本统计，均MATCH；2127个实际周期样本对应的三项峰值也与原resources相等，不使用不同时间的容器峰值之和。STRESS仍只到v2 Preview，无v2 Submit/History、不作性能目标PASS。FULL/stress的baseline和cache描述为稳定逻辑条件，未混入实例ID。
+
+**core旧问题大部分修正，但该record仍未整体PASS。** 当前182841B/SHA **`1a43d7310663acb9befa28d3b376868abed6219df6f2c41334a88c60d74667f4`**：七场景全MODIFIED_ONLY正确，W2实际before/after274、expired/missing0与TTL、H1真实起点342及after/hits未知保留；S2三项无周期样本峰值现在全null并有unavailable说明，边界CPU原值0.08900000000000001继续保留，未因浮点显示重写数据。然而state.baseline写入本次物理Dolt commit ID，H1 state.cache还嵌入本次绝对UTC。已审comparator逐字比较state，即使相同输入和逻辑基线，下一次合法运行的实例ID/UTC不同也会产生假的INCONSISTENT。应只在外部source索引保留实际commit/UTC，标准state写稳定的empty-initial→v1、v1→repeat-v1、v1→v2及History v1/v2角色与真实缓存条件；不改schema/comparator、不增加归一化兼容层或业务补测。该窄metadata Finding已在前轮回主协调，新revision尚未收到；旧字节与失败记录保持。
+
+新的split-version索引覆盖21个要求场景，明确属于既有不同版本参考索引，不冒充统一冻结版本矩阵或为旧闭合场景要求格式迁移/重测。FULL、refill等原tool HEAD不在本次简表时仍写null和准确原目录/产品tag/缺项原因，不猜相邻运行。comparator资格矩阵明确不同HEAD本身不是障碍，但现有t1 full/resumed只有t1且inputs为空，与九个新record场景/完整输入映射均不符，因此未执行、未声称跨版本record比较PASS；既有§115三个631表逐项hash正确性旁证及§114 H2计时比较分别保留。H2实际4886.678s对参考4892.584s偏差约0.12%，保留“不需补测”，也明确未达到600s目标，不将两种结论混同。V5b和最终gate仍单列待真实闭合结果。
+
+最初STRESS pretty JSON不符合逐行读取、后续外部浮点断言过严的准备失败及修正均已保留，最终实际builder运行不是由审核者在CT201执行。本节只记录独立只读/JSON/数学/Git审计，不代替尚待修订的core条件或后续总体收口。
+
+## 148. p6_gate_closeout 058必要05验证和镜像来源独审PASS，04完整runner仍在途
+
+**§145的代码修正及必要05验证、当前058门禁镜像来源已独核PASS；尚无最终完整runner结论。** 本审核读pre-gate index SHA **`806c68b9305f54c36224e16eeb1cf93b8256060ff38ad513f52d56d9c2236721`**，33个已闭合文件摘要全部MATCH，索引没有把在途runner先列为closed。05 focused/static log9233B/SHA **`0751822e97c8eefd1f49f2cb4e48feeaa8db71c61b0ac54dd12a85c602796310`** 记录01:45:17–01:46:16Z、准确058起止clean、外层真实network=none：固定历史resume用例1 passed/1.89s、RS build-script完整unit模块20 passed/1.07s，五Python包Ruff及标准mypy全部通过。canonical Rust selector/四工具、UV/Cargo offline和native tree58436908 MATCH；没有改严guard或production build网络。05 postflight448B/SHA **`8fe8871a67ae38aeba62cbbbbf70722f2e3b8c8206481763231faa8190c5898e`** 记01:46:25Z clean、无残留测试/服务/8000监听、准确owner释放exit0。
+
+B/W在CT201以058 clean来源构建后，经有起止时间的LAN传输到04，01:42:43–47Z、无proxy。源397096448B归档SHA **`bbd79c27cea8d2983f27a4506e1895d36b8ada5bb75028f914f4d3b03447e833`** 已在CT201独立全文件重算；直接读取归档config blob复算config digest **`47822160e7173b8c80b7916c29218de28814135c320828126f3f5ea754bb7a64`** 和全部15有序DiffID，与04闭合roundtrip身份逐项相等。初次无时间戳副本原样保留，最终有时间戳payload另传并校验；跨节点不比较inspect ID，也不将两份不同封装tar的总SHA强求相同。
+
+RS在04 01:40:48–52Z按预置lock-base和network=none本机离线构建。闭合归档身份config **`c9b61ca65df1efef65e779d68def21d1ac588f6275d6881fb9e2b1a25e1fcae3`**、全部28有序DiffID及完整labels与构建后inspect相同。本审核在自己的准确058只读detached worktree运行**纯Git/文件身份计算helper**，独立重算candidate/build-input均058、source-tree **`sha256:5d40303d00098d6c962377261183c554587c88967d0c68e94005ce4d05a5f5b7`**，与04实际canonical输出及labels一致；未在CT201运行测试、builder/validator或DUT。没有替换CT108的冻结9704三镜像。
+
+04实际wrapper清除包选择，按canonical离线环境在clean已提交058运行全六包权威入口，记录自身真实exit；开始前已核自有占用、legacy、整机quiet和三个tag本机身份。当前仅通过BatchMode后读取其**已有log末尾/status文件**：backend parallel3315 passed、serial76 passed，RS parallel1763 passed/1 skipped，RS serial仍在运行，final status尚不存在。上述中间结果不能作为整次qualified runner来源；后续须收到完整HEAD/exit、闭合manifest与postflight后再判门禁及绑定，旧H780整次exit1继续保持失败。审核未在运行中探测Docker、重建/tag、修改被测worktree或清理节点。
+
+本轮尝试经codex_tui向主协调发送本节结论，但本机MCP transport返回HTTP request failed（127.0.0.1:45207），read_thread同样不可用，**不声称本轮消息已送达**；结论先落本报告，待通道恢复由主协调收取。此通信故障不改变已核事实、原连续授权、在途任务或绝对截止，不联系已归档旧实施者。
+
+## 149. p6_record_finalize b包窄修复审PASS：core实例条件Finding关闭
+
+§147之后本地交付目录更新为 `p6-record-finalize-20261108b-ct201/p6-record-finalize-20261108b-ct05/`，本审核继续直接复核，没有因消息通道故障中止可完成的工作。**core最终派生record独审PASS，§147实例ID/UTC条件Finding关闭。** 新record182312B/SHA **`971ed42d46153d49d50693c45e68943f69589d5885fab8967dd4ccfec8438598`**，metadata5454B/SHA **`13a6c9799a9785eee009f0179b80e316c077e8eafc067e6877f781482d45026a`**；24个SHA256SUMS项全部MATCH，manifest SHA **`cb04f30a27f78b56eb8ee24334cb5ec4c6a7c448cb19f4ce8d4ac73ec8442151`**。
+
+独立将新旧core完整对象移除state后比较**精确相等**；实际只改七个baseline和H1 cache共8处字符串，模式、inputs、六Git对象、全部指纹/计数/计时/资源、实测HEAD和原raw绑定均不变。新state写逻辑角色、H1健康起点/原none/after及hit未知，物理commit和原UTC完整保存在external instance_provenance，包括旧精确描述；外部索引40416B/SHA **`8c29de6466b155e247b487f46709d20893117c3951dcff4eb5c0b9fb572ce23e`**，无schema/comparator/归一化修改。FULL/STRESS不重生，仍用§147通过的实际记录。
+
+05真实生成日志明确01:57:45.508–575Z、clean H780、原bf950f61 builder、隔离显式源码入口、exit0；最终postflight01:58:14.555Z/SHA **`1c445fa75dcd3d8ea24ad8d9d503525e2010816cfe35b74b43d98025cfa0d749`**，准确owner释放，无测试或服务。旧a包与全部失败/原件均保留。此PASS仅关闭当前历史派生/条件问题；§147具体comparator不适用原因、split-version资格限制和V5b/完整gate在途状态仍按原边界，不声称统一冻结版全矩阵通过。
+
+## 150. p6_v5b_resume F1/F2窄修复审PASS：具体接续接线可按原授权执行，实测尚未开始
+
+**最终controller接线独审PASS，§146 F1/F2关闭。** 同一交付目录entry19132B/SHA **`5d01789f415dd65959a77dd7f50790ef9214b5101fc584fff5e10bac5c58f70f`**；14项manifest均MATCH，SHA256SUMS SHA **`def30bf9ebccb4e88fe571d593fde3ccabd120c07f74481e34846d9295474149`**。已保存完整r2副本至 `p6-baseline-evidence-review-20261108/v5b-only-r2/`；旧entry及首manifest也保留在包内。measure/launch/c81工具/业务范围均未改变，不重新打开已通过consumer测试或DC63旅程。
+
+直接核完整增量：controller及sample模式先显式恢复INT，controller INT/TERM/HUP通过本地异常进统一finally，返回128+signal；finally的捕获式no-op防止普通重复信号打断收尾，exec的清理子命令恢复标准处置。所有group信号容忍ProcessLookupError；session检查错误被记录后继续RS日志/down路径，postflight仅用已观测HEAD或明确null/unknown，不作deadline耗尽后的额外Git调用。原HARD仍约束外部命令，未能完成清理时记录错误、保自有标记非零，不虚称干净或重置预算。此修正只落既有控制流，没有新监控/恢复框架。
+
+已读实际05短进程fixture源码与日志，未在CT201执行它。源码直接载入同一候选entry，复现Bash setsid后台继承INT忽略，三个实际controller信号场景退出130/143/129、子session清空、down调用一次及标记释放；组合错误场景验证消失group可容忍、辅助错误不跳过down尝试、预算耗尽仍落已知/未知postflight并保锁exit1，无Docker/RS/业务。validation log SHA **`406808b63416652dd3ef2868bbefa69f9d8fea548c1aa67fb4b8f5294fa0d346`** 记05 01:56:05–06Z、准确c81起止、候选/fixture摘要、fixture_exit0；01:56:17Z自有标记释放log SHA **`8eaadbcff7d91e2b5d42bbe24c40c5ffe6942bc7da0bba3d9620e5196db3e16b`**。必要验证范围与两个具体Finding相称。
+
+新CT108预检01:56:53.612Z/SHA **`c95d0c5fb571c9b8c8156c9d841ab8cb200ca65666ef9734070d394fbc36cdea`** 与首包逐项比较，仅entry摘要、UTC/剩余预算和可用资源变化，来源、state/raw/package/三卷/镜像完整层/labels、clean c81/native均相同，remaining65274.264s仍超过既有19200规划量，原20:04:47.876Z SIGINT和20:34:47.876Z hard不动。本审核BatchMode后仅读取CT108包文件摘要和输出存在状态：entry/measure/manifest/该preflight均与本地精确MATCH，controller.log和新output尚不存在；未追加Docker/资源探测。**具体接续可按原持续授权执行，无新Owner/GO；此时仍不能声称实际四段已完成或全测量已收口。**
+
+已尝试将§149/本节结论发主协调，但同一MCP transport仍HTTP失败，未送达；不绕过角色去启动独审对象或唤醒旧实施。主协调可从本报告及准确SHA收取结论，原任务和在途04 runner继续。后续V5b实际raw/六reference/采样/保卷postflight和04最终闭合材料仍分别待真实结果，不能以本节pre-execution PASS替代。
+
+## 151. 04 058最终runner实际exit1：RS串行KeyboardInterrupt，来源尚未定位
+
+§148在途状态现已有真实结束记录：**04 058本轮全六包权威runner未通过**，01:47:10–02:02:29Z，runner_exit=wrapper_exit=1，起止HEAD精确058，结束worktree status为空。完整log461289B/SHA **`7ee5b85980f080a8560b649aa8e00124c646b3dfe3b02668d2314754e40adede`**，status161B/SHA **`ff1ce093a9922225450827fc54c8d2034991d3c38bd7103aa7b264eeac33e3c5`**；本审核只读取得闭合原件，经LAN留 `p6-baseline-evidence-review-20261108/ct04-058-interruption/`，本地摘要与节点原件相同。
+
+Rust/shared_kernel/contracts/client/backend均passed；RS parallel1763 passed/1 skipped，serial运行213.49s、113 passed后出现KeyboardInterrupt，包elapsed214/status1。没有pytest assertion FAILURES；日志仅显示中断交付到 `control_db.py:1279` 的 `connection.execute("PRAGMA journal_mode = WAL").fetchone()`。**该栈位置不证明SQLite/WAL自身有错，也不能据此认定外部SIGINT、某测试主动发送信号、超时或其确切来源。** 当前最少仍需核已保存controller/信号/执行上下文，定位本次中断来源；不改数据库语义、延长时间或把它标flaky后盲重跑。此处明确保留未知，区别于已关闭的058两项单测环境修复。
+
+runner已打印Hypothesis与Cargo target清理；这不替代尚未交付的节点/Compose/owner postflight，本审核未替他人清锁或扫描节点。整次exit1不能作为任何包的qualified carried来源，中间五包passed不能把本次包装为成功runner；§148必要05验证和镜像来源的独立事实保持。后续具体诊断/修正按Owner既有持续授权推进，无新增Owner/第三次GO要求。V5b具体接线§150和core §149结论亦不因独立04中断回退。
+
+已再次尝试把中断原件/准确SHA及现有两个PASS结论回主协调，MCP仍返回相同HTTP transport失败，未送达；本节先形成可转交的准确记录。审核者没有运行测试、触发新runner、修改产品或清理证据。
+
+## 152. 主协调定向复核：V5b/core PASS保持，058受控停止与真实RS身份错位已定位
+
+主协调通过恢复后的原会话通知投递三项定向复核，并要求本报告及外部回执；原TUI MCP端口45207已无监听，不新建会话或改模型。本轮只读本地已交材料/准确058源码、计算文件摘要及JSON差异，**没有重跑测试、启动CT108、修改产品或任何实施worktree**。V5b最终14项manifest和core b包24项manifest重新逐项核对全部MATCH，分别保持§150与§149的既有独审PASS，不扩大到实际测量或总门禁。
+
+**V5b F1/F2修订未变。** entry SHA仍 **`5d01789f415dd65959a77dd7f50790ef9214b5101fc584fff5e10bac5c58f70f`**，manifest仍def30bf9…474149；已对照f1f2-controller.diff和05 validation.log，原INT/TERM/HUP、消失进程组、辅助错误/预算耗尽收尾结论保持。主协调确认CT108尚未启动，本轮不追加节点探测。具体接续接线可按原持续授权执行，原绝对截止不动；实际四新段/六reference/采样及保卷postflight尚待结果，不冒称V5b完成。
+
+**core b仅8处逻辑state变化得到再次独立确认。** 对完整新旧core对象递归求差，精确等于core-state-field-diff.json所列七baseline加H1 cache，diff SHA **`320740bbfd821afae0986a684a8c514e19a61e8f80324e47dbcc23f6dd61dd2a`**；core仍971ed42d…38598。全部数字、指纹、计数、计时/资源、模式、run/input/tree及原件绑定不变；新外部索引仍引用FULL **66a2728a…f678b**、STRESS **0d597e63…77248** 原记录，二者未重生。§149实例值Finding保持关闭，旧包/失败记录保留。
+
+**§151的中断来源现已定位，058门禁仍明确不通过。** 新closed-failure-evidence-index.json SHA **`6a15aed68bfadada343b851a71861019748af8ca3375f02d97167adf0f8d2352`**，51项已闭合文件大小/SHA全部MATCH。02:02:28.214543Z controlled-stop log SHA **`3ef0a772c279e6ea89d8f9ff5baec57efc0e41e065427488205ee7617bdc3c44`** 明确发现实际backend Compose的RS容器用了不同local镜像，随后仅向当时匹配的RS pytest PID2313834发送SIGINT，让pytest/runner正常清理，02:02:29Z真实exit1。因此先前KeyboardInterrupt是该受控停止的结果；control_db.py:1279仅为信号交付时的栈位置，不能认定SQLite/WAL缺陷或另有随机中断。
+
+**身份错位根因与真实代码/原件对齐。** 准确058的 `test_ordered_submit_bisect_compose.py::_compose_env` 从头构造只含project及fixture文件接线的字典，没有继承显式GATEWAY_REPOSITORY_SERVICE_IMAGE及受控build设置。`run_compose`把该字典直接作为subprocess.env，Compose遂使用默认gateway-repository-service:local；而宿主ensure和persist_compose_gate_provenance另从os.environ读取指定候选tag。后者只校验所选tag labels，再与已捕获container列表并列写出，未把RS实际container image与该tag对象作相等绑定，故新tag的正确预构建证据未能证明实际消费它。
+
+原运行provenance SHA **`7bd30906c52fdf40e040cdd43431ba5300463528f1e4ad88e44363ead6911bcc`** 直接同时记录：实际RS容器image为同节点immutable **`421d85c2eeb7f6e2662b2a06b2484f425b865dd5478deb6df6ca711feef74b08`**，所选058 tag却是 **`e432b3716f060b8536d90ed155f2f89abbb91857ff592414af6acd78efad2967`**。旧对象inspect SHA **`3882984f4e4b64cf23bb73db192133bb319bc3554a67bd3a55627374f0b86ea1`** 与实际ID精确相等，tag local、revision **3b3d9c97bcb6d79d6c087099fbe6353f170bf68f**、source **ee92f50f…fe4015**；与058已核source5d4030…5f5b7不同，28有序DiffID中有7项不同。这里比较同节点对象并核完整层列表，不混用跨节点inspect ID。候选tag结束仍未变，所以这不是合格镜像传输失败或运行期间候选tag被覆盖。
+
+最小修订方向是让这个既有测试的Compose环境继承门禁受控输入，再覆盖自身project/fixture文件；保持产品、共享guard、镜像身份规则与离线build条件，不以重tag旧local或删掉显式新tag掩盖错位。第三测试修订的最终候选/代码尚未在本轮定向材料中独审，不先判其PASS、不由审核者实施或重跑。后续最终容器证据必须让实际RS container image与候选对象接上，不能只展示正确tag的inspect。§148的预构建/来源正确和05两测试验证事实保持，**058整次exit1及该错位Compose结果不能作为候选门禁通过或任何包qualified carried来源**。
+
+02:02:44Z postflight SHA **`4a24d7e0a506bfdfde7255800fb2fe3c4976455d902e3a1486f9dfbf8397666d`** 明确058 clean、runner真实exit1、无运行容器/8000/Dolt/Cargo/rustc/pytest、专属Hypothesis及Cargo target清理、三个候选tag保持原本机对象、准确owner释放exit0。02:03:25Z incident后检 SHA **`f543760ca454aef7967a8b31c07bb3807495d3e2e73d2f93044ca3dfc67bc511`** 引用同组摘要并记录marker absent；这是已保存后检，不冒称本轮审核实时节点探测。原runner和所有事故证据保留，不清理镜像/卷/旧worktree。
+
+定向结论将简记 `/home/dev/.local/state/gdds-p6-watch/reviewer-reply-20261108.md`，包含本报告准确提交与来源摘要，供主协调在通知故障时直接读取；它只作协调回执，不替代上述权威证据或主报告，不尝试已失效MCP、不唤醒旧实施者，也不新增Owner/GO或测量预算。
+
+## 153. gate 46e第三fixture修订集中复审PASS，按原授权继续新H镜像/门禁
+
+**`46e2bb63f7d4321dc5d4b00ec4a3ec1a049b689d` 的第三测试接线代码及必要05验证独审PASS，§152所述具体代码修复阻塞关闭，无剩余已知代码Finding。** 父精确058，仅 `test_ordered_submit_bisect_compose.py` 增`import os`和返回字典首项`**os.environ`，共+2行；产品、共享harness/provenance、严格resume guard/白名单、锁/依赖/Compose文件均未改。实施worktree `gdds-p6-gate-env-forward-20261108` 本轮只读核HEAD=46e、status为空；另建准确只读detached `/home/dev/gdds-p6-review-gate-46e2bb63`、按约定链接legacy并核完整immutable diff/diff-check。未执行测试或候选fixture。
+
+两行修订准确修复§152机制：Compose子进程接收与宿主ensure/provenance同一门禁配置中的显式镜像、离线build及环境，而后列的project/五个fixture文件路径保持优先，不由ambient覆盖。本轮已核设计范围提交 **`39438f2c4534788a3cb9065df80c5b4c500254dc`**：仅修既有fixture传递、实际容器与provenance对应、保留058受控失败，不改产品/guard或另开历史/性能验证矩阵。没有借此修改记录掩盖旧镜像或重tag local。
+
+材料位于 `baseline/gate-env-forward-20261108a/`；candidate-focused-evidence-index.json SHA **`645107635c62c285ee2a5e40f22e2c2e6aff878d3a10a1fb8e5e61cc4293ad54`** 已精确核对，其11个已闭合文件大小/SHA全部MATCH。真实05 corrected log3450B/SHA **`b79350c690d55992bd80a1305700d27af4be23ff6983425cfbe73f3fa356c8d0`**：02:09:59–02:10:26Z、完整46e起止clean、UV/Cargo offline、network=none、TMPDIR外置、native build-input58436908 MATCH，fixture→真实harness.run_compose config --format json通过，随后五包Ruff和标准mypy34/15/26/500/201全部exit0。
+
+已直接读focused程序3987B/SHA **`b9fca2e93fea62acac5b43d6515c2e68f65c28ea4e5b1911f52fb873b819ae12`** 和受控corrected入口：程序从准确05候选源导入真实_ordered fixture，给显式候选RS tag、prebuilt/预置base/lock和candidate/build-input/source-tree及UV/Cargo offline输入，再走真实run_compose生成配置；不是fake消费者自行接受字典。实际断言RS image为p6vref46e2bb63f7-20261108a-repository-service:latest，三服务build.network均none，RS base/use-preloaded/candidate/build-input/source参数精确匹配，PATH与受控输入保留，五个fixture文件均实际落专属临时目录并覆盖ambient session。仅执行Compose config，没有up/build/retag或业务服务；这证明环境传递边界，不冒称容器实际身份已验证。
+
+首次05 log7505B/SHA **`81362928ae0ab157ffeb94955ac0592c258d6e86651e3f330094cdb2066a6874`** 明确02:08:18–45Z、clean46e；locked离线准备完成后，uv wrapper拒绝project外脚本路径，fixture尚未执行，entry exit2并保锁。corrected入口改为在同一受控backend环境用stdin消费原同摘要程序，没有放宽wrapper或改源码；旧失败字节保留。postflight610B/SHA **`62a493bba999ec3a4cca82fc37f909723dfe7e85cf84e3aaae45b4e1d88d1a18`** 记02:11:01Z、46e clean、无运行容器/8000/Dolt/Cargo/rustc/pytest，准确owner释放exit0。父058的旧1+20focused未机械重跑；本轮新边界与五包静态已有必要实证，不将组件沿用说成失败04 runner的qualified carried。
+
+**镜像身份三字段的区别独立复算成立。** 本审核仅在自己的46e detached运行纯Git/文件身份helper，输出candidate **46e**、build-input **058e26da3c61266c5505f7202f7d7d57ba369070**、source-tree **`sha256:5d40303d00098d6c962377261183c554587c88967d0c68e94005ce4d05a5f5b7`**，与已交rs-canonical-identity.json SHA **`2346a44a10d2b6ebf830c9fc57205f92287f225b244f23083c49d497a2c89ee9`** 精确一致。第三改动是backend测试，不改变RS effective input，故build-input/source不变正确；候选label仍须更新46e，不能用058 candidate label冒充当前H。当前新H镜像/门禁尚未发生，§148旧镜像来源正确不代替新H实际消费证明。
+
+**普通接线已集中通过，按原连续授权继续新clean候选的镜像准备和最终门禁，不另等Owner/代码/manifest/摘要GO。** 只按实际闭包和既有容器规则执行，不改在途/已失败058 worktree，不原样重试、不重开已关真实测量。最终须以实际RS container对象对上所选候选tag及labels，连同当前H运行/闭合manifest/真实exit和postflight判定；所有既有整次exit1继续失败，不作qualified carried来源。此代码/必要验证PASS不预报最终runner或阶段exit通过。
+
+主协调同时通知V5b已在02:05:56Z实际接续，02:06:04Z RS healthy后进入measure；此前“尚未启动”仅为当时交付准备包状态，本节据新通知更新，**不是本审核已核实际四段结果**。原绝对预算保持，CT108测量独占，本审核未探测该节点或重跑任何测试。core b §149/152 PASS已路由；三项工作继续按各自真实来源收尾。集中结论及本节准确提交同步更新原本地reply供协调读取，不调用失效MCP或唤醒旧实施。
+
+## 154. gate 1e72增量及本次原生旁路取证集中复审PASS，按原授权直接最终门禁
+
+**`1e72b9866e54acc27eaabd6c0579dc50493c76eb` 的本轮代码、必要05验证和所交旁路取证接线集中复审PASS，无新增阻塞Finding。** 父精确46e，仅 `test_ordered_compare_compose.py` 增`import os`及返回字典首项`**os.environ`共+2行，专属六键后覆盖；既有bisect修订保持，不改产品、共享harness/provenance、guard/白名单、锁或旅程。实施 `gdds-p6-gate-env-complete-20261108` 本轮只读核准确1e72 clean，另建准确只读detached `/home/dev/gdds-p6-review-gate-1e72b986`、legacy链接及immutable diff/diff-check均核。主checkout他人既有三项dirty未触碰，本审核只改自己的报告和指定回执，没有运行测试/Compose/采集器或探测CT108。
+
+本轮两份索引精确匹配交付摘要：candidate-focused-evidence-index.json **`351982317ba58c67affde2149c1f415deb0ec5b259d9e0ee9b87e55a9032fceb`** 的10项、runtime-capture-index-increment.json **`ca902f2eed13b2513db0b8ee8aba34061e5aa0e0f74155af0212388f89cfba6f`** 的3项，大小/SHA逐项全部MATCH。设计范围 **`5d1bfd594d3b9286f79a5088cb206d587b70a1e7`** / **`c3bc7e16697a300423fa722cf33c1ff75a92e0ce`** 已读，仅覆盖同根因第二fixture及已发生身份错位/单JSON覆盖所需的一次外部原生采集，未扩大产品威胁模型或建设框架；历史结果不重审。
+
+**七消费者清单完整且源码对应。** seven-fixture-environment-paths.json SHA **`42eed7153024549fcc3a773ec9a84a46b0a8370f073557f052e78ff5297ab130`** 所列七模块与准确1e72 runner的BACKEND_COMPOSE_TEST_FILES有序列表精确相等；逐模块Git blob/文件SHA均复算MATCH。其余五个原有fixture确为os.environ.copy后update，显式RS值取受控os.environ，没有硬编码覆盖候选；两个ordered现在均展开受控环境后覆盖fixture键。七者均调用既有compose_project_name，因此继承本轮固定project，消费路径仍为原run_compose→subprocess(env=env)→Compose。另五项仅静态核对，不新增旅程或证明矩阵。
+
+05真实focused/static log11513B/SHA **`a30cdb337a2f58b346e9cb23aa6a34c0e2bb30df10ef970774a12f90ccae8e3a`** 已直接读：02:22:19–02:23:15Z、准确1e72起止clean、offline及native tree58436908 MATCH，两个真实ordered fixture分别经真实run_compose config --format json通过；新RS tag、三服务network=none、preloaded base/use flag、candidate/build-input/source、PATH/UV/Cargo及专属fixture文件覆盖均为实际断言。focused程序SHA **`92838a261a0aef0b28ed9357e533dad0c4892c011e5c27140fe710bf93880365`** 也已读，无fake消费者、up/build/retag；五包Ruff及标准mypy34/15/26/500/201全部0。旧1+20未重跑合适。02:25:12Z postflight SHA **`32cb83dd787d1b9254b2da9b3b8d1cc65469b2b1ce83de5879dc418d41d4bbc9`** 记1e72 clean、无运行容器/8000/测试进程、自有marker精确释放exit0。本审核仅在自己的detached运行纯Git/文件身份helper，独立得到candidate=1e72、build-input=058、source5d4030…5f5b7，与本包canonical记录一致；新候选label须1e72，旧镜像准备不能冒充新H已验证。
+
+**一次collector/wrapper关键接线静态成立，不预报实际覆盖。** capture-rs-runtime.py4724B/SHA **`873bcd526547e1db93155ad7fc63a35eac64063af660de354644f48d48fc894a`**、ct04-full-gate.sh6957B/SHA **`66fd740753f80457196bdf016bbce0708e83a382862f778c783d9243d843eb76`** 和wiring说明SHA **`a0c8978cb79d83a57c248306a90f17681555e97b1949c408ac6809fc81230e70`** 已完整只读。wrapper先核准确1e72 clean/自有节点锁/quiet/canonical三字段及冻结tag的本机对象、全层/labels，再在唯一全六包权威runner前启动collector，runner自然返回后停止并回收它。collector仅调用原生docker events，准确过滤固定project **p6vref1e72b9866e-20261108a**、type=container、event=create及service=repository-service；每个事件保原JSON，按Actor.ID执行有10s超时的原生container inspect，逐ID以exclusive-create保存stdout/stderr，不覆盖前序container，原Created/Mounts保留对应既有fixture的来源。实际.Image与冻结RS对象比较并另记configured image；冻结期前后镜像对象核对与原完整身份来源保持，不把最后一个正确tag或单provenance JSON扩成全部旅程证明。
+
+采集器只记录事件/inspect成功/错误/身份差异/未完成事件数、stream状态和UTC；异常、超时、重复或EOF保留原件并标coverage gap，不向runner发信号、不改runner exit，不把取证失败称产品失败。实际身份不符仍由实施者按原停止规则处置。正常owner stop通过TERM让collector终止自己的events子进程，wait3s后kill/wait2s；wrapper至多15次1s轮询后必要时KILL并wait，独立记录collector exit和forced-kill，runner/wrapper真实exit保持。这个受控单次入口/有界收尾符合范围；没有要求先新增focused矩阵或另起服务来证明旁路。实际某事件inspect失败、短生存容器未被保存或collector被强杀时，只按实际原件判断缺口和必要定向补足，不自动中断/全量重跑，也不能仅凭collector exit0声称逐旅程覆盖成立。
+
+**本轮增量与关键接线已集中通过，可按原持续授权直接完成新H镜像与最终门禁，不再逐代码/文件摘要或manifest GO。** 新H镜像仍在准备、runner尚未启动是本次投递状态；本审核未把准备事实或静态接线判为镜像/门禁通过。最终集中核当前H实际身份、逐ID原始事件/inspect及其真实缺口、各包闭包、runner exit和postflight；所有旧失败保持原资格，闭合历史测量不重开。原报告及本地reply写入本节准确提交供协调读取，不联系归档实施者或失效MCP。
+
+## 155. V5b实际closed结果独审PASS；H1-refill两原件补齐tool HEAD元数据
+
+**`p6v5bonly20261108a` 本次限定V5b接续实际结果、六reference来源及保卷收尾独审PASS，剩余四新段缺口关闭。** 本轮只核已交真实closed结果/来源，不重审§150接线、旧A/已关业务或CT04新在途门禁。closeout-index.json SHA **`227132f83e8a5ca515eee4de9f577006a040eb1fb587dcc353aab5874ae28ce7`** 精确匹配；`baseline/v5b-only-resume-20261108a/closed/` 的17项索引文件大小/SHA全部MATCH，其中CLOSED-SHA256SUMS SHA **39e021f9…2e9faf** 所列15项（含六reference）逐项通过。本审核BatchMode后仅只读CT108这些已闭合小文件及两份历史JSON元数据，没有进程/Docker/数据库探测、起栈或测试；远端15原件、清单、controller、旧FAILED raw及H1-refill两文件共**20项**的bytes/SHA与本地精确MATCH。审核记录 `p6-baseline-evidence-review-20261108/v5b-closed-c81/remote-closed-files-hashes.json` SHA **`73cc9e7100196c0796feb842ff43b8386697f0f0b13255e4f7be7cedf28bdd07`** 保留此次跨节点只读核对。
+
+真实shell启动02:05:56Z，controller02:05:58.459Z；service-binding02:06:04.497Z绑定唯一RS原同节点对象 **a75aa535…cc7e39**、原repository-service-data卷，实际launch identity与已通过预检除UTC/剩余预算/可用资源外逐项一致，c81/source/input/state/raw/native身份保持。原冻结config/完整层及明确诊断build-input差异仍按既有资格，不重新Docker-save或替换冻结镜像。measurement.log SHA **`7d926c54761cec43ed9bdead48557136e1545b0e3bfbf40ee0094c59fba2c3ee`** 记录02:06:04.539–02:28:51.283Z、1366.637s、起止clean c81、exit0；02:28:49Z已写四段PASS，controller/postflight于02:28:53.968Z结束exit0，没有原绝对截止滑动。capability raw本体1363.996432s含必要准备，不冒称此总量是单个B/C/D或业务API延迟。
+
+新raw117099B/SHA **`3c46202196455c63c8759648e7a47c3d8900c6a9cd3a5beb0cc64208aaeba8ac`** 为continuation范围PASS，仅四段B-v1/B-v2/C/D；全部实际stage失败标记false、计时非负。B两个package各312表、246794/246874行、before/current无artifact表均0，真实bundle和records closure显式readback完成；records分别1/36项、436/168条，ready refs1406/930。C含312个唯一frozen-table读取、行数和246874、parent/snapshot/frozen表数312、removed0；D有preview/submit两侧serialize/readback/pin结果，原probe标记保持。新运行为B必要重建两个package Bounds及27表selected Bound已单列preparation，不重做旧A的full312 RepositoryRef读取，也不把这次准备伪装成新A参考。
+
+**六份reference已直接按各自真实raw重新计算并核来源，不拼统一全绿raw：**
+
+| reference | 秒数 | 实际来源 |
+| --- | ---: | --- |
+| A materialize-v1＋readback | 249.300666 | d2ffe旧FAILED raw中已完成A段 |
+| B preview-v1 | 22.135329 | c81本次B/C/D continuation |
+| B preview-v2 | 43.709289 | c81本次B/C/D continuation |
+| C submit-prepare capability | 68.062020 | c81本次B/C/D continuation |
+| D preview-checkpoint | 0.062899 | c81私有checkpoint/pin probe |
+| D submit-checkpoint | 0.040140 | c81私有checkpoint/pin probe |
+
+reference中的source HEAD/path/raw SHA/status与对应原件精确一致，C原浮点值68.06201999999999未重写。旧raw SHA **245232de…9c62fb** 仍FAILED，两个已完成A段仅按原资格引用；其本地已认证副本、当前远端SHA及索引投影相同。B仅加pair_pipeline、独立surface closure、assemble、显式bundle readback和完整records readback五个原外层边界，未再次加嵌套records_closure_generation或store I/O；package preparation中的materialization_artifact_write虽留旧relation标签，索引已明确是nested诊断I/O，不加成独立耗时。C七阶段、D各三阶段逐项和与reference一致，没有从粗UTC推造细阶段。
+
+采样resources SHA **`c7b4209921066040843d12e6b87564d9c2702eecc4407ee74fb634283c25ca51`** 与sampler-controller摘要一致：648个2s周期样本，只覆盖唯一RS容器cgroup及filesystem delta；RS CPU119.584s、sampled concurrent memory.current峰175792128B、sum-container memory.peak上界195993600B、peak cores2.592、磁盘delta高水位242085888B。宿主测量Python的raw thread CPU1289.81875s包含准备，不能用RS数字替代；step_resources为空，不作per-stage cgroup归因。缓存为原保留RS卷/OS cache、重启RS进程、新私有artifact store，无cold claim。D使用私有checkpoint-pinning.sqlite3及`package_ref_is_probe_payload=true`，仅证明serialization/readback/pinning能力，不是业务Submit耗时。以上限制随PASS保留，不宣性能目标或统一版本全矩阵通过。
+
+postflight SHA **`acb1c905a7e71362bb972f3c60be9778f98417cccdce4340b8c6056fa7309e51`** 与controller末记录精确一致：measurement/controller exit0、c81不变、child/log capture无错误、原三卷保留、cleanup_ok和own lock released均true。索引另保02:30:27Z实施者后检quiet/clean事实，本审核不扩写为新的实时节点扫描。旧FAILED raw、新raw、scratch、RS日志与全部保留卷仍在，未清理任何既有证据或重跑已过05验证/业务旅程。
+
+**H1-refill仅补tool HEAD元数据，通过，不重审旧业务。** 同目录h1-refill-metadata/run.json11440B/SHA **`fbb33234f3a071cf324b0e393ff9cf7de20a3c742f9b77be6ce320a84069038e`**、resources.json1749B/SHA **`006f87d44b53901de5e6073fc2fdb8d6f98e340dc174e21585c93272369a01d2`** 均与CT108原 `ct108-h1-refill-20261102b/evidence/run.json` / resources.json逐字节摘要相同。run.head及resources.start/end_head全为 **`0739d8cba0057e2edfa0ee991d46e1c7282ef31e`**，资源head_stable=true、两原件exit0；run.parent_source.head明确另为 **bb348a9299ef58004048cf81cac0caf404eaaaa1**，不可混作本次tool HEAD。由此关闭§147/参考索引中该场景tool HEAD暂缺元数据项；4279.14s仍只是原resources整run口径，不改记History API。未重算旧输入/镜像/卷或把该补元数据升级为新的旧业务审核。
+
+本轮报告提交和原reply更新后，按主协调新通知闭环，使用本机 **`codex queue --thread 01a1a628-e59a-7981-aad5-6bf31e919d38 --message <准确节/提交/结论/路径短摘要> --resume`** 向原同一root主动排队通知一次；不新建会话、改模型、调用失效MCP或等待Owner中继。实际排队/恢复结果及任何错误写原reply，本回执仅作协调索引，不代替本节权威证据。04新门禁按原授权继续，不因本轮V5b事后审核增设新GO。
+
+## 156. 当前H 1e72最终全六包及实际镜像门禁闭合独审PASS，不宣整体phase exit
+
+**`1e72b9866e54acc27eaabd6c0579dc50493c76eb` 本次04完整权威runner、当前H实际镜像/限定运行身份覆盖、闭包来源和有主收尾独审PASS，无阻塞Finding。** 六包均在该H实际运行，整次runner/wrapper exit0，可作为本次H合格实际运行来源；没有使用旧失败或46e准备作为carried。本轮只核当前closed包，不重审历史、§154代码或§155 V5b/H1，不把本结论扩大为整体phase exit、统一版本性能矩阵、主线合入/push/tag或后续任意HEAD自动沿用。
+
+final-gate-evidence-index.json SHA **`f9fc29dbc264e9c84b5bfb3408fad9c58205908d2dcfe68eed23e2b1891fd182`** 精确匹配，84项已交文件大小/SHA全部MATCH。BatchMode后只读04已闭合小原件，34项closed校验原件及9项镜像准备原记录共**43项**与CT201 LAN副本bytes/SHA逐项相等；没有运行测试/Compose/采集器、查询实时进程/Docker、修改被测worktree或清理资源。只读审核记录 `p6-baseline-evidence-review-20261108/gate-1e72-final/remote-closed-files-hashes.json` SHA **`a4ca0a80cad32b63d36155d20759d2e39cdedc37a449019dd84d108fdf32b669`** 已留。六份manifest由源runner原始JSON直接提取，本审核逐对象核与源log精确相等，不依赖实施者摘要或在另一worktree重算运行环境。
+
+**真实完整执行及clean资格成立。** CT04 gw-dms-test-04，02:36:57–02:58:47Z，原权威入口实际调用一次、选全六包；起止HEAD精确1e72、开始CLEAN，结束`git status --porcelain`实际为空，03:00:01Z postflight另明确CLEAN，没有把空字符串当缺失字段。runner log462327B/SHA **`30e42c95cceab569250401864d7c43c3e274871e5840039879face09bffdbe29`**，status224B/SHA **`04457a282b2c38287fd4d75a2e64b3766a466a24456db0ae30315d25a8ba7bd4`**：Rust fmt/clippy/test全0；shared_kernel260、contracts152、client161 passed；backend parallel3315、serial76 passed；RS parallel1763 passed/1 skipped、serial214 passed；六包终态全passed，runner_exit=wrapper_exit=0，非中间批次成功或外层取回成功冒充整次成功。
+
+**六包闭包和运行来源独立成立。** 六manifest均schema9、clean=true、head/worktree_head=1e72，与源log相等；按原canonical JSON规则重新计算六个总摘要及环境values摘要，并对28个不同Git路径对象独立批量复算全部MATCH，重复路径无冲突。package-closure-index.json SHA **`ca7318e6af1e0be2c2613001f503878376c7d6934a789cffbbeeccce6bbed764`** 的action全run、source_V全当前H、来源同一整次exit0日志，与实际manifest/包终态一致。当前H六包总摘要如下：
+
+| 包 | total_digest |
+| --- | --- |
+| rust | `ad949c31f1b88e537f29bd6d059fe4b6443a8cf42450de2d26d54721b67d9473` |
+| shared_kernel | `9e461672b48f33c3c1b3ac081e7b97a88c9b0d6d829daa045e7fd172c1663080` |
+| repository_contracts | `6d729a0484fd5f42b5d579b7e33b51b3a511e32ed7af4073f3bc40fac036fae4` |
+| repository_client | `caadfacd19a3e799a0288b32112f05c1000e6298701b02f44abc0465739d3ddf` |
+| backend | `2d06fc13382b2170466e7a4b13beeec1175a10f8737e9a1398760345cf0e9f3f` |
+| repository_service | `bf73bf2eeff505ef53f00d3f41be7f2a70c01d880f1bc2dc45e88ae9645be7e1` |
+
+backend/RS的实际environment组件含当前RS本机对象e79d11…11a94a、预置lock-base和network=none；backend prebuilt inventory明确含本次B/W两tag的7857fd…0e269b及RS tag。source context vnext tree **de59b0b3563144165bda54502abaff893c3b120c** 与当前H相等；完整tracked权限/non-Git/uv/legacy/pytest-cache及包专属Hypothesis路径等原输入仍按运行manifest记录，不拿退出后的缓存状态重建初始闭包。日志/有效指纹一致表明UV_OFFLINE=1、CARGO_NET_OFFLINE=true、canonical PATH/selector1.97四工具、Rust overrides和proxy unset、外置TMPDIR；cache来源为各节点既有uv/Cargo/images及04 exact-lock RS base，没有依赖/锁变更或转发代理。含凭据设置只保原摘要，不输出原值。
+
+**当前H三镜像准备、实际对象及结束冻结一致。** mirror-preparation-index.json SHA **`e6eee763a2de4f9394dbc864354587a41d8f62714ee5effb257db91f818de409`** 及其17项原件大小/SHA已核。CT201 clean1e72于02:27:06–02:29:30Z只构建B/W，无测试/Compose；02:31:57–02:32:01Z经LAN无proxy传输，04 02:32:09–18Z加载。源397096448B tar已在CT201独立全量复算SHA **`00f0b62278ab53404ff0ae5c459515aca2f6f7119a62388a5aa8a030b3062afe`**，直接读config blob复算config digest **`6d91e13a1b9b8f1c6cd29a4584310e1b3e606de8757449abc2447e8d99f604e2`**，全部15有序DiffID和labels与04原target身份精确相等，不比较跨节点inspect ID或强求roundtrip tar封装SHA相同。
+
+RS于04 clean1e72在02:27:09–14Z按预置exact-lock base、network=none本机离线构建；原archive身份记录config **`8aaf18872dc7a96cc1acae09f884fae699b404536521454c85fac1e0bc1fddc8`**、全部28有序DiffID及完整labels与04原inspect相等。当前canonical记录与运行前重算相同：candidate=1e72、build-input=058、source **5d40303d…5f5b7**，含准确uv-lock6dc9659f…68b11，符合§154已核有效输入关系。04开始冻结对象B/W同为 **`7857fdcbbcfbc0b6b0e2a6b9404ab93d6272d297c03c30fa9929e7dc3c0e269b`**、RS为 **`e79d11a025c07957f811a7b1493b58a17791955c72a949bf7074261fd211a94a`**；最终三个tag的本机对象、完整层及labels逐项未变，最终真实B/W/RS provenance也分别对上这些对象。旧local、旧失败及46e准备没有替代当前H消费对象。
+
+**12事件/12独立原样inspect确实覆盖本次固定project的七backend Compose fixture，未用最后JSON替代前序。** 原events19092B/SHA **`329b3cb8305f675bd4dc5c94c7e7fd0078b5f9b3d6a8cf6345a5fb29bf7d6c0f`**、observations8037B/SHA **`003085ce07161943456719e37034504af05284e553ba61bdc67d40807a87a21d`** 已直接逐条核：12个Actor.ID唯一，逐ID原始inspect.Id相等，所有实际.Image均RS冻结e79d11…、Config.Image均本次1e72 tag，完整镜像身份labels同时与event/原冻结inspect一致，Created及原Mounts也与derived记录一致，12份stderr全空，无缺失/错误/身份差异。依据原pytest Mounts目录前缀与准确1e72源码test function逐条唯一匹配，归属archive/backend-http/history/ordered-compare/ordered-bisect/review/submit分别 **1/1/1/1/4/1/3**，与源码实际RS启动路径一致；backend-http另一个仅检查image entrypoint的用例不启动RS，不能把其一次env构造误计为缺失create。bisect的empty-baseline/baseline/ordered-vocabulary三个子目录及worker-restart分别有独立ID。coverage投影 SHA **`477e4256d113d0a86ea0d65ea460cc83960d086ce6bf0d3aaed965e0fef8bc82`** 由上述原件独立核实，unmapped/ambiguous/missing均0；仅按已约定固定backend project/RS采集范围判定，不扩大为其他未采集project的事件证明。
+
+collector原status SHA **`8d030bf7af95445ec316fea7a0e8c7595de006e3605d16ecc977ecc4d18e2a51`**、日志、原wrapper闭合字段一致：02:36:57.733517Z开始、02:58:46.910459Z结束、events=success=12，inspect_errors/uninspected/mismatch均0、无stream_error/capture_error、events stderr空。**stream143发生于owner stop_requested=true的自有TERM收尾，collector_exit0、forced_kill0且wrapper已wait回收，符合已审停止控制流；不单凭143报采集故障或产品失败。** 该解释据原始状态/日志及既有entry，而非将所有非零子stream都泛化豁免；本次没有取证覆盖缺口需补测。
+
+**资源与缓存收尾闭合。** 03:00:01Z postflight1756B/SHA **`9396fd283620001af0988ff5c2fef38e82da39dad391064c02ac0b4b1a2a3d6b`** 直接记录当前H clean、runner0、无运行容器/自有project容器网络/8000/Dolt/Cargo/rustc/pytest，五个包专属Hypothesis路径和runner外置Cargo target均不存在，三个tag保持冻结及最后实际对象对应，准确owner标记检查后释放、postflight_exit0。未要求或执行清理旧失败worktree、镜像、证据或非本次资源，不把这些专属临时缓存清理扩大为全部节点缓存删除。本审核未追加实时节点扫描；原始closed记录和跨节点一致性足以支持本次收尾资格。
+
+结论仅为**本次H的完整功能权威门禁和当前镜像门禁独审PASS**；V5b/H1仍依§155原分版本资格，不把所有材料伪装为同一HEAD，亦不宣phase exit。owning报告提交/原reply更新后，经已验证本机codex queue向同一协调root主动通知一次，保实际排队结果/错误，不等Owner转发或新GO，不联系归档实施者或失效MCP。
+
+## 157. 最终交付索引元数据核对PASS，定稿字节及既有资格保持
+
+**`p6-record-finalize-20261108c-ct201/` 本次最终交付JSON、清单绑定和相对c草稿的元数据增量核对PASS，无新增阻塞Finding。** 仅为交付索引核对，不接管baseline/整体phase exit或timer，不授新运行GO。本轮只读最终包、其中保留的prepared元数据及已引用审核提交的Git blob摘要；没有SSH、重读/重审历史测量原件、重跑record validator/测试、重算业务计时、重生record或改动定稿索引字节。
+
+三项交付pin精确相等：delivery-index.json12969B/SHA **`be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`**；split-version-reference-index.json96412B/SHA **`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`**；SHA256SUMS557B/SHA **`92ef44702fad9ab78e1c88957199aaf3c9479a126bc37adc99634de81be6275a`**。清单恰列六个最终交付JSON/TXT，逐项摘要MATCH，五个JSON严格解析通过（无重复key/非JSON数值）；同目录prepared/preparation材料明确为保留来源，不与正式六项入口混淆。包内16处path/bytes/SHA描述符对应8个不同final/prepared文件的绑定均核对一致；包外历史record/证据仅对照既有描述符，未重开原件。
+
+metadata-diff-from-c.json5834B/SHA **`2ba7defd77825442444ebcd27d680978388d1a1fc0be6a1c52e96fceb7d55f71`** 的声明已独立递归复核：source supplement和总索引各15项实际差异与声明逐项精确相等；delivery另23处差异均属正式状态、完成时间、§156限定gate结论和正式path/bytes/SHA指针。`independent_pending`改名为`independent_outcomes`后，V5b完整对象与c草稿精确相等；gate内仅九处资格/status/审核引用字段变化，真实run/postflight/runtime/manifests、镜像来源及source limits等对象不变。prepared三来源描述符本身摘要也MATCH，没有通过结构改名暗改原始结果。
+
+历史sources、三record descriptors、comparator及既有correctness/coverage/H2口径、V5b/H1内容均与c草稿精确相等，delivery/summary/source supplement对应描述符一致。core **971ed42d…38598**、FULL **66a2728a…f678b**、STRESS **0d597e63…77248** 保持原已审SHA/路径/大小；九个新record场景仍为**无合法独立baseline、未产生comparator PASS**，不同HEAD允许、完整inputs及同场景/同口径要求不放宽。旧FAILED A仅引用已完成段、RS-only采样/nested/probe边界、H1 after/hit未知、历史source RS完整身份UNAVAILABLE/来源例外、分版本及record_only/性能目标未达等限定都保留；21项是索引覆盖，不改称单一冻结版本全矩阵。旧业务/来源条目不因本次元数据PASS升级为新的独立业务或镜像审核。
+
+§147/149 record、§155 V5b/H1、§156当前H gate的引用资格与已审结论一致；48处审核引用的3个唯一commit/path/SHA组合已用对应Git blob摘要核对全部MATCH：52d75bf72f…/99f390d3…15201，6ad793a523…/04ab1347…cebb，c4cce7f795…/**8602f1c86f32c193fed9e694e624e0d536d11e6b15638debaaac2c884b91768e**。gate正式引用准确指向§156 **`c4cce7f7951597373ff42e5181933199e674723e`**，限定当前1e72的全六包实际运行/实际镜像、既定固定project覆盖、闭包来源及有主清理；不扩成future HEAD carried、性能矩阵或phase exit。报告文件今后增加新节不影响这些已固定提交的blob SHA，不能拿当前工作文件摘要去误判历史pin失效。
+
+owner-handoff.txt850B/SHA **`4268f67858526653f846b2de1c525994f7dd81831fba458df43daa60f18bc01d`** 与最终summary的作用范围一致：record/index子任务complete仅表示此项交付完成，overall_phase_exit仍NOT_CONFIRMED_BY_OWNER；无关闭timer、push/tag或主线动作权限。本轮结论只外置写本报告/原reply，**不要求回改已定稿JSON加入本轮审核commit、不形成循环签名**。报告提交/reply更新后按既定codex queue向同一root主动通知一次，记录排队结果；不新增运行GO、接管整体exit或停timer。

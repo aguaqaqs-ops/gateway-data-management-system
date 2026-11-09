@@ -586,17 +586,17 @@ fn input_array(batch: &RecordBatch, index: usize) -> &ArrayRef {
     batch.column(index)
 }
 
-fn map_input_fields(
-    batch: &RecordBatch,
+fn map_input_schema(
+    schema: &Schema,
     plans: &[ColumnPlan<'_>],
 ) -> Result<Vec<usize>, CanonicalIpcError> {
-    if batch.num_columns() != plans.len() {
+    if schema.fields().len() != plans.len() {
         return Err(schema_error(
             "input batch field count does not match descriptor",
         ));
     }
     let mut input_indices = vec![usize::MAX; plans.len()];
-    for (input_index, field) in batch.schema().fields().iter().enumerate() {
+    for (input_index, field) in schema.fields().iter().enumerate() {
         let plan_index = plans
             .binary_search_by(|plan| {
                 plan.descriptor
@@ -629,6 +629,35 @@ fn map_input_fields(
         return Err(schema_error("input batch is missing a bound field"));
     }
     Ok(input_indices)
+}
+
+fn map_input_fields(
+    batch: &RecordBatch,
+    plans: &[ColumnPlan<'_>],
+) -> Result<Vec<usize>, CanonicalIpcError> {
+    map_input_schema(batch.schema().as_ref(), plans)
+}
+
+/// Derive the canonical comparison schema from the IPC mapping owner without
+/// encoding or copying a table. The returned indices select input arrays in
+/// canonical field order; only a BIT input may require a physical conversion.
+pub fn comparison_profile_v1(
+    columns: &[ColumnDescriptor],
+    input_schema: &Schema,
+    options: CanonicalIpcOptions<'_>,
+) -> Result<(SchemaRef, Vec<usize>), CanonicalIpcError> {
+    check_control(options.control)?;
+    let size = descriptor_size(columns, options.budgets)?;
+    let mut plans = canonical_plans(columns, size, options.budgets, options.control)?;
+    let indices = map_input_schema(input_schema, &plans)?;
+    for (plan, index) in plans.iter_mut().zip(&indices) {
+        let input_type = input_schema.field(*index).data_type();
+        plan.large_offsets = matches!(input_type, DataType::LargeUtf8 | DataType::LargeBinary)
+            && !matches!(plan.mapping, ValueMapping::Bit { .. });
+    }
+    let schema = arrow_schema(&plans)?;
+    check_control(options.control)?;
+    Ok((schema, indices))
 }
 
 fn signed_fits(value: i64, bits: u8) -> bool {
@@ -3245,6 +3274,69 @@ mod tests {
                 "{\"declared_type\":{\"bit_width\":null,\"bits\":null,\"kind\":\"string\",\"precision\":null,\"scale\":null},\"labels\":null,\"logical_type\":\"standard\",\"sql_type\":\"VARCHAR(16)\"}"
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    fn comparison_profile_reuses_ipc_mapping_and_rejects_unbound_schema()
+    -> Result<(), Box<dyn Error>> {
+        let (columns, batch) = mapping_fixture()?;
+        let (profile, indices) =
+            comparison_profile_v1(&columns, batch.schema().as_ref(), options())?;
+        assert_eq!(indices, vec![2, 0, 1, 3]);
+        assert_eq!(
+            profile
+                .metadata()
+                .get(SCHEMA_VERSION_KEY)
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(profile.field(3).data_type(), &DataType::FixedSizeBinary(2));
+        assert!(
+            profile
+                .fields()
+                .iter()
+                .all(|field| field.metadata().contains_key(FIELD_TYPE_KEY))
+        );
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let encoded_schema = FileReaderBuilder::new()
+            .build(Cursor::new(encoded.as_slice()))?
+            .schema();
+        assert_eq!(profile.as_ref(), encoded_schema.as_ref());
+        let decoded = decode_v1(&encoded, &columns, &pool, options())?;
+        let decoded_schema = decoded[0].schema();
+        assert_eq!(
+            decoded_schema
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            vec!["z", "b", "s", "i"],
+        );
+
+        let mut wrong_fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
+        wrong_fields[0] = Arc::new(Field::new("unexpected", DataType::Int64, true));
+        let wrong = Schema::new(wrong_fields);
+        assert_eq!(
+            comparison_profile_v1(&columns, &wrong, options())
+                .err()
+                .map(|error| error.kind()),
+            Some(CanonicalIpcErrorKind::Schema),
+        );
+        let large = Schema::new(vec![Field::new("s", DataType::LargeUtf8, true)]);
+        let text = vec![column(
+            "s",
+            0,
+            "LONGTEXT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
+        )];
+        let (large_profile, large_indices) = comparison_profile_v1(&text, &large, options())?;
+        assert_eq!(large_indices, vec![0]);
+        assert_eq!(large_profile.field(0).data_type(), &DataType::LargeUtf8);
         Ok(())
     }
 

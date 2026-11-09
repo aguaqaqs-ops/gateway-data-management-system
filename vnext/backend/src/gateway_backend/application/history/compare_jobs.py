@@ -40,10 +40,12 @@ from gateway_backend.application.history.ports import (
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
+    ComparisonTaskSession,
     HistoryPairPipelineResult as _PairPipelineResult,
     PairPipelineCancelled,
     PairPipelineError,
     run_history_pair_pipeline,
+    declare_pair_comparison_session,
 )
 from gateway_backend.application.job_definitions import (
     JobDefinition,
@@ -79,7 +81,9 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleProfile,
     BundleRefScope,
 )
-from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
+from gateway_backend.capabilities.comparison import (
+    BoundSnapshotInput, ComparisonMode, ComparisonRequest, ComparisonStorageFacts,
+)
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact, current_kernel_context
@@ -910,6 +914,16 @@ def _assemble_comparison(
             pair_specs[1][0]: (1, 2),
         }
 
+    dedup_session = declare_pair_comparison_session(tuple(
+        ComparisonRequest(
+            pair_id=pair_id,
+            before=sides[before_node.commit_id],
+            current=sides[current_node.commit_id],
+            rule_set=rule_set,
+            mode=ComparisonMode.DETAILED,
+        )
+        for pair_id, before_node, current_node in pair_specs
+    ))
     for pair_id, before_node, current_node in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -925,6 +939,7 @@ def _assemble_comparison(
             store=store,
             control=control,
             on_cancel=on_cancel, repository_id=payload.repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -1003,6 +1018,7 @@ def _run_pair_pipeline(
     control: ExecutionControl,
     on_cancel: Callable[[], None],
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -1013,6 +1029,7 @@ def _run_pair_pipeline(
             store=store,
             control=control,
             on_cancel=on_cancel, repository_id=repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
         )
     except PairPipelineCancelled:
         raise

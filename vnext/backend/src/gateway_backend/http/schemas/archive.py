@@ -182,6 +182,7 @@ class ArchiveCandidateResponse(BaseModel):
 
     submission_id: str
     expected_candidate_digest: str
+    review_version: NonNegativeIJsonInt
 
 
 class ArchiveCandidatesResponse(BaseModel):
@@ -389,6 +390,7 @@ def archive_candidates_to_response(result: ArchiveCandidatesResult) -> ArchiveCa
             ArchiveCandidateResponse(
                 submission_id=candidate.submission_id,
                 expected_candidate_digest=candidate.expected_candidate_digest,
+                review_version=candidate.review_version,
             )
             for candidate in result.candidates
         ],

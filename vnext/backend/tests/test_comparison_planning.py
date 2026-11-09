@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -16,10 +17,13 @@ from gateway_backend.capabilities.comparison import (
     ComparisonTableStatus,
     DetailedFactsResult,
     SchemaChangeSource,
-    compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.production import compare_plan_native
+from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
+from gateway_backend.capabilities.snapshot_materialization import snapshot_table_from_arrow
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
+from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
@@ -28,6 +32,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     StorageRuleView,
 )
 from tests.support.snapshot_materialization import materialize_sql
+from tests.support.comparison_s3_c_inputs import canonical_stream
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
 pytestmark = pytest.mark.unit
@@ -38,7 +43,19 @@ def _bound(sql: str) -> BoundSnapshotInput:
     assert result.snapshot is not None
     assert result.summary is not None
     assert result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    tables = []
+    for table in result.table_set.tables:
+        assert isinstance(table.reader, BoundSnapshotTableReader)
+        with closing(canonical_stream(table)) as stream:
+            backing = stream.read_all()
+        tables.append(snapshot_table_from_arrow(
+            table.descriptor, backing, table.reader.source_descriptor(),
+            ordered=table.ordered_metadata,
+        ))
+    return BoundSnapshotInput(
+        result.snapshot, result.summary,
+        replace(result.table_set, tables=tuple(tables)),
+    )
 
 
 def _request(
@@ -59,10 +76,13 @@ def _request(
 def _facts(request: ComparisonRequest) -> ComparisonFacts:
     plan = plan_comparison(request)
     assert isinstance(plan, ComparisonPlan)
-    result = compare_plan(plan)
-    assert isinstance(result, DetailedFactsResult)
-    assert result.facts is not None
-    return result.facts
+    product = compare_plan_native(plan)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        return product.result.facts
+    finally:
+        product.close()
 
 
 def _storage_view(
@@ -110,13 +130,22 @@ def test_comparison_aligns_values_by_column_name_and_uses_runtime_effective_keys
     )
     request = _request(before, current, comparison_ruleset_for(standard_rule_record("t")))
 
-    table = _facts(request).tables[0]
+    planned = plan_comparison(request)
+    assert isinstance(planned, ComparisonPlan)
+    product = compare_plan_native(planned)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        table = product.result.facts.tables[0]
+        changed_columns = tuple(record.changed_columns for record in RiskRecordView(product.handles["t"]))
+    finally:
+        product.close()
 
     assert table.schema_changes.selected_columns == ("id", "tenant", "value")
     assert table.schema_changes.effective_compare_key_before == ("tenant", "id")
     assert table.schema_changes.effective_compare_key_current == ("tenant", "id")
     assert table.status is ComparisonTableStatus.MODIFIED
-    assert table.records[0].changed_columns == ("value",)
+    assert changed_columns == (("value",),)
 
 
 @pytest.mark.parametrize(

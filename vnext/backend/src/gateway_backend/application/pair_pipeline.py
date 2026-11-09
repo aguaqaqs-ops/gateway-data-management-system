@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextlib import closing
+from dataclasses import asdict, dataclass
+import json
+import logging
+from time import perf_counter
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
@@ -27,14 +31,21 @@ from gateway_backend.capabilities.comparison import (
     ComparisonFacts,
     ComparisonMode,
     ComparisonRecordsClosure,
+    ComparisonTaskSession as ComparisonTaskSession,
     FailedResult,
-    compare_plan, comparison_python_memory_upper,
+    MAX_NATIVE_RECORD_BYTES,
+    NativeComparison,
     plan_comparison,
-    publish_records_closure, RecordsPublicationContext,
+    compare_plan_native as compare_plan_native,
+    publish_records_closure_arrow as publish_records_closure_arrow,
+    RecordsPublicationContext,
+    RecordsPublicationPolicy,
+    RecordsDetailPolicy,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
+    RiskExecutionContext,
     RiskEvaluationStatus,
     RiskOptions,
     RiskRulesetSnapshot,
@@ -57,10 +68,11 @@ from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access import Reservation, current_kernel_context
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
+_LOG = logging.getLogger(__name__)
 
 
 class PairPipelineError(Exception):
@@ -112,6 +124,24 @@ def preview_identity_assessment(
     )
 
 
+def declare_pair_comparison_session(
+    requests: tuple[ComparisonRequest, ...],
+) -> ComparisonTaskSession | None:
+    """Declare exactly the comparison tasks reachable in this operation."""
+    plans: list[ComparisonPlan] = []
+    for request in requests:
+        plan = plan_comparison(request)
+        if not isinstance(plan, ComparisonPlan):
+            raise PairPipelineError("comparison task declaration failed")
+        plans.append(plan)
+    try:
+        return ComparisonTaskSession(tuple(plans))
+    except MemoryError:
+        # The optional reuse index may be denied by the same M budget. The
+        # pair still executes normally with no retained comparison cache.
+        return None
+
+
 def run_preview_pair_pipeline(
     *,
     pair_id: str,
@@ -125,6 +155,7 @@ def run_preview_pair_pipeline(
     assess_identity: bool = True,
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -166,6 +197,7 @@ def run_preview_pair_pipeline(
         ),
         show_keyless_fallback_hint=True,
         include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
+        dedup_session=dedup_session,
     )
     records_closure = surface.published.records_closure
     if (
@@ -195,6 +227,7 @@ def run_history_pair_pipeline(
     control: ExecutionControl,
     on_cancel: Callable[[], None],
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -210,6 +243,7 @@ def run_history_pair_pipeline(
         control=control,
         on_cancel=on_cancel,
         include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
+        dedup_session=dedup_session,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -254,6 +288,7 @@ def _run_comparison_risk_surface(
     show_keyless_fallback_hint: bool = False,
     include_all_before_tables: bool = False,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -266,23 +301,79 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair planning did not produce a comparison plan")
     if context is None:
         raise PairPipelineError("pair computation requires an operation kernel context")
-    upper = comparison_python_memory_upper(plan)
-    context.memory.record_stage_admission("comparison-python-records", upper)
-    # The returned facts/risk/surface objects can survive this function (FULL has
-    # multiple pairs). Keep this conservative envelope until the operation ends.
-    context.resources.enter_context(context.memory.reserve(upper))
-    compared = compare_plan(plan)
+    comparison_started = perf_counter()
+    with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
+        comparison_elapsed = perf_counter() - comparison_started
+        return _finish_comparison_risk_surface(
+            native_comparison=native_comparison, request=request,
+            view_id=view_id, store=store, control=control,
+            on_cancel=on_cancel, identity_annotation=identity_annotation,
+            show_keyless_fallback_hint=show_keyless_fallback_hint,
+            include_all_before_tables=include_all_before_tables,
+            repository_id=repository_id, export_cache=export_cache,
+            comparison_elapsed=comparison_elapsed,
+        )
+
+
+def _finish_comparison_risk_surface(
+    *,
+    native_comparison: NativeComparison,
+    request: ComparisonRequest,
+    view_id: str,
+    store: ArtifactStorePort,
+    control: ExecutionControl,
+    on_cancel: Callable[[], None],
+    identity_annotation: SurfaceIdentityAnnotation | None,
+    show_keyless_fallback_hint: bool,
+    include_all_before_tables: bool,
+    repository_id: str | None,
+    export_cache: SnapshotTableExportCachePort | None,
+    comparison_elapsed: float,
+) -> _ComparisonRiskSurfaceResult:
+    context = current_kernel_context()
+    if context is None:
+        raise PairPipelineError("operation kernel context was lost")
+    checkpoint = context.checkpoint
+    compared = native_comparison.result
     checkpoint()
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
     published: DetailedFactsResult | DatasetReplacementResult
+    record_publication_started = perf_counter()
+    record_timings: dict[str, float] = {}
     if isinstance(compared, DatasetReplacementResult):
         if compared.facts is None:
             raise PairPipelineError("replacement comparison did not produce facts")
         published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
-        closure_result = publish_records_closure(compared, store, context=RecordsPublicationContext(checkpoint=checkpoint))
+        if native_comparison.session is not None:
+            limits = RecordsPublicationPolicy()
+            closure_upper = (
+                4 * limits.max_closure_json_bytes
+                + len(compared.facts.tables) * 4096 + 1024 * 1024
+            )
+            # C retains at most MAX_NATIVE_RECORD_BYTES of Arrow records per
+            # family. The writer reserves its largest family scratch after
+            # prior family puts, so shed optional Risk retention before any
+            # publication side effect when the conservative peak is tight.
+            family_upper = (
+                2 * limits.max_records_artifact_bytes
+                + 2 * MAX_NATIVE_RECORD_BYTES + 1024 * 1024
+            )
+            if context.memory.available_bytes < closure_upper + family_upper:
+                native_comparison.session.risk_evict_for_output()
+                checkpoint()
+        detail_policy_value = dict(request.options).get(
+            "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES.value,
+        )
+        if not isinstance(detail_policy_value, str):
+            raise ValueError("row_diff_detail_policy is invalid")
+        closure_result = publish_records_closure_arrow(
+            compared, native_comparison.handles, store,
+            detail_policy=RecordsDetailPolicy(detail_policy_value),
+            context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),
+        )
         checkpoint()
         if isinstance(closure_result, FailedResult):
             raise PairPipelineError(f"records closure failed: {closure_result.diagnostics}")
@@ -295,21 +386,51 @@ def _run_comparison_risk_surface(
         comparison_facts = closure_facts
     else:
         raise PairPipelineError("pair comparison did not produce facts")
+    record_publication_seconds = perf_counter() - record_publication_started
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
+    risk_conversion: dict[str, float] = {}
+    risk_started = perf_counter()
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(),
+            record_views=native_comparison.risk_handles,
+            record_view_metrics=risk_conversion,
+            risk_cache_session=native_comparison.session,
+            risk_task_keys=native_comparison.task_keys,
         ),
         artifact_store=store,
+        execution_context=RiskExecutionContext(
+            cancel_requested=context.cancel_probe,
+            deadline_monotonic=context.deadline_monotonic,
+            operation=context,
+        ),
     )
+    risk_seconds = perf_counter() - risk_started
     checkpoint()
     if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
-    surface = assemble_surface(
+    # Surface holds only small facts/refs; its JSON construction and retained
+    # result still consume the same operation M after native records seal.
+    surface_started = perf_counter()
+    def reserve_surface(size: int) -> Reservation:
+        try:
+            return context.memory.reserve(size)
+        except MemoryError:
+            if native_comparison.session is None:
+                raise
+            native_comparison.session.risk_evict_for_output()
+            context.checkpoint()
+            return context.memory.reserve(size)
+
+    context.resources.enter_context(reserve_surface(
+        16 * 1024**2 + len(comparison_facts.tables) * 65536,
+    ))
+    with reserve_surface(8 * 16 * 1024**2):
+        surface = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=comparison_facts,
             surface_id=f"surface-{request.pair_id}",
@@ -337,10 +458,56 @@ def _run_comparison_risk_surface(
             identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
         ),
         context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
-    )
+        )
     checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
+    surface_seconds = perf_counter() - surface_started
+    native_comparison.commit_cache()
+    comparison_metrics = native_comparison.metrics
+    measured = {} if comparison_metrics is None else asdict(comparison_metrics)
+    native_seconds = (
+        measured.get("native_input_read_seconds", 0.0)
+        + measured.get("native_index_compare_seconds", 0.0)
+        + measured.get("native_records_build_seconds", 0.0)
+        + measured.get("ordered_current_summary_seconds", 0.0)
+    )
+    parquet_seconds = record_timings.get("parquet_write_seconds", 0.0)
+    conversion_seconds = risk_conversion.get("necessary_arrow_conversion_seconds", 0.0)
+    extraction_seconds = risk_conversion.get("fact_extraction_seconds", 0.0)
+    validation_seconds = risk_conversion.get("ruleset_validation_seconds", 0.0)
+    rules_seconds = risk_conversion.get("rules_evaluation_seconds", 0.0)
+    publication_seconds = risk_conversion.get("publication_seconds", 0.0)
+    _LOG.info("s3_pair_metrics %s", json.dumps({
+        "pair_id": request.pair_id,
+        "mode": request.mode.value,
+        "comparison_total_seconds": comparison_elapsed,
+        "comparison": measured,
+        "comparison_python_other_seconds": max(
+            0.0, measured.get("compare_read_build_seconds", 0.0) - native_seconds,
+        ),
+        "upstream_projection_seconds": None,
+        "records_publication_seconds": record_publication_seconds,
+        "parquet_write_seconds": parquet_seconds,
+        "records_publication_other_seconds": max(0.0, record_publication_seconds - parquet_seconds),
+        "risk_total_seconds": risk_seconds,
+        "risk_necessary_arrow_conversion_seconds": conversion_seconds,
+        "risk_fact_extraction_seconds": extraction_seconds,
+        "risk_ruleset_validation_seconds": validation_seconds,
+        "risk_rules_evaluation_seconds": rules_seconds,
+        "risk_publication_seconds": publication_seconds,
+        "risk_digest_jcs_seconds": risk_conversion.get("digest_jcs_seconds", 0.0),
+        "risk_report_jcs_seconds": risk_conversion.get("report_jcs_seconds", 0.0),
+        "risk_artifact_publication_seconds": risk_conversion.get("artifact_publication_seconds", 0.0),
+        "risk_other_seconds": max(
+            0.0, risk_seconds - validation_seconds - extraction_seconds
+            - rules_seconds - publication_seconds,
+        ),
+        "surface_and_table_export_seconds": surface_seconds,
+        "bundle_assembly_seconds": None,
+        "charged_high_water_bytes": context.memory.high_water_bytes,
+        "charged_live_bytes": context.memory.used_bytes,
+    }, sort_keys=True))
     risk_digest = (
         risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     )

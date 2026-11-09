@@ -27,9 +27,9 @@ from gateway_backend.capabilities.comparison import (
     ComparisonTableStatus,
     ComparisonPlan,
     DatasetReplacementResult,
-    compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
     RiskEvaluationStatus,
@@ -83,7 +83,7 @@ def _replacement(
     )
     plan = plan_comparison(request)
     assert isinstance(plan, ComparisonPlan)
-    result = compare_plan(plan)
+    result = compare_dataset_replacement(plan)
     assert isinstance(result, DatasetReplacementResult)
     assert result.facts is not None
     return result.facts

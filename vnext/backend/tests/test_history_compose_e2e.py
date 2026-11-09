@@ -50,7 +50,7 @@ from tests.support.repository_ref_materialization import (
     int_id_column,
     make_catalog,
 )
-from tests.support.history_compare_oracle import oracle_comparison_digest
+from tests.support.history_compare_reference import local_comparison_digest
 from tests.support.composite_signal import load_text as load_composite_fixture_text
 from tests.support.upload_http_packages import composite_signal_upload_files
 
@@ -216,7 +216,10 @@ def _approve_submission(
 def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: str) -> dict[str, Any]:
     for candidate in candidates_body["candidates"]:
         if candidate["submission_id"] == submission_id:
-            return cast(dict[str, Any], candidate)
+            return {
+                "submission_id": candidate["submission_id"],
+                "expected_candidate_digest": candidate["expected_candidate_digest"],
+            }
     raise AssertionError(f"candidate not found for submission {submission_id}")
 
 
@@ -311,7 +314,7 @@ def _standard_provider_from_repository(
     )
 
 
-def _assert_remote_matches_oracle(
+def _assert_remote_matches_local_binding(
     env: dict[str, str],
     *,
     operation_id: str,
@@ -325,14 +328,16 @@ def _assert_remote_matches_oracle(
     assert "table_policies" not in job_state
     before_provider = _standard_provider_from_repository(env, repository_id, before_commit)
     current_provider = _standard_provider_from_repository(env, repository_id, current_commit)
-    oracle_digest = oracle_comparison_digest(
+    local_digest = local_comparison_digest(
         before_provider=before_provider,
         current_provider=current_provider,
         before_commit=before_commit,
         current_commit=current_commit,
         artifact_store=artifact_store,
     )
-    assert remote_digest == oracle_digest
+    # This checks the remote checkpoint's input binding. C/D fixed old-source
+    # vectors own comparison semantics independently of this live invocation.
+    assert remote_digest == local_digest
 
 
 def test_compose_history_compare_journey_zero_write_restart(
@@ -575,7 +580,7 @@ def test_compose_history_compare_journey_zero_write_restart(
             assert pair_ab["before_commit"] == main_after_a
             assert pair_ab["current_commit"] == main_after_both
             assert int(pair_ab["record_count"]) > 0
-            _assert_remote_matches_oracle(
+            _assert_remote_matches_local_binding(
                 env,
                 operation_id=str(compare_two["operation_id"]),
                 remote_digest=str(pair_ab["comparison_digest"]),

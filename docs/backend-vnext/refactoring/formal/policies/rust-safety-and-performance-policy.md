@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`6`（2026-11-06：E 的实际 CLI 消费者复用薄 bootstrap 初始化入口，替换 D 的直接初始化 owner；前版 `5` 补 Table Access/parser 与 worker 初始化边，`4` 纳入 B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
+Policy version：`9`（2026-11-08：P6 S4 B 按固定设计登记 Mutation Planning 两个实际 storage native 入口；`8` 补 §4.1 独立调用边界；`7` 登记 Comparison records；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -85,20 +85,43 @@ PyO3 adapter：
 - 不把Python row/list/dict object graph作为正式bulk path；
 - 不自动引入`combine_chunks()`或逐scalar FFI。
 
-S2b B–E 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
+S2b B–E 与 Phase 6 S3 C 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
 
 | Python owner（`gateway_backend.capabilities.` 下） | 可直接从 `gateway_compute._native` 导入的粗入口 |
 | --- | --- |
 | `table_access.native` | `_parse_sql_native` |
 | `snapshot_materialization.native` | `_sql_materialize_native`、`_catalog_filter_native` |
-| `storage_projection.native` | `_canonical_project_native` |
-| `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
+| `storage_projection.native` | `_canonical_project_native`、`_render_storage_schema_native` |
+| `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native`、`_canonical_comparison_profile_native` |
+| `comparison.native` | `_begin_comparison_operation_native`、`_compare_records_native`、`_summarize_unchanged_ordered_native`、`_facts_core_digest_native`、`_validate_records_batches_native` |
+| `mutation_planning.native` | `_begin_storage_operation_native`、`_prepare_storage_table_native`、`_render_change_set_native` |
+
+Comparison 的批量数据只以 owned Arrow C Stream 进入或导出；小型 policy/metadata JSON 不承载整表 rows。`comparison.native` 的 operation 入口复用现有进程池与同一 operation M，显式持有输入 backing charge、native portion、取消与截止；table/core JCS 完成后 `seal()` 收缩 native portion，已导出的 Arrow buffer 与其最后 consumer 保留输出和输入 charge。Python `comparison.artifacts` 的 Parquet 读取经该 facade 调用 `_validate_records_batches_native`，只保 raw ref/Parquet I/O 和小 manifest/closure 责任，不直接导入 `_native`。本增补不授予风险、bundle、workflow 或其他模块直接 FFI 边。
+
+`_canonical_comparison_profile_native` 只由 canonical store owner 对已经写入并验证的 fresh canonical Arrow backing 生成小型 schema 与列索引；它复用 IPC 的字段声明、metadata 和物理映射，不读写整表。比较入口借用原 Arrow buffers，必要 BIT 列转换在同一 operation M 中预约并保留到最后 consumer。已有 canonical profile 的持久 artifact 原样交比较器校验，错误或部分 metadata 不重绑。
 
 这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。
 
 E 已确认 `real_dump_journey`/仍有实际消费者的 census CLI 也需要显式初始化进程池，因此由 `gateway_backend.bootstrap.compute_kernel` 单独拥有从 `gateway_compute._native` 导入 `_init_kernel_native` 的精确边，替换 D 的 `bootstrap.operation_worker` 直接导入边。公开薄函数 `initialize_compute_kernel(threads)` 仅集中原 native 初始化和 PyArrow CPU/IO N 设置，worker 与实际 CLI 启动入口复用；不在 import、首次 parse 或每表调用时自动初始化。固定 N、冲突和未初始化拒绝语义保持，不同时放开旧 owner 或工具私有 FFI 导入。M、control 和 operation scope 继续由现调用方显式提供；此 helper 不加载整个 worker settings、不提供 M fallback、不新建通用配置/上下文框架，也不授予 capability 访问 runtime initializer。
 
 Table Access 的 parser bridge 保持原诊断/descriptor 语义并以 Arrow 传递 bulk，不重建整表 Python rows。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
+
+### 4.1 独立调用边界
+
+解析与比较核心遵守 [架构总纲 §7.4](../architecture/architecture-and-refactoring-plan.md#74-计算能力独立复用)。
+Rust core、Python 公共适配与 backend 业务适配分工保持单向：公共适配负责类型转换及计算资源生命周期，
+backend 适配负责 SnapshotTable、产物存储与业务流程绑定；core 不反向依赖这些具体对象。
+
+面向独立消费者的入口必须声明版本化的输入/策略、结果与错误语义，以及输入借用、结果关闭、预算、取消和截止行为。
+这些是调用契约，不要求把 Arrow buffer 或 native handle 序列化为 JSON。调用方通过公开会话或参数显式建立执行环境；
+内部 ContextVar、共享线程池与 owner/charge 实现可以复用，但调用方不得依赖 backend 私有初始化顺序或私有 native 名称。
+独立入口同样必须提供有效的资源边界，不能直接暴露宽松的 core 默认预算来绕过生产准入。
+
+Arrow C Stream 和 owner 的进程内借用语义不自动构成跨进程传输契约；独立打包、跨进程执行与并发调度分别按实际需求设计。
+固定进程池 N 与 operation M 的职责保持分开，新增调用方不得隐式重设全局池或新增无界 fan-out。
+
+按首个实际消费者完成独立调用验收，范围和唯一测试 owner 依架构总纲 §7.4；当前无需为潜在调用方复制接口或建立新框架。
+本补充不改变 §4 的精确 FFI 导入边，也不授权当前 P6 阶段新增 SDK、AI 服务或并发模式。
 
 ## 5. Dependency and toolchain
 

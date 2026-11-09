@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+    KernelExecutionContext, OperationMemoryBudget, current_kernel_context,
+    kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_access import NeverCancel
+from gateway_backend.capabilities.table_rules.registry import DEFAULT_SKIPPED_TABLE_NAMES
 
 import argparse
 import contextlib
@@ -21,6 +23,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +42,7 @@ import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 from gateway_repository_contracts import (
     GetVersionedCatalogResponse,
+    ResolveVersionedRefResponse,
     encode_commit_id_path_segment,
 )
 
@@ -116,6 +120,48 @@ try:
         print(json.dumps({name: row[name] for name in (
             "status", "created_at", "started_at", "completed_at"
         )}, sort_keys=True))
+    finally:
+        snapshot.close()
+finally:
+    Path(f"{snapshot_path}-shm").unlink(missing_ok=True)
+    Path(f"{snapshot_path}-wal").unlink(missing_ok=True)
+    snapshot_path.unlink(missing_ok=True)
+"""
+REPOSITORY_MUTATION_IDS_SCRIPT = r"""
+import json
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+database_path = sys.argv[1]
+temporary = tempfile.NamedTemporaryFile(prefix="submit-mutation-", suffix=".sqlite3", delete=False)
+snapshot_path = Path(temporary.name)
+temporary.close()
+try:
+    source = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    try:
+        snapshot = sqlite3.connect(snapshot_path)
+        try:
+            source.backup(snapshot)
+        finally:
+            snapshot.close()
+    finally:
+        source.close()
+    snapshot = sqlite3.connect(f"file:{snapshot_path}?mode=ro", uri=True)
+    try:
+        queries = {
+            "imports": "SELECT operation_id FROM repository_import_operations ORDER BY operation_id",
+            "synchronous_requests": "SELECT id, mutation_kind FROM mutation_idempotency ORDER BY id",
+            "synchronous_effects": "SELECT effect_id FROM synchronous_mutation_effects ORDER BY effect_id",
+        }
+        result = {}
+        for name, query in queries.items():
+            rows = snapshot.execute(query).fetchmany(1025)
+            if len(rows) > 1024:
+                raise RuntimeError("fresh measurement mutation ledger exceeds its bounded snapshot")
+            result[name] = [":".join(str(value) for value in row) for row in rows]
+        print(json.dumps(result, sort_keys=True))
     finally:
         snapshot.close()
 finally:
@@ -947,6 +993,7 @@ class WorkerHeartbeatMonitor:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
         except OSError as exc:
             raise JourneyFailure("could not start worker heartbeat log stream") from exc
@@ -967,22 +1014,40 @@ class WorkerHeartbeatMonitor:
     def _read_heartbeat_log(self) -> None:
         if self._process is None or self._process.stdout is None:
             return
-        for line in self._process.stdout:
-            self.tracker.observe_log_line(line)
+        stream = self._process.stdout
+        try:
+            for line in stream:
+                self.tracker.observe_log_line(line)
+        finally:
+            stream.close()
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
         process = self._process
-        if process is not None and process.poll() is None:
-            process.terminate()
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                process.kill()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process.wait(timeout=5.0)
         if self._reader_thread is not None:
             self._reader_thread.join(timeout=5.0)
-        if process is not None and process.stdout is not None:
-            process.stdout.close()
+            if self._reader_thread.is_alive() and process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self._reader_thread.join(timeout=5.0)
+            if self._reader_thread.is_alive():
+                _emit_progress("real-data journey", "worker_heartbeat_log_cleanup_incomplete")
+                if _exc_type is None:
+                    raise JourneyFailure("worker heartbeat log reader did not stop")
 
     def check_operation(self, operation_id: str, status: object, *, stage: str) -> None:
         if self._process is not None and self._process.poll() is not None:
@@ -1035,11 +1100,13 @@ def _real_dump_root() -> Path:
     return root
 
 
-def _read_metadata(root: Path) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+def _read_metadata(
+    root: Path, *, census_path: Path | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     try:
         datasets_document = json.loads((root / "datasets.json").read_text(encoding="utf-8"))
         census_document = json.loads(
-            (_repo_root() / "docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-s1-census.json")
+            (census_path or _repo_root() / "docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-s1-census.json")
             .read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError) as exc:
@@ -1266,6 +1333,141 @@ def _emit_progress(stage: str, event: str, **details: Any) -> None:
         ),
         flush=True,
     )
+
+
+_S3_LARGE_WORKER_ENVELOPE_BYTES = 48 * 1024**3
+_S3_LARGE_OPERATION_BUDGET_BYTES = 40 * 1024**3
+_S3_READY_MEM_AVAILABLE_BYTES = 56 * 1024**3
+
+
+def _s3_large_resource_guard_required(*, s3_census: Path | None, scope: str) -> bool:
+    context = current_kernel_context()
+    return (
+        (scope == "full" or (s3_census is not None and scope in {"t4-identity", "t4-v1-submit"}))
+        and context is not None
+        and context.memory.limit_bytes == _S3_LARGE_OPERATION_BUDGET_BYTES
+    )
+
+
+def _s3_ready_resource_snapshot(env: Mapping[str, str]) -> dict[str, Any]:
+    try:
+        meminfo = Path("/proc/meminfo").read_text(encoding="ascii")
+    except OSError as exc:
+        raise JourneyFailure("could not read host available memory") from exc
+    available = re.findall(r"^MemAvailable:\s+(\d+) kB$", meminfo, re.MULTILINE)
+    if len(available) != 1:
+        raise JourneyFailure("host available memory is unavailable")
+    services: dict[str, dict[str, Any]] = {}
+    cgroup_root = Path("/sys/fs/cgroup").resolve()
+    for service in ("backend", "worker", "repository-service"):
+        try:
+            listed = run_compose(dict(env), "ps", "-q", service)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise JourneyFailure("S3 resource guard could not list service containers") from exc
+        ids = listed.stdout.strip().splitlines()
+        if listed.returncode != 0 or len(ids) != 1:
+            raise JourneyFailure("S3 resource guard could not resolve one service container")
+        try:
+            inspected = subprocess.run(
+                ["docker", "inspect", ids[0]], check=False, capture_output=True,
+                text=True, timeout=30.0,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise JourneyFailure("S3 resource guard could not inspect a service container") from exc
+        if inspected.returncode != 0:
+            raise JourneyFailure("S3 resource guard could not inspect a service container")
+        try:
+            payload = json.loads(inspected.stdout)
+            container = payload[0]
+            labels = container["Config"]["Labels"]
+            if (
+                len(payload) != 1
+                or labels["com.docker.compose.project"] != env["COMPOSE_PROJECT_NAME"]
+                or labels["com.docker.compose.service"] != service
+                or container["State"]["Running"] is not True
+            ):
+                raise ValueError("service container identity mismatch")
+            pid = container["State"]["Pid"]
+            restart_count = container["RestartCount"]
+            if type(pid) is not int or pid <= 0 or type(restart_count) is not int:
+                raise ValueError("service process identity is invalid")
+            cgroup_lines = (
+                (Path("/proc") / str(pid) / "cgroup").read_text(encoding="ascii").splitlines()
+            )
+            unified = [line.partition("::")[2] for line in cgroup_lines if line.startswith("0::")]
+            if len(unified) != 1 or not unified[0]:
+                raise ValueError("service cgroup identity is invalid")
+            directory = (cgroup_root / unified[0].lstrip("/")).resolve()
+            if not directory.is_relative_to(cgroup_root):
+                raise ValueError("service cgroup escaped host root")
+            memory_max = (directory / "memory.max").read_text(encoding="ascii").strip()
+            events: dict[str, int] = {}
+            for line in (directory / "memory.events").read_text(encoding="ascii").splitlines():
+                key, value = line.split()
+                if key in events or not value.isdecimal():
+                    raise ValueError("service memory.events is invalid")
+                events[key] = int(value)
+            if not {"oom", "oom_kill", "oom_group_kill"} <= events.keys():
+                raise ValueError("service memory.events lacks OOM counters")
+            resource_env = (
+                {
+                    key: value
+                    for entry in container["Config"]["Env"]
+                    for key, _, value in (entry.partition("="),)
+                    if key in {
+                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES",
+                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES",
+                    }
+                }
+                if service == "worker" else {}
+            )
+            services[service] = {
+                "container_id": ids[0], "restart_count": restart_count,
+                "memory_max": memory_max, "memory_events": events,
+                "host_config_memory_bytes": container["HostConfig"]["Memory"],
+                "resource_env": resource_env,
+            }
+        except (IndexError, KeyError, TypeError, ValueError, OSError) as exc:
+            raise JourneyFailure("S3 resource guard could not validate a service cgroup") from exc
+    return {"mem_available_bytes": int(available[0]) * 1024, "services": services}
+
+
+def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
+    snapshot = _s3_ready_resource_snapshot(env)
+    services = cast(dict[str, dict[str, Any]], snapshot["services"])
+    worker = services["worker"]
+    expected_env = {
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(
+            _S3_LARGE_OPERATION_BUDGET_BYTES
+        ),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(
+            _S3_LARGE_WORKER_ENVELOPE_BYTES
+        ),
+        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+    }
+    admitted = (
+        snapshot["mem_available_bytes"] >= _S3_READY_MEM_AVAILABLE_BYTES
+        and worker["memory_max"] == str(_S3_LARGE_WORKER_ENVELOPE_BYTES)
+        and worker["host_config_memory_bytes"] == _S3_LARGE_WORKER_ENVELOPE_BYTES
+        and worker["resource_env"] == expected_env
+        and all(
+            item["restart_count"] == 0
+            and all(
+                item["memory_events"][name] == 0
+                for name in ("oom", "oom_kill", "oom_group_kill")
+            )
+            for item in services.values()
+        )
+    )
+    _emit_progress(
+        "S3 worker resource guard", "s3_resource_start_guard",
+        status="PASS" if admitted else "FAILED", **snapshot,
+    )
+    if not admitted:
+        raise JourneyFailure("S3 worker resource guard failed before first business observation")
 
 
 def _parse_cpu_stat(payload: str) -> dict[str, int]:
@@ -1767,12 +1969,13 @@ def _assert_s1b_preview_summary(
     summary: Mapping[str, int],
     *,
     dataset_id: str,
-    expected_changed: int,
+    expected_changed: int | None,
+    baseline: Mapping[str, int] | None = None,
 ) -> None:
-    baseline = S2B_DATASET_BASELINE[dataset_id]
+    baseline = baseline or S2B_DATASET_BASELINE[dataset_id]
     if (
         summary.get("table_count") != baseline["preview_table_count"] + 1
-        or summary.get("changed_table_count") != expected_changed
+        or (expected_changed is not None and summary.get("changed_table_count") != expected_changed)
         or summary.get("degraded_table_count") != 0
         or summary.get("failed_table_count") != 0
     ):
@@ -1784,8 +1987,9 @@ def _assert_s3_catalog_summary(
     *,
     dataset_id: str,
     composite_row_count: int,
+    baseline: Mapping[str, int] | None = None,
 ) -> None:
-    baseline = S2B_DATASET_BASELINE[dataset_id]
+    baseline = baseline or S2B_DATASET_BASELINE[dataset_id]
     if repository.get("catalog_table_count") != baseline["catalog_table_count"] + 1:
         raise JourneyFailure(f"{dataset_id}: Repository Catalog table count differs from the S2b plus composite expectation")
     if repository.get("composite_signal_point_row_count") != composite_row_count:
@@ -1800,10 +2004,76 @@ def _assert_s1b_history_count(
     tier: str,
     actual_record_count: int,
     composite_record_count: int,
+    s3_diagnostic: bool = False,
 ) -> None:
+    if s3_diagnostic:
+        return
     expected = S1B_HISTORY_RECORD_COUNTS[tier] + composite_record_count
     if actual_record_count != expected:
         raise JourneyFailure(f"{tier}: History record count differs from the S1b baseline plus composite records")
+
+
+def _s3_census_baseline(item: Mapping[str, Any]) -> dict[str, int]:
+    """Derive stored, non-composite totals from the accepted synthetic census."""
+    if any(
+        item.get(name) != "COMPLETE"
+        for name in ("staging_status", "materialization_status", "composite_stage_status")
+    ) or any(
+        item.get(name) != "complete"
+        for name in ("logics_xml_status", "duplicate_key_scan_status")
+    ):
+        raise JourneyFailure("synthetic census is not complete")
+    raw_rows = item.get("canonical_rows_by_table")
+    raw_roles = item.get("role_table_counts")
+    table_count = item.get("table_count")
+    row_count = item.get("row_count_total")
+    source_ddl_count = item.get("source_ddl_table_count")
+    if (
+        not isinstance(raw_rows, dict)
+        or not isinstance(raw_roles, dict)
+        or type(table_count) is not int
+        or type(row_count) is not int
+        or type(source_ddl_count) is not int
+        or type(raw_roles.get("SKIP")) is not int
+        or table_count < 1
+        or row_count < 0
+        or source_ddl_count != table_count - 1
+        or len(raw_rows) != table_count
+        or any(type(name) is not str or type(count) is not int or count < 0
+               for name, count in raw_rows.items())
+    ):
+        raise JourneyFailure("synthetic census table and row counts are invalid")
+    rows = cast(dict[str, int], raw_rows)
+    if sum(rows.values()) != row_count:
+        raise JourneyFailure("synthetic census row counts do not reconcile")
+    if "composite_signal_point" not in rows:
+        raise JourneyFailure("synthetic census omits the composite table")
+    skipped_names = set(rows).intersection(DEFAULT_SKIPPED_TABLE_NAMES)
+    if len(skipped_names) != raw_roles["SKIP"]:
+        raise JourneyFailure("synthetic census SKIP role count does not reconcile")
+    visible_tables = table_count - len(skipped_names)
+    visible_rows = row_count - sum(rows[name] for name in skipped_names)
+    return {
+        "preview_table_count": visible_tables - 1,
+        "catalog_table_count": visible_tables - 1,
+        "catalog_row_count_total": visible_rows - rows["composite_signal_point"],
+    }
+
+
+def _expected_repository_catalog_rows(item: Mapping[str, Any]) -> dict[str, int] | None:
+    """Use the frozen source census as the full committed catalog expectation."""
+    raw = item.get("canonical_rows_by_table")
+    if raw is None:
+        # The original t1–t4 census predates per-table counts. Its independent
+        # B-source schema/count expectation is checked by the S4 node driver.
+        return None
+    if not isinstance(raw, dict) or any(
+        type(name) is not str or type(count) is not int or count < 0
+        for name, count in raw.items()
+    ):
+        raise JourneyFailure("frozen source census has invalid per-table row counts")
+    return {name: count for name, count in raw.items()
+            if name not in DEFAULT_SKIPPED_TABLE_NAMES}
 
 
 def _submit(
@@ -1821,9 +2091,15 @@ def _submit(
     identity_confirmations: Sequence[Mapping[str, str]] = (),
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     collect_timing: bool = False,
+    verify_repository: tuple[str, str, str] | None = None,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     preview_result = cast(Mapping[str, Any], preview["result"])
+    main_before: str | None = None
+    if verify_repository is not None:
+        main_before = _repository_main_commit(verify_repository[0], verify_repository[1])
+        if main_before != verify_repository[2]:
+            raise JourneyFailure("Submit measurement parent differs from technical main")
     request_started = time.monotonic()
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
@@ -1844,6 +2120,11 @@ def _submit(
         if payload.get("code") != "NO_CANONICAL_CHANGE":
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
         no_change_result: dict[str, Any] = {"result": "NO_CANONICAL_CHANGE"}
+        if verify_repository is not None:
+            main_after = _repository_main_commit(verify_repository[0], verify_repository[1])
+            if main_after != main_before:
+                raise JourneyFailure("no-change Submit changed technical main")
+            no_change_result["repository_main_unchanged"] = True
         if collect_timing:
             elapsed = round(time.monotonic() - request_started, 3)
             no_change_result["operation_timing"] = {
@@ -1908,6 +2189,22 @@ def _submit(
     )
     if type(submission.get("repository_commit_id")) is not str:
         raise JourneyFailure("submission did not expose its Repository commit id")
+    if verify_repository is not None:
+        main_after = _repository_main_commit(verify_repository[0], verify_repository[1])
+        if main_after != submission["repository_commit_id"] or main_after == main_before:
+            raise JourneyFailure("Submit did not advance technical main to its reported commit")
+        timing["technical_main_before"] = main_before
+        timing["technical_main_after"] = main_after
+        timing["main_forward_verified_seconds"] = round(
+            time.monotonic() - accepted_monotonic, 3,
+        )
+        timing["main_forward_observation"] = "Repository HTTP main read after finalized submission"
+        timing["request_to_main_verified_seconds"] = round(
+            time.monotonic() - request_started, 3,
+        )
+        timing["request_to_main_observation"] = (
+            "client POST start to Repository HTTP main verification; conservative upper bound"
+        )
     _emit_progress(stage, "submit_finalized")
     if collect_timing:
         timing.setdefault(
@@ -1916,8 +2213,54 @@ def _submit(
         )
         timing.setdefault("visibility_observation", "post_terminal_submission_read")
         timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
+        timing["request_to_completion_seconds"] = round(time.monotonic() - request_started, 3)
         submission["operation_timing"] = timing
     return submission
+
+
+def _repository_main_commit(base_url: str, repository_id: str) -> str:
+    with httpx.Client(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
+        timeout=30.0,
+    ) as client:
+        response = client.get(f"/v1/repositories/{repository_id}/versioned/refs/main")
+    if response.status_code != 200:
+        raise JourneyFailure(f"Repository main read returned HTTP {response.status_code}")
+    try:
+        resolved = ResolveVersionedRefResponse.model_validate_json(response.content)
+    except ValueError as exc:
+        raise JourneyFailure("Repository main response is invalid") from exc
+    return resolved.commit_id
+
+
+def _repository_mutation_ids(env: Mapping[str, str]) -> dict[str, list[str]]:
+    result = run_compose(
+        dict(env), "exec", "-T", "repository-service", "python", "-c",
+        REPOSITORY_MUTATION_IDS_SCRIPT, REPOSITORY_SERVICE_CONTROL_DB_PATH,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        raise JourneyFailure(f"Repository mutation snapshot failed with exit {result.returncode}")
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError as exc:
+        raise JourneyFailure("Repository mutation snapshot returned invalid JSON") from exc
+    if (type(payload) is not dict
+            or set(payload) != {"imports", "synchronous_requests", "synchronous_effects"}
+            or any(type(values) is not list
+                   or any(type(value) is not str for value in values)
+                   for values in payload.values())):
+        raise JourneyFailure("Repository mutation snapshot shape is invalid")
+    return cast(dict[str, list[str]], payload)
+
+
+def _assert_no_repository_mutations(
+    before: dict[str, list[str]], after: dict[str, list[str]],
+) -> dict[str, Any]:
+    if before != after:
+        raise JourneyFailure("repeated upload/Preview/Submit created Repository mutations")
+    return {"before": before, "after": after, "new_operation_count": 0}
 
 
 def _canonical_state_digest_from_submission(
@@ -1958,7 +2301,7 @@ def _archive(
     raw_candidates = candidates.get("candidates")
     if not isinstance(raw_candidates, list):
         raise JourneyFailure("archive candidates response is invalid")
-    selected = next(
+    candidate = next(
         (
             cast(dict[str, Any], item)
             for item in raw_candidates
@@ -1966,8 +2309,20 @@ def _archive(
         ),
         None,
     )
-    if selected is None:
+    if candidate is None:
         raise JourneyFailure("submission was not an archive candidate")
+    candidate_id = candidate.get("submission_id")
+    candidate_digest = candidate.get("expected_candidate_digest")
+    if (type(candidate_id) is not str or type(candidate_digest) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", candidate_digest) is None):
+        raise JourneyFailure("archive candidate reference is invalid")
+    try:
+        candidate_id_bytes = candidate_id.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise JourneyFailure("archive candidate reference is invalid") from exc
+    if not 1 <= len(candidate_id_bytes) <= 255:
+        raise JourneyFailure("archive candidate reference is invalid")
+    selected = {"submission_id": candidate_id, "expected_candidate_digest": candidate_digest}
     preview = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -2134,6 +2489,7 @@ def _pseudo_counts_from_http(
     commit_id: str,
     expected_tables: Mapping[str, int],
     expected_row_counts: Mapping[str, int],
+    expected_catalog_rows: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     if set(expected_tables) != set(expected_row_counts):
         raise JourneyFailure("ordered census pseudo and row counts do not cover the same tables")
@@ -2164,6 +2520,11 @@ def _pseudo_counts_from_http(
             raise JourneyFailure("Repository catalog JSON response is invalid") from exc
         if catalog.catalog.commit_id != commit_id:
             raise JourneyFailure("Repository catalog commit ID differs from requested commit")
+        if expected_catalog_rows is not None:
+            actual_catalog_rows = {table.name: table.row_count for table in catalog.catalog.tables}
+            if (len(actual_catalog_rows) != len(catalog.catalog.tables)
+                    or actual_catalog_rows != expected_catalog_rows):
+                raise JourneyFailure("Repository catalog table names or per-table rows differ from frozen census")
         composite_tables = [
             table
             for table in catalog.catalog.tables
@@ -2556,12 +2917,21 @@ def _history_compare(
 
 def _keyless_fallback_candidates(census: Mapping[str, Any]) -> tuple[str, ...]:
     scan = census.get("effective_key_scan")
-    if not isinstance(scan, dict):
-        raise JourneyFailure("census has no effective-key scan")
-    unresolved = scan.get("unresolved_tables")
+    if isinstance(scan, dict):
+        unresolved = scan.get("unresolved_tables")
+    elif census.get("effective_key_scan_status") == "complete":
+        unresolved = census.get("effective_key_unresolved_tables")
+    else:
+        raise JourneyFailure("census has no complete effective-key scan")
     if not isinstance(unresolved, list) or any(type(item) is not str for item in unresolved):
         raise JourneyFailure("census effective-key unresolved table list is invalid")
     return tuple(sorted(set(cast(list[str], unresolved))))
+
+
+def _keyless_fallback_source(census: Mapping[str, Any]) -> str:
+    if isinstance(census.get("effective_key_scan"), dict):
+        return "S1 census effective_key_scan.unresolved_tables"
+    return "S3 census effective_key_unresolved_tables"
 
 
 def _offline_composite_comparison(
@@ -2620,8 +2990,17 @@ def _run_tier(
     debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
     collect_timing: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
+    s3_diagnostic: bool = False,
+    submit_measurements: Path | None = None,
+    skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
     operation_timings: dict[str, dict[str, Any]] = {}
+    v1_baseline = _s3_census_baseline(census[v1_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v1_id]
+    v2_baseline = _s3_census_baseline(census[v2_id]) if s3_diagnostic else S2B_DATASET_BASELINE[v2_id]
+    v1_pseudo = (int(census[v1_id]["ordered_projection"]["pseudo_rows_total"])
+                 if s3_diagnostic else EXPECTED_PSEUDO_TOTALS[v1_id])
+    v2_pseudo = (int(census[v2_id]["ordered_projection"]["pseudo_rows_total"])
+                 if s3_diagnostic else EXPECTED_PSEUDO_TOTALS[v2_id])
 
     def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
         timing = value.get("operation_timing")
@@ -2640,7 +3019,7 @@ def _run_tier(
     def capture_submit_reconciliation(submission: Mapping[str, Any], *, version: str) -> None:
         capture_t4_evidence = tier == "t4" and dc32_metrics is not None
         capture_t1_debug = tier == "t1" and debug_t1_submit_probe
-        if not capture_t4_evidence and not capture_t1_debug:
+        if not capture_t4_evidence and not capture_t1_debug and submit_measurements is None:
             return
         operation_timing = submission.get("operation_timing")
         operation_id = (
@@ -2650,7 +3029,9 @@ def _run_tier(
         )
         if type(operation_id) is not str:
             raise JourneyFailure(f"{tier} {version} Submit evidence identity is unavailable")
-        if capture_t4_evidence:
+        if submit_measurements is not None:
+            evidence_root = submit_measurements / f"{tier}-{version}-submit"
+        elif capture_t4_evidence:
             if dc32_session_root is None or dc32_metrics is None:
                 raise JourneyFailure("t4 Submit evidence output root is unavailable")
             evidence_root = dc32_session_root / f"t4-{version}-submit"
@@ -2664,9 +3045,16 @@ def _run_tier(
             repository_id=repository_id,
             operation_id=operation_id,
             root=evidence_root,
-            enforce_three_session_limit=capture_t4_evidence,
+            enforce_three_session_limit=(capture_t4_evidence or (
+                tier == "t4" and submit_measurements is not None
+            )),
         )
-        if capture_t4_evidence:
+        if submit_measurements is not None:
+            operation_timings[f"{version}_submit"]["reconciliation"] = facts
+            _emit_progress(
+                f"{tier} {version} Submit", "submit_measurement_verified", **facts,
+            )
+        elif capture_t4_evidence:
             cast(list[dict[str, Any]], dc32_metrics).append(
                 {
                     "kind": "submit_reconciliation",
@@ -2703,9 +3091,9 @@ def _run_tier(
     v2_ordered_row_counts = _ordered_table_row_counts(census[v2_id])
     v1_keyless_names = _keyless_fallback_candidates(census[v1_id])
     v2_keyless_names = _keyless_fallback_candidates(census[v2_id])
-    if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v1_id]:
+    if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != v1_pseudo:
         raise JourneyFailure(f"{v1_id}: census pseudo total differs from the accepted baseline")
-    if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v2_id]:
+    if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != v2_pseudo:
         raise JourneyFailure(f"{v2_id}: census pseudo total differs from the accepted baseline")
     if tier == "t1":
         depth = census[v1_id].get("logics_xml_max_depth")
@@ -2784,7 +3172,8 @@ def _run_tier(
             _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v1_id,
-                expected_changed=S2B_DATASET_BASELINE[v1_id]["preview_table_count"] + 1,
+                expected_changed=v1_baseline["preview_table_count"] + 1,
+                baseline=v1_baseline,
             )
             _emit_progress(
                 f"{tier} v1 Preview",
@@ -2827,6 +3216,8 @@ def _run_tier(
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
+                verify_repository=(repository_url, repository_id, initial_commit_id)
+                    if submit_measurements is not None else None,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
@@ -2869,13 +3260,15 @@ def _run_tier(
                 commit_id=v1_commit_id,
                 expected_tables=v1_ordered,
                 expected_row_counts=v1_ordered_row_counts,
+                expected_catalog_rows=_expected_repository_catalog_rows(census[v1_id]),
             )
             _assert_s3_catalog_summary(
                 repository,
                 dataset_id=v1_id,
                 composite_row_count=composite_v1_row_count,
+                baseline=v1_baseline,
             )
-            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
+            if repository["pseudo_rows_total"] != v1_pseudo:
                 raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
             return repository
 
@@ -2927,6 +3320,7 @@ def _run_tier(
                     workspace=cast(Mapping[str, Any], v2_workspace_partial),
                     package=v2_bytes,
                     idempotency_key=f"{project_name}-{tier}-v2-upload",
+                    initial_package=v1_bytes if v2_input_completeness == "FULL" else None,
                 ),
             )
 
@@ -2943,17 +3337,22 @@ def _run_tier(
                     heartbeat_monitor=heartbeat_monitor,
                     collect_timing=collect_timing,
                 )
-                summary = _assert_preview_summaries(manifest, unchanged=False)
-                expected_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+                summary = _assert_preview_summaries(
+                    manifest, unchanged=False, input_completeness=v2_input_completeness,
+                )
+                expected_changed = (None if s3_diagnostic else
+                                    S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed))
                 _assert_s1b_preview_summary(
                     summary,
                     dataset_id=v2_id,
                     expected_changed=expected_changed,
+                    baseline=v2_baseline,
                 )
                 identity = _assert_identity_pair(
                     preview,
                     expected_status="SAME_PROJECT",
                     expected_mode="DETAILED",
+                    input_completeness=v2_input_completeness,
                 )
                 _emit_progress(
                     f"{tier} v2 Preview",
@@ -2973,6 +3372,7 @@ def _run_tier(
             return {
                 "tier": tier,
                 "scope": scope,
+                "v2_input_completeness": v2_input_completeness,
                 "datasets": [
                     {
                         "dataset_id": v1_id,
@@ -3012,89 +3412,122 @@ def _run_tier(
                 "empty_initial_commit_id": initial_commit_id,
             }
 
-        repeat_workspace = runner.run(
-            "repeat-v1-workspace",
-            lambda: _workspace(client),
-        )
-        repeat_upload = runner.run(
-            "repeat-v1-upload",
-            lambda: _upload_revision(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                package=v1_bytes,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
-            ),
-        )
+        repeat_result: dict[str, Any] = {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"}
+        if not skip_repeat_v1:
+            repeat_mutations_before = (
+                _repository_mutation_ids(env) if submit_measurements is not None else None
+            )
+            repeat_workspace = runner.run(
+                "repeat-v1-workspace",
+                lambda: _workspace(client),
+            )
+            repeat_upload = runner.run(
+                "repeat-v1-upload",
+                lambda: _upload_revision(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    package=v1_bytes,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
+                ),
+            )
 
-        def repeat_v1_preview_action() -> dict[str, Any]:
-            preview, manifest = _preview(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                upload=cast(Mapping[str, Any], repeat_upload),
-                baseline_node_id=baseline_node_id,
-                baseline_head_version=baseline_head_version,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
-                stage=f"{tier} repeat v1 Preview",
-                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
-                heartbeat_monitor=heartbeat_monitor,
-                collect_timing=collect_timing,
+            def repeat_v1_preview_action() -> dict[str, Any]:
+                preview, manifest = _preview(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    upload=cast(Mapping[str, Any], repeat_upload),
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
+                    stage=f"{tier} repeat v1 Preview",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
+                    heartbeat_monitor=heartbeat_monitor,
+                    collect_timing=collect_timing,
+                )
+                summary = _assert_preview_summaries(
+                    manifest,
+                    unchanged=True,
+                )
+                _assert_s1b_preview_summary(
+                    summary,
+                    dataset_id=v1_id,
+                    expected_changed=0,
+                    baseline=v1_baseline,
+                )
+                _emit_progress(
+                    f"{tier} repeat v1 Preview",
+                    "preview_summary_verified",
+                    summary=summary,
+                    source_census_table_count=int(census[v1_id]["table_count"]),
+                    composite_row_count=composite_v1_row_count,
+                )
+                if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
+                    raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
+                return {
+                    "preview": preview,
+                    "manifest": manifest,
+                    "summary": summary,
+                    "keyless_fallback_candidates": list(v1_keyless_names),
+                }
+
+            repeat_preview_state = cast(
+                dict[str, Any],
+                runner.run("repeat-v1-preview", repeat_v1_preview_action),
             )
-            summary = _assert_preview_summaries(
-                manifest,
-                unchanged=True,
+            repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
+            record_operation_timing("repeat_v1_preview", repeat_preview)
+            repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
+            repeat_identity = _assert_identity_pair(
+                repeat_preview,
+                expected_status="SAME_PROJECT",
+                expected_mode="DETAILED",
             )
-            _assert_s1b_preview_summary(
-                summary,
-                dataset_id=v1_id,
-                expected_changed=0,
+
+            repeat_submit = runner.run(
+                "repeat-v1-submit",
+                lambda: _submit(
+                    client,
+                    workspace=cast(Mapping[str, Any], repeat_workspace),
+                    upload=cast(Mapping[str, Any], repeat_upload),
+                    preview=repeat_preview,
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
+                    stage=f"{tier} repeat v1 Submit",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
+                    expect_no_change=True,
+                    heartbeat_monitor=heartbeat_monitor,
+                    collect_timing=collect_timing,
+                    verify_repository=(repository_url, repository_id, v1_commit_id)
+                        if submit_measurements is not None else None,
+                ),
             )
-            _emit_progress(
-                f"{tier} repeat v1 Preview",
-                "preview_summary_verified",
-                summary=summary,
-                source_census_table_count=int(census[v1_id]["table_count"]),
-                composite_row_count=composite_v1_row_count,
-            )
-            if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
-                raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
-            return {
-                "preview": preview,
-                "manifest": manifest,
-                "summary": summary,
-                "keyless_fallback_candidates": list(v1_keyless_names),
+            record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
+            repeat_mutation_evidence: dict[str, Any] = {}
+            if repeat_mutations_before is not None:
+                repeat_mutations_after = _repository_mutation_ids(env)
+                unchanged = repeat_mutations_before == repeat_mutations_after
+                _emit_progress(
+                    f"{tier} repeat v1 Submit", "repeat_repository_mutations_checked",
+                    before=repeat_mutations_before, after=repeat_mutations_after,
+                    unchanged=unchanged,
+                )
+                repeat_mutation_evidence["repository_mutations"] = _assert_no_repository_mutations(
+                    repeat_mutations_before, repeat_mutations_after,
+                )
+
+            repeat_result = {
+                "preview": repeat_summary,
+                "identity": repeat_identity,
+                "submit": repeat_submit,
+                "bundle_transfer": repeat_preview.get("bundle_transfer"),
+                **repeat_mutation_evidence,
+                "keyless_fallback_candidates_unchanged": {
+                    "count": len(v1_keyless_names),
+                    "names": list(v1_keyless_names),
+                    "evidence": "all-table preview summary has changed_table_count=0",
+                },
             }
-
-        repeat_preview_state = cast(
-            dict[str, Any],
-            runner.run("repeat-v1-preview", repeat_v1_preview_action),
-        )
-        repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
-        record_operation_timing("repeat_v1_preview", repeat_preview)
-        repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
-        repeat_identity = _assert_identity_pair(
-            repeat_preview,
-            expected_status="SAME_PROJECT",
-            expected_mode="DETAILED",
-        )
-
-        repeat_submit = runner.run(
-            "repeat-v1-submit",
-            lambda: _submit(
-                client,
-                workspace=cast(Mapping[str, Any], repeat_workspace),
-                upload=cast(Mapping[str, Any], repeat_upload),
-                preview=repeat_preview,
-                baseline_node_id=baseline_node_id,
-                baseline_head_version=baseline_head_version,
-                idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
-                stage=f"{tier} repeat v1 Submit",
-                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
-                expect_no_change=True,
-                heartbeat_monitor=heartbeat_monitor,
-                collect_timing=collect_timing,
-            ),
-        )
-        record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
 
         v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
         v2_upload = runner.run(
@@ -3126,11 +3559,13 @@ def _run_tier(
                 unchanged=False,
                 input_completeness=v2_input_completeness,
             )
-            expected_v2_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+            expected_v2_changed = (None if s3_diagnostic else
+                                   S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed))
             _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v2_id,
                 expected_changed=expected_v2_changed,
+                baseline=v2_baseline,
             )
             _emit_progress(
                 f"{tier} v2 Preview",
@@ -3175,6 +3610,8 @@ def _run_tier(
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
                 heartbeat_monitor=heartbeat_monitor,
                 collect_timing=collect_timing,
+                verify_repository=(repository_url, repository_id, v1_commit_id)
+                    if submit_measurements is not None else None,
             ),
         )
         v2_submission = cast(dict[str, Any], v2_submission)
@@ -3193,13 +3630,15 @@ def _run_tier(
                 commit_id=v2_commit_id,
                 expected_tables=v2_ordered,
                 expected_row_counts=v2_ordered_row_counts,
+                expected_catalog_rows=_expected_repository_catalog_rows(census[v2_id]),
             )
             _assert_s3_catalog_summary(
                 repository,
                 dataset_id=v2_id,
                 composite_row_count=composite_v2_row_count,
+                baseline=v2_baseline,
             )
-            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
+            if repository["pseudo_rows_total"] != v2_pseudo:
                 raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
             return repository
 
@@ -3264,8 +3703,8 @@ def _run_tier(
         tier=tier,
         actual_record_count=api_record_count,
         composite_record_count=composite_record_count,
+        s3_diagnostic=s3_diagnostic,
     )
-    repeat_keyless_names = v1_keyless_names
     return {
         "tier": tier,
         "datasets": [
@@ -3287,7 +3726,7 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
                     "names": list(v1_keyless_names),
-                    "source": "S1 census effective_key_scan.unresolved_tables",
+                    "source": _keyless_fallback_source(census[v1_id]),
                 },
             },
             {
@@ -3308,24 +3747,14 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
                     "names": list(v2_keyless_names),
-                    "source": "S1 census effective_key_scan.unresolved_tables",
+                    "source": _keyless_fallback_source(census[v2_id]),
                 },
             },
         ],
-        "repeat_v1": {
-            "preview": repeat_summary,
-            "identity": repeat_identity,
-            "submit": repeat_submit,
-            "bundle_transfer": repeat_preview.get("bundle_transfer"),
-            "keyless_fallback_candidates_unchanged": {
-                "count": len(repeat_keyless_names),
-                "names": list(repeat_keyless_names),
-                "evidence": "all-table preview summary has changed_table_count=0",
-            },
-        },
+        "repeat_v1": repeat_result,
         "history": {
             "record_count": api_record_count,
-            "s1b_record_count": S1B_HISTORY_RECORD_COUNTS[tier],
+            "s1b_record_count": None if s3_diagnostic else S1B_HISTORY_RECORD_COUNTS[tier],
             "composite_record_count": composite_record_count,
             "composite_signal_point": composite_counts,
             "bundle_digest": history_result.get("bundle_digest"),
@@ -3691,9 +4120,23 @@ def run_journey(
     dc32_output: Path | None = None,
     debug_t1_submit_probe: bool = False,
     v2_input_completeness: str = "MODIFIED_ONLY",
+    s3_census: Path | None = None,
+    submit_measurements: Path | None = None,
+    skip_repeat_v1: bool = False,
 ) -> dict[str, Any]:
     root = _real_dump_root()
-    datasets, census = _read_metadata(root)
+    datasets, census = _read_metadata(root, census_path=s3_census)
+    if s3_census is not None and (
+        tier_filter != "t4" or cross_project
+        or scope not in {"full", "t4-identity", "t4-v1-submit"}
+    ):
+        raise JourneyFailure("S3 synthetic census requires a same-project --tier t4 journey")
+    if s3_census is not None:
+        for dataset_id in EXPECTED_PAIRINGS["rd-t4-d"]:
+            _s3_census_baseline(census[dataset_id])
+            _ordered_tables(census[dataset_id])
+            _ordered_table_row_counts(census[dataset_id])
+            _keyless_fallback_candidates(census[dataset_id])
     current_head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_repo_root(),
@@ -3728,8 +4171,11 @@ def run_journey(
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
     if v2_input_completeness not in {"MODIFIED_ONLY", "FULL"}:
         raise JourneyFailure("v2 input completeness is invalid")
-    if v2_input_completeness == "FULL" and (cross_project or dc32_output is not None or from_step is not None or scope != "full"):
-        raise JourneyFailure("FULL v2 input requires a fresh full functional journey")
+    if v2_input_completeness == "FULL" and (
+        cross_project or dc32_output is not None or from_step is not None
+        or (scope != "full" and not (s3_census is not None and scope == "t4-identity"))
+    ):
+        raise JourneyFailure("FULL v2 input requires a fresh full journey or S3 T4 Preview diagnostic")
     if debug_t1_submit_probe and (
         tier_filter != "t1"
         or scope != "full"
@@ -3739,6 +4185,22 @@ def run_journey(
         or dc32_output is not None
     ):
         raise JourneyFailure("--debug-submit-probe-t1 requires a fresh full --tier t1 journey")
+    if submit_measurements is not None:
+        if (scope not in {"full", "t4-v1-submit"} or cross_project or from_step is not None
+                or dc32_output is not None or debug_t1_submit_probe):
+            raise JourneyFailure("Submit measurements require a fresh same-project journey")
+        submit_measurements = submit_measurements.resolve()
+        if submit_measurements.is_relative_to(_repo_root().resolve()):
+            raise JourneyFailure("Submit measurement output must be outside the worktree")
+    if skip_repeat_v1 and not (
+        s3_census is not None and tier_filter == "t4" and scope == "full"
+        and v2_input_completeness == "MODIFIED_ONLY"
+        and submit_measurements is not None and from_step is None and not cross_project
+        and dc32_output is None and not debug_t1_submit_probe
+    ):
+        raise JourneyFailure("S4 cold modified-only measurement requires a fresh synthetic full journey")
+    if submit_measurements is not None:
+        submit_measurements.mkdir(mode=0o700, parents=True, exist_ok=False)
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
@@ -3878,6 +4340,10 @@ def run_journey(
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
+                        if from_step is None and _s3_large_resource_guard_required(
+                            s3_census=s3_census, scope=scope,
+                        ):
+                            _check_s3_ready_resource_guard(env)
                         with WorkerHeartbeatMonitor(
                             env=env,
                             repository_id=repository_id,
@@ -3920,6 +4386,7 @@ def run_journey(
                                         heartbeat_monitor=heartbeat_monitor,
                                         scope=scope,
                                         v2_input_completeness=v2_input_completeness,
+                                        s3_diagnostic=s3_census is not None,
                                         dc32_metrics=dc32_metrics,
                                         dc32_scratch_root=dc32_scratch_root,
                                         dc32_session_root=dc32_session_root,
@@ -3930,7 +4397,10 @@ def run_journey(
                                             dc32_output_path is not None
                                             or debug_t1_submit_probe
                                             or tier == "t4"
+                                            or submit_measurements is not None
                                         ),
+                                        submit_measurements=submit_measurements,
+                                        skip_repeat_v1=skip_repeat_v1,
                                     )
                                 )
                     except BaseException as error:
@@ -4024,13 +4494,20 @@ def run_journey(
     return journey_result
 
 
-def validate_inputs() -> dict[str, Any]:
+def validate_inputs(
+    *, s3_census: Path | None = None, tier_filter: str | None = None,
+) -> dict[str, Any]:
     root = _real_dump_root()
-    datasets, census = _read_metadata(root)
+    datasets, census = _read_metadata(root, census_path=s3_census)
     validated = []
     for dataset_id in sorted(datasets):
+        if tier_filter is not None and datasets[dataset_id].get("tier") != tier_filter:
+            continue
         _package, file_info = _dataset_package(root, datasets[dataset_id])
         ordered = _ordered_tables(census[dataset_id])
+        if s3_census is not None:
+            _s3_census_baseline(census[dataset_id])
+            _ordered_table_row_counts(census[dataset_id])
         validated.append(
             {
                 "dataset_id": dataset_id,
@@ -4063,6 +4540,9 @@ def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
                 dc32_output=arguments.dc32_output,
                 debug_t1_submit_probe=arguments.debug_submit_probe_t1,
                 v2_input_completeness=arguments.v2_input_completeness,
+                s3_census=arguments.s3_census,
+                submit_measurements=arguments.submit_measurements,
+                skip_repeat_v1=arguments.s4_skip_repeat_v1,
             )
 
 
@@ -4074,6 +4554,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument(
+        "--s3-census", type=Path,
+        help="accepted frozen W3/W4 census for T4 Preview or Submit measurement; "
+             "t4-identity stops after v2 Preview, full also verifies History",
+    )
     parser.add_argument(
         "--v2-input-completeness", choices=("MODIFIED_ONLY", "FULL"), default="MODIFIED_ONLY",
         help="functional v2 upload mode; FULL uses archived v1 as INITIAL and v2 as MODIFIED",
@@ -4103,11 +4588,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--kernel-threads", type=int)
     parser.add_argument("--kernel-memory-budget-bytes", type=int)
+    parser.add_argument(
+        "--s4-skip-repeat-v1", action="store_true",
+        help="S4 cold synthetic MODIFIED_ONLY measurement: skip the cache-warming repeat v1 steps",
+    )
+    parser.add_argument(
+        "--submit-measurements", type=Path,
+        help="fresh Submit timing/main/Repository mutation facts in a new worktree-external directory",
+    )
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
             (
-                arguments.tier is not None,
+                arguments.tier is not None and arguments.s3_census is None,
                 arguments.scope != "full",
                 arguments.cross_project,
                 arguments.from_step is not None,
@@ -4115,12 +4608,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.project_name is not None,
                 arguments.dc32_output is not None,
                 arguments.debug_submit_probe_t1,
+                arguments.submit_measurements is not None,
+                arguments.s4_skip_repeat_v1,
                 arguments.v2_input_completeness != "MODIFIED_ONLY",
             )
         ):
             raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
+        if arguments.s3_census is not None and arguments.tier != "t4":
+            raise JourneyFailure("--s3-census requires --tier t4")
         result = (
-            validate_inputs()
+            validate_inputs(s3_census=arguments.s3_census, tier_filter=arguments.tier)
             if arguments.validate_inputs
             else _run_kernel_journey(arguments)
         )

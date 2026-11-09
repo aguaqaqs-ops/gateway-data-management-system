@@ -98,7 +98,6 @@ class PrepareImportBuildInput:
     parent_is_initial: bool
     removed_tables: tuple[str, ...]
     source_artifact_digest: str
-    repository_base_digest: str
     snapshot_tables: tuple[SnapshotTableBinding, ...]
 
     def __post_init__(self) -> None:
@@ -111,7 +110,6 @@ class PrepareImportBuildInput:
             "expected_parent_commit_id",
             "repository_id",
             "source_artifact_digest",
-            "repository_base_digest",
         ):
             if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
                 raise ValueError(f"{field_name} must be a non-empty string")

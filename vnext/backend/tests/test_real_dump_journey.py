@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from tests.support.configuration_facts import submit_attempt_with_facts
 
-import json
+import contextlib
 import hashlib
-from email import policy
-from email.parser import BytesParser
+import json
+import os
 import sqlite3
 import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +25,7 @@ import pyarrow.ipc as pa_ipc
 from gateway_repository_contracts import GetOperationResponse
 
 from benchmarks import real_dump_journey
+from benchmarks.s4_submit_measurement_driver import _completed_result, _submit_event_phases
 from benchmarks.real_dump_journey import (
     INITIAL_OPERATION_TIMEOUT_SECONDS,
     JOURNEY_STEP_IDS,
@@ -36,11 +39,13 @@ from benchmarks.real_dump_journey import (
     _canonical_state_digest_from_submission,
     _history_surface_ref,
     _keyless_fallback_candidates,
+    _keyless_fallback_source,
     _ordered_table_row_counts,
     _operation_timeout_seconds,
     _parse_cpu_stat,
     _pseudo_counts_from_http,
     _require_one_of,
+    _s3_census_baseline,
     _step_measurement,
     WorkerHeartbeatMonitor,
     WorkerHeartbeatTracker,
@@ -54,6 +59,9 @@ from gateway_backend.domain.submission.models import (
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
+)
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
 )
 from gateway_backend.infrastructure.control_db.database import (
     connect_control_db,
@@ -792,6 +800,72 @@ def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_rea
     assert events == ["diagnostics", "teardown"]
 
 
+@pytest.mark.serial
+@pytest.mark.parametrize("fail_inside", [False, True], ids=("normal", "exception"))
+def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
+    tmp_path: Path, fail_inside: bool,
+) -> None:
+    marker = tmp_path / "log-child-started"
+    script = (
+        "import pathlib, subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'], "
+        "stdout=sys.stdout, stderr=sys.stderr); "
+        f"pathlib.Path({str(marker)!r}).write_text('started'); "
+        "time.sleep(5)"
+    )
+
+    def popen(_command: list[str], **kwargs: Any) -> subprocess.Popen[str]:
+        return subprocess.Popen([sys.executable, "-c", script], **kwargs)
+
+    monitor = WorkerHeartbeatMonitor(
+        env=dict(os.environ),
+        repository_id="repository-1",
+        repository_url="http://repository-service",
+        popen=popen,
+    )
+    expected = (
+        pytest.raises(JourneyFailure, match="monitor body failed")
+        if fail_inside else contextlib.nullcontext()
+    )
+    with expected:
+        with monitor:
+            deadline = time.monotonic() + 3.0
+            while not marker.is_file():
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            exiting_at = time.monotonic()
+            if fail_inside:
+                raise JourneyFailure("monitor body failed")
+
+    assert time.monotonic() - exiting_at < 2.0
+    assert monitor._reader_thread is not None
+    assert not monitor._reader_thread.is_alive()
+
+
+@pytest.mark.serial
+def test_worker_heartbeat_monitor_reports_incomplete_cleanup_without_masking_body_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    class StillAliveReader:
+        def join(self, timeout: float | None = None) -> None:
+            assert timeout == 5.0
+
+        def is_alive(self) -> bool:
+            return True
+
+    monitor = WorkerHeartbeatMonitor(
+        env={}, repository_id="repository-1", repository_url="http://repository-service",
+    )
+    monkeypatch.setattr(monitor, "_reader_thread", StillAliveReader())
+    with pytest.raises(JourneyFailure, match="original body failure"):
+        try:
+            raise JourneyFailure("original body failure")
+        except JourneyFailure as error:
+            monitor.__exit__(type(error), error, error.__traceback__)
+            raise
+    assert '"event": "worker_heartbeat_log_cleanup_incomplete"' in capsys.readouterr().out
+
+
 def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1301,16 +1375,154 @@ def test_additive_column_preview_uses_s1b_changed_table_count() -> None:
     )
 
 
-def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> None:
-    names = _keyless_fallback_candidates(
-        {
-            "effective_key_scan": {
-                "unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]
-            }
-        }
-    )
+@pytest.mark.parametrize(
+    ("census", "expected", "expected_source"),
+    [
+        (
+            {"effective_key_scan": {"unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]}},
+            ("fallback_a", "fallback_b"),
+            "S1 census effective_key_scan.unresolved_tables",
+        ),
+        (
+            {"effective_key_scan_status": "complete", "effective_key_unresolved_tables": []},
+            (),
+            "S3 census effective_key_unresolved_tables",
+        ),
+    ],
+    ids=("s1-nested", "s3-flat-complete"),
+)
+def test_keyless_fallback_candidates_come_from_census_unresolved_tables(
+    census: dict[str, Any], expected: tuple[str, ...], expected_source: str,
+) -> None:
+    assert _keyless_fallback_candidates(census) == expected
+    assert _keyless_fallback_source(census) == expected_source
 
-    assert names == ("fallback_a", "fallback_b")
+
+def _synthetic_census() -> dict[str, Any]:
+    return {
+        "staging_status": "COMPLETE",
+        "materialization_status": "COMPLETE",
+        "composite_stage_status": "COMPLETE",
+        "logics_xml_status": "complete",
+        "duplicate_key_scan_status": "complete",
+        "table_count": 3,
+        "source_ddl_table_count": 2,
+        "row_count_total": 14,
+        "role_table_counts": {"SKIP": 1},
+        "canonical_rows_by_table": {
+            "device_model_table": 5,
+            "value": 7,
+            "composite_signal_point": 2,
+        },
+        "ordered_projection": {
+            "status": "COMPLETE",
+            "pseudo_rows_total": 0,
+            "tables": {},
+        },
+    }
+
+
+def test_s3_census_baseline_excludes_skipped_and_already_included_composite() -> None:
+    assert _s3_census_baseline(_synthetic_census()) == {
+        "preview_table_count": 1,
+        "catalog_table_count": 1,
+        "catalog_row_count_total": 7,
+    }
+
+
+def test_s3_larger_resource_guard_does_not_change_the_default_budget(tmp_path: Path) -> None:
+    census = tmp_path / "accepted.json"
+    for budget, expected in ((24 * 1024**3, False), (40 * 1024**3, True)):
+        context = KernelExecutionContext(OperationMemoryBudget(budget), NeverCancel(), 1)
+        with kernel_execution_scope(context, new_operation=True):
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=census, scope="t4-identity",
+            ) is expected
+            assert not real_dump_journey._s3_large_resource_guard_required(
+                s3_census=None, scope="t4-identity",
+            )
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=None, scope="full",
+            ) is expected
+            assert real_dump_journey._s3_large_resource_guard_required(
+                s3_census=census, scope="t4-v1-submit",
+            ) is expected
+
+
+@pytest.mark.parametrize(
+    ("available_bytes", "backend_oom", "worker_hard_bytes", "expected"),
+    (
+        (56 * 1024**3, 0, 48 * 1024**3, "PASS"),
+        (56 * 1024**3 - 1, 0, 48 * 1024**3, "FAILED"),
+        (56 * 1024**3, 1, 48 * 1024**3, "FAILED"),
+        (56 * 1024**3, 0, 32 * 1024**3, "FAILED"),
+    ),
+)
+def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    available_bytes: int, backend_oom: int, worker_hard_bytes: int, expected: str,
+) -> None:
+    services: dict[str, dict[str, Any]] = {}
+    for service in ("backend", "worker", "repository-service"):
+        services[service] = {
+            "container_id": service, "restart_count": 0,
+            "memory_max": str(worker_hard_bytes) if service == "worker" else "max",
+            "memory_events": {"oom": backend_oom if service == "backend" else 0,
+                              "oom_kill": 0, "oom_group_kill": 0},
+            "host_config_memory_bytes": worker_hard_bytes if service == "worker" else 0,
+            "resource_env": {
+                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
+                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(40 * 1024**3),
+                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(48 * 1024**3),
+                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+            } if service == "worker" else {},
+        }
+    monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
+                        lambda _env: {"mem_available_bytes": available_bytes, "services": services})
+    if expected == "FAILED":
+        with pytest.raises(JourneyFailure, match="before first business observation"):
+            real_dump_journey._check_s3_ready_resource_guard({})
+    else:
+        real_dump_journey._check_s3_ready_resource_guard({})
+    event = json.loads(capsys.readouterr().out)
+    assert event["event"] == "s3_resource_start_guard"
+    assert event["status"] == expected
+    assert event["mem_available_bytes"] == available_bytes
+
+
+@pytest.mark.parametrize(
+    ("complete_keyscan", "expected_failure", "expected_git_calls"),
+    [
+        (False, "effective-key scan", 0),
+        (True, "census preflight completed", 1),
+    ],
+    ids=("missing-keyscan", "complete-keyscan"),
+)
+def test_s3_census_shape_is_checked_before_starting_compose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    complete_keyscan: bool, expected_failure: str, expected_git_calls: int,
+) -> None:
+    census = _synthetic_census()
+    if complete_keyscan:
+        census["effective_key_scan_status"] = "complete"
+        census["effective_key_unresolved_tables"] = []
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_read_metadata",
+        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
+                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
+    )
+    git_calls: list[list[str]] = []
+
+    def stop_after_preflight(command: list[str], **_kwargs: Any) -> None:
+        git_calls.append(command)
+        raise JourneyFailure("census preflight completed")
+
+    monkeypatch.setattr(subprocess, "run", stop_after_preflight)
+    with pytest.raises(JourneyFailure, match=expected_failure):
+        real_dump_journey.run_journey(tier_filter="t4", s3_census=tmp_path / "census.json")
+    assert git_calls == [["git", "rev-parse", "HEAD"]] * expected_git_calls
 
 
 def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
@@ -1394,6 +1606,7 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
         commit_id="a" * 32,
         expected_tables={"ordered_with_pseudo": 2, "ordered_without_rows": 0},
         expected_row_counts={"ordered_with_pseudo": 3, "ordered_without_rows": 0},
+        expected_catalog_rows={"composite_signal_point": 2},
     )
 
     assert counts == {
@@ -1408,6 +1621,16 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
     }
     assert fake_clients[0].catalog_requests == 1
     assert fake_clients[0].requested_tables == ["ordered_with_pseudo", "ordered_without_rows"]
+
+    with pytest.raises(JourneyFailure, match="catalog table names or per-table rows"):
+        _pseudo_counts_from_http(
+            base_url="http://repository.invalid",
+            repository_id="repository-id",
+            commit_id="a" * 32,
+            expected_tables={"ordered_with_pseudo": 2, "ordered_without_rows": 0},
+            expected_row_counts={"ordered_with_pseudo": 3, "ordered_without_rows": 0},
+            expected_catalog_rows={"composite_signal_point": 3},
+        )
 
 
 @pytest.mark.parametrize(
@@ -1580,6 +1803,9 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "dc32_output": None,
         "debug_t1_submit_probe": False,
         "v2_input_completeness": "MODIFIED_ONLY",
+        "s3_census": None,
+        "submit_measurements": None,
+        "skip_repeat_v1": False,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -1605,6 +1831,95 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
+def test_s3_t4_preview_cli_distinguishes_scope_and_full_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run_journey(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
+    census = tmp_path / "accepted-t4-census.json"
+    result = real_dump_journey.main([
+        "--tier", "t4", "--scope", "t4-identity",
+        "--s3-census", str(census), "--v2-input-completeness", "FULL",
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "25769803776",
+    ])
+    assert result == 0
+    assert calls["tier_filter"] == "t4"
+    assert calls["scope"] == "t4-identity"
+    assert calls["s3_census"] == census
+    assert calls["v2_input_completeness"] == "FULL"
+
+
+def test_s3_t4_census_validates_only_the_two_selected_package_identities(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "synthetic-t4"
+    packages = root / "packages"
+    packages.mkdir(parents=True)
+    datasets: list[dict[str, Any]] = []
+    census: list[dict[str, Any]] = []
+    for _tier, (v1_id, v2_id) in real_dump_journey.EXPECTED_PAIRINGS.items():
+        for dataset_id, pair_of in ((v1_id, None), (v2_id, v1_id)):
+            is_t4 = dataset_id.startswith("rd-t4-")
+            payload = dataset_id.encode("ascii")
+            if is_t4:
+                (packages / f"{dataset_id}.tar.gz").write_bytes(payload)
+            datasets.append({
+                "dataset_id": dataset_id,
+                "tier": "t4" if is_t4 else "other",
+                "pair_of": pair_of,
+                "has_logics_xml": True,
+                "files": [{
+                    "path": "package.tar.gz", "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }],
+            })
+            pseudo = 3 if dataset_id == v2_id and is_t4 else 2 if is_t4 else 0
+            census.append({
+                "dataset_id": dataset_id,
+                "table_count": 2 if is_t4 else 1, "row_count_total": 3,
+                **({
+                    "staging_status": "COMPLETE",
+                    "materialization_status": "COMPLETE",
+                    "composite_stage_status": "COMPLETE",
+                    "logics_xml_status": "complete",
+                    "duplicate_key_scan_status": "complete",
+                    "source_ddl_table_count": 1,
+                    "role_table_counts": {"SKIP": 0},
+                    "canonical_rows_by_table": {
+                        "ordered_t": 3,
+                        "composite_signal_point": 0,
+                    },
+                } if is_t4 else {}),
+                "ordered_projection": {
+                    "status": "COMPLETE", "pseudo_rows_total": pseudo,
+                    "tables": {"ordered_t": {
+                        "status": "COMPLETE", "pseudo_gid_count": pseudo, "row_count": 3,
+                    }},
+                },
+                **({
+                    "effective_key_scan_status": "complete",
+                    "effective_key_unresolved_tables": [],
+                } if is_t4 else {"effective_key_scan": {"unresolved_tables": []}}),
+            })
+    (root / "datasets.json").write_text(json.dumps({"datasets": datasets}), encoding="utf-8")
+    census_path = tmp_path / "accepted-census.json"
+    census_path.write_text(json.dumps({"datasets": census}), encoding="utf-8")
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: root)
+    result = real_dump_journey.validate_inputs(s3_census=census_path, tier_filter="t4")
+    assert result["conclusion"] == "INPUTS_VALID"
+    assert [item["dataset_id"] for item in result["datasets"]] == [
+        "rd-t4-d-v1", "rd-t4-d-v2",
+    ]
+    assert [item["pseudo_rows_total"] for item in result["datasets"]] == [2, 3]
+
+
 @pytest.mark.parametrize(
     ("failure_point", "failure_message"),
     COMPOSE_LOGS_ON_FAILURE_CASES,
@@ -1620,7 +1935,10 @@ def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
     log_directory = tmp_path / "compose-logs"
     monkeypatch.setenv("GATEWAY_REAL_DUMP_LOG_DIR", str(log_directory))
     monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
-    monkeypatch.setattr(real_dump_journey, "_read_metadata", lambda _root: ({}, {}))
+    monkeypatch.setattr(
+        real_dump_journey, "_read_metadata",
+        lambda _root, *, census_path=None: ({}, {}),
+    )
 
     def fake_subprocess_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         stdout = "ee0a4c43a7\n" if command[:2] == ["git", "rev-parse"] else ""
@@ -1730,6 +2048,7 @@ def test_debug_step_order_covers_every_business_action() -> None:
 def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, with_reason: bool) -> None:
     calls: list[dict[str, Any]] = []
     selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
+    candidate = {**selected, "review_version": 1}
     anomaly = {"subject_kind": "CONFIGURATION_TIME_QUALITY", "issue_code": "GENERATION_TIME_MISSING",
         "subject_digest": "sha256:" + "2" * 64, "target_submission_id": "sub", "target_candidate_digest": selected["expected_candidate_digest"],
         "latest_sequence": 4, "resolution_status": "REVOKED"}
@@ -1737,14 +2056,16 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
     def respond(request: httpx.Request) -> httpx.Response:
         nonlocal previews
         if request.url.path == "/v1/archive-candidates":
-            return httpx.Response(200, json={"candidates": [selected]})
+            return httpx.Response(200, json={"candidates": [candidate]})
+        body = json.loads(request.content)
+        assert set(body["selected"]) == {"submission_id", "expected_candidate_digest"}
+        assert body["selected"] == selected
         if request.url.path == "/v1/archive-plan-preview":
             previews += 1
             return httpx.Response(200, json={"can_start": previews > 1, "audit_validity": previews > 1,
                 "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
                 "candidate_set_digest": "sha256:" + "3" * 64, "selection_subject_digest": "sha256:" + "4" * 64,
                 "anomalies": [anomaly]})
-        body = json.loads(request.content)
         calls.append(body)
         if request.url.path == "/v1/archive-anomaly-resolutions":
             assert body["expected_sequence"] == 4 and body["action"] == "ACKNOWLEDGE_TIME_QUALITY"
@@ -1761,3 +2082,276 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
             with pytest.raises(JourneyFailure, match="explicit reason"):
                 real_dump_journey._archive(client, "sub", "consumer")
             assert not any("anomaly_resolution_refs" in item for item in calls)
+
+
+SUBMIT_MAIN_RESPONSE_CASES = (
+    (200, {"ref_name": "main", "commit_id": "a" * 32}, None),
+    (200, {"ref_name": "main", "commit_id": ""}, "response is invalid"),
+    (404, {"code": "NOT_FOUND"}, "HTTP 404"),
+)
+
+
+@pytest.mark.parametrize(("status", "payload", "error"), SUBMIT_MAIN_RESPONSE_CASES)
+def test_submit_measurement_reads_a_validated_repository_main(
+    monkeypatch: pytest.MonkeyPatch, status: int, payload: dict[str, Any], error: str | None,
+) -> None:
+    client_type = httpx.Client
+    seen: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        assert "Authorization" in request.headers
+        return httpx.Response(status, json=payload)
+
+    def client(**kwargs: Any) -> httpx.Client:
+        return client_type(transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", client)
+    if error is None:
+        assert real_dump_journey._repository_main_commit("http://repository.test", "repo") == "a" * 32
+    else:
+        with pytest.raises(JourneyFailure, match=error):
+            real_dump_journey._repository_main_commit("http://repository.test", "repo")
+    assert seen == ["/v1/repositories/repo/versioned/refs/main"]
+
+
+def test_repository_mutation_snapshot_observes_async_and_synchronous_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "repository.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript("""
+            CREATE TABLE repository_import_operations (operation_id TEXT PRIMARY KEY);
+            CREATE TABLE mutation_idempotency (id INTEGER PRIMARY KEY, mutation_kind TEXT);
+            CREATE TABLE synchronous_mutation_effects (effect_id INTEGER PRIMARY KEY);
+            INSERT INTO repository_import_operations VALUES ('import-a');
+            INSERT INTO mutation_idempotency VALUES (1, 'create_repository'), (2, 'upload_artifact');
+            INSERT INTO synchronous_mutation_effects VALUES (1), (2);
+        """)
+    finally:
+        connection.close()
+    monkeypatch.setattr(sys, "argv", ["snapshot", str(database)])
+    exec(real_dump_journey.REPOSITORY_MUTATION_IDS_SCRIPT, {})
+    assert json.loads(capsys.readouterr().out) == {
+        "imports": ["import-a"],
+        "synchronous_requests": ["1:create_repository", "2:upload_artifact"],
+        "synchronous_effects": ["1", "2"],
+    }
+
+
+REPEATED_SUBMIT_MUTATION_CHANGES = (
+    None,
+    ("imports", "import-b"),
+    ("synchronous_requests", "3:upload_artifact"),
+    ("synchronous_effects", "3"),
+)
+
+
+@pytest.mark.parametrize("change", REPEATED_SUBMIT_MUTATION_CHANGES)
+def test_repeated_submit_requires_zero_new_repository_mutations(
+    change: tuple[str, str] | None,
+) -> None:
+    before = {
+        "imports": ["import-a"],
+        "synchronous_requests": ["1:create_repository", "2:upload_artifact"],
+        "synchronous_effects": ["1", "2"],
+    }
+    after = {name: list(ids) for name, ids in before.items()}
+    if change is None:
+        assert real_dump_journey._assert_no_repository_mutations(before, after) == {
+            "before": before, "after": after, "new_operation_count": 0,
+        }
+    else:
+        after[change[0]].append(change[1])
+        with pytest.raises(JourneyFailure, match="created Repository mutations"):
+            real_dump_journey._assert_no_repository_mutations(before, after)
+
+
+def test_submit_measurement_cli_passes_its_evidence_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def run(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", run)
+    output = tmp_path / "submit-facts"
+    assert real_dump_journey.main([
+        "--tier", "t4", "--scope", "full", "--v2-input-completeness", "FULL",
+        "--submit-measurements", str(output),
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
+    ]) == 0
+    assert calls["submit_measurements"] == output
+    assert calls["v2_input_completeness"] == "FULL"
+
+
+def test_s4_cold_measurement_cli_passes_repeat_skip_only_for_synthetic_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def run(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", run)
+    assert real_dump_journey.main([
+        "--tier", "t4", "--scope", "full", "--s3-census", str(tmp_path / "census.json"),
+        "--v2-input-completeness", "MODIFIED_ONLY", "--s4-skip-repeat-v1",
+        "--submit-measurements", str(tmp_path / "submit-facts"),
+        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
+    ]) == 0
+    assert calls["skip_repeat_v1"] is True
+
+
+def test_s4_cold_repeat_skip_rejects_full_input_before_evidence_creation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    census = _synthetic_census()
+    census["effective_key_scan_status"] = "complete"
+    census["effective_key_unresolved_tables"] = []
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        real_dump_journey, "_read_metadata",
+        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
+                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
+    )
+    output = tmp_path / "submit-facts"
+    with pytest.raises(JourneyFailure, match="cold modified-only measurement"):
+        real_dump_journey.run_journey(
+            tier_filter="t4", s3_census=tmp_path / "census.json", scope="full",
+            v2_input_completeness="FULL", submit_measurements=output,
+            skip_repeat_v1=True,
+        )
+    assert not output.exists()
+
+
+def test_fresh_submit_attribution_requires_table_events_for_both_versions() -> None:
+    phases = [
+        [{"event": "submit_storage_table", "table": "one"},
+         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
+         {"event": "submit_package_readback"}],
+        [{"event": "submit_storage_table", "table": "two"},
+         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
+         {"event": "submit_package_readback"}],
+    ]
+    assert len(_submit_event_phases(phases[0] + phases[1])) == 2
+    with pytest.raises(RuntimeError, match="distinct table segment"):
+        _submit_event_phases(phases[0] + phases[1][1:])
+
+
+SUBMIT_MAIN_MOVEMENT_CASES = (
+    ("a" * 32, "b" * 32, None),
+    ("c" * 32, "b" * 32, "parent differs from technical main"),
+    ("a" * 32, "c" * 32, "did not advance technical main"),
+)
+
+
+@pytest.mark.parametrize(("main_before", "main_after", "error"), SUBMIT_MAIN_MOVEMENT_CASES)
+def test_submit_completion_measurement_requires_technical_main_movement(
+    monkeypatch: pytest.MonkeyPatch, main_before: str, main_after: str, error: str | None,
+) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    main_reads = iter((main_before, main_after))
+
+    def read_main(_url: str, _repository: str) -> str:
+        result = next(main_reads)
+        if result == main_after and clock[0] == 5.0:
+            clock[0] = 6.0
+        return result
+
+    def poll(*_args: Any, **_kwargs: Any) -> None:
+        clock[0] = 5.0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            clock[0] = 2.0  # POST acceptance is included in the conservative bound.
+            return httpx.Response(202, json={"operation_id": "op", "submit_attempt_id": "attempt"})
+        if request.url.path.endswith("/submit-attempts/attempt"):
+            return httpx.Response(200, json={"state": "FINALIZED", "submission_id": "submission"})
+        return httpx.Response(200, json={"repository_commit_id": "b" * 32})
+
+    monkeypatch.setattr(real_dump_journey, "_repository_main_commit", read_main)
+    monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
+    with httpx.Client(base_url="http://backend.test", transport=httpx.MockTransport(respond)) as client:
+        def submit() -> dict[str, Any]:
+            return real_dump_journey._submit(
+                client, workspace={"workspace_id": "workspace"}, upload={"upload_revision_id": "upload"},
+                preview={"workspace": {"optimistic_version": 1, "generation": 1},
+                         "result": {"preview_result_id": "preview"}},
+                baseline_node_id="baseline", baseline_head_version=0,
+                idempotency_key="submit", stage="submit-clock", operation_timeout_seconds=100,
+                collect_timing=True, verify_repository=("http://repository.test", "repo", "a" * 32),
+            )
+
+        if error is not None:
+            with pytest.raises(JourneyFailure, match=error):
+                submit()
+        else:
+            result = submit()
+            clock[0] += 100.0  # Later evidence capture does not enter the completion clock.
+            timing = result["operation_timing"]
+            assert timing["completion_seconds"] == 4.0
+            assert timing["main_forward_verified_seconds"] == 4.0
+            assert timing["request_to_main_verified_seconds"] == 6.0
+            assert timing["request_to_completion_seconds"] == 6.0
+            assert timing["technical_main_before"] == "a" * 32
+            assert timing["technical_main_after"] == "b" * 32
+
+
+def _s4_successful_journey(v1_seconds: object, v2_seconds: object) -> dict[str, Any]:
+    def submit(seconds: object) -> dict[str, Any]:
+        return {"request_to_main_verified_seconds": seconds,
+                "technical_main_before": "a" * 32, "technical_main_after": "b" * 32,
+                "reconciliation": {"repository_import_status": "SUCCEEDED"}}
+
+    return {"head": "c" * 40, "conclusion": "PASS", "datasets": [{
+        "tier": "t4", "conclusion": "PASS",
+        "datasets": [{"input_completeness": "FULL"}, {"input_completeness": "MODIFIED_ONLY"}],
+        "repeat_v1": {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"},
+        "step_metrics": [],
+        "operation_timings": {"v1_submit": submit(v1_seconds), "v2_submit": submit(v2_seconds)},
+    }]}
+
+
+S4_SLOW_VALID_SUBMITS = (
+    ("w3", 301.0, 121.0, 300, 120),
+    ("w4", 301.0, 301.0, 300, 300),
+    ("w4-pressure", 999.0, 999.0, None, None),
+)
+
+
+@pytest.mark.parametrize(("profile", "v1_seconds", "v2_seconds", "v1_target", "v2_target"),
+                         S4_SLOW_VALID_SUBMITS)
+def test_submit_measurement_reports_valid_slow_completion(
+    tmp_path: Path, profile: str, v1_seconds: float, v2_seconds: float,
+    v1_target: int | None, v2_target: int | None,
+) -> None:
+    log = tmp_path / "journey.log"
+    log.write_text(json.dumps(_s4_successful_journey(v1_seconds, v2_seconds)) + "\n")
+
+    result = _completed_result(log, "c" * 40, profile, "MODIFIED_ONLY")
+
+    targets = result["datasets"][0]["submit_target_results"]
+    assert targets == {
+        "v1_submit": {"elapsed_seconds": v1_seconds, "target_seconds": v1_target,
+                      "met": None if v1_target is None else False},
+        "v2_submit": {"elapsed_seconds": v2_seconds, "target_seconds": v2_target,
+                      "met": None if v2_target is None else False},
+    }
+
+
+S4_INVALID_COMPLETION_CLOCKS = (-1.0, float("nan"), float("inf"), -float("inf"), "121")
+
+
+@pytest.mark.parametrize("seconds", S4_INVALID_COMPLETION_CLOCKS)
+def test_submit_measurement_rejects_invalid_completion_clock(tmp_path: Path, seconds: object) -> None:
+    log = tmp_path / "journey.log"
+    log.write_text(json.dumps(_s4_successful_journey(299.0, seconds)) + "\n")
+
+    with pytest.raises(RuntimeError, match="verified technical-main completion clock"):
+        _completed_result(log, "c" * 40, "w3", "MODIFIED_ONLY")

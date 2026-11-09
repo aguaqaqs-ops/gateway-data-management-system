@@ -1,17 +1,19 @@
-"""Production-derived history comparison checks for fixtures and Compose gates."""
+"""History comparison checks over the live canonical Arrow path."""
 
 from __future__ import annotations
+
+from contextlib import closing
 
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonFacts,
     ComparisonPlan,
     ComparisonRequest,
-    ComparisonTableStatus,
     DetailedFactsResult,
-    compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.contracts import OrderedRecordKind
+from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
@@ -65,6 +67,59 @@ def compare_bound_snapshots(
     *,
     pair_id: str = "pair-0",
 ) -> ComparisonFacts:
+    product = compare_plan_native(_plan_bound_snapshots(before, current, pair_id=pair_id))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        return product.result.facts
+    finally:
+        product.close()
+
+
+def compare_bound_snapshots_and_ordered_kinds(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    *,
+    pair_id: str = "pair-0",
+) -> tuple[ComparisonFacts, tuple[OrderedRecordKind, ...]]:
+    product = compare_plan_native(_plan_bound_snapshots(before, current, pair_id=pair_id))
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        kinds: list[OrderedRecordKind] = []
+        for table_name in sorted(product.handles):
+            with closing(product.handles[table_name].record_batches("ORDERED")) as reader:
+                for batch in reader:
+                    kinds.extend(
+                        OrderedRecordKind(row["record_kind"])
+                        for row in batch.to_pylist()
+                    )
+        return product.result.facts, tuple(kinds)
+    finally:
+        product.close()
+
+
+def local_comparison_digest(
+    *,
+    before_provider: FakeRepositoryTableAccessProvider,
+    current_provider: FakeRepositoryTableAccessProvider,
+    before_commit: str,
+    current_commit: str,
+    artifact_store: object,
+) -> str:
+    """Check History input binding against a separate local native invocation."""
+    before = materialize_bound_snapshot(
+        before_provider, commit_id=before_commit, artifact_store=artifact_store,
+    )
+    current = materialize_bound_snapshot(
+        current_provider, commit_id=current_commit, artifact_store=artifact_store,
+    )
+    return compare_bound_snapshots(before, current).comparison_digest.value
+
+
+def _plan_bound_snapshots(
+    before: BoundSnapshotInput, current: BoundSnapshotInput, *, pair_id: str,
+) -> ComparisonPlan:
     plan = plan_comparison(
         ComparisonRequest(
             pair_id=pair_id,
@@ -74,53 +129,4 @@ def compare_bound_snapshots(
         )
     )
     assert isinstance(plan, ComparisonPlan)
-    result = compare_plan(plan)
-    assert isinstance(result, DetailedFactsResult) and result.facts is not None
-    return result.facts
-
-
-def oracle_comparison_digest(
-    *,
-    before_provider: FakeRepositoryTableAccessProvider,
-    current_provider: FakeRepositoryTableAccessProvider,
-    before_commit: str,
-    current_commit: str,
-    artifact_store: object,
-) -> str:
-    before = materialize_bound_snapshot(
-        before_provider,
-        commit_id=before_commit,
-        artifact_store=artifact_store,
-    )
-    current = materialize_bound_snapshot(
-        current_provider,
-        commit_id=current_commit,
-        artifact_store=artifact_store,
-    )
-    return compare_bound_snapshots(before, current).comparison_digest.value
-
-
-def assert_added_table_only_facts(
-    *,
-    before_provider: FakeRepositoryTableAccessProvider,
-    current_provider: FakeRepositoryTableAccessProvider,
-    before_commit: str,
-    current_commit: str,
-    artifact_store: object,
-    expected_record_count: int = 1,
-) -> None:
-    before = materialize_bound_snapshot(
-        before_provider,
-        commit_id=before_commit,
-        artifact_store=artifact_store,
-    )
-    current = materialize_bound_snapshot(
-        current_provider,
-        commit_id=current_commit,
-        artifact_store=artifact_store,
-    )
-    facts = compare_bound_snapshots(before, current)
-    assert len(facts.tables) == 1
-    assert facts.tables[0].status is ComparisonTableStatus.ADDED_TABLE
-    record_count = sum(len(table.records) for table in facts.tables)
-    assert record_count == expected_record_count
+    return plan

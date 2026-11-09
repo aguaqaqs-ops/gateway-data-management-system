@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
+import weakref
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
@@ -271,6 +273,10 @@ class ControlledThread:
         self.joined = False
         self.ran = False
 
+    @property
+    def ident(self) -> int | None:
+        return 1 if self.started else None
+
     def start(self) -> None:
         self.started = True
 
@@ -290,6 +296,22 @@ class ThreadFactory:
 
     def __call__(self, target: Callable[[], None]) -> ControlledThread:
         thread = ControlledThread(target, daemon=self.daemon)
+        self.threads.append(thread)
+        return thread
+
+
+class ReleasingControlledThread(ControlledThread):
+    def run(self) -> None:
+        if not self.ran:
+            self.ran = True
+            target = self.target
+            self.target = lambda: None
+            target()
+
+
+class ReleasingThreadFactory(ThreadFactory):
+    def __call__(self, target: Callable[[], None]) -> ReleasingControlledThread:
+        thread = ReleasingControlledThread(target, daemon=self.daemon)
         self.threads.append(thread)
         return thread
 
@@ -347,6 +369,26 @@ def _checkpoint_then_handoff(
         acknowledgment = session.acknowledge_safe_handoff(generation)
         stop[0] = True
         return acknowledgment
+
+    return cast(ClaimedExecutor, execute)
+
+
+def _gc_observing_checkpoint_executor(gc_states: list[bool]) -> ClaimedExecutor:
+    def execute(
+        _operation: OperationRecord,
+        _step: StepRecord,
+        _control: ExecutionControl,
+        session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        gc_states.append(gc.isenabled())
+        generation = session.publish_checkpoint(
+            lambda _, current, now: dataclasses.replace(
+                current,
+                updated_at=now,
+                optimistic_version=current.optimistic_version + 1,
+            )
+        )
+        return session.acknowledge_safe_handoff(generation)
 
     return cast(ClaimedExecutor, execute)
 
@@ -409,6 +451,326 @@ def test_empty_queue_uses_one_second_interruptible_idle_poll() -> None:
 
     assert waits == [1.0]
     assert startup.claim_calls == 1
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("initially_enabled", [True, False])
+def test_claim_cycle_keeps_automatic_gc_out_of_active_claim_and_collects_only_in_idle_gap(
+    initially_enabled: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_gc_enabled = gc.isenabled()
+    if initially_enabled:
+        gc.enable()
+    else:
+        gc.disable()
+
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+        factory = RuntimeUowFactory(store)
+        stop = [False]
+        order: list[str] = []
+        gc_states: list[bool] = []
+
+        class RecordingStartup(FakeStartup):
+            def claim_one(self) -> ClaimedWork | None:
+                order.append("claim")
+                assert not gc.isenabled()
+                return super().claim_one()
+
+        executor = _gc_observing_checkpoint_executor(gc_states)
+        executor_ref = weakref.ref(executor)
+        work = ClaimedWork(operation, step, executor)
+        startup = RecordingStartup([work, None])
+        del executor, work
+
+        original_collect = gc.collect
+        collect_calls: list[int] = []
+
+        def tracked_collect(generation: int = 2) -> int:
+            assert gc.isenabled()
+            assert executor_ref() is None
+            order.append("collect")
+            collect_calls.append(generation)
+            return original_collect(generation)
+
+        monkeypatch.setattr(gc, "collect", tracked_collect)
+
+        def wait(_timeout: float) -> bool:
+            order.append("wait")
+            assert gc.isenabled() is initially_enabled
+            stop[0] = True
+            return True
+
+        _runtime(
+            startup,
+            factory,
+            [],
+            thread_factory=ReleasingThreadFactory(),
+        ).run(
+            drain_requested=lambda: stop[0],
+            wait=wait,
+        )
+
+        assert gc_states == [False]
+        assert startup.claim_calls == 2
+        if initially_enabled:
+            assert order.index("claim", 0) < order.index("collect")
+            assert order.index("collect") < order.index("claim", 1)
+            assert collect_calls == [2]
+        else:
+            assert "collect" not in order
+            assert collect_calls == []
+        assert order[-2:] == ["claim", "wait"]
+        assert gc.isenabled() is initially_enabled
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("initially_enabled", [True, False])
+def test_claim_busy_and_empty_restore_original_gc_state_before_wait_without_collecting(
+    initially_enabled: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_gc_enabled = gc.isenabled()
+    if initially_enabled:
+        gc.enable()
+    else:
+        gc.disable()
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+        startup = FakeStartup([StoreBusy("synthetic claim busy"), None])
+        events: list[WorkerEvent] = []
+        waits: list[float] = []
+        drain = [False]
+        collect_calls: list[int] = []
+        original_collect = gc.collect
+
+        def tracked_collect(generation: int = 2) -> int:
+            collect_calls.append(generation)
+            return original_collect(generation)
+
+        monkeypatch.setattr(gc, "collect", tracked_collect)
+
+        def wait(timeout: float) -> bool:
+            assert gc.isenabled() is initially_enabled
+            waits.append(timeout)
+            if len(waits) == 2:
+                drain[0] = True
+                return True
+            return False
+
+        _runtime(
+            startup,
+            RuntimeUowFactory(store),
+            events,
+            jitter=lambda lower, _upper: lower,
+        ).run(
+            drain_requested=lambda: drain[0],
+            wait=wait,
+        )
+
+        assert waits == [1.0, 1.0]
+        assert startup.claim_calls == 2
+        assert [event.code for event in events] == [
+            WorkerEventCode.CLAIM_BUSY,
+            WorkerEventCode.DRAIN_STARTED,
+            WorkerEventCode.WORKER_EXITED,
+        ]
+        assert collect_calls == []
+        assert gc.isenabled() is initially_enabled
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.serial
+def test_store_busy_after_claim_remains_fatal_and_is_not_reclassified_as_claim_busy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_gc_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+        clock = FakeClock()
+        work = ClaimedWork(operation, step, cast(ClaimedExecutor, lambda *_args: None))
+        startup = FakeStartup([work])
+        claim_one = startup.claim_one
+
+        def late_claim() -> ClaimedWork | None:
+            claimed = claim_one()
+            clock.value = 300.0
+            return claimed
+
+        monkeypatch.setattr(startup, "claim_one", late_claim)
+        events: list[WorkerEvent] = []
+        waits: list[float] = []
+
+        def wait(timeout: float) -> bool:
+            waits.append(timeout)
+            return False
+
+        with pytest.raises(StoreBusy, match="lease budget exhausted"):
+            _runtime(startup, RuntimeUowFactory(store), events, clock=clock).run(
+                drain_requested=lambda: False,
+                wait=wait,
+            )
+
+        assert startup.claim_calls == 1
+        assert waits == []
+        assert not any(event.code is WorkerEventCode.CLAIM_BUSY for event in events)
+        assert any(event.code is WorkerEventCode.LEASE_LOST for event in events)
+        assert gc.isenabled()
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.serial
+def test_executor_start_failure_restores_gc_without_join_retry_or_collection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_gc_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+
+        class StartFailThread(ControlledThread):
+            def start(self) -> None:
+                raise RuntimeError("executor start failure")
+
+        class StartFailFactory(ThreadFactory):
+            def __call__(self, target: Callable[[], None]) -> StartFailThread:
+                thread = StartFailThread(target, daemon=self.daemon)
+                self.threads.append(thread)
+                return thread
+
+        collect_calls: list[int] = []
+        original_collect = gc.collect
+
+        def tracked_collect(generation: int = 2) -> int:
+            collect_calls.append(generation)
+            return original_collect(generation)
+
+        monkeypatch.setattr(gc, "collect", tracked_collect)
+        startup = FakeStartup(
+            [ClaimedWork(operation, step, cast(ClaimedExecutor, lambda *_args: None))]
+        )
+        threads = StartFailFactory()
+
+        with pytest.raises(RuntimeError, match="executor start failure"):
+            _runtime(startup, RuntimeUowFactory(store), [], thread_factory=threads).run(
+                drain_requested=lambda: False,
+                wait=lambda _timeout: False,
+            )
+
+        assert startup.claim_calls == 1
+        assert not threads.threads[0].started
+        assert not threads.threads[0].joined
+        assert gc.isenabled()
+        assert collect_calls == []
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.serial
+def test_executor_failure_joins_and_restores_gc_without_collecting_or_masking_error() -> None:
+    original_gc_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+        threads = ThreadFactory()
+        gc_states: list[bool] = []
+
+        def fail_executor(*_args: object) -> ExecutorAcknowledgment:
+            gc_states.append(gc.isenabled())
+            raise RuntimeError("executor failure")
+
+        startup = FakeStartup(
+            [ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))]
+        )
+        events: list[WorkerEvent] = []
+
+        with pytest.raises(RuntimeError, match="executor failure"):
+            _runtime(startup, RuntimeUowFactory(store), events, thread_factory=threads).run(
+                drain_requested=lambda: False,
+                wait=lambda _timeout: False,
+            )
+
+        assert gc_states == [False]
+        assert threads.threads[0].joined
+        assert gc.isenabled()
+        assert not any(event.code is WorkerEventCode.CLAIM_BUSY for event in events)
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.serial
+def test_unconfirmed_executor_join_preserves_failure_and_leaves_gc_disabled() -> None:
+    original_gc_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        operation, step = _active_records()
+        store = RuntimeStore(operation, step)
+
+        class JoinFailThread(ControlledThread):
+            def join(self) -> None:
+                raise OSError("join failure")
+
+        class JoinFailFactory(ThreadFactory):
+            def __call__(self, target: Callable[[], None]) -> JoinFailThread:
+                thread = JoinFailThread(target, daemon=self.daemon)
+                self.threads.append(thread)
+                return thread
+
+        def fail_executor(*_args: object) -> ExecutorAcknowledgment:
+            raise RuntimeError("executor failure")
+
+        startup = FakeStartup(
+            [ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))]
+        )
+
+        with pytest.raises(RuntimeError, match="executor failure") as raised:
+            _runtime(
+                startup,
+                RuntimeUowFactory(store),
+                [],
+                thread_factory=JoinFailFactory(),
+            ).run(
+                drain_requested=lambda: False,
+                wait=lambda _timeout: False,
+            )
+
+        assert not gc.isenabled()
+        notes = getattr(raised.value, "__notes__", [])
+        assert any("executor join raised OSError" in note for note in notes)
+        assert any(
+            "executor join was not confirmed" in note for note in notes
+        )
+    finally:
+        if original_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
 
 
 def test_one_claim_has_one_non_daemon_executor_and_no_overlap() -> None:
@@ -562,7 +924,9 @@ def test_stop_signal_during_executor_wakes_supervisor_and_enters_drain() -> None
     assert threads.threads[0].joined
 
 
+@pytest.mark.serial
 def test_long_executor_continues_heartbeating_at_the_configured_interval() -> None:
+    original_gc_enabled = gc.isenabled()
     operation, step = _active_records()
     store = RuntimeStore(operation, step)
     factory = RuntimeUowFactory(store)
@@ -576,6 +940,7 @@ def test_long_executor_continues_heartbeating_at_the_configured_interval() -> No
     event_waits: list[float] = []
 
     def wake_wait(timeout: float, event: InjectedWakeEvent) -> bool:
+        assert not gc.isenabled()
         event_waits.append(timeout)
         if len(event_waits) == 1:
             clock.value += timeout
@@ -599,6 +964,7 @@ def test_long_executor_continues_heartbeating_at_the_configured_interval() -> No
     assert clock.value == 10.0
     assert [event.code for event in events].count(WorkerEventCode.HEARTBEAT_SUCCEEDED) == 1
     assert threads.threads[0].joined
+    assert gc.isenabled() is original_gc_enabled
 
 
 def test_heartbeat_serializes_with_publication_and_propagates_cancel() -> None:

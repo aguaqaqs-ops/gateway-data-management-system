@@ -1,6 +1,6 @@
 # DC63 与 V5b 剩余分段测量的最小补缺方案
 
-2026-11-07，p6-backend-design。执行依据为 DC62 §4、DC63 §1、DC66、Owner A 分版本参考及连续完成授权。本项属于原已授权旁证，现有实施者与接续审核者直接闭环；不新增角色、逐摘要 GO 或阶段 exit 权限，不影响正在运行的 W4-FULL。
+2026-11-07，p6-backend-design。执行依据为 DC62 §4、DC63 §1、DC66、Owner A 分版本参考及连续完成授权。本项属于原已授权旁证，现有实施者与接续审核者直接闭环；不新增角色、逐摘要 GO 或阶段 exit 权限，不重跑已关闭的 W4-FULL/STRESS。
 
 ## 实际缺口与目标
 
@@ -25,6 +25,10 @@ reference JSON 中的 21 个 Preview/Submit selector 是既有工具字段，不
 4. 在同一 CT108 独占时段复用该诊断准备出的合格 v1 commit/隔离服务，运行现有 V5b A–D 工具及独立 scratch，避免为 A–D 再起一整轮旅程。旧 retained 栈不因取素材重新启动；服务/输入不满足时用本次独立新项目准备。明确缓存状态，不把正常已有缓存称冷启动。
 5. 本地准备和必要 focused 在 CT201/05 按既有分工进行；实际诊断仅在 CT108 当前正式测量结束、现场可用并取得有效占用后执行，不与 FULL/STRESS 正式计时重叠。token 等凭据不进日志或 Git。
 
+**诊断专用预置镜像绑定（2026-11-07）：** bbe启动预检发现，诊断Compose也参与canonical build definitions，当前RS helper计算build-input revision为`3456bd7fbbd6a6c7ae807303a54f5548a4136a7f`，冻结目标label为`4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`；两者source-tree均为`sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`。普通startup在prebuilt判断前先ensure RS，直接复用会触发冻结tag重建，故先停在业务启动前。该build-input差异如实保存，不能靠alias、重tag或宣称两个revision相同消除。
+
+允许仅在本非正式诊断入口增加明确的“诊断HEAD/Compose与冻结目标镜像”映射：启动前用实际manifest固定诊断身份，并确认当前RS source-tree仍等冻结产品、三镜像实际config digest/全部有序DiffID/目标labels均与已审冻结对象精确匹配。只有本诊断入口在该验证成功后消费预置镜像，不调用build/pull；普通门禁、共享harness及正式V_ref的身份比较保持，不新增通用skip或产品回退。实际缺失或不符即停该运行并按DC80处理，不自动重建、取网或替换冻结tag。实施者完成最小接线和真实调用路径的必要focused，接续审核者集中核映射/实现及原已核关键预算一次后直接沿原范围接续，不再申请Owner、逐摘要GO或协调回执。诊断身份与冻结镜像身份分别交付，该映射不用于普通门禁carried或冒充单一正式版本。
+
 ## 预算、验证和交付
 
 实施者在启动前按实际选定步骤一次给足保守操作、局部 I/O、工具及总工作/清理余量，接续审核者集中核关键映射和预算。不得把原 V5b 42 分钟或旁证 3–5 小时规划区间直接作保护硬限，也不在运行中滑动加时。复用现有有界 session/清理和保卷机制，不新增监控；普通工具修正不重开 GO。
@@ -32,3 +36,13 @@ reference JSON 中的 21 个 Preview/Submit selector 是既有工具字段，不
 必要 focused 只核诊断 wrapper/输出的实际调用契约、阶段归属、异常传播及报告提取，先在小输入发现工具错误，不为不进入产品的诊断触发整轮权威 runner。若实际 container 入口/overlay 需额外接线验证，按真实边界做最小验证；诊断镜像结果不代替正式产品门禁。
 
 交付包括：边界映射、一次诊断及 A–D 的真实输入/产品与诊断身份、UTC/节点/起止 HEAD/exit、原始输出与 SHA、分段数据及限制说明。原已完成测量继续保留原来源，诊断数值标为诊断，不回填成正式 operation elapsed；正式参考线的最终 04 门禁仍只针对已批准产品和必要正式工具。实施者维护结果与 handoff，接续审核者独立核实际证据，设计不代判。
+
+## V5b局部失败后的有限接续（2026-11-08）
+
+本次d2ffe诊断journey已返回，History/timing至2026-11-07 23:47:34Z，coverage为PASS/8 expectations/91 events；接续审核者已核随后V5b在空before的`composite_signal_point`缺artifact处失败，resource runner实际2026-11-08 00:12:23Z exit1，00:22只是观察到退出。V5b原FAILED raw保留两段materialization，不能改为整链PASS，也不撤销已完成的journey及覆盖事实；各子段实际数据资格仍由审核者核定。
+
+允许只修测量helper的空before输入策略，使其采用`ARTIFACTS_REQUIRED`，与真实pair pipeline要求每表artifact的现行契约一致，生产拒绝及产品代码不变。唯一实施者完成真实消费者的必要focused/静态并交独审；不为补V5b重新运行journey、seed仓库或提交新的业务任务。原两段可独立认证时直接按其真实来源引用，不能为生成全绿单文件重测已完成业务或改原FAILED状态；确需局部准备/重取时说明实际缓存状态、重复范围及不能沿用的原因，不建立新的持久恢复状态机。
+
+可复用本次诊断已产生的合格v1 commit、隔离RS及保留卷，只恢复V5b必要服务；这里指本次已完成准备的诊断项目，原更早历史栈仍不启动。核原project/repository/commit、冻结镜像与输入关系及普通现场单飞前提，另存新的scratch/output和接续身份，不改原日志/raw，不为此复制RS大卷或全卷重hash。清理/保卷与自有锁规则保持，复用准备状态不冒称冷启动。
+
+接续继续沿用原绝对work/watch/hard截止和实际剩余预算，不滑动延时或重新分配22小时；必要局部预算以实际已用及剩余余量核定。具体复用关系、最小实现、结果和收尾由现有双方直接闭环，遇真实身份/结果/守护异常先停该接续并按DC80诊断；无新Owner、逐摘要GO、角色或整条基准暂停。04测试修正和05记录派生继续独立推进。

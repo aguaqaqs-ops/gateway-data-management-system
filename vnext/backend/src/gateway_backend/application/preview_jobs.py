@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import uuid
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from types import TracebackType
 from typing import ContextManager, cast
 
@@ -46,10 +48,16 @@ from gateway_backend.application.checkpoints import (
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
+    ComparisonTaskSession,
     PairPipelineCancelled,
     PairPipelineError,
     PreviewPairPipelineResult as _PairPipelineResult,
     run_preview_pair_pipeline,
+    declare_pair_comparison_session,
+    preview_identity_assessment,
+)
+from gateway_backend.capabilities.project_identity import (
+    ProjectIdentityStatus as AssessmentProjectIdentityStatus,
 )
 from gateway_backend.application.job_definitions import (
     JobDefinition,
@@ -100,6 +108,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
+    ComparisonRequest,
     ComparisonMode,
     ComparisonRecordsClosure,
     ComparisonStorageFacts,
@@ -217,6 +226,8 @@ from gateway_backend.operations.worker import (
     ExecutionControl,
     ExecutorAcknowledgment,
 )
+
+_LOG = logging.getLogger(__name__)
 
 PREVIEW_JOB_KIND = "backend-vnext/preview"
 PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v2"
@@ -824,6 +835,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     lease_session,
                     control,
                     active_rules,
+                    operation_id=operation.operation_id,
                     on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                 )
             except PairPipelineCancelled:
@@ -1141,7 +1153,8 @@ def _materialize_all_sides(
                 runtime_ruleset,
                 repository_id=payload.repository_id,
                 export_cache=deps.snapshot_export_cache,
-                side=side, canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
+                side=side, operation_id=operation_id,
+                canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
             )
         except PreviewJobError as exc:
             upload_errors.append(exc)
@@ -1486,6 +1499,7 @@ def _materialize_uploaded_side(
     repository_id: str,
     export_cache: SnapshotTableExportCachePort | None,
     side: OperationDiagnosticSide,
+    operation_id: str,
     canonical_lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
     canonical_before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef, ConfigurationGeneratedTime, str]:
@@ -1571,10 +1585,15 @@ def _materialize_uploaded_side(
         if parsed.configuration_generated_time is None:
             raise PreviewJobError("uploaded source time facts are missing")
         generated_time = ConfigurationGeneratedTime.from_document(dict(parsed.configuration_generated_time))
+        projection_started = perf_counter()
         projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,
         )
+        _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+            "operation_id": operation_id, "stage": "uploaded_projection", "side": side.value,
+            "upstream_projection_seconds": perf_counter() - projection_started,
+        }, sort_keys=True))
         if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
             ordered_diagnostics = tuple(
                 sorted(
@@ -1892,6 +1911,7 @@ def _assemble_preview(
     lease_session: LeaseSession,
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
+    operation_id: str,
     on_cancel: Callable[[], None],
     export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
@@ -1937,6 +1957,25 @@ def _assemble_preview(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
+    dedup_requests: list[ComparisonRequest] = []
+    for pair_id, before, current, assess_identity, reuse_identity in pair_specs:
+        assessment = (preview_identity_assessment(
+            before, current,
+            before_table_set=(
+                _unchanged_baseline_identity_table_set(before, current)
+                if reuse_identity else None
+            ),
+        ) if assess_identity else None)
+        dedup_requests.append(ComparisonRequest(
+            pair_id=pair_id, before=before, current=current, rule_set=rule_set,
+            mode=(
+                ComparisonMode.DATASET_REPLACEMENT
+                if assessment is not None
+                and assessment.status is AssessmentProjectIdentityStatus.DIFFERENT_PROJECT
+                else ComparisonMode.DETAILED
+            ),
+        ))
+    dedup_session = declare_pair_comparison_session(tuple(dedup_requests))
     for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -1952,6 +1991,7 @@ def _assemble_preview(
             on_cancel=on_cancel,
             assess_identity=assess_identity,
             repository_id=payload.repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
             identity_before_table_set=(
                 _unchanged_baseline_identity_table_set(before, current)
                 if assess_identity and reuse_unchanged_baseline_identity
@@ -1976,6 +2016,7 @@ def _assemble_preview(
             )
         )
 
+    bundle_started = perf_counter()
     bundle_result = assemble_bundle(
         BundleAssemblyInput(
             bundle_contract_version=BUNDLE_CONTRACT_VERSION,
@@ -1990,6 +2031,12 @@ def _assemble_preview(
             cancel_requested=lambda: control.cancel_requested,
         ),
     )
+    _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+        "operation_id": operation_id,
+        "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
+        "pair_count": len(bundle_pairs),
+        "bundle_assembly_seconds": perf_counter() - bundle_started,
+    }, sort_keys=True))
     if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
         diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
         raise PreviewJobError(f"bundle assembly failed: {diagnostic}")
@@ -2034,6 +2081,7 @@ def _run_pair_pipeline(
     assess_identity: bool,
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    dedup_session: ComparisonTaskSession | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -2047,6 +2095,7 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             assess_identity=assess_identity,
             identity_before_table_set=identity_before_table_set, repository_id=repository_id, export_cache=export_cache,
+            dedup_session=dedup_session,
         )
     except PairPipelineCancelled:
         raise

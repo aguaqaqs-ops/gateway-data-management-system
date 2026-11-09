@@ -8,14 +8,15 @@ Downstream consumers may import this module only.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Hashable, Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import StrEnum
 from time import monotonic
-from typing import Callable, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Iterator, Protocol, TypeAlias, runtime_checkable
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
-from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_shared_kernel.jcs import canonical_json_digest, canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.storage_projection.contracts import (
@@ -23,8 +24,12 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     CanonicalizationManifest,
     CanonicalizationManifestTable,
     MAX_REPLAY_SQL_BYTES as _STORAGE_PROJECTION_MAX_REPLAY_SQL_BYTES,
+    RepositoryImportTable,
     StorageRuleView,
 )
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 MUTATION_CONTRACT_VERSION = "backend-vnext/storage-mutation/v1"
 CHANGE_SET_ARTIFACT_CONTRACT_VERSION = "backend-vnext/change-set-artifact/v1"
@@ -53,6 +58,196 @@ class TableMutationKind(StrEnum):
     REBUILD_TABLE = "REBUILD_TABLE"
     PATCH_DML = "PATCH_DML"
     NOOP = "NOOP"
+
+
+@dataclass(frozen=True, slots=True)
+class StorageTableSideV1:
+    """One side of an in-process storage task; a present empty stream has a schema."""
+
+    manifest_table: CanonicalizationManifestTable
+    storage_view: StorageRuleView
+    storage_projection_version: str
+    stream: pa.RecordBatchReader | None = None
+    schema: pa.Schema | None = None
+    input_owner: object | None = None
+    metadata_manifest: CanonicalizationManifest | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.manifest_table) is not CanonicalizationManifestTable:
+            raise ValueError("manifest_table must be CanonicalizationManifestTable")
+        if type(self.storage_view) is not StorageRuleView:
+            raise ValueError("storage_view must be StorageRuleView")
+        if self.storage_view.canonical_table != self.manifest_table.name:
+            raise ValueError("storage view and manifest table must name the same table")
+        if (
+            self.storage_view.canonical_key_policy != self.manifest_table.canonical_key_policy
+            or self.storage_view.ordered_policy != self.manifest_table.ordered_policy
+            or self.storage_view.retained_columns != self.manifest_table.retained_columns
+            or self.storage_view.canonical_key_columns != self.manifest_table.canonical_key_columns
+            or self.storage_view.dropped_columns != self.manifest_table.dropped_columns
+            or self.storage_view.structural_columns != self.manifest_table.structural_columns
+        ):
+            raise ValueError("storage view and manifest table identity disagree")
+        if type(self.storage_projection_version) is not str or not self.storage_projection_version:
+            raise ValueError("storage_projection_version must be a non-empty string")
+        if (self.stream is None) != (self.schema is None):
+            raise ValueError("stream and its explicit schema must be present together")
+        if (self.stream is None) != (self.input_owner is None):
+            raise ValueError("present Arrow stream requires its charged input owner")
+        manifest = self.metadata_manifest
+        if manifest is None or type(manifest) is not CanonicalizationManifest:
+            raise ValueError("storage side requires its complete canonicalization manifest")
+        if self.manifest_table not in manifest.tables:
+            raise ValueError("storage side table is absent from its complete manifest")
+        if manifest.storage_projection_version != self.storage_projection_version:
+            raise ValueError("storage side projection version differs from its complete manifest")
+
+
+@dataclass(frozen=True, slots=True)
+class StorageTableTaskV1:
+    """Ephemeral Submit input; absence of a side differs from a zero-row side."""
+
+    canonical_table: str
+    before: StorageTableSideV1 | None
+    after: StorageTableSideV1 | None
+    ddl_layout: RepositoryImportTable | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "canonical_table", canonicalize_identifier(self.canonical_table))
+        if self.before is None and self.after is None:
+            raise ValueError("storage task must have a before or after side")
+        for side in (self.before, self.after):
+            if side is not None and side.manifest_table.name != self.canonical_table:
+                raise ValueError("storage task sides must name canonical_table")
+        if self.after is None:
+            if self.ddl_layout is not None:
+                raise ValueError("deleted table must not have DDL layout")
+        elif self.ddl_layout is None or self.ddl_layout.name != self.canonical_table:
+            raise ValueError("present after table requires matching DDL layout")
+        elif self.after.stream is None:
+            raise ValueError("present after table requires an Arrow stream, even when empty")
+        elif self.ddl_layout.row_count != self.after.manifest_table.canonical_row_count:
+            raise ValueError("DDL row count must match the after manifest")
+
+
+@dataclass(frozen=True, slots=True)
+class StorageNetCounts:
+    inserted: int
+    updated: int
+    deleted: int
+
+    def __post_init__(self) -> None:
+        for label in ("inserted", "updated", "deleted"):
+            if type(getattr(self, label)) is not int or getattr(self, label) < 0:
+                raise ValueError(f"{label} must be a non-negative int")
+
+    @property
+    def changed(self) -> int:
+        return self.inserted + self.updated + self.deleted
+
+
+@dataclass(frozen=True, slots=True)
+class StorageTableSummary:
+    """Small native facts; unknown net diff is None, never a fabricated zero."""
+
+    before_rows: int
+    after_rows: int
+    net_counts: StorageNetCounts | None
+    before_identity_validated: bool
+    after_identity_validated: bool
+
+    def __post_init__(self) -> None:
+        for label in ("before_rows", "after_rows"):
+            if type(getattr(self, label)) is not int or getattr(self, label) < 0:
+                raise ValueError(f"{label} must be a non-negative int")
+        if self.net_counts is not None and type(self.net_counts) is not StorageNetCounts:
+            raise ValueError("net_counts must be StorageNetCounts or None")
+        for label in ("before_identity_validated", "after_identity_validated"):
+            if type(getattr(self, label)) is not bool:
+                raise ValueError(f"{label} must be bool")
+
+
+@dataclass(frozen=True, slots=True)
+class StorageTableDecision:
+    operation: TableMutationKind
+    reason: str
+    replay_insert_rows: int
+
+    def __post_init__(self) -> None:
+        if type(self.operation) is not TableMutationKind:
+            raise ValueError("operation must be TableMutationKind")
+        if type(self.reason) is not str or not self.reason:
+            raise ValueError("reason must be a non-empty string")
+        if type(self.replay_insert_rows) is not int or self.replay_insert_rows < 0:
+            raise ValueError("replay_insert_rows must be a non-negative int")
+        if self.operation is TableMutationKind.NOOP and self.replay_insert_rows != 0:
+            raise ValueError("NOOP must not insert rows")
+
+
+class StorageTableHandle(Protocol):
+    """B/C owner; C calls apply_decision before rendering any SQL bytes."""
+
+    def summary(self) -> StorageTableSummary: ...
+
+    def apply_decision(self, decision: StorageTableDecision) -> None: ...
+
+    def render(self, decision: StorageTableDecision) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
+class StorageTableReservation(Protocol):
+    def close(self) -> None: ...
+
+    def shrink_to(self, size: int) -> None: ...
+
+
+class StorageTableBudget(Protocol):
+    """The existing operation M ledger; the native portion is charged within it."""
+
+    @property
+    def limit_bytes(self) -> int: ...
+
+    @property
+    def used_bytes(self) -> int: ...
+
+    @property
+    def available_bytes(self) -> int: ...
+
+    def ensure(self, extra_bytes: int) -> None: ...
+
+    def reserve(
+        self, size: int, *, backing: Hashable | None = None
+    ) -> StorageTableReservation: ...
+
+
+class StorageTableOperation(Protocol):
+    """Typing view of the active KernelExecutionContext; not an initializer."""
+
+    @property
+    def memory(self) -> StorageTableBudget: ...
+
+    @property
+    def cancel_probe(self) -> MutationCancellationProbe: ...
+
+    @property
+    def threads(self) -> int: ...
+
+    @property
+    def deadline_monotonic(self) -> float | None: ...
+
+    @property
+    def resources(self) -> ExitStack: ...
+
+    def checkpoint(self) -> None: ...
+
+
+class StorageTablePreparer(Protocol):
+    """B supplies this entry point; operation is the caller's active M/N scope."""
+
+    def __call__(
+        self, task: StorageTableTaskV1, operation: StorageTableOperation
+    ) -> StorageTableHandle: ...
 
 
 class RowMutationOperation(StrEnum):
@@ -763,9 +958,7 @@ def compute_change_set_digest(mutations: Sequence[ChangeSetMutation]) -> DigestR
     if any(type(item) is not ChangeSetMutation for item in mutations):
         raise ValueError("mutations must contain ChangeSetMutation")
     validate_change_set_ordering(tuple(mutations))
-    return raw_blob_digest(
-        canonicalize_json_value({"mutations": change_set_mutations_payload(mutations)})
-    )
+    return canonical_json_digest({"mutations": change_set_mutations_payload(mutations)})
 
 
 def change_set_closure_document(artifact: ChangeSetArtifact) -> dict[str, object]:
@@ -778,7 +971,7 @@ def change_set_closure_document(artifact: ChangeSetArtifact) -> dict[str, object
 
 
 def compute_change_set_closure_digest(artifact: ChangeSetArtifact) -> DigestRef:
-    return raw_blob_digest(canonicalize_json_value(change_set_closure_document(artifact)))
+    return canonical_json_digest(change_set_closure_document(artifact))
 
 
 def validate_change_set_ordering(mutations: Sequence[ChangeSetMutation]) -> None:

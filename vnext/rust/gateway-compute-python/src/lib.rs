@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 
 mod business;
+mod comparison_records;
+mod sql_replay;
+mod storage_mutation;
 
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -14,7 +17,8 @@ use arrow_array::{Array, ArrayRef, LargeBinaryArray, RecordBatch, RecordBatchRea
 use arrow_schema::{ArrowError, Field, Schema};
 use gateway_compute_core::canonical_ipc::{
     CanonicalIpcBudgets, CanonicalIpcControl, CanonicalIpcError, CanonicalIpcErrorKind,
-    CanonicalIpcOptions, encode_v1, inspect_v1, set_declared_type_from_parts,
+    CanonicalIpcOptions, comparison_profile_v1, encode_v1, inspect_v1,
+    set_declared_type_from_parts,
 };
 use gateway_compute_core::table_access::{
     ColumnDescriptor, DeclaredTypeMetadata, ParsedTable, ParserBudgets, ParserDiagnosticCode,
@@ -28,7 +32,7 @@ use pyo3::prelude::*;
 use pyo3::types::{
     PyAny, PyBool, PyBytes, PyDict, PyInt, PyList, PyModule, PyString, PyStringMethods,
 };
-use pyo3_arrow::PyRecordBatchReader;
+use pyo3_arrow::{PyRecordBatchReader, PySchema};
 use rayon::ThreadPool;
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -1052,6 +1056,66 @@ fn _encode_canonical_ipc_native(
     }
 }
 
+/// Bind only the small canonical schema profile for a retained Arrow table.
+/// This does not consume a C Stream or encode table values.
+#[pyfunction]
+#[pyo3(signature = (columns, input_schema, cancel_probe, budgets, deadline_monotonic=None))]
+fn _canonical_comparison_profile_native(
+    py: Python<'_>,
+    columns: Bound<'_, PyList>,
+    input_schema: PySchema,
+    cancel_probe: Py<PyAny>,
+    budgets: Bound<'_, PyDict>,
+    deadline_monotonic: Option<f64>,
+) -> PyResult<(Py<PyAny>, Vec<usize>)> {
+    match adapter_boundary(|| {
+        let deadline = deadline_instant(py, deadline_monotonic)?;
+        let budgets = canonical_budgets(&budgets)?;
+        let watch = register_cancel_probe(py, &cancel_probe)?;
+        python_adapter_control(&watch, deadline)?;
+        let preflight = descriptor_preflight(&columns, budgets, &watch, deadline)?;
+        let descriptors = parse_column_descriptors(&columns, preflight, &watch, deadline)?;
+        let owned = actual_descriptor_storage_bytes(&descriptors, descriptors.capacity())?
+            .checked_add(preflight.string_cache_upper_bytes)
+            .ok_or_else(|| PyMemoryError::new_err("canonical descriptor storage overflow"))?;
+        if owned > budgets.max_codec_peak_bytes {
+            return Err(PyMemoryError::new_err(
+                "canonical descriptor exceeds peak budget",
+            ));
+        }
+        let mut core_budgets = budgets;
+        core_budgets.max_codec_peak_bytes -= owned;
+        let input_schema = input_schema.into_inner();
+        let (schema, indices) = py
+            .detach(|| {
+                comparison_profile_v1(
+                    &descriptors,
+                    input_schema.as_ref(),
+                    CanonicalIpcOptions {
+                        budgets: core_budgets,
+                        control: CanonicalIpcControl {
+                            cancel: Some(watch.cancelled.as_ref()),
+                            deadline,
+                        },
+                    },
+                )
+            })
+            .map_err(|error| match error.kind() {
+                CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Deadline => PyTimeoutError::new_err(error.to_string()),
+                _ => PyValueError::new_err(error.to_string()),
+            })?;
+        python_adapter_control(&watch, deadline)?;
+        Ok((PySchema::new(schema).into_pyarrow(py)?.unbind(), indices))
+    }) {
+        Ok(result) => result,
+        Err(()) => Err(PyRuntimeError::new_err(
+            "canonical profile adapter panicked",
+        )),
+    }
+}
+
 struct SingleBatchReader {
     schema: Arc<Schema>,
     batch: Option<RecordBatch>,
@@ -1377,9 +1441,16 @@ const BUILD_INPUT: &str = match option_env!("GATEWAY_RUST_BUILD_INPUT") {
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
+    comparison_records::register(module)?;
+    storage_mutation::register(module)?;
+    sql_replay::register(module)?;
     module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        _canonical_comparison_profile_native,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(_inspect_canonical_ipc_native, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("__build_input__", BUILD_INPUT)?;

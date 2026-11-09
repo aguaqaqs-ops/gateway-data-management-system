@@ -4,13 +4,20 @@ from gateway_backend.capabilities.snapshot_materialization.arrow import (
     ArrowSnapshotTableReader, operation_business_budgets, operation_codec_budgets,
     snapshot_arrow_input, snapshot_table_from_arrow,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context, source_descriptor_from_arrow
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, KernelMemoryLimit, TableAccessError, current_kernel_context, require_active_kernel_context,
+    source_descriptor_from_arrow,
+)
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
     ArtifactReadHandle,
     CanonicalTableStore,
+    canonical_comparison_profile,
     canonical_columns,
     canonical_table_key,
     check_canonical_descriptor_budget,
+)
+from gateway_backend.capabilities.snapshot_materialization.canonical_view import (
+    CanonicalInputOwner, canonical_comparison_input, fresh_canonical_view_budget,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
 from gateway_backend.capabilities.snapshot_materialization.native import (
@@ -142,7 +149,8 @@ __all__ = [
     "export_snapshot_table_parquet",
     "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
     "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
-    "current_kernel_context", "source_descriptor_from_arrow",
+    "current_kernel_context", "require_active_kernel_context", "KernelExecutionContext", "KernelMemoryLimit", "source_descriptor_from_arrow",
+    "TableAccessError",
     "ArrowMetadata",
     "KernelBudgets",
     "KernelResult",
@@ -150,6 +158,8 @@ __all__ = [
     "check_metadata_budget",
     "ArtifactReadHandle",
     "CanonicalTableStore",
+    "canonical_comparison_profile",
+    "CanonicalInputOwner", "canonical_comparison_input", "fresh_canonical_view_budget",
     "canonical_columns",
     "canonical_table_key",
     "check_canonical_descriptor_budget",

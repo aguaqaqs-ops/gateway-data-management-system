@@ -226,7 +226,7 @@ def _materialize_open_session(
             if identity is None:
                 raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                             "selected repository table is missing its canonical content identity", table=name)
-            descriptor = _describe_without_rows(request, catalog_table, identity, stage)
+            descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
             table = request.committed_tables.load_table(commit_id=pinned, descriptor=descriptor, identity=identity,
                 storage_view=storage_view, context=request.context, timeout_policy=request.timeout_policy)
             table_diagnostics = table.diagnostics
@@ -242,12 +242,7 @@ def _materialize_open_session(
                 )
         else:
             identity = identities[name]
-            descriptor = _describe_without_rows(
-                request,
-                catalog_table,
-                identity,
-                stage,
-            )
+            descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
             table = None
             table_diagnostics = ()
         descriptors.append(descriptor)
@@ -326,6 +321,7 @@ def _describe_without_rows(
     catalog_table: RepositoryCatalogTable,
     identity: CanonicalTableIdentity,
     stage: MaterializationStage,
+    storage_view: StorageRuleView,
 ) -> SnapshotTableDescriptor:
     table_name = canonicalize_identifier(catalog_table.table_name)
     mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
@@ -339,14 +335,18 @@ def _describe_without_rows(
         ),
         reader_ready=True,
     )
-    try:
-        compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
-    except CompareKeyError as exc:
-        raise _Halt(
-            MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
-            str(exc),
-            table=table_name,
-        ) from exc
+    if request.frozen_storage_only:
+        compare_keys = storage_view.canonical_key_columns
+    else:
+        assert request.ruleset is not None
+        try:
+            compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
+        except CompareKeyError as exc:
+            raise _Halt(
+                MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
+                str(exc),
+                table=table_name,
+            ) from exc
     if catalog_table.row_count is not None and catalog_table.row_count != identity.row_count:
         raise _Halt(
             MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH,
@@ -454,6 +454,14 @@ def _export_names(
 def _ruleset_mismatch(
     request: RepositoryRefMaterializationRequest,
 ) -> MaterializationDiagnostic | None:
+    if request.frozen_storage_only:
+        if request.table_ruleset_version == TABLE_RULESET_VERSION:
+            return None
+        return _error(
+            MaterializationDiagnosticCode.RULESET_VERSION_MISMATCH,
+            "table_ruleset_version does not match the frozen storage reader",
+        )
+    assert request.ruleset is not None
     if (
         request.table_ruleset_version != request.ruleset.table_ruleset_version
         or request.table_ruleset_version != TABLE_RULESET_VERSION

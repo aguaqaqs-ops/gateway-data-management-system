@@ -70,7 +70,10 @@ changed_row_count / max(before_row_count, after_row_count, 1)
 - canonical key 变化表达为 `DELETE + INSERT`，计两次 physical mutation。
 - 同一 key 的中间变化先归并为最终 before/after；最终无变化为 `NOOP`。
 - `StorageMutationPlan` 使用 canonical storage key，而非仅用于前端 comparison 的
-  `effective compare key`。二者不一致的表首版自动 rebuild。
+  `effective compare key`。生产 Submit 独立按稳定、唯一的存储键及完整 persisted 列判断
+  patch；比较键不同本身不构成 rebuild 条件（Owner 2026-11-08，DC94，澄清 DC45 与
+  ADR0014 的现行边界）。不得以 comparison records、共有列或显示身份替代存储输入；
+  不稳定/缺失键、schema/key/storage projection 变化及其他不合格项仍按 §3 处理。
 
 ## 5. ChangeSetArtifact
 
@@ -129,8 +132,12 @@ parameterized command stream。renderer capability 必须参与 plan identity；
 发现不支持时返回稳定的 `TARGET_CAPABILITY_UNSUPPORTED`，不得偷偷改变 plan。
 
 artifact 在 Preview/Submit reuse、Dolt replay、可选 external ChangeSet、readback/audit
-完成前保持 pinned。缺失、损坏或 digest 不匹配时，Submit 可从 durable source fallback
-或要求新的 upload attempt。
+完成前保持 pinned。生产 Submit 的冻结/恢复以 Canonical Storage §5 的 prepare checkpoint
+分界为准（Owner 2026-11-08 DC94）：T1 后冻结规范输入缺失或损坏稳定失败，不从 durable
+SourcePackage 重建；prepare checkpoint 持久化后必须复用其包/ref/raw SHA，缺失不得
+重建包或换 key。T1 前可重新 Preview；需要重传时创建新 attempt，不能覆盖已有 effect。
+可选 external ChangeSet 的 source/readback/full-resync 沿该目标 owning Contract，不将
+外部目标的恢复能力套用于已冻结的 Submit。
 
 ## 8. Verification
 
@@ -138,3 +145,62 @@ artifact 在 Preview/Submit reuse、Dolt replay、可选 external ChangeSet、re
 before-image conflict、input reorder、unsupported type、replay size admission、
 renderer failure、retry、crash 和 readback mismatch。前端 comparison records 不能直接
 作为 mutation source。
+
+## 9. Submit 的表级进程内边界（Phase 6 S4）
+
+Submit 可直接消费冻结的完整 canonical storage IPC 与精确 parent 表，逐表生成同一
+`replay.sql`，无需构造无消费者的通用 `ChangeSetArtifact`。通用 planner/ChangeSet 与外部
+target 的完整计数、digest 和 renderer 契约仍保留。此边界不新增 durable artifact、版本轴或
+业务状态；`StorageTableTaskV1` 的 V1 仅标识进程内输入形状。
+
+```text
+StorageTableTaskV1(table, before?, after?, after_ddl_layout)
+  side = manifest table + storage view + projection version + Arrow C stream/schema
+prepare_storage_table(task, caller_operation) -> StorageTableHandle
+handle.summary() -> StorageTableSummary
+choose_table_mutation(metadata, summary, frozen_threshold) -> StorageTableDecision
+handle.render(decision) -> bounded bytes chunks
+handle.close()
+```
+
+缺侧表示表不存在；存在的零行表仍有显式 schema 的空 stream。after 存在时须有完整
+stream 和 DDL layout。before 在强制 rebuild 时可只带 metadata；若拟 patch，必须从精确
+parent 读取完整 before，校验 count/content 与绑定并拒绝重复 storage key。NOOP 也要打开并
+核验冻结 after 输入，不能只信 manifest。读取 parent 的 frozen-storage materializer 不读取当前 comparison ruleset，只用完整 parent
+canonical binding 的 storage view 建立内部 reader；精确 commit、全 catalog/count/content
+校验仍须通过。`StorageTableSummary.net_counts=None` 明确表示未
+读取 before 或未做 diff，不得伪填 0 或 before+after；已完成 diff 的 insert/update/delete
+计数为最终净变化，多列同键更新计一行、键变计 delete+insert。强制 rebuild 的实际 INSERT
+数单列记录，不能冒充净 diff。最多保留 1000 个 patch action locator；超限后仍完成计数。
+
+Python Mutation Planning 是唯一表级策略 owner：INITIAL/新增、删除、projection/schema/key/
+retained/storage view 变化、keyless/不稳定键和 before=0 时不读取无用 parent 行而按既定
+规则 rebuild/drop；可比较 keyed 表的零净差 NOOP，否则同时满足 changed≤1000 与
+`100*changed≤max(before,after,1)` 才 patch。source schema 独变且完整 storage diff 为零的
+候选可 NOOP；该例外不扩展到不读 parent 的 keyless。非法 profile、重复键、坏绑定和未建模
+副作用必须在 effect 前失败，不能通过 rebuild 隐藏。ordered `gid/no` 仅 `gid` 是 storage
+key，`no` 为普通 persisted 列；comparison effective key 不参与此选择。
+
+排序与 hash 域分开：表名和 persisted INSERT/UPDATE 列名按 UTF-8；key 列数组先按
+canonical 名 UTF-8 排列，key document 的 JSON object 再按 JCS UTF-16 排序，按完整
+JCS UTF-8 bytes 比较（整数十进制字符串不做数值比较）；keyless rebuild 保留重复行，
+以 `JCS([]), mutation row_digest` 排序。mutation row digest 使用 Shared Kernel row frame，
+不能用 IPC raw digest 或业务表 SET sequence frame 代替。SQL 全部删除表 DROP 在前，
+接全部 rebuild DROP+CREATE，最后才按表名及 DELETE→UPDATE→INSERT 顺序输出 DML。
+
+`caller_operation` 必须是调用方已开启的有效 `KernelExecutionContext`，使用同一个 M、N、
+cancel/deadline 与共享池；contracts.py 的内部 `StorageTableOperation` Protocol 只作
+静态 typing view，不是独立预算会话、运行时初始化或绕过 active/closed context 检查。
+Arrow C Stream 所有权转移后，table handle 保持当前表的 stream、mapping、native leases
+与未消费 chunk 有效；render 只发有界 bytes chunk。关闭顺序为完成/停止 render、释放 native
+Arrow/index/chunk、关闭 stream/reader/mmap，再退还 native 子额度并打开下一表。package
+汇集仍在同一 M 的既有 package envelope，不能与 native 子额度重复计费；返回 bytes 的最后
+使用者须保留相应 charge。异常按同序释放，不依赖 GC。
+
+native code/message 及有界 stage/table 诊断映射到现有边界：取消为 `InterruptedError`，
+截止为 `TimeoutError`，预算为 `KernelMemoryLimit`；普通输入/能力/SQL cap 通过现
+ImportReplay/SubmitPublication 错误边界，通用 renderer 继续以 `ReplayRenderOutcome`
+返回 `TARGET_CAPABILITY_UNSUPPORTED` 或 `RESOURCE_EXCEEDED` failure code。
+panic 属内部失败，不返回部分 SQL、不假装 unsupported；不新增 HTTP/Repository public
+failure code。通用 `render_change_set_replay` 与 schema replay facade 在迁移后要求显式
+`context: KernelExecutionContext`，仍保留原返回形状；Submit 使用同一 operation。

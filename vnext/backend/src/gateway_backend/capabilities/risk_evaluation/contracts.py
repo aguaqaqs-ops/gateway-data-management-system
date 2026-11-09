@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Hashable, Mapping, Sequence
+from contextlib import ExitStack
+from dataclasses import dataclass, field
 from enum import StrEnum
 from time import monotonic
 from typing import Callable, Protocol, TypeAlias, runtime_checkable
@@ -155,6 +156,32 @@ class RiskCancellationProbe(Protocol):
         ...
 
 
+class RiskReservationPort(Protocol):
+    def close(self) -> None: ...
+
+    def shrink_to(self, size: int) -> None: ...
+
+    def __enter__(self) -> RiskReservationPort: ...
+
+    def __exit__(self, *args: object) -> None: ...
+
+
+class RiskMemoryPort(Protocol):
+    def reserve(self, size: int, *, backing: Hashable | None = None) -> RiskReservationPort: ...
+
+
+class RiskOperationPort(Protocol):
+    """The caller's existing operation budget; Risk does not own its lifetime."""
+
+    @property
+    def memory(self) -> RiskMemoryPort: ...
+
+    @property
+    def resources(self) -> ExitStack: ...
+
+    def checkpoint(self) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RiskExecutionContext:
     """Non-semantic cancellation/deadline context supplied by the caller."""
@@ -162,6 +189,7 @@ class RiskExecutionContext:
     cancel_requested: RiskCancellationProbe | None = None
     deadline_monotonic: float | None = None
     clock: Callable[[], float] = monotonic
+    operation: RiskOperationPort | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.cancel_requested is not None and not isinstance(self.cancel_requested, RiskCancellationProbe):
@@ -1116,6 +1144,11 @@ class RiskEvaluationInput:
     risk_options: RiskOptions = RiskOptions()
     artifact_policy: RiskArtifactPolicy = RiskArtifactPolicy()
     cache_policy: RiskCachePolicy | None = None
+    # Transient facts-order Arrow views; excluded from the persisted digest/DTO.
+    record_views: Mapping[str, object] | None = None
+    record_view_metrics: dict[str, float] | None = None
+    risk_cache_session: object | None = None
+    risk_task_keys: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         if type(self.comparison_facts) is not ComparisonFacts:

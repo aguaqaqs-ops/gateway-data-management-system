@@ -28,6 +28,11 @@ class KernelMemoryLimit(MemoryError):
 
 
 @dataclass
+class _OperationLifetime:
+    closed: bool = False
+
+
+@dataclass
 class _LiveEntry:
     size: int
     borrowers: int = 1
@@ -50,6 +55,12 @@ class Reservation:
         if self._closed or len(self._keys) != 1:
             raise ValueError("only a live single reservation can bind a backing")
         self._keys = (self._owner.bind_backing(self._keys[0], backing),)
+
+    def shrink_to(self, size: int) -> None:
+        """Return unused bytes from one unshared phase reservation."""
+        if self._closed or len(self._keys) != 1:
+            raise ValueError("only a live single reservation can shrink")
+        self._owner.shrink(self._keys[0], size)
 
     def __enter__(self) -> Reservation:
         return self
@@ -112,6 +123,13 @@ class OperationMemoryBudget:
             self._live[new] = entry
         del self._live[old]
         return new
+
+    def shrink(self, key: Hashable, size: int) -> None:
+        entry = self._live[key]
+        if type(size) is not int or size < 0 or size > entry.size or entry.borrowers != 1:
+            raise ValueError("phase reservation shrink requires one borrower and a smaller size")
+        self.used_bytes -= entry.size - size
+        entry.size = size
 
     def retain_metadata(self, value: object, size: int) -> None:
         # Descriptors escape individual reader.close() through summaries and
@@ -182,6 +200,7 @@ class KernelExecutionContext:
     threads: int
     deadline_monotonic: float | None = None
     resources: ExitStack = field(default_factory=ExitStack, repr=False, compare=False)
+    _lifetime: _OperationLifetime = field(default_factory=_OperationLifetime, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if type(self.threads) is not int or not 1 <= self.threads <= 256:
@@ -192,10 +211,27 @@ class KernelExecutionContext:
             raise ValueError("kernel deadline must be finite or None")
 
     def checkpoint(self) -> None:
+        if self._lifetime.closed:
+            raise ValueError("kernel operation context is closed")
         if self.cancel_probe.is_set():
             raise KernelStopped("operation control stopped compute")
         if self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic:
             raise TimeoutError("operation compute deadline elapsed")
+
+    def require_active(self) -> None:
+        """Authenticate the current operation instance, including merged control scopes."""
+        active = _active_context.get()
+        if active is not self or self._lifetime.closed:
+            raise ValueError("kernel operation context is not active")
+        self.checkpoint()
+
+    def require_same_operation(self, other: object) -> None:
+        """Check a retained reader's budget and lifetime against this active scope."""
+        self.require_active()
+        if (type(other) is not KernelExecutionContext
+                or other.memory is not self.memory
+                or other._lifetime is not self._lifetime):
+            raise ValueError("Arrow reader belongs to another kernel operation")
 
 
 _active_context: ContextVar[KernelExecutionContext | None] = ContextVar("operation_kernel_context", default=None)
@@ -205,8 +241,18 @@ def current_kernel_context() -> KernelExecutionContext | None:
     return _active_context.get()
 
 
+def require_active_kernel_context(value: object) -> KernelExecutionContext:
+    """Reject structural lookalikes at a capability's native entry point."""
+    if type(value) is not KernelExecutionContext:
+        raise ValueError("a real kernel operation context is required")
+    value.require_active()
+    return value
+
+
 @contextmanager
 def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bool = False) -> Iterator[KernelExecutionContext]:
+    if context._lifetime.closed:
+        raise ValueError("kernel operation context is closed")
     previous = _active_context.get()
     if previous is not None and not new_operation:
         if previous is not context:
@@ -218,6 +264,7 @@ def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bo
         yield context
     finally:
         _active_context.reset(token)
+        context._lifetime.closed = True
         try:
             context.resources.close()
         finally:
@@ -238,7 +285,8 @@ def merge_kernel_control(
 ) -> KernelExecutionContext:
     deadlines = tuple(d for d in (context.deadline_monotonic, deadline_monotonic) if d is not None)
     return KernelExecutionContext(context.memory, CombinedCancelProbe(context.cancel_probe, probe),
-                                  context.threads, min(deadlines) if deadlines else None, context.resources)
+                                  context.threads, min(deadlines) if deadlines else None,
+                                  context.resources, context._lifetime)
 
 
 @contextmanager

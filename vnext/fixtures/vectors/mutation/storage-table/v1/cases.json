@@ -1,0 +1,79 @@
+{
+  "case_schema_version": 1,
+  "provenance": "Independent arithmetic and literal SQL transcription from the accepted Storage Mutation contract and S1a SQL grammar; no S4 Rust output was used.",
+  "float_15g": [
+    {"input_kind": "float64", "decimal_value": "0.0001", "expected_sql": "0.0001", "reason": "rounded decimal exponent -4 uses fixed form"},
+    {"input_kind": "float64", "decimal_value": "0.00001", "expected_sql": "1e-05", "reason": "exponent -5 uses scientific form with two exponent digits"},
+    {"input_kind": "float64", "decimal_value": "100000000000000", "expected_sql": "100000000000000", "reason": "exponent 14 uses fixed form"},
+    {"input_kind": "float64", "decimal_value": "1000000000000000", "expected_sql": "1e+15", "reason": "exponent 15 uses scientific form and explicit plus"},
+    {"input_kind": "float64", "decimal_value": "1.2345678901234567", "expected_sql": "1.23456789012346", "reason": "15 significant digits; sixteenth digit 6 rounds upward"},
+    {"input_kind": "float64", "decimal_value": "-0", "expected_sql": "0", "reason": "SQL negative zero canonicalizes to zero"},
+    {"input_kind": "float32", "bits_hex": "3dcccccd", "exact_binary64_value": "0.100000001490116119384765625", "expected_sql": "0.100000001490116", "reason": "binary32 0.1 expands exactly to binary64 before .15g"},
+    {"input_kind": "float32", "bits_hex": "3fc00000", "exact_binary64_value": "1.5", "expected_sql": "1.5", "reason": "exact binary32 value"}
+  ],
+  "jcs_storage_keys": [
+    {
+      "input_columns": [{"column": "a", "value": {"kind": "signed-integer", "decimal": "10"}}, {"column": "z", "value": {"kind": "signed-integer", "decimal": "2"}}],
+      "expected_key_document_utf8": "[{\"column\":\"a\",\"value\":{\"decimal\":\"10\",\"kind\":\"signed-integer\"}},{\"column\":\"z\",\"value\":{\"decimal\":\"2\",\"kind\":\"signed-integer\"}}]",
+      "reason": "caller supplies canonical column array in UTF-8 order; object properties sorted by JCS"
+    },
+    {
+      "input_columns": [{"column": "k", "value": {"kind": "signed-integer", "decimal": "10"}}],
+      "expected_key_document_utf8": "[{\"column\":\"k\",\"value\":{\"decimal\":\"10\",\"kind\":\"signed-integer\"}}]",
+      "reason": "the first key of the same-column decimal-string ordering pair"
+    },
+    {
+      "input_columns": [{"column": "k", "value": {"kind": "signed-integer", "decimal": "2"}}],
+      "expected_key_document_utf8": "[{\"column\":\"k\",\"value\":{\"decimal\":\"2\",\"kind\":\"signed-integer\"}}]",
+      "reason": "string 10 sorts before string 2 in JCS key bytes; numeric order would reverse them"
+    }
+  ],
+  "jcs_property_order": {
+    "input": {"": 1, "𐀀": 2},
+    "expected_utf8": "{\"𐀀\":2,\"\":1}",
+    "reason": "JCS property order is UTF-16: D800 DC00 precedes E000, although UTF-8 order differs"
+  },
+  "keyless_rebuild_sort": {
+    "input_row_ids_and_mutation_digests": [["late", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], ["first", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], ["repeat", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]],
+    "expected_mutation_digest_order": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+    "expected_sort_key": "(JCS([]), mutation row digest)",
+    "reason": "hashes are fixed illustrative sort inputs, not claimed row-hash outputs; duplicate rows are retained and identical digest ties are equivalent; physical IPC order and raw-content digest do not sort replay"
+  },
+  "net_diff": [
+    {"before": [["k1", "a", "b"]], "after": [["k1", "c", "d"]], "expected": {"inserted": 0, "updated": 1, "deleted": 0, "changed": 1}, "reason": "two changed persisted columns on one stable key are one UPDATE"},
+    {"before": [["k1", "a"]], "after": [["k2", "a"]], "expected": {"inserted": 1, "updated": 0, "deleted": 1, "changed": 2}, "reason": "key change is DELETE plus INSERT"},
+    {"before": [["k1", "a"]], "after": [["k1", "a"]], "expected": {"inserted": 0, "updated": 0, "deleted": 0, "changed": 0}, "reason": "final unchanged image is NOOP"},
+    {"before": [["duplicate", "a"], ["duplicate", "a"]], "after": [["duplicate", "a"], ["duplicate", "b"]], "keyless": true, "expected": {"inserted": 1, "updated": 0, "deleted": 1, "changed": 2}, "reason": "keyless multiset net diff preserves multiplicity; Submit may rebuild without computing it"}
+  ],
+  "patch_threshold": [
+    {"changed": 0, "before_rows": 100, "after_rows": 100, "expected": "NOOP"},
+    {"changed": 1, "before_rows": 100, "after_rows": 100, "expected": "PATCH_DML"},
+    {"changed": 1, "before_rows": 99, "after_rows": 99, "expected": "REBUILD_TABLE"},
+    {"changed": 999, "before_rows": 99899, "after_rows": 99899, "expected": "REBUILD_TABLE"},
+    {"changed": 1000, "before_rows": 100000, "after_rows": 100000, "expected": "PATCH_DML"},
+    {"changed": 1001, "before_rows": 100100, "after_rows": 100100, "expected": "REBUILD_TABLE"}
+  ],
+  "sql_order_and_ddl_prefix": {
+    "removed_tables": ["z"],
+    "rebuild_tables": ["a", "b"],
+    "ddl_layout": {"a": [["id", "INT", false], ["v", "TEXT", true]], "b": [["k", "BIGINT", false]]},
+    "expected_prefix_utf8": "DROP TABLE IF EXISTS `z`;\nDROP TABLE IF EXISTS `a`;\nCREATE TABLE `a` (`id` INT NOT NULL, `v` TEXT NULL, PRIMARY KEY (`id`));\nDROP TABLE IF EXISTS `b`;\nCREATE TABLE `b` (`k` BIGINT NOT NULL);\n",
+    "reason": "all deleted-table DDL first; rebuild DROP+CREATE next; all DML follows this complete prefix"
+  },
+  "delete_batch_lengths": {
+    "single_key_table_t_prefix_bytes": 30,
+    "suffix_bytes": 3,
+    "separator_bytes": 1,
+    "byte_cap": 4194304,
+    "max_rows_per_window": 256,
+    "one_byte_key_255_rows_statement_bytes": 542,
+    "one_byte_key_256_rows_statement_bytes": 544,
+    "one_byte_key_257_rows_statement_bytes": [544, 34],
+    "exact_cap_single_key_token_bytes": 4194271,
+    "over_cap_single_key_token_bytes": 4194272,
+    "window_crossing_input": "254 one-byte keys, then one exact-cap key token, then two one-byte keys",
+    "window_crossing_expected_batch_rows": [254, 1, 1, 1],
+    "reason": "a byte flush inside an original 256-row window does not restart the window; a >4MiB single row remains one statement"
+  },
+  "replay_cap": {"max_total_ddl_plus_dml_bytes": 209715200, "exact_cap": "accept", "cap_plus_one": "RESOURCE_EXCEEDED"}
+}

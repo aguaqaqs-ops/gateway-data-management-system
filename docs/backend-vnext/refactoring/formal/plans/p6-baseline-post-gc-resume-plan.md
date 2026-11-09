@@ -30,15 +30,19 @@
 | 已完成 t1–t4、2× core（W1/W2/W3、S1–S3、H1）、W3-FULL/H1-FULL、H1-REFILL、H2 两/三节点、H3 | 保留各原 run 的 HEAD/镜像/节点及实际完成结论，逐项引用旧记录；不重测、不改记为9704。较新完成记录优先于旧待办快照，旧清单仍写未完不自动构成重跑依据。若索引确有实际缺口，明确报告而不补造。 |
 | 首轮 W4/S4/H1 缺口 | **已完成本次有限接续：** `p6w4resume970420261107b`、工具HEAD `3fd64dc2fe`、handoff `945d9141c4`，由接续审核§101（`59b96c3cd9`）独立PASS。从上述source的v2-preview完成态接续，9704产品上的Submit/read/approve/History及收尾通过，完整Submit保留prepare。该项从待办扣除，不重跑；history cache mode=none，不代替healthy History/H3，也不代表完整矩阵或阶段exit。 |
 | W4-FULL | **已独审PASS：** `p6w4full20261107a`、工具HEAD `18a4851d8c`，2026-11-07 11:49:34–15:56:39Z，18步及输入/清理通过，接续审核§113（`0bf7218401`）闭合。RS完整身份用原首operation前记录的同节点immutableID作16:13事后元数据链接，不冒称11:49新快照；不重跑该业务。 |
-| W4-STRESS | **运行中：** `p6w4stress20261107a`、clean `1742`，2026-11-07 16:21:02Z于CT108单次启动；100%/cold Preview、13checkpoint、三服务完整身份预检MATCH。v2 Preview64800s、work106200s、watchdog107420s、hard108000s均为保护上限而非ETA。结果尚待执行及独审，只报告，不写未证性能PASS。 |
+| W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，worker指标旁证已由§127通过，标准record派生已由§147通过。 |
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
-| DC63 #1、V5b A–D | 实际诊断仍待执行，工具准备已获§109–110通过；按[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)处理真正缺项，写明产品/步骤/节点来源。21个selector不扩成新矩阵，普通t4诊断不与正式压力计时重叠。 |
-| JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
-| 04 最终权威 runner | 归属本冻结参考线的最终工具候选 V_ref，其产品路径须等于已审9704；可含必要 benchmarks/tests/docs 修正。不借当前 main/S2b 的六包结果冒充本线结果。按原入口、最终候选及按包闭包规则核验/执行，不重复已合格且闭包相等的包；原最终门禁作为独立收口待办，与 CT108 补测可在不同节点并行，不新增“每轮先全量”门槛。阶段 exit 仍另行办理。 |
+| DC63 #1、V5b A–D | **测量缺口已关闭：** DC63完整journey/coverage已核，V5b-only `p6v5bonly20261108a` 的四新段B-v1/B-v2/C/D、六reference来源及保卷收尾由接续审核§155（`6ad793a523`）独立PASS。A仍精确引用d2旧FAILED raw中的已完成段，四新段来自c81，不拼统一全绿raw；RS-only采样、准备与嵌套计时、D私有probe等限制保留。H1-REFILL tool HEAD补元数据同节通过，不重审旧业务。该行不再驱动测量或补测。 |
+| JSON/SHA、comparator 与总报告 | **三份record已独审，正式总索引已定稿：** clean H780 producer的FULL/STRESS由§147通过，core b由§149通过，记录字节保留。正式入口为`/home/dev/gdds-p6-logs/p6-record-finalize-20261108c-ct201/delivery-index.json`（SHA256 `be32fef6bf8fd27fc8ce4798fd4566fd9efba275b8bc436f4b6ad191f7a2131a`）；总索引`split-version-reference-index.json`为`c3a32262d790dfc4a846934d2e7eb7314b3f6b2a79d8eebb4ba1fffc66f54980`，已列§155/156实际资格。九个新record场景缺合法baseline的具体原因与已审旁证分列，未伪造comparator PASS。最终交付元数据由§157（`89b864c74c`）核对PASS，结论外置于owning审核报告，不回改已定稿字节形成循环；不重生记录或重跑产品。 |
+| 04 最终权威 runner | **当前H权威与镜像门禁已独审PASS：** `1e72b9866e54acc27eaabd6c0579dc50493c76eb`于04实际02:36:57–02:58:47Z运行全六包，runner/wrapper exit 0、起止clean；03:00:01Z资源和专属缓存清理后精确释放自有占用。接续审核§156（`c4cce7f795`）已核当前H三镜像、六包闭包、12独立RS原件/七fixture覆盖、真实exit和收尾；84文件/43节点原件MATCH。旧fcc/H780/058失败不作qualified carried，46e仅准备。该PASS只绑定本次H，不宣整体基准或Phase6 exit。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 
 **04最终镜像准备补充：** 已核本冻结线RS测试harness同时检查candidate SHA、build-input、source-tree和lock，而backend harness只检查RS的source身份；共享闭包又包含所选RS本机image ID。最终V_ref冻结后，在04专用tag上预先核齐RS revision等身份，避免后段测试自动重建同tag。沿现有取证方式保存实际运行前不可变config digest、全部有序DiffID及同节点image ID，并核对结束时RS tag是否漂移；不能以终态tag代旧runtime或仅凭same-source宣称carried。这里不借其他开发线的结果或补验方案，不提前运行未冻结候选，不修改CT108的测量镜像/tag；client e2e的既有正常自动重建规则保持。
+
+**开发构建源定位（2026-11-07）：** 原获准CT201开发构建源的实际hostname为当前本机`heavy-dev-01.lan`；本线§87构建原日志首行、标为`source=heavy-dev-01 CT201`的传输记录及S2a handoff §6均可核。本线在同一开发源按固定clean候选/原脚本本地预构建，无需等待不存在的`ct201` SSH别名；先核实际daemon、锁及基镜像并记真实host。节点编号不等于IP末段，当前SSH配置的`.201`属于CT108测量节点，不作为开发构建目标。此处不新增构建节点或改变冻结镜像流程；开发机只构建，测试仍在指定04/05，其他节点取用仍按现场配置和有效占用。
+
+Repository Service原官方预置依赖分支仍可在04离线构建，不被上述开发源定位覆盖。本次04已核`gateway-p2r1-repository:lock-6dc9659f0aee`及lock label匹配，按接续审核核定的clean detached候选和官方脚本、`UV_OFFLINE=1`/build network none直接构建专用RS tag；不用为此等待CT201 SSH或另起重复开发源构建。backend/worker如需旧冻结流程的整镜像预构建，仍使用既有开发源；RS candidate revision在backend manifest前固定，已起的合法构建继续而不双头执行。
 
 **后处理指标口径更正：** owning设计§16.3要求W系列分别保留单operation的READY与完成时间，H1/H1-FULL/H1-回填/H2/H3以READY为主，H2三节点取完成，S1/S3/S4取main前移的Submit完成，S2取同步受理并核无Repository operation。整旅程elapsed单列，不作为这些指标的替代；不得统一改成completion而丢失READY。S2没有新operation不等于受理耗时为零，缺精确受理计时时只单列实际可得的代理口径并说明限制。
 
@@ -46,11 +50,31 @@
 
 **基准性能目标与当前推进分开：** DC66明确本重建对照基准不进行性能门槛判定，Owner也已说明性能指标须结合物理限制评估。H2三节点同operation完成时间已由接续审核§114（`0bf7218401`）认证原state并核验闭合：b96历史参考4892.584s、e076目标4886.678s，取代错误的整旅程比较，原raw保持不变；超过600s目标须如实标未达，不能记性能PASS。此处保留旧版本参考事实及未来S5/S6目标，不降低目标、不改变compare policy，也不把预优化基准的目标未达当产品失败或已关闭业务的重跑理由；原结果/身份异常仍正常处置。
 
-其余13项record-only selector及逐指标来源标注已有定向验证；各场景完整record/comparator的最终汇总仍待完成，不能据局部修正宣称全量收口。
+其余13项record-only selector及逐指标来源标注已有定向验证，完整来源和comparator适用条件已列正式总索引；性能目标与参考资格仍按各原policy和实际来源分别报告，不据选择器局部验证外推性能PASS。
+
+**现有comparator的实际范围：** H780的p6_baseline_compare.compare_records本来用于跨阶段，只比较inputs及相应scenario的result_fingerprint/counts/state，不要求两个record的HEAD相同，timing明确不在其中比较。版本不同本身不是“缺少兼容comparator”的理由；有同输入/同场景及相同解释口径的合法baseline record时使用现有工具。若缺对应baseline record或指标范围已变，外部索引应明确具体缺项/不可比原因及已审§115正确性旁证，不虚构一致、补造统一版本或建设兼容层，也不扩大重测矩阵。H2同端点时长仍由既有timing工具及其原policy单独比较。
+
+**派生元数据的场景语义（2026-11-08）：** schema通过只证明形状合法。bb348 core原三upload的input_completeness均为MODIFIED_ONLY，W1/W2/W3及对应S1/S2/S3应按原输入标MODIFIED_ONLY；该负载的H1属于§16.3普通Preview之后的首查，state.mode同样标MODIFIED_ONLY，不能因History读取完整commit或“完整旅程”改记FULL，FULL Preview之后的另列H1-FULL。baseline按各原operation及实际提交关系逐项描述，不把所有场景统一为v1→v2。W2原cache_state_before/after已有行数/TTL/对象文件事实时如实保留，不能写成均未记录；实际命中计数仍未知。H1引用§127起点342对象健康证明，after保留未知。只修派生metadata/record/index并保留初稿，不改raw/schema、不补造字段或重测业务，这些语义与实际计时/旁证已分别由§147/149完成独审，三份定稿record保持已审字节。
+
+**producer与被测来源分开：** 审核发现初稿实际调用0739旧record builder，不含§119/fcc已审资源规则，须在05以clean已审H780 producer真实重建，确认执行/导入路径与代码身份，保留旧输出，不只改标签。record中的被测run HEAD仍为各原18a/bb348等来源；实际producer HEAD、文件SHA/命令及六个Git tree字段的确切路径映射另记外部索引，不伪填统一H780或把可复现的不同路径摘要误报产品漂移。沿已审规则将0周期samples的cores/memory/disk峰值记未知及原因，独立step CPU端点有观测时保留；这不要求新增补丁或业务重测。重建记录、元数据及索引统一交独审，整体资格未提前结案。
 
 **Preview worker步骤漏采的派生补取：** 旧producer从`operation_timing`取operation ID，而真实Preview ID位于`preview.result`，因此FULL及部分core历史summary未存对应DB worker步骤；这不推翻已保存的READY/完成、指纹或资源值。未来非在途producer修正真实消费路径并做必要focused；现有记录优先核已存结构，真缺时在正式压力测量结束后，只取该运行已停control DB/合格checkpoint的私有小副本，沿原SQL和时钟按原operation ID补同次步骤，另记来源SHA及派生，不改raw、复制Repository大卷、起旧栈或重跑产品。DB started/completed时间不冒称DC63 executor细span；仅确实不可恢复时明确UNAVAILABLE及具体资格，不填零或直接弱化record校验。core H1缺后加的显式cache字段也不自动失效，可在同次副本按原History起点UTC核规则/TTL及相关对象，不用今天过期反推历史失效、不追加H3后设字段，也不以重复查询替首查。
 
+**core主文件的有限派生路径（2026-11-07）：** 接续审核者只读文件核验报告，bb348 before-History源现为主DB、32768B SHM和空WAL三文件，完整目录仍与原checkpoint不符；主DB单文件按原摘要字段的投影则精确等于原control树`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`、2150400B。本次不恢复或修改源目录，也不把当前源全树标MATCH。允许保留原三文件及实际差异记录，只复制该已认证主文件到新私有目录，开库前用原算法核验私有目录的**完整树**精确等于原checkpoint，再在专用节点复制件提取同run worker步骤及H1历史DB字段；逐项保存原state/operation ID、复制与提取节点、文件/目录摘要及派生结果，由接续审核者核实际资格。此路径仅补历史记录，不用于业务恢复、checkpoint续跑或carried，不泛化为忽略WAL/SHM的摘要规则；H1实际缓存对象仍须各自来源核验，不能仅凭DB字段宣称健康。不要求唯一定位旧SHM创建者作为新前置，主文件/空WAL/复制前后完整摘要等实际条件不满足时停该派生并具体诊断，其他任务继续。
+
+**历史补证交付状态（2026-11-07）：** 接续审核§127（`bffd60baac`）已通过合并sidecar `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de`，范围限FULL/STRESS/core三来源的历史worker步骤及core H1查询起点输入条件：05实际提取、源DB/私有目录身份、7个operation/21个UTC步骤与认证state一致，原H1 compare起点07:36:37.829Z的342条缓存记录及实际引用对象/JCS引用逐项相符，过期、缺失及内容差异均0。artifact整个目录未重新hash的限制明确保留，此次只认证这些引用对象；core当前源全目录MISMATCH及私有原main完整MATCH分别保留。实施者可直接在派生record中消费该旁证，不改raw的none、cache_after或命中计数，不转为业务恢复许可，也不为修改sidecar内原REVIEW_PENDING字节再签一轮。该项从待补证扣除；完整record/comparator、DC63/V5b及04门禁仍须各自完成。
+
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
+
+**H780历史恢复测试与环境隔离修正（2026-11-08）：** 实际`_require_post_gc_product_transition`以固定target.product_commit=`9704`比较所传候选，source=`e798`用于来源身份核验，不能把e798→9704已审产品修订误报为新候选产品漂移。9704→H780超旧白名单的RS测试文件不属于该固定历史恢复工具的既定路径。本轮采用审核者更小的修法：固定恢复身份测试使用真实已执行恢复提交`3fd64dc2fe9a9c11ceebf8cd458983b9507f5364`，严格guard及路径白名单保持，撤回前一文书允许扩展RS测试路径的实施方向。固定9704祖先/产品tree、来源e798、clean及真实产品路径拒绝不变；历史测试通过不证明H780或未来候选可用于该固定恢复，当前V_ref身份仍按本线实际产品/镜像/闭包核验。
+
+RS的`test_build_script_defaults_docker_build_network_to_host`由测试环境准备显式隔离ambient build-network，并保留default/override语义；实际04门禁network-none及真实构建harness不变。两项仅测试输入修正由唯一实施者在独立worktree完成必要focused/静态并交独审，原H780运行/证据自然收尾，不改在途worktree或原样重试，CT108诊断和其他独立收尾保持，无新Owner或逐摘要GO。
+
+**058门禁的Compose环境接线修正（2026-11-08）：** `058e26da3c`全六包运行中，实施者发现`test_ordered_submit_bisect_compose.py::_compose_env`以裸字典替换子进程环境，实际RS容器使用旧`gateway-repository-service:local`，而provenance读取宿主配置后记了新候选tag。该次于02:02Z受控停止并保全，整次runner exit 1，不作为当前镜像门禁或qualified carried。继续沿既有测试工具修复授权，仅修该fixture对已配置镜像及必要离线构建环境的传递，实际容器与provenance须对应；不通过修改记录掩盖旧镜像，不改产品、严格恢复guard或路径白名单。受管门禁子任务完成最小diff、必要focused/静态，关键变化集中独审后，在新clean候选及其实际镜像上完成最终门禁；保留原失败，不原样重试或重开已关测量。镜像重建及逐包沿用仍按实际闭包和容器边界判定，不因测试修复另设性能或历史重核门槛。
+
+**同根因fixture一次收齐（2026-11-08）：** `46e2bb63f7`已由§153通过上述bisect修正及必要05验证，但新runner尚未启动。准备中核对权威runner实际使用的七个Compose fixture，发现`test_ordered_compare_compose.py::_compose_env`也以裸字典丢弃同一环境；其余五个已复制受控环境。有限扩展为该compare fixture同样`import os`与字典首项`**os.environ`两行修正，专属fixture键继续优先。门禁子任务一次交清七个消费者的现有接线清单，并用同一真实Compose config focused覆盖两个修订fixture，集中审核增量及必要验证；其余五个不新增业务重测，不机械重跑已过1+20用例。最终每个既有旅程的实际RS对象均须与当次候选配置对应，不能用最后一次正确provenance替代前序旅程；消费原有取证能力，不为此新增框架或证明矩阵。46e准备态04于02:17:43Z安全释放，旧构建材料保留为准备事实，不能冒充修订后最终候选门禁；新clean候选仍按原授权及实际镜像边界继续，无新Owner或逐摘要GO。
+
+**本次门禁的原生旁路取证：** 已发生的实际RS镜像错位及既有provenance单文件覆盖，支持本次04门禁外部使用标准Docker create事件及原样inspect，按准确project/RS服务过滤、逐container保存实际镜像对象和现有fixture挂载来源。仅在本次wrapper前后启动/有界停止，不改仓库harness、产品或Contract，不新增旅程、服务、持久机制或测试矩阵。具体短入口和候选增量/共同focused集中独审一次；正常镜像准备可并行，不等重复代码GO。采集覆盖缺口、命令失败或超时只列独立取证状态，不能当产品失败或自动中断runner；真实身份不符仍按原停止规则处置。runner真实exit与collector状态分别保留，缺项先核既有原件及必要定向补足，不默认重跑全量。最终资格由独审依据实际材料判断，不因采集器存在就宣逐旅程身份成立。
 
 ## 工具、镜像和时间预算
 
@@ -99,11 +123,25 @@
 
 同样复用合格的 SQL 输入、缓存及已验证工具，不重生成数据；按影响面进行必要门禁及计时，不无依据加矩阵。代价是多档长旅程，需要更多计算时间，目前不提供无证据的完成估计。纯工具或确实不受影响的结果仍按原规则独立判定，无需一律重跑。
 
+## 本轮交付收尾
+
+Owner A分版本参考范围内的计划内长测量、真实来源与资格汇总、最终H权威/镜像门禁和交付元数据已完成，独审分别见§147/149、§155、§156、§157。正式入口及摘要见上表，已定稿索引字节保持；不存在待跑测量、测试或需要重生的记录。九场景缺合法baseline、旧FAILED A来源、历史完整身份缺项及其他已批准限制按索引如实保留，不宣单版本全矩阵或性能目标PASS。
+
+此处关闭本次测量交付工作，不代替整体基准/Phase6/S2a阶段exit，不新增push/tag或主线产品合入权限。巡检停用仍按Owner原条件：原基准审核者明确确认exit/收尾且无待办，或Owner直接要求停止；现有接续独审不自动承接该权限。
+
 ## Owner A 选择后的直接执行方式
+
+**2026-11-08 Owner组织调整：** Owner已明确授权本设计会话作为协调主会话，采用短任务子agent并在合适节点交接，原实施会话直接终止。旧实施者`01a1b107-11ba-7681-a7cf-afb1591a67d2`已提交安全交接、确认无在途命令，并于01:35:14Z停止执行及归档；不再唤醒。当前三个独立子任务为`/root/p6_v5b_resume`、`/root/p6_record_finalize`、`/root/p6_gate_closeout`，分别仅负责V5b-only、记录/比较索引、两测试修正及最终H门禁，均使用GPT-6.1-SOL/xhigh。机械工具任务默认Luna/max；新增范围或不同角色/模型仍须按Owner要求沟通，不自行扩大。
+
+协调主会话负责当前事实、分工、设计决定与审核投递，不写产品或自判实施证据；现有独立审核会话及原阶段exit权限保持。子任务使用独立工作树/外部产物目录，本文旧“唯一实施者”按各任务唯一写入者解释，禁止并行改同一文件或被测worktree。子任务通过受管通信交小摘要和准确包路径，协调主会话统一通知既有审核；明确对应HEAD/来源的独审结果后按原授权接续，不再增加协调回执/GO。05按实际有效marker单飞，record与gate可内部沟通真实占用，不预留窗口。当前交接及任务状态索引位于`/home/dev/.local/state/gdds-p6-watch/coordinator-handoff-20261108.md`；原2小时巡检仅更新检查对象，不改间隔或新建监控。历史日志/已审成果、原绝对预算及停止/DC80恢复边界全部保留，不因组织切换重测。
 
 Owner 已明确交付口径及 A 的限定来源例外，§92 已通过本次 source→9704 关系、必要守护及关键预算。实施者完成必要工具、静态/focused、镜像/环境及运行前核对后，现场取锁直接执行首轮并顺序推进上述未完成范围，结果事后独审，不逐摘要申请 GO，不等新 Owner/设计回执；不再以“恢复关系待核”作为等待理由。普通接线/测试/文书修正沿 Owner 简化流程直接闭环。
 
 **2026-11-07 Owner 连续完成授权：** 持续推进至本方案A的全部测量和收尾完成，不以单个场景PASS、handoff已提交或等待协调回执结束推进。唯一实施者与接续审核者按实际缺口直接闭环W4-FULL、W4-STRESS、正确性/分段旁证、record/SHA/comparator及04最终V_ref门禁；已完成场景不重跑，按已批准分版本来源报告。实施者维护逐项状态、实际来源和下一步，设计跟踪执行关系及未决设计问题；普通工具/测试/文书修正、必要定向验证和资源取得按既有授权直接接续，充分预算在运行前一次给足。
+
+**并行收尾范围澄清（2026-11-07）：** 现在由同一唯一实施者在监控原CT108诊断进程的同时，直接并行推进既有04门禁及05记录收尾；旧交接基点“先只DC63/V5b”不再作为等待设计扩大范围的理由，不新增会话或角色。以已审`78000beb62e927190092e315135e7bc1cbdda615`为当前门禁候选：backend/worker在原获准CT201（heavy-dev-01）独立clean worktree按冻结pre-backend-image-exit/DC67整镜像流程构建新专用tag，经LAN传04，按config digest及全部有序DiffID核身份；RS仍在04使用官方精确预置base、离线/network-none流程构建当前候选专用tag，固定candidate/build-input/source-tree/lock后，按原权威入口在04运行全六包。CT05在独立clean worktree消费§127已审旁证和认证原run副本，生成标准record/SHA/comparator及分版本总索引；必要工具小修按原双方直接闭环，不为已关输入/场景增加重测。
+
+04/05各自现场核空闲并原子取自有占用，收尾释放，无窗口预约或跨会话回执前置；保持CT108原进程、监控、预算、冻结tag及源卷，不并行正式产品计时、不重跑FULL/STRESS。各工作流的worktree/镜像在运行期间固定；若后续必要工具修正形成更晚最终候选，按原逐包闭包及镜像绑定规则收口，不写在途worktree或提前宣称当前候选门禁已通过。并行授权不包含新角色、push/tag、主线产品合入或阶段exit权限。
 
 只有严重设计冲突/缺口、难以解决的情况或多轮修复仍无法完成等才暂停整体推进并向Owner给出具体事实及方案；实际产品、输入/身份、资源或守护异常仍先停受影响运行、保留证据，按DC80主动诊断、最小修复、独审和合格恢复，不原样盲重试，也不把局部停止变成整条任务无限等待。性能数值按既定参考/record-only口径如实报告，不自行转成硬性验收线。完成须逐项实测或有已批准来源、必要结果独审及最终汇总，不能以派生字段PASS代替；此授权不新增会话/角色、push/tag、main产品合入或阶段exit权限，不改变原2小时巡检及其停用条件。
 

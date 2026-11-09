@@ -40,9 +40,9 @@ ADR [0001](../adr/0001-python-rust-hybrid-compute-strategy.md)、[0009](../adr/0
 
 ### 1.1 目标（D）
 
-- **单个 operation 的延迟**达到已决议的门槛（DC35、DC38、DC53），参考环境 `ct108-gw-dms`，规模 2× t4，单任务资源上限 N、M 下判定。完整验收矩阵（模式、节点数、缓存条件、READY 与完成两个时点、门槛或只报告）见 §16.3。
+- **单个operation的延迟可靠测量并报告与参考目标的差距**。Owner 2026-11-08按DC97确认性能指标是否达标不再作为退出依据；此前DC35／DC38／DC53数值保留作参考，不改历史结果。实际固定环境、规模2×t4及单任务N／M下报告，完整场景／模式／冷暖／READY与完成口径见§16.3；正确性、资源边界、计数与来源等验收要求不因性能目标只报告而豁免。
 
-  | 负载 | 门槛（用户可见时间） |
+  | 负载 | 参考目标（用户可见时间，非退出门槛） |
   | --- | --- |
   | W1 首次上传（空基线） | ≤ 3 min |
   | W2 原样重传（0 张表变化） | ≤ 30 s |
@@ -79,6 +79,28 @@ DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构
 Python 编排是当前业务取舍，新功能可先用 Python 验证，也可直接用 Rust；编排出现实测瓶颈时可另行设计替换。Rust core 与 PyO3 解耦，未来由 Python、CLI 或 AI/MCP 适配层复用；当前不新增工具服务。业务工具调用仍走授权、scope、幂等与事务边界。未来 Rust 编排放在应用层，纯计算 core 的无 I/O、无 workflow 约束不变。
 
 本修订不改变冻结基准和已引用的 S2a 证据；后续 exit 次序以 DC81 为准。owner 随后授权定向修改设计文档，ADR 0001、ADR 0010 和 Rust policy 的长期双实现定位已同步；实际消费者清单、测试覆盖移交与技术细则仍按阶段审核。
+
+### 1.5 计算能力独立复用（2026-11-08 Owner 授权补充）
+
+解析、比较等计算能力的长期边界由 [架构总纲 §7.4](../architecture/architecture-and-refactoring-plan.md#74-计算能力独立复用)
+统一规定，Rust/Arrow/Python 接入细则见 [Rust policy §4.1](../policies/rust-safety-and-performance-policy.md#41-独立调用边界)。
+P6 保持纯计算 core 与业务适配的单向依赖；公共调用需要显式资源与生命周期契约，能力可复用不等于已交付独立 SDK。
+
+以 `9a15d75031fe94b84f05931b8fe07eb218376ff9` 的定向静态核对为登记起点，尚需在实际独立消费者接入时收口：
+
+| 差距 | 所属 owner / 最小处理 |
+| --- | --- |
+| Python 发行包仍以私有 native 入口为主 | 计算适配层 owner：按真实消费者收窄并公开解析/比较请求、结果与错误接口；不直接公开全部 FFI |
+| operation context 与初始化入口仍位于 backend | 计算适配层与 runtime owner：提供公开会话或显式控制参数，保预算、取消、截止和最后 owner 退账；无需调用方加载 worker settings |
+| 比较生产接线依赖 SnapshotTable 与具体 Arrow reader | Comparison 与 snapshot owner：将业务对象转换留在 backend adapter，核心按规范 Arrow/metadata/策略计算 |
+| 尚无独立消费者的运行验收 | 首个消费者与能力 owner：按架构总纲完成独立调用及适配语义一致性验证，结果归该接入任务 |
+
+上述是接口与提取工作的登记，不是当前功能故障或独立复用已验收的声明。S4/S5 在其正常设计中核对新消费者是否扩大这些依赖；
+S6 记录已完成项和有 owner 的剩余项，不因未出现独立消费者而增加 SDK 交付门槛。实际独立调用、打包或 AI 接入随相应需求授权落实，
+不提前指定协议、包数量、网络服务或调度框架；具体时点见 [执行计划“计算能力独立复用的落实时点”](p6-execution-plan.md#计算能力独立复用的落实时点2026-11-08)。
+
+本次只补充文档要求，不改变已退出 S2a/S2b、在途 S3 的实现/退出范围、现行 N1/单 active/32 GiB envelope/8 GiB reserve/M24，
+不另加 parser 差分或真实旅程。
 
 ## 2. 当前事实（E）
 
@@ -170,14 +192,14 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 - **未变化的完整条件（D）：** 两侧都存在，且表摘要、schema digest、存储视图与投影版本都相同。仅表摘要相同不够（零行表不同 schema、只改可空性等）。
 - 满足完整条件的表：不读基线行、不做行比较；facts 的行数与 `UNCHANGED` 来自 manifest。ordered 表另按 §4.1 用当前侧的规范行计算逻辑摘要与 occupancy 摘要，计算发生在 assemble 中、按每个 pair 一次（S1a 用 Python，S3 起用 Rust），健康缓存命中时直接用 diff/risk 缓存（§11）。成本计入 §16.1 的 e 项。
 - **当前侧的规范行来源：** 是本 pair 的当前侧，不固定为 MODIFIED：MODIFIED_ONLY Preview 为上传的 MODIFIED；FULL Preview 的两个 pair 分别为上传的 INITIAL 与 MODIFIED；History 为各 pair 的 current commit（三节点时分别为第 2、第 3 节点）。读取经 materialize checkpoint 的 artifact reader（S2b 起为规范表存储的 IPC reader），不依赖上一步 Python 对象存活；History 经存储，缺失时从精确 commit 经 Dolt 兜底（§8.2）。
-- **单侧计算的实施约束（第 2 次复审 §7.3）：** 有效 pair 策略仍按现行方式由两侧描述符与存储事实构造（`comparison/pair_planning.py`），不能因只读一侧而把基线侧描述符设为空；行编码与 blank provenance 使用规范行及其规范 metadata（`CANONICAL_PSEUDO_GID`），不按原始 SQL 重新解释；ordered/blank status、replay guarantee、schema facts、policy digest 等 facts 字段按既有结构填充；现有 schema 诊断与行读取异常的 degraded 语义保留，不能仅因 manifest 相等就强制标为 `UNCHANGED`；**不得复用 `_compare_single_side`**——它表达的是整表新增或删除，会产生增删记录与不同的 blank 摘要。
+- **单侧计算的实施约束（第 2 次复审 §7.3）：** 有效 pair 策略仍按现行方式由两侧描述符与存储事实构造（`comparison/pair_planning.py`），不能因只读一侧而把基线侧描述符设为空；行编码与 blank provenance 使用规范行及其规范 metadata（`CANONICAL_PSEUDO_GID`），不按原始 SQL 重新解释；ordered/blank status、replay guarantee、schema facts、policy digest 等 facts 字段按既有结构填充；现有 schema 诊断与行读取异常的 degraded 语义保留，不能仅因 manifest 相等就强制标为 `UNCHANGED`；**不得复用 `_compare_single_side`**——它表达整表新增或删除，其 status、side/schema/count 事实不同于未变化表摘要。2026-11-07 S3 B 按固定 `4d5a4b0d98` 源码核正：当前该分支不产生逐行 records 或 ordered/blank extensions；会生成单侧逐行记录的是旧 Rust 原型，不能迁入生产。此处更正旧说明，不改变 S1b 冻结语义。
 - 变化表与删除表读取基线：S1a 中经 RS 逐表读取（规范表存储在 S2b 才有），并发 ≤ min(N, RS 有效容量)（DC47 第 6 项；S1a 可先顺序读取）；新增表没有基线可读。
 - History 的两个节点使用同一套完整条件；整表数据的读取随 DC41 的打包进行（§5.2）。
 - 计数断言见 §16.2。
 
 ### 4.3 Submit 只写变化：表级跳过与阈值行级修改（DC45、DC55 第 5 项）
 
-- **表级跳过：** prepare 取 T1 冻结的上传侧 manifest 与 expected parent 的 manifest，按 §4.2 的完整条件逐表比较；未变化的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL、缺少 metadata 或投影版本不同时全部按变化处理；包 manifest 仍列出全部表（RS STRUCTURAL 校验整个 catalog）。
+- **表级跳过：** prepare 取 T1 冻结的上传侧 manifest 与 expected parent 的 manifest，按 §4.2 的完整条件逐表比较；未变化的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL 或投影版本不同时全部按变化处理；非 INITIAL 缺失/损坏 parent manifest 按现行 Submit 拒绝（DC94）；包 manifest 仍列出全部表（RS STRUCTURAL 校验整个 catalog）。
 - **行级修改：** 生产 policy 改为 `ADAPTIVE_PATCH`；资格按 Storage Mutation §3 修订：keyed 表与有序表（GID_NO_V1，以 `gid` 为存储键、`no` 为普通列）可行级修改；keyless 表与 schema 变化的表整表重建；阈值 1,000 行 / 1%。
 - **parent 行：** 变化表的 parent 行经 RS 读取（S1a），读取结果按 parent manifest 的表摘要校验，不一致时稳定失败；S2b 起优先读规范表存储中该 commit 的副本。正确性前提为 expected-parent CAS、parent 行按 manifest 校验与受信 Repository（DC45 第 6 项）；生产 Dolt 路径不加条件 DML、affected-row 检查或提交后读回（§14 的 ADR 0014 修订）。
 - **实现：** S1a 用现有 Python 规划器与渲染器（`capabilities/mutation_planning/`）；导入路径不再为未变化的表构造变化集。渲染器把同一表的逐行 UPDATE 与 DELETE 合并为按批语句（DC57）：形式先在固定 Dolt 版本上用合成表预检，须语法可执行、按主键查找、Dolt 表哈希与逐行形式相同；逻辑变更与 §16.2 计数不变。逐行变化集对象与无消费方摘要的去除、渲染直通在 S4，S4 对同一输入逐字节回归 S1a 的按批产物。
@@ -335,6 +357,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - **RS 读取：** operation 内并发 ≤ min(N, RS 有效容量)（容量为 RS 配置，默认 8）；503 作为背压退避重试，重试次数有界并继承 operation 的取消与截止时间。
 - 所有长 kernel 复用同一套取消与失败边界；预算拒绝返回可诊断的失败，native crash 由 Operation Runtime 恢复。
 - 部署配置只开放 N 与 M（有范围校验、写进测量记录）；其余为代码常量。N 在 S2b 后按整条路径的加速曲线暂定（V6 的解析器单独为 4），S6 定稿。M 按 DC84 在 worker 接线前依据已实现 kernel、IPC 与 FULL 驻留校准确定，实际 worker 接线后复核；前期映射/固定向量/纯 kernel 可在明确的局部预算下推进，不把未知 M 当作已通过。
+- **具名大表专项优化（Owner，2026-11-09，DC98）：**对现有样本中按名称特征识别的大表组，当前只参考几份真实数据，不生成合成放大数据来设计或验收专项并行策略。真实数据大规模接入后，再按实际表规模、分布和热点决定优化；名称特征本身不证明通用瓶颈，不将当前样本调优作为本轮或后续阶段的默认退出项目。通用正确性边界向量、已有表名业务语义、N1/单active和预算不因此改变。
 
 ### 8.4 切换
 
@@ -355,6 +378,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 10. S4：Submit
 
+2026-11-08 补充设计见 [S4详细设计](p6-s4-design.md)、[kickoff](p6-s4-kickoff.md)和[独审提示词](p6-s4-review-prompt.md)。本轮Owner确认的存储键/恢复文字澄清及DC33范围为DC94；方案待独立设计审核，不是实施放行。具体采用逐表列式diff/渲染、原有界bytes包出版；保留S1a所有SQL字节和原资源配置，S3容量阻塞继续独立跟踪。
+
 - **渲染直通（DC45 第 4 项）：** 变化表直接从冻结规范表（S2b 起为 IPC，mmap）渲染 SQL；导入路径不再构造逐行变化集对象、不计算无消费方的摘要；表级决定仍归规划器。
 - **存储 diff：** 与 S3 共用比较内核，按存储键比较全部保留列。
 - **阈值与批量规则：** 沿用 S1a 冻结值；S4 用最终渲染器与 RS 回放路径复测确认。须调整时作为例外交 owner（DC55 第 5 项）。
@@ -364,11 +389,14 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 11. S5：History 与跨操作缓存
 
-- **diff/risk 缓存（DC43）：** 只缓存纯函数结果——单表比较结果与未套用 pair 上限的单表风险标注；键同 §9 的单次去重键（含规则主体与版本、scope）；pair 上限、组合信号表与表名在汇总步骤绑定，命中后的结果与当前 operation 的 closure 重新绑定。条目作为 artifact 存放并经保护表登记引用；在计算时形成（Preview 或 History），按 TTL 保留；Submit finalize 在移动 head 的同一事务中给该 Submit 对应 Preview 的条目登记引用。
-- **History 按表拼接（DC38）：** 两侧满足 §4.2 的完整条件 → 未变化（ordered 表的 facts 按 §4.1 用当前节点的行计算，或取自 diff/risk 缓存）；否则查 diff/risk 缓存 → 读表缓存 → Dolt 兜底并回填；pair 级 surface 与 bundle 由单表结果汇总。
-- **Dolt 并发读取：** 同 §8.3。
-- **计数与例外：** 见 §16.2 与 §16.3（H1 的零比较只在“该 pair 已计算、规则相同、缓存健康”时成立；FULL 模式 Preview 之后的首次 History 允许重算，DC38 第 4 项；缓存文件缺失或损坏时走回填，作为正确性场景单独验收）。
-- **H2 定稿：** 两节点 2× t4 派生缓存全 miss 旅程验收；三节点补测一次，只报告。
+详细目标、源码缺口与失败语义见[S5设计](p6-s5-design.md)，分节实施、唯一验证owner与成本见[S5 kickoff](p6-s5-kickoff.md)。Owner已在设计关闭后授权新会话完整推进A–E，当前执行边界见[实施任务提示词](p6-s5-implementation-prompt.md)。
+
+- **单表diff/risk（DC43）：** 从去外层绑定的完整语义任务生成key，保规则主体/版本、两侧effective key与storage事实、schema/count/profile、diagnostics/detail及repository scope。比较值保存可重放的neutral facts/records，风险值仅完整纯候选事件；当前closure、pair上限、时间/取消、编号、表名与组合信号仍在本次执行。不得持久化native handle或已截断最终outcome。
+- **按需History：** 先核精确commit metadata/catalog、完整结构条件，查diff与独立导出缓存，再合并必要行需求；读规范表副本，miss由exact commit Dolt回填。未变ordered facts来自本pair current或合法缓存。不能先物化全部表再声称缓存消除了读取。
+- **引用：** Preview/History成功计算形成TTL派生条目。Submit T3在原control DB finalize事务中可选触达该Preview对应的已有cache引用；不运行文件读取/重算，不推进业务BaselineHead。Repository技术main/CAS不在该事务；业务Head及正式规范表引用仅由StartArchive CAS推进。cache缺失不阻止合法finalize/replay，不沿commit链长期pin。
+- **资源：** 复用同operation M及固定N；hit校验/恢复也有预算，optional缓存优先释放。RS读取≤min(N,有效RS容量)，已有有界502/503重试继承取消/截止，不套第二层重试。N1不变为8。
+- **计数：** H1/H3零比较/单侧摘要以该有向pair已计算、完整key相同、diff条目健康且可用为前提；零Dolt行读还要求完整bundle/composite需求有健康导出或规范副本。metadata、cache读取、records验证和digest重绑另计。FULL未算baseline→modified的首次History允许重算，不提前多算pair。
+- **验证：** Owner本轮确认标准t1 v1/v2的必要History冷查、复查与真实records/bundle读取，合法已提交状态可复用；FULL、三节点、坏缓存/恢复以focused/Contract证明。不做合成2×t4、fresh t1–t4或1暖3测。时间只观察，项目最终/发布六包要求不变。
 
 ## 12. S6：收尾
 
@@ -448,6 +476,8 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 ## 16. 性能测量与验收
 
+**最新退出口径（DC97，Owner 2026-11-08）：** 本节及§16.3表内性能数值的“门槛／达标”不再作为退出条件，保留参考数值并完成可靠测量与真实统计。未达如实报告，不因数值偏慢自动阻塞或追加优化；测量范围／有效性、业务与资源安全、冻结产物及计数等原要求仍保留，未知不得记通过。
+
 ### 16.1 端到端预算与 W2 检查点（2× t4，N=4）
 
 下表是**不重叠**的分项账：每一项只计一次，不与包含它的阶段重复相加。“工作量”按 2× t4（约 624 张规范表、约 49 万行、约 159 MB SQL）计；“依据”标明是实测（原型或旧路径在 t4 / 2× t4 上的数）、外推（工作量 × 假设吞吐）还是未知。未知项按所列检查点追踪；W2 相关完整路径复核按 DC83 可在 S2b 功能退出后进行，最迟 S6 收口，未知不记为通过。
@@ -472,7 +502,7 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
   ```text
   W2_实测候选 − Σ 剩余削减上界（每项须有证据与阶段，未归因残差计 0）≤ 30 s → 性能可达性有依据
   未实测或有未知/未归因项 → 待补，不记通过
-  有效实测仍未达目标 → 报告约束、调整方案与影响，交 owner 讨论（DC81/DC83）
+  有效实测仍未达目标 → 如实报告约束和差距，列后续优化建议；不以数值未达阻塞退出（DC97）
   ```
 
   保留受理到 READY、1 次预热加 3 次测量的统计口径。CT108 可用时补测；若在后续产品测量，须标明实际版本，不回填成 S2b 历史候选已测。S2b 功能退出仍要求正确性、恢复、资源边界和必要门禁。W2 不做行比较，S3 对比较的加速不能计入 W2 的削减。
@@ -504,16 +534,16 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 | 断言 | 内容 | 观测点 |
 | --- | --- | --- |
-| 表级决定 | 进入 `replay.sql` 的表 = X ∪ A ∪ D；X 中每表的决定为行级修改或整表重建（按 S1a 冻结的阈值），A 为整表重建，D 为 `DROP` | 规划器的表级决定 |
+| 表级决定 | 存储变化表进入 `replay.sql`：X 中最终有 mutation 的表 ∪ A ∪ D；X 按 S1a 冻结阈值选择行级修改或重建，A 重建，D 为 `DROP`。patch-comparable keyed路径仅 source schema 初筛不同、实际读before后 canonical schema/view/rows相同的现行 planner NOOP单列，不强制写入；不扩至keyless（S4设计§3.2） | 规划器的候选/NOOP/最终表级决定 |
 | 行级修改表 | 逻辑变更数 = 独立计算的净 diff：同键 UPDATE 计 1，键变化计 DELETE + INSERT 2，新增行 INSERT 1，删除行 DELETE 1（Storage Mutation §4） | 规划器的变更列表 |
 | 整表重建表 | 写入行数 = 变化后的行数 | 渲染统计 |
 | 删除表 | `DROP` 1 次，写入 0 行 | 渲染统计 |
-| 规划器的 `changed_row_count` | 保持现行定义（行级修改表为净变化，新增/删除表为 before + after，投影变化表为全表计数），只作报告，不作为验收 | 规划器摘要 |
+| 通用规划器的 `changed_row_count` | 保持现行定义，只作报告，不作为验收。S4 Submit不再构造无消费者的通用plan摘要：未做diff的强制rebuild以`net_counts=None`报告，另报before/after及实际写入数；实际已做diff的keyed计数精确保留，不把全表写入数冒充净diff | 通用规划器摘要；S4独立小summary |
 | 原样重传（S2） | 不产生 Repository operation | 受理结果 |
 
 去重仅在完整任务key相同且结果可用/预算允许时减少调用。重复同key任务的机制向量可断言2次派发/1次计算，但不能冒充实际FULL变化任务：FULL的baseline→initial与initial→modified相邻有向pair要具有相同输入身份通常意味着三侧相同，届时不做行比较。S3必须报告真实命中范围；允许0命中，不削弱含表名schema或scope换取命中。
 
-**History 的零计算条件：** H1（该 pair 已在 Preview 或 History 中计算、规则相同、缓存健康）与 H3：Dolt 读取数 = 0，kernel 调用数 = 0，单侧摘要计算数 = 0。
+**History 的零计算条件：** H1/H3在该有向pair已计算、完整任务/规则相同、diff条目健康且预算可用时，行比较kernel与单侧摘要计算为0；Dolt行读取为0还要求全部bundle/composite需求能由健康导出或规范副本满足。metadata/catalog、缓存/IPC读取、restore、records验证与digest重绑分别计数，不是零I/O。FULL例外与精确口径见[S5设计§9](p6-s5-design.md#9-计数口径与h1-full例外)。
 
 **手算示例**（其余表均未变；行级修改示例的前提：表为合格的 keyed 表，约 1,000 行，schema、键与存储视图不变，变化在冻结阈值内，单批不超字节上限）：
 
@@ -533,21 +563,21 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 
 | 场景 | 模式与条件 | 时点 | 判定 | 阶段 |
 | --- | --- | --- | --- | --- |
-| W1 | MODIFIED_ONLY，冷启动 | READY（门槛）、完成（≤ 10 min） | 门槛 | S2b 诊断起测；CT108 无窗口时可延期，最迟 S6 收口/取证（DC84） |
+| W1 | MODIFIED_ONLY，冷启动 | READY、完成（参考≤10min） | 时间只报告（DC97） | S2b 诊断起测；CT108 无窗口时可延期，最迟 S6 收口/取证（DC84） |
 | W2 | MODIFIED_ONLY，允许命中上一次 Preview 的临时条目并写明 | 同上 | 30 秒目标保留；DC83 独立性能复核 | CT108 可用时测，最迟 S6；不阻塞 S2b 功能 exit |
-| W3 | MODIFIED_ONLY；另 FULL 一次 | 同上 | 门槛 | S3 起测，S6 取证 |
-| W4 | MODIFIED_ONLY，冷启动；另 FULL 一次 | 同上 | 门槛 | S3 起测，S6 取证 |
+| W3 | MODIFIED_ONLY；另 FULL 一次 | 同上 | 时间只报告（DC97） | S3 起测，S6 取证 |
+| W4 | MODIFIED_ONLY，冷启动；另 FULL 一次 | 同上 | 时间只报告（DC97） | S3 起测，S6 取证 |
 | W4 压力档 | 每表 100% 行变化 | 同上 | 只报告 | S3、S6 |
-| H1 | 普通 Preview 之后，缓存健康，规则相同 | READY | 门槛 + 计数（零读零比） | S5 |
-| H1-FULL | FULL Preview 之后的首次 History | READY | 门槛；允许重算变化表 | S5 |
+| H1 | 普通 Preview 之后，缓存健康，规则相同 | READY | 时间只报告；计数（零读零比）仍验收 | S5 |
+| H1-FULL | FULL Preview 之后的首次 History | READY | 时间只报告；允许重算变化表 | S5 |
 | H1-回填 | TTL 内但缓存文件缺失或损坏 | READY | 结果正确、回填成功（正确性场景） | S5 |
-| H2 | 两节点，派生缓存全 miss | READY | 门槛（S5 定稿） | S5 |
+| H2 | 两节点，派生缓存全 miss | READY | 时间只报告（参考值S5明确） | S5 |
 | H2-三节点 | 三节点，派生缓存全 miss | 完成 | 只报告；≤ 10 min | S5、S6 |
-| H3 | TTL 内重复查询 | READY | 门槛 + 计数 | S5 |
-| S1 / S3 / S4 | W1 / W3 / W4 之后的 Submit | 完成（main 前移） | 门槛 + 计数 | S4、S6 |
+| H3 | TTL 内重复查询 | READY | 时间只报告；计数仍验收 | S5 |
+| S1 / S3 / S4 | W1 / W3 / W4 之后的 Submit | 完成（main 前移） | 时间只报告；计数仍验收 | S4、S6 |
 | S2 | 原样重传之后的 Submit | 受理 | 不产生 Repository operation | S1a 起 |
 
-每个负载 1 次预热加 3 次测量取中位数并报告范围；失败运行不计入；门槛只在取证运行中判定（DC35 第 8 项）。
+每个负载1次预热加3次测量取中位数并报告范围；失败运行不进入成功统计，原始失败另列。参考目标在可靠测量后如实报告差距，不按是否达标判退出；测量有效性、正确性、资源guard及计数等要求另行核收（DC97）。
 
 ### 16.4 runbook
 
@@ -560,12 +590,12 @@ Owner另确认归档核验异常不可接受时可“有理由关闭、不归档
 停止条件（遇到即停止并报告 owner）：
 
 1. S1a 的归因（§4.4）无法解释 step 间隔或约 175 s 残差的来源；
-2. W2 性能复核的未知或未达目标按 DC83 登记并交 owner 讨论，不自动停止 S2b 功能退出；租约、超时导致业务失败或资源越界仍停止受影响路径并处置；
+2. W2性能复核缺乏可靠测量时登记待补，性能数值未达只报告、不因其停止或要求Owner另决；租约／超时导致实际业务失败或资源越界仍停止受影响路径并处置（DC97）；
 3. 任一 Rust kernel 与参照实现出现无法归入“参照实现不符合 Contract”的差异；
-4. 阈值复测显示 1% 仍比整表重建慢（按 DC57 第 4 项交 owner），或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
+4. 提出修改S1a冻结的阈值或批量规则，须停止该变更并交Owner；复测显示1%比整表重建慢本身只如实报告，不因性能数值停阶段或自动改规则（DC97）；
 5. 规范表存储的磁盘估算超出参考节点容量；
 6. 逐行记录必须改变产物格式（DC54 第 4 项）；
-7. 某阶段的门槛在设计手段用尽后仍不能达到。
+7. 无法满足业务正确性、资源安全或来源／测量有效性等非性能数值硬要求；性能参考目标未达本身不触发停止或追加优化（DC97）。
 
 开放项（本设计提案，待复审与 owner 确认）：
 

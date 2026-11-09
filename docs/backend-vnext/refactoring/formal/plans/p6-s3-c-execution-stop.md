@@ -1,0 +1,76 @@
+# Phase 6 S3 C 源码传输停止与恢复稿
+
+2026-11-08；当前状态：**Owner 已允许按已审恢复稿放行，原角色恢复执行准备；尚无 C 产品 GO**。本单保留此前停止事实。B 已由 `17fd6739b809f048ac7b2f45cb784c144e2d98ad` 独审 GO。
+
+## 1. 固定对象与实际结果
+
+- C core 检查点 `0194d145bf7c77c34225298df7b099480b61809c`；源位于 CT201 `heavy-dev-01` 的 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/wt/subject`，固定 detached、clean。
+- 唯一测试者 `/root/s3_c_test`；已审 Rust-only 脚本 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/run-rust-focused.sh`，SHA256=`041507743d095694f6de1fd797fb3e8c6154e89db6289f7061630bcc3ebb54ff`。拟在 06 运行 fmt → workspace clippy → workspace test，首失败停止，不含 backend/容器或 C 产品验收。
+- **实际未创建 bundle、未传输候选、未建立 06 被测 WT、未运行 fmt/clippy/test。** CT201 依赖快照 `573d58248f0dc90e27f1be79ac9f2802211ed738` 的 dependency-base 也未构建。没有缓存缺失、产品测试失败或数据变更结论。
+
+原件均位于 CT201 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/logs/`：
+
+| 原件 | 事实与限制 | SHA256 |
+| --- | --- | --- |
+| `bundle-create-prep-attempt-1.log` | 缺少 `archives/`，Git 无法创建 `.bundle.lock`。这是事后誊录，UTC 仅分钟，外层未捕获数值 exit；不冒充实时完整原始记录。 | `c4c6f6197819d940b8dfb528be75658a7f8da2a1032a340b4769d36143393f22` |
+| `bundle-create-attempt-2.log` | 补目录后仅纠正一次；00:31:53Z，源 HEAD=0194/clean，`git … bundle create … 0194… ^2c79…` 报 empty bundle，原 exit128。 | `327f03ef48593f8d95be30be7370eea6ff39ef9ee7be1b2014abcd7165500a6c` |
+| `marker-release-after-setup-stop.log` | 06 本人标记 00:29:58Z 取得，00:33:29Z 释放，SSH exit0。 | `2a02ddef45ac8ec8d4de94f489e9ee2aba8845296f4a9bf7988f67c275016e56` |
+
+## 2. 根因与停止依据
+
+本机 Git 手册 `git-bundle` 的 “SPECIFYING REFERENCES” 明确 bundle 需要可广告的引用名，并直接给出用 `$(git rev-parse HEAD)` 裸 SHA 触发相同 empty bundle 的例子。只读提交图核对 `2c79d0947fe0d5e1d2f62a3f106a8e72f37706a3..0194d145bf7c77c34225298df7b099480b61809c` 有 946 个提交；不能把本次错误写成没有增量提交，也不能把未记原 exit 的 merge-base 探查当可靠依据。恢复采用固定 WT 的字面 `HEAD`，不再使用裸 SHA 正向参数或负向基线。
+
+AGENTS DC68 原文：“重做再次失败、被测对象已运行后的失败、缓存缺失或身份不符均停止交 owner”。本次自身准备错误已纠正一次又失败，因此已停止，不做第三次 bundle、替代传输或测试，不用上次 B 的放行推导本次豁免。源 WT、原件和无测试结果事实保留；06 占用已释放。
+
+## 3. 最小恢复执行稿（未执行）
+
+仅在 Owner 放行后，由同一 C 测试者执行；不换角色或模型掩盖原失败。
+
+1. 在上述 CT201 源 WT 核 fixed HEAD=0194、detached/clean；先创建任务自有 `archives/` 与 `logs/`。使用新文件名并拒绝覆盖原日志/制品。
+2. 执行以下固定命令一次，保存完整 argv、UTC、HEAD/status、原 exit 与 SHA。没有 `^base` 或自动重试：
+
+   ```bash
+   git -C /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/wt/subject bundle create /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/archives/source-0194d145-full-head.bundle HEAD
+   git -C /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/wt/subject bundle verify /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/archives/source-0194d145-full-head.bundle
+   git -C /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/wt/subject bundle list-heads /home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/archives/source-0194d145-full-head.bundle
+   ```
+
+   list-heads 必须含固定 0194 对应的 `HEAD`；全历史 bundle 不依赖测试节点已有某个基线对象。没有新 branch/tag、push 或历史改写。
+3. 重新 BatchMode 核 06 现场，空闲后原子取得本人标记；经获准 LAN 传输并逐端核 bundle SHA。只在本任务 Git repository 上 verify/fetch 显式 `HEAD`，再建立固定 0194 的新 clean detached 被测 WT、legacy symlink；不写 B WT 或他人资源。node repository 尚未建立时先在本任务目录显式初始化 Git repository，再运行 verify；不在非仓库上下文调用裸 verify。
+4. 原脚本 SHA `041507…54ff` 的候选/步骤不变。字面 `bash <已审脚本>` 唯一启动，首失败停止，记录每步与整体原 exit；后续普通产品修正由原实施者/原审核者闭环，不把本次准备错误记为 C 算法失败。
+5. 完成运行与收尾后核本人标记并释放，保留原始失败/成功日志与固定 WT。仍执行未来 DC68、缓存/身份、runner 停止规则。
+
+若恢复前 C 的完整新候选已固定，可由**同一 C 独审**先核新固定对象和相同机制的执行稿、显式替换 HEAD/WT/日志路径后再运行，不为旧检查点重复验证。这个条件只沿用 Owner 原已授予的普通候选修订范围；本次需要 Owner 决定的是恢复执行通道，不是取消后续治理约束。新候选若未固定或未审执行稿，不运行。
+
+以上准备步骤也保存为 CT201 任务目录下的两份字面脚本，**仅写入、未运行**：
+
+- `resume-create-source.sh`，SHA256=`ad3a282502366fbfeaaa2e91d25483e51b73bca9348b38f8980bb563b7a1ff07`：固定源 clean HEAD，先建档案目录，以字面 HEAD 创建完整 bundle，仓库内 verify/list-heads，拒覆盖并记原 exit。
+- `resume-prepare-node.sh`，SHA256=`5f1823074cc6e4ac28efc6902dc4cd6dc1dac66de42889448afd8eabfc5905f3`：待本人重新取得06标记及LAN复制后，以源端归档 SHA 为唯一参数；核 marker/归档，任务新 bare repo 中 init→verify→fetch HEAD，再建固定 detached WT/legacy/common exclude 并核 clean。不使用或改动 B repo/WT。
+
+脚本位于 `/home/dev/gdds-test-tmp/p6-s3-c-rust-0194d145/`。执行前仍需同原审静态核上述原件；恢复申请已提交 Owner，未把预选或经过时间当放行。使用这些脚本不是额外重试授权。
+
+## 4. 影响与待决定事项
+
+C 目前没有任何新的编译/测试证据，不能给 C GO，也不能启动依赖其核收的 D 生产接线。C 静态实现与独审、后续执行稿准备可继续；CT201 dependency-base 构建/向节点预填亦暂不执行，避免用换任务绕过停止。S3 最终容器/真实数据/W3/W4/DC33/退出交接均未完成。
+
+建议 Owner 允许按本单恢复，由同一测试者、同一审核者按最小稿继续；另一选项是保持受影响执行停止，继续静态工作。独审另在 `p6-s3-c-review.md` 核收本单与原件，不由协调者或实施者代签。
+
+## 5. Owner 放行与最新固定对象（2026-11-08）
+
+Owner 对本恢复稿及原审 `08547dc6715645d7a615c49898ccf495ca8e3257` 的恢复问题明确回复 **“允许按已审恢复稿放行”**。这次恢复决定已经取得，§1–4 的待决定状态仅作为历史保留；不推导 C 产品通过，也不取消后续首失败、缓存、身份或 DC68 停止规则。
+
+暂停期间完整 C 候选已经固定为 **`9f6c9ffb16c6980a51784186236b0cc9b8fb15b4`**。按 §3 最后一段的已审条件，同一测试者 `/root/s3_c_test` 改用此提交的新 clean detached 源/被测 WT，将三份字面脚本的固定 HEAD、任务路径和日志路径一并替换后交同一审核者快核；继续使用字面 `HEAD` 完整 bundle，不选负向基线，不重复测试旧0194。main 中其他会话的文档及 C 实施者后续 WIP 均不进入该固定测试对象，不清理或覆盖。
+
+本次首轮仍仅为 06 Rust focused，测试者唯一启动。原实施者继续职责内普通修复，审核者继续 C 代码与证据核收；新候选需另固定并按影响复测。CT201 依赖基镜像准备亦回到原授权范围，具体构建与向节点预填仍须固定脚本、完整身份和离线规则，不能与被测节点运行期间的镜像写入混用。截至本节记录，最新9f候选尚无编译、测试、容器通过结果；D 生产接线仍依赖 C GO。
+
+### 5.1 实际恢复首轮：fmt 首败，非 C GO
+
+同一测试者以新源 WT `/home/dev/gdds-test-tmp/p6-s3-c-rust-9f6c9ffb/wt/subject` 成功创建字面 `HEAD` 完整 bundle，源日志 `logs/resume-create-source.log` 为 01:11:26–27Z、exit0；SHA256=`d92c3bd3193b3d5a5219696a88da06bd5f92971bdb5e151a2af84dc0ec98aca4`。归档 `archives/source-9f6c9ffb-full-head.bundle` 为18,888,363 bytes、SHA256=`6529d9a26434191719d877f7a1542475c23ce737821eb09812ab57c2a5d4a127`，verify/list-heads 精确固定9f。
+
+原审核准新外层字面稿 `transfer-prepare-run.sh`，SHA256=`42ce4a49dddb5f966151e7cd9252ba6997d4608afa3a2ca303bbde7f9697c3f8`。06 本人标记 01:18:12Z 取得，LAN 双端三件 SHA 一致，node repo 完整 bundle verify/fetch 与新 detached 被测 WT/legacy/clean 均通过，node 准备日志 SHA256=`3e42b5649c51a44ae8d930ac43b33d3d3714cc3381411f62e2744b7e4d713fec`、exit0。
+
+06 Rust 脚本于 **01:18:13–14Z** 实际运行，固定9f、selector1.97.0、offline/jobs4、六锁无漂移。首步 `cargo fmt --all --check` exit1，因此 **clippy/test 未启动**；Rust 原日志 SHA256=`c0f7ee16768bc9292666696d2864fd642d729f6e72b795c5cfc7f95628e4ebb6`。外层日志 SHA256=`ea8f2270fc9d4241a8b84be6549784e90443328025882f5660f9bd12ea820456`、原 exit1。两处日志分别在06同名任务目录与CT201同名任务目录的 `logs/`；首败停止后只读 postflight 确认9f clean、本人 marker、无本任务进程，CT201收据 SHA256=`b72b9fc4bcb784c18e301f91a82c550fe15f7e77ff1e9d389d45cbba8f04802a`。资源释放收据及后续新候选另记，不能提前认定释放或通过。
+
+恢复准备另有三个自身步骤错误，均未触被测计算：retarget 生成器误要求无关占位符（事后摘要、数值exit未知，SHA=`a32a3446ce0f8a92e05921e48b11638bb4b2fda8929b2dc7511a789a91f9adf7`）；source WT 外层先重定向日志再拒覆盖（exit2，SHA=`6c75480fe9027bb81f191ddaec501d9c55d9df0f5898c282e44622030ee28dcd`，一次修正源WT日志SHA=`0dc7ada66340208cc29bc272245604ad6b00ffe3ae4958130bf9c796f36df555`）；06只读 preflight 嵌套引用 parse 错（事后摘要、数值exit未知，SHA=`766fc5c744d6d5d65fc2a31bf709c94276ed60dd23ea8dd1b3fddd787702e38f`）。最后一项经原审字面 heredoc 稿仅纠正一次通过，日志SHA=`574fd350f96ce8b5cbeafffa1124661f48f92d253964e614156a656cca50f280`、SSH exit0。此前错误均保原件与出处限制，不改写成完整实时日志。
+
+本次 Owner 放行的执行通道已实际恢复；fmt反馈按普通机械修正闭环，未取消其他停止规则。原审核者继续核完整候选和真实读写预算，C尚无运行/镜像通过结论，D仍未放行。

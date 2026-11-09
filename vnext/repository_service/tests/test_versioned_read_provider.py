@@ -228,9 +228,9 @@ def test_catalog_at_binds_same_literal_for_schema_and_count(tmp_path: Path) -> N
                     ),
                 }
             ]
-        if kind == "catalog_count":
+        if kind == "catalog_counts":
             assert literal in sql
-            return [{"row_count": 1}]
+            return [{"ordinal": 0, "row_count": 1}]
         raise AssertionError(kind)
 
     with patch.object(cli, "query_json", side_effect=query_json):
@@ -871,6 +871,38 @@ def test_read_repo_c0_catalog_is_empty(read_repo: ReadRepoFixture) -> None:
     c0 = read_provider.read_ref("main")
     assert read_provider.commit_exists(c0)
     assert read_provider.catalog_at(c0) == ()
+
+
+@pytest.mark.integration
+def test_batched_catalog_matches_individual_counts_at_historical_commit(
+    read_repo: ReadRepoFixture,
+) -> None:
+    layout, _, _, read_provider, offline = read_repo
+    names = [f"table_{index:02}" for index in range(16)] + ["Quoted ` Table"]
+    statements = []
+    for index, name in enumerate(names):
+        quoted = quote_identifier(name)
+        statements.append(f"CREATE TABLE {quoted} (id BIGINT PRIMARY KEY, label VARCHAR(32));")
+        if index:
+            values = ",".join(f"({row}, 'synthetic')" for row in range(index))
+            statements.append(f"INSERT INTO {quoted} VALUES {values};")
+    statements.append("CREATE VIEW ignored_view AS SELECT id FROM table_01;")
+    offline.replay(_write_sql(layout, "batch-catalog.sql", "\n".join(statements)))
+    target = _commit_changes(offline, "catalog batch historical fixture")
+    offline.replay(_write_sql(
+        layout, "batch-catalog-next.sql",
+        "INSERT INTO table_00 VALUES (100, 'later');\n"
+        "ALTER TABLE table_01 ADD COLUMN later_column INT;\n",
+    ))
+    _commit_changes(offline, "catalog batch later fixture")
+    cli = read_provider._cli
+    expected = tuple(sorted(
+        (cli._load_table_catalog(name, opaque_commit_literal(target)) for name in names),
+        key=lambda table: table.name,
+    ))
+    actual = read_provider.catalog_at(target)
+    assert actual == expected
+    assert {table.name: table.row_count for table in actual} == dict(zip(names, range(17), strict=True))
 
 
 @pytest.mark.integration

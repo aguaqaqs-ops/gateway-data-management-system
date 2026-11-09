@@ -1,37 +1,23 @@
-"""S5 comparison records artifacts, closure validation and publication.
+"""Comparison records artifacts, closure validation and publication.
 
-The comparison kernels keep semantic records in immutable Python contracts.  This module owns the
-separate, operation-local Parquet/manifest closure.  Artifact refs and closure metadata are never
-part of the comparison or facts-core digests.
+Native handles own row records; metadata-only facts use a bounded small writer.
+Artifact refs and closure metadata remain outside semantic digests.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import closing
 from dataclasses import dataclass, replace
+from time import perf_counter
 from tempfile import SpooledTemporaryFile
-from typing import cast
+from typing import Protocol, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from gateway_shared_kernel import (
-    AnomalyScalar,
-    BinaryScalar,
-    BitScalar,
-    BooleanScalar,
-    DateScalar,
-    DateTimeScalar,
-    DecimalScalar,
     DigestRef,
-    Float32Scalar,
-    Float64Scalar,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    TimeDurationScalar,
-    TimestampScalar,
-    UnsignedIntegerScalar,
     raw_blob_digest,
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -51,20 +37,17 @@ from gateway_backend.capabilities.comparison.contracts import (
     RECORDS_CLOSURE_CONTRACT_VERSION,
     STANDARD_RECORDS_SCHEMA_VERSION,
     BlankRecord,
-    ComparisonFacts,
     ComparisonRecord,
     ComparisonRecordsClosure,
     ComparisonTableFact,
     DetailedFactsResult,
-    FailedResult,
     OrderedRecord,
-    PairResultStatus,
     RecordsArtifactFamily,
     RecordsArtifactManifest,
     RecordsClosureEntry,
     RecordsDetailPolicy,
-    CancelledResult,
 )
+from gateway_backend.capabilities.comparison.native import validate_records_batches
 
 
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
@@ -74,6 +57,7 @@ _MAX_DEFAULT_ARTIFACT_BYTES = 512 * 1024 * 1024
 _MAX_DEFAULT_MANIFEST_BYTES = 16 * 1024 * 1024
 _MAX_DEFAULT_CLOSURE_BYTES = 16 * 1024 * 1024
 _MAX_DEFAULT_SPOOL_BYTES = 2 * 1024 * 1024 * 1024
+_N1_OPERATION_MEMORY_BYTES = 24 * 1024 * 1024 * 1024
 _METADATA_PREFIX = b"gateway-vnext.records."
 
 
@@ -92,6 +76,9 @@ class RecordsPublicationPolicy:
     max_manifest_json_bytes: int = _MAX_DEFAULT_MANIFEST_BYTES
     max_closure_json_bytes: int = _MAX_DEFAULT_CLOSURE_BYTES
     max_spool_bytes: int = _MAX_DEFAULT_SPOOL_BYTES
+    # Bounds Parquet decode, Arrow buffers, and one JCS row outside an operation
+    # scope too. A row group is at most the writer's 1024 rows.
+    max_decoded_batch_bytes: int = _N1_OPERATION_MEMORY_BYTES
 
     def __post_init__(self) -> None:
         for name in (
@@ -100,6 +87,7 @@ class RecordsPublicationPolicy:
             "max_manifest_json_bytes",
             "max_closure_json_bytes",
             "max_spool_bytes",
+            "max_decoded_batch_bytes",
         ):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
@@ -112,6 +100,7 @@ class RecordsPublicationContext:
 
     checkpoint: Callable[[], None] = lambda: None
     artifact_id_prefix: str = "comparison"
+    timings: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not callable(self.checkpoint):
@@ -120,110 +109,12 @@ class RecordsPublicationContext:
             raise ValueError("artifact_id_prefix must be non-empty")
 
 
-def publish_records_closure(
-    result: DetailedFactsResult,
-    store: ArtifactStorePort,
-    *,
-    policy: RecordsPublicationPolicy | None = None,
-    context: RecordsPublicationContext | None = None,
-    detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
-) -> DetailedFactsResult | CancelledResult | FailedResult:
-    """Publish a complete detailed result behind a fail-closed closure gate."""
+class NativeRecordsHandle(Protocol):
+    def is_sealed(self) -> bool: ...
 
-    if type(result) is not DetailedFactsResult:
-        raise TypeError("result must be DetailedFactsResult")
-    if not _is_artifact_store(store):
-        raise TypeError("store must implement ArtifactStorePort")
-    limits = policy or RecordsPublicationPolicy()
-    control = context or RecordsPublicationContext()
-    facts = result.facts
-    if not isinstance(facts, ComparisonFacts):
-        raise TypeError("detailed result must contain ComparisonFacts")
-    if facts.records_ref is not None:
-        raise ValueError("facts already has a records_ref")
-    if type(detail_policy) is not RecordsDetailPolicy:
-        raise TypeError("detail_policy must be RecordsDetailPolicy")
+    def family_summary(self, family: str) -> tuple[int, str]: ...
 
-    try:
-        entries: list[RecordsClosureEntry] = []
-        for table in facts.tables:
-            control.checkpoint()
-            family_records = _records_by_family(table)
-            total_records = sum(len(records) for _, records in family_records)
-            _enforce_record_count_budget(total_records, limits)
-            for family, records in family_records:
-                if not records:
-                    continue
-                entries.append(
-                    _publish_family(
-                        table,
-                        family,
-                        records,
-                        store,
-                        limits,
-                        control,
-                        detail_policy,
-                    )
-                )
-
-        control.checkpoint()
-        closure_payload = _closure_payload(
-            comparison_digest=facts.comparison_digest,
-            facts_core_digest=facts.facts_core_digest,
-            records=tuple(sorted(entries, key=_entry_sort_key)),
-        )
-        closure_bytes = canonicalize_json_value(closure_payload)
-        if len(closure_bytes) > limits.max_closure_json_bytes:
-            raise RecordsPublicationError("closure JSON budget exceeded")
-        closure_ref = put_with_built_ref(
-            store,
-            closure_bytes,
-            artifact_id=_artifact_id(control, "closure", raw_blob_digest(closure_bytes)),
-            media_type=MANIFEST_MEDIA_TYPE,
-        )
-        _verify_stored_bytes(store, closure_ref, closure_bytes)
-        verified_closure_bytes = _locate(store, closure_ref)
-        verified_closure_payload = _load_json_object(verified_closure_bytes, "closure")
-        if _entries_from_payload(verified_closure_payload) != tuple(
-            sorted(entries, key=_entry_sort_key)
-        ):
-            raise RecordsPublicationError("stored closure entries changed during publication")
-        if (
-            _digest_from_payload(verified_closure_payload, "comparison_digest")
-            != facts.comparison_digest
-            or _digest_from_payload(verified_closure_payload, "facts_core_digest")
-            != facts.facts_core_digest
-        ):
-            raise RecordsPublicationError("stored closure digests changed during publication")
-        closure_digest = raw_blob_digest(closure_bytes)
-        closure = ComparisonRecordsClosure(
-            comparison_digest=facts.comparison_digest,
-            facts_core_digest=facts.facts_core_digest,
-            records=tuple(sorted(entries, key=_entry_sort_key)),
-            closure_manifest_digest=closure_digest,
-        )
-        final_facts = replace(facts, records_ref=closure_ref)
-        return DetailedFactsResult(
-            pair_id=result.pair_id,
-            status=result.status,
-            facts=final_facts,
-            records_closure=closure,
-            diagnostics=result.diagnostics,
-        )
-    except RecordsCancelled as exc:
-        return CancelledResult(
-            pair_id=result.pair_id,
-            status=_cancelled_status(),
-            diagnostics=(str(exc) or "RECORDS_PUBLICATION_CANCELLED",),
-        )
-    except (InterruptedError, TimeoutError, MemoryError):
-        raise
-    except Exception as exc:
-        return FailedResult(
-            pair_id=result.pair_id,
-            status=_failed_status(),
-            diagnostics=(str(exc) or type(exc).__name__,),
-        )
+    def record_batches(self, family: str) -> pa.RecordBatchReader: ...
 
 
 def open_records_closure(
@@ -241,7 +132,9 @@ def open_records_closure(
     if closure_ref.media_type != MANIFEST_MEDIA_TYPE:
         raise RecordsPublicationError("closure ref must identify JSON")
     limits = policy or RecordsPublicationPolicy()
-    raw = _locate(store, closure_ref)
+    if closure_ref.size_bytes > limits.max_closure_json_bytes:
+        raise RecordsPublicationError("closure JSON budget exceeded")
+    raw = _locate(store, closure_ref, label="records closure")
     if len(raw) > limits.max_closure_json_bytes:
         raise RecordsPublicationError("closure JSON budget exceeded")
     expected_digest = raw_blob_digest(raw)
@@ -263,9 +156,13 @@ def open_records_closure(
     for entry in entries:
         if entry.records_ref.media_type != PARQUET_MEDIA_TYPE:
             raise RecordsPublicationError("records ref must identify Parquet")
+        if entry.records_ref.size_bytes > limits.max_records_artifact_bytes:
+            raise RecordsPublicationError("records artifact budget exceeded")
         if entry.records_manifest_ref.media_type != MANIFEST_MEDIA_TYPE:
             raise RecordsPublicationError("records manifest ref must identify JSON")
-        manifest_raw = _locate(store, entry.records_manifest_ref)
+        if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
+            raise RecordsPublicationError("records manifest JSON budget exceeded")
+        manifest_raw = _locate(store, entry.records_manifest_ref, label="records manifest")
         if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
             raise RecordsPublicationError("records manifest digest mismatch")
         manifest = _manifest_from_bytes(manifest_raw)
@@ -277,15 +174,90 @@ def open_records_closure(
         ):
             raise RecordsPublicationError("records manifest does not match closure entry")
         _enforce_record_count_budget(entry.record_count, limits)
-        artifact_raw = _locate(store, entry.records_ref)
-        actual_count, actual_content = _validate_parquet_bytes(
-            artifact_raw,
-            manifest,
-            limits,
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+        operation = current_kernel_context()
+        raw_reservation = (
+            operation.memory.reserve(2 * entry.records_ref.size_bytes + 1024 * 1024)
+            if operation is not None else None
         )
+        try:
+            artifact_raw = _locate(store, entry.records_ref, label="records artifact")
+            actual_count, actual_content = _validate_parquet_bytes(
+                artifact_raw, manifest, limits
+            )
+        finally:
+            if raw_reservation is not None:
+                raw_reservation.close()
         if actual_count != entry.record_count or actual_content != entry.records_content_digest:
             raise RecordsPublicationError("records artifact digest or count mismatch")
     return closure
+
+
+class RecordsArrowBatchStream:
+    """Explicitly closable diagnostic Arrow reader over a validated artifact."""
+
+    def __init__(
+        self, raw: bytes, limits: RecordsPublicationPolicy, expected_schema: pa.Schema
+    ) -> None:
+        self._raw = raw
+        self._limits = limits
+        self._expected_schema = expected_schema
+        self._file: pq.ParquetFile | None = None
+        self._iterator: Iterator[pa.RecordBatch] | None = None
+        self._admission = 0
+        self._emitted_bytes = 0
+        self._retained_cap = 0
+        self._expected_rows = 0
+        self._emitted_rows = 0
+        self._closed = False
+
+    def __iter__(self) -> RecordsArrowBatchStream:
+        return self
+
+    def __next__(self) -> pa.RecordBatch:
+        if self._closed:
+            raise StopIteration
+        try:
+            if self._iterator is None:
+                self._file = pq.ParquetFile(pa.BufferReader(self._raw))
+                if not _schema_matches(
+                    self._file.schema_arrow, self._expected_schema, parquet_lists=True
+                ):
+                    raise RecordsPublicationError("records Parquet schema mismatch")
+                self._admission = _decoded_admission(self._file, self._limits)
+                self._retained_cap = _standalone_retained_cap(
+                    len(self._raw), self._admission
+                )
+                metadata = self._file.metadata
+                if metadata is None:
+                    raise RecordsPublicationError("records Parquet metadata is unavailable")
+                self._expected_rows = metadata.num_rows
+                self._iterator = _row_group_batches(self._file, self._expected_schema)
+            if self._emitted_rows == self._expected_rows:
+                self.close()
+                raise StopIteration
+            if self._emitted_bytes + self._admission > self._retained_cap:
+                raise RecordsPublicationError("records retained Arrow budget exceeded")
+            batch = next(self._iterator)
+            # The predecode admission includes the new Arrow batch/schema
+            # header; retained diagnostic batches keep that small fee too.
+            self._emitted_bytes += batch.nbytes + 4096 + 256 * batch.num_columns
+            self._emitted_rows += batch.num_rows
+            if batch.nbytes > self._admission or self._emitted_bytes > self._retained_cap:
+                raise RecordsPublicationError("records decoded batch budget exceeded")
+            return batch
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        self._closed = True
+        self._iterator = None
+        if self._file is not None:
+            self._file.close()
+        self._file = None
+        self._raw = b""
 
 
 def read_records_artifact(
@@ -293,7 +265,7 @@ def read_records_artifact(
     entry: RecordsClosureEntry,
     *,
     policy: RecordsPublicationPolicy | None = None,
-) -> tuple[dict[str, object], ...]:
+) -> RecordsArrowBatchStream:
     """Read one validated artifact as its language-neutral Arrow row representation."""
 
     if not _is_artifact_store(store):
@@ -301,9 +273,13 @@ def read_records_artifact(
     limits = policy or RecordsPublicationPolicy()
     if entry.records_ref.media_type != PARQUET_MEDIA_TYPE:
         raise RecordsPublicationError("records ref must identify Parquet")
+    if entry.records_ref.size_bytes > limits.max_records_artifact_bytes:
+        raise RecordsPublicationError("records artifact budget exceeded")
     if entry.records_manifest_ref.media_type != MANIFEST_MEDIA_TYPE:
         raise RecordsPublicationError("records manifest ref must identify JSON")
-    manifest_raw = _locate(store, entry.records_manifest_ref)
+    if entry.records_manifest_ref.size_bytes > limits.max_manifest_json_bytes:
+        raise RecordsPublicationError("records manifest JSON budget exceeded")
+    manifest_raw = _locate(store, entry.records_manifest_ref, label="records manifest")
     if raw_blob_digest(manifest_raw) != entry.records_manifest_digest:
         raise RecordsPublicationError("records manifest digest mismatch")
     manifest = _manifest_from_bytes(manifest_raw)
@@ -315,7 +291,18 @@ def read_records_artifact(
     ):
         raise RecordsPublicationError("records manifest does not match closure entry")
     _enforce_record_count_budget(entry.record_count, limits)
-    return _read_parquet_rows(_locate(store, entry.records_ref), manifest, limits)
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+    # The only current caller is diagnostic tests. Production open/restore
+    # validates entirely inside its operation scope and never exports batches.
+    if current_kernel_context() is not None:
+        raise RecordsPublicationError("diagnostic records reader cannot escape an operation")
+    raw = _locate(store, entry.records_ref, label="records artifact")
+    _validate_parquet_bytes(raw, manifest, limits)
+    return RecordsArrowBatchStream(
+        raw, limits,
+        _schema_for(manifest.family, manifest.schema_version, manifest.row_diff_detail_policy),
+    )
 
 
 def rewrite_closure_refs(
@@ -382,17 +369,28 @@ def restore_records_closure(
     source = open_records_closure(source_store, closure_ref, policy=limits)
     replacements: dict[ArtifactRef, ArtifactRef] = {}
     for entry in source.records:
-        records_raw = _locate(source_store, entry.records_ref)
-        records_ref = put_with_built_ref(
-            destination_store,
-            records_raw,
-            artifact_id=_artifact_id(control, "records", entry.records_ref.raw_sha256),
-            media_type=entry.records_ref.media_type,
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+        operation = current_kernel_context()
+        copy_reservation = (
+            operation.memory.reserve(2 * entry.records_ref.size_bytes + 1024 * 1024)
+            if operation is not None else None
         )
-        _verify_stored_bytes(destination_store, records_ref, records_raw)
+        try:
+            records_raw = _locate(source_store, entry.records_ref, label="records artifact")
+            records_ref = put_with_built_ref(
+                destination_store,
+                records_raw,
+                artifact_id=_artifact_id(control, "records", entry.records_ref.raw_sha256),
+                media_type=entry.records_ref.media_type,
+            )
+            _verify_stored_bytes(destination_store, records_ref, records_raw)
+        finally:
+            if copy_reservation is not None:
+                copy_reservation.close()
         replacements[entry.records_ref] = records_ref
 
-        manifest_raw = _locate(source_store, entry.records_manifest_ref)
+        manifest_raw = _locate(source_store, entry.records_manifest_ref, label="records manifest")
         manifest_ref = put_with_built_ref(
             destination_store,
             manifest_raw,
@@ -434,9 +432,10 @@ def _publish_family(
     context: RecordsPublicationContext,
     detail_policy: RecordsDetailPolicy,
 ) -> RecordsClosureEntry:
+    """Publish only the bounded metadata records of a table without a native handle."""
     schema_version = _schema_version(family)
     rows = tuple(
-        _record_to_row(family, record, detail_policy)
+        _metadata_record_to_row(family, record, detail_policy)
         for record in sorted(records, key=lambda item: _record_sort_key(family, item))
     )
     row_keys = tuple(
@@ -446,13 +445,12 @@ def _publish_family(
     if len(set(row_keys)) != len(row_keys):
         raise RecordsPublicationError("records family contains duplicate logical rows")
     content_digest = _content_digest(family, schema_version, detail_policy, rows)
-    parquet_bytes = _write_parquet(
-        family,
-        rows,
-        limits,
-        context,
-        detail_policy,
+    schema = _schema_for(family, schema_version, detail_policy)
+    batches = tuple(
+        pa.RecordBatch.from_pylist(list(rows[offset : offset + 1024]), schema=schema)
+        for offset in range(0, len(rows), 1024)
     )
+    parquet_bytes = _write_arrow_parquet(batches, schema, limits, context)
     records_ref = put_with_built_ref(
         store,
         parquet_bytes,
@@ -500,30 +498,226 @@ def _publish_family(
     )
 
 
-def _write_parquet(
+def publish_records_family_arrow(
+    table_name: str,
     family: RecordsArtifactFamily,
-    rows: tuple[dict[str, object], ...],
-    limits: RecordsPublicationPolicy,
-    context: RecordsPublicationContext,
+    handle: NativeRecordsHandle,
+    store: ArtifactStorePort,
+    *,
     detail_policy: RecordsDetailPolicy,
-) -> bytes:
-    context.checkpoint()
+    policy: RecordsPublicationPolicy | None = None,
+    context: RecordsPublicationContext | None = None,
+) -> RecordsClosureEntry:
+    """Publish one already sorted native Arrow family without a records readback.
+
+    The handle supplies both its sealed logical digest and the exact Arrow
+    buffers written to Parquet. A zero-row family has no artifact.
+    """
+    limits = policy or RecordsPublicationPolicy()
+    control = context or RecordsPublicationContext()
+    if not handle.is_sealed():
+        raise RecordsPublicationError("native records phase must be sealed before publication")
     schema_version = _schema_version(family)
     schema = _schema_for(family, schema_version, detail_policy)
-    spool = SpooledTemporaryFile(max_size=limits.max_spool_bytes, mode="w+b")
+    expected_count, digest_text = handle.family_summary(family.value)
+    with closing(handle.record_batches(family.value)) as reader:
+        batches = tuple(reader)
+    if not batches or any(not _schema_matches(batch.schema, schema) for batch in batches):
+        raise RecordsPublicationError("records Arrow schema mismatch")
+    if any(batch.num_rows > 1024 for batch in batches):
+        raise RecordsPublicationError("records Arrow batch exceeds 1024 rows")
+    count = sum(batch.num_rows for batch in batches)
+    if count == 0 or count != expected_count:
+        raise RecordsPublicationError("empty records family has no artifact")
+    _enforce_record_count_budget(count, limits)
+    content_digest = DigestRef(digest_text)
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+    operation = current_kernel_context()
+    writer_peak = (
+        2 * limits.max_records_artifact_bytes
+        + 2 * max(batch.nbytes for batch in batches)
+        + 1024 * 1024
+    )
+    reservation = (
+        operation.memory.reserve(writer_peak)
+        if operation is not None else None
+    )
+    try:
+        parquet_bytes = _write_arrow_parquet(batches, schema, limits, control)
+        records_ref = put_with_built_ref(
+            store,
+            parquet_bytes,
+            artifact_id=_artifact_id(control, family.value.lower(), content_digest),
+            media_type=PARQUET_MEDIA_TYPE,
+        )
+    finally:
+        if reservation is not None:
+            reservation.close()
+    manifest = RecordsArtifactManifest(
+        table_name=table_name,
+        family=family,
+        record_format="PARQUET",
+        schema_version=schema_version,
+        row_diff_detail_policy=detail_policy,
+        record_count=count,
+        content_digest=content_digest,
+    )
+    manifest_bytes = canonicalize_json_value(_manifest_payload(manifest))
+    if len(manifest_bytes) > limits.max_manifest_json_bytes:
+        raise RecordsPublicationError("records manifest JSON budget exceeded")
+    manifest_ref = put_with_built_ref(
+        store,
+        manifest_bytes,
+        artifact_id=_artifact_id(
+            control, f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)
+        ),
+        media_type=MANIFEST_MEDIA_TYPE,
+    )
+    _verify_stored_bytes(store, manifest_ref, manifest_bytes)
+    if _manifest_from_bytes(_locate(store, manifest_ref)) != manifest:
+        raise RecordsPublicationError("stored records manifest changed during publication")
+    return RecordsClosureEntry(
+        table_name=table_name,
+        family=family,
+        records_ref=records_ref,
+        records_manifest_ref=manifest_ref,
+        records_manifest_digest=raw_blob_digest(manifest_bytes),
+        records_content_digest=content_digest,
+        record_count=count,
+    )
+
+
+def publish_records_closure_arrow(
+    result: DetailedFactsResult,
+    handles: dict[str, NativeRecordsHandle],
+    store: ArtifactStorePort,
+    *,
+    detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
+    policy: RecordsPublicationPolicy | None = None,
+    context: RecordsPublicationContext | None = None,
+) -> DetailedFactsResult:
+    """Publish sealed native families and the existing closure without a row readback."""
+    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+    operation = current_kernel_context()
+    if operation is None:
+        raise RecordsPublicationError("native publication requires an operation budget")
+    limits = policy or RecordsPublicationPolicy()
+    control = context or RecordsPublicationContext()
+    facts = result.facts
+    count = 0 if facts is None else len(facts.tables)
+    # Cover entries, closure payload/bytes, store verification and returned
+    # small DTO before any of them grow. Family Parquet has its own phase.
+    with operation.memory.reserve(4 * limits.max_closure_json_bytes + count * 4096 + 1024 * 1024):
+        return _publish_records_closure_arrow_admitted(
+            result, handles, store, detail_policy, limits, control,
+        )
+
+
+def _publish_records_closure_arrow_admitted(
+    result: DetailedFactsResult,
+    handles: dict[str, NativeRecordsHandle],
+    store: ArtifactStorePort,
+    detail_policy: RecordsDetailPolicy,
+    limits: RecordsPublicationPolicy,
+    control: RecordsPublicationContext,
+) -> DetailedFactsResult:
+    facts = result.facts
+    if facts is None or facts.records_ref is not None:
+        raise RecordsPublicationError("native publication requires unpublished facts")
+    entries: list[RecordsClosureEntry] = []
+    for table in facts.tables:
+        control.checkpoint()
+        handle = handles.get(table.table_name)
+        if handle is None:
+            # Metadata-only tables can still carry a bounded schema/degraded
+            # record. They use the established small-record writer.
+            metadata_families = _records_by_family(table)
+            _enforce_record_count_budget(
+                sum(len(records) for _, records in metadata_families), limits,
+            )
+            for family, records in metadata_families:
+                if records:
+                    from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+                    operation = current_kernel_context()
+                    if operation is None:
+                        raise RecordsPublicationError("native publication requires an operation budget")
+                    small_upper = 8 * 1024**2 + sum(
+                        _metadata_record_upper(record) for record in records
+                    )
+                    with operation.memory.reserve(small_upper):
+                        entries.append(_publish_family(
+                            table, family, records, store, limits, control, detail_policy,
+                        ))
+            continue
+        families = ((RecordsArtifactFamily.STANDARD,) if table.ordered_extension is None
+                    else tuple(RecordsArtifactFamily))
+        total = sum(handle.family_summary(family.value)[0] for family in families)
+        _enforce_record_count_budget(total, limits)
+        for family in families:
+            if handle.family_summary(family.value)[0]:
+                entries.append(publish_records_family_arrow(
+                    table.table_name, family, handle, store,
+                    detail_policy=detail_policy, policy=limits, context=control,
+                ))
+    control.checkpoint()
+    ordered = tuple(sorted(entries, key=_entry_sort_key))
+    closure_bytes = canonicalize_json_value(_closure_payload(
+        comparison_digest=facts.comparison_digest,
+        facts_core_digest=facts.facts_core_digest,
+        records=ordered,
+    ))
+    if len(closure_bytes) > limits.max_closure_json_bytes:
+        raise RecordsPublicationError("closure JSON budget exceeded")
+    closure_ref = put_with_built_ref(
+        store, closure_bytes,
+        artifact_id=_artifact_id(control, "closure", raw_blob_digest(closure_bytes)),
+        media_type=MANIFEST_MEDIA_TYPE,
+    )
+    _verify_stored_bytes(store, closure_ref, closure_bytes)
+    verified = _load_json_object(_locate(store, closure_ref), "closure")
+    if _entries_from_payload(verified) != ordered:
+        raise RecordsPublicationError("stored closure entries changed during publication")
+    if (_digest_from_payload(verified, "comparison_digest") != facts.comparison_digest
+            or _digest_from_payload(verified, "facts_core_digest") != facts.facts_core_digest):
+        raise RecordsPublicationError("stored closure digests changed during publication")
+    closure = ComparisonRecordsClosure(
+        comparison_digest=facts.comparison_digest,
+        facts_core_digest=facts.facts_core_digest,
+        records=ordered,
+        closure_manifest_digest=raw_blob_digest(closure_bytes),
+    )
+    return DetailedFactsResult(
+        pair_id=result.pair_id, status=result.status,
+        facts=replace(facts, records_ref=closure_ref),
+        records_closure=closure, diagnostics=result.diagnostics,
+    )
+
+
+def _write_arrow_parquet(
+    batches: tuple[pa.RecordBatch, ...],
+    schema: pa.Schema,
+    limits: RecordsPublicationPolicy,
+    control: RecordsPublicationContext,
+) -> bytes:
+    started = perf_counter()
+    spool = SpooledTemporaryFile(
+        max_size=min(limits.max_spool_bytes, limits.max_records_artifact_bytes), mode="w+b"
+    )
     writer: pq.ParquetWriter | None = None
     try:
+        control.checkpoint()
         writer = pq.ParquetWriter(spool, schema, compression="zstd", use_dictionary=False)
-        for offset in range(0, len(rows), 1024):
-            context.checkpoint()
-            batch_rows = rows[offset : offset + 1024]
-            table = pa.Table.from_pylist(list(batch_rows), schema=schema)
-            writer.write_table(table, row_group_size=len(batch_rows))
+        for batch in batches:
+            control.checkpoint()
+            writer.write_table(
+                pa.Table.from_batches([batch], schema=schema),
+                row_group_size=batch.num_rows,
+            )
             spool.seek(0, 2)
-            if spool.tell() > limits.max_records_artifact_bytes:
-                raise RecordsPublicationError("records artifact budget exceeded")
-            if spool.tell() > limits.max_spool_bytes:
-                raise RecordsPublicationError("records spool budget exceeded")
+            if spool.tell() > limits.max_records_artifact_bytes or spool.tell() > limits.max_spool_bytes:
+                raise RecordsPublicationError("records artifact or spool budget exceeded")
         writer.close()
         writer = None
         spool.seek(0, 2)
@@ -531,11 +725,11 @@ def _write_parquet(
         if size > limits.max_records_artifact_bytes or size > limits.max_spool_bytes:
             raise RecordsPublicationError("records artifact or spool budget exceeded")
         spool.seek(0)
-        result = spool.read()
-        if type(result) is not bytes or len(result) != size:
+        raw = spool.read()
+        if type(raw) is not bytes or len(raw) != size:
             raise RecordsPublicationError("records artifact spool read failed")
-        context.checkpoint()
-        return result
+        control.checkpoint()
+        return raw
     except (InterruptedError, TimeoutError, MemoryError):
         raise
     except (pa.ArrowException, OSError, ValueError) as exc:
@@ -546,6 +740,11 @@ def _write_parquet(
         if writer is not None:
             writer.close()
         spool.close()
+        if control.timings is not None:
+            control.timings["parquet_write_seconds"] = (
+                control.timings.get("parquet_write_seconds", 0.0)
+                + perf_counter() - started
+            )
 
 
 def _validate_parquet_bytes(
@@ -555,6 +754,7 @@ def _validate_parquet_bytes(
 ) -> tuple[int, DigestRef]:
     if len(raw) > limits.max_records_artifact_bytes:
         raise RecordsPublicationError("records artifact budget exceeded")
+    file: pq.ParquetFile | None = None
     try:
         file = pq.ParquetFile(pa.BufferReader(raw))
         expected_schema = _schema_for(
@@ -563,65 +763,135 @@ def _validate_parquet_bytes(
             manifest.row_diff_detail_policy,
         )
         actual_schema = file.schema_arrow
-        if not _schema_matches(actual_schema, expected_schema):
+        if not _schema_matches(actual_schema, expected_schema, parquet_lists=True):
             raise RecordsPublicationError("records Parquet schema mismatch")
         _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
-        rows = _read_parquet_rows_from_file(file)
+        admission = _decoded_admission(file, limits)
+        _standalone_read_bound(len(raw), admission)
+        from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
+        operation = current_kernel_context()
+        reservation = operation.memory.reserve(2 * admission) if operation is not None else None
+        try:
+            if operation is not None:
+                operation.checkpoint()
+            with closing(pa.RecordBatchReader.from_batches(
+                expected_schema, _row_group_batches(file, expected_schema)
+            )) as reader:
+                family, schema_version, detail_policy, count, digest_text = validate_records_batches(
+                    reader,
+                    max_records=limits.max_records_per_table,
+                    max_batch_bytes=admission,
+                    cancel_probe=operation.cancel_probe if operation is not None else None,
+                    deadline_monotonic=operation.deadline_monotonic if operation is not None else None,
+                )
+            if operation is not None:
+                operation.checkpoint()
+        finally:
+            if reservation is not None:
+                reservation.close()
     except (OSError, pa.ArrowException, ValueError) as exc:
         if isinstance(exc, RecordsPublicationError):
             raise
         raise RecordsPublicationError("records Parquet is corrupt") from exc
-    if len(rows) != manifest.record_count:
+    finally:
+        if file is not None:
+            file.close()
+    if (family, schema_version, detail_policy) != (
+        manifest.family.value, manifest.schema_version, manifest.row_diff_detail_policy.value
+    ):
+        raise RecordsPublicationError("records Parquet metadata mismatch")
+    if count != manifest.record_count:
         raise RecordsPublicationError("records Parquet count mismatch")
-    digest = _content_digest(
-        manifest.family,
-        manifest.schema_version,
-        manifest.row_diff_detail_policy,
-        rows,
-    )
+    digest = DigestRef(digest_text)
     if digest != manifest.content_digest:
         raise RecordsPublicationError("records content digest mismatch")
-    return len(rows), digest
+    return count, digest
 
 
-def _read_parquet_rows(
-    raw: bytes,
-    manifest: RecordsArtifactManifest,
-    limits: RecordsPublicationPolicy,
-) -> tuple[dict[str, object], ...]:
-    if len(raw) > limits.max_records_artifact_bytes:
-        raise RecordsPublicationError("records artifact budget exceeded")
-    try:
-        file = pq.ParquetFile(pa.BufferReader(raw))
-        if not _schema_matches(
-            file.schema_arrow,
-            _schema_for(
-                manifest.family,
-                manifest.schema_version,
-                manifest.row_diff_detail_policy,
-            ),
-        ):
-            raise RecordsPublicationError("records Parquet schema mismatch")
-        _enforce_record_count_budget(file.metadata.num_rows if file.metadata is not None else None, limits)
-        rows = _read_parquet_rows_from_file(file)
-    except (OSError, pa.ArrowException, ValueError) as exc:
-        if isinstance(exc, RecordsPublicationError):
-            raise
-        raise RecordsPublicationError("records Parquet is corrupt") from exc
-    digest = _content_digest(
-        manifest.family,
-        manifest.schema_version,
-        manifest.row_diff_detail_policy,
-        rows,
-    )
-    if len(rows) != manifest.record_count or digest != manifest.content_digest:
-        raise RecordsPublicationError("records content digest or count mismatch")
-    return rows
+def _decoded_admission(file: pq.ParquetFile, limits: RecordsPublicationPolicy) -> int:
+    """Reserve a conservative upper bound before Arrow decodes a row group.
+
+    Each yielded batch stays within one row group. Parquet leaf ``num_values``
+    includes repetition/definition-level entries, including nullable elements
+    in the fixed records lists. Those entries can RLE-compress to a few bytes
+    while Arrow still allocates a child slot for each one. Charge each leaf
+    entry for its Arrow slots/offsets/validity and the fixed-schema serde/JCS
+    nodes that can be materialized from it. The byte factor covers variable
+    payloads and escaped JCS. Dictionary encoding is rejected below.
+    """
+    metadata = file.metadata
+    if metadata is None:
+        raise RecordsPublicationError("records Parquet metadata is unavailable")
+    largest = 1024 * 1024
+    for index in range(metadata.num_row_groups):
+        group = metadata.row_group(index)
+        if group.num_rows > 1024 or group.num_rows < 0:
+            raise RecordsPublicationError("records Parquet row group exceeds 1024 rows")
+        if group.total_byte_size < 0:
+            raise RecordsPublicationError("records Parquet row group size is invalid")
+        leaf_slots = 0
+        for column in range(group.num_columns):
+            leaf = group.column(column)
+            encodings = (str(item).upper() for item in leaf.encodings)
+            if any("DICTIONARY" in item for item in encodings):
+                raise RecordsPublicationError("records Parquet dictionary encoding is unsupported")
+            if leaf.num_values < 0:
+                raise RecordsPublicationError("records Parquet leaf value count is invalid")
+            leaf_slots += leaf.num_values
+        # Dictionary expansion is excluded by the published writer format.
+        # Each fixed-schema leaf crosses at most four list/struct/Scalar nodes.
+        # 512 bytes per entry covers their slots, offsets, validity, serde map
+        # and list nodes, and one row's JCS scratch; the final 2x reservation
+        # also covers simultaneous decoded Arrow and validator temporaries.
+        estimate = (
+            16 * group.total_byte_size
+            + 512 * leaf_slots
+            + group.num_rows * 2048
+            + 1024 * 1024
+        )
+        largest = max(largest, estimate)
+        if 2 * largest > min(limits.max_decoded_batch_bytes, _N1_OPERATION_MEMORY_BYTES):
+            raise RecordsPublicationError("records decoded batch budget exceeded")
+    return largest
 
 
-def _read_parquet_rows_from_file(file: pq.ParquetFile) -> tuple[dict[str, object], ...]:
-    table = file.read()
-    return tuple(cast(tuple[dict[str, object], ...], tuple(table.to_pylist())))
+def _row_group_batches(
+    file: pq.ParquetFile, expected_schema: pa.Schema
+) -> Iterator[pa.RecordBatch]:
+    metadata = file.metadata
+    if metadata is None:
+        raise RecordsPublicationError("records Parquet metadata is unavailable")
+    for index in range(metadata.num_row_groups):
+        for batch in file.iter_batches(batch_size=1024, row_groups=[index]):
+            yield _canonical_records_batch(batch, expected_schema)
+
+
+def _canonical_records_batch(batch: pa.RecordBatch, expected_schema: pa.Schema) -> pa.RecordBatch:
+    if not _schema_matches(batch.schema, expected_schema, parquet_lists=True):
+        raise RecordsPublicationError("records Parquet batch schema mismatch")
+    # Parquet's physical List child is named ``element``. The public Arrow
+    # schema uses ``item``; reuse the decoded arrays and only replace headers.
+    # The existing decoded-group reservation covers these small batch headers.
+    return pa.RecordBatch.from_arrays(batch.columns, schema=expected_schema)
+
+
+def _standalone_retained_cap(raw_bytes: int, admission: int) -> int:
+    # Current N1 M24 GiB applies even when a diagnostic caller has no operation
+    # context. Reserve room for raw bytes, the next decoded group and its JCS
+    # scratch while already returned Arrow batches remain live.
+    _standalone_read_bound(raw_bytes, admission)
+    remaining = _N1_OPERATION_MEMORY_BYTES - 2 * raw_bytes - 2 * admission - 1024 * 1024
+    if remaining < admission:
+        raise RecordsPublicationError("records standalone memory budget exceeded")
+    return remaining
+
+
+def _standalone_read_bound(raw_bytes: int, admission: int) -> None:
+    # open/restore validate one group at a time and do not retain returned
+    # batches. Only the diagnostic stream needs additional retained-batch room.
+    if 2 * raw_bytes + 2 * admission + 1024 * 1024 > _N1_OPERATION_MEMORY_BYTES:
+        raise RecordsPublicationError("records standalone memory budget exceeded")
 
 
 def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublicationPolicy) -> None:
@@ -631,12 +901,46 @@ def _enforce_record_count_budget(record_count: int | None, limits: RecordsPublic
         raise RecordsPublicationError("records per-table limit exceeded")
 
 
-def _schema_matches(actual: pa.Schema, expected: pa.Schema) -> bool:
-    if not actual.equals(expected, check_metadata=False):
+def _schema_matches(
+    actual: pa.Schema, expected: pa.Schema, *, parquet_lists: bool = False
+) -> bool:
+    if (actual.metadata or {}) != (expected.metadata or {}):
         return False
-    expected_metadata = expected.metadata or {}
-    actual_metadata = actual.metadata or {}
-    return all(actual_metadata.get(key) == value for key, value in expected_metadata.items())
+    if len(actual) != len(expected):
+        return False
+    return all(
+        _field_matches(actual_field, expected_field, parquet_lists=parquet_lists)
+        for actual_field, expected_field in zip(actual, expected)
+    )
+
+
+def _field_matches(
+    actual: pa.Field, expected: pa.Field, *, parquet_lists: bool, list_child: bool = False
+) -> bool:
+    expected_name = "element" if parquet_lists and list_child else expected.name
+    if (
+        actual.name != expected_name
+        or actual.nullable != expected.nullable
+        or (actual.metadata or {}) != (expected.metadata or {})
+    ):
+        return False
+    actual_type = actual.type
+    expected_type = expected.type
+    if isinstance(expected_type, pa.ListType):
+        return isinstance(actual_type, pa.ListType) and _field_matches(
+            actual_type.value_field, expected_type.value_field,
+            parquet_lists=parquet_lists, list_child=True,
+        )
+    if isinstance(expected_type, pa.StructType):
+        return (
+            isinstance(actual_type, pa.StructType)
+            and len(actual_type) == len(expected_type)
+            and all(
+                _field_matches(a, e, parquet_lists=parquet_lists)
+                for a, e in zip(actual_type, expected_type)
+            )
+        )
+    return bool(actual_type == expected_type)
 
 
 def _schema_for(
@@ -743,7 +1047,46 @@ def _records_by_family(
     return tuple(result)
 
 
-def _record_to_row(
+def _metadata_record_upper(record: object) -> int:
+    """Charge the three small-record shapes before Python row/Parquet growth."""
+    if isinstance(record, BlankRecord):
+        interval = record.interval
+        variable = (
+            len(record.table_name)
+            + sum(len(value) for value in record.diagnostics)
+            + sum(
+                0 if value is None else value.bit_length() + 2
+                for value in (
+                    interval.before_start, interval.before_end,
+                    interval.current_start, interval.current_end,
+                    record.before_occupancy, record.current_occupancy,
+                )
+            )
+            + interval.row_count.bit_length() + 2
+            + (0 if interval.interval_digest is None else len(interval.interval_digest.value))
+        )
+    elif isinstance(record, ComparisonRecord | OrderedRecord):
+        if record.before_values or record.current_values or (
+            isinstance(record, ComparisonRecord) and record.field_changes
+        ):
+            raise RecordsPublicationError("row values require a native records handle")
+        variable = (
+            len(record.table_name)
+            + sum(len(value) for value in record.changed_columns)
+            + sum(len(value) for value in record.diagnostics)
+            + (0 if record.row_identity is None else len(record.row_identity.value))
+        )
+        if isinstance(record, OrderedRecord):
+            variable += sum(
+                0 if value is None else value.bit_length() + 2
+                for value in (record.before_position, record.current_position)
+            )
+    else:
+        raise RecordsPublicationError("metadata-only family contains an invalid record")
+    return 8192 + 64 * variable
+
+
+def _metadata_record_to_row(
     family: RecordsArtifactFamily,
     record: object,
     detail_policy: RecordsDetailPolicy,
@@ -751,33 +1094,24 @@ def _record_to_row(
     if family is RecordsArtifactFamily.STANDARD:
         if not isinstance(record, ComparisonRecord):
             raise RecordsPublicationError("standard family contains a non-standard record")
-        full = detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+        if record.before_values or record.current_values or record.field_changes:
+            raise RecordsPublicationError("row values require a native records handle")
         columns = list(record.changed_columns) if detail_policy is not RecordsDetailPolicy.COUNTS_ONLY else []
         return {
             "table_name": record.table_name,
             "record_kind": record.record_kind.value,
             "row_identity": _digest_bytes(record.row_identity),
             "changed_columns": columns,
-            "before_values": _values(record.before_values if full else ()),
-            "current_values": _values(record.current_values if full else ()),
-            "field_changes": (
-                [
-                    {
-                        "column_name": item.column_name,
-                        "before_value": _scalar(item.before_value),
-                        "current_value": _scalar(item.current_value),
-                    }
-                    for item in record.field_changes
-                ]
-                if full
-                else []
-            ),
+            "before_values": [],
+            "current_values": [],
+            "field_changes": [],
             "diagnostics": list(record.diagnostics),
         }
     if family is RecordsArtifactFamily.ORDERED:
         if not isinstance(record, OrderedRecord):
             raise RecordsPublicationError("ordered family contains a non-ordered record")
-        full = detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+        if record.before_values or record.current_values:
+            raise RecordsPublicationError("row values require a native records handle")
         return {
             "table_name": record.table_name,
             "record_kind": record.record_kind.value,
@@ -789,8 +1123,8 @@ def _record_to_row(
             "changed_columns": list(record.changed_columns)
             if detail_policy is not RecordsDetailPolicy.COUNTS_ONLY
             else [],
-            "before_values": _values(record.before_values if full else ()),
-            "current_values": _values(record.current_values if full else ()),
+            "before_values": [],
+            "current_values": [],
             "diagnostics": list(record.diagnostics),
         }
     if not isinstance(record, BlankRecord):
@@ -814,56 +1148,8 @@ def _record_to_row(
     }
 
 
-def _values(values: tuple[tuple[str, object], ...]) -> list[dict[str, object]]:
-    return [{"column_name": name, "value": _scalar(value)} for name, value in values]
-
-
-def _scalar(value: object) -> dict[str, object]:
-    if isinstance(value, NullScalar) or value is None:
-        return {
-            "kind": "null",
-            "text": None,
-            "raw_bytes": None,
-            "boolean": None,
-            "items": None,
-            "anomaly_json": None,
-        }
-    if isinstance(value, BooleanScalar):
-        return _scalar_base(value.kind, boolean=value.value)
-    if isinstance(value, (SignedIntegerScalar, UnsignedIntegerScalar, DecimalScalar)):
-        return _scalar_base(value.kind, text=value.decimal)
-    if isinstance(value, (Float32Scalar, Float64Scalar)):
-        return _scalar_base(value.kind, text=value.bits_hex)
-    if isinstance(value, (StringScalar, DateScalar, DateTimeScalar, TimestampScalar, TimeDurationScalar)):
-        return _scalar_base(value.kind, text=value.text)
-    if isinstance(value, (BinaryScalar, BitScalar)):
-        return _scalar_base(value.kind, raw_bytes=value.raw_bytes)
-    if isinstance(value, AnomalyScalar):
-        return _scalar_base(
-            value.kind,
-            anomaly_json=canonicalize_json_value(dict(value.envelope)),
-        )
-    members = getattr(value, "members", None)
-    if type(members) is tuple and all(type(item) is str for item in members):
-        return _scalar_base("set", items=list(members))
-    raise RecordsPublicationError(f"unsupported typed record value: {type(value).__name__}")
-
-
-def _scalar_base(kind: str, **values: object) -> dict[str, object]:
-    result: dict[str, object] = {
-        "kind": kind,
-        "text": None,
-        "raw_bytes": None,
-        "boolean": None,
-        "items": None,
-        "anomaly_json": None,
-    }
-    result.update(values)
-    return result
-
-
 def _record_sort_key(family: RecordsArtifactFamily, record: object) -> tuple[object, ...]:
-    row = _record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
+    row = _metadata_record_to_row(family, record, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES)
     return (
         str(row.get("record_kind", "")),
         _bytes_sort(row.get("row_identity")),
@@ -1010,7 +1296,7 @@ def _verify_stored_bytes(store: ArtifactStorePort, ref: ArtifactRef, expected: b
         raise RecordsPublicationError("stored artifact bytes changed during publication")
 
 
-def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
+def _locate(store: ArtifactStorePort, ref: ArtifactRef, *, label: str = "stored artifact") -> bytes:
     try:
         raw = store.locate(ref)
     except (InterruptedError, TimeoutError, MemoryError):
@@ -1019,6 +1305,8 @@ def _locate(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
         raise RecordsPublicationError("artifact store locate failed") from exc
     if type(raw) is not bytes:
         raise RecordsPublicationError("artifact store returned non-bytes")
+    if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
+        raise RecordsPublicationError(f"{label} raw identity mismatch")
     return raw
 
 
@@ -1086,11 +1374,3 @@ def _json_safe(value: object) -> object:
     if isinstance(value, (tuple, list)):
         return [_json_safe(item) for item in value]
     return value
-
-
-def _cancelled_status() -> PairResultStatus:
-    return PairResultStatus.CANCELLED
-
-
-def _failed_status() -> PairResultStatus:
-    return PairResultStatus.FAILED

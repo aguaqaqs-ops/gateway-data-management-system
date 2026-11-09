@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tests.support.dolt import dolt_available
+
+if TYPE_CHECKING:
+    from gateway_backend.capabilities.table_access import KernelExecutionContext
 
 
 @pytest.fixture
@@ -50,10 +54,10 @@ def initialize_kernel_pool() -> None:
 
 
 @pytest.fixture(autouse=True)
-def operation_kernel_context() -> Iterator[None]:
+def operation_kernel_context() -> Iterator[KernelExecutionContext]:
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
     )
 
-    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
-        yield
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)) as context:
+        yield context

@@ -1,15 +1,43 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::ops::Deref;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
-use arrow_array::{Int64Array, RecordBatch, StringArray};
+use arrow_array::{Int64Array, RecordBatch, StringArray, UInt64Array};
 use arrow_schema::{ArrowError, DataType, Field, Schema};
-use proptest::prelude::*;
 
 use super::*;
 
-fn field(name: &str, scalar_type: &str, data_type: DataType, nullable: bool) -> Field {
-    let metadata = HashMap::from([("gdms.scalar_type".to_string(), scalar_type.to_string())]);
-    Field::new(name, data_type, nullable).with_metadata(metadata)
+fn field(
+    name: &str,
+    scalar_type: &str,
+    data_type: DataType,
+    nullable: bool,
+) -> Result<Field, ArrowError> {
+    let (sql_type, kind, bits) = match scalar_type {
+        "INT UNSIGNED" => ("INT UNSIGNED", "unsigned-integer", Some(32u8)),
+        "BIGINT" => ("BIGINT", "signed-integer", Some(64u8)),
+        "INT" => ("INT", "signed-integer", Some(32u8)),
+        "VARCHAR(64)" => ("VARCHAR(64)", "string", None),
+        _ => {
+            return Err(ArrowError::SchemaError(
+                "unexpected test scalar type".to_string(),
+            ));
+        }
+    };
+    let canonical_type = serde_json::json!({
+        "declared_type": {"kind": kind, "bits": bits, "precision": null, "scale": null, "bit_width": null},
+        "labels": null,
+        "logical_type": "standard",
+        "sql_type": sql_type,
+    });
+    Ok(
+        Field::new(name, data_type, nullable).with_metadata(HashMap::from([(
+            "gdds.canonical_type".to_string(),
+            canonical_type.to_string(),
+        )])),
+    )
 }
 
 fn batch(
@@ -26,21 +54,45 @@ fn batch_with_extra(
     names: &[Option<&str>],
     extra: Option<&[Option<&str>]>,
 ) -> Result<RecordBatch, ArrowError> {
+    let signed_gid = gids.iter().flatten().any(|gid| *gid < 0);
     let mut fields = vec![
-        field("gid", "INT UNSIGNED", DataType::Int64, true),
-        field("no", "INT", DataType::Int64, false),
-        field("name", "VARCHAR(64)", DataType::Utf8, true),
+        field(
+            "gid",
+            if signed_gid { "BIGINT" } else { "INT UNSIGNED" },
+            if signed_gid {
+                DataType::Int64
+            } else {
+                DataType::UInt64
+            },
+            true,
+        )?,
+        field("no", "INT", DataType::Int64, false)?,
+        field("name", "VARCHAR(64)", DataType::Utf8, true)?,
     ];
+    let gid_array: arrow_array::ArrayRef = if signed_gid {
+        Arc::new(Int64Array::from(gids.to_vec()))
+    } else {
+        let unsigned = gids
+            .iter()
+            .map(|gid| gid.map(u64::try_from).transpose())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| ArrowError::SchemaError(error.to_string()))?;
+        Arc::new(UInt64Array::from(unsigned))
+    };
     let mut arrays: Vec<arrow_array::ArrayRef> = vec![
-        std::sync::Arc::new(Int64Array::from(gids.to_vec())),
+        gid_array,
         std::sync::Arc::new(Int64Array::from(positions.to_vec())),
         std::sync::Arc::new(StringArray::from(names.to_vec())),
     ];
     if let Some(values) = extra {
-        fields.push(field("extra", "VARCHAR(64)", DataType::Utf8, true));
+        fields.push(field("extra", "VARCHAR(64)", DataType::Utf8, true)?);
         arrays.push(std::sync::Arc::new(StringArray::from(values.to_vec())));
     }
-    RecordBatch::try_new(std::sync::Arc::new(Schema::new(fields)), arrays)
+    let schema = Schema::new(fields).with_metadata(HashMap::from([(
+        "gdds.canonical_mapping_version".to_string(),
+        "1".to_string(),
+    )]));
+    RecordBatch::try_new(Arc::new(schema), arrays)
 }
 
 fn options() -> OrderedCompareOptions {
@@ -50,16 +102,67 @@ fn options() -> OrderedCompareOptions {
     options
 }
 
+#[test]
+fn invalid_gid_diagnostic_keeps_source_and_canonical_provenance_distinct()
+-> Result<(), Box<dyn Error>> {
+    let invalid = batch(&[Some(-1)], &[1], &[Some("x")])?;
+    let mut source = options();
+    source.before_blank_provenance = BlankProvenance::SourceMissingStableKey;
+    source.current_blank_provenance = BlankProvenance::SourceMissingStableKey;
+    let source_result = compare(&invalid, &invalid, &source)?;
+    assert_eq!(source_result.diagnostics, ["SOURCE_GID_INVALID"]);
+
+    let mut canonical = options();
+    canonical.before_blank_provenance = BlankProvenance::CanonicalPseudoGid;
+    canonical.current_blank_provenance = BlankProvenance::CanonicalPseudoGid;
+    let canonical_result = compare(&invalid, &invalid, &canonical)?;
+    assert_eq!(canonical_result.diagnostics, ["CANONICAL_GID_INVALID"]);
+    Ok(())
+}
+
 fn compare<'a>(
     before: &'a RecordBatch,
     current: &'a RecordBatch,
     options: &'a OrderedCompareOptions,
-) -> Result<OrderedCompareResult, OrderedCompareError> {
-    compare_ordered_table(OrderedTablePair {
-        before: Some(before),
-        current: Some(current),
-        options,
+) -> Result<TestedComparison, OrderedCompareError> {
+    let before_batches = [before.clone()];
+    let current_batches = [current.clone()];
+    let context = Arc::new(KernelContext::new(
+        64 * 1024 * 1024,
+        Arc::new(AtomicBool::new(false)),
+        None,
+    ));
+    let result = compare_ordered_batches(
+        OrderedBatchPair {
+            before: Some(&before_batches),
+            current: Some(&current_batches),
+            before_schema: Some(before.schema()),
+            current_schema: Some(current.schema()),
+            options,
+        },
+        &context,
+    )?;
+    Ok(TestedComparison {
+        standard_count: result.standard_records.len(),
+        ordered_count: result.ordered_records.len(),
+        blank_records: result.blank_records,
+        facts: result.facts_metadata,
     })
+}
+
+struct TestedComparison {
+    facts: OrderedCompareResult,
+    standard_count: usize,
+    ordered_count: usize,
+    blank_records: Vec<BlankRecordRef>,
+}
+
+impl Deref for TestedComparison {
+    type Target = OrderedCompareResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.facts
+    }
 }
 
 #[test]
@@ -87,8 +190,8 @@ fn combines_insert_delete_modify_and_absolute_position_shift() -> Result<(), Box
         result.ordered_extension.table_processing_mode.as_deref(),
         Some("ORDERED_SHIFT_REPAIRED")
     );
-    assert_eq!(result.records.len(), 3);
-    assert_eq!(result.ordered_extension.records.len(), 3);
+    assert_eq!(result.standard_count, 3);
+    assert_eq!(result.ordered_count, 3);
     Ok(())
 }
 
@@ -134,8 +237,8 @@ fn blank_rows_are_counted_by_backbone_interval_and_ignore_payload() -> Result<()
     assert_eq!(result.blank_extension.summary.interval_inserted_count, 1);
     assert_eq!(result.blank_extension.summary.interval_deleted_count, 0);
     assert_eq!(result.blank_extension.summary.blank_changed_count, 1);
-    assert_eq!(result.blank_extension.records.len(), 1);
-    assert_eq!(result.blank_extension.records[0].interval.row_count, 1);
+    assert_eq!(result.blank_records.len(), 1);
+    assert_eq!(result.blank_records[0].interval.row_count, 1);
     assert_eq!(result.ordered_extension.summary.position_changed_count, 1);
     Ok(())
 }
@@ -158,7 +261,7 @@ fn schema_addition_uses_only_shared_columns_for_value_comparison() -> Result<(),
     assert_eq!(result.status, "SCHEMA_ONLY_CHANGED");
     assert_eq!(result.row_modified_count, 0);
     assert_eq!(result.ordered_extension.summary.row_modified_count, 0);
-    assert!(result.records.is_empty());
+    assert_eq!(result.standard_count, 0);
     Ok(())
 }
 
@@ -215,144 +318,4 @@ fn missing_blank_provenance_degrades_before_reading_rows() -> Result<(), Box<dyn
     assert_eq!(result.diagnostics, vec!["BLANK_PROVENANCE_MISSING"]);
     assert_eq!(result.ordered_extension.status, "ORDERED_DEGRADED");
     Ok(())
-}
-
-#[test]
-fn row_and_column_budgets_produce_bounded_degraded_facts() -> Result<(), Box<dyn Error>> {
-    let before = batch(&[Some(1), Some(2)], &[1, 2], &[Some("a"), Some("b")])?;
-    let current = batch(&[Some(1)], &[1], &[Some("a")])?;
-    let mut policy = options();
-    policy.max_rows = 1;
-    let result = compare(&before, &current, &policy)?;
-
-    assert_eq!(result.status, "DEGRADED");
-    assert_eq!(result.diagnostics, vec!["RESOURCE_LIMIT_EXCEEDED"]);
-    assert!(result.canonical_bytes()?.len() < 4096);
-    Ok(())
-}
-
-#[test]
-fn table_parallelism_is_byte_deterministic_for_one_and_many_threads() -> Result<(), Box<dyn Error>>
-{
-    let mut owned = Vec::new();
-    for number in (1..=9).rev() {
-        let before = batch(
-            &[Some(number), Some(number + 100)],
-            &[1, 2],
-            &[Some("a"), Some("b")],
-        )?;
-        let current = batch(
-            &[Some(number + 100), Some(number), Some(number + 200)],
-            &[1, 2, 3],
-            &[Some("b"), Some("a"), Some("c")],
-        )?;
-        let mut policy = options();
-        policy.table_name = format!("b1_n1_table_{number:02}");
-        owned.push((before, current, policy));
-    }
-    let pairs: Vec<OrderedTablePair<'_>> = owned
-        .iter()
-        .map(|(before, current, policy)| OrderedTablePair {
-            before: Some(before),
-            current: Some(current),
-            options: policy,
-        })
-        .collect();
-    let one = build_ordered_pool(1)?;
-    let many = build_ordered_pool(8)?;
-    let serial = compare_ordered_tables_parallel(&pairs, &one)?;
-    let parallel = compare_ordered_tables_parallel(&pairs, &many)?;
-
-    assert_eq!(serial.len(), parallel.len());
-    for (left, right) in serial.iter().zip(&parallel) {
-        assert_eq!(left.table_name, right.table_name);
-        assert_eq!(left.canonical_bytes()?, right.canonical_bytes()?);
-    }
-    assert!(
-        serial
-            .windows(2)
-            .all(|window| window[0].table_name < window[1].table_name)
-    );
-    assert!(build_ordered_pool(0).is_err());
-    assert!(build_ordered_pool(MAX_ORDERED_THREADS + 1).is_err());
-    Ok(())
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(96))]
-
-    #[test]
-    fn arbitrary_unique_sequences_stay_bounded_and_thread_independent(
-        before_order in prop::collection::vec(0u8..80, 0..48),
-        current_order in prop::collection::vec(0u8..80, 0..48),
-        before_blanks in prop::collection::vec(any::<bool>(), 0..48),
-        current_blanks in prop::collection::vec(any::<bool>(), 0..48),
-        before_values in prop::collection::vec(0u8..10, 0..48),
-        current_values in prop::collection::vec(0u8..10, 0..48),
-    ) {
-        let before = unique_rows(&before_order, &before_blanks, &before_values);
-        let current = unique_rows(&current_order, &current_blanks, &current_values);
-        let before_batch = batch(&before.0, &before.1, &before.2).map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let current_batch = batch(&current.0, &current.1, &current.2).map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let policy = options();
-        let one = build_ordered_pool(1).map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let many = build_ordered_pool(4).map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let single = compare(&before_batch, &current_batch, &policy)
-            .map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let pair = [OrderedTablePair {
-            before: Some(&before_batch),
-            current: Some(&current_batch),
-            options: &policy,
-        }];
-        let single_pool_result = compare_ordered_tables_parallel(&pair, &one)
-            .map_err(|error| TestCaseError::fail(error.to_string()))?;
-        let parallel_pool_result = compare_ordered_tables_parallel(&pair, &many)
-            .map_err(|error| TestCaseError::fail(error.to_string()))?;
-        prop_assert!(single.canonical_bytes().map_err(|error| TestCaseError::fail(error.to_string()))?.len() < 1_000_000);
-        prop_assert_eq!(
-            single_pool_result[0].canonical_bytes().map_err(|error| TestCaseError::fail(error.to_string()))?,
-            parallel_pool_result[0].canonical_bytes().map_err(|error| TestCaseError::fail(error.to_string()))?
-        );
-    }
-}
-
-fn unique_rows(
-    requested_ids: &[u8],
-    requested_blanks: &[bool],
-    requested_values: &[u8],
-) -> (Vec<Option<i64>>, Vec<i64>, Vec<Option<&'static str>>) {
-    let mut seen = std::collections::BTreeSet::new();
-    let ids: Vec<u8> = requested_ids
-        .iter()
-        .copied()
-        .filter(|value| seen.insert(*value))
-        .collect();
-    let count = ids.len();
-    let mut gids = Vec::with_capacity(count);
-    let mut positions = Vec::with_capacity(count);
-    let mut names = Vec::with_capacity(count);
-    for (index, id) in ids.into_iter().enumerate() {
-        let is_blank = requested_blanks.get(index).copied().unwrap_or(false);
-        gids.push(if is_blank {
-            None
-        } else {
-            Some(i64::from(id) + 1)
-        });
-        positions.push(i64::try_from(index + 1).unwrap_or(i64::MAX));
-        let value = requested_values.get(index).copied().unwrap_or(0);
-        let text = match value % 10 {
-            0 => "v0",
-            1 => "v1",
-            2 => "v2",
-            3 => "v3",
-            4 => "v4",
-            5 => "v5",
-            6 => "v6",
-            7 => "v7",
-            8 => "v8",
-            _ => "v9",
-        };
-        names.push(Some(text));
-    }
-    (gids, positions, names)
 }

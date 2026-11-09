@@ -1,7 +1,7 @@
 # FE3 kickoff：对接真实 backend
 
 - **状态：** 修订 2，2026-11-07，分两步提交，各自待 kickoff 审核与 owner 确认。
-  - Q1–Q12 已确认（owner，2026-11-05）。**FE3a 已退出（2026-11-05，§3.2）**。
+  - Q1–Q12 已确认（owner，2026-11-05）。**FE3a 已退出（2026-11-05，§3.2）**。**FE3b 已退出（2026-11-09，§3.2）**。
   - owner 2026-11-07 决定把 FE3 剩余工作拆成 FE3b（契约与基础）与 FE3c（归档核验与完整旅程），补记为 §11 Q13。Q14 已决定（owner 2026-11-08）；Q15–Q20 待 owner 决定（Q20 来自修订 2 审核 C1）。
   - owner 2026-11-08 就 [修订 2 审核](reviews/fe3-kickoff-rev2-review.md) B1 选甲：FE3b 合入 main `748de5034d`（`vnext/` 树仍为 `56720104af`），FE3b 期间不再合入 main（§2.1、§3.2）。
   - 第 1 步（`d702307836`）写定 FE3b 需要的全部内容（§1–§6、§9、§10、§12、§13.3、§13.4、§15.2）。
@@ -22,7 +22,7 @@
 - **起点：**
   - FE3a：`fe-fe2c-exit`（tag 对象 `86901e038d` → `749f219d5f`），main 合入提交 `0430e0e738`。
   - FE3b：`fe-fe3a-exit`（tag 对象 `8dd0f765b3` → `0e7caf66f4`，`frontend/` 树 `8a9f11c84f`），main 合入提交 `86fa2e4e8a`。
-  - FE3c：`fe-fe3b-exit`。
+  - FE3c：`fe-fe3b-exit`（tag 对象 `8da25ee3f5` → `ed5d2c24e9`，`frontend/` 树 `54b5a333c6`），main 合入提交 `ffccdd411b`。
   - 修订 2 以本地 main `e8c45eb642` 核对：`vnext/` 树 `56720104af`，与 `p6-be-a-d-exit` 的产品提交 `49403f21aa` 相同。
 - **依据：**
   - [前端 kickoff](frontend-kickoff.md)（§3.3、§4.2–§4.4、§5、§6、§7、§7.1；FD4）、[FE2 kickoff](fe2-kickoff.md)（§4.1、§6.5、§7、§9 Q16–Q19、§10）；
@@ -169,7 +169,7 @@
 | 子阶段 | 内容 | 前置条件 | 退出 tag | 审核范围 | 退出条件 |
 | --- | --- | --- | --- | --- | --- |
 | FE3a 运行框架与带入项（已退出） | §7 的 M7、n3、n8；§4 运行框架与冒烟；§4.6 上传输入；§5.4 生成类型一致性；M1 的打包测量 | 本文经 owner 确认 | `fe-fe3a-exit` | `fe-fe2c-exit..<FE3a 候选>` | 审核通过；04 上模拟接口全量 runner（含截图）、上传包后端校验、真实 backend 冒烟各一次通过；M1 测量完成并经审核会话与 owner 判断 |
-| FE3b 契约与基础 | `fe-vnext` 合入 main `748de5034d`（含 `p6-be-a-d-exit`，§2.1）；§5.1–§5.3 快照刷新、类型与模拟数据同步、旧路径清理；§5.5 tar 接收修复与同字节 OPFS 互通；§6.1–§6.3 上传模式撤回、占用禁用与刷新恢复（含 n3 改为基于指针）；§6.4 终局处置只读显示；§4.7 中标为 FE3b 的真实旅程（不需要归档）；FE3a 带入的 N1、N2、N5（§15.2） | 本文第 1 步经 kickoff 审核与 owner 确认（含 Q14）；审核会话现场核对接口、镜像与节点占用后发出提示词 | `fe-fe3b-exit` | `fe-fe3a-exit..<FE3b 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图，含 §5.5 的同字节互通用例）、上传包后端校验（`validate-upload-package.sh`）、`--suite journeys`（FE3b 部分）各一次通过；§6、§6.4 截图经 owner 确认 |
+| FE3b 契约与基础（已退出） | `fe-vnext` 合入 main `748de5034d`（含 `p6-be-a-d-exit`，§2.1）；§5.1–§5.3 快照刷新、类型与模拟数据同步、旧路径清理；§5.5 tar 接收修复与同字节 OPFS 互通；§6.1–§6.3 上传模式撤回、占用禁用与刷新恢复（含 n3 改为基于指针）；§6.4 终局处置只读显示；§4.7 中标为 FE3b 的真实旅程（不需要归档）；FE3a 带入的 N1、N2、N5（§15.2） | 本文第 1 步经 kickoff 审核与 owner 确认（含 Q14）；审核会话现场核对接口、镜像与节点占用后发出提示词 | `fe-fe3b-exit` | `fe-fe3a-exit..<FE3b 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图，含 §5.5 的同字节互通用例）、上传包后端校验（`validate-upload-package.sh`）、`--suite journeys`（FE3b 部分）各一次通过；§6、§6.4 截图经 owner 确认 |
 | FE3c 归档核验与完整旅程 | §16 归档业务核验的显示与逐项接受/撤销、关闭出口、待审核阻塞与过期通过的界面；§4.7 中标为 FE3c 的真实旅程（R4 身份确认、R8、R9 三节点、R12 关闭）；§4.6 A–D 序列及其核对；§8 t1 旅程与 M1 复测；FE3 退出 | `fe-fe3b-exit`；本文第 2 步经 kickoff 审核与 owner 确认（含 Q15–Q20）；§11 Q18 的后端补缺已交付（固定的 Contract/OpenAPI 与后端独审结果），前端据此刷新类型并定稿 §16.6；所需草图或文字规格已提交 | `fe-fe3c-exit` | `fe-fe3b-exit..<FE3c 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包后端校验、`--suite journeys`（完整集，含 FE3b 部分）各一次通过；05 上 `--suite t1` 证据运行一次通过（§9）；§16 截图经 owner 确认 |
 
 - FE3c 结束即 FE3 结束，FE4 以 `fe-fe3c-exit` 为起点。
@@ -212,6 +212,34 @@
   - §0.5 标题：标题写“复审通过前”，实际上 04 取证是在复审第 2 轮通过之后进行的；
   - 漏项：handoff 没有记录上传包的后端校验。
 - **交 owner：** handoff §8 中给 AGENTS 与 testing-conventions 的建议条文，由 owner 转治理会话（§12）。
+
+**FE3b 已退出（2026-11-09）：**
+
+- **tag 与范围：**
+  - 附注 tag `fe-fe3b-exit`（tag 对象 `8da25ee3f5`）指向 04 证据 handoff 的勘误提交 `ed5d2c24e9`，审核范围 `fe-fe3a-exit..ed5d2c24e9`；
+  - 04 运行的提交即代码候选 `dac69890a8`，tag 目标与它只差 `docs/frontend-vnext/fe3b-handoff-fix4.md` 与 `fe3b-evidence-04.md`；
+  - `frontend/` 树 `54b5a333c6`；`vnext/` 树 `56720104af`，与最后合入的 main `748de5034d` 相同，`748de5034d..ed5d2c24e9` 只改 `frontend/` 与 `docs/frontend-vnext/`（路径核对通过）；
+  - main 先合入审核报告分支（`dae8192ed8`），再合入 tag（`ffccdd411b`）。main 在 `748de5034d` 之后没有 `frontend/` 改动，合入后 `frontend/` 树仍为 `54b5a333c6`。
+- **04 权威运行**（都在 clean detached worktree `/home/dev/gdds-test-tmp/wt/fe3b-evidence-04-dac69890` 上，各一次）：
+
+  | 运行 | 结果 | 日志 | SHA256 |
+  | --- | --- | --- | --- |
+  | 模拟接口全量 runner（含截图） | exit 0；单测 175、e2e 63 通过 | `/home/dev/gdds-fe-logs/fe3b/evidence-04/frontend-tests-20261109T033153Z.log` | `577e044b…a092ac70` |
+  | 上传包的后端校验 | exit 0；4 个包，`failures=0` | `/home/dev/gdds-fe-evidence-04/validate-logs/upload-validator-dac69890a8-20261109T033445Z-1562748.log` | `40836269…5dcb25d` |
+  | 真实 backend `--suite journeys` | exit 0；18/18 通过，`openapi_compare=match`，`cleanup_status=ok` | `/home/dev/gdds-fe-evidence-04/real-logs/real-backend-e2e-journeys-fe3b-evidence-04-dac69890a8-20261109T033636Z-1563806.log` | `9037ff78…96728e6` |
+
+- **截图：** 146 张（1280、1920），在 04 的 `/home/dev/gdds-fe-shots/fe3b-04-dac69890/`；清单 `shots.sha256` 的 SHA256 为 `13c705e3…1692f222`。
+  owner 2026-11-09 已看图确认（含 N3、N4、N7）。
+- **依据：** [审核](reviews/fe3b-review.md)：定向修复；[复审第 1 轮](reviews/fe3b-rereview-1.md)、[第 2 轮](reviews/fe3b-rereview-2.md)：定向修复；
+  [第 3 轮](reviews/fe3b-rereview-3.md)：通过；[N5 定向复核](reviews/fe3b-rereview-3-n5.md)：通过；
+  [证据核对第 1 次](reviews/fe3b-evidence-check-1.md)：实质通过，handoff 定向勘误；[勘误复核](reviews/fe3b-evidence-check-1-errata.md)：通过。
+- **handoff 勘误：** 04 证据 handoff 原提交 `a300b16485` 有 5 个 SHA 抄错，已由 `ed5d2c24e9` 更正，并改为用脚本核对（证据核对 E1）。
+- **流程偏差（证据核对 P1）：** 取证时实施会话把开发主机主工作区从 `main` 切到了分支 `fe3b-evidence-04`。该分支的提交已包含在 `fe-vnext` 中，主工作区切回 `main` 后删除该分支。
+- **非阻塞项，交 FE3c kickoff 决定是否纳入**（审核建议，不作 FE3c 退出条件）：
+  - N2：`resumeNotice` 在页面生命周期内不归零，再次提交后的执行提示仍显示在红色提示框里；
+  - N6：`retryResume` 不经过在途合并，快速连点“重试”会并行两次读取序列；W9④ 第一次重试后的断言文字不能区分新旧状态；G3 的“提升基线等于 head 可不在数组里”的放宽也作用于合并数据集；
+  - N7：预览页顶栏撤回与提交的禁用原因并排、无分隔；
+  - N8：截图中的等待时长按墙钟计算，每次运行的截图不同，建议截图用例固定时钟。
 
 ### 3.3 FE3a 在当时 backend 上无法验证的内容（历史）
 

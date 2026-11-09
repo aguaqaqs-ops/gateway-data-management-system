@@ -1422,7 +1422,11 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const planA = (await previewArchivePlan(archiver, { submission_id: submitA.submissionId, expected_candidate_digest: digestA })).body;
     expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j1-step2");
     expect(businessIssueSet(planA), "j1-step2 business issues").toEqual(["CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED"]);
-    expect(planA.business_validation.source_diagnostics, "j1-step2 no source diagnostics").toEqual([]);
+    // Empty INITIAL baseline: one NOT_APPLICABLE source row, no baseline-time item.
+    const diagnosticsA = planA.business_validation.source_diagnostics as Array<{ detected_status: string; initial_origin: string; submission_id: string }>;
+    expect(diagnosticsA.map((diagnostic) => [diagnostic.submission_id, diagnostic.detected_status, diagnostic.initial_origin].join("|")), "j1-step2 source diagnostics").toEqual([
+      `${submitA.submissionId}|NOT_APPLICABLE|INITIAL_EMPTY`,
+    ]);
 
     const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
     const startA = dialogA.getByRole("button", { name: "确认归档" });
@@ -1462,6 +1466,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await saveEvidence(archiverSession.page, testInfo, "j1-disposition-archived");
 
     // Step 4: FULL B over A — baseline_to_initial empty, initial_to_modified ≥ 1.
+    await gotoWorkbenchFresh(s1Session.page);
     const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
     const summaries = new Map(runB.bundle.manifest.pairs.map((pair) => [pair.pair_id, pair.summary]));
     expect(summaries.size, "FULL pair count").toBe(2);
@@ -1554,6 +1559,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     assertClean(archiverSession.diagnostics, "j1-archive-b");
 
     // Step 11: re-upload C on baseline 2, approve, archive as baseline 3.
+    // (The archive-result dialog from step 10 is still open; start fresh.)
     await gotoWorkbenchFresh(s2Session.page);
     runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
     const submitC2 = await submitViaUi(s2Session.page, s2, runC.workspaceId);
@@ -1671,6 +1677,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     appendCaseLog(`j2-step1 ok submission=${submitA.submissionId} head=1`);
 
     // Step 2: B, C and E submitted and approved.
+    // (The archive-result dialog from step 1 is still open; start fresh.)
+    await gotoWorkbenchFresh(s1Session.page);
     const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
     const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
     const runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });

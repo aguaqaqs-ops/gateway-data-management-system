@@ -490,14 +490,22 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 - ordered unsupported 不被误判为 LOW。
 - 大量 annotations 可以落 artifact，RiskReport 只保留 summary/ref。
 
-## S3 Arrow 消费与操作内复用（设计候选，待 kickoff 独审）
+## Arrow 消费与完整候选复用
 
 风险规则继续由 Python 拥有。当前比较计算可将内存 Arrow records 按表/批交风险消费，仅转换规则需要的列；不要求重建整份 ComparisonRecord tuple，不以先写 Parquet 再读回作为当前风险计算输入。计数/schema 风险仍直接消费 facts。
 
-语言/传输替换不得改变表与规则遍历顺序、target/reason/severity、标注排序及编号、单表限制、pair 上限、截断/降级或组合信号语义。风险行规则使用现 facts 的记录顺序，不能以产物排序替代。单表纯结果可在同一次 operation 内按包含完整 comparison/risk 规则主体及版本的 key 复用；pair 上限、标注编号、表名/显示名和组合信号在当前汇总步骤绑定。纯候选仍受单表资源限制，失败/取消不缓存，跨操作持久缓存属于 S5。接口及覆盖移交见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)。
+语言/传输替换不得改变表与规则遍历顺序、target/reason/severity、标注排序及编号、单表限制、pair 上限、截断/降级或组合信号语义。风险行规则使用现 facts 的记录顺序，不能以产物排序替代。单表纯候选按包含完整 comparison/risk 规则主体及版本的 key 复用；pair 上限、标注编号、表名/显示名和组合信号在当前汇总步骤绑定。纯候选仍受单表资源限制，失败/取消不缓存。接口及覆盖移交见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)和 [S5 设计](../refactoring/formal/plans/p6-s5-design.md)。
 
 S3 风险上限重放必须保留当前控制流：在等级过滤前检查上限，同时触达 table/pair 上限时 pair 优先。`_TableBudgetExceeded` 异常分支产生单表 degraded outcome，但不增加后续 pair 的 `total_annotations`；正常返回 outcome 才累加，其中包括诊断数量/字节预检直接返回的 degraded。pair 超限丢弃全部部分标注，不是截取前 K 项。缓存命中仍执行当前 pair 的 closure 检查与当前取消/时间检查，不能复用先前验证结论；本段仅澄清现行语义，非修复算法行为。
 
 内部风险输入为小型 table facts 加同一 operation 的只读 records handle。行规则按 standard facts 序请求最少列（kind、identity、changed columns及该规则需要的值）；无行规则时不取行批，ordered 降级还要综合 extension status、`TABLE_DEGRADED` 存在性和 diagnostics。候选事件流按现规则顺序保留每个 `Emit(rule_id,target_without_binding,evidence)`，包括最终被等级过滤的事件；`CheckRecordsClosure` 等控制步骤仍在原位置按当前 pair 执行。诊断预算预检直接返回 degraded 的分支也属于每次消费的控制流。只有自然穷尽且未失败、超时或取消的完整候选序列可在同一 operation 内复用；记录候选的额外内存不足时继续本次惰性计算并安全放弃复用。当前 pair 的上限、等级过滤、编号、表名、组合信号、时间检查和 closure 校验在消费时执行。向量及逐事件预期见 [S3 A 交接](../refactoring/formal/plans/p6-s3-a-contract-handoff.md)。
+
+### S5 neutral 候选接口
+
+`RiskCandidateInputV1` 使用 Comparison owner 的完整单表任务身份（覆盖 neutral facts/records），加当前纯风险 facts、完整风险规则主体/model/version、RiskOptions、artifact detail、policy 语义版本和全部有效 diagnostics 生成有域分隔的规范 JCS SHA256。当前 comparison/table digest、closure ref、表显示绑定、时间、剩余名额不作持久身份；规则或 schema 中有业务含义的名称仍由原 owner 的任务身份保留。不再使用 `repr` 或含当前表绑定的 `table_fact_digest` 作为纯候选 key。
+
+`risk-table-candidates/v1` 是有序 JCS 事件文档，包含格式、task digest、`complete: true` 与连续 ordinal。`CHECK_RECORDS_CLOSURE` 只表示当前必须验证，不保留验证结论；`EMIT` 保存 rule_id、无 table_name 的完整 typed target 与有序 evidence。恢复严格校验封闭字段、类型、顺序、格式与 key，绑定当前表名后仍走原 emit 闭包。每个 emit 保持 cap（同时触界时 pair 优先）→记录候选→rule/level 过滤→必要输出预约/编号/append→原 `_check_table`；被过滤候选不新增该处时间检查，最后一条被保留候选仍执行原检查。每 1024 事件只补 operation 控制 checkpoint，不前移 table/pair 时间检查。
+
+候选内存、序列化 scratch、读入与恢复对象均在同 operation M 中增长前预约，最后 consumer 关闭。当前 codec 的 16MiB 为可选保留上限，超过只放弃缓存，不改变产品接受范围或继续执行已截断规则。仅自然结束且当前 pair 成功的完整序列可登记持久条目；基础设施拥有 SQLite/TTL/protection，风险 owner 不依赖 DB 或 application。组合信号仍每次由当前汇总处理，不缓存最终 outcome、编号或截断结果。
 
 风险侧最小只读接口按 `iter_record_batches(table, family=STANDARD, columns=(...), order=FACTS) -> Iterator[RecordBatch]` 定义，`family` 必须显式为 STANDARD/ORDERED/BLANK 中一族，`order` 对风险只能是 `FACTS`，`columns` 只能选该族已定义的必要列；未知列/族或已释放 owner 应拒绝。每个 batch 保留所请求列的 Arrow 类型与原 facts 全局顺序，跨 batch 连接后恰等于该族 facts 顺序；不能用 artifact 序、到达顺序或全表 `to_pylist()` 代替。迭代可重复以供现三种 row kind 遍历，返回 batch 借用同一 operation owner；提前关闭、异常、取消和最后消费者退出均释放借用与预算。`record_count(table,family)`、`has_records(table,family)`、`ordered_degraded(table)` 是小型事实查询，分别返回该族精确 count、存在性及 extension status/`TABLE_DEGRADED`/diagnostics 的合并布尔值，不构造记录元组。现 `_facts.py` 的 visible/scope 判断使用 STANDARD 的存在性，ordered unsupported 使用合并布尔值；closure refs 仍由现 `records_access` 控制步骤读取。

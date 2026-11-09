@@ -62,8 +62,26 @@ from gateway_backend.capabilities.risk_evaluation._artifacts import (
     validate_risk_annotation_closure,
 )
 from gateway_backend.capabilities.risk_evaluation._engine import evaluate_risk
+from gateway_backend.capabilities.risk_evaluation.candidates import (
+    CHECK_RECORDS_CLOSURE,
+    RISK_CANDIDATES_FORMAT,
+    RiskCandidateEvent,
+    RiskCandidateInputV1,
+    RiskCheckRecordsClosure,
+    RiskEmitEvent,
+    decode_risk_candidates,
+    encode_risk_candidates,
+)
 
 __all__ = [
+    "CHECK_RECORDS_CLOSURE",
+    "RISK_CANDIDATES_FORMAT",
+    "RiskCandidateEvent",
+    "RiskCandidateInputV1",
+    "RiskCheckRecordsClosure",
+    "RiskEmitEvent",
+    "decode_risk_candidates",
+    "encode_risk_candidates",
     "ANNOTATION_CLOSURE_MEDIA_TYPE",
     "ANNOTATION_MANIFEST_MEDIA_TYPE",
     "ANNOTATION_MEDIA_TYPE",

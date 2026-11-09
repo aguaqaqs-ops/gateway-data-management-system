@@ -33,6 +33,13 @@ from gateway_backend.capabilities.risk_evaluation._rules import (
     reason_for,
     validate_risk_ruleset,
 )
+from gateway_backend.capabilities.risk_evaluation.candidates import (
+    CHECK_RECORDS_CLOSURE,
+    RiskCandidateEvent,
+    RiskCheckRecordsClosure,
+    RiskEmitEvent,
+    optional_candidate_input,
+)
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     AnnotationDetailPolicy,
     RiskAnnotation,
@@ -56,7 +63,6 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskTableRisk,
     RiskTarget,
     RiskTargetType,
-    V1_RISK_RULE_SPECS,
     compute_risk_evaluation_digest,
 )
 from gateway_shared_kernel import DigestRef
@@ -124,22 +130,6 @@ class _TableOutcome:
     charges: ExitStack = field(default_factory=ExitStack, repr=False, compare=False)
 
 
-@dataclass(frozen=True, slots=True)
-class _RiskEmitEvent:
-    rule_id: RiskRuleId
-    target: RiskTarget
-    evidence: tuple[tuple[str, str | int | bool | None], ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _RiskCheckClosure:
-    pass
-
-
-_CHECK_CLOSURE = _RiskCheckClosure()
-_RISK_CACHE_KEY_PROVISIONAL_BYTES = 16 * 1024**2
-
-
 def _evict_optional_risk_only(cache: object | None) -> bool:
     evict = None if cache is None else getattr(cache, "risk_evict_for_output", None)
     if not callable(evict):
@@ -165,45 +155,17 @@ def _optional_risk_cache_key(
     evaluation_input: RiskEvaluationInput,
     policy: RiskExecutionPolicy,
     operation: RiskOperationPort | None,
+    task_key: str,
 ) -> tuple[str | None, RiskReservationPort | None]:
-    """Pay for an optional complete key before its repr can grow."""
-    digest = item.table_fact.table_fact_digest
-    ruleset = evaluation_input.risk_ruleset
-    if (operation is None or digest is None
-            or ruleset.rules != V1_RISK_RULE_SPECS):
-        return None, None
-    # The v1 rule body and option enum are fixed. Only three diagnostics
-    # vectors have caller-controlled length; count their worst-case repr and
-    # intermediate copies before allocating any key string.
-    upper = 64 * 1024
-    for diagnostics in (
-        item.table_fact.diagnostics,
-        evaluation_input.comparison_facts.diagnostics,
-        item.comparison_facts.diagnostics,
-    ):
-        for diagnostic in diagnostics:
-            upper += 4096 + len(diagnostic) * 256
-            if upper > _RISK_CACHE_KEY_PROVISIONAL_BYTES:
-                return None, None
-    try:
-        charge = operation.memory.reserve(_RISK_CACHE_KEY_PROVISIONAL_BYTES)
-    except MemoryError:
+    """The current Comparison task identifies neutral facts and record content."""
+    candidate, charge = optional_candidate_input(
+        item, evaluation_input, policy, task_key, operation,
+    )
+    if candidate is None or charge is None:
         return None, None
     try:
-        key = repr((
-            digest.value,
-            item.table_fact.diagnostics,
-            evaluation_input.comparison_facts.diagnostics,
-            item.comparison_facts.diagnostics,
-            evaluation_input.risk_ruleset,
-            evaluation_input.risk_options,
-            policy.policy_version,
-        ))
-        actual = len(key) * 8 + 512
-        if actual > _RISK_CACHE_KEY_PROVISIONAL_BYTES:
-            charge.close()
-            return None, None
-        charge.shrink_to(actual)
+        key = candidate.task_digest()
+        charge.shrink_to(2048)
         return key, charge
     except BaseException:
         charge.close()
@@ -211,7 +173,7 @@ def _optional_risk_cache_key(
 
 
 class _RiskCandidateRecorder:
-    """Store complete candidate/control events only for a known later use."""
+    """Store complete neutral events only; the session decides retention uses."""
 
     def __init__(
         self, cache: object, task_key: str, risk_key: str,
@@ -221,11 +183,11 @@ class _RiskCandidateRecorder:
         self.task_key = task_key
         self.risk_key = risk_key
         self.operation = operation
-        self.events: list[_RiskEmitEvent | _RiskCheckClosure] = []
+        self.events: list[RiskCandidateEvent] = []
         self.charges = ExitStack()
         self.enabled = True
 
-    def append(self, event: _RiskEmitEvent | _RiskCheckClosure) -> None:
+    def append(self, event: RiskCandidateEvent) -> None:
         if not self.enabled:
             return
         operation = self.operation
@@ -233,7 +195,7 @@ class _RiskCandidateRecorder:
             self.close()
             return
         size = 1024
-        if isinstance(event, _RiskEmitEvent):
+        if isinstance(event, RiskEmitEvent):
             size += len(event.target.table_name or "") * 16
             size += sum(len(column) * 16 + 128 for column in event.target.changed_columns)
             size += sum((len(name) + len(str(value))) * 16 + 128
@@ -245,7 +207,7 @@ class _RiskCandidateRecorder:
             # evaluation with no new business resource failure.
             self.close()
             return
-        self.events.append(event)
+        self.events.append(event.neutral() if isinstance(event, RiskEmitEvent) else event)
 
     def finish(self) -> None:
         if self.enabled:
@@ -449,7 +411,7 @@ def _evaluate_table_impl(
                 raise _PairAnnotationBudgetExceeded
             raise _TableBudgetExceeded
         if recorder is not None:
-            recorder.append(_RiskEmitEvent(rule_id, target, evidence))
+            recorder.append(RiskEmitEvent(rule_id, target, evidence))
         rule = rules[rule_id]
         reason_code = reason_for(rule)
         level = level_for(rule)
@@ -496,10 +458,9 @@ def _evaluate_table_impl(
     cache = evaluation_input.risk_cache_session
     task_keys = evaluation_input.risk_task_keys
     task_key = None if task_keys is None else task_keys.get(item.table_fact.table_name)
-    if (cache is not None and task_key is not None and not item.composite_signal
-            and item.table_fact.table_fact_digest is not None):
+    if cache is not None and task_key is not None and not item.composite_signal:
         risk_key, key_charge = _optional_risk_cache_key(
-            item, evaluation_input, policy, context.operation,
+            item, evaluation_input, policy, context.operation, task_key,
         )
         if risk_key is not None and key_charge is not None:
             try:
@@ -511,7 +472,7 @@ def _evaluate_table_impl(
                     # crowd out this necessary output, release it and execute rules.
                     upper = 0
                     for event in cached_events:
-                        if isinstance(event, _RiskEmitEvent):
+                        if isinstance(event, RiskEmitEvent):
                             upper += 2048 + len(item.table_fact.table_name) * 16
                             upper += sum(len(column) * 16 + 128
                                          for column in event.target.changed_columns)
@@ -544,7 +505,7 @@ def _evaluate_table_impl(
 
     def require_closure() -> None:
         if recorder is not None:
-            recorder.append(_CHECK_CLOSURE)
+            recorder.append(CHECK_RECORDS_CLOSURE)
         _require_records_closure(item, evaluation_input)
 
     if cached_events is not None:
@@ -553,10 +514,10 @@ def _evaluate_table_impl(
                 operation = context.operation
                 if operation is not None:
                     operation.checkpoint()
-            if isinstance(event, _RiskCheckClosure):
+            if isinstance(event, RiskCheckRecordsClosure):
                 require_closure()
-            elif isinstance(event, _RiskEmitEvent):
-                emit(event.rule_id, event.target, event.evidence)
+            elif isinstance(event, RiskEmitEvent):
+                emit(event.rule_id, event.bind_target(item.table_fact.table_name), event.evidence)
             else:
                 raise _PairFailure("risk candidate cache contains an invalid event")
         return _TableOutcome(

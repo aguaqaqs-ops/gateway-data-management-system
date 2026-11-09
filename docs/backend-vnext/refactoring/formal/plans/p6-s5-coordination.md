@@ -54,3 +54,13 @@ R1候选`309571984d96d171e9b0c3e24a9cb82ec64c2ead`在`/home/dev/gdds-s5-design-r
 Owner在设计关闭后明确要求生成实施提示词，将开启GPT-6.1-Sol协调会话，并授权“可以直接完整推进A-E，除非遇到阻塞问题需要确认”。当前实施入口为[p6-s5-implementation-prompt.md](p6-s5-implementation-prompt.md)，覆盖实现、必要验证、独审及修复复审、E核收与条件满足后的本地阶段收口；未经明确授权仍不push。已确认t1最小范围、统一池、默认M24及冻结语义不变。
 
 设计/kickoff/总计划的当前状态同步为实施已授权，原审报告保留当时授权事实，不改原文；Astra high临时授权未延伸。本次只整理新会话提示词与状态，没有开始S5产品实现或执行测试。新会话先核实际main/worktree及并行改动，再直接从A推进至E，不在小节边界重复请示。
+
+## 8. 实施会话起点、角色与A开工
+
+Owner于2026-11-09明确要求完整执行实施提示词并持续完成A–E。现场main在`/home/dev/gdds-s5-design-main`，起点`fd9e383d76642037e4b3246c847222ea9483e033`，index/tracked/untracked clean，legacy link正确；相较设计关闭`408153d115`只有六份授权/计划文档变化。原目录检出前端`fe3b-evidence-04`、HEAD=`a300b16485bcad2f178aaccfe0c8adbb51b5ab83`，不切换或覆盖。已核worktrees、相关进程、近期会话状态与本轮并发槽，未发现另一个S5产品写入者；不将该快照视为测试节点预约。没有已有`p6-s5-exit` tag。
+
+持续协调者与Comparison实施者沿用GPT-6.1-Sol；协调者分担A的Risk owner，Comparison实施者拥有task/native/codec及其Contract，两者按文件分工、提交串行。新独立审核者GPT-6.1-Sol xhigh只读准备并在固定clean detached候选审产品，未参与实现；唯一测试/等待者GPT-6-Luna max只读准备节点、缓存、输入及执行稿，全部产品运行均由其执行。总角色四个，不递归扩队，不延续设计轮Astra授权。
+
+当前采用main现行DC91/DC97统一池、N1/单active、worker32GiB−reserve8GiB/M24；真实范围仍为已确认标准t1必要冷查、新operation复查、实际records与完整bundle读取。A聚焦完整任务身份、neutral三族facts/artifact加STANDARD risk视图、风险完整事件和原控制点；B/C/D/E按依赖推进，权限无需小节间再申请。
+
+测试者只读核五节点BatchMode均可达；06初步工具链/离线镜像条件较齐，实际执行仍须重新核空闲并取得本人标记。历史t1卷属于冻结/他人来源线索，未挂载或启动；新唯一schema若不适配旧状态，只在本人隔离栈补标准t1必要合法前置，不迁移旧库。此处尚无产品检查、Compose、真实结果或carried结论；A当前container gate为deferred，未触碰依赖/部署/container-only边界时集中E最终候选。

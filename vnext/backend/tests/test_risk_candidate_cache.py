@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
 from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -16,12 +18,127 @@ from gateway_backend.capabilities.comparison.contracts import (
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationResult, RiskEvaluationStatus,
     RiskExecutionContext, RiskExecutionPolicy,
-    RiskOptions, evaluate_risk,
+    RiskOptions, RiskRuleId, RiskTarget, RiskTargetType, evaluate_risk,
 )
+from gateway_backend.capabilities.risk_evaluation.candidates import (
+    CHECK_RECORDS_CLOSURE,
+    DecodedRiskCandidates,
+    RiskCandidateEvent,
+    RiskEmitEvent,
+    decode_risk_candidates,
+    encode_risk_candidates,
+    optional_candidate_input,
+)
+from gateway_backend.capabilities.risk_evaluation._facts import extract_risk_facts
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.test_comparison_s3_contract_vectors import _added_rows, _input
 
 pytestmark = pytest.mark.unit
+
+
+_PORTABLE_DOCUMENT: dict[str, Any] = {
+    "complete": True,
+    "events": [
+        {"kind": "CHECK_RECORDS_CLOSURE", "ordinal": 0},
+        {
+            "evidence": [["count", 2], ["known", True], ["note", None]],
+            "kind": "EMIT", "ordinal": 1, "rule_id": "ROW_ADDED",
+            "target": {
+                "before_row_identity": None, "changed_columns": ["value"],
+                "coverage": None, "current_row_identity": None,
+                "position": None, "position_range": None,
+                "row_identity": "sha256:" + "1" * 64, "target_type": "ROW",
+            },
+        },
+    ],
+    "format": "risk-table-candidates/v1", "task_digest": "risk-key",
+}
+
+
+def test_portable_candidates_preserve_independent_events_and_current_binding() -> None:
+    from gateway_shared_kernel import DigestRef
+    operation = current_kernel_context()
+    assert operation is not None
+    events = (
+        CHECK_RECORDS_CLOSURE,
+        RiskEmitEvent(
+            RiskRuleId.ROW_ADDED,
+            RiskTarget(RiskTargetType.ROW, table_name="old", row_identity=DigestRef("sha256:" + "1" * 64), changed_columns=("value",)),
+            (("count", 2), ("known", True), ("note", None)),
+        ),
+    )
+    encoded = encode_risk_candidates(events, "risk-key", operation)
+    assert encoded is not None
+    try:
+        assert json.loads(encoded.raw) == _PORTABLE_DOCUMENT
+        decoded = decode_risk_candidates(encoded.raw, "risk-key", operation)
+        try:
+            assert decoded.events[0] == CHECK_RECORDS_CLOSURE
+            event = decoded.events[1]
+            assert isinstance(event, RiskEmitEvent)
+            assert event.target.table_name is None
+            assert event.bind_target("current").to_document() == {
+                **_PORTABLE_DOCUMENT["events"][1]["target"], "table_name": "current",
+            }
+            assert event.evidence == (("count", 2), ("known", True), ("note", None))
+        finally:
+            decoded.close()
+    finally:
+        encoded.close()
+
+
+_BAD_CANDIDATE_FIELDS = (
+    ("complete", False), ("format", "unknown"), ("task_digest", "other"),
+    ("events", [{"kind": "CHECK_RECORDS_CLOSURE", "ordinal": 1}]),
+    ("events", [{"kind": "CHECK_RECORDS_CLOSURE", "ordinal": True}]),
+    ("events", [{"kind": "CHECK_RECORDS_CLOSURE", "ordinal": 0, "validated": True}]),
+    ("events", [{"kind": "UNKNOWN", "ordinal": 0}]),
+)
+
+
+@pytest.mark.parametrize(("field_name", "value"), _BAD_CANDIDATE_FIELDS)
+def test_candidate_codec_rejects_incomplete_or_mismatched_values(field_name: str, value: object) -> None:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    operation = current_kernel_context()
+    assert operation is not None
+    before = operation.memory.available_bytes
+    raw = canonicalize_json_value({**_PORTABLE_DOCUMENT, field_name: value})
+    with pytest.raises(ValueError):
+        decode_risk_candidates(raw, "risk-key", operation)
+    assert operation.memory.available_bytes == before
+
+
+def _candidate_key(source: RiskEvaluationInput, task_key: str = "complete-comparison-task") -> str:
+    operation = current_kernel_context()
+    assert operation is not None
+    item = extract_risk_facts(source.comparison_facts, None)[0]
+    candidate, charge = optional_candidate_input(item, source, RiskExecutionPolicy(), task_key, operation)
+    assert candidate is not None and charge is not None
+    try:
+        return candidate.task_digest()
+    finally:
+        charge.close()
+
+
+def test_risk_key_uses_neutral_task_rules_options_and_diagnostics() -> None:
+    from gateway_backend.capabilities.risk_evaluation import RiskArtifactPolicy, RiskLevel, RiskSeverityPolicy
+    source = _input((_added_rows("t", 1),))
+    key = _candidate_key(source)
+    rebound = replace(source, comparison_facts=replace(
+        source.comparison_facts, comparison_digest=raw_blob_digest(b"new-pair"),
+        tables=(replace(source.comparison_facts.tables[0], table_fact_digest=raw_blob_digest(b"new-bound-table")),),
+    ))
+    assert _candidate_key(rebound) == key
+    assert _candidate_key(source, "reverse-or-other-scope-task") != key
+    changed_rule = replace(source.risk_ruleset.rules[0], severity_policy=RiskSeverityPolicy(default_level=RiskLevel.LOW))
+    variants = (
+        replace(source, risk_options=replace(source.risk_options, include_low_risk=False)),
+        replace(source, artifact_policy=RiskArtifactPolicy(options=(("detail", "different"),))),
+        replace(source, comparison_facts=replace(source.comparison_facts, diagnostics=("pair-diagnostic",))),
+        replace(source, comparison_facts=replace(source.comparison_facts, tables=(replace(source.comparison_facts.tables[0], diagnostics=("RISK_UNCOVERED_TARGET:new",)),))),
+        replace(source, risk_ruleset=replace(source.risk_ruleset, rules=(changed_rule, *source.risk_ruleset.rules[1:]), risk_ruleset_digest=None)),
+    )
+    assert all(_candidate_key(variant) != key for variant in variants)
 
 
 def _evaluate_with_operation(
@@ -68,6 +185,7 @@ class _Candidates:
         self.events: tuple[object, ...] | None = None
         self.charges: ExitStack | None = None
         self.hits = 0
+        self.decoded: DecodedRiskCandidates | None = None
 
     def risk_lookup(self, task_key: str, risk_key: str) -> tuple[object, ...] | None:
         assert task_key == "t-key" and risk_key
@@ -80,18 +198,35 @@ class _Candidates:
         events: tuple[object, ...], charges: ExitStack,
     ) -> bool:
         assert task_key == "t-key" and risk_key and self.events is None
-        self.events = events
+        operation = current_kernel_context()
+        assert operation is not None
+        assert all(isinstance(event, (RiskEmitEvent, type(CHECK_RECORDS_CLOSURE))) for event in events)
+        # Exercise the real portable codec before every replay, including its
+        # neutral target binding and closure control events.
+        encoded = encode_risk_candidates(cast(tuple[RiskCandidateEvent, ...], events), risk_key, operation)
+        assert encoded is not None
+        try:
+            self.decoded = decode_risk_candidates(encoded.raw, risk_key, operation)
+            self.events = self.decoded.events
+        finally:
+            encoded.close()
         self.charges = charges
         return True
 
     def risk_evict(self, task_key: str, risk_key: str) -> None:
         assert task_key == "t-key" and risk_key
         self.events = None
+        if self.decoded is not None:
+            self.decoded.close()
+            self.decoded = None
         if self.charges is not None:
             self.charges.close()
             self.charges = None
 
     def close(self) -> None:
+        if self.decoded is not None:
+            self.decoded.close()
+            self.decoded = None
         if self.charges is not None:
             self.charges.close()
             self.charges = None
@@ -352,6 +487,49 @@ def test_cached_table_time_budget_degrades_at_the_same_emit_check() -> None:
         assert hit.risk_evaluation is not None and miss.risk_evaluation is not None
         assert hit.risk_evaluation.risk_evaluation_digest == miss.risk_evaluation.risk_evaluation_digest
         assert hit_clock.calls == miss_clock.calls
+    finally:
+        cache.close()
+
+
+@pytest.mark.parametrize(
+    ("count", "include_low", "policy", "expected_status", "expected_counts", "diagnostic"),
+    (
+        # First emit completes before .003s; on the next emit both caps have
+        # precedence over a time check that would now reach the table budget.
+        (2, True, RiskExecutionPolicy(max_annotations_per_table=1, max_annotations_per_pair=1,
+            max_risk_table_wall_time_seconds=0.003), RiskEvaluationStatus.DEGRADED, (0,),
+            "max_annotations_per_pair exceeded"),
+        # A filtered candidate does not perform an emit-local time check.
+        (1, False, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.0001),
+            RiskEvaluationStatus.READY, (0,), None),
+        # The last retained emit still performs its original post-append check.
+        (1, True, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.001),
+            RiskEvaluationStatus.DEGRADED, (1,), "risk table budget exceeded"),
+    ),
+)
+def test_candidate_replay_preserves_cap_filter_and_last_emit_time_points(
+    count: int, include_low: bool, policy: RiskExecutionPolicy,
+    expected_status: RiskEvaluationStatus, expected_counts: tuple[int, ...], diagnostic: str | None,
+) -> None:
+    source = _input((_added_rows("t", count),), options=RiskOptions(include_low_risk=include_low))
+    cache = _Candidates()
+    cached = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
+    try:
+        assert _evaluate_with_operation(cached, artifact_store=InMemoryArtifactStore()).status is RiskEvaluationStatus.READY
+        hit_clock, miss_clock = _Clock(), _Clock()
+        hit = _evaluate_with_operation(cached, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
+            execution_context=RiskExecutionContext(clock=hit_clock))
+        miss = _evaluate_with_operation(source, artifact_store=InMemoryArtifactStore(), execution_policy=policy,
+            execution_context=RiskExecutionContext(clock=miss_clock))
+        assert hit.status is miss.status is expected_status
+        assert cache.hits == 1 and hit_clock.calls == miss_clock.calls
+        assert hit.risk_report is not None and miss.risk_report is not None
+        assert tuple(table.annotation_count for table in hit.risk_report.tables) == expected_counts
+        assert tuple(table.annotation_count for table in miss.risk_report.tables) == expected_counts
+        assert hit.risk_evaluation is not None and miss.risk_evaluation is not None
+        assert hit.risk_evaluation.risk_evaluation_digest == miss.risk_evaluation.risk_evaluation_digest
+        if diagnostic is not None:
+            assert diagnostic in tuple(value for table in hit.risk_report.tables for value in table.diagnostics)
     finally:
         cache.close()
 

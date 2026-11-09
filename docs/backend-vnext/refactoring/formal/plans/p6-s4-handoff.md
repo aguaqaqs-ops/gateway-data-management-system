@@ -1,7 +1,7 @@
 # P6 S4 累计交接
 
-当前状态（2026-11-09）：**A–D GO，E尚未GO，S4未退出、无exit tag。**
-本页是持续协调交接，最终H和独立退出结论须在剩余业务验证及实际来源绑定完成后固定。
+当前状态（2026-11-09）：**A–D GO，E实现与DC98真实业务在V6786已原审GO；S4正式退出尚待最终H实际来源绑定。**
+本页与原E报告同次固定的交接提交为H，完整H由最终绑定回执和附注tag精确指明，不为本页自填SHA循环提交。
 不授权S5，不推送，不代签S3。
 
 ## 固定候选与原审
@@ -15,7 +15,7 @@
 | B | `788ed36e7742a067bf01c16ad2e6aaed2fed91fb` | GO，F1–F7关闭；[handoff](p6-s4-b-handoff.md)、[原审](p6-s4-b-review.md) |
 | C | `48053253f9a3c46b0d227167a4d0ca1f8ad94bf3` | GO；H=`f4d9e19ac966a9b96d5587bab284bc25a36c4c22`；[handoff](p6-s4-c-handoff.md)、[原审](p6-s4-c-review.md) |
 | D | `41d1944208fe99911df0a15641ab651505d1274c` | GO，F-D1–4关闭；H=`9d91653ac96908cc9cafe159fcb7b76a5a3525bd`；[handoff](p6-s4-d-handoff.md)、[原审](p6-s4-d-review.md) |
-| E | 当前V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` | 原E连续静审/执行稿/原件核收中，未总GO；报告原件`/home/dev/gdds-test-tmp/p6-s4-e-review.md`，最终原文待归档 |
+| E | 最终产品V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f` | `E_IMPL_AND_DC98_REAL_BUSINESS_GO_AT_V6786`；[原审快照](p6-s4-e-review.md)，最终H绑定仍是退出生效条件 |
 
 A–D逐节focused、修复与失败原件均在各节handoff及[协调记录](p6-s4-coordination.md)，不由后继成功覆盖。
 当前Rust tree=`e2a901417b19259ece669637a41545e774261445`。
@@ -73,7 +73,11 @@ runtime tar SHA `5d476b9634dc64ba2a87c3d1ae98cc70d8423c386c033be89101b831f543178
 
 真实t4的新独立SET wire预期只从固定旧B两包重取app_cfg原24行，各先核回旧1ac摘要，再按声明映射2c9摘要；其他四表及完整schema/count沿原B JSON。
 mapped JSON SHA=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19f`，原E独核完整行多重集，旧expected不改。
-短验证r0在uv-consume拒绝保留参数`--project`处exit2，core/Compose/产品尚未执行；本人r0标记已于02:42:47Z受控释放、outer/node0，原件持续保留。修订r1只改外部参数名为`--compose-name`并用新namespace，已按原审CLEAR派唯一Luna一次执行，实际结果待核。详见[协调§18](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)。
+短验证r0在uv-consume拒绝保留参数`--project`处exit2，core/Compose/产品尚未执行；本人r0标记已于02:42:47Z受控释放、outer/node0，原件持续保留。修订r1只改外部参数名为`--compose-name`并用新namespace，唯一Luna已在05实际完成，原E独核通过。详见[协调§18](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)及[实际结果§19](p6-s4-coordination.md#19-dc98真实t4实际核收与最终h条件)。
+
+05 r1于02:44:21–02:50:31Z（控制器原UTC；节点业务02:44:24–02:50:32Z）outer/node/capture均0，起止6786 clean、六锁/native e2a一致、本人标记已释放，三服务正常TERM停止、无OOM/重启；RS退出143且stderr有完整正常application shutdown。两次Submit后的technical main分别为`1c9u40na8fosd9cc9i47h4bnnusif5iu`、`g2030m91c52sd4evr1ml5enkn2p7o1t0`，各版完整312表schema/count及五代表表内容均与独立旧B/Contract预期一致，app_cfg全24行Counter一致；v1合法审批/Archive建立增量baseline。一次观察的Submit调用起点至已HTTP核main返回的保守秒数为**104.105179 / 77.447006**，不是重复统计或跨源提速证据。
+
+首次312表REBUILD、净计数未计算，SQL 50,566,368B；增量27候选表为12 PATCH/15 REBUILD，25表有真实净计数、2表未计算，SQL 2,125,772B。完整日志含逐表事实/预算，未把未计算补0。单operation账本预约高水位40GiB不等于RSS需求；worker实际cgroup peak 926,642,176B、RSS HWM 648,097,792B，不由低RSS下调估算或宣称M24成功。原件目录及SHA见协调§19。
 
 按DC98撤回28旅程、04/05的12/16队列及after-FE稿，取消完整fresh t1–t4重复旅程、2×t4/W4/100%压力和1暖3测；不跑History或为本节完整消费FE records。
 剩余真实范围仅冻结标准t4 v1/v2的一次首次/增量生产Submit及必要合法Preview/审批/Archive、真实表核对。
@@ -83,6 +87,7 @@ mapped JSON SHA=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19
 ## 配置归因、保留与退出前工作
 
 - 原基线N1/envelope32GiB/reserve8GiB/M24保留；S3原M24容量失败仍属S3。S4未完成M24生产容量测量，不写M24成功或从S4倒签S3。
-- 本轮选定显式N1/envelope48GiB/reserve8GiB/M40，RS及系统留余量；CPU/cgroup条件按实际节点记录。正式成功资源核收尚待真实短验证，原失败样本的低RSS或无OOM本身不等于容量PASS，不降估算、不改生产默认。
+- 本轮选定显式N1/envelope48GiB/reserve8GiB/M40，RS及系统留余量；05真实短验证资源已通过，guest32CPU/affinity0–31、worker无额外NanoCpus/cpuset限制、kernel仍N1，实际cgroup限48GiB。仅覆盖本次真实输入，不外推大负载容量；原失败样本的低RSS或无OOM本身不等于容量PASS，不降估算、不改生产默认。
 - 原失败/工具失败、被冻结输入、旧expected及新明细、日志、WT/env/镜像均保留；04失败卷/私有副本已停，本人原HELD标记02:21:32Z实际受控释放，后续旧B映射捕获亦已释放自己的标记。不得动S3/Q18/FE资源，05仍按本人失败处置及实时准入执行。
-- 最终须完成：短真实t4业务结果/有限资源核收；必要受影响复验；最终产品V与交接H在原来源WT实际逐包/镜像绑定；原E原件总核收与原文归档；节点本人资源收尾。满足后才创建本地附注S4 exit tag。
+- 最终须完成：H在原04来源WT实际逐包/镜像绑定及原E回执；满足条件后才创建本地附注S4 exit tag。源码V及Rust没有因工具修订变化，不重复已合格权威包/业务旅程；如实际闭包不等，先停止按真实结果处理。
+- 本次归档[原E快照](p6-s4-e-review.md)原文SHA=`978fb940253e55665aefefd4774963b330999e59d7d33bbfad16d94c7c02f7f9`，仅H实际绑定尚待；绑定后原审附注可另行归档，不移动已经核收的H/tag。保留原04来源WT/env/images、引用成功/失败原件及真实输入；05成功停机卷/容器与04失败/私有卷均保留供核查，整机标记不因此保留。S3/Q18/FE结论各自独立，未push、不进入S5。

@@ -67,8 +67,13 @@ runtime tar SHA `5d476b9634dc64ba2a87c3d1ae98cc70d8423c386c033be89101b831f543178
 
 04 W3 FULL warm的journey本身0、独立Repository核对1，未记为合格warm或成功统计。
 私有RS副本只读诊断已将差异缩到`app_cfg__x2`的24行；v1/v2的631表完整schema/count及其余四代表表内容均与固定旧B一致。
-旧B单表明细受控捕获再次核回原52ad摘要，正在与实际Repo的36a3摘要逐值对照；业务归因尚未完成，不能删断言或直接替换expected。
+旧B单表明细受控捕获再次核回原52ad摘要；原E按冻结SET声明从旧B独立映射wire后精确得到36a3，并反向核完整24行Counter相等。
+差异是Canonical Storage §5.1内部SET文本与Repository §10.1/ADR0013正式list物理表示，未发现该表持久行变化；具体业务疑点已关闭，原warm外层失败仍保留，不倒改为成功样本。
 原件、SHA和前后卷指纹见[协调§17](p6-s4-coordination.md#17-dc98收敛与04失败定向诊断2026-11-09)。
+
+真实t4的新独立SET wire预期只从固定旧B两包重取app_cfg原24行，各先核回旧1ac摘要，再按声明映射2c9摘要；其他四表及完整schema/count沿原B JSON。
+mapped JSON SHA=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19f`，原E独核完整行多重集，旧expected不改。
+短验证r0在uv-consume拒绝保留参数`--project`处exit2，core/Compose/产品尚未执行；修订r1只改外部参数名为`--compose-name`并用新namespace，须先受控释放本人r0标记再一次复验，原件持续保留。详见[协调§18](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)。
 
 按DC98撤回28旅程、04/05的12/16队列及after-FE稿，取消完整fresh t1–t4重复旅程、2×t4/W4/100%压力和1暖3测；不跑History或为本节完整消费FE records。
 剩余真实范围仅冻结标准t4 v1/v2的一次首次/增量生产Submit及必要合法Preview/审批/Archive、真实表核对。
@@ -79,5 +84,5 @@ runtime tar SHA `5d476b9634dc64ba2a87c3d1ae98cc70d8423c386c033be89101b831f543178
 
 - 原基线N1/envelope32GiB/reserve8GiB/M24保留；S3原M24容量失败仍属S3。S4未完成M24生产容量测量，不写M24成功或从S4倒签S3。
 - 本轮选定显式N1/envelope48GiB/reserve8GiB/M40，RS及系统留余量；CPU/cgroup条件按实际节点记录。正式成功资源核收尚待真实短验证，原失败样本的低RSS或无OOM本身不等于容量PASS，不降估算、不改生产默认。
-- 原失败/工具失败、被冻结输入、旧expected及新明细、日志、WT/env/镜像均保留；04失败卷和本人HELD marker待本次定向诊断完成后受控收尾。不得动S3/Q18/FE资源，05准入仍须现场核空闲。
-- 最终须完成：具体Repository差异处置及原审关闭；短真实t4业务结果/有限资源核收；必要受影响复验；最终产品V与交接H在原来源WT实际逐包/镜像绑定；原E原件总核收与原文归档；节点本人资源收尾。满足后才创建本地附注S4 exit tag。
+- 原失败/工具失败、被冻结输入、旧expected及新明细、日志、WT/env/镜像均保留；04失败卷/私有副本已停，本人原HELD标记02:21:32Z实际受控释放，后续旧B映射捕获亦已释放自己的标记。不得动S3/Q18/FE资源，05仍按本人失败处置及实时准入执行。
+- 最终须完成：短真实t4业务结果/有限资源核收；必要受影响复验；最终产品V与交接H在原来源WT实际逐包/镜像绑定；原E原件总核收与原文归档；节点本人资源收尾。满足后才创建本地附注S4 exit tag。

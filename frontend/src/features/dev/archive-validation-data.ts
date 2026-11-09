@@ -359,6 +359,32 @@ export function vPreviewBlocked(blocker: "ARCHIVE_INTEGRITY_FAILURE" | "ACTIVE_S
   });
 }
 
+/** V5/V10: the candidate set after the change (same candidates, new digest). */
+export const V_CANDIDATES_AFTER_CLOSE: Candidates = {
+  ...V_CANDIDATES,
+  candidate_set_digest: "sha256:v-candidates-after-close",
+} satisfies Candidates;
+
+/** V2: the INITIAL side already accepted; the MODIFIED side still pending. */
+export function vPreviewTwoSidedInitialAccepted(): Preview {
+  const base = vPreviewTwoSided();
+  const [initial, modified] = base.anomalies;
+  return vPlan({
+    anomalies: [
+      {
+        ...initial!,
+        resolution_status: "ACCEPTED" as const,
+        latest_sequence: 4,
+        accepted_by: "archiver-1",
+        accepted_at: "2026-11-07T15:20:00Z",
+        reason: "① 已核对",
+      },
+      modified!,
+    ],
+    business_validation: vValidationFor(),
+  });
+}
+
 /** V8: pending-review blocker lists every pending submission without truncation. */
 export const V_PENDING_CANDIDATES: Candidates = {
   head: V_CANDIDATES.head,

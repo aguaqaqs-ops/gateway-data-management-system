@@ -422,8 +422,12 @@ async function installFixtureRoutes(page: Page, options: {
   });
 
   let archivePreviewCalls = 0;
+  const acceptedAnomalyResolutions = new Map<string, { sequence: number; reason: string }>();
+  let anomalyResolutionSequence = 10;
   await page.route("**/v1/archive-candidates", async (route) => {
-    const candidates = { ...TEST_ARCHIVE_CANDIDATES, candidates: [{ submission_id: options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1", expected_candidate_digest: "sha256:candidate" }] };
+    // review_version matches the scenario Review GET version (both come from
+    // the review projection, §5.3); the review stub below reports 5/6.
+    const candidates = { ...TEST_ARCHIVE_CANDIDATES, candidates: [{ submission_id: options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1", expected_candidate_digest: "sha256:candidate", review_version: 5 }] };
     apiRequests.push({ method: "GET", path: "/v1/archive-candidates", token: route.request().headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     apiResponses.push({ method: "GET", path: "/v1/archive-candidates", status: 200, body: JSON.stringify(candidates) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(candidates) });
@@ -452,9 +456,15 @@ async function installFixtureRoutes(page: Page, options: {
       apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 200, body: JSON.stringify(blocked) });
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(blocked) });
     }
+    const withAcceptedAnomalies = (anomalies: Schemas["PreviewArchivePlanResponse"]["anomalies"]) => anomalies.map((anomaly) => {
+      const accepted = acceptedAnomalyResolutions.get(anomaly.subject_digest);
+      return accepted ? { ...anomaly, resolution_status: "ACCEPTED" as const, latest_sequence: accepted.sequence, accepted_by: "owner", accepted_at: "2026-11-03T09:00:00Z", reason: accepted.reason } : anomaly;
+    });
+    const identityAnomaly: Schemas["PreviewArchivePlanResponse"]["anomalies"][number] = { subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: candidateId, target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly", accepted_at: null, accepted_by: null, affected_submission_ids: [candidateId], details: {}, detected_status: "UNEXPLAINED", latest_sequence: 0, reason: null, relations: [], resolution_status: "UNRESOLVED", side: null };
     const response: Schemas["PreviewArchivePlanResponse"] = archivePreviewCalls >= 3 ? {
       ...ARCHIVE_PLAN_READY,
       selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
+      anomalies: withAcceptedAnomalies(ARCHIVE_PLAN_READY.anomalies),
       dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
       workspace_releases: [{ submission_id: candidateId, workspace_id: "workspace-fe2b" }],
     } : {
@@ -463,7 +473,7 @@ async function installFixtureRoutes(page: Page, options: {
       ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
       selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
       confirmation_requirements: ["sha256:selection-subject"],
-      anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: candidateId, target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly", accepted_at: null, accepted_by: null, affected_submission_ids: [candidateId], details: {}, detected_status: "UNEXPLAINED", latest_sequence: 0, reason: null, relations: [], resolution_status: "UNRESOLVED", side: null }],
+      anomalies: withAcceptedAnomalies([identityAnomaly]),
       dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
     };
     apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 200, body: JSON.stringify(response) });
@@ -488,6 +498,17 @@ async function installFixtureRoutes(page: Page, options: {
     apiRequests.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
     // Backend rule (http/routes/archives.py:159): missing Idempotency-Key → 422.
     if (await rejectInvalidRequest(route, request)) return;
+    try {
+      const parsed = JSON.parse(request.postData() ?? "{}") as { subject_digest?: string; reason?: string; action?: string };
+      if (parsed.action !== "REVOKE" && parsed.subject_digest) {
+        anomalyResolutionSequence += 1;
+        acceptedAnomalyResolutions.set(parsed.subject_digest, { sequence: anomalyResolutionSequence, reason: parsed.reason ?? "" });
+      } else if (parsed.subject_digest) {
+        acceptedAnomalyResolutions.delete(parsed.subject_digest);
+      }
+    } catch {
+      // Malformed bodies fall through to the success below; shape checks live in the unit tests.
+    }
     apiResponses.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", status: 201, body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
     return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
   });
@@ -1615,7 +1636,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await dialog.getByRole("button", { name: "确认归档" }).click();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();
-  const refreshPreflight = dialog.getByRole("button", { name: "刷新预检" });
+  const refreshPreflight = dialog.locator("footer").getByRole("button", { name: "重新预检" });
   await expect(refreshPreflight).toBeVisible();
   await expect(refreshPreflight).toBeInViewport();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
@@ -1633,7 +1654,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
   const blocked = page.getByRole("dialog", { name: "归档主基线" });
-  await expect(blocked.getByText("ACTIVE_SUBMIT_ATTEMPT")).toBeVisible();
+  await expect(blocked.getByText("ACTIVE_SUBMIT_ATTEMPT", { exact: true })).toBeVisible();
   await expect(blocked.getByRole("button", { name: "确认归档" })).toBeDisabled();
   await screenshot(page, "archive-blocked", 1920);
   await screenshot(page, "archive-blocked", 1280);

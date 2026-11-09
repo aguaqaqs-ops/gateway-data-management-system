@@ -25,7 +25,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _schema_diagnostics, _schema_view,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    BlankRowProvenance, MaterializationStage, SnapshotTable,
+    BlankRowProvenance, DegradedReason, MaterializationStage, SnapshotTable,
     SnapshotTableDescriptor, SnapshotColumnDescriptor,
     SCALAR_ENCODING_VERSION, COMPARISON_PROJECTION_CONTRACT_VERSION,
 )
@@ -255,7 +255,8 @@ def _complete_side(task: TableComparisonTask, *, before: bool) -> bool:
     if descriptor is None:
         return facts is None
     if (descriptor.materialization_stage is not MaterializationStage.FINAL
-            or descriptor.raw_content_digest is None or descriptor.degraded_reason is not None
+            or descriptor.raw_content_digest is None
+            or descriptor.degraded_reason not in {None, DegradedReason.KEYLESS}
             or facts is None or facts.canonical_schema_digest is None
             or facts.raw_content_digest != descriptor.raw_content_digest
             or not facts.storage_projection_version):

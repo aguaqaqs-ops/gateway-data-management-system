@@ -1230,8 +1230,8 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
     current_sql = before_sql.replace("before", "after")
     expected = frozen_case(request.node.nodeid)
     native_plan = plan(
-        _session_bound(bound(before_sql)),
-        _session_bound(bound(current_sql)),
+        _canonical_bound(bound(before_sql)),
+        _canonical_bound(bound(current_sql)),
         ordered=ordered,
     )
     assert native_plan.tasks[0].current_table is not None
@@ -1291,11 +1291,10 @@ def test_reader_cancel_inside_arrow_stream_stops_before_table_degradation(
     if fresh:
         store = InMemoryArtifactStore()
         before = _artifact_bound(before_sql, store)
-        current = complete_canonical_bound(_artifact_bound(current_sql, store))
-    before = complete_canonical_bound(before)
+        current = _artifact_bound(current_sql, store)
     else:
-        before = _session_bound(bound(before_sql))
-        current = _session_bound(bound(current_sql))
+        before = _canonical_bound(bound(before_sql))
+        current = _canonical_bound(bound(current_sql))
     planned = plan(before, current)
     stopped = Event()
     original = ArrowSnapshotTableReader.arrow_stream

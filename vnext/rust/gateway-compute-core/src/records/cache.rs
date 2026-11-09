@@ -452,104 +452,6 @@ pub fn validate_facts_row(family: &str, raw: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{TableFactsInput, digest_table_fact_json};
-    use std::sync::atomic::AtomicBool;
-
-    const STANDARD: &[u8] = br#"{"before_values":[["id","10080000000000000001"]],"changed_columns":[],"current_values":[],"field_changes":[],"kind":"ROW_DELETED","row_identity":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}"#;
-    const ORDERED: &[u8] = br#"{"before_position":1,"before_values":[],"changed_columns":[],"current_position":2,"current_values":[],"entity_key_kind":"REAL_STABLE","record_kind":"ORDERED_ROW_MOVED","row_identity":"sha256:0000000000000000000000000000000000000000000000000000000000000000","semantic_kind":"MOVE"}"#;
-    const BLANK: &[u8] = br#"{"before_occupancy":1,"current_occupancy":0,"entity_key_kind":"PSEUDO_BLANK","interval":{"before_end":1,"before_start":1,"current_end":null,"current_start":null,"interval_digest":null,"row_count":1},"record_kind":"BLANK_DELETE_INTERVAL","semantic_kind":"BLANK_DELETE_INTERVAL"}"#;
-
-    #[test]
-    fn scalar_and_set_sequence_frames_keep_their_distinct_frozen_grammar() {
-        for encoded in ["0000", "00", "020320016103200162"] {
-            frame(&Value::String(encoded.to_string())).expect("frozen scalar/SET frame");
-        }
-        for encoded in ["0001", "0203200161", "01032001ff", "020320016103200161"] {
-            assert!(frame(&Value::String(encoded.to_string())).is_err());
-        }
-    }
-
-    #[test]
-    fn independent_facts_rows_validate_all_three_families() {
-        for (family, raw) in [
-            ("STANDARD", STANDARD),
-            ("ORDERED", ORDERED),
-            ("BLANK", BLANK),
-        ] {
-            validate_facts_row(family, raw).expect("handwritten contract row");
-        }
-    }
-
-    #[test]
-    fn facts_validator_rejects_missing_blank_information_and_bad_frames() {
-        for (family, raw) in [
-            (
-                "BLANK",
-                String::from_utf8_lossy(BLANK).replace("\"entity_key_kind\":\"PSEUDO_BLANK\",", ""),
-            ),
-            (
-                "STANDARD",
-                String::from_utf8_lossy(STANDARD).replace("10080000000000000001", "1007"),
-            ),
-            (
-                "STANDARD",
-                String::from_utf8_lossy(STANDARD)
-                    .replace("\"kind\":\"ROW_DELETED\"", "\"kind\":\"ROGUE\""),
-            ),
-        ] {
-            assert!(validate_facts_row(family, raw.as_bytes()).is_err());
-        }
-    }
-
-    #[test]
-    fn neutral_facts_replay_hashes_the_handwritten_complete_stream() {
-        let context = Arc::new(KernelContext::new(
-            1024 * 1024,
-            Arc::new(AtomicBool::new(false)),
-            None,
-        ));
-        let batch = RecordBatch::try_new(
-            facts_schema(),
-            vec![
-                Arc::new(UInt32Array::from(vec![0])),
-                Arc::new(LargeBinaryArray::from_vec(vec![STANDARD])),
-            ],
-        )
-        .expect("fixed facts batch");
-        let facts = NeutralFacts {
-            standard: vec![batch],
-            ordered: vec![],
-            blank: vec![],
-        };
-        facts
-            .validate(2, 65536, &context)
-            .expect("valid fixed facts");
-        let digest = digest_table_fact_json(
-            TableFactsInput {
-                metadata_json: r#"{"records":[],"table_name":"t"}"#,
-                standard: None,
-                ordered: None,
-                neutral: Some(&facts),
-            },
-            65536,
-            &context,
-        )
-        .expect("neutral replay");
-        let expected = [
-            b"{\"records\":[".as_slice(),
-            STANDARD,
-            b"],\"table_name\":\"t\"}".as_slice(),
-        ]
-        .concat();
-        let expected = gateway_shared_kernel::DigestRef::from_raw_digest(&Sha256::digest(expected))
-            .expect("digest");
-        assert_eq!(digest, expected);
-    }
-}
-
 /// Validate the existing producer's small metadata and required family counts.
 /// This proves format completeness, not an additional cross-view authenticity protocol.
 pub fn validate_cache_metadata(kind: &str, value: &Value, counts: [usize; 3]) -> Result<(), String> {
@@ -647,4 +549,105 @@ fn extension(value: &Value, contract: &str) -> Result<(), String> {
     }
     strings(&value["diagnostics"])?;
     empty_records(&value["records"])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TableFactsInput, digest_table_fact_json};
+    use std::sync::atomic::AtomicBool;
+
+    const STANDARD: &[u8] = br#"{"before_values":[["id","10080000000000000001"]],"changed_columns":[],"current_values":[],"field_changes":[],"kind":"ROW_DELETED","row_identity":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}"#;
+    const ORDERED: &[u8] = br#"{"before_position":1,"before_values":[],"changed_columns":[],"current_position":2,"current_values":[],"entity_key_kind":"REAL_STABLE","record_kind":"ORDERED_ROW_MOVED","row_identity":"sha256:0000000000000000000000000000000000000000000000000000000000000000","semantic_kind":"MOVE"}"#;
+    const BLANK: &[u8] = br#"{"before_occupancy":1,"current_occupancy":0,"entity_key_kind":"PSEUDO_BLANK","interval":{"before_end":1,"before_start":1,"current_end":null,"current_start":null,"interval_digest":null,"row_count":1},"record_kind":"BLANK_DELETE_INTERVAL","semantic_kind":"BLANK_DELETE_INTERVAL"}"#;
+
+    #[test]
+    fn scalar_and_set_sequence_frames_keep_their_distinct_frozen_grammar() -> Result<(), String> {
+        for encoded in ["0000", "00", "020320016103200162"] {
+            frame(&Value::String(encoded.to_string()))?;
+        }
+        for encoded in ["0001", "0203200161", "01032001ff", "020320016103200161"] {
+            assert!(frame(&Value::String(encoded.to_string())).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn independent_facts_rows_validate_all_three_families() -> Result<(), String> {
+        for (family, raw) in [
+            ("STANDARD", STANDARD),
+            ("ORDERED", ORDERED),
+            ("BLANK", BLANK),
+        ] {
+            validate_facts_row(family, raw)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn facts_validator_rejects_missing_blank_information_and_bad_frames() {
+        for (family, raw) in [
+            (
+                "BLANK",
+                String::from_utf8_lossy(BLANK).replace("\"entity_key_kind\":\"PSEUDO_BLANK\",", ""),
+            ),
+            (
+                "STANDARD",
+                String::from_utf8_lossy(STANDARD).replace("10080000000000000001", "1007"),
+            ),
+            (
+                "STANDARD",
+                String::from_utf8_lossy(STANDARD)
+                    .replace("\"kind\":\"ROW_DELETED\"", "\"kind\":\"ROGUE\""),
+            ),
+        ] {
+            assert!(validate_facts_row(family, raw.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn neutral_facts_replay_hashes_the_handwritten_complete_stream() -> Result<(), String> {
+        let context = Arc::new(KernelContext::new(
+            1024 * 1024,
+            Arc::new(AtomicBool::new(false)),
+            None,
+        ));
+        let batch = RecordBatch::try_new(
+            facts_schema(),
+            vec![
+                Arc::new(UInt32Array::from(vec![0])),
+                Arc::new(LargeBinaryArray::from_vec(vec![STANDARD])),
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        let facts = NeutralFacts {
+            standard: vec![batch],
+            ordered: vec![],
+            blank: vec![],
+        };
+        facts
+            .validate(2, 65536, &context)
+            ?;
+        let digest = digest_table_fact_json(
+            TableFactsInput {
+                metadata_json: r#"{"records":[],"table_name":"t"}"#,
+                standard: None,
+                ordered: None,
+                neutral: Some(&facts),
+            },
+            65536,
+            &context,
+        )
+        ?;
+        let expected = [
+            b"{\"records\":[".as_slice(),
+            STANDARD,
+            b"],\"table_name\":\"t\"}".as_slice(),
+        ]
+        .concat();
+        let expected = gateway_shared_kernel::DigestRef::from_raw_digest(&Sha256::digest(expected))
+            .map_err(|error| error.to_string())?;
+        assert_eq!(digest, expected);
+        Ok(())
+    }
 }

@@ -118,7 +118,7 @@ def test_neutral_round_trip_matches_independent_facts_and_parquet(ordered: bool)
     product = compare_plan_native(planned, retain_cache_candidates=True)
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
     cold_fact, = product.result.facts.tables
-    payload = ComparisonCacheCodec.encode(product.handles["t"], identity, cold_fact, context)
+    payload = product.encode_cache_candidate("t", identity, context)
     product.close()
     operation = native.begin_records_operation(native_budget_bytes=context.memory.available_bytes // 2,
         cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
@@ -160,7 +160,7 @@ def test_cache_restore_rejects_other_scope_before_native_work() -> None:
     assert context is not None
     product = compare_plan_native(planned, retain_cache_candidates=True)
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
-    payload = ComparisonCacheCodec.encode(product.handles["t"], identity, product.result.facts.tables[0], context)
+    payload = product.encode_cache_candidate("t", identity, context)
     product.close()
     operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
         cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
@@ -224,8 +224,7 @@ def _encoded(ordered: bool = False) -> tuple[ComparisonPlan, TableTaskIdentity, 
     product = compare_plan_native(planned, retain_cache_candidates=True)
     try:
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
-        return planned, identity, ComparisonCacheCodec.encode(product.handles["t"], identity,
-            product.result.facts.tables[0], context)
+        return planned, identity, product.encode_cache_candidate("t", identity, context)
     finally:
         product.close()
 
@@ -342,7 +341,7 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
     product = compare_plan_native(planned, retain_cache_candidates=True)
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
     fact = product.result.facts.tables[0]
-    payload = ComparisonCacheCodec.encode(product.handles["t"], identity, fact, context)
+    payload = product.encode_cache_candidate("t", identity, context)
     product.close()
     operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
         cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
@@ -364,7 +363,9 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
 
 
 @pytest.mark.parametrize("stop", ("foreign", "cancel", "deadline", "budget"))
-def test_restore_uses_only_the_active_operation_budget_and_control(stop: str) -> None:
+def test_restore_uses_only_the_active_operation_budget_and_control(
+    stop: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from threading import Event
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
@@ -376,16 +377,20 @@ def test_restore_uses_only_the_active_operation_budget_and_control(stop: str) ->
         cancel_probe=source_context.cancel_probe, deadline_monotonic=source_context.deadline_monotonic)
     source_used = source_context.memory.used_bytes
     cancel = Event()
-    context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), cancel, 1)
+    import time
+    deadline = time.monotonic() + 3600.0 if stop == "deadline" else None
+    context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), cancel, 1, deadline)
     try:
-        with kernel_execution_scope(context):
+        with kernel_execution_scope(context, new_operation=True):
             operation = source_operation if stop == "foreign" else native.begin_records_operation(
-                native_budget_bytes=64 * 1024**2, cancel_probe=cancel, deadline_monotonic=None)
+                native_budget_bytes=64 * 1024**2, cancel_probe=cancel, deadline_monotonic=deadline)
             filler = None
             if stop == "cancel":
                 cancel.set()
             elif stop == "deadline":
-                context.deadline_monotonic = 0.0
+                assert deadline is not None
+                fixed_deadline = deadline
+                monkeypatch.setattr(time, "monotonic", lambda: fixed_deadline + 1.0)
             elif stop == "budget":
                 filler = context.memory.reserve(context.memory.available_bytes - 1)
             retained = context.memory.used_bytes
@@ -413,7 +418,7 @@ def test_restored_arrow_keeps_its_charge_until_the_last_consumer() -> None:
     planned, identity, payload = _encoded()
     context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), NeverCancel(), 1)
     try:
-        with kernel_execution_scope(context):
+        with kernel_execution_scope(context, new_operation=True):
             operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
                 cancel_probe=context.cancel_probe, deadline_monotonic=None)
             _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
@@ -481,3 +486,54 @@ def test_optional_cache_row_bound_keeps_the_completed_business_result() -> None:
         before.close()
         current.close()
         operation.close()
+
+
+def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
+    import pyarrow as pa
+    from gateway_backend.capabilities.comparison import ComparisonRequest, plan_comparison
+    from gateway_backend.capabilities.snapshot_materialization.contracts import DegradedReason
+    from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+    from tests.support.table_rules import comparison_ruleset_for, fallback_record
+    sides = []
+    for rows in ("('a'),('a'),('b')", "('a'),('b'),('b'),('b')"):
+        source = complete_canonical_bound(canonical_bound(
+            "CREATE TABLE t (value TEXT); INSERT INTO t VALUES " + rows + ";"))
+        facts, = source.storage_facts
+        source = replace(source, storage_facts=(replace(facts, storage_rule_view=replace(
+            facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS)),))
+        sides.append(source)
+    planned = plan_comparison(ComparisonRequest(pair_id="keyless-cache", before=sides[0], current=sides[1],
+        rule_set=comparison_ruleset_for(fallback_record())))
+    assert isinstance(planned, ComparisonPlan)
+    assert planned.tasks[0].current_descriptor is not None
+    assert planned.tasks[0].current_descriptor.degraded_reason is DegradedReason.KEYLESS
+    identity = _identity(planned)
+    context = current_kernel_context()
+    assert context is not None
+    product = compare_plan_native(planned, retain_cache_candidates=True)
+    assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+    fact, = product.result.facts.tables
+    assert (fact.row_added_count, fact.row_deleted_count, fact.row_modified_count) == (2, 1, 0)
+    payload = product.encode_cache_candidate("t", identity, context)
+    product.close()
+    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    handle = None
+    try:
+        view = next(item for item in payload.views if item.name == "facts/STANDARD")
+        with pa.ipc.open_stream(pa.BufferReader(view.raw)) as reader:
+            rows = [json.loads(raw) for batch in reader for raw in batch.column(1).to_pylist()]
+        assert [row["kind"] for row in rows] == ["ROW_ADDED", "ROW_ADDED", "ROW_DELETED"]
+        assert len({row["row_identity"] for row in rows}) == 3
+        assert [row["current_values"] for row in rows[:2]] == [[["value", "200162"]], [["value", "200162"]]]
+        assert rows[2]["before_values"] == [["value", "200161"]]
+        restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert handle is not None and handle.family_summary("STANDARD")[0] == 3
+        assert payload.families == ("STANDARD",)
+        assert fact.table_fact_digest is not None
+        assert handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2) == fact.table_fact_digest.value
+    finally:
+        if handle is not None:
+            handle.close()
+        operation.close()
+        payload.close()

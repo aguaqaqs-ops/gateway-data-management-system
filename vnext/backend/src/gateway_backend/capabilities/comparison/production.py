@@ -22,6 +22,8 @@ from gateway_backend.capabilities.comparison.contracts import (
     RecordsDetailPolicy,
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
 )
+from gateway_backend.capabilities.comparison.cache_codec import ComparisonCacheCodec, ComparisonCachePayload
+from gateway_backend.capabilities.comparison.task_input import TableTaskIdentity
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
 from gateway_backend.capabilities.comparison.task_input import (
@@ -37,7 +39,7 @@ from gateway_backend.capabilities.comparison.standard import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, canonical_comparison_input, snapshot_arrow_input,
-    fresh_canonical_view_budget, current_kernel_context, TableAccessError,
+    fresh_canonical_view_budget, current_kernel_context, TableAccessError, KernelExecutionContext,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
@@ -353,6 +355,23 @@ class NativeComparison:
     consumed_keys: dict[str, str] | None = None
     committed: bool = False
     metrics: ComparisonRunMetrics | None = None
+
+    def encode_cache_candidate(
+        self, table_name: str, identity: TableTaskIdentity, context: KernelExecutionContext,
+    ) -> ComparisonCachePayload:
+        """Export this completed table through the single neutral codec owner.
+
+        The caller publishes required pair output first and owns optional
+        retention failures and the returned payload's closing lifetime.
+        """
+        context.require_active()
+        facts = self.result.facts
+        if facts is None:
+            raise ValueError("cache candidate requires completed comparison facts")
+        fact = next((item for item in facts.tables if item.table_name == table_name), None)
+        if fact is None:
+            raise ValueError("cache candidate table is absent from this comparison")
+        return ComparisonCacheCodec.encode(self.handles.get(table_name), identity, fact, context)
 
     def commit_cache(self) -> None:
         if self.committed:

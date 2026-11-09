@@ -1410,6 +1410,13 @@ async function openArchiveDialogUi(page: Page, submissionLabel: string) {
   return dialog;
 }
 
+/** Expand an archive-dialog group when all its items are accepted (folded by default). */
+async function expandArchiveGroupUi(dialog: ReturnType<Page["getByRole"]>, title: string): Promise<void> {
+  const summary = dialog.locator("summary", { hasText: title });
+  const open = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? true).catch(() => true);
+  if (!open) await summary.click();
+}
+
 async function historyHeadVersion(identity: JourneyIdentity): Promise<number> {
   return (await listHistory(identity)).body.head.version;
 }
@@ -1461,6 +1468,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     const acceptA = archiverSession.page.getByRole("dialog", { name: "接受异常" });
     await acceptA.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间");
     await acceptA.getByRole("button", { name: "确认接受" }).click();
+    await expandArchiveGroupUi(dialogA, "生成时间");
     await expect(cardA.getByText("已接受")).toBeVisible();
     await cardA.getByRole("button", { name: "撤销接受" }).click();
     const revokeA = archiverSession.page.getByRole("dialog", { name: "撤销接受" });
@@ -1502,6 +1510,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     // Step 5: B submitted, C submitted by s2, reviewer approves B.
     const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
     const s2Session = await openSession(browser, s2);
+    await gotoWorkbenchFresh(s2Session.page);
     let runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
     const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
     await approveByReviewer(reviewer, submitB.submissionId);
@@ -1702,8 +1711,10 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await gotoWorkbenchFresh(s1Session.page);
     const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
     const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
+    await gotoWorkbenchFresh(s2Session.page);
     const runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
     const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
+    await gotoWorkbenchFresh(s3Session.page);
     const runE = await uploadDirsAndPreview(s3Session.page, s3, scope, { modified: inputDir(scope, "e_modified"), initial: inputDir(scope, "e_initial") });
     const submitE = await submitViaUi(s3Session.page, s3, runE.workspaceId);
     await approveByReviewer(reviewer, submitB.submissionId);

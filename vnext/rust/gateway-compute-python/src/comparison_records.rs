@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
-use arrow_array::{Array, FixedSizeBinaryArray, ListArray, RecordBatch, RecordBatchReader, StringArray};
+use arrow_array::{
+    Array, FixedSizeBinaryArray, ListArray, RecordBatch, RecordBatchReader, StringArray,
+};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
@@ -16,11 +18,12 @@ use gateway_compute_core::comparison::{
     summarize_unchanged_ordered_batches,
 };
 use gateway_compute_core::{
-    BuiltRecords, NeutralFacts, RecordsBatchValidator, TableFactsInput, TableFactsSource, build_blank_records,
-    export_facts_family, facts_schema, restore_records_batches, validate_cache_metadata,
-    build_ordered_records, build_standard_records, build_standard_records_from_ordered,
-    charge_arrow_batches, digest_facts_core_json, digest_table_fact_json, json_metadata_upper,
-    json_size, ordered_metadata_json, standard_metadata_json,
+    BuiltRecords, NeutralFacts, RecordsBatchValidator, TableFactsInput, TableFactsSource,
+    build_blank_records, build_ordered_records, build_standard_records,
+    build_standard_records_from_ordered, charge_arrow_batches, digest_facts_core_json,
+    digest_table_fact_json, export_facts_family, facts_schema, json_metadata_upper, json_size,
+    ordered_metadata_json, restore_records_batches, standard_metadata_json,
+    validate_cache_metadata,
 };
 use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyOSError, PyRuntimeError, PyTimeoutError, PyValueError,
@@ -94,9 +97,13 @@ impl ComparisonOperation {
 
     fn require_operation(&self, operation_identity: usize) -> PyResult<()> {
         if self.operation_identity != Some(operation_identity) || self.owner.is_none() {
-            return Err(PyValueError::new_err("comparison phase belongs to another operation"));
+            return Err(PyValueError::new_err(
+                "comparison phase belongs to another operation",
+            ));
         }
-        if self.context.is_sealed() { return Err(PyValueError::new_err("comparison operation is sealed")); }
+        if self.context.is_sealed() {
+            return Err(PyValueError::new_err("comparison operation is sealed"));
+        }
         python_adapter_control(&self.watch, self.deadline)
     }
 
@@ -168,9 +175,13 @@ struct ComparisonRecordsHandle {
 impl ComparisonRecordsHandle {
     fn require_operation(&self, operation_identity: usize) -> PyResult<()> {
         if self.operation_identity != Some(operation_identity) || self.owner.is_none() {
-            return Err(PyValueError::new_err("comparison table belongs to another operation"));
+            return Err(PyValueError::new_err(
+                "comparison table belongs to another operation",
+            ));
         }
-        self.context.check().map_err(|error| comparison_error(error.to_string()))
+        self.context
+            .check()
+            .map_err(|error| comparison_error(error.to_string()))
     }
 
     fn phase_timings(&self) -> (f64, f64, f64) {
@@ -400,8 +411,12 @@ impl ComparisonRecordsHandle {
     /// Optional neutral facts are prepared before phase sealing. A failed
     /// reservation never changes the completed business result.
     fn prepare_cache_views(&mut self, py: Python<'_>, max_row_bytes: usize) -> PyResult<()> {
-        if self.cache_facts.is_some() { return Ok(()); }
-        if self.risk_batches.is_none() { self.cache_created_risk = true; }
+        if self.cache_facts.is_some() {
+            return Ok(());
+        }
+        if self.risk_batches.is_none() {
+            self.cache_created_risk = true;
+        }
         self.prepare_risk_batches()?;
         let _use = OperationUse::begin(&self.context, &self.active)?;
         let result = self.result.as_ref().ok_or_else(closed_handle)?.clone();
@@ -480,7 +495,9 @@ impl ComparisonRecordsHandle {
     }
 
     fn discard_cache_views(&mut self) {
-        if self.cache_created_risk { self.risk_batches = None; }
+        if self.cache_created_risk {
+            self.risk_batches = None;
+        }
         self.cache_created_risk = false;
         self.cache_facts = None;
         self.cache_metadata = None;
@@ -582,31 +599,70 @@ fn risk_schema() -> SchemaRef {
 
 fn validate_risk_projection(batches: &[RecordBatch], context: &Arc<KernelContext>) -> PyResult<()> {
     for batch in batches {
-        context.check().map_err(|error| comparison_error(error.to_string()))?;
-        let _scratch = context.reserve(batch.get_array_memory_size().saturating_mul(4).saturating_add(4096))
+        context
+            .check()
             .map_err(|error| comparison_error(error.to_string()))?;
-        let kinds = batch.column(0).as_any().downcast_ref::<StringArray>().ok_or_else(closed_handle)?;
-        let identities = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().ok_or_else(closed_handle)?;
-        let columns = batch.column(2).as_any().downcast_ref::<ListArray>().ok_or_else(closed_handle)?;
+        let _scratch = context
+            .reserve(
+                batch
+                    .get_array_memory_size()
+                    .saturating_mul(4)
+                    .saturating_add(4096),
+            )
+            .map_err(|error| comparison_error(error.to_string()))?;
+        let kinds = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(closed_handle)?;
+        let identities = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .ok_or_else(closed_handle)?;
+        let columns = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .ok_or_else(closed_handle)?;
         for row in 0..batch.num_rows() {
-            if row % 256 == 0 { context.check().map_err(|error| comparison_error(error.to_string()))?; }
+            if row % 256 == 0 {
+                context
+                    .check()
+                    .map_err(|error| comparison_error(error.to_string()))?;
+            }
             if kinds.is_null(row) || columns.is_null(row) {
                 return Err(PyValueError::new_err("neutral risk required value is null"));
             }
             let kind = kinds.value(row);
-            if !matches!(kind, "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED" | "SCHEMA_CHANGE" | "TABLE_DEGRADED")
-                || (matches!(kind, "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED") && identities.is_null(row)) {
-                return Err(PyValueError::new_err("neutral risk kind/identity is invalid"));
+            if !matches!(
+                kind,
+                "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED" | "SCHEMA_CHANGE" | "TABLE_DEGRADED"
+            ) || (matches!(kind, "ROW_ADDED" | "ROW_DELETED" | "ROW_MODIFIED")
+                && identities.is_null(row))
+            {
+                return Err(PyValueError::new_err(
+                    "neutral risk kind/identity is invalid",
+                ));
             }
             let values = columns.value(row);
-            let names = values.as_any().downcast_ref::<StringArray>().ok_or_else(closed_handle)?;
+            let names = values
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(closed_handle)?;
             let mut seen = std::collections::HashSet::new();
             for index in 0..names.len() {
-                if names.is_null(index) { return Err(PyValueError::new_err("neutral risk changed column is null")); }
+                if names.is_null(index) {
+                    return Err(PyValueError::new_err("neutral risk changed column is null"));
+                }
                 let name = names.value(index);
                 let canonical = gateway_shared_kernel::canonicalize_identifier(name)
                     .map_err(|error| PyValueError::new_err(error.to_string()))?;
-                if canonical != name || !seen.insert(name) { return Err(PyValueError::new_err("neutral risk changed column is invalid")); }
+                if canonical != name || !seen.insert(name) {
+                    return Err(PyValueError::new_err(
+                        "neutral risk changed column is invalid",
+                    ));
+                }
             }
         }
     }
@@ -718,9 +774,11 @@ fn read_stream(
 
 #[pyfunction]
 fn _comparison_format_versions_native() -> (&'static str, u32, &'static str) {
-    (gateway_compute_core::comparison::ORDERED_COMPARE_FORMAT,
-     gateway_compute_core::comparison::ORDERED_COMPARE_VERSION,
-     gateway_compute_core::canonical_ipc::CANONICAL_MAPPING_VERSION)
+    (
+        gateway_compute_core::comparison::ORDERED_COMPARE_FORMAT,
+        gateway_compute_core::comparison::ORDERED_COMPARE_VERSION,
+        gateway_compute_core::canonical_ipc::CANONICAL_MAPPING_VERSION,
+    )
 }
 
 #[pyfunction]
@@ -968,7 +1026,9 @@ fn _compare_records_native(
             blank: output.3,
             risk_batches: None,
             cache_facts: None,
-            cache_metadata: None, cache_created_risk: false, _cache_metadata_lease: None,
+            cache_metadata: None,
+            cache_created_risk: false,
+            _cache_metadata_lease: None,
             _schema_lease: output.4,
             context,
             active,
@@ -988,16 +1048,28 @@ fn _compare_records_native(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn _restore_comparison_table_native(
-    py: Python<'_>, operation: PyRef<'_, ComparisonOperation>, operation_identity: usize, table_name: &str, kind: &str,
-    metadata_json: &str, detail_policy: &str, family_names: Vec<String>,
-    facts_streams: Bound<'_, PyList>, artifact_streams: Bound<'_, PyList>,
-    risk_stream: PyRecordBatchReader, max_records: usize, max_row_bytes: usize,
-    max_input_bytes: usize, owner_charge: Py<PyAny>,
+    py: Python<'_>,
+    operation: PyRef<'_, ComparisonOperation>,
+    operation_identity: usize,
+    table_name: &str,
+    kind: &str,
+    metadata_json: &str,
+    detail_policy: &str,
+    family_names: Vec<String>,
+    facts_streams: Bound<'_, PyList>,
+    artifact_streams: Bound<'_, PyList>,
+    risk_stream: PyRecordBatchReader,
+    max_records: usize,
+    max_row_bytes: usize,
+    max_input_bytes: usize,
+    owner_charge: Py<PyAny>,
 ) -> PyResult<ComparisonRecordsHandle> {
     match adapter_boundary(|| {
         operation.require_operation(operation_identity)?;
-        if facts_streams.len() != 3 || family_names.len() != artifact_streams.len()
-            || family_names.len() > 3 {
+        if facts_streams.len() != 3
+            || family_names.len() != artifact_streams.len()
+            || family_names.len() > 3
+        {
             return Err(PyValueError::new_err("cache families/streams mismatch"));
         }
         let parent = operation.owner.as_ref().ok_or_else(closed_handle)?.clone();
@@ -1043,16 +1115,33 @@ fn _restore_comparison_table_native(
             ordered: facts_iter.next().ok_or_else(closed_handle)?,
             blank: facts_iter.next().ok_or_else(closed_handle)?,
         };
-        py.detach(|| neutral.validate(max_records, max_row_bytes, &context)).map_err(comparison_error)?;
-        let counts = [neutral.standard.iter().map(RecordBatch::num_rows).sum(),
-            neutral.ordered.iter().map(RecordBatch::num_rows).sum(), neutral.blank.iter().map(RecordBatch::num_rows).sum()];
+        py.detach(|| neutral.validate(max_records, max_row_bytes, &context))
+            .map_err(comparison_error)?;
+        let counts = [
+            neutral.standard.iter().map(RecordBatch::num_rows).sum(),
+            neutral.ordered.iter().map(RecordBatch::num_rows).sum(),
+            neutral.blank.iter().map(RecordBatch::num_rows).sum(),
+        ];
         validate_cache_metadata(kind, &metadata, counts).map_err(PyValueError::new_err)?;
-        let expected_families: &[&str] = if kind == "ordered" { &["STANDARD", "ORDERED", "BLANK"] } else { &["STANDARD"] };
-        if !family_names.iter().map(String::as_str).eq(expected_families.iter().copied()) {
-            return Err(PyValueError::new_err("native cache family closure mismatch"));
+        let expected_families: &[&str] = if kind == "ordered" {
+            &["STANDARD", "ORDERED", "BLANK"]
+        } else {
+            &["STANDARD"]
+        };
+        if !family_names
+            .iter()
+            .map(String::as_str)
+            .eq(expected_families.iter().copied())
+        {
+            return Err(PyValueError::new_err(
+                "native cache family closure mismatch",
+            ));
         }
-        let (schema, risk) = read_stream(py, risk_stream, &context, &mut input_bytes, max_input_bytes)?;
-        if schema.as_ref() != risk_schema().as_ref() || risk.iter().any(|batch| batch.num_rows() > 1024) {
+        let (schema, risk) =
+            read_stream(py, risk_stream, &context, &mut input_bytes, max_input_bytes)?;
+        if schema.as_ref() != risk_schema().as_ref()
+            || risk.iter().any(|batch| batch.num_rows() > 1024)
+        {
             return Err(PyValueError::new_err("neutral risk schema/batch mismatch"));
         }
         validate_risk_projection(&risk, &context)?;
@@ -1069,15 +1158,51 @@ fn _restore_comparison_table_native(
         let mut ordered = None;
         let mut blank = None;
         for (family, stream) in family_names.iter().zip(artifact_streams.iter()) {
-            let (input_schema, batches) = read_stream(py, stream.extract()?, &context, &mut input_bytes, max_input_bytes)?;
-            let expected = neutral.family(family).map_err(PyValueError::new_err)?.iter().map(RecordBatch::num_rows).sum::<usize>();
-            let restored = py.detach(|| restore_records_batches(
-                family, detail_policy, table_name, batches, max_records, max_row_bytes,
-                &context, external.clone(),
-            )).map_err(comparison_error)?;
-            let expected_schema = Schema::new_with_metadata(restored.schema.fields().iter().skip(1).cloned().collect::<Vec<_>>(), restored.schema.metadata().clone());
-            if input_schema.as_ref() != &expected_schema { return Err(PyValueError::new_err("neutral artifact schema mismatch")); }
-            if restored.record_count != expected { return Err(PyValueError::new_err("neutral artifact/facts counts mismatch")); }
+            let (input_schema, batches) = read_stream(
+                py,
+                stream.extract()?,
+                &context,
+                &mut input_bytes,
+                max_input_bytes,
+            )?;
+            let expected = neutral
+                .family(family)
+                .map_err(PyValueError::new_err)?
+                .iter()
+                .map(RecordBatch::num_rows)
+                .sum::<usize>();
+            let restored = py
+                .detach(|| {
+                    restore_records_batches(
+                        family,
+                        detail_policy,
+                        table_name,
+                        batches,
+                        max_records,
+                        max_row_bytes,
+                        &context,
+                        external.clone(),
+                    )
+                })
+                .map_err(comparison_error)?;
+            let expected_schema = Schema::new_with_metadata(
+                restored
+                    .schema
+                    .fields()
+                    .iter()
+                    .skip(1)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                restored.schema.metadata().clone(),
+            );
+            if input_schema.as_ref() != &expected_schema {
+                return Err(PyValueError::new_err("neutral artifact schema mismatch"));
+            }
+            if restored.record_count != expected {
+                return Err(PyValueError::new_err(
+                    "neutral artifact/facts counts mismatch",
+                ));
+            }
             let slot = match family.as_str() {
                 "STANDARD" => &mut standard,
                 "ORDERED" => &mut ordered,
@@ -1097,12 +1222,25 @@ fn _restore_comparison_table_native(
         }
         python_adapter_control(&operation.watch, operation.deadline)?;
         Ok(ComparisonRecordsHandle {
-            result: Some(Arc::new(ComparisonResult::Restored { metadata_json: metadata_json.to_string(), facts: neutral })),
-            standard, ordered, blank, risk_batches: Some(risk), cache_facts: None,
-            cache_metadata: None, cache_created_risk: false, _cache_metadata_lease: None,
-            _schema_lease: Some(metadata_lease), context,
-            active: Arc::clone(&operation.active), owner: Some(owner), _watch: Arc::clone(&operation.watch),
-            operation_identity: operation.operation_identity, phase_timings: (0.0, 0.0, 0.0),
+            result: Some(Arc::new(ComparisonResult::Restored {
+                metadata_json: metadata_json.to_string(),
+                facts: neutral,
+            })),
+            standard,
+            ordered,
+            blank,
+            risk_batches: Some(risk),
+            cache_facts: None,
+            cache_metadata: None,
+            cache_created_risk: false,
+            _cache_metadata_lease: None,
+            _schema_lease: Some(metadata_lease),
+            context,
+            active: Arc::clone(&operation.active),
+            owner: Some(owner),
+            _watch: Arc::clone(&operation.watch),
+            operation_identity: operation.operation_identity,
+            phase_timings: (0.0, 0.0, 0.0),
         })
     }) {
         Ok(result) => result,
@@ -1357,7 +1495,10 @@ fn _validate_records_batches_native(
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ComparisonOperation>()?;
-    module.add_function(wrap_pyfunction!(_comparison_format_versions_native, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        _comparison_format_versions_native,
+        module
+    )?)?;
     module.add_class::<ComparisonRecordsHandle>()?;
     module.add_function(wrap_pyfunction!(
         _begin_comparison_operation_native,

@@ -255,13 +255,23 @@ fn frames(value: &Value) -> Result<(), String> {
 
 fn frame(value: &Value) -> Result<(), String> {
     let hex = text(value)?;
-    if hex.len() % 2 != 0 || hex.len() < 2 || !hex.is_ascii() { return Err("invalid facts frame hex".to_string()); }
-    let bytes = hex.as_bytes().chunks_exact(2).map(|chunk| {
-        let raw = std::str::from_utf8(chunk).map_err(|error| error.to_string())?;
-        if raw.bytes().any(|byte| byte.is_ascii_uppercase()) { return Err("noncanonical frame hex".to_string()); }
-        u8::from_str_radix(raw, 16).map_err(|error| error.to_string())
-    }).collect::<Result<Vec<_>, _>>()?;
-    if scalar_frame(&bytes).is_ok() { return Ok(()); }
+    if hex.len() % 2 != 0 || hex.len() < 2 || !hex.is_ascii() {
+        return Err("invalid facts frame hex".to_string());
+    }
+    let bytes = hex
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|chunk| {
+            let raw = std::str::from_utf8(chunk).map_err(|error| error.to_string())?;
+            if raw.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                return Err("noncanonical frame hex".to_string());
+            }
+            u8::from_str_radix(raw, 16).map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if scalar_frame(&bytes).is_ok() {
+        return Ok(());
+    }
     set_sequence_frame(&bytes)
 }
 
@@ -271,12 +281,17 @@ fn decode_length(bytes: &[u8], mut offset: usize) -> Result<(usize, usize), Stri
     loop {
         let byte = *bytes.get(offset).ok_or("truncated facts frame length")?;
         let shift = (offset - start) * 7;
-        if shift >= 63 { return Err("facts frame length overflow".to_string()); }
-        value |= usize::from(byte & 0x7f).checked_shl(u32::try_from(shift).map_err(|error| error.to_string())?)
+        if shift >= 63 {
+            return Err("facts frame length overflow".to_string());
+        }
+        value |= usize::from(byte & 0x7f)
+            .checked_shl(u32::try_from(shift).map_err(|error| error.to_string())?)
             .ok_or("facts frame length overflow")?;
         offset += 1;
         if byte & 0x80 == 0 {
-            if offset > start + 1 && byte == 0 { return Err("nonminimal facts frame length".to_string()); }
+            if offset > start + 1 && byte == 0 {
+                return Err("nonminimal facts frame length".to_string());
+            }
             return Ok((value, offset));
         }
     }
@@ -284,13 +299,17 @@ fn decode_length(bytes: &[u8], mut offset: usize) -> Result<(usize, usize), Stri
 
 fn set_sequence_frame(bytes: &[u8]) -> Result<(), String> {
     let (count, mut offset) = decode_length(bytes, 0)?;
-    if count > 64 { return Err("facts SET member limit exceeded".to_string()); }
+    if count > 64 {
+        return Err("facts SET member limit exceeded".to_string());
+    }
     let mut seen = std::collections::HashSet::new();
     for _ in 0..count {
         let (size, start) = decode_length(bytes, offset)?;
         let end = start.checked_add(size).ok_or("facts SET length overflow")?;
         let item = bytes.get(start..end).ok_or("truncated facts SET member")?;
-        if item.first() != Some(&0x20) { return Err("facts SET member must be a string scalar".to_string()); }
+        if item.first() != Some(&0x20) {
+            return Err("facts SET member must be a string scalar".to_string());
+        }
         scalar_frame(item)?;
         let (_, payload) = decode_length(item, 1)?;
         if payload == item.len() || !seen.insert(&item[payload..]) {
@@ -298,7 +317,9 @@ fn set_sequence_frame(bytes: &[u8]) -> Result<(), String> {
         }
         offset = end;
     }
-    if offset != bytes.len() { return Err("trailing facts SET bytes".to_string()); }
+    if offset != bytes.len() {
+        return Err("trailing facts SET bytes".to_string());
+    }
     Ok(())
 }
 
@@ -454,97 +475,274 @@ pub fn validate_facts_row(family: &str, raw: &[u8]) -> Result<(), String> {
 
 /// Validate the existing producer's small metadata and required family counts.
 /// This proves format completeness, not an additional cross-view authenticity protocol.
-pub fn validate_cache_metadata(kind: &str, value: &Value, counts: [usize; 3]) -> Result<(), String> {
-    let standard_keys = ["row_added_count", "row_deleted_count", "row_modified_count",
-        "suppressed_added_count", "suppressed_deleted_count", "ignored_shared_content_changed", "record_count"];
-    let ordered_keys = ["format", "version", "table_name", "status", "row_count_before", "row_count_current",
-        "row_added_count", "row_deleted_count", "row_modified_count", "suppressed_added_count",
-        "suppressed_deleted_count", "content_changed", "schema_changes", "diagnostics", "records",
-        "ordered_extension", "blank_extension"];
+pub fn validate_cache_metadata(
+    kind: &str,
+    value: &Value,
+    counts: [usize; 3],
+) -> Result<(), String> {
+    let standard_keys = [
+        "row_added_count",
+        "row_deleted_count",
+        "row_modified_count",
+        "suppressed_added_count",
+        "suppressed_deleted_count",
+        "ignored_shared_content_changed",
+        "record_count",
+    ];
+    let ordered_keys = [
+        "format",
+        "version",
+        "table_name",
+        "status",
+        "row_count_before",
+        "row_count_current",
+        "row_added_count",
+        "row_deleted_count",
+        "row_modified_count",
+        "suppressed_added_count",
+        "suppressed_deleted_count",
+        "content_changed",
+        "schema_changes",
+        "diagnostics",
+        "records",
+        "ordered_extension",
+        "blank_extension",
+    ];
     match kind {
         "standard" => {
             exact_keys(value, &standard_keys)?;
             if value["ignored_shared_content_changed"].as_bool().is_none()
-                || count(&value["record_count"])? != counts[0] || counts[1] != 0 || counts[2] != 0 {
+                || count(&value["record_count"])? != counts[0]
+                || counts[1] != 0
+                || counts[2] != 0
+            {
                 return Err("invalid standard cache metadata".to_string());
             }
-        },
+        }
         "ordered" => {
             exact_keys(value, &ordered_keys)?;
             if text(&value["format"])? != crate::comparison::ordered::ORDERED_COMPARE_FORMAT
-                || value["version"].as_u64() != Some(u64::from(crate::comparison::ordered::ORDERED_COMPARE_VERSION))
+                || value["version"].as_u64()
+                    != Some(u64::from(
+                        crate::comparison::ordered::ORDERED_COMPARE_VERSION,
+                    ))
                 || text(&value["table_name"])?.is_empty()
-                || !matches!(text(&value["status"])?, "UNCHANGED" | "BUSINESS_EQUIVALENT" | "MODIFIED" | "SCHEMA_CHANGED" | "SCHEMA_ONLY_CHANGED" | "DEGRADED")
-                || value["content_changed"].as_bool().is_none() {
+                || !matches!(
+                    text(&value["status"])?,
+                    "UNCHANGED"
+                        | "BUSINESS_EQUIVALENT"
+                        | "MODIFIED"
+                        | "SCHEMA_CHANGED"
+                        | "SCHEMA_ONLY_CHANGED"
+                        | "DEGRADED"
+                )
+                || value["content_changed"].as_bool().is_none()
+            {
                 return Err("invalid ordered cache metadata".to_string());
             }
             for name in ["row_count_before", "row_count_current"] {
-                if !value[name].is_null() { count(&value[name])?; }
+                if !value[name].is_null() {
+                    count(&value[name])?;
+                }
             }
             strings(&value["diagnostics"])?;
             empty_records(&value["records"])?;
             let schema = &value["schema_changes"];
-            exact_keys(schema, &["before_only_columns", "current_only_columns", "selected_columns", "effective_compare_key_before", "effective_compare_key_current", "effective_compare_key_changed", "incompatible_columns", "change_source"])?;
-            for name in ["before_only_columns", "current_only_columns", "selected_columns", "effective_compare_key_before", "effective_compare_key_current", "incompatible_columns"] { strings(&schema[name])?; }
+            exact_keys(
+                schema,
+                &[
+                    "before_only_columns",
+                    "current_only_columns",
+                    "selected_columns",
+                    "effective_compare_key_before",
+                    "effective_compare_key_current",
+                    "effective_compare_key_changed",
+                    "incompatible_columns",
+                    "change_source",
+                ],
+            )?;
+            for name in [
+                "before_only_columns",
+                "current_only_columns",
+                "selected_columns",
+                "effective_compare_key_before",
+                "effective_compare_key_current",
+                "incompatible_columns",
+            ] {
+                strings(&schema[name])?;
+            }
             if schema["effective_compare_key_changed"].as_bool().is_none()
-                || !(schema["change_source"].is_null() || matches!(schema["change_source"].as_str(), Some("SOURCE_SCHEMA" | "STORAGE_PROJECTION_POLICY" | "BOTH"))) {
+                || !(schema["change_source"].is_null()
+                    || matches!(
+                        schema["change_source"].as_str(),
+                        Some("SOURCE_SCHEMA" | "STORAGE_PROJECTION_POLICY" | "BOTH")
+                    ))
+            {
                 return Err("invalid cache schema changes".to_string());
             }
             let ordered = &value["ordered_extension"];
-            exact_keys(ordered, &["contract_version", "status", "summary", "before_ordered_digest", "current_ordered_digest", "replay_guarantee", "table_processing_mode", "policy_digest", "diagnostics", "records"])?;
-            extension(ordered, crate::comparison::ordered::ORDERED_DIFF_CONTRACT_VERSION)?;
-            for name in ["before_ordered_digest", "current_ordered_digest", "policy_digest"] { identity(&ordered[name], true)?; }
-            if !ordered["table_processing_mode"].is_null() && !matches!(ordered["table_processing_mode"].as_str(), Some("ORDERED_TAIL_SEGMENT" | "ORDERED_LOCAL_PATCH" | "ORDERED_SHIFT_REPAIRED" | "ORDERED_REORDER_COMPLEX" | "DEGRADED")) {
+            exact_keys(
+                ordered,
+                &[
+                    "contract_version",
+                    "status",
+                    "summary",
+                    "before_ordered_digest",
+                    "current_ordered_digest",
+                    "replay_guarantee",
+                    "table_processing_mode",
+                    "policy_digest",
+                    "diagnostics",
+                    "records",
+                ],
+            )?;
+            extension(
+                ordered,
+                crate::comparison::ordered::ORDERED_DIFF_CONTRACT_VERSION,
+            )?;
+            for name in [
+                "before_ordered_digest",
+                "current_ordered_digest",
+                "policy_digest",
+            ] {
+                identity(&ordered[name], true)?;
+            }
+            if !ordered["table_processing_mode"].is_null()
+                && !matches!(
+                    ordered["table_processing_mode"].as_str(),
+                    Some(
+                        "ORDERED_TAIL_SEGMENT"
+                            | "ORDERED_LOCAL_PATCH"
+                            | "ORDERED_SHIFT_REPAIRED"
+                            | "ORDERED_REORDER_COMPLEX"
+                            | "DEGRADED"
+                    )
+                )
+            {
                 return Err("invalid ordered cache processing mode".to_string());
             }
             let summary = &ordered["summary"];
-            exact_keys(summary, &["row_added_count", "row_deleted_count", "row_modified_count", "row_moved_count", "position_changed_count", "degraded_count"])?;
+            exact_keys(
+                summary,
+                &[
+                    "row_added_count",
+                    "row_deleted_count",
+                    "row_modified_count",
+                    "row_moved_count",
+                    "position_changed_count",
+                    "degraded_count",
+                ],
+            )?;
             for name in ["row_added_count", "row_deleted_count", "row_modified_count"] {
-                if count(&summary[name])? != count(&value[name])? { return Err("cache summary count mismatch".to_string()); }
+                if count(&summary[name])? != count(&value[name])? {
+                    return Err("cache summary count mismatch".to_string());
+                }
             }
-            count(&summary["position_changed_count"])?; count(&summary["degraded_count"])?;
+            count(&summary["position_changed_count"])?;
+            count(&summary["degraded_count"])?;
             let emitted = count(&value["row_added_count"])?
-                .checked_sub(count(&value["suppressed_added_count"])?).ok_or("cache suppressed count mismatch")?
-                .checked_add(count(&value["row_deleted_count"])?
-                    .checked_sub(count(&value["suppressed_deleted_count"])?).ok_or("cache suppressed count mismatch")?)
+                .checked_sub(count(&value["suppressed_added_count"])?)
+                .ok_or("cache suppressed count mismatch")?
+                .checked_add(
+                    count(&value["row_deleted_count"])?
+                        .checked_sub(count(&value["suppressed_deleted_count"])?)
+                        .ok_or("cache suppressed count mismatch")?,
+                )
                 .and_then(|n| n.checked_add(count(&summary["row_modified_count"]).ok()?))
                 .and_then(|n| n.checked_add(count(&summary["row_moved_count"]).ok()?))
                 .ok_or("cache count overflow")?;
-            if emitted != counts[1] { return Err("ordered cache records count mismatch".to_string()); }
+            if emitted != counts[1] {
+                return Err("ordered cache records count mismatch".to_string());
+            }
             let blank = &value["blank_extension"];
-            exact_keys(blank, &["contract_version", "status", "summary", "before_occupancy_digest", "current_occupancy_digest", "replay_guarantee", "diagnostics", "records"])?;
-            extension(blank, crate::comparison::ordered::BLANK_COMPARISON_CONTRACT_VERSION)?;
-            for name in ["before_occupancy_digest", "current_occupancy_digest"] { identity(&blank[name], true)?; }
+            exact_keys(
+                blank,
+                &[
+                    "contract_version",
+                    "status",
+                    "summary",
+                    "before_occupancy_digest",
+                    "current_occupancy_digest",
+                    "replay_guarantee",
+                    "diagnostics",
+                    "records",
+                ],
+            )?;
+            extension(
+                blank,
+                crate::comparison::ordered::BLANK_COMPARISON_CONTRACT_VERSION,
+            )?;
+            for name in ["before_occupancy_digest", "current_occupancy_digest"] {
+                identity(&blank[name], true)?;
+            }
             let summary = &blank["summary"];
-            exact_keys(summary, &["interval_inserted_count", "interval_deleted_count", "blank_changed_count", "degraded_count"])?;
-            count(&summary["blank_changed_count"])?; count(&summary["degraded_count"])?;
-            if count(&summary["interval_inserted_count"])?.checked_add(count(&summary["interval_deleted_count"])? ) != Some(counts[2]) {
+            exact_keys(
+                summary,
+                &[
+                    "interval_inserted_count",
+                    "interval_deleted_count",
+                    "blank_changed_count",
+                    "degraded_count",
+                ],
+            )?;
+            count(&summary["blank_changed_count"])?;
+            count(&summary["degraded_count"])?;
+            if count(&summary["interval_inserted_count"])?
+                .checked_add(count(&summary["interval_deleted_count"])?)
+                != Some(counts[2])
+            {
                 return Err("blank cache records count mismatch".to_string());
             }
-        },
+        }
         _ => return Err("invalid native cache kind".to_string()),
     }
-    for name in ["row_added_count", "row_deleted_count", "row_modified_count", "suppressed_added_count", "suppressed_deleted_count"] { count(&value[name])?; }
+    for name in [
+        "row_added_count",
+        "row_deleted_count",
+        "row_modified_count",
+        "suppressed_added_count",
+        "suppressed_deleted_count",
+    ] {
+        count(&value[name])?;
+    }
     if count(&value["suppressed_added_count"])? > count(&value["row_added_count"])?
-        || count(&value["suppressed_deleted_count"])? > count(&value["row_deleted_count"])? {
+        || count(&value["suppressed_deleted_count"])? > count(&value["row_deleted_count"])?
+    {
         return Err("cache suppressed count mismatch".to_string());
     }
     Ok(())
 }
 
 fn count(value: &Value) -> Result<usize, String> {
-    usize::try_from(value.as_u64().ok_or("cache count must be unsigned integer")?).map_err(|error| error.to_string())
+    usize::try_from(
+        value
+            .as_u64()
+            .ok_or("cache count must be unsigned integer")?,
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn empty_records(value: &Value) -> Result<(), String> {
-    if value.as_array().is_none_or(|values| !values.is_empty()) { return Err("neutral metadata records must be empty".to_string()); }
+    if value.as_array().is_none_or(|values| !values.is_empty()) {
+        return Err("neutral metadata records must be empty".to_string());
+    }
     Ok(())
 }
 
 fn extension(value: &Value, contract: &str) -> Result<(), String> {
     if text(&value["contract_version"])? != contract
-        || !matches!(text(&value["status"])?, "ORDERED_UNCHANGED" | "ORDERED_CHANGED" | "ORDERED_BUSINESS_EQUIVALENT" | "ORDERED_DEGRADED")
-        || !matches!(text(&value["replay_guarantee"])?, "EXACT" | "PARTIAL" | "UNSUPPORTED") {
+        || !matches!(
+            text(&value["status"])?,
+            "ORDERED_UNCHANGED"
+                | "ORDERED_CHANGED"
+                | "ORDERED_BUSINESS_EQUIVALENT"
+                | "ORDERED_DEGRADED"
+        )
+        || !matches!(
+            text(&value["replay_guarantee"])?,
+            "EXACT" | "PARTIAL" | "UNSUPPORTED"
+        )
+    {
         return Err("invalid cache extension metadata".to_string());
     }
     strings(&value["diagnostics"])?;
@@ -625,9 +823,7 @@ mod tests {
             ordered: vec![],
             blank: vec![],
         };
-        facts
-            .validate(2, 65536, &context)
-            ?;
+        facts.validate(2, 65536, &context)?;
         let digest = digest_table_fact_json(
             TableFactsInput {
                 metadata_json: r#"{"records":[],"table_name":"t"}"#,
@@ -637,8 +833,7 @@ mod tests {
             },
             65536,
             &context,
-        )
-        ?;
+        )?;
         let expected = [
             b"{\"records\":[".as_slice(),
             STANDARD,

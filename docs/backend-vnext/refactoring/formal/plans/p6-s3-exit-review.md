@@ -1,0 +1,30 @@
+# P6 S3 正式退出独立审查
+
+2026-11-09。本文办理已获 Owner 授权的 S3 本地正式退出审查；不改写已核产品候选、不代替执行 tag 或 merge，不授权 push 或 S5。详细代码与原件逐项审核见 [S3 E 独立报告](p6-s3-e-review.md) §101、§107、§110–111。
+
+## 1. 退出对象与技术结论
+
+- 唯一 S3 产品及证据 H 为 `f9ef26081dfd4710d3709d9f5fbca24543f84de4`，直接父 V 为 `4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`。本人在 clean detached worktree 重核 H 仅改 14 份文档，`H:vnext` 与 `V:vnext` 同为 `5610b7137b97196433cc08797d58165b9880e848`，Rust 树同为 `9d4f84ce0897099402226c77c548c487c4912008`，`git diff --check` 为 0。
+- 本人 §110 技术 GO 的提交为 `90ca3ebec400ea91da173e2caf89d2682a2654a6`，§111 post-H 文档核收提交为 `03abc1d912d2f1ecee7b9b5eef90eba623dd272c`。H 在 04 原来源 worktree 的实际绑定 outer SHA256 为 `7e3a673cb68f0c91574c0a797fad74dcc4fd788c00bdbda94a2cc03362e43aea`：六包闭包逐包实比全部可沿用，四包直接指最初实跑 V1e669、backend/RS 两包直接指最初实跑 V4b0；RS、backend、worker 本机镜像 ID、config、全部 RootFS DiffID 和 RS build-input/source-tree 实核相符，node/capture/postflight/outer 均 exit 0，04 worktree clean、六锁不漂、执行者原子标记释放。H 此次没有运行新的 runner、build 或 Compose；其合格结果来自已核来源及身份等价。
+- 累计 A–E、V4b0 在 04 的权威六包与 Compose、05 的四档完整 fresh、CT108 的 W3 MODIFIED_ONLY 一暖三测和 FULL 暖身加 r1、一次受控部分聚合，满足 Owner 确认的 S3 最小技术退出范围。因此维持 **S3 技术 GO，准许对上述 H 办理本地正式退出 tag**。原 M24 的 2×t4 Submit 失败、W3 FULL 三测统计 `UNKNOWN`、W4 未运行及 Owner 取消的 18 项照原件保留；性能数值目标只报告。本文未重跑测试或把这些未知写为通过。
+
+## 2. Tag 目标和主线关系
+
+[P6 执行计划 §8.1–8.2](p6-execution-plan.md)要求并行短支线以 merge commit 合回，并在审核通过后打附注 tag、合入；没有规定打 tag 前 H 必须已是 `main` 祖先。[P5 执行计划 §8.1](p5-arch-closure-execution-plan.md)的“tag 指报告提交”是 P5 的具体安排；本轮 P6 S4 的 `p6-s4-exit` 已指向实际绑定的 H，并在附注引用独审回执。S3 的最终独审在 H 的实际绑定后才写，不能为纳入自身 SHA 而移动已验证 H。
+
+**`p6-s3-exit` 的本地附注 tag 应直接指向 `f9ef26081dfd4710d3709d9f5fbca24543f84de4`。** 附注应明确 V/H、上述独审提交及本报告提交、04 H 绑定 outer SHA、六包直接来源、Owner 的正式退出授权、旧失败与取消项、仅本地不 push/S5。不能改指当前 `main` 或 S4 H：它们的产品树不是 S3 已核 H。打 tag 不要求先把 H 变成 `main` 祖先，但 tag 不能代替短支线的合回手续。
+
+## 3. 短支线的可审合回方式
+
+本次只读审计的 `main` 快照为 `f8d3cb353dff127ba158ab10a3dda75f904b7802`；`merge-base(H,main)=e76342ef0b58bb0120fc60d8a063d838140ee28d`，H 尚非 `main` 祖先。H 从该共同祖先后只有四个提交：`1e669c053f2486c50a8413c58de11d923d7f3cad`、`acb417df15d7b9fac277c9f5cf9ff97278f1677e`、V4b0 和 H。逐路径归属如下：
+
+| H 支线新增内容 | 已进入主线的对应内容 |
+| --- | --- |
+| worker 资源测试的类型修正 | `a39339f18dd45777c1b5f40f34512d60c41271b8` 是 `main` 与 S4 exit 的祖先；该测试 H/main blob 相同。 |
+| C Arrow 排序预算边界测试 | S4C 适配提交 `1ecb17f6de4c71ddb001a6829d2222cd28bacb34` 是 `main` 与 S4 exit 的祖先；C 测试 H/main blob 相同。 |
+| comparison production 三处 native budget 透传、D 测试和 S3 设计说明 | 同一 `1ecb` 提交将三条路径适配 S4C 的 `canonical_comparison_input`；H、`1ecb` 与本次 `main` 快照均保留 `max_sort_bytes=native_budget_bytes`、三处 `native_budget_bytes` 透传及同 operation 的 `native_budget=available-concurrent_scratch`。D 测试只将旧 `_fresh_view_budget` 改为 S4C 的 `fresh_canonical_view_budget` 调用；`1ecb` 的 production、D 测试和设计说明 blob 与本次 `main` 相同。该移植另有 E 报告 §91 静审及 06 focused 原件，与隔离 H 的 Rust9d4 证据分列。 |
+| H 的 14 份最终文档 | 逐个 `H:path` blob 与主线祖先 `c32c8c9d123d918604a16edfc2afb0f8b9367c24:path` 相同；后续主线文档可继续更新。 |
+
+上述矩阵支持在**本地 tag H 后**作一次有说明的、只连接历史的双亲 merge：第一父为届时 `main`，第二父精确为 H，合并树必须与第一父的树完全相同。这种 `ours` 策略的前提是执行前再次核实上述四项映射和 `main` 当前树；它只记录已另行纳入或适配的 S3 支线历史，不把旧 S3 实现冲回已退出的 S4 主线。普通内容 merge、无矩阵的盲目 `ours`、以 merge commit 当 S3 被测 H，均不合格。若执行时映射不再成立，应停止并审具体差异，不能强行连接历史。
+
+**审查结论：`S3_EXIT_TAG_GO`，上述条件满足时 `S3_HISTORY_MERGE_GO`。** 完整形式手续以本地附注 tag 和已核双亲 merge 的实际对象及回执为准；在它们完成前，只能称“技术 GO、正式手续待办”。新 merge 本身不是新的 S3 产品候选，不引用 S4 当前树替换 H，也不推导新的容器或真实性能结果。04 原来源 worktree、镜像、输入与全部原始证据继续按交接保护，后续处置另依已授权白名单办理。

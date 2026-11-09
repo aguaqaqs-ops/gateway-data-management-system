@@ -22,9 +22,10 @@ from gateway_backend.capabilities.snapshot_materialization import (
     CanonicalTableStore,
     check_canonical_descriptor_budget,
     canonical_columns,
+    canonical_source_descriptor,
     canonical_table_key,
     canonical_repository_stream,
-    current_kernel_context, snapshot_table_from_arrow, source_descriptor_from_arrow,
+    current_kernel_context, snapshot_table_from_arrow,
     operation_codec_budgets, operation_business_budgets,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -75,6 +76,10 @@ class CanonicalCommittedTableAccess:
         self._uow = unit_of_work_factory
         self._providers = repository_provider_factory
         self._budgets = dict(budgets)
+
+    @property
+    def repository_id(self) -> str:
+        return self._store.repository_id
 
     @contextmanager
     def open_committed(
@@ -211,11 +216,14 @@ class CanonicalCommittedTableAccess:
         with self._uow() as uow:
             uow.canonical_tables.register(key, ref)
 
-    def load_table(
+    def describe_table(
         self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable:
         with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
+            active.checkpoint()
+            if not commit_id or commit_id in ("main", "HEAD") or commit_id.startswith("refs/"):
+                raise ValueError("canonical description requires an exact immutable commit")
             metadata_size = check_canonical_descriptor_budget(descriptor, {
                 "max_columns": self._budgets["max_columns"],
                 "max_descriptor_bytes": self._budgets["max_metadata_bytes"],
@@ -230,20 +238,30 @@ class CanonicalCommittedTableAccess:
                         or identity.canonical_schema_digest != schema_digest):
                     raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                         "canonical manifest schema/content binding differs from the exact catalog", table=descriptor.table_name)
+            active.memory.retain_metadata(descriptor, metadata_size * 8)
+            active.checkpoint()
+            return SnapshotTable(descriptor=descriptor, reader=None, diagnostics=descriptor.diagnostics,
+                ordered_metadata=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
+                if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
+
+    def load_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
+        context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> SnapshotTable:
+        described = self.describe_table(commit_id=commit_id, descriptor=descriptor, identity=identity,
+            storage_view=storage_view, context=context, timeout_policy=timeout_policy)
+        with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
             manager = self._open_committed(commit_id=commit_id, bound_descriptor=descriptor,
                 storage_view=storage_view, timeout_policy=timeout_policy)
             handle = manager.__enter__()
             try:
                 with handle.borrow_stream() as stream:
                     arrays = stream.read_all()
-                source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
-                    "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
-                    "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+                source = canonical_source_descriptor(descriptor)
                 def close_handle() -> None:
                     manager.__exit__(None, None, None)
                 table = snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle,
-                    ordered=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
-                    if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
+                    ordered=described.ordered_metadata)
                 assert isinstance(table.reader, ArrowSnapshotTableReader)
                 table.reader.mark_canonical_committed_read_verified()
                 return table

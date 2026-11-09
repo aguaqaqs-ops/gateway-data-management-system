@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from gateway_backend.application.history.ports import (
     HistoryControlTransaction as HistoryCompareControlTransaction,
 )
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
     ComparisonTaskSession,
@@ -82,11 +84,11 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
 )
 from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput, ComparisonMode, ComparisonRequest, ComparisonStorageFacts,
+    BoundSnapshotInput, ComparisonMode, ComparisonRequest, ComparisonStorageFacts, ComparisonPlan, plan_comparison, comparison_row_demands,
 )
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
-from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact, current_kernel_context
+from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
     MaterializationPolicy,
@@ -97,18 +99,18 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryTableAccessProvider,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
-    SnapshotTableSet,
+    SnapshotTableSet, SnapshotTable, SnapshotTableOrderedMetadata, BlankRowProvenance,
     snapshot_from_document,
     snapshot_summary_from_document,
     snapshot_summary_to_document,
     snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    materialize_repository_ref,
+    describe_repository_ref, ensure_committed_tables, lookup_snapshot_table_parquet,
+    export_snapshot_table_parquet,
 )
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (
-    OrderedPolicy,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
@@ -130,6 +132,8 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
 )
 
+_LOG = logging.getLogger(__name__)
+
 HISTORY_COMPARE_STEP_MATERIALIZE = "materialize_inputs"
 HISTORY_COMPARE_STEP_ASSEMBLE = "assemble_comparison"
 HISTORY_COMPARE_STEP_PUBLISH = "publish_result"
@@ -141,7 +145,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v4"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v5"
 
 _JOB_STATE_SIDES = "sides"
 _JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
@@ -153,7 +157,7 @@ _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE = "history-compare-materialized-sides"
 HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/materialized-sides/v1"
+    "backend-vnext/history-compare/materialized-sides/v2"
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
@@ -203,6 +207,7 @@ class HistoryCompareRuntimeDependencies:
     repository_provider_factory: RepositoryProviderFactory
     control_transaction_factory: HistoryCompareControlTransactionFactory
     snapshot_export_cache: SnapshotTableExportCachePort | None = None
+    computation_cache: ComputationCachePort | None = None
 
 
 def history_compare_job_definitions() -> tuple[JobDefinition, ...]:
@@ -323,7 +328,7 @@ def history_compare_composition_bundle(
         control_transaction_factory=bind_history_compare_transaction_factory(
             deps.control_transaction_factory
         ),
-        snapshot_export_cache=deps.snapshot_export_cache,
+        snapshot_export_cache=deps.snapshot_export_cache, computation_cache=deps.computation_cache,
     )
     return (
         history_compare_job_definitions(),
@@ -376,6 +381,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 envelope.job_state,
                 deps.artifact_store, repository_id=payload.repository_id,
             )
+            _validate_described_sides(payload, deps, sides)
             sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
                 deps,
@@ -507,6 +513,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
         sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store, repository_id=payload.repository_id)
+        _validate_described_sides(payload, deps, sides)
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -552,7 +559,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                     store=deps.artifact_store,
                     lease_session=lease_session,
                     control=control,
-                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
+                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache, dependencies=deps,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -754,72 +761,21 @@ def _materialize_distinct_commits(
         binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
         bindings[commit_id] = binding
 
-    requested_by_commit = _history_requested_tables(payload, bindings)
     for commit_id in distinct_commits:
-        # Comparison rows and full History bundle exports are independent demands.
-        export_tables = tuple(view.canonical_table for view in bindings[commit_id].tables)
         bound = _materialize_commit(
-            repository_id=payload.repository_id,
-            commit_id=commit_id,
-            provider=providers[commit_id],
-            store=deps.artifact_store,
-            canonical_binding=bindings[commit_id],
-            ruleset=runtime_ruleset,
-            requested_tables=requested_by_commit[commit_id],
-            export_tables=export_tables,
-            export_cache=deps.snapshot_export_cache,
+            repository_id=payload.repository_id, commit_id=commit_id,
+            provider=providers[commit_id], store=deps.artifact_store,
+            canonical_binding=bindings[commit_id], ruleset=runtime_ruleset,
             committed_tables=build_committed_table_access(
                 store=cast(ArtifactBufferStorePort, deps.artifact_store),
                 unit_of_work_factory=deps.control_transaction_factory,
-                repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id),
+                repository_provider_factory=deps.repository_provider_factory,
+                repository_id=payload.repository_id),
         )
         sides[commit_id] = bound
-
+    _LOG.info("s5_history_metadata %s", json.dumps({"distinct_commits": len(distinct_commits),
+        "canonical_metadata_reads": len(distinct_commits), "catalog_reads": len(distinct_commits)}))
     return sides
-
-
-def _history_requested_tables(
-    payload: HistoryCompareJobPayload,
-    bindings: dict[str, CanonicalBinding],
-) -> dict[str, tuple[str, ...]]:
-    """Select table rows needed for History comparisons from commit metadata."""
-
-    requested: dict[str, set[str]] = {commit_id: set() for commit_id in bindings}
-    for index in range(len(payload.nodes) - 1):
-        before_commit = payload.nodes[index].commit_id
-        current_commit = payload.nodes[index + 1].commit_id
-        before = bindings[before_commit]
-        current = bindings[current_commit]
-        before_views = {view.canonical_table: view for view in before.tables}
-        current_views = {view.canonical_table: view for view in current.tables}
-        before_identities = {item.canonical_table: item for item in before.table_identities}
-        current_identities = {item.canonical_table: item for item in current.table_identities}
-        for name in before_views.keys() | current_views.keys():
-            before_view = before_views.get(name)
-            current_view = current_views.get(name)
-            before_identity = before_identities.get(name)
-            current_identity = current_identities.get(name)
-            unchanged = (
-                before_view is not None
-                and current_view is not None
-                and before_identity is not None
-                and current_identity is not None
-                and before.storage_projection_version == current.storage_projection_version
-                and before_view == current_view
-                and before_identity == current_identity
-            )
-            if unchanged:
-                if current_view is not None and current_view.ordered_policy is OrderedPolicy.GID_NO_V1:
-                    requested[current_commit].add(name)
-                continue
-            if before_view is not None:
-                requested[before_commit].add(name)
-            if current_view is not None:
-                requested[current_commit].add(name)
-    return {
-        commit_id: tuple(sorted(names, key=lambda item: item.encode("utf-8")))
-        for commit_id, names in requested.items()
-    }
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
@@ -865,7 +821,7 @@ def _materialize_commit(
         artifact_store=store,
         export_cache=export_cache,
     )
-    result = materialize_repository_ref(request)
+    result = describe_repository_ref(request)
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
         diagnostic = result.diagnostics[0] if result.diagnostics else None
         code = None if diagnostic is None else diagnostic.code.value
@@ -887,6 +843,7 @@ def _assemble_comparison(
     control: ExecutionControl,
     on_cancel: Callable[[], None],
     export_cache: SnapshotTableExportCachePort | None = None,
+    dependencies: HistoryCompareRuntimeDependencies | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
@@ -915,97 +872,209 @@ def _assemble_comparison(
         }
 
     dedup_session = declare_pair_comparison_session(tuple(
-        ComparisonRequest(
-            pair_id=pair_id,
-            before=sides[before_node.commit_id],
-            current=sides[current_node.commit_id],
-            rule_set=rule_set,
-            mode=ComparisonMode.DETAILED,
-        )
+        ComparisonRequest(pair_id=pair_id, before=sides[before_node.commit_id],
+            current=sides[current_node.commit_id], rule_set=rule_set, mode=ComparisonMode.DETAILED)
         for pair_id, before_node, current_node in pair_specs
-    ))
-    for pair_id, before_node, current_node in pair_specs:
-        lease_session.refresh_control()
-        if control.cancel_requested:
-            on_cancel()
-            raise PairPipelineCancelled
-        before = sides[before_node.commit_id]
-        current = sides[current_node.commit_id]
-        pair_state = _run_pair_pipeline(
-            pair_id=pair_id,
-            before=before,
-            current=current,
-            rule_set=rule_set,
-            store=store,
-            control=control,
-            on_cancel=on_cancel, repository_id=payload.repository_id, export_cache=export_cache,
-            dedup_session=dedup_session,
-        )
-        pair_results.append(pair_state)
-        before_index, current_index = bundle_indexes[pair_id]
-        bundle_pairs.append(
-            BundlePairInput(
-                pair_id,
-                before_index,
-                current_index,
-                pair_state.surface_result,
-                surface_artifact_closure(
-                    pair_state.surface_result.surface,
-                    pair_id,
-                    pair_state.records_closure,
-                    before=before,
-                    current=current,
-                    include_all_tables=True, store=store, repository_id=payload.repository_id, export_cache=export_cache,
-                ),
+    ), computation_cache=None if dependencies is None else dependencies.computation_cache,
+        cache_owner=CacheOperationOwner("history-compare-operation", operation_id),
+        repository_id=payload.repository_id)
+    table_exports: dict[str, dict[str, ArtifactRef]] = {}
+    try:
+        if dependencies is not None:
+            sides, table_exports = _ensure_history_demands(payload, dependencies, sides, pair_specs, rule_set, dedup_session)
+        for pair_id, before_node, current_node in pair_specs:
+            lease_session.refresh_control()
+            if control.cancel_requested:
+                on_cancel()
+                raise PairPipelineCancelled
+            before = sides[before_node.commit_id]
+            current = sides[current_node.commit_id]
+            pair_state = _run_pair_pipeline(
+                pair_id=pair_id,
+                before=before,
+                current=current,
+                rule_set=rule_set,
+                store=store,
+                control=control,
+                on_cancel=on_cancel, repository_id=payload.repository_id, export_cache=export_cache,
+                dedup_session=dedup_session, table_exports=table_exports or None,
             )
+            pair_results.append(pair_state)
+            before_index, current_index = bundle_indexes[pair_id]
+            bundle_pairs.append(
+                BundlePairInput(
+                    pair_id,
+                    before_index,
+                    current_index,
+                    pair_state.surface_result,
+                    surface_artifact_closure(
+                        pair_state.surface_result.surface,
+                        pair_id,
+                        pair_state.records_closure,
+                        before=before,
+                        current=current,
+                        include_all_tables=True, store=store, repository_id=payload.repository_id, export_cache=export_cache,
+                        table_exports=table_exports or None,
+                    ),
+                )
+            )
+
+        bundle_result = assemble_bundle(
+            BundleAssemblyInput(
+                bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+                bundle_profile=bundle_profile,
+                inputs=bundle_inputs,
+                pairs=tuple(bundle_pairs),
+                ref_scope=BundleRefScope.BUNDLE_RELATIVE,
+            ),
+            source_store=store,
+            context=BundleAssemblyContext(
+                checkpoint=lease_session.refresh_control,
+                cancel_requested=lambda: control.cancel_requested,
+            ),
         )
+        if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
+            raise HistoryCompareJobError("bundle assembly failed")
 
-    bundle_result = assemble_bundle(
-        BundleAssemblyInput(
-            bundle_contract_version=BUNDLE_CONTRACT_VERSION,
-            bundle_profile=bundle_profile,
-            inputs=bundle_inputs,
-            pairs=tuple(bundle_pairs),
-            ref_scope=BundleRefScope.BUNDLE_RELATIVE,
-        ),
-        source_store=store,
-        context=BundleAssemblyContext(
-            checkpoint=lease_session.refresh_control,
-            cancel_requested=lambda: control.cancel_requested,
-        ),
-    )
-    if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
-        raise HistoryCompareJobError("bundle assembly failed")
+        assemble_state: dict[str, object] = {
+            "pair_ids": [item.pair_id for item in pair_results],
+            "pairs": [
+                {
+                    "pair_id": pair_state.pair_id,
+                    "before_ref": {
+                        "ref_kind": before.ref_kind.value,
+                        "ref_id": before.ref_id,
+                    },
+                    "before_commit": before.commit_id,
+                    "current_ref": {
+                        "ref_kind": current.ref_kind.value,
+                        "ref_id": current.ref_id,
+                    },
+                    "current_commit": current.commit_id,
+                    "comparison_digest": pair_state.comparison_digest,
+                    "risk_digest": pair_state.risk_digest,
+                    "surface_digest": pair_state.surface_digest,
+                    "record_count": pair_state.record_count,
+                }
+                for pair_state, (_, before, current) in zip(pair_results, pair_specs, strict=True)
+            ],
+            "bundle_digest": bundle_result.bundle.bundle_digest.value,
+            "required_refs": [
+                artifact_ref_to_dict(item)
+                for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref, bundle_result.referenced_artifacts)
+            ],
+        }
+        return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
 
-    assemble_state: dict[str, object] = {
-        "pair_ids": [item.pair_id for item in pair_results],
-        "pairs": [
-            {
-                "pair_id": pair_state.pair_id,
-                "before_ref": {
-                    "ref_kind": before.ref_kind.value,
-                    "ref_id": before.ref_id,
-                },
-                "before_commit": before.commit_id,
-                "current_ref": {
-                    "ref_kind": current.ref_kind.value,
-                    "ref_id": current.ref_id,
-                },
-                "current_commit": current.commit_id,
-                "comparison_digest": pair_state.comparison_digest,
-                "risk_digest": pair_state.risk_digest,
-                "surface_digest": pair_state.surface_digest,
-                "record_count": pair_state.record_count,
-            }
-            for pair_state, (_, before, current) in zip(pair_results, pair_specs, strict=True)
-        ],
-        "bundle_digest": bundle_result.bundle.bundle_digest.value,
-        "required_refs": [
-            artifact_ref_to_dict(item)
-            for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref, bundle_result.referenced_artifacts)
-        ],
-    }
-    return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
+    finally:
+        if dedup_session is not None:
+            dedup_session.close()
+        if dependencies is not None and dependencies.computation_cache is not None:
+            dependencies.computation_cache.release_operation_pins(CacheOperationOwner("history-compare-operation", operation_id))
+
+
+def _validate_described_sides(payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies,
+                              sides: dict[str, BoundSnapshotInput]) -> None:
+    fresh = _materialize_distinct_commits(payload, deps)
+    # created_at records when this operation described the same authority;
+    # it is not an exact-commit identity or a digest input.
+    comparable = {commit: dataclasses.replace(bound, snapshot=dataclasses.replace(
+        bound.snapshot, created_at=sides[commit].snapshot.created_at))
+        for commit, bound in fresh.items() if commit in sides}
+    if set(fresh) != set(sides) or _serialize_sides(comparable) != _serialize_sides(sides):
+        raise CheckpointDecodeError("history metadata checkpoint differs from exact commit authority",
+            code="CHECKPOINT_JOB_STATE_MISMATCH")
+
+
+def _ensure_history_demands(
+    payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies,
+    sides: dict[str, BoundSnapshotInput],
+    pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]],
+    rule_set: ComparisonRuleSet, session: ComparisonTaskSession | None,
+) -> tuple[dict[str, BoundSnapshotInput], dict[str, dict[str, ArtifactRef]]]:
+    try:
+        return _ensure_history_demands_once(payload, deps, sides, pair_specs, rule_set, session)
+    except MemoryError:
+        # Hits are optional until row admission succeeds. Releasing them also
+        # removes the reason these tables had no row demand; rebuild that
+        # demand from the same planner once, against the same exact commits.
+        if session is None or not session.persistent_ready:
+            raise
+        session.close_persistent()
+        session.evict_local()
+        context = current_kernel_context()
+        if context is not None:
+            context.checkpoint()
+        return _ensure_history_demands_once(payload, deps, sides, pair_specs, rule_set, session)
+
+
+def _ensure_history_demands_once(
+    payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies,
+    sides: dict[str, BoundSnapshotInput],
+    pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]],
+    rule_set: ComparisonRuleSet, session: ComparisonTaskSession | None,
+) -> tuple[dict[str, BoundSnapshotInput], dict[str, dict[str, ArtifactRef]]]:
+    context = current_kernel_context()
+    if context is None:
+        raise HistoryCompareJobError("history rows require the operation context")
+    demands: dict[str, set[str]] = {commit: set() for commit in sides}
+    table_commit = {id(table): commit for commit, bound in sides.items()
+                    if bound.table_set is not None for table in bound.table_set.tables}
+    for pair_id, before_node, current_node in pair_specs:
+        plan = plan_comparison(ComparisonRequest(pair_id=pair_id,
+            before=sides[before_node.commit_id], current=sides[current_node.commit_id],
+            rule_set=rule_set, mode=ComparisonMode.DETAILED))
+        if not isinstance(plan, ComparisonPlan):
+            raise HistoryCompareJobError("history comparison planning failed")
+        for table in comparison_row_demands(plan, session):
+            demands[table_commit[id(table)]].add(table.descriptor.table_name)
+    exports: dict[str, dict[str, ArtifactRef]] = {}
+    for commit, bound in sides.items():
+        assert bound.table_set is not None
+        refs = exports.setdefault(bound.snapshot.snapshot_id, {})
+        for table in bound.table_set.tables:
+            ref = lookup_snapshot_table_parquet(table, store=deps.artifact_store,
+                repository_id=payload.repository_id, export_cache=deps.snapshot_export_cache)
+            if ref is None:
+                demands[commit].add(table.descriptor.table_name)
+            else:
+                refs[table.descriptor.table_name] = ref
+    export_hits = sum(len(refs) for refs in exports.values())
+    loaded: dict[str, BoundSnapshotInput] = {}
+    access = build_committed_table_access(store=cast(ArtifactBufferStorePort, deps.artifact_store),
+        unit_of_work_factory=deps.control_transaction_factory,
+        repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id)
+    try:
+        for commit, bound in sides.items():
+            context.checkpoint()
+            assert bound.table_set is not None
+            with deps.control_transaction_factory() as uow:
+                metadata = uow.commit_canonical_metadata.resolve(repository_id=payload.repository_id, commit_id=commit,
+                    scope=CommitCanonicalScope(gateway_device_external_key=payload.gateway_device_external_key,
+                        business_project_id=payload.business_project_id))
+            binding = canonical_binding_for_commit(metadata, runtime_ruleset=rule_set.snapshot)
+            tables = ensure_committed_tables(bound.table_set,
+                repository_ref=RepositoryRef(repository_id=payload.repository_id, ref=commit),
+                canonical_binding=binding, committed_tables=access,
+                requested_tables=tuple(sorted(demands[commit])),
+                context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic))
+            loaded[commit] = dataclasses.replace(bound, table_set=tables)
+            refs = exports[bound.snapshot.snapshot_id]
+            for table in tables.tables:
+                if table.descriptor.table_name not in refs:
+                    refs[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=deps.artifact_store,
+                        repository_id=payload.repository_id, export_cache=deps.snapshot_export_cache)
+    except BaseException:
+        for completed in loaded.values():
+            if completed.table_set is not None:
+                for table in completed.table_set.tables:
+                    close = getattr(table.reader, "close", None)
+                    if callable(close):
+                        close()
+        raise
+    _LOG.info("s5_history_demands %s", json.dumps({"demanded_tables": sum(map(len, demands.values())),
+        "export_cache_hits": export_hits}))
+    return loaded, exports
 
 
 def _run_pair_pipeline(
@@ -1019,6 +1088,7 @@ def _run_pair_pipeline(
     on_cancel: Callable[[], None],
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -1029,7 +1099,7 @@ def _run_pair_pipeline(
             store=store,
             control=control,
             on_cancel=on_cancel, repository_id=repository_id, export_cache=export_cache,
-            dedup_session=dedup_session,
+            dedup_session=dedup_session, table_exports=table_exports,
         )
     except PairPipelineCancelled:
         raise
@@ -1166,35 +1236,16 @@ def _serialize_sides(sides: dict[str, BoundSnapshotInput]) -> dict[str, object]:
 def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict[str, object]:
     if bound.table_set is None:
         raise HistoryCompareJobError("snapshot table set is missing closed refs")
-    tables: list[dict[str, object]] = []
-    materialized_names: set[str] = set()
-    for table in bound.table_set.tables:
-        if table.artifact is None:
-            raise HistoryCompareJobError(f"table {table.descriptor.table_name} is missing artifact refs")
-        tables.append(
-            {
-                "table_name": table.descriptor.table_name,
-                "manifest_ref": artifact_ref_to_dict(table.artifact.manifest_ref),
-                "row_file_refs": [
-                    artifact_ref_to_dict(item) for item in table.artifact.manifest.row_file_refs
-                ],
-            }
-        )
-        materialized_names.add(table.descriptor.table_name)
-    unmaterialized_descriptors = [
-        _snapshot_descriptor_to_document(table)
-        for table in bound.summary.tables
-        if table.table_name not in materialized_names
-    ]
     return {
         "contract_version": HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION,
         "commit_id": commit_id,
         "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
-        "unmaterialized_descriptors": unmaterialized_descriptors,
         "storage_facts": _storage_facts_to_documents(bound.storage_facts),
-        "tables": tables,
+        "tables": [{"descriptor": _snapshot_descriptor_to_document(table.descriptor),
+            "ordered_provenance": None if table.ordered_metadata is None else table.ordered_metadata.blank_provenance.value}
+            for table in bound.table_set.tables],
     }
 
 
@@ -1228,7 +1279,14 @@ def _sides_from_materialize_checkpoint(
                 "materialize checkpoint side entry is invalid",
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
-        sides[commit_id] = _bound_from_side_document(entry, store, repository_id=repository_id)
+        if entry.get("commit_id") != commit_id:
+            raise CheckpointDecodeError("materialize checkpoint commit key mismatch", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        bound = _bound_from_side_document(entry, store, repository_id=repository_id)
+        if (bound.snapshot.source_context.repository_id != repository_id
+                or bound.snapshot.source_context.resolved_commit_hash != commit_id
+                or bound.snapshot.source_context.repository_ref != commit_id):
+            raise CheckpointDecodeError("materialize checkpoint exact commit binding mismatch", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        sides[commit_id] = bound
     return sides
 
 
@@ -1310,28 +1368,18 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
         )
     tables_raw = entry.get("tables")
     if type(tables_raw) is not list:
-        raise CheckpointDecodeError(
-            "materialize checkpoint is missing closed table refs",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    opened = []
-    for item in tables_raw:
-        if type(item) is not dict:
-            raise CheckpointDecodeError(
-                "materialize checkpoint table entry is invalid",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        manifest_raw = item.get("manifest_ref")
-        if type(manifest_raw) is not dict:
-            raise CheckpointDecodeError(
-                "materialize checkpoint table is missing manifest_ref",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        try:
-            manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True))
-        except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
-            raise HistoryCompareJobError("materialize checkpoint table artifact is unreadable") from exc
+        raise CheckpointDecodeError("materialize checkpoint tables are invalid", code="CHECKPOINT_JOB_STATE_MISMATCH")
+    opened: list[SnapshotTable] = []
+    try:
+        for item in tables_raw:
+            if type(item) is not dict or set(item) != {"descriptor", "ordered_provenance"}:
+                raise ValueError("invalid metadata table")
+            descriptor = _snapshot_descriptor_from_document(item["descriptor"])
+            provenance = item["ordered_provenance"]
+            ordered = None if provenance is None else SnapshotTableOrderedMetadata(BlankRowProvenance(provenance))
+            opened.append(SnapshotTable(descriptor, None, ordered_metadata=ordered))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError("materialize checkpoint table metadata is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH") from exc
     try:
         snapshot = snapshot_from_document(entry.get("snapshot"))
     except (TypeError, ValueError, KeyError) as exc:
@@ -1350,14 +1398,6 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
         if type(summary_raw) is not dict or type(summary_raw.get("tables")) is not list:
             raise ValueError("summary tables are invalid")
         descriptors_by_name = {table.descriptor.table_name: table.descriptor for table in opened}
-        raw_unmaterialized = entry.get("unmaterialized_descriptors")
-        if type(raw_unmaterialized) is not list:
-            raise ValueError("unmaterialized_descriptors must be a list")
-        for raw_descriptor in raw_unmaterialized:
-            descriptor = _snapshot_descriptor_from_document(raw_descriptor)
-            if descriptor.table_name in descriptors_by_name:
-                raise ValueError("unmaterialized descriptor repeats a materialized table")
-            descriptors_by_name[descriptor.table_name] = descriptor
         raw_summary_tables = summary_raw["tables"]
         ordered_names = tuple(
             _document_string(item, "table_name")
@@ -1447,7 +1487,7 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
     refs: list[ArtifactRef] = []
     for table in bound.table_set.tables:
         if table.artifact is None:
-            raise HistoryCompareJobError(f"table {table.descriptor.table_name} is missing artifact refs")
+            continue
         refs.append(table.artifact.manifest_ref)
         refs.extend(table.artifact.manifest.row_file_refs)
     return tuple(refs)

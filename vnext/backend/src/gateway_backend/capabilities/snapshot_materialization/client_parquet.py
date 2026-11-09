@@ -20,9 +20,12 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
 )
 from gateway_backend.capabilities.snapshot_materialization._parquet import encode_source_columns, _arrow_field
 from gateway_backend.capabilities.snapshot_materialization.arrow import ArrowSnapshotTableReader
+from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_source_descriptor
 from gateway_backend.capabilities.snapshot_materialization.batch import schema_with_batch_metadata
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_FORMAT_PARQUET, ROW_FORMAT_CANONICAL_IPC, SnapshotTable, SnapshotTableBatchMetadata, BlankRowProvenance,
+    MaterializationStage,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context, KernelExecutionContext
 from gateway_backend.capabilities.table_access.contracts import SourceColumnDescriptor
@@ -32,38 +35,36 @@ _LAYOUT = b"gdds.client.row_layout"
 _REPOSITORY = b"gdds.client.repository_id"
 
 
-def export_snapshot_table_parquet(
+def lookup_snapshot_table_parquet(
     table: SnapshotTable, *, store: ArtifactStorePort | None, repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None = None,
-) -> ArtifactRef:
-    artifact = table.artifact
-    if artifact is None:
-        raise ValueError("client export requires a bound snapshot artifact")
-    if artifact.manifest.row_format == ROW_FORMAT_PARQUET:
-        return artifact.manifest.row_file_refs[0]
-    if (artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC or not repository_id
-            or artifact.manifest.repository_id != repository_id or store is None
-            or not isinstance(table.reader, ArrowSnapshotTableReader)):
-        raise ValueError("client export requires scoped canonical Arrow and an artifact store")
+) -> ArtifactRef | None:
+    """Validate a canonical export using metadata, before any row demand is admitted."""
+    if export_cache is None or store is None or not repository_id:
+        return None
+    descriptor = table.descriptor
+    if descriptor.materialization_stage is not MaterializationStage.FINAL or descriptor.raw_content_digest is None:
+        return None
     context = current_kernel_context()
     if context is None:
-        raise ValueError("client export requires an operation kernel context")
+        raise ValueError("client export lookup requires an operation kernel context")
     context.checkpoint()
-    key = SnapshotTableArtifactCacheKey(artifact.row_layout_digest, repository_id)
-    source = table.reader.source_descriptor()
-    schema_upper = 8192 + len(source.columns) * 8192
-    schema_upper += sum((len(column.canonical_name) + len(column.display_name) + len(column.sql_type)) * 64 for column in source.columns)
-    schema_upper += sum(sum(len(label) for label in (column.enum_or_set_labels or ())) * 64 for column in source.columns)
-    context.memory.retain_metadata((table, "client-parquet-schema"), schema_upper)
-    bindings = {_LAYOUT: key.row_layout_digest.value.encode(), _REPOSITORY: repository_id.encode()}
-    if export_cache is not None:
-        try:
+    upper = 8192 + len(descriptor.columns) * 8192
+    upper += sum((len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 128
+                 for column in descriptor.columns)
+    try:
+        with context.memory.reserve(upper), ExitStack() as borrowed:
+            source = canonical_source_descriptor(descriptor)
+            key = SnapshotTableArtifactCacheKey(
+                row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), repository_id)
+            read_session = getattr(store, "read_session", None)
+            if callable(read_session):
+                borrowed.enter_context(read_session())
             cached = export_cache.lookup_many((key,)).get(key)
-        except (InterruptedError, TimeoutError, MemoryError):
-            raise
-        except Exception:
-            cached = None
-        if cached is not None:
+            context.checkpoint()
+            if cached is None:
+                return None
+            bindings = {_LAYOUT: key.row_layout_digest.value.encode(), _REPOSITORY: repository_id.encode()}
             try:
                 if cached.media_type != PARQUET_MEDIA_TYPE or cached.size_bytes > _MAX_EXPORT_BYTES:
                     raise ValueError("cached client artifact is not bounded Parquet")
@@ -79,14 +80,11 @@ def export_snapshot_table_parquet(
                         footer_bytes = struct.unpack_from("<I", raw, len(raw) - 8)[0]
                         if footer_bytes > len(raw) - 12:
                             raise ValueError("cached client Parquet footer is truncated")
-                        # Thrift row-group/column vectors, paths, schema and KV
-                        # objects expand independently of compressed data pages.
-                        # Reserve against the encoded footer before C++/Python
-                        # metadata decoding, using a conservative object envelope.
                         footer_reservation = context.memory.reserve(footer_bytes * 64)
+                        context.checkpoint()
                         file = pq.ParquetFile(pa.BufferReader(raw))
                         schema = file.schema_arrow
-                        if (file.metadata.num_rows != table.descriptor.row_count
+                        if (file.metadata.num_rows != descriptor.row_count
                                 or not schema.equals(pa.schema([_arrow_field(column) for column in source.columns]), check_metadata=False)
                                 or any((schema.metadata or {}).get(name) != value for name, value in bindings.items())
                                 or (schema.metadata or {}).get(b"gateway.sta.enc.v1") != encode_source_columns(source.columns)):
@@ -103,16 +101,51 @@ def export_snapshot_table_parquet(
                 raise
             except (ValueError, OSError, ManifestVerificationError, pa.ArrowException):
                 context.checkpoint()
-                try:
-                    export_cache.discard_many((key,))
-                except (InterruptedError, TimeoutError, MemoryError):
-                    raise
-                except Exception:
-                    pass
+                export_cache.discard_if_same(key, cached)
+                return None
+    except MemoryError:
+        # Cache decoding is optional. A miss admits the ordinary row/export
+        # demand under the same M; required writer reservations still fail normally.
+        context.checkpoint()
+        return None
+
+
+def export_snapshot_table_parquet(
+    table: SnapshotTable, *, store: ArtifactStorePort | None, repository_id: str | None,
+    export_cache: SnapshotTableExportCachePort | None = None,
+) -> ArtifactRef:
+    artifact = table.artifact
+    if artifact is not None and artifact.manifest.row_format == ROW_FORMAT_PARQUET:
+        return artifact.manifest.row_file_refs[0]
+    cached = lookup_snapshot_table_parquet(table, store=store,
+        repository_id=repository_id, export_cache=export_cache)
+    if cached is not None:
+        return cached
+    reader = table.reader
+    if (not repository_id or store is None or not isinstance(reader, ArrowSnapshotTableReader)
+            or not (reader.canonical_comparison_verified or reader.canonical_artifact_read_verified
+                    or reader.canonical_committed_read_verified)
+            or (artifact is not None and (artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC
+                                         or artifact.manifest.repository_id != repository_id))):
+        raise ValueError("client export requires scoped canonical Arrow with verified authority and an artifact store")
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("client export requires an operation kernel context")
+    context.checkpoint()
+    source = reader.source_descriptor()
+    layout = row_layout_digest_of(table.descriptor, source.columns, table.ordered_metadata)
+    if artifact is not None and artifact.row_layout_digest != layout:
+        raise ValueError("client export canonical artifact layout differs from its reader")
+    key = SnapshotTableArtifactCacheKey(layout, repository_id)
+    schema_upper = 8192 + len(source.columns) * 8192
+    schema_upper += sum((len(column.canonical_name) + len(column.display_name) + len(column.sql_type)) * 64 for column in source.columns)
+    schema_upper += sum(sum(len(label) for label in (column.enum_or_set_labels or ())) * 64 for column in source.columns)
+    context.memory.retain_metadata((table, "client-parquet-schema"), schema_upper)
+    bindings = {_LAYOUT: key.row_layout_digest.value.encode(), _REPOSITORY: repository_id.encode()}
     metadata = SnapshotTableBatchMetadata() if table.batch_reader is None else table.batch_reader.metadata()
     schema = schema_with_batch_metadata(pa.schema([_arrow_field(column) for column in source.columns],
         metadata={b"gateway.sta.enc.v1": encode_source_columns(source.columns), **bindings}), metadata)
-    isolated = table.reader.reopen()
+    isolated = reader.reopen()
     with tempfile.TemporaryDirectory(prefix="gateway-client-parquet-") as directory, ExitStack() as writer_metadata:
         path = Path(directory) / "rows.parquet"
         try:
@@ -148,12 +181,7 @@ def export_snapshot_table_parquet(
         finally:
             isolated.close()
     if export_cache is not None:
-        try:
-            export_cache.store_many(((key, ref),))
-        except (InterruptedError, TimeoutError, MemoryError):
-            raise
-        except Exception:
-            pass
+        export_cache.store_many(((key, ref),))
     context.checkpoint()
     return ref
 

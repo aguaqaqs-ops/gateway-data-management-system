@@ -61,8 +61,26 @@ class ComparisonCachePayload:
     format: str = TABLE_CACHE_FORMAT
     complete: bool = True
     charges: ExitStack = field(default_factory=ExitStack, repr=False)
+    _borrowers: int = field(default=0, repr=False)
+    _close_requested: bool = field(default=False, repr=False)
+
+    def retain(self) -> None:
+        if self._close_requested:
+            raise ValueError("neutral cache payload is closing")
+        self._borrowers += 1
+
+    def release(self) -> None:
+        if self._borrowers:
+            self._borrowers -= 1
+        if not self._borrowers and self._close_requested:
+            self._clear()
 
     def close(self) -> None:
+        self._close_requested = True
+        if not self._borrowers:
+            self._clear()
+
+    def _clear(self) -> None:
         self.views = ()
         self.table_fact_jcs = b""
         self.native_metadata_json = None
@@ -71,14 +89,15 @@ class ComparisonCachePayload:
 
 def _encode_view(name: str, reader: pa.RecordBatchReader,
                  context: KernelExecutionContext, charges: ExitStack) -> ComparisonCacheView:
-    # Native families have at most ceil(MAX_CACHE_ROWS / 1024) batches. The
-    # header reservation precedes Python's tuple/Arrow wrapper allocation.
+    # Preserve actual batch boundaries; 1024 bounds each batch, while the
+    # total row bound also bounds the number of nonempty batches. The header
+    # reservation precedes Python's tuple/Arrow wrapper allocation.
     with context.memory.reserve(16 * 1024**2), closing(reader):
         batches = tuple(reader)
         schema = reader.schema
         rows = tuple(batch.num_rows for batch in batches)
         if (sum(rows) > MAX_CACHE_ROWS or any(count < 1 or count > 1024 for count in rows)
-                or len(rows) > (MAX_CACHE_ROWS + 1023) // 1024):
+                or len(rows) > MAX_CACHE_ROWS):
             raise ValueError("neutral cache batch/count bound exceeded")
         if not rows:
             return ComparisonCacheView(name, schema, b"", raw_blob_digest(b""), ())
@@ -155,9 +174,17 @@ class _RestoreOwner:
     def __init__(self, charge: Any, payload: ComparisonCachePayload) -> None:
         self.charge = charge
         self.payload: ComparisonCachePayload | None = payload
+        try:
+            payload.retain()
+        except BaseException:
+            self.payload = None
+            charge.close()
+            raise
 
     def close(self) -> None:
-        self.payload = None
+        payload, self.payload = self.payload, None
+        if payload is not None:
+            payload.release()
         self.charge.close()
 
 

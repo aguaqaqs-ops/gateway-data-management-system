@@ -157,6 +157,25 @@ def test_export_cache_expiry_releases_cache_protection(tmp_path: Path) -> None:
         assert not unit_of_work.protection.is_protected(cached_ref.artifact_id)
 
 
+def test_export_cache_old_ref_cannot_discard_a_replacement_or_its_protection(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    db_path = tmp_path / "control.sqlite"
+    initialize_control_db(db_path)
+    key, old_ref = _key(), _ref()
+    replacement = replace(old_ref, artifact_id="replacement", raw_sha256=raw_blob_digest(b"replacement"))
+    with _uow(db_path) as unit_of_work:
+        cache = unit_of_work.snapshot_table_export_cache
+        cache.store_many(((key, old_ref),))
+        cache.store_many(((key, replacement),))
+        assert not cache.discard_if_same(key, old_ref)
+        assert cache.lookup_many((key,)) == {key: replacement}
+        assert unit_of_work.protection.is_protected(replacement.artifact_id)
+        assert cache.discard_if_same(key, replacement)
+        assert cache.lookup_many((key,)) == {}
+        assert not unit_of_work.protection.is_protected(replacement.artifact_id)
+
+
 def test_repeated_parquet_export_uses_the_protected_cached_row_file() -> None:
     store = InMemoryArtifactStore()
     original = first_ready_table()
@@ -203,8 +222,8 @@ def test_repeated_parquet_export_uses_the_protected_cached_row_file() -> None:
         ) -> None:
             self.stored = entries
 
-        def discard_many(self, _keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
-            return None
+        def discard_if_same(self, _key: SnapshotTableArtifactCacheKey, _ref: ArtifactRef) -> bool:
+            return False
 
     cache = Cache()
     published = publish_ready_tables(

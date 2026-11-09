@@ -46,6 +46,7 @@ from gateway_backend.application.submission.accept_transaction import (
 )
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submit_registry import submit_job_registry
+from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef
@@ -533,10 +534,13 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     original_native = pair_pipeline.compare_plan_native
 
     def capture_declaration(
-        requests: tuple[ComparisonRequest, ...],
+        requests: tuple[ComparisonRequest, ...], *,
+        computation_cache: ComputationCachePort | None = None,
+        cache_owner: CacheOperationOwner | None = None, repository_id: str | None = None,
     ) -> ComparisonTaskSession | None:
         declared_modes.append(tuple(request.mode for request in requests))
-        return original(requests)
+        return original(requests, computation_cache=computation_cache, cache_owner=cache_owner,
+            repository_id=repository_id)
 
     def capture_native(
         plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
@@ -837,3 +841,40 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
                 store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
                 rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
     assert memory.stage_admissions[-1]["stage"] == "comparison-metadata"
+
+
+def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    import json
+    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
+    def transaction() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path)
+    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "derived-cache"))
+    deps = replace(harness.deps, computation_cache=cache)
+    _, handlers, _ = preview_jobs.preview_composition_bundle(deps)
+    harness.handlers = dict(handlers)
+    with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
+        _run_through_publish(harness, "op-persistent-full-cold")
+    cold_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])
+        for record in caplog.records if record.message.startswith("s3_pair_metrics ")]
+    assert [item["pair_id"] for item in cold_metrics] == ["baseline_to_initial", "initial_to_modified"]
+    assert sum(item["comparison"]["native_calls"] for item in cold_metrics) > 0
+    caplog.clear()
+    next_payload = json.loads(harness.job_payload)
+    next_payload["idempotency_key"] = "persistent-full-warm-new-key"
+    harness.job_payload = json.dumps(next_payload).encode("utf-8")
+    with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
+        _run_through_publish(harness, "op-persistent-full-warm")
+    warm_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])
+        for record in caplog.records if record.message.startswith("s3_pair_metrics ")]
+    assert [item["pair_id"] for item in warm_metrics] == ["baseline_to_initial", "initial_to_modified"]
+    assert sum(item["comparison"]["native_calls"] for item in warm_metrics) == 0
+    assert sum(item["comparison"]["cache_hits"] for item in warm_metrics) > 0
+    with transaction() as uow:
+        producers = {row[0] for row in uow.connection.execute("SELECT DISTINCT producer_operation_id FROM computation_cache_uses")}
+        assert producers == {"op-persistent-full-cold", "op-persistent-full-warm"}
+        assert uow.connection.execute("SELECT COUNT(*) FROM artifact_protection_intents WHERE intent='active-computation-cache'").fetchone()[0] == 0

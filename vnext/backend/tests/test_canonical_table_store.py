@@ -337,7 +337,7 @@ def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_for
 def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from gateway_backend.capabilities.snapshot_materialization import (
         publish_canonical_tables, snapshot_table_from_arrow, source_descriptor_from_arrow, canonical_columns,
-        export_snapshot_table_parquet,
+        export_snapshot_table_parquet, lookup_snapshot_table_parquet,
     )
     from gateway_backend.capabilities.snapshot_materialization._parquet import read_parquet_table, encoding_columns_from_table, iter_decoded_rows
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -369,6 +369,19 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     assert rows[0][1] == SqlSetValue(("b", "a"))
     assert rows[1][1] == SqlSetValue(())
     assert rows[0][2] == Float32Scalar("3fa00000")
+    # Metadata-only History can decide its independent export demand without
+    # opening canonical rows. Damage must invalidate only this exact old ref.
+    described = replace(table, reader=None, batch_reader=None, artifact=None)
+    assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) == ref
+    from gateway_backend.artifacts import put_with_built_ref
+    from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
+    from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
+    key = SnapshotTableArtifactCacheKey(row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), "repo")
+    invalid = put_with_built_ref(store, b"not parquet", artifact_id="broken-client-cache", media_type=ref.media_type)
+    cache.store_many(((key, invalid),))
+    assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) is None
+    assert cache.lookup_many((key,)) == {}
+    assert export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache) == ref
     def forbid_write(*args: object, **kwargs: object) -> None:
         pytest.fail("healthy client cache hit must not rewrite the artifact")
     monkeypatch.setattr(store, "put", forbid_write)

@@ -86,6 +86,7 @@ from gateway_backend.capabilities.comparison.production import (
     ComparisonTaskSession,
     NativeComparison,
     compare_plan_native,
+    comparison_row_demands,
 )
 from gateway_backend.capabilities.comparison.standard import (
     COMPARISON_DIRECTION,
@@ -141,6 +142,7 @@ __all__ = [
     "KeylessPolicy",
     "MAX_NATIVE_RECORD_BYTES",
     "ComparisonTaskSession",
+    "comparison_row_demands",
     "NativeComparison",
     "OrderedEntityKeyKind",
     "OrderedExtension",

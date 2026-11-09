@@ -48,6 +48,10 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
     SnapshotTableSet,
     CanonicalTableIdentity,
+    CanonicalBinding,
+    CommittedCanonicalTablesPort,
+    RepositoryRef,
+    RepositoryRefTimeoutPolicy,
     SourceKind,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
@@ -111,6 +115,89 @@ def materialize_repository_ref(
                 ),
             ),
         )
+
+
+def describe_repository_ref(
+    request: RepositoryRefMaterializationRequest,
+) -> SnapshotMaterializationResult:
+    """Verify a complete exact-commit description before any row demand is known."""
+    ref = request.repository_ref.ref
+    if not ref or ref in ("main", "HEAD") or ref.startswith("refs/"):
+        return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
+            (_error(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+                    "canonical description requires an exact immutable commit"),))
+    result = materialize_repository_ref(dataclasses.replace(request,
+        policy=MaterializationPolicy.READERS_REQUIRED, requested_tables=(), export_tables=()))
+    if (result.snapshot is not None
+            and result.snapshot.source_context.resolved_commit_hash != ref):
+        return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
+            (_error(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+                    "canonical description is not pinned to the requested exact commit"),))
+    return result
+
+
+def ensure_committed_tables(
+    table_set: SnapshotTableSet, *, repository_ref: RepositoryRef,
+    canonical_binding: CanonicalBinding, committed_tables: CommittedCanonicalTablesPort,
+    requested_tables: tuple[str, ...], context: ParserInvocationContext,
+    timeout_policy: RepositoryRefTimeoutPolicy | None = None,
+) -> SnapshotTableSet:
+    """Fill only missing readers for this exact metadata/commit, retaining the full set."""
+    with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
+        upper = 64 * 1024 + len(table_set.tables) * 1024
+        upper += sum(len(table.descriptor.table_name) * 64 for table in table_set.tables)
+        upper += sum(len(name) * 64 + 1024 for name in requested_tables)
+        with active.memory.reserve(upper):
+            result = _ensure_committed_tables(table_set, repository_ref=repository_ref,
+                canonical_binding=canonical_binding, committed_tables=committed_tables,
+                requested_tables=requested_tables, context=context, timeout_policy=timeout_policy)
+            active.memory.retain_metadata(result, 4096 + len(result.tables) * 512)
+            return result
+
+
+def _ensure_committed_tables(
+    table_set: SnapshotTableSet, *, repository_ref: RepositoryRef,
+    canonical_binding: CanonicalBinding, committed_tables: CommittedCanonicalTablesPort,
+    requested_tables: tuple[str, ...], context: ParserInvocationContext,
+    timeout_policy: RepositoryRefTimeoutPolicy | None,
+) -> SnapshotTableSet:
+    _checkpoint(context)
+    commit_id = repository_ref.ref
+    if not commit_id or commit_id in ("main", "HEAD") or commit_id.startswith("refs/"):
+        raise ValueError("row materialization requires an exact immutable commit")
+    if committed_tables.repository_id != repository_ref.repository_id:
+        raise ValueError("committed table owner differs from the requested repository scope")
+    names = tuple(canonicalize_identifier(name) for name in requested_tables)
+    if len(set(names)) != len(names):
+        raise ValueError("row demands must be unique canonical table names")
+    tables = {table.descriptor.table_name: table for table in table_set.tables}
+    views = {view.canonical_table: view for view in canonical_binding.tables}
+    identities = {identity.canonical_table: identity for identity in canonical_binding.table_identities}
+    if (set(tables) != set(views) or set(identities) != set(views)
+            or any(name not in tables for name in names)):
+        raise ValueError("row demands and complete canonical binding disagree")
+    loaded: list[SnapshotTable] = []
+    try:
+        for name in names:
+            _checkpoint(context)
+            current = tables[name]
+            if current.reader is not None:
+                continue
+            table = committed_tables.load_table(commit_id=commit_id, descriptor=current.descriptor,
+                identity=identities[name], storage_view=views[name], context=context,
+                timeout_policy=timeout_policy)
+            loaded.append(table)
+            tables[name] = table
+        _checkpoint(context)
+        return dataclasses.replace(table_set,
+            tables=tuple(tables[table.descriptor.table_name] for table in table_set.tables))
+    except BaseException:
+        for table in loaded:
+            if table.reader is not None:
+                table.reader.close()
+            if table.batch_reader is not None:
+                table.batch_reader.close()
+        raise
 
 
 def _materialize(
@@ -183,6 +270,9 @@ def _materialize_open_session(
             "open_ref must pin a resolved commit hash",
         )
     catalog = session.get_catalog()
+    if catalog.repository_id != request.repository_ref.repository_id:
+        raise _Halt(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+                    "catalog repository differs from the requested repository scope")
     if catalog.resolved_commit_hash != pinned:
         raise _Halt(
             MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
@@ -206,12 +296,9 @@ def _materialize_open_session(
     export_set = _export_names(request, binding_by_name)
     materialized_set = selected_set | export_set
     identities = {item.canonical_table: item for item in binding.table_identities}
-    if request.requested_tables is not None and set(binding_by_name) - selected_set:
-        if set(identities) != set(binding_by_name):
-            raise _Halt(
-                MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                "canonical metadata is required for tables excluded from row materialization",
-            )
+    if set(identities) != set(binding_by_name):
+        raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                    "canonical metadata must cover every table before row materialization")
     diagnostics: list[MaterializationDiagnostic] = []
     published: list[SnapshotTable] = []
     descriptors: list[SnapshotTableDescriptor] = []
@@ -219,36 +306,37 @@ def _materialize_open_session(
         _checkpoint(request.context)
         catalog_table = indexed[name]
         storage_view = binding_by_name[name]
-        if name in materialized_set:
-            if request.committed_tables is None:
-                raise ValueError("selected repository tables require committed canonical access")
-            identity = identities.get(name)
-            if identity is None:
-                raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                            "selected repository table is missing its canonical content identity", table=name)
-            descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
-            table = request.committed_tables.load_table(commit_id=pinned, descriptor=descriptor, identity=identity,
-                storage_view=storage_view, context=request.context, timeout_policy=request.timeout_policy)
-            table_diagnostics = table.diagnostics
-            identity = identities.get(name)
-            if identity is not None and (
-                descriptor.row_count != identity.row_count
-                or descriptor.raw_content_digest != identity.raw_content_digest
-            ):
-                raise _Halt(
-                    MaterializationDiagnosticCode.REPOSITORY_SNAPSHOT_DIGEST_MISMATCH,
-                    "Repository table content does not match canonical metadata",
-                    table=name,
-                )
-        else:
-            identity = identities[name]
-            descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
-            table = None
-            table_diagnostics = ()
+        if request.committed_tables is None:
+            raise ValueError("repository tables require scoped committed canonical access")
+        if request.committed_tables.repository_id != request.repository_ref.repository_id:
+            raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                        "canonical table owner differs from the requested repository scope")
+        identity = identities[name]
+        descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
+        table = request.committed_tables.describe_table(commit_id=pinned, descriptor=descriptor,
+            identity=identity, storage_view=storage_view, context=request.context,
+            timeout_policy=request.timeout_policy)
         descriptors.append(descriptor)
-        diagnostics.extend(table_diagnostics)
-        if table is not None:
-            published.append(table)
+        diagnostics.extend(table.diagnostics)
+        published.append(table)
+    # Complete catalog/manifest binding is established for every table before
+    # opening any rows. A later bad table cannot hide behind an earlier cache hit.
+    try:
+        for index, table in enumerate(published):
+            name = table.descriptor.table_name
+            if name not in materialized_set:
+                continue
+            assert request.committed_tables is not None
+            published[index] = request.committed_tables.load_table(commit_id=pinned,
+                descriptor=table.descriptor, identity=identities[name], storage_view=binding_by_name[name],
+                context=request.context, timeout_policy=request.timeout_policy)
+    except BaseException:
+        for table in published:
+            if table.reader is not None:
+                table.reader.close()
+            if table.batch_reader is not None:
+                table.batch_reader.close()
+        raise
     selected = tuple(descriptors)
     parser_version = request.parser_version or PARSER_VERSION
     source_context = SnapshotSourceContext(

@@ -177,6 +177,22 @@ S1b 的 Parquet export cache 是独立的可重建 IO cache：精确键为 repos
 cache miss、损坏引用或 Parquet 校验失败时回退到规范表读取与导出。Cache ref 不进入 surface 或 bundle，
 对外产物仍需闭合为当前 operation 或 bundle 的相对引用。
 
+S5 的 History 先调用 `describe_repository_ref`，以精确 commit 的完整 catalog 和 owning
+canonical manifest 核验 repository、表集合、schema、count、raw identity、storage view 和
+ordered provenance。返回完整 `SnapshotTableSet`，未读表保留 descriptor 且 `reader=None`；
+不打开 canonical 文件或 Dolt 行。任一未选中表的权威绑定错误也必须先失败。
+
+diff 与 export 分别 lookup。`lookup_snapshot_table_parquet` 仅使用上述已验证 metadata，
+以 canonical source 编码 schema 构造同一 layout key；先取得 root read borrow 与 TTL 保护，
+再在 DB 事务外验证实际文件的 ref/hash、Parquet footer、字段类型、编码 schema、行数与
+repository/layout 绑定。缓存内存预约不足作为 miss；取消、截止和未知 DB 错误继续传播。
+损坏条目以 `discard_if_same(key, ref)` 条件删除，不能清掉后写者替换的健康 ref。
+
+合并 miss 和 composite 的实际行需求后，`ensure_committed_tables` 仅补读缺少的 readers，
+保持完整表集合、顺序、digest 和已打开 reader；使用同一 repository owner、完整 binding 和
+精确 commit，不回退 main。返回 reader 拥有 canonical handle，关闭 reader/batch reader 后
+才释放 mapping。元数据、cache 解码、行与输出统一使用当前 operation 的同一 M。
+
 ## SQL Reference Parser Semantics
 
 参照解析器拒绝 BIT 负数、超宽值与非 ASCII `b'..'`，并以确定诊断报告；BIT 数字字面量按十进制解释。

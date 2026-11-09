@@ -71,6 +71,8 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
     ProvisionedBaselineHeadRead,
     seed_provisioned_mappings,
 )
+from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+from gateway_backend.artifacts.computation_cache import ComputationCacheArtifactStore
 from gateway_backend.infrastructure.control_db.snapshot_export_cache import (
     ControlDbSnapshotTableExportCache,
 )
@@ -202,6 +204,8 @@ def build_production_preview_dependencies(
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         control_transaction_factory=control_transaction_factory,
         snapshot_export_cache=snapshot_export_cache,
+        computation_cache=ControlDbComputationCache(control_transaction_factory,
+            cast(ComputationCacheArtifactStore, artifact_store)),
     )
     write_uow_factory = build_worker_write_uow_factory(control_transaction_factory)
     return preview_deps, write_uow_factory
@@ -416,6 +420,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                     submit_write_uow_factory,
                 ),
                 snapshot_export_cache=preview_deps.snapshot_export_cache,
+                computation_cache=preview_deps.computation_cache,
             )
             preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(
                 preview_deps

@@ -238,7 +238,9 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
     assert selected.summary.snapshot_digest == full.summary.snapshot_digest
     assert selected.summary.canonical_state_digest == full.summary.canonical_state_digest
     assert selected.table_set is not None
-    assert tuple(item.descriptor.table_name for item in selected.table_set.tables) == ("items",)
+    assert tuple(item.descriptor.table_name for item in selected.table_set.tables) == ("items", "widgets")
+    assert selected.table_set.tables[0].reader is not None
+    assert selected.table_set.tables[1].reader is None
     assert provider.last_session is not None
     assert tuple(item.catalog_table().table_name for item in provider.last_session.table_readers) == (
         "items",
@@ -257,6 +259,7 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
     assert no_read.summary.snapshot_digest == full.summary.snapshot_digest
     assert no_read.summary.canonical_state_digest == full.summary.canonical_state_digest
     assert no_read.table_set is not None
-    assert no_read.table_set.tables == ()
+    assert tuple(item.descriptor.table_name for item in no_read.table_set.tables) == ("items", "widgets")
+    assert all(item.reader is None for item in no_read.table_set.tables)
     assert no_read_provider.last_session is not None
     assert no_read_provider.last_session.table_readers == []

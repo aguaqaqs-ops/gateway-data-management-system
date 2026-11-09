@@ -224,7 +224,7 @@ def test_selected_repository_tables_require_the_scoped_committed_port(missing: s
         result = materialize_repository_ref(replace(request,
             canonical_binding=replace(request.canonical_binding, table_identities=())))
         assert result.status.value == "FAILED"
-        assert result.diagnostics[0].message == "selected repository table is missing its canonical content identity"
+        assert result.diagnostics[0].message == "canonical metadata must cover every table before row materialization"
 
 
 def test_returned_committed_reader_cleanup_releases_mapping_after_stop(db_path: Path, tmp_path: Path) -> None:

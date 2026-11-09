@@ -493,7 +493,7 @@ def _evaluate_table_impl(
                             cache_rejected = True
                 if cached_events is None:
                     remaining = getattr(cache, "remaining_uses")
-                    if remaining.get(task_key, 0) > 1 and not cache_rejected:
+                    if (remaining.get(task_key, 0) > 1 or getattr(cache, "persistent_retention", False)) and not cache_rejected:
                         recorder = _RiskCandidateRecorder(
                             cache, task_key, risk_key, context.operation,
                         )

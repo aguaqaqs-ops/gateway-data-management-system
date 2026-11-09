@@ -130,13 +130,19 @@ class SQLiteSnapshotTableExportCache:
             )
             self._insert_protection(ref, owner_id, expires_at_us)
 
-    def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
+    def discard_if_same(self, key: SnapshotTableArtifactCacheKey, ref: ArtifactRef) -> bool:
         self._require_writable()
-        if type(keys) is not tuple or any(type(key) is not SnapshotTableArtifactCacheKey for key in keys):
-            raise ValueError("keys must contain SnapshotTableArtifactCacheKey")
-        for key in keys:
-            if key.repository_id is not None:
-                self._delete_key(key, _owner_id(key))
+        if type(key) is not SnapshotTableArtifactCacheKey or type(ref) is not ArtifactRef:
+            raise ValueError("discard requires the exact key and artifact ref")
+        deleted = self._connection.execute(
+            """DELETE FROM snapshot_table_export_cache
+               WHERE repository_id=? AND row_layout_digest=? AND parquet_writer_contract_version=?
+                 AND artifact_id=? AND media_type=? AND size_bytes=? AND raw_sha256=?""",
+            (*_key_values(key), ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value),
+        ).rowcount
+        if deleted:
+            self._protection.clear_protection(owner_kind=_OWNER_KIND, owner_id=_owner_id(key))
+        return bool(deleted)
 
     def _prune_expired(self) -> None:
         if self._read_only:

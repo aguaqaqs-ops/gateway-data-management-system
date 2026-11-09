@@ -5,15 +5,22 @@ from __future__ import annotations
 import json
 from time import perf_counter
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack, closing
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field as dataclass_field, replace
 from typing import Any, Protocol
 
 import pyarrow as pa
 from gateway_shared_kernel import DigestRef
 
+from gateway_backend.artifacts.computation_cache import (
+    CacheOperationOwner, ComputationCacheKey, ComputationCacheKind, ComputationCachePort,
+    ComputationCacheLease,
+)
 from gateway_backend.capabilities.comparison import native
+from gateway_backend.capabilities.comparison.persistence import (
+    decode_persistent_comparison, encode_persistent_comparison,
+)
 from gateway_backend.capabilities.comparison.contracts import (
     BlankExtension, BlankSummary, ComparisonFacts, ComparisonMode,
     ComparisonPlan, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
@@ -27,7 +34,7 @@ from gateway_backend.capabilities.comparison.task_input import TableTaskIdentity
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
 from gateway_backend.capabilities.comparison.task_input import (
-    TableTaskInputV1, build_table_task_input,
+    TableTaskInputV1, build_table_task_input, build_table_task_identity,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
     _can_table_early_exit, _ignored_values_changed,
@@ -115,11 +122,11 @@ def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
     return before, current
 
 
-def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
+def _task_key(plan: ComparisonPlan, task: TableComparisonTask, repository_id: str | None = None) -> str | None:
     from gateway_backend.capabilities.comparison.task_input import (
         TableTaskIdentity, build_table_task_identity,
     )
-    repository = (plan.current.snapshot.source_context.repository_id
+    repository = repository_id or (plan.current.snapshot.source_context.repository_id
                   or plan.before.snapshot.source_context.repository_id or "operation-local")
     identity = build_table_task_identity(
         plan, task, repository_id=repository, artifact_scope=task.artifact_scope.value,
@@ -130,10 +137,31 @@ def _task_key(plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
 class ComparisonTaskSession:
     """Known-use, operation-local native handle retention for adjacent pairs."""
 
-    def __init__(self, plans: tuple[ComparisonPlan, ...]) -> None:
+    def __init__(self, plans: tuple[ComparisonPlan, ...], *,
+                 persistent_cache: ComputationCachePort | None = None,
+                 persistent_owner: CacheOperationOwner | None = None,
+                 repository_id: str | None = None, risk_persistence: Any = None) -> None:
         context = current_kernel_context()
         if context is None:
             raise RuntimeError("comparison dedup requires an operation context")
+        self.persistent_cache = persistent_cache
+        self.persistent_owner = persistent_owner
+        self.repository_id = repository_id
+        self.risk_persistence = risk_persistence
+        self.optional_comparison_evictor: Callable[[], None] | None = None
+        self.persistent_identities: dict[tuple[str, str], TableTaskIdentity] = {}
+        self.persistent_identity_charges: dict[tuple[str, str], Any] = {}
+        self.persistent_ready: dict[str, tuple[ComparisonTableFact, Any | None]] = {}
+        self.persistent_payloads: dict[str, ComparisonCachePayload] = {}
+        self.persistent_leases: dict[str, ComputationCacheLease] = {}
+        self.persistent_checked: set[str] = set()
+        self.persistent_used: set[str] = set()
+        self.persistent_lookup_counts: Counter[str] = Counter()
+        self.persistent_restore_counts: Counter[str] = Counter()
+        self.persistent_validation_counts: Counter[str] = Counter()
+        self.persistent_digest_counts: Counter[str] = Counter()
+        self.persistent_lookup_seconds: dict[str, float] = {}
+        self.persistent_restore_seconds: dict[str, float] = {}
         # Admit each candidate key before its canonical projection allocates. Keep the
         # charge only for keys with a known later consumer; one-use entries
         # are discarded after this declaration pass.
@@ -148,7 +176,7 @@ class ComparisonTaskSession:
                     except MemoryError:
                         continue
                     try:
-                        key = _task_key(plan, task)
+                        key = _task_key(plan, task, self.repository_id)
                         if key is None:
                             provisional.close()
                             continue
@@ -165,6 +193,7 @@ class ComparisonTaskSession:
                         provisional.close()
                         raise
             counts = Counter(key for _, _, key, _ in occurrences)
+            self.persistent_remaining = counts.copy()
             self.remaining_uses = Counter({key: uses for key, uses in counts.items() if uses > 1})
             self.declared_keys = {
                 (pair_id, name): key for pair_id, name, key, _ in occurrences
@@ -198,6 +227,7 @@ class ComparisonTaskSession:
         context.resources.callback(self.close)
 
     def close(self) -> None:
+        self.close_persistent()
         for _, handle in self.cached.values():
             if handle is not None:
                 handle.close()
@@ -212,6 +242,216 @@ class ComparisonTaskSession:
         self.remaining_uses.clear()
         self.declared_keys.clear()
         self._map_charge.close()
+
+    @property
+    def persistent_retention(self) -> bool:
+        return self.persistent_cache is not None and self.persistent_owner is not None and self.repository_id is not None
+
+    def close_persistent(self) -> None:
+        for _, handle in self.persistent_ready.values():
+            if handle is not None:
+                handle.close()
+        self.persistent_ready.clear()
+        for payload in self.persistent_payloads.values():
+            payload.close()
+        self.persistent_payloads.clear()
+        self.persistent_leases.clear()
+        for charge in self.persistent_identity_charges.values():
+            charge.close()
+        self.persistent_identity_charges.clear()
+        self.persistent_identities.clear()
+        if self.risk_persistence is not None:
+            self.risk_persistence.close()
+
+    def prepare_persistent(self, plan: ComparisonPlan) -> None:
+        """Validate optional hits before History decides which exact rows to read.
+
+        Each restored table has a bounded native phase that seals before the
+        next lookup or the miss compute phase reserves its available M share.
+        """
+        if not self.persistent_retention or plan.mode is not ComparisonMode.DETAILED:
+            return
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison context was lost")
+        assert self.persistent_cache is not None and self.persistent_owner is not None
+        assert self.repository_id is not None
+        for task in plan.tasks:
+            context.checkpoint()
+            identity_key = (plan.pair_id, task.table_name)
+            identity = self.persistent_identities.get(identity_key)
+            if identity is None:
+                try:
+                    charge = context.memory.reserve(_CACHE_KEY_PROVISIONAL_BYTES)
+                except MemoryError:
+                    continue
+                try:
+                    candidate = build_table_task_identity(plan, task, repository_id=self.repository_id,
+                        artifact_scope=task.artifact_scope.value)
+                    if not isinstance(candidate, TableTaskIdentity):
+                        charge.close()
+                        continue
+                    identity = candidate
+                    retained = 4096 + 8 * (len(identity.task_input.semantic_jcs) + len(identity.task_input.native_policy_jcs))
+                    if retained > _CACHE_KEY_PROVISIONAL_BYTES:
+                        charge.close()
+                        continue
+                    charge.shrink_to(retained)
+                    self.persistent_identities[identity_key] = identity
+                    self.persistent_identity_charges[identity_key] = charge
+                except MemoryError:
+                    charge.close()
+                    continue
+                except BaseException:
+                    charge.close()
+                    raise
+            key = identity.task_digest.value
+            if key in self.persistent_checked:
+                continue
+            self.persistent_checked.add(key)
+            lookup_started = perf_counter()
+            self.persistent_lookup_counts[plan.pair_id] += 1
+            lease = self.persistent_cache.lookup_and_pin(
+                ComputationCacheKey(identity.repository_id, ComputationCacheKind.COMPARISON, identity.task_digest),
+                owner=self.persistent_owner, checkpoint=context.checkpoint, reserve=context.memory.reserve)
+            self.persistent_lookup_seconds[plan.pair_id] = self.persistent_lookup_seconds.get(plan.pair_id, 0.0) + perf_counter() - lookup_started
+            if lease is None:
+                continue
+            restore_started = perf_counter()
+            payload = None
+            operation = None
+            handle = None
+            try:
+                payload = decode_persistent_comparison(lease, identity, context)
+                budget = context.memory.available_bytes // 2
+                if budget <= 0:
+                    raise MemoryError("optional comparison restore has no headroom")
+                operation = native.begin_records_operation(native_budget_bytes=budget,
+                    cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+                fact, handle = ComparisonCacheCodec.restore(payload, identity, task, operation, context)
+                if handle is not None:
+                    metadata_json = json.dumps(_table_digest_payload(fact), separators=(",", ":"))
+                    fact = replace(fact, table_fact_digest=DigestRef(
+                        handle.table_fact_digest(metadata_json, _MAX_JCS_ROW_BYTES)))
+                    self.persistent_digest_counts[plan.pair_id] += 1
+                operation.seal()
+                self.persistent_ready[key] = (fact, handle)
+                self.persistent_payloads[key] = payload
+                self.persistent_leases[key] = lease
+                self.persistent_restore_counts[plan.pair_id] += 1
+                if handle is not None:
+                    self.persistent_validation_counts[plan.pair_id] += 1
+            except (InterruptedError, TimeoutError):
+                if handle is not None:
+                    handle.close()
+                if payload is not None:
+                    payload.close()
+                lease.close()
+                raise
+            except MemoryError:
+                if handle is not None:
+                    handle.close()
+                if payload is not None:
+                    payload.close()
+                lease.close()
+                context.checkpoint()
+            except (ValueError, TypeError, KeyError, RecursionError, OSError, pa.ArrowException):
+                if handle is not None:
+                    handle.close()
+                # The payload owns this read lease. Discard the exact version
+                # while it is still open, then release its decoded resources.
+                try:
+                    lease.discard()
+                finally:
+                    if payload is not None:
+                        payload.close()
+                    lease.close()
+                context.checkpoint()
+            except BaseException:
+                if handle is not None:
+                    handle.close()
+                if payload is not None:
+                    payload.close()
+                lease.close()
+                raise
+            finally:
+                self.persistent_restore_seconds[plan.pair_id] = self.persistent_restore_seconds.get(plan.pair_id, 0.0) + perf_counter() - restore_started
+                if operation is not None:
+                    operation.close()
+
+    def persistent_lookup(self, plan: ComparisonPlan, task: TableComparisonTask) -> tuple[ComparisonTableFact, Any | None] | None:
+        identity = self.persistent_identities.get((plan.pair_id, task.table_name))
+        if identity is None:
+            return None
+        item = self.persistent_ready.get(identity.task_digest.value)
+        if item is None:
+            return None
+        fact, handle = item
+        return replace(fact, table_name=task.table_name,
+            before_descriptor=task.before_descriptor, current_descriptor=task.current_descriptor), handle
+
+    def retire_persistent(self, comparison: NativeComparison) -> None:
+        """Release payloads after their real last pair Arrow consumer closes."""
+        for identity in comparison.cache_identities.values():
+            key = identity.task_digest.value
+            if key not in self.persistent_remaining:
+                # A key that could not be admitted during declaration has no
+                # proven final consumer count; the assembly owner closes it.
+                continue
+            self.persistent_remaining[key] -= 1
+            if self.persistent_remaining[key] > 0:
+                continue
+            item = self.persistent_ready.pop(key, None)
+            if item is not None and item[1] is not None:
+                item[1].close()
+            payload = self.persistent_payloads.pop(key, None)
+            if payload is not None:
+                payload.close()
+            self.persistent_leases.pop(key, None)
+            for risk_key in tuple(self.risk_candidates):
+                if risk_key[0] == key:
+                    _, charges = self.risk_candidates.pop(risk_key)
+                    charges.close()
+
+    def commit_persistent(self, comparison: NativeComparison) -> None:
+        if not self.persistent_retention:
+            return
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("comparison context was lost")
+        assert self.persistent_cache is not None and self.persistent_owner is not None
+        for name, identity in comparison.cache_identities.items():
+            key = identity.task_digest.value
+            lease = self.persistent_leases.get(key)
+            if lease is not None:
+                lease.mark_used()
+                self.persistent_used.add(key)
+                continue
+            try:
+                payload = comparison.encode_cache_candidate(name, identity, context)
+            except (MemoryError, ValueError):
+                handle = comparison.handles.get(name)
+                if handle is not None:
+                    handle.discard_cache_views()
+                if comparison.operation is not None:
+                    comparison.operation.seal()
+                context.checkpoint()
+                continue
+            try:
+                entry, blobs = encode_persistent_comparison(payload)
+                self.persistent_cache.store(entry, blobs, owner=self.persistent_owner,
+                    checkpoint=context.checkpoint, reserve=context.memory.reserve)
+            except (MemoryError, ValueError):
+                context.checkpoint()
+            finally:
+                payload.close()
+                handle = comparison.handles.get(name)
+                if handle is not None:
+                    handle.discard_cache_views()
+                if comparison.operation is not None:
+                    comparison.operation.seal()
+        if self.risk_persistence is not None:
+            self.risk_persistence.commit(self.pending_risk)
 
     def abort_pending_risk(self) -> None:
         for _, charges in self.pending_risk.values():
@@ -228,13 +468,15 @@ class ComparisonTaskSession:
             raise RuntimeError("comparison context was lost")
         context.checkpoint()
         item = self.risk_candidates.get((task_key, risk_key))
-        return None if item is None else item[0]
+        if item is not None:
+            return item[0]
+        return None if self.risk_persistence is None else self.risk_persistence.lookup(risk_key)
 
     def risk_store(
         self, task_key: str, risk_key: str,
         events: tuple[object, ...], charges: ExitStack,
     ) -> bool:
-        if self.remaining_uses.get(task_key, 0) <= 1:
+        if self.remaining_uses.get(task_key, 0) <= 1 and not self.persistent_retention:
             return False
         self.pending_risk[(task_key, risk_key)] = (events, charges)
         return True
@@ -246,11 +488,15 @@ class ComparisonTaskSession:
             charges.close()
 
     def risk_evict_for_output(self) -> None:
-        """Release only optional Risk candidates before necessary output work."""
+        """Release optional candidate views before necessary output work."""
+        if self.optional_comparison_evictor is not None:
+            self.optional_comparison_evictor()
         for _, charges in self.risk_candidates.values():
             charges.close()
         self.risk_candidates.clear()
         self.abort_pending_risk()
+        if self.risk_persistence is not None:
+            self.risk_persistence.close()
 
     def risk_retire_last_uses(self, task_keys: Mapping[str, str]) -> None:
         """Retire replay events after their final table Risk consumer returns."""
@@ -260,6 +506,20 @@ class ComparisonTaskSession:
                     and self.remaining_uses.get(cache_key[0]) == 1):
                 _, charges = self.risk_candidates.pop(cache_key)
                 charges.close()
+
+    def evict_local(self) -> None:
+        """Drop optional adjacent-pair retention without invalidating admitted hits."""
+        retained = tuple(handle for _, handle in self.persistent_ready.values())
+        for _, handle in self.cached.values():
+            if handle is not None and not any(handle is value for value in retained):
+                handle.close()
+        self.cached.clear()
+        for charge in self.key_charges.values():
+            charge.close()
+        self.key_charges.clear()
+        self.remaining_uses.clear()
+        self.declared_keys.clear()
+        self.risk_evict_for_output()
 
     def evict_for(self, plan: ComparisonPlan) -> None:
         # Proactively release optional retention only when the next mixed
@@ -278,7 +538,7 @@ class ComparisonTaskSession:
             key is not None and key not in self.cached for key in keys
         )
         if fresh and context.memory.available_bytes < 512 * 1024**2:
-            self.close()
+            self.evict_local()
 
     def key_for(self, plan: ComparisonPlan, task: TableComparisonTask) -> str | None:
         declared = self.declared_keys.get((plan.pair_id, task.table_name))
@@ -289,7 +549,7 @@ class ComparisonTaskSession:
             raise RuntimeError("comparison context was lost")
         try:
             with context.memory.reserve(_CACHE_KEY_PROVISIONAL_BYTES):
-                actual = _task_key(plan, task)
+                actual = _task_key(plan, task, self.repository_id)
                 return declared if actual == declared else None
         except MemoryError:
             return None
@@ -342,6 +602,13 @@ class ComparisonRunMetrics:
     native_records_build_seconds: float = 0.0
     ordered_current_summary_seconds: float = 0.0
     records_jcs_seconds: float = 0.0
+    cache_restores: int = 0
+    cache_records_validations: int = 0
+    persistent_cache_lookups: int = 0
+    cache_lookup_seconds: float = 0.0
+    cache_restore_seconds: float = 0.0
+    ordered_single_side_calls: int = 0
+    digest_rebinds: int = 0
 
 
 @dataclass(slots=True)
@@ -355,6 +622,7 @@ class NativeComparison:
     consumed_keys: dict[str, str] | None = None
     committed: bool = False
     metrics: ComparisonRunMetrics | None = None
+    cache_identities: dict[str, TableTaskIdentity] = dataclass_field(default_factory=dict)
 
     def encode_cache_candidate(
         self, table_name: str, identity: TableTaskIdentity, context: KernelExecutionContext,
@@ -373,9 +641,22 @@ class NativeComparison:
             raise ValueError("cache candidate table is absent from this comparison")
         return ComparisonCacheCodec.encode(self.handles.get(table_name), identity, fact, context)
 
+    def discard_optional_views(self) -> None:
+        # A restored handle's backing remains necessary until its real Arrow
+        # consumers close. Only cold retention views are optional here.
+        retained = (() if self.session is None else tuple(
+            item[1] for item in self.session.persistent_ready.values()))
+        for handle in self.handles.values():
+            if not any(handle is value for value in retained):
+                handle.discard_cache_views()
+        if self.operation is not None:
+            self.operation.seal()
+
     def commit_cache(self) -> None:
         if self.committed:
             return
+        if self.session is not None:
+            self.session.commit_persistent(self)
         self.committed = True
         if self.session is None or self.task_keys is None or self.consumed_keys is None:
             return
@@ -414,12 +695,20 @@ class NativeComparison:
 
 
     def close(self) -> None:
+        if self.session is not None:
+            self.session.optional_comparison_evictor = None
         if not self.committed and self.session is not None:
             self.session.abort_pending_risk()
+        persistent_handles = (() if self.session is None else tuple(
+            handle for _, handle in self.session.persistent_ready.values() if handle is not None))
         for handle in self.handles.values():
-            handle.close()
+            if not any(handle is retained for retained in persistent_handles):
+                handle.close()
         self.handles.clear()
         self.risk_handles.clear()
+        if self.committed and self.session is not None:
+            self.session.retire_persistent(self)
+            self.cache_identities.clear()
         if self.operation is not None:
             self.operation.close()
             self.operation = None
@@ -637,6 +926,7 @@ def _ordered_unchanged_native(
     stream, charge = _stream(table)
     try:
         metrics.native_calls += 1
+        metrics.ordered_single_side_calls += 1
         metrics.input_reads += 1
         if session is not None:
             session.calls += 1
@@ -684,11 +974,16 @@ def compare_plan_native(
         # with no reuse. A second M rejection is the business resource limit.
         if session is None or (not session.key_charges and not session.cached):
             raise
-        session.close()
+        retry_session = None
+        if session.persistent_retention:
+            session.evict_local()
+            retry_session = session
+        else:
+            session.close()
         context = current_kernel_context()
         if context is not None:
             context.checkpoint()
-        return _compare_plan_native_once(plan, session=None, metrics=metrics, retain_cache_candidates=retain_cache_candidates)
+        return _compare_plan_native_once(plan, session=retry_session, metrics=metrics, retain_cache_candidates=retain_cache_candidates)
 
 
 def _compare_plan_native_once(
@@ -712,6 +1007,14 @@ def _compare_plan_native_once(
     detail_policy = RecordsDetailPolicy(detail_policy_value)
     context.checkpoint()
     if session is not None:
+        session.prepare_persistent(plan)
+        metrics.cache_restores = session.persistent_restore_counts[plan.pair_id]
+        metrics.cache_records_validations = session.persistent_validation_counts[plan.pair_id]
+        metrics.digest_rebinds = session.persistent_digest_counts[plan.pair_id]
+        metrics.persistent_cache_lookups = session.persistent_lookup_counts[plan.pair_id]
+        metrics.cache_lookup_seconds = session.persistent_lookup_seconds.get(plan.pair_id, 0.0)
+        metrics.cache_restore_seconds = session.persistent_restore_seconds.get(plan.pair_id, 0.0)
+        retain_cache_candidates = retain_cache_candidates or session.persistent_retention
         session.evict_for(plan)
     # Small Python descriptors/facts and their JSON copies survive native
     # sealing and, in FULL, the next pair. Bound them before any table work.
@@ -736,7 +1039,9 @@ def _compare_plan_native_once(
         available = context.memory.available_bytes
         necessary_view_total = sum(
             sum(fresh_canonical_view_budget(table))
-            for task in plan.tasks for table in _task_arrow_inputs(task)
+            for task in plan.tasks
+            if session is None or session.persistent_lookup(plan, task) is None
+            for table in _task_arrow_inputs(task)
         )
         concurrent_scratch = max(
             min(available // 2, max(metadata_upper + 16 * 1024**2, 512 * 1024**2)),
@@ -765,7 +1070,8 @@ def _compare_plan_native_once(
             context.checkpoint()
             metrics.dispatches += 1
             key = session.key_for(plan, task) if session is not None else None
-            cached = None if session is None else session.lookup(key, task)
+            persistent = None if session is None else session.persistent_lookup(plan, task)
+            cached = persistent if persistent is not None else (None if session is None else session.lookup(key, task))
             try:
                 if cached is None:
                     fact, handle = _compare_task_native(
@@ -836,6 +1142,9 @@ def _compare_plan_native_once(
                 consumed_keys[task.table_name] = key
                 if fact.status is not ComparisonTableStatus.DEGRADED:
                     task_keys[task.table_name] = key
+            if session is not None and (plan.pair_id, task.table_name) in session.persistent_identities:
+                identity = session.persistent_identities[(plan.pair_id, task.table_name)]
+                task_keys[task.table_name] = identity.task_digest.value
             tables.append(fact)
         metrics.compare_read_build_seconds += perf_counter() - started
         records_jcs_started = perf_counter()
@@ -845,6 +1154,7 @@ def _compare_plan_native_once(
             for fact in tables:
                 handle = handles.get(fact.table_name)
                 if handle is None:
+                    metrics.digest_rebinds += 1
                     fact = _with_table_digest(fact)
                 payload = _table_digest_payload(fact)
                 if handle is not None:
@@ -855,6 +1165,7 @@ def _compare_plan_native_once(
                         payload["blank_extension"]["records"] = []
                 raw = json.dumps(payload, separators=(",", ":"))
                 if handle is not None and fact.table_name not in cached_names:
+                    metrics.digest_rebinds += 1
                     fact = replace(fact, table_fact_digest=DigestRef(
                         handle.table_fact_digest(raw, _MAX_JCS_ROW_BYTES)))
                 metadata.append(raw)
@@ -883,10 +1194,27 @@ def _compare_plan_native_once(
         context.resources.enter_context(metadata_charge)
         return NativeComparison(result, handles, risk_handles, operation,
                                 session=session, task_keys=task_keys,
-                                consumed_keys=consumed_keys, metrics=metrics)
+                                consumed_keys=consumed_keys, metrics=metrics,
+                                cache_identities={} if session is None else {
+                                    task.table_name: session.persistent_identities[(plan.pair_id, task.table_name)]
+                                    for task in plan.tasks
+                                    if (plan.pair_id, task.table_name) in session.persistent_identities
+                                })
     except BaseException:
+        persistent_handles = (() if session is None else tuple(
+            item[1] for item in session.persistent_ready.values()))
         for handle in handles.values():
-            handle.close()
+            if not any(handle is retained for retained in persistent_handles):
+                handle.close()
         operation.close()
         metadata_charge.close()
         raise
+
+
+def comparison_row_demands(plan: ComparisonPlan, session: ComparisonTaskSession | None = None) -> tuple[SnapshotTable, ...]:
+    """Actual remaining readers; no parallel copy of Comparison equality rules."""
+    if session is not None:
+        session.prepare_persistent(plan)
+    return tuple(table for task in plan.tasks
+        if session is None or session.persistent_lookup(plan, task) is None
+        for table in _task_arrow_inputs(task))

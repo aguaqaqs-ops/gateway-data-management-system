@@ -1397,6 +1397,16 @@ class RepositoryTableAccessProvider(Protocol):
 class CommittedCanonicalTablesPort(Protocol):
     """Application-owned scoped cache/recovery; returned readers own their handles."""
 
+    @property
+    def repository_id(self) -> str: ...
+
+    def describe_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView, context: ParserInvocationContext,
+        timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> SnapshotTable:
+        """Verify the exact catalog/manifest binding without opening any rows."""
+
     def load_table(
         self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
@@ -1467,7 +1477,7 @@ class RepositoryRefMaterializationRequest:
         _require_optional_store(self.artifact_store)
         if self.export_cache is not None and any(
             not callable(getattr(self.export_cache, name, None))
-            for name in ("lookup_many", "store_many", "discard_many")
+            for name in ("lookup_many", "store_many", "discard_if_same")
         ):
             raise ValueError("export_cache must implement SnapshotTableExportCachePort")
         if self.requested_tables is None:

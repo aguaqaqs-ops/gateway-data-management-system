@@ -5,6 +5,7 @@ import json
 from contextlib import closing
 from dataclasses import replace
 from typing import Any
+from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -558,3 +559,66 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
             handle.close()
         operation.close()
         payload.close()
+
+
+@pytest.mark.parametrize("ordered", (False, True))
+def test_single_use_persistent_task_restores_in_a_new_operation_without_input_readers(
+    tmp_path: Path, db_path: Path, ordered: bool,
+) -> None:
+    from gateway_backend.artifacts.computation_cache import CacheOperationOwner
+    from gateway_backend.capabilities.comparison.production import ComparisonTaskSession
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+    )
+    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
+    store = LocalArtifactStore(tmp_path / "persistent-comparison")
+    def transaction() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(db_path)
+    cache = ControlDbComputationCache(transaction, store)
+    planned: ComparisonPlan | None = None
+    nodeid = "tests/test_comparison_s3_c_arrow.py::" + (
+        "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python" if ordered
+        else "test_native_standard_arrow_and_complete_facts_match_pre_c_source")
+    expected: dict[str, Any] = frozen_case(nodeid)
+    for run in ("cold", "warm"):
+        with kernel_execution_scope(KernelExecutionContext(
+            OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1,
+        ), new_operation=True) as context:
+            if planned is None:
+                planned = _planned(ordered)
+            else:
+                planned = replace(planned, pair_id="new-operation-current-pair",
+                    tasks=tuple(replace(task,
+                        before_table=None if task.before_table is None else replace(task.before_table, reader=None, batch_reader=None, artifact=None),
+                        current_table=None if task.current_table is None else replace(task.current_table, reader=None, batch_reader=None, artifact=None),
+                    ) for task in planned.tasks))
+            owner = CacheOperationOwner("history-compare-operation", "operation-" + run)
+            session = ComparisonTaskSession((planned,), persistent_cache=cache,
+                persistent_owner=owner, repository_id="replacement-fixture")
+            try:
+                assert not session.remaining_uses
+                with closing(compare_plan_native(planned, session=session)) as product:
+                    assert product.result.facts is not None and product.metrics is not None
+                    assert product.result.facts.tables[0].table_fact_digest is not None
+                    assert product.result.facts.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+                    assert product.metrics.native_calls == (1 if run == "cold" else 0)
+                    assert product.metrics.cache_hits == (0 if run == "cold" else 1)
+                    assert product.metrics.input_reads == (2 if run == "cold" else 0)
+                    if run == "warm":
+                        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
+                            retained_arrow = reader.read_all()
+                    product.commit_cache()
+                if run == "warm":
+                    session.close()
+                    with store.cleanup_session() as acquired:
+                        assert not acquired
+                    del retained_arrow
+                    with store.cleanup_session() as acquired:
+                        assert acquired
+                assert context.memory.high_water_bytes <= context.memory.limit_bytes
+            finally:
+                session.close()
+                cache.release_operation_pins(owner)

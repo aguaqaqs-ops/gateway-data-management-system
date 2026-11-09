@@ -37,8 +37,10 @@ from gateway_backend.capabilities.snapshot_materialization.sql_declared_types im
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.table_rules.contracts import STORAGE_PROJECTION_VERSION
-from gateway_backend.capabilities.table_access.contracts import NeverCancel
-from gateway_backend.capabilities.table_access import current_kernel_context, KernelMemoryLimit
+from gateway_backend.capabilities.table_access.contracts import NeverCancel, SourceTableDescriptor
+from gateway_backend.capabilities.table_access import (
+    current_kernel_context, KernelMemoryLimit, source_descriptor_from_arrow,
+)
 
 
 def canonical_table_key(repository_id: str, descriptor: SnapshotTableDescriptor) -> CanonicalTableKey:
@@ -78,6 +80,17 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
             },
         })
     return result
+
+
+def canonical_source_descriptor(descriptor: SnapshotTableDescriptor) -> SourceTableDescriptor:
+    """The same canonical declaration for loaded readers and metadata-only exports."""
+    return source_descriptor_from_arrow({
+        "canonical_name": descriptor.table_name,
+        "display_name": descriptor.display_table_name,
+        "columns": canonical_columns(descriptor),
+        "primary_key": list(descriptor.primary_key_columns),
+        "reader_ready": True,
+    })
 
 
 def canonical_comparison_profile(

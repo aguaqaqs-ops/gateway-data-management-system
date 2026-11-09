@@ -77,6 +77,7 @@ from gateway_backend.application.recovery import (
 )
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
+from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.artifacts.store import (
     ArtifactStorePort,
@@ -351,6 +352,7 @@ class PreviewRuntimeDependencies:
     baseline_head_read: BaselineHeadReadPort
     control_transaction_factory: PreviewControlTransactionFactory
     snapshot_export_cache: SnapshotTableExportCachePort | None = None
+    computation_cache: ComputationCachePort | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,7 +552,7 @@ def preview_composition_bundle(
         control_transaction_factory=bind_control_transaction_factory(
             deps.control_transaction_factory
         ),
-        snapshot_export_cache=deps.snapshot_export_cache,
+        snapshot_export_cache=deps.snapshot_export_cache, computation_cache=deps.computation_cache,
     )
     return (
         preview_job_definitions(),
@@ -837,6 +839,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     active_rules,
                     operation_id=operation.operation_id,
                     on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
+                    computation_cache=deps.computation_cache,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -1678,6 +1681,7 @@ def surface_artifact_closure(
     include_all_tables: bool = False,
     store: ArtifactStorePort | None = None, repository_id: str | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
@@ -1882,14 +1886,13 @@ def surface_artifact_closure(
             if bound.table_set is None:
                 raise PreviewJobError("complete table bundle is missing a canonical table set")
             for snapshot_table in bound.table_set.tables:
-                artifact = snapshot_table.artifact
-                if artifact is None:
-                    raise PreviewJobError(
-                        f"{role} table {snapshot_table.descriptor.table_name} is missing its artifact"
-                    )
                 table_name = snapshot_table.descriptor.table_name
-                for index, ref in enumerate((export_snapshot_table_parquet(snapshot_table, store=store,
-                        repository_id=repository_id, export_cache=export_cache),)):
+                ref = (None if table_exports is None else
+                    table_exports.get(bound.snapshot.snapshot_id, {}).get(table_name))
+                if ref is None:
+                    ref = export_snapshot_table_parquet(snapshot_table, store=store,
+                        repository_id=repository_id, export_cache=export_cache)
+                for index, ref in enumerate((ref,)):
                     add(
                         ref,
                         f"{prefix}/tables/{side}/{table_name}/rows/{index:06d}.parquet",
@@ -1914,6 +1917,7 @@ def _assemble_preview(
     operation_id: str,
     on_cancel: Callable[[], None],
     export_cache: SnapshotTableExportCachePort | None = None,
+    computation_cache: ComputationCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
@@ -1975,98 +1979,107 @@ def _assemble_preview(
                 else ComparisonMode.DETAILED
             ),
         ))
-    dedup_session = declare_pair_comparison_session(tuple(dedup_requests))
-    for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
-        lease_session.refresh_control()
-        if control.cancel_requested:
-            on_cancel()
-            raise PairPipelineCancelled
-        pair_state = _run_pair_pipeline(
-            pair_id=pair_id,
-            before=before,
-            current=current,
-            store=store,
-            control=control,
-            rule_set=rule_set,
-            on_cancel=on_cancel,
-            assess_identity=assess_identity,
-            repository_id=payload.repository_id, export_cache=export_cache,
-            dedup_session=dedup_session,
-            identity_before_table_set=(
-                _unchanged_baseline_identity_table_set(before, current)
-                if assess_identity and reuse_unchanged_baseline_identity
-                else None
-            ),
-        )
-        pair_results.append(pair_state)
-        before_index, current_index = bundle_indexes[pair_id]
-        bundle_pairs.append(
-            BundlePairInput(
-                pair_id,
-                before_index,
-                current_index,
-                pair_state.surface_result,
-                surface_artifact_closure(
-                    pair_state.surface_result.surface,
-                    pair_id,
-                    pair_state.records_closure,
-                    before=before,
-                    current=current, store=store, repository_id=payload.repository_id, export_cache=export_cache,
+    dedup_session = declare_pair_comparison_session(tuple(dedup_requests),
+        computation_cache=computation_cache, cache_owner=CacheOperationOwner("preview-operation", operation_id),
+        repository_id=payload.repository_id)
+    try:
+        for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
+            lease_session.refresh_control()
+            if control.cancel_requested:
+                on_cancel()
+                raise PairPipelineCancelled
+            pair_state = _run_pair_pipeline(
+                pair_id=pair_id,
+                before=before,
+                current=current,
+                store=store,
+                control=control,
+                rule_set=rule_set,
+                on_cancel=on_cancel,
+                assess_identity=assess_identity,
+                repository_id=payload.repository_id, export_cache=export_cache,
+                dedup_session=dedup_session,
+                identity_before_table_set=(
+                    _unchanged_baseline_identity_table_set(before, current)
+                    if assess_identity and reuse_unchanged_baseline_identity
+                    else None
                 ),
             )
-        )
+            pair_results.append(pair_state)
+            before_index, current_index = bundle_indexes[pair_id]
+            bundle_pairs.append(
+                BundlePairInput(
+                    pair_id,
+                    before_index,
+                    current_index,
+                    pair_state.surface_result,
+                    surface_artifact_closure(
+                        pair_state.surface_result.surface,
+                        pair_id,
+                        pair_state.records_closure,
+                        before=before,
+                        current=current, store=store, repository_id=payload.repository_id, export_cache=export_cache,
+                    ),
+                )
+            )
 
-    bundle_started = perf_counter()
-    bundle_result = assemble_bundle(
-        BundleAssemblyInput(
-            bundle_contract_version=BUNDLE_CONTRACT_VERSION,
-            bundle_profile=bundle_profile,
-            inputs=bundle_inputs,
-            pairs=tuple(bundle_pairs),
-            ref_scope=BundleRefScope.BUNDLE_RELATIVE,
-        ),
-        source_store=store,
-        context=BundleAssemblyContext(
-            checkpoint=lease_session.refresh_control,
-            cancel_requested=lambda: control.cancel_requested,
-        ),
-    )
-    _LOG.info("s3_preview_stage_metrics %s", json.dumps({
-        "operation_id": operation_id,
-        "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
-        "pair_count": len(bundle_pairs),
-        "bundle_assembly_seconds": perf_counter() - bundle_started,
-    }, sort_keys=True))
-    if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
-        diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
-        raise PreviewJobError(f"bundle assembly failed: {diagnostic}")
-    required_refs = _required_ready_refs(
-        payload=payload,
-        sides=sides,
-        canonical=canonical,
-        pair_results=pair_results,
-        bundle_manifest_ref=bundle_result.bundle.manifest_ref,
-        bundle_artifacts=bundle_result.referenced_artifacts,
-    )
-    assemble_state: dict[str, object] = {
-        "pair_ids": [item.pair_id for item in pair_results],
-        "default_view": _PAIR_INITIAL_TO_MODIFIED,
-        "input_completeness": payload.input_completeness.value,
-        "digests": {
-            "source_digest": payload.input_digest,
-            "input_digest": payload.input_digest,
-            "snapshot_digest": sides[_SIDE_MODIFIED].snapshot.snapshot_digest.value,
-            "comparison_digest": pair_results[-1].comparison_digest,
-            "risk_digest": pair_results[-1].risk_digest,
-            "surface_digest": pair_results[-1].surface_digest,
-            "bundle_digest": bundle_result.bundle.bundle_digest.value,
-        },
-        _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(canonical),
-        "identity_assessment_set_digest": _identity_assessment_set_digest(pair_results).value,
-        "identity_pairs": [_identity_pair_to_document(item) for item in pair_results],
-        "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
-    }
-    return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
+        bundle_started = perf_counter()
+        bundle_result = assemble_bundle(
+            BundleAssemblyInput(
+                bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+                bundle_profile=bundle_profile,
+                inputs=bundle_inputs,
+                pairs=tuple(bundle_pairs),
+                ref_scope=BundleRefScope.BUNDLE_RELATIVE,
+            ),
+            source_store=store,
+            context=BundleAssemblyContext(
+                checkpoint=lease_session.refresh_control,
+                cancel_requested=lambda: control.cancel_requested,
+            ),
+        )
+        _LOG.info("s3_preview_stage_metrics %s", json.dumps({
+            "operation_id": operation_id,
+            "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
+            "pair_count": len(bundle_pairs),
+            "bundle_assembly_seconds": perf_counter() - bundle_started,
+        }, sort_keys=True))
+        if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
+            diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
+            raise PreviewJobError(f"bundle assembly failed: {diagnostic}")
+        required_refs = _required_ready_refs(
+            payload=payload,
+            sides=sides,
+            canonical=canonical,
+            pair_results=pair_results,
+            bundle_manifest_ref=bundle_result.bundle.manifest_ref,
+            bundle_artifacts=bundle_result.referenced_artifacts,
+        )
+        assemble_state: dict[str, object] = {
+            "pair_ids": [item.pair_id for item in pair_results],
+            "default_view": _PAIR_INITIAL_TO_MODIFIED,
+            "input_completeness": payload.input_completeness.value,
+            "digests": {
+                "source_digest": payload.input_digest,
+                "input_digest": payload.input_digest,
+                "snapshot_digest": sides[_SIDE_MODIFIED].snapshot.snapshot_digest.value,
+                "comparison_digest": pair_results[-1].comparison_digest,
+                "risk_digest": pair_results[-1].risk_digest,
+                "surface_digest": pair_results[-1].surface_digest,
+                "bundle_digest": bundle_result.bundle.bundle_digest.value,
+            },
+            _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(canonical),
+            "identity_assessment_set_digest": _identity_assessment_set_digest(pair_results).value,
+            "identity_pairs": [_identity_pair_to_document(item) for item in pair_results],
+            "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
+        }
+        return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
+
+    finally:
+        if dedup_session is not None:
+            dedup_session.close()
+        if computation_cache is not None:
+            computation_cache.release_operation_pins(CacheOperationOwner("preview-operation", operation_id))
 
 
 def _run_pair_pipeline(

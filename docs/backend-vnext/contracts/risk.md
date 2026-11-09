@@ -507,5 +507,9 @@ S3 风险上限重放必须保留当前控制流：在等级过滤前检查上�
 `risk-table-candidates/v1` 是有序 JCS 事件文档，包含格式、task digest、`complete: true` 与连续 ordinal。`CHECK_RECORDS_CLOSURE` 只表示当前必须验证，不保留验证结论；`EMIT` 保存 rule_id、无 table_name 的完整 typed target 与有序 evidence。恢复严格校验封闭字段、类型、顺序、格式与 key，绑定当前表名后仍走原 emit 闭包。每个 emit 保持 cap（同时触界时 pair 优先）→记录候选→rule/level 过滤→必要输出预约/编号/append→原 `_check_table`；被过滤候选不新增该处时间检查，最后一条被保留候选仍执行原检查。每 1024 事件只补 operation 控制 checkpoint，不前移 table/pair 时间检查。
 
 候选内存、序列化 scratch、读入与恢复对象均在同 operation M 中增长前预约，最后 consumer 关闭。当前 codec 的 16MiB 为可选保留上限，超过只放弃缓存，不改变产品接受范围或继续执行已截断规则。仅自然结束且当前 pair 成功的完整序列可登记持久条目；基础设施拥有 SQLite/TTL/protection，风险 owner 不依赖 DB 或 application。组合信号仍每次由当前汇总处理，不缓存最终 outcome、编号或截断结果。
+持久候选通过 Artifacts 的通用引用端口读取，Risk owner 编解码完整事件；其能力不依赖
+同 operation 还有第二次使用。新 operation 命中仍沿同一 emit/closure 路径；坏事件精确
+失效后惰性重算，输出预约不足先释放可选读入，再走原规则。pair 出版成功后才登记完整
+候选或延长命中条目 TTL，consumer 结束关闭 lease，assembly owner 在 READY 前释放活动 cache pin。
 
 风险侧最小只读接口按 `iter_record_batches(table, family=STANDARD, columns=(...), order=FACTS) -> Iterator[RecordBatch]` 定义，`family` 必须显式为 STANDARD/ORDERED/BLANK 中一族，`order` 对风险只能是 `FACTS`，`columns` 只能选该族已定义的必要列；未知列/族或已释放 owner 应拒绝。每个 batch 保留所请求列的 Arrow 类型与原 facts 全局顺序，跨 batch 连接后恰等于该族 facts 顺序；不能用 artifact 序、到达顺序或全表 `to_pylist()` 代替。迭代可重复以供现三种 row kind 遍历，返回 batch 借用同一 operation owner；提前关闭、异常、取消和最后消费者退出均释放借用与预算。`record_count(table,family)`、`has_records(table,family)`、`ordered_degraded(table)` 是小型事实查询，分别返回该族精确 count、存在性及 extension status/`TABLE_DEGRADED`/diagnostics 的合并布尔值，不构造记录元组。现 `_facts.py` 的 visible/scope 判断使用 STANDARD 的存在性，ordered unsupported 使用合并布尔值；closure refs 仍由现 `records_access` 控制步骤读取。

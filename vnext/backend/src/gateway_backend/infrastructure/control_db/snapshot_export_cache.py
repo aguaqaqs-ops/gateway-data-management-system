@@ -34,6 +34,6 @@ class ControlDbSnapshotTableExportCache(SnapshotTableExportCachePort):
         with self._unit_of_work_factory() as unit_of_work:
             unit_of_work.snapshot_table_export_cache.store_many(entries)
 
-    def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
+    def discard_if_same(self, key: SnapshotTableArtifactCacheKey, ref: ArtifactRef) -> bool:
         with self._unit_of_work_factory() as unit_of_work:
-            unit_of_work.snapshot_table_export_cache.discard_many(keys)
+            return unit_of_work.snapshot_table_export_cache.discard_if_same(key, ref)

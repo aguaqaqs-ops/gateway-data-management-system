@@ -51,5 +51,5 @@ class SnapshotTableExportCachePort(Protocol):
     ) -> None:
         """Register row-file refs and extend their bounded cache protection."""
 
-    def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
-        """Remove stale cache entries and release their cache protection."""
+    def discard_if_same(self, key: SnapshotTableArtifactCacheKey, ref: ArtifactRef) -> bool:
+        """Remove only this exact failed ref; preserve a newer writer's cache value."""

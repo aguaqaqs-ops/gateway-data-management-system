@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import asdict, dataclass
 import json
@@ -10,6 +10,8 @@ import logging
 from time import perf_counter
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
+from gateway_backend.capabilities.risk_evaluation.persistence import PersistentRiskCandidates
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
 
@@ -125,7 +127,9 @@ def preview_identity_assessment(
 
 
 def declare_pair_comparison_session(
-    requests: tuple[ComparisonRequest, ...],
+    requests: tuple[ComparisonRequest, ...], *,
+    computation_cache: ComputationCachePort | None = None,
+    cache_owner: CacheOperationOwner | None = None, repository_id: str | None = None,
 ) -> ComparisonTaskSession | None:
     """Declare exactly the comparison tasks reachable in this operation."""
     plans: list[ComparisonPlan] = []
@@ -135,7 +139,12 @@ def declare_pair_comparison_session(
             raise PairPipelineError("comparison task declaration failed")
         plans.append(plan)
     try:
-        return ComparisonTaskSession(tuple(plans))
+        context = current_kernel_context()
+        risk_persistence = (PersistentRiskCandidates(computation_cache, cache_owner, repository_id, context)
+            if computation_cache is not None and cache_owner is not None
+            and repository_id is not None and context is not None else None)
+        return ComparisonTaskSession(tuple(plans), persistent_cache=computation_cache,
+            persistent_owner=cache_owner, repository_id=repository_id, risk_persistence=risk_persistence)
     except MemoryError:
         # The optional reuse index may be denied by the same M budget. The
         # pair still executes normally with no retained comparison cache.
@@ -156,6 +165,7 @@ def run_preview_pair_pipeline(
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -197,7 +207,7 @@ def run_preview_pair_pipeline(
         ),
         show_keyless_fallback_hint=True,
         include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
-        dedup_session=dedup_session,
+        dedup_session=dedup_session, table_exports=table_exports,
     )
     records_closure = surface.published.records_closure
     if (
@@ -228,6 +238,7 @@ def run_history_pair_pipeline(
     on_cancel: Callable[[], None],
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -243,7 +254,7 @@ def run_history_pair_pipeline(
         control=control,
         on_cancel=on_cancel,
         include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
-        dedup_session=dedup_session,
+        dedup_session=dedup_session, table_exports=table_exports,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -289,6 +300,7 @@ def _run_comparison_risk_surface(
     include_all_before_tables: bool = False,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -311,7 +323,7 @@ def _run_comparison_risk_surface(
             show_keyless_fallback_hint=show_keyless_fallback_hint,
             include_all_before_tables=include_all_before_tables,
             repository_id=repository_id, export_cache=export_cache,
-            comparison_elapsed=comparison_elapsed,
+            comparison_elapsed=comparison_elapsed, table_exports=table_exports,
         )
 
 
@@ -329,11 +341,14 @@ def _finish_comparison_risk_surface(
     repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None,
     comparison_elapsed: float,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:
         raise PairPipelineError("operation kernel context was lost")
     checkpoint = context.checkpoint
+    if native_comparison.session is not None:
+        native_comparison.session.optional_comparison_evictor = native_comparison.discard_optional_views
     compared = native_comparison.result
     checkpoint()
     if isinstance(compared, FailedResult):
@@ -443,6 +458,7 @@ def _finish_comparison_risk_surface(
             table_artifacts=(
                 _surface_table_artifacts(
                     request, store=store, repository_id=repository_id, export_cache=export_cache,
+                    table_exports=table_exports,
                     include_all_before=(
                         include_all_before_tables
                         or request.mode is ComparisonMode.DATASET_REPLACEMENT
@@ -483,6 +499,12 @@ def _finish_comparison_risk_surface(
         "mode": request.mode.value,
         "comparison_total_seconds": comparison_elapsed,
         "comparison": measured,
+        "comparison_kernel_calls": measured.get("native_calls", 0) - measured.get("ordered_single_side_calls", 0),
+        "ordered_single_side_calls": measured.get("ordered_single_side_calls", 0),
+        "diff_cache_lookups": measured.get("persistent_cache_lookups", 0),
+        "cache_restore_calls": measured.get("cache_restores", 0),
+        "cache_records_validation_calls": measured.get("cache_records_validations", 0),
+        "digest_rebinds": measured.get("digest_rebinds", 0),
         "comparison_python_other_seconds": max(
             0.0, measured.get("compare_read_build_seconds", 0.0) - native_seconds,
         ),
@@ -528,21 +550,19 @@ def _surface_table_artifacts(
     include_all_before: bool,
     store: ArtifactStorePort | None = None, repository_id: str | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
+    table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> tuple[SurfaceArtifactIndexEntry, ...]:
     def table_map(bound: BoundSnapshotInput) -> dict[str, ArtifactRef]:
         if bound.table_set is None:
             raise PairPipelineError("surface bundle requires canonical table artifacts")
+        if table_exports is not None:
+            artifacts = dict(table_exports.get(bound.snapshot.snapshot_id, {}))
+            expected = {table.descriptor.table_name for table in bound.table_set.tables}
+            if set(artifacts) != expected:
+                raise PairPipelineError("prevalidated table exports do not cover the complete snapshot")
+            return artifacts
         artifacts: dict[str, ArtifactRef] = {}
         for table in bound.table_set.tables:
-            if table.artifact is None:
-                raise PairPipelineError(
-                    f"surface table {table.descriptor.table_name} is missing its artifact"
-                )
-            row_refs = table.artifact.manifest.row_file_refs
-            if len(row_refs) != 1:
-                raise PairPipelineError(
-                    f"surface table {table.descriptor.table_name} must have one Parquet row file"
-                )
             artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=store,
                 repository_id=repository_id, export_cache=export_cache)
         return artifacts

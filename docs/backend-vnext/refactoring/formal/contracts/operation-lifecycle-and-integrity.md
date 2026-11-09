@@ -202,3 +202,15 @@ schema、status/CAS 语义或当时的 `backend-vnext/operation-runtime/v1` vers
 P5 EXIT-F1 增加了 persisted diagnostic 明细字段，Operation/Step closed document 的运行时
 Contract 从 `backend-vnext/operation-runtime/v1` 提升为 `backend-vnext/operation-runtime/v2`；
 不读取旧版本记录，也不改 control DB schema。
+
+### History metadata checkpoint 与计算缓存（S5）
+
+History `materialize_inputs` 保存完整 exact-commit 描述、descriptor、ordered provenance、
+存储事实与冻结 ruleset/节点绑定，不要求预读整表或保留可重建 canonical 文件。side 载荷为
+`history-compare/materialize-side/v5`，封装文档为 `materialized-sides/v2`；旧载荷拒绝，不双读。
+assemble 恢复重新核当前 scope 下相同 exact-commit authority/catalog 与冻结描述，重新查
+单表 diff 和独立 Parquet 导出，再按同一 Comparison planner 的真实 reader 需求合并读行。
+失效缓存只能从该 exact commit 补行，不能读 main 或把 cache hit hint 当恢复事实。
+当前记录闭包、风险、surface 与完整 bundle 仍经原三 step 发布；内部缓存没有进入 READY
+闭包，所有 lease/consumer 关闭后、READY 前及异常 finally 释放本 operation 的 cache intent，
+不覆盖原 workflow/source/checkpoint/result 保护。

@@ -281,6 +281,11 @@ schema/count/batch rows；空视图无文件。命中必须按本次 operation/p
 不能返回旧 bundle 或旧绑定摘要。FINAL 输入 authority 先校验；已提交规范副本、导出和计算缓存
 分别 lookup，不将单层 hit 冒充零行读取。
 
+History 的 Parquet export lookup 使用已核实的完整精确 commit metadata，不先物化 canonical 行。
+校验文件时保持 root read borrow；文件损坏以完整旧 ref 条件失效，后写者替换的条目与保护不能
+被旧 reader 删除。Comparison、Risk 和 export 的 miss 独立合并为实际行需求，当前 operation
+仍重建 records/risk/surface/完整 bundle 的绑定，不能复用旧 bundle。
+
 `risk-table-candidates/v1` 保存 Risk owner 的完整中性事件序列（ordinal/结束标记），包括当前
 closure 核验位置与被 level 过滤的候选；不保存 annotation id、旧 closure 验证结论或最终截断 outcome。
 重放调用原 emit 的当前 cap、level、预约、编号和原时间检查；组合信号仍当前汇总。

@@ -13,6 +13,7 @@ from gateway_backend.capabilities.snapshot_materialization.canonical_store impor
     CanonicalTableStore,
     canonical_comparison_profile,
     canonical_columns,
+    canonical_source_descriptor,
     canonical_table_key,
     check_canonical_descriptor_budget,
 )
@@ -133,7 +134,7 @@ from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_canonical_snapshot,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
-    materialize_repository_ref,
+    materialize_repository_ref, describe_repository_ref, ensure_committed_tables,
 )
 from gateway_backend.capabilities.table_access.contracts import (
     SourceCell,
@@ -143,10 +144,13 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSetValue,
 )
 
-from gateway_backend.capabilities.snapshot_materialization.client_parquet import export_snapshot_table_parquet
+from gateway_backend.capabilities.snapshot_materialization.client_parquet import (
+    export_snapshot_table_parquet, lookup_snapshot_table_parquet,
+)
 
 __all__ = [
     "export_snapshot_table_parquet",
+    "lookup_snapshot_table_parquet",
     "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
     "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
     "current_kernel_context", "require_active_kernel_context", "KernelExecutionContext", "KernelMemoryLimit", "source_descriptor_from_arrow",
@@ -161,6 +165,7 @@ __all__ = [
     "canonical_comparison_profile",
     "CanonicalInputOwner", "canonical_comparison_input", "fresh_canonical_view_budget",
     "canonical_columns",
+    "canonical_source_descriptor",
     "canonical_table_key",
     "check_canonical_descriptor_budget",
     "canonical_repository_stream",
@@ -249,6 +254,8 @@ __all__ = [
     "materialize_canonical_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",
+    "describe_repository_ref",
+    "ensure_committed_tables",
     "manifest_from_bytes",
     "open_snapshot_table_artifact",
     "publish_snapshot_table_artifact",

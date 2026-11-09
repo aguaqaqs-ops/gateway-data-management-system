@@ -533,6 +533,15 @@ A/D/普通 U 的 metadata 直接重建，DATASET_REPLACEMENT 保持独立路径�
 命中时 IPC backing/FFI/header/native 输出/重绑同 M，最后 consumer 释放；不将 mmap 当免费。
 TTL/uses/protection 与条件失效见 Artifacts Contract；缓存不成为恢复权威。
 
+`ComparisonTaskSession` 的持久保留能力与同 operation 的真实 `remaining_uses` 分开；
+单次实际任务可生产持久候选，不伪造第二次使用。History 从同一 `_task_arrow_inputs` owner
+取得剩余行需求，先验证持久命中，再合并 exact-commit 行需求。恢复逐表预付 payload/IPC/
+FFI/native 资源并 seal；随后 miss compute phase 才取得剩余 M，不先占满 M 再载入 cache。
+持久 manifest 的 payload 由 Comparison owner 编码/校验，Artifacts 仅解释引用 envelope；
+原 batch 行数与空视图 schema 都保留。坏载荷精确 discard 后本次转一次 miss，取消/截止
+与未知 DB 错误继续传播。必要 records/risk/surface 成功后才 store/mark_used；最后真实
+Arrow consumer 关闭后释放 backing/lease，整个 assembly 收尾且 READY 前只释放 cache intent。
+
 ## Capability Boundary
 
 Comparison compute capability 输入：

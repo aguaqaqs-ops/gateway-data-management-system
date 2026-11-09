@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮 Owner 已明确采用固定设计并授权 A→B→C→D→E 实施、修复、逐节独审及验收推进。最新状态：A–D GO；E产品V774、04权威及774 t1通过，W3基线Submit在M24拒绝。Owner已选保持边界/保留性能阻塞/完成其余交接，E不GO、S3不退出，tag/push另办。DC33已确认的范围与证据边界见§24以后及[累计候选交接](p6-s3-candidate-handoff.md)。本记录不代替实施交接或独立审核结论，早期状态段按当时事实保留。
+2026-11-07起；本轮Owner已授权A→B→C→D→E实施、修复、逐节独审及验收推进。最新状态见§38–39：A–D GO、Q18独立GO；V4b0通过累计代码核收、focused、04六包来源／容器、05 fresh t1–t4、W3 MO一暖三测及FULL warm/r1。Owner直接确认取消18未启动测量，不自动顺延；一次实际证据聚合已原exit0并由同E §107核收，当前只余最终H实际六闭包／镜像及原E总核收。W4全表NOT_RUN／UNKNOWN，原M24／旧M40失败保留。main最小移植1ecb有独立限定focused，不混S4联合来源。数值目标不作退出门槛（DC97），可靠测量与业务／资源安全仍保留；当前无E整体GO／正式退出，不tag/push。早期各节保留当时事实，当前边界见[累计候选交接](p6-s3-candidate-handoff.md)。
 
 ## 1. 起点与并行边界
 
@@ -445,3 +445,126 @@ CT108新W3 MO warm在14:03–14:06Z actual1：已过census到v1 Preview（631新
 Owner现明确选择：**“保持边界，保留性能阻塞并完成其余交接”**。不改N/M/输入/部署、不开始S4、不豁免原性能场景，不签E GO/S3 exit；不再次申请日常继续。其余代码/功能/候选H及独审交接继续完成，最终报告保持`BLOCKED_CAPACITY`。CT108按审稿归档三停止卷后删除本人资源并释放marker，archive SHA=`ba1b07d4e5d19824532f70a432dc0557cc7781904c26e4f1621a90a16cae4444`、cleanup log=`ca8689f4049e333dc3bb6b7e471179c195c5a7d4fb1717e9dd28f468d30802b3`，实际0且原失败SHA未变；不占节点等Owner，私有archive只留CT108。
 
 累计候选、A–E职责、唯一生产路径/删除清单、独立预期、逐包来源/镜像、真实范围与失败/未知、FE/S4/S5/原基准及资源交接统一见 [S3产品候选交接](p6-s3-candidate-handoff.md)。产品V固定774；本轮最后文档提交形成H后，由同一测试者仅在04原门禁WT实际执行六包与镜像沿用绑定，原审核者独立核收，并明确E整体容量阻塞。正式退出/tag/push仍未办理。
+
+## 29. 恢复执行：Q18交付、资源诊断及并行候选隔离
+
+2026-11-08后续：Owner授权继续完成Q18及S3剩余/退出候选，并按DC95允许worker在现有资源内增大至最多32C/64G；实质设计冲突可暂停讨论。S4另对话按DC96连续实施，不能接管或把其增量归为S3。
+
+**Q18已独立交付。** 最终产品`94b25a32792821cbc5b3230d98a0aa6f13493c32`，原审核收报告`27eab454b7`、最终handoff`8cf472a4dd`及其核收`964d900d44`：BE-Q18 GO。a1未变接口核心181 focused直接来源、94b consumer 74+3 focused、四条当前产品容器旅程实测与镜像绑定全0，均在06；先前同根四处selected整候选转发已修闭。scope与新增review_version/strict selected边界、原始日志SHA、OpenAPI附加抓取缺失和可转前端文字见[Q18最终交接](p6-be-q18-handoff.md)。不把它记为S3六包/真实数据/性能通过，不改生成时间业务预期。
+
+CT108原V774故障归档已由唯一Luna按原E审核的固定稿只读诊断一次，outer/node/capture0，原tar SHA/权限和V774 clean未变；原E在报告§65–67及`f242861169`核收。631表真实descriptor/Arrow nbytes按逐表生命周期**重构**的行预约+reader/replay为29,677,814,302B（27.640GiB），不是原同时驻留实测；original firstpoint/request/live及v2 FULL仍UNKNOWN。原M24失败不倒填为“第468表失败”，M40模型无交叉也不是容量通过。
+
+原E对`e1f789bf6f`[资源小稿](p6-s3-resource-profile-plan.md)给DESIGN_CLEAR_FOR_IMPLEMENTATION：本轮唯一48GiB worker/8GiB reserve/M40、N1/单active，默认32/8/M24不动，支持上限仅48/M40；开始端点三服务ready且首业务前host MemAvailable至少56GiB，结束停容器前至少8GiB，并核身份/OOM/restart/cgroup。端点不冒全程峰值；具体代码、脚本与实际证据仍需原E核收，未放行W3。
+
+资源支持产品`e76342ef0b58bb0120fc60d8a063d838140ee28d`只含6个分配路径、Rust tree仍9d4f，代码静审无阻塞。CT108 focused在17:25:13–17:26:30Z首败于backend mypy：`test_worker_kernel_resources.py:64`负向dict实参展开静态类型不符；Compose render/pytest/W3均未执行。原outer SHA=`b8a80dbc0d361d14a90f4b6107bf5b75bb1e1b31548b1af4c491c9a55e3a710d`、node/capture SHA=`35a8ff4a286860078399a5321f1d3f9f9198a2dea76e7ecc6e413e5c7101196d`；HEAD clean、六锁未漂、marker释放。原件在`/home/dev/gdds-test-tmp/p6-s3-resource-e76342ef0b-fixed/focused-control/`；执行节点确为CT108/gw-dms-test，测试者曾将口头消息误写06，已据原日志纠正，不改变原件或重跑。
+
+最小测试typing修复已在main显式单路径提交`a39339f18dd45777c1b5f40f34512d60c41271b8`，保七组无效值和ValidationError，改用valid model dump合并后model_validate。其父main已含并行S4B`43a8f1e165`（Rust tree5b87），因此该main提交不直接作为本S3验收V。为保持S3比较算法与已审Rust9d4f独立，按AGENTS确需并行短分支例外，从e763仅接此typing修复形成专用固定候选；不回退/重写main、不移除S4代码、不新增算法双路径。新候选和后续H只绑定各自实际源码/证据，不冒称并行最新main的S4代码已验证；最终版本和复验结果随后追加。
+
+截至本节，S3整体仍BLOCKED_CAPACITY，资源新档/W3/W4/最终新V门禁和真实数据未完成，未办理S3 exit/tag/push。独立工作继续，旧失败及未知保留。
+
+## 30. 隔离V1e门禁核收与两节点剩余执行
+
+固定S3产品 **V=`1e669c053f2486c50a8413c58de11d923d7f3cad`**，从e763只接单测试typing修复，Rust tree仍9d4f；main的a393及其父S4 B43a8不作为本轮被测源。V承载此前已独审的S4 A进程内接口/预期定义（fb9c，原S4 A GO），其未接线、未实现Rust diff/SQL；这些不算S3算法交付或S4 B通过。最终docs-only H在S3短分支固定，再在04原WT做V→H实际六闭包/镜像等价；原E已确认隔离与治理规则相容。
+
+04同一受保护来源WT于17:43:58–18:14:55Z完成当前V权威，**runner、node、capture、outer及runtime镜像出口均0**。实际六包closure compare因shared deployment/fixtures变化全部为“运行”，故六包全部在当前V实跑，**无carried**：Rust fmt/clippy/test0、Shared Kernel261、Contracts152、Client161、backend3435+74、RS1764（另1skip）+214通过。同次Compose不重复运行；三容器provenance与本机tag ID绑定，save解析true config及全部13/13/28 DiffID、RS revision/build-input/source-tree吻合。clean/六锁0漂/本人marker释放0，原WT、环境、镜像和raw tar保留供H绑定。
+
+原件`/home/dev/gdds-test-tmp/p6-s3-resource-authority-1e669c053f-fixed/control/`：outer SHA=`2c73a96b04ffc1eaca02b7360f5d0a9a646edb686760cc5a5bae7d67ef1f632c`，driver=`011edaec7c95a69bea9ea3eb4845e06e19d3be86edb088c051729c52c434f16d`，官方runner=`66847d88d261bd10e96fbd12ab969b01954796f5b87c9036ca3eb4d55fe13621`，image identities=`b62809c52e58fb2dca00da68d241c8b124a3500e2e604b8fe69e2a35210a9050`，runtime tar=`e200986555ec7af63b641f4e53f34d5c2937651e1f5ba55a1e63a04e6cd67cce`。原E独审`1d5cfdaa07` §71已逐件对远端SHA核收PASS，仅指当前V六包/容器范围。
+
+05完整fresh t1–t4固定稿经原E §70静态CLEAR，prepare于18:12:32–18:14:12Z实际0且§72独核：8包metadata78c7/逐包SHA、native9d4f、578e base config46c及19 DiffID、clean/六锁/marker均合格。outer SHA=`f2b1fe962cdb3973348fe54331de9605d0b008f61796b5420d337b88fb3be269`，node/captured=`96f26e123962c3c8cf29f773c045d1d717843f989a2b7597f92eed42187eaf45`，原件`/home/dev/gdds-test-tmp/p6-s3-functional-1e669c053f-fixed/prepare-control/`。随后05被有效S4测试marker占用，t1尚未开始；唯一Luna按现场等待正常释放，再以原子本人标志单档启动，前档原件由原E核收后才开下一档。四档仍默认N1/32−8/M24、v1/重复MO及v2FULL，不因新档性能增预算漂移。
+
+CT108同V的离线13输入/镜像准备已在§69独核0，待04门禁核收的前置现已满足；协调者授权唯一Luna按已审字面`warm-run.sh` SHA=`2d101e167441e3ea0f6d92b96a169af440f3d79673e3babce63758836e1197ac`启动**一次**W3 MO warm（N1/48−8/M40）。执行时仍核现场空闲/marker，不把本授权或prepare记warm成功；该实际结果和剩余23样本尚待。原实施者另起外置目录准备后续固定队列，现首warm的已审SHA不变；首失败停止后续，保原件、正常停容器、不自动重试或加M。
+
+当前S3仍无E GO/最终新H绑定/退出，不tag、不push；Q18独立GO维持，S4另一会话推进、前端与原基准各自核收。
+
+## 31. 首个M40 warm启动失败与普通准备修复
+
+CT108首warm于18:19:35–18:23:09Z actual node/outer1：RS容器exit3，无法import `gateway_repository_service.app`，`wait_repository_service_ready`超时；三服务ready/startguard/worker/首业务均未到，成功warm数0，资源证据INCOMPLETE。原 E `e236037ef7` §73已逐件对原SHA独核，不能归为M40预约容量失败，更不能记通过。完整原件和当前六组样本UNKNOWN矩阵见[性能诊断记录](p6-s3-performance-report.md)。原M24失败及归档继续保留，剩余23队列未启动。
+
+只读现场与Dockerfile/entrypoint核对发现：新CT108/05源码WT因umask077而目录0700／文件0600，04通过门禁的WT对应0755／0644；RS COPY后root布局初始化可执行，随后import失败的现象与降权后无法读取源码一致，这是尚未在容器内单独重演的强推断。原实施者正在固定仅公开tracked源码及祖先目录权限／新RS镜像／fresh复验的最小执行稿，原E连续审稿及核原件；不动产品、Contract、golden、资源档、私有secret/venv/输入或原坏镜像／失败日志。04原来源WT不改，不因另一节点准备权限修复重复权威门禁。按DC68本根因进入第1轮修复准备，尚无修订实际复验；不无修改重试或擅增M。
+
+05 t1**尚未启动**，已因同根源码权限前提暂停，待固定修稿、原子节点准备及原E核收后再启动；此前05 prepare通过的源码／输入字节事实保留，不能由prepare0推断降权容器运行前提满足。S4节点占用已正常释放的事实不豁免这一前提。其余职责内文档与最小修复继续，不需要Owner日常再授权；遇核心设计冲突或修复轮次停止条件再报告。
+
+## 32. 排序预算修复后的当前候选与集中验证
+
+截至2026-11-08 20:43Z，§31准备权限根因已用新公开源码022 WT／新镜像修复，原失败原件不覆盖。旧V1e在05的t1–t4默认N1/32−8/M24完整fresh已逐档actual0，由原E §75、77、80、82独核；它们是旧产品直接功能回归，不冒后续修复候选的fresh。
+
+CT108修订M40 warm actual1，v1 Preview／Submit／真实read、approve、Archive已通过，v2 Preview在assemble阶段失败，成功warm仍0。只读DB诊断message SHA与Rust `records sort budget exceeded`精确一致，源码归因于Python每表固定2GiB局部sort cap，**不是已证明的M40总预约拒绝**；首表／记录族／具体guard及requested/live仍未知。失败原件、资源分域、诊断和独核见[性能记录§7](p6-s3-performance-report.md#7-m40修订warm终局局部排序限额与新修复候选)。未用增加M绕过局部guard，也未改冻结输出／reader界限。
+
+最小修复固定为 **V=`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`**，仅在隔离S3分支将已在Python操作账本预扣、交同一Rust KernelContext的`native_budget`透传为排序cap，保全部增长前租约和完整JCS排序；另两测试及设计说明，Rust tree仍9d4，未混入main的S4 B/C。原E §81设计CLEAR、§83代码CLEAR、§85／`1207de61b6`核06 focused actual0：backend Ruff／mypy、native强制重装／input核验、134 nonserial＋1 serial均通过。尚未移植main，不能声称并行main的S4实现已验证。
+
+新04集中稿在原受保护来源WT按V1e的六个直接合格来源逐包实比，backend强制实际运行、其余由实际闭包决定；当前HEAD Compose正常构建、镜像true config／全DiffID和runtime provenance独立绑定。20:33:51Z官方runner启动，尚无整轮封口结论；监控中的单批通过不代替整轮exit。新05准备20:32:27–20:34:07Z actual0并在原E §87核PREP_PASS，full fresh稿也已静态CLEAR，协调仅放行单档t1；04若失败停止未启动后续，已开始的旅程正常结束保原件。t2–t4仍逐档实际0及原E核收后启动，不自动排队。
+
+CT108原M40失败标记已在20:40:43Z按release-only稿收尾，node／outer0并由原E §88独核PASS；**只释放本人标记**，3停容器、3卷、1网络、镜像、原WT／DB／输入／日志和747,672,576B runtime tar均保留。直接control `/home/dev/gdds-test-tmp/p6-s3-failed-marker-closeout-1e669c053f/control/`：outer SHA=`ac65175535afe7eefa9027736c048d9400ee05bd2ac08ef5c2dbae95c1eea09c`、sealed report=`238eb665f64b8d571299144fbd393abbab81f76f2e4897664148df43e67c873b`、最终receipt=`59cceabba4d2c4bb451b509a0aa84b19f9f927e3f1de1a4d308305046b52e9cc`。原失败result06c0／manifest8ffa SHA未变，原warm仍失败，不能把释放核收写成业务PASS。
+
+CT108新V4b0准备稿／warm稿仍须原E核收及现场原子准入；新warm严格等待新04 actual0和镜像绑定核收。新档仍仅48/8/M40、N1，默认32/8/M24不变。剩余23样本和统计尚未执行，必须先有本候选首个合格warm、原E核收与实际归档／磁盘容量；保1warm＋3、六组MO／FULL／压力范围及S6目标，不以0有效样本给统计。最终H、同04逐包／镜像绑定、main最小移植和累计独核仍待收敛；无E GO、tag、push或正式退出。
+
+## 33. V4b0权威核收与main最小移植实证
+
+04原受保护来源WT的V4b0集中取证于20:31:35–21:01:59Z封口，官方runner、node、capture、postflight、outer均原exit0；原E §92／`da66ded9b9`独核PASS。实际闭包为rust／shared_kernel／repository_contracts／repository_client四包直接沿用同04同WT的V1e最初实跑来源，backend／repository_service两包在当前V实跑；不是“六包在4b0全部重跑”。backend3440＋74、RS1764（另1skip）＋214通过，五Python静态0、native9d4输入匹配。当前Compose三容器、save真实config及全部28／13／13 DiffID与RS build-input／source-tree标签吻合。完整原件位于`/home/dev/gdds-test-tmp/p6-s3-v2-sort-authority-4b0a2eec72-fixed/control/`：outer SHA=`03aed7a69e2c3afd71a1feecf9790a790201fc598123e4c9d57a22b204baa4c0`、runner=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`、driver=`f9be9a40d29dce1df31d4313f68325a51af90c1ca29a486b1e8b108285b1a4d4`。HEAD4b0 clean／六锁0漂／marker已释放，来源WT、环境、镜像及日志继续保护至最后H与exit。
+
+新05 t1在20:43:32–20:47:29Z完整fresh actual0，原E §90／`24170a3863`已独核PASS：18步v1／重复MO、v2 FULL、Submit、真实read／approve／Archive／History，默认N1／32−8／M24，同worker、OOM三键0、正常停止及最终控制收据均合格。直接原件`t1-control/` outer SHA=`d533b94531a5014888eb8571015128a2cbc4b0b33bdeba99d2e0664279b1bf3d`、receipt=`dc8c75652fef8d521e11bf69c1dce6e25966e78a4ed61cb4f34aad350cd4c11c`。t2随后20:50:29–21:04:14Z actual0，outer SHA=`33006f6d825081058d80be7e8b902702180bd721739fa7c2167e38adbce337c5`，本节提交时待原E独核；t3／t4未启动，不提前合并为四档PASS。
+
+S4协调者明确移交comparison production与C／D两测试的短期写入归属后，原S3实施者在main单独提交最小移植 **`1ecb17f6de4c71ddb001a6829d2222cd28bacb34`**（父f4d9e19a），仅这三路径及同一S3设计段；不覆盖S4C PublicCanonicalView或重基隔离V。原E §91固定detached静审CODE_CLEAR，随后06于21:01:08–21:02:29Z节点focused actual0并获同人独核PASS：强制原生重装／输入tree **`e2a901417b19259ece669637a41545e774261445`**、backend Ruff／mypy、六个现役C／D／E／独立向量／产物／Risk文件nonserial134＋serial1通过，HEAD1ecb clean、六锁0漂、marker释放。原件`/home/dev/gdds-test-tmp/p6-s3-main-port-focused-1ecb17f6de-fixed/focused-control/` outer SHA=`955b53d3607d9026b2b4da11ebce39e02a4ca33d88124ef61b7978b2c0a15e1e`、node=`aff29570a93d3d0a24f2dd0ad98ca29d382bb216915575ad989b8501d2f63ebd`。这是主线S4C接口上的受影响调试实证，不是其全门禁／容器证明，也不与隔离V4b0的Rust9d4混用。三路径已交回S4，后续benchmark Submit度量路径也经双方确认归S4 root，不动S3已固定source／driver。
+
+CT108新V准备actual0在原E §89核收PREP_PASS；含上述04真实结果及准备原件SHA的首暖终稿已由同E再次静审CLEAR，协调仅交唯一Luna运行一次。准备／镜像配置不证明runtime48／8／M40生效，实际warm需另核；当前仍0个有效warm、后续23及统计未运行。最终H必须同04原来源WT逐包实比，包含完整pytest cache变化；不拿run后manifest冒充起始source或人为改cache强行沿用，实际闭包有变则按规则运行受影响包。正式退出／tag／push仍未办理。
+
+## 34. 四档完整fresh与首暖核收、剩余样本逐项授权
+
+新V4b0的05 t3于21:07:34–21:29:37Z、t4于21:32:24–21:52:43Z均actual0，原E §97、§99独核PASS，报告提交`6e30955ff4cbd6271438646621e459e2a37bd480`已累计固定t1–t4同节点同V完整fresh通过。均为默认N1／32GiB worker／8GiB reserve／M24，v1／重复MO、v2 FULL及Submit、真实读取／approve／Archive／History；各档同worker、OOM三键0、原始镜像／RS同t1身份、六锁／clean／实际释放与控制端最终收据均核收。没有从旧V1e或S2b沿用新产品的四档结果。
+
+| 当前V4b0新档 | outer SHA | 最终控制收据SHA |
+| --- | --- | --- |
+| 05 t3 | `f275c9c3ea6aa7ace312fb84fc33e715c1bb7dd86854417e4656ab9f089240d2` | `191c669b06486e216e933cac6b13969d0c1c5520198326891f7f261e78bc70e1` |
+| 05 t4 | `1b35fd66a064e69c3b7e6d01d9eba685c1cf816d7f4ecf2424a341bb7d5bcfc2` | `3248638d57f2ec3900dfea853149dca1ef4624175b6a18a4ed79054a2ee968b7` |
+
+直接原件在新V4b0 `-fixed/t3-control/`、`t4-control/`，完整路径前缀及t1／t2来源见§33和原E §90、94、97、99。
+
+CT108同V新W3 MO首暖于21:07:35–21:50:41Z封口，node／capture／postflight／outer0，原E §98独核PASS：真实v1 Preview／Submit／read／approve／Archive及v2 Preview／身份摘要成功，实际同一worker N1／48GiB hard／8GiB reserve／M40、准备镜像身份／全部DiffID、输入13项、三服务OOM三键0、六锁／clean／实际释放及最终控制收据均合格。直接原件`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-4b0a2eec72-fixed/warm-control/` outer SHA=`cb3d4403df16b78272be052d46bc3163c41a0430048e1649e762ea964618162a`、result=`941cef594fa27b45d936b2f30a39dbb32f601d2b318d88306b8bbb512218894e`、manifest=`4df6ba684ee131a798e0dad3f30488eed7af478025f4c0f990fd179cdb5bd2f3`、控制receipt=`626ccab83ae5a235a5d4f2e979ee5db082e22671ff97e09582aae7e5d7408b73`。**仅1次成功预热／0次完成测量**；v2可见观察599.71s／操作完成599.72s，预热可见值超过W3 60s目标，不冒正式统计或S6达标。分段、CPU窗口与未知见[性能记录§9](p6-s3-performance-report.md#9-首个合格w3-mo预热的实测与范围)。
+
+首暖runtime tar实际747,672,064B、sealed SHA=`17606ad458fc5138f0d4a97d3d24a33bbe322b5b8a676961ee8c15b280410177`；事后CT108可用119,668,989,952B。原E §100条件静态CLEAR剩余23及聚合固定稿，磁盘148槽／首门槛10,085,278,720B只是端点推算，每项仍须实时取空间并以已完成最大tar复算。协调已授权唯一Luna按原稿固定23项逐项执行：W3 MO r1–r3，其后W3 FULL、W4约10% MO／FULL、100%压力MO／FULL各warm＋r1–r3；每项必须前序原exit0／最终receipt／远端result及manifest SHA、同源／配置／输入／镜像与原子占用全部合格。任何非0立即停后继，不补位、不自动重试；每组齐全后停组边界交同E核收，合格后才继续下一组。聚合仍须最后实际范围确定及协调另一次放行。
+
+执行稿目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/`：sample-run SHA=`16f9976750b40d98d23060ca5007c40b6455475ee2c2b91030dab610a43e5229`、README=`b1729080d63bae62e0726020cce40d9803a0abaa0065fdfffc6e85bcce7d19a0`，其他四固定脚本全SHA见该稿和原E §100。首项r1于22:00:31Z实际入场、空间guard通过，当前未完成；不能因授权整序列把其余项记为已运行。
+
+最终H外置动态绑定模板的两处初审finding已在原E §96复审关闭：初比复现已验V的有效镜像／project／provenance环境，需RUN时切H环境后再六包实比；四包直源同时pin V1e原runner与4b0判定driver并从原runner重新抽manifest核对。模板仍有H／bundle占位，未知H不执行；最终字面H须另固定全SHA和同人复审，04来源WT／环境／镜像继续保留。S3仍未整体GO／正式退出，tag／push未办理。
+
+## 35. 累计代码核收与首个测量原结果
+
+原E报告`6a91c4cf88` §101完成V4b0的累计代码核收，引用A–D及E既有合格证据，未发现新增代码finding；独立旧Python20例expected、唯一native／Arrow生产路径、metadata及单侧边界、风险／预算／取消、三项授权最小整合、局部sort cap与旧实现／独立consumer边界均闭合。候选交接§11当前六包直接来源、三个镜像config／全部DiffID及RS标签已再次对原04原件核对一致。此为代码与来源结论，**不是E整体GO**；性能组、受控聚合及最终H绑定仍待。
+
+W3 MO r1在CT108同V4b0／N1／48−8／M40于22:00:31–22:44:16Z执行封口，node、capture、postflight、outer0，最终控制收据PASS；原E已做单项SHA／前序链预核，完整组资格仍等r2／r3。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/control/s3-v2sort-w3-mo-r1-4b0a2eec72/`：outer SHA=`8ed42213c49d7b0d6175ccf81ac90e71f7df07764cdca161e47f16637294da6b`、result=`0ecd928a7bdaa4e02634c2de00d5fee96bb619a34ad204c3538d35b8f0267059`、manifest=`86c2b3be61ccbb92e542ee83a81bd160311c26a37ce9c1bb42d961134b5a697f`、最终receipt=`ca37606d4cff056208053475016136551655a233bd2b5ad8a68b75e984d97065`、journey=`1c87a959a0bd4f746ab3205b36df0312783ac776781539d0ac0adad609c435dc`。直接记录的可见观察605.877s／完成605.887s均超过各自60s／600s目标，业务及资源守卫通过，**不把时延超目标藏作达标**，也不由一个样本给组median／range。
+
+r1 tar仍747,672,064B；r2已按原固定授权及前序receipt链启动，后续只读磁盘快照118,513,192,960B发生在r2入场后，不冒作r1准入或全队列保证。当前仅W3 MO组的warm及r1执行完成，r2运行／r3未启动；其余模式／工作量未运行，最终聚合未执行。按照原授权，r3合格封口后停组边界交同E核收，合格才继续下一组。旧两档失败、全部保护原件、H模板HOLD、正式退出／tag／push边界均不变。
+
+## 36. Owner退出依据与监视安排补充（DC97）
+
+Owner明确“性能指标本身是否达标不再作为退出依据，只可靠测量即可”。依DC97，READY／完成／吞吐／提速等数值只如实报告，不再因超目标拒绝退出或默认追加优化；既定场景及1预热＋3测量、来源／冷暖／配置分组、原始失败和未知、业务正确性及资源安全、门禁与独审核收仍须完成。此前本记录的S6“目标／达标”保留为参考和历史表述，由该最新决定覆盖其退出门槛含义。当前剩余性能取证是可靠性／范围待完成，不是等待r1达到60s或600s。
+
+Owner另确认不需逐次与并行S4沟通测试：按现场空闲及原子标记使用节点，不预约或例行通报，实际资源／占用或文件写入冲突才协调。规范已同步AGENTS、Phase 6设计／执行计划及S3 kickoff；不更改当前已审／已启动采样稿、固定输入、源码或资源配置。
+
+Owner允许Luna max监视检查。工具初次新增角色因四线程上限拒绝；协调让已结束Q18审核与当前无待办实施者完成收尾、释放活跃占用后，成功创建`/root/s3_log_monitor`（Luna max）。初期由它只读现有日志／已采资源与有限服务／marker状态，向原执行者及协调汇报。Owner随后明确可减频、甚至异常触发而不周期巡查：现已取消外部周期轮询与心跳，监视者交回最后已有状态后结束turn释放槽，待异常／封口等事件再按需唤醒只读复核；不增常驻observer或修改采样稿，不干预产品原有健康检查／租约心跳。原`/root/node_pool_audit`仍是唯一执行者，等待既有进程并负责固定入口、前序收据和实时门禁、原exit及封口；监视者不启动／修改／重试／终止测试，也不代判通过。协调等待实质事件汇报，处理文档、审核和决策，不重复发送无变化状态；所有角色仍按四槽错峰，不增第五活跃角色。
+
+## 37. W3 MODIFIED_ONLY首组样本资格闭合（2026-11-09）
+
+原E报告`296a46770e` §103核收同CT108／V4b0／Rust9d4、13输入、t4-identity／MODIFIED_ONLY、N1／48GiB hard／8GiB reserve／M40的warm＋r1＋r2＋r3样本资格PASS。每次node／capture／postflight／outer原exit0，逐次本地捕获件及节点原result／manifest／journey／images SHA相等；前序receipt／result从warm连续到r3。真实三operation、631表／64变更／0失败降级、同worker／运行镜像及准备来源、资源guard／三OOM键0、正常stop与实际释放均合格。节点sealed结果的pending状态没有回填；各最终控制收据绑定唯一release事件后各记1个measurement，warm不混入测量。
+
+| 样本 | outer SHA | 最终receipt SHA | 可见／完成秒（直接原字段） |
+| --- | --- | --- | --- |
+| r1 | `8ed42213c49d7b0d6175ccf81ac90e71f7df07764cdca161e47f16637294da6b` | `ca37606d4cff056208053475016136551655a233bd2b5ad8a68b75e984d97065` | 605.877／605.887 |
+| r2 | `f95d313d9bf38350604e2d1226f4177ebffa886a2087c49e414d56ad8c3bcd8c` | `c20628bf5e9815babea2d4ce9b0ee16287b51362bc0ada213d8daca3e91bcaaf` | 595.743／595.752 |
+| r3 | `af020a266375412c6a9f5973da6ade6bf638e804e8de94b50089343dbfd0ef2f` | `90b8b0e66dae2a5c7aa761cdd4125ffefdda9c01b8b57ebe4cee2e06801db0ca` | 595.870／595.879 |
+
+r2原node为11-08 22:45:41–23:28:39Z、outer至23:28:44Z；r3原node为11-08 23:30:21–11-09 00:13:22Z、outer至00:13:27Z。直接control为固定remaining目录下`control/s3-v2sort-w3-mo-r{1,2,3}-4b0a2eec72/`；r2／r3的result、manifest、journey完整SHA及warm原件在原E §103，不从沿用结果生新源。此处只抄原时间，未在开发机执行统计程序；正式median／range与分段汇总仍待最后受控聚合。
+
+组边界核收后，协调依既有固定23项授权唤唯一Luna下一组W3 FULL warm（不是重跑MO），继续每项前序／原子marker／磁盘／同源资源守卫和首非0停止；FULL必须实际验证两pair及对应驻留，MO成功不代替FULL。当前没有后续组PASS、聚合结果或最终H／E整体GO；数值达标不作退出依据，未测与无效证据仍不写通过。
+
+## 38. Owner确认最小剩余取证范围（2026-11-09）
+
+Owner在并行S4会话询问S3能否按业务正确性优先收敛；协调先HOLD未启动项、让当前W3 FULL r1自然运行，再由原E评估缺口，形成`cc60c95d47`／修订`ffa1ee70bb`[具体清单](p6-s3-e-scope-supplement.md)。原E `25bf0cdac6` §104–105核收W3 FULL单次预热原件与同一Preview实际两pair、owner／资源守卫，并静态CLEAR具体清单；两侧同时驻留字节未独测。随后Owner在本S3会话直接回复“确认按最小清单收敛（推荐）”，不是借用S4范围授权。
+
+18个未启动项正式取消：W3 FULL r2/r3；W4约10%与100%压力各MO/FULL四组各warm+r1/r2/r3。它们不自动移到S6，不记成功。已核05 fresh t1–t4、04六包来源／Compose、W3 MO一暖三测不重跑；W3 FULL r1当前仍待自然封口及原E核收。随后只运行一次已审原聚合器，W3 MO给实际统计，FULL单列已有观察，其余NOT_RUN／UNKNOWN及all_groups_complete=false照实保留，再做最终H同04实际闭包／镜像绑定及同E总核收。原M24及旧M40失败、默认32/8/M24与诊断48/8/M40分别保留；未签E GO／正式退出，未tag／push。
+
+## 39. FULL r1及一次现有证据聚合
+
+FULL r1在CT108于01:06:32–01:50:50Z自然封口，node／capture／postflight／outer0、实际release PASS；原E `e88ece5c98` §106独核原件与六成功receipt链PASS。v2可见669.540s／完成669.550s，仅1measurement；同一Preview的两pair及bundle pair_count2、631表／64变更／0失败降级、N1／48−8／M40同worker／三OOM键0／镜像及正常收尾合格。完整控制原SHA见该独审段。
+
+按Owner已确认范围及原E适用CLEAR，唯一Luna在CT108于01:54:35–01:54:39Z运行一次原`aggregate-run.sh`，原node／capture／postflight／outer0、六锁／clean V4b0及真实释放合格。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/aggregate-control/`，outer SHA=`ce7acc9c915c79fbec2053523c3bea57da70b81a7f53c84bf1edb45809122504`、最终receipt=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`、report=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。节点产生的W3 MO统计为可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s；FULL统计UNKNOWN、W4四组NOT_RUN／UNKNOWN、all_groups_complete=false、S6 NOT_ASSESSED全部保留，未在开发机重新计算。聚合原件已由原E `40c84bb8be` §107逐SHA独核PASS；没有新样本、重跑或强行填齐。最终H未知，原04来源WT／环境／镜像继续保护，具体字面绑定稿准备中。

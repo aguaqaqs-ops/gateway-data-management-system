@@ -119,6 +119,8 @@ CI配置中增加局部阈值。
 
 ## 8. Acceptance
 
+Phase 6按Owner 2026-11-08的[DC97](../plans/p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)应用：性能数值目标是否达标不作为阶段退出依据，验收其可靠测量、已确认范围及真实统计／限制报告。目标保留参考，超目标不自动构成correctness失败或要求继续优化；correctness、冻结产物、资源硬边界及测量有效性要求仍保留，失败／未知不得改记成功。本条不改变通用run record或外部数据格式。
+
 - 每个正式性能声明可定位到真实production entrypoint、dataset和raw samples。
 - correctness失败的run不进入性能汇总。
 - 不可比环境或contract变化被显式说明。

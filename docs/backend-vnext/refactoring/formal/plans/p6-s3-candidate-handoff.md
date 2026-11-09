@@ -1,4 +1,6 @@
-# S3 累计产品候选与受阻交接
+# S3 累计产品候选与验证交接
+
+**当前恢复状态（2026-11-09）：** Owner后续授权Q18实现、S3剩余验证和DC95限定增预算诊断，随后直接确认§15最小清单。当前V4b0代码、四fresh、权威／Compose、W3 MO一暖三测和FULL warm/r1已独核，一次现有证据聚合已由原E `40c84bb8be` §107核收；最终H实际绑定及E总核收仍待。§1–6是原V774/H685历史受阻事实，不能覆盖后续结果，最新见§7–16。原M24失败不撤销，W4全表NOT_RUN／UNKNOWN，不自动顺延取消项。S4另会话独立推进，main移植不混作S3-only证据；无正式退出／tag／push。
 
 2026-11-08。Owner已明确选择：**保持阶段边界，保留性能阻塞，完成其余交接**。这不是性能待项豁免；S3 E不签GO、S3不退出，不提前实施S4，不改N1/32-8/M24，不tag/push/发布。
 
@@ -102,3 +104,116 @@ Owner已确认fresh t1–t4完整功能范围，又专项批准本轮t1–t3从0
 FE3b/FE3c仍由前端Owner核收，不冒认完成。FE3c Q18归档权限用户获取不到close所需expected_review_version的接口缺口仍未修，须独立后端项；空initial上传A缺一次generation time是现规则，不改S3语义。S4/S5只移交接口与容量问题，不在本轮启动；S4前置S3 exit的顺序冲突需要Owner另决，不能自动跨过。原基准性能线保持独立。
 
 剩余责任：原E审核者完成累计A–D/删除/独立expected、真实source证据边界及H绑定核收；产品候选和功能证据可独立复核，整体性能阻塞持续。Owner后续若改变范围/场景/阶段顺序，须另形成固定设计与适用验证；当前不重启样本、不放宽M/输入/同worker守卫，正式退出/tag/push均未办理。
+
+## 7. 恢复执行与隔离候选（取证进行中）
+
+Owner 的 DC91 将五个 32C/64GiB 节点合为按有效 marker 调度的测试池；DC95 允许本轮 worker 在现有资源内上调，最大 32C/64G；DC96 允许 S4 另线设计实施。现按原 E 独审通过的[资源小稿](p6-s3-resource-profile-plan.md)只验证一个新档 **N1、单 active、48GiB worker／8GiB reserve／M40GiB**，生产默认 N1/32−8/M24 不变。增预算结果按实际条件另列；原 M24 W3 基线 Submit 失败、原始日志和私有卷归档保留。
+
+Q18 已完成：产品 `94b25a32792821cbc5b3230d98a0aa6f13493c32`，原审核报告 `27eab454b7`、最终交接 `8cf472a4dd` 及其独审 `964d900d44`，结论 **BE-Q18 GO**。归档候选读取在同一 read transaction 返回必需的 `review_version`，归档请求 `selected` 仍严格只投影原两字段；权限、CAS、schema、digest 和生成时间业务预期不变。06 的 focused 及四条实际 Compose 旅程原件、镜像绑定与可转前端回复见 [Q18 交接](p6-be-q18-handoff.md)。附加 live OpenAPI 抓取缺失，未记通过；FE 快照、类型和 mock 由前端在自己的实际栈更新。Q18 GO 不代替 S3 验收。
+
+资源支持提交 `e76342ef0b58bb0120fc60d8a063d838140ee28d` 仅修改限定 settings、Compose、host benchmark guard、两个 tests 和资源设计文档。main 后续 S4 B 已修改 Rust 树，因此 main 的测试 typing 修复 `a39339f18d` 不直接作为 S3 测量 V。按并行短分支例外，从 e763 只接该单测试文件修复，固定 **V=`1e669c053f2486c50a8413c58de11d923d7f3cad`**，分支 `p6-s3-resource-candidate`；Rust tree 仍 `9d4f84ce0897099402226c77c548c487c4912008`，没有并行 S4 B。main 未回退或改写。新最终 H 将只在这一候选上增加职责内文档并做同来源绑定；任何结果均不冒称并行最新 main 的 S4 代码已经验证。
+
+| 本轮范围 | 截至本次文档提交的实际状态 | 来源及限制 |
+| --- | --- | --- |
+| 资源首轮 focused | e763 的 backend mypy exit1；后续步骤未到 | 原失败及 SHA 见协调 §29、E review §68，不改写 |
+| 修复 focused | CT108／V1e669，outer/node 0；102 nonserial +3 serial，backend/RS Ruff、mypy、native input 及两档 Compose config 通过 | 原 E §68 独核；前三包静态同源码事实直接引用 e763 实跑，非权威 carried |
+| 当前六包／容器门禁 | 04／V1e 全六包、同次 Compose、镜像出口实际0，原 E §71已独核 | 六包均因实际闭包变化而重跑，无carried；原04同来源WT保留，最终H绑定仍待 |
+| fresh t1–t4 | V1e在05四档完整fresh均actual0且原E逐档独核PASS | 每档完整v1/重复MO、v2FULL，N1/32−8/M24；属于V1e直接原件，不冒后续sort修复候选实跑 |
+| 新档 W3/W4 | 首warm在RS启动时actual1；修订M40 warm已完成v1全前置，但v2 Preview因native records sort局部2GiB cap失败 | 原失败及0有效warm保留；剩余23未启动，无合格M40 warm／1warm+3统计，见[性能记录](p6-s3-performance-report.md) |
+| E 整体与退出 | **尚未 GO／未退出** | 最终 H、逐包／镜像绑定、fresh 原件和性能报告仍待；tag/push/发布未办理 |
+
+focused 直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-1e669c053f-focused-r1/`，outer SHA=`2b1bbc8095d8622d7c660c0d57aeab82a383ddccd65991e4e63534cd0d0dd7f3`、node/captured SHA=`cbc4c7b32e1ab98cd71940486693c6c43c950a9425b3d770a898776f3ed12d65`。CT108 性能准备直接原件：`/home/dev/gdds-test-tmp/p6-s3-resource-performance-e76342ef0b/prepare-control/`，outer SHA=`c32722d0968aae7fe3bcaf526a251a9e79a3796ec38fb201bc91dc5dfc1d874f`、node/captured SHA=`895a6f19b2b0b3ac1206f8963d36143e8b609d4c9b059c71cc6d58db07bf7783`。后者路径名称含旧 e763，实际固定 source 为 1e669；prepared-images.json 的 `config_digest` 字段只是 Docker inspect 本机 ID，不能拿它作跨节点 config。真实 runtime config 与全部 DiffID 由当次 docker-save 原件核收。
+
+恢复后的权限工具修复、容器收尾次序修订及当前实际原件见协调§31和[性能记录](p6-s3-performance-report.md)。原05全旅程稿2408／18c9与旧CT108r1warm8992／d58c在执行前撤回，修订稿在node marker持有期间封核心原件和大tar哈希，最后释放，经stdout真实事件与控制端独立receipt核实际释放；未修改原失败。05当前新完整稿b82a／e7d8的t1已通过，节点result的pending快照不能冒作最终释放结论，也不因pending否认实际control核收。
+
+当前仍无整体E GO或最终新H绑定，未对未知项给通过结论。后续四档、W3/W4及最终交接按各自原件继续核收。
+
+## 8. 排序预算局部修复候选与待验证面
+
+最新修复候选 **`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`**（parent acb417，再上为V1e），仍在S3隔离分支，Rust tree9d4不变、无并行S4 B/C。生产仅透传既有已预扣`native_budget`替代每表固定2GiB sort cap，另两测试及设计说明；不改变算法、FULL JCS排序、M40/N1、512MiB输出／reader、2m／1024或冻结golden。原E §81设计CLEAR、§83代码CLEAR，§85已核06 focused实际0，外置执行稿、原始SHA与限制见[性能记录 §7](p6-s3-performance-report.md#7-m40修订warm终局局部排序限额与新修复候选)。
+
+截至20:43Z，本候选04集中门禁已启动，尚无整轮原exit／镜像封口；05新准备actual0、原E §87核PREP_PASS及full稿静态CLEAR，协调仅放行t1完整fresh，后续仍逐档核收。原E报告§86–88提交`dd40f20041`分别记录新04静态、05实际准备／旅程静态，以及CT108原失败标记release-only实际PASS；最后一项仅释放本人标记，全部失败停资源／原件保留，原M40 warm仍失败／0有效样本。
+
+本候选的集中按包门禁／镜像、新产品t1–t4完整fresh、48/8/M40新W3首warm及后续样本均待实际取证。新warm必须先有新04 actual0与原E镜像核收；剩余23及聚合仍HOLD。旧源V1e门禁与四档各自合格事实保留，后续仅按实际闭包／影响／直接源判沿用，不能由“改动小”口头认定。main的S4工作继续独立，当前修复尚未移植main，也不冒main已经验证。最终产品V、文档H及同04原WT绑定在收敛后重新固定；当前仍无E GO、阶段退出或tag／push。
+
+## 9. 新候选集中证据与主线集成（21:05Z状态）
+
+| 证据面 | 实际结论 | 原来源与边界 |
+| --- | --- | --- |
+| 隔离V4b0 focused | PASS | 原E §85，06 native9d4／134＋1，不含S4 B/C |
+| V4b0权威六包来源及容器 | PASS | 原E §92／`da66ded9b9`；同04同WT四包直接V1e source carry、backend／RS当前V实跑，三镜像与全DiffID绑定 |
+| 当前V4b0完整fresh | t1 PASS；t2 actual0待独核；t3／t4未启动 | 原E §90，05默认N1／32−8／M24，逐档核收；旧V1e四档不冒新产品 |
+| main最小移植1ecb | CODE_CLEAR及受影响focused PASS | 原E §91及实际节点核收；06 native tree e2a901／134＋1、backend静态0，不冒后续main全门禁 |
+| CT108新V性能准备 | PREP_PASS | 原E §89；13输入、源码及三镜像身份／离线准备，不是runtime资源或warm |
+| W3／W4及最终H | 仍待 | 有效warm0；新首暖终稿静态CLEAR／仅放单次执行，23与聚合HOLD；最后同04实比与独核尚未进行 |
+
+上述当前实际原件、完整SHA、main四路径范围及与S4写入交接见[协调§33](p6-s3-coordination.md#33-v4b0权威核收与main最小移植实证)。隔离产品源仍V4b0／Rust9d4；main移植源为`1ecb17f6de4c71ddb001a6829d2222cd28bacb34`／Rust e2a901，分别报告，不能用其中一组结果证明另一组全部闭包。旧失败、未知与生产默认保留；尚无E整体GO、最终H、tag／push或正式退出。
+
+## 10. 当前四档全fresh及首个合格预热（22:04Z状态）
+
+原E报告`6e30955ff4cbd6271438646621e459e2a37bd480` §98–100已独核：V4b0在05同节点的t1–t4默认N1／32−8／M24完整fresh均PASS；CT108同V的N1／48−8／M40 W3 MO单次预热PASS，**仅1warm／0完成测量**。04六包来源／容器及main最小移植受影响focused沿§9各自限定来源成立，不与新预热混源。当前没有S3整体GO或最终H绑定。
+
+预热v2操作可见观察599.71s、完成599.72s；可见观察超过W3 60s目标，不能用一次预热签正式达标。完整v2业务步骤含随后身份摘要验证为659.635s，其CPU累计、native records/JCS、Parquet、Risk必要Arrow转换与publication、surface／bundle分段及包含关系见[性能记录§9](p6-s3-performance-report.md#9-首个合格w3-mo预热的实测与范围)。清理后的即时CPU值未采到，不把现有步骤CPU累计误记未知或把缺值当0。
+
+后续23项经原E条件静态CLEAR，唯一Luna按固定顺序逐项推进，首非0停、每组核收后再进下一组；r1已22:00:31Z开始，尚无正式测量完成。实际磁盘与前序收据守卫、四档及首暖完整原SHA、H模板预审闭环见[协调§34](p6-s3-coordination.md#34-四档完整fresh与首暖核收剩余样本逐项授权)。旧V774 M24和V1e M40失败原件全部保留，后续未知继续分列；tag／push及正式退出未办理。
+
+## 11. 当前V4b0逐包直接来源与镜像
+
+本表仅绑定已在原E §92核收的**当前产品V4b0**，与历史§3的V774表分开；最终H仍须在原04同一来源WT实际比较。这些值直接读取当次权威原件`control/captured/manifests/source-<package>.json`，`total_digest`是测试输入闭包总摘要，不是manifest文件SHA。
+
+| 包 | 最初实际运行来源／V4b0动作 | 来源total_digest |
+| --- | --- | --- |
+| rust | V1e实际运行；同WT实比可沿用 | `992f30280206b34b8b343e07cbfd6839e7236f2990424be9dfdc105d03acba57` |
+| shared_kernel | V1e实际运行；同WT实比可沿用 | `9a1e4cc8eeb68e1d4cd937f0d5a5b6cbcc506f621bd3cd19d60257255758599b` |
+| repository_contracts | V1e实际运行；同WT实比可沿用 | `28fb8a9cb8daab21c9acd2cc53a7e4f9c4c3acd3ecc555a12d341867ef9ed668` |
+| repository_client | V1e实际运行；同WT实比可沿用 | `82caf66bb770e6df8c3b3874051cba64b7eaae8deacde92f6b6162241f861082` |
+| backend | V4b0本次实际运行 | `5768e8e9314861958c95ef40fceed82720f3c02bbf52cd99937474b42b633aea` |
+| repository_service | V4b0本次实际运行 | `5b2aa00a30e628dca4287edd9dafdb93b43d79afe8b6b34ac7778eef5ae31347` |
+
+V1e完整SHA=`1e669c053f2486c50a8413c58de11d923d7f3cad`，最初全六实际runner SHA=`66847d88d261bd10e96fbd12ab969b01954796f5b87c9036ca3eb4d55fe13621`；V4b0完整SHA=`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`，当前两包实际runner SHA=`962a23b2f94b51668c5b8e2af098e1dd312b8590341311052ec590f814cb7a4d`。均为原04同来源WT的clean、起止HEAD及整次runner0，不以沿用结果充作首次实跑。当前原件根`/home/dev/gdds-test-tmp/p6-s3-v2-sort-authority-4b0a2eec72-fixed/control/`，节点来源WT=`/home/dev/gdds-test-tmp/p6-s3-e-final-3a7e088b2a/wt/subject`，环境、镜像和日志仍保护。
+
+| 当前V4b0当次镜像 | 实际config digest | 全部DiffID |
+| --- | --- | --- |
+| Repository Service | `sha256:aef551dd45e1e3881ddbbd31d7085d93b813e79a00986108d9de6d6c2124a8b3` | image-identities原件全部28项 |
+| backend | `sha256:619d6446e821ea4ebbd62d6e80873a6c485582bef3573f5698d47a68d643658d` | 同原件全部13项 |
+| worker | `sha256:5b64a2cb5c2f032c7a38d587df2c8871a4b9f3dde8ed48a0a539ceeed2b48221` | 同原件全部13项 |
+
+当次image-identities JSON SHA=`72b66ac26f1d6b600aac6e6dca09d1ee787adf98f29be6a34a13dbe2011d697c`、Compose provenance=`fce0e3f7a0c4af44bbf12a81e53d833b10bbc2034bc94982c2dcf3920efc584a`。当前三容器的本机`.Image`与本次保存local ID绑定，config及全部DiffID另由save真实解析；未跨节点混比inspect ID。RS build-input revision为e763、source-tree=`sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646`，candidate标签为V4b0。本节不把当前V容器PASS预签为最终H镜像可沿用。
+
+## 12. 累计代码结论与剩余退出证据
+
+原E `6a91c4cf88` §101已完成V4b0累计代码与§11来源表核收，无新增finding；引用A–D及E既有独立预期、唯一生产路径、删除及consumer边界、预算／owner／取消、风险控制流和局部sort接口修正，不重做已合格工作。代码结论与主线1ecb限定focused、当前V四fresh／权威／镜像各自证据成立，**尚不签E整体GO**。
+
+性能当前为W3 MO合格预热1次，r1已原exit0封口、r2运行；r1可见605.877s／完成605.887s超过对应目标，完整组核收及统计仍未齐。其余工作量／模式和受控聚合未运行，最终H仍须具体固定、同04逐包／镜像实际绑定及原E最终核收。当前进度、原SHA与目标未达观察见[协调§35](p6-s3-coordination.md#35-累计代码核收与首个测量原结果)及[性能§10](p6-s3-performance-report.md#10-w3-mo首个测量执行结果组统计待齐)。不因已完成代码／功能证据而把剩余未知写为通过；正式退出／tag／push未办理。
+
+## 13. 最新退出依据（Owner DC97）
+
+Owner确认性能指标是否达标不再作为退出依据，只要求可靠测量。参考目标及本次超目标数值继续如实报告，不再因数值未达阻止S3退出；当前未核收项是已确认范围的可靠测量／统计、最终H实际逐包／镜像绑定及原E整体核收，业务正确性、资源硬边界和冻结语义等要求不变。测量未完成／无效／失败不能改记通过，既定1warm＋3不缩减。
+
+节点按实时空闲与原子标记执行，不逐次与并行S4沟通，实际冲突才协调。已建立Luna max只读监视角色，原测试者仍唯一执行与封口责任人；协调者等待阶段／异常汇报。具体职责和四槽错峰见[协调§36](p6-s3-coordination.md#36-owner退出依据与监视安排补充dc97)。正式退出手续、tag／push仍未办理。
+
+## 14. W3 MO组资格完成、其余证据待续（2026-11-09）
+
+同CT108／V4b0／Rust9d4／13输入／N1／48−8／M40的W3 MODIFIED_ONLY一暖三测已由原E §103／`296a46770e`核收样本资格PASS，前序receipt／result链及每项业务／资源／运行镜像／实际释放均闭合。warm排除于测量；原始三测时间见[性能§11](p6-s3-performance-report.md#11-w3-mo一暖三测资格核收)，没有在开发机运行统计或签目标达标。
+
+下一组按已审固定序列推进W3 FULL warm，必须实际覆盖两pair及驻留；W4约10%／100%压力各模式、最终受控聚合和同04最终H绑定仍待。当前V代码／四fresh／权威／镜像证据保持各自限定来源，主线S4联合版本不冒为S3-only。可靠测量及剩余独核未完成前不签E整体GO；数值未达本身不构成退出阻塞，原失败及未知继续保留。
+
+## 15. Owner已确认的最小剩余取证清单
+
+原E `25bf0cdac6` §104核收W3 FULL单次预热业务／资源证据，§105对`ffa1ee70bb`[范围补充稿](p6-s3-e-scope-supplement.md)静态CLEAR；Owner随后在本会话直接确认。取消18个未启动项：FULL r2/r3与W4约10%及100%压力各MO/FULL四组的一暖三测；不自动转入S6。默认四档fresh和当前V已过权威／Compose不重跑，不改生产资源默认或冻结bytes／digest／golden。
+
+当前FULL r1自然运行后仍须独核原件，再执行一次现有证据受控聚合、更新实际统计／未知并固定最终docs-only H，在原04来源WT实际六闭包／RS build identity和三镜像绑定，实际要求RUN的包仍实跑，由同E总核收。FULL预热670.932／670.942s不入正式统计；W4全表输出／容量／性能NOT_RUN／UNKNOWN、FULL不具一暖三测统计，原M24基线Submit预约失败与首次拒绝点未知均保留。此范围确认不等于当前r1／聚合／H通过，尚无E整体GO、正式退出或tag／push。
+
+## 16. 当前已完成测量与最后绑定范围
+
+原E `e88ece5c98` §106核FULL r1 actual0及同一Preview两pair／资源／镜像／实际释放；六成功receipt链完整。CT108 01:54:35–01:54:39Z的一次受控聚合已原exit0，最终receipt SHA=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`，report SHA=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。其W3 MO可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s直接来自节点报告；FULL r1可见669.540s／完成669.550s仅单次观察，组统计UNKNOWN。W4四组NOT_RUN／UNKNOWN、all_groups_complete=false保留。范围、分段包含关系及全部原件索引见[性能§13](p6-s3-performance-report.md#13-本次已批准范围的受控报告)，原E `40c84bb8be` §107已逐SHA独核聚合原件与实际释放PASS。
+
+最终产品仍V4b0（完整SHA及Rust／逐包直接source／真实镜像见§11），默认32/8/M24与诊断48/8/M40分列；不混入main S4产品。最后docs-only H须固定字面SHA、源bundle及执行稿、保持V4b0 vnext tree，在原04同WT实际比较并绑定六包／镜像；不能因only docs便声称carried。H不在本文循环填写自身SHA，最终实际值与原exit／日志／SHA由外置binding收据及原E最后独审节记载。当前仍无H结果及E整体GO。
+
+## 17. 最终H前的交接边界与资源保留
+
+产品范围由§1的A–D限定GO及原E §101累计代码结论承接，E清理、三项最小移植和sort cap接口修复均已闭合普通finding；当前无待修产品finding。源区间为设计起点`5dde965a65`至隔离V4b0，期间并行文档不算S3产品改动；最终V:vnext tree=`5610b7137b97196433cc08797d58165b9880e848`、Rust tree9d4f不含后续S4 B/C/D。§2列唯一生产路径、实际删除与断言移交，§11列当前六包直接原source和镜像，§15–16及性能§13列Owner具体范围／可靠部分测量；没有改冻结golden、产物schema／digest或默认N1/32−8/M24。
+
+Q18已独立GO：产品`94b25a3279`、交接`8cf472a4dd`、原审核`27eab454b7`与末次`964d900d44`，供archive-only从候选同事务取得review_version并填写关闭CAS；不把生成时间初始A缺失异常改成无异常，不宣称FE3b／FE3c已验收。Q18可选live OpenAPI curl缺失仍非PASS。S4收到main最小移植1ecb及各自Rust e2a901 focused来源，后续S4结果由其独立候选核收；S5读取／持久缓存、FE和原基准资源不由本次接管。风险约110s级等热点只作已有事实与后续讨论输入，不在S3擅迁语言边界或追加优化。
+
+05四档完整fresh、CT108六样本及受控聚合均已完成正常收尾并释放本人marker，未保留整机预约。原M24失败归档、旧M40失败现场、所有引用成功／失败原件和真实输入继续保留。04来源WT `/home/dev/gdds-test-tmp/p6-s3-e-final-3a7e088b2a/wt/subject`及其环境／镜像保护至H绑定和正式退出后再按DC51处置；不清理他人资源，不全局prune。尚待的是最终H固定／实际六闭包和镜像绑定、同E累计结论与退出交接候选；正式退出手续、附注tag和push仍另办，当前不宣称已退出／发布。

@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         SQLiteSnapshotTableExportCache,
     )
     from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
+    from gateway_backend.infrastructure.control_db.computation_cache import SQLiteComputationCache
 
 from gateway_backend.infrastructure.control_db.control_db_connect import (
     BUSY_TIMEOUT_MS,
@@ -125,6 +126,7 @@ class ControlDbUnitOfWork:
         self._history_compare: SQLiteHistoryCompareRepository | None = None
         self._snapshot_table_export_cache: SQLiteSnapshotTableExportCache | None = None
         self._canonical_tables: SQLiteCanonicalTableCache | None = None
+        self._computation_cache: SQLiteComputationCache | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -177,6 +179,12 @@ class ControlDbUnitOfWork:
         if self._snapshot_table_export_cache is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._snapshot_table_export_cache
+
+    @property
+    def computation_cache(self) -> SQLiteComputationCache:
+        if self._computation_cache is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._computation_cache
 
     @property
     def review(self) -> SQLiteReviewRepository:
@@ -384,6 +392,12 @@ class ControlDbUnitOfWork:
                 now=transaction_now,
                 read_only=self._read_only,
             )
+            from gateway_backend.infrastructure.control_db.computation_cache import SQLiteComputationCache
+
+            self._computation_cache = SQLiteComputationCache(
+                connection, protection=self._protection,
+                now=transaction_now, read_only=self._read_only,
+            )
         except sqlite3.OperationalError as exc:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
@@ -417,6 +431,7 @@ class ControlDbUnitOfWork:
         self._history_compare = None
         self._snapshot_table_export_cache = None
         self._canonical_tables = None
+        self._computation_cache = None
         self._transaction_now = None
         if connection is None:
             return

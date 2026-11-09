@@ -124,6 +124,25 @@ class SQLiteArtifactProtectionStore:
                 (artifact_id, artifact_id, now_us, expires_at_us),
             )
 
+    def clear_protection_intent(self, *, owner_kind: str, owner_id: str, intent: str) -> int:
+        """Release one derived intent without removing this owner's workflow pins."""
+        if self._read_only:
+            raise RuntimeError("artifact protection store is read-only in this transaction")
+        canonical_ids = tuple(row[0] for row in self._connection.execute(
+            """SELECT p.artifact_id FROM artifact_protection_intents p
+               JOIN canonical_table_cache c ON c.artifact_id=p.artifact_id
+               WHERE p.owner_kind=? AND p.owner_id=? AND p.intent=?""",
+            (owner_kind, owner_id, intent),
+        ))
+        cursor = self._connection.execute(
+            "DELETE FROM artifact_protection_intents WHERE owner_kind=? AND owner_id=? AND intent=?",
+            (owner_kind, owner_id, intent),
+        )
+        self.touch_canonical_ttl(
+            canonical_ids, recorded_at=datetime.now(UTC) if self._now is None else self._now,
+        )
+        return int(cursor.rowcount)
+
     def is_protected(self, artifact_id: str) -> bool:
         now_us = _datetime_to_epoch_us(
             datetime.now(UTC) if self._now is None else self._now

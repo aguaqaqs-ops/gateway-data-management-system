@@ -971,6 +971,48 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         PRIMARY KEY (repository_id, row_layout_digest, parquet_writer_contract_version)
     )
     """,
+    """
+    CREATE TABLE computation_cache_entries (
+        repository_id TEXT NOT NULL
+            CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+        kind TEXT NOT NULL CHECK (kind IN ('comparison', 'risk')),
+        task_digest TEXT NOT NULL
+            CHECK (typeof(task_digest) = 'text' AND length(CAST(task_digest AS BLOB)) BETWEEN 1 AND 255),
+        manifest_artifact_id TEXT NOT NULL
+            CHECK (typeof(manifest_artifact_id) = 'text' AND length(manifest_artifact_id) BETWEEN 1 AND 128),
+        manifest_media_type TEXT NOT NULL
+            CHECK (typeof(manifest_media_type) = 'text' AND length(CAST(manifest_media_type AS BLOB)) BETWEEN 1 AND 255),
+        manifest_size_bytes INTEGER NOT NULL
+            CHECK (typeof(manifest_size_bytes) = 'integer' AND manifest_size_bytes BETWEEN 0 AND 1048576),
+        manifest_raw_sha256 TEXT NOT NULL
+            CHECK (typeof(manifest_raw_sha256) = 'text' AND length(manifest_raw_sha256) BETWEEN 1 AND 255),
+        member_refs_json TEXT NOT NULL
+            CHECK (typeof(member_refs_json) = 'text' AND length(CAST(member_refs_json AS BLOB)) <= 65536),
+        format TEXT NOT NULL
+            CHECK (typeof(format) = 'text' AND length(CAST(format AS BLOB)) BETWEEN 1 AND 255),
+        expires_at_us INTEGER NOT NULL CHECK (typeof(expires_at_us) = 'integer'),
+        PRIMARY KEY (repository_id, kind, task_digest)
+    )
+    """,
+    """CREATE INDEX computation_cache_entries_expiry
+       ON computation_cache_entries(expires_at_us)""",
+    """
+    CREATE TABLE computation_cache_uses (
+        producer_operation_id TEXT NOT NULL
+            CHECK (typeof(producer_operation_id) = 'text' AND length(CAST(producer_operation_id AS BLOB)) BETWEEN 1 AND 255),
+        repository_id TEXT NOT NULL
+            CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+        kind TEXT NOT NULL CHECK (kind IN ('comparison', 'risk')),
+        task_digest TEXT NOT NULL
+            CHECK (typeof(task_digest) = 'text' AND length(CAST(task_digest AS BLOB)) BETWEEN 1 AND 255),
+        manifest_artifact_id TEXT NOT NULL
+            CHECK (typeof(manifest_artifact_id) = 'text' AND length(manifest_artifact_id) BETWEEN 1 AND 128),
+        expires_at_us INTEGER NOT NULL CHECK (typeof(expires_at_us) = 'integer'),
+        PRIMARY KEY (producer_operation_id, repository_id, kind, task_digest)
+    )
+    """,
+    """CREATE INDEX computation_cache_uses_expiry
+       ON computation_cache_uses(expires_at_us)""",
 )
 
 _STRUCTURE_QUERY = """

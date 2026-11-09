@@ -294,6 +294,36 @@ lookup 在 root read session 内短事务 pin 全部成员，再校验文件；�
 Submit T3只触达对应 Preview 的匹配现存条目，不推进业务 BaselineHead、不跨服务原子化。
 cache miss/可选写失败不改变业务结果；控制取消/截止、真正 M不足与未知 DB错误不吞为 miss。
 
+S5持久实现的纯引用端口为`artifacts.computation_cache`，SQLite adapter归
+`infrastructure/control_db/computation_cache.py`。基线直接创建`computation_cache_entries`
+与`computation_cache_uses`及各自expiry索引，无迁移或旧字段别名。entry的PK为
+`(repository_id, kind, task_digest)`；完整manifest ref、member refs、format及expiry一起登记。
+uses的PK额外含真实producer operation，记录该次使用的manifest id；不加入任何业务digest。
+
+共享manifest envelope只闭合format/kind/repository/task/member refs；payload字段由Comparison或
+Risk owner解释。manifest为规范JCS且至多1MiB，comparison至多7个member refs、risk至多1个；
+DB refs文档至多64KiB。无记录的完整比较候选可只有manifest，不猜目录或给空IPC造文件。
+写入顺序为root共享借用→短事务预置operation保护→写全体成员与manifest并验证完整性→短事务
+原子登记index、所有TTL intent与uses。写失败不发布部分index；未知DB错误传播并由原事务回滚。
+
+lookup持root共享借用，短事务只查未过期entry并pin全部已登记refs；事务退出后才hash文件、校验
+envelope并解码payload。调用方以当前operation的reserve/checkpoint回调预付metadata、mapping与
+decode资源；可选cache预约失败可安全miss/not_retained，不能吞原业务必需输出或native的M失败。
+payload/schema不符仅按完整原manifest身份条件失效，旧reader不能touch或删除新writer的替换值。
+命中在pair成功后`mark_used`，以事务UTC续TTL并写当前producer uses；仅打开候选不续期。
+
+活动pin复用原`preview-operation`/`history-compare-operation` owner，intent为
+`active-computation-cache`，不覆盖已有workflow intent。单lease关闭释放本次borrow/解码资源，
+同operation的重叠lease共享的pin保持；原assembly批次在所有consumer/lease关闭后调用
+`release_operation_pins`，只删cache intent，保原checkpoint/source保护。C接线负责在READY前
+及异常finally执行该窄释放；原Lifecycle终态owner释放保持，不新增reader journal/refcount。
+TTL owner与上述活动owner独立，批次释放后健康内部cache只剩86400秒TTL。
+
+expiry每次至多清理64个entry与64个uses；direct lookup始终另核当前expiry，不因清理批次上限命中
+过期值。T3派生维护每次至多触达64个仍健康、scope与manifest匹配的uses，按kind/task排序，
+不延长其他producer/repository或已被替换的条目；未触达条目仍按原TTL自然淘汰。D接线在原T3
+窄SAVEPOINT内调用此SQL participant，不读文件，不推进BaselineHead。
+
 `comparison_surface_cache` 第一版不要求实现，只保留边界。未来 key 至少包含：
 
 ```text

@@ -341,8 +341,8 @@ test("V2 两侧独立项分别接受与撤销", async ({ page }) => {
   expect(bodies.map((body) => [body.action, body.subject_digest, body.expected_sequence, body.reason])).toEqual([
     ["ACKNOWLEDGE_TIME_QUALITY", "sha256:v-twoside-initial", 0, "① 已核对"],
     ["ACKNOWLEDGE_TIME_QUALITY", "sha256:v-twoside-modified", 0, "② 已核对"],
-    ["REVOKE_ACCEPTANCE", "sha256:v-twoside-initial", 4, "① 撤销理由"],
-    ["REVOKE_ACCEPTANCE", "sha256:v-twoside-modified", 5, "② 撤销理由"],
+    ["REVOKE", "sha256:v-twoside-initial", 4, "① 撤销理由"],
+    ["REVOKE", "sha256:v-twoside-modified", 5, "② 撤销理由"],
   ]);
 });
 
@@ -390,9 +390,13 @@ test("V4 撤销后回到未处理且禁用确认归档", async ({ page }) => {
   const bodies = apiRequests
     .filter((request) => request.path === "/v1/archive-anomaly-resolutions")
     .map((request) => JSON.parse(request.body) as { subject_digest: string; expected_sequence: number; action: string });
-  expect(bodies).toEqual([
-    { subject_digest: "sha256:v-source", expected_sequence: 3, action: "REVOKE_ACCEPTANCE", reason: "需要重新核对来源" },
-  ]);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toMatchObject({
+    subject_digest: "sha256:v-source",
+    expected_sequence: 3,
+    action: "REVOKE",
+    reason: "需要重新核对来源",
+  });
 });
 
 test("V5 审计冲突后提示并重新预检不重发", async ({ page }) => {

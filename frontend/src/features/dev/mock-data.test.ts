@@ -269,10 +269,7 @@ describe("simulated HTTP response contracts", () => {
             expect(node.promoted_baseline_node_id, `${datasetName} ${node.ref_id} promoted is head`).toBe(headId);
           } else {
             expect(baseline?.node_kind).toBe("BASELINE_NODE");
-            expect(
-              (baseline as Extract<HistoryNode, { node_kind: "BASELINE_NODE" }>).baseline_kind,
-              `${datasetName} ${node.ref_id} promoted baseline kind`,
-            ).toBe("ARCHIVED_SUBMISSION");
+            expect(baseline?.baseline_kind, `${datasetName} ${node.ref_id} promoted baseline kind`).toBe("ARCHIVED_SUBMISSION");
           }
           const members = archivedByResult.get(node.disposition_result_id ?? "") ?? [];
           archivedByResult.set(node.disposition_result_id ?? "", [...members, node.ref_id]);

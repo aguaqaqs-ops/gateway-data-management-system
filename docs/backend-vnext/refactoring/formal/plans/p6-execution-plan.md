@@ -210,7 +210,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S5 — History 与跨操作缓存
 
-- S3/S4均已exit；当前仅设计与独审授权，产品实施待Owner另行确认。
+- S3/S4均已exit；设计已CLEAR，Owner已授权新会话完整实施A–E，具体边界见[实施任务提示词](p6-s5-implementation-prompt.md)。
 - [详细设计](p6-s5-design.md)、[A–E实施与验证计划](p6-s5-kickoff.md)、[独审提示词](p6-s5-review-prompt.md)统一拥有当前具体范围。
 - 内容：完整单表任务key、neutral diff/纯risk候选缓存、TTL/protection及T3可选引用触达；History metadata先行与按需读取、当前operation重绑；现RS有界重试的取消/截止接线。Submit不推进业务BaselineHead，保T1/PREPARED/Repository CAS与原恢复。
 - Owner本轮按DC33/DC98确认标准t1 v1/v2，合法存量提交可复用，仅必要History冷查/复查/真实records与bundle读取；FULL例外、三节点、损坏回填、恢复由focused/Contract证明。性能只观察，不执行合成2×t4、fresh t1–t4或1暖3测。

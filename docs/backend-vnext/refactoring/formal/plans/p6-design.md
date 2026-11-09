@@ -389,7 +389,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 11. S5：History 与跨操作缓存
 
-详细目标、源码缺口与失败语义见[S5设计](p6-s5-design.md)，分节实施、唯一验证owner与成本见[S5 kickoff](p6-s5-kickoff.md)。当前仅设计讨论与独审获授权，S3/S4 exit不等于S5实施授权。
+详细目标、源码缺口与失败语义见[S5设计](p6-s5-design.md)，分节实施、唯一验证owner与成本见[S5 kickoff](p6-s5-kickoff.md)。Owner已在设计关闭后授权新会话完整推进A–E，当前执行边界见[实施任务提示词](p6-s5-implementation-prompt.md)。
 
 - **单表diff/risk（DC43）：** 从去外层绑定的完整语义任务生成key，保规则主体/版本、两侧effective key与storage事实、schema/count/profile、diagnostics/detail及repository scope。比较值保存可重放的neutral facts/records，风险值仅完整纯候选事件；当前closure、pair上限、时间/取消、编号、表名与组合信号仍在本次执行。不得持久化native handle或已截断最终outcome。
 - **按需History：** 先核精确commit metadata/catalog、完整结构条件，查diff与独立导出缓存，再合并必要行需求；读规范表副本，miss由exact commit Dolt回填。未变ordered facts来自本pair current或合法缓存。不能先物化全部表再声称缓存消除了读取。

@@ -48,3 +48,9 @@ R1候选`309571984d96d171e9b0c3e24a9cb82ec64c2ead`在`/home/dev/gdds-s5-design-r
 关闭提交只归档原文并更新状态，按R2明确允许的机械归档范围核对：两轮原文字节/SHA不变、相对文档目标可解析、Git空白检查通过、`vnext`与`frontend`树等于源码基线，主线工作区clean。没有运行产品测试、lint、编译、镜像或真实旅程，没有新增carried、推送或S5 exit tag。main位于本轮独立工作区`/home/dev/gdds-s5-design-main`，原前端工作区未切换或覆盖。
 
 下一步待Owner另行授权S5产品实施，再按kickoff A→E推进；本次临时Astra high授权仅用于上述设计原审及连续复审，不延伸实施阶段。
+
+## 7. 完整实施授权与新会话入口
+
+Owner在设计关闭后明确要求生成实施提示词，将开启GPT-6.1-Sol协调会话，并授权“可以直接完整推进A-E，除非遇到阻塞问题需要确认”。当前实施入口为[p6-s5-implementation-prompt.md](p6-s5-implementation-prompt.md)，覆盖实现、必要验证、独审及修复复审、E核收与条件满足后的本地阶段收口；未经明确授权仍不push。已确认t1最小范围、统一池、默认M24及冻结语义不变。
+
+设计/kickoff/总计划的当前状态同步为实施已授权，原审报告保留当时授权事实，不改原文；Astra high临时授权未延伸。本次只整理新会话提示词与状态，没有开始S5产品实现或执行测试。新会话先核实际main/worktree及并行改动，再直接从A推进至E，不在小节边界重复请示。

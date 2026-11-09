@@ -1,17 +1,17 @@
 # Phase 6 S5 History 与跨操作缓存详细设计
 
-状态：**DESIGN_CLEAR，产品实施仍未授权**。独审绑定候选`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`，原审及复审见下方review。源码基线 `4c648965286ec751c4395cd6111f11838610299c`（main），2026-11-09。
+状态：**DESIGN_CLEAR；Owner已授权新会话完整实施A–E，尚未开始实施**。当前权限见[实施任务提示词](p6-s5-implementation-prompt.md)。独审绑定候选`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`，原审及复审见下方review。源码基线 `4c648965286ec751c4395cd6111f11838610299c`（main），2026-11-09。
 实施顺序与验证见 [kickoff](p6-s5-kickoff.md)，固定候选独审见 [review](p6-s5-design-review.md)。本稿中的新增接口、schema 与格式均为待实施目标，不代表现有产品已具备。
 
 ## 1. 范围、事实与决定
 
-S3、S4正式退出仅解除阶段前置。本轮只授权设计文档、讨论、计划、只读核查和独立设计审核；不运行产品测试、编译、lint、镜像、真实旅程或原型，不创建S5 exit tag，不推送。S6/P7、跨operation调度、通用SDK、缓存平台、磁盘容量淘汰不在范围。
+S3、S4正式退出仅解除阶段前置。设计轮已完成。Owner现已授权按[实施任务提示词](p6-s5-implementation-prompt.md)完整推进A–E；只有实质阻塞才确认，不推送。S6/P7、跨operation调度、通用SDK、缓存平台、磁盘容量淘汰不在范围。
 
 - S3 V=`4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb`，H/tag=`f9ef26081dfd4710d3709d9f5fbca24543f84de4` / `p6-s3-exit`。
 - S4 V=`6786b28a3506feab3d8eac7d1288c8b22525bb8f`，H/tag=`1e778aae0522db75ea1f507ecfa83a6d7b714d65` / `p6-s4-exit`。当前Rust tree=`e2a901417b19259ece669637a41545e774261445`。
 - S3历史已通过`87f4ae305c48cd06dfd3033f41c5a8b50ac3ebfc`合回，merge tree等第一父；本稿基于main的S4产品树，不能把S3证据移作当前产品验证。
 - 默认N1、单active、worker32GiB/reserve8GiB/M24。S4的48/8/M40成功不证明M24或S5容量，S3原大负载失败与取消项不移交为S5必测项目。
-- Owner本轮确认DC33范围为标准t1 v1/v2，合法存量提交可复用，只跑必要History冷查、复查、真实records/bundle读取；FULL、三节点、损坏、恢复由focused/Contract覆盖。仍待另行产品实施授权。
+- Owner本轮确认DC33范围为标准t1 v1/v2，合法存量提交可复用，只跑必要History冷查、复查、真实records/bundle读取；FULL、三节点、损坏、恢复由focused/Contract覆盖。实施与必要验证已按本次Owner授权开放。
 - Owner本轮确认节点按main DC91/DC97统一空闲池；另授权AGENTS及相关执行说明只保留最新要求。历史handoff与原审证据保持原样。
 
 ### 1.1 已核实现和缺口
@@ -291,4 +291,4 @@ Q18已在94b独立GO（最新原审§14），review_version/selected两字段契
 
 采用单表neutral IPC和纯风险事件、metadata先行按需读取、TTL派生索引、T3可选触达、既有恢复屏障。拒绝pair-total缓存、直接复制Parquet当完整比较状态、持久native handle、长期commit链pin和新恢复状态机。Owner已确认最小真实范围和统一节点池；资源档采用生产默认M24，不援引S3/S4专项增预算作为S5授权。
 
-设计独审须检验本稿的具体格式、完整输入、重绑、控制重放、引用/事务及成本是否足以实施；发现无法保值的语义冲突必须回Owner。独审CLEAR只意味着设计闭合，随后等待Owner另行授权S5产品实施。
+设计独审已闭合具体格式、完整输入、重绑、控制重放、引用/事务及验证成本。Owner随后已授权新会话完整实施A–E，按[实施任务提示词](p6-s5-implementation-prompt.md)直接推进；发现无法保值的语义冲突等实质阻塞才回Owner。设计CLEAR仍不代表产品实现或验证通过。

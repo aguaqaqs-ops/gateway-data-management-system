@@ -28,3 +28,11 @@
 上述矩阵支持在**本地 tag H 后**作一次有说明的、只连接历史的双亲 merge：第一父为届时 `main`，第二父精确为 H，合并树必须与第一父的树完全相同。这种 `ours` 策略的前提是执行前再次核实上述四项映射和 `main` 当前树；它只记录已另行纳入或适配的 S3 支线历史，不把旧 S3 实现冲回已退出的 S4 主线。普通内容 merge、无矩阵的盲目 `ours`、以 merge commit 当 S3 被测 H，均不合格。若执行时映射不再成立，应停止并审具体差异，不能强行连接历史。
 
 **审查结论：`S3_EXIT_TAG_GO`，上述条件满足时 `S3_HISTORY_MERGE_GO`。** 完整形式手续以本地附注 tag 和已核双亲 merge 的实际对象及回执为准；在它们完成前，只能称“技术 GO、正式手续待办”。新 merge 本身不是新的 S3 产品候选，不引用 S4 当前树替换 H，也不推导新的容器或真实性能结果。04 原来源 worktree、镜像、输入与全部原始证据继续按交接保护，后续处置另依已授权白名单办理。
+
+## 4. 本地 tag 与历史合回的实际核收
+
+协调者于 2026-11-09 03:28:07 UTC 在本地按 §2–3 办理正式手续。本人只读重算外置 `/home/dev/gdds-test-tmp/p6-s3-formal-exit-20261109/` 的 `receipt.json` SHA256=`aa179ad52e68e4a99d70c49ce7bf2f0d8a44c6126b2b6d109b8ca4b2151c0738`、`raw.log`=`2bef101c6e88fa27d46a457e5c90c9dcbe7315ab4c12ab09472108c553b967e8`、19 路径映射=`932d6d7d72e2f295b1c0cb0095ff95b6ddef0d697a296cf726f6cc7d422323a3`。映射中的 19 个 `H:path` 和合回前 `main:path` blob 逐项与 Git 对象相同，集合恰为共同祖先到 H 的全部变更路径；H 的 14 文档来源保持原§3结论。
+
+`p6-s3-exit` 实际是附注 tag 对象 `cdfe49ccea0ad51d1ea1798e851736644830984e`，其目标精确为 H=`f9ef26081dfd4710d3709d9f5fbca24543f84de4`。附注引用本报告提交前版本 `c1ed5981280e31c5e1e2e6e8ca8d212330105f05`、该版文件SHA256=`e5f5e6597ae86e52357086c368b0cc6c5f1a84633116eb54325364e7bfc6346a`、技术GO `90ca3ebec400ea91da173e2caf89d2682a2654a6`、post-H独审 `03abc1d912d2f1ecee7b9b5eef90eba623dd272c`、H绑定outer SHA及Owner授权；原M24失败、FULL/W4未知、取消18项和“不push/S5”均明列。本人从 `c1ed:path` 独立重算了附注中固定的文件SHA；本节是tag之后的记录，不回写tag或H，也不要求把自身新SHA嵌入tag。
+
+实际合回提交 `87f4ae305c48cd06dfd3033f41c5a8b50ac3ebfc` 的两父严格依次为本报告提交前版本 `c1ed5981280e31c5e1e2e6e8ca8d212330105f05` 和 H，合并树=`43efa62e3418e8c795b113b26c79aaee6d6919a3`，与第一父树完全相同；`vnext`树=`6368c9c40cf08a97eecf2a0c457a6c16ce448080`亦未变。`git diff`第一父至merge为空，H现为main祖先；原raw记录tag、无内容改动的合并及祖先检查均exit0，收尾clean。该合并仅连接已另行适配进入main的历史，**不是**在main的S4树上重新验证S3产品。正式本地退出与短支线合回手续据此核收完成；仍未授权push、发布或S5，04原来源及原始证据继续保护。

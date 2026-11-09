@@ -170,3 +170,63 @@ clean、cleanup0、本人marker释放。原审独核成功local31/remote22项及
 D无qualified runner、Compose、真实t1或carried；容器仍集中E。生产N1/单active/M24与统一池
 不变。固定交接后D角色退出活动分工，E新建三角色并从当前产品、A–D接口/Contract和必要
 原件接手；不得以D focused代签最终全六包/容器/最小t1，E独立核收后才标本地exit，不push。
+
+## 15. E 最终产品、权威与真实证据关闭
+
+D交接后新建E实施Sol high、原审Sol xhigh、唯一执行/等待Luna max，协调者持续；没有
+延续设计轮Astra授权或跨节复用C/D角色。E最终产品为
+`2d8b29d332ceb467ba77bb4826fb0925653ebb4e`，vnext tree=
+`fb92c4757f4f9d9174ce6ab8c17187fdabafacdf`、Rust仍c021。
+
+V1=`16317606d4`于06首次六包整次exit1：业务History已成功，既有ordered诊断将新的
+metadata-only checkpoint误作row-ready，backend serial唯一失败。原1与完整原件保留，
+任一包均不从该整次非零来源carry。E只修既有两个诊断consumer，按actual scope/exact
+commit authority调用原ensure owner获取其全表实际reader，标准ExitStack保到最后consumer
+并关闭；原远端digest/有序事实断言不变。794初修经原审进一步收尾后固定2d8，06必要
+debug19步/单Compose实际0，五包静态通过。
+
+06 / gw-dms-06.lan在V2于11:33:10–12:03:13Z实际完整六包，整次0、源clean、同次适用
+Compose和实际镜像取证/source身份全0。Rust三步0，shared261、contracts152、client170、
+backend3642+80、RS1764+214（另1skip，原-q未给nodeid/reason，保未知不算pass）。
+最初实际来源、六包total_digest及完整镜像config/RootFS身份见[最终交接](p6-s5-handoff.md)。
+原authority WT/env/images及本人06标记保到精确H绑定，不跨节点/WT搬carry来源。
+
+DC33最小t1不扩围。旧control DB缺S5新唯一schema，未迁移或启动冻结旧卷，04本人栈
+仅补两个必要合法Preview/Submit/审批及v1 Archive；v2 finalized Submission可作第二
+History节点。独立预期来自固定OLD6786/旧Rust e2a的最小组件capture，完整12records
+（STD6/ORDERED6）与6条MEDIUM_LOW行风险、两包XML独立SHA及composite逻辑UNCHANGED4/4。
+该旧组件只供expected，非门禁carry或本轮产品通过。
+
+外置t1脚本先后暴露unused hostDolt前检、项目外.py guard、raw XML同字节假设及可选
+物理RiskReport被当必存在的问题；各次原numeric/log/SHA与收尾保留，按具体故障修订
+并原审，不无修改重试。cold业务operation实际13:20:19.019Z起、44.148s SUCCEEDED，
+完整tar保存；consumer错误导致原pf3整次1、未发warm。后续只读原tar补核0，核完整
+125表/250bindings/3733与3731行/全部schema、12records全族digest和六手算、6ann全部
+业务内容与独立旧oracle一致；没有新的cold/前置/GET。
+
+暖续验r1在只读日志预检把`operation_id=-`当业务ID；r2只启动原backend/RS并读取
+cold status后，把HTTP源Surface与嵌套引用重写后的final Surface跨层等同。两次原1
+保留、worker均未start且均未warm POST。r3据原reporter/真实ASSEMBLE checkpoint与
+Source/Bundle owner窄修后，于04 **14:38:53–14:40:29Z**在原WT/原3容器和挂载上完成
+唯一新key/newoperation暖查及第4完整tar；无up/build/sync、新栈、再次cold或两前置。
+一次复审任务误用只留言调用、未唤醒已结束回合造成额外等待，协调者核实并纠正为任务
+调用；该延迟不归入产品性能、节点占用冲突或新的Owner阻塞。
+
+暖op=`op-d387b7f215cd42edfbc08aa6`不同于原cold，SUCCEEDED34.118s；comparison0、
+ordered single-side0、persistent restore9、records validation1、digest rebind125，实际
+RS rows0/catalog4、export hits250/demand0。N1/M24，cold预约HWM25,438,132,736、
+warm25,438,127,616均≤25,769,803,776；warm cgroup max32GiB/peak109,735,936B/
+events0，观察范围单列，cold peak UNKNOWN不补造。API/checkpoint源Surface2971…与
+tar最终Surface81ee…各层分别冷暖相同，完整数据/风险/记录digest均保值，没有mask目标
+编号或content。RS admission不可观察记null；report-only未物理导出字段列不可观察，
+不新造产品文件。时间仅观察，不做重复采样或统计提速结论。
+
+唯一执行者核所有入口/copy/SHA/stop/post-stop/marker全0，原审逐件独核后给
+**E_CODE_GO / EVIDENCE_GO**，原文SHA256=
+`332f7f1c36b03b73944111cfde31929965887bfda0f8cdb67077c667c292a653`，
+完整[逐字原审及连续修订](p6-s5-e-review.md)、[最终handoff](p6-s5-handoff.md)归档。
+
+最后只形成纯文档H：在原06/同authority WT实际六包compare和image身份绑定，再由原审
+核收/明确准release，唯一执行者实际释放0，最后原审生成精确H外置EXIT_GO回执，才标
+本地附注`p6-s5-exit`。H不写自身SHA/未来回执避免H2循环，实际目标由tag及handoff指定
+回执解析；不提前tag、不覆盖tag、未经明确授权不push，不开始S6或代签FE3c。

@@ -210,6 +210,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S5 — History 与跨操作缓存
 
+- **A–E交付（2026-11-09）：** 最终产品V2=`2d8b29d332ceb467ba77bb4826fb0925653ebb4e`已获CODE/EVIDENCE_GO；06六包及同次Compose实际0，04标准t1一次cold/唯一新operation warm、完整tar/records/风险独立预期均核收，N1/M24。暖comparison/ordered single-side/实际RS rows均0、restore9，冷cgroup peak UNKNOWN保留。实际来源、逐包闭包及精确H绑定/释放/EXIT回执见[最终交接](p6-s5-handoff.md)与[E原审](p6-s5-e-review.md)，本地退出对象由附注`p6-s5-exit`解析；没有S6/Phase 6总退出或push授权。
 - S3/S4均已exit；设计已CLEAR，Owner已授权新会话完整实施A–E，具体边界见[实施任务提示词](p6-s5-implementation-prompt.md)。
 - [详细设计](p6-s5-design.md)、[A–E实施与验证计划](p6-s5-kickoff.md)、[独审提示词](p6-s5-review-prompt.md)统一拥有当前具体范围。
 - 内容：完整单表任务key、neutral diff/纯risk候选缓存、TTL/protection及T3可选引用触达；History metadata先行与按需读取、当前operation重绑；现RS有界重试的取消/截止接线。Submit不推进业务BaselineHead，保T1/PREPARED/Repository CAS与原恢复。

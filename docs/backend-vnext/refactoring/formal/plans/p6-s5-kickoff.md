@@ -1,6 +1,6 @@
 # Phase 6 S5 实施与验证计划
 
-状态：**DESIGN_CLEAR；A/B/C/D实现与必要证据已独审GO，进入E**；A产品`eb64578925`、B产品`e1098b2a62`、C产品`fdb2a69a43`、D产品`cb2ad30084`，实际证据与未测范围见各节handoff。设计独审绑定候选仍为`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`。设计见[p6-s5-design](p6-s5-design.md)，设计源码起点main `4c648965286ec751c4395cd6111f11838610299c`。当前授权及协调角色见[实施任务提示词](p6-s5-implementation-prompt.md)：直接完整推进A–E，仅实质阻塞需确认；从C起各节新建三类子agent。
+状态：**DESIGN_CLEAR；A–E实现、必要证据均已独审GO**；最终产品V2=`2d8b29d332ceb467ba77bb4826fb0925653ebb4e`，实际六包/Compose/最小t1、未测范围和精确H绑定/退出回执见[最终handoff](p6-s5-handoff.md)，退出以该回执及本地附注`p6-s5-exit`为准。A产品`eb64578925`、B产品`e1098b2a62`、C产品`fdb2a69a43`、D产品`cb2ad30084`；设计独审绑定候选仍为`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`。设计见[p6-s5-design](p6-s5-design.md)，设计源码起点main `4c648965286ec751c4395cd6111f11838610299c`。当前授权及协调角色见[实施任务提示词](p6-s5-implementation-prompt.md)：直接完整推进A–E，仅实质阻塞需确认；从C起各节新建三类子agent。
 
 ## 1. 已确认输入与交付边界
 
@@ -93,14 +93,14 @@ S5完成目标：单表diff/risk跨operation复用、History按需读表、当�
 
 | 范围 | A–D | E计划 | 当前状态 |
 | --- | --- | --- | --- |
-| rust | codec/restore改变时focused、fmt/clippy，backend前强制native重装 | 实跑，因Rust树变化 | A fmt/clippy/core focused4通过，权威全包未跑 |
-| backend | 按节focused/必要集成，serial -n0 | 实跑权威包，含现History/Submit/ordered等Compose | A focused278+1、B focused162、C focused420通过；B空serial工具续步已核，权威/Compose未跑 |
-| repository_client | D通用控制变更focused | 实跑权威包 | 未运行 |
-| shared_kernel / repository_contracts | 无语义改动时不新增测试矩阵 | 优先核原来源同WT闭包；不同即实跑 | 尚无carried判定 |
-| repository_service | 产品未改，保原wire/容量 | Docker context等闭包很可能变化；按真实manifest决定，变化必实跑 | 尚无carried判定 |
-| 五Python包ruff/mypy | 有代码提交按AGENTS执行 | 最终受影响修订复验 | A/B/C固定候选分别实际通过；后续改动仍需复验 |
+| rust | codec/restore改变时focused、fmt/clippy，backend前强制native重装 | 实跑，因Rust树变化 | V2权威fmt/clippy/workspace test全0 |
+| backend | 按节focused/必要集成，serial -n0 | 实跑权威包，含现History/Submit/ordered等Compose | V2权威3642 parallel+80 serial passed，同次适用Compose通过 |
+| repository_client | D通用控制变更focused | 实跑权威包 | V2权威170 passed |
+| shared_kernel / repository_contracts | 无语义改动时不新增测试矩阵 | 按实际闭包决定 | V2权威261 / 152 passed，未沿用旧S4来源 |
+| repository_service | 产品未改，保原wire/容量 | 闭包变化实跑 | V2权威1764 parallel+214 serial passed，1 skip身份未知；不计skip为pass |
+| 五Python包ruff/mypy | 有代码提交按AGENTS执行 | 最终受影响修订复验 | A–D固定候选与V2受影响E修订均实际通过 |
 | frontend | 无产品文件变更 | 无新增FE门禁；若发现breaking DTO则停止修设计/范围 | 不代表FE阶段验收 |
-| t1真实History | 不在每节重复旅程 | §5一次 | 未运行 |
+| t1真实History | 不在每节重复旅程 | §5一次 | 必要两节点、一次cold+newkey/newop唯一warm、完整tar/真实records/旧源12records+6risk均核收；冷peak UNKNOWN |
 
 S4四包c9e、backend/RS 6786只是可审来源线索，不是预先批准S5 carry。carried必须同来源节点/WT/环境、包专属Hypothesis路径无残留、完整manifest和镜像等价实际通过；换节点可实跑，不能搬迁旧来源判等。E选包范围随实际闭包确定，不承诺只跑三包；项目最终/发布仍六包全量。
 

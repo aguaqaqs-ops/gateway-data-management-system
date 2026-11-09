@@ -12,7 +12,7 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.cache_codec import ComparisonCacheCodec
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonPlan, DetailedFactsResult,
+    ComparisonPlan, ComparisonStorageFacts, DetailedFactsResult,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
@@ -65,22 +65,25 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     planned = _planned()
     task = planned.tasks[0]
     current = task.current_descriptor
-    assert current is not None and task.policy is not None
+    policy = task.policy
+    assert current is not None and policy is not None
     reference = _identity(planned)
     repository, scope = "replacement-fixture", "scope"
     if change == "direction":
         task = replace(task, before_descriptor=task.current_descriptor, current_descriptor=task.before_descriptor,
                        before_table=task.current_table, current_table=task.before_table)
     elif change in {"row_count", "content", "schema", "compare_key"}:
-        updated = replace(current, **{
-            "row_count": {"row_count": current.row_count + 1},
-            "content": {"raw_content_digest": raw_blob_digest(b"different-content")},
-            "schema": {"compare_schema_digest": raw_blob_digest(b"different-schema")},
-            "compare_key": {"compare_key_columns": ()},
-        }[change])
+        if change == "row_count":
+            updated = replace(current, row_count=current.row_count + 1)
+        elif change == "content":
+            updated = replace(current, raw_content_digest=raw_blob_digest(b"different-content"))
+        elif change == "schema":
+            updated = replace(current, compare_schema_digest=raw_blob_digest(b"different-schema"))
+        else:
+            updated = replace(current, compare_key_columns=())
         task = replace(task, current_descriptor=updated, current_table=None)
     elif change == "policy":
-        task = replace(task, policy=replace(task.policy, compare_excluded_columns=("note",)))
+        task = replace(task, policy=replace(policy, compare_excluded_columns=("note",)))
     elif change == "scope":
         scope = "other"
     elif change == "repository":
@@ -90,9 +93,9 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     elif change == "diagnostics":
         planned = replace(planned, diagnostics=("different-diagnostic",))
     elif change == "storage":
-        facts = task.policy.storage_facts_current
+        facts = policy.storage_facts_current
         assert facts is not None
-        task = replace(task, policy=replace(task.policy, storage_facts_current=replace(
+        task = replace(task, policy=replace(policy, storage_facts_current=replace(
             facts, storage_projection_version="another-actual-projection-version")))
     actual = build_table_task_identity(planned, task, repository_id=repository, artifact_scope=scope)
     assert isinstance(actual, NotCacheable) or actual.task_digest != reference.task_digest
@@ -185,33 +188,38 @@ def test_both_canonical_sides_require_complete_bound_storage_facts(side: str, ch
     task = planned.tasks[0]
     policy = task.policy
     assert policy is not None
-    field_name = "storage_facts_" + side
-    facts = getattr(policy, field_name)
+    facts = policy.storage_facts_before if side == "before" else policy.storage_facts_current
     assert facts is not None
+    updated: ComparisonStorageFacts | None
     if change == "missing":
         updated = None
     elif change == "effective_key":
-        policy = replace(policy, **{"effective_key_" + side: ("note",)})
+        policy = (replace(policy, effective_key_before=("note",)) if side == "before"
+                  else replace(policy, effective_key_current=("note",)))
         updated = facts
     elif change == "view":
         from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
-        descriptor = getattr(task, side + "_descriptor")
+        descriptor = task.before_descriptor if side == "before" else task.current_descriptor
         assert descriptor is not None
         view = replace(facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
                        canonical_key_columns=descriptor.primary_key_columns)
         updated = replace(facts, storage_rule_view=view)
+    elif change == "source_schema":
+        updated = replace(facts, source_schema_digest=raw_blob_digest(b"other-source-schema"))
+    elif change == "canonical_schema":
+        updated = replace(facts, canonical_schema_digest=raw_blob_digest(b"other-canonical-schema"))
+    elif change == "content":
+        updated = replace(facts, raw_content_digest=raw_blob_digest(b"other-content"))
+    elif change == "projection":
+        updated = replace(facts, storage_projection_version="another-valid-projection")
+    elif change == "partial_schema":
+        updated = replace(facts, canonical_schema_digest=None)
+    elif change == "partial_projection":
+        updated = replace(facts, storage_projection_version=None)
     else:
-        field, value = {
-            "source_schema": ("source_schema_digest", raw_blob_digest(b"other-source-schema")),
-            "canonical_schema": ("canonical_schema_digest", raw_blob_digest(b"other-canonical-schema")),
-            "content": ("raw_content_digest", raw_blob_digest(b"other-content")),
-            "projection": ("storage_projection_version", "another-valid-projection"),
-            "partial_schema": ("canonical_schema_digest", None),
-            "partial_projection": ("storage_projection_version", None),
-            "partial_content": ("raw_content_digest", None),
-        }[change]
-        updated = replace(facts, **{field: value})
-    task = replace(task, policy=replace(policy, **{field_name: updated}))
+        updated = replace(facts, raw_content_digest=None)
+    task = replace(task, policy=(replace(policy, storage_facts_before=updated) if side == "before"
+                                else replace(policy, storage_facts_current=updated)))
     result = build_table_task_identity(planned, task, repository_id=reference.repository_id, artifact_scope=reference.artifact_scope)
     assert isinstance(result, NotCacheable) or result.task_digest != reference.task_digest
 
@@ -495,9 +503,9 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
     from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
     from tests.support.table_rules import comparison_ruleset_for, fallback_record
     sides = []
-    for rows in ("('a'),('a'),('b')", "('a'),('b'),('b'),('b')"):
+    for insert_rows in ("('a'),('a'),('b')", "('a'),('b'),('b'),('b')"):
         source = complete_canonical_bound(canonical_bound(
-            "CREATE TABLE t (value TEXT); INSERT INTO t VALUES " + rows + ";"))
+            "CREATE TABLE t (value TEXT); INSERT INTO t VALUES " + insert_rows + ";"))
         facts, = source.storage_facts
         source = replace(source, storage_facts=(replace(facts, storage_rule_view=replace(
             facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS)),))
@@ -522,11 +530,11 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
     try:
         view = next(item for item in payload.views if item.name == "facts/STANDARD")
         with pa.ipc.open_stream(pa.BufferReader(view.raw)) as reader:
-            rows = [json.loads(raw) for batch in reader for raw in batch.column(1).to_pylist()]
-        assert [row["kind"] for row in rows] == ["ROW_ADDED", "ROW_ADDED", "ROW_DELETED"]
-        assert len({row["row_identity"] for row in rows}) == 3
-        assert [row["current_values"] for row in rows[:2]] == [[["value", "200162"]], [["value", "200162"]]]
-        assert rows[2]["before_values"] == [["value", "200161"]]
+            fact_rows = [json.loads(raw) for batch in reader for raw in batch.column(1).to_pylist()]
+        assert [row["kind"] for row in fact_rows] == ["ROW_ADDED", "ROW_ADDED", "ROW_DELETED"]
+        assert len({row["row_identity"] for row in fact_rows}) == 3
+        assert [row["current_values"] for row in fact_rows[:2]] == [[["value", "200162"]], [["value", "200162"]]]
+        assert fact_rows[2]["before_values"] == [["value", "200161"]]
         restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
         assert handle is not None and handle.family_summary("STANDARD")[0] == 3
         assert payload.families == ("STANDARD",)

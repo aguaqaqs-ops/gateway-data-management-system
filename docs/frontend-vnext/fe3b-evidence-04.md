@@ -36,7 +36,7 @@
     需 `748de5034dcb324b5d0fb3740e7a2680da61faf1` 与
     `0e7caf66f4558e3337d5688e263970f2945a64a2`（04 上两者皆有）。
   - bundle SHA256：`6eb95d0422c4a624ecdff232bc8f6a334374b902809c3cf39db58aafec00e432`
-   （本地与 04 落盘后两次 `sha256sum` 一致）。
+   （本地与 04 落盘后两次 `sha256sum` 一致；两地 bundle 现已删除，现已无法复核）。
   - 04 上 `git bundle verify` 通过（exit 0），再
     `git fetch <bundle> fe-vnext:refs/heads/fe3b-evidence-04-dac69890`（exit 0）。
   - 取证 worktree：`git worktree add --detach
@@ -96,7 +96,7 @@
     - `sha256:c338f3f88c37281e775f0b6dfdfa4c079858214cf04733e88f0bda4e4ca4a1f0`
   - `gateway-p2r1-repository:lock-6dc9659f0aee`
     - image ID：`sha256:63b7e79899d4379f24a1d58f0e22e1960847733a76e684dd170b8e631e00367f`
-    - config digest：`sha256:98d0801b1140a903ff72988a2dba5e3f4819b86103bb8cb6e5dbdf7302ad9ec`
+    - config digest：`sha256:98d0801b1140a903ff72988a2dba5e3f4819b86103bb8cb6e5dbdf7302ad9ec9`
     - label `gateway.p2r1.uv-lock-sha256` =
       `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`
      （与 worktree 内 `vnext/repository_service/uv.lock` 的 SHA 一致，第 3 项日志复核 passed）。
@@ -148,7 +148,7 @@
 - 结论：`exit_code=0`。单测 32 文件 175 项通过；`npm run build` 与
   `check:production-build` 通过；Playwright e2e 63 项全部通过（`63 passed`）。
   跟踪前端归档 `tracked_frontend_archive_sha256` =
-  `dc9650f17fdf4e4e035aa0d88bafe9c6154af850a84135089e54a641f4ec529`。
+  `dc9650f17fdf4e4e035aa0d88bafe9c6154af850a84135089e54a641f4ec5292`。
 - 截图：`/home/dev/gdds-fe-shots/fe3b-04-dac69890`，146 个 PNG（§4），清单
   `shots.sha256`（仅 PNG，不含自身）SHA256：
   `13c705e3b782aa2ff50c993fafa605d3d540c2b1a590a72a782648b41692f222`。
@@ -191,7 +191,7 @@
 - 校验结论：`RESULT packages=4 failures=0`；`exit_code=0`。包 SHA：
   - `with-logics.tar.gz`：`6a562b07decf2ce23283ba555b5801eb81df4ec6ce3c0a110672110682ac867d`
   - `without-logics.tar.gz`：`1c4ab2bacd7665a1c9fbbc265eaadc0aa4e5af6f5f9d3bbd1ed415dfc4095972`
-  - `missing-dbcfg.tar.gz`：`66ce688f656a618adcc57f556dd31bc86fceaade17336bbc3d8541811`
+  - `missing-dbcfg.tar.gz`：`66ce688f656a618adcc57f556dd31bc86fceaade17336bb3d84764a3585518b1`
    （预期拒绝 `UPLOAD_CLOSURE_INVALID`）
   - `long-path.tar.gz`：`8730309ab9586f512fab20b0eb380db1c29cbdf4e5e6b9c76544b21939010b88`
 
@@ -212,11 +212,11 @@
    （附 `.sha256` 文件，其 SHA256 为
     `93ee8926bd3a705dff08c1a3cf4c69f74968765f4356203f077506b1e3a4ec4d`）。
   - Compose 日志 `real-logs/compose-gdds-fe-fe3b-dac69890a8b5-20261109t033723z.log`
-    SHA256：`b0ed41cbf480172c64f13dd664bb87e59a8de4c3e7bfbcf72e19b6221e04d4aa`。
+    SHA256：`b0ed41cbf480172c64f13dd664bb87e59a8de4c3e7bfbcf72b19b6221e04d4aa`。
   - `results.json` SHA256：
     `13dab768fd67fa9cfa37a17fdd6c53277364ffb9f87db3cf16488db0968e5466`；
     `suite-summary.txt` SHA256：
-    `c1898be81ba76ecfa219aab8286b58480be99bf5e656cef46b1b25e555654c3`。
+    `c1898be81ba76ecfa219aab82866b58480be99bf5e656cef46b1b25e555654c3`。
 - RS 镜像 tag：`gateway-repository-service:fe-dac69890a8b5`
  （`fe-` + HEAD 前 12 位；由脚本构建，结束时 `trap` 删除，事后核对已无此镜像；
   残留容器无，`docker ps -a --filter name=gdds-fe-fe3b-` 为空）。
@@ -322,27 +322,202 @@
 已删除的传输中间文件（SHA 见 §1）：
 
 - 本地 `/tmp/fe3b-dac69890.bundle`（已删）。
-- 04 上 `/home/dev/gdds-test-tmp/fe3b-dac69890.bundle`（已删）。
+- 04 上 `/home/dev/gdds-test-tmp/fe3b-dac69890.bundle`（已删；删除前两地一致，现已无法复核）。
 - 本地 `/tmp/run-item{1,2,3}.sh`  staged 包装脚本草稿（已删；04 上日志目录内的
   同名副本保留为证据）。
 
-## 6. SHA 自核对
+## 6. SHA 核对（脚本）
 
-本文件所有 64 位十六进制 SHA 均从 `sha256sum` 输出逐字复制。核对脚本与结果：
+本文件所有值均从命令输出复制，不手抄。核对脚本 `verify-fe3b-evidence.py`
+（位于开发主机 scratch 目录 `/tmp/fe3b-evidence-verify/`，不提交进仓库）
+枚举本文全部长度 ≥ 7 的小写十六进制串（前后不能紧邻其他十六进制字符，
+大小写均计入边界），按以下规则判定：
 
-```bash
-grep -oE '[0-9a-f]{64}' docs/frontend-vnext/fe3b-evidence-04.md \
-  | awk '{ print length($0), ($0 ~ /^[0-9a-f]{64}$/) ? "hex-ok" : "BAD" }' \
-  | sort | uniq -c
-# 预期：全部行均为 "64 hex-ok"（数量即本文 SHA 个数，不含 `sha256:` 前缀与短引用）
+- 64 位：必须逐字出现在来源集合中；唯一允许的例外是 bundle SHA
+  （删除前两地一致，现已无法复核，见 §1），在脚本中按值显式列出；
+- 40 位：必须是仓库中存在的对象（`git cat-file -e` 通过）；
+- 7–12 位：含字母的是缩写，必须是某个已核对完整值或仓库对象的前缀，
+  或是“前缀…后缀”写法中能对上的两端；纯数字的是日志文件名中的日期/PID，
+  必须出现在来源集合中；
+- 其他长度一律报错。
+
+来源集合（开发主机 `/tmp/fe3b-evidence-verify/sources/`，均从 04 只读收集，
+命令输出直接落盘，未经手抄；`source-index.txt` 为各文件 SHA256 索引，
+其全文即下表内容，其自身哈希不另列；04 上 real-evidence 目录内无文件）：
+
+| scratch 文件 | 内容来源（04 只读） | SHA256 |
+| --- | --- | --- |
+| `frontend-tests-20261109T033153Z.log` | 第 1 项入口日志（`/home/dev/gdds-fe-logs/fe3b/evidence-04/` 复制） | `577e044b64ed47b814169b3e70b37436a5cdcde85fc1a923aa2d4867a092ac70` |
+| `outer-run-tests-20261109T033132Z.log` | 第 1 项外层日志（同目录复制） | `f4288333003f7f1b98a257fb643713f1dd1332e03248932b3302e916dc434af2` |
+| `outer-validate-20261109T033445Z.log` | 第 2 项外层日志（同目录复制） | `b12af46782262161a6740c9b2921b9ab9cd6f544aa0cef98f5ef2ebd2ab5fcb4` |
+| `upload-validator-dac69890a8-20261109T033445Z-1562748.log` | 第 2 项入口日志（`/home/dev/gdds-fe-evidence-04/validate-logs/` 复制） | `40836269bb63e6ca2710c3116f31c9321a5972407ff6af17add30803d5dcb25d` |
+| `outer-real-journeys-20261109T033636Z.log` | 第 3 项外层日志（`/home/dev/gdds-fe-logs/fe3b/evidence-04/` 复制） | `2416082c20ecaddb618270efad30006f140d76bcef71f14df9041a580138277c` |
+| `real-backend-e2e-journeys-fe3b-evidence-04-dac69890a8-20261109T033636Z-1563806.log` | 第 3 项入口日志（`/home/dev/gdds-fe-evidence-04/real-logs/` 复制） | `9037ff78409d5d81cbc6937a982be1acb6e7e47c7a138603abe1ed17696728e6` |
+| `logdir.sha256` | 日志目录 `sha256sum` 输出 | `71084b0179cc29c40347a83a468b6251c6a929630220d94801de920b9c907754` |
+| `validate-output.sha256` | 第 2 项输出目录 `sha256sum` 输出 | `aab7445dee6889daf1a54fde9ee20e65db515e23a131acf207a708b566623534` |
+| `validate-logs.sha256` | 日志目录 `sha256sum` 输出 | `a4591ba3952614ee855120ade55a2b1e9507803a7a38fce8938560e991d36bdc` |
+| `real-logs.sha256` | 日志与证据目录递归 `sha256sum` 输出（34 个文件） | `999ea1ea94100ef83c6ca5577a3dbd80ed2c47427c088ebf2ecf5e899cc82079` |
+| `real-evidence.sha256` | 证据目录递归 `sha256sum` 输出（空目录） | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `shots-npm.sha256` | 截图清单与 npm 归档的 `sha256sum` 输出 | `f8c999eb3d389fdc91de7a837b8ee54df60916a5908338cc5f0209e7b53406ae` |
+| `shots.sha256` | 截图清单（`/home/dev/gdds-fe-shots/fe3b-04-dac69890/` 复制） | `13c705e3b782aa2ff50c993fafa605d3d540c2b1a590a72a782648b41692f222` |
+| `inspect-backend-deps.json` | `docker image inspect gateway-backend-deps:lock-d054366c02fa` 输出 | `079670e698dc0f1f4ae89206bcc47f0d1c614f89ddd382fcdbf005a489b06b00` |
+| `inspect-p2r1.json` | `docker image inspect gateway-p2r1-repository:lock-6dc9659f0aee` 输出 | `a1e3c86000abb37fdbe6c5df47fc6f2152465d4628513954408dad62635837dc` |
+| `p2r1-manifest.json` | `docker save` 经 `tar -xO manifest.json` 提取的输出（同镜像） | `bc6d28ae9e6ccb09c9d2255ef561d158ce45c04548572dfd509044571284c993` |
+
+脚本全文：
+
+```python
+#!/usr/bin/env python3
+"""Check every hex string in fe3b-evidence-04.md against 04 sources.
+
+Usage:
+  python3 verify-fe3b-evidence.py <md-file> <sources-dir>
+
+Rules:
+  64 hex: must occur verbatim in the source set, except BUNDLE_SHA below.
+  40 hex: must be an object in the repo (git cat-file -e).
+  7-12 hex with a letter: git object prefix, or prefix of a checked
+      64/40 value, or one end of a "left...right" pair matching a value.
+  7-12 digits only: log filename date/PID, must occur in the source set.
+  Any other length: fail.
+Exit status is 0 only when nothing fails.
+"""
+
+import hashlib
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+BUNDLE_SHA = "6eb95d0422c4a624ecdff232bc8f6a334374b902809c3cf39db58aafec00e432"
+# The bundle held the transfer bytes only. Both sides removed it after the
+# two matching checks noted in section 1, so it cannot be redone now.
+
+FIND = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{7,}(?![0-9a-fA-F])")
+PAIR = re.compile(r"([0-9a-f]{1,})…([0-9a-f]{1,})")
+
+
+def git_exists(repo, value):
+    done = subprocess.run(
+        ["git", "-C", repo, "cat-file", "-e", value],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return done.returncode == 0
+
+
+def main():
+    md_path = Path(sys.argv[1])
+    src_dir = Path(sys.argv[2])
+    top = subprocess.run(
+        ["git", "-C", str(md_path.parent), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True)
+    repo = top.stdout.strip()
+    index_path = src_dir / "source-index.txt"
+    wanted = {}
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            head, name = line.split(None, 1)
+            wanted[name] = head
+    bad_index = []
+    parts = []
+    for name, head in wanted.items():
+        data = (src_dir / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != head:
+            bad_index.append(name)
+        parts.append(data)
+    parts.append(index_path.read_bytes())
+    pool = b"\n".join(parts).decode("utf-8", errors="replace")
+    text = md_path.read_text(encoding="utf-8")
+    pairs = PAIR.findall(text)
+    hits = []
+    for num, line in enumerate(text.splitlines(), 1):
+        for item in FIND.finditer(line):
+            hits.append((num, item.group(0)))
+    counts = {"hex64": 0, "hex40": 0, "short_git": 0, "short_prefix": 0,
+              "short_pair": 0, "decimal": 0, "bundle": 0}
+    full = set()
+    bad = []
+    round1 = []
+    # First round: 64 and 40 only, so later shorts can use the full set.
+    for num, val in hits:
+        size = len(val)
+        if size == 64:
+            counts["hex64"] += 1
+            if val == BUNDLE_SHA:
+                counts["bundle"] += 1
+            elif val in pool:
+                full.add(val)
+            else:
+                bad.append((num, val, "hex64 not in sources"))
+        elif size == 40:
+            counts["hex40"] += 1
+            if git_exists(repo, val):
+                full.add(val)
+            else:
+                bad.append((num, val, "hex40 not a git object"))
+        else:
+            round1.append((num, val))
+    for num, val in round1:
+        size = len(val)
+        if 7 <= size <= 12:
+            if val.isdigit():
+                counts["decimal"] += 1
+                if val not in pool:
+                    bad.append((num, val, "digits not in sources"))
+            elif git_exists(repo, val):
+                counts["short_git"] += 1
+            elif any(item.startswith(val) for item in full):
+                counts["short_prefix"] += 1
+            elif any(item.startswith(a) and item.endswith(b)
+                     and (val == a or val == b)
+                     for item in full for a, b in pairs):
+                counts["short_pair"] += 1
+            else:
+                bad.append((num, val, "short not a prefix"))
+        else:
+            bad.append((num, val, "bad length %d" % size))
+    print("md: %s" % md_path)
+    print("sources: %s (%d files)" % (src_dir, len(wanted)))
+    print("index_mismatch: %d" % len(bad_index))
+    for name in bad_index:
+        print("  MISMATCH %s" % name)
+    print("total_hex_runs: %d" % len(hits))
+    print("hex64: %d" % counts["hex64"])
+    print("hex40: %d" % counts["hex40"])
+    print("short_git: %d" % counts["short_git"])
+    print("short_prefix: %d" % counts["short_prefix"])
+    print("short_pair: %d" % counts["short_pair"])
+    print("decimal: %d" % counts["decimal"])
+    print("bundle_excepted: %d" % counts["bundle"])
+    print("ellipsis_pairs: %d" % len(pairs))
+    print("failures: %d" % len(bad))
+    for num, val, why in bad:
+        print("  FAIL line %d %s %s" % (num, val, why))
+    return 1 if (bad or bad_index) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
-- 核对时另逐个比对本文 SHA 与 §1–§4 标注来源（bundle/日志/清单/镜像身份）的
-  `sha256sum` 输出；任一不符即停并重写本节，不做无修改的复验（DC68）。
-- 本次核对结果（提交前在 clean worktree 执行）：`grep -oE '[0-9a-f]{64}'`
-  得 111 个，全部 `64 hex-ok`，无 BAD；其中 60 个 `sha256:` 镜像身份值逐个命中
-  save 身份来源（`validate-identities.txt`、`rs-identity.txt`、`p2r1-identity.txt`
-  与 `run-tests.sh` 钉选值），3 个本地 image ID 在 04 上复核一致
- （RS 镜像已被入口 `trap` 删除，其 ID 以入口日志 `rs_image_id` 行为准）；
-  其余日志/清单/产物/归一化 OpenAPI 共 20 个值在 04 上用 `sha256sum` 重新计算，
-  与本文逐字一致；bundle SHA 在删除前两地一致（§1）。
+本次核对输出（提交前在 clean worktree 执行）：
+
+```
+md: /home/dev/gdds-fe/docs/frontend-vnext/fe3b-evidence-04.md
+sources: sources (16 files)
+index_mismatch: 0
+total_hex_runs: 197
+hex64: 132
+hex40: 7
+short_git: 37
+short_prefix: 4
+short_pair: 0
+decimal: 17
+bundle_excepted: 2
+ellipsis_pairs: 0
+failures: 0
+```
+
+勘误说明：本提交修正第 99、151、194、215、219 行的 5 个 SHA（依据
+`fe3b-evidence-check-1` E1，以 04 实测为准），§1 与 §5 补 bundle 已删注记，
+重写 §6；运行结果本身无变化；除 E1 外未发现其他不一致。

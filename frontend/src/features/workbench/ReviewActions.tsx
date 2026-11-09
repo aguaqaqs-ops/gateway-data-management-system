@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/authenticated-fetch";
 import { applyReviewAction } from "../api/journeys";
 import { gatewayApi } from "../api/application-api";
@@ -13,14 +13,21 @@ const STATUS_REASON: Record<string, string> = {
   WITHDRAWN: "该提交已撤回",
 };
 
-function actionError(cause: unknown): { title: string; code: string } {
+function actionError(cause: unknown, dialog: DialogKind | null): { title: string; code: string; expiredApprove: boolean; closed: boolean } {
+  const base = { expiredApprove: false, closed: false };
   if (cause instanceof ApiError) {
-    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN" };
-    if (cause.code === "REVIEW_VERSION_CONFLICT") return { title: "数据已被更新，请刷新审核信息后重试", code: cause.code };
-    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次审核与服务器记录不一致，请刷新后重试", code: cause.code };
-    return { title: cause.message || "审核操作失败", code: cause.code ?? "REVIEW_FAILED" };
+    if (cause.code === "ARCHIVE_CLOSED") {
+      return { title: "该提交已归档或关闭，已重新读取", code: "ARCHIVE_CLOSED", expiredApprove: false, closed: true };
+    }
+    if (cause.code === "BASELINE_VERSION_CONFLICT" && dialog === "approve") {
+      return { title: "该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。", code: "BASELINE_VERSION_CONFLICT", expiredApprove: true, closed: false };
+    }
+    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", ...base };
+    if (cause.code === "REVIEW_VERSION_CONFLICT") return { title: "数据已被更新，请刷新审核信息后重试", code: cause.code, ...base };
+    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次审核与服务器记录不一致，请刷新后重试", code: cause.code, ...base };
+    return { title: cause.message || "审核操作失败", code: cause.code ?? "REVIEW_FAILED", ...base };
   }
-  return { title: cause instanceof Error ? cause.message : "审核操作失败", code: "REVIEW_FAILED" };
+  return { title: cause instanceof Error ? cause.message : "审核操作失败", code: "REVIEW_FAILED", ...base };
 }
 
 interface ReviewActionsProps {
@@ -36,13 +43,21 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const [understood, setUnderstood] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ title: string; code: string } | null>(null);
+  const [expiredApprove, setExpiredApprove] = useState(false);
   const dialogKey = useRef<string | null>(null);
-  const pending = facts.status === "PENDING";
+  useEffect(() => {
+    setExpiredApprove(false);
+    setError(null);
+  }, [submissionId, facts.review_version, facts.status]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition
     ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
     : undefined;
-  const blockedReason = dispositionReason ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : pending ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
+  const approveDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING" || expiredApprove;
+  const otherDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING";
+  const blockedReason = dispositionReason
+    ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : facts.status === "PENDING" ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
+  const approveReason = expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason;
 
   function open(next: DialogKind) {
     setDialog(next);
@@ -59,7 +74,8 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       setError(null);
       dialogKey.current = null;
     } catch (cause) {
-      setError(actionError(cause));
+      const failure = actionError(cause, null);
+      setError({ title: failure.title, code: failure.code });
     } finally {
       setBusy(false);
     }
@@ -85,14 +101,27 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     setError(null);
     if (!dialogKey.current) dialogKey.current = crypto.randomUUID();
     const key = dialogKey.current;
+    const failedDialog = dialog;
     try {
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
       await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
       if (cause instanceof ApiError && (cause.status < 500 && cause.status !== 429)) dialogKey.current = null;
-      setError(actionError(cause));
+      const failure = actionError(cause, failedDialog);
+      if (failure.expiredApprove) {
+        setExpiredApprove(true);
+        setDialog(null);
+      }
+      if (failure.closed) setDialog(null);
+      setError({ title: failure.title, code: failure.code });
+      try {
+        onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      } catch {
+        // Keep the failure notice when the refresh itself fails.
+      }
     } finally {
       setBusy(false);
     }
@@ -101,9 +130,10 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const confirmDisabled = busy || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
   return <div className="review-actions">
-    <Button variant="danger" onClick={() => open("withdraw")} disabled={!pending || !bundleReady} disabledReason={blockedReason}>撤回</Button>
-    <Button variant="danger" onClick={() => open("reject")} disabled={!pending || !bundleReady} disabledReason={blockedReason}>退回</Button>
-    <Button variant="primary" onClick={() => open("approve")} disabled={!pending || !bundleReady} disabledReason={blockedReason}>审核通过</Button>
+    {dialog === null && renderError()}
+    <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={blockedReason}>撤回</Button>
+    <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={blockedReason}>退回</Button>
+    <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveReason}>审核通过</Button>
 
     <Dialog open={dialog === "approve"} title="确认审核通过" onClose={() => { if (!busy) setDialog(null); }} actions={<>
       <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>取消</Button>

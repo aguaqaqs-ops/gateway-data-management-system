@@ -32,6 +32,12 @@ export interface JourneyInputs {
   modified_only: string;
   full_initial: string;
   full_modified: string;
+  /** J1 only: DIFFERENT_PROJECT replacement upload input (kickoff §4.6 D). */
+  replacement?: string;
+  /** J2 only: FULL ① with C's content (kickoff §4.6 E). */
+  e_initial?: string;
+  /** J2 only: FULL ② with B's modified side (kickoff §4.6 E). */
+  e_modified?: string;
 }
 
 export interface JourneyScope {

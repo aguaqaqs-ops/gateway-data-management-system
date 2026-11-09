@@ -67,6 +67,7 @@ export interface GatewayApi {
   appendArchiveAnomalyResolution(body: Schemas["AppendArchiveAnomalyResolutionRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
   startArchive(body: Schemas["StartArchiveRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveStartedResponse"]>;
   getArchiveResult(archiveResultId: string): Promise<Schemas["ArchiveResultResponse"]>;
+  closeSubmission(submissionId: string, body: Schemas["CloseSubmissionRequest"], idempotencyKey?: string): Promise<Schemas["CloseSubmissionResponse"]>;
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -182,5 +183,6 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     appendArchiveAnomalyResolution: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-anomaly-resolutions"), body, key),
     startArchive: (body, key) => sendJson<Schemas["ArchiveStartedResponse"]>(route("/v1/archives"), body, key),
     getArchiveResult: async (archiveResultId) => json<Schemas["ArchiveResultResponse"]>(await request(route("/v1/archives/{archive_result_id}").replace("{archive_result_id}", encodeURIComponent(archiveResultId)))),
+    closeSubmission: (submissionId, body, key) => sendJson<Schemas["CloseSubmissionResponse"]>(route("/v1/submissions/{submission_id}/closure").replace("{submission_id}", encodeURIComponent(submissionId)), body, key),
   };
 }

@@ -67,7 +67,7 @@ async function installFixtureRoutes(page: Page, options: {
   previewConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
   previewForbidden?: boolean;
   reviewForbidden?: boolean;
-  reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
+  reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
   reviewTimeoutFirst?: boolean;
   archiveForbidden?: boolean;
   archiveConflict?: "BASELINE_VERSION_CONFLICT" | "ARCHIVE_AUDIT_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
@@ -79,7 +79,7 @@ async function installFixtureRoutes(page: Page, options: {
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
   const apiResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
   const rejectInvalidRequest = async (route: Route, request: PlaywrightRequest): Promise<boolean> => {
-    const invalid = validateSimulatedRequest({ method: request.method(), url: new URL(request.url()), headers: request.headers() });
+    const invalid = validateSimulatedRequest({ method: request.method(), url: new URL(request.url()), headers: request.headers(), body: request.postData() ?? "" });
     if (!invalid) return false;
     apiResponses.push({ method: request.method(), path: new URL(request.url()).pathname, status: 422, body: JSON.stringify(invalid) });
     await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(invalid) });
@@ -430,6 +430,8 @@ async function installFixtureRoutes(page: Page, options: {
   });
   await page.route("**/v1/archive-plan-preview", async (route) => {
     apiRequests.push({ method: "POST", path: "/v1/archive-plan-preview", token: route.request().headers()["authorization"] ?? null, idempotencyKey: null, body: route.request().postData() ?? "" });
+    // Backend rule (ArchiveSelectedRefRequest extra="forbid"): extra selected keys → 422.
+    if (await rejectInvalidRequest(route, route.request())) return;
     if (options.archiveForbidden) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/archive-plan-preview" && item.method === "POST" && item.status === 403);
       if (!error) throw new Error("POST archive-plan-preview SCOPE_FORBIDDEN fixture missing");
@@ -1339,7 +1341,7 @@ test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }
   expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
 });
 
-test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
+test("FE3c 归档主线确认预检、异常与影响", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { approvedSubmission: true });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
@@ -1348,13 +1350,16 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible();
-  await expect(dialog.getByText("需逐一确认项")).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: "异常处理" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "业务核验" })).toBeVisible();
   const confirm = dialog.getByRole("button", { name: "确认归档" });
   await expect(confirm).toBeDisabled();
-  await dialog.getByRole("checkbox").nth(0).check();
-  await dialog.getByLabel("PROJECT_IDENTITY_EXCEPTION 的处理原因").fill("已核对项目身份例外");
-  await dialog.getByRole("checkbox").nth(1).check();
+  await dialog.getByRole("checkbox", { name: /确认把/ }).check();
+  await expect(confirm).toBeDisabled();
+  await dialog.locator(".archive-anomaly").getByRole("button", { name: "接受" }).click();
+  const accept = page.getByRole("dialog", { name: "接受异常" });
+  await expect(accept.getByRole("button", { name: "确认接受" })).toBeDisabled();
+  await accept.getByLabel("接受理由").fill("已核对项目身份例外");
+  await accept.getByRole("button", { name: "确认接受" }).click();
   await expect(confirm).toBeEnabled();
   await screenshot(page, "archive-mainline", 1920);
   await screenshot(page, "archive-mainline", 1280);
@@ -1365,6 +1370,10 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   await screenshot(page, "archive-mainline-result", 1280);
   const archiveRequests = apiRequests.filter((request) => ["/v1/archives", "/v1/archive-confirmations", "/v1/archive-anomaly-resolutions"].some((suffix) => request.path.endsWith(suffix)));
   expect(archiveRequests.length).toBeGreaterThan(0);
+  for (const request of archiveRequests) {
+    const parsed = JSON.parse(request.body) as { selected?: Record<string, unknown> };
+    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual(["expected_candidate_digest", "submission_id"]);
+  }
   expect(archiveRequests.every((request) => request.token === "Bearer dev-token-archive-confirmer")).toBe(true);
 });
 
@@ -1516,6 +1525,37 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   expect(keys[0]).toBe(keys[1]);
 });
 
+test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) => {
+  await installFixtureRoutes(page, { reviewConflict: "BASELINE_VERSION_CONFLICT" });
+  await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
+  await waitForBrowse(page);
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await page.getByRole("button", { name: "审核通过", exact: true }).click();
+  const approve = page.getByRole("dialog", { name: "确认审核通过" });
+  await approve.getByRole("button", { name: "确认通过" }).click();
+  await expect(page.getByText("该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。")).toBeVisible();
+  await expect(page.getByText("BASELINE_VERSION_CONFLICT")).toBeVisible();
+  await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeEnabled();
+  await screenshot(page, "fe3c-review-expired", 1920);
+  await screenshot(page, "fe3c-review-expired", 1280);
+});
+
+test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page }) => {
+  await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
+  await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
+  await waitForBrowse(page);
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await page.getByRole("button", { name: "审核通过", exact: true }).click();
+  const approve = page.getByRole("dialog", { name: "确认审核通过" });
+  await approve.getByRole("button", { name: "确认通过" }).click();
+  await expect(page.getByText("该提交已归档或关闭，已重新读取")).toBeVisible();
+  await expect(page.getByText("ARCHIVE_CLOSED")).toBeVisible();
+  await screenshot(page, "fe3c-review-closed", 1920);
+  await screenshot(page, "fe3c-review-closed", 1280);
+});
+
 test("FE2c 提交超时重试复用同一幂等键并回放同一提交", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { submitTimeoutFirst: true });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
@@ -1548,7 +1588,7 @@ test("FE2c 提交被中止时显示原始错误代码", async ({ page }) => {
   await expect(dialog.getByText("IMPORT_REJECTED")).toBeInViewport();
 });
 
-test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
+test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await installFixtureRoutes(page, { archiveForbidden: true, approvedSubmission: true });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
@@ -1567,9 +1607,11 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
-  await dialog.getByRole("checkbox").nth(0).check();
-  await dialog.getByLabel("PROJECT_IDENTITY_EXCEPTION 的处理原因").fill("已核对项目身份例外");
-  await dialog.getByRole("checkbox").nth(1).check();
+  await dialog.getByRole("checkbox", { name: /确认把/ }).check();
+  await dialog.locator(".archive-anomaly").getByRole("button", { name: "接受" }).click();
+  const acceptAnomaly = page.getByRole("dialog", { name: "接受异常" });
+  await acceptAnomaly.getByLabel("接受理由").fill("已核对项目身份例外");
+  await acceptAnomaly.getByRole("button", { name: "确认接受" }).click();
   await dialog.getByRole("button", { name: "确认归档" }).click();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();

@@ -271,24 +271,61 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_TRANSITION_CONFLICT", message: "审核流转已变化" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "关闭理由或请求不符合要求" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "关闭请求过大" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "关闭请求已达到并发上限" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/history-compares", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
   { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "历史比较请求已达到并发上限" } },
+  { route: "/v1/archive-candidates", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有读取归档候选的权限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有预检归档方案的权限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
+  { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" } },
+  { route: "/v1/archive-plan-preview", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "预检请求不符合要求" } },
+  { route: "/v1/archive-plan-preview", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "预检请求过大" } },
+  { route: "/v1/archive-plan-preview", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有确认归档的权限" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同确认" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "确认请求不符合要求" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "确认请求过大" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "确认请求已达到并发上限" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有处理归档异常的权限" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同异常处理" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "异常处理请求不符合要求" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "异常处理请求过大" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "异常处理请求已达到并发上限" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archives", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有归档主线的权限" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CONFIRMATION_REQUIRED", message: "归档选择尚未确认" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_ANOMALY_UNRESOLVED", message: "还有归档异常未处理" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_PENDING_REVIEW", message: "出现了新的待审核提交" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ACTIVE_SUBMIT_ATTEMPT", message: "已有提交正在处理" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" } },
+  { route: "/v1/archives", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "归档请求不符合要求" } },
+  { route: "/v1/archives", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "归档请求过大" } },
+  { route: "/v1/archives", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "归档请求已达到并发上限" } },
+  { route: "/v1/archives", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
@@ -575,7 +612,14 @@ export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {
-  head: ARCHIVE_PLAN_READY.head, candidates: [{ submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" }], candidate_set_digest: "sha256:candidates", blockers: [],
+  head: ARCHIVE_PLAN_READY.head,
+  candidates: [
+    // review_version comes from the same read transaction as the review projection
+    // (Q18); it is a required key and must not collide with workspace, baseline,
+    // or sibling versions in reachability scenarios (§5.3).
+    { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate", review_version: 7 },
+  ],
+  candidate_set_digest: "sha256:candidates", blockers: [],
   pending_submission_ids: [], pending_submission_count: 0,
 } satisfies Schemas["ArchiveCandidatesResponse"];
 export const TEST_ARCHIVE_CANDIDATES_BLOCKED = {
@@ -594,6 +638,8 @@ export const TEST_ARCHIVE_ANOMALY_EVENT = {
 
 export const TEST_ARCHIVE_CONFIRM_APPEND = { event_id: "event-6", sequence: 6 } satisfies Schemas["ArchiveAuditAppendResponse"];
 export const TEST_ARCHIVE_RESOLUTION_APPEND = { event_id: "event-7", sequence: 7 } satisfies Schemas["ArchiveAuditAppendResponse"];
+
+/* (CloseSubmission 201/200 bodies reuse TEST_CLOSE_SUBMISSION above.) */
 
 export const TEST_ARCHIVE_STARTED = {
   archive_plan_id: "plan-1", archive_result_id: "archive-1", baseline_node_id: "baseline-4", baseline_commit_id: "commit-a",
@@ -714,14 +760,42 @@ const REQUIRED_IDEMPOTENCY_KEY_ROUTES: ReadonlyArray<{ name: string; pattern: Re
  * The backend returns 422 REQUEST_VALIDATION_FAILED before the handler runs; mirroring it here
  * keeps a missing header or query parameter from silently succeeding in the simulated API.
  */
+const ARCHIVE_SELECTED_ROUTES: ReadonlyArray<RegExp> = [
+  /^\/v1\/archive-plan-preview$/,
+  /^\/v1\/archive-confirmations$/,
+  /^\/v1\/archive-anomaly-resolutions$/,
+  /^\/v1\/archives$/,
+];
+
 export function validateSimulatedRequest(input: {
   method: string;
   url: URL;
   headers: Record<string, string | undefined>;
+  /** Raw JSON request body; when present, archive `selected` refs are shape-checked. */
+  body?: string;
 }): { code: string; message: string } | null {
   const method = input.method.toUpperCase();
   const path = input.url.pathname;
   const idempotencyKey = headerValue(input.headers, "idempotency-key");
+  // Backend rule (ArchiveSelectedRefRequest extra="forbid", Q18): the four archive
+  // requests accept exactly submission_id + expected_candidate_digest in
+  // `selected`. Forwarding a whole candidate read object (now carrying
+  // review_version) is rejected with 422 before the handler runs.
+  if (method === "POST" && ARCHIVE_SELECTED_ROUTES.some((route) => route.test(path)) && input.body !== undefined) {
+    try {
+      const parsed = JSON.parse(input.body) as { selected?: Record<string, unknown> };
+      const selected = parsed.selected;
+      if (selected && typeof selected === "object") {
+        const keys = Object.keys(selected).sort();
+        const allowed = ["expected_candidate_digest", "submission_id"];
+        if (keys.length !== allowed.length || keys.some((key, index) => key !== allowed[index])) {
+          return { code: "REQUEST_VALIDATION_FAILED", message: "selected 只允许 submission_id 与 expected_candidate_digest" };
+        }
+      }
+    } catch {
+      // Unparseable bodies are the route stub's concern, not this shape check.
+    }
+  }
   if (method === "POST" && path === "/v1/workspaces" && idempotencyKey) {
     return { code: "REQUEST_VALIDATION_FAILED", message: "POST /v1/workspaces 不接受 Idempotency-Key" };
   }

@@ -23,14 +23,18 @@ import {
   workshopAction,
 } from "./lib/ui";
 import {
+  appendArchiveAnomalyResolution,
   applyReview,
   currentWorkspace,
   getPreviewResult,
   getReviewFacts,
+  listArchiveCandidates,
   listHistory,
+  previewArchivePlan,
   tryApi,
   waitForOperation,
   waitForPendingSubmission,
+  type ArchivePlanBody,
   type ReviewFactsBody,
   type WorkspaceBody,
 } from "./lib/api";
@@ -1271,6 +1275,540 @@ test("r11-workspace-conflict", async ({ browser }) => {
   } finally {
     await closeSession(secondSession);
     await closeSession(firstSession);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FE3c J1/J2 — archive mainline and manual close (kickoff §4.6, R8/R12).
+// Anomaly-set calibration (kickoff §4.6 “实测校正”): every preview below is
+// read through the API and compared with the kickoff table before the UI
+// drives the same state. Any mismatch fails the journey for design review.
+// ---------------------------------------------------------------------------
+
+function anomalySet(plan: ArchivePlanBody): string[] {
+  return plan.anomalies
+    .map((anomaly) => [anomaly.subject_kind, anomaly.issue_code, anomaly.side ?? "-", [...anomaly.affected_submission_ids].sort().join(",")].join("|"))
+    .sort();
+}
+
+function businessIssueSet(plan: ArchivePlanBody): string[] {
+  return plan.business_validation.issues
+    .filter((issue) => issue.subject_kind !== "APPROVED_SIBLING_EXCLUDED" && issue.subject_kind !== "PROJECT_IDENTITY_EXCEPTION")
+    .map((issue) => [issue.subject_kind, issue.issue_code, issue.side ?? "-"].join("|"))
+    .sort();
+}
+
+function expectAnomalySets(plan: ArchivePlanBody, expected: string[], phase: string): void {
+  const actual = anomalySet(plan);
+  appendCaseLog(`${phase} anomalies=${JSON.stringify(actual)}`);
+  expect(actual, `${phase}: anomaly set differs from the kickoff table (stop for design review)`).toEqual([...expected].sort());
+}
+
+async function uploadDirsAndPreview(
+  page: Page,
+  identity: JourneyIdentity,
+  scope: JourneyScope,
+  dirs: { modified: string; initial?: string },
+): Promise<UploadRun> {
+  const bundleWait = waitForBundleResponse(page, 300_000);
+  const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
+  const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+  await selectUploadDirs(page, dirs);
+  await startUpload(page);
+  const upload = await uploadWait;
+  expect(upload.status(), "upload-revisions status").toBe(201);
+  const preview = await previewWait;
+  expect(preview.status(), "preview-operations status").toBe(202);
+  const accepted = (await preview.json()) as { operation_id: string };
+  const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
+  expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
+  const bundleResponse = await bundleWait;
+  expect(bundleResponse.status(), "bundle status").toBe(200);
+  const body = Buffer.from(await bundleResponse.body());
+  const bundle = parseBundleTar(body);
+  const outcome = await waitForPreviewOutcome(page);
+  expect(outcome, "preview outcome").toBe("compare");
+  await waitForDiffBrowsing(page);
+  const url = new URL(page.url());
+  const previewId = url.searchParams.get("previewResultId");
+  const workspaceId = url.searchParams.get("workspaceId");
+  expect(previewId, "previewResultId in compare URL").toBeTruthy();
+  expect(workspaceId, "workspaceId in compare URL").toBeTruthy();
+  return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle, status: upload.status(), previewStatus: preview.status(), etag: bundleResponse.headers()["etag"] ?? "" };
+}
+
+async function approveByReviewer(reviewer: JourneyIdentity, submissionId: string): Promise<number> {
+  const facts = (await getReviewFacts(reviewer, submissionId)).body;
+  expect(facts.status, "review status before approve").toBe("PENDING");
+  const applied = await applyReview(reviewer, submissionId, { expected_review_version: facts.review_version, action: "APPROVE" });
+  expect(applied.status, "review approve status").toBe(201);
+  return applied.body.review_version;
+}
+
+async function acceptAnomalies(archiver: JourneyIdentity, submissionId: string, candidateDigest: string, reason: string, only?: (side: string | null, issueCode: string) => boolean): Promise<ArchivePlanBody> {
+  const listed = (await listArchiveCandidates(archiver)).body;
+  const candidate = listed.candidates.find((item) => item.submission_id === submissionId);
+  expect(candidate, "candidate present").toBeTruthy();
+  const plan = (await previewArchivePlan(archiver, { submission_id: submissionId, expected_candidate_digest: candidateDigest })).body;
+  for (const anomaly of plan.anomalies) {
+    if (anomaly.resolution_status === "ACCEPTED") continue;
+    if (only && !only(anomaly.side, anomaly.issue_code)) continue;
+    const action = anomaly.subject_kind === "APPROVED_SIBLING_EXCLUDED" ? "ACKNOWLEDGE_EXCLUSION"
+      : anomaly.subject_kind === "PROJECT_IDENTITY_EXCEPTION" ? "ACKNOWLEDGE_IDENTITY_EXCEPTION"
+      : anomaly.subject_kind === "CONFIGURATION_SOURCE" ? "ACKNOWLEDGE_SOURCE_EXCEPTION"
+      : anomaly.subject_kind === "CONFIGURATION_TIME_QUALITY" ? "ACKNOWLEDGE_TIME_QUALITY"
+      : "ACKNOWLEDGE_TIME_ORDER";
+    await appendArchiveAnomalyResolution(archiver, {
+      expected_baseline_node_id: plan.head.business_baseline_node_id,
+      expected_baseline_head_version: plan.head.baseline_head_version,
+      candidate_set_digest: plan.candidate_set_digest,
+      selected: { submission_id: submissionId, expected_candidate_digest: candidateDigest },
+      subject_digest: anomaly.subject_digest,
+      subject_kind: anomaly.subject_kind,
+      issue_code: anomaly.issue_code,
+      target_submission_id: anomaly.target_submission_id,
+      target_candidate_digest: anomaly.target_candidate_digest,
+      expected_sequence: anomaly.latest_sequence,
+      action,
+      reason,
+    });
+  }
+  return (await previewArchivePlan(archiver, { submission_id: submissionId, expected_candidate_digest: candidateDigest })).body;
+}
+
+async function acceptAllAnomalies(archiver: JourneyIdentity, submissionId: string, candidateDigest: string, reason: string): Promise<ArchivePlanBody> {
+  return acceptAnomalies(archiver, submissionId, candidateDigest, reason);
+}
+
+async function openArchiveDialogUi(page: Page, submissionLabel: string) {
+  await gotoWorkbenchFresh(page);
+  await page.getByRole("button", { name: submissionLabel, exact: true }).click();
+  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  const dialog = page.getByRole("dialog", { name: "归档主基线" });
+  await expect(dialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
+  return dialog;
+}
+
+async function historyHeadVersion(identity: JourneyIdentity): Promise<number> {
+  return (await listHistory(identity)).body.head.version;
+}
+
+// ---------------------------------------------------------------------------
+// J1 — archive mainline, pending-review blocking, two-sided items, identity
+// confirmation (R1/R4/R8/R9-three-node).
+// ---------------------------------------------------------------------------
+test("j1-archive-mainline", async ({ browser }, testInfo) => {
+  test.setTimeout(1_800_000);
+  requireJourneyEnv();
+  const scope = scopeBySlug("j1-archive-mainline");
+  const s1 = identityFor(scope, "submitter");
+  const s2 = identityFor(scope, "submitter2");
+  const reviewer = identityFor(scope, "reviewer");
+  const archiver = identityFor(scope, "archiver");
+  const s1Session = await openSession(browser, s1);
+  const archiverSession = await openSession(browser, archiver);
+  const archiverSecondSession = await openSession(browser, archiver);
+
+  try {
+    // Steps 1–3: A archived with accept → revoke → re-accept in the UI.
+    const runA = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "modified_only") });
+    const submitA = await submitViaUi(s1Session.page, s1, runA.workspaceId);
+    await approveByReviewer(reviewer, submitA.submissionId);
+
+    const listedA = (await listArchiveCandidates(archiver)).body;
+    expect(listedA.candidates.map((candidate) => candidate.submission_id)).toEqual([submitA.submissionId]);
+    const digestA = listedA.candidates[0]!.expected_candidate_digest;
+    const planA = (await previewArchivePlan(archiver, { submission_id: submitA.submissionId, expected_candidate_digest: digestA })).body;
+    expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j1-step2");
+    expect(businessIssueSet(planA), "j1-step2 business issues").toEqual(["CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED"]);
+    expect(planA.business_validation.source_diagnostics, "j1-step2 no source diagnostics").toEqual([]);
+
+    const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
+    const startA = dialogA.getByRole("button", { name: "确认归档" });
+    await expect(startA).toBeDisabled();
+    await expect(dialogA.getByText("请确认归档选择")).toBeVisible();
+    await dialogA.getByRole("checkbox", { name: /确认把/ }).check();
+    await expect(startA).toBeDisabled();
+    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
+    const cardA = dialogA.locator(".archive-anomaly");
+    await cardA.getByRole("button", { name: "接受" }).click();
+    const acceptA = archiverSession.page.getByRole("dialog", { name: "接受异常" });
+    await acceptA.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间");
+    await acceptA.getByRole("button", { name: "确认接受" }).click();
+    await expect(cardA.getByText("已接受")).toBeVisible();
+    await cardA.getByRole("button", { name: "撤销接受" }).click();
+    const revokeA = archiverSession.page.getByRole("dialog", { name: "撤销接受" });
+    await revokeA.getByLabel("撤销理由").fill("j1 重新核对");
+    await revokeA.getByRole("button", { name: "确认撤销" }).click();
+    await expect(dialogA.getByText("还有 1 项未处理")).toBeVisible();
+    await cardA.getByRole("button", { name: "接受" }).click();
+    const acceptA2 = archiverSession.page.getByRole("dialog", { name: "接受异常" });
+    await acceptA2.getByLabel("接受理由").fill("j1 现场版本没有写入生成时间");
+    await acceptA2.getByRole("button", { name: "确认接受" }).click();
+    await expect(startA).toBeEnabled();
+    await saveEvidence(archiverSession.page, testInfo, "j1-archive-dialog");
+    await startA.click();
+    await expect(dialogA.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(1);
+    await saveEvidence(archiverSession.page, testInfo, "j1-archive-result");
+    assertClean(archiverSession.diagnostics, "j1-archive");
+    appendCaseLog(`j1-archive-a ok submission=${submitA.submissionId} head=1`);
+    // D1 real coverage: tree shows 已归档, details show 成为归档基线 1.
+    await dialogA.getByRole("button", { name: "完成" }).click();
+    await gotoWorkbenchFresh(archiverSession.page);
+    await archiverSession.page.getByRole("button", { name: "提交 1", exact: true }).click();
+    await expect(archiverSession.page.locator(".workspace-details").getByText("已归档，成为归档基线 1")).toBeVisible();
+    await saveEvidence(archiverSession.page, testInfo, "j1-disposition-archived");
+
+    // Step 4: FULL B over A — baseline_to_initial empty, initial_to_modified ≥ 1.
+    const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
+    const summaries = new Map(runB.bundle.manifest.pairs.map((pair) => [pair.pair_id, pair.summary]));
+    expect(summaries.size, "FULL pair count").toBe(2);
+    const baselineToInitial = summaries.get("baseline_to_initial");
+    const initialToModified = summaries.get("initial_to_modified");
+    expect(baselineToInitial, "baseline_to_initial present").toBeTruthy();
+    expect(initialToModified, "initial_to_modified present").toBeTruthy();
+    expect(Number(baselineToInitial!.changed_table_count), "baseline_to_initial changed").toBe(0);
+    expect(Number(initialToModified!.changed_table_count), "initial_to_modified changed").toBeGreaterThanOrEqual(1);
+    appendCaseLog(`j1-step4 ok baseline_to_initial.changed=0 initial_to_modified.changed=${initialToModified!.changed_table_count}`);
+
+    // Step 5: B submitted, C submitted by s2, reviewer approves B.
+    const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
+    const s2Session = await openSession(browser, s2);
+    let runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
+    await approveByReviewer(reviewer, submitB.submissionId);
+
+    // Step 6: pending-review blocker names C and disables the start.
+    const planBlocked = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitB.submissionId)!.expected_candidate_digest })).body;
+    expect(planBlocked.blockers, "j1-step6 blockers").toContain("ARCHIVE_PENDING_REVIEW");
+    expect(planBlocked.pending_submission_ids, "j1-step6 pending list").toContain(submitC.submissionId);
+    const dialogB = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await expect(dialogB.getByText(/有 1 个待审核的提交/)).toBeVisible();
+    await expect(dialogB.getByRole("button", { name: "提交 3" })).toBeVisible();
+    await expect(dialogB.getByText("只有上传或预览、尚未提交的工作区不影响归档。")).toBeVisible();
+    await expect(dialogB.getByRole("button", { name: "确认归档" })).toBeDisabled();
+    await expect(dialogB.getByText("当前预检存在阻断项")).toBeVisible();
+    await saveEvidence(archiverSession.page, testInfo, "j1-pending-blocked");
+    await dialogB.getByRole("button", { name: "关闭对话框" }).click();
+
+    // Step 7: reject C, re-upload C as a draft; the three expected anomalies.
+    const factsC = (await getReviewFacts(reviewer, submitC.submissionId)).body;
+    expect(factsC.status, "j1-step7 C still pending").toBe("PENDING");
+    await applyReview(reviewer, submitC.submissionId, { expected_review_version: factsC.review_version, action: "REJECT", reason: "j1 退回重传" });
+    await gotoWorkbenchFresh(s2Session.page);
+    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const digestB = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitB.submissionId)!.expected_candidate_digest;
+    const planB = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
+    expectAnomalySets(planB, [
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId}`,
+    ], "j1-step7");
+    appendCaseLog(`j1-step7 ok submission=${submitB.submissionId}`);
+
+    // Step 8: accept only the INITIAL side; MODIFIED stays unprocessed.
+    await acceptAnomalies(archiver, submitB.submissionId, digestB, "j1 只接受①", (side) => side === "INITIAL");
+    const dialogB2 = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await expect(dialogB2.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("未处理")).toBeVisible();
+    await dialogB2.getByRole("checkbox", { name: /确认把/ }).check();
+    await expect(dialogB2.getByRole("button", { name: "确认归档" })).toBeDisabled();
+    await dialogB2.getByRole("button", { name: "关闭对话框" }).click();
+
+    // Step 9: revoke MODIFIED in a second context; the first context's start
+    // is rejected and the re-preview shows the revoked item.
+    const planB2 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
+    const modifiedItem = planB2.anomalies.find((anomaly) => anomaly.side === "MODIFIED");
+    expect(modifiedItem, "j1-step9 modified item accepted").toBeTruthy();
+    await appendArchiveAnomalyResolution(archiver, {
+      expected_baseline_node_id: planB2.head.business_baseline_node_id,
+      expected_baseline_head_version: planB2.head.baseline_head_version,
+      candidate_set_digest: planB2.candidate_set_digest,
+      selected: { submission_id: submitB.submissionId, expected_candidate_digest: digestB },
+      subject_digest: modifiedItem!.subject_digest,
+      subject_kind: modifiedItem!.subject_kind,
+      issue_code: modifiedItem!.issue_code,
+      target_submission_id: modifiedItem!.target_submission_id,
+      target_candidate_digest: modifiedItem!.target_candidate_digest,
+      expected_sequence: modifiedItem!.latest_sequence,
+      action: "REVOKE",
+      reason: "j1 第二个身份复核后撤销",
+    });
+    const dialogB3 = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await dialogB3.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogB3.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogB3.getByText("归档候选或核验结果已变化，请重新预检")).toBeVisible({ timeout: 120_000 });
+    await dialogB3.getByRole("button", { name: "重新预检" }).click();
+    await expect(dialogB3.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("已撤销接受，需要重新处理")).toBeVisible();
+    assertClean(archiverSession.diagnostics, "j1-revoke-conflict");
+
+    // Step 10: re-accept and archive B as baseline 2.
+    await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 重新接受②");
+    const dialogB4 = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await dialogB4.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogB4.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogB4.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(2);
+    appendCaseLog(`j1-step10 ok submission=${submitB.submissionId} head=2`);
+    assertClean(archiverSession.diagnostics, "j1-archive-b");
+
+    // Step 11: re-upload C on baseline 2, approve, archive as baseline 3.
+    await gotoWorkbenchFresh(s2Session.page);
+    runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const submitC2 = await submitViaUi(s2Session.page, s2, runC.workspaceId);
+    await approveByReviewer(reviewer, submitC2.submissionId);
+    const digestC2 = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitC2.submissionId)!.expected_candidate_digest;
+    const planC2 = (await previewArchivePlan(archiver, { submission_id: submitC2.submissionId, expected_candidate_digest: digestC2 })).body;
+    expectAnomalySets(planC2, [
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC2.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitC2.submissionId}`,
+    ], "j1-step11");
+    await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j1 接受 C");
+    const dialogC = await openArchiveDialogUi(archiverSecondSession.page, "提交 4");
+    await dialogC.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogC.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogC.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(3);
+    appendCaseLog(`j1-step11 ok submission=${submitC2.submissionId} head=3`);
+
+    // Steps 12–13: D (DIFFERENT_PROJECT) requires identity confirmation.
+    await gotoWorkbenchFresh(s1Session.page);
+    await selectUploadDirs(s1Session.page, { modified: inputDir(scope, "replacement") });
+    await startUpload(s1Session.page);
+    expect(await waitForPreviewOutcome(s1Session.page)).toBe("compare");
+    await waitForDiffBrowsing(s1Session.page);
+    const submitResponse = s1Session.page.waitForResponse((response) => isPost(response, "/submit-attempts"), { timeout: 300_000 });
+    await compareAction(s1Session.page, "提交").click();
+    const submitDialog = s1Session.page.getByRole("dialog");
+    await expect(submitDialog).toBeVisible();
+    await expect(submitDialog.getByText(/项目身份/)).toBeVisible({ timeout: 60_000 });
+    for (const requirement of await submitDialog.locator(".confirm-requirement").all()) {
+      await requirement.getByRole("checkbox").check();
+      await requirement.getByRole("textbox").fill("j1 已核对项目身份差异");
+    }
+    await submitDialog.getByRole("button", { name: "确认提交", exact: true }).click();
+    const submitted = await submitResponse;
+    expect(submitted.status(), "D submit status").toBe(202);
+    const { submission: submissionD } = await waitForPendingSubmission(s1, runA.workspaceId, 240_000);
+    await approveByReviewer(reviewer, submissionD.submission_id);
+    const digestD = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submissionD.submission_id)!.expected_candidate_digest;
+    const planD = (await previewArchivePlan(archiver, { submission_id: submissionD.submission_id, expected_candidate_digest: digestD })).body;
+    expectAnomalySets(planD, [
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submissionD.submission_id}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submissionD.submission_id}`,
+      `PROJECT_IDENTITY_EXCEPTION|PROJECT_IDENTITY_EXCEPTION|-|${submissionD.submission_id}`,
+    ], "j1-step13");
+    await acceptAllAnomalies(archiver, submissionD.submission_id, digestD, "j1 接受 D 含身份例外");
+    const dialogD = await openArchiveDialogUi(archiverSession.page, "提交 5");
+    await dialogD.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogD.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogD.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(4);
+    appendCaseLog(`j1-step13 ok submission=${submissionD.submission_id} head=4`);
+    assertClean(s1Session.diagnostics, "j1-submit-d");
+    assertClean(archiverSecondSession.diagnostics, "j1-archive-d");
+
+    // Step 14: three-node history compare (INITIAL, baselines 1 and 2).
+    await gotoWorkbenchFresh(s1Session.page);
+    await selectTreeRow(s1Session.page, "初始基线");
+    await workshopAction(s1Session.page, "加入比较").click();
+    await selectTreeRow(s1Session.page, "归档基线 1");
+    await workshopAction(s1Session.page, "加入比较").click();
+    await selectTreeRow(s1Session.page, "归档基线 2");
+    await workshopAction(s1Session.page, "加入比较").click();
+    const compareResponse = s1Session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
+    await s1Session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
+    expect((await compareResponse).status()).toBeLessThan(300);
+    const drawer = s1Session.page.locator('section[aria-label="历史比较结果抽屉"]');
+    await expect(drawer).toBeVisible({ timeout: 60_000 });
+    await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 300_000 });
+    await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
+    await saveEvidence(s1Session.page, testInfo, "j1-history-three-nodes");
+    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
+    await waitForDiffBrowsing(s1Session.page);
+    assertClean(s1Session.diagnostics, "j1-history");
+    appendCaseLog("j1 ok three-node history compare browsed");
+  } finally {
+    await closeSession(archiverSecondSession);
+    await closeSession(archiverSession);
+    await closeSession(s1Session);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// J2 — manual close, re-verification, terminal dispositions (R12, D2/D3).
+// ---------------------------------------------------------------------------
+test("j2-manual-close", async ({ browser }, testInfo) => {
+  test.setTimeout(1_800_000);
+  requireJourneyEnv();
+  const scope = scopeBySlug("j2-manual-close");
+  const s1 = identityFor(scope, "submitter");
+  const s2 = identityFor(scope, "submitter2");
+  const s3 = identityFor(scope, "submitter-upload-only");
+  const reviewer = identityFor(scope, "reviewer");
+  const archiver = identityFor(scope, "archiver");
+  const s1Session = await openSession(browser, s1);
+  const s2Session = await openSession(browser, s2);
+  const s3Session = await openSession(browser, s3);
+  const archiverSession = await openSession(browser, archiver);
+
+  try {
+    // Step 1: A submitted, approved, archived.
+    const runA = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "modified_only") });
+    const submitA = await submitViaUi(s1Session.page, s1, runA.workspaceId);
+    await approveByReviewer(reviewer, submitA.submissionId);
+    const digestA = (await listArchiveCandidates(archiver)).body.candidates[0]!.expected_candidate_digest;
+    const planA = (await previewArchivePlan(archiver, { submission_id: submitA.submissionId, expected_candidate_digest: digestA })).body;
+    expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j2-step1");
+    await acceptAllAnomalies(archiver, submitA.submissionId, digestA, "j2 t1 证据运行");
+    const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
+    await dialogA.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogA.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogA.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(1);
+    appendCaseLog(`j2-step1 ok submission=${submitA.submissionId} head=1`);
+
+    // Step 2: B, C and E submitted and approved.
+    const runB = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
+    const submitB = await submitViaUi(s1Session.page, s1, runB.workspaceId);
+    const runC = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const submitC = await submitViaUi(s2Session.page, s2, runC.workspaceId);
+    const runE = await uploadDirsAndPreview(s3Session.page, s3, scope, { modified: inputDir(scope, "e_modified"), initial: inputDir(scope, "e_initial") });
+    const submitE = await submitViaUi(s3Session.page, s3, runE.workspaceId);
+    await approveByReviewer(reviewer, submitB.submissionId);
+    await approveByReviewer(reviewer, submitC.submissionId);
+    await approveByReviewer(reviewer, submitE.submissionId);
+
+    // Step 3: eight anomalies; every source explained.
+    const listed = (await listArchiveCandidates(archiver)).body;
+    expect(listed.candidates.map((candidate) => candidate.submission_id).sort()).toEqual([submitB.submissionId, submitC.submissionId, submitE.submissionId].sort());
+    const digestB = listed.candidates.find((candidate) => candidate.submission_id === submitB.submissionId)!.expected_candidate_digest;
+    const plan3 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
+    expectAnomalySets(plan3, [
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId},${submitC.submissionId},${submitE.submissionId}`,
+      `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitC.submissionId}`,
+      `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitE.submissionId}`,
+    ], "j2-step3");
+    const diagnostics3 = plan3.business_validation.source_diagnostics as Array<{ submission_id: string; detected_status: string }>;
+    expect(diagnostics3.length, "j2-step3 source diagnostics").toBe(3);
+    for (const diagnostic of diagnostics3) expect(diagnostic.detected_status, `j2-step3 source ${diagnostic.submission_id}`).toBe("EXPLAINED");
+
+    // Step 4: close C with a reason; interrupt once, retry with the same key.
+    const digestC = listed.candidates.find((candidate) => candidate.submission_id === submitC.submissionId)!;
+    const closureBodies: string[] = [];
+    let closureAborted = false;
+    await archiverSession.page.route("**/v1/submissions/*/closure", async (route) => {
+      if (!closureAborted) {
+        closureAborted = true;
+        await route.abort("failed");
+        return;
+      }
+      await route.fallback();
+    });
+    archiverSession.page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/closure")) closureBodies.push(request.postData() ?? "");
+    });
+    const dialogClose = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await dialogClose.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+    const closeDialog = archiverSession.page.getByRole("dialog", { name: "关闭提交（不归档）" });
+    await closeDialog.getByLabel("关闭理由").fill("C 的业务口径已变化，先关闭");
+    await closeDialog.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
+    await closeDialog.getByRole("button", { name: "确认关闭" }).click();
+    await expect(closeDialog.getByText("关闭请求未能送达，可以重试")).toBeVisible({ timeout: 120_000 });
+    await closeDialog.getByRole("button", { name: "重试" }).click();
+    await expect(closeDialog.getByText("已关闭")).toBeVisible({ timeout: 120_000 });
+    await saveEvidence(archiverSession.page, testInfo, "j2-close-result");
+    expect(closureBodies.length, "closure sends (abort + retry)").toBe(2);
+    const firstClose = JSON.parse(closureBodies[0]!) as { expected_review_version: number; reason: string };
+    const retryClose = JSON.parse(closureBodies[1]!) as { expected_review_version: number; reason: string };
+    expect(firstClose.expected_review_version, "close takes the candidate review_version").toBe(digestC.review_version);
+    expect(retryClose, "retry reuses the same key and body").toEqual(firstClose);
+    expect(retryClose.reason).toBe("C 的业务口径已变化，先关闭");
+    appendCaseLog(`j2-step4 ok closed=${submitC.submissionId} review_version=${firstClose.expected_review_version}`);
+    await archiverSession.page.unroute("**/v1/submissions/*/closure");
+    await closeDialog.getByRole("button", { name: "取消" }).click();
+    await expect(dialogClose.getByText("候选集合已变化，之前的接受不再适用，请重新核对")).toBeVisible();
+
+    // Step 5: the set is re-derived; everything is unprocessed again.
+    const plan5 = (await previewArchivePlan(archiver, { submission_id: submitB.submissionId, expected_candidate_digest: digestB })).body;
+    expectAnomalySets(plan5, [
+      `CONFIGURATION_SOURCE|INITIAL_SOURCE_UNEXPLAINED|INITIAL|${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitB.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|INITIAL|${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitE.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitB.submissionId},${submitE.submissionId}`,
+      `APPROVED_SIBLING_EXCLUDED|APPROVED_SIBLING_EXCLUDED|-|${submitE.submissionId}`,
+    ], "j2-step5");
+    expect(plan5.anomalies.every((anomaly) => anomaly.resolution_status === "UNRESOLVED"), "j2-step5 all unprocessed").toBe(true);
+    expect(plan5.candidate_set_digest, "j2-step5 set re-derived").not.toBe(plan3.candidate_set_digest);
+
+    // Step 6: s2's workspace is released; C reads closed; review shows both.
+    const workspaceC = await currentWorkspace(s2);
+    expect(workspaceC.active_submission_id, "s2 pointer cleared").toBeNull();
+    expect(workspaceC.active_submit_attempt_id, "s2 attempt cleared").toBeNull();
+    await gotoWorkbenchFresh(s2Session.page);
+    await s2Session.page.getByRole("button", { name: "提交 3", exact: true }).click();
+    const detailsC = s2Session.page.locator(".workspace-details");
+    await expect(detailsC.getByText("已关闭（未归档）").first()).toBeVisible();
+    await expect(detailsC.getByText(archiver.actorId)).toBeVisible();
+    await saveEvidence(s2Session.page, testInfo, "j2-disposition-closed");
+    const factsC = (await getReviewFacts(s2, submitC.submissionId)).body;
+    expect(factsC.status, "j2-step6 review keeps APPROVED").toBe("APPROVED");
+    expect(factsC.submission_disposition, "j2-step6 disposition").toBe("CLOSED_NOT_ARCHIVED");
+    assertClean(s2Session.diagnostics, "j2-closed-read");
+
+    // Step 7: accept all seven; B archived, E closed at archive (D2 real).
+    await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j2 接受余下全部");
+    const dialogStart = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    await dialogStart.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogStart.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogStart.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    await expect(dialogStart.getByText("归档 1 项，关闭 1 项")).toBeVisible();
+    expect(await historyHeadVersion(s1)).toBe(2);
+    const workspaceE = await currentWorkspace(s3);
+    expect(workspaceE.active_submission_id, "s3 workspace released").toBeNull();
+    await saveEvidence(archiverSession.page, testInfo, "j2-archive-result");
+    appendCaseLog(`j2-step7 ok archived=${submitB.submissionId} closed=${submitE.submissionId} head=2`);
+    await dialogStart.getByRole("button", { name: "完成" }).click();
+    await gotoWorkbenchFresh(archiverSession.page);
+    await archiverSession.page.getByRole("button", { name: "提交 4", exact: true }).click();
+    const detailsE = archiverSession.page.locator(".workspace-details");
+    await expect(detailsE.getByText("已关闭（未归档）").first()).toBeVisible();
+    await expect(detailsE.getByText("归档时选中了其他提交")).toBeVisible();
+    await saveEvidence(archiverSession.page, testInfo, "j2-disposition-closed-at-archive");
+
+    // Step 8: C re-uploaded on baseline 2, approved, archived as baseline 3.
+    await gotoWorkbenchFresh(s2Session.page);
+    const runC2 = await uploadDirsAndPreview(s2Session.page, s2, scope, { modified: inputDir(scope, "modified_only") });
+    const submitC2 = await submitViaUi(s2Session.page, s2, runC2.workspaceId);
+    await approveByReviewer(reviewer, submitC2.submissionId);
+    const digestC2 = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submitC2.submissionId)!.expected_candidate_digest;
+    const planC2 = (await previewArchivePlan(archiver, { submission_id: submitC2.submissionId, expected_candidate_digest: digestC2 })).body;
+    expectAnomalySets(planC2, [
+      `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC2.submissionId}`,
+      `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitC2.submissionId}`,
+    ], "j2-step8");
+    await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j2 重新接受 C");
+    const dialogC2 = await openArchiveDialogUi(archiverSession.page, "提交 5");
+    await dialogC2.getByRole("checkbox", { name: /确认把/ }).check();
+    await dialogC2.getByRole("button", { name: "确认归档" }).click();
+    await expect(dialogC2.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
+    expect(await historyHeadVersion(s1)).toBe(3);
+    appendCaseLog(`j2-step8 ok submission=${submitC2.submissionId} head=3`);
+    assertClean(s2Session.diagnostics, "j2-reupload");
+    assertClean(s3Session.diagnostics, "j2-e");
+    assertClean(archiverSession.diagnostics, "j2-archive");
+  } finally {
+    await closeSession(archiverSession);
+    await closeSession(s3Session);
+    await closeSession(s2Session);
+    await closeSession(s1Session);
   }
 });
 

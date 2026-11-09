@@ -18,6 +18,7 @@ import { UploadStepCard, type UploadStepCardHandle } from "../features/workbench
 import { ArchiveMainlineDialog } from "../features/workbench/ArchiveMainlineDialog";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { summarizeHistoryPair, type HistoryPairSummary } from "../features/workbench/history-summary";
+import { baselineDisplayLabelFor } from "../features/view-model/baseline-labels";
 import { buildWorkspaceTree, deriveWorkbenchActions, sortWorkspaceTreeRows, type WorkbenchActionId, type WorkspaceTreeRow } from "../features/view-model/workspace";
 import { WORKSPACE_STATE_COPY } from "../features/view-model/workspace-state-copy";
 
@@ -606,7 +607,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         </div> : <div className="workspace-details__collapsed"><span>详情</span></div>}
       </aside>
     </div>
-    <ArchiveMainlineDialog open={archiveSubmissionId !== null} submissionId={archiveSubmissionId} onClose={() => setArchiveSubmissionId(null)} onArchived={() => window.location.assign(pageUrl("workspace", {}, compareRefs))} />
+    <ArchiveMainlineDialog open={archiveSubmissionId !== null} submissionId={archiveSubmissionId} onClose={() => setArchiveSubmissionId(null)} onArchived={() => window.location.assign(pageUrl("workspace", {}, compareRefs))} resolveName={(id) => rows.find((row) => row.kind === "submission" && row.refId === id)?.label ?? null} resolveBaselineLabel={(nodeId) => history ? baselineDisplayLabelFor(history, nodeId) : null} onSelectSubmission={(id) => setSelectedKey(`submission:${id}`)} onDispositionChanged={() => void reloadHistory()} />
   </main>;
 }
 

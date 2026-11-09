@@ -256,6 +256,113 @@ export function applyReview(
   });
 }
 
+export interface ArchiveCandidateBody {
+  submission_id: string;
+  expected_candidate_digest: string;
+  review_version: number;
+}
+
+export interface ArchiveCandidatesBody {
+  candidates: ArchiveCandidateBody[];
+  candidate_set_digest: string;
+  blockers: string[];
+  pending_submission_ids: string[];
+  pending_submission_count: number;
+  head: { business_baseline_node_id: string; business_baseline_commit_id: string; baseline_head_version: number };
+}
+
+export interface ArchiveIssueBody {
+  subject_digest: string;
+  subject_kind: string;
+  issue_code: string;
+  target_submission_id: string;
+  target_candidate_digest: string;
+  side: string | null;
+  relations: string[];
+  affected_submission_ids: string[];
+  details: unknown;
+  detected_status: string;
+  resolution_status: string;
+  latest_sequence: number;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  reason: string | null;
+}
+
+export interface ArchivePlanBody {
+  head: ArchiveCandidatesBody["head"];
+  selected: { submission_id: string; expected_candidate_digest: string } | null;
+  selection_subject_digest: string;
+  candidate_set_digest: string;
+  confirmation_requirements: string[];
+  anomalies: ArchiveIssueBody[];
+  audit_validity: boolean;
+  can_start: boolean;
+  dispositions: Array<{ submission_id: string; disposition: string }>;
+  workspace_releases: Array<{ submission_id: string; workspace_id: string }>;
+  blockers: string[];
+  pending_submission_ids: string[];
+  pending_submission_count: number;
+  business_validation: {
+    rule_id: string;
+    baseline_facts_digest: string | null;
+    issues: Array<{ issue_code: string; subject_kind: string; side: string | null; affected_submission_ids: string[] }>;
+    source_diagnostics: unknown[];
+    time_comparisons: unknown[];
+  };
+}
+
+export function listArchiveCandidates(identity: JourneyIdentity): Promise<ApiEnvelope<ArchiveCandidatesBody>> {
+  return apiRequest<ArchiveCandidatesBody>(identity, "GET", "/v1/archive-candidates");
+}
+
+export function previewArchivePlan(
+  identity: JourneyIdentity,
+  selected: { submission_id: string; expected_candidate_digest: string },
+): Promise<ApiEnvelope<ArchivePlanBody>> {
+  return apiRequest<ArchivePlanBody>(identity, "POST", "/v1/archive-plan-preview", { body: { selected } });
+}
+
+export function appendArchiveConfirmation(
+  identity: JourneyIdentity,
+  body: Record<string, unknown>,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<ApiEnvelope<{ event_id: string; sequence: number }>> {
+  return apiRequest(identity, "POST", "/v1/archive-confirmations", { body, headers: { "Idempotency-Key": idempotencyKey } });
+}
+
+export function appendArchiveAnomalyResolution(
+  identity: JourneyIdentity,
+  body: Record<string, unknown>,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<ApiEnvelope<{ event_id: string; sequence: number }>> {
+  return apiRequest(identity, "POST", "/v1/archive-anomaly-resolutions", { body, headers: { "Idempotency-Key": idempotencyKey } });
+}
+
+export function startArchive(
+  identity: JourneyIdentity,
+  body: Record<string, unknown>,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<ApiEnvelope<{ archive_result_id: string; selected_submission_id: string; dispositions: Array<{ submission_id: string; disposition: string }> }>> {
+  return apiRequest(identity, "POST", "/v1/archives", { body, headers: { "Idempotency-Key": idempotencyKey } });
+}
+
+export function getArchiveResult(
+  identity: JourneyIdentity,
+  archiveResultId: string,
+): Promise<ApiEnvelope<{ archive_result_id: string; selected_submission_id: string; baseline_node_id: string; baseline_head_version: number; dispositions: Array<{ submission_id: string; disposition: string }> }>> {
+  return apiRequest(identity, "GET", `/v1/archives/${archiveResultId}`);
+}
+
+export function closeSubmission(
+  identity: JourneyIdentity,
+  submissionId: string,
+  body: { expected_baseline_node_id: string; expected_baseline_head_version: number; expected_review_version: number; reason: string },
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<ApiEnvelope<{ submission_id: string; disposition: string; source_kind: string; closed_by: string; closed_at: string; reason: string }>> {
+  return apiRequest(identity, "POST", `/v1/submissions/${submissionId}/closure`, { body, headers: { "Idempotency-Key": idempotencyKey } });
+}
+
 export async function fetchTar(identity: JourneyIdentity, path: string): Promise<TarResponse> {
   const response = await fetch(`${previewBaseUrl()}${path}`, {
     headers: headersFor(identity, { Accept: "application/x-tar" }),

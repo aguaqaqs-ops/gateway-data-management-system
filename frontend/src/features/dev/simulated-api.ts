@@ -4,3 +4,4 @@ if (typeof import.meta.env !== "undefined" && import.meta.env.PROD) {
 
 export const SIMULATED_API_MODULE_MARKER = "GatewaySimulatedApiModule";
 export * from "./mock-data";
+export * from "./archive-validation-data";

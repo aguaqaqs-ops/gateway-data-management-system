@@ -1407,14 +1407,16 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
 
 
 def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application import preview_jobs
     from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadata, CommitCanonicalScope
     from gateway_backend.application.workspace.preview import build_preview_job_payload
+    from gateway_backend.artifacts.computation_cache import ComputationCacheKind
     from gateway_backend.artifacts.serialize import artifact_ref_from_dict
     from gateway_backend.capabilities.comparison import open_records_closure
+    from gateway_backend.capabilities.risk_evaluation import PersistentRiskCandidates
     from gateway_backend.capabilities.risk_evaluation.contracts import RISK_ANNOTATION_MEDIA_TYPE
     from gateway_backend.capabilities.storage_projection import canonicalization_manifest_from_bytes
     from gateway_backend.domain.workspace.models import InputCompleteness
@@ -1429,6 +1431,21 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         return ControlDbUnitOfWork(preview.db_path)
     cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "computation-cache"))
     exports = ControlDbSnapshotTableExportCache(transaction)
+    risk_lookups: list[bool] = []
+    risk_stores: list[bool] = []
+    original_lookup = PersistentRiskCandidates.lookup
+    original_store = cache.store
+    def observed_lookup(candidate: PersistentRiskCandidates, key: str) -> tuple[object, ...] | None:
+        result = original_lookup(candidate, key)
+        risk_lookups.append(result is not None)
+        return result
+    def observed_store(entry: Any, blobs: Any, **kwargs: Any) -> bool:
+        result = original_store(entry, blobs, **kwargs)
+        if entry.key.kind is ComputationCacheKind.RISK:
+            risk_stores.append(result)
+        return result
+    monkeypatch.setattr(PersistentRiskCandidates, "lookup", observed_lookup)
+    monkeypatch.setattr(cache, "store", observed_store)
     sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES ({value});"
     initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="h1-initial-two")
     modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="h1-modified-three")
@@ -1484,11 +1501,15 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
             idempotency_key="history-new-operation-" + name, computation_cache=cache,
             snapshot_export_cache=exports, commit_metadata_port=metadata)
         caplog.clear()
+        risk_lookups.clear()
+        risk_stores.clear()
         with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
             run_full_history_compare_job(history)
         metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1]) for record in caplog.records
             if record.message.startswith("s3_pair_metrics ")]
         assert len(metrics) == 1 and metrics[0]["comparison_kernel_calls"] == expected_native
+        assert risk_lookups == [name != "full-first"]
+        assert risk_stores == ([True] if name == "full-first" else [])
         rows, _ = _history_snapshot_bundle_data(history)
         pair_id = history.operation_id + "-p0"
         assert rows[pair_id, "before", "t"] == [{"id": str(values[before_label])}]

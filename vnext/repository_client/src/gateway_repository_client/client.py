@@ -30,7 +30,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
-from gateway_repository_client.deadline import CancelRequested, validate_deadline_seconds
+from gateway_repository_client.deadline import CancelRequested, RequestControl, validate_deadline_seconds
 from gateway_repository_client.errors import RepositoryClientError, RepositoryProtocolError
 from gateway_repository_client.paths import encode_commit_id_path, encode_path_segment
 from gateway_repository_client.poll import (
@@ -364,13 +364,15 @@ class RepositoryClient:
                     max_error_body_bytes=MAX_WIRE_ERROR_JSON_BYTES,
                 )
 
-        return await retry_idempotent_request(
+        result = await retry_idempotent_request(
             _send,
             sleeper=self._sleeper,
             clock=self._clock,
             cancel_requested=cancel_requested,
             deadline_at=deadline_at,
         )
+        RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=self._clock).check()
+        return result
 
     def stream_versioned_table_rows(
         self,

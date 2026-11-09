@@ -52,7 +52,11 @@ async def retry_idempotent_request(
         attempt += 1
         try:
             result = await control.run(operation)
-            control.check()
+            # A completed observation belongs to the polling owner, which may
+            # return a terminal result at its boundary. New explicit caller
+            # cancellation remains checked before returning its request.
+            if cancel_requested is not None:
+                control.check()
             return result
         except asyncio.TimeoutError as exc:
             raise RepositoryClientTimeoutError() from exc

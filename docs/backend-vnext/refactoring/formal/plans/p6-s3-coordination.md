@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮Owner授权A→B→C→D→E实施及独审已推进至**S3 E技术GO、退出候选可独立核收**。最终V4b0／Hf9ef在原04同WT六包全部实际可沿用，RS／三镜像身份等价由原E `90ca3ebec4` §110核收；未新跑runner或Compose。代码／四fresh／Owner确认范围的可靠测量及失败／未知详见§38–40和[累计交接§18](p6-s3-candidate-handoff.md#18-最终v与h绑定技术核收及退出交接)。W4全表NOT_RUN／UNKNOWN、原M24／旧M40失败、18取消项不自动顺延均保留。Q18独立GO，FE／S4／S5和原基准各有边界；main后续S4树不混为隔离S3证据。正式阶段退出、tag／push仍另办，当前未执行；早期段落保留当时事实。
+**S3已正式退出（2026-11-09）。** Owner本轮明确授权办理；原E正式准出`c1ed598128`后，本地附注`p6-s3-exit`于03:28:07Z精确指向已核Hf9ef，随后审计历史合并`87f4ae305c`使H在main可达，合并树与第一父完全相同。固定产品V4b0／Hf9ef的技术证据、原失败／未知、正式独审与全部对象见§41和[退出交接§19](p6-s3-candidate-handoff.md#19-正式退出本地tag及主线历史合回)。未push、未发布、未启动S5；Q18／FE／S4和原基准各守边界，main S4树不冒S3被测源。早期“待正式手续”的段落保留当时事实，由本次状态覆盖。
 
 ## 1. 起点与并行边界
 
@@ -576,3 +576,11 @@ FULL r1在CT108于01:06:32–01:50:50Z自然封口，node／capture／postflight
 02:23:22–02:23:36Z的控制器／节点／capture／postflight均原exit0，04同来源WT最终HEAD H clean、六锁0漂、本人marker实际释放。六包compare均source_total=current_total且changed_components为空，走ALL_CARRY：四包直接源V1e最初runner、backend／RS直接源V4b0最初runner；没有sync、build、重tag或新runner／Compose。RS build-input／source-tree、三tag本机ID及28／13／13全部DiffID与原合格镜像相同。原E `90ca3ebec400ea91da173e2caf89d2682a2654a6` §110逐件独核实际原件并综合A–D与E累计接线／删除／业务／资源／可靠部分测量，给出**S3 E技术GO，H可独立核收为退出候选**。
 
 H外置控制原件、完整SHA、六包直接source与产品树、默认及诊断资源档、真实数据与取消范围、FE／S4／S5／Q18及资源保留见[最终交接§18](p6-s3-candidate-handoff.md#18-最终v与h绑定技术核收及退出交接)。正式退出手续、tag／push未办理，本次不修改H或宣称含S4的当前main已在该H门禁中运行；04来源WT／环境／镜像和全部引用成功／失败证据继续保留，所有本人节点占用已释放，角色工作结束后释放活跃槽。
+
+## 41. Owner授权后正式退出与历史合回（2026-11-09）
+
+Owner明确“办理S3正式退出”。原E新[正式退出报告](p6-s3-exit-review.md)提交`c1ed5981280e31c5e1e2e6e8ca8d212330105f05`给`S3_EXIT_TAG_GO`和有条件`S3_HISTORY_MERGE_GO`，没有重开已核H、补测或修改范围。其准出时报告SHA=`e5f5e6597ae86e52357086c368b0cc6c5f1a84633116eb54325364e7bfc6346a`已固定在tag附注；后续实际手续核收是该文件追加记录，不改写原H。
+
+03:28:07Z创建本地附注`p6-s3-exit`：tag对象`cdfe49ccea0ad51d1ea1798e851736644830984e`，目标H=`f9ef26081dfd4710d3709d9f5fbca24543f84de4`。执行前独立19路径矩阵再次逐blob核对：typing修复a393、三路sort-budget在S4C的适配1ecb及H的14份main c32文档来源全部存在，没有H独有遗漏。随后以经原审批准的`ours --no-ff`连接已移植历史，merge=`87f4ae305c48cd06dfd3033f41c5a8b50ac3ebfc`，双亲精确为`c1ed5981280e31c5e1e2e6e8ca8d212330105f05`与H；merge全树与第一父同为`43efa62e3418e8c795b113b26c79aaee6d6919a3`，vnext仍是main既有6368c9，H正式源仍5610b713。没有普通内容合并、产品／测试／golden变更或以merge树替代H证据；执行原exit0、clean、H在main可达。
+
+本地手续原件`/home/dev/gdds-test-tmp/p6-s3-formal-exit-20261109/`：receipt SHA=`aa179ad52e68e4a99d70c49ce7bf2f0d8a44c6126b2b6d109b8ca4b2151c0738`、raw.log=`2bef101c6e88fa27d46a457e5c90c9dcbe7315ab4c12ab09472108c553b967e8`、19路径映射=`932d6d7d72e2f295b1c0cb0095ff95b6ddef0d697a296cf726f6cc7d422323a3`。实际对象由原E在正式报告末节独核；本次仅Git正式手续，无测试节点运行或新增占用。未push／发布／启动S5，旧M24失败、FULL统计UNKNOWN、W4未测和18取消项不后移均保留，04原来源WT／环境／镜像与全部引用原件继续留存。

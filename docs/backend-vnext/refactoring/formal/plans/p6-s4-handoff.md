@@ -73,7 +73,7 @@ runtime tar SHA `5d476b9634dc64ba2a87c3d1ae98cc70d8423c386c033be89101b831f543178
 
 真实t4的新独立SET wire预期只从固定旧B两包重取app_cfg原24行，各先核回旧1ac摘要，再按声明映射2c9摘要；其他四表及完整schema/count沿原B JSON。
 mapped JSON SHA=`258a99660244281532a1c14e50ad9dd40a214289925248bc84b3c25bba39a19f`，原E独核完整行多重集，旧expected不改。
-短验证r0在uv-consume拒绝保留参数`--project`处exit2，core/Compose/产品尚未执行；修订r1只改外部参数名为`--compose-name`并用新namespace，须先受控释放本人r0标记再一次复验，原件持续保留。详见[协调§18](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)。
+短验证r0在uv-consume拒绝保留参数`--project`处exit2，core/Compose/产品尚未执行；本人r0标记已于02:42:47Z受控释放、outer/node0，原件持续保留。修订r1只改外部参数名为`--compose-name`并用新namespace，已按原审CLEAR派唯一Luna一次执行，实际结果待核。详见[协调§18](p6-s4-coordination.md#18-set口径闭合与dc98短真实验证固定稿)。
 
 按DC98撤回28旅程、04/05的12/16队列及after-FE稿，取消完整fresh t1–t4重复旅程、2×t4/W4/100%压力和1暖3测；不跑History或为本节完整消费FE records。
 剩余真实范围仅冻结标准t4 v1/v2的一次首次/增量生产Submit及必要合法Preview/审批/Archive、真实表核对。

@@ -1647,7 +1647,7 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
       ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
-  await installFixtureRoutes(page, fixtureOptions);
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
@@ -1664,7 +1664,12 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
   // G1 (r2a): retry keeps the original prompt and code instead of clearing
   // the attempt. Both pointers are empty, so the hook re-reads the attempt
   // by the known ID and stays on the ABORTED copy.
+  const attemptReadsBeforeR2a = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
+    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeR2a);
   await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
@@ -1779,12 +1784,12 @@ test("W9③b 工作区恢复后指针为空时按已知ID重读attempt", async (
   const workspaceReadsBefore = apiRequests.filter((request) =>
     request.method === "POST" && request.path === "/v1/workspaces").length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length,
+    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBefore);
   await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
-  expect(apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length)
-    .toBeGreaterThan(workspaceReadsBefore);
   const attemptReads = apiRequests.filter((request) =>
     request.method === "GET" && request.path.includes("/submit-attempts/"));
   expect(attemptReads.length).toBeGreaterThan(attemptReadsBefore);
@@ -1825,9 +1830,14 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   await expect(submit).toBeEnabled();
   const attemptReadsBeforeRetry = apiRequests.filter((request) =>
     request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const workspaceReadsBeforeRetry = apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length;
   // Retry while the attempt is still unreadable keeps the original prompt
   // (the hook re-reads the attempt by the known ID instead of clearing it).
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length,
+    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBeforeRetry);
   await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeEnabled();
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
@@ -1838,7 +1848,12 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   // with the original code.
   fixtureOptions.submitAttemptReadFails = false;
   fixtureOptions.submitAttemptState = "ABORTED";
+  const workspaceReadsBeforeSecond = apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "POST" && request.path === "/v1/workspaces").length,
+    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBeforeSecond);
   await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();

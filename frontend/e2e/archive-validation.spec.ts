@@ -468,7 +468,7 @@ test("V7 阻断项只有文字与重新预检", async ({ page }) => {
 });
 
 test("V8 待审核阻塞列出全部并可定位", async ({ page }) => {
-  const { apiRequests, apiResponses } = await installArchiveScenario(page, {
+  const { apiResponses } = await installArchiveScenario(page, {
     candidates: V_PENDING_CANDIDATES,
     previews: [vPreviewPending(), vPreviewPendingStartable()],
     startConflict: "ARCHIVE_PENDING_REVIEW",

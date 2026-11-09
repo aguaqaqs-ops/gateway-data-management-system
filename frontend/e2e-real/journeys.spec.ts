@@ -1769,6 +1769,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     const acceptBtu = archiverSession.page.getByRole("dialog", { name: "接受异常" });
     await acceptBtu.getByLabel("接受理由").fill("j2 接受基线时间缺失", { timeout: 120_000 });
     await acceptBtu.getByRole("button", { name: "确认接受" }).click({ timeout: 120_000 });
+    await expandArchiveGroupUi(dialogAccept, "基线时间");
     await expect(btuCard.getByText("已接受")).toBeVisible();
     await dialogAccept.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
 

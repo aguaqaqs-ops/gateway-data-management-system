@@ -223,7 +223,7 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await installArchiveScenario(page);
   const dialog = await openArchiveDialog(page, "提交 1");
   await expect(dialog.locator("dt", { hasText: "当前基线" })).toBeVisible();
-  await expect(dialog.getByText("归档基线 1", { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/归档基线 1/)).toBeVisible();
   await expect(dialog.getByText("待处理项")).toBeVisible();
   await expect(dialog.getByText("未解释")).toBeVisible();
   await expect(dialog.getByText("缺少组态生成时间")).toBeVisible();

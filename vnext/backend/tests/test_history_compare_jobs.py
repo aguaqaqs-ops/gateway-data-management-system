@@ -16,7 +16,6 @@ from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.contracts import (
     HistoryCompareDiagnosticCode,
-    HistoryNodeRefKind,
 )
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,

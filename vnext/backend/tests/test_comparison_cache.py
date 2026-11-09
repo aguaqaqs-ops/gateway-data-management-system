@@ -104,8 +104,13 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
 def test_task_identity_ignores_only_outer_binding_and_reader_authority() -> None:
     planned = _planned()
     original = _identity(planned)
+    task = planned.tasks[0]
+    assert task.before_table is not None and task.current_table is not None
+    # Keep descriptor/provenance semantics while dropping only resource owners.
     rebound = replace(planned, pair_id="another-current-pair", tasks=(replace(
-        planned.tasks[0], before_table=None, current_table=None,
+        task,
+        before_table=replace(task.before_table, reader=None, artifact=None, batch_reader=None),
+        current_table=replace(task.current_table, reader=None, artifact=None, batch_reader=None),
     ),))
     assert _identity(rebound).task_digest == original.task_digest
     assert original.task_digest.value.startswith("sha256:")
@@ -341,7 +346,7 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
         "CREATE TABLE t (id BIGINT PRIMARY KEY, flags SET('a','b'), note TEXT);"
         "INSERT INTO t VALUES (1,'a,b',NULL);",
         "CREATE TABLE t (id BIGINT PRIMARY KEY, flags SET('a','b'), note TEXT);"
-        "INSERT INTO t VALUES (1,'',NULL);",
+        "INSERT INTO t VALUES (1,'','x');",
     )
     planned = plan(*(complete_canonical_bound(canonical_bound(sql)) for sql in source))
     identity = _identity(planned)
@@ -359,8 +364,10 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
         view = next(item for item in payload.views if item.name == "facts/STANDARD")
         with pa.ipc.open_stream(pa.BufferReader(view.raw)) as reader:
             row = json.loads(next(iter(reader)).column(1)[0].as_py())
+        # Pre-E a9da0c59277e3179f34d646eabcd9c185917ae05 standard.py:528-555
+        # emits modified values only for changed columns; note is NULL -> 'x'.
         assert row["before_values"] == [["flags", "020320016103200162"], ["note", "0000"]]
-        assert row["current_values"] == [["flags", "00"], ["note", "0000"]]
+        assert row["current_values"] == [["flags", "00"], ["note", "200178"]]
         restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
         assert handle is not None and fact.table_fact_digest is not None
         assert handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2) == fact.table_fact_digest.value
@@ -534,8 +541,9 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
             fact_rows = [json.loads(raw) for batch in reader for raw in batch.column(1).to_pylist()]
         assert [row["kind"] for row in fact_rows] == ["ROW_ADDED", "ROW_ADDED", "ROW_DELETED"]
         assert len({row["row_identity"] for row in fact_rows}) == 3
-        assert [row["current_values"] for row in fact_rows[:2]] == [[["value", "200162"]], [["value", "200162"]]]
-        assert fact_rows[2]["before_values"] == [["value", "200161"]]
+        # Pre-E a9da0c59277e3179f34d646eabcd9c185917ae05 standard.py:647-663
+        # keyless records carry occurrence identities and empty default values.
+        assert [(row["before_values"], row["current_values"]) for row in fact_rows] == [([], [])] * 3
         restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
         assert handle is not None and handle.family_summary("STANDARD")[0] == 3
         assert payload.families == ("STANDARD",)

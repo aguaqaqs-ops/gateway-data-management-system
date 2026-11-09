@@ -1860,6 +1860,105 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toHaveCount(0);
 });
 
+test("工作台续做提示重试时按已知 attempt 重读并保留原提示", async ({ page }) => {
+  // Workbench counterpart of n3/W9①: after the terminal FAILED both pointers
+  // are cleared while the attempt is ABORTED. The notice retry shares the
+  // hook entry with the Preview page, so it re-reads the attempt by the known
+  // ID and stays on the unfinished copy with the original code.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptState: "PREPARED",
+    clearWorkspacePointer: false,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  await held;
+  // The terminal FAILED clears both pointers while the attempt is ABORTED.
+  fixtureOptions.submitAttemptState = "ABORTED";
+  fixtureOptions.clearWorkspacePointer = true;
+  releaseOperation();
+  const notice = page.locator(".workspace-notice[role=\"alert\"]");
+  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(notice.getByText("原始代码")).toBeVisible();
+  // The upload gate is released (only the directory prerequisite remains), so
+  // selecting a directory makes both upload entries available.
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
+  await expect(cardUpload).toBeEnabled({ timeout: 15000 });
+  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
+  // The retry affordance lives inside the notice; the workbench has other
+  // "重试" buttons (compare tray, history drawer) that must not be clicked.
+  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  await notice.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
+    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeRetry);
+  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(cardUpload).toBeEnabled();
+  await expect(toolbarUpload).toBeEnabled();
+});
+
+test("工作台续做提示重试时读不到提交结果仍保留刷新提示", async ({ page }) => {
+  // Workbench counterpart of W9④: with both pointers cleared and the attempt
+  // unreadable, retry keeps the unreadable-result copy instead of clearing it.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptState: "PREPARED",
+    submitAttemptReadFails: false,
+    clearWorkspacePointer: false,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  await held;
+  fixtureOptions.submitAttemptReadFails = true;
+  fixtureOptions.clearWorkspacePointer = true;
+  releaseOperation();
+  const notice = page.locator(".workspace-notice[role=\"alert\"]");
+  await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
+  await expect(cardUpload).toBeEnabled({ timeout: 15000 });
+  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
+  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  await notice.getByRole("button", { name: "重试", exact: true }).click();
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
+    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeRetry);
+  await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
+  await expect(cardUpload).toBeEnabled();
+  await expect(toolbarUpload).toBeEnabled();
+});
+
 test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", async ({ page }) => {
   // First read: only the attempt pointer is set but the attempt is already
   // FINALIZED — a stale snapshot. The hook re-reads once while keeping the

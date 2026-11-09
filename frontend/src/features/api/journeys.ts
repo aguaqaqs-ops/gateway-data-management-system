@@ -465,6 +465,10 @@ export async function runArchiveJourney(
   // Anomaly acceptances are appended one by one in the dialog (§16.4) before this
   // journey runs; they are not appended here. The start references below cover
   // every ACCEPTED item of the latest preview (§16.5).
+  // No client-side can_start gate here: an audit-invalid but unblocked preview
+  // must still reach the server, whose 409 adjudication (ARCHIVE_ANOMALY_UNRESOLVED
+  // and friends, §16.5) the dialog maps to a re-preview prompt. Throwing early
+  // would mask the server verdict the e2e journeys assert on.
   for (const anomaly of plan.anomalies) {
     if (anomaly.resolution_status !== "ACCEPTED") continue;
     const entry = await resolveAuditProgress(progress.anomalyResolutions, anomaly.subject_digest, undefined, async () => anomaly.latest_sequence);
@@ -473,7 +477,6 @@ export async function runArchiveJourney(
   }
   const latestCandidates = await api.listArchiveCandidates();
   if (latestCandidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
-  if (!plan.can_start) throw new Error(`归档被阻止：${plan.blockers.join("、")}`);
   progress.startKey ??= input.startIdempotencyKey ?? input.idempotencyKey ?? crypto.randomUUID();
   progress.started ??= await api.startArchive({
     expected_baseline_node_id: plan.head.business_baseline_node_id,

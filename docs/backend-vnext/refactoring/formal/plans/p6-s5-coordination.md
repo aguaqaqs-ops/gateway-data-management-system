@@ -40,3 +40,11 @@ R1候选`309571984d96d171e9b0c3e24a9cb82ec64c2ead`在`/home/dev/gdds-s5-design-r
 - R3缓存格式：3 facts + 3 artifact + 1 STANDARD risk视图，精确risk schema；每batch至多1024行而非1024个batch；修正Rust records路径，新增facts-row validator归属明确。
 
 一并澄清client三次是单请求上限，durable retry归原Lifecycle；继续清除AGENTS/testing conventions的过往S3 ready、固定全量runner句及过时计数。没有扩大真实范围、生产M或测试矩阵。修订候选须由原审核者连续复审关闭；本轮仍未运行产品测试/构建，也未修改产品源码。
+
+## 6. 设计关闭
+
+原审核者在clean detached `/home/dev/gdds-s5-design-review-r2`连续复审固定候选`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`，给出**DESIGN_CLEAR，产品实施仍未授权**；R1三项finding全部关闭，无新增阻塞或Owner待决。R2原文SHA256=`198ed8cdbb953186372ec8497f63ec1ec5be3b1f41e8ecd491b08b446ac438f5`，已逐字纳入[独审归档](p6-s5-design-review.md)。
+
+关闭提交只归档原文并更新状态，按R2明确允许的机械归档范围核对：两轮原文字节/SHA不变、相对文档目标可解析、Git空白检查通过、`vnext`与`frontend`树等于源码基线，主线工作区clean。没有运行产品测试、lint、编译、镜像或真实旅程，没有新增carried、推送或S5 exit tag。main位于本轮独立工作区`/home/dev/gdds-s5-design-main`，原前端工作区未切换或覆盖。
+
+下一步待Owner另行授权S5产品实施，再按kickoff A→E推进；本次临时Astra high授权仅用于上述设计原审及连续复审，不延伸实施阶段。

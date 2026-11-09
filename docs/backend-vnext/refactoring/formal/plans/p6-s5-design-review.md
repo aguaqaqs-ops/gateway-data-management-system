@@ -1,8 +1,8 @@
 # S5 设计独审归档
 
-本文件逐字保留独立审核原件。R1候选`309571984d96d171e9b0c3e24a9cb82ec64c2ead`结论为DESIGN_CHANGES_REQUIRED；修订已交原审核者连续复审，尚不宣称DESIGN_CLEAR。任何设计结论均不构成S5产品实施或退出授权。
+最终结论：**DESIGN_CLEAR，产品实施仍未授权**。GPT-6-Astra high原审核者连续复审候选`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`，R1三项finding全部关闭，无新增阻塞。结论不代表产品测试通过、产品GO或S5退出。以下R1/R2原文逐字保留，文件整体SHA不同于各外置原件SHA。
 
-R1外置原件：`/home/dev/gdds-test-tmp/p6-s5-design-review/review-r1.md`；SHA256：`363cfcf24f6503923c2849e8b45b358ac2b617bdd01770623ae2df24eba16cad`。以下原文未改写。
+R1外置原件：`/home/dev/gdds-test-tmp/p6-s5-design-review/review-r1.md`；SHA256：`363cfcf24f6503923c2849e8b45b358ac2b617bdd01770623ae2df24eba16cad`。以下为R1原文。
 
 ---
 
@@ -77,3 +77,47 @@ R1外置原件：`/home/dev/gdds-test-tmp/p6-s5-design-review/review-r1.md`；SH
 下一固定 clean detached 候选应逐项修正 R1–R3，并对当前执行说明做上述有限清理。由本审核者核新 SHA、文档差异及原 finding 关闭依据；不要求为这轮文档修订运行产品测试或新增性能、容器、真实数据证据。实现阶段仍须按 A–E 各 owner 承担既定 focused 与最终门禁，不能用本报告代替。
 
 本轮只文档，不触发镜像重建。当前 HEAD 未声明任何新产品 gate，通过的历史 image/source-tree 身份仍只属于既有 S3/S4 原证据，本审核没有重算或新增 carried。没有剩余需要 Owner 选择的业务取舍；三项修订均是恢复现行冻结语义和修正实际源码事实。
+
+
+---
+
+R2外置原件：`/home/dev/gdds-test-tmp/p6-s5-design-review/review-r2.md`；SHA256：`198ed8cdbb953186372ec8497f63ec1ec5be3b1f41e8ecd491b08b446ac438f5`。以下为R2原文。
+
+---
+
+# Phase 6 S5 独立设计审核 R2
+
+结论：**DESIGN_CLEAR**。R1 的三项 finding 均已关闭，本次差异未引入新的设计阻塞。此结论仅覆盖 S5 详细设计、实施/验证计划及相关当前治理说明；不代表产品实现已完成、产品测试通过或 S5 GO，产品实施仍未授权。
+
+## 1. 固定对象与范围
+
+- Candidate：`75267e9a72cfb9f428b1c1e5182c1fe55f6e697f`。
+- 同轮原审：`309571984d96d171e9b0c3e24a9cb82ec64c2ead`；原 base：`4c648965286ec751c4395cd6111f11838610299c`。
+- 只读 detached worktree：`/home/dev/gdds-s5-design-review-r2`；已核 HEAD、detached、index/worktree/untracked clean，`legacy` 指向 `/home/dev/gateway-data-management-system/legacy`。
+- Rust tree 仍为 `e2a901417b19259ece669637a41545e774261445`。R1..R2 仅七份文档变更，产品源码、锁文件、部署和 golden 均未改变。
+- 本次由 R1 原审核者连续复审，直接读取全部七文件的修订差异，并针对风险控制、恢复 Contract、风险 schema 复核固定源码。沿用 R1 已完成的其余设计核查，没有重审 S3/S4 全阶段。
+- 本人未改被审 worktree，未创建子审核者，未运行测试、编译、lint、镜像构建、真实数据旅程或原型，未 push/tag。
+
+## 2. 原 finding 关闭依据
+
+| 原 finding | 修订与复核 | 结论 |
+| --- | --- | --- |
+| R1 / P1 风险控制顺序 | 设计 §5 已明确 cap（pair 优先）→记录候选→rule/level→过滤→必要输出预约→编号/append→原 `_check_table`；过滤候选直接返回。closure 保持原事件位置，缓存每 1024 事件的 operation checkpoint 与业务 table/pair 时间检查分开，不借 codec 前移检查。与 `capabilities/risk_evaluation/_engine.py` 的 emit 和 cached-events 循环一致。kickoff A 把同时触界、过滤候选、末条 emit 定位到既有风险 focused owner。 | CLOSED |
+| R2 / P1 prepare 冻结分界 | 设计 §6.2/§7 和 kickoff D 按 T1 前、T1 后至 prepare checkpoint 前、checkpoint 持久化后三段区分。明确 T1 已创建 PREPARED，但不表示包已生成；中间段冻结 canonical 缺失稳定失败，后一段固定包/ref/raw SHA/effect key 复用且不得缺包重建。与 Canonical Storage §5、DC94 相符。恢复验证留给既有 prepare owner，没有新状态机或重复真实矩阵。 | CLOSED |
+| R3 / P2 neutral 消费者和 batch 约束 | 设计 §4.1/§6.1 已改为最多 3 facts + 3 artifact + 1 STANDARD risk 视图，空族由 manifest 零 count 表达。risk schema 精确匹配 `comparison_records.rs::risk_schema`，Ordered 结果仅取其 STANDARD 投影。1024 明确是每 batch 行数，manifest 保留实际原批次边界；可选 manifest 容量不足只 not_retained，不缩小产品接受范围或 rechunk。kickoff A 的 core 路径修正为 `src/records/`。 | CLOSED |
+
+## 3. 相关修订核查
+
+事实 JCS 的形状/字段/类型检查现明确由 Comparison owner 新增 facts-row validator，并复用现 JCS/typed-frame 规则；不再把现 artifact-row validator 说成已具备这一能力。它与 R1 认可的中性 facts/artifact 两序、当前绑定重算 digest、原 Parquet row-group 边界和有预算统一 handle 路径一致，未扩展客户端格式或威胁模型。
+
+设计 §8 将 max_attempts=3 限定为现 client 单次请求，明确不新增外层 HTTP 重试相乘，耗尽后 retryable provider failure 与 durable step recovery 仍归 Operation Lifecycle；这消除了全新全局三次状态机的歧义。生产 N/M、metadata-demand、可选缓存释放、T3 窄 SAVEPOINT、authority 失败边界和最小真实范围均未扩大。
+
+AGENTS/testing conventions 的本次清理限于当前执行说明：去掉历史 S3 ready 阶段门槛、过时测试数量/耗时，替换固定“完整 runner 一次”的绝对表述为按实际闭包运行或合格沿用；项目最终/发布六包、适用容器门禁、专用节点和占用、离线/clean/锁文件、五包静态、Rust 工具链与 carried 规则保留。Dolt marker 验证示例切换到现受控 uv wrapper，未改变分类验证目的。未改历史 handoff 或原审证据。
+
+R1 归档带八行说明前缀；从 `p6-s5-design-review.md` 第 9 行开始的原文 SHA256 为 `363cfcf24f6503923c2849e8b45b358ac2b617bdd01770623ae2df24eba16cad`，与外置 R1 原件完全一致。归档总文件有前缀，故其整体 SHA 不应被误认为 R1 原件 SHA。
+
+## 4. 归档与授权边界
+
+后续仅逐字归档本 R2 报告、保留 R1 原文及两个外置原件 SHA，并把设计/实施计划/协调记录的状态更新为“DESIGN_CLEAR，产品实施仍未授权”，属于可机械核对的归档变化，不需要重开一次完整设计独审或运行产品门禁。协调者可核最终差异仅为报告原文、固定候选/报告路径/SHA 和这些状态说明，且产品树不变；若改动技术方案、验收范围、授权含义或本报告原文，则不属于该归档范围，应交同轮审核者核受影响部分。归档提交必须保留本结论绑定的候选 SHA，不能把归档状态写成产品 GO 或实施授权。
+
+Container rebuild required：no，纯文档。Container gate for this design：not-applicable。最后验证的产品/image 来源仍为既有 S4 证据，本次未重算镜像身份、未新增 carried，也不声明当前 HEAD 通过产品 gate。没有剩余阻塞 finding 或需要 Owner 选择的新增业务取舍。

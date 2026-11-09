@@ -1,6 +1,6 @@
 # S3 累计产品候选与验证交接
 
-**当前恢复状态（2026-11-09）：** Owner后续授权Q18实现、S3剩余验证和DC95限定增预算诊断，随后直接确认§15最小清单。当前V4b0代码、四fresh、权威／Compose、W3 MO一暖三测和FULL warm/r1已独核，一次现有证据聚合已由原E `40c84bb8be` §107核收；最终H实际绑定及E总核收仍待。§1–6是原V774/H685历史受阻事实，不能覆盖后续结果，最新见§7–16。原M24失败不撤销，W4全表NOT_RUN／UNKNOWN，不自动顺延取消项。S4另会话独立推进，main移植不混作S3-only证据；无正式退出／tag／push。
+**当前结论（2026-11-09）：S3 E技术GO，退出候选可独立核收。** 原E `90ca3ebec400ea91da173e2caf89d2682a2654a6` §110已核最终V4b0／Hf9ef六包全部实际可沿用及三镜像身份等价，结合A–D、四fresh和已批准可靠部分测量形成整体技术结论；没有在H新跑runner或Compose。完整固定源／原件及退出交接见§18。§1–6是原V774/H685历史受阻事实，不覆盖后续结果；原M24失败、W4全表NOT_RUN／UNKNOWN、FULL统计UNKNOWN及18取消项不自动顺延均保留。Q18独立GO，FE／S4／S5与原基准各自核收；正式退出／tag／push未办理。
 
 2026-11-08。Owner已明确选择：**保持阶段边界，保留性能阻塞，完成其余交接**。这不是性能待项豁免；S3 E不签GO、S3不退出，不提前实施S4，不改N1/32-8/M24，不tag/push/发布。
 
@@ -217,3 +217,34 @@ Owner确认性能指标是否达标不再作为退出依据，只要求可靠测
 Q18已独立GO：产品`94b25a3279`、交接`8cf472a4dd`、原审核`27eab454b7`与末次`964d900d44`，供archive-only从候选同事务取得review_version并填写关闭CAS；不把生成时间初始A缺失异常改成无异常，不宣称FE3b／FE3c已验收。Q18可选live OpenAPI curl缺失仍非PASS。S4收到main最小移植1ecb及各自Rust e2a901 focused来源，后续S4结果由其独立候选核收；S5读取／持久缓存、FE和原基准资源不由本次接管。风险约110s级等热点只作已有事实与后续讨论输入，不在S3擅迁语言边界或追加优化。
 
 05四档完整fresh、CT108六样本及受控聚合均已完成正常收尾并释放本人marker，未保留整机预约。原M24失败归档、旧M40失败现场、所有引用成功／失败原件和真实输入继续保留。04来源WT `/home/dev/gdds-test-tmp/p6-s3-e-final-3a7e088b2a/wt/subject`及其环境／镜像保护至H绑定和正式退出后再按DC51处置；不清理他人资源，不全局prune。尚待的是最终H固定／实际六闭包和镜像绑定、同E累计结论与退出交接候选；正式退出手续、附注tag和push仍另办，当前不宣称已退出／发布。
+
+## 18. 最终V与H绑定、技术核收及退出交接
+
+本节为post-H状态记录，**不修改已绑定H，不把当前main的并行S4产品树冒作H门禁源**。A–D原限定GO、E累计代码§101、独立预期与断言移交、唯一生产路径及删除清单见§1–2；当前固定产品、证据和资源边界如下。
+
+| 身份／结论 | 最终绑定 |
+| --- | --- |
+| 产品V | `4b0a2eec725bffb0cf2e753df5f3e5d90e26c3fb` |
+| docs-only H，直接父V | `f9ef26081dfd4710d3709d9f5fbca24543f84de4`，14文档blob逐一来自`c32c8c9d123d918604a16edfc2afb0f8b9367c24` |
+| V=H产品树 | vnext `5610b7137b97196433cc08797d58165b9880e848`；Rust `9d4f84ce0897099402226c77c548c487c4912008` |
+| 独立累计结论 | 原E `90ca3ebec400ea91da173e2caf89d2682a2654a6` §110：**S3 E技术GO，H可独立核收为退出候选** |
+| H实际取证 | 04 `gw-dms-test-04` 原来源WT，node 02:23:23–02:23:32Z、controller 02:23:22–02:23:36Z；node／capture／postflight／outer0，HEAD H clean、六锁0漂、本人marker真实释放 |
+| 六包动作 | ALL_CARRY；各包source_total=current_total、changed_components为空，selected空；四包直接1e最初实跑、backend／RS直接4b0最初实跑，六个total_digest逐字等§11；**runner未启动，未sync／build／重tag或重复Compose** |
+| 镜像等价 | 同04三tag本机ID及全部28／13／13 DiffID与§11合格来源相等；RS当前build-input e763／source-tree e450与原label一致，backend／worker按同WT真实闭包绑定 |
+
+当前H原件位于`/home/dev/gdds-test-tmp/p6-s3-final-h-f9ef26081d-fixed/control/`。原E逐件独核33份core捕获及节点原文件SHA，外层最后实际release与后检均通过；关键索引如下，六份`captured/current/`和`captured/compare/`逐包原件保全部组成项，不用沿用结果制造新源。
+
+| 原件 | SHA256 |
+| --- | --- |
+| `outer.log` | `7e3a673cb68f0c91574c0a797fad74dcc4fd788c00bdbda94a2cc03362e43aea` |
+| `node-stdout.log` | `944fbce01ca665894fdd7048324ca6139d9ae464913b205ba2d6321f559477f6` |
+| `captured/h.log` | `e1d9ec2c6d56d8aae2f59e8ba2333506b54c91b49a5ec37396e494b996068eff` |
+| `captured/core.sha256` | `2a8444110572448adf326ab8257acd4b82c9a950d6181fbbb917ca3086061ac7` |
+| `captured/carried-packages.txt` | `161b69930cb01571996bcb9da0416e7deb02f3de14babd150c1c12fef7955606` |
+| `captured/repository-build-identity.json` | `b387dbcf1591a0ac95a0c9091e4c9a0f8ea38c50429c2ecdee93fdaf2431b985` |
+
+固定执行资产同外置目录：bundle SHA=`fe9205f46c62f7df430618cedc0d3756951fd279c7849f3ae674890e1c18a3da`、node=`f485f62467e638faa9d50ac85b58978968df545f7632f7a04c8ba72755f06cd5`、controller=`1a4f2831219d30f6097b13fc986d86aced7fb7ab5ddceb41eb99be40dc6b0f35`、literal manifest=`47a4171b4ccf6471c2d5f491d61cba1d3de94722f29ea6428acb24f149067d5c`。字面静审见§109／`bb3630b71f`；本次没有发现H执行或最终复审finding。
+
+DC33默认N1／32−8／M24的当前V fresh t1–t4完整功能已逐档实跑独核；诊断另档N1／48−8／M40的W3 MO三测完成median595.879s、range595.752–605.887s，FULL r1完成669.550s仅单次，可靠聚合及分段详见性能§13与原E §107。Owner已确认18未启动项取消、不自动转S6；FULL三样本统计UNKNOWN，W4全表输出／容量／性能NOT_RUN／UNKNOWN。原M24 W3基线Submit预约拒绝与首次拒绝点未知、旧M40准备及局部排序失败均保留，新条件成功不倒签原失败。性能数值达标不作退出门槛，正确性／资源与冻结bytes／golden要求仍已按本范围核收。
+
+Q18、FE、S4／S5与原基准交接面按§17分别保持；S3技术GO不宣称FE完成或授权S5。所有本人节点marker已释放，04原来源WT现为H并继续保护环境／镜像至正式阶段退出后按DC51处置；全部引用成功／失败原件、输入及未决故障现场保留。**本次实现、独审、批准范围验证及退出候选交接已完成；正式阶段退出手续、附注tag、push／发布仍另办，未执行。**

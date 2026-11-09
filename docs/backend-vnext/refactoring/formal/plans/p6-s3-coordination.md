@@ -1,6 +1,6 @@
 # Phase 6 S3 实施协调记录
 
-2026-11-07起；本轮Owner已授权A→B→C→D→E实施、修复、逐节独审及验收推进。最新状态见§38–39：A–D GO、Q18独立GO；V4b0通过累计代码核收、focused、04六包来源／容器、05 fresh t1–t4、W3 MO一暖三测及FULL warm/r1。Owner直接确认取消18未启动测量，不自动顺延；一次实际证据聚合已原exit0并由同E §107核收，当前只余最终H实际六闭包／镜像及原E总核收。W4全表NOT_RUN／UNKNOWN，原M24／旧M40失败保留。main最小移植1ecb有独立限定focused，不混S4联合来源。数值目标不作退出门槛（DC97），可靠测量与业务／资源安全仍保留；当前无E整体GO／正式退出，不tag/push。早期各节保留当时事实，当前边界见[累计候选交接](p6-s3-candidate-handoff.md)。
+2026-11-07起；本轮Owner授权A→B→C→D→E实施及独审已推进至**S3 E技术GO、退出候选可独立核收**。最终V4b0／Hf9ef在原04同WT六包全部实际可沿用，RS／三镜像身份等价由原E `90ca3ebec4` §110核收；未新跑runner或Compose。代码／四fresh／Owner确认范围的可靠测量及失败／未知详见§38–40和[累计交接§18](p6-s3-candidate-handoff.md#18-最终v与h绑定技术核收及退出交接)。W4全表NOT_RUN／UNKNOWN、原M24／旧M40失败、18取消项不自动顺延均保留。Q18独立GO，FE／S4／S5和原基准各有边界；main后续S4树不混为隔离S3证据。正式阶段退出、tag／push仍另办，当前未执行；早期段落保留当时事实。
 
 ## 1. 起点与并行边界
 
@@ -568,3 +568,11 @@ Owner在并行S4会话询问S3能否按业务正确性优先收敛；协调先HO
 FULL r1在CT108于01:06:32–01:50:50Z自然封口，node／capture／postflight／outer0、实际release PASS；原E `e88ece5c98` §106独核原件与六成功receipt链PASS。v2可见669.540s／完成669.550s，仅1measurement；同一Preview的两pair及bundle pair_count2、631表／64变更／0失败降级、N1／48−8／M40同worker／三OOM键0／镜像及正常收尾合格。完整控制原SHA见该独审段。
 
 按Owner已确认范围及原E适用CLEAR，唯一Luna在CT108于01:54:35–01:54:39Z运行一次原`aggregate-run.sh`，原node／capture／postflight／outer0、六锁／clean V4b0及真实释放合格。控制目录`/home/dev/gdds-test-tmp/p6-s3-v2-sort-performance-remaining-4b0a2eec72-fixed/aggregate-control/`，outer SHA=`ce7acc9c915c79fbec2053523c3bea57da70b81a7f53c84bf1edb45809122504`、最终receipt=`6a5e59c41b350b4dbde189838ab6a08ff97c22c69c5124e0041a12e92520e85f`、report=`c37e3db3a699f891affee58f129d457e86c9105c9f5382c8d0b394448c70997e`。节点产生的W3 MO统计为可见median595.870s／range595.743–605.877s、完成median595.879s／range595.752–605.887s；FULL统计UNKNOWN、W4四组NOT_RUN／UNKNOWN、all_groups_complete=false、S6 NOT_ASSESSED全部保留，未在开发机重新计算。聚合原件已由原E `40c84bb8be` §107逐SHA独核PASS；没有新样本、重跑或强行填齐。最终H未知，原04来源WT／环境／镜像继续保护，具体字面绑定稿准备中。
+
+## 40. 最终H实际绑定与S3技术核收完成
+
+最终H=`f9ef26081dfd4710d3709d9f5fbca24543f84de4`直接父V4b0，仅14个精确文档路径来自固定DOC_SOURCE `c32c8c9d123d918604a16edfc2afb0f8b9367c24`，vnext tree5610b713／Rust9d4与V完全相等；字面稿在原E §109／`bb3630b71f`静审CLEAR。04当时有S4有效标记，唯一Luna只读准入后等待正常释放，未启动H或清他人资源；S4于02:21:32Z释放后，Luna才实时原子取得本人占用并运行这一次已审H入口。
+
+02:23:22–02:23:36Z的控制器／节点／capture／postflight均原exit0，04同来源WT最终HEAD H clean、六锁0漂、本人marker实际释放。六包compare均source_total=current_total且changed_components为空，走ALL_CARRY：四包直接源V1e最初runner、backend／RS直接源V4b0最初runner；没有sync、build、重tag或新runner／Compose。RS build-input／source-tree、三tag本机ID及28／13／13全部DiffID与原合格镜像相同。原E `90ca3ebec400ea91da173e2caf89d2682a2654a6` §110逐件独核实际原件并综合A–D与E累计接线／删除／业务／资源／可靠部分测量，给出**S3 E技术GO，H可独立核收为退出候选**。
+
+H外置控制原件、完整SHA、六包直接source与产品树、默认及诊断资源档、真实数据与取消范围、FE／S4／S5／Q18及资源保留见[最终交接§18](p6-s3-candidate-handoff.md#18-最终v与h绑定技术核收及退出交接)。正式退出手续、tag／push未办理，本次不修改H或宣称含S4的当前main已在该H门禁中运行；04来源WT／环境／镜像和全部引用成功／失败证据继续保留，所有本人节点占用已释放，角色工作结束后释放活跃槽。

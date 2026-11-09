@@ -1312,6 +1312,7 @@ async function uploadDirsAndPreview(
   identity: JourneyIdentity,
   scope: JourneyScope,
   dirs: { modified: string; initial?: string },
+  diffView: "grid" | "replacement" = "grid",
 ): Promise<UploadRun> {
   const bundleRecording = recordBundleResponses(page);
   try {
@@ -1352,7 +1353,14 @@ async function uploadDirsAndPreview(
     }
     expect(bundle, "bundle downloaded and installed").toBeTruthy();
     expect(bundleResponse, "bundle response recorded").toBeTruthy();
-    await waitForDiffBrowsing(page);
+    if (diffView === "replacement") {
+      // Identity-different datasets render the replacement browser instead of
+      // the comparison grid (R4); the grid paint flag never applies here.
+      await expect(page.locator("section.replacement-browser")).toBeVisible({ timeout: 120_000 });
+      await expect(page.getByText(/身份结论/)).toBeVisible();
+    } else {
+      await waitForDiffBrowsing(page);
+    }
     return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle: bundle as ParsedBundle, status: upload.status(), previewStatus: preview.status(), etag: (bundleResponse as PlaywrightResponse).headers()["etag"] ?? "" };
   } finally {
     bundleRecording.dispose();
@@ -1604,11 +1612,9 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     appendCaseLog(`j1-step11 ok submission=${submitC2.submissionId} head=3`);
 
     // Steps 12–13: D (DIFFERENT_PROJECT) requires identity confirmation.
+    // D renders the replacement browser rather than the comparison grid.
     await gotoWorkbenchFresh(s1Session.page);
-    await selectUploadDirs(s1Session.page, { modified: inputDir(scope, "replacement") });
-    await startUpload(s1Session.page);
-    expect(await waitForPreviewOutcome(s1Session.page)).toBe("compare");
-    await waitForDiffBrowsing(s1Session.page);
+    const runD = await uploadDirsAndPreview(s1Session.page, s1, scope, { modified: inputDir(scope, "replacement") }, "replacement");
     const submitResponse = s1Session.page.waitForResponse((response) => isPost(response, "/submit-attempts"), { timeout: 300_000 });
     await compareAction(s1Session.page, "提交").click({ timeout: 120_000 });
     const submitDialog = s1Session.page.getByRole("dialog");
@@ -1621,7 +1627,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await submitDialog.getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
     const submitted = await submitResponse;
     expect(submitted.status(), "D submit status").toBe(202);
-    const { submission: submissionD } = await waitForPendingSubmission(s1, runA.workspaceId, 240_000);
+    const { submission: submissionD } = await waitForPendingSubmission(s1, runD.workspaceId, 240_000);
     await approveByReviewer(reviewer, submissionD.submission_id);
     const digestD = (await listArchiveCandidates(archiver)).body.candidates.find((candidate) => candidate.submission_id === submissionD.submission_id)!.expected_candidate_digest;
     const planD = (await previewArchivePlan(archiver, { submission_id: submissionD.submission_id, expected_candidate_digest: digestD })).body;
@@ -1750,8 +1756,10 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     archiverSession.page.on("request", (request) => {
       if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/closure")) closureBodies.push(request.postData() ?? "");
     });
+    // Candidate order is backend-defined; target C by its tree display name
+    // ("提交 3": third created submission), not by list position.
     const dialogClose = await openArchiveDialogUi(archiverSession.page, "提交 2");
-    await dialogClose.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click({ timeout: 120_000 });
+    await dialogClose.locator("section[aria-label='候选提交'] li", { hasText: "提交 3" }).getByRole("button", { name: "关闭（不归档）" }).click({ timeout: 120_000 });
     const closeDialog = archiverSession.page.getByRole("dialog", { name: "关闭提交（不归档）" });
     await closeDialog.getByLabel("关闭理由").fill("C 的业务口径已变化，先关闭", { timeout: 120_000 });
     await closeDialog.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check({ timeout: 120_000 });

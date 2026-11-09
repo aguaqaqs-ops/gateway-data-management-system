@@ -1704,6 +1704,10 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
   const s2Session = await openSession(browser, s2);
   const s3Session = await openSession(browser, s3);
   const archiverSession = await openSession(browser, archiver);
+  let reviewGets = 0;
+  archiverSession.page.on("request", (request) => {
+    if (request.method() === "GET" && /\/v1\/submissions\/[^/]+\/review$/.test(new URL(request.url()).pathname)) reviewGets += 1;
+  });
   const reviewerSession = await openSession(browser, reviewer);
 
   try {
@@ -1773,10 +1777,6 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await expect(btuCard.getByText("已接受")).toBeVisible();
     await dialogAccept.getByRole("button", { name: "关闭对话框" }).click({ timeout: 120_000 });
 
-    let reviewGets = 0;
-    archiverSession.page.on("request", (request) => {
-      if (request.method() === "GET" && /\/v1\/submissions\/[^/]+\/review$/.test(new URL(request.url()).pathname)) reviewGets += 1;
-    });
     const digestC = listed.candidates.find((candidate) => candidate.submission_id === submitC.submissionId)!;
     const closureRequests: Array<{ key: string; body: string }> = [];
     const closureStatuses: number[] = [];

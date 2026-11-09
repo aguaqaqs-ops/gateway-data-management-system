@@ -227,6 +227,9 @@ pub fn build_records_arrow(
 }
 
 /// Rebind neutral artifact batches without sorting or changing batch boundaries.
+// Keep per-call limits, the operation context, and the surviving external owner
+// explicit at this native boundary, as in the ordinary records builders.
+#[allow(clippy::too_many_arguments)]
 pub fn restore_records_batches(
     family: &str,
     detail_policy: &str,

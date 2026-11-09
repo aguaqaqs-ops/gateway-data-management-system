@@ -203,7 +203,8 @@ class ArrowIpcByteStream:
             response: httpx.Response | None = None
             try:
                 try:
-                    client, response = await self._control.run(self._open_attempt, abandon=_close_opened_pair)
+                    opened = await self._control.run(self._open_attempt, abandon=_close_opened_pair)
+                    client, response = opened
                 except httpx.TransportError as exc:
                     last_error = exc
                     if attempt >= self._max_attempts:
@@ -214,7 +215,7 @@ class ArrowIpcByteStream:
 
                 try:
                     self._ensure_open()
-                    candidate_response = response
+                    candidate_response = opened[1]
                     await self._control.run(lambda: self._validate_open_response(candidate_response))
                     self._ensure_open()
                     self._client = client

@@ -213,6 +213,7 @@ finally:
 
 def inputs(args):
     root, worktree, assets = args.input_root.resolve(), args.worktree.resolve(), args.assets.resolve()
+    require(not assets.is_relative_to(worktree), 'real old B row payloads must remain outside Git/worktree')
     head = command(['git','-C',str(worktree),'rev-parse','HEAD'],text=True).stdout.strip()
     require(re.fullmatch(r'[0-9a-f]{40}', args.candidate_head) and head == args.candidate_head, 'fixed clean candidate HEAD')
     require(not command(['git','-C',str(worktree),'status','--porcelain'],text=True).stdout, 'clean committed worktree')
@@ -438,11 +439,14 @@ def main():
                     name = info['Config']['Labels']['com.docker.compose.service']
                     resource._stop_normally(cid,worktree,env)
                     stopped = resource._inspect(cid,worktree,env)
-                    require(not stopped['State']['Running'] and stopped['State']['ExitCode'] == 0 and not stopped['State']['OOMKilled'] and stopped['RestartCount'] == 0, 'normal exit0 owned service without OOM/restart')
+                    accepted_exits = {0,143} if name == 'repository-service' else {0}
+                    require(not stopped['State']['Running'] and stopped['State']['ExitCode'] in accepted_exits and not stopped['State']['OOMKilled'] and stopped['RestartCount'] == 0, 'normal owned service termination without OOM/restart')
                     raw = command(['docker','logs','--timestamps',cid])
                     (output/f'final-{name}.stdout.log').write_bytes(raw.stdout)
                     (output/f'final-{name}.stderr.log').write_bytes(raw.stderr)
                     result.setdefault('stopped_services',{})[name] = {'container_id':cid,'exit_code':stopped['State']['ExitCode'],'running':False,'oom_killed':False,'restart_count':0,'image_id':stopped['Image']}
+                if context.get('services'):
+                    require(set(result.get('stopped_services',{})) == set(SERVICES), 'all started owned services stopped')
             except BaseException as exc:
                 errors.append(type(exc).__name__+': '+str(exc))
         end_head = command(['git','-C',str(worktree),'rev-parse','HEAD'],text=True).stdout.strip()

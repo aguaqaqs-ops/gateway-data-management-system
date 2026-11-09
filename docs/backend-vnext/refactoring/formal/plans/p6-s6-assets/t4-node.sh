@@ -180,6 +180,7 @@ run_check() {
 }
 assets="$subject/docs/backend-vnext/refactoring/formal/plans/p6-s6-assets"
 input_root=${GATEWAY_REAL_DUMP_ROOT:?own copied standard input root required}
+oracle_root=${GATEWAY_S6_ORACLE_ROOT:?external SHA-pinned old B JSON copies required}
 export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
 export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-578e079b762e
 export GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES=1
@@ -203,10 +204,10 @@ run_check native-build-input ./vnext/scripts/check-rust-extension-build-input.sh
 run_check repository-image ./vnext/scripts/build-repository-service-image.sh
 run_check prepare ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python - \
   --worktree "$subject" --candidate-head "$expected" --input-root "$input_root" \
-  --assets "$assets" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
+  --assets "$oracle_root" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
   --prepare-only < "$assets/t4-evidence.py"
 run_check t4 ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python - \
   --worktree "$subject" --candidate-head "$expected" --input-root "$input_root" \
-  --assets "$assets" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
+  --assets "$oracle_root" --evidence "$evidence/journey" --compose-name "s6-t4-${expected:0:12}" \
   < "$assets/t4-evidence.py"
 run_check disk-after df -B1 "$subject" "$evidence" /var/lib/docker

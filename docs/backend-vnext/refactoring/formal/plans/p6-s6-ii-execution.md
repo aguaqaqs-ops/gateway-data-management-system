@@ -20,7 +20,9 @@ copy of standard metadata and packages, with an independent writable `runs/`;
 source files stay read-only. Transfer through the approved LAN and verify
 before execution; never regenerate these inputs.
 
-The [fixed asset directory](p6-s6-assets) contains unchanged saved bytes:
+The external `/home/dev/gdds-s6-logs/ii/sources/` holds unchanged saved bytes;
+real row payloads never belong in Git. The [fixed asset directory](p6-s6-assets)
+contains only drivers and non-row source metadata:
 
 | File | SHA256 | Authority |
 | --- | --- | --- |
@@ -65,8 +67,8 @@ reset, direct baseline write or alternate business path is introduced.
 
 1. Unique III Luna checks BatchMode SSH, current node availability, offline
    toolchain/LAN-prefill identity and actual cache records; transfers clean H,
-   both fixed JSON assets and own standard input copy. Set node alias and input
-   root in the command environment. The wrapper itself atomically acquires the
+   both fixed JSON assets to an external node directory and own standard input copy. Set node alias, input
+   root and `GATEWAY_S6_ORACLE_ROOT` in the command environment. The wrapper itself atomically acquires the
    node marker; do not take a second outer marker. The worktree is clean,
    detached at H with the standard legacy symlink. Source/public Docker context
    permissions must allow the configured container user to read them; never
@@ -122,7 +124,7 @@ reset, direct baseline write or alternate business path is introduced.
    and final tar Surface each bind their own digest; no cross-layer equality.
 10. Capture actual same-service cgroup peak/events and process RSS HWM at ready,
     boundaries and final running state. On success or caught failure, send
-    normal TERM to owned services, wait for exit0, save final logs and preserve
+    normal TERM to owned services, wait for normal termination (backend/worker0, RS0 or143), save final logs and preserve
     stopped volumes/secrets/input/evidence for review. The wrapper releases only
     its own marker after processes/containers/port and HEAD/clean closure are
     verified; an unknown cleanup retains the marker and stops acceptance.
@@ -132,6 +134,7 @@ The reviewed node invocation is, with literal final H and new external paths:
 ```bash
 GATEWAY_S6_TEST_NODE_ALIAS=<actual-pool-alias> \
 GATEWAY_REAL_DUMP_ROOT=<task-owned-standard-copy> \
+GATEWAY_S6_ORACLE_ROOT=<external-fixed-old-B-JSON-copies> \
 bash <H-worktree>/docs/backend-vnext/refactoring/formal/plans/p6-s6-assets/t4-node.sh \
   <H-worktree> <new-external-evidence> <unique-session> <H>
 ```
@@ -152,7 +155,7 @@ On a dedicated occupied CT, clean II candidate: five-package ruff/mypy, forced
 native build-input, full `tests/test_real_dump_journey.py -n 0`; compile the two
 fixed Python draft sources via builtin `compile` without writing pycache;
 `bash -n t4-node.sh`; run driver `--prepare-only` against standard input and
-tracked old B assets; run `historical-bundles.py` via controlled Python stdin
+external SHA-pinned old B assets; run `historical-bundles.py` via controlled Python stdin
 against the saved four tar copies. No stack, full runner or real chain. Fixed
 external II node script and literal candidate are in the II handoff; all source
 and result hashes/actual node facts remain external. Any nonzero stops later
@@ -184,3 +187,24 @@ staging peak, or retained failed volumes as cleanup-complete. Current exact
 per-object physical values and staging/cleanup peaks without an existing source
 stay UNKNOWN; no capacity census or V8 profiling is added. Final gate duration
 comes only from the final runner's existing package/batch clock fields.
+
+## Draft correction before II execution
+
+The initial local draft commit `68d5d4cce7817aefc5b57dc0afe38c176e307854`
+incorrectly tracked the complete old-B SET raw/wire rows. It was never pushed
+or executed. It had already been referenced by the original reviewer, so the
+correction is forward-only: remove both original JSON payloads from the current
+Git tree, preserve the unchanged source bytes/SHA externally, and require
+`GATEWAY_S6_ORACLE_ROOT` outside the worktree. The old local commit remains a
+retained unexecuted draft and is not rewritten. No other added file contains
+source row payloads; the history index and documents contain only identities,
+counts, table names, paths and restrictions.
+
+The original reviewer also caught an overstrict stop assertion before any run.
+The accepted S4 `business-result.json` stopped-services facts are backend0,
+worker0, Repository Service143 after deliberate SIGTERM; normal RS termination
+therefore accepts 0 or143, keeping actual exit in the receipt. Backend/worker
+remain0; all started owned services must be present and stopped with zero OOM
+and restart. This changes tool acceptance only, never a product signal policy.
+S4 original result: `/home/dev/gdds-test-tmp/p6-s4-e-dc98-minimal-t4-r1-plan/control-r1/captured/business-result.json`,
+SHA256 `3cf9db7a9e8dc7a76a7f871497dbaebacc339628c27e986a6a430e4d4a5d89cb`.

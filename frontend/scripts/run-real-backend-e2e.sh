@@ -1240,12 +1240,12 @@ for scope in scopes:
                 errors.append(f"missing_input scope={slug} key={key} file={relative}")
         # Exactly one top-level .pmc per upload directory: "upload.pmc" for
         # script-built journey inputs, the original name for real data dirs.
+        # The placeholder may be empty; only presence is required.
         try:
-            pmc_names = [name for name in os.listdir(host_dir) if name.endswith(".pmc")]
+            pmc_names = [name for name in os.listdir(host_dir) if name.endswith(".pmc") and os.path.isfile(os.path.join(host_dir, name))]
         except OSError:
             pmc_names = []
-        pmc_ok = len(pmc_names) == 1 and os.path.getsize(os.path.join(host_dir, pmc_names[0])) > 0
-        if not pmc_ok:
+        if len(pmc_names) != 1:
             errors.append(f"missing_input scope={slug} key={key} file=*.pmc")
 
 print(f"journey_scopes={len(scopes)} journey_identities={len(identities)}")

@@ -135,26 +135,15 @@ comparison_options:
 
 ## Summary Early Exit
 
-第一版允许在不打开 row reader 的情况下做 early exit。
+Summary 判等只消除不需要行内容的工作，不等于所有任务零读取。
 
-Pair 级 early exit：
+Table 级判等须同时满足：两侧同一逻辑表、business schema digest与行数相同、非空raw content digest相同；两侧storage facts存在，StorageRuleView、source schema、非空canonical schema及非空projection version相同，facts的raw digest与各自descriptor及另一侧一致；允许key transition时effective key仍相等，policy表名与descriptor绑定正确。不得仅凭raw digest或零行数判定未变。
 
-- before/current `snapshot_digest` 相同。
-- `table_ruleset_version`、`comparison_contract_version`、`projection_contract_version` 和 comparison semantic options 相同。
-
-Table 级 early exit：
-
-- 两侧均存在同名 table。
-- `compare_schema_digest` 相同。
-- `row_count` 相同。
-- `raw_content_digest` 相同。
-- 相关 table rules 不要求额外 projection normalization。
-
-结果：
-
-- Pair 级 early exit 可直接输出 `UNCHANGED` comparison summary。
-- Table 级 early exit 可输出 table status `UNCHANGED`，不读取 rows。
-- 如果 only business digest 相同但 raw digest 不同，可输出 `BUSINESS_EQUIVALENT`，但不能伪装 raw unchanged。
+- 普通 metadata-only 未变化任务可直接形成 `UNCHANGED` facts，不打开行reader。
+- 未变化 ordered 任务须按当前pair有效策略取得current侧ordered/occupancy摘要，完整填写两侧ordered/blank extension。健康同任务缓存可以恢复这些facts；未命中则读取current规范行做单侧摘要，不读before、不执行LIS或生成逐行records。
+- 相同snapshot digest与版本/options不免除上述task-kind义务，也不免除输入authority校验。
+- 比较的零reader不消除完整bundle/composite的独立数据需求；导出命中条件另按owning Contract。
+- only business digest相同而raw不同不得伪装raw unchanged。
 
 ## Summary-Driven Alias Reuse
 
@@ -310,7 +299,7 @@ ComparisonPlan:
 | --- | --- | --- |
 | `PROJECTION_TABLE_COMPARE` | projection artifact 已存在时复用 | 读取 projection table artifact 后比较。 |
 | `DOLT_NATIVE` | repository 两侧可原生比较时 | 必须经 canonicalizer 输出同一 `ComparisonFacts` contract；设计见 `../capabilities/dolt-native-provider.md`。 |
-| `ORDERED_TABLE_COMPARE` | 有序表语义比较 | 实际进入 ordered provider 的表输出 ordered extension；完全未变化且被 `SUMMARY_EARLY_EXIT` 短路的 ordered 表可省略该 extension。contract 见 `ordered-diff.md`，实现设计见 `../capabilities/ordered-diff-compute.md`。 |
+| `ORDERED_TABLE_COMPARE` | 有序表语义比较 | ordered表保留ordered/blank extension；完全未变化时通过current单侧摘要或健康缓存恢复，不省略所需facts。contract 见 `ordered-diff.md`，实现设计见 `../capabilities/ordered-diff-compute.md`。 |
 
 规则：
 
@@ -600,7 +589,7 @@ ComparisonComputeResult:
 
 - 相同 before/current Snapshot、ruleset、contract version 和 semantic options 下，重复 comparison 得到相同 `comparison_digest`。
 - before/current 顺序交换时，added/deleted 方向反转。
-- Summary early exit 不打开 row reader。
+- Metadata-only summary early exit 不打开 row reader；未变ordered miss只读current并保留摘要/extension，健康缓存恢复遵守同任务身份和控制要求。
 - raw digest 相同的表不产生 row diff。
 - ignored columns 变化不应伪装 raw unchanged；只能影响 projection/business equivalent 结果。
 - schema 变化时 row diff 只使用字段交集；before-only/current-only columns 进入 diagnostics。

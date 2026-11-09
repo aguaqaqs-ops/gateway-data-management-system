@@ -322,7 +322,7 @@ ordered_row_content_digest
 Comparison：
 
 - 实际进入 `ORDERED_TABLE_COMPARE` provider 的表输出 `ComparisonTableFact.ordered_extension`。
-- 完全未变化并被 `SUMMARY_EARLY_EXIT` 短路的 ordered 表可省略 `ordered_extension`，不输出 ordered records，也不触发 ordered row-level risk。
+- 完全未变化的ordered表仍保留ordered/blank extension：按当前pair策略从current单侧计算摘要，或从健康同任务缓存恢复；不读before、不运行LIS、不生成逐行records。metadata与完整导出需求分别处理。
 - 如果 ordered provider 未启用，表输出 `DEGRADED` 并保留 ordered diagnostics；不再使用旧的 ordered 未启用占位状态作为表级结果。
 - 第一版不把普通 key-based fallback 作为 ordered provider 的默认退路。
 
@@ -368,7 +368,7 @@ Surface / Bundle：
 - ordered logical digest 对 row order 敏感。
 - ordered records refs 可通过 artifact closure 恢复为 operation-local refs。
 
-## S3 确定性澄清（设计候选，待 kickoff 独审）
+## S3 确定性澄清（已实现；S6统一旧early-exit表述）
 
 保持现行 GID_NO_V1 行为，不因 Rust 替换变更算法语义：共同真实实体按 before 顺序排列，取其 current 绝对位置的最长严格递增子序列；多个等长解取 before-index 序列字典序最小者作为 LIS 主干。不得以任意 patience-sort 回溯解替代该并列规则。
 

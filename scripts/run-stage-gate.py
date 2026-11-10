@@ -489,7 +489,13 @@ class Gate:
             return False, "container identity could not be verified"
 
     def execute_runner(self, names: list[str]) -> None:
-        env = dict(self.env, GATEWAY_TEST_PACKAGES=",".join(names))
+        provenance = self.directory / "compose-provenance.json"
+        # Each run owns its evidence path. The harness consumes this override at
+        # import time; never adopt a shared TMPDIR or worktree leftover.
+        if provenance.exists() or provenance.is_symlink():
+            raise GateError("Compose provenance path already exists before runner")
+        env = dict(self.env, GATEWAY_TEST_PACKAGES=",".join(names),
+                   GATEWAY_COMPOSE_GATE_PROVENANCE_PATH=str(provenance))
         self.note("runner_packages=" + ",".join(names))
         if set(names) & {"backend", "repository_service"}:
             # A fresh gate always rebuilds the current RS candidate; backend/worker
@@ -525,9 +531,8 @@ class Gate:
                          manifest=self.save_manifest(name, manifest, "runner"), source=None,
                          reason="fresh requested" if self.args.fresh else entry["reason"])
         # Capture the runner's existing evidence before another run overwrites it.
-        provenance = self.worktree / "vnext/backend/tests/support/.last_compose_gate_provenance.json"
         if "backend" in names:
-            if not provenance.is_file():
+            if provenance.is_symlink() or not provenance.is_file():
                 raise GateError("backend runner succeeded without Compose provenance")
             payload = json.loads(provenance.read_text())
             if provenance.stat().st_mtime_ns < runner_started_ns:
@@ -537,9 +542,7 @@ class Gate:
             if (labels.get("gateway.p2r1.build-input-revision") != expected["build_input_revision"]
                     or labels.get("gateway.p2r1.source-tree-sha256") != expected["source_tree_sha256"]):
                 raise GateError("backend Compose provenance identity mismatch")
-            copied = self.directory / "compose-provenance.json"
-            shutil.copyfile(provenance, copied)
-            self.result["container_gate"]["provenance"] = {"path": str(copied), "sha256": sha256(copied)}
+            self.result["container_gate"]["provenance"] = {"path": str(provenance), "sha256": sha256(provenance)}
 
     def gate(self) -> None:
         self.load_config()

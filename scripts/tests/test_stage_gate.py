@@ -312,6 +312,45 @@ class StageGateTests(unittest.TestCase):
         self.assertEqual(command.call_args.kwargs["env"]["GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT"], "1")
         self.assertNotIn("GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT", gate.env)
 
+    def test_runner_owns_provenance_path_and_rejects_missing_stale_or_wrong_identity(self):
+        labels = {"gateway.p2r1.build-input-revision": "input",
+                  "gateway.p2r1.source-tree-sha256": "tree"}
+        for case in ("valid", "missing", "stale", "wrong-identity", "symlink", "preexisting"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(dir=self.root) as folder:
+                gate = FixtureGate(Path(folder), packages=["backend"])
+                gate.directory.mkdir(parents=True)
+                gate.worktree.mkdir(parents=True)
+                gate.prepare()
+                expected = gate.directory / "compose-provenance.json"
+                # Shared leftovers must never rescue this run's missing evidence.
+                old = gate.worktree / "vnext/backend/tests/support/.last_compose_gate_provenance.json"
+                old.parent.mkdir(parents=True)
+                payload = {"repository_service_image": {"labels": dict(labels)}}
+                old.write_text(json.dumps(payload))
+                if case == "wrong-identity":
+                    payload["repository_service_image"]["labels"]["gateway.p2r1.source-tree-sha256"] = "wrong"
+                runner = gate.worktree / "vnext/scripts/run-tests.sh"
+                code = ["from pathlib import Path", "path = Path(os.environ['GATEWAY_COMPOSE_GATE_PROVENANCE_PATH'])",
+                        f"assert str(path) == {str(expected)!r}"]
+                if case != "missing":
+                    code += [f"path.write_text({json.dumps(payload)!r})"]
+                if case == "stale":
+                    code += ["os.utime(path, ns=(1, 1))"]
+                if case == "symlink":
+                    code += ["path.unlink()", f"path.symlink_to({str(old)!r})"]
+                runner.write_text(runner.read_text().replace("import json, os, time", "import json, os, time\n" + "\n".join(code)))
+                if case == "preexisting":
+                    expected.write_text(json.dumps(payload))
+                with patch.object(gate, "command"), patch.object(gate, "repository_identity", return_value={
+                        "build_input_revision": "input", "source_tree_sha256": "tree"}):
+                    if case == "valid":
+                        gate.execute_runner(["backend"])
+                        reference = gate.result["container_gate"]["provenance"]
+                        self.assertEqual(reference, {"path": str(expected), "sha256": G.sha256(expected)})
+                    else:
+                        with self.assertRaises(G.GateError):
+                            gate.execute_runner(["backend"])
+
     def test_runner_manifest_uses_actual_input_and_rejects_missing_or_duplicate_markers(self):
         gate = FixtureGate(self.root, digest="prepared")
         original = gate.prepare

@@ -88,6 +88,19 @@ def basename(path):
     return path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
 
 
+def same_path(recorded: str, name: str) -> bool:
+    """Match a recorded path against a handoff path, tolerating a missing
+    leading slash and comparing by basename when the handoff names the file
+    without its directory."""
+    recorded_norm = recorded.replace("\\", "/")
+    name_norm = name.replace("\\", "/")
+    if recorded_norm == name_norm or recorded_norm.lstrip("/") == name_norm.lstrip("/"):
+        return True
+    if "/" not in name_norm and basename(recorded_norm) == name_norm:
+        return True
+    return False
+
+
 def pair_line(line):
     """Return positionally paired (name, sha) entries for 64-char values.
 
@@ -108,18 +121,21 @@ def pair_line(line):
         return pairs
     used = set()
     for pos, sha in hexes:
-        best = None
-        for index, (name_pos, name) in enumerate(names):
-            if index in used:
-                continue
-            key = (abs(name_pos - pos), 0 if name_pos < pos else 1, index)
-            if best is None or key < best[0]:
-                best = (key, index, name)
-        if best is None:
-            pairs.append((None, sha))
+        candidates = [
+            (index, name_pos, name)
+            for index, (name_pos, name) in enumerate(names)
+            if index not in used
+        ]
+        before = [item for item in candidates if item[1] < pos]
+        if before:
+            _index, _name_pos, name = max(before, key=lambda item: item[1])
+        elif candidates:
+            _index, _name_pos, name = min(candidates, key=lambda item: abs(item[1] - pos))
         else:
-            used.add(best[1])
-            pairs.append((best[2], sha))
+            pairs.append((None, sha))
+            continue
+        used.add(_index)
+        pairs.append((name, sha))
     return pairs
 
 
@@ -208,7 +224,7 @@ def index_source_dir(root):
 
 def expected_object_type(line, start):
     labels = []
-    for match in re.finditer(r"树|tree|提交|commit", line):
+    for match in re.finditer(r"树|提交|(?<![A-Za-z])(?:tree|commit)(?![A-Za-z])", line):
         labels.append((abs(match.start() - start), 0 if match.start() < start else 1, match.group(0)))
     if not labels:
         return None
@@ -326,7 +342,7 @@ def main(argv=None):
         recorded = []
         for source_sha, entries in combined_table.items():
             for origin, path in entries:
-                if path == name or basename(path) == name or (("/" not in name) and basename(path) == name):
+                if same_path(path, name):
                     recorded.append((source_sha, origin, path))
         matching_recorded = [(source_sha, origin, path) for source_sha, origin, path in recorded if source_sha == sha]
         if actual_files:

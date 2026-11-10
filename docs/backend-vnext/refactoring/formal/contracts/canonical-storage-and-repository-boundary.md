@@ -379,3 +379,19 @@ S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升）：此前能投影成功
 Preview的FULL initial摘要与modified/baseline并列冻结，MODIFIED_ONLY引用baseline.source_submission_id的durable modified facts，INITIAL空节点明确N/A。Attempt/Submission持久小型facts不依赖临时规范artifact/Preview/SQL的TTL；仍遵守T1、LeaseSession、CAS与finalize事务屏障。后续Archive仅从durable facts派生，不在事务里重扫SQL/调用Repository。具体字段/版本见[V1清单](../plans/p6-v1-handoff.md)。
 
 V1跨版本澄清（设计提交`a24b7034e9`）：旧baseline保留source Submission原rules/projection/scalar身份，MODIFIED_ONLY.initial严格复制；FULL两上传侧按本operation冻结规则。合法additive规则变更仍可Preview，不重标baseline，也不要求三侧规则一律相等。V2以完整身份判等，不同身份不直接合并/相连；MO旧身份→新身份为合法边，FULL未知来源沿既定可接受UNEXPLAINED诊断。operation/runtime失配、T1 derived-stale、STORAGE_BREAKING activation与不支持版本/绑定损坏拒绝不变。
+
+## P7-S1a 目标补充：多 root 身份与发布（待实现）
+
+状态：A 的可审目标，尚未独审或生效；本节不提升现行 `3.8.0`。B–F 完成对应实现/向量、G 核收后再更新生效记录。实施范围和当前消费者见 [A 入口与摘要边界](../plans/p7-s1a-a-entry-and-contract.md)，目标细节见 [S1a 设计 §4–7](../plans/p7-s1a-storage-resource-design.md#4-位置协议与目录布局)。旧 ID/布局不提供兼容读取。
+
+Backend `ArtifactRef` 保持四字段，ID 严格为 `a1:<location>:<token>`；location 只有 durable/canonical/comparison/export，token 为 64 位小写 hex。token=`hex(SHA256(JCS(["gateway-artifact-id-v1", location, kind, identity_payload])))`；kind 为 producer 固定类型，随机对象使用新 128-bit nonce，确定性对象保留完整 owning 身份输入。canonical 输入保留 repository scope、projection/schema/count/table/mapping 身份。物理挂载、环境/组和宿主路径不进入 ID；同盘/分盘配置下相同身份不变。bare ID 只解析一次并选择唯一 root，禁止扫描其他 root、按媒体类型猜位置或旧格式 fallback。RS 的 repository-scoped UUID 协议不套本 codec。
+
+一个 ID 只有一个物理对象。Head/Attempt/READY/cache 多用途增加引用，不改变类别或移动对象。canonical IPC 及 canonical wrapper 在 canonical，raw/client Parquet 在 export，原始输入、CanonicalizationManifest、固定 Submit package/request/checkpoint 在 durable；comparison/risk/ChangeSet 在 comparison。新 bundle 交付对象在 export，直接引用的既有成员保持原 ref。
+
+目标 root 内 staging 同时完成 payload/ref、size/SHA 与 file/directory fsync，再用原子 no-replace directory rename 发布并 fsync 两侧父目录。跨盘 scratch 来源有界 copy/hash 到目标 staging，失败无可读残缺 ref；普通 put 不覆盖损坏目录。单对象成功后由既有 DB/checkpoint/READY/T1/CAS 发表引用，不建立跨 root 联合事务。ref.jcs 是内容身份元数据，不是 cleanup receipt。仅原 §5 允许的 exact accepted commit 派生回填可以在关闭读者后独占修复，保留保护记录；PREPARED 与 prepare checkpoint 分界保持原义。
+
+root borrow 固定 durable→canonical→comparison→export；读/发布/建立保护持 SH，删除持所属 root 非阻塞 EX。保护 UoW 在开启 DB 事务前借齐 roots；删除在 EX 下以短事务重核保护/TTL并完成一个对象删除，不能关事务后再删或调用重新加 SH 的普通 UoW。扫描/copy/hash 不在 DB 事务中；禁止 SH→EX 升级。跨 root closure 借最多四个 roots，handles/Arrow/native 先释放再释放 borrow。
+
+cleanup 只访问已核 root 内已知对象/临时形状，最多32候选和1024访问项，round-robin/派生游标；unknown、symlink、子挂载、损坏 ref 只诊断。metadata/Dolt 不在其范围；强 owner 及活动下载保护不变。挂载/marker/权限失败阻止 ready/claim，不自动建 root 或回退系统盘；运行期身份变化要求重新预检/重启。统计失败不改变业务事务。
+
+规范 cell/table/state、projection 和 CanonicalizationManifest 摘要算法不增加位置输入。已包含 ref 的 wrapper/closure/raw bytes，以及引用这些 raw SHA 的摘要可改变；变化须按 A 摘要表逐项说明，不能全量重录 golden 或声称所有 semantic digest 都不变。

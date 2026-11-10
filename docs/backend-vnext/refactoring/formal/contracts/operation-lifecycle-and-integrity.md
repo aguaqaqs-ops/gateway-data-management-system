@@ -231,3 +231,13 @@ IOERR/CORRUPT/FULL/BUSY、CAS、scope错误或外层事务丢失不能吞掉。�
 response loss沿原事务/recovery处理，不增加journal、重试状态或跨服务原子事务。
 T1即PREPARED但不代表已有包，prepare checkpoint前后的冻结恢复界限仍由
 [Canonical Storage §5](canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)拥有。
+
+## P7-S1a 目标补充：资源和跨 root closure（待实现）
+
+A 的目标未改变当前运行行为或 operation-runtime/v2；B–F 实施并验证后记录生效，见 [A 入口](../plans/p7-s1a-a-entry-and-contract.md)及 [S1a 执行方案 §3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)。本步单环境/组、W=K=1，不修订多 worker startup/recovery 或队列状态机。
+
+`storage-layout.json` 与 `resource-profile.json` 是位置与资源的各自唯一来源，公共 schema_version/environment_id/group_id 必须匹配。入口为 GATEWAY_STORAGE_LAYOUT_FILE / GATEWAY_RESOURCE_PROFILE_FILE，替代旧 root 与重复 N/M/E 环境入口，不保 alias。N为1–256；M为显式正整数bytes且≤40GiB；8GiB≤reserve<E≤48GiB且M≤E−reserve；W=K=1。JSON拒绝bool/小数冒充整数、NaN/Infinity、重复/未知key及不支持版本。N不得超过有效CPU quota整数部分或cpuset，容器实际memory.max=E且祖先限制足够；M是kernel预算，不能用RSS代替。整机同时计worker、backend、RS/Dolt与共享余量，不重复算page cache或Dolt。scratch/staging cap是必填正整数，资源变化只在排空/重启生效。
+
+角色预检实际挂载来源/marker/权限/身份与cgroup后才允许ready/claim；不以渲染成功代替实际核验。HTTP新工作因基础存储不可用/低水位沿503 SERVICE_NOT_READY，接收后的I/O失败沿原operation恢复，effect UNKNOWN仍先核原结果。readiness与liveness不混用，不新增公共failure code。
+
+checkpoint、请求快照、READY与canonical table-set closure在durable，成员保留自身类别。所有成员完成且受保护后，仍由既有lease/DB publication屏障发表完整closure；跨root不增加联合事务。scratch只有operation/step/attempt或HTTP接收上下文的临时owner，禁止唯一恢复事实存入scratch。新ID同步用于record refs、bare closure/checkpoint ID与严格decoder；不能仅改通用ArtifactRef而漏job/nominal载荷。prepare checkpoint及固定package/key恢复边界保持原§6与Canonical Storage §5。

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
+import shutil
 import runpy
 import sys
 from pathlib import Path
@@ -13,9 +16,54 @@ sys.path.insert(0, str(VNEXT / "scripts"))
 from host_runtime_config import DeploymentConfig, initialize_host, mounts  # noqa: E402
 
 
-def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None) -> Path:
+OWNER_FILE = ".gateway-runtime-fixture-owner.json"
+
+
+def _owner(directory: Path, owner: str) -> dict[str, object]:
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or directory.resolve() != directory.absolute():
+        raise ValueError("runtime fixture directory is redirected")
+    worktree = VNEXT.parent
+    if directory == worktree or worktree in directory.parents or directory == Path("/"):
+        raise ValueError("runtime fixture must be outside the worktree")
+    return {"schema_version": 1, "owner": owner, "device": info.st_dev, "inode": info.st_ino,
+            "directory": str(directory.absolute())}
+
+
+def claim_owner(directory: Path, owner: str) -> None:
+    document = _owner(directory, owner)
+    record = directory / OWNER_FILE
+    if record.exists() or record.is_symlink():
+        descriptor = os.open(record, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode) or json.loads(os.read(descriptor, 4097)) != document:
+                raise ValueError("runtime fixture has another owner")
+        finally:
+            os.close(descriptor)
+    else:
+        if next(directory.iterdir(), None) is not None:
+            raise ValueError("new runtime fixture ownership requires an empty directory")
+        with record.open("x", encoding="utf-8") as stream:
+            json.dump(document, stream, sort_keys=True)
+
+
+def cleanup(directory: Path, owner: str, *, retain: bool) -> None:
+    # Recheck the exact owner and inode; never infer authority from a prefix.
+    if not (directory / OWNER_FILE).is_file() or (directory / OWNER_FILE).is_symlink():
+        raise ValueError("runtime fixture has no valid existing owner")
+    claim_owner(directory, owner)
+    if retain:
+        print("runtime_fixture_retained=" + str(directory), flush=True)
+    else:
+        shutil.rmtree(directory)
+        print("runtime_fixture_removed=" + str(directory), flush=True)
+
+
+def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None) -> Path:
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
     directory.chmod(0o755)
+    if owner is not None:
+        claim_owner(directory, owner)
     fixtures = VNEXT / "fixtures/runtime-config/v1"
     storage = json.loads((fixtures / "storage-layout.json").read_bytes())
     profile = json.loads((fixtures / "resource-profile.json").read_bytes())
@@ -61,8 +109,16 @@ def main() -> None:
     parser.add_argument("directory", type=Path)
     parser.add_argument("--rs-source", type=Path)
     parser.add_argument("--split-root", type=Path)
+    parser.add_argument("--owner")
+    parser.add_argument("--cleanup", action="store_true")
+    parser.add_argument("--retain", action="store_true")
     args = parser.parse_args()
-    print(prepare(args.directory, args.rs_source, args.split_root))
+    if args.cleanup:
+        if args.owner is None:
+            parser.error("cleanup requires the exact fixture owner")
+        cleanup(args.directory, args.owner, retain=args.retain)
+    else:
+        print(prepare(args.directory, args.rs_source, args.split_root, args.owner))
 
 
 if __name__ == "__main__":

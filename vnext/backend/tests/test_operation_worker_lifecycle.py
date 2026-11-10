@@ -295,3 +295,45 @@ def test_runtime_root_identity_loss_blocks_claim_before_opening_database(tmp_pat
     with pytest.raises(ValueError, match="identity changed"):
         runtime._startup.claim_one()
     assert not settings.control_db_path.exists()
+
+
+@pytest.mark.parametrize("fault", ("missing", "digest"))
+def test_production_worker_configuration_rejects_startup_and_claim_before_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    import json
+    from gateway_backend.bootstrap.deployment_identity import CONFIGURATION_RECORD, publish_configuration
+    from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
+
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
+    record = settings.control_db_path.parent / CONFIGURATION_RECORD
+
+    def damage() -> None:
+        if fault == "missing":
+            record.unlink()
+        else:
+            document = json.loads(record.read_bytes())
+            document["resource_digest"] = "changed"
+            record.write_text(json.dumps(document))
+
+    damage()
+    with pytest.raises(ValueError, match="configuration record"):
+        operation_worker_bootstrap.bootstrap_control_database(settings)
+    assert not settings.control_db_path.exists()
+    publish_configuration(settings.deployment_config)
+    operation_worker_bootstrap.bootstrap_control_database(settings)
+    runtime = operation_worker_bootstrap.build_worker_runtime(settings)
+    assert runtime._startup.startup() is StartupDisposition.READY
+    damage()
+    original = record.read_bytes() if record.exists() else None
+    opened: list[bool] = []
+
+    def refused_open(*args: object, **kwargs: object) -> None:
+        opened.append(True)
+        raise AssertionError("database opened before configuration comparison")
+
+    monkeypatch.setattr(ControlDbUnitOfWork, "__enter__", refused_open)
+    with pytest.raises(ValueError, match="configuration record"):
+        runtime._startup.claim_one()
+    assert not opened
+    assert (record.read_bytes() if record.exists() else None) == original

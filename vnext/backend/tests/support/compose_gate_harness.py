@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from uuid import uuid4
 from pathlib import Path
 from collections.abc import Callable, Mapping
 from typing import Any, TextIO, cast
@@ -335,6 +336,7 @@ def compose_image_ids(env: dict[str, str]) -> dict[str, dict[str, Any]]:
 
 def wait_http_ok(url: str, *, timeout_seconds: float = 180.0) -> None:
     import time
+from uuid import uuid4
     import urllib.error
     import urllib.request
 
@@ -844,7 +846,24 @@ def _teardown_compose_project_resources(env: dict[str, str]) -> None:
 
 
 def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
+    retain = sys.exc_info()[0] is not None
     _teardown_compose_project_resources(env)
+    remaining = subprocess.run(["docker", "ps", "-aq", "--filter",
+        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]],
+        capture_output=True, text=True, check=False, timeout=30)
+    if remaining.returncode or remaining.stdout.strip():
+        pytest.fail("owned Compose containers remain; runtime data retained")
+    fixture = _runtime_fixtures.get(env["COMPOSE_PROJECT_NAME"])
+    if fixture is not None:
+        directory, owner = fixture
+        completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+            str(directory), "--owner", owner, "--cleanup", *(["--retain"] if retain else [])],
+            capture_output=True, text=True, check=False, timeout=60)
+        print(completed.stdout, end="", flush=True)
+        if completed.returncode:
+            pytest.fail("owned runtime fixture cleanup refused: " + completed.stderr)
+        del _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]]
+        env.pop("GATEWAY_RUNTIME_COMPOSE_OVERRIDE", None)
     release_compose_gate_lock()
 
 
@@ -1853,12 +1872,18 @@ def identity_confirmation_requests(
     ]
 
 
+_runtime_fixtures: dict[str, tuple[Path, str]] = {}
+
+
 def prepare_runtime_config(env: dict[str, str]) -> None:
     if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env:
         return
     directory = Path(tempfile.mkdtemp(prefix="gateway-bind-", dir=os.environ.get("TMPDIR")))
+    owner = env["COMPOSE_PROJECT_NAME"] + "-" + uuid4().hex
+    _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (directory, owner)
     completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
-        str(directory)], capture_output=True, text=True, check=False, timeout=30, env=env)
+        str(directory), "--owner", owner], capture_output=True, text=True, check=False, timeout=30, env=env)
     if completed.returncode:
+        print(f"runtime_fixture_retained={directory}", flush=True)
         pytest.fail(f"runtime fixture preparation failed: {completed.stderr}")
     env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"] = str(directory / "compose-runtime.json")

@@ -335,9 +335,9 @@ def check_resources(config: DeploymentConfig, role: str) -> None:
         maximum = _ancestor_limit(group, "memory.max")
         if maximum is not None and maximum < memory:
             raise ValueError("ancestor memory limit is below role envelope")
-        quota = _ancestor_cpu(group)
-        if quota is not None:
-            effective_cpu = min(effective_cpu, quota)
+        ancestor_cpu = _ancestor_cpu(group)
+        if ancestor_cpu is not None:
+            effective_cpu = min(effective_cpu, ancestor_cpu)
         effective = _effective_cpuset(group)
         if effective is not None:
             effective_cpu = min(effective_cpu, effective)

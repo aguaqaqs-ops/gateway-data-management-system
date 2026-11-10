@@ -98,6 +98,8 @@ HAVE_FLOCK=0
 TOOLCHAIN_CONTAINER=""
 PROJECT_NAME=""
 RUN_ROOT=""
+RUNTIME_ROOT=""
+RUNTIME_COMPOSE_OVERRIDE=""
 RS_TAG=""
 RS_TAG_SET=0
 SMOKE_INPUT=""
@@ -105,6 +107,12 @@ STACK_STARTED=0
 INTERRUPT_SIGNAL=""
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_FILE"; }
+
+compose_runtime() {
+  local -a command=(docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml")
+  [[ -z "$RUNTIME_COMPOSE_OVERRIDE" ]] || command+=(-f "$RUNTIME_COMPOSE_OVERRIDE")
+  "${command[@]}" -p "$PROJECT_NAME" "$@"
+}
 
 mkdir -p -- "$LOG_DIR"
 if [[ -n "$EVIDENCE_DIR" ]]; then mkdir -p -- "$EVIDENCE_DIR"; fi
@@ -164,9 +172,9 @@ cleanup() {
   fi
   # 2. compose logs, then down (volumes, orphans, project-local images).
   if [[ -n "$PROJECT_NAME" ]]; then
-    docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" logs --no-color --timestamps \
+    compose_runtime logs --no-color --timestamps \
       >"$LOG_DIR/compose-$PROJECT_NAME.log" 2>&1 || true
-    if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" down -v --remove-orphans --rmi local \
+    if ! compose_runtime down -v --remove-orphans --rmi local \
       >/dev/null 2>&1; then
       cleanup_failed=1
       log "cleanup_compose_down=failed"
@@ -197,6 +205,19 @@ cleanup() {
     if dolt_running; then
       cleanup_failed=1
       log "cleanup_dolt_processes=running"
+    fi
+  fi
+  # Bind roots belong to this exact run. Keep failed state outside RUN_ROOT,
+  # which contains secrets and is removed independently below.
+  if [[ -n "$RUNTIME_ROOT" ]]; then
+    local -a runtime_cleanup=(python3 -I "$REPO_DIR/vnext/scripts/tests/runtime_config_fixture.py"
+      "$RUNTIME_ROOT" --owner "$PROJECT_NAME" --cleanup)
+    if [[ "$exit_code" != "0" || "$cleanup_failed" != "0" ]]; then
+      runtime_cleanup+=(--retain)
+    fi
+    if ! "${runtime_cleanup[@]}" >>"$LOG_FILE" 2>&1; then
+      cleanup_failed=1
+      log "cleanup_runtime=failed retained=$RUNTIME_ROOT"
     fi
   fi
   # 5. release flock, then delete the busy marker (kickoff §4.2 order).
@@ -510,6 +531,9 @@ STAMP="$(date -u +%Y%m%dt%H%M%Sz | tr 'A-Z' 'a-z')"
 PROJECT_NAME="gdds-fe-${SUBPHASE}-${HEAD_START:0:12}-${STAMP}"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 RUN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-${SUBPHASE}-e2e.XXXXXX")"
+RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe-runtime.XXXXXX")"
+python3 -I "$REPO_DIR/vnext/scripts/tests/runtime_config_fixture.py" "$RUNTIME_ROOT" --owner "$PROJECT_NAME" >>"$LOG_FILE" 2>&1
+RUNTIME_COMPOSE_OVERRIDE="$RUNTIME_ROOT/compose-runtime.json"
 chmod 0755 "$RUN_ROOT"
 log "compose_project=$PROJECT_NAME"
 log "run_root=$RUN_ROOT"
@@ -716,21 +740,21 @@ if [[ "$SUITE" == "smoke" ]]; then
 fi
 
 # 1. build backend+worker images (offline, preloaded deps).
-if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" build backend worker 2>&1 | tee -a "$LOG_FILE"; then
+if ! compose_runtime build backend worker 2>&1 | tee -a "$LOG_FILE"; then
   log "error=backend/worker build failed"
   exit 2
 fi
-docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" images 2>&1 | tee -a "$LOG_FILE" || true
+compose_runtime images 2>&1 | tee -a "$LOG_FILE" || true
 
 # 2. up repository-service, wait ready, seed one repository per scope.
 STACK_STARTED=1
-if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" up -d --no-build repository-service 2>&1 | tee -a "$LOG_FILE"; then
+if ! compose_runtime up -d --no-build repository-service 2>&1 | tee -a "$LOG_FILE"; then
   log "error=repository-service up failed"
   exit 2
 fi
 RS_READY_OK=0
 for _ in $(seq 1 90); do
-  if docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)" >/dev/null 2>&1; then
+  if compose_runtime exec -T repository-service python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)" >/dev/null 2>&1; then
     RS_READY_OK=1
     break
   fi
@@ -774,7 +798,7 @@ for index in "${!SCOPE_SLUGS[@]}"; do
     baseline_node="fe3a-baseline-${scope}"
     seed_key="fe3a-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
   fi
-  if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
+  if ! compose_runtime exec -T repository-service python -c "
 import urllib.request
 req = urllib.request.Request('http://127.0.0.1:8000/v1/repositories', method='POST', headers={'Authorization': 'Bearer $RS_BEARER', 'Idempotency-Key': '$seed_key'})
 print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/seed-${scope}.json" 2>>"$LOG_FILE"; then
@@ -787,7 +811,7 @@ print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/
   if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
     # Fail closed: each journey scope must start from an empty INITIAL commit
     # (kickoff §4.6; same check as the Compose gate harness).
-    if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
+    if ! compose_runtime exec -T repository-service python -c "
 import base64, json, urllib.request
 encoded = base64.urlsafe_b64encode('$init_commit'.encode()).decode().rstrip('=')
 request = urllib.request.Request(
@@ -871,7 +895,7 @@ PY
 fi
 
 # 3. up backend+worker, wait /readyz and the worker readiness log line.
-if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" up -d --no-build backend worker 2>&1 | tee -a "$LOG_FILE"; then
+if ! compose_runtime up -d --no-build backend worker 2>&1 | tee -a "$LOG_FILE"; then
   log "error=backend/worker up failed"
   exit 2
 fi
@@ -890,7 +914,7 @@ fi
 log "backend_readyz=ok"
 WORKER_READY_OK=0
 for _ in $(seq 1 60); do
-  if docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" logs worker --no-color 2>/dev/null | grep -q 'code=worker_ready'; then
+  if compose_runtime logs worker --no-color 2>/dev/null | grep -q 'code=worker_ready'; then
     WORKER_READY_OK=1
     break
   fi
@@ -902,7 +926,7 @@ if [[ "$WORKER_READY_OK" != "1" ]]; then
 fi
 log "worker_ready=ok"
 for svc in backend worker; do
-  cid=$(docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" ps -q "$svc")
+  cid=$(compose_runtime ps -q "$svc")
   log "${svc}_image_id=$(docker inspect --format '{{.Image}}' "$cid")"
 done
 log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --format '{{.Id}}' 2>/dev/null || echo unknown)"

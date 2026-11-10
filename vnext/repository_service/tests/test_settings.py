@@ -192,7 +192,7 @@ def test_query_scratch_limit_rejects_before_creating_a_file(tmp_path: Path, prov
     if provider == "ordinary":
         from gateway_repository_service.providers import _write_query, ProviderError
         write = _write_query
-        error = ProviderError
+        error: type[Exception] = ProviderError
     else:
         from gateway_repository_service.candidate_a.dolt_cli import write_query, DoltCliError
         write = write_query

@@ -59,7 +59,7 @@
 | 项 | 值 |
 | --- | --- |
 | FE4a 合入点 | `16ffe72829`（FE3c 退出记录）；`vnext/` 树 `49c1de43be`。修订时远端跟踪 ref `gateway-data-management-system/main` 也指向这个提交 |
-| 本地 main（修订时） | `d10f6d55a8`，`vnext/` 树仍为 `49c1de43be`，未推送。`16ffe72829` 之后的主线提交依次为：`00ca325c2e`（合入 P7 S1a-A 文档，2026-11-10）、`6536502a11`（本文审核报告）、`6a8fff14f3`（合入 P6/P7 文档清理）及其三个收尾提交、`d10f6d55a8`（合入 Q21 答复）。这些提交只改 `docs/backend-vnext/` 与 `docs/frontend-vnext/reviews/`；`AGENTS.md`、`frontend/`、`vnext/` 都没有改 |
+| 本地 main（修订时） | `27ea352487`（2026-11-10 05:10 UTC），`vnext/` 树仍为 `49c1de43be`，未推送。`16ffe72829` 之后的主线提交依次为：`00ca325c2e`（合入 P7 S1a-A 文档，2026-11-10）、`6536502a11`（本文审核报告）、`6a8fff14f3`（合入 P6/P7 文档清理）及其三个收尾提交、`d10f6d55a8`（合入 Q21 答复）、`27ea352487`（后端记录 S1a 前端交接与 BE-b 先后）。这些提交只改 `docs/backend-vnext/` 与 `docs/frontend-vnext/reviews/`；`AGENTS.md`、`frontend/`、`vnext/` 都没有改 |
 | `p6-exit` | 本地附注 tag，对象 `e4791d4e8d` → `b0fc25e881`；tag 本身未推送，但 `b0fc25e881` 是 `16ffe72829` 的祖先，已在远端。`b0fc25e881:vnext` = `49c1de43be`。tag 说明写明“Frontend, P7, independent SDK and production release are not signed off” |
 | FE3c 期间的 `vnext/` | `6368c9c40c`（main `fd9e383d76`） |
 | `fd9e383d76..16ffe72829` 的 `vnext/` | 72 个文件：S5 的计算缓存（comparison、risk、snapshot export、control DB），S6 的 History 元数据与校验，以及测试与 benchmarks。逐类核对见 §6.2 |
@@ -71,7 +71,7 @@
 - 第一步（数据结构与业务规则，含 §4.7–§4.10）已由 owner 确认（2026-11-02、2026-11-03）。
 - 第二步（实现层设计：在哪一步计算、缓存、计时预算、golden 组织、History 侧注释的持久化）按草案应在“P6 S5 接近完成时”定稿，**尚未写**。P6 已在本地退出，这个时点已过。
 - 后端没有实现。按 FD8，实现排在 P6 退出之后、Phase 8 之前。
-- P7：S0 已收口，owner 已授权 S1a A–G 编码至本地退出（本地 main 上的 S0 决议）。S1a 的目标补充写入了 9 份 Contract，其中与前端有关的是：`artifact_id` 改为新格式；bundle 改为多 root 交付；被改写的 JSON 成员含新的 ref，其 raw SHA 与大小改变，可经 surface 与 closure 的完整性传递改变 surface/bundle 摘要（`comparison-bundle.md` 末节“P7-S1a 目标补充”、`p7-s1a-a-entry-and-contract.md` §4）。P7 文档没有提到 BE-b。
+- P7：S0 已收口，owner 已授权 S1a A–G 编码至本地退出（本地 main 上的 S0 决议）。S1a 的目标补充写入了 9 份 Contract，其中与前端有关的是：`artifact_id` 改为新格式；bundle 改为多 root 交付；被改写的 JSON 成员含新的 ref，其 raw SHA 与大小改变，可经 surface 与 closure 的完整性传递改变 surface/bundle 摘要（`comparison-bundle.md` 末节“P7-S1a 目标补充”、`p7-s1a-a-entry-and-contract.md` §4）。P7 的设计与计划文档没有提到 BE-b；BE-b 的先后由后端在 [S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md)（`27ea352487`）中按 owner 2026-11-10 的指示记录。
 - **owner 2026-11-10 决定（§10.1 Q5）：** BE-b 第二步现在可以开始，以 S1a 的目标 Contract 为基础；实施排在 S1a 本地退出并合入 main 之后。后端分工与排期按后端流程处理，本文只记录前端的依赖（§4）。
 
 ### 2.4 Q21
@@ -244,7 +244,7 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 ### 3.9 不在 FE4 范围
 
 - 历史初始备份节点与首批空基线（§3.7）。
-- P6 计时是否包含整包下载（前端 kickoff §9、FE3 kickoff §12 的 DC74 行）：**已关闭（owner 2026-11-10，§10.1 Q13）**。P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项。DC74 文档由后端修改，本文不改。
+- P6 计时是否包含整包下载（前端 kickoff §9、FE3 kickoff §12 的 DC74 行）：**已关闭（owner 2026-11-10，§10.1 Q13）**。P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项。DC74 文档由后端修改，本文不改；后端已在 [S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md) 中记录“DC74 未生效，随 P6 退出关闭”。
 - Phase 7 可能增加的排队状态与统计展示：随 P7 的接口另开前端阶段，不在 FE4。
 - 正式 SSO、部署形态、外部驱动通道、深色主题。
 - Preview 顶栏的上传快捷入口、历史比较结果抽屉布局、1280 下提交对话框滚动：已接受为 FE2 的偏差（FE2 kickoff Q19）。
@@ -261,7 +261,7 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 | 与 P7 的先后 | P7 S0 已收口，S1a 编码已获授权；S1a 改 `artifact_id` 格式、bundle 交付与 surface/bundle 摘要（§2.3） | **owner 2026-11-10 已决定：** FE4a 与 S1a 并行；BE-b 实施排在 S1a 本地退出并合入 main 之后；FE4b 在 BE-b 之后 | 已决定（§10.1 Q5） |
 | 范围 | 草案 §4.1–§4.10 与 §5 的约束 | 不拆。FE4b 需要全部内容；行定位、视图 ID 与稳定编码都会改变摘要，分开做会多改几次 golden | 后端设计会话在第二步中确认 |
 
-FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `artifact_id` 格式与 bundle 交付，前端的 bundle 解析、互通 fixture 与生成器都可能受影响，而这些变化在 OpenAPI 中看不出来。因此下面的交付清单要求把两者的变化分开说明。
+FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `artifact_id` 格式与 bundle 交付，前端的 bundle 解析、互通 fixture 与生成器都可能受影响，而这些变化在 OpenAPI 中看不出来。因此下面的交付清单要求把两者的变化分开说明。后端已把 S1a 一侧写成 S1a 退出的交接要求（[S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md)，以及 `p7-s1a-execution-plan.md` 的 owner 补充）：以实际候选与证据说明规范化 OpenAPI、bundle tar 成员的 `logical_path` 集合与 manifest 字段集合不变，并逐项列出改变的 ID 与摘要取值及其传递影响。FE4b 第 2 步以该交接与 BE-b 的交付一起核对第 7 项。
 
 **FE4b 需要 BE-b 交付的内容（建议写进 BE-b 第二步的交付清单）：**
 
@@ -614,6 +614,8 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 ### 13.2 修订 1（2026-11-10）
 
 **本文修改的节：** 头部（状态、依据、P7 文档的用法）；§1；§2.1（占位 fixture）；§2.2（合入点、本地 main、`p6-exit`）；§2.3；§2.4；§3.3；§3.8；§3.9；§4；§5.1；§5.2；§5.3；§6.1；§6.2；§6.4；§7.2；§7.3；§7.4；§8；§9；§10（拆为 10.1 已决定、10.2 待决定）；§11；§12；§13；新增 §14。§3.2、§3.6、§3.7、§6.3 只把“§10 Qn”改为“§10.2 Qn”（§6.3 另把 FE4b 的交付引用改为 §4 第 5、7 项）。§2.5、§3.1、§3.4、§3.5、§7.1、§7.5 未改。
+
+**修订期间 main 的变化：** 修订开始时本地 main 为 `d10f6d55a8`；修订期间后端提交了 `27ea352487`（只改 `docs/backend-vnext/` 下两个文件，`vnext/` 仍为 `49c1de43be`）。修订 1 的第三个提交据此更新 §2.2 的 main 头，并在 §2.3、§3.9、§4 引用该交接记录；其内容与 owner 2026-11-10 的决定一致，没有改变本文的结论。
 
 **其他文档（本分支另一个提交，只改以下几行）：**
 

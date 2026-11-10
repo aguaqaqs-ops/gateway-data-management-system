@@ -13,7 +13,7 @@ sys.path.insert(0, str(VNEXT / "scripts"))
 from host_runtime_config import DeploymentConfig, initialize_host, mounts  # noqa: E402
 
 
-def prepare(directory: Path, rs_source: Path | None = None) -> Path:
+def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None) -> Path:
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
     directory.chmod(0o755)
     fixtures = VNEXT / "fixtures/runtime-config/v1"
@@ -23,7 +23,8 @@ def prepare(directory: Path, rs_source: Path | None = None) -> Path:
     observed = mounts()
     existing_rs = rs_source is not None and next(rs_source.iterdir(), None) is not None
     for slot, root in storage["roots"].items():
-        source = (rs_source if slot.startswith("rs-") and rs_source is not None else directory / "roots") / slot
+        source = (split_root if split_root is not None and slot in {"be-export", "rs-scratch"} else
+                  rs_source if slot.startswith("rs-") and rs_source is not None else directory / "roots") / slot
         if existing_rs and slot.startswith("rs-"):
             if not source.is_dir() or not (source / ".gateway-storage.json").is_file():
                 raise ValueError("existing snapshot fixture must contain every initialized RS root")
@@ -59,8 +60,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--rs-source", type=Path)
+    parser.add_argument("--split-root", type=Path)
     args = parser.parse_args()
-    print(prepare(args.directory, args.rs_source))
+    print(prepare(args.directory, args.rs_source, args.split_root))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -67,3 +68,56 @@ def test_real_bind_and_cgroup_preflight_refuses_invalid_deployments(tmp_path: Pa
             assert {child.name for child in path.iterdir()} == {".gateway-storage.json"}
     finally:
         subprocess.run(["docker", "rm", "--force", name], capture_output=True, check=False, timeout=15)
+
+
+@pytest.mark.parametrize("role,split", (("backend", False), ("worker", False),
+                                       ("repository_service", True), ("backend", True)))
+def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_path: Path, role: str, split: bool) -> None:
+    image = os.environ.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE")
+    if not image:
+        pytest.fail("verified dependency image required")
+    with tempfile.TemporaryDirectory(prefix="gateway-f-split-", dir="/dev/shm") as temporary:
+        prepared = subprocess.run([sys.executable, str(VNEXT / "scripts/tests/runtime_config_fixture.py"), str(tmp_path),
+            *(["--split-root", temporary] if split else [])], capture_output=True, text=True, check=False, timeout=30)
+        assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+        storage = json.loads((tmp_path / "storage-layout.json").read_bytes())
+        if split:
+            assert Path(storage["roots"]["be-export"]["source"]).stat().st_dev != Path(storage["roots"]["be-metadata"]["source"]).stat().st_dev
+            assert Path(storage["roots"]["rs-scratch"]["source"]).stat().st_dev != Path(storage["roots"]["rs-metadata"]["source"]).stat().st_dev
+        script = ("import sys,json; sys.path.insert(0,'/workspace/vnext/scripts'); "
+            "from pathlib import Path; from host_runtime_config import DeploymentConfig,RuntimePreflight; "
+            f"guard=RuntimePreflight(DeploymentConfig.load(Path('/run/gateway/storage-layout.json'),Path('/run/gateway/resource-profile.json')),{role!r}); "
+            "print('COMPOSE_PREFLIGHT_OK ' + json.dumps(guard.observations(),sort_keys=True))")
+        service = "repository-service" if role == "repository_service" else role
+        override = tmp_path / "source-proof.json"
+        override.write_text(json.dumps({"services": {service: {"image": image, "user": "0:0",
+            "entrypoint": ["python", "-c", script], "command": [],
+            "environment": {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": "/workspace/vnext/shared_kernel/src"},
+            "volumes": [{"type": "bind", "source": str(VNEXT), "target": "/workspace/vnext", "read_only": True,
+                         "bind": {"create_host_path": False}}]}}}))
+        secret = tmp_path / "token"
+        secret.write_text("fixture-only")
+        mapping = tmp_path / "mapping.json"
+        mapping.write_text('{"mappings":[]}')
+        environment = {**os.environ, "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret),
+            "GATEWAY_BACKEND_SESSION_FILE": str(secret), "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret),
+            "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping)}
+        project = "gateway-f-render-" + uuid4().hex[:12]
+        command = ["docker", "compose", "-p", project, "-f", str(VNEXT / "deploy/compose.yaml"),
+                   "-f", str(tmp_path / "compose-runtime.json"), "-f", str(override)]
+        try:
+            rendered = subprocess.run([*command, "config", "--format", "json"], env=environment,
+                capture_output=True, text=True, check=False, timeout=30)
+            assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+            effective = json.loads(rendered.stdout)["services"][service]
+            assert effective["deploy"]["replicas"] == 1
+            configured_roots = [item for item in effective["volumes"] if item["target"].startswith("/var/lib/gateway/")]
+            assert len(configured_roots) == (4 if role == "repository_service" else 6)
+            assert all(("rs-" if role == "repository_service" else "be-") in item["target"] for item in configured_roots)
+            result = subprocess.run([*command, "run", "--rm", "--no-deps", "--no-build", "--pull", "never", service],
+                env=environment, capture_output=True, text=True, check=False, timeout=45)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "COMPOSE_PREFLIGHT_OK " in result.stdout
+        finally:
+            subprocess.run([*command, "down", "--volumes", "--remove-orphans"], env=environment,
+                capture_output=True, check=False, timeout=30)

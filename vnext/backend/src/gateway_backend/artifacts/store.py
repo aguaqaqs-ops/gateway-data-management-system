@@ -86,6 +86,23 @@ class InMemoryArtifactStore:
         self._artifacts[ref.artifact_id] = (ref, raw_bytes)
         return ref
 
+    def put_from_path(
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+    ) -> ArtifactRef:
+        if ref.size_bytes > byte_limit:
+            raise ManifestVerificationError("artifact exceeds file byte limit")
+        with source.open_read() as handle:
+            chunks: list[bytes] = []
+            total = 0
+            while block := handle.read(64 * 1024):
+                checkpoint()
+                total += len(block)
+                if total > ref.size_bytes:
+                    raise ManifestVerificationError("stream exceeds declared_size")
+                chunks.append(block)
+        checkpoint()
+        return self.put(b"".join(chunks), ref)
+
     def locate(self, ref: ArtifactRef) -> bytes:
         try:
             stored_ref, raw_bytes = self._artifacts[ref.artifact_id]

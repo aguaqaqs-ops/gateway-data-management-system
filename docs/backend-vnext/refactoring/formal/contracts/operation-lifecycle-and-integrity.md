@@ -241,3 +241,12 @@ A 的目标未改变当前运行行为或 operation-runtime/v2；B–F 实施并
 角色预检实际挂载来源/marker/权限/身份与cgroup后才允许ready/claim；不以渲染成功代替实际核验。HTTP新工作因基础存储不可用/低水位沿503 SERVICE_NOT_READY，接收后的I/O失败沿原operation恢复，effect UNKNOWN仍先核原结果。readiness与liveness不混用，不新增公共failure code。
 
 checkpoint、请求快照、READY与canonical table-set closure在durable，成员保留自身类别。所有成员完成且受保护后，仍由既有lease/DB publication屏障发表完整closure；跨root不增加联合事务。scratch只有operation/step/attempt或HTTP接收上下文的临时owner，禁止唯一恢复事实存入scratch。新ID同步用于record refs、bare closure/checkpoint ID与严格decoder；不能仅改通用ArtifactRef而漏job/nominal载荷。prepare checkpoint及固定package/key恢复边界保持原§6与Canonical Storage §5。
+
+D 实施接口（阶段组合验收仍归 G）：scratch capability 在 HTTP multipart 解析之前以 upload
+owner 创建；其他发布请求使用 request owner，worker 每次实际执行使用真实 operation owner。
+一个 owner 的所有同时存活 temporary 文件共用 `scratch_max_bytes_per_attempt`，每次增长前
+检查累计 logical payload bytes 与 producer 原有单文件上限；关闭 writer 不释放额度，移除该文件
+后才释放。预算不把 filesystem 元数据、分配块或 native 子进程容量冒称精确预留。
+服务内部 writer 使用受控文件接口，禁止默认系统 temp、ambient TMPDIR 与传 pathname 绕过计数。
+owner 目录持独占 flock，成功、失败、取消或 close/ENOSPC 失败均在释放 owner 前收尾；scratch
+不保存恢复权威。接收取消继续等待正在读取上传的 acceptance 线程结束后再删除输入。

@@ -4,6 +4,7 @@ from __future__ import annotations
 import errno
 import fcntl
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -16,6 +17,7 @@ from pathlib import Path
 import pyarrow as pa
 from gateway_shared_kernel import CanonicalEncodingError
 
+from gateway_backend.artifacts.scratch import optional_scratch
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
 from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactRepairBusyError, ArtifactUnavailableError, ManifestVerificationError
@@ -225,6 +227,9 @@ class LocalArtifactStore:
         descriptor = os.open(staging, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
+            temporary = optional_scratch()
+            (staging / "owner.json").write_text(json.dumps({"version": 1,
+                "owner": None if temporary is None else temporary.owner}), encoding="utf-8")
             total = 0
             hasher = hashlib.sha256()
             with (staging / 'payload').open('xb') as handle:
@@ -258,11 +263,15 @@ class LocalArtifactStore:
             fsync_directory(staging)
             if checkpoint is not None:
                 checkpoint()
+            (staging / "owner.json").unlink()
+            fsync_directory(staging)
             yield staging
         finally:
-            os.close(descriptor)
-            if staging.exists():
-                shutil.rmtree(staging)
+            try:
+                if staging.exists():
+                    shutil.rmtree(staging)
+            finally:
+                os.close(descriptor)
 
     @staticmethod
     def _sync_ancestors(path: Path, root: Path) -> None:

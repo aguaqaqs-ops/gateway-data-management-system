@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
+from gateway_backend.http.dependencies import request_scratch
+
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
@@ -54,7 +56,7 @@ def apply_review_route(
         body=body,
         idempotency_key=idempotency_key,
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = apply_review_operation(
             command=command,
             scope_resolution=deps.scope_resolution,

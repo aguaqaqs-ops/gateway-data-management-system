@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+
 from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 
 import asyncio
@@ -359,6 +361,8 @@ def prepare_backend_runtime(
         raise RuntimeError("runtime comparison ruleset digest is missing")
     comparison_ruleset_digest = active_comparison_rules.ruleset_digest.value
     workspace_http = WorkspaceHttpDependencies(
+        scratch=ScratchSpace(Path(deployment.storage.roots["be-scratch"].path),
+            max_bytes=deployment.resources.temporary.scratch_max_bytes_per_attempt),
         session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=scope_resolution,
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),

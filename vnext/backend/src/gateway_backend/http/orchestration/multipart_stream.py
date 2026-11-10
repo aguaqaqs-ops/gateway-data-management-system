@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import re
-import shutil
-import tempfile
 import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
+from contextlib import ExitStack
+from uuid import uuid4
+from gateway_backend.artifacts.scratch import ScratchSpacePort, ScratchSessionPort, ScratchLimitExceeded
+from gateway_backend.artifacts.store import ArtifactFileSourcePort
 from typing import IO, Any, cast
 
 import python_multipart as multipart
@@ -41,7 +42,7 @@ _PART_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 @dataclass
 class StagedUploadPart:
     name: str
-    path: Path
+    source: ArtifactFileSourcePort
     size_bytes: int
 
 
@@ -49,7 +50,11 @@ class StagedUploadPart:
 class ParsedMultipartUpload:
     manifest_bytes: bytes
     file_parts: dict[str, StagedUploadPart]
-    staging_dir: Path
+    resources: ExitStack
+    scratch: ScratchSessionPort
+
+    def close(self) -> None:
+        self.resources.close()
 
 
 @dataclass
@@ -57,7 +62,7 @@ class _ActivePart:
     name: str
     is_manifest: bool
     data: bytearray = field(default_factory=bytearray)
-    path: Path | None = None
+    source: ArtifactFileSourcePort | None = None
     handle: IO[bytes] | None = None
     size_bytes: int = 0
 
@@ -74,12 +79,14 @@ class _StreamingMultipartParser:
     def __init__(
         self,
         *,
-        staging_dir: Path,
+        scratch: ScratchSessionPort,
+        resources: ExitStack,
         max_compressed: int,
         idle_timeout_seconds: float,
         total_timeout_seconds: float,
     ) -> None:
-        self._staging_dir = staging_dir
+        self._scratch = scratch
+        self._resources = resources
         self._max_compressed = max_compressed
         self._idle_timeout_seconds = idle_timeout_seconds
         self._total_timeout_seconds = total_timeout_seconds
@@ -141,9 +148,9 @@ class _StreamingMultipartParser:
         self._file_count += 1
         if self._file_count > _MAX_FILES:
             raise _multipart_validation_error("too many multipart file parts")
-        path = self._staging_dir / f"part-{self._file_count}"
-        self._current.path = path
-        self._current.handle = path.open("wb")
+        source, handle = self._resources.enter_context(self._scratch.file(byte_limit=self._max_compressed))
+        self._current.source = source
+        self._current.handle = handle
 
     def on_part_data(self, data: bytes, start: int, end: int) -> None:
         payload = data[start:end]
@@ -158,7 +165,10 @@ class _StreamingMultipartParser:
         self._current.size_bytes += len(payload)
         if self._current.size_bytes > self._max_compressed:
             raise UploadLimitExceededError("compressed source package exceeds budget")
-        handle.write(payload)
+        try:
+            handle.write(payload)
+        except ScratchLimitExceeded as exc:
+            raise UploadLimitExceededError(str(exc)) from exc
 
     def on_part_end(self) -> None:
         if self._current.is_manifest:
@@ -167,15 +177,15 @@ class _StreamingMultipartParser:
             self._manifest = bytes(self._current.data)
             return
         handle = self._current.handle
-        path = self._current.path
+        source = self._current.source
         if handle is not None:
-            handle.close()
+            handle.flush()
             self._current.handle = None
-        if path is None:
+        if source is None:
             raise _multipart_validation_error("multipart file part is missing a body")
         self._files[self._current.name] = StagedUploadPart(
             name=self._current.name,
-            path=path,
+            source=source,
             size_bytes=self._current.size_bytes,
         )
 
@@ -213,14 +223,9 @@ class _StreamingMultipartParser:
         return ParsedMultipartUpload(
             manifest_bytes=self._manifest,
             file_parts=self._files,
-            staging_dir=self._staging_dir,
+            resources=self._resources,
+            scratch=self._scratch,
         )
-
-    def close_open_handles(self) -> None:
-        handle = self._current.handle
-        if handle is not None:
-            handle.close()
-            self._current.handle = None
 
     def _enforce_header_budget(self, accumulated: bytes, limit: int, label: str) -> None:
         if len(accumulated) > limit:
@@ -232,6 +237,7 @@ class _StreamingMultipartParser:
 
 async def parse_streaming_multipart(
     *,
+    scratch: ScratchSpacePort,
     headers: Headers,
     stream: AsyncIterator[bytes],
     max_compressed: int = FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
@@ -247,26 +253,36 @@ async def parse_streaming_multipart(
     boundary = params.get(b"boundary")
     if boundary is None:
         raise _multipart_validation_error("multipart boundary is required")
-    staging_dir = Path(tempfile.mkdtemp(prefix="gateway-upload-"))
-    parser_state = _StreamingMultipartParser(
-        staging_dir=staging_dir,
-        max_compressed=max_compressed,
-        idle_timeout_seconds=idle_timeout_seconds,
-        total_timeout_seconds=total_timeout_seconds,
-    )
-    callbacks = {
-        "on_part_begin": parser_state.on_part_begin,
-        "on_part_data": parser_state.on_part_data,
-        "on_part_end": parser_state.on_part_end,
-        "on_header_field": parser_state.on_header_field,
-        "on_header_value": parser_state.on_header_value,
-        "on_header_end": parser_state.on_header_end,
-        "on_headers_finished": parser_state.on_headers_finished,
-        "on_end": parser_state.on_end,
-    }
-    parser = multipart.MultipartParser(boundary, cast(Any, callbacks))
-    iterator = stream.__aiter__()
+    resources = ExitStack()
     try:
+        session = resources.enter_context(scratch.session(owner="upload:" + uuid4().hex))
+    except (OSError, ValueError):
+        resources.close()
+        raise ApiError(code="SERVICE_NOT_READY", message="temporary storage unavailable",
+                       status_code=503, details={"reason": "root_unavailable"}) from None
+    except BaseException:
+        resources.close()
+        raise
+    try:
+        parser_state = _StreamingMultipartParser(
+            scratch=session,
+            resources=resources,
+            max_compressed=max_compressed,
+            idle_timeout_seconds=idle_timeout_seconds,
+            total_timeout_seconds=total_timeout_seconds,
+        )
+        callbacks = {
+            "on_part_begin": parser_state.on_part_begin,
+            "on_part_data": parser_state.on_part_data,
+            "on_part_end": parser_state.on_part_end,
+            "on_header_field": parser_state.on_header_field,
+            "on_header_value": parser_state.on_header_value,
+            "on_header_end": parser_state.on_header_end,
+            "on_headers_finished": parser_state.on_headers_finished,
+            "on_end": parser_state.on_end,
+        }
+        parser = multipart.MultipartParser(boundary, cast(Any, callbacks))
+        iterator = stream.__aiter__()
         while True:
             now = time.monotonic()
             remaining = parser_state.timeout_after(now)
@@ -286,13 +302,12 @@ async def parse_streaming_multipart(
         parser.finalize()
         return parser_state.result()
     except BaseException:
-        parser_state.close_open_handles()
-        shutil.rmtree(staging_dir, ignore_errors=True)
+        resources.close()
         raise
 
 
-def iter_file_chunks(path: Path, *, chunk_size: int = _STREAM_CHUNK_SIZE) -> Iterator[bytes]:
-    with path.open("rb") as handle:
+def iter_file_chunks(source: ArtifactFileSourcePort, *, chunk_size: int = _STREAM_CHUNK_SIZE) -> Iterator[bytes]:
+    with source.open_read() as handle:
         while True:
             chunk = handle.read(chunk_size)
             if not chunk:

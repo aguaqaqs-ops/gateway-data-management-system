@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from gateway_backend.infrastructure.control_db.sqlite_operations import (
     SQLiteOperationStore,
     operation_record_from_row,
@@ -51,7 +53,7 @@ RAW_SHA = "sha256:" + "a" * 64
 
 def _artifact_ref_dict(identifier: str) -> dict[str, object]:
     return {
-        "artifact_id": identifier,
+        "artifact_id": build_artifact_id(ArtifactLocation.DURABLE, "test-sqlite-operation", identifier),
         "media_type": "application/octet-stream",
         "size_bytes": 3,
         "raw_sha256": RAW_SHA,

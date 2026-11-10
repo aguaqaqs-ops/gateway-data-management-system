@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
 import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from gateway_backend.artifacts.scratch import current_scratch
+from gateway_backend.infrastructure.artifact_store.scratch import ScratchFile
 from pathlib import Path
 from typing import cast
 from uuid import UUID
@@ -182,7 +184,8 @@ class HttpArrowRepositoryRefSession:
             # Admit response/chunk buffering before the spool operation. The
             # output file itself is temporary disk storage, not retained RAM.
             with context.memory.reserve(max_input_bytes + 128 * 1024):
-                path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+                spool = cast(_ArrowSpool, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+                path = spool.path
         except (InterruptedError, TimeoutError):
             context.checkpoint()
             raise
@@ -196,7 +199,7 @@ class HttpArrowRepositoryRefSession:
             context.checkpoint()
             raise _repository_read_error("table row read", exc, table=table_name) from exc
         with ExitStack() as resources:
-            resources.callback(Path(path).unlink, missing_ok=True)
+            resources.callback(spool.close)
             context.checkpoint()
             size = Path(path).stat().st_size
             if size > max_input_bytes:
@@ -275,7 +278,8 @@ class HttpArrowRepositoryRefSession:
 
     def _iter_table_rows(self, table_name: str) -> Iterator[tuple[object | None, ...]]:
         try:
-            ipc_path = cast(str, _run(self._spool_table_ipc(table_name)))
+            spool = cast(_ArrowSpool, _run(self._spool_table_ipc(table_name)))
+            ipc_path = spool.path
         except (InterruptedError, TimeoutError):
             context = current_kernel_context()
             if context is not None:
@@ -312,9 +316,9 @@ class HttpArrowRepositoryRefSession:
                 table=table_name,
             ) from exc
         finally:
-            Path(ipc_path).unlink(missing_ok=True)
+            spool.close()
 
-    async def _spool_table_ipc(self, table_name: str, *, max_bytes: int | None = None) -> str:
+    async def _spool_table_ipc(self, table_name: str, *, max_bytes: int | None = None) -> _ArrowSpool:
         context = current_kernel_context()
         if context is not None:
             context.checkpoint()
@@ -455,29 +459,35 @@ def _repository_read_error(
     )
 
 
-async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None = None) -> str:
+@dataclass
+class _ArrowSpool:
+    path: str
+    resources: ExitStack
+
+    def close(self) -> None:
+        self.resources.close()
+
+
+async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None = None) -> _ArrowSpool:
     context = current_kernel_context()
     if context is not None:
         context.checkpoint()
-    handle = tempfile.NamedTemporaryFile(prefix="gateway-arrow-", suffix=".ipc", delete=False)
-    path = handle.name
+    resources = ExitStack()
     try:
-        with handle:
-            size = 0
-            async with stream:
-                async for chunk in stream.aiter_bytes():
-                    if context is not None:
-                        context.checkpoint()
-                    size += len(chunk)
-                    if max_bytes is not None and size > max_bytes:
-                        raise MemoryError("repository Arrow spool exceeds input byte limit")
-                    handle.write(chunk)
+        source, handle = resources.enter_context(current_scratch().file(
+            byte_limit=1024**3 if max_bytes is None else max_bytes))
+        async with stream:
+            async for chunk in stream.aiter_bytes():
                 if context is not None:
                     context.checkpoint()
+                handle.write(chunk)
+            if context is not None:
+                context.checkpoint()
+        handle.flush()
+        return _ArrowSpool(str(cast(ScratchFile, source)._path), resources)
     except BaseException:
-        Path(path).unlink(missing_ok=True)
+        resources.close()
         raise
-    return path
 
 
 def _iter_rows_from_ipc_path(path: str) -> Iterator[tuple[object | None, ...]]:

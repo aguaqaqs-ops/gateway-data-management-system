@@ -101,10 +101,11 @@ def test_cross_filesystem_copy_preserves_source_until_owner_closes(
         calls += 1
         if cancelled and calls == 3:
             raise InterruptedError('cancelled copy')
-    with ScratchSpace(second_filesystem).file(owner='upload-context') as (source, handle):
+    with ScratchSpace(second_filesystem, max_bytes=len(raw)).file(owner='upload-context') as (source, handle):
         handle.write(raw)
         handle.flush()
-        assert os.fstat(handle.fileno()).st_dev != store.layout.export.stat().st_dev
+        with source.open_read() as input_handle:
+            assert os.fstat(input_handle.fileno()).st_dev != store.layout.export.stat().st_dev
         if cancelled:
             with pytest.raises(InterruptedError):
                 store.put_from_path(source, ref, checkpoint=checkpoint, byte_limit=len(raw))

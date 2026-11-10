@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 
+from gateway_backend.http.dependencies import request_scratch
+
 from gateway_backend.application.workspace.preview import accept_start_preview
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
@@ -68,7 +70,7 @@ def start_preview_route(
         idempotency_key=resolved_key,
         request_fingerprint_seed=options,
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = accept_start_preview(
             command=command,
             scope_resolution=deps.scope_resolution,

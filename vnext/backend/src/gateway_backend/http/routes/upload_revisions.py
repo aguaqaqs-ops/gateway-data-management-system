@@ -64,7 +64,7 @@ async def accept_upload_route(
         )
     with acquire_new_work(deps.admission_gate):
         try:
-            parsed = await parse_streaming_multipart(headers=request.headers, stream=request.stream())
+            parsed = await parse_streaming_multipart(scratch=deps.scratch, headers=request.headers, stream=request.stream())
             return await accept_multipart_upload(
                 context=context,
                 workspace_id=workspace_id,

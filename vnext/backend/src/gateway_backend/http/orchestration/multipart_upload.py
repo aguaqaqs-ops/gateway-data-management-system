@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from gateway_backend.artifacts.location import ArtifactLocation
+from gateway_backend.artifacts.scratch import scratch_scope
 
 import asyncio
 import json
-import shutil
 from datetime import datetime
 
 import anyio
@@ -56,7 +56,7 @@ async def accept_multipart_upload(
     del workspace_repository
     acceptance = asyncio.create_task(
         anyio.to_thread.run_sync(
-            lambda: _accept_staged_upload(
+            lambda: _accept_in_scratch(
                 context=context,
                 workspace_id=workspace_id,
                 idempotency_key=idempotency_key,
@@ -88,7 +88,14 @@ async def accept_multipart_upload(
             pass
         raise cancellation
     finally:
-        shutil.rmtree(parsed.staging_dir, ignore_errors=True)
+        parsed.close()
+
+
+def _accept_in_scratch(**kwargs: object) -> UploadRevisionResponse:
+    from typing import cast, Any
+    parsed = cast(ParsedMultipartUpload, kwargs["parsed"])
+    with scratch_scope(parsed.scratch):
+        return _accept_staged_upload(**cast(Any, kwargs))
 
 
 def _accept_staged_upload(
@@ -170,7 +177,7 @@ def _accept_staged_upload(
         try:
             ref = artifact_store.put_stream(ArtifactLocation.DURABLE,
                 "source-package",
-                iter_file_chunks(staged.path),
+                iter_file_chunks(staged.source),
                 declared_size=declared.size_bytes,
                 declared_raw_sha256=DigestRef(declared.raw_sha256),
                 media_type=declared.media_type,
@@ -179,7 +186,7 @@ def _accept_staged_upload(
             raise _map_store_error(exc) from exc
         except ValueError as exc:
             raise _map_store_error(exc) from exc
-        with staged.path.open("rb") as handle:
+        with staged.source.open_read() as handle:
             validate_source_package_archive(handle, compressed_bytes=staged.size_bytes)
         source_refs.append(ref)
         source_artifacts[role] = SourceArtifactBinding(

@@ -11,13 +11,14 @@ from gateway_backend.operations import StoreBusy
 BUSY_TIMEOUT_MS = 5_000
 
 
-def connect_control_db(db_path: Path) -> sqlite3.Connection:
+def connect_control_db(db_path: Path, *, require_existing: bool = False) -> sqlite3.Connection:
     """Open one configured SQLite connection for a caller-owned database path."""
 
     _validate_db_path(db_path)
     try:
         connection = sqlite3.connect(
-            db_path,
+            f"{db_path.as_uri()}?mode=rw" if require_existing else db_path,
+            uri=require_existing,
             timeout=BUSY_TIMEOUT_MS / 1_000,
             isolation_level=None,
             check_same_thread=True,

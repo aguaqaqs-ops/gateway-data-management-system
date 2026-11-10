@@ -416,3 +416,16 @@ read handle，全部完成后才保留该批次的 mmap readers；不为未需�
 不依赖 `artifacts.types`、ArtifactRef model、ID constructor 或文件适配器。架构 owner 仅允许
 该单一 parser 符号跨入 domain，其他 artifact 符号/模块仍拒绝；不新增 frozen violation。
 配置→物理layout翻译归bootstrap，infrastructure不反向依赖process配置。
+
+D 维护接口（阶段组合验收仍归 G）：显式 CLI
+`python -m gateway_backend.bootstrap.storage_admin --storage-layout <配置> --resource-profile <配置> cleanup`
+每次最多 32 候选（`--max-candidates` 仅允许 1–32）与 1,024 扫描访问项，四类对象、各自 staging、
+scratch 按 round-robin 增量读取；返回 `cursor` 供同一布局的下一调用通过 `--cursor` 继续。
+游标仅含版本/布局身份/已知 shard 的目录 continuation cookies，不接受任意删除路径，不是
+业务完成或清理证明。busy/不可用 root 单独报告或跳过，不阻塞其他类别。
+已发布对象只交给已有保护 owner 在 EX→短 DB 事务内重核 TTL/强引用并删除；扫描/hash 不进入事务。
+临时目录只接受已知普通成员、有限 owner 元数据和非阻塞独占锁，再检查对应 operation 非活跃；
+request/upload 在尚无 operation 时以活动 flock 表示接收存活。默认 orphan grace 24 小时，显式排空后
+可用 `--orphan-grace-seconds 0` 处理已确认无活跃 owner 的目录。未知形状、缺失/非法 ref 或 owner、
+symlink/子挂载只报 manual_review，不递归删除。`.gateway-storage.json` 保留给部署 owner，名称识别
+不代表 marker 身份通过；metadata、Dolt、secrets 不属于此枚举范围。

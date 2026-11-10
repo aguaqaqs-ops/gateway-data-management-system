@@ -112,10 +112,14 @@ class ControlDbUnitOfWork:
         now: Callable[[], datetime] = _utc_now,
         canonicalization_manifest_reader: CanonicalizationManifestReadPort | None = None,
         artifact_borrow: Callable[[], ContextManager[None]] | None = None,
+        require_existing: bool = False,
     ) -> None:
         if type(read_only) is not bool:
             raise ValueError("read_only must be a bool")
         _validate_db_path(db_path)
+        if type(require_existing) is not bool:
+            raise ValueError("require_existing must be a bool")
+        self._require_existing = require_existing
         self._artifact_borrow = artifact_borrow
         self._borrow_stack = ExitStack()
         self._db_path = db_path
@@ -347,7 +351,8 @@ class ControlDbUnitOfWork:
         if self._artifact_borrow is not None:
             self._borrow_stack.enter_context(self._artifact_borrow())
         try:
-            connection = connect_control_db(self._db_path)
+            connection = (connect_control_db(self._db_path, require_existing=True) if self._require_existing
+                else connect_control_db(self._db_path))
         except BaseException:
             self._borrow_stack.close()
             raise

@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
+from gateway_backend.http.dependencies import request_scratch
+
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
@@ -42,7 +44,7 @@ def create_or_get_workspace_route(
             message="CreateOrGetWorkspace does not accept Idempotency-Key",
             status_code=422,
         )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         if (
             body.gateway_device_external_key != context.gateway_device_external_key
             or body.business_project_id != context.business_project_id

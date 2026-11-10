@@ -60,6 +60,7 @@ class FixtureGate(G.Gate):
     def checkout(self):
         self.worktree.mkdir(exist_ok=True)
         self.result.update(start_head=self.args.commit_sha, clean_start=True)
+        self.note(f"start_head={self.args.commit_sha} hostname=selftest utc={G.utc()}")
 
     def prepare(self):
         self.tmp.mkdir(exist_ok=True)
@@ -184,8 +185,37 @@ class StageGateTests(unittest.TestCase):
             timer.join()
         record = self.record(gate)
         self.assertEqual(record["status"], "failed")
+        self.assertEqual(record["runner_exit_code"], 143)
         self.assertTrue(record["occupancy_released"])
         self.assertFalse(gate.busy.exists())
+
+    def test_runner_termination_does_not_release_node_with_a_live_descendant(self):
+        gate = FixtureGate(self.root)
+        pidfile = self.root / "descendant.pid"
+        original = gate.prepare
+        def prepare_orphan_runner():
+            original()
+            runner = gate.worktree / "vnext/scripts/run-tests.sh"
+            runner.write_text("#!/usr/bin/env python3\nimport os, signal, subprocess, sys\n"
+                              "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                              f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
+                              "os.kill(os.getpid(), signal.SIGTERM)\n")
+        child_pid = None
+        try:
+            with patch.object(gate, "prepare", side_effect=prepare_orphan_runner):
+                self.assertEqual(gate.run(), 143)
+            child_pid = int(pidfile.read_text())
+            state_path = Path(f"/proc/{child_pid}/stat")
+            alive = state_path.exists() and state_path.read_text().rpartition(") ")[2].split()[0] != "Z"
+            self.assertFalse(alive, "runner descendant must be stopped before the node is released")
+        finally:
+            if child_pid is None and pidfile.exists():
+                child_pid = int(pidfile.read_text())
+            if child_pid is not None:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
     def test_uncertain_cleanup_retains_marker_and_fails(self):
         gate = FixtureGate(self.root)

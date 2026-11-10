@@ -386,7 +386,15 @@ class Gate:
                 package = record["packages"][name]
                 if package["mode"] != "run" or package.get("runner_status") != "passed":
                     continue
+                for reference in record["logs"].values():
+                    self.verified_file(reference)
                 log = self.verified_file(record["logs"]["runner"])
+                gate_log = self.verified_file(record["logs"]["gate"]).read_text(errors="replace")
+                if (f"start_head={record['commit_sha']} " not in gate_log
+                        or f"end_head={record['commit_sha']} " not in gate_log
+                        or "runner_exit_code=0" not in gate_log
+                        or not gate_log.rstrip().endswith("exit_code=0")):
+                    continue
                 source_manifest = json.loads(self.verified_file(package["manifest"]).read_text())
                 if source_manifest.get("head") != record["commit_sha"] or source_manifest.get("worktree_head") != record["commit_sha"]:
                     continue

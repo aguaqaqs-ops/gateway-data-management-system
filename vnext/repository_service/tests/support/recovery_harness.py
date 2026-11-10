@@ -20,6 +20,7 @@ from gateway_repository_contracts import (
     UploadArtifactResponse,
     UploadRequestHeaders,
 )
+from support.storage_layout import write_storage_layout
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout, repository_key
@@ -112,8 +113,8 @@ def setup_create_subprocess(
     idempotency_key: str,
 ) -> subprocess.CompletedProcess[str]:
     return _run_worker(
-        "--data-root",
-        str(settings.storage_roots.metadata.parent),
+        "--storage-layout-file",
+        str(write_storage_layout(settings.storage_roots)),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",
@@ -132,8 +133,8 @@ def crash_create_subprocess(
     point: CreateFaultPoint,
 ) -> subprocess.CompletedProcess[str]:
     completed = _run_worker(
-        "--data-root",
-        str(settings.storage_roots.metadata.parent),
+        "--storage-layout-file",
+        str(write_storage_layout(settings.storage_roots)),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",
@@ -158,8 +159,8 @@ def crash_upload_subprocess(
     point: UploadFaultPoint,
 ) -> subprocess.CompletedProcess[str]:
     completed = _run_worker(
-        "--data-root",
-        str(settings.storage_roots.metadata.parent),
+        "--storage-layout-file",
+        str(write_storage_layout(settings.storage_roots)),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",

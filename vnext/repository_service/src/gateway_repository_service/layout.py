@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -101,8 +102,9 @@ class DurableLayout:
         layout = cls(roots)
         layout.validate_components()
         try:
-            if layout.layout_marker.is_symlink():
-                raise LayoutError("control layout marker is a symlink")
+            metadata = layout.layout_marker.lstat()
+            if not stat.S_ISREG(metadata.st_mode):
+                raise LayoutError("control layout marker is not a regular file")
             loaded = json.loads(layout.layout_marker.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise LayoutError("control layout marker is unreadable") from exc

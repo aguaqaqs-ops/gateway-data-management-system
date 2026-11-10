@@ -28,7 +28,7 @@ def _read_token_file(path: Path) -> str | None:
 class RepositoryServiceSettings(BaseSettings):
     """Settings owned exclusively by Repository Service."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_REPOSITORY_")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_REPOSITORY_", populate_by_name=True)
 
     profile: Literal["production", "development", "test"] = "production"
     bearer_token_file: Path | None = None
@@ -78,6 +78,13 @@ class RepositoryServiceSettings(BaseSettings):
     max_concurrent_row_streams: int = 8
     full_scan_timeout_seconds: int = 3600
     import_headroom_bytes: int = 1 * 1024**3
+
+    @field_validator("storage_layout_file")
+    @classmethod
+    def _storage_layout_file_must_be_absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("storage_layout_file must be absolute")
+        return value
 
     @field_validator("dolt_binary")
     @classmethod

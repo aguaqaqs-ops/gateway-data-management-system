@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from uuid import UUID
 
-from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
@@ -60,7 +59,7 @@ class _CrashImportWorkerFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        roots=RepositoryRoots.under(Path(args.data_root)),
+        storage_layout_file=Path(args.storage_layout_file),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,
@@ -109,7 +108,7 @@ def _run_import_worker(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-root", required=True)
+    parser.add_argument("--storage-layout-file", required=True)
     parser.add_argument("--dolt-binary", default="/usr/local/bin/dolt")
     parser.add_argument("--dolt-version", default="2.1.11")
     parser.add_argument("--repository-id", required=True)

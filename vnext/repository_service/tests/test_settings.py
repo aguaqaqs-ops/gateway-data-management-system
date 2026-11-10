@@ -10,8 +10,10 @@ from gateway_repository_service.settings import RepositoryServiceSettings, Setti
 from support.control_db_harness import locked_control_connection
 
 
-def test_repository_data_root_is_local_to_service() -> None:
-    assert RepositoryServiceSettings().data_root.name == "repository"
+def test_runtime_storage_requires_explicit_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GATEWAY_STORAGE_LAYOUT_FILE", raising=False)
+    with pytest.raises(SettingsError, match="GATEWAY_STORAGE_LAYOUT_FILE is required"):
+        _ = RepositoryServiceSettings().control_db_path
 
 
 def test_default_profile_is_production(tmp_path: Path) -> None:
@@ -171,3 +173,13 @@ def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: 
         assert int(version[0]) == CONTROL_DB_USER_VERSION
     finally:
         runtime.shutdown()
+
+
+def test_deployment_storage_file_selects_all_rs_roots(tmp_path: Path) -> None:
+    from support.storage_layout import write_storage_layout
+
+    roots = RepositoryRoots.under(tmp_path)
+    layout_file = write_storage_layout(roots)
+    settings = RepositoryServiceSettings(storage_layout_file=layout_file)
+    assert settings.storage_roots == roots
+    assert settings.control_db_path == roots.metadata / "service-state/repository-service.sqlite3"

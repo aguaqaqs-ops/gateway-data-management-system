@@ -16,7 +16,7 @@ from types import TracebackType
 from typing import Self
 
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
-from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.settings import RepositoryServiceSettings
 from support.storage_layout import local_storage_layout
@@ -56,11 +56,6 @@ class RestoreProcedureError(RuntimeError):
 
 
 def snapshot_admin_command(*args: str) -> list[str]:
-    if "--data-root" in args:
-        values = list(args)
-        index = values.index("--data-root")
-        values[index:index + 2] = ["--storage-layout-file", str(local_storage_layout(Path(values[index + 1])))]
-        args = tuple(values)
     return [sys.executable, "-m", "gateway_repository_service.snapshot_admin", *args]
 
 
@@ -98,7 +93,7 @@ def run_hold(
     env: dict[str, str] | None = None,
     timeout: float = 15.0,
 ) -> subprocess.CompletedProcess[str]:
-    return run_snapshot_admin("hold", "--data-root", str(data_root), env=env, timeout=timeout)
+    return run_snapshot_admin("hold", "--storage-layout-file", str(local_storage_layout(data_root)), env=env, timeout=timeout)
 
 
 def spawn_hold(
@@ -108,7 +103,7 @@ def spawn_hold(
     stdout: int | None = subprocess.PIPE,
 ) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        snapshot_admin_command("hold", "--data-root", str(data_root)),
+        snapshot_admin_command("hold", "--storage-layout-file", str(local_storage_layout(data_root))),
         stdout=stdout,
         stderr=subprocess.PIPE,
         text=True,
@@ -171,7 +166,7 @@ def assert_safe_ready_json(payload: dict[str, object], raw: str) -> None:
     assert payload["action"] == "hold"
     assert payload["status"] == "ready"
     assert payload["schema_version"] == 1
-    assert payload["layout_format_version"] == 1
+    assert payload["layout_format_version"] == LAYOUT_FORMAT_VERSION
     assert payload["control_db_user_version"] == CONTROL_DB_USER_VERSION
     checkpoint = payload["checkpoint"]
     assert isinstance(checkpoint, dict)
@@ -189,14 +184,14 @@ def run_check(
     env: dict[str, str] | None = None,
     timeout: float = 30.0,
 ) -> subprocess.CompletedProcess[str]:
-    return run_snapshot_admin("check", "--data-root", str(data_root), env=env, timeout=timeout)
+    return run_snapshot_admin("check", "--storage-layout-file", str(local_storage_layout(data_root)), env=env, timeout=timeout)
 
 
 def assert_safe_passed_json(payload: dict[str, object], raw: str) -> None:
     assert payload["action"] == "check"
     assert payload["status"] == "passed"
     assert payload["schema_version"] == 1
-    assert payload["layout_format_version"] == 1
+    assert payload["layout_format_version"] == LAYOUT_FORMAT_VERSION
     assert payload["control_db_user_version"] == CONTROL_DB_USER_VERSION
     assert isinstance(payload["repository_count"], int)
     assert isinstance(payload["artifact_count"], int)

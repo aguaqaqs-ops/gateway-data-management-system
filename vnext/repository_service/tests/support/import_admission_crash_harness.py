@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from support.storage_layout import write_storage_layout
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.http.readiness import LifecycleReadiness
@@ -76,8 +77,8 @@ def crash_admission_subprocess(
     status_out: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = _worker_command(
-        "--data-root",
-        str(settings.storage_roots.metadata.parent),
+        "--storage-layout-file",
+        str(write_storage_layout(settings.storage_roots)),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",

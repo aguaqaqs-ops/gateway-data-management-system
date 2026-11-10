@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_repository_contracts import encode_commit_id_path_segment
+from support.storage_layout import local_storage_layout
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
@@ -179,7 +180,7 @@ def test_admin_requires_existing_regular_root_lock(
         if fault == "symlink":
             escaped.touch()
             env.layout.service_lock.symlink_to(escaped)
-        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(env.data_root)))
         assert result.returncode == 4
         assert result.stdout == ""
         assert "Traceback" not in result.stderr
@@ -197,7 +198,7 @@ def test_admin_rejects_symlink_data_root(tmp_path: Path, command: str) -> None:
         env.close()
         linked_root = tmp_path / "linked-root"
         linked_root.symlink_to(env.data_root, target_is_directory=True)
-        result = run_snapshot_admin(command, "--data-root", str(linked_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(linked_root)))
     assert result.returncode == 4
     assert result.stdout == ""
     assert "Traceback" not in result.stderr
@@ -214,7 +215,7 @@ def test_admin_rejects_control_database_symlink(tmp_path: Path, command: str) ->
         db_path.rename(escaped)
         before = escaped.read_bytes()
         db_path.symlink_to(escaped)
-        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(env.data_root)))
     assert result.returncode == 4
     assert result.stdout == ""
     assert "Traceback" not in result.stderr
@@ -662,7 +663,7 @@ def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) 
         fake_dolt.chmod(0o755)
         process = subprocess.Popen(
             [
-                *snapshot_admin_command("check", "--data-root", str(env.data_root)),
+                *snapshot_admin_command("check", "--storage-layout-file", str(local_storage_layout(env.data_root))),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

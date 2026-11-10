@@ -26,7 +26,7 @@ from gateway_repository_service.provider_lifecycle import (
     ProviderUnavailableError,
 )
 from gateway_repository_service.runtime import ServiceRuntime
-from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 from gateway_repository_service.versioned_import.models import (
     ImportOperationExecutionContext,
     ImportStoreInvariantError,
@@ -70,12 +70,9 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
 
 
 def _bind_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
-    data_root = settings.data_root.expanduser().resolve()
-    if not data_root.is_dir():
-        raise ControlDbError("data root does not exist")
     try:
-        return DurableLayout.bind_existing(data_root)
-    except LayoutError as exc:
+        return DurableLayout.bind_existing(settings.storage_roots)
+    except (LayoutError, OSError, ValueError, SettingsError) as exc:
         raise ControlDbError(str(exc)) from exc
 
 
@@ -133,7 +130,7 @@ def _open_dolt_runner(
     layout: DurableLayout,
 ) -> DoltRunner:
     OfflineCliCapabilityGate.verify(settings, layout)
-    return DoltRunner(settings, layout.root)
+    return DoltRunner.for_layout(settings, layout)
 
 
 def _control_db_exit_code(exc: Exception) -> int:
@@ -383,19 +380,19 @@ def main(argv: list[str] | None = None) -> None:
 
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("--operation-id", required=True)
-    inspect_parser.add_argument("--data-root", type=Path)
+    inspect_parser.add_argument("--storage-layout-file", type=Path)
 
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("--operation-id", required=True)
     apply_parser.add_argument("--decision", required=True, choices=[item.value for item in ManualCorrectionDecision])
-    apply_parser.add_argument("--data-root", type=Path)
+    apply_parser.add_argument("--storage-layout-file", type=Path)
 
     args = parser.parse_args(argv)
 
     settings = RepositoryServiceSettings()
-    data_root = getattr(args, "data_root", None)
-    if data_root is not None:
-        settings = settings.model_copy(update={"data_root": data_root})
+    layout_file = getattr(args, "storage_layout_file", None)
+    if layout_file is not None:
+        settings = settings.model_copy(update={"storage_layout_file": layout_file})
 
     operation_id = _parse_operation_id(args.operation_id)
     if operation_id is None:

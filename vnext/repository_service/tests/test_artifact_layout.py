@@ -63,7 +63,6 @@ def test_repository_symlink_does_not_escape_artifacts_root(tmp_path: Path) -> No
 
     with pytest.raises(ArtifactRootError, match="symlink"):
         prepare_artifact_layout(
-            data_root=layout.root,
             artifacts=layout.artifacts,
             gateway_uid=os.getuid(),
             gateway_gid=os.getgid(),
@@ -90,7 +89,6 @@ def test_staging_symlink_is_rejected_without_touching_outside(tmp_path: Path) ->
 
     with pytest.raises(ArtifactRootError, match="symlink"):
         prepare_artifact_layout(
-            data_root=layout.root,
             artifacts=layout.artifacts,
             gateway_uid=os.getuid(),
             gateway_gid=os.getgid(),

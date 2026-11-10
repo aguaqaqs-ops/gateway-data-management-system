@@ -63,7 +63,7 @@ def test_upload_publication_fault_is_fail_closed(tmp_path: Path) -> None:
             asyncio.run(command.execute(repository_id, headers, body()))
 
         key = repository_id.hex
-        ready_dir = settings.data_root / "artifacts" / key / "ready"
+        ready_dir = settings.storage_roots.metadata.parent / "artifacts" / key / "ready"
         assert list(ready_dir.iterdir()) == []
 
 
@@ -101,7 +101,7 @@ def test_upload_no_partial_ready_artifact_on_failure(tmp_path: Path) -> None:
             asyncio.run(command.execute(repository_id, headers, body()))
         assert exc_info.value.status_code == 409
 
-        ready_dir = settings.data_root / "artifacts" / repository_id.hex / "ready"
+        ready_dir = settings.storage_roots.metadata.parent / "artifacts" / repository_id.hex / "ready"
         assert list(ready_dir.iterdir()) == []
 
 

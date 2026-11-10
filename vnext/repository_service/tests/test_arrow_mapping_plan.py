@@ -493,7 +493,7 @@ def test_candidate_a_stream_compiles_plan_once_per_table(tmp_path: Path) -> None
         "0,3,1,",
         "0,4,0,1",
     ]
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "stream-repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -820,7 +820,7 @@ def test_candidate_a_stream_flush_and_oversized_boundaries(tmp_path: Path) -> No
         f"0,4,0,{large_payload}",
         "0,5,0,tiny",
     ]
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings(
         record_batch_rows=2,
         record_batch_bytes=16,

@@ -1204,7 +1204,7 @@ def test_terminate_and_reap_gate_dedupes_concurrent_callers(tmp_path: Path) -> N
     from support.lifecycle_harness import lifecycle_settings
 
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     del layout
     registry = ActiveChildRegistry()
     process = MagicMock()

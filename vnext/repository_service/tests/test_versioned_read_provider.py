@@ -144,7 +144,7 @@ def test_parse_commit_exists_rows_matrix(
 
 
 def test_catalog_at_does_not_query_parent(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -176,7 +176,7 @@ def test_catalog_at_does_not_query_parent(tmp_path: Path) -> None:
 
 
 def test_catalog_at_binds_same_literal_for_schema_and_count(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -254,7 +254,7 @@ def _visible_repository_setup(
 ) -> tuple[MutationStore, DurableLayout, UUID]:
     settings = lifecycle_settings(tmp_path)
     store = _open_mutation_store(tmp_path)
-    layout = DurableLayout.create(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository_id = uuid4()
     scope = IdempotencyScope.for_create()
     key_hash = MutationStore.hash_idempotency_key("read-visible")
@@ -297,7 +297,7 @@ def test_versioned_read_application_rejects_non_main_ref(tmp_path: Path) -> None
 def test_versioned_read_application_short_circuits_invisible_repository(tmp_path: Path) -> None:
     repository_id = uuid4()
     store = _open_mutation_store(tmp_path)
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     factory_called = False
 
     def factory(_repository_id: UUID) -> CandidateAReadProvider:
@@ -479,7 +479,7 @@ def test_open_table_rows_rejects_missing_commit(tmp_path: Path) -> None:
 def test_versioned_read_stream_timeout_maps_to_provider_unavailable() -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
+        DurableLayout.create_for_probe(Path("/tmp/unused")),
         Path("/tmp/unused"),
         MagicMock(spec=DoltRunner),
     )
@@ -548,7 +548,7 @@ def _records_table() -> TableCatalog:
 def _read_provider_with_mock_stream(
     tmp_path: Path,
 ) -> tuple[CandidateAReadProvider, MagicMock, TableCatalog]:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -699,7 +699,7 @@ def test_dolt_cli_batch_loop_callback_exception_maps_to_read_stream_cancelled(tm
 def test_read_provider_rejects_non_main_ref() -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
+        DurableLayout.create_for_probe(Path("/tmp/unused")),
         Path("/tmp/unused"),
         MagicMock(spec=DoltRunner),
     )
@@ -710,7 +710,7 @@ def test_read_provider_rejects_non_main_ref() -> None:
 def test_provider_fault_messages_are_redacted() -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
+        DurableLayout.create_for_probe(Path("/tmp/unused")),
         Path("/tmp/unused"),
         MagicMock(spec=DoltRunner),
     )
@@ -759,7 +759,7 @@ def test_read_ref_fault_shape_matrix(
 ) -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
+        DurableLayout.create_for_probe(Path("/tmp/unused")),
         Path("/tmp/unused"),
         MagicMock(spec=DoltRunner),
     )
@@ -771,7 +771,7 @@ def test_read_ref_fault_shape_matrix(
 def test_versioned_read_application_wraps_store_failures(tmp_path: Path) -> None:
     store = _open_mutation_store(tmp_path)
     store._connection.close()
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     app = VersionedReadApplication(store, layout, lambda _repository_id: MagicMock())
     with pytest.raises(ProviderUnavailableError, match="unavailable"):
         app.get_catalog(uuid4(), "opaque-commit")
@@ -791,7 +791,7 @@ def test_versioned_read_application_wraps_factory_oserror(tmp_path: Path) -> Non
 def test_malformed_commit_exists_metadata_is_unavailable() -> None:
     provider = CandidateAReadProvider(
         RepositoryServiceSettings(),
-        DurableLayout.create(Path("/tmp/unused")),
+        DurableLayout.create_for_probe(Path("/tmp/unused")),
         Path("/tmp/unused"),
         MagicMock(spec=DoltRunner),
     )
@@ -828,7 +828,7 @@ def _memo_table(name: str) -> TableCatalog:
 
 
 def test_catalog_at_memo_uses_opaque_target_key(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -845,10 +845,10 @@ def read_repo(
     tmp_path: Path,
 ) -> tuple[DurableLayout, RepositoryServiceSettings, DoltRunner, CandidateAReadProvider, OfflineCliProvider]:
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = layout.staging_artifacts / "read-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     offline = OfflineCliProvider(settings, layout, repository, runner)
     offline.initialize_repository()
     read_provider = CandidateAReadProvider(settings, layout, repository, runner)

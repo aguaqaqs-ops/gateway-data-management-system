@@ -81,7 +81,7 @@ def restart_runtime(settings: RepositoryServiceSettings) -> ServiceRuntime:
 
 
 def layout_for_settings(settings: RepositoryServiceSettings) -> DurableLayout:
-    return DurableLayout.create_service(settings.data_root)
+    return DurableLayout.create_service(settings.storage_roots)
 
 
 def _worker_env() -> dict[str, str]:
@@ -113,7 +113,7 @@ def setup_create_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     return _run_worker(
         "--data-root",
-        str(settings.data_root),
+        str(settings.storage_roots.metadata.parent),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",
@@ -133,7 +133,7 @@ def crash_create_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     completed = _run_worker(
         "--data-root",
-        str(settings.data_root),
+        str(settings.storage_roots.metadata.parent),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",
@@ -159,7 +159,7 @@ def crash_upload_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     completed = _run_worker(
         "--data-root",
-        str(settings.data_root),
+        str(settings.storage_roots.metadata.parent),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",

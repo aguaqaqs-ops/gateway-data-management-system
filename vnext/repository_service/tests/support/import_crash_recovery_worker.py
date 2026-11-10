@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from uuid import UUID
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
@@ -59,7 +60,7 @@ class _CrashImportWorkerFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=Path(args.data_root),
+        roots=RepositoryRoots.under(Path(args.data_root)),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,
@@ -69,8 +70,8 @@ def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
 def _run_import_worker(args: argparse.Namespace) -> None:
     settings = _settings_from_args(args)
     fault_point = _FAULT_POINTS[args.fault_point]
-    layout = DurableLayout.create_for_probe(settings.data_root)
-    runner = DoltRunner(settings, layout.root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
+    runner = DoltRunner.for_layout(settings, layout)
     control_store = ControlStore.open(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,

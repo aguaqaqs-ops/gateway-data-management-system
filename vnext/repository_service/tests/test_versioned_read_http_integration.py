@@ -197,11 +197,11 @@ def _commit_changes(offline: OfflineCliProvider, marker: str) -> str:
 
 def create_read_http_environment(tmp_path: Path) -> ReadHttpIntegrationEnvironment:
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository_id = uuid4()
     published = layout.published_repository(repository_key(repository_id))
     published.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     offline = OfflineCliProvider(settings, layout, published, runner)
     offline.initialize_repository()
     read_provider = CandidateAReadProvider(settings, layout, published, runner)

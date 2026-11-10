@@ -11,7 +11,7 @@ from typing import Literal
 from gateway_repository_contracts import SimpleError, VersionedImportResult
 
 from gateway_repository_service import artifact_cleanup
-from gateway_repository_service.capacity import CapacityAdmissionError, assert_import_disk_admission
+from gateway_repository_service.capacity import CapacityAdmissionError, assert_import_layout_admission
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
@@ -136,7 +136,7 @@ class ImportOperationExecutor:
             context.artifact_id,
         )
         try:
-            assert_import_disk_admission(self._layout.root, self._settings)
+            assert_import_layout_admission(self._layout, self._settings)
         except CapacityAdmissionError as exc:
             raise _terminal_error(
                 IMPORT_REJECTED_CODE,

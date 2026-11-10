@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from typing import cast
 
 from gateway_repository_contracts import SimpleError
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbError, ControlDbNewerVersionError, ControlStore
 from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
@@ -71,7 +72,7 @@ class TestStartupFailure:
 
     def test_lock_contention_aborts_startup(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         holder = DurableRootLock(layout.service_lock).acquire()
         try:
             with pytest.raises(ServiceStartupError, match="durable root lock is held"):
@@ -81,7 +82,7 @@ class TestStartupFailure:
 
     def test_corrupt_control_db_aborts_startup_and_releases_lock(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         settings.control_db_path.write_bytes(b"not-a-database")
         with pytest.raises(ServiceStartupError):
             ServiceRuntime.start(settings)
@@ -96,7 +97,7 @@ class TestStartupFailure:
 
     def test_newer_control_db_aborts_startup(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        DurableLayout.create_service(settings.data_root)
+        DurableLayout.create_service(settings.storage_roots)
         settings.control_db_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(settings.control_db_path)
         connection.execute("PRAGMA user_version = 99")
@@ -285,14 +286,14 @@ class TestLayoutValidation:
         payload = json.loads(marker.read_text(encoding="utf-8"))
         payload["layout_format_version"] = LAYOUT_FORMAT_VERSION + 1
         marker.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-        with pytest.raises(RuntimeError, match="unsupported layout_format_version"):
+        with pytest.raises(RuntimeError, match="invalid or unsupported"):
             DurableLayout.create_for_probe(root)
 
     def test_service_layout_creates_mutation_staging_not_probe_artifacts(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create_service(tmp_path / "root")
+        layout = DurableLayout.create_service(RepositoryRoots.under(tmp_path / "root"))
         assert layout.staging_versioned.is_dir()
         assert layout.staging_artifacts.is_dir()
-        assert not layout.artifacts.exists()
+        assert layout.artifacts.is_dir()
         assert not layout.probe_namespaces
 
     def test_probe_layout_creates_probe_namespaces(self, tmp_path: Path) -> None:
@@ -302,7 +303,7 @@ class TestLayoutValidation:
         assert layout.artifacts.is_dir()
 
     def test_layout_create_does_not_create_control_db(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create_service(tmp_path / "root")
+        layout = DurableLayout.create_service(RepositoryRoots.under(tmp_path / "root"))
         assert not (layout.service_state / "repository-service.sqlite3").exists()
 
 
@@ -1067,27 +1068,27 @@ class TestProviderLifecycle:
     @pytest.mark.integration
     def test_capability_gate_verifies_exact_version(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_for_probe(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.storage_roots)
         gate = OfflineCliCapabilityGate.verify(settings, layout)
         assert gate.verified_version == "2.1.11"
 
     def test_missing_executable_fails_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_binary=Path("/nonexistent/dolt"))
-        layout = DurableLayout.create_for_probe(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.storage_roots)
         with pytest.raises(ProviderUnavailableError, match="unavailable"):
             OfflineCliCapabilityGate.verify(settings, layout)
 
     @pytest.mark.integration
     def test_version_mismatch_fails_closed(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path, dolt_version="0.0.1")
-        layout = DurableLayout.create_for_probe(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.storage_roots)
         with pytest.raises(ProviderUnavailableError):
             OfflineCliCapabilityGate.verify(settings, layout)
 
     @pytest.mark.integration
     def test_provider_check_reaps_child_processes(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_for_probe(settings.data_root)
+        layout = DurableLayout.create_for_probe(settings.storage_roots)
         before = set(process_tree_pids(os.getpid()))
         OfflineCliCapabilityGate.verify(settings, layout)
         after = set(process_tree_pids(os.getpid()))
@@ -1126,7 +1127,7 @@ class TestDynamicReadiness:
         with TestClient(create_app(settings)) as client:
             assert client.get("/readyz").status_code == 200
             with patch(
-                "gateway_repository_service.runtime.has_free_disk_admission",
+                "gateway_repository_service.runtime.has_layout_disk_admission",
                 return_value=False,
             ):
                 response = client.get("/readyz")
@@ -1185,8 +1186,8 @@ class TestDynamicReadiness:
 @pytest.mark.integration
 def test_dolt_runner_version_check_reaps_children(tmp_path: Path) -> None:
     settings = _lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     before = set(process_tree_pids(os.getpid()))
-    DoltRunner(settings, layout.root)
+    DoltRunner.for_layout(settings, layout)
     after = set(process_tree_pids(os.getpid()))
     assert after.issubset(before)

@@ -106,7 +106,7 @@ def test_crash_after_pending_commit_aborts_on_restart(tmp_path: Path) -> None:
 
     from gateway_repository_service.layout import DurableLayout
 
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     ready_path = artifact_ready_path(layout, repository_id, artifact_id)
     assert ready_path.exists()
     ready_path.unlink()

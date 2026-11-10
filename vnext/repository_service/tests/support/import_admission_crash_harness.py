@@ -77,7 +77,7 @@ def crash_admission_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     command = _worker_command(
         "--data-root",
-        str(settings.data_root),
+        str(settings.storage_roots.metadata.parent),
         "--dolt-binary",
         str(settings.dolt_binary),
         "--dolt-version",

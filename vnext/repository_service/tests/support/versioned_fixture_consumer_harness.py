@@ -250,7 +250,7 @@ def start_fixture_consumer_environment(
             server_thread=server_thread,
             base_url=base_url,
             bearer_token=bearer_token,
-            data_root=settings.data_root,
+            data_root=settings.storage_roots.metadata.parent,
             server_thread_started=True,
         )
     except Exception:
@@ -259,7 +259,7 @@ def start_fixture_consumer_environment(
             server=server,
             server_thread=server_thread,
             server_thread_started=server_thread_started,
-            data_root=settings.data_root,
+            data_root=settings.storage_roots.metadata.parent,
         )
         raise
 

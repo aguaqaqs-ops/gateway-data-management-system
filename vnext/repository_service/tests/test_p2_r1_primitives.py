@@ -29,18 +29,18 @@ from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
-def test_component_first_layout_has_one_device_and_no_current_or_sqlite(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
-    layout.assert_same_filesystem()
+def test_component_layout_has_explicit_roots_and_no_current_or_sqlite(tmp_path: Path) -> None:
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
+    layout.validate_components()
     assert layout.layout_marker.is_file()
     assert layout.service_lock.parent.name == "control"
-    assert not (layout.root / "current").exists()
-    assert not (layout.root / "repository-service.sqlite3").exists()
+    assert not (layout.metadata_root / "current").exists()
+    assert not (layout.metadata_root / "repository-service.sqlite3").exists()
     assert not (layout.service_state / "repository-service.sqlite3").exists()
 
 
 def test_root_lock_is_exclusive_and_reacquirable(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     lock = DurableRootLock(layout.service_lock).acquire()
     script = """
 import sys
@@ -62,7 +62,7 @@ raise SystemExit(0)
 
 
 def test_atomic_publication_fault_points_are_fail_closed(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     before = layout.staging_repository("a" * 32, "before")
     (before / "payload").write_text("payload", encoding="utf-8")
     target_before = layout.published_repository("a" * 32)
@@ -88,7 +88,7 @@ def test_atomic_publication_fault_points_are_fail_closed(tmp_path: Path) -> None
 
 
 def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     staging = layout.staging_repository("c" * 32, "source")
     (staging / "payload").write_text("new", encoding="utf-8")
     target = layout.published_repository("c" * 32)
@@ -106,15 +106,15 @@ def test_atomic_publication_no_replace_preserves_existing_target(tmp_path: Path)
 
 @pytest.mark.integration
 def test_runner_validates_exact_dolt_version(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
-    runner = DoltRunner(RepositoryServiceSettings(), layout.root)
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
+    runner = DoltRunner.for_layout(RepositoryServiceSettings(), layout)
     assert runner.settings.dolt_version == "2.1.11"
 
 
 @pytest.mark.integration
 def test_runner_home_disables_dolt_version_check(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
-    runner = DoltRunner(RepositoryServiceSettings(), layout.root)
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
+    runner = DoltRunner.for_layout(RepositoryServiceSettings(), layout)
     config = json.loads(
         (runner.home / ".dolt" / "config_global.json").read_text(encoding="utf-8")
     )
@@ -124,11 +124,11 @@ def test_runner_home_disables_dolt_version_check(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_runner_preserves_existing_private_dolt_config(tmp_path: Path) -> None:
-    layout = DurableLayout.create(tmp_path / "root")
-    config_path = layout.root / "provider" / "runner-home" / ".dolt" / "config_global.json"
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
+    config_path = layout.metadata_root / "provider" / "runner-home" / ".dolt" / "config_global.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps({"user.name": "operator"}), encoding="utf-8")
-    DoltRunner(RepositoryServiceSettings(), layout.root)
+    DoltRunner.for_layout(RepositoryServiceSettings(), layout)
     config = json.loads(config_path.read_text(encoding="utf-8"))
     assert config["user.name"] == "operator"
     assert config["versioncheck.disabled"] == "true"

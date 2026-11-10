@@ -54,14 +54,14 @@ from support.lifecycle_harness import lifecycle_settings
 
 def test_invalid_operation_id_exit_2(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
-    result = run_admin_cli(settings.data_root, "inspect", "--operation-id", "not-a-uuid")
+    result = run_admin_cli(settings.storage_roots.metadata.parent, "inspect", "--operation-id", "not-a-uuid")
     assert result.returncode == 2
 
 
 def test_invalid_decision_exit_2(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     result = run_admin_cli(
-        settings.data_root,
+        settings.storage_roots.metadata.parent,
         "apply",
         "--operation-id",
         str(DEFAULT_OPERATION_ID),
@@ -361,7 +361,7 @@ def test_ambiguous_marker_exit_6(tmp_path: Path) -> None:
                 settings=env.settings,
             )
             repository = published_repository_path(env.layout, env.repository_id)
-            runner = DoltRunner(env.settings, env.layout.root)
+            runner = DoltRunner(env.settings, env.layout.metadata_root)
             timeout = env.settings.import_timeout_seconds
             env.provider.create_private_ref(private_ref, expected)
             env.provider.checkout_private_ref(private_ref)
@@ -584,7 +584,7 @@ def test_control_db_missing_operations_table_exit_4(tmp_path: Path) -> None:
 
 def test_control_db_missing_file_exit_4(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
-    result = run_admin_cli(settings.data_root, "inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
+    result = run_admin_cli(settings.storage_roots.metadata.parent, "inspect", "--operation-id", str(DEFAULT_OPERATION_ID))
     assert result.returncode == 4
     assert "Traceback" not in result.stderr
 

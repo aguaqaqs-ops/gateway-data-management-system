@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import cached_property
 from typing import Any, Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.storage_roots import RepositoryRoots
 
 
 class SettingsError(RuntimeError):
@@ -28,7 +33,8 @@ class RepositoryServiceSettings(BaseSettings):
     profile: Literal["production", "development", "test"] = "production"
     bearer_token_file: Path | None = None
     bearer_token: str | None = None
-    data_root: Path = Path("runtime-data/repository")
+    roots: RepositoryRoots | None = None
+    storage_layout_file: Path | None = Field(default=None, validation_alias="GATEWAY_STORAGE_LAYOUT_FILE")
     dolt_binary: Path = Path("/usr/local/bin/dolt")
     dolt_version: str = "2.1.11"
     author_name: str = "Gateway Repository Service"
@@ -173,7 +179,22 @@ class RepositoryServiceSettings(BaseSettings):
 
     @property
     def control_db_path(self) -> Path:
-        return self.data_root / "service-state" / "repository-service.sqlite3"
+        return self.storage_roots.metadata / "service-state" / "repository-service.sqlite3"
+
+    @cached_property
+    def storage_layout_config(self) -> StorageLayoutConfig | None:
+        if self.storage_layout_file is None:
+            return None
+        return StorageLayoutConfig.load(self.storage_layout_file)
+
+    @property
+    def storage_roots(self) -> RepositoryRoots:
+        if self.roots is not None:
+            return self.roots
+        config = self.storage_layout_config
+        if config is None:
+            raise SettingsError("GATEWAY_STORAGE_LAYOUT_FILE is required")
+        return RepositoryRoots.from_config(config)
 
     def resolve_bearer_token(self) -> str:
         if self.profile == "production":

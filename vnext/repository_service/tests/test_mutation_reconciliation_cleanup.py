@@ -31,7 +31,7 @@ def test_startup_fails_when_create_staging_cleanup_fails(tmp_path: Path) -> None
     idempotency_key = "cleanup-fail-create"
     crash_create_subprocess(settings, idempotency_key=idempotency_key, point="after_staging")
     repository_id = get_create_resource_id(settings, idempotency_key)
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     assert staging_dirs_for_key(layout, repository_id)
 
     with patch.object(shutil, "rmtree", side_effect=OSError("cleanup denied")):
@@ -68,7 +68,7 @@ def test_startup_fails_when_upload_staging_cleanup_fails(tmp_path: Path) -> None
         point="after_partial_body",
     )
     artifact_id = get_upload_resource_id(settings, repository_id, idempotency_key)
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     assert upload_staging_files(layout, repository_id, artifact_id)
 
     with patch.object(Path, "unlink", side_effect=OSError("cleanup denied")):
@@ -89,7 +89,7 @@ def test_startup_fails_when_pending_create_head_read_fails(tmp_path: Path) -> No
     idempotency_key = "pending-head-read-fail"
     crash_create_subprocess(settings, idempotency_key=idempotency_key, point="after_rename")
     repository_id = get_create_resource_id(settings, idempotency_key)
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     assert has_published_repository_tree(layout, repository_id)
 
     with patch(

@@ -45,6 +45,7 @@ from gateway_repository_contracts import (  # noqa: E402
     UnknownTypePolicy,
     VerificationPolicy,
 )
+from gateway_repository_service.storage_roots import RepositoryRoots  # noqa: E402
 from gateway_repository_service.arrow_mapping import (  # noqa: E402
     compile_table_plan,
     is_known_sql_type,
@@ -178,7 +179,7 @@ def _strip_sha_prefix(value: str) -> str:
 def _stage_g_settings(data_root: Path) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=data_root,
+        roots=RepositoryRoots.under(data_root),
         bearer_token="stage-g-validator",
         catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,
@@ -293,12 +294,12 @@ def validate_one(
     work.mkdir(parents=True)
     data_root = work / "data-root"
     settings = _stage_g_settings(data_root)
-    layout = DurableLayout.create_service(data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
-    home = data_root / "dolt-home"
-    tmpdir = data_root / "dolt-tmp"
-    runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+    home = layout.provider / "producer-home"
+    tmpdir = layout.provider_scratch / "producer-tmp"
+    runner = DoltRunner.for_layout(settings, layout, home=home, tmpdir=tmpdir)
     offline = OfflineCliProvider(settings, layout, repo_path, runner)
     provider = CandidateAImportProvider(settings, layout, repo_path, runner)
     operation_id = uuid4()
@@ -592,9 +593,9 @@ def run_executor_no_dolt_effect(
     layout = DurableLayout.create_for_probe(data_root)
     repo_path = layout.published_repository(_EXECUTOR_REPOSITORY_ID.hex)
     repo_path.mkdir(parents=True)
-    home = data_root / "dolt-home"
-    tmpdir = data_root / "dolt-tmp"
-    runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+    home = layout.provider / "producer-home"
+    tmpdir = layout.provider_scratch / "producer-tmp"
+    runner = DoltRunner.for_layout(settings, layout, home=home, tmpdir=tmpdir)
     offline = OfflineCliProvider(settings, layout, repo_path, runner)
     provider = CandidateAImportProvider(settings, layout, repo_path, runner)
     control_store: ControlStore | None = None

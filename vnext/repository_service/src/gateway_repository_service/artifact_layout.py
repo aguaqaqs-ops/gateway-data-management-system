@@ -8,6 +8,10 @@ import pwd
 import stat
 from pathlib import Path
 
+from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.storage_roots import RepositoryRoots
+
 from gateway_repository_service.artifact_root import (
     ArtifactRootError,
     assert_no_symlink_ancestors,
@@ -114,29 +118,18 @@ def _open_child_dir(parent_fd: int, name: str, *, label: str) -> int | None:
 
 def prepare_artifact_layout(
     *,
-    data_root: Path,
     artifacts: Path,
     gateway_uid: int,
     gateway_gid: int,
 ) -> None:
-    data_root = Path(data_root)
     artifacts = Path(artifacts)
-    assert_no_symlink_ancestors(data_root)
     assert_no_symlink_ancestors(artifacts)
-    data_fd = _ensure_real_dir(
-        data_root,
-        uid=gateway_uid,
-        gid=gateway_gid,
-        mode=0o750,
-        require_same_parent_mount=False,
-    )
-    os.close(data_fd)
     artifacts_fd = _ensure_real_dir(
         artifacts,
         uid=gateway_uid,
         gid=gateway_gid,
         mode=0o750,
-        require_same_parent_mount=True,
+        require_same_parent_mount=False,
     )
     try:
         for name in os.listdir(artifacts_fd):
@@ -169,19 +162,32 @@ def prepare_artifact_layout(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="artifact-layout")
-    parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--artifacts", type=Path, required=True)
+    parser.add_argument("--storage-layout-file", type=Path, required=True)
     parser.add_argument("--gateway-user", required=True)
     args = parser.parse_args(argv)
     try:
         gateway_pw = pwd.getpwnam(args.gateway_user)
+        roots = RepositoryRoots.from_config(StorageLayoutConfig.load(args.storage_layout_file))
+        # Deployment preflight owns mount/marker attestation. Never create a missing
+        # configured root here; only prepare this service's known children.
+        for root in roots.paths():
+            assert_no_symlink_ancestors(root)
+            if not root.is_dir():
+                raise ArtifactRootError("configured RS root is unavailable")
+            fd = _ensure_real_dir(root, uid=gateway_pw.pw_uid, gid=gateway_pw.pw_gid,
+                mode=0o750, require_same_parent_mount=False)
+            os.close(fd)
+        layout = DurableLayout(roots)
+        for path, root in layout.components():
+            fd = _ensure_real_dir(path, uid=gateway_pw.pw_uid, gid=gateway_pw.pw_gid,
+                mode=0o750, require_same_parent_mount=True)
+            os.close(fd)
         prepare_artifact_layout(
-            data_root=args.data_root,
-            artifacts=args.artifacts,
+            artifacts=roots.artifacts,
             gateway_uid=gateway_pw.pw_uid,
             gateway_gid=gateway_pw.pw_gid,
         )
-    except ArtifactRootError as exc:
+    except (ArtifactRootError, ValueError) as exc:
         print(str(exc), flush=True)
         return 1
     except OSError as exc:

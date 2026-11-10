@@ -58,7 +58,7 @@ def crash_import_subprocess(
     return subprocess.run(
         _worker_command(
             "--data-root",
-            str(settings.data_root),
+            str(settings.storage_roots.metadata.parent),
             "--dolt-binary",
             str(settings.dolt_binary),
             "--dolt-version",
@@ -112,7 +112,7 @@ def crash_recovery_reconcile_subprocess(
             sys.executable,
             str(_RECOVERY_WORKER),
             "--data-root",
-            str(settings.data_root),
+            str(settings.storage_roots.metadata.parent),
             "--dolt-binary",
             str(settings.dolt_binary),
             "--dolt-version",
@@ -146,10 +146,10 @@ def seed_queued_dolt_import(
     resolved_repository_id = repository_id or uuid4()
     resolved_artifact_id = artifact_id or uuid4()
     resolved_operation_id = operation_id or uuid4()
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = published_repository_path(layout, resolved_repository_id)
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     expected_commit = cli.head()

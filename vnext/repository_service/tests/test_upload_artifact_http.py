@@ -69,7 +69,7 @@ def _command_with_mocked_pending(
     headers: UploadRequestHeaders,
     chunks: list[bytes],
 ) -> None:
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     import sqlite3
 
     connection = sqlite3.connect(":memory:")

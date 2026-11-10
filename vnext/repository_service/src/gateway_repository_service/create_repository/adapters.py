@@ -19,7 +19,7 @@ class DoltCreateAdapter:
         self._layout = layout
 
     def initialize_and_head(self, staging: Path) -> str:
-        runner = DoltRunner(self._settings, self._layout.root)
+        runner = DoltRunner.for_layout(self._settings, self._layout)
         provider = OfflineCliProvider(self._settings, self._layout, staging, runner)
         provider.initialize_repository()
         return provider.head()

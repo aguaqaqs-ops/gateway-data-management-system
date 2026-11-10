@@ -1018,7 +1018,7 @@ def test_worker_rejects_when_import_disk_admission_fails(tmp_path: Path) -> None
         artifact_id = UUID("018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11")
         operation_id = env.enqueue(repository_id, artifact_id=artifact_id)
         with patch(
-            "gateway_repository_service.versioned_import.command.assert_import_disk_admission",
+            "gateway_repository_service.versioned_import.command.assert_import_layout_admission",
             side_effect=CapacityAdmissionError("disk admission denied"),
         ):
             env.pool.start()
@@ -1287,11 +1287,11 @@ def test_full_scan_timeout_cancels_and_reaps(
     from typing import BinaryIO
 
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = layout.staging_artifacts / "full-scan-deadline-repo"
     repository.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(DoltRunner, "_validate_version", lambda self: None)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     runner.run(
         "init",
         [

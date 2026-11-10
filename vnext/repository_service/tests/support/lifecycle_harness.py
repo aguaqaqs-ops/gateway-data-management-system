@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
@@ -28,7 +29,7 @@ def lifecycle_settings(
     data_root = tmp_path / "data-root"
     kwargs: dict[str, object] = {
         "profile": profile,
-        "data_root": data_root,
+        "roots": RepositoryRoots.under(data_root),
         "bearer_token": bearer_token,
         "bearer_token_file": bearer_token_file,
         "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),

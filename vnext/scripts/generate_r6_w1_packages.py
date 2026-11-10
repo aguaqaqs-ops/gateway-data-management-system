@@ -46,6 +46,7 @@ from gateway_backend.repository_import_artifact import (  # noqa: E402
     write_repository_import_package,
 )
 from gateway_repository_contracts import UnknownTypePolicy  # noqa: E402
+from gateway_repository_service.storage_roots import RepositoryRoots  # noqa: E402
 from gateway_repository_service.arrow_mapping import (  # noqa: E402
     TableCatalog,
     compile_table_plan,
@@ -243,18 +244,18 @@ def generate_one(
     data_root = work / "data-root"
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=data_root,
+        roots=RepositoryRoots.under(data_root),
         bearer_token="stage-f-producer",
         catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
     )
-    layout = DurableLayout.create_service(data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
-    home = data_root / "dolt-home"
-    tmpdir = data_root / "dolt-tmp"
-    runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+    home = layout.provider / "producer-home"
+    tmpdir = layout.provider_scratch / "producer-tmp"
+    runner = DoltRunner.for_layout(settings, layout, home=home, tmpdir=tmpdir)
     provider = OfflineCliProvider(settings, layout, repo_path, runner)
     cli = provider._candidate_cli
     try:

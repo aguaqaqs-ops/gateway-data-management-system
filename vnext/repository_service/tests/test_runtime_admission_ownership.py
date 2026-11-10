@@ -14,6 +14,7 @@ from uuid import uuid4
 import pytest
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadRequestHeaders
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.admission import InflightKeyGate, PermitPool, UploadCancelRegistry
 from gateway_repository_service.artifact_cleaner import NoOpArtifactCleaner
 from gateway_repository_service.http.errors import ServiceError
@@ -43,7 +44,7 @@ def _fake_runtime(
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="token",
-        data_root=Path("/tmp/unused-runtime-root"),
+        roots=RepositoryRoots.under(Path("/tmp/unused-runtime-root")),
         max_concurrent_uploads=3,
         max_concurrent_row_streams=2,
         import_shutdown_grace_seconds=grace,
@@ -171,12 +172,12 @@ def test_shutdown_cancels_active_upload_and_drains_permit_before_db(
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="token",
-        data_root=tmp_path / "data-root",
+        roots=RepositoryRoots.under(tmp_path / "data-root"),
         max_concurrent_uploads=1,
         min_free_disk_bytes=1,
         min_free_disk_fraction=0.01,
     )
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     store = MagicMock(spec=MutationStore)
     store.hash_idempotency_key = MutationStore.hash_idempotency_key
     store.claim_or_lookup.return_value = ClaimResult(
@@ -394,12 +395,12 @@ def test_shutdown_noncooperative_upload_retains_durable_ownership(
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="token",
-        data_root=tmp_path / "data-root",
+        roots=RepositoryRoots.under(tmp_path / "data-root"),
         max_concurrent_uploads=1,
         min_free_disk_bytes=1,
         min_free_disk_fraction=0.01,
     )
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     store = MagicMock(spec=MutationStore)
     store.hash_idempotency_key = MutationStore.hash_idempotency_key
     store.claim_or_lookup.return_value = ClaimResult(

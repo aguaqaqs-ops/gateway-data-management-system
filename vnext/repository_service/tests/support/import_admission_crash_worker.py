@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.app import create_app
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
@@ -36,7 +37,7 @@ class _CrashAdmissionFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=Path(args.data_root),
+        roots=RepositoryRoots.under(Path(args.data_root)),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,

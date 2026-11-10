@@ -19,6 +19,7 @@ from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, Contr
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.settings import RepositoryServiceSettings
+from support.storage_layout import local_storage_layout
 from support.lifecycle_harness import lifecycle_settings
 
 HOLD_BUSY_TIMEOUT_MS = 200
@@ -40,7 +41,8 @@ REQUIRED_LAYOUT_COMPONENTS = frozenset(
     {
         "control",
         "versioned",
-        "staging",
+        "staging_versioned",
+        "staging_artifacts",
         "artifacts",
         "service-state",
         "provider",
@@ -54,6 +56,11 @@ class RestoreProcedureError(RuntimeError):
 
 
 def snapshot_admin_command(*args: str) -> list[str]:
+    if "--data-root" in args:
+        values = list(args)
+        index = values.index("--data-root")
+        values[index:index + 2] = ["--storage-layout-file", str(local_storage_layout(Path(values[index + 1])))]
+        args = tuple(values)
     return [sys.executable, "-m", "gateway_repository_service.snapshot_admin", *args]
 
 
@@ -223,14 +230,14 @@ def snapshot_check_temp_homes() -> list[Path]:
 
 
 def snapshot_query_temps(data_root: Path) -> list[Path]:
-    staging_artifacts = data_root / "staging" / "artifacts"
+    staging_artifacts = data_root / "scratch" / "query"
     if not staging_artifacts.is_dir():
         return []
     return sorted(staging_artifacts.glob("query-*.sql"))
 
 
 def _service_lock_path(data_root: Path) -> Path:
-    return data_root / "control" / "service.lock"
+    return data_root / "metadata" / "control" / "service.lock"
 
 
 def assert_restore_target_not_live(path: Path) -> None:
@@ -282,7 +289,7 @@ class SnapshotHoldEnvironment:
         settings = lifecycle_settings(tmp_path).model_copy(
             update={"sqlite_busy_timeout_ms": sqlite_busy_timeout_ms}
         )
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         layout.service_lock.touch(mode=0o600, exist_ok=False)
         control_store = ControlStore.open(
             settings.control_db_path,
@@ -293,7 +300,7 @@ class SnapshotHoldEnvironment:
 
     @property
     def data_root(self) -> Path:
-        return self.settings.data_root
+        return self.settings.storage_roots.metadata.parent
 
     @property
     def wal_path(self) -> Path:

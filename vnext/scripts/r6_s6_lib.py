@@ -26,6 +26,7 @@ from gateway_repository_contracts import (
     UnknownTypePolicy,
     VerificationPolicy,
 )
+from gateway_repository_service.storage_roots import RepositoryRoots  # noqa: E402
 from gateway_repository_service.app import create_app
 from gateway_repository_service.capacity import measure_import_disk_admission
 from gateway_repository_service.http.readiness import LifecycleReadiness
@@ -139,7 +140,7 @@ def start_service(work: Path) -> RunningService:
     data_root = work / "data-root"
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=data_root,
+        roots=RepositoryRoots.under(data_root),
         bearer_token=BEARER_TOKEN,
         catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,

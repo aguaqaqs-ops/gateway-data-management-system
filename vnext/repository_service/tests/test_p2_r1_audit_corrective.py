@@ -25,6 +25,7 @@ import gateway_repository_service.process as process_module
 import gateway_repository_service.providers as providers_module
 import gateway_repository_service.target_gate as target_gate_module
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.arrow_mapping import (
     ColumnCatalog,
     NormalizedRow,
@@ -502,7 +503,7 @@ def test_restart_diagnostic_closes_old_opens_new_then_streams(
         return replacement
 
     monkeypatch.setattr(workflow_module, "_make_provider", fake_factory)
-    layout = DurableLayout.create(tmp_path / "layout")
+    layout = DurableLayout.create_for_probe(tmp_path / "layout")
     old: Any = FakeProvider("old")
     current = _restart_provider_for_stream(
         RepositoryServiceSettings(),
@@ -632,7 +633,7 @@ def test_restart_replacement_closes_on_validation_failure(
         "_make_provider",
         lambda *_args, **_kwargs: replacement,
     )
-    layout = DurableLayout.create(tmp_path / "layout")
+    layout = DurableLayout.create_for_probe(tmp_path / "layout")
 
     with pytest.raises(RuntimeError):
         _restart_provider_for_stream(
@@ -780,7 +781,7 @@ def test_target_probe_root_uses_settings_data_root(monkeypatch: pytest.MonkeyPat
     )
     monkeypatch.setattr(matrix_module, "_load_storage_layout", lambda: manifest)
     monkeypatch.setenv("GATEWAY_P2R1_PROJECT_NAME", "project")
-    settings = RepositoryServiceSettings(data_root=root)
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(root))
     assert _resolve_probe_data_root(settings, None, True) == root
     assert _resolve_probe_data_root(settings, None, False) is None
     with pytest.raises(RuntimeError, match="data root"):
@@ -898,9 +899,9 @@ def test_pinned_create_parser_preserves_schema_mutation_shape() -> None:
 @pytest.mark.integration
 def test_provider_pinned_catalog_does_not_return_new_column_for_old_commit(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings()
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     repository = layout.staging_repository("d" * 32, "schema")
-    provider = OfflineCliProvider(settings, layout, repository, DoltRunner(settings, layout.root))
+    provider = OfflineCliProvider(settings, layout, repository, DoltRunner.for_layout(settings, layout))
     provider.initialize_repository()
     initial = provider.head()
     old_sql = tmp_path / "old.sql"
@@ -1541,7 +1542,7 @@ def test_provider_tracker_uses_sample_cgroup_root(tmp_path: Path) -> None:
     (scope.path / "cgroup.procs").write_text("")
     try:
         settings = RepositoryServiceSettings(cgroup_root=scope.path)
-        layout = DurableLayout.create(tmp_path / "layout")
+        layout = DurableLayout.create_for_probe(tmp_path / "layout")
         runner = DoltRunner.__new__(DoltRunner)
         provider = OfflineCliProvider(settings, layout, tmp_path / "repo", runner)
         assert provider.cgroup is not None

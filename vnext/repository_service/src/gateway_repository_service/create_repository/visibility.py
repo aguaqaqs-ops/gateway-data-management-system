@@ -27,7 +27,7 @@ def _published_cli_provider(
     repository_id: UUID,
 ) -> OfflineCliProvider:
     published = layout.published_repository(repository_key(repository_id))
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     return OfflineCliProvider(settings, layout, published, runner)
 
 

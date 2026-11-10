@@ -12,6 +12,7 @@ from typing import cast
 from uuid import UUID
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadRequestHeaders
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.create_repository.adapters import FilesystemPublicationAdapter
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.create_repository.ports import NoOpCreateRepositoryFaultInjector
@@ -151,7 +152,7 @@ class _UploadBody:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=Path(args.data_root),
+        roots=RepositoryRoots.under(Path(args.data_root)),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,

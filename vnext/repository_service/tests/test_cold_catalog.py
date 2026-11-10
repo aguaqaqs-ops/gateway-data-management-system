@@ -24,7 +24,7 @@ from gateway_repository_service.versioned_read import application
 
 @pytest.fixture
 def cli(tmp_path: Path) -> CandidateADoltCli:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     repository = layout.staging_artifacts / "repo"
     repository.mkdir()
     return CandidateADoltCli(RepositoryServiceSettings(), layout, repository, MagicMock(spec=DoltRunner))

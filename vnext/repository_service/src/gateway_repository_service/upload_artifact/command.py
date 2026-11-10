@@ -343,7 +343,7 @@ class UploadArtifactCommand:
             raise _payload_too_large() from exc
         try:
             assert_upload_disk_admission(
-                self._layout.root,
+                self._layout.artifacts,
                 self._settings,
                 declared_size=headers.content_length,
             )

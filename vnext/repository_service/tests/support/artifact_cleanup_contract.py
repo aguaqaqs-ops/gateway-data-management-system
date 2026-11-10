@@ -489,8 +489,8 @@ def settings(
 ) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
+        roots=layout.roots,
         bearer_token="token",
-        data_root=layout.root,
         artifact_ttl_seconds=ttl,
         artifact_cleanup_interval_seconds=interval,
         max_import_workers=1,

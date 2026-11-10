@@ -36,6 +36,7 @@ from gateway_backend.synthetic_w2 import (  # noqa: E402
     build_scaled_replay_sql,
     validate_s6_result_record,
 )
+from gateway_repository_service.storage_roots import RepositoryRoots  # noqa: E402
 from gateway_repository_service.arrow_mapping import TableCatalog  # noqa: E402
 from gateway_repository_service.enum_set_sql import (  # noqa: E402
     EnumSetSqlTypeKind,
@@ -179,20 +180,20 @@ def produce_package(
     data_root = work / "data-root"
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=data_root,
+        roots=RepositoryRoots.under(data_root),
         bearer_token="stage-i-w2-producer",
         catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
     )
-    layout = DurableLayout.create_service(data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
-    runner = DoltRunner(
+    runner = DoltRunner.for_layout(
         settings,
-        layout.root,
-        home=data_root / "dolt-home",
-        tmpdir=data_root / "dolt-tmp",
+        layout,
+        home=layout.provider / "producer-home",
+        tmpdir=layout.provider_scratch / "producer-tmp",
     )
     provider = OfflineCliProvider(settings, layout, repo_path, runner)
     sql_path = work / "replay.sql"

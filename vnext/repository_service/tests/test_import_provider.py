@@ -226,15 +226,15 @@ def test_fake_provider_zero_marker_and_private_cleanup() -> None:
 @pytest.fixture
 def import_layout(tmp_path: Path) -> DurableLayout:
     settings = lifecycle_settings(tmp_path)
-    return DurableLayout.create_for_probe(settings.data_root)
+    return DurableLayout.create_for_probe(settings.storage_roots)
 
 
 @pytest.fixture
 def import_provider(import_layout: DurableLayout) -> CandidateAImportProvider:
-    settings = lifecycle_settings(import_layout.root.parent)
+    settings = lifecycle_settings(import_layout.metadata_root.parent)
     repository = import_layout.staging_artifacts / "import-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, import_layout.root)
+    runner = DoltRunner(settings, import_layout.metadata_root)
     cli = OfflineCliProvider(settings, import_layout, repository, runner)
     cli.initialize_repository()
     return CandidateAImportProvider(settings, import_layout, repository, runner)
@@ -2328,7 +2328,7 @@ def test_read_catalog_and_type_catalog_share_strict_parent_helper(
 
 
 def _unit_import_provider(tmp_path: Path) -> CandidateAImportProvider:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "import-repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -4318,7 +4318,7 @@ def _memo_commit_id(index: int) -> str:
 
 @pytest.fixture
 def catalog_cli(tmp_path: Path) -> CandidateADoltCli:
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "memo-repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -4388,7 +4388,7 @@ def test_stream_start_failure_does_not_block_later_commands(
             runner.stream(
                 "boundary_probe",
                 ["log", "--oneline"],
-                cwd=import_layout.root.parent,
+                cwd=import_layout.metadata_root.parent,
                 timeout=timeout,
             )
 

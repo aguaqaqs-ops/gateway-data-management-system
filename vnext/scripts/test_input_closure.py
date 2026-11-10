@@ -742,7 +742,12 @@ def _docker_build_inputs(
         name
         for name in environment
         if name.startswith(("COMPOSE_", "DOCKER_", "GATEWAY_", "UV_"))
-        and name not in {"GATEWAY_TEST_PACKAGES", "GATEWAY_TEST_WORKERS"}
+        # Host-side evidence destination only: the harness writes provenance
+        # here after building/running; it is never sent to a product build.
+        and name not in {
+            "GATEWAY_TEST_PACKAGES", "GATEWAY_TEST_WORKERS",
+            "GATEWAY_COMPOSE_GATE_PROVENANCE_PATH",
+        }
         and not name.startswith("GATEWAY_AUDIT_")
     )
     setting_fingerprints = {

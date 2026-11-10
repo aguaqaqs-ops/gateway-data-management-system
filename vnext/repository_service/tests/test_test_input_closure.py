@@ -360,6 +360,27 @@ def test_unmodeled_dockerignore_syntax_fails_closed(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("package", ["backend", "repository_service"])
+def test_compose_provenance_destination_is_output_only_but_build_settings_remain_inputs(
+    package: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_id", lambda _root, tag: f"sha256:{tag}")
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_inventory", lambda _root: [])
+    capture = CLOSURE["_docker_build_inputs"]
+    baseline = capture(repo_root, package, environ={})
+    for destination in ("/evidence/run-a/compose.json", "/evidence/run-b/compose.json"):
+        settings = {"GATEWAY_COMPOSE_GATE_PROVENANCE_PATH": destination}
+        assert capture(repo_root, package, environ=settings) == baseline
+        for key in ("GATEWAY_DOCKER_BUILD_NETWORK", "GATEWAY_UNKNOWN_BUILD_SETTING"):
+            changed = capture(repo_root, package, environ={**settings, key: "changed"})
+            assert changed != baseline
+            assert changed["setting_fingerprints"][key]["set"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("package", ["backend", "repository_service"])
 def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_fingerprints(
     package: str,
     monkeypatch: pytest.MonkeyPatch,

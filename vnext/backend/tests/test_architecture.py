@@ -623,6 +623,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.operations",
                         "gateway_backend.settings",
                         "gateway_backend.deployment_config",
+                        "gateway_backend.runtime_preflight",
                     )
                 ), f"{edge.path} imports disallowed module {imported}"
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import json
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -35,9 +36,8 @@ from gateway_backend.application.job_definitions import build_job_worker_composi
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.artifacts.computation_cache import ComputationCachePort
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
-from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.application.history.compare import build_history_compare_job_payload
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationRecord,
@@ -64,7 +64,6 @@ from tests.support.repository_ref_materialization import (
     make_catalog,
 )
 from tests.support.canonical_metadata import MetadataControlDbUnitOfWork, metadata_for_catalog, CatalogCommitCanonicalMetadataPort
-from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.workspace_fixtures import make_identity
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
@@ -262,9 +261,8 @@ def build_history_compare_harness(
 ) -> HistoryCompareJobHarness:
     resolved_db_path = db_path or (tmp_path / "history-compare-control.sqlite3")
     if db_path is None:
-        bootstrap_control_database(
-            make_operation_worker_settings(resolved_db_path.parent, control_db_path=resolved_db_path)
-        )
+        resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
+        initialize_control_db(resolved_db_path)
         seed_provisioned_mapping_with_head(resolved_db_path, baseline_head=BASELINE_HEAD)
     for index, (node_id, commit_id) in enumerate(node_specs):
         if node_id == BASELINE_HEAD.business_baseline_node_id:

@@ -1,4 +1,7 @@
-"""Linux deployment preflight; no mount creation, fallback, or cgroup mutation."""
+"""Deployment composition adapter for bounded mount/cgroup/capacity observations.
+
+This process-boundary owner never creates mounts, falls back, or mutates cgroups.
+"""
 from __future__ import annotations
 
 import json

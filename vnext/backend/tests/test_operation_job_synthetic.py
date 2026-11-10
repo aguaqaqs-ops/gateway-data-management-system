@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.control_db.database import initialize_control_db
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import dataclasses
@@ -53,8 +55,6 @@ from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.state import WritePrecondition
 from gateway_backend.operations.worker import ClaimedExecutor, ExecutionControl, ExecutorAcknowledgment
-from tests.support.runtime_settings import make_operation_worker_settings
-from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from tests.support.artifact_staging import open_local_store, reopen_local_store, staging_root
 
 pytestmark = pytest.mark.unit
@@ -142,7 +142,7 @@ def _claimed_pure_compute_session(
     lease_token: str = "lease-pure-1",
     seed: str = SEED_ALPHA,
 ) -> tuple[LeaseSession, ExecutionControl, ControlDbUnitOfWork]:
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document(operation_id, seed=seed))
     step = step_record_from_document(_step_document(operation.operation_id, step_id))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -218,7 +218,7 @@ def _claimed_pure_compute_session_with_binding(
     lease_token: str = "lease-pure-parity",
     seed: str = SEED_ALPHA,
 ) -> tuple[LeaseSession, ExecutionControl, ControlDbUnitOfWork]:
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     document = dict(_operation_document(operation_id, seed=seed))
     if binding == "ref":
         payload_ref = _pure_compute_payload_ref(artifact_store, seed=seed)
@@ -265,7 +265,7 @@ def _claimed_stub_session_with_binding(
     request_body: str = REQUEST_BODY_ALPHA,
     stub_outcome: str = StubOutcome.CONFIRMED.value,
 ) -> tuple[LeaseSession, ExecutionControl, ControlDbUnitOfWork]:
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     document = dict(
         _stub_operation_document(
             operation_id,
@@ -554,7 +554,7 @@ def _claimed_stub_session(
     request_body: str = REQUEST_BODY_ALPHA,
     stub_outcome: str = StubOutcome.CONFIRMED.value,
 ) -> tuple[LeaseSession, ExecutionControl, ControlDbUnitOfWork]:
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     operation = operation_record_from_document(
         _stub_operation_document(
             operation_id,

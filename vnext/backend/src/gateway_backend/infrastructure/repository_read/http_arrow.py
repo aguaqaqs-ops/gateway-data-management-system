@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from gateway_backend.artifacts.scratch import current_scratch
+from gateway_backend.artifacts.scratch import current_scratch, ScratchProducerLimitExceeded
 from gateway_backend.infrastructure.artifact_store.scratch import ScratchFile
 from pathlib import Path
 from typing import cast
@@ -485,6 +485,9 @@ async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None 
                 context.checkpoint()
         handle.flush()
         return _ArrowSpool(str(cast(ScratchFile, source)._path), resources)
+    except ScratchProducerLimitExceeded as exc:
+        resources.close()
+        raise MemoryError("repository Arrow spool exceeds input byte limit") from exc
     except BaseException:
         resources.close()
         raise

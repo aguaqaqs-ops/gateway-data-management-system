@@ -72,8 +72,11 @@ def test_stream_failure_never_publishes_ref_or_partial_payload(tmp_path: Path) -
     def broken() -> Iterator[bytes]:
         yield b'con'
         raise OSError(errno.ENOSPC, 'isolated writer failure')
-    with pytest.raises(ManifestVerificationError):
+    from gateway_backend.artifacts.store import StorageCapacityUnavailable
+    with pytest.raises(StorageCapacityUnavailable) as failure:
         store.put_chunks(broken(), ref)
+    assert isinstance(failure.value.__cause__, OSError)
+    assert failure.value.__cause__.errno == errno.ENOSPC
     with pytest.raises(ManifestVerificationError):
         store.get_ref(ref.artifact_id)
     assert not list((store.layout.durable / '.staging').iterdir())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from tests.support.native_projection import project_canonical_fixture
 
 from collections.abc import Callable
@@ -37,7 +38,6 @@ from gateway_backend.application.preview_jobs import (
 )
 from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
-from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.domain.workspace.models import (
     InputCompleteness,
     SourceArtifactBinding,
@@ -46,7 +46,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceState,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationRecord,
@@ -70,7 +70,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionStatus,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
-from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
@@ -330,8 +329,9 @@ def build_preview_harness(
     include_identity_table: bool = False,
     identity_project_id: str = "project-a",
 ) -> PreviewJobHarness:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db_path = tmp_path / "preview-control.sqlite3"
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     artifact_store = InMemoryArtifactStore()
     identity_sql = (
         "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"

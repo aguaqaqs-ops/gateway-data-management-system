@@ -13,6 +13,10 @@ class ScratchLimitExceeded(MemoryError):
     """The execution's aggregate temporary disk budget was exhausted."""
 
 
+class ScratchProducerLimitExceeded(ScratchLimitExceeded):
+    """One temporary file exceeded its producer's narrower byte limit."""
+
+
 class ScratchSessionPort(Protocol):
     @property
     def owner(self) -> str: ...

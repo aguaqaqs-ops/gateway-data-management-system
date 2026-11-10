@@ -1604,7 +1604,7 @@ def test_production_modules_only_import_declared_dependencies() -> None:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     production_import_roots.add(alias.name.split(".", maxsplit=1)[0])
-            elif isinstance(node, ast.ImportFrom) and node.module:
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 production_import_roots.add(node.module.split(".", maxsplit=1)[0])
 
     third_party_import_roots = {

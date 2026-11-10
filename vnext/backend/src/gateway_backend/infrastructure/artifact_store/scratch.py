@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Lock
 from typing import BinaryIO, cast
 
-from gateway_backend.artifacts.scratch import ScratchLimitExceeded, ScratchSessionPort
+from gateway_backend.artifacts.scratch import ScratchLimitExceeded, ScratchProducerLimitExceeded, ScratchSessionPort
 from gateway_backend.artifacts.store import ArtifactFileSourcePort
 from gateway_backend.infrastructure.artifact_store.layout import directory_identity
 
@@ -47,7 +47,7 @@ class _BudgetedFile(io.BufferedRandom):
 
     def _grow(self, extent: int) -> None:
         if extent > self._limit:
-            raise ScratchLimitExceeded('temporary file exceeds producer byte limit')
+            raise ScratchProducerLimitExceeded('temporary file exceeds producer byte limit')
         increase = max(0, extent - self._extent)
         self._session.reserve(increase)
         self._extent += increase

@@ -971,8 +971,8 @@ from gateway_backend.capabilities.table_access import (
 )
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+from gateway_backend.artifacts.scratch import scratch_scope
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -984,10 +984,11 @@ from gateway_backend.infrastructure.repository_read import (
 def checkpoint_readers():
     initialize_compute_kernel(1)
     context = KernelExecutionContext(OperationMemoryBudget(24 * 1024**3), NeverCancel(), 1)
-    with kernel_execution_scope(context, new_operation=True):
-        settings = BackendSettings()
-        config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-        store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+    settings = BackendSettings()
+    config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    with kernel_execution_scope(context, new_operation=True), scratch_space_from_config(config).session(
+            owner="operation:history-binding-observer") as scratch, scratch_scope(scratch):
+        store = local_store_from_config(config)
         manifest_reader = ArtifactBackedCanonicalizationManifestReader(artifact_store=store, artifact_refs=store)
         def uow_factory():
             return ControlDbUnitOfWork(Path('/var/lib/gateway/be-metadata/control.sqlite3'),

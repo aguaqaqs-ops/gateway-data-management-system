@@ -25,11 +25,23 @@ from gateway_repository_service.locking import DurableRootLock
 from gateway_repository_service.process import DoltRunner, process_tree_pids
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate, ProviderUnavailableError
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
-from gateway_repository_service.settings import SettingsError
+from gateway_repository_service.settings import SettingsError, RepositoryServiceSettings
 from support.http_harness import create_test_client, create_test_http_app
 
 
 from support.lifecycle_harness import lifecycle_settings as _lifecycle_settings
+
+
+def _production_auth_settings(tmp_path: Path) -> RepositoryServiceSettings:
+    from support.storage_layout import write_storage_layout
+    roots = prepare_test_roots(RepositoryRoots.under(tmp_path / "production-roots"))
+    storage = write_storage_layout(roots)
+    resources = tmp_path / "production-resources.json"
+    document = json.loads((Path(__file__).parents[2] / "fixtures/runtime-config/v1/resource-profile.json").read_bytes())
+    document.update(environment_id="test", group_id="test")
+    resources.write_text(json.dumps(document))
+    return RepositoryServiceSettings(profile="production", bearer_token="env-only",
+        storage_layout_file=storage, resource_profile_file=resources)
 
 
 @pytest.mark.integration
@@ -61,15 +73,20 @@ class TestLifecycleIntegration:
 
 class TestStartupFailure:
     def test_missing_production_token_aborts_runtime_start(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path, profile="production", bearer_token="env-only")
-        with pytest.raises(ServiceStartupError, match="production bearer token file is required"):
-            ServiceRuntime.start(settings)
+        settings = _production_auth_settings(tmp_path)
+        with patch("gateway_repository_service.runtime.RuntimePreflight") as guard:
+            with pytest.raises(ServiceStartupError, match="production bearer token file is required"):
+                ServiceRuntime.start(settings)
+        guard.assert_called_once_with(settings.deployment_config, "repository_service", startup_capacity=False)
+        assert not settings.control_db_path.exists()
 
     def test_missing_production_token_aborts_lifespan(self, tmp_path: Path) -> None:
-        settings = _lifecycle_settings(tmp_path, profile="production", bearer_token="env-only")
-        with pytest.raises(ServiceStartupError):
-            with TestClient(create_app(settings)):
-                pass
+        settings = _production_auth_settings(tmp_path)
+        with patch("gateway_repository_service.runtime.RuntimePreflight"):
+            with pytest.raises(ServiceStartupError, match="production bearer token file is required"):
+                with TestClient(create_app(settings)):
+                    pass
+        assert not settings.control_db_path.exists()
 
     def test_lock_contention_aborts_startup(self, tmp_path: Path) -> None:
         settings = _lifecycle_settings(tmp_path)

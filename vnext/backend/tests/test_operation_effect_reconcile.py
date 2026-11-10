@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.control_db.database import initialize_control_db
+
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -43,7 +45,6 @@ from tests.support.synthetic_jobs import (
     external_effect_stub_job_key,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
-from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -56,7 +57,6 @@ from gateway_backend.operations import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
-from tests.support.runtime_settings import make_operation_worker_settings
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 IDEMPOTENCY_KEY_ALPHA = "idem-alpha"
@@ -134,7 +134,7 @@ def _bootstrap_stub_claimed(
     lease_token: str = "lease-reconcile-1",
     stub_outcome: str = StubOutcome.ACCEPTED.value,
 ) -> tuple[LeaseSession, ExecutionControl]:
-    bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
+    initialize_control_db(db_path)
     operation = operation_record_from_document(
         _stub_operation_document(operation_id, stub_outcome=stub_outcome)
     )

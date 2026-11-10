@@ -14,7 +14,7 @@ from contextlib import closing
 from dataclasses import dataclass, replace
 from time import perf_counter
 from contextlib import ExitStack
-from gateway_backend.artifacts.scratch import current_scratch
+from gateway_backend.artifacts.scratch import current_scratch, ScratchProducerLimitExceeded
 from typing import Protocol, cast
 
 import pyarrow as pa
@@ -728,6 +728,8 @@ def _write_arrow_parquet(
             raise RecordsPublicationError("records artifact spool read failed")
         control.checkpoint()
         return raw
+    except ScratchProducerLimitExceeded as exc:
+        raise RecordsPublicationError("records artifact or spool budget exceeded") from exc
     except (InterruptedError, TimeoutError, MemoryError):
         raise
     except (pa.ArrowException, OSError, ValueError) as exc:

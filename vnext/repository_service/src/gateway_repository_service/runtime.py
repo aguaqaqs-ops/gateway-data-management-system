@@ -195,6 +195,7 @@ class ServiceRuntime:
                     layout=layout,
                     import_store=import_store,
                     mutation_store=mutation_store,
+                    before_sweep=(lambda: guard.check(capacity=False)) if guard is not None else None,
                 )
             if isinstance(cleaner, ArtifactCleaner):
                 cleaner.reclaim_until_disk_admission(
@@ -210,6 +211,7 @@ class ServiceRuntime:
                 provider_factory=provider_factory,
                 locks=import_locks,
                 shutdown_event=stopping,
+                before_claim=guard.check if guard is not None else None,
             )
             stack.callback(
                 lambda: import_worker_pool.stop(timeout=settings.import_shutdown_grace_seconds)

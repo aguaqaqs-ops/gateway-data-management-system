@@ -258,7 +258,9 @@ class ArtifactCleaner:
         import_store: ImportOperationStore,
         mutation_store: MutationStore | None = None,
         clock: Callable[[], datetime] | None = None,
+        before_sweep: Callable[[], None] | None = None,
     ) -> None:
+        self._before_sweep = before_sweep
         self._settings = settings
         self._layout = layout
         self._import_store = import_store
@@ -390,6 +392,8 @@ class ArtifactCleaner:
             self._close_recover_scans()
 
     def _sweep(self, *, housekeeping: bool = True) -> int:
+        if self._before_sweep is not None:
+            self._before_sweep()
         with self._condition:
             restart = self._restart_cursor
             self._restart_cursor = False

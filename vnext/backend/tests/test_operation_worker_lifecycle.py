@@ -77,7 +77,7 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     assert settings.claim_limit == 1
     assert "secret" not in repr(settings)
 
-    with pytest.raises(ValidationError, match="absolute"):
+    with pytest.raises(ValueError, match="absolute"):
         make_operation_worker_settings(tmp_path, control_db_path=Path("relative/control.sqlite3"))
     with pytest.raises(ValidationError, match="fixed"):
         make_operation_worker_settings(tmp_path, heartbeat_interval_seconds=5.0)
@@ -280,3 +280,18 @@ def test_runtime_timeout_is_worker_fatal_without_worker_exit() -> None:
     assert any(event.code is WorkerEventCode.DRAIN_TIMED_OUT for event in events)
     assert all(event.code is not WorkerEventCode.WORKER_EXITED for event in events)
     assert threads.threads[0].joined
+
+
+def test_runtime_root_identity_loss_blocks_claim_before_opening_database(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(tmp_path)
+    operation_worker_bootstrap.bootstrap_control_database(settings)
+    runtime = operation_worker_bootstrap.build_worker_runtime(settings)
+    assert runtime._startup.startup() is StartupDisposition.READY
+    metadata = settings.control_db_path.parent
+    previous = metadata.with_name(metadata.name + "-retained")
+    metadata.rename(previous)
+    metadata.mkdir()
+    (metadata / ".gateway-storage.json").write_bytes((previous / ".gateway-storage.json").read_bytes())
+    with pytest.raises(ValueError, match="identity changed"):
+        runtime._startup.claim_one()
+    assert not settings.control_db_path.exists()

@@ -65,7 +65,8 @@ def create_app(
             try:
                 guard.check()
             except (OSError, ValueError):
-                return JSONResponse({"status": "not_ready"}, status_code=503)
+                from gateway_backend.http.errors import error_response
+                return error_response(code="SERVICE_NOT_READY", message="deployment storage unavailable", status_code=503)
         return await call_next(request)
 
     app.state.ready = False

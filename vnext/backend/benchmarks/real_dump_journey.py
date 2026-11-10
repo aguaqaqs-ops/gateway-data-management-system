@@ -1419,25 +1419,18 @@ def _s3_ready_resource_snapshot(env: Mapping[str, str]) -> dict[str, Any]:
                 events[key] = int(value)
             if not {"oom", "oom_kill", "oom_group_kill"} <= events.keys():
                 raise ValueError("service memory.events lacks OOM counters")
-            resource_env = (
-                {
-                    key: value
-                    for entry in container["Config"]["Env"]
-                    for key, _, value in (entry.partition("="),)
-                    if key in {
-                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS",
-                        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES",
-                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES",
-                        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES",
-                    }
-                }
-                if service == "worker" else {}
-            )
+            resource_profile: dict[str, Any] = {}
+            if service == "worker":
+                observation = run_compose(dict(env), "exec", "-T", "worker", "python", "-c",
+                    "import json,os; from pathlib import Path; print(json.dumps(json.loads(Path(os.environ['GATEWAY_RESOURCE_PROFILE_FILE']).read_bytes())['worker']))")
+                if observation.returncode:
+                    raise ValueError("worker canonical resource profile unavailable")
+                resource_profile = json.loads(observation.stdout)
             services[service] = {
                 "container_id": ids[0], "restart_count": restart_count,
                 "memory_max": memory_max, "memory_events": events,
                 "host_config_memory_bytes": container["HostConfig"]["Memory"],
-                "resource_env": resource_env,
+                "resource_profile": resource_profile,
             }
         except (IndexError, KeyError, TypeError, ValueError, OSError) as exc:
             raise JourneyFailure("S3 resource guard could not validate a service cgroup") from exc
@@ -1448,21 +1441,17 @@ def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
     snapshot = _s3_ready_resource_snapshot(env)
     services = cast(dict[str, dict[str, Any]], snapshot["services"])
     worker = services["worker"]
-    expected_env = {
-        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
-        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(
-            _S3_LARGE_OPERATION_BUDGET_BYTES
-        ),
-        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(
-            _S3_LARGE_WORKER_ENVELOPE_BYTES
-        ),
-        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+    expected_profile = {
+        "kernel_threads": 1,
+        "kernel_memory_bytes": _S3_LARGE_OPERATION_BUDGET_BYTES,
+        "memory_envelope_bytes": _S3_LARGE_WORKER_ENVELOPE_BYTES,
+        "memory_reserve_bytes": 8 * 1024**3,
     }
     admitted = (
         snapshot["mem_available_bytes"] >= _S3_READY_MEM_AVAILABLE_BYTES
         and worker["memory_max"] == str(_S3_LARGE_WORKER_ENVELOPE_BYTES)
         and worker["host_config_memory_bytes"] == _S3_LARGE_WORKER_ENVELOPE_BYTES
-        and worker["resource_env"] == expected_env
+        and {key: worker["resource_profile"].get(key) for key in expected_profile} == expected_profile
         and all(
             item["restart_count"] == 0
             and all(
@@ -1484,16 +1473,16 @@ def _check_w1_w2_ready_resource_guard(env: Mapping[str, str]) -> None:
     snapshot = _s3_ready_resource_snapshot(env)
     services = cast(dict[str, dict[str, Any]], snapshot["services"])
     worker = services["worker"]
-    expected_env = {
-        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
-        "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(24 * 1024**3),
-        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(32 * 1024**3),
-        "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+    expected_profile = {
+        "kernel_threads": 1,
+        "kernel_memory_bytes": 24 * 1024**3,
+        "memory_envelope_bytes": 32 * 1024**3,
+        "memory_reserve_bytes": 8 * 1024**3,
     }
     admitted = (
         worker["memory_max"] == str(32 * 1024**3)
         and worker["host_config_memory_bytes"] == 32 * 1024**3
-        and worker["resource_env"] == expected_env
+        and {key: worker["resource_profile"].get(key) for key in expected_profile} == expected_profile
         and all(
             item["restart_count"] == 0
             and all(item["memory_events"][name] == 0

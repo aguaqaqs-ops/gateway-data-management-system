@@ -319,6 +319,29 @@ class LocalArtifactStore:
             raise ManifestVerificationError('stored artifact identity mismatch')
         return ref
 
+    def observe_object(self, artifact_id: str) -> dict[str, object]:
+        """Bounded adapter observation for S1b, independent of business publication.
+
+        No tree scan or content read; block allocation is shared-filesystem data,
+        not exclusive/thin/reflink ownership. Callers choose their sampling window.
+        """
+        location = parse_artifact_id(artifact_id)
+        with self.layout.read_session((location,)):
+            ref = self._stored_ref(artifact_id)
+            path = self.payload_path(artifact_id)
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_size != ref.size_bytes:
+                    raise ManifestVerificationError("object observation does not match stored ref")
+                return {"service_owner": "backend", "artifact_id": artifact_id,
+                    "location": location.value, "logical_bytes": info.st_size,
+                    "allocated_bytes": info.st_blocks * 512, "device": info.st_dev,
+                    "inode": info.st_ino, "published_mtime_ns": info.st_mtime_ns,
+                    "observed_at": datetime.now(UTC).isoformat()}
+            finally:
+                os.close(descriptor)
+
     def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
         try:
             validate_artifact_ref_model(ref)

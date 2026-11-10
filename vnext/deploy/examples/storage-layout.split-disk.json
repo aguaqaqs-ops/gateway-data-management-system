@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "environment_id": "development",
+  "group_id": "group-1",
+  "filesystems": {
+    "be-durable": {
+      "mountpoint": "/mnt/gateway-be-durable",
+      "expected_source": "/dev/mapper/gateway-be-durable",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "be-canonical": {
+      "mountpoint": "/mnt/gateway-be-canonical",
+      "expected_source": "/dev/mapper/gateway-be-canonical",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "be-comparison": {
+      "mountpoint": "/mnt/gateway-be-comparison",
+      "expected_source": "/dev/mapper/gateway-be-comparison",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "be-export": {
+      "mountpoint": "/mnt/gateway-be-export",
+      "expected_source": "/dev/mapper/gateway-be-export",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "be-scratch": {
+      "mountpoint": "/mnt/gateway-be-scratch",
+      "expected_source": "/dev/mapper/gateway-be-scratch",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "be-metadata": {
+      "mountpoint": "/mnt/gateway-be-metadata",
+      "expected_source": "/dev/mapper/gateway-be-metadata",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "rs-repository": {
+      "mountpoint": "/mnt/gateway-rs-repository",
+      "expected_source": "/dev/mapper/gateway-rs-repository",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "rs-artifacts": {
+      "mountpoint": "/mnt/gateway-rs-artifacts",
+      "expected_source": "/dev/mapper/gateway-rs-artifacts",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "rs-scratch": {
+      "mountpoint": "/mnt/gateway-rs-scratch",
+      "expected_source": "/dev/mapper/gateway-rs-scratch",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    },
+    "rs-metadata": {
+      "mountpoint": "/mnt/gateway-rs-metadata",
+      "expected_source": "/dev/mapper/gateway-rs-metadata",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    }
+  },
+  "roots": {
+    "be-durable": {
+      "source": "/mnt/gateway-be-durable/root",
+      "path": "/var/lib/gateway/be-durable",
+      "filesystem_id": "be-durable",
+      "storage_id": "00000000000000000000000000000001",
+      "mount_mode": "bind"
+    },
+    "be-canonical": {
+      "source": "/mnt/gateway-be-canonical/root",
+      "path": "/var/lib/gateway/be-canonical",
+      "filesystem_id": "be-canonical",
+      "storage_id": "00000000000000000000000000000002",
+      "mount_mode": "bind"
+    },
+    "be-comparison": {
+      "source": "/mnt/gateway-be-comparison/root",
+      "path": "/var/lib/gateway/be-comparison",
+      "filesystem_id": "be-comparison",
+      "storage_id": "00000000000000000000000000000003",
+      "mount_mode": "bind"
+    },
+    "be-export": {
+      "source": "/mnt/gateway-be-export/root",
+      "path": "/var/lib/gateway/be-export",
+      "filesystem_id": "be-export",
+      "storage_id": "00000000000000000000000000000004",
+      "mount_mode": "bind"
+    },
+    "be-scratch": {
+      "source": "/mnt/gateway-be-scratch/root",
+      "path": "/var/lib/gateway/be-scratch",
+      "filesystem_id": "be-scratch",
+      "storage_id": "00000000000000000000000000000005",
+      "mount_mode": "bind"
+    },
+    "be-metadata": {
+      "source": "/mnt/gateway-be-metadata/root",
+      "path": "/var/lib/gateway/be-metadata",
+      "filesystem_id": "be-metadata",
+      "storage_id": "00000000000000000000000000000006",
+      "mount_mode": "bind"
+    },
+    "rs-repository": {
+      "source": "/mnt/gateway-rs-repository/root",
+      "path": "/var/lib/gateway/rs-repository",
+      "filesystem_id": "rs-repository",
+      "storage_id": "00000000000000000000000000000007",
+      "mount_mode": "bind"
+    },
+    "rs-artifacts": {
+      "source": "/mnt/gateway-rs-artifacts/root",
+      "path": "/var/lib/gateway/rs-artifacts",
+      "filesystem_id": "rs-artifacts",
+      "storage_id": "00000000000000000000000000000008",
+      "mount_mode": "bind"
+    },
+    "rs-scratch": {
+      "source": "/mnt/gateway-rs-scratch/root",
+      "path": "/var/lib/gateway/rs-scratch",
+      "filesystem_id": "rs-scratch",
+      "storage_id": "00000000000000000000000000000009",
+      "mount_mode": "bind"
+    },
+    "rs-metadata": {
+      "source": "/mnt/gateway-rs-metadata/root",
+      "path": "/var/lib/gateway/rs-metadata",
+      "filesystem_id": "rs-metadata",
+      "storage_id": "0000000000000000000000000000000a",
+      "mount_mode": "bind"
+    }
+  }
+}

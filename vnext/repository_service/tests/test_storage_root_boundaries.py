@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -61,6 +62,25 @@ def _container_command(tmp_path: Path, *, nested_mount: bool = False) -> list[st
     image = os.environ.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE")
     if not image:
         pytest.fail("preloaded RS dependency image is required for the storage boundary proof")
+    if not nested_mount:
+        repository = Path(__file__).resolve().parents[2]
+        subprocess.run([sys.executable, str(repository / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
+                       check=True, capture_output=True, text=True, timeout=30)
+        document = json.loads((tmp_path / "storage-layout.json").read_bytes())
+        command = ["docker", "run", "--rm", "--name", f"gateway-rs-proof-{uuid4().hex}",
+            "--label", "gateway.test-task=p7-s1a-f", "--pull=never", "--network=none", "--user=0",
+            "--memory=4294967296", "--memory-swap=4294967296", "--cpus=2", "--cgroupns=host",
+            "--env", "PYTHONPATH=/workspace/vnext/repository_service/src:/workspace/vnext/repository_contracts/src",
+            "--env", "PYTHONDONTWRITEBYTECODE=1",
+            "--mount", f"type=bind,source={repository},target=/workspace/vnext,readonly"]
+        for slot, item in document["roots"].items():
+            if slot.startswith("rs-"):
+                command += ["--mount", f"type=bind,source={item['source']},target={item['path']}"]
+        for name in ("storage-layout", "resource-profile"):
+            command += ["--mount", f"type=bind,source={tmp_path / (name + '.json')},target=/run/gateway/{name}.json,readonly"]
+        command += ["--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json",
+                    "--env", "GATEWAY_RESOURCE_PROFILE_FILE=/run/gateway/resource-profile.json"]
+        return command + ["--entrypoint", "sh", image]
     tmp_path.chmod(0o755)
     roots = prepare_test_roots(RepositoryRoots.under(tmp_path / "roots"))
     roots.repository.parent.chmod(0o755)

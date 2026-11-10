@@ -224,7 +224,7 @@ def check_resources(config: DeploymentConfig, role: str) -> None:
     if _limit(chain[0] / "memory.max") != memory or _limit(chain[0] / "memory.swap.max") != swap:
         raise ValueError("actual memory/swap cgroup does not match resource profile")
     quota, period = _bounded(chain[0] / "cpu.max", 256).split()
-    if quota == "max" or not math.isclose(int(quota) / int(period), cpu, rel_tol=0, abs_tol=0.00001):
+    if quota == "max" or not math.isclose(int(quota) / int(period), cpu, rel_tol=0, abs_tol=0.000000001):
         raise ValueError("actual CPU quota does not match resource profile")
     effective_cpu = float(len(os.sched_getaffinity(0)))
     for group in chain:
@@ -248,6 +248,8 @@ class RuntimePreflight:
     """Bounded role-local observations; identity loss remains latched until restart."""
 
     def __init__(self, config: DeploymentConfig, role: str, *, container: bool = True) -> None:
+        if not container and (Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()):
+            raise ValueError("host mode is unavailable inside a deployment container")
         self.config = config
         self.role = role
         self.container = container
@@ -256,11 +258,12 @@ class RuntimePreflight:
         self.check()
         logging.getLogger(__name__).info("deployment preflight %s", json.dumps(self.observations(), sort_keys=True))
 
-    def check(self) -> None:
+    def check(self, *, capacity: bool = True) -> None:
         if self._failed:
             raise ValueError("deployment identity was lost; restart and preflight required")
         try:
             observed = mounts()
+            seen: dict[int, tuple[int, float]] = {}
             if self.container:
                 check_resources(self.config, self.role)
             for slot, root in self.config.storage.role_roots(self.role).items():
@@ -278,7 +281,12 @@ class RuntimePreflight:
                 check_marker(self.config.storage, slot, path)
                 if not os.access(path, os.R_OK | os.W_OK | os.X_OK, effective_ids=True):
                     raise ValueError(f"{slot}: role lacks storage permissions")
-                check_capacity(path, policy.min_free_bytes, policy.min_free_fraction)
+                bounds = (policy.min_free_bytes, policy.min_free_fraction)
+                if info.st_dev in seen and seen[info.st_dev] != bounds:
+                    raise ValueError("same filesystem has conflicting capacity policies")
+                if capacity and info.st_dev not in seen:
+                    check_capacity(path, *bounds)
+                seen[info.st_dev] = bounds
                 if slot == "be-metadata":
                     check_database_files(path)
                 self._identities[slot] = identity
@@ -296,11 +304,16 @@ class RuntimePreflight:
             "group_id": self.config.storage.group_id, "storage_digest": self.config.storage.digest,
             "resource_digest": self.config.resources.digest, "role": self.role, "hard_envelope": self.container, "slots": {}}
         slots: dict[str, object] = {}
+        filesystems: dict[str, object] = {}
         for slot, root in self.config.storage.role_roots(self.role).items():
             info = os.stat(root.path)
-            free = os.statvfs(root.path)
+            key = str(info.st_dev)
+            if key not in filesystems:
+                free = os.statvfs(root.path)
+                filesystems[key] = {"available_bytes": free.f_bavail * free.f_frsize,
+                                    "available_inodes": free.f_favail}
             slots[slot] = {"filesystem_id": root.filesystem_id, "device": info.st_dev,
-                "inode": info.st_ino, "available_bytes": free.f_bavail * free.f_frsize,
-                "available_inodes": free.f_favail}
+                "inode": info.st_ino, "storage_id": root.storage_id}
         result["slots"] = slots
+        result["filesystems"] = filesystems
         return result

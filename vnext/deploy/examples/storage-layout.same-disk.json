@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "environment_id": "development",
+  "group_id": "group-1",
+  "filesystems": {
+    "local": {
+      "mountpoint": "/",
+      "expected_source": "/dev/mapper/pve-vm--107--disk--0",
+      "min_free_bytes": 5368709120,
+      "min_free_fraction": 0.1
+    }
+  },
+  "roots": {
+    "be-durable": {
+      "source": "/home/dev/gateway-development/be-durable",
+      "path": "/var/lib/gateway/be-durable",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000001",
+      "mount_mode": "bind"
+    },
+    "be-canonical": {
+      "source": "/home/dev/gateway-development/be-canonical",
+      "path": "/var/lib/gateway/be-canonical",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000002",
+      "mount_mode": "bind"
+    },
+    "be-comparison": {
+      "source": "/home/dev/gateway-development/be-comparison",
+      "path": "/var/lib/gateway/be-comparison",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000003",
+      "mount_mode": "bind"
+    },
+    "be-export": {
+      "source": "/home/dev/gateway-development/be-export",
+      "path": "/var/lib/gateway/be-export",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000004",
+      "mount_mode": "bind"
+    },
+    "be-scratch": {
+      "source": "/home/dev/gateway-development/be-scratch",
+      "path": "/var/lib/gateway/be-scratch",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000005",
+      "mount_mode": "bind"
+    },
+    "be-metadata": {
+      "source": "/home/dev/gateway-development/be-metadata",
+      "path": "/var/lib/gateway/be-metadata",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000006",
+      "mount_mode": "bind"
+    },
+    "rs-repository": {
+      "source": "/home/dev/gateway-development/rs-repository",
+      "path": "/var/lib/gateway/rs-repository",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000007",
+      "mount_mode": "bind"
+    },
+    "rs-artifacts": {
+      "source": "/home/dev/gateway-development/rs-artifacts",
+      "path": "/var/lib/gateway/rs-artifacts",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000008",
+      "mount_mode": "bind"
+    },
+    "rs-scratch": {
+      "source": "/home/dev/gateway-development/rs-scratch",
+      "path": "/var/lib/gateway/rs-scratch",
+      "filesystem_id": "local",
+      "storage_id": "00000000000000000000000000000009",
+      "mount_mode": "bind"
+    },
+    "rs-metadata": {
+      "source": "/home/dev/gateway-development/rs-metadata",
+      "path": "/var/lib/gateway/rs-metadata",
+      "filesystem_id": "local",
+      "storage_id": "0000000000000000000000000000000a",
+      "mount_mode": "bind"
+    }
+  }
+}

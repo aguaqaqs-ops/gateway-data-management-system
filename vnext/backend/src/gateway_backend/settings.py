@@ -16,11 +16,6 @@ from gateway_backend.application.workspace.upload_limits import (
     FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,
 )
 
-_MIB = 1024 * 1024
-WORKER_MEMORY_ENVELOPE_BYTES = 32 * 1024**3
-WORKER_MEMORY_RESERVE_BYTES = 8 * 1024**3
-WORKER_MAX_MEMORY_ENVELOPE_BYTES = 48 * 1024**3
-WORKER_MAX_KERNEL_MEMORY_BYTES = 40 * 1024**3
 
 FIXED_HTTP_NEW_WORK_LIMIT = 32
 FIXED_CLEANUP_UNPINNED_TTL_SECONDS = 86_400
@@ -156,7 +151,7 @@ class OperationWorkerSettings(BaseSettings):
     """Settings owned exclusively by the process-local operation worker.
 
     The worker is intentionally configured independently from ``BackendSettings``.  Its
-    memory budget is required and bounded by the worker envelope and fixed reserve.
+    memory budget, envelope and minimum reserve are owned by the resource profile.
     """
 
     model_config = SettingsConfigDict(

@@ -685,6 +685,8 @@ export interface components {
         ArchiveCandidateResponse: {
             /** Expected Candidate Digest */
             expected_candidate_digest: string;
+            /** Review Version */
+            review_version: number;
             /** Submission Id */
             submission_id: string;
         };

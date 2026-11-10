@@ -63,11 +63,32 @@ export async function waitForDiffBrowsing(page: Page): Promise<void> {
   });
 }
 
+export function isBundleResponse(response: Response): boolean {
+  return response.request().method() === "GET" && response.url().split("?")[0].endsWith("/bundle");
+}
+
 export function waitForBundleResponse(page: Page, timeout = 300_000): Promise<Response> {
-  return page.waitForResponse(
-    (response) => response.request().method() === "GET" && response.url().split("?")[0].endsWith("/bundle"),
-    { timeout },
-  );
+  return page.waitForResponse(isBundleResponse, { timeout });
+}
+
+/** Record every bundle download on the page; the download may legitimately
+ * finish before, during, or after compare rendering, so completion is decided
+ * by the OPFS install state, not by a single waitForResponse window. */
+export function recordBundleResponses(page: Page): { responses: Response[]; dispose: () => void } {
+  const responses: Response[] = [];
+  const listener = (response: Response): void => {
+    if (isBundleResponse(response)) responses.push(response);
+  };
+  page.on("response", listener);
+  return { responses, dispose: () => void page.off("response", listener) };
+}
+
+/** Poll until the bundle digest directory carries `.complete.json` (installed). */
+export async function waitForInstalledBundle(page: Page, digestHex: string, timeout = 600_000): Promise<void> {
+  await expect(async () => {
+    const state = await opfsBundleState(page, digestHex);
+    expect(state.hasCompleteMarker, `bundle ${digestHex} installed to OPFS`).toBe(true);
+  }).toPass({ timeout });
 }
 
 export function treeRow(page: Page, text: string | RegExp): Locator {

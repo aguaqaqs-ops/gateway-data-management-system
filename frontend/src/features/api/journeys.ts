@@ -368,10 +368,26 @@ export async function applyReviewAction(api: GatewayApi, submissionId: string, r
   return idempotencyKey ? api.applyReview(submissionId, body, idempotencyKey) : api.applyReview(submissionId, body);
 }
 
+/**
+ * Build the archive `selected` reference with exactly the two keys the backend
+ * accepts (kickoff §16.2, Q18). `ArchiveSelectedRefRequest` is `extra="forbid"`,
+ * so forwarding a whole candidate read object (which now carries
+ * `review_version`) is rejected with 422. Every archive request must use this
+ * constructor; TypeScript excess-property checks do not catch the mistake.
+ */
+export function buildArchiveSelectedRef(source: {
+  submission_id: string;
+  expected_candidate_digest: string;
+}): Schemas["ArchiveSelectedRefRequest"] {
+  return {
+    submission_id: source.submission_id,
+    expected_candidate_digest: source.expected_candidate_digest,
+  };
+}
+
 export interface ArchiveJourneyInput {
   selected: Schemas["ArchiveSelectedRefRequest"];
   confirmations?: Array<{ subjectDigest: string; action: "CONFIRM" | "REVOKE"; reason?: string | null; idempotencyKey?: string }>;
-  anomalyResolutions?: Array<{ subjectDigest: string; action: Schemas["AppendArchiveAnomalyResolutionRequest"]["action"]; reason: string; idempotencyKey?: string }>;
   startIdempotencyKey?: string;
   idempotencyKey?: string;
 }
@@ -445,40 +461,22 @@ export async function runArchiveJourney(
     }
     confirmationRefs.push({ subject_digest: confirmation.subjectDigest, sequence: resolved.sequence });
   }
-  for (const resolution of input.anomalyResolutions ?? []) {
-    const existing = progress.anomalyResolutions.get(resolution.subjectDigest);
-    if (existing?.sequence !== undefined) {
-      anomalyResolutionRefs.push({ subject_digest: resolution.subjectDigest, sequence: existing.sequence });
-      continue;
-    }
-    const anomaly = plan.anomalies.find((item) => item.subject_digest === resolution.subjectDigest);
-    if (!anomaly) throw new Error(`归档方案中没有对应的异常：${resolution.subjectDigest}`);
-    const resolved = await resolveAuditProgress(progress.anomalyResolutions, anomaly.subject_digest, resolution.idempotencyKey, () =>
-      getLatestSubjectSequence(api, anomaly.subject_kind, anomaly.subject_digest));
-    if (resolved.sequence === undefined) {
-      const response = await api.appendArchiveAnomalyResolution({
-        expected_baseline_node_id: plan.head.business_baseline_node_id,
-        expected_baseline_head_version: plan.head.baseline_head_version,
-        selected: input.selected,
-        candidate_set_digest: plan.candidate_set_digest,
-        expected_sequence: resolved.expectedSequence,
-        subject_digest: anomaly.subject_digest,
-        subject_kind: anomaly.subject_kind,
-        issue_code: anomaly.issue_code,
-        target_submission_id: anomaly.target_submission_id,
-        target_candidate_digest: anomaly.target_candidate_digest,
-        action: resolution.action,
-        reason: resolution.reason,
-      }, resolved.key);
-      resolved.sequence = response.sequence;
-      appended = true;
-    }
-    anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: resolved.sequence });
-  }
   if (appended) plan = await api.previewArchive({ selected: input.selected });
+  // Anomaly acceptances are appended one by one in the dialog (§16.4) before this
+  // journey runs; they are not appended here. The start references below cover
+  // every ACCEPTED item of the latest preview (§16.5).
+  // No client-side can_start gate here: an audit-invalid but unblocked preview
+  // must still reach the server, whose 409 adjudication (ARCHIVE_ANOMALY_UNRESOLVED
+  // and friends, §16.5) the dialog maps to a re-preview prompt. Throwing early
+  // would mask the server verdict the e2e journeys assert on.
+  for (const anomaly of plan.anomalies) {
+    if (anomaly.resolution_status !== "ACCEPTED") continue;
+    const entry = await resolveAuditProgress(progress.anomalyResolutions, anomaly.subject_digest, undefined, async () => anomaly.latest_sequence);
+    if (entry.sequence === undefined) entry.sequence = anomaly.latest_sequence;
+    anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: entry.sequence });
+  }
   const latestCandidates = await api.listArchiveCandidates();
   if (latestCandidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
-  if (!plan.can_start) throw new Error(`归档被阻止：${plan.blockers.join("、")}`);
   progress.startKey ??= input.startIdempotencyKey ?? input.idempotencyKey ?? crypto.randomUUID();
   progress.started ??= await api.startArchive({
     expected_baseline_node_id: plan.head.business_baseline_node_id,

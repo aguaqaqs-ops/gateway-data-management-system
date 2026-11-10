@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 
+from gateway_backend.http.dependencies import request_scratch
+
 from gateway_backend.application.submission.contracts import IdentityConfirmationRequest
 from gateway_backend.domain.submission.models import IdentityConfirmationAction
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -87,7 +89,7 @@ def accept_submit_route(
             for item in body.identity_confirmations
         ),
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = accept_submit_operation(
             command=command,
             scope_resolution=deps.scope_resolution,

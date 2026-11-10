@@ -19,6 +19,7 @@ PRODUCTION_ENTRYPOINTS = (
     "gateway_backend.app",
     "gateway_backend.bootstrap.http_server",
     "gateway_backend.bootstrap.operation_worker",
+    "gateway_backend.bootstrap.storage_admin",
 )
 # Package-root modules that belong to process composition rather than to an unowned bucket.
 COMPOSITION_MODULES = frozenset(

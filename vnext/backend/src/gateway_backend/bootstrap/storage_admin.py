@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError('existing backend control database is required')
 
         def active(owner: str) -> bool:
-            if owner.startswith('upload:'):
+            if owner.startswith(('upload:', 'request:')):
                 # Upload contexts exist before an operation; their held flock
                 # owns liveness. A crashed receiver leaves no durable authority.
                 return False

@@ -256,6 +256,10 @@ async def parse_streaming_multipart(
     resources = ExitStack()
     try:
         session = resources.enter_context(scratch.session(owner="upload:" + uuid4().hex))
+    except (OSError, ValueError):
+        resources.close()
+        raise ApiError(code="SERVICE_NOT_READY", message="temporary storage unavailable",
+                       status_code=503, details={"reason": "root_unavailable"}) from None
     except BaseException:
         resources.close()
         raise

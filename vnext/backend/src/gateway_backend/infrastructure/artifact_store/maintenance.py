@@ -228,9 +228,11 @@ class ArtifactMaintenance:
             return None
         if name in {'.', '..'}:
             return None
-        if relative == '' and name == '.gateway-storage.json':
-            # Deployment owns marker validation. Maintenance only reserves this
-            # exact metadata name; recognizing it is no identity attestation.
+        if relative == '' and name == '.gateway-storage.json' and (index < 4 or index == 8):
+            # Deployment owns marker identity validation; reserve only its name.
+            self.local._check_path(root, base / name)
+            if not stat.S_ISREG((base / name).lstat().st_mode):
+                return name, 'manual_review', 'marker must be an ordinary file', None
             return None
         child_relative = str(Path(relative) / name)
         child = base / child_relative
@@ -309,7 +311,7 @@ class ArtifactMaintenance:
                     or type(owner['owner']) is not str or not owner['owner'] or len(owner['owner']) > 512):
                 return 'manual_review', 'invalid temporary owner metadata'
             owner_id = owner['owner']
-            if not owner_id.startswith(('operation:', 'upload:')):
+            if not owner_id.startswith(('operation:', 'upload:', 'request:')):
                 return 'manual_review', 'unknown temporary owner kind'
             if self.owner_active(owner_id):
                 return 'retryable_failure', 'business owner remains active'

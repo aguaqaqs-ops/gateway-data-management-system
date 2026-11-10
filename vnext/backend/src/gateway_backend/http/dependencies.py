@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from fastapi import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from gateway_backend.artifacts.scratch import ScratchSpacePort
+from gateway_backend.artifacts.scratch import ScratchSpacePort, scratch_scope
+from uuid import uuid4
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
@@ -89,6 +90,22 @@ class AdmissionGatePort(Protocol):
 
     def release(self) -> None:
         """Release one previously acquired creation slot."""
+
+
+@contextmanager
+def request_scratch(scratch: ScratchSpacePort) -> Iterator[None]:
+    """Bind service-owned temporary storage before a request publishes objects."""
+    from contextlib import ExitStack
+    resources = ExitStack()
+    try:
+        session = resources.enter_context(scratch.session(owner="request:" + uuid4().hex))
+    except (OSError, ValueError):
+        resources.close()
+        from gateway_backend.http.errors import ApiError
+        raise ApiError(code="SERVICE_NOT_READY", message="temporary storage unavailable",
+                       status_code=503, details={"reason": "root_unavailable"}) from None
+    with resources, scratch_scope(session):
+        yield
 
 
 @runtime_checkable

@@ -6,6 +6,8 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from gateway_backend.http.dependencies import request_scratch
+
 from gateway_backend.application.archive.manual_close import CloseSubmissionCommand, close_submission
 from gateway_backend.application.archive.queries import ARCHIVE_AUDIT_EVENTS_MAX_LIMIT
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -121,7 +123,7 @@ def append_archive_confirmation_route(
         body=body,
         idempotency_key=idempotency_key,
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = append_confirmation_operation(
             command=command,
             unit_of_work_factory=deps.archive_unit_of_work_factory,
@@ -164,7 +166,7 @@ def append_archive_anomaly_resolution_route(
         body=body,
         idempotency_key=idempotency_key,
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = append_resolution_operation(
             command=command,
             unit_of_work_factory=deps.archive_unit_of_work_factory,
@@ -237,7 +239,7 @@ def start_archive_route(
         body=body,
         idempotency_key=idempotency_key,
     )
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = start_archive_operation(
             command=command,
             unit_of_work_factory=deps.archive_unit_of_work_factory,
@@ -285,7 +287,7 @@ def close_submission_route(submission_id: str, body: CloseSubmissionRequest, req
     command = CloseSubmissionCommand(context, submission_id,
         parse_archive_idempotency_key(request.headers.get("Idempotency-Key")),
         body.expected_review_version, body.expected_baseline_node_id, body.expected_baseline_head_version, body.reason)
-    with acquire_new_work(deps.admission_gate):
+    with acquire_new_work(deps.admission_gate), request_scratch(deps.scratch):
         result = close_submission(command=command, unit_of_work_factory=deps.archive_unit_of_work_factory, now=deps.now())
     if result.replay:
         response.status_code = status.HTTP_200_OK

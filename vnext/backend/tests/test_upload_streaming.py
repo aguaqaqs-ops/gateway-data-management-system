@@ -435,3 +435,31 @@ def _multipart_body(parts: list[tuple[str, bytes]]) -> bytes:
         )
     chunks.append(f"--{_BOUNDARY}--\r\n".encode("ascii"))
     return b"".join(chunks)
+
+
+@pytest.mark.parametrize('fault', ('aggregate', 'construction', 'write'))
+def test_multipart_owner_covers_all_parts_and_cleans_every_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    from gateway_backend.http.orchestration.source_package_admission import UploadLimitExceededError
+    from gateway_backend.infrastructure.artifact_store.scratch import _BudgetedFile
+    root = tmp_path / 'multipart-scratch'
+    root.mkdir()
+    space = ScratchSpace(root, max_bytes=5)
+    body = _multipart_body([('manifest', b'{}'), ('one', b'abc'), ('two', b'def')])
+    if fault == 'construction':
+        def broken_parser(*args: object, **kwargs: object) -> object:
+            raise ValueError('injected parser construction failure')
+        monkeypatch.setattr(multipart_stream.multipart, 'MultipartParser', broken_parser)
+    if fault == 'write':
+        def full_disk(self: object, data: object) -> int:
+            raise OSError(28, 'injected ENOSPC')
+        monkeypatch.setattr(_BudgetedFile, 'write', full_disk)
+    async def run() -> None:
+        error = {'aggregate': UploadLimitExceededError, 'construction': ValueError, 'write': OSError}[fault]
+        with pytest.raises(error):
+            await parse_streaming_multipart(scratch=space,
+                headers=Headers({'content-type': f'multipart/form-data; boundary={_BOUNDARY}'}),
+                stream=_one_chunk(body), max_compressed=5)
+    asyncio.run(run())
+    assert not list(root.iterdir())

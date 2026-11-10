@@ -145,14 +145,41 @@ render. Compose uses the host cgroup namespace so the runtime can inspect its
 actual child and visible ancestor limits; it does not mount the Docker socket
 or make cgroup controls writable.
 
-Every service repeats its own bounded mount/marker/permission/capacity/cgroup
-check before opening its DB, publishing ready or claiming work. Backend runtime
+Every service repeats bounded mount/marker/cgroup checks and an effective-role
+create/write/fsync/unlink probe before opening its DB. Capacity must pass before
+publishing ready or claiming work; RS may first run its existing safe bounded
+startup reclaim under a valid root identity. Backend runtime
 checks also gate HTTP admission and every worker write UoW; RS checks readiness,
 import claims and cleaner identity. A lost root identity remains refused until
 restart/preflight. Missing/wrong/readonly/inaccessible roots never produce a
 replacement directory or system-disk fallback. Existing liveness remains
 separate. Post-admission ENOSPC/EDQUOT/I/O errors keep existing failure/recovery
 semantics, including unknown-effect reconciliation.
+A temporary low-water observation refuses admission without latching identity
+failure. RS cleaner checks identity with capacity admission disabled, so it can
+reclaim eligible data and restore readiness. It does not delete protected data.
+The true cgroup v2 hierarchy root has no local memory/CPU limit files; only a
+verified hierarchy root is treated as unlimited at that level. Missing leaf or
+delegated-controller files still fail closed, and stricter ancestors still apply.
+
+Backend explicit startup atomically publishes the derived ordinary file
+`be-metadata/.gateway-runtime-configuration.json` after root/marker/euid probes.
+It contains environment/group and normalized digests of both documents. Worker
+requires a matching bounded no-follow record before startup and claim; Compose
+starts it after backend is healthy. Runtime readiness/admission only compares,
+and never repairs it. Stopped-service backend restart may replace a missing,
+stale or malformed ordinary record; symlinks, directories and submounts are
+refused. This file is not a lease or business authority. Cleanup and offline
+maintenance do not require it.
+
+Both Compose harnesses and the frontend real-backend script prepare explicit
+isolated runtime roots through the same renderer. Their external directories
+carry an exact owner/inode record. Successful teardown removes only that run's
+roots; failure retains owned diagnostics. RS named-volume backing is explicitly
+labelled, checked for container references, and removed separately after Compose
+down because bind mounts do not make it a Compose-managed volume. Failed volume
+contents are preserved while stopped before removing that owned volume.
+
 
 Explicit host debugging may select backend `runtime_mode=host` (the corresponding
 HTTP/worker setting prefix applies); it verifies role-local marker/identity and

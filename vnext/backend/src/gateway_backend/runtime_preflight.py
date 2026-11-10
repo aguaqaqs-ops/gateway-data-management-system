@@ -424,7 +424,8 @@ class RuntimePreflight:
         self.check(capacity=capacity)
         result: dict[str, object] = {"environment_id": self.config.storage.environment_id,
             "group_id": self.config.storage.group_id, "storage_digest": self.config.storage.digest,
-            "resource_digest": self.config.resources.digest, "role": self.role, "hard_envelope": self.container, "slots": {}}
+            "resource_digest": self.config.resources.digest, "role": self.role, "hard_envelope": self.container,
+            "effective_uid": os.geteuid(), "effective_gid": os.getegid(), "slots": {}}
         slots: dict[str, object] = {}
         filesystems: dict[str, object] = {}
         for slot, root in self.config.storage.role_roots(self.role).items():

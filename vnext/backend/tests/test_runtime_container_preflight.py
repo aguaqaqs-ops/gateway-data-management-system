@@ -60,7 +60,8 @@ def test_real_bind_and_cgroup_preflight_refuses_invalid_deployments(tmp_path: Pa
         else:
             assert completed.returncode != 0, completed.stdout + completed.stderr
             assert "PREFLIGHT_OK" not in completed.stdout
-            assert "ValueError" in completed.stderr
+            expected = "DeploymentIdentityChanged" if fault in {"marker", "unmounted"} else "ValueError"
+            assert expected in completed.stderr
         # No DB or service directories have been initialized by a preflight.
         for item in selected.values():
             path = Path(item["source"])
@@ -118,6 +119,7 @@ def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_p
                 env=environment, capture_output=True, text=True, check=False, timeout=45)
             assert result.returncode == 0, result.stdout + result.stderr
             assert "COMPOSE_PREFLIGHT_OK " in result.stdout
+            print(result.stdout, flush=True)
         finally:
             subprocess.run([*command, "down", "--volumes", "--remove-orphans"], env=environment,
                 capture_output=True, check=False, timeout=30)

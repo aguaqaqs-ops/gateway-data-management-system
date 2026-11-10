@@ -259,3 +259,6 @@ marker，已有 marker 必须精确匹配。服务只核本角色 roots；backen
 worker 写 UoW/claim 及 RS readiness/import claim 在实际观察成功后继续。挂载身份失效锁存，
 重启预检前不接受替代 root。显式 host 调试记录无硬 envelope，不能在容器中绕过限制。
 固定 slot/filesystem 与单对象 fd stat 仅为 S1b 的 bounded adapter 输入；不在本步写统计 DB。
+
+
+F 的 deployment 准入进一步约束：仅 backend 显式启动可在已验证 metadata root 发布可重建的配置摘要记录；worker startup、claim 与写事务必须读取同组、同规范化摘要，缺损/变化拒绝且不自建 DB 或重写记录。通用 readiness/请求不更新记录，安全离线维护与低水位清理不依赖记录；它不增加 operation 状态、lease、epoch 或业务成功证据。运行期 root 身份失效锁存到重启；临时容量拒绝可在安全回收后恢复。

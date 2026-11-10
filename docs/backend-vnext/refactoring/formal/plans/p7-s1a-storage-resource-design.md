@@ -186,6 +186,9 @@ ref 与 payload 同目录一次发布，替代现有“payload rename 后再写 
 
 Compose 渲染与启动预检读取同一配置；容器内对实际 mount、UID/GID、读写性重新核验。backend/worker 的四类 root 与 metadata 配置摘要必须一致，可在既有内部 readiness/preflight 边界比对；本机服务记录实际摘要及 slot 状态，公共 HTTP 不回显绝对路径。无独立配置服务器、热更新或外部写接口。
 
+同组摘要比对使用 `be-metadata/.gateway-runtime-configuration.json` 这一可重建普通文件：仅 backend 显式启动在 root/marker/有效身份及小文件写探针通过后原子发布 environment/group 与两份 JCS 规范化摘要；worker 不创建。Compose 按 backend healthy 后启动 worker；缺失、损坏、组或摘要不符均在 worker startup/claim 前拒绝。运行期 backend/worker 仅有界、no-follow 读取并比对，拒绝 symlink、目录和子挂载，不从 readiness/请求自动修复。停服更换配置后 backend 启动可替换旧、缺失或损坏的普通记录。此记录不证明存活、租约或业务完成，不新增 epoch/DB/schema，也不阻断安全离线维护或低水位 cleanup。
+
+
 旧 `GATEWAY_BACKEND_ARTIFACT_ROOT`、worker 对应字段及 RS 单 `DATA_ROOT` 隐式布局入口由目标配置替代，不保别名或优先级回退。测试 fixture 直接构造同一 typed layout，不绕过 root 校验；仅纯内存 store 不要求文件系统。
 
 ### 5.2 初始化与缺挂载检测
@@ -205,6 +208,7 @@ Compose 渲染与启动预检读取同一配置；容器内对实际 mount、UID
 | --- | --- |
 | 启动缺 root、marker 不符、布局不一致、权限或只读 | fail closed；readiness 不成立；worker 不 claim；不创建默认盘副本 |
 | 运行期 root 不可用 | 受影响服务停止新接收/claim，readiness 表达 storage unavailable；已有只读请求只有在所需 roots 健康时继续；liveness 不因磁盘低水位伪称进程死亡 |
+| 临时容量/低水位拒绝 | 拒绝新工作并不 ready；不锁存为身份失效。RS 保持有界 cleaner 可运行，容量恢复后重新准入；启动先做身份/权限预检、原有安全 reclaim，再核容量进入 ready |
 | 单个可选 cache 条目缺失/损坏、root 本身健康 | 保持既有 cache miss/discard/recompute 路径；不能扩展为强保护输入丢失可忽略 |
 | PREPARED Attempt 的冻结文件缺失 | 按 Canonical Storage §5 稳定失败；不回原输入/parent/新 ruleset 重建，不推进 main |
 | ENOSPC、EDQUOT、EIO、fsync/rename 失败 | 当前写入失败，不发表成功引用/READY；清理本次 staging 或记录残留供有界清理；不降低校验、不自动加容量 |

@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type Browser, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -161,6 +161,18 @@ function pairSummary(bundle: ParsedBundle, pairId: string): Record<string, strin
   return pair!.summary;
 }
 
+/**
+ * FE4a §3.3 reference screenshots (not acceptance evidence): capture the page
+ * at 1280 and 1920 widths. All call sites sit outside the M1 measurement
+ * windows and add no journey steps.
+ */
+async function saveEvidenceBothWidths(page: Page, testInfo: TestInfo, label: string): Promise<void> {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await saveEvidence(page, testInfo, `${label}-1280`);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await saveEvidence(page, testInfo, `${label}-1920`);
+}
+
 function compositeChanged(bundle: ParsedBundle, pairId: string): number | null {
   const member = bundle.members.find((item) => item.path === `pairs/${pairId}/comparison-surface.json`);
   if (!member) return null;
@@ -200,6 +212,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // Step 1: t1 v1 MODIFIED_ONLY on the empty INITIAL baseline.
     // Baselines go in after directory selection, immediately before packaging.
     await gotoWorkbench(page);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-workbench");
     await selectUploadDirs(page, { modified: v1Dir });
     const recording1 = recordBundleResponses(page);
     const uploadWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
@@ -242,6 +255,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(Number(summary1.failed_table_count), "step1 failed").toBe(0);
     await waitForDiffBrowsing(page);
     await saveEvidence(page, testInfo, "t1-v1-diff");
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v1");
 
     // Submit v1.
     const submitWait = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
@@ -295,6 +309,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
       await archiverPage.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
       const archiveDialog = archiverPage.getByRole("dialog", { name: "归档主基线" });
       await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
+      await saveEvidenceBothWidths(archiverPage, testInfo, "fe4-t1-archive");
       await archiveDialog.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
       await archiveDialog.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
       await expect(archiveDialog.getByText("归档完成")).toBeVisible({ timeout: 300_000 });
@@ -358,6 +373,12 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const changedExpected = v2Changed + (composite as number);
     expect(Number(itm.changed_table_count), "initial_to_modified changed").toBe(changedExpected);
     await waitForDiffBrowsing(page);
+    await page.getByRole("tab", { name: "原始组态视图" }).click({ timeout: 120_000 });
+    await waitForDiffBrowsing(page);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v2-baseline_to_initial");
+    await page.getByRole("tab", { name: "本次组态视图" }).click({ timeout: 120_000 });
+    await waitForDiffBrowsing(page);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v2-initial_to_modified");
     const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
     await compareAction(page, "提交").click({ timeout: 120_000 });
     await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
@@ -367,6 +388,19 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(factsV2.status).toBe("PENDING");
     await applyReview(reviewer, submissionV2.submission_id, { expected_review_version: factsV2.review_version, action: "APPROVE" });
     await saveEvidence(page, testInfo, "t1-v2-diff");
+    // FE4a §3.3: read-only review-mode visit for the reference screenshot.
+    const reviewerContext = await contextForIdentity(browser, reviewer);
+    const reviewerPage = await reviewerContext.newPage();
+    await reviewerPage.setViewportSize({ width: 1920, height: 1080 });
+    try {
+      await reviewerPage.goto(`/?page=compare&mode=REVIEW&submissionId=${submissionV2.submission_id}`);
+      await expect(reviewerPage.locator("main.comparison-page")).toBeVisible({ timeout: 60_000 });
+      await waitForDiffBrowsing(reviewerPage);
+      await expect(reviewerPage.locator(".review-actions")).toBeVisible({ timeout: 60_000 });
+      await saveEvidenceBothWidths(reviewerPage, testInfo, "fe4-t1-review");
+    } finally {
+      await reviewerContext.close().catch(() => undefined);
+    }
 
     // Step 6: three-node history compare (INITIAL, archived v1, v2 submission).
     await gotoWorkbench(page);
@@ -384,6 +418,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 600_000 });
     await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
     await saveEvidence(page, testInfo, "t1-history-three-nodes");
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-history-3node");
     await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click({ timeout: 120_000 });
     await waitForDiffBrowsing(page);
 

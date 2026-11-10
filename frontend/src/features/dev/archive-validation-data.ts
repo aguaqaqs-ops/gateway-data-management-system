@@ -421,6 +421,26 @@ export const V_CANDIDATES_RECHANGED: Candidates = {
   ),
 } satisfies Candidates;
 
+/** C6: all kinds with the first missing-time card accepted under a long reason. */
+export function vPreviewAllKindsMissingAccepted(reason: string): Preview {
+  const base = vPreviewAllKinds();
+  return vPlan({
+    anomalies: base.anomalies.map((anomaly) =>
+      anomaly.subject_digest === "sha256:v-time-missing-modified"
+        ? {
+          ...anomaly,
+          resolution_status: "ACCEPTED" as const,
+          latest_sequence: 1,
+          accepted_by: "archiver-1",
+          accepted_at: "2026-11-07T15:20:00Z",
+          reason,
+        }
+        : anomaly,
+    ),
+    business_validation: vValidationFor(),
+  });
+}
+
 /** V2: the INITIAL side already accepted; the MODIFIED side still pending. */
 export function vPreviewTwoSidedInitialAccepted(): Preview {
   const base = vPreviewTwoSided();

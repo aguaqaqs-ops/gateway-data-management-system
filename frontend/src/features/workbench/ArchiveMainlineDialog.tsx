@@ -52,6 +52,39 @@ interface ArchiveMainlineDialogProps {
   onDispositionChanged?: () => void;
 }
 
+/**
+ * C6: full raw values for the hover tooltips. The rendered detail text shows
+ * truncated digests (first 12 characters); the tooltip carries the complete
+ * `issue_code`, `subject_digest` and, for source explanations, every edge's
+ * full canonical digests.
+ */
+function anomalyHoverTitle(anomaly: Anomaly): string {
+  const parts = [`issue_code=${anomaly.issue_code}`, `subject_digest=${anomaly.subject_digest}`];
+  const details = anomaly.details as Record<string, unknown> | undefined;
+  const edges = (details?.edges as Array<{ submission_id?: unknown; initial?: { canonical_state_digest?: unknown }; modified?: { canonical_state_digest?: unknown } }> | undefined) ?? [];
+  for (const edge of edges) {
+    const initial = typeof edge.initial?.canonical_state_digest === "string" ? edge.initial.canonical_state_digest : "";
+    const modified = typeof edge.modified?.canonical_state_digest === "string" ? edge.modified.canonical_state_digest : "";
+    parts.push(`① ${initial} / ② ${modified}`);
+  }
+  return parts.join("\n");
+}
+
+/**
+ * C6: reason text folded after 3 rendered lines. Short reasons keep the exact
+ * pre-C6 markup (pixel-identical); only long reasons — including long
+ * single-line ones, which wrap to several lines — are clamped with an
+ * expand/collapse toggle.
+ */
+const REASON_FOLD_THRESHOLD = 120;
+function ReasonText({ children }: { children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  return <p>
+    <span className={expanded ? undefined : "archive-reason--clamped"}>{children}</span>{" "}
+    <button className="link-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button>
+  </p>;
+}
+
 export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived, resolveName, resolveBaselineLabel, onSelectSubmission, onDispositionChanged }: ArchiveMainlineDialogProps) {
   const [candidates, setCandidates] = useState<Candidates | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -60,6 +93,9 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
   const [loadError, setLoadError] = useState<{ message: string; code: string | null } | null>(null);
   const [confirmSelection, setConfirmSelection] = useState(false);
   const [collectionNotice, setCollectionNotice] = useState<string | null>(null);
+  // C8: the 409 conflict notice renders separately from the candidate-set
+  // change notice; the pending stash is consumed by every completed load.
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null);
   const previousDigest = useRef<string | null>(null);
   const pendingNotice = useRef<string | null>(null);
   const [acceptTarget, setAcceptTarget] = useState<Anomaly | null>(null);
@@ -139,9 +175,16 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
         loaded = reloaded;
       }
       if (previousDigest.current !== null && previousDigest.current !== loaded.candidate_set_digest) {
-        setCollectionNotice(pendingNotice.current ?? "候选集合已变化，之前的接受不再适用，请重新核对");
-        pendingNotice.current = null;
+        // The set-change banner always uses the generic text; the specific
+        // 409 text lives in the separate conflict banner below.
+        setCollectionNotice("候选集合已变化，之前的接受不再适用，请重新核对");
       }
+      if (pendingNotice.current === null) {
+        // An ordinary load clears a stale 409 conflict notice; a load that
+        // follows a 409 (pending set) keeps it so both notices can appear.
+        setConflictNotice(null);
+      }
+      pendingNotice.current = null;
       previousDigest.current = loaded.candidate_set_digest;
       setCandidates(listed);
       setSelectedDigest(candidate.expected_candidate_digest);
@@ -164,6 +207,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     setResult(null);
     setFailure(null);
     setCollectionNotice(null);
+    setConflictNotice(null);
     pendingNotice.current = null;
     setConfirmSelection(false);
     previousDigest.current = null;
@@ -221,7 +265,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     } catch (cause) {
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "CANDIDATE_SET_CONFLICT" || cause.code === "CANDIDATE_BINDING_CONFLICT" || cause.code === "ARCHIVE_AUDIT_VERSION_CONFLICT")) {
         if (kind === "accept") setAcceptTarget(null); else setRevokeTarget(null);
-        setCollectionNotice("归档候选或核验结果已变化，已重新预检");
+        pendingNotice.current = "归档候选或核验结果已变化，已重新预检";
+        setConflictNotice(pendingNotice.current);
         refresh();
         return;
       }
@@ -267,8 +312,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
         const notice = cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
-        setCollectionNotice(notice);
         pendingNotice.current = notice;
+        setConflictNotice(notice);
         refresh();
         return;
       }
@@ -297,8 +342,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       if (cause instanceof ApiError && (cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "REVIEW_VERSION_CONFLICT" || cause.code === "REVIEW_TRANSITION_CONFLICT" || cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" || cause.code === "ARCHIVE_CLOSED")) {
         setCloseTarget(null);
         const notice = cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
-        setCollectionNotice(notice);
         pendingNotice.current = notice;
+        setConflictNotice(notice);
         refresh();
         return;
       }
@@ -365,15 +410,19 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     const known = KNOWN_ISSUE_CODES.has(anomaly.issue_code);
     const side = anomaly.side ? SIDE_COPY[anomaly.side] ?? anomaly.side : null;
     return <div className="archive-anomaly" key={anomaly.subject_digest}>
-      <strong>{displayName(anomaly.target_submission_id)}{side ? ` · ${side}` : ""}：{ISSUE_COPY[anomaly.issue_code] ?? anomaly.issue_code}</strong>
+      <strong title={`issue_code=${anomaly.issue_code} · subject_digest=${anomaly.subject_digest}`}>{displayName(anomaly.target_submission_id)}{side ? ` · ${side}` : ""}：{ISSUE_COPY[anomaly.issue_code] ?? anomaly.issue_code}</strong>
       <p>
         <span className="status-tag status-tag--warning">原始诊断：{detectedStatusCopy(anomaly)}</span>
         <span className={statusTagClass(resolutionStatusTone(anomaly.resolution_status))}>处理：{resolutionStatusCopy(anomaly.resolution_status)}</span>
       </p>
-      <p>{anomalyDetailText(anomaly, displayName)}</p>
-      <p>受影响提交：{anomaly.affected_submission_ids.map(displayName).join("、") || "—"}</p>
-      {anomaly.resolution_status === "ACCEPTED" && <p>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</p>}
-      {anomaly.resolution_status === "REVOKED" && <p>已撤销，原因：{anomaly.reason}</p>}
+      <p title={anomalyHoverTitle(anomaly)}>{anomalyDetailText(anomaly, displayName)}</p>
+      <p title={(anomaly.affected_submission_ids ?? []).join("、") || "—"}>受影响提交：{anomaly.affected_submission_ids.map(displayName).join("、") || "—"}</p>
+      {anomaly.resolution_status === "ACCEPTED" && ((anomaly.reason ?? "—").length > REASON_FOLD_THRESHOLD
+        ? <ReasonText>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</ReasonText>
+        : <p>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</p>)}
+      {anomaly.resolution_status === "REVOKED" && ((anomaly.reason ?? "—").length > REASON_FOLD_THRESHOLD
+        ? <ReasonText>已撤销，原因：{anomaly.reason}</ReasonText>
+        : <p>已撤销，原因：{anomaly.reason}</p>)}
       {known && anomaly.resolution_status !== "ACCEPTED" && <Button variant="secondary" onClick={() => openAccept(anomaly)}>接受</Button>}
       {known && anomaly.resolution_status === "ACCEPTED" && <Button variant="secondary" onClick={() => openRevoke(anomaly)}>撤销接受</Button>}
       {!known && <p className="subtle-copy">当前版本不能处理该项，请刷新或联系管理员</p>}
@@ -416,6 +465,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       {loading && <p className="subtle-copy">正在读取归档候选并预检…</p>}
       {loadError && <div role="alert" className="form-error"><span>{loadError.message}</span>{loadError.code && <><span>错误代码：<code>{loadError.code}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(loadError.code ?? "")}>复制错误代码</button></span></>}</div>}
       {collectionNotice && <div role="alert" className="form-error"><span>{collectionNotice}</span></div>}
+      {conflictNotice && <div role="alert" className="form-warning"><span>{conflictNotice}</span></div>}
       {!loading && !result && plan && candidates && <>
         <section className="archive-step" aria-label="预检状态">
           <h3>预检状态</h3>
@@ -516,10 +566,10 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
 
     <Dialog open={open && closeTarget !== null} title="关闭提交（不归档）" description="关闭后该提交保留已通过记录，不会成为基线。" onClose={() => { if (!closeBusy) { setCloseTarget(null); } }} actions={<>
       <Button variant="secondary" onClick={() => setCloseTarget(null)} disabled={closeBusy}>取消</Button>
-      <Button variant="danger" onClick={() => void submitClose()} disabled={closeBusy || !closeUnderstood || closeLimitError !== undefined || closeResult !== null} disabledReason={closeResult ? undefined : !closeUnderstood ? "请确认已了解关闭不可撤销" : closeLimitError}>{closeBusy ? "提交中…" : "确认关闭"}</Button>
+      <Button variant="danger" onClick={() => void submitClose()} disabled={closeBusy || !closeUnderstood || closeLimitError !== undefined || closeResult !== null} disabledReason={closeResult ? "已关闭" : !closeUnderstood ? "请确认已了解关闭不可撤销" : closeLimitError}>{closeBusy ? "提交中…" : closeResult ? "已关闭" : "确认关闭"}</Button>
     </>}>
       {closeTarget && <>
-        <p>关闭提交{displayName(closeTarget.submission_id)}（不归档）。</p>
+        <p>关闭{displayName(closeTarget.submission_id)}（不归档）。</p>
         <ul className="confirm-impact">
           <li>该提交保留“已通过”的审核记录，标记为“已关闭（未归档）”，不会成为基线；</li>
           <li>提交人的工作区被释放，当前上传与预览被清空，需要重新上传、预览并提交；</li>

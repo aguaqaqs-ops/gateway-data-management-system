@@ -1429,6 +1429,40 @@ async function expandArchiveGroupUi(dialog: ReturnType<Page["getByRole"]>, title
   if (!open) await summary.click({ timeout: 120_000 });
 }
 
+/**
+ * C7: accept anomalies through the archive dialog UI instead of the
+ * acceptAnomalies API helper. Opens the dialog for the given submission label
+ * and accepts every visible card (optionally restricted to cards containing
+ * cardText), returning the still-open dialog. Unprocessed groups stay open by
+ * default; newly folded groups hide only already accepted cards.
+ */
+async function acceptAnomaliesViaUi(page: Page, submissionLabel: string, reason: string, cardText?: string): Promise<ReturnType<Page["getByRole"]>> {
+  const dialog = await openArchiveDialogUi(page, submissionLabel);
+  for (let round = 0; round < 12; round += 1) {
+    // Settle any in-flight re-preview before counting: refresh() clears the
+    // plan into a loading state synchronously with the accept/revoke close,
+    // so counting during the gap would see no cards and return early. The
+    // settle also covers the post-accept render: recounting only happens on a
+    // settled plan, so a stale card cannot be double-accepted.
+    await expect(dialog.getByText("正在读取归档候选并预检…")).toHaveCount(0, { timeout: 120_000 });
+    await expect(dialog.getByText("预检状态")).toBeVisible({ timeout: 120_000 });
+    let scope = dialog.locator(".archive-anomaly:visible");
+    if (cardText) scope = scope.filter({ hasText: cardText });
+    const acceptButtons = scope.getByRole("button", { name: "接受", exact: true });
+    if (await acceptButtons.count() === 0) return dialog;
+    await acceptButtons.first().click({ timeout: 120_000 });
+    const acceptDialog = page.getByRole("dialog", { name: "接受异常" });
+    await acceptDialog.getByLabel("接受理由").fill(reason, { timeout: 120_000 });
+    await acceptDialog.getByRole("button", { name: "确认接受" }).click({ timeout: 120_000 });
+    // The accept dialog only closes on success (a failure keeps it open with
+    // an inline error), so its dismissal proves the accept applied. A visible
+    // "已接受" wait cannot be used here: after the last item every group folds
+    // and no card stays visible.
+    await expect(acceptDialog).toBeHidden({ timeout: 120_000 });
+  }
+  throw new Error("acceptAnomaliesViaUi did not converge");
+}
+
 async function historyHeadVersion(identity: JourneyIdentity): Promise<number> {
   return (await listHistory(identity)).body.head.version;
 }
@@ -1566,9 +1600,9 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     expect(bDiagnostic.matching_sources.some((source) => source.source_kind === "BASELINE"), "j1-step7 B matches current baseline").toBe(true);
     appendCaseLog(`j1-step7 ok submission=${submitB.submissionId}`);
 
-    // Step 8: accept only the INITIAL side; MODIFIED stays unprocessed.
-    await acceptAnomalies(archiver, submitB.submissionId, digestB, "j1 只接受①", (side) => side === "INITIAL");
-    const dialogB2 = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    // Step 8 (C7): accept only the INITIAL side through the UI; MODIFIED
+    // stays unprocessed.
+    const dialogB2 = await acceptAnomaliesViaUi(archiverSession.page, "提交 2", "j1 只接受①", "①原始组态备份");
     await expect(dialogB2.locator(".archive-anomaly", { hasText: "②本次归档组态" }).getByText("未处理")).toBeVisible();
     await dialogB2.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await expect(dialogB2.getByRole("button", { name: "确认归档" })).toBeDisabled();
@@ -1595,9 +1629,8 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     assertClean(archiverSession.diagnostics, "j1-revoke-conflict");
     assertClean(archiverSecondSession.diagnostics, "j1-revoke-second");
 
-    // Step 10: re-accept and archive B as baseline 2.
-    await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j1 重新接受②");
-    const dialogB4 = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    // Step 10 (C7): re-accept through the UI and archive B as baseline 2.
+    const dialogB4 = await acceptAnomaliesViaUi(archiverSession.page, "提交 2", "j1 重新接受②");
     await dialogB4.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogB4.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogB4.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
@@ -1617,8 +1650,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC2.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitC2.submissionId}`,
     ], "j1-step11");
-    await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j1 接受 C");
-    const dialogC = await openArchiveDialogUi(archiverSecondSession.page, "提交 4");
+    const dialogC = await acceptAnomaliesViaUi(archiverSecondSession.page, "提交 4", "j1 接受 C");
     await dialogC.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogC.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogC.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
@@ -1650,8 +1682,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submissionD.submission_id}`,
       `PROJECT_IDENTITY_EXCEPTION|PROJECT_IDENTITY_EXCEPTION|-|${submissionD.submission_id}`,
     ], "j1-step13");
-    await acceptAllAnomalies(archiver, submissionD.submission_id, digestD, "j1 接受 D 含身份例外");
-    const dialogD = await openArchiveDialogUi(archiverSession.page, "提交 5");
+    const dialogD = await acceptAnomaliesViaUi(archiverSession.page, "提交 5", "j1 接受 D 含身份例外");
     await dialogD.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogD.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogD.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
@@ -1660,25 +1691,26 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     assertClean(s1Session.diagnostics, "j1-submit-d");
     assertClean(archiverSecondSession.diagnostics, "j1-archive-d");
 
-    // Step 14: three-node history compare (INITIAL, baselines 1 and 2).
-    await gotoWorkbenchFresh(s1Session.page);
-    await selectTreeRow(s1Session.page, "初始基线");
-    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(s1Session.page, "归档基线 1");
-    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(s1Session.page, "归档基线 2");
-    await workshopAction(s1Session.page, "加入比较").click({ timeout: 120_000 });
-    const compareResponse = s1Session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
-    await s1Session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
+    // Step 14 (C7): the three-node history compare (INITIAL, baselines 1 and
+    // 2) is driven by the reviewer, not the submitter.
+    await gotoWorkbenchFresh(reviewerSession.page);
+    await selectTreeRow(reviewerSession.page, "初始基线");
+    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
+    await selectTreeRow(reviewerSession.page, "归档基线 1");
+    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
+    await selectTreeRow(reviewerSession.page, "归档基线 2");
+    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
+    const compareResponse = reviewerSession.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
+    await reviewerSession.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);
-    const drawer = s1Session.page.locator('section[aria-label="历史比较结果抽屉"]');
+    const drawer = reviewerSession.page.locator('section[aria-label="历史比较结果抽屉"]');
     await expect(drawer).toBeVisible({ timeout: 60_000 });
     await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 300_000 });
     await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
-    await saveEvidence(s1Session.page, testInfo, "j1-history-three-nodes");
+    await saveEvidence(reviewerSession.page, testInfo, "j1-history-three-nodes");
     await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click({ timeout: 120_000 });
-    await waitForDiffBrowsing(s1Session.page);
-    assertClean(s1Session.diagnostics, "j1-history");
+    await waitForDiffBrowsing(reviewerSession.page);
+    assertClean(reviewerSession.diagnostics, "j1-history");
     appendCaseLog("j1 ok three-node history compare browsed");
   } finally {
     await closeSession(reviewerSession);
@@ -1719,8 +1751,8 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     const digestA = (await listArchiveCandidates(archiver)).body.candidates[0]!.expected_candidate_digest;
     const planA = (await previewArchivePlan(archiver, { submission_id: submitA.submissionId, expected_candidate_digest: digestA })).body;
     expectAnomalySets(planA, [`CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitA.submissionId}`], "j2-step1");
-    await acceptAllAnomalies(archiver, submitA.submissionId, digestA, "j2 t1 证据运行");
-    const dialogA = await openArchiveDialogUi(archiverSession.page, "提交 1");
+    // Step 1 (C7): accept through the UI.
+    const dialogA = await acceptAnomaliesViaUi(archiverSession.page, "提交 1", "j2 t1 证据运行");
     await dialogA.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogA.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogA.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
@@ -1873,9 +1905,9 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await saveEvidence(reviewerSession.page, testInfo, "j2-review-disposition-closed");
     assertClean(reviewerSession.diagnostics, "j2-review-closed");
 
-    // Step 7: accept all seven; B archived, E closed at archive (D2 real).
-    await acceptAllAnomalies(archiver, submitB.submissionId, digestB, "j2 接受余下全部");
-    const dialogStart = await openArchiveDialogUi(archiverSession.page, "提交 2");
+    // Step 7 (C7): accept all seven through the UI; B archived, E closed at
+    // archive (D2 real).
+    const dialogStart = await acceptAnomaliesViaUi(archiverSession.page, "提交 2", "j2 接受余下全部");
     await dialogStart.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogStart.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogStart.getByText("归档完成")).toBeVisible({ timeout: 120_000 });
@@ -1911,8 +1943,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
       `CONFIGURATION_TIME_QUALITY|GENERATION_TIME_MISSING|MODIFIED|${submitC2.submissionId}`,
       `CONFIGURATION_TIME_QUALITY|BASELINE_TIME_UNAVAILABLE|BASELINE|${submitC2.submissionId}`,
     ], "j2-step8");
-    await acceptAllAnomalies(archiver, submitC2.submissionId, digestC2, "j2 重新接受 C");
-    const dialogC2 = await openArchiveDialogUi(archiverSession.page, "提交 5");
+    const dialogC2 = await acceptAnomaliesViaUi(archiverSession.page, "提交 5", "j2 重新接受 C");
     await dialogC2.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
     await dialogC2.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
     await expect(dialogC2.getByText("归档完成")).toBeVisible({ timeout: 120_000 });

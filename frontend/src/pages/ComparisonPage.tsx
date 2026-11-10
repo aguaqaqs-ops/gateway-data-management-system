@@ -240,7 +240,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     if (browse.mode !== "PREVIEW") return;
     void refreshUploadMode();
   }, [browse.mode, refreshUploadMode]);
-  const { resumeAfterOperation, retryResume } = uploadMode;
+  const { resumeAfterOperation, retryResume, clearResumeNotice } = uploadMode;
   // F1: the resume notice comes from the hook snapshot (uploadMode.resumeNotice);
   // the page only clears the operation card for terminal outcomes that leave
   // no pointer behind. Retry re-runs the read sequence and re-derives the notice.
@@ -414,6 +414,25 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     }
   }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
+
+  // C5: after a terminal review action or an expired/closed 409, re-read the
+  // review together with the History (the compare anchor depends on both).
+  // This refresh intentionally leaves the loaded bundle alone: a baseline
+  // change is picked up by the next anchor read instead of tearing down the
+  // current view mid-notice.
+  const reloadReviewContext = useCallback(async () => {
+    const current = runtime.snapshot.state;
+    if (current.mode !== "REVIEW" || !current.submissionId) return;
+    try {
+      const [facts] = await Promise.all([
+        gatewayApi.getReviewFacts(current.submissionId),
+        gatewayApi.listHistory(),
+      ]);
+      setReviewFacts(facts);
+    } catch {
+      // ReviewActions already surfaced the failure notice; keep the snapshot.
+    }
+  }, [runtime]);
 
   const activePair = pairs.find(({ pair }) => pair.pair_id === browse.pairId) ?? pairs[0];
   const presentation = activePair?.presentation ?? null;
@@ -592,9 +611,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             submitReason={!bundle ? "请等待差异结果加载完成" : uploadGates.submit.reason}
             onWithdraw={() => { setWithdrawUnderstood(false); setWithdrawError(null); withdrawKey.current = crypto.randomUUID(); setWithdrawOpen(true); }}
             onRetry={() => void refreshUploadMode()}
-            onSubmit={() => setSubmitOpen(true)}
+            onSubmit={() => { clearResumeNotice(); setSubmitOpen(true); }}
           />}
-          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} />}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={() => void reloadReviewContext()} />}
         </div>
         {browse.mode === "REVIEW" && reviewFacts?.submission_disposition && <ReviewDispositionLine facts={reviewFacts} />}
       </div>
@@ -686,9 +705,13 @@ function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, 
   onRetry: () => void;
   onSubmit: () => void;
 }) {
+  // C3: the withdraw and submit disabled reasons render in their own
+  // button-wrapped spans (see Button), separated by an explicit divider so
+  // the two reasons never read as one sentence.
   return <span className="compare-actions">
     <Button variant="danger" onClick={onWithdraw} disabled={!withdrawEnabled} disabledReason={withdrawReason}>撤回</Button>
     {withdrawRetry && <button className="link-button" onClick={onRetry}>{withdrawRetryLabel}</button>}
+    {withdrawReason && submitReason && <span className="compare-actions__divider" aria-hidden="true" />}
     <Button variant="primary" onClick={onSubmit} disabled={!submitEnabled} disabledReason={submitReason}>提交</Button>
   </span>;
 }

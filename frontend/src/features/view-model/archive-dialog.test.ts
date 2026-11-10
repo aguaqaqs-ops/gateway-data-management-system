@@ -62,6 +62,47 @@ describe("archive dialog view copy", () => {
     expect(anomalyDetailText(missing, (id) => id)).toBe("saved_time 没有可识别的时间（4 个无法识别）");
   });
 
+  it("covers the four §16.3 detail mappings missing from C10", () => {
+    const unexplained = anomaly({
+      issue_code: "INITIAL_SOURCE_UNEXPLAINED",
+      subject_kind: "CONFIGURATION_SOURCE",
+      details: {
+        edges: [{ submission_id: "v-s1", initial: { canonical_state_digest: "aaaabbbbccccdddd" }, modified: { canonical_state_digest: "1111222233334444" } }],
+        states: [{ canonical_state_digest: "aaaabbbbccccdddd" }, { canonical_state_digest: "5555666677778888" }],
+      },
+    });
+    expect(anomalyDetailText(unexplained, (id) => `名(${id})`)).toBe(
+      "与当前基线及本轮已通过的提交都对不上，可能漏传了现场的改动。候选：名(v-s1)的①/②（aaaabbbbcccc…/111122223333…）；状态数 2。",
+    );
+    const lastNotMax = anomaly({
+      issue_code: "GENERATION_TIME_LAST_NOT_MAX",
+      subject_kind: "CONFIGURATION_TIME_QUALITY",
+      details: {
+        generated_time: {
+          selected_time_utc: "2026-11-06T12:00:00Z",
+          last_valid_source_row: 7,
+          max_valid_time_utc: "2026-11-07T12:00:00Z",
+          max_valid_source_row: 3,
+        },
+      },
+    });
+    expect(anomalyDetailText(lastNotMax, (id) => id)).toBe(
+      "采用最后一个有效值 2026-11-06T12:00:00Z（第 7 行），最大值为 2026-11-07T12:00:00Z（第 3 行）。不会自动改用最大值。",
+    );
+    const initialBeforeBaseline = anomaly({
+      issue_code: "TIME_ABNORMAL_INITIAL",
+      subject_kind: "CONFIGURATION_TIME_ORDER",
+      details: { comparisons: [{ relation: "INITIAL_BEFORE_BASELINE", left_time_utc: "2026-11-06T12:00:00Z", right_time_utc: "2026-11-07T12:00:00Z" }] },
+    });
+    expect(anomalyDetailText(initialBeforeBaseline, (id) => id)).toBe("① 2026-11-06 12:00:00 UTC 早于当前基线 2026-11-07 12:00:00 UTC");
+    const modifiedBeforeInitial = anomaly({
+      issue_code: "TIME_ABNORMAL_MODIFIED",
+      subject_kind: "CONFIGURATION_TIME_ORDER",
+      details: { comparisons: [{ relation: "MODIFIED_BEFORE_INITIAL", left_time_utc: "2026-11-06T12:00:00Z", right_time_utc: "2026-11-05T12:00:00Z" }] },
+    });
+    expect(anomalyDetailText(modifiedBeforeInitial, (id) => id)).toBe("② 2026-11-06 12:00:00 UTC 早于 ① 2026-11-05 12:00:00 UTC");
+  });
+
   it("maps TIME_ABNORMAL and sibling details to §16.3 text", () => {
     const regressed = anomaly({
       issue_code: "TIME_ABNORMAL_MODIFIED",

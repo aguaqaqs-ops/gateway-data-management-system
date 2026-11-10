@@ -35,9 +35,15 @@ interface ReviewActionsProps {
   facts: SafeReviewFacts;
   bundleReady: boolean;
   onFactsChanged: (facts: SafeReviewFacts) => void;
+  /**
+   * C5: invoked after the facts refresh that follows a terminal action or a
+   * 409 conflict, so the page re-reads the review and the History together
+   * instead of the review alone.
+   */
+  onReviewSettled?: () => void;
 }
 
-export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged }: ReviewActionsProps) {
+export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged, onReviewSettled }: ReviewActionsProps) {
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [reason, setReason] = useState("");
   const [understood, setUnderstood] = useState(false);
@@ -106,6 +112,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
       await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      onReviewSettled?.();
       setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
@@ -120,6 +127,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
         setError({ title: failure.title, code: failure.code });
         try {
           onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+          onReviewSettled?.();
         } catch {
           // Keep the failure notice when the refresh itself fails.
         }

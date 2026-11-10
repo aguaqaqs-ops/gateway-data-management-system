@@ -32,14 +32,19 @@ async function loadFixture(name: string) {
   return result;
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
 async function installFixtureRoutes(page: Page, options: {
   truncateFirst?: boolean;
   fail?: boolean;
-  slowPreview?: boolean;
+  slowPreview?: Promise<void>;
   noPermission?: boolean;
-  timeoutFirstCompare?: boolean;
+  timeoutFirstCompare?: Promise<void>;
   historyCompareForbidden?: boolean;
-  historyBundleDelayMs?: number;
   failHistoryBundleAttempts?: number;
   historyCompareErrors?: number;
   historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
@@ -154,8 +159,21 @@ async function installFixtureRoutes(page: Page, options: {
 
   const reviewReplayKeys = new Set<string>();
   let reviewStatus: Schemas["ReviewFactsResponse"]["status"] = "PENDING";
+  // C5: once the ARCHIVE_CLOSED 409 has been served, the re-read review facts
+  // carry the manual-close disposition so V12 can assert the §6.4 display.
+  let closedServed = false;
   const factsFor = (submissionId: string): Schemas["ReviewFactsResponse"] => ({
-    ...TEST_REVIEW_FACTS, submission_id: submissionId, status: reviewStatus, review_version: reviewStatus === "PENDING" ? 5 : 6,
+    ...TEST_REVIEW_FACTS,
+    submission_id: submissionId,
+    status: reviewStatus,
+    review_version: reviewStatus === "PENDING" ? 5 : 6,
+    submission_disposition: closedServed ? {
+      submission_id: submissionId,
+      disposition: "CLOSED_NOT_ARCHIVED",
+      source_kind: "MANUAL_CLOSE",
+      result_id: null,
+      closure: { closed_by: "reviewer", closed_at: "2026-11-03T10:00:00Z", reason: "不再需要该提交" },
+    } : null,
   });
   await page.route("**/v1/submissions/*/review", async (route) => {
     const request = route.request();
@@ -180,6 +198,7 @@ async function installFixtureRoutes(page: Page, options: {
     if (options.reviewConflict) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review-events" && item.method === "POST" && item.status === 409 && item.body.code === options.reviewConflict);
       if (!error) throw new Error("POST review-events conflict fixture missing");
+      if (options.reviewConflict === "ARCHIVE_CLOSED") closedServed = true;
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
       return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
     }
@@ -220,7 +239,7 @@ async function installFixtureRoutes(page: Page, options: {
     const ready = new Promise<void>((resolve) => { finish = resolve; });
     const accepted = { ...HISTORY_COMPARE_ACCEPT_BODY } satisfies Schemas["HistoryCompareAcceptResponse"];
     idempotentResponses.set(key, { response: accepted, ready, finish, requestBody });
-    if (options.timeoutFirstCompare) await new Promise((resolve) => setTimeout(resolve, 900));
+    if (options.timeoutFirstCompare) await options.timeoutFirstCompare;
     finish();
     apiResponses.push({ method: "POST", path: "/v1/history-compares", status: 202, body: JSON.stringify(accepted) });
     return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(accepted) });
@@ -232,7 +251,6 @@ async function installFixtureRoutes(page: Page, options: {
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     historyBundleCalls += 1;
     if (historyBundleCalls <= (options.failHistoryBundleAttempts ?? 0)) return route.abort();
-    if (options.historyBundleDelayMs) await new Promise((resolve) => setTimeout(resolve, options.historyBundleDelayMs));
     const fixture = await loadFixture("history-three-nodes");
     return fulfillBundle(route, fixture.tar, fixture.manifest, false);
   });
@@ -542,7 +560,7 @@ async function installFixtureRoutes(page: Page, options: {
   const routeBundle = async (route: Route, fixtureName: string) => {
     const count = (requests.get(fixtureName) ?? 0) + 1;
     requests.set(fixtureName, count);
-    if (fixtureName === "preview-workbench-normal" && options.slowPreview) await new Promise((resolve) => setTimeout(resolve, 1_200));
+    if (fixtureName === "preview-workbench-normal" && options.slowPreview) await options.slowPreview;
     if (options.fail) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route.endsWith("/bundle") && item.status === 503);
       if (!error) throw new Error("preview bundle SERVICE_NOT_READY fixture missing");
@@ -833,14 +851,16 @@ test("覆盖 bundle 下载截断重试、加载骨架、错误页和五级风险
 });
 
 test("加载中显示骨架，bundle 接口失败显示可重试错误页", async ({ page }) => {
-  await installFixtureRoutes(page, { slowPreview: true });
+  const holdPreview = deferred();
+  await installFixtureRoutes(page, { slowPreview: holdPreview.promise });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal"), { waitUntil: "domcontentloaded" });
   await expect(page.getByLabel("下载并校验比较结果")).toBeVisible();
   await screenshot(page, "loading-skeleton", 1920);
   await screenshot(page, "loading-skeleton", 1280);
+  holdPreview.resolve();
   await waitForBrowse(page);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { fail: true });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal"));
   await expect(page.getByRole("alert")).toContainText("SERVICE_NOT_READY");
@@ -959,8 +979,9 @@ test("待审提交从工作台进入只读审核模式并比较其基线到提�
 
 test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 operation_id 续查", async ({ page }) => {
   const fixture = await loadFixture("history-three-nodes");
+  const holdFirstCompare = deferred();
   const { apiRequests, apiResponses } = await installFixtureRoutes(page, {
-    timeoutFirstCompare: true,
+    timeoutFirstCompare: holdFirstCompare.promise,
     historyCompareStatus: (operationId, index) => index <= 3
       ? { ...HISTORY_COMPARE_RUNNING, operation_id: operationId }
       : { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId },
@@ -974,6 +995,8 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.getByRole("alert")).toContainText("请求超时");
+  holdFirstCompare.resolve();
+  await expect.poll(() => apiResponses.filter((response) => response.method === "POST" && response.path === "/v1/history-compares").length).toBe(1);
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
 
   await expect(page).toHaveURL(/operationId=history-compare-fe2b-1/);
@@ -1024,13 +1047,15 @@ test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重
 
 test("History 比较仍在运行和连接中断状态清晰显示", async ({ page }) => {
   await installFixtureRoutes(page, { historyCompareStatus: (operationId) => ({ ...HISTORY_COMPARE_RUNNING, operation_id: operationId }) });
+  // C4: pin the clock so the running compare shows a fixed waited duration.
+  await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace&operationId=history-compare-running&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
   await expect(page.locator(".history-result-drawer")).toContainText("执行中");
   await screenshot(page, "history-compare-running", 1920);
   await screenshot(page, "history-compare-running", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { historyCompareErrors: 5 });
   await page.goto("/?page=workspace&operationId=history-compare-interrupted&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
   await expect(page.locator(".history-result-drawer")).toContainText("连接中断", { timeout: 25_000 });
@@ -1098,13 +1123,15 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
 });
 
 test("查看差异超时后的重试复用同一幂等意图", async ({ page }) => {
-  const { apiRequests } = await installFixtureRoutes(page, { timeoutFirstCompare: true });
+  const holdFirstCompare = deferred();
+  const { apiRequests } = await installFixtureRoutes(page, { timeoutFirstCompare: holdFirstCompare.promise });
   await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
+  holdFirstCompare.resolve();
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
   await expect(page).toHaveURL(/operationId=history-compare-fe2b-1/);
   await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares").length).toBe(2);
@@ -1150,17 +1177,7 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
 });
 
 async function freezePageClock(page: Page) {
-  await page.addInitScript(() => {
-    const RealDate = Date;
-    const fixed = RealDate.parse("2026-11-03T09:00:09Z");
-    class FrozenDate extends RealDate {
-      constructor(...args: ConstructorParameters<DateConstructor>) {
-        if ((args as unknown[]).length === 0) super(fixed); else super(...args);
-      }
-      static now() { return fixed; }
-    }
-    window.Date = FrozenDate as DateConstructor;
-  });
+  await page.clock.setFixedTime(new Date("2026-11-03T09:00:09Z"));
 }
 
 async function setDirectoryInput(page: Page, testId: string, root: string, files: Array<{ path: string; content: string }>) {
@@ -1278,7 +1295,7 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await expect(dialog.getByText("SCOPE_FORBIDDEN")).toBeVisible();
   const firstKey = first.apiRequests.find((request) => request.path.endsWith("/submit-attempts"))?.idempotencyKey;
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   const retry = await installFixtureRoutes(page, {});
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByRole("status", { name: "提交结果" })).toBeVisible();
@@ -1289,7 +1306,7 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   expect(retriedKey).toBeTruthy();
   expect(retriedKey).not.toBe(firstKey);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { submitConflict: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
@@ -1414,7 +1431,7 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await screenshot(page, "upload-failure-retry", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page);
   await card.getByRole("button", { name: "重试" }).click();
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
@@ -1452,7 +1469,7 @@ test("FE2c 上传冲突后刷新失败时进入失败阶段并显示原因", asy
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await card.getByRole("button", { name: "上传并生成预览" }).click();
   await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toBeVisible();
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { noPermission: true });
   await card.getByRole("button", { name: "刷新" }).click();
   await expect(card.getByRole("alert")).toContainText("刷新失败，请检查连接后重试");
@@ -1472,7 +1489,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await screenshot(page, "upload-version-conflict", 1920);
   await screenshot(page, "upload-version-conflict", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { previewForbidden: true });
   await page.goto("/");
@@ -1502,7 +1519,7 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await screenshot(page, "review-permission-denied", 1280);
   expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   const conflict = await installFixtureRoutes(page, { reviewConflict: "REVIEW_VERSION_CONFLICT" });
   await page.reload();
   await waitForBrowse(page);
@@ -1529,7 +1546,7 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await expect(conflictDialog.getByRole("button", { name: "确认通过" })).toBeEnabled();
   expect(conflict.apiRequests.some((request) => request.path.endsWith("/review-events"))).toBe(true);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   const replay = await installFixtureRoutes(page, { reviewTimeoutFirst: true });
   await page.reload();
   await waitForBrowse(page);
@@ -1547,32 +1564,52 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
 });
 
 test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) => {
-  await installFixtureRoutes(page, { reviewConflict: "BASELINE_VERSION_CONFLICT" });
+  const { apiRequests } = await installFixtureRoutes(page, { reviewConflict: "BASELINE_VERSION_CONFLICT" });
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
+  const historyGetsBefore = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。")).toBeVisible();
   await expect(page.getByText("BASELINE_VERSION_CONFLICT")).toBeVisible();
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeEnabled();
+  // C5: the expired-approve 409 re-reads the review and the History together.
+  // listHistory pages with ?limit=100 (and a cursor), so match the path prefix.
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length,
+    { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
   await screenshot(page, "fe3c-review-expired", 1920);
   await screenshot(page, "fe3c-review-expired", 1280);
 });
 
 test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page }) => {
-  await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
+  const { apiRequests } = await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
+  const historyGetsBefore = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交已归档或关闭，已重新读取")).toBeVisible();
   await expect(page.getByText("ARCHIVE_CLOSED")).toBeVisible();
+  // C5: the 409 re-reads the review and the History together; the re-read
+  // facts carry the manual-close disposition shown per §6.4.
+  const reviewEvents = apiRequests.filter((request) => request.method === "POST" && request.path.endsWith("/review-events"));
+  expect(reviewEvents).toHaveLength(1);
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length,
+    { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
+  await expect(page.getByText("由 reviewer 于").first()).toBeVisible();
+  await page.getByText("查看关闭理由").first().click();
+  await expect(page.getByText("不再需要该提交")).toBeVisible();
+  await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await screenshot(page, "fe3c-review-closed", 1920);
   await screenshot(page, "fe3c-review-closed", 1280);
 });
@@ -1621,7 +1658,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await screenshot(page, "archive-permission-denied", 1920);
   await screenshot(page, "archive-permission-denied", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   const conflict = await installFixtureRoutes(page, { archiveConflict: "ARCHIVE_AUDIT_VERSION_CONFLICT", approvedSubmission: true });
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
@@ -1648,7 +1685,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
   expect(conflict.apiRequests.find((request) => request.path === "/v1/archives")?.token).toBe("Bearer dev-token-archive-confirmer");
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { archiveBlocked: true, approvedSubmission: true });
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
@@ -1663,6 +1700,8 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
 test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadHoldPolls: 8 });
+  // C4: pin the clock so the running upload card shows a fixed waited duration.
+  await freezePageClock(page);
   await page.goto("/");
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
@@ -1913,6 +1952,8 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   fixtureOptions.submitAttemptState = "ABORTED";
   const workspaceReadsBeforeSecond = apiRequests.filter((request) =>
     request.method === "POST" && request.path === "/v1/workspaces").length;
+  const attemptReadsBeforeSecond = apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect.poll(() => apiRequests.filter((request) =>
     request.method === "POST" && request.path === "/v1/workspaces").length,
@@ -1921,6 +1962,49 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toHaveCount(0);
+  // C2: the second retry re-reads the attempt by the known ID, so its content
+  // is distinguished from the pre-retry snapshot by a fresh attempt read.
+  await expect.poll(() => apiRequests.filter((request) =>
+    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
+    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeSecond);
+});
+
+test("C1 续做后开始新的提交时红色提示框清除", async ({ page }) => {
+  // C1: after a resume the notice belongs to the resume snapshot. Starting a
+  // new submit clears it, so the re-submitted "executing" gate reason is not
+  // shown in the red alert box.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptState: "PREPARED",
+    submitAttemptReadFails: false,
+    clearWorkspacePointer: false,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  await installFixtureRoutes(page, fixtureOptions);
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  fixtureOptions.workspaceReadFails = true;
+  releaseOperation();
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  fixtureOptions.workspaceReadFails = false;
+  fixtureOptions.clearWorkspacePointer = true;
+  fixtureOptions.submitAttemptState = "ABORTED";
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
+  // Starting a new submit opens the dialog and clears the resume notice.
+  await submit.click();
+  await expect(page.getByRole("dialog", { name: "提交本次组态" })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toHaveCount(0);
 });
 
 test("工作台续做提示重试时按已知 attempt 重读并保留原提示", async ({ page }) => {

@@ -574,6 +574,7 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .workspace-page--uploading .workspace-main { pointer-events: none; }
 
 .compare-actions { display: inline-flex; margin-left: 10px; }
+.compare-actions__divider { align-self: stretch; width: 1px; margin: 0 4px; background: var(--color-border); }
 .review-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; }
 .review-facts-status { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
@@ -590,7 +591,8 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .confirm-reason textarea { min-height: 56px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); font-size: var(--font-size-sm); resize: vertical; }
 .form-error { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--color-danger); border-radius: var(--radius-control); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .form-error__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.form-warning { margin: 8px 0; padding: 8px 10px; border-radius: var(--radius-control); background: var(--color-warning-soft, var(--color-surface-muted)); font-size: var(--font-size-xs); }
+.archive-reason--clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.form-warning { margin: 8px 0; padding: 8px 10px; border-radius: var(--radius-control); background: var(--color-surface-muted); font-size: var(--font-size-xs); }
 .form-warning--stacked { display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .submit-progress { margin: 8px 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 

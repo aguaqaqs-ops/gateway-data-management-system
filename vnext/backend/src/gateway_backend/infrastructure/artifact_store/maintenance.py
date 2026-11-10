@@ -114,6 +114,8 @@ def _valid_relative(relative: str, lane: int) -> bool:
 class ArtifactMaintenance:
     def __init__(self, local: LocalArtifactStore, bounded: BoundedArtifactStore, *, scratch_root: Path,
                  owner_active: Callable[[str], bool], grace: timedelta = timedelta(hours=24)) -> None:
+        if grace < timedelta(0) or grace > timedelta(hours=24):
+            raise ValueError('temporary grace must be between zero and 24 hours')
         self.local = local
         self.bounded = bounded
         self.scratch_root = scratch_root
@@ -154,7 +156,7 @@ class ArtifactMaintenance:
                     raise ValueError()
                 lanes.append(_Lane(stack, item['done']))
             return lanes, doc['next']
-        except (ValueError, TypeError, KeyError, UnicodeError):
+        except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
             raise ValueError('invalid or foreign cleanup cursor') from None
 
     def _encode(self, lanes: list[_Lane], next_lane: int) -> str | None:
@@ -208,7 +210,7 @@ class ArtifactMaintenance:
                 else:
                     disabled.add(index)
                     items.append(MaintenanceItem(label, '', 'manual_review', 'configured root or scan directory unavailable'))
-            except (OSError, ValueError, ManifestVerificationError) as exc:
+            except (OSError, ValueError, OverflowError, ManifestVerificationError) as exc:
                 disabled.add(index)
                 items.append(MaintenanceItem(label, '', 'manual_review', str(exc)))
         return MaintenanceResult(len(items), budget.visits, tuple(items), self._encode(lanes, next_lane))

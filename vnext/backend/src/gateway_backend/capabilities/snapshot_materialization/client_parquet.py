@@ -152,46 +152,44 @@ def export_snapshot_table_parquet(
         metadata={b"gateway.sta.enc.v1": encode_source_columns(source.columns), **bindings}), metadata)
     isolated = reader.reopen()
     with closing(isolated), current_scratch().file(byte_limit=_MAX_EXPORT_BYTES) as (source_file, output), ExitStack() as writer_metadata:
-        try:
-            with isolated.arrow_stream() as stream, pq.ParquetWriter(output, schema, compression="zstd",
-                    write_statistics=False, use_dictionary=False, store_schema=True) as writer:
-                ordered = metadata.blank_provenance is BlankRowProvenance.CANONICAL_PSEUDO_GID
-                with closing(_export_batches(stream, context, ordered=ordered)) as parts:
-                    for chunk in parts:
-                        context.checkpoint()
-                        upper = chunk.nbytes * 8 + chunk.num_rows * (len(source.columns) * 512 + 1024) + 512 * 1024
-                        with context.memory.reserve(upper):
-                            arrays = [_export_array(chunk.column(i), column) for i, column in enumerate(source.columns)]
-                            converted = pa.RecordBatch.from_arrays(arrays, schema=schema)
-                            # Parquet retains per-row-group column metadata until close.
-                            writer_metadata.enter_context(context.memory.reserve(len(source.columns) * 1024 + 4096 +
-                                sum(len(column.canonical_name) * 8 for column in source.columns)))
-                            writer.write_batch(converted)
-                            del arrays, converted
-                        if output.tell() > _MAX_EXPORT_BYTES:
-                            raise MemoryError("client Parquet output exceeds byte budget")
-                        del chunk
-                context.checkpoint()
-            size = output.tell()
-            if size > _MAX_EXPORT_BYTES:
-                raise MemoryError("client Parquet output exceeds byte budget")
-            output.flush()
-            hasher = hashlib.sha256()
-            with source_file.open_read() as published_input:
-                while block := published_input.read(64 * 1024):
+        with isolated.arrow_stream() as stream, pq.ParquetWriter(output, schema, compression="zstd",
+                write_statistics=False, use_dictionary=False, store_schema=True) as writer:
+            ordered = metadata.blank_provenance is BlankRowProvenance.CANONICAL_PSEUDO_GID
+            with closing(_export_batches(stream, context, ordered=ordered)) as parts:
+                for chunk in parts:
                     context.checkpoint()
-                    hasher.update(block)
-            ref = ArtifactRef(
-                artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "client-parquet", [
-                    repository_id, key.parquet_writer_contract_version, key.row_layout_digest.value]),
-                media_type=PARQUET_MEDIA_TYPE, size_bytes=size,
-                raw_sha256=DigestRef("sha256:" + hasher.hexdigest()),
-            )
-            cast(ArtifactFileStorePort, store).put_from_path(source_file, ref,
-                checkpoint=context.checkpoint, byte_limit=_MAX_EXPORT_BYTES)
+                    upper = chunk.nbytes * 8 + chunk.num_rows * (len(source.columns) * 512 + 1024) + 512 * 1024
+                    with context.memory.reserve(upper):
+                        arrays = [_export_array(chunk.column(i), column) for i, column in enumerate(source.columns)]
+                        converted = pa.RecordBatch.from_arrays(arrays, schema=schema)
+                        # Parquet retains per-row-group column metadata until close.
+                        writer_metadata.enter_context(context.memory.reserve(len(source.columns) * 1024 + 4096 +
+                            sum(len(column.canonical_name) * 8 for column in source.columns)))
+                        writer.write_batch(converted)
+                        del arrays, converted
+                    if output.tell() > _MAX_EXPORT_BYTES:
+                        raise MemoryError("client Parquet output exceeds byte budget")
+                    del chunk
             context.checkpoint()
-        finally:
-            isolated.close()
+        size = output.tell()
+        if size > _MAX_EXPORT_BYTES:
+            raise MemoryError("client Parquet output exceeds byte budget")
+        output.flush()
+        hasher = hashlib.sha256()
+        with source_file.open_read() as published_input:
+            while block := published_input.read(64 * 1024):
+                context.checkpoint()
+                hasher.update(block)
+        ref = ArtifactRef(
+            artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "client-parquet", [
+                repository_id, key.parquet_writer_contract_version, key.row_layout_digest.value]),
+            media_type=PARQUET_MEDIA_TYPE, size_bytes=size,
+            raw_sha256=DigestRef("sha256:" + hasher.hexdigest()),
+        )
+        cast(ArtifactFileStorePort, store).put_from_path(source_file, ref,
+            checkpoint=context.checkpoint, byte_limit=_MAX_EXPORT_BYTES)
+        context.checkpoint()
+
     if export_cache is not None:
         export_cache.store_many(((key, ref),))
     context.checkpoint()

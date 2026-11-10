@@ -28,8 +28,8 @@ def main(argv: list[str] | None = None) -> int:
                          help='use zero only after explicitly draining inactive temporary owners')
     args = parser.parse_args(argv)
     try:
-        if args.orphan_grace_seconds < 0:
-            raise ValueError('orphan grace cannot be negative')
+        if not 0 <= args.orphan_grace_seconds <= 86400:
+            raise ValueError('orphan grace must be between zero and 86400 seconds')
         deployment = DeploymentConfig.load(args.storage_layout, args.resource_profile)
         local = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
             staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)

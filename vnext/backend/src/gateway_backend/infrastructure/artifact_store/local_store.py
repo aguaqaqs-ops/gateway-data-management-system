@@ -264,11 +264,14 @@ class LocalArtifactStore:
             if checkpoint is not None:
                 checkpoint()
             (staging / "owner.json").unlink()
+            fsync_directory(staging)
             yield staging
         finally:
-            os.close(descriptor)
-            if staging.exists():
-                shutil.rmtree(staging)
+            try:
+                if staging.exists():
+                    shutil.rmtree(staging)
+            finally:
+                os.close(descriptor)
 
     @staticmethod
     def _sync_ancestors(path: Path, root: Path) -> None:

@@ -919,7 +919,7 @@ def create_workspace_http_environment(
     clock = now if now is not None else fixed_now
 
     scratch_root = tmp_path / "upload-scratch"
-    scratch_root.mkdir(exist_ok=True)
+    scratch_root.mkdir(parents=True, exist_ok=True)
     from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
     deps = WorkspaceHttpDependencies(
         scratch=ScratchSpace(scratch_root, max_bytes=1024**3),

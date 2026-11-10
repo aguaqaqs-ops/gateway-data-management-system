@@ -32,11 +32,15 @@ def lifecycle_settings(
     dolt_binary: Path | None = None,
     dolt_version: str = "2.1.11",
     min_free_disk_bytes: int | None = None,
+    initialize_roots: bool = True,
 ) -> RepositoryServiceSettings:
     data_root = tmp_path / "data-root"
+    roots = RepositoryRoots.under(data_root)
+    if initialize_roots:
+        prepare_test_roots(roots)
     kwargs: dict[str, object] = {
         "profile": profile,
-        "roots": prepare_test_roots(RepositoryRoots.under(data_root)),
+        "roots": roots,
         "bearer_token": bearer_token,
         "bearer_token_file": bearer_token_file,
         "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),

@@ -91,6 +91,7 @@ class DurableLayout:
 
     def components(self) -> tuple[tuple[Path, Path], ...]:
         return ((self.control, self.metadata_root), (self.versioned, self.repository_root),
+            (self.repository_root / ".staging", self.repository_root),
             (self.staging_versioned, self.repository_root),
             (self.staging_artifacts, self.scratch_root), (self.query_directory, self.scratch_root),
             (self.service_state, self.metadata_root), (self.provider, self.metadata_root),

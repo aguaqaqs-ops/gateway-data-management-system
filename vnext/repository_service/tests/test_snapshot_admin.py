@@ -1132,7 +1132,7 @@ def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
         )
         assert mutation_ref.status_code == 200
 
-    restore_settings = lifecycle_settings(tmp_path / "restore")
+    restore_settings = lifecycle_settings(tmp_path / "restore", initialize_roots=False)
     copy_whole_root(archive, restore_settings.storage_roots.metadata.parent)
     result = run_check(restore_settings.storage_roots.metadata.parent)
     assert result.returncode == 0, result.stderr

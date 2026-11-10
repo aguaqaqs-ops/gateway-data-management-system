@@ -71,9 +71,7 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
 
 def _bind_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
     try:
-        layout = DurableLayout.bind_existing(settings.storage_roots)
-        layout.validate_control_database_files(require_database=True)
-        return layout
+        return DurableLayout.bind_existing(settings.storage_roots)
     except (LayoutError, OSError, ValueError, SettingsError) as exc:
         raise ControlDbError(str(exc)) from exc
 
@@ -108,8 +106,12 @@ def _get_operation_or_exit(
 
 
 def _open_control_store(
-    settings: RepositoryServiceSettings,
+    settings: RepositoryServiceSettings, layout: DurableLayout,
 ) -> tuple[ControlStore, ImportOperationStore]:
+    try:
+        layout.validate_control_database_files(require_database=True)
+    except LayoutError as exc:
+        raise ControlDbError(str(exc)) from exc
     ControlStore.preflight_exact_version(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,
@@ -189,7 +191,7 @@ def _run_inspect(
             return 3
 
         try:
-            control_store, import_store = _open_control_store(settings)
+            control_store, import_store = _open_control_store(settings, layout)
         except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 
@@ -255,7 +257,7 @@ def _run_apply(
             return 3
 
         try:
-            control_store, import_store = _open_control_store(settings)
+            control_store, import_store = _open_control_store(settings, layout)
         except (ControlDbNewerVersionError, ControlDbError, sqlite3.Error) as exc:
             return _control_db_exit_code(exc)
 

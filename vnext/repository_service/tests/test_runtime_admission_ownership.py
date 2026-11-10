@@ -177,7 +177,7 @@ def test_shutdown_cancels_active_upload_and_drains_permit_before_db(
         min_free_disk_bytes=1,
         min_free_disk_fraction=0.01,
     )
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     store = MagicMock(spec=MutationStore)
     store.hash_idempotency_key = MutationStore.hash_idempotency_key
     store.claim_or_lookup.return_value = ClaimResult(
@@ -400,7 +400,7 @@ def test_shutdown_noncooperative_upload_retains_durable_ownership(
         min_free_disk_bytes=1,
         min_free_disk_fraction=0.01,
     )
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     store = MagicMock(spec=MutationStore)
     store.hash_idempotency_key = MutationStore.hash_idempotency_key
     store.claim_or_lookup.return_value = ClaimResult(

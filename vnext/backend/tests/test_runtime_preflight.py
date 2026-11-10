@@ -13,6 +13,8 @@ from tests.support.artifact_layout import write_deployment_files
 
 pytestmark = pytest.mark.unit
 
+_CHECK_RESOURCES = preflight.check_resources
+
 
 @pytest.fixture
 def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DeploymentConfig:
@@ -115,8 +117,7 @@ def test_actual_role_limits_and_ancestors_must_cover_profile(
         (parent / "cpuset.cpus.effective").write_text("0")
     monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (own, parent))
     # Restore the production check replaced by the role-root fixture.
-    from importlib import reload
-    real_check = reload(preflight).check_resources
+    real_check = _CHECK_RESOURCES
     monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (own, parent))
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1, 2, 3})
     with pytest.raises(ValueError):
@@ -179,8 +180,7 @@ def test_disabled_cpuset_controller_uses_actual_process_affinity(tmp_path: Path,
     (group / "memory.max").write_text(str(worker.memory_envelope_bytes))
     (group / "memory.swap.max").write_text("0")
     (group / "cpu.max").write_text("200000 100000")
-    from importlib import reload
-    real_check = reload(preflight).check_resources
+    real_check = _CHECK_RESOURCES
     monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (group,))
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1})
     real_check(deployment, "worker")
@@ -218,8 +218,7 @@ def test_startup_write_probe_failure_cleans_its_own_file(deployment: DeploymentC
 
 @pytest.mark.parametrize("fault", (None, "missing-leaf", "missing-ancestor", "tight-ancestor"))
 def test_true_cgroup_hierarchy_root_has_no_local_limits_but_other_layers_must(deployment: DeploymentConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None) -> None:
-    from importlib import reload
-    real_check = reload(preflight).check_resources
+    real_check = _CHECK_RESOURCES
     base, parent, leaf = tmp_path / "cgroup", tmp_path / "cgroup/parent", tmp_path / "cgroup/parent/leaf"
     leaf.mkdir(parents=True)
     (base / "cgroup.controllers").write_text("cpu memory cpuset")

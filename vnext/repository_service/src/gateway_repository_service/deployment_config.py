@@ -5,7 +5,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Mapping, TypeGuard, cast
@@ -159,11 +159,11 @@ class StorageLayoutConfig:
     group_id: str
     filesystems: Mapping[str, FilesystemPolicy]
     roots: Mapping[str, StorageRoot]
-    _canonical_document: dict[str, object]
+    _source_document: bytes = field(repr=False)
 
     @property
     def digest(self) -> str:
-        return _configuration_digest(self._canonical_document)
+        return _configuration_digest(_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> StorageLayoutConfig:
@@ -214,7 +214,7 @@ class StorageLayoutConfig:
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
         return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            doc)
+            raw)
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -275,11 +275,11 @@ class ResourceProfile:
     repository_service: ServiceResources
     host_budget: HostBudget
     temporary: TemporaryLimits
-    _canonical_document: dict[str, object]
+    _source_document: bytes = field(repr=False)
 
     @property
     def digest(self) -> str:
-        return _configuration_digest(self._canonical_document)
+        return _configuration_digest(_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ResourceProfile:
@@ -312,7 +312,7 @@ class ResourceProfile:
         temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
             _integer(temp["staging_max_bytes_per_object"]))
         return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            doc)
+            raw)
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:

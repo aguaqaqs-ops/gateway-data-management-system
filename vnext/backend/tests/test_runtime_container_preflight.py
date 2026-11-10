@@ -21,8 +21,9 @@ def test_real_bind_and_cgroup_preflight_refuses_invalid_deployments(tmp_path: Pa
     image = os.environ.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE")
     if not image:
         pytest.fail("verified preloaded dependency image is required")
-    subprocess.run([sys.executable, str(VNEXT / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
-        capture_output=True, text=True, check=True, timeout=30)
+    prepared = subprocess.run([sys.executable, str(VNEXT / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
+        capture_output=True, text=True, check=False, timeout=30)
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
     storage = json.loads((tmp_path / "storage-layout.json").read_bytes())
     profile = json.loads((tmp_path / "resource-profile.json").read_bytes())
     prefix = "rs-" if role == "repository_service" else "be-"

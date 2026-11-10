@@ -64,8 +64,9 @@ def _container_command(tmp_path: Path, *, nested_mount: bool = False) -> list[st
         pytest.fail("preloaded RS dependency image is required for the storage boundary proof")
     if not nested_mount:
         repository = Path(__file__).resolve().parents[2]
-        subprocess.run([sys.executable, str(repository / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
-                       check=True, capture_output=True, text=True, timeout=30)
+        prepared = subprocess.run([sys.executable, str(repository / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
+                       check=False, capture_output=True, text=True, timeout=30)
+        assert prepared.returncode == 0, prepared.stdout + prepared.stderr
         document = json.loads((tmp_path / "storage-layout.json").read_bytes())
         command = ["docker", "run", "--rm", "--name", f"gateway-rs-proof-{uuid4().hex}",
             "--label", "gateway.test-task=p7-s1a-f", "--pull=never", "--network=none", "--user=0",

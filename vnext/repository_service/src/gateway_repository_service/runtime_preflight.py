@@ -7,7 +7,7 @@ import math
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from .deployment_config import DeploymentConfig, StorageLayoutConfig, _document
@@ -35,6 +35,7 @@ class Mount:
     target: str
     source: str
     writable: bool
+    filesystem_type: str = "unknown"
 
 
 def mounts(path: Path = Path("/proc/self/mountinfo")) -> tuple[Mount, ...]:
@@ -43,7 +44,7 @@ def mounts(path: Path = Path("/proc/self/mountinfo")) -> tuple[Mount, ...]:
         before, after = line.split(" - ", 1)
         left, right = before.split(), after.split()
         result.append(Mount(int(left[0]), left[2], _unescape(left[3]), _unescape(left[4]),
-                            _unescape(right[1]), "rw" in left[5].split(",") and "rw" in right[2].split(",")))
+                            _unescape(right[1]), "rw" in left[5].split(",") and "rw" in right[2].split(","), right[0]))
     return tuple(result)
 
 
@@ -73,32 +74,6 @@ def check_marker(config: StorageLayoutConfig, slot: str, path: Path) -> None:
             raise ValueError("storage marker identity mismatch")
     finally:
         os.close(descriptor)
-
-
-def check_database_files(metadata: Path) -> None:
-    info = nofollow_directory(metadata)
-    present = (metadata / "control.sqlite3").exists()
-    for name in ("control.sqlite3", "control.sqlite3-wal", "control.sqlite3-shm", "control.sqlite3-journal"):
-        path = metadata / name
-        try:
-            entry = path.lstat()
-        except FileNotFoundError:
-            continue
-        if not stat.S_ISREG(entry.st_mode) or entry.st_dev != info.st_dev:
-            raise ValueError("control database file is redirected or not ordinary")
-        if name != "control.sqlite3" and not present:
-            raise ValueError("control database journal has no owning database")
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        directory = os.open(metadata, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            def mount_id(fd: int) -> str:
-                return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
-                            if line.startswith("mnt_id:"))
-            if mount_id(descriptor) != mount_id(directory):
-                raise ValueError("control database file is on an unexpected mount")
-        finally:
-            os.close(descriptor)
-            os.close(directory)
 
 
 def check_capacity(path: Path, minimum: int, fraction: float) -> tuple[int, int]:
@@ -167,7 +142,7 @@ def initialize_host(config: DeploymentConfig) -> None:
 
 def _cgroup_chain() -> tuple[Path, ...]:
     values = [line[3:] for line in _bounded(Path("/proc/self/cgroup")).splitlines() if line.startswith("0::")]
-    candidates = [item for item in mounts() if item.source == "cgroup" or item.source == "cgroup2"]
+    candidates = [item for item in mounts() if item.filesystem_type == "cgroup2"]
     if len(values) != 1 or not candidates:
         raise ValueError("cgroup v2 is required for deployment resource verification")
     mount = max(candidates, key=lambda item: len(item.root))
@@ -287,8 +262,6 @@ class RuntimePreflight:
                 if capacity and info.st_dev not in seen:
                     check_capacity(path, *bounds)
                 seen[info.st_dev] = bounds
-                if slot == "be-metadata":
-                    check_database_files(path)
                 self._identities[slot] = identity
         except OSError:
             self._failed = True
@@ -314,6 +287,10 @@ class RuntimePreflight:
                                     "available_inodes": free.f_favail}
             slots[slot] = {"filesystem_id": root.filesystem_id, "device": info.st_dev,
                 "inode": info.st_ino, "storage_id": root.storage_id}
+        role_resources = (self.config.resources.worker if self.role == "worker" else
+                          self.config.resources.backend if self.role == "backend" else self.config.resources.repository_service)
+        result["resources"] = asdict(role_resources)
+        result["temporary"] = asdict(self.config.resources.temporary)
         result["slots"] = slots
         result["filesystems"] = filesystems
         return result

@@ -162,3 +162,11 @@ def test_renderer_runs_without_site_packages_and_owns_every_role_limit_and_bind(
         own = "rs-" if role == "repository-service" else "be-"
         assert all(own in item["target"] for item in mounts[:-2])
         assert all(item["read_only"] for item in mounts[-2:])
+
+
+def test_mountinfo_identifies_cgroup2_by_filesystem_type_not_source_name(tmp_path: Path) -> None:
+    path = tmp_path / "mountinfo"
+    path.write_text("47 30 0:29 / /sys/fs/cgroup ro,nosuid,nodev,noexec,relatime - cgroup2 none rw\n")
+    entry, = preflight.mounts(path)
+    assert entry.filesystem_type == "cgroup2"
+    assert entry.source == "none"

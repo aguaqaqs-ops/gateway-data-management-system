@@ -5,8 +5,9 @@ Two directories of PNG screenshots are compared pairwise by relative path.
 Only 8-bit, non-interlaced RGB/RGBA Playwright PNGs are accepted (exit 2
 otherwise).  Files are classified in this order:
 
-  相同       identical bytes
-  尺寸不同   width or height differs, or one side is missing from the pair
+  相同       解码后的像素完全相同（字节不同但解码结果相同也归入此类）
+  尺寸不同   width、height 或通道数不同
+  缺失       只在一侧存在
   内容变化   differing pixels > 100, or the largest 8-connected difference
              component > 16
   噪声       at most 100 differing pixels and no component above 16
@@ -121,6 +122,7 @@ def decode_png(path):
     if len(raw) != height * (stride + 1):
         raise FormatError(f"{path}: decoded size mismatch")
     rows = []
+    filters = []
     previous = None
     offset = 0
     for _y in range(height):
@@ -129,8 +131,9 @@ def decode_png(path):
         offset += stride + 1
         restored = unfilter_row(filter_type, row, previous, bytes_per_pixel)
         rows.append(restored)
+        filters.append(filter_type)
         previous = restored
-    return {"path": str(path), "width": width, "height": height, "channels": channels, "rows": rows}
+    return {"path": str(path), "width": width, "height": height, "channels": channels, "rows": rows, "filters": filters}
 
 
 def differing_pixels(first, second):
@@ -374,10 +377,21 @@ def self_test():
         (root / "b").mkdir()
         (root / "a" / "same.png").write_bytes(make_png(5, 5, bytes(solid(5, 5))))
         (root / "b" / "same.png").write_bytes(make_png(5, 5, bytes(solid(5, 5))))
-        filtered = bytearray(solid(6, 6))
-        paint(filtered, 6, [(1, 1), (4, 4)], (10, 20, 30, 255))
-        (root / 'a' / 'multi-filter.png').write_bytes(make_png(6, 6, bytes(filtered)))
-        check(decode_png(root / 'a' / 'multi-filter.png')['rows'][1][4:8] == bytes((10, 20, 30, 255)), 'row filter 1')
+        width, height = 7, 5
+        gradient = bytearray()
+        for y in range(height):
+            for x in range(width):
+                gradient.extend(((x * 31 + y * 7) & 0xFF, (x * 11 + y * 29) & 0xFF, (x * 23 + y * 13) & 0xFF, 255))
+        (root / 'a' / 'multi-filter.png').write_bytes(make_png(width, height, bytes(gradient)))
+        decoded = decode_png(root / 'a' / 'multi-filter.png')
+        check(decoded['filters'] == [0, 1, 2, 3, 4], 'all five row filters')
+        for y in range(height):
+            check(
+                decoded['rows'][y] == bytes(gradient[y * width * 4:(y + 1) * width * 4]),
+                f'row filter {y} pixels',
+            )
+            if y:
+                check(decoded['rows'][y] != decoded['rows'][y - 1], f'row filter {y} differs from previous row')
         (root / 'a' / 'only-a.png').write_bytes(make_png(2, 2, bytes(solid(2, 2))))
         changed_a = bytearray(solid(3, 3))
         changed_b = bytearray(solid(3, 3))

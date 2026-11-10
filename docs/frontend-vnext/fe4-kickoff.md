@@ -1,6 +1,6 @@
 # FE4 kickoff：前端收口与业务导航接入
 
-- **状态：** 初稿，2026-11-10。待审核会话核对，owner 确认 §10 的问题后生效。FE4 尚未开始。
+- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。§10.1 已由 owner 决定；§10.2 待 owner 决定后生效。FE4 尚未开始。
 - **日期：** 2026-11-10（时间均为 UTC）。
 - **起点：** `fe-fe3c-exit`（tag 对象 `43e66d3eb7` → `06b454b0ef`；被测提交 `e22e39ba15`；`frontend/` 树 `46e425f84e`）。main 合入提交 `475022300c`，退出记录 `16ffe72829`。
   `fe-vnext` 仍在 `e22e39ba15`，比 tag 少一个 docs 提交（`06b454b0ef`，只新增 `fe3c-evidence-04.md`）。
@@ -9,13 +9,14 @@
   - [BE-b 设计草案](be-b-navigation-and-presentation-draft.md)（第一步，全文）；
   - [FE3 kickoff](fe3-kickoff.md)：§2.3 末段、§3.2 的 FE3b、FE3c 退出记录、§4.6、§4.7、§8、§9、§10、§11 Q21、§12、§14、§15.5 第 9 项；
   - FE3c：[审核](reviews/fe3c-review.md)（N2–N5）、[复审第 1 轮](reviews/fe3c-rereview-1.md)（M1–M3）、[证据停止核对](reviews/fe3c-evidence-stop-1.md)（N9）、[证据核对](reviews/fe3c-evidence-check-1.md)；
-  - FE3b：[复审第 2 轮](reviews/fe3b-rereview-2.md)（N2）、[复审第 3 轮](reviews/fe3b-rereview-3.md)（N2、N6）、[证据核对](reviews/fe3b-evidence-check-1.md)（N7、N8）；
+  - FE3b：[复审第 1 轮](reviews/fe3b-rereview-1.md)（N2，并入 C6）、[复审第 2 轮](reviews/fe3b-rereview-2.md)（N2）、[复审第 3 轮](reviews/fe3b-rereview-3.md)（N2、N6）、[证据核对](reviews/fe3b-evidence-check-1.md)（N7、N8）；
   - [FE2 kickoff](fe2-kickoff.md) §5.3（行定位的浏览器自校验）、§5.4、§5.5（诊断文案表）；
-  - 后端对 FE3 Q21 的答复：分支 `p6-fe3-q21-answer`，提交 `d3450675bf`，`docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md`（未合入 main，未推送，§10 Q10）；
+  - 后端对 FE3 Q21 的答复：[`p6-fe3-q21-answer.md`](../backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md)（提交 `d3450675bf`；2026-11-10 由审核会话以 `--no-ff` 合入本地 main，合并提交 `d10f6d55a8`，未推送；§10.1 Q10）；
+  - [FE4 kickoff 审核](reviews/fe4-kickoff-review.md)（`6536502a11`）与 owner 2026-11-10 的决定（§10.1）；
   - [UI 优化方向](ui-optimization-direction.md)（§3、W3、W5、X6、§7.3、§7.4）与 `sketches/`；
   - AGENTS（main 版本）：“角色与子 agent”（`b93bed6bda`）、“专用测试节点”（DC91 五节点池）、“前端测试（FD7）”、“Docker / Compose 验证”；
   - [Owner 决议](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md) DC91、DC97、DC98。
-- **不作依据：** 开发主机上未提交的 P7 设计与执行计划草稿。BE-b 与 P7 的衔接以 owner 或后端设计会话的答复为准（§4、§10）。
+- **P7 文档的用法：** P7 S0 决议、总体设计、执行计划与 S1a 设计已提交在本地 main（2026-11-10 合入 `p7-s1a-a`，合并提交 `00ca325c2e`，未推送）。S0 决议写明 S0 已收口，owner 已授权 S1a A–G 编码至本地退出；P7 文档没有提到 BE-b。本文只引用其中的事实，以及 owner 2026-11-10 对 BE-b 与 S1a 先后的决定（§4、§10.1 Q5），不据此推导 BE-b 的设计内容。
 - **会话分工：** 本文由前端设计会话维护。按 AGENTS“角色与子 agent”，FE4 的实施与审核都由**新会话**承担：
   - FE3 的实施、审核会话已退出活动分工，不接 FE4；
   - FE4a 与 FE4b（§5）是两个明确划分的子阶段，各自新建实施与独立审核会话；FE4a 的会话不接 FE4b；
@@ -25,11 +26,12 @@
 
 ## 1. 结论摘要
 
-1. **拆成两段（§5，§10 Q1）：** FE4a 不依赖 BE-b，可以马上开始：FE3 带入项、Q21 文案、视觉令牌、取证工具，并在 P6 退出的 backend 树上重跑真实旅程与 t1。FE4b 接入 BE-b，等 BE-b 交付后开始，正式的真实数据重拍放在 FE4b。
-2. **FE4a 的合入点（§6，§10 Q2）：** `fe-vnext` 快进到 main `16ffe72829`。这个提交包含 `fe-fe3c-exit` 的目标，`vnext/` 树为 `49c1de43be`，与本地 tag `p6-exit` 的目标 `b0fc25e881` 相同。不合入其后可能含 P7 代码的 main。
-3. **后端变化（§6.2）：** 设计会话核对了 `fd9e383d76..16ffe72829` 的 `vnext/` 差异。`http/`、bundle 与 surface 组装、golden、部署和依赖输入都没有改，新的诊断码只是代码搬移。FE4a 预期不需要刷新 OpenAPI 快照。
-4. **BE-b 是 FE4b 的唯一前置，目前没有排期（§4）：** 第二步设计（实现层）未写，后端未实现，P7 草稿未提及 BE-b。由谁写第二步、何时写、实施与审核由哪个会话负责、与 P7 如何衔接，都需要 owner 决定（§10 Q4、Q5）。
-5. **前端 kickoff §3.3 的三个开放缺口（§3.7）：**
+1. **拆成两段（§5，§10.2 Q1，待 owner 决定）：** FE4a 不依赖 BE-b，可以马上开始：FE3 带入项、Q21 文案、视觉令牌、取证工具，并在 P6 退出的 backend 树上重跑真实旅程与 t1。FE4b 接入 BE-b，等 BE-b 交付后开始，正式的真实数据重拍放在 FE4b。
+2. **FE4a 的合入点（§6.1，§10.1 Q2，owner 已决定）：** `fe-vnext` 快进到 main `16ffe72829`，FE4a 期间不再合入 main，被测后端固定为 `vnext/` 树 `49c1de43be`（与 `p6-exit` 的目标 `b0fc25e881` 相同）。`16ffe72829` 已在远端，FE4a 开始前不需要推送。本地 main 之后合入的 P7 S1a 文档不进入 FE4a。
+3. **后端变化（§6.2）：** 设计会话核对了 `fd9e383d76..16ffe72829` 的 `vnext/` 差异，审核会话补了导入闭包核对。`http/`、bundle 与 surface 组装、golden、部署和依赖输入都没有改，诊断码只是代码搬移；History 比较的 assemble 步骤多了终态失败，但前端只显示其 message。FE4a 预期不需要刷新 OpenAPI 快照。
+4. **BE-b 与 P7 的先后（§4，§10.1 Q5，owner 已决定）：** FE4a 与 P7 S1a 并行。BE-b 第二步设计现在可以开始，以 S1a 的目标 Contract 为基础；BE-b 实施排在 S1a 本地退出并合入 main 之后；FE4b 在 BE-b 之后。第二步由谁写仍待 owner 决定（§10.2 Q4）。
+5. **真实数据范围（§3.3、§7.2，§10.1 Q11，owner 已决定）：** FE4a 的 journeys 调试只跑 J1、J2，证据跑完整集一次；t1 证据一次，另允许一次调试运行（因 t1 套件加入参考截图）。两段都只报告 t1 MODIFIED_ONLY 的内存增量，不做计时，不用 t2–t4；打包流程没改就不跑 t4。
+6. **前端 kickoff §3.3 的三个开放缺口（§3.7）：**
    - 历史初始备份节点、首批空基线：FE4 都不做，各自依赖一项尚未立项的后端工作；
    - `diagnostics_summary` 的自由文本：已于 2026-11-03 并入 BE-b §4.10，随 FE4b 接入。
 
@@ -47,7 +49,7 @@
 
 占位与浏览器计算在代码中的位置（`fe-fe3c-exit`）：
 
-- **占位导航：** `features/view-model/model.ts::fallbackNavigation`（`contract_version` 为 `frontend-placeholder/business-navigation/v1`）；手写的占位产物在 `src/test/fixtures/source/business-navigation*.json`、`navigation-diagnostics.json`，以及各后端 fixture 下的 `projections/business-navigation.json`。
+- **占位导航：** `features/view-model/model.ts::fallbackNavigation`（`contract_version` 为 `frontend-placeholder/business-navigation/v1`）；手写的占位产物在 `src/test/fixtures/source/business-navigation*.json`、`navigation-diagnostics.json`，以及各后端 fixture 下的 `projections/business-navigation.json` 与 `fe2a/preview-modified-only/…/projections/business-navigation/diagnostics.json`。
 - **浏览器中的行标识计算：** `features/view-model/table-rows.ts::snapshotRowIdentity` 及其规范编码（`canonicalTemporal`、`frame` 等），即 FE2 kickoff §5.3 的自校验匹配。
 - **读取导航产物：** `features/bundle/presentation.ts` 已按 `projection_kind = BUSINESS_NAVIGATION` 读取导航产物与 `diagnostics_ref`；导航诊断文案在 `features/view-model/diagnostics.ts::NAVIGATION_COPY`（BE-b §4.7 的 10 个编码）。
 - **Preview 公式抽屉：** `pages/ComparisonPage.tsx` 中有“改前公式在 BE-b 实现后提供”的说明。
@@ -56,8 +58,9 @@
 
 | 项 | 值 |
 | --- | --- |
-| main | `16ffe72829`（FE3c 退出记录）；`vnext/` 树 `49c1de43be` |
-| `p6-exit` | 本地附注 tag，对象 `e4791d4e8d` → `b0fc25e881`，未推送；`b0fc25e881:vnext` = `49c1de43be`，与 main 相同。tag 说明写明“Frontend, P7, independent SDK and production release are not signed off” |
+| FE4a 合入点 | `16ffe72829`（FE3c 退出记录）；`vnext/` 树 `49c1de43be`。修订时远端跟踪 ref `gateway-data-management-system/main` 也指向这个提交 |
+| 本地 main（修订时） | `d10f6d55a8`，`vnext/` 树仍为 `49c1de43be`，未推送。`16ffe72829` 之后的主线提交依次为：`00ca325c2e`（合入 P7 S1a-A 文档，2026-11-10）、`6536502a11`（本文审核报告）、`6a8fff14f3`（合入 P6/P7 文档清理）及其三个收尾提交、`d10f6d55a8`（合入 Q21 答复）。这些提交只改 `docs/backend-vnext/` 与 `docs/frontend-vnext/reviews/`；`AGENTS.md`、`frontend/`、`vnext/` 都没有改 |
+| `p6-exit` | 本地附注 tag，对象 `e4791d4e8d` → `b0fc25e881`；tag 本身未推送，但 `b0fc25e881` 是 `16ffe72829` 的祖先，已在远端。`b0fc25e881:vnext` = `49c1de43be`。tag 说明写明“Frontend, P7, independent SDK and production release are not signed off” |
 | FE3c 期间的 `vnext/` | `6368c9c40c`（main `fd9e383d76`） |
 | `fd9e383d76..16ffe72829` 的 `vnext/` | 72 个文件：S5 的计算缓存（comparison、risk、snapshot export、control DB），S6 的 History 元数据与校验，以及测试与 benchmarks。逐类核对见 §6.2 |
 | 依赖镜像 | `--print-input` 的五个输入文件（`backend/pyproject.toml`、`backend/uv.lock`、`backend/.python-version`、`rust/Cargo.lock`、`rust/rust-toolchain.toml`）与 `vnext/scripts`、两个 backend Dockerfile 在该区间都未改。预期仍得 `gateway-backend-deps:lock-578e079b762e`。输入还包括节点本机基础镜像的身份，因此以审核会话发出提示词时在所选节点上的实测为准 |
@@ -68,11 +71,12 @@
 - 第一步（数据结构与业务规则，含 §4.7–§4.10）已由 owner 确认（2026-11-02、2026-11-03）。
 - 第二步（实现层设计：在哪一步计算、缓存、计时预算、golden 组织、History 侧注释的持久化）按草案应在“P6 S5 接近完成时”定稿，**尚未写**。P6 已在本地退出，这个时点已过。
 - 后端没有实现。按 FD8，实现排在 P6 退出之后、Phase 8 之前。
-- 开发主机上未提交的 P7 草稿没有提到 BE-b。本文不以这些草稿为依据（§4）。
+- P7：S0 已收口，owner 已授权 S1a A–G 编码至本地退出（本地 main 上的 S0 决议）。S1a 的目标补充写入了 9 份 Contract，其中与前端有关的是：`artifact_id` 改为新格式；bundle 改为多 root 交付；被改写的 JSON 成员含新的 ref，其 raw SHA 与大小改变，可经 surface 与 closure 的完整性传递改变 surface/bundle 摘要（`comparison-bundle.md` 末节“P7-S1a 目标补充”、`p7-s1a-a-entry-and-contract.md` §4）。P7 文档没有提到 BE-b。
+- **owner 2026-11-10 决定（§10.1 Q5）：** BE-b 第二步现在可以开始，以 S1a 的目标 Contract 为基础；实施排在 S1a 本地退出并合入 main 之后。后端分工与排期按后端流程处理，本文只记录前端的依赖（§4）。
 
 ### 2.4 Q21
 
-后端答复（`d3450675bf`，2026-11-09）核对了 `56720104af` 到 `6368c9c40c` 两棵树的差异，结论：
+后端答复（`d3450675bf`，2026-11-09；已合入本地 main `d10f6d55a8`，用 `git show main:docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md` 读取）核对了 `56720104af` 到 `6368c9c40c` 两棵树的差异，结论：
 
 - `ROW_IDENTITY_UNSUPPORTED`、`ORDER_KEY_UNSUPPORTED`、`COMPARISON_MODE_NOT_DETAILED` 已经没有产生点；`BLANK_PROVENANCE_INVALID` 也没有主动产生点；
 - `ORDERED_PROVENANCE_MISSING`、`ORDERED_PROVENANCE_INVALID`、`METADATA_ROUTE_REQUIRES_NATIVE_ROWS`、`METADATA_ROLE_REQUIRES_NATIVE_ROWS` 若触发，会成为表级 `DEGRADED` 诊断，写入 surface 的 `tables[].diagnostics.diagnostics_summary`（有序表另写入 `ordered_extension.diagnostics`），不会导致 operation 失败；
@@ -124,7 +128,7 @@ FE4b 的细节（fixture 的生成方式、Contract 版本号的判定、按导�
 - 只有一个页签的项很多：全局参数的各整表项、“其他表”中的每张表、装置总表、网口配置表。为这些项显示页签栏没有信息量。
 - 大多数比较只有一个视图：MODIFIED_ONLY 的 Preview、两节点的 History。
 
-**建议（§10 Q6，甲）：** 层级的定义不变，渲染时按需折叠：
+**建议（§10.2 Q6，甲）：** 层级的定义不变，渲染时按需折叠：
 
 - 只有一个视图时不显示视图分段控件；
 - 只有一个页签的项点击后直接打开该表，不显示页签栏，表名显示在信息行；
@@ -135,20 +139,25 @@ FE4b 的细节（fixture 的生成方式、Contract 版本号的判定、按导�
 
 ### 3.3 真实数据重拍（前端 kickoff §6）
 
-- **FE4a：** 在 P6 退出的 backend 树上重跑 t1 旅程（FE3 kickoff §8 的步骤与判据），产生参考截图，只留在节点上，SHA256 写入 handoff，不作验收。同时把关键页面的截图清单固定在 t1 套件中，FE4b 用同一套用例重拍。
-- **FE4b：** 正式重拍。在 BE-b 交付后的 backend 上，用 t1 数据在 1280 与 1920 下重拍关键页面，交 owner 看图确认。暂定页面如下，第 2 步定稿：
-  - 工作台：组态树与详情面板；
-  - Preview 差异浏览：v1（全部新增）与 v2 FULL 的两个视图；
-  - 侧栏各分组展开：转发通道、二次装置（含复合信号虚装置）、通讯规约、全局参数、其他表；
-  - 装置页签（按身份过滤）；
-  - 表格的中文列名、业务列序与固定列；
-  - 行定位后的修改行连线与风险底色；
-  - 导航诊断（若 t1 数据产生）；
-  - 审核模式；
-  - 历史比较三节点的结果；
-  - 归档主线（t1 v1 预期没有业务核验异常，截核验概况）。
+真实数据范围由 owner 2026-11-10 按 DC33、DC98 决定（§10.1 Q11），运行次数见 §7.2。
+
+- **FE4a：参考截图。** 在 P6 退出的 backend 树上跑 t1 旅程（FE3 kickoff §8 的步骤与判据），并在 `e2e-real/t1.spec.ts` 中加入**不依赖 BE-b** 的关键页面截图。这些截图只作参考，不作验收：留在节点上，SHA256 写入 handoff。
+  - 页面与截图名（`<名>` 后加 `-1280`、`-1920`，两种宽度都拍）：
+    - `fe4-t1-workbench`：工作台，组态树与详情面板（第 1 步上传前）；
+    - `fe4-t1-preview-v1`：Preview v1 差异浏览（全部新增，第 1 步）；
+    - `fe4-t1-preview-v2-baseline_to_initial`、`fe4-t1-preview-v2-initial_to_modified`：Preview v2 FULL 的两个比较对（第 4 步，按 `pair_id` 取用，同 FE3 kickoff §8.3）；
+    - `fe4-t1-review`：审核模式（第 2 步或第 5 步）；
+    - `fe4-t1-history-3node`：历史比较三节点的结果（第 6 步）；
+    - `fe4-t1-archive`：归档主线的业务核验概况（第 3 步；t1 v1 预期没有业务核验异常）。
+  - 截图放在 M1 的测量窗口之外：第 1 步的 renderer 增量先取值，再拍 `fe4-t1-preview-v1`，切换宽度不进入 M1 读数。
+  - 截图不增加旅程步骤，也不改变 FE3 kickoff §8.3 的判据。
+  - FE4a 的退出条件不含依赖 BE-b 的页面。
+- **FE4b：正式重拍。** 在 BE-b 交付后的 backend 上，用 t1 数据在 1280 与 1920 下重拍，交 owner 看图确认。t1 证据运行一次，同时产生正式重拍截图。范围：
+  - 沿用上面 FE4a 的页面与截图名，作为 FE4b 的正式截图；
+  - 加上依赖 BE-b 的页面，页面与截图名在本文第 2 步（§5.3）定稿并在 FE4b 实现：侧栏各分组展开、装置页签（按身份过滤）、中文列名与业务列序及固定列、行定位后的修改行连线与风险底色、导航诊断（若 t1 数据产生）。
 
   t1 的 `composite_changed` 为 0，Preview 改前、改后公式对照由模拟接口截图覆盖。
+- **两段共同的范围：** 只报告 t1 第 1 步 MODIFIED_ONLY 的 renderer 增量；不做计时，不用 t2–t4；打包流程没改就不跑 t4（§7.4）。t4 上的导航正确性由 BE-b 的后端验证负责，前端不重复。
 - **节点：** 按 DC91 选合格空闲节点，见 §2.5、§7.1。
 
 ### 3.4 FE3 带入项（FE4a）
@@ -193,7 +202,7 @@ FE3c 证据核对的 E1、E2 都是 wrapper 的显示问题，由 §3.8 的取�
 
 现状：`styles.css` 中 `.form-warning` 引用了未定义的 `--color-warning-soft`，回退到 `--color-surface-muted`（灰底）。使用处有三个：`SubmitDialog.tsx` 的“需要管理员处理”与“Preview 结果已基于旧基线”，`UploadStepCard.tsx` 的 `MANUAL_RECOVERY_REQUIRED`。FE3a 复审 N8 时 owner 已看图接受灰底。
 
-**建议（§10 Q7，甲）：** 删除这个未定义的引用，直接使用 `--color-surface-muted`，外观不变，不新增黄色令牌。理由：
+**建议（§10.2 Q7，甲）：** 删除这个未定义的引用，直接使用 `--color-surface-muted`，外观不变，不新增黄色令牌。理由：
 
 - owner 已接受灰底；
 - UI 优化方向 §7.4 有意不用黄色，避免与风险色混淆、夸大问题；
@@ -206,8 +215,8 @@ FE3c 证据核对的 E1、E2 都是 wrapper 的显示问题，由 §3.8 的取�
 
 | 缺口 | 处理 | 依赖 |
 | --- | --- | --- |
-| 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | **FE4 不做**（§10 Q8）。owner 在 FE2 kickoff Q4 决定 FE2 不做，是否需要由 owner 另定。需要时作为后端任务单独立项，再开一个前端阶段接回 | 后端：先确认 FULL 上传的 ① 是否作为可寻址的历史节点保存；History 投影增加该类节点；`POST /v1/history-compares` 接受该类节点。前端不能推断 |
-| 首批空基线时禁用上传第 ① 步 | **FE4 不做**（§10 Q9），保持 FE2 kickoff Q18 的决定：界面不禁用 | 后端：在 History 中提供“基线为空”的事实（`INITIAL` 可以由部署映射带内容）。建议作为独立的小后端任务，不并入 BE-b：它与导航和展示无关，并入会扩大 BE-b 的审核面 |
+| 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | **FE4 不做**（§10.2 Q8）。owner 在 FE2 kickoff Q4 决定 FE2 不做，是否需要由 owner 另定。需要时作为后端任务单独立项，再开一个前端阶段接回 | 后端：先确认 FULL 上传的 ① 是否作为可寻址的历史节点保存；History 投影增加该类节点；`POST /v1/history-compares` 接受该类节点。前端不能推断 |
+| 首批空基线时禁用上传第 ① 步 | **FE4 不做**（§10.2 Q9），保持 FE2 kickoff Q18 的决定：界面不禁用 | 后端：在 History 中提供“基线为空”的事实（`INITIAL` 可以由部署映射带内容）。建议作为独立的小后端任务，不并入 BE-b：它与导航和展示无关，并入会扩大 BE-b 的审核面 |
 | surface `diagnostics_summary` 中的自由文本 | **随 FE4b 接入**：owner 2026-11-03 已把它并入 BE-b（草案 §4.10、§6 Q10）。前端 kickoff §9 写的“不属于 BE-b”已过时，由本分支的另一个提交更正 | BE-b §4.10 |
 
 ### 3.8 取证工具（FE4a）
@@ -217,19 +226,25 @@ FE3 中出现过两类取证错误：FE3b 的 04 证据 handoff（`a300b16485`�
 FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4a 与 FE4b 的取证都使用它们：
 
 - **证据 wrapper：**
-  - 写日志前检查参数：参数个数；worktree、日志、截图目录都是绝对路径，日志目录已存在，截图目录在 worktree 外；没有他人的有效占用标记（用途为计时测量时等待）。任一不满足即以非 0 退出，不运行入口；
-  - 记录 hostname、起止 UTC、起止 HEAD 与 `HEAD:frontend`、`HEAD:vnext`、起止 `git status --porcelain --untracked-files=all`、开始与结束时的占用标记；
+  - 写日志前检查参数：参数个数；worktree、日志、截图目录都是绝对路径，日志目录已存在，截图目录在 worktree 外。任一不满足即以非 0 退出，不运行入口；
+  - 占用标记 `/home/dev/gdds-node-busy.d`，按入口区分：
+    - `run-tests.sh`、`validate-upload-package.sh`：由 wrapper 原子 `mkdir` 取得标记，写入会话名、用途与开始 UTC；收尾后只删除本次自己取得的标记；
+    - `run-real-backend-e2e.sh`：入口自行取得标记，wrapper 不获取；启动前标记必须不存在，否则入口会 exit 3；
+    - 标记已存在时：属于他人的有效标记，等待或退出，不删除、不抢占；用途为计时测量时一律等待；本会话残留的标记（会话名相同、没有对应进程）先按收尾规则确认后再删除，不自动删除；
+  - 记录 hostname、起止 UTC、起止 HEAD 与 `HEAD:frontend`、`HEAD:vnext`、起止 `git status --porcelain --untracked-files=all`、开始与结束时的占用标记内容；
   - 用 `set -o pipefail` 取入口自身的 exit code；
   - 写日志的 `.sha256` 旁注文件；
-  - 从入口日志按整行取结果字段，取不到时写明原因，不写 `MISSING`；
-  - 不替真实 backend 入口获取占用标记。
-- **十六进制回源脚本：** 读取 handoff，找出全部十六进制值，逐个与来源对照：节点上现场重算的文件 SHA256、取回的日志与清单原文、git 对象。输出每个值的来源；报告未命中的值与长度不是 7–12、40、64 的值；“路径 + SHA”成对出现时核对配对关系。在宿主机用 `python3 -I` 运行，不依赖 Node。
+  - 从入口日志按整行取结果字段，取不到时写明原因，不写 `MISSING`。
+- **十六进制回源脚本：** 读取 handoff，找出全部十六进制值，逐个与来源对照：节点上现场重算的文件 SHA256、取回的日志与清单原文、git 对象。输出每个值的来源；报告未命中的值与长度不是 7–12、40、64 的值；“路径 + SHA”成对出现时核对配对关系。用 `python3 -I` 运行，只用标准库，不依赖 Node。运行位置：
+  - 文件 SHA256 的现场重算必须在该测试节点的宿主机上运行（节点宿主机没有 Node.js，有 python3）；
+  - 与 git 对象、取回的日志和清单原文的只读对照可以在开发主机上运行。
 
 这两个工具只是辅助，不改变证据规则：运行仍由入口脚本完成，审核会话仍独立回源。
 
 ### 3.9 不在 FE4 范围
 
 - 历史初始备份节点与首批空基线（§3.7）。
+- P6 计时是否包含整包下载（前端 kickoff §9、FE3 kickoff §12 的 DC74 行）：**已关闭（owner 2026-11-10，§10.1 Q13）**。P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项。DC74 文档由后端修改，本文不改。
 - Phase 7 可能增加的排队状态与统计展示：随 P7 的接口另开前端阶段，不在 FE4。
 - 正式 SSO、部署形态、外部驱动通道、深色主题。
 - Preview 顶栏的上传快捷入口、历史比较结果抽屉布局、1280 下提交对话框滚动：已接受为 FE2 的偏差（FE2 kickoff Q19）。
@@ -241,10 +256,12 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 | 事项 | 现状 | 建议 | 谁决定 |
 | --- | --- | --- | --- |
 | 第二步设计的作者 | 前端 kickoff §10 把“BE-b 设计”列为前端设计会话的职责，§10 末行又写 BE-b 的实施与审核按后端流程另行指定。第一步已由前端设计会话写完 | 第二步由后端设计会话执行：内容是计算位置、缓存（S5 的计算缓存）、计时、golden、Repository/History 侧的注释持久化、Rust 与 Python 解析器的注释捕获，都在后端实现层。前端设计会话核对面向前端的部分：Contract 形状与第一步一致、fixture 与 golden 覆盖第一步的规则，并答复业务规则问题 | owner（Q4） |
-| 第二步的时间 | 草案定的时点（“S5 接近完成”）已过 | 现在开始，不等 P7 | owner（Q4） |
-| 实施与审核会话 | 无 | 按 AGENTS“角色与子 agent”新建后端实施与独立审核角色，不由前端会话承担 | owner 或后端协调者（Q5） |
-| 与 P7 的衔接 | P7 草稿未提及 BE-b，不作依据 | BE-b 会改变 surface、bundle 摘要与 golden，并在 Preview/History 路径上增加计算。建议作为 main 上的独立后端任务，在 P7 中改动 Preview/History 组装或产物的阶段之前，至少先固定 BE-b 的 Contract 与 golden；具体先后由后端设计会话评估、owner 决定 | owner（Q5） |
+| 第二步的时间与基础 | 草案定的时点（“S5 接近完成”）已过 | **owner 2026-11-10 已决定：** 现在可以开始，以 P7 S1a 的目标 Contract 为基础 | 已决定（§10.1 Q5） |
+| 实施与审核会话、排期 | 无 | 按后端流程处理，本文只记录前端的依赖。前端的要求只有一条：实施与审核不由前端会话承担 | 后端流程 |
+| 与 P7 的先后 | P7 S0 已收口，S1a 编码已获授权；S1a 改 `artifact_id` 格式、bundle 交付与 surface/bundle 摘要（§2.3） | **owner 2026-11-10 已决定：** FE4a 与 S1a 并行；BE-b 实施排在 S1a 本地退出并合入 main 之后；FE4b 在 BE-b 之后 | 已决定（§10.1 Q5） |
 | 范围 | 草案 §4.1–§4.10 与 §5 的约束 | 不拆。FE4b 需要全部内容；行定位、视图 ID 与稳定编码都会改变摘要，分开做会多改几次 golden | 后端设计会话在第二步中确认 |
+
+FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `artifact_id` 格式与 bundle 交付，前端的 bundle 解析、互通 fixture 与生成器都可能受影响，而这些变化在 OpenAPI 中看不出来。因此下面的交付清单要求把两者的变化分开说明。
 
 **FE4b 需要 BE-b 交付的内容（建议写进 BE-b 第二步的交付清单）：**
 
@@ -252,16 +269,22 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 2. golden：导航、导航诊断、行定位、surface 与 bundle。
 3. 一个能在后端镜像中生成前端 fixture 的入口（现有 `frontend/scripts/generate-backend-bundle-fixture(s)` 调用的后端能力随之产出真实导航），或者明确的调用方式。
 4. 合入 main 的提交、`vnext/` 树与退出 tag；依赖镜像 tag 与身份（依赖输入有变化时，按 AGENTS 在 CT201 构建并预填充）。
-5. 该树的生产 OpenAPI 原件，以及与 `6368c9c40c` 原件规范化后的差异说明（HTTP 没有改动时写明无差异）。
+5. 该树的生产 OpenAPI 原件。
 6. §4.10 稳定编码的完整列表，标明取代了哪些旧条目。
+7. 相对 `6368c9c40c`（FE3c 的被测树）的变化说明，**S1a 与 BE-b 的变化分开列**：
+   - OpenAPI 规范化后的差异（按 FE3 kickoff §5.1 规范化；没有差异时写明）；
+   - bundle tar 成员的 `logical_path` 集合的变化；
+   - manifest 字段集合的变化；
+   - ArtifactRef（`artifact_id` 格式等）与 surface 的变化；
+   - 重新生成的互通 fixture：`frontend/src/test/fixtures/source/backend/` 下由后端生成的 bundle fixture，含摘要互通用的 `pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation`，以及生成它们的上传输入与命令。
 
 ## 5. 阶段安排
 
 ### 5.1 是否拆段
 
-**建议拆（§10 Q1）。** 理由：
+**建议拆（§10.2 Q1，待 owner 决定）。** 理由：
 
-- BE-b 的第二步、实施、审核都还没开始，排期取决于 owner 对 P7 的安排，可能需要数周；带入项、Q21 与令牌现在就能做，等待只会让上下文变旧；
+- 按 owner 2026-11-10 的决定，BE-b 实施排在 P7 S1a 本地退出并合入 main 之后，FE4b 还要再等 BE-b，可能需要数周；带入项、Q21 与令牌现在就能做，等待只会让上下文变旧；
 - FE4a 在 P6 退出的 backend 树上重跑真实旅程与 t1，前端与新后端的组合尽早得到验证；之后 FE4b 的问题只剩 BE-b 本身；
 - 两段改的地方基本不重叠：FE4a 改归档对话框、续做提示、诊断文案与测试；FE4b 改导航、表格列、行定位与 fixture；
 - 代价：多一次审核与一次取证。按 DC98，取证只跑受影响的项（§7.2）。
@@ -272,15 +295,15 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 
 | 子阶段 | 内容 | 前置条件 | 退出 tag | 审核范围 | 退出条件 |
 | --- | --- | --- | --- | --- | --- |
-| FE4a 带入项与新后端回归 | `fe-vnext` 快进到 main `16ffe72829`（§6.1）；§3.4 C1–C11；§3.5 Q21；§3.6 令牌；§3.8 取证工具；在 `vnext/` 树 `49c1de43be` 上跑真实 e2e 完整集与 t1；固定 FE4b 重拍用的截图清单（§3.3） | 本文经审核会话核对与 owner 确认（Q1、Q2、Q3、Q7）；审核会话现场核对节点、镜像与 `--print-input` 后发出提示词 | `fe-fe4a-exit` | `fe-fe3c-exit..<FE4a 候选>` | 审核通过；证据（§7.2 FE4a 行）各一次通过；C3、C4、C9 及有变化页面的截图经 owner 确认 |
-| FE4b BE-b 接入与正式重拍 | §3.1 B1–B9；§3.2 侧栏；§3.3 正式重拍；按 BE-b 交付合入 main、刷新 OpenAPI 与 fixture；FE4 退出 | `fe-fe4a-exit`；BE-b 退出并合入 main，§4 的交付齐全；本文第 2 步（FE4b 设计）经审核与 owner 确认 | `fe-fe4b-exit`（即 FE4 退出） | `fe-fe4a-exit..<FE4b 候选>` | 审核通过；证据（§7.2 FE4b 行）各一次通过；正式重拍与 FE4b 截图经 owner 确认 |
+| FE4a 带入项与新后端回归 | `fe-vnext` 快进到 main `16ffe72829`（§6.1）；§3.4 C1–C11；§3.5 Q21；§3.6 令牌；§3.8 取证工具；在 `t1.spec.ts` 中加入不依赖 BE-b 的参考截图（§3.3）；在 `vnext/` 树 `49c1de43be` 上跑真实 e2e 与 t1（次数按 §7.2） | 本文经定向复核，owner 决定 §10.2 的 Q1、Q3、Q7；审核会话按 §11.1 标题重核分支与 tag、现场核对节点、镜像与 `--print-input` 后发出提示词 | `fe-fe4a-exit` | `fe-fe3c-exit..<FE4a 候选>` | 审核通过；证据（§7.2 FE4a 证据行）各一次通过；C3、C4、C9 及有变化页面的截图经 owner 确认。不含依赖 BE-b 的页面 |
+| FE4b BE-b 接入与正式重拍 | §3.1 B1–B9；§3.2 侧栏；§3.3 正式重拍（含依赖 BE-b 的页面）；按 BE-b 交付合入 main、刷新 OpenAPI 与 fixture；FE4 退出 | `fe-fe4a-exit`；P7 S1a 本地退出并合入 main 之后，BE-b 退出并合入 main，§4 的交付齐全；本文第 2 步（FE4b 设计）经审核与 owner 确认 | `fe-fe4b-exit`（即 FE4 退出） | `fe-fe4a-exit..<FE4b 候选>` | 审核通过；证据（§7.2 FE4b 行）各一次通过；正式重拍与 FE4b 截图经 owner 确认 |
 
 - 两段都在 `fe-vnext` 上进行，合入 main 只用快进或合并，不 rebase，不改写已被引用的提交。
 - **路径核对（每段都做）：** 设 `<main>` 为最后一次进入 `fe-vnext` 的 main 提交：
   - `git rev-parse <候选>:vnext` 与 `git rev-parse <main>:vnext` 相等；
   - `git diff --name-only <main> <候选>` 只含 `frontend/` 与 `docs/frontend-vnext/` 下的路径。
 - 审核范围中来自 main 的文档与 `vnext/` 不属于前端审核，由后端审核负责。main 上直接提交的 `frontend/` 改动属于前端审核范围（目前没有）。
-- FE4a 期间不再合入 main。后端若在 main 上改 `vnext/`，不影响 FE4a；只有 FE4a 确实需要时，才由审核会话重核依赖镜像与比对原件后决定是否重新合入，实施会话不自行合入。
+- FE4a 期间不合入 main（owner 2026-11-10 已决定，§10.1 Q2）。P7 S1a 在 main 上改 `vnext/` 不影响 FE4a，被测后端固定为 `16ffe72829`；需要偏离时停下交 owner，实施与审核会话都不自行合入。
 - FE4b 的合入点、依赖镜像与比对原件在第 2 步写定。
 
 ### 5.3 FE4b 的第 2 步
@@ -291,7 +314,8 @@ BE-b 第二步与 Contract 固定后，前端设计会话修订本文，写定�
 - fixture 的重新生成：生成器、上传输入、哪些手写占位 fixture 删除；
 - 导航、列与行定位的模拟数据规则：只构造后端可达的组合，规则同 FE2 kickoff §7.5；
 - 程序判据：t1 上每张 surface 表恰好被认领一次（按身份过滤的共享表可在多个装置下出现）；有 `row_locator_ref` 的表全部定位，没有出现表级回退；回退的表数只报告；
-- 截图清单与 owner 看图项；
+- 截图清单与 owner 看图项：依赖 BE-b 的页面与截图名（§3.3）；
+- 按 §4 第 7 项的变化说明，确认 bundle 解析、互通 fixture 与生成器要改的地方；
 - FE4b 的实施与审核提示词。
 
 FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owner 转后端，前端不自行假设。
@@ -303,12 +327,13 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 - `fe-vnext` 当前 `e22e39ba15` 是 `16ffe72829` 的祖先，直接快进，没有合并提交：
   - 包含 `fe-fe3c-exit` 的目标 `06b454b0ef`（FE3c 证据 handoff）与 main 合入提交 `475022300c`；
   - `vnext/` 树变为 `49c1de43be`，与 `p6-exit` 的目标 `b0fc25e881` 相同。
-- **为什么是这个提交：**
-  - 它是 FE3 退出记录，`vnext/` 等于 P6 退出验证过的树；
+- **为什么是这个提交（owner 2026-11-10 已决定，§10.1 Q2）：**
+  - 它是 FE3 退出记录，`vnext/` 等于 P6 退出验证过的树，且不带 P7 文档，路径核对更简单；
   - 用 tag `p6-exit` 的目标 `b0fc25e881` 不行：它不含 FE3c 的合入，快进不到；
   - 新建分支没有好处：前端 kickoff §7 的流程以 `fe-vnext` 为唯一长期分支，快进不改写任何提交。
-- **不合入之后的 main：** 之后的 main 可能含 P7 代码，且尚未验证。
-- **`p6-exit` 尚未推送：** FE4a 的证据只绑定本地树 `49c1de43be`。若推送前 P6 的退出提交发生变化，由审核会话重新核对，再决定是否重新合入（§10 Q2）。
+- **不合入之后的 main：** 本地 main 之后已合入 P7 S1a 的设计与 Contract 目标补充（§2.2），S1a 编码已获授权，随时可能带入 `vnext/` 改动。FE4a 与 S1a 并行，期间不合入 main。
+- **推送（owner 2026-11-10 已决定，§10.1 Q12）：** `16ffe72829` 已在远端，且包含 `b0fc25e881`，FE4a 的被测提交与 `vnext/` 树不依赖任何未推送的对象，FE4a 开始前不需要推送。`p6-exit` 这个 tag 本身未推送，不影响 FE4a。
+- **审核会话发提示词前重核（§11.1）：** `fe-vnext` 仍为 `e22e39ba15`；`p6-exit` 仍指向 `b0fc25e881`，其 `vnext/` 为 `49c1de43be`；记录 main 当前的头与 `vnext/` 树。合入点不随 main 改变。
 - **审核范围的说明：** `fe-fe3c-exit..<FE4a 候选>` 会包含 S5、S6 的全部后端提交，按 §5.2 不属于前端审核；`16ffe72829:frontend` 与 tag 相同，范围内的前端改动全部来自 FE4a。
 
 ### 6.2 `6368c9c40c..49c1de43be` 对前端的影响
@@ -317,30 +342,34 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 | 类别 | 核对 | 结论 |
 | --- | --- | --- |
-| OpenAPI、HTTP DTO、错误码 | `backend/src/gateway_backend/http/` 下没有任何改动（含 `schemas/`、`errors.py` 与路由）；`application/workspace/`（上传上限）、`settings.py`、`deploy/` 未改 | 无变化。预期运行时 `/openapi.json` 规范化后与现有快照逐字节相同 |
-| bundle、manifest、closure、tar | `capabilities/bundle_assembly/`、`capabilities/surface_assembly/`、`domain/`、`vnext/fixtures/`（含全部 golden）未改；`artifacts/` 只改了 `computation_cache.py`、`snapshot_table_export_cache.py` 两个缓存文件 | 无变化。S5 的计算缓存只是复用已有结果，不改变产物字节 |
-| surface 与比较、风险的取值 | `capabilities/comparison/` 改了 6 个文件、`risk_evaluation/` 改了 4 个，Rust `records/` 改了 3 个：都是缓存编解码、任务身份与持久化。diff 中出现的大写编码都是已有取值（记录族、变化类型、有序事件等），以及从旧位置原样搬移的 `ORDERED_PROVENANCE_MISSING`、`ORDERED_PROVENANCE_INVALID`。新增的 `ValueError("row_diff_detail_policy is invalid")` 是缓存任务的内部校验，即使写入诊断，也只会以异常类名出现，归入“内部错误” | 无新的诊断码。§3.5 的文案表适用于 `49c1de43be` |
-| operation 与 checkpoint | `application/` 下的 History、Preview、Submit 与 checkpoint 改动集中在缓存接线与精确提交的校验；`CHECKPOINT_JOB_STATE_MISMATCH` 在 `6368c9c40c` 中已有，是内部恢复码，不经 HTTP DTO 返回给前端 | 无前端可见变化 |
+| OpenAPI、HTTP DTO、错误码 | `backend/src/gateway_backend/http/` 下没有任何改动（含 `schemas/`、`errors.py` 与路由）；`application/workspace/`（上传上限）、`settings.py`、`app.py`、`deploy/` 未改。**导入闭包（审核会话补核）：** `http/routes/` 与 `http/schemas/` 导入的非 `http` 模块都不在改动集合中；整个 `http/` 导入的非 `http` 模块中只有 `application/history/compare_jobs.py` 与 `application/submission/ports.py` 改了，前者被 `http/orchestration/history_compare.py` 使用的三个符号逐字不变，后者只给 Protocol 加了一个方法，不是 schema | 无变化。预期运行时 `/openapi.json` 规范化后与现有快照逐字节相同 |
+| bundle、manifest、closure、tar | `capabilities/bundle_assembly/`、`capabilities/surface_assembly/`、`domain/`、`vnext/fixtures/`（含全部 golden）未改；`artifacts/` 只改了 `computation_cache.py`（新增）、`snapshot_table_export_cache.py` 两个缓存文件 | 无变化。S5 的计算缓存只是复用已有结果，不改变产物字节 |
+| surface 与比较、风险的取值 | `capabilities/comparison/` 6 个文件（3 个新增）、`risk_evaluation/` 4 个（2 个新增）、`snapshot_materialization/` 5 个；Rust 的 `comparison/mod.rs`、`lib.rs`、`records.rs`、`records/{builders,cache,facts}.rs` 与 `gateway-compute-python/src/comparison_records.rs`：都是缓存编解码、任务身份、持久化与快照导出缓存。diff 中出现的大写编码都是已有取值（记录族、变化类型、有序事件等），以及从旧位置原样搬移的 `ORDERED_PROVENANCE_MISSING`、`ORDERED_PROVENANCE_INVALID`。新增的 `ValueError("row_diff_detail_policy is invalid")` 是缓存任务的内部校验，即使写入诊断，也只会以异常类名出现，归入“内部错误” | 无新的诊断码。§3.5 的文案表适用于 `49c1de43be` |
+| operation 与 checkpoint | `application/` 下 `history/compare_jobs.py`、`preview_jobs.py`、`pair_pipeline.py`、`canonical_metadata/table_access.py`、`submission/{finalize_transaction,ports}.py`，`bootstrap/operation_worker.py`，`infrastructure/control_db/` 6 个（1 个新增）、`infrastructure/repository_read/` 2 个：缓存接线、精确提交的校验与按需读取。`CHECKPOINT_JOB_STATE_MISMATCH` 在 `6368c9c40c` 中已有，是内部恢复码，不经 HTTP DTO 返回给前端。**History 比较的 assemble 步骤**改为按需读取行，新增两类终态失败：`HistoryCompareInputError`（`CommitCanonicalMetadataError` 的码或 `HISTORY_COMMIT_UNAVAILABLE`）与不可重试的 `RepositoryProviderError`（以其 `code.value` 作为诊断码）。因此 `HistoryCompareResultResponse.diagnostic.code` 在 assemble 阶段的可达取值扩大了 | 无渲染影响：前端只显示 `diagnostic.message`，不按码映射；模拟数据可达表只列 `HISTORY_RULESET_VERSION_MISMATCH`，仍是可达取值的子集。真实旅程中若出现，按本节末条在 handoff 中列出 |
+| `repository_client` | `repository_client/src/` 5 个文件（`arrow_stream`、`client`、`deadline`、`errors`、`retry`）：请求改为受调用方期限约束 | 不经 HTTP DTO 暴露给前端；对前端的影响只能由真实旅程验证，这是 FE4a 在新树上重跑的理由之一 |
 | 依赖与镜像 | 五个依赖输入文件、`repository_service/uv.lock`、两个 backend Dockerfile、`vnext/scripts` 都未改 | 依赖镜像预期仍为 `lock-578e079b762e`，RS 为 `lock-6dc9659f0aee`；以现场 `--print-input` 为准 |
 
-- `real_dump_journey.py` 在 `benchmarks/` 下有改动（S6 的 t4 W1/W2 范围）。t1 的预期值仍按 FE3 kickoff §8.3，在运行时从被测树读取模块级常量；读不到即停止。
+另有 24 个测试文件（按路径计；审核报告把 `tests/test_control_db_schema.py` 计入 control DB，记为 7 与 23，总数同为 72）与 `benchmarks/` 的 4 个文件（2 个新增），不影响前端。`repository_service/`、`vnext/scripts/` 与两个 backend Dockerfile 都没有改。
+
+- `real_dump_journey.py` 在 `benchmarks/` 下有改动（S6 的 t4 W1/W2 范围）。t1 的预期值仍按 FE3 kickoff §8.3，在运行时从被测树读取模块级常量 `S2B_DATASET_BASELINE` 与 `S1B_V2_PREVIEW_CHANGED_COUNTS`；读不到即停止。设计会话已用 `git grep` 确认两者在 `16ffe72829:vnext/backend/benchmarks/real_dump_journey.py` 中仍是模块级常量（第 192、234 行）；审核会话发提示词前再用只读 `git grep` 重核一次（§11.1）。
 - FE4a 真实旅程中若出现上表没有预期的诊断码，在 handoff 中列出编码与出现位置，不作为停止条件（同 FE3 kickoff §2.3 末段）。
 
 ### 6.3 OpenAPI 快照与比对原件
 
 - **FE4a 不刷新快照。** 依据 §6.2 第 1 行。
-- **比对原件（§10 Q3，甲）：** FE4a 不要求后端为 `49c1de43be` 交付新的生产 OpenAPI 原件。每次真实运行照常在浏览器用例之前，把运行时 `/openapi.json` 与已提交的快照按 FE3 kickoff §5.1 规范化后逐字节比较；不一致即停止，不在 FE4a 中刷新，交设计会话，由 owner 转后端交付该树的原件后再定。理由：
+- **比对原件（§10.2 Q3，甲）：** FE4a 不要求后端为 `49c1de43be` 交付新的生产 OpenAPI 原件。每次真实运行照常在浏览器用例之前，把运行时 `/openapi.json` 与已提交的快照按 FE3 kickoff §5.1 规范化后逐字节比较；不一致即停止，不在 FE4a 中刷新，交设计会话，由 owner 转后端交付该树的原件后再定。理由：
   - FE3 要求原件，是因为要用它刷新快照，原件是快照的独立来源；FE4a 不刷新，快照的来源仍是 `6368c9c40c` 的原件；
   - `http/` 一行未改；
   - 运行时比对本身能发现任何 schema 变化。
 - 乙：发出 FE4a 提示词前，由后端为 `49c1de43be` 交付原件，取件方法同 FE3 kickoff §5.2，交付方为后端设计会话指定的会话。代价是多一次后端起栈，结论预期与甲相同。
-- **FE4b：** BE-b 交付的树的原件由 BE-b 的后端交付方提供（§4 第 5 项），按 FE3 kickoff §5.1、§5.2 刷新与比对。
+- **FE4b：** BE-b 交付的树的原件与变化说明由 BE-b 的后端交付方提供（§4 第 5、7 项），按 FE3 kickoff §5.1、§5.2 刷新与比对。
 
 ### 6.4 合入 main
 
-- **FE4a 退出：** 附注 tag `fe-fe4a-exit` 指向 FE4a 证据 handoff。先把审核报告合入 main，再以 `--no-ff` 合入 tag。main 届时可能已有 P7 的文档或代码；FE4a 只改 `frontend/` 与 `docs/frontend-vnext/`，预期没有冲突，由审核会话先试合并。
-- **FE4b 退出（FE4 退出）：** 同样流程，tag `fe-fe4b-exit`。
-- tag、合入与推送由设计会话在 owner 确认后执行；推送需要 owner 授权。
+- **FE4a 退出：** 附注 tag `fe-fe4a-exit` 指向 FE4a 证据 handoff。先把审核报告合入本地 main，再以 `--no-ff` 合入 tag。main 届时可能已有 P7 的文档或代码；FE4a 只改 `frontend/` 与 `docs/frontend-vnext/`，预期没有冲突，由审核会话先试合并。
+- **FE4a 的推送（owner 2026-11-10 已决定，§10.1 Q12）：** 退出时推送 tag `fe-fe4a-exit`。main 是否推送随后端的推送节奏由 owner 决定；届时 main 会带上 P7 的内容。
+- **FE4b 退出（FE4 退出）：** 同样流程，tag `fe-fe4b-exit`；推送在第 2 步写定。
+- tag 与合入由设计会话在 owner 确认后执行；推送只按 owner 的决定或授权执行。
 
 ## 7. 测试与证据
 
@@ -359,18 +388,25 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 | 子阶段 | 内容 | 性质 |
 | --- | --- | --- |
-| FE4a 调试 | `run-tests.sh --e2e --screenshots`（`GATEWAY_FE_TEST_WORKERS=2`）；`run-real-backend-e2e.sh --suite journeys`（完整集，含 C7 改动后的 J1、J2）；`--suite t1`；`validate-upload-package.sh` | 调试，各至少一次通过后送审 |
-| FE4a 证据 | 审核通过后，在最终候选的 clean、已提交 detached worktree 上各运行一次：`run-tests.sh --e2e --screenshots`、`validate-upload-package.sh`、`--suite journeys`、`--suite t1` | 证据；耗时只报告 |
-| FE4b 调试与证据 | 同 FE4a 四项；`journeys` 与 `t1` 加入导航、列与行定位的程序判据（第 2 步）；t1 产生正式重拍截图 | 第 2 步写定 |
+真实数据的次数由 owner 2026-11-10 按 DC33、DC98 决定（§10.1 Q11）。
 
-- 调试与取证分开（DC30）：调试只跑 focused 与出问题的那一段；证据只在审核通过后运行。
-- FE4a 证据仍跑四项。前端没有沿用机制，`frontend/` 树变了，模拟接口全量必须重跑；backend 树也变了，`journeys`、`t1` 与上传包校验也要在新树上重跑。按 DC98，不另加重复采样或性能测量。
-- **失败与重做（AGENTS main，DC68 的 2026-11-08 修订）：** 工具或取证步骤失败时：
-  - 先停止该次执行，保留原始日志与 SHA256；
-  - 同一具体故障最多三轮自行修复与复验；
-  - 三轮仍未解决、原因或副作用不明，或超出授权时，交 owner。
+| 子阶段 | 内容 | 性质 |
+| --- | --- | --- |
+| FE4a 调试（实施会话） | 受影响的单测与模拟接口用例（focused）；送审前跑一次模拟接口全量 `run-tests.sh --e2e --screenshots`（`GATEWAY_FE_TEST_WORKERS=2`），产生交 owner 看图的截图；`run-real-backend-e2e.sh --suite journeys` 只跑 C7 改到的 J1、J2（`j1-archive-mainline`、`j2-manual-close` 两个 scope），按需；`--suite t1` **一次**（因在 `t1.spec.ts` 中加入参考截图，§3.3）。`validate-upload-package.sh` 不在调试中跑：FE4a 不改上传包与校验 | 调试；通过后送审 |
+| FE4a 审核（审核会话） | 模拟接口全量 `run-tests.sh --e2e --screenshots` 一次与探针（§11.2）；**不独立跑真实旅程与 t1**，改为核对实施会话的调试日志 | 审核 |
+| FE4a 证据 | 审核通过后，在最终候选的 clean、已提交 detached worktree 上各运行一次：`run-tests.sh --e2e --screenshots`、`validate-upload-package.sh`、`--suite journeys`（完整集 20 个 scope）、`--suite t1`。审核会话随后核对证据日志 | 证据；耗时只报告 |
+| FE4b | t1 证据运行一次，同时产生正式重拍截图（§3.3）；调试按需，在第 2 步写定。`journeys` 与 `t1` 加入导航、列与行定位的程序判据（第 2 步） | 第 2 步写定 |
 
-  不得无修改重试，不改预期去掩盖结果。产品问题按审核流程处理，不按 DC68 重做。
+- 调试与取证分开（DC30）：调试只跑 focused 与受影响的真实数据段；证据只在审核通过后运行。
+- **只跑 J1、J2 需要改入口：** `run-real-backend-e2e.sh` 现在只能用 `--subphase fe3b`（18 个 scope）或 `fe3c`（完整集 20 个）选择范围，不能只选 J1、J2。FE4a 在入口中加一个只运行这两个 scope 的调试选择，并让入口接受 FE4a 的子阶段名；具体形式由实施会话定，审核会话审核。证据运行不带该选择，跑完整集。
+- FE4a 证据仍跑四项各一次：前端没有沿用机制，`frontend/` 树变了，模拟接口全量必须重跑；backend 树也变了，`journeys`、`t1` 与上传包校验要在新树上各跑一次。
+- **两段共同：** 只报告 t1 第 1 步 MODIFIED_ONLY 的 renderer 增量；不做计时，不用 t2–t4；打包流程没改就不跑 t4（§7.4）。不另加重复采样或性能测量（DC98）。
+- **t1 调试只有一次：** 需要第二次 t1 调试运行时（例如第一次失败，或之后又改了 `t1.spec.ts`），停下交设计会话，由 owner 决定，不自行追加。失败属于 DC68 的工具或取证错误时，按下条处理。
+- **失败与重做：** 按 AGENTS（main）“专用测试节点”的 DC68，原文如下：
+
+  > **DC68 工具/取证错误（Owner 2026-11-08 修订）：**首次失败后，同一具体故障允许最多三轮自行修复、适用独审与受影响步骤复验；不因被测对象已经运行就立即交 owner。每轮先停止该次执行、保留原始失败及日志/SHA、确认收尾，再固定修订稿复验；三轮仍未解决、原因/副作用不明或超出既有授权时交 owner。不得无修改自动重试、改预期掩盖结果或跳过身份/缓存前提；产品 finding 按阶段已有修复与停止规则办理。只读后处理/预检、代码传输准备的不计次数澄清继续适用。
+
+  细则见 testing-conventions 的 DC68 现行规则。产品问题按本文 §8 与审核流程处理，不按 DC68 重做。
 
 ### 7.3 截图
 
@@ -383,18 +419,20 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
   - C4 之后显示固定等待时长的截图，抽一张确认文字；
   - Q7 选乙时，全部用到 `.form-warning` 的截图。
 - **审核会话对比：** 把 FE4a 全量截图与 FE3c 证据截图（04 `/home/dev/gdds-fe-evidence-04/fe3c-e22e39ba/shots/`，清单 SHA256 `63a0e6006952152e7cd59db22ada9b34e4774f4f99676c22041b31f9ea1129f2`）按文件名比较，列出逐字节不同的文件，确认都在上面的范围或由 C4 引起。
-- **真实 backend 与 t1：** FE4a 的参考截图只留在节点上，SHA256 写入 handoff，不作验收；FE4b 的 t1 重拍交 owner 看图（§3.3）。
+- **真实 backend 与 t1：** FE4a 的 t1 参考截图（§3.3 的页面与截图名）只留在节点上，SHA256 写入 handoff，不作验收，审核会话只核对 SHA256 与文件名是否齐全；FE4b 的 t1 正式重拍交 owner 看图（§3.3）。
 - **对照依据：** 审核会话对照 `sketches/` 与 UI 优化方向核对布局、层级、语义色、按钮层级、禁用原因与焦点样式，不做像素级比对。
 
 ### 7.4 t1 与 M1
 
-- **t1：** FE4a、FE4b 都重跑：backend 树（FE4a 为 `49c1de43be`，FE4b 为 BE-b 的树）与前端都有变化。步骤、判据与输入核对按 FE3 kickoff §8.1–§8.3：两份清单逐文件核对，预期值从被测树读取，FULL 的两个比较对按 `pair_id` 取用，`baseline_to_initial.table_count` 记录实际值。
-- **M1（FE3 kickoff §8.4，Q12、Q20、Q23）：**
-  - t1 第 1 步 MODIFIED_ONLY 的 renderer 增量只作回归对照：与 FE3a t1 v1 的 24.86 MiB 对照，超过 2 倍时报告并交设计会话；
-  - 第 4 步 FULL 与第 1 步在同一浏览器实例中，只报告，并注明不可比较；
-  - **打包代码有改动时**，在有 `t4-v1` 目录的节点上用新浏览器重测 t4 v1 的 MODIFIED_ONLY 与 FULL，各 3 次，按 §8.4 的标准判定。FE4a 与 FE4b 都不计划改打包代码；
-  - **打包代码的范围：** `features/workbench/upload-package.ts`（打包、压缩与 `buildTar`）与 `features/workbench/UploadStepCard.tsx` 的打包流程。FE3 kickoff §8.4 写的 `features/upload/` 在仓库中不存在，以这两个文件为准；
-  - 审核会话用 `git diff --stat <范围起点>..<候选> -- frontend/src/features/workbench/upload-package.ts frontend/src/features/workbench/UploadStepCard.tsx` 核对是否触发。
+- **t1：** FE4a、FE4b 都跑（次数按 §7.2）：backend 树（FE4a 为 `49c1de43be`，FE4b 为 BE-b 的树）与前端都有变化。步骤、判据与输入核对按 FE3 kickoff §8.1–§8.3：两份清单逐文件核对，预期值从被测树读取，FULL 的两个比较对按 `pair_id` 取用，`baseline_to_initial.table_count` 记录实际值。
+- **M1（FE3 kickoff §8.4；owner 2026-11-10 决定的范围，§10.1 Q11）：**
+  - 两段都只报告 t1 第 1 步 MODIFIED_ONLY 的 renderer 增量，与 FE3a t1 v1 的 24.86 MiB 并列；超过 2 倍时在 handoff 中标出，交设计会话；
+  - 第 4 步 FULL 不再报告（FE3 的“只报告、不可比较”一项取消）；
+  - 不做计时，不用 t2–t4。
+- **t4 重测只在打包流程改变时触发：** 在有 `t4-v1` 目录的节点上用新浏览器重测 t4 v1 的 MODIFIED_ONLY 与 FULL，各 3 次，按 FE3 kickoff §8.4 的标准判定。FE4a 与 FE4b 都不计划改打包流程。判断分两步：
+  1. **筛查：** 审核会话运行 `git diff --stat <范围起点>..<候选> -- frontend/src/features/workbench/upload-package.ts frontend/src/features/workbench/UploadStepCard.tsx`。为空则不触发；
+  2. **判断：** 非空时，审核会话读 diff，判断打包流程是否改变：`upload-package.ts` 中的 `collectLocalDirectory`、`buildTar`、`buildSourcePackage`，或 `UploadStepCard.tsx` 中打包阶段的代码（从 `begin("packaging")` 到下一阶段开始）。只有这些改变时才触发 t4 重测。例如 C1 若在上传开始处清除续做提示而改到 `UploadStepCard.tsx`，不触发。
+- **打包代码的位置：** 在 `features/workbench/upload-package.ts` 与调用它的 `features/workbench/UploadStepCard.tsx`。FE3 kickoff §8.4 与 §11 Q23 理由 ② 写的 `features/upload/` 在仓库中不存在。按实际路径复核：`fe-fe3b-exit..fe-fe3c-exit` 中两个文件都没有改动，Q23 理由 ② 的结论成立，FE4 不需要补测；`fe-fe3a-exit..fe-fe3b-exit` 中只有 `087281ce65` 改了 `UploadStepCard.tsx`，内容是给按钮加禁用原因，不涉及打包流程。
 
 ### 7.5 日志与回源
 
@@ -417,7 +455,8 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 - 运行时 `/openapi.json` 与快照规范化后不同（§6.3 甲）；
 - 真实旅程发现后端缺陷，或 J1、J2 某次预检的异常集合与 FE3 kickoff §4.6 的表不符：保留日志与 trace，交设计会话；判断为后端问题时由 owner 转后端，不在前端绕过，不改 `vnext/`；
 - t1 输入核对不符，或 §8.3 的预期值读不到、实测不符；
-- 需要改动打包代码，但 t4 重测（§7.4）不能在同一阶段完成；
+- 需要第二次 t1 调试运行（§7.2），或需要在调试中跑 J1、J2 以外的真实旅程；
+- 打包流程按 §7.4 判断为改变，但 t4 重测不能在同一阶段完成；
 - 需要后端新增字段或接口，或需要修改 `vnext/` 下的 Compose、脚本或配置；
 - C1–C11 的修改需要改变 FE3 kickoff 已定的业务规则（例如 §16 的接受、撤销、关闭规则）：停下交设计会话；
 - 清理核对失败。
@@ -429,86 +468,110 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 ## 9. 风险
 
-- **BE-b 长期未排期：** FE4 无法退出。FE4a 退出后，前端停在一个已取证的状态。owner 可以在 FE4a 退出时决定是否先把 FE4a 的结果作为 Phase 8 shadow 的前端候选；这不改变 FD8。
-- **P7 改动 `vnext/` 后 FE4a 想跟进：** 按 §5.2，FE4a 期间不合入。
+- **FE4 的退出排在 S1a 与 BE-b 之后：** 按 owner 2026-11-10 的决定，BE-b 实施等 S1a 本地退出并合入 main，FE4b 再等 BE-b。任何一环推迟，FE4 都无法退出。FE4a 退出后，前端停在一个已取证的状态。owner 可以在 FE4a 退出时决定是否先把 FE4a 的结果作为 Phase 8 shadow 的前端候选；这不改变 FD8。
+- **S1a 改变前端看不到的产物形态：** `artifact_id` 格式、bundle 交付与摘要的变化不出现在 OpenAPI 中（§2.3）。由 §4 第 7 项的变化说明与重新生成的互通 fixture 覆盖；说明缺失时 FE4b 不开始。
+- **P7 改动 `vnext/` 后 FE4a 想跟进：** 按 §5.2，FE4a 期间不合入 main。
 - **C7 让真实旅程变长：** 每次接受都走界面。用调试运行的实测评估；明显变长时报告，不删减步骤。
 
 ## 10. owner 问题
 
-| # | 事项 | 建议与理由 |
-| --- | --- | --- |
-| Q1 | FE4 是否拆段（§5） | **拆成 FE4a 与 FE4b**，tag `fe-fe4a-exit`、`fe-fe4b-exit`，内容、前置与退出条件按 §5.2。理由见 §5.1：BE-b 没有排期；带入项与 Q21 现在可做；FE4a 尽早在 P6 退出的 backend 上验证；两段改动基本不重叠。代价是多一次审核与取证 |
-| Q2 | FE4a 的合入点（§6.1） | **`fe-vnext` 快进到 main `16ffe72829`**（`vnext/` 树 `49c1de43be`，等于 `p6-exit` 的树），FE4a 期间不再合入 main。理由：它是 P6 退出验证过的树；快进不产生合并提交，也不改写提交；`p6-exit` 的目标本身不含 FE3c 的合入，无法快进。注意：`p6-exit` 是本地 tag，FE4a 的证据绑定本地树；若推送前 P6 的退出提交发生变化，由审核会话重新核对 |
-| Q3 | FE4a 是否需要新的生产 OpenAPI 原件（§6.3） | **甲：不需要。** 运行时比对与快照一致即可，不一致即停止，再请后端交付原件。理由：FE4a 不刷新快照，`http/` 未改，运行时比对能发现任何变化。乙：先请后端交付 `49c1de43be` 的原件，多一次后端起栈 |
-| Q4 | BE-b 第二步由谁写、何时写（§4） | **由后端设计会话写，现在开始；前端设计会话核对面向前端的部分。** 理由：第二步全是后端实现层的内容（计算位置、S5 缓存、计时、golden、History 侧注释持久化、解析器）；第一步已固定前端需要的数据结构。前端 kickoff §10 中“BE-b 设计”一项随之改为“BE-b 第一步与面向前端的核对” |
-| Q5 | BE-b 的实施与审核会话，以及与 P7 的先后（§4） | **新建后端实施与独立审核角色；作为 main 上的独立后端任务，在 P7 改动 Preview/History 组装或产物的阶段之前，至少先固定 BE-b 的 Contract 与 golden。** 理由：BE-b 改变 surface、bundle 摘要与 golden，与 P7 同时改同一路径会互相使对方的 golden 与基准失效。P7 的计划尚未提交，具体先后由后端设计会话评估后由 owner 决定 |
-| Q6 | 侧栏层级是否精简（§3.2） | **甲：层级定义不变，渲染时按需折叠**：单视图不显示分段控件，单页签的项不显示页签栏，空组隐藏，多页签保留。FE4b 实现。理由：多页签是业务需要，不能压层；单页签项的页签栏没有信息量。乙：维持现状，所有项都显示页签栏 |
-| Q7 | `--color-warning-soft`（§3.6） | **甲：删除未定义的引用，用现有灰色令牌，外观不变。** 理由：owner 已接受灰底；UI 方向有意不用黄色；不需要重新看图。乙：新增淡黄色令牌，补语义色画板并重新看图 |
-| Q8 | 历史初始备份节点（§3.7） | **FE4 不做；是否需要由 owner 另定，需要时作为后端任务立项，再开前端阶段。** 理由：后端还没有这类节点，前端无法推断；FE2 kickoff Q4 已决定 FE2 不做 |
-| Q9 | 首批空基线（§3.7） | **FE4 不做，维持 FE2 kickoff Q18；需要时作为独立小后端任务，不并入 BE-b。** 理由：后端不拒绝在 `INITIAL` 上做 FULL，禁用第 ① 步只是界面提示；并入 BE-b 会扩大其审核面 |
-| Q10 | Q21 答复分支（`p6-fe3-q21-answer`，`d3450675bf`） | **发出 FE4a 提示词前合入 main**（只新增一个后端文档，与 main 无冲突），是否推送由 owner 定。理由：FE4a 提示词与 §3.5 引用它，实施与审核会话统一用 `git show main:<路径>` 读取；在此之前只能引用提交号。合入由 owner 或后端会话执行，前端设计会话不合入后端文档 |
+### 10.1 已决定（owner 2026-11-10 已决定）
 
-**不能由设计会话决定的事项：** Q2 中使用尚未推送的本地 P6 退出树；Q4、Q5 的后端会话分工与排期；Q8、Q9 的业务需要与优先级；Q10 的合入与推送；FE4a、FE4b 退出时的 tag、合入 main 与推送。
+以下各项由 owner 于 2026-11-10 在审核会话中决定，本文已按决定修订；括号中是审核报告的对应编号。
+
+| # | 事项 | 决定 | 本文落点 |
+| --- | --- | --- | --- |
+| Q2 | FE4a 的合入点 | **owner 2026-11-10 已决定：** `fe-vnext` 快进到 main `16ffe72829`；FE4a 期间不合入 main，被测后端固定在 `16ffe72829`（`vnext/` 树 `49c1de43be`） | §5.2、§6.1 |
+| Q5 | BE-b 与 P7 的先后（D1，取代原 Q5 的前提） | **owner 2026-11-10 已决定：** FE4a 与 P7 S1a 并行。BE-b 第二步设计现在可以开始，以 S1a 的目标 Contract 为基础；BE-b 实施排在 S1a 本地退出并合入 main 之后；FE4b 在 BE-b 之后。§4 的交付清单增加：OpenAPI 规范化差异、bundle tar 成员 `logical_path` 集合与 manifest 字段集合相对 `6368c9c40c` 的变化说明（S1a 与 BE-b 的变化分开列），ArtifactRef 与 surface 的变化说明，以及重新生成的互通 fixture。后端的分工与排期按后端流程处理，本文只记录对前端的依赖 | §2.3、§4、§5、§9 |
+| Q10 | Q21 答复分支 `p6-fe3-q21-answer`（`d3450675bf`）（D4） | **已完成：** 审核会话于 2026-11-10 以 `--no-ff` 合入本地 main，合并提交 `d10f6d55a8`，未推送。提示词用 `git show main:docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md` 读取，§11.1 中关于 Q10 的前置条件已删除 | 头部、§2.4、§11.1 |
+| Q11 | 真实数据范围（D2，DC33、DC98） | **owner 2026-11-10 已决定：**<br>FE4a：journeys 调试只跑 C7 改到的 J1、J2，证据跑完整集一次；t1 证据跑一次，只有改了 `t1.spec.ts` 时才允许一次调试运行（FE4a 加入参考截图，预计使用这一次）。审核会话不再独立跑真实旅程，改为核对证据日志，加上模拟接口全量和探针。<br>FE4b：t1 证据跑一次，同时产生正式重拍截图；调试按需。<br>两段：只报告 t1 的 MODIFIED_ONLY 增量；打包流程没改就不跑 t4；不做计时，不用 t2–t4。t4 上的导航正确性由 BE-b 后端验证，前端不重复 | §3.3、§7.2、§7.4、§11 |
+| Q12 | 证据与推送（D3） | **owner 2026-11-10 已决定：** FE4a 的被测提交 `16ffe72829` 已在远端（包含 `b0fc25e881`），FE4a 开始前不需要推送。FE4a 退出时推送 tag `fe-fe4a-exit`；main 是否推送，随后端推送节奏由 owner 决定（届时 main 会带上 P7 的内容） | §6.1、§6.4 |
+| Q13 | DC74 与“P6 计时”（D5） | **owner 2026-11-10 已决定：** 不带入 FE4。前端 kickoff §9 那一行改为“已关闭（owner 2026-11-10）：P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项”；FE3 kickoff §12 的 DC74 行只在末尾追加“已随 P6 退出关闭，见前端 kickoff §9”。DC74 文档本身由后端修改，本文不改 | §3.9、§13 |
+
+### 10.2 待 owner 决定
+
+| # | 事项 | 建议与理由 | 不采用的方案及其代价 |
+| --- | --- | --- | --- |
+| Q1 | FE4 是否拆段（§5） | **拆成 FE4a 与 FE4b**，tag `fe-fe4a-exit`、`fe-fe4b-exit`，内容、前置与退出条件按 §5.2。理由见 §5.1：FE4b 要等 S1a 与 BE-b；带入项与 Q21 现在可做；FE4a 尽早在 P6 退出的 backend 上验证；两段改动基本不重叠 | **不拆：** FE4 整体等 S1a 与 BE-b，带入项、Q21、令牌与取证工具都拖到之后，C1–C11 的上下文变旧；`49c1de43be` 到 FE4b 才有前端真实旅程验证；BE-b 接入与带入项混在同一次审核中，审核面更大。拆的代价是多一次审核与一次取证 |
+| Q3 | FE4a 是否需要新的生产 OpenAPI 原件（§6.3） | **甲：不需要。** 运行时比对与快照一致即可，不一致即停止，再请后端交付原件。理由：FE4a 不刷新快照，`http/` 未改且导入闭包未变（§6.2），运行时比对能发现任何变化 | **乙（先请后端交付 `49c1de43be` 的原件）：** 多一次后端起栈与交付，FE4a 提示词要等交付；结论预期与甲相同 |
+| Q4 | BE-b 第二步由谁写（§4） | **由后端设计会话写；前端设计会话核对面向前端的部分。** 何时写已由 Q5 决定（现在可以开始，以 S1a 的目标 Contract 为基础）。理由：第二步全是后端实现层的内容（计算位置、S5 缓存、计时、golden、History 侧注释持久化、解析器），且要建立在 S1a 的目标 Contract 上；第一步已固定前端需要的数据结构。前端 kickoff §10 中“BE-b 设计”一项随之改为“BE-b 第一步与面向前端的核对” | **由前端设计会话写：** 前端会话要做后端实现层设计，包括 S1a 目标 Contract 下的产物形态与缓存接线，超出它的职责和对后端代码的掌握；写完仍要后端会话逐项复核，实际不省时间 |
+| Q6 | 侧栏层级是否精简（§3.2） | **甲：层级定义不变，渲染时按需折叠**：单视图不显示分段控件，单页签的项不显示页签栏，空组隐藏，多页签保留。FE4b 实现。理由：多页签是业务需要，不能压层；单页签项的页签栏没有信息量 | **乙（维持现状，所有项都显示页签栏）：** 全局参数、“其他表”等大量单页签项多一行没有信息的页签栏，单视图比较多一个无用的分段控件。**丙（把项与页签压成一层）：** 装置数 × 11 类测点表会把侧栏撑得很长，失去按装置的分组 |
+| Q7 | `--color-warning-soft`（§3.6） | **甲：删除未定义的引用，用现有灰色令牌，外观不变。** 理由：owner 已接受灰底；UI 方向有意不用黄色；不需要重新看图 | **乙（新增淡黄色令牌）：** 设计会话要补语义色画板，owner 重新看图，用到 `.form-warning` 的截图全部重拍；与 UI 优化方向 §7.4 不用黄色、避免与风险色混淆的原则相冲突 |
+| Q8 | 历史初始备份节点（§3.7） | **FE4 不做；是否需要由 owner 另定，需要时作为后端任务立项，再开前端阶段。** 理由：后端还没有这类节点，前端无法推断；FE2 kickoff Q4 已决定 FE2 不做 | **在 FE4 中做：** 要先立项后端任务（FULL 上传的 ① 作为可寻址历史节点保存、History 投影增加该类节点、`POST /v1/history-compares` 接受它），该任务还没有设计与排期，FE4 退出随之推迟 |
+| Q9 | 首批空基线（§3.7） | **FE4 不做，维持 FE2 kickoff Q18；需要时作为独立小后端任务，不并入 BE-b。** 理由：后端不拒绝在 `INITIAL` 上做 FULL，禁用第 ① 步只是界面提示；并入 BE-b 会扩大其审核面 | **并入 BE-b 在 FE4b 做：** 扩大 BE-b 的审核面，而且 BE-b 已排在 S1a 之后，这个小功能被一并推迟。**前端自行推断“基线为空”并禁用：** `INITIAL` 可以由部署映射带内容，前端无法可靠判断，可能误禁用 |
+
+**不能由设计会话决定的事项：** Q4 的后端会话分工；BE-b 的排期与后端会话安排（后端流程）；Q8、Q9 的业务需要与优先级；t1 第二次调试运行（§7.2）；FE4a 退出时 main 的推送，以及 FE4b 退出时的 tag、合入与推送。
 
 ## 11. 提示词草稿
 
-发出时间由审核会话按前置条件决定，发出前填写方括号中的值。FE4a 与 FE4b 的实施、审核都由**新会话**承担，不由 FE3 的会话或另一子阶段的会话承担（AGENTS“角色与子 agent”）。
+发出时间由审核会话按前置条件决定，发出前填写方括号中的值。FE4a 与 FE4b 的实施、审核都由**新会话**承担，不由 FE3 的会话或另一子阶段的会话承担（AGENTS“角色与子 agent”）。§10.1 的 owner 决定已经写进下面的提示词。
 
-### 11.1 FE4a 实施（前置：本文经审核核对与 owner 确认，含 Q1、Q2、Q3、Q7；Q10 已合入或明确只引用提交号；审核会话现场核对节点、镜像与 `--print-input`）
+### 11.1 FE4a 实施
 
-> 你是 FE4a 前端实施会话，是新会话，不沿用 FE3 实施会话的上下文。本阶段处理 FE3 的带入项、Q21 文案、视觉令牌与取证工具，并在 P6 退出的 backend 树上重跑真实旅程与 t1。不接入 BE-b。
+**前置条件：**
+
+1. 本文经审核会话定向复核，owner 决定 §10.2 的 Q1、Q3、Q7；
+2. 审核会话发出前重核并记录：
+   - `fe-vnext` 仍为 `e22e39ba15`；
+   - `p6-exit` 仍指向 `b0fc25e881`，其 `vnext/` 为 `49c1de43be`；
+   - main 当前的头与其 `vnext/` 树（只记录，FE4a 的合入点不随之改变）；
+   - `S2B_DATASET_BASELINE`、`S1B_V2_PREVIEW_CHANGED_COUNTS` 在 `16ffe72829:vnext/backend/benchmarks/real_dump_journey.py` 中仍是模块级常量（只读 `git grep`）；
+3. 审核会话在所选节点上现场核对工具链、npm 缓存、依赖镜像、RS 依赖镜像与 t1 目录，并运行 `--print-input`。
+
+> 你是 FE4a 前端实施会话，是新会话，不沿用 FE3 实施会话的上下文。本阶段处理 FE3 的带入项、Q21 文案、视觉令牌与取证工具，并在 P6 退出的 backend 树上跑真实旅程与 t1。不接入 BE-b。FE4a 与后端 P7 S1a 并行，期间不合入 main。
 >
 > **先读（一律用 `git show main:<路径>`，不切换开发主机上任何共享 worktree 的分支）：**
-> - AGENTS：“角色与子 agent”“专用测试节点”（DC91 五节点池与占用）、“前端测试（FD7）”、“Docker / Compose 验证”；testing-conventions“前端测试”“真实 backend e2e”；
-> - FE4 kickoff（main `[kickoff 确认提交]`）全文，重点 §3.4–§3.8、§5.2、§6、§7、§8、§12；
+> - AGENTS：“角色与子 agent”“专用测试节点”（DC91 五节点池、占用与 DC68）、“前端测试（FD7）”、“Docker / Compose 验证”；testing-conventions“前端测试”“真实 backend e2e”；
+> - FE4 kickoff（main `[kickoff 确认提交]`）全文，重点 §3.3–§3.8、§5.2、§6、§7、§8、§10.1、§12；
 > - FE3 kickoff §3.2（FE3b、FE3c 退出记录）、§4.6、§4.7、§6.4、§8、§16；FE2 kickoff §5.5；
-> - 带入项的原文：`reviews/fe3b-rereview-2.md`、`fe3b-rereview-3.md`、`fe3b-evidence-check-1.md`、`fe3c-review.md`、`fe3c-rereview-1.md`、`fe3c-evidence-stop-1.md`、`fe3c-evidence-check-1.md`；
+> - 带入项的原文：`reviews/fe3b-rereview-1.md`、`fe3b-rereview-2.md`、`fe3b-rereview-3.md`、`fe3b-evidence-check-1.md`、`fe3c-review.md`、`fe3c-rereview-1.md`、`fe3c-evidence-stop-1.md`、`fe3c-evidence-check-1.md`；
 > - FE3c 的 handoff：`fe3c-handoff.md`（§5.5 只由模拟接口覆盖的项、§10 偏差）、`fe3c-handoff-fix1.md`、`fe3c-handoff-fix2.md`、`fe3c-evidence-04.md`；
-> - 后端 Q21 答复：`[main 上的路径，或 git show d3450675bf:docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md]`。
+> - 后端 Q21 答复：`git show main:docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md`。
 >
-> **起点与分支：** 在独立 worktree `/home/dev/gdds-fe` 的 `fe-vnext`（当前 `e22e39ba15`）上，快进到 main `16ffe728290e1179d9450ea160a0e6ca49473ec6`（`git merge --ff-only`），不 rebase，不合入其后的 main（kickoff §6.1）。按 kickoff §5.2 做路径核对：`<main>` 为 `16ffe72829`，候选的 `vnext/` 树必须是 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`。`--print-input` 必须得到 `[审核会话现场核对后填写，预期 gateway-backend-deps:lock-578e079b762e]`，RS 依赖镜像为 `[预期 gateway-p2r1-repository:lock-6dc9659f0aee]`，否则停止。不刷新 OpenAPI 快照：运行时 `/openapi.json` 与快照规范化后必须逐字节相同，否则停止（kickoff §6.3）。
+> **起点与分支：** 在独立 worktree `/home/dev/gdds-fe` 的 `fe-vnext`（当前 `e22e39ba15`）上，快进到 `16ffe728290e1179d9450ea160a0e6ca49473ec6`（`git merge --ff-only`），不 rebase，不合入其后的 main（kickoff §6.1，owner 2026-11-10 已决定）。这个提交已在远端，开始前不需要推送。按 kickoff §5.2 做路径核对：`<main>` 为 `16ffe72829`，候选的 `vnext/` 树必须是 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`。`--print-input` 必须得到 `[审核会话现场核对后填写，预期 gateway-backend-deps:lock-578e079b762e]`，RS 依赖镜像为 `[预期 gateway-p2r1-repository:lock-6dc9659f0aee]`，否则停止。不刷新 OpenAPI 快照：运行时 `/openapi.json` 与快照规范化后必须逐字节相同，否则停止（kickoff §6.3）。
 >
 > **范围：**
 > 1. 带入项 C1–C11（kickoff §3.4），每项按“处理”一列完成，并补对应的用例；
 > 2. Q21 文案（§3.5）：删除 4 个码，新增 4 个码，单测同步；
 > 3. `--color-warning-soft`（§3.6，按 owner 对 Q7 的决定：`[甲 / 乙]`）；
 > 4. 取证工具（§3.8）：证据 wrapper 与十六进制回源脚本，提交在 `frontend/scripts/`；
-> 5. 真实旅程 `--suite journeys` 完整集与 `--suite t1` 在新 backend 树上通过；J1、J2 每次预检的异常集合仍按 FE3 kickoff §4.6 的表核对，不符即停；
-> 6. t1 套件固定 FE4b 正式重拍用的关键页面截图清单（§3.3），本阶段只作参考截图。
+> 5. `run-real-backend-e2e.sh` 加一个只运行 `j1-archive-mainline`、`j2-manual-close` 两个 scope 的调试选择，并接受 FE4a 的子阶段名（§7.2）；
+> 6. 在 `e2e-real/t1.spec.ts` 中加入 kickoff §3.3 列出的参考截图（不依赖 BE-b 的 7 个页面名，各拍 1280 与 1920），放在 M1 测量窗口之外；不加依赖 BE-b 的页面；
+> 7. 在新 backend 树上：J1、J2 通过（C7 之后的接受都经界面），J1、J2 每次预检的异常集合仍按 FE3 kickoff §4.6 的表核对，不符即停；t1 调试运行一次通过。
 >
-> **不做：** 不改 `vnext/`；不接入 BE-b，不改导航、列展示与行定位；不改打包代码（需要改时先停下，kickoff §7.4）；不改 FE3 kickoff 已定的业务规则。
+> **不做：** 不改 `vnext/`；不接入 BE-b，不改导航、列展示与行定位；不改打包流程（需要改时先停下，kickoff §7.4）；不改 FE3 kickoff 已定的业务规则；不跑 J1、J2 以外的真实旅程调试，不跑第二次 t1 调试，不用 t2–t4，不做计时（kickoff §7.2，owner 2026-11-10 已决定）。
 >
-> **节点与占用：** 按 AGENTS 的五节点池选合格空闲节点（kickoff §7.1，建议 07 模拟接口、05 真实 backend 与 t1），会话名 `fe4a-impl`。所有运行都原子取得占用标记，真实 backend 入口自行获取，外层不重复获取。`GATEWAY_FE_TEST_WORKERS=2`。t1 目录运行前按清单逐文件核对，只读挂载。
+> **节点与占用：** 按 AGENTS 的五节点池选合格空闲节点（kickoff §7.1，建议 07 模拟接口、05 真实 backend 与 t1），会话名 `fe4a-impl`。所有运行都原子取得占用标记，真实 backend 入口自行获取，外层不重复获取（kickoff §3.8）。`GATEWAY_FE_TEST_WORKERS=2`。t1 目录运行前按清单逐文件核对，只读挂载。
 >
 > **日志与回源（FE3 中出现过的两类错误，必须遵守）：**
 > - 证据日志一律由脚本 wrapper 生成。wrapper 写日志前先检查参数个数、绝对路径、日志目录已存在、截图目录在 worktree 外，任一不满足即退出、不运行入口。FE3c 曾把 `LOG_DIR` 取成 `$2`，导致入口没有运行；
-> - handoff 中的每个十六进制值都用脚本逐个回源（节点现场重算的 SHA256、取回的日志原文、git 对象），并报告长度不是 7–12、40、64 的值。FE3b 的证据 handoff 曾有 5 个 SHA 抄错。不手抄 SHA。
+> - handoff 中的每个十六进制值都用脚本逐个回源（节点现场重算的 SHA256 在该节点宿主机上算；取回的日志原文与 git 对象可在开发主机上对照），并报告长度不是 7–12、40、64 的值。FE3b 的证据 handoff 曾有 5 个 SHA 抄错。不手抄 SHA。
 >
-> **停止条件：** kickoff §8 FE4a。失败与重做按 AGENTS main 的 DC68（2026-11-08 修订）。
+> **停止条件：** kickoff §8 FE4a。失败与重做按 kickoff §7.2 引用的 DC68 原文；需要第二次 t1 调试运行时停下交设计会话。
 >
-> **交付：** 调试运行（kickoff §7.2 FE4a 调试行）各至少一次通过后，提交代码候选与 handoff `docs/frontend-vnext/fe4a-handoff.md`，内容包括：
+> **交付：** kickoff §7.2 FE4a 调试行的运行通过后，提交代码候选与 handoff `docs/frontend-vnext/fe4a-handoff.md`，内容包括：
 > - 快进后的 HEAD、`vnext/` 树、路径核对结果、`--print-input` 与运行时 OpenAPI 比对结果；
-> - C1–C11、Q21、令牌、取证工具各项的改动位置与对应用例；新增或修改的用例清单；
-> - J1、J2 逐次预检的异常集合；C7 之后真实旅程的耗时（只报告）；
-> - t1：§8.3 逐条核对，M1 两次数值与 FE3a 的对照；打包代码是否改动（kickoff §7.4 的 `git diff --stat` 结果）；
+> - C1–C11、Q21、令牌、取证工具、入口的 J1/J2 选择各项的改动位置与对应用例；新增或修改的用例清单；
+> - J1、J2 逐次预检的异常集合；C7 之后 J1、J2 的耗时（取自日志，只报告）；
+> - t1：§8.3 逐条核对；第 1 步 MODIFIED_ONLY 的 renderer 增量与 FE3a 24.86 MiB 并列；参考截图的文件名与 SHA256；打包流程是否改变（kickoff §7.4 筛查结果）；
 > - 出现过的诊断码，以及 §3.5 文案表以外的编码；
-> - 截图清单，标出 kickoff §7.3 中交 owner 看图的文件；
+> - 模拟接口截图清单，标出 kickoff §7.3 中交 owner 看图的文件；
 > - 每次运行的节点、hostname、起止 UTC、起止 HEAD、树、exit code、日志 SHA256；工具链、npm 缓存、依赖镜像与 RS 镜像的身份；
 > - 十六进制回源的结果；
 > - 已完成、未测（只由模拟接口覆盖的项及原因）与未决事项，分三节写。
 >
-> 不合入 main，不推送。审核通过后的取证由审核会话指明：在最终候选的 clean、已提交 detached worktree 上，模拟接口全量、上传包校验、`journeys`、`t1` 各运行一次。
+> 不合入 main，不推送。审核通过后，按审核会话的指示在最终候选的 clean、已提交 detached worktree 上各运行一次证据项（kickoff §7.2 FE4a 证据行：模拟接口全量、上传包校验、`journeys` 完整集、`t1`），提交证据 handoff，交审核会话核对。
 
 ### 11.2 FE4a 审核（前置：FE4a handoff 已提交）
 
-> 你是 FE4a 审核会话，是新会话，不与 FE4a 实施会话为同一会话，也不沿用 FE3 审核会话的上下文。审核 `fe-fe3c-exit..[FE4a handoff 提交]`；来自 main 的文档与 `vnext/` 不在前端审核范围。先按 kickoff §5.2 做路径核对（`<main>` 为 `16ffe72829`，`vnext/` 树 `49c1de43be`）。依据：FE4 kickoff（main `[确认提交]`）§3–§8；FE3 kickoff §4.6、§6.4、§8、§16；带入项原文所在的审核报告；后端 Q21 答复。
+> 你是 FE4a 审核会话，是新会话，不与 FE4a 实施会话为同一会话，也不沿用 FE3 审核会话的上下文。审核 `fe-fe3c-exit..[FE4a handoff 提交]`；来自 main 的文档与 `vnext/` 不在前端审核范围。先按 kickoff §5.2 做路径核对（`<main>` 为 `16ffe72829`，`vnext/` 树 `49c1de43be`）。依据：FE4 kickoff（main `[确认提交]`）§3–§8、§10.1；FE3 kickoff §4.6、§6.4、§8、§16；带入项原文所在的审核报告；后端 Q21 答复（`git show main:docs/backend-vnext/refactoring/formal/plans/p6-fe3-q21-answer.md`）。
 >
 > 重点：
 > 1. **带入项：** C1–C11 逐项对照“处理”一列，确认用例有区分力：把修复回退后对应用例应失败。
 > 2. **Q21：** 文案表与 kickoff §3.5 一致；删除的 4 个码不再出现在文案表与码表中；单测覆盖新增的 4 个码与匹配顺序。
 > 3. **令牌：** 按 owner 对 Q7 的决定。
-> 4. **取证工具：** wrapper 的参数检查与记录字段完整；回源脚本能发现抄错与长度异常。
-> 5. **真实旅程与 t1：** J1、J2 在新 backend 树上的异常集合与 FE3 kickoff §4.6 一致；C7 之后的接受都经界面；t1 按 §8.3 由程序判定；M1 按 Q20、Q23 对照；核对打包代码是否改动。
+> 4. **取证工具与入口：** wrapper 的参数检查、按入口区分的占用标记处理与记录字段完整（kickoff §3.8）；回源脚本能发现抄错与长度异常；`run-real-backend-e2e.sh` 的 J1/J2 调试选择只影响所选 scope，不带该选择时仍是完整集。
+> 5. **真实旅程与 t1（核对日志，不重跑）：** J1、J2 在新 backend 树上的异常集合与 FE3 kickoff §4.6 一致；C7 之后的接受都经界面；t1 按 §8.3 由程序判定；第 1 步 MODIFIED_ONLY 增量与 FE3a 并列；参考截图齐全（kickoff §3.3 的 7 个页面名 × 2 种宽度），且不在 M1 测量窗口内；按 kickoff §7.4 两步判断打包流程是否改变。
 > 6. **截图：** 与 FE3c 证据截图按文件名比较，逐字节不同的文件都在 kickoff §7.3 的范围内或由 C4 引起；C4 之后同一提交两次运行的截图逐字节相同（抽查）。
 > 7. **探针（已提交的一次性 worktree，只在节点上）：**
 >    - 恢复 C8 之前的单一提示变量：C8 的两条用例应失败；
@@ -516,14 +579,14 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 >    - 把 C11 的一处闸门改回固定延迟加不带参数的 `unrouteAll()`：在不少于 8 个 worker、`--repeat-each` 不少于 20 的单独运行中观察是否复现，结果如实记录，不强求复现；
 >    - 让 wrapper 的日志目录参数取错位置：wrapper 应在运行入口前退出；
 >    - 在一份 handoff 副本中改错一个 SHA 的一位：回源脚本应报告未命中。
-> 8. **运行：** 独立运行一次 `run-tests.sh --e2e --screenshots` 与一次 `--suite journeys`（会话名 `fe4a-review`）；t1 不要求重跑，只核对日志与参考截图的 SHA256。
+> 8. **运行（owner 2026-11-10 已决定）：** 独立运行一次模拟接口全量 `run-tests.sh --e2e --screenshots` 与上面的探针（会话名 `fe4a-review`）。**不独立跑真实旅程与 t1**：J1、J2 与 t1 只核对实施会话的调试日志、日志 SHA256 与参考截图的 SHA256；证据运行之后再核对证据日志。
 > 9. **回源：** 用脚本把 handoff 中的十六进制值逐个回源，报告长度不是 7–12、40、64 的值。
 >
-> 报告写入 `docs/frontend-vnext/reviews/fe4a-review.md`，结论为通过、定向修复或停止；需要设计决定的事项标注“交设计会话”。通过后指明证据项（kickoff §7.2 FE4a 证据行），取证后做证据核对，给出 FE4a 退出建议，并列出带入 FE4b 的项。
+> 报告写入 `docs/frontend-vnext/reviews/fe4a-review.md`，结论为通过、定向修复或停止；需要设计决定的事项标注“交设计会话”。通过后指明证据项（kickoff §7.2 FE4a 证据行），由实施会话运行；取证后核对证据日志，给出 FE4a 退出建议（含推送 tag `fe-fe4a-exit`，kickoff §6.4），并列出带入 FE4b 的项。
 
 ### 11.3 FE4b 实施与审核
 
-在本文第 2 步（§5.3）中写定。框架与 FE4a 相同：新建实施与审核会话；先读 BE-b 的 Contract、交接与 golden；合入 BE-b 退出后的 main；刷新 OpenAPI 与 fixture；按 §3.1、§3.2 实施；t1 正式重拍交 owner 看图。
+在本文第 2 步（§5.3）中写定。框架与 FE4a 相同：新建实施与审核会话；先读 BE-b 的 Contract、交接、golden 与 §4 第 7 项的变化说明；合入 BE-b 退出后的 main（届时含 P7 S1a）；刷新 OpenAPI 与 fixture；按 §3.1、§3.2 实施；t1 证据运行一次，同时产生正式重拍截图，交 owner 看图。
 
 ## 12. 交接材料
 
@@ -532,10 +595,12 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 | 类别 | FE4a 读取 | FE4b 另读 |
 | --- | --- | --- |
 | 已完成 | FE3 kickoff §3.2 的 FE3a、FE3b、FE3c 退出记录；`fe3c-evidence-04.md`、`fe3b-evidence-04.md`；`fe3c-handoff.md` 及 fix1、fix2 | `fe4a-handoff.md` 与 FE4a 退出记录；BE-b 的退出交接 |
-| 未测 | `fe3c-handoff.md` §5.5（只由模拟接口覆盖的项）；FE3 kickoff §4.6 末段（时间倒退等只由模拟接口覆盖）、§4.7（过期 `APPROVE` 409、提交 403、仍在运行与 `MANUAL_RECOVERY_REQUIRED` 只由模拟接口覆盖）；§8.4（t1 FULL 不可比较；t4 自 FE3a 后未重测） | `fe4a-handoff.md` 的“未测”一节 |
+| 未测 | `fe3c-handoff.md` §5.5（只由模拟接口覆盖的项）；FE3 kickoff §4.6 末段（时间倒退等只由模拟接口覆盖）、§4.7（提交 403、仍在运行与 `MANUAL_RECOVERY_REQUIRED` 只由模拟接口覆盖）、§15.3 与 §16.7（过期 `APPROVE` 409 只由模拟接口覆盖）；§8.4（t1 FULL 不可比较，FE4 起不再报告；t4 自 FE3a 后未重测） | `fe4a-handoff.md` 的“未测”一节 |
 | 未决 | 本文 §3.4–§3.7、§10；FE3 kickoff §12 中仍开放的项 | 本文第 2 步；BE-b 第二步与交接中留给前端的事项 |
 
 ## 13. 同分支中对其他文档的修改
+
+### 13.1 初稿（`79ccde87d6`）
 
 本分支另一个提交只改以下几节，不改其他内容：
 
@@ -545,3 +610,42 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 - **FE3 kickoff：**
   - §11 Q21：状态改为“后端已答复（`d3450675bf`），前端处理见 FE4 kickoff §3.5”；
   - §12：“比较诊断码的变化”“FE4 真实数据重拍的节点”“`--color-warning-soft`”三行改为指向本文 §3.5、§2.5、§3.6。
+
+### 13.2 修订 1（2026-11-10）
+
+**本文修改的节：** 头部（状态、依据、P7 文档的用法）；§1；§2.1（占位 fixture）；§2.2（合入点、本地 main、`p6-exit`）；§2.3；§2.4；§3.3；§3.8；§3.9；§4；§5.1；§5.2；§5.3；§6.1；§6.2；§6.4；§7.2；§7.3；§7.4；§8；§9；§10（拆为 10.1 已决定、10.2 待决定）；§11；§12；§13；新增 §14。§3.2、§3.6、§3.7、§6.3 只把“§10 Qn”改为“§10.2 Qn”（§6.3 另把 FE4b 的交付引用改为 §4 第 5、7 项）。§2.5、§3.1、§3.4、§3.5、§7.1、§7.5 未改。
+
+**其他文档（本分支另一个提交，只改以下几行）：**
+
+- **前端 kickoff §9：**
+  - “P6 计时是否包含整包传输”一行：处理列改为“已关闭（owner 2026-11-10）：P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项”，阶段列改为“已关闭”；
+  - “`diagnostics_summary` 中的自由文本”一行：补引前端 kickoff §5 BE-b 行与 FE2 kickoff §5.5（审核报告第 4 节第 1 点的可选建议）。
+- **FE3 kickoff：**
+  - §11 Q21 状态列：补“答复已合入本地 main（`d10f6d55a8`）”与“拆段待 owner 确认（FE4 kickoff Q1）”；
+  - §12“比较诊断码的变化”“`--color-warning-soft`”两行的阶段列：补“拆段待 owner 确认（FE4 kickoff Q1）”；
+  - §12“P6 计时与整包下载（DC74 草案）”一行：只在末尾追加“已随 P6 退出关闭，见前端 kickoff §9”，不改原文。
+
+## 14. 审核意见与 owner 决定的处理（修订 1）
+
+依据[审核报告](reviews/fe4-kickoff-review.md)第 11 节与 owner 2026-11-10 的决定（§10.1）。owner 的决定优先于审核报告第 12 节提示词中的写法。
+
+| 编号 | 处理 | 位置 |
+| --- | --- | --- |
+| B1 | **已改。** ① §2.2 记录修订时本地 main 为 `d10f6d55a8`、`vnext/` 仍为 `49c1de43be`（不照抄审核时的 `00ca325c2e`），列出 `16ffe72829` 之后的主线提交，FE4a 仍固定用 `16ffe72829` 并换上新理由；② 头部与 §2.3 改写 P7 事实：S0 已收口、S1a 编码已获授权、P7 文档未提及 BE-b，不据此推导 BE-b 设计；③ Q5 按 owner 决定改写为已决定项（BE-b 第二步以 S1a 目标 Contract 为基础、实施在 S1a 本地退出合入 main 之后），不再保留“P7 计划未提交”的前提；④ §4 交付清单增加第 7 项，在 owner 要求的 OpenAPI 差异、`logical_path` 集合、manifest 字段集合之外，保留 ArtifactRef 与 surface 的变化说明与互通 fixture；⑤ §11.1 前置条件增加发提示词前重核 `fe-vnext`、`p6-exit` 与 main | 头部、§1、§2.2、§2.3、§4、§6.1、§9、§10.1 Q5、§11.1 |
+| B2 | **已改。** FE4a 只在 `t1.spec.ts` 中加入不依赖 BE-b 的 7 个页面的参考截图，列出截图名规则与 1280/1920；依赖 BE-b 的页面在第 2 步定稿并在 FE4b 实现；FE4a 退出条件不含 BE-b 页面；另规定截图放在 M1 测量窗口之外 | §3.3、§5.2、§5.3、§7.3、§11.1 范围第 6 项 |
+| N1 | **已改。** §6.2 补全分类（`snapshot_materialization/`、`repository_read/`、`canonical_metadata`、`pair_pipeline`、`bootstrap/operation_worker.py`、`repository_client/src/`、完整的 Rust 文件），第 1 行补导入闭包核对。按路径计 control DB 为 6 个、测试 24 个，与审核报告的 7、23 计法不同，总数同为 72，已注明 | §6.2 |
+| N2 | **已改。** §6.2 operation 行写明 History 比较 assemble 步骤新增的两类终态失败与 `diagnostic.code` 可达取值扩大，结论为无渲染影响 | §6.2 |
+| N3 | **已改。** 直接引用 AGENTS（main）DC68 原文 | §7.2 |
+| N4 | **已改。** t4 触发改为“`git diff --stat` 筛查 + 审核会话判断打包流程是否改变”，列出函数与打包阶段范围；补 Q23 理由 ② 按实际路径的复核结论与 FE3b 的 `087281ce65` | §7.4 |
+| N5 | **已改。** §10.2 待决定的 Q1、Q3、Q4、Q6–Q9 都增加“不采用的方案及其代价”一列。Q2、Q5、Q10 已由 owner 决定，移入 §10.1，不再需要该列 | §10.2 |
+| N6 | **按 owner 决定改写。** FE4a 调试的真实旅程只跑 J1、J2，t1 只允许一次调试运行；审核会话不独立跑真实旅程；完整集与 t1 证据各一次。为只跑 J1、J2，FE4a 需要给入口加调试选择（入口现在只能按子阶段选范围） | §3.3、§7.2、§8、§11 |
+| N7 | **按 owner 决定处理。** DC74 与 P6 计时已关闭，不带入 FE4；前端 kickoff §9 与 FE3 kickoff §12 按 owner 给出的文字修改，不改历史记录 | §3.9、§10.1 Q13、§13.2 |
+| N8 | **已改。** 头部依据补 `fe3b-rereview-1.md`；§2.1 补 `projections/business-navigation/diagnostics.json`；§6.2 的 Rust 文件改为实际列表；§12 把“过期 `APPROVE` 409”的出处改为 FE3 kickoff §15.3、§16.7 | 头部、§2.1、§6.2、§12 |
+| N9 | **已改。** FE3 kickoff §11 Q21 状态列与 §12 两行注明“拆段待 owner 确认（FE4 kickoff Q1）” | FE3 kickoff（§13.2） |
+| N10 | **已改。** wrapper 的占用标记按入口区分（`run-tests.sh`、`validate-upload-package.sh` 由 wrapper 获取；`run-real-backend-e2e.sh` 由入口获取，wrapper 只确认标记不存在），区分本人与他人标记；回源脚本写明节点现场重算在测试节点宿主机运行，只读对照可在开发主机运行 | §3.8、§11.1 |
+| N11 | **已改。** §6.2 写明两个常量名，设计会话已用 `git grep` 确认其在 `16ffe72829` 中仍存在（第 192、234 行）；§11.1 前置条件要求审核会话发提示词前再重核 | §6.2、§11.1 |
+| D1 | owner 2026-11-10 已决定 | §10.1 Q5 |
+| D2 | owner 2026-11-10 已决定 | §10.1 Q11 |
+| D3 | owner 2026-11-10 已决定 | §10.1 Q12 |
+| D4 | owner 2026-11-10 已决定，已完成 | §10.1 Q10 |
+| D5 | owner 2026-11-10 已决定 | §10.1 Q13 |

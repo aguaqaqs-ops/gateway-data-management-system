@@ -25,6 +25,7 @@ Only the standard library is used; run with ``python3 -I``.
 """
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import os
 import re
@@ -294,12 +295,18 @@ def main(argv=None):
 
     repo = args.repo or script_toplevel()
     head = git_head(repo)
+    handoff_head = git_head(handoff.parent)
+    handoff_sha = file_sha256(handoff)
 
+    print(f"utc: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     print(f"argv: {shlex.join([sys.argv[0], *raw_args])}")
     print(f"hostname: {socket.gethostname()}")
     print(f"cwd: {os.getcwd()}")
+    print(f"handoff: {handoff}")
+    print(f"handoff_HEAD: {handoff_head or 'not a git worktree'}")
+    print(f"handoff_sha256: {handoff_sha}")
     print(f"repo: {repo or 'none'}")
-    print(f"HEAD: {head or 'unknown'}")
+    print(f"repo_HEAD: {head or 'unknown'}")
 
     sha_table, sha_problems, sha_observed = load_sha_files(args.sha_file)
     ev_table, ev_problems, ev_observed = load_evidence_files(args.evidence_file)

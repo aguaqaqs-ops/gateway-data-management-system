@@ -15,8 +15,6 @@ from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.artifact_root import (
     ArtifactRootError,
     assert_no_symlink_ancestors,
-    lstat_is_symlink,
-    open_dir_nofollow,
     open_owned_directory,
     same_mount,
 )

@@ -310,13 +310,14 @@ test("C6 长理由折叠为三行并可展开", async ({ page }) => {
   // Long reasons are clamped to 3 lines with an expand toggle.
   const toggle = accepted.getByRole("button", { name: "展开" });
   await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveText("展开");
   await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(1);
-  await screenshot(page, "fe4a-c6-reason-collapsed", 1280);
+  await cardScreenshot(page, "fe4a-c6-reason-collapsed", 1280, accepted);
   await toggle.click();
   await expect(accepted.getByRole("button", { name: "收起" })).toBeVisible();
   await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(0);
   await expect(accepted.getByText(longReason)).toBeVisible();
-  await screenshot(page, "fe4a-c6-reason-expanded", 1280);
+  await cardScreenshot(page, "fe4a-c6-reason-expanded", 1280, accepted);
 });
 
 test("C6 多行长理由折叠为三行并可展开收起", async ({ page }) => {

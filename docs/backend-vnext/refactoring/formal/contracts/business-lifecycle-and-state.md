@@ -383,9 +383,11 @@ POST /v1/submissions/{submission_id}/closure（Idempotency-Key；expected_review
 
 CLOSE key命名空间exact repository/device/project+CLOSE+key；fingerprint只含命令/scope/目标/请求expected版本/reason，actor/time/current可变状态不入。同scope另一当前授权actor同payload回放首次actor/time/reason；不同目标/payload冲突，新key重复关闭409。原存储关闭事实损坏在普通冲突前硬拒，失败不留下处置/释放前缀。Start/close和双close由同SQLite writer屏障串行。具体字段、公开DTO/OpenAPI与唯一测试owner见[V2 handoff](../plans/p6-v2-handoff.md)。
 
-## P7-S1a 目标补充：名义引用与保护移交（待实现）
+<a id="p7-s1a-目标补充名义引用与保护移交待实现"></a>
 
-本节是A可审目标，尚未独审/实现，不提升现行6.0.0或改变Submit/Review/Archive状态机。实现与向量责任见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)。
+## P7-S1a 生效补充：名义引用与保护移交（已生效）
+
+状态：S1a 名义引用与保护移交已实现，不提升现行6.0.0或改变Submit/Review/Archive状态机。证据与适用边界见 [S1a 总结](../plans/p7-s1a-summary.md)；[A 入口](../plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。
 
 BackendArtifactRef、SourceArtifactBinding、Preview/Attempt/Submission及Archive冻结事实中的backend bare ID均严格使用a1位置codec；RepositoryArtifactRef保持独立repository-scoped UUID，不让backend codec或宽泛字符串校验混淆二者。ConfigurationSideFacts.source_artifact_id也属于backend引用；INITIAL_EMPTY仍为null，实际上传侧必须校验codec及原source binding。来源内容四字段身份与权限scope不增加环境/组/物理位置输入。
 

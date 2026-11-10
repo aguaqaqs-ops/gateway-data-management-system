@@ -514,8 +514,10 @@ S3 风险上限重放必须保留当前控制流：在等级过滤前检查上�
 
 风险侧最小只读接口按 `iter_record_batches(table, family=STANDARD, columns=(...), order=FACTS) -> Iterator[RecordBatch]` 定义，`family` 必须显式为 STANDARD/ORDERED/BLANK 中一族，`order` 对风险只能是 `FACTS`，`columns` 只能选该族已定义的必要列；未知列/族或已释放 owner 应拒绝。每个 batch 保留所请求列的 Arrow 类型与原 facts 全局顺序，跨 batch 连接后恰等于该族 facts 顺序；不能用 artifact 序、到达顺序或全表 `to_pylist()` 代替。迭代可重复以供现三种 row kind 遍历，返回 batch 借用同一 operation owner；提前关闭、异常、取消和最后消费者退出均释放借用与预算。`record_count(table,family)`、`has_records(table,family)`、`ordered_degraded(table)` 是小型事实查询，分别返回该族精确 count、存在性及 extension status/`TABLE_DEGRADED`/diagnostics 的合并布尔值，不构造记录元组。现 `_facts.py` 的 visible/scope 判断使用 STANDARD 的存在性，ordered unsupported 使用合并布尔值；closure refs 仍由现 `records_access` 控制步骤读取。
 
-## P7-S1a 目标补充：risk位置（待实现）
+<a id="p7-s1a-目标补充risk位置待实现"></a>
 
-A目标未切换当前实现，B–D实现/验证后记录生效，见 [A入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。risk content/annotation manifest/closure与持久neutral candidates/envelope显式归comparison；READY/Attempt用途只增加保护，不搬为durable。正常cold/restored风险顺序、cap、编号、level过滤与当前closure校验保持，不增统计成功前提。
+## P7-S1a 生效补充：risk位置（已生效）
+
+状态：S1a risk 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。risk content/annotation manifest/closure与持久neutral candidates/envelope显式归comparison；READY/Attempt用途只增加保护，不搬为durable。正常cold/restored风险顺序、cap、编号、level过滤与当前closure校验保持，不增统计成功前提。
 
 artifact refs继续不直接进入risk_evaluation_digest；不含ref的内容/manifest与风险事实摘要保持原公式。含新ref的closure、report、cache envelope原bytes/SHA以及消费它们完整性的surface/bundle摘要按实际载荷传递重算。不得放宽closure校验、删除raw SHA输入或复用旧绑定来保旧golden。同盘/分盘配置本身不进入候选key或业务摘要。

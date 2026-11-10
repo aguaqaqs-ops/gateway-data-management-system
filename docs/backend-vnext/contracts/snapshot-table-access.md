@@ -246,9 +246,11 @@ SQL parser返回独立小型configuration_generated_time metadata，不改变既
 
 native只传递规则身份、selected/max、三类计数、两序号、status及last_not_max，不搬整列到Python、不重读SQL；取消/截止/预算错误仍按原parser整体失败。domain在application边界严格校验和绑定，缺metadata不是业务missing，不可发布READY。Rust唯一向量owner为gateway-compute-core/tests/configuration_generated_time.rs；adapter仅保留接线smoke。
 
-## P7-S1a 目标补充：位置与 handle（待实现）
+<a id="p7-s1a-目标补充位置与-handle待实现"></a>
 
-A 仅固定可审目标，现行格式/实现未在此提交切换；对应 B–D 验证后再记录生效，见 [A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)和 [Canonical Storage 目标](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#p7-s1a-目标补充多-root-身份与发布待实现)。
+## P7-S1a 生效补充：位置与 handle（已生效）
+
+状态：S1a 位置与 handle 接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。[Canonical Storage 协议](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#p7-s1a-目标补充多-root-身份与发布待实现)的统一位置身份与发布约束生效。
 
 canonical IPC 与 canonical wrapper 显式归 canonical；raw Parquet wrapper/rows 与 client export 显式归 export。二者共用 wrapper 不允许按 `_opaque_id("sta-manifest")`、media type 或扩展名猜位置。完整 canonical key 和 export cache key 保持原 scope/版本/行布局，换物理挂载不能变 key。reader、get_ref 与 mmap 一律通过位置 codec/resolver，handle 持有对应 root borrow 到所有 Arrow/native consumer 关闭。
 

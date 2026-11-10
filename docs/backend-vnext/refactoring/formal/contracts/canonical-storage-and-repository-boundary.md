@@ -380,9 +380,11 @@ Preview的FULL initial摘要与modified/baseline并列冻结，MODIFIED_ONLY引�
 
 V1跨版本澄清（设计提交`a24b7034e9`）：旧baseline保留source Submission原rules/projection/scalar身份，MODIFIED_ONLY.initial严格复制；FULL两上传侧按本operation冻结规则。合法additive规则变更仍可Preview，不重标baseline，也不要求三侧规则一律相等。V2以完整身份判等，不同身份不直接合并/相连；MO旧身份→新身份为合法边，FULL未知来源沿既定可接受UNEXPLAINED诊断。operation/runtime失配、T1 derived-stale、STORAGE_BREAKING activation与不支持版本/绑定损坏拒绝不变。
 
-## P7-S1a 目标补充：多 root 身份与发布（待实现）
+<a id="p7-s1a-目标补充多-root-身份与发布待实现"></a>
 
-状态：A 的可审目标，尚未独审或生效；本节不提升现行 `3.8.0`。B–F 完成对应实现/向量、G 核收后再更新生效记录。实施范围和当前消费者见 [A 入口与摘要边界](../plans/p7-s1a-a-entry-and-contract.md)，目标细节见 [S1a 设计 §4–7](../plans/p7-s1a-storage-resource-design.md#4-位置协议与目录布局)。旧 ID/布局不提供兼容读取。
+## P7-S1a 生效补充：多 root 身份与发布（已生效）
+
+状态：S1a 已实现并经 B–F 对应向量、G 全范围核收；本节不提升现行 `3.8.0`。实施、门禁与真实数据证据及其适用边界见 [S1a 总结](../plans/p7-s1a-summary.md)。[A 入口与摘要边界](../plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实；[S1a 设计 §4–7](../plans/p7-s1a-storage-resource-design.md#4-位置协议与目录布局)继续约束协议。旧 ID/布局不提供兼容读取。
 
 Backend `ArtifactRef` 保持四字段，ID 严格为 `a1:<location>:<token>`；location 只有 durable/canonical/comparison/export，token 为 64 位小写 hex。token=`hex(SHA256(JCS(["gateway-artifact-id-v1", location, kind, identity_payload])))`；kind 为 producer 固定类型，随机对象使用新 128-bit nonce，确定性对象保留完整 owning 身份输入。canonical 输入保留 repository scope、projection/schema/count/table/mapping 身份。物理挂载、环境/组和宿主路径不进入 ID；同盘/分盘配置下相同身份不变。bare ID 只解析一次并选择唯一 root，禁止扫描其他 root、按媒体类型猜位置或旧格式 fallback。RS 的 repository-scoped UUID 协议不套本 codec。
 

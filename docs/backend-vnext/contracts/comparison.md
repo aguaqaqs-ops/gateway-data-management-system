@@ -618,8 +618,10 @@ ComparisonComputeResult:
 
 摘要有三个不同逻辑视图：`table_fact_digest` 对完整 table payload（包括三族 facts 序记录）作 JCS；`facts_core_digest` 在 summary 就绪后对 `{algorithm_version,kind,summary,tables}` 中完整 table payload 逐字节重放，不用 table digest 拼接；`comparison_digest` 对现有 envelope 作小型 JCS。records content digest 对 detail 裁剪后的产物序逐族 JCS，Parquet raw digest另由实际文件字节计算。当前 pair 的大记录 owner 至少保留到 facts/core 摘要、writer 和 risk 消费完成；跨 pair 只在已知再次使用且预算准入时保留。详细字段与释放表见 [S3 A 交接](../refactoring/formal/plans/p6-s3-a-contract-handoff.md)。
 
-## P7-S1a 目标补充：comparison位置（待实现）
+<a id="p7-s1a-目标补充comparison位置待实现"></a>
 
-A目标未切换当前实现，B–D实现与定向验证后记录生效，见 [A入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
+## P7-S1a 生效补充：comparison位置（已生效）
+
+状态：S1a comparison 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
 
 table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。Parquet records的SpooledTemporaryFile必须显式使用本operation scratch（包括rollover）；共享temporary cap与原records/spool上限共同约束，返回bytes的M预约另计。取消、ENOSPC、writer/close失败均释放writer/spool，不发表READY，不能回退系统temp。

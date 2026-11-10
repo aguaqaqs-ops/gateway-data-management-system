@@ -430,9 +430,11 @@ flow_assembly_cache optional
   相同 `source_ref` 的跨 pair 重复允许提升为 `shared/...`（见上条）。
 - Ordered unsupported bundle 仍可 READY，并提供 review-required risk/diagnostics。
 
-## P7-S1a 目标补充：混合位置交付（待实现）
+<a id="p7-s1a-目标补充混合位置交付待实现"></a>
 
-A仅提出可审目标；本节B–D实现/验证前不宣称当前下载支持多root，不提升bundle合同版本，见 [A入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。
+## P7-S1a 生效补充：混合位置交付（已生效）
+
+状态：S1a 多 root 下载已实现并经 G 核收，不提升 bundle 合同版本；实际 literal 路径/字段集合比较、ID/raw integrity 传递变化及适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)。[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。
 
 新bundle manifest/closure、被实际rewrite的新交付成员归export。未改变身份且直接引用的成员保持原ref/location；bundle-relative logical_path是交付路径，不是磁盘类别。producer `_bundle_artifact_id` 与transport重算原closure ID必须共用相同export codec，含surface-source内部临时ref也需合法新格式。bundle_id不是ArtifactRef，不因同名前缀套codec。
 

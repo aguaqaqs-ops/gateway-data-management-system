@@ -232,9 +232,11 @@ response loss沿原事务/recovery处理，不增加journal、重试状态或跨
 T1即PREPARED但不代表已有包，prepare checkpoint前后的冻结恢复界限仍由
 [Canonical Storage §5](canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)拥有。
 
-## P7-S1a 目标补充：资源和跨 root closure（待实现）
+<a id="p7-s1a-目标补充资源和跨-root-closure待实现"></a>
 
-A 的目标未改变当前运行行为或 operation-runtime/v2；B–F 实施并验证后记录生效，见 [A 入口](../plans/p7-s1a-a-entry-and-contract.md)及 [S1a 执行方案 §3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)。本步单环境/组、W=K=1，不修订多 worker startup/recovery 或队列状态机。
+## P7-S1a 生效补充：资源和跨 root closure（已生效）
+
+状态：S1a 资源与跨 root closure 接线已实现，operation-runtime/v2 不变；证据与适用边界见 [S1a 总结](../plans/p7-s1a-summary.md)。[A 入口](../plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实，[S1a 执行方案 §3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)继续约束配置与资源接线。本步单环境/组、W=K=1，不修订多 worker startup/recovery 或队列状态机。
 
 `storage-layout.json` 与 `resource-profile.json` 是位置与资源的各自唯一来源，公共 schema_version/environment_id/group_id 必须匹配。入口为 GATEWAY_STORAGE_LAYOUT_FILE / GATEWAY_RESOURCE_PROFILE_FILE，替代旧 root 与重复 N/M/E 环境入口，不保 alias。N为1–256；M为显式正整数bytes且≤40GiB；8GiB≤reserve<E≤48GiB且M≤E−reserve；W=K=1。JSON拒绝bool/小数冒充整数、NaN/Infinity、重复/未知key及不支持版本。N不得超过有效CPU quota整数部分或cpuset，容器实际memory.max=E且祖先限制足够；M是kernel预算，不能用RSS代替。整机同时计worker、backend、RS/Dolt与共享余量，不重复算page cache或Dolt。scratch/staging cap是必填正整数，资源变化只在排空/重启生效。
 

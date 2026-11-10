@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 

@@ -126,7 +126,7 @@ K 先可由受控 worker 数实现；若 W > K，必须有原子且可恢复的�
 
 类别表示物理存储责任，不只按扩展名推断；一个产物可有多个用途和多个保护 owner，但其物理对象只记在一个存储位置。同一类型可配置不同本地挂载位置，默认同盘；本轮不实现每设备任意选盘、自动迁移或跨类别动态挪动。
 
-保留 location-independent ArtifactRef，绝对路径只存在部署配置和存储 adapter。S1a 定稿多 root 定位机制及所有 put/locate/stream/cleanup 消费者，使用明确逻辑位置，不扫描全部 root 猜位置。若必须改变引用载荷，直接按目标形态改 owning Contract 和消费者，不加旧格式双读层。
+保留与物理路径无关的四字段 ArtifactRef；S1a 的新 ID 显式编码组内逻辑位置，绝对路径只存在部署配置和存储 adapter。S1a 定稿多 root 定位机制及所有 put/locate/stream/cleanup 消费者，使用明确逻辑位置，不扫描全部 root 猜位置。若必须改变引用载荷，直接按目标形态改 owning Contract 和消费者，不加旧格式双读层。
 
 写入的发布 staging 必须与目标处于同一文件系统；独立 scratch 输出需受控复制至目标 staging、完成既有校验/持久化后发布，不能把跨盘 rename 当作可行原子操作。挂载变化后 worker、backend 和 cleanup 对位置的理解一致；缺挂载/不可写明确拒绝，不自动回退系统盘。
 

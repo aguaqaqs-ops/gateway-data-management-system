@@ -22,7 +22,7 @@
 
 本工作区 HEAD 为 `a300b16485bcad2f178aaccfe0c8adbb51b5ab83`，分支 `fe3b-evidence-04`，是 P6 exit 的祖先，**不能作为最终产品代码基线**。本文源码盘点以本地附注 tag `p6-exit` 指向的 `b0fc25e881cb4ce39b1cc847bad92b4ccb06b809`（下称 B）为准，使用 Git 对象及临时源码快照只读核对，未切换当前分支。B 的 `vnext` tree 为 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`。
 
-P7 产品代码的已复核起点为 B；实际获准实施时在 main 上核对 B 的后继变更，记录实际起始 SHA，并补盘点新增消费者。不得从当前较早的 FE 工作区覆盖或撤回 P6 改动。本文相对源码路径均指 **B 上的文件**；其中 `computation_cache.py` 等在当前工作区尚不存在。
+P7 产品代码的已复核起点为 B；实际获准实施时在 main 上核对 B 的后继变更，记录实际起始 SHA，并补盘点新增消费者。不得从当前较早的 FE 工作区覆盖或撤回 P6 改动。实际A入口已固定main后继`5ddd73b962`，B..该起点只有两份FE文档、vnext tree不变；新增consumer/摘要/Contract目标见[A入口](p7-s1a-a-entry-and-contract.md)。下文原盘点相对源码路径均指 **B 上的文件**；其中 `computation_cache.py` 等在当前工作区尚不存在。
 
 已读取 P6 最终外部报告与独审，目录为 `/home/dev/gdds-s6-logs/final/b0fc25e881cb4ce39b1cc847bad92b4ccb06b809/`：
 
@@ -132,7 +132,7 @@ token = 64 个小写十六进制字符
 
 同一逻辑位置改变物理挂载路径时 ID 不变；同一对象不能改 location。`RepositoryArtifactRef` 是 RS 独立协议，保持原 ID/schema，不套 `a1`。名义类型适配器必须分别校验，不能用宽泛字符串验证器把两者混用。
 
-影响 ref/ID 的 wrapper、checkpoint、bundle closure 和 transport digest/golden 同步更新。表业务 digest、comparison 规则、canonical cell encoding、Dolt commit 语义不因路径变化修改；新 ID 不能混进业务摘要新增输入。Comparison Bundle 原有“artifact ID 不进入 semantic digest”的规则保留；变化的 serialized bytes/raw SHA 与语义摘要分别核对，不能全量重录 golden 掩盖业务差异。引用 ID 已参与的摘要随目标载荷重新生成，不承诺与旧 golden 相等。同一新版本在同盘与分盘配置下必须得到相同身份/摘要。
+影响 ref/ID 的 wrapper、checkpoint、bundle closure 和 transport digest/golden 同步更新。表业务 digest、comparison 规则、canonical cell encoding、Dolt commit 语义不因路径变化修改；新 ID 不能混进业务摘要新增输入。Comparison Bundle 原有“artifact ID 不进入 semantic digest”的规则保留；变化的 serialized bytes/raw SHA 与语义摘要分别核对，不能全量重录 golden 掩盖业务差异。引用 ID 已参与的摘要随目标载荷重新生成，不承诺与旧 golden 相等。同一新版本在同盘与分盘配置下必须得到相同身份/摘要。A已按实际源码补齐[摘要影响表](p7-s1a-a-entry-and-contract.md#4-摘要与-golden-边界)：SnapshotTableArtifact.artifact_content_digest排除row artifact_id，固定bytes/descriptor时保持；含ref的manifest/closure raw SHA及surface/bundle完整性可传递变化；ConfigurationFacts及Archive绑定摘要包含source ID，必须沿原公式重算，不能删绑定或全量重录golden。
 
 ### 4.2 部署位置表
 
@@ -191,7 +191,7 @@ Compose 渲染与启动预检读取同一配置；容器内对实际 mount、UID
 单看“目录存在/可写”不能发现宿主数据盘未挂载后落到系统盘。采用两层最小检测：
 
 1. 部署预检核宿主挂载来源与预期本地 filesystem（分盘配置显式指定设备/UUID），再建立 bind；使用不自动创建 source 的 long syntax。禁止在启动服务时为缺失 source 执行 `mkdir -p`。同盘样例也明确它依赖哪个宿主 filesystem。
-2. 一次显式初始化在已核对的空目录写 `.gateway-storage.json`，包含部署 ID、slot、随机 storage ID、布局版本；service 启动只读取，不自动补写。每个容器校验目标确为配置要求的 mount、marker 匹配、无 symlink、普通目录、有效 euid 可读写，并以小文件 create/fsync/unlink 验证实际写权限。标识是防错卷措施，不是秘密或业务 proof。
+2. 一次显式初始化在已核对的空目录写 `.gateway-storage.json`，包含 environment_id、group_id、slot、随机 storage ID、布局版本；service 启动只读取，不自动补写。每个容器校验目标确为配置要求的 mount、marker 匹配、无 symlink、普通目录、有效 euid 可读写，并以小文件 create/fsync/unlink 验证实际写权限。标识是防错卷措施，不是秘密或业务 proof。
 
 初始化由部署管理动作完成；既有 RS entrypoint 仍可准备已验证 root 内的必要目录/权限，但必须先验证挂载，不自动把空底层目录初始化为新库。不得随启动递归改他人目录权限。网络存储不在支持范围，metadata 需支持 SQLite locking/WAL，artifact root 需支持目录 flock、fsync 和本地 rename。
 

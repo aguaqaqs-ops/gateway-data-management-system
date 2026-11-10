@@ -617,3 +617,9 @@ ComparisonComputeResult:
 `TableComputation` 在 operation 内持有小型 table facts、三族未裁剪的记录列、facts 顺序索引、产物顺序索引和逐族 count/content digest。blank 的 `entity_key_kind` 等仅用于 facts 摘要的额外列留在内部，不进入 BLANK Parquet schema。消费者按需投影 Arrow batches；该 handle 不写入 checkpoint、surface、bundle 或 HTTP 文档，也不提供整份转回 `ComparisonRecord` 元组的隐式路径。
 
 摘要有三个不同逻辑视图：`table_fact_digest` 对完整 table payload（包括三族 facts 序记录）作 JCS；`facts_core_digest` 在 summary 就绪后对 `{algorithm_version,kind,summary,tables}` 中完整 table payload 逐字节重放，不用 table digest 拼接；`comparison_digest` 对现有 envelope 作小型 JCS。records content digest 对 detail 裁剪后的产物序逐族 JCS，Parquet raw digest另由实际文件字节计算。当前 pair 的大记录 owner 至少保留到 facts/core 摘要、writer 和 risk 消费完成；跨 pair 只在已知再次使用且预算准入时保留。详细字段与释放表见 [S3 A 交接](../refactoring/formal/plans/p6-s3-a-contract-handoff.md)。
+
+## P7-S1a 目标补充：comparison位置（待实现）
+
+A目标未切换当前实现，B–D实现与定向验证后记录生效，见 [A入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
+
+table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。

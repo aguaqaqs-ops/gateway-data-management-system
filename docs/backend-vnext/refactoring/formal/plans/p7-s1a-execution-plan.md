@@ -41,7 +41,7 @@ S1a 交付一组一 worker 的完整上传、Preview、Submit/Review/Archive、�
 - 当前工作区是较早的 `fe3b-evidence-04`，HEAD `a300b16485bcad2f178aaccfe0c8adbb51b5ab83`，不能直接在此编写 P7 产品或覆盖后续 P6 改动。
 - 实施会话先确认 main 当前实际提交，B 必须在其祖先中；记录 B..实际起点的产品差异并复核新增消费者。使用不干扰已有工作区的正确 checkout；不切走当前其他会话的分支、不携带其 dirty 文件、不重写已审核提交。
 - 先将本轮七份 P7 文档按仓库流程纳入实现可引用的本地提交：S0 决议、总体设计、总执行计划、S1a 详细设计、分组补充、本方案、新会话提示词。确认文件自交接后无他人并行改动，再逐路径暂存；不得顺带提交 `fe3c-review.md`、architecture/implementation-stages 等其他会话文件，不用 `git add .`，不因输入未提交而忽略其内容。
-- 当前所有产品变更仍未开始。实施与复审/测试 worktree 分开，测试必须是 clean 已提交源码。
+- A已固定`5ddd73b962`并提交七份原件`bc184e5007`，详见[A入口与消费者/摘要表](p7-s1a-a-entry-and-contract.md)；A仍仅提交待实现Contract目标，未记产品通过。实施与复审/测试 worktree 分开，测试必须是 clean 已提交源码。
 
 ## 3. 编码输入定稿
 

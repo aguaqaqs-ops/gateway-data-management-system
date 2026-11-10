@@ -382,3 +382,13 @@ V1授权读取顺序补充（F5）：公开点读先检查当前permission和持
 POST /v1/submissions/{submission_id}/closure（Idempotency-Key；expected_review_version、expected当前baseline node/head version、reason）只授archive_submission。当前permission和最小target binding/scope授权先于full facts；缺失/跨scope404，已授权facts损坏503 ARCHIVE_INTEGRITY_FAILURE。当前授权→原成功replay→当前Head→APPROVED/未处置/exact占用→唯一处置与Workspace CAS释放同短事务，OPEN/generation不变、清指针/version+1；不查全图/其他Attempt，超限、旧baseline合法占用或其他候选损坏不堵出口。保留APPROVE/全部历史，不动Head/main/commit，不可撤销，重提必须新上传/Preview/Submission。移除桥接后余下来源可重为UNKNOWN，不自动接受或级联关闭。
 
 CLOSE key命名空间exact repository/device/project+CLOSE+key；fingerprint只含命令/scope/目标/请求expected版本/reason，actor/time/current可变状态不入。同scope另一当前授权actor同payload回放首次actor/time/reason；不同目标/payload冲突，新key重复关闭409。原存储关闭事实损坏在普通冲突前硬拒，失败不留下处置/释放前缀。Start/close和双close由同SQLite writer屏障串行。具体字段、公开DTO/OpenAPI与唯一测试owner见[V2 handoff](../plans/p6-v2-handoff.md)。
+
+## P7-S1a 目标补充：名义引用与保护移交（待实现）
+
+本节是A可审目标，尚未独审/实现，不提升现行6.0.0或改变Submit/Review/Archive状态机。实现与向量责任见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)。
+
+BackendArtifactRef、SourceArtifactBinding、Preview/Attempt/Submission及Archive冻结事实中的backend bare ID均严格使用a1位置codec；RepositoryArtifactRef保持独立repository-scoped UUID，不让backend codec或宽泛字符串校验混淆二者。ConfigurationSideFacts.source_artifact_id也属于backend引用；INITIAL_EMPTY仍为null，实际上传侧必须校验codec及原source binding。来源内容四字段身份与权限scope不增加环境/组/物理位置输入。
+
+T1 Preview→Attempt保护移交、finalize/abort释放、Archive BaselineHead CAS保护移交与各业务事实仍在原同一短DB事务中成立；外层先按固定次序借roots再开事务，不在既有SQLite protection participant内部倒序取root锁。共享对象最后强owner释放后才转TTL，prune cache index不删除强引用。低频Head不能按年龄失去保护。Archive事务不新增文件读/物化，原exact-commit回填分界保持。
+
+ConfigurationFacts.facts_digest含完整source_artifact_id，Archive candidate含manifest/source refs与facts_digest；新ID会按原公式传递到candidate/candidate-set/冻结audit subject及相关fingerprint。不得删除这些原绑定以保旧golden，也不得将其误认canonical_state_digest算法变化。同盘/分盘配置不进入这些业务绑定摘要；固定同一组业务/nonce输入时应相等。具体逐项摘要与golden责任见A§4。

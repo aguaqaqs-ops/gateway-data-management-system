@@ -1,6 +1,6 @@
 # Artifact 与持久化等级
 
-本文定义 backend vNext 中 artifact 分类、持久化等级和 operation artifact closure 规则。
+本文说明 backend vNext 中 artifact 分类、持久化等级和 operation artifact closure 规则。早期流程草案（如 hidden summary、SnapshotRowsArchive）仅作历史背景，不能覆盖当前 [Canonical Storage §5](refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)、[Snapshot Table Access](contracts/snapshot-table-access.md)、[Business Lifecycle](refactoring/formal/contracts/business-lifecycle-and-state.md)。当前 canonical 使用 IPC，客户端交付仍为真实 Parquet；P7-S1a 多 root 是下述待实现目标，不是当前能力。
 
 ## 持久化等级
 
@@ -75,16 +75,18 @@ SnapshotTableArtifactManifest:
   row_file_refs
   row_format
   compression
+  repository_id  # canonical必填scope；raw显式null
   row_materialization_profile
   artifact_content_digest
   created_at
   diagnostics optional
 ```
 
-第一版推荐：
+当前格式按用途区分：
 
 ```text
-manifest + Parquet rows
+canonical: manifest + Arrow IPC rows
+raw/client export: manifest + Parquet rows
 ```
 
 原因：
@@ -134,7 +136,7 @@ provider-private staging file
 
 - 它不等同于 `SnapshotTableArtifact`。
 - 它可以由 `SnapshotTableArtifact` 转换得到，也可以由 `SnapshotTableReader` streaming 生成。
-- 它不是业务事实，缺失时应能从 source package 或 SnapshotTableSet 重建。
+- 它不是业务事实；生产 Submit 的 frozen package 在 prepare checkpoint 后必须复用原 ref/raw SHA/key，缺失不能重建；T1/PREPARED 输入与精确 accepted commit 回填分界由 Canonical Storage §5 拥有。
 - 具体格式、转义、压缩和 digest 在 `capabilities/repository-import.md` 中定义。
 
 ## Operation Artifact Closure
@@ -144,7 +146,7 @@ Operation 对外 READY 前，前端或下载包需要读取的所有 artifacts �
 规则：
 
 - READY 不得依赖未来 cache warmup。
-- Capability cache 命中可以复制、硬链接或引用进 operation artifact root。
+- Capability cache 命中由 owning adapter 按当前 operation 闭合并登记保护；同一物理 ID 的多用途直接引用不搬盘，真实转换/rewritten bytes使用新对象。
 - Operation-local refs 保持 bundle-relative 或 operation-relative，不使用 cache refs 作为前端 contract。
 - Cache registration 可以在 READY 后异步发生。
 - Operation 负责声明 READY 所需 artifact closure；`artifacts.closure` 负责生成、校验和恢复 closure。
@@ -486,3 +488,13 @@ ProjectionTableArtifact
 - 预热类 producer 只能写 `PROVISIONAL` candidate。
 - Repository/readback 或等价权威校验后才可 promote 为 `COMMIT_VALIDATED`。
 - 只读类 caller 只使用 commit/repository validated projection cache。
+
+## P7-S1a 目标：类别与物理布局（待实现）
+
+A仅记录目标，现行产品尚未切换；独审与B–F实现/向量完成前不称已支持，见 [A入口与摘要表](refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。
+
+Backend四字段ref的ID为a1逻辑位置协议；durable/canonical/comparison/export各有唯一root，scratch不产生ref。持久化等级、用途、保护owner与物理类别独立，不能从L3或文件后缀推断位置/可删性。RS保持独立UUID与布局，backend不挂RS卷。
+
+目标root内payload与ref.jcs一目录、一次no-replace rename发布，替代现行payload与sidecar两步可见路径；独立scratch先有界copy/hash到目标staging。get_ref/buffer/stream/download/cleanup统一resolver，不扫roots猜位置。READY仍在所有成员完成/受保护后由原业务事务发表；不建立跨盘联合事务。root借用→DB短事务的锁序、EX下重新核保护删除、缺挂载拒启/拒新工作与有界维护详见Canonical Storage的P7目标。目录ref是内容身份，不是新增cleanup sidecar/proof。
+
+规范cell/table/state、比较/风险内容摘要不因物理布局新增输入。新ref改变的JSON/raw SHA及其完整性传递按A摘要表逐项更新，不能以全量golden更新掩盖业务差异；新版本同盘/分盘必须相等。旧ID、旧root/env别名、系统临时目录fallback均由本轮目标替换，不建设兼容层。

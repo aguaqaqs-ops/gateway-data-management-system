@@ -6,6 +6,18 @@
 工具链与证据见“前端测试（FD7）”一节。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
 
+## 新流程生效与自动门禁（P7-D25/D26）
+
+后端从 S1b、前端从 FE4a 后下一步采用新流程，S1a/FE4a 仍按现行授权、角色和执行方案完成。设计/Contract/决议入库，过程日志、handoff、提示词和审核意见移至 `/home/dev/gdds-stage-exchange/<stage>/`；阶段退出只入库一页总结。下文旧 handoff 字段在新阶段由阶段日志或机器结果承接，不再要求重复入库文档。
+
+每阶段一个设计者、一个持续协调者；每包新实施上下文（内聚两三个小包可合并），取消专职测试者。协调者按比例化政策 §4 定风险：A/B 逐包独审，C/D 实施者加门禁；阶段末全部包做一次全范围独审。独审使用新上下文及不同模型家族。独立代码审核、真实旅程、clean 已提交权威运行与架构门禁保留。
+
+范围内节点调度/占用、可逆实现细节、风险定级及已确认环境/命令错误的修复按默认规则自决；产品/验收范围变化、来源冲突和不可逆操作交 Owner。构建快速修复规则保持，产品失败仍停止该次 runner 及依赖验收，修正后新运行不覆盖原失败。
+
+拟建 `scripts/run-stage-gate.py`，输入 SHA 与可选包列表，04 固定 worktree 自动占用、准备闭包、运行权威 runner、写仓库外 JSON、释放占用；按同来源闭包查表替代手工 carried。详细算法、失败语义、最初来源、镜像等价、目录与模板见 [门禁与交接规格](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。**目前仅有规格，启用前仍执行下文操作步骤**；步骤保留为现行运行依据及脚本实施规范，不能提前删除。S1a/FE4a 不切换入口。
+
+五节点资源池保持现行规则；输入的旧节点职责与 DC91/DC97 冲突已在规格 §6 列出，建议自动门禁固定 04、其他工作继续池调度，待 Owner 决定。新自动门禁不迁移固定 worktree 来获取命中。前端继续独立 runner/e2e，不以 backend 包命中推断 FE 通过。
+
 ## 执行入口
 
 Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
@@ -343,8 +355,7 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
      worktree 的结果判定“等价”或“不等价”。同一 worktree 也意味着同一节点（owner 决议 DC36）。
      因此阶段的门禁 worktree 保留到该阶段 exit 合入之后再清理（owner 决议 DC51）。
 
-任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
-评审逐项复核；复核不通过时不得以`carried`关闭finding。
+任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。S1a/FE4a 的等价判定仍由实现方记录、独立评审复核；新流程由门禁脚本记录判定，独审按风险和阶段全范围核收，失败不得以 `carried` 关闭 finding。
 
 按包沿用与 V..H 镜像等价的关系、backend Compose 随包沿用及合格来源条件，统一见
 [Hypothesis 隔离与按包闭包沿用](#hypothesis-隔离与按包闭包沿用)；阶段退出绑定最终 HEAD 仍须满足本节全部条件。
@@ -354,7 +365,20 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
 `vnext/backend/tests/support/.last_compose_gate_provenance.json`复制到worktree外的日志目录。
 只有需要单独复现失败或runner未覆盖的nodeid时，才单独运行Compose旅程。
 
-### 每轮评审记录
+### 新阶段门禁引用模板
+
+脚本启用后阶段日志、审核和一页总结只引用结果，不抄逐包摘要或重写 carried 文档：
+
+```text
+Candidate: <full SHA>
+Gate result: <node:/absolute/path/result.json>; run_id=<id>; sha256=<digest>
+Coverage: <请求包/前端入口/真实旅程，未覆盖项明确写出>
+Deferred: <尚未到验证点的容器项及明确阶段；无则 none>
+```
+
+JSON 必须含起止 HEAD/UTC、hostname、exit、日志/SHA、各包摘要/实跑或沿用/最初来源，以及镜像重建理由和 revision/source-tree。包查表不能替代容器等价条件；不符即重建实跑。S5/发布/最终 production gate 强制 fresh 六包和最终 HEAD 重建。真实数据范围仍按 DC33，引用原始旅程结果，不按包查表代替。
+
+### S1a/FE4a 及脚本启用前的记录细节
 
 实现汇报和独立评审都必须记录Docker/Compose决策，即使决定不构建。最少包含：
 

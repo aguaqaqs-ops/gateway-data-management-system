@@ -636,6 +636,8 @@ compose 正式旅程与 S4 fresh 并合门禁。不修改 Workspace/Submission/A
 
 ## 9. Phase 6：Single-operation Performance and Rust Adoption（单任务性能与 Rust 接入）
 
+> 2026-11-10 标注：P7-D21 已撤回 W1–W4（DC35/DC53/DC83）及 DC38 H1–H3、S1–S4 数值目标；以下保留 P6 历史设计与已退出结果，不追溯改写。
+
 本节按 [Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md) DC37 改写（2026-10-25）。阶段结构见该记录 DC50，详细分析见 [Phase 6 规划讨论稿](p6-planning-discussion.md)。
 
 ### 目标
@@ -703,7 +705,7 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 - 同时执行的槽位上限 K（K × 单任务上限 ≤ 机器资源）、项目之间的公平调度、对用户可见的排队状态。
 - 多 worker：重新设计启动时的租约判定（S2b 复审 R1-O2）。
-- DC77 部署输入（owner，2026-11-04）：生产按多个 worker 考虑；500 仓库同日上传通常分散到达，批量任务允许处理到次日，日常交互优先。具体 worker 数量、到达曲线与次日完成时点待测定。领取任务时的优先级须结合批量保底份额或有界等待，避免永久饥饿；不抢占正在执行的事务/提交。核对队列等待与执行截止时间、上传产物保护期以及多 worker 恢复，不因此放宽 Phase 6 单任务延迟门槛。
+- DC77 部署输入（owner，2026-11-04）：生产按多个 worker 考虑；500 仓库同日上传通常分散到达，批量任务允许处理到次日，日常交互优先。具体 worker 数量、到达曲线与次日完成时点待测定。领取任务时的优先级须结合批量保底份额或有界等待，避免永久饥饿；不抢占正在执行的事务/提交。核对队列等待与执行截止时间、上传产物保护期以及多 worker 恢复，性能数值按 P7-D21 撤回，正确性和资源功能要求按 P7-D22 保留。
 - 跨 operation 的 Repository Service 资源队列、单 repository writer 与节点级排队；其他共享瓶颈（control DB、磁盘与内存带宽）；HTTP 准入名额在慢速上传期间的占用（DC49）。
 - 按容量淘汰与多项目缓存治理：TTL 之外的磁盘预算淘汰、命中统计与容量规划；只在存储测量显示需要时做。
 - 建立统一并发预算，单个 operation 的工作池服从该预算；过载时背压。
@@ -714,7 +716,7 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 - 并行模式与串行模式产生相同正式结果和 digest。
 - Cache miss/corruption 只影响性能，不改变业务事实。
-- p50/p95、吞吐、峰值内存和磁盘放大满足目标。
+- 按 P7-D21/D22 报告真实操作耗时、吞吐、内存与磁盘观测，不以已撤回数值作门槛；真实操作不因执行期限、租约或内存上限失败，优化按真实累计耗时、收益和机制成本取舍。
 - 过载时系统有背压，不通过无限线程/任务扩张维持吞吐。
 
 ## 11. Phase 8：Shadow Traffic and Cutover

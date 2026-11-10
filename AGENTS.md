@@ -16,16 +16,17 @@
 - 这不放宽阶段内的冻结约定：某阶段声明“不改行为”时，golden 与 digest 仍作为该阶段的回归
   基准。
 
-## 角色与子 agent
+## 流程与角色（P7-D25/D26）
 
-- 多阶段任务由持续协调者保持全程上下文；进入新阶段或已明确划分的实施小节时，为该阶段
-  **新建实施、独立审核、测试/等待子 agent**，不以新任务消息复用上一阶段的角色。
-- 阶段内的同一finding由该阶段原审核者连续复审，完成必要修复、验证和交接后再切换；
-  不为换阶段中断尚未收尾的执行或转移未关闭finding。
-- 新角色读取固定候选、owning Contract、上一阶段handoff及必要原始证据；交接材料显式给出
-  已完成、未测与未决项，不默认继承旧子agent的对话上下文或临时权限。
-- 阶段结束的角色退出活动分工，不再接下一阶段任务。创建前核实际并发槽；模型、推理强度、
-  独审独立性、唯一测试执行者和并发上限继续按当前任务授权执行，不递归扩队。
+新流程从后端 S1b、前端 FE4a 后下一步生效；**S1a/FE4a 保持现行授权、角色和执行方案**，包括已有构建快速修复授权。以下新规则不扩大产品或验收授权。
+
+- 每阶段一个设计会话和持续协调者；协调者按比例化政策 §4 的实际后果定 A–D 风险、触发门禁、合入并维护阶段日志。每包新实施上下文，内聚的两三个小包可合并。
+- A/B 类逐包独审；C/D 类由实施者与门禁完成。阶段末一次全范围独审覆盖全部包；独审须新上下文并使用与实施者不同的模型家族。同一 finding 原审复审。取消专职测试者，门禁由脚本执行，focused 由实施者执行；不自动递归扩队。
+- 设计、Contract、正式决议入库。handoff、审核意见、提示词及运行材料放仓库外 `/home/dev/gdds-stage-exchange/<stage>/`；提交加追加式阶段日志交接，退出只入库一页总结。历史过程文档不改写。
+- 节点选择与原子占用、已授权范围内可逆实现细节、风险定级和已确认环境/命令错误的修复，由协调者按下文默认规则自决。只将产品范围、验收范围、来源冲突、不可逆操作交 Owner 决定；他人资源冲突先针对性协调，不擅自抢占。runner 失败停止本次及依赖验收，不能归作环境错误掩盖产品 finding。
+- 审核 worktree 用毕、finding 关闭且无消费者即回收；不删除在途 S1a/FE4a、固定门禁/carried 来源、dirty 或用途不明工作区。批量回收先向 Owner 展示数量及排除项，执行前复核，不 force。
+
+门禁、交接目录、总结模板和实施安排见 [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。拟建 `scripts/run-stage-gate.py` 尚未交付；启用前仍用现有权威入口和 testing-conventions 取证，把新阶段记录写到仓库外，不以规格冒充已实现。
 
 ## 跑测试
 
@@ -64,7 +65,7 @@
 - **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
 - **backend/worker：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
 - **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
-- handoff 记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
+- 新阶段日志/门禁结果（S1a/FE4a 仍用 handoff）记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
 - **DC68 工具/取证错误：**Owner 2026-11-10 对确认属于非程序逻辑的构建/环境故障改用下文快速修复流程，取消此类故障“重做一次/最多两三轮即交 Owner”的限制，立即适用于已因次数停止的 S1a 和后续全部阶段。其他工具/取证错误仍按 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则；产品 finding 不归入构建故障。
 
 ### 构建故障快速修复（Owner 2026-11-10）
@@ -75,22 +76,14 @@
 - 一个故障维护一个普通条目：保留原始失败日志/exit/SHA，追加根因、修正和每次复跑结果/日志索引，最终 handoff 引用一次；不重复多份报告、签署或持久计数机制。恢复后从失败的构建步骤重做；已失败的 runner 不直接续接为合格证据，须按现行范围/闭包规则重新运行所需权威入口。
 - 只停止当前失败执行和依赖验收，可继续无依赖实施。所有修复仍遵守节点占用、clean 已提交源码、离线预填充、镜像身份和本人资源清理边界；不得在测试运行中写被测树/重建相关镜像、清理他人资源、跳身份或改预期。测试角色在此范围可修正命令与环境并复跑，不获得产品源码、资源预算或验收范围的修改权。
 
-权威入口的运行前提（不满足时结果不能作为门禁证据）：
-
-- 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在指定节点 clean、已提交 worktree 运行。节点不可用或前提不满足可改选池内合格空闲节点，不回退开发主机；carried 的来源节点/worktree 不能更换。
-- 运行期间不写 worktree、不提交、不重建或重新 tag 镜像；client e2e 由门禁正常重建的例外如上。
-- linked worktree（含 detached 审核 worktree）先建 `ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；`legacy/` 不入 Git，由 `.git/info/exclude` 忽略。
-- 各节点分别满足整机单飞；不并行其他 Dolt 进程或 Compose 栈，残留扫描整机 `/proc`，backend 共用 host 8000。不同节点按占用/宿主边界并行；真实数据与门禁可在不同节点测同一 V，同档完整旅程留在同一节点。
-- root SSH 使用磁盘目录 `TMPDIR=/home/dev/gdds-test-tmp`，不改 `/tmp/pytest-of-root` 属主。默认不设 `GATEWAY_TEST_BASETEMP`，显式验证该选项时除外。
-- runner、carried 与真实数据日志放 worktree 外，记录 hostname、起止时间、起止 HEAD、入口自身 exit code（经 `tee` 用 `pipefail` 或 `${PIPESTATUS[0]}`）；handoff 写明节点。
-- runner exit 非 0 时先停止处理失败，不继续 carried 或后续验收；Hypothesis 失败依据输出反例分析，不依赖跨运行缓存。
+权威运行必须在专用节点、clean 已提交 worktree 上进行；期间不写被测树、不改相关镜像（runner 的既定构建例外保留）。同节点整机单飞、离线预填充、保护真实输入及原始证据、失败不冒称通过都是硬约束。
+门禁脚本负责 SSH/占用、legacy 链接、固定临时路径、起止 HEAD/UTC/hostname、日志和 SHA、runner exit 与清理；具体步骤见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本启用前及 S1a/FE4a 继续按该文现行步骤执行。
 
 阶段性验证只跑所需 focused/marker 范围，不跑全量。权威入口可用 `GATEWAY_TEST_PACKAGES` 选包；固定顺序为 `rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`，未知或重复名称 exit 2，未设置则全六包。**项目最终门禁与发布门禁必须运行全部六包**；其他阶段按范围与闭包规则选择。
 
 Rust 包依次执行全 workspace 的 fmt、clippy（`-D warnings`）、test（locked/offline），三步都执行、任一失败则包失败，不排除 crate；扩展 Python/Arrow 行为由 backend pytest 覆盖。Rust 改动后跑 backend focused 前须强制重装扩展，不能使用旧 `.so`；构建输入检查、额外参数仅传 pytest 及 worktree 外 Cargo 缓存处理见 [Rust 扩展规则](docs/backend-vnext/testing-conventions.md#rust-包与-backend-的-rust-扩展dc48)。
 
-runner 管理 Python 包专属 Hypothesis 目录及其清理，worktree 内 `.hypothesis` 仅供 focused 使用；carried 须使用来源 V 的同一节点、同一 worktree、同一包专属路径且目录不存在。闭包无节点身份，禁止跨节点判定；[Hypothesis 与闭包细节](docs/backend-vnext/testing-conventions.md#hypothesis-隔离与按包闭包沿用)规定全部输入、清理时机和比较方法。
-来源 V 须为该包实际通过、整次 exit 0、clean 且有起止 HEAD 日志的权威 runner（可只选部分包）；闭包变化的包必须重跑通过。handoff 逐包记录摘要、运行/沿用、来源 V 和日志，沿用链直接指最初实跑 V。
+按包沿用只接受同来源节点、同固定 worktree 的完整闭包匹配，以及该包实际通过且整次 runner exit 0 的原始记录；直接引用最初实跑来源。新门禁用查表记录代替人工 carried，Hypothesis、环境同步与闭包前置条件由脚本承担，规则见 [闭包约定](docs/backend-vnext/testing-conventions.md#hypothesis-隔离与按包闭包沿用)。未实现前不能省略这些条件。
 
 backend/RS 主体并行，`serial and not parallel_safe` 始终 `-n 0`，其余三个 Python 包单进程；`parallel_safe` 须逐项审查不依赖时序、线程/进程、网络、Dolt 或共享持久状态，backend 当前无此例外。worker 默认 `auto`，按节点资源设置，不盲目并行 serial；[执行入口](docs/backend-vnext/testing-conventions.md#执行入口)列明 marker 命令、两遍拆分与参数。
 专用测试节点可显式以绝对路径 `GATEWAY_TEST_BASETEMP` 使用 tmpfs，仅影响 pytest 临时目录，不改变服务卷；持久化、崩溃恢复和快照验收必须用真实文件系统，详见同节。
@@ -203,20 +196,8 @@ S1a 的 A–F 是实施小节，G 是阶段集中验收点；工作包交接、�
 且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
 表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
 
-镜像身份等价（仅阶段退出）：已验证提交 `V` 与最终 HEAD 同时满足以下条件时，`V`
-的容器门禁结果视为最终 HEAD 的结果，记为 `carried`，不重跑 Compose：
-
-1. `V` 的门禁在已提交的 clean worktree 上由权威入口执行，日志记录 HEAD 与 exit code，运行期间
-   未写 worktree；
-2. `V..HEAD` 未改动上面前五项列出的任何内容，也未改动 Docker/Compose e2e 测试或 harness；
-3. 每个门禁镜像身份相等：RS 在最终 HEAD 重算 build-input/source-tree 与 label 对照；backend/worker 在来源 V 的同一节点、同一 worktree 检出最终 HEAD，以 backend 闭包 manifest 判定“可沿用”。具体身份、权限、缓存和 context 规则见 [镜像身份等价与结果沿用](docs/backend-vnext/testing-conventions.md#镜像身份等价与结果沿用)。阶段门禁 worktree 保留至 exit 合入后再清理。
-
-任一条件不满足，就在最终 HEAD 重建并重跑；同提交已由权威 runner 通过的 Compose 旅程不单独重跑，provenance 取自该次运行。
-按包沿用决定当前 V 运行哪些包，镜像身份等价决定 V..H 能否 carried，两者分别判定；backend 包合格沿用包含同次 Compose 旅程，阶段退出仍须独立满足镜像身份等价。完整闭包、同 worktree 比较与记录方法见上述链接。
-
-每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
-以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见
-[docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+阶段退出的容器沿用须同时满足同来源闭包与镜像等价，规则见 [镜像身份等价](docs/backend-vnext/testing-conventions.md#镜像身份等价与结果沿用)。不满足就重建实跑；同次 runner 已通过的 Compose 旅程不重复跑。S5、发布及最终 production gate 必须最终 HEAD 重建和完整六包，不查表跳过。
+新流程由门禁结果记录重建理由、image revision/source-tree 和最初来源；评审/阶段总结引用结果即可。S1a/FE4a 的原记录方式及脚本启用前的操作细节继续见 testing-conventions，不删掉尚无人承担的取证步骤。
 
 ## 全局比例化保障
 

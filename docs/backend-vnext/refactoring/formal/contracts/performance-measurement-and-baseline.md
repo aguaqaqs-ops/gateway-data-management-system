@@ -14,6 +14,8 @@ Semantic version：`3.0.0`
 本文件替代原measurement contract v2、formal capture gate、environment identity和
 BenchmarkBaselineRecord状态机。
 
+2026-11-10 补充：[P7-D21–D24](../plans/p7-s0-owner-decisions.md)撤回 W1–W4 及 DC38 H1–H3、S1–S4 数值目标，不改 P6 历史结果。相较 DC97 的“只报告、不作退出门槛”，这些数值不再作为当前目标。性能取舍按 P7-D22；真实旅程保存逐尝试摘要，N=2 核对正式结果与 digest，不另建性能测试。
+
 ## 1. Purpose
 
 性能测量用于回答当前业务容量或优化问题，不用于提前建设发布证据框架。任何性能

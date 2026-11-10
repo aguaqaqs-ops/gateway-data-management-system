@@ -8,7 +8,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.deployment_config import StorageLayoutConfig, DeploymentConfig
 from gateway_repository_service.storage_roots import RepositoryRoots
 
 
@@ -34,6 +34,7 @@ class RepositoryServiceSettings(BaseSettings):
     bearer_token_file: Path | None = None
     bearer_token: str | None = None
     roots: RepositoryRoots | None = None
+    resource_profile_file: Path | None = Field(default=None, validation_alias="GATEWAY_RESOURCE_PROFILE_FILE")
     storage_layout_file: Path | None = Field(default=None, validation_alias="GATEWAY_STORAGE_LAYOUT_FILE")
     dolt_binary: Path = Path("/usr/local/bin/dolt")
     dolt_version: str = "2.1.11"
@@ -79,7 +80,7 @@ class RepositoryServiceSettings(BaseSettings):
     full_scan_timeout_seconds: int = 3600
     import_headroom_bytes: int = 1 * 1024**3
 
-    @field_validator("storage_layout_file")
+    @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
     def _storage_layout_file_must_be_absolute(cls, value: Path | None) -> Path | None:
         if value is not None and not value.is_absolute():
@@ -187,6 +188,18 @@ class RepositoryServiceSettings(BaseSettings):
     @property
     def control_db_path(self) -> Path:
         return self.storage_roots.metadata / "service-state" / "repository-service.sqlite3"
+
+    @cached_property
+    def deployment_config(self) -> DeploymentConfig | None:
+        if self.storage_layout_file is None:
+            if self.roots is not None and self.profile != "production":
+                return None
+            raise SettingsError("canonical deployment configuration is required")
+        if self.resource_profile_file is None:
+            raise SettingsError("GATEWAY_RESOURCE_PROFILE_FILE is required")
+        if self.roots is not None:
+            raise SettingsError("typed probe roots cannot override canonical deployment configuration")
+        return DeploymentConfig.load(self.storage_layout_file, self.resource_profile_file)
 
     @cached_property
     def storage_layout_config(self) -> StorageLayoutConfig | None:

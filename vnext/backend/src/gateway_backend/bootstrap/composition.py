@@ -95,6 +95,7 @@ from gateway_backend.infrastructure.repository_write.terminal_evidence_codec imp
     WireRepositoryTerminalEvidenceDecodePort,
 )
 from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.runtime_preflight import RuntimePreflight
 
 from gateway_backend.settings import BackendSettings
 
@@ -186,6 +187,7 @@ class BackendRuntime:
     admission_gate: ClosableAdmissionGate
     workspace_http: WorkspaceHttpDependencies
     history_http: HistoryHttpDependencies
+    storage_guard: RuntimePreflight
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
@@ -274,11 +276,11 @@ def prepare_backend_runtime(
 ) -> BackendRuntime:
     """Validate settings, SQLite, artifact root, registry, and Repository readiness before /readyz."""
 
+    guard = RuntimePreflight(settings.deployment_config, "backend", container=settings.runtime_mode == "container")
     repository_token = load_repository_bearer_token(settings.repository_bearer_token_file)
     load_internal_bearer_token(settings.internal_bearer_token_file)
     load_session_file(settings.session_file)
     parent = settings.control_db_path.parent
-    parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
@@ -405,6 +407,7 @@ def prepare_backend_runtime(
     )
     return BackendRuntime(
         settings=settings,
+        storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
         history_http=history_http,

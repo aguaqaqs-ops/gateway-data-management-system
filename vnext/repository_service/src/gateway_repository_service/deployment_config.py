@@ -118,10 +118,29 @@ def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
     return True
 
 
+def _validate_jcs_domain(value: object) -> None:
+    if isinstance(value, str):
+        if any(0xD800 <= ord(char) <= 0xDFFF or 0xFDD0 <= ord(char) <= 0xFDEF
+               or ord(char) & 0xFFFF in (0xFFFE, 0xFFFF) for char in value):
+            raise ValueError("configuration is outside the JCS/I-JSON domain")
+    elif type(value) in (int, float):
+        if abs(value) > 2**53 - 1 or not math.isfinite(value):
+            raise ValueError("configuration is outside the JCS/I-JSON domain")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_jcs_domain(key)
+            _validate_jcs_domain(item)
+    elif isinstance(value, list):
+        for item in value:
+            _validate_jcs_domain(item)
+
+
 def _configuration_digest(document: dict[str, object]) -> str:
-    if not _validate_jcs_domain(document):
-        raise ValueError("configuration is outside the JCS domain")
-    return "sha256:" + hashlib.sha256(rfc8785.dumps(document)).hexdigest()
+    # The host renderer needs only stdlib structural validation; services compute
+    # stable observations with the existing owning JCS implementation on demand.
+    from gateway_shared_kernel import raw_blob_digest
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    return raw_blob_digest(canonicalize_json_value(document)).value
 
 
 def _header(document: dict[str, object]) -> tuple[str, str]:
@@ -159,11 +178,16 @@ class StorageLayoutConfig:
     group_id: str
     filesystems: Mapping[str, FilesystemPolicy]
     roots: Mapping[str, StorageRoot]
-    digest: str
+    _canonical_document: dict[str, object]
+
+    @property
+    def digest(self) -> str:
+        return _configuration_digest(self._canonical_document)
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> StorageLayoutConfig:
         doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "filesystems", "roots"})
+        _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
         fs_raw = doc["filesystems"]
         if type(fs_raw) is not dict or not 1 <= len(fs_raw) <= MAX_FILESYSTEMS:
@@ -209,7 +233,7 @@ class StorageLayoutConfig:
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
         return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            _configuration_digest(doc))
+            doc)
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -270,12 +294,17 @@ class ResourceProfile:
     repository_service: ServiceResources
     host_budget: HostBudget
     temporary: TemporaryLimits
-    digest: str
+    _canonical_document: dict[str, object]
+
+    @property
+    def digest(self) -> str:
+        return _configuration_digest(self._canonical_document)
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ResourceProfile:
         doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "worker",
             "backend", "repository_service", "host_budget", "temporary"})
+        _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
         item = _object(doc["worker"], {"count", "active_limit", "kernel_threads", "kernel_memory_bytes",
             "memory_envelope_bytes", "memory_reserve_bytes", "cpu_limit", "swap_limit_bytes"})
@@ -302,7 +331,7 @@ class ResourceProfile:
         temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
             _integer(temp["staging_max_bytes_per_object"]))
         return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            _configuration_digest(doc))
+            doc)
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:

@@ -83,9 +83,9 @@ def make_operation_worker_settings(
         "provisioned_mapping_file",
         db_path.parent / "provisioned-mapping.json",
     )
+    _configure_test_profile(storage_file, resources_file, db_path, overrides)
     return OperationWorkerSettings(
-        kernel_memory_budget_bytes=overrides.pop("kernel_memory_budget_bytes", 8 * 1024**3),  # type: ignore[arg-type]
-        control_db_path=db_path,
+        runtime_mode="host",
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
         resource_profile_file=overrides.pop("resource_profile_file", resources_file),  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]
@@ -116,8 +116,9 @@ def make_backend_settings(
         tmp_path / "internal-bearer-token",
     )
     mapping_file = overrides.pop("provisioned_mapping_file", tmp_path / "provisioned-mapping.json")
+    _configure_test_profile(storage_file, resources_file, db_path, overrides)
     return BackendSettings(
-        control_db_path=db_path,
+        runtime_mode="host",
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
         resource_profile_file=overrides.pop("resource_profile_file", resources_file),  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]
@@ -154,3 +155,34 @@ def prepare_backend_runtime_paths(tmp_path: Path) -> None:
         baseline_head=BASELINE_HEAD,
         mapping_file=mapping_file,
     )
+
+
+def _configure_test_profile(storage: Path, resources: Path, database: Path, overrides: dict[str, object]) -> None:
+    from gateway_backend.runtime_preflight import marker_document
+    from gateway_backend.deployment_config import StorageLayoutConfig
+    if not database.is_absolute():
+        raise ValueError("control database fixture path must be absolute")
+    layout = json.loads(storage.read_bytes())
+    # The metadata root is the requested fixture DB directory. Other roots stay
+    # outside it, maintaining the production non-nesting invariant.
+    for slot, root in layout["roots"].items():
+        path = (database.parent if slot == "be-metadata" else
+                database.parent.with_name(database.parent.name + "-objects") / slot)
+        root["source"] = root["path"] = str(path)
+        path.mkdir(parents=True, exist_ok=True)
+    layout["filesystems"]["local"]["min_free_bytes"] = 1
+    layout["filesystems"]["local"]["min_free_fraction"] = 0.0000001
+    storage.write_text(json.dumps(layout))
+    parsed = StorageLayoutConfig.load(storage)
+    for slot, root in parsed.roots.items():
+        (Path(root.path) / ".gateway-storage.json").write_text(json.dumps(marker_document(parsed, slot)))
+    profile = json.loads(resources.read_bytes())
+    for name, target in (("kernel_threads", "kernel_threads"),
+                         ("kernel_memory_budget_bytes", "kernel_memory_bytes"),
+                         ("memory_envelope_bytes", "memory_envelope_bytes"),
+                         ("memory_reserve_bytes", "memory_reserve_bytes")):
+        if name in overrides:
+            profile["worker"][target] = overrides.pop(name)
+    profile["host_budget"]["memory_bytes"] = 64 * 1024**3
+    profile["host_budget"]["cpu_count"] = 32
+    resources.write_text(json.dumps(profile))

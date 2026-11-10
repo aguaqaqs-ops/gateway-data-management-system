@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import Self
+from typing import Self, Literal
+from functools import cached_property
+from gateway_backend.deployment_config import DeploymentConfig
 from urllib.parse import urlparse
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -67,7 +69,7 @@ class BackendSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_BACKEND_", frozen=True)
 
-    control_db_path: Path
+    runtime_mode: Literal["container", "host"] = "container"
     storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
     resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
     repository_base_url: str
@@ -87,10 +89,13 @@ class BackendSettings(BaseSettings):
     cleanup_sweep_batch_size: int = FIXED_CLEANUP_SWEEP_BATCH_SIZE
     cleanup_retry_backoff_seconds: float = FIXED_CLEANUP_RETRY_BACKOFF_SECONDS
 
-    @field_validator("control_db_path")
-    @classmethod
-    def _require_absolute_control_db_path(cls, value: Path) -> Path:
-        return require_absolute_path(value, field_name="control_db_path")
+    @cached_property
+    def deployment_config(self) -> DeploymentConfig:
+        return DeploymentConfig.load(self.storage_layout_file, self.resource_profile_file)
+
+    @property
+    def control_db_path(self) -> Path:
+        return Path(self.deployment_config.storage.roots["be-metadata"].path) / "control.sqlite3"
 
     @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
@@ -140,6 +145,7 @@ class BackendSettings(BaseSettings):
                 "cleanup_retry_backoff_seconds": FIXED_CLEANUP_RETRY_BACKOFF_SECONDS,
             },
         )
+        self.deployment_config
         return self
 
     def __repr__(self) -> str:
@@ -159,7 +165,7 @@ class OperationWorkerSettings(BaseSettings):
         frozen=True,
     )
 
-    control_db_path: Path
+    runtime_mode: Literal["container", "host"] = "container"
     storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
     resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
     repository_base_url: str
@@ -175,26 +181,29 @@ class OperationWorkerSettings(BaseSettings):
     graceful_drain_timeout_seconds: float = 180.0
     max_in_flight: int = 1
     claim_limit: int = 1
-    kernel_threads: int = Field(default=1, ge=1, le=256)
-    kernel_memory_budget_bytes: int = Field(ge=1, le=WORKER_MAX_KERNEL_MEMORY_BYTES)
-    memory_envelope_bytes: int = Field(
-        default=WORKER_MEMORY_ENVELOPE_BYTES, ge=1, le=WORKER_MAX_MEMORY_ENVELOPE_BYTES,
-    )
-    memory_reserve_bytes: int = WORKER_MEMORY_RESERVE_BYTES
+    @property
+    def kernel_threads(self) -> int:
+        return self.deployment_config.resources.worker.kernel_threads
 
-    @field_validator("kernel_threads", "kernel_memory_budget_bytes", "memory_envelope_bytes", "memory_reserve_bytes", mode="before")
-    @classmethod
-    def _require_integer_kernel_settings(cls, value: object) -> int:
-        if type(value) is int:
-            return value
-        if type(value) is str and value.isascii() and value.isdecimal():
-            return int(value)
-        raise ValueError("kernel resource settings must be integers")
+    @property
+    def kernel_memory_budget_bytes(self) -> int:
+        return self.deployment_config.resources.worker.kernel_memory_bytes
 
-    @field_validator("control_db_path")
-    @classmethod
-    def _require_absolute_control_db_path(cls, value: Path) -> Path:
-        return require_absolute_path(value, field_name="control_db_path")
+    @property
+    def memory_envelope_bytes(self) -> int:
+        return self.deployment_config.resources.worker.memory_envelope_bytes
+
+    @property
+    def memory_reserve_bytes(self) -> int:
+        return self.deployment_config.resources.worker.memory_reserve_bytes
+
+    @cached_property
+    def deployment_config(self) -> DeploymentConfig:
+        return DeploymentConfig.load(self.storage_layout_file, self.resource_profile_file)
+
+    @property
+    def control_db_path(self) -> Path:
+        return Path(self.deployment_config.storage.roots["be-metadata"].path) / "control.sqlite3"
 
     @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
@@ -222,14 +231,12 @@ class OperationWorkerSettings(BaseSettings):
             self,
             {
                 **_WORKER_FIXED_BUDGETS,
-                "memory_reserve_bytes": WORKER_MEMORY_RESERVE_BYTES,
                 "repository_timeout_seconds": FIXED_REPOSITORY_TIMEOUT_SECONDS,
             },
         )
-        if self.kernel_memory_budget_bytes > self.memory_envelope_bytes - self.memory_reserve_bytes:
-            raise ValueError("kernel budget exceeds worker envelope minus reserve")
         if self.heartbeat_interval_seconds > self.lease_duration_seconds / 3:
             raise ValueError("heartbeat_interval_seconds must be at most lease duration / 3")
+        self.deployment_config
         return self
 
     def __repr__(self) -> str:

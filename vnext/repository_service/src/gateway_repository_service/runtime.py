@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_repository_service.runtime_preflight import RuntimePreflight
+
 import logging
 import os
 import threading
@@ -111,6 +113,7 @@ class ServiceRuntime:
         default_factory=MutableConsistencyWatch,
         repr=False,
     )
+    storage_guard: RuntimePreflight | None = field(default=None, repr=False)
     _stopping: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @classmethod
@@ -123,6 +126,8 @@ class ServiceRuntime:
     ) -> "ServiceRuntime":
         stack = ExitStack()
         try:
+            deployment = settings.deployment_config
+            guard = RuntimePreflight(deployment, "repository_service") if deployment is not None else None
             bearer_token = settings.resolve_bearer_token()
             layout = DurableLayout.create_service(settings.storage_roots)
             root_lock = DurableRootLock(layout.service_lock)
@@ -235,6 +240,7 @@ class ServiceRuntime:
             )
             stack.pop_all()
             runtime = cls(
+                storage_guard=guard,
                 settings=settings,
                 layout=layout,
                 root_lock=root_lock,
@@ -511,6 +517,8 @@ class ServiceRuntime:
 
     def _readiness_failure(self) -> str | None:
         try:
+            if self.storage_guard is not None:
+                self.storage_guard.check()
             if self._stopping.is_set():
                 return "service is shutting down"
             if not self.root_lock.is_held():

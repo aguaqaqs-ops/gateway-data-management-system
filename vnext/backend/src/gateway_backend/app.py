@@ -41,6 +41,7 @@ def create_app(
             runtime.workspace_http,
             history_deps=runtime.history_http,
         )
+        app.state.storage_guard = runtime.storage_guard
         app.state.admission_gate = runtime.admission_gate
         app.state.ready = True
         try:
@@ -57,6 +58,16 @@ def create_app(
     app.add_middleware(ArchiveRequestBodyLimitMiddleware)
     maybe_add_inflight_barrier_middleware(app)
     register_exception_handlers(app)
+    @app.middleware("http")
+    async def storage_admission(request, call_next):  # type: ignore[no-untyped-def]
+        guard = getattr(app.state, "storage_guard", None)
+        if guard is not None and request.url.path != "/healthz":
+            try:
+                guard.check()
+            except (OSError, ValueError):
+                return JSONResponse({"status": "not_ready"}, status_code=503)
+        return await call_next(request)
+
     app.state.ready = False
     _register_health_routes(app, ready=None)
     return app
@@ -70,6 +81,12 @@ def _register_health_routes(app: FastAPI, *, ready: bool | None) -> None:
     @app.get("/readyz", response_model=None)
     def readyz() -> JSONResponse:
         is_ready = ready if ready is not None else bool(getattr(app.state, "ready", False))
+        guard = getattr(app.state, "storage_guard", None)
+        if guard is not None:
+            try:
+                guard.check()
+            except (OSError, ValueError):
+                is_ready = False
         if not is_ready:
             return JSONResponse({"status": "not_ready"}, status_code=503)
         return JSONResponse({"status": "ok"})

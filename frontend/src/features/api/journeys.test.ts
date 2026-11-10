@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayApi } from "./client";
-import { applyReviewAction, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
+import { applyReviewAction, buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedFixtureBundle, installedGoldenBundle, responseForTar } from "../../test/helpers";
-import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
+import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
 
 const operation = TEST_OPERATION_SUCCEEDED;
 const upload = TEST_UPLOAD_FULL;
@@ -167,15 +167,29 @@ describe("simulated user journey data flows", () => {
     expect(result.result.archive_result_id).toBe("archive-1");
   });
 
-  it("records archive confirmations and anomaly resolutions with monotonic audit versions", async () => {
+  it("builds archive selected refs with exactly the two backend-accepted keys", () => {
+    const candidate = { submission_id: "submission-9", expected_candidate_digest: "sha256:candidate-9", review_version: 42, extra: "must-not-forward" };
+    expect(buildArchiveSelectedRef(candidate)).toEqual({ submission_id: "submission-9", expected_candidate_digest: "sha256:candidate-9" });
+    expect(Object.keys(buildArchiveSelectedRef(TEST_ARCHIVE_CANDIDATES.candidates[0]!)).sort()).toEqual(["expected_candidate_digest", "submission_id"]);
+  });
+
+  it("records archive confirmations and references every accepted anomaly of the latest preview", async () => {
     const firstPlan = ARCHIVE_PLAN_NEEDS_CONFIRMATION;
-    const readyPlan = ARCHIVE_PLAN_READY;
+    const acceptedAnomaly = {
+      ...ARCHIVE_PLAN_READY.anomalies[0]!,
+      resolution_status: "ACCEPTED" as const,
+      latest_sequence: 7,
+      accepted_by: "archiver-1",
+      accepted_at: "2026-11-07T15:20:00Z",
+      reason: "已人工确认",
+    };
+    const readyPlan = { ...ARCHIVE_PLAN_READY, anomalies: [acceptedAnomaly] };
     const listArchiveCandidates = vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES);
     const api = {
       listArchiveCandidates,
       listArchiveEvents: vi.fn(async (query: { subjectKind: string; subjectDigest: string }) => query.subjectDigest === "sha256:selection-subject"
         ? TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION
-        : query.subjectDigest === "sha256:anomaly" ? { events: [TEST_ARCHIVE_ANOMALY_EVENT], next_after_sequence: null } : TEST_ARCHIVE_EVENTS_EMPTY),
+        : TEST_ARCHIVE_EVENTS_EMPTY),
       previewArchive: vi.fn().mockResolvedValueOnce(firstPlan).mockResolvedValueOnce(readyPlan),
       appendArchiveConfirmation: vi.fn().mockResolvedValue(TEST_ARCHIVE_CONFIRM_APPEND),
       appendArchiveAnomalyResolution: vi.fn().mockResolvedValue(TEST_ARCHIVE_RESOLUTION_APPEND),
@@ -183,49 +197,45 @@ describe("simulated user journey data flows", () => {
       getArchiveResult: vi.fn().mockResolvedValue(testArchiveResultWithRefs()),
     } as unknown as GatewayApi;
     await runArchiveJourney(api, {
-      selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
+      selected: buildArchiveSelectedRef(TEST_ARCHIVE_CANDIDATES.candidates[0]!),
       confirmations: [{ subjectDigest: "sha256:selection-subject", action: "CONFIRM", reason: "已核对" }],
-      anomalyResolutions: [{ subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" }],
     });
     expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "CONFIRM_SELECTION", subjectDigest: "sha256:selection-subject", afterSequence: 0 }));
     expect(api.appendArchiveConfirmation).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 5, expected_baseline_head_version: 21 }), expect.any(String));
-    expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "PROJECT_IDENTITY_EXCEPTION", subjectDigest: "sha256:anomaly", afterSequence: 0 }));
-    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 7, issue_code: "PROJECT_IDENTITY_EXCEPTION", subject_kind: "PROJECT_IDENTITY_EXCEPTION" }), expect.any(String));
+    // Anomaly acceptances are appended in the dialog, not here: the journey must
+    // not call appendArchiveAnomalyResolution, and the start refs must cover the
+    // ACCEPTED item of the re-fetched (latest) preview.
+    expect(api.appendArchiveAnomalyResolution).not.toHaveBeenCalled();
     expect(api.startArchive).toHaveBeenCalledWith(expect.objectContaining({ confirmation_refs: [{ subject_digest: "sha256:selection-subject", sequence: 6 }], anomaly_resolution_refs: [{ subject_digest: "sha256:anomaly", sequence: 7 }] }), expect.any(String));
   });
 
-  it("gives each anomaly resolution its own key and expected sequence", async () => {
+  it("covers every accepted anomaly and skips unresolved items", async () => {
     const firstAnomaly = ARCHIVE_PLAN_NEEDS_CONFIRMATION.anomalies[0]!;
+    const acceptedSecond = { ...firstAnomaly, subject_digest: "sha256:anomaly-2", target_submission_id: "submission-2", resolution_status: "ACCEPTED" as const, latest_sequence: 8 };
+    const unresolved = { ...firstAnomaly, subject_digest: "sha256:anomaly-3", resolution_status: "UNRESOLVED" as const, latest_sequence: 3 };
+    const acceptedFirst = { ...firstAnomaly, resolution_status: "ACCEPTED" as const, latest_sequence: 7 };
     const twoAnomaliesPlan = {
       ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
       confirmation_requirements: [],
-      anomalies: [firstAnomaly, { ...firstAnomaly, subject_digest: "sha256:anomaly-2", target_submission_id: "submission-2" }],
+      can_start: true,
+      audit_validity: true,
+      anomalies: [acceptedFirst, unresolved, acceptedSecond],
     };
     const api = {
       listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
       listArchiveEvents: vi.fn().mockResolvedValue(TEST_ARCHIVE_EVENTS_EMPTY),
-      previewArchive: vi.fn().mockResolvedValueOnce(twoAnomaliesPlan).mockResolvedValue(ARCHIVE_PLAN_READY),
-      appendArchiveAnomalyResolution: vi.fn(async (body: { subject_digest: string }) =>
-        body.subject_digest === "sha256:anomaly" ? TEST_ARCHIVE_RESOLUTION_APPEND : { event_id: "event-8", sequence: 8 }),
+      previewArchive: vi.fn().mockResolvedValue(twoAnomaliesPlan),
       startArchive: vi.fn().mockResolvedValue(TEST_ARCHIVE_STARTED),
       getArchiveResult: vi.fn().mockResolvedValue(testArchiveResultWithRefs()),
     } as unknown as GatewayApi;
     await runArchiveJourney(api, {
-      selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
-      anomalyResolutions: [
-        { subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" },
-        { subjectDigest: "sha256:anomaly-2", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" },
-      ],
+      selected: buildArchiveSelectedRef(TEST_ARCHIVE_CANDIDATES.candidates[0]!),
     });
-    const calls = vi.mocked(api.appendArchiveAnomalyResolution).mock.calls;
-    expect(calls).toHaveLength(2);
-    expect(calls[0]?.[1]).toEqual(expect.any(String));
-    expect(calls[0]?.[1]).not.toBe(calls[1]?.[1]);
-    expect(calls.map(([body]) => body.expected_sequence)).toEqual([0, 0]);
     expect(vi.mocked(api.startArchive).mock.calls[0]?.[0].anomaly_resolution_refs).toEqual([
       { subject_digest: "sha256:anomaly", sequence: 7 },
       { subject_digest: "sha256:anomaly-2", sequence: 8 },
     ]);
+    expect(vi.mocked(api.startArchive).mock.calls[0]?.[0].anomaly_resolution_refs).not.toContainEqual({ subject_digest: "sha256:anomaly-3", sequence: 3 });
   });
 
   it("resumes archive retries after a failed start without resending audit events", async () => {
@@ -242,12 +252,11 @@ describe("simulated user journey data flows", () => {
     const input = {
       selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
       confirmations: [{ subjectDigest: "sha256:selection-subject", action: "CONFIRM" as const, reason: "已核对" }],
-      anomalyResolutions: [{ subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION" as const, reason: "已人工确认" }],
     };
     await expect(runArchiveJourney(api, input, progress)).rejects.toThrow("start unavailable");
     await runArchiveJourney(api, input, progress);
     expect(api.appendArchiveConfirmation).toHaveBeenCalledTimes(1);
-    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledTimes(1);
+    expect(api.appendArchiveAnomalyResolution).not.toHaveBeenCalled();
     const startCalls = vi.mocked(api.startArchive).mock.calls;
     expect(startCalls).toHaveLength(2);
     expect(startCalls[0]?.[1]).toEqual(expect.any(String));

@@ -11,11 +11,13 @@ import { defineConfig, devices } from "@playwright/test";
  * Suite selection mirrors `scripts/run-real-backend-e2e.sh --suite`:
  *   smoke    -> e2e-real/smoke.spec.ts
  *   journeys -> e2e-real/journeys.spec.ts
+ *   t1       -> e2e-real/t1.spec.ts
  */
 const suite = process.env.GATEWAY_FE_SUITE ?? "smoke";
 const testMatch = {
   smoke: /smoke\.spec\.ts$/,
   journeys: /journeys\.spec\.ts$/,
+  t1: /t1\.spec\.ts$/,
 } satisfies Record<string, RegExp>;
 
 if (!(suite in testMatch)) {

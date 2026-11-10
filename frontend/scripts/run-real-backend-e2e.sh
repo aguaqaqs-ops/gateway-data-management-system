@@ -11,17 +11,21 @@
 # Suites:
 #   smoke     FE3a smoke, unchanged: five upload scopes plus the permission
 #             scopes and one identity group.
-#   journeys  FE3b journeys (R1–R7, two-node R9, R10, R11): requires
-#             --subphase fe3b; seeds the 18 independent scopes listed in
-#             JOURNEY_SCOPE_ROLE_SPEC, rebuilds one upload input directory per
-#             scope outside the worktree, and exports GATEWAY_FE_IDENTITIES,
-#             GATEWAY_FE_JOURNEY_SCOPES and GATEWAY_FE_JOURNEY_INPUT_ROOT.
-#   t1        FE3c real-data journeys; rejected with exit 2 until FE3c.
+#   journeys  FE3c complete set (R1–R12 incl. J1/J2, three-node R9):
+#             --subphase fe3c seeds the scopes in JOURNEY_SCOPE_ROLE_SPEC and
+#             rebuilds one upload input directory per scope outside the
+#             worktree; --subphase fe3b keeps the original 18 scopes.
+#             Exports GATEWAY_FE_IDENTITIES, GATEWAY_FE_JOURNEY_SCOPES and
+#             GATEWAY_FE_JOURNEY_INPUT_ROOT.
+#   t1        FE3c real-data journey (kickoff §8): requires
+#             --input-root <absolute-dir> with t1-v1 and t1-v2 source dirs;
+#             re-verifies inputs, mounts read-only, and exports
+#             GATEWAY_FE_T1_INPUT_ROOT and GATEWAY_FE_T1_EXPECTED_JSON.
 #
 # Usage:
-#   frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys --session <name> \
+#   frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1 --session <name> \
 #     --log-dir <absolute-dir> [--evidence-dir <absolute-dir>] \
-#     [--subphase <name>]
+#     [--subphase <name>] [--input-root <absolute-dir>]
 #
 # Tokens are random per run, never logged and never part of a build product;
 # only identity names and permission strings reach the log.
@@ -49,7 +53,7 @@ RUN_STAGE="argument-validation"
 
 usage() {
   cat <<'USAGE'
-usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys --session <name> [--subphase <name>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
+usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1 --session <name> [--subphase <name>] [--input-root <absolute-dir>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
 USAGE
 }
 
@@ -256,24 +260,23 @@ trap 'on_signal TERM 143' TERM
 trap 'on_signal HUP 129' HUP
 
 case "$SUITE" in
-  smoke|journeys) ;;
-  t1)
-    printf 'error=--suite t1 is implemented in FE3c; use --suite smoke or --suite journeys\n' >&2
-    exit 2 ;;
+  smoke|journeys|t1) ;;
   *)
-    printf 'error=unknown --suite %s; expected smoke or journeys\n' "$SUITE" >&2
+    printf 'error=unknown --suite %s; expected smoke, journeys or t1\n' "$SUITE" >&2
     exit 2 ;;
 esac
 if [[ "$SUITE" == "journeys" ]]; then
-  [[ "$SUBPHASE_SET" == "1" && "$SUBPHASE" == "fe3b" ]] || {
-    printf 'error=--suite journeys requires --subphase fe3b (got %s)\n' "$SUBPHASE" >&2
+  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" ) ]] || {
+    printf 'error=--suite journeys requires --subphase fe3b|fe3c (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }
+elif [[ "$SUITE" == "t1" ]]; then
+  [[ -n "$INPUT_ROOT" ]] || { printf 'error=--suite t1 requires --input-root <absolute-dir>\n' >&2; exit 2; }
 elif [[ "$SUBPHASE" != "fe3a" ]]; then
   printf 'error=--suite smoke only runs with --subphase fe3a (got %s)\n' "$SUBPHASE" >&2
   exit 2
 fi
-if [[ -n "$INPUT_ROOT" ]]; then
+if [[ "$SUITE" != "t1" && -n "$INPUT_ROOT" ]]; then
   printf 'error=--input-root is for the FE3c t1 suite; journeys builds its own upload directories\n' >&2
   exit 2
 fi
@@ -301,9 +304,31 @@ JOURNEY_SCOPE_ROLE_SPEC=(
   "r10-archive=submitter,reviewer,none,archiver"
   "r11-review-conflict=submitter,reviewer,none"
   "r11-workspace-conflict=submitter,reviewer,none"
+  "j1-archive-mainline=submitter,submitter2,reviewer,archiver,none"
+  "j2-manual-close=submitter,submitter2,submitter-upload-only,reviewer,archiver,none"
 )
+# FE3c complete set: --subphase fe3c runs everything below; --subphase fe3b
+# keeps the original 18 scopes.
+FE3B_SCOPE_SLUGS=(r1-states r2-preview r2-full r3-truncated r4-submit r5-idempotency r6-reject-approve r7-withdraw r7-upload-only r7-approved r7-stale r7-reviewer-withdraw r9-history r10-noperm r10-no-preview r10-archive r11-review-conflict r11-workspace-conflict)
+# FE3c t1: one scope on the shared t1 input directories (mounted read-only).
+T1_SCOPE_ROLE_SPEC=(
+  "t1=submitter,reviewer,archiver"
+)
+if [[ "$SUITE" == "t1" ]]; then
+  ACTIVE_SCOPE_ROLE_SPEC=("${T1_SCOPE_ROLE_SPEC[@]}")
+elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe3b" ]]; then
+  ACTIVE_SCOPE_ROLE_SPEC=()
+  for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
+    slug="${journey_spec%%=*}"
+    for keep in "${FE3B_SCOPE_SLUGS[@]}"; do
+      if [[ "$keep" == "$slug" ]]; then ACTIVE_SCOPE_ROLE_SPEC+=("$journey_spec"); break; fi
+    done
+  done
+else
+  ACTIVE_SCOPE_ROLE_SPEC=("${JOURNEY_SCOPE_ROLE_SPEC[@]}")
+fi
 JOURNEY_SLUGS=()
-for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
+for journey_spec in "${ACTIVE_SCOPE_ROLE_SPEC[@]}"; do
   JOURNEY_SLUGS+=("${journey_spec%%=*}")
 done
 # Container-side mount point for the journey upload inputs (ro) and the
@@ -545,12 +570,18 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 fi
 
-if [[ "$SUITE" == "journeys" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
   # One identity per (journey scope, role); every identity carries its own
   # random token and actor id, and shares the scope's gateway device and
   # business project. Tokens never reach the log (names/permissions only).
+  if [[ "$SUITE" == "t1" ]]; then
+    T1_INPUT_MOUNT="/t1-inputs"
+    SCOPES_INPUT_MOUNT="$T1_INPUT_MOUNT"
+  else
+    SCOPES_INPUT_MOUNT="$JOURNEY_INPUT_MOUNT"
+  fi
   python3 -I - "$RUN_ROOT/session.json" "$RUN_ROOT/journey-identities.json" \
-    "$RUN_ROOT/journey-scopes.json" "$JOURNEY_INPUT_MOUNT" "${JOURNEY_SCOPE_ROLE_SPEC[@]}" <<'PY' | tee -a "$LOG_FILE"
+    "$RUN_ROOT/journey-scopes.json" "$SCOPES_INPUT_MOUNT" "${ACTIVE_SCOPE_ROLE_SPEC[@]}" <<'PY' | tee -a "$LOG_FILE"
 import json
 import secrets
 import sys
@@ -560,6 +591,7 @@ session_path, identities_path, scopes_path, input_mount, *specs = sys.argv[1:]
 BASE_PERMISSIONS = ("workspace_read", "read_project_history")
 ROLE_PERMISSIONS = {
     "submitter": ("upload_submit_workspace", "preview_workspace", "withdraw_own_submission"),
+    "submitter2": ("upload_submit_workspace", "preview_workspace", "withdraw_own_submission"),
     "submitter-upload-only": ("upload_submit_workspace", "preview_workspace"),
     "submitter-no-preview": ("upload_submit_workspace",),
     "reviewer": ("review_submission",),
@@ -616,17 +648,35 @@ for spec in specs:
         })
         declared.append({"role": role, "name": name})
         print(f"identity={name} scope={slug} role={role} permissions={','.join(granted)}")
+    inputs = {
+        "modified_only": f"{input_mount}/{slug}/modified_only",
+        "full_initial": f"{input_mount}/{slug}/full_initial",
+        "full_modified": f"{input_mount}/{slug}/full_modified",
+    }
+    if slug == "j1-archive-mainline":
+        # D (R4 identity confirmation): shared replacement SQL + logics-3.
+        inputs["replacement"] = f"{input_mount}/{slug}/replacement"
+    if slug in ("j1-archive-mainline", "j2-manual-close"):
+        # C (MODIFIED_ONLY with the modified content, kickoff §4.6).
+        inputs["modified_c"] = f"{input_mount}/{slug}/modified_c"
+    if slug == "j2-manual-close":
+        # E (J2 step 2): ① takes C's content, ② takes B's modified side.
+        inputs["e_initial"] = f"{input_mount}/{slug}/e_initial"
+        inputs["e_modified"] = f"{input_mount}/{slug}/e_modified"
+    if slug == "t1":
+        # Real data directories, mounted read-only from --input-root.
+        inputs = {
+            "modified_only": f"{input_mount}/t1-v1",
+            "full_initial": f"{input_mount}/t1-v1",
+            "full_modified": f"{input_mount}/t1-v2",
+        }
     scopes.append({
         "slug": slug,
         "roles": declared,
         "repository_id": "",
         "initial_commit_id": "",
         "business_baseline_node_id": f"fe3b-baseline-{slug}",
-        "inputs": {
-            "modified_only": f"{input_mount}/{slug}/modified_only",
-            "full_initial": f"{input_mount}/{slug}/full_initial",
-            "full_modified": f"{input_mount}/{slug}/full_modified",
-        },
+        "inputs": inputs,
     })
 
 for target, payload in (
@@ -694,7 +744,7 @@ log "repository_service_ready=ok"
 
 # Smoke seeds the two fixed scopes plus one per upload input; journeys seed
 # one fully independent scope per journey spec (kickoff §4.6).
-if [[ "$SUITE" == "journeys" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
   SCOPE_SLUGS=("${JOURNEY_SLUGS[@]}")
   SCOPE_NAMES=("${JOURNEY_SLUGS[@]}")
 else
@@ -705,7 +755,7 @@ SCOPE_ROWS=()
 for index in "${!SCOPE_SLUGS[@]}"; do
   scope="${SCOPE_SLUGS[$index]}"
   scope_name="${SCOPE_NAMES[$index]}"
-  if [[ "$SUITE" == "journeys" ]]; then
+  if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
     device_key="fe3b-device-${scope}"
     business_project="fe3b-project-${scope}"
     baseline_node="fe3b-baseline-${scope}"
@@ -734,7 +784,7 @@ print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/
   seed_json="$(cat "$RUN_ROOT/seed-${scope}.json")"
   repo_id="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["repository_id"])' "$seed_json")"
   init_commit="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["initial_commit_id"])' "$seed_json")"
-  if [[ "$SUITE" == "journeys" ]]; then
+  if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
     # Fail closed: each journey scope must start from an empty INITIAL commit
     # (kickoff §4.6; same check as the Compose gate harness).
     if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
@@ -782,7 +832,7 @@ PY
 chmod 0644 "$RUN_ROOT/provisioned-mapping.json"
 log "provisioned_mappings=$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["mappings"]))' "$RUN_ROOT/provisioned-mapping.json")"
 
-if [[ "$SUITE" == "journeys" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
   # Backfill the seeded repository and INITIAL commit into the document the
   # suite reads through GATEWAY_FE_JOURNEY_SCOPES (lib/env.ts JourneyScope).
   python3 -I - "$RUN_ROOT/provisioned-mapping.json" "$RUN_ROOT/journey-scopes.json" <<'PY'
@@ -888,6 +938,54 @@ if [[ "$SUITE" == "smoke" ]]; then
   done
   INPUT_MOUNT_SOURCE="$SMOKE_INPUT"
   INPUT_MOUNT_TARGET="/input"
+elif [[ "$SUITE" == "t1" ]]; then
+  # FE3c t1: the caller passes the real-data source dirs; re-verify structure
+  # and hashes on every run, then mount read-only (kickoff §8.1).
+  INPUT_ROOT="$(realpath -m -- "$INPUT_ROOT")"
+  for t1_dir in t1-v1 t1-v2; do
+    [[ -d "$INPUT_ROOT/$t1_dir" ]] || { log "error=t1 input dir missing: $INPUT_ROOT/$t1_dir"; exit 2; }
+    pmc_count="$(find "$INPUT_ROOT/$t1_dir" -maxdepth 1 -name '*.pmc' | wc -l)"
+    [[ "$pmc_count" == "1" ]] || { log "error=t1 input dir must contain exactly one .pmc: $t1_dir (got $pmc_count)"; exit 2; }
+    [[ -f "$INPUT_ROOT/$t1_dir/sql/dbcfg.sql" ]] || { log "error=t1 input dir missing sql/dbcfg.sql: $t1_dir"; exit 2; }
+    [[ -f "$INPUT_ROOT/$t1_dir/comps/logic/logics.xml" ]] || { log "error=t1 input dir missing comps/logic/logics.xml: $t1_dir"; exit 2; }
+    log "t1_input_dir=${t1_dir} files=$(find "$INPUT_ROOT/$t1_dir" -type f | wc -l) bytes=$(du -sb "$INPUT_ROOT/$t1_dir" | cut -f1)"
+    case "$t1_dir" in
+      t1-v1) expected_manifest=cdb598cdd30198ee94e56469c0c289be1ad1e1e8524e5da13b9d00249eed0163 ;;
+      t1-v2) expected_manifest=fa2450fac17f5011fee31eb0b163a7355846932c973dedf86bfe10532c32a96a ;;
+      *) log "error=unexpected t1 dir: $t1_dir"; exit 2 ;;
+    esac
+    manifest="$INPUT_ROOT/SHA256SUMS-$t1_dir.txt"
+    [[ -f "$manifest" ]] || { log "error=t1 checksum manifest missing: $manifest"; exit 2; }
+    actual_manifest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+    log "t1_manifest=${t1_dir} path=${manifest} sha256=${actual_manifest}"
+    if [[ "$actual_manifest" != "$expected_manifest" ]]; then
+      log "error=t1 manifest sha256 mismatch: $t1_dir expected=$expected_manifest actual=$actual_manifest"
+      exit 2
+    fi
+    (cd "$INPUT_ROOT/$t1_dir" && sha256sum -c -- "$manifest") | tee -a "$LOG_FILE"
+    log "t1_manifest_verified=${t1_dir} files=$(wc -l < "$manifest")"
+  done
+  T1_INPUT_MOUNT="/t1-inputs"
+  INPUT_MOUNT_SOURCE="$INPUT_ROOT"
+  INPUT_MOUNT_TARGET="$T1_INPUT_MOUNT"
+  log "t1_input_root=$INPUT_ROOT"
+  log "t1_input_mount=$T1_INPUT_MOUNT"
+  T1_EXPECTED_JSON="$(python3 -I - "$REPO_DIR/vnext/backend/benchmarks/real_dump_journey.py" <<'PY'
+import ast
+import json
+import sys
+source = open(sys.argv[1], encoding="utf-8").read()
+tree = ast.parse(source)
+wanted = {}
+for node in tree.body:
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and node.targets[0].id in ("S2B_DATASET_BASELINE", "S1B_V2_PREVIEW_CHANGED_COUNTS"):
+        wanted[node.targets[0].id] = ast.literal_eval(node.value)
+if set(wanted) != {"S2B_DATASET_BASELINE", "S1B_V2_PREVIEW_CHANGED_COUNTS"}:
+    raise SystemExit("t1 expected-value constants not found")
+print(json.dumps(wanted))
+PY
+)"
+  log "t1_expected_from=vnext/backend/benchmarks/real_dump_journey.py"
 else
   JOURNEY_INPUT_ROOT="$RUN_ROOT/journey-inputs"
   mkdir -p -- "$JOURNEY_INPUT_ROOT"
@@ -907,6 +1005,36 @@ else
         cp -- "$SHARED_INPUTS/logics-1.xml" "$input_dir/comps/logic/logics.xml"
       fi
     done
+    # FE3c extras: D for j1 (identity confirmation), E for j2 (close bridge),
+    # C for j1/j2 (MODIFIED_ONLY with the modified content; the shared
+    # modified_only dir carries the baseline content and would not change).
+    if [[ "$journey_slug" == "j1-archive-mainline" ]]; then
+      extra_dir="$JOURNEY_INPUT_ROOT/$journey_slug/replacement"
+      mkdir -p -- "$extra_dir/sql" "$extra_dir/comps/logic"
+      printf 'fe3b-%s-replacement\n' "$journey_slug" > "$extra_dir/upload.pmc"
+      cp -- "$SHARED_INPUTS/sql-replacement-current.sql" "$extra_dir/sql/dbcfg.sql"
+      cp -- "$SHARED_INPUTS/logics-3.xml" "$extra_dir/comps/logic/logics.xml"
+    fi
+    if [[ "$journey_slug" == "j1-archive-mainline" || "$journey_slug" == "j2-manual-close" ]]; then
+      c_dir="$JOURNEY_INPUT_ROOT/$journey_slug/modified_c"
+      mkdir -p -- "$c_dir/sql" "$c_dir/comps/logic"
+      printf 'fe3b-%s-modified_c\n' "$journey_slug" > "$c_dir/upload.pmc"
+      cp -- "$INPUT_FIXTURES/sql-modified.sql" "$c_dir/sql/dbcfg.sql"
+      cp -- "$SHARED_INPUTS/logics-3.xml" "$c_dir/comps/logic/logics.xml"
+      log "journey_input_scope=${journey_slug} modified_c_sql_sha256=$(sha256sum "$c_dir/sql/dbcfg.sql" | cut -d' ' -f1) modified_c_logics_sha256=$(sha256sum "$c_dir/comps/logic/logics.xml" | cut -d' ' -f1)"
+    fi
+    if [[ "$journey_slug" == "j2-manual-close" ]]; then
+      # E ① takes C's content, ② takes B's modified side (kickoff §4.6 E).
+      e_initial_dir="$JOURNEY_INPUT_ROOT/$journey_slug/e_initial"
+      e_modified_dir="$JOURNEY_INPUT_ROOT/$journey_slug/e_modified"
+      mkdir -p -- "$e_initial_dir/sql" "$e_initial_dir/comps/logic" "$e_modified_dir/sql" "$e_modified_dir/comps/logic"
+      printf 'fe3b-%s-e_initial\n' "$journey_slug" > "$e_initial_dir/upload.pmc"
+      printf 'fe3b-%s-e_modified\n' "$journey_slug" > "$e_modified_dir/upload.pmc"
+      cp -- "$INPUT_FIXTURES/sql-modified.sql" "$e_initial_dir/sql/dbcfg.sql"
+      cp -- "$SHARED_INPUTS/logics-3.xml" "$e_initial_dir/comps/logic/logics.xml"
+      cp -- "$INPUT_FIXTURES/sql-initial.sql" "$e_modified_dir/sql/dbcfg.sql"
+      cp -- "$SHARED_INPUTS/logics-2.xml" "$e_modified_dir/comps/logic/logics.xml"
+    fi
     log "journey_input_scope=${journey_slug} modified_only_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/sql/dbcfg.sql" | cut -d' ' -f1) full_initial_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_initial/sql/dbcfg.sql" | cut -d' ' -f1) full_modified_sql_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/full_modified/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$JOURNEY_INPUT_ROOT/$journey_slug/modified_only/comps/logic/logics.xml" | cut -d' ' -f1)"
   done
   chmod -R a+rX -- "$JOURNEY_INPUT_ROOT"
@@ -1051,8 +1179,15 @@ else
   # Fail closed before any browser work: every declared (scope, role) has its
   # identity, every scope has its own seeded INITIAL, and every input file is
   # present and non-empty (kickoff §4.6, §4.9).
+  if [[ "$SUITE" == "t1" ]]; then
+    PREFLIGHT_INPUT_ROOT="$INPUT_ROOT"
+    PREFLIGHT_INPUT_MOUNT="$T1_INPUT_MOUNT"
+  else
+    PREFLIGHT_INPUT_ROOT="$JOURNEY_INPUT_ROOT"
+    PREFLIGHT_INPUT_MOUNT="$JOURNEY_INPUT_MOUNT"
+  fi
   if ! python3 -I - "$IDENTITIES_FILE" "$RUN_ROOT/journey-scopes.json" \
-      "$JOURNEY_INPUT_ROOT" "$JOURNEY_INPUT_MOUNT" <<'PY' | tee -a "$LOG_FILE"
+      "$PREFLIGHT_INPUT_ROOT" "$PREFLIGHT_INPUT_MOUNT" <<'PY' | tee -a "$LOG_FILE"
 import json
 import os
 import sys
@@ -1113,10 +1248,19 @@ for scope in scopes:
             errors.append(f"input_outside_mount scope={slug} key={key}")
             continue
         host_dir = os.path.join(input_root, container_path[len(prefix):])
-        for relative in ("upload.pmc", "sql/dbcfg.sql", "comps/logic/logics.xml"):
+        for relative in ("sql/dbcfg.sql", "comps/logic/logics.xml"):
             candidate = os.path.join(host_dir, relative)
             if not os.path.isfile(candidate) or os.path.getsize(candidate) == 0:
                 errors.append(f"missing_input scope={slug} key={key} file={relative}")
+        # Exactly one top-level .pmc per upload directory: "upload.pmc" for
+        # script-built journey inputs, the original name for real data dirs.
+        # The placeholder may be empty; only presence is required.
+        try:
+            pmc_names = [name for name in os.listdir(host_dir) if name.endswith(".pmc") and os.path.isfile(os.path.join(host_dir, name))]
+        except OSError:
+            pmc_names = []
+        if len(pmc_names) != 1:
+            errors.append(f"missing_input scope={slug} key={key} file=*.pmc")
 
 print(f"journey_scopes={len(scopes)} journey_identities={len(identities)}")
 for scope in scopes:
@@ -1137,13 +1281,23 @@ fi
 
 chmod 0600 "$IDENTITIES_FILE"
 docker cp "$IDENTITIES_FILE" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
-if [[ "$SUITE" == "journeys" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
   docker cp "$RUN_ROOT/journey-scopes.json" "$TOOLCHAIN_CONTAINER:/tmp/journey-scopes.json"
-  SUITE_ENV=(
-    --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$JOURNEY_INPUT_MOUNT"
-    --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
-  )
-  SUITE_SPEC="e2e-real/journeys.spec.ts"
+  if [[ "$SUITE" == "t1" ]]; then
+    SUITE_ENV=(
+      --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$T1_INPUT_MOUNT"
+      --env "GATEWAY_FE_T1_INPUT_ROOT=$T1_INPUT_MOUNT"
+      --env "GATEWAY_FE_T1_EXPECTED_JSON=$T1_EXPECTED_JSON"
+      --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
+    )
+    SUITE_SPEC="e2e-real/t1.spec.ts"
+  else
+    SUITE_ENV=(
+      --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$JOURNEY_INPUT_MOUNT"
+      --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
+    )
+    SUITE_SPEC="e2e-real/journeys.spec.ts"
+  fi
 else
   SUITE_ENV=(--env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input")
   SUITE_SPEC="e2e-real/smoke.spec.ts"

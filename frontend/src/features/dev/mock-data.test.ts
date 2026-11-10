@@ -167,6 +167,7 @@ describe("simulated HTTP response contracts", () => {
       "/v1/workspaces/workspace-fe2b/preview-operations",
       "/v1/workspaces/workspace-fe2b/submit-attempts",
       "/v1/submissions/submission-1/review-events",
+      "/v1/submissions/submission-1/closure",
       "/v1/history-compares",
       "/v1/archive-confirmations",
       "/v1/archive-anomaly-resolutions",
@@ -176,6 +177,18 @@ describe("simulated HTTP response contracts", () => {
       expect(validateSimulatedRequest({ method: "POST", url: new URL("http://local" + path), headers: {} }), path)
         .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" });
       expect(validateSimulatedRequest({ method: "POST", url: new URL("http://local" + path), headers: { "Idempotency-Key": "key-1" } }), path).toBeNull();
+    }
+    // ArchiveSelectedRefRequest extra="forbid" (Q18, §5.3): the four archive
+    // requests reject extra selected keys with 422 before the handler runs.
+    const selectedRoutes = ["/v1/archive-plan-preview", "/v1/archive-confirmations", "/v1/archive-anomaly-resolutions", "/v1/archives"];
+    const headers = { "Idempotency-Key": "key-1" };
+    for (const path of selectedRoutes) {
+      const url = new URL("http://local" + path);
+      expect(validateSimulatedRequest({ method: "POST", url, headers, body: JSON.stringify({ selected: { submission_id: "s-1", expected_candidate_digest: "sha256:c" } }) }), path).toBeNull();
+      expect(validateSimulatedRequest({ method: "POST", url, headers, body: JSON.stringify({ selected: { submission_id: "s-1", expected_candidate_digest: "sha256:c", review_version: 7 } }) }), path)
+        .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "selected 只允许 submission_id 与 expected_candidate_digest" });
+      expect(validateSimulatedRequest({ method: "POST", url, headers, body: JSON.stringify({ selected: { submission_id: "s-1" } }) }), path)
+        .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "selected 只允许 submission_id 与 expected_candidate_digest" });
     }
     const workspaces = new URL("http://local/v1/workspaces");
     expect(validateSimulatedRequest({ method: "POST", url: workspaces, headers: { "idempotency-key": "key-1" } }))

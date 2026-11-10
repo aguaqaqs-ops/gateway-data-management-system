@@ -204,3 +204,7 @@ ImportReplay/SubmitPublication 错误边界，通用 renderer 继续以 `ReplayR
 panic 属内部失败，不返回部分 SQL、不假装 unsupported；不新增 HTTP/Repository public
 failure code。通用 `render_change_set_replay` 与 schema replay facade 在迁移后要求显式
 `context: KernelExecutionContext`，仍保留原返回形状；Submit 使用同一 operation。
+
+## P7-S1a 目标补充：ChangeSet与固定包（待实现）
+
+A目标未改变当前算法/实现，见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)。通用ChangeSet closure显式归comparison，其完整mutation/manifest摘要与replay SQL不加入位置或路径；仅ref ID改变。生产Submit仍走§9逐表冻结canonical输入，不为分盘新增无consumer的通用ChangeSet。固定backend import package/request/checkpoint归durable；RS接收副本仍为独立RepositoryArtifactRef。scratch只承载可重建临时文件，不得让跨盘copy失败重建固定package/分配新key，未知effect仍复用原包与原键查结果。

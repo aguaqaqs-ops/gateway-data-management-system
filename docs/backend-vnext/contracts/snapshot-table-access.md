@@ -245,3 +245,13 @@ ProjectionTableArtifact
 SQL parser返回独立小型configuration_generated_time metadata，不改变既有parse canonical encoding或scalar grammar。事实在INSERT成功typed转换时、规范排序前累计；source ordinal从1跨INSERT/chunk连续，NULL/empty/invalid占位，selected为最后有效值，max并列保留首次。文本复用原SQL literal解码（含TEXT合法hex），不由宿主自动转换非字符串逻辑类型。业务规则、UTC语法与缺失分类的唯一语义见[业务设计§4.1](../refactoring/formal/plans/p6-archive-business-validation-design.md#41-提取位置与顺序)。
 
 native只传递规则身份、selected/max、三类计数、两序号、status及last_not_max，不搬整列到Python、不重读SQL；取消/截止/预算错误仍按原parser整体失败。domain在application边界严格校验和绑定，缺metadata不是业务missing，不可发布READY。Rust唯一向量owner为gateway-compute-core/tests/configuration_generated_time.rs；adapter仅保留接线smoke。
+
+## P7-S1a 目标补充：位置与 handle（待实现）
+
+A 仅固定可审目标，现行格式/实现未在此提交切换；对应 B–D 验证后再记录生效，见 [A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)和 [Canonical Storage 目标](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#p7-s1a-目标补充多-root-身份与发布待实现)。
+
+canonical IPC 与 canonical wrapper 显式归 canonical；raw Parquet wrapper/rows 与 client export 显式归 export。二者共用 wrapper 不允许按 `_opaque_id("sta-manifest")`、media type 或扩展名猜位置。完整 canonical key 和 export cache key 保持原 scope/版本/行布局，换物理挂载不能变 key。reader、get_ref 与 mmap 一律通过位置 codec/resolver，handle 持有对应 root borrow 到所有 Arrow/native consumer 关闭。
+
+client Parquet writer 使用本角色显式 scratch，最终从普通服务生成文件有界 copy/hash 到 export staging，不整文件 read_bytes 后复制，不依赖跨盘 replace。HTTP Arrow spool 同样使用 scratch；关闭/异常/取消删除本次临时文件，scratch 不是恢复权威。共享 IPC 多用途不复制/搬盘，格式转换产生真实 export 对象。强保护冻结缺失与 optional export cache miss 仍按原 owning 恢复规则区分。
+
+manifest 中 row_file_refs 采用新 ID，因此 wrapper JSON bytes/raw SHA按实际载荷重算；artifact_content_digest_of只取row media/size/raw SHA及descriptor/profile，不取row artifact_id，固定这些输入时必须保持。业务 descriptor/schema/table/state 与 row_layout_digest 不新增位置输入。同一新版本同盘/分盘应相等，不承诺 wrapper 与旧 ID golden 相等。

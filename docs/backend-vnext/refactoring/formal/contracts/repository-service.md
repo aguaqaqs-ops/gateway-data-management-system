@@ -816,3 +816,15 @@ additive sibling加入：
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
+
+## P7-S1a 目标补充：RS分盘布局（待实现）
+
+本节为A可审目标；E/F实现与容器验证前，§14.1/§15仍描述现行单root实现，不将目标记为已支持。见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)与 [S1a执行方案§3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)。不改变public wire、UUID ArtifactId、import marker/CAS/effect与原eligibility语义。
+
+目标以同一storage-layout/resource-profile显式绑定rs-repository、rs-artifacts、rs-metadata、rs-scratch。control/layout/service.lock、service-state SQLite及其WAL/SHM、provider HOME/config在rs-metadata；versioned与.staging/versioned在rs-repository；repository-scoped artifact staging/ready在rs-artifacts；可重建import/query/probe/provider临时文件在rs-scratch。删除全局layout.root/staging推导；仅建库staging→versioned和upload staging→ready各自同filesystem，以及SQLite journal同目录。正常import绝不从scratch复制Dolt树替换在线库。
+
+挂载root自身允许经已核验的独立mount，root以下继续拒绝symlink/额外子挂载与caller path。宿主预检source/filesystem，服务预检实际mount/marker/权限/cgroup；缺source不mkdir，entrypoint先核root再准备本服务子目录，禁止跨root递归chown。运行期身份变更拒新工作，无系统盘fallback。每动作对实际写入filesystem检查free/inode/headroom，同盘合并、不重复消费available；通过预检后ENOSPC仍安全失败。
+
+create/upload/import/reconciliation/recovery/cleanup/offline admin/snapshot工具全部显式理解新roots；单服务锁保留在metadata。停服取得锁后收集一致的DB/WAL、Dolt、artifact与layout集合；不承诺在线跨盘原子snapshot或仅复制某个root即可恢复。backend不挂RS卷，统计观测由RS窄接口提供，不增加业务成功依赖。
+
+新项目按本轮AGENTS直接调整唯一基线，无迁移/旧layout fallback。ADR0012关于历史兼容列/残留的段落是原决策历史，不成为本轮新建兼容路径的要求；其协作admission pin、统一eligibility、未知形状仅诊断及成功cleanup不改commit/result仍保持。不新增broker/sidecar/receipt或另一安全主体。

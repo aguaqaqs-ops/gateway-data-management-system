@@ -20,7 +20,7 @@ from gateway_backend.artifacts.serialize import artifact_ref_from_json
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import _directory_identity
+from gateway_backend.infrastructure.artifact_store.layout import directory_identity
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
 _HEX2 = re.compile(r'[0-9a-f]{2}')
@@ -126,7 +126,7 @@ class ArtifactMaintenance:
         self.bounded = bounded
         self.scratch_root = scratch_root
         try:
-            self.scratch_identity: tuple[int, int, str] | None = _directory_identity(scratch_root)
+            self.scratch_identity: tuple[int, int, str] | None = directory_identity(scratch_root)
         except (OSError, ValueError, StopIteration):
             self.scratch_identity = None
         self.owner_active = owner_active
@@ -203,7 +203,7 @@ class ArtifactMaintenance:
                             continue
                         item = self._advance(index, lanes[index], root, base, budget, when)
                 else:
-                    if self.scratch_identity is None or _directory_identity(root) != self.scratch_identity:
+                    if self.scratch_identity is None or directory_identity(root) != self.scratch_identity:
                         raise ValueError('scratch root identity changed')
                     item = self._advance(index, lanes[index], root, base, budget, when)
                 if item is not None:

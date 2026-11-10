@@ -18,7 +18,7 @@ from typing import BinaryIO, cast
 
 from gateway_backend.artifacts.scratch import ScratchLimitExceeded, ScratchSessionPort
 from gateway_backend.artifacts.store import ArtifactFileSourcePort
-from gateway_backend.infrastructure.artifact_store.layout import _directory_identity
+from gateway_backend.infrastructure.artifact_store.layout import directory_identity
 
 
 @dataclass(frozen=True)
@@ -108,14 +108,14 @@ class ScratchSpace:
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError('scratch aggregate byte limit must be positive')
         self._root = root
-        self._identity = _directory_identity(root)
+        self._identity = directory_identity(root)
         self._max_bytes = max_bytes
 
     @contextmanager
     def session(self, *, owner: str) -> Iterator[ScratchSessionPort]:
         if type(owner) is not str or not owner or len(owner) > 512:
             raise ValueError('scratch owner is required')
-        if _directory_identity(self._root) != self._identity:
+        if directory_identity(self._root) != self._identity:
             raise ValueError('scratch root identity changed')
         directory = Path(tempfile.mkdtemp(prefix='scratch-', dir=self._root))
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)

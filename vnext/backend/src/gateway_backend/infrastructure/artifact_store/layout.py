@@ -16,7 +16,8 @@ from gateway_backend.artifacts.store import ManifestVerificationError
 ROOT_ORDER = tuple(ArtifactLocation)
 
 
-def _directory_identity(path: Path) -> tuple[int, int, str]:
+def directory_identity(path: Path) -> tuple[int, int, str]:
+    """Validate an existing writable non-symlink root and return its local identity."""
     if not path.is_absolute() or path == Path('/') or '..' in path.parts:
         raise ValueError("artifact root must be an absolute non-root directory")
     for part in (*reversed(path.parents), path):
@@ -62,7 +63,7 @@ class ArtifactStoreLayout:
         identities: dict[ArtifactLocation, tuple[int, int, str] | None] = {}
         for location in ROOT_ORDER:
             try:
-                identities[location] = _directory_identity(self.root(location))
+                identities[location] = directory_identity(self.root(location))
             except (OSError, ValueError, StopIteration):
                 if not allow_unavailable:
                     raise ValueError('artifact root must be an existing writable directory without symlinks') from None
@@ -91,7 +92,7 @@ class ArtifactStoreLayout:
         try:
             if self._identities[location] is None:
                 raise ValueError("artifact root was unavailable at maintenance start")
-            if _directory_identity(self.root(location)) != self._identities[location]:
+            if directory_identity(self.root(location)) != self._identities[location]:
                 raise ValueError("artifact root identity changed")
         except (OSError, ValueError, StopIteration):
             raise ManifestVerificationError("artifact root unavailable; preflight/restart required") from None

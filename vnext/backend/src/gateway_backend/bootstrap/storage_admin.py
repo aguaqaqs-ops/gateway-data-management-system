@@ -16,7 +16,7 @@ from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.bootstrap.storage_layout import maintenance_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import _directory_identity
+from gateway_backend.infrastructure.artifact_store.layout import directory_identity, descriptor_mount_id
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
 from gateway_backend.infrastructure.artifact_store.maintenance import ArtifactMaintenance
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -24,11 +24,12 @@ from gateway_backend.operations.store import RecordNotFound, StoreBusy, Unsuppor
 
 
 def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
-    LocalArtifactStore._check_path(metadata, database)
+    root_device, _root_inode, root_mount = directory_identity(metadata)
     descriptor = os.open(database, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode) or info.st_size == 0:
+        if (not stat.S_ISREG(info.st_mode) or info.st_size == 0
+                or info.st_dev != root_device or descriptor_mount_id(descriptor) != root_mount):
             raise ValueError('existing initialized ordinary control database is required')
         return info.st_dev, info.st_ino
     finally:
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         local = LocalArtifactStore(maintenance_layout_from_config(deployment.storage),
             staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
         metadata = Path(deployment.storage.roots['be-metadata'].path)
-        metadata_identity = _directory_identity(metadata)
+        metadata_identity = directory_identity(metadata)
         database = metadata / 'control.sqlite3'
         database_identity = _database_file_identity(database, metadata)
         # Read-only verification precedes any connection profile/WAL writes.
@@ -61,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def check_database_identity() -> None:
             try:
-                if (_directory_identity(metadata) != metadata_identity
+                if (directory_identity(metadata) != metadata_identity
                         or _database_file_identity(database, metadata) != database_identity):
                     raise ValueError('changed')
             except (OSError, ValueError, StopIteration):

@@ -267,7 +267,7 @@ def test_production_writers_require_known_headroom_before_bytes(
     # The config's actual policy is kept; choose its effective fractional floor.
     total = minimum * 1_000_000
     available = minimum + (len(payload) + 4096 + 65536 if allow else 1)
-    monkeypatch.setattr(preflight.os, "statvfs", lambda _path: SimpleNamespace(
+    monkeypatch.setattr(os, "statvfs", lambda _path: SimpleNamespace(
         f_bavail=available, f_frsize=1, f_blocks=total, f_flag=0, f_favail=100))
     if producer == "artifact":
         if allow:
@@ -307,9 +307,10 @@ def test_write_demands_merge_only_when_actual_filesystem_matches(
         return info
     monkeypatch.setattr(Path, "stat", device)
     monkeypatch.setattr(preflight, "check_configured_root", lambda *_: None)
-    monkeypatch.setattr(preflight.os, "statvfs", lambda path: (
-        observed.append(Path(path).stat().st_dev) or SimpleNamespace(
-            f_bavail=100000, f_frsize=1, f_blocks=1000000, f_flag=0, f_favail=100)))
+    def free_space(path: Path) -> SimpleNamespace:
+        observed.append(Path(path).stat().st_dev)
+        return SimpleNamespace(f_bavail=100000, f_frsize=1, f_blocks=1000000, f_flag=0, f_favail=100)
+    monkeypatch.setattr(os, "statvfs", free_space)
     if split:
         preflight.check_write_capacity(deployment.storage, {"be-export": 60000, "be-scratch": 60000})
         assert len(observed) == 2
@@ -328,8 +329,10 @@ def test_scratch_source_already_allocated_is_not_charged_again_for_target(
     from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
     payload = b"source-bytes"
     demands: list[int] = []
-    monkeypatch.setattr(preflight, "check_capacity", lambda _path, _minimum, _fraction, *, headroom=0:
-                        (demands.append(headroom) or (1000000, 100)))
+    def free_capacity(_path: Path, _minimum: int, _fraction: float, *, headroom: int = 0) -> tuple[int, int]:
+        demands.append(headroom)
+        return 1000000, 100
+    monkeypatch.setattr(preflight, "check_capacity", free_capacity)
     store = local_store_from_config(deployment)
     with scratch_space_from_config(deployment).session(owner="operation:copy") as session:
         with session.file(byte_limit=100) as (source, output):

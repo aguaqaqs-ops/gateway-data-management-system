@@ -20,7 +20,7 @@ from gateway_shared_kernel import CanonicalEncodingError
 from gateway_backend.artifacts.scratch import optional_scratch
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
-from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactRepairBusyError, ArtifactUnavailableError, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactRepairBusyError, ArtifactUnavailableError, ManifestVerificationError, StorageCapacityUnavailable
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 from gateway_backend.infrastructure.artifact_store.atomic_publish import check_publication_support, fsync_directory, rename_noreplace
@@ -143,7 +143,11 @@ class LocalArtifactStore:
             return ref
         except (InterruptedError, TimeoutError, ManifestVerificationError):
             raise
-        except (OSError, ValueError, CanonicalEncodingError):
+        except OSError as exc:
+            if exc.errno in {errno.ENOSPC, errno.EDQUOT}:
+                raise StorageCapacityUnavailable('artifact filesystem capacity exhausted') from exc
+            raise ManifestVerificationError('artifact write failed') from None
+        except (ValueError, CanonicalEncodingError):
             raise ManifestVerificationError('artifact write failed') from None
 
     def restore_canonical_from_exact_commit(

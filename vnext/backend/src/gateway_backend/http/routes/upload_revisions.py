@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
@@ -77,6 +78,13 @@ async def accept_upload_route(
                 artifact_store=deps.artifact_store,
                 now=deps.now(),
             )
+        except OSError as exc:
+            if exc.errno not in {errno.ENOSPC, errno.EDQUOT}:
+                raise
+            raise ApiError(
+                code="SERVICE_NOT_READY", message="storage write capacity unavailable",
+                status_code=503, details={"reason": "capacity_rejected"},
+            ) from exc
         except StorageCapacityUnavailable as exc:
             raise ApiError(
                 code="SERVICE_NOT_READY", message="storage write capacity unavailable",

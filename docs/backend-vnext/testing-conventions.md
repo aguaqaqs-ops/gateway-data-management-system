@@ -260,10 +260,22 @@ backend Compose旅程共用host `127.0.0.1:8000`，同节点必须串行。现ha
 ### Docker / Compose触发式重建
 
 镜像构建验证的是某个精确source tree的image/deployment/container runtime行为，不是所有
-代码修改的默认单元测试入口。阶段迭代不要求每轮、每个提交都重建；同一轮内即使有多个触发
-改动，也允许先完成相关修改，再对该轮最终HEAD构建一次。是否重建按以下边界判定。
+代码修改的默认单元测试入口。Owner 于 2026-11-10 明确，从当前 S1a 起及后续实施统一采用
+**工作包针对性验证、阶段最终候选集中构建验收**。S1a A–F 属于小节，G 才是阶段集中验收点；
+后续阶段的工作包交接、角色更换与复审也不自动成为完整构建/全量 runner/完整真实旅程的触发点。
 
-必须重建当前HEAD并运行受影响容器门禁：
+小节执行受影响静态/类型、focused/unit/Contract、必要真实 filesystem/Dolt 与最小数据链验证。
+容器边界改动可合并到阶段最终候选；若 mount、权限、entrypoint、cgroup、signal 等行为只能在容器内证明，
+且其结果影响后续接线，在相关改动收敛后提前做最小必要容器验证，关联小节可合并，不重复完整业务矩阵。
+仅因完整容器证据集中到最终候选，不阻塞无依赖的后续实施；延期项标为 `deferred`，记录具体验证与执行点，
+不得把未测写成通过或借延期关闭已发现的正确性 finding。
+
+依赖基础镜像只在其定义的依赖、锁、工具链等输入变化时重建/传输；产品源码变化使用已有基础镜像及缓存，
+仍按现行规则在测试节点实际构建产品镜像。正常通过时以一次集中完整验收为目标；失败修复后按影响重建复验，
+不把“一次”当作禁止复验的次数上限。构建/缓存故障停止受影响执行和依赖验收，按现行停止/DC68 规则处理，
+允许继续无依赖的逻辑开发，不绕过离线、镜像身份或失败处理前提。
+
+以下边界在相应容器验证点必须重建当前候选 HEAD 并运行受影响容器门禁：
 
 - Dockerfile、依赖锁或production依赖闭包、基础镜像、OS package、build/save/load脚本发生变化；
 - entrypoint、Compose、环境变量接线、healthcheck/readiness接线发生变化；
@@ -337,10 +349,11 @@ Last verified source-tree/image id: <digest | none>
 Container gate for current HEAD: passed | carried | deferred | stale | not-applicable
 Carried from: <V sha、门禁日志、逐镜像身份比较结果 | none>
 Deferred gates/nodeids: <精确命令、path或nodeid>
-Required execution point: <本轮结束 | 阶段最终候选 | 发布前>
+Required execution point: <必要容器接线验证点 | 阶段最终候选 | 发布前>
 ```
 
-若`Container rebuild required: yes`，评审不得用旧镜像结果关闭相关finding；若为`no`，评审应
+`Container rebuild required: yes` 表示在所记录的验证点需重建，不表示每个工作包现在都要完整构建。
+按上述原则延期时可继续无依赖实施，评审不得用旧镜像结果关闭相关 finding；若为 `no`，评审应
 检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让容器门禁结果
 绑定到最终HEAD：要么在最终HEAD执行权威Compose/production gate，要么在阶段退出
 节点满足上文镜像身份等价并记为`carried`。

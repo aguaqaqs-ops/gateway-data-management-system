@@ -66,6 +66,10 @@ Sol 实施者写代码/Contract/测试源码/执行稿并定位修复；Sol 原�
 
 ## 5. 验证、失败与真实范围
 
+**Owner 2026-11-10 补充，立即适用于进行中的 S1a：工作包针对性验证，阶段最终候选集中构建验收。**A–F 只按实际影响完成静态/类型、focused/unit/Contract、必要真实 filesystem/Dolt 与最小数据链；不在每包交接、角色更换或复审时重复完整镜像构建、全量 runner、完整真实旅程。G 集中完成受影响权威包、必要镜像构建/容器门禁与已确认最小真实范围。后续阶段也遵守该节奏，不把内部工作包当完整阶段退出。
+
+挂载/权限/entrypoint/cgroup/signal 等只能在容器内证明且影响后续接线时，在相关实现收敛后做最小必要 Compose 验证，E/F 等关联包可合并，不重复完整业务矩阵。其余容器项记录 `deferred` 和具体验证/执行点后移交 G，不阻塞无依赖的后续实现；不得预填 PASS 或以延期关闭已发现正确性问题。依赖基础镜像仅在其定义的输入变化时重建/传输，产品镜像复用基础镜像和缓存；正常通过以一次集中验收为目标，修复后按影响重建复验。构建/缓存故障按现行停止/DC68 处理，允许继续无依赖逻辑开发。
+
 全部测试、lint/mypy、编译、容器及取证只在专用 CT 的 clean 已提交 worktree；开发主机只做代码/文档编辑、只读核查和获准依赖准备。06 focused/Contract/小型 Compose，04 权威 runner/容器/carried，05 默认真实输入调试/适用旅程；不继承 P6 的 06 专项真实运行许可。现场核空闲后原子取得本人所需标志，不反复预约，不操作他人有效占用。
 
 严格按 AGENTS 使用获准 LAN 传输/预填缓存、UV_OFFLINE=1、CARGO_NET_OFFLINE=true、受控 uv、linked worktree legacy link、必要 Rust build-input、离线 dependency-base/本机 Compose build。日志在 worktree 外，绑定 hostname、起止 HEAD/UTC、原 numeric exit 与 SHA256。测试期间不写被测树、不手工重建/retag 参与验证的镜像。跨节点镜像比 config digest 与全部 RootFS DiffID，不比 inspect ID。

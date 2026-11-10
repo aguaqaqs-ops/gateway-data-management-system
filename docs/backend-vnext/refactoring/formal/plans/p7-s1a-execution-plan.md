@@ -6,6 +6,8 @@
 
 设计依据：[S1a 详细设计](p7-s1a-storage-resource-design.md)、[处理组与设备测试副本](p7-processing-groups-and-test-extraction-design.md)、工作区实际 [S0 决议](p7-s0-owner-decisions.md)、[P7 总体设计](p7-design.md)及[总执行计划](p7-execution-plan.md)。本文把既定目标细化为实现输入、工作包、完成条件和验收责任；不重新询问已确认的单机、按类挂载、全状态测试复制和不回合并边界。
 
+> **Owner 2026-11-10 验证节奏补充（适用于当前进行中的 S1a）：**A–F 工作包做针对性逻辑/Contract 与必要数据验证，G 在最终候选集中构建和验收。不因小节交接、角色更换或复审重复完整构建、全量 runner 和完整真实旅程。只能在容器内证明且影响后续接线的行为，相关修改收敛后做最小容器验证，可合并关联小节。具体执行见 §5.2；此补充不重写此前实施/测试事实。
+
 Owner 于 2026-11-10 已授权**下一编码会话直接推进 S1a A–G，直到 S1a 本地 exit**，各工作包分别新建实施/独审/测试三角色，沿用最近 P6-S6 模型安排，详见 §4.1–4.3。本设计会话只补文档，不立即写产品代码或启动测试。下一会话无需逐节申请开工、正常修复/验证或符合条件后的本地退出；不授权上线、push 或 S1b 以后实现。
 
 ## 1. 分组和设备抽取放在哪一步
@@ -148,7 +150,7 @@ RS 不再提供能涵盖以上所有位置的单一 `layout.root/staging`。prob
 | **S1a-C backend 发布/读者/保护** | multi-root store、no-replace 原子目录、copy-from-scratch、全部读取端口、read/pin/cleanup 锁序、保护 UoW 接线 | bytes/stream/file 三入口完整；copy 中断无残缺可见对象；同 ID 并发与跨 root closure 可读；new pin 与删除不能竞态误删；无 SH→EX 死锁 |
 | **S1a-D backend 消费链与维护** | SourcePackage、canonical metadata/IPC、diff/risk/cache、checkpoint/Submit、export/bundle/download、scratch、显式 cleanup CLI | 设计 §3.1/3.2 每行有改动或不变理由；READY/Attempt/Head 保护正确；可选 cache miss 与 frozen 丢失分开；无系统默认 temp 回退或单 root 私有路径绕行 |
 | **S1a-E RS 分盘闭环** | 具名 roots、建库 staging→repository、upload staging→ready、SQLite/HOME、import scratch、capacity、reconciliation/admin/cleaner/entrypoint | 删全局同 filesystem 断言，仅保发布对/DB journal 约束；不同盘完整建库/upload/import/recovery/cleanup/admin 可用；backend 无 RS 卷；Dolt versioncheck 初始化仍关闭 |
-| **S1a-F 部署与资源闭环** | 两配置渲染、同盘/分盘 profile、mem_limit/cpus/replicas 接线、角色实际 cgroup/mount/marker 核验、停服改挂载说明；补 S1b 必需的 bounded stat/config 关联 | 不一致配置拒启；旧 root/env 设置已删除；M 与 RSS 含义正确；W=K=1；可运行开发 profile 有现场条件记录；容器按最终候选正常本机构建 |
+| **S1a-F 部署与资源闭环** | 两配置渲染、同盘/分盘 profile、mem_limit/cpus/replicas 接线、角色实际 cgroup/mount/marker 核验、停服改挂载说明；补 S1b 必需的 bounded stat/config 关联 | 不一致配置拒启；旧 root/env 设置已删除；M 与 RSS 含义正确；W=K=1；可运行开发 profile 有现场条件记录；必要容器接线做最小验证，完整构建验收移交 G |
 | **S1a-G 收敛、独审与阶段证据** | focused 问题收敛，最终候选受影响权威包/Compose、适用真实链、变更区间独审、handoff | §6 退出清单全部有结果；不以自查冒充独审、不口头 carried；未知容量保留限制，下一阶段可以接线 |
 
 **不能延期到 S1b 的内容**：RS 分盘、实际 read/stream/download、保护/清理、scratch 接线与实际容器资源限制。**不能提前塞入 S1a 的内容**：遥测持久化、目录路由、任务分组调度、设备导出表映射或把普通文件故障改成新的恢复平台。
@@ -207,6 +209,14 @@ G 新独审必须审整个 S1a 实际改动区间、全部遗留 finding、Contr
 
 ### 5.2 运行前提与收敛方式
 
+**A–F 是实施工作包，G 是 S1a 集中验收点。**各包完成受影响静态/类型、focused/unit/Contract、必要真实 filesystem/Dolt 与最小数据链后，按实际结果独审和交接，自动推进下一包；不执行各包完整镜像构建、全量 runner 或完整真实旅程。完成条件中的容器断言可明确标为待 G 验证，不预填 PASS，也不因该项集中验收阻塞无依赖实施。
+
+挂载、权限、entrypoint、实际 cgroup 或 signal 等只能由容器证明且影响后续接线的行为，在关联实现收敛后安排最小必要 Compose 验证，E/F 等关联包可以合并一次执行。只覆盖相关行为，不展开所有业务矩阵；G 仍绑定最终候选，早期 smoke 不代替最终门禁。真实跨 filesystem、复制中断、ENOSPC、保护/恢复等必要语义继续按 owning 测试覆盖，不能因省构建退化为只测纯逻辑或只 mock。
+
+handoff 记录本包已验证内容、`deferred` 容器项及具体执行点（默认 G）；独审区分本包实现结论与最终阶段容器结论，不为角色存在或工作包收尾追加完整构建，不以延期关闭已发现正确性问题。构建/缓存故障先停止受影响执行和依赖验收，按现行停止/DC68 规则处理，可以继续无依赖逻辑开发。
+
+依赖基础镜像仅在其定义的依赖/锁/工具链输入变化时重建和传输，产品源码变化使用已有基础镜像与缓存；G 仍按要求在测试节点实际构建产品镜像。一次集中完整验收是正常通过目标，修复后按实际影响重建复验，不设“仅准运行一次”的限制。同次 runner 已覆盖的 Compose 旅程不另跑。
+
 所有测试、编译、lint/mypy 均在专用测试节点，执行前按 AGENTS 核 BatchMode SSH、有效占用、服务/端口及所需缓存；有占用冲突才协调。源码经 LAN 到 clean 已提交 worktree，linked worktree 准备 legacy symlink。06 初始 pytest/Cargo jobs 4，产品 N/W/K 单独配置。
 
 使用 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp` 与受控 uv wrapper。日志在 worktree 外，记录 hostname、起止 HEAD/时间、exit 与 SHA256。focused 测试按文件/marker 缩小；有 Rust 改动先强制重装扩展并核 build-input，但本步不计划修改 Rust kernel 算法。
@@ -217,7 +227,7 @@ G 新独审必须审整个 S1a 实际改动区间、全部遗留 finding、Contr
 
 预期受影响权威包为 **backend、repository_service**；若实际修改 shared_kernel/repository_contracts/repository_client/Rust，则加入相应包。以最终差异与闭包判定，不能预先把未改包标为已通过或 carried。S1a 非 S5，不要求为了形式重复六包。
 
-在 04 的最终 clean 候选由 `vnext/scripts/run-tests.sh` 运行选定包并保留同次 Compose provenance。mount/entrypoint/配置/容器 harness 变化必触发当前候选必要镜像重建及门禁；backend/worker 采用获准 dependency-base、本机离线 Compose build，不设置 prebuilt 绕过。RS/client e2e 按其预置依赖规则。测试期间不得写 worktree 或手工 retag/rmi。
+在 G 的最终 clean 候选由 `vnext/scripts/run-tests.sh` 运行选定包并保留同次 Compose provenance；实际节点按现行 AGENTS 五节点池规则选择和记录。mount/entrypoint/配置/容器 harness 变化在此集中触发最终候选必要镜像重建及门禁，不要求 A–F 各包重复完整构建；backend/worker 采用获准 dependency-base、本机离线 Compose build，不设置 prebuilt 绕过。RS/client e2e 按其预置依赖规则。测试期间不得写 worktree 或手工 retag/rmi。
 
 同盘与分盘都必须在最终候选完成必要容器行为验证；只扩展相关 journey 的布局参数，不把所有无关业务矩阵乘二。已有同次 runner 覆盖的 Compose 旅程不另跑。改动到实际 harness 的输入必须进闭包；日志须标记每种布局的有效 config/root filesystem。阶段最终 H 如只多文档，carried 仍按同来源节点/同 worktree 规则实算，不口头沿用。
 

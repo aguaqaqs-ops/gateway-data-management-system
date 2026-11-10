@@ -393,7 +393,9 @@ S1b 建立 derived 对象/引用投影时，至少能表达 `object_key/location
 
 调试在 06 focused/Contract/小型 Compose，真实 backend e2e 按 05 默认职责；04 承接权威 runner/容器/carried。均在获准 LAN 传输后的 clean 已提交 worktree、offline 缓存环境执行，遵守节点占用和日志规范。本轮不连接节点、不运行这些检查。
 
-S1a 触及 mounts/permissions/entrypoint/Compose，未来候选必须重建并运行相应容器门禁；按包闭包决定受影响包，不因文档任务跑六包。S5 最终六包与最终 HEAD 容器要求不变。runner 非零先处理失败，不继续 carried；任何阶段沿用仍按同节点同 worktree 和镜像身份规则判定。
+Owner 于 2026-11-10 明确验证节奏：A–F 按实际影响做逻辑/Contract、必要真实 filesystem/Dolt 与最小数据链验证，G 在最终候选集中构建并完成受影响权威包、必要容器及已确认最小真实范围；不因小节交接或复审重复完整构建/旅程。只能在容器内证明且影响后续接线的 mount/权限/entrypoint/cgroup 等行为，在关联实现收敛后做最小必要 Compose 验证，可合并关联包；其余容器项以 `deferred` 移交 G，不阻塞无依赖实施，不以延期关闭正确性问题。细则见 [S1a 执行方案 §5.2](p7-s1a-execution-plan.md#52-运行前提与收敛方式)。
+
+S1a 触及 mounts/permissions/entrypoint/Compose，G 的最终候选必须重建并运行相应容器门禁；按包闭包决定受影响包，不因文档任务跑六包。依赖基础镜像仅在其定义的输入变化时重建/传输，产品镜像使用已有基础镜像与缓存；正常通过以一次集中验收为目标，修复后按影响重建复验。S5 最终六包与最终 HEAD 容器要求不变。runner 非零先处理失败，不继续 carried；任何阶段沿用仍按同节点同 worktree 和镜像身份规则判定。
 
 ## 14. 本轮交付状态与剩余责任
 

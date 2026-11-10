@@ -18,7 +18,7 @@
 
 ## 流程与角色（P7-D25/D26）
 
-新流程从后端 S1b、前端 FE4a 后下一步生效；**S1a/FE4a 保持现行授权、角色和执行方案**，包括已有构建快速修复授权。以下新规则不扩大产品或验收授权。
+新流程后端按 P7-D27 提前至 **S1a-B 原流程收尾后暂停、工具验证通过后从 C 启用**；前端仍从 FE4a 后下一步生效。A/B 既有事实及 FE4a 角色不改，构建快速修复、产品范围和验收要求保留。具体切换条件见 [S0 决议 §7](docs/backend-vnext/refactoring/formal/plans/p7-s0-owner-decisions.md#7-b-收尾后的流程切换owner-后续确认与安排)。
 
 - 每阶段一个设计会话和持续协调者；协调者按比例化政策 §4 的实际后果定 A–D 风险、触发门禁、合入并维护阶段日志。每包新实施上下文，内聚的两三个小包可合并。
 - A/B 类逐包独审；C/D 类由实施者与门禁完成。阶段末一次全范围独审覆盖全部包；独审须新上下文并使用与实施者不同的模型家族。同一 finding 原审复审。取消专职测试者，门禁由脚本执行，focused 由实施者执行；不自动递归扩队。
@@ -65,7 +65,7 @@
 - **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
 - **backend/worker：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
 - **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
-- 新阶段日志/门禁结果（S1a/FE4a 仍用 handoff）记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
+- 新阶段日志/门禁结果（S1a-A/B、FE4a 仍用 handoff）记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
 - **DC68 工具/取证错误：**Owner 2026-11-10 对确认属于非程序逻辑的构建/环境故障改用下文快速修复流程，取消此类故障“重做一次/最多两三轮即交 Owner”的限制，立即适用于已因次数停止的 S1a 和后续全部阶段。其他工具/取证错误仍按 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则；产品 finding 不归入构建故障。
 
 ### 构建故障快速修复（Owner 2026-11-10）
@@ -77,7 +77,7 @@
 - 只停止当前失败执行和依赖验收，可继续无依赖实施。所有修复仍遵守节点占用、clean 已提交源码、离线预填充、镜像身份和本人资源清理边界；不得在测试运行中写被测树/重建相关镜像、清理他人资源、跳身份或改预期。测试角色在此范围可修正命令与环境并复跑，不获得产品源码、资源预算或验收范围的修改权。
 
 权威运行必须在专用节点、clean 已提交 worktree 上进行；期间不写被测树、不改相关镜像（runner 的既定构建例外保留）。同节点整机单飞、离线预填充、保护真实输入及原始证据、失败不冒称通过都是硬约束。
-门禁脚本负责 SSH/占用、legacy 链接、固定临时路径、起止 HEAD/UTC/hostname、日志和 SHA、runner exit 与清理；具体步骤见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本启用前及 S1a/FE4a 继续按该文现行步骤执行。
+门禁脚本负责 SSH/占用、legacy 链接、固定临时路径、起止 HEAD/UTC/hostname、日志和 SHA、runner exit 与清理；具体步骤见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本启用前及 S1a-A/B、FE4a 继续按该文现行步骤执行。
 
 阶段性验证只跑所需 focused/marker 范围，不跑全量。权威入口可用 `GATEWAY_TEST_PACKAGES` 选包；固定顺序为 `rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`，未知或重复名称 exit 2，未设置则全六包。**项目最终门禁与发布门禁必须运行全部六包**；其他阶段按范围与闭包规则选择。
 
@@ -197,7 +197,7 @@ S1a 的 A–F 是实施小节，G 是阶段集中验收点；工作包交接、�
 表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
 
 阶段退出的容器沿用须同时满足同来源闭包与镜像等价，规则见 [镜像身份等价](docs/backend-vnext/testing-conventions.md#镜像身份等价与结果沿用)。不满足就重建实跑；同次 runner 已通过的 Compose 旅程不重复跑。S5、发布及最终 production gate 必须最终 HEAD 重建和完整六包，不查表跳过。
-新流程由门禁结果记录重建理由、image revision/source-tree 和最初来源；评审/阶段总结引用结果即可。S1a/FE4a 的原记录方式及脚本启用前的操作细节继续见 testing-conventions，不删掉尚无人承担的取证步骤。
+新流程由门禁结果记录重建理由、image revision/source-tree 和最初来源；评审/阶段总结引用结果即可。S1a-A/B、FE4a 的原记录方式及脚本启用前的操作细节继续见 testing-conventions，不删掉尚无人承担的取证步骤。
 
 ## 全局比例化保障
 

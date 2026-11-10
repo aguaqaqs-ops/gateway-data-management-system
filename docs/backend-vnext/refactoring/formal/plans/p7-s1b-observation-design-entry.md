@@ -21,7 +21,7 @@
 
 现有 `application/pair_pipeline.py` 的 `s3_pair_metrics`、`capabilities/comparison/production.py` 的 `ComparisonRunMetrics` 为 comparison/risk/surface 与缓存统计来源。复用 `cache_hits`、`persistent_cache_lookups`、`cache_restores`，逐字段核对内存命中与持久恢复口径，不能简单相除构造误导命中率。surface 导出窗口须标清与 export/bundle 的重叠。
 
-解析、物化、bundle、RS 导入、finalize 当前无完整计时；建议在其现有调用边界记单调起止时间，RS 导入先记客户端端到端窗口并注明含网络/等待，不宣称 Dolt 内部耗时。canonical/export/risk_candidate 在现有查找/命中分支记普通计数。实施前解决 [流程规格 §6](p7-gate-and-stage-workflow-design.md#6-来源冲突与待-owner-决定) 的采集约束解释；未获确认不另建采集设施。
+解析、物化、bundle、RS 导入、finalize 当前无完整计时；建议在其现有调用边界记单调起止时间，RS 导入先记客户端端到端窗口并注明含网络/等待，不宣称 Dolt 内部耗时。canonical/export/risk_candidate 在现有查找/命中分支记普通计数。Owner 已确认 [流程规格 §6](p7-gate-and-stage-workflow-design.md#6-来源冲突的已确认处理) 的解释：允许上述普通计时/计数，不增加扫描、profiler 或采集服务。
 
 ## 3. N=2 真实核对与参考点
 

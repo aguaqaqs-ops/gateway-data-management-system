@@ -450,7 +450,7 @@ def test_multipart_owner_covers_all_parts_and_cleans_every_failure(
     if fault == 'construction':
         def broken_parser(*args: object, **kwargs: object) -> object:
             raise ValueError('injected parser construction failure')
-        monkeypatch.setattr(multipart_stream.multipart, 'MultipartParser', broken_parser)
+        monkeypatch.setattr('gateway_backend.http.orchestration.multipart_stream.multipart.MultipartParser', broken_parser)
     if fault == 'write':
         def full_disk(self: object, data: object) -> int:
             raise OSError(28, 'injected ENOSPC')

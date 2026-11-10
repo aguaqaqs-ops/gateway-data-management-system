@@ -148,7 +148,6 @@ def test_cleanup_cli_uses_configured_metadata_and_bounded_result(tmp_path: Path,
     local = open_test_store(tmp_path / 'storage')
     ref = _put(local, ArtifactLocation.EXPORT)
     path = local.payload_path(ref.artifact_id)
-    import os
     os.utime(path, (0, 0))
     assert main(['--storage-layout', str(storage), '--resource-profile', str(resources),
                  'cleanup', '--max-candidates', '1']) == 0

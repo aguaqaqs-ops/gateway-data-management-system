@@ -86,6 +86,8 @@ S1a设计§1所列P6报告、receipt与原独审只作依赖入口，不重跑P6
 | BE/application/archive/{contracts,snapshot,closure,start}.py、domain/archive与sqlite_archive decoder | candidate/source/manifest bare refs及归档冻结/重放载荷严格校验；digest不删原绑定；Head CAS前先借root | B/C/D |
 | BE/http/{mappers,schemas/upload,schemas/preview}.py；http/orchestration/{multipart_upload,submit_acceptance}.py | 输出/重新构造与现有名义refs共用验证；ID可见但不是授权能力 | B/D |
 | BE/bootstrap/{composition,operation_worker}.py、settings.py | HTTP/两worker composition/恢复/下载/维护同layout；metadata固定DB；删旧root/N/M/E入口 | B/C/F |
+| BE/http/routes/upload_revisions.py `accept_upload_route`；http/dependencies.py `WorkspaceHttpDependencies`；bootstrap/composition.py；http/orchestration/multipart_stream.py `parse_streaming_multipart`；multipart_upload.py acceptance/finally | route在artifact store前直接解析；由composition→WorkspaceHttpDependencies→route注入scratch能力，不能仅改store。mkdtemp当前无dir；改为显式be-scratch request/upload owner（此时尚无operation），累计全部part的temporary bytes，覆盖构造/解析/验证/发布失败及取消shield等待后的关闭；保留单part原上限，不以多part绕总cap | D |
+| BE/capabilities/comparison/artifacts.py `_write_arrow_parquet` | SpooledTemporaryFile当前无dir，rollover可落系统temp；显式operation/step/attempt scratch owner，遵守原records/spool上限与共享temporary cap较小者；writer/spool所有出口关闭，最终bytes的M预约另计，不能用磁盘cap代替内存预算 | D |
 | BE/infrastructure/repository_read/http_arrow.py | spool不落默认系统temp；关闭/取消释放scratch owner | D |
 | BE/infrastructure/repository_write/{import_publication,wire_codec,http}.py | backend包与RS UUID边界/size/raw SHA原验；UNKNOWN保原package/key，backend不挂RS卷 | B/D |
 | BE/bootstrap/storage_admin.py（目标新增） | init/check/cleanup显式维护；现有classify/delete字段不冒充已有完整sweeper | D |
@@ -132,7 +134,8 @@ B须定向更新`tests/test_artifact_ref_conformance.py`中的EXAMPLE_JCS、所�
 2. 区分artifact_content_digest（排除row ID）、manifest raw SHA与Bundle传递完整性。总体设计“location-independent”澄清为物理路径无关，逻辑location显式在ID中。
 3. 单root下载FD≤2不能继续宣称多root仍≤2；目标明确最多4 root FD+1当前artifact FD，chunk/metadata预算不变。读闭包借齐roots，避免动态反序取锁。
 4. root→DB顺序需在UoW入口实现；清理EX短事务不能复用会再取SH的普通wrapper；cache store已有SH内put，发布必须no-replace而非升级EX。
-5. RS旧Contract全局同filesystem/whole-root snapshot与ADR0012历史兼容段落不能驱动目标保兼容：E明确发布对/一致集合和唯一基线；不重写历史证据。
+5. 补齐HTTP multipart接收目录与comparison Parquet spool两个系统temp入口；前者request/upload owner不伪造operation，后者归当前operation，累计temporary cap与原producer cap同时成立。D须覆盖ENOSPC/EDQUOT/取消/构造和close失败：不发表UploadRevision/READY或成功引用，按既有失败owner返回并释放句柄/本次scratch，无法清理的残留仅走已定有界非活跃owner清理，不改预期为成功；禁止靠ambient TMPDIR或系统temp回退。multipart接受线程仍在运行时取消不得提前删其输入；已发布完整前缀依原owner/TTL收尾。
+6. RS旧Contract全局同filesystem/whole-root snapshot与ADR0012历史兼容段落不能驱动目标保兼容：E明确发布对/一致集合和唯一基线；不重写历史证据。
 
 轻量风险登记：权威事实为Dolt commit/main、Head/审核、scope与冻结固定package/key；可恢复durable为operation/checkpoint/保护和业务绑定；derived为canonical accepted-commit副本、cache、scratch、配置渲染与观测。误删冻结对象或跨scope/root写入涉及A/B类，保持事务/CAS/保护与关键语义屏障；一般临时孤儿C类有界清理/诊断，不建receipt。外部archive/path输入不可信，同UID协作部署、单机本地盘是已接受假设。多机/RWX、不可信插件、在线迁移、必须保留正式数据时重开，不为其预建框架。
 
@@ -145,3 +148,7 @@ B须定向更新`tests/test_artifact_ref_conformance.py`中的EXAMPLE_JCS、所�
 Current HEAD：以本包报告提交的父候选及外置审核/测试回执记录精确SHA，不能自指造值。Container rebuild required：no；Reason：仅docs。Last verified image revision/source-tree：设计§14所列P6 B/`sha256:e450ceba3b21e940ac0d9d6a5bd521e662c6bc2d92c655e8b71c4a9a3fd12646`，仅历史回归入口。Current HEAD container gate：not-applicable；Carried from：none。必要容器门禁在B–F最终涉及mount/权限/entrypoint的产品候选及G集中验收，不以本包文档宣称产品已通过。
 
 A完成条件是本入口/目标/消费者/摘要表被原审核收及静态原件核收。当前未签设计GO、未测产品、未push/tag、未申请节点占用。后续B接两配置/codec及所有producer/decoder/fixture同批闭合，C接实际store/保护，D接消费者/维护，E接RS，F接部署/资源，G接最终证据；依赖项不得在A提前记PASS。协调者持有本地main串行合入与真实范围确认职责。
+
+### A R1 修订记录
+
+原审报告`/home/dev/gdds-p7-s1a-reviews/a/a46cea2c-r1.md`对`a46cea2c048b2dfb57c5c3ab062974ae6815a4df`提出A-R1-F1/P2：缺multipart接收与comparison spool的scratch消费者交接；A-R1-N1/P3：S0总规划锚点来自未提交标题。此次只补文档：§3.2/§5、详细设计§3.1、执行方案§3.3与Comparison目标明确route/dependency注入、request/attempt owner、累计cap、close/取消/ENOSPC及无系统temp回退；S0链接改为候选已提交标题锚点，不动implementation-stages。验证稿保持原内容，继承须由原审确认；未运行测试，不以修订自签finding关闭或产品PASS。

@@ -4,7 +4,7 @@
 
 本记录来自 P7 设计讨论及 Owner 逐项答复。最初授权为“如果设计已足够充分可以收口 S0 并正式落成文档”；最新授权见 §4，不再以最初的仅设计边界阻止下一编码会话。独立设计审核尚未执行，产品未实施。P6 已正式退出，本次不变更其验收条件或退出结果。
 
-正式入口：[总体设计](p7-design.md)、[执行计划](p7-execution-plan.md)、[总阶段规划 §10](implementation-stages.md#10-phase-7多设备库并发容量观测与试运行准备)。
+正式入口：[总体设计](p7-design.md)、[执行计划](p7-execution-plan.md)、[总阶段规划 §10](implementation-stages.md#10-phase-7multi-project-concurrency-and-capacity多项目并发与容量)。
 
 ## 1. 已确认决议
 

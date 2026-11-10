@@ -622,4 +622,4 @@ ComparisonComputeResult:
 
 A目标未切换当前实现，B–D实现与定向验证后记录生效，见 [A入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
 
-table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。
+table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。Parquet records的SpooledTemporaryFile必须显式使用本operation scratch（包括rollover）；共享temporary cap与原records/spool上限共同约束，返回bytes的M预约另计。取消、ENOSPC、writer/close失败均释放writer/spool，不发表READY，不能回退系统temp。

@@ -93,7 +93,7 @@ S1a 交付一组一 worker 的完整上传、Preview、Submit/Review/Archive、�
 | --- | --- |
 | Artifact ID codec | `BE/artifacts/location.py` 新增枚举/parse/build；修改 `types/digest/validate/serialize`，四字段 ref 不新增 locator 字段；现有所有 producer 使用显式 location |
 | typed roots 与本地 borrow | `BE/infrastructure/artifact_store/layout.py` 新增；`local_store.py` 统一路由；不让 capability 取得宿主 root 或自行组合路径 |
-| 流式文件导入与 temporary owner | `BE/artifacts/store.py` / `bounded_store.py` 端口；`BE/infrastructure/artifact_store/` 实现；将 Parquet/HTTP Arrow 临时目录接到配置 scratch |
+| 流式文件导入与 temporary owner | `BE/artifacts/store.py` / `bounded_store.py` 端口；`BE/infrastructure/artifact_store/` 实现；将 client Parquet、comparison Parquet spool、HTTP Arrow及multipart接收临时目录接到配置scratch。multipart由composition/dependencies/route在解析前注入request/upload owner、其余当前operation owner，共享累计cap并保原producer上限；覆盖取消/ENOSPC与close失败收尾 |
 | backend 配置/生命周期 | `BE/settings.py`、`bootstrap/composition.py`、`bootstrap/operation_worker.py`；两个 production worker composition 入口一起改 |
 | backend 维护 CLI | `BE/bootstrap/storage_admin.py` 新增 `init-layout`、`check-layout`、`cleanup`；只接受配置和 bounded 参数，不接受任意服务端文件路径删除 |
 | RS 配置与 layout | `RS/deployment_config.py` 新增窄配置 adapter；`settings.py/layout.py/runtime.py/process.py` 修改；由具名字段访问 root，不留万能 `layout.root` 推断 |

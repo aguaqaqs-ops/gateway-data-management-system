@@ -60,6 +60,11 @@ def parse_args(argv):
     )
     parser.add_argument("--source-dir", default=None, help="root for path+SHA pairing checks")
     parser.add_argument(
+        "--self-log",
+        default=None,
+        help="basename of this check's own log; a 64-char token on a line naming it is the handoff's self-recorded log hash and is not verified",
+    )
+    parser.add_argument(
         "--allow",
         action="append",
         default=[],
@@ -315,6 +320,12 @@ def main(argv=None):
             truncated.append((lineno, text))
         for match in TOKEN_RE.finditer(line):
             if any(start <= match.start() and match.end() <= end for start, end, _text in trunc_spans):
+                continue
+            if (
+                len(match.group(0)) == 64
+                and args.self_log
+                and os.path.basename(args.self_log) in line
+            ):
                 continue
             findings.append((lineno, line, match.start(), match.group(0), len(match.group(0))))
 

@@ -46,6 +46,8 @@ cache_provenance 和预置依赖设置。配置不在 Git 内，不允许更换 
 准备及 runner 实际起始 manifest、Compose provenance。JSON 用原子 rename；失败不更新成功来源。
 原始成功来源必须同节点、同固定树、同脚本 SHA、clean、起止 HEAD 一致、整体 runner exit 0、包通过，
 且原日志/manifest 摘要相符。carried 直接指原始实跑，不递归解析 carried。修改脚本一律保守失效旧表。
+runner 结束后，所有本轮 carried 容器包重新计算闭包并对同一原始来源复核容器身份；准备和最终
+manifest 均保留，成功 entry 引用最终 manifest。期间 custom 镜像 tag 等输入变化即整次失败，保日志且不自动补跑。
 
 容器 carried 另核 RS build-input/source-tree labels，backend 同源闭包覆盖 backend/worker；区间逐提交扫描
 `vnext/`（含完整分支历史和 merge 对每个 parent 的 diff），任何修改（含改后改回）保守触发容器包重跑。这个首版允许额外重跑，避免漏判 runtime/harness

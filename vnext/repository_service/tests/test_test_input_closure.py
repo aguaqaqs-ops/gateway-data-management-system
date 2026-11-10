@@ -11,6 +11,7 @@ import runpy
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -1092,3 +1093,85 @@ def test_compare_cli_rejects_dirty_worktree(tmp_path: Path) -> None:
     )
     assert dirty_result.returncode == 2
     assert "worktree is dirty" in dirty_result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("change", ["unchanged", "custom-tag-rebuilt", "labels-changed"])
+def test_mixed_stage_gate_rechecks_carried_backend_after_repository_runner(
+    change: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    gate_module = runpy.run_path(str(REPO_ROOT / "scripts" / "run-stage-gate.py"))
+    repo_root = _fixture_repo(tmp_path)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root, text=True).strip()
+    custom_tag = "fixture/repository:custom"
+    image_id = "sha256:" + "a" * 64
+    labels = {"gateway.p2r1.build-input-revision": "input",
+              "gateway.p2r1.source-tree-sha256": "tree"}
+    current_labels = dict(labels)
+    settings = {"GATEWAY_REPOSITORY_SERVICE_IMAGE": custom_tag}
+    monkeypatch.setitem(
+        CLOSURE_GLOBALS, "_docker_image_id",
+        lambda _root, tag: image_id if tag == custom_tag else "sha256:" + hashlib.sha256(tag.encode()).hexdigest(),
+    )
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_inventory", lambda _root: [])
+
+    def current_manifest(name: str) -> dict[str, Any]:
+        inputs = CLOSURE["_docker_build_inputs"](repo_root, name, environ=settings)
+        assert inputs["image_ids"][custom_tag] == image_id
+        return cast(dict[str, Any], CLOSURE["build_manifest"](
+            repo_root, name, environment={**FAKE_ENVIRONMENT, "docker_build_inputs": json.dumps(inputs, sort_keys=True)},
+        ))
+
+    original = current_manifest("backend")
+    source_manifest = tmp_path / "original-backend.json"
+    source_manifest.write_text(json.dumps(original), encoding="utf-8")
+    source_record = tmp_path / "original-result.json"
+    source_record.write_text(json.dumps({"commit_sha": head, "container_gate": {"status": "run",
+        "images": {"repository_service": {"labels": labels}}}}), encoding="utf-8")
+    source = {"record": str(source_record), "record_sha256": gate_module["sha256"](source_record),
+              "manifest": {"path": str(source_manifest), "sha256": gate_module["sha256"](source_manifest)}}
+    gate = gate_module["Gate"](SimpleNamespace(commit_sha=head, packages=["backend", "repository_service"],
+                                               fresh=False, purpose="stage", session="mixed-selftest"), "selftest")
+    gate.worktree = repo_root
+    gate.directory = tmp_path / "gate-result"
+    gate.env = settings
+    gate.closure = SimpleNamespace(ClosureError=CLOSURE["ClosureError"], compare_manifests=CLOSURE["compare_manifests"])
+    for name in ("load_config", "site_clear", "checkout", "prepare"):
+        monkeypatch.setattr(gate, name, lambda: None)
+    monkeypatch.setattr(gate, "acquire", lambda: gate.directory.mkdir())
+    monkeypatch.setattr(gate, "manifest", current_manifest)
+    monkeypatch.setattr(gate, "source", lambda name, _manifest: (source, "original run") if name == "backend" else (None, "run RS"))
+    monkeypatch.setattr(gate, "repository_identity", lambda: {"build_input_revision": "input", "source_tree_sha256": "tree"})
+    monkeypatch.setattr(gate, "image", lambda: {"tag": custom_tag, "image_id": image_id, "labels": current_labels})
+    runs: list[list[str]] = []
+
+    def runner(names: list[str]) -> None:
+        nonlocal image_id
+        runs.append(names)
+        if change == "custom-tag-rebuilt":
+            image_id = "sha256:" + "b" * 64
+        if change == "labels-changed":
+            current_labels["gateway.p2r1.source-tree-sha256"] = "changed"
+        gate.result["packages"]["repository_service"].update(mode="run", runner_status="passed")
+
+    monkeypatch.setattr(gate, "execute_runner", runner)
+    if change == "unchanged":
+        gate.gate()
+        assert gate.result["container_gate"]["status"] == "run"
+    else:
+        with pytest.raises(gate_module["GateError"], match="carried backend .* changed during gate"):
+            gate.gate()
+        assert gate.result["container_gate"]["status"] == "not_run"
+    assert runs == [["repository_service"]]
+    entry = gate.result["packages"]["backend"]
+    assert entry["source"] == source
+    prepared = json.loads((gate.directory / "prepared-backend.json").read_text())
+    final = json.loads((gate.directory / "final-carried-backend.json").read_text())
+    assert prepared == original
+    comparison = CLOSURE["compare_manifests"](prepared, final)
+    assert comparison["status"] == ("运行" if change == "custom-tag-rebuilt" else "可沿用")
+    if change == "unchanged":
+        assert entry["manifest"] == entry["final_manifest"]
+        assert entry["manifest"]["path"] == str(gate.directory / "final-carried-backend.json")

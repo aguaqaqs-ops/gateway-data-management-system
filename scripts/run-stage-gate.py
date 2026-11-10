@@ -544,6 +544,28 @@ class Gate:
                 raise GateError("backend Compose provenance identity mismatch")
             self.result["container_gate"]["provenance"] = {"path": str(provenance), "sha256": sha256(provenance)}
 
+    def revalidate_carried_containers(self) -> None:
+        # A runner for another package can rebuild a custom RS tag that is an
+        # input to a package selected as carried earlier. Bind the final state
+        # to the same original source; never silently select a different run.
+        for name in self.args.packages:
+            entry = self.result["packages"][name]
+            if name not in {"backend", "repository_service"} or entry["mode"] != "carried":
+                continue
+            source = entry["source"]
+            record = json.loads(self.verified_file({"path": source["record"],
+                                                    "sha256": source["record_sha256"]}).read_text())
+            original = json.loads(self.verified_file(source["manifest"]).read_text())
+            current = self.manifest(name)
+            reference = self.save_manifest(name, current, "final-carried")
+            entry["final_manifest"] = reference
+            if self.closure.compare_manifests(original, current)["status"] != "可沿用":
+                raise GateError(f"carried {name} closure changed during gate; source results rejected")
+            valid, reason = self.container_equivalent(record, name)
+            if not valid:
+                raise GateError(f"carried {name} container identity changed during gate: {reason}")
+            entry.update(total_digest=current["total_digest"], manifest=reference)
+
     def gate(self) -> None:
         self.load_config()
         self.acquire()
@@ -564,6 +586,7 @@ class Gate:
                 to_run.append(name)
         if to_run:
             self.execute_runner(to_run)
+        self.revalidate_carried_containers()
         if set(self.args.packages) & {"backend", "repository_service"}:
             self.result["container_gate"].update(
                 status="run" if set(to_run) & {"backend", "repository_service"} else "carried",

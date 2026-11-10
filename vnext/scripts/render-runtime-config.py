@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-# Both adapters deliberately keep structural validation stdlib-only. The renderer
-# does not compute or substitute a different configuration digest.
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend/src"))
-from gateway_backend.deployment_config import DeploymentConfig  # noqa: E402
-from gateway_backend.runtime_preflight import check_host, initialize_host  # noqa: E402
+from host_runtime_config import DeploymentConfig, check_host, initialize_host
 
 
 def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str, object]:

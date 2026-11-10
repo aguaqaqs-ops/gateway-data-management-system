@@ -10,7 +10,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from gateway_backend.deployment_config import DeploymentConfig, StorageLayoutConfig, _document
+from .deployment_config import DeploymentConfig, StorageLayoutConfig, _document
 
 MARKER = ".gateway-storage.json"
 

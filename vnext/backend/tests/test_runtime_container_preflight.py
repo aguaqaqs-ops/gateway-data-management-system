@@ -49,8 +49,7 @@ def test_real_bind_and_cgroup_preflight_refuses_invalid_deployments(tmp_path: Pa
             continue
         command += ["--mount", f"type=bind,src={item['source']},dst={item['path']}" + (",readonly" if index == 0 and fault == "readonly" else "")]
     command += ["--mount", f"type=bind,src={tmp_path},dst=/configuration,readonly", "--entrypoint", "python", image, "-c"]
-    package = "gateway_repository_service" if role == "repository_service" else "gateway_backend"
-    script = f"from pathlib import Path; from {package}.deployment_config import DeploymentConfig; from {package}.runtime_preflight import RuntimePreflight; RuntimePreflight(DeploymentConfig.load(Path('/configuration/storage-layout.json'), Path('/configuration/resource-profile.json')), {role!r}); print('PREFLIGHT_OK')"
+    script = f"import sys; sys.path.insert(0, '/workspace/vnext/scripts'); from pathlib import Path; from host_runtime_config import DeploymentConfig, RuntimePreflight; RuntimePreflight(DeploymentConfig.load(Path('/configuration/storage-layout.json'), Path('/configuration/resource-profile.json')), {role!r}); print('PREFLIGHT_OK')"
     try:
         completed = subprocess.run([*command, script], capture_output=True, text=True, check=False, timeout=30)
         if fault is None:

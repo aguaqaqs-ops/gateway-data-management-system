@@ -9,9 +9,8 @@ import sys
 from pathlib import Path
 
 VNEXT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(VNEXT / "backend/src"))
-from gateway_backend.deployment_config import DeploymentConfig  # noqa: E402
-from gateway_backend.runtime_preflight import initialize_host, mounts  # noqa: E402
+sys.path.insert(0, str(VNEXT / "scripts"))
+from host_runtime_config import DeploymentConfig, initialize_host, mounts  # noqa: E402
 
 
 def prepare(directory: Path, rs_source: Path | None = None) -> Path:

@@ -174,20 +174,21 @@ def export_snapshot_table_parquet(
         size = output.tell()
         if size > _MAX_EXPORT_BYTES:
             raise MemoryError("client Parquet output exceeds byte budget")
-        output.flush()
-        hasher = hashlib.sha256()
-        with source_file.open_read() as published_input:
-            while block := published_input.read(64 * 1024):
-                context.checkpoint()
-                hasher.update(block)
-        ref = ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "client-parquet", [
-                repository_id, key.parquet_writer_contract_version, key.row_layout_digest.value]),
-            media_type=PARQUET_MEDIA_TYPE, size_bytes=size,
-            raw_sha256=DigestRef("sha256:" + hasher.hexdigest()),
-        )
-        cast(ArtifactFileStorePort, store).put_from_path(source_file, ref,
-            checkpoint=context.checkpoint, byte_limit=_MAX_EXPORT_BYTES)
+        with context.memory.reserve(128 * 1024):
+            output.flush()
+            hasher = hashlib.sha256()
+            with source_file.open_read() as published_input:
+                while block := published_input.read(64 * 1024):
+                    context.checkpoint()
+                    hasher.update(block)
+            ref = ArtifactRef(
+                artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "client-parquet", [
+                    repository_id, key.parquet_writer_contract_version, key.row_layout_digest.value]),
+                media_type=PARQUET_MEDIA_TYPE, size_bytes=size,
+                raw_sha256=DigestRef("sha256:" + hasher.hexdigest()),
+            )
+            cast(ArtifactFileStorePort, store).put_from_path(source_file, ref,
+                checkpoint=context.checkpoint, byte_limit=_MAX_EXPORT_BYTES)
         context.checkpoint()
 
     if export_cache is not None:

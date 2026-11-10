@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from collections.abc import Callable
 from pathlib import Path
 
@@ -41,7 +43,7 @@ def _put_manifest(store: InMemoryArtifactStore, payload: dict[str, object], arti
     return put_with_built_ref(
         store,
         canonicalize_json_value(payload),
-        artifact_id=artifact_id,
+        artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", artifact_id),
         media_type=MANIFEST_MEDIA_TYPE,
     )
 
@@ -50,7 +52,7 @@ def _fault_corrupt_manifest(store: InMemoryArtifactStore) -> ArtifactRef:
     return put_with_built_ref(
         store,
         b"{not-json",
-        artifact_id="sta-manifest-bad00001",
+        artifact_id="a1:durable:849e84e1e018f8ba99481a36a9fe2c271d65433cc2f6c1eecdccd59f4417e350",
         media_type=MANIFEST_MEDIA_TYPE,
     )
 
@@ -66,7 +68,7 @@ def _fault_truncated_parquet(store: InMemoryArtifactStore) -> ArtifactRef:
     truncated = put_with_built_ref(
         store,
         b"PAR1",
-        artifact_id="sta-rows-trunc0001",
+        artifact_id="a1:durable:5ac927de14a95725025866b7dd626c15c19eb4c790a714a9bb0d0ff36591681f",
         media_type=artifact.manifest.row_file_refs[0].media_type,
     )
     payload = manifest_to_payload(artifact.manifest)
@@ -213,7 +215,7 @@ def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monk
     from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
     store = LocalArtifactStore(tmp_path / "objects")
-    ref = put_with_built_ref(store, b"small", artifact_id="bounded-input", media_type="application/octet-stream")
+    ref = put_with_built_ref(store, b"small", artifact_id="a1:durable:4e6cd69eb33a2b12f384dbd0dd2c36f9eecfabf9c80fa7e79fd41132dcb86cd2", media_type="application/octet-stream")
     digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
     target = store.artifact_root / digest[:2] / digest[2:4] / digest
     target.write_bytes(b"oversize")

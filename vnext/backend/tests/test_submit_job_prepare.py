@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import time
 from dataclasses import dataclass, replace
 from collections.abc import Callable
@@ -166,7 +168,7 @@ def _materialize_ready_preview(
     for index in range(70):
         payload = f"preview-output-{index}".encode("ascii")
         ref = ArtifactRef(
-            artifact_id=f"preview-derived-{index:03d}",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"preview-derived-{index:03d}"),
             media_type="application/octet-stream",
             size_bytes=len(payload),
             raw_sha256=raw_blob_digest(payload),

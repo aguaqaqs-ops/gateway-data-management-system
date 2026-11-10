@@ -19,7 +19,7 @@ from gateway_backend.application.submission.artifact_refs import (
 )
 from gateway_backend.domain.submission.models import BackendArtifactRef, RepositoryArtifactRef
 _STORE_REF = ArtifactRef(
-    artifact_id="backend-package-1",
+    artifact_id="a1:durable:52e6ceb803ffbf0d00f02752bb8a4746ef5014fb2a6f435936d26e04ab55476e",
     media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
     size_bytes=12,
     raw_sha256=DigestRef("sha256:" + "aa" * 32),
@@ -29,7 +29,7 @@ _STORE_REF = ArtifactRef(
 def test_backend_and_repository_refs_are_distinct_nominal_types() -> None:
     backend = backend_artifact_ref_from_store_ref(_STORE_REF)
     repository = repository_artifact_ref_from_upload_response(
-        artifact_id="repo-artifact-uuid",
+        artifact_id="00000000-0000-4000-8000-000000000002",
         media_type=_STORE_REF.media_type,
         size_bytes=_STORE_REF.size_bytes,
         raw_sha256=_STORE_REF.raw_sha256.value,
@@ -49,7 +49,7 @@ NOMINAL_REF_CROSS_TYPE_FAULTS: tuple[tuple[str, object, str], ...] = (
     (
         "repository-ref-used-as-backend",
         RepositoryArtifactRef(
-            artifact_id="repo-1",
+            artifact_id="00000000-0000-4000-8000-000000000001",
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256="sha256:" + "cc" * 32,
@@ -59,7 +59,7 @@ NOMINAL_REF_CROSS_TYPE_FAULTS: tuple[tuple[str, object, str], ...] = (
     (
         "backend-ref-used-as-repository",
         BackendArtifactRef(
-            artifact_id="backend-1",
+            artifact_id="a1:durable:435f49de32cd1a29d1267152362b62049d5cdc3bdb1d4c82c752b5bee6072f61",
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256="sha256:" + "bb" * 32,
@@ -81,3 +81,17 @@ def test_nominal_ref_cross_type_substitution_is_rejected(
         return
     with pytest.raises(NominalArtifactRefError):
         assert_repository_ref_not_backend_ref(ref)
+
+
+@pytest.mark.parametrize("artifact_id", ["legacy-ref", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_backend_nominal_ref_requires_location_protocol(artifact_id: str) -> None:
+    with pytest.raises(ValueError):
+        BackendArtifactRef(artifact_id, "application/json", 0, "sha256:" + "0" * 64)
+
+
+@pytest.mark.parametrize("artifact_id", ["legacy-ref", "a1:durable:" + "a" * 64,
+    "00000000000040008000000000000001", "00000000-0000-4000-8000-00000000000A"])
+def test_repository_nominal_ref_requires_its_canonical_uuid(artifact_id: str) -> None:
+    with pytest.raises(ValueError):
+        RepositoryArtifactRef(artifact_id, "application/json", 0, "sha256:" + "0" * 64)

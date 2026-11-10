@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import json
 import secrets
 import time
@@ -222,7 +224,7 @@ def _publish_snapshot_table_artifact(
             row_ref = put_with_built_ref(
                 store,
                 parquet_bytes,
-                artifact_id=_opaque_id("sta-rows"),
+                artifact_id=_opaque_id(ArtifactLocation.EXPORT, "sta-rows"),
                 media_type=PARQUET_MEDIA_TYPE,
             )
         except ManifestVerificationError as exc:
@@ -283,7 +285,7 @@ def _publish_snapshot_table_artifact(
         manifest_ref = put_with_built_ref(
             store,
             manifest_bytes,
-            artifact_id=_opaque_id("sta-manifest"),
+            artifact_id=_opaque_id(ArtifactLocation.EXPORT, "sta-manifest"),
             media_type=MANIFEST_MEDIA_TYPE,
         )
         stored_manifest = store.locate(manifest_ref)
@@ -536,7 +538,7 @@ def publish_canonical_tables(
             raw = canonicalize_json_value(manifest_to_payload(manifest))
             context.checkpoint()
             try:
-                manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id("sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
+                manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id(ArtifactLocation.CANONICAL, "sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
             except BaseException:
                 if opened_handle is not None:
                     opened_handle.close()
@@ -1099,8 +1101,8 @@ def _optional_digest(value: object) -> DigestRef | None:
     return DigestRef(str(value))
 
 
-def _opaque_id(namespace: str) -> str:
-    return build_artifact_id(namespace, secrets.token_hex(8))
+def _opaque_id(location: ArtifactLocation, namespace: str) -> str:
+    return build_artifact_id(location, namespace, secrets.token_hex(16))
 
 
 def _checkpoint(context: ParserInvocationContext, table: str) -> None:

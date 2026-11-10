@@ -1017,7 +1017,7 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
 
 def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotTableArtifact:
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef("s3-d-artifact", "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef("a1:durable:6b4cbfd9f0e62f1f72e504e3a73569e3150c926b07e47a29b9c707b5d4f555bc", "application/octet-stream", 0, empty_digest)
     return SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(

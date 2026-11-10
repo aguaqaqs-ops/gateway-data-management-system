@@ -1,6 +1,8 @@
 """Derived cache transactions, reference closure, TTL and live filesystem borrows."""
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 import sqlite3
 from contextlib import closing, nullcontext
@@ -46,7 +48,7 @@ def _reserve(_size: int) -> ContextManager[object]:
 
 
 def _ref(artifact_id: str, raw: bytes, media_type: str = "application/octet-stream") -> ArtifactRef:
-    return ArtifactRef(artifact_id, media_type, len(raw), raw_blob_digest(raw))
+    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", artifact_id), media_type, len(raw), raw_blob_digest(raw))
 
 
 def _value(

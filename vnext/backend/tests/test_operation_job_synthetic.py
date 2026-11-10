@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -178,7 +180,7 @@ def _pure_compute_payload_ref(
     return put_with_built_ref(
         store,
         payload_bytes,
-        artifact_id="pure-compute-payload",
+        artifact_id="a1:durable:121ed825e83672124fda3678fba27437d47f31a27f9caebb2612d99c3d0354d5",
         media_type="application/json",
     )
 
@@ -200,7 +202,7 @@ def _stub_payload_ref(
     return put_with_built_ref(
         store,
         payload_bytes,
-        artifact_id="external-effect-stub-payload",
+        artifact_id="a1:durable:dfa1dc6797de1cda7490db8d654f914c0e67f9d7de1822ea584baab1faf4d730",
         media_type="application/json",
     )
 
@@ -335,7 +337,7 @@ def test_same_ref_output_put_is_idempotent() -> None:
     store = InMemoryArtifactStore()
     output_bytes = compute_pure_compute_output_bytes(SEED_ALPHA)
     digest = raw_blob_digest(output_bytes).value
-    artifact_id = f"pure-compute-output:{digest}"
+    artifact_id = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}")
     first = put_with_built_ref(
         store,
         output_bytes,
@@ -475,7 +477,7 @@ def test_artifact_round_trip_after_reopen(tmp_path: Path) -> None:
     ref = put_with_built_ref(
         store,
         output_bytes,
-        artifact_id=f"pure-compute-output:{digest}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}"),
         media_type="application/jcs",
     )
     reopened = reopen_local_store(root)

@@ -21,7 +21,7 @@ from tests.support.compose_gate_harness import (
     assert_running_backend_worker_images_match_build,
     canonical_rules_ordered_upload_files,
     capture_business_table_state_in_compose,
-    capture_r4_manifest_artifact_ids,
+    capture_canonicalization_manifest_artifact_ids,
     capture_running_container_provenance,
     cleanup_compose_project_artifacts,
     compose_auth_headers,
@@ -359,7 +359,8 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             repository_id,
             bearer_token=BEARER_TOKEN,
         )
-        manifests_before = capture_r4_manifest_artifact_ids(env)
+        manifests_before = capture_canonicalization_manifest_artifact_ids(env)
+        assert manifests_before
 
         with httpx.Client(
             base_url=BACKEND_URL,
@@ -420,7 +421,7 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             repository_id,
             bearer_token=BEARER_TOKEN,
         )
-        manifests_after = capture_r4_manifest_artifact_ids(env)
+        manifests_after = capture_canonicalization_manifest_artifact_ids(env)
         assert business_before == business_after
         assert commits_before == commits_after
         assert manifests_before == manifests_after

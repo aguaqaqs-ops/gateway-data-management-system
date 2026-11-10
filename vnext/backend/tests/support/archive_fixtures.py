@@ -230,8 +230,8 @@ def _insert_bulk_approved_archive_candidate_rows(
                 node_id,
                 commit_id,
                 head_version,
-                b'["source-fixture"]',
-                "canonical-closure-1",
+                b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
+                "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
                 "sha256:canonical-closure",
                 operation_id,
                 submission_id,
@@ -247,7 +247,7 @@ def _insert_bulk_approved_archive_candidate_rows(
                 repository_id,
                 node_id,
                 commit_id,
-                b'["source-fixture"]',
+                b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -317,8 +317,8 @@ def _insert_bulk_approved_archive_candidate_rows(
             ) VALUES (
                 ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
-                'manifest-1', 'sha256:manifest', 'manifest-1', 'sha256:manifest',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1', 'd-closure',
+                'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest', 'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest',
                 NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
@@ -341,8 +341,8 @@ def _insert_bulk_approved_archive_candidate_rows(
             ) VALUES (
                 ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
-                'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest', 'sha256:package',
+                'd70d201c-9ae4-5cce-9de5-38836fb5ff39', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,
             submission_rows,
@@ -441,8 +441,8 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 node_id,
                 commit_id,
                 head_version,
-                b'["source-fixture"]',
-                "canonical-closure-1",
+                b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
+                "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
                 "sha256:canonical-closure",
                 operation_id,
                 submission_id,
@@ -458,7 +458,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 repository_id,
                 node_id,
                 commit_id,
-                b'["source-fixture"]',
+                b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -527,8 +527,8 @@ def _insert_bulk_rejected_archive_candidate_rows(
             ) VALUES (
                 ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
-                'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1', 'd-closure',
+                'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
             )
@@ -550,8 +550,8 @@ def _insert_bulk_rejected_archive_candidate_rows(
             ) VALUES (
                 ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
-                'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest', 'sha256:package',
+                'd70d201c-9ae4-5cce-9de5-38836fb5ff39', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,
             submission_rows,

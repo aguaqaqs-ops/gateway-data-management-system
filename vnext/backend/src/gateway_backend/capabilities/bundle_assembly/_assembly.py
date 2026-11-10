@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
@@ -624,7 +626,7 @@ def _rewrite_pairs(
         surface_bytes = canonicalize_json_value(surface.to_document())
         surface_ref = _build_final_ref(
             ArtifactRef(
-                artifact_id=f"surface-source-{surface.surface_digest.value.removeprefix('sha256:')}",
+                artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "surface-source", surface.surface_digest.value),
                 media_type="application/json",
                 size_bytes=len(surface_bytes),
                 raw_sha256=raw_blob_digest(surface_bytes),
@@ -774,7 +776,7 @@ def _bundle_artifact_id(kind: str, raw_bytes: bytes, *, media_type: str = "appli
             }
         )
     )
-    return build_artifact_id("bundle", f"{kind}-{identity_digest.value.removeprefix('sha256:')}")
+    return build_artifact_id(ArtifactLocation.EXPORT, "bundle", f"{kind}-{identity_digest.value.removeprefix('sha256:')}")
 
 
 def _bundle_id(bundle_digest: DigestRef) -> str:

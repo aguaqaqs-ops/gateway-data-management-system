@@ -53,12 +53,12 @@ def _sample_attempt(*, operation_id: str = "op-submit-1") -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("initial-1",),
-        canonical_table_set_closure_ref="canonical-table-closure-1",
+        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        canonical_table_set_closure_ref="a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
-        preview_ready_closure_ref="closure-1",
+        preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref="canonical-manifest-1",
+        canonicalization_manifest_ref="a1:durable:18b8bf605898b660bd156ab02365ab9381c5f9cd4e5985ea9385a661c6b8feb3",
         canonicalization_manifest_digest="sha256:canonical-manifest",
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
@@ -233,11 +233,11 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("initial-1",),
-        canonicalization_manifest_ref="manifest-1",
+        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -287,7 +287,7 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     assert workspace_occupancy.active_submit_attempt_id is None
     assert repository_occupancy is None
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute("UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?", (b'["other-source"]', "sub-1"))
+        unit_of_work.connection.execute("UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?", (b'["a1:durable:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]', "sub-1"))
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         with pytest.raises(ValueError, match="source artifacts"):
             unit_of_work.submission.get_submission("sub-1")
@@ -306,11 +306,11 @@ def _sample_submission() -> Submission:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("initial-1",),
-        canonicalization_manifest_ref="manifest-1",
+        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -444,7 +444,7 @@ MALFORMED_JSON_SHAPES = (
         lambda: _decode_backend_artifact_ref(
             json.dumps(
                 {
-                    "artifact_id": "a",
+                    "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
                     "media_type": "application/octet-stream",
                     "size_bytes": 1,
                     "raw_sha256": "sha256:x",
@@ -459,7 +459,7 @@ MALFORMED_JSON_SHAPES = (
         lambda: _decode_backend_artifact_ref(
             json.dumps(
                 {
-                    "artifact_id": "a",
+                    "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
                     "media_type": "application/octet-stream",
                     "size_bytes": 1,
                 }
@@ -477,7 +477,7 @@ MALFORMED_JSON_SHAPES = (
 
 def _artifact_ref_bytes(**overrides: object) -> bytes:
     document: dict[str, object] = {
-        "artifact_id": "a",
+        "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
         "media_type": "application/octet-stream",
         "size_bytes": 1,
         "raw_sha256": "sha256:x",

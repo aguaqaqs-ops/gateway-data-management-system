@@ -38,13 +38,13 @@ TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 
 BACKEND_REF = BackendArtifactRef(
-    artifact_id="backend-pkg-1",
+    artifact_id="a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
     media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
     size_bytes=10,
     raw_sha256="sha256:package",
 )
 REPOSITORY_REF = RepositoryArtifactRef(
-    artifact_id="repo-artifact-1",
+    artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
     media_type="application/octet-stream",
     size_bytes=10,
     raw_sha256="sha256:repo",
@@ -66,12 +66,12 @@ def _prepared_attempt(**overrides: Any) -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("source-1",),
-        canonical_table_set_closure_ref="canonical-table-closure-1",
+        source_artifact_refs=("a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",),
+        canonical_table_set_closure_ref="a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
-        preview_ready_closure_ref="closure-1",
+        preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref="canonical-manifest-1",
+        canonicalization_manifest_ref="a1:durable:18b8bf605898b660bd156ab02365ab9381c5f9cd4e5985ea9385a661c6b8feb3",
         canonicalization_manifest_digest="sha256:canonical-manifest",
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
@@ -99,7 +99,7 @@ def _effect_pending_attempt() -> SubmitAttempt:
     return _prepared_attempt(
         state=SubmitAttemptState.EFFECT_PENDING,
         effect_pending_at=TS1,
-        prepared_canonicalization_manifest_ref="manifest-1",
+        prepared_canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         prepared_canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_ref=BACKEND_REF,
         repository_artifact_ref=REPOSITORY_REF,
@@ -137,11 +137,11 @@ def _submission(**overrides: Any) -> Submission:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("source-1",),
-        canonicalization_manifest_ref="manifest-1",
+        source_artifact_refs=("a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",),
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -314,3 +314,16 @@ def test_assert_submission_attempt_binding_rejects_mismatched_attempt_id() -> No
             attempt=_finalized_attempt(),
             submission=_submission(submit_attempt_id="sa-other"),
         )
+
+
+@pytest.mark.parametrize("field_name", ["canonical_table_set_closure_ref", "preview_ready_closure_ref",
+    "canonicalization_manifest_ref", "prepared_canonicalization_manifest_ref"])
+def test_submit_attempt_rejects_unsupported_bare_artifact_binding(field_name: str) -> None:
+    attempt = _effect_pending_attempt()
+    with pytest.raises(ValueError, match="a1:"):
+        replace(attempt, **{field_name: "legacy-artifact"})
+
+
+def test_submit_attempt_rejects_unsupported_source_binding() -> None:
+    with pytest.raises(ValueError, match="a1:"):
+        replace(_prepared_attempt(), source_artifact_refs=("legacy-source",))

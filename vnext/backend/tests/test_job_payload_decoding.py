@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -184,7 +186,7 @@ def test_checkpoint_envelope_round_trip_through_artifact_store() -> None:
         prior_output_refs=(),
         job_state={"seed": "alpha"},
     )
-    checkpoint_ref = put_checkpoint_envelope(store, envelope, artifact_id="checkpoint-round-trip")
+    checkpoint_ref = put_checkpoint_envelope(store, envelope)
     restored = load_checkpoint_envelope(store, checkpoint_ref)
     assert restored == envelope
     assert restored.to_canonical_bytes() == envelope.to_canonical_bytes()
@@ -241,7 +243,7 @@ def test_payload_ref_decode_reads_exact_ref_from_store() -> None:
     ref = put_with_built_ref(
         store,
         raw,
-        artifact_id="payload-ref-1",
+        artifact_id="a1:durable:ed4ad803368289cff345c7118f7f7e9aac9c0c23efec24b785945080624e5500",
         media_type="application/json",
     )
     operation = _operation_record(job_payload=None, job_payload_ref=ref)
@@ -298,7 +300,7 @@ def test_decode_rejects_mutually_exclusive_payload_binding() -> None:
     ref = put_with_built_ref(
         store,
         canonicalize_json_value({"seed": "x"}),
-        artifact_id="payload-ref-dup",
+        artifact_id="a1:durable:4f4108f82650cfba0845f794730c37655fa4e231b9809dc7b56fd811f8b56852",
         media_type="application/json",
     )
     operation = _operation_with_payload_bytes(
@@ -337,7 +339,7 @@ REF_FAULT_CASES: tuple[tuple[str, Callable[[InMemoryArtifactStore, bytes], Artif
     (
         "missing",
         lambda store, raw: ArtifactRef(
-            artifact_id="payload-ref-missing",
+            artifact_id="a1:durable:82f15858c307b64185e0235a344f9f9ebd92450522fecb0cb9de35a102fee84c",
             media_type="application/json",
             size_bytes=len(raw),
             raw_sha256=raw_blob_digest(raw),
@@ -354,7 +356,7 @@ REF_FAULT_CASES: tuple[tuple[str, Callable[[InMemoryArtifactStore, bytes], Artif
         lambda store, raw: put_with_built_ref(
             store,
             raw,
-            artifact_id="payload-ref-identity-mismatch",
+            artifact_id="a1:durable:25deee32b482a62a92513cb05c27c3ac41a4bdfc85ec2b11f6ca240cfb57b7f8",
             media_type="application/json",
         ),
         "stored artifact identity mismatch",
@@ -440,7 +442,7 @@ def test_local_store_payload_ref_reopen_round_trip(tmp_path: Path) -> None:
     root = staging_root(tmp_path)
     store = open_local_store(root)
     raw = canonicalize_json_value({"seed": "reopen-seed"})
-    ref = put_bytes(store, raw, artifact_id="payload-reopen", media_type="application/json")
+    ref = put_bytes(store, raw, artifact_id="a1:durable:272677dc6ddb1bbde29388e36f4a83b3b86ad8575e11893fd37860a9da9cbc8a", media_type="application/json")
     operation = _operation_record(job_payload=None, job_payload_ref=ref)
     decoded = decode_job_payload(
         definition,
@@ -466,7 +468,7 @@ def test_local_store_corrupt_payload_ref_fails_closed(tmp_path: Path, variant: s
     root = staging_root(tmp_path)
     store = open_local_store(root)
     raw = canonicalize_json_value({"seed": "corrupt"})
-    ref = put_bytes(store, raw, artifact_id=f"payload-{variant}", media_type="application/json")
+    ref = put_bytes(store, raw, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"payload-{variant}"), media_type="application/json")
     object_path, _ = object_and_sidecar_paths(root, ref.artifact_id)
     payload_bytes = object_path.read_bytes()
     if variant == "truncated":
@@ -492,7 +494,7 @@ def test_local_store_missing_payload_ref_fails_closed(tmp_path: Path) -> None:
     ref = put_with_built_ref(
         store,
         raw,
-        artifact_id="payload-missing",
+        artifact_id="a1:durable:6833e5f6cee09d01b55c43a223961c04d55d13eeb4b2306dc7ea2d79276049c6",
         media_type="application/json",
     )
     operation = _operation_record(job_payload=None, job_payload_ref=ref)

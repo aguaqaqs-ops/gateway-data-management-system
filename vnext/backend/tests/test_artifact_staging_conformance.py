@@ -20,7 +20,7 @@ from tests.support.artifact_staging import (
     staging_root,
 )
 
-OPAQUE_ARTIFACT_ID = "opaque-staging-0001"
+OPAQUE_ARTIFACT_ID = "a1:durable:ed1d7f23199e656e49e5f449a67569e16e2c6eb4fd0f95181252da3bba2ffe46"
 OPAQUE_BYTES = b"payload"
 
 _Mutator = Callable[[Path, str], None]

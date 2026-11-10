@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import hashlib
 import os
 import secrets
@@ -67,6 +69,7 @@ class BoundedArtifactStore:
 
     def put_stream(
         self,
+        location: ArtifactLocation,
         kind: str,
         stream: Iterable[bytes],
         *,
@@ -86,7 +89,7 @@ class BoundedArtifactStore:
             declared_size=declared_size,
             declared_raw_sha256=declared_raw_sha256,
         )
-        artifact_id = build_artifact_id(kind, secrets.token_hex(8))
+        artifact_id = build_artifact_id(location, kind, secrets.token_hex(16))
         validate_artifact_id(artifact_id)
         ref = ArtifactRef(
             artifact_id=artifact_id,

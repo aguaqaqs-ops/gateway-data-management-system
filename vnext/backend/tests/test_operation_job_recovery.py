@@ -24,6 +24,8 @@ S3a/S3b consumer RecoveryPort proofs remain in ``test_pure_compute_recovery_port
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -297,7 +299,7 @@ def _publish_checkpoint_only(
     output_ref = put_with_built_ref(
         artifact_store,
         output_bytes,
-        artifact_id=f"pure-compute-output:{digest}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", digest),
         media_type="application/jcs",
     )
     envelope = envelope_for_step(
@@ -809,7 +811,7 @@ def test_cross_boundary_crash_preserves_durable_state(
             put_with_built_ref(
                 artifact_store,
                 output_bytes,
-                artifact_id=f"pure-compute-output:{raw_blob_digest(output_bytes).value}",
+                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", raw_blob_digest(output_bytes).value),
                 media_type="application/jcs",
             )
             with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
@@ -1371,7 +1373,7 @@ def _publish_pure_compute_checkpoint_via_harness(
     output_ref = put_with_built_ref(
         artifact_store,
         output_bytes,
-        artifact_id=f"pure-compute-output:{digest}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", digest),
         media_type="application/jcs",
     )
     envelope = envelope_for_step(

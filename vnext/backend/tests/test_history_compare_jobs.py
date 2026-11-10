@@ -1366,7 +1366,7 @@ def _replace_comparison_cache_with_bad_neutral_payload(cache: Any, store: Any, h
     payload["table_fact_jcs"] = "{}"
     raw = encode_cache_manifest(lease.entry.key, format=lease.entry.format,
         member_refs=lease.entry.member_refs, payload=payload)
-    manifest = ArtifactRef("bad-neutral-fact", "application/json", len(raw), raw_blob_digest(raw))
+    manifest = ArtifactRef("a1:durable:2660848574a60e9b959e57fdc37250f4f60f6647323da2526f2dfb92e1fc4e74", "application/json", len(raw), raw_blob_digest(raw))
     entry = ComputationCacheEntry(lease.entry.key, lease.entry.format, manifest, lease.entry.member_refs)
     blobs = ((manifest, raw), *((ref, store.locate(ref)) for ref in entry.member_refs))
     lease.close()
@@ -1454,8 +1454,8 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     monkeypatch.setattr(PersistentRiskCandidates, "lookup", observed_lookup)
     monkeypatch.setattr(cache, "store", observed_store)
     sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES ({value});"
-    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="h1-initial-two")
-    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="h1-modified-three")
+    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="a1:durable:5adad6374935ac1f2c031bb667178cd95a1b658a4c4276477d515ba2d687e8be")
+    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="a1:durable:661b6c2cafc55581541967e4871f60d18dc73d892270c5ecebb12ce7215e89bb")
     preview.upload_revision = preview_support.build_upload_revision(input_completeness=InputCompleteness.FULL,
         initial_binding=initial, modified_binding=modified, generation=preview.upload_revision.generation)
     preview.job_payload = build_preview_job_payload(workspace_id=preview.upload_revision.workspace_id,

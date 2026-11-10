@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -28,7 +30,7 @@ pytestmark = pytest.mark.unit
 
 def _ref(name: str) -> ArtifactRef:
     raw = name.encode()
-    return ArtifactRef(name, "application/json", len(raw), raw_blob_digest(raw))
+    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name), "application/json", len(raw), raw_blob_digest(raw))
 
 
 def test_bundle_contract_normalizes_input_and_pair_order() -> None:
@@ -90,7 +92,7 @@ def test_closure_rejects_duplicate_source_ref_and_path() -> None:
 def test_snapshot_closure_keeps_all_table_side_bindings_for_shared_source() -> None:
     raw = b"parquet rows"
     ref = ArtifactRef(
-        "same-snapshot-table",
+        "a1:durable:a4203a1264dbeec9639e2777098194bcbac258c82d99b2ef71bb928885f88cc5",
         "application/vnd.apache.parquet",
         len(raw),
         raw_blob_digest(raw),

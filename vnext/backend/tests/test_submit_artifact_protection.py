@@ -27,13 +27,13 @@ def db_path(tmp_path: Path) -> Path:
 def test_pin_prepare_import_artifacts_extends_attempt_protection(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     manifest_ref = BackendArtifactRef(
-        artifact_id="manifest-1",
+        artifact_id="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         media_type="application/vnd.gateway.canonicalization-manifest+json",
         size_bytes=12,
         raw_sha256=_SHA_MANIFEST,
     )
     package_ref = BackendArtifactRef(
-        artifact_id="backend-pkg-1",
+        artifact_id="a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256=_SHA_PACKAGE,
@@ -51,5 +51,5 @@ def test_pin_prepare_import_artifacts_extends_attempt_protection(db_path: Path) 
             owner_id="sa-1",
         )
         assert held == frozenset(
-            {ref.artifact_id for ref in seed.protected_refs} | {"manifest-1", "backend-pkg-1"}
+            {ref.artifact_id for ref in seed.protected_refs} | {"a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6", "a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9"}
         )

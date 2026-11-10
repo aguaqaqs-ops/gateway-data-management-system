@@ -291,11 +291,11 @@ def _submission(
         business_baseline_commit_id="commit-base",
         repository_commit_id=repository_commit_id,
         canonical_business_digest="sha256:" + "a" * 64,
-        source_artifact_refs=("artifact-1",),
-        canonicalization_manifest_ref="manifest-1",
+        source_artifact_refs=("a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",),
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:" + "b" * 64,
         repository_import_artifact_raw_sha256="sha256:" + "c" * 64,
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -614,7 +614,7 @@ def test_history_reader_source_artifact_refs_match_submission_repository(db_path
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
-            (canonicalize_json_value(["initial-1", "modified-1"]), review_seed.submission_id),
+            (canonicalize_json_value(["a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"]), review_seed.submission_id),
         )
     facts = HttpHistoryReader(db_path).load_facts(
         repository_id="repo-1",
@@ -625,7 +625,7 @@ def test_history_reader_source_artifact_refs_match_submission_repository(db_path
         repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
         assert repository_submission is not None
     assert facts.submissions[0].submission.source_artifact_refs == repository_submission.source_artifact_refs
-    assert facts.submissions[0].submission.source_artifact_refs == ("initial-1", "modified-1")
+    assert facts.submissions[0].submission.source_artifact_refs == ("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")
 
 
 def test_sqlite_history_reader_loads_scope_filtered_facts(db_path: Path) -> None:
@@ -798,7 +798,7 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
                 ?,
                 'sa-failed-import', 'ws-failed-import', 1, 'ur-1', 'pr-1', 'repo-1',
                 ?, ?, 1, 'commit-main', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot',
-                ?, ?, ?, 'closure-1', 'd-closure', 'manifest-1', 'sha256:manifest', NULL, NULL,
+                ?, ?, ?, 'a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1', 'd-closure', 'a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6', 'sha256:manifest', NULL, NULL,
                 NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key',
                 'sha256:fp', 'upload-key', 'import-key', 'op-excluded-marker', 'ABORTED',
                 NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
@@ -807,8 +807,8 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
             (configuration_facts_blob(workspace_id="ws-failed-import", baseline_node_id=BASELINE_HEAD.business_baseline_node_id, baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id), *(
                 BASELINE_HEAD.business_baseline_node_id,
                 BASELINE_HEAD.business_baseline_commit_id,
-                canonicalize_json_value(["source-fixture"]),
-                "canonical-closure-1",
+                canonicalize_json_value(["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]),
+                "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
                 "sha256:canonical-closure",
             )),
         )

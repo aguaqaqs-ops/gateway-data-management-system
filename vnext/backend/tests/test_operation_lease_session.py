@@ -597,8 +597,8 @@ def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, check
     )
     operation, step = _active_records()
     store_bytes = InMemoryArtifactStore()
-    ref = put_with_built_ref(store_bytes, b"checkpoint", artifact_id="checkpoint", media_type="application/json")
-    prior_ref = put_with_built_ref(store_bytes, b"prior", artifact_id="prior", media_type="application/json")
+    ref = put_with_built_ref(store_bytes, b"checkpoint", artifact_id='a1:durable:40605970df60eeaeaa2f1625d35bca1e168960eed77edf6c824d393389ea7f0a', media_type="application/json")
+    prior_ref = put_with_built_ref(store_bytes, b"prior", artifact_id='a1:durable:9932dae8c8d06a5d922f93e0886ecb2ee287dbf505016d54042df3716c1d2a13', media_type="application/json")
     step = dataclasses.replace(step, attempt_count=3, checkpoint_ref=ref if checkpoint else None,
         prior_output_refs=(prior_ref,), diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized") if operator else None)
     store = FakeStore(operation, step)

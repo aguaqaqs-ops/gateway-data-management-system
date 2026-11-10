@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import argparse
 import hashlib
 import json
@@ -31,7 +33,7 @@ def generate(output: Path) -> None:
         for index, path in enumerate(paths):
             sink = pa.BufferOutputStream()
             pq.write_table(pa.table({"id": [index], "label": [f"vector-{index}"]}), sink)
-            ref = put_with_built_ref(store, sink.getvalue().to_pybytes(), artifact_id=f"interop-{index}", media_type="application/vnd.apache.parquet")
+            ref = put_with_built_ref(store, sink.getvalue().to_pybytes(), artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "bundle-interop-fixture", index), media_type="application/vnd.apache.parquet")
             bindings.append(BundleArtifactBinding(ref, "shared/" + path, BundleArtifactKind.OTHER, shared=True))
         result = assemble_bundle(_request((BundlePairInput("pair", 0, 1, _surface_result()),),
             shared=BundleArtifactClosure(tuple(bindings))), source_store=store)

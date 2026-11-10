@@ -37,7 +37,7 @@
         "max_valid_source_row": 1,
         "last_not_max": true
       },
-      "source_artifact_id": "initial-source",
+      "source_artifact_id": "a1:durable:b6cba3a0af03360a11e9f3f64f4222a2f5b19e4dbe5f3b2e592a3bedfc0e94e5",
       "sql_source_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
     },
     "modified": {
@@ -59,9 +59,9 @@
         "max_valid_source_row": 1,
         "last_not_max": true
       },
-      "source_artifact_id": "modified-source",
+      "source_artifact_id": "a1:durable:e3ac3d799066995123b0780f5a5fbf67380801626d868794492d7399367b4a97",
       "sql_source_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
     }
   },
-  "facts_digest": "sha256:c9e48e4e7cc84f91f2d904f3a23077e7070da87bd5a5507a6b67d0bef0539bc4"
+  "facts_digest": "sha256:1045dfaa851ddd848fcab28cd0277ebfa3ea4572e4c799b8265d3da7ef4b9aef"
 }

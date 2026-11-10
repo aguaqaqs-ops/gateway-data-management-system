@@ -41,7 +41,7 @@ def test_missing_facts_fields_are_integrity_errors(path: tuple[str, ...]) -> Non
 
 def test_changed_time_or_source_cannot_reuse_original_facts_digest() -> None:
     original = json.loads(_GOLDEN.read_bytes())
-    for name, value in [("source_artifact_id", "another-source"), ("sql_source_digest", "sha256:" + "8" * 64)]:
+    for name, value in [("source_artifact_id", "a1:durable:" + "f" * 64), ("sql_source_digest", "sha256:" + "8" * 64)]:
         document = deepcopy(original)
         document["facts"]["modified"][name] = value
         with pytest.raises(ValueError, match="digest mismatch"):
@@ -82,3 +82,11 @@ def test_configuration_facts_reject_rule_and_input_identity_mismatch() -> None:
     facts.assert_binding(**binding)
     with pytest.raises(ValueError, match="binding mismatch"):
         facts.assert_binding(**{**binding, "repository_id": "another-repository"})
+
+
+@pytest.mark.parametrize("artifact_id", ["old-source", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_configuration_side_facts_reject_nonbackend_source_binding(artifact_id: str) -> None:
+    facts = ConfigurationFacts.from_document(json.loads(_GOLDEN.read_bytes()))
+    with pytest.raises(ValueError, match="a1:"):
+        replace(facts.modified, source_artifact_id=artifact_id)

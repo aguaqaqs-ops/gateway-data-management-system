@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import asdict, dataclass
@@ -179,7 +181,7 @@ def run_preview_pair_pipeline(
         assessment_ref = put_with_built_ref(
             store,
             assessment_bytes,
-            artifact_id=f"project-identity-{assessment.assessment_digest.value.removeprefix('sha256:')}",
+            artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "project-identity", assessment.assessment_digest.value),
             media_type="application/json",
         )
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())

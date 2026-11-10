@@ -83,7 +83,7 @@ def _fingerprint_inputs() -> dict[str, object]:
         "canonical_business_digest": application_fixtures.PREVIEW_RESULT.canonical.modified_canonical_state_digest.value,
         "source_digest": application_fixtures.PREVIEW_RESULT.digests.source_digest,
         "snapshot_digest": application_fixtures.PREVIEW_RESULT.digests.snapshot_digest,
-        "source_artifact_refs": ("initial-1", "modified-1"),
+        "source_artifact_refs": ("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
         "canonical_table_set_closure_ref": (
             application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),
@@ -266,7 +266,7 @@ def test_compute_new_and_replay_fingerprints_match_seeded_attempt(
     )
     attempt_with_prepared_output = replace(
         attempt,
-        prepared_canonicalization_manifest_ref="prepared-manifest-output",
+        prepared_canonicalization_manifest_ref="a1:durable:7b85353c95e567d377168674d22d2e62e8beb7559ecfab920544ae8c6ece212f",
         prepared_canonicalization_manifest_digest="sha256:prepared-manifest-output",
     )
     replay_fingerprint = compute_replay_accept_fingerprint(
@@ -295,7 +295,7 @@ def test_compute_accept_request_fingerprint_includes_scope_and_policy_constants(
         canonical_business_digest="sha256:preview-canonical",
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("initial-1", "modified-1"),
+        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
         canonical_table_set_closure_ref=(
             application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),
@@ -304,7 +304,7 @@ def test_compute_accept_request_fingerprint_includes_scope_and_policy_constants(
         ),
         canonicalization_manifest_ref=application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id,
         canonicalization_manifest_digest=application_fixtures.PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value,
-        preview_ready_closure_ref="closure-1",
+        preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         repository_expected_commit_id="commit-main",
         options={},

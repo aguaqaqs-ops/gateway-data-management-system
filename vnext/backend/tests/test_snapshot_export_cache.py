@@ -55,7 +55,7 @@ def _key(
 def _ref() -> ArtifactRef:
     payload = b"parquet-row-file"
     return ArtifactRef(
-        artifact_id="snapshot-rows-1",
+        artifact_id="a1:durable:de84670f91186d755362c44537b7d76b0cfd969d092307b05ebf030650a6be1b",
         media_type=PARQUET_MEDIA_TYPE,
         size_bytes=len(payload),
         raw_sha256=raw_blob_digest(payload),
@@ -163,7 +163,7 @@ def test_export_cache_old_ref_cannot_discard_a_replacement_or_its_protection(tmp
     db_path = tmp_path / "control.sqlite"
     initialize_control_db(db_path)
     key, old_ref = _key(), _ref()
-    replacement = replace(old_ref, artifact_id="replacement", raw_sha256=raw_blob_digest(b"replacement"))
+    replacement = replace(old_ref, artifact_id='a1:durable:2578ba4987d642c9f49e76f0696b08874c51b2000434c6a11a88d83c10f65afd', raw_sha256=raw_blob_digest(b"replacement"))
     with _uow(db_path) as unit_of_work:
         cache = unit_of_work.snapshot_table_export_cache
         cache.store_many(((key, old_ref),))
@@ -247,7 +247,7 @@ def test_invalid_cached_parquet_falls_back_to_canonical_source_export() -> None:
     invalid_ref = put_with_built_ref(
         store,
         b"not parquet",
-        artifact_id="snapshot-rows-invalid-cache",
+        artifact_id="a1:durable:811e1f77e29c0ef2131e28228a046b3110dbf8c68a8ed43f2240ef6dca8ce921",
         media_type=PARQUET_MEDIA_TYPE,
     )
 

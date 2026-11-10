@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, replace_preview_with_facts
 
 from collections.abc import Callable
@@ -342,8 +344,8 @@ def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> Preview
         canonical=make_preview_canonical_bindings(repository_id),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="bundle-1",
-        ready_closure_artifact_id="closure-1",
+        bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         operation_id="op-preview-1",
         created_at=TS1,
     )
@@ -375,7 +377,7 @@ def _set_preview_identity_statuses(
                     else ProjectIdentityMode.DETAILED
                 ),
                 assessment_ref=PreviewArtifactRef(
-                    artifact_id=f"identity-{pair_id}",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"identity-{pair_id}"),
                     media_type="application/json",
                     size_bytes=0,
                     raw_sha256=assessment_digest,
@@ -419,19 +421,19 @@ def _set_preview_identity_statuses(
 def _protected_preview_refs(repository_id: str = "repo-1") -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="initial-1",
+            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
             media_type="application/gzip",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="modified-1",
+            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
             media_type="application/gzip",
             size_bytes=2,
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id="closure-1",
+            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
             media_type="application/json",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -484,13 +486,13 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="initial-1",
+                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
                     media_type="application/gzip",
                     size_bytes=1,
                     raw_sha256="sha256:initial",
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="modified-1",
+                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
                     media_type="application/gzip",
                     size_bytes=2,
                     raw_sha256="sha256:modified",
@@ -618,7 +620,7 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
     canonical_ref = ArtifactRef(canonical_key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical"))
     additional_refs = tuple(
         ArtifactRef(
-            artifact_id=f"additional-protected-{index:03d}",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"additional-protected-{index:03d}"),
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256=DigestRef("sha256:" + f"{index:064x}"),
@@ -1139,7 +1141,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             ),
             source_digest=seed.preview_result.digests.source_digest,
             snapshot_digest=seed.preview_result.digests.snapshot_digest,
-            source_artifact_refs=("initial-1", "modified-1"),
+            source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
             canonical_table_set_closure_ref=(
                 seed.preview_result.canonical.canonical_table_set_closure_ref.artifact_id
             ),
@@ -1326,13 +1328,13 @@ def _seed_effect_pending_attempt(
         now=TS1,
     )
     backend_ref = BackendArtifactRef(
-        artifact_id="backend-pkg-1",
+        artifact_id="a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256=_SHA_PACKAGE,
     )
     repository_ref = RepositoryArtifactRef(
-        artifact_id="repo-artifact-1",
+        artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         media_type="application/octet-stream",
         size_bytes=10,
         raw_sha256=_SHA_REPO,
@@ -1345,7 +1347,7 @@ def _seed_effect_pending_attempt(
             state=SubmitAttemptState.EFFECT_PENDING,
             effect_pending_at=TS1,
             optimistic_version=1,
-            prepared_canonicalization_manifest_ref="manifest-1",
+            prepared_canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
             prepared_canonicalization_manifest_digest=_SHA_MANIFEST,
             repository_import_artifact_ref=backend_ref,
             repository_artifact_ref=repository_ref,
@@ -1523,7 +1525,7 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
     assert attempt.canonicalization_manifest_digest == (
         seed.preview_result.canonical.canonicalization_manifest_digest.value
     )
-    assert attempt.prepared_canonicalization_manifest_ref == "manifest-1"
+    assert attempt.prepared_canonicalization_manifest_ref == "a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"
     assert attempt.prepared_canonicalization_manifest_digest == _SHA_MANIFEST
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
@@ -1531,9 +1533,9 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
         repository_operation_id="repo-op-1",
         repository_commit_id="commit-new",
         repository_expected_parent_commit_id="commit-main",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1617,9 +1619,9 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
         repository_operation_id="repo-op-1",
         repository_commit_id="commit-new",
         repository_expected_parent_commit_id="commit-main",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1683,9 +1685,9 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
         repository_operation_id="repo-op-1",
         repository_commit_id="commit-new",
         repository_expected_parent_commit_id="commit-main",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1819,9 +1821,9 @@ def _finalize_facts(seed: SubmitSeed) -> MatchingFinalizeFacts:
         repository_operation_id="repo-op-1",
         repository_commit_id="commit-new",
         repository_expected_parent_commit_id="commit-main",
-        repository_artifact_id="repo-artifact-1",
+        repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="manifest-1",
+        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,

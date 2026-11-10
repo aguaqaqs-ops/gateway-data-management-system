@@ -845,25 +845,31 @@ def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
     release_compose_gate_lock()
 
 
-def capture_r4_manifest_artifact_ids(env: dict[str, str]) -> frozenset[str]:
+def capture_canonicalization_manifest_artifact_ids(env: dict[str, str]) -> frozenset[str]:
     script = """
 import json
 from pathlib import Path
+from gateway_backend.artifacts import artifact_ref_from_dict
+from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
+from gateway_backend.capabilities.storage_projection.package import canonicalization_manifest_from_bytes, PackageError
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 root = Path("/var/lib/gateway/artifacts")
+store = LocalArtifactStore(root)
 manifest_ids = set()
 for sidecar in root.rglob("*.ref.jcs"):
-    try:
-        payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    ref = artifact_ref_from_dict(json.loads(sidecar.read_bytes()))
+    if parse_artifact_id(ref.artifact_id) is not ArtifactLocation.DURABLE or ref.media_type != "application/json":
         continue
-    artifact_id = payload.get("artifact_id")
-    if isinstance(artifact_id, str) and artifact_id.startswith("r4-manifest-"):
-        manifest_ids.add(artifact_id)
+    try:
+        canonicalization_manifest_from_bytes(store.locate(ref))
+    except PackageError:
+        continue
+    manifest_ids.add(ref.artifact_id)
 print(json.dumps(sorted(manifest_ids)))
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
-        pytest.fail(f"failed to list r4-manifest artifacts: {result.stderr}\n{result.stdout}")
+        pytest.fail(f"failed to list canonicalization manifest artifacts: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip() or "[]")
     return frozenset(str(item) for item in payload)
 

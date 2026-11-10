@@ -1,6 +1,8 @@
 """Optional durable pure candidate retention, committed only after pair publication."""
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from contextlib import ExitStack
 from typing import cast
 
@@ -19,7 +21,7 @@ from gateway_backend.capabilities.risk_evaluation.contracts import RiskOperation
 
 def _ref(raw: bytes, media_type: str) -> ArtifactRef:
     digest = raw_blob_digest(raw)
-    return ArtifactRef("computation-" + digest.value.removeprefix("sha256:"), media_type, len(raw), digest)
+    return ArtifactRef(build_artifact_id(ArtifactLocation.COMPARISON, "computation-cache", [media_type, digest.value, len(raw)]), media_type, len(raw), digest)
 
 
 class PersistentRiskCandidates:

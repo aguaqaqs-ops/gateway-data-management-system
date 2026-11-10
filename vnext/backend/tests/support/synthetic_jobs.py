@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 import json
 from collections.abc import Callable, Mapping
@@ -1023,7 +1025,7 @@ def _put_pure_compute_output(store: ArtifactStorePort, output_bytes: bytes) -> A
 
 
 def _output_artifact_id(output_bytes: bytes) -> str:
-    return f"pure-compute-output:{raw_blob_digest(output_bytes).value}"
+    return build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", raw_blob_digest(output_bytes).value)
 
 
 def _job_state_for_output(seed: str, output_artifact_id: str) -> dict[str, object]:

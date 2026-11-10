@@ -307,7 +307,7 @@ def test_r5_facts_and_records_access_are_the_only_input_boundary() -> None:
 
 def test_digest_excludes_artifact_refs_diagnostics_and_path_identity() -> None:
     ref = ArtifactRef(
-        artifact_id="risk-annotations-orders",
+        artifact_id="a1:durable:2762db8a0836708639f7cecbcfcab5fa2f4d949f85fba961f223879b65fb52d8",
         media_type="application/json",
         size_bytes=4,
         raw_sha256=raw_blob_digest(b"blob"),

@@ -330,7 +330,7 @@ class _RecordsAccess:
 def _closure_for(source: RiskEvaluationInput, *, wrong_digest: bool = False) -> ComparisonRecordsClosure:
     facts = source.comparison_facts
     digest = raw_blob_digest(b"s3-d-closure")
-    ref = ArtifactRef("s3-d-closure-ref", "application/octet-stream", 0, digest)
+    ref = ArtifactRef("a1:durable:b3e19e66a50a137e55ff1dfa19ae51ed1bdfbbbb0e17598ceb04ad2173b61449", "application/octet-stream", 0, digest)
     return ComparisonRecordsClosure(
         comparison_digest=(raw_blob_digest(b"wrong-pair") if wrong_digest
                            else facts.comparison_digest),

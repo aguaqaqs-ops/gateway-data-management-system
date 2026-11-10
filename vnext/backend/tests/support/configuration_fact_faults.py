@@ -41,7 +41,7 @@ def corrupt_configuration_body(db_path: Path, *, kind: Literal["preview", "attem
                 column, value, message = "configuration_facts", b"{}", "configuration facts envelope fields"
             else:
                 assert fault == "source_binding"
-                column, value, message = "source_artifact_refs", b'["other-source"]', "configuration source artifacts"
+                column, value, message = "source_artifact_refs", b'["a1:durable:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]', "configuration source artifacts"
             unit_of_work.connection.execute(f"UPDATE {table} SET {column} = ? WHERE {key} = ?", (value, target_id))
     return message
 

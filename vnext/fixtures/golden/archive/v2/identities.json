@@ -18,18 +18,18 @@
         "repository_commit_id": "commit-2",
         "canonical_business_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "configuration_facts_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-        "canonicalization_manifest_ref": "manifest-1",
+        "canonicalization_manifest_ref": "a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         "canonicalization_manifest_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "source_artifact_refs": [
-          "artifact-1",
-          "artifact-2"
+          "a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
+          "a1:durable:87170fcea1645ba29d6f43c0bee8ba585a345e1bfdfe32d16f62fad4e31052e7"
         ],
         "requested_verification_policy": "STRUCTURAL",
         "completed_verification_policy": "STRUCTURAL",
         "review_status": "APPROVED",
         "review_sequence": 1
       },
-      "digest": "sha256:dd8526ae6b3fd7f7e42850c3b4f2d17b3ecc6524a368e9faab8321c3487fb3f6"
+      "digest": "sha256:c7e78b79a14c8243a8c26a8ec9a8a4337af37ceed679d1166748510de7f096b1"
     },
     {
       "kind": "close-request",

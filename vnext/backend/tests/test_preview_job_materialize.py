@@ -266,7 +266,7 @@ def _replace_projection_failure_packages(
         SourceArtifactRole.MODIFIED: store_source_package(
             harness.artifact_store,
             modified_sql.encode("utf-8"),
-            artifact_id="modified-projection-failure-package",
+            artifact_id="a1:durable:aac831a7c19de167c6efcde6e8e10989bd747cb665855e0ce0155559d9d93fae",
         )
     }
     input_completeness = InputCompleteness.MODIFIED_ONLY
@@ -275,7 +275,7 @@ def _replace_projection_failure_packages(
         source_artifacts[SourceArtifactRole.INITIAL] = store_source_package(
             harness.artifact_store,
             initial_sql.encode("utf-8"),
-            artifact_id="initial-projection-failure-package",
+            artifact_id="a1:durable:6565e1aa33fb5ba223f242919ed02c593c36f0668538bb6225b19f2d56d0937c",
         )
     harness.upload_revision = replace(
         harness.upload_revision,
@@ -731,7 +731,7 @@ def test_invalid_logics_xml_fails_preview_with_public_diagnostic(
     _replace_modified_source_package(
         harness,
         xml_bytes=xml_bytes,
-        artifact_id="invalid-logics-package",
+        artifact_id="a1:durable:04a7a9d33001c7cb7c785528b819e509937b29c834e93177c20757ea007f738a",
     )
     operation_id = "op-preview-invalid-logics"
     insert_preview_operation(harness, operation_id)
@@ -760,7 +760,7 @@ def test_missing_logics_xml_materializes_stable_empty_source(tmp_path: Path) -> 
     _replace_modified_source_package(
         harness,
         xml_bytes=None,
-        artifact_id="missing-logics-package",
+        artifact_id="a1:durable:e86c56dfc344cc632e819fc9c4dead333cc78544dc4f2336825f4d84a1a9e7d5",
     )
     operation_id = "op-preview-empty-logics"
     insert_preview_operation(harness, operation_id)
@@ -806,7 +806,7 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
     bad_binding = store_source_package(
         harness.artifact_store,
         b"not-a-valid-package",
-        artifact_id="bad-package",
+        artifact_id="a1:durable:647b09cc535a8eef4116dd12172c0d707e8b79d97baf0cac9690fac1315ad609",
     )
     upload_revision = replace(
         harness.upload_revision,

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import struct
-import hashlib
 import tempfile
 from contextlib import ExitStack, closing
 from collections.abc import Generator
@@ -174,8 +175,8 @@ def export_snapshot_table_parquet(
             with context.memory.reserve(size * 2 + 128 * 1024):
                 raw = path.read_bytes()
                 context.checkpoint()
-                ref = put_with_built_ref(store, raw, artifact_id="client-parquet-" + hashlib.sha256(
-                    f"{repository_id}:{key.parquet_writer_contract_version}:{key.row_layout_digest.value}".encode()).hexdigest(), media_type=PARQUET_MEDIA_TYPE)
+                ref = put_with_built_ref(store, raw, artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "client-parquet", [
+                    repository_id, key.parquet_writer_contract_version, key.row_layout_digest.value]), media_type=PARQUET_MEDIA_TYPE)
                 del raw
             context.checkpoint()
         finally:

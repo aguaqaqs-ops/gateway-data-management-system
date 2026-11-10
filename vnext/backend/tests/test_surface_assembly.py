@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -113,7 +115,7 @@ def _digest(seed: str) -> DigestRef:
 def _ref(name: str, media_type: str = "application/json") -> ArtifactRef:
     raw = name.encode()
     return ArtifactRef(
-        artifact_id=name,
+        artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", name),
         media_type=media_type,
         size_bytes=len(raw),
         raw_sha256=raw_blob_digest(raw),
@@ -569,7 +571,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = replace(old_ref, artifact_id="bundle-orders")
+    new_ref = replace(old_ref, artifact_id="a1:durable:9e1660768076ad9eb6982ad5106b06ff209eb2cafb8ddaa08254acbbacf27eef")
     with_ref = assemble_surface(
         _request(
             facts,

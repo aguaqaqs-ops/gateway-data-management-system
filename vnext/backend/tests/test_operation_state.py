@@ -471,12 +471,12 @@ OPERATION_MUTATION_DENIED_CASES: tuple[tuple[str, OperationRecord, OperationReco
     (
         "ready-closure-ref-rewrite",
         _operation_record(
-            ready_closure_ref=_artifact_ref("artifact-closure-1"),
+            ready_closure_ref=_artifact_ref("a1:durable:6fbdbe17f9da43c5bb5b2ba31d8363d3206382816df32c90715d745918d2638d"),
             updated_at=TS1,
             optimistic_version=1,
         ),
         _operation_record(
-            ready_closure_ref=_artifact_ref("artifact-closure-2"),
+            ready_closure_ref=_artifact_ref("a1:durable:f20e73c130a434943b87250d60e5672614d0d5f2802753bd5a291ccc9f7dea75"),
             updated_at=TS2,
             optimistic_version=2,
             status=OperationStatus.RUNNING,
@@ -486,12 +486,12 @@ OPERATION_MUTATION_DENIED_CASES: tuple[tuple[str, OperationRecord, OperationReco
     (
         "artifact-refs-not-append",
         _operation_record(
-            artifact_refs=(_artifact_ref("artifact-a"),),
+            artifact_refs=(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40"),),
             updated_at=TS1,
             optimistic_version=1,
         ),
         _operation_record(
-            artifact_refs=(_artifact_ref("artifact-b"),),
+            artifact_refs=(_artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683"),),
             updated_at=TS2,
             optimistic_version=2,
             status=OperationStatus.RUNNING,
@@ -540,9 +540,9 @@ OPERATION_MUTATION_DENIED_CASES: tuple[tuple[str, OperationRecord, OperationReco
 STEP_MUTATION_DENIED_CASES: tuple[tuple[str, StepRecord, StepRecord, str], ...] = (
     (
         "prior-output-refs-change",
-        _step_record(prior_output_refs=(_artifact_ref("artifact-out-1"),)),
+        _step_record(prior_output_refs=(_artifact_ref("a1:durable:cf19f5e7b7e0a15696e2d165d48990e3d7096aa7a474239cd5e5cc5545b3ee85"),)),
         _step_record(
-            prior_output_refs=(_artifact_ref("artifact-out-2"),),
+            prior_output_refs=(_artifact_ref("a1:durable:6f95dc1683ee5103652bf510671a92c89b1306506d024b2c6ab172d92760ffb8"),),
             status=StepStatus.RUNNING,
             attempt_count=1,
             started_at=TS1,
@@ -805,7 +805,7 @@ def test_operation_checkpoint_ref_can_change_on_allowed_transition() -> None:
     candidate = _operation_candidate(
         current,
         OperationStatus.SUCCEEDED,
-        checkpoint_ref=_artifact_ref("artifact-checkpoint-new"),
+        checkpoint_ref=_artifact_ref("a1:durable:43e5820f17e0567daabcdd4e1e106a8a0cd60874f97094b08922d9c370138d1d"),
     )
     assert validate_operation_transition(current, candidate) is TransitionDisposition.APPLY
 
@@ -838,7 +838,7 @@ def test_same_status_operation_heartbeat_uses_mutation_scope_guard() -> None:
     heartbeat = replace(current, optimistic_version=2, updated_at=TS2)
     checkpoint = replace(
         current,
-        checkpoint_ref=_artifact_ref("artifact-heartbeat-checkpoint"),
+        checkpoint_ref=_artifact_ref("a1:durable:f01ad413de9e28f2a3a5ce5c08ff5fe072ba1d9a8b0910ed0044e21d31e738bb"),
         optimistic_version=2,
         updated_at=TS2,
     )
@@ -876,7 +876,7 @@ def test_same_status_step_heartbeat_checkpoint_and_cancel_use_mutation_scope_gua
     )
     checkpoint = replace(
         current,
-        checkpoint_ref=_artifact_ref("artifact-step-heartbeat-checkpoint"),
+        checkpoint_ref=_artifact_ref("a1:durable:cd53b75758aa6d6fe268fafdc5a0206b65886973a71bc2e947932ba62f8f75a3"),
         optimistic_version=2,
         updated_at=TS2,
     )

@@ -1117,3 +1117,15 @@ def test_successful_archive_replay_keeps_original_confirmation_and_commit_bindin
             uow.connection.execute("UPDATE submission_records SET repository_commit_id = 'different-commit' WHERE submission_id = ?", (seed.submission_id,))
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive_for_seed(seed, confirmation_sequence=sequence)
+
+
+@pytest.mark.parametrize("binding", [
+    {"source_artifact_id": "old-source"},
+    {"canonicalization_manifest_ref": "old-manifest"},
+    {"source_artifact_refs": ["old-source"]},
+    {"source_artifact_id": "a1:unknown:" + "a" * 64},
+])
+def test_archive_frozen_nested_subject_rejects_unsupported_bare_refs(binding: dict[str, object]) -> None:
+    from gateway_backend.domain.archive.models import validate_archive_artifact_bindings
+    with pytest.raises(ValueError, match="a1:"):
+        validate_archive_artifact_bindings({"business_validation": {"source_diagnostics": [binding]}})

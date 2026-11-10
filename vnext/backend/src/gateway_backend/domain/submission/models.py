@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 import re
+import uuid
+
+from gateway_backend.artifacts.types import validate_artifact_id
 
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
 
@@ -74,8 +77,7 @@ class BackendArtifactRef:
     raw_sha256: str
 
     def __post_init__(self) -> None:
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -92,8 +94,7 @@ class RepositoryArtifactRef:
     raw_sha256: str
 
     def __post_init__(self) -> None:
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_repository_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -182,6 +183,9 @@ class SubmitAttempt:
         _validate_non_empty_str(self.snapshot_digest, "snapshot_digest")
         if type(self.source_artifact_refs) is not tuple:
             raise ValueError("source_artifact_refs must be a tuple")
+        for source_id in self.source_artifact_refs:
+            validate_artifact_id(source_id)
+        validate_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(
             self.canonical_table_set_closure_ref,
             "canonical_table_set_closure_ref",
@@ -190,7 +194,8 @@ class SubmitAttempt:
             self.canonical_table_set_closure_digest,
             "canonical_table_set_closure_digest",
         )
-        _validate_non_empty_str(self.preview_ready_closure_ref, "preview_ready_closure_ref")
+        validate_artifact_id(self.canonical_table_set_closure_ref)
+        validate_artifact_id(self.preview_ready_closure_ref)
         _validate_non_empty_str(
             self.preview_ready_closure_digest,
             "preview_ready_closure_digest",
@@ -236,6 +241,7 @@ class SubmitAttempt:
         ):
             raise ValueError("prepared canonicalization manifest ref and digest must appear together")
         if self.prepared_canonicalization_manifest_ref is not None:
+            validate_artifact_id(self.prepared_canonicalization_manifest_ref)
             _validate_non_empty_str(
                 self.prepared_canonicalization_manifest_ref,
                 "prepared_canonicalization_manifest_ref",
@@ -289,6 +295,9 @@ class Submission:
         _validate_non_empty_str(self.canonical_business_digest, "canonical_business_digest")
         if type(self.source_artifact_refs) is not tuple:
             raise ValueError("source_artifact_refs must be a tuple")
+        for source_id in self.source_artifact_refs:
+            validate_artifact_id(source_id)
+        validate_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(self.canonicalization_manifest_ref, "canonicalization_manifest_ref")
         _validate_non_empty_str(
             self.canonicalization_manifest_digest,
@@ -298,7 +307,7 @@ class Submission:
             self.repository_import_artifact_raw_sha256,
             "repository_import_artifact_raw_sha256",
         )
-        _validate_non_empty_str(self.repository_artifact_id, "repository_artifact_id")
+        validate_repository_artifact_id(self.repository_artifact_id)
         if type(self.requested_verification_policy) is not SubmitVerificationPolicy:
             raise ValueError("requested_verification_policy must be SubmitVerificationPolicy")
         if type(self.completed_verification_policy) is not SubmitVerificationPolicy:
@@ -411,3 +420,15 @@ def _validate_identity_confirmations(value: object) -> None:
     actions = tuple(item.action for item in value)
     if len(actions) > 2 or len(set(actions)) != len(actions):
         raise ValueError("identity_confirmations must have unique actions and at most two entries")
+
+
+def validate_repository_artifact_id(value: str) -> None:
+    """RS owns canonical UUID identities; backend location IDs cannot substitute them."""
+    if type(value) is not str:
+        raise ValueError("repository artifact_id must be a canonical UUID")
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError as exc:
+        raise ValueError("repository artifact_id must be a canonical UUID") from exc
+    if str(parsed) != value:
+        raise ValueError("repository artifact_id must be a canonical UUID")

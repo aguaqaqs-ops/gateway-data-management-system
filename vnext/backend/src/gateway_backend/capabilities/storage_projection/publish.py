@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import secrets
 from dataclasses import replace
 
@@ -429,7 +431,7 @@ def _checkpoint(context: ProjectionInvocationContext) -> None:
 
 
 def _opaque_id(namespace: str) -> str:
-    return build_artifact_id(namespace, secrets.token_hex(8))
+    return build_artifact_id(ArtifactLocation.DURABLE, namespace, secrets.token_hex(16))
 
 
 def _error(

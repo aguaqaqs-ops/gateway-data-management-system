@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -41,6 +43,7 @@ class VerifyReadableResult:
 class BoundedArtifactStorePort(Protocol):
     def put_stream(
         self,
+        location: ArtifactLocation,
         kind: str,
         stream: Iterable[bytes],
         *,

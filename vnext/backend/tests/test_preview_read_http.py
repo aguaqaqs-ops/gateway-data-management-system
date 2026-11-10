@@ -84,8 +84,8 @@ def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation
         canonical=make_preview_canonical_bindings(),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="bundle-artifact-1",
-        ready_closure_artifact_id="closure-1",
+        bundle_artifact_id="a1:durable:ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad",
+        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         operation_id=operation_id,
         created_at=datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
     )
@@ -149,7 +149,7 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     assert response.status_code == 200
     assert response.content == BUNDLE_BYTES
     assert "preview.tar" in response.headers["content-disposition"]
-    assert "bundle-artifact-1" not in response.text
+    assert "a1:durable:ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad" not in response.text
     assert str(env.db_path) not in response.text
 
 

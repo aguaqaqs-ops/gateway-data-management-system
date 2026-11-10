@@ -17,8 +17,8 @@ def make_configuration_facts(*, workspace_id: str = "ws-1", upload_revision_id: 
         baseline_commit_id: str = "commit-base", baseline_head_version: int = 1,
         operation_id: str = "op-preview-1", modified_digest: str = "sha256:" + "5" * 64,
         baseline_digest: str = "sha256:" + "4" * 64, initial_digest: str | None = None,
-        rules_digest: str = "sha256:" + "6" * 64, initial_source: str = "initial-1",
-        modified_source: str = "modified-1", uploaded_initial: bool = True) -> ConfigurationFacts:
+        rules_digest: str = "sha256:" + "6" * 64, initial_source: str = "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        modified_source: str = "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303", uploaded_initial: bool = True) -> ConfigurationFacts:
     def content(digest: str) -> CanonicalContentIdentity:
         return CanonicalContentIdentity(digest, rules_digest, "3", 1)
     time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
@@ -68,6 +68,6 @@ def replace_preview_with_facts(preview: PreviewResult, **changes: Any) -> Previe
 
 def configuration_facts_blob(**bindings: Any) -> bytes:
     from gateway_shared_kernel.jcs import canonicalize_json_value
-    facts = make_configuration_facts(initial_source="source-fixture", modified_source="source-fixture",
+    facts = make_configuration_facts(initial_source="a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041", modified_source="a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041",
         uploaded_initial=False, **bindings)
     return canonicalize_json_value(facts.to_document())

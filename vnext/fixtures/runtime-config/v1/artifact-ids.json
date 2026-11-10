@@ -1,0 +1,54 @@
+[
+  {
+    "location": "durable",
+    "kind": "conformance",
+    "identity_payload": [
+      "repo-1",
+      "3",
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      4,
+      "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      1
+    ],
+    "artifact_id": "a1:durable:06f0ddef803f0a0be7a855bbc2eae3481d8ea31dd1de7be5e23bfd6ebac753aa"
+  },
+  {
+    "location": "canonical",
+    "kind": "canonical-table",
+    "identity_payload": [
+      "repo-1",
+      "3",
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      4,
+      "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      1
+    ],
+    "artifact_id": "a1:canonical:b13f9fac1b62aa3896fc0c46ab9a0793ac9dbabbf809c12c6a751d32ea165ed3"
+  },
+  {
+    "location": "comparison",
+    "kind": "conformance",
+    "identity_payload": [
+      "repo-1",
+      "3",
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      4,
+      "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      1
+    ],
+    "artifact_id": "a1:comparison:2fbb7a2452175245b289a2989a4dd898ccef42176062391e2a97ae3d9cff2355"
+  },
+  {
+    "location": "export",
+    "kind": "conformance",
+    "identity_payload": [
+      "repo-1",
+      "3",
+      "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      4,
+      "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      1
+    ],
+    "artifact_id": "a1:export:e16a4cef8cb40422027edcc780d1de71d99f4fbf05a2562ccce25025a15f1240"
+  }
+]

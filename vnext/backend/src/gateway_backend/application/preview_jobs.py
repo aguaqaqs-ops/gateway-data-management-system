@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
+
 import dataclasses
 import json
 import logging
@@ -810,7 +812,9 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     "assemble checkpoint is missing ready_closure_ref",
                     code="CHECKPOINT_JOB_STATE_MISMATCH",
                 )
-            ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            parse_artifact_id(ready_closure_id)
+        parse_artifact_id(bundle_artifact_id)
+        ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _pin_preview_refs(
                 deps,
@@ -968,6 +972,8 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
 
+        parse_artifact_id(ready_closure_id)
+        parse_artifact_id(bundle_artifact_id)
         ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
         load_ready_closure(deps.artifact_store, ready_closure_ref)
 
@@ -3033,7 +3039,7 @@ def _publish_canonical_table_set_closure(
     return put_with_built_ref(
         store,
         raw_bytes,
-        artifact_id=build_artifact_id("canonical-table-set-closure", uuid.uuid4().hex),
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "canonical-table-set-closure", uuid.uuid4().hex),
         media_type=_JCS_MEDIA_TYPE,
     )
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -35,7 +37,7 @@ def publish_change_set_closure(
     closure_ref = put_with_built_ref(
         store,
         closure_bytes,
-        artifact_id=build_artifact_id("change-set-closure", _digest_suffix(expected_digest)),
+        artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "change-set-closure", _digest_suffix(expected_digest)),
         media_type=CHANGE_SET_CLOSURE_MEDIA_TYPE,
     )
     if closure_ref.raw_sha256 != expected_digest:
@@ -66,4 +68,4 @@ def validate_published_change_set_closure(
 
 
 def _digest_suffix(digest: DigestRef) -> str:
-    return digest.value.removeprefix("sha256:")[:16]
+    return digest.value.removeprefix("sha256:")

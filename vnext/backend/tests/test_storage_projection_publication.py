@@ -489,7 +489,7 @@ def test_missing_and_corrupt_refs_fail_closed() -> None:
     other = put_with_built_ref(
         store,
         b"{}",
-        artifact_id="r4-corrupt-aaaaaaaa",
+        artifact_id="a1:durable:4f2c0fbed4705f68a25f17ba052cc92e335db54c86b586fa25e3ee4b97f7f293",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     )
     with pytest.raises(PublicationError) as corrupt_exc:

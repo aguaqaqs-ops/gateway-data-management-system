@@ -59,7 +59,7 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
         raise AssertionError("canonical fixture must project a manifest")
     manifest_bytes = durable_manifest_bytes(projected.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="preview-canonical-manifest-fixture",
+        artifact_id="a1:durable:3fa9d814b79a37769b3c0669ad245741b4dbeb66df53bb2a0bc95aca1b313248",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -76,7 +76,7 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="preview-canonical-closure-fixture",
+        artifact_id="a1:durable:3e05636aa9b041e486150f3ba350caaa9db6578825fc54f4b58f3963e3dcf99e",
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),

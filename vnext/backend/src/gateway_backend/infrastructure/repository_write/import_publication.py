@@ -231,7 +231,22 @@ class SubmitImportPublicationAdapter:
                 table_started = monotonic()
                 memory_before = context.memory.used_bytes
                 table_metrics: dict[str, object] | None = None
-                table = _open_frozen_table(bindings[name], frozen, build_input, store)
+                parent_table: SnapshotTable | None = None
+                parent_elapsed = 0.0
+                if name in parent_read_names:
+                    assert parent_access is not None
+                    parent_started = monotonic()
+                    parent_table = self._materialize_parent_table(
+                        build_input, table_name=name, parent_access=parent_access,
+                    )
+                    parent_elapsed = monotonic() - parent_started
+                    parent_reads += 1
+                try:
+                    table = _open_frozen_table(bindings[name], frozen, build_input, store)
+                except BaseException:
+                    if parent_table is not None:
+                        _close_snapshot_table(parent_table)
+                    raise
                 try:
                     import_table, projected = _frozen_table_metadata(table, frozen)
                     import_tables.append(import_table)
@@ -239,20 +254,10 @@ class SubmitImportPublicationAdapter:
                     if name not in changed:
                         continue
                     before_manifest_table = parent_by_name.get(name)
-                    parent_table: SnapshotTable | None = None
                     before_lease: StorageInputLease | None = None
                     after_lease: StorageInputLease | None = None
                     table_sql_start = dml_size
-                    parent_elapsed = 0.0
                     try:
-                        if name in parent_read_names:
-                            assert parent_access is not None
-                            parent_started = monotonic()
-                            parent_table = self._materialize_parent_table(
-                                build_input, table_name=name, parent_access=parent_access,
-                            )
-                            parent_elapsed = monotonic() - parent_started
-                            parent_reads += 1
                         before_side = None if before_manifest_table is None else StorageTableSideV1(
                             before_manifest_table, _storage_view_from_frozen_table(before_manifest_table),
                             parent_manifest.storage_projection_version,
@@ -308,14 +313,14 @@ class SubmitImportPublicationAdapter:
                             if before_lease is not None:
                                 before_lease.close()
                         finally:
-                            try:
-                                if after_lease is not None:
-                                    after_lease.close()
-                            finally:
-                                if parent_table is not None:
-                                    _close_snapshot_table(parent_table)
+                            if after_lease is not None:
+                                after_lease.close()
                 finally:
-                    _close_snapshot_table(table)
+                    try:
+                        _close_snapshot_table(table)
+                    finally:
+                        if parent_table is not None:
+                            _close_snapshot_table(parent_table)
                     if table_metrics is not None:
                         table_metrics["total_seconds"] = round(monotonic() - table_started, 6)
                         table_metrics["memory_before_bytes"] = memory_before

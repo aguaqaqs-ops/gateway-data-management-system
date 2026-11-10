@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+
 import logging
 import signal
 import threading
@@ -60,7 +62,6 @@ from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
-    ArtifactStoreLayout,
 )
 from gateway_backend.infrastructure.control_db import (
     ControlDbIntegrityError,
@@ -152,7 +153,7 @@ def build_job_worker_composition_for_settings(
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-    local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
+    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
@@ -177,7 +178,7 @@ def build_production_preview_dependencies(
     bootstrap_control_database(settings)
     seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-    local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
+    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
@@ -329,7 +330,7 @@ def build_worker_runtime(
     )
 
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-    runtime_roots = ArtifactStoreLayout.from_config(deployment.storage)
+    runtime_roots = artifact_layout_from_config(deployment.storage)
 
     def default_read_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=True, artifact_borrow=runtime_roots.read_session)

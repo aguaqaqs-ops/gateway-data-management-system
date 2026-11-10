@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+
 import asyncio
 import urllib.error
 import urllib.request
@@ -66,7 +68,6 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
-    ArtifactStoreLayout,
 )
 from gateway_backend.infrastructure.control_db import (
     ControlDbUnitOfWork,
@@ -289,7 +290,7 @@ def prepare_backend_runtime(
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-    local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
+    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
 

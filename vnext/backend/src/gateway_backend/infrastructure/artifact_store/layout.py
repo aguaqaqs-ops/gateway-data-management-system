@@ -12,7 +12,6 @@ from pathlib import Path
 
 from gateway_backend.artifacts.location import ArtifactLocation
 from gateway_backend.artifacts.store import ManifestVerificationError
-from gateway_backend.deployment_config import StorageLayoutConfig
 
 ROOT_ORDER = tuple(ArtifactLocation)
 
@@ -64,10 +63,6 @@ class ArtifactStoreLayout:
         object.__setattr__(self, '_identities', identities)
         object.__setattr__(self, '_borrows', {})
         object.__setattr__(self, '_mutex', RLock())
-
-    @classmethod
-    def from_config(cls, config: StorageLayoutConfig) -> ArtifactStoreLayout:
-        return cls(**{location.value: Path(config.roots[f'be-{location.value}'].path) for location in ROOT_ORDER})
 
     def root(self, location: ArtifactLocation) -> Path:
         if type(location) is not ArtifactLocation:

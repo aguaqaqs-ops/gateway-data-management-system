@@ -18,7 +18,7 @@ from gateway_shared_kernel import CanonicalEncodingError
 
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
-from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactUnavailableError, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactRepairBusyError, ArtifactUnavailableError, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 from gateway_backend.infrastructure.artifact_store.atomic_publish import check_publication_support, fsync_directory, rename_noreplace
@@ -184,7 +184,7 @@ class LocalArtifactStore:
             # Writer flock retains staging, but all of this call's SH has closed.
             with self.layout.cleanup_session(ArtifactLocation.CANONICAL) as acquired:
                 if not acquired:
-                    raise ManifestVerificationError('canonical repair busy; retry after readers close')
+                    raise ArtifactRepairBusyError('canonical repair busy; retry after readers close')
                 checkpoint()
                 target = self.object_directory(ref.artifact_id)
                 try:

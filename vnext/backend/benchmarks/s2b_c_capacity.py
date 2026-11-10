@@ -114,6 +114,12 @@ def source_descriptor(table: dict[str, Any]) -> SourceTableDescriptor:
     )
 
 
+def artifact_disk_bytes(layout: ArtifactStoreLayout) -> int:
+    """Finite calibration output only; excludes its sibling control DB and inputs."""
+    return sum(path.stat().st_size for location in ArtifactLocation
+        for path in layout.root(location).rglob('*') if path.is_file())
+
+
 def main() -> int:
     _init_kernel_native(1)
     parser = argparse.ArgumentParser()
@@ -253,7 +259,7 @@ def main() -> int:
         "filtered_python_fact_count": sum(len(c.devices) + len(c.points) for c in retained_catalog),
         "unique_active_mapping_bytes": unique_mapping_bytes,
         "max_atomic_staging_ipc_bytes": max((ref.size_bytes for ref, _ in refs.values()), default=0),
-        "artifact_disk_bytes": sum(p.stat().st_size for p in local.artifact_root.rglob("*") if p.is_file()),
+        "artifact_disk_bytes": artifact_disk_bytes(local.layout),
         "memory": measurements,
     }
     args.output.write_text(json.dumps(result, indent=2) + "\n")

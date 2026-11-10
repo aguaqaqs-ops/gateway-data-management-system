@@ -206,6 +206,13 @@ def _ensure_committed_tables(
             timeout_policy=timeout_policy)
         if described.ordered_metadata != current.ordered_metadata:
             raise ValueError("row demand ordered provenance differs from the complete metadata")
+    # Prepare the complete demand before a preceding table can retain root SH.
+    for name in names:
+        current = tables[name]
+        if current.reader is None:
+            committed_tables.prepare_table(commit_id=commit_id, descriptor=current.descriptor,
+                identity=identities[name], storage_view=views[name], context=context,
+                timeout_policy=timeout_policy)
     loaded: list[SnapshotTable] = []
     try:
         for name in names:
@@ -354,6 +361,13 @@ def _materialize_open_session(
         published.append(table)
     # Complete catalog/manifest binding is established for every table before
     # opening any rows. A later bad table cannot hide behind an earlier cache hit.
+    assert request.committed_tables is not None
+    for table in published:
+        name = table.descriptor.table_name
+        if name in materialized_set:
+            request.committed_tables.prepare_table(commit_id=pinned, descriptor=table.descriptor,
+                identity=identities[name], storage_view=binding_by_name[name],
+                context=request.context, timeout_policy=request.timeout_policy)
     try:
         for index, table in enumerate(published):
             name = table.descriptor.table_name

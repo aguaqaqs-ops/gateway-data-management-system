@@ -853,12 +853,12 @@ from gateway_backend.artifacts import artifact_ref_from_dict
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.capabilities.storage_projection.package import canonicalization_manifest_from_bytes, PackageError
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 settings = BackendSettings()
 config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
 root = store.layout.durable
 manifest_ids = set()
 for sidecar in root.rglob("ref.jcs"):
@@ -890,7 +890,7 @@ from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 
@@ -905,7 +905,7 @@ if row is None or row[0] is None:
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
 settings = BackendSettings()
 config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
 ref = artifact_ref_from_dict(checkpoint)
 envelope = load_checkpoint_envelope(store, ref)
 print(json.dumps(envelope.job_state))
@@ -951,7 +951,7 @@ from gateway_backend.capabilities.table_access import (
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -966,7 +966,7 @@ def checkpoint_readers():
     with kernel_execution_scope(context, new_operation=True):
         settings = BackendSettings()
         config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-        store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+        store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
         manifest_reader = ArtifactBackedCanonicalizationManifestReader(artifact_store=store, artifact_refs=store)
         def uow_factory():
             return ControlDbUnitOfWork(Path('/var/lib/gateway/control/control.sqlite3'),
@@ -1316,13 +1316,13 @@ import json
 from pathlib import Path
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 
 settings = BackendSettings()
 config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
-store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
 refs = {refs_literal}
 states = []
 for ref_document in refs:

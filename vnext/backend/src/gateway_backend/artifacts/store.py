@@ -56,6 +56,10 @@ class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
 
 
+class ArtifactRepairBusyError(ManifestVerificationError):
+    """A recoverable exact-commit repair needs all current root readers closed."""
+
+
 class ArtifactUnavailableError(ManifestVerificationError):
     """An exact stored artifact is missing or cannot be read."""
 

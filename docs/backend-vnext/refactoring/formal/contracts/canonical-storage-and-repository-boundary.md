@@ -404,3 +404,10 @@ C 实施接口（2026-11-10，阶段最终验收仍在 G）：filesystem adapter
 根借用以有序共享 FD 和引用计数跨嵌套、跨 HTTP 线程保活；最后一个 handle 释放后才关闭 FD。
 SQLite protection participant 不自行取 root 锁；production UoW 在 connect/BEGIN 前借 roots，
 commit/rollback/异常后释放。清理使用不再加 SH 的专门 DB factory，在 EX 内重核并删除。
+
+C 的协作回填批次屏障：多表与多 commit 的实际 row demand 先逐项 prepare/修复并关闭临时
+read handle，全部完成后才保留该批次的 mmap readers；不为未需求的历史表物化行。History 若
+可选计算缓存的四-root borrow 阻碍回填，释放本次可选 lease 后沿既有一次重规划路径重试，
+不释放 workflow/Attempt/Head 保护。新上传已计算出的完整规范投影在 cache 校验后继续使用其
+原 Arrow backing，不为 cache hit 换成长期 mmap；Submit 先读取其合格 exact parent，再直接
+打开本次 frozen current，后者仍无 source-recovery fallback。此顺序不增加旧 ID/布局兼容路径。

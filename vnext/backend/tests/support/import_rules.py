@@ -22,7 +22,7 @@ PRODUCTION_ENTRYPOINTS = (
 )
 # Package-root modules that belong to process composition rather than to an unowned bucket.
 COMPOSITION_MODULES = frozenset(
-    {"gateway_backend", "gateway_backend.app", "gateway_backend.settings"}
+    {"gateway_backend", "gateway_backend.app", "gateway_backend.settings", "gateway_backend.deployment_config"}
 )
 
 RULE_LAYER = "layer"

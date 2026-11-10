@@ -244,6 +244,17 @@ class CanonicalCommittedTableAccess:
                 ordered_metadata=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
                 if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
 
+    def prepare_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView, context: ParserInvocationContext,
+        timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> None:
+        self.describe_table(commit_id=commit_id, descriptor=descriptor, identity=identity,
+            storage_view=storage_view, context=context, timeout_policy=timeout_policy)
+        with self.open_committed(commit_id=commit_id, bound_descriptor=descriptor,
+            storage_view=storage_view, invocation=context, timeout_policy=timeout_policy):
+            pass
+
     def load_table(
         self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,

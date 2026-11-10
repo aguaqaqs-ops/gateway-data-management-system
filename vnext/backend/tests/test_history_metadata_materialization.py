@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from dataclasses import replace
 from threading import Event
 
@@ -148,3 +149,53 @@ def test_metadata_description_cannot_accept_a_different_scope_or_commit(mismatch
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.table_set is None
     assert all(not session.table_readers for session in provider.sessions)
+
+
+@pytest.mark.parametrize('entrypoint', ('materialize', 'ensure'))
+def test_demand_batch_repairs_later_table_before_first_local_mapping(
+    tmp_path: Path, db_path: Path, entrypoint: str,
+) -> None:
+    from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
+    from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_table_key
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.artifact_layout import open_test_store
+
+    provider, request = _request()
+    local = open_test_store(tmp_path / 'canonical-batch')
+    access = build_committed_table_access(store=local,
+        unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path, artifact_borrow=local.read_session),
+        repository_provider_factory=lambda _repository, _commit: provider,
+        repository_id=request.repository_ref.repository_id)
+    request = replace(request, committed_tables=access)
+    cold = materialize_repository_ref(request)
+    assert cold.table_set is not None
+    bound = cold.table_set.tables[1].descriptor
+    for table in cold.table_set.tables:
+        assert table.reader is not None and table.batch_reader is not None
+        table.reader.close()
+        table.batch_reader.close()
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        ref = uow.canonical_tables.lookup(canonical_table_key(access.repository_id, bound))
+    assert ref is not None
+    original = local.locate(ref)
+    local.payload_path(ref.artifact_id).write_bytes(b'corrupt')
+    if entrypoint == 'materialize':
+        repaired = materialize_repository_ref(request)
+        assert repaired.status is SnapshotMaterializationStatus.COMPLETE and repaired.table_set is not None
+        tables = repaired.table_set
+    else:
+        described = describe_repository_ref(request)
+        assert described.table_set is not None
+        tables = ensure_committed_tables(described.table_set, repository_ref=request.repository_ref,
+            canonical_binding=request.canonical_binding, committed_tables=access,
+            requested_tables=('a', 'z'), context=request.context)
+    try:
+        assert local.locate(ref) == original
+        assert tables.snapshot_digest == cold.table_set.snapshot_digest
+        assert [tuple(table.reader.iter_rows()) for table in tables.tables if table.reader is not None] == [
+            ((SignedIntegerScalar('1'),),), ((SignedIntegerScalar('2'),), (SignedIntegerScalar('3'),))]
+    finally:
+        for table in tables.tables:
+            assert table.reader is not None and table.batch_reader is not None
+            table.reader.close()
+            table.batch_reader.close()

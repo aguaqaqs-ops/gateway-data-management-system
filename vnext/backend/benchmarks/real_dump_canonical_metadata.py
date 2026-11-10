@@ -6,6 +6,8 @@ owns physical row validation. Missing or contradictory metadata fails closed.
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+
 import json
 import os
 import sqlite3
@@ -50,7 +52,6 @@ from gateway_backend.capabilities.storage_projection import (
 )
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
 from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
@@ -285,7 +286,7 @@ def main() -> None:
     path = Path("/var/lib/gateway/control/control.sqlite3")
     config = DeploymentConfig.load(Path(os.environ["GATEWAY_STORAGE_LAYOUT_FILE"]),
         Path(os.environ["GATEWAY_RESOURCE_PROFILE_FILE"]))
-    store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage),
+    store = LocalArtifactStore(artifact_layout_from_config(config.storage),
         staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
     with store.read_session():
         verify_control_db_file(path)

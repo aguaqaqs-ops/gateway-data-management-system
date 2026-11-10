@@ -1407,6 +1407,13 @@ class CommittedCanonicalTablesPort(Protocol):
     ) -> SnapshotTable:
         """Verify the exact catalog/manifest binding without opening any rows."""
 
+    def prepare_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView, context: ParserInvocationContext,
+        timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> None:
+        """Repair a demanded exact-commit object before retaining any batch readers."""
+
     def load_table(
         self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,

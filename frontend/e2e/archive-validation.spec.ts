@@ -821,7 +821,7 @@ test("V10 关闭后自动重新预检且全部回到未处理", async ({ page })
   await expect(result).toBeVisible();
   await expect(result).toContainText("已关闭");
   await screenshot(page, "fe3c-close-result", 1920);
-  await close.getByRole("button", { name: "取消" }).click();
+  await close.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(dialog.getByText("原始组态备份的来源无法解释")).toBeVisible();
   await expect(dialog.getByText("候选集合已变化，之前的接受不再适用，请重新核对")).toBeVisible();
   const cards = dialog.locator(".archive-anomaly");

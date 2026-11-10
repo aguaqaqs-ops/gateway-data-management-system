@@ -69,7 +69,7 @@ def _session(
         service_image=service_image,
         work_root=work_root,
         dolt_baseline=frozenset(list_dolt_pids()),
-        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
+        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes(Path("/tmp"))),
         client_pid_baseline=list_host_client_pids(),
         thread_baseline=list_host_thread_idents(),
     )

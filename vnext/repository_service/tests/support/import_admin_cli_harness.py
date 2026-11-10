@@ -33,6 +33,7 @@ from gateway_repository_service.versioned_import.ports import PublishMainPublish
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
 from gateway_repository_service.versioned_import.store import ImportOperationStore
 from support.import_worker_harness import MEDIA_TYPE, published_repository_path
+from support.storage_layout import local_storage_layout
 from support.lifecycle_harness import lifecycle_settings
 from test_import_package import build_package_bytes, write_artifact
 
@@ -65,8 +66,8 @@ def run_admin_cli(
         "-m",
         "gateway_repository_service.versioned_import.admin",
         *args,
-        "--data-root",
-        str(settings_data_root),
+        "--storage-layout-file",
+        str(local_storage_layout(settings_data_root)),
     ]
     merged_env = os.environ.copy()
     merged_env.setdefault("GATEWAY_REPOSITORY_PROFILE", "test")
@@ -172,7 +173,7 @@ class AdminCliControlDbEnvironment:
         repository_id: UUID = DEFAULT_REPOSITORY_ID,
     ) -> AdminCliControlDbEnvironment:
         settings = lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         control_store = ControlStore.open(
             settings.control_db_path,
             expected_version=CONTROL_DB_USER_VERSION,
@@ -199,7 +200,7 @@ class AdminCliControlDbEnvironment:
         *args: str,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        return run_admin_cli(self.settings.data_root, *args, env=env)
+        return run_admin_cli(self.settings.storage_roots.metadata.parent, *args, env=env)
 
     def seed_artifact_lifecycle(
         self,
@@ -609,10 +610,10 @@ class AdminCliEnvironment:
         repository_id: UUID = DEFAULT_REPOSITORY_ID,
     ) -> AdminCliEnvironment:
         settings = lifecycle_settings(tmp_path)
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         repository = published_repository_path(layout, repository_id)
         repository.mkdir(parents=True, exist_ok=True)
-        runner = DoltRunner(settings, layout.root)
+        runner = DoltRunner.for_layout(settings, layout)
         cli = OfflineCliProvider(settings, layout, repository, runner)
         cli.initialize_repository()
         provider = CandidateAImportProvider(settings, layout, repository, runner)
@@ -643,7 +644,7 @@ class AdminCliEnvironment:
         *args: str,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        return run_admin_cli(self.settings.data_root, *args, env=env)
+        return run_admin_cli(self.settings.storage_roots.metadata.parent, *args, env=env)
 
     def seed_artifact_lifecycle(
         self,

@@ -32,10 +32,10 @@ OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11")
 @pytest.fixture
 def integration_env(tmp_path: Path) -> Iterator[tuple[ImportWorkerPool, ImportOperationStore, DurableLayout, CandidateAImportProvider]]:
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = published_repository_path(layout, REPOSITORY_ID)
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     provider = CandidateAImportProvider(settings, layout, repository, runner)
@@ -189,8 +189,8 @@ def test_repository_import_replays_oversized_single_row_insert_and_case_update(
     """Exercise >4 MiB mutation statements through the production import replay worker."""
 
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
-    runner = DoltRunner(settings, layout.root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
+    runner = DoltRunner.for_layout(settings, layout)
     providers: dict[UUID, CandidateAImportProvider] = {}
     repositories: dict[str, tuple[UUID, CandidateAImportProvider]] = {}
 
@@ -462,13 +462,13 @@ def test_multirepo_running_interrupt_restart_recovery(tmp_path: Path) -> None:
 
     settings = lifecycle_settings(tmp_path)
     settings = settings.model_copy(update={"max_import_workers": 2})
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
 
     repositories = []
     for repository_id in (REPOSITORY_ID, REPOSITORY_B_ID):
         repository = published_repository_path(layout, repository_id)
         repository.mkdir(parents=True, exist_ok=True)
-        runner = DoltRunner(settings, layout.root)
+        runner = DoltRunner.for_layout(settings, layout)
         cli = OfflineCliProvider(settings, layout, repository, runner)
         cli.initialize_repository()
         repositories.append((repository_id, cli.head()))
@@ -576,13 +576,13 @@ def test_restart_recovery_multirepo_concurrent_claim(tmp_path: Path) -> None:
 
     settings = lifecycle_settings(tmp_path)
     settings = settings.model_copy(update={"max_import_workers": 2})
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
 
     repositories = []
     for repository_id in (REPOSITORY_ID, REPOSITORY_B_ID):
         repository = published_repository_path(layout, repository_id)
         repository.mkdir(parents=True, exist_ok=True)
-        runner = DoltRunner(settings, layout.root)
+        runner = DoltRunner.for_layout(settings, layout)
         cli = OfflineCliProvider(settings, layout, repository, runner)
         cli.initialize_repository()
         repositories.append((repository_id, cli.head()))

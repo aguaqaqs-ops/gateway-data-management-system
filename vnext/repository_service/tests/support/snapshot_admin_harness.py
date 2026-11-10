@@ -16,9 +16,10 @@ from types import TracebackType
 from typing import Self
 
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
-from gateway_repository_service.layout import DurableLayout
+from gateway_repository_service.layout import DurableLayout, LAYOUT_FORMAT_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.settings import RepositoryServiceSettings
+from support.storage_layout import local_storage_layout
 from support.lifecycle_harness import lifecycle_settings
 
 HOLD_BUSY_TIMEOUT_MS = 200
@@ -40,7 +41,8 @@ REQUIRED_LAYOUT_COMPONENTS = frozenset(
     {
         "control",
         "versioned",
-        "staging",
+        "staging_versioned",
+        "staging_artifacts",
         "artifacts",
         "service-state",
         "provider",
@@ -91,7 +93,7 @@ def run_hold(
     env: dict[str, str] | None = None,
     timeout: float = 15.0,
 ) -> subprocess.CompletedProcess[str]:
-    return run_snapshot_admin("hold", "--data-root", str(data_root), env=env, timeout=timeout)
+    return run_snapshot_admin("hold", "--storage-layout-file", str(local_storage_layout(data_root)), env=env, timeout=timeout)
 
 
 def spawn_hold(
@@ -101,7 +103,7 @@ def spawn_hold(
     stdout: int | None = subprocess.PIPE,
 ) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        snapshot_admin_command("hold", "--data-root", str(data_root)),
+        snapshot_admin_command("hold", "--storage-layout-file", str(local_storage_layout(data_root))),
         stdout=stdout,
         stderr=subprocess.PIPE,
         text=True,
@@ -164,7 +166,7 @@ def assert_safe_ready_json(payload: dict[str, object], raw: str) -> None:
     assert payload["action"] == "hold"
     assert payload["status"] == "ready"
     assert payload["schema_version"] == 1
-    assert payload["layout_format_version"] == 1
+    assert payload["layout_format_version"] == LAYOUT_FORMAT_VERSION
     assert payload["control_db_user_version"] == CONTROL_DB_USER_VERSION
     checkpoint = payload["checkpoint"]
     assert isinstance(checkpoint, dict)
@@ -182,14 +184,14 @@ def run_check(
     env: dict[str, str] | None = None,
     timeout: float = 30.0,
 ) -> subprocess.CompletedProcess[str]:
-    return run_snapshot_admin("check", "--data-root", str(data_root), env=env, timeout=timeout)
+    return run_snapshot_admin("check", "--storage-layout-file", str(local_storage_layout(data_root)), env=env, timeout=timeout)
 
 
 def assert_safe_passed_json(payload: dict[str, object], raw: str) -> None:
     assert payload["action"] == "check"
     assert payload["status"] == "passed"
     assert payload["schema_version"] == 1
-    assert payload["layout_format_version"] == 1
+    assert payload["layout_format_version"] == LAYOUT_FORMAT_VERSION
     assert payload["control_db_user_version"] == CONTROL_DB_USER_VERSION
     assert isinstance(payload["repository_count"], int)
     assert isinstance(payload["artifact_count"], int)
@@ -218,19 +220,19 @@ def list_dolt_pids() -> set[int]:
     return pids
 
 
-def snapshot_check_temp_homes() -> list[Path]:
-    return list(Path("/tmp").glob("snapshot-check-dolt-*"))
+def snapshot_check_temp_homes(scratch_root: Path) -> list[Path]:
+    return sorted(scratch_root.glob("snapshot-check-dolt-*"))
 
 
 def snapshot_query_temps(data_root: Path) -> list[Path]:
-    staging_artifacts = data_root / "staging" / "artifacts"
+    staging_artifacts = data_root / "scratch" / "query"
     if not staging_artifacts.is_dir():
         return []
     return sorted(staging_artifacts.glob("query-*.sql"))
 
 
 def _service_lock_path(data_root: Path) -> Path:
-    return data_root / "control" / "service.lock"
+    return data_root / "metadata" / "control" / "service.lock"
 
 
 def assert_restore_target_not_live(path: Path) -> None:
@@ -282,7 +284,7 @@ class SnapshotHoldEnvironment:
         settings = lifecycle_settings(tmp_path).model_copy(
             update={"sqlite_busy_timeout_ms": sqlite_busy_timeout_ms}
         )
-        layout = DurableLayout.create_service(settings.data_root)
+        layout = DurableLayout.create_service(settings.storage_roots)
         layout.service_lock.touch(mode=0o600, exist_ok=False)
         control_store = ControlStore.open(
             settings.control_db_path,
@@ -293,7 +295,7 @@ class SnapshotHoldEnvironment:
 
     @property
     def data_root(self) -> Path:
-        return self.settings.data_root
+        return self.settings.storage_roots.metadata.parent
 
     @property
     def wal_path(self) -> Path:

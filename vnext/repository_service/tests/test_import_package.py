@@ -12,6 +12,7 @@ from pathlib import Path
 import compression.zstd
 import pytest
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.models import (
     MANIFEST_ENTRY_NAME,
@@ -151,7 +152,7 @@ def write_artifact(path: Path, payload: bytes) -> tuple[int, str]:
 @pytest.fixture
 def settings(tmp_path: Path) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
-        data_root=tmp_path / "root",
+        roots=RepositoryRoots.under(tmp_path / "root"),
         profile="test",
         bearer_token="token",
     )

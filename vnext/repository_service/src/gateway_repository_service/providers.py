@@ -369,7 +369,7 @@ class OfflineCliProvider:
         self.layout = layout
         self.repository = repository
         self.runner = runner
-        self.query_directory = layout.staging_artifacts
+        self.query_directory = layout.query_directory
         self.last_stream_peak_rss_kib = 0
         self.last_stream_rss_delta_kib = 0
         self.last_stream_metrics: dict[str, Any] = {}
@@ -838,7 +838,7 @@ class SqlServerProvider:
         self.supervisor = ServerSupervisor(runner, layout.versioned, layout.provider / "sql-server")
         self.loop = _AsyncLoop()
         self.connection: Any = None
-        self.query_directory = layout.staging_artifacts
+        self.query_directory = layout.query_directory
         self.last_stream_peak_rss_kib = 0
         self.last_stream_rss_delta_kib = 0
         self.last_stream_metrics: dict[str, Any] = {}

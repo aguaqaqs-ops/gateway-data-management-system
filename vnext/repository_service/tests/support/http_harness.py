@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, OperationStatus
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.app import create_app
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
@@ -236,12 +237,12 @@ def create_import_http_environment(tmp_path: Path, **settings_kwargs: object) ->
     dolt_stub.chmod(0o755)
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=tmp_path / "data-root",
+        roots=RepositoryRoots.under(tmp_path / "data-root"),
         bearer_token="test-bearer-token",
         dolt_binary=dolt_stub,
         **settings_kwargs,  # type: ignore[arg-type]
     )
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     control_store = ControlStore.open(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,

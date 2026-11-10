@@ -14,6 +14,7 @@ from gateway_repository_contracts import (
     StreamVersionedTableRowsQuery,
     UnknownTypePolicy,
 )
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.admission import PermitPool
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.versioned_read.http_service import VersionedReadHttpService
@@ -224,7 +225,7 @@ def test_route_construction_failure_closes_bridge_before_releasing_permit(
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="test-bearer-token",
-        data_root=Path("/tmp/unused-row-admission-construct"),
+        roots=RepositoryRoots.under(Path("/tmp/unused-row-admission-construct")),
         max_concurrent_row_streams=1,
     )
     pool = PermitPool(1)
@@ -355,7 +356,7 @@ def test_route_construction_failure_propagates_cleanup_error_after_release(
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="test-bearer-token",
-        data_root=Path("/tmp/unused-row-admission-cleanup-err"),
+        roots=RepositoryRoots.under(Path("/tmp/unused-row-admission-cleanup-err")),
         max_concurrent_row_streams=1,
     )
     pool = PermitPool(1)
@@ -469,7 +470,7 @@ def test_real_rows_route_rejects_ninth_before_response_start() -> None:
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="test-bearer-token",
-        data_root=Path("/tmp/unused-row-admission"),
+        roots=RepositoryRoots.under(Path("/tmp/unused-row-admission")),
         max_concurrent_row_streams=1,
     )
     pool = PermitPool(1)

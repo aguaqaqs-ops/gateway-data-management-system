@@ -25,7 +25,7 @@ class OfflineCliCapabilityGate:
         if not settings.dolt_binary.is_file():
             raise ProviderUnavailableError("dolt executable is unavailable")
         try:
-            DoltRunner(settings, layout.root)
+            DoltRunner.for_layout(settings, layout)
         except ProcessBoundaryError as exc:
             raise ProviderUnavailableError("dolt capability check failed") from exc
         return cls(settings=settings, layout=layout, verified_version=settings.dolt_version)

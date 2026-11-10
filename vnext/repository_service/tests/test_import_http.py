@@ -446,7 +446,7 @@ def test_submit_logs_do_not_include_raw_key(
     assert stored.private_ref_name not in caplog.text
     assert stored.operation_marker not in caplog.text
     assert "SELECT" not in caplog.text.upper()
-    assert str(env.layout.root) not in caplog.text
+    assert str(env.layout.metadata_root) not in caplog.text
 
 
 def test_submit_writable_probe_failure_returns_disk_denied(env: ImportHttpTestEnvironment) -> None:

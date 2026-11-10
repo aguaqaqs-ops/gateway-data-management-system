@@ -55,10 +55,10 @@ class MarkerBenchReport:
 
 def _build_import_provider(tmp_path: Path) -> tuple[DurableLayout, CandidateAImportProvider]:
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = layout.staging_artifacts / "import-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     provider = CandidateAImportProvider(settings, layout, repository, runner)

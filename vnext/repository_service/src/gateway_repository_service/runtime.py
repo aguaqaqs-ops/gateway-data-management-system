@@ -24,7 +24,7 @@ from gateway_repository_service.artifact_cleaner import (
 )
 from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.capacity import (
-    has_free_disk_admission,
+    has_layout_disk_admission,
     is_durable_root_writable,
 )
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
@@ -124,7 +124,7 @@ class ServiceRuntime:
         stack = ExitStack()
         try:
             bearer_token = settings.resolve_bearer_token()
-            layout = DurableLayout.create_service(settings.data_root)
+            layout = DurableLayout.create_service(settings.storage_roots)
             root_lock = DurableRootLock(layout.service_lock)
             root_lock.acquire()
 
@@ -133,6 +133,7 @@ class ServiceRuntime:
                     root_lock.release()
 
             stack.callback(_release_root)
+            layout.validate_control_database_files()
             control_store = ControlStore.open(
                 settings.control_db_path,
                 expected_version=CONTROL_DB_USER_VERSION,
@@ -144,6 +145,7 @@ class ServiceRuntime:
                     control_store.close()
 
             stack.callback(_close_db)
+            layout.validate_control_database_files(require_database=True)
             configure_connection(control_store.connection)
             mutation_store = MutationStore(
                 control_store.connection,
@@ -154,7 +156,7 @@ class ServiceRuntime:
                 transaction_lock=control_store.transaction_lock,
             )
             provider_gate = OfflineCliCapabilityGate.verify(settings, layout)
-            dolt_runner = DoltRunner(settings, layout.root)
+            dolt_runner = DoltRunner.for_layout(settings, layout)
             reconciliation = SynchronousMutationReconciler(
                 settings=settings,
                 layout=layout,
@@ -191,9 +193,9 @@ class ServiceRuntime:
                 )
             if isinstance(cleaner, ArtifactCleaner):
                 cleaner.reclaim_until_disk_admission(
-                    admitted=lambda: has_free_disk_admission(layout.root, settings),
+                    admitted=lambda: has_layout_disk_admission(layout, settings),
                 )
-            if not has_free_disk_admission(layout.root, settings):
+            if not has_layout_disk_admission(layout, settings):
                 raise ServiceStartupError("durable root free disk is below admission threshold")
             stopping = threading.Event()
             import_worker_pool = ImportWorkerPool(
@@ -533,7 +535,7 @@ class ServiceRuntime:
                 return "provider is unavailable"
             if not is_durable_root_writable(self.layout.service_state):
                 return "durable root is not writable"
-            if not has_free_disk_admission(self.layout.root, self.settings):
+            if not has_layout_disk_admission(self.layout, self.settings):
                 return "free disk admission failed"
             return None
         except Exception:

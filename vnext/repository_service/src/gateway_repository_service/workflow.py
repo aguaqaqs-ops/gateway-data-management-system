@@ -728,16 +728,17 @@ def _run_locked(
         repository_id = UUID(int=uuid4().int)
         key = repository_key(repository_id)
         staged = layout.staging_repository(key, uuid4().hex[:12])
-        common = OfflineCliProvider(settings, layout, staged, DoltRunner(settings, layout.root))
+        common = OfflineCliProvider(settings, layout, staged, DoltRunner.for_layout(settings, layout))
         common.initialize_repository()
-        staging_high_water = max(staging_high_water, tree_storage_bytes(layout.staging)[0])
+        staging_high_water = max(staging_high_water, sum(tree_storage_bytes(path)[0] for path in (layout.staging_versioned, layout.staging_artifacts)))
         target = layout.published_repository(key)
         layout.assert_publication_devices(staged, target.parent)
         atomic_publish(staged, target)
-        layout.assert_same_filesystem()
-        filesystem_quiesce(layout.root)
+        layout.validate_components()
+        for owned_root in layout.roots.paths():
+            filesystem_quiesce(owned_root)
         logical_before, allocated_before = tree_storage_bytes(target)
-        runner = DoltRunner(settings, layout.root)
+        runner = DoltRunner.for_layout(settings, layout)
         provider = _make_provider(settings, layout, target, runner, candidate)
         startup_started = time.monotonic()
         provider.open()
@@ -763,13 +764,13 @@ def _run_locked(
             provider = None
             provider_shutdown = True
             storage_snapshots["base_post_commit_close"] = _quiesced_storage_snapshot(
-                layout.root,
+                layout.repository_root,
                 target,
                 "base_post_commit_close",
                 provider_closed=provider_shutdown,
             )
             provider = _make_provider(
-                settings, layout, target, DoltRunner(settings, layout.root), candidate
+                settings, layout, target, DoltRunner.for_layout(settings, layout), candidate
             )
             provider.open()
             provider_shutdown = False
@@ -787,7 +788,7 @@ def _run_locked(
             provider = None
             provider_shutdown = True
             storage_snapshots["base_post_restart_validation"] = _quiesced_storage_snapshot(
-                layout.root,
+                layout.repository_root,
                 target,
                 "base_post_restart_validation",
                 provider_closed=provider_shutdown,
@@ -803,7 +804,7 @@ def _run_locked(
                 storage_snapshots["base_post_restart_validation"], "allocated_bytes"
             )
             provider = _make_provider(
-                settings, layout, target, DoltRunner(settings, layout.root), candidate
+                settings, layout, target, DoltRunner.for_layout(settings, layout), candidate
             )
             provider.open()
             provider_shutdown = False
@@ -834,13 +835,13 @@ def _run_locked(
             provider = None
             provider_shutdown = True
             storage_snapshots["delta_post_commit_close"] = _quiesced_storage_snapshot(
-                layout.root,
+                layout.repository_root,
                 target,
                 "delta_post_commit_close",
                 provider_closed=provider_shutdown,
             )
             provider = _make_provider(
-                settings, layout, target, DoltRunner(settings, layout.root), candidate
+                settings, layout, target, DoltRunner.for_layout(settings, layout), candidate
             )
             provider.open()
             provider_shutdown = False
@@ -864,7 +865,7 @@ def _run_locked(
             provider = None
             provider_shutdown = True
             storage_snapshots["delta_post_restart_validation"] = _quiesced_storage_snapshot(
-                layout.root,
+                layout.repository_root,
                 target,
                 "delta_post_restart_validation",
                 provider_closed=provider_shutdown,
@@ -902,7 +903,7 @@ def _run_locked(
             if not storage_snapshot_complete:
                 raise ProviderError("W3 storage snapshot lifecycle is incomplete")
             provider = _make_provider(
-                settings, layout, target, DoltRunner(settings, layout.root), candidate
+                settings, layout, target, DoltRunner.for_layout(settings, layout), candidate
             )
             provider.open()
             provider_shutdown = False
@@ -1052,7 +1053,7 @@ def _run_locked(
         provider = None
         provider_shutdown = True
         if base_fixture is None:
-            restart_runner = DoltRunner(settings, layout.root)
+            restart_runner = DoltRunner.for_layout(settings, layout)
             restarted = _make_provider(settings, layout, target, restart_runner, candidate)
             restarted.open()
             provider_shutdown = False
@@ -1066,7 +1067,8 @@ def _run_locked(
             finally:
                 restarted.close()
                 provider_shutdown = True
-            filesystem_quiesce(layout.root)
+            for owned_root in layout.roots.paths():
+                filesystem_quiesce(owned_root)
             logical_after, allocated_after = tree_storage_bytes(target)
             storage_quiesced = True
         else:
@@ -1087,7 +1089,8 @@ def _run_locked(
                 if error is None:
                     error = type(exc).__name__ + ": " + _sanitize_error(str(exc))
         try:
-            filesystem_quiesce(layout.root)
+            for owned_root in layout.roots.paths():
+                filesystem_quiesce(owned_root)
             storage_quiesced = provider_shutdown
         except Exception as exc:
             storage_quiesced = False
@@ -1163,7 +1166,7 @@ def _restart_provider_for_stream(
     replacement: Provider | None = None
     try:
         replacement = _make_provider(
-            settings, layout, target, DoltRunner(settings, layout.root), candidate
+            settings, layout, target, DoltRunner.for_layout(settings, layout), candidate
         )
         replacement.open()
         if replacement.head() != new_commit:
@@ -1209,7 +1212,7 @@ def _run_offline_discard_in_process(
             key = repository_key(repository_id)
             staged = layout.staging_repository(key, uuid4().hex[:12])
             common = OfflineCliProvider(
-                settings, layout, staged, DoltRunner(settings, layout.root)
+                settings, layout, staged, DoltRunner.for_layout(settings, layout)
             )
             common.initialize_repository()
             target = layout.published_repository(key)
@@ -1219,7 +1222,7 @@ def _run_offline_discard_in_process(
                 settings,
                 layout,
                 target,
-                DoltRunner(settings, layout.root),
+                DoltRunner.for_layout(settings, layout),
             )
             try:
                 provider.open()

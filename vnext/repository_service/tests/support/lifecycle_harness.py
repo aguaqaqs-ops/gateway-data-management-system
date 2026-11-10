@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
@@ -13,6 +14,13 @@ def dolt_available(dolt_binary: Path | None = None) -> bool:
     if candidate.is_file():
         return True
     return shutil.which("dolt") is not None
+
+
+def prepare_test_roots(roots: RepositoryRoots) -> RepositoryRoots:
+    """Explicit host-fixture initialization; production startup never creates roots."""
+    for root in roots.paths():
+        root.mkdir(parents=True, exist_ok=True)
+    return roots
 
 
 def lifecycle_settings(
@@ -24,11 +32,15 @@ def lifecycle_settings(
     dolt_binary: Path | None = None,
     dolt_version: str = "2.1.11",
     min_free_disk_bytes: int | None = None,
+    initialize_roots: bool = True,
 ) -> RepositoryServiceSettings:
     data_root = tmp_path / "data-root"
+    roots = RepositoryRoots.under(data_root)
+    if initialize_roots:
+        prepare_test_roots(roots)
     kwargs: dict[str, object] = {
         "profile": profile,
-        "data_root": data_root,
+        "roots": roots,
         "bearer_token": bearer_token,
         "bearer_token_file": bearer_token_file,
         "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),

@@ -342,7 +342,7 @@ def test_recovery_errors_do_not_leak_sensitive_values(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path)
     idempotency_key = "sensitive-create-key"
     token = "test-bearer-token"
-    data_root = str(settings.data_root)
+    data_root = str(settings.storage_roots.metadata.parent)
     crash_create_subprocess(settings, idempotency_key=idempotency_key, point="after_pending")
     runtime = restart_runtime(settings)
     try:

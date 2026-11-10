@@ -552,10 +552,10 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
     from test_import_package import build_package_bytes, write_artifact
 
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = published_repository_path(layout, REPOSITORY_ID)
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     expected_commit = cli.head()
@@ -661,12 +661,12 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
     from gateway_repository_service.process import DoltRunner
     from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
 
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     provider = CandidateAImportProvider(
         settings,
         layout,
         published_repository_path(layout, REPOSITORY_ID),
-        DoltRunner(settings, layout.root),
+        DoltRunner.for_layout(settings, layout),
     )
     assert_replay_audit_table_absent(provider)
 
@@ -694,7 +694,7 @@ def test_crash_after_automatic_replay_increment_preserves_count(tmp_path: Path) 
             settings,
             layout,
             published_repository_path(layout, REPOSITORY_ID),
-            DoltRunner(settings, layout.root),
+            DoltRunner.for_layout(settings, layout),
         )
         assert_replay_audit_table_absent(provider)
     finally:
@@ -717,10 +717,10 @@ def test_subprocess_crash_then_runtime_restart_recovers(tmp_path: Path) -> None:
     from test_import_package import build_package_bytes, write_artifact
 
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = published_repository_path(layout, REPOSITORY_ID)
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     expected_commit = cli.head()
@@ -878,7 +878,7 @@ def test_startup_blocks_when_running_operation_provider_unreadable(tmp_path: Pat
             ),
         )
         store.mutation_store._connection.commit()
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     other_ready = artifact_ready_path(layout, repository_id, other_artifact_id)
     other_ready.parent.mkdir(parents=True, exist_ok=True)
     source_ready = artifact_ready_path(layout, repository_id, artifact_id)

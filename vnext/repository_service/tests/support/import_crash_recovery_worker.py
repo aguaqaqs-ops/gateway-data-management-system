@@ -59,7 +59,7 @@ class _CrashImportWorkerFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=Path(args.data_root),
+        storage_layout_file=Path(args.storage_layout_file),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,
@@ -69,8 +69,8 @@ def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
 def _run_import_worker(args: argparse.Namespace) -> None:
     settings = _settings_from_args(args)
     fault_point = _FAULT_POINTS[args.fault_point]
-    layout = DurableLayout.create_for_probe(settings.data_root)
-    runner = DoltRunner(settings, layout.root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
+    runner = DoltRunner.for_layout(settings, layout)
     control_store = ControlStore.open(
         settings.control_db_path,
         expected_version=CONTROL_DB_USER_VERSION,
@@ -108,7 +108,7 @@ def _run_import_worker(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-root", required=True)
+    parser.add_argument("--storage-layout-file", required=True)
     parser.add_argument("--dolt-binary", default="/usr/local/bin/dolt")
     parser.add_argument("--dolt-version", default="2.1.11")
     parser.add_argument("--repository-id", required=True)

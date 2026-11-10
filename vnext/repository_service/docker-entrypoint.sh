@@ -2,13 +2,11 @@
 # Repository Service entrypoint: prepare server-owned layout then drop to gateway.
 set -eu
 
-DATA_ROOT="${GATEWAY_REPOSITORY_DATA_ROOT:-/var/lib/gateway/repository}"
+LAYOUT_FILE="${GATEWAY_STORAGE_LAYOUT_FILE:?GATEWAY_STORAGE_LAYOUT_FILE is required}"
 GATEWAY_USER="${GATEWAY_REPOSITORY_GATEWAY_USER:-gateway}"
-ARTIFACTS="${DATA_ROOT}/artifacts"
 
 python -m gateway_repository_service.artifact_layout \
-  --data-root "${DATA_ROOT}" \
-  --artifacts "${ARTIFACTS}" \
+  --storage-layout-file "${LAYOUT_FILE}" \
   --gateway-user "${GATEWAY_USER}"
 
 if command -v runuser >/dev/null 2>&1; then

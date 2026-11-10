@@ -21,7 +21,7 @@ from gateway_repository_contracts import (
 from gateway_repository_service.capacity import (
     CapacityAdmissionError,
     assert_durable_root_writable,
-    assert_import_disk_admission,
+    assert_import_layout_admission,
 )
 from gateway_repository_service.create_repository.visibility import is_repository_visible
 from gateway_repository_service.http.errors import ServiceError
@@ -486,7 +486,7 @@ class ImportSubmissionService:
 
         try:
             assert_durable_root_writable(self._layout.service_state)
-            assert_import_disk_admission(self._layout.root, self._settings)
+            assert_import_layout_admission(self._layout, self._settings)
         except CapacityAdmissionError as exc:
             _log_submission_event(
                 "admission-denied",

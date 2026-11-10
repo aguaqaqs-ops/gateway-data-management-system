@@ -178,7 +178,7 @@ class WorkerTestEnvironment:
             bearer_token="token",
         )
         self.settings = self.settings.model_copy(update={"max_import_workers": max_import_workers})
-        self.layout = DurableLayout.create_for_probe(self.settings.data_root)
+        self.layout = DurableLayout.create_for_probe(self.settings.storage_roots)
         db_path = self.settings.control_db_path
         self._control_store = ControlStore.open(
             db_path,

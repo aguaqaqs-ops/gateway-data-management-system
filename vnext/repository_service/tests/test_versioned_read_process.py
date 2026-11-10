@@ -32,11 +32,11 @@ def _wait_until_pid_reaped(pid: int, *, timeout_seconds: float = 2.0) -> None:
 @pytest.fixture
 def dolt_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[DoltRunner, Path]:
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = layout.staging_artifacts / "cancel-repo"
     repository.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(DoltRunner, "_validate_version", lambda self: None)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     runner.run(
         "init",
         [
@@ -66,7 +66,7 @@ def _blocking_sql_query(layout: DurableLayout, rows: int) -> Path:
 def test_process_stream_cancellation_reaps_child(tmp_path: Path, dolt_runner: tuple[DoltRunner, Path]) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 4096)
     cancel = threading.Event()
     started = threading.Event()
@@ -109,7 +109,7 @@ def test_process_stream_cancellation_reaps_child(tmp_path: Path, dolt_runner: tu
 def test_process_stream_cancel_before_start_raises(tmp_path: Path, dolt_runner: tuple[DoltRunner, Path]) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 1)
     with pytest.raises(ProcessStreamCancelledError, match="stream cancelled"):
         stream = runner.stream(
@@ -129,7 +129,7 @@ def test_process_stream_cancel_before_start_raises(tmp_path: Path, dolt_runner: 
 def test_process_stream_close_is_idempotent(tmp_path: Path, dolt_runner: tuple[DoltRunner, Path]) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 4)
     process, _stdin = runner._start(
         "row_stream",
@@ -156,7 +156,7 @@ def test_process_stream_concurrent_close_is_single_cleanup(
 ) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 8)
     process, _stdin = runner._start(
         "row_stream",
@@ -201,7 +201,7 @@ def test_process_stream_close_timed_out_sets_result_flag(
 ) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 4)
     process, _stdin = runner._start(
         "row_stream",
@@ -226,7 +226,7 @@ def test_dolt_runner_stream_close_on_cancel_sends_term(
 ) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 8192)
     signals: list[tuple[int, int]] = []
     original_killpg = os.killpg
@@ -259,7 +259,7 @@ def test_process_stream_callback_exception_still_reaps_child(
 ) -> None:
     runner, repository = dolt_runner
     settings = lifecycle_settings(tmp_path)
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     query = _blocking_sql_query(layout, 4096)
     observed_pid: list[int] = []
 

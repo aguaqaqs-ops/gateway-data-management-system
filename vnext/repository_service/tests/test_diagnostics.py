@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.diagnostics import log_event, operational_limits
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -17,7 +18,7 @@ def test_operational_limits_omit_paths_and_tokens() -> None:
     settings = RepositoryServiceSettings(
         profile="test",
         bearer_token="secret-token-value",
-        data_root=Path("/var/lib/gateway/repository"),
+        roots=RepositoryRoots.under(Path("/var/lib/gateway/repository")),
     )
     limits = operational_limits(settings)
     assert limits["max_concurrent_uploads"] == 8

@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_repository_contracts import encode_commit_id_path_segment
+from support.storage_layout import local_storage_layout
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.locking import DurableRootLock, RootLockBusy
@@ -179,7 +180,7 @@ def test_admin_requires_existing_regular_root_lock(
         if fault == "symlink":
             escaped.touch()
             env.layout.service_lock.symlink_to(escaped)
-        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(env.data_root)))
         assert result.returncode == 4
         assert result.stdout == ""
         assert "Traceback" not in result.stderr
@@ -197,7 +198,7 @@ def test_admin_rejects_symlink_data_root(tmp_path: Path, command: str) -> None:
         env.close()
         linked_root = tmp_path / "linked-root"
         linked_root.symlink_to(env.data_root, target_is_directory=True)
-        result = run_snapshot_admin(command, "--data-root", str(linked_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(linked_root)))
     assert result.returncode == 4
     assert result.stdout == ""
     assert "Traceback" not in result.stderr
@@ -214,7 +215,7 @@ def test_admin_rejects_control_database_symlink(tmp_path: Path, command: str) ->
         db_path.rename(escaped)
         before = escaped.read_bytes()
         db_path.symlink_to(escaped)
-        result = run_snapshot_admin(command, "--data-root", str(env.data_root))
+        result = run_snapshot_admin(command, "--storage-layout-file", str(local_storage_layout(env.data_root)))
     assert result.returncode == 4
     assert result.stdout == ""
     assert "Traceback" not in result.stderr
@@ -376,7 +377,7 @@ CHECK_FAULTS = (
     CheckFault("component_symlink", 4),
     CheckFault("component_cross_root", 4),
     CheckFault("component_missing", 4),
-    CheckFault("optional_component_symlink", 4),
+    CheckFault("configured_root_symlink", 4),
     CheckFault("control_db_missing", 4),
     CheckFault("control_db_garbage", 4),
     CheckFault("control_db_older", 4),
@@ -433,7 +434,7 @@ def _insert_artifact_lifecycle(
 
 
 def _corrupt_published_dolt(data_root: Path, repository_id: UUID) -> None:
-    dolt_dir = data_root / "versioned" / repository_id.hex / ".dolt"
+    dolt_dir = data_root / "repository" / "versioned" / repository_id.hex / ".dolt"
     files = [path for path in dolt_dir.rglob("*") if path.is_file()]
     for path in files:
         path.write_bytes(b"corrupt")
@@ -476,8 +477,9 @@ def _apply_non_dolt_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fa
         env.close()
         env.layout.provider.rmdir()
         return
-    if fault == "optional_component_symlink":
+    if fault == "configured_root_symlink":
         env.close()
+        env.layout.artifacts.rmdir()
         env.layout.artifacts.symlink_to(tmp_path / "escaped-artifacts", target_is_directory=True)
         return
     if fault == "control_db_missing":
@@ -595,7 +597,7 @@ def test_check_passes_empty_initialized_root(tmp_path: Path) -> None:
     assert result.stdout.count("\n") == 1
     assert not wal_path.exists()
     assert not shm_path.exists()
-    assert not snapshot_check_temp_homes()
+    assert not snapshot_check_temp_homes(env.layout.scratch_root)
 
 
 @pytest.mark.integration
@@ -624,7 +626,7 @@ def test_dolt_initialization_failure_is_redacted_content_error(tmp_path: Path) -
     assert result.stderr.strip() == "registered repository is unreadable"
     assert "Traceback" not in result.stderr
     assert str(tmp_path) not in result.stderr
-    assert not snapshot_check_temp_homes()
+    assert not snapshot_check_temp_homes(env.layout.scratch_root)
 
 
 @pytest.mark.integration
@@ -662,7 +664,7 @@ def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) 
         fake_dolt.chmod(0o755)
         process = subprocess.Popen(
             [
-                *snapshot_admin_command("check", "--data-root", str(env.data_root)),
+                *snapshot_admin_command("check", "--storage-layout-file", str(local_storage_layout(env.data_root))),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -676,6 +678,7 @@ def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) 
             time.sleep(0.01)
         assert marker.exists()
         child_pid = int(marker.read_text(encoding="utf-8"))
+        assert len(snapshot_check_temp_homes(env.layout.scratch_root)) == 1
         process.send_signal(signal.SIGTERM)
         stdout, stderr = process.communicate(timeout=5.0)
 
@@ -685,7 +688,7 @@ def test_signal_during_dolt_check_reaps_child_and_releases_lock(tmp_path: Path) 
     assert not Path(f"/proc/{child_pid}").exists()
     with DurableRootLock(env.layout.service_lock):
         pass
-    assert not snapshot_check_temp_homes()
+    assert not snapshot_check_temp_homes(env.layout.scratch_root)
 
 
 @pytest.mark.integration
@@ -741,8 +744,8 @@ def test_check_passes_valid_whole_root(tmp_path: Path) -> None:
         )
         assert uploaded.status_code == 201
         artifact_id = UUID(uploaded.json()["artifact_ref"]["artifact_id"])
-    before_temps = snapshot_check_temp_homes()
-    result = run_check(settings.data_root)
+    before_temps = snapshot_check_temp_homes(settings.storage_roots.scratch)
+    result = run_check(settings.storage_roots.metadata.parent)
     assert result.returncode == 0, result.stderr
     parsed = json.loads(result.stdout)
     assert_safe_passed_json(parsed, result.stdout.strip())
@@ -751,9 +754,9 @@ def test_check_passes_valid_whole_root(tmp_path: Path) -> None:
     assert str(first) not in result.stdout
     assert str(second) not in result.stdout
     assert str(artifact_id) not in result.stdout
-    assert str(settings.data_root) not in result.stdout
-    assert snapshot_check_temp_homes() == before_temps
-    assert snapshot_query_temps(settings.data_root) == []
+    assert str(settings.storage_roots.metadata.parent) not in result.stdout
+    assert snapshot_check_temp_homes(settings.storage_roots.scratch) == before_temps
+    assert snapshot_query_temps(settings.storage_roots.metadata.parent) == []
 
 
 @pytest.mark.integration
@@ -764,7 +767,7 @@ def test_running_service_makes_check_fail_before_provider(tmp_path: Path) -> Non
         ready = client.get("/readyz")
         assert ready.status_code == 200
         before = list_dolt_pids()
-        result = run_check(settings.data_root)
+        result = run_check(settings.storage_roots.metadata.parent)
         after = list_dolt_pids()
     assert result.returncode == 3
     assert result.stdout == ""
@@ -786,17 +789,17 @@ def test_multi_repository_check_does_not_omit_and_hides_paths(
         second = create_repository(client, idempotency_key="check-multi-two")
         first_hex = first.hex
         second_hex = second.hex
-    _corrupt_published_dolt(settings.data_root, second)
-    before_temps = snapshot_check_temp_homes()
-    result = run_check(settings.data_root)
+    _corrupt_published_dolt(settings.storage_roots.metadata.parent, second)
+    before_temps = snapshot_check_temp_homes(settings.storage_roots.scratch)
+    result = run_check(settings.storage_roots.metadata.parent)
     assert result.returncode == fault.exit_code
     assert result.stdout == ""
     assert "passed" not in result.stdout
     assert first_hex not in result.stderr
     assert second_hex not in result.stderr
-    assert str(settings.data_root) not in result.stderr
+    assert str(settings.storage_roots.metadata.parent) not in result.stderr
     assert "Traceback" not in result.stderr
-    assert snapshot_check_temp_homes() == before_temps
+    assert snapshot_check_temp_homes(settings.storage_roots.scratch) == before_temps
 
 
 @pytest.mark.integration
@@ -821,7 +824,7 @@ def test_check_does_not_mutate_business_files_schema_or_head(tmp_path: Path) -> 
         )
         assert uploaded.status_code == 201
         artifact_id = UUID(uploaded.json()["artifact_ref"]["artifact_id"])
-    ready_path = settings.data_root / "artifacts" / repository_id.hex / "ready" / artifact_id.hex
+    ready_path = settings.storage_roots.metadata.parent / "artifacts" / repository_id.hex / "ready" / artifact_id.hex
     before_db = settings.control_db_path.read_bytes()
     before_artifact = ready_path.read_bytes()
     connection = sqlite3.connect(settings.control_db_path)
@@ -829,7 +832,7 @@ def test_check_does_not_mutate_business_files_schema_or_head(tmp_path: Path) -> 
         before_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     finally:
         connection.close()
-    result = run_check(settings.data_root)
+    result = run_check(settings.storage_roots.metadata.parent)
     assert result.returncode == 0, result.stderr
     payload_json = json.loads(result.stdout)
     assert_safe_passed_json(payload_json, result.stdout.strip())
@@ -860,13 +863,13 @@ def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> Non
     settings = lifecycle_settings(tmp_path)
     with TestClient(create_app(settings)) as client:
         repository_id = create_repository(client, idempotency_key="check-reap")
-    _corrupt_published_dolt(settings.data_root, repository_id)
-    before_temps = snapshot_check_temp_homes()
-    result = run_check(settings.data_root)
+    _corrupt_published_dolt(settings.storage_roots.metadata.parent, repository_id)
+    before_temps = snapshot_check_temp_homes(settings.storage_roots.scratch)
+    result = run_check(settings.storage_roots.metadata.parent)
     assert result.returncode == 6
     assert result.stdout == ""
-    assert snapshot_check_temp_homes() == before_temps
-    staging_artifacts = settings.data_root / "staging" / "artifacts"
+    assert snapshot_check_temp_homes(settings.storage_roots.scratch) == before_temps
+    staging_artifacts = settings.storage_roots.scratch / "query"
     assert not staging_artifacts.exists() or not list(staging_artifacts.glob("query-*.sql"))
 
 
@@ -997,10 +1000,10 @@ def _apply_incomplete_restore(archive: Path, dest: Path, shape: str) -> None:
     assert_empty_restore_target(dest)
     if shape == "sqlite_only":
         dest.mkdir(parents=True)
-        service_state = dest / "service-state"
-        service_state.mkdir()
+        service_state = dest / "metadata" / "service-state"
+        service_state.mkdir(parents=True)
         copied = 0
-        for path in (archive / "service-state").iterdir():
+        for path in (archive / "metadata" / "service-state").iterdir():
             if path.name.startswith("repository-service.sqlite3"):
                 shutil.copy2(path, service_state / path.name)
                 copied += 1
@@ -1008,11 +1011,11 @@ def _apply_incomplete_restore(archive: Path, dest: Path, shape: str) -> None:
         return
     if shape == "partial_component":
         shutil.copytree(archive, dest, symlinks=True)
-        shutil.rmtree(dest / "control")
+        shutil.rmtree(dest / "metadata" / "control")
         return
     if shape == "single_dolt":
         shutil.copytree(archive, dest, symlinks=True)
-        published = sorted(path for path in (dest / "versioned").iterdir() if path.is_dir())
+        published = sorted(path for path in (dest / "repository" / "versioned").iterdir() if path.is_dir())
         assert len(published) >= 2
         shutil.rmtree(published[-1])
         return
@@ -1043,7 +1046,7 @@ def test_restore_procedure_rejects_live_root(tmp_path: Path) -> None:
     with TestClient(create_app(settings)) as client:
         assert client.get("/readyz").status_code == 200
         with pytest.raises(RestoreProcedureError, match="live"):
-            copy_whole_root(archive, settings.data_root)
+            copy_whole_root(archive, settings.storage_roots.metadata.parent)
 
 
 @pytest.mark.integration
@@ -1077,7 +1080,7 @@ def test_incomplete_restore_copy_fails_check_with_dolt(
         create_repository(client, idempotency_key="restore-one")
         create_repository(client, idempotency_key="restore-two")
     archive = tmp_path / "archive"
-    _snapshot_archive_while_held(settings.data_root, archive)
+    _snapshot_archive_while_held(settings.storage_roots.metadata.parent, archive)
     before = _file_digests(archive)
     dest = tmp_path / "restore" / "data-root"
     _apply_incomplete_restore(archive, dest, shape.name)
@@ -1096,7 +1099,7 @@ def test_incomplete_restore_copy_fails_check_with_dolt(
 def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
     settings = lifecycle_settings(tmp_path / "src")
     payload = build_import_package_bytes()
-    before_temps = snapshot_check_temp_homes()
+    before_temps = snapshot_check_temp_homes(settings.storage_roots.scratch)
     before_pids = list_dolt_pids()
     with TestClient(create_app(settings)) as client:
         created = client.post(
@@ -1119,7 +1122,7 @@ def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
         assert _records_row_count(snapshot_facts["catalog"]) == 1
 
     archive = tmp_path / "archive"
-    _snapshot_archive_while_held(settings.data_root, archive)
+    _snapshot_archive_while_held(settings.storage_roots.metadata.parent, archive)
 
     with TestClient(create_app(settings)) as client:
         mutated = create_repository(client, idempotency_key="restore-mutation")
@@ -1129,9 +1132,9 @@ def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
         )
         assert mutation_ref.status_code == 200
 
-    restore_settings = lifecycle_settings(tmp_path / "restore")
-    copy_whole_root(archive, restore_settings.data_root)
-    result = run_check(restore_settings.data_root)
+    restore_settings = lifecycle_settings(tmp_path / "restore", initialize_roots=False)
+    copy_whole_root(archive, restore_settings.storage_roots.metadata.parent)
+    result = run_check(restore_settings.storage_roots.metadata.parent)
     assert result.returncode == 0, result.stderr
     parsed = json.loads(result.stdout)
     assert_safe_passed_json(parsed, result.stdout.strip())
@@ -1150,6 +1153,7 @@ def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
     while time.monotonic() < deadline and list_dolt_pids() - before_pids:
         time.sleep(0.05)
     assert not (list_dolt_pids() - before_pids)
-    assert snapshot_check_temp_homes() == before_temps
-    assert snapshot_query_temps(settings.data_root) == []
-    assert snapshot_query_temps(restore_settings.data_root) == []
+    assert snapshot_check_temp_homes(settings.storage_roots.scratch) == before_temps
+    assert snapshot_query_temps(settings.storage_roots.metadata.parent) == []
+    assert not snapshot_check_temp_homes(restore_settings.storage_roots.scratch)
+    assert snapshot_query_temps(restore_settings.storage_roots.metadata.parent) == []

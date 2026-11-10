@@ -21,6 +21,7 @@ from typing import BinaryIO, Callable, Iterator, Literal, Self
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 StreamCancellationCheck = Callable[[], bool]
@@ -1142,9 +1143,11 @@ class DoltRunner:
         *,
         home: Path | None = None,
         tmpdir: Path | None = None,
+        cwd_roots: tuple[Path, ...] | None = None,
     ) -> None:
         self.settings = settings
         self.server_root = server_root.resolve()
+        self.cwd_roots = tuple(path.resolve() for path in (cwd_roots or (server_root,)))
         self.home = (home if home is not None else self.server_root / "provider" / "runner-home").resolve()
         self.tmpdir = (tmpdir if tmpdir is not None else self.server_root / "provider").resolve()
         self.home.mkdir(parents=True, exist_ok=True)
@@ -1152,6 +1155,16 @@ class DoltRunner:
         self._active_children = ActiveChildRegistry()
         self._seed_private_dolt_config()
         self._validate_version()
+
+    @classmethod
+    def for_layout(
+        cls, settings: RepositoryServiceSettings, layout: DurableLayout, *,
+        home: Path | None = None, tmpdir: Path | None = None,
+    ) -> DoltRunner:
+        return cls(settings, layout.metadata_root,
+            home=home if home is not None else layout.provider / "runner-home",
+            tmpdir=tmpdir if tmpdir is not None else layout.provider_scratch,
+            cwd_roots=layout.roots.paths())
 
     def terminate_active_children(self, grace_seconds: float | None = None) -> None:
         grace = grace_seconds if grace_seconds is not None else self.settings.terminate_grace_seconds
@@ -1194,7 +1207,7 @@ class DoltRunner:
         result = self.run(
             "version",
             ["version"],
-            cwd=self.server_root / "versioned",
+            cwd=self.server_root,
             timeout=self.settings.metadata_timeout_seconds,
             capture_stdout=True,
         )
@@ -1298,7 +1311,7 @@ class DoltRunner:
         owner: object | None = None,
     ) -> tuple[subprocess.Popen[bytes], BinaryIO | None]:
         resolved_cwd = cwd.resolve()
-        if not resolved_cwd.is_relative_to(self.server_root):
+        if not any(resolved_cwd.is_relative_to(root) for root in getattr(self, "cwd_roots", (self.server_root,))):
             raise ProcessBoundaryError("child cwd is outside the server-owned root")
         if not resolved_cwd.is_dir():
             raise ProcessBoundaryError("child cwd is not a directory")

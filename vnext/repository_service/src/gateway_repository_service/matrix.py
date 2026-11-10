@@ -1029,7 +1029,7 @@ def _resolve_probe_data_root(
 
     probe_root = data_root
     if probe_root is None and target_container:
-        probe_root = settings.data_root
+        probe_root = settings.storage_roots.repository.parent
     if probe_root is None:
         return None
     if target_container:

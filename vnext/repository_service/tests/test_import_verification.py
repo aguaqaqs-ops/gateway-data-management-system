@@ -69,15 +69,15 @@ UNKNOWN_NOT_NULL_ARROW_FIELD = pa.field(
 @pytest.fixture
 def import_layout(tmp_path: Path) -> DurableLayout:
     settings = lifecycle_settings(tmp_path)
-    return DurableLayout.create_for_probe(settings.data_root)
+    return DurableLayout.create_for_probe(settings.storage_roots)
 
 
 @pytest.fixture
 def import_provider(import_layout: DurableLayout) -> CandidateAImportProvider:
-    settings = lifecycle_settings(import_layout.root.parent)
+    settings = lifecycle_settings(import_layout.metadata_root.parent)
     repository = import_layout.staging_artifacts / "import-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, import_layout.root)
+    runner = DoltRunner.for_layout(settings, import_layout)
     cli = OfflineCliProvider(settings, import_layout, repository, runner)
     cli.initialize_repository()
     return CandidateAImportProvider(settings, import_layout, repository, runner)
@@ -720,7 +720,7 @@ def test_full_scan_reuses_one_plan_in_candidate_a_stream(tmp_path: Path) -> None
         "0,1",
         "0,2",
     ]
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "stream-repo"
     repository.mkdir(parents=True, exist_ok=True)
@@ -800,7 +800,7 @@ def test_full_scan_reject_maps_each_column_once_and_reuses_plan(
         "0,3,1,",
         "0,4,0,1",
     ]
-    layout = DurableLayout.create(tmp_path / "root")
+    layout = DurableLayout.create_for_probe(tmp_path / "root")
     settings = RepositoryServiceSettings()
     repository = layout.staging_artifacts / "stream-repo"
     repository.mkdir(parents=True, exist_ok=True)

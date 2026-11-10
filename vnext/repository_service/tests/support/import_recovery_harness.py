@@ -10,6 +10,8 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from gateway_repository_contracts import OperationStatus, RepositoryArtifactRef, UnknownTypePolicy, VerificationPolicy
+from support.storage_layout import write_storage_layout
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
@@ -57,8 +59,8 @@ def crash_import_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         _worker_command(
-            "--data-root",
-            str(settings.data_root),
+            "--storage-layout-file",
+            str(write_storage_layout(settings.storage_roots)),
             "--dolt-binary",
             str(settings.dolt_binary),
             "--dolt-version",
@@ -111,8 +113,8 @@ def crash_recovery_reconcile_subprocess(
         [
             sys.executable,
             str(_RECOVERY_WORKER),
-            "--data-root",
-            str(settings.data_root),
+            "--storage-layout-file",
+            str(write_storage_layout(settings.storage_roots)),
             "--dolt-binary",
             str(settings.dolt_binary),
             "--dolt-version",
@@ -141,15 +143,18 @@ def seed_queued_dolt_import(
     artifact_id: UUID | None = None,
     operation_id: UUID | None = None,
     key: str = "dolt-crash",
+    roots: RepositoryRoots | None = None,
 ) -> tuple[RepositoryServiceSettings, UUID, UUID, UUID, str]:
     settings = lifecycle_settings(tmp_path)
+    if roots is not None:
+        settings = settings.model_copy(update={"roots": roots})
     resolved_repository_id = repository_id or uuid4()
     resolved_artifact_id = artifact_id or uuid4()
     resolved_operation_id = operation_id or uuid4()
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repository = published_repository_path(layout, resolved_repository_id)
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     cli = OfflineCliProvider(settings, layout, repository, runner)
     cli.initialize_repository()
     expected_commit = cli.head()

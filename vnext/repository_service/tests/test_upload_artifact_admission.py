@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.capacity import (
     CapacityAdmissionError,
     assert_upload_disk_admission,
@@ -18,7 +19,7 @@ from gateway_repository_service.settings import RepositoryServiceSettings
 def _settings(tmp_path: Path, *, min_free_disk_bytes: int = 1_000) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=tmp_path / "data-root",
+        roots=RepositoryRoots.under(tmp_path / "data-root"),
         min_free_disk_bytes=min_free_disk_bytes,
         min_free_disk_fraction=0.10,
     )
@@ -32,7 +33,7 @@ def test_upload_disk_admission_passes_on_equality_boundary(tmp_path: Path) -> No
     statvfs = type(
         "StatVfs",
         (),
-        {"f_frsize": 1, "f_bavail": free_bytes, "f_blocks": 10_000},
+        {"f_files": 1000, "f_favail": 1000, "f_frsize": 1, "f_bavail": free_bytes, "f_blocks": 10_000},
     )()
     with patch("gateway_repository_service.capacity.os.statvfs", return_value=statvfs):
         admission = measure_upload_disk_admission(
@@ -54,7 +55,7 @@ def test_upload_disk_admission_rejects_one_byte_below_threshold(tmp_path: Path) 
     statvfs = type(
         "StatVfs",
         (),
-        {"f_frsize": 1, "f_bavail": free_bytes, "f_blocks": 10_000},
+        {"f_files": 1000, "f_favail": 1000, "f_frsize": 1, "f_bavail": free_bytes, "f_blocks": 10_000},
     )()
     with patch("gateway_repository_service.capacity.os.statvfs", return_value=statvfs):
         admission = measure_upload_disk_admission(
@@ -70,7 +71,7 @@ def test_upload_disk_admission_rejects_one_byte_below_threshold(tmp_path: Path) 
 def test_upload_disk_admission_uses_fraction_and_min_bytes(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=tmp_path / "data-root",
+        roots=RepositoryRoots.under(tmp_path / "data-root"),
         min_free_disk_bytes=5_000,
         min_free_disk_fraction=0.10,
     )
@@ -80,7 +81,7 @@ def test_upload_disk_admission_uses_fraction_and_min_bytes(tmp_path: Path) -> No
         return_value=type(
             "StatVfs",
             (),
-            {"f_frsize": 1, "f_bavail": 4_999, "f_blocks": 10_000},
+            {"f_files": 1000, "f_favail": 1000, "f_frsize": 1, "f_bavail": 4_999, "f_blocks": 10_000},
         )(),
     ):
         admission = measure_upload_disk_admission(tmp_path, settings, declared_size=declared_size)

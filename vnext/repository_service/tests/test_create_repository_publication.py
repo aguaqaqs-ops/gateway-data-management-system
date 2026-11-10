@@ -41,7 +41,7 @@ def test_create_repository_publication_fault_is_fail_closed(tmp_path: Path) -> N
         with pytest.raises(RuntimeError, match="fault injected before publication rename"):
             command.execute("fault-before-rename")
 
-        published_dirs = list((settings.data_root / "versioned").iterdir())
+        published_dirs = list((settings.storage_roots.repository / "versioned").iterdir())
         assert published_dirs == []
     finally:
         runtime.shutdown()

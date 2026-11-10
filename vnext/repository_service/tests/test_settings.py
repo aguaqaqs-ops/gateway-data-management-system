@@ -3,24 +3,28 @@ import logging
 
 import pytest
 
+from support.lifecycle_harness import prepare_test_roots
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 from support.control_db_harness import locked_control_connection
 
 
-def test_repository_data_root_is_local_to_service() -> None:
-    assert RepositoryServiceSettings().data_root.name == "repository"
+def test_runtime_storage_requires_explicit_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GATEWAY_STORAGE_LAYOUT_FILE", raising=False)
+    with pytest.raises(SettingsError, match="GATEWAY_STORAGE_LAYOUT_FILE is required"):
+        _ = RepositoryServiceSettings().control_db_path
 
 
 def test_default_profile_is_production(tmp_path: Path) -> None:
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"))
     assert settings.profile == "production"
 
 
 def test_env_token_without_explicit_profile_requires_production_file(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings(
-        data_root=tmp_path / "root",
+        roots=RepositoryRoots.under(tmp_path / "root"),
         bearer_token="env-only-token",
     )
     with pytest.raises(SettingsError, match="production bearer token file is required"):
@@ -28,19 +32,19 @@ def test_env_token_without_explicit_profile_requires_production_file(tmp_path: P
 
 
 def test_control_db_path_is_under_service_state(tmp_path: Path) -> None:
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
-    assert settings.control_db_path == tmp_path / "root" / "service-state" / "repository-service.sqlite3"
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"))
+    assert settings.control_db_path == settings.storage_roots.metadata / "service-state" / "repository-service.sqlite3"
 
 
 def test_test_profile_requires_bearer_token(tmp_path: Path) -> None:
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root", profile="test")
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), profile="test")
     with pytest.raises(SettingsError):
         settings.resolve_bearer_token()
 
 
 def test_settings_str_redacts_bearer_token_for_logging(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     settings = RepositoryServiceSettings(
-        data_root=tmp_path / "root",
+        roots=RepositoryRoots.under(tmp_path / "root"),
         profile="test",
         bearer_token="logging-secret-token",
     )
@@ -84,7 +88,7 @@ def test_default_upload_and_ttl_settings() -> None:
 def test_max_import_workers_rejects_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):
-        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+        RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), **kwargs)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -99,12 +103,12 @@ def test_max_import_workers_rejects_zero(tmp_path: Path, field: str) -> None:
 def test_operational_bounds_reject_negative(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: -1}
     with pytest.raises(ValueError):
-        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+        RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), **kwargs)  # type: ignore[arg-type]
 
 
 def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root", profile="test", bearer_token="token")
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), profile="test", bearer_token="token")
     assert not hasattr(settings, "control_db_user_version")
     assert CONTROL_DB_USER_VERSION == 16
 
@@ -124,20 +128,20 @@ def test_control_db_user_version_is_not_configurable(tmp_path: Path, monkeypatch
 def test_positive_bounds_reject_zero(tmp_path: Path, field: str) -> None:
     kwargs: dict[str, int] = {field: 0}
     with pytest.raises(ValueError):
-        RepositoryServiceSettings(data_root=tmp_path / "root", **kwargs)  # type: ignore[arg-type]
+        RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), **kwargs)  # type: ignore[arg-type]
 
 
 def test_import_headroom_bytes_rejects_non_positive(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        RepositoryServiceSettings(data_root=tmp_path / "root", import_headroom_bytes=-1)
+        RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), import_headroom_bytes=-1)
     with pytest.raises(ValueError):
-        RepositoryServiceSettings(data_root=tmp_path / "root", import_headroom_bytes=0)
+        RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"), import_headroom_bytes=0)
 
 
 def test_import_queue_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS", "32")
     monkeypatch.setenv("GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES", "2048")
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"))
     assert settings.max_queued_imports == 32
     assert settings.import_headroom_bytes == 2048
 
@@ -147,7 +151,7 @@ def test_operational_admission_settings_from_env(tmp_path: Path, monkeypatch: py
     monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_CONCURRENT_UPLOADS", "3")
     monkeypatch.setenv("GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS", "2")
     monkeypatch.setenv("GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS", "900")
-    settings = RepositoryServiceSettings(data_root=tmp_path / "root")
+    settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"))
     assert settings.artifact_cleanup_interval_seconds == 120
     assert settings.max_concurrent_uploads == 3
     assert settings.max_concurrent_row_streams == 2
@@ -158,11 +162,12 @@ def test_operational_admission_settings_from_env(tmp_path: Path, monkeypatch: py
 def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GATEWAY_REPOSITORY_CONTROL_DB_USER_VERSION", "1")
     settings = RepositoryServiceSettings(
-        data_root=tmp_path / "root",
+        roots=RepositoryRoots.under(tmp_path / "root"),
         profile="test",
         bearer_token="token",
         dolt_binary=Path("/usr/local/bin/dolt"),
     )
+    prepare_test_roots(settings.storage_roots)
     runtime = ServiceRuntime.start(settings)
     try:
         with locked_control_connection(runtime.control_store) as connection:
@@ -170,3 +175,13 @@ def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: 
         assert int(version[0]) == CONTROL_DB_USER_VERSION
     finally:
         runtime.shutdown()
+
+
+def test_deployment_storage_file_selects_all_rs_roots(tmp_path: Path) -> None:
+    from support.storage_layout import write_storage_layout
+
+    roots = RepositoryRoots.under(tmp_path)
+    layout_file = write_storage_layout(roots)
+    settings = RepositoryServiceSettings(storage_layout_file=layout_file)
+    assert settings.storage_roots == roots
+    assert settings.control_db_path == roots.metadata / "service-state/repository-service.sqlite3"

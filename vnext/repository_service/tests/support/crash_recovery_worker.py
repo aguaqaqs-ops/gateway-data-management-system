@@ -151,7 +151,7 @@ class _UploadBody:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        data_root=Path(args.data_root),
+        storage_layout_file=Path(args.storage_layout_file),
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,
@@ -207,7 +207,7 @@ async def _run_upload(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-root", required=True)
+    parser.add_argument("--storage-layout-file", required=True)
     parser.add_argument("--dolt-binary", default="/usr/local/bin/dolt")
     parser.add_argument("--dolt-version", default="2.1.11")
     parser.add_argument("--mode", choices=("setup_create", "crash_create", "crash_upload"), required=True)

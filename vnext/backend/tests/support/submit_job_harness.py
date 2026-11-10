@@ -408,7 +408,7 @@ def _start_inprocess_repository_service(
                     client = RepositoryServiceClient(
                         base_url=base_url,
                         bearer_token=bearer_token,
-                        data_root=settings.data_root,
+                        data_root=settings.storage_roots.metadata.parent,
                     )
                     client._runtime = runtime
                     client._server = server

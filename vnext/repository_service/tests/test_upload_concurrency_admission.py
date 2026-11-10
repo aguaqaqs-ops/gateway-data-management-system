@@ -12,6 +12,8 @@ from uuid import uuid4
 import pytest
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadRequestHeaders
+from support.lifecycle_harness import prepare_test_roots
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.admission import InflightKeyGate, PermitPool
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.layout import DurableLayout
@@ -30,7 +32,7 @@ def _settings(tmp_path: Path) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
         bearer_token="test-token",
-        data_root=tmp_path / "data-root",
+        roots=prepare_test_roots(RepositoryRoots.under(tmp_path / "data-root")),
         max_concurrent_uploads=8,
         min_free_disk_bytes=1,
         min_free_disk_fraction=0.01,
@@ -53,7 +55,7 @@ def _command(
     store: MutationStore | MagicMock | None = None,
     inflight: InflightKeyGate | None = None,
 ) -> UploadArtifactCommand:
-    layout = DurableLayout.create_service(settings.data_root)
+    layout = DurableLayout.create_service(settings.storage_roots)
     return UploadArtifactCommand(
         settings=settings,
         layout=layout,

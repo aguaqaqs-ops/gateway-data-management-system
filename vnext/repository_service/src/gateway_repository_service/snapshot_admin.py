@@ -2,8 +2,8 @@
 
 Invocation (operator/runbook, not a public API):
 
-    python -m gateway_repository_service.snapshot_admin hold [--data-root PATH]
-    python -m gateway_repository_service.snapshot_admin check [--data-root PATH]
+    python -m gateway_repository_service.snapshot_admin hold [--storage-layout-file PATH]
+    python -m gateway_repository_service.snapshot_admin check [--storage-layout-file PATH]
 
 ``hold`` binds an existing durable root, takes the exclusive root lock, runs
 ``PRAGMA wal_checkpoint(TRUNCATE)``, flushes one machine-readable ready JSON
@@ -46,6 +46,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+from gateway_repository_service.artifact_root import open_dir_nofollow, same_mount
 from gateway_repository_service.artifact_retention import (
     decide_artifact_bytes_deletion,
     retention_explains_missing_ready_bytes,
@@ -64,7 +65,7 @@ from gateway_repository_service.mutation_store import (
     MutationStoreInvariantError,
 )
 from gateway_repository_service.process import DoltRunner, ProcessBoundaryError
-from gateway_repository_service.settings import RepositoryServiceSettings
+from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     open_owned_ready_artifact,
@@ -82,14 +83,6 @@ EXIT_LAYOUT_OR_CONTROL_DB = 4
 EXIT_CHECKPOINT = 5
 EXIT_CONTENT = 6
 
-_REQUIRED_EXISTING_COMPONENTS = (
-    "control",
-    "versioned",
-    "staging",
-    "service_state",
-    "provider",
-)
-_OPTIONAL_EXISTING_COMPONENTS = ("artifacts",)
 _HEAD_PROBE_SQL = "SELECT HASHOF('main') AS commit_id;\n"
 
 
@@ -134,40 +127,31 @@ def _assert_existing_regular_file(path: Path, *, root: Path, label: str) -> None
         raise LayoutError(f"{label} is unavailable") from exc
     if not resolved.is_relative_to(root):
         raise LayoutError(f"{label} escapes the durable root")
+    descriptor = root_fd = -1
+    try:
+        root_fd = open_dir_nofollow(root)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        if not same_mount(root_fd, descriptor):
+            raise LayoutError(f"{label} crosses its metadata mount")
+    except OSError as exc:
+        raise LayoutError(f"{label} is unavailable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if root_fd >= 0:
+            os.close(root_fd)
 
 
 def _assert_root_containment(layout: DurableLayout) -> None:
-    root = layout.root
-    try:
-        root_device = root.stat().st_dev
-    except OSError as exc:
-        raise LayoutError("data root is unavailable") from exc
-    for attribute in _REQUIRED_EXISTING_COMPONENTS:
-        path = getattr(layout, attribute)
-        metadata = _assert_existing_directory(path, root=root, label="layout component")
-        if metadata.st_dev != root_device:
-            raise LayoutError("publication components must share one filesystem")
-
-    for attribute in _OPTIONAL_EXISTING_COMPONENTS:
-        path = getattr(layout, attribute)
-        try:
-            path.lstat()
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            raise LayoutError("layout component is unavailable") from exc
-        metadata = _assert_existing_directory(path, root=root, label="layout component")
-        if metadata.st_dev != root_device:
-            raise LayoutError("publication components must share one filesystem")
-
-    marker = layout.layout_marker
-    _assert_existing_regular_file(marker, root=root, label="control layout marker")
+    layout.validate_components()
+    _assert_existing_regular_file(layout.layout_marker, root=layout.metadata_root,
+        label="control layout marker")
 
 
 def _assert_root_lock_file(layout: DurableLayout) -> None:
     _assert_existing_regular_file(
         layout.service_lock,
-        root=layout.root,
+        root=layout.metadata_root,
         label="durable root lock",
     )
 
@@ -180,7 +164,7 @@ def _assert_control_database_files(
 ) -> None:
     _assert_existing_regular_file(
         settings.control_db_path,
-        root=layout.root,
+        root=layout.metadata_root,
         label="control database",
     )
     for suffix in ("-wal", "-shm"):
@@ -193,7 +177,7 @@ def _assert_control_database_files(
             raise LayoutError("control database sidecar is unavailable") from exc
         _assert_existing_regular_file(
             path,
-            root=layout.root,
+            root=layout.metadata_root,
             label="control database sidecar",
         )
         if suffix == "-wal" and require_quiescent_wal and path.stat().st_size != 0:
@@ -201,35 +185,12 @@ def _assert_control_database_files(
 
 
 def _bind_snapshot_layout(settings: RepositoryServiceSettings) -> DurableLayout:
-    configured_root = settings.data_root.expanduser()
     try:
-        root_metadata = configured_root.lstat()
-    except OSError as exc:
-        raise LayoutError("data root does not exist") from exc
-    if stat.S_ISLNK(root_metadata.st_mode):
-        raise LayoutError("data root is a symlink")
-    if not stat.S_ISDIR(root_metadata.st_mode):
-        raise LayoutError("data root is not a directory")
-    try:
-        data_root = configured_root.resolve(strict=True)
-    except OSError as exc:
-        raise LayoutError("data root does not exist") from exc
-
-    # Reject a redirected control component/marker before bind_existing reads
-    # the marker. The operator may inspect only server-owned paths in this root.
-    _assert_existing_directory(data_root / "control", root=data_root, label="control layout")
-    _assert_existing_regular_file(
-        data_root / "control" / "layout.json",
-        root=data_root,
-        label="control layout marker",
-    )
-    layout = DurableLayout.bind_existing(data_root)
-    _assert_root_containment(layout)
-    try:
-        layout.assert_same_filesystem()
-    except RuntimeError as exc:
-        raise LayoutError("publication components must share one filesystem") from exc
-    return layout
+        layout = DurableLayout.bind_existing(settings.storage_roots)
+        _assert_root_containment(layout)
+        return layout
+    except (OSError, ValueError, SettingsError) as exc:
+        raise LayoutError("storage configuration is unavailable or invalid") from exc
 
 
 def _open_control_store(settings: RepositoryServiceSettings) -> ControlStore:
@@ -394,7 +355,7 @@ def _assert_published_repository(layout: DurableLayout, repository_id: UUID) -> 
         resolved = published.resolve()
     except OSError as exc:
         raise SnapshotContentError("registered repository is unreadable") from exc
-    if not resolved.is_relative_to(layout.root):
+    if not resolved.is_relative_to(layout.versioned):
         raise SnapshotContentError("registered repository is unreadable")
     dolt_dir = published / ".dolt"
     try:
@@ -444,7 +405,7 @@ def _probe_registered_repositories(
     published_paths = [_assert_published_repository(layout, repository_id) for repository_id in repository_ids]
     if not published_paths:
         return 0
-    with tempfile.TemporaryDirectory(prefix="snapshot-check-dolt-") as temp:
+    with tempfile.TemporaryDirectory(prefix="snapshot-check-dolt-", dir=layout.scratch_root) as temp:
         home = Path(temp) / "home"
         tmpdir = Path(temp) / "tmp"
         home.mkdir()
@@ -454,7 +415,7 @@ def _probe_registered_repositories(
         runner: DoltRunner | None = None
         try:
             try:
-                runner = DoltRunner(settings, layout.root, home=home, tmpdir=tmpdir)
+                runner = DoltRunner.for_layout(settings, layout, home=home, tmpdir=tmpdir)
             except (ProcessBoundaryError, OSError) as exc:
                 raise SnapshotContentError("registered repository is unreadable") from exc
             for published in published_paths:
@@ -669,14 +630,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     hold_parser = subparsers.add_parser("hold")
-    hold_parser.add_argument("--data-root", type=Path)
+    hold_parser.add_argument("--storage-layout-file", type=Path)
     check_parser = subparsers.add_parser("check")
-    check_parser.add_argument("--data-root", type=Path)
+    check_parser.add_argument("--storage-layout-file", type=Path)
     args = parser.parse_args(argv)
 
     settings = RepositoryServiceSettings()
-    if args.data_root is not None:
-        settings = settings.model_copy(update={"data_root": args.data_root})
+    if args.storage_layout_file is not None:
+        settings = settings.model_copy(update={"storage_layout_file": args.storage_layout_file})
 
     if args.command == "hold":
         raise SystemExit(_run_hold(settings))

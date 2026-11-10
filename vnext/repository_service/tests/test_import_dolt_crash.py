@@ -76,7 +76,7 @@ def _provider_for(
 
     assert isinstance(settings, RepositoryServiceSettings)
     repository = published_repository_path(layout, repository_id)
-    runner = DoltRunner(settings, layout.root)
+    runner = DoltRunner.for_layout(settings, layout)
     return CandidateAImportProvider(settings, layout, repository, runner)
 
 
@@ -136,7 +136,7 @@ def test_dolt_crash_recovery(tmp_path: Path, fault_point: ImportWorkerFaultPoint
         assert crashed.status == OperationStatus.RUNNING
     replay_count_after_crash = store.get_automatic_replay_count(operation_id)
 
-    layout = DurableLayout.create_for_probe(settings.data_root)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     crash_provider = _provider_for(settings, layout, repository_id)
     assert_crash_state_evidence(
         fault_point=fault_point,

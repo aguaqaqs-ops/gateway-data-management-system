@@ -386,7 +386,7 @@ class CandidateADoltCli:
         self.layout = layout
         self.repository = repository
         self.runner = runner
-        self.query_directory = layout.staging_artifacts
+        self.query_directory = layout.query_directory
         self._catalog_cache: OrderedDict[str, tuple[TableCatalog, ...]] = OrderedDict()
         self._catalog_cache_lock = threading.Lock()
         _ensure_csv_field_limit(settings.max_stream_line_bytes)

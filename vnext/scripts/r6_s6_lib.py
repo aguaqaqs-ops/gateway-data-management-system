@@ -26,8 +26,10 @@ from gateway_repository_contracts import (
     UnknownTypePolicy,
     VerificationPolicy,
 )
+from gateway_repository_service.storage_roots import RepositoryRoots  # noqa: E402
 from gateway_repository_service.app import create_app
-from gateway_repository_service.capacity import measure_import_disk_admission
+from gateway_repository_service.capacity import measure_import_layout_admissions
+from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.http.readiness import LifecycleReadiness
 from gateway_repository_service.process import process_tree_rss_kib
 from gateway_repository_service.runtime import ServiceRuntime
@@ -139,13 +141,14 @@ def start_service(work: Path) -> RunningService:
     data_root = work / "data-root"
     settings = RepositoryServiceSettings(
         profile="test",
-        data_root=data_root,
+        roots=RepositoryRoots.under(data_root),
         bearer_token=BEARER_TOKEN,
         catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
         full_scan_timeout_seconds=3600,
     )
+    DurableLayout.create_for_probe(settings.storage_roots)
     runtime = ServiceRuntime.start(settings)
     app = create_app(settings, enable_lifecycle=False)
     app.state.runtime = runtime
@@ -381,13 +384,14 @@ def sha256_hex(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def disk_admission_view(root: Path, settings: RepositoryServiceSettings) -> dict[str, int]:
-    admission = measure_import_disk_admission(root, settings)
+def disk_admission_view(layout: DurableLayout, settings: RepositoryServiceSettings) -> dict[str, int]:
+    admissions = measure_import_layout_admissions(layout, settings)
     return {
-        "free_bytes": admission.free_bytes,
-        "total_bytes": admission.total_bytes,
-        "required_free_bytes": admission.required_free_bytes,
-        "admitted": int(admission.admitted),
+        "free_bytes": sum(item.free_bytes for item in admissions),
+        "total_bytes": sum(item.total_bytes for item in admissions),
+        "required_free_bytes": sum(item.required_free_bytes for item in admissions),
+        "admitted": int(all(item.admitted for item in admissions)),
+        "filesystem_count": len(admissions),
     }
 
 
@@ -401,8 +405,8 @@ def leftover_temp_files(root: Path) -> list[str]:
     return leftovers
 
 
-def query_temp_count(data_root: Path) -> int:
-    staging_artifacts = data_root / "staging" / "artifacts"
+def query_temp_count(layout: DurableLayout) -> int:
+    staging_artifacts = layout.query_directory
     if not staging_artifacts.is_dir():
         return 0
     return len(list(staging_artifacts.glob("query-*.sql")))
@@ -413,7 +417,7 @@ def runtime_resource_view(service: RunningService, pid: int) -> dict[str, int]:
     return {
         "rss_kib": process_tree_rss_kib(pid),
         "dolt_child_count": len(children),
-        "query_temp_count": query_temp_count(service.data_root),
+        "query_temp_count": query_temp_count(service.runtime.layout),
     }
 
 

@@ -234,7 +234,7 @@ def import_provider(import_layout: DurableLayout) -> CandidateAImportProvider:
     settings = lifecycle_settings(import_layout.metadata_root.parent)
     repository = import_layout.staging_artifacts / "import-repo"
     repository.mkdir(parents=True, exist_ok=True)
-    runner = DoltRunner(settings, import_layout.metadata_root)
+    runner = DoltRunner.for_layout(settings, import_layout)
     cli = OfflineCliProvider(settings, import_layout, repository, runner)
     cli.initialize_repository()
     return CandidateAImportProvider(settings, import_layout, repository, runner)

@@ -1156,7 +1156,7 @@ class TestDynamicReadiness:
         with TestClient(create_app(settings)) as client:
             assert client.get("/readyz").status_code == 200
             with patch(
-                "gateway_repository_service.capacity.Path.mkdir",
+                "gateway_repository_service.capacity.Path.write_text",
                 side_effect=OSError("read-only filesystem"),
             ):
                 response = client.get("/readyz")

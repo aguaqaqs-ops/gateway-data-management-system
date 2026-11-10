@@ -37,7 +37,7 @@ def test_create_repository_returns_real_ids_and_published_tree(tmp_path: Path) -
         assert len(body["initial_commit_id"]) > 0
 
         runtime = cast(FastAPI, client.app).state.runtime
-        published = settings.storage_roots.metadata.parent / "versioned" / repository_key(repository_id)
+        published = settings.storage_roots.repository / "versioned" / repository_key(repository_id)
         assert published.is_dir()
         assert (published / ".dolt").is_dir()
 
@@ -45,7 +45,7 @@ def test_create_repository_returns_real_ids_and_published_tree(tmp_path: Path) -
             settings,
             runtime.layout,
             published,
-            DoltRunner(settings, runtime.layout.metadata_root),
+            DoltRunner.for_layout(settings, runtime.layout),
         )
         assert provider.head() == body["initial_commit_id"]
         assert is_repository_visible(runtime.mutation_store, runtime.layout, repository_id)

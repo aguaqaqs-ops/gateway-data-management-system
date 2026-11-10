@@ -105,10 +105,10 @@ def test_create_upload_import_restart_and_admin_use_the_owned_roots(roots: Repos
         assert not ready.exists()
         lifecycle = runtime.mutation_store.get_artifact_lifecycle(artifact_id)
         assert lifecycle is not None and lifecycle.bytes_deleted_at is not None
-        assert not list(layout.staging_artifacts.glob("import-*"))
         ref = client.get(f"/v1/repositories/{repository_id}/versioned/refs/main",
             headers={"Authorization": "Bearer test-bearer-token"})
         assert ref.status_code == 200 and ref.json()["commit_id"] == commit_id
+    assert not list(layout.staging_artifacts.glob("import-*"))
     layout_file = write_storage_layout(roots)
     checked = _check(layout_file)
     assert checked.returncode == 0, checked.stderr

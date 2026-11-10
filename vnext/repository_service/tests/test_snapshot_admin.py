@@ -377,7 +377,7 @@ CHECK_FAULTS = (
     CheckFault("component_symlink", 4),
     CheckFault("component_cross_root", 4),
     CheckFault("component_missing", 4),
-    CheckFault("optional_component_symlink", 4),
+    CheckFault("configured_root_symlink", 4),
     CheckFault("control_db_missing", 4),
     CheckFault("control_db_garbage", 4),
     CheckFault("control_db_older", 4),
@@ -477,8 +477,9 @@ def _apply_non_dolt_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fa
         env.close()
         env.layout.provider.rmdir()
         return
-    if fault == "optional_component_symlink":
+    if fault == "configured_root_symlink":
         env.close()
+        env.layout.artifacts.rmdir()
         env.layout.artifacts.symlink_to(tmp_path / "escaped-artifacts", target_is_directory=True)
         return
     if fault == "control_db_missing":
@@ -867,7 +868,7 @@ def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> Non
     assert result.returncode == 6
     assert result.stdout == ""
     assert snapshot_check_temp_homes() == before_temps
-    staging_artifacts = settings.storage_roots.metadata.parent / "staging" / "artifacts"
+    staging_artifacts = settings.storage_roots.scratch / "query"
     assert not staging_artifacts.exists() or not list(staging_artifacts.glob("query-*.sql"))
 
 
@@ -998,10 +999,10 @@ def _apply_incomplete_restore(archive: Path, dest: Path, shape: str) -> None:
     assert_empty_restore_target(dest)
     if shape == "sqlite_only":
         dest.mkdir(parents=True)
-        service_state = dest / "service-state"
-        service_state.mkdir()
+        service_state = dest / "metadata" / "service-state"
+        service_state.mkdir(parents=True)
         copied = 0
-        for path in (archive / "service-state").iterdir():
+        for path in (archive / "metadata" / "service-state").iterdir():
             if path.name.startswith("repository-service.sqlite3"):
                 shutil.copy2(path, service_state / path.name)
                 copied += 1
@@ -1009,11 +1010,11 @@ def _apply_incomplete_restore(archive: Path, dest: Path, shape: str) -> None:
         return
     if shape == "partial_component":
         shutil.copytree(archive, dest, symlinks=True)
-        shutil.rmtree(dest / "control")
+        shutil.rmtree(dest / "metadata" / "control")
         return
     if shape == "single_dolt":
         shutil.copytree(archive, dest, symlinks=True)
-        published = sorted(path for path in (dest / "versioned").iterdir() if path.is_dir())
+        published = sorted(path for path in (dest / "repository" / "versioned").iterdir() if path.is_dir())
         assert len(published) >= 2
         shutil.rmtree(published[-1])
         return

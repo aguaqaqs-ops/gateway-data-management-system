@@ -162,7 +162,7 @@ def test_create_remains_consistent_after_main_advances(tmp_path: Path) -> None:
         repository_id = UUID(str(response.repository_id))
         initial_commit_id = response.initial_commit_id
         published = runtime.layout.published_repository(repository_key(repository_id))
-        runner = DoltRunner(runtime.settings, runtime.layout.metadata_root)
+        runner = DoltRunner.for_layout(runtime.settings, runtime.layout)
         provider = OfflineCliProvider(runtime.settings, runtime.layout, published, runner)
         advance_sql = tmp_path / "advance-main.sql"
         advance_sql.write_text(

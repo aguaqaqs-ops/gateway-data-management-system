@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.versioned_read.arrow_bridge import (
     BridgeJoinTimeoutError,
     BridgeShutdownError,
@@ -299,7 +300,7 @@ def test_start_fixture_consumer_environment_cleans_up_on_create_app_failure(tmp_
     with (
         patch(
             "support.versioned_fixture_consumer_harness.lifecycle_settings",
-            return_value=MagicMock(data_root=tmp_path / "data"),
+            return_value=MagicMock(storage_roots=RepositoryRoots.under(tmp_path / "data")),
         ),
         patch(
             "support.versioned_fixture_consumer_harness.ServiceRuntime.start",
@@ -324,7 +325,7 @@ def test_start_fixture_consumer_environment_cleans_up_on_readiness_failure(tmp_p
     with (
         patch(
             "support.versioned_fixture_consumer_harness.lifecycle_settings",
-            return_value=MagicMock(data_root=tmp_path / "data"),
+            return_value=MagicMock(storage_roots=RepositoryRoots.under(tmp_path / "data")),
         ),
         patch(
             "support.versioned_fixture_consumer_harness.ServiceRuntime.start",

@@ -361,7 +361,7 @@ def test_ambiguous_marker_exit_6(tmp_path: Path) -> None:
                 settings=env.settings,
             )
             repository = published_repository_path(env.layout, env.repository_id)
-            runner = DoltRunner(env.settings, env.layout.metadata_root)
+            runner = DoltRunner.for_layout(env.settings, env.layout)
             timeout = env.settings.import_timeout_seconds
             env.provider.create_private_ref(private_ref, expected)
             env.provider.checkout_private_ref(private_ref)

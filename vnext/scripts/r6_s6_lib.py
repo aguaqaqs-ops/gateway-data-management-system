@@ -403,7 +403,7 @@ def leftover_temp_files(root: Path) -> list[str]:
 
 
 def query_temp_count(data_root: Path) -> int:
-    staging_artifacts = data_root / "staging" / "artifacts"
+    staging_artifacts = data_root / "scratch" / "import"
     if not staging_artifacts.is_dir():
         return 0
     return len(list(staging_artifacts.glob("query-*.sql")))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -228,12 +229,14 @@ def test_duplicate_closure_entry_is_rejected() -> None:
     "policy",
     (
         RecordsPublicationPolicy(max_records_artifact_bytes=1, max_spool_bytes=1),
+        RecordsPublicationPolicy(max_records_artifact_bytes=128, max_spool_bytes=128),
+        RecordsPublicationPolicy(max_records_artifact_bytes=512, max_spool_bytes=512),
         RecordsPublicationPolicy(max_manifest_json_bytes=1),
         RecordsPublicationPolicy(max_closure_json_bytes=1),
     ),
 )
 def test_publication_limits_fail_before_returning_a_closure(
-    policy: RecordsPublicationPolicy,
+    policy: RecordsPublicationPolicy, tmp_path: Path,
 ) -> None:
     product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
     try:
@@ -241,6 +244,7 @@ def test_publication_limits_fail_before_returning_a_closure(
             publish_product(product, InMemoryArtifactStore(), policy=policy)
         assert product.result.facts is not None
         assert product.result.facts.records_ref is None
+        assert not list((tmp_path / "execution-scratch").glob("scratch-*/file-*"))
     finally:
         product.close()
 

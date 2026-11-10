@@ -22,7 +22,7 @@
 | `e5f5af58c74dc01c15dd9e8f70316b5e513b73d3` | K1：self-test 覆盖 5 种行过滤 | `f641a07c2b4ac738bf64ed368ef7bbfd2d792ee0` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
 | `d90eeccb9adea33989d4025a001b2e91c2ad0dbf` | K2：收窄规则 4 豁免 | `be4cad7db39cca1e13bd51d647db5b0aa7d6a640` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
 | `268b24f4b472c9846faaff25c29dd2c84a32833d` | K3：回源日志头 provenance | `802bdfb1a42b5319b483f3c4324d2b609a1b57b0` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
-| C0 | handoff 草稿（去掉 log-SHA 行，用于 L0） | `802bdfb1a42b5319b483f3c4324d2b609a1b57b0` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
+| `45e01f990d2c3ae580681e258d4253e26f9b5498` | handoff 草稿（去掉 log-SHA 行，用于 L0） | `802bdfb1a42b5319b483f3c4324d2b609a1b57b0` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
 | 本文件所在提交 | handoff 最终提交，`refs/fe4a/fix3` 指向它 | `802bdfb1a42b5319b483f3c4324d2b609a1b57b0` | `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3` |
 
 C0 与最终提交都只改 `docs/frontend-vnext/fe4a-handoff-fix3.md`，所以两者 `frontend/`、`vnext/` 树与代码候选 `268b24f4` 相同。本文件无法在正文写入自身提交号；最终提交号见交付回复和 `refs/fe4a/fix3`。
@@ -126,8 +126,8 @@ P-H 用例复用 fix2 的测试文件 `/home/dev/gdds-fe-logs/fe4a-fix2/hex-prob
 K3 后日志头包含 handoff 文件的 SHA256。若把该日志自身的 SHA256 写进 handoff，handoff 哈希随之改变，日志头即失效；这是一个没有固定点的循环。处理方式：
 
 1. H0 是最终文件去掉 §9 的 log-SHA 行；提交为 C0。在 H0 上运行得到 L0，L0 头记录 `handoff_HEAD=C0`、`handoff_sha256=SHA(H0)`。
-2. H1 插入 L0 与本节说明，提交为最终 handoff 提交（`refs/fe4a/fix3`）。在 H1 上复跑得到 L1，exit 0；L1 头记录最终提交与 SHA(H1)。
-3. 本文件记录 L0 的 SHA256；L1 的 SHA256 在交付回复中给出，不写入本文件，否则会再次改变哈希。L0 是 H0 的完整回源日志，H1 相对 H0 只增加 L0 这一行、C0 行和本节说明；H1 的最终复跑 exit 0 已覆盖这些增加。
+2. H1 插入 L0、C0 的提交号并填入 §9.2；提交为最终 handoff 提交（`refs/fe4a/fix3`）。在 H1 上复跑得到 L1，exit 0；L1 头记录最终提交与 SHA(H1)。
+3. 本文件记录 L0 的 SHA256；L1 的 SHA256 在交付回复中给出，不写入本文件，否则会再次改变哈希。L0 是 H0 的完整回源日志；H1 相对 H0 只增加 C0 行与 L0/§9.2 的填入，H1 的最终复跑 exit 0 已覆盖这些增加。
 
 ## 7. N13：c12 探针 ref 更正
 
@@ -222,13 +222,13 @@ python3 -I frontend/scripts/check-handoff-hex.py \
 
 H0/C0 上的命令相同，只把 `--handoff` 指向 H0、输出改为 `hex-handoff.log`，并得到 L0。L0 的 `handoff_sha256` 是 SHA(H0)，`handoff_HEAD` 是 C0；最终 L1 的 `handoff_sha256` 是 SHA(H1)，`handoff_HEAD` 是最终提交。
 
-结果：L0 与最终复跑都 exit 0；`--allow` 未使用（提交号、树号都是 git 对象，其余 64 位值都有 `handoff-sources.sha256` 或 `--source-dir` 来源）。L1 的 SHA256 在交付回复中给出；L0 的 SHA256 见下方 `log-SHA` 行。
+结果：L0 与最终复跑都 exit 0；L0 为 `summary: 68 distinct full token(s); git=17 sha256=51 allowed=0 abnormal=0; 0 truncated form(s)`；`--allow` 未使用（提交号、树号都是 git 对象，其余 64 位值都有 `handoff-sources.sha256` 或 `--source-dir` 来源）。L1 的 SHA256 在交付回复中给出；L0 的 SHA256 见 §9.2。
 
 ### 9.2 自记日志
 
-本次回源日志（在 H0/C0 上运行）`/home/dev/gdds-fe-logs/fe4a-fix3/hex-handoff.log`，SHA256 `（L0 待插入）`。
+本次回源日志（在 H0/C0 上运行）`/home/dev/gdds-fe-logs/fe4a-fix3/hex-handoff.log`，SHA256 `496e922edec4baaafbb76cb6bc6e28170e77fcccb76da6f6f53c827d5e548bfa`。
 
-H0 的 SHA256 为 `（H0 SHA 待插入）`；C0 见 §2。
+H0 的 SHA256 为 `8063150fe5fcad2566516e201c9ddc11b69963c156a6f8e4f77cfcd80058a0b0`；C0 为 `45e01f990d2c3ae580681e258d4253e26f9b5498`，见表 §2。
 
 ## 10. 已完成、未测、未决
 

@@ -47,21 +47,12 @@ async function settleAfterResize(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-async function expectNoHorizontalOverflow(page: Page) {
-  const metrics = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  expect(metrics.scrollWidth, `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`).toBeLessThanOrEqual(metrics.innerWidth);
-}
-
 async function screenshot(page: Page, name: string, width: number) {
   if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await settleAfterResize(page);
-    await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });

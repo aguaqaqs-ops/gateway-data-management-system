@@ -10,9 +10,9 @@ S1a 退出交接须以实际候选及证据说明：规范化 OpenAPI 不变；b
 
 ## BE-b 第二步
 
-第二步设计现在开始；**实施排在 S1a 本地 exit 并合入 main 之后**。其设计以 [已确认的第一步](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md) 为业务依据，以最终 S1a 实际实现与退出交接作为实现基线；当前 S1a 尚在进行，不能提前把目标设计当成实际接口。前端可核对面向前端的 Contract 和互通结果。该指示不授权提前实施 BE-b，也不启动 S1b。
+第二步设计在 S1a 本地 exit 并合入 main 之后由后端设计会话开始，随后实施（owner 2026-11-10 更正，取代本文初版 27ea352487 的“现在开始”）。其设计以 [已确认的第一步](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md) 为业务依据，以最终 S1a 实际实现与退出交接作为实现基线；当前 S1a 尚在进行，不能提前把目标设计当成实际接口。前端设计会话参与审核，核对面向前端的 Contract 和互通结果。该指示不授权提前实施 BE-b，也不启动 S1b。
 
-已知设计工作面：
+已知设计工作面（待第二步开始时细化，当前不开展设计）：
 
 - 确定 Preview 与 History 的导航、诊断、行定位和列展示计算位置，以及对现有 pair、surface、bundle 闭包与有界资源预算的影响。保留 DC39 的结构性过滤和线性处理，不为未变化表重复读取基线行。
 - 为 History 确定 DDL 注释展示元数据的持久化和精确版本绑定；展示注释不改变规范业务身份或 `NO_CANONICAL_CHANGE`。同时设计 Rust 与 Python 解析器的注释捕获和差分验证。

@@ -29,10 +29,19 @@ def write_deployment_files(base: Path, *, prepare: bool = True) -> tuple[Path, P
         root['path'] = root['source'] = str(path)
         if prepare:
             path.mkdir(parents=True, exist_ok=True)
-    storage['filesystems']['local']['mountpoint'] = '/'
+    from gateway_backend.runtime_preflight import mounts, marker_document
+    from gateway_backend.deployment_config import StorageLayoutConfig
+    containing = max((item for item in mounts() if Path(item.target) == base or Path(item.target) in base.parents),
+                     key=lambda item: len(item.target))
+    storage['filesystems']['local'].update(mountpoint=containing.target, expected_source=containing.source,
+        min_free_bytes=1, min_free_fraction=0.000001)
     base.parent.mkdir(parents=True, exist_ok=True)
     storage_path = base.parent / (base.name + '-storage-layout.json')
     resource_path = base.parent / (base.name + '-resource-profile.json')
     storage_path.write_text(json.dumps(storage))
     resource_path.write_text(json.dumps(resources))
+    if prepare:
+        parsed = StorageLayoutConfig.load(storage_path)
+        for slot, root in parsed.roots.items():
+            (Path(root.path) / '.gateway-storage.json').write_text(json.dumps(marker_document(parsed, slot)))
     return storage_path, resource_path

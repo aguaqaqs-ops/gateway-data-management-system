@@ -13,7 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from gateway_backend.deployment_config import DeploymentConfig
-from gateway_backend.runtime_preflight import check_host, initialize_host
+from gateway_backend.runtime_preflight import check_host, initialize_host, check_configured_root
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.bootstrap.storage_layout import maintenance_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         local = LocalArtifactStore(maintenance_layout_from_config(deployment.storage),
             staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
         metadata = Path(deployment.storage.roots['be-metadata'].path)
+        check_configured_root(deployment.storage, "be-metadata")
         metadata_identity = directory_identity(metadata)
         database = metadata / 'control.sqlite3'
         database_identity = _database_file_identity(database, metadata)
@@ -71,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def check_database_identity() -> None:
             try:
+                check_configured_root(deployment.storage, "be-metadata")
                 if (directory_identity(metadata) != metadata_identity
                         or _database_file_identity(database, metadata) != database_identity):
                     raise ValueError('changed')
@@ -102,7 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         bounded = BoundedArtifactStore(local, protection_uow=transaction)
         maintenance = ArtifactMaintenance(local, bounded,
             scratch_root=Path(deployment.storage.roots['be-scratch'].path), owner_active=active,
-            grace=timedelta(seconds=args.orphan_grace_seconds))
+            grace=timedelta(seconds=args.orphan_grace_seconds),
+            scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"))
         result = maintenance.run(max_candidates=args.max_candidates, cursor=args.cursor)
         print(json.dumps(asdict(result), sort_keys=True))
         return 0

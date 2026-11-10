@@ -76,6 +76,29 @@ def check_marker(config: StorageLayoutConfig, slot: str, path: Path) -> None:
         os.close(descriptor)
 
 
+def check_configured_root(config: StorageLayoutConfig, slot: str) -> None:
+    """Attest one configured root for store/admin access, without a capacity gate."""
+    root = config.roots[slot]
+    path = Path(root.path)
+    nofollow_directory(path)
+    policy = config.filesystems[root.filesystem_id]
+    observed = mounts()
+    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
+        entries = [item for item in observed if item.target == root.path]
+        relative = str(Path(root.source).relative_to(policy.mountpoint))
+        if (len(entries) != 1 or entries[0].source != policy.expected_source or not entries[0].writable
+                or (relative != "." and not entries[0].root.endswith("/" + relative))):
+            raise ValueError("configured root bind mount mismatch")
+    else:
+        if root.path != root.source:
+            raise ValueError("host access requires explicit host root paths")
+        containing = max((item for item in observed if Path(item.target) == path or Path(item.target) in path.parents),
+                         key=lambda item: len(item.target))
+        if containing.target != policy.mountpoint or containing.source != policy.expected_source or not containing.writable:
+            raise ValueError("configured root host filesystem mismatch")
+    check_marker(config, slot, path)
+
+
 def check_database_files(metadata: Path) -> None:
     info = nofollow_directory(metadata)
     present = (metadata / "control.sqlite3").exists()

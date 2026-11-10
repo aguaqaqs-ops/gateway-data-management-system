@@ -26,7 +26,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DeploymentCon
         (Path(root.path) / preflight.MARKER).write_text(json.dumps(preflight.marker_document(config.storage, slot)))
     monkeypatch.setattr(preflight, "check_resources", lambda *_: None)
     monkeypatch.setattr(preflight, "mounts", lambda: tuple(preflight.Mount(index, "1:1", root.source,
-        root.path, "/dev/mapper/gateway-data", True) for index, root in enumerate(config.storage.roots.values())))
+        root.path, config.storage.filesystems["local"].expected_source, True) for index, root in enumerate(config.storage.roots.values())))
     return config
 
 
@@ -126,7 +126,7 @@ def test_actual_role_limits_and_ancestors_must_cover_profile(
 def test_host_initialization_validates_all_roots_before_writing_and_is_idempotent(
     deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(preflight, "mounts", lambda: (preflight.Mount(1, "1:1", "/", "/", "/dev/mapper/gateway-data", True),))
+    monkeypatch.setattr(preflight, "mounts", lambda: (preflight.Mount(1, "1:1", "/", "/", deployment.storage.filesystems["local"].expected_source, True),))
     monkeypatch.setattr(preflight, "check_host_budget", lambda _: None)
     for root in deployment.storage.roots.values():
         (Path(root.path) / preflight.MARKER).unlink()

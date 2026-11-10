@@ -114,7 +114,7 @@ def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_p
             configured_roots = [item for item in effective["volumes"] if item["target"].startswith("/var/lib/gateway/")]
             assert len(configured_roots) == (4 if role == "repository_service" else 6)
             assert all(("rs-" if role == "repository_service" else "be-") in item["target"] for item in configured_roots)
-            result = subprocess.run([*command, "run", "--rm", "--no-deps", "--no-build", "--pull", "never", service],
+            result = subprocess.run([*command, "run", "--rm", "--no-deps", "--pull", "never", service],
                 env=environment, capture_output=True, text=True, check=False, timeout=45)
             assert result.returncode == 0, result.stdout + result.stderr
             assert "COMPOSE_PREFLIGHT_OK " in result.stdout

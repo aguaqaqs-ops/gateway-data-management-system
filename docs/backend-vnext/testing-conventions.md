@@ -14,7 +14,7 @@
 
 范围内节点调度/占用、可逆实现细节、风险定级及已确认环境/命令错误的修复按默认规则自决；产品/验收范围变化、来源冲突和不可逆操作交 Owner。构建快速修复规则保持，产品失败仍停止该次 runner 及依赖验收，修正后新运行不覆盖原失败。
 
-拟建 `scripts/run-stage-gate.py`，输入 SHA 与可选包列表，04 固定 worktree 自动占用、准备闭包、运行权威 runner、写仓库外 JSON、释放占用；按同来源闭包查表替代手工 carried。详细算法、失败语义、最初来源、镜像等价、目录与模板见 [门禁与交接规格](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。**目前仅有规格，启用前仍执行下文操作步骤**；步骤保留为现行运行依据及脚本实施规范，不能提前删除。S1a-A/B、FE4a 不切换入口；C–F 不因自动化改跑全量，G 仍集中验收。
+已提供 [`scripts/run-stage-gate.py`](../../scripts/run-stage-gate.py)（[操作说明](../../scripts/README.md)），输入 SHA 与可选包列表，04 固定 worktree 自动占用、准备闭包、运行权威 runner、写仓库外 JSON、释放占用；按同来源闭包查表替代手工 carried。详细算法、失败语义、最初来源、镜像等价、目录与模板见 [门禁与交接规格](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。**启用仍须独立审核与专用节点验收，未核收前执行下文操作步骤**；步骤保留为现行运行依据及脚本实施规范，不能提前删除。S1a-A/B、FE4a 不切换入口；C–F 不因自动化改跑全量，G 仍集中验收。
 
 五节点资源池保持现行规则；Owner 已确认规格 §6 的处理：自动门禁固定 04，其他工作继续池调度，不恢复旧节点职责。新自动门禁不迁移固定 worktree 来获取命中。前端继续独立 runner/e2e，不以 backend 包命中推断 FE 通过。
 

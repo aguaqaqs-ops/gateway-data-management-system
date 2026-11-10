@@ -26,7 +26,7 @@
 - 节点选择与原子占用、已授权范围内可逆实现细节、风险定级和已确认环境/命令错误的修复，由协调者按下文默认规则自决。只将产品范围、验收范围、来源冲突、不可逆操作交 Owner 决定；他人资源冲突先针对性协调，不擅自抢占。runner 失败停止本次及依赖验收，不能归作环境错误掩盖产品 finding。
 - 审核 worktree 用毕、finding 关闭且无消费者即回收；不删除在途 S1a/FE4a、固定门禁/carried 来源、dirty 或用途不明工作区。批量回收先向 Owner 展示数量及排除项，执行前复核，不 force。
 
-门禁、交接目录、总结模板和实施安排见 [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。拟建 `scripts/run-stage-gate.py` 尚未交付；启用前仍用现有权威入口和 testing-conventions 取证，把新阶段记录写到仓库外，不以规格冒充已实现。
+门禁、交接目录、总结模板和实施安排见 [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。入口已实现为 [`scripts/run-stage-gate.py`](scripts/run-stage-gate.py)，操作见 [`scripts/README.md`](scripts/README.md)。完成独审与专用节点验证、协调者确认启用前，仍用现有权威入口和 testing-conventions 取证；不以实现提交冒称已完成启用验收。
 
 ## 跑测试
 

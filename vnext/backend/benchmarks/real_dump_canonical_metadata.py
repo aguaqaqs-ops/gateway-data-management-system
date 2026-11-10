@@ -283,42 +283,47 @@ def main() -> None:
     """
     repository_id, operation_id, commit_id = json.loads(sys.argv[1])
     path = Path("/var/lib/gateway/control/control.sqlite3")
-    verify_control_db_file(path)
-    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only=ON")
-    connection.execute("BEGIN")
-    try:
-        operations = SQLiteOperationStore(connection, transaction_now=datetime.now(UTC), read_only=True)
-        step = operations.get_step(p._successor_step_id(operation_id, p.PREVIEW_STEP_MATERIALIZE))
-        operation = operations.get_operation(operation_id)
-        _require((step.status, step.operation_id, step.step_name)
-                 == (StepStatus.SUCCEEDED, operation_id, p.PREVIEW_STEP_MATERIALIZE)
-                 and step.checkpoint_ref is not None
-                 and operation.status is OperationStatus.SUCCEEDED
-                 and (operation.job_kind, operation.job_contract_version)
-                 == (p.PREVIEW_JOB_KIND, p.PREVIEW_JOB_CONTRACT_VERSION),
-                 "exact SQL operation/step/status/job binding mismatch")
-        if step.checkpoint_ref is None:
-            raise ValueError("materialize step checkpoint ref is missing")
-        rows = connection.execute(
-            "SELECT canonicalization_manifest_ref,canonicalization_manifest_digest "
-            "FROM submission_records WHERE repository_id=? AND repository_commit_id=?",
-            (repository_id, commit_id)).fetchall()
-        _require(len(rows) == 1, "exact prior Submission canonical manifest required")
-        config = DeploymentConfig.load(Path(os.environ["GATEWAY_STORAGE_LAYOUT_FILE"]),
-            Path(os.environ["GATEWAY_RESOURCE_PROFILE_FILE"]))
-        store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
-        with store.read_session():
-            payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
-            logical = verify_repeat_canonical_metadata(store, checkpoint_ref=step.checkpoint_ref,
-                operation_id=operation_id, repository_id=repository_id, commit_id=commit_id,
-                payload=payload, submission_manifest_ref=store.get_ref(rows[0][0]),
-                submission_manifest_digest=DigestRef(rows[0][1]))
-            print(json.dumps(logical, sort_keys=True))
-    finally:
-        connection.execute("ROLLBACK")
-        connection.close()
+    config = DeploymentConfig.load(Path(os.environ["GATEWAY_STORAGE_LAYOUT_FILE"]),
+        Path(os.environ["GATEWAY_RESOURCE_PROFILE_FILE"]))
+    store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage),
+        staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
+    with store.read_session():
+        verify_control_db_file(path)
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, isolation_level=None)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("BEGIN")
+            operations = SQLiteOperationStore(connection, transaction_now=datetime.now(UTC), read_only=True)
+            step = operations.get_step(p._successor_step_id(operation_id, p.PREVIEW_STEP_MATERIALIZE))
+            operation = operations.get_operation(operation_id)
+            _require((step.status, step.operation_id, step.step_name)
+                     == (StepStatus.SUCCEEDED, operation_id, p.PREVIEW_STEP_MATERIALIZE)
+                     and step.checkpoint_ref is not None
+                     and operation.status is OperationStatus.SUCCEEDED
+                     and (operation.job_kind, operation.job_contract_version)
+                     == (p.PREVIEW_JOB_KIND, p.PREVIEW_JOB_CONTRACT_VERSION),
+                     "exact SQL operation/step/status/job binding mismatch")
+            if step.checkpoint_ref is None:
+                raise ValueError("materialize step checkpoint ref is missing")
+            rows = connection.execute(
+                "SELECT canonicalization_manifest_ref,canonicalization_manifest_digest "
+                "FROM submission_records WHERE repository_id=? AND repository_commit_id=?",
+                (repository_id, commit_id)).fetchall()
+            _require(len(rows) == 1, "exact prior Submission canonical manifest required")
+        finally:
+            try:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            finally:
+                connection.close()
+        # Retain the root borrow while hashing, without retaining the DB snapshot.
+        payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
+        logical = verify_repeat_canonical_metadata(store, checkpoint_ref=step.checkpoint_ref,
+            operation_id=operation_id, repository_id=repository_id, commit_id=commit_id,
+            payload=payload, submission_manifest_ref=store.get_ref(rows[0][0]),
+            submission_manifest_digest=DigestRef(rows[0][1]))
+        print(json.dumps(logical, sort_keys=True))
 
 
 if __name__ == "__main__":

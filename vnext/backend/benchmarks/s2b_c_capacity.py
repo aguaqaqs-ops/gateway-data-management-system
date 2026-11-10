@@ -219,12 +219,12 @@ def main() -> int:
             retained_canonical.append(canonical)
             bound = replace(descriptor, columns=tuple(SnapshotColumnDescriptor(c["canonical_name"], c["display_name"], c["nullable"], c["sql_type"]) for c in output["columns"]), primary_key_columns=tuple(output["primary_key"]), row_count=canonical.num_rows, raw_content_digest=DigestRef(projected["output"]["raw_content_digest"]))
             key = canonical_table_key(store.repository_id, bound)
-            with ControlDbUnitOfWork(db) as uow:
+            with ControlDbUnitOfWork(db, artifact_borrow=local.read_session) as uow:
                 ref = uow.canonical_tables.lookup(key)
             hit = ref is not None
             if ref is None:
                 def protect(key: CanonicalTableKey, ref: ArtifactRef) -> None:
-                    with ControlDbUnitOfWork(db) as uow:
+                    with ControlDbUnitOfWork(db, artifact_borrow=local.read_session) as uow:
                         uow.canonical_tables.register(key, ref)
                 with pa.RecordBatchReader.from_batches(canonical.schema, canonical.to_batches()) as stream:
                     ref = store.put(stream, bound, before_write=protect)

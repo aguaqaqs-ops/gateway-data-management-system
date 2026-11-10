@@ -155,7 +155,7 @@ def _seed_repository_import_operation(
                 "repository-1",
                 b"k" * 32,
                 b"fingerprint",
-                "a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
+                "00000000-0000-0000-0000-000000000002",
                 "application/vnd.gateway.repository-import+zip",
                 1,
                 "a" * 64,

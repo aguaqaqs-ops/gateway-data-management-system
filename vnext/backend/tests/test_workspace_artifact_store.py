@@ -5,7 +5,9 @@ from __future__ import annotations
 from gateway_backend.artifacts.location import ArtifactLocation
 
 from datetime import UTC, datetime, timedelta
+from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -206,3 +208,20 @@ def test_clear_protection_releases_only_when_no_remaining_owner(
         store._published_at_by_artifact_id[ref.artifact_id] = NOW  # noqa: SLF001
         later = NOW + timedelta(hours=25)
         assert store.classify_cleanup(ref, later).classification is CleanupClassification.ELIGIBLE_AFTER
+
+
+@pytest.mark.parametrize(("location", "kind"), [
+    ("durable", "source-package"), ("unknown", "source-package"),
+    (ArtifactLocation.DURABLE, "Bad kind"),
+])
+def test_stream_rejects_invalid_location_or_kind_before_staging(tmp_path: Path, location: object, kind: str) -> None:
+    class UnreadableStream:
+        def __iter__(self) -> Iterator[bytes]:
+            raise AssertionError("invalid protocol must not consume stream input")
+
+    root = tmp_path / "artifacts"
+    store = BoundedArtifactStore(LocalArtifactStore(root))
+    with pytest.raises(ValueError):
+        store.put_stream(cast(ArtifactLocation, location), kind, UnreadableStream(),
+            declared_size=len(PAYLOAD), declared_raw_sha256=DIGEST, media_type="application/gzip")
+    assert not (root / ".staging").exists()

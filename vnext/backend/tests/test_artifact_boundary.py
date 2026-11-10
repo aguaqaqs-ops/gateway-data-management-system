@@ -95,3 +95,22 @@ def test_backend_nominal_ref_requires_location_protocol(artifact_id: str) -> Non
 def test_repository_nominal_ref_requires_its_canonical_uuid(artifact_id: str) -> None:
     with pytest.raises(ValueError):
         RepositoryArtifactRef(artifact_id, "application/json", 0, "sha256:" + "0" * 64)
+
+
+@pytest.mark.parametrize("artifact_id", ["legacy-table", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_snapshot_table_binding_requires_backend_location_identity(artifact_id: str) -> None:
+    from gateway_backend.application.submission.contracts import SnapshotTableBinding
+    with pytest.raises(ValueError, match="a1:"):
+        SnapshotTableBinding("orders", artifact_id, "application/octet-stream", 0, "sha256:" + "0" * 64)
+
+
+@pytest.mark.parametrize("owner", ["preview", "history"])
+def test_checkpoint_bundle_binding_must_belong_to_its_ready_closure(owner: str) -> None:
+    from gateway_backend.application.history.compare_jobs import _assert_history_bundle_binding
+    from gateway_backend.application.preview_jobs import _assert_preview_bundle_binding
+    from gateway_backend.application.payloads import CheckpointDecodeError
+    validators = {"preview": _assert_preview_bundle_binding, "history": _assert_history_bundle_binding}
+    state: dict[str, object] = {"bundle_artifact_id": "a1:export:" + "f" * 64}
+    with pytest.raises(CheckpointDecodeError, match="outside its ready closure"):
+        validators[owner](state, (_STORE_REF,))

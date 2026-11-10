@@ -133,8 +133,8 @@ def _insert_submission(
         ) VALUES (
                 ?,
             ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', 1,
-            'initial-commit', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'sha256:source', ?, X'5b22736f757263652d66697874757265225d',
-            'canonical-closure', 'sha256:closure', 'ready-closure', 'sha256:ready', ?, ?,
+            'initial-commit', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'sha256:source', ?, X'5b2261313a64757261626c653a36616433343834313636643334616666353462313934653433373137386566666333363562393265333434343836383037383138616131303930386364303431225d',
+            'a1:durable:f7c964bf4c441299c678c1bb31b54e50e7f6d8749734066bf026183a45ac4788', 'sha256:closure', 'a1:durable:c598db1203528bc73318221a1ba7009e9547b2880eb05f92be108ea31c349a8e', 'sha256:ready', ?, ?,
             'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fingerprint',
             'upload-key', 'import-key', ?, 'FINALIZED', ?, 1, 'actor-1', 0
         )
@@ -163,7 +163,7 @@ def _insert_submission(
             requested_unknown_type_policy, target_ref, created_by, created_at_us
         ) VALUES (
                 ?,?, ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', ?,
-                  'sha256:5555555555555555555555555555555555555555555555555555555555555555', X'5b22736f757263652d66697874757265225d', ?, ?, 'sha256:package', '799c16fa-982c-51b8-8243-d5fc8f95823f',
+                  'sha256:5555555555555555555555555555555555555555555555555555555555555555', X'5b2261313a64757261626c653a36616433343834313636643334616666353462313934653433373137386566666333363562393265333434343836383037383138616131303930386364303431225d', ?, ?, 'sha256:package', '799c16fa-982c-51b8-8243-d5fc8f95823f',
                   'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0)
         """,
         (configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id, upload_revision_id="upload-1", baseline_node_id="initial-node", baseline_commit_id="initial-commit"), *(

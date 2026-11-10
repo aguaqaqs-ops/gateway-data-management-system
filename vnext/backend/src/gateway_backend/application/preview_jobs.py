@@ -812,10 +812,9 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     "assemble checkpoint is missing ready_closure_ref",
                     code="CHECKPOINT_JOB_STATE_MISMATCH",
                 )
-            parse_artifact_id(ready_closure_id)
-        parse_artifact_id(bundle_artifact_id)
-        ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            ready_closure_ref = _preview_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
+            _assert_preview_bundle_binding(envelope.job_state, closure.artifact_refs())
             _pin_preview_refs(
                 deps,
                 (
@@ -972,10 +971,9 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
 
-        parse_artifact_id(ready_closure_id)
-        parse_artifact_id(bundle_artifact_id)
-        ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
-        load_ready_closure(deps.artifact_store, ready_closure_ref)
+        ready_closure_ref = _preview_ready_ref(assemble_envelope.job_state)
+        ready_closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
+        _assert_preview_bundle_binding(assemble_envelope.job_state, ready_closure.artifact_refs())
 
         preview_result = _build_preview_result(
             payload=payload,
@@ -3857,3 +3855,27 @@ __all__ = [
     "preview_job_definitions",
     "preview_payload_decoders",
 ]
+
+
+def _preview_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
+    try:
+        ready_id = job_state.get(_JOB_STATE_READY_CLOSURE)
+        bundle_id = job_state.get(_JOB_STATE_BUNDLE_ARTIFACT)
+        raw_ref = job_state.get(_JOB_STATE_READY_CLOSURE_REF)
+        if type(ready_id) is not str or type(bundle_id) is not str or type(raw_ref) is not dict:
+            raise ValueError("invalid preview artifact bindings")
+        parse_artifact_id(ready_id)
+        parse_artifact_id(bundle_id)
+        ref = artifact_ref_from_dict(raw_ref)
+        if ref.artifact_id != ready_id:
+            raise ValueError("preview ready ID/ref mismatch")
+        return ref
+    except (ValueError, TypeError, KeyError) as exc:
+        raise CheckpointDecodeError("preview checkpoint has invalid artifact bindings",
+            code="CHECKPOINT_JOB_STATE_MISMATCH") from exc
+
+
+def _assert_preview_bundle_binding(job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]) -> None:
+    if not any(ref.artifact_id == job_state[_JOB_STATE_BUNDLE_ARTIFACT] for ref in refs):
+        raise CheckpointDecodeError("preview bundle ID is outside its ready closure",
+            code="CHECKPOINT_JOB_STATE_MISMATCH")

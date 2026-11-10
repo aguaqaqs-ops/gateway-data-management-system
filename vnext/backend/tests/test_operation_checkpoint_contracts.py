@@ -198,14 +198,14 @@ MALFORMED_CLOSURE_SHAPES: tuple[tuple[str, dict[str, object], str], ...] = (
             "job_contract_version": VERSION_V1,
             "outputs": [
                 {
-                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683")),
-                    "raw_sha256": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").raw_sha256.value,
-                    "size_bytes": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").size_bytes,
-                },
-                {
                     "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")),
                     "raw_sha256": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").raw_sha256.value,
                     "size_bytes": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").size_bytes,
+                },
+                {
+                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683")),
+                    "raw_sha256": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").raw_sha256.value,
+                    "size_bytes": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").size_bytes,
                 },
             ],
         },
@@ -339,32 +339,23 @@ def test_checkpoint_envelope_canonical_round_trip() -> None:
 def test_ready_closure_document_sorts_outputs_by_artifact_id() -> None:
     ref_b = _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683")
     ref_a = _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")
-    document = ReadyClosureDocument.build((ref_b, ref_a), VERSION_V1)
-    assert [entry.artifact_ref.artifact_id for entry in document.outputs] == [
-        "a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40",
-        "a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683",
-    ]
+    document = ReadyClosureDocument.build((ref_a, ref_b), VERSION_V1)
+    assert [entry.artifact_ref.artifact_id for entry in document.outputs] == [ref_b.artifact_id, ref_a.artifact_id]
     raw = document.to_canonical_bytes()
-    # Frozen v1 wire vector: capacity expansion does not alter old bytes/digests.
+    # a1 wire bytes changed with the IDs; the original sorting/raw SHA formula remains.
     expected = (
-        b'{"closure_contract_version":"backend-vnext/operation-ready-closure/v1",'
-        b'"document_type":"ready-closure",'
-        b'"job_contract_version":"backend-vnext/synthetic/pure-compute/v1","outputs":['
-        b'{"artifact_ref":{"artifact_id":"a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40","media_type":"application/octet-stream",'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'{"artifact_ref":{"artifact_id":"a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683","media_type":"application/octet-stream",'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3}]}'
+        b'{"closure_contract_version":"backend-vnext/operation-ready-closure/v1","document_type":"ready-closur'
+        b'e","job_contract_version":"backend-vnext/synthetic/pure-compute/v1","outputs":[{"artifact_ref":{"art'
+        b'ifact_id":"a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683","media_type"'
+        b':"application/octet-stream","raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0'
+        b'cd6a8dcce8f22","size_bytes":3},"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17f'
+        b'ba0cd6a8dcce8f22","size_bytes":3},{"artifact_ref":{"artifact_id":"a1:durable:a1b30be8cf54caeb21603fb'
+        b'f5ceff7e647626133fccd7e8d631d1491c475eb40","media_type":"application/octet-stream","raw_sha256":"sha'
+        b'256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22","size_bytes":3},"raw_sha256":"'
+        b'sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22","size_bytes":3}]}'
     )
     assert raw == expected
-    assert raw_blob_digest(raw).value == (
-        "sha256:7fa7de2bba9d11b98082ffee1e3d67ed41ab4c7a595de5498a8d06a9f3b74a99"
-    )
+    assert raw_blob_digest(raw).value == "sha256:3a30adbe13c24e6363028b4474ab78735b97c22bf9b0ce00d2d8201016a26a00"
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
     assert restored.to_canonical_bytes() == expected
@@ -379,7 +370,7 @@ def test_ready_closure_retains_bounded_large_snapshot_artifact_sets(ref_count: i
     raw = document.to_canonical_bytes()
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
-    assert restored.artifact_refs() == refs
+    assert restored.artifact_refs() == tuple(sorted(refs, key=lambda ref: ref.artifact_id))
     assert restored.to_canonical_bytes() == raw
 
 

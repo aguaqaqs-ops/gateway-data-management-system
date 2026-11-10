@@ -884,3 +884,19 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
         producers = {row[0] for row in uow.connection.execute("SELECT DISTINCT producer_operation_id FROM computation_cache_uses")}
         assert producers == {"op-persistent-full-cold", "op-persistent-full-warm"}
         assert uow.connection.execute("SELECT COUNT(*) FROM artifact_protection_intents WHERE intent='active-computation-cache'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field_name", ["ready_closure_artifact_id", "bundle_artifact_id"])
+@pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
+    from gateway_backend.application.preview_jobs import _preview_ready_ref
+    from gateway_backend.application.payloads import CheckpointDecodeError
+    ready_id = "a1:durable:" + "0" * 64
+    state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
+        "bundle_artifact_id": "a1:export:" + "1" * 64,
+        "ready_closure_ref": {"artifact_id": ready_id, "media_type": "application/jcs",
+            "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
+    state[field_name] = artifact_id
+    with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
+        _preview_ready_ref(state)

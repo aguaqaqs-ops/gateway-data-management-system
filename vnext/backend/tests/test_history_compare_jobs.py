@@ -1614,3 +1614,19 @@ def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
         operation = uow.operations.get_operation(harness.operation_id)
     assert operation.status is OperationStatus.RUNNING
     assert operation.diagnostic is None
+
+
+@pytest.mark.parametrize("field_name", ["ready_closure_artifact_id", "bundle_artifact_id"])
+@pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
+    from gateway_backend.application.history.compare_jobs import _history_compare_ready_ref
+    from gateway_backend.application.payloads import CheckpointDecodeError
+    ready_id = "a1:durable:" + "0" * 64
+    state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
+        "bundle_artifact_id": "a1:export:" + "1" * 64,
+        "ready_closure_ref": {"artifact_id": ready_id, "media_type": "application/jcs",
+            "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
+    state[field_name] = artifact_id
+    with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
+        _history_compare_ready_ref(state)

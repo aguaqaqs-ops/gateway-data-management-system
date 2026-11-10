@@ -228,7 +228,7 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
         "package_raw_sha256": "sha256:" + "c" * 64,
         "canonical_table_set_closure_ref": "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
         "canonical_table_set_closure_digest": "sha256:" + "d" * 64,
-        "input_canonicalization_manifest_ref": "preview-manifest-1",
+        "input_canonicalization_manifest_ref": "a1:durable:bf2aefe23ee196e97c1a0857a4cc574badc70b6fce78c5a892f4ad5824388d8a",
         "input_canonicalization_manifest_digest": "sha256:" + "e" * 64,
         "expected_parent_commit_id": "commit-parent-1",
         "parent_manifest_digest": "sha256:" + "f" * 64,
@@ -241,7 +241,7 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
 def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
     return {
         "schema_version": "backend-vnext/submit/submit-import-checkpoint/v2",
-        "prepare_checkpoint_ref": _artifact_ref_dict("prepare-cp-1"),
+        "prepare_checkpoint_ref": _artifact_ref_dict("a1:durable:83799366fdc26b4c88b09dbb1c77ee31a944377862562cbb88802de345f3913a"),
         "repository_artifact_ref": {
             "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
             "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
@@ -261,7 +261,7 @@ def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
 def _canonical_await_terminal_checkpoint_job_state() -> dict[str, object]:
     return {
         "schema_version": "backend-vnext/submit/await-import-result-checkpoint/v2",
-        "submit_checkpoint_ref": _artifact_ref_dict("submit-cp-1"),
+        "submit_checkpoint_ref": _artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"),
         "operation_identity": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
         "last_observed_repository_status": "SUCCEEDED",
         "terminal_result_evidence_ref": _artifact_ref_dict("a1:durable:af1568532b499217643de4551dc5234e3826a053a75aa75a2cc34019e9bdadde"),
@@ -350,8 +350,8 @@ def test_submit_checkpoint_rejects_inexact_job_state(
         raw_sha256=DigestRef("sha256:" + "a" * 64),
     )
     put_with_built_ref(store, b"{}", artifact_id=request_ref.artifact_id, media_type=request_ref.media_type)
-    prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("prepare-cp-1"))
-    checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:83799366fdc26b4c88b09dbb1c77ee31a944377862562cbb88802de345f3913a"))
+    checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     payload = decode_submit_payload(_canonical_payload_object())
 
     class _StubRepositoryWrite:
@@ -376,7 +376,7 @@ def test_submit_checkpoint_rejects_inexact_job_state(
 def test_await_terminal_checkpoint_rejects_unknown_job_state_fields(field: str) -> None:
     job_state = _canonical_await_terminal_checkpoint_job_state()
     job_state[field] = "x"
-    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
         _await_checkpoint_from_job_state(
             job_state,
@@ -388,7 +388,7 @@ def test_await_terminal_checkpoint_rejects_unknown_job_state_fields(field: str) 
 def test_await_terminal_checkpoint_rejects_non_terminal_status() -> None:
     job_state = _canonical_await_terminal_checkpoint_job_state()
     job_state["last_observed_repository_status"] = "QUEUED"
-    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     with pytest.raises(CheckpointDecodeError, match="terminal repository status"):
         _await_checkpoint_from_job_state(
             job_state,

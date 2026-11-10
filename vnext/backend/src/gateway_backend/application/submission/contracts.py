@@ -74,8 +74,7 @@ class SnapshotTableBinding:
     def __post_init__(self) -> None:
         if type(self.table_name) is not str or not self.table_name:
             raise ValueError("table_name must be a non-empty string")
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:

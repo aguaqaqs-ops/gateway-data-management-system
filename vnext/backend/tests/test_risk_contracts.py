@@ -336,3 +336,12 @@ def test_digest_excludes_artifact_refs_diagnostics_and_path_identity() -> None:
             rule_id=RiskRuleId.TABLE_ADDED,
             evidence=(("host_path", "/tmp/secret"),),
         )
+
+
+@pytest.mark.parametrize("part", ["content", "manifest", "closure"])
+def test_risk_artifact_identity_keeps_the_digest_suffix(part: str) -> None:
+    from gateway_backend.capabilities.risk_evaluation._artifacts import _risk_artifact_id
+    prefix = "a" * 24
+    first = DigestRef("sha256:" + prefix + "b" * 40)
+    second = DigestRef("sha256:" + prefix + "c" * 40)
+    assert _risk_artifact_id(part, first) != _risk_artifact_id(part, second)

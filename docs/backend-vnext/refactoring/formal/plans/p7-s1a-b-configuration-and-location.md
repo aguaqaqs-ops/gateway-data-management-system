@@ -46,3 +46,19 @@ Snapshot artifact_content_digest排除row artifact_id，固定bytes/descriptor/p
 Current HEAD由外置回执绑定；Container rebuild required：yes（实际Compose harness变更）；本机离线重建及代表性history零写/重启旅程已列固定稿，当前未执行；Last verified image revision/source-tree仍为设计§14的P6来源，只作历史入口；B current container gate未运行，carried none。测试脚本资源只在执行时取得并由本人收尾；本实施者未占节点。
 
 C接位置resolver、typed本地root、原子对象目录、no-replace/copy/读者与保护锁序；D接file/scratch/download/全部消费者和bounded维护；E接RS真实布局；F接settings唯一配置入口/实际mount+cgroup/render；G接确认范围真实链与最终证据。Owner给协调者确认的G范围不在B执行。本包不开始C、不宣称S1a完成。
+
+## R1 修订与待复审
+
+原审固定`df0116245fdb15d074d12eddf959972a0240ffb6`，报告`/home/dev/gdds-p7-s1a-reviews/b/df011624-r1.md`，SHA256=`835d13c4cc4a429ac61f8e16e3e1ac1635ba4461ab6b9f0fc549da0ad2bf7370`，结论B_NO_GO/SCRIPT_NO_GO。首候选未执行，以下是同包准备的修复，不把静态finding记作测试失败或自行关闭。
+
+| Finding | 修订 | 验证owner |
+| --- | --- | --- |
+| F1 Preview缩进/未绑定bundle | 两个分支共用strict ready/bundle解码，保持CheckpointDecodeError；ready ID/ref一致、bundle在READY closure内 | Preview fresh/replay既有focused，新增非法bare/closure绑定向量 |
+| F2 risk截24hex | 三类producer共用完整digest身份helper，删除截断 | risk contracts的仅后40位不同区分向量 |
+| F3 History/typed遗漏 | History assemble恢复、publish及公用job-state解码均校验bare/ref与bundle closure；SnapshotTableBinding使用codec | History既有focused及bare/ref/closure负向、nominal boundary |
+| F4 夹具/golden | Ready按完整新ID字典序重建正向raw和SHA、负向确实逆序；大集合按真实ID序断言。Submit canonical基础ref全部合法。RS SQLseed恢复UUID，metadata两处隐藏hex source及SQL closure IDs改为目标形态 | checkpoints/submit payload、real-dump工具unit、commit metadata |
+| F5 stream先写后拒 | ID构造前移至消费stream/建staging前，后续ArtifactRef构造也在本人staging收尾try内 | 输入一旦被迭代即失败的负向stream，且无staging残留 |
+| F6 依赖身份与daemon | 固定06本机两个tag/四项offline env；在sync/测试前按官方--print-input核候选backend完整输入/tag/label及RS lock/tag/label；无代理且本机Unix Docker endpoint；失配/缺base立即停止 | 修订执行稿及唯一测试者实际预检原件，待原审核收 |
+| F7 golden owner遗漏 | 纳入archive_queries实际冻结向量owner及real_dump_journey工具unit（不是真实旅程）；所有阶段非0即停 | 修订固定选择器 |
+
+READY wire SHA按新raw更新为`sha256:3a30adbe13c24e6363028b4474ab78735b97c22bf9b0ce00d2d8201016a26a00`，仅ID载荷/排序的原公式重算；不改变生产排序或去掉raw断言。resource/config/业务规则golden未额外重录。stream问题在实施者提交后只读自查先报告，原审独立复核；其余问题按R1原件保留。本次未在开发机运行语法/产品测试/lint/编译；新候选仍需原审复审SCRIPT_GO、CT实际证据与最终B核收。

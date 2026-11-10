@@ -157,6 +157,43 @@ verify() (
     GATEWAY_RUST_BUILD_INPUT=$(git rev-parse HEAD:vnext/rust)
     [[ -d $TMPDIR ]] || exit 2
     run 'uv version' uv --version
+    [[ -z ${GATEWAY_COMPOSE_GATE_PREBUILT:-} ]] || { echo 'prebuilt bypass forbidden'; exit 2; }
+    export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
+    export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa
+    export GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee
+    export GATEWAY_DOCKER_BUILD_NETWORK=none
+    for proxy_name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
+        [[ -z ${!proxy_name:-} ]] || { echo 'forward proxy forbidden on 06'; exit 2; }
+    done
+    [[ -z ${DOCKER_HOST:-} && -z ${DOCKER_CONTEXT:-} ]] || { echo 'ambient Docker endpoint override forbidden'; exit 2; }
+    run 'local Docker endpoint' python3 -I - <<'PYLOCAL'
+import json
+import subprocess
+context = subprocess.check_output(["docker", "context", "show"], text=True).strip()
+metadata = json.loads(subprocess.check_output(["docker", "context", "inspect", context]))[0]
+assert metadata["Endpoints"]["docker"]["Host"].startswith("unix://"), "local Unix Docker daemon required"
+print("DOCKER_ENDPOINT=local-unix")
+PYLOCAL
+    run 'local Docker daemon identity' docker info --format '{{.ID}} {{.Name}} {{.ServerVersion}}'
+    capture 'candidate backend dependency inputs' "$logdir/backend-deps-input.json" ./vnext/scripts/build-backend-dependency-base.sh --print-input
+    run 'candidate dependency-base input and RS lock identity' python3 -I - "$logdir/backend-deps-input.json" "$GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE" "$GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE" <<'PYCODE'
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+inputs = json.loads(Path(sys.argv[1]).read_bytes())
+backend_tag, repository_tag = sys.argv[2:4]
+assert inputs["image"] == backend_tag, "backend dependency input tag mismatch"
+backend = json.loads(subprocess.check_output(["docker", "image", "inspect", backend_tag]))[0]
+assert backend["Config"]["Labels"]["gateway.backend.dependency-input-sha256"] == inputs["input_sha256"], "backend dependency input label mismatch"
+repository = json.loads(subprocess.check_output(["docker", "image", "inspect", repository_tag]))[0]
+lock_sha = hashlib.sha256(Path("vnext/repository_service/uv.lock").read_bytes()).hexdigest()
+assert repository["Config"]["Labels"]["gateway.p2r1.uv-lock-sha256"] == lock_sha, "RS dependency lock label mismatch"
+assert repository_tag == "gateway-p2r1-repository:lock-" + lock_sha[:12], "RS dependency lock tag mismatch"
+print("CANDIDATE_DEPENDENCY_INPUTS=MATCH; no build/pull/fallback performed")
+PYCODE
+    run 'candidate dependency inputs SHA256' sha256sum "$logdir/backend-deps-input.json"
     (cd vnext/rust && run 'rustc version' rustc --version && run 'cargo version' cargo --version &&
         run 'rustfmt version' rustfmt --version && run 'clippy version' clippy-driver --version)
     for package in shared_kernel repository_contracts repository_client backend repository_service; do
@@ -173,6 +210,7 @@ verify() (
     done
     backend_files=(
         tests/test_archive_audit.py
+        tests/test_archive_queries.py
         tests/test_archive_business_validation.py
         tests/test_archive_transactions.py
         tests/test_artifact_boundary.py
@@ -211,6 +249,8 @@ verify() (
         tests/test_review_persistence.py
         tests/test_review_transactions.py
         tests/test_risk_candidate_cache.py
+        tests/test_real_dump_canonical_metadata.py
+        tests/test_real_dump_journey.py
         tests/test_risk_contracts.py
         tests/test_risk_evaluation.py
         tests/test_snapshot_artifact_faults.py
@@ -250,11 +290,6 @@ verify() (
         "${backend_files[@]}" -m 'unit and serial' -n 0
     run 'RS shared configuration vectors' ./vnext/scripts/uv-consume.sh -C vnext/repository_service run --no-sync pytest \
         tests/test_deployment_config.py -m unit -n 0
-    [[ ${GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES:-} = 1 && ${GATEWAY_DOCKER_BUILD_NETWORK:-} = none ]] || { echo 'offline backend build profile required'; exit 2; }
-    [[ -n ${GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE:-} && -n ${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-} ]] || { echo 'fixed preloaded dependency-base tags required'; exit 2; }
-    [[ -z ${GATEWAY_COMPOSE_GATE_PREBUILT:-} ]] || { echo 'prebuilt bypass forbidden'; exit 2; }
-    run 'backend dependency-base local identity' docker image inspect "$GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE" --format '{{.Id}} {{.Config.Image}} {{json .RootFS.Layers}}'
-    run 'RS dependency-base local identity' docker image inspect "$GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE" --format '{{.Id}} {{.Config.Image}} {{json .RootFS.Layers}}'
     export GATEWAY_COMPOSE_GATE_PROJECT_NAME="p7-s1a-b-$session"
     export GATEWAY_COMPOSE_GATE_SESSION="$session"
     export GATEWAY_COMPOSE_GATE_PROVENANCE_PATH="$logdir/compose-provenance.json"

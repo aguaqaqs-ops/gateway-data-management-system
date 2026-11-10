@@ -351,9 +351,8 @@ def restore_records_closure(
     closure_ref: ArtifactRef,
     *,
     policy: RecordsPublicationPolicy | None = None,
-    context: RecordsPublicationContext | None = None,
 ) -> RestoredRecordsClosure:
-    """Copy a validated records closure and rewrite its refs into a new artifact scope.
+    """Copy a validated records closure and rewrite its refs using their owning IDs.
 
     The source closure and every referenced artifact are verified before they are exposed to the
     caller.  The destination closure is reopened and verified after publication as well.  A
@@ -364,7 +363,6 @@ def restore_records_closure(
     if not _is_artifact_store(source_store) or not _is_artifact_store(destination_store):
         raise TypeError("source_store and destination_store must implement ArtifactStorePort")
     limits = policy or RecordsPublicationPolicy()
-    control = context or RecordsPublicationContext()
     source = open_records_closure(source_store, closure_ref, policy=limits)
     replacements: dict[ArtifactRef, ArtifactRef] = {}
     for entry in source.records:

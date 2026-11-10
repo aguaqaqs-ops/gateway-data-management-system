@@ -67,3 +67,12 @@ READY wire SHA按新raw更新为`sha256:3a30adbe13c24e6363028b4474ab78735b97c22b
 ### F6 来源与选中tag修订
 
 R1修订候选849cf6f799中的d054是旧Cargo.lock输入，原审尚未准许正文，未发生产品执行。选中base改为当前完整输入578；可信source commit53746c7236a79c96bd41587165e80683da283400、input/image identity/归档/06 LAN预填原件及SHA全部在[验证稿F6来源](p7-s1a-b-verification.md#f6-固定预填来源补充)。正式稿先核来源SHA及候选tag_inputs，再对当前06两个dependency-base导出config原bytes与全部有序DiffID逐项匹配；RS仅取精确6dc base条目。现成verifier原字节纳入候选，SHA保持。没有新建/覆盖/重tag base，没有将未保原件的内联计算冒作证据；旧P6只提供依赖来源，不提供B产品通过。当前正文/导出均待原审SCRIPT_GO及唯一测试者执行。
+
+
+### 正式执行 backend ruff 失败与修订
+
+06固定候选bba9的第一次正文在backend ruff F841退出1；原日志及SHA、实际触及/未运行范围见[验证稿首次正式失败](p7-s1a-b-verification.md#首次正式执行失败与范围内修订)。此次不覆盖失败原件：删除因fixed ID kind替换而失去唯一用途的restore context/prefix残余，静态追踪唯一caller并加入既有native Arrow restore owner单例；其他publication的控制/取消回调保持。尚待同原审与CT新候选完整稿复验，不由实施者自签finding关闭。
+
+### Owner补充：S1a最终交接要求
+
+Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path成员集合及manifest字段集合不变，并逐项列出ID/摘要**取值**变化；当前B没有完成这些最终对照，不预填PASS或将字段集合不变替代取值分析。BE-b第二步设计由协调者立即启动，实施只能在S1a本地exit并合main后开始；B不提前实现BE-b。DC74未生效并随P6退出关闭，不能作为本轮额外门禁或冻结资源约束。此补充保留交接，由协调者main记录和G收口。

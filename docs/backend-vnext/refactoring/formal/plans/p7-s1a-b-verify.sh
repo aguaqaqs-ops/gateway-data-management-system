@@ -263,6 +263,7 @@ PYCODE
         tests/test_comparison_artifacts.py
         tests/test_comparison_cache.py
         tests/test_comparison_records.py
+        tests/test_comparison_s3_c_arrow.py::test_real_open_read_restore_use_native_arrow_validator
         tests/test_comparison_s3_d_production.py
         tests/test_computation_cache.py
         tests/test_configuration_facts.py
@@ -320,7 +321,7 @@ PYCODE
         tests/test_workspace_artifact_store.py
         tests/test_workspace_domain.py
     )
-    for file in "${backend_files[@]}"; do [[ -f vnext/backend/$file ]] || { echo "unknown focused test: $file"; exit 2; }; done
+    for file in "${backend_files[@]}"; do [[ -f vnext/backend/${file%%::*} ]] || { echo "unknown focused test: $file"; exit 2; }; done
     run 'backend focused unit parallel' ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest \
         "${backend_files[@]}" -m 'unit and not serial' -n 4
     run 'backend focused unit serial' ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest \

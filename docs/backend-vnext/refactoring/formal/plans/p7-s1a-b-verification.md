@@ -46,3 +46,12 @@ bash "$CLEAN_WORKTREE/docs/backend-vnext/refactoring/formal/plans/p7-s1a-b-verif
 | 原样复制的verifier | 来源CT201 `/home/dev/gdds-test-tmp/p6-s3-e-06-cache-prefill-578e079b/verify-saved-image.py`，本候选相邻`p7-s1a-b-verify-saved-image.py`；二者SHA均`bbf4a6ac956ec57cc88bdb496f334306bdfe9e92024a538526cc6b2136ca7d50` |
 
 原审只读核来源和候选五个输入SHA/现有label与DiffID，未导出当前config或执行正文；本稿补齐正式导出/比对步骤。无需新依赖构建或覆盖缓存；如现场不符，停交协调者，不自行修理资源或把未知写作通过。除了被明确固定的tag/开关，不打印ambient proxy/cache值或凭据；只有摘要/类别进入回执。
+
+
+## 首次正式执行失败与范围内修订
+
+06于候选`bba9d6ae9a1e36509f2d51934ec565b2dbc990fd`执行固定稿，原日志`/home/dev/gdds-test-tmp/p7-s1a-b-bba9d6ae/logs-r1/verification.log`，SHA256=`7c1e27022cfee459eb9cb1563b944da3ed507fd8e095841e926a587a83a7a6a2`，原exit1且本人资源已释放。完整依赖身份、五包offline sync及shared_kernel/repository_contracts/repository_client的ruff/mypy已执行通过；backend ruff在`comparison/artifacts.py:367`因F841未使用`control`退出。backend mypy、后续包静态、focused、Compose未执行，不能记PASS。
+
+原因：B删除caller自定义ID prefix后，`restore_records_closure`的context仅剩原来给ID helper供prefix的残余赋值。只读核当前唯一调用者为既有`test_comparison_s3_c_arrow.py::test_real_open_read_restore_use_native_arrow_validator`，未传context；其余两个`control`变量仍用于Arrow publication/预算路径，保留原checkpoint回调。修订删除restore的无效context入口和赋值，保其验证、copy预算、写入/重开及内容/规则摘要；不新增取消语义，不改预期掩盖结果。
+
+固定选择器增加上述既有restore owner单例，文件存在性校验对静态nodeid先取`::`前的文件；其余选择、参数/预算/离线身份早停和五包检查不变。新候选由原审重新核SCRIPT_GO后在06 clean已提交worktree从完整稿开头执行，保旧失败原件，不无修改重试。开发机未跑测试/lint/编译/语法检查。本次修订仍不签产品/容器通过。

@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.support.configuration_facts import preview_result_with_facts
 
 from datetime import UTC, datetime
+from collections.abc import Callable
 
 import pytest
 from dataclasses import replace
@@ -283,7 +284,16 @@ def test_derive_preview_staleness_compares_frozen_baseline_binding(
     assert derive_preview_staleness(result, current_head) is expected_stale
 
 
-@pytest.mark.parametrize("field_name", ["bundle_artifact_id", "ready_closure_artifact_id"])
-def test_preview_result_rejects_unsupported_bare_artifact_binding(field_name: str) -> None:
+INVALID_PREVIEW_ARTIFACT_BINDINGS: tuple[tuple[str, Callable[[PreviewResult], PreviewResult]], ...] = (
+    ("bundle_artifact_id", lambda preview: replace(preview, bundle_artifact_id="legacy-artifact")),
+    ("ready_closure_artifact_id", lambda preview: replace(preview, ready_closure_artifact_id="legacy-artifact")),
+)
+
+
+@pytest.mark.parametrize(("field_name", "mutate"), INVALID_PREVIEW_ARTIFACT_BINDINGS,
+    ids=[name for name, _mutate in INVALID_PREVIEW_ARTIFACT_BINDINGS])
+def test_preview_result_rejects_unsupported_bare_artifact_binding(
+    field_name: str, mutate: Callable[[PreviewResult], PreviewResult],
+) -> None:
     with pytest.raises(ValueError, match="a1:"):
-        replace(_preview_result(), **{field_name: "legacy-artifact"})
+        mutate(_preview_result())

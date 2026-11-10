@@ -76,3 +76,8 @@ R1修订候选849cf6f799中的d054是旧Cargo.lock输入，原审尚未准许正
 ### Owner补充：S1a最终交接要求
 
 Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path成员集合及manifest字段集合不变，并逐项列出ID/摘要**取值**变化；当前B没有完成这些最终对照，不预填PASS或将字段集合不变替代取值分析。BE-b第二步设计由协调者立即启动，实施只能在S1a本地exit并合main后开始；B不提前实现BE-b。DC74未生效并随P6退出关闭，不能作为本轮额外门禁或冻结资源约束。此补充保留交接，由协调者main记录和G收口。
+
+
+### d97 backend mypy 失败与修订
+
+06 d97的backend ruff已通过，mypy因两处负向测试的动态`replace(**dict[str, str])`出现19条类型不匹配而退出1；[原日志和修订依据](p7-s1a-b-verification.md#d97-backend-mypy-失败与测试类型修订)保持。改用带具体record类型的共享mutator表和固定keyword，保四个Attempt/两个Preview非法ID场景与错误断言，不使用type-ignore/cast掩盖。没有产品算法或配置/ID/golden改动、没有删测试；等待同原审与CT新候选复验。

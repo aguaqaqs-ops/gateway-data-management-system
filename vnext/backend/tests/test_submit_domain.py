@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.support.configuration_facts import submit_attempt_with_facts, submission_with_facts
 
 from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -316,12 +317,22 @@ def test_assert_submission_attempt_binding_rejects_mismatched_attempt_id() -> No
         )
 
 
-@pytest.mark.parametrize("field_name", ["canonical_table_set_closure_ref", "preview_ready_closure_ref",
-    "canonicalization_manifest_ref", "prepared_canonicalization_manifest_ref"])
-def test_submit_attempt_rejects_unsupported_bare_artifact_binding(field_name: str) -> None:
+INVALID_ATTEMPT_ARTIFACT_BINDINGS: tuple[tuple[str, Callable[[SubmitAttempt], SubmitAttempt]], ...] = (
+    ("canonical_table_set_closure_ref", lambda attempt: replace(attempt, canonical_table_set_closure_ref="legacy-artifact")),
+    ("preview_ready_closure_ref", lambda attempt: replace(attempt, preview_ready_closure_ref="legacy-artifact")),
+    ("canonicalization_manifest_ref", lambda attempt: replace(attempt, canonicalization_manifest_ref="legacy-artifact")),
+    ("prepared_canonicalization_manifest_ref", lambda attempt: replace(attempt, prepared_canonicalization_manifest_ref="legacy-artifact")),
+)
+
+
+@pytest.mark.parametrize(("field_name", "mutate"), INVALID_ATTEMPT_ARTIFACT_BINDINGS,
+    ids=[name for name, _mutate in INVALID_ATTEMPT_ARTIFACT_BINDINGS])
+def test_submit_attempt_rejects_unsupported_bare_artifact_binding(
+    field_name: str, mutate: Callable[[SubmitAttempt], SubmitAttempt],
+) -> None:
     attempt = _effect_pending_attempt()
     with pytest.raises(ValueError, match="a1:"):
-        replace(attempt, **{field_name: "legacy-artifact"})
+        mutate(attempt)
 
 
 def test_submit_attempt_rejects_unsupported_source_binding() -> None:

@@ -1,6 +1,7 @@
 """Strict deployment document adapter. Runtime mount/cgroup checks belong to bootstrap."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -9,8 +10,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Mapping, cast
 
-from gateway_shared_kernel import raw_blob_digest
-from gateway_shared_kernel.jcs import canonicalize_json_value
+import rfc8785
 
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_FILESYSTEMS = 10
@@ -86,6 +86,33 @@ def _document(raw: bytes) -> dict[str, object]:
     if type(value) is not dict:
         raise ValueError("configuration must be an object")
     return cast(dict[str, object], value)
+
+
+def _validate_jcs_domain(value: object) -> None:
+    # Keep the deployment format's I-JSON/Unicode gates independent of other services.
+    if isinstance(value, str):
+        for codepoint in map(ord, value):
+            if (0xD800 <= codepoint <= 0xDFFF or 0xFDD0 <= codepoint <= 0xFDEF
+                    or (codepoint & 0xFFFE) == 0xFFFE):
+                raise ValueError("configuration contains invalid Unicode")
+    elif type(value) is int:
+        if not -(2**53) + 1 <= value <= 2**53 - 1:
+            raise ValueError("configuration integer outside I-JSON bounds")
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("configuration number must be finite")
+    elif isinstance(value, list):
+        for item in value:
+            _validate_jcs_domain(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_jcs_domain(key)
+            _validate_jcs_domain(item)
+
+
+def _configuration_digest(document: dict[str, object]) -> str:
+    _validate_jcs_domain(document)
+    return "sha256:" + hashlib.sha256(rfc8785.dumps(document)).hexdigest()
 
 
 def _header(document: dict[str, object]) -> tuple[str, str]:
@@ -173,7 +200,7 @@ class StorageLayoutConfig:
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
         return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            raw_blob_digest(canonicalize_json_value(doc)).value)
+            _configuration_digest(doc))
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -266,7 +293,7 @@ class ResourceProfile:
         temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
             _integer(temp["staging_max_bytes_per_object"]))
         return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            raw_blob_digest(canonicalize_json_value(doc)).value)
+            _configuration_digest(doc))
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:

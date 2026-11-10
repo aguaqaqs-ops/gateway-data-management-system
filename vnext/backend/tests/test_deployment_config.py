@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from gateway_backend.deployment_config import DeploymentConfig, ResourceProfile,
 
 pytestmark = pytest.mark.unit
 _FIXTURES = Path(__file__).resolve().parents[2] / "fixtures/runtime-config/v1"
+_JCS = json.loads((_FIXTURES / "configuration-jcs.json").read_bytes())
 _INVALID = json.loads((_FIXTURES / "invalid-configs.json").read_bytes())
 
 
@@ -102,3 +104,21 @@ def test_aliases_of_one_filesystem_reject_conflicting_capacity_policy() -> None:
     storage["roots"]["be-export"]["filesystem_id"] = "other"
     with pytest.raises(ValueError, match="one capacity policy"):
         StorageLayoutConfig.from_bytes(json.dumps(storage).encode())
+
+
+@pytest.mark.parametrize("case", _JCS, ids=lambda case: case["name"])
+def test_shared_configuration_frozen_jcs_digest(case: dict[str, Any]) -> None:
+    storage, resources = _documents()
+    document = storage if case["document"] == "storage" else resources
+    for mutation in case["mutations"]:
+        current = document
+        for key in mutation["path"][:-1]:
+            current = current[key]
+        current[mutation["path"][-1]] = mutation["value"]
+    preimage = case["canonical_jcs"].encode("utf-8")
+    assert json.loads(preimage) == document
+    assert "sha256:" + hashlib.sha256(preimage).hexdigest() == case["digest"]
+    parser = StorageLayoutConfig if case["document"] == "storage" else ResourceProfile
+    for ascii_only in (False, True):
+        parsed = parser.from_bytes(json.dumps(document, ensure_ascii=ascii_only).encode())
+        assert parsed.digest == case["digest"]

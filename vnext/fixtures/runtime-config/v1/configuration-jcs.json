@@ -1,0 +1,69 @@
+[
+  {
+    "name": "storage-baseline",
+    "document": "storage",
+    "mutations": [],
+    "canonical_jcs": "{\"environment_id\":\"development\",\"filesystems\":{\"local\":{\"expected_source\":\"/dev/mapper/gateway-data\",\"min_free_bytes\":5368709120,\"min_free_fraction\":0.1,\"mountpoint\":\"/srv/gateway\"}},\"group_id\":\"group-1\",\"roots\":{\"be-canonical\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-canonical\",\"source\":\"/srv/gateway/be-canonical\",\"storage_id\":\"00000000000000000000000000000002\"},\"be-comparison\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-comparison\",\"source\":\"/srv/gateway/be-comparison\",\"storage_id\":\"00000000000000000000000000000003\"},\"be-durable\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-durable\",\"source\":\"/srv/gateway/be-durable\",\"storage_id\":\"00000000000000000000000000000001\"},\"be-export\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-export\",\"source\":\"/srv/gateway/be-export\",\"storage_id\":\"00000000000000000000000000000004\"},\"be-metadata\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-metadata\",\"source\":\"/srv/gateway/be-metadata\",\"storage_id\":\"00000000000000000000000000000006\"},\"be-scratch\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-scratch\",\"source\":\"/srv/gateway/be-scratch\",\"storage_id\":\"00000000000000000000000000000005\"},\"rs-artifacts\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-artifacts\",\"source\":\"/srv/gateway/rs-artifacts\",\"storage_id\":\"00000000000000000000000000000008\"},\"rs-metadata\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-metadata\",\"source\":\"/srv/gateway/rs-metadata\",\"storage_id\":\"0000000000000000000000000000000a\"},\"rs-repository\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-repository\",\"source\":\"/srv/gateway/rs-repository\",\"storage_id\":\"00000000000000000000000000000007\"},\"rs-scratch\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-scratch\",\"source\":\"/srv/gateway/rs-scratch\",\"storage_id\":\"00000000000000000000000000000009\"}},\"schema_version\":1}",
+    "digest": "sha256:110f6213071bc585989373ae28840efaea2bb7b782e1aeb76747b4adadb8b110"
+  },
+  {
+    "name": "resources-baseline",
+    "document": "resources",
+    "mutations": [],
+    "canonical_jcs": "{\"backend\":{\"cpu_limit\":1,\"memory_limit_bytes\":2147483648,\"swap_limit_bytes\":0},\"environment_id\":\"development\",\"group_id\":\"group-1\",\"host_budget\":{\"cpu_count\":8,\"memory_bytes\":51539607552,\"shared_cpu_reserve\":2,\"shared_memory_reserve_bytes\":8589934592},\"repository_service\":{\"cpu_limit\":2,\"memory_limit_bytes\":4294967296,\"swap_limit_bytes\":0},\"schema_version\":1,\"temporary\":{\"scratch_max_bytes_per_attempt\":8589934592,\"staging_max_bytes_per_object\":4294967296},\"worker\":{\"active_limit\":1,\"count\":1,\"cpu_limit\":2,\"kernel_memory_bytes\":25769803776,\"kernel_threads\":1,\"memory_envelope_bytes\":34359738368,\"memory_reserve_bytes\":8589934592,\"swap_limit_bytes\":0}}",
+    "digest": "sha256:b9437ee780b8122428cdf6cdeac626b5eba63c66590043e409b5b16677682d6b"
+  },
+  {
+    "name": "storage-unicode-and-ijson-max",
+    "document": "storage",
+    "mutations": [
+      {
+        "path": [
+          "filesystems",
+          "local",
+          "expected_source"
+        ],
+        "value": "/dev/é😀"
+      },
+      {
+        "path": [
+          "filesystems",
+          "local",
+          "min_free_bytes"
+        ],
+        "value": 9007199254740991
+      }
+    ],
+    "canonical_jcs": "{\"environment_id\":\"development\",\"filesystems\":{\"local\":{\"expected_source\":\"/dev/é😀\",\"min_free_bytes\":9007199254740991,\"min_free_fraction\":0.1,\"mountpoint\":\"/srv/gateway\"}},\"group_id\":\"group-1\",\"roots\":{\"be-canonical\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-canonical\",\"source\":\"/srv/gateway/be-canonical\",\"storage_id\":\"00000000000000000000000000000002\"},\"be-comparison\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-comparison\",\"source\":\"/srv/gateway/be-comparison\",\"storage_id\":\"00000000000000000000000000000003\"},\"be-durable\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-durable\",\"source\":\"/srv/gateway/be-durable\",\"storage_id\":\"00000000000000000000000000000001\"},\"be-export\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-export\",\"source\":\"/srv/gateway/be-export\",\"storage_id\":\"00000000000000000000000000000004\"},\"be-metadata\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-metadata\",\"source\":\"/srv/gateway/be-metadata\",\"storage_id\":\"00000000000000000000000000000006\"},\"be-scratch\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/be-scratch\",\"source\":\"/srv/gateway/be-scratch\",\"storage_id\":\"00000000000000000000000000000005\"},\"rs-artifacts\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-artifacts\",\"source\":\"/srv/gateway/rs-artifacts\",\"storage_id\":\"00000000000000000000000000000008\"},\"rs-metadata\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-metadata\",\"source\":\"/srv/gateway/rs-metadata\",\"storage_id\":\"0000000000000000000000000000000a\"},\"rs-repository\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-repository\",\"source\":\"/srv/gateway/rs-repository\",\"storage_id\":\"00000000000000000000000000000007\"},\"rs-scratch\":{\"filesystem_id\":\"local\",\"mount_mode\":\"bind\",\"path\":\"/var/lib/gateway/rs-scratch\",\"source\":\"/srv/gateway/rs-scratch\",\"storage_id\":\"00000000000000000000000000000009\"}},\"schema_version\":1}",
+    "digest": "sha256:7f120f3e042ae41b8e7a44ed90d6a2346521d8842fb33ea483cbb5253804daa9"
+  },
+  {
+    "name": "resources-jcs-number-spelling",
+    "document": "resources",
+    "mutations": [
+      {
+        "path": [
+          "worker",
+          "cpu_limit"
+        ],
+        "value": 2.0
+      },
+      {
+        "path": [
+          "backend",
+          "cpu_limit"
+        ],
+        "value": 1e-07
+      },
+      {
+        "path": [
+          "host_budget",
+          "shared_cpu_reserve"
+        ],
+        "value": -0.0
+      }
+    ],
+    "canonical_jcs": "{\"backend\":{\"cpu_limit\":1e-7,\"memory_limit_bytes\":2147483648,\"swap_limit_bytes\":0},\"environment_id\":\"development\",\"group_id\":\"group-1\",\"host_budget\":{\"cpu_count\":8,\"memory_bytes\":51539607552,\"shared_cpu_reserve\":0,\"shared_memory_reserve_bytes\":8589934592},\"repository_service\":{\"cpu_limit\":2,\"memory_limit_bytes\":4294967296,\"swap_limit_bytes\":0},\"schema_version\":1,\"temporary\":{\"scratch_max_bytes_per_attempt\":8589934592,\"staging_max_bytes_per_object\":4294967296},\"worker\":{\"active_limit\":1,\"count\":1,\"cpu_limit\":2,\"kernel_memory_bytes\":25769803776,\"kernel_threads\":1,\"memory_envelope_bytes\":34359738368,\"memory_reserve_bytes\":8589934592,\"swap_limit_bytes\":0}}",
+    "digest": "sha256:9451daa0cd7fe626e03e79d8b0b2d84fb7f3d413afc8ee572605c3f235d91028"
+  }
+]

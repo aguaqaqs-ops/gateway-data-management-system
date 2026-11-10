@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Mapping, cast
 
 from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel.errors import CanonicalEncodingError
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 MAX_CONFIG_BYTES = 256 * 1024
@@ -86,6 +87,13 @@ def _document(raw: bytes) -> dict[str, object]:
     if type(value) is not dict:
         raise ValueError("configuration must be an object")
     return cast(dict[str, object], value)
+
+
+def _configuration_digest(document: dict[str, object]) -> str:
+    try:
+        return raw_blob_digest(canonicalize_json_value(document)).value
+    except CanonicalEncodingError as exc:
+        raise ValueError("configuration is outside the JCS/I-JSON domain") from exc
 
 
 def _header(document: dict[str, object]) -> tuple[str, str]:
@@ -173,7 +181,7 @@ class StorageLayoutConfig:
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
         return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            raw_blob_digest(canonicalize_json_value(doc)).value)
+            _configuration_digest(doc))
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -266,7 +274,7 @@ class ResourceProfile:
         temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
             _integer(temp["staging_max_bytes_per_object"]))
         return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            raw_blob_digest(canonicalize_json_value(doc)).value)
+            _configuration_digest(doc))
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:

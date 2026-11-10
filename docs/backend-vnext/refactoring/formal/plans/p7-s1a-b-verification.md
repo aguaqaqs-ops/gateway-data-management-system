@@ -1,6 +1,6 @@
 # P7-S1a B 固定验证稿
 
-日期：2026-11-10。状态：候选待原审，尚未执行；本稿不签 SCRIPT_GO/B_GO。
+日期：2026-11-10。状态：本轮新候选待原审、未执行；下文保留旧候选失败/备料历史，本稿不签SCRIPT_GO/B_GO。2bacea之后本轮RS新依赖按[独立准备稿](p7-s1a-b-rs-dependency-preparation.md)执行，新base原件审核后才能固定正文EXEC_GO。
 
 起点 `00ca325c2ed6d705abfa39e9528ef148e6029cfc`。唯一测试角色只在原审核准精确候选 B_SHA、本稿与脚本 SHA256 后执行 [p7-s1a-b-verify.sh](p7-s1a-b-verify.sh)。固定节点 `ct107-gw-dms-06`，主机名 `gw-dms-06`；不改节点、参数、worker 数、预期或现场修脚本。失败先停本次及依赖验收、保原 exit/日志/SHA，交实施者/原审；依本轮用户 AGENTS/DC68和提示词处理，不沿用 main 的 DC91/三轮恢复权限，不无修改重试。
 
@@ -10,29 +10,29 @@
 
 ```bash
 bash "$CLEAN_WORKTREE/docs/backend-vnext/refactoring/formal/plans/p7-s1a-b-verify.sh" \
-  "$B_SHA" "$CLEAN_WORKTREE" "$NEW_LOG_DIR" "$SESSION"
+  "$B_SHA" "$CLEAN_WORKTREE" "$NEW_LOG_DIR" "$SESSION" "$RS_IDENTITY_SHA256"
 ```
 
-四参数精确值由协调者交接；B_SHA为40位小写hex，SESSION为1–64位`[a-z0-9][a-z0-9_-]*`。NEW_LOG_DIR为 worktree 外、父目录已存在的全新路径。调用时保 SSH 原 numeric exit，不能用 tee 成功掩盖脚本失败。
+五参数精确值由协调者交接；B_SHA为40位小写hex，SESSION为1–64位`[a-z0-9][a-z0-9_-]*`。NEW_LOG_DIR为 worktree 外、父目录已存在的全新路径。RS_IDENTITY_SHA256为成功新base原件经原审核收后的64位SHA，现在UNKNOWN，不能占位执行。调用时保 SSH 原 numeric exit，不能用 tee 成功掩盖脚本失败。
 
 脚本完整固定内容：
 
-1. 起止 hostname/UTC/HEAD/clean；HEAD等于B_SHA且起点为祖先；脚本与本稿SHA。拒绝dirty/错误节点；核锁文件与Rust源码未变。
+1. 起止 hostname/UTC/HEAD/clean；HEAD等于B_SHA且起点为祖先；脚本与本稿SHA。拒绝dirty/错误节点；核除RS锁外的四锁及Rust源码未变；RS锁仅新增精确rfc的证明在依赖准备原件中。
 2. 离线 `UV_OFFLINE=1 CARGO_NET_OFFLINE=true`，`TMPDIR=/home/dev/gdds-test-tmp`、Cargo jobs4/外置target，root PATH以`/home/dev/.cargo/bin`起，不接受RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME覆盖。通过受控uv同步五包，backend强制重装扩展并绑定HEAD的Rust tree，检查安装扩展build-input；该编译仅在06执行。
 3. 五Python包分别 `ruff check .` 与 `mypy`。脚本遇首次非0停止，不跳过未改包，不在节点auto-fix。
-4. backend按脚本固定文件列表运行focused unit：非serial `-n 4`，serial `-n 0`。覆盖共享配置、四位置codec/拒绝、nominal UUID、canonical完整key、Snapshot wrapper内容身份、producer/cache、checkpoint/job/SQLite/domain、facts/archive绑定golden（包括`test_archive_queries.py::test_archive_digest_v2_preimages_match_the_frozen_consumer_vectors`）、bundle/surface与上传接线。real_dump_journey.py在此仅为旅程工具自身的mock/SQLite unit，不读真实输入、不启动完整旅程。RS仅运行同一共享配置格式向量，`-m unit -n 0`，不创建Dolt库。不是权威全包runner，不作carried来源。
+4. backend按脚本固定文件列表运行focused unit：非serial `-n 4`，serial `-n 0`。覆盖共享配置、四位置codec/拒绝、nominal UUID、canonical完整key、Snapshot wrapper内容身份、producer/cache、checkpoint/job/SQLite/domain、facts/archive绑定golden（包括`test_archive_queries.py::test_archive_digest_v2_preimages_match_the_frozen_consumer_vectors`）、bundle/surface与上传接线。real_dump_journey.py在此仅为旅程工具自身的mock/SQLite unit，不读真实输入、不启动完整旅程。RS运行同一共享配置格式向量及既有`test_repository_sources_do_not_import_non_repository_packages` owner selector，`-n 0`，不创建Dolt库。不是权威全包runner，不作carried来源。
 5. 成功与失败均收尾核起止HEAD/clean、原numeric exit；只删除本人且owner内容匹配的标记文件，再rmdir忙目录，不递归清理/释放他人资源。保源码、环境、成功/失败原件。tee结束后另存VERIFIER_EXIT、LOGGER_EXIT和最终日志SHA256。资源释放或logger失败也非0；不能被验证主体成功覆盖。
 
 6. 本轮改到实际Compose harness的manifest观测器，必须在当前候选离线重建backend/worker，并运行代表性既有`test_compose_history_compare_journey_zero_write_restart`（`-n 0`）。观测器按严格ref/位置及owning manifest decoder识别全部规范化manifest；前置非空、前后相等与重启断言保持，不再按不可见的旧kind前缀返回空集合。ordered旅程只改同helper名称并补非空保护；同一观测器由上述history向量覆盖，不将两套长旅程相乘。本步骤实际仍是B现有单root部署，不能称多root/缺挂载/cgroup通过。
 
-容器前提由唯一测试角色只读预检实际06本机dependency-base，向原审固定具体tag、config digest和全部RootFS DiffID，记录来源/预填时间；脚本要求`GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-578e079b762e`、`GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee`、`GATEWAY_DOCKER_BUILD_NETWORK=none`，且不得设置`GATEWAY_COMPOSE_GATE_PREBUILT`。四项由脚本显式设置。两个base必须已在本机；在任何环境同步/产品检查前，`build-backend-dependency-base.sh --print-input`（只读输入、拒绝缺失本机Rust base）按候选全部输入及源base config digest/DiffID重算backend tag/input摘要，与固定tag和本机`gateway.backend.dependency-input-sha256` label逐项匹配；RS按候选lock SHA匹配固定tag及本机`gateway.p2r1.uv-lock-sha256` label。不一致即早停，不重试、重tag或fall back。RS builder保留既有预置依赖逻辑。脚本要求没有DOCKER_HOST/DOCKER_CONTEXT覆盖，先只读核Docker context endpoint为本机Unix socket，再记录daemon ID/name/version；不接远程daemon。脚本拒绝06 forward proxy，不输出proxy值；cache/proxy如需记录只保摘要。缺base停止，不走公网/转发或臆测cache。`GATEWAY_COMPOSE_GATE_PROJECT_NAME`、session和provenance路径由脚本固定至本任务。harness在本机正常build，不手工retag/rmi。来源原件、候选完整输入、本机当前config原字节与全部有序DiffID三者分别核验，不能只看inspect ID/层数或抄旧label。正式稿在sync前核下表原件SHA，比较source.input.tag_inputs与当前官方计算结果相同；分别docker-save当前选中的backend/RS dependency-base到本任务日志目录，使用[原样保留的image verifier](p7-s1a-b-verify-saved-image.py)从manifest唯一Config原bytes算SHA并逐项比全DiffID。backend用dependency模式并核label；RS精确选聚合JSON中ref为6dc的唯一dependency-base条目，核其lock label后生成仅含config_digest/diff_ids的expected文档，用同verifier的base模式做通用identity比较（此处是RS base，不是Rust base或最终RS镜像）。两当前归档及expected文档保SHA；保留原件，不docker-load、不重tag/覆盖已有base。任何原件/输入/config/DiffID不等立即停，不进入sync/测试。当前config比对仍未执行，不把原审只读inspect比层数记作此步通过。既有harness负责其Compose生命周期/finally收尾，脚本保留provenance及SHA；唯一测试角色收尾再核无本人栈/进程残留后核收资源释放。
+容器前提由唯一测试角色只读预检实际06本机dependency-base，向原审固定具体tag、config digest和全部RootFS DiffID，记录来源/预填时间；脚本要求`GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-578e079b762e`、`GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee`、`GATEWAY_DOCKER_BUILD_NETWORK=none`，且不得设置`GATEWAY_COMPOSE_GATE_PREBUILT`。四项由脚本显式设置。两个base必须已在本机；在任何环境同步/产品检查前，`build-backend-dependency-base.sh --print-input`（只读输入、拒绝缺失本机Rust base）按候选全部输入及源base config digest/DiffID重算backend tag/input摘要，与固定tag和本机`gateway.backend.dependency-input-sha256` label逐项匹配；RS按候选lock SHA匹配固定tag及本机`gateway.p2r1.uv-lock-sha256` label。不一致即早停，不重试、重tag或fall back。RS builder保留既有预置依赖逻辑。脚本要求没有DOCKER_HOST/DOCKER_CONTEXT覆盖，先只读核Docker context endpoint为本机Unix socket，再记录daemon ID/name/version；不接远程daemon。脚本拒绝06 forward proxy，不输出proxy值；cache/proxy如需记录只保摘要。缺base停止，不走公网/转发或臆测cache。`GATEWAY_COMPOSE_GATE_PROJECT_NAME`、session和provenance路径由脚本固定至本任务。harness在本机正常build，不手工retag/rmi。来源原件、候选完整输入、本机当前config原字节与全部有序DiffID三者分别核验，不能只看inspect ID/层数或抄旧label。正式稿在sync前核backend下表原件SHA和新RS实际原件SHA（第五参），旧RS表仅是备料来源，比较source.input.tag_inputs与当前官方计算结果相同；分别docker-save当前选中的backend/RS dependency-base到本任务日志目录，使用[原样保留的image verifier](p7-s1a-b-verify-saved-image.py)从manifest唯一Config原bytes算SHA并逐项比全DiffID。backend用dependency模式并核label；RS精确选新base聚合JSON中ref为b47d6de3cbce的唯一dependency-base条目，核其lock label后生成仅含config_digest/diff_ids的expected文档，用同verifier的base模式做通用identity比较（此处是RS base，不是Rust base或最终RS镜像）。两当前归档及expected文档保SHA；保留原件，不docker-load、不重tag/覆盖已有base。任何原件/输入/config/DiffID不等立即停，不进入sync/测试。当前config比对仍未执行，不把原审只读inspect比层数记作此步通过。既有harness负责其Compose生命周期/finally收尾，脚本保留provenance及SHA；唯一测试角色收尾再核无本人栈/进程残留后核收资源释放。
 
-本稿不运行Rust算法测试（Rust源码未变）、真实输入、全量runner、carried或性能测量。依赖/lock/Dockerfile/entrypoint/Compose YAML未变。Current HEAD container gate未执行；旧P6结果不表述为B当前HEAD通过。typed格式通过不等于实际source/mount/marker/symlink/cgroup/ready检查通过；四位置ID通过不等于多root存储发布或跨盘借用通过。C–F实际新布局和G仍须自己的当前候选边界验证。
+本稿不运行Rust算法测试（Rust源码未变）、真实输入、全量runner、carried或性能测量。本轮RS production依赖、lock及Docker ARG已变，触发新RS预置依赖base准备与当前HEAD容器构建；entrypoint/Compose YAML未变。Current HEAD container gate未执行；旧P6结果不表述为B当前HEAD通过。typed格式通过不等于实际source/mount/marker/symlink/cgroup/ready检查通过；四位置ID通过不等于多root存储发布或跨盘借用通过。C–F实际新布局和G仍须自己的当前候选边界验证。
 
 回执须给B_SHA、节点、起止UTC/HEAD、每步及整稿原exit、日志路径/SHA、实际运行范围/未运行步骤、缓存来源类别/限制、资源释放状态；原审据真实证据决定B核收。未执行、失败、UNKNOWN和后续包责任不填PASS。
 
 
-## F6 固定预填来源补充
+## F6 固定预填来源补充（旧bba9历史；backend578仍适用）
 
 849cf6f799稿误用了旧Cargo.lock时期的d054，未执行。测试者的首次内联578推导没有独立原件，不作正式证据。原审随后核到以下P6 S3-E原始来源；本次只沿用已预填依赖来源，仍由当前候选官方计算+当前config bytes核准后消费，不将P6产品结果carried为B。
 
@@ -64,3 +64,14 @@ bash "$CLEAN_WORKTREE/docs/backend-vnext/refactoring/formal/plans/p7-s1a-b-verif
 原因是新增负向向量用`dataclasses.replace(record, **dict[str, str])`动态选择字段，mypy无法证明未知key只落在字符串ref字段，将其视作可能传给record全部其他字段。修订为模块级共享参数表，mutator明确标`Callable[[SubmitAttempt], SubmitAttempt]`或`Callable[[PreviewResult], PreviewResult]`，每个lambda直接填写固定ref keyword；故障仍是同一legacy artifact字符串、同一fixture与同一ValueError/a1断言，四个Attempt/两个Preview向量不减。未添加cast/type-ignore/skip或放宽产品校验；产品代码未改变。
 
 正文选择器、参数、资源与身份机制无需修改。原审核新候选/本稿SHA后，在全新独立task/source/log路径按完整正文从开头执行；外置准备包另固定bundle、wrapper与SHA，不复用d97已失败的目录或wrapper。旧日志、源码和退出事实保留，未运行或未知不记PASS；实施者未在开发机运行测试/静态/编译/语法检查。
+
+
+## 2bacea RS包边界首败及新依赖前提
+
+06原日志`/home/dev/gdds-test-tmp/p7-s1a-b-2bacea83/logs-r1/verification.log` SHA256 `627608c5b62a318c36ce6242f426704625cc71232271e25479d090b6c8ab3cf0`，原exit1、资源已释放。shared/contracts/client/backend ruff/mypy均0、RS ruff0；RS mypy在deployment_config.py非法import shared kernel两条错误停止，pytest/Compose未到达。旧原件/候选/脚本保持，不无修改重试。
+
+本轮RS adapter只依赖精确rfc8785+stdlib；BE仍用shared kernel。共同冻结JCS preimage与SHA覆盖Unicode、整数边界、2.0/1e-7/-0.0，拒绝lone surrogate/noncharacter与safe integer之外值。五包静态后新增既有RS distribution owner selector直接证明包边界，不改测试约束或忽略诊断。
+
+RS锁变为`b47d6de3cbcef1052422efd4c8e1a0288aac14f96f1eaf6baa3276a219cc316f`，Docker ARG同步，backend578五输入未变。上面F6来源/6dc/无新构建陈述仅为bba9时期历史；当前正文明确选择新`gateway-p2r1-repository:lock-b47d6de3cbce`，来源路径`/home/dev/gdds-test-tmp/p7-s1a-b-rs-deps-b47d6de3/archives/image-identity.json`；其实际SHA由已审外置wrapper第五参固定。旧6dc只用作独立备料输入，新镜像身份不能用旧6dc或任意环境值替代。
+
+新base须先按独立准备稿clean CT201构建/精确身份、06LAN/load/re-save/full锁环境与host uv offline缓存准备，完整原件回审后正文才能EXEC_GO。当前只有可审计划，实际新config/全DiffID/archive/identity SHA及时间均UNKNOWN，没有新镜像/测试通过。保全部失败及准备命令事实；语法/AST/静态/编译/pytest只由唯一测试者在规定节点执行。

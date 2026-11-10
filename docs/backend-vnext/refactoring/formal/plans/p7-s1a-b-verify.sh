@@ -2,14 +2,16 @@
 # B focused/format verification. Run on ct107-gw-dms-06 after SCRIPT_GO.
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
-    echo 'usage: bash p7-s1a-b-verify.sh B_SHA CLEAN_WORKTREE NEW_LOG_DIR SESSION' >&2
+if [[ $# -ne 5 ]]; then
+    echo 'usage: bash p7-s1a-b-verify.sh B_SHA CLEAN_WORKTREE NEW_LOG_DIR SESSION RS_IDENTITY_SHA256' >&2
     exit 2
 fi
 candidate=$1
 worktree=$2
 logdir=$3
 session=$4
+repository_identity_sha=$5
+[[ $repository_identity_sha =~ ^[0-9a-f]{64}$ ]] || exit 2
 [[ $candidate =~ ^[0-9a-f]{40}$ && $session =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || exit 2
 [[ $worktree = /* && $logdir = /* && -d $worktree && ! -e $logdir ]] || exit 2
 # Resolve before creating anything; log output must be outside the worktree.
@@ -144,8 +146,8 @@ verify() (
     assert_text 'invoked script is candidate script' "$(realpath -e -- "$0")" "$worktree/$script_path"
     run 'script/draft SHA256' sha256sum "$script_path" "$draft_path"
     run 'diff check' git diff --check "$S" HEAD
-    run 'unchanged locks and Rust sources' git diff --exit-code "$S" HEAD -- vnext/rust \
-        vnext/backend/uv.lock vnext/repository_service/uv.lock vnext/repository_client/uv.lock \
+    run 'unchanged other locks and Rust sources' git diff --exit-code "$S" HEAD -- vnext/rust \
+        vnext/backend/uv.lock vnext/repository_client/uv.lock \
         vnext/repository_contracts/uv.lock vnext/shared_kernel/uv.lock
     [[ -L legacy && -d legacy ]] || { echo 'missing reference legacy link'; exit 2; }
     [[ ! -v RUSTUP_TOOLCHAIN && ! -v RUSTUP_HOME && ! -v CARGO_HOME ]] || { echo 'unexpected Rust environment override'; exit 2; }
@@ -160,7 +162,7 @@ verify() (
     [[ -z ${GATEWAY_COMPOSE_GATE_PREBUILT:-} ]] || { echo 'prebuilt bypass forbidden'; exit 2; }
     export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
     export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-578e079b762e
-    export GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee
+    export GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-b47d6de3cbce
     export GATEWAY_DOCKER_BUILD_NETWORK=none
     for proxy_name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
         [[ -z ${!proxy_name:-} ]] || { echo 'forward proxy forbidden on 06'; exit 2; }
@@ -176,16 +178,16 @@ print("DOCKER_ENDPOINT=local-unix")
 PYLOCAL
     run 'local Docker daemon identity' docker info --format '{{.ID}} {{.Name}} {{.ServerVersion}}'
     backend_source=/home/dev/gdds-test-tmp/p6-s3-e-06-cache-prefill-578e079b/archives
-    repository_identity=/home/dev/gdds-test-tmp/artifacts/p6-v1-f5/image-identities-c229582a9e.json
+    repository_identity=/home/dev/gdds-test-tmp/p7-s1a-b-rs-deps-b47d6de3/archives/image-identity.json
     saved_image_verifier="$worktree/$plan/p7-s1a-b-verify-saved-image.py"
-    run 'fixed prefilled identity source SHA256' python3 -I - "$backend_source" "$repository_identity" "$saved_image_verifier" <<'PYSOURCES'
+    run 'fixed prefilled identity source SHA256' python3 -I - "$backend_source" "$repository_identity" "$saved_image_verifier" "$repository_identity_sha" <<'PYSOURCES'
 import hashlib
 from pathlib import Path
 import sys
 sources = {
     Path(sys.argv[1]) / "input.json": "270ed39e56b2eec16f0a5a1c0e4a57ef5680e8a0f3b8fba8dfdf236140b8d560",
     Path(sys.argv[1]) / "image-identity.json": "d5ebabf6cf39b98917adca5ebad6f66138e2a9fa00e63eb8e6526956ccdff7c3",
-    Path(sys.argv[2]): "cafb565752514e0328764c0c5d750634005f7f38e7a61c9bb97b0e5d1a8195cd",
+    Path(sys.argv[2]): sys.argv[4],
     Path(sys.argv[3]): "bbf4a6ac956ec57cc88bdb496f334306bdfe9e92024a538526cc6b2136ca7d50",
 }
 for path, expected in sources.items():
@@ -217,7 +219,11 @@ selected = [entry for entry in source_entries if entry["ref"] == repository_tag]
 assert len(selected) == 1, "RS dependency identity entry missing or duplicated"
 source_repository = selected[0]
 assert source_repository["labels"]["gateway.p2r1.uv-lock-sha256"] == lock_sha, "RS source lock identity mismatch"
-assert len(source_repository["diff_ids"]) == 16, "wrong RS source image selection"
+assert source_repository["source_commit"] == subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "RS dependency source candidate mismatch"
+assert source_repository["labels"]["org.opencontainers.image.revision"] == source_repository["source_commit"]
+assert source_repository["labels"]["gateway.p2r1.dependency-input-sha256"] == source_repository["dependency_input_sha256"]
+assert repository["Config"]["Labels"] == source_repository["labels"], "RS source/current labels mismatch"
+assert source_repository["diff_ids"], "missing complete RS dependency layers"
 Path(sys.argv[6]).write_text(json.dumps({"base_image_identity": {
     "config_digest": source_repository["config_digest"], "diff_ids": source_repository["diff_ids"],
 }}, sort_keys=True) + "\n")
@@ -326,8 +332,8 @@ PYCODE
         "${backend_files[@]}" -m 'unit and not serial' -n 4
     run 'backend focused unit serial' ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest \
         "${backend_files[@]}" -m 'unit and serial' -n 0
-    run 'RS shared configuration vectors' ./vnext/scripts/uv-consume.sh -C vnext/repository_service run --no-sync pytest \
-        tests/test_deployment_config.py -m unit -n 0
+    run 'RS shared configuration and independent-package vectors' ./vnext/scripts/uv-consume.sh -C vnext/repository_service run --no-sync pytest \
+        tests/test_deployment_config.py tests/test_distribution_boundaries.py::test_repository_sources_do_not_import_non_repository_packages -n 0
     export GATEWAY_COMPOSE_GATE_PROJECT_NAME="p7-s1a-b-$session"
     export GATEWAY_COMPOSE_GATE_SESSION="$session"
     export GATEWAY_COMPOSE_GATE_PROVENANCE_PATH="$logdir/compose-provenance.json"

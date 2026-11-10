@@ -81,3 +81,11 @@ Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path
 ### d97 backend mypy 失败与修订
 
 06 d97的backend ruff已通过，mypy因两处负向测试的动态`replace(**dict[str, str])`出现19条类型不匹配而退出1；[原日志和修订依据](p7-s1a-b-verification.md#d97-backend-mypy-失败与测试类型修订)保持。改用带具体record类型的共享mutator表和固定keyword，保四个Attempt/两个Preview非法ID场景与错误断言，不使用type-ignore/cast掩盖。没有产品算法或配置/ID/golden改动、没有删测试；等待同原审与CT新候选复验。
+
+## 2bacea RS distribution failure修订
+
+06候选2bacea日志`/home/dev/gdds-test-tmp/p7-s1a-b-2bacea83/logs-r1/verification.log`，SHA256 `627608c5b62a318c36ce6242f426704625cc71232271e25479d090b6c8ab3cf0`，原exit1且本人资源已释放。五包离线同步及shared/contracts/client/backend静态已通过，RS ruff通过；RS mypy因配置adapter非法跨包import报两条missing-import而停止，pytest/Compose均未运行。本事实不是B_GO。
+
+既有`test_distribution_boundaries.py::test_repository_sources_do_not_import_non_repository_packages`明确禁止RS import shared kernel；`repository-workspace.toml`表达三个独立distribution及仅contracts的repository依赖边，其RS forbidden_imports数组没有逐字列shared kernel，不能误引。修订RS使用精确锁定的`rfc8785==0.1.4`及stdlib SHA256，并在窄adapter保留与BE相同的I-JSON整数/有限数/Unicode scalar与noncharacter拒绝。BE仍用现有shared-kernel实现，配置边界将其CanonicalEncodingError转为ValueError；两侧共享完整冻结JCS preimage/SHA、Unicode/数字有效及拒绝向量。新增既有包边界owner selector，不改独立distribution约束、不加type-ignore或MYPYPATH补丁。
+
+RS新lock SHA `b47d6de3cbcef1052422efd4c8e1a0288aac14f96f1eaf6baa3276a219cc316f`，仅增加该版本rfc8785及root要求；production Docker ARG同步。backend五输入及578不变。RS新base必须经[独立依赖准备稿](p7-s1a-b-rs-dependency-preparation.md)原审后生成完整原件，经LAN预填06，再将实际identity SHA固定入新正文调用wrapper后复审EXEC_GO。旧6dc仅为备料输入，不再作为当前RS依赖base；全部旧候选/失败原件保留。当前没有运行新构建、预填、语法、测试或编译。

@@ -291,5 +291,67 @@
       "extra"
     ],
     "value": 1
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ud800"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ufdd0"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ufffe"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ud83f\udffe"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\udbff\udfff"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "min_free_bytes"
+    ],
+    "value": 9007199254740992
+  },
+  {
+    "document": "resources",
+    "path": [
+      "host_budget",
+      "shared_cpu_reserve"
+    ],
+    "value": 9007199254740992
   }
 ]

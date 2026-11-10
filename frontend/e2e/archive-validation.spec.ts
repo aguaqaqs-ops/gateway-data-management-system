@@ -78,8 +78,8 @@ interface ArchiveScenario {
   closeForbidden?: boolean;
   /** The first closure attempt is lost in the browser; the retry replays the same key. */
   closureAbortOnce?: boolean;
-  /** Holds the preview response so the "正在预检" disabled reason stays visible. */
-  previewDelayMs?: number;
+  /** When true, the preview handler waits for the test to release the gate. */
+  holdPreview?: boolean;
 }
 
 function errorBody(route: string, status: number, code: string, method = "POST"): { code: string; message: string } {
@@ -89,6 +89,15 @@ function errorBody(route: string, status: number, code: string, method = "POST")
 }
 
 async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}) {
+  let releasePreview: () => void = () => {};
+  let previewGate: Promise<void> | null = null;
+  if (scenario.holdPreview) {
+    let release!: () => void;
+    previewGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    releasePreview = release;
+  }
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
   const apiResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
   const record = (method: string, path: string, token: string | null, idempotencyKey: string | null, body: string, status: number, responseBody: string) => {
@@ -143,7 +152,7 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
       const error = errorBody("/v1/archive-plan-preview", 403, "SCOPE_FORBIDDEN");
       return json(route, request, 403, error);
     }
-    if (scenario.previewDelayMs) await new Promise((resolve) => setTimeout(resolve, scenario.previewDelayMs));
+    if (previewGate) await previewGate;
     previewCalls += 1;
     return json(route, request, 200, previews[Math.min(previewCalls - 1, previews.length - 1)]!);
   });
@@ -220,7 +229,7 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     const error = errorBody("/v1/submissions/{submission_id}/closure", step.status, step.code ?? "");
     return json(route, request, step.status, error);
   });
-  return { apiRequests, apiResponses };
+  return { apiRequests, apiResponses, releasePreview };
 }
 
 const SIMULATED_WORKSPACE: Schemas["WorkspaceResponse"] = {
@@ -470,7 +479,7 @@ test("V7 阻断项只有文字与重新预检", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "接受", exact: true })).toBeHidden();
   await expect(dialog.getByRole("button", { name: "确认归档" })).toBeDisabled();
   await screenshot(page, "fe3c-blocker-no-entry", 1920);
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installArchiveScenario(page, { previews: [vPreviewBlocked("ACTIVE_SUBMIT_ATTEMPT")] });
   await page.goto("/");
   const reloaded = await openArchiveDialog(page, "提交 1");
@@ -723,7 +732,7 @@ test("V14 全部归档请求的选择引用恰好两个键", async ({ page }) =>
 });
 
 test("B7 确认归档禁用原因截图", async ({ page }) => {
-  await installArchiveScenario(page, { previews: [vPreviewTwoSidedAccepted()], previewDelayMs: 4000 });
+  const { releasePreview } = await installArchiveScenario(page, { previews: [vPreviewTwoSidedAccepted()], holdPreview: true });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
@@ -732,26 +741,28 @@ test("B7 确认归档禁用原因截图", async ({ page }) => {
   await expect(loading.getByText("正在预检").first()).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-loading", 1280);
 
-  await page.unrouteAll();
+  releasePreview();
+  await expect(loading.getByText("预检状态")).toBeVisible();
+  await page.unrouteAll({ behavior: "wait" });
   await installArchiveScenario(page, { previews: [vPreviewBlocked("ARCHIVE_INTEGRITY_FAILURE")] });
   const blocked = await openArchiveDialog(page, "提交 1");
   await expect(blocked.getByText("当前预检存在阻断项")).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-blocked", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installArchiveScenario(page, { previews: [vPreviewTwoSided()] });
   const unprocessed = await openArchiveDialog(page, "提交 1");
   await unprocessed.getByRole("checkbox", { name: /确认把/ }).check();
   await expect(unprocessed.getByText("还有 2 项异常未处理")).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-unprocessed", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installArchiveScenario(page, { previews: [vPreviewUnknownCode()] });
   const unknown = await openArchiveDialog(page, "提交 1");
   await expect(unknown.getByText("存在当前版本不能处理的项")).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-unknown", 1280);
 
-  await page.unrouteAll();
+  await page.unrouteAll({ behavior: "wait" });
   await installArchiveScenario(page, { previews: [vPreviewTwoSidedAccepted()] });
   const unchecked = await openArchiveDialog(page, "提交 1");
   await expect(unchecked.getByText("请确认归档选择")).toBeVisible();

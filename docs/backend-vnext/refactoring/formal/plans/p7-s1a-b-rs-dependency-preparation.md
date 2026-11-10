@@ -24,7 +24,7 @@ CT201实施时两次`uv add --directory vnext/repository_service --no-sync --off
 
 真实labels重新记录：candidate revision、官方helper build-input-revision/source-tree、dependency-input完整SHA、当前lock、Dolt/uv/mysql-connector/PyArrow版本及cache-policy；不能继承旧revision/tree冒作新来源。recipe见[p7-s1a-b-rs-dependency.Dockerfile](p7-s1a-b-rs-dependency.Dockerfile)。backend五输入没有变化，原578不构建/覆盖。
 
-日志build.log保hostname/起止UTC/HEAD/clean/每步原exit，tee等结束后SHA，主体/日志exit分别记；所有context、下载、旧/新tar、JSON原件与新tag保留。docker run均network none/read-only且--rm；若有残留仅在owner label等于本候选时移除本人命名容器；来源tag/他人容器不动。失败停交，不自动重试/删产物/换tag。该元数据与工具核是依赖准备，不是产品测试通过。
+日志build.log保hostname/起止UTC/HEAD/clean/每步原exit；每个end命令非0逐项聚合，INT/TERM以130/143明确进入失败收尾，tee等结束后SHA，主体/日志exit分别记；所有context、下载、旧/新tar、JSON原件与新tag保留。docker run均network none/read-only且--rm；每次run以全新CID文件记录实际创建ID并标记唯一invocation=$out；若有残留，仅在本次记录CID及精确candidate/invocation/name证明后按CID移除，前置碰撞不触碰既存容器。成功容器清单为空才认absent，ls/inspect/归属/rm/确认任一失败或未知均非0；来源tag/他人容器不动。失败停交，不自动重试/删产物/换tag。该元数据与工具核是依赖准备，不是产品测试通过。
 
 ## LAN与06准备（实际SHA回审后才可执行）
 
@@ -36,4 +36,4 @@ CT201实施时两次`uv add --directory vnext/repository_service --no-sync --off
 
 06 host uv cache是另一前提：本轮先前shared-kernel成功offline sync已实际消费同版本rfc8785，但不把这推定为新RS锁完整缓存通过。准备脚本在新clean source用受控入口`UV_OFFLINE=1 ... uv-consume.sh -C vnext/repository_service sync`实际核本机新锁缓存/环境；不公网取包、改index或改锁。若任一cache缺失，原exit停止并保新镜像/全部状态，先经独立已审CT201→LAN预填方案补齐，不从本步骤重试。正文以后仍从完整开头同步五包，不能把准备sync或旧静态通过拼成产品通过。
 
-prefill.log独立保存hostname/起止UTC/HEAD/clean/原exit与SHA，tee/主体分别exit；本人marker按精确owner内容guarded释放，容器按本候选owner处理，全部文件/新旧tag保留。LAN/导入/重导出/host uv准备均成功后，原审核收实际原件，外置正文wrapper写死identity SHA再给EXEC_GO。此时正文为五参数`B_SHA CLEAN_SOURCE NEW_LOG_DIR SESSION RS_IDENTITY_SHA256`，固定选新b47base；原578身份早停不变，五包静态、既有focused及History Compose范围完整保留，新增既有independent-package owner selector。未得到实际SHA/EXEC_GO前不调用正文，不移动已审候选来补文档。
+prefill.log独立保存hostname/起止UTC/HEAD/clean/原exit与SHA；每个end命令非0逐项聚合，INT/TERM以130/143明确进入失败收尾，tee/主体分别exit；容器同样由每次run全新CID文件和本次invocation证明；容器query/inspect/owner/rm/确认失败或未知时非0并保留busy。仅确定本次容器已清才按精确owner内容guarded释放本人marker，全部文件/新旧tag保留。LAN/导入/重导出/host uv准备均成功后，原审核收实际原件，外置正文wrapper写死identity SHA再给EXEC_GO。此时正文为五参数`B_SHA CLEAN_SOURCE NEW_LOG_DIR SESSION RS_IDENTITY_SHA256`，固定选新b47base；原578身份早停不变，五包静态、既有focused及History Compose范围完整保留，新增既有independent-package owner selector。未得到实际SHA/EXEC_GO前不调用正文，不移动已审候选来补文档。

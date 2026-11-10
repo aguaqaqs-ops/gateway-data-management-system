@@ -34,30 +34,107 @@ capture() {
 }
 prepare() (
     set -euo pipefail
+    cidfiles=()
+    container_attempted=0
+    own_container() {
+        local output=$1 label=$2 cidfile
+        shift 2
+        cidfile="$out/container-${#cidfiles[@]}.cid"
+        [[ ! -e $cidfile && ! -L $cidfile ]] || return 2
+        cidfiles+=("$cidfile")
+        container_attempted=1
+        if [[ $output = - ]]; then
+            run "$label" docker run --rm --name "$container" --cidfile "$cidfile" --label "gateway.p7-s1a-b.owner=$candidate" --label "gateway.p7-s1a-b.invocation=$out" --network none --read-only "$@"
+        else
+            capture "$label" "$output" docker run --rm --name "$container" --cidfile "$cidfile" --label "gateway.p7-s1a-b.owner=$candidate" --label "gateway.p7-s1a-b.invocation=$out" --network none --read-only "$@"
+        fi
+    }
     finish() {
-        local original=$? final result
+        local original=$? final result resources_clear residual owned created cidfile
+        local -a residual_ids=()
         final=$original
-        trap - EXIT
+        trap - EXIT INT TERM
         set +e
+        aggregate() { if [[ $1 -ne 0 && $final -eq 0 ]]; then final=$1; fi; }
         run 'end hostname' hostname
+        result=$?; aggregate "$result"
         run 'end UTC' date -u +%Y-%m-%dT%H:%M:%SZ
+        result=$?; aggregate "$result"
         capture 'end HEAD' "$out/end-head.out" git rev-parse HEAD
+        result=$?; aggregate "$result"
         capture 'end clean' "$out/end-status.out" git status --porcelain
-        if [[ $(cat "$out/end-head.out") != "$candidate" || -s $out/end-status.out ]]; then final=1; fi
-        if docker container inspect "$container" > "$out/container-residual.json" 2>/dev/null; then
-            if [[ $(docker container inspect "$container" --format '{{index .Config.Labels "gateway.p7-s1a-b.owner"}}') = "$candidate" ]]; then
-                run 'remove own preparation container' docker container rm -f "$container"
-                result=$?; if [[ $result -ne 0 ]]; then final=$result; fi
-            else
-                echo 'CONTAINER_OWNER_MISMATCH; retained'; final=1
+        result=$?; aggregate "$result"
+        if [[ $(cat "$out/end-head.out") != "$candidate" || -s $out/end-status.out ]]; then aggregate 1; fi
+        resources_clear=1
+        # Early collision checks never authorize cleanup of an existing container.
+        if [[ $container_attempted -eq 1 ]]; then
+            capture 'end container list (absence requires successful empty query)' "$out/end-container-ids.out" docker container ls --all --quiet --no-trunc --filter "name=^/$container$"
+            result=$?; aggregate "$result"
+            if [[ $result -ne 0 ]]; then
+                resources_clear=0
+            elif [[ -s $out/end-container-ids.out ]]; then
+                mapfile -t residual_ids < "$out/end-container-ids.out"
+                if [[ ${#residual_ids[@]} -ne 1 || ! ${residual_ids[0]} =~ ^[0-9a-f]{64}$ ]]; then
+                    echo 'CONTAINER_QUERY_UNKNOWN; retain resources'; resources_clear=0; aggregate 1
+                else
+                    residual=${residual_ids[0]}
+                    owned=0
+                    for cidfile in "${cidfiles[@]}"; do
+                        if [[ -f $cidfile && ! -L $cidfile ]]; then
+                            created=''
+                            created=$(cat -- "$cidfile")
+                            result=$?; aggregate "$result"
+                            if [[ $result -eq 0 && $created = "$residual" ]]; then owned=1; fi
+                        fi
+                    done
+                    if [[ $owned -ne 1 ]]; then
+                        echo 'NO_CURRENT_INVOCATION_CID_PROOF; retained'; resources_clear=0; aggregate 1
+                    else
+                        capture 'inspect own recorded CID' "$out/container-residual.json" docker container inspect "$residual"
+                        result=$?; aggregate "$result"
+                        if [[ $result -ne 0 ]]; then
+                            resources_clear=0
+                        else
+                            run 'verify exact recorded CID and unique invocation owner' python3 -I - "$out/container-residual.json" "$residual" "$candidate" "$out" "$container" <<'PYOWNER'
+import json, sys
+from pathlib import Path
+entries = json.loads(Path(sys.argv[1]).read_bytes())
+assert len(entries) == 1
+entry = entries[0]
+assert entry['Id'] == sys.argv[2] and entry['Name'] == '/' + sys.argv[5]
+assert entry['Config']['Labels']['gateway.p7-s1a-b.owner'] == sys.argv[3]
+assert entry['Config']['Labels']['gateway.p7-s1a-b.invocation'] == sys.argv[4]
+print('CURRENT_INVOCATION_CID_OWNER=PROVEN')
+PYOWNER
+                            result=$?; aggregate "$result"
+                            if [[ $result -ne 0 ]]; then
+                                resources_clear=0
+                            else
+                                run 'remove only this invocation recorded container CID' docker container rm -f "$residual"
+                                result=$?; aggregate "$result"
+                                if [[ $result -ne 0 ]]; then
+                                    resources_clear=0
+                                else
+                                    capture 'confirm own container absent after removal' "$out/end-container-confirm.out" docker container ls --all --quiet --no-trunc --filter "name=^/$container$"
+                                    result=$?; aggregate "$result"
+                                    if [[ $result -ne 0 || -s $out/end-container-confirm.out ]]; then resources_clear=0; aggregate 1; fi
+                                fi
+                            fi
+                        fi
+                    fi
+                fi
             fi
         fi
+        if [[ $resources_clear -ne 1 ]]; then echo 'PREPARATION_CONTAINERS=UNKNOWN_OR_REMAINING'; aggregate 1; fi
+        if [[ $resources_clear -eq 1 ]]; then echo 'PREPARATION_RESOURCE_STATE=CLEAR'; else echo 'PREPARATION_RESOURCE_STATE=RETAINED_OR_UNKNOWN'; fi
         echo "PREPARATION_ORIGINAL_EXIT=$original"
         echo "PREPARATION_FINAL_EXIT=$final"
         echo 'Retain all source, context, image tags and logs; no automatic retry/cleanup.'
         exit "$final"
     }
     trap finish EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     run 'start hostname' hostname
     run 'start UTC' date -u +%Y-%m-%dT%H:%M:%SZ
     run 'start HEAD and preparation inputs' git rev-parse HEAD
@@ -96,7 +173,7 @@ print(json.dumps({'lock_delta': 'only rfc8785==0.1.4', 'old_dependencies': 'unch
 PY
     run 'save original CT201 6dc base' docker image save --output "$out/source-6dc.tar" "$old"
     run 'original base config bytes and all DiffID identity' python3 -I "$plan/p7-s1a-b-verify-saved-image.py" "$plan/p7-s1a-b-rs-base-source.json" base "$out/source-6dc.tar"
-    capture 'original lock environment metadata' "$out/old-environment.json" docker run --rm --name "$container" --label "gateway.p7-s1a-b.owner=$candidate" --network none --read-only --entrypoint /app/.venv/bin/python -v "$out/context/old.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$old" -IB /inspect-environment.py /input.lock
+    own_container "$out/old-environment.json" 'original lock environment metadata'  --entrypoint /app/.venv/bin/python -v "$out/context/old.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$old" -IB /inspect-environment.py /input.lock
     run 'download exact pinned wheel on CT201' curl --fail --location --proto '=https' --tlsv1.2 --output "$out/context/rfc8785-0.1.4-py3-none-any.whl" https://files.pythonhosted.org/packages/4d/78/119878110660b2ad709888c8a1614fce7e2fab39080ab960656dc8605bf6/rfc8785-0.1.4-py3-none-any.whl
     run 'wheel SHA256' python3 -I - "$out/context/rfc8785-0.1.4-py3-none-any.whl" <<'PY'
 import hashlib, sys
@@ -129,7 +206,7 @@ PY
     input_sha=$(cat "$out/dependency-input.sha256")
     run 'copy exact dependency build recipe' cp "$plan/p7-s1a-b-rs-dependency.Dockerfile" "$out/context/Dockerfile"
     run 'build new RS dependency-base offline' docker build --network none --pull=false --file "$out/context/Dockerfile" --tag "$new" --build-arg "SOURCE_COMMIT=$candidate" --build-arg "BUILD_INPUT_REVISION=${identity_fields[0]}" --build-arg "SOURCE_TREE_SHA256=${identity_fields[1]}" --build-arg "DEPENDENCY_INPUT_SHA256=$input_sha" "$out/context"
-    capture 'new lock environment metadata' "$out/new-environment.json" docker run --rm --name "$container" --label "gateway.p7-s1a-b.owner=$candidate" --network none --read-only --entrypoint /app/.venv/bin/python -v "$out/context/uv.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$new" -IB /inspect-environment.py /input.lock
+    own_container "$out/new-environment.json" 'new lock environment metadata'  --entrypoint /app/.venv/bin/python -v "$out/context/uv.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$new" -IB /inspect-environment.py /input.lock
     run 'old/new full environment unchanged except RFC library' python3 -I - "$out/old-environment.json" "$out/new-environment.json" <<'PY'
 import json, sys
 from pathlib import Path
@@ -138,7 +215,7 @@ assert new['versions'].pop('rfc8785') == '0.1.4'
 assert new == old, 'old environment or editable metadata drift'
 print('FULL_LOCK_ENVIRONMENT_MATCH')
 PY
-    run 'dependency pip check and exact tools' docker run --rm --name "$container" --label "gateway.p7-s1a-b.owner=$candidate" --network none --read-only --entrypoint /bin/sh "$new" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
+    own_container - 'dependency pip check and exact tools'  --entrypoint /bin/sh "$new" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
     run 'save new dependency image' docker image save --output "$out/dependency-base.tar" "$new"
     run 'write raw config digest/full DiffID identity and validate true labels' python3 -I - "$out" "$new" "$candidate" <<'PY'
 import hashlib, json, sys, tarfile

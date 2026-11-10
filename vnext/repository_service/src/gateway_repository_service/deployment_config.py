@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Mapping, cast
+from typing import Mapping, TypeGuard, cast
 
 import rfc8785
 
@@ -88,7 +88,10 @@ def _document(raw: bytes) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _validate_jcs_domain(value: object) -> None:
+type _JcsValue = bool | int | float | str | None | list[_JcsValue] | dict[str, _JcsValue]
+
+
+def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
     # Keep the deployment format's I-JSON/Unicode gates independent of other services.
     if isinstance(value, str):
         for codepoint in map(ord, value):
@@ -106,12 +109,18 @@ def _validate_jcs_domain(value: object) -> None:
             _validate_jcs_domain(item)
     elif isinstance(value, dict):
         for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("configuration object key must be a string")
             _validate_jcs_domain(key)
             _validate_jcs_domain(item)
+    elif value is not None and not isinstance(value, bool):
+        raise ValueError("configuration contains a non-JSON value")
+    return True
 
 
 def _configuration_digest(document: dict[str, object]) -> str:
-    _validate_jcs_domain(document)
+    if not _validate_jcs_domain(document):
+        raise ValueError("configuration is outside the JCS domain")
     return "sha256:" + hashlib.sha256(rfc8785.dumps(document)).hexdigest()
 
 

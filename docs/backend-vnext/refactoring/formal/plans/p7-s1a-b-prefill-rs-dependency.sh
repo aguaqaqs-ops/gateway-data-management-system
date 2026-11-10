@@ -41,34 +41,115 @@ capture() {
 }
 prefill() (
     set -euo pipefail
+    cidfiles=()
+    container_attempted=0
+    own_container() {
+        local output=$1 label=$2 cidfile
+        shift 2
+        cidfile="$out/container-${#cidfiles[@]}.cid"
+        [[ ! -e $cidfile && ! -L $cidfile ]] || return 2
+        cidfiles+=("$cidfile")
+        container_attempted=1
+        if [[ $output = - ]]; then
+            run "$label" docker run --rm --name "$container" --cidfile "$cidfile" --label "gateway.p7-s1a-b.owner=$candidate" --label "gateway.p7-s1a-b.invocation=$out" --network none --read-only "$@"
+        else
+            capture "$label" "$output" docker run --rm --name "$container" --cidfile "$cidfile" --label "gateway.p7-s1a-b.owner=$candidate" --label "gateway.p7-s1a-b.invocation=$out" --network none --read-only "$@"
+        fi
+    }
     acquired=0
     ownership=''
     finish() {
-        local original=$? final result
+        local original=$? final result resources_clear residual owned created cidfile
+        local -a residual_ids=()
         final=$original
-        trap - EXIT
+        trap - EXIT INT TERM
         set +e
+        aggregate() { if [[ $1 -ne 0 && $final -eq 0 ]]; then final=$1; fi; }
         run 'end hostname' hostname
+        result=$?; aggregate "$result"
         run 'end UTC' date -u +%Y-%m-%dT%H:%M:%SZ
+        result=$?; aggregate "$result"
         capture 'end HEAD' "$out/end-head.out" git rev-parse HEAD
+        result=$?; aggregate "$result"
         capture 'end clean' "$out/end-status.out" git status --porcelain
-        if [[ $(cat "$out/end-head.out") != "$candidate" || -s $out/end-status.out ]]; then final=1; fi
-        if [[ $acquired -eq 1 ]]; then
-            if docker container inspect "$container" > "$out/container-residual.json" 2>/dev/null; then
-                if [[ $(docker container inspect "$container" --format '{{index .Config.Labels "gateway.p7-s1a-b.owner"}}') = "$candidate" ]]; then
-                    run 'remove own prefill container' docker container rm -f "$container"
-                    result=$?; if [[ $result -ne 0 ]]; then final=$result; fi
+        result=$?; aggregate "$result"
+        if [[ $(cat "$out/end-head.out") != "$candidate" || -s $out/end-status.out ]]; then aggregate 1; fi
+        resources_clear=1
+        # Early collision checks never authorize cleanup of an existing container.
+        if [[ $container_attempted -eq 1 ]]; then
+            capture 'end container list (absence requires successful empty query)' "$out/end-container-ids.out" docker container ls --all --quiet --no-trunc --filter "name=^/$container$"
+            result=$?; aggregate "$result"
+            if [[ $result -ne 0 ]]; then
+                resources_clear=0
+            elif [[ -s $out/end-container-ids.out ]]; then
+                mapfile -t residual_ids < "$out/end-container-ids.out"
+                if [[ ${#residual_ids[@]} -ne 1 || ! ${residual_ids[0]} =~ ^[0-9a-f]{64}$ ]]; then
+                    echo 'CONTAINER_QUERY_UNKNOWN; retain resources'; resources_clear=0; aggregate 1
                 else
-                    echo 'CONTAINER_OWNER_MISMATCH; retained'; final=1
+                    residual=${residual_ids[0]}
+                    owned=0
+                    for cidfile in "${cidfiles[@]}"; do
+                        if [[ -f $cidfile && ! -L $cidfile ]]; then
+                            created=''
+                            created=$(cat -- "$cidfile")
+                            result=$?; aggregate "$result"
+                            if [[ $result -eq 0 && $created = "$residual" ]]; then owned=1; fi
+                        fi
+                    done
+                    if [[ $owned -ne 1 ]]; then
+                        echo 'NO_CURRENT_INVOCATION_CID_PROOF; retained'; resources_clear=0; aggregate 1
+                    else
+                        capture 'inspect own recorded CID' "$out/container-residual.json" docker container inspect "$residual"
+                        result=$?; aggregate "$result"
+                        if [[ $result -ne 0 ]]; then
+                            resources_clear=0
+                        else
+                            run 'verify exact recorded CID and unique invocation owner' python3 -I - "$out/container-residual.json" "$residual" "$candidate" "$out" "$container" <<'PYOWNER'
+import json, sys
+from pathlib import Path
+entries = json.loads(Path(sys.argv[1]).read_bytes())
+assert len(entries) == 1
+entry = entries[0]
+assert entry['Id'] == sys.argv[2] and entry['Name'] == '/' + sys.argv[5]
+assert entry['Config']['Labels']['gateway.p7-s1a-b.owner'] == sys.argv[3]
+assert entry['Config']['Labels']['gateway.p7-s1a-b.invocation'] == sys.argv[4]
+print('CURRENT_INVOCATION_CID_OWNER=PROVEN')
+PYOWNER
+                            result=$?; aggregate "$result"
+                            if [[ $result -ne 0 ]]; then
+                                resources_clear=0
+                            else
+                                run 'remove only this invocation recorded container CID' docker container rm -f "$residual"
+                                result=$?; aggregate "$result"
+                                if [[ $result -ne 0 ]]; then
+                                    resources_clear=0
+                                else
+                                    capture 'confirm own container absent after removal' "$out/end-container-confirm.out" docker container ls --all --quiet --no-trunc --filter "name=^/$container$"
+                                    result=$?; aggregate "$result"
+                                    if [[ $result -ne 0 || -s $out/end-container-confirm.out ]]; then resources_clear=0; aggregate 1; fi
+                                fi
+                            fi
+                        fi
+                    fi
                 fi
             fi
-            if [[ -f $marker && $(cat "$marker") = "$ownership" ]]; then
+        fi
+        if [[ $resources_clear -ne 1 ]]; then echo 'PREPARATION_CONTAINERS=UNKNOWN_OR_REMAINING'; aggregate 1; fi
+        if [[ $acquired -eq 1 ]]; then
+            if [[ $resources_clear -ne 1 ]]; then
+                echo 'PREFILL_BUSY=RETAINED; unresolved container state'; aggregate 1
+            elif [[ -f $marker && $(cat "$marker") = "$ownership" ]]; then
                 run 'remove own prefill marker' rm -- "$marker"
-                result=$?
-                if [[ $result -eq 0 ]]; then run 'release own busy directory' rmdir -- "$busy"; result=$?; fi
-                if [[ $result -ne 0 ]]; then final=$result; fi
+                result=$?; aggregate "$result"
+                if [[ $result -eq 0 ]]; then
+                    run 'release own busy directory' rmdir -- "$busy"
+                    result=$?; aggregate "$result"
+                    if [[ $result -eq 0 ]]; then echo 'PREFILL_BUSY=RELEASED'; else echo 'PREFILL_BUSY=RETAINED'; fi
+                else
+                    echo 'PREFILL_BUSY=RETAINED'
+                fi
             else
-                echo 'BUSY_OWNER_MISMATCH; retained'; final=1
+                echo 'BUSY_OWNER_MISMATCH; retained'; aggregate 1
             fi
         fi
         echo "PREFILL_ORIGINAL_EXIT=$original"
@@ -77,6 +158,8 @@ prefill() (
         exit "$final"
     }
     trap finish EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     run 'start hostname' hostname
     run 'start UTC' date -u +%Y-%m-%dT%H:%M:%SZ
     run 'acquire own prefill marker' mkdir -- "$busy"
@@ -160,8 +243,8 @@ current = json.loads(subprocess.check_output(['docker', 'image', 'inspect', sys.
 assert current['Config']['Labels'] == source['labels']
 print('CURRENT_LABELS=MATCH')
 PY
-    capture '06 complete locked image environment' "$out/environment.json" docker run --rm --name "$container" --label "gateway.p7-s1a-b.owner=$candidate" --network none --read-only --entrypoint /app/.venv/bin/python -v "$source/vnext/repository_service/uv.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$tag" -IB /inspect-environment.py /input.lock
-    run '06 pip check and exact dependency tools' docker run --rm --name "$container" --label "gateway.p7-s1a-b.owner=$candidate" --network none --read-only --entrypoint /bin/sh "$tag" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
+    own_container "$out/environment.json" '06 complete locked image environment'  --entrypoint /app/.venv/bin/python -v "$source/vnext/repository_service/uv.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$tag" -IB /inspect-environment.py /input.lock
+    own_container - '06 pip check and exact dependency tools'  --entrypoint /bin/sh "$tag" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
     export UV_OFFLINE=1 CARGO_NET_OFFLINE=true TMPDIR=/home/dev/gdds-test-tmp
     export PATH=/home/dev/.cargo/bin:$PATH
     run 'separate host uv-cache offline readiness for new RS lock' ./vnext/scripts/uv-consume.sh -C vnext/repository_service sync

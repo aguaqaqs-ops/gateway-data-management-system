@@ -310,11 +310,53 @@ test("C6 长理由折叠为三行并可展开", async ({ page }) => {
   // Long reasons are clamped to 3 lines with an expand toggle.
   const toggle = accepted.getByRole("button", { name: "展开" });
   await expect(toggle).toBeVisible();
-  await expect(accepted.locator(".archive-reason--clamped")).toHaveCount(1);
+  await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(1);
+  await screenshot(page, "fe4a-c6-reason-collapsed", 1280);
   await toggle.click();
   await expect(accepted.getByRole("button", { name: "收起" })).toBeVisible();
-  await expect(accepted.locator(".archive-reason--clamped")).toHaveCount(0);
+  await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(0);
   await expect(accepted.getByText(longReason)).toBeVisible();
+  await screenshot(page, "fe4a-c6-reason-expanded", 1280);
+});
+
+test("C6 多行长理由折叠为三行并可展开收起", async ({ page }) => {
+  const longReason = "第一行\n第二行\n第三行\n第四行";
+  await installArchiveScenario(page, { previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(longReason)] });
+  const dialog = await openArchiveDialog(page, "提交 1");
+  await expandArchiveGroup(dialog, "生成时间");
+  const card = () => dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).first();
+  await card().getByRole("button", { name: "接受" }).click();
+  const accept = page.getByRole("dialog", { name: "接受异常" });
+  await accept.getByLabel("接受理由").fill(longReason);
+  await accept.getByRole("button", { name: "确认接受" }).click();
+  await expandArchiveGroup(dialog, "生成时间");
+  const accepted = card();
+  await expect(accepted.getByText("已接受")).toBeVisible();
+  await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(1);
+  await accepted.getByRole("button", { name: "展开" }).click();
+  await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(0);
+  await expect(accepted.getByRole("button", { name: "收起" })).toBeVisible();
+  await expect(accepted).toContainText("第四行");
+  await accepted.getByRole("button", { name: "收起" }).click();
+  await expect(accepted.locator(".reason-text__body--clamped")).toHaveCount(1);
+  await expect(accepted.getByRole("button", { name: "展开" })).toBeVisible();
+});
+
+test("C6 三行以内理由不显示展开", async ({ page }) => {
+  const shortReason = "第一行\n第二行\n第三行";
+  await installArchiveScenario(page, { previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(shortReason)] });
+  const dialog = await openArchiveDialog(page, "提交 1");
+  await expandArchiveGroup(dialog, "生成时间");
+  const card = () => dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).first();
+  await card().getByRole("button", { name: "接受" }).click();
+  const accept = page.getByRole("dialog", { name: "接受异常" });
+  await accept.getByLabel("接受理由").fill(shortReason);
+  await accept.getByRole("button", { name: "确认接受" }).click();
+  await expandArchiveGroup(dialog, "生成时间");
+  const accepted = card();
+  await expect(accepted.getByText("已接受")).toBeVisible();
+  await expect(accepted.getByRole("button", { name: "展开" })).toHaveCount(0);
+  await expect(accepted).toContainText("第三行");
 });
 
 test("V1 未知编码没有接受入口且禁用确认归档", async ({ page }) => {
@@ -499,6 +541,28 @@ test("C8 关闭 409 后集合变化时两条提示都出现", async ({ page }) =
   // separate banners.
   await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
   await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toBeVisible();
+  await screenshot(page, "fe4a-c8-both-notices", 1280);
+});
+
+test("C8 集合未变的成功接受后清除集合变化提示", async ({ page }) => {
+  await installArchiveScenario(page, {
+    candidatesList: [V_CANDIDATES, V_CANDIDATES_AFTER_CLOSE],
+    previews: [vPreviewTwoSided(), vPreviewAfterClose(), vPreviewAfterClose()],
+    closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
+  });
+  const dialog = await openArchiveDialog(page, "提交 1");
+  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
+  await close.getByLabel("关闭理由").fill("集合变化场景");
+  await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
+  await close.getByRole("button", { name: "确认关闭" }).click();
+  await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toBeVisible();
+  await dialog.locator(".archive-anomaly", { hasText: "①原始组态备份" }).first().getByRole("button", { name: "接受" }).click();
+  const accept = page.getByRole("dialog", { name: "接受异常" });
+  await accept.getByLabel("接受理由").fill("集合未变后重新核对");
+  await accept.getByRole("button", { name: "确认接受" }).click();
+  await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toHaveCount(0);
+  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
 });
 
 test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page }) => {
@@ -516,6 +580,28 @@ test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page 
   await close.getByRole("button", { name: "确认关闭" }).click();
   await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
   await expect(dialog.locator(".form-error", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
+  await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
+  await expect(dialog.getByText("待处理项")).toBeVisible();
+  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
+});
+
+test("C8 加载失败后不保留待处理的冲突提示", async ({ page }) => {
+  const scenario: Parameters<typeof installArchiveScenario>[1] = {
+    previews: [vPreviewTwoSided(), vPreviewTwoSided()],
+    closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
+  };
+  await installArchiveScenario(page, scenario);
+  const dialog = await openArchiveDialog(page, "提交 1");
+  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
+  await close.getByLabel("关闭理由").fill("加载失败场景");
+  await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
+  await close.getByRole("button", { name: "确认关闭" }).click();
+  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
+  scenario.previewForbidden = true;
+  await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
+  await expect(dialog.getByText("当前身份没有预检归档方案的权限")).toBeVisible();
+  scenario.previewForbidden = false;
   await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
   await expect(dialog.getByText("待处理项")).toBeVisible();
   await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
@@ -621,9 +707,13 @@ test("V9 关闭中断后同 key 重试并显示首次关闭人", async ({ page }
   await expect(result).toContainText("关闭人：reviewer");
   await expect(result).toContainText("关闭时间：2026-11-03 10:00:00 UTC");
   await expect(result).toContainText("理由：不再需要该提交");
-  // C9: after success the confirm button is gone, only the closed state stays.
-  await expect(close.getByRole("button", { name: "已关闭" })).toBeDisabled();
+  // C9: after success only the single close button remains; no cancel, no
+  // disabled danger button, and no duplicated disabled reason.
+  await expect(close.getByRole("button", { name: "关闭", exact: true })).toBeEnabled();
+  await expect(close.getByRole("button", { name: "取消" })).toHaveCount(0);
+  await expect(close.getByRole("button", { name: "已关闭" })).toHaveCount(0);
   await expect(close.getByRole("button", { name: "确认关闭" })).toHaveCount(0);
+  await expect(close.getByText("已关闭", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("combobox", { name: "模拟身份" })).toHaveValue("archive-confirmer");
   const closureRequests = apiRequests.filter((request) => request.path.endsWith("/closure"));
   expect(closureRequests).toHaveLength(2);

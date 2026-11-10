@@ -5,16 +5,25 @@ Reads a handoff markdown file, finds every hex value, and checks each one
 against its source without hand copying:
 
 - ``--git-objects`` (with ``--repo``): every 7-12/40-char token must resolve
-  to a git object (``git cat-file -e``); 40-char tokens must resolve
-  unambiguously.
+  to a git object (``git cat-file -e``). 40-char tokens must resolve
+  unambiguously. When the same line names the value as a tree or a commit, the
+  object type must match.
 - ``--sha-file <sha256sum-format-file>`` (repeatable): every 64-char token
   must appear with the recorded path. Files are parsed in ``sha256sum``
   output format (``<sha>  <path>`` or ``<sha> *<path>``).
-- ``--source-dir <dir>``: for lines holding both a ``/``-path and a 64-char
-  token, the file must exist under the dir and its SHA256 must match.
+- ``--evidence-file <raw-log-or-manifest>`` (repeatable): a captured log,
+  manifest, or inspect dump used directly as the source instead of a
+  hand-written label list. Every 64-char value in the file counts as observed;
+  ``name + SHA`` pairs (table rows, ``sha256sum`` output, and prose) are kept
+  for positional pairing.
+- ``--source-dir <dir>``: the root for on-site recomputation. Path+SHA pairs
+  from a handoff line are paired by position (not cross-product), then checked
+  against same-named files in the SHA/evidence sources or under this root.
 
-Truncated display forms (``<hex>…<hex>``) are listed, not verified: handoffs
-must carry the full value somewhere for the strict check. Tokens whose
+A 64-char value with no SHA source, or a 7-12/40-char value without
+``--git-objects`` (and without ``--allow``), is reported as 未核对 and exits
+non-zero. Truncated display forms (``<hex>…<hex>``) are listed, not verified:
+handoffs must carry the full value somewhere for the strict check. Tokens whose
 length is not 7-12, 40 or 64 are reported as abnormal.
 
 Exit 0 when every full token resolves and no abnormal lengths exist,
@@ -28,9 +37,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-FULL_RE = re.compile(r"\b[0-9a-f]{7,}\b")
+HEX64_RE = re.compile(r"\b[0-9a-f]{64}\b")
 TRUNC_RE = re.compile(r"[0-9a-f]{1,64}…[0-9a-f]{1,64}")
+SHORT_RE = re.compile(r"\b[0-9a-f]{7,12}\b|\b[0-9a-f]{40}\b")
 VALID_LENGTHS = set(range(7, 13)) | {40, 64}
+FILE_EXT = (
+    "png|jpg|jpeg|webp|gif|svg|log|json|jsonl|txt|md|sha256|toml|lock|ya?ml|"
+    "bundle|tar|gz|tgz|zip|xml|csv|html|css|m?js|cjs|ts|tsx|pdf"
+)
+NAME_RE = re.compile(
+    rf"(?<![\w.~-])((?:[\w.~-]+/)+[\w.~-]+|[\w.~-]+\.(?:{FILE_EXT}))(?![\w.~-])"
+)
+SHA_LINE_RE = re.compile(r"\s*([0-9a-fA-F]{64})\s+[ *]?(.+?)\s*$")
 
 
 def parse_args(argv):
@@ -39,6 +57,12 @@ def parse_args(argv):
     parser.add_argument("--git-objects", action="store_true", help="verify 7-12/40-char tokens as git objects")
     parser.add_argument("--repo", default=None, help="git repo for --git-objects (default: script toplevel)")
     parser.add_argument("--sha-file", action="append", default=[], help="sha256sum-format file (repeatable)")
+    parser.add_argument(
+        "--evidence-file",
+        action="append",
+        default=[],
+        help="captured log/manifest/inspect text used directly as a source (repeatable)",
+    )
     parser.add_argument("--source-dir", default=None, help="root for path+SHA pairing checks")
     parser.add_argument(
         "--allow",
@@ -60,10 +84,50 @@ def script_toplevel():
     return out.stdout.strip() or None
 
 
+def basename(path):
+    return path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def pair_line(line):
+    """Return positionally paired (name, sha) entries for 64-char values.
+
+    When a line holds the same number of path-like names and 64-char values,
+    they pair by order (table rows and ``name SHA`` runs). Otherwise each value
+    takes the nearest unused name, preferring a name before it on a tie.
+    """
+    hexes = [(m.start(), m.group(0)) for m in HEX64_RE.finditer(line)]
+    if not hexes:
+        return []
+    names = [(m.start(1), m.group(1)) for m in NAME_RE.finditer(line)]
+    if not names:
+        return [(None, sha) for _, sha in hexes]
+    pairs = []
+    if len(names) == len(hexes):
+        for (_, name), (_, sha) in zip(names, hexes):
+            pairs.append((name, sha))
+        return pairs
+    used = set()
+    for pos, sha in hexes:
+        best = None
+        for index, (name_pos, name) in enumerate(names):
+            if index in used:
+                continue
+            key = (abs(name_pos - pos), 0 if name_pos < pos else 1, index)
+            if best is None or key < best[0]:
+                best = (key, index, name)
+        if best is None:
+            pairs.append((None, sha))
+        else:
+            used.add(best[1])
+            pairs.append((best[2], sha))
+    return pairs
+
+
 def load_sha_files(paths):
-    """Return (sha -> [paths]) and a list of problem lines."""
+    """Return (sha -> [(source, path)]), a list of problem lines, observed set."""
     table = {}
     problems = []
+    observed = set()
     for name in paths:
         try:
             text = Path(name).read_text(encoding="utf-8")
@@ -71,22 +135,49 @@ def load_sha_files(paths):
             problems.append(f"{name}: cannot read ({exc})")
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
-            match = re.match(r"\s*([0-9a-fA-F]{64})\s+[ *]?(.+?)\s*$", line)
-            if not match:
-                problems.append(f"{name}:{lineno}: not sha256sum format")
+            match = SHA_LINE_RE.match(line)
+            if match:
+                sha = match.group(1).lower()
+                table.setdefault(sha, []).append((f"{name}:{lineno}", match.group(2)))
+                observed.add(sha)
                 continue
-            table.setdefault(match.group(1).lower(), []).append(f"{name}:{lineno}:{match.group(2)}")
-    return table, problems
+            for path, sha in pair_line(line):
+                observed.add(sha)
+                if path is not None:
+                    table.setdefault(sha, []).append((f"{name}:{lineno}", path))
+    return table, problems, observed
 
 
-def git_resolves(repo, token):
+def load_evidence_files(paths):
+    """Return (sha -> [(source, path)]), problems, all observed 64-char values."""
+    table = {}
+    problems = []
+    observed = set()
+    for name in paths:
+        try:
+            text = Path(name).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            problems.append(f"{name}: cannot read ({exc})")
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for match in HEX64_RE.finditer(line):
+                observed.add(match.group(0))
+            for path, sha in pair_line(line):
+                if path is not None:
+                    table.setdefault(sha, []).append((f"{name}:{lineno}", path))
+    return table, problems, observed
+
+
+def git_object(repo, token):
     out = subprocess.run(
-        ["git", "-C", repo, "cat-file", "-e", token],
+        ["git", "-C", repo, "cat-file", "-t", token],
         capture_output=True,
-        text=False,
+        text=True,
         check=False,
     )
-    return out.returncode == 0
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
 
 
 def file_sha256(path):
@@ -97,6 +188,35 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+def index_source_dir(root):
+    """Return (files_by_name, files_by_hash) for regular files under root."""
+    by_name = {}
+    by_hash = {}
+    if root is None:
+        return by_name, by_hash
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            digest = file_sha256(path)
+        except OSError:
+            continue
+        by_name.setdefault(path.name, []).append((path, digest))
+        by_hash.setdefault(digest, []).append(path)
+    return by_name, by_hash
+
+
+def expected_object_type(line, start):
+    labels = []
+    for match in re.finditer(r"树|tree|提交|commit", line):
+        labels.append((abs(match.start() - start), 0 if match.start() < start else 1, match.group(0)))
+    if not labels:
+        return None
+    labels.sort()
+    word = labels[0][2]
+    return "tree" if word in ("树", "tree") else "commit"
+
+
 def main(argv=None):
     args = parse_args(argv or sys.argv[1:])
     handoff = Path(args.handoff)
@@ -105,77 +225,131 @@ def main(argv=None):
         return 2
     lines = handoff.read_text(encoding="utf-8").splitlines()
 
-    sha_table, sha_problems = load_sha_files(args.sha_file)
+    root = Path(args.source_dir) if args.source_dir else None
+    if root is not None and not root.is_dir():
+        print(f"error: source dir is not a directory: {root}")
+        return 2
+
+    sha_table, sha_problems, sha_observed = load_sha_files(args.sha_file)
+    ev_table, ev_problems, ev_observed = load_evidence_files(args.evidence_file)
+    files_by_name, files_by_hash = index_source_dir(root)
     repo = args.repo or script_toplevel()
 
-    findings = []
-    truncated = []
-    for lineno, line in enumerate(lines, 1):
-        for match in TRUNC_RE.finditer(line):
-            truncated.append((lineno, match.group(0)))
-        for match in FULL_RE.finditer(line):
-            token = match.group(0)
-            # Skip the hex half of an already-recorded truncated form: the
-            # truncation regex above owns those spans.
-            if any(m.start() <= match.start() and match.end() <= m.end() for m in TRUNC_RE.finditer(line)):
-                continue
-            findings.append((lineno, token))
-
-    # De-duplicate tokens but keep every occurrence line for the report.
-    by_token = {}
-    for lineno, token in findings:
-        by_token.setdefault(token, []).append(lineno)
+    observed = sha_observed | ev_observed
+    combined_table = {}
+    for source in (sha_table, ev_table):
+        for sha, entries in source.items():
+            combined_table.setdefault(sha, []).extend(entries)
 
     failures = []
-    for problem in sha_problems:
-        failures.append(f"sha-file problem: {problem}")
+    truncated = []
+    findings = []
+    for lineno, line in enumerate(lines, 1):
+        trunc_spans = [(m.start(), m.end(), m.group(0)) for m in TRUNC_RE.finditer(line)]
+        for start, end, text in trunc_spans:
+            truncated.append((lineno, text))
+        for match in HEX64_RE.finditer(line):
+            findings.append((lineno, line, match.start(), match.group(0), False))
+        for match in SHORT_RE.finditer(line):
+            if any(start <= match.start() and match.end() <= end for start, end, _ in trunc_spans):
+                continue
+            findings.append((lineno, line, match.start(), match.group(0), True))
 
-    for token in sorted(by_token, key=lambda t: (len(t), t)):
-        linenos = by_token[token]
-        where = ",".join(str(n) for n in linenos)
+    failures.extend(f"sha-file problem: {problem}" for problem in sha_problems)
+    failures.extend(f"evidence-file problem: {problem}" for problem in ev_problems)
+
+    token_lines = {}
+    for lineno, _line, _start, token, _is_short in findings:
+        token_lines.setdefault(token, []).append(lineno)
+
+    # Positional name+SHA pairs from the handoff itself.
+    handoff_pairs = []
+    for lineno, line in enumerate(lines, 1):
+        for name, sha in pair_line(line):
+            if name is not None:
+                handoff_pairs.append((lineno, name, sha))
+
+    for token in sorted(token_lines, key=lambda t: (len(t), t)):
+        where = ",".join(str(n) for n in token_lines[token])
         if len(token) not in VALID_LENGTHS:
             failures.append(f"abnormal length {len(token)}: {token} (lines {where})")
             continue
         if len(token) == 64:
-            hits = sha_table.get(token, [])
-            if args.sha_file and not hits:
-                failures.append(f"unresolved sha256: {token} (lines {where})")
-            else:
-                for hit in hits:
-                    print(f"ok sha256 {token} -> {hit} (lines {where})")
-                if not args.sha_file:
-                    print(f"unverified sha256 (no --sha-file): {token} (lines {where})")
-        else:
-            if args.git_objects:
-                if repo is None:
-                    failures.append(f"no git repo for object check: {token} (lines {where})")
-                elif git_resolves(repo, token):
-                    print(f"ok git object {token} (lines {where})")
-                elif token in args.allow:
-                    print(f"allowed non-git token {token} (lines {where})")
-                else:
-                    failures.append(f"unresolved git object: {token} (lines {where})")
-            else:
-                print(f"unverified git token (no --git-objects): {token} (lines {where})")
-
-    # Path + SHA pairing: lines holding both resolve under --source-dir.
-    if args.source_dir is not None:
-        root = Path(args.source_dir)
-        for lineno, line in enumerate(lines, 1):
-            tokens64 = [m.group(0) for m in FULL_RE.finditer(line) if len(m.group(0)) == 64]
-            if not tokens64:
+            source_found = token in observed or token in files_by_hash
+            if not source_found:
+                failures.append(
+                    f"unverified sha256 (no --sha-file/--evidence-file/source-dir source): {token} (lines {where})"
+                )
                 continue
-            for path_match in re.finditer(r"(?<![0-9a-f/])((?:[\w.~-]+/)+[\w.~-]+)", line):
-                candidate = root / path_match.group(1)
-                if candidate.is_file():
-                    actual = file_sha256(candidate)
-                    for token in tokens64:
-                        if actual == token:
-                            print(f"ok pairing {path_match.group(1)} == {token} (line {lineno})")
-                        else:
-                            failures.append(
-                                f"pairing mismatch line {lineno}: {path_match.group(1)} sha256 is {actual}, handoff says {token}"
-                            )
+            print(f"ok sha256 {token} (lines {where})")
+            continue
+
+        if token in args.allow:
+            print(f"allowed non-git token {token} (lines {where})")
+            continue
+        if not args.git_objects:
+            failures.append(f"unverified git token (no --git-objects): {token} (lines {where})")
+            continue
+        if repo is None:
+            failures.append(f"no git repo for object check: {token} (lines {where})")
+            continue
+        actual_type = git_object(repo, token)
+        if actual_type is None:
+            failures.append(f"unresolved git object: {token} (lines {where})")
+            continue
+        type_checked = False
+        for lineno, line, start, line_token, is_short in findings:
+            if line_token != token or not is_short:
+                continue
+            expected_type = expected_object_type(line, start)
+            if expected_type is not None:
+                type_checked = True
+                if actual_type != expected_type:
+                    failures.append(
+                        f"object type mismatch {token}: handoff says {expected_type}, git says {actual_type} (line {lineno})"
+                    )
+        suffix = f" type={actual_type}" if type_checked else ""
+        print(f"ok git object {token}{suffix} (lines {where})")
+
+    # Pair each handoff path-like name with its positional SHA. The name is
+    # resolved by on-site recomputation first, then by the same-named recorded
+    # source; every source must agree with the handoff value.
+    for lineno, name, sha in handoff_pairs:
+        actual_files = []
+        if "/" in name:
+            if root is not None:
+                candidate = root / name
+                if candidate.is_file() and not candidate.is_symlink():
+                    actual_files.append(candidate)
+        else:
+            actual_files.extend(path for path, _digest in files_by_name.get(name, []))
+        recorded = []
+        for source_sha, entries in combined_table.items():
+            for origin, path in entries:
+                if path == name or basename(path) == name or (("/" not in name) and basename(path) == name):
+                    recorded.append((source_sha, origin, path))
+        matching_recorded = [(source_sha, origin, path) for source_sha, origin, path in recorded if source_sha == sha]
+        if actual_files:
+            actual_hashes = {file_sha256(path) for path in actual_files}
+            if sha not in actual_hashes:
+                shown = ", ".join(sorted(actual_hashes))
+                failures.append(
+                    f"pairing mismatch line {lineno}: {name} on-site sha256 is {shown}, handoff says {sha}"
+                )
+                continue
+            print(f"ok pairing {name} == {sha} (line {lineno}, on-site)")
+        if recorded and not matching_recorded:
+            origins = ", ".join(f"{origin} {source_sha}" for source_sha, origin, _path in recorded)
+            failures.append(f"pairing mismatch line {lineno}: {name} recorded as {origins}, handoff says {sha}")
+            continue
+        if not actual_files and not matching_recorded:
+            failures.append(
+                f"pairing has no source line {lineno}: {name} + {sha} (no on-site file and no --sha-file/--evidence-file entry)"
+            )
+            continue
+        if matching_recorded and not actual_files:
+            origin = matching_recorded[0][1]
+            print(f"ok pairing {name} == {sha} (line {lineno}, {origin})")
 
     for lineno, token in truncated:
         print(f"truncated (not verified): {token} (line {lineno})")
@@ -185,7 +359,7 @@ def main(argv=None):
         for failure in failures:
             print(f"  - {failure}")
         return 1
-    print(f"OK: {len(by_token)} distinct full token(s), {len(truncated)} truncated form(s)")
+    print(f"OK: {len(token_lines)} distinct full token(s), {len(truncated)} truncated form(s)")
     return 0
 
 

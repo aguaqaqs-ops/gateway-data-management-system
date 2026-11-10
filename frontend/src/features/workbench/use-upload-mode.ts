@@ -336,7 +336,6 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
           clearAttemptChain();
           resumeAttemptId.current = null;
           resumeSubmissionId.current = loaded.active_submission_id;
-          setResumeSeq((seq) => seq + 1);
           return { kind: "submitted", submissionId: loaded.active_submission_id };
         }
         if (!attemptId) {

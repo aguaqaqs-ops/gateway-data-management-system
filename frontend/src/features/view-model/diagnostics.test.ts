@@ -35,6 +35,7 @@ describe("navigation and surface diagnostic copy", () => {
     expect(formatSurfaceDiagnostic("METADATA_ROLE_REQUIRES_NATIVE_ROWS").message).toBe("比较时发生内部错误");
     for (const removed of ["ROW_IDENTITY_UNSUPPORTED", "ORDER_KEY_UNSUPPORTED", "COMPARISON_MODE_NOT_DETAILED", "BLANK_PROVENANCE_INVALID"]) {
       expect(SURFACE_DIAGNOSTIC_CODES).not.toContain(removed);
+      expect(formatSurfaceDiagnostic(removed).message).toBe("比较过程有提示");
     }
   });
 

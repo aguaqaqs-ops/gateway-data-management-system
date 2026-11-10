@@ -27,6 +27,7 @@ import {
   statusTagClass,
   utf8Length,
 } from "../view-model/archive-dialog";
+import { ReasonText } from "./disposition-display";
 
 type Schemas = components["schemas"];
 
@@ -70,20 +71,6 @@ function anomalyHoverTitle(anomaly: Anomaly): string {
   return parts.join("\n");
 }
 
-/**
- * C6: reason text folded after 3 rendered lines. Short reasons keep the exact
- * pre-C6 markup (pixel-identical); only long reasons — including long
- * single-line ones, which wrap to several lines — are clamped with an
- * expand/collapse toggle.
- */
-const REASON_FOLD_THRESHOLD = 120;
-function ReasonText({ children }: { children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false);
-  return <p>
-    <span className={expanded ? undefined : "archive-reason--clamped"}>{children}</span>{" "}
-    <button className="link-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button>
-  </p>;
-}
 
 export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived, resolveName, resolveBaselineLabel, onSelectSubmission, onDispositionChanged }: ArchiveMainlineDialogProps) {
   const [candidates, setCandidates] = useState<Candidates | null>(null);
@@ -140,7 +127,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       }
       stage = "preview";
       let selected = buildArchiveSelectedRef(candidate);
-      let loaded = await gatewayApi.previewArchive({ selected });
+      const loaded = await gatewayApi.previewArchive({ selected });
       if (loaded.selected && loaded.selected.submission_id !== target) {
         setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
         setPlan(null);
@@ -172,12 +159,15 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
           setPlan(null);
           return;
         }
-        loaded = reloaded;
       }
       if (previousDigest.current !== null && previousDigest.current !== loaded.candidate_set_digest) {
         // The set-change banner always uses the generic text; the specific
         // 409 text lives in the separate conflict banner below.
         setCollectionNotice("候选集合已变化，之前的接受不再适用，请重新核对");
+      } else {
+        // A later load whose candidate set did not change invalidates the old
+        // set-change banner.
+        setCollectionNotice(null);
       }
       if (pendingNotice.current === null) {
         // An ordinary load clears a stale 409 conflict notice; a load that
@@ -190,6 +180,9 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       setSelectedDigest(candidate.expected_candidate_digest);
       setPlan(loaded);
     } catch (cause) {
+      // A failed load does not confirm the pending 409 notice; drop it so the
+      // next successful load starts from a clean slate.
+      pendingNotice.current = null;
       const message = cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN"
         ? (stage === "preview" ? "当前身份没有预检归档方案的权限" : "当前身份没有该操作的权限")
         : cause instanceof Error ? cause.message : String(cause);
@@ -417,12 +410,12 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       </p>
       <p title={anomalyHoverTitle(anomaly)}>{anomalyDetailText(anomaly, displayName)}</p>
       <p title={(anomaly.affected_submission_ids ?? []).join("、") || "—"}>受影响提交：{anomaly.affected_submission_ids.map(displayName).join("、") || "—"}</p>
-      {anomaly.resolution_status === "ACCEPTED" && ((anomaly.reason ?? "—").length > REASON_FOLD_THRESHOLD
-        ? <ReasonText>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</ReasonText>
-        : <p>已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</p>)}
-      {anomaly.resolution_status === "REVOKED" && ((anomaly.reason ?? "—").length > REASON_FOLD_THRESHOLD
-        ? <ReasonText>已撤销，原因：{anomaly.reason}</ReasonText>
-        : <p>已撤销，原因：{anomaly.reason}</p>)}
+      {anomaly.resolution_status === "ACCEPTED" && (
+        <ReasonText as="p">已由 {anomaly.accepted_by} 于 {anomaly.accepted_at ? formatServerTimeUtc(anomaly.accepted_at) : "—"} 接受：{anomaly.reason}</ReasonText>
+      )}
+      {anomaly.resolution_status === "REVOKED" && (
+        <ReasonText as="p">已撤销，原因：{anomaly.reason}</ReasonText>
+      )}
       {known && anomaly.resolution_status !== "ACCEPTED" && <Button variant="secondary" onClick={() => openAccept(anomaly)}>接受</Button>}
       {known && anomaly.resolution_status === "ACCEPTED" && <Button variant="secondary" onClick={() => openRevoke(anomaly)}>撤销接受</Button>}
       {!known && <p className="subtle-copy">当前版本不能处理该项，请刷新或联系管理员</p>}
@@ -565,9 +558,15 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
     </Dialog>
 
     <Dialog open={open && closeTarget !== null} title="关闭提交（不归档）" description="关闭后该提交保留已通过记录，不会成为基线。" onClose={() => { if (!closeBusy) { setCloseTarget(null); } }} actions={<>
-      <Button variant="secondary" onClick={() => setCloseTarget(null)} disabled={closeBusy}>取消</Button>
-      <Button variant="danger" onClick={() => void submitClose()} disabled={closeBusy || !closeUnderstood || closeLimitError !== undefined || closeResult !== null} disabledReason={closeResult ? "已关闭" : !closeUnderstood ? "请确认已了解关闭不可撤销" : closeLimitError}>{closeBusy ? "提交中…" : closeResult ? "已关闭" : "确认关闭"}</Button>
-    </>}>
+      {closeResult ? (
+        <Button variant="primary" onClick={() => setCloseTarget(null)}>关闭</Button>
+      ) : (
+        <>
+          <Button variant="secondary" onClick={() => setCloseTarget(null)} disabled={closeBusy}>取消</Button>
+          <Button variant="danger" onClick={() => void submitClose()} disabled={closeBusy || !closeUnderstood || closeLimitError !== undefined} disabledReason={!closeUnderstood ? "请确认已了解关闭不可撤销" : closeLimitError}>{closeBusy ? "提交中…" : "确认关闭"}</Button>
+        </>
+      )}
+      </>}>
       {closeTarget && <>
         <p>关闭{displayName(closeTarget.submission_id)}（不归档）。</p>
         <ul className="confirm-impact">

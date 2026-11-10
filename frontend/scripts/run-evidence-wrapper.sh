@@ -16,6 +16,8 @@
 # .sha256 sidecar. Occupancy: run-tests.sh and validate-upload-package.sh are
 # wrapped here with an atomic mkdir marker; run-real-backend-e2e.sh takes its
 # own marker, so the wrapper only verifies the marker dir is absent first.
+# A pre-existing marker is never taken over, reused, or removed, even when it
+# is empty or names this session: the wrapper reports it and exits.
 set -Eeuo pipefail
 
 SESSION=""
@@ -48,7 +50,8 @@ done
 fail() { printf 'wrapper_error=%s\n' "$1" >&2; exit "${2:-2}"; }
 
 # Pre-flight checks: parameter count/shape, absolute paths, existing log dir,
-# shots dir outside the worktree. Any failure exits before the entry runs.
+# log dir outside the worktree, shots dir outside the worktree. Any failure
+# exits before the entry runs.
 [[ -n "$SESSION" ]] || fail "missing --session"
 [[ -n "$WORKTREE" ]] || fail "missing --worktree"
 [[ -n "$ENTRY" ]] || fail "missing --entry"
@@ -62,10 +65,44 @@ esac
 [[ "$LOG_DIR" == /* ]] || fail "log-dir must be absolute (got $LOG_DIR)"
 [[ -d "$WORKTREE" ]] || fail "worktree is not a directory: $WORKTREE"
 [[ -d "$LOG_DIR" ]] || fail "log dir does not exist: $LOG_DIR (wrapper runs nothing)"
+WORKTREE_REAL="$(realpath -m -- "$WORKTREE")"
+LOG_REAL="$(realpath -m -- "$LOG_DIR")"
+[[ "$LOG_REAL" != "$WORKTREE_REAL" && "$LOG_REAL" != "$WORKTREE_REAL"/* ]] || fail "log dir must be outside the worktree (got $LOG_DIR)"
+SHOTS_REAL=""
 if [[ -n "$SHOTS_DIR" ]]; then
   [[ "$SHOTS_DIR" == /* ]] || fail "shots dir must be absolute (got $SHOTS_DIR)"
-  [[ "$SHOTS_DIR" != "$WORKTREE" && "$SHOTS_DIR" != "$WORKTREE"/* ]] || fail "shots dir must be outside the worktree (got $SHOTS_DIR)"
+  SHOTS_REAL="$(realpath -m -- "$SHOTS_DIR")"
+  [[ "$SHOTS_REAL" != "$WORKTREE_REAL" && "$SHOTS_REAL" != "$WORKTREE_REAL"/* ]] || fail "shots dir must be outside the worktree (got $SHOTS_DIR)"
 fi
+
+# With --shots-dir the wrapper supplies the entry's --screenshots argument.
+# An explicit entry argument is accepted only when it names the same dir.
+shoot_arg_index() {
+  local i=0
+  while [[ $i -lt ${#ENTRY_ARGS[@]} ]]; do
+    if [[ "${ENTRY_ARGS[$i]}" == "--screenshots" ]]; then
+      printf '%s' "$i"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+if shoot_idx="$(shoot_arg_index)"; then
+  [[ $((shoot_idx + 1)) -lt ${#ENTRY_ARGS[@]} ]] || fail "--screenshots needs a value"
+  [[ -n "$SHOTS_DIR" ]] || fail "entry has --screenshots but wrapper has no --shots-dir to validate it"
+  GIVEN_SHOTS_REAL="$(realpath -m -- "${ENTRY_ARGS[$((shoot_idx + 1))]}")"
+  [[ "$GIVEN_SHOTS_REAL" == "$SHOTS_REAL" ]] || fail "entry --screenshots (${ENTRY_ARGS[$((shoot_idx + 1))]}) does not match --shots-dir ($SHOTS_DIR)"
+else
+  case "$ENTRY" in
+    run-tests.sh)
+      if [[ -n "$SHOTS_DIR" ]]; then
+        ENTRY_ARGS+=("--screenshots" "$SHOTS_DIR")
+      fi
+      ;;
+  esac
+fi
+
 ENTRY_PATH="$WORKTREE/frontend/scripts/$ENTRY"
 [[ -x "$ENTRY_PATH" ]] || fail "entry is not executable: $ENTRY_PATH"
 
@@ -91,7 +128,33 @@ STATUS_START="$(git -C "$WORKTREE" status --porcelain --untracked-files=all)"
   printf 'status_start=%s\n' "${STATUS_START:-clean}"
   printf 'entry=%s\n' "$ENTRY_PATH"
   printf 'entry_args=%s\n' "${ENTRY_ARGS[*]}"
+  printf 'shots_dir=%s\n' "$SHOTS_DIR"
+  printf 'gateway_env_begin\n'
 } >> "$LOG_FILE"
+
+# GATEWAY_* effective values. Credential-bearing names are recorded as a
+# SHA256 fingerprint of the value; everything else is recorded verbatim.
+gateway_env_dump() {
+  local name value
+  while IFS='=' read -r name value; do
+    case "$name" in
+      GATEWAY_*) ;;
+      *) continue ;;
+    esac
+    if [[ "$name" =~ (TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|KEY|URL) ]]; then
+      printf '%s=[redacted sha256=%s]\n' "$name" "$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)"
+    else
+      printf '%s=%s\n' "$name" "$value"
+    fi
+  done < <(env | sort)
+}
+gateway_env_dump >> "$LOG_FILE"
+printf 'gateway_env_end\n' >> "$LOG_FILE"
+
+if [[ -n "$STATUS_START" ]]; then
+  printf 'wrapper_error=worktree is not clean at start; not running the entry\n' | tee -a "$LOG_FILE" >&2
+  exit 2
+fi
 
 HAVE_MARKER=0
 marker_release() {
@@ -105,7 +168,7 @@ trap marker_release EXIT
 
 if [[ "$ENTRY" == "run-real-backend-e2e.sh" ]]; then
   # The entry takes its own occupancy marker; the wrapper must not take one
-  # (double mkdir would exit 3). A pre-existing marker stops the run.
+  # (double mkdir would exit 3). Any pre-existing marker stops the run.
   if [[ -e "$BUSY_DIR" ]]; then
     printf 'wrapper_error=node is busy: %s exists; not running the entry\n' "$BUSY_DIR" | tee -a "$LOG_FILE" >&2
     exit 3
@@ -113,16 +176,9 @@ if [[ "$ENTRY" == "run-real-backend-e2e.sh" ]]; then
   printf 'occupancy=entry-owned (%s absent at start)\n' "$BUSY_DIR" >> "$LOG_FILE"
 else
   if ! mkdir "$BUSY_DIR" 2>/dev/null; then
-    if [[ -f "$BUSY_DIR/$SESSION" ]] || [[ -z "$(ls -A "$BUSY_DIR" 2>/dev/null)" ]]; then
-      # Own-session residual or an empty dir: take over and note it; anything
-      # else belongs to someone else and stops the run.
-      printf 'occupancy_takeover=same-session-or-empty dir reused\n' >> "$LOG_FILE"
-      ls -la "$BUSY_DIR" >> "$LOG_FILE" 2>/dev/null || true
-    else
-      printf 'wrapper_error=node is busy: %s exists; not running the entry\n' "$BUSY_DIR" | tee -a "$LOG_FILE" >&2
-      ls -la "$BUSY_DIR" >> "$LOG_FILE" 2>/dev/null || true
-      exit 3
-    fi
+    printf 'wrapper_error=node is busy: %s exists; not running the entry\n' "$BUSY_DIR" | tee -a "$LOG_FILE" >&2
+    ls -la "$BUSY_DIR" >> "$LOG_FILE" 2>/dev/null || true
+    exit 3
   fi
   HAVE_MARKER=1
   printf 'session=%s\npurpose=%s\nstarted_at=%s\nhostname=%s\nworktree=%s\nhead=%s\n' \
@@ -130,6 +186,7 @@ else
   printf 'occupancy_marker=%s\n' "$(tr '\n' ';' < "$BUSY_DIR/$SESSION")" >> "$LOG_FILE"
 fi
 
+printf 'entry_output_begin=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" >> "$LOG_FILE"
 set +e
 if [[ "$SEPARATOR_SEEN" == "1" ]]; then
   ( cd "$WORKTREE" && "$ENTRY_PATH" "${ENTRY_ARGS[@]}" ) >> "$LOG_FILE" 2>&1
@@ -138,13 +195,27 @@ else
 fi
 ENTRY_EXIT=$?
 set -e
+printf 'entry_output_end=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" >> "$LOG_FILE"
+
+# Record the marker before releasing our own copy.
+busy_end_value() {
+  if [[ -f "$BUSY_DIR/$SESSION" ]]; then
+    tr '\n' ';' < "$BUSY_DIR/$SESSION"
+  elif [[ -d "$BUSY_DIR" ]]; then
+    printf 'dir-present-no-%s-file:' "$SESSION"
+    ls -A "$BUSY_DIR" 2>/dev/null | tr '\n' ';' || true
+  else
+    printf 'absent'
+  fi
+}
+BUSY_END="$(busy_end_value)"
+
 # The EXIT trap stays armed (marker_release is idempotent) so a later failure
 # still releases a wrapper-owned marker.
 marker_release
 
 HEAD_END="$(git -C "$WORKTREE" rev-parse HEAD)"
 STATUS_END="$(git -C "$WORKTREE" status --porcelain --untracked-files=all)"
-BUSY_END="$(ls -la "$BUSY_DIR" 2>/dev/null || echo "busy dir absent")"
 {
   printf 'entry_exit=%s\n' "$ENTRY_EXIT"
   printf 'hostname_end=%s\n' "$(hostname -f 2>/dev/null || hostname)"
@@ -154,11 +225,15 @@ BUSY_END="$(ls -la "$BUSY_DIR" 2>/dev/null || echo "busy dir absent")"
   printf 'busy_end=%s\n' "$BUSY_END"
 } >> "$LOG_FILE"
 
-# Result fields are read back from the entry log by whole lines. When a field
-# is absent the wrapper records why instead of writing a placeholder.
+# Result fields are read only from the entry-output section, never from the
+# wrapper's own header/footer lines. When a field is absent the wrapper records
+# why instead of writing a placeholder.
+entry_output() {
+  awk 'found { print } /^entry_output_begin=/ { found = 1 }' "$LOG_FILE"
+}
 report_field() {
   local key="$1" reason="$2" line=""
-  line="$(grep -a -m 1 -E "^${key}=" "$LOG_FILE" || true)"
+  line="$(entry_output | grep -a -m 1 -E "^${key}=" || true)"
   if [[ -n "$line" ]]; then
     printf 'wrapper_field %s\n' "$line" >> "$LOG_FILE"
   else

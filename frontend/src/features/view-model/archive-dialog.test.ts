@@ -98,9 +98,9 @@ describe("archive dialog view copy", () => {
     const modifiedBeforeInitial = anomaly({
       issue_code: "TIME_ABNORMAL_MODIFIED",
       subject_kind: "CONFIGURATION_TIME_ORDER",
-      details: { comparisons: [{ relation: "MODIFIED_BEFORE_INITIAL", left_time_utc: "2026-11-06T12:00:00Z", right_time_utc: "2026-11-05T12:00:00Z" }] },
+      details: { comparisons: [{ relation: "MODIFIED_BEFORE_INITIAL", left_time_utc: "2026-11-05T12:00:00Z", right_time_utc: "2026-11-06T12:00:00Z" }] },
     });
-    expect(anomalyDetailText(modifiedBeforeInitial, (id) => id)).toBe("② 2026-11-06 12:00:00 UTC 早于 ① 2026-11-05 12:00:00 UTC");
+    expect(anomalyDetailText(modifiedBeforeInitial, (id) => id)).toBe("② 2026-11-05 12:00:00 UTC 早于 ① 2026-11-06 12:00:00 UTC");
   });
 
   it("maps TIME_ABNORMAL and sibling details to §16.3 text", () => {

@@ -400,8 +400,9 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(details.getByText("关闭理由")).toBeVisible();
   await expect(details.getByText(/owner-9/)).toBeVisible();
   await expect(details.getByTitle("2026-11-06T08:00:00Z")).toContainText("11/06");
-  await expect(details.getByText("展开理由")).toBeVisible();
-  await details.getByText("展开理由").click();
+  await expect(details.getByRole("button", { name: "展开" })).toBeVisible();
+  await screenshot(page, "fe4a-d3-manual-close-collapsed", 1280);
+  await details.getByRole("button", { name: "展开" }).click();
   await expect(details.getByText("第一行")).toBeVisible();
   await expect(page.locator(".workspace-actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();

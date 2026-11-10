@@ -75,12 +75,12 @@ async function directory(root: FileSystemDirectoryHandle, path: string, create: 
   return current;
 }
 
-async function removeEntry(root: FileSystemDirectoryHandle, name: string): Promise<void> {
+export async function removeEntry(root: FileSystemDirectoryHandle, name: string): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try { await root.removeEntry(name, { recursive: true }); return; } catch (error) {
       if (error instanceof DOMException && error.name === "NotFoundError") return;
-      // 中断写入后 OPFS 可能短暂保留文件锁；此时递归删除会以 DOMException 失败，短重试即可。
-      if (error instanceof DOMException && attempt < 4) {
+      // 中断写入后 OPFS 可能短暂保留文件锁；只有这种可恢复的锁状态值得重试。
+      if (error instanceof DOMException && error.name === "NoModificationAllowedError" && attempt < 4) {
         await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
         continue;
       }

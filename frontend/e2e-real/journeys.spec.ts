@@ -1859,7 +1859,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     expect(reviewGets, "archiver session never reads review facts").toBe(0);
     appendCaseLog(`j2-step4 ok closed=${submitC.submissionId} review_version=${firstClose.expected_review_version} key=${closureRequests[0]!.key} statuses=${closureStatuses.join(",")}`);
     await archiverSession.page.unroute("**/v1/submissions/*/closure");
-    await closeDialog.getByRole("button", { name: "取消" }).click({ timeout: 120_000 });
+    await closeDialog.getByRole("button", { name: "关闭", exact: true }).click({ timeout: 120_000 });
     await expect(dialogClose.getByText("候选集合已变化，之前的接受不再适用，请重新核对")).toBeVisible();
 
     // Step 5: the set is re-derived; everything is unprocessed again and the

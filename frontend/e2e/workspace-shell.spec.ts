@@ -61,6 +61,8 @@ async function installFixtureRoutes(page: Page, options: {
   clearWorkspacePointer?: boolean;
   /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
   workspaceSequence?: Schemas["WorkspaceResponse"][];
+  /** C2: hold the next POST /v1/workspaces in flight until released. */
+  workspacePostHold?: { onHold: () => void; release: Promise<void> };
   operationReadFails?: boolean;
   workspaceReadFails?: boolean;
   operationById?: Record<string, Schemas["OperationResponse"]>;
@@ -106,6 +108,12 @@ async function installFixtureRoutes(page: Page, options: {
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
     if (await rejectInvalidRequest(route, request)) return;
+    const postHold = options.workspacePostHold;
+    if (postHold) {
+      options.workspacePostHold = undefined;
+      postHold.onHold();
+      await postHold.release;
+    }
     if (options.workspaceReadFails) {
       const error = { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" };
       apiResponses.push({ method: "POST", path, status: 503, body: JSON.stringify(error) });
@@ -1967,6 +1975,52 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   await expect.poll(() => apiRequests.filter((request) =>
     request.method === "GET" && request.path.includes("/submit-attempts/")).length,
     { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeSecond);
+});
+
+test("C2 重试快速连点两次只读取一次工作区与一次 attempt", async ({ page }) => {
+  // C2: a rapid double click while the first retry's workspace read is in
+  // flight must join the same read sequence — exactly one workspace read and
+  // one attempt read, not two.
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
+    workspaceSubmitAttemptId: "attempt-1",
+    submitAttemptState: "PREPARED",
+    submitAttemptReadFails: false,
+    clearWorkspacePointer: false,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+    operationStatus: (operationId) => operationId === "submit-op-1"
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+  };
+  const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await waitForBrowse(page);
+  await held;
+  fixtureOptions.submitAttemptReadFails = true;
+  fixtureOptions.clearWorkspacePointer = true;
+  releaseOperation();
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+
+  let releasePost!: () => void;
+  const postReleased = new Promise<void>((resolve) => { releasePost = () => resolve(); });
+  let holdPost!: () => void;
+  const postHeld = new Promise<void>((resolve) => { holdPost = () => resolve(); });
+  fixtureOptions.workspacePostHold = { onHold: holdPost, release: postReleased };
+
+  const workspaceReadsBefore = apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces").length;
+  const attemptReadsBefore = apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const retry = page.getByRole("button", { name: "重试", exact: true });
+  await retry.click();
+  await postHeld;
+  await retry.click();
+  releasePost();
+
+  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces").length, { timeout: 15000 }).toBe(workspaceReadsBefore + 1);
+  await expect.poll(() => apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/")).length, { timeout: 15000 }).toBe(attemptReadsBefore + 1);
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
 });
 
 test("C1 续做后开始新的提交时红色提示框清除", async ({ page }) => {

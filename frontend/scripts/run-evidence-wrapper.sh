@@ -98,6 +98,7 @@ else
     run-tests.sh)
       if [[ -n "$SHOTS_DIR" ]]; then
         ENTRY_ARGS+=("--screenshots" "$SHOTS_DIR")
+        SEPARATOR_SEEN=1
       fi
       ;;
   esac
@@ -229,7 +230,7 @@ STATUS_END="$(git -C "$WORKTREE" status --porcelain --untracked-files=all)"
 # wrapper's own header/footer lines. When a field is absent the wrapper records
 # why instead of writing a placeholder.
 entry_output() {
-  awk 'found { print } /^entry_output_begin=/ { found = 1 }' "$LOG_FILE"
+  awk '/^entry_output_begin=/ { found = 1; next } /^entry_output_end=/ { found = 0 } found { print }' "$LOG_FILE"
 }
 report_field() {
   local key="$1" reason="$2" line=""

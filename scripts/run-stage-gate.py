@@ -165,6 +165,43 @@ class Gate:
             stream.write(text + "\n")
         print(text, flush=True)
 
+    @staticmethod
+    def live_group(pgid: int) -> bool:
+        # Zombies cannot use a port, mutate inputs or continue a test. They may
+        # remain until the node's init reaps them, so killpg(0) alone is insufficient.
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                fields = (entry / "stat").read_text().rpartition(") ")[2].split()
+                if int(fields[2]) == pgid and fields[0] != "Z":
+                    return True
+            except (OSError, IndexError, ValueError):
+                continue
+        return False
+
+    def stop_group(self, process: subprocess.Popen[Any]) -> bool:
+        remained = self.live_group(process.pid)
+        for number in (signal.SIGTERM, signal.SIGKILL):
+            if not self.live_group(process.pid):
+                break
+            try:
+                os.killpg(process.pid, number)
+            except ProcessLookupError:
+                break
+            deadline = time.monotonic() + 3
+            while self.live_group(process.pid) and time.monotonic() < deadline:
+                time.sleep(0.02)
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.cleanup_uncertain = True
+        if self.live_group(process.pid):
+            self.cleanup_uncertain = True
+        if remained:
+            self.note(f"child_group_cleanup pgid={process.pid} confirmed={not self.cleanup_uncertain}")
+        return remained
+
     def command(self, command: list[str], *, cwd: Path | None = None,
                 env: dict[str, str] | None = None, logfile: str = "prepare.log", check: bool = True) -> str:
         with (self.directory / logfile).open("ab") as log:
@@ -172,25 +209,12 @@ class Gate:
                                        stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 code = process.wait()
-            except BaseException:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=25)
-                    # The shell may exit before its children. Kill the remaining group.
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                except (OSError, subprocess.TimeoutExpired):
-                    self.cleanup_uncertain = True
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=5)
-                    except (OSError, subprocess.TimeoutExpired):
-                        pass
-                raise
+            finally:
+                descendants = self.stop_group(process)
         if check and code:
             raise GateError(f"command failed (exit {code}); see {logfile}", code if code > 0 else 128 - code)
+        if descendants:
+            raise GateError(f"command left live descendants; see {logfile}")
         return (self.directory / logfile).read_text(errors="replace")
 
     def output(self, command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
@@ -216,12 +240,22 @@ class Gate:
                 raise GateError("cache settings may not contain URL credentials")
             self.env[key] = value
         provenance = data.get("cache_provenance")
-        if not isinstance(provenance, dict):
-            raise GateError("node config requires cache_provenance object")
+        required = ("source_node", "source_commit", "artifact_sha256", "prefilled_at", "endpoint_identifier")
+        if not isinstance(provenance, dict) or any(
+                not isinstance(provenance.get(key), str) or not provenance[key].strip() for key in required):
+            raise GateError("node config requires complete cache provenance")
+        if (not re.fullmatch(r"[0-9a-f]{40}", provenance["source_commit"])
+                or not re.fullmatch(r"(?:sha256:)?[0-9a-f]{64}", provenance["artifact_sha256"])
+                or datetime.fromisoformat(provenance["prefilled_at"].replace("Z", "+00:00")).tzinfo is None):
+            raise GateError("cache provenance identity/time is malformed")
+        identity = provenance.get("identity_record")
+        if not isinstance(identity, dict) or set(identity) != {"path", "sha256"}:
+            raise GateError("cache provenance requires an identity record path and SHA256")
+        self.verified_file(identity)
         self.result["cache_provenance"] = provenance
         # Provenance is ordinary operator metadata; never dump the environment.
         self.result["node_config_sha256"] = sha256(CONFIG)
-        if any(urlsplit(str(value)).password for value in provenance.values()):
+        if re.search(r"https?://[^/\s\"]*@", json.dumps(provenance), re.IGNORECASE):
             raise GateError("cache provenance may not contain URL credentials")
 
     def acquire(self) -> None:
@@ -342,7 +376,9 @@ class Gate:
         spec.loader.exec_module(self.closure)
 
     def manifest(self, name: str) -> dict[str, Any]:
-        env = dict(self.env)
+        # run-tests.sh exports this before manifesting; sync above still uses
+        # the wrapper's normal five-lock guard. Match the actual runner input.
+        env = dict(self.env, GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT="1")
         if name != "rust":
             env["HYPOTHESIS_STORAGE_DIRECTORY"] = str(self.tmp / "gateway-runner-hypothesis" / name)
         manifest = json.loads(self.output(["python3", "-I", str(self.worktree / "vnext/scripts/test_input_closure.py"),
@@ -430,7 +466,7 @@ class Gate:
         # log covers every intermediate commit: change-and-revert must not erase a boundary trigger.
         try:
             self.git("merge-base", "--is-ancestor", original, self.args.commit_sha)
-            changed = self.git("log", "--format=", "--name-only", f"{original}..{self.args.commit_sha}", "--", "vnext")
+            changed = self.git("log", "--full-history", "-m", "--format=", "--name-only", f"{original}..{self.args.commit_sha}", "--", "vnext")
             if changed.strip():
                 return False, "source interval touched vnext container/runtime inputs (conservative boundary)"
             gate = source["container_gate"]
@@ -466,26 +502,16 @@ class Gate:
                                        env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 code = process.wait()
-            except BaseException:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=30)
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                except (OSError, subprocess.TimeoutExpired):
-                    self.cleanup_uncertain = True
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=5)
-                    except (OSError, subprocess.TimeoutExpired):
-                        pass
-                raise
-        self.result["runner_exit_code"] = code if code >= 0 else 128 - code
-        self.note("runner_exit_code=" + str(self.result["runner_exit_code"]))
+            finally:
+                descendants = self.stop_group(process)
+                if process.returncode is not None:
+                    self.result["runner_exit_code"] = (process.returncode if process.returncode >= 0
+                                                       else 128 - process.returncode)
+                    self.note("runner_exit_code=" + str(self.result["runner_exit_code"]))
         if code:
             raise GateError("runner failed; no packages from this run are eligible as sources", self.result["runner_exit_code"])
+        if descendants:
+            raise GateError("runner left live descendants; source results rejected")
         raw = logfile.read_text(errors="replace")
         manifests = runner_manifests(raw, names)
         for name in names:
@@ -578,7 +604,12 @@ class Gate:
         self.directory.mkdir(parents=True, exist_ok=False)
         self.note(f"hostname={socket.gethostname()} started_at={self.result['started_at']} commit={self.args.commit_sha}")
         previous = {}
+        signal_seen = False
         def interrupted(number: int, _frame: Any) -> None:
+            nonlocal signal_seen
+            if signal_seen:
+                return
+            signal_seen = True
             raise Interrupted(f"interrupted by signal {number}", 128 + number)
         for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
             previous[number] = signal.signal(number, interrupted)

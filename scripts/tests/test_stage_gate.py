@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import tempfile
 import threading
 import types
@@ -236,6 +237,67 @@ class StageGateTests(unittest.TestCase):
             gate.changed = ""
             image["labels"]["gateway.p2r1.source-tree-sha256"] = "changed"
             self.assertFalse(gate.container_equivalent(source, "repository_service")[0])
+
+    def test_container_interval_checks_side_branch_reverts_and_merge_changes(self):
+        for kind in ("reverted-side-branch", "merge-change"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                repo = Path(temporary)
+                def git(*args):
+                    completed = subprocess.run(["git", "-C", str(repo), *args], check=True,
+                                               capture_output=True, text=True)
+                    return completed.stdout.strip()
+                git("init", "-b", "main")
+                git("config", "user.name", "Gate selftest")
+                git("config", "user.email", "gate-selftest@example.invalid")
+                (repo / "vnext").mkdir()
+                runtime = repo / "vnext/runtime.py"
+                runtime.write_text("initial\n")
+                git("add", ".")
+                git("commit", "-m", "initial")
+                base = git("rev-parse", "HEAD")
+                git("checkout", "-b", "side")
+                if kind == "reverted-side-branch":
+                    runtime.write_text("changed\n")
+                    git("commit", "-am", "runtime change")
+                    runtime.write_text("initial\n")
+                    git("commit", "-am", "runtime revert")
+                else:
+                    (repo / "side.txt").write_text("side\n")
+                    git("add", ".")
+                    git("commit", "-m", "side doc")
+                git("checkout", "main")
+                (repo / "main.txt").write_text("main\n")
+                git("add", ".")
+                git("commit", "-m", "main doc")
+                git("merge", "--no-ff", "--no-commit", "side")
+                if kind == "merge-change":
+                    runtime.write_text("merge changed\n")
+                    git("add", ".")
+                git("commit", "-m", "merge")
+                gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
+                gate.worktree = repo
+                gate.directory.mkdir(parents=True)
+                source = {"commit_sha": base}
+                # Invoke the real gate Git adapter and actual Git history rather than a path-list mock.
+                with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)):
+                    equivalent, reason = gate.container_equivalent(source, "backend")
+                self.assertFalse(equivalent)
+                self.assertIn("source interval touched", reason)
+
+    def test_container_config_rejects_empty_or_unidentified_cache_provenance(self):
+        gate = FixtureGate(self.root, packages=["backend"])
+        config = self.root / "config.json"
+        for provenance in ({}, {"source_node": "CT201"}):
+            config.write_text(json.dumps({"environment": {}, "cache_provenance": provenance}))
+            with patch.object(G, "CONFIG", config), self.assertRaises(G.GateError):
+                G.Gate.load_config(gate)
+
+    def test_prepared_container_manifest_matches_runner_guard_without_disabling_sync_guard(self):
+        gate = FixtureGate(self.root, packages=["backend"])
+        with patch.object(gate, "output", return_value=json.dumps(manifest("backend"))) as command:
+            G.Gate.manifest(gate, "backend")
+        self.assertEqual(command.call_args.kwargs["env"]["GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT"], "1")
+        self.assertNotIn("GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT", gate.env)
 
     def test_runner_manifest_uses_actual_input_and_rejects_missing_or_duplicate_markers(self):
         gate = FixtureGate(self.root, digest="prepared")

@@ -29,14 +29,17 @@ cache_provenance 和预置依赖设置。配置不在 Git 内，不允许更换 
     "artifact_sha256": "<archive-or-cache-digest>",
     "prefilled_at": "<UTC>",
     "endpoint_identifier": "<approved-LAN-cache-or-local-preload>",
-    "identity_record": "<node:/path/record-with-config-digest-and-all-RootFS-DiffID>"
+    "identity_record": {
+      "path": "/home/dev/<record-with-config-digest-and-all-RootFS-DiffID>.json",
+      "sha256": "<record-sha256>"
+    }
   }
 }
 ```
 
 也可配置 `GATEWAY_P2R1_CACHE_URL`、`GATEWAY_REPOSITORY_SERVICE_IMAGE`、
 `GATEWAY_REPOSITORY_BASE_IMAGE`、`GATEWAY_TEST_WORKERS`、`CARGO_BUILD_JOBS`；完整允许集见脚本
-`ENV_KEYS`。URL 禁止携带凭据，cache provenance 不记录 secret。缺缓存停止；准备后新开 run，不能覆盖失败。
+`ENV_KEYS`。URL 禁止携带凭据，cache provenance 不记录 secret；上述五项来源字段必填，来源提交/制品摘要/UTC 格式校验，identity_record 须存在且 SHA256 匹配。缺缓存停止；准备后新开 run，不能覆盖失败。
 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、固定 TMPDIR、Cargo PATH、build network none 不可覆盖。
 
 每次运行写 `/home/dev/gdds-gate-results/<full-sha>/<run-id>/result.json`，同目录保存原始日志、其 SHA256、
@@ -45,7 +48,7 @@ cache_provenance 和预置依赖设置。配置不在 Git 内，不允许更换 
 且原日志/manifest 摘要相符。carried 直接指原始实跑，不递归解析 carried。修改脚本一律保守失效旧表。
 
 容器 carried 另核 RS build-input/source-tree labels，backend 同源闭包覆盖 backend/worker；区间逐提交扫描
-`vnext/`，任何修改（含改后改回）保守触发容器包重跑。这个首版允许额外重跑，避免漏判 runtime/harness
+`vnext/`（含完整分支历史和 merge 对每个 parent 的 diff），任何修改（含改后改回）保守触发容器包重跑。这个首版允许额外重跑，避免漏判 runtime/harness
 边界。容器结果的 `images` 记录 RS 身份，backend/worker 实跑身份从同目录 Compose provenance 引用。
 占用冲突 exit 3，不等待或接管。捕获信号后先停止本人子进程，再核现场、写结果和释放本人标记；无法确认
 收尾则保留标记。SSH 中断或 SIGKILL/断电时，协调者核远端进程/结果/标记后处理，不直接删除标记。

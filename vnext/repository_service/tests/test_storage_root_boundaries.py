@@ -21,7 +21,7 @@ from support.storage_layout import write_storage_layout
 
 
 @pytest.mark.parametrize("missing", ["repository", "artifacts", "metadata", "scratch"])
-def test_production_missing_root_fails_before_database_open_and_creates_no_replacement(
+def test_host_probe_missing_root_fails_before_database_open_and_creates_no_replacement(
     tmp_path: Path, missing: str,
 ) -> None:
     roots = prepare_test_roots(RepositoryRoots.under(tmp_path / "roots"))
@@ -29,7 +29,7 @@ def test_production_missing_root_fails_before_database_open_and_creates_no_repla
     target.rmdir()
     token = tmp_path / "token"
     token.write_text("test-token")
-    settings = RepositoryServiceSettings(profile="production", bearer_token_file=token, roots=roots)
+    settings = RepositoryServiceSettings(profile="test", bearer_token_file=token, roots=roots)
     with patch.object(ControlStore, "open") as opened:
         with pytest.raises(ServiceStartupError, match="configured RS root is unavailable"):
             ServiceRuntime.start(settings)

@@ -170,3 +170,20 @@ def test_mountinfo_identifies_cgroup2_by_filesystem_type_not_source_name(tmp_pat
     entry, = preflight.mounts(path)
     assert entry.filesystem_type == "cgroup2"
     assert entry.source == "none"
+
+
+def test_disabled_cpuset_controller_uses_actual_process_affinity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, deployment: DeploymentConfig) -> None:
+    group = tmp_path / "delegated"
+    group.mkdir()
+    worker = deployment.resources.worker
+    (group / "memory.max").write_text(str(worker.memory_envelope_bytes))
+    (group / "memory.swap.max").write_text("0")
+    (group / "cpu.max").write_text("200000 100000")
+    from importlib import reload
+    real_check = reload(preflight).check_resources
+    monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (group,))
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1})
+    real_check(deployment, "worker")
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0})
+    with pytest.raises(ValueError, match="CPU/cpuset"):
+        real_check(deployment, "worker")

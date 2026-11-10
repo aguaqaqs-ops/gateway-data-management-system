@@ -170,6 +170,16 @@ def _cpus(value: str) -> int:
     return count
 
 
+def _effective_cpuset(group: Path) -> int | None:
+    try:
+        value = _bounded(group / "cpuset.cpus.effective", 4096).strip()
+    except FileNotFoundError:
+        # A controller not enabled at this delegated level has no local cpuset
+        # file. sched_getaffinity and any enabled ancestor still bound the task.
+        return None
+    return _cpus(value) if value else None
+
+
 def check_host_budget(config: DeploymentConfig) -> None:
     physical = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
     cpu = float(len(os.sched_getaffinity(0)))
@@ -180,9 +190,9 @@ def check_host_budget(config: DeploymentConfig) -> None:
         quota, period = _bounded(group / "cpu.max", 256).split()
         if quota != "max":
             cpu = min(cpu, int(quota) / int(period))
-        effective = _bounded(group / "cpuset.cpus.effective", 4096).strip()
-        if effective:
-            cpu = min(cpu, _cpus(effective))
+        effective = _effective_cpuset(group)
+        if effective is not None:
+            cpu = min(cpu, effective)
     budget = config.resources.host_budget
     if budget.memory_bytes > physical or budget.cpu_count > cpu:
         raise ValueError("host planning budget exceeds actual host/ancestor cgroup capacity")
@@ -212,9 +222,9 @@ def check_resources(config: DeploymentConfig, role: str) -> None:
         quota, period = _bounded(group / "cpu.max", 256).split()
         if quota != "max":
             effective_cpu = min(effective_cpu, int(quota) / int(period))
-        effective = _bounded(group / "cpuset.cpus.effective", 4096).strip()
-        if effective:
-            effective_cpu = min(effective_cpu, _cpus(effective))
+        effective = _effective_cpuset(group)
+        if effective is not None:
+            effective_cpu = min(effective_cpu, effective)
     if effective_cpu + 0.00001 < cpu or (role == "worker" and resources.worker.kernel_threads > math.floor(effective_cpu)):
         raise ValueError("effective ancestor CPU/cpuset is below role profile")
 

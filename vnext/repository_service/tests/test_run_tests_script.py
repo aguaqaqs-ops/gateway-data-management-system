@@ -91,6 +91,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
     _seed_repo_file(vnext_root, "scripts/uv-consume.sh")
     _seed_repo_file(repo_root, "legacy/table-rules.json", "{}\n")
+    _seed_repo_file(repo_root, "scripts/run-stage-gate.py")
     _seed_repo_file(repo_root, ".gitignore", "**/.venv/\n**/.hypothesis/\n")
     _seed_repo_file(
         repo_root,

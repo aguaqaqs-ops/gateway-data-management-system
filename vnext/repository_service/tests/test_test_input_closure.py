@@ -204,6 +204,10 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert service_components["test-authority:runtime-provider-feasibility"]["paths"] == [
         "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md"
     ]
+    assert service_components["test-input:stage-gate-orchestrator"]["paths"] == [
+        "scripts/run-stage-gate.py"
+    ]
+    assert "test-input:stage-gate-orchestrator" not in backend_components
     assert service_components["non-git:legacy-content"]["kind"] == "content"
     assert service_components["non-git:package-uv-environment"]["kind"] == "content"
     assert service_components["non-git:package-uv-environment"]["paths"] == [
@@ -888,6 +892,27 @@ def test_path_dependency_closure_includes_transitive_dependencies(
 def _commit_all(repo_root: Path, message: str) -> None:
     subprocess.run(["git", "-C", str(repo_root), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo_root), "commit", "-qm", message], check=True)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("package", "changed_components"),
+    [("repository_service", ["test-input:stage-gate-orchestrator"]), ("backend", [])],
+)
+def test_root_stage_gate_tool_drift_is_a_repository_service_test_input(
+    package: str,
+    changed_components: list[str],
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    before = _manifest(repo_root, package)
+    tool = repo_root / "scripts" / "run-stage-gate.py"
+    tool.write_text(tool.read_text() + "# changed tool only\n", encoding="utf-8")
+    _commit_all(repo_root, "change only root stage-gate tool")
+    after = _manifest(repo_root, package)
+    comparison = CLOSURE["compare_manifests"](before, after)
+    assert comparison["status"] == ("运行" if changed_components else "可沿用")
+    assert [item["component"] for item in comparison["changed_components"]] == changed_components
 
 
 @pytest.mark.unit

@@ -106,6 +106,11 @@ COMMON_GIT_COMPONENTS = (
 PACKAGE_GIT_COMPONENTS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "repository_service": (
         (
+            "test-input:stage-gate-orchestrator",
+            "scripts/run-stage-gate.py",
+            "Repository-service closure tests execute this exact root tool to verify mixed carried/run behavior.",
+        ),
+        (
             "test-authority:runtime-provider-feasibility",
             "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md",
             "Repository-service audit-corrective tests read this authority document to verify the measurement methodology version.",

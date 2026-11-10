@@ -87,6 +87,7 @@ class MaintenanceResult:
     visits: int
     items: tuple[MaintenanceItem, ...]
     cursor: str | None
+    skipped_roots: tuple[str, ...]
 
 
 class _Budget:
@@ -174,6 +175,7 @@ class ArtifactMaintenance:
         budget = _Budget()
         items: list[MaintenanceItem] = []
         disabled: set[int] = set()
+        skipped: list[str] = []
         while len(items) < max_candidates and budget.visits < _MAX_VISITS:
             available = [index for index, lane in enumerate(lanes) if not lane.done and index not in disabled]
             if not available:
@@ -188,6 +190,7 @@ class ArtifactMaintenance:
                 if location:
                     with self.local.layout.cleanup_session(location) as acquired:
                         if not acquired:
+                            skipped.append(label)
                             disabled.add(index)
                             continue
                         item = self._advance(index, lanes[index], root, base, budget, when)
@@ -213,7 +216,7 @@ class ArtifactMaintenance:
             except (OSError, ValueError, OverflowError, ManifestVerificationError) as exc:
                 disabled.add(index)
                 items.append(MaintenanceItem(label, '', 'manual_review', str(exc)))
-        return MaintenanceResult(len(items), budget.visits, tuple(items), self._encode(lanes, next_lane))
+        return MaintenanceResult(len(items), budget.visits, tuple(items), self._encode(lanes, next_lane), tuple(skipped))
 
     def _advance(self, index: int, lane: _Lane, root: Path, base: Path, budget: _Budget,
                  now: datetime) -> tuple[str, str, str | None, ArtifactRef | None] | None:
@@ -238,8 +241,11 @@ class ArtifactMaintenance:
             return None
         child_relative = str(Path(relative) / name)
         child = base / child_relative
-        self.local._check_path(root, child)
-        info = child.lstat()
+        try:
+            self.local._check_path(root, child)
+            info = child.lstat()
+        except (OSError, ValueError) as exc:
+            return child_relative, 'manual_review', str(exc), None
         if index < 4:
             if relative == '' and name == '.staging':
                 return None
@@ -255,13 +261,21 @@ class ArtifactMaintenance:
                 # Resume this entry next time; all prior visits remain charged.
                 lane.stack[-1] = (relative, lane.stack[-1][1])
                 return child_relative, 'manual_review', 'inspection budget exhausted', None
-            ref = self._object_ref(child, root)
+            try:
+                ref = self._object_ref(child, root)
+            except (OSError, ValueError) as exc:
+                return child_relative, 'manual_review', str(exc), None
             return child_relative, 'candidate', None, ref
         if not _TEMP.fullmatch(name) or not stat.S_ISDIR(info.st_mode):
             return child_relative, 'manual_review', 'unknown temporary owner shape', None
         if not budget.take(4):
             return child_relative, 'manual_review', 'inspection budget exhausted', None
-        disposition, reason = self._temporary(child, root, index == 8, budget, now)
+        try:
+            disposition, reason = self._temporary(child, root, index == 8, budget, now)
+        except OSError:
+            return child_relative, 'retryable_failure', 'temporary cleanup I/O failed', None
+        except ValueError as exc:
+            return child_relative, 'manual_review', str(exc), None
         return child_relative, disposition, reason, None
 
     def _object_ref(self, path: Path, root: Path) -> ArtifactRef:
@@ -283,6 +297,8 @@ class ArtifactMaintenance:
         ref = artifact_ref_from_json(raw_ref)
         if self.local.object_directory(ref.artifact_id) != path:
             raise ValueError('object ref belongs to a different directory/root')
+        if 'payload' in names and (path / 'payload').stat().st_size != ref.size_bytes:
+            raise ValueError('object payload size disagrees with ref')
         return ref
 
     def _temporary(self, path: Path, root: Path, scratch: bool, budget: _Budget,
@@ -307,6 +323,8 @@ class ArtifactMaintenance:
                         return 'manual_review', 'unknown temporary member'
             if 'owner.json' not in names:
                 return 'manual_review', 'temporary owner metadata unavailable'
+            if (path / 'owner.json').stat().st_size > 4096:
+                return 'manual_review', 'temporary owner metadata exceeds bound'
             with (path / 'owner.json').open('rb') as handle:
                 owner = json.loads(handle.read(4097))
             if (type(owner) is not dict or set(owner) != {'version', 'owner'} or owner['version'] != 1
@@ -321,7 +339,9 @@ class ArtifactMaintenance:
             if now < modified + self.grace:
                 return 'retained', 'orphan grace has not expired'
             for name in names:
-                (path / name).unlink()
+                if name != 'owner.json':
+                    (path / name).unlink()
+            (path / 'owner.json').unlink()
             path.rmdir()
             return 'deleted', None
         finally:

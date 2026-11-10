@@ -44,6 +44,7 @@ def test_round_robin_preserves_strong_owners_and_skips_borrowed_roots(tmp_path: 
     with local.layout.read_session((ArtifactLocation.CANONICAL,)):
         first = maintenance.run(now=when)
     assert first.visits <= 1024 and first.candidates <= 32
+    assert set(first.skipped_roots) == {"canonical", "staging:canonical"}
     assert local.get_ref(refs[0].artifact_id) == refs[0]
     assert local.get_ref(refs[1].artifact_id) == refs[1]
     assert {item.location for item in first.items if item.disposition == 'deleted'} == {'comparison', 'export'}
@@ -194,3 +195,50 @@ def test_http_arrow_spool_failure_closes_stream_and_owned_file(
         assert {child.name for child in Path(owner.path).iterdir()} == {'owner.json'}
     assert closed == [True]
     assert not list(root.iterdir())
+
+
+def test_writer_close_failure_still_removes_owned_scratch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pyarrow as pa
+    from gateway_backend.artifacts.scratch import scratch_scope
+    from gateway_backend.capabilities.comparison.artifacts import (
+        RecordsPublicationContext, RecordsPublicationPolicy, _write_arrow_parquet,
+    )
+    from gateway_backend.infrastructure.artifact_store.scratch import _BudgetedFile
+    root = tmp_path / 'scratch'
+    root.mkdir()
+    original_close = _BudgetedFile.close
+    raised: list[bool] = []
+    def failed_close(self: _BudgetedFile) -> None:
+        original_close(self)
+        if not raised:
+            raised.append(True)
+            raise OSError('injected scratch close failure')
+    monkeypatch.setattr(_BudgetedFile, 'close', failed_close)
+    schema = pa.schema([('id', pa.int64())])
+    with ScratchSpace(root, max_bytes=1024**2).session(owner='operation:comparison') as session, scratch_scope(session):
+        with pytest.raises(OSError, match='close failure'):
+            _write_arrow_parquet((pa.RecordBatch.from_arrays([pa.array([1])], schema=schema),),
+                schema, RecordsPublicationPolicy(), RecordsPublicationContext())
+    assert not list(root.iterdir())
+
+
+def test_temporary_io_failure_keeps_owner_for_a_later_bounded_retry(tmp_path: Path, db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, _, maintenance = _maintenance(tmp_path, db_path)
+    owner = maintenance.scratch_root / 'scratch-retryable'
+    owner.mkdir()
+    (owner / 'owner.json').write_text(json.dumps({'version': 1, 'owner': 'upload:ended'}))
+    payload = owner / ('file-' + 'b' * 32)
+    payload.write_bytes(b'derived')
+    original_unlink = Path.unlink
+    def fail_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path == payload:
+            raise OSError(5, 'injected unlink I/O failure')
+        original_unlink(path, missing_ok=missing_ok)
+    with monkeypatch.context() as injected:
+        injected.setattr(Path, 'unlink', fail_unlink)
+        result = maintenance.run()
+    assert any(item.disposition == 'retryable_failure' for item in result.items)
+    assert payload.exists() and (owner / 'owner.json').is_file()
+    retried = maintenance.run()
+    assert any(item.disposition == 'deleted' and item.location == 'scratch' for item in retried.items)
+    assert not owner.exists()

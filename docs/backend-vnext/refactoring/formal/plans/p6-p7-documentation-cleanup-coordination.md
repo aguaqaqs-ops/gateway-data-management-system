@@ -1,6 +1,6 @@
 # P6→P7 文档与检索整理协调记录
 
-日期：2026-11-10。状态：**A_SCOPE_GO、B_GO、固定候选 C_GO 已核收；已本地合入 main `6a8fff14f3`，最终合入及收尾元数据增量核查 pending**。
+日期：2026-11-10。状态：**A_SCOPE_GO、B_GO、固定候选 C_GO 已核收；已本地合入 main `6a8fff14f3`，最终合入及收尾元数据增量已独立核收**。
 
 本记录是单份协调入口。授权与禁动表依[任务提示词](p6-p7-documentation-cleanup-prompt.md)和[执行方案](p6-p7-documentation-cleanup-execution-plan.md)；不形成新的产品规则或 S1a 授权。
 
@@ -111,7 +111,7 @@ A 实施原件目录：`/home/dev/gdds-test-tmp/docs-cleanup-a-impl-20261110/`�
 | --- | --- | --- | --- |
 | A | 盘点与精确范围已固定；A 未删除文件 | A 原审 A_SCOPE_GO，A 静态回执已核，A-N1/A-V1 补充处置 closed；原件身份限制见原审 | 随 `6a8fff14f3` 合 main；最终增量核收待完成 |
 | B | 固定候选 `1d84b7a066`；三 README/current index、三行 manifest 与三删除 | [B 原审](p6-p7-documentation-cleanup-b-review.md) B_GO，静态回执已核；输出限制保留 | B 原审收录于 `bb4dd10e5d`，随 `6a8fff14f3` 合 main |
-| C | 固定候选 `5de3d2eb53`；含最新 main 的四导航/交接 | [C 原审](p6-p7-documentation-cleanup-c-review.md) C_GO，独立静态回执已核，C-V1 closed | 已合 main `6a8fff14f3`；实际合入及收尾元数据增量核查 pending |
+| C | 固定候选 `5de3d2eb53`；含最新 main 的四导航/交接 | [C 原审](p6-p7-documentation-cleanup-c-review.md) C_GO，独立静态回执已核，C-V1 closed | 已合 main `6a8fff14f3`；实际合入及收尾元数据增量已独立核收 |
 
 A/B/C 固定候选结论及静态回执见各原审；下一动作是由 C 原审/验证者核实际合入及本次收尾元数据增量。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
 
@@ -151,9 +151,9 @@ C 实施静态准备原件在 `/home/dev/gdds-test-tmp/docs-cleanup-c-impl-20261
 C 候选工作树自检原件为同目录 `working-check.py` / `working-check.json`；JSON SHA256 `823846cf30b6ab679a011af3e1ba723f9207893515d336e8259e865a11d6802c`。检查当时四导航 121 链接、六修改页合计 143 链接/14 fragment 全部有效，六路径精确白名单与 `git diff --check` 通过；相对 M 的产品/FE/共享规则/Contract/ADR/政策净差异为空。此为提交前自检，固定 C 的独立核查、统计及最终 main 增量仍待完成。
 
 
-## 9. 固定 C 核收与实际本地合入（最终增量待核）
+## 9. 固定 C 核收与实际本地合入
 
-固定 C 为 `5de3d2eb53b21f659313c86c55af175728c15a6f`；[C 独立验收](p6-p7-documentation-cleanup-c-review.md)给 **C_GO**，未关闭候选 finding 为零，报告收录提交为 `895a7ed08d07823d2e80b4589e32d4ae692f809a`。该报告 SHA256 `a7d8b8b20deddaeb0737713778bcfe352c9ff512488ba31ca3511c8b7714ff76`，明确最终 main 合入须另核；本记录不把候选 C_GO 扩大为最终合入核收。
+固定 C 为 `5de3d2eb53b21f659313c86c55af175728c15a6f`；[C 独立验收](p6-p7-documentation-cleanup-c-review.md)给 **C_GO**，未关闭候选 finding 为零，报告收录提交为 `895a7ed08d07823d2e80b4589e32d4ae692f809a`。该候选签署版报告 SHA256 `a7d8b8b20deddaeb0737713778bcfe352c9ff512488ba31ca3511c8b7714ff76`，明确最终 main 合入须另核；本记录不把候选 C_GO 扩大为最终合入核收。
 
 C 原审核收全部三原件 blob/SHA/长度、来源可达、完整 A–B 与 main 带入/本任务净差异、实际消费者、S1a 边界和固定五查询。四导航 121 链接，含其他本任务文档共 147 链接/15 fragment 全有效；`M..C` 为十四条核准任务路径，无产品/Contract/S1a/FE 净变化。任务区间 `diff --check` 为 0；带入 main 的既有 FE `fe3c-evidence-04.md:436` EOF 空行诊断 exit 2 保留，不称全 `S..C` 通过或越权修 FE。固定 C 统计及分项见 C 原审 §4，不将后续报告/收尾或他人增量算入该候选数据。
 
@@ -161,4 +161,4 @@ C 原审核收全部三原件 blob/SHA/长度、来源可达、完整 A–B 与 
 
 协调者已于 2026-11-10 04:44:24Z 将 cleanup 本地合入 main，实际 merge 为 **`6a8fff14f3fcd865d4797c53d8ef5ae794ebac66`**，父提交依次为原 main `6536502a115956a9a29a43c63c256ccf50f3a2d4` 与 cleanup `895a7ed08d07823d2e80b4589e32d4ae692f809a`。相对第一父提交的只读路径盘点为十五条本任务路径；比固定 C 的十四条多 C 原审报告。原 main 相对 M 仅新增 FE4 kickoff review，归属于 FE，不算本任务修改。该事实已核 Git 提交，不代表 merge 全部链接/状态/来源及收尾差异已完成独立验收。
 
-当前仅在 main 工作区修改 handoff/本记录以补记上述事实，未提交；**最终 merge 与这两页收尾元数据增量核查仍 pending**，由 C 原审连续负责，验证者按其固定稿另交证据。当前 main 已合入不再写“未合入”；§7/§8 的实施时点自述作为历史保留，当前状态以本节为准。本任务无产品执行/容器/carried/资源释放声明，不 push、不建产品 exit tag、不动并行资源。
+实际 merge `6a8fff14f3` 与收尾元数据提交 `3ef86af382` 已由 C 原审和验证者独立核收，见 [C 原审 §7](p6-p7-documentation-cleanup-c-review.md)。最终回执 SHA256 `3225575424c7aa88ee6f1600b2241aa02963cf1c99d5387f6b03a6933d3911ba`；原始输出及修订保存在 `/home/dev/gdds-p6-p7-documentation-cleanup-c-merge-evidence-20261110/`。§7/§8 的实施时点自述作为历史保留，当前状态以本节为准。本任务无产品执行、容器或 carried 声明。

@@ -1,6 +1,6 @@
 # P6→P7 文档整理 C 独立验收
 
-日期：2026-11-10。结论：**C_GO**，绑定下列固定 C；归档、入口、整体区间与独立静态回执已核收，候选未关闭 finding 为零。最终 main 合入尚待实际核收。本报告只覆盖文档整理，不签产品、S1a、FE、SDK 或 production。
+日期：2026-11-10。结论：**C_GO**，绑定下列固定 C；实际本地 merge 及收尾元数据 H 也已独立核收，见 §7。未关闭 finding 为零。本报告只覆盖文档整理，不签产品、S1a、FE、SDK 或 production。
 
 ## 1. 固定对象与独立范围
 
@@ -90,6 +90,24 @@ C 原审也保留自身事件：初筛 rg 误猜三个不存在源码路径，ex
 
 最终候选证据索引 `evidence-sha256-r1-final.txt` SHA256 **`0add13d7e25fef9c3843a55bcfac85c0932290ae19fb94bf2d7d97ad3261eb2c`**，原审重算其全部 464 项 SHA/长度相符；此前 v2 的 447 项也全部重算。链接 JSON SHA256 为 `0e483cb045f0a41e63d199bec356cf15a90471742ad7bf028f5f8e1878418064`。所有回执限制见 §5；没有改变 C、归档集合、spec 或原断言。
 
-最终 main 合入、后续 handoff/coordination 元数据和实际结果增量尚未执行核收，后续由本原审继续，不因分支候选通过而省略。
+实际 main 合入及 handoff/coordination 元数据增量已继续完成核收，见 §7；没有以候选 C_GO 代替实际 merge 检查。
 
 Current HEAD 为固定 C。Container rebuild required：no；仅 docs 导航/历史归档/元数据，`vnext` context 与容器边界没有本任务变化。Last verified image revision/source-tree 未检查；current container gate=`not-applicable`；carried=none。本任务不需要产品门禁，不推导资源已释放、S1a/FE 产品通过或新的 exit tag。
+
+## 7. 实际 main 合入及收尾元数据核收
+
+实际 merge **F=`6a8fff14f3fcd865d4797c53d8ef5ae794ebac66`**，父提交依次为 N=`6536502a115956a9a29a43c63c256ccf50f3a2d4` 与 T=`895a7ed08d07823d2e80b4589e32d4ae692f809a`。原审新建 clean detached `/home/dev/gdds-reviews/p6-p7-doc-cleanup-final-6a8fff14f3`，逐项核：`C..T` 仅新增本报告的候选签署版（14,169 字节）；`T..F` 仅新增 FE4 review 且字节等 N；`N..F` 恰十五条本任务路径，较 C 仅多本报告。其余任务字节/删除状态与 C 一致；C/N/F 的 `vnext` tree 相同，没有本任务产品、Contract、共享规则、S1a 或 FE 净变化。上述三个净区间 `diff --check` 均为 0；全 S..F 仍保留已知 FE3c EOF 空行 baseline，不作全区间通过声明。
+
+F 上三归档原件再次逐项恢复并核 source/blob/SHA/长度，S 是 F 和实际 main 祖先；manifest、保留承接与附注 tag 身份未变。固定五查询的 F 规范化输出逐字等 C。既有 147 链接及其目标字节未变，本报告候选版新增一条有效 manifest 链接，F 合计 **148 / 15 fragment**。原审 `final-merge-6a8fff14/final-merge-audit.json` SHA256 为 `c51fc55f4aa23a4878fc1a9dcf013224c597285e4fdcdb99a5a56e5b89314291`。
+
+随后固定 **H=`3ef86af38264cb29db0031944615bea6337e701e`**，直接父提交为 F；原审新建 clean detached `/home/dev/gdds-reviews/p6-p7-doc-cleanup-handoff-3ef86af382`。完整读取 `F..H`，恰 handoff/coordination 两页，只补候选 C_GO、实际 merge、现有统计/原件/限制及当时 pending 状态；无规则或归档范围变化，其他树字节与 F 相同，`diff --check` 为 0。H 的全部十一任务/导航文档 **152 相对链接 / 15 fragment** 有效，固定五查询所用路径 F..H 无变化。两页引用的报告 SHA `a7d8b8b20deddaeb0737713778bcfe352c9ff512488ba31ca3511c8b7714ff76` 已从 T 的报告原字节重算，仅标识候选签署版，不标识本次追加后的文件。原审 `handoff-3ef86af3/metadata-audit.json` SHA256 为 `2df22788a3975a0768d4e61f11a07e701efd60f296ab835d24ddd2d1280b2813`。
+
+唯一验证者按原审另发的固定 merge/H 增量稿，在新目录 `/home/dev/gdds-p6-p7-documentation-cleanup-c-merge-evidence-20261110/` 留独立原件。原审核其 97 核心命令的 194 raw 文件、三原件 r2 的 24 raw 文件、47 链接命令的 94 raw 文件 SHA/长度相符；F/H 的 148/152 链接逐条集合与原审独立结果一致，二十二文档快照逐字等各固定 Git 对象。结束快照 04:55:47Z 为 `heavy-dev-01`、F detached clean、main H clean、S1a A clean；未执行产品或连接节点。
+
+最终回执 **`final-merge-verification-receipt-r1.txt`** SHA256 为 **`3225575424c7aa88ee6f1600b2241aa02963cf1c99d5387f6b03a6933d3911ba`**；最终索引 **`merge-evidence-sha256-index-r1.tsv`** SHA256 为 **`943a64c4f1544edf45e7d8df365d15bf21542c7de0ebe7babcfd44d98a9bfbe0`**，原审重算全部 **422 项** SHA/长度相符。原 418 项索引也已全核，原件保留。
+
+最终验证者的首轮归档预期 SHA 手抄错误导致第三项摘要 false；r1 三逐项结果正确但顶层摘要仍误抄，均原样保留。r2 直接从已核固定 C manifest 读取预期，三原件再恢复全部一致，原审核收；没有修改来源 SHA 或被核对象。原最终回执又把继承 FE3c 的 34,116 字节/SHA 标签写作 FE4；保留原回执后 r1 仅改该标签并增说明，原审逐字复核关闭。真实 FE4 review 为 35,648 字节/SHA256 `985ece6b46ec2cd43ff1eb42d912147208388d652c54ce4a682eeb0a01a4f26e`；继承 FE3c SHA `5f880f9a26b356eaeed4429f91b036699b96c56e2ee36249b39b0f2a462e4994` 保持。原审最终索引只读辅助命令也曾误将 header 当路径、宽 glob 误收生成脚本，均在写文件前停止，原始来源仅会话输出；改按明确 TSV 文件/header 后 418/422 项重算通过，不补造原日志。
+
+验证期间 S1a B 推进至 clean `bba9d6ae9a1e36509f2d51934ec565b2dbc990fd`。原审另核 `df011624..bba9d6ae` 十八路径：docs 为其三 B 文件和新增 saved-image helper，均不与 cleanup 十五路径相交；全相关树无三归档全名/stem 命中。读增量与 helper 后确认仅补其依赖来源/镜像 tar 身份验证，不读取归档材料、不改变本任务范围；不签其 B 结论。快照 `s1a-b-bba9d6ae/metadata.json` SHA256 为 `5bf1b649be43e2db767cf674bbf0d64d43564daf99b40dff811dedbb686144c1`。
+
+**本地合入 F 与元数据 H 的最终静态验收通过，未关闭 finding 为零。** 协调者后续只需提交本报告追加并将 handoff/coordination 的 pending/写稿时点状态收口；该最终最小差异继续由原审只读核收，不改导航、manifest、归档集合或产品。H 为此处实际核收的精确 HEAD；容器决定仍为 no rebuild / `not-applicable` / carried none，无 push、部署、产品 exit tag、资源清理或产品/S1a/FE 通过声明。

@@ -302,3 +302,12 @@ v8 formal 固定为 Candidate A、66 records、1 MiB effective byte bound；不�
 `--reserved-b-w0-smoke` 诊断入口验证代码路径，该诊断永不产生 provider selection。
 P2-R1 v8 formal retest 延期至 P2-R6 final candidate；R6 canonical command 见
 [P2-R5 execution plan §9](../../docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md#9-production-retest-handoff-to-r6)。
+
+
+P7 S1a production startup also requires `GATEWAY_RESOURCE_PROFILE_FILE`, paired
+with `GATEWAY_STORAGE_LAYOUT_FILE`. Host mount/source and explicit marker
+initialization, generated Compose resource limits, runtime role preflight and
+stopped-service remount procedures are in [the deployment runbook](../deploy/README.md).
+Offline hold/check/import administration attests only its four configured RS
+roots before binding state; host probe fixtures use explicit non-production
+roots and do not claim container resource isolation.

@@ -7,7 +7,7 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from _thread import RLock
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 
 from gateway_backend.artifacts.location import ArtifactLocation
@@ -44,11 +44,12 @@ class ArtifactStoreLayout:
     canonical: Path
     comparison: Path
     export: Path
-    _identities: dict[ArtifactLocation, tuple[int, int, str]] = field(init=False, repr=False, compare=False)
+    _allow_unavailable: InitVar[bool] = False
+    _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(init=False, repr=False, compare=False)
     _borrows: dict[ArtifactLocation, tuple[int, int]] = field(init=False, repr=False, compare=False)
     _mutex: RLock = field(init=False, repr=False, compare=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, _allow_unavailable: bool) -> None:
         paths = [self.root(location) for location in ROOT_ORDER]
         for index, path in enumerate(paths):
             if not isinstance(path, Path):
@@ -56,13 +57,23 @@ class ArtifactStoreLayout:
             for other in paths[index + 1:]:
                 if path == other or path in other.parents or other in path.parents:
                     raise ValueError("artifact roots must be distinct and non-nested")
-        try:
-            identities = {location: _directory_identity(self.root(location)) for location in ROOT_ORDER}
-        except (OSError, ValueError, StopIteration):
-            raise ValueError('artifact root must be an existing writable directory without symlinks') from None
+        identities: dict[ArtifactLocation, tuple[int, int, str] | None] = {}
+        for location in ROOT_ORDER:
+            try:
+                identities[location] = _directory_identity(self.root(location))
+            except (OSError, ValueError, StopIteration):
+                if not _allow_unavailable:
+                    raise ValueError('artifact root must be an existing writable directory without symlinks') from None
+                # Only explicit maintenance may retain an unavailable slot. It
+                # has no usable identity and check() refuses it permanently.
+                identities[location] = None
         object.__setattr__(self, '_identities', identities)
         object.__setattr__(self, '_borrows', {})
         object.__setattr__(self, '_mutex', RLock())
+
+    @classmethod
+    def for_maintenance(cls, *, durable: Path, canonical: Path, comparison: Path, export: Path) -> ArtifactStoreLayout:
+        return cls(durable, canonical, comparison, export, _allow_unavailable=True)
 
     def root(self, location: ArtifactLocation) -> Path:
         if type(location) is not ArtifactLocation:
@@ -72,6 +83,8 @@ class ArtifactStoreLayout:
 
     def check(self, location: ArtifactLocation) -> None:
         try:
+            if self._identities[location] is None:
+                raise ValueError("artifact root was unavailable at maintenance start")
             if _directory_identity(self.root(location)) != self._identities[location]:
                 raise ValueError("artifact root identity changed")
         except (OSError, ValueError, StopIteration):

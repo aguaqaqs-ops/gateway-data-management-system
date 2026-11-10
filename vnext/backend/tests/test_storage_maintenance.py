@@ -242,3 +242,87 @@ def test_temporary_io_failure_keeps_owner_for_a_later_bounded_retry(tmp_path: Pa
     retried = maintenance.run()
     assert any(item.disposition == 'deleted' and item.location == 'scratch' for item in retried.items)
     assert not owner.exists()
+
+
+@pytest.mark.parametrize('missing', ('durable', 'scratch'))
+def test_cleanup_cli_skips_unavailable_slot_and_continues_other_roots(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], missing: str,
+) -> None:
+    from gateway_backend.bootstrap.storage_admin import main
+    from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+    from gateway_backend.infrastructure.control_db.database import initialize_control_db
+    from tests.support.artifact_layout import write_deployment_files
+    storage, resources = write_deployment_files(tmp_path / 'storage')
+    initialize_control_db(tmp_path / 'storage/metadata/control.sqlite3')
+    local = open_test_store(tmp_path / 'storage')
+    ref = _put(local, ArtifactLocation.EXPORT)
+    payload = local.payload_path(ref.artifact_id)
+    os.utime(payload, (0, 0))
+    absent = tmp_path / 'storage' / missing
+    absent.rmdir()
+    if missing == 'durable':
+        with pytest.raises(ValueError, match='existing writable'):
+            ArtifactStoreLayout(**{location.value: tmp_path / 'storage' / location.value for location in ArtifactLocation})
+    assert main(['--storage-layout', str(storage), '--resource-profile', str(resources), 'cleanup']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert any(item['location'] == missing and item['disposition'] == 'manual_review' for item in result['items'])
+    assert any(item['location'] == 'export' and item['disposition'] == 'deleted' for item in result['items'])
+    assert result['cursor'] is not None
+    assert not absent.exists() and not payload.exists()
+
+
+def test_scratch_scan_budget_defers_entries_without_losing_cross_call_progress(
+    tmp_path: Path, db_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.infrastructure.artifact_store import maintenance as module
+    _, _, maintenance = _maintenance(tmp_path, db_path)
+    root = maintenance.scratch_root
+    for number in range(9):
+        owner = root / f'scratch-owner-{number:06d}'
+        owner.mkdir()
+        (owner / 'owner.json').write_text(json.dumps({'version': 1, 'owner': f'upload:ended-{number}'}))
+        for member in range(63):
+            (owner / f'file-{member:032x}').write_bytes(b'derived')
+    actual_visits = 0
+    original_entry, original_scandir, original_unlink = module._entry, os.scandir, Path.unlink
+    def counted_entry(path: Path, cookie: int) -> tuple[str | None, int]:
+        nonlocal actual_visits
+        actual_visits += 1
+        return original_entry(path, cookie)
+    class Entries:
+        def __init__(self, path: Path) -> None:
+            self.entries = original_scandir(path)
+        def __enter__(self) -> Entries:
+            return self
+        def __exit__(self, *args: object) -> None:
+            self.entries.close()
+        def __iter__(self) -> Entries:
+            return self
+        def __next__(self) -> os.DirEntry[str]:
+            nonlocal actual_visits
+            actual_visits += 1
+            return next(self.entries)
+    def counted_unlink(path: Path, missing_ok: bool = False) -> None:
+        nonlocal actual_visits
+        actual_visits += 1
+        original_unlink(path, missing_ok=missing_ok)
+    cursor = None
+    deleted = 0
+    with monkeypatch.context() as counted:
+        counted.setattr(module, '_entry', counted_entry)
+        counted.setattr(os, 'scandir', Entries)
+        counted.setattr(Path, 'unlink', counted_unlink)
+        for attempt in range(3):
+            before = actual_visits
+            result = maintenance.run(cursor=cursor)
+            assert actual_visits - before <= result.visits <= 1024
+            assert result.candidates <= 32
+            assert not any(item.disposition == 'manual_review' for item in result.items)
+            deleted += sum(item.disposition == 'deleted' for item in result.items)
+            cursor = result.cursor
+            if attempt == 0:
+                assert cursor is not None and deleted < 9
+            if cursor is None:
+                break
+    assert cursor is None and deleted == 9
+    assert not list(root.iterdir())

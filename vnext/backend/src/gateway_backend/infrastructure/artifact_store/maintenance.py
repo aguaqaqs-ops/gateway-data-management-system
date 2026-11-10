@@ -29,6 +29,11 @@ _TEMP = re.compile(r'(?:object|scratch)-[A-Za-z0-9_-]{6,64}')
 _FILE = re.compile(r'file-[0-9a-f]{32}')
 _LOCATIONS = tuple(ArtifactLocation)
 _MAX_VISITS = 1024
+_TEMP_INSPECTION_VISITS = 134
+
+
+class _InspectionDeferred(Exception):
+    """Retain this entry for the next pass instead of misclassifying it."""
 
 
 class _Dirent(ctypes.Structure):
@@ -120,7 +125,10 @@ class ArtifactMaintenance:
         self.local = local
         self.bounded = bounded
         self.scratch_root = scratch_root
-        self.scratch_identity = _directory_identity(scratch_root)
+        try:
+            self.scratch_identity: tuple[int, int, str] | None = _directory_identity(scratch_root)
+        except (OSError, ValueError, StopIteration):
+            self.scratch_identity = None
         self.owner_active = owner_active
         self.grace = grace
         self.identity = hashlib.sha256(json.dumps([
@@ -195,7 +203,7 @@ class ArtifactMaintenance:
                             continue
                         item = self._advance(index, lanes[index], root, base, budget, when)
                 else:
-                    if _directory_identity(root) != self.scratch_identity:
+                    if self.scratch_identity is None or _directory_identity(root) != self.scratch_identity:
                         raise ValueError('scratch root identity changed')
                     item = self._advance(index, lanes[index], root, base, budget, when)
                 if item is not None:
@@ -206,6 +214,8 @@ class ArtifactMaintenance:
                         disposition = self.bounded.delete_eligible(ref,
                             expected_classification=CleanupClassification.ELIGIBLE_AFTER, now=when).value
                     items.append(MaintenanceItem(label, relative, disposition, reason))
+            except _InspectionDeferred:
+                disabled.add(index)
             except FileNotFoundError:
                 if root.is_dir() and 4 <= index < 8 and not base.exists():
                     lanes[index].stack.clear()
@@ -225,6 +235,7 @@ class ArtifactMaintenance:
         self.local._check_path(root, directory)
         if not budget.take():
             return None
+        previous_cookie = cookie
         name, cookie = _entry(directory, cookie)
         lane.stack[-1] = (relative, cookie)
         if name is None:
@@ -258,9 +269,10 @@ class ArtifactMaintenance:
             if len(Path(relative).parts) != 3 or not _HEX64.fullmatch(name):
                 return child_relative, 'manual_review', 'unknown artifact root shape', None
             if not budget.take(16):
-                # Resume this entry next time; all prior visits remain charged.
-                lane.stack[-1] = (relative, lane.stack[-1][1])
-                return child_relative, 'manual_review', 'inspection budget exhausted', None
+                # Re-read only this boundary entry next time. Its original
+                # visit stays charged; no uninspected candidate is lost.
+                lane.stack[-1] = (relative, previous_cookie)
+                raise _InspectionDeferred
             try:
                 ref = self._object_ref(child, root)
             except (OSError, ValueError) as exc:
@@ -268,10 +280,17 @@ class ArtifactMaintenance:
             return child_relative, 'candidate', None, ref
         if not _TEMP.fullmatch(name) or not stat.S_ISDIR(info.st_mode):
             return child_relative, 'manual_review', 'unknown temporary owner shape', None
-        if not budget.take(4):
-            return child_relative, 'manual_review', 'inspection budget exhausted', None
+        # A known temporary shape has at most 64 members. Leave enough for
+        # bounded validation + EOF + deletion before consuming this candidate.
+        if _MAX_VISITS - budget.visits < _TEMP_INSPECTION_VISITS:
+            lane.stack[-1] = (relative, previous_cookie)
+            raise _InspectionDeferred
+        budget.take(4)
         try:
             disposition, reason = self._temporary(child, root, index == 8, budget, now)
+        except _InspectionDeferred:
+            lane.stack[-1] = (relative, previous_cookie)
+            raise
         except OSError:
             return child_relative, 'retryable_failure', 'temporary cleanup I/O failed', None
         except ValueError as exc:
@@ -311,9 +330,16 @@ class ArtifactMaintenance:
                 return 'retryable_failure', 'temporary owner is active'
             names: list[str] = []
             with os.scandir(path) as entries:
-                for entry in entries:
-                    # Each entry inspection and later unlink consume budget.
-                    if not budget.take(2) or len(names) >= 64:
+                while True:
+                    # Charge before advancing the iterator, including its EOF
+                    # probe; deletion has a separate reservation below.
+                    if not budget.take():
+                        raise _InspectionDeferred
+                    try:
+                        entry = next(entries)
+                    except StopIteration:
+                        break
+                    if len(names) >= 64:
                         return 'manual_review', 'temporary directory exceeds bounded inspection'
                     names.append(entry.name)
                     allowed = entry.name == 'owner.json' or (_FILE.fullmatch(entry.name) if scratch
@@ -338,6 +364,8 @@ class ArtifactMaintenance:
             modified = datetime.fromtimestamp(path.stat().st_mtime, UTC)
             if now < modified + self.grace:
                 return 'retained', 'orphan grace has not expired'
+            if not budget.take(len(names)):
+                raise _InspectionDeferred
             for name in names:
                 if name != 'owner.json':
                     (path / name).unlink()

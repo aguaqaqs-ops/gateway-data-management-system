@@ -1060,7 +1060,7 @@ def bootstrap_control_db_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
-def verify_control_db_file(db_path: Path) -> None:
+def verify_control_db_file(db_path: Path, *, require_initialized: bool = False) -> None:
     """Check an existing control DB file read-only, before the connection profile touches it.
 
     The connection profile switches the journal mode to WAL, which writes to the file. A file that
@@ -1069,6 +1069,8 @@ def verify_control_db_file(db_path: Path) -> None:
     """
 
     if not db_path.is_file() or db_path.stat().st_size == 0:
+        if require_initialized:
+            raise UnsupportedSchemaVersion("existing initialized control DB is required")
         return
     connection = sqlite3.connect(f"{db_path.as_uri()}?mode=ro", uri=True, isolation_level=None)
     try:
@@ -1081,7 +1083,7 @@ def verify_control_db_file(db_path: Path) -> None:
         raise UnsupportedSchemaVersion(_NOT_READABLE_MESSAGE) from None
     finally:
         connection.close()
-    if existing:
+    if existing or require_initialized:
         _assert_expected_structure(existing)
 
 

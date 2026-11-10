@@ -27,7 +27,7 @@ from gateway_backend.bootstrap.composition import (
     assert_repository_service_ready,
     prepare_backend_runtime,
 )
-from gateway_backend.infrastructure.artifact_store import validate_artifact_root
+from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
 from gateway_backend.operations import UnsupportedSchemaVersion
 from gateway_backend.infrastructure.repository_read import load_repository_bearer_token
 from tests.support.runtime_settings import (
@@ -55,7 +55,8 @@ def test_prepare_backend_runtime_fails_closed_without_artifact_root(tmp_path: Pa
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "missing-artifacts",
+        storage_base=tmp_path / "missing-artifacts",
+        prepare_storage=False,
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     with pytest.raises(ValueError, match="artifact root"):
@@ -67,7 +68,7 @@ def test_prepare_backend_runtime_fails_closed_without_token_file(tmp_path: Path)
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "missing-token",
     )
     with pytest.raises(ValueError, match="unreadable"):
@@ -131,7 +132,7 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
@@ -156,7 +157,7 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
 
 def test_validate_artifact_root_requires_existing_directory(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
-    with pytest.raises(ValueError, match="existing directory"):
-        validate_artifact_root(missing)
-    with pytest.raises(ValueError, match="existing directory"):
-        validate_artifact_root(Path("relative"))
+    with pytest.raises(ValueError, match="artifact roots|artifact root"):
+        ArtifactStoreLayout(missing, tmp_path / "c", tmp_path / "p", tmp_path / "e")
+    with pytest.raises(ValueError, match="artifact roots|artifact root"):
+        ArtifactStoreLayout(Path("relative"), Path("c"), Path("p"), Path("e"))

@@ -209,7 +209,7 @@ rewritten artifacts、manifest 和原 artifact closure。它们随原 lease/chec
 publication事务发布并沿原owner释放/TTL；不能等第一次下载才补保护，source/canonical恢复refs
 也继续保留。不新增永久pin或独立保留生命周期。
 
-每次只打开当前成员，root借用 FD 与 artifact FD 合计≤2；无 mmap 或全包 bytes。工作 chunk
+每次只打开当前成员，四位置 root 借用 FD 与当前 artifact FD 合计≤5；无 mmap 或全包 bytes。工作 chunk
 ≤64 KiB，PAX 路径按片段编码。manifest / closure 各沿原16 MiB JSON上限；原字节、临时验证
 字节及 parsed metadata/index 单独按这些 metadata 上限计账，不能把任意产物装入内存冒称流式。
 

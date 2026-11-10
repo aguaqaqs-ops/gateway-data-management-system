@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -1295,7 +1297,7 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
 
     commits = {"a": BASELINE_HEAD.business_baseline_commit_id, "b": "commit-cache-b", "c": "commit-cache-c"}
     values = {"a": 1, "b": 2, "c": 3}
-    store = LocalArtifactStore(tmp_path / "cache-artifacts")
+    store = open_test_store(tmp_path / "cache-artifacts")
     previous: HistoryCompareJobHarness | None = None
     observed: list[dict[str, object]] = []
     for run in ("cold", "warm"):
@@ -1436,7 +1438,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     seed_provisioned_mapping_with_head(preview.db_path, baseline_head=BASELINE_HEAD)
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(preview.db_path)
-    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "computation-cache"))
+    cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "computation-cache"))
     exports = ControlDbSnapshotTableExportCache(transaction)
     risk_lookups: list[bool] = []
     risk_stores: list[bool] = []

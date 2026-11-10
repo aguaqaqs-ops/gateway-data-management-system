@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from tests.support.configuration_facts import preview_result_with_facts
 
 import io
@@ -146,7 +148,7 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
@@ -171,7 +173,7 @@ def test_production_worker_wires_http_arrow_adapter_and_mapping_head(tmp_path: P
     settings = make_operation_worker_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
         provisioned_mapping_file=tmp_path / "provisioned-mapping.json",
     )
@@ -559,7 +561,7 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
 
 
 def _seed_protected_artifacts(artifact_root: Path, refs: tuple[ArtifactRef, ...], payloads: dict[str, bytes]) -> None:
-    store = LocalArtifactStore(artifact_root)
+    store = open_test_store(artifact_root)
     for ref in refs:
         store.put(payloads[ref.artifact_id], ref)
 
@@ -623,7 +625,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=artifact_root,
+        storage_base=artifact_root,
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(
@@ -783,7 +785,7 @@ def test_production_runtime_exposes_archive_routes(tmp_path: Path) -> None:
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
@@ -808,7 +810,7 @@ def test_production_runtime_exposes_review_routes(tmp_path: Path) -> None:
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)
@@ -832,7 +834,7 @@ def test_production_runtime_exposes_history_route(tmp_path: Path) -> None:
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     runtime = prepare_backend_runtime(settings, skip_repository_ready_probe=True)

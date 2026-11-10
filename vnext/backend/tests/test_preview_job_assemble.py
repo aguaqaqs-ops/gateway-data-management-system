@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
 
 import copy
@@ -853,7 +855,7 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(harness.db_path)
-    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "derived-cache"))
+    cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "derived-cache"))
     deps = replace(harness.deps, computation_cache=cache)
     _, handlers, _ = preview_jobs.preview_composition_bundle(deps)
     harness.handlers = dict(handlers)

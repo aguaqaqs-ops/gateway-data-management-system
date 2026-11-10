@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import json
 import os
 import subprocess
@@ -254,7 +256,7 @@ def seed_production_submit_ready_workspace(tmp_path: Path) -> dict[str, Any]:
         memory_store,
         repository_id=TEST_MAPPING_REPOSITORY_ID,
     )
-    local_store = LocalArtifactStore(tmp_path / "artifacts")
+    local_store = open_test_store(tmp_path / "artifacts")
     for ref in memory_store._registered_refs.values():
         local_store.put(memory_store._store.locate(ref), ref)
     seed["baseline_head"] = read_authoritative_baseline_head(db_path, TEST_MAPPING_REPOSITORY_ID)
@@ -272,7 +274,7 @@ def _base_http_server_environment(
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
         repository_base_url=repository_base_url,
         session_file=tmp_path / "session.json",
@@ -282,7 +284,8 @@ def _base_http_server_environment(
     environment = os.environ.copy()
     environment["PYTHONPATH"] = _pythonpath_environment()
     environment["GATEWAY_BACKEND_CONTROL_DB_PATH"] = str(settings.control_db_path)
-    environment["GATEWAY_BACKEND_ARTIFACT_ROOT"] = str(settings.artifact_root)
+    environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(settings.storage_layout_file)
+    environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(settings.resource_profile_file)
     environment["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = settings.repository_base_url
     environment["GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE"] = str(
         settings.repository_bearer_token_file

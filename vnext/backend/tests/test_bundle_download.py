@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store, make_artifact_layout
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import asyncio
@@ -45,7 +47,7 @@ PAX_PATHS = (
 
 
 def published_bundle(root: Path) -> tuple[LocalArtifactStore, ArtifactRef]:
-    store = LocalArtifactStore(root)
+    store = open_test_store(root)
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=store,
     )
@@ -189,7 +191,7 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: BundleArtifactKind,
 ) -> None:
     import gateway_backend.application.bundle_download as downloads
-    store = LocalArtifactStore(tmp_path)
+    store = open_test_store(tmp_path)
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
     source = put_with_built_ref(store, data, artifact_id="a1:durable:2fce63a0bc18d79ecd1ce65e765a09e5b7944e80193c7091c61fc9149985cf4f", media_type="application/json")
     result = assemble_bundle(_request(
@@ -235,7 +237,7 @@ def test_published_metadata_path_and_reference_contradictions_fail_preflight(tmp
 def test_preflight_checks_last_member_before_returning_a_stream(tmp_path: Path, fault: str) -> None:
     store, manifest_ref = published_bundle(tmp_path / "artifacts")
     entry = json.loads(store.locate(manifest_ref))["closure_entries"][-1]
-    path = store._object_path(entry["artifact_ref"]["artifact_id"])
+    path = store.payload_path(entry["artifact_ref"]["artifact_id"])
     original = path.read_bytes()
     path.unlink()
     if fault == "size":
@@ -259,7 +261,7 @@ def test_preflight_checks_last_member_before_returning_a_stream(tmp_path: Path, 
 @pytest.mark.parametrize("consume", (False, True))
 def test_unstarted_and_partially_consumed_downloads_release_cleanup_borrow(tmp_path: Path, consume: bool) -> None:
     store, manifest_ref = published_bundle(tmp_path)
-    cleaner = BoundedArtifactStore(LocalArtifactStore(tmp_path), unpinned_ttl=timedelta(0))
+    cleaner = BoundedArtifactStore(open_test_store(tmp_path), unpinned_ttl=timedelta(0))
     prepared = prepare_bundle_download(store, manifest_ref.artifact_id)
     if consume:
         next(prepared.stream)
@@ -303,7 +305,7 @@ class CountingStore(LocalArtifactStore):
 
 def test_bounded_read_failure_aborts_tar_and_closes_current_handle(tmp_path: Path) -> None:
     _store, ref = published_bundle(tmp_path)
-    store = CountingStore(tmp_path)
+    store = CountingStore(make_artifact_layout(tmp_path), staging_max_bytes=4 * 1024**3)
     prepared = prepare_bundle_download(store, ref.artifact_id)
     store.fail_during_send = True
     partial: list[bytes] = []

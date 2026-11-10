@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import datetime as dt
 import hashlib
 import io
@@ -97,7 +99,7 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
         base_url="http://repository.test", bearer_token="test-only", timeout_seconds=5,
         transport=httpx.MockTransport(handler),
     )
-    local = LocalArtifactStore(tmp_path / "objects")
+    local = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(local, repository_id=REPOSITORY, budgets=IPC_BUDGETS)
     access = CanonicalCommittedTableAccess(
         store=store, unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
@@ -113,7 +115,7 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
         ref = uow.canonical_tables.lookup(canonical_table_key(REPOSITORY, bound))
     assert ref is not None
     digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
-    path = local.artifact_root / digest[:2] / digest[2:4] / digest
+    path = local.payload_path(ref.artifact_id)
     before = path.stat().st_mtime_ns
     with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)) as handle:
         assert sum(batch.num_rows for batch in handle.iter_batches()) == 4
@@ -126,11 +128,11 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
         assert sum(batch.num_rows for batch in handle.iter_batches()) == 4
     assert len(requests) == 4
     mismatched = replace(bound, raw_content_digest=raw_blob_digest(b"wrong"))
-    count = len(list(local.artifact_root.rglob("*.ref.jcs")))
+    count = len(list(local.layout.canonical.rglob("ref.jcs")))
     with pytest.raises(ValueError, match="digest"):
         with access.open_committed(commit_id=COMMIT, bound_descriptor=mismatched, storage_view=_view(mismatched)):
             pytest.fail("mismatched exact-commit content was published")
-    assert len(list(local.artifact_root.rglob("*.ref.jcs"))) == count
+    assert len(list(local.layout.canonical.rglob("ref.jcs"))) == count
     wrong_commit = True
     with pytest.raises(RepositoryProviderError, match="pinned exact commit"):
         with access.open_committed(commit_id=COMMIT, bound_descriptor=mismatched, storage_view=_view(mismatched)):
@@ -167,7 +169,7 @@ def test_http_arrow_source_failure_publishes_no_canonical_artifact(
         base_url="http://repository.test", bearer_token="test-only", timeout_seconds=5,
         transport=httpx.MockTransport(handler),
     )
-    local = LocalArtifactStore(tmp_path / "objects")
+    local = open_test_store(tmp_path / "objects")
     access = CanonicalCommittedTableAccess(
         store=CanonicalTableStore(local, repository_id=REPOSITORY, budgets=IPC_BUDGETS),
         unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path), repository_provider_factory=providers,
@@ -177,7 +179,7 @@ def test_http_arrow_source_failure_publishes_no_canonical_artifact(
         with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)):
             pytest.fail("failed wire source was accepted")
     assert not list(tmp_path.glob("gateway-arrow-*.ipc"))
-    assert not list(local.artifact_root.rglob("*.ref.jcs"))
+    assert not list(local.layout.canonical.rglob("ref.jcs"))
 
 
 @pytest.mark.parametrize("stop_error", (InterruptedError, TimeoutError, pa.ArrowMemoryError))
@@ -185,7 +187,7 @@ def test_cached_canonical_control_is_not_a_recovery_miss(
     db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop_error: type[Exception],
 ) -> None:
     stream, bound = canonical_input()
-    local = LocalArtifactStore(tmp_path / "objects")
+    local = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(local, repository_id=REPOSITORY, budgets=IPC_BUDGETS)
     with stream:
         ref = store.put(stream, bound)
@@ -238,7 +240,7 @@ def test_returned_committed_reader_cleanup_releases_mapping_after_stop(db_path: 
     context = KernelExecutionContext(OperationMemoryBudget(256 * 1024**2), stop, 1)
     with kernel_execution_scope(context, new_operation=True):
         stream, bound = canonical_input()
-        store = CanonicalTableStore(LocalArtifactStore(tmp_path / "objects"), repository_id=REPOSITORY, budgets=IPC_BUDGETS)
+        store = CanonicalTableStore(open_test_store(tmp_path / "objects"), repository_id=REPOSITORY, budgets=IPC_BUDGETS)
         with stream:
             ref = store.put(stream, bound)
         with ControlDbUnitOfWork(db_path) as uow:
@@ -269,7 +271,7 @@ def test_same_value_different_catalog_type_cannot_rebind_committed_schema(db_pat
     stream.close()
     changed = replace(bound, columns=(replace(bound.columns[0], scalar_type="BIGINT"), *bound.columns[1:]))
     access = CanonicalCommittedTableAccess(
-        store=CanonicalTableStore(LocalArtifactStore(tmp_path / "objects"), repository_id=REPOSITORY, budgets=IPC_BUDGETS),
+        store=CanonicalTableStore(open_test_store(tmp_path / "objects"), repository_id=REPOSITORY, budgets=IPC_BUDGETS),
         unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
         repository_provider_factory=lambda *args: pytest.fail("schema mismatch must precede source access"), budgets=BUSINESS_BUDGETS,
     )

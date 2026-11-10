@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from tests.support.native_projection import project_canonical_fixture
 
 import hashlib
@@ -76,7 +78,7 @@ def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTable
 
 @pytest.mark.parametrize("local", [False, True])
 def test_independent_handles_bind_export_order_and_close(tmp_path: Path, local: bool) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects") if local else InMemoryArtifactStore()
+    backend = open_test_store(tmp_path / "objects") if local else InMemoryArtifactStore()
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, descriptor = canonical_input()
     ref = store.put(stream, descriptor)
@@ -100,7 +102,7 @@ def test_independent_handles_bind_export_order_and_close(tmp_path: Path, local: 
 
 
 def test_borrowed_canonical_readers_keep_mapping_without_open_source_files(tmp_path: Path) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
@@ -112,15 +114,15 @@ def test_borrowed_canonical_readers_keep_mapping_without_open_source_files(tmp_p
                 target = descriptor.resolve(strict=True)
             except FileNotFoundError:
                 continue
-            if target.is_relative_to(backend.artifact_root):
+            if target.is_relative_to(backend.layout.canonical):
                 open_artifacts.append(target)
-        assert open_artifacts == []
+        assert open_artifacts == [backend.layout.canonical]
         for reader in readers:
             assert sum(batch.num_rows for batch in reader.iter_batches()) == 2
 
 
 def test_content_identity_reuses_ddl_permutation_and_rejects_other_scope(tmp_path: Path) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
@@ -136,12 +138,12 @@ def test_content_identity_reuses_ddl_permutation_and_rejects_other_scope(tmp_pat
 
 
 def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: Path) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
     digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
-    path = backend.artifact_root / digest[:2] / digest[2:4] / digest
+    path = backend.payload_path(ref.artifact_id)
     raw = path.read_bytes()
     path.write_bytes(raw[:-1])
     with pytest.raises(ManifestVerificationError):
@@ -160,17 +162,17 @@ def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: 
 
 
 def test_failed_stream_and_wrong_row_binding_publish_no_object(tmp_path: Path) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     with pytest.raises(ValueError, match="row count"):
         store.put(stream, replace(bound, row_count=3))
-    assert not list(backend.artifact_root.rglob("*.ref.jcs"))
+    assert not list(backend.layout.canonical.rglob("ref.jcs"))
     assert canonical_table_key("repo", bound).artifact_id.startswith("a1:canonical:")
 
 
 def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None:
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref: ArtifactRef = store.put(stream, bound)
@@ -179,7 +181,7 @@ def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None
 
 
 def test_handle_stream_is_borrowed_by_the_real_projection_kernel(tmp_path: Path) -> None:
-    store = CanonicalTableStore(LocalArtifactStore(tmp_path / "objects"), repository_id="repo", budgets=IPC_BUDGETS)
+    store = CanonicalTableStore(open_test_store(tmp_path / "objects"), repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     assert bound.raw_content_digest is not None
     ref = store.put(stream, bound)
@@ -217,13 +219,13 @@ def test_empty_schema_and_primary_key_metadata_are_bounded_before_key_hash(tmp_p
 
 @pytest.mark.parametrize("outside", [False, True])
 def test_canonical_mapping_refuses_symlinks(tmp_path: Path, outside: bool) -> None:
-    local = LocalArtifactStore(tmp_path / "objects")
+    local = open_test_store(tmp_path / "objects")
     store = CanonicalTableStore(local, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
     digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
-    path = local.artifact_root / digest[:2] / digest[2:4] / digest
-    target = (tmp_path if outside else local.artifact_root) / "other-file"
+    path = local.payload_path(ref.artifact_id)
+    target = (tmp_path if outside else local.layout.canonical) / "other-file"
     path.rename(target)
     path.symlink_to(target)
     with pytest.raises(ManifestVerificationError):
@@ -237,7 +239,7 @@ def test_operation_mapping_reservations_share_views_and_count_independent_opens(
 
     context = KernelExecutionContext(OperationMemoryBudget(64 * 1024**2), NeverCancel(), 1)
     with kernel_execution_scope(context, new_operation=True):
-        backend = LocalArtifactStore(tmp_path / "objects")
+        backend = open_test_store(tmp_path / "objects")
         store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
         stream, descriptor = canonical_input(
             "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a TEXT); INSERT INTO t VALUES (1,'" + "a" * 131072 + "');"
@@ -268,7 +270,7 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
         arrays = stream.read_all()
     stopped = threading.Event()
     context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), stopped, 1)
-    backend = LocalArtifactStore(tmp_path / "objects")
+    backend = open_test_store(tmp_path / "objects")
     called = []
 
     def batches() -> Iterator[pa.RecordBatch]:
@@ -281,7 +283,7 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
             with pytest.raises(InterruptedError):
                 store.put(source, descriptor, before_write=lambda key, ref: called.append(ref))
     assert called == []
-    assert not any(path.is_file() for path in backend.artifact_root.rglob("*"))
+    assert not any(path.is_file() for path in backend.layout.canonical.rglob("*"))
 
 
 def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_format() -> None:

@@ -1,6 +1,8 @@
 """Derived cache transactions, reference closure, TTL and live filesystem borrows."""
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import json
@@ -87,7 +89,7 @@ class CacheFixture:
 
 @pytest.fixture
 def cache_fixture(db_path: Path, tmp_path: Path) -> CacheFixture:
-    return CacheFixture(db_path, LocalArtifactStore(tmp_path / "artifacts"))
+    return CacheFixture(db_path, open_test_store(tmp_path / "artifacts"))
 
 
 @pytest.mark.parametrize("kind", tuple(ComputationCacheKind))
@@ -167,7 +169,7 @@ def test_bad_cache_file_discards_only_the_registered_value_and_closes_its_borrow
                 (DEEP_JSON, entry.key.repository_id, entry.key.kind.value, entry.key.task_digest.value))
     else:
         target = entry.manifest_ref if fault.startswith("manifest") else entry.member_refs[0]
-        path, _sidecar = cache_fixture.local._validated_paths(target.artifact_id)  # noqa: SLF001
+        path = cache_fixture.local.payload_path(target.artifact_id)
         if fault.endswith("missing"):
             path.unlink()
         else:

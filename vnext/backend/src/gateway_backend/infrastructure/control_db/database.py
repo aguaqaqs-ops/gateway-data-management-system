@@ -11,7 +11,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, ContextManager
+from contextlib import ExitStack
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.computation_cache import InvalidComputationCachePayload
@@ -110,10 +111,13 @@ class ControlDbUnitOfWork:
         read_only: bool = False,
         now: Callable[[], datetime] = _utc_now,
         canonicalization_manifest_reader: CanonicalizationManifestReadPort | None = None,
+        artifact_borrow: Callable[[], ContextManager[None]] | None = None,
     ) -> None:
         if type(read_only) is not bool:
             raise ValueError("read_only must be a bool")
         _validate_db_path(db_path)
+        self._artifact_borrow = artifact_borrow
+        self._borrow_stack = ExitStack()
         self._db_path = db_path
         self._read_only = read_only
         self._now = now
@@ -340,7 +344,13 @@ class ControlDbUnitOfWork:
     def __enter__(self) -> Self:
         if self._connection is not None:
             raise RuntimeError("control DB unit of work cannot be entered twice")
-        connection = connect_control_db(self._db_path)
+        if self._artifact_borrow is not None:
+            self._borrow_stack.enter_context(self._artifact_borrow())
+        try:
+            connection = connect_control_db(self._db_path)
+        except BaseException:
+            self._borrow_stack.close()
+            raise
         try:
             connection.execute("BEGIN" if self._read_only else "BEGIN IMMEDIATE")
             transaction_now = self._now()
@@ -429,16 +439,17 @@ class ControlDbUnitOfWork:
                 connection, protection=self._protection,
                 now=transaction_now, read_only=self._read_only,
             )
-        except sqlite3.OperationalError as exc:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
-            connection.close()
-            _raise_if_busy(exc)
-            raise
-        except BaseException:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
-            connection.close()
+        except BaseException as exc:
+            try:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            finally:
+                try:
+                    connection.close()
+                finally:
+                    self._borrow_stack.close()
+            if isinstance(exc, sqlite3.OperationalError):
+                _raise_if_busy(exc)
             raise
         self._connection = connection
         return self
@@ -465,6 +476,7 @@ class ControlDbUnitOfWork:
         self._computation_cache = None
         self._transaction_now = None
         if connection is None:
+            self._borrow_stack.close()
             return
         try:
             connection.execute("ROLLBACK" if exc_type is not None or rollback_only else "COMMIT")
@@ -472,7 +484,10 @@ class ControlDbUnitOfWork:
             _raise_if_busy(exc)
             raise
         finally:
-            connection.close()
+            try:
+                connection.close()
+            finally:
+                self._borrow_stack.close()
 
 
 def _validate_db_path(db_path: object) -> None:

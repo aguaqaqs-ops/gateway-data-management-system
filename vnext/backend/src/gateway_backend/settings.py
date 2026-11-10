@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Self
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from gateway_backend.application.workspace.upload_limits import (
@@ -68,7 +68,8 @@ class BackendSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_BACKEND_", frozen=True)
 
     control_db_path: Path
-    artifact_root: Path
+    storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
+    resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
     repository_base_url: str
     repository_bearer_token_file: Path = Field(repr=False)
     internal_bearer_token_file: Path = Field(repr=False)
@@ -91,10 +92,10 @@ class BackendSettings(BaseSettings):
     def _require_absolute_control_db_path(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="control_db_path")
 
-    @field_validator("artifact_root")
+    @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
-    def _require_absolute_artifact_root(cls, value: Path) -> Path:
-        return require_absolute_path(value, field_name="artifact_root")
+    def _require_absolute_deployment_file(cls, value: Path) -> Path:
+        return require_absolute_path(value, field_name="deployment file")
 
     @field_validator("repository_base_url")
     @classmethod
@@ -159,7 +160,8 @@ class OperationWorkerSettings(BaseSettings):
     )
 
     control_db_path: Path
-    artifact_root: Path
+    storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
+    resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
     repository_base_url: str
     repository_bearer_token_file: Path = Field(repr=False)
     repository_timeout_seconds: float = FIXED_REPOSITORY_TIMEOUT_SECONDS
@@ -194,10 +196,10 @@ class OperationWorkerSettings(BaseSettings):
     def _require_absolute_control_db_path(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="control_db_path")
 
-    @field_validator("artifact_root")
+    @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
-    def _require_absolute_artifact_root(cls, value: Path) -> Path:
-        return require_absolute_path(value, field_name="artifact_root")
+    def _require_absolute_deployment_file(cls, value: Path) -> Path:
+        return require_absolute_path(value, field_name="deployment file")
 
     @field_validator("repository_base_url")
     @classmethod

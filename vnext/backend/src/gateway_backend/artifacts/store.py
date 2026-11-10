@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Callable
 from contextlib import contextmanager
-from typing import ContextManager, Protocol
+from typing import ContextManager, Protocol, runtime_checkable
 
 import pyarrow as pa
 
@@ -25,6 +25,14 @@ class ArtifactStorePort(Protocol):
 class ArtifactRefLookupPort(Protocol):
     def get_ref(self, artifact_id: str) -> ArtifactRef:
         """Resolve the stored minimal ref for one opaque artifact id."""
+
+
+@runtime_checkable
+class CanonicalArtifactRepairPort(Protocol):
+    def restore_canonical_from_exact_commit(
+        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+    ) -> ArtifactRef:
+        """Repair derived canonical content after the owning exact-commit checks."""
 
 
 class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
@@ -87,6 +95,12 @@ class InMemoryArtifactStore:
         if checkpoint is not None:
             checkpoint()
         yield buffer
+
+    def restore_canonical_from_exact_commit(
+        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+    ) -> ArtifactRef:
+        checkpoint()
+        return self.put(raw_bytes, ref)
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

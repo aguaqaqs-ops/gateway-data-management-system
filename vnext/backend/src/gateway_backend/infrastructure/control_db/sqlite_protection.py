@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
+from gateway_backend.artifacts.validate import validate_artifact_ref_model
 from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.artifacts.canonical_table_store import CANONICAL_TABLE_TTL_SECONDS
 
@@ -42,6 +43,8 @@ class SQLiteArtifactProtectionStore:
     ) -> bool:
         if self._read_only:
             raise RuntimeError("artifact protection store is read-only in this transaction")
+        for ref in refs:
+            validate_artifact_ref_model(ref)
         applied = False
         recorded_at_us = _datetime_to_epoch_us(recorded_at)
         for ref in refs:

@@ -1,6 +1,8 @@
 """Single owner for neutral identity, codec and current records restoration."""
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import json
 from contextlib import closing
 from dataclasses import replace
@@ -575,7 +577,7 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
-    store = LocalArtifactStore(tmp_path / "persistent-comparison")
+    store = open_test_store(tmp_path / "persistent-comparison")
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path)
     cache = ControlDbComputationCache(transaction, store)
@@ -656,7 +658,7 @@ def test_single_use_cold_identity_yields_before_necessary_native_admission(
     planned = _planned()
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path)
-    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "cold-admission-cache"))
+    cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "cold-admission-cache"))
     owner = CacheOperationOwner("history-compare-operation", "single-cold-admission")
     session = ComparisonTaskSession((planned,), persistent_cache=cache,
         persistent_owner=owner, repository_id="replacement-fixture")

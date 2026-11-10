@@ -66,7 +66,7 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
-    validate_artifact_root,
+    ArtifactStoreLayout,
 )
 from gateway_backend.infrastructure.control_db import (
     ControlDbUnitOfWork,
@@ -91,19 +91,22 @@ from gateway_backend.infrastructure.repository_write import (
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
+from gateway_backend.deployment_config import DeploymentConfig
+
 from gateway_backend.settings import BackendSettings
 
 class TransactionWorkspaceRepository:
     """WorkspaceRepository that opens one control-DB transaction per call."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, artifact_borrow: Callable[[], ContextManager[None]]) -> None:
         self._db_path = db_path
+        self._artifact_borrow = artifact_borrow
 
     def _read_uow(self) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(self._db_path, read_only=True)
+        return ControlDbUnitOfWork(self._db_path, read_only=True, artifact_borrow=self._artifact_borrow)
 
     def _write_uow(self) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(self._db_path)
+        return ControlDbUnitOfWork(self._db_path, artifact_borrow=self._artifact_borrow)
 
     def find_open_by_scope(self, scope: WorkspaceScope) -> Workspace | None:
         with self._read_uow() as unit_of_work:
@@ -169,7 +172,7 @@ class LocalArtifactRefLookup:
 
     def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
         try:
-            return self._local_store._load_stored_ref(artifact_id)  # noqa: SLF001
+            return self._local_store.get_ref(artifact_id)
         except ManifestVerificationError:
             return None
 
@@ -271,7 +274,6 @@ def prepare_backend_runtime(
     repository_token = load_repository_bearer_token(settings.repository_bearer_token_file)
     load_internal_bearer_token(settings.internal_bearer_token_file)
     load_session_file(settings.session_file)
-    validate_artifact_root(settings.artifact_root)
     parent = settings.control_db_path.parent
     parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
@@ -286,15 +288,13 @@ def prepare_backend_runtime(
         )
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)
-    local_store = LocalArtifactStore(settings.artifact_root)
-
-    def is_protected(artifact_id: str) -> bool:
-        with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
-            return unit_of_work.protection.is_protected(artifact_id)
+    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
+        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
 
     artifact_store = BoundedArtifactStore(
         local_store,
-        is_protected=is_protected,
+        protection_uow=lambda: ControlDbUnitOfWork(settings.control_db_path),
         unpinned_ttl=timedelta(seconds=settings.cleanup_unpinned_ttl_seconds),
     )
     admission_gate = ClosableAdmissionGate(limit=settings.http_new_work_limit)
@@ -304,7 +304,7 @@ def prepare_backend_runtime(
     )
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, read_only=read_only)
+        return ControlDbUnitOfWork(settings.control_db_path, read_only=read_only, artifact_borrow=local_store.read_session)
 
     write_client = HttpRepositoryWriteClient(
         base_url=settings.repository_base_url,
@@ -317,6 +317,7 @@ def prepare_backend_runtime(
         return ControlDbUnitOfWork(
             settings.control_db_path,
             canonicalization_manifest_reader=manifest_reader,
+            artifact_borrow=local_store.read_session,
         )
 
     submit_deps = SubmitRuntimeDependencies(
@@ -359,7 +360,7 @@ def prepare_backend_runtime(
         session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=scope_resolution,
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
-        workspace_repository=TransactionWorkspaceRepository(settings.control_db_path),
+        workspace_repository=TransactionWorkspaceRepository(settings.control_db_path, artifact_borrow=local_store.read_session),
         workspace_unit_of_work_factory=unit_of_work_factory,
         submit_unit_of_work_factory=unit_of_work_factory,
         review_unit_of_work_factory=unit_of_work_factory,

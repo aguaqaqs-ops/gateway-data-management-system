@@ -24,6 +24,7 @@ from gateway_backend.artifacts.canonical_table_store import (
     CanonicalTableKey,
 )
 from gateway_backend.artifacts.store import (
+    CanonicalArtifactRepairPort,
     ArtifactBufferStorePort,
     ManifestVerificationError,
 )
@@ -273,6 +274,7 @@ class CanonicalTableStore:
     def put(
         self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor, *,
         before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
+        restore_exact_commit: bool = False,
     ) -> ArtifactRef:
         context = current_kernel_context()
         metadata_size = check_canonical_descriptor_budget(bound_descriptor, self._budgets)
@@ -324,7 +326,13 @@ class CanonicalTableStore:
                 before_write(key, ref)
             if context is not None:
                 context.checkpoint()
-            published = self._store.put(raw, ref)
+            if restore_exact_commit:
+                if not isinstance(self._store, CanonicalArtifactRepairPort):
+                    raise ManifestVerificationError("canonical store does not support exact-commit repair")
+                published = self._store.restore_canonical_from_exact_commit(raw, ref,
+                    checkpoint=(lambda: None) if context is None else context.checkpoint)
+            else:
+                published = self._store.put(raw, ref)
             if context is not None:
                 context.checkpoint()
             return published

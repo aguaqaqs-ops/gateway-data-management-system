@@ -32,7 +32,7 @@ def test_backend_settings_require_absolute_paths_and_http_url(tmp_path: Path) ->
     with pytest.raises(ValidationError, match="absolute"):
         make_backend_settings(tmp_path, control_db_path=Path("relative.sqlite3"))
     with pytest.raises(ValidationError, match="absolute"):
-        make_backend_settings(tmp_path, artifact_root=Path("artifacts"))
+        make_backend_settings(tmp_path, storage_layout_file=Path("artifacts"))
     with pytest.raises(ValidationError, match="http"):
         make_backend_settings(tmp_path, repository_base_url="not-a-url")
     with pytest.raises(ValidationError, match="credentials"):
@@ -94,6 +94,6 @@ def test_worker_settings_require_artifact_root_and_repository_read(tmp_path: Pat
     with pytest.raises(ValidationError):
         OperationWorkerSettings(control_db_path=tmp_path / "control.sqlite3")  # type: ignore[call-arg]
     settings = make_operation_worker_settings(tmp_path)
-    assert settings.artifact_root.is_absolute()
+    assert settings.storage_layout_file.is_absolute()
     assert settings.repository_base_url.startswith("http")
     assert repr(settings) == "OperationWorkerSettings(redacted)"

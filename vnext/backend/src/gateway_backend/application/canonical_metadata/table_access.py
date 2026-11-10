@@ -192,7 +192,7 @@ class CanonicalCommittedTableAccess:
                             uow.canonical_tables.register(key, ref)
                             uow.canonical_tables.bind_commit(repository_id=repository_id, commit_id=commit_id, refs=(ref,))
                     try:
-                        ref = self._store.put(projected, bound_descriptor, before_write=protect_before_write)
+                        ref = self._store.put(projected, bound_descriptor, before_write=protect_before_write, restore_exact_commit=True)
                     finally:
                         projected.close()
                     del arrays, result, output, projected

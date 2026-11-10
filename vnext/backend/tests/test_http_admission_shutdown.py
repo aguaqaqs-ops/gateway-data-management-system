@@ -101,7 +101,7 @@ def test_production_pre_drain_marks_not_ready_and_closes_admission(tmp_path: Pat
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
@@ -121,7 +121,7 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
@@ -139,7 +139,7 @@ def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path)
     settings = make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
     captured: list[tuple[bool, bool]] = []

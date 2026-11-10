@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import write_deployment_files
+
 import os
 import selectors
 import signal
@@ -54,7 +56,9 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     artifact_root.mkdir(parents=True, exist_ok=True)
     token_file = db_path.parent / "repository-bearer-token"
     token_file.write_text("test-repository-token\n", encoding="utf-8")
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT"] = str(artifact_root)
+    storage_file, resources_file = write_deployment_files(artifact_root)
+    environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
+    environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE"] = str(token_file)
     mapping_file = write_mapping_file(db_path.parent / "provisioned-mapping.json")

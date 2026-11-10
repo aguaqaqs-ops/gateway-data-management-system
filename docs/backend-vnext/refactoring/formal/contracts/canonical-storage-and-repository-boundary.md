@@ -395,3 +395,12 @@ root borrow 固定 durable→canonical→comparison→export；读/发布/建立
 cleanup 只访问已核 root 内已知对象/临时形状，最多32候选和1024访问项，round-robin/派生游标；unknown、symlink、子挂载、损坏 ref 只诊断。metadata/Dolt 不在其范围；强 owner 及活动下载保护不变。挂载/marker/权限失败阻止 ready/claim，不自动建 root 或回退系统盘；运行期身份变化要求重新预检/重启。统计失败不改变业务事务。
 
 规范 cell/table/state、projection 和 CanonicalizationManifest 摘要算法不增加位置输入。已包含 ref 的 wrapper/closure/raw bytes，以及引用这些 raw SHA 的摘要可改变；变化须按 A 摘要表逐项说明，不能全量重录 golden 或声称所有 semantic digest 都不变。
+
+C 实施接口（2026-11-10，阶段最终验收仍在 G）：filesystem adapter 只接收显式四位置
+`ArtifactStoreLayout` 与必填 staging cap，不再接受单 Path/root、散落 sidecar 或本地 ref 缓存。
+`put_from_path` 只接受 infrastructure 的 `ScratchFile` 活动句柄，并显式接收 checkpoint/byte_limit；
+它复制后保留 source，删除由 scratch owner 完成。canonical exact-commit owner 使用独立
+`restore_canonical_from_exact_commit` 端口，普通发布遇到同 ID 的缺失/损坏既有对象拒绝覆盖。
+根借用以有序共享 FD 和引用计数跨嵌套、跨 HTTP 线程保活；最后一个 handle 释放后才关闭 FD。
+SQLite protection participant 不自行取 root 锁；production UoW 在 connect/BEGIN 前借 roots，
+commit/rollback/异常后释放。清理使用不再加 SH 的专门 DB factory，在 EX 内重核并删除。

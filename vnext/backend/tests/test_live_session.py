@@ -44,7 +44,7 @@ def _settings(tmp_path: Path) -> BackendSettings:
     return make_backend_settings(
         tmp_path,
         control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
+        storage_base=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
 

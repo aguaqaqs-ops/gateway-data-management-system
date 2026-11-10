@@ -392,6 +392,7 @@ def test_decode_rejects_unreadable_payload_ref(
             _decoder_registry(definition),
         )
     assert exc_info.value.code == "PAYLOAD_REF_UNREADABLE"
+    assert isinstance(exc_info.value.__cause__, ManifestVerificationError)
 
 
 def test_build_payload_decoder_registry_rejects_surplus_decoder_keys() -> None:

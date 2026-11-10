@@ -137,7 +137,7 @@ def load_job_payload_bytes(
     try:
         raw_bytes = store.locate(payload_ref)
     except ManifestVerificationError as exc:
-        raise PayloadDecodeError("payload artifact read failed", code="PAYLOAD_REF_UNREADABLE") from exc
+        raise PayloadDecodeError(f"payload artifact read failed: {exc}", code="PAYLOAD_REF_UNREADABLE") from exc
     try:
         validate_canonical_job_payload_bytes(raw_bytes)
     except ValueError as exc:

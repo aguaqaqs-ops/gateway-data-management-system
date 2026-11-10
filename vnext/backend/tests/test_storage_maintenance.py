@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -136,3 +137,61 @@ def test_scratch_root_identity_and_expired_source_are_rejected(tmp_path: Path) -
     with pytest.raises(ValueError, match='identity'):
         with space.session(owner='upload:test'):
             pass
+
+
+def test_cleanup_cli_uses_configured_metadata_and_bounded_result(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from gateway_backend.bootstrap.storage_admin import main
+    from gateway_backend.infrastructure.control_db.database import initialize_control_db
+    from tests.support.artifact_layout import write_deployment_files
+    storage, resources = write_deployment_files(tmp_path / 'storage')
+    initialize_control_db(tmp_path / 'storage/metadata/control.sqlite3')
+    local = open_test_store(tmp_path / 'storage')
+    ref = _put(local, ArtifactLocation.EXPORT)
+    path = local.payload_path(ref.artifact_id)
+    import os
+    os.utime(path, (0, 0))
+    assert main(['--storage-layout', str(storage), '--resource-profile', str(resources),
+                 'cleanup', '--max-candidates', '1']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['candidates'] == 1 and result['visits'] <= 1024
+    assert result['items'][0]['disposition'] == 'deleted'
+    assert not path.exists()
+
+
+@pytest.mark.parametrize('fault', ('limit', 'cancel', 'write'))
+def test_http_arrow_spool_failure_closes_stream_and_owned_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    import asyncio
+    from collections.abc import AsyncIterator
+    from typing import cast
+    from gateway_repository_client.arrow_stream import ArrowIpcByteStream
+    from gateway_backend.artifacts.scratch import scratch_scope
+    from gateway_backend.infrastructure.artifact_store.scratch import _BudgetedFile
+    from gateway_backend.infrastructure.repository_read.http_arrow import _spool_arrow_ipc
+    root = tmp_path / 'spool'
+    root.mkdir()
+    closed: list[bool] = []
+    class Stream:
+        async def __aenter__(self) -> Stream:
+            return self
+        async def __aexit__(self, *args: object) -> None:
+            closed.append(True)
+        async def aiter_bytes(self) -> AsyncIterator[bytes]:
+            yield b'1234'
+            if fault == 'cancel':
+                raise asyncio.CancelledError()
+            yield b'5678'
+    if fault == 'write':
+        def full_disk(self: object, data: object) -> int:
+            raise OSError(28, 'injected ENOSPC')
+        monkeypatch.setattr(_BudgetedFile, 'write', full_disk)
+    error = {'limit': ScratchLimitExceeded, 'cancel': asyncio.CancelledError, 'write': OSError}[fault]
+    with ScratchSpace(root, max_bytes=7).session(owner='operation:read') as session, scratch_scope(session):
+        with pytest.raises(error):
+            asyncio.run(_spool_arrow_ipc(cast(ArrowIpcByteStream, Stream())))
+        with os.scandir(root) as entries:
+            owner = next(entries)
+        assert {child.name for child in Path(owner.path).iterdir()} == {'owner.json'}
+    assert closed == [True]
+    assert not list(root.iterdir())

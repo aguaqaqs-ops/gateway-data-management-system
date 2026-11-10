@@ -185,6 +185,7 @@ class SubmitAttempt:
             raise ValueError("source_artifact_refs must be a tuple")
         for source_id in self.source_artifact_refs:
             validate_artifact_id(source_id)
+        _validate_non_empty_str(self.canonicalization_manifest_ref, "canonicalization_manifest_ref")
         validate_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(
             self.canonical_table_set_closure_ref,
@@ -297,8 +298,8 @@ class Submission:
             raise ValueError("source_artifact_refs must be a tuple")
         for source_id in self.source_artifact_refs:
             validate_artifact_id(source_id)
-        validate_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(self.canonicalization_manifest_ref, "canonicalization_manifest_ref")
+        validate_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(
             self.canonicalization_manifest_digest,
             "canonicalization_manifest_digest",

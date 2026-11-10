@@ -60,6 +60,8 @@ from gateway_backend.capabilities.surface_assembly import (
     validate_surface,
 )
 
+from tests.support.artifact_ref_faults import UNSUPPORTED_DELIVERY_ARTIFACT_IDS
+
 _S1B_GOLDEN = (
     Path(__file__).resolve().parents[2]
     / "fixtures"
@@ -604,14 +606,15 @@ def test_keyless_fallback_hint_is_read_only_surface_diagnostic() -> None:
     assert result.surface.summary.changed_table_count == 0
 
 
-def test_forbidden_cache_ref_fails_before_ready() -> None:
+@pytest.mark.parametrize("artifact_id", UNSUPPORTED_DELIVERY_ARTIFACT_IDS)
+def test_unsupported_delivery_ref_fails_before_ready(artifact_id: str) -> None:
     facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED))
-    result = assemble_surface(
-        _request(
-            facts,
-            table_refs=SurfaceTableRefs(current_table_ref=_ref("cache-local")),
-        )
-    )
+    ref = _ref("delivery-member")
+    request = _request(facts, table_refs=SurfaceTableRefs(current_table_ref=ref))
+    # Corrupt the typed ref only after the request is valid: exercise assembly's
+    # fail-closed boundary rather than a constructor rejecting the fixture first.
+    object.__setattr__(ref, "artifact_id", artifact_id)
+    result = assemble_surface(request)
     assert result.status is SurfaceAssemblyStatus.FAILED
     assert result.surface is None
 

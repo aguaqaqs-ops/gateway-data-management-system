@@ -4,40 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from gateway_backend.artifacts import ArtifactRef, assert_no_host_path_identity
+from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
-
-_RESERVED_REF_PREFIXES = (
-    "cache-",
-    "cache:",
-    "dolt-",
-    "dolt:",
-    "repository-",
-    "repository:",
-    "repo-",
-    "repo:",
-    "preview-",
-    "preview:",
-    "submit-",
-    "submit:",
-    "workspace-",
-    "workspace:",
-    "history-",
-    "history:",
-    "flow-",
-    "flow:",
-    "operation-",
-    "operation:",
-)
 
 
 def validate_bundle_ref(ref: ArtifactRef, *, label: str = "bundle ref") -> None:
     if type(ref) is not ArtifactRef:
         raise ValueError(f"{label} must be ArtifactRef")
-    assert_no_host_path_identity(ref.artifact_id, label=label)
-    lowered = ref.artifact_id.casefold()
-    if lowered.startswith(_RESERVED_REF_PREFIXES):
-        raise ValueError(f"{label} must not use cache, repository or flow-local identity")
+    validate_artifact_id(ref.artifact_id)
 
 
 def _surface_refs(surface: ComparisonSurface) -> tuple[ArtifactRef, ...]:

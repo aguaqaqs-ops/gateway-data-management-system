@@ -1,0 +1,29 @@
+{
+  "historical_source": {
+    "path": "comparison/s3-e/old-python-expected.json",
+    "file_sha256": "efd882981ab622bb45461dded5bb879264f0f0cd4efc8bd2545f5cd84687b36f",
+    "source_commit": "a9da0c59277e3179f34d646eabcd9c185917ae05",
+    "case": "tests/test_comparison_s3_d_production.py::test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets",
+    "closure_manifest_digest": "sha256:7b589a48cab57b290cb6b228070e905b9e909dd79908e69c975575a4ffd15349"
+  },
+  "manifest_preimage": "{\"content_digest\":\"sha256:16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475\",\"contract_version\":\"backend-vnext/comparison-records/v1\",\"family\":\"BLANK\",\"record_count\":2,\"record_format\":\"PARQUET\",\"row_diff_detail_policy\":\"FULL_BEFORE_AFTER_VALUES\",\"schema_version\":\"blank-records/v1\",\"table_name\":\"t\"}",
+  "manifest_digest": "sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4",
+  "historical_closure_preimage": "{\"closure_contract_version\":\"backend-vnext/comparison-records-closure/v1\",\"comparison_digest\":\"sha256:cd23d55ba5b323e6243973a6df7d8f634dbbd64672b44410f76bcba01a9d595d\",\"facts_core_digest\":\"sha256:f1cd5ea3447237dd30e85c2ecb2821deed5481adbe1eee5dca0a123f864d20b8\",\"records\":[{\"family\":\"BLANK\",\"record_count\":2,\"records_content_digest\":\"sha256:16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475\",\"records_manifest_digest\":\"sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\",\"records_manifest_ref\":{\"artifact_id\":\"comparison-blank-manifest-353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\",\"media_type\":\"application/json\",\"raw_sha256\":\"sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\",\"size_bytes\":314},\"records_ref\":{\"artifact_id\":\"comparison-blank-16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475\",\"media_type\":\"application/vnd.apache.parquet\",\"raw_sha256\":\"sha256:b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281\",\"size_bytes\":4692},\"table_name\":\"t\"}]}",
+  "historical_derived_digest": "sha256:7b589a48cab57b290cb6b228070e905b9e909dd79908e69c975575a4ffd15349",
+  "records_id_preimage": "[\"gateway-artifact-id-v1\",\"comparison\",\"comparison-records\",[\"blank\",\"16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475\"]]",
+  "records_ref": {
+    "artifact_id": "a1:comparison:b8bcbd73203ea8c11d59e501ad74aa771f248a4bcd9e2befc1e7efb599254cc2",
+    "media_type": "application/vnd.apache.parquet",
+    "size_bytes": 4692,
+    "raw_sha256": "sha256:b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281"
+  },
+  "manifest_id_preimage": "[\"gateway-artifact-id-v1\",\"comparison\",\"comparison-records\",[\"blank-manifest\",\"353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\"]]",
+  "manifest_ref": {
+    "artifact_id": "a1:comparison:d840d14a75b4c72ff1acc76d7d44c78377c057f3209bb08f407d1a83fc901abd",
+    "media_type": "application/json",
+    "size_bytes": 314,
+    "raw_sha256": "sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4"
+  },
+  "closure_preimage": "{\"closure_contract_version\":\"backend-vnext/comparison-records-closure/v1\",\"comparison_digest\":\"sha256:cd23d55ba5b323e6243973a6df7d8f634dbbd64672b44410f76bcba01a9d595d\",\"facts_core_digest\":\"sha256:f1cd5ea3447237dd30e85c2ecb2821deed5481adbe1eee5dca0a123f864d20b8\",\"records\":[{\"family\":\"BLANK\",\"record_count\":2,\"records_content_digest\":\"sha256:16bbda4fb04a92eab5c536622a6c2b0db3c6a1b9d3d10f3b56ce05635e273475\",\"records_manifest_digest\":\"sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\",\"records_manifest_ref\":{\"artifact_id\":\"a1:comparison:d840d14a75b4c72ff1acc76d7d44c78377c057f3209bb08f407d1a83fc901abd\",\"media_type\":\"application/json\",\"raw_sha256\":\"sha256:353ee2fd4801a4cd7cccb92dcbdd4d3ac370de113a8c4cc5e3f99772ef7ad1e4\",\"size_bytes\":314},\"records_ref\":{\"artifact_id\":\"a1:comparison:b8bcbd73203ea8c11d59e501ad74aa771f248a4bcd9e2befc1e7efb599254cc2\",\"media_type\":\"application/vnd.apache.parquet\",\"raw_sha256\":\"sha256:b55b5bcf7a8063444bbd80aaee6438c3e1671c675ea64d620f9f27e964ec6281\",\"size_bytes\":4692},\"table_name\":\"t\"}]}",
+  "closure_manifest_digest": "sha256:88b8424f6ca442482882daec3c674f946f0f9296f1809e5896e76ec776aeb05a"
+}

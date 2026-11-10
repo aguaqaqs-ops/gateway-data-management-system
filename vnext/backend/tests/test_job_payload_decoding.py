@@ -322,11 +322,11 @@ def test_load_job_payload_bytes_rejects_non_canonical_inline_bytes() -> None:
         load_job_payload_bytes(operation, InMemoryArtifactStore())
 
 
-def _put_then_corrupt_bytes(store: InMemoryArtifactStore, raw: bytes, artifact_id: str) -> ArtifactRef:
+def _put_then_corrupt_bytes(store: InMemoryArtifactStore, raw: bytes, seed: str) -> ArtifactRef:
     ref = put_with_built_ref(
         store,
         raw,
-        artifact_id=artifact_id,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", seed),
         media_type="application/json",
     )
     stored_ref, _ = store._artifacts[ref.artifact_id]

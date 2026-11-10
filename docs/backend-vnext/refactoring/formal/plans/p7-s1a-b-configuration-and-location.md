@@ -41,9 +41,9 @@ Snapshot artifact_content_digest排除row artifact_id，固定bytes/descriptor/p
 
 ## 验证与交接
 
-[固定CT06执行稿](p7-s1a-b-verification.md)及[脚本](p7-s1a-b-verify.sh)待原审。开发机只编辑/只读源码核查，未执行产品测试、lint/mypy、编译或容器。Rust/五锁/生产依赖/Docker/Compose YAML/entrypoint均未变；实际Compose harness的manifest观测器同步改为owning decoder，避免a1后旧前缀空集，代表性当前候选容器旅程列入验证稿。五包ruff/mypy和必要focused都由唯一测试角色在clean已提交CT树执行，失败不跳后续。当前B测试、独审、实际挂载、资源和容量均待实际证据。
+当前按main `e0bde022a0cfdfefc33d48a8c20b19899fa1bd20`最新Owner规则完成host focused：五包ruff/mypy、既定74项backend unit串/并行、RS共享配置JCS与独立distribution owner，必要数据使用真实Arrow/Parquet/SQLite与固定业务golden。开发机只编辑、只读分析及独立fixture计算，不执行产品测试/静态/编译。Rust/backend五依赖输入不变，RS仅新增精确rfc8785的新锁b47；依赖缓存来源仍如实记录。旧固定完整脚本及其逐次构建审批限制是历史；当前不调用其末尾History Compose。
 
-Current HEAD由外置回执绑定；Container rebuild required：yes（实际Compose harness变更）；本机离线重建及代表性history零写/重启旅程已列固定稿，当前未执行；Last verified image revision/source-tree仍为设计§14的P6来源，只作历史入口；B current container gate未运行，carried none。测试脚本资源只在执行时取得并由本人收尾；本实施者未占节点。
+Current HEAD由外置回执绑定；Container rebuild required：yes，执行点G最终候选（实际Compose harness及RS依赖闭包变更）。`test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart`和`test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey`的observer、zero-write/restart、完整同/分盘容器结果明确deferred→G；B current container gate未执行，carried none，不由格式/unit通过冒充。完整t1旅程及OpenAPI/bundle集合对照仍留G。
 
 C接位置resolver、typed本地root、原子对象目录、no-replace/copy/读者与保护锁序；D接file/scratch/download/全部消费者和bounded维护；E接RS真实布局；F接settings唯一配置入口/实际mount+cgroup/render；G接确认范围真实链与最终证据。Owner给协调者确认的G范围不在B执行。本包不开始C、不宣称S1a完成。
 
@@ -75,7 +75,7 @@ R1修订候选849cf6f799中的d054是旧Cargo.lock输入，原审尚未准许正
 
 ### Owner补充：S1a最终交接要求
 
-Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path成员集合及manifest字段集合不变，并逐项列出ID/摘要**取值**变化；当前B没有完成这些最终对照，不预填PASS或将字段集合不变替代取值分析。BE-b第二步设计由协调者立即启动，实施只能在S1a本地exit并合main后开始；B不提前实现BE-b。DC74未生效并随P6退出关闭，不能作为本轮额外门禁或冻结资源约束。此补充保留交接，由协调者main记录和G收口。
+Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path成员集合及manifest字段集合不变，并逐项列出ID/摘要**取值**变化；当前B没有完成这些最终对照，不预填PASS或将字段集合不变替代取值分析。BE-b第二步设计须在S1a本地exit并合main后由后端设计会话开始，随后实施，前端设计会话参与审核；旧“现在开始”作废，B不提前开展BE-b。DC74未生效并随P6退出关闭，不能作为本轮额外门禁或冻结资源约束。此补充保留交接，由协调者main记录和G收口。
 
 
 ### d97 backend mypy 失败与修订
@@ -89,3 +89,17 @@ Owner要求G实证规范化OpenAPI与S1a基准不变，bundle tar的logical_path
 既有`test_distribution_boundaries.py::test_repository_sources_do_not_import_non_repository_packages`明确禁止RS import shared kernel；`repository-workspace.toml`表达三个独立distribution及仅contracts的repository依赖边，其RS forbidden_imports数组没有逐字列shared kernel，不能误引。修订RS使用精确锁定的`rfc8785==0.1.4`及stdlib SHA256，并在窄adapter保留与BE相同的I-JSON整数/有限数/Unicode scalar与noncharacter拒绝。BE仍用现有shared-kernel实现，配置边界将其CanonicalEncodingError转为ValueError；两侧共享完整冻结JCS preimage/SHA、Unicode/数字有效及拒绝向量。新增既有包边界owner selector，不改独立distribution约束、不加type-ignore或MYPYPATH补丁。
 
 RS新lock SHA `b47d6de3cbcef1052422efd4c8e1a0288aac14f96f1eaf6baa3276a219cc316f`，仅增加该版本rfc8785及root要求；production Docker ARG同步。backend五输入及578不变。RS新base必须经[独立依赖准备稿](p7-s1a-b-rs-dependency-preparation.md)原审后生成完整原件，经LAN预填06，再将实际identity SHA固定入新正文调用wrapper后复审EXEC_GO。旧6dc仅为备料输入，不再作为当前RS依赖base；全部旧候选/失败原件保留。当前没有运行新构建、预填、语法、测试或编译。
+
+
+## f3d首次host focused产品失败及六组修订
+
+06候选f3d日志`/home/dev/gdds-test-tmp/p7-s1a-b-f3d12825/logs-focused-r1/verification.log` SHA `0c2f392f5dbd4d7edfa940e130f665c5c4f31781f0cbc6aad74ae8e0819302aa`，JUnit backend-unit.xml SHA `fb286fe6f6d96e03d4f470efe29ac054e7557712d08c08e15186156ad630ce13`。五包offline sync/ruff/mypy均通过；backend非serial为24failed/1853passed/4warnings，原exit1、logger0/SSH1，source clean、本人资源释放。后续backend serial及RS配置pytest未运行。原件经LAN只读复制至实施者外置目录并逐SHA相同，不改写原失败或把局部通过拼作整次exit0。此为产品finding，不适用构建环境快修掩盖。
+
+- 19个canonical metadata用例共同被遗留`ipc-t_000`前置fixture拒绝。row_ref改合法canonical test identity，保312表/不读IPC/不写状态及18个故障注入断言，不删向量。
+- job corrupt-digest helper旧payload-ref前置失败：helper用durable固定kind/seed生成合法ref后仍实际改坏bytes，继续期待raw_sha256 mismatch。
+- SubmitAttempt空manifest：恢复字段nonempty检查先于a1校验，保持既有非空错误；非空旧ID仍拒绝。Submission同字段检查顺序一致。
+- 空canonical closure：期望按真实新ID字典序排序，不改生产排序或fixture ID来凑旧先后。
+- BLANK closure：原case在失败前已通过core/comparison/table及ordered/blank summary，后续Risk/Parquet断言尚未到达。本轮保P6 `comparison/s3-e/old-python-expected.json`内容和provenance不变；独立新建`comparison/s1a/blank-location-closure.json`，用标准库从既有冻结字段重构完整旧JCS preimage，精确复现7b589a48…；仅替换两个ref ID后推导88b8424f…，与原实际失配值相同。记录旧/新closure、完整ID、未变manifest preimage和SHA；consumer核发布的确切refs/manifest/closure bytes，并继续全部原业务/Risk/Parquet断言，未盲录新golden或宣称未经复验通过。
+- Surface旧cache-local负例被fixture hash成合法export ref，故不是实际无效输入。Surface/Bundle两个validator与两份Contract helper统一用中心strict a1 codec，删除不可达旧prefix表；合法opaque ref不按hash前种子猜cache/flow授权，scope/完整closure/READY owner保持。共享负向表在有效request构造后定点污染ref，仍期待assemble FAILED/无surface；另直接核constructor、Surface/Bundle ref及Contract边界拒绝。bundle logical_path禁令不动，未将失败改成READY。
+
+本次修订不改Rust/依赖锁/镜像recipe或image labels；新产品候选继续使用真实source_commit=f3d的b47依赖缓存（完整依赖输入不变），不为新产品提交重建/retag或虚构来源。原审只核实际代码/Contract/fixture差异一次，唯一测试者在新clean候选按受影响范围复验，74项host集合/RS owner仍保，完整Compose/harness deferred→G。不在开发机测试，不改预算/预期来制造通过。

@@ -173,7 +173,8 @@ def _fixture() -> MetadataFixture:
         entries = []
         for d in (() if role == p._SIDE_BASELINE else descriptors):
             # Metadata references absent IPC, not a dummy row-reader implementation.
-            row_ref = ArtifactRef(f"ipc-{d.table_name}", CANONICAL_IPC_MEDIA_TYPE, 17,
+            row_ref = ArtifactRef(build_artifact_id(ArtifactLocation.CANONICAL, "test-fixture",
+                ["ipc", d.table_name]), CANONICAL_IPC_MEDIA_TYPE, 17,
                                   raw_blob_digest(b"IPC not opened by metadata proof"))
             table = SnapshotTableArtifactManifest(1, snapshot_digest, d.table_name, d,
                 (row_ref,), ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,

@@ -1,5 +1,7 @@
 # P7-S1a B 固定验证稿
 
+> 现行入口与限制：main e0bde022a0 的Owner规则已取代本稿历史逐次构建审批/次数限制。B当前执行host focused（五包静态、原74项unit串并行、RS配置/包边界）；旧相邻完整脚本含History Compose，是历史原件，当前不直接调用。History/ordered observer及完整容器结果明确deferred→G。RS依赖镜像封存/host缓存就绪与产品通过分别记录，环境命令由唯一执行者按最新授权纠正；产品finding仍正常修复/原审。最新产品失败与六组修订见[p7-s1a-b-configuration-and-location.md](p7-s1a-b-configuration-and-location.md)。
+
 日期：2026-11-10。状态：本轮新候选待原审、未执行；下文保留旧候选失败/备料历史，本稿不签SCRIPT_GO/B_GO。2bacea之后本轮RS新依赖按[独立准备稿](p7-s1a-b-rs-dependency-preparation.md)执行，新base原件审核后才能固定正文EXEC_GO。
 
 起点 `00ca325c2ed6d705abfa39e9528ef148e6029cfc`。唯一测试角色只在原审核准精确候选 B_SHA、本稿与脚本 SHA256 后执行 [p7-s1a-b-verify.sh](p7-s1a-b-verify.sh)。固定节点 `ct107-gw-dms-06`，主机名 `gw-dms-06`；不改节点、参数、worker 数、预期或现场修脚本。失败先停本次及依赖验收、保原 exit/日志/SHA，交实施者/原审；依本轮用户 AGENTS/DC68和提示词处理，不沿用 main 的 DC91/三轮恢复权限，不无修改重试。

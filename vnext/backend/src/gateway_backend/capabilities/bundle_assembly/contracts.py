@@ -11,6 +11,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef, assert_no_host_path_identity, artifact_ref_to_dict
+from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceAssemblyResult,
 )
@@ -129,32 +130,7 @@ def _optional_digest(value: DigestRef | None, label: str) -> None:
 def _ref(value: object, label: str) -> ArtifactRef:
     if type(value) is not ArtifactRef:
         raise ValueError(f"{label} must be ArtifactRef")
-    lowered = value.artifact_id.casefold()
-    if lowered.startswith(
-        (
-            "cache-",
-            "cache:",
-            "repository-",
-            "repository:",
-            "repo-",
-            "repo:",
-            "flow-",
-            "flow:",
-            "operation-",
-            "operation:",
-            "workspace-",
-            "workspace:",
-            "preview-",
-            "preview:",
-            "submit-",
-            "submit:",
-            "history-",
-            "history:",
-            "dolt-",
-            "dolt:",
-        )
-    ):
-        raise ValueError(f"{label} must not use cache, repository or flow-local identity")
+    validate_artifact_id(value.artifact_id)
     return value
 
 

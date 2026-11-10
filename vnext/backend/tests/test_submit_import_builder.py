@@ -521,7 +521,7 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     )
 
     assert bindings == ()
-    assert refs == (closure_ref, manifest_ref)
+    assert refs == tuple(sorted((closure_ref, manifest_ref), key=lambda ref: ref.artifact_id))
     assert _build_input(
         snapshot_tables=bindings,
         projection_inputs=_projection_inputs(),

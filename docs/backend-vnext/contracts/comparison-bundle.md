@@ -439,3 +439,6 @@ A仅提出可审目标；本节B–D实现/验证前不宣称当前下载支持�
 下载仍在headers前核授权绑定、完整metadata/成员及size/raw SHA，跨root持有有序borrow，不新建持久tar。原单root“FD合计≤2”在多root目标下改为至多4个root FD加当前1个artifact FD；不预开所有成员，无整包bytes/mmap。正常/未消费响应/断连/取消/异常都释放所有borrow。清理遇借用retryable；头后I/O失败中断，不补成功尾部。READY完整final refs仍在原publication/protection事务中闭合。
 
 artifact_id不直接进入semantic digest的规则不变，但被rewrite的JSON metadata含新ref，其raw SHA/size会变，并可经surface integrity、closure integrity传递至surface/bundle digest。不得以“排除了ID”断言所有旧semantic golden不变，不得删除raw完整性输入来保旧摘要。同一新版本仅改挂载时所有身份/摘要保持相等；A摘要表给出直接/传递变化边界。
+
+
+S1a ref校验补充：所有四字段backend `ArtifactRef` 使用统一严格a1 codec；旧cache/flow/repository前缀不是合法artifact ID，也不保留为独立前缀判别路径。location只定位root，不替代kind/scope/完整closure/READY校验；合法opaque ref可由export/cache恢复后正式移交，不能按hash前的调用方标签猜授权。bundle-relative logical_path继续使用原路径约束，cache-local/host/repository/flow路径禁令不变。

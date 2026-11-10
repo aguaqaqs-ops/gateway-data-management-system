@@ -10,6 +10,7 @@ from typing import TypeAlias
 from gateway_shared_kernel import DigestRef, canonicalize_identifier
 
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict, assert_no_host_path_identity
+from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.comparison.contracts import (
     ArtifactScope,
     ComparisonFacts,
@@ -118,7 +119,7 @@ def _require_digest(value: object, label: str) -> DigestRef:
 def _require_ref(value: object, label: str) -> ArtifactRef:
     if type(value) is not ArtifactRef:
         raise ValueError(f"{label} must be ArtifactRef")
-    assert_no_host_path_identity(value.artifact_id, label=label)
+    validate_artifact_id(value.artifact_id)
     return value
 
 

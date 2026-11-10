@@ -53,6 +53,12 @@ def test_actual_rs_harness_starts_with_rendered_roots_and_cleans_only_owned_reso
         rejected = subprocess.run(["python3", "-I", str(harness.VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
             str(directory), "--owner", owner + "-foreign", "--cleanup"], capture_output=True, text=True, check=False)
         assert rejected.returncode != 0 and directory.is_dir()
+        directory.chmod(0o711)
+        rejected_prepare = subprocess.run(["python3", "-I", str(harness.VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+            str(directory), "--owner", owner + "-foreign"], capture_output=True, text=True, check=False)
+        assert rejected_prepare.returncode != 0
+        assert directory.stat().st_mode & 0o777 == 0o711
+        directory.chmod(0o755)
     finally:
         harness.cleanup_compose_project(names, env, service_image=image, retain_runtime=retain)
     assert harness.project_inventory(names.project).is_empty()

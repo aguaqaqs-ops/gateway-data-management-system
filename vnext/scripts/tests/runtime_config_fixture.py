@@ -61,9 +61,9 @@ def cleanup(directory: Path, owner: str, *, retain: bool) -> None:
 
 def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None) -> Path:
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
-    directory.chmod(0o755)
     if owner is not None:
         claim_owner(directory, owner)
+    directory.chmod(0o755)
     fixtures = VNEXT / "fixtures/runtime-config/v1"
     storage = json.loads((fixtures / "storage-layout.json").read_bytes())
     profile = json.loads((fixtures / "resource-profile.json").read_bytes())

@@ -32,7 +32,7 @@ def test_env_token_without_explicit_profile_requires_production_file(tmp_path: P
 
 def test_control_db_path_is_under_service_state(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path / "root"))
-    assert settings.control_db_path == tmp_path / "root" / "service-state" / "repository-service.sqlite3"
+    assert settings.control_db_path == settings.storage_roots.metadata / "service-state" / "repository-service.sqlite3"
 
 
 def test_test_profile_requires_bearer_token(tmp_path: Path) -> None:

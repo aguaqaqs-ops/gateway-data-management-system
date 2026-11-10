@@ -168,7 +168,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 | FE1 A/B 并行 | A：认证封装、API 客户端、轮询与幂等、bundle 本地化与解析、视图模型推导、命令层；B：token、组件、表格主题、对话框 | FE0 | A 用 golden bundle 与模拟接口覆盖全部旅程的数据流；B 覆盖 UI 优化方向 P1、P2 条目 |
 | FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认。分为 FE2a 差异浏览、FE2b 工作台、路由与历史比较、FE2c 写操作旅程，各自审核、取证与打 tag（[FE2 kickoff](fe2-kickoff.md) §2，owner 2026-11-02、2026-11-03） | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
 | FE3 对接 | 对接 Compose 中的真实 backend；刷新 OpenAPI 快照并做一致性比对；接回上传模式顶栏撤回（§7.1）；真实数据 t1 完整旅程；FE2 带入项（[FE2 kickoff](fe2-kickoff.md) §6.5，owner 2026-11-05） | FE2、BE-a、BE-d | e2e 全部旅程通过（含 §7.1 场景）；t1 旅程通过 |
-| FE4 收口 | 接入 BE-b 的分组与列展示与行定位产物，移除占位数据与浏览器中的行标识计算（保留回退行为）；FE3 带入项与真实数据重拍。拆段与范围见 [FE4 kickoff](fe4-kickoff.md)（2026-11-10 草案，待 owner 确认）：FE4a 不依赖 BE-b，FE4b 接入 BE-b | FE4a：`fe-fe3c-exit`；FE4b：BE-b | 按 FE4 kickoff §5.2；owner 退出审核 |
+| FE4 收口 | 接入 BE-b 的分组与列展示与行定位产物，移除占位数据与浏览器中的行标识计算（保留回退行为）；FE3 带入项与真实数据重拍。拆段与范围见 [FE4 kickoff](fe4-kickoff.md)（owner 2026-11-10 已确认）：FE4a 不依赖 BE-b，FE4b 接入 BE-b | FE4a：`fe-fe3c-exit`；FE4b：BE-b | 按 FE4 kickoff §5.2；owner 退出审核 |
 
 FE0–FE2 不依赖后端剩余工作；FE4 依赖 BE-b，按 FD8 排在 P6 退出之后。
 
@@ -218,7 +218,7 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | --- | --- | --- |
 | FD7 规则写入 AGENTS 与 testing-conventions | 治理会话执行 | FE0 首次运行测试前 |
 | UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 已关闭：按 vnext 实际枚举定稿，见 [FE2 kickoff §4](fe2-kickoff.md#4-界面文案定稿回填前端-kickoff-9-第-2-项)（owner 2026-11-02）；Change Group 列删除 | — |
-| 侧栏导航层级是否精简 | 建议见 [FE4 kickoff](fe4-kickoff.md) §3.2，交 owner（FE4 kickoff §10 Q6）；FE4b 实现 | FE4 kickoff |
+| 侧栏导航层级是否精简 | owner 2026-11-10 已决定：层级定义不变，渲染时按需折叠（[FE4 kickoff](fe4-kickoff.md) §3.2、§10 Q6）；FE4b 实现 | FE4b |
 | 导航诊断的结构与编码（FE1 审核 D1） | 已答复：[BE-b 草案 §4.7](be-b-navigation-and-presentation-draft.md#47-导航诊断设计会话-2026-11-02答复-fe1-审核-d1)。诊断放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，不带 message，前端按 code 映射中文文案。FE2 按此修改 `model.ts` 的过渡处理并补测试；新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02） | FE2 |
 | surface `diagnostics_summary` 中的自由文本 | 少数条目是自由文本而不是编码（如风险引擎的 `max_annotations_per_pair exceeded`、比较失败的异常文本）。原写“收敛为编码是后端清理项，不属于 BE-b”，已过时：owner 2026-11-03 将其并入 BE-b（[BE-b 设计草案](be-b-navigation-and-presentation-draft.md) §4.10、§6 Q10；另见本文 §5 BE-b 行与 [FE2 kickoff](fe2-kickoff.md) §5.5），随 FE4b 接入（[FE4 kickoff](fe4-kickoff.md) §3.7）。在此之前前端显示通用文案，原文放进 Debug | BE-b、FE4b，不阻塞 |
 | 正式部署形态与正式 SSO | Phase 8/9 前单独设计 | — |
@@ -228,7 +228,7 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 
 | 会话 | 职责 | 不做 |
 | --- | --- | --- |
-| 设计会话（本会话） | kickoff 与本文维护；FD 决定记录；答复实施中的设计问题；BE-b 设计 | 不写产品代码，不审核实施结果 |
+| 设计会话（本会话） | kickoff 与本文维护；FD 决定记录；答复实施中的设计问题；BE-b 第一步与面向前端的核对（第二步由后端设计会话写，见 FE4 kickoff §10 Q4） | 不写产品代码，不审核实施结果 |
 | 实施会话 | 按 §7 各阶段实施，提交候选与 handoff；设计问题与停止条件交设计会话或 owner | 不自行改变 FD 决定与 UI 优化方向的已确认条目 |
 | 审核会话 | 各阶段代码审核与证据复核，按 `<上一 tag>..<候选提交>` 审核 | 不与实施会话为同一会话 |
 

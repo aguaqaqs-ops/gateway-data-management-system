@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from tests.support.artifact_layout import write_deployment_files
 
 import os
 import selectors
@@ -14,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.support.runtime_settings import make_operation_worker_settings
 
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
@@ -50,13 +50,13 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (source_path, environment.get("PYTHONPATH")) if part
     )
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"] = "8589934592"
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH"] = str(db_path)
     artifact_root = db_path.parent / "artifacts"
     artifact_root.mkdir(parents=True, exist_ok=True)
     token_file = db_path.parent / "repository-bearer-token"
     token_file.write_text("test-repository-token\n", encoding="utf-8")
-    storage_file, resources_file = write_deployment_files(artifact_root)
+    fixture_settings = make_operation_worker_settings(db_path.parent, control_db_path=db_path)
+    storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"

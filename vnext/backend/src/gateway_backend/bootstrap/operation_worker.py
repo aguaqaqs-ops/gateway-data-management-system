@@ -119,7 +119,8 @@ from gateway_backend.operations.worker import (
 from gateway_backend.operations.worker_lifecycle import WorkerLifecycleController
 from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
-from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.runtime_preflight import RuntimePreflight
+from gateway_backend.bootstrap.deployment_identity import compare_configuration
 
 from gateway_backend.settings import OperationWorkerSettings
 
@@ -154,9 +155,11 @@ def build_job_worker_composition_for_settings(
         raise ValueError("settings must be OperationWorkerSettings")
     if type(definitions) is not tuple:
         raise ValueError("definitions must be a tuple")
+    RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config))
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
-    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    deployment = settings.deployment_config
     local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
@@ -181,7 +184,7 @@ def build_production_preview_dependencies(
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
     bootstrap_control_database(settings)
     seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
-    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    deployment = settings.deployment_config
     local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
@@ -293,8 +296,9 @@ def bootstrap_control_database(settings: OperationWorkerSettings) -> None:
 
     if type(settings) is not OperationWorkerSettings:
         raise ValueError("settings must be OperationWorkerSettings")
+    RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config))
     parent = settings.control_db_path.parent
-    parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
@@ -333,7 +337,7 @@ def build_worker_runtime(
         payload_decoders=payload_decoders,
     )
 
-    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    deployment = settings.deployment_config
     runtime_roots = artifact_layout_from_config(deployment.storage)
 
     def default_read_uow_factory() -> OperationUnitOfWork:
@@ -343,7 +347,13 @@ def build_worker_runtime(
         return ControlDbUnitOfWork(settings.control_db_path, artifact_borrow=runtime_roots.read_session)
 
     resolved_read_uow_factory = read_uow_factory or default_read_uow_factory
-    resolved_write_uow_factory = write_uow_factory or default_write_uow_factory
+    unguarded_write_uow_factory = write_uow_factory or default_write_uow_factory
+    guard = RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config))
+
+    def resolved_write_uow_factory() -> OperationUnitOfWork:
+        guard.check()
+        return unguarded_write_uow_factory()
 
     startup_observer = _StartupObserver(observer)
     jitter = _deterministic_jitter
@@ -416,6 +426,8 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
+            RuntimePreflight(configured.deployment_config, "worker", container=configured.runtime_mode == "container",
+                configuration_check=lambda: compare_configuration(configured.deployment_config))
             initialize_compute_kernel(configured.kernel_threads)
             previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
             from gateway_backend.bootstrap.composition import (

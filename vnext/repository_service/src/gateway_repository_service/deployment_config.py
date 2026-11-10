@@ -5,12 +5,11 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Mapping, TypeGuard, cast
 
-import rfc8785
 
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_FILESYSTEMS = 10
@@ -119,8 +118,9 @@ def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
 
 
 def _configuration_digest(document: dict[str, object]) -> str:
+    import rfc8785
     if not _validate_jcs_domain(document):
-        raise ValueError("configuration is outside the JCS domain")
+        raise ValueError("configuration outside JCS domain")
     return "sha256:" + hashlib.sha256(rfc8785.dumps(document)).hexdigest()
 
 
@@ -159,11 +159,16 @@ class StorageLayoutConfig:
     group_id: str
     filesystems: Mapping[str, FilesystemPolicy]
     roots: Mapping[str, StorageRoot]
-    digest: str
+    _source_document: bytes = field(repr=False)
+
+    @property
+    def digest(self) -> str:
+        return _configuration_digest(_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> StorageLayoutConfig:
         doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "filesystems", "roots"})
+        _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
         fs_raw = doc["filesystems"]
         if type(fs_raw) is not dict or not 1 <= len(fs_raw) <= MAX_FILESYSTEMS:
@@ -209,7 +214,7 @@ class StorageLayoutConfig:
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
         return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            _configuration_digest(doc))
+            raw)
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -270,12 +275,17 @@ class ResourceProfile:
     repository_service: ServiceResources
     host_budget: HostBudget
     temporary: TemporaryLimits
-    digest: str
+    _source_document: bytes = field(repr=False)
+
+    @property
+    def digest(self) -> str:
+        return _configuration_digest(_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ResourceProfile:
         doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "worker",
             "backend", "repository_service", "host_budget", "temporary"})
+        _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
         item = _object(doc["worker"], {"count", "active_limit", "kernel_threads", "kernel_memory_bytes",
             "memory_envelope_bytes", "memory_reserve_bytes", "cpu_limit", "swap_limit_bytes"})
@@ -302,7 +312,7 @@ class ResourceProfile:
         temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
             _integer(temp["staging_max_bytes_per_object"]))
         return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            _configuration_digest(doc))
+            raw)
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:

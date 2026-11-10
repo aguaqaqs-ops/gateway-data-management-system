@@ -119,14 +119,18 @@ def _valid_relative(relative: str, lane: int) -> bool:
 
 class ArtifactMaintenance:
     def __init__(self, local: LocalArtifactStore, bounded: BoundedArtifactStore, *, scratch_root: Path,
-                 owner_active: Callable[[str], bool], grace: timedelta = timedelta(hours=24)) -> None:
+                 owner_active: Callable[[str], bool], grace: timedelta = timedelta(hours=24),
+                 scratch_validator: Callable[[], None] | None = None) -> None:
         if grace < timedelta(0) or grace > timedelta(hours=24):
             raise ValueError('temporary grace must be between zero and 24 hours')
         self.local = local
         self.bounded = bounded
         self.scratch_root = scratch_root
+        self.scratch_validator = scratch_validator
         try:
             self.scratch_identity: tuple[int, int, str] | None = directory_identity(scratch_root)
+            if scratch_validator is not None:
+                scratch_validator()
         except (OSError, ValueError, StopIteration):
             self.scratch_identity = None
         self.owner_active = owner_active
@@ -203,6 +207,8 @@ class ArtifactMaintenance:
                             continue
                         item = self._advance(index, lanes[index], root, base, budget, when)
                 else:
+                    if self.scratch_validator is not None:
+                        self.scratch_validator()
                     if self.scratch_identity is None or directory_identity(root) != self.scratch_identity:
                         raise ValueError('scratch root identity changed')
                     item = self._advance(index, lanes[index], root, base, budget, when)

@@ -385,7 +385,7 @@ def _run_submit_control_query_against_database(
         assert command[3:5] == ("python", "-c")
         script, container_db_path, operation_id = command[5:]
         if service == "backend":
-            assert container_db_path == "/var/lib/gateway/control/control.sqlite3"
+            assert container_db_path == "/var/lib/gateway/be-metadata/control.sqlite3"
             local_db_path = db_path
         else:
             assert (
@@ -1486,11 +1486,11 @@ def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
             "memory_events": {"oom": backend_oom if service == "backend" else 0,
                               "oom_kill": 0, "oom_group_kill": 0},
             "host_config_memory_bytes": worker_hard_bytes if service == "worker" else 0,
-            "resource_env": {
-                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
-                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(40 * 1024**3),
-                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(48 * 1024**3),
-                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+            "resource_profile": {
+                "kernel_threads": 1,
+                "kernel_memory_bytes": 40 * 1024**3,
+                "memory_envelope_bytes": 48 * 1024**3,
+                "memory_reserve_bytes": 8 * 1024**3,
             } if service == "worker" else {},
         }
     monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
@@ -1903,17 +1903,17 @@ def test_w1_w2_checks_the_running_worker_resource_boundary(
         "memory_max": str(32 * 1024**3), "host_config_memory_bytes": 32 * 1024**3,
         "restart_count": 0,
         "memory_events": {"oom": 0, "oom_kill": 0, "oom_group_kill": 0},
-        "resource_env": {
-            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
-            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(24 * 1024**3),
-            "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(32 * 1024**3),
-            "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(8 * 1024**3),
+        "resource_profile": {
+            "kernel_threads": 1,
+            "kernel_memory_bytes": 24 * 1024**3,
+            "memory_envelope_bytes": 32 * 1024**3,
+            "memory_reserve_bytes": 8 * 1024**3,
         },
     }
     if fault == "budget":
-        cast(dict[str, str], worker["resource_env"])[
-            "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"
-        ] = str(40 * 1024**3)
+        cast(dict[str, int], worker["resource_profile"])[
+            "kernel_memory_bytes"
+        ] = 40 * 1024**3
     elif fault == "hard_limit":
         worker["memory_max"] = "max"
     elif fault == "restart":

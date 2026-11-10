@@ -161,7 +161,9 @@ class ImportWorkerPool:
         locks: RepositoryLockRegistry | None = None,
         fault_injector: ImportWorkerFaultInjector | None = None,
         shutdown_event: threading.Event | None = None,
+        before_claim: Callable[[], None] | None = None,
     ) -> None:
+        self._before_claim = before_claim
         self._settings = settings
         self._layout = layout
         self._store = store
@@ -293,6 +295,8 @@ class ImportWorkerPool:
                 self._shutdown.wait(timeout=0.25)
 
     def _try_claim_one(self) -> tuple[UUID, UUID] | None:
+        if self._before_claim is not None:
+            self._before_claim()
         if self._stop_claiming or self._is_shutting_down():
             return None
         with self._in_flight_lock:

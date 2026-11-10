@@ -12,8 +12,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      GATEWAY_BACKEND_CONTROL_DB_PATH: /var/lib/gateway/control/control.sqlite3
-      GATEWAY_BACKEND_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+      GATEWAY_STORAGE_LAYOUT_FILE: /run/gateway/storage-layout.json
+      GATEWAY_RESOURCE_PROFILE_FILE: /run/gateway/resource-profile.json
       GATEWAY_BACKEND_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE: /run/secrets/backend-internal-bearer
@@ -21,8 +21,6 @@ services:
       GATEWAY_BACKEND_SESSION_FILE: /run/secrets/backend-session
       GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
-      - backend-artifacts:/var/lib/gateway/artifacts
-      - backend-control:/var/lib/gateway/control
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
     secrets:
       - repository-bearer-token
@@ -54,21 +52,14 @@ services:
         UV_BOOTSTRAP_TRUSTED_HOST: ${GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST:-}
     restart: unless-stopped
     command: ["python", "-m", "gateway_backend.bootstrap.operation_worker"]
-    mem_limit: ${GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES:-34359738368}
     environment:
-      GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS: "1"
-      GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES: "${GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES:-25769803776}"
-      GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES: "${GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES:-34359738368}"
-      GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES: "8589934592"
-      GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH: /var/lib/gateway/control/control.sqlite3
-      GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT: /var/lib/gateway/artifacts
+      GATEWAY_STORAGE_LAYOUT_FILE: /run/gateway/storage-layout.json
+      GATEWAY_RESOURCE_PROFILE_FILE: /run/gateway/resource-profile.json
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_TIMEOUT_SECONDS: "30.0"
       GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
-      - backend-artifacts:/var/lib/gateway/artifacts
-      - backend-control:/var/lib/gateway/control
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
     secrets:
       - repository-bearer-token
@@ -94,7 +85,6 @@ services:
         SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}
     command: ["python", "-m", "gateway_repository_service.target_gate"]
     environment:
-      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
       GATEWAY_REPOSITORY_CGROUP_ROOT: /sys/fs/cgroup/gateway-p2r1
       GATEWAY_REPOSITORY_CGROUP_LAYOUT: /run/gateway-p2r1/cgroup-layout.json
       GATEWAY_REPOSITORY_CGROUP_CONTROL_GROUP: ${GATEWAY_P2R1_CGROUP_CONTROL_GROUP:-}
@@ -139,7 +129,8 @@ services:
         SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}
     environment:
       GATEWAY_REPOSITORY_PROFILE: production
-      GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository
+      GATEWAY_STORAGE_LAYOUT_FILE: /run/gateway/storage-layout.json
+      GATEWAY_RESOURCE_PROFILE_FILE: /run/gateway/resource-profile.json
       GATEWAY_REPOSITORY_DOLT_BINARY: /usr/local/bin/dolt
       GATEWAY_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS: ${GATEWAY_REPOSITORY_ARTIFACT_TTL_SECONDS:-86400}
@@ -149,13 +140,9 @@ services:
       GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS: ${GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS:-64}
       GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS: ${GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS:-8}
       GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS: ${GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS:-3600}
-      GATEWAY_REPOSITORY_MIN_FREE_DISK_BYTES: ${GATEWAY_REPOSITORY_MIN_FREE_DISK_BYTES:-5368709120}
-      GATEWAY_REPOSITORY_MIN_FREE_DISK_FRACTION: ${GATEWAY_REPOSITORY_MIN_FREE_DISK_FRACTION:-0.10}
       GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES: ${GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES:-1073741824}
     secrets:
       - repository-bearer-token
-    volumes:
-      - repository-service-data:/var/lib/gateway/repository
     healthcheck:
       test:
         - CMD
@@ -174,7 +161,4 @@ secrets:
   backend-internal-bearer:
     file: ${GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE}
 volumes:
-  backend-artifacts:
-  backend-control:
   repository-data:
-  repository-service-data:

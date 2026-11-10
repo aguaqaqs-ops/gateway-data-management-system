@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "environment_id": "development",
+  "group_id": "group-1",
+  "worker": {
+    "count": 1,
+    "active_limit": 1,
+    "kernel_threads": 1,
+    "kernel_memory_bytes": 25769803776,
+    "memory_envelope_bytes": 34359738368,
+    "memory_reserve_bytes": 8589934592,
+    "cpu_limit": 2,
+    "swap_limit_bytes": 0
+  },
+  "backend": {
+    "memory_limit_bytes": 2147483648,
+    "cpu_limit": 1,
+    "swap_limit_bytes": 0
+  },
+  "repository_service": {
+    "memory_limit_bytes": 4294967296,
+    "cpu_limit": 2,
+    "swap_limit_bytes": 0
+  },
+  "host_budget": {
+    "memory_bytes": 51539607552,
+    "cpu_count": 8,
+    "shared_memory_reserve_bytes": 8589934592,
+    "shared_cpu_reserve": 2
+  },
+  "temporary": {
+    "scratch_max_bytes_per_attempt": 8589934592,
+    "staging_max_bytes_per_object": 4294967296
+  }
+}

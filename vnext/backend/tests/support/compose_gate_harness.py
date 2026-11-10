@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from uuid import uuid4
 from pathlib import Path
 from collections.abc import Callable, Mapping
 from typing import Any, TextIO, cast
@@ -176,7 +177,8 @@ def compose_gate_prebuilt() -> bool:
 
 def run_compose(env: dict[str, str], *args: str, timeout: float = 600.0) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE), *args],
+        ["docker", "compose", "-f", str(COMPOSE_FILE),
+         *(["-f", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]] if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env else []), *args],
         cwd=DEPLOY_ROOT,
         env=env,
         check=False,
@@ -284,6 +286,7 @@ def _repository_service_image_matches(
 
 
 def build_compose_stack_images(env: dict[str, str]) -> None:
+    prepare_runtime_config(env)
     ensure_repository_service_image()
     if compose_gate_prebuilt():
         return
@@ -293,6 +296,7 @@ def build_compose_stack_images(env: dict[str, str]) -> None:
 
 
 def build_backend_image(env: dict[str, str]) -> None:
+    prepare_runtime_config(env)
     ensure_repository_service_image()
     if compose_gate_prebuilt():
         return
@@ -389,7 +393,7 @@ def list_repository_commit_ids(
     script = f"""
 import json, os, re, subprocess, uuid
 repo_hex = uuid.UUID("{repository_id}").hex
-repo_path = f"/var/lib/gateway/repository/versioned/{{repo_hex}}"
+repo_path = f"/var/lib/gateway/rs-repository/versioned/{{repo_hex}}"
 pager_env = {{
     **os.environ,
     "PAGER": "",
@@ -487,7 +491,7 @@ def assert_submit_occupancy_cleared_in_compose(
     attempt_literal = json.dumps(submit_attempt_id)
     script = f"""
 import sqlite3
-conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
+conn = sqlite3.connect('/var/lib/gateway/be-metadata/control.sqlite3')
 workspace_id = {workspace_literal}
 submit_attempt_id = {attempt_literal}
 workspace_count = conn.execute(
@@ -527,7 +531,7 @@ print(f"{{workspace_count}},{{repository_count}}")
 def count_backend_operations(env: dict[str, str]) -> int:
     script = (
         "import sqlite3; "
-        "conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3'); "
+        "conn = sqlite3.connect('/var/lib/gateway/be-metadata/control.sqlite3'); "
         "print(conn.execute('SELECT COUNT(*) FROM operation_records').fetchone()[0])"
     )
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
@@ -841,7 +845,24 @@ def _teardown_compose_project_resources(env: dict[str, str]) -> None:
 
 
 def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
+    retain = sys.exc_info()[0] is not None
     _teardown_compose_project_resources(env)
+    remaining = subprocess.run(["docker", "ps", "-aq", "--filter",
+        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]],
+        capture_output=True, text=True, check=False, timeout=30)
+    if remaining.returncode or remaining.stdout.strip():
+        pytest.fail("owned Compose containers remain; runtime data retained")
+    fixture = _runtime_fixtures.get(env["COMPOSE_PROJECT_NAME"])
+    if fixture is not None:
+        directory, owner = fixture
+        completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+            str(directory), "--owner", owner, "--cleanup", *(["--retain"] if retain else [])],
+            capture_output=True, text=True, check=False, timeout=60)
+        print(completed.stdout, end="", flush=True)
+        if completed.returncode:
+            pytest.fail("owned runtime fixture cleanup refused: " + completed.stderr)
+        del _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]]
+        env.pop("GATEWAY_RUNTIME_COMPOSE_OVERRIDE", None)
     release_compose_gate_lock()
 
 
@@ -895,7 +916,7 @@ from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 
 step_id = "{materialize_step_id}"
-conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
+conn = sqlite3.connect("/var/lib/gateway/be-metadata/control.sqlite3")
 row = conn.execute(
     "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
     (step_id,),
@@ -969,7 +990,7 @@ def checkpoint_readers():
         store = LocalArtifactStore(artifact_layout_from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
         manifest_reader = ArtifactBackedCanonicalizationManifestReader(artifact_store=store, artifact_refs=store)
         def uow_factory():
-            return ControlDbUnitOfWork(Path('/var/lib/gateway/control/control.sqlite3'),
+            return ControlDbUnitOfWork(Path('/var/lib/gateway/be-metadata/control.sqlite3'),
                 canonicalization_manifest_reader=manifest_reader, artifact_borrow=store.read_session)
         provider_factory = build_http_repository_provider_factory(
             base_url=os.environ['GATEWAY_BACKEND_REPOSITORY_BASE_URL'],
@@ -977,7 +998,7 @@ def checkpoint_readers():
             timeout_seconds=float(os.environ['GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS']))
         access = build_committed_table_access(store=store, unit_of_work_factory=uow_factory,
             repository_provider_factory=provider_factory, repository_id=repository_id)
-        with closing(sqlite3.connect('/var/lib/gateway/control/control.sqlite3')) as conn:
+        with closing(sqlite3.connect('/var/lib/gateway/be-metadata/control.sqlite3')) as conn:
             row = conn.execute('SELECT checkpoint_ref FROM step_records WHERE step_id=?',
                 (operation_id + '-step-1',)).fetchone()
         if row is None or row[0] is None:
@@ -1105,7 +1126,7 @@ def read_repository_table_rows(
     script = f"""
 import json, os, subprocess, uuid
 repo_hex = uuid.UUID("{repository_id}").hex
-repo_path = f"/var/lib/gateway/repository/versioned/{{repo_hex}}"
+repo_path = f"/var/lib/gateway/rs-repository/versioned/{{repo_hex}}"
 commit = "{commit_id}"
 table = "{table_name}"
 query = subprocess.run(
@@ -1279,7 +1300,7 @@ def read_workspace_row(
 ) -> dict[str, Any]:
     script = (
         "import json, sqlite3, sys; "
-        "conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3'); "
+        "conn = sqlite3.connect('/var/lib/gateway/be-metadata/control.sqlite3'); "
         "row = conn.execute("
         "'SELECT optimistic_version, generation, current_preview_result_id "
         "FROM workspace_records WHERE workspace_id = ?', "
@@ -1363,7 +1384,7 @@ def capture_business_table_state_in_compose(env: dict[str, str]) -> dict[str, tu
     script = f"""
 import hashlib, json, sqlite3
 tables = {tables_repr}
-conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
+conn = sqlite3.connect('/var/lib/gateway/be-metadata/control.sqlite3')
 state = {{}}
 for table in tables:
     count = conn.execute(f'SELECT COUNT(*) FROM {{table}}').fetchone()[0]
@@ -1848,3 +1869,20 @@ def identity_confirmation_requests(
         )
         if action in actions
     ]
+
+
+_runtime_fixtures: dict[str, tuple[Path, str]] = {}
+
+
+def prepare_runtime_config(env: dict[str, str]) -> None:
+    if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env:
+        return
+    directory = Path(tempfile.mkdtemp(prefix="gateway-bind-", dir=os.environ.get("TMPDIR")))
+    owner = env["COMPOSE_PROJECT_NAME"] + "-" + uuid4().hex
+    _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (directory, owner)
+    completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+        str(directory), "--owner", owner], capture_output=True, text=True, check=False, timeout=30, env=env)
+    if completed.returncode:
+        print(f"runtime_fixture_retained={directory}", flush=True)
+        pytest.fail(f"runtime fixture preparation failed: {completed.stderr}")
+    env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"] = str(directory / "compose-runtime.json")

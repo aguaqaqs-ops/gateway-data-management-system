@@ -282,7 +282,7 @@ def _base_http_server_environment(
     )
     environment = os.environ.copy()
     environment["PYTHONPATH"] = _pythonpath_environment()
-    environment["GATEWAY_BACKEND_CONTROL_DB_PATH"] = str(settings.control_db_path)
+    environment["GATEWAY_BACKEND_RUNTIME_MODE"] = "host"
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(settings.storage_layout_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(settings.resource_profile_file)
     environment["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = settings.repository_base_url

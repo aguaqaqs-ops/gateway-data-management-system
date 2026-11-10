@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import json
 import sys
 from pathlib import Path
 
@@ -68,10 +69,13 @@ def test_worker_rejects_a_budget_outside_its_bounded_envelope(
 
 def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", raising=False)
-    valid = make_operation_worker_settings(tmp_path).model_dump()
-    del valid["kernel_memory_budget_bytes"]
-    with pytest.raises(ValidationError, match="kernel_memory_budget_bytes"):
-        OperationWorkerSettings(**valid)
+    settings = make_operation_worker_settings(tmp_path)
+    document = json.loads(settings.resource_profile_file.read_bytes())
+    del document["worker"]["kernel_memory_bytes"]
+    settings.resource_profile_file.write_text(json.dumps(document))
+    with pytest.raises(ValidationError, match="missing or unknown"):
+        OperationWorkerSettings(**settings.model_dump())
+
 
 
 @pytest.mark.parametrize("threads", (0, 257, True, 1.5))

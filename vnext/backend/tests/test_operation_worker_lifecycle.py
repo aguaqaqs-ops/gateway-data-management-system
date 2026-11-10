@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from tests.support.artifact_layout import write_deployment_files
 
 from pathlib import Path
 from typing import cast
@@ -51,9 +50,8 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     artifact_root = tmp_path / "artifacts"
     token_file = tmp_path / "repository-bearer-token"
     mapping_file = tmp_path / "provisioned-mapping.json"
-    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", "8589934592")
-    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH", str(db_path))
-    storage_file, resources_file = write_deployment_files(artifact_root)
+    fixture_settings = make_operation_worker_settings(tmp_path, control_db_path=db_path, storage_base=artifact_root)
+    storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
     monkeypatch.setenv("GATEWAY_STORAGE_LAYOUT_FILE", str(storage_file))
     monkeypatch.setenv("GATEWAY_RESOURCE_PROFILE_FILE", str(resources_file))
     monkeypatch.setenv(
@@ -79,7 +77,7 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     assert settings.claim_limit == 1
     assert "secret" not in repr(settings)
 
-    with pytest.raises(ValidationError, match="absolute"):
+    with pytest.raises(ValueError, match="absolute"):
         make_operation_worker_settings(tmp_path, control_db_path=Path("relative/control.sqlite3"))
     with pytest.raises(ValidationError, match="fixed"):
         make_operation_worker_settings(tmp_path, heartbeat_interval_seconds=5.0)
@@ -282,3 +280,60 @@ def test_runtime_timeout_is_worker_fatal_without_worker_exit() -> None:
     assert any(event.code is WorkerEventCode.DRAIN_TIMED_OUT for event in events)
     assert all(event.code is not WorkerEventCode.WORKER_EXITED for event in events)
     assert threads.threads[0].joined
+
+
+def test_runtime_root_identity_loss_blocks_claim_before_opening_database(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
+    operation_worker_bootstrap.bootstrap_control_database(settings)
+    runtime = operation_worker_bootstrap.build_worker_runtime(settings)
+    assert runtime._startup.startup() is StartupDisposition.READY
+    metadata = settings.control_db_path.parent
+    previous = metadata.with_name(metadata.name + "-retained")
+    metadata.rename(previous)
+    metadata.mkdir()
+    (metadata / ".gateway-storage.json").write_bytes((previous / ".gateway-storage.json").read_bytes())
+    with pytest.raises(ValueError, match="identity changed"):
+        runtime._startup.claim_one()
+    assert not settings.control_db_path.exists()
+
+
+@pytest.mark.parametrize("fault", ("missing", "digest"))
+def test_production_worker_configuration_rejects_startup_and_claim_before_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    import json
+    from gateway_backend.bootstrap.deployment_identity import CONFIGURATION_RECORD, publish_configuration
+    from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
+
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
+    record = settings.control_db_path.parent / CONFIGURATION_RECORD
+
+    def damage() -> None:
+        if fault == "missing":
+            record.unlink()
+        else:
+            document = json.loads(record.read_bytes())
+            document["resource_digest"] = "changed"
+            record.write_text(json.dumps(document))
+
+    damage()
+    with pytest.raises(ValueError, match="configuration record"):
+        operation_worker_bootstrap.bootstrap_control_database(settings)
+    assert not settings.control_db_path.exists()
+    publish_configuration(settings.deployment_config)
+    operation_worker_bootstrap.bootstrap_control_database(settings)
+    runtime = operation_worker_bootstrap.build_worker_runtime(settings)
+    assert runtime._startup.startup() is StartupDisposition.READY
+    damage()
+    original = record.read_bytes() if record.exists() else None
+    opened: list[bool] = []
+
+    def refused_open(*args: object, **kwargs: object) -> None:
+        opened.append(True)
+        raise AssertionError("database opened before configuration comparison")
+
+    monkeypatch.setattr(ControlDbUnitOfWork, "__enter__", refused_open)
+    with pytest.raises(ValueError, match="configuration record"):
+        runtime._startup.claim_one()
+    assert not opened
+    assert (record.read_bytes() if record.exists() else None) == original

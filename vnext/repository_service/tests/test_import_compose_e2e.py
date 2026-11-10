@@ -12,18 +12,14 @@ import pytest
 from support.compose_build_harness import ensure_repository_service_image
 from support.compose_lifecycle_harness import (
     allocate_compose_resources,
-    assert_p2r2_compose_boundary,
-    compose_command,
-    compose_config_command,
     compose_ps_command,
     force_recreate_service_command,
     list_host_client_pids,
     list_host_thread_idents,
     p2r2_compose_env,
     p2r2_project_session,
-    parse_rendered_compose_config,
-    prepare_secret_file_for_container,
     run_command,
+    start_p2r2_service,
     wait_healthy,
     write_token_file,
 )
@@ -68,59 +64,9 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         client_pid_baseline=list_host_client_pids(),
         thread_baseline=list_host_thread_idents(),
     ):
-        rendered = run_command(
-            compose_config_command(project=names.project),
-            env=env,
-            secrets=(token,),
-            host_paths=host_paths,
-        )
-        assert_p2r2_compose_boundary(parse_rendered_compose_config(rendered.stdout))
-        inspect = subprocess.run(
-            ["docker", "image", "inspect", service_image],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if inspect.returncode != 0:
-            raise RuntimeError(f"prebuilt image not present after cache build: {service_image}")
-        gateway_uid = int(
-            run_command(
-                ["docker", "run", "--rm", "--entrypoint", "id", service_image, "-u", "gateway"],
-                secrets=(token,),
-                host_paths=host_paths,
-            ).stdout.strip()
-        )
-        gateway_gid = int(
-            run_command(
-                ["docker", "run", "--rm", "--entrypoint", "id", service_image, "-g", "gateway"],
-                secrets=(token,),
-                host_paths=host_paths,
-            ).stdout.strip()
-        )
-        prepare_secret_file_for_container(
-            token_file,
-            uid=gateway_uid,
-            gid=gateway_gid,
-            helper_image=service_image,
-            secrets=(token,),
-            host_paths=host_paths,
-        )
-
-        run_command(
-            compose_command("up", "-d", "--no-build", "repository-service", project=names.project),
-            env=env,
-            secrets=(token,),
-            host_paths=host_paths,
-        )
-        container_id = run_command(
-            compose_ps_command(project=names.project),
-            env=env,
-            secrets=(token,),
-            host_paths=host_paths,
-        ).stdout.strip()
-        assert container_id
-        wait_healthy(container_id)
+        started = start_p2r2_service(names, token_file=token_file, token=token,
+            service_image=service_image, host_paths=host_paths, env=env)
+        container_id = started.container_id
         mkdir_probe = subprocess.run(
             [
                 "docker",
@@ -129,7 +75,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
                 "gateway",
                 container_id,
                 "mkdir",
-                "/var/lib/gateway/repository/artifacts/.gateway-write-probe",
+                "/var/lib/gateway/rs-artifacts/.gateway-write-probe",
             ],
             check=False,
             capture_output=True,
@@ -145,7 +91,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
                 "gateway",
                 container_id,
                 "rmdir",
-                "/var/lib/gateway/repository/artifacts/.gateway-write-probe",
+                "/var/lib/gateway/rs-artifacts/.gateway-write-probe",
             ],
             secrets=(token,),
             host_paths=host_paths,
@@ -236,7 +182,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
                 container_id,
                 "sh",
                 "-c",
-                "find /var/lib/gateway/repository/artifacts -name '.deleting-*' "
+                "find /var/lib/gateway/rs-artifacts -name '.deleting-*' "
                 "-o -name '.detach-*' -o -name '.unlink-verify-*' "
                 "-o -name '.unlink-stage-*' | wc -l",
             ],

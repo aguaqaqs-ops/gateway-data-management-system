@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.runtime_preflight import check_host, initialize_host, check_configured_root
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.bootstrap.storage_layout import maintenance_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--storage-layout', type=Path, required=True)
     parser.add_argument('--resource-profile', type=Path, required=True)
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser("init-layout", help="explicit host preflight and marker initialization; roots must already exist")
+    commands.add_parser("check-layout", help="host mount, marker, capacity and resource check")
     cleanup = commands.add_parser('cleanup', help='one bounded pass; retain cursor for continuation')
     cleanup.add_argument('--max-candidates', type=int, default=32)
     cleanup.add_argument('--cursor')
@@ -48,12 +51,19 @@ def main(argv: list[str] | None = None) -> int:
                          help='use zero only after explicitly draining inactive temporary owners')
     args = parser.parse_args(argv)
     try:
-        if not 0 <= args.orphan_grace_seconds <= 86400:
+        if args.command == "cleanup" and not 0 <= args.orphan_grace_seconds <= 86400:
             raise ValueError('orphan grace must be between zero and 86400 seconds')
         deployment = DeploymentConfig.load(args.storage_layout, args.resource_profile)
+        if args.command == "init-layout":
+            initialize_host(deployment)
+            return 0
+        if args.command == "check-layout":
+            check_host(deployment)
+            return 0
         local = LocalArtifactStore(maintenance_layout_from_config(deployment.storage),
             staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
         metadata = Path(deployment.storage.roots['be-metadata'].path)
+        check_configured_root(deployment.storage, "be-metadata")
         metadata_identity = directory_identity(metadata)
         database = metadata / 'control.sqlite3'
         database_identity = _database_file_identity(database, metadata)
@@ -62,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def check_database_identity() -> None:
             try:
+                check_configured_root(deployment.storage, "be-metadata")
                 if (directory_identity(metadata) != metadata_identity
                         or _database_file_identity(database, metadata) != database_identity):
                     raise ValueError('changed')
@@ -93,7 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         bounded = BoundedArtifactStore(local, protection_uow=transaction)
         maintenance = ArtifactMaintenance(local, bounded,
             scratch_root=Path(deployment.storage.roots['be-scratch'].path), owner_active=active,
-            grace=timedelta(seconds=args.orphan_grace_seconds))
+            grace=timedelta(seconds=args.orphan_grace_seconds),
+            scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"))
         result = maintenance.run(max_candidates=args.max_candidates, cursor=args.cursor)
         print(json.dumps(asdict(result), sort_keys=True))
         return 0

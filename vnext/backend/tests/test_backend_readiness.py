@@ -59,7 +59,7 @@ def test_prepare_backend_runtime_fails_closed_without_artifact_root(tmp_path: Pa
         prepare_storage=False,
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    with pytest.raises(ValueError, match="artifact root"):
+    with pytest.raises(ValueError, match="storage root"):
         prepare_backend_runtime(settings, skip_repository_ready_probe=True)
 
 
@@ -161,3 +161,22 @@ def test_validate_artifact_root_requires_existing_directory(tmp_path: Path) -> N
         ArtifactStoreLayout(missing, tmp_path / "c", tmp_path / "p", tmp_path / "e")
     with pytest.raises(ValueError, match="artifact roots|artifact root"):
         ArtifactStoreLayout(Path("relative"), Path("c"), Path("p"), Path("e"))
+
+
+def test_runtime_metadata_identity_loss_blocks_readiness_and_new_work(tmp_path: Path) -> None:
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(tmp_path, control_db_path=tmp_path / "control" / "control.sqlite3")
+    metadata = settings.control_db_path.parent
+    with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
+        with TestClient(create_app(settings)) as client:
+            assert client.get("/readyz").status_code == 200
+            previous = metadata.with_name("retained-metadata")
+            metadata.rename(previous)
+            metadata.mkdir()
+            (metadata / ".gateway-storage.json").write_bytes((previous / ".gateway-storage.json").read_bytes())
+            assert client.get("/readyz").status_code == 503
+            response = client.post("/v1/workspaces", json={})
+            assert response.status_code == 503
+            assert response.json()["code"] == "SERVICE_NOT_READY"
+            assert not settings.control_db_path.exists()
+            assert client.get("/healthz").status_code == 200

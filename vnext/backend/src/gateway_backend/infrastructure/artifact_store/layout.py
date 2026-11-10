@@ -4,7 +4,7 @@ from __future__ import annotations
 import fcntl
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from _thread import RLock
 from dataclasses import dataclass, field
@@ -45,6 +45,7 @@ class ArtifactStoreLayout:
     canonical: Path
     comparison: Path
     export: Path
+    root_validator: Callable[[ArtifactLocation], None] | None = field(default=None, init=False, repr=False, compare=False)
     _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(init=False, repr=False, compare=False)
     _borrows: dict[ArtifactLocation, tuple[int, int]] = field(init=False, repr=False, compare=False)
     _mutex: RLock = field(init=False, repr=False, compare=False)
@@ -64,6 +65,8 @@ class ArtifactStoreLayout:
         for location in ROOT_ORDER:
             try:
                 identities[location] = directory_identity(self.root(location))
+                if self.root_validator is not None:
+                    self.root_validator(location)
             except (OSError, ValueError, StopIteration):
                 if not allow_unavailable:
                     raise ValueError('artifact root must be an existing writable directory without symlinks') from None
@@ -75,10 +78,12 @@ class ArtifactStoreLayout:
         object.__setattr__(self, '_mutex', RLock())
 
     @classmethod
-    def for_maintenance(cls, *, durable: Path, canonical: Path, comparison: Path, export: Path) -> ArtifactStoreLayout:
+    def for_maintenance(cls, *, durable: Path, canonical: Path, comparison: Path, export: Path,
+                        root_validator: Callable[[ArtifactLocation], None] | None = None) -> ArtifactStoreLayout:
         layout = object.__new__(cls)
         for location, path in zip(ROOT_ORDER, (durable, canonical, comparison, export), strict=True):
             object.__setattr__(layout, location.value, path)
+        object.__setattr__(layout, "root_validator", root_validator)
         layout._initialize(allow_unavailable=True)
         return layout
 
@@ -94,6 +99,8 @@ class ArtifactStoreLayout:
                 raise ValueError("artifact root was unavailable at maintenance start")
             if directory_identity(self.root(location)) != self._identities[location]:
                 raise ValueError("artifact root identity changed")
+            if self.root_validator is not None:
+                self.root_validator(location)
         except (OSError, ValueError, StopIteration):
             raise ManifestVerificationError("artifact root unavailable; preflight/restart required") from None
 

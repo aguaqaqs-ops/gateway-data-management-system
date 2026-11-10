@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -20,7 +21,7 @@ from support.storage_layout import write_storage_layout
 
 
 @pytest.mark.parametrize("missing", ["repository", "artifacts", "metadata", "scratch"])
-def test_production_missing_root_fails_before_database_open_and_creates_no_replacement(
+def test_host_probe_missing_root_fails_before_database_open_and_creates_no_replacement(
     tmp_path: Path, missing: str,
 ) -> None:
     roots = prepare_test_roots(RepositoryRoots.under(tmp_path / "roots"))
@@ -28,7 +29,7 @@ def test_production_missing_root_fails_before_database_open_and_creates_no_repla
     target.rmdir()
     token = tmp_path / "token"
     token.write_text("test-token")
-    settings = RepositoryServiceSettings(profile="production", bearer_token_file=token, roots=roots)
+    settings = RepositoryServiceSettings(profile="test", bearer_token_file=token, roots=roots)
     with patch.object(ControlStore, "open") as opened:
         with pytest.raises(ServiceStartupError, match="configured RS root is unavailable"):
             ServiceRuntime.start(settings)
@@ -61,6 +62,26 @@ def _container_command(tmp_path: Path, *, nested_mount: bool = False) -> list[st
     image = os.environ.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE")
     if not image:
         pytest.fail("preloaded RS dependency image is required for the storage boundary proof")
+    if not nested_mount:
+        repository = Path(__file__).resolve().parents[2]
+        prepared = subprocess.run([sys.executable, str(repository / "scripts/tests/runtime_config_fixture.py"), str(tmp_path)],
+                       check=False, capture_output=True, text=True, timeout=30)
+        assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+        document = json.loads((tmp_path / "storage-layout.json").read_bytes())
+        command = ["docker", "run", "--rm", "--name", f"gateway-rs-proof-{uuid4().hex}",
+            "--label", "gateway.test-task=p7-s1a-f", "--pull=never", "--network=none", "--user=0",
+            "--memory=4294967296", "--memory-swap=4294967296", "--cpus=2", "--cgroupns=host",
+            "--env", "PYTHONPATH=/workspace/vnext/repository_service/src:/workspace/vnext/repository_contracts/src",
+            "--env", "PYTHONDONTWRITEBYTECODE=1",
+            "--mount", f"type=bind,source={repository},target=/workspace/vnext,readonly"]
+        for slot, item in document["roots"].items():
+            if slot.startswith("rs-"):
+                command += ["--mount", f"type=bind,source={item['source']},target={item['path']}"]
+        for name in ("storage-layout", "resource-profile"):
+            command += ["--mount", f"type=bind,source={tmp_path / (name + '.json')},target=/run/gateway/{name}.json,readonly"]
+        command += ["--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json",
+                    "--env", "GATEWAY_RESOURCE_PROFILE_FILE=/run/gateway/resource-profile.json"]
+        return command + ["--entrypoint", "sh", image]
     tmp_path.chmod(0o755)
     roots = prepare_test_roots(RepositoryRoots.under(tmp_path / "roots"))
     roots.repository.parent.chmod(0o755)
@@ -154,9 +175,16 @@ try:
     assert runtime.layout.published_repository(response.repository_id.hex).is_dir()
 finally:
     runtime.shutdown()
+import json
+from dataclasses import asdict
+from pathlib import Path
+from gateway_repository_service.runtime_preflight import mounts, _cgroup_chain
+chain = _cgroup_chain()
+print('ACTUAL_RS_ROLE ' + json.dumps({'euid': os.geteuid(), 'cgroup': {name: (chain[0] / name).read_text().strip() for name in ('memory.max','memory.swap.max','cpu.max')}, 'mounts': [asdict(entry) for entry in mounts() if entry.target in {str(path) for path in settings.storage_roots.paths()}]}, sort_keys=True))
 print('GATEWAY_ENTRYPOINT_START_AND_CREATE_OK euid=' + str(os.geteuid()))
 """
     result = _run_container(command, ["/workspace/vnext/repository_service/docker-entrypoint.sh",
         "python", "-c", script], timeout=45)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "GATEWAY_ENTRYPOINT_START_AND_CREATE_OK euid=" in result.stdout
+    print(result.stdout, flush=True)

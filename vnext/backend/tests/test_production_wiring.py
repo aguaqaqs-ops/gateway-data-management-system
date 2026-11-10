@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from tests.support.artifact_layout import open_test_store
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
 from tests.support.configuration_facts import preview_result_with_facts
 
@@ -559,8 +560,7 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
         assert ref in covered
 
 
-def _seed_protected_artifacts(artifact_root: Path, refs: tuple[ArtifactRef, ...], payloads: dict[str, bytes]) -> None:
-    store = open_test_store(artifact_root)
+def _seed_protected_artifacts(store: LocalArtifactStore, refs: tuple[ArtifactRef, ...], payloads: dict[str, bytes]) -> None:
     for ref in refs:
         store.put(payloads[ref.artifact_id], ref)
 
@@ -643,7 +643,8 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         **canonical_fixture.payloads,
     }
     _seed_protected_artifacts(
-        artifact_root,
+        LocalArtifactStore(artifact_layout_from_config(settings.deployment_config.storage),
+            staging_max_bytes=settings.deployment_config.resources.temporary.staging_max_bytes_per_object),
         protected_refs,
         payloads,
     )

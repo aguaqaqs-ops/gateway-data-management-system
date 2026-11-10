@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_repository_service.runtime_preflight import RuntimePreflight
+
 import logging
 import os
 import threading
@@ -111,6 +113,7 @@ class ServiceRuntime:
         default_factory=MutableConsistencyWatch,
         repr=False,
     )
+    storage_guard: RuntimePreflight | None = field(default=None, repr=False)
     _stopping: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @classmethod
@@ -123,6 +126,8 @@ class ServiceRuntime:
     ) -> "ServiceRuntime":
         stack = ExitStack()
         try:
+            deployment = settings.deployment_config
+            guard = RuntimePreflight(deployment, "repository_service", startup_capacity=False) if deployment is not None else None
             bearer_token = settings.resolve_bearer_token()
             layout = DurableLayout.create_service(settings.storage_roots)
             root_lock = DurableRootLock(layout.service_lock)
@@ -190,6 +195,7 @@ class ServiceRuntime:
                     layout=layout,
                     import_store=import_store,
                     mutation_store=mutation_store,
+                    before_sweep=(lambda: guard.check(capacity=False)) if guard is not None else None,
                 )
             if isinstance(cleaner, ArtifactCleaner):
                 cleaner.reclaim_until_disk_admission(
@@ -197,6 +203,8 @@ class ServiceRuntime:
                 )
             if not has_layout_disk_admission(layout, settings):
                 raise ServiceStartupError("durable root free disk is below admission threshold")
+            if guard is not None:
+                guard.check()
             stopping = threading.Event()
             import_worker_pool = ImportWorkerPool(
                 settings=settings,
@@ -205,6 +213,7 @@ class ServiceRuntime:
                 provider_factory=provider_factory,
                 locks=import_locks,
                 shutdown_event=stopping,
+                before_claim=guard.check if guard is not None else None,
             )
             stack.callback(
                 lambda: import_worker_pool.stop(timeout=settings.import_shutdown_grace_seconds)
@@ -235,6 +244,7 @@ class ServiceRuntime:
             )
             stack.pop_all()
             runtime = cls(
+                storage_guard=guard,
                 settings=settings,
                 layout=layout,
                 root_lock=root_lock,
@@ -511,6 +521,8 @@ class ServiceRuntime:
 
     def _readiness_failure(self) -> str | None:
         try:
+            if self.storage_guard is not None:
+                self.storage_guard.check()
             if self._stopping.is_set():
                 return "service is shutting down"
             if not self.root_lock.is_held():

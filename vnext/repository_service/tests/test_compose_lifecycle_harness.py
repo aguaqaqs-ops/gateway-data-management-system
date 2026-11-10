@@ -648,6 +648,7 @@ def _empty_project_docker(
     command: list[str],
     *,
     restore_exists: bool = False,
+    mountpoint: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if command[:3] == ["docker", "compose", "-p"]:
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
@@ -661,8 +662,11 @@ def _empty_project_docker(
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
     if command[:3] == ["docker", "volume", "inspect"]:
         if restore_exists:
-            return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+            document = [{"Labels": {"com.docker.compose.project": command[-1].rsplit("_", 1)[0]}, "Mountpoint": str(mountpoint)}]
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(document), stderr="")
         return subprocess.CompletedProcess(command, 1, stdout="", stderr="not found")
+    if command[:3] == ["docker", "ps", "-aq"]:
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
     if command[:3] == ["docker", "volume", "rm"]:
         if restore_exists:
             return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
@@ -700,13 +704,13 @@ def test_cleanup_compose_project_skips_missing_restore_volume() -> None:
         harness.cleanup_compose_project(names, env={})
 
 
-def test_cleanup_compose_project_tears_down_before_query_temp_assertion() -> None:
+def test_cleanup_compose_project_tears_down_before_query_temp_assertion(tmp_path: Path) -> None:
     names = harness.allocate_compose_resources("import", suffix="ffffffffffff")
     calls: list[list[str]] = []
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
-        return _empty_project_docker(command, restore_exists=True)
+        return _empty_project_docker(command, restore_exists=True, mountpoint=tmp_path)
 
     with (
         patch("support.compose_lifecycle_harness.subprocess.run", side_effect=fake_run),
@@ -813,7 +817,9 @@ def test_inspect_networks_command_and_parser() -> None:
     assert discovery.inside_endpoint != discovery.gate_host_endpoint
 
 
-def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine() -> None:
+def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(harness, "_snapshot_bind_arguments", lambda _volume: [
+        "--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json"])
     image = "gateway-repository-service:local"
     project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
     hold = harness.snapshot_hold_command(

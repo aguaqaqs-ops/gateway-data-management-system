@@ -29,11 +29,11 @@ OPERATION_BUDGET = 40 * GIB
 START_AVAILABLE = 56 * GIB
 END_AVAILABLE = 8 * GIB
 SERVICES = {"backend", "worker", "repository-service"}
-RESOURCE_ENV = {
-    "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS": "1",
-    "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(OPERATION_BUDGET),
-    "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(WORKER_ENVELOPE),
-    "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_RESERVE_BYTES": str(WORKER_RESERVE),
+RESOURCE_PROFILE = {
+    "kernel_threads": 1,
+    "kernel_memory_bytes": OPERATION_BUDGET,
+    "memory_envelope_bytes": WORKER_ENVELOPE,
+    "memory_reserve_bytes": WORKER_RESERVE,
 }
 LOADS = {"w3": "2x", "w4": "w4-10pct", "w4-pressure": "w4-100pct"}
 SYNTHETIC_MANIFEST_SHA = "cc175d99a627cd7e2e40364847dc9cfc59fb2b342b543c2f3ba6e89e2d5216b3"
@@ -188,9 +188,11 @@ def _resource_snapshot(
             raise RuntimeError("service OOM counters are incomplete")
         status = Path(f"/proc/{pid}/status").read_text()
         rss = re.findall(r"^VmHWM:\s+(\d+) kB$", status, re.M)
-        resources = {entry.partition("=")[0]: entry.partition("=")[2]
-                     for entry in raw["Config"].get("Env", [])
-                     if entry.partition("=")[0] in RESOURCE_ENV}
+        resources: dict[str, Any] = {}
+        if service == "worker":
+            resources = json.loads(command(["docker", "exec", container_id, "python", "-c",
+                "import json,os; from pathlib import Path; print(json.dumps(json.loads(Path(os.environ['GATEWAY_RESOURCE_PROFILE_FILE']).read_bytes())['worker']))"],
+                cwd=worktree, env=env))
         services[service] = {
             "id": raw["Id"], "image_id": raw["Image"], "started_at": state["StartedAt"],
             "restart_count": raw["RestartCount"], "oom_killed": state["OOMKilled"],
@@ -201,7 +203,7 @@ def _resource_snapshot(
             "memory_peak": int((directory / "memory.peak").read_text().strip()),
             "memory_events": {key: int(value) for key, value in events.items()},
             "rss_hwm_bytes": int(rss[0]) * 1024 if len(rss) == 1 else None,
-            "resource_env": resources,
+            "resource_profile": resources,
         }
     if set(services) != SERVICES:
         raise RuntimeError("three-service resource endpoint is incomplete")
@@ -230,7 +232,7 @@ def _resource_pass(start: dict[str, Any], end: dict[str, Any]) -> bool:
     return bool(worker["memory_max"] == str(WORKER_ENVELOPE)
                 and worker["host_memory_limit"] == WORKER_ENVELOPE
                 and worker["memory_peak"] <= WORKER_ENVELOPE
-                and worker["resource_env"] == RESOURCE_ENV)
+                and {key: worker["resource_profile"].get(key) for key in RESOURCE_PROFILE} == RESOURCE_PROFILE)
 
 
 def _input_manifest(manifest: Path, input_source: Path) -> dict[str, str]:
@@ -386,6 +388,8 @@ def main() -> int:
     parser.add_argument("--mode", choices=("MODIFIED_ONLY", "FULL"), required=True)
     parser.add_argument("--sample", choices=tuple(sorted(SAMPLES)), required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--runtime-compose-override", type=Path, required=True,
+                        help="external override rendered from the explicit storage/resource JSON; no resource env aliases")
     parser.add_argument("--prepared-image-ids", type=Path, required=True,
                         help="fixed JSON mapping Compose service name to same-node image ID")
     parser.add_argument("--expected-repository", type=Path, required=True,
@@ -421,8 +425,7 @@ def main() -> int:
                 "GATEWAY_REAL_DUMP_ROOT": str(root),
                 "GATEWAY_REAL_DUMP_LOG_DIR": str(evidence / "compose-failure-logs"),
                 "GATEWAY_DOCKER_BUILD_NETWORK": "none",
-                "GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES": str(WORKER_ENVELOPE),
-                "GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES": str(OPERATION_BUDGET)})
+                "GATEWAY_RUNTIME_COMPOSE_OVERRIDE": str(args.runtime_compose_override.resolve())})
     for key in ("RUSTUP_TOOLCHAIN", "RUSTUP_HOME", "CARGO_HOME", "VIRTUAL_ENV", "CONDA_PREFIX",
                 "GATEWAY_COMPOSE_GATE_PREBUILT", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
                 "http_proxy", "https_proxy", "all_proxy"):

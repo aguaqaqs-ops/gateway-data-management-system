@@ -66,6 +66,7 @@ from gateway_repository_service.mutation_store import (
 )
 from gateway_repository_service.process import DoltRunner, ProcessBoundaryError
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
+from gateway_repository_service.runtime_preflight import check_configured_root
 from gateway_repository_service.upload_artifact.admission_pin import (
     OwnedPathError,
     open_owned_ready_artifact,
@@ -186,6 +187,10 @@ def _assert_control_database_files(
 
 def _bind_snapshot_layout(settings: RepositoryServiceSettings) -> DurableLayout:
     try:
+        config = settings.storage_layout_config
+        if config is not None:
+            for slot in config.role_roots("repository_service"):
+                check_configured_root(config, slot)
         layout = DurableLayout.bind_existing(settings.storage_roots)
         _assert_root_containment(layout)
         return layout

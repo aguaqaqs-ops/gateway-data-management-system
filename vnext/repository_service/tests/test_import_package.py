@@ -1269,3 +1269,37 @@ def test_manifest_rejects_malformed_or_oversized_non_enum_sql_type(
             settings,
             build_package_bytes(manifest=manifest),
         )
+
+
+DEPLOYMENT_TEMPORARY_BOUNDARIES = (("staging_max_bytes_per_object", "compressed"),
+                                  ("scratch_max_bytes_per_attempt", "total expanded"))
+
+
+@pytest.mark.parametrize("field,message", DEPLOYMENT_TEMPORARY_BOUNDARIES)
+def test_deployment_caps_bound_only_their_actual_storage_payloads(tmp_path: Path, field: str, message: str) -> None:
+    fixture = Path(__file__).resolve().parents[2] / "fixtures/runtime-config/v1"
+    manifest = json.dumps(tiny_manifest_dict(), separators=(",", ":")).encode()
+    replay = b"SELECT 1;\n"
+    payload = build_package_bytes(entries=[(MANIFEST_ENTRY_NAME, manifest), (REPLAY_SQL_ENTRY_NAME, replay)])
+    exact = len(payload) if field == "staging_max_bytes_per_object" else len(manifest) + len(replay)
+    for limit, accepted in ((exact, True), (exact - 1, False)):
+        resource = json.loads((fixture / "resource-profile.json").read_bytes())
+        resource["temporary"][field] = limit
+        resource_path = tmp_path / f"resources-{limit}.json"
+        resource_path.write_text(json.dumps(resource))
+        configured = RepositoryServiceSettings(profile="test", bearer_token="token",
+            storage_layout_file=fixture / "storage-layout.json", resource_profile_file=resource_path)
+        assert configured.max_decompressed_tar_stream_bytes == 4 * 1024**3
+        if field == "scratch_max_bytes_per_attempt":
+            assert configured.max_upload_bytes == 256 * 1024**2
+        else:
+            assert configured.max_total_expanded_entry_bytes == 4 * 1024**3
+        artifact = tmp_path / f"artifact-{limit}.zst"
+        staging = tmp_path / f"scratch-{limit}"
+        if accepted:
+            validate_package(artifact, staging, configured, payload)
+        else:
+            with pytest.raises(ImportPackageRejected, match=message):
+                validate_package(artifact, staging, configured, payload)
+            assert not staging.exists() or not any(staging.iterdir())
+        assert artifact.read_bytes() == payload

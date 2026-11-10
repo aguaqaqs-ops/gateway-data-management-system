@@ -29,7 +29,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_backend_settings_require_absolute_paths_and_http_url(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError, match="absolute"):
+    with pytest.raises(ValueError, match="absolute"):
         make_backend_settings(tmp_path, control_db_path=Path("relative.sqlite3"))
     with pytest.raises(ValidationError, match="absolute"):
         make_backend_settings(tmp_path, storage_layout_file=Path("artifacts"))

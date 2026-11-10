@@ -1,21 +1,22 @@
-## Operation worker
+## Backend and operation worker
 
-The process-local operation worker is started from the source-based backend image with:
+Production deployment requires `GATEWAY_STORAGE_LAYOUT_FILE` and
+`GATEWAY_RESOURCE_PROFILE_FILE`, mounted read-only. The two strict JSON files
+own all ten storage locations and worker/service resources. Backend and worker
+share the six BE roots; the DB is always `be-metadata/control.sqlite3`.
 
-```bash
-GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH=/var/lib/gateway/control/control.sqlite3 \
-GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT=/var/lib/gateway/artifacts \
-GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL=http://repository-service:8000 \
-GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE=/run/secrets/repository-bearer-token \
-python -m gateway_backend.bootstrap.operation_worker
-```
+Prepare the actual mounts/directories, run explicit host `check-host`,
+`init-layout`, `check-layout`, and render the Compose override as described in
+[the deployment runbook](../deploy/README.md#storage-and-resource-configuration-p7-s1a).
+The base Compose file has no usable default storage. Missing mounts, wrong
+markers, permissions or actual cgroup limits refuse startup before DB writes,
+readiness and claims. Runtime identity loss blocks new work until restart.
 
-`CONTROL_DB_PATH` and `ARTIFACT_ROOT` must be absolute. The worker creates the control DB
-parent directory, verifies SQLite integrity, and requires the artifact root to already exist.
-`SIGTERM` and `SIGINT` request a graceful drain. An empty database loads the frozen preview
-JobDefinition registry, reaches readiness, remains idle, and exits cleanly after the signal.
-
-HTTP backend settings use the `GATEWAY_BACKEND_` prefix for the same control DB, artifact root,
-and repository read values. `/healthz` is liveness only; `/readyz` stays false until settings,
-SQLite integrity, artifact root, and the preview registry are valid. Logs and health responses
-must not include bearer tokens or host paths.
+The worker command remains `python -m gateway_backend.bootstrap.operation_worker`.
+Repository URL, bearer token file and provisioned mapping settings keep the
+`GATEWAY_BACKEND_OPERATION_WORKER_` prefix. N/M/E/reserve/W/K come exclusively
+from the resource JSON; old root, DB-path and repeated resource environment
+settings have no runtime entrypoints. Existing roots must already exist.
+`SIGTERM` and `SIGINT` request a graceful drain. `/healthz` is liveness only;
+`/readyz` also checks the current storage/resource boundary. Logs exclude tokens
+and host source paths.

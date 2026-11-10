@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.deployment_config import StorageLayoutConfig, DeploymentConfig
 from gateway_repository_service.storage_roots import RepositoryRoots
 
 
@@ -34,6 +34,7 @@ class RepositoryServiceSettings(BaseSettings):
     bearer_token_file: Path | None = None
     bearer_token: str | None = None
     roots: RepositoryRoots | None = None
+    resource_profile_file: Path | None = Field(default=None, validation_alias="GATEWAY_RESOURCE_PROFILE_FILE")
     storage_layout_file: Path | None = Field(default=None, validation_alias="GATEWAY_STORAGE_LAYOUT_FILE")
     dolt_binary: Path = Path("/usr/local/bin/dolt")
     dolt_version: str = "2.1.11"
@@ -79,7 +80,23 @@ class RepositoryServiceSettings(BaseSettings):
     full_scan_timeout_seconds: int = 3600
     import_headroom_bytes: int = 1 * 1024**3
 
-    @field_validator("storage_layout_file")
+    @model_validator(mode="after")
+    def _apply_deployment_temporary_limits(self) -> Self:
+        if self.storage_layout_file is not None and self.resource_profile_file is not None:
+            deployment = self.deployment_config
+            assert deployment is not None
+            # Upload staging/ready bytes belong to rs-artifacts; extracted entry
+            # payloads belong to rs-scratch. Tar framing remains its own bound.
+            self.max_upload_bytes = min(self.max_upload_bytes, deployment.resources.temporary.staging_max_bytes_per_object)
+            self.max_total_expanded_entry_bytes = min(self.max_total_expanded_entry_bytes,
+                deployment.resources.temporary.scratch_max_bytes_per_attempt)
+        return self
+
+    @property
+    def scratch_file_max_bytes(self) -> int:
+        return self.max_total_expanded_entry_bytes
+
+    @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
     def _storage_layout_file_must_be_absolute(cls, value: Path | None) -> Path | None:
         if value is not None and not value.is_absolute():
@@ -187,6 +204,18 @@ class RepositoryServiceSettings(BaseSettings):
     @property
     def control_db_path(self) -> Path:
         return self.storage_roots.metadata / "service-state" / "repository-service.sqlite3"
+
+    @cached_property
+    def deployment_config(self) -> DeploymentConfig | None:
+        if self.storage_layout_file is None:
+            if self.roots is not None and self.profile != "production":
+                return None
+            raise SettingsError("canonical deployment configuration is required")
+        if self.resource_profile_file is None:
+            raise SettingsError("GATEWAY_RESOURCE_PROFILE_FILE is required")
+        if self.roots is not None:
+            raise SettingsError("typed probe roots cannot override canonical deployment configuration")
+        return DeploymentConfig.load(self.storage_layout_file, self.resource_profile_file)
 
     @cached_property
     def storage_layout_config(self) -> StorageLayoutConfig | None:

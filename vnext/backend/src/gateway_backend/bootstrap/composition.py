@@ -94,7 +94,8 @@ from gateway_backend.infrastructure.repository_write import (
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
-from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.runtime_preflight import RuntimePreflight
+from gateway_backend.bootstrap.deployment_identity import publish_configuration, compare_configuration
 
 from gateway_backend.settings import BackendSettings
 
@@ -186,6 +187,7 @@ class BackendRuntime:
     admission_gate: ClosableAdmissionGate
     workspace_http: WorkspaceHttpDependencies
     history_http: HistoryHttpDependencies
+    storage_guard: RuntimePreflight
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
@@ -274,11 +276,14 @@ def prepare_backend_runtime(
 ) -> BackendRuntime:
     """Validate settings, SQLite, artifact root, registry, and Repository readiness before /readyz."""
 
+    guard = RuntimePreflight(settings.deployment_config, "backend", container=settings.runtime_mode == "container")
+    publish_configuration(settings.deployment_config)
+    guard.configuration_check = lambda: compare_configuration(settings.deployment_config)
+    guard.check()
     repository_token = load_repository_bearer_token(settings.repository_bearer_token_file)
     load_internal_bearer_token(settings.internal_bearer_token_file)
     load_session_file(settings.session_file)
     parent = settings.control_db_path.parent
-    parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
@@ -291,7 +296,7 @@ def prepare_backend_runtime(
         )
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)
-    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    deployment = settings.deployment_config
     local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()
@@ -405,6 +410,7 @@ def prepare_backend_runtime(
     )
     return BackendRuntime(
         settings=settings,
+        storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
         history_http=history_http,

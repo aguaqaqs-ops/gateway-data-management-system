@@ -10,6 +10,8 @@ from uuid import UUID
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.process import DoltRunner
+from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.faults import ImportRecoveryFaultPoint
 from gateway_repository_service.versioned_import.provider import CandidateAImportProvider
@@ -35,7 +37,8 @@ class _CrashRecoveryFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        storage_layout_file=Path(args.storage_layout_file),
+        roots=RepositoryRoots.from_config(StorageLayoutConfig.load(Path(args.storage_layout_file))),
+        min_free_disk_bytes=1, min_free_disk_fraction=0.000001,
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,

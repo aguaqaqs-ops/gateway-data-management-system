@@ -51,9 +51,12 @@ class DoltCliError(CandidateAError):
     """Candidate A Dolt CLI execution failure."""
 
 
-def write_query(directory: Path, sql: str) -> Path:
+def write_query(directory: Path, sql: str, *, max_bytes: int | None = None) -> Path:
+    raw = sql.encode("utf-8")
+    if max_bytes is not None and len(raw) > max_bytes:
+        raise DoltCliError("query scratch size exceeds configured limit")
     path = directory / f"query-{uuid4().hex}.sql"
-    path.write_text(sql, encoding="utf-8")
+    path.write_bytes(raw)
     return path
 
 
@@ -696,6 +699,7 @@ class CandidateADoltCli:
         query = write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF {target_literal};\n",
+            max_bytes=self.settings.scratch_file_max_bytes,
         )
         stream: ProcessStream | None = None
         stream_closed = False
@@ -799,7 +803,7 @@ class CandidateADoltCli:
         cancellation: StreamCancellationCheck | None = None,
         call_timeout: Callable[[float], float] | None = None,
     ) -> list[dict[str, Any]]:
-        query = write_query(self.query_directory, sql)
+        query = write_query(self.query_directory, sql, max_bytes=self.settings.scratch_file_max_bytes)
         args: list[str] = []
         if revision is not None:
             args.append(f"--branch={revision}")

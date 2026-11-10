@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -293,6 +294,11 @@ def prepare_secret_file_for_container(
         )
 
 
+_runtime_overrides: dict[str, Path] = {}
+_runtime_directories: dict[str, Path] = {}
+_runtime_fixture_owners: dict[str, tuple[str, str]] = {}
+
+
 def compose_command(*args: str, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
     return [
         "docker",
@@ -301,6 +307,7 @@ def compose_command(*args: str, project: str, compose_file: Path = COMPOSE_FILE)
         project,
         "-f",
         str(compose_file),
+        *(["-f", str(_runtime_overrides[project])] if project in _runtime_overrides else []),
         "--profile",
         COMPOSE_PROFILE,
         *args,
@@ -1126,10 +1133,12 @@ def cleanup_compose_project(
     check_temp_baseline: frozenset[str] | None = None,
     client_pid_baseline: frozenset[int] | None = None,
     thread_baseline: frozenset[int] | None = None,
+    retain_runtime: bool = False,
 ) -> None:
     errors: list[Exception] = []
     query_temps: tuple[str, ...] = ()
     container_dolt: tuple[str, ...] = ()
+    down_succeeded = False
     try:
         query_temps = collect_project_query_temps(names, image=service_image)
     except Exception as exc:
@@ -1152,6 +1161,8 @@ def cleanup_compose_project(
             cwd=VNEXT_ROOT,
             timeout=180,
         )
+        if completed.returncode == 0:
+            down_succeeded = True
         if completed.returncode != 0:
             errors.append(
                 RuntimeError(
@@ -1162,6 +1173,11 @@ def cleanup_compose_project(
             )
     except Exception as exc:
         errors.append(exc)
+    if down_succeeded:
+        try:
+            cleanup_runtime_resources(names, retain=retain_runtime or bool(errors))
+        except Exception as exc:
+            errors.append(exc)
     try:
         leftover = project_inventory(names.project)
         if not leftover.is_empty():
@@ -1172,32 +1188,6 @@ def cleanup_compose_project(
                     f"volumes={leftover.volumes!r} hold={leftover.hold_containers!r}"
                 )
             )
-    except Exception as exc:
-        errors.append(exc)
-    try:
-        restore_ls = subprocess.run(
-            ["docker", "volume", "inspect", names.restore_volume],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if restore_ls.returncode == 0:
-            refuse_unscoped_deletion((names.restore_volume,), names.allowed_names)
-            removed = subprocess.run(
-                ["docker", "volume", "rm", names.restore_volume],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if removed.returncode != 0:
-                errors.append(
-                    RuntimeError(
-                        "failed to remove restore volume "
-                        f"{names.restore_volume}: {removed.stderr.strip()}"
-                    )
-                )
     except Exception as exc:
         errors.append(exc)
     if container_dolt:
@@ -1276,10 +1266,7 @@ def snapshot_hold_command(*, image: str, volume: str, project: str) -> list[str]
         "gateway",
         "--env",
         "GATEWAY_REPOSITORY_PROFILE=production",
-        "--env",
-        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
-        "-v",
-        f"{volume}:/var/lib/gateway/repository",
+        *_snapshot_bind_arguments(volume),
         image,
         "-m",
         "gateway_repository_service.snapshot_admin",
@@ -1331,7 +1318,8 @@ def parse_hold_ready_json(raw: str) -> dict[str, Any]:
 
 
 def volume_create_command(volume: str) -> list[str]:
-    return ["docker", "volume", "create", volume]
+    return ["docker", "volume", "create", "--label",
+            "com.docker.compose.project=" + volume.rsplit("_", 1)[0], volume]
 
 
 def query_temp_listing_command(*, image: str, volume: str) -> list[str]:
@@ -1452,10 +1440,7 @@ def snapshot_check_command(*, image: str, volume: str) -> list[str]:
         "gateway",
         "--env",
         "GATEWAY_REPOSITORY_PROFILE=production",
-        "--env",
-        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
-        "-v",
-        f"{volume}:/var/lib/gateway/repository",
+        *_snapshot_bind_arguments(volume),
         image,
         "-m",
         "gateway_repository_service.snapshot_admin",
@@ -1541,6 +1526,7 @@ def start_p2r2_service(
     )
     secrets = (token,)
     paths = tuple(host_paths)
+    _prepare_runtime_volume(names.data_volume, names.project)
     rendered = run_command(
         compose_config_command(project=names.project),
         env=resolved_env,
@@ -2066,8 +2052,12 @@ def p2r2_project_session(
     client_pid_baseline: frozenset[int] | None = None,
     thread_baseline: frozenset[int] | None = None,
 ) -> Iterator[None]:
+    failed = False
     try:
         yield
+    except BaseException:
+        failed = True
+        raise
     finally:
         cleanup_compose_project(
             names,
@@ -2080,6 +2070,7 @@ def p2r2_project_session(
             check_temp_baseline=check_temp_baseline,
             client_pid_baseline=client_pid_baseline,
             thread_baseline=thread_baseline,
+            retain_runtime=failed,
         )
 
 
@@ -2110,6 +2101,7 @@ def copy_named_volume(
 
 def check_named_volume(*, image: str, volume: str, allowed: frozenset[str]) -> dict[str, Any]:
     refuse_unscoped_deletion((volume,), allowed)
+    _prepare_runtime_volume(volume, volume.rsplit("_", 1)[0])
     completed = run_command(snapshot_check_command(image=image, volume=volume))
     return parse_check_passed_json(completed.stdout)
 
@@ -2153,3 +2145,78 @@ def versioned_ref_status(*, base_url: str, token: str, repository_id: str) -> in
         return int(exc.code)
     except (URLError, TimeoutError) as exc:
         raise RuntimeError("versioned ref request failed") from exc
+
+
+def _prepare_runtime_volume(volume: str, project: str) -> Path:
+    if volume in _runtime_directories:
+        return _runtime_directories[volume]
+    run_command(["docker", "volume", "create", "--label", f"com.docker.compose.project={project}", volume])
+    labels = json.loads(run_command(["docker", "volume", "inspect", "-f", "{{json .Labels}}", volume]).stdout)
+    if not isinstance(labels, dict) or labels.get("com.docker.compose.project") != project:
+        raise ValueError("runtime volume is not owned by this project")
+    source = Path(run_command(["docker", "volume", "inspect", "-f", "{{.Mountpoint}}", volume]).stdout.strip())
+    directory = Path(tempfile.mkdtemp(prefix="gateway-rs-bind-", dir=os.environ.get("TMPDIR")))
+    owner = project + "-" + uuid4().hex
+    _runtime_directories[volume] = directory
+    _runtime_fixture_owners[volume] = (project, owner)
+    run_command([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+                 str(directory), "--rs-source", str(source), "--owner", owner])
+    _runtime_overrides[project] = directory / "compose-runtime.json"
+    return directory
+
+
+def _snapshot_bind_arguments(volume: str) -> list[str]:
+    directory = _runtime_directories.get(volume)
+    if directory is None:
+        raise ValueError("snapshot bind fixture must be explicitly prepared")
+    storage = json.loads((directory / "storage-layout.json").read_bytes())
+    result = ["--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json",
+              "--env", "GATEWAY_RESOURCE_PROFILE_FILE=/run/gateway/resource-profile.json"]
+    for slot, root in storage["roots"].items():
+        if slot.startswith("rs-"):
+            result.extend(["--mount", f"type=bind,src={root['source']},dst={root['path']}"])
+    for name in ("storage-layout", "resource-profile"):
+        result.extend(["--mount", f"type=bind,src={directory / (name + '.json')},dst=/run/gateway/{name}.json,readonly"])
+    return result
+
+
+def cleanup_runtime_resources(names: ComposeResourceNames, *, retain: bool) -> None:
+    """Remove only this fixture's stopped volumes and owned external directory.
+
+    Failed state is copied while stopped before a volume is removed; the owned
+    directory and original diagnostics remain available for the reviewer.
+    """
+    fixtures = [(volume, directory, _runtime_fixture_owners[volume][1])
+                for volume, directory in _runtime_directories.items()
+                if volume in _runtime_fixture_owners and _runtime_fixture_owners[volume][0] == names.project]
+    volumes = {volume for volume, _directory, _owner in fixtures} | {names.restore_volume}
+    for volume in volumes:
+        refuse_unscoped_deletion((volume,), names.allowed_names)
+        inspected = subprocess.run(["docker", "volume", "inspect", volume], capture_output=True,
+                                   text=True, check=False, timeout=30)
+        if inspected.returncode:
+            continue
+        raw = json.loads(inspected.stdout)[0]
+        if (raw.get("Labels") or {}).get("com.docker.compose.project") != names.project:
+            raise ValueError("refusing cleanup of a foreign volume")
+        referenced = run_command(["docker", "ps", "-aq", "--filter", "volume=" + volume]).stdout.strip()
+        if referenced:
+            raise ValueError("runtime volume still has container references; state retained")
+        if retain and next(Path(raw["Mountpoint"]).iterdir(), None) is not None:
+            if not fixtures:
+                raise ValueError("failed volume retained because no owned diagnostic directory is available")
+            destination = fixtures[0][1] / ("failure-" + volume)
+            if destination.exists() or destination.is_symlink():
+                raise ValueError("refusing to overwrite a failure snapshot")
+            # Standard archive copy preserves the failed tree's UID/GID, modes,
+            # timestamps, symlinks, hardlinks and supported xattrs.
+            run_command(["cp", "--archive", "--reflink=auto", "--", raw["Mountpoint"], str(destination)])
+            print("runtime_volume_snapshot=" + str(destination), flush=True)
+        run_command(["docker", "volume", "rm", volume])
+    for volume, directory, owner in fixtures:
+        completed = run_command([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+            str(directory), "--owner", owner, "--cleanup", *(["--retain"] if retain else [])])
+        print(completed.stdout, end="", flush=True)
+        _runtime_directories.pop(volume, None)
+        _runtime_fixture_owners.pop(volume, None)
+    _runtime_overrides.pop(names.project, None)

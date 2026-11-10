@@ -40,6 +40,12 @@ def parse_args(argv):
     parser.add_argument("--repo", default=None, help="git repo for --git-objects (default: script toplevel)")
     parser.add_argument("--sha-file", action="append", default=[], help="sha256sum-format file (repeatable)")
     parser.add_argument("--source-dir", default=None, help="root for path+SHA pairing checks")
+    parser.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        help="7-12/40-char token that is intentionally not a git object (for example an image-tag suffix); reported as allowed",
+    )
     return parser.parse_args(argv)
 
 
@@ -145,6 +151,8 @@ def main(argv=None):
                     failures.append(f"no git repo for object check: {token} (lines {where})")
                 elif git_resolves(repo, token):
                     print(f"ok git object {token} (lines {where})")
+                elif token in args.allow:
+                    print(f"allowed non-git token {token} (lines {where})")
                 else:
                     failures.append(f"unresolved git object: {token} (lines {where})")
             else:

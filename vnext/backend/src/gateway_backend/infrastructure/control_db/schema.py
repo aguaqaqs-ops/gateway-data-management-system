@@ -1065,7 +1065,9 @@ def verify_control_db_file(db_path: Path, *, require_initialized: bool = False) 
 
     The connection profile switches the journal mode to WAL, which writes to the file. A file that
     is rejected here is therefore never opened for writing. Missing and empty files are left to
-    ``bootstrap_control_db_schema``, which creates the schema in them.
+    ``bootstrap_control_db_schema``, which creates the schema in them. Explicit
+    maintenance uses require_initialized to reject missing/empty/uninitialized
+    files instead; it must never create a replacement deletion authority.
     """
 
     if not db_path.is_file() or db_path.stat().st_size == 0:

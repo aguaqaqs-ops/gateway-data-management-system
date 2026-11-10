@@ -7,7 +7,7 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from _thread import RLock
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from gateway_backend.artifacts.location import ArtifactLocation
@@ -44,12 +44,14 @@ class ArtifactStoreLayout:
     canonical: Path
     comparison: Path
     export: Path
-    _allow_unavailable: InitVar[bool] = False
     _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(init=False, repr=False, compare=False)
     _borrows: dict[ArtifactLocation, tuple[int, int]] = field(init=False, repr=False, compare=False)
     _mutex: RLock = field(init=False, repr=False, compare=False)
 
-    def __post_init__(self, _allow_unavailable: bool) -> None:
+    def __post_init__(self) -> None:
+        self._initialize(allow_unavailable=False)
+
+    def _initialize(self, *, allow_unavailable: bool) -> None:
         paths = [self.root(location) for location in ROOT_ORDER]
         for index, path in enumerate(paths):
             if not isinstance(path, Path):
@@ -62,7 +64,7 @@ class ArtifactStoreLayout:
             try:
                 identities[location] = _directory_identity(self.root(location))
             except (OSError, ValueError, StopIteration):
-                if not _allow_unavailable:
+                if not allow_unavailable:
                     raise ValueError('artifact root must be an existing writable directory without symlinks') from None
                 # Only explicit maintenance may retain an unavailable slot. It
                 # has no usable identity and check() refuses it permanently.
@@ -73,7 +75,11 @@ class ArtifactStoreLayout:
 
     @classmethod
     def for_maintenance(cls, *, durable: Path, canonical: Path, comparison: Path, export: Path) -> ArtifactStoreLayout:
-        return cls(durable, canonical, comparison, export, _allow_unavailable=True)
+        layout = object.__new__(cls)
+        for location, path in zip(ROOT_ORDER, (durable, canonical, comparison, export), strict=True):
+            object.__setattr__(layout, location.value, path)
+        layout._initialize(allow_unavailable=True)
+        return layout
 
     def root(self, location: ArtifactLocation) -> Path:
         if type(location) is not ArtifactLocation:

@@ -38,6 +38,7 @@ def test_cleanup_rejects_other_protection_database_through_symlinks(tmp_path: Pa
     else:
         db.rename(metadata / 'original.sqlite3')
         db.symlink_to(other_db)
+    code: int | str | None
     try:
         code = main(['--storage-layout', str(storage), '--resource-profile', str(resources), 'cleanup'])
     except SystemExit as exc:

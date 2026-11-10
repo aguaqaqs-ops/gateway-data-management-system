@@ -63,9 +63,9 @@ git show 5ddd73b962e2432f961a46f6743395a53a388435:docs/backend-vnext/refactoring
 | KEEP_CURRENT | `p5-arch-closure-s1-census.json` | `real_dump_journey.py:1110`、`s4_submit_measurement_driver.py:411` 与 `test_table_access_sql_census.py` 实读；真实数据/SQL census owner |
 | KEEP_EVIDENCE | `p6-s4-c-review.md` | `vnext/fixtures/vectors/mutation/sql-replay/v1/batch-boundaries.json` 的 independent_review 字段固定引用；mutation/fixture owner |
 | KEEP_EVIDENCE | P6 全部原始成功/失败记录、`p6-s6-{report,iii-execution,coordination,implementation-prompt}.md`、Owner 决议 | exit/失败与当前 S1a 模型来源；不把旧失败改写成通过；Backend/P6 各 owner |
-| KEEP_EVIDENCE | R2 S6 独审与最终 `p4-r2-durable-store-atomic-transition-handoff.md`；P5 round5 handoff、`p5-5b-s6-independent-review-5.md`、S8 最终交接 | 完整承接三候选的历史闭合/限制；原 owner；历史阶段的授权不能当当前权限 |
+| KEEP_EVIDENCE | R2 S6 独审与最终 `p4-r2-durable-store-atomic-transition-handoff.md`；`p5-5b-s6-remediation-round5-handoff.md`、`p5-5b-s6-independent-review-5.md`、S8 最终交接 | 完整承接三候选的历史闭合/限制；round5 含 skipped 容器和后续工作等证据，后续归档评估延期；原 owner；历史阶段的授权不能当当前权限 |
 | KEEP_EVIDENCE | `p5-5b-s3-independent-review-8.md` | 虽逐字入站零命中，明确是 Final Stage Sign-off；不因零命中归档最终签署 |
-| DEFER | `p5-5b-s6-remediation-round5-handoff.md` 及其他未逐文件核清的长 review/过程记录 | round5 含 skipped 容器、后续工作等证据；本轮小集合已足够，未逐条追清所有后续 owner 前保留。P5 Delivery / 各原 owner |
+| DEFER | 其他未逐文件核清的长 review/过程记录 | 本轮小集合已足够，未逐条追清所有后续 owner 前保留。P5 Delivery / 各原 owner |
 | DEFER | S1a 各目标补充、实现阶段总规划和 FE review 的 stale/同步问题 | 并行归属，不属 cleanup 可写范围；S1a / FE / 总规划 owner |
 
 ## 4. 可写集合交接

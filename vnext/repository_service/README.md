@@ -192,163 +192,48 @@ path。
 本说明不是 S7 Compose PASS，也不把 Stage J image 升级为当前 candidate 的容器证据。
 镜像重建延期到 S7-5 provisional image。
 
-## Private whole-root snapshot / restore（operator only）
+## Private snapshot / restore（operator only）
 
-这不是 public backup/restore API，也不注册 HTTP route。部署方对 **整个** quiescent
-durable root 做一次性 snapshot，并恢复到 **已证明为空** 的目标 root。不承诺 RPO、RTO
-或 CommitId 跨另一场灾难保持稳定。失败时保持 Service stopped，不自动修复、不 overlay
-live root。
+RS 只从 `GATEWAY_STORAGE_LAYOUT_FILE` 读取 `rs-repository`、`rs-artifacts`、
+`rs-metadata`、`rs-scratch` 四个位置；旧 DATA_ROOT 和 `--data-root` 入口已删除。
+目录协议见 [Repository Service Contract §14.1](../../docs/backend-vnext/refactoring/formal/contracts/repository-service.md#141-durable-root-layout-and-publication)。
 
-禁止：只拷 SQLite、只拷单个 Dolt tree、partial component、non-empty overlay、在
-Service 仍运行时操作。`snapshot check` 不猜测目标曾经是否为空；empty-target 由本
-runbook 在 restore 前证明。
-
-Private CLI：
+管理命令使用与 Service 完全相同的配置和版本，不提供 HTTP backup/restore API：
 
 ```bash
-python -m gateway_repository_service.snapshot_admin hold [--data-root PATH]
-python -m gateway_repository_service.snapshot_admin check [--data-root PATH]
+python -m gateway_repository_service.snapshot_admin hold --storage-layout-file /run/gateway/storage-layout.json
+python -m gateway_repository_service.snapshot_admin check --storage-layout-file /run/gateway/storage-layout.json
+python -m gateway_repository_service.versioned_import.admin inspect --operation-id <UUID> --storage-layout-file /run/gateway/storage-layout.json
 ```
 
-stdout 只有一行 machine-readable JSON。`hold` 必须看到完整 `status=ready` 且确认 helper
-仍存活后才能复制；`check` 必须看到 `status=passed` 且 exit 0 后才能启动 Service。helper
-退出即表示 snapshot 窗口关闭。SIGINT/SIGTERM 是 hold 的受控结束。
+停止投递、排空或查明未定 effect，停止 Service/provider/cleaner 后运行 `hold`。只有读到
+完整 `status=ready` JSON 且 helper 仍存活，才进入复制窗口；helper 持有 metadata 的唯一
+service lock，并已 checkpoint SQLite WAL。复制完整 metadata（含实际存在的 WAL/SHM）、
+repository、artifacts 到新的空快照集合，同一个窗口内完成所有 root。根目录所在盘不同，
+不承诺在线原子快照。Scratch 可在停服后重建，不能充当 package/ledger/commit 恢复来源。
 
-### Host data-root
-
-将 `<DATA_ROOT>` 换成实际 durable root。operator 与 Service 使用同一支持版本。
+例如部署方已从配置核出的三个绝对源目录为 `RS_METADATA`、`RS_REPOSITORY`、
+`RS_ARTIFACTS`，且 `SNAPSHOT_SET` 是本轮新的空目录：
 
 ```bash
-# 1. 停止 Service，确认无本机 gateway 进程再写该 root。
-# 2. hold：checkpoint 成功后打印 ready JSON，并一直持锁。另开终端做 snapshot。
-python -m gateway_repository_service.snapshot_admin hold --data-root "<DATA_ROOT>"
-
-# 3. 仅在 ready JSON 完整且 hold 仍存活时，复制到新的空 snapshot 目录。
-SNAPSHOT_ROOT="$PWD/repository-root-snapshot"
-test ! -e "$SNAPSHOT_ROOT"
-mkdir -p "$SNAPSHOT_ROOT"
-cp -a "<DATA_ROOT>/." "$SNAPSHOT_ROOT/"
-
-# 4. 结束 hold（对该进程 SIGTERM/SIGINT），确认它已退出。
-# 5. 证明 restore 目标为空（允许不存在，或空目录 / 仅 lost+found）。
-RESTORE_ROOT=/var/lib/gateway/repository-restore
-test ! -e "$RESTORE_ROOT" || \
-  test -z "$(find "$RESTORE_ROOT" -mindepth 1 ! -name lost+found -print -quit)"
-
-# 6. 整根恢复。不要先跑会创建 layout 的普通 Service 入口。
-mkdir -p "$RESTORE_ROOT"
-cp -a "$SNAPSHOT_ROOT/." "$RESTORE_ROOT/"
-
-# 7. Service 仍停止时 check。
-python -m gateway_repository_service.snapshot_admin check --data-root "$RESTORE_ROOT"
-
-# 8. 用相同支持版本启动，指向 $RESTORE_ROOT，确认 /readyz 与 snapshot 时的 public facts。
+mkdir "$SNAPSHOT_SET/metadata" "$SNAPSHOT_SET/repository" "$SNAPSHOT_SET/artifacts"
+cp -a "$RS_METADATA/." "$SNAPSHOT_SET/metadata/"
+cp -a "$RS_REPOSITORY/." "$SNAPSHOT_SET/repository/"
+cp -a "$RS_ARTIFACTS/." "$SNAPSHOT_SET/artifacts/"
 ```
 
-### Compose named volume
+核数量/字节/摘要和全部成员后，对 hold 发送 SIGTERM/SIGINT 并要求 exit 0。恢复前停止
+所有相关 writer，逐 root 核对目标为空，再恢复匹配集合与权限，配置四个新位置并按部署
+预检规则初始化 scratch。用 `check` 验证 layout、SQLite integrity/foreign keys、artifact
+绑定和全部已注册 Dolt 库；exit 0 与 `status=passed` 后才启动同版本服务。重放快照前保存
+的 RepositoryId/CommitId/ref/catalog public facts，逐字段比较，并检查快照后 mutation
+不会出现在恢复集合。单 root、SQLite-only、partial set、non-empty overlay 和 live-root
+恢复均不满足此过程。
 
-使用最终 Repository Service image、gateway euid，并 **覆盖** entrypoint，避免
-`docker-entrypoint.sh` 在 check 前创建或修改 layout。不要新增常驻 snapshot service。
-hold 需保持前台存活；snapshot 在第二个终端进行。
-
-```bash
-COMPOSE=(docker compose -f vnext/deploy/compose.yaml --profile p2-r2)
-IMAGE="$("${COMPOSE[@]}" images -q repository-service)"
-test -n "$IMAGE"
-
-# 解析当前 service 已挂载的 data volume，不要猜测 project 前缀。
-CONTAINER="$("${COMPOSE[@]}" ps -aq repository-service)"
-test -n "$CONTAINER"
-VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/gateway/repository"}}{{.Name}}{{end}}{{end}}' "$CONTAINER")"
-test -n "$VOLUME"
-
-# 1. 停止 Service。
-"${COMPOSE[@]}" stop repository-service
-
-# 2. hold（覆盖 entrypoint，gateway euid，同一 named volume）。固定名字使 signal、
-#    liveness 与退出状态都可审计；detach 只用于让本 shell 执行 snapshot 命令。
-HOLD_CONTAINER="repository-snapshot-hold"
-docker rm -f "$HOLD_CONTAINER" 2>/dev/null || true
-docker run -d --name "$HOLD_CONTAINER" --entrypoint python --user gateway \
-  --env GATEWAY_REPOSITORY_PROFILE=production \
-  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
-  -v "$VOLUME":/var/lib/gateway/repository \
-  "$IMAGE" -m gateway_repository_service.snapshot_admin hold
-
-# 只接受一行完整 ready JSON，并再次确认 helper 仍存活。
-HOLD_JSON=""
-for _attempt in $(seq 1 80); do
-  HOLD_JSON="$(docker logs "$HOLD_CONTAINER" 2>/dev/null || true)"
-  test -n "$HOLD_JSON" && break
-  test "$(docker inspect -f '{{.State.Running}}' "$HOLD_CONTAINER")" = true
-  sleep 0.1
-done
-python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["action"] == "hold" and p["status"] == "ready"' "$HOLD_JSON"
-test "$(docker inspect -f '{{.State.Running}}' "$HOLD_CONTAINER")" = true
-
-# 3. ready JSON 完整且 hold 容器仍运行时，一次性 tar 整个 volume。
-mkdir -p ./repository-root-snapshot
-docker run --rm \
-  -v "$VOLUME":/from:ro \
-  -v "$PWD/repository-root-snapshot":/to \
-  alpine:3.20 tar -C /from -cf /to/root.tar .
-
-# 4. 对 hold 发送 SIGTERM，确认受控 exit 0 后删除容器。
-docker stop --signal SIGTERM --time 5 "$HOLD_CONTAINER"
-test "$(docker inspect -f '{{.State.ExitCode}}' "$HOLD_CONTAINER")" = 0
-docker rm "$HOLD_CONTAINER"
-
-# 5. 新 volume 必须为空。禁止先用普通 entrypoint 启动 Service。
-RESTORE_VOLUME="repository-service-restore"
-docker volume create "$RESTORE_VOLUME"
-docker run --rm -v "$RESTORE_VOLUME":/data:ro alpine:3.20 \
-  sh -c 'find /data -mindepth 1 ! -name lost+found | grep . && exit 1 || exit 0'
-
-# 6. 整根恢复，再交给 gateway 所有权。
-docker run --rm \
-  -v "$RESTORE_VOLUME":/to \
-  -v "$PWD/repository-root-snapshot":/from:ro \
-  alpine:3.20 tar -C /to -xf /from/root.tar
-docker run --rm --entrypoint chown --user root \
-  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
-  "$IMAGE" -R gateway:gateway /var/lib/gateway/repository
-
-# 7. check：仍覆盖 entrypoint，gateway euid，挂载 restore volume。
-docker run --rm --entrypoint python --user gateway \
-  --env GATEWAY_REPOSITORY_PROFILE=production \
-  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
-  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
-  "$IMAGE" -m gateway_repository_service.snapshot_admin check
-
-# 8. 用同一 image 和 restore volume 走普通 entrypoint 启动。TOKEN_FILE 是当前部署
-#    使用、且 container 内 gateway 可读的 bearer secret file。
-TOKEN_FILE=/path/to/repository-bearer-token
-RESTORED_CONTAINER="repository-service-restored"
-docker run --rm -d --name "$RESTORED_CONTAINER" \
-  --env GATEWAY_REPOSITORY_PROFILE=production \
-  --env GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository \
-  --env GATEWAY_REPOSITORY_BEARER_TOKEN_FILE=/run/secrets/repository-bearer-token \
-  -v "$TOKEN_FILE":/run/secrets/repository-bearer-token:ro \
-  -v "$RESTORE_VOLUME":/var/lib/gateway/repository \
-  -p 127.0.0.1:8000:8000 \
-  "$IMAGE"
-
-# 9. /readyz 必须通过；随后重放 snapshot 前保存的 RepositoryId、CommitId、ref/catalog
-#    client 请求并逐字段比较 expected public facts。另重放 snapshot 后 mutation 的 ref
-#    请求并确认 404。不要以直接读取 SQLite/Dolt 代替这些 public 检查。
-until docker exec "$RESTORED_CONTAINER" python -c \
-  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz')"; do
-  sleep 1
-done
-
-# 10. 保存 public 验证结果后停止；exit 和本轮 container inventory 必须收敛。
-docker stop --signal SIGTERM --time 30 "$RESTORED_CONTAINER"
-test -z "$(docker ps -aq --filter name="^/${RESTORED_CONTAINER}$")"
-```
-
-partial/SQLite-only/single-Dolt/non-empty overlay/live-root 都必须失败并保持
-Service stopped。通过 `check` 只表示该 whole root 可以进入 same-version startup
-验证，并不单独关闭 S7/S10 restored Compose lifecycle gate。
+容器管理命令覆盖普通 entrypoint，并使用 gateway euid；挂载同一只读配置及四个明确
+声明的位置，hold 仍需 metadata 的可写 WAL checkpoint。不得只传一个旧 named volume，
+也不得让普通 entrypoint 在 check 前初始化缺失的 durable 集合。标准 bind profile、实际
+marker/mount/cgroup 预检与集中容器门禁由 S1a F/G 收敛；本说明不宣称这些门禁已通过。
 
 ## 镜像构建（P2-R4 Compose gate / 远端 cache）
 

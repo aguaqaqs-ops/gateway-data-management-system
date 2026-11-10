@@ -150,7 +150,6 @@ def test_effect_recovery_rebuilds_scratch_and_preserves_published_commit(roots: 
 def test_import_capacity_rejects_the_extraction_filesystem(roots: RepositoryRoots, monkeypatch: pytest.MonkeyPatch) -> None:
     import os
     from types import SimpleNamespace
-    from gateway_repository_service import capacity
 
     layout = DurableLayout.create_service(roots)
     settings = _settings(roots)
@@ -166,7 +165,7 @@ def test_import_capacity_rejects_the_extraction_filesystem(roots: RepositoryRoot
                 f_blocks=values.f_blocks, f_files=1000, f_favail=1000))
         return native(path)
 
-    monkeypatch.setattr(capacity.os, "statvfs", measured)
+    monkeypatch.setattr("gateway_repository_service.capacity.os.statvfs", measured)
     with pytest.raises(CapacityAdmissionError, match="below import"):
         assert_import_layout_admission(layout, settings)
     assert len(observed) == len({path.stat().st_dev for path in roots.paths()})

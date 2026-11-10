@@ -47,24 +47,6 @@ def _capacity_bounds(root: Path, settings: RepositoryServiceSettings) -> tuple[i
     return settings.min_free_disk_bytes, settings.min_free_disk_fraction
 
 
-def measure_disk_admission(root: Path, settings: RepositoryServiceSettings) -> DiskAdmission:
-    stat = os.statvfs(root)
-    block_size = stat.f_frsize
-    free_bytes = stat.f_bavail * block_size
-    total_bytes = stat.f_blocks * block_size
-    required = free_disk_threshold_bytes(
-        total_bytes=total_bytes,
-        min_bytes=_capacity_bounds(root, settings)[0],
-        fraction=_capacity_bounds(root, settings)[1],
-    )
-    return DiskAdmission(
-        free_bytes=free_bytes,
-        total_bytes=total_bytes,
-        required_free_bytes=required,
-        free_inodes=stat.f_favail if stat.f_files else None,
-    )
-
-
 def is_durable_root_writable(service_state: Path) -> bool:
     try:
         if not service_state.is_dir():
@@ -80,20 +62,6 @@ def is_durable_root_writable(service_state: Path) -> bool:
 def assert_durable_root_writable(service_state: Path) -> None:
     if not is_durable_root_writable(service_state):
         raise CapacityAdmissionError("durable root is not writable")
-
-
-def has_free_disk_admission(root: Path, settings: RepositoryServiceSettings) -> bool:
-    try:
-        return measure_disk_admission(root, settings).admitted
-    except OSError:
-        return False
-
-
-def assert_free_disk_admission(root: Path, settings: RepositoryServiceSettings) -> DiskAdmission:
-    admission = measure_disk_admission(root, settings)
-    if not admission.admitted:
-        raise CapacityAdmissionError("durable root free disk is below admission threshold")
-    return admission
 
 
 def measure_upload_disk_admission(

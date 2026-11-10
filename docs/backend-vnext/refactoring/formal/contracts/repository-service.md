@@ -672,57 +672,42 @@ process-local writer lock。不同Repository可以有限并行。
 
 ### 14.1 Durable-root layout and publication
 
-首个layout使用component-first结构，内部`layout_format_version`固定为integer `1`：
+RS 通过同一 `GATEWAY_STORAGE_LAYOUT_FILE` 绑定四个独立、互不嵌套的具名 root。
+`layout_format_version=2` 是本项目唯一内部布局基线，不读取旧单 root 布局。
 
 ```text
-<data_root>/
-  control/
-    layout.json
-    service.lock
-
-  versioned/
-    <repository_key>/
-
-  staging/
-    versioned/
-      <repository_key>.<nonce>/
-    artifacts/
-
-  artifacts/
-    <repository_key>/
-      staging/
-      ready/
-
-  service-state/
-    repository-service.sqlite3
-  provider/
+rs-metadata/
+  control/{layout.json,service.lock}
+  service-state/repository-service.sqlite3  # WAL/SHM 同目录
+  provider/runner-home/.dolt/config_global.json
+rs-repository/
+  versioned/<repository_key>/
+  .staging/versioned/<repository_key>.<nonce>/
+rs-artifacts/
+  <repository_key>/{staging,ready}/
+rs-scratch/
+  import/       # operation 展开和恢复 probe/digest
+  query/        # 查询 SQL spool
+  provider/     # Dolt TMPDIR
 ```
 
-- `<repository_key>`是Service生成`RepositoryId`的lowercase UUID hex，不包含caller
-  提供的名称或路径片段；所有public response和log均不得暴露内部path。
-- `versioned/<repository_key>/`直接保存Dolt repository；sql-server候选的
-  `data_dir`只允许指向`versioned/`。
-- `control/`拥有layout marker和进程生命周期lock；P2-R2+在`service-state/`惰性创建
-  第11节control DB。P2-R1 probe不得提前创建该数据库。
-- `artifacts/`是Repository-scoped临时transport；P2-R1只验证同filesystem staging
-  与publication primitive，不提前实现UploadArtifact生命周期。
-- `provider/`只保存最终选中provider需要的server-owned config/runtime metadata，
-  不保存caller secret或host path。
-- namespace按所属round惰性创建。P2-R1只使用disposable probe root；通过后固定首个
-  layout，P2-R2+才可在真实durable root激活相应namespace。
+`<repository_key>` 仍为 Service 生成的 lowercase UUID hex；public response/log 不暴露
+内部路径。Dolt cwd 只允许显式 owner roots，provider HOME/config 在 metadata，
+纯临时文件在 scratch；新建 HOME 在首条 Dolt 命令前关闭 versioncheck/metrics。
 
-未来CurrentTableStore只允许作为平级`current/<repository_key>/`component加法加入。
-当前不得创建`current/`、SQLite文件或Current marker，也不得为了目录复用引入
-StoreKind、generic store adapter、自动routing、dual-write或cross-store transaction。
-未来layout migration可以增加Current component，但不得搬迁或改写现有
-`versioned/` Dolt repository。`layout_format_version`是内部磁盘格式，不建立新的
-HTTP、package或DTO版本轴。
+各 root 可位于不同的本地 filesystem；只要求建库 `.staging/versioned → versioned`
+和各库 artifact `staging → ready` 各自同盘，以及 SQLite DB/WAL/SHM 同目录/同 mount。
+配置 root 自身允许独立挂载，root 以下保留 no-follow、server-owned path 及子挂载拒绝。
+不从 scratch rename 到其他盘，也不从 scratch 复制 Dolt 树替换在线库。
 
-首版支持Linux local或block-backed durable filesystem，包括经目标环境验证的Docker
-named volume。`control/`、`versioned/`、`staging/`、`artifacts/`、
-`service-state/`和`provider/`必须位于同一mounted filesystem。NFS、SMB、共享RWX
-volume、FUSE、tmpfs和container writable layer不属于首版production支持面；若目标
-部署需要其中任一项，必须重新执行P2-R1 filesystem probe并显式修订支持边界。
+启动/readiness 枚举四个实际 filesystem 的容量；import 在受理和执行前分别检查
+repository headroom 与 scratch 展开上限。同盘需求相加且只计一次 free/inode；分盘逐盘
+检查，不只检查 metadata。upload 在 artifacts 盘检查声明大小后的水位。
+这些是预检查，不是并发容量预约；后续 ENOSPC/I/O 错误仍遵循原 effect/recovery 屏障。
+
+支持经验证的 Linux 本地/block-backed filesystem；production 的实际 source/mount/marker、
+权限与资源预检由部署 bootstrap 负责。NFS、SMB、共享 RWX、FUSE、tmpfs 和 container
+writable layer 不属于 production 支持面。host 跨 filesystem fault fixture 不构成部署证明。
 
 Service在ASGI lifecycle开始时对`control/service.lock`取得非阻塞exclusive
 `flock`，并保持同一file descriptor直到进程退出。获取失败时进程不得进入ready；
@@ -749,14 +734,13 @@ publication。Provider内部commit durability由Dolt拥有；Service的layout、
 ## 15. Persistence and disaster recovery
 
 Versioned commit history永久保留。Repository Service不提供public backup/restore
-API。部署方对整个quiescent durable root执行一致性volume snapshot并由operator
-恢复。
-
-Snapshot runbook顺序固定为：停止intake并等待/终止service-owned provider；停止
-Service；取得root lock；对SQLite执行WAL checkpoint并确认无open writer；quiesce
-durable filesystem；一次性snapshot整个data root。Restore必须恢复匹配的layout、
-control DB、artifact和完整Dolt tree，再启动相同支持版本并通过ready/integrity检查。
-不得只snapshot SQLite或单个Dolt repository。
+API。部署方在停止 intake、排空/查明 effect 并停止 Service 后，使用同一布局配置
+取得 metadata 的唯一 service lock；checkpoint SQLite/WAL 后，在同一个持锁窗口收集
+metadata、repository、artifacts 的完整一致集合。独立 filesystem 不能在线原子 snapshot。
+Scratch 是派生状态，可在停服时重建，但不替代 artifact package、control ledger 或 Dolt commit。
+Restore 必须对每个目标 root 证明为空，恢复匹配的 layout/control DB/WAL、artifact 和完整
+Dolt tree，再由同一支持版本运行 `snapshot_admin check --storage-layout-file <file>` 并核对
+原 public facts。不得只 snapshot SQLite、某一个 root 或单个 Dolt repository。
 
 恢复目标是最近一次volume snapshot。之后的package可以从外部备份人工重放，但
 CommitId可能改变，外部引用允许人工修正。Contract不承诺RPO、RTO、每commit同步
@@ -817,9 +801,9 @@ additive sibling加入：
 - [Shared Canonical Encoding](shared-canonical-encoding.md)
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
 
-## P7-S1a 目标补充：RS分盘布局（待实现）
+## P7-S1a：RS 分盘与部署边界
 
-本节为A可审目标；E/F实现与容器验证前，§14.1/§15仍描述现行单root实现，不将目标记为已支持。见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)与 [S1a执行方案§3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)。不改变public wire、UUID ArtifactId、import marker/CAS/effect与原eligibility语义。
+E 已将 §14.1/§15 的应用/文件系统布局改为具名 roots；完整部署 marker/mount/cgroup 接线及集中容器验证仍由 F/G 完成，未验项目不记通过。见 [A入口](../plans/p7-s1a-a-entry-and-contract.md)与 [S1a执行方案§3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)。不改变public wire、UUID ArtifactId、import marker/CAS/effect与原eligibility语义。
 
 目标以同一storage-layout/resource-profile显式绑定rs-repository、rs-artifacts、rs-metadata、rs-scratch。control/layout/service.lock、service-state SQLite及其WAL/SHM、provider HOME/config在rs-metadata；versioned与.staging/versioned在rs-repository；repository-scoped artifact staging/ready在rs-artifacts；可重建import/query/probe/provider临时文件在rs-scratch。删除全局layout.root/staging推导；仅建库staging→versioned和upload staging→ready各自同filesystem，以及SQLite journal同目录。正常import绝不从scratch复制Dolt树替换在线库。
 

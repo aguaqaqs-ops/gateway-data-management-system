@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.artifacts.scratch import ScratchSpacePort
 
-from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config, local_store_from_config, scratch_space_from_config
 
 import logging
 import signal
@@ -63,7 +63,6 @@ from gateway_backend.application.submit_jobs import SubmitControlTransactionFact
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
-    LocalArtifactStore,
 )
 from gateway_backend.infrastructure.control_db import (
     ControlDbIntegrityError,

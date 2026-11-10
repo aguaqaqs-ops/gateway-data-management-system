@@ -255,7 +255,7 @@ def test_production_writers_require_known_headroom_before_bytes(
     from gateway_shared_kernel import raw_blob_digest
     from gateway_backend.artifacts import ArtifactRef
     from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
-    from gateway_backend.artifacts.store import ManifestVerificationError
+    from gateway_backend.artifacts.store import StorageCapacityUnavailable
     from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
 
     payload = b"known-write"
@@ -274,7 +274,7 @@ def test_production_writers_require_known_headroom_before_bytes(
             store.put(payload, ref)
             assert store.locate(ref) == payload
         else:
-            with pytest.raises(ManifestVerificationError, match="write failed"):
+            with pytest.raises(StorageCapacityUnavailable):
                 store.put(payload, ref)
             assert not store.object_directory(ref.artifact_id).exists()
     else:
@@ -284,7 +284,7 @@ def test_production_writers_require_known_headroom_before_bytes(
                 with source.open_read() as stream:
                     assert stream.read() == payload  # buffered data is visible before close
             else:
-                with pytest.raises(preflight.CapacityUnavailable):
+                with pytest.raises(StorageCapacityUnavailable):
                     output.write(payload)
                 with source.open_read() as stream:
                     assert stream.read() == b""

@@ -6,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 
+from gateway_backend.artifacts.store import StorageCapacityUnavailable
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
@@ -76,6 +77,11 @@ async def accept_upload_route(
                 artifact_store=deps.artifact_store,
                 now=deps.now(),
             )
+        except StorageCapacityUnavailable as exc:
+            raise ApiError(
+                code="SERVICE_NOT_READY", message="storage write capacity unavailable",
+                status_code=503, details={"reason": "capacity_rejected"},
+            ) from exc
         except UploadStreamTimeoutError as exc:
             raise ApiError(
                 code="UPLOAD_STREAM_TIMEOUT",

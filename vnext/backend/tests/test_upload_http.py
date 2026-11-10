@@ -340,3 +340,45 @@ def test_accept_upload_sets_cancel_intent_on_running_preview(
     assert operation.cancel_requested is True
     assert steps[0].cancel_requested is True
     assert steps[0].status.value == "RUNNING"
+
+
+@pytest.mark.parametrize("target", ("be-durable", "be-scratch"))
+def test_multipart_known_write_capacity_refusal_is_service_not_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
+) -> None:
+    from dataclasses import replace
+    from typing import cast
+    from fastapi import FastAPI
+    from gateway_backend import runtime_preflight as preflight
+    from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+    from gateway_backend.deployment_config import DeploymentConfig
+    from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
+    from tests.support.artifact_layout import write_deployment_files
+
+    files = write_deployment_files(tmp_path / "configured")
+    deployment = DeploymentConfig.load(*files)
+    local = local_store_from_config(deployment)
+    environment = create_workspace_http_environment(tmp_path / "http")
+    app = cast(FastAPI, environment.client.app)
+    deps = app.state.workspace_http
+    app.state.workspace_http = replace(deps, scratch=scratch_space_from_config(deployment),
+        artifact_store=BoundedArtifactStore(local))
+    workspace = _create_workspace(environment.client, environment.auth_headers()).json()
+    original = preflight.check_capacity
+    calls: list[Path] = []
+    def capacity(path: Path, minimum: int, fraction: float, *, headroom: int = 0) -> tuple[int, int]:
+        calls.append(path)
+        if path == Path(deployment.storage.roots[target].path):
+            raise preflight.CapacityUnavailable("available is above watermark but below known write")
+        return original(path, minimum, fraction, headroom=headroom)
+    monkeypatch.setattr(preflight, "check_capacity", capacity)
+    response = environment.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=environment.auth_headers(idempotency_key="capacity-refusal"), files=upload_files(),
+    )
+    assert response.status_code == 503, response.text
+    assert response.json()["code"] == "SERVICE_NOT_READY"
+    assert response.json()["details"] == {"reason": "capacity_rejected"}
+    assert Path(deployment.storage.roots[target].path) in calls
+    assert not list(Path(deployment.storage.roots["be-durable"].path).glob("objects/*/*/*"))
+    assert not list(Path(deployment.storage.roots["be-scratch"].path).glob("scratch-*"))

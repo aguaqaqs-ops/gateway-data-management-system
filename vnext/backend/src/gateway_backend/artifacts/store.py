@@ -52,6 +52,10 @@ class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
         """Borrow verified immutable bytes; the provider owns their lifetime."""
 
 
+class StorageCapacityUnavailable(RuntimeError):
+    """The configured filesystem cannot admit the known additional write."""
+
+
 class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
 

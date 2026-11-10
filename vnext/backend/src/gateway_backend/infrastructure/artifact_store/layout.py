@@ -45,7 +45,7 @@ class ArtifactStoreLayout:
     canonical: Path
     comparison: Path
     export: Path
-    root_validator: Callable[[ArtifactLocation], None] | None = field(default=None, repr=False, compare=False)
+    root_validator: Callable[[ArtifactLocation], None] | None = field(default=None, init=False, repr=False, compare=False)
     _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(init=False, repr=False, compare=False)
     _borrows: dict[ArtifactLocation, tuple[int, int]] = field(init=False, repr=False, compare=False)
     _mutex: RLock = field(init=False, repr=False, compare=False)

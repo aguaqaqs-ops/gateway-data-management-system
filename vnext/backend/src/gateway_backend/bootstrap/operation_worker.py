@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.scratch import ScratchSpacePort
+from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+
 from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 
 import logging
@@ -365,7 +368,9 @@ def build_worker_runtime(
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
-    kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes)
+    kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes,
+        ScratchSpace(Path(deployment.storage.roots["be-scratch"].path),
+            max_bytes=deployment.resources.temporary.scratch_max_bytes_per_attempt))
     startup = _R4WorkerStartup(
         read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,
@@ -569,12 +574,13 @@ class _KernelWorkerRegistry:
     _registry: WorkerRegistry
     _threads: int
     _memory_budget_bytes: int
+    _scratch: ScratchSpacePort
 
     def resolve(self, key: JobStepKey) -> ClaimedExecutor | None:
         executor = self._registry.resolve(key)
         if executor is None:
             return None
-        return bind_kernel_execution(executor, threads=self._threads, memory_budget_bytes=self._memory_budget_bytes)
+        return bind_kernel_execution(executor, threads=self._threads, memory_budget_bytes=self._memory_budget_bytes, scratch=self._scratch)
 
 
 @dataclass(frozen=True, slots=True)

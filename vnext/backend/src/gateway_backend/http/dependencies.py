@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from fastapi import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from gateway_backend.artifacts.scratch import ScratchSpacePort
+
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.submission.ports import (
@@ -214,6 +216,7 @@ class FailClosedSubmissionReader:
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceHttpDependencies:
+    scratch: ScratchSpacePort
     session_port: SessionPort
     scope_resolution: ScopeResolutionPort
     baseline_head_read: BaselineHeadReadPort

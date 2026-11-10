@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from dataclasses import replace
+from gateway_backend.artifacts.scratch import ScratchSpacePort, scratch_scope
 
 from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyInput, BundleAssemblyContext, BundleAssemblyResult, assemble_bundle,
@@ -43,6 +44,7 @@ class ExecutionControlProbe:
 
 def bind_kernel_execution(
     executor: ClaimedExecutor, *, threads: int, memory_budget_bytes: int,
+    scratch: ScratchSpacePort | None = None,
 ) -> ClaimedExecutor:
     def execute(
         operation: OperationRecord, step: StepRecord,
@@ -54,7 +56,10 @@ def bind_kernel_execution(
             cancel_probe=ExecutionControlProbe(control), threads=threads,
             deadline_monotonic=None,
         )
-        with kernel_execution_scope(context, new_operation=True):
+        with ExitStack() as temporary, kernel_execution_scope(context, new_operation=True):
+            if scratch is not None:
+                session = temporary.enter_context(scratch.session(owner="operation:" + operation.operation_id))
+                temporary.enter_context(scratch_scope(session))
             return executor(operation, step, control, lease_session)
 
     return execute

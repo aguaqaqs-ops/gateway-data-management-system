@@ -12,6 +12,8 @@ from tests.support.dolt import dolt_available
 
 if TYPE_CHECKING:
     from gateway_backend.capabilities.table_access import KernelExecutionContext
+    from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+    from gateway_backend.artifacts.scratch import ScratchSessionPort
 
 
 @pytest.fixture
@@ -61,3 +63,18 @@ def operation_kernel_context() -> Iterator[KernelExecutionContext]:
 
     with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)) as context:
         yield context
+
+
+@pytest.fixture
+def scratch_space(tmp_path: Path) -> ScratchSpace:
+    from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+    root = tmp_path / "execution-scratch"
+    root.mkdir()
+    return ScratchSpace(root, max_bytes=2 * 1024**3)
+
+
+@pytest.fixture(autouse=True)
+def operation_scratch_context(scratch_space: ScratchSpace) -> Iterator[ScratchSessionPort]:
+    from gateway_backend.artifacts.scratch import scratch_scope
+    with scratch_space.session(owner="operation:test-operation") as session, scratch_scope(session):
+        yield session

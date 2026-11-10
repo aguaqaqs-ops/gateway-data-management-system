@@ -13,7 +13,8 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass, replace
 from time import perf_counter
-from tempfile import SpooledTemporaryFile
+from contextlib import ExitStack
+from gateway_backend.artifacts.scratch import current_scratch
 from typing import Protocol, cast
 
 import pyarrow as pa
@@ -699,9 +700,9 @@ def _write_arrow_parquet(
     control: RecordsPublicationContext,
 ) -> bytes:
     started = perf_counter()
-    spool = SpooledTemporaryFile(
-        max_size=min(limits.max_spool_bytes, limits.max_records_artifact_bytes), mode="w+b"
-    )
+    scratch = ExitStack()
+    _source, spool = scratch.enter_context(current_scratch().file(
+        byte_limit=min(limits.max_spool_bytes, limits.max_records_artifact_bytes)))
     writer: pq.ParquetWriter | None = None
     try:
         control.checkpoint()
@@ -734,9 +735,11 @@ def _write_arrow_parquet(
             raise
         raise RecordsPublicationError("records Parquet write failed") from exc
     finally:
-        if writer is not None:
-            writer.close()
-        spool.close()
+        try:
+            if writer is not None:
+                writer.close()
+        finally:
+            scratch.close()
         if control.timings is not None:
             control.timings["parquet_write_seconds"] = (
                 control.timings.get("parquet_write_seconds", 0.0)

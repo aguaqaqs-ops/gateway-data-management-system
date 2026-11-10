@@ -121,3 +121,44 @@ def test_actual_role_limits_and_ancestors_must_cover_profile(
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1, 2, 3})
     with pytest.raises(ValueError):
         real_check(deployment, "worker")
+
+
+def test_host_initialization_validates_all_roots_before_writing_and_is_idempotent(
+    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(preflight, "mounts", lambda: (preflight.Mount(1, "1:1", "/", "/", "/dev/mapper/gateway-data", True),))
+    monkeypatch.setattr(preflight, "check_host_budget", lambda _: None)
+    for root in deployment.storage.roots.values():
+        (Path(root.path) / preflight.MARKER).unlink()
+    unknown = Path(deployment.storage.roots["rs-scratch"].source) / "unknown"
+    unknown.write_bytes(b"preserve")
+    with pytest.raises(ValueError, match="empty"):
+        preflight.initialize_host(deployment)
+    assert all(not (Path(root.path) / preflight.MARKER).exists() for root in deployment.storage.roots.values())
+    assert unknown.read_bytes() == b"preserve"
+    unknown.unlink()
+    preflight.initialize_host(deployment)
+    preflight.check_host(deployment)
+    preflight.initialize_host(deployment)
+
+
+def test_renderer_runs_without_site_packages_and_owns_every_role_limit_and_bind(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures/runtime-config/v1"
+    output = tmp_path / "compose-runtime.json"
+    result = subprocess.run([sys.executable, "-S", str(fixtures.parents[2] / "scripts/render-runtime-config.py"),
+        "--storage-layout", str(fixtures / "storage-layout.json"), "--resource-profile", str(fixtures / "resource-profile.json"),
+        "render", "--output", str(output)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    services = json.loads(output.read_bytes())["services"]
+    assert set(services) == {"backend", "worker", "repository-service"}
+    assert services["worker"]["mem_limit"] == 32 * 1024**3
+    assert services["worker"]["memswap_limit"] == 32 * 1024**3
+    for role, service in services.items():
+        mounts = service["volumes"]
+        assert all(item["bind"]["create_host_path"] is False for item in mounts)
+        assert service["deploy"]["replicas"] == 1
+        own = "rs-" if role == "repository-service" else "be-"
+        assert all(own in item["target"] for item in mounts[:-2])
+        assert all(item["read_only"] for item in mounts[-2:])

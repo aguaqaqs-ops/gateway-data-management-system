@@ -2111,6 +2111,7 @@ def copy_named_volume(
 
 def check_named_volume(*, image: str, volume: str, allowed: frozenset[str]) -> dict[str, Any]:
     refuse_unscoped_deletion((volume,), allowed)
+    _prepare_runtime_volume(volume, volume.removesuffix("_repository-service-data"))
     completed = run_command(snapshot_check_command(image=image, volume=volume))
     return parse_check_passed_json(completed.stdout)
 
@@ -2170,7 +2171,9 @@ def _prepare_runtime_volume(volume: str, project: str) -> Path:
 
 
 def _snapshot_bind_arguments(volume: str) -> list[str]:
-    directory = _prepare_runtime_volume(volume, volume.removesuffix("_repository-service-data"))
+    directory = _runtime_directories.get(volume)
+    if directory is None:
+        raise ValueError("snapshot bind fixture must be explicitly prepared")
     storage = json.loads((directory / "storage-layout.json").read_bytes())
     result = ["--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json",
               "--env", "GATEWAY_RESOURCE_PROFILE_FILE=/run/gateway/resource-profile.json"]

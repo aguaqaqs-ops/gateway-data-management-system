@@ -813,7 +813,9 @@ def test_inspect_networks_command_and_parser() -> None:
     assert discovery.inside_endpoint != discovery.gate_host_endpoint
 
 
-def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine() -> None:
+def test_snapshot_hold_and_volume_commands_use_service_image_not_alpine(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(harness, "_snapshot_bind_arguments", lambda _volume: [
+        "--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json"])
     image = "gateway-repository-service:local"
     project = "gateway-p2r6-s7-lifecycle-aaaaaaaaaaaa"
     hold = harness.snapshot_hold_command(

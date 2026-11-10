@@ -283,7 +283,7 @@ def test_runtime_timeout_is_worker_fatal_without_worker_exit() -> None:
 
 
 def test_runtime_root_identity_loss_blocks_claim_before_opening_database(tmp_path: Path) -> None:
-    settings = make_operation_worker_settings(tmp_path)
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
     operation_worker_bootstrap.bootstrap_control_database(settings)
     runtime = operation_worker_bootstrap.build_worker_runtime(settings)
     assert runtime._startup.startup() is StartupDisposition.READY

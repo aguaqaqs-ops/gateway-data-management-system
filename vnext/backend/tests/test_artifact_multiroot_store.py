@@ -280,3 +280,19 @@ def test_exact_commit_restore_propagates_cancelled_existing_verification(
     with pytest.raises(InterruptedError, match='cancelled'):
         local.restore_canonical_from_exact_commit(b'content', ref, checkpoint=lambda: None)
     assert local.payload_path(ref.artifact_id).read_bytes() == b'content'
+
+
+def test_object_physical_observation_is_bounded_and_retains_physical_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = open_test_store(tmp_path / "objects")
+    ref = ref_for(ArtifactLocation.EXPORT, b"content")
+    store.put(b"content", ref)
+    monkeypatch.setattr(Path, "rglob", lambda *_args, **_kwargs: pytest.fail("observation must not scan roots"))
+    first = store.observe_object(ref.artifact_id)
+    second = store.observe_object(ref.artifact_id)
+    assert first["artifact_id"] == ref.artifact_id
+    assert first["service_owner"] == "backend"
+    assert first["location"] == "export"
+    assert first["logical_bytes"] == len(b"content")
+    assert first["device"] == second["device"]
+    assert first["inode"] == second["inode"]
+    assert first["allocated_bytes"] == store.payload_path(ref.artifact_id).stat().st_blocks * 512

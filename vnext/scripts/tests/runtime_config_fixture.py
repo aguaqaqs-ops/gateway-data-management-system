@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import runpy
 import sys
 from pathlib import Path
@@ -23,9 +22,14 @@ def prepare(directory: Path, rs_source: Path | None = None) -> Path:
     profile = json.loads((fixtures / "resource-profile.json").read_bytes())
     storage["filesystems"] = {}
     observed = mounts()
+    existing_rs = rs_source is not None and next(rs_source.iterdir(), None) is not None
     for slot, root in storage["roots"].items():
         source = (rs_source if slot.startswith("rs-") and rs_source is not None else directory / "roots") / slot
-        source.mkdir(mode=0o777, parents=True, exist_ok=True)
+        if existing_rs and slot.startswith("rs-"):
+            if not source.is_dir() or not (source / ".gateway-storage.json").is_file():
+                raise ValueError("existing snapshot fixture must contain every initialized RS root")
+        else:
+            source.mkdir(mode=0o777, parents=True, exist_ok=True)
         # Parent traversal is owned by this isolated fixture. Never change a
         # pre-existing filesystem root or Docker's volume metadata directory.
         if source.parent == directory / "roots":

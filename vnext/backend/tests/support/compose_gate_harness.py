@@ -336,7 +336,6 @@ def compose_image_ids(env: dict[str, str]) -> dict[str, dict[str, Any]]:
 
 def wait_http_ok(url: str, *, timeout_seconds: float = 180.0) -> None:
     import time
-from uuid import uuid4
     import urllib.error
     import urllib.request
 

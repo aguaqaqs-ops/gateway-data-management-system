@@ -39,11 +39,11 @@ def test_actual_rs_harness_starts_with_rendered_roots_and_cleans_only_owned_reso
     try:
         started = harness.start_p2r2_service(names, token_file=token_file, token=token,
             service_image=image, host_paths=(str(tmp_path), str(directory)), env=env)
-        actual = harness.run_command(["docker", "exec", started.container_id, "python", "-c",
+        actual = harness.run_command(["docker", "exec", "--user", "gateway", started.container_id, "python", "-c",
             "import json,os,urllib.request; from pathlib import Path; "
             "from gateway_repository_service.runtime_preflight import mounts,_cgroup_chain; "
             "from dataclasses import asdict; "
-            "print(json.dumps({'entrypoint_euid':os.geteuid(),'cgroup':{key:(_cgroup_chain()[0]/key).read_text().strip() for key in ('memory.max','memory.swap.max','cpu.max')},'roots':[asdict(entry) for entry in mounts() if entry.target.startswith('/var/lib/gateway/rs-')]}))"]).stdout
+            "print(json.dumps({'role_euid':os.geteuid(),'cgroup':{key:(_cgroup_chain()[0]/key).read_text().strip() for key in ('memory.max','memory.swap.max','cpu.max')},'roots':[asdict(entry) for entry in mounts() if entry.target.startswith('/var/lib/gateway/rs-')]}))"]).stdout
         print("ACTUAL_RS_COMPOSE_OWNER " + actual, flush=True)
         # Foreign ownership cannot authorize even an empty-directory cleanup.
         rejected = subprocess.run(["python3", "-I", str(harness.VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -88,7 +90,7 @@ class _FailingDestinationStore(InMemoryArtifactStore):
 
 
 def _raw_ref(name: str, raw: bytes, media_type: str = "application/json") -> ArtifactRef:
-    return ArtifactRef(name, media_type, len(raw), raw_blob_digest(raw))
+    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name), media_type, len(raw), raw_blob_digest(raw))
 
 
 def _surface_result(

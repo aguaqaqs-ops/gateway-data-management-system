@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -44,7 +46,7 @@ def _digest(seed: str) -> DigestRef:
 def _ref(name: str) -> ArtifactRef:
     raw = name.encode()
     return ArtifactRef(
-        artifact_id=name,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name),
         media_type="application/json",
         size_bytes=len(raw),
         raw_sha256=raw_blob_digest(raw),

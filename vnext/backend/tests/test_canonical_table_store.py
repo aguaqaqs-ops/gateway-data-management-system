@@ -166,7 +166,7 @@ def test_failed_stream_and_wrong_row_binding_publish_no_object(tmp_path: Path) -
     with pytest.raises(ValueError, match="row count"):
         store.put(stream, replace(bound, row_count=3))
     assert not list(backend.artifact_root.rglob("*.ref.jcs"))
-    assert canonical_table_key("repo", bound).artifact_id.startswith("canonical-table:")
+    assert canonical_table_key("repo", bound).artifact_id.startswith("a1:canonical:")
 
 
 def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None:
@@ -377,7 +377,7 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
     from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
     key = SnapshotTableArtifactCacheKey(row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), "repo")
-    invalid = put_with_built_ref(store, b"not parquet", artifact_id="broken-client-cache", media_type=ref.media_type)
+    invalid = put_with_built_ref(store, b"not parquet", artifact_id="a1:durable:ae8663ebf000f8c4f22c56edcef86e04131c0366743b4bca562b767a9c56b9a8", media_type=ref.media_type)
     cache.store_many(((key, invalid),))
     assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) is None
     assert cache.lookup_many((key,)) == {}

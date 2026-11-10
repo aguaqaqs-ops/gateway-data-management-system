@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from gateway_backend.artifacts.types import validate_artifact_id
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -137,6 +140,7 @@ class ArchivePlan:
     def __post_init__(self) -> None:
         if type(self.plan_id) is not str or not self.plan_id:
             raise ValueError("plan_id must be a non-empty string")
+        validate_archive_artifact_bindings(json.loads(self.frozen_input_json))
         if type(self.repository_id) is not str or not self.repository_id:
             raise ValueError("repository_id must be a non-empty string")
         if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
@@ -235,6 +239,7 @@ class ArchiveAnomalyResolutionEvent:
     subject_payload_json: str
 
     def __post_init__(self) -> None:
+        validate_archive_artifact_bindings(json.loads(self.subject_payload_json))
         if self.subject_kind not in {
             ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
             ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
@@ -272,3 +277,24 @@ def affirmative_resolution_action(kind: ArchiveSubjectKind) -> ArchiveAnomalyRes
         ArchiveSubjectKind.CONFIGURATION_TIME_QUALITY: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_QUALITY,
         ArchiveSubjectKind.CONFIGURATION_TIME_ORDER: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_TIME_ORDER,
     }[kind]
+
+
+def validate_archive_artifact_bindings(value: object) -> None:
+    """Validate backend source bindings wherever the frozen archive embeds a subject."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "canonicalization_manifest_ref":
+                validate_artifact_id(item)
+            elif key == "source_artifact_id":
+                if item is not None:
+                    validate_artifact_id(item)
+            elif key == "source_artifact_refs":
+                if type(item) not in (list, tuple):
+                    raise ValueError("archive source_artifact_refs must be a sequence")
+                for artifact_id in item:
+                    validate_artifact_id(artifact_id)
+            else:
+                validate_archive_artifact_bindings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            validate_archive_artifact_bindings(item)

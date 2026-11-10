@@ -59,7 +59,7 @@ def rebind_tampered_assemble_checkpoint(
     new_state_ref = put_checkpoint_state_artifact(
         artifact_store,
         state_document,
-        artifact_id_prefix="history-compare-assemble-state-tampered",
+        artifact_id_prefix='history-compare-assemble-state',
     )
     job_state["assemble_state_ref"] = artifact_ref_to_dict(new_state_ref)
     tampered = StepCheckpointEnvelope(

@@ -63,7 +63,7 @@ def _canonical_records_state(
     assert projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(projection.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="submit-removal-records-manifest",
+        artifact_id="a1:durable:d2a41d3a59d25716c7dd64698dcf02ff19cad4332d6a9a4aff295db61564dd66",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -80,7 +80,7 @@ def _canonical_records_state(
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="submit-removal-records-closure",
+        artifact_id="a1:durable:501651f0f43b9b77e57b795e725ab8e9a33d18dbc0885cb0f52e7e1c3acfa453",
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
@@ -202,7 +202,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         assert empty_projection.manifest.manifest_digest is not None
         empty_manifest_bytes = durable_manifest_bytes(empty_projection.manifest)
         empty_manifest_ref = ArtifactRef(
-            artifact_id="submit-removal-empty-manifest",
+            artifact_id="a1:durable:d5271e526a83a9bf89c8c68c45098ca51a034cbbfb9af211e5a78caa5960b00a",
             media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
             size_bytes=len(empty_manifest_bytes),
             raw_sha256=raw_blob_digest(empty_manifest_bytes),
@@ -214,7 +214,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             }
         )
         empty_closure_ref = ArtifactRef(
-            artifact_id="submit-removal-empty-closure",
+            artifact_id="a1:durable:3f1bd949de6b03cb27c503eba038b081b453fcf73233bc22510e54b14395f698",
             media_type="application/jcs",
             size_bytes=len(empty_closure_bytes),
             raw_sha256=raw_blob_digest(empty_closure_bytes),

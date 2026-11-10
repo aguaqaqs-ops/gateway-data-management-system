@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.types import validate_artifact_id
+from gateway_backend.domain.archive.models import validate_archive_artifact_bindings
+
 import hashlib
 import re
 from dataclasses import dataclass
@@ -104,6 +107,7 @@ def validate_archive_confirmation_reason(
 def compute_archive_digest(kind: str, payload: Mapping[str, Any]) -> str:
     if type(kind) is not str or not kind:
         raise ValueError("kind must be a non-empty string")
+    validate_archive_artifact_bindings(dict(payload))
     preimage = (
         f"{ARCHIVE_DIGEST_PREFIX}{kind}:{ARCHIVE_DIGEST_VERSION}".encode("utf-8")
         + b"\x00"
@@ -142,6 +146,9 @@ def compute_candidate_digest(
     review_status: str,
     review_sequence: int,
 ) -> str:
+    validate_artifact_id(canonicalization_manifest_ref)
+    for source_id in source_artifact_refs:
+        validate_artifact_id(source_id)
     payload = {
         "based_on_baseline_node_id": based_on_baseline_node_id,
         "business_baseline_commit_id": business_baseline_commit_id,

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 from datetime import UTC, datetime, timedelta
+from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -35,7 +39,7 @@ def db_path(tmp_path: Path) -> Path:
 def test_put_stream_publishes_exact_ref_and_verifies_read_back(tmp_path: Path) -> None:
     store = BoundedArtifactStore(LocalArtifactStore(tmp_path / "artifacts"))
     ref = store.put_stream(
-        "source-package",
+        ArtifactLocation.DURABLE, "source-package",
         [PAYLOAD],
         declared_size=len(PAYLOAD),
         declared_raw_sha256=DIGEST,
@@ -55,14 +59,14 @@ def test_ref_lookup_rejects_an_unknown_artifact_id(tmp_path: Path) -> None:
     store = BoundedArtifactStore(LocalArtifactStore(tmp_path / "artifacts"))
 
     with pytest.raises(ManifestVerificationError, match="artifact ref is not available"):
-        store.get_ref("missing-artifact")
+        store.get_ref("a1:durable:" + "f" * 64)
 
 
 def test_put_stream_rejects_digest_mismatch(tmp_path: Path) -> None:
     store = BoundedArtifactStore(LocalArtifactStore(tmp_path / "artifacts"))
     with pytest.raises(ManifestVerificationError, match="declared_raw_sha256 mismatch"):
         store.put_stream(
-            "source-package",
+            ArtifactLocation.DURABLE, "source-package",
             [PAYLOAD],
             declared_size=len(PAYLOAD),
             declared_raw_sha256=raw_blob_digest(b"other"),
@@ -81,7 +85,7 @@ def test_protected_artifact_refuses_delete(db_path: Path, tmp_path: Path) -> Non
         protection = SQLiteArtifactProtectionStore(unit_of_work.connection)
         store = BoundedArtifactStore(local, protection_store=protection)
         ref = store.put_stream(
-            "source-package",
+            ArtifactLocation.DURABLE, "source-package",
             [PAYLOAD],
             declared_size=len(PAYLOAD),
             declared_raw_sha256=DIGEST,
@@ -126,7 +130,7 @@ def test_unpinned_artifact_becomes_eligible_after_ttl(
         unpinned_ttl=timedelta(hours=24),
     )
     ref = store.put_stream(
-        "source-package",
+        ArtifactLocation.DURABLE, "source-package",
         [PAYLOAD],
         declared_size=len(PAYLOAD),
         declared_raw_sha256=DIGEST,
@@ -143,7 +147,7 @@ def test_delete_eligible_removes_unpinned_artifact_after_ttl(tmp_path: Path) -> 
         unpinned_ttl=timedelta(hours=24),
     )
     ref = store.put_stream(
-        "source-package",
+        ArtifactLocation.DURABLE, "source-package",
         [PAYLOAD],
         declared_size=len(PAYLOAD),
         declared_raw_sha256=DIGEST,
@@ -171,7 +175,7 @@ def test_clear_protection_releases_only_when_no_remaining_owner(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         store = BoundedArtifactStore(local, protection_store=unit_of_work.protection)
         ref = store.put_stream(
-            "source-package",
+            ArtifactLocation.DURABLE, "source-package",
             [PAYLOAD],
             declared_size=len(PAYLOAD),
             declared_raw_sha256=DIGEST,
@@ -204,3 +208,20 @@ def test_clear_protection_releases_only_when_no_remaining_owner(
         store._published_at_by_artifact_id[ref.artifact_id] = NOW  # noqa: SLF001
         later = NOW + timedelta(hours=25)
         assert store.classify_cleanup(ref, later).classification is CleanupClassification.ELIGIBLE_AFTER
+
+
+@pytest.mark.parametrize(("location", "kind"), [
+    ("durable", "source-package"), ("unknown", "source-package"),
+    (ArtifactLocation.DURABLE, "Bad kind"),
+])
+def test_stream_rejects_invalid_location_or_kind_before_staging(tmp_path: Path, location: object, kind: str) -> None:
+    class UnreadableStream:
+        def __iter__(self) -> Iterator[bytes]:
+            raise AssertionError("invalid protocol must not consume stream input")
+
+    root = tmp_path / "artifacts"
+    store = BoundedArtifactStore(LocalArtifactStore(root))
+    with pytest.raises(ValueError):
+        store.put_stream(cast(ArtifactLocation, location), kind, UnreadableStream(),
+            declared_size=len(PAYLOAD), declared_raw_sha256=DIGEST, media_type="application/gzip")
+    assert not (root / ".staging").exists()

@@ -108,7 +108,7 @@ def _replace_materialized_sides_document(
     ref = put_checkpoint_state_artifact(
         harness.artifact_store,
         document,
-        artifact_id_prefix="preview-materialized-sides-test",
+        artifact_id_prefix='preview-materialized-sides',
     )
     job_state["materialized_sides_ref"] = artifact_ref_to_dict(ref)
 
@@ -393,7 +393,7 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
                 "initial_reuses_baseline": False,
             },
         },
-        artifact_id_prefix="preview-materialized-sides-test",
+        artifact_id_prefix='preview-materialized-sides',
     )
 
     with pytest.raises(CheckpointDecodeError, match=match):
@@ -509,7 +509,7 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     )
     modified_binding = store_source_package(
         harness.artifact_store, (MODIFIED_SQL + modified_identity_sql).encode("utf-8"),
-        artifact_id="full-modified-different-project",
+        artifact_id="a1:durable:ae5f90059b8c3d63c6a5c8ee811fde0af18b5e258f48c06b29989454dad9eecc",
     )
     initial_binding = harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL]
     harness.upload_revision = build_upload_revision(
@@ -705,12 +705,12 @@ def test_empty_baseline_submit_accepts_table_addition(
         initial_binding = store_source_package(
             harness.artifact_store,
             (INITIAL_SQL + identity_metadata).encode("utf-8"),
-            artifact_id="empty-baseline-initial-same-project",
+            artifact_id="a1:durable:7e188889b8b4bafeca70541a9f1a1a2b150fb4c38a0e90c9c3ffa60ff2d13f0e",
         )
         modified_binding = store_source_package(
             harness.artifact_store,
             (MODIFIED_SQL + identity_metadata).encode("utf-8"),
-            artifact_id="empty-baseline-modified-same-project",
+            artifact_id="a1:durable:ba98a29a79e5dd9d253714bc027e975ce56fb717fd1f721715d63bf4b70a355e",
         )
         harness.upload_revision = build_upload_revision(
             input_completeness=input_completeness,
@@ -884,3 +884,19 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
         producers = {row[0] for row in uow.connection.execute("SELECT DISTINCT producer_operation_id FROM computation_cache_uses")}
         assert producers == {"op-persistent-full-cold", "op-persistent-full-warm"}
         assert uow.connection.execute("SELECT COUNT(*) FROM artifact_protection_intents WHERE intent='active-computation-cache'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("field_name", ["ready_closure_artifact_id", "bundle_artifact_id"])
+@pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
+    "00000000-0000-4000-8000-000000000001"])
+def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
+    from gateway_backend.application.preview_jobs import _preview_ready_ref
+    from gateway_backend.application.payloads import CheckpointDecodeError
+    ready_id = "a1:durable:" + "0" * 64
+    state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
+        "bundle_artifact_id": "a1:export:" + "1" * 64,
+        "ready_closure_ref": {"artifact_id": ready_id, "media_type": "application/jcs",
+            "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
+    state[field_name] = artifact_id
+    with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
+        _preview_ready_ref(state)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import asyncio
 import hashlib
 import io
@@ -154,7 +156,7 @@ def _publish_document(store: LocalArtifactStore, document: dict[str, object]) ->
     else:
         store.put(metadata.expected_closure_bytes, metadata.closure_ref)
     return put_with_built_ref(
-        store, raw, artifact_id="bundle-transport-test-manifest-" + raw_blob_digest(raw).value[7:],
+        store, raw, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "bundle-transport-test-manifest-" + raw_blob_digest(raw).value[7:]),
         media_type="application/vnd.gateway.comparison-bundle.manifest+json",
     )
 
@@ -189,7 +191,7 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     import gateway_backend.application.bundle_download as downloads
     store = LocalArtifactStore(tmp_path)
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
-    source = put_with_built_ref(store, data, artifact_id="business-json", media_type="application/json")
+    source = put_with_built_ref(store, data, artifact_id="a1:durable:2fce63a0bc18d79ecd1ce65e765a09e5b7944e80193c7091c61fc9149985cf4f", media_type="application/json")
     result = assemble_bundle(_request(
         (BundlePairInput("pair", 0, 1, _surface_result()),),
         shared=BundleArtifactClosure((BundleArtifactBinding(source, "shared/data.json", kind, shared=True),)),

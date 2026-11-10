@@ -682,7 +682,7 @@ def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
     output_ref = put_with_built_ref(
         artifact_store,
         b"ready-output",
-        artifact_id="artifact-ready-output",
+        artifact_id="a1:durable:f88eb7a5bf8fdc5fc059653d1b1bb4219a3c6a0282a5ea5927e5e1765368223d",
         media_type="application/octet-stream",
     )
     closure_ref = prepare_ready_closure(
@@ -761,28 +761,26 @@ def test_ready_closure_ref_set_once_rejects_second_publication(tmp_path: Path) -
     first_output = put_with_built_ref(
         artifact_store,
         b"first-output",
-        artifact_id="artifact-first-output",
+        artifact_id="a1:durable:ce27f19da706eaea855423abb93c868861eea1218a6fbf8bf00fe6b8140b9d49",
         media_type="application/octet-stream",
     )
     first_closure = prepare_ready_closure(
         artifact_store,
         (first_output,),
         claimed_operation.job_contract_version,
-        artifact_id="ready-closure-first",
     )
     session.publish_operation(make_terminal_ready_closure_builder(closure_ref=first_closure))
 
     second_output = put_with_built_ref(
         artifact_store,
         b"second-output",
-        artifact_id="artifact-second-output",
+        artifact_id="a1:durable:c59d020d019cfdd5f1b12d5cc2330a55b580acf2285eeeaff396a3a3ffc2c5b8",
         media_type="application/octet-stream",
     )
     second_closure = prepare_ready_closure(
         artifact_store,
         (second_output,),
         claimed_operation.job_contract_version,
-        artifact_id="ready-closure-second",
     )
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
         terminal_operation = unit_of_work.operations.get_operation(claimed_operation.operation_id)

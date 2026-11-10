@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import json
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -121,13 +123,13 @@ def _publish_annotation_artifact_charged(
     content_ref = put_with_built_ref(
         store,
         content_bytes,
-        artifact_id=build_artifact_id("risk-annotation", f"content-{_digest_suffix(content_digest)}"),
+        artifact_id=_risk_artifact_id("content", content_digest),
         media_type=ANNOTATION_MEDIA_TYPE,
     )
     manifest_ref = put_with_built_ref(
         store,
         manifest_bytes,
-        artifact_id=build_artifact_id("risk-annotation", f"manifest-{_digest_suffix(manifest_digest)}"),
+        artifact_id=_risk_artifact_id("manifest", manifest_digest),
         media_type=ANNOTATION_MANIFEST_MEDIA_TYPE,
     )
     artifact = RiskAnnotationArtifact(
@@ -174,7 +176,7 @@ def publish_annotation_closure(
     closure_ref = put_with_built_ref(
         store,
         raw_bytes,
-        artifact_id=build_artifact_id("risk-annotation", f"closure-{_digest_suffix(manifest_digest)}"),
+        artifact_id=_risk_artifact_id("closure", manifest_digest),
         media_type=ANNOTATION_CLOSURE_MEDIA_TYPE,
     )
     closure = RiskAnnotationClosure(
@@ -261,5 +263,5 @@ def _json_object(raw_bytes: bytes) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _digest_suffix(digest: DigestRef) -> str:
-    return digest.value.split(":", 1)[-1][:24]
+def _risk_artifact_id(part: str, digest: DigestRef) -> str:
+    return build_artifact_id(ArtifactLocation.COMPARISON, "risk-annotation", [part, digest.value])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
@@ -159,11 +161,11 @@ def compute_operation_identity(idempotency_key: str, request_bytes: bytes) -> st
 
 
 def request_artifact_id(request_bytes: bytes) -> str:
-    return f"external-effect-stub-request:{raw_blob_digest(request_bytes).value}"
+    return build_artifact_id(ArtifactLocation.DURABLE, "external-effect-stub-request", raw_blob_digest(request_bytes).value)
 
 
 def response_artifact_id(response_bytes: bytes) -> str:
-    return f"external-effect-stub-response:{raw_blob_digest(response_bytes).value}"
+    return build_artifact_id(ArtifactLocation.DURABLE, "external-effect-stub-response", raw_blob_digest(response_bytes).value)
 
 
 __all__ = [

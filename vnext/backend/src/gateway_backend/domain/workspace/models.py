@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.types import validate_artifact_id
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -148,8 +150,7 @@ class SourceArtifactBinding:
     raw_sha256: str
 
     def __post_init__(self) -> None:
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -281,8 +282,7 @@ class PreviewArtifactRef:
     raw_sha256: DigestRef
 
     def __post_init__(self) -> None:
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if (
@@ -466,10 +466,8 @@ class PreviewResult:
         )
         if self.identity_assessment_set_digest != expected_identity_digest:
             raise ValueError("identity assessment set digest does not match the pair results")
-        if type(self.bundle_artifact_id) is not str or not self.bundle_artifact_id:
-            raise ValueError("bundle_artifact_id must be a non-empty string")
-        if type(self.ready_closure_artifact_id) is not str or not self.ready_closure_artifact_id:
-            raise ValueError("ready_closure_artifact_id must be a non-empty string")
+        validate_artifact_id(self.bundle_artifact_id)
+        validate_artifact_id(self.ready_closure_artifact_id)
         if type(self.operation_id) is not str or not self.operation_id:
             raise ValueError("operation_id must be a non-empty string")
         if type(self.created_at) is not datetime:

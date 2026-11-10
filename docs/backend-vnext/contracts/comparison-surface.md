@@ -245,6 +245,7 @@ diagnostics:
 
 - 所有 `*_ref` 必须是 operation-relative 或 bundle-relative logical ref。
 - 不允许 host path、cache-local path、repository ref、commit hash 或 Dolt internal path。
+- backend `ArtifactRef` 统一严格校验 `a1:<location>:<64 lowercase hex>`；不再用旧字符串前缀推断 cache/flow 身份。合法 opaque ref 的 location 只定位逻辑 root，不代表授权或可交付性；cache 恢复后的正式 ref 仍由原 operation/bundle scope、完整 closure 和 READY owner 负责，不把 cache key/path 放入四字段 ref。
 - `records_ref` 不进入 `comparison_digest`；surface/bundle restore 可以重写。
 - 跨 operation snapshot Parquet export cache 的键为 repository scope、`row_layout_digest` 与
   Parquet writer contract version；

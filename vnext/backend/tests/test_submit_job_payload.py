@@ -80,12 +80,12 @@ def _prepared_attempt() -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("initial-1", "modified-1"),
-        canonical_table_set_closure_ref="canonical-table-closure-1",
+        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+        canonical_table_set_closure_ref="a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
-        preview_ready_closure_ref="closure-1",
+        preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref="canonical-manifest-1",
+        canonicalization_manifest_ref="a1:durable:18b8bf605898b660bd156ab02365ab9381c5f9cd4e5985ea9385a661c6b8feb3",
         canonicalization_manifest_digest="sha256:canonical-manifest",
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
@@ -216,19 +216,19 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
     return {
         "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v3",
         "attempt_id": "sa-payload-1",
-        "canonicalization_manifest_ref": _artifact_ref_dict("manifest-1"),
+        "canonicalization_manifest_ref": _artifact_ref_dict("a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
         "canonicalization_manifest_digest": "sha256:" + "b" * 64,
         "backend_import_artifact_ref": {
-            "artifact_id": "backend-1",
+            "artifact_id": "a1:durable:435f49de32cd1a29d1267152362b62049d5cdc3bdb1d4c82c752b5bee6072f61",
             "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
             "size_bytes": 2,
             "raw_sha256": "sha256:" + "c" * 64,
         },
         "package_raw_size": 2,
         "package_raw_sha256": "sha256:" + "c" * 64,
-        "canonical_table_set_closure_ref": "canonical-closure-1",
+        "canonical_table_set_closure_ref": "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
         "canonical_table_set_closure_digest": "sha256:" + "d" * 64,
-        "input_canonicalization_manifest_ref": "preview-manifest-1",
+        "input_canonicalization_manifest_ref": "a1:durable:bf2aefe23ee196e97c1a0857a4cc574badc70b6fce78c5a892f4ad5824388d8a",
         "input_canonicalization_manifest_digest": "sha256:" + "e" * 64,
         "expected_parent_commit_id": "commit-parent-1",
         "parent_manifest_digest": "sha256:" + "f" * 64,
@@ -241,7 +241,7 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
 def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
     return {
         "schema_version": "backend-vnext/submit/submit-import-checkpoint/v2",
-        "prepare_checkpoint_ref": _artifact_ref_dict("prepare-cp-1"),
+        "prepare_checkpoint_ref": _artifact_ref_dict("a1:durable:83799366fdc26b4c88b09dbb1c77ee31a944377862562cbb88802de345f3913a"),
         "repository_artifact_ref": {
             "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
             "media_type": "application/vnd.gateway.repository-import.v1+tar+zstd",
@@ -249,8 +249,8 @@ def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
             "raw_sha256": "sha256:" + "c" * 64,
         },
         "upload_idempotency_key": "p5b-upload-v1:abc",
-        "request_artifact_id": "request-1",
-        "request_artifact_ref": _artifact_ref_dict("request-1"),
+        "request_artifact_id": "a1:durable:94ece1e392e05ff68680163dd9c3002ae0e9929583e42c550f86fb0754cb9c57",
+        "request_artifact_ref": _artifact_ref_dict("a1:durable:94ece1e392e05ff68680163dd9c3002ae0e9929583e42c550f86fb0754cb9c57"),
         "request_fingerprint": "sha256:" + "e" * 64,
         "import_idempotency_key": "p5b-import-v1:abc",
         "idempotency_key": "p5b-import-v1:abc",
@@ -261,10 +261,10 @@ def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
 def _canonical_await_terminal_checkpoint_job_state() -> dict[str, object]:
     return {
         "schema_version": "backend-vnext/submit/await-import-result-checkpoint/v2",
-        "submit_checkpoint_ref": _artifact_ref_dict("submit-cp-1"),
+        "submit_checkpoint_ref": _artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"),
         "operation_identity": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
         "last_observed_repository_status": "SUCCEEDED",
-        "terminal_result_evidence_ref": _artifact_ref_dict("evidence-1"),
+        "terminal_result_evidence_ref": _artifact_ref_dict("a1:durable:af1568532b499217643de4551dc5234e3826a053a75aa75a2cc34019e9bdadde"),
     }
 
 
@@ -344,14 +344,14 @@ def test_submit_checkpoint_rejects_inexact_job_state(
             job_state[key] = value
     store = InMemoryArtifactStore()
     request_ref = ArtifactRef(
-        artifact_id="request-1",
+        artifact_id="a1:durable:94ece1e392e05ff68680163dd9c3002ae0e9929583e42c550f86fb0754cb9c57",
         media_type="application/jcs",
         size_bytes=1,
         raw_sha256=DigestRef("sha256:" + "a" * 64),
     )
     put_with_built_ref(store, b"{}", artifact_id=request_ref.artifact_id, media_type=request_ref.media_type)
-    prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("prepare-cp-1"))
-    checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:83799366fdc26b4c88b09dbb1c77ee31a944377862562cbb88802de345f3913a"))
+    checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     payload = decode_submit_payload(_canonical_payload_object())
 
     class _StubRepositoryWrite:
@@ -376,7 +376,7 @@ def test_submit_checkpoint_rejects_inexact_job_state(
 def test_await_terminal_checkpoint_rejects_unknown_job_state_fields(field: str) -> None:
     job_state = _canonical_await_terminal_checkpoint_job_state()
     job_state[field] = "x"
-    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
         _await_checkpoint_from_job_state(
             job_state,
@@ -388,7 +388,7 @@ def test_await_terminal_checkpoint_rejects_unknown_job_state_fields(field: str) 
 def test_await_terminal_checkpoint_rejects_non_terminal_status() -> None:
     job_state = _canonical_await_terminal_checkpoint_job_state()
     job_state["last_observed_repository_status"] = "QUEUED"
-    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
+    submit_ref = artifact_ref_from_dict(_artifact_ref_dict("a1:durable:5c9cd6897e3f15b2759ba90bdd9d7650f1502944c739e6263f5cd8891cc1059f"))
     with pytest.raises(CheckpointDecodeError, match="terminal repository status"):
         _await_checkpoint_from_job_state(
             job_state,
@@ -404,7 +404,7 @@ def test_terminal_evidence_rejects_unknown_fields() -> None:
     evidence_ref = put_with_built_ref(
         store,
         json.dumps(evidence).encode(),
-        artifact_id="evidence-1",
+        artifact_id="a1:durable:af1568532b499217643de4551dc5234e3826a053a75aa75a2cc34019e9bdadde",
         media_type="application/jcs",
     )
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
@@ -494,7 +494,7 @@ MALFORMED_TERMINAL_EVIDENCE_SHAPES: tuple[tuple[dict[str, object], type[Exceptio
         ValidationError,
     ),
     (
-        _failed_terminal_evidence_document(operation_id="not-a-uuid"),
+        _failed_terminal_evidence_document(operation_id="a1:durable:da69ec417ede7a498202cb413a2b63d25251714d597858763050542482889354"),
         ValidationError,
     ),
     (
@@ -523,7 +523,7 @@ MALFORMED_TERMINAL_EVIDENCE_SHAPES: tuple[tuple[dict[str, object], type[Exceptio
         ValidationError,
     ),
     (_succeeded_terminal_evidence_document(result={"target_ref": "feature"}), ValidationError),
-    (_succeeded_terminal_evidence_document(result={"artifact_id": "not-a-uuid"}), ValidationError),
+    (_succeeded_terminal_evidence_document(result={"artifact_id": "a1:durable:da69ec417ede7a498202cb413a2b63d25251714d597858763050542482889354"}), ValidationError),
     (_succeeded_terminal_evidence_document(result={"commit_id": ""}), ValidationError),
     (_succeeded_terminal_evidence_document(result={"commit_id": _OVERSIZED_COMMIT_ID}), ValidationError),
     (
@@ -552,7 +552,7 @@ def test_terminal_evidence_rejects_malformed_operation_payload(
     evidence_ref = put_with_built_ref(
         store,
         json.dumps(evidence).encode(),
-        artifact_id="evidence-1",
+        artifact_id="a1:durable:af1568532b499217643de4551dc5234e3826a053a75aa75a2cc34019e9bdadde",
         media_type="application/jcs",
     )
     with pytest.raises(expected_error):
@@ -575,7 +575,7 @@ def test_terminal_evidence_rejects_checkpoint_status_mismatch() -> None:
     evidence_ref = put_with_built_ref(
         store,
         json.dumps(evidence).encode(),
-        artifact_id="evidence-1",
+        artifact_id="a1:durable:af1568532b499217643de4551dc5234e3826a053a75aa75a2cc34019e9bdadde",
         media_type="application/jcs",
     )
     with pytest.raises(CheckpointDecodeError, match="status does not match checkpoint"):

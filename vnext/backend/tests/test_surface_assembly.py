@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -58,6 +60,8 @@ from gateway_backend.capabilities.surface_assembly import (
     validate_surface,
 )
 
+from tests.support.artifact_ref_faults import UNSUPPORTED_DELIVERY_ARTIFACT_IDS
+
 _S1B_GOLDEN = (
     Path(__file__).resolve().parents[2]
     / "fixtures"
@@ -113,7 +117,7 @@ def _digest(seed: str) -> DigestRef:
 def _ref(name: str, media_type: str = "application/json") -> ArtifactRef:
     raw = name.encode()
     return ArtifactRef(
-        artifact_id=name,
+        artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", name),
         media_type=media_type,
         size_bytes=len(raw),
         raw_sha256=raw_blob_digest(raw),
@@ -569,7 +573,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = replace(old_ref, artifact_id="bundle-orders")
+    new_ref = replace(old_ref, artifact_id="a1:durable:9e1660768076ad9eb6982ad5106b06ff209eb2cafb8ddaa08254acbbacf27eef")
     with_ref = assemble_surface(
         _request(
             facts,
@@ -602,14 +606,15 @@ def test_keyless_fallback_hint_is_read_only_surface_diagnostic() -> None:
     assert result.surface.summary.changed_table_count == 0
 
 
-def test_forbidden_cache_ref_fails_before_ready() -> None:
+@pytest.mark.parametrize("artifact_id", UNSUPPORTED_DELIVERY_ARTIFACT_IDS)
+def test_unsupported_delivery_ref_fails_before_ready(artifact_id: str) -> None:
     facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED))
-    result = assemble_surface(
-        _request(
-            facts,
-            table_refs=SurfaceTableRefs(current_table_ref=_ref("cache-local")),
-        )
-    )
+    ref = _ref("delivery-member")
+    request = _request(facts, table_refs=SurfaceTableRefs(current_table_ref=ref))
+    # Corrupt the typed ref only after the request is valid: exercise assembly's
+    # fail-closed boundary rather than a constructor rejecting the fixture first.
+    object.__setattr__(ref, "artifact_id", artifact_id)
+    result = assemble_surface(request)
     assert result.status is SurfaceAssemblyStatus.FAILED
     assert result.surface is None
 

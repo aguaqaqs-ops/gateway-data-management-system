@@ -74,11 +74,11 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
             "baseline_head_version": 3,
             "repository_expected_commit_id": "commit-base",
             "canonical_business_digest": "sha256:" + "5" * 64,
-            "source_artifact_refs": ["source-1"],
-            "preview_ready_closure_ref": "closure-1",
-            "canonical_table_set_closure_ref": "canonical-table-closure-1",
+            "source_artifact_refs": ["a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"],
+            "preview_ready_closure_ref": "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            "canonical_table_set_closure_ref": "a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
             "canonical_table_set_closure_digest": "sha256:canonical-table-closure",
-            "canonicalization_manifest_ref": "canonicalization-manifest-1",
+            "canonicalization_manifest_ref": "a1:durable:3b93894597ef863030973ad5fbe78f166fe4026581c1a7f4ab82a2b8b2ddedcf",
             "canonicalization_manifest_digest": "sha256:canonicalization-manifest",
             "ruleset_version": "v1",
             "storage_projection_version": "v1",
@@ -293,7 +293,7 @@ def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) ->
     worker_id = "worker-submit-w2"
     lease_token = "lease-submit-w2"
     backend_ref = BackendArtifactRef(
-        artifact_id="backend-pkg-1",
+        artifact_id="a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256=_SHA_PACKAGE,
@@ -317,7 +317,7 @@ def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) ->
             attempt,
             state=SubmitAttemptState.EFFECT_PENDING,
             effect_pending_at=unit_of_work.operations.transaction_now,
-            prepared_canonicalization_manifest_ref="manifest-1",
+            prepared_canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
             prepared_canonicalization_manifest_digest=_SHA_MANIFEST,
             repository_import_artifact_ref=backend_ref,
             repository_artifact_ref=repository_ref,

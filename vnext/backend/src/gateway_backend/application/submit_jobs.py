@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
+
 import dataclasses
 import json
 from collections.abc import Callable, Mapping
@@ -266,6 +268,12 @@ class SubmitJobPayload:
     options: Mapping[str, object]
 
 
+    def __post_init__(self) -> None:
+        for artifact_id in (*self.source_artifact_refs, self.preview_ready_closure_ref,
+                self.canonical_table_set_closure_ref, self.canonicalization_manifest_ref):
+            parse_artifact_id(artifact_id)
+
+
 SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitFinalizeControlTransaction]]
 
 
@@ -377,38 +385,42 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         repository_policy=repository_policy,
         builder_mutation_policy=builder_mutation_policy,
     )
-    return SubmitJobPayload(
-        configuration_facts_digest=configuration_facts_digest,
-        document_type=document_type,
-        contract_version=contract_version,
-        submit_attempt_id=submit_attempt_id,
-        workspace_id=workspace_id,
-        generation=generation,
-        upload_revision_id=upload_revision_id,
-        preview_result_id=preview_result_id,
-        repository_id=repository_id,
-        business_baseline_node_id=business_baseline_node_id,
-        business_baseline_commit_id=business_baseline_commit_id,
-        baseline_head_version=baseline_head_version,
-        repository_expected_commit_id=repository_expected_commit_id,
-        canonical_business_digest=canonical_business_digest,
-        source_artifact_refs=source_artifact_refs,
-        preview_ready_closure_ref=preview_ready_closure_ref,
-        canonical_table_set_closure_ref=canonical_table_set_closure_ref,
-        canonical_table_set_closure_digest=canonical_table_set_closure_digest,
-        canonicalization_manifest_ref=canonicalization_manifest_ref,
-        canonicalization_manifest_digest=canonicalization_manifest_digest,
-        ruleset_version=ruleset_version,
-        storage_projection_version=storage_projection_version,
-        canonicalization_manifest_contract_version=canonicalization_manifest_contract_version,
-        repository_import_package_version=repository_import_package_version,
-        accept_request_fingerprint=accept_request_fingerprint,
-        repository_upload_idempotency_key=repository_upload_idempotency_key,
-        repository_import_idempotency_key=repository_import_idempotency_key,
-        repository_policy=repository_policy,
-        builder_mutation_policy=builder_mutation_policy,
-        options=options,
-    )
+    try:
+        return SubmitJobPayload(
+            configuration_facts_digest=configuration_facts_digest,
+            document_type=document_type,
+            contract_version=contract_version,
+            submit_attempt_id=submit_attempt_id,
+            workspace_id=workspace_id,
+            generation=generation,
+            upload_revision_id=upload_revision_id,
+            preview_result_id=preview_result_id,
+            repository_id=repository_id,
+            business_baseline_node_id=business_baseline_node_id,
+            business_baseline_commit_id=business_baseline_commit_id,
+            baseline_head_version=baseline_head_version,
+            repository_expected_commit_id=repository_expected_commit_id,
+            canonical_business_digest=canonical_business_digest,
+            source_artifact_refs=source_artifact_refs,
+            preview_ready_closure_ref=preview_ready_closure_ref,
+            canonical_table_set_closure_ref=canonical_table_set_closure_ref,
+            canonical_table_set_closure_digest=canonical_table_set_closure_digest,
+            canonicalization_manifest_ref=canonicalization_manifest_ref,
+            canonicalization_manifest_digest=canonicalization_manifest_digest,
+            ruleset_version=ruleset_version,
+            storage_projection_version=storage_projection_version,
+            canonicalization_manifest_contract_version=canonicalization_manifest_contract_version,
+            repository_import_package_version=repository_import_package_version,
+            accept_request_fingerprint=accept_request_fingerprint,
+            repository_upload_idempotency_key=repository_upload_idempotency_key,
+            repository_import_idempotency_key=repository_import_idempotency_key,
+            repository_policy=repository_policy,
+            builder_mutation_policy=builder_mutation_policy,
+            options=options,
+        )
+    except ValueError as exc:
+        raise PayloadDecodeError("submit payload contains an invalid backend artifact ID",
+            code="PAYLOAD_SHAPE_INVALID") from exc
 
 
 def submit_payload_decoders() -> Mapping[str, PayloadDecoder]:
@@ -1987,7 +1999,7 @@ def _persist_terminal_repository_evidence(
     return put_with_built_ref(
         store,
         evidence_bytes,
-        artifact_id=f"submit-repository-terminal-evidence:{raw_blob_digest(evidence_bytes).value}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "submit-repository-terminal-evidence", raw_blob_digest(evidence_bytes).value),
         media_type=_JCS_MEDIA_TYPE,
     )
 
@@ -2832,7 +2844,7 @@ def _make_manual_recovery_terminal_builder(
 
 
 def _import_request_artifact_id(request_bytes: bytes) -> str:
-    return f"submit-import-request:{raw_blob_digest(request_bytes).value}"
+    return build_artifact_id(ArtifactLocation.DURABLE, "submit-import-request", raw_blob_digest(request_bytes).value)
 
 
 def _backend_ref_to_dict(ref: BackendArtifactRef) -> dict[str, object]:

@@ -7,6 +7,7 @@ from gateway_backend.artifacts.bounded_store import (
     DeleteDisposition,
     VerifyReadableResult,
 )
+from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.artifacts.digest import build_artifact_id, raw_sha256_from_bytes
 from gateway_backend.artifacts.serialize import (
     artifact_ref_from_dict,
@@ -30,6 +31,8 @@ from gateway_backend.artifacts.types import (
 from gateway_backend.artifacts.validate import validate_artifact_ref
 
 __all__ = [
+    "ArtifactLocation",
+    "parse_artifact_id",
     "ArtifactRef",
     "ArtifactRefLookupPort",
     "ArtifactStorePort",

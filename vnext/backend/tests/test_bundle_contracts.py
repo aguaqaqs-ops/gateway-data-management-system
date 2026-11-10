@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -21,14 +23,17 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleTableSide,
     validate_logical_path,
 )
-from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyResult, SurfaceAssemblyStatus
+from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyResult, SurfaceAssemblyStatus, SurfaceTableRefs
+from gateway_backend.capabilities.surface_assembly._refs import validate_surface_ref
+from gateway_backend.capabilities.bundle_assembly._refs import validate_bundle_ref
+from tests.support.artifact_ref_faults import UNSUPPORTED_DELIVERY_ARTIFACT_IDS
 
 pytestmark = pytest.mark.unit
 
 
 def _ref(name: str) -> ArtifactRef:
     raw = name.encode()
-    return ArtifactRef(name, "application/json", len(raw), raw_blob_digest(raw))
+    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name), "application/json", len(raw), raw_blob_digest(raw))
 
 
 def test_bundle_contract_normalizes_input_and_pair_order() -> None:
@@ -90,7 +95,7 @@ def test_closure_rejects_duplicate_source_ref_and_path() -> None:
 def test_snapshot_closure_keeps_all_table_side_bindings_for_shared_source() -> None:
     raw = b"parquet rows"
     ref = ArtifactRef(
-        "same-snapshot-table",
+        "a1:durable:a4203a1264dbeec9639e2777098194bcbac258c82d99b2ef71bb928885f88cc5",
         "application/vnd.apache.parquet",
         len(raw),
         raw_blob_digest(raw),
@@ -129,3 +134,19 @@ def test_failed_result_cannot_publish_bundle_refs() -> None:
 def test_bundle_contract_version_is_v3() -> None:
     assert BUNDLE_CONTRACT_VERSION == "backend-vnext/comparison-bundle/v3"
     assert isinstance(DigestRef("sha256:" + "00" * 32), DigestRef)
+
+
+@pytest.mark.parametrize("artifact_id", UNSUPPORTED_DELIVERY_ARTIFACT_IDS)
+def test_delivery_boundaries_reject_unsupported_artifact_identity(artifact_id: str) -> None:
+    with pytest.raises(ValueError, match="a1:"):
+        ArtifactRef(artifact_id, "application/json", 1, raw_blob_digest(b"x"))
+    ref = _ref("delivery-member")
+    object.__setattr__(ref, "artifact_id", artifact_id)
+    with pytest.raises(ValueError, match="a1:"):
+        validate_surface_ref(ref)
+    with pytest.raises(ValueError, match="a1:"):
+        validate_bundle_ref(ref)
+    with pytest.raises(ValueError, match="a1:"):
+        SurfaceTableRefs(current_table_ref=ref)
+    with pytest.raises(ValueError, match="a1:"):
+        BundleArtifactBinding(ref, "tables/member.json", BundleArtifactKind.SNAPSHOT_TABLE)

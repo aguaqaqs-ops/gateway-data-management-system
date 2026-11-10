@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 import os
 import shutil
@@ -122,13 +124,13 @@ def build_dolt_compatible_prepare_publication(
     manifest_ref = put_with_built_ref(
         artifact_store,
         manifest_bytes,
-        artifact_id=f"manifest-{build_input.submit_attempt_id}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"manifest-{build_input.submit_attempt_id}"),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     )
     package_ref = put_with_built_ref(
         artifact_store,
         package_bytes,
-        artifact_id=f"package-{build_input.submit_attempt_id}",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"package-{build_input.submit_attempt_id}"),
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
     )
     checkpoint = PrepareImportCheckpoint(

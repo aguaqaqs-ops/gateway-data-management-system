@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 import json
 import re
@@ -350,11 +352,9 @@ def verify_artifact_refs(store: ArtifactStorePort, refs: tuple[ArtifactRef, ...]
 def put_checkpoint_envelope(
     store: ArtifactStorePort,
     envelope: StepCheckpointEnvelope,
-    *,
-    artifact_id: str | None = None,
 ) -> ArtifactRef:
     raw_bytes = envelope.to_canonical_bytes()
-    resolved_id = artifact_id or _content_artifact_id("step-checkpoint", raw_bytes)
+    resolved_id = _content_artifact_id("step-checkpoint", raw_bytes)
     return put_with_built_ref(
         store,
         raw_bytes,
@@ -371,6 +371,9 @@ def put_checkpoint_state_artifact(
 ) -> ArtifactRef:
     """Persist variable-size job state outside the bounded checkpoint envelope."""
 
+    if artifact_id_prefix not in {"preview-materialized-sides", "preview-assemble-state",
+            "history-compare-materialized-sides", "history-compare-assemble-state"}:
+        raise ValueError("checkpoint state kind is not an owning producer")
     raw_bytes = canonicalize_json_value(dict(document))
     return put_with_built_ref(
         store,
@@ -454,11 +457,9 @@ def load_checkpoint_envelope(store: ArtifactStorePort, ref: ArtifactRef) -> Step
 def put_ready_closure(
     store: ArtifactStorePort,
     document: ReadyClosureDocument,
-    *,
-    artifact_id: str | None = None,
 ) -> ArtifactRef:
     raw_bytes = document.to_canonical_bytes()
-    resolved_id = artifact_id or _content_artifact_id("ready-closure", raw_bytes)
+    resolved_id = _content_artifact_id("ready-closure", raw_bytes)
     return put_with_built_ref(
         store,
         raw_bytes,
@@ -479,27 +480,23 @@ def load_ready_closure(store: ArtifactStorePort, ref: ArtifactRef) -> ReadyClosu
 def prepare_step_checkpoint(
     store: ArtifactStorePort,
     envelope: StepCheckpointEnvelope,
-    *,
-    artifact_id: str | None = None,
 ) -> ArtifactRef:
     """Persist one checkpoint envelope before a durable CAS publication."""
 
     verify_artifact_refs(store, envelope.prior_output_refs)
-    return put_checkpoint_envelope(store, envelope, artifact_id=artifact_id)
+    return put_checkpoint_envelope(store, envelope)
 
 
 def prepare_ready_closure(
     store: ArtifactStorePort,
     output_refs: tuple[ArtifactRef, ...],
     job_contract_version: str,
-    *,
-    artifact_id: str | None = None,
 ) -> ArtifactRef:
     """Verify output refs, persist closure bytes, and return the exact closure ref."""
 
     verify_artifact_refs(store, output_refs)
     document = ReadyClosureDocument.build(output_refs, job_contract_version)
-    return put_ready_closure(store, document, artifact_id=artifact_id)
+    return put_ready_closure(store, document)
 
 
 def make_checkpoint_step_builder(
@@ -600,7 +597,7 @@ def envelope_for_step(
 
 
 def _content_artifact_id(prefix: str, raw_bytes: bytes) -> str:
-    return f"{prefix}:{raw_blob_digest(raw_bytes).value}"
+    return build_artifact_id(ArtifactLocation.DURABLE, prefix, raw_blob_digest(raw_bytes).value)
 
 
 def _parse_canonical_document_bytes(

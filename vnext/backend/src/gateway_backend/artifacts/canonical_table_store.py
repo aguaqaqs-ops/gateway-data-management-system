@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 
 from gateway_shared_kernel import DigestRef
-from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.types import ArtifactRef
 
 CANONICAL_IPC_MEDIA_TYPE = "application/vnd.apache.arrow.file"
@@ -38,12 +37,12 @@ class CanonicalTableKey:
 
     @property
     def artifact_id(self) -> str:
-        payload = canonicalize_json_value([
+        payload = [
             self.repository_id, self.storage_projection_version,
             self.business_schema_digest.value, self.row_count,
             self.table_digest.value, self.canonical_mapping_version,
-        ])
-        return "canonical-table:" + hashlib.sha256(payload).hexdigest()
+        ]
+        return build_artifact_id(ArtifactLocation.CANONICAL, "canonical-table", payload)
 
 
 class CanonicalTableIndexPort(Protocol):

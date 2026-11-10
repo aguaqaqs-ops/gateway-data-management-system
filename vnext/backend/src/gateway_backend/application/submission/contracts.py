@@ -11,9 +11,10 @@ from enum import StrEnum
 from typing import Protocol
 
 from gateway_backend.artifacts.store import ArtifactStorePort
-from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
+    validate_repository_artifact_id,
     BuilderMutationPolicy,
     RepositorySubmitOccupancy as RepositorySubmitOccupancy,
     SubmitAcceptanceRecord as SubmitAcceptanceRecord,
@@ -73,8 +74,7 @@ class SnapshotTableBinding:
     def __post_init__(self) -> None:
         if type(self.table_name) is not str or not self.table_name:
             raise ValueError("table_name must be a non-empty string")
-        if type(self.artifact_id) is not str or not self.artifact_id:
-            raise ValueError("artifact_id must be a non-empty string")
+        validate_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -186,6 +186,8 @@ class PrepareImportCheckpoint:
         ):
             if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
                 raise ValueError(f"{field_name} must be a non-empty string")
+        validate_artifact_id(self.canonical_table_set_closure_ref)
+        validate_artifact_id(self.input_canonicalization_manifest_ref)
         if type(self.removed_tables) is not tuple:
             raise ValueError("removed_tables must be a tuple")
         if self.parent_manifest_digest is not None and (
@@ -308,6 +310,11 @@ class MatchingFinalizeFacts:
     target_ref: SubmitTargetRef
 
 
+    def __post_init__(self) -> None:
+        validate_repository_artifact_id(self.repository_artifact_id)
+        validate_artifact_id(self.canonicalization_manifest_ref)
+
+
 @dataclass(frozen=True, slots=True)
 class MatchingAbortProof:
     repository_id: str
@@ -373,6 +380,9 @@ def compute_accept_request_fingerprint(
     options: Mapping[str, object],
     identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> str:
+    for artifact_id in (*source_artifact_refs, canonical_table_set_closure_ref,
+            canonicalization_manifest_ref, preview_ready_closure_ref):
+        validate_artifact_id(artifact_id)
     payload = {
         "workspace_id": workspace_id,
         "owner_actor_id": owner_actor_id,

@@ -1,6 +1,8 @@
 """Comparison-owned manifests over the derived computation-cache reference port."""
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import base64
 import binascii
 from contextlib import ExitStack
@@ -24,7 +26,7 @@ from gateway_backend.capabilities.snapshot_materialization import KernelExecutio
 
 def _ref(raw: bytes, media_type: str) -> ArtifactRef:
     digest = raw_blob_digest(raw)
-    return ArtifactRef("computation-" + digest.value.removeprefix("sha256:"), media_type, len(raw), digest)
+    return ArtifactRef(build_artifact_id(ArtifactLocation.COMPARISON, "computation-cache", [media_type, digest.value, len(raw)]), media_type, len(raw), digest)
 
 
 def encode_persistent_comparison(

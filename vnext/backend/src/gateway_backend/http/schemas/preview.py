@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from gateway_backend.artifacts.types import validate_artifact_id
 
 
 class StartPreviewOptions(BaseModel):
@@ -40,6 +41,13 @@ class PreviewArtifactRefResponse(BaseModel):
     media_type: str
     size_bytes: int
     raw_sha256: str
+
+
+    @field_validator("artifact_id")
+    @classmethod
+    def validate_backend_id(cls, value: str) -> str:
+        validate_artifact_id(value)
+        return value
 
 
 class PreviewIdentityPairResponse(BaseModel):

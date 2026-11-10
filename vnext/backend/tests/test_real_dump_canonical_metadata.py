@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import copy
 import json
 from dataclasses import dataclass, replace
@@ -102,7 +104,7 @@ class MetadataFixture:
 
     def put(self, raw: bytes, media_type: str = "application/jcs") -> ArtifactRef:
         self.serial += 1
-        return put_with_built_ref(self.store, raw, artifact_id=f"metadata-{self.serial}",
+        return put_with_built_ref(self.store, raw, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"metadata-{self.serial}"),
                                   media_type=media_type)
 
     def prove(self, *, envelope_changes: dict[str, Any] | None = None,
@@ -130,7 +132,7 @@ class MetadataFixture:
 
 def _fixture() -> MetadataFixture:
     store = MetadataStore()
-    source = SourceArtifactBinding("modified-1", "application/gzip", 1, dummy_digest().value)
+    source = SourceArtifactBinding("a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303", "application/gzip", 1, dummy_digest().value)
     payload = p.PreviewJobPayload("ws-1", "ur-1", 1, REPO, "node-1", COMMIT, 1,
         InputCompleteness.MODIFIED_ONLY, {SourceArtifactRole.MODIFIED: source},
         {"MODIFIED": source.raw_sha256}, dummy_digest().value, "v1", dummy_digest().value,
@@ -145,7 +147,7 @@ def _fixture() -> MetadataFixture:
         dummy_digest(), canonical_tables)
     manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
     assert manifest.manifest_digest is not None
-    f = MetadataFixture(store, payload, {}, {}, ArtifactRef("unused", "application/jcs", 0,
+    f = MetadataFixture(store, payload, {}, {}, ArtifactRef('a1:durable:8137c58af077cafc2702c843d5e79b85e00bc871674dcc5867a64f36f27f3588', "application/jcs", 0,
         raw_blob_digest(b"")), manifest.manifest_digest)
     f.submission_ref = f.put(durable_manifest_bytes(manifest), CANONICALIZATION_MANIFEST_MEDIA_TYPE)
     tables_digest = canonical_state_digest_of(descriptors)
@@ -171,7 +173,8 @@ def _fixture() -> MetadataFixture:
         entries = []
         for d in (() if role == p._SIDE_BASELINE else descriptors):
             # Metadata references absent IPC, not a dummy row-reader implementation.
-            row_ref = ArtifactRef(f"ipc-{d.table_name}", CANONICAL_IPC_MEDIA_TYPE, 17,
+            row_ref = ArtifactRef(build_artifact_id(ArtifactLocation.CANONICAL, "test-fixture",
+                ["ipc", d.table_name]), CANONICAL_IPC_MEDIA_TYPE, 17,
                                   raw_blob_digest(b"IPC not opened by metadata proof"))
             table = SnapshotTableArtifactManifest(1, snapshot_digest, d.table_name, d,
                 (row_ref,), ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,

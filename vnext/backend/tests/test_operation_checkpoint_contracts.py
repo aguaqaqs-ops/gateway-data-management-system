@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import dataclasses
 import json
 from datetime import UTC, datetime
@@ -175,14 +177,14 @@ MALFORMED_CLOSURE_SHAPES: tuple[tuple[str, dict[str, object], str], ...] = (
             "job_contract_version": VERSION_V1,
             "outputs": [
                 {
-                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("artifact-a")),
-                    "raw_sha256": _artifact_ref("artifact-a").raw_sha256.value,
-                    "size_bytes": _artifact_ref("artifact-a").size_bytes,
+                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")),
+                    "raw_sha256": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").raw_sha256.value,
+                    "size_bytes": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").size_bytes,
                 },
                 {
-                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("artifact-a")),
-                    "raw_sha256": _artifact_ref("artifact-a").raw_sha256.value,
-                    "size_bytes": _artifact_ref("artifact-a").size_bytes,
+                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")),
+                    "raw_sha256": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").raw_sha256.value,
+                    "size_bytes": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").size_bytes,
                 },
             ],
         },
@@ -196,14 +198,14 @@ MALFORMED_CLOSURE_SHAPES: tuple[tuple[str, dict[str, object], str], ...] = (
             "job_contract_version": VERSION_V1,
             "outputs": [
                 {
-                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("artifact-b")),
-                    "raw_sha256": _artifact_ref("artifact-b").raw_sha256.value,
-                    "size_bytes": _artifact_ref("artifact-b").size_bytes,
+                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")),
+                    "raw_sha256": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").raw_sha256.value,
+                    "size_bytes": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").size_bytes,
                 },
                 {
-                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("artifact-a")),
-                    "raw_sha256": _artifact_ref("artifact-a").raw_sha256.value,
-                    "size_bytes": _artifact_ref("artifact-a").size_bytes,
+                    "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683")),
+                    "raw_sha256": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").raw_sha256.value,
+                    "size_bytes": _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683").size_bytes,
                 },
             ],
         },
@@ -263,9 +265,9 @@ def _duplicate_checkpoint_bytes() -> bytes:
 def _duplicate_closure_bytes() -> bytes:
     output = ReadyClosureEntry.from_document(
         {
-            "artifact_ref": artifact_ref_to_dict(_artifact_ref("artifact-a")),
-            "raw_sha256": _artifact_ref("artifact-a").raw_sha256.value,
-            "size_bytes": _artifact_ref("artifact-a").size_bytes,
+            "artifact_ref": artifact_ref_to_dict(_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")),
+            "raw_sha256": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").raw_sha256.value,
+            "size_bytes": _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40").size_bytes,
         }
     ).to_document()
     return (
@@ -293,7 +295,7 @@ CANONICAL_DOCUMENT_BYTE_FAULTS: tuple[tuple[str, str, bytes, str], ...] = (
     (
         "closure",
         "non-canonical-whitespace",
-        b" " + ReadyClosureDocument.build((_artifact_ref("artifact-a"),), VERSION_V1).to_canonical_bytes(),
+        b" " + ReadyClosureDocument.build((_artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40"),), VERSION_V1).to_canonical_bytes(),
         "ready closure bytes must be canonical JSON",
     ),
     (
@@ -325,7 +327,7 @@ def test_canonical_document_bytes_reject_non_canonical_and_duplicate_keys(
 @pytest.mark.unit
 def test_checkpoint_envelope_canonical_round_trip() -> None:
     envelope = _sample_envelope(
-        prior_output_refs=(_artifact_ref("artifact-prior"),),
+        prior_output_refs=(_artifact_ref("a1:durable:18f3b90fc468ae141470bc5e953db836f4667a24161126f6e818100ce262e9c6"),),
         job_state={"cursor": "beta", "count": 2},
     )
     raw = envelope.to_canonical_bytes()
@@ -335,34 +337,25 @@ def test_checkpoint_envelope_canonical_round_trip() -> None:
 
 
 def test_ready_closure_document_sorts_outputs_by_artifact_id() -> None:
-    ref_b = _artifact_ref("artifact-b")
-    ref_a = _artifact_ref("artifact-a")
-    document = ReadyClosureDocument.build((ref_b, ref_a), VERSION_V1)
-    assert [entry.artifact_ref.artifact_id for entry in document.outputs] == [
-        "artifact-a",
-        "artifact-b",
-    ]
+    ref_b = _artifact_ref("a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683")
+    ref_a = _artifact_ref("a1:durable:a1b30be8cf54caeb21603fbf5ceff7e647626133fccd7e8d631d1491c475eb40")
+    document = ReadyClosureDocument.build((ref_a, ref_b), VERSION_V1)
+    assert [entry.artifact_ref.artifact_id for entry in document.outputs] == [ref_b.artifact_id, ref_a.artifact_id]
     raw = document.to_canonical_bytes()
-    # Frozen v1 wire vector: capacity expansion does not alter old bytes/digests.
+    # a1 wire bytes changed with the IDs; the original sorting/raw SHA formula remains.
     expected = (
-        b'{"closure_contract_version":"backend-vnext/operation-ready-closure/v1",'
-        b'"document_type":"ready-closure",'
-        b'"job_contract_version":"backend-vnext/synthetic/pure-compute/v1","outputs":['
-        b'{"artifact_ref":{"artifact_id":"artifact-a","media_type":"application/octet-stream",'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'{"artifact_ref":{"artifact_id":"artifact-b","media_type":"application/octet-stream",'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3},'
-        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
-        b'"size_bytes":3}]}'
+        b'{"closure_contract_version":"backend-vnext/operation-ready-closure/v1","document_type":"ready-closur'
+        b'e","job_contract_version":"backend-vnext/synthetic/pure-compute/v1","outputs":[{"artifact_ref":{"art'
+        b'ifact_id":"a1:durable:7da78573aab236ac2609160080c4e25358da490eac66f16e71800596e865e683","media_type"'
+        b':"application/octet-stream","raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0'
+        b'cd6a8dcce8f22","size_bytes":3},"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17f'
+        b'ba0cd6a8dcce8f22","size_bytes":3},{"artifact_ref":{"artifact_id":"a1:durable:a1b30be8cf54caeb21603fb'
+        b'f5ceff7e647626133fccd7e8d631d1491c475eb40","media_type":"application/octet-stream","raw_sha256":"sha'
+        b'256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22","size_bytes":3},"raw_sha256":"'
+        b'sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22","size_bytes":3}]}'
     )
     assert raw == expected
-    assert raw_blob_digest(raw).value == (
-        "sha256:7fa7de2bba9d11b98082ffee1e3d67ed41ab4c7a595de5498a8d06a9f3b74a99"
-    )
+    assert raw_blob_digest(raw).value == "sha256:3a30adbe13c24e6363028b4474ab78735b97c22bf9b0ce00d2d8201016a26a00"
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
     assert restored.to_canonical_bytes() == expected
@@ -371,18 +364,18 @@ def test_ready_closure_document_sorts_outputs_by_artifact_id() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("ref_count", (4_096, 4_097, 32_768))
 def test_ready_closure_retains_bounded_large_snapshot_artifact_sets(ref_count: int) -> None:
-    refs = tuple(_artifact_ref(f"artifact-{index:05d}") for index in range(ref_count))
+    refs = tuple(_artifact_ref(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"artifact-{index:05d}")) for index in range(ref_count))
     document = ReadyClosureDocument.build(refs, VERSION_V1)
     assert len(document.outputs) == ref_count
     raw = document.to_canonical_bytes()
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
-    assert restored.artifact_refs() == refs
+    assert restored.artifact_refs() == tuple(sorted(refs, key=lambda ref: ref.artifact_id))
     assert restored.to_canonical_bytes() == raw
 
 
 def test_ready_closure_rejects_over_capacity_on_build_construction_and_decode() -> None:
-    refs = tuple(_artifact_ref(f"artifact-{index:05d}") for index in range(32_769))
+    refs = tuple(_artifact_ref(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"artifact-{index:05d}")) for index in range(32_769))
     with pytest.raises(ValueError, match="output_refs exceeds bounded document size"):
         ReadyClosureDocument.build(refs, VERSION_V1)
     entries = tuple(ReadyClosureEntry(artifact_ref=ref) for ref in refs)
@@ -408,7 +401,7 @@ def test_checkpoint_state_artifact_keeps_materialized_refs_out_of_inline_payload
             "contract_version": "snapshot-sides/v1",
             "refs": [f"table-{index:04d}" for index in range(5_000)],
         },
-        artifact_id_prefix="test-snapshot-sides",
+        artifact_id_prefix='preview-materialized-sides',
     )
     pointer = StepCheckpointEnvelope(
         job_kind=JOB_KIND,
@@ -443,7 +436,7 @@ def test_definition_matches_checkpoint_identity_axes() -> None:
 def test_verify_artifact_refs_rejects_digest_mismatch() -> None:
     store = InMemoryArtifactStore()
     raw = b"payload"
-    ref = put_with_built_ref(store, raw, artifact_id="artifact-output", media_type="application/octet-stream")
+    ref = put_with_built_ref(store, raw, artifact_id="a1:durable:e646c278057adf7f1d8acdf56c11b37da4310c7751c0e10c548f4fe2654ac1e6", media_type="application/octet-stream")
     bad_ref = ArtifactRef(
         artifact_id=ref.artifact_id,
         media_type=ref.media_type,
@@ -478,12 +471,12 @@ def test_checkpoint_decode_rejects_malformed_envelopes(
 
 def test_ready_closure_ref_set_once_guard_rejects_rewrite() -> None:
     current = _operation_record(
-        ready_closure_ref=_artifact_ref("artifact-closure-1"),
+        ready_closure_ref=_artifact_ref("a1:durable:6fbdbe17f9da43c5bb5b2ba31d8363d3206382816df32c90715d745918d2638d"),
         optimistic_version=2,
         updated_at=TS1,
     )
     candidate = _operation_record(
-        ready_closure_ref=_artifact_ref("artifact-closure-2"),
+        ready_closure_ref=_artifact_ref("a1:durable:f20e73c130a434943b87250d60e5672614d0d5f2802753bd5a291ccc9f7dea75"),
         optimistic_version=3,
         updated_at=TS1,
     )
@@ -494,8 +487,8 @@ def test_ready_closure_ref_set_once_guard_rejects_rewrite() -> None:
 def test_same_ref_put_is_idempotent() -> None:
     store = InMemoryArtifactStore()
     envelope = _sample_envelope()
-    first = prepare_step_checkpoint(store, envelope, artifact_id="checkpoint-1")
-    second = prepare_step_checkpoint(store, envelope, artifact_id="checkpoint-1")
+    first = prepare_step_checkpoint(store, envelope)
+    second = prepare_step_checkpoint(store, envelope)
     assert first == second
     assert load_checkpoint_envelope(store, first) == envelope
 
@@ -503,7 +496,7 @@ def test_same_ref_put_is_idempotent() -> None:
 def test_identity_mismatch_put_fails_closed() -> None:
     store = InMemoryArtifactStore()
     envelope = _sample_envelope()
-    ref = prepare_step_checkpoint(store, envelope, artifact_id="checkpoint-identity")
+    ref = prepare_step_checkpoint(store, envelope)
     conflicting = ArtifactRef(
         artifact_id=ref.artifact_id,
         media_type=ref.media_type,
@@ -519,7 +512,7 @@ def test_stale_cas_leaves_unreferenced_artifact_without_cleanup() -> None:
     output_ref = put_with_built_ref(
         store,
         b"output",
-        artifact_id="artifact-output",
+        artifact_id="a1:durable:e646c278057adf7f1d8acdf56c11b37da4310c7751c0e10c548f4fe2654ac1e6",
         media_type="application/octet-stream",
     )
     closure_ref = prepare_ready_closure(store, (output_ref,), VERSION_V1)
@@ -538,7 +531,7 @@ def test_stale_cas_leaves_unreferenced_artifact_without_cleanup() -> None:
 def test_publication_builders_do_not_touch_artifact_store() -> None:
     store = MagicMock(spec=InMemoryArtifactStore)
     envelope = _sample_envelope()
-    checkpoint_ref = prepare_step_checkpoint(InMemoryArtifactStore(), envelope, artifact_id="cp-1")
+    checkpoint_ref = prepare_step_checkpoint(InMemoryArtifactStore(), envelope)
     operation = _operation_record()
     step = _step_record()
     checkpoint_builder = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
@@ -547,14 +540,13 @@ def test_publication_builders_do_not_touch_artifact_store() -> None:
     output_ref = put_with_built_ref(
         prep_store,
         b"output",
-        artifact_id="artifact-output",
+        artifact_id="a1:durable:e646c278057adf7f1d8acdf56c11b37da4310c7751c0e10c548f4fe2654ac1e6",
         media_type="application/octet-stream",
     )
     closure_ref = prepare_ready_closure(
         prep_store,
         (output_ref,),
         VERSION_V1,
-        artifact_id="closure-1",
     )
     terminal_builder = make_terminal_ready_closure_builder(closure_ref=closure_ref)
     terminal_builder(operation, step, TS1)
@@ -563,16 +555,16 @@ def test_publication_builders_do_not_touch_artifact_store() -> None:
 
 
 def test_terminal_builder_rejects_second_closure_assignment() -> None:
-    closure_ref = _artifact_ref("artifact-closure")
+    closure_ref = _artifact_ref("a1:durable:8fdb534e28e4938fcc2d3449cda45ce30748a3309e98c61c184ce0e75fa99beb")
     builder = make_terminal_ready_closure_builder(closure_ref=closure_ref)
-    operation = _operation_record(ready_closure_ref=_artifact_ref("artifact-existing"))
+    operation = _operation_record(ready_closure_ref=_artifact_ref("a1:durable:e04b618294f79b05ade2f6804e079fe588f0b025a8e3c20de4cb1ec24bd67207"))
     step = _step_record()
     with pytest.raises(CheckpointPublicationError, match="ready_closure_ref is already set"):
         builder(operation, step, TS1)
 
 
 def test_envelope_for_step_uses_transaction_fresh_prior_output_refs() -> None:
-    prior = (_artifact_ref("artifact-prior"),)
+    prior = (_artifact_ref("a1:durable:18f3b90fc468ae141470bc5e953db836f4667a24161126f6e818100ce262e9c6"),)
     operation = _operation_record()
     step = _step_record(prior_output_refs=prior)
     envelope = envelope_for_step(
@@ -588,7 +580,7 @@ def test_envelope_for_step_uses_transaction_fresh_prior_output_refs() -> None:
 
 def test_checkpoint_builder_increments_step_version_once() -> None:
     store = InMemoryArtifactStore()
-    checkpoint_ref = prepare_step_checkpoint(store, _sample_envelope(), artifact_id="checkpoint-2")
+    checkpoint_ref = prepare_step_checkpoint(store, _sample_envelope())
     operation = _operation_record()
     step = _step_record()
     builder = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
@@ -608,7 +600,7 @@ def test_local_store_missing_closure_fails_closed(tmp_path: object) -> None:
 
     root = staging_root(cast(Path, tmp_path))
     store = open_local_store(root)
-    missing = _artifact_ref("missing-closure")
+    missing = _artifact_ref("a1:durable:5d4cfe19eb81712c74efce046a73998d6ac9e61bc3b87ef8256d367abfa2da96")
     with pytest.raises(CheckpointDecodeError, match="artifact ref is not available"):
         load_ready_closure(store, missing)
 
@@ -619,13 +611,12 @@ def test_local_store_reopen_readback_round_trip(tmp_path: object) -> None:
 
     root = staging_root(cast(Path, tmp_path))
     store = open_local_store(root)
-    output_ref = put_bytes(store, b"ready-output", artifact_id="artifact-ready-output")
+    output_ref = put_bytes(store, b"ready-output", artifact_id="a1:durable:f88eb7a5bf8fdc5fc059653d1b1bb4219a3c6a0282a5ea5927e5e1765368223d")
     document = ReadyClosureDocument.build((output_ref,), VERSION_V1)
-    closure_ref = put_ready_closure(store, document, artifact_id="ready-closure-1")
+    closure_ref = put_ready_closure(store, document)
     checkpoint_ref = prepare_step_checkpoint(
         store,
         _sample_envelope(prior_output_refs=(output_ref,)),
-        artifact_id="checkpoint-1",
     )
     reopened = reopen_local_store(root)
     assert load_ready_closure(reopened, closure_ref) == document

@@ -108,7 +108,7 @@ def test_dataset_replacement_rejects_a_records_ref() -> None:
         facts_with_ref = replace(
             product.result.facts,
             records_ref=ArtifactRef(
-                "replacement-closure", "application/json", 0, raw_blob_digest(b""),
+                "a1:durable:660b7b46a8078f8675872c0ac6a53c6cf8f8694d7dc32082014d7555deb1573a", "application/json", 0, raw_blob_digest(b""),
             ),
         )
         with pytest.raises(ValueError, match="records_ref"):

@@ -19,7 +19,7 @@ from gateway_backend.artifacts import InMemoryArtifactStore
 pytestmark = pytest.mark.unit
 
 _BINDING = {
-    "artifact_id": "artifact-1",
+    "artifact_id": "a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
     "media_type": "application/gzip",
     "size_bytes": 10,
     "raw_sha256": "sha256:" + "ab" * 32,
@@ -120,8 +120,8 @@ def test_decode_preview_payload_rejects_invalid_shapes(
 
 def test_build_preview_job_payload_round_trips_through_decoder() -> None:
     store = InMemoryArtifactStore()
-    modified = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id="m")
-    initial = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id="i")
+    modified = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id='a1:durable:f7c9a5a41662f5fef6975e3fa3361ad8081e02195640b52929c31cb096ba5c1e')
+    initial = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id='a1:durable:c9d732fe90450d22495a93bb14bac9ffaf0bfac430e4c25b6b354475fb3cb12e')
     revision = build_upload_revision(
         input_completeness=InputCompleteness.FULL,
         initial_binding=initial,

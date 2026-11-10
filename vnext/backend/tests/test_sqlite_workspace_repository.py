@@ -26,13 +26,13 @@ TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 5, 0, tzinfo=UTC)
 
 INITIAL_BINDING = SourceArtifactBinding(
-    artifact_id="initial-1",
+    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
     media_type="application/gzip",
     size_bytes=11,
     raw_sha256="sha256:initial",
 )
 MODIFIED_BINDING = SourceArtifactBinding(
-    artifact_id="modified-1",
+    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
     media_type="application/gzip",
     size_bytes=12,
     raw_sha256="sha256:modified",

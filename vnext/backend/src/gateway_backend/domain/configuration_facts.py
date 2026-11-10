@@ -1,6 +1,8 @@
 """Immutable source-time and complete canonical content facts owned by the business lifecycle."""
 from __future__ import annotations
 
+from gateway_backend.artifacts.types import validate_artifact_id
+
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 import re
@@ -127,7 +129,9 @@ class ConfigurationSideFacts:
         else:
             if type(self.generated_time) is not ConfigurationGeneratedTime:
                 raise ValueError("configuration side requires native time facts")
-            _text(self.source_artifact_id, "source_artifact_id")
+            if type(self.source_artifact_id) is not str:
+                raise ValueError("source_artifact_id must be a backend artifact ID")
+            validate_artifact_id(self.source_artifact_id)
             _digest(self.sql_source_digest)
 
     @classmethod

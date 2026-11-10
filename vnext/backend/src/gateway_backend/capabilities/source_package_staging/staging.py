@@ -5,6 +5,8 @@ Produces public refs and artifact metadata only. Does not interpret SQL or XML.
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import secrets
 import time
 
@@ -149,7 +151,7 @@ def _complete(
             "optional /comps/logic/logics.xml is not unique",
         )
 
-    package_id = _new_id("source-package")
+    package_id = "source-package-" + secrets.token_hex(8)
     entries = tuple(_to_entry(member) for member in members)
     manifest_digest = _manifest_digest(entries)
     source_package_digest = _source_package_digest(source.package_kind, manifest_digest)
@@ -359,4 +361,4 @@ def _failed(
 
 
 def _new_id(namespace: str) -> str:
-    return build_artifact_id(namespace, secrets.token_hex(8))
+    return build_artifact_id(ArtifactLocation.DURABLE, namespace, secrets.token_hex(16))

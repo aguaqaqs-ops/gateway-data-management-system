@@ -576,19 +576,19 @@ _PREVIEW_CANONICAL_DIGEST = "sha256:" + "p" * 62 + "ca"
 def _production_submit_preview_refs() -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="initial-1",
+            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_INITIAL),
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="modified-1",
+            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_MODIFIED),
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id="closure-1",
+            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
             media_type="application/json",
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -636,9 +636,9 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     protected_refs = _production_submit_preview_refs()
     canonical_fixture = make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID)
     payloads = {
-        "initial-1": _PAYLOAD_INITIAL,
-        "modified-1": _PAYLOAD_MODIFIED,
-        "closure-1": _PAYLOAD_CLOSURE,
+        "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf": _PAYLOAD_INITIAL,
+        "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303": _PAYLOAD_MODIFIED,
+        "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1": _PAYLOAD_CLOSURE,
         **canonical_fixture.payloads,
     }
     _seed_protected_artifacts(
@@ -666,13 +666,13 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="initial-1",
+                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_INITIAL),
                     raw_sha256=_SHA_INITIAL,
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="modified-1",
+                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_MODIFIED),
                     raw_sha256=_SHA_MODIFIED,
@@ -708,8 +708,8 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             canonical=make_preview_canonical_bindings(TEST_MAPPING_REPOSITORY_ID),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
-            bundle_artifact_id="bundle-1",
-            ready_closure_artifact_id="closure-1",
+            bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+            ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
             operation_id="op-preview-accept-1",
             created_at=fixed_now,
         )

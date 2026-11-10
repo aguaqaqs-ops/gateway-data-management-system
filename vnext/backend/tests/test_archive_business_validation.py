@@ -1,6 +1,8 @@
 """The unique owner of current-round source and generated-time business rules."""
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from dataclasses import replace
 import hashlib
 import itertools
@@ -35,7 +37,7 @@ def _time(hour: int | None = 12, *, invalid: int = 0, maximum: int | None = None
 
 def _side(label: str, *, hour: int | None = 12, rules: str = "A") -> ConfigurationSideFacts:
     return ConfigurationSideFacts(CanonicalContentIdentity(_digest(label), _digest(rules), "3", 1),
-        _time(hour), "artifact-" + label, _digest("sql-" + label))
+        _time(hour), build_artifact_id(ArtifactLocation.DURABLE, "archive-business-fixture", label), _digest("sql-" + label))
 
 
 def _candidate(name: str, initial: str, modified: str, *, rules: str = "A") -> ArchiveBusinessCandidate:

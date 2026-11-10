@@ -1,0 +1,357 @@
+[
+  {
+    "document": "storage",
+    "path": [
+      "schema_version"
+    ],
+    "value": true
+  },
+  {
+    "document": "storage",
+    "path": [
+      "schema_version"
+    ],
+    "value": 2
+  },
+  {
+    "document": "storage",
+    "path": [
+      "environment_id"
+    ],
+    "value": "Uppercase"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "group_id"
+    ],
+    "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "extra"
+    ],
+    "value": 1
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "path"
+    ],
+    "value": "relative"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "path"
+    ],
+    "value": "/var/lib/gateway/be-export"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "source"
+    ],
+    "value": "/srv/gateway/be-export/child"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "source"
+    ],
+    "value": "/srv/gateway/../escape"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "source"
+    ],
+    "value": "/srv//gateway/be-durable"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "filesystem_id"
+    ],
+    "value": "missing"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "storage_id"
+    ],
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "be-durable",
+      "mount_mode"
+    ],
+    "value": "volume"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "min_free_fraction"
+    ],
+    "value": 0
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "min_free_fraction"
+    ],
+    "value": true
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "min_free_bytes"
+    ],
+    "value": 1.5
+  },
+  {
+    "document": "storage",
+    "path": [
+      "roots",
+      "extra"
+    ],
+    "value": {}
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "count"
+    ],
+    "value": 2
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "active_limit"
+    ],
+    "value": 2
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "kernel_threads"
+    ],
+    "value": true
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "kernel_threads"
+    ],
+    "value": 1.5
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "kernel_threads"
+    ],
+    "value": 257
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "kernel_threads"
+    ],
+    "value": 3
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "cpu_limit"
+    ],
+    "value": 0.5
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "cpu_limit"
+    ],
+    "value": true
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "kernel_memory_bytes"
+    ],
+    "value": 44023414784
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "memory_envelope_bytes"
+    ],
+    "value": 52613349376
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "memory_reserve_bytes"
+    ],
+    "value": 7516192768
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "memory_envelope_bytes"
+    ],
+    "value": 33285996544
+  },
+  {
+    "document": "resources",
+    "path": [
+      "backend",
+      "memory_limit_bytes"
+    ],
+    "value": 0
+  },
+  {
+    "document": "resources",
+    "path": [
+      "repository_service",
+      "swap_limit_bytes"
+    ],
+    "value": -1
+  },
+  {
+    "document": "resources",
+    "path": [
+      "host_budget",
+      "memory_bytes"
+    ],
+    "value": 34359738368
+  },
+  {
+    "document": "resources",
+    "path": [
+      "host_budget",
+      "cpu_count"
+    ],
+    "value": 4
+  },
+  {
+    "document": "resources",
+    "path": [
+      "temporary",
+      "scratch_max_bytes_per_attempt"
+    ],
+    "value": 0
+  },
+  {
+    "document": "resources",
+    "path": [
+      "temporary",
+      "staging_max_bytes_per_object"
+    ],
+    "value": false
+  },
+  {
+    "document": "resources",
+    "path": [
+      "extra"
+    ],
+    "value": 1
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ud800"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ufdd0"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ufffe"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\ud83f\udffe"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "expected_source"
+    ],
+    "value": "/dev/\udbff\udfff"
+  },
+  {
+    "document": "storage",
+    "path": [
+      "filesystems",
+      "local",
+      "min_free_bytes"
+    ],
+    "value": 9007199254740992
+  },
+  {
+    "document": "resources",
+    "path": [
+      "host_budget",
+      "shared_cpu_reserve"
+    ],
+    "value": 9007199254740992
+  }
+]

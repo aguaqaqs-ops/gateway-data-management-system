@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime
 
-from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.artifacts.canonical_table_store import CANONICAL_TABLE_TTL_SECONDS
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -97,6 +97,8 @@ class SQLiteArtifactProtectionStore:
         """Keep registered canonical content until TTL after its last strong owner."""
         if self._read_only:
             raise RuntimeError("artifact protection store is read-only in this transaction")
+        for artifact_id in artifact_ids:
+            validate_artifact_id(artifact_id)
         now_us = _datetime_to_epoch_us(recorded_at)
         expires_at_us = now_us + CANONICAL_TABLE_TTL_SECONDS * 1_000_000
         for artifact_id in artifact_ids:
@@ -144,6 +146,7 @@ class SQLiteArtifactProtectionStore:
         return int(cursor.rowcount)
 
     def is_protected(self, artifact_id: str) -> bool:
+        validate_artifact_id(artifact_id)
         now_us = _datetime_to_epoch_us(
             datetime.now(UTC) if self._now is None else self._now
         )

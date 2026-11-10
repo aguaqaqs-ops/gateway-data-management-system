@@ -103,7 +103,7 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
     assert isinstance(canonical.reader, ArrowSnapshotTableReader)
     canonical.reader.mark_canonical_comparison_verified()  # Fixture stands in for the verified IPC writer.
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef("storage-fixture-artifact", "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef("a1:durable:3a13a27733a7ef05250e5ad9311cb8146a5614e4f45ee986ad0611e32f99cffb", "application/octet-stream", 0, empty_digest)
     canonical = replace(canonical, artifact=SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(

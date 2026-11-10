@@ -6,9 +6,9 @@ import re
 from dataclasses import dataclass
 
 from gateway_shared_kernel import DigestRef
+from gateway_backend.artifacts.location import parse_artifact_id
 
 IJSON_MAX_SAFE_INTEGER = (2**53) - 1
-_ARTIFACT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _FORBIDDEN_IDENTITY_KEYS = frozenset(
     {
         "path",
@@ -51,9 +51,7 @@ class ArtifactRef:
 
 
 def validate_artifact_id(artifact_id: str) -> None:
-    if type(artifact_id) is not str or not _ARTIFACT_ID_PATTERN.fullmatch(artifact_id):
-        raise ValueError("artifact_id must be a bounded opaque string")
-    assert_no_host_path_identity(artifact_id, label="artifact_id")
+    parse_artifact_id(artifact_id)
 
 
 def assert_no_host_path_identity(payload: object, *, label: str = "artifact identity") -> None:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterator
 from contextlib import ExitStack, closing
 from dataclasses import replace
+from pathlib import Path
 from threading import Event
 from typing import Any
 
@@ -14,7 +16,7 @@ import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.capabilities.comparison import (
@@ -505,10 +507,31 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert blank_published.records_closure is not None
         assert len(blank_published.records_closure.records) == 1
         assert blank_published.records_closure.records[0].family.value == "BLANK"
-        assert (
-            blank_published.records_closure.closure_manifest_digest.value
-            == expected["blank_only"]["closure_manifest_digest"]
-        )
+        # Keep the pre-E capture intact. Only location-bearing transport bytes
+        # use the separately authored S1a preimage; all semantic/Parquet checks stay.
+        fixture_root = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison"
+        location_vector = json.loads((fixture_root / "s1a/blank-location-closure.json").read_bytes())
+        historical = location_vector["historical_source"]
+        assert historical["case"] == request.node.nodeid
+        assert hashlib.sha256((fixture_root / "s3-e/old-python-expected.json").read_bytes()).hexdigest() == historical["file_sha256"]
+        old_preimage = location_vector["historical_closure_preimage"].encode()
+        assert "sha256:" + hashlib.sha256(old_preimage).hexdigest() == expected["blank_only"]["closure_manifest_digest"]
+        assert historical["closure_manifest_digest"] == expected["blank_only"]["closure_manifest_digest"]
+        assert location_vector["historical_derived_digest"] == historical["closure_manifest_digest"]
+        blank_entry = blank_published.records_closure.records[0]
+        assert artifact_ref_to_dict(blank_entry.records_ref) == location_vector["records_ref"]
+        assert artifact_ref_to_dict(blank_entry.records_manifest_ref) == location_vector["manifest_ref"]
+        assert blank_entry.records_manifest_digest.value == location_vector["manifest_digest"]
+        assert blank_store.locate(blank_entry.records_manifest_ref) == location_vector["manifest_preimage"].encode()
+        for key, ref in (("records_id_preimage", blank_entry.records_ref),
+                         ("manifest_id_preimage", blank_entry.records_manifest_ref)):
+            assert ref.artifact_id == "a1:comparison:" + hashlib.sha256(location_vector[key].encode()).hexdigest()
+        assert blank_published.facts is not None
+        assert blank_published.facts.records_ref is not None
+        closure_raw = blank_store.locate(blank_published.facts.records_ref)
+        assert closure_raw == location_vector["closure_preimage"].encode()
+        assert "sha256:" + hashlib.sha256(closure_raw).hexdigest() == location_vector["closure_manifest_digest"]
+        assert blank_published.records_closure.closure_manifest_digest.value == location_vector["closure_manifest_digest"]
         blank_raw = blank_store.locate(blank_published.records_closure.records[0].records_ref)
         assert hashlib.sha256(blank_raw).hexdigest() == expected["blank_only"]["raw_sha256"]
         # This case has only ordered/blank movement, so row-target Risk does
@@ -1017,7 +1040,7 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
 
 def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotTableArtifact:
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef("s3-d-artifact", "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef("a1:durable:6b4cbfd9f0e62f1f72e504e3a73569e3150c926b07e47a29b9c707b5d4f555bc", "application/octet-stream", 0, empty_digest)
     return SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(

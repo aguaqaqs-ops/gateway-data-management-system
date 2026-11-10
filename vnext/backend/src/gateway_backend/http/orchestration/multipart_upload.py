@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import asyncio
 import json
 import shutil
@@ -166,7 +168,7 @@ def _accept_staged_upload(
                 status_code=422,
             )
         try:
-            ref = artifact_store.put_stream(
+            ref = artifact_store.put_stream(ArtifactLocation.DURABLE,
                 "source-package",
                 iter_file_chunks(staged.path),
                 declared_size=declared.size_bytes,

@@ -125,8 +125,8 @@ def test_ref_rewrite_keeps_semantic_and_content_digests() -> None:
     assert published.records_closure is not None
     closure = published.records_closure
     entry, = closure.records
-    rewritten_rows = replace(entry.records_ref, artifact_id="rewritten-records")
-    rewritten_manifest = replace(entry.records_manifest_ref, artifact_id="rewritten-manifest")
+    rewritten_rows = replace(entry.records_ref, artifact_id="a1:durable:79be212256e96e28c04eebaa144108e9d9b2173eafa5505d09b8b5033fa23c8a")
+    rewritten_manifest = replace(entry.records_manifest_ref, artifact_id="a1:durable:8b79b7ce686844eccbe646b0d66e7fc4c9d590dbc86e1ecc38bf94cd95f80ecf")
     rewritten = rewrite_closure_refs(
         closure, {
             entry.records_ref: rewritten_rows,
@@ -217,7 +217,7 @@ def test_duplicate_closure_entry_is_rejected() -> None:
     payload["records"].append(payload["records"][0])
     duplicate_bytes = canonicalize_json_value(payload)
     duplicate_ref = put_with_built_ref(
-        store, duplicate_bytes, artifact_id="duplicate-closure",
+        store, duplicate_bytes, artifact_id="a1:durable:80eb8f3778b8167120cdae2e1354a4f32566dbec16cc00dc71bd0f86329656f1",
         media_type="application/json",
     )
     with pytest.raises(ValueError, match="repeat|closure"):

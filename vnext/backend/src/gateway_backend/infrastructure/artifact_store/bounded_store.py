@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import hashlib
 import os
 import secrets
@@ -67,6 +69,7 @@ class BoundedArtifactStore:
 
     def put_stream(
         self,
+        location: ArtifactLocation,
         kind: str,
         stream: Iterable[bytes],
         *,
@@ -80,21 +83,21 @@ class BoundedArtifactStore:
             raise ValueError("declared_size must be a non-negative integer")
         if type(media_type) is not str or not media_type:
             raise ValueError("media_type must be a non-empty string")
+        artifact_id = build_artifact_id(location, kind, secrets.token_hex(16))
+        validate_artifact_id(artifact_id)
         staging_path, digest = _write_bounded_staging(
             self._local_store.artifact_root,
             stream,
             declared_size=declared_size,
             declared_raw_sha256=declared_raw_sha256,
         )
-        artifact_id = build_artifact_id(kind, secrets.token_hex(8))
-        validate_artifact_id(artifact_id)
-        ref = ArtifactRef(
-            artifact_id=artifact_id,
-            media_type=media_type,
-            size_bytes=declared_size,
-            raw_sha256=digest,
-        )
         try:
+            ref = ArtifactRef(
+                artifact_id=artifact_id,
+                media_type=media_type,
+                size_bytes=declared_size,
+                raw_sha256=digest,
+            )
             published = self._local_store.put_from_path(staging_path, ref)
         except BaseException:
             if staging_path.exists():

@@ -25,7 +25,7 @@ from tests.support.compose_gate_harness import (
     accept_history_compare,
     assert_running_backend_worker_images_match_build,
     capture_business_table_state_in_compose,
-    capture_r4_manifest_artifact_ids,
+    capture_canonicalization_manifest_artifact_ids,
     capture_running_container_provenance,
     cleanup_compose_project_artifacts,
     compose_auth_headers,
@@ -557,7 +557,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                 repository_id,
                 bearer_token=BEARER_TOKEN,
             )
-            manifests_before = capture_r4_manifest_artifact_ids(env)
+            manifests_before = capture_canonicalization_manifest_artifact_ids(env)
             assert len(manifests_before) > 0
 
             compare_two = accept_history_compare(
@@ -667,7 +667,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                 repository_id,
                 bearer_token=BEARER_TOKEN,
             )
-            manifests_after = capture_r4_manifest_artifact_ids(env)
+            manifests_after = capture_canonicalization_manifest_artifact_ids(env)
             assert business_before == business_after
             assert commits_before == commits_after
             assert manifests_before == manifests_after
@@ -696,7 +696,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                 repository_id,
                 bearer_token=BEARER_TOKEN,
             )
-            manifests_after_restart = capture_r4_manifest_artifact_ids(env)
+            manifests_after_restart = capture_canonicalization_manifest_artifact_ids(env)
             assert business_before == business_after_restart
             assert commits_before == commits_after_restart
             assert manifests_before == manifests_after_restart
@@ -745,7 +745,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                 repository_id,
                 bearer_token=BEARER_TOKEN,
             )
-            manifests_after_replay = capture_r4_manifest_artifact_ids(env)
+            manifests_after_replay = capture_canonicalization_manifest_artifact_ids(env)
             assert business_before == business_after_replay
             assert commits_before == commits_after_replay
             assert manifests_before == manifests_after_replay

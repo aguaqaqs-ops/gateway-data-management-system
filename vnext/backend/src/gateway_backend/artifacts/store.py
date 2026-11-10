@@ -10,7 +10,7 @@ import pyarrow as pa
 
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 
 
@@ -73,6 +73,7 @@ class InMemoryArtifactStore:
         return raw_bytes
 
     def get_ref(self, artifact_id: str) -> ArtifactRef:
+        validate_artifact_id(artifact_id)
         try:
             return self._artifacts[artifact_id][0]
         except KeyError as exc:

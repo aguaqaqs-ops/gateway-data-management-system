@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -160,10 +162,10 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
     for name, scalar_type in (("int", pa.int64()), ("text", pa.string())):
         sink = pa.BufferOutputStream()
         pq.write_table(pa.table({"id": pa.array([], type=scalar_type)}), sink)
-        refs.append(put_with_built_ref(store, sink.getvalue().to_pybytes(), artifact_id=f"empty-{name}", media_type="application/vnd.apache.parquet"))
+        refs.append(put_with_built_ref(store, sink.getvalue().to_pybytes(), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"empty-{name}"), media_type="application/vnd.apache.parquet"))
     shared = []
     for index, path in enumerate(PAX_PATHS):
-        ref = put_with_built_ref(store, bytes([index]), artifact_id=f"long-path-{index}", media_type="application/octet-stream")
+        ref = put_with_built_ref(store, bytes([index]), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"long-path-{index}"), media_type="application/octet-stream")
         shared.append(BundleArtifactBinding(ref, "shared/" + path, BundleArtifactKind.OTHER, shared=True))
     pairs = []
     for index, ref in enumerate(refs):

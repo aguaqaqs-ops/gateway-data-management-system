@@ -437,7 +437,7 @@ def test_accept_submit_replays_without_current_closure_metadata(
     body = _submit_body(workspace)
     first = env.client.post(url, headers=headers, json=body)
     assert first.status_code == 202
-    closure_ref = env.artifact_store._registered_refs["closure-1"]
+    closure_ref = env.artifact_store._registered_refs["a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"]
     env.artifact_store.drop(closure_ref)
     second = env.client.post(url, headers=headers, json=body)
     assert second.status_code == 202

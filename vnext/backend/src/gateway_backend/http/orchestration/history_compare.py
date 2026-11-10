@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import parse_artifact_id
+
 from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.bundle_download import BundleIntegrityError
@@ -350,6 +352,10 @@ def _bundle_binding(
             message="bundle is not available",
             status_code=404,
         )
+    try:
+        parse_artifact_id(bundle_artifact_id)
+    except ValueError as exc:
+        raise BundleIntegrityError("history checkpoint has an invalid bundle ID") from exc
     expected_digest = envelope.job_state.get("bundle_digest")
     if type(expected_digest) is not str or not expected_digest:
         raise BundleIntegrityError("history checkpoint has no expected bundle digest")

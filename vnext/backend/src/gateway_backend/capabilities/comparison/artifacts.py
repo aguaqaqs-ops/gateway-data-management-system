@@ -6,6 +6,8 @@ Artifact refs and closure metadata remain outside semantic digests.
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation
+
 import json
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import closing
@@ -99,14 +101,11 @@ class RecordsPublicationContext:
     """Side-effect-free control hooks for bounded publication."""
 
     checkpoint: Callable[[], None] = lambda: None
-    artifact_id_prefix: str = "comparison"
     timings: dict[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not callable(self.checkpoint):
             raise ValueError("checkpoint must be callable")
-        if type(self.artifact_id_prefix) is not str or self.artifact_id_prefix == "":
-            raise ValueError("artifact_id_prefix must be non-empty")
 
 
 class NativeRecordsHandle(Protocol):
@@ -352,9 +351,8 @@ def restore_records_closure(
     closure_ref: ArtifactRef,
     *,
     policy: RecordsPublicationPolicy | None = None,
-    context: RecordsPublicationContext | None = None,
 ) -> RestoredRecordsClosure:
-    """Copy a validated records closure and rewrite its refs into a new artifact scope.
+    """Copy a validated records closure and rewrite its refs using their owning IDs.
 
     The source closure and every referenced artifact are verified before they are exposed to the
     caller.  The destination closure is reopened and verified after publication as well.  A
@@ -365,7 +363,6 @@ def restore_records_closure(
     if not _is_artifact_store(source_store) or not _is_artifact_store(destination_store):
         raise TypeError("source_store and destination_store must implement ArtifactStorePort")
     limits = policy or RecordsPublicationPolicy()
-    control = context or RecordsPublicationContext()
     source = open_records_closure(source_store, closure_ref, policy=limits)
     replacements: dict[ArtifactRef, ArtifactRef] = {}
     for entry in source.records:
@@ -381,7 +378,7 @@ def restore_records_closure(
             records_ref = put_with_built_ref(
                 destination_store,
                 records_raw,
-                artifact_id=_artifact_id(control, "records", entry.records_ref.raw_sha256),
+                artifact_id=_artifact_id("records", entry.records_ref.raw_sha256),
                 media_type=entry.records_ref.media_type,
             )
             _verify_stored_bytes(destination_store, records_ref, records_raw)
@@ -394,7 +391,7 @@ def restore_records_closure(
         manifest_ref = put_with_built_ref(
             destination_store,
             manifest_raw,
-            artifact_id=_artifact_id(control, "manifest", entry.records_manifest_digest),
+            artifact_id=_artifact_id("manifest", entry.records_manifest_digest),
             media_type=entry.records_manifest_ref.media_type,
         )
         _verify_stored_bytes(destination_store, manifest_ref, manifest_raw)
@@ -413,7 +410,7 @@ def restore_records_closure(
     restored_ref = put_with_built_ref(
         destination_store,
         closure_bytes,
-        artifact_id=_artifact_id(control, "closure", rewritten.closure_manifest_digest),
+        artifact_id=_artifact_id("closure", rewritten.closure_manifest_digest),
         media_type=MANIFEST_MEDIA_TYPE,
     )
     _verify_stored_bytes(destination_store, restored_ref, closure_bytes)
@@ -454,7 +451,7 @@ def _publish_family(
     records_ref = put_with_built_ref(
         store,
         parquet_bytes,
-        artifact_id=_artifact_id(context, family.value.lower(), content_digest),
+        artifact_id=_artifact_id(family.value.lower(), content_digest),
         media_type=PARQUET_MEDIA_TYPE,
     )
     _verify_stored_bytes(store, records_ref, parquet_bytes)
@@ -473,7 +470,7 @@ def _publish_family(
     manifest_ref = put_with_built_ref(
         store,
         manifest_bytes,
-        artifact_id=_artifact_id(context, f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)),
+        artifact_id=_artifact_id(f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)),
         media_type=MANIFEST_MEDIA_TYPE,
     )
     _verify_stored_bytes(store, manifest_ref, manifest_bytes)
@@ -548,7 +545,7 @@ def publish_records_family_arrow(
         records_ref = put_with_built_ref(
             store,
             parquet_bytes,
-            artifact_id=_artifact_id(control, family.value.lower(), content_digest),
+            artifact_id=_artifact_id(family.value.lower(), content_digest),
             media_type=PARQUET_MEDIA_TYPE,
         )
     finally:
@@ -570,7 +567,7 @@ def publish_records_family_arrow(
         store,
         manifest_bytes,
         artifact_id=_artifact_id(
-            control, f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)
+            f"{family.value.lower()}-manifest", raw_blob_digest(manifest_bytes)
         ),
         media_type=MANIFEST_MEDIA_TYPE,
     )
@@ -672,7 +669,7 @@ def _publish_records_closure_arrow_admitted(
         raise RecordsPublicationError("closure JSON budget exceeded")
     closure_ref = put_with_built_ref(
         store, closure_bytes,
-        artifact_id=_artifact_id(control, "closure", raw_blob_digest(closure_bytes)),
+        artifact_id=_artifact_id("closure", raw_blob_digest(closure_bytes)),
         media_type=MANIFEST_MEDIA_TYPE,
     )
     _verify_stored_bytes(store, closure_ref, closure_bytes)
@@ -1279,14 +1276,13 @@ def _schema_version(family: RecordsArtifactFamily) -> str:
 
 
 def _artifact_id(
-    context: RecordsPublicationContext,
     suffix: str,
     digest: DigestRef,
 ) -> str:
     digest_suffix = digest.value.removeprefix("sha256:")
-    return build_artifact_id(
-        context.artifact_id_prefix,
-        f"{suffix}-{digest_suffix}",
+    return build_artifact_id(ArtifactLocation.COMPARISON,
+        "comparison-records",
+        [suffix, digest_suffix],
     )
 
 

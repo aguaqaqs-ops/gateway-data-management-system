@@ -357,14 +357,14 @@ def build_preview_harness(
     modified_binding = store_source_package(
         artifact_store,
         modified_sql.encode("utf-8"),
-        artifact_id="modified-package",
+        artifact_id="a1:durable:a76e2c7730804ae7e87df55de3764bf418a00d40ce712cb1fb6c758087e78bbb",
     )
     initial_binding = None
     if input_completeness is InputCompleteness.FULL:
         initial_binding = store_source_package(
             artifact_store,
             initial_sql.encode("utf-8"),
-            artifact_id="initial-package",
+            artifact_id="a1:durable:8b714caab4ab3328ff2b0a303a51194456893206c7d115224d5712d646a66ae0",
         )
     upload_revision = build_upload_revision(
         input_completeness=input_completeness,
@@ -393,9 +393,9 @@ def build_preview_harness(
         repository_id=REPOSITORY_ID, based_on_baseline_node_id="initial-node", business_baseline_commit_id="initial-commit",
         repository_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         canonical_business_digest=_canonical_baseline_data(baseline_sql)[3].value,
-        source_artifact_refs=("baseline-source",), canonicalization_manifest_ref="baseline-manifest",
+        source_artifact_refs=("a1:durable:c472a8b7c8f61a8800f9c27b2bbc00cc027bf96a1cc4a9f307c77dafd0effb30",), canonicalization_manifest_ref="a1:durable:65169d914a96c20d3262669844d5a6682577ab6796dfb5ee8f8af9e5589f8579",
         canonicalization_manifest_digest=baseline_manifest.manifest_digest.value if baseline_manifest and baseline_manifest.manifest_digest else "sha256:" + "0" * 64,
-        repository_import_artifact_raw_sha256="sha256:" + "0" * 64, repository_artifact_id="baseline-import",
+        repository_import_artifact_raw_sha256="sha256:" + "0" * 64, repository_artifact_id="419aabcb-a728-52cb-93c3-8f9d3a66bc7a",
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT, target_ref=SubmitTargetRef.MAIN,

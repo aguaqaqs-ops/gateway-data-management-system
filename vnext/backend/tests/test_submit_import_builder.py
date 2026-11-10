@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from tests.support.native_projection import project_storage, project_canonical_fixture
 
 from dataclasses import replace
@@ -177,7 +179,7 @@ def _build_input(
     assert projection.manifest.manifest_digest is not None
     manifest_payload = durable_manifest_bytes(projection.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="canonicalization-manifest",
+        artifact_id="a1:durable:dec0015e7400b207dac9e314a4eee902fafbcc0d8a46e975671f85ba5fbd2c1c",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -189,7 +191,7 @@ def _build_input(
         submit_attempt_id="sa-import-1",
         builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
-            artifact_id="canonical-table-closure",
+            artifact_id="a1:durable:d6b306489c64791e4da6ed5f68a4cdaa5b34b9a9f5bbd802db6f6cc3e8dd6568",
             media_type="application/jcs",
             size_bytes=1,
             raw_sha256=DigestRef(closure_digest),
@@ -210,7 +212,7 @@ def _build_input(
             else (
                 SnapshotTableBinding(
                     table_name="net_cfg",
-                    artifact_id="snap-net-cfg",
+                    artifact_id="a1:durable:b5d020806e02827625ea712c7f804845e6eb1503c4f35a35c74c48270a2bcd44",
                     media_type="application/json",
                     size_bytes=1,
                     raw_sha256=_SNAPSHOT_DIGEST,
@@ -285,7 +287,7 @@ def _frozen_build_input(
 
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="fixture-canonicalization-manifest",
+        artifact_id="a1:durable:206c051310ed4bc3c1127eaaab0d94dd36b44e31f47d5b6365d41f53058e8b38",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -308,7 +310,7 @@ def _frozen_build_input(
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="fixture-canonical-table-closure",
+        artifact_id="a1:durable:5ad5fdb651150671c6a572743e70cd426d6e521d2e2b28f0c5723e695b1e0f7e",
         media_type="application/jcs",
         size_bytes=len(closure_payload),
         raw_sha256=raw_blob_digest(closure_payload),
@@ -489,7 +491,7 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     assert projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(projection.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="empty-canonical-manifest",
+        artifact_id="a1:durable:28ffd239763dcd355a80a1eae92268016ef01b1b9be33f8e4d1ea36fe2706019",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -501,7 +503,7 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="empty-canonical-closure",
+        artifact_id="a1:durable:a25004759e79d8418d83f2734416344a4e115fb7b76646b81ccda8d026034d69",
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
@@ -519,7 +521,7 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     )
 
     assert bindings == ()
-    assert refs == (closure_ref, manifest_ref)
+    assert refs == tuple(sorted((closure_ref, manifest_ref), key=lambda ref: ref.artifact_id))
     assert _build_input(
         snapshot_tables=bindings,
         projection_inputs=_projection_inputs(),
@@ -546,7 +548,7 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     assert parent_projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(canonical.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="empty-state-removal-manifest",
+        artifact_id="a1:durable:ebfe0f90740708f9fb734bd2512f34a2020f14caf61cf0020a00ab9d7652662d",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -558,7 +560,7 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="empty-state-removal-closure",
+        artifact_id="a1:durable:219a388e38f3ce667e2072df3aaa6e81a1aa85322c5f1d57bc6b368d0df6ca0b",
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
@@ -625,7 +627,7 @@ def test_removed_tables_follow_the_complete_canonical_state(
     snapshot_tables = tuple(
         SnapshotTableBinding(
             table_name=name,
-            artifact_id=f"snapshot-{name}",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"snapshot-{name}"),
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256=_SNAPSHOT_DIGEST,
@@ -682,7 +684,7 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     canonical_inputs = _open_projection_inputs(bindings, store=store, repository_id="test-repository")
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="frozen-com_cfg-manifest",
+        artifact_id="a1:durable:44ff21fae0c6ac8f80a9ad8dea1f4274921a256c8af3156e60a2a2550b0975a5",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -692,7 +694,7 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         submit_attempt_id="sa-frozen-dropped-column",
         builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
-            artifact_id="frozen-com_cfg-closure",
+            artifact_id="a1:durable:86956a3150b883c83390c1f2976ac74b40b8e6b8b16c78fafc745203806a3fa9",
             media_type="application/jcs",
             size_bytes=1,
             raw_sha256=DigestRef("sha256:" + "a" * 64),
@@ -782,7 +784,7 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="ordered-canonical-table-closure",
+        artifact_id="a1:durable:1617cc60678b81d6dbe6413abd44482978b5003c461cacc5bb5a3ffa3678fd40",
         media_type="application/jcs",
         size_bytes=len(closure_payload),
         raw_sha256=raw_blob_digest(closure_payload),
@@ -790,7 +792,7 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
     store.put(closure_payload, closure_ref)
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="ordered-canonicalization-manifest",
+        artifact_id="a1:durable:8a53399f4fd0a2716c89dc84c5c0cdba197689a20809f03cfb1a23b131ce4d60",
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -989,7 +991,7 @@ def test_skipped_table_does_not_break_publication() -> None:
         build_input=_build_input(store=store, projection_inputs=projection_inputs),
         store=store,
     )
-    assert published.checkpoint.backend_import_artifact_ref.artifact_id.startswith("r4-package-")
+    assert published.checkpoint.backend_import_artifact_ref.artifact_id.startswith("a1:durable:")
 
 
 def test_checkpoint_reuse_read_back_preserves_package_identity() -> None:
@@ -1074,14 +1076,13 @@ def test_orphan_bytes_before_checkpoint_do_not_change_published_identity() -> No
 def test_publish_writes_only_manifest_and_package_artifacts() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
-    published = adapter.build_and_publish(
-        build_input=_build_input(store=store),
-        store=store,
-    )
-    artifact_ids = set(store._artifacts)
-    assert published.checkpoint.canonicalization_manifest_ref.artifact_id in artifact_ids
-    assert published.checkpoint.backend_import_artifact_ref.artifact_id in artifact_ids
-    assert not any(artifact_id.startswith("change-set-closure-") for artifact_id in artifact_ids)
+    build_input = _build_input(store=store)
+    input_artifact_ids = set(store._artifacts)
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    output_ids = {published.checkpoint.canonicalization_manifest_ref.artifact_id,
+        published.checkpoint.backend_import_artifact_ref.artifact_id}
+    assert set(store._artifacts) - input_artifact_ids == output_ids
+    assert all(artifact_id.startswith("a1:durable:") for artifact_id in output_ids)
 
 
 def test_build_and_publish_from_pinned_canonical_ipc_artifact_succeeds() -> None:
@@ -1182,7 +1183,7 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
             build_input,
             canonical_table_set_closure_ref=replace(
                 build_input.canonical_table_set_closure_ref,
-                artifact_id="other-canonical-closure",
+                artifact_id="a1:durable:85bc3927c6737e78ff9f98d2a931487a1e7c785dfe8fa5e077fa3db8c06b5ea1",
             ),
         )
     elif binding_change == "closure_digest":
@@ -1200,7 +1201,7 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
             build_input,
             canonicalization_manifest_ref=replace(
                 build_input.canonicalization_manifest_ref,
-                artifact_id="other-preview-manifest",
+                artifact_id="a1:durable:db8a35c62a2bd940c922177cd12323140be0581703efc43f77bd77d16976925e",
             ),
         )
     elif binding_change == "manifest_digest":

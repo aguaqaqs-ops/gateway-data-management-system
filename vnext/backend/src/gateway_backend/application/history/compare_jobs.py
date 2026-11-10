@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import parse_artifact_id
+
 import dataclasses
 import json
 import logging
@@ -578,14 +580,9 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 envelope.job_state,
                 deps.artifact_store,
             )
-            ready_closure_ref_raw = envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
-            if type(ready_closure_ref_raw) is not dict:
-                raise CheckpointDecodeError(
-                    "history compare assemble checkpoint is missing ready_closure_ref",
-                    code="CHECKPOINT_JOB_STATE_MISMATCH",
-                )
-            ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            ready_closure_ref = _history_compare_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
+            _assert_history_bundle_binding(envelope.job_state, closure.artifact_refs())
             _pin_history_compare_refs(
                 deps,
                 (
@@ -709,13 +706,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 "assemble checkpoint does not match the history compare JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        ready_closure_ref_raw = assemble_envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
-        if type(ready_closure_ref_raw) is not dict:
-            raise CheckpointDecodeError(
-                "assemble checkpoint is incomplete for history compare publication",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+        ready_closure_ref = _history_compare_ready_ref(assemble_envelope.job_state)
         try:
             deps.artifact_store.locate(ready_closure_ref)
         except ManifestVerificationError as exc:
@@ -733,6 +724,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 deps.artifact_store,
                 ready_closure_ref,
             ).artifact_refs()
+            _assert_history_bundle_binding(assemble_envelope.job_state, closure_output_refs)
             _release_history_compare_step_protection(
                 transaction,
                 operation_id=current_operation.operation_id,
@@ -1340,6 +1332,30 @@ def _sides_from_materialize_checkpoint(
     return sides
 
 
+def _assert_history_bundle_binding(job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]) -> None:
+    if not any(ref.artifact_id == job_state[_JOB_STATE_BUNDLE_ARTIFACT] for ref in refs):
+        raise CheckpointDecodeError("history bundle ID is outside its ready closure",
+            code="CHECKPOINT_JOB_STATE_MISMATCH")
+
+
+def _history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
+    try:
+        ready_id = job_state.get(_JOB_STATE_READY_CLOSURE)
+        bundle_id = job_state.get(_JOB_STATE_BUNDLE_ARTIFACT)
+        raw_ref = job_state.get(_JOB_STATE_READY_CLOSURE_REF)
+        if type(ready_id) is not str or type(bundle_id) is not str or type(raw_ref) is not dict:
+            raise ValueError("invalid history compare artifact bindings")
+        parse_artifact_id(ready_id)
+        parse_artifact_id(bundle_id)
+        ref = artifact_ref_from_dict(raw_ref)
+        if ref.artifact_id != ready_id:
+            raise ValueError("history compare ready ID/ref mismatch")
+        return ref
+    except (ValueError, TypeError, KeyError) as exc:
+        raise CheckpointDecodeError("history compare checkpoint has invalid artifact bindings",
+            code="CHECKPOINT_JOB_STATE_MISMATCH") from exc
+
+
 def history_compare_assemble_state_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort | BoundedArtifactStorePort,
@@ -1356,6 +1372,7 @@ def history_compare_assemble_state_from_checkpoint(
             "history compare assemble checkpoint fields are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
+    _history_compare_ready_ref(job_state)
     raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
     if type(raw_ref) is not dict:
         raise CheckpointDecodeError(

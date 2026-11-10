@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import cast
 
-from gateway_backend.artifacts import ArtifactRef, assert_no_host_path_identity
+from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.surface_assembly.contracts import (
     ComparisonSurface,
     SurfaceDiagnostics,
@@ -16,31 +17,10 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
 )
 
 
-_RESERVED_REF_PREFIXES = (
-    "cache-",
-    "cache:",
-    "dolt-",
-    "dolt:",
-    "repository-",
-    "repository:",
-    "preview-",
-    "preview:",
-    "submit-",
-    "submit:",
-    "workspace-",
-    "workspace:",
-    "history-",
-    "history:",
-)
-
-
 def validate_surface_ref(ref: ArtifactRef, *, label: str = "surface ref") -> None:
     if type(ref) is not ArtifactRef:
         raise ValueError(f"{label} must be ArtifactRef")
-    assert_no_host_path_identity(ref.artifact_id, label=label)
-    lowered = ref.artifact_id.casefold()
-    if lowered.startswith(_RESERVED_REF_PREFIXES):
-        raise ValueError(f"{label} must not use cache, repository or flow-local identity")
+    validate_artifact_id(ref.artifact_id)
 
 
 def rewrite_surface_refs(

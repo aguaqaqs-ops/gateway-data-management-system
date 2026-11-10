@@ -246,10 +246,15 @@ def test_true_cgroup_hierarchy_root_has_no_local_limits_but_other_layers_must(de
             real_check(deployment, "worker")
 
 
+@pytest.fixture
+def writer_deployment(tmp_path: Path) -> DeploymentConfig:
+    return DeploymentConfig.load(*write_deployment_files(tmp_path / "writer-roots"))
+
+
 @pytest.mark.parametrize("producer", ("artifact", "scratch"))
 @pytest.mark.parametrize("allow", (False, True))
 def test_production_writers_require_known_headroom_before_bytes(
-    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, producer: str, allow: bool,
+    writer_deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, producer: str, allow: bool,
 ) -> None:
     from types import SimpleNamespace
     from gateway_shared_kernel import raw_blob_digest
@@ -261,8 +266,8 @@ def test_production_writers_require_known_headroom_before_bytes(
     payload = b"known-write"
     ref = ArtifactRef(build_artifact_id(ArtifactLocation.EXPORT, "headroom-owner", producer),
                       "application/octet-stream", len(payload), raw_blob_digest(payload))
-    store = local_store_from_config(deployment)
-    scratch = scratch_space_from_config(deployment)
+    store = local_store_from_config(writer_deployment)
+    scratch = scratch_space_from_config(writer_deployment)
     minimum = 100
     # The config's actual policy is kept; choose its effective fractional floor.
     total = minimum * 1_000_000
@@ -292,12 +297,12 @@ def test_production_writers_require_known_headroom_before_bytes(
 
 @pytest.mark.parametrize("split", (False, True))
 def test_write_demands_merge_only_when_actual_filesystem_matches(
-    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, split: bool,
+    writer_deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, split: bool,
 ) -> None:
     from types import SimpleNamespace
     observed: list[int] = []
     actual_stat = Path.stat
-    scratch = Path(deployment.storage.roots["be-scratch"].path)
+    scratch = Path(writer_deployment.storage.roots["be-scratch"].path)
     def device(path: Path, *args: object, **kwargs: object) -> os.stat_result:
         info = actual_stat(path, *args, **kwargs)  # type: ignore[arg-type]
         if split and path == scratch:
@@ -312,16 +317,16 @@ def test_write_demands_merge_only_when_actual_filesystem_matches(
         return SimpleNamespace(f_bavail=100000, f_frsize=1, f_blocks=1000000, f_flag=0, f_favail=100)
     monkeypatch.setattr(os, "statvfs", free_space)
     if split:
-        preflight.check_write_capacity(deployment.storage, {"be-export": 60000, "be-scratch": 60000})
+        preflight.check_write_capacity(writer_deployment.storage, {"be-export": 60000, "be-scratch": 60000})
         assert len(observed) == 2
     else:
         with pytest.raises(preflight.CapacityUnavailable):
-            preflight.check_write_capacity(deployment.storage, {"be-export": 60000, "be-scratch": 60000})
+            preflight.check_write_capacity(writer_deployment.storage, {"be-export": 60000, "be-scratch": 60000})
         assert len(observed) == 1
 
 
 def test_scratch_source_already_allocated_is_not_charged_again_for_target(
-    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch,
+    writer_deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_shared_kernel import raw_blob_digest
     from gateway_backend.artifacts import ArtifactRef
@@ -333,8 +338,8 @@ def test_scratch_source_already_allocated_is_not_charged_again_for_target(
         demands.append(headroom)
         return 1000000, 100
     monkeypatch.setattr(preflight, "check_capacity", free_capacity)
-    store = local_store_from_config(deployment)
-    with scratch_space_from_config(deployment).session(owner="operation:copy") as session:
+    store = local_store_from_config(writer_deployment)
+    with scratch_space_from_config(writer_deployment).session(owner="operation:copy") as session:
         with session.file(byte_limit=100) as (source, output):
             output.write(payload)
             ref = ArtifactRef(build_artifact_id(ArtifactLocation.EXPORT, "headroom-copy", "one"),

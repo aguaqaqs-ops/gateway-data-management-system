@@ -358,6 +358,7 @@ def test_multipart_known_write_capacity_refusal_is_service_not_ready(
     files = write_deployment_files(tmp_path / "configured")
     deployment = DeploymentConfig.load(*files)
     local = local_store_from_config(deployment)
+    (tmp_path / "http").mkdir()
     environment = create_workspace_http_environment(tmp_path / "http")
     app = cast(FastAPI, environment.client.app)
     deps = app.state.workspace_http

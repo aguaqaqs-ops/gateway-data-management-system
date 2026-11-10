@@ -84,7 +84,7 @@ REPOSITORY_SERVICE_IMAGE = os.environ.get(
 # Compose mounts this data root for repository-service; RepositoryServiceSettings.control_db_path
 # appends service-state/repository-service.sqlite3.
 REPOSITORY_SERVICE_CONTROL_DB_PATH = (
-    "/var/lib/gateway/repository/service-state/repository-service.sqlite3"
+    "/var/lib/gateway/rs-metadata/service-state/repository-service.sqlite3"
 )
 REPOSITORY_IMPORT_CONTROL_ROW_SCRIPT = r"""
 import json
@@ -645,7 +645,7 @@ finally:
         "python",
         "-c",
         snapshot_script,
-        "/var/lib/gateway/control/control.sqlite3",
+        "/var/lib/gateway/be-metadata/control.sqlite3",
         operation_id,
         timeout=60.0,
     )

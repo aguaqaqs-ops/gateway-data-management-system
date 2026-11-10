@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import re
 import subprocess
 import sys
@@ -293,6 +294,10 @@ def prepare_secret_file_for_container(
         )
 
 
+_runtime_overrides: dict[str, Path] = {}
+_runtime_directories: dict[str, Path] = {}
+
+
 def compose_command(*args: str, project: str, compose_file: Path = COMPOSE_FILE) -> list[str]:
     return [
         "docker",
@@ -301,6 +306,7 @@ def compose_command(*args: str, project: str, compose_file: Path = COMPOSE_FILE)
         project,
         "-f",
         str(compose_file),
+        *(["-f", str(_runtime_overrides[project])] if project in _runtime_overrides else []),
         "--profile",
         COMPOSE_PROFILE,
         *args,
@@ -1276,10 +1282,7 @@ def snapshot_hold_command(*, image: str, volume: str, project: str) -> list[str]
         "gateway",
         "--env",
         "GATEWAY_REPOSITORY_PROFILE=production",
-        "--env",
-        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
-        "-v",
-        f"{volume}:/var/lib/gateway/repository",
+        *_snapshot_bind_arguments(volume),
         image,
         "-m",
         "gateway_repository_service.snapshot_admin",
@@ -1452,10 +1455,7 @@ def snapshot_check_command(*, image: str, volume: str) -> list[str]:
         "gateway",
         "--env",
         "GATEWAY_REPOSITORY_PROFILE=production",
-        "--env",
-        "GATEWAY_REPOSITORY_DATA_ROOT=/var/lib/gateway/repository",
-        "-v",
-        f"{volume}:/var/lib/gateway/repository",
+        *_snapshot_bind_arguments(volume),
         image,
         "-m",
         "gateway_repository_service.snapshot_admin",
@@ -1541,6 +1541,7 @@ def start_p2r2_service(
     )
     secrets = (token,)
     paths = tuple(host_paths)
+    _prepare_runtime_volume(names.data_volume, names.project)
     rendered = run_command(
         compose_config_command(project=names.project),
         env=resolved_env,
@@ -2153,3 +2154,29 @@ def versioned_ref_status(*, base_url: str, token: str, repository_id: str) -> in
         return int(exc.code)
     except (URLError, TimeoutError) as exc:
         raise RuntimeError("versioned ref request failed") from exc
+
+
+def _prepare_runtime_volume(volume: str, project: str) -> Path:
+    if volume in _runtime_directories:
+        return _runtime_directories[volume]
+    run_command(["docker", "volume", "create", "--label", f"com.docker.compose.project={project}", volume])
+    source = Path(run_command(["docker", "volume", "inspect", "-f", "{{.Mountpoint}}", volume]).stdout.strip())
+    directory = Path(tempfile.mkdtemp(prefix="gateway-rs-bind-", dir=os.environ.get("TMPDIR")))
+    run_command([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+                 str(directory), "--rs-source", str(source)])
+    _runtime_directories[volume] = directory
+    _runtime_overrides[project] = directory / "compose-runtime.json"
+    return directory
+
+
+def _snapshot_bind_arguments(volume: str) -> list[str]:
+    directory = _prepare_runtime_volume(volume, volume.removesuffix("_repository-service-data"))
+    storage = json.loads((directory / "storage-layout.json").read_bytes())
+    result = ["--env", "GATEWAY_STORAGE_LAYOUT_FILE=/run/gateway/storage-layout.json",
+              "--env", "GATEWAY_RESOURCE_PROFILE_FILE=/run/gateway/resource-profile.json"]
+    for slot, root in storage["roots"].items():
+        if slot.startswith("rs-"):
+            result.extend(["--mount", f"type=bind,src={root['source']},dst={root['path']}"])
+    for name in ("storage-layout", "resource-profile"):
+        result.extend(["--mount", f"type=bind,src={directory / (name + '.json')},dst=/run/gateway/{name}.json,readonly"])
+    return result

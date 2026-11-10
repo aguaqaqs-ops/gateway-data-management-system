@@ -385,7 +385,7 @@ def _run_submit_control_query_against_database(
         assert command[3:5] == ("python", "-c")
         script, container_db_path, operation_id = command[5:]
         if service == "backend":
-            assert container_db_path == "/var/lib/gateway/control/control.sqlite3"
+            assert container_db_path == "/var/lib/gateway/be-metadata/control.sqlite3"
             local_db_path = db_path
         else:
             assert (

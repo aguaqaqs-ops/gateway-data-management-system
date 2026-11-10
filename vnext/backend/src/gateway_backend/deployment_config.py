@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Mapping, cast
+from typing import Mapping, TypeGuard, cast
 
 
 MAX_CONFIG_BYTES = 256 * 1024
@@ -86,21 +86,34 @@ def _document(raw: bytes) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _validate_jcs_domain(value: object) -> None:
+type _JcsValue = bool | int | float | str | None | list[_JcsValue] | dict[str, _JcsValue]
+
+
+def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
+    # Keep the deployment format's I-JSON/Unicode gates independent of other services.
     if isinstance(value, str):
-        if any(0xD800 <= ord(char) <= 0xDFFF or 0xFDD0 <= ord(char) <= 0xFDEF
-               or ord(char) & 0xFFFF in (0xFFFE, 0xFFFF) for char in value):
-            raise ValueError("configuration is outside the JCS/I-JSON domain")
-    elif type(value) in (int, float):
-        if abs(value) > 2**53 - 1 or not math.isfinite(value):
-            raise ValueError("configuration is outside the JCS/I-JSON domain")
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            _validate_jcs_domain(key)
-            _validate_jcs_domain(item)
+        for codepoint in map(ord, value):
+            if (0xD800 <= codepoint <= 0xDFFF or 0xFDD0 <= codepoint <= 0xFDEF
+                    or (codepoint & 0xFFFE) == 0xFFFE):
+                raise ValueError("configuration contains invalid Unicode")
+    elif type(value) is int:
+        if not -(2**53) + 1 <= value <= 2**53 - 1:
+            raise ValueError("configuration integer outside I-JSON bounds")
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("configuration number must be finite")
     elif isinstance(value, list):
         for item in value:
             _validate_jcs_domain(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("configuration object key must be a string")
+            _validate_jcs_domain(key)
+            _validate_jcs_domain(item)
+    elif value is not None and not isinstance(value, bool):
+        raise ValueError("configuration contains a non-JSON value")
+    return True
 
 
 def _configuration_digest(document: dict[str, object]) -> str:

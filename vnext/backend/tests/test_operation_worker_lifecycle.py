@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from tests.support.artifact_layout import write_deployment_files
 
 from pathlib import Path
 from typing import cast
@@ -51,9 +50,8 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     artifact_root = tmp_path / "artifacts"
     token_file = tmp_path / "repository-bearer-token"
     mapping_file = tmp_path / "provisioned-mapping.json"
-    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", "8589934592")
-    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH", str(db_path))
-    storage_file, resources_file = write_deployment_files(artifact_root)
+    fixture_settings = make_operation_worker_settings(tmp_path, control_db_path=db_path, storage_base=artifact_root)
+    storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
     monkeypatch.setenv("GATEWAY_STORAGE_LAYOUT_FILE", str(storage_file))
     monkeypatch.setenv("GATEWAY_RESOURCE_PROFILE_FILE", str(resources_file))
     monkeypatch.setenv(

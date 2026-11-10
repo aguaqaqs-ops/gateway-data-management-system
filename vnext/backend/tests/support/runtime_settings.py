@@ -73,7 +73,8 @@ def make_operation_worker_settings(
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
     storage_base = overrides.pop("storage_base", (db_path.parent if db_path.is_absolute() else tmp_path) / "artifacts")
     assert isinstance(storage_base, Path)
-    storage_file, resources_file = write_deployment_files(storage_base, prepare=bool(overrides.pop("prepare_storage", True)))
+    prepare = bool(overrides.pop("prepare_storage", True))
+    storage_file, resources_file = write_deployment_files(storage_base, prepare=prepare)
     token_file = overrides.pop(
         "repository_bearer_token_file",
         db_path.parent / "repository-bearer-token",
@@ -83,7 +84,7 @@ def make_operation_worker_settings(
         "provisioned_mapping_file",
         db_path.parent / "provisioned-mapping.json",
     )
-    _configure_test_profile(storage_file, resources_file, db_path, overrides)
+    _configure_test_profile(storage_file, resources_file, db_path, overrides, prepare=prepare)
     return OperationWorkerSettings(
         runtime_mode="host",
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
@@ -104,7 +105,8 @@ def make_backend_settings(
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
     storage_base = overrides.pop("storage_base", tmp_path / "artifacts")
     assert isinstance(storage_base, Path)
-    storage_file, resources_file = write_deployment_files(storage_base, prepare=bool(overrides.pop("prepare_storage", True)))
+    prepare = bool(overrides.pop("prepare_storage", True))
+    storage_file, resources_file = write_deployment_files(storage_base, prepare=prepare)
     token_file = overrides.pop(
         "repository_bearer_token_file",
         tmp_path / "repository-bearer-token",
@@ -116,7 +118,7 @@ def make_backend_settings(
         tmp_path / "internal-bearer-token",
     )
     mapping_file = overrides.pop("provisioned_mapping_file", tmp_path / "provisioned-mapping.json")
-    _configure_test_profile(storage_file, resources_file, db_path, overrides)
+    _configure_test_profile(storage_file, resources_file, db_path, overrides, prepare=prepare)
     return BackendSettings(
         runtime_mode="host",
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
@@ -157,7 +159,7 @@ def prepare_backend_runtime_paths(tmp_path: Path) -> None:
     )
 
 
-def _configure_test_profile(storage: Path, resources: Path, database: Path, overrides: dict[str, object]) -> None:
+def _configure_test_profile(storage: Path, resources: Path, database: Path, overrides: dict[str, object], *, prepare: bool) -> None:
     from gateway_backend.runtime_preflight import marker_document
     from gateway_backend.deployment_config import StorageLayoutConfig
     if not database.is_absolute():
@@ -169,12 +171,15 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
         path = (database.parent if slot == "be-metadata" else
                 database.parent.with_name(database.parent.name + "-objects") / slot)
         root["source"] = root["path"] = str(path)
-        path.mkdir(parents=True, exist_ok=True)
+        if prepare:
+            path.mkdir(parents=True, exist_ok=True)
     layout["filesystems"]["local"]["min_free_bytes"] = 1
     layout["filesystems"]["local"]["min_free_fraction"] = 0.0000001
     storage.write_text(json.dumps(layout))
     parsed = StorageLayoutConfig.load(storage)
     for slot, root in parsed.roots.items():
+        if not prepare:
+            continue
         (Path(root.path) / ".gateway-storage.json").write_text(json.dumps(marker_document(parsed, slot)))
     profile = json.loads(resources.read_bytes())
     for name, target in (("kernel_threads", "kernel_threads"),

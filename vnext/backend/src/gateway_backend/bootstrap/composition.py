@@ -94,7 +94,6 @@ from gateway_backend.infrastructure.repository_write import (
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
-from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.runtime_preflight import RuntimePreflight
 
 from gateway_backend.settings import BackendSettings
@@ -293,7 +292,7 @@ def prepare_backend_runtime(
         )
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)
-    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    deployment = settings.deployment_config
     local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
     local_store.check_publication_support()

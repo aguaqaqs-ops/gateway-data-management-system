@@ -75,6 +75,32 @@ def check_marker(config: StorageLayoutConfig, slot: str, path: Path) -> None:
         os.close(descriptor)
 
 
+def check_database_files(metadata: Path) -> None:
+    info = nofollow_directory(metadata)
+    present = (metadata / "control.sqlite3").exists()
+    for name in ("control.sqlite3", "control.sqlite3-wal", "control.sqlite3-shm", "control.sqlite3-journal"):
+        path = metadata / name
+        try:
+            entry = path.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(entry.st_mode) or entry.st_dev != info.st_dev:
+            raise ValueError("control database file is redirected or not ordinary")
+        if name != "control.sqlite3" and not present:
+            raise ValueError("control database journal has no owning database")
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        directory = os.open(metadata, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            def mount_id(fd: int) -> str:
+                return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
+                            if line.startswith("mnt_id:"))
+            if mount_id(descriptor) != mount_id(directory):
+                raise ValueError("control database file is on an unexpected mount")
+        finally:
+            os.close(descriptor)
+            os.close(directory)
+
+
 def check_capacity(path: Path, minimum: int, fraction: float) -> tuple[int, int]:
     info = os.statvfs(path)
     available = info.f_bavail * info.f_frsize
@@ -253,8 +279,13 @@ class RuntimePreflight:
                 if not os.access(path, os.R_OK | os.W_OK | os.X_OK, effective_ids=True):
                     raise ValueError(f"{slot}: role lacks storage permissions")
                 check_capacity(path, policy.min_free_bytes, policy.min_free_fraction)
+                if slot == "be-metadata":
+                    check_database_files(path)
                 self._identities[slot] = identity
-        except (OSError, ValueError):
+        except OSError:
+            self._failed = True
+            raise ValueError("deployment storage root unavailable") from None
+        except ValueError:
             self._failed = True
             raise
 

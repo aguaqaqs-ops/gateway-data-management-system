@@ -59,7 +59,7 @@ def test_prepare_backend_runtime_fails_closed_without_artifact_root(tmp_path: Pa
         prepare_storage=False,
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    with pytest.raises(ValueError, match="artifact root"):
+    with pytest.raises(ValueError, match="storage root"):
         prepare_backend_runtime(settings, skip_repository_ready_probe=True)
 
 

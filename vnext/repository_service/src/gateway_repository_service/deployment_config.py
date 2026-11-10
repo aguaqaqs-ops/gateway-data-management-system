@@ -10,7 +10,6 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Mapping, TypeGuard, cast
 
-import rfc8785
 
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_FILESYSTEMS = 10
@@ -118,29 +117,11 @@ def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
     return True
 
 
-def _validate_jcs_domain(value: object) -> None:
-    if isinstance(value, str):
-        if any(0xD800 <= ord(char) <= 0xDFFF or 0xFDD0 <= ord(char) <= 0xFDEF
-               or ord(char) & 0xFFFF in (0xFFFE, 0xFFFF) for char in value):
-            raise ValueError("configuration is outside the JCS/I-JSON domain")
-    elif type(value) in (int, float):
-        if abs(value) > 2**53 - 1 or not math.isfinite(value):
-            raise ValueError("configuration is outside the JCS/I-JSON domain")
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            _validate_jcs_domain(key)
-            _validate_jcs_domain(item)
-    elif isinstance(value, list):
-        for item in value:
-            _validate_jcs_domain(item)
-
-
 def _configuration_digest(document: dict[str, object]) -> str:
-    # The host renderer needs only stdlib structural validation; services compute
-    # stable observations with the existing owning JCS implementation on demand.
-    from gateway_shared_kernel import raw_blob_digest
-    from gateway_shared_kernel.jcs import canonicalize_json_value
-    return raw_blob_digest(canonicalize_json_value(document)).value
+    import rfc8785
+    if not _validate_jcs_domain(document):
+        raise ValueError("configuration outside JCS domain")
+    return "sha256:" + hashlib.sha256(rfc8785.dumps(document)).hexdigest()
 
 
 def _header(document: dict[str, object]) -> tuple[str, str]:

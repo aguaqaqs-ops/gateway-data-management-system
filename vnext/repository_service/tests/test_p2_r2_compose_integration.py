@@ -131,19 +131,19 @@ def test_compose_repository_probe_unchanged_on_p2_r1_profile() -> None:
     assert "repository-data:/var/lib/gateway/repository" in probe
 
 
-def test_compose_uses_separate_named_volume_for_repository_service() -> None:
+def test_compose_repository_roots_are_supplied_only_by_runtime_renderer() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     service = _service_block(compose, "repository-service")
-    assert "repository-service-data:/var/lib/gateway/repository" in service
-    assert "repository-data:/var/lib/gateway/repository" not in service
-    assert "repository-service-data:" in compose
+    assert "repository-service-data:/var/lib/gateway/repository" not in service
+    assert "GATEWAY_STORAGE_LAYOUT_FILE" in service
+    assert "GATEWAY_RESOURCE_PROFILE_FILE" in service
 
 
 def test_compose_repository_service_has_production_env_and_secret_mount() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     service = _service_block(compose, "repository-service")
     assert "GATEWAY_REPOSITORY_PROFILE: production" in service
-    assert "GATEWAY_REPOSITORY_DATA_ROOT: /var/lib/gateway/repository" in service
+    assert "GATEWAY_REPOSITORY_DATA_ROOT" not in service
     assert "GATEWAY_REPOSITORY_DOLT_BINARY: /usr/local/bin/dolt" in service
     assert (
         "GATEWAY_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token"
@@ -162,8 +162,6 @@ OPERATIONAL_COMPOSE_ENV_DEFAULTS = {
     "GATEWAY_REPOSITORY_MAX_QUEUED_IMPORTS": "64",
     "GATEWAY_REPOSITORY_MAX_CONCURRENT_ROW_STREAMS": "8",
     "GATEWAY_REPOSITORY_FULL_SCAN_TIMEOUT_SECONDS": "3600",
-    "GATEWAY_REPOSITORY_MIN_FREE_DISK_BYTES": "5368709120",
-    "GATEWAY_REPOSITORY_MIN_FREE_DISK_FRACTION": "0.10",
     "GATEWAY_REPOSITORY_IMPORT_HEADROOM_BYTES": "1073741824",
 }
 

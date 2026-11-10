@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -83,7 +84,7 @@ def test_runtime_identity_loss_remains_latched_until_restart(deployment: Deploym
     (root / preflight.MARKER).write_bytes((moved / preflight.MARKER).read_bytes())
     with pytest.raises(ValueError, match="identity changed"):
         guard.check()
-    root.rmdir() if not list(root.iterdir()) else (root / preflight.MARKER).unlink()
+    (root / preflight.MARKER).unlink()
     root.rmdir()
     moved.rename(root)
     with pytest.raises(ValueError, match="restart"):
@@ -117,6 +118,6 @@ def test_actual_role_limits_and_ancestors_must_cover_profile(
     from importlib import reload
     real_check = reload(preflight).check_resources
     monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (own, parent))
-    monkeypatch.setattr(preflight.os, "sched_getaffinity", lambda _: {0, 1, 2, 3})
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1, 2, 3})
     with pytest.raises(ValueError):
         real_check(deployment, "worker")

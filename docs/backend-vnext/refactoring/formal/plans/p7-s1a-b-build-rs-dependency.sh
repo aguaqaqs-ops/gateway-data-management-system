@@ -215,7 +215,38 @@ assert new['versions'].pop('rfc8785') == '0.1.4'
 assert new == old, 'old environment or editable metadata drift'
 print('FULL_LOCK_ENVIRONMENT_MATCH')
 PY
-    own_container - 'dependency pip check and exact tools'  --entrypoint /bin/sh "$new" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
+    own_container - 'dependency pip check and exact tools' --interactive \
+        --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+        --tmpfs /home/gateway/.dolt:rw,nosuid,nodev,noexec,size=1m \
+        --env UV_CACHE_DIR=/tmp/uv-cache --env UV_OFFLINE=1 \
+        --entrypoint /bin/sh "$new" -s <<'P7TOOLS'
+set -eu
+/app/.venv/bin/python -IB - <<'P7DOLTCONFIG'
+import json
+import os
+from pathlib import Path
+home = Path(os.environ["HOME"])
+assert home == Path("/home/gateway"), "unexpected dependency image HOME"
+config = home / ".dolt"
+config.mkdir(parents=True, exist_ok=True)
+(config / "config_global.json").write_text(json.dumps({
+    "versioncheck.disabled": "true", "metrics.disabled": "true",
+}), encoding="utf-8")
+P7DOLTCONFIG
+uv --no-config pip check --python /app/.venv/bin/python
+uv --version > /tmp/uv-version.txt
+dolt version > /tmp/dolt-version.txt
+/app/.venv/bin/python -IB - <<'P7TOOLVERSIONS'
+from pathlib import Path
+uv = Path("/tmp/uv-version.txt").read_text().strip()
+dolt = Path("/tmp/dolt-version.txt").read_text().strip()
+print("UV_VERSION=" + uv)
+print("DOLT_VERSION=" + dolt)
+uv_fields, dolt_fields = uv.split(), dolt.split()
+assert len(uv_fields) >= 2 and uv_fields[:2] == ["uv", "0.11.28"]
+assert len(dolt_fields) >= 3 and dolt_fields[:3] == ["dolt", "version", "2.1.11"]
+P7TOOLVERSIONS
+P7TOOLS
     run 'save new dependency image' docker image save --output "$out/dependency-base.tar" "$new"
     run 'write raw config digest/full DiffID identity and validate true labels' python3 -I - "$out" "$new" "$candidate" <<'PY'
 import hashlib, json, sys, tarfile

@@ -244,7 +244,38 @@ assert current['Config']['Labels'] == source['labels']
 print('CURRENT_LABELS=MATCH')
 PY
     own_container "$out/environment.json" '06 complete locked image environment'  --entrypoint /app/.venv/bin/python -v "$source/vnext/repository_service/uv.lock:/input.lock:ro" -v "$source/$plan/p7-s1a-b-rs-environment.py:/inspect-environment.py:ro" "$tag" -IB /inspect-environment.py /input.lock
-    own_container - '06 pip check and exact dependency tools'  --entrypoint /bin/sh "$tag" -ec 'uv --no-config pip check --python /app/.venv/bin/python; test "$(uv --version)" = "uv 0.11.28"; test "$(dolt version)" = "dolt version 2.1.11"; uv --version; dolt version'
+    own_container - '06 pip check and exact dependency tools' --interactive \
+        --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+        --tmpfs /home/gateway/.dolt:rw,nosuid,nodev,noexec,size=1m \
+        --env UV_CACHE_DIR=/tmp/uv-cache --env UV_OFFLINE=1 \
+        --entrypoint /bin/sh "$tag" -s <<'P7TOOLS'
+set -eu
+/app/.venv/bin/python -IB - <<'P7DOLTCONFIG'
+import json
+import os
+from pathlib import Path
+home = Path(os.environ["HOME"])
+assert home == Path("/home/gateway"), "unexpected dependency image HOME"
+config = home / ".dolt"
+config.mkdir(parents=True, exist_ok=True)
+(config / "config_global.json").write_text(json.dumps({
+    "versioncheck.disabled": "true", "metrics.disabled": "true",
+}), encoding="utf-8")
+P7DOLTCONFIG
+uv --no-config pip check --python /app/.venv/bin/python
+uv --version > /tmp/uv-version.txt
+dolt version > /tmp/dolt-version.txt
+/app/.venv/bin/python -IB - <<'P7TOOLVERSIONS'
+from pathlib import Path
+uv = Path("/tmp/uv-version.txt").read_text().strip()
+dolt = Path("/tmp/dolt-version.txt").read_text().strip()
+print("UV_VERSION=" + uv)
+print("DOLT_VERSION=" + dolt)
+uv_fields, dolt_fields = uv.split(), dolt.split()
+assert len(uv_fields) >= 2 and uv_fields[:2] == ["uv", "0.11.28"]
+assert len(dolt_fields) >= 3 and dolt_fields[:3] == ["dolt", "version", "2.1.11"]
+P7TOOLVERSIONS
+P7TOOLS
     export UV_OFFLINE=1 CARGO_NET_OFFLINE=true TMPDIR=/home/dev/gdds-test-tmp
     export PATH=/home/dev/.cargo/bin:$PATH
     run 'separate host uv-cache offline readiness for new RS lock' ./vnext/scripts/uv-consume.sh -C vnext/repository_service sync

@@ -1,5 +1,7 @@
 # S1a B RS独立配置依赖准备固定稿
 
+> 当前说明：本文件下方保留f3d时期的原固定准备稿与失败历史。main e0bde022a0 最新Owner规则已取代纯构建/环境故障逐次SCRIPT/EXEC审批及次数上限；唯一执行者直接修环境并追加同一故障条目。b47现已按真实source_commit=f3d构建并封存，实际索引见handoff“已发生构建工具错误的源码修复”；原build exit2保留，新修订tracked工具尚未实跑，不把旧结果称为新脚本通过。B当前只做host focused，History/ordered完整Compose及harness移交G，下面旧“本轮完整保留/未知”表述不是当前执行状态。已有tag不重建/retag，也不从本旧稿恢复逐次开工流程。
+
 本稿只描述本候选依赖准备；须同一原审核准精确clean候选、脚本及SHA后，由唯一测试角色操作。未构建、未预填、未签SCRIPT_GO/EXEC_GO/B_GO。CT201只做依赖制品准备，不运行产品lint/mypy/pytest/编译；脚本语法与Python AST检查由唯一测试者在06执行并保留独立原件。完整产品验证仍只在06。
 
 ## 修订与锁来源

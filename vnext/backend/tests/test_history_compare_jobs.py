@@ -1630,3 +1630,57 @@ def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: s
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
         _history_compare_ready_ref(state)
+
+
+@pytest.mark.parametrize('damaged_side', ('same-commit-later-table', 'later-commit'))
+def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
+    tmp_path: Path, damaged_side: str,
+) -> None:
+    import pyarrow as pa
+    from gateway_backend.artifacts.serialize import artifact_ref_from_json
+
+    left = BASELINE_HEAD.business_baseline_commit_id
+    right = 'commit-repair-right'
+    local = open_test_store(tmp_path / 'repair-artifacts')
+    def providers() -> dict[str, FakeRepositoryTableAccessProvider]:
+        result = {}
+        for commit, value in ((left, 1), (right, 2)):
+            catalog = make_catalog((catalog_table('a', (int_id_column(),), row_count=1),
+                catalog_table('z', (int_id_column(),), row_count=1)),
+                repository_id=REPOSITORY_ID, ref=commit, commit=commit)
+            rows = {'a': ((value,),), 'z': ((value + 10,),)}
+            result[commit] = FakeRepositoryTableAccessProvider(catalog=catalog,
+                rows=rows, declared_rows=rows, current_commit=commit)
+        return result
+    cold = build_history_compare_harness(tmp_path / 'cold', artifact_store=local,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-right', right)),
+        custom_providers=providers(), idempotency_key='repair-cold')
+    run_full_history_compare_job(cold)
+    target_commit, target_value = (left, 11) if damaged_side == 'same-commit-later-table' else (right, 2)
+    with ControlDbUnitOfWork(cold.db_path, read_only=True) as uow:
+        ids = [row[0] for row in uow.connection.execute(
+            'SELECT artifact_id FROM canonical_commit_tables WHERE repository_id=? AND commit_id=?',
+            (REPOSITORY_ID, target_commit))]
+    assert len(ids) == 2
+    damaged_ref = None
+    for artifact_id in ids:
+        path = local.payload_path(artifact_id)
+        with pa.memory_map(str(path), 'r') as mapped:
+            value = pa.ipc.open_file(mapped).read_all().column(0)[0].as_py()
+        if value == target_value:
+            damaged_ref = artifact_ref_from_json((local.object_directory(artifact_id) / 'ref.jcs').read_bytes())
+            break
+    assert damaged_ref is not None
+    original = local.payload_path(damaged_ref.artifact_id).read_bytes()
+    local.payload_path(damaged_ref.artifact_id).write_bytes(b'corrupt')
+    warm = build_history_compare_harness(tmp_path / 'warm', db_path=cold.db_path, artifact_store=local,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-warm-right', right)),
+        custom_providers=providers(), idempotency_key='repair-warm')
+    run_full_history_compare_job(warm)
+    assert local.locate(damaged_ref) == original
+    cold_rows, _ = _history_snapshot_bundle_data(cold)
+    warm_rows, _ = _history_snapshot_bundle_data(warm)
+    assert {(side, table): rows for (_pair, side, table), rows in cold_rows.items()} == {
+        (side, table): rows for (_pair, side, table), rows in warm_rows.items()}
+    with ControlDbUnitOfWork(warm.db_path, read_only=True) as uow:
+        assert uow.operations.get_operation(warm.operation_id).status is OperationStatus.SUCCEEDED

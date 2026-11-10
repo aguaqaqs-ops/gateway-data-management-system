@@ -409,5 +409,10 @@ C 的协作回填批次屏障：多表与多 commit 的实际 row demand 先逐�
 read handle，全部完成后才保留该批次的 mmap readers；不为未需求的历史表物化行。History 若
 可选计算缓存的四-root borrow 阻碍回填，释放本次可选 lease 后沿既有一次重规划路径重试，
 不释放 workflow/Attempt/Head 保护。新上传已计算出的完整规范投影在 cache 校验后继续使用其
-原 Arrow backing，不为 cache hit 换成长期 mmap；Submit 先读取其合格 exact parent，再直接
-打开本次 frozen current，后者仍无 source-recovery fallback。此顺序不增加旧 ID/布局兼容路径。
+原 Arrow backing，不为 cache hit 换成长期 mmap；Submit 在任何 parent 修复前先完整验证全部 frozen refs并关闭验证句柄，再读取其合格 exact parent，
+最后直接打开本次 frozen current；parent/current 同canonical ref也不能掩盖冻结输入缺失，后者仍无 source-recovery fallback。此顺序不增加旧 ID/布局兼容路径。
+
+名义 domain ref 的字符串校验只依赖纯 `artifacts.location.parse_artifact_id` 协议叶子；
+不依赖 `artifacts.types`、ArtifactRef model、ID constructor 或文件适配器。架构 owner 仅允许
+该单一 parser 符号跨入 domain，其他 artifact 符号/模块仍拒绝；不新增 frozen violation。
+配置→物理layout翻译归bootstrap，infrastructure不反向依赖process配置。

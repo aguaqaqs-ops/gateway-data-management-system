@@ -9,7 +9,7 @@ from enum import StrEnum
 import re
 import uuid
 
-from gateway_backend.artifacts.types import validate_artifact_id
+from gateway_backend.artifacts.location import parse_artifact_id
 
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
 
@@ -77,7 +77,7 @@ class BackendArtifactRef:
     raw_sha256: str
 
     def __post_init__(self) -> None:
-        validate_artifact_id(self.artifact_id)
+        parse_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -184,9 +184,9 @@ class SubmitAttempt:
         if type(self.source_artifact_refs) is not tuple:
             raise ValueError("source_artifact_refs must be a tuple")
         for source_id in self.source_artifact_refs:
-            validate_artifact_id(source_id)
+            parse_artifact_id(source_id)
         _validate_non_empty_str(self.canonicalization_manifest_ref, "canonicalization_manifest_ref")
-        validate_artifact_id(self.canonicalization_manifest_ref)
+        parse_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(
             self.canonical_table_set_closure_ref,
             "canonical_table_set_closure_ref",
@@ -195,8 +195,8 @@ class SubmitAttempt:
             self.canonical_table_set_closure_digest,
             "canonical_table_set_closure_digest",
         )
-        validate_artifact_id(self.canonical_table_set_closure_ref)
-        validate_artifact_id(self.preview_ready_closure_ref)
+        parse_artifact_id(self.canonical_table_set_closure_ref)
+        parse_artifact_id(self.preview_ready_closure_ref)
         _validate_non_empty_str(
             self.preview_ready_closure_digest,
             "preview_ready_closure_digest",
@@ -242,7 +242,7 @@ class SubmitAttempt:
         ):
             raise ValueError("prepared canonicalization manifest ref and digest must appear together")
         if self.prepared_canonicalization_manifest_ref is not None:
-            validate_artifact_id(self.prepared_canonicalization_manifest_ref)
+            parse_artifact_id(self.prepared_canonicalization_manifest_ref)
             _validate_non_empty_str(
                 self.prepared_canonicalization_manifest_ref,
                 "prepared_canonicalization_manifest_ref",
@@ -297,9 +297,9 @@ class Submission:
         if type(self.source_artifact_refs) is not tuple:
             raise ValueError("source_artifact_refs must be a tuple")
         for source_id in self.source_artifact_refs:
-            validate_artifact_id(source_id)
+            parse_artifact_id(source_id)
         _validate_non_empty_str(self.canonicalization_manifest_ref, "canonicalization_manifest_ref")
-        validate_artifact_id(self.canonicalization_manifest_ref)
+        parse_artifact_id(self.canonicalization_manifest_ref)
         _validate_non_empty_str(
             self.canonicalization_manifest_digest,
             "canonicalization_manifest_digest",

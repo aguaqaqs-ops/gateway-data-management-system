@@ -1655,7 +1655,13 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
     cold = build_history_compare_harness(tmp_path / 'cold', artifact_store=local,
         node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-right', right)),
         custom_providers=providers(), idempotency_key='repair-cold')
-    run_full_history_compare_job(cold)
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+    )
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
+        run_full_history_compare_job(cold)
+    with local.cleanup_session("a1:canonical:" + "0" * 64) as acquired:
+        assert acquired  # The completed cold operation has released every mapping.
     target_commit, target_value = (left, 11) if damaged_side == 'same-commit-later-table' else (right, 2)
     with ControlDbUnitOfWork(cold.db_path, read_only=True) as uow:
         ids = [row[0] for row in uow.connection.execute(
@@ -1676,7 +1682,8 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
     warm = build_history_compare_harness(tmp_path / 'warm', db_path=cold.db_path, artifact_store=local,
         node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-warm-right', right)),
         custom_providers=providers(), idempotency_key='repair-warm')
-    run_full_history_compare_job(warm)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
+        run_full_history_compare_job(warm)
     assert local.locate(damaged_ref) == original
     cold_rows, _ = _history_snapshot_bundle_data(cold)
     warm_rows, _ = _history_snapshot_bundle_data(warm)

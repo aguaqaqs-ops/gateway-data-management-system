@@ -200,6 +200,15 @@ class SubmitImportPublicationAdapter:
         bindings = {item.table_name: item for item in build_input.snapshot_tables}
         if len(bindings) != len(build_input.snapshot_tables) or set(bindings) != set(frozen_by_name):
             raise SubmitImportPublicationError("canonical table artifacts do not match frozen manifest")
+        # A committed parent can alias a frozen current row object even when
+        # source schema makes the table changed. Prove the entire frozen input
+        # before any parent recovery could reconstruct those shared bytes.
+        for name in sorted(frozen_by_name, key=lambda value: value.encode("utf-8")):
+            frozen_table = _open_frozen_table(bindings[name], frozen_by_name[name], build_input, store)
+            try:
+                _frozen_table_metadata(frozen_table, frozen_by_name[name])
+            finally:
+                _close_snapshot_table(frozen_table)
         parent_by_name = {item.name: item for item in parent_manifest.tables}
         changed = set(changed_names)
         parent_read_names = frozenset(

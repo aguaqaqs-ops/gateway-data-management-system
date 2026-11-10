@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.artifacts.types import validate_artifact_id
+from gateway_backend.artifacts.location import parse_artifact_id
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -150,7 +150,7 @@ class SourceArtifactBinding:
     raw_sha256: str
 
     def __post_init__(self) -> None:
-        validate_artifact_id(self.artifact_id)
+        parse_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if type(self.size_bytes) is not int or self.size_bytes < 0:
@@ -282,7 +282,7 @@ class PreviewArtifactRef:
     raw_sha256: DigestRef
 
     def __post_init__(self) -> None:
-        validate_artifact_id(self.artifact_id)
+        parse_artifact_id(self.artifact_id)
         if type(self.media_type) is not str or not self.media_type:
             raise ValueError("media_type must be a non-empty string")
         if (
@@ -466,8 +466,8 @@ class PreviewResult:
         )
         if self.identity_assessment_set_digest != expected_identity_digest:
             raise ValueError("identity assessment set digest does not match the pair results")
-        validate_artifact_id(self.bundle_artifact_id)
-        validate_artifact_id(self.ready_closure_artifact_id)
+        parse_artifact_id(self.bundle_artifact_id)
+        parse_artifact_id(self.ready_closure_artifact_id)
         if type(self.operation_id) is not str or not self.operation_id:
             raise ValueError("operation_id must be a non-empty string")
         if type(self.created_at) is not datetime:

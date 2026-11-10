@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from gateway_backend.artifacts.types import validate_artifact_id
+from gateway_backend.artifacts.location import parse_artifact_id
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -284,15 +284,15 @@ def validate_archive_artifact_bindings(value: object) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             if key == "canonicalization_manifest_ref":
-                validate_artifact_id(item)
+                parse_artifact_id(item)
             elif key == "source_artifact_id":
                 if item is not None:
-                    validate_artifact_id(item)
+                    parse_artifact_id(item)
             elif key == "source_artifact_refs":
                 if type(item) not in (list, tuple):
                     raise ValueError("archive source_artifact_refs must be a sequence")
                 for artifact_id in item:
-                    validate_artifact_id(artifact_id)
+                    parse_artifact_id(artifact_id)
             else:
                 validate_archive_artifact_bindings(item)
     elif isinstance(value, (list, tuple)):

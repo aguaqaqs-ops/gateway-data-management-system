@@ -4,13 +4,11 @@ from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedA
 from gateway_backend.infrastructure.artifact_store.local_store import (
     LocalArtifactStore,
 )
-from gateway_backend.infrastructure.artifact_store.protection import SQLiteArtifactProtectionStore
 
 __all__ = [
     "BoundedArtifactStore",
     "LocalArtifactStore",
     "ArtifactStoreLayout",
-    "SQLiteArtifactProtectionStore",
 ]
 
 from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout

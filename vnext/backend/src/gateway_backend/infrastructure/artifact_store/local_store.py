@@ -103,11 +103,16 @@ class LocalArtifactStore:
     ) -> ArtifactRef:
         if not isinstance(source, ScratchFile):
             raise ValueError('artifact source must be an owned scratch file')
-        with source.open_read() as handle:
-            def chunks() -> Iterator[bytes]:
-                while chunk := handle.read(_CHUNK):
-                    yield chunk
-            return self.put_chunks(chunks(), ref, checkpoint=checkpoint, byte_limit=byte_limit)
+        try:
+            with source.open_read() as handle:
+                def chunks() -> Iterator[bytes]:
+                    while chunk := handle.read(_CHUNK):
+                        yield chunk
+                return self.put_chunks(chunks(), ref, checkpoint=checkpoint, byte_limit=byte_limit)
+        except (InterruptedError, TimeoutError, ManifestVerificationError):
+            raise
+        except (OSError, ValueError):
+            raise ManifestVerificationError('artifact scratch source is not available') from None
 
     def put_chunks(
         self, chunks: Iterable[bytes], ref: ArtifactRef, *,
@@ -164,6 +169,8 @@ class LocalArtifactStore:
                 except FileExistsError:
                     try:
                         self._verify_existing(ref, checkpoint)
+                    except (InterruptedError, TimeoutError):
+                        raise
                     except (ManifestVerificationError, OSError, CanonicalEncodingError, ValueError):
                         pass  # Only a damaged existing derived object requires EX.
                     else:
@@ -182,6 +189,8 @@ class LocalArtifactStore:
                 target = self.object_directory(ref.artifact_id)
                 try:
                     self._verify_existing(ref, checkpoint)
+                except (InterruptedError, TimeoutError):
+                    raise
                 except (ManifestVerificationError, OSError, CanonicalEncodingError, ValueError):
                     if target.exists():
                         if not target.is_dir() or set(path.name for path in target.iterdir()) - {'payload', 'ref.jcs'}:

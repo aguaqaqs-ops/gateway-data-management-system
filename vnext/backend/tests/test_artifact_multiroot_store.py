@@ -115,6 +115,8 @@ def test_cross_filesystem_copy_preserves_source_until_owner_closes(
             assert store.locate(ref) == raw
         with source.open_read() as preserved:
             assert preserved.read() == raw
+    with pytest.raises(ManifestVerificationError, match='source'):
+        store.put_from_path(source, ref, checkpoint=lambda: None, byte_limit=len(raw))
     assert not list(second_filesystem.iterdir())
     assert not list((store.layout.export / '.staging').iterdir())
 
@@ -263,3 +265,17 @@ def test_startup_rejects_missing_no_replace_capability(tmp_path: Path, monkeypat
     with pytest.raises(OSError):
         local.check_publication_support()
     assert not any(local.layout.durable.iterdir())
+
+
+def test_exact_commit_restore_propagates_cancelled_existing_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local = open_test_store(tmp_path / 'objects')
+    ref = ref_for(ArtifactLocation.CANONICAL, b'content')
+    local.put(b'content', ref)
+    def cancelled_read(_ref: ArtifactRef) -> Iterator[bytes]:
+        raise InterruptedError('existing verification cancelled')
+    monkeypatch.setattr(local, '_read_exact', cancelled_read)
+    with pytest.raises(InterruptedError, match='cancelled'):
+        local.restore_canonical_from_exact_commit(b'content', ref, checkpoint=lambda: None)
+    assert local.payload_path(ref.artifact_id).read_bytes() == b'content'

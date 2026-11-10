@@ -1,6 +1,6 @@
 # P6→P7 文档与检索整理协调记录
 
-日期：2026-11-10。状态：**A_SCOPE_GO 已核收；B 入口与三项归档实施候选，待 B 原审/静态验证；C 未执行**。
+日期：2026-11-10。状态：**A_SCOPE_GO、B_GO 已核收；C 候选交接与最新 main 导航同步已准备，待固定候选独审/静态验证；未合入 main**。
 
 本记录是单份协调入口。授权与禁动表依[任务提示词](p6-p7-documentation-cleanup-prompt.md)和[执行方案](p6-p7-documentation-cleanup-execution-plan.md)；不形成新的产品规则或 S1a 授权。
 
@@ -110,10 +110,10 @@ A 实施原件目录：`/home/dev/gdds-test-tmp/docs-cleanup-a-impl-20261110/`�
 | 工作包 | 实施 | 独审 / 验证 | 合入 |
 | --- | --- | --- | --- |
 | A | 盘点与精确范围已固定；A 未删除文件 | A 原审 A_SCOPE_GO，A 静态回执已核，A-N1/A-V1 补充处置 closed；原件身份限制见原审 | 已在本任务分支固定；未合 main |
-| B | 三 README/current index 已修；manifest 三行；删除三原件共 9,139 字节 | 实施静态自检完成；待协调者固定 clean 候选后原审与独立验证 | 未提交/未合入 |
-| C | 未开始 | 未开始 | 未合入 |
+| B | 固定候选 `1d84b7a066`；三 README/current index、三行 manifest 与三删除 | [B 原审](p6-p7-documentation-cleanup-b-review.md) B_GO，静态回执已核；输出限制保留 | B 原审收录于 `bb4dd10e5d`；未合 main |
+| C | `bb4dd10e5d` 后由协调者合入最新 main，实施者准备候选 handoff 并最小同步四导航 | 待协调者固定 clean 候选，交 C 原审/验证；不预签 GO | 未合入 main；最终结果待核收 |
 
-A 原范围结论与静态回执见 A 原审；B 下一动作是由协调者固定 clean 候选并交新 B 原审/验证者。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
+A/B 已固定结论及静态回执分别见各原审；C 下一动作是固定含最新 main 的候选，交新 C 原审/验证者。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
 
 ## 7. B 实施候选与静态交接
 
@@ -130,3 +130,22 @@ B 实施原件在 `/home/dev/gdds-test-tmp/docs-cleanup-b-impl-20261110/`：`arc
 实施静态自检：四份导航共 111 个相对链接（含 fragment）路径/锚点有效；清单恰三项，与实际删除一致且全可恢复；`git diff --check` 和精确白名单核对通过。P2 closure/methodology、legacy oracle、P5 census、fixture review 及 S1a/P6 有效依赖均保留；五问题的最终语义与固定统计仍待 B 原审/验证者核收。仅文档静态操作，未 import 产品、运行产品测试/lint/编译/Compose 或连接测试节点。
 
 当前 HEAD 仍为 B 起点，尚未提交；容器重建 `not-applicable`，理由为文档导航/元数据且不在 `vnext/` Docker context。最后验证的 image revision/source-tree 未检查，无当前产品、容器、carried、S1a 或资源释放声明。B 实施者不自签 GO，不代写 B 原审。
+
+
+## 8. C 候选交接、最新 main 与 S1a 增量
+
+C 实施起点为 `bb4dd10e5dc3e8ab0565066ca4749859dd288433`（已收录 B_GO）。2026-11-10 04:06Z 现场 main 为 clean `00ca325c2ed6d705abfa39e9528ef148e6029cfc`；它已将 S1a A `355c54a0022fde8237f788c0007e375801ff5288` 合入。协调者无冲突将该 main 合入本任务分支，产生 `2b99722bd837f901da7058001cf204b53a4b5fe9`。此为向工作分支同步，**不是 cleanup 已合入 main**。
+
+S..该 main 的 51 路径分为 31 FE 文档/前端路径、20 S1a 文档/Contract/纯文档验证工具路径；它们均不与本任务三删除/四导航/任务记录重叠。三组变化必须分列：`S..bb4dd10e5d` 为本任务 A–B；`S..00ca325c2e` 为他人 main 增量；`00ca325c2e..最终候选` 才是 cleanup 对最新 main 的实际差异。main 与同步后工作分支的 `vnext` tree 仍等于 S 的 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`；不得把他人 FE/Contract 增量归为本任务修改。
+
+S1a A 已获原审 **A_GO**（03:52 UTC），仅绑定 `355c54a0` 的文档/设计入口及静态原件；签署为外置 `/home/dev/gdds-p7-s1a-reviews/a/355c54a0-a-go.md`，8,042 字节、SHA256 `3d22ae5e4b11143e505bfb7de3cc4b06c7f226a2cee6009639580f7a2f9ddfbb`。C 实施者已完整只读该报告并重算摘要，未连接节点、执行其脚本或代验其原日志。仓库内 A 文档仍保留实施时的候选状态，不篡改该历史自述。S1a B 工作区 `/home/dev/gdds-p7-s1a-b` 的 HEAD 同 main，现场有未提交产品/测试改动；仅登记边界，不 stage、恢复、复制或据此宣称 B/S1a exit。S1a A 工作区 clean。
+
+因 main 最新增量，协调者准许 C 在原白名单内最小更新三 README/current index：准确注明 A_GO 与 main 合入，改用已存在的 P7 相对链接，保留“目标待实现”和原用户特定节点/DC68 边界。未扩大普通导航范围，不改 S1a 原文、Contract、manifest 或三归档集合。C handoff 仍为**候选**，独审、独立静态回执与最终合入结果均待完成，不以 B_GO 替代 C 核收。
+
+C 实施静态准备原件在 `/home/dev/gdds-test-tmp/docs-cleanup-c-impl-20261110/`：`static-preparation.json`（起止 UTC/hostname、四工作区身份/dirty、三组 diff、可达性、三项 blob/SHA/长度和 main/S1a 无逐字入站、A_GO 身份与 query spec SHA）及三恢复副本。JSON SHA256 为 `8e25e0dce8143f7a00fd0be49fe65694d61de9b7f9cf018e961a970a6c2d3eb2`。全部归档来源 S 对 main/同步分支仍可达，三项逐字恢复成立；恢复副本只写本人外置目录，未覆盖活跃路径。原始检查是会话中 inline Python，未另保存脚本文件，不补称有实时总日志。
+
+[候选 handoff](p6-p7-documentation-cleanup-handoff.md)集中列出固定对象、B 已核数据、恢复方式、验证原件与限制、保留/延期和最终核收待办。C 独审须对固定 clean 候选重新核完整 A–B、最新 main/S1a 增量及四导航全部链接/fragment，给验证者固定稿；固定 query spec SHA仍为 `17ff3acc740505ab0e922729457416a97fdeeb008649c8db5b5343b13255a69f`，仅替换 revision，原 A/B 目录只读。
+
+当前候选容器决定：不触发重建，仅 docs 导航/历史归档及元数据，均在 `vnext/` Docker context 外；最后验证 image revision/source-tree 未检查，container gate=`not-applicable`，carried=none。本任务不执行产品测试，不声明产品/S1a/容器通过、资源释放、cleanup 最终合入或 exit tag；收尾由协调者固定候选后据实际 C 原审/验证和 merge 增量补齐。
+
+C 候选工作树自检原件为同目录 `working-check.py` / `working-check.json`；JSON SHA256 `823846cf30b6ab679a011af3e1ba723f9207893515d336e8259e865a11d6802c`。检查当时四导航 121 链接、六修改页合计 143 链接/14 fragment 全部有效，六路径精确白名单与 `git diff --check` 通过；相对 M 的产品/FE/共享规则/Contract/ADR/政策净差异为空。此为提交前自检，固定 C 的独立核查、统计及最终 main 增量仍待完成。

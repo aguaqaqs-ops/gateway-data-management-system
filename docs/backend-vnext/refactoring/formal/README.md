@@ -4,7 +4,7 @@
 
 ## 当前默认入口
 
-[Current Context Index](plans/current-context-index.md) 是当前检索入口。2026-11-10 已核 P6 exit；P7-S1a 仍为并行分支 A 文档/Contract 目标候选，未宣称 DESIGN_GO、产品通过或 S1a exit。该索引给出固定提交、分支读取方法及当前授权适用边界，不复制产品规则。
+[Current Context Index](plans/current-context-index.md) 是当前检索入口。2026-11-10 已核 P6 exit；P7-S1a A 文档/设计入口已获 A_GO 并合入 main，Contract 目标仍待实现，不表示 B–G 产品或 S1a exit 已通过。该索引给出固定提交、核收依据及当前授权适用边界，不复制产品规则。
 
 ## 现行 owner 导航
 
@@ -40,4 +40,4 @@ ADR 按问题追溯：[0001 Python/Rust](adr/0001-python-rust-hybrid-compute-str
 
 Architecture 定义总体边界与依赖方向，Implementation Stages 定义交付顺序和 gate；当前任务的明确授权和固定阶段记录决定执行范围。跨阶段政策规定工程约束；Contract 拥有字段、状态、byte contract、artifact、fixture 与 measurement 语义。ADR 记录选择理由并引用 Contract。计划、索引和 `temporary/` 不建立第二份规范。
 
-旧 `docs/backend-vnext/contracts/`、`capabilities/`、flows/operations/artifacts 等文档作为行为与 fixture oracle；S1a 尚未合入的目标补充必须按索引固定来源读，不能把它当已生效源码。Legacy 不拥有 vNext 内部结构或性能目标。正式文档冲突先明确 owner，按适用变更流程收口；不依靠兼容层维持两套含义。
+旧 `docs/backend-vnext/contracts/`、`capabilities/`、flows/operations/artifacts 等文档作为行为与 fixture oracle；S1a 已合入的目标补充仍须按索引区分“待实现”目标和现行行为，不能把它当已生效源码。Legacy 不拥有 vNext 内部结构或性能目标。正式文档冲突先明确 owner，按适用变更流程收口；不依靠兼容层维持两套含义。

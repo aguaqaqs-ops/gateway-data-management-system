@@ -4,7 +4,7 @@
 
 ## 当前默认入口
 
-从 [Current Context Index](refactoring/formal/plans/current-context-index.md) 开始。最近核对为 2026-11-10：P6 已退出；P7-S1a 是并行分支上的 A 文档/Contract 目标候选，尚无 DESIGN_GO、产品通过或 S1a exit 声明。固定来源和读取方法见该索引。
+从 [Current Context Index](refactoring/formal/plans/current-context-index.md) 开始。最近核对为 2026-11-10：P6 已退出；P7-S1a A 文档/设计入口已获 A_GO 并合入 main，Contract 目标仍待实现；这不表示后续产品或 S1a exit 通过。固定来源和核收依据见该索引。
 
 - [Formal 文档入口](refactoring/formal/README.md)：现行 owning Contract、政策、ADR、阶段与历史恢复。
 - [Refactoring 说明](refactoring/README.md)：文档角色与阅读顺序。
@@ -14,7 +14,7 @@
 
 - `refactoring/formal/contracts/` 拥有正式字段、状态、artifact、byte contract 与边界语义；政策规定跨阶段工程要求，ADR 记录选择理由。按 [Contract Taxonomy and Ownership](refactoring/formal/contracts/contract-taxonomy-and-ownership.md) 找唯一 owner。
 - `refactoring/formal/architecture/` 与 `plans/` 保存总纲、交付顺序及阶段证据；当前状态沿 Current Context Index 查，不能从历史的“下一步”推导本轮授权。
-- `contracts/`、`capabilities/`、`flows.md`、`operations.md`、`artifacts.md`、`identity-and-digests.md`、`implementation-boundary.md` 和 `modules.md` 保留业务/fixture oracle。其历史描述不覆盖现行 formal owner；S1a 尚未合入的目标补充须按固定分支版本读取。
+- `contracts/`、`capabilities/`、`flows.md`、`operations.md`、`artifacts.md`、`identity-and-digests.md`、`implementation-boundary.md` 和 `modules.md` 保留业务/fixture oracle。其历史描述不覆盖现行 formal owner；S1a 已合入的目标补充仍标“待实现”，不能当作当前源码已生效行为。
 - `glossary.md` 是术语入口；`testing-fixtures.md` 说明 fixture 材料语义。源码在仓库 `vnext/`，前端独立在 `frontend/`。
 
 ## 历史与恢复

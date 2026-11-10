@@ -4,7 +4,7 @@
 
 ## 阅读顺序
 
-1. [Current Context Index](formal/plans/current-context-index.md)：当前默认入口；P6 已退出，P7-S1a 分支 A 目标候选与固定读取方式在此核对。
+1. [Current Context Index](formal/plans/current-context-index.md)：当前默认入口；P6 已退出，P7-S1a A_GO 与已合入 main 的设计目标、固定核收依据在此核对；产品实现另行验收。
 2. [Formal](formal/README.md)：政策、Contract、ADR、总纲及阶段最终交接导航。
 3. [Contract Taxonomy and Ownership](formal/contracts/contract-taxonomy-and-ownership.md)：按业务问题找到唯一语义 owner，再读对应源码。
 4. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md) 与 [Implementation Stages](formal/plans/implementation-stages.md)：总体边界及交付顺序；历史阶段状态不替代当前任务授权，尚待原 owner 同步的状态不在本轮代改。

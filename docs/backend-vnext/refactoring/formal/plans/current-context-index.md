@@ -1,30 +1,31 @@
 # Current Context Index
 
-最近核对：2026-11-10 03:39Z。本文只作检索入口，规则、授权与状态由下列 owner/固定来源决定。
+最近核对：2026-11-10 04:06Z。本文只作检索入口，规则、授权与状态由下列 owner/固定来源决定。
 
 ## 当前阶段与下一入口
 
 - **P6 已退出**：附注 tag `p6-exit` 指向 `b0fc25e881cb4ce39b1cc847bad92b4ccb06b809`。原文可用 `git show p6-exit` 读取；[最终报告](p6-s6-report.md)、[III 执行](p6-s6-iii-execution.md)与[协调记录](p6-s6-coordination.md)是证据入口。范围为六包、本地容器、fresh t4 最小链；不签 FE、P7、独立 SDK 或 production，原失败/UNKNOWN/取消项及维护限制不改。
-- **main 核对点**：`16ffe728290e1179d9450ea160a0e6ca49473ec6`，核对时 clean；其 `vnext` tree 仍为 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`，等于 P6 exit。之后的实际 HEAD/并行变化须重新核对。
-- **P7-S1a 正在独立分支推进**：`p7-s1a-a`，固定提交 `24394b98a6e6f9bea89c404b44cf0dde691a8044`，核对时 clean、尚未合入 main。状态为 A 文档/Contract 目标候选及原审 finding 修订；无 DESIGN_GO、产品通过或 S1a exit 声明。本索引不接管其实施、审核或合入。
-- S1a 下一入口依次是固定版本的 `p7-s1a-a-entry-and-contract.md`、`p7-s1a-execution-plan.md`、`p7-s1a-storage-resource-design.md` 与 `p7-s1a-implementation-prompt.md`；总体与决议见 `p7-design.md`、`p7-execution-plan.md`、`p7-s0-owner-decisions.md`、`p7-processing-groups-and-test-extraction-design.md`。A 静态稿为 `p7-s1a-a-verification.md`。这些文件尚不在本树，不建立失效相对链接或复制第二套文件。
+- **main 核对点**：`00ca325c2ed6d705abfa39e9528ef148e6029cfc`，核对时 clean；其 `vnext` tree 仍为 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`，等于 P6 exit。之后的实际 HEAD/并行变化须重新核对。
+- **P7-S1a A 已核收并合入 main**：A_GO 绑定 `355c54a0022fde8237f788c0007e375801ff5288`，main 合入提交为上述 `00ca325c2e`。该核收只覆盖 A 文档/设计入口，Contract 的“目标补充（待实现）”没有因此成为已实现行为；不表示 B–G、S1a EXIT_GO、产品或容器通过。
+- S1a 下一入口依次是 [A 入口/消费者与 Contract 目标](p7-s1a-a-entry-and-contract.md)、[执行计划](p7-s1a-execution-plan.md)、[存储/资源设计](p7-s1a-storage-resource-design.md)与[实施提示词](p7-s1a-implementation-prompt.md)；总体与决议见 [P7 design](p7-design.md)、[P7 execution](p7-execution-plan.md)、[S0 Owner 决议](p7-s0-owner-decisions.md)及[处理组/测试抽取设计](p7-processing-groups-and-test-extraction-design.md)。[A 静态稿](p7-s1a-a-verification.md)和对应脚本保留历史输入/失败说明，不在本整理中执行。
 
-读取固定 S1a 字节，例如（从仓库任意 worktree 执行）：
+A_GO 的原审签署在外置 `/home/dev/gdds-p7-s1a-reviews/a/355c54a0-a-go.md`，SHA256 为 `3d22ae5e4b11143e505bfb7de3cc4b06c7f226a2cee6009639580f7a2f9ddfbb`；由该原审核收 06 静态原件，本整理仅只读该签署，不重签或复验其产品。仓库内 A 实施文档保留当时的候选自述，最终 A 状态以上述固定签署和 main 合入为依据。
+
+需要固定字节时，例如：
 
 ```bash
-git show 24394b98a6e6f9bea89c404b44cf0dde691a8044:docs/backend-vnext/refactoring/formal/plans/p7-s1a-a-entry-and-contract.md
-git show 24394b98a6e6f9bea89c404b44cf0dde691a8044:docs/backend-vnext/refactoring/formal/plans/p7-s1a-storage-resource-design.md
+git show 355c54a0022fde8237f788c0007e375801ff5288:docs/backend-vnext/refactoring/formal/plans/p7-s1a-a-entry-and-contract.md
 ```
 
-其余上述文件用同一完整提交和 `docs/backend-vnext/refactoring/formal/plans/<文件名>` 读取。S1a 已存在的 Contract 路径也有分支目标补充；读 main 相对链接只能得到当前已合入版本，读目标须用该固定提交。输入推进后只重核受影响依赖，未知用途先保留，不凭本索引预测 exit。
+S1a B 隔离工作区 `/home/dev/gdds-p7-s1a-b` 在核对时有未提交产品改动；这只说明并行实施现场，不构成 B 通过依据。本索引不接管其实施、审核或合入。输入推进后只重核受影响依赖，未知用途先保留。
 
 ## 先找 owner，再读源码
 
-| 问题 | 当前已合入 owner / 源码入口 | S1a 目标的读取边界 |
+| 问题 | 当前已合入 owner / 源码入口 | S1a 已合入目标的读取边界 |
 | --- | --- | --- |
-| 多 root、发布、保护与清理 | [Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md)、[Business Lifecycle](../contracts/business-lifecycle-and-state.md)、[Operation Lifecycle](../contracts/operation-lifecycle-and-integrity.md)；`vnext/backend/src/gateway_backend/{artifacts,infrastructure/artifact_store,infrastructure/control_db,application,bootstrap}/` | 固定 S1a 的详细设计及同路径 Contract“目标补充（待实现）”；不当作当前源码已生效行为 |
-| canonical/export/comparison artifact、bundle | [artifacts 说明](../../../artifacts.md)及 formal owner；`vnext/backend/src/gateway_backend/capabilities/` | 固定 S1a 的 `artifacts.md` 与 `contracts/{snapshot-table-access,comparison-bundle,comparison,risk}.md`，按 A 消费者表核 producer/decoder |
-| RS roots、发布对与一致集合 | [Repository Service](../contracts/repository-service.md)、[Storage Mutation](../contracts/storage-mutation-and-change-set.md)；`vnext/repository_service/src/gateway_repository_service/` | 固定 S1a 的对应 Contract 与执行计划；B–G 未因此被声明通过 |
+| 多 root、发布、保护与清理 | [Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md)、[Business Lifecycle](../contracts/business-lifecycle-and-state.md)、[Operation Lifecycle](../contracts/operation-lifecycle-and-integrity.md)；`vnext/backend/src/gateway_backend/{artifacts,infrastructure/artifact_store,infrastructure/control_db,application,bootstrap}/` | 已合入 S1a 的详细设计及同路径 Contract“目标补充（待实现）”；不当作当前源码已生效行为 |
+| canonical/export/comparison artifact、bundle | [artifacts 说明](../../../artifacts.md)及 formal owner；`vnext/backend/src/gateway_backend/capabilities/` | 已合入 S1a 的 `artifacts.md` 与 `contracts/{snapshot-table-access,comparison-bundle,comparison,risk}.md`，按 A 消费者表核 producer/decoder |
+| RS roots、发布对与一致集合 | [Repository Service](../contracts/repository-service.md)、[Storage Mutation](../contracts/storage-mutation-and-change-set.md)；`vnext/repository_service/src/gateway_repository_service/` | 已合入 S1a 的对应 Contract 与执行计划；B–G 未因此被声明通过 |
 | 语义归属、政策与 ADR | [Contract Taxonomy](../contracts/contract-taxonomy-and-ownership.md)、[比例化保障政策](../policies/proportional-assurance-and-risk-based-verification-policy.md)、[ADR0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md) | 计划/索引只引用唯一 owner；历史授权不扩大为当前权限 |
 
 正式 owner 全导航见 [formal README](../README.md)。总纲、实施阶段规划和 FE 文档的同步由其原 owner 负责，本轮不代改；前端从 [frontend kickoff](../../../../frontend-vnext/frontend-kickoff.md) 进入，不能由 P6 或本整理结果推导 FE 验收。
@@ -33,7 +34,7 @@ git show 24394b98a6e6f9bea89c404b44cf0dde691a8044:docs/backend-vnext/refactoring
 
 [AGENTS](../../../../../AGENTS.md)、[testing-conventions](../../../testing-conventions.md) 和 [S0 Owner 决议](p6-s0-owner-decisions.md)是仓库通用执行规则入口：含 DC91 节点池、DC97 协调与现行 DC68。执行前仍先核本轮用户/任务明确输入及适用范围，不从历史“未授权”或专项许可推导当前授权。
 
-**S1a 特定输入另行适用**：固定 `p7-s1a-a-entry-and-contract.md` §1 明确本轮用户给出的旧节点分工/DC68优先于其本地 main 通用新版；06 focused、04 权威、05 默认真实调试，不继承 P6 06 完整旅程专项许可，也不默许三轮恢复。该限制属于 S1a，本索引既不覆盖它，也不把它扩展为其他任务的通用规则。
+**S1a 特定输入另行适用**：[A 入口 §1](p7-s1a-a-entry-and-contract.md#1-实际入口和来源) 明确本轮用户给出的旧节点分工/DC68优先于其本地 main 通用新版；06 focused、04 权威、05 默认真实调试，不继承 P6 06 完整旅程专项许可，也不默许三轮恢复。该限制属于 S1a，本索引既不覆盖它，也不把它扩展为其他任务的通用规则。
 
 **本次文档整理**的角色、模型与验证授权来自 [cleanup 提示词](p6-p7-documentation-cleanup-prompt.md#4-角色模型与上下文)和[执行方案](p6-p7-documentation-cleanup-execution-plan.md#5-角色与工作包-ac)：每包新建实施/独审/验证者；只在开发主机做文档/Git 静态核查，不 import 产品、不跑产品测试/lint/编译/Compose、不连接测试节点。S1a 角色来源仍是其固定实施提示词及其引用的 [P6-S6 模型来源](p6-s6-implementation-prompt.md#3-角色模型与上下文)，不把 P6 任务权限一并继承。
 

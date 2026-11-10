@@ -1,5 +1,7 @@
 # P7-S1a 实施执行方案
 
+> **2026-11-10 Owner 补充交接要求：**S1a exit 须向前端交付并以实际证据核对：规范化 OpenAPI 不变，bundle tar 的 `logical_path` 成员集合及 manifest 字段集合不变；ID 与摘要的取值可能变化，交接须逐项列明变化及影响。上述为验收要求，尚非已验证结论。BE-b 第二步设计现在开始，其实施须在 S1a 本地 exit 并合入 main 后；DC74 标为“未生效，随 P6 退出关闭”。参见 [后端交接与 BE-b 第二步启动记录](p7-s1a-frontend-beb-handoff.md)。
+
 日期：2026-11-10。状态：**实施文档已落成，可供编码会话按序执行；代码未实施，独审与产品验证未执行**。
 
 设计依据：[S1a 详细设计](p7-s1a-storage-resource-design.md)、[处理组与设备测试副本](p7-processing-groups-and-test-extraction-design.md)、工作区实际 [S0 决议](p7-s0-owner-decisions.md)、[P7 总体设计](p7-design.md)及[总执行计划](p7-execution-plan.md)。本文把既定目标细化为实现输入、工作包、完成条件和验收责任；不重新询问已确认的单机、按类挂载、全状态测试复制和不回合并边界。

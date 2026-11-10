@@ -220,9 +220,9 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 已关闭：按 vnext 实际枚举定稿，见 [FE2 kickoff §4](fe2-kickoff.md#4-界面文案定稿回填前端-kickoff-9-第-2-项)（owner 2026-11-02）；Change Group 列删除 | — |
 | 侧栏导航层级是否精简 | 建议见 [FE4 kickoff](fe4-kickoff.md) §3.2，交 owner（FE4 kickoff §10 Q6）；FE4b 实现 | FE4 kickoff |
 | 导航诊断的结构与编码（FE1 审核 D1） | 已答复：[BE-b 草案 §4.7](be-b-navigation-and-presentation-draft.md#47-导航诊断设计会话-2026-11-02答复-fe1-审核-d1)。诊断放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，不带 message，前端按 code 映射中文文案。FE2 按此修改 `model.ts` 的过渡处理并补测试；新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02） | FE2 |
-| surface `diagnostics_summary` 中的自由文本 | 少数条目是自由文本而不是编码（如风险引擎的 `max_annotations_per_pair exceeded`、比较失败的异常文本）。原写“收敛为编码是后端清理项，不属于 BE-b”，已过时：owner 2026-11-03 将其并入 BE-b（[BE-b 设计草案](be-b-navigation-and-presentation-draft.md) §4.10、§6 Q10），随 FE4b 接入（[FE4 kickoff](fe4-kickoff.md) §3.7）。在此之前前端显示通用文案，原文放进 Debug | BE-b、FE4b，不阻塞 |
+| surface `diagnostics_summary` 中的自由文本 | 少数条目是自由文本而不是编码（如风险引擎的 `max_annotations_per_pair exceeded`、比较失败的异常文本）。原写“收敛为编码是后端清理项，不属于 BE-b”，已过时：owner 2026-11-03 将其并入 BE-b（[BE-b 设计草案](be-b-navigation-and-presentation-draft.md) §4.10、§6 Q10；另见本文 §5 BE-b 行与 [FE2 kickoff](fe2-kickoff.md) §5.5），随 FE4b 接入（[FE4 kickoff](fe4-kickoff.md) §3.7）。在此之前前端显示通用文案，原文放进 Debug | BE-b、FE4b，不阻塞 |
 | 正式部署形态与正式 SSO | Phase 8/9 前单独设计 | — |
-| P6 计时是否包含整包传输 | P6 的“用户可见时间”只计到结果可读，不含 bundle 打包与下载；是否把下载耗时作为只报告项，由 P6 设计会话或 owner 决定（与 BE-c 一并考虑） | P6 |
+| P6 计时是否包含整包传输 | 已关闭（owner 2026-11-10）：P6 门槛不含 bundle 下载；t1 与 journeys 的下载耗时和体积继续只报告；Phase 8 如需包含下载的端到端时间再立项 | 已关闭 |
 
 ## 10. 会话分工
 

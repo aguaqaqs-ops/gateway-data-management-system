@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import json
@@ -96,7 +98,7 @@ def test_preview_job_outputs_download_as_complete_tar(
     for handler in (PREVIEW_MATERIALIZE_HANDLER, PREVIEW_ASSEMBLE_HANDLER, PREVIEW_PUBLISH_HANDLER):
         session, control, operation, step = claim_next_step(harness)
         run_claimed_handler(harness, handler, session, control, operation, step)
-    store = LocalArtifactStore(tmp_path / "download")
+    store = open_test_store(tmp_path / "download")
     _copy_artifacts(harness.artifact_store, store)
     env = create_workspace_http_environment(
         tmp_path / "http", db_path=harness.db_path,
@@ -123,7 +125,7 @@ def test_preview_job_outputs_download_as_complete_tar(
 
 @pytest.mark.parametrize("node_count", (2, 3))
 def test_history_job_outputs_download_as_complete_tar(tmp_path: Path, node_count: int) -> None:
-    store = LocalArtifactStore(tmp_path / "artifacts")
+    store = open_test_store(tmp_path / "artifacts")
     env, harness = _history_http_job(tmp_path, store, node_count)
     response = env.client.get(f"/v1/history-compares/{harness.operation_id}/bundle", headers=env.auth_headers())
     assert response.status_code == 200, response.text
@@ -157,7 +159,7 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
     from tests.test_bundle_assembly import _request, _surface_result
     from tests.test_bundle_download import PAX_PATHS
 
-    store = LocalArtifactStore(tmp_path / "artifacts")
+    store = open_test_store(tmp_path / "artifacts")
     refs = []
     for name, scalar_type in (("int", pa.int64()), ("text", pa.string())):
         sink = pa.BufferOutputStream()
@@ -218,7 +220,7 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
 
 @pytest.fixture(params=("preview", "history"))
 def bundle_route(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[WorkspaceHttpTestEnvironment, str, LocalArtifactStore, str]:
-    store = LocalArtifactStore(tmp_path / "artifacts")
+    store = open_test_store(tmp_path / "artifacts")
     if request.param == "history":
         env, harness = _history_http_job(tmp_path, store)
         from gateway_backend.application.checkpoints import load_checkpoint_envelope
@@ -273,7 +275,7 @@ def test_bundle_preflight_failure_is_a_typed_response_before_success_headers(
     metadata = read_bundle_transport_metadata(store.locate(ref))
     target_ref = (ref if fault == "manifest-missing" else metadata.closure_ref if fault == "closure-missing"
                   else metadata.entries[-1].artifact_ref)
-    path = store._object_path(target_ref.artifact_id)
+    path = store.payload_path(target_ref.artifact_id)
     raw = path.read_bytes()
     path.unlink()
     missing = fault.endswith("missing")
@@ -285,7 +287,7 @@ def test_bundle_preflight_failure_is_a_typed_response_before_success_headers(
     assert response.json()["code"] == expected_code
     assert response.headers["content-type"] == "application/json"
     assert "etag" not in response.headers
-    assert str(store.artifact_root) not in json.dumps(response.json())
+    assert str(store.layout.export) not in json.dumps(response.json())
 
 
 def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
@@ -332,5 +334,5 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
     assert response.status_code == 503
     assert response.json()["code"] == "BUNDLE_INTEGRITY_FAILURE"
     assert "etag" not in response.headers
-    with store.cleanup_session() as acquired:
+    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import write_deployment_files
+
 from pathlib import Path
 from typing import cast
 
@@ -51,7 +53,9 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     mapping_file = tmp_path / "provisioned-mapping.json"
     monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", "8589934592")
     monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_CONTROL_DB_PATH", str(db_path))
-    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_ARTIFACT_ROOT", str(artifact_root))
+    storage_file, resources_file = write_deployment_files(artifact_root)
+    monkeypatch.setenv("GATEWAY_STORAGE_LAYOUT_FILE", str(storage_file))
+    monkeypatch.setenv("GATEWAY_RESOURCE_PROFILE_FILE", str(resources_file))
     monkeypatch.setenv(
         "GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL",
         "http://127.0.0.1:9",
@@ -68,7 +72,7 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
     settings = OperationWorkerSettings()  # type: ignore[call-arg]
 
     assert settings.control_db_path == db_path
-    assert settings.artifact_root == artifact_root
+    assert settings.storage_layout_file == storage_file
     assert settings.lease_duration_seconds == 30.0
     assert settings.heartbeat_interval_seconds == 10.0
     assert settings.max_in_flight == 1
@@ -129,7 +133,7 @@ def test_bootstrap_maps_runtime_timeout_to_nonzero_without_clean_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = make_operation_worker_settings(tmp_path)
-    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
     (tmp_path / "repository-bearer-token").write_text("test-repository-token\n", encoding="utf-8")
 
     class TimedOutRuntime:

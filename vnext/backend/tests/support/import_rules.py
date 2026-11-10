@@ -22,7 +22,7 @@ PRODUCTION_ENTRYPOINTS = (
 )
 # Package-root modules that belong to process composition rather than to an unowned bucket.
 COMPOSITION_MODULES = frozenset(
-    {"gateway_backend", "gateway_backend.app", "gateway_backend.settings"}
+    {"gateway_backend", "gateway_backend.app", "gateway_backend.settings", "gateway_backend.deployment_config"}
 )
 
 RULE_LAYER = "layer"
@@ -374,7 +374,15 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
             and bool(edge.names)
             and set(edge.names) <= NATIVE_COMPUTE_ENTRYPOINTS.get(edge.source, frozenset())
         )
-        if not _target_category_allowed(allowed, target_zone, edge.target) and not approved_native_call:
+        # Nominal domain refs validate the same closed location protocol through
+        # this pure leaf function. Artifact models, constructors and IO stay out.
+        approved_artifact_id_codec = (
+            source_zone == "domain"
+            and edge.target == "gateway_backend.artifacts.location"
+            and edge.names == ("parse_artifact_id",)
+        )
+        if (not _target_category_allowed(allowed, target_zone, edge.target)
+                and not approved_native_call and not approved_artifact_id_codec):
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

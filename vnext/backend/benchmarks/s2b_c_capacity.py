@@ -20,6 +20,8 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, DigestRef
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.location import ArtifactLocation
+from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
 
 from gateway_backend.capabilities.snapshot_materialization._digest import compare_schema_digest
 from gateway_backend.capabilities.snapshot_materialization._ruleset import compare_key_index, effective_key_columns
@@ -112,6 +114,12 @@ def source_descriptor(table: dict[str, Any]) -> SourceTableDescriptor:
     )
 
 
+def artifact_disk_bytes(layout: ArtifactStoreLayout) -> int:
+    """Finite calibration output only; excludes its sibling control DB and inputs."""
+    return sum(path.stat().st_size for location in ArtifactLocation
+        for path in layout.root(location).rglob('*') if path.is_file())
+
+
 def main() -> int:
     _init_kernel_native(1)
     parser = argparse.ArgumentParser()
@@ -124,7 +132,10 @@ def main() -> int:
     args.artifacts.mkdir(parents=True)
     db = args.artifacts / "control.sqlite"
     initialize_control_db(db)
-    local = LocalArtifactStore(args.artifacts / "objects")
+    roots = {location.value: args.artifacts / "objects" / location.value for location in ArtifactLocation}
+    for path in roots.values():
+        path.mkdir(parents=True)
+    local = LocalArtifactStore(ArtifactStoreLayout(**roots), staging_max_bytes=4 * 1024**3)
     store = CanonicalTableStore(local, repository_id="capacity-component", budgets=IPC)
     rules = migrated_table_ruleset_snapshot()
     compare_index = compare_key_index(rules)
@@ -214,12 +225,12 @@ def main() -> int:
             retained_canonical.append(canonical)
             bound = replace(descriptor, columns=tuple(SnapshotColumnDescriptor(c["canonical_name"], c["display_name"], c["nullable"], c["sql_type"]) for c in output["columns"]), primary_key_columns=tuple(output["primary_key"]), row_count=canonical.num_rows, raw_content_digest=DigestRef(projected["output"]["raw_content_digest"]))
             key = canonical_table_key(store.repository_id, bound)
-            with ControlDbUnitOfWork(db) as uow:
+            with ControlDbUnitOfWork(db, artifact_borrow=local.read_session) as uow:
                 ref = uow.canonical_tables.lookup(key)
             hit = ref is not None
             if ref is None:
                 def protect(key: CanonicalTableKey, ref: ArtifactRef) -> None:
-                    with ControlDbUnitOfWork(db) as uow:
+                    with ControlDbUnitOfWork(db, artifact_borrow=local.read_session) as uow:
                         uow.canonical_tables.register(key, ref)
                 with pa.RecordBatchReader.from_batches(canonical.schema, canonical.to_batches()) as stream:
                     ref = store.put(stream, bound, before_write=protect)
@@ -248,7 +259,7 @@ def main() -> int:
         "filtered_python_fact_count": sum(len(c.devices) + len(c.points) for c in retained_catalog),
         "unique_active_mapping_bytes": unique_mapping_bytes,
         "max_atomic_staging_ipc_bytes": max((ref.size_bytes for ref, _ in refs.values()), default=0),
-        "artifact_disk_bytes": sum(p.stat().st_size for p in local.artifact_root.rglob("*") if p.is_file()),
+        "artifact_disk_bytes": artifact_disk_bytes(local.layout),
         "memory": measurements,
     }
     args.output.write_text(json.dumps(result, indent=2) + "\n")

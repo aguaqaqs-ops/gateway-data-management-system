@@ -1,6 +1,8 @@
 """Derived cache transactions, reference closure, TTL and live filesystem borrows."""
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import json
@@ -87,7 +89,7 @@ class CacheFixture:
 
 @pytest.fixture
 def cache_fixture(db_path: Path, tmp_path: Path) -> CacheFixture:
-    return CacheFixture(db_path, LocalArtifactStore(tmp_path / "artifacts"))
+    return CacheFixture(db_path, open_test_store(tmp_path / "artifacts"))
 
 
 @pytest.mark.parametrize("kind", tuple(ComputationCacheKind))
@@ -167,7 +169,7 @@ def test_bad_cache_file_discards_only_the_registered_value_and_closes_its_borrow
                 (DEEP_JSON, entry.key.repository_id, entry.key.kind.value, entry.key.task_digest.value))
     else:
         target = entry.manifest_ref if fault.startswith("manifest") else entry.member_refs[0]
-        path, _sidecar = cache_fixture.local._validated_paths(target.artifact_id)  # noqa: SLF001
+        path = cache_fixture.local.payload_path(target.artifact_id)
         if fault.endswith("missing"):
             path.unlink()
         else:
@@ -175,7 +177,7 @@ def test_bad_cache_file_discards_only_the_registered_value_and_closes_its_borrow
     assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
     cache.release_operation_pins(READER)
     assert cache_fixture.protected(entry.refs) == (False,) * len(entry.refs)
-    with cache_fixture.local.cleanup_session() as acquired:
+    with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired
     lease = cache.lookup_and_pin(healthy.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
     assert lease is not None
@@ -225,14 +227,14 @@ def test_overlapping_leases_close_before_narrow_operation_pin_release(
     assert first is not None and second is not None
     try:
         first.close()
-        with cache_fixture.local.cleanup_session() as acquired:
+        with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
             assert not acquired
         with second.open_buffer(entry.member_refs[0]) as buffer:
             assert buffer.to_pybytes() == blobs[1][1]
     finally:
         first.close()
         second.close()
-    with cache_fixture.local.cleanup_session() as acquired:
+    with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired
     cache_fixture.now = NOW + timedelta(seconds=COMPUTATION_CACHE_TTL_SECONDS + 1)
     assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
@@ -475,5 +477,5 @@ def test_optional_budget_rejection_does_not_discard_a_healthy_value_or_swallow_c
         lease.close()
     cache.release_operation_pins(READER)
     cache.release_operation_pins(WRITER)
-    with cache_fixture.local.cleanup_session() as acquired:
+    with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired

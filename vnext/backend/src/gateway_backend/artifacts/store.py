@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Callable
 from contextlib import contextmanager
-from typing import ContextManager, Protocol
+from typing import BinaryIO, ContextManager, Protocol, runtime_checkable
 
 import pyarrow as pa
 
@@ -22,9 +22,29 @@ class ArtifactStorePort(Protocol):
         """Load bytes only when the supplied exact ref matches stored identity."""
 
 
+class ArtifactFileSourcePort(Protocol):
+    def open_read(self) -> ContextManager[BinaryIO]:
+        """Open the ordinary file while its service-owned scratch owner is active."""
+
+
+class ArtifactFileStorePort(Protocol):
+    def put_from_path(
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+    ) -> ArtifactRef:
+        """Copy bounded owned scratch bytes to immutable target-root staging."""
+
+
 class ArtifactRefLookupPort(Protocol):
     def get_ref(self, artifact_id: str) -> ArtifactRef:
         """Resolve the stored minimal ref for one opaque artifact id."""
+
+
+@runtime_checkable
+class CanonicalArtifactRepairPort(Protocol):
+    def restore_canonical_from_exact_commit(
+        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+    ) -> ArtifactRef:
+        """Repair derived canonical content after the owning exact-commit checks."""
 
 
 class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
@@ -34,6 +54,10 @@ class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
 
 class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
+
+
+class ArtifactRepairBusyError(ManifestVerificationError):
+    """A recoverable exact-commit repair needs all current root readers closed."""
 
 
 class ArtifactUnavailableError(ManifestVerificationError):
@@ -87,6 +111,12 @@ class InMemoryArtifactStore:
         if checkpoint is not None:
             checkpoint()
         yield buffer
+
+    def restore_canonical_from_exact_commit(
+        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+    ) -> ArtifactRef:
+        checkpoint()
+        return self.put(raw_bytes, ref)
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

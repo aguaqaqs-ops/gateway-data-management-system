@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -54,8 +53,8 @@ def _corrupt_sidecar(root: Path, artifact_id: str) -> None:
 
 
 STAGING_OBJECT_FAULTS: tuple[tuple[str, _Mutator, str], ...] = (
-    ("missing-bytes", _missing_bytes, "artifact bytes are missing"),
-    ("missing-sidecar", _missing_sidecar, "artifact ref is not available"),
+    ("missing-bytes", _missing_bytes, "artifact is not available"),
+    ("missing-sidecar", _missing_sidecar, "incomplete stored artifact directory"),
     ("corrupt-bytes-size", _corrupt_bytes_size, "stored size_bytes mismatch"),
     ("corrupt-bytes-digest", _corrupt_bytes_digest, "stored raw_sha256 mismatch"),
     ("corrupt-sidecar", _corrupt_sidecar, "artifact read failed"),
@@ -92,21 +91,16 @@ def test_reopen_rejects_missing_or_corrupt_staging_object(
         reopened.locate(ref)
 
 
-def test_sidecar_replace_failure_does_not_publish_locatable_artifact(
+def test_directory_publication_failure_does_not_publish_locatable_artifact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = staging_root(tmp_path)
     store = open_local_store(root)
-    real_replace = os.replace
-
-    def fail_sidecar_replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
-        if str(dst).endswith(".ref.jcs"):
-            raise OSError("injected sidecar replace failure")
-        real_replace(src, dst)
+    def fail_publication(source: Path, target: Path) -> None:
+        raise OSError("injected directory publication failure")
 
     monkeypatch.setattr(
-        "gateway_backend.infrastructure.artifact_store.local_store.os.replace",
-        fail_sidecar_replace,
+        "gateway_backend.infrastructure.artifact_store.local_store.rename_noreplace", fail_publication,
     )
     ref = ArtifactRef(
         artifact_id=OPAQUE_ARTIFACT_ID,

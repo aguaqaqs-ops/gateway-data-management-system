@@ -7,6 +7,8 @@ production retention, or cleanup policy.
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import hashlib
 from pathlib import Path
 
@@ -42,19 +44,21 @@ def durable_root(tmp_path: Path) -> Path:
 
 
 def open_local_store(root: Path) -> LocalArtifactStore:
-    return LocalArtifactStore(root)
+    return open_test_store(root)
 
 
 def reopen_local_store(root: Path) -> LocalArtifactStore:
     """Ordinary reopen: new process-local cache, same on-disk root."""
 
-    return LocalArtifactStore(root)
+    return open_test_store(root)
 
 
 def object_and_sidecar_paths(root: Path, artifact_id: str) -> tuple[Path, Path]:
     digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()
-    target = root / digest[0:2] / digest[2:4] / digest
-    sidecar = target.with_suffix(target.suffix + ".ref.jcs")
+    from gateway_backend.artifacts.location import parse_artifact_id
+    directory = root / parse_artifact_id(artifact_id).value / "objects" / digest[0:2] / digest[2:4] / digest
+    target = directory / "payload"
+    sidecar = directory / "ref.jcs"
     return target, sidecar
 
 

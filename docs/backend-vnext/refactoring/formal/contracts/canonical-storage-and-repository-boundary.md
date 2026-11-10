@@ -395,3 +395,24 @@ root borrow 固定 durable→canonical→comparison→export；读/发布/建立
 cleanup 只访问已核 root 内已知对象/临时形状，最多32候选和1024访问项，round-robin/派生游标；unknown、symlink、子挂载、损坏 ref 只诊断。metadata/Dolt 不在其范围；强 owner 及活动下载保护不变。挂载/marker/权限失败阻止 ready/claim，不自动建 root 或回退系统盘；运行期身份变化要求重新预检/重启。统计失败不改变业务事务。
 
 规范 cell/table/state、projection 和 CanonicalizationManifest 摘要算法不增加位置输入。已包含 ref 的 wrapper/closure/raw bytes，以及引用这些 raw SHA 的摘要可改变；变化须按 A 摘要表逐项说明，不能全量重录 golden 或声称所有 semantic digest 都不变。
+
+C 实施接口（2026-11-10，阶段最终验收仍在 G）：filesystem adapter 只接收显式四位置
+`ArtifactStoreLayout` 与必填 staging cap，不再接受单 Path/root、散落 sidecar 或本地 ref 缓存。
+`put_from_path` 只接受 infrastructure 的 `ScratchFile` 活动句柄，并显式接收 checkpoint/byte_limit；
+它复制后保留 source，删除由 scratch owner 完成。canonical exact-commit owner 使用独立
+`restore_canonical_from_exact_commit` 端口，普通发布遇到同 ID 的缺失/损坏既有对象拒绝覆盖。
+根借用以有序共享 FD 和引用计数跨嵌套、跨 HTTP 线程保活；最后一个 handle 释放后才关闭 FD。
+SQLite protection participant 不自行取 root 锁；production UoW 在 connect/BEGIN 前借 roots，
+commit/rollback/异常后释放。清理使用不再加 SH 的专门 DB factory，在 EX 内重核并删除。
+
+C 的协作回填批次屏障：多表与多 commit 的实际 row demand 先逐项 prepare/修复并关闭临时
+read handle，全部完成后才保留该批次的 mmap readers；不为未需求的历史表物化行。History 若
+可选计算缓存的四-root borrow 阻碍回填，释放本次可选 lease 后沿既有一次重规划路径重试，
+不释放 workflow/Attempt/Head 保护。新上传已计算出的完整规范投影在 cache 校验后继续使用其
+原 Arrow backing，不为 cache hit 换成长期 mmap；Submit 在任何 parent 修复前先完整验证全部 frozen refs并关闭验证句柄，再读取其合格 exact parent，
+最后直接打开本次 frozen current；parent/current 同canonical ref也不能掩盖冻结输入缺失，后者仍无 source-recovery fallback。此顺序不增加旧 ID/布局兼容路径。
+
+名义 domain ref 的字符串校验只依赖纯 `artifacts.location.parse_artifact_id` 协议叶子；
+不依赖 `artifacts.types`、ArtifactRef model、ID constructor 或文件适配器。架构 owner 仅允许
+该单一 parser 符号跨入 domain，其他 artifact 符号/模块仍拒绝；不新增 frozen violation。
+配置→物理layout翻译归bootstrap，infrastructure不反向依赖process配置。

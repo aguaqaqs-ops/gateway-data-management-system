@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+
+from tests.support.artifact_layout import open_test_store
+
 import sqlite3
 from pathlib import Path
 from typing import cast
@@ -324,10 +328,9 @@ def _tamper_checkpoint_semantically_same_length(
     tampered_bytes = canonicalize_json_value(state_document)
     assert len(tampered_bytes) == len(original_bytes)
     if local_store is not None:
-        from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
         assert isinstance(local_store, LocalArtifactStore)
-        target, _sidecar = local_store._validated_paths(state_ref.artifact_id)  # noqa: SLF001
+        target = local_store.payload_path(state_ref.artifact_id)
         target.write_bytes(tampered_bytes)
         return
     memory_store = cast(InMemoryArtifactStore, artifact_store)
@@ -816,7 +819,6 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
         history_compare_step_id,
     )
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
     from tests.support.history_compare_job_harness import (
         build_history_compare_harness,
         run_through_step,
@@ -832,7 +834,7 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
     local_store: LocalArtifactStore | None = None
     harness_artifact_store: ArtifactStorePort
     if store_kind == "bounded_filesystem":
-        local_store = LocalArtifactStore(tmp_path / "artifact-root")
+        local_store = open_test_store(tmp_path / "artifact-root")
         bounded_store = BoundedArtifactStore(local_store)
         artifact_store: InMemoryBoundedArtifactStore | BoundedArtifactStore = bounded_store
         harness_artifact_store = bounded_store
@@ -1088,7 +1090,6 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     )
     from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
     from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
 
     review_seed = _seed_pending_review_submission(db_path)
@@ -1097,7 +1098,7 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
         _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-local-bundle"),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
-    local_store = LocalArtifactStore(tmp_path / "bundle-artifacts")
+    local_store = open_test_store(tmp_path / "bundle-artifacts")
     bounded_store = BoundedArtifactStore(local_store)
     history_env = _history_env(
         db_path.parent / "history-local-bundle",

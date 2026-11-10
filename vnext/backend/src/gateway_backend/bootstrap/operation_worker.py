@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+
 import logging
 import signal
 import threading
@@ -9,7 +11,6 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from signal import Signals
 from types import FrameType
 from typing import Any, cast
@@ -19,6 +20,7 @@ from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
+from gateway_backend.artifacts.store import ArtifactStreamingStorePort
 from gateway_backend.application.history.compare_jobs import publish_stopped_compute_cancelled as publish_history_stop_cancelled
 from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
 from gateway_backend.application.kernel_execution import bind_kernel_execution, build_cooperative_kernel_stop, publish_generic_stopped_compute_cancelled
@@ -60,7 +62,6 @@ from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
-    validate_artifact_root,
 )
 from gateway_backend.infrastructure.control_db import (
     ControlDbIntegrityError,
@@ -114,6 +115,8 @@ from gateway_backend.operations.worker import (
 from gateway_backend.operations.worker_lifecycle import WorkerLifecycleController
 from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
+from gateway_backend.deployment_config import DeploymentConfig
+
 from gateway_backend.settings import OperationWorkerSettings
 
 _LOGGER = logging.getLogger(__name__)
@@ -149,10 +152,13 @@ def build_job_worker_composition_for_settings(
         raise ValueError("definitions must be a tuple")
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
-    local_store = LocalArtifactStore(settings.artifact_root)
+    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
+        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
-        is_protected=lambda artifact_id: _artifact_is_protected(settings.control_db_path, artifact_id),
+        protection_uow=lambda: ControlDbUnitOfWork(settings.control_db_path),
         unpinned_ttl=timedelta(hours=24),
     )
     return build_job_worker_composition(
@@ -168,14 +174,16 @@ def build_production_preview_dependencies(
 ) -> tuple[PreviewRuntimeDependencies, WriteUnitOfWorkFactory]:
     """Compose production Preview ports: Bounded store, HTTP/Arrow adapter, mapping Head."""
 
-    validate_artifact_root(settings.artifact_root)
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
     bootstrap_control_database(settings)
     seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
-    local_store = LocalArtifactStore(settings.artifact_root)
+    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
+        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
-        is_protected=lambda artifact_id: _artifact_is_protected(settings.control_db_path, artifact_id),
+        protection_uow=lambda: ControlDbUnitOfWork(settings.control_db_path),
         unpinned_ttl=timedelta(hours=24),
     )
     manifest_reader = ArtifactBackedCanonicalizationManifestReader(
@@ -187,6 +195,7 @@ def build_production_preview_dependencies(
         return ControlDbUnitOfWork(
             settings.control_db_path,
             canonicalization_manifest_reader=manifest_reader,
+            artifact_borrow=local_store.read_session,
         )
 
     snapshot_export_cache = ControlDbSnapshotTableExportCache(control_transaction_factory)
@@ -247,6 +256,7 @@ def build_production_submit_dependencies(
         return ControlDbUnitOfWork(
             settings.control_db_path,
             canonicalization_manifest_reader=manifest_reader,
+            artifact_borrow=cast(ArtifactStreamingStorePort, preview_deps.artifact_store).read_session,
         )
 
     def submission_id_factory() -> str:
@@ -272,11 +282,6 @@ def build_production_submit_dependencies(
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=submission_id_factory,
     )
-
-
-def _artifact_is_protected(db_path: Path, artifact_id: str) -> bool:
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        return unit_of_work.protection.is_protected(artifact_id)
 
 
 def bootstrap_control_database(settings: OperationWorkerSettings) -> None:
@@ -324,11 +329,14 @@ def build_worker_runtime(
         payload_decoders=payload_decoders,
     )
 
+    deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+    runtime_roots = artifact_layout_from_config(deployment.storage)
+
     def default_read_uow_factory() -> OperationUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, read_only=True)
+        return ControlDbUnitOfWork(settings.control_db_path, read_only=True, artifact_borrow=runtime_roots.read_session)
 
     def default_write_uow_factory() -> OperationUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path)
+        return ControlDbUnitOfWork(settings.control_db_path, artifact_borrow=runtime_roots.read_session)
 
     resolved_read_uow_factory = read_uow_factory or default_read_uow_factory
     resolved_write_uow_factory = write_uow_factory or default_write_uow_factory

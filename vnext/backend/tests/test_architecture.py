@@ -622,6 +622,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.infrastructure.repository_write",
                         "gateway_backend.operations",
                         "gateway_backend.settings",
+                        "gateway_backend.deployment_config",
                     )
                 ), f"{edge.path} imports disallowed module {imported}"
 
@@ -868,6 +869,10 @@ def test_facade_lazy_import_reachability_depends_on_imported_symbol(
 
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
+    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("parse_artifact_id",), None),
+    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("build_artifact_id",), RULE_LAYER),
+    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("*",), RULE_LAYER),
+    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.types", ("validate_artifact_id",), RULE_LAYER),
     ("gateway_backend.bootstrap.compute_kernel", "gateway_compute._native", ("_init_kernel_native",), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),

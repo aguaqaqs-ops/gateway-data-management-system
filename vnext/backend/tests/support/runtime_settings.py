@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.support.artifact_layout import write_deployment_files
+
 from gateway_backend.settings import BackendSettings, OperationWorkerSettings
 
 TEST_REPOSITORY_BASE_URL = "http://127.0.0.1:9"
@@ -69,7 +71,9 @@ def make_operation_worker_settings(
     **overrides: object,
 ) -> OperationWorkerSettings:
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
-    artifact_root = overrides.pop("artifact_root", db_path.parent / "artifacts")
+    storage_base = overrides.pop("storage_base", (db_path.parent if db_path.is_absolute() else tmp_path) / "artifacts")
+    assert isinstance(storage_base, Path)
+    storage_file, resources_file = write_deployment_files(storage_base, prepare=bool(overrides.pop("prepare_storage", True)))
     token_file = overrides.pop(
         "repository_bearer_token_file",
         db_path.parent / "repository-bearer-token",
@@ -82,7 +86,8 @@ def make_operation_worker_settings(
     return OperationWorkerSettings(
         kernel_memory_budget_bytes=overrides.pop("kernel_memory_budget_bytes", 8 * 1024**3),  # type: ignore[arg-type]
         control_db_path=db_path,
-        artifact_root=artifact_root,  # type: ignore[arg-type]
+        storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
+        resource_profile_file=overrides.pop("resource_profile_file", resources_file),  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]
         repository_bearer_token_file=token_file,  # type: ignore[arg-type]
         provisioned_mapping_file=mapping_file,  # type: ignore[arg-type]
@@ -97,7 +102,9 @@ def make_backend_settings(
     **overrides: object,
 ) -> BackendSettings:
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
-    artifact_root = overrides.pop("artifact_root", tmp_path / "artifacts")
+    storage_base = overrides.pop("storage_base", tmp_path / "artifacts")
+    assert isinstance(storage_base, Path)
+    storage_file, resources_file = write_deployment_files(storage_base, prepare=bool(overrides.pop("prepare_storage", True)))
     token_file = overrides.pop(
         "repository_bearer_token_file",
         tmp_path / "repository-bearer-token",
@@ -111,7 +118,8 @@ def make_backend_settings(
     mapping_file = overrides.pop("provisioned_mapping_file", tmp_path / "provisioned-mapping.json")
     return BackendSettings(
         control_db_path=db_path,
-        artifact_root=artifact_root,  # type: ignore[arg-type]
+        storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
+        resource_profile_file=overrides.pop("resource_profile_file", resources_file),  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]
         repository_bearer_token_file=token_file,  # type: ignore[arg-type]
         internal_bearer_token_file=internal_bearer_file,  # type: ignore[arg-type]

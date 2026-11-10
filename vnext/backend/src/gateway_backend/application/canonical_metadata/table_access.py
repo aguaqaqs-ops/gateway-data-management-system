@@ -192,7 +192,7 @@ class CanonicalCommittedTableAccess:
                             uow.canonical_tables.register(key, ref)
                             uow.canonical_tables.bind_commit(repository_id=repository_id, commit_id=commit_id, refs=(ref,))
                     try:
-                        ref = self._store.put(projected, bound_descriptor, before_write=protect_before_write)
+                        ref = self._store.put(projected, bound_descriptor, before_write=protect_before_write, restore_exact_commit=True)
                     finally:
                         projected.close()
                     del arrays, result, output, projected
@@ -243,6 +243,17 @@ class CanonicalCommittedTableAccess:
             return SnapshotTable(descriptor=descriptor, reader=None, diagnostics=descriptor.diagnostics,
                 ordered_metadata=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
                 if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
+
+    def prepare_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView, context: ParserInvocationContext,
+        timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> None:
+        self.describe_table(commit_id=commit_id, descriptor=descriptor, identity=identity,
+            storage_view=storage_view, context=context, timeout_policy=timeout_policy)
+        with self.open_committed(commit_id=commit_id, bound_descriptor=descriptor,
+            storage_view=storage_view, invocation=context, timeout_policy=timeout_policy):
+            pass
 
     def load_table(
         self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,

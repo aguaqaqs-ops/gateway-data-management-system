@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import dataclasses
 import gc
 from concurrent.futures import ThreadPoolExecutor
@@ -892,10 +894,9 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
         tmp_path,
         control_db_path=tmp_path / "worker-external-recovery" / "control.sqlite3",
     )
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 
     bootstrap_control_database(settings)
-    artifact_store = LocalArtifactStore(settings.control_db_path.parent / "artifacts")
+    artifact_store = open_test_store(settings.control_db_path.parent / "artifacts")
 
     request_bytes = build_request_bytes("idem-worker-recovery", "request-worker-recovery")
     expected_identity = compute_operation_identity("idem-worker-recovery", request_bytes)

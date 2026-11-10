@@ -73,7 +73,7 @@ from gateway_backend.application.kernel_execution import assemble_operation_bund
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
-from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort, ManifestVerificationError, ArtifactRepairBusyError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
@@ -1024,11 +1024,11 @@ def _ensure_history_demands(
 ) -> tuple[dict[str, BoundSnapshotInput], dict[str, dict[str, ArtifactRef]]]:
     try:
         return _ensure_history_demands_once(payload, deps, sides, pair_specs, rule_set, session)
-    except MemoryError:
-        # Hits are optional until row admission succeeds. Releasing them also
+    except (MemoryError, ArtifactRepairBusyError) as exc:
+        # Hits are optional until row admission/repair succeeds. Releasing them also
         # removes the reason these tables had no row demand; rebuild that
         # demand from the same planner once, against the same exact commits.
-        if session is None or not session.persistent_ready:
+        if session is None or (isinstance(exc, MemoryError) and not session.persistent_ready):
             raise
         session.close_persistent()
         session.evict_local()
@@ -1079,6 +1079,7 @@ def _ensure_history_demands_once(
     access = build_committed_table_access(store=cast(ArtifactBufferStorePort, deps.artifact_store),
         unit_of_work_factory=deps.control_transaction_factory,
         repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id)
+    bindings: dict[str, CanonicalBinding] = {}
     try:
         for commit, bound in sides.items():
             context.checkpoint()
@@ -1094,6 +1095,23 @@ def _ensure_history_demands_once(
             binding = canonical_binding_for_commit(metadata, runtime_ruleset=rule_set.snapshot)
             if _storage_facts_for_binding(binding, {table.table_name for table in bound.summary.tables}) != bound.storage_facts:
                 raise HistoryCompareInputError("exact commit storage binding differs from frozen metadata")
+            bindings[commit] = binding
+        # Cross-commit preparation also precedes the first retained row reader.
+        for commit, bound in sides.items():
+            assert bound.table_set is not None
+            binding = bindings[commit]
+            views = {view.canonical_table: view for view in binding.tables}
+            identities = {identity.canonical_table: identity for identity in binding.table_identities}
+            for table in bound.table_set.tables:
+                name = table.descriptor.table_name
+                if name in demands[commit] and table.reader is None:
+                    access.prepare_table(commit_id=commit, descriptor=table.descriptor,
+                        identity=identities[name], storage_view=views[name],
+                        context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
+                        timeout_policy=None)
+        for commit, bound in sides.items():
+            assert bound.table_set is not None
+            binding = bindings[commit]
             tables = ensure_committed_tables(bound.table_set,
                 repository_ref=RepositoryRef(repository_id=payload.repository_id, ref=commit),
                 canonical_binding=binding, committed_tables=access,

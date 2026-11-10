@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from collections.abc import Callable
@@ -208,16 +210,13 @@ def test_local_store_tmp_cleanup_and_no_path_in_refs(tmp_path: Path) -> None:
 
 
 def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import hashlib
     import io
     from typing import Any
 
-    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
-    store = LocalArtifactStore(tmp_path / "objects")
+    store = open_test_store(tmp_path / "objects")
     ref = put_with_built_ref(store, b"small", artifact_id="a1:durable:4e6cd69eb33a2b12f384dbd0dd2c36f9eecfabf9c80fa7e79fd41132dcb86cd2", media_type="application/octet-stream")
-    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
-    target = store.artifact_root / digest[:2] / digest[2:4] / digest
+    target = store.payload_path(ref.artifact_id)
     target.write_bytes(b"oversize")
     original = Path.open
     body_reads: list[int] = []

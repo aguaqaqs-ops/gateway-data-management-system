@@ -508,10 +508,10 @@ def publish_canonical_tables(
                 raise ValueError("canonical IPC publication requires the Arrow projection reader")
             key = canonical_table_key(repository_id, table.descriptor)
             ref = None if lookup is None else lookup(key)
-            opened_handle = None
             if ref is not None:
                 try:
-                    opened_handle = canonical.open(ref, table.descriptor)
+                    with canonical.open(ref, table.descriptor):
+                        pass
                 except (InterruptedError, TimeoutError):
                     raise
                 except (ManifestVerificationError, ValueError, OSError):
@@ -537,31 +537,21 @@ def publish_canonical_tables(
             )
             raw = canonicalize_json_value(manifest_to_payload(manifest))
             context.checkpoint()
+            manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id(ArtifactLocation.CANONICAL, "sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
+            # The writer already validated this Arrow input and the IPC output.
+            # Give this operation independent readers over its retained backing;
+            # the next real artifact consumer opens/validates the persisted IPC.
+            layout = row_layout_digest_of(table.descriptor, table.reader.source_descriptor().columns,
+                                         table.ordered_metadata)
+            reader = table.reader.reopen()
             try:
-                manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id(ArtifactLocation.CANONICAL, "sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
+                batch = None if table.batch_reader is None else table.batch_reader.reopen()
             except BaseException:
-                if opened_handle is not None:
-                    opened_handle.close()
+                reader.close()
                 raise
-            if opened_handle is not None:
-                # A healthy cache hit is an actual read of an existing artifact.
-                published.append(_open_canonical_artifact(store, manifest_ref, manifest,
-                    repository_id=repository_id, opened_handle=opened_handle))
-            else:
-                # The writer already validated this Arrow input and the IPC output.
-                # Give this operation independent readers over its retained backing;
-                # the next real artifact consumer opens/validates the persisted IPC.
-                layout = row_layout_digest_of(table.descriptor, table.reader.source_descriptor().columns,
-                                             table.ordered_metadata)
-                reader = table.reader.reopen()
-                try:
-                    batch = None if table.batch_reader is None else table.batch_reader.reopen()
-                except BaseException:
-                    reader.close()
-                    raise
-                reader.mark_canonical_comparison_verified()
-                published.append(replace(table, reader=reader, batch_reader=batch,
-                    artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
+            reader.mark_canonical_comparison_verified()
+            published.append(replace(table, reader=reader, batch_reader=batch,
+                artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
         context.checkpoint()
         return tuple(published)
     except BaseException:

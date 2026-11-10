@@ -347,6 +347,7 @@ def _frozen_build_input(
 
 def _keyed_parent_submit(
     *, fault: str | None = None, ruleset: TableRulesetSnapshot | None = None,
+    equivalent_source_schema: bool = False,
 ) -> tuple[SubmitImportPublicationAdapter, PrepareImportBuildInput, InMemoryArtifactStore]:
     """Use the real canonical IPC and committed-table owners around a fake Repository source."""
     before_rows = tuple(
@@ -357,7 +358,22 @@ def _keyed_parent_submit(
         for index in range(100)
     )
 
-    def raw_input(rows: tuple[SourceRow, ...]) -> tuple[ProjectionTableInput, ...]:
+    def raw_input(rows: tuple[SourceRow, ...], *, source_variant: bool = False) -> tuple[ProjectionTableInput, ...]:
+        if equivalent_source_schema:
+            no_column = '' if source_variant else ', no INT'
+            values = ','.join(f"('port-{index}',{index}{'' if source_variant else ',9'})" for index in range(100))
+            source = materialize_sql(
+                f'CREATE TABLE net_cfg (board VARCHAR(255) NOT NULL, link_no INT NOT NULL{no_column}, PRIMARY KEY(board,link_no));'
+                f'INSERT INTO net_cfg VALUES {values};', policy=MaterializationPolicy.READERS_REQUIRED)
+            assert source.snapshot is not None and source.table_set is not None
+            table = source.table_set.tables[0]
+            assert table.reader is not None
+            reader = table.reader.reopen()
+            table.reader.close()
+            if table.batch_reader is not None:
+                table.batch_reader.close()
+            return (ProjectionTableInput('net_cfg', reader,
+                ArtifactSourceBinding(source.snapshot.snapshot_digest, table.descriptor)),)
         reader, binding = table_input(
             "a_widget", columns=(int_column("id"), varchar_column("value")),
             primary_key_columns=("id",), rows=rows,
@@ -393,16 +409,18 @@ def _keyed_parent_submit(
         for index, column in enumerate(descriptor.columns)
     )
     catalog = make_catalog(
-        (catalog_table("a_widget", columns, primary_key=("id",),
+        (catalog_table(descriptor.table_name, columns, primary_key=descriptor.primary_key_columns,
                        row_count=99 if fault == "count" else 100),),
         repository_id="test-repository", ref="parent-commit-1", commit="parent-commit-1",
     )
-    source_rows = tuple(
+    source_rows: tuple[tuple[object | None, ...], ...] = tuple(
         (index, "wrong-value" if fault == "content" and index == 42 else f"value-{index}")
         for index in range(100)
     )
+    if equivalent_source_schema:
+        source_rows = tuple((f'port-{index}', index) for index in range(100))
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows={"a_widget": source_rows},
+        catalog=catalog, rows={descriptor.table_name: source_rows},
         current_commit="other-commit" if fault == "commit" else "parent-commit-1",
     )
 
@@ -426,13 +444,24 @@ def _keyed_parent_submit(
     def uow() -> Iterator[SimpleNamespace]:
         yield SimpleNamespace(canonical_tables=index)
 
+    after_store = InMemoryArtifactStore()
+    after_input = _frozen_build_input(after_store, raw_input(after_rows, source_variant=True), ruleset=ruleset)
+    if equivalent_source_schema:
+        current_binding = after_input.snapshot_tables[0]
+        current = open_snapshot_table_artifact(after_store, ArtifactRef(current_binding.artifact_id,
+            current_binding.media_type, current_binding.size_bytes, DigestRef(current_binding.raw_sha256)),
+            repository_id='test-repository', canonical_required=True)
+        assert current.artifact is not None and parent_table.artifact is not None
+        assert current.artifact.manifest.row_file_refs == parent_table.artifact.manifest.row_file_refs
+        if current.reader is not None:
+            current.reader.close()
+        if current.batch_reader is not None:
+            current.batch_reader.close()
     committed = build_committed_table_access(
-        store=InMemoryArtifactStore(), unit_of_work_factory=uow,
+        store=after_store if equivalent_source_schema else InMemoryArtifactStore(), unit_of_work_factory=uow,
         repository_provider_factory=lambda _repo, _commit: provider,
         repository_id="test-repository",
     )
-    after_store = InMemoryArtifactStore()
-    after_input = _frozen_build_input(after_store, raw_input(after_rows), ruleset=ruleset)
     build_input = replace(
         after_input, parent_is_initial=False, parent_manifest=parent_manifest,
         parent_manifest_digest=parent_manifest.manifest_digest.value,
@@ -1217,3 +1246,34 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
             publication=adapter,
             store=store,
         )
+
+
+@pytest.mark.parametrize('fault', ('missing', 'corrupt'))
+def test_parent_alias_cannot_rebuild_unavailable_frozen_current(fault: str) -> None:
+    adapter, build_input, store = _keyed_parent_submit(equivalent_source_schema=True)
+    assert build_input.parent_manifest is not None
+    current = open_canonicalization_manifest(store, build_input.canonicalization_manifest_ref)
+    parent_table, current_table = build_input.parent_manifest.tables[0], current.tables[0]
+    assert parent_table.name == current_table.name == 'net_cfg'
+    assert parent_table.source_schema_digest != current_table.source_schema_digest
+    assert parent_table.canonical_schema_digest == current_table.canonical_schema_digest
+    assert parent_table.content_digest == current_table.content_digest
+    binding = build_input.snapshot_tables[0]
+    wrapper = ArtifactRef(binding.artifact_id, binding.media_type, binding.size_bytes, DigestRef(binding.raw_sha256))
+    frozen = open_snapshot_table_artifact(store, wrapper, repository_id=build_input.repository_id, canonical_required=True)
+    assert frozen.artifact is not None
+    row_ref = frozen.artifact.manifest.row_file_refs[0]
+    if frozen.reader is not None:
+        frozen.reader.close()
+    if frozen.batch_reader is not None:
+        frozen.batch_reader.close()
+    # The parent source has the exact same canonical row identity; its source
+    # schema differs only by presence of the dropped no column. Restoring it would mask loss.
+    if fault == 'missing':
+        del store._artifacts[row_ref.artifact_id]
+    else:
+        store._artifacts[row_ref.artifact_id] = (row_ref, b'corrupt')
+    before = dict(store._artifacts)
+    with pytest.raises(SubmitImportPublicationError, match='frozen canonical table'):
+        adapter.build_and_publish(build_input=build_input, store=store)
+    assert store._artifacts == before

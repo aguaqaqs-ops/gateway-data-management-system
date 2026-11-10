@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.artifact_layout import open_test_store
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -1289,13 +1291,12 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 
     commits = {"a": BASELINE_HEAD.business_baseline_commit_id, "b": "commit-cache-b", "c": "commit-cache-c"}
     values = {"a": 1, "b": 2, "c": 3}
-    store = LocalArtifactStore(tmp_path / "cache-artifacts")
+    store = open_test_store(tmp_path / "cache-artifacts")
     previous: HistoryCompareJobHarness | None = None
     observed: list[dict[str, object]] = []
     for run in ("cold", "warm"):
@@ -1425,7 +1426,6 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     from gateway_backend.capabilities.risk_evaluation.contracts import RISK_ANNOTATION_MEDIA_TYPE
     from gateway_backend.capabilities.storage_projection import canonicalization_manifest_from_bytes
     from gateway_backend.domain.workspace.models import InputCompleteness
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
     from tests.support.canonical_metadata import CatalogCommitCanonicalMetadataPort
@@ -1436,7 +1436,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     seed_provisioned_mapping_with_head(preview.db_path, baseline_head=BASELINE_HEAD)
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(preview.db_path)
-    cache = ControlDbComputationCache(transaction, LocalArtifactStore(tmp_path / "computation-cache"))
+    cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "computation-cache"))
     exports = ControlDbSnapshotTableExportCache(transaction)
     risk_lookups: list[bool] = []
     risk_stores: list[bool] = []
@@ -1630,3 +1630,64 @@ def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: s
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
         _history_compare_ready_ref(state)
+
+
+@pytest.mark.parametrize('damaged_side', ('same-commit-later-table', 'later-commit'))
+def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
+    tmp_path: Path, damaged_side: str,
+) -> None:
+    import pyarrow as pa
+    from gateway_backend.artifacts.serialize import artifact_ref_from_json
+
+    left = BASELINE_HEAD.business_baseline_commit_id
+    right = 'commit-repair-right'
+    local = open_test_store(tmp_path / 'repair-artifacts')
+    def providers() -> dict[str, FakeRepositoryTableAccessProvider]:
+        result = {}
+        for commit, value in ((left, 1), (right, 2)):
+            catalog = make_catalog((catalog_table('a', (int_id_column(),), row_count=1),
+                catalog_table('z', (int_id_column(),), row_count=1)),
+                repository_id=REPOSITORY_ID, ref=commit, commit=commit)
+            rows = {'a': ((value,),), 'z': ((value + 10,),)}
+            result[commit] = FakeRepositoryTableAccessProvider(catalog=catalog,
+                rows=rows, declared_rows=rows, current_commit=commit)
+        return result
+    cold = build_history_compare_harness(tmp_path / 'cold', artifact_store=local,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-right', right)),
+        custom_providers=providers(), idempotency_key='repair-cold')
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+    )
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
+        run_full_history_compare_job(cold)
+    with local.cleanup_session("a1:canonical:" + "0" * 64) as acquired:
+        assert acquired  # The completed cold operation has released every mapping.
+    target_commit, target_value = (left, 11) if damaged_side == 'same-commit-later-table' else (right, 2)
+    with ControlDbUnitOfWork(cold.db_path, read_only=True) as uow:
+        ids = [row[0] for row in uow.connection.execute(
+            'SELECT artifact_id FROM canonical_commit_tables WHERE repository_id=? AND commit_id=?',
+            (REPOSITORY_ID, target_commit))]
+    assert len(ids) == 2
+    damaged_ref = None
+    for artifact_id in ids:
+        path = local.payload_path(artifact_id)
+        with pa.memory_map(str(path), 'r') as mapped:
+            value = pa.ipc.open_file(mapped).read_all().column(0)[0].as_py()
+        if value == target_value:
+            damaged_ref = artifact_ref_from_json((local.object_directory(artifact_id) / 'ref.jcs').read_bytes())
+            break
+    assert damaged_ref is not None
+    original = local.payload_path(damaged_ref.artifact_id).read_bytes()
+    local.payload_path(damaged_ref.artifact_id).write_bytes(b'corrupt')
+    warm = build_history_compare_harness(tmp_path / 'warm', db_path=cold.db_path, artifact_store=local,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ('bn-repair-warm-right', right)),
+        custom_providers=providers(), idempotency_key='repair-warm')
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
+        run_full_history_compare_job(warm)
+    assert local.locate(damaged_ref) == original
+    cold_rows, _ = _history_snapshot_bundle_data(cold)
+    warm_rows, _ = _history_snapshot_bundle_data(warm)
+    assert {(side, table): rows for (_pair, side, table), rows in cold_rows.items()} == {
+        (side, table): rows for (_pair, side, table), rows in warm_rows.items()}
+    with ControlDbUnitOfWork(warm.db_path, read_only=True) as uow:
+        assert uow.operations.get_operation(warm.operation_id).status is OperationStatus.SUCCEEDED

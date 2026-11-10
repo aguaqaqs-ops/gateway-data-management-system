@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from gateway_backend.artifacts.location import ArtifactLocation
 
-import hashlib
-import os
 import secrets
-import tempfile
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import pyarrow as pa
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.bounded_store import (
     CleanupClassification,
@@ -24,11 +20,12 @@ from gateway_backend.artifacts.bounded_store import (
     VerifyReadableResult,
 )
 from gateway_backend.artifacts.digest import build_artifact_id
-from gateway_backend.artifacts.store import ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactFileSourcePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.domain.workspace.models import SourceArtifactBinding
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.protection import SQLiteArtifactProtectionStore
+from typing import ContextManager
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
 DEFAULT_UNPINNED_TTL = timedelta(hours=24)
 _STREAM_CHUNK_SIZE = 64 * 1024
@@ -41,13 +38,11 @@ class BoundedArtifactStore:
         self,
         local_store: LocalArtifactStore,
         *,
-        protection_store: SQLiteArtifactProtectionStore | None = None,
-        is_protected: Callable[[str], bool] | None = None,
+        protection_uow: Callable[[], ContextManager[ControlDbUnitOfWork]] | None = None,
         unpinned_ttl: timedelta = DEFAULT_UNPINNED_TTL,
     ) -> None:
         self._local_store = local_store
-        self._protection_store = protection_store
-        self._is_protected = is_protected
+        self._protection_uow = protection_uow
         self._unpinned_ttl = unpinned_ttl
         self._published_at_by_artifact_id: dict[str, datetime] = {}
 
@@ -55,6 +50,11 @@ class BoundedArtifactStore:
         published = self._local_store.put(raw_bytes, ref)
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
         return published
+
+    def restore_canonical_from_exact_commit(
+        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+    ) -> ArtifactRef:
+        return self._local_store.restore_canonical_from_exact_commit(raw_bytes, ref, checkpoint=checkpoint)
 
     def locate(self, ref: ArtifactRef) -> bytes:
         return self._local_store.locate(ref)
@@ -85,24 +85,9 @@ class BoundedArtifactStore:
             raise ValueError("media_type must be a non-empty string")
         artifact_id = build_artifact_id(location, kind, secrets.token_hex(16))
         validate_artifact_id(artifact_id)
-        staging_path, digest = _write_bounded_staging(
-            self._local_store.artifact_root,
-            stream,
-            declared_size=declared_size,
-            declared_raw_sha256=declared_raw_sha256,
-        )
-        try:
-            ref = ArtifactRef(
-                artifact_id=artifact_id,
-                media_type=media_type,
-                size_bytes=declared_size,
-                raw_sha256=digest,
-            )
-            published = self._local_store.put_from_path(staging_path, ref)
-        except BaseException:
-            if staging_path.exists():
-                staging_path.unlink()
-            raise
+        ref = ArtifactRef(artifact_id=artifact_id, media_type=media_type,
+            size_bytes=declared_size, raw_sha256=declared_raw_sha256)
+        published = self._local_store.put_chunks(stream, ref)
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
         return published
 
@@ -121,14 +106,15 @@ class BoundedArtifactStore:
         expected_size: int,
         expected_raw_sha256: DigestRef,
     ) -> VerifyReadableResult:
+        if ref.size_bytes != expected_size:
+            return VerifyReadableResult(verified=False, reason="size_bytes mismatch")
+        if ref.raw_sha256 != expected_raw_sha256:
+            return VerifyReadableResult(verified=False, reason="raw_sha256 mismatch")
         try:
-            raw_bytes = self._local_store.locate(ref)
+            for _chunk in self._local_store.read_exact(ref):
+                pass
         except ManifestVerificationError as exc:
             return VerifyReadableResult(verified=False, reason=str(exc))
-        if len(raw_bytes) != expected_size:
-            return VerifyReadableResult(verified=False, reason="size_bytes mismatch")
-        if raw_blob_digest(raw_bytes).value != expected_raw_sha256.value:
-            return VerifyReadableResult(verified=False, reason="raw_sha256 mismatch")
         return VerifyReadableResult(verified=True)
 
     def set_protection(
@@ -140,128 +126,59 @@ class BoundedArtifactStore:
         intent: str,
         recorded_at: datetime | None = None,
     ) -> bool:
-        if self._protection_store is None:
+        if self._protection_uow is None:
             raise RuntimeError("protection store is not configured")
         when = recorded_at or datetime.now(UTC)
-        return self._protection_store.set_protection(
-            tuple(refs),
-            owner_kind=owner_kind,
-            owner_id=owner_id,
-            intent=intent,
-            recorded_at=when,
-        )
+        with self.read_session(), self._protection_uow() as uow:
+            return uow.protection.set_protection(tuple(refs), owner_kind=owner_kind,
+                owner_id=owner_id, intent=intent, recorded_at=when)
+
+    def put_from_path(
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+    ) -> ArtifactRef:
+        published = self._local_store.put_from_path(source, ref, checkpoint=checkpoint, byte_limit=byte_limit)
+        self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
+        return published
 
     def classify_cleanup(self, ref: ArtifactRef, now: datetime) -> CleanupDecision:
-        if self._artifact_is_protected(ref.artifact_id):
+        with self.read_session():
+            with nullcontext(None) if self._protection_uow is None else self._protection_uow() as uow:
+                protected = uow is not None and uow.protection.is_protected(ref.artifact_id)
+            return self._classify(ref, now, protected=protected)
+
+    def _classify(self, ref: ArtifactRef, now: datetime, *, protected: bool) -> CleanupDecision:
+        if protected:
             return CleanupDecision(classification=CleanupClassification.PROTECTED)
-        published_at = self._artifact_published_at(ref)
+        try:
+            published_at = self._published_at_by_artifact_id.get(ref.artifact_id)
+            if published_at is None:
+                published_at = self._local_store.published_at(ref)
+        except FileNotFoundError:
+            return CleanupDecision(classification=CleanupClassification.ELIGIBLE_AFTER)
         eligible_after = published_at + self._unpinned_ttl
-        if now >= eligible_after:
-            return CleanupDecision(
-                classification=CleanupClassification.ELIGIBLE_AFTER,
-                eligible_after=eligible_after,
-            )
-        return CleanupDecision(
-            classification=CleanupClassification.MANUAL_REVIEW,
-            eligible_after=eligible_after,
-        )
+        return CleanupDecision(classification=CleanupClassification.ELIGIBLE_AFTER if now >= eligible_after
+            else CleanupClassification.MANUAL_REVIEW, eligible_after=eligible_after)
 
     def delete_eligible(
-        self,
-        ref: ArtifactRef,
-        *,
-        expected_classification: CleanupClassification,
-        now: datetime,
-    ) -> DeleteDisposition:
-        with self._local_store.cleanup_session() as acquired:
-            if not acquired:
-                return DeleteDisposition.RETRYABLE_FAILURE
-            return self._delete_eligible_locked(
-                ref, expected_classification=expected_classification, now=now,
-            )
-
-    def _delete_eligible_locked(
         self, ref: ArtifactRef, *, expected_classification: CleanupClassification, now: datetime,
     ) -> DeleteDisposition:
-        decision = self.classify_cleanup(ref, now)
-        if decision.classification is CleanupClassification.PROTECTED:
+        try:
+            with self._local_store.cleanup_session(ref.artifact_id) as acquired:
+                if not acquired:
+                    return DeleteDisposition.RETRYABLE_FAILURE
+                # This factory deliberately opens only the short DB transaction.
+                # A protection UoW would acquire SH after EX and invert the order.
+                with nullcontext(None) if self._protection_uow is None else self._protection_uow() as uow:
+                    protected = uow is not None and uow.protection.is_protected(ref.artifact_id)
+                    decision = self._classify(ref, now, protected=protected)
+                    if decision.classification is not expected_classification or decision.classification is not CleanupClassification.ELIGIBLE_AFTER:
+                        return DeleteDisposition.RETRYABLE_FAILURE
+                    deleted = self._local_store.delete_object(ref)
+                if deleted:
+                    self._published_at_by_artifact_id.pop(ref.artifact_id, None)
+                return DeleteDisposition.DELETED if deleted else DeleteDisposition.ABSENT
+        except (OSError, ManifestVerificationError):
             return DeleteDisposition.RETRYABLE_FAILURE
-        if decision.classification is not expected_classification:
-            return DeleteDisposition.RETRYABLE_FAILURE
-        if decision.classification is not CleanupClassification.ELIGIBLE_AFTER:
-            return DeleteDisposition.RETRYABLE_FAILURE
-        target, sidecar = self._local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
-        deleted = False
-        if target.is_file():
-            target.unlink()
-            deleted = True
-        if sidecar.is_file():
-            sidecar.unlink()
-            deleted = True
-        if not deleted:
-            return DeleteDisposition.ABSENT
-        self._local_store._refs_by_artifact_id.pop(ref.artifact_id, None)  # noqa: SLF001
-        return DeleteDisposition.DELETED
-
-    def _artifact_is_protected(self, artifact_id: str) -> bool:
-        if self._protection_store is not None:
-            return self._protection_store.is_protected(artifact_id)
-        if self._is_protected is not None:
-            return self._is_protected(artifact_id)
-        return False
-
-    def _artifact_published_at(self, ref: ArtifactRef) -> datetime:
-        recorded = self._published_at_by_artifact_id.get(ref.artifact_id)
-        if recorded is not None:
-            return recorded
-        target, _sidecar = self._local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
-        if not target.is_file():
-            raise ManifestVerificationError("artifact bytes are missing")
-        mtime = target.stat().st_mtime
-        return datetime.fromtimestamp(mtime, tz=UTC)
-
-
-def _write_bounded_staging(
-    artifact_root: Path,
-    stream: Iterable[bytes],
-    *,
-    declared_size: int,
-    declared_raw_sha256: DigestRef,
-) -> tuple[Path, DigestRef]:
-    hasher = hashlib.sha256()
-    total = 0
-    staging_dir = artifact_root / ".staging"
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile(
-        mode="wb",
-        dir=staging_dir,
-        prefix=".upload-",
-        suffix=".tmp",
-        delete=False,
-    )
-    staging_path = Path(handle.name)
-    try:
-        with handle:
-            for chunk in stream:
-                if type(chunk) is not bytes:
-                    raise ManifestVerificationError("stream chunks must be bytes")
-                total += len(chunk)
-                if total > declared_size:
-                    raise ManifestVerificationError("stream exceeds declared_size")
-                hasher.update(chunk)
-                handle.write(chunk)
-            handle.flush()
-            os.fsync(handle.fileno())
-        if total != declared_size:
-            raise ManifestVerificationError("stream shorter than declared_size")
-        digest = DigestRef("sha256:" + hasher.hexdigest())
-        if digest.value != declared_raw_sha256.value:
-            raise ManifestVerificationError("declared_raw_sha256 mismatch")
-        return staging_path, digest
-    except BaseException:
-        if staging_path.exists():
-            staging_path.unlink()
-        raise
 
 
 def artifact_binding_from_ref(ref: ArtifactRef) -> SourceArtifactBinding:

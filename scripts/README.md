@@ -1,7 +1,7 @@
 # 后端阶段门禁
 
 `scripts/run-stage-gate.py <full-sha> [--packages shared_kernel,...] [--session name]`
-只在开发节点编排，经 BatchMode SSH 在 `ct108-gw-dms-04` 执行；工具自身须已提交，目标完整 SHA
+只在开发节点编排，经 BatchMode SSH 在 `ct108-gw-dms-04` 执行；worker 严格校验实际 hostname 为 `gw-dms-test-04`，错误节点在占用前以 exit 2 拒绝。工具自身须已提交，目标完整 SHA
 须先通过获准 LAN 传到 04 的 `/home/dev/gateway-data-management-system`。首次自动创建固定 detached
 worktree `/home/dev/gdds-stage-gate` 和相邻归属记录；已有树若无归属记录、dirty、attached 或 legacy
 类型/目标错误，均拒绝接管。不要手工创建固定树或删除归属记录。

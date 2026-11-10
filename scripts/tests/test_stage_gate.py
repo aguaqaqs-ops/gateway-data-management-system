@@ -118,6 +118,19 @@ class StageGateTests(unittest.TestCase):
             self.assertEqual(parsed.packages, list(G.PACKAGES))
         self.assertEqual(G.arguments([SHA, "--fresh", "--packages", "backend"]).packages, list(G.PACKAGES))
 
+    def test_worker_accepts_verified_node_hostname_and_rejects_other_nodes_before_acquiring(self):
+        with patch.object(G.socket, "gethostname", return_value="gw-dms-test-04"), \
+             patch.object(G, "Gate") as gate:
+            gate.return_value.run.return_value = 0
+            self.assertEqual(G.main([SHA, "--worker"], source=b"committed-tool"), 0)
+            gate.return_value.run.assert_called_once_with()
+        for hostname in ("gw-dms-06", "ct108-gw-dms-05", "gw-dms-04", G.NODE):
+            with self.subTest(hostname=hostname), \
+                 patch.object(G.socket, "gethostname", return_value=hostname), \
+                 patch.object(G, "Gate") as gate:
+                self.assertEqual(G.main([SHA, "--worker"], source=b"committed-tool"), 2)
+                gate.assert_not_called()
+
     def test_occupied_node_is_never_adopted_or_deleted(self):
         busy = self.root / "busy"
         busy.mkdir()

@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 
 PACKAGES = ("rust", "shared_kernel", "repository_contracts", "repository_client", "backend", "repository_service")
 NODE = "ct108-gw-dms-04"
+NODE_HOSTNAME = "gw-dms-test-04"
 WORKTREE = Path("/home/dev/gdds-stage-gate")
 REPOSITORY = Path("/home/dev/gateway-data-management-system")
 RESULTS = Path("/home/dev/gdds-gate-results")
@@ -639,8 +640,9 @@ def main(argv: list[str] | None = None, *, source: bytes | None = None) -> int:
     source = source if source is not None else Path(__file__).read_bytes()
     digest = hashlib.sha256(source).hexdigest()
     if args.worker:
-        if socket.gethostname() not in {"gw-dms-04", NODE}:
-            raise GateError("worker execution is restricted to gate node 04", 2)
+        if socket.gethostname() != NODE_HOSTNAME:
+            print("error: worker execution is restricted to gate node 04 (" + NODE_HOSTNAME + ")", file=sys.stderr)
+            return 2
         return Gate(args, digest).run()
     tool_path = Path(__file__).resolve()
     tool_repo = tool_path.parent.parent

@@ -159,7 +159,7 @@ verify() (
     run 'uv version' uv --version
     [[ -z ${GATEWAY_COMPOSE_GATE_PREBUILT:-} ]] || { echo 'prebuilt bypass forbidden'; exit 2; }
     export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
-    export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa
+    export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-578e079b762e
     export GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee
     export GATEWAY_DOCKER_BUILD_NETWORK=none
     for proxy_name in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
@@ -175,8 +175,26 @@ assert metadata["Endpoints"]["docker"]["Host"].startswith("unix://"), "local Uni
 print("DOCKER_ENDPOINT=local-unix")
 PYLOCAL
     run 'local Docker daemon identity' docker info --format '{{.ID}} {{.Name}} {{.ServerVersion}}'
+    backend_source=/home/dev/gdds-test-tmp/p6-s3-e-06-cache-prefill-578e079b/archives
+    repository_identity=/home/dev/gdds-test-tmp/artifacts/p6-v1-f5/image-identities-c229582a9e.json
+    saved_image_verifier="$worktree/$plan/p7-s1a-b-verify-saved-image.py"
+    run 'fixed prefilled identity source SHA256' python3 -I - "$backend_source" "$repository_identity" "$saved_image_verifier" <<'PYSOURCES'
+import hashlib
+from pathlib import Path
+import sys
+sources = {
+    Path(sys.argv[1]) / "input.json": "270ed39e56b2eec16f0a5a1c0e4a57ef5680e8a0f3b8fba8dfdf236140b8d560",
+    Path(sys.argv[1]) / "image-identity.json": "d5ebabf6cf39b98917adca5ebad6f66138e2a9fa00e63eb8e6526956ccdff7c3",
+    Path(sys.argv[2]): "cafb565752514e0328764c0c5d750634005f7f38e7a61c9bb97b0e5d1a8195cd",
+    Path(sys.argv[3]): "bbf4a6ac956ec57cc88bdb496f334306bdfe9e92024a538526cc6b2136ca7d50",
+}
+for path, expected in sources.items():
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert actual == expected, "prefilled identity source SHA256 mismatch"
+    print(path.name, actual)
+PYSOURCES
     capture 'candidate backend dependency inputs' "$logdir/backend-deps-input.json" ./vnext/scripts/build-backend-dependency-base.sh --print-input
-    run 'candidate dependency-base input and RS lock identity' python3 -I - "$logdir/backend-deps-input.json" "$GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE" "$GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE" <<'PYCODE'
+    run 'candidate dependency-base input and RS lock identity' python3 -I - "$logdir/backend-deps-input.json" "$GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE" "$GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE" "$backend_source/input.json" "$repository_identity" "$logdir/rs-base-expected.json" <<'PYCODE'
 import hashlib
 import json
 from pathlib import Path
@@ -184,6 +202,9 @@ import subprocess
 import sys
 inputs = json.loads(Path(sys.argv[1]).read_bytes())
 backend_tag, repository_tag = sys.argv[2:4]
+source_inputs = json.loads(Path(sys.argv[4]).read_bytes())
+assert source_inputs["inputs"]["tag_inputs"] == inputs["inputs"]["tag_inputs"], "candidate dependency inputs differ from source"
+assert source_inputs["input_sha256"] == inputs["input_sha256"], "candidate full dependency input SHA differs from source"
 assert inputs["image"] == backend_tag, "backend dependency input tag mismatch"
 backend = json.loads(subprocess.check_output(["docker", "image", "inspect", backend_tag]))[0]
 assert backend["Config"]["Labels"]["gateway.backend.dependency-input-sha256"] == inputs["input_sha256"], "backend dependency input label mismatch"
@@ -191,9 +212,25 @@ repository = json.loads(subprocess.check_output(["docker", "image", "inspect", r
 lock_sha = hashlib.sha256(Path("vnext/repository_service/uv.lock").read_bytes()).hexdigest()
 assert repository["Config"]["Labels"]["gateway.p2r1.uv-lock-sha256"] == lock_sha, "RS dependency lock label mismatch"
 assert repository_tag == "gateway-p2r1-repository:lock-" + lock_sha[:12], "RS dependency lock tag mismatch"
+source_entries = json.loads(Path(sys.argv[5]).read_bytes())
+selected = [entry for entry in source_entries if entry["ref"] == repository_tag]
+assert len(selected) == 1, "RS dependency identity entry missing or duplicated"
+source_repository = selected[0]
+assert source_repository["labels"]["gateway.p2r1.uv-lock-sha256"] == lock_sha, "RS source lock identity mismatch"
+assert len(source_repository["diff_ids"]) == 16, "wrong RS source image selection"
+Path(sys.argv[6]).write_text(json.dumps({"base_image_identity": {
+    "config_digest": source_repository["config_digest"], "diff_ids": source_repository["diff_ids"],
+}}, sort_keys=True) + "\n")
 print("CANDIDATE_DEPENDENCY_INPUTS=MATCH; no build/pull/fallback performed")
 PYCODE
     run 'candidate dependency inputs SHA256' sha256sum "$logdir/backend-deps-input.json"
+    run 'save current backend dependency-base' docker image save --output "$logdir/current-backend-base.tar" "$GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE"
+    run 'current backend config bytes and all DiffID identity' python3 -I "$saved_image_verifier" "$backend_source/image-identity.json" dependency "$logdir/current-backend-base.tar"
+    run 'save current RS dependency-base' docker image save --output "$logdir/current-rs-base.tar" "$GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE"
+    # The retained verifier's base mode compares the normalized config/DiffID dictionary;
+    # here its expected identity is the exact RS dependency-base entry, not Rust or final RS.
+    run 'current RS config bytes and all DiffID identity' python3 -I "$saved_image_verifier" "$logdir/rs-base-expected.json" base "$logdir/current-rs-base.tar"
+    run 'current dependency archive SHA256' sha256sum "$logdir/current-backend-base.tar" "$logdir/current-rs-base.tar" "$logdir/rs-base-expected.json"
     (cd vnext/rust && run 'rustc version' rustc --version && run 'cargo version' cargo --version &&
         run 'rustfmt version' rustfmt --version && run 'clippy version' clippy-driver --version)
     for package in shared_kernel repository_contracts repository_client backend repository_service; do

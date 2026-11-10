@@ -62,3 +62,8 @@ C接位置resolver、typed本地root、原子对象目录、no-replace/copy/读�
 | F7 golden owner遗漏 | 纳入archive_queries实际冻结向量owner及real_dump_journey工具unit（不是真实旅程）；所有阶段非0即停 | 修订固定选择器 |
 
 READY wire SHA按新raw更新为`sha256:3a30adbe13c24e6363028b4474ab78735b97c22bf9b0ce00d2d8201016a26a00`，仅ID载荷/排序的原公式重算；不改变生产排序或去掉raw断言。resource/config/业务规则golden未额外重录。stream问题在实施者提交后只读自查先报告，原审独立复核；其余问题按R1原件保留。本次未在开发机运行语法/产品测试/lint/编译；新候选仍需原审复审SCRIPT_GO、CT实际证据与最终B核收。
+
+
+### F6 来源与选中tag修订
+
+R1修订候选849cf6f799中的d054是旧Cargo.lock输入，原审尚未准许正文，未发生产品执行。选中base改为当前完整输入578；可信source commit53746c7236a79c96bd41587165e80683da283400、input/image identity/归档/06 LAN预填原件及SHA全部在[验证稿F6来源](p7-s1a-b-verification.md#f6-固定预填来源补充)。正式稿先核来源SHA及候选tag_inputs，再对当前06两个dependency-base导出config原bytes与全部有序DiffID逐项匹配；RS仅取精确6dc base条目。现成verifier原字节纳入候选，SHA保持。没有新建/覆盖/重tag base，没有将未保原件的内联计算冒作证据；旧P6只提供依赖来源，不提供B产品通过。当前正文/导出均待原审SCRIPT_GO及唯一测试者执行。

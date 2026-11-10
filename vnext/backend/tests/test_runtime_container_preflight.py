@@ -123,3 +123,37 @@ def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_p
         finally:
             subprocess.run([*command, "down", "--volumes", "--remove-orphans"], env=environment,
                 capture_output=True, check=False, timeout=30)
+
+
+@pytest.mark.parametrize("retain", (False, True))
+def test_backend_harness_removes_successful_owned_binds_and_retains_failed_state(tmp_path: Path, retain: bool) -> None:
+    from tests.support import compose_gate_harness as harness
+
+    image = os.environ["GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE"]
+    secret = tmp_path / "token"
+    secret.write_text("fixture-only")
+    env = {**os.environ, "COMPOSE_PROJECT_NAME": "gateway-f-be-owner-" + uuid4().hex[:12],
+        "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_SESSION_FILE": str(secret),
+        "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(secret)}
+    harness.prepare_runtime_config(env)
+    directory, _owner = harness._runtime_fixtures[env["COMPOSE_PROJECT_NAME"]]
+    override = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])
+    document = json.loads(override.read_bytes())
+    document["services"]["backend"].update({"image": image, "user": "0:0", "entrypoint": ["python", "-c",
+        "from pathlib import Path; Path('/var/lib/gateway/be-durable/owned-proof').write_bytes(b'preserved')"], "command": []})
+    override.write_text(json.dumps(document))
+    try:
+        try:
+            completed = harness.run_compose(env, "run", "--rm", "--no-deps", "--pull", "never", "backend")
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            if retain:
+                raise RuntimeError("injected owner failure after actual Compose run")
+        finally:
+            harness.cleanup_compose_project_artifacts(env)
+    except RuntimeError as exc:
+        assert retain and str(exc) == "injected owner failure after actual Compose run"
+    assert directory.exists() is retain
+    if retain:
+        assert (directory / "roots/be-durable/owned-proof").read_bytes() == b"preserved"
+        print("FAILED_BACKEND_RUNTIME_RETAINED=" + str(directory), flush=True)
+    assert "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" not in env

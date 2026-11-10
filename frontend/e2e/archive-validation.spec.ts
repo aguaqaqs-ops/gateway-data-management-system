@@ -42,11 +42,20 @@ type Preview = Schemas["PreviewArchivePlanResponse"];
 
 const screenshotDirectory = process.env.GATEWAY_FE_SCREENSHOT_DIR;
 
+async function expectNoHorizontalOverflow(page: Page) {
+  const metrics = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  expect(metrics.scrollWidth, `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`).toBeLessThanOrEqual(metrics.innerWidth);
+}
+
 async function screenshot(page: Page, name: string, width: number) {
   if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
+    await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
@@ -59,6 +68,7 @@ async function cardScreenshot(page: Page, name: string, width: number, locator: 
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await locator.scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
+    await expectNoHorizontalOverflow(page);
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
@@ -545,8 +555,8 @@ test("C8 关闭 409 后集合变化时两条提示都出现", async ({ page }) =
   await screenshot(page, "fe4a-c8-both-notices", 1280);
 });
 
-test("C8 集合未变的成功接受后清除集合变化提示", async ({ page }) => {
-  await installArchiveScenario(page, {
+test("C8 集合未变的成功接受且重新预检完成后集合变化提示消失", async ({ page }) => {
+  const { apiRequests } = await installArchiveScenario(page, {
     candidatesList: [V_CANDIDATES, V_CANDIDATES_AFTER_CLOSE],
     previews: [vPreviewTwoSided(), vPreviewAfterClose(), vPreviewAfterClose()],
     closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
@@ -562,8 +572,12 @@ test("C8 集合未变的成功接受后清除集合变化提示", async ({ page 
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await accept.getByLabel("接受理由").fill("集合未变后重新核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
+  // Wait until the accept succeeded, the archive dialog is back and the third preview has rendered.
+  await expect(accept).toHaveCount(0);
+  await expect.poll(() => apiRequests.filter((request) => request.path === "/v1/archive-plan-preview").length).toBe(3);
+  await expect(dialog.getByText("正在读取归档候选并预检…")).toHaveCount(0);
+  await expect(dialog.getByText("预检状态")).toBeVisible();
   await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toHaveCount(0);
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
 });
 
 test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page }) => {
@@ -586,7 +600,7 @@ test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page 
   await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
 });
 
-test("C8 加载失败后不保留待处理的冲突提示", async ({ page }) => {
+test("C8 409 后的重新预检失败时不保留待处理的冲突提示", async ({ page }) => {
   const scenario: Parameters<typeof installArchiveScenario>[1] = {
     previews: [vPreviewTwoSided(), vPreviewTwoSided()],
     closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
@@ -597,10 +611,9 @@ test("C8 加载失败后不保留待处理的冲突提示", async ({ page }) => 
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("加载失败场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
-  await close.getByRole("button", { name: "确认关闭" }).click();
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
+  // The reload that follows the 409 is the one that fails.
   scenario.previewForbidden = true;
-  await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
+  await close.getByRole("button", { name: "确认关闭" }).click();
   await expect(dialog.getByText("当前身份没有预检归档方案的权限")).toBeVisible();
   scenario.previewForbidden = false;
   await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
@@ -874,6 +887,19 @@ test("B4 候选读取与预检不一致时重读候选与预检一次", async ({
   expect(previews).toHaveLength(2);
   const second = JSON.parse(previews[1]!.body) as { selected: { expected_candidate_digest: string } };
   expect(second.selected.expected_candidate_digest).toBe("sha256:v-candidate-v-s1-refreshed");
+});
+
+test("B4b 重读候选与预检后显示第二次预检的方案", async ({ page }) => {
+  // The first preview disagrees with the first candidate read and is visibly
+  // different (a blocker); after the §16.2 reload the dialog must show the
+  // second preview, not the first.
+  await installArchiveScenario(page, {
+    candidatesList: [V_CANDIDATES, V_CANDIDATES_RECHANGED],
+    previews: [{ ...vPreviewBlocked("ACTIVE_SUBMIT_ATTEMPT"), candidate_set_digest: "sha256:v-candidates-after-close" }, vPreviewRechanged()],
+  });
+  const dialog = await openArchiveDialog(page, "提交 1");
+  await expect(dialog.getByText("待处理项")).toBeVisible();
+  await expect(dialog.getByText("已有提交正在处理，完成后才能归档")).toHaveCount(0);
 });
 
 test("V14 全部归档请求的选择引用恰好两个键", async ({ page }) => {

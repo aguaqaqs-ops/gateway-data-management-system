@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # FE4a evidence wrapper (kickoff §3.8): runs a frontend evidence entry with a
 # fixed pre-flight check and a fixed provenance record. The wrapper writes the
-# log before the entry runs nothing: when any check fails it exits non-zero
-# without running the entry (FE3c once ran the log dir into `$2` and the entry
-# never ran).
+# log before the entry runs; when any check fails it exits non-zero without
+# running the entry, and the log it already wrote gets a .sha256 sidecar
+# (FE3c once ran the log dir into `$2` and the entry never ran).
 #
 # usage:
 #   frontend/scripts/run-evidence-wrapper.sh --session <name> --worktree <abs-path>
@@ -112,6 +112,17 @@ LOG_FILE="$LOG_DIR/${SESSION}-${ENTRY%.sh}-${STAMP}.log"
 [[ -e "$LOG_FILE" ]] && fail "log file already exists: $LOG_FILE"
 : > "$LOG_FILE" || fail "cannot write log file: $LOG_FILE"
 
+write_log_sha256() {
+  sha256sum "$LOG_FILE" | awk '{ print $1 }' > "${LOG_FILE}.sha256"
+}
+
+early_exit() {
+  local status="$1"
+  write_log_sha256
+  printf 'log=%s\nlog_sha256=%s\n' "$LOG_FILE" "$(cat "${LOG_FILE}.sha256")"
+  exit "$status"
+}
+
 BUSY_DIR="/home/dev/gdds-node-busy.d"
 HOSTNAME_START="$(hostname -f 2>/dev/null || hostname)"
 HEAD_START="$(git -C "$WORKTREE" rev-parse HEAD)"
@@ -154,7 +165,7 @@ printf 'gateway_env_end\n' >> "$LOG_FILE"
 
 if [[ -n "$STATUS_START" ]]; then
   printf 'wrapper_error=worktree is not clean at start; not running the entry\n' | tee -a "$LOG_FILE" >&2
-  exit 2
+  early_exit 2
 fi
 
 HAVE_MARKER=0
@@ -172,14 +183,14 @@ if [[ "$ENTRY" == "run-real-backend-e2e.sh" ]]; then
   # (double mkdir would exit 3). Any pre-existing marker stops the run.
   if [[ -e "$BUSY_DIR" ]]; then
     printf 'wrapper_error=node is busy: %s exists; not running the entry\n' "$BUSY_DIR" | tee -a "$LOG_FILE" >&2
-    exit 3
+    early_exit 3
   fi
   printf 'occupancy=entry-owned (%s absent at start)\n' "$BUSY_DIR" >> "$LOG_FILE"
 else
   if ! mkdir "$BUSY_DIR" 2>/dev/null; then
     printf 'wrapper_error=node is busy: %s exists; not running the entry\n' "$BUSY_DIR" | tee -a "$LOG_FILE" >&2
     ls -la "$BUSY_DIR" >> "$LOG_FILE" 2>/dev/null || true
-    exit 3
+    early_exit 3
   fi
   HAVE_MARKER=1
   printf 'session=%s\npurpose=%s\nstarted_at=%s\nhostname=%s\nworktree=%s\nhead=%s\n' \
@@ -255,6 +266,6 @@ case "$ENTRY" in
     ;;
 esac
 
-sha256sum "$LOG_FILE" | awk '{ print $1 }' > "${LOG_FILE}.sha256"
+write_log_sha256
 printf 'log=%s\nlog_sha256=%s\nentry_exit=%s\n' "$LOG_FILE" "$(cat "${LOG_FILE}.sha256")" "$ENTRY_EXIT"
 exit "$ENTRY_EXIT"

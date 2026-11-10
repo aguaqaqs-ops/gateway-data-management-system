@@ -127,7 +127,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
       }
       stage = "preview";
       let selected = buildArchiveSelectedRef(candidate);
-      const loaded = await gatewayApi.previewArchive({ selected });
+      let loaded = await gatewayApi.previewArchive({ selected });
       if (loaded.selected && loaded.selected.submission_id !== target) {
         setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
         setPlan(null);
@@ -159,6 +159,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived,
           setPlan(null);
           return;
         }
+        loaded = reloaded;
       }
       if (previousDigest.current !== null && previousDigest.current !== loaded.candidate_set_digest) {
         // The set-change banner always uses the generic text; the specific

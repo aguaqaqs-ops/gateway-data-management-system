@@ -37,7 +37,7 @@ export function ReasonText({ children, as: Tag = "span" }: { children: ReactNode
     <Tag className="reason-text">
       <span ref={textRef} className={expanded ? "reason-text__body" : "reason-text__body reason-text__body--clamped"}>{children}</span>
       {(overflowing || expanded) && (
-        <>{" "}<button type="button" className="link-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button></>
+        <button type="button" className="link-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button>
       )}
     </Tag>
   );

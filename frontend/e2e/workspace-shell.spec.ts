@@ -173,8 +173,8 @@ async function installFixtureRoutes(page: Page, options: {
   const factsFor = (submissionId: string): Schemas["ReviewFactsResponse"] => ({
     ...TEST_REVIEW_FACTS,
     submission_id: submissionId,
-    status: reviewStatus,
-    review_version: reviewStatus === "PENDING" ? 5 : 6,
+    status: closedServed ? "APPROVED" : reviewStatus,
+    review_version: closedServed ? 6 : reviewStatus === "PENDING" ? 5 : 6,
     submission_disposition: closedServed ? {
       submission_id: submissionId,
       disposition: "CLOSED_NOT_ARCHIVED",
@@ -620,6 +620,21 @@ async function waitForBrowse(page: Page) {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  const metrics = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  expect(metrics.scrollWidth, `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`).toBeLessThanOrEqual(metrics.innerWidth);
+}
+
+async function expectHeaderBreadcrumbVisible(page: Page) {
+  const breadcrumb = page.locator(".compare-header .breadcrumb");
+  await expect(breadcrumb).toBeVisible();
+  const box = await breadcrumb.boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(0);
+}
+
 async function screenshot(page: Page, name: string, width: number) {
   if (!outputDirectory) return;
   await page.setViewportSize({ width, height: 1080 });
@@ -632,6 +647,7 @@ async function screenshot(page: Page, name: string, width: number) {
   }
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await mkdir(outputDirectory, { recursive: true });
+  await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), fullPage: true, animations: "disabled" });
 }
 
@@ -648,6 +664,7 @@ async function screenshotHeader(page: Page, name: string, width: number) {
   if (!outputDirectory) return;
   await page.setViewportSize({ width, height: 1080 });
   await mkdir(outputDirectory, { recursive: true });
+  await expectNoHorizontalOverflow(page);
   await page.locator(".compare-header").screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), animations: "disabled" });
 }
 
@@ -1582,6 +1599,9 @@ test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) =>
     request.method === "GET" && request.path.split("?")[0] === "/v1/history").length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。")).toBeVisible();
+  const expiredAlert = page.getByRole("alert").filter({ hasText: "该提交所基于的基线已更新" });
+  expect(await expiredAlert.evaluate((element) => element.closest(".compare-header__notice") !== null)).toBe(true);
+  expect(await expiredAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(true);
   await expect(page.getByText("BASELINE_VERSION_CONFLICT")).toBeVisible();
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
@@ -1593,6 +1613,7 @@ test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) =>
     { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
   await screenshot(page, "fe3c-review-expired", 1920);
   await screenshot(page, "fe3c-review-expired", 1280);
+  await expectHeaderBreadcrumbVisible(page);
 });
 
 test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page }) => {
@@ -1600,6 +1621,8 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await page.setViewportSize({ width: 1280, height: 1080 });
+  const backWidthBefore = (await page.getByRole("button", { name: "返回工作台" }).boundingBox())?.width;
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
   const historyGetsBefore = apiRequests.filter((request) =>
@@ -1607,6 +1630,10 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交已归档或关闭，已重新读取")).toBeVisible();
   await expect(page.getByText("ARCHIVE_CLOSED")).toBeVisible();
+  const closedAlert = page.getByRole("alert").filter({ hasText: "该提交已归档或关闭" });
+  await expect(closedAlert).toBeVisible();
+  expect(await closedAlert.evaluate((element) => element.closest(".compare-header__notice") !== null)).toBe(true);
+  expect(await closedAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(true);
   // C5: the 409 re-reads the review and the History together; the re-read
   // facts carry the manual-close disposition shown per §6.4.
   const reviewEvents = apiRequests.filter((request) => request.method === "POST" && request.path.endsWith("/review-events"));
@@ -1615,11 +1642,25 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
     request.method === "GET" && request.path.split("?")[0] === "/v1/history").length,
     { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible();
+  await expect(page.getByText("审核：已通过")).toBeVisible();
+  await expect(page.locator(".compare-status .status-tag").filter({ hasText: "已关闭（未归档）" })).toBeVisible();
   await page.getByText("查看关闭理由").first().click();
   await expect(page.getByText("不再需要该提交")).toBeVisible();
+  const singleReason = page.getByText("该提交已关闭（未归档）", { exact: true });
+  await expect(singleReason).toHaveCount(1);
+  const reasonId = await singleReason.getAttribute("id");
+  expect(reasonId).toBeTruthy();
+  for (const name of ["撤回", "退回", "审核通过"]) {
+    const button = page.getByRole("button", { name, exact: true });
+    await expect(button).toBeDisabled();
+    expect(await button.getAttribute("aria-describedby")).toBe(reasonId);
+  }
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await screenshot(page, "fe3c-review-closed", 1920);
   await screenshot(page, "fe3c-review-closed", 1280);
+  await expectHeaderBreadcrumbVisible(page);
+  const backWidthAfter = (await page.getByRole("button", { name: "返回工作台" }).boundingBox())?.width ?? 0;
+  expect(backWidthAfter).toBeCloseTo(backWidthBefore ?? -1, 0);
 });
 
 test("FE2c 提交超时重试复用同一幂等键并回放同一提交", async ({ page }) => {
@@ -2021,6 +2062,8 @@ test("C2 重试快速连点两次只读取一次工作区与一次 attempt", asy
   await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces").length, { timeout: 15000 }).toBe(workspaceReadsBefore + 1);
   await expect.poll(() => apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/")).length, { timeout: 15000 }).toBe(attemptReadsBefore + 1);
   await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(workspaceReadsBefore + 1);
+  expect(apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/"))).toHaveLength(attemptReadsBefore + 1);
 });
 
 test("C1 续做后开始新的提交时红色提示框清除", async ({ page }) => {

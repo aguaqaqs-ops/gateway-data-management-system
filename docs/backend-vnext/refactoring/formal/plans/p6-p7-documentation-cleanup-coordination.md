@@ -109,11 +109,11 @@ A 实施原件目录：`/home/dev/gdds-test-tmp/docs-cleanup-a-impl-20261110/`�
 
 | 工作包 | 实施 | 独审 / 验证 | 合入 |
 | --- | --- | --- | --- |
-| A | 盘点与精确范围已固定；A 未删除文件 | A 原审 A_SCOPE_GO，A 静态回执已核，A-N1/A-V1 补充处置 closed；原件身份限制见原审 | 随 `6a8fff14f3` 合 main；最终增量核收待完成 |
+| A | 盘点与精确范围已固定；A 未删除文件 | A 原审 A_SCOPE_GO，A 静态回执已核，A-N1/A-V1 补充处置 closed；原件身份限制见原审 | 随 `6a8fff14f3` 合 main；最终增量已核收 |
 | B | 固定候选 `1d84b7a066`；三 README/current index、三行 manifest 与三删除 | [B 原审](p6-p7-documentation-cleanup-b-review.md) B_GO，静态回执已核；输出限制保留 | B 原审收录于 `bb4dd10e5d`，随 `6a8fff14f3` 合 main |
 | C | 固定候选 `5de3d2eb53`；含最新 main 的四导航/交接 | [C 原审](p6-p7-documentation-cleanup-c-review.md) C_GO，独立静态回执已核，C-V1 closed | 已合 main `6a8fff14f3`；实际合入及收尾元数据增量已独立核收 |
 
-A/B/C 固定候选结论及静态回执见各原审；下一动作是由 C 原审/验证者核实际合入及本次收尾元数据增量。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
+A/B/C 固定候选结论及静态回执见各原审；C 原审和验证者已核实际合入及收尾元数据增量。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
 
 ## 7. B 实施候选与静态交接
 

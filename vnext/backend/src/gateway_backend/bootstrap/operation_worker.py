@@ -9,7 +9,6 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from signal import Signals
 from types import FrameType
 from typing import Any, cast
@@ -155,6 +154,7 @@ def build_job_worker_composition_for_settings(
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
     local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
         protection_uow=lambda: ControlDbUnitOfWork(settings.control_db_path),
@@ -179,6 +179,7 @@ def build_production_preview_dependencies(
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
     local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
         protection_uow=lambda: ControlDbUnitOfWork(settings.control_db_path),

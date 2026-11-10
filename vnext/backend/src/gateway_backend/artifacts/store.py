@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Callable
 from contextlib import contextmanager
-from typing import ContextManager, Protocol, runtime_checkable
+from typing import BinaryIO, ContextManager, Protocol, runtime_checkable
 
 import pyarrow as pa
 
@@ -20,6 +20,18 @@ class ArtifactStorePort(Protocol):
 
     def locate(self, ref: ArtifactRef) -> bytes:
         """Load bytes only when the supplied exact ref matches stored identity."""
+
+
+class ArtifactFileSourcePort(Protocol):
+    def open_read(self) -> ContextManager[BinaryIO]:
+        """Open the ordinary file while its service-owned scratch owner is active."""
+
+
+class ArtifactFileStorePort(Protocol):
+    def put_from_path(
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+    ) -> ArtifactRef:
+        """Copy bounded owned scratch bytes to immutable target-root staging."""
 
 
 class ArtifactRefLookupPort(Protocol):

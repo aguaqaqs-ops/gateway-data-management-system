@@ -20,6 +20,8 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, DigestRef
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.location import ArtifactLocation
+from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
 
 from gateway_backend.capabilities.snapshot_materialization._digest import compare_schema_digest
 from gateway_backend.capabilities.snapshot_materialization._ruleset import compare_key_index, effective_key_columns
@@ -124,7 +126,10 @@ def main() -> int:
     args.artifacts.mkdir(parents=True)
     db = args.artifacts / "control.sqlite"
     initialize_control_db(db)
-    local = LocalArtifactStore(args.artifacts / "objects")
+    roots = {location.value: args.artifacts / "objects" / location.value for location in ArtifactLocation}
+    for path in roots.values():
+        path.mkdir(parents=True)
+    local = LocalArtifactStore(ArtifactStoreLayout(**roots), staging_max_bytes=4 * 1024**3)
     store = CanonicalTableStore(local, repository_id="capacity-component", budgets=IPC)
     rules = migrated_table_ruleset_snapshot()
     compare_index = compare_key_index(rules)

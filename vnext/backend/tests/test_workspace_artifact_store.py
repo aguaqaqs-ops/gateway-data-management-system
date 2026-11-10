@@ -19,8 +19,6 @@ from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
-    LocalArtifactStore,
-    SQLiteArtifactProtectionStore,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 

@@ -894,7 +894,6 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
         tmp_path,
         control_db_path=tmp_path / "worker-external-recovery" / "control.sqlite3",
     )
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
 
     bootstrap_control_database(settings)
     artifact_store = open_test_store(settings.control_db_path.parent / "artifacts")

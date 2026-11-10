@@ -36,7 +36,6 @@ from gateway_backend.bootstrap.composition import (
 )
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.artifacts import ArtifactRef
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from tests.support.preview_fixtures import (

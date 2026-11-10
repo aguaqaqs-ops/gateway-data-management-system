@@ -5,7 +5,6 @@ from __future__ import annotations
 from tests.support.artifact_layout import open_test_store
 
 import datetime as dt
-import hashlib
 import io
 import tempfile
 from collections.abc import AsyncIterator
@@ -25,7 +24,6 @@ from gateway_backend.capabilities.storage_projection.view import derive_storage_
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import StorageRuleView
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_read.http_arrow import build_http_repository_provider_factory
 from gateway_shared_kernel import raw_blob_digest
@@ -114,7 +112,6 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
     with ControlDbUnitOfWork(db_path) as uow:
         ref = uow.canonical_tables.lookup(canonical_table_key(REPOSITORY, bound))
     assert ref is not None
-    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
     path = local.payload_path(ref.artifact_id)
     before = path.stat().st_mtime_ns
     with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)) as handle:

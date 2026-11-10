@@ -291,6 +291,7 @@ def prepare_backend_runtime(
     deployment = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
     local_store = LocalArtifactStore(ArtifactStoreLayout.from_config(deployment.storage),
         staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store.check_publication_support()
 
     artifact_store = BoundedArtifactStore(
         local_store,

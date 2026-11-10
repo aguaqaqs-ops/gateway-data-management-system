@@ -11,7 +11,7 @@ from contextlib import contextmanager, nullcontext
 import pyarrow as pa
 from datetime import UTC, datetime, timedelta
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.bounded_store import (
     CleanupClassification,
@@ -20,13 +20,12 @@ from gateway_backend.artifacts.bounded_store import (
     VerifyReadableResult,
 )
 from gateway_backend.artifacts.digest import build_artifact_id
-from gateway_backend.artifacts.store import ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactFileSourcePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.domain.workspace.models import SourceArtifactBinding
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from typing import ContextManager
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.infrastructure.artifact_store.scratch import ScratchFile
 
 DEFAULT_UNPINNED_TTL = timedelta(hours=24)
 _STREAM_CHUNK_SIZE = 64 * 1024
@@ -107,14 +106,15 @@ class BoundedArtifactStore:
         expected_size: int,
         expected_raw_sha256: DigestRef,
     ) -> VerifyReadableResult:
+        if ref.size_bytes != expected_size:
+            return VerifyReadableResult(verified=False, reason="size_bytes mismatch")
+        if ref.raw_sha256 != expected_raw_sha256:
+            return VerifyReadableResult(verified=False, reason="raw_sha256 mismatch")
         try:
-            raw_bytes = self._local_store.locate(ref)
+            for _chunk in self._local_store.read_exact(ref):
+                pass
         except ManifestVerificationError as exc:
             return VerifyReadableResult(verified=False, reason=str(exc))
-        if len(raw_bytes) != expected_size:
-            return VerifyReadableResult(verified=False, reason="size_bytes mismatch")
-        if raw_blob_digest(raw_bytes).value != expected_raw_sha256.value:
-            return VerifyReadableResult(verified=False, reason="raw_sha256 mismatch")
         return VerifyReadableResult(verified=True)
 
     def set_protection(
@@ -134,7 +134,7 @@ class BoundedArtifactStore:
                 owner_id=owner_id, intent=intent, recorded_at=when)
 
     def put_from_path(
-        self, source: ScratchFile, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
     ) -> ArtifactRef:
         published = self._local_store.put_from_path(source, ref, checkpoint=checkpoint, byte_limit=byte_limit)
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)

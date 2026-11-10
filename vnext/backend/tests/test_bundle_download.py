@@ -254,7 +254,7 @@ def test_preflight_checks_last_member_before_returning_a_stream(tmp_path: Path, 
     with pytest.raises(error):
         prepare_bundle_download(store, manifest_ref.artifact_id)
     # Failed preflight has released the read session even without an iterator.
-    with store.cleanup_session() as acquired:
+    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired
 
 
@@ -333,7 +333,7 @@ def test_response_send_failure_closes_even_unstarted_stream(tmp_path: Path, fail
     scope = {"type": "http", "asgi": {"spec_version": "2.4"}, "method": "GET"}
     with pytest.raises((OSError, ClientDisconnect)):
         asyncio.run(BundleStreamingResponse(prepared)(scope, receive, send))  # type: ignore[arg-type]
-    with store.cleanup_session() as acquired:
+    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired
     assert not any(path.name.startswith(".lock") for path in tmp_path.iterdir())
 
@@ -369,5 +369,5 @@ def test_asgi_disconnect_and_task_cancellation_release_read_session(tmp_path: Pa
         else:
             await task
     asyncio.run(scenario())
-    with store.cleanup_session() as acquired:
+    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired

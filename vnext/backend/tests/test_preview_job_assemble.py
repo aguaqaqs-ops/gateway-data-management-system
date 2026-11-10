@@ -849,7 +849,6 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     tmp_path: Path, caplog: pytest.LogCaptureFixture,
 ) -> None:
     import json
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
 
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)

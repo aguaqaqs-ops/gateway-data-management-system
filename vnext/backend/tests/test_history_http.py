@@ -326,7 +326,6 @@ def _tamper_checkpoint_semantically_same_length(
     tampered_bytes = canonicalize_json_value(state_document)
     assert len(tampered_bytes) == len(original_bytes)
     if local_store is not None:
-        from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
         assert isinstance(local_store, LocalArtifactStore)
         target = local_store.payload_path(state_ref.artifact_id)
@@ -818,7 +817,6 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
         history_compare_step_id,
     )
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
     from tests.support.history_compare_job_harness import (
         build_history_compare_harness,
         run_through_step,
@@ -1090,7 +1088,6 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     )
     from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
     from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
 
     review_seed = _seed_pending_review_submission(db_path)

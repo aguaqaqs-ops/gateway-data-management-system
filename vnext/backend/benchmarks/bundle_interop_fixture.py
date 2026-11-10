@@ -20,14 +20,17 @@ from gateway_backend.artifacts.tar_stream import TarMember, pax_record_chunks
 from gateway_backend.capabilities.bundle_assembly import (
     BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind, BundlePairInput, assemble_bundle,
 )
-from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
+from gateway_backend.infrastructure.artifact_store import LocalArtifactStore, ArtifactStoreLayout
 from tests.test_bundle_assembly import _request, _surface_result
 
 
 def generate(output: Path) -> None:
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="bundle-interop-source-") as temporary:
-        store = LocalArtifactStore(Path(temporary))
+        roots = {location.value: Path(temporary) / location.value for location in ArtifactLocation}
+        for path in roots.values():
+            path.mkdir()
+        store = LocalArtifactStore(ArtifactStoreLayout(**roots), staging_max_bytes=4 * 1024**3)
         paths = ("dir/" * 70 + "rows.parquet", "目录/" * 60 + "表.parquet", "😀/" * 60 + "表.parquet")
         bindings = []
         for index, path in enumerate(paths):

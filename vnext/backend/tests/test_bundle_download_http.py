@@ -334,5 +334,5 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
     assert response.status_code == 503
     assert response.json()["code"] == "BUNDLE_INTEGRITY_FAILURE"
     assert "etag" not in response.headers
-    with store.cleanup_session() as acquired:
+    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired

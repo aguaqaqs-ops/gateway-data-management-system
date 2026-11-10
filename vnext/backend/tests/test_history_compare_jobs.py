@@ -1291,7 +1291,6 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 
@@ -1427,7 +1426,6 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     from gateway_backend.capabilities.risk_evaluation.contracts import RISK_ANNOTATION_MEDIA_TYPE
     from gateway_backend.capabilities.storage_projection import canonicalization_manifest_from_bytes
     from gateway_backend.domain.workspace.models import InputCompleteness
-    from gateway_backend.infrastructure.artifact_store import LocalArtifactStore
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
     from tests.support.canonical_metadata import CatalogCommitCanonicalMetadataPort

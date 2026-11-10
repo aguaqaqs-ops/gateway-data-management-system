@@ -49,6 +49,9 @@ from gateway_backend.capabilities.storage_projection import (
 )
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.settings import BackendSettings
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
 from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
 from gateway_backend.operations import OperationStatus, StepStatus
@@ -303,7 +306,9 @@ def main() -> None:
             "FROM submission_records WHERE repository_id=? AND repository_commit_id=?",
             (repository_id, commit_id)).fetchall()
         _require(len(rows) == 1, "exact prior Submission canonical manifest required")
-        store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+        settings = BackendSettings()
+        config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+        store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
         with store.read_session():
             payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
             logical = verify_repeat_canonical_metadata(store, checkpoint_ref=step.checkpoint_ref,

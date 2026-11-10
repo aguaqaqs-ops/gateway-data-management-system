@@ -14,11 +14,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pyarrow as pa
-from gateway_shared_kernel import CanonicalEncodingError, raw_blob_digest
+from gateway_shared_kernel import CanonicalEncodingError
 
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
-from gateway_backend.artifacts.store import ArtifactUnavailableError, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactUnavailableError, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 from gateway_backend.infrastructure.artifact_store.atomic_publish import check_publication_support, fsync_directory, rename_noreplace
@@ -37,9 +37,11 @@ class LocalArtifactStore:
             raise ValueError('staging_max_bytes must be positive')
         self.layout = layout
         self.staging_max_bytes = staging_max_bytes
+
+    def check_publication_support(self) -> None:
         with self.read_session():
             for location in ArtifactLocation:
-                check_publication_support(layout.root(location))
+                check_publication_support(self.layout.root(location))
 
     @contextmanager
     def read_session(self) -> Iterator[None]:
@@ -86,7 +88,7 @@ class LocalArtifactStore:
         return self.put_chunks((raw_bytes,), ref)
 
     def put_from_path(
-        self, source: ScratchFile, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
     ) -> ArtifactRef:
         if not isinstance(source, ScratchFile):
             raise ValueError('artifact source must be an owned scratch file')
@@ -245,8 +247,12 @@ class LocalArtifactStore:
                 return self._stored_ref(artifact_id)
         except ManifestVerificationError:
             raise
-        except (OSError, ValueError, CanonicalEncodingError):
-            raise ArtifactUnavailableError('artifact ref is not available') from None
+        except OSError as exc:
+            if exc.errno in {errno.ENOENT, errno.EACCES, errno.EPERM}:
+                raise ArtifactUnavailableError('artifact ref is not available') from None
+            raise ManifestVerificationError('artifact ref lookup failed') from None
+        except (ValueError, CanonicalEncodingError):
+            raise ManifestVerificationError('artifact ref lookup failed') from None
 
     def _stored_ref(self, artifact_id: str) -> ArtifactRef:
         directory = self.object_directory(artifact_id)
@@ -255,6 +261,8 @@ class LocalArtifactStore:
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         except FileNotFoundError:
+            if directory.exists():
+                raise ManifestVerificationError('incomplete stored artifact directory') from None
             raise ArtifactUnavailableError('artifact ref is not available') from None
         with os.fdopen(descriptor, 'rb') as handle:
             info = os.fstat(handle.fileno())

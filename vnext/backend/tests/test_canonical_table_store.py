@@ -6,7 +6,6 @@ from tests.support.artifact_layout import open_test_store
 
 from tests.support.native_projection import project_canonical_fixture
 
-import hashlib
 from dataclasses import replace
 from collections.abc import Iterator
 from contextlib import ExitStack
@@ -32,7 +31,6 @@ from gateway_backend.capabilities.storage_projection.view import derive_storage_
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_shared_kernel import raw_blob_digest
 from tests.support.snapshot_materialization import materialize_sql
 
@@ -142,7 +140,6 @@ def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: 
     store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
-    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
     path = backend.payload_path(ref.artifact_id)
     raw = path.read_bytes()
     path.write_bytes(raw[:-1])
@@ -223,7 +220,6 @@ def test_canonical_mapping_refuses_symlinks(tmp_path: Path, outside: bool) -> No
     store = CanonicalTableStore(local, repository_id="repo", budgets=IPC_BUDGETS)
     stream, bound = canonical_input()
     ref = store.put(stream, bound)
-    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
     path = local.payload_path(ref.artifact_id)
     target = (tmp_path if outside else local.layout.canonical) / "other-file"
     path.rename(target)

@@ -1,6 +1,6 @@
 # P6→P7 文档与检索整理协调记录
 
-日期：2026-11-10。状态：**A 盘点实施候选；归档集合待 A 原审核收，B/C 未执行**。
+日期：2026-11-10。状态：**A_SCOPE_GO 已核收；B 入口与三项归档实施候选，待 B 原审/静态验证；C 未执行**。
 
 本记录是单份协调入口。授权与禁动表依[任务提示词](p6-p7-documentation-cleanup-prompt.md)和[执行方案](p6-p7-documentation-cleanup-execution-plan.md)；不形成新的产品规则或 S1a 授权。
 
@@ -23,7 +23,7 @@ S1a 相对 S 的只读禁动集合为：`docs/backend-vnext/artifacts.md`；`con
 
 ## 2. A 提议的精确归档集合
 
-以下三文件在 S 和 I 中字节一致，均为 tracked、来源已在 main 历史可达。**本节 ARCHIVE 仅为待核准提议，A 没有删除文件。** 不将文件年代、零逐字命中或体积单独作为删除依据。三文件合计 9,139 字节；不是数量指标。
+以下三文件在 S 和 I 中字节一致，均为 tracked、来源已在 main 历史可达。**A 阶段仅提议且未删除；[A 原审](p6-p7-documentation-cleanup-a-review.md)已给 A_SCOPE_GO，B 按下列精确集合删除并登记 manifest，待 B/C 验收。** 不将文件年代、零逐字命中或体积单独作为删除依据。三文件合计 9,139 字节；不是数量指标。
 
 完整来源提交统一为 `5ddd73b962e2432f961a46f6743395a53a388435`，下表原路径统一前缀 `docs/backend-vnext/refactoring/formal/plans/`。
 
@@ -109,8 +109,24 @@ A 实施原件目录：`/home/dev/gdds-test-tmp/docs-cleanup-a-impl-20261110/`�
 
 | 工作包 | 实施 | 独审 / 验证 | 合入 |
 | --- | --- | --- | --- |
-| A | 本记录候选已准备；未归档、未提交 | 等 A 原审核候选/可写范围及验证者静态原件核收 | 未合入 |
-| B | 未开始 | 未开始 | 未合入 |
+| A | 盘点与精确范围已固定；A 未删除文件 | A 原审 A_SCOPE_GO，A 静态回执已核，A-N1/A-V1 补充处置 closed；原件身份限制见原审 | 已在本任务分支固定；未合 main |
+| B | 三 README/current index 已修；manifest 三行；删除三原件共 9,139 字节 | 实施静态自检完成；待协调者固定 clean 候选后原审与独立验证 | 未提交/未合入 |
 | C | 未开始 | 未开始 | 未合入 |
 
-A 下一动作：协调者固定本记录 clean 候选，A 原审在 detached 候选审核；验证者执行原审核定的静态稿。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
+A 原范围结论与静态回执见 A 原审；B 下一动作是由协调者固定 clean 候选并交新 B 原审/验证者。三文件归档集合如需收紧，直接保留/延期即可，不扩大为产品变更或重跑测试。当前 HEAD 与镜像记录：A 输入为 I，仅文档盘点；不触发容器重建，无新的 image revision/source-tree 验证声明，无 carried/产品通过声明，必要产品镜像验证归其实际 owner。
+
+## 7. B 实施候选与静态交接
+
+B 固定起点 `497fedfce56f1c183e6f638f7b7ec949fa44d859`。2026-11-10 03:39Z 只读核 main 为 `16ffe728290e1179d9450ea160a0e6ca49473ec6`、clean；S..该点为 31 个 FE 文档/前端路径，未重叠本轮导航或三候选，`vnext` tree 仍为 `49c1de43be31b5bc5ac75f528e8ef0c77f39bcb3`。S1a 仍为 `24394b98a6e6f9bea89c404b44cf0dde691a8044`、clean，无相对 A 最新快照增量；未写其工作区。后续 main/S1a 变化由 B/C 固定候选及合入前再核，不将本快照当永久许可。
+
+实施顺序为先修三层 README 和 [Current Context Index](current-context-index.md)，再写 [TSV manifest](p6-p7-documentation-cleanup-manifest.tsv)，核来源与当前原字节相等后逐项移除三文件。三 README 压缩旧默认导航，保留现行 owner 与历史最终入口；未改 owning Contract、旧审核原文或退出结论。current index 只链接当前 owner，同时说明 S1a 分支目标“待实现”、九份尚未合入文件的完整固定读取方式、通用规则与其特定旧节点/DC68 输入的适用范围。本轮没有新增其他归档项或普通导航路径。
+
+三行清单均给完整来源 `5ddd73b962e2432f961a46f6743395a53a388435`、原路径、blob、SHA256、字节、理由、owner/承接与依赖处置。删除前已核 source 是当时 main 与本任务 HEAD 的祖先；`git show <source_commit>:<original_path>` 的恢复副本仅写本人临时目录，三项 blob/SHA/长度与 A 表及实际原字节相等。最终 main 可达性仍由 C/合入核收，不预记完成。毛移除为三文件 9,139 字节；导航压缩与本任务新增 index/清单/审核/记录应分列，不用净量冒充毛收益。
+
+最后只读核对 main 全名/stem 入站时，首次 inline Python 错将 `git grep` 无命中的 exit 1 断言为 0，脚本以 AssertionError/exit 1 停止；此前均为只读 Git 命令，无产品执行或写入副作用。原失败仅保留于会话工具 stdout/stderr，没有补造独立实时日志。随后先单独确认 grep 的真实无命中/exit 1，再固定 `final-check.py` 以 expected_exit=1 记录并完成核对；修正的是 logger 预期，不改变归档范围/内容或产品断言。修正后原输出在 `final-static-commands.json`，含现场身份及四份 `git show` 固定 S1a 原字节；该静态操作不声明 DC68 产品恢复。
+
+B 实施原件在 `/home/dev/gdds-test-tmp/docs-cleanup-b-impl-20261110/`：`archive-before-delete.json` 及三原件副本记录删除前身份；`implement.py`、`archive.py`、`check.py` 是本人实施/静态核查脚本；`navigation-links.json` 与 `checks-working.json` 是工作树自检输出；`q*-working.txt` 和 `M24-working.txt` 仅为未提交工作树的同路径/regex 预检，**不充作固定 B revision 的最终统计**。协调者固定 B 后，由验证者按 A 的 `five-query-spec-and-baseline.json` 原数组仅替换 revision 重算，原实施输入目录与 A-V1 涉及旧文件不写入。
+
+实施静态自检：四份导航共 111 个相对链接（含 fragment）路径/锚点有效；清单恰三项，与实际删除一致且全可恢复；`git diff --check` 和精确白名单核对通过。P2 closure/methodology、legacy oracle、P5 census、fixture review 及 S1a/P6 有效依赖均保留；五问题的最终语义与固定统计仍待 B 原审/验证者核收。仅文档静态操作，未 import 产品、运行产品测试/lint/编译/Compose 或连接测试节点。
+
+当前 HEAD 仍为 B 起点，尚未提交；容器重建 `not-applicable`，理由为文档导航/元数据且不在 `vnext/` Docker context。最后验证的 image revision/source-tree 未检查，无当前产品、容器、carried、S1a 或资源释放声明。B 实施者不自签 GO，不代写 B 原审。

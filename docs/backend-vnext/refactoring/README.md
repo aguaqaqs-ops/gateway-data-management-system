@@ -1,52 +1,19 @@
 # Backend vNext Refactoring
 
-本目录集中保存 backend vNext 整体重构文档。这里描述目标架构和实施路线，不替代 capability、flow、operation、contract 或 ADR 的专项设计。
-
-文档分为两类：
-
-- [Formal](formal/README.md)：已经讨论收口、作为设计和实现依据的正式文档。
-- [Temporary](temporary/README.md)：不拥有正式语义。已完成 execution/review 走
-  cleanup manifest 与 Git tag；目录内仅保留 vnext 唯一指针
-  `p2-r9-s2-step-e-container-gate.md`。
+本目录集中保存后端重构的目标架构、实施路线与阶段记录。字段、状态与字节语义由专项 owning Contract 定义。
 
 ## 阅读顺序
 
-1. [P4 Active Context Index](formal/plans/p4-active-context-index.md)：P4 设计默认入口与 allowlist。
-2. [P2 External Interface Handoff](formal/plans/p2-external-interface-handoff.md)：封印 candidate/image、支持面、限制与 reopen。
-3. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md)：目标架构、模块职责、依赖规则、Python/Rust 分工和独立 Repository Service 边界。
-4. [Implementation Stages](formal/plans/implementation-stages.md)：从现状基线到生产切换的阶段顺序、交付物、门禁和纵向业务切片。
-5. [Operations](../operations.md)、[Flows](../flows.md)：P3 capability 设计 oracle，不是 Repository Service wire。
+1. [Current Context Index](formal/plans/current-context-index.md)：当前默认入口；P6 已退出，P7-S1a 分支 A 目标候选与固定读取方式在此核对。
+2. [Formal](formal/README.md)：政策、Contract、ADR、总纲及阶段最终交接导航。
+3. [Contract Taxonomy and Ownership](formal/contracts/contract-taxonomy-and-ownership.md)：按业务问题找到唯一语义 owner，再读对应源码。
+4. [Architecture and Refactoring Plan](formal/architecture/architecture-and-refactoring-plan.md) 与 [Implementation Stages](formal/plans/implementation-stages.md)：总体边界及交付顺序；历史阶段状态不替代当前任务授权，尚待原 owner 同步的状态不在本轮代改。
 
-Phase 1 正式设计：
+## 文档权威关系
 
-- [Contract Taxonomy and Ownership](formal/contracts/contract-taxonomy-and-ownership.md)：Contract 分类、语义 owner、ownership matrix、版本和变更治理。
-- [ADR 0001: Python/Rust Hybrid Compute Strategy](formal/adr/0001-python-rust-hybrid-compute-strategy.md)：Python 控制面、Rust 数据面、首版内核选择和跨语言门禁。
+- `formal/contracts/` 拥有稳定 Contract；跨阶段政策与正式 ADR 的职责见 [formal 权威关系](formal/README.md#权威关系)。计划和索引只引用，不复制规则成为第二权威。
+- 旧 `contracts/`、capability、[Operations](../operations.md)、[Flows](../flows.md) 是行为、fixture 与实现 oracle；与 formal owner 冲突时先明确归属。
+- [Temporary](temporary/README.md) 不拥有正式语义；已完成过程记录沿 manifest/Git 对象恢复，不能从旧“下一步”推导当前授权。
+- [P4 Active Context Index](formal/plans/p4-active-context-index.md) 和 [P2 External Interface Handoff](formal/plans/p2-external-interface-handoff.md) 保留各自历史边界，不是仓库当前默认入口。
 
-Repository 专项参考：
-
-- [Repository Import](../capabilities/repository-import.md)
-- [Repository Ref Materialization](../capabilities/repository-ref-materialization.md)
-- [Repository Import Boundary ADR](../adr/0001-snapshot-table-and-dolt-import-boundary.md)
-- [Dolt Native Provider ADR](../adr/0003-dolt-native-provider-selection.md)
-
-Capability 和数据契约参考：
-
-- [Target Modules](../modules.md)
-- [Artifacts](../artifacts.md)
-- [Snapshot Contract](../contracts/snapshot.md)
-- [Snapshot Table Access Contract](../contracts/snapshot-table-access.md)
-- [Comparison Contract](../contracts/comparison.md)
-- [Risk Contract](../contracts/risk.md)
-- [Comparison Surface Contract](../contracts/comparison-surface.md)
-- [Comparison Bundle Contract](../contracts/comparison-bundle.md)
-
-## 文档权威顺序
-
-- 本目录总纲决定整体模块边界和长期依赖方向。
-- `formal/plans/implementation-stages.md` 决定重构执行顺序和阶段门禁。
-- `formal/contracts/` 决定重构后的稳定 contract 分类与语义；后续正式 capability contract 也必须位于 `refactoring/formal/` 体系或由其明确引用。
-- 旧 `contracts/` 和 capability 专项文档只作为业务语义、fixture 和实现 oracle，直到对应正式重构 contract 完成替代。
-- ADR 决定已经收口的关键技术选择。
-- 历史 `notes/` 与已完成 execution/review 已归档到 tag `docs/p2-p3-cleanup-pre-20260817`，不自动提升为长期架构约束。
-
-发现冲突时，不通过代码兼容层同时保留两套含义；先记录冲突，明确 owner，再更新总纲、专项 contract 或新增 ADR。
+当前规则入口和 S1a 特定节点/DC68 输入须分别核对；本轮文档整理角色与静态验证授权来自 [cleanup 提示词](formal/plans/p6-p7-documentation-cleanup-prompt.md)。发现语义冲突时交实际 owner，不通过兼容代码保留两套含义。

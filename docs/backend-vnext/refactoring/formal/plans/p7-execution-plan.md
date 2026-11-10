@@ -159,6 +159,8 @@ S0 总体边界与业务决议
 
 ### 节点、闭包与最终证据
 
+Owner 2026-11-10 另授权 [构建故障快速修复](../../../testing-conventions.md#构建故障快速修复owner-2026-11-10)：确认的非程序逻辑构建/环境故障按修复内容分流，命令/环境由执行者直接修正并复跑，源码修订只做针对性代码评审；此类有依据的修正复跑不设固定次数上限，一个故障条目追加结果、不重复报告/签署。立即用于已因旧次数规则暂停的 S1a，并适用于后续全部阶段和维护；真实阻塞与产品 finding 仍按正常规则，不因构建成功宣称测试通过。
+
 全部测试、编译、lint、容器和测量遵守根 AGENTS 与 [testing-conventions](../../../testing-conventions.md)：
 
 - 06：后端日常 focused/Contract/小型 Compose；初始 pytest/Cargo jobs 4。07：前端日常类型/lint/build/mock e2e，`GATEWAY_FE_TEST_WORKERS=2`。

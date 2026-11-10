@@ -96,13 +96,11 @@ class ScratchSession:
             try:
                 handle.close()
             finally:
-                try:
-                    path.unlink(missing_ok=True)
-                finally:
-                    # Charge until the file is removed, including when a writer
-                    # closed early. Failed writes may conservatively overcharge.
-                    with self._mutex:
-                        self._used -= handle._extent
+                path.unlink(missing_ok=True)
+                # Charge until the file is removed, including when a writer
+                # closed early. Failed writes may conservatively overcharge.
+                with self._mutex:
+                    self._used -= handle._extent
 
 
 class ScratchSpace:
@@ -115,7 +113,7 @@ class ScratchSpace:
 
     @contextmanager
     def session(self, *, owner: str) -> Iterator[ScratchSessionPort]:
-        if type(owner) is not str or not owner or len(owner) > 128:
+        if type(owner) is not str or not owner or len(owner) > 512:
             raise ValueError('scratch owner is required')
         if _directory_identity(self._root) != self._identity:
             raise ValueError('scratch root identity changed')

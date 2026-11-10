@@ -12,6 +12,7 @@ import signal
 import threading
 import time
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from signal import Signals

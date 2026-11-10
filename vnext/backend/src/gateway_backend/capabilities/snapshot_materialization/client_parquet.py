@@ -151,7 +151,7 @@ def export_snapshot_table_parquet(
     schema = schema_with_batch_metadata(pa.schema([_arrow_field(column) for column in source.columns],
         metadata={b"gateway.sta.enc.v1": encode_source_columns(source.columns), **bindings}), metadata)
     isolated = reader.reopen()
-    with current_scratch().file(byte_limit=_MAX_EXPORT_BYTES) as (source_file, output), ExitStack() as writer_metadata:
+    with closing(isolated), current_scratch().file(byte_limit=_MAX_EXPORT_BYTES) as (source_file, output), ExitStack() as writer_metadata:
         try:
             with isolated.arrow_stream() as stream, pq.ParquetWriter(output, schema, compression="zstd",
                     write_statistics=False, use_dictionary=False, store_schema=True) as writer:

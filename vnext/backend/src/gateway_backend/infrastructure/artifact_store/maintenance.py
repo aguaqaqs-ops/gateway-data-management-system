@@ -179,7 +179,7 @@ class ArtifactMaintenance:
             index = next((index for offset in range(9) if (index := (next_lane + offset) % 9) in available))
             next_lane = (index + 1) % 9
             location = _LOCATIONS[index % 4] if index < 8 else None
-            label = location.value if index < 4 else ('staging:' + location.value if location else 'scratch')
+            label = ('staging:' + location.value if index >= 4 else location.value) if location else 'scratch'
             root = self.local.layout.root(location) if location else self.scratch_root
             base = root / '.staging' if 4 <= index < 8 else root
             try:
@@ -202,8 +202,12 @@ class ArtifactMaintenance:
                             expected_classification=CleanupClassification.ELIGIBLE_AFTER, now=when).value
                     items.append(MaintenanceItem(label, relative, disposition, reason))
             except FileNotFoundError:
-                lanes[index].stack.clear()
-                lanes[index].done = True
+                if root.is_dir() and 4 <= index < 8 and not base.exists():
+                    lanes[index].stack.clear()
+                    lanes[index].done = True
+                else:
+                    disabled.add(index)
+                    items.append(MaintenanceItem(label, '', 'manual_review', 'configured root or scan directory unavailable'))
             except (OSError, ValueError, ManifestVerificationError) as exc:
                 disabled.add(index)
                 items.append(MaintenanceItem(label, '', 'manual_review', str(exc)))
@@ -223,6 +227,10 @@ class ArtifactMaintenance:
             lane.done = not lane.stack
             return None
         if name in {'.', '..'}:
+            return None
+        if relative == '' and name == '.gateway-storage.json':
+            # Deployment owns marker validation. Maintenance only reserves this
+            # exact metadata name; recognizing it is no identity attestation.
             return None
         child_relative = str(Path(relative) / name)
         child = base / child_relative
@@ -265,7 +273,10 @@ class ArtifactMaintenance:
         if set(names) - {'payload', 'ref.jcs'} or 'ref.jcs' not in names:
             raise ValueError('incomplete or unknown object shape')
         with (path / 'ref.jcs').open('rb') as handle:
-            ref = artifact_ref_from_json(handle.read(4097))
+            raw_ref = handle.read(4097)
+        if len(raw_ref) > 4096:
+            raise ValueError('object ref exceeds byte bound')
+        ref = artifact_ref_from_json(raw_ref)
         if self.local.object_directory(ref.artifact_id) != path:
             raise ValueError('object ref belongs to a different directory/root')
         return ref
@@ -295,7 +306,7 @@ class ArtifactMaintenance:
             with (path / 'owner.json').open('rb') as handle:
                 owner = json.loads(handle.read(4097))
             if (type(owner) is not dict or set(owner) != {'version', 'owner'} or owner['version'] != 1
-                    or type(owner['owner']) is not str or not owner['owner'] or len(owner['owner']) > 128):
+                    or type(owner['owner']) is not str or not owner['owner'] or len(owner['owner']) > 512):
                 return 'manual_review', 'invalid temporary owner metadata'
             owner_id = owner['owner']
             if not owner_id.startswith(('operation:', 'upload:')):

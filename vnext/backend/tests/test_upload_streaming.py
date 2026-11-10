@@ -231,7 +231,8 @@ scratch_space: ScratchSpace
     source, handle = resources.enter_context(session.file(byte_limit=1024))
     handle.write(b"transaction-input")
     handle.flush()
-    staging_dir = cast(ScratchFile, source)._path.parent
+    staged_path = cast(ScratchFile, source)._path
+    staging_dir = staged_path.parent
     parsed = ParsedMultipartUpload(
         manifest_bytes=b"{}",
         file_parts={"modified": StagedUploadPart("modified", source, 17)},

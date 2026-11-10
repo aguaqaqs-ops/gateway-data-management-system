@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 import tempfile
-import shutil
 import re
 import subprocess
 import sys
@@ -2207,7 +2206,11 @@ def cleanup_runtime_resources(names: ComposeResourceNames, *, retain: bool) -> N
             if not fixtures:
                 raise ValueError("failed volume retained because no owned diagnostic directory is available")
             destination = fixtures[0][1] / ("failure-" + volume)
-            shutil.copytree(Path(raw["Mountpoint"]), destination, symlinks=True)
+            if destination.exists() or destination.is_symlink():
+                raise ValueError("refusing to overwrite a failure snapshot")
+            # Standard archive copy preserves the failed tree's UID/GID, modes,
+            # timestamps, symlinks, hardlinks and supported xattrs.
+            run_command(["cp", "--archive", "--reflink=auto", "--", raw["Mountpoint"], str(destination)])
             print("runtime_volume_snapshot=" + str(destination), flush=True)
         run_command(["docker", "volume", "rm", volume])
     for volume, directory, owner in fixtures:

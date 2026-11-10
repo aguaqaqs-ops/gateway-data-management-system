@@ -36,6 +36,8 @@ def test_actual_rs_harness_starts_with_rendered_roots_and_cleans_only_owned_reso
         "bind": {"create_host_path": False},
     })
     override.write_text(json.dumps(document))
+    source_metadata = Path(json.loads((directory / "storage-layout.json").read_bytes())["roots"]["rs-metadata"]["source"])
+    original_identity: tuple[int, int, int] | None = None
     try:
         started = harness.start_p2r2_service(names, token_file=token_file, token=token,
             service_image=image, host_paths=(str(tmp_path), str(directory)), env=env)
@@ -44,6 +46,8 @@ def test_actual_rs_harness_starts_with_rendered_roots_and_cleans_only_owned_reso
             "from gateway_repository_service.runtime_preflight import mounts,_cgroup_chain; "
             "from dataclasses import asdict; "
             "print(json.dumps({'role_euid':os.geteuid(),'cgroup':{key:(_cgroup_chain()[0]/key).read_text().strip() for key in ('memory.max','memory.swap.max','cpu.max')},'roots':[asdict(entry) for entry in mounts() if entry.target.startswith('/var/lib/gateway/rs-')]}))"]).stdout
+        info = source_metadata.stat()
+        original_identity = (info.st_uid, info.st_gid, info.st_mode)
         print("ACTUAL_RS_COMPOSE_OWNER " + actual, flush=True)
         # Foreign ownership cannot authorize even an empty-directory cleanup.
         rejected = subprocess.run(["python3", "-I", str(harness.VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
@@ -55,5 +59,7 @@ def test_actual_rs_harness_starts_with_rendered_roots_and_cleans_only_owned_reso
     assert subprocess.run(["docker", "volume", "inspect", names.data_volume], capture_output=True).returncode != 0
     assert directory.exists() is retain
     if retain:
-        assert (directory / ("failure-" + names.data_volume) / "rs-metadata").is_dir()
+        restored_metadata = directory / ("failure-" + names.data_volume) / "rs-metadata"
+        info = restored_metadata.stat()
+        assert (info.st_uid, info.st_gid, info.st_mode) == original_identity
         print("FAILED_RUNTIME_ORIGINAL_RETAINED=" + str(directory), flush=True)

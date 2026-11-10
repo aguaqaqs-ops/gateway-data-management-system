@@ -71,7 +71,7 @@ def make_operation_worker_settings(
     **overrides: object,
 ) -> OperationWorkerSettings:
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
-    storage_base = overrides.pop("storage_base", db_path.parent / "artifacts")
+    storage_base = overrides.pop("storage_base", (db_path.parent if db_path.is_absolute() else tmp_path) / "artifacts")
     assert isinstance(storage_base, Path)
     storage_file, resources_file = write_deployment_files(storage_base, prepare=bool(overrides.pop("prepare_storage", True)))
     token_file = overrides.pop(

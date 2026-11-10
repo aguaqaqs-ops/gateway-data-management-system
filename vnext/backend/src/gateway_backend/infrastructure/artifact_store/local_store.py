@@ -151,12 +151,30 @@ class LocalArtifactStore:
         validate_artifact_ref_model(ref)
         if ref.size_bytes > self.staging_max_bytes:
             raise ManifestVerificationError('artifact exceeds staging byte limit')
-        with self.layout.read_session((ArtifactLocation.CANONICAL,)):
-            # Retain the staging directory after releasing SH, while its writer
-            # flock continues to exclude orphan cleanup.
-            staged = self._stage((raw_bytes,), ref, checkpoint)
-            staging = staged.__enter__()
+        staged = self._stage((raw_bytes,), ref, checkpoint)
+        staging: Path | None = None
         try:
+            with self.layout.read_session((ArtifactLocation.CANONICAL,)):
+                staging = staged.__enter__()
+                target = self.object_directory(ref.artifact_id)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                self._sync_ancestors(target.parent, self.layout.canonical)
+                try:
+                    rename_noreplace(staging, target)
+                except FileExistsError:
+                    try:
+                        self._verify_existing(ref, checkpoint)
+                    except (ManifestVerificationError, OSError, CanonicalEncodingError, ValueError):
+                        pass  # Only a damaged existing derived object requires EX.
+                    else:
+                        fsync_directory(target.parent)
+                        fsync_directory(staging.parent)
+                        return ref
+                else:
+                    fsync_directory(target.parent)
+                    fsync_directory(staging.parent)
+                    return ref
+            # Writer flock retains staging, but all of this call's SH has closed.
             with self.layout.cleanup_session(ArtifactLocation.CANONICAL) as acquired:
                 if not acquired:
                     raise ManifestVerificationError('canonical repair busy; retry after readers close')
@@ -166,8 +184,6 @@ class LocalArtifactStore:
                     self._verify_existing(ref, checkpoint)
                 except (ManifestVerificationError, OSError, CanonicalEncodingError, ValueError):
                     if target.exists():
-                        # All path components and regular files are checked. Do
-                        # not recursively remove an unknown subtree or symlink.
                         if not target.is_dir() or set(path.name for path in target.iterdir()) - {'payload', 'ref.jcs'}:
                             raise ManifestVerificationError('canonical repair requires a known object shape')
                         for path in target.iterdir():
@@ -184,7 +200,8 @@ class LocalArtifactStore:
                 checkpoint()
             return ref
         finally:
-            staged.__exit__(None, None, None)
+            if staging is not None:
+                staged.__exit__(None, None, None)
 
     @contextmanager
     def _stage(

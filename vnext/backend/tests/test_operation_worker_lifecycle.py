@@ -133,7 +133,7 @@ def test_bootstrap_maps_runtime_timeout_to_nonzero_without_clean_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = make_operation_worker_settings(tmp_path)
-    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts").mkdir(exist_ok=True)
     (tmp_path / "repository-bearer-token").write_text("test-repository-token\n", encoding="utf-8")
 
     class TimedOutRuntime:

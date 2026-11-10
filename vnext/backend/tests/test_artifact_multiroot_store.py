@@ -216,3 +216,49 @@ def test_budget_and_unowned_file_rejected_before_consumption(tmp_path: Path) -> 
     with pytest.raises(ValueError, match='owned scratch'):
         store.put_from_path(tmp_path / 'caller-file', ref, checkpoint=lambda: None, byte_limit=100)  # type: ignore[arg-type]
     assert not (store.layout.durable / '.staging').exists()
+
+
+def test_exact_commit_repair_requires_closed_readers_and_preserves_pins(tmp_path: Path, db_path: Path) -> None:
+    local = open_test_store(tmp_path / 'objects')
+    bounded = BoundedArtifactStore(local, protection_uow=lambda: ControlDbUnitOfWork(db_path))
+    ref = ref_for(ArtifactLocation.CANONICAL, b'content')
+    bounded.put(b'content', ref)
+    bounded.set_protection((ref,), owner_kind='baseline-head', owner_id='head-1', intent='canonical-head')
+    local.payload_path(ref.artifact_id).write_bytes(b'corrupt')
+    with local.read_session():
+        with pytest.raises(ManifestVerificationError, match='readers close'):
+            bounded.restore_canonical_from_exact_commit(b'content', ref, checkpoint=lambda: None)
+    assert bounded.restore_canonical_from_exact_commit(b'content', ref, checkpoint=lambda: None) == ref
+    assert bounded.locate(ref) == b'content'
+    assert bounded.classify_cleanup(ref, NOW + timedelta(days=365)).classification is CleanupClassification.PROTECTED
+    with pytest.raises(ValueError, match='canonical'):
+        bounded.restore_canonical_from_exact_commit(b'content', ref_for(ArtifactLocation.DURABLE, b'content'), checkpoint=lambda: None)
+
+
+def test_directory_sync_failure_keeps_complete_object_and_retry_verifies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.infrastructure.artifact_store import local_store as module
+    local = open_test_store(tmp_path / 'objects')
+    ref = ref_for(ArtifactLocation.DURABLE, b'content')
+    directory = local.object_directory(ref.artifact_id)
+    original = module.fsync_directory
+    def failed_after_rename(path: Path) -> None:
+        if path == directory.parent and directory.exists():
+            raise OSError(errno.EIO, 'isolated directory sync failure')
+        original(path)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(module, 'fsync_directory', failed_after_rename)
+        with pytest.raises(ManifestVerificationError):
+            local.put(b'content', ref)
+    assert local.locate(ref) == b'content'
+    assert local.put(b'content', ref) == ref
+
+
+def test_startup_rejects_missing_no_replace_capability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.infrastructure.artifact_store import atomic_publish
+    local = open_test_store(tmp_path / 'objects')
+    monkeypatch.setattr(atomic_publish, '_RENAME', None)
+    with pytest.raises(OSError):
+        local.check_publication_support()
+    assert not any(local.layout.durable.iterdir())

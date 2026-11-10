@@ -11,6 +11,7 @@ import pytest
 from starlette.requests import ClientDisconnect
 
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE, UploadRequestHeaders
+from support.lifecycle_harness import prepare_test_roots
 from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_store import (
@@ -26,7 +27,7 @@ from support.upload_harness import upload_sha256
 
 
 def _settings(tmp_path: Path) -> RepositoryServiceSettings:
-    return RepositoryServiceSettings(profile="test", roots=RepositoryRoots.under(tmp_path / "data-root"))
+    return RepositoryServiceSettings(profile="test", roots=prepare_test_roots(RepositoryRoots.under(tmp_path / "data-root")))
 
 
 def test_upload_disconnect_cleans_partial_staging_without_publication(tmp_path: Path) -> None:

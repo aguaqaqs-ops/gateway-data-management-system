@@ -294,7 +294,7 @@ def validate_one(
     work.mkdir(parents=True)
     data_root = work / "data-root"
     settings = _stage_g_settings(data_root)
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
     home = layout.provider / "producer-home"

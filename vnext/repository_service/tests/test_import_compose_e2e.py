@@ -64,7 +64,7 @@ def test_compose_repository_service_import_restart_replay(tmp_path: Path) -> Non
         service_image=service_image,
         work_root=tmp_path,
         dolt_baseline=frozenset(list_dolt_pids()),
-        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes()),
+        check_temp_baseline=frozenset(str(path) for path in snapshot_check_temp_homes(Path("/tmp"))),
         client_pid_baseline=list_host_client_pids(),
         thread_baseline=list_host_thread_idents(),
     ):

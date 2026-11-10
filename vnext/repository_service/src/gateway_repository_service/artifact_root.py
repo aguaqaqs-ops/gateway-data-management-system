@@ -72,3 +72,43 @@ def same_mount(parent_fd: int, child_fd: int) -> bool:
         return mnt_id_for_fd(parent_fd) == mnt_id_for_fd(child_fd)
     except ArtifactRootError:
         return False
+
+
+def open_owned_directory(
+    root: Path, path: Path, *, create: bool = False, allow_missing: bool = False,
+    mode: int = 0o750,
+) -> int | None:
+    """Walk from the configured root; validate each existing prefix before writes."""
+    if not path.is_relative_to(root):
+        raise ArtifactRootError("directory escapes its configured root")
+    assert_no_symlink_ancestors(root)
+    root_fd = open_dir_nofollow(root)
+    current_fd = os.dup(root_fd)
+    try:
+        for name in path.relative_to(root).parts:
+            try:
+                child_fd = os.open(name, _DIR_FLAGS, dir_fd=current_fd)
+            except FileNotFoundError:
+                if create:
+                    try:
+                        os.mkdir(name, mode, dir_fd=current_fd)
+                    except FileExistsError:
+                        pass
+                    child_fd = os.open(name, _DIR_FLAGS, dir_fd=current_fd)
+                elif allow_missing:
+                    return None
+                else:
+                    raise
+            if not same_mount(root_fd, child_fd):
+                os.close(child_fd)
+                raise ArtifactRootError("directory crosses its configured root mount")
+            os.close(current_fd)
+            current_fd = child_fd
+        result, current_fd = current_fd, -1
+        return result
+    except OSError as exc:
+        raise ArtifactRootError("owned directory is unavailable or redirected") from exc
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
+        os.close(root_fd)

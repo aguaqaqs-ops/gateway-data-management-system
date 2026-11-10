@@ -123,11 +123,11 @@ def assert_upload_disk_admission(
     return admission
 
 
-def _layout_admissions(
+def measure_import_layout_admissions(
     layout: DurableLayout,
     settings: RepositoryServiceSettings,
     *,
-    import_work: bool,
+    import_work: bool = True,
 ) -> tuple[DiskAdmission, ...]:
     """Measure each actual filesystem once and add simultaneous write demand.
 
@@ -169,7 +169,7 @@ def _layout_admissions(
 
 def has_layout_disk_admission(layout: DurableLayout, settings: RepositoryServiceSettings) -> bool:
     try:
-        return all(item.admitted for item in _layout_admissions(layout, settings, import_work=False))
+        return all(item.admitted for item in measure_import_layout_admissions(layout, settings, import_work=False))
     except (OSError, CapacityAdmissionError):
         return False
 
@@ -178,7 +178,7 @@ def assert_import_layout_admission(
     layout: DurableLayout, settings: RepositoryServiceSettings,
 ) -> tuple[DiskAdmission, ...]:
     try:
-        admissions = _layout_admissions(layout, settings, import_work=True)
+        admissions = measure_import_layout_admissions(layout, settings, import_work=True)
     except OSError as exc:
         raise CapacityAdmissionError("RS disk measurement is unavailable") from exc
     if not all(item.admitted for item in admissions):

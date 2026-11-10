@@ -3,6 +3,7 @@ import logging
 
 import pytest
 
+from support.lifecycle_harness import prepare_test_roots
 from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.runtime import ServiceRuntime
@@ -166,6 +167,7 @@ def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: 
         bearer_token="token",
         dolt_binary=Path("/usr/local/bin/dolt"),
     )
+    prepare_test_roots(settings.storage_roots)
     runtime = ServiceRuntime.start(settings)
     try:
         with locked_control_connection(runtime.control_store) as connection:

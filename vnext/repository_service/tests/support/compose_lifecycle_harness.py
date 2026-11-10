@@ -2016,7 +2016,7 @@ def assert_node_residuals_cleared(
         dolt_delta = 0
     check_temp_homes: int | None = None
     if check_temp_baseline is not None:
-        extra_homes = {str(path) for path in snapshot_check_temp_homes()} - check_temp_baseline
+        extra_homes = {str(path) for path in snapshot_check_temp_homes(Path("/tmp"))} - check_temp_baseline
         if extra_homes:
             raise AssertionError(f"snapshot check temp homes remain: {sorted(extra_homes)}")
         check_temp_homes = 0

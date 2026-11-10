@@ -16,6 +16,13 @@ def dolt_available(dolt_binary: Path | None = None) -> bool:
     return shutil.which("dolt") is not None
 
 
+def prepare_test_roots(roots: RepositoryRoots) -> RepositoryRoots:
+    """Explicit host-fixture initialization; production startup never creates roots."""
+    for root in roots.paths():
+        root.mkdir(parents=True, exist_ok=True)
+    return roots
+
+
 def lifecycle_settings(
     tmp_path: Path,
     *,
@@ -29,7 +36,7 @@ def lifecycle_settings(
     data_root = tmp_path / "data-root"
     kwargs: dict[str, object] = {
         "profile": profile,
-        "roots": RepositoryRoots.under(data_root),
+        "roots": prepare_test_roots(RepositoryRoots.under(data_root)),
         "bearer_token": bearer_token,
         "bearer_token_file": bearer_token_file,
         "dolt_binary": dolt_binary or Path("/usr/local/bin/dolt"),

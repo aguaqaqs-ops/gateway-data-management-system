@@ -250,7 +250,7 @@ def generate_one(
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
     )
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
     home = layout.provider / "producer-home"

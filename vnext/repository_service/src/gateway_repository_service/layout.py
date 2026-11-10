@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from gateway_repository_service.artifact_root import ArtifactRootError, assert_no_symlink_ancestors, open_dir_nofollow, same_mount
+from gateway_repository_service.artifact_root import ArtifactRootError, assert_no_symlink_ancestors, open_dir_nofollow, open_owned_directory, same_mount
 from gateway_repository_service.storage_roots import RepositoryRoots
 
 
@@ -118,25 +118,29 @@ class DurableLayout:
 
     @classmethod
     def create_service(cls, roots: RepositoryRoots) -> DurableLayout:
-        return cls._create(roots, probe_namespaces=False)
+        return cls._create(roots, probe_namespaces=False, initialize_roots=False)
 
     @classmethod
     def create_for_probe(cls, roots: RepositoryRoots | Path) -> DurableLayout:
         """Use explicit sibling roots for an isolated historical host probe."""
         if isinstance(roots, Path):
             roots = RepositoryRoots.under(roots)
-        return cls._create(roots, probe_namespaces=True)
+        return cls._create(roots, probe_namespaces=True, initialize_roots=True)
 
     @classmethod
-    def _create(cls, roots: RepositoryRoots, *, probe_namespaces: bool) -> DurableLayout:
+    def _create(
+        cls, roots: RepositoryRoots, *, probe_namespaces: bool, initialize_roots: bool,
+    ) -> DurableLayout:
         layout = cls(roots, probe_namespaces)
-        for root in roots.paths():
-            assert_no_symlink_ancestors(root)
-            root.mkdir(parents=True, exist_ok=True)
+        if initialize_roots:
+            for root in roots.paths():
+                assert_no_symlink_ancestors(root)
+                root.mkdir(parents=True, exist_ok=True)
+        layout.validate_preparation_paths()
         for directory, root in layout.components():
-            assert_no_symlink_ancestors(directory)
-            directory.mkdir(parents=True, exist_ok=True)
-            _assert_owned_directory(directory, root)
+            descriptor = open_owned_directory(root, directory, create=True)
+            assert descriptor is not None
+            os.close(descriptor)
         if layout.layout_marker.exists() or layout.layout_marker.is_symlink():
             cls.bind_existing(roots)
         else:
@@ -148,6 +152,48 @@ class DurableLayout:
             _fsync_directory(layout.control)
         layout.validate_components()
         return layout
+
+    def validate_preparation_paths(self) -> None:
+        """Validate all existing prefixes before creating or changing any child."""
+        try:
+            for root in self.roots.paths():
+                assert_no_symlink_ancestors(root)
+                if not root.is_dir():
+                    raise LayoutError("configured RS root is unavailable")
+            for directory, root in self.components():
+                descriptor = open_owned_directory(root, directory, allow_missing=True)
+                if descriptor is not None:
+                    os.close(descriptor)
+        except ArtifactRootError as exc:
+            raise LayoutError("configured RS layout is unavailable or redirected") from exc
+
+    def validate_control_database_files(self, *, require_database: bool = False) -> None:
+        database = self.service_state / "repository-service.sqlite3"
+        root_fd = -1
+        missing_database = False
+        try:
+            root_fd = open_dir_nofollow(self.service_state)
+            for index, path in enumerate((database, Path(f"{database}-wal"), Path(f"{database}-shm"))):
+                try:
+                    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                except FileNotFoundError:
+                    if index == 0:
+                        missing_database = True
+                        if require_database:
+                            raise LayoutError("control database is unavailable")
+                    continue
+                try:
+                    if (not stat.S_ISREG(os.fstat(descriptor).st_mode)
+                            or not same_mount(root_fd, descriptor)
+                            or (index > 0 and missing_database)):
+                        raise LayoutError("control database or journal is outside its metadata location")
+                finally:
+                    os.close(descriptor)
+        except (ArtifactRootError, OSError) as exc:
+            raise LayoutError("control database metadata path is unavailable or redirected") from exc
+        finally:
+            if root_fd >= 0:
+                os.close(root_fd)
 
     def validate_components(self) -> None:
         try:
@@ -229,19 +275,9 @@ class DurableLayout:
 
 
 def _assert_owned_directory(path: Path, root: Path) -> None:
-    assert_no_symlink_ancestors(path)
-    root_fd = open_dir_nofollow(root)
-    descriptor = -1
-    try:
-        descriptor = open_dir_nofollow(path)
-        if not path.is_relative_to(root) or not same_mount(root_fd, descriptor):
-            raise LayoutError("layout component crosses its configured root mount")
-    except OSError as exc:
-        raise LayoutError("layout component is unavailable") from exc
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        os.close(root_fd)
+    descriptor = open_owned_directory(root, path)
+    assert descriptor is not None
+    os.close(descriptor)
 
 
 def _fsync_file(path: Path) -> None:

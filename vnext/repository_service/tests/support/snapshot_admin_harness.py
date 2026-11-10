@@ -220,8 +220,8 @@ def list_dolt_pids() -> set[int]:
     return pids
 
 
-def snapshot_check_temp_homes() -> list[Path]:
-    return list(Path("/tmp").glob("snapshot-check-dolt-*"))
+def snapshot_check_temp_homes(scratch_root: Path) -> list[Path]:
+    return sorted(scratch_root.glob("snapshot-check-dolt-*"))
 
 
 def snapshot_query_temps(data_root: Path) -> list[Path]:

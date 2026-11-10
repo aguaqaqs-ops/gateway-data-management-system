@@ -20,6 +20,7 @@ _VNEXT_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS = Path(__file__).resolve().parent
 for _extra in (
     _SCRIPTS,
+    _VNEXT_ROOT / "backend",
     _VNEXT_ROOT / "backend" / "src",
     _VNEXT_ROOT / "repository_service" / "src",
     _VNEXT_ROOT / "repository_contracts" / "src",
@@ -29,7 +30,7 @@ for _extra in (
     if _text not in sys.path:
         sys.path.insert(0, _text)
 
-from gateway_backend.synthetic_w2 import (  # noqa: E402
+from tests.support.synthetic_w2 import (  # noqa: E402
     DEFAULT_SEED,
     GENERATOR_VERSION,
     SCHEMA_VERSION,
@@ -186,7 +187,7 @@ def produce_package(
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
     )
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     repo_path = layout.versioned / "repo"
     repo_path.mkdir()
     runner = DoltRunner.for_layout(
@@ -296,7 +297,7 @@ def run_http_import(
     sample, sampler = start_sampler(service.data_root, os.getpid())
     timings: dict[str, float] = {}
     try:
-        disk_before = disk_admission_view(service.data_root, service.settings)
+        disk_before = disk_admission_view(service.runtime.layout, service.settings)
         decoded = decoded_package_entry_sizes(payload)
         repo_id, initial_commit = client.create_repository()
         upload_started = time.monotonic()
@@ -340,7 +341,7 @@ def run_http_import(
             raise StageIError(
                 f"{alias} streamed {streamed_rows} rows, catalog has {expected_rows}"
             )
-        disk_after = disk_admission_view(service.data_root, service.settings)
+        disk_after = disk_admission_view(service.runtime.layout, service.settings)
         record = {
             "schema_version": SCHEMA_VERSION,
             "candidate_sha": _git_head(),

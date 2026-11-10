@@ -24,7 +24,7 @@ def test_import_shared_filesystem_adds_repository_and_extraction_demand_once(
     settings = RepositoryServiceSettings(roots=RepositoryRoots.under(tmp_path),
         min_free_disk_bytes=1000, min_free_disk_fraction=0.1,
         import_headroom_bytes=500, max_total_expanded_entry_bytes=700)
-    layout = DurableLayout.create_service(settings.storage_roots)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
     required = 1000 + 500 + 700
     measured = SimpleNamespace(f_frsize=1, f_bavail=required + remaining,
         f_blocks=10_000, f_files=1000, f_favail=free_inodes)
@@ -42,7 +42,7 @@ def test_import_shared_filesystem_adds_repository_and_extraction_demand_once(
 
 def test_import_disk_measurement_failure_rejects_admission(tmp_path: Path) -> None:
     roots = RepositoryRoots.under(tmp_path)
-    layout = DurableLayout.create_service(roots)
+    layout = DurableLayout.create_for_probe(roots)
     with patch("gateway_repository_service.capacity.os.statvfs", side_effect=OSError("unavailable")):
         with pytest.raises(CapacityAdmissionError, match="measurement is unavailable"):
             assert_import_layout_admission(layout, RepositoryServiceSettings(roots=roots))

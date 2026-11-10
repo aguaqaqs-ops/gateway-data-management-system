@@ -133,6 +133,7 @@ class ServiceRuntime:
                     root_lock.release()
 
             stack.callback(_release_root)
+            layout.validate_control_database_files()
             control_store = ControlStore.open(
                 settings.control_db_path,
                 expected_version=CONTROL_DB_USER_VERSION,
@@ -144,6 +145,7 @@ class ServiceRuntime:
                     control_store.close()
 
             stack.callback(_close_db)
+            layout.validate_control_database_files(require_database=True)
             configure_connection(control_store.connection)
             mutation_store = MutationStore(
                 control_store.connection,

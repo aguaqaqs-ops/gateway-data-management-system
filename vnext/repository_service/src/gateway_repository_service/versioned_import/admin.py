@@ -71,7 +71,9 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
 
 def _bind_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
     try:
-        return DurableLayout.bind_existing(settings.storage_roots)
+        layout = DurableLayout.bind_existing(settings.storage_roots)
+        layout.validate_control_database_files(require_database=True)
+        return layout
     except (LayoutError, OSError, ValueError, SettingsError) as exc:
         raise ControlDbError(str(exc)) from exc
 

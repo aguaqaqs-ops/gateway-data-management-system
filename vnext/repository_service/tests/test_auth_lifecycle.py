@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from typing import cast
 
 from gateway_repository_contracts import SimpleError
+from support.lifecycle_harness import prepare_test_roots
 from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlDbError, ControlDbNewerVersionError, ControlStore
@@ -290,7 +291,7 @@ class TestLayoutValidation:
             DurableLayout.create_for_probe(root)
 
     def test_service_layout_creates_mutation_staging_not_probe_artifacts(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create_service(RepositoryRoots.under(tmp_path / "root"))
+        layout = DurableLayout.create_service(prepare_test_roots(RepositoryRoots.under(tmp_path / "root")))
         assert layout.staging_versioned.is_dir()
         assert layout.staging_artifacts.is_dir()
         assert layout.artifacts.is_dir()
@@ -303,7 +304,7 @@ class TestLayoutValidation:
         assert layout.artifacts.is_dir()
 
     def test_layout_create_does_not_create_control_db(self, tmp_path: Path) -> None:
-        layout = DurableLayout.create_service(RepositoryRoots.under(tmp_path / "root"))
+        layout = DurableLayout.create_service(prepare_test_roots(RepositoryRoots.under(tmp_path / "root")))
         assert not (layout.service_state / "repository-service.sqlite3").exists()
 
 

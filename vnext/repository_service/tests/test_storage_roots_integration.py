@@ -26,6 +26,7 @@ from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import.faults import ImportWorkerFaultPoint
 from support.http_harness import import_headers
+from support.lifecycle_harness import prepare_test_roots
 from support.import_recovery_harness import (
     assert_crash_exit, crash_import_subprocess, seed_queued_dolt_import,
 )
@@ -41,10 +42,10 @@ def roots(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Repository
         secondary = Path(temp)
         if request.param:
             assert tmp_path.stat().st_dev != secondary.stat().st_dev
-            yield RepositoryRoots(secondary / "repository", secondary / "artifacts",
-                tmp_path / "metadata", tmp_path / "scratch")
+            yield prepare_test_roots(RepositoryRoots(secondary / "repository", secondary / "artifacts",
+                tmp_path / "metadata", tmp_path / "scratch"))
         else:
-            yield RepositoryRoots.under(tmp_path)
+            yield prepare_test_roots(RepositoryRoots.under(tmp_path))
 
 
 def _settings(roots: RepositoryRoots) -> RepositoryServiceSettings:
@@ -131,8 +132,12 @@ def test_effect_recovery_rebuilds_scratch_and_preserves_published_commit(roots: 
     layout = DurableLayout.bind_existing(roots)
     ready = artifact_ready_path(layout, repository_id, artifact_id)
     assert ready.is_file()
-    shutil.rmtree(roots.scratch)
-    # All of this root is derived. Runtime recreates only its known namespaces;
+    for entry in roots.scratch.iterdir():
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    # Only this root's contents are derived. Runtime recreates known namespaces;
     # authoritative commit/package/control state comes from the other roots.
     runtime = ServiceRuntime.start(settings)
     try:

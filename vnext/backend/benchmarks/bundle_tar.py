@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tarfile
 import tempfile
@@ -15,6 +16,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, BinaryIO, cast
+from uuid import uuid4
 
 import httpx
 
@@ -107,6 +109,8 @@ def verify_bundle_tar(source: BinaryIO, *, total_bytes: int) -> tuple[dict[str, 
             "verified_records_closure_count": record_closures,
             "verified_logical_record_count": record_count,
             "bundle_digest": metadata.bundle_digest,
+            "logical_paths": [entry.logical_path for entry in metadata.entries],
+            "manifest_fields": sorted(manifest),
         }
         return manifest, metrics
 
@@ -115,6 +119,12 @@ def download_bundle_tar(
     client: httpx.Client, url: str, *, headers: Mapping[str, str] | None = None,
     destination: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if destination is None and (raw_directory := os.environ.get("GATEWAY_BUNDLE_EVIDENCE_DIRECTORY")):
+        directory = Path(raw_directory).resolve(strict=True)
+        worktree = Path(__file__).resolve().parents[3]
+        if not directory.is_dir() or directory == worktree or worktree in directory.parents:
+            raise ValueError("bundle evidence directory must exist outside the worktree")
+        destination = directory / (uuid4().hex + ".tar")
     started = time.monotonic()
     actual = 0
     raw_digest = hashlib.sha256()

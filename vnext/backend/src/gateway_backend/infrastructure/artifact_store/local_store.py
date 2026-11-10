@@ -32,13 +32,15 @@ _MAX_REF_BYTES = 4096
 
 
 class LocalArtifactStore:
-    def __init__(self, layout: ArtifactStoreLayout, *, staging_max_bytes: int) -> None:
+    def __init__(self, layout: ArtifactStoreLayout, *, staging_max_bytes: int,
+                 capacity_check: Callable[[ArtifactLocation, int], None] | None = None) -> None:
         if not isinstance(layout, ArtifactStoreLayout):
             raise ValueError('artifact store requires an explicit four-root layout')
         if type(staging_max_bytes) is not int or staging_max_bytes <= 0:
             raise ValueError('staging_max_bytes must be positive')
         self.layout = layout
         self.staging_max_bytes = staging_max_bytes
+        self.capacity_check = capacity_check
 
     def check_publication_support(self) -> None:
         with self.read_session():
@@ -219,6 +221,10 @@ class LocalArtifactStore:
         self, chunks: Iterable[bytes], ref: ArtifactRef, checkpoint: Callable[[], None] | None,
     ) -> Iterator[Path]:
         root = self.layout.root(parse_artifact_id(ref.artifact_id))
+        if self.capacity_check is not None:
+            # Source bytes already allocated on this filesystem are in statvfs.
+            # Include the complete target copy, ref and bounded directory metadata.
+            self.capacity_check(parse_artifact_id(ref.artifact_id), ref.size_bytes + _MAX_REF_BYTES + 64 * 1024)
         parent = root / '.staging'
         self._check_path(root, parent)
         parent.mkdir(exist_ok=True)

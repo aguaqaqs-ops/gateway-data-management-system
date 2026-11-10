@@ -9,7 +9,7 @@ import re
 import stat
 import errno
 from uuid import uuid4
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -160,14 +160,36 @@ def write_probe(path: Path) -> None:
                 os.close(directory)
 
 
-def check_capacity(path: Path, minimum: int, fraction: float) -> tuple[int, int]:
+def check_capacity(path: Path, minimum: int, fraction: float, *, headroom: int = 0) -> tuple[int, int]:
+    if type(headroom) is not int or headroom < 0:
+        raise ValueError("write headroom must be a nonnegative integer")
     info = os.statvfs(path)
     available = info.f_bavail * info.f_frsize
     if info.f_flag & os.ST_RDONLY:
         raise ValueError("storage filesystem is read-only")
-    if available < max(minimum, math.ceil(info.f_blocks * info.f_frsize * fraction)) or info.f_favail == 0:
+    if available < max(minimum, math.ceil(info.f_blocks * info.f_frsize * fraction)) + headroom or info.f_favail == 0:
         raise CapacityUnavailable("storage filesystem is below its capacity threshold")
     return available, info.f_favail
+
+
+def check_write_capacity(config: StorageLayoutConfig, demands: Mapping[str, int]) -> None:
+    """Check additional writes once per actual filesystem; this is not a reservation."""
+    grouped: dict[int, tuple[Path, int, float, int]] = {}
+    for slot, additional in demands.items():
+        if type(additional) is not int or additional < 0:
+            raise ValueError("write headroom must be a nonnegative integer")
+        check_configured_root(config, slot)
+        root = config.roots[slot]
+        path = Path(root.path)
+        policy = config.filesystems[root.filesystem_id]
+        device = path.stat().st_dev
+        previous = grouped.get(device)
+        if previous is not None and previous[1:3] != (policy.min_free_bytes, policy.min_free_fraction):
+            raise ValueError("same filesystem has conflicting capacity policies")
+        grouped[device] = (path, policy.min_free_bytes, policy.min_free_fraction,
+                           additional + (0 if previous is None else previous[3]))
+    for path, minimum, fraction, additional in grouped.values():
+        check_capacity(path, minimum, fraction, headroom=additional)
 
 
 def check_host(config: DeploymentConfig, *, markers: bool = True) -> None:

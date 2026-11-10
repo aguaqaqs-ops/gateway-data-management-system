@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 from gateway_backend.artifacts.scratch import ScratchSpacePort
-from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
 
-from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
 
 import logging
 import signal
 import threading
 import time
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from signal import Signals
@@ -160,8 +158,7 @@ def build_job_worker_composition_for_settings(
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
     deployment = settings.deployment_config
-    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
-        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store = local_store_from_config(deployment)
     local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
@@ -185,8 +182,7 @@ def build_production_preview_dependencies(
     bootstrap_control_database(settings)
     seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
     deployment = settings.deployment_config
-    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
-        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store = local_store_from_config(deployment)
     local_store.check_publication_support()
     artifact_store = BoundedArtifactStore(
         local_store,
@@ -380,8 +376,7 @@ def build_worker_runtime(
         submit_recovery=submit_recovery,
     )
     kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes,
-        ScratchSpace(Path(deployment.storage.roots["be-scratch"].path),
-            max_bytes=deployment.resources.temporary.scratch_max_bytes_per_attempt))
+        scratch_space_from_config(deployment))
     startup = _R4WorkerStartup(
         read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,

@@ -2711,3 +2711,14 @@ def test_submit_measurement_rejects_invalid_completion_clock(tmp_path: Path, sec
 
     with pytest.raises(RuntimeError, match="verified technical-main completion clock"):
         _completed_result(log, "c" * 40, "w3", "MODIFIED_ONLY")
+
+
+@pytest.mark.parametrize("prebuilt", (None, "1"))
+def test_real_journey_environment_preserves_explicit_build_phase(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prebuilt: str | None,
+) -> None:
+    monkeypatch.delenv("GATEWAY_COMPOSE_GATE_PREBUILT", raising=False)
+    if prebuilt is not None:
+        monkeypatch.setenv("GATEWAY_COMPOSE_GATE_PREBUILT", prebuilt)
+    environment = real_dump_journey._compose_environment(tmp_path, "journey-build-phase", write_secrets=False)
+    assert environment.get("GATEWAY_COMPOSE_GATE_PREBUILT") == prebuilt

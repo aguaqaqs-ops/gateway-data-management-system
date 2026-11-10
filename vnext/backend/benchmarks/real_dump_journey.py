@@ -1294,12 +1294,7 @@ def _compose_environment(
                 "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(secret_root / "repository-bearer-token"),
             }
         )
-    environment.update(
-        {
-            "COMPOSE_PROJECT_NAME": project_name,
-            "GATEWAY_COMPOSE_GATE_PREBUILT": "1",
-        }
-    )
+    environment["COMPOSE_PROJECT_NAME"] = project_name
     return environment
 
 
@@ -4458,11 +4453,14 @@ def run_journey(
                     step_state = {}
 
                 secret_root = base / f"{tier}-secrets"
-                env = _compose_environment(
-                    secret_root,
-                    project_name,
-                    write_secrets=from_step is None,
+                env = (
+                    first_env if from_step is None and tier == selected_tiers[0][0]
+                    else _compose_environment(
+                        secret_root, project_name, write_secrets=from_step is None,
+                    )
                 )
+                # Images were built once from the same explicit runtime config.
+                env["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
                 acquire_compose_gate_lock()
                 stack_cleaned = False
                 try:

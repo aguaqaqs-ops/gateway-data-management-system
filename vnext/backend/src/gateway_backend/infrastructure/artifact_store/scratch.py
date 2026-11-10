@@ -9,7 +9,7 @@ import secrets
 import shutil
 import stat
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,29 +57,39 @@ class _BudgetedFile(io.BufferedRandom):
         # handed to them that could bypass the aggregate byte check.
         view = memoryview(buffer)  # type: ignore[arg-type]
         self._grow(self.tell() + view.nbytes)
-        return super().write(view)
+        result = super().write(view)
+        # Account actual allocated source bytes in the next statvfs observation,
+        # including writes through another file in the same scratch session.
+        self.flush()
+        return result
 
     def truncate(self, size: int | None = None) -> int:
         self._grow(self.tell() if size is None else size)
-        return super().truncate(size)
+        result = super().truncate(size)
+        self.flush()
+        return result
 
     def fileno(self) -> int:
         raise io.UnsupportedOperation('scratch writers must use bounded write')
 
 
 class ScratchSession:
-    def __init__(self, directory: Path, descriptor: int, cap: int, owner: str) -> None:
+    def __init__(self, directory: Path, descriptor: int, cap: int, owner: str,
+                 capacity_check: Callable[[int], None] | None = None) -> None:
         self.directory = directory
         self.owner = owner
         self._descriptor = descriptor
         self._cap = cap
         self._used = 0
         self._mutex = Lock()
+        self._capacity_check = capacity_check
 
     def reserve(self, size: int) -> None:
         with self._mutex:
             if self._used + size > self._cap:
                 raise ScratchLimitExceeded('aggregate scratch byte limit exceeded')
+            if self._capacity_check is not None and size:
+                self._capacity_check(size + 64 * 1024)
             self._used += size
 
     @contextmanager
@@ -104,12 +114,14 @@ class ScratchSession:
 
 
 class ScratchSpace:
-    def __init__(self, root: Path, *, max_bytes: int) -> None:
+    def __init__(self, root: Path, *, max_bytes: int,
+                 capacity_check: Callable[[int], None] | None = None) -> None:
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError('scratch aggregate byte limit must be positive')
         self._root = root
         self._identity = directory_identity(root)
         self._max_bytes = max_bytes
+        self._capacity_check = capacity_check
 
     @contextmanager
     def session(self, *, owner: str) -> Iterator[ScratchSessionPort]:
@@ -122,7 +134,7 @@ class ScratchSpace:
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
             (directory / 'owner.json').write_text(json.dumps({'version': 1, 'owner': owner}), encoding='utf-8')
-            yield ScratchSession(directory, descriptor, self._max_bytes, owner)
+            yield ScratchSession(directory, descriptor, self._max_bytes, owner, self._capacity_check)
         finally:
             # Keep the owner lock until all owned paths are gone.
             try:

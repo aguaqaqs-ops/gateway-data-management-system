@@ -244,3 +244,98 @@ def test_true_cgroup_hierarchy_root_has_no_local_limits_but_other_layers_must(de
     else:
         with pytest.raises((OSError, ValueError)):
             real_check(deployment, "worker")
+
+
+@pytest.mark.parametrize("producer", ("artifact", "scratch"))
+@pytest.mark.parametrize("allow", (False, True))
+def test_production_writers_require_known_headroom_before_bytes(
+    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, producer: str, allow: bool,
+) -> None:
+    from types import SimpleNamespace
+    from gateway_shared_kernel import raw_blob_digest
+    from gateway_backend.artifacts import ArtifactRef
+    from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+    from gateway_backend.artifacts.store import ManifestVerificationError
+    from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+
+    payload = b"known-write"
+    ref = ArtifactRef(build_artifact_id(ArtifactLocation.EXPORT, "headroom-owner", producer),
+                      "application/octet-stream", len(payload), raw_blob_digest(payload))
+    store = local_store_from_config(deployment)
+    scratch = scratch_space_from_config(deployment)
+    minimum = 100
+    # The config's actual policy is kept; choose its effective fractional floor.
+    total = minimum * 1_000_000
+    available = minimum + (len(payload) + 4096 + 65536 if allow else 1)
+    monkeypatch.setattr(preflight.os, "statvfs", lambda _path: SimpleNamespace(
+        f_bavail=available, f_frsize=1, f_blocks=total, f_flag=0, f_favail=100))
+    if producer == "artifact":
+        if allow:
+            store.put(payload, ref)
+            assert store.locate(ref) == payload
+        else:
+            with pytest.raises(ManifestVerificationError, match="write failed"):
+                store.put(payload, ref)
+            assert not store.object_directory(ref.artifact_id).exists()
+    else:
+        with scratch.session(owner="operation:headroom") as session, session.file(byte_limit=100) as (source, output):
+            if allow:
+                output.write(payload)
+                with source.open_read() as stream:
+                    assert stream.read() == payload  # buffered data is visible before close
+            else:
+                with pytest.raises(preflight.CapacityUnavailable):
+                    output.write(payload)
+                with source.open_read() as stream:
+                    assert stream.read() == b""
+
+
+@pytest.mark.parametrize("split", (False, True))
+def test_write_demands_merge_only_when_actual_filesystem_matches(
+    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, split: bool,
+) -> None:
+    from types import SimpleNamespace
+    observed: list[int] = []
+    actual_stat = Path.stat
+    scratch = Path(deployment.storage.roots["be-scratch"].path)
+    def device(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+        info = actual_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+        if split and path == scratch:
+            values = list(info)
+            values[2] += 1
+            return os.stat_result(values)
+        return info
+    monkeypatch.setattr(Path, "stat", device)
+    monkeypatch.setattr(preflight, "check_configured_root", lambda *_: None)
+    monkeypatch.setattr(preflight.os, "statvfs", lambda path: (
+        observed.append(Path(path).stat().st_dev) or SimpleNamespace(
+            f_bavail=100000, f_frsize=1, f_blocks=1000000, f_flag=0, f_favail=100)))
+    if split:
+        preflight.check_write_capacity(deployment.storage, {"be-export": 60000, "be-scratch": 60000})
+        assert len(observed) == 2
+    else:
+        with pytest.raises(preflight.CapacityUnavailable):
+            preflight.check_write_capacity(deployment.storage, {"be-export": 60000, "be-scratch": 60000})
+        assert len(observed) == 1
+
+
+def test_scratch_source_already_allocated_is_not_charged_again_for_target(
+    deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_shared_kernel import raw_blob_digest
+    from gateway_backend.artifacts import ArtifactRef
+    from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+    from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+    payload = b"source-bytes"
+    demands: list[int] = []
+    monkeypatch.setattr(preflight, "check_capacity", lambda _path, _minimum, _fraction, *, headroom=0:
+                        (demands.append(headroom) or (1000000, 100)))
+    store = local_store_from_config(deployment)
+    with scratch_space_from_config(deployment).session(owner="operation:copy") as session:
+        with session.file(byte_limit=100) as (source, output):
+            output.write(payload)
+            ref = ArtifactRef(build_artifact_id(ArtifactLocation.EXPORT, "headroom-copy", "one"),
+                              "application/octet-stream", len(payload), raw_blob_digest(payload))
+            store.put_from_path(source, ref, checkpoint=lambda: None, byte_limit=100)
+            assert store.locate(ref) == payload
+    assert demands == [len(payload) + 65536, len(payload) + 4096 + 65536]

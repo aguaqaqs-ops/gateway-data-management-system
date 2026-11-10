@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
 
-from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
+from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
 
 import asyncio
 import urllib.error
@@ -297,8 +296,7 @@ def prepare_backend_runtime(
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)
     deployment = settings.deployment_config
-    local_store = LocalArtifactStore(artifact_layout_from_config(deployment.storage),
-        staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
+    local_store = local_store_from_config(deployment)
     local_store.check_publication_support()
 
     artifact_store = BoundedArtifactStore(
@@ -366,8 +364,7 @@ def prepare_backend_runtime(
         raise RuntimeError("runtime comparison ruleset digest is missing")
     comparison_ruleset_digest = active_comparison_rules.ruleset_digest.value
     workspace_http = WorkspaceHttpDependencies(
-        scratch=ScratchSpace(Path(deployment.storage.roots["be-scratch"].path),
-            max_bytes=deployment.resources.temporary.scratch_max_bytes_per_attempt),
+        scratch=scratch_space_from_config(deployment),
         session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=scope_resolution,
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),

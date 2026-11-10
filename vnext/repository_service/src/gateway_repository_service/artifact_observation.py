@@ -16,7 +16,7 @@ def observe_ready_artifact(layout: DurableLayout, repository_id: UUID, artifact_
         return {"service_owner": "repository_service", "repository_id": str(repository_id),
             "artifact_id": str(artifact_id), "location": "rs-artifacts",
             "logical_bytes": info.st_size, "allocated_bytes": info.st_blocks * 512,
-            "device": info.st_dev, "inode": info.st_ino, "published_mtime_ns": info.st_mtime_ns,
+            "device": info.st_dev, "inode": info.st_ino, "payload_mtime_ns": info.st_mtime_ns,
             "observed_at": datetime.now(UTC).isoformat()}
     finally:
         os.close(descriptor)

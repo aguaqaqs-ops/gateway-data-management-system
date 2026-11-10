@@ -48,7 +48,7 @@ def main() -> int:
             if args.output is None:
                 raise ValueError("render requires --output outside the source worktree")
             worktree = Path(__file__).resolve().parents[2]
-            destination = args.output.absolute()
+            destination = args.output.resolve()
             if worktree == destination or worktree in destination.parents:
                 raise ValueError("rendered output must be outside the source worktree")
             payload = json.dumps(render(config, storage, resources), indent=2) + "\n"

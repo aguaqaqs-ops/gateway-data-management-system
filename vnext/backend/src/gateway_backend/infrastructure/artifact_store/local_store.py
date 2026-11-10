@@ -337,7 +337,7 @@ class LocalArtifactStore:
                 return {"service_owner": "backend", "artifact_id": artifact_id,
                     "location": location.value, "logical_bytes": info.st_size,
                     "allocated_bytes": info.st_blocks * 512, "device": info.st_dev,
-                    "inode": info.st_ino, "published_mtime_ns": info.st_mtime_ns,
+                    "inode": info.st_ino, "payload_mtime_ns": info.st_mtime_ns,
                     "observed_at": datetime.now(UTC).isoformat()}
             finally:
                 os.close(descriptor)

@@ -250,3 +250,12 @@ owner 创建；其他发布请求使用 request owner，worker 每次实际执�
 服务内部 writer 使用受控文件接口，禁止默认系统 temp、ambient TMPDIR 与传 pathname 绕过计数。
 owner 目录持独占 flock，成功、失败、取消或 close/ENOSPC 失败均在释放 owner 前收尾；scratch
 不保存恢复权威。接收取消继续等待正在读取上传的 acceptance 线程结束后再删除输入。
+
+
+F 接线细节：标准 Compose override 从两文档生成 long-syntax bind（禁止自动创建 source）、
+role memory/CPU/swap 和 replicas，基础 YAML 不提供可写存储默认值。host `check-host` 先核
+实际 mountpoint/source 和宿主/祖先规划预算；显式 `init-layout` 只为已存在空 root 写固定
+marker，已有 marker 必须精确匹配。服务只核本角色 roots；backend HTTP admission/readiness、
+worker 写 UoW/claim 及 RS readiness/import claim 在实际观察成功后继续。挂载身份失效锁存，
+重启预检前不接受替代 root。显式 host 调试记录无硬 envelope，不能在容器中绕过限制。
+固定 slot/filesystem 与单对象 fd stat 仅为 S1b 的 bounded adapter 输入；不在本步写统计 DB。

@@ -59,7 +59,7 @@ bash "$CLEAN_WORKTREE/docs/backend-vnext/refactoring/formal/plans/p7-s1a-b-verif
 
 ## d97 backend mypy 失败与测试类型修订
 
-06候选`d97fd42b71cd34471d2a816dd90ad4da47e3da0d`日志`/home/dev/gdds-test-tmp/p7-s1a-b-d97fd42b/logs-r1/verification.log`，SHA256=`f3a06469911edf8982f32aba261305d18ac8ced465deba8daf5e033956d84f33`，原exit1、本人marker已释放。backend ruff已通过；backend mypy在`test_submit_domain.py:324`/`test_workspace_domain.py:289`报告11/8条类型错误，后续pytest、RS静态/配置unit、Compose未运行。
+06候选`d97fd42b71cd34471d2a816dd90ad4da47e3da0d`日志`/home/dev/gdds-test-tmp/p7-s1a-b-d97fd42b/logs-r1/verification.log`，SHA256=`f3a06469911edf8982f32aba261305d18ac8ced465deba8daf5e033956d84f33`，原exit1、本人marker已释放。backend ruff已通过；backend mypy在`test_submit_domain.py:324`/`test_workspace_domain.py:289`报告共19条类型错误（原审按原日志复核为SubmitAttempt12条、PreviewResult7条；先前任务转述11/8不作为原件事实），后续pytest、RS静态/配置unit、Compose未运行。
 
 原因是新增负向向量用`dataclasses.replace(record, **dict[str, str])`动态选择字段，mypy无法证明未知key只落在字符串ref字段，将其视作可能传给record全部其他字段。修订为模块级共享参数表，mutator明确标`Callable[[SubmitAttempt], SubmitAttempt]`或`Callable[[PreviewResult], PreviewResult]`，每个lambda直接填写固定ref keyword；故障仍是同一legacy artifact字符串、同一fixture与同一ValueError/a1断言，四个Attempt/两个Preview向量不减。未添加cast/type-ignore/skip或放宽产品校验；产品代码未改变。
 

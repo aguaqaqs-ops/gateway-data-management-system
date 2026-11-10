@@ -501,10 +501,12 @@ def test_local_store_missing_payload_ref_fails_closed(tmp_path: Path) -> None:
     object_path, sidecar_path = object_and_sidecar_paths(root, ref.artifact_id)
     object_path.unlink()
     sidecar_path.unlink()
-    with pytest.raises(PayloadDecodeError, match="unknown artifact_id|artifact bytes are missing|failed"):
+    with pytest.raises(PayloadDecodeError, match="unknown artifact_id|artifact bytes are missing|failed") as failure:
         decode_job_payload(
             definition,
             operation,
             store,
             _decoder_registry(definition),
         )
+    assert failure.value.code == "PAYLOAD_REF_UNREADABLE"
+    assert failure.value.__cause__ is not None

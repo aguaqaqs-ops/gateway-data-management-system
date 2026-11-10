@@ -1,141 +1,24 @@
 # 后端 vNext
 
-本文档区用于重新设计 gateway 后端 vNext。
-
-vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约为前提。旧系统只作为问题样本和业务语义来源，不作为模块、状态机、ID/hash 或 artifact 结构的强制约束。
+本目录保存 gateway 后端 vNext 的设计、Contract 与阶段记录。vNext 不保留旧后端兼容或数据迁移路径；旧系统只作行为与数据格式参考。
 
 ## 当前默认入口
 
-Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C、P5-5D、P5-5E slice exit 均为 `pass`；P5 架构收口 S0 文档已接受，收口实现未授权。
-当前 P5 检索从以下材料开始，不要从历史 P4 handoff 或
-下文旧 contract/capability 清单推导 P5 语义：
+从 [Current Context Index](refactoring/formal/plans/current-context-index.md) 开始。最近核对为 2026-11-10：P6 已退出；P7-S1a A 文档/设计入口已获 A_GO 并合入 main，Contract 目标仍待实现；这不表示后续产品或 S1a exit 通过。固定来源和核收依据见该索引。
 
-- [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
-- [P5 架构收口 S0 Entry Brief](refactoring/formal/plans/p5-arch-closure-s0-entry-brief.md)、
-  [详细设计](refactoring/formal/plans/p5-arch-closure-design.md)、[执行计划](refactoring/formal/plans/p5-arch-closure-execution-plan.md)、
-  ADR [0018](refactoring/formal/adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](refactoring/formal/adr/0021-flow-neutral-comparison-entry.md)
-  （S0 文档于 2026-09-27 接受，ADR Accepted；实现未授权；评审与决议记录见 [formal 索引](refactoring/formal/README.md)）
-- [P5-5D Independent Docs Acceptance](refactoring/formal/plans/p5-5d-s0-independent-docs-acceptance.md)（docs review pass；四项 finding closed）
-- [P5-5D-S0 Entry Brief](refactoring/formal/plans/p5-5d-s0-entry-brief.md)（historical entry input）
-- [Business Lifecycle 固定 scope 归属补充](refactoring/formal/contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 引入；现行 3.1.0）
-- [P5-5D Archive Detailed Design](refactoring/formal/plans/p5-5d-archive-design.md)（accepted；slice completed）
-- [P5-5D Archive Execution Plan](refactoring/formal/plans/p5-5d-archive-execution-plan.md)（completed；slice exit pass）
-- [P5-5D Slice Exit — Final](refactoring/formal/plans/p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）
-- [P5-5E Independent Docs Acceptance](refactoring/formal/plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6）
-- [P5-5E-S0 Entry Brief](refactoring/formal/plans/p5-5e-s0-entry-brief.md)（historical entry input）
-- [P5-5E History Compare Detailed Design](refactoring/formal/plans/p5-5e-history-compare-design.md)（accepted；slice completed）
-- [P5-5E History Compare Execution Plan](refactoring/formal/plans/p5-5e-history-compare-execution-plan.md)（completed；slice exit pass）
-- [P5-5E Slice Exit — Final](refactoring/formal/plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
-- [P5-5E-S4 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）
-- [P5-5E-S1 Kickoff Gate](refactoring/formal/plans/p5-5e-s1-kickoff.md)（pass）
-- [P5-5C-S5 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
-- [P5-5C-S0 Entry Brief](refactoring/formal/plans/p5-5c-s0-entry-brief.md)（historical entry input）
-- [P5-5C Review Detailed Design](refactoring/formal/plans/p5-5c-review-design.md)（accepted；slice completed）
-- [P5-5C Review Execution Plan](refactoring/formal/plans/p5-5c-review-execution-plan.md)（completed；slice exit pass）
-- [P5-5B-S8 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5b-s8-independent-acceptance.md)（`p5_5b_slice_exit: pass`）
-- [P5-5B-S8 Handoff](refactoring/formal/plans/p5-5b-s8-handoff.md)（gate evidence @ `460d6f5b`；S8-F1 closed）
-- [P5-5B-S0 Entry Brief](refactoring/formal/plans/p5-5b-s0-entry-brief.md)（historical entry input）
+- [Formal 文档入口](refactoring/formal/README.md)：现行 owning Contract、政策、ADR、阶段与历史恢复。
+- [Refactoring 说明](refactoring/README.md)：文档角色与阅读顺序。
+- [测试约定](testing-conventions.md)及仓库 [AGENTS](../../AGENTS.md)：执行要求；当前任务的明确授权与适用范围仍须先核对。
 
-P5-5A historical input（slice exit pass；container gate pass）：
+## 文档角色
 
-- [P5-5A Baseline Acceptance](refactoring/formal/plans/p5-5a-baseline-acceptance.md)
-- [P5-5A-S0 Entry Brief](refactoring/formal/plans/p5-5a-s0-entry-brief.md)
-- [P5-5A Upload/Preview Detailed Design](refactoring/formal/plans/p5-5a-upload-preview-design.md)
-- [P5-5A Upload/Preview Execution Plan](refactoring/formal/plans/p5-5a-upload-preview-execution-plan.md)
-- [P5-5A Remediation Review](refactoring/formal/plans/p5-5a-remediation-review.md)
-- [P5-5A S6 Handoff](refactoring/formal/plans/p5-5a-s6-handoff.md)
+- `refactoring/formal/contracts/` 拥有正式字段、状态、artifact、byte contract 与边界语义；政策规定跨阶段工程要求，ADR 记录选择理由。按 [Contract Taxonomy and Ownership](refactoring/formal/contracts/contract-taxonomy-and-ownership.md) 找唯一 owner。
+- `refactoring/formal/architecture/` 与 `plans/` 保存总纲、交付顺序及阶段证据；当前状态沿 Current Context Index 查，不能从历史的“下一步”推导本轮授权。
+- `contracts/`、`capabilities/`、`flows.md`、`operations.md`、`artifacts.md`、`identity-and-digests.md`、`implementation-boundary.md` 和 `modules.md` 保留业务/fixture oracle。其历史描述不覆盖现行 formal owner；S1a 已合入的目标补充仍标“待实现”，不能当作当前源码已生效行为。
+- `glossary.md` 是术语入口；`testing-fixtures.md` 说明 fixture 材料语义。源码在仓库 `vnext/`，前端独立在 `frontend/`。
 
-P4 设计仍从 [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
-进入；该 index 是 P4 专用 gate 入口，不覆盖当前 P5 默认入口。不要把下文旧
-contract/capability 清单当作 Repository Service wire 或 P2 完成状态：
+## 历史与恢复
 
-- [P4 Active Context Index](refactoring/formal/plans/p4-active-context-index.md)
-- [P4 Durable Operation Runtime Design Baseline](refactoring/formal/plans/p4-durable-operation-runtime-design.md)
-- [P4 Durable Operation Runtime Execution Plan](refactoring/formal/plans/p4-durable-operation-runtime-execution-plan.md)
-- [P4 Entry Acceptance Candidate](refactoring/formal/plans/p4-entry-acceptance.md)
-- [P4-R1-S0 Entry Brief](refactoring/formal/plans/p4-r1-s0-entry-brief.md)
-- [P4-R1 Runtime Contract and State Detailed Execution Plan](refactoring/formal/plans/p4-r1-runtime-contract-state-execution-plan.md)
-- [P4/R1 Runtime Contract and State Handoff](refactoring/formal/plans/p4-r1-runtime-contract-state-handoff.md)
-- [P4-R2-S0 Entry Brief](refactoring/formal/plans/p4-r2-s0-entry-brief.md)
-- [P4-R2 Durable Store and Atomic Transition Detailed Execution Plan](refactoring/formal/plans/p4-r2-durable-store-atomic-transition-execution-plan.md)
-- [P4/R2-S0 Independent Entry Acceptance](refactoring/formal/plans/p4-r2-s0-entry-acceptance.md)
-- [P2 External Interface Handoff](refactoring/formal/plans/p2-external-interface-handoff.md)
+P5/P4/P3 的最终交接与原始成功/失败继续保留，阶段入口见 [formal 历史导航](refactoring/formal/README.md#历史入口与恢复)。历史授权仅适用其阶段与时点，不构成本轮实施许可。
 
-P5-5B/5C 的历史 implementation authority 已消费并关闭。P5-5D docs-only entry/design/plan 已独立审核通过，
-四项文档 finding 全部关闭，固定 scope 归属 Contract 补充已接受为 3.0.0。下一步为明确授权 S1 实现。5D implementation 与 production deployment 未授权。
-
-历史 P3 默认入口 `p3-active-context-index.md` 已归档；恢复见 tag `docs/p3-p4-cleanup-pre-20260823`
-与 [P3→P4 Cleanup Manifest](refactoring/formal/plans/p3-p4-cleanup-manifest.yaml)。
-
-旧 `contracts/`、`capabilities/`、`flows.md`、`operations.md`、`artifacts.md`、
-`identity-and-digests.md`、`implementation-boundary.md` 和 `modules.md` 是 P3 capability 设计的
-**non-authoritative historical oracle**；它们保留用于行为/fixture 追溯，冲突以
-`refactoring/formal/` 当前 authority 为准，不得作为 P5 实现入口。
-
-## 目录约定
-
-- `glossary.md`：术语表。稳定后用于人和 AI 共同对齐语义。
-- `flows.md`：业务流程、业务对象和状态机。
-- `capabilities/`：可复用能力及其输入输出契约。
-- `operations.md`：执行编排、异步/并发 runtime、步骤状态和诊断。
-- `identity-and-digests.md`：业务 ID、内容 digest、内部 ref、下载标识的边界。
-- `artifacts.md`：source artifact、derived artifact、cache artifact、bundle artifact 的分类。
-- `implementation-boundary.md`：vNext 代码落点、隔离新包、旧模块依赖禁用和实施边界。
-- `modules.md`：目标代码模块边界。
-- `contracts/`：新一版对外或跨模块 contract（P3 capability oracle，不是 Repository Service wire）。
-- `adr/`：关键架构决策记录。
-- `refactoring/formal/`：现行 formal contract/ADR/architecture；仓库默认入口为 P5 baseline、5D accepted 文档入口与 5C independent exit，P4/P3 各有专用历史入口。
-- 历史 `notes/`、`dolt-test/`、`implementation-plan.md` 与已完成 execution plan 已离开默认树；恢复见 tag `docs/p2-p3-cleanup-pre-20260817` 与 [cleanup manifest](refactoring/formal/plans/p2-p3-cleanup-manifest.yaml)。
-
-## 当前已收口设计
-
-- `flows.md`：upload preview、submit acceptance/finalize、history compare、archive/promote 等业务流程如何调用能力。
-- `operations.md`：异步 operation、precommit warmup、finalize、history compare、retry/cancel 和 step diagnostics。
-- `identity-and-digests.md`：业务 ID、内容 digest、内部 ref、cache key digest 的边界。
-- `artifacts.md`：artifact 分类、L0/L1/L2/L3 持久化等级和 operation artifact closure。
-- `implementation-boundary.md`：新架构实现落在 `backend/backend_vnext/`，不依赖旧业务模块。
-- `modules.md`：`backend_vnext` 第一阶段目标模块、依赖方向和 benchmark 最小拆分。
-- `contracts/comparison-bundle.md`：目标 formal API 不复刻旧 DTO，按操作流程契约和 bundle/数据包契约拆分，并记录正式 upload preview bundle 与 data-surface closure 边界。
-- `frontend-surface-simplification.md`：surface/bundle thin core、前端派生、Workbench adapter 和旧功能覆盖策略。
-- `contracts/source-package-and-snapshot.md`：SourcePackage 到 Snapshot 的总览和拆分入口。
-- `contracts/source-package.md`：SourcePackage 容器、SourceDocumentRef、SqlDumpSource 和 source digest 边界。
-- `contracts/snapshot.md`：Snapshot、SnapshotSummary、SnapshotTableDescriptor 和 schema policy。
-- `contracts/snapshot-table-access.md`：SnapshotTableSet、SnapshotTableReader、SnapshotTableArtifact 和 table artifact cache 边界。
-- `contracts/comparison.md`：ComparisonInput、ProjectionTable、ComparisonFacts、ComparisonRecords 和 comparison core cache 边界。
-- `contracts/ordered-diff.md`：有序表 diff 的 ordered facts、records、interval/move、digest 和降级边界。
-- `contracts/risk.md`：RiskEvaluationInput、RiskRulesetSnapshot、RiskFacts、RiskEvaluation、RiskReport 和 annotation artifact 边界。
-- `contracts/comparison-surface.md`：ComparisonSurface 的展示 contract、artifact refs、digest、ordered table 预留和验收标准。
-- `contracts/table-presentation.md`：raw descriptor 到完整 preview 列展示元数据的独立契约和 digest 边界。
-- `contracts/comparison-bundle.md`：ComparisonBundle、FlowEnvelope、business projection refs、bundle artifact closure 和后续 Dolt native/ordered 计划。
-- `contracts/ordered-diff.md`：IEC104 ordered family、gid/no、pseudo blank、table processing mode 和 ordered risk reason code 的正式目标。
-- `adr/0002-comparison-hash-sqlite-mode-selection.md`：comparison compute 的 hash / SQLite 内部模式选择、benchmark 切换准则和诊断口径。
-- `capabilities/snapshot-materialization.md`：source staging、snapshot materialization、summary、table set resolution。
-- `capabilities/repository-ref-materialization.md`：repository ref 到 Snapshot/Summary/TableSet 的实现边界、RepositoryRefSession、scalar encoding 和 repository table cache 关系。
-- `capabilities/repository-import.md`：Dolt/repository API 边界、import provider modes、writer lease、cache handoff 和导入后校验。
-- `capabilities/comparison-compute.md`：comparison compute 的实现拆分、provider 路线、projection、records artifact、cache 接入点和验收标准。
-- `capabilities/business-projection.md`：业务 projection、secondary-device 身份索引、per-device/per-tab changes/risk 聚合和性能约束。
-- `capabilities/project-identity-and-dataset-replacement.md`：formal upload 的逐 pair 项目身份判定、跨项目 replacement 安全预览、提交/归档二次确认和审计边界。
-- `capabilities/dolt-native-provider.md`：Dolt native provider 的功能测试结论、eligibility、canonicalization、cache 边界和 benchmark 前置条件。
-- `capabilities/ordered-diff-compute.md`：`ORDERED_TABLE_COMPARE` provider 的第一版实现边界、算法取舍、records artifact 和验收标准。
-- `capabilities/risk-evaluation.md`：risk evaluation 的 capability 边界、第一版规则、annotation artifact、cache 预留和 ordered table 后续完善计划。
-- `capabilities/surface-assembly.md`：surface assembly 的 flow-neutral 能力边界、旧实现参考边界、ref validation 和 future cache。
-- `capabilities/table-presentation.md`：独立展示 ruleset、resolver、snapshot column comment 和 preview delivery 接入边界。
-- `capabilities/bundle-assembly.md`：bundle assembly 的 artifact closure、ref rewrite、Workbench adapter 和多 pair 组装边界。
-- `testing-fixtures.md`：vNext fixture 分层、测试隔离和 benchmark dataset 约定。
-- `adr/0001-snapshot-table-and-dolt-import-boundary.md`：SnapshotTableReader 与 Dolt import 分离的架构决策。
-- `adr/0003-dolt-native-provider-selection.md`：DOLT_NATIVE provider selection、history compare cache miss 边界和 comparison-side repository-backed context。
-
-## 当前合同与执行记录
-
-- `contracts/comparison-bundle.md`：正式 bundle/data package contract 与 upload preview bundle closure 的主锚点。
-- 历史执行记录、Dolt 功能测试结果与 notes 已归档到 tag `docs/p2-p3-cleanup-pre-20260817`，不作为当前兼容要求。
-
-## 工作原则
-
-1. 先梳理流程，再反推能力。
-2. 业务流程表达业务模型和状态机。
-3. 执行编排负责调用能力、记录步骤、处理重试和失败。
-4. 能力层只暴露稳定输入输出，不绑定 upload、submit 或 history compare 场景。
-5. Cache 不是业务事实；source package、snapshot、comparison、bundle 等事实对象必须有清晰归属。
-6. 新设计优先减少 ID/hash/status 数量，避免一个字段同时承担业务身份、内容校验、缓存 key 和存储路径。
-7. Capability 可以暴露多个稳定 entrypoint；可复用的 resolver、parser、projector、validator、canonicalizer 不应无必要地隐藏在单一 flow-facing 入口背后。
+本次三份已关闭中间记录的原路径、完整来源提交、blob 与 SHA256 见 [P6→P7 归档清单](refactoring/formal/plans/p6-p7-documentation-cleanup-manifest.tsv)。恢复方式见 [当前索引](refactoring/formal/plans/current-context-index.md#历史追溯与恢复)。更早归档见 [P2→P3 manifest](refactoring/formal/plans/p2-p3-cleanup-manifest.yaml) 和 [P3→P4 handoff](refactoring/formal/plans/p3-p4-cleanup-handoff.md)。

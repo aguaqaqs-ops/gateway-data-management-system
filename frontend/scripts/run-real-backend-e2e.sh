@@ -158,6 +158,7 @@ PY
 
 cleanup() {
   local exit_code=$?
+  local main_exit_code=$exit_code
   local cleanup_failed=0
   trap '' INT TERM HUP
   trap - EXIT
@@ -247,6 +248,7 @@ cleanup() {
     log "interrupted_by=$INTERRUPT_SIGNAL"
   fi
   log "cleanup_status=$([[ "$cleanup_failed" == "0" ]] && echo ok || echo failed)"
+  if [[ "$cleanup_failed" != "0" && "$exit_code" == "0" ]]; then exit_code=1; fi
 
   # 6. remove per-run secrets and inputs.
   [[ -n "$RUN_ROOT" ]] && rm -rf -- "$RUN_ROOT" || true
@@ -258,6 +260,7 @@ cleanup() {
     printf 'frontend_tree_end=%s\n' "$(git -C "$REPO_DIR" rev-parse HEAD:frontend 2>/dev/null || true)"
     printf 'vnext_tree_end=%s\n' "$(git -C "$REPO_DIR" rev-parse HEAD:vnext 2>/dev/null || true)"
     printf 'worktree_clean_end=%s\n' "$([[ -z "$(git -C "$REPO_DIR" status --porcelain=v1 --untracked-files=all 2>/dev/null)" ]] && echo true || echo false)"
+    printf 'main_exit_code=%s\n' "$main_exit_code"
     printf 'exit_code=%s\n' "$exit_code"
   } >> "$LOG_FILE" 2>/dev/null || true
   sha256sum "$LOG_FILE" > "$LOG_FILE.sha256" 2>/dev/null || true

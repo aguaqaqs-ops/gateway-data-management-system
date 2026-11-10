@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 
 from gateway_repository_service.app import create_app
 from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.deployment_config import StorageLayoutConfig
+from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.faults import ImportAdmissionFaultPoint
 from support.crash_recovery_worker import CRASH_EXIT_CODE
@@ -36,7 +38,8 @@ class _CrashAdmissionFaultInjector:
 def _settings_from_args(args: argparse.Namespace) -> RepositoryServiceSettings:
     return RepositoryServiceSettings(
         profile="test",
-        storage_layout_file=Path(args.storage_layout_file),
+        roots=RepositoryRoots.from_config(StorageLayoutConfig.load(Path(args.storage_layout_file))),
+        min_free_disk_bytes=1, min_free_disk_fraction=0.000001,
         bearer_token="test-bearer-token",
         dolt_binary=Path(args.dolt_binary),
         dolt_version=args.dolt_version,

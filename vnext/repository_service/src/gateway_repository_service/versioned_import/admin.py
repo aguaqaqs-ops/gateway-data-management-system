@@ -26,6 +26,7 @@ from gateway_repository_service.provider_lifecycle import (
     ProviderUnavailableError,
 )
 from gateway_repository_service.runtime import ServiceRuntime
+from gateway_repository_service.runtime_preflight import check_configured_root
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
 from gateway_repository_service.versioned_import.models import (
     ImportOperationExecutionContext,
@@ -71,6 +72,10 @@ def _parse_decision(raw: str) -> ManualCorrectionDecision | None:
 
 def _bind_admin_layout(settings: RepositoryServiceSettings) -> DurableLayout:
     try:
+        config = settings.storage_layout_config
+        if config is not None:
+            for slot in config.role_roots("repository_service"):
+                check_configured_root(config, slot)
         return DurableLayout.bind_existing(settings.storage_roots)
     except (LayoutError, OSError, ValueError, SettingsError) as exc:
         raise ControlDbError(str(exc)) from exc

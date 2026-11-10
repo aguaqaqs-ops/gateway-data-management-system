@@ -259,6 +259,7 @@ def test_cleanup_cli_skips_unavailable_slot_and_continues_other_roots(
     payload = local.payload_path(ref.artifact_id)
     os.utime(payload, (0, 0))
     absent = tmp_path / 'storage' / missing
+    (absent / ".gateway-storage.json").unlink()
     absent.rmdir()
     if missing == 'durable':
         with pytest.raises(ValueError, match='existing writable'):
@@ -326,3 +327,28 @@ def test_scratch_scan_budget_defers_entries_without_losing_cross_call_progress(
                 break
     assert cursor is None and deleted == 9
     assert not list(root.iterdir())
+
+
+@pytest.mark.parametrize("slot", ("metadata", "durable", "scratch"))
+def test_cleanup_marker_authority_refuses_metadata_and_skips_bad_optional_lanes(tmp_path: Path, capsys: pytest.CaptureFixture[str], slot: str) -> None:
+    from gateway_backend.bootstrap.storage_admin import main
+    from gateway_backend.infrastructure.control_db.database import initialize_control_db
+    from tests.support.artifact_layout import write_deployment_files
+    storage, resources = write_deployment_files(tmp_path / "storage")
+    initialize_control_db(tmp_path / "storage/metadata/control.sqlite3")
+    local = open_test_store(tmp_path / "storage")
+    ref = _put(local, ArtifactLocation.EXPORT)
+    payload = local.payload_path(ref.artifact_id)
+    os.utime(payload, (0, 0))
+    (tmp_path / "storage" / slot / ".gateway-storage.json").write_text("{}")
+    arguments = ["--storage-layout", str(storage), "--resource-profile", str(resources), "cleanup"]
+    if slot == "metadata":
+        with pytest.raises(SystemExit) as caught:
+            main(arguments)
+        assert caught.value.code == 2
+        assert payload.exists()
+    else:
+        assert main(arguments) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert any(item["location"] == slot and item["disposition"] == "manual_review" for item in result["items"])
+        assert not payload.exists()

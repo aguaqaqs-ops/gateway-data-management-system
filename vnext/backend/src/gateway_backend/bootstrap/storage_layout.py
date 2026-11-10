@@ -10,7 +10,9 @@ from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLa
 
 
 def artifact_layout_from_config(config: StorageLayoutConfig) -> ArtifactStoreLayout:
-    return ArtifactStoreLayout(root_validator=lambda location: check_configured_root(config, "be-" + location.value), **{location.value: Path(config.roots[f'be-{location.value}'].path)
+    for location in ArtifactLocation:
+        check_configured_root(config, "be-" + location.value)
+    return ArtifactStoreLayout(**{location.value: Path(config.roots[f'be-{location.value}'].path)
         for location in ArtifactLocation})
 
 

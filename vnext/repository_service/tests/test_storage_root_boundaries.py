@@ -175,9 +175,16 @@ try:
     assert runtime.layout.published_repository(response.repository_id.hex).is_dir()
 finally:
     runtime.shutdown()
+import json
+from dataclasses import asdict
+from pathlib import Path
+from gateway_repository_service.runtime_preflight import mounts, _cgroup_chain
+chain = _cgroup_chain()
+print('ACTUAL_RS_ROLE ' + json.dumps({'euid': os.geteuid(), 'cgroup': {name: (chain[0] / name).read_text().strip() for name in ('memory.max','memory.swap.max','cpu.max')}, 'mounts': [asdict(entry) for entry in mounts() if entry.target in {str(path) for path in settings.storage_roots.paths()}]}, sort_keys=True))
 print('GATEWAY_ENTRYPOINT_START_AND_CREATE_OK euid=' + str(os.geteuid()))
 """
     result = _run_container(command, ["/workspace/vnext/repository_service/docker-entrypoint.sh",
         "python", "-c", script], timeout=45)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "GATEWAY_ENTRYPOINT_START_AND_CREATE_OK euid=" in result.stdout
+    print(result.stdout, flush=True)

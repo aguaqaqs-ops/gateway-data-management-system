@@ -187,3 +187,60 @@ def test_disabled_cpuset_controller_uses_actual_process_affinity(tmp_path: Path,
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0})
     with pytest.raises(ValueError, match="CPU/cpuset"):
         real_check(deployment, "worker")
+
+
+def test_low_capacity_does_not_latch_identity_or_disable_cleanup(deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    guard = preflight.RuntimePreflight(deployment, "backend")
+    original = preflight.check_capacity
+    def low(*_args: object) -> tuple[int, int]:
+        raise preflight.CapacityUnavailable("low capacity")
+    monkeypatch.setattr(preflight, "check_capacity", low)
+    with pytest.raises(preflight.CapacityUnavailable):
+        guard.check()
+    guard.check(capacity=False)
+    cleanup_guard = preflight.RuntimePreflight(deployment, "repository_service", startup_capacity=False)
+    cleanup_guard.check(capacity=False)
+    monkeypatch.setattr(preflight, "check_capacity", original)
+    guard.check()
+    cleanup_guard.check()
+
+
+@pytest.mark.parametrize("failure", ("write", "fsync"))
+def test_startup_write_probe_failure_cleans_its_own_file(deployment: DeploymentConfig, monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
+    def fail(*_args: object) -> None:
+        raise OSError(5, "injected probe failure")
+    with monkeypatch.context() as injected:
+        injected.setattr(os, failure, fail)
+        with pytest.raises(ValueError, match="probe failed"):
+            preflight.RuntimePreflight(deployment, "backend")
+    assert all(not list(Path(root.path).glob(".gateway-preflight-*")) for root in deployment.storage.role_roots("backend").values())
+
+
+@pytest.mark.parametrize("fault", (None, "missing-leaf", "missing-ancestor", "tight-ancestor"))
+def test_true_cgroup_hierarchy_root_has_no_local_limits_but_other_layers_must(deployment: DeploymentConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None) -> None:
+    from importlib import reload
+    real_check = reload(preflight).check_resources
+    base, parent, leaf = tmp_path / "cgroup", tmp_path / "cgroup/parent", tmp_path / "cgroup/parent/leaf"
+    leaf.mkdir(parents=True)
+    (base / "cgroup.controllers").write_text("cpu memory cpuset")
+    (base / "cgroup.procs").write_text("")
+    worker = deployment.resources.worker
+    for group in (parent, leaf):
+        (group / "cgroup.type").write_text("domain")
+        (group / "memory.max").write_text(str(worker.memory_envelope_bytes))
+        (group / "memory.swap.max").write_text("0")
+        (group / "cpu.max").write_text("200000 100000")
+    if fault == "missing-leaf":
+        (leaf / "memory.max").unlink()
+    elif fault == "missing-ancestor":
+        (parent / "cpu.max").unlink()
+    elif fault == "tight-ancestor":
+        (parent / "memory.max").write_text("1")
+    monkeypatch.setattr(preflight, "mounts", lambda: (preflight.Mount(1, "0:1", "/", str(base), "none", True, "cgroup2"),))
+    monkeypatch.setattr(preflight, "_cgroup_chain", lambda: (leaf, parent, base))
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: {0, 1, 2, 3})
+    if fault is None:
+        real_check(deployment, "worker")
+    else:
+        with pytest.raises((OSError, ValueError)):
+            real_check(deployment, "worker")

@@ -7,6 +7,9 @@ import math
 import os
 import re
 import stat
+import errno
+from uuid import uuid4
+from collections.abc import Callable
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -99,12 +102,45 @@ def check_configured_root(config: StorageLayoutConfig, slot: str) -> None:
     check_marker(config, slot, path)
 
 
+class CapacityUnavailable(ValueError):
+    """Recoverable admission failure; identity/cleanup authority is unaffected."""
+
+
+class DeploymentIdentityChanged(ValueError):
+    """A configured identity changed and requires a fresh process preflight."""
+
+
+def write_probe(path: Path) -> None:
+    """One startup create/write/fsync/unlink probe under an already attested root."""
+    directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    name = ".gateway-preflight-" + uuid4().hex
+    descriptor: int | None = None
+    created = False
+    try:
+        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        created = True
+        os.write(descriptor, b"x")
+        os.fsync(descriptor)
+    finally:
+        try:
+            if descriptor is not None:
+                os.close(descriptor)
+        finally:
+            try:
+                if created:
+                    os.unlink(name, dir_fd=directory)
+                    os.fsync(directory)
+            finally:
+                os.close(directory)
+
+
 def check_capacity(path: Path, minimum: int, fraction: float) -> tuple[int, int]:
     info = os.statvfs(path)
     available = info.f_bavail * info.f_frsize
-    if (available < max(minimum, math.ceil(info.f_blocks * info.f_frsize * fraction))
-            or info.f_favail == 0 or info.f_flag & os.ST_RDONLY):
-        raise ValueError("storage filesystem is read-only or below its capacity threshold")
+    if info.f_flag & os.ST_RDONLY:
+        raise ValueError("storage filesystem is read-only")
+    if available < max(minimum, math.ceil(info.f_blocks * info.f_frsize * fraction)) or info.f_favail == 0:
+        raise CapacityUnavailable("storage filesystem is below its capacity threshold")
     return available, info.f_favail
 
 
@@ -203,16 +239,47 @@ def _effective_cpuset(group: Path) -> int | None:
     return _cpus(value) if value else None
 
 
+def _true_hierarchy_root(group: Path) -> bool:
+    # cgroup.type/freeze/events exist only on non-root cgroups (kernel cgroup-v2
+    # documentation). A namespaced/delegated root still exposes those files.
+    candidates = [entry for entry in mounts() if entry.filesystem_type == "cgroup2"
+                  and entry.root == "/" and entry.target == str(group)]
+    if len(candidates) != 1 or not (group / "cgroup.procs").is_file():
+        return False
+    if any((group / name).exists() for name in ("cgroup.type", "cgroup.freeze", "cgroup.events")):
+        return False
+    return {"cpu", "memory"} <= set(_bounded(group / "cgroup.controllers", 4096).split())
+
+
+def _ancestor_limit(group: Path, name: str) -> int | None:
+    try:
+        return _limit(group / name)
+    except FileNotFoundError:
+        if _true_hierarchy_root(group):
+            return None
+        raise ValueError("required cgroup limit is unavailable") from None
+
+
+def _ancestor_cpu(group: Path) -> float | None:
+    try:
+        quota, period = _bounded(group / "cpu.max", 256).split()
+    except FileNotFoundError:
+        if _true_hierarchy_root(group):
+            return None
+        raise ValueError("required CPU controller limit is unavailable") from None
+    return None if quota == "max" else int(quota) / int(period)
+
+
 def check_host_budget(config: DeploymentConfig) -> None:
     physical = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
     cpu = float(len(os.sched_getaffinity(0)))
     for group in _cgroup_chain():
-        memory = _limit(group / "memory.max")
+        memory = _ancestor_limit(group, "memory.max")
         if memory is not None:
             physical = min(physical, memory)
-        quota, period = _bounded(group / "cpu.max", 256).split()
-        if quota != "max":
-            cpu = min(cpu, int(quota) / int(period))
+        quota = _ancestor_cpu(group)
+        if quota is not None:
+            cpu = min(cpu, quota)
         effective = _effective_cpuset(group)
         if effective is not None:
             cpu = min(cpu, effective)
@@ -236,15 +303,15 @@ def check_resources(config: DeploymentConfig, role: str) -> None:
         raise ValueError("actual CPU quota does not match resource profile")
     effective_cpu = float(len(os.sched_getaffinity(0)))
     for group in chain:
-        ancestor_swap = _limit(group / "memory.swap.max")
+        ancestor_swap = _ancestor_limit(group, "memory.swap.max")
         if ancestor_swap is not None and ancestor_swap < swap:
             raise ValueError("ancestor swap policy is below role profile")
-        maximum = _limit(group / "memory.max")
+        maximum = _ancestor_limit(group, "memory.max")
         if maximum is not None and maximum < memory:
             raise ValueError("ancestor memory limit is below role envelope")
-        quota, period = _bounded(group / "cpu.max", 256).split()
-        if quota != "max":
-            effective_cpu = min(effective_cpu, int(quota) / int(period))
+        quota = _ancestor_cpu(group)
+        if quota is not None:
+            effective_cpu = min(effective_cpu, quota)
         effective = _effective_cpuset(group)
         if effective is not None:
             effective_cpu = min(effective_cpu, effective)
@@ -255,16 +322,24 @@ def check_resources(config: DeploymentConfig, role: str) -> None:
 class RuntimePreflight:
     """Bounded role-local observations; identity loss remains latched until restart."""
 
-    def __init__(self, config: DeploymentConfig, role: str, *, container: bool = True) -> None:
+    def __init__(self, config: DeploymentConfig, role: str, *, container: bool = True,
+                 startup_capacity: bool = True, configuration_check: Callable[[], None] | None = None) -> None:
         if not container and (Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()):
             raise ValueError("host mode is unavailable inside a deployment container")
         self.config = config
         self.role = role
         self.container = container
+        self.configuration_check = configuration_check
         self._identities: dict[str, tuple[int, int, int]] = {}
         self._failed = False
-        self.check()
-        logging.getLogger(__name__).info("deployment preflight %s", json.dumps(self.observations(), sort_keys=True))
+        self.check(capacity=startup_capacity)
+        try:
+            for root in config.storage.role_roots(role).values():
+                write_probe(Path(root.path))
+        except OSError:
+            raise ValueError("role storage create/fsync/unlink probe failed") from None
+        self.check(capacity=startup_capacity)
+        logging.getLogger(__name__).info("deployment preflight %s", json.dumps(self.observations(capacity=startup_capacity), sort_keys=True))
 
     def check(self, *, capacity: bool = True) -> None:
         if self._failed:
@@ -276,17 +351,29 @@ class RuntimePreflight:
                 check_resources(self.config, self.role)
             for slot, root in self.config.storage.role_roots(self.role).items():
                 path = Path(root.path)
-                info = nofollow_directory(path)
+                try:
+                    info = nofollow_directory(path)
+                except ValueError:
+                    raise DeploymentIdentityChanged(f"{slot}: storage root identity is invalid") from None
+                except OSError as exc:
+                    if exc.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+                        raise DeploymentIdentityChanged(f"{slot}: deployment storage root unavailable") from None
+                    raise
                 entries = [item for item in observed if item.target == root.path]
                 policy = self.config.storage.filesystems[root.filesystem_id]
                 relative = str(Path(root.source).relative_to(policy.mountpoint))
-                if self.container and (len(entries) != 1 or entries[0].source != policy.expected_source or not entries[0].writable
+                if self.container and (len(entries) != 1 or entries[0].source != policy.expected_source
                         or (relative != "." and not entries[0].root.endswith("/" + relative))):
-                    raise ValueError(f"{slot}: actual bind mount does not match configuration")
+                    raise DeploymentIdentityChanged(f"{slot}: actual bind mount does not match configuration")
+                if self.container and not entries[0].writable:
+                    raise ValueError(f"{slot}: storage mount is read-only")
                 identity = (info.st_dev, info.st_ino, entries[0].mount_id if self.container else 0)
                 if slot in self._identities and self._identities[slot] != identity:
-                    raise ValueError(f"{slot}: storage mount identity changed")
-                check_marker(self.config.storage, slot, path)
+                    raise DeploymentIdentityChanged(f"{slot}: storage mount identity changed")
+                try:
+                    check_marker(self.config.storage, slot, path)
+                except (ValueError, FileNotFoundError):
+                    raise DeploymentIdentityChanged(f"{slot}: storage marker identity mismatch") from None
                 if not os.access(path, os.R_OK | os.W_OK | os.X_OK, effective_ids=True):
                     raise ValueError(f"{slot}: role lacks storage permissions")
                 bounds = (policy.min_free_bytes, policy.min_free_fraction)
@@ -296,16 +383,17 @@ class RuntimePreflight:
                     check_capacity(path, *bounds)
                 seen[info.st_dev] = bounds
                 self._identities[slot] = identity
-        except OSError:
-            self._failed = True
-            raise ValueError("deployment storage root unavailable") from None
-        except ValueError:
+            if self.configuration_check is not None:
+                self.configuration_check()
+        except DeploymentIdentityChanged:
             self._failed = True
             raise
+        except OSError:
+            raise ValueError("deployment storage root unavailable") from None
 
-    def observations(self) -> dict[str, object]:
+    def observations(self, *, capacity: bool = True) -> dict[str, object]:
         """S1b input: fixed slot count, no recursive object scan or durable telemetry."""
-        self.check()
+        self.check(capacity=capacity)
         result: dict[str, object] = {"environment_id": self.config.storage.environment_id,
             "group_id": self.config.storage.group_id, "storage_digest": self.config.storage.digest,
             "resource_digest": self.config.resources.digest, "role": self.role, "hard_envelope": self.container, "slots": {}}

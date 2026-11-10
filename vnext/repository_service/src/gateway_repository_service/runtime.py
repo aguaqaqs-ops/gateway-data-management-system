@@ -127,7 +127,7 @@ class ServiceRuntime:
         stack = ExitStack()
         try:
             deployment = settings.deployment_config
-            guard = RuntimePreflight(deployment, "repository_service") if deployment is not None else None
+            guard = RuntimePreflight(deployment, "repository_service", startup_capacity=False) if deployment is not None else None
             bearer_token = settings.resolve_bearer_token()
             layout = DurableLayout.create_service(settings.storage_roots)
             root_lock = DurableRootLock(layout.service_lock)
@@ -203,6 +203,8 @@ class ServiceRuntime:
                 )
             if not has_layout_disk_admission(layout, settings):
                 raise ServiceStartupError("durable root free disk is below admission threshold")
+            if guard is not None:
+                guard.check()
             stopping = threading.Event()
             import_worker_pool = ImportWorkerPool(
                 settings=settings,

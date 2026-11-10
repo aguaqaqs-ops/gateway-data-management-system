@@ -95,6 +95,7 @@ from gateway_backend.infrastructure.repository_write.terminal_evidence_codec imp
     WireRepositoryTerminalEvidenceDecodePort,
 )
 from gateway_backend.runtime_preflight import RuntimePreflight
+from gateway_backend.bootstrap.deployment_identity import publish_configuration, compare_configuration
 
 from gateway_backend.settings import BackendSettings
 
@@ -276,6 +277,9 @@ def prepare_backend_runtime(
     """Validate settings, SQLite, artifact root, registry, and Repository readiness before /readyz."""
 
     guard = RuntimePreflight(settings.deployment_config, "backend", container=settings.runtime_mode == "container")
+    publish_configuration(settings.deployment_config)
+    guard.configuration_check = lambda: compare_configuration(settings.deployment_config)
+    guard.check()
     repository_token = load_repository_bearer_token(settings.repository_bearer_token_file)
     load_internal_bearer_token(settings.internal_bearer_token_file)
     load_session_file(settings.session_file)

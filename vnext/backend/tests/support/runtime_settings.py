@@ -191,3 +191,12 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
     profile["host_budget"]["memory_bytes"] = 64 * 1024**3
     profile["host_budget"]["cpu_count"] = 32
     resources.write_text(json.dumps(profile))
+    if prepare:
+        from gateway_backend.deployment_config import DeploymentConfig
+        from gateway_backend.bootstrap.deployment_identity import publish_configuration
+        try:
+            deployment = DeploymentConfig.load(storage, resources)
+        except ValueError:
+            pass  # invalid-profile owners exercise the settings validator next
+        else:
+            publish_configuration(deployment)

@@ -1,6 +1,6 @@
 # FE4 kickoff：前端收口与业务导航接入
 
-- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。FE4 尚未开始。
+- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。FE4 尚未开始。
 - **日期：** 2026-11-10（时间均为 UTC）。
 - **起点：** `fe-fe3c-exit`（tag 对象 `43e66d3eb7` → `06b454b0ef`；被测提交 `e22e39ba15`；`frontend/` 树 `46e425f84e`）。main 合入提交 `475022300c`，退出记录 `16ffe72829`。
   `fe-vnext` 仍在 `e22e39ba15`，比 tag 少一个 docs 提交（`06b454b0ef`，只新增 `fe3c-evidence-04.md`）。
@@ -146,7 +146,7 @@ FE4b 的细节（fixture 的生成方式、Contract 版本号的判定、按导�
     - `fe4-t1-workbench`：工作台，组态树与详情面板（第 1 步上传前）；
     - `fe4-t1-preview-v1`：Preview v1 差异浏览（全部新增，第 1 步）；
     - `fe4-t1-preview-v2-baseline_to_initial`、`fe4-t1-preview-v2-initial_to_modified`：Preview v2 FULL 的两个比较对（第 4 步，按 `pair_id` 取用，同 FE3 kickoff §8.3）；
-    - `fe4-t1-review`：审核模式（第 2 步或第 5 步）；
+    - `fe4-t1-review`：审核模式，固定在第 5 步（审核 v2 FULL，含两个比较对）；
     - `fe4-t1-history-3node`：历史比较三节点的结果（第 6 步）；
     - `fe4-t1-archive`：归档主线的业务核验概况（第 3 步；t1 v1 预期没有业务核验异常）。
   - 截图放在 M1 的测量窗口之外：第 1 步的 renderer 增量先取值，再拍 `fe4-t1-preview-v1`，切换宽度不进入 M1 读数。
@@ -261,7 +261,7 @@ FE4a 在 `frontend/scripts/` 下提交两个工具，由审核会话审核，FE4
 
 FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `artifact_id` 格式与 bundle 交付，前端的 bundle 解析、互通 fixture 与生成器都可能受影响，而这些变化在 OpenAPI 中看不出来。因此下面的交付清单要求把两者的变化分开说明。后端已把 S1a 一侧写成 S1a 退出的交接要求（[S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md)，以及 `p7-s1a-execution-plan.md` 的 owner 补充）：以实际候选与证据说明规范化 OpenAPI、bundle tar 成员的 `logical_path` 集合与 manifest 字段集合不变，并逐项列出改变的 ID 与摘要取值及其传递影响。FE4b 第 2 步以该交接与 BE-b 的交付一起核对第 7 项。
 
-**与后端记录的出入：** [S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md)（`27ea352487`）写的是“第二步设计现在开始”，与 owner 修订 2 的决定（S1a 结束后开始）不一致。该文档由后端维护，本文不改，由 owner 转后端更新。
+**与后端记录一致：** 后端已按 owner 2026-11-10 的更正更新记录（`e2eaab4db9`：`p7-s1a-execution-plan.md` 与 [S1a 前端交接与 BE-b 第二步设计启动](../backend-vnext/refactoring/formal/plans/p7-s1a-frontend-beb-handoff.md) 均改为“BE-b 第二步设计在 S1a 本地 exit 并合入 main 之后由后端开始，随后实施”），与本文一致。
 
 **FE4b 需要 BE-b 交付的内容（写进 BE-b 第二步的交付清单）：**
 
@@ -383,8 +383,6 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 ### 7.2 证据项
 
-| 子阶段 | 内容 | 性质 |
-| --- | --- | --- |
 真实数据的次数由 owner 2026-11-10 按 DC33、DC98 决定（§10 Q11）。
 
 | 子阶段 | 内容 | 性质 |
@@ -494,7 +492,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 **后续仍需 owner 或后端处理的事项：**
 
-- 后端交接记录 `p7-s1a-frontend-beb-handoff.md`（`27ea352487`）写的是“第二步设计现在开始”，与 Q5 修订 2 不一致，由 owner 转后端更新（§4）；
+- 已完成：后端交接记录 `p7-s1a-frontend-beb-handoff.md` 中第二步的开始时间已按 Q5 修订 2 更正（`e2eaab4db9`，§4）；
 - BE-b 的排期与后端会话安排（后端流程）；
 - t1 第二次调试运行（§7.2）；
 - FE4a 退出时 main 的推送；FE4b 退出时的 tag、合入与推送。
@@ -507,7 +505,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 **前置条件：**
 
-1. 本文经审核会话定向复核（§10 已全部由 owner 决定）；
+1. 本文经审核会话定向复核（§10 已全部由 owner 决定）；复核通过后，由设计会话把 `fe4-kickoff` 以 `--no-ff` 合入本地 main（不推送），提示词中的 `[kickoff 确认提交]` 与 `[确认提交]` 填入合入后的提交号；
 2. 审核会话发出前重核并记录：
    - `fe-vnext` 仍为 `e22e39ba15`；
    - `p6-exit` 仍指向 `b0fc25e881`，其 `vnext/` 为 `49c1de43be`；
@@ -642,13 +640,30 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 - **BE-b 设计草案：**
   - §5 首句“第二步在 P6 S5 接近完成时定稿”：原文保留，末尾追加 owner 2026-11-10 的新时点。
 
+### 13.4 修订 3（2026-11-10）
+
+依据[定向复核报告](reviews/fe4-kickoff-rereview-1.md)（`be3dc218f8`，通过）的 R1–R4，以及 owner 对 D-R1 的确认（以修订 2 为准）和后端的记录更正（`e2eaab4db9`）。
+
+**本文修改的节：**
+
+- 头部：状态加修订 3；
+- §3.3（R3）：`fe4-t1-review` 固定在第 5 步；
+- §4：“与后端记录的出入”改为“与后端记录一致”，引用 `e2eaab4db9`；
+- §7.2（R1）：删除残留的空表头；
+- §10：“后续仍需 owner 或后端处理的事项”第一条改为已完成；
+- §11.1（R2）：前置条件第 1 项加“复核通过后由设计会话以 `--no-ff` 把 `fe4-kickoff` 合入本地 main，提示词填入合入后的提交号”；
+- §13.4；
+- §14（R4）：B1 行第 ③ 点后注明“修订 2 已改，见 §10 Q5”。
+
+§2.2 的“本地 main（修订时）”仍记修订 1 时的 `27ea352487`，不随本次更新：发提示词前由审核会话按 §11.1 重核并记录 main 当时的头。其他文档本次不改。
+
 ## 14. 审核意见与 owner 决定的处理（修订 1）
 
 依据[审核报告](reviews/fe4-kickoff-review.md)第 11 节与 owner 2026-11-10 的决定（§10）。owner 的决定优先于审核报告第 12 节提示词中的写法。
 
 | 编号 | 处理 | 位置 |
 | --- | --- | --- |
-| B1 | **已改。** ① §2.2 记录修订时本地 main 为 `d10f6d55a8`、`vnext/` 仍为 `49c1de43be`（不照抄审核时的 `00ca325c2e`），列出 `16ffe72829` 之后的主线提交，FE4a 仍固定用 `16ffe72829` 并换上新理由；② 头部与 §2.3 改写 P7 事实：S0 已收口、S1a 编码已获授权、P7 文档未提及 BE-b，不据此推导 BE-b 设计；③ Q5 按 owner 决定改写为已决定项（BE-b 第二步以 S1a 目标 Contract 为基础、实施在 S1a 本地退出合入 main 之后），不再保留“P7 计划未提交”的前提；④ §4 交付清单增加第 7 项，在 owner 要求的 OpenAPI 差异、`logical_path` 集合、manifest 字段集合之外，保留 ArtifactRef 与 surface 的变化说明与互通 fixture；⑤ §11.1 前置条件增加发提示词前重核 `fe-vnext`、`p6-exit` 与 main | 头部、§1、§2.2、§2.3、§4、§6.1、§9、§10 Q5、§11.1 |
+| B1 | **已改。** ① §2.2 记录修订时本地 main 为 `d10f6d55a8`、`vnext/` 仍为 `49c1de43be`（不照抄审核时的 `00ca325c2e`），列出 `16ffe72829` 之后的主线提交，FE4a 仍固定用 `16ffe72829` 并换上新理由；② 头部与 §2.3 改写 P7 事实：S0 已收口、S1a 编码已获授权、P7 文档未提及 BE-b，不据此推导 BE-b 设计；③ Q5 按 owner 决定改写为已决定项（BE-b 第二步以 S1a 目标 Contract 为基础、实施在 S1a 本地退出合入 main 之后），不再保留“P7 计划未提交”的前提（修订 2 已改，见 §10 Q5）；④ §4 交付清单增加第 7 项，在 owner 要求的 OpenAPI 差异、`logical_path` 集合、manifest 字段集合之外，保留 ArtifactRef 与 surface 的变化说明与互通 fixture；⑤ §11.1 前置条件增加发提示词前重核 `fe-vnext`、`p6-exit` 与 main | 头部、§1、§2.2、§2.3、§4、§6.1、§9、§10 Q5、§11.1 |
 | B2 | **已改。** FE4a 只在 `t1.spec.ts` 中加入不依赖 BE-b 的 7 个页面的参考截图，列出截图名规则与 1280/1920；依赖 BE-b 的页面在第 2 步定稿并在 FE4b 实现；FE4a 退出条件不含 BE-b 页面；另规定截图放在 M1 测量窗口之外 | §3.3、§5.2、§5.3、§7.3、§11.1 范围第 6 项 |
 | N1 | **已改。** §6.2 补全分类（`snapshot_materialization/`、`repository_read/`、`canonical_metadata`、`pair_pipeline`、`bootstrap/operation_worker.py`、`repository_client/src/`、完整的 Rust 文件），第 1 行补导入闭包核对。按路径计 control DB 为 6 个、测试 24 个，与审核报告的 7、23 计法不同，总数同为 72，已注明 | §6.2 |
 | N2 | **已改。** §6.2 operation 行写明 History 比较 assemble 步骤新增的两类终态失败与 `diagnostic.code` 可达取值扩大，结论为无渲染影响 | §6.2 |

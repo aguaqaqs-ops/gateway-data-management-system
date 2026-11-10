@@ -152,3 +152,7 @@ A完成条件是本入口/目标/消费者/摘要表被原审核收及静态原�
 ### A R1 修订记录
 
 原审报告`/home/dev/gdds-p7-s1a-reviews/a/a46cea2c-r1.md`对`a46cea2c048b2dfb57c5c3ab062974ae6815a4df`提出A-R1-F1/P2：缺multipart接收与comparison spool的scratch消费者交接；A-R1-N1/P3：S0总规划锚点来自未提交标题。此次只补文档：§3.2/§5、详细设计§3.1、执行方案§3.3与Comparison目标明确route/dependency注入、request/attempt owner、累计cap、close/取消/ENOSPC及无系统temp回退；S0链接改为候选已提交标题锚点，不动implementation-stages。验证稿保持原内容，继承须由原审确认；未运行测试，不以修订自签finding关闭或产品PASS。
+
+### A 静态执行工具故障修订
+
+06对`24394b98a6e6f9bea89c404b44cf0dde691a8044`的首份wrapper在§5前因同条local展开未初始化filename而exit1；原日志和错误记录SHA见[修订执行稿§5](p7-s1a-a-verification.md#5-首次失败与本次最小修复)。原稿SCRIPT_GO不等于完整执行通过；§5–7未完成。Owner已明确同意继续，本次只固定完整文档验证脚本`p7-s1a-a-verify.sh`并将依赖变量初始化分行，补全起止日志/原exit/本人资源释放；产品、预期和原失败原件保持。本版仍待原审与唯一测试角色执行，未由实施者运行。

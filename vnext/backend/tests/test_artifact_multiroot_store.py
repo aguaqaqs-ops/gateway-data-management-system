@@ -242,7 +242,8 @@ def test_directory_sync_failure_keeps_complete_object_and_retry_verifies(
     local = open_test_store(tmp_path / 'objects')
     ref = ref_for(ArtifactLocation.DURABLE, b'content')
     directory = local.object_directory(ref.artifact_id)
-    original = module.fsync_directory
+    from gateway_backend.infrastructure.artifact_store.atomic_publish import fsync_directory
+    original = fsync_directory
     def failed_after_rename(path: Path) -> None:
         if path == directory.parent and directory.exists():
             raise OSError(errno.EIO, 'isolated directory sync failure')

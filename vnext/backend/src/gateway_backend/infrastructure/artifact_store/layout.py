@@ -86,7 +86,7 @@ class ArtifactStoreLayout:
     def read_session(self, locations: tuple[ArtifactLocation, ...] = ROOT_ORDER) -> Iterator[None]:
         # A shared FD plus a count per root supports nested users and streaming
         # contexts that enter and close on different HTTP thread-pool threads.
-        # Cleanup is nonblocking, so acquiring SH never waits behind a held EX.
+        # Cleanup never waits behind SH; root borrows precede DB transactions.
         selected = tuple(location for location in ROOT_ORDER if location in locations)
         entered: list[ArtifactLocation] = []
         try:

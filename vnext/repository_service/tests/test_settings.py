@@ -185,3 +185,18 @@ def test_deployment_storage_file_selects_all_rs_roots(tmp_path: Path) -> None:
     settings = RepositoryServiceSettings(storage_layout_file=layout_file)
     assert settings.storage_roots == roots
     assert settings.control_db_path == roots.metadata / "service-state/repository-service.sqlite3"
+
+
+@pytest.mark.parametrize("provider", ("ordinary", "candidate"))
+def test_query_scratch_limit_rejects_before_creating_a_file(tmp_path: Path, provider: str) -> None:
+    if provider == "ordinary":
+        from gateway_repository_service.providers import _write_query, ProviderError
+        write = _write_query
+        error = ProviderError
+    else:
+        from gateway_repository_service.candidate_a.dolt_cli import write_query, DoltCliError
+        write = write_query
+        error = DoltCliError
+    with pytest.raises(error, match="scratch size"):
+        write(tmp_path, "SELECT 1;", max_bytes=1)
+    assert not list(tmp_path.iterdir())

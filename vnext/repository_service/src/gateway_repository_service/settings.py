@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -79,6 +79,22 @@ class RepositoryServiceSettings(BaseSettings):
     max_concurrent_row_streams: int = 8
     full_scan_timeout_seconds: int = 3600
     import_headroom_bytes: int = 1 * 1024**3
+
+    @model_validator(mode="after")
+    def _apply_deployment_temporary_limits(self) -> Self:
+        if self.storage_layout_file is not None and self.resource_profile_file is not None:
+            deployment = self.deployment_config
+            assert deployment is not None
+            # Upload staging/ready bytes belong to rs-artifacts; extracted entry
+            # payloads belong to rs-scratch. Tar framing remains its own bound.
+            self.max_upload_bytes = min(self.max_upload_bytes, deployment.resources.temporary.staging_max_bytes_per_object)
+            self.max_total_expanded_entry_bytes = min(self.max_total_expanded_entry_bytes,
+                deployment.resources.temporary.scratch_max_bytes_per_attempt)
+        return self
+
+    @property
+    def scratch_file_max_bytes(self) -> int:
+        return self.max_total_expanded_entry_bytes
 
     @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod

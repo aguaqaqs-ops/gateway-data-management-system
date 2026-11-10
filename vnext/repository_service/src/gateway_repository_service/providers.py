@@ -183,9 +183,12 @@ class Provider(Protocol):
     def close(self) -> None: ...
 
 
-def _write_query(directory: Path, sql: str) -> Path:
+def _write_query(directory: Path, sql: str, *, max_bytes: int) -> Path:
+    raw = sql.encode("utf-8")
+    if len(raw) > max_bytes:
+        raise ProviderError("query scratch size exceeds configured limit")
     path = directory / f"query-{uuid4().hex}.sql"
-    path.write_text(sql, encoding="utf-8")
+    path.write_bytes(raw)
     return path
 
 
@@ -452,6 +455,7 @@ class OfflineCliProvider:
         query = _write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
+            max_bytes=self.settings.scratch_file_max_bytes,
         )
         stream: ProcessStream | None = None
         workflow_baseline_cgroup = (
@@ -631,6 +635,7 @@ class OfflineCliProvider:
         query = _write_query(
             self.query_directory,
             f"SELECT {select_list} FROM {quote_identifier(table.name)} AS OF '{commit_id}';\n",
+            max_bytes=self.settings.scratch_file_max_bytes,
         )
         discard: DiscardProcess | None = None
         sampler: MemorySampler | None = None

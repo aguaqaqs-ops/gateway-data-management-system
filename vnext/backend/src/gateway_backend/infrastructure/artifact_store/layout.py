@@ -18,7 +18,7 @@ ROOT_ORDER = tuple(ArtifactLocation)
 
 
 def _directory_identity(path: Path) -> tuple[int, int, str]:
-    if not path.is_absolute() or path == Path('/'):
+    if not path.is_absolute() or path == Path('/') or '..' in path.parts:
         raise ValueError("artifact root must be an absolute non-root directory")
     for part in (*reversed(path.parents), path):
         if part.is_symlink():
@@ -28,11 +28,15 @@ def _directory_identity(path: Path) -> tuple[int, int, str]:
         info = os.fstat(descriptor)
         if not stat.S_ISDIR(info.st_mode) or not info.st_mode & 0o222 or not os.access(path, os.W_OK | os.X_OK):
             raise ValueError("artifact root must be writable")
-        mount_id = next(line for line in Path(f'/proc/self/fdinfo/{descriptor}').read_text().splitlines()
-            if line.startswith('mnt_id:'))
+        mount_id = descriptor_mount_id(descriptor)
         return info.st_dev, info.st_ino, mount_id
     finally:
         os.close(descriptor)
+
+
+def descriptor_mount_id(descriptor: int) -> str:
+    return next(line for line in Path(f'/proc/self/fdinfo/{descriptor}').read_text().splitlines()
+        if line.startswith('mnt_id:'))
 
 
 @dataclass(frozen=True)
@@ -53,7 +57,11 @@ class ArtifactStoreLayout:
             for other in paths[index + 1:]:
                 if path == other or path in other.parents or other in path.parents:
                     raise ValueError("artifact roots must be distinct and non-nested")
-        object.__setattr__(self, '_identities', {location: _directory_identity(self.root(location)) for location in ROOT_ORDER})
+        try:
+            identities = {location: _directory_identity(self.root(location)) for location in ROOT_ORDER}
+        except (OSError, ValueError, StopIteration):
+            raise ValueError('artifact root must be an existing writable directory without symlinks') from None
+        object.__setattr__(self, '_identities', identities)
         object.__setattr__(self, '_borrows', {})
         object.__setattr__(self, '_mutex', RLock())
 

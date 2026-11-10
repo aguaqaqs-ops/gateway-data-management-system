@@ -22,7 +22,7 @@ from gateway_backend.artifacts.store import ArtifactFileSourcePort, ArtifactUnav
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 from gateway_backend.infrastructure.artifact_store.atomic_publish import check_publication_support, fsync_directory, rename_noreplace
-from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
+from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout, descriptor_mount_id
 from gateway_backend.infrastructure.artifact_store.scratch import ScratchFile
 
 _CHUNK = 64 * 1024
@@ -74,6 +74,11 @@ class LocalArtifactStore:
         if not path.is_relative_to(root):
             raise ManifestVerificationError('artifact path escapes root')
         device = root.stat().st_dev
+        root_fd = os.open(root, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            mount_id = descriptor_mount_id(root_fd)
+        finally:
+            os.close(root_fd)
         current = root
         for name in path.relative_to(root).parts:
             current = current / name
@@ -81,8 +86,14 @@ class LocalArtifactStore:
                 info = current.lstat()
             except FileNotFoundError:
                 continue
-            if stat.S_ISLNK(info.st_mode) or info.st_dev != device or os.path.ismount(current):
+            if stat.S_ISLNK(info.st_mode) or info.st_dev != device:
                 raise ManifestVerificationError('artifact path cannot follow a symlink or child mount')
+            descriptor = os.open(current, os.O_PATH | os.O_NOFOLLOW)
+            try:
+                if descriptor_mount_id(descriptor) != mount_id:
+                    raise ManifestVerificationError('artifact path cannot follow a child mount')
+            finally:
+                os.close(descriptor)
 
     def put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
         return self.put_chunks((raw_bytes,), ref)

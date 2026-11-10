@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+
 from tests.support.artifact_layout import open_test_store
 
 import sqlite3

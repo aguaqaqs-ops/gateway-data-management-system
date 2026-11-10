@@ -7,6 +7,7 @@ owns physical row validation. Missing or contradictory metadata fails closed.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from dataclasses import asdict, dataclass
@@ -51,7 +52,6 @@ from gateway_backend.domain.workspace.models import InputCompleteness, SourceArt
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.infrastructure.artifact_store.layout import ArtifactStoreLayout
 from gateway_backend.deployment_config import DeploymentConfig
-from gateway_backend.settings import BackendSettings
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
 from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
 from gateway_backend.operations import OperationStatus, StepStatus
@@ -306,8 +306,8 @@ def main() -> None:
             "FROM submission_records WHERE repository_id=? AND repository_commit_id=?",
             (repository_id, commit_id)).fetchall()
         _require(len(rows) == 1, "exact prior Submission canonical manifest required")
-        settings = BackendSettings()
-        config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
+        config = DeploymentConfig.load(Path(os.environ["GATEWAY_STORAGE_LAYOUT_FILE"]),
+            Path(os.environ["GATEWAY_RESOURCE_PROFILE_FILE"]))
         store = LocalArtifactStore(ArtifactStoreLayout.from_config(config.storage), staging_max_bytes=config.resources.temporary.staging_max_bytes_per_object)
         with store.read_session():
             payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))

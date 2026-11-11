@@ -1,12 +1,10 @@
 # Phase 7 多设备库并发与试运行总体设计
 
-日期：2026-11-09；2026-11-11 更新 S1b。状态：**S1a 与 BE-b 已本地退出；S1b 产品未实施、未验证，新实施会话获准 A–F 至本地 exit**。产品基线为 `be-b-exit`（`3e5f24583d`），退出证据以附注 tag 与其绑定的最终审核为准；下文早期代码盘点保留来源时点。
+日期：2026-11-09；2026-11-11 更新 S2。状态：**S1a、BE-b、S1b 已本地退出；S2 业务边界已确认并落成正式设计，未独审、未实施、未验证。** 当前产品设计基线为 `p7-s1b-exit` / `e3feb79a53f939fd0c6541ee1bd5430286efa325`，见 [S1b 总结](p7-s1b-summary.md)。下文早期源码盘点保留来源时点。
 
-S1b 当前入口：[基础统计与只读查询详细设计](p7-s1b-statistics-and-query-design.md)。Owner 本轮明确复杂度优先于计量精度：按设备汇总、公共/未归属单列，接受延迟和明确缺失，不建设通用共享分摊或精确物理账本。
+当前设计入口：[S2 多 worker 与静态处理组设计](p7-s2-design.md)。Owner 确认简单性优先：固定规模组内并发、有限恢复和维护窗口；静态组用于后续逐组升级，不在本轮建设灰度自动化；完整设备副本留 S4b。当前授权仅为正式设计，不把文档或 S1b 历史实施授权当成 S2 产品开工许可。
 
-后续编码依据：[S1b 实施计划](p7-s1b-execution-plan.md)及[新会话入口](p7-s1b-implementation-prompt.md)。当前修订的独审结论与受审 SHA 以[仓库外最新报告](/home/dev/gdds-stage-exchange/p7-s1b/reviews/design-workflow-rereview.md)为准；[旧独立复审](p7-s1b-independent-rereview.md)的 GO 仅覆盖其原 SHA，前轮中断和修订历史保留于[首轮记录](p7-s1b-design-review.md)。设计审核、实施授权和产品验证分别记录。
-
-决议来源：[P7 S0 决议与补充授权](p7-s0-owner-decisions.md)，含 main 已有 P7-D21–D27、本轮 S1b 简化决定与 §11 最新实施授权。总实施入口：[P7 执行计划](p7-execution-plan.md)。S1a 设计/执行方案保留历史事实，不再作为当前下一步；文档落成不等于产品验收。
+决议来源：[S0 §12](p7-s0-owner-decisions.md#12-s2-简单性与业务边界收口2026-11-11)；阶段安排见[执行计划](p7-execution-plan.md)。S1a/S1b 设计、执行和审核记录按历史时点阅读，退出由附注 tag 及绑定最终独审证明。
 
 ## 1. 目标与阶段边界
 
@@ -40,9 +38,9 @@ P6 已正式退出，P7 不调整 P6-S6 退出条件或结果。实施入口以 
 
 ### 3.1 部署
 
-每个处理组沿用 backend、worker、Repository Service、control DB 与本地 artifact 的部署结构。组内 worker 可多个，每个进程维持一个 active executor；不引入通用 DAG 或将单 operation 内的表任务分散到多个 worker。同组 worker 共享本组 control DB 与所需数据卷；不同组拥有独立 backend/RS 状态、roots 与 worker 池，不共享全局业务 control DB。分组用于静态分担负载和构造独立环境，不建设在线跨组自动均衡器。
+每个处理组沿用 backend、worker、Repository Service、control DB 与本地 artifact 的部署结构。组内 worker 可多个，每个进程维持一个 active executor；不引入通用 DAG 或将单 operation 内的表任务分散到多个 worker。同组 worker 共享本组 control DB 与所需数据卷；不同组拥有独立 backend/RS 状态、roots 与 worker 池，不共享全局业务 control DB。分组用于独立部署、资源配置及未来按设备逐组升级；组内使用明确版本组合，不混跑任意新旧 worker，不建设在线跨组自动均衡器或灰度平台。
 
-轻量共享目录只维护 `(environment_id, external_device_id) → group_id`、有效状态及变更版本；组内仍权威维护设备到 repository 的业务映射。业务任务、审核、租约、effect 和 artifact 保护均留在组内。首版生产换组须停投递、排空并查明未知 effect 后转交唯一写入责任；静态目录不承担分布式锁或跨组事务。
+静态归属只维护 `(environment_id, external_device_id) → group_id` 及必要有效状态；文件/SQL 形态和维护时版本核对在 S2b 细化，不预建目录服务。组内仍权威维护设备到 repository 的映射，任务、审核、租约、effect 和 artifact 保护留在组内。首版可预设固定小组，逐组升级不要求每次迁移设备；受控生产换组工具/流程留 S4b，须先停止旧写入并排空/查明未知 effect，不能把测试复制当写入权转交。
 
 阶段安排已由 Owner 确认：S1a 单组单 worker 存储/资源及环境组标识；S1b 统计携带环境/组归属；S2a 组内多 worker；S2b 独立组/静态目录；S3 组内公平与整机预算；S4a 映射/回灌；S4b 设备抽取/加载与受控换组；S5 综合验收。细节见[分组与测试副本设计](p7-processing-groups-and-test-extraction-design.md)。
 
@@ -98,7 +96,7 @@ P6 已正式退出，P7 不调整 P6-S6 退出条件或结果。实施入口以 
 
 ## 5. 资源预算与多 worker 生命周期
 
-参数含义：W 为 worker 进程数，K 为整机允许同时执行的 executor 数，N 为单 worker kernel 线程配置，M 为 kernel 准入预算，E 为单 worker 内存 envelope。每个 worker 最多一个 executor，K ≤ W；N/M 不等于测试 worker 数。
+参数含义：W 为组内 worker 进程数，K 为组内 executor 上限，首版固定 W=K；单组时即该组对整机的执行贡献，多组累计各组预算。N 为单 worker kernel 线程配置，M 为 kernel 准入预算，E 为单 worker 内存 envelope。每个 worker 最多一个 executor；N/M 不等于测试 worker 数，不设跨组全局槽位分配器。
 
 同规格 worker 的保守内存规划至少覆盖 W × E、backend/RS/Dolt/control DB、OS/page cache 与必要余量；M 只是 E 内的计算准入预算，不是 RSS 硬上限，不能仅以 K × M 判断整机容量。CPU 预算同时考虑 kernel、Arrow、RS 和其他服务，磁盘/I/O 独立观察，不承诺 K × N 能解释全部线程消耗。
 
@@ -106,7 +104,7 @@ S1 统一应用配置与 Compose/container 限制，校验正值、上限、M �
 
 S2 修改 startup 对其他健康 worker 租约的判定，区分存活持有者、过期接管和未知 effect。原子 claim、lease token/CAS、迟到写入拒绝、同 repository writer 互斥、effect 后先核结果再恢复均保留。某 worker 的 OOM/native crash 不得授权另一个 worker重复提交，也不得误判全部活跃任务应恢复。
 
-K 先可由受控 worker 数实现；若 W > K，必须有原子且可恢复的槽位约束，不能依赖进程内计数。选型在 S2 定稿，优先复用现有事务，不为槽位另建服务。休眠 worker 的常驻内存仍纳入规划。
+S2 首版取消 W>K 可选路径，K 由受控实际 worker 数约束。同组同规格，不超配、不按任务大小分池；保留 N1，双 worker 是最小验证目标，不预定生产默认或默许不足预算的节点。故障允许暂时降容和人工恢复；替代实例启动前确认旧进程及执行子进程退出。维护停新受理/claim，待执行队列保留且原期限不暂停；不做组内滚动升级。业务并发、同库 Submit 受理冲突、缓存锁与最小验证见 [S2 设计 §3–§6](p7-s2-design.md#3-业务并发与同库提交)。
 
 ## 6. 调度、准入与期限
 

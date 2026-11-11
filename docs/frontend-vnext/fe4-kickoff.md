@@ -1,6 +1,6 @@
 # FE4 kickoff：前端收口与业务导航接入
 
-- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。FE4a 处于定向修复轮。
+- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。FE4a 处于定向修复轮。修订 5（2026-11-11）：按 BE-b 第二步候选 `b61cc37d5f` 与前端窄复核同步 §3.1 与 §5.3，owner 同意 B9 退役（§10 Q17、§13.6）。
 - **日期：** 2026-11-10（时间均为 UTC）。
 - **起点：** `fe-fe3c-exit`（tag 对象 `43e66d3eb7` → `06b454b0ef`；被测提交 `e22e39ba15`；`frontend/` 树 `46e425f84e`）。main 合入提交 `475022300c`，退出记录 `16ffe72829`。
   `fe-vnext` 仍在 `e22e39ba15`，比 tag 少一个 docs 提交（`06b454b0ef`，只新增 `fe3c-evidence-04.md`）。
@@ -106,19 +106,25 @@
 
 ### 3.1 BE-b 接入（FE4b）
 
+“BE-b §x”指第一步草案；“第二步 §x”指 [BE-b 第二步设计](../backend-vnext/refactoring/formal/plans/be-b-second-step-design.md)（候选 `b61cc37d5f`）；FE-BEB-xx 指前端设计会话对第二步的定向核对与窄复核的 finding（报告位置与 SHA256 见 §13.6）。
+
 | # | 项 | 处理 | 依据 |
 | --- | --- | --- | --- |
-| B1 | 业务分组 | 按导航产物的 `groups` 通用渲染，分组名与顺序取自后端，不写死槽位；未知 `group_key` 按通用分组显示；按 `group_key`、`item_key` 寻址（命令层、URL、筛选）；`row_filter` 只在本地执行；按身份过滤的页签用 `facts`，整表页签从 surface 与 `RiskReport` 读取 | BE-b §4.2、§4.3、§4.6；前端 kickoff §4.5 |
-| B2 | 列展示与列序 | `SurfaceColumn.display_order` 决定列序，`pinned` 决定固定列；列宽与对齐仍由前端计算；不提供隐藏 | BE-b §4.1；§6 Q4 |
-| B3 | 中文显示名 | 表名与列名取 `SurfaceTable.display_name`、`SurfaceColumn.display_name`；Debug 模式另显示标识符 | BE-b §4.1；UI 优化方向 C6 |
-| B4 | 行定位产物 | 改用 `row_locator_ref`；删除 `snapshotRowIdentity` 与全部规范编码、自校验和“本表的变更行无法定位”的匹配路径；ref 为 null 时按表级展示（BE-b §4.8 的既定回退） | BE-b §4.8；FE2 kickoff §5.3 末条 |
-| B5 | 视图 ID | 前端按 `pair_id` 区分视图，修复前后都不受影响；FE4b 核对代码中没有依赖 History `-p<i>` 形式的逻辑，模拟数据改用修复后的取值 | BE-b §4.9 |
-| B6 | 诊断编码 | 导航诊断按 BE-b §4.7 就地提示，分组头汇总个数，`DEVICE_ROWS_UNASSIGNED` 提供“查看整表”；surface 诊断按 §4.10 的稳定编码更新文案表，删除被取代的自由文本条目 | BE-b §4.7、§4.10 |
-| B7 | Preview 改前公式 | 双侧浏览表补齐基线侧后，Preview 与 History 一样显示改前、改后对照，删除“改前公式在 BE-b 实现后提供” | BE-b §4.4；前端 kickoff §8 |
-| B8 | 移除占位数据 | 删除手写的占位导航与诊断 fixture；后端 fixture 用 BE-b 的生成器重新生成（同一批上传输入，逐字节不变） | 前端 kickoff §4.5 |
-| B9 | 保留回退 | 某个比较对没有导航产物时仍是“全部表一个组、节点即表、无页签”；没有注释时用标识符；没有 `display_order` 时按 DDL 顺序。这是正式行为，不是兼容层 | 前端 kickoff §4.5 第一条 |
+| B1 | 业务分组与筛选 | **结构：**<br>• 每个比较对恰好一份导航产物；缺失或多于一份按 B9 拒绝。<br>• 普通模式读 `groups`，固定五组，按后端给出的顺序通用渲染，`items` 可为空（空组可隐藏）；未知 `group_key` 按通用分组显示。<br>• `DATASET_REPLACEMENT` 读 `replacement_sides.before/current`，此时 `groups=[]`。两侧是独立的键空间：浏览状态、URL、整表视图键都带 `side`。<br>• 按 `group_key`、`item_key` 寻址（命令层、URL、筛选）。<br>**筛选：**<br>• `row_filter` 为 `null`（整表）或 `{before, current}` 双侧集合谓词（`{column, values}`）。对象内某侧为 null，表示该侧没有匹配身份，不表示整表。<br>• 按侧在本地执行；一对行中任一半命中即显示整对。<br>• 整数按 BigInt 值比较，字符串只和字符串比较，缺失与 NULL 不匹配。<br>**事实与标记：**<br>• 普通模式的筛选页签用 `facts`：`basis=EXACT` 用局部 `change_kind`/`risk_level`；`TABLE_FALLBACK` 用整表变化与风险，并提示“此页签按整表提示”。<br>• `table_scope` 是同表一致的表级标记，参与页签、项、组汇总和“只看变化/风险”筛选，不涂到各行。<br>• 整表页签和 `SECONDARY_DEVICES` 中 `item_kind=TABLE` 的整表项，从 surface 与 `RiskReport` 读取。<br>• replacement 的筛选页签 `facts=null`，只显示本侧计数。<br>**解码校验：**<br>• 有导航时不再把未出现在页签中的表补进“其他表”。<br>• 同表整表页签最多一个；整表页签与筛选页签互斥；同表的筛选页签同属一组。 | BE-b §4.2、§4.3、§4.6；第二步 §4.1–§4.3；前端 kickoff §4.5；FE-BEB-01、03、06、09 |
+| B2 | 列展示与列序 | 普通比较的 `columns` 是两侧列名并集：<br>• 按 `present_in`（`BEFORE`/`CURRENT`/`BOTH`）在缺列一侧显示“该侧无此列”，与 NULL 区分；<br>• `display_order` 决定列序（并集内从 0 连续），`pinned` 决定固定列。<br>replacement 各侧用本侧 `replacement_summary.<side>.columns`。<br>列宽与对齐仍由前端计算；不提供隐藏 | BE-b §4.1；第二步 §4.3、§4.4；§6 Q4；FE-BEB-02 |
+| B3 | 中文显示名 | 表名与列名取 `SurfaceTable.display_name`、`SurfaceColumn.display_name`；replacement 的表头、浏览标题、“查看整表”和带 side 的诊断表名取 `replacement_summary.<side>.display_name`；Debug 模式另显示标识符 | BE-b §4.1；第二步 §4.3；UI 优化方向 C6 |
+| B4 | 行定位产物 | **定位：** 读 `row_locator_ref` 的五列 Parquet：`row_identity`、`before_row_index`、`current_row_index`、`before_filter_context_json`、`current_filter_context_json`。<br>**取身份值：**<br>• bundle 有该侧快照时按 index 读行，此时该侧 context 必须为 null；<br>• bundle 缺该侧快照时，从 context（JCS 小对象）取身份值，`{}` 与 `{"<列>":null}` 不匹配；<br>• 没有记录的行，两侧身份值相同（FE-BEB-12）；<br>• 快照中身份值的类型与谓词类型不一致时，作为 bundle 解码错误（FE-BEB-13）。<br>**显示：** keyless 删除行缺少的旧值显示“改前值不可得”，与 NULL 区分。<br>**删除：** `snapshotRowIdentity`、全部规范编码、`validateLocations` 和“本表的变更行无法定位”的匹配路径。<br>**回退：** ref 为 null 时按表级展示（BE-b §4.8 的既定回退），不在浏览器中补算身份 | BE-b §4.8；第二步 §4.2、§5.2；FE2 kickoff §5.3 末条；FE-BEB-08、12、13 |
+| B5 | 视图 ID | 前端按 `pair_id` 区分视图，修复前后都不受影响；FE4b 核对代码中没有依赖 History `-p<i>` 形式的逻辑。模拟数据改用第二步 §7 的取值（`baseline_to_initial`、`initial_to_modified`、`left_to_right`、`left_to_middle`、`middle_to_right`），每个 pair 用自己的 `view_id` | BE-b §4.9；第二步 §7 |
+| B6 | 诊断编码 | **导航诊断（BE-b §4.7 加第二步 §4.2 的两个新码）：**<br>• 就地提示，分组头汇总个数；<br>• `DEVICE_ROWS_UNASSIGNED` 提供“查看整表”（这是额外入口，不是导航页签），`changed_row_count` 为 null 时显示“变化行数未知”，replacement 下不显示变化行数；<br>• `DEVICE_TAB_FACTS_UNAVAILABLE` 每表一条，target 的 item、tab 为 null，带三个 reason 的文案；<br>• `DEVICE_FILTER_VALUE_UNSUPPORTED` 每个受影响侧一条，指向该表整表项，带三个 reason 的文案。<br>**surface 诊断：**<br>• 按后端 B4 交付的完整稳定编码表（新码→旧原文→emit 位置）更新文案表；<br>• 删除被取代的原文键、`DUPLICATE_EFFECTIVE_KEY:` 前缀切分、`*Error/*Exception` 正则，以及 `max_risk_tables_per_pair exceeded`、`max_risk_pair_wall_time_seconds exceeded` 两个键（这两条是 pair 失败，不进 READY surface）。<br>未知编码统一用通用文案，原值放 Debug | BE-b §4.7、§4.10；第二步 §4.2、§4.4；FE-BEB-05、06 |
+| B7 | Preview 改前公式与装置名 | 双侧浏览表（`device`、`composite_signal_point`）在改前侧逻辑存在时必有 `before_table_ref`：表未变时别名 current，有变时单独导出；新增表的 before 为 null。<br>改前公式与改前侧装置名统一读 before ref，Preview 与 History 一样显示改前、改后对照。<br>删除“改前公式在 BE-b 实现后提供”以及用 current 回填 before 的路径 | BE-b §4.4；第二步 §5.1；前端 kickoff §8；FE-BEB-07 |
+| B8 | 移除占位数据 | 删除手写的占位导航与诊断 fixture，以及前端生成器对后端私有符号的导入。后端 fixture 改由后端入口生成，前端 wrapper 只用 subprocess 调用并搬运输出（§5.3）。上传输入改由后端持有，前端模拟数据所用副本按后端清单逐文件核对 SHA256 | 前端 kickoff §4.5；第二步 §8；FE-BEB-10 |
+| B9 | 回退退役 | BE-b 之后每个 READY surface 恰好一份导航（第二步 §4.1），“没有导航产物”已不可达。因此：<br>• 删除 `fallbackNavigation` 与 `preview-no-navigation` fixture；<br>• 缺导航或导航多于一份时，按该比较对的 bundle 解码错误处理，与其他 Contract 违例相同；<br>• 原 B9 中“没有注释用标识符”“没有 `display_order` 按 DDL 顺序”两个分支同样不可达，因为 `display_name` 和 `display_order` 为 required，一并删除。<br>原 B9 是前端 kickoff §4.5 确认的正式行为；owner 2026-11-11 同意退役（§10 Q17）。后端须按 FE-BEB-11 删去第二步 §4.1“无导航产物时 B9 回退仍可用”一句 | 前端 kickoff §4.5 第一条；第二步 §4.1；FE-BEB-11 |
 
-FE4b 的细节（fixture 的生成方式、Contract 版本号的判定、按导航的程序判据、截图清单）在 BE-b 第二步与 Contract 固定后，由本文第 2 步写定（§5.3）。
+Contract 版本：
+- 导航仍为 `backend-vnext/business-navigation/v1`，但形状已改，旧占位产物用的也是同一版本串。因此解码器按形状严格校验，拒绝 `row_filter.value` 等旧字段，不按版本串分支。
+- Comparison Surface v4、Comparison Bundle v4、CanonicalizationManifest 3.4.0 按各自 selector 精确匹配，不双读旧版本。
+
+FE4b 的 fixture、程序判据与截图分工已按第二步写定（§5.3）；合入点、OpenAPI 与截图名等待 BE-b 交付后写定。
 
 ### 3.2 侧栏层级（§4.6，FE4b）
 
@@ -320,17 +326,75 @@ FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `arti
 
 ### 5.3 FE4b 的第 2 步
 
-BE-b 第二步与 Contract 固定后，前端设计会话修订本文，写定：
+BE-b 第二步与 Contract 固定后，前端设计会话修订本文。修订 5 按第二步候选 `b61cc37d5f` 与前端窄复核（`GO_WITH_NONBLOCKING`，§13.6）先写定下列各项；后端 B0 落 Contract 或 B4 交付时如有出入，以正式 Contract 为准重新同步。
 
-- 合入点与路径核对；OpenAPI 刷新与比对原件；
-- fixture 的重新生成：生成器、上传输入、哪些手写占位 fixture 删除；
-- 导航、列与行定位的模拟数据规则：只构造后端可达的组合，规则同 FE2 kickoff §7.5；
-- 程序判据：t1 上每张 surface 表恰好被认领一次（按身份过滤的共享表可在多个装置下出现）；有 `row_locator_ref` 的表全部定位，没有出现表级回退；回退的表数只报告；
-- 截图清单与 owner 看图项：依赖 BE-b 的页面与截图名（§3.3）；
-- 按 §4 第 7 项的变化说明，确认 bundle 解析、互通 fixture 与生成器要改的地方；
-- FE4b 的实施与审核提示词。
+**fixture 的重新生成（第二步 §8，FE-BEB-10、11）：**
 
-FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owner 转后端，前端不自行假设。
+- **生成入口：** 后端入口 `vnext/scripts/generate-presentation-fixtures.py --input-root <绝对路径> --output-root <外部空目录>`。在专用测试节点的 clean、已提交 worktree 中，以后端 uv 环境调用（完整命令见第二步 §8）。
+- **wrapper：** 前端 `generate-backend-bundle-fixture(s)` 改为只用 subprocess 调这个入口，并把 `<output>/backend/` 整体替换到 `frontend/src/test/fixtures/source/backend/`，不再导入后端私有符号。
+- **上传输入：** 由后端持有，位于 `vnext/fixtures/presentation-inputs/` 与 `manifest.json`，从 FE4a 核对基线 `59c5b8cfca` 的 `frontend/src/test/fixtures/source/upload-inputs/` 原字节复制。前端模拟数据所用副本逐文件按清单 SHA256 核对。
+- **目录清单：** 输出须覆盖下列目录，缺项即失败：
+  - `fe2a/{preview-full,preview-modified-only,preview-replacement,history-three-nodes}`、`fe2b/preview-workbench-normal`；
+  - `pairs/…`，以及 `source/backend/` 顶层的 `manifest.json`、`artifact-closure.json`（`build-golden-bundle-fixture.mjs` 读取）；
+  - 第二步 §8 列出的新增场景。
+  - `fe2a/preview-no-navigation` 退役，不生成（B9）。
+- **删除：**
+  - `src/test/fixtures/source/business-navigation.json`、`business-navigation-workbench.json`、`navigation-diagnostics.json`；
+  - 各 fixture 下手写的 `projections/business-navigation*`；
+  - `fallbackNavigation` 及其测试。
+- **确定性：** 同一输入在同一版本重复生成，结果逐字节相同。fixture 用的 ID 固定方式由后端记录，前端不改写生成产物。
+
+**模拟数据规则：** 只构造后端可达的组合，规则同 FE2 kickoff §7.5。解码器按下列不变量严格校验，模拟数据不得违反：
+- `replacement_sides != null` ⇔ `comparison_mode == DATASET_REPLACEMENT` ⇔ `groups == []`；
+- 每个 surface 恰好一个 `BUSINESS_NAVIGATION` projection；
+- B1 的三条唯一性；
+- 某表筛选页签全为 `TABLE_FALLBACK` ⇔ 该表有 `DEVICE_TAB_FACTS_UNAVAILABLE`；
+- `table_ref` 为 null ⇔ 对应 `table_content_bindings` 为 null；
+- surface 中 ArtifactRef 的 `raw_sha256`/`size_bytes` 等于同一 `artifact_id` 的 closure 条目；
+- 有快照侧的 locator context 为 null。
+
+浏览器不重算 `surface_digest`，surface 摘要由后端 golden 负责（第二步 §6，FE-BEB-04）。
+
+**程序判据（t1，在两种宽度的截图运行中同时断言；FE-BEB-03）：**
+
+1. **导航形状：** 每个比较对恰好一份导航；普通模式固定五组；B1 的三条唯一性成立。
+2. **不可见的表：** 不出现在任何页签中的 surface 表，都满足：
+   - bundle 中有绑定的各侧 `table_content_bindings.row_count` 为 0；
+   - surface `change_kind` ∈ {`UNCHANGED`, `BUSINESS_EQUIVALENT`}；
+   - `RiskReport` 中该表无风险。
+   不再要求“每张表都出现在可见页签中”。
+3. **按侧覆盖（不藏行）：** 对每张有筛选页签的共享表，只核 bundle 有该侧快照、且该表筛选页签为 `EXACT` 的一侧。该侧全部已发布谓词覆盖的行集合（取并集，不能把各页签计数相加）的大小，加上同侧 `DEVICE_ROWS_UNASSIGNED.row_count`，等于该侧行数。缺快照侧由后端 Contract 测试负责。
+4. **行定位：** 有 `row_locator_ref` 的表全部定位：
+   - 每条行级记录在有快照侧的 index 处命中恰好一行；
+   - 缺快照侧的 context 合规；
+   - 没有出现表级回退。
+   回退的表数与 `TABLE_FALLBACK` 页签数只报告。
+
+**截图分工：** 截图名在本文第 2 步定稿时列出。
+- **t1 真实数据，1280 与 1920：** 导航分组与页签、表级标记、中文列名与固定列、行定位后的变更行；
+- **后端确定性 fixture 加模拟接口 e2e，同样两种宽度：**
+  - Preview 改前公式与改前侧装置名（t1 的 `composite_changed=0`，只能在这里覆盖）；
+  - gid 变化与重复地址；
+  - 本侧孤儿与“查看整表”；
+  - `TABLE_FALLBACK` 与 `table_scope`；
+  - 只在改前侧存在的列；
+  - keyless 删除行的“改前值不可得”；
+  - replacement 分侧；
+  - `DEVICE_FILTER_VALUE_UNSUPPORTED` 整表项；
+  - 仅注释 Preview，以及提交得到 `NO_CANONICAL_CHANGE` 时的说明：“注释变化未单独保存，将随下一次业务变化一起保存”。
+- 前端不重复 t4 的后端导航验证。
+
+**合入点：** BE-b 退出并合入后的 main，同时带有 S1a 与 BE-b。路径核对同 §5.2。具体提交、`vnext/` 树、依赖镜像，在 BE-b 交付后写定。
+
+**仍待 BE-b 交付后写定：**
+- 合入提交与依赖镜像；
+- OpenAPI 刷新与比对原件；
+- 按 §4 第 7 项的变化说明（S1a 与 BE-b 分栏），确认 bundle 解析、互通 fixture 与生成器要改的地方；
+- 依赖 BE-b 的页面截图名与 owner 看图项（§3.3）；
+- FE4b 的实施与审核提示词；
+- 核对后端已按 FE-BEB-11–13 修订第二步与 Contract。
+
+FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一致，交 owner 转后端，前端不自行假设。
 
 ## 6. 合入点与后端变化
 
@@ -498,7 +562,8 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 
 - 修订 1：在审核会话中决定 Q2、Q5、Q10–Q13（审核报告 D1–D5）；
 - 修订 2：按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（改写 Q5）；
-- 修订 4：FE4a 审核交设计会话的 D1、D2 与看图范围，按设计会话的建议确认 Q14–Q16（§15）。
+- 修订 4：FE4a 审核交设计会话的 D1、D2 与看图范围，按设计会话的建议确认 Q14–Q16（§15）；
+- 修订 5：2026-11-11 同意 B9 退役（Q17，§13.6）。
 
 | # | 事项 | owner 2026-11-10 的决定 | 本文落点 |
 | --- | --- | --- | --- |
@@ -518,6 +583,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步不一致，交 owne
 | Q14 | C4 的“同一提交连续两次运行逐字节相同”是否改为容差判定（FE4a 审核 D1） | 改为容差判定：同尺寸，不同像素 ≤ 100，**且**最大 8 邻接连通块 ≤ 16 像素为“噪声”，否则为“内容变化”。上限写成截图比较脚本的常量（§3.8），脚本由 FE4a 实施会话在修复轮中实现、审核会话复审；§7.3 的 FE3c 到 FE4a 比较改用同一脚本；FE4b 沿用。不采用：只限总数 ≤ 100（测得一个数字的变化只有 41 个像素，会被判为噪声）；维持逐字节相同（当前 Chromium 下无法达成） | §3.4 C4、§3.8、§5.2、§7.2、§7.3、§8、§15.1 |
 | Q15 | V12 在 1280 下横向溢出（FE4a 审核 D2） | 甲：在 FE4a 中修复，作为带入项 C12，范围扩大到同样溢出的 V11。审核操作组中相同的禁用原因只显示一次，改变 owner 在 FE3b D1–D3 看图时接受的“三个按钮各显示一次”，D1–D3、V11、V12 的顶栏截图交 owner 重新看图。预览页顶栏不改，N5 仍在 FE4b。不采用：保留每个按钮各自的原因、让操作区换行（V11、V12 的顶栏变成两行以上）；乙，作为偏差带入 FE4b（FE4b 要等 S1a 与 BE-b，真实 backend 上的溢出会保留数周） | §3.4 C12、§7.3、§15.2 |
 | Q16 | FE4a 的看图范围 | 以比较脚本对 FE3c 证据截图判为“内容变化”或“尺寸不同”的全部文件为准，按原因分组，C3 另外改动的 10 张、C5 的 2 张随之并入；另加没有 FE3c 对应截图的新状态（C6、C8）。C8 冲突提示改用灰色 `.form-warning`，设计会话同意，随 C8 截图由 owner 确认 | §7.3、§15.3 |
+| Q17 | B9 回退是否保留（2026-11-11） | 同意退役：BE-b 之后每个 READY surface 恰好一份导航，删除 `fallbackNavigation` 与 `preview-no-navigation`，缺导航或多份导航按 bundle 解码错误处理 | §3.1 B9、§5.3、§13.6 |
 
 **后续仍需 owner 或后端处理的事项：**
 
@@ -695,6 +761,28 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 §11.1 的实施提示词已经发出，不改；修订 4 对实施会话的要求由审核会话随修复轮转达（§15.4）。其他文档本次不改。
 
 **审核报告之外由设计会话核对出的事实：** V11 的 `fe3c-review-expired-1280` 同样横向溢出（1509 px，FE3c 证据截图中已如此，两次审核都没有列出）；V12 重读后的模拟数据审核状态仍为 PENDING（§15.2）。两项都并入 C12。
+
+### 13.6 修订 5（2026-11-11）
+
+**依据：**
+- BE-b 第二步设计与执行计划，候选 `b61cc37d5f`（本地 main，未推送；`vnext/` 树 `bd452d67dc`，无产品源码变化），各文件 SHA256：
+  - `be-b-second-step-design.md`：`706998b6cc141bf34c288083db2d8eee08caacc3784cba6df1c8d31748454703`
+  - `be-b-execution-plan.md`：`69c2dabbed7bd5ac5a8725fb1df67a58dbf5c6933faf5050d3951fbe70d1ac8d`
+  - 第一步草案：`370d5a53b8f73a6b98bde276cd1e05cdf798b6026ec5df0c2119ec68c2d7b28a`
+- 前端设计会话的两份报告（在仓库外的交接目录 `/home/dev/gdds-stage-exchange/be-b/reviews/`，不入库）：
+  - 对 `f0be08d9ed` 的定向核对：`frontend-targeted-review-f0be08d9ed.md`，结论 `CHANGES_REQUIRED`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`；
+  - 对 `b61cc37d5f` 的窄复核：`frontend-targeted-rereview-b61cc37d5f.md`，结论 `GO_WITH_NONBLOCKING`，SHA256 `45fff18109b2594ca494b060379e869b893c246e3ee79769da23e9914cdb8845`。FE-BEB-01–10 关闭；新增非阻塞 FE-BEB-11–13，由后端在 B0/B4 补文字。
+- owner 2026-11-11 采纳原报告全部建议，包括空 `sg_cfg` 有变化或风险时保留（FE-BEB-01(b) 甲），并要求同步本文 §3.1 与 §5.3。
+- 修订分支 `fe4-kickoff-rev5` 从本地 main `b61cc37d5f` 拉出。
+
+**本文修改的节：** 头部（状态）；§3.1（B1–B9 全部按第二步改写，补 Contract 版本判定）；§10（Q17）；§5.3（写定 fixture、模拟数据不变量、程序判据、截图分工与合入点，列出仍待 BE-b 交付的项）；§13.6。
+
+**owner 确认项：** B9 由“保留回退”改为退役。原 B9 是前端 kickoff §4.5 确认的正式行为，但第二步规定每个 READY surface 恰好一份导航，该状态已不可达，不影响任何业务结果。owner 2026-11-11 同意退役（§10 Q17）。
+
+**未改：**
+- §2.3 与 §4 的事实记录（第二步已写、交付清单的 S1a/BE-b 分栏）留到 BE-b 交付核对时一并更新；
+- 第一步草案与后端文档不由本文修改；
+- 其他文档本次不改。
 
 ## 14. 审核意见与 owner 决定的处理（修订 1）
 

@@ -288,8 +288,21 @@ def generate(input_root: Path, output_root: Path) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     _init_kernel_native(1)
     records = []
+    rejected_sources = []
     with fixed_fixture_inputs(), tempfile.TemporaryDirectory(prefix="presentation-fixtures-") as temporary:
         scratch = ScratchSpace(Path(temporary), max_bytes=2 * 1024**3)
+        for source in manifest.get("rejected_source_inputs", []):
+            with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
+                with scratch.session(owner="operation:presentation-fixture-rejection") as session, scratch_scope(session):
+                    try:
+                        materialize(inputs[source["sql"]], inputs[source["xml"]], InMemoryArtifactStore())
+                    except ValueError as exc:
+                        message = str(exc)
+                        if source["expected_code"] not in message or source["expected_table"] not in message:
+                            raise
+                        rejected_sources.append({**source, "actual_result": "FAILED", "actual_message": message})
+                    else:
+                        raise ValueError("frozen source no longer reproduces its documented projection rejection")
         for scenario in manifest["scenarios"]:
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
                 with scratch.session(owner="operation:presentation-fixture") as session, scratch_scope(session):
@@ -312,7 +325,7 @@ def generate(input_root: Path, output_root: Path) -> None:
             "allocator_owners": list(ALLOCATOR_MODULES), "repository_id": REPOSITORY,
             "pair_and_view_ids": "current flow contract; no operation ID prefix",
             "kernel_threads": 1, "memory_budget_bytes": 8 * 1024**3},
-        "scenarios": records}
+        "rejected_frozen_sources": rejected_sources, "scenarios": records}
     write_member(output_root, "index.json", canonicalize_json_value(index))
     print(json.dumps({"generator_commit": commit, "scenario_count": len(records), "index_sha256":
         hashlib.sha256((output_root / "index.json").read_bytes()).hexdigest()}, sort_keys=True))

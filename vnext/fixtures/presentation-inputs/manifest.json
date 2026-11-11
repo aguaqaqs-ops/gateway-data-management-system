@@ -42,8 +42,9 @@
     },
     {
       "path": "formula-unchanged-device.sql",
-      "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001",
-      "source": "BE-b scenario: identical SQL sides, changed XML only"
+      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "source": "BE-b same valid canonical SQL sides; changed XML only",
+      "derived_from": "sql-initial-canonical.sql"
     },
     {
       "path": "identity-before.sql",
@@ -84,16 +85,55 @@
       "source": "BE-b bounded presentation scenario"
     },
     {
+      "path": "sql-baseline-canonical.sql",
+      "sha256": "901d7343188ede482fb16314ce89af820ed38386f4b69d03d101d2dc1e7aa1cf",
+      "source": "BE-b production-valid derivative",
+      "derived_from": {
+        "path": "sql-baseline.sql",
+        "sha256": "f6205557b237abeeac5d2832a5365273d326014bebdc87bd7d2c2ad95d1b7730"
+      },
+      "changes": [
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+      ],
+      "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
+    },
+    {
       "path": "sql-baseline.sql",
       "sha256": "f6205557b237abeeac5d2832a5365273d326014bebdc87bd7d2c2ad95d1b7730",
       "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
       "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-baseline.sql"
     },
     {
+      "path": "sql-initial-canonical.sql",
+      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "source": "BE-b production-valid derivative",
+      "derived_from": {
+        "path": "sql-initial.sql",
+        "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001"
+      },
+      "changes": [
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+      ],
+      "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
+    },
+    {
       "path": "sql-initial.sql",
       "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001",
       "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
       "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-initial.sql"
+    },
+    {
+      "path": "sql-modified-canonical.sql",
+      "sha256": "a8c4d43954b1ee3339b73e34cc2600dea3a306a76deb9ad8e639374fddb77120",
+      "source": "BE-b production-valid derivative",
+      "derived_from": {
+        "path": "sql-modified.sql",
+        "sha256": "57450fdce2e9ab27e695e48a7cb0c80475caa016c7c9beaeef41b30bea717773"
+      },
+      "changes": [
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+      ],
+      "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
     {
       "path": "sql-modified.sql",
@@ -167,19 +207,19 @@
       "flow": "PREVIEW",
       "nodes": [
         {
-          "sql": "sql-baseline.sql",
+          "sql": "sql-baseline-canonical.sql",
           "xml": "logics-1.xml",
           "role": "baseline",
           "label": "当前基线"
         },
         {
-          "sql": "sql-initial.sql",
+          "sql": "sql-initial-canonical.sql",
           "xml": "logics-2.xml",
           "role": "initial",
           "label": "原始组态"
         },
         {
-          "sql": "sql-modified.sql",
+          "sql": "sql-modified-canonical.sql",
           "xml": "logics-3.xml",
           "role": "modified",
           "label": "上传组态"
@@ -210,13 +250,13 @@
       "flow": "PREVIEW",
       "nodes": [
         {
-          "sql": "sql-baseline.sql",
+          "sql": "sql-baseline-canonical.sql",
           "xml": "logics-1.xml",
           "role": "baseline",
           "label": "当前基线"
         },
         {
-          "sql": "sql-modified.sql",
+          "sql": "sql-modified-canonical.sql",
           "xml": "logics-3.xml",
           "role": "modified",
           "label": "上传组态"
@@ -271,19 +311,19 @@
       "flow": "HISTORY",
       "nodes": [
         {
-          "sql": "sql-baseline.sql",
+          "sql": "sql-baseline-canonical.sql",
           "xml": "logics-1.xml",
           "role": "baseline",
           "label": "当前基线"
         },
         {
-          "sql": "sql-initial.sql",
+          "sql": "sql-initial-canonical.sql",
           "xml": "logics-2.xml",
           "role": "initial",
           "label": "原始组态"
         },
         {
-          "sql": "sql-modified.sql",
+          "sql": "sql-modified-canonical.sql",
           "xml": "logics-3.xml",
           "role": "modified",
           "label": "上传组态"
@@ -341,13 +381,13 @@
       "flow": "PREVIEW",
       "nodes": [
         {
-          "sql": "sql-initial.sql",
+          "sql": "sql-initial-canonical.sql",
           "xml": "logics-2.xml",
           "role": "initial",
           "label": "原始组态"
         },
         {
-          "sql": "sql-modified.sql",
+          "sql": "sql-modified-canonical.sql",
           "xml": "logics-3.xml",
           "role": "modified",
           "label": "上传组态"
@@ -614,5 +654,28 @@
       ]
     }
   ],
-  "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation"
+  "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
+  "rejected_source_inputs": [
+    {
+      "sql": "sql-baseline.sql",
+      "xml": "logics-1.xml",
+      "expected_code": "KEY_MISSING",
+      "expected_table": "b1_n1_iec104_yc_list",
+      "replacement": "sql-baseline-canonical.sql"
+    },
+    {
+      "sql": "sql-initial.sql",
+      "xml": "logics-2.xml",
+      "expected_code": "KEY_MISSING",
+      "expected_table": "b1_n1_iec104_yc_list",
+      "replacement": "sql-initial-canonical.sql"
+    },
+    {
+      "sql": "sql-modified.sql",
+      "xml": "logics-3.xml",
+      "expected_code": "KEY_MISSING",
+      "expected_table": "b1_n1_iec104_yc_list",
+      "replacement": "sql-modified-canonical.sql"
+    }
+  ]
 }

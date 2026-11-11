@@ -15,7 +15,7 @@ CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(32), enable
 INSERT INTO schema_demo VALUES (1, '初始值', 0);
 CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
 INSERT INTO b1_n1_iec104_syx_list VALUES (2, 1, '遥信 B'), (1, 2, '遥信 A'), (NULL, 3, NULL);
-CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
+CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
+INSERT INTO b1_n1_iec104_yc_list VALUES (1, 1, '稳定 gid');
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);

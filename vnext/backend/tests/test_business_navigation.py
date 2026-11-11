@@ -390,3 +390,13 @@ def test_cancellation_propagates_and_memory_reservation_closes() -> None:
     with pytest.raises(RuntimeError, match="cancelled"):
         build_navigation((table("device_st", None, source),), check=cancel, reserve=reserve)
     assert released == [True]
+
+
+def test_many_shared_gid_rows_aggregate_without_per_device_record_state() -> None:
+    devs = tuple({"dev_addr": n, "gid": 7} for n in range(100))
+    source = side(tuple({"gid": 7} for _ in range(1000)), column="gid")
+    records = tuple(FilterRecord(str(n), "ROW_MODIFIED", {"gid": 7}, {"gid": 7}, RiskLevel.LOW) for n in range(1000))
+    shared = replace(table("device_cfg", source, source), evidence=evidence(records=records, expected_record_counts=(0, 0, 1000), locator_complete=True))
+    result = build_navigation((device(devs, devs), shared), check=lambda: None, reserve=lambda _: nullcontext(), max_state_bytes=300000)
+    assert len(tabs(result, "device_cfg")) == 100
+    assert all(t["facts"]["current_row_count"] == 1000 and t["facts"]["risk_level"] == "LOW" for t in tabs(result, "device_cfg"))

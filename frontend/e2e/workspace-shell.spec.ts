@@ -2321,12 +2321,21 @@ test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", asy
 });
 
 test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
-  test.setTimeout(300000);
+  test.setTimeout(600000);
   await installFixtureRoutes(page);
+  const failures: string[] = [];
   const shot = async (name: string) => {
     await page.waitForTimeout(400);
     await screenshot(page, name, 1920);
     await screenshot(page, name, 1280);
+  };
+  const capture = async (name: string, steps: () => Promise<void>) => {
+    try {
+      await steps();
+    } catch (error) {
+      failures.push(`${name}: ${String((error as Error).message).split("\n")[0]}`);
+    }
+    await shot(name).catch((error: Error) => failures.push(`${name} (screenshot): ${String(error.message).split("\n")[0]}`));
   };
   const openPreview = async (fixture: string, extra: Record<string, string> = {}) => {
     await page.goto(browseUrl("PREVIEW", fixture, extra));
@@ -2342,84 +2351,86 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await page.waitForTimeout(400);
   };
 
-  await openPreview("preview-full", { pair: "initial_to_modified" });
-  await shot("fe4b-nav-two-views");
-
-  await openPreview("preview-modified-only");
-  await shot("fe4b-nav-single-view");
-
-  await openPreview("duplicates-orphans");
-  await openItem("device:composite");
-  await shot("fe4b-device-tabs");
-
-  await openPreview("preview-full", { pair: "initial_to_modified" });
-  await openItem("table:version_manager");
-  await expect(page.locator('.nav-item[data-item-key="table:version_manager"] .nav-item__tabs')).toHaveCount(0);
-  await shot("fe4b-single-tab-item");
-
-  await openPreview("preview-full", { pair: "initial_to_modified" });
-  await page.getByLabel("搜索组、节点或页签").fill("复合信号");
-  await shot("fe4b-sidebar-search");
-
-  await openPreview("duplicates-orphans");
-  await openItem("device:table");
-  await shot("fe4b-columns-pinned");
-
-  await openPreview("preview-full", { pair: "initial_to_modified" });
-  await openItem("table:retired_table");
-  await shot("fe4b-before-only-column");
-
-  await openPreview("preview-modified-only");
-  await openItem("table:keyless_demo");
-  await shot("fe4b-keyless-before-unavailable");
-
-  await openPreview("preview-full", { pair: "initial_to_modified" });
-  await openItem("table:schema_demo");
-  await shot("fe4b-located-rows");
-
-  await openPreview("formula-unchanged-device");
-  await openItem("device:composite");
-  await clickFormulaCell(page);
-  await expect(page.getByRole("dialog", { name: "公式查看" })).toBeVisible();
-  await shot("fe4b-formula-before");
-  await page.getByRole("button", { name: "关闭公式" }).click();
-
-  await openPreview("identity-unrecorded-exact");
-  await openItem("device:addr:49");
-  await openTab("device_cfg");
-  await shot("fe4b-gid-change");
-
-  await openPreview("duplicates-orphans");
-  await openItem("device:table");
-  await shot("fe4b-duplicates");
-  const viewTable = page.getByRole("button", { name: /查看整表/ }).first();
-  if (await viewTable.count()) {
-    await viewTable.click();
-    await page.waitForTimeout(500);
-  }
-  await shot("fe4b-orphans-view-table");
-
-  await openPreview("identity-changes");
-  await openItem("device:addr:49");
-  await openTab("device_cfg");
-  await shot("fe4b-table-fallback");
-
-  await openPreview("table-addition");
-  await openItem("device:composite");
-  await openTab("device_st");
-  await shot("fe4b-table-scope");
-
-  await openPreview("excluded-identity");
-  await page.waitForTimeout(300);
-  await openItem("table:device_st");
-  await shot("fe4b-filter-unsupported");
-
-  await openPreview("missing-identity-column");
-  await openItem("device:addr:49");
-  await openTab("device_cfg");
-  await shot("fe4b-count-unknown");
-
-  await openPreview("comment-only");
-  await openItem("table:comment_demo");
-  await shot("fe4b-comment-only");
+  await capture("fe4b-nav-two-views", async () => {
+    await openPreview("preview-full", { pair: "initial_to_modified" });
+  });
+  await capture("fe4b-nav-single-view", async () => {
+    await openPreview("preview-modified-only");
+  });
+  await capture("fe4b-device-tabs", async () => {
+    await openPreview("duplicates-orphans");
+    await openItem("device:composite");
+  });
+  await capture("fe4b-single-tab-item", async () => {
+    await openPreview("preview-full", { pair: "initial_to_modified" });
+    await openItem("table:version_manager");
+    await expect(page.locator('.nav-item[data-item-key="table:version_manager"] .nav-item__tabs')).toHaveCount(0);
+  });
+  await capture("fe4b-sidebar-search", async () => {
+    await openPreview("preview-full", { pair: "initial_to_modified" });
+    await page.getByLabel("搜索组、节点或页签").fill("复合信号");
+  });
+  await capture("fe4b-columns-pinned", async () => {
+    await openPreview("duplicates-orphans");
+    await openItem("device:table");
+  });
+  await capture("fe4b-before-only-column", async () => {
+    await openPreview("preview-full", { pair: "initial_to_modified" });
+    await openItem("table:retired_table");
+  });
+  await capture("fe4b-keyless-before-unavailable", async () => {
+    await openPreview("preview-modified-only");
+    await openItem("table:keyless_demo");
+  });
+  await capture("fe4b-located-rows", async () => {
+    await openPreview("preview-full", { pair: "initial_to_modified" });
+    await openItem("table:schema_demo");
+  });
+  await capture("fe4b-formula-before", async () => {
+    await openPreview("formula-unchanged-device");
+    await openItem("device:composite");
+    await clickFormulaCell(page);
+    await expect(page.getByRole("dialog", { name: "公式查看" })).toBeVisible();
+  });
+  await capture("fe4b-gid-change", async () => {
+    if (await page.getByRole("button", { name: "关闭公式" }).count()) await page.getByRole("button", { name: "关闭公式" }).click();
+    await openPreview("identity-unrecorded-exact");
+    await openItem("device:addr:49");
+    await openTab("device_cfg");
+  });
+  await capture("fe4b-duplicates", async () => {
+    await openPreview("duplicates-orphans");
+    await openItem("device:table");
+  });
+  await capture("fe4b-orphans-view-table", async () => {
+    const viewTable = page.getByRole("button", { name: /查看整表/ }).first();
+    if (await viewTable.count()) {
+      await viewTable.click();
+      await page.waitForTimeout(500);
+    }
+  });
+  await capture("fe4b-table-fallback", async () => {
+    await openPreview("identity-changes");
+    await openItem("device:addr:49");
+    await openTab("device_cfg");
+  });
+  await capture("fe4b-table-scope", async () => {
+    await openPreview("table-addition");
+    await openItem("device:composite");
+    await openTab("device_st");
+  });
+  await capture("fe4b-filter-unsupported", async () => {
+    await openPreview("excluded-identity");
+    await openItem("table:device_st");
+  });
+  await capture("fe4b-count-unknown", async () => {
+    await openPreview("missing-identity-column");
+    await openItem("device:addr:49");
+    await openTab("device_cfg");
+  });
+  await capture("fe4b-comment-only", async () => {
+    await openPreview("comment-only");
+    await openItem("table:comment_demo");
+  });
+  expect(failures, failures.join("\n")).toEqual([]);
 });

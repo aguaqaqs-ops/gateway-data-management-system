@@ -176,3 +176,49 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
         and "t/" in e["logical_path"]]
     locator, = pq.read_table(pa.BufferReader(store.locate(artifact_ref_from_dict(locator_entry["artifact_ref"])))).to_pylist()
     assert locator["current_row_index"] == 2
+
+
+@pytest.mark.parametrize("error_kind", ("value", "io", "arrow", "uncoded-standard"))
+def test_actual_exception_becomes_stable_code_in_downloadable_records(
+    error_kind: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway_backend.capabilities.comparison import native
+    from gateway_backend.capabilities.comparison.errors import StandardComparisonError
+    from gateway_backend.application.preview_jobs import surface_artifact_closure
+    from gateway_backend.capabilities.bundle_assembly import (
+        BUNDLE_CONTRACT_VERSION, BundleAssemblyInput, BundleAssemblyStatus, BundleInput,
+        BundlePairInput, BundleProfile, assemble_bundle, validate_bundle,
+    )
+    from gateway_backend.artifacts import artifact_ref_from_dict
+
+    ddl = "CREATE TABLE t(id BIGINT PRIMARY KEY,note TEXT);"
+    before = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES(1,'old');"))
+    current = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES(1,'new');"))
+    errors = {"value": ValueError, "io": OSError, "arrow": pa.ArrowInvalid, "uncoded-standard": StandardComparisonError}
+    def fail_native(*args: Any, **kwargs: Any) -> Any:
+        raise errors[error_kind]("private detail that must never enter a public artifact")
+    monkeypatch.setattr(native, "compare_records_batches", fail_native)
+    store = InMemoryArtifactStore()
+    result = pipeline.run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
+        rule_set=comparison_ruleset_for(standard_rule_record("t")), assess_identity=False,
+        repository_id="replacement-fixture")
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert table.diagnostics.diagnostics_summary == ("COMPARISON_INTERNAL_ERROR",)
+    assert table.row_locator_ref is None
+    closure = surface_artifact_closure(surface, result.pair_id, result.records_closure,
+        before=before, current=current, store=store, repository_id="replacement-fixture")
+    assembled = assemble_bundle(BundleAssemblyInput(bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+        bundle_profile=BundleProfile.SINGLE_PAIR, inputs=(BundleInput(0,"before","Before"), BundleInput(1,"current","Current")),
+        pairs=(BundlePairInput(result.pair_id,0,1,result.surface_result,closure),)), source_store=store)
+    assert assembled.status is BundleAssemblyStatus.READY and assembled.bundle is not None
+    validate_bundle(assembled.bundle, store)
+    manifest = json.loads(store.locate(assembled.bundle.manifest_ref))
+    entries = [entry for entry in manifest["closure_entries"] if entry["kind"] == "RECORDS"]
+    assert len(entries) == 1
+    record, = pq.read_table(pa.BufferReader(store.locate(artifact_ref_from_dict(entries[0]["artifact_ref"])))).to_pylist()
+    assert record["record_kind"] == "TABLE_DEGRADED"
+    assert record["diagnostics"] == ["COMPARISON_INTERNAL_ERROR"]
+    assert "private detail" not in json.dumps(record)

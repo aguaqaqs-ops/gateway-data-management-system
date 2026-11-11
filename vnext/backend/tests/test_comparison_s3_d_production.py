@@ -395,7 +395,7 @@ def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> Non
         assert product.result.facts is not None
         fact = product.result.facts.tables[0]
         assert fact.status is ComparisonTableStatus.DEGRADED
-        assert fact.diagnostics == ("ValueError",)
+        assert fact.diagnostics == ("COMPARISON_INTERNAL_ERROR",)
         assert tuple(record.record_kind.value for record in fact.records) == ("TABLE_DEGRADED",)
     finally:
         product.close()
@@ -1189,7 +1189,7 @@ def test_cached_success_is_rechecked_when_the_same_reader_closes(
         actual = second_result.result.facts
         assert actual is not None
         assert actual.tables[0].status is ComparisonTableStatus.DEGRADED
-        assert actual.tables[0].diagnostics == ("TableAccessError",)
+        assert actual.tables[0].diagnostics == ("COMPARISON_INTERNAL_ERROR",)
         assert actual.facts_core_digest.value == expected["facts_core_digest"]
         assert actual.comparison_digest.value == expected["comparison_digest"]
         assert session.calls == 1 and session.reads == 2 and session.hits == 0
@@ -1266,10 +1266,15 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
         actual = product.result.facts
         assert actual is not None
         assert actual.tables[0].status is ComparisonTableStatus.DEGRADED
-        assert actual.tables[0].diagnostics == ("TableAccessError",)
+        assert actual.tables[0].diagnostics == ("COMPARISON_INTERNAL_ERROR",)
         assert actual.tables[0].ordered_extension is None
         assert actual.tables[0].blank_extension is None
-        assert actual.facts_core_digest.value == expected["facts_core_digest"]
+        # BE-b replaces leaked exception class names in facts/records with a
+        # stable code. The old-source capture remains historical evidence.
+        assert expected["tables"][0]["diagnostics"] == ["TableAccessError"]
+        assert actual.facts_core_digest.value != expected["facts_core_digest"]
+        assert (actual.tables[0].row_added_count, actual.tables[0].row_deleted_count,
+                actual.tables[0].row_modified_count) == (0, 0, 0)
     finally:
         product.close()
 

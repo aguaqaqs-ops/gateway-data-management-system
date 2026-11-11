@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from time import perf_counter
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -1134,10 +1135,11 @@ def _compare_plan_native_once(
                 coded = str(exc) if isinstance(exc, ValueError) else ""
                 if coded == "DUPLICATE_EFFECTIVE_KEY":
                     diagnostic = f"DUPLICATE_EFFECTIVE_KEY:{task.table_name}"
-                elif isinstance(exc, StandardComparisonError) or coded in _OLD_CODED_ERRORS:
-                    diagnostic = str(exc)
+                elif (isinstance(exc, StandardComparisonError)
+                        and re.fullmatch(r"[A-Z][A-Z0-9_]*", coded)) or coded in _OLD_CODED_ERRORS:
+                    diagnostic = coded
                 else:
-                    diagnostic = type(exc).__name__
+                    diagnostic = "COMPARISON_INTERNAL_ERROR"
                 schema_changes = ComparisonSchemaChanges()
                 if (task.before_descriptor is not None and task.current_descriptor is not None
                         and task.policy is not None):

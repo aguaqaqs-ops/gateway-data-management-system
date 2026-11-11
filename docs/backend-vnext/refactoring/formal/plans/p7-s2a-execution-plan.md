@@ -1,6 +1,6 @@
 # P7 S2a 固定多 worker 详细实施计划
 
-日期：2026-11-11。状态：**已通过 GPT-6-Astra 独立审核及原审复审，具备代码实施条件；产品尚未实施、未验证。** 源码基线 `38da5bf35cc97f85fe0834ea104d36552155386b`，产品 tree 继承 `p7-s1b-exit`。用户已授权本会话编写、独审并修复文档直到具备编码条件；未授权执行产品实现、测试、push 或部署。实质内容通过于 `c3be55cb34a9c6292b1659d2187a4903ac90eb67`，首轮唯一阻塞 F1 已关闭。独审与原审复审分别见 `/home/dev/gdds-stage-exchange/p7-s2a/reviews/ed907830e650803875e5cec9438930c457f2918e.md`、`/home/dev/gdds-stage-exchange/p7-s2a/reviews/c3be55cb34a9c6292b1659d2187a4903ac90eb67.md`；状态收口及最终文件摘要见同目录 `readiness-finalization.md`。
+日期：2026-11-11。状态：**已通过 GPT-6-Astra 独立审核及原审复审，具备代码实施条件；产品尚未实施、未验证。** 源码基线 `38da5bf35cc97f85fe0834ea104d36552155386b`，产品 tree 继承 `p7-s1b-exit`。本页编制时仅授权设计与独审；后续Owner已授权新会话连续实施至本地exit，见[S0 §14](p7-s0-owner-decisions.md#14-s2a-实施至-exit-授权与-ci-分工2026-11-11)及[实施入口](p7-s2a-implementation-prompt.md)。不push或上线。实质内容通过于 `c3be55cb34a9c6292b1659d2187a4903ac90eb67`，首轮唯一阻塞 F1 已关闭。独审与原审复审分别见 `/home/dev/gdds-stage-exchange/p7-s2a/reviews/ed907830e650803875e5cec9438930c457f2918e.md`、`/home/dev/gdds-stage-exchange/p7-s2a/reviews/c3be55cb34a9c6292b1659d2187a4903ac90eb67.md`；状态收口及最终文件摘要见同目录 `readiness-finalization.md`。
 
 依据：[S2 正式设计](p7-s2-design.md)、[S0 §12](p7-s0-owner-decisions.md#12-s2-简单性与业务边界收口2026-11-11)、[比例化政策](../policies/proportional-assurance-and-risk-based-verification-policy.md)。固定单组、单 backend/RS 服务实例，同规格 W=K；N1、多 Workspace/兄弟候选及同库 Submit 受理冲突保留。S2b、S3、S4b 的范围不提前实现。
 
@@ -144,7 +144,7 @@ worker原signal/drain/协作handoff保留，正常结束退出0；异常/超时�
 
 ## 8. 工作包、风险及逐包交付
 
-每包交付代码、相应Contract/文档和最小测试，按main规则实施/独审；当前会话只准备这些计划。A–F是工作包，不是六个阶段退出。
+每包交付代码、相应Contract/文档和最小测试，按main规则实施/独审；本页编制会话仅准备计划，后续实施授权见S0 §14。A–F是工作包，不是六个阶段退出。
 
 | 包 | 改动与依赖 | 风险/测试owner | 完成条件 |
 | --- | --- | --- | --- |
@@ -187,6 +187,6 @@ F用 `scripts/run-stage-gate.py <完整SHA> --packages repository_contracts,repo
 
 实施按包修订：[Operation Lifecycle](../contracts/operation-lifecycle-and-integrity.md)的实例owner、startup/恢复及维护语义；[External Effect](../contracts/external-effect-and-recovery.md)说明同slot重启不改变原key/UNKNOWN；[Business Lifecycle](../contracts/business-lifecycle-and-state.md)仅澄清既有Submit受理占用与维护不等于取消，不改candidate/归档规则；[Repository Service](../contracts/repository-service.md)更新配置、物理访问许可、busy码和有界等待的3次重试例外；[Statistics](../contracts/statistics-and-query.md)更新实例列表与截断语义；[Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md)与API/部署说明按实际接线同步。不为普通锁文件新增业务schema或兼容协议。
 
-最终交付必须包含：A–E源码与Contract同步、原审finding关闭、各实例真实进程/资源证据、最终受影响包/容器门禁、获准真实范围或明确阻塞、原始失败及修复引用、D24移交与本人资源收尾。阶段退出tag的创建须由后续实施授权明确覆盖，本轮不预授予。
+最终交付必须包含：A–E源码与Contract同步、原审finding关闭、各实例真实进程/资源证据、最终受影响包/容器门禁、获准真实范围或明确阻塞、原始失败及修复引用、D24移交与本人资源收尾。S0 §14已授权满足全部条件后创建本地附注 `p7-s2a-exit`，不得提前创建。
 
 编码准备完成的判断：所有表内行为/错误/owner/接线有明确方案，独审无未关闭阻塞finding。资源档位和DC33真实范围属于**执行前确认项**，必须在相关运行前落实，不能写成已授权/通过；它们不要求产品算法另作设计。源码增量若推翻本计划、必须引入新持久协议/服务、扩大业务承诺或修改信任边界，停止受影响工作交Owner；普通可逆细节及已审方案修订由实施者/原审解决。

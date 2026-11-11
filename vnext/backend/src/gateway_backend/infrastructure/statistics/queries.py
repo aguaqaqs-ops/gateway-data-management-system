@@ -181,7 +181,7 @@ class SQLiteStatisticsReader:
                     ' AND category=? AND service_owner=? AND filesystem_id IS ? AND window_end_us>=? AND window_end_us<?'
                     ' ORDER BY window_end_us DESC,id DESC LIMIT 1',
                     (*self._identity, scope['category'], scope['service_owner'], scope['filesystem_id'], start_us, end_us)))
-            rows.sort(key=lambda row: (row['window_end_us'], row['id']))
+            rows.sort(key=lambda row: (row['window_end_us'], row['service_owner'], row['id']))
             latest: dict[tuple[object, ...], dict[str, object]] = {}
             for row in rows:
                 # A configured filesystem identity is counted once across services.

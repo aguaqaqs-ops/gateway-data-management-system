@@ -193,8 +193,8 @@ def test_operation_curves_segment_claim_process_and_bound_all_points(tmp_path: P
 def test_group_is_separate_and_never_contains_device_fields(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
     env = _env(tmp_path, store)
     store.write_batch([_storage('device'), _storage('public', repository_id=None, category='public_unknown'),
+        _storage('fs-rs', repository_id=None, category='filesystem', filesystem_id='disk', logical_bytes=None, available_bytes=10, service_owner='repository_service'),
         _storage('fs-be', repository_id=None, category='filesystem', filesystem_id='disk', logical_bytes=None, available_bytes=12),
-        _storage('fs-rs', repository_id=None, category='filesystem', filesystem_id='disk', logical_bytes=None, available_bytes=10, service_owner='repository_service', window_end_us=BASE + 1),
         _resource('device-resource'), _resource('shared', role='backend', process_instance_id='http', operation_id=None, step_id=None, claim_version=None, attempt_count=None)])
     assert env.client.get('/v1/statistics/group', headers=env.auth_headers()).status_code == 403
     headers = {'Authorization': 'Bearer group'}

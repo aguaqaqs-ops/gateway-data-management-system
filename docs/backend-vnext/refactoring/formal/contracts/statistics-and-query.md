@@ -42,6 +42,8 @@ GET 只读已生成记录，不触发扫描/GC/配置修改。DB 正常但空返
 组曲线读取指定role/process的服务采样（含忙时段），在read边界去掉operation/step/attempt/claim关联。
 所有series合计max_points默认600/最大2000，非每series倍增。
 CPU/read/write的桶值是同实例/claim连续采样的非负计数差；计数下降标counter_reset，超过配置采样周期2.5倍的缺口不插值。
+缺口阈值取查询进程当前配置；历史进程曾改周期或RS周期不同属于近似，E接线保持当前各角色周期一致，
+不引入历史采样配置重建协议。同filesystem取最新测量，等时按service_owner固定排序选择，不依赖入库先后。
 内存桶保留avg/max/count；没有值时avg/max为null、count=0，不伪造历史。
 
 普通页limit默认100/最大500；export默认1000/最大10000，CSV隐含export。JSON保留嵌套metrics，CSV将其

@@ -249,8 +249,23 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
                 golden["row-location"].append({**label, "table_id": table.table_id,
                     "raw_sha256": locator.raw_sha256.value, "schema": str(file.schema_arrow),
                     "rows": rows, "parquet_base64": base64.b64encode(raw).decode("ascii")})
+                variant_rows = file.read().to_pylist()
+                for row in variant_rows:
+                    for side, field in (("before", "before_table_ref"), ("current", "current_table_ref")):
+                        if row[side + "_row_index"] is not None and field in rewritten:
+                            original = getattr(refs, field)
+                            count = pq.ParquetFile(pa.BufferReader(store.locate(original))).metadata.num_rows
+                            row[side + "_row_index"] = count - 1 - row[side + "_row_index"]
+                sink = pa.BufferOutputStream()
+                pq.write_table(pa.Table.from_pylist(variant_rows, schema=file.schema_arrow), sink,
+                    row_group_size=1, compression="NONE")
+                variant_raw = sink.getvalue().to_pybytes()
                 locator = replace(locator, artifact_id=build_artifact_id(ArtifactLocation.EXPORT,
-                    "fixture-locator-variant", table.table_id), raw_sha256=raw_blob_digest(b"physical-locator-variant"), size_bytes=24)
+                    "fixture-locator-variant", [table.table_id, raw_blob_digest(variant_raw).value]),
+                    raw_sha256=raw_blob_digest(variant_raw), size_bytes=len(variant_raw))
+                physical_changes.append({"table_id": table.table_id, "kind": "ROW_LOCATOR",
+                    "rewritten_sha256": locator.raw_sha256.value,
+                    "rewrite": "indices follow reversed snapshot file order; row-group=1; compression=NONE"})
             physical_tables.append(replace(table, table_refs=replace(refs, **rewritten), row_locator_ref=locator))
         physical_digest = compute_surface_digest(replace(surface, tables=tuple(physical_tables)))
         if physical_digest != surface.surface_digest:

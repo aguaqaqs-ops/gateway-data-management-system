@@ -85,6 +85,11 @@
       "source_path": "frontend/src/test/fixtures/source/upload-inputs/logics-3.xml"
     },
     {
+      "path": "missing-identity-before.sql",
+      "sha256": "59f47abbc0cd46f658030d179186114cc2272770125e9959c1ac9fcfb86a9e0d",
+      "source": "BE-b keyed cfg side physically lacks identity column; not compare exclusion"
+    },
+    {
       "path": "schema-before.sql",
       "sha256": "a9b2b5d390b29d5f4db972cabb67afa40feaff1b363e1cf83ee57b3c82119bbc",
       "source": "BE-b bounded presentation scenario"
@@ -201,7 +206,8 @@
     "backend/scenarios/comment-only",
     "backend/scenarios/formula-unchanged-device",
     "backend/scenarios/identity-unrecorded-exact",
-    "backend/scenarios/excluded-identity"
+    "backend/scenarios/excluded-identity",
+    "backend/scenarios/missing-identity-column"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -827,6 +833,41 @@
             "table_id": "device_st",
             "reason": "IDENTITY_EXCLUDED"
           }
+        ]
+      }
+    },
+    {
+      "id": "missing-identity-column",
+      "output": "backend/scenarios/missing-identity-column",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "missing-identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "identity-unrecorded-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "keyed-physical-identity-column-missing",
+        "count-unknown-not-identity-excluded"
+      ],
+      "assertions": {
+        "required_codes": [
+          "DEVICE_TAB_COUNT_UNKNOWN"
         ]
       }
     }

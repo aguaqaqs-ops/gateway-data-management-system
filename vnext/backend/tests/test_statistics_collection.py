@@ -274,3 +274,34 @@ def test_sampler_never_attributes_a_read_across_claim_switch(tmp_path: Path) -> 
         assert sink._active is not None and sink._active.first is None
     finally:
         sink.end_execution(second)
+
+
+@pytest.mark.parametrize('fault', ['bytes', 'fraction', 'inodes', 'readonly'])
+def test_statistics_respects_deployment_filesystem_low_water(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str) -> None:
+    import os
+    from types import SimpleNamespace
+    config = StatisticsConfig()
+    store = SQLiteStatisticsStore(tmp_path / 'telemetry/db', IDENTITY, config,
+        capacity_path=tmp_path, min_free_bytes=5 * 1024**3, min_free_fraction=.1)
+    store.open()
+    try:
+        store.write_batch([_resource()])
+        fields = dict(f_blocks=100 * 1024**2, f_frsize=1024, f_bavail=20 * 1024**2, f_favail=100, f_flag=0)
+        if fault == 'bytes':
+            fields['f_bavail'] = 4 * 1024**2
+        elif fault == 'fraction':
+            fields['f_bavail'] = 6 * 1024**2
+        elif fault == 'inodes':
+            fields['f_favail'] = 0
+        else:
+            fields['f_flag'] = os.ST_RDONLY
+        monkeypatch.setattr(os, 'statvfs', lambda path: SimpleNamespace(**fields))
+        assert store.under_pressure()
+        # The capacity decision does not mutate existing rows or a business DB.
+        assert store.connection is not None
+        assert store.connection.execute('SELECT count(*) FROM resource_samples').fetchone() == (1,)
+        store.close()
+        with pytest.raises(sqlite3.OperationalError):
+            store.open()
+    finally:
+        store.close()

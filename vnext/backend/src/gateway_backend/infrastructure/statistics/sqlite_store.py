@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
+import os
+import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeAlias
@@ -18,11 +20,15 @@ class StatisticsUnavailable(Exception):
 
 
 class SQLiteStatisticsStore:
-    def __init__(self, path: Path, identity: StatisticsIdentity, config: StatisticsConfig) -> None:
+    def __init__(self, path: Path, identity: StatisticsIdentity, config: StatisticsConfig, *,
+                 capacity_path: Path | None = None, min_free_bytes: int = 0, min_free_fraction: float = 0) -> None:
         self.path, self.identity, self.config = path, identity, config
+        self.capacity_path, self.min_free_bytes, self.min_free_fraction = capacity_path, min_free_bytes, min_free_fraction
         self.connection: sqlite3.Connection | None = None
 
     def open(self) -> None:
+        if self.capacity_path is not None and self._filesystem_pressure():
+            raise sqlite3.OperationalError('statistics filesystem capacity unavailable')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=self.config.sqlite_busy_timeout_ms / 1000)
         try:
@@ -72,9 +78,14 @@ class SQLiteStatisticsStore:
         return sum(path.stat().st_size if path.exists() else 0 for path in
                    (self.path, Path(str(self.path) + '-wal'), Path(str(self.path) + '-shm')))
 
+    def _filesystem_pressure(self) -> bool:
+        info = os.statvfs(self.capacity_path or self.path.parent)
+        reserve = min(self.config.write_batch_bytes * 4, self.config.total_budget_bytes // 16)
+        minimum = max(self.min_free_bytes, math.ceil(info.f_blocks * info.f_frsize * self.min_free_fraction))
+        return (bool(info.f_flag & os.ST_RDONLY) or info.f_favail == 0
+                or info.f_bavail * info.f_frsize < minimum + reserve)
+
     def under_pressure(self) -> bool:
-        import os
-        stat = os.statvfs(self.path.parent)
         reserve = min(self.config.write_batch_bytes * 4, self.config.total_budget_bytes // 16)
         wal = Path(str(self.path) + '-wal')
         connection = self._connection()
@@ -86,7 +97,7 @@ class SQLiteStatisticsStore:
         page_pressure = self.config.max_page_count - pages + free_pages < batch_pages
         return (page_pressure or self.disk_bytes() + reserve >= self.config.total_budget_bytes
                 or (wal.exists() and wal.stat().st_size >= self.config.wal_soft_limit_bytes)
-                or stat.f_bavail * stat.f_frsize < reserve)
+                or self._filesystem_pressure())
 
     def write_batch(self, records: Sequence[Record]) -> None:
         if len(records) > self.config.write_batch_items:

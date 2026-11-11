@@ -219,7 +219,7 @@ class BufferedTelemetrySink:
         return batch
 
     def _run(self) -> None:
-        next_open = next_sample = next_maintenance = 0.0
+        next_open = next_sample = next_maintenance = pressure_until = 0.0
         try:
             while True:
                 now = monotonic()
@@ -233,13 +233,13 @@ class BufferedTelemetrySink:
                         self._failure('collection_failed')
                     except OSError:
                         self._failure('collection_failed')
-                if not self._stop.is_set() and now >= next_sample:
+                if not self._stop.is_set() and now >= next_sample and now >= pressure_until:
                     next_sample = now + self.config.sample_interval_seconds
                     try:
                         self.offer(self._sample())
                     except Exception:
                         self._failure('counter_unavailable')
-                if self.store.connection is not None:
+                if self.store.connection is not None and now >= pressure_until:
                     batch: list[Record] = []
                     try:
                         if now >= next_maintenance:
@@ -247,6 +247,7 @@ class BufferedTelemetrySink:
                             self.store.maintain(time_ns() // 1000)
                         if self.store.under_pressure():
                             self._failure('budget_exceeded')
+                            pressure_until = now + self.config.maintenance_seconds
                             # Drop bounded input, never keep growing or retry a business action.
                             with self._lock:
                                 self.health.dropped += len(self._queue)

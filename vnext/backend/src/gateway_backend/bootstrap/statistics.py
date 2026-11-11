@@ -37,8 +37,11 @@ def load_statistics_config() -> StatisticsConfig:
 def build_statistics_sink(deployment: DeploymentConfig, role: str) -> BufferedTelemetrySink:
     config = load_statistics_config()
     identity = StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id)
-    path = statistics_database_path(Path(deployment.storage.roots['be-metadata'].path))
-    return BufferedTelemetrySink(SQLiteStatisticsStore(path, identity, config), identity, config,
+    metadata = deployment.storage.roots['be-metadata']
+    policy = deployment.storage.filesystems[metadata.filesystem_id]
+    path = statistics_database_path(Path(metadata.path))
+    return BufferedTelemetrySink(SQLiteStatisticsStore(path, identity, config, capacity_path=Path(metadata.path),
+        min_free_bytes=policy.min_free_bytes, min_free_fraction=policy.min_free_fraction), identity, config,
         role=role, config_digest=deployment.resources.digest)
 
 

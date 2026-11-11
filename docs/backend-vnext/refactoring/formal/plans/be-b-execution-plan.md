@@ -1,6 +1,6 @@
 # BE-b 实施与验收执行计划
 
-日期：2026-11-10。状态：**计划候选；本轮仅授权文档、后端独审与前端核对准备，尚未授权产品实施**。
+日期：2026-11-10；2026-11-11 按首轮后端独审修订。状态：**计划候选；本轮仅授权文档、后端独审与前端核对准备，尚未授权产品实施**。
 
 设计依据：[BE-b 第二步设计](be-b-second-step-design.md)，业务依据[第一步](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md)、[FE4 kickoff §4](../../../../frontend-vnext/fe4-kickoff.md)。产品起点 B=`42780a12303c8040526bf5dc8f9c6f0acb12dbb1`，`p7-s1a-exit` 已完成。BE-b 不等待 S1b；FE4b 等 BE-b exit 与自己的 FE4a exit。
 
@@ -11,7 +11,7 @@
 编码入口须同时满足：
 
 1. 后端设计独审无未关闭阻塞项。
-2. 前端确认双侧 row_filter、replacement_sides、surface v4 内容绑定/摘要及 fixture 可消费；差异同步设计和第一步，未返回不是同意。
+2. 前端确认双侧集合 row_filter、本侧孤儿判定、TABLE_FALLBACK/new code、replacement_sides/同侧名称、surface v4 内容绑定/摘要及 fixture 可消费；差异同步设计和第一步，未返回不是同意。
 3. Owner 明确产品实施范围和本节真实数据范围。当前授权不解释为自动进入编码或打产品 exit tag。
 
 本轮只做文档差异、链接、源码依据核对；不运行产品测试、连接测试节点、构建镜像或修改 Accepted Contract。审核/prompt/log 放 `/home/dev/gdds-stage-exchange/be-b/`，只将设计、正式决定、计划入库。
@@ -79,6 +79,6 @@ t4 具体版本/两侧和节点库存须实施 kickoff 核清并列清单；不�
 
 ## 7. 前端定向核对请求
 
-提示词位于 `/home/dev/gdds-stage-exchange/be-b/prompts/frontend-targeted-review.md`，审核时绑定不可变文档候选 SHA；后端独审在 `/home/dev/gdds-stage-exchange/be-b/reviews/`。反馈至少回答：双侧筛选可实现且不会把缺侧当全表；replacement 分侧键与诊断定位明确；surface v4 摘要可交叉实现；原始 DDL 名与展示名分离满足浏览器需求；golden/fixture/七项交付足以刷新 FE4b。
+提示词位于 `/home/dev/gdds-stage-exchange/be-b/prompts/frontend-targeted-review.md`，审核时绑定不可变文档候选 SHA；后端独审在 `/home/dev/gdds-stage-exchange/be-b/reviews/`。反馈至少回答：双侧集合筛选可实现且不会把缺侧当全表/漏多 gid；本侧孤儿有入口；TABLE_FALLBACK 正确保留整表风险；replacement 分侧键/标题与诊断定位明确；surface v4 摘要可交叉实现；原始 DDL 名与展示名分离满足浏览器需求；golden/fixture/七项交付足以刷新 FE4b。
 
 返回 GO/GO_WITH_NONBLOCKING/CHANGES_REQUIRED，并列逐项文件段落、具体反例和建议；不要求前端现在实施/跑真实数据，也不让其代审后端存储/事务。前端意见回传后由后端设计者修订，实质后端变更交原 Astra 独审复核；再向 Owner报告可实施状态与剩余范围确认。

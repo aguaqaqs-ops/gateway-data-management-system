@@ -22,3 +22,7 @@ S1a 退出交接须以实际候选及证据说明：规范化 OpenAPI 不变；b
 ## DC74
 
 **DC74 未生效，随 P6 退出关闭。** 历史草案保留作记录；P6 S6 已按其后 Owner 决议使用现有完整包与顺带采集，见 [S6 范围确认](p6-s0-owner-decisions.md#s6设计轮范围确认owner2026-11-09补充dc83dc84dc74dc98)。本次关闭不改写 P6 的已验收结果，也不另设下载性能门槛。
+
+## 第二步接续（2026-11-11）
+
+上文保留 S1a 进行时的指示原文。S1a 已在 main `42780a12303c8040526bf5dc8f9c6f0acb12dbb1` 本地退出，附注 `p7-s1a-exit` 绑定同一 H。Owner 随后授权落成 [BE-b 第二步设计](be-b-second-step-design.md)与[执行计划](be-b-execution-plan.md)，并由 GPT-6-Astra 做后端独审、由 Owner 转交前端定向核对。当前产物仍为设计候选，前端反馈待返回；没有实施 BE-b 或启动 S1b。本次审核材料和提示词在 `/home/dev/gdds-stage-exchange/be-b/`，不预记产品验收。

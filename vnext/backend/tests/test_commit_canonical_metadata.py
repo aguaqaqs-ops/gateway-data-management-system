@@ -424,4 +424,5 @@ def test_history_comments_follow_exact_submission_refs_for_equal_canonical_ident
         metadata = _resolver(connection, store).resolve(repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE)
         assert metadata.manifest is not None and metadata.manifest.manifest_digest == semantic
         assert presentation_for_commit(metadata).tables[0].comment == label
+        connection.commit()
     connection.close()

@@ -147,13 +147,14 @@ def source_descriptor_from_arrow(value: dict[str, Any]) -> SourceTableDescriptor
     return SourceTableDescriptor(
         display_name=value["display_name"], canonical_name=value["canonical_name"],
         primary_key_canonical_names=tuple(value["primary_key"]), reader_ready=value["reader_ready"],
-        comment=value["comment"],
+        # Canonical Arrow descriptors intentionally carry no presentation keys.
+        comment=value.get("comment"),
         columns=tuple(SourceColumnDescriptor(
             display_name=c["display_name"], canonical_name=c["canonical_name"], ordinal=c["ordinal"],
             sql_type=c["sql_type"], logical_type=SqlLogicalType(c["logical_type"]),
             declared_type=None if c["declared_type"] is None else DeclaredType(
                 **{**c["declared_type"], "kind": DeclaredTypeKind(c["declared_type"]["kind"])}),
-            nullable=c["nullable"], comment=c["comment"], enum_or_set_labels=None if c["labels"] is None else tuple(c["labels"]),
+            nullable=c["nullable"], comment=c.get("comment"), enum_or_set_labels=None if c["labels"] is None else tuple(c["labels"]),
         ) for c in value["columns"]),
     )
 

@@ -901,3 +901,67 @@ def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: s
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
         _preview_ready_ref(state)
+
+
+@pytest.mark.parametrize("input_completeness", (InputCompleteness.FULL, InputCompleteness.MODIFIED_ONLY))
+def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, input_completeness: InputCompleteness,
+) -> None:
+    from gateway_backend.application.submission.errors import NoCanonicalChange
+    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+    from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+    from tests.support.preview_job_harness import BASELINE_SQL
+    harness = build_preview_harness(tmp_path, input_completeness=input_completeness, canonical_noop=True)
+    def upload(label: str) -> Any:
+        sql = BASELINE_SQL.replace("PRIMARY KEY)", f"PRIMARY KEY COMMENT '{label}-column') COMMENT='{label}'")
+        return store_source_package(harness.artifact_store, sql.encode(), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", label))
+    harness.upload_revision = build_upload_revision(input_completeness=input_completeness,
+        initial_binding=upload("initial") if input_completeness is InputCompleteness.FULL else None,
+        modified_binding=upload("modified"))
+    harness.job_payload = build_preview_job_payload(workspace_id=harness.upload_revision.workspace_id,
+        upload_revision=harness.upload_revision, repository_id=REPOSITORY_ID,
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest())
+    seen: list[tuple[PresentationMetadata, PresentationMetadata]] = []
+    original = preview_jobs.run_preview_pair_pipeline
+    def capture(**kwargs: Any) -> Any:
+        seen.append((kwargs["before_presentation"], kwargs["current_presentation"]))
+        return original(**kwargs)
+    monkeypatch.setattr(preview_jobs, "run_preview_pair_pipeline", capture)
+    _run_through_publish(harness, "op-comment-only")
+    expected_before = "initial" if input_completeness is InputCompleteness.FULL else None
+    def table_comment(metadata: PresentationMetadata) -> str | None:
+        return next(t.comment for t in metadata.tables if t.table_name == "t")
+    assert table_comment(seen[-1][0]) == expected_before
+    assert table_comment(seen[-1][1]) == "modified"
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert workspace is not None and workspace.current_preview_result_id is not None
+        preview = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
+        assert preview is not None and preview.canonical is not None
+        assert preview.canonical.baseline_canonical_state_digest == preview.canonical.modified_canonical_state_digest
+    command = AcceptSubmitCommand(context=make_identity(actor_id=workspace.owner_actor_id,
+        device_key=workspace.gateway_device_external_key, project_id=workspace.business_project_id,
+        permissions=frozenset({"upload_submit_workspace", "workspace_read"})), workspace_id=workspace.workspace_id,
+        expected_workspace_version=workspace.optimistic_version, upload_revision_id=harness.upload_revision.upload_revision_id,
+        preview_result_id=preview.preview_result_id, generation=preview.generation,
+        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key="comment-only-submit", options={})
+    def uow_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path, read_only=read_only)
+    preflight = load_accept_submit_preflight(command=command, unit_of_work_factory=uow_factory,
+        preview_result=preview, upload_revision=harness.upload_revision,
+        artifact_ref_lookup=cast(ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)),
+        artifact_store=cast(BoundedArtifactStorePort, _HarnessBoundedArtifactStore(harness.artifact_store)),
+        current_storage_projection_ruleset_digest=_runtime_comparison_ruleset_digest())
+    main_resolve = RecordingMainResolvePort()
+    with pytest.raises(NoCanonicalChange):
+        accept_submit_transaction(command=command, scope_resolution=FixedScopeResolutionPort(repository_id=REPOSITORY_ID,
+            baseline_head=BASELINE_HEAD), unit_of_work_factory=uow_factory, job_registry=submit_job_registry(),
+            main_resolve=main_resolve, preflight=preflight, now=harness.upload_revision.created_at)
+    assert main_resolve.calls == 0
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submission_records").fetchone()[0] == 0

@@ -735,7 +735,8 @@ def test_presentation_is_raw_bound_and_excluded_from_semantic_digest() -> None:
     assert open_canonicalization_manifest(store, old_ref).presentation == manifest.presentation
     assert open_canonicalization_manifest(store, new_ref).presentation == presentation
     document = json.loads(durable_manifest_bytes(changed))
-    for malformed in ({}, {"tables": []}, {"tables": [{"table_name": manifest.tables[0].name, "comment": None, "columns": []}]}):
+    malformed_payloads: tuple[dict[str, object], ...] = ({}, {"tables": []}, {"tables": [{"table_name": manifest.tables[0].name, "comment": None, "columns": []}]})
+    for malformed in malformed_payloads:
         document["presentation"] = malformed
         with pytest.raises(PackageError):
             canonicalization_manifest_from_bytes(json.dumps(document).encode())

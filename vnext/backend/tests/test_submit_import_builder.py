@@ -754,8 +754,8 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     assert "CREATE TABLE `com_cfg`" in replay_sql
     assert "`no`" not in replay_sql
     assert "COMMENT" not in replay_sql
-    from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
-    reopened = open_canonicalization_manifest(store, published.checkpoint.canonicalization_manifest_ref)
+    ref = published.checkpoint.canonicalization_manifest_ref
+    reopened = open_canonicalization_manifest(store, ArtifactRef(ref.artifact_id, ref.media_type, ref.size_bytes, DigestRef(ref.raw_sha256)))
     assert reopened.presentation == frozen.manifest.presentation
     assert reopened.presentation.tables[0].comment == "配置"
     assert {c.name: c.comment for c in reopened.presentation.tables[0].columns} == {"index": None, "value": "值"}

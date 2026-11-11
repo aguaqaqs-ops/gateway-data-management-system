@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import runpy
 import sys
+import subprocess
 from typing import Any
 
 import pytest
@@ -56,3 +57,38 @@ def test_actual_fixed_workers_reject_scaling_missing_identity_image_and_resource
     for fault in faults:
         with pytest.raises(ValueError):
             validate(config, "ours", fault)
+
+
+def test_worker_readiness_requires_current_generation_logs_and_running_fixed_instances(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.support import compose_gate_harness as harness
+    generation = {"worker": "first 0 2026-11-11T16:00:00Z", "worker-2": "second 0 2026-11-11T16:00:01Z"}
+    calls: list[tuple[str, ...]] = []
+    verified: list[str] = []
+    monkeypatch.setattr(harness, "configured_worker_services", lambda env: tuple(generation))
+    monkeypatch.setattr(harness, "capture_worker_container_state", lambda env: generation)
+    def logs(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        service = args[-1]
+        since = generation[service].rsplit(" ", 1)[1]
+        assert args == ("logs", "--no-color", "--since", since, service)
+        count = sum(call[-1] == service for call in calls)
+        # The first poll has only old-generation ready logs (excluded by --since).
+        return subprocess.CompletedProcess(args, 0, stdout="" if count == 1 else "code=worker_ready", stderr="")
+    monkeypatch.setattr(harness, "run_compose", logs)
+    monkeypatch.setattr(harness.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(harness, "check_fixed_worker_deployment", lambda env: verified.append("running-fixed-identity"))
+    monkeypatch.setattr(harness, "assert_running_backend_worker_images_match_build", lambda env: verified.append("image"))
+    harness.worker_ready({})
+    assert len(calls) == 4
+    assert verified == ["running-fixed-identity", "image"]
+
+
+def test_worker_readiness_rejects_generation_change_during_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.support import compose_gate_harness as harness
+    generations = iter(({"worker": "first 0 2026-11-11T16:00:00Z"},
+                        {"worker": "first 1 2026-11-11T16:00:01Z"}))
+    monkeypatch.setattr(harness, "configured_worker_services", lambda env: ("worker",))
+    monkeypatch.setattr(harness, "capture_worker_container_state", lambda env: next(generations))
+    monkeypatch.setattr(harness, "run_compose", lambda env, *args: subprocess.CompletedProcess(args, 0, stdout="code=worker_ready", stderr=""))
+    with pytest.raises(AssertionError, match="fixed worker containers changed"):
+        harness.worker_ready({})

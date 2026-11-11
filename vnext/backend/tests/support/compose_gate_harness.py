@@ -651,12 +651,17 @@ def wait_repository_service_ready(env: dict[str, str], *, timeout_seconds: float
 def worker_ready(env: dict[str, str], *, timeout_seconds: float = 120.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     pending = set(configured_worker_services(env))
+    generation = capture_worker_container_state(env)
     while time.monotonic() < deadline:
         for service in tuple(pending):
-            logs = run_compose(env, "logs", service, "--no-color")
+            # A restarted original container retains its old ready log. Bind this
+            # wait to its current process generation, then reject another restart.
+            started_at = generation[service].rsplit(" ", 1)[1]
+            logs = run_compose(env, "logs", "--no-color", "--since", started_at, service)
             if logs.returncode == 0 and "code=worker_ready" in logs.stdout:
                 pending.remove(service)
         if not pending:
+            assert_worker_container_unchanged(env, generation)
             check_fixed_worker_deployment(env)
             assert_running_backend_worker_images_match_build(env)
             return

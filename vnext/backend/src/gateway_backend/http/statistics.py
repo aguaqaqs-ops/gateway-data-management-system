@@ -32,6 +32,7 @@ class StatisticsHttpDependencies:
     reader: StatisticsReader
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
     dropped_count: Callable[[], int] = lambda: 0
+    sample_interval_seconds: float = 1
     export_slot: BoundedSemaphore = field(default_factory=lambda: BoundedSemaphore(1))
 
 
@@ -50,6 +51,8 @@ def query_error(exc: StatisticsReadError) -> ApiError:
 
 def time_range(query: StatisticsQuery, now: datetime, *, resources: bool = False) -> tuple[int, int]:
     end = query.to or now
+    if end <= datetime(1970, 1, 1, tzinfo=UTC):
+        raise ApiError(code='REQUEST_VALIDATION_FAILED', message='invalid statistics time range', status_code=422)
     start = query.from_ or (end - timedelta(hours=1) if resources else end - timedelta(days=90))
     if start < datetime(1970, 1, 1, tzinfo=UTC) or not start < end or end - start > timedelta(hours=6 if resources else 90 * 24):
         raise ApiError(code='REQUEST_VALIDATION_FAILED', message='invalid statistics time range', status_code=422)
@@ -137,7 +140,8 @@ def page_metadata(items: Sequence[Any], start_us: int, end_us: int, now: datetim
         reason='not_collected' if not items else next((item.reason for item in items if item.reason is not None), None))
 
 
-def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_us: int, now: datetime, scope: str) -> ResourcePage:
+def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_us: int, now: datetime, scope: str,
+                  *, sample_interval_seconds: float = 1) -> ResourcePage:
     groups: dict[tuple[Role, str, str | None, int | None, int | None], list[ResourceRecord]] = defaultdict(list)
     for sample in data.samples:
         groups[(sample.role, sample.process_instance_id, sample.step_id, sample.attempt_count, sample.claim_version)].append(sample)
@@ -165,7 +169,7 @@ def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_u
                         value = None
                     elif value < old:
                         value, reason = None, 'counter_reset'
-                    elif sample.sampled_at_us - previous.sampled_at_us > 2500000:
+                    elif sample.sampled_at_us - previous.sampled_at_us > sample_interval_seconds * 2500000:
                         value, reason = None, 'not_collected'
                     else:
                         value -= old
@@ -193,5 +197,6 @@ def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_u
     if len(series) > query.effective_limit:
         last = retained[-1]
         next_cursor = base64.urlsafe_b64encode(json.dumps([scope, last.window_start_us, last.process_instance_id, last.claim_version or 0]).encode()).decode()
-    metadata = page_metadata(retained, start_us, end_us, now, [sample.sampled_at_us for sample in data.samples])
+    coverage = [timestamp for item in retained for timestamp in (item.window_start_us, item.window_end_us)]
+    metadata = page_metadata(retained, start_us, end_us, now, coverage)
     return StatisticsPage[ResourceSeries](items=retained, next_cursor=next_cursor, **metadata)

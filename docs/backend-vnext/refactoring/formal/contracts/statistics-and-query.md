@@ -39,8 +39,9 @@ GET 只读已生成记录，不触发扫描/GC/配置修改。DB 正常但空返
 有限读事务统一计数最多50000行、32MiB原始字段与1秒SQL预算；summary分页使用时间和稳定主键。
 当前占用按固定category/service索引各取最新一行，不扫全部历史；组filesystem按配置身份去重。
 曲线先查指定attempt的至多100个claim，再按各claim的process/start/end分别读取；缺start不猜窗口。
-组曲线只读取无operation关联的服务采样。所有series合计max_points默认600/最大2000，非每series倍增。
-CPU/read/write的桶值是同实例/claim连续采样的非负计数差；计数下降标counter_reset，超过2.5秒的缺口不插值。
+组曲线读取指定role/process的服务采样（含忙时段），在read边界去掉operation/step/attempt/claim关联。
+所有series合计max_points默认600/最大2000，非每series倍增。
+CPU/read/write的桶值是同实例/claim连续采样的非负计数差；计数下降标counter_reset，超过配置采样周期2.5倍的缺口不插值。
 内存桶保留avg/max/count；没有值时avg/max为null、count=0，不伪造历史。
 
 普通页limit默认100/最大500；export默认1000/最大10000，CSV隐含export。JSON保留嵌套metrics，CSV将其

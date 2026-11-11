@@ -411,7 +411,14 @@ def prepare_backend_runtime(
         comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
     )
-    statistics_config = StatisticsConfig()
+    try:
+        statistics_config = StatisticsConfig()
+        statistics_enabled = statistics_config.enabled
+        statistics_sample_interval = statistics_config.sample_interval_seconds
+    except ValueError:
+        # Invalid telemetry-only settings cannot prevent business startup.
+        statistics_enabled = False
+        statistics_sample_interval = 1.0
     return BackendRuntime(
         settings=settings,
         storage_guard=guard,
@@ -421,8 +428,8 @@ def prepare_backend_runtime(
         statistics_http=StatisticsHttpDependencies(SQLiteStatisticsReader(
             statistics_database_path(Path(deployment.storage.roots['be-metadata'].path)),
             StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id),
-            available=lambda: statistics_config.enabled,
-        )),
+            available=lambda: statistics_enabled,
+        ), sample_interval_seconds=statistics_sample_interval),
     )
 
 

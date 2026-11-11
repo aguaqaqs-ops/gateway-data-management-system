@@ -20,7 +20,7 @@ from gateway_backend.statistics.queries import GroupRead, ReadPage, ReadRequest,
 MAX_READ_ROWS = 50000
 MAX_READ_BYTES = 32 * 1024 * 1024
 SQL_SECONDS = 1.0
-T = TypeVar('T', StorageRecord, WriteRecord, ExecutionSummary, ResourceRecord)
+T = TypeVar('T', bound=StorageRecord | WriteRecord | ExecutionSummary | ResourceRecord)
 
 
 class _Read:
@@ -127,7 +127,7 @@ class SQLiteStatisticsReader:
                 rows = []
                 for service in ('backend', 'repository_service'):
                     for category in ('repository', 'durable', 'canonical', 'comparison', 'export', 'scratch', 'metadata', 'public_unknown'):
-                        rows.extend(query.select(f'SELECT * FROM {table} WHERE {predicates} AND service_owner=? AND category=?'
+                        rows.extend(query.select(f'SELECT * FROM {table} WHERE {predicates} AND service_owner=? AND category=? AND filesystem_id IS NULL'
                             f' ORDER BY {timestamp} DESC,id DESC LIMIT 1', (*parameters, service, category)))
                 rows.sort(key=lambda row: (row[timestamp], row['id']))
                 if cursor_values:
@@ -160,15 +160,19 @@ class SQLiteStatisticsReader:
                         (*self._identity, request.operation_id, request.step_id, window.claim_version, window.process_instance_id,
                          max(request.start_us, window.started_at_us), min(request.end_us, window.ended_at_us + 1 if window.ended_at_us is not None else request.end_us), MAX_READ_ROWS + 1)))
             else:
-                samples = query.select('SELECT * FROM resource_samples WHERE environment_id=? AND group_id=? AND role=? AND process_instance_id=? AND operation_id IS NULL'
+                samples = query.select('SELECT * FROM resource_samples WHERE environment_id=? AND group_id=? AND role=? AND process_instance_id=?'
                     ' AND sampled_at_us>=? AND sampled_at_us<? ORDER BY sampled_at_us,id LIMIT ?',
                     (*self._identity, request.role, request.process_instance_id, request.start_us, request.end_us, MAX_READ_ROWS + 1))
+                # Group permission grants a service curve, never the business association.
+                for sample in samples:
+                    for key in ('operation_id', 'step_id', 'attempt_count', 'claim_version'):
+                        sample[key] = None
             records = _decode(ResourceRecord, samples)
         return ResourceRead(samples=records, windows=windows)
 
     def group(self, start_us: int, end_us: int) -> GroupRead:
         with self._transaction() as query:
-            scopes = query.select('SELECT DISTINCT category,service_owner,filesystem_id FROM storage_observations WHERE repository_id IS NULL LIMIT 501')
+            scopes = query.select('SELECT DISTINCT category,service_owner,filesystem_id FROM storage_observations WHERE environment_id=? AND group_id=? AND repository_id IS NULL LIMIT 501', self._identity)
             if len(scopes) > 500:
                 raise StatisticsReadError('budget_exceeded')
             rows = []

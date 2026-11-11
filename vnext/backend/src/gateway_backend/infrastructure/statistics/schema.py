@@ -57,6 +57,7 @@ CREATE TABLE resource_samples (
  OR (operation_id IS NOT NULL AND step_id IS NOT NULL AND attempt_count IS NOT NULL AND claim_version IS NOT NULL))
 ) STRICT;
 CREATE INDEX resource_process_window ON resource_samples(role,process_instance_id,sampled_at_us,id);
+CREATE INDEX resource_role_window ON resource_samples(role,sampled_at_us,id);
 CREATE INDEX resource_execution_window ON resource_samples(operation_id,step_id,claim_version,sampled_at_us,id);
 CREATE INDEX resource_retention ON resource_samples(sampled_at_us,id);
 CREATE TABLE write_observations (

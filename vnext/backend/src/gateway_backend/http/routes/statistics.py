@@ -107,10 +107,12 @@ def operation_resources(operation_id: str, request: Request, query: Annotated[Op
     start, end = time_range(query, now, resources=True)
     return respond(stats, query, lambda: resource_page(stats.reader.resources(ResourceRequest(start_us=start, end_us=end,
         operation_id=operation_id, step_id=query.step_id, attempt_count=query.attempt_count, claim_version=query.claim_version)),
-        query, start, end, now, f'{operation_id}:{query.step_id}:{query.attempt_count}:{query.claim_version}'))
+        query, start, end, now, f'{operation_id}:{query.step_id}:{query.attempt_count}:{query.claim_version}',
+        sample_interval_seconds=stats.sample_interval_seconds))
 
 
-@router.get('/v1/statistics/group', response_model=GroupStatistics, responses=RESPONSES)
+@router.get('/v1/statistics/group', response_model=GroupStatistics, responses={**RESPONSES,
+    200: {'description': 'Bounded current group capacity, public overhead, recent process identities and collection health.'}})
 def group_statistics(request: Request, context: Identity) -> GroupStatistics:
     assert_statistics_group_permission(context)
     stats = get_statistics_http(request)
@@ -139,4 +141,4 @@ def group_resources(request: Request, query: Annotated[GroupResourceQuery, Query
     start, end = time_range(query, now, resources=True)
     return respond(stats, query, lambda: resource_page(stats.reader.resources(ResourceRequest(start_us=start, end_us=end,
         role=query.role, process_instance_id=query.process_instance_id)), query, start, end, now,
-        f'{query.role}:{query.process_instance_id}'))
+        f'{query.role}:{query.process_instance_id}', sample_interval_seconds=stats.sample_interval_seconds))

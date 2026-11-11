@@ -134,7 +134,8 @@ def test_device_permission_mapping_and_missing_database_matrix(tmp_path: Path, s
 
 
 @pytest.mark.parametrize('params', [dict(limit=501), dict(limit=10001, export='true'), dict(cursor='bad'),
-    {'from': '2024-06-02T00:00:00Z'}, {'to': '2023-01-01T00:00:00Z', 'from': '2023-05-01T00:00:00Z'}])
+    {'from': '2024-06-02T00:00:00Z'}, {'to': '0001-01-01T00:00:00Z'},
+    {'to': '2023-01-01T00:00:00Z', 'from': '2023-05-01T00:00:00Z'}])
 def test_http_rejects_invalid_or_unbounded_queries(tmp_path: Path, store: SQLiteStatisticsStore, params: dict[str, Any]) -> None:
     env = _env(tmp_path, store)
     response = env.client.get('/v1/repositories/repo-1/statistics/storage/history', headers=env.auth_headers(), params=params)
@@ -204,8 +205,12 @@ def test_group_is_separate_and_never_contains_device_fields(tmp_path: Path, stor
     assert not any(name in response.text for name in ('repository_id', 'operation_id', 'table_name', str(store.path)))
     curve = env.client.get('/v1/statistics/group/resources', headers=headers, params={'role': 'backend', 'process_instance_id': 'http'})
     assert curve.status_code == 200 and len(curve.json()['items']) == 1
-    hidden = env.client.get('/v1/statistics/group/resources', headers=headers, params={'role': 'worker', 'process_instance_id': 'p1'})
-    assert hidden.status_code == 200 and hidden.json()['items'] == []
+    busy = env.client.get('/v1/statistics/group/resources', headers=headers, params={'role': 'worker', 'process_instance_id': 'p1'})
+    assert busy.status_code == 200 and len(busy.json()['items']) == 1
+    assert busy.json()['items'][0]['step_id'] is None
+    assert busy.json()['items'][0]['claim_version'] is None
+    assert busy.json()['items'][0]['attempt_count'] is None
+    assert 'operation_id' not in busy.text and 'repo-1' not in busy.text
 
 
 @pytest.mark.parametrize('failure', ['normal', 'prepare', 'send', 'cancel', 'bytes'])
@@ -257,3 +262,44 @@ def test_openapi_documents_seven_read_routes_and_export_headers(tmp_path: Path, 
         assert {'from', 'to', 'cursor', 'export', 'format', 'limit'} <= {item['name'] for item in value['get']['parameters']}
         assert 'text/csv' in value['get']['responses']['200']['content']
         assert 'X-Statistics-Next-Cursor' in value['get']['responses']['200']['headers']
+
+
+def test_history_statistics_use_history_acceptance_permission(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
+    from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
+    from tests.support.history_compare_job_harness import seed_archived_baseline_node
+    from tests.support.http_workspace_harness import BASELINE_HEAD
+    env = create_workspace_http_environment(tmp_path, identity=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+        extra_sessions={'workspace': make_identity(permissions=frozenset({'workspace_read'})),
+                        'other-history': make_identity(device_key='other', permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY}))})
+    cast(FastAPI, env.client.app).state.statistics_http = StatisticsHttpDependencies(_reader(store), now=lambda: NOW)
+    seed_archived_baseline_node(env.db_path, node_id='bn-statistics', commit_id='commit-statistics', created_at_us=2)
+    accepted = env.client.post('/v1/history-compares', headers=env.auth_headers(idempotency_key='statistics-history'), json={'nodes': [
+        {'ref_kind': 'baseline_node', 'ref_id': BASELINE_HEAD.business_baseline_node_id},
+        {'ref_kind': 'baseline_node', 'ref_id': 'bn-statistics'}]})
+    assert accepted.status_code == 202
+    operation_id = accepted.json()['operation_id']
+    store.write_batch([_summary(operation_id=operation_id)])
+    executions = f'/v1/operations/{operation_id}/statistics/executions'
+    resources = f'/v1/operations/{operation_id}/statistics/resources'
+    for url, params in ((executions, {}), (resources, {'step_id': 's', 'attempt_count': 1})):
+        assert env.client.get(url, headers=env.auth_headers(), params=params).status_code == 200
+        assert env.client.get(url, headers={'Authorization': 'Bearer workspace'}, params=params).status_code == 403
+        assert env.client.get(url, headers={'Authorization': 'Bearer other-history'}, params=params).status_code == 404
+
+
+def test_service_curve_respects_configured_interval_and_page_coverage(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
+    env = _env(tmp_path, store)
+    deps = StatisticsHttpDependencies(_reader(store), now=lambda: NOW, sample_interval_seconds=5)
+    cast(FastAPI, env.client.app).state.statistics_http = deps
+    store.write_batch([_resource('service-a', role='backend', process_instance_id='http', sampled_at_us=BASE,
+        operation_id=None, step_id=None, attempt_count=None, claim_version=None),
+        _resource('service-b', role='backend', process_instance_id='http', sampled_at_us=BASE + 5000000, cpu_time_us=200,
+        operation_id=None, step_id=None, attempt_count=None, claim_version=None)])
+    response = env.client.get('/v1/statistics/group/resources', headers={'Authorization': 'Bearer group'},
+        params={'role': 'backend', 'process_instance_id': 'http', 'max_points': 1})
+    assert response.status_code == 200
+    item = response.json()['items'][0]
+    assert item['points'][0]['cpu_time_us'] == {'avg': 100.0, 'max': 100, 'count': 1}
+    assert item['quality'] == 'available'
+    assert response.json()['coverage_start_us'] == BASE
+    assert response.json()['coverage_end_us'] == BASE + 5000000

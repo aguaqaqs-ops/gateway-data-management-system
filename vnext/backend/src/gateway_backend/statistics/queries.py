@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, Protocol
-from gateway_repository_contracts.statistics import Role
+from gateway_repository_contracts.statistics import Role as Role
 
 from gateway_backend.statistics.models import ExecutionSummary, ResourceRecord, StatisticsIdentity, StorageRecord, WriteRecord
 

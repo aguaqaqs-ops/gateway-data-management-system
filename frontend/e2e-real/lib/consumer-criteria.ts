@@ -63,6 +63,7 @@ interface NavigationTab {
   table_id: string;
   row_filter: RowFilter | null;
   facts: { basis?: unknown } | null;
+  side?: "before" | "current";
 }
 
 interface NavigationItem {
@@ -291,72 +292,69 @@ export class BundleCriteriaReader {
   }
 }
 
-function collectTabs(navigation: NavigationDocument): NavigationGroup[] {
-  const groups = navigation.groups ?? [];
-  if (Array.isArray(navigation.replacement_sides)) return groups;
-  const sides = asRecord(navigation.replacement_sides);
-  if (!sides) return groups;
-  const before = Array.isArray(sides.before) ? (sides.before as NavigationGroup[]) : [];
-  const current = Array.isArray(sides.current) ? (sides.current as NavigationGroup[]) : [];
-  return [...before, ...current];
+type NavigationSide = "before" | "current";
+
+interface NavigationSideGroups {
+  side: NavigationSide | null;
+  groups: NavigationGroup[];
+  where: string;
 }
 
-function checkNavigationShape(
-  navigation: NavigationDocument,
-  surface: ComparisonSurface,
-  tabGroups: NavigationGroup[],
-  where: string,
-): NavigationTab[] {
+function collectSideGroups(navigation: NavigationDocument, mode: string, where: string): NavigationSideGroups[] {
+  if (mode === "DATASET_REPLACEMENT") {
+    if ((navigation.groups ?? []).length !== 0) fail(where, "替换模式导航不应含普通 groups");
+    const sides = asRecord(navigation.replacement_sides);
+    if (!sides) fail(where, "替换模式导航缺少 replacement_sides");
+    return (["before", "current"] as const).map((side) => {
+      const groups = sides[side];
+      if (!Array.isArray(groups)) fail(where, `替换模式导航缺少 ${side} 侧分组`);
+      return { side, groups: groups as NavigationGroup[], where: `${where} ${side} 侧` };
+    });
+  }
+  const groups = navigation.groups ?? [];
+  if (groups.length !== FIXED_GROUPS.length || groups.some((group, index) => group.group_key !== FIXED_GROUPS[index])) {
+    fail(where, `普通模式导航组不是固定的五组顺序（实际 ${groups.map((group) => group.group_key).join(",")}）`);
+  }
+  return [{ side: null, groups, where }];
+}
+
+function checkNavigationShape(navigation: NavigationDocument, surface: ComparisonSurface, where: string): NavigationTab[] {
   if (navigation.contract_version !== NAVIGATION_CONTRACT_VERSION) {
     fail(where, `导航 contract version 不是 ${NAVIGATION_CONTRACT_VERSION}`);
   }
-  const mode = String(surface.comparison_mode ?? "");
-  const tabs: NavigationTab[] = [];
-  const groupKeys = new Set<string>();
-  const itemKeys = new Set<string>();
-  for (const group of tabGroups) {
-    if (typeof group.group_key !== "string") fail(where, "导航组缺少 group_key");
-    if (groupKeys.has(group.group_key)) fail(where, `导航组重复：${group.group_key}`);
-    groupKeys.add(group.group_key);
-    for (const item of group.items ?? []) {
-      if (typeof item.item_key !== "string") fail(where, "导航项缺少 item_key");
-      if (itemKeys.has(item.item_key)) fail(where, `导航项重复：${item.item_key}`);
-      itemKeys.add(item.item_key);
-      const tabKeys = new Set<string>();
-      for (const tab of item.tabs ?? []) {
-        if (typeof tab.tab_key !== "string") fail(where, "页签缺少 tab_key");
-        if (tabKeys.has(tab.tab_key)) fail(where, `导航项 ${item.item_key} 的页签重复：${tab.tab_key}`);
-        tabKeys.add(tab.tab_key);
-        tabs.push(tab);
-      }
-    }
-  }
-  if (mode === "DATASET_REPLACEMENT") {
-    if ((navigation.groups ?? []).length !== 0) fail(where, "替换模式导航不应含普通 groups");
-    if (!asRecord(navigation.replacement_sides)) fail(where, "替换模式导航缺少 replacement_sides");
-  } else {
-    const groups = navigation.groups ?? [];
-    if (groups.length !== FIXED_GROUPS.length || groups.some((group, index) => group.group_key !== FIXED_GROUPS[index])) {
-      fail(where, `普通模式导航组不是固定的五组顺序（实际 ${groups.map((group) => group.group_key).join(",")}）`);
-    }
-  }
   const tableIds = new Set((surface.tables ?? []).map((table) => table.table_id));
-  const wholeByTable = new Map<string, string>();
-  const filterGroupByTable = new Map<string, string>();
-  for (const group of tabGroups) {
-    for (const item of group.items ?? []) {
-      for (const tab of item.tabs ?? []) {
-        if (typeof tab.table_id !== "string" || !tableIds.has(tab.table_id)) fail(where, `页签 ${tab.tab_key} 引用了 surface 中不存在的表 ${String(tab.table_id)}`);
-        const rowFilter = decodeRowFilter(tab.row_filter, `${where} 页签 ${tab.tab_key}`);
-        if (rowFilter === null) {
-          if (wholeByTable.has(tab.table_id)) fail(where, `表 ${tab.table_id} 有多个整表页签`);
-          if (filterGroupByTable.has(tab.table_id)) fail(where, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
-          wholeByTable.set(tab.table_id, tab.tab_key);
-        } else {
-          if (wholeByTable.has(tab.table_id)) fail(where, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
-          const previous = filterGroupByTable.get(tab.table_id);
-          if (previous !== undefined && previous !== group.group_key) fail(where, `表 ${tab.table_id} 的筛选页签跨组`);
-          filterGroupByTable.set(tab.table_id, group.group_key);
+  const tabs: NavigationTab[] = [];
+  for (const { side, groups, where: sideWhere } of collectSideGroups(navigation, String(surface.comparison_mode ?? ""), where)) {
+    const groupKeys = new Set<string>();
+    const itemKeys = new Set<string>();
+    const wholeByTable = new Map<string, string>();
+    const filterGroupByTable = new Map<string, string>();
+    for (const group of groups) {
+      if (typeof group.group_key !== "string") fail(sideWhere, "导航组缺少 group_key");
+      if (groupKeys.has(group.group_key)) fail(sideWhere, `导航组重复：${group.group_key}`);
+      groupKeys.add(group.group_key);
+      for (const item of group.items ?? []) {
+        if (typeof item.item_key !== "string") fail(sideWhere, "导航项缺少 item_key");
+        if (itemKeys.has(item.item_key)) fail(sideWhere, `导航项重复：${item.item_key}`);
+        itemKeys.add(item.item_key);
+        const tabKeys = new Set<string>();
+        for (const tab of item.tabs ?? []) {
+          if (typeof tab.tab_key !== "string") fail(sideWhere, "页签缺少 tab_key");
+          if (tabKeys.has(tab.tab_key)) fail(sideWhere, `导航项 ${item.item_key} 的页签重复：${tab.tab_key}`);
+          tabKeys.add(tab.tab_key);
+          if (typeof tab.table_id !== "string" || !tableIds.has(tab.table_id)) fail(sideWhere, `页签 ${tab.tab_key} 引用了 surface 中不存在的表 ${String(tab.table_id)}`);
+          const rowFilter = decodeRowFilter(tab.row_filter, `${sideWhere} 页签 ${tab.tab_key}`);
+          if (rowFilter === null) {
+            if (wholeByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 有多个整表页签`);
+            if (filterGroupByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
+            wholeByTable.set(tab.table_id, tab.tab_key);
+          } else {
+            if (wholeByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
+            const previous = filterGroupByTable.get(tab.table_id);
+            if (previous !== undefined && previous !== group.group_key) fail(sideWhere, `表 ${tab.table_id} 的筛选页签跨组`);
+            filterGroupByTable.set(tab.table_id, group.group_key);
+          }
+          tabs.push(side ? { ...tab, side } : tab);
         }
       }
     }
@@ -364,9 +362,13 @@ function checkNavigationShape(
   return tabs;
 }
 
-function referencedTableIds(tabGroups: NavigationGroup[]): Set<string> {
+function tabsOnSide(tab: NavigationTab, side: NavigationSide): boolean {
+  return tab.side === undefined || tab.side === side;
+}
+
+function referencedTableIds(tabs: NavigationTab[]): Set<string> {
   const referenced = new Set<string>();
-  for (const group of tabGroups) for (const item of group.items ?? []) for (const tab of item.tabs ?? []) if (typeof tab.table_id === "string") referenced.add(tab.table_id);
+  for (const tab of tabs) if (typeof tab.table_id === "string") referenced.add(tab.table_id);
   return referenced;
 }
 
@@ -400,12 +402,14 @@ async function checkCoverage(
   reader: BundleCriteriaReader,
   pairId: string,
   table: SurfaceTable,
-  filterTabs: NavigationTab[],
+  filterTabsBySide: Record<NavigationSide, NavigationTab[]>,
   diagnostics: NavigationDiagnostic[],
   where: string,
 ): Promise<number> {
   let checked = 0;
   for (const side of ["before", "current"] as const) {
+    const filterTabs = filterTabsBySide[side];
+    if (filterTabs.length === 0) continue;
     const binding = table.table_content_bindings?.[side];
     if (!binding) continue;
     const rowCount = rowCountOf(table, side);
@@ -439,7 +443,8 @@ async function checkCoverage(
 async function checkLocations(
   reader: BundleCriteriaReader,
   table: SurfaceTable,
-  filterTabs: NavigationTab[],
+  beforeHasFilterTab: boolean,
+  currentHasFilterTab: boolean,
   where: string,
 ): Promise<{ tableLocated: boolean; rows: number }> {
   const recordsRef = table.records_refs?.records_ref ?? null;
@@ -473,7 +478,7 @@ async function checkLocations(
     });
   });
   if (located.size !== ordinary.length) fail(where, `locator 行数 ${located.size} 与普通行记录数 ${ordinary.length} 不一致`);
-  const publishesFilterTabs = filterTabs.length > 0;
+  const anyFilterTab = beforeHasFilterTab || currentHasFilterTab;
   const beforeCount = rowCountOf(table, "before");
   const currentCount = rowCountOf(table, "current");
   const beforeIndexes = new Set<number>();
@@ -505,13 +510,14 @@ async function checkLocations(
         seen.add(index);
       } else {
         if (index !== null) fail(label, "缺少快照的一侧却给出了行下标");
-        if (publishesFilterTabs && context === null) fail(label, "缺少快照且有筛选页签时过滤上下文不能为空");
-        if (!publishesFilterTabs && context !== null) fail(label, "整表入口不应带过滤上下文");
+        const hasFilterTab = side === "before" ? beforeHasFilterTab : currentHasFilterTab;
+        if (hasFilterTab && context === null) fail(label, "缺少快照且有筛选页签时过滤上下文不能为空");
+        if (!hasFilterTab && context !== null) fail(label, "整表入口不应带过滤上下文");
       }
     };
     checkSide("before", beforeExists, entry.before, entry.beforeContext, beforeCount, beforeIndexes);
     checkSide("current", currentExists, entry.current, entry.currentContext, currentCount, currentIndexes);
-    if (!publishesFilterTabs && (entry.beforeContext !== null || entry.currentContext !== null)) fail(where, "整表入口不应带过滤上下文");
+    if (!anyFilterTab && (entry.beforeContext !== null || entry.currentContext !== null)) fail(where, "整表入口不应带过滤上下文");
   }
   return { tableLocated: true, rows: located.size };
 }
@@ -552,9 +558,8 @@ export async function assertBundleConsumerCriteria(
       const diagnosticsPath = reader.pathOf(navigationProjections[0].diagnostics_ref, `${where}.navigation_diagnostics`);
       diagnostics = reader.json<{ diagnostics?: NavigationDiagnostic[] }>(diagnosticsPath).diagnostics ?? [];
     }
-    const tabGroups = collectTabs(navigation);
-    const tabs = checkNavigationShape(navigation, surface, tabGroups, where);
-    const referenced = referencedTableIds(tabGroups);
+    const tabs = checkNavigationShape(navigation, surface, where);
+    const referenced = referencedTableIds(tabs);
     const fallbackTabs = tabs.filter((tab) => tab.facts?.basis === "TABLE_FALLBACK");
     const fallbackTables = new Set(fallbackTabs.map((tab) => tab.table_id));
     let unreferenced = 0;
@@ -572,9 +577,15 @@ export async function assertBundleConsumerCriteria(
     let locatedTables = 0;
     let locatedRows = 0;
     for (const table of tables) {
-      const filterTabs = tabs.filter((tab) => tab.table_id === table.table_id && tab.row_filter !== null);
-      if (filterTabs.length > 0) coveredFilterSides += await checkCoverage(reader, pairId, table, filterTabs, diagnostics, `${where} 表 ${table.table_id}`);
-      const located = await checkLocations(reader, table, filterTabs, `${where} 表 ${table.table_id}`);
+      const tableTabs = tabs.filter((tab) => tab.table_id === table.table_id && tab.row_filter !== null);
+      const filterTabsBySide = {
+        before: tableTabs.filter((tab) => tabsOnSide(tab, "before")),
+        current: tableTabs.filter((tab) => tabsOnSide(tab, "current")),
+      };
+      if (filterTabsBySide.before.length > 0 || filterTabsBySide.current.length > 0) {
+        coveredFilterSides += await checkCoverage(reader, pairId, table, filterTabsBySide, diagnostics, `${where} 表 ${table.table_id}`);
+      }
+      const located = await checkLocations(reader, table, filterTabsBySide.before.length > 0, filterTabsBySide.current.length > 0, `${where} 表 ${table.table_id}`);
       if (located.tableLocated) locatedTables += 1;
       locatedRows += located.rows;
     }

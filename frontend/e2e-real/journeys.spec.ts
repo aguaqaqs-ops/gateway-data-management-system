@@ -434,9 +434,9 @@ test("r2-preview", async ({ browser }, testInfo) => {
     await expect(footer).toContainText("本地 bundle · 浏览期间不请求后端");
     await expect(footer).toContainText(run.bundle.manifest.bundle_digest.slice(0, 19));
 
-    const tabs = session.page.getByRole("tablist", { name: "比较视图" });
-    await expect(tabs.getByRole("tab")).toHaveCount(1);
-    await expect(tabs.getByRole("tab").first()).toContainText("当前基线 → 本次归档组态");
+    // Q6: a single view has no segmented control; the view label moves into the breadcrumb.
+    await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
+    await expect(session.page.locator("nav.breadcrumb")).toContainText("当前基线 → 本次归档组态");
     await expect(session.page.locator("section.comparison-content")).toContainText(/表|变更/);
 
     // Re-opening the same preview in the same context must reuse OPFS.
@@ -1026,9 +1026,9 @@ test("r9-history", async ({ browser }, testInfo) => {
     await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
     await waitForDiffBrowsing(session.page);
     await expect(session.page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
-    const tabs = session.page.getByRole("tablist", { name: "比较视图" });
-    await expect(tabs.getByRole("tab")).toHaveCount(1);
-    await expect(tabs.getByRole("tab").first()).toHaveText(/节点 \d+ → 节点 \d+/);
+    // Q6: a single history view has no segmented control; the node pair moves into the breadcrumb.
+    await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
+    await expect(session.page.locator("nav.breadcrumb")).toContainText(/节点 \d+ → 节点 \d+/);
     await saveEvidence(session.page, testInfo, "r9-history-diff");
 
     let historyBundlesChecked = 0;

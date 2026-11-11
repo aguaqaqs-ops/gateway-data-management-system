@@ -726,8 +726,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.getByRole("tab", { name: /原始组态视图/ }).click();
   await expect(page).toHaveURL(/pair=baseline_to_initial/);
   await expect(page.locator(".distribution-strip")).toBeVisible();
-  await page.getByRole("button", { name: "查看整表" }).click();
-  await waitForGridPaint(page, "__whole__:device");
+  // F12: a single-table item opens its table directly; the whole-device item
+  // is a normal navigation entry instead of the retired diagnostic button.
+  await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
+  await waitForGridPaint(page, "table");
   await screenshot(page, "s3-workbench-upload", 1920);
   await screenshotHeader(page, "s3-header-upload", 1920);
   await screenshot(page, "s4-grid-main", 1920);
@@ -744,8 +746,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1", debug: "1" }));
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
-  await page.getByRole("button", { name: "查看整表" }).click();
-  await waitForGridPaint(page, "__whole__:device");
+  await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
+  await waitForGridPaint(page, "table");
   await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   await screenshot(page, "s4-grid-debug", 1920);
@@ -851,7 +853,7 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-replacement", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
-  await expect(page.locator(".view-tabs")).toContainText("高风险");
+  await expect(page.locator(".compare-header")).toContainText("高风险");
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换前/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换后/ })).toBeVisible();
@@ -1177,7 +1179,7 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   // BE-b v4 keeps the channel table that no network port claims in 其他表 and
   // reports it as one navigation diagnostic; the tables themselves stay clean.
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(1);
-  await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1");
+  await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1 条提示");
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(0);
   await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
   await expect(page.locator(".table-heading h2")).toHaveText("遥测量");

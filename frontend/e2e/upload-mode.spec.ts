@@ -66,11 +66,14 @@ async function expectNoHorizontalOverflow(page: Page) {
       bodyWidth: Math.round(document.body.getBoundingClientRect().width),
       pastRight,
       scrolling,
+      headerChildren: [...(document.querySelector(".compare-header__top")?.children ?? [])].map(
+        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
+      ),
     };
   });
   expect(
     metrics.scrollWidth,
-    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")}`,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")} header=[${metrics.headerChildren.join(" | ")}]`,
   ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 

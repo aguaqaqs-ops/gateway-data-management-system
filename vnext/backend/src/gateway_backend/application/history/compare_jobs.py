@@ -52,7 +52,9 @@ from gateway_backend.application.pair_pipeline import (
     PairPipelineError,
     run_history_pair_pipeline,
     declare_pair_comparison_session,
+    _same_complete_table_identity,
 )
+from gateway_backend.application.business_presentation import navigation_row_demands
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     NormalPublicationCapability,
@@ -1062,7 +1064,8 @@ def _ensure_history_demands_once(
             rule_set=rule_set, mode=ComparisonMode.DETAILED))
         if not isinstance(plan, ComparisonPlan):
             raise HistoryCompareJobError("history comparison planning failed")
-        for table in comparison_row_demands(plan, session):
+        for table in (*comparison_row_demands(plan, session),
+                      *navigation_row_demands(plan, _same_complete_table_identity)):
             demands[table_commit[id(table)]].add(table.descriptor.table_name)
     exports: dict[str, dict[str, ArtifactRef]] = {}
     for commit, bound in sides.items():

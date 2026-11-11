@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.application.business_presentation import RiskAttribution, publish_business_presentation
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
@@ -338,7 +339,7 @@ def _run_comparison_risk_surface(
     with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
         comparison_elapsed = perf_counter() - comparison_started
         return _finish_comparison_risk_surface(
-            native_comparison=native_comparison, request=request,
+            native_comparison=native_comparison, request=request, plan=plan,
             view_id=view_id, store=store, control=control,
             on_cancel=on_cancel, identity_annotation=identity_annotation,
             show_keyless_fallback_hint=show_keyless_fallback_hint,
@@ -353,6 +354,7 @@ def _finish_comparison_risk_surface(
     *,
     native_comparison: NativeComparison,
     request: ComparisonRequest,
+    plan: ComparisonPlan,
     view_id: str,
     store: ArtifactStorePort,
     control: ExecutionControl,
@@ -430,6 +432,7 @@ def _finish_comparison_risk_surface(
         on_cancel()
         raise PairPipelineCancelled
     risk_conversion: dict[str, float] = {}
+    attribution = RiskAttribution()
     risk_started = perf_counter()
     risk = evaluate_risk(
         RiskEvaluationInput(
@@ -446,11 +449,12 @@ def _finish_comparison_risk_surface(
             cancel_requested=context.cancel_probe,
             deadline_monotonic=context.deadline_monotonic,
             operation=context,
+            attribution_observer=attribution.observe,
         ),
     )
     risk_seconds = perf_counter() - risk_started
     checkpoint()
-    if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
+    if risk.status not in {RiskEvaluationStatus.READY, RiskEvaluationStatus.DEGRADED} or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
     # Surface holds only small facts/refs; its JSON construction and retained
     # result still consume the same operation M after native records seal.
@@ -468,6 +472,20 @@ def _finish_comparison_risk_surface(
     context.resources.enter_context(reserve_surface(
         16 * 1024**2 + len(comparison_facts.tables) * 65536,
     ))
+    export_started = perf_counter()
+    table_artifacts = _surface_table_artifacts(
+        request, store=store, repository_id=repository_id, export_cache=export_cache,
+        table_exports=table_exports,
+        include_all_before=include_all_before_tables or request.mode is ComparisonMode.DATASET_REPLACEMENT,
+    )
+    export_seconds = perf_counter() - export_started
+    presentation_started = perf_counter()
+    table_artifacts, navigation_projection, presentation_metrics = publish_business_presentation(
+        plan, comparison_facts, published.records_closure, native_comparison.handles,
+        table_artifacts, attribution, store, before_presentation=before_presentation,
+        current_presentation=current_presentation, same_complete=_same_complete_table_identity,
+    )
+    presentation_seconds = perf_counter() - presentation_started
     with reserve_surface(8 * 16 * 1024**2):
         surface = assemble_surface(
         SurfaceAssemblyInput(
@@ -480,16 +498,8 @@ def _finish_comparison_risk_surface(
             records_closure=published.records_closure,
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
-            table_artifacts=(
-                _surface_table_artifacts(
-                    request, store=store, repository_id=repository_id, export_cache=export_cache,
-                    table_exports=table_exports,
-                    include_all_before=(
-                        include_all_before_tables
-                        or request.mode is ComparisonMode.DATASET_REPLACEMENT
-                    ),
-                )
-            ),
+            table_artifacts=table_artifacts,
+            projections=(navigation_projection,),
             keyless_fallback_tables=(
                 _keyless_fallback_table_names(request)
                 if show_keyless_fallback_hint
@@ -551,6 +561,9 @@ def _finish_comparison_risk_surface(
             - rules_seconds - publication_seconds,
         ),
         "surface_and_table_export_seconds": surface_seconds,
+        "table_export_seconds": export_seconds,
+        "business_presentation_seconds": presentation_seconds,
+        **presentation_metrics,
         "bundle_assembly_seconds": None,
         "charged_high_water_bytes": context.memory.high_water_bytes,
         "charged_live_bytes": context.memory.used_bytes,

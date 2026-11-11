@@ -39,9 +39,9 @@ _ROW_KINDS = frozenset({"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"})
 
 @dataclass(frozen=True, slots=True)
 class RowLocationResult:
-    ref: ArtifactRef | None
     records: tuple[FilterRecord, ...]
     scanned_rows: int
+    batch: pa.RecordBatch | None
 
 
 @dataclass(slots=True)
@@ -102,7 +102,7 @@ def _filter_context(batch: pa.RecordBatch, index: int, column: str | None, sql: 
     return {column: value}
 
 
-def build_row_locations(
+def prepare_row_locations(
     task: TableComparisonTask, entry: RecordsClosureEntry | None,
     handle: native.ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
     store: ArtifactStorePort, *, filter_column: str | None = None,
@@ -111,7 +111,7 @@ def build_row_locations(
     if context is None:
         raise RuntimeError("row location requires the operation context")
     if entry is None or handle is None:
-        return RowLocationResult(None, (), 0)
+        return RowLocationResult((), 0, None)
     if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:
         raise ValueError("published row records require both logical table sides")
     # The published family bounds the wanted dictionary, output indexes,
@@ -139,7 +139,7 @@ def build_row_locations(
     if actual_count != entry.record_count:
         raise ValueError("published records count differs from native records")
     if not rows:
-        return RowLocationResult(None, (), 0)
+        return RowLocationResult((), 0, None)
     policy_json = canonicalize_json_value(standard_policy(task, _schema_view(
         task.before_descriptor, task.current_descriptor, task.policy))).decode()
     scanned = 0
@@ -192,9 +192,25 @@ def build_row_locations(
             data[side + "_filter_context_json"].append(encoded)
         records.append(FilterRecord(identity, row.kind, row.before, row.current))
     batch = pa.RecordBatch.from_pydict(data, schema=LOCATOR_SCHEMA)
+    return RowLocationResult(tuple(records), scanned, batch)
+
+
+def publish_row_locations(
+    result: RowLocationResult, store: ArtifactStorePort, *, filtered: bool,
+) -> ArtifactRef | None:
+    """Publish once, after the actual navigation decides whether contexts apply."""
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("row locator publication requires the operation context")
+    batch = result.batch
+    if batch is None:
+        return None
+    if not filtered:
+        batch = pa.RecordBatch.from_arrays([batch.column(0), batch.column(1), batch.column(2),
+            pa.nulls(batch.num_rows, type=pa.string()), pa.nulls(batch.num_rows, type=pa.string())], schema=LOCATOR_SCHEMA)
     raw = _write_arrow_parquet((batch,), LOCATOR_SCHEMA, RecordsPublicationPolicy(),
         RecordsPublicationContext(checkpoint=context.checkpoint))
     ref = put_with_built_ref(store, raw,
         artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "row-locator", raw_blob_digest(raw).value),
         media_type="application/vnd.apache.parquet")
-    return RowLocationResult(ref, tuple(records), scanned)
+    return ref

@@ -16,7 +16,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from gateway_backend.capabilities.comparison.contracts import RecordsArtifactFamily, ComparisonPlan, ComparisonRequest
 from gateway_backend.capabilities.comparison import plan_comparison
 from gateway_backend.capabilities.comparison.production import compare_plan_native
-from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA, build_row_locations
+from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA, prepare_row_locations, publish_row_locations
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
 from tests.support.comparison_cache_inputs import complete_canonical_bound
@@ -80,10 +80,11 @@ def test_locator_uses_final_row_groups_and_typed_missing_side_context(
         published = publish_product(product, store)
         assert published.records_closure is not None
         entry = next(e for e in published.records_closure.records if e.family is RecordsArtifactFamily.STANDARD)
-        located = build_row_locations(task, entry, product.handles["t"],
+        located = prepare_row_locations(task, entry, product.handles["t"],
             SurfaceTableRefs(before_ref, current_ref), store, filter_column="gid")
-        assert located.ref is not None
-        file = pq.ParquetFile(pa.BufferReader(store.locate(located.ref)))
+        locator_ref = publish_row_locations(located, store, filtered=True)
+        assert locator_ref is not None
+        file = pq.ParquetFile(pa.BufferReader(store.locate(locator_ref)))
         assert file.schema_arrow.equals(LOCATOR_SCHEMA, check_metadata=True)
         rows: list[dict[str, Any]] = file.read().to_pylist()
         assert [r["row_identity"] for r in rows] == sorted(r["row_identity"] for r in rows)
@@ -125,4 +126,4 @@ def test_locator_rejects_ambiguous_or_impossible_final_row_matches() -> None:
         assert published.records_closure is not None
         entry, = published.records_closure.records
         with pytest.raises(ValueError, match="no unique final/canonical row|multiple physical rows"):
-            build_row_locations(task, entry, product.handles["t"], SurfaceTableRefs(None, corrupt), store, filter_column="gid")
+            prepare_row_locations(task, entry, product.handles["t"], SurfaceTableRefs(None, corrupt), store, filter_column="gid")

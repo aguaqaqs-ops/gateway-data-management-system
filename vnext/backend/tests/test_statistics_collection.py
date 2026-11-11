@@ -94,7 +94,8 @@ def test_queue_is_nonblocking_and_bounded_by_items_and_bytes(tmp_path: Path) -> 
     assert sink.health.dropped == 2
 
 
-def test_execution_keeps_claim_version_and_does_not_invent_short_window_counters(tmp_path: Path) -> None:
+@pytest.mark.parametrize('sample_count', [0, 1])
+def test_execution_keeps_claim_version_and_does_not_invent_short_window_counters(tmp_path: Path, sample_count: int) -> None:
     config = StatisticsConfig()
     sink = BufferedTelemetrySink(SQLiteStatisticsStore(tmp_path / 'db', IDENTITY, config), IDENTITY, config)
     operation, step = _active_records()
@@ -103,11 +104,15 @@ def test_execution_keeps_claim_version_and_does_not_invent_short_window_counters
         claimed = dataclasses.replace(work, step=dataclasses.replace(step, optimistic_version=claim))
         sink.begin_execution(claimed)
         duration('parse', 0)
+        if sample_count:
+            sink.sampler = lambda: _resource(process_instance_id=sink.process_instance_id)
+            sink._sample()
         sink.end_execution(claimed)
     records = sink._take_batch()
     ends = [record for record in records if isinstance(record, ExecutionSummary) and record.ended_at_us is not None]
     assert [record.claim_version for record in ends] == [2, 5]
     assert all(record.attempt_count == 1 and record.cpu_time_us is None and record.observed_outcome == 'unknown' for record in ends)
+    assert all(record.reason == 'counter_unavailable' for record in ends)
     assert ends[0].metrics is not None
     assert ends[0].metrics.stage_duration_ms.parse == 0
 
@@ -144,6 +149,7 @@ def test_metrics_preserve_zero_missing_pair_identity_and_byte_truncation() -> No
 
 
 @pytest.mark.parametrize('changes,expected,reset', [
+    ({'sampled_at_us': 100, 'cpu_time_us': 0}, None, False),
     ({'sampled_at_us': 200, 'cpu_time_us': 0}, 0, False),
     ({'sampled_at_us': 200, 'cpu_time_us': 12}, 12, False),
     ({'sampled_at_us': 200, 'cpu_time_us': None}, None, False),
@@ -303,5 +309,74 @@ def test_statistics_respects_deployment_filesystem_low_water(tmp_path: Path, mon
         store.close()
         with pytest.raises(sqlite3.OperationalError):
             store.open()
+    finally:
+        store.close()
+
+
+EXECUTION_INPUT_IDENTITIES = (
+    ((), None),
+    (('sha256:' + 'a' * 64,), 'sha256:' + 'a' * 64),
+    (('sha256:' + 'a' * 64, 'sha256:' + 'a' * 64), 'sha256:' + 'a' * 64),
+    (('sha256:' + 'a' * 64, 'sha256:' + 'b' * 64), None),
+)
+
+
+@pytest.mark.parametrize('identities,expected', EXECUTION_INPUT_IDENTITIES)
+def test_execution_identity_keeps_only_a_known_unique_current_input(
+    tmp_path: Path, identities: tuple[str, ...], expected: str | None,
+) -> None:
+    config = StatisticsConfig()
+    sink = BufferedTelemetrySink(SQLiteStatisticsStore(tmp_path / 'db', IDENTITY, config), IDENTITY, config)
+    operation, step = _active_records()
+    work = ClaimedWork(operation, step, lambda *_: ExecutorAcknowledgment.PUBLISHED)
+    sink.begin_execution(work)
+    for identity in identities:
+        input_shape(identity, table_count=1, total_rows=2, max_table_rows=2)
+        # A pending begin must not freeze a provisional identity before later pairs run.
+        assert all(row.input_digest is None for row in sink._take_batch() if isinstance(row, ExecutionSummary))
+    sink.end_execution(work)
+    ends = [row for row in sink._take_batch() if isinstance(row, ExecutionSummary) and row.ended_at_us is not None]
+    assert len(ends) == 1
+    assert ends[0].input_digest == expected and ends[0].rules_digest is None
+
+
+def test_preview_persists_known_input_and_rules_identity_for_query(tmp_path: Path) -> None:
+    import json
+    from gateway_backend.application.preview_jobs import PREVIEW_MATERIALIZE_HANDLER, PREVIEW_ASSEMBLE_HANDLER, PREVIEW_PUBLISH_HANDLER
+    from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
+    from gateway_backend.infrastructure.statistics.queries import SQLiteStatisticsReader
+    from gateway_backend.statistics.queries import ReadRequest
+    from tests.support.preview_job_harness import build_preview_harness, insert_preview_operation, claim_next_step, run_claimed_handler
+
+    harness = build_preview_harness(tmp_path)
+    harness.seed_workspace()
+    operation_id = 'op-preview-statistics-identity'
+    insert_preview_operation(harness, operation_id)
+    config = StatisticsConfig()
+    store = SQLiteStatisticsStore(tmp_path / 'telemetry/db', IDENTITY, config)
+    sink = BufferedTelemetrySink(store, IDENTITY, config)
+    store.open()
+    try:
+        for handler in (PREVIEW_MATERIALIZE_HANDLER, PREVIEW_ASSEMBLE_HANDLER, PREVIEW_PUBLISH_HANDLER):
+            session, control, operation, step = claim_next_step(harness)
+            work = ClaimedWork(operation, step, harness.executor(handler))
+            sink.begin_execution(work)
+            try:
+                run_claimed_handler(harness, handler, session, control, operation, step)
+            finally:
+                sink.end_execution(work)
+            store.write_batch(sink._take_batch())
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            workspace = uow.workspace.get_workspace(harness.upload_revision.workspace_id)
+            assert workspace is not None and workspace.current_preview_result_id is not None
+            preview = uow.workspace.get_preview_result(workspace.current_preview_result_id)
+        assert preview is not None
+        page = SQLiteStatisticsReader(store.path, IDENTITY).read(ReadRequest(
+            kind='executions', owner_id=operation_id, start_us=0, end_us=2**63 - 1, limit=10))
+        summaries = [row for row in page.items if isinstance(row, ExecutionSummary)]
+        assert len(summaries) == 3
+        expected_rules = json.loads(harness.job_payload)['comparison_ruleset_digest']
+        assert all(row.rules_digest == expected_rules for row in summaries)
+        assert [row.input_digest for row in summaries] == [preview.digests.snapshot_digest, preview.digests.snapshot_digest, None]
     finally:
         store.close()

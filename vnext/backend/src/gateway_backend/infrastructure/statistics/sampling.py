@@ -75,8 +75,10 @@ class ProcessSampler:
 
 def counter_delta(first: ResourceRecord, last: ResourceRecord, name: str) -> tuple[int | None, bool]:
     before, after = getattr(first, name), getattr(last, name)
-    if first.process_instance_id != last.process_instance_id or first.sampled_at_us >= last.sampled_at_us:
+    if first.process_instance_id != last.process_instance_id or first.sampled_at_us > last.sampled_at_us:
         return None, True
+    if first.sampled_at_us == last.sampled_at_us:
+        return None, False
     if before is None or after is None:
         return None, False
     if after < before:

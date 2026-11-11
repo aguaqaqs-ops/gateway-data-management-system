@@ -94,6 +94,12 @@ WAL软阈值 min(128MiB,budget/16)。三角色7天、十库90天等明确样例�
 未观察层为 null；完整已观测而查找/命中为零可填0；只有分母>0且范围相同才由客户端算命中率。
 迁出 `s3_pair_metrics` 时 B 删除旧临时日志，不解析业务日志作来源。
 
+`input_digest` 固定为本 claim 已有输入 hook 确认的唯一当前侧 snapshot digest，复用
+`Metrics.input_identity`；同一当前输入重复出现仍保留，多个不同当前输入或未到达该接点时为null。
+`rules_digest` 为 Preview/History 本次已解码 payload 的 `comparison_ruleset_digest`，在现有
+`bind_scope` 接点传递；未解码/取消或无此来源的窗口保持null。不为这些字段另读对象或查询业务库。
+它们不等同 source digest、Submit 的 canonical business digest 或 storage projection rules digest。
+
 ## 占用候选的封闭来源
 
 只按 enabled provisioned_scope_mappings 的 repository 分页读取，短事务后 stat，单轮有限去重

@@ -24,6 +24,7 @@ class Metrics:
     tables_total: int = 0
     truncated: bool = False
     input_identity: str | None = None
+    rules_digest: str | None = None
     # At most one current input: additional different inputs are explicitly unknown.
     ambiguous_input: bool = False
     ordered_seen: set[str] = field(default_factory=set)
@@ -140,12 +141,13 @@ def pair_totals(*, changed_tables: int, changed_rows: int, complete: bool = True
         pass
 
 
-def bind_scope(repository_id: str, submit_attempt_id: str | None = None) -> None:
+def bind_scope(repository_id: str, submit_attempt_id: str | None = None, *, rules_digest: str | None = None) -> None:
     try:
         metrics = _current.get()
         if metrics is not None:
             metrics.repository_id = repository_id
             metrics.submit_attempt_id = submit_attempt_id
+            metrics.rules_digest = rules_digest
     except Exception:
         pass
 

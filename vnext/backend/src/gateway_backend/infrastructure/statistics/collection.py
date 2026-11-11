@@ -189,6 +189,8 @@ class BufferedTelemetrySink:
             duration_ms=window.duration_ms if event.ended else None, recorded_at_us=time_ns() // 1000,
             cpu_time_us=cpu, read_bytes=read, write_bytes=write, rss_peak_bytes=window.rss_peak,
             cgroup_peak_bytes=window.cgroup_peak, revision=self.revision, config_digest=self.config_digest,
+            input_digest=window.metrics.input_identity if event.ended and not window.metrics.ambiguous_input else None,
+            rules_digest=window.metrics.rules_digest,
             metrics=metrics, quality='partial', reason=reason)
 
     def _sample(self) -> ResourceRecord:

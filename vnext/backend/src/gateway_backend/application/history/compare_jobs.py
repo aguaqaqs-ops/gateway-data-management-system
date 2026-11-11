@@ -371,7 +371,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         try:
             _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:
@@ -503,7 +503,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         try:
             rule_set = _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:
@@ -687,7 +687,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         try:
             _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:

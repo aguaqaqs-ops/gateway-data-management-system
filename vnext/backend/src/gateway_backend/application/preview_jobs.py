@@ -633,7 +633,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         if _publish_preview_ruleset_mismatch_if_needed(
             payload=payload,
             operation=operation,
@@ -767,7 +767,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         active_rules = _active_preview_ruleset()
         if active_rules.ruleset_digest is None or active_rules.ruleset_digest.value != payload.comparison_ruleset_digest:
             _publish_preview_ruleset_mismatch_failure(
@@ -939,7 +939,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
-        bind_scope(payload.repository_id)
+        bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         if _publish_preview_ruleset_mismatch_if_needed(
             payload=payload,
             operation=operation,

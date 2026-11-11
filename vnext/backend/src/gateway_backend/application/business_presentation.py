@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from dataclasses import replace
 from typing import cast
 
@@ -46,6 +47,18 @@ class RiskAttribution:
         self.rows: dict[str, dict[str, RiskLevel]] = {}
         self.complete: dict[str, bool] = {}
         self.any_risk: dict[str, bool] = {}
+        self.charges = ExitStack()
+        context = current_kernel_context()
+        if context is None:
+            raise RuntimeError("risk attribution requires the operation context")
+        context.resources.callback(self.close)
+
+    def close(self) -> None:
+        self.table_events.clear()
+        self.rows.clear()
+        self.complete.clear()
+        self.any_risk.clear()
+        self.charges.close()
 
     def observe(self, name: str, annotations: tuple[RiskAnnotation, ...], complete: bool) -> None:
         context = current_kernel_context()
@@ -53,7 +66,7 @@ class RiskAttribution:
             raise ValueError("risk attribution requires one live outcome per table")
         # Existing annotation objects stay with Risk. Charge our retained map,
         # tuple references and native row digest strings before adding them.
-        context.resources.enter_context(context.memory.reserve(len(annotations) * 1024 + 4096))
+        self.charges.enter_context(context.memory.reserve(len(annotations) * 1024 + 4096))
         self.complete[name] = complete
         self.any_risk[name] = bool(annotations)
         levels: dict[str, RiskLevel] = {}
@@ -110,6 +123,7 @@ def _side(table: SnapshotTable | None, presentation: TablePresentation | None) -
                     values = {name: cast(Scalar, batch.column(position)[index].as_py())
                         for name, position in positions.items() if position >= 0}
                     yield NavigationRow(values, key)
+                del batch, _, order_keys
         finally:
             with_rows.close()
 
@@ -150,9 +164,17 @@ def publish_business_presentation(
             if not replacement and name in FILTER_IDENTITY_COLUMNS else frozenset())
         located = prepare_row_locations(task, entries.get(name), handles.get(name), artifacts[name].table_refs,
             store, filter_column=FILTER_IDENTITY_COLUMNS.get(name) if not excluded else None)
-        locations[name] = located
         scanned_rows += located.scanned_rows
-        records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity)) for r in located.records)
+        records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity))
+            for r in located.records) if name in FILTER_IDENTITY_COLUMNS else ()
+        locator_complete = located.batch is not None or not any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
+        if name in FILTER_IDENTITY_COLUMNS:
+            locations[name] = located
+        else:
+            locator_ref = publish_row_locations(located, store, filtered=False)
+            artifacts[name] = replace(artifacts[name], row_locator_ref=locator_ref)
+            locator_bytes += 0 if locator_ref is None else locator_ref.size_bytes
+            located.close()
         evidence = NavigationEvidence(
             comparison_succeeded=fact.status is not ComparisonTableStatus.DEGRADED,
             schema_only=fact.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
@@ -160,7 +182,7 @@ def publish_business_presentation(
             expected_record_counts=(fact.row_added_count, fact.row_deleted_count, fact.row_modified_count),
             suppressed_added_count=fact.suppressed_added_count,
             suppressed_deleted_count=fact.suppressed_deleted_count,
-            locator_complete=located.batch is not None or not any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count)),
+            locator_complete=locator_complete,
             risk_attribution_complete=attribution.complete.get(name, False),
             records=records, table_risk=table_risks[name], any_table_risk=attribution.any_risk.get(name, False),
         )
@@ -172,6 +194,10 @@ def publish_business_presentation(
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation = build_navigation(tuple(tables), replacement=replacement,
         check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)
+    tables.clear()
+    if facts.tables:
+        del records, evidence
+    attribution.close()
     namespaces = (navigation.document["replacement_sides"].values() if replacement else
         (navigation.document["groups"],))
     filtered_tables = {tab["table_id"] for groups in namespaces for group in groups
@@ -180,6 +206,7 @@ def publish_business_presentation(
         locator_ref = publish_row_locations(located, store, filtered=name in filtered_tables)
         artifacts[name] = replace(artifacts[name], row_locator_ref=locator_ref)
         locator_bytes += 0 if locator_ref is None else locator_ref.size_bytes
+        located.close()
     payload = navigation.to_bytes()
     digest = raw_blob_digest(payload)
     ref = put_with_built_ref(store, payload,

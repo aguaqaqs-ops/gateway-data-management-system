@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Generator
-from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from contextlib import closing, contextmanager, ExitStack
+from dataclasses import dataclass, field
 from typing import Any
 
 import pyarrow as pa
@@ -37,11 +37,19 @@ LOCATOR_SCHEMA = pa.schema([
 _ROW_KINDS = frozenset({"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"})
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RowLocationResult:
     records: tuple[FilterRecord, ...]
     scanned_rows: int
     batch: pa.RecordBatch | None
+    charges: ExitStack = field(default_factory=ExitStack, repr=False)
+
+    def close(self) -> None:
+        # An operation callback may still reference this shell after a table
+        # finishes; drop all result backing before returning its admission.
+        self.records = ()
+        self.batch = None
+        self.charges.close()
 
 
 @dataclass(slots=True)
@@ -110,13 +118,29 @@ def prepare_row_locations(
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("row location requires the operation context")
+    with ExitStack() as charges:
+        result = _prepare_row_locations(task, entry, handle, refs, store,
+            filter_column=filter_column, charges=charges)
+        result.charges = charges.pop_all()
+    context.resources.callback(result.close)
+    return result
+
+
+def _prepare_row_locations(
+    task: TableComparisonTask, entry: RecordsClosureEntry | None,
+    handle: native.ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
+    store: ArtifactStorePort, *, filter_column: str | None, charges: ExitStack,
+) -> RowLocationResult:
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("row location requires the operation context")
     if entry is None or handle is None:
         return RowLocationResult((), 0, None)
     if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:
         raise ValueError("published row records require both logical table sides")
     # The published family bounds the wanted dictionary, output indexes,
     # FilterRecords and their constant-size JSON/sort/Arrow writer overhead.
-    context.resources.enter_context(context.memory.reserve(entry.record_count * 4096 + 65536))
+    charges.enter_context(context.memory.reserve(entry.record_count * 4096 + 65536))
     rows: dict[str, _Row] = {}
     actual_count = 0
     with handle.record_batches("STANDARD") as stream:
@@ -166,11 +190,12 @@ def prepare_row_locations(
                 # per-record envelope; charge before retaining their maps/JSON.
                 extra = sum(len(value) * 16 for value in values.values() if type(value) is str)
                 if extra:
-                    context.resources.enter_context(context.memory.reserve(extra))
+                    charges.enter_context(context.memory.reserve(extra))
                 setattr(row, side, values)
                 if ref is not None:
                     setattr(row, side + "_index", position + index)
             position += batch.num_rows
+            del batch, identities, _
         scanned += position
         expected = {identity for identity, row in rows.items()
             if row.kind != ("ROW_ADDED" if side == "before" else "ROW_DELETED")}

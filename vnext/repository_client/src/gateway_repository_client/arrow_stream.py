@@ -312,7 +312,7 @@ class ArrowIpcByteStream:
 
     async def _backoff(self, attempt: int) -> None:
         delay = self._base_delay_seconds * (2 ** (attempt - 1))
-        await self._control.sleep(self._sleeper or asyncio.sleep, delay)
+        await (self._admission or self._control).sleep(self._sleeper or asyncio.sleep, delay)
 
     def _ensure_open(self) -> None:
         if self._close_requested or self._closed:

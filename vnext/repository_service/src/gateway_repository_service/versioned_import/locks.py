@@ -1,4 +1,4 @@
-"""Process-local repository writer ownership for Versioned import workers."""
+"""Process-local repository physical CLI ownership for reads and import workers."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class _RepositoryLockEntry:
 
 
 class RepositoryLockRegistry:
-    """Tracks active repositories and serializes per-repository Dolt writers.
+    """Tracks exclusive physical CLI access and serializes per-repository Dolt writers.
 
     Production paths rely on ``try_reserve`` so only one in-flight operation exists
     per repository. ``repository_execution`` may be called without a reservation only

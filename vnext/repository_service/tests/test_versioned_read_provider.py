@@ -1276,3 +1276,44 @@ def test_actual_read_cli_reservation_excludes_same_repository_and_allows_another
     assert not runner.has_owned_children(provider._owner)
     assert registry.try_reserve(repository_id)
     registry.release_reservation(repository_id)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_cancelled_read_returns_permit_after_real_child_exit_and_keeps_exact_commit(read_repo: ReadRepoFixture) -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+    from gateway_repository_service.versioned_read.errors import RepositoryBusyError
+    from gateway_repository_service.versioned_read.wire import close_row_iterator
+    layout, settings, runner, original, offline = read_repo
+    values = ','.join(f'({i})' for i in range(2048))
+    offline.replay(_write_sql(layout, 'stream-owner.sql',
+        'CREATE TABLE records(id BIGINT PRIMARY KEY); INSERT INTO records VALUES ' + values + ';'))
+    exact = _commit_changes(offline, 'read ownership fixture')
+    registry = RepositoryLockRegistry()
+    repository_id = uuid4()
+    provider = CandidateAReadProvider(settings, layout, original._repository, runner,
+        locks=registry, repository_id=repository_id)
+    table = provider.catalog_at(exact)[0]
+    cancellation = threading.Event()
+    owner = object()
+    rows = provider.stream_table_at(exact, table, UnknownTypePolicy.REJECT,
+        cancellation=cancellation.is_set, existence_verified=True, stream_owner=owner)
+    try:
+        assert next(rows).num_rows == settings.record_batch_rows
+        assert runner.has_owned_children(owner)
+        assert not registry.try_reserve(repository_id)
+        with pytest.raises(RepositoryBusyError):
+            provider.read_ref('main')
+    finally:
+        cancellation.set()
+        close_row_iterator(rows, cancelled=True)
+    assert not runner.has_owned_children(owner) and not registry.is_active(repository_id)
+    # A writer may now publish, but a later read of the original commit stays pinned.
+    assert registry.try_reserve(repository_id)
+    try:
+        offline.replay(_write_sql(layout, 'stream-owner-next.sql', 'INSERT INTO records VALUES (9999);'))
+        later = _commit_changes(offline, 'later read ownership fixture')
+    finally:
+        registry.release_reservation(repository_id)
+    assert later != exact and provider.catalog_at(exact)[0].row_count == 2048
+    assert provider.catalog_at(later)[0].row_count == 2049

@@ -14,9 +14,9 @@ from gateway_backend.capabilities.business_navigation import (
     build_navigation, validate_navigation,
 )
 from gateway_backend.capabilities.business_navigation.contracts import (
-    Scalar, validate_diagnostics,
+    POINT_TABLES, Scalar, validate_diagnostics,
 )
-from gateway_backend.capabilities.business_navigation.producer import POINT_TABLES, scalar_reason
+from gateway_backend.capabilities.business_navigation.producer import scalar_reason
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 
 pytestmark = pytest.mark.unit
@@ -472,7 +472,7 @@ def test_virtual_composite_filters_existing_shared_side_without_registry_row(
 ) -> None:
     shared = table("device_st", None, side(({"dev_addr": 65532},)))
     composite = table("composite_signal_point", None, side())
-    inputs = (shared, composite)
+    inputs: tuple[NavigationTable, ...] = (shared, composite)
     if has_other_device:
         inputs += (device((), ({"dev_addr": 49, "gid": 7},)),)
     result = build(*inputs, replacement=replacement)

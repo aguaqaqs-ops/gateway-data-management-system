@@ -19,6 +19,7 @@ from gateway_backend.capabilities.comparison.production import compare_plan_nati
 from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA, prepare_row_locations, publish_row_locations
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
+from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_c_inputs import plan
 from tests.support.table_rules import comparison_ruleset_for, fallback_record
@@ -109,6 +110,12 @@ def test_locator_uses_final_row_groups_and_typed_missing_side_context(
         if label == "keyless":
             assert {r["current_row_index"] for r in rows} == {1, 2}
             assert all(r["before_row_index"] is None and r["before_filter_context_json"] is None for r in rows)
+        context = current_kernel_context()
+        assert context is not None
+        charged = context.memory.used_bytes
+        located.close()
+        assert located.batch is None and located.records == ()
+        assert context.memory.used_bytes < charged
 
 
 def test_locator_rejects_ambiguous_or_impossible_final_row_matches() -> None:

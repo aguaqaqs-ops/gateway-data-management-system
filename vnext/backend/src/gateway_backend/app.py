@@ -44,11 +44,13 @@ def create_app(
         app.state.storage_guard = runtime.storage_guard
         app.state.statistics_http = runtime.statistics_http
         app.state.admission_gate = runtime.admission_gate
+        runtime.statistics.start()
         app.state.ready = True
         try:
             yield
         finally:
             begin_http_pre_drain(app)
+            runtime.statistics.close()
 
     from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
     from gateway_backend.http.errors import register_exception_handlers

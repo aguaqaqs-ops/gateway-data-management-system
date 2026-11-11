@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_backend.infrastructure.statistics.collection import BufferedTelemetrySink
+from gateway_backend.bootstrap.statistics import build_statistics_sink
 
 from gateway_backend.artifacts.scratch import ScratchSpacePort
 
@@ -420,6 +421,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
     stop_requested = threading.Event()
     stop_wakeup_callbacks: list[Callable[[], None]] = []
     previous_handlers: tuple[object, object] | None = None
+    telemetry: BufferedTelemetrySink | None = None
     try:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
@@ -459,7 +461,9 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                 WriteUnitOfWorkFactory,
                 bound_history_deps.control_transaction_factory,
             )
+            telemetry = build_statistics_sink(configured.deployment_config, "worker")
             runtime = build_worker_runtime(
+                telemetry=telemetry,
                 configured,
                 job_definitions=preview_definitions + submit_definitions + history_definitions,
                 handlers={**preview_handlers, **submit_handlers, **history_handlers},
@@ -490,6 +494,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             )
             return 1
         try:
+            telemetry.start()
             runtime.run(stop_requested.is_set, stop_requested.wait)
         except Exception as exc:
             _LOGGER.error(
@@ -502,6 +507,8 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             return 1
         return 0
     finally:
+        if telemetry is not None:
+            telemetry.close()
         if previous_handlers is not None:
             _restore_signal_handlers(previous_handlers)
 

@@ -31,6 +31,8 @@ async def _default_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runtime = runtime
     app.state.auth_state = runtime.auth_state
     app.state.readiness = LifecycleReadiness(runtime)
+    if runtime.statistics is not None:
+        app.state.statistics_ring = runtime.statistics.ring
     try:
         yield
     finally:

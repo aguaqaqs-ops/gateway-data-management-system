@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_repository_service.runtime_preflight import RuntimePreflight
+from gateway_repository_service.statistics_lifecycle import StatisticsLifecycle
 
 import logging
 import os
@@ -114,6 +115,7 @@ class ServiceRuntime:
         repr=False,
     )
     storage_guard: RuntimePreflight | None = field(default=None, repr=False)
+    statistics: StatisticsLifecycle | None = field(default=None, repr=False)
     _stopping: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @classmethod
@@ -206,6 +208,13 @@ class ServiceRuntime:
             if guard is not None:
                 guard.check()
             stopping = threading.Event()
+            statistics: StatisticsLifecycle | None = None
+            try:
+                statistics = StatisticsLifecycle(settings, layout, mutation_store, import_store)
+                stack.callback(statistics.close)
+                statistics.start()
+            except Exception:
+                _LOGGER.warning("statistics disabled reason=collection_failed")
             import_worker_pool = ImportWorkerPool(
                 settings=settings,
                 layout=layout,
@@ -213,6 +222,7 @@ class ServiceRuntime:
                 provider_factory=provider_factory,
                 locks=import_locks,
                 shutdown_event=stopping,
+                statistics=statistics.statistics if statistics is not None and statistics.config.enabled else None,
                 before_claim=guard.check if guard is not None else None,
             )
             stack.callback(
@@ -245,6 +255,7 @@ class ServiceRuntime:
             stack.pop_all()
             runtime = cls(
                 storage_guard=guard,
+                statistics=statistics,
                 settings=settings,
                 layout=layout,
                 root_lock=root_lock,
@@ -412,6 +423,11 @@ class ServiceRuntime:
                 _LOGGER.exception("bridge registry close_all failed")
                 cleanup_errors.append(exc)
 
+            if self.statistics is not None:
+                try:
+                    self.statistics.close()
+                except Exception:
+                    _LOGGER.warning("statistics stop failed")
             drained = self._wait_for_admission_drain(timeout=grace)
             upload_snap = self.upload_admission.snapshot()
             row_snap = self.row_stream_admission.snapshot()

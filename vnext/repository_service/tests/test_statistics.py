@@ -224,3 +224,27 @@ def test_closed_statistics_connection_always_releases_shared_business_mutex(sour
             mutation_store.page_succeeded_repositories()
     assert mutex.acquire(blocking=False)
     mutex.release()
+
+
+@pytest.mark.unit
+def test_statistics_lifecycle_disabled_or_invalid_configuration_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from typing import cast
+    from gateway_repository_service.statistics_lifecycle import StatisticsLifecycle
+    from gateway_repository_service.mutation_store import MutationStore
+    from gateway_repository_service.versioned_import.store import ImportOperationStore
+
+    class Imports:
+        def observe_statistics_outcome(self, repository_id: object, operation_id: object) -> tuple[str, None]:
+            return 'unknown', None
+
+    settings = RepositoryServiceSettings(profile='test', roots=RepositoryRoots.under(tmp_path), bearer_token='test')
+    for variable, value in [('GATEWAY_STATISTICS_ENABLED', 'false'), ('GATEWAY_STATISTICS_SAMPLE_INTERVAL_SECONDS', 'invalid')]:
+        monkeypatch.setenv(variable, value)
+        lifecycle = StatisticsLifecycle(settings, DurableLayout(settings.storage_roots),
+            cast(MutationStore, object()), cast(ImportOperationStore, Imports()))
+        lifecycle.start()
+        lifecycle.close()
+        assert not lifecycle.config.enabled
+        assert lifecycle._threads == []
+        assert lifecycle.ring.read(StatisticsFeedQuery()).records == ()
+        monkeypatch.delenv(variable)

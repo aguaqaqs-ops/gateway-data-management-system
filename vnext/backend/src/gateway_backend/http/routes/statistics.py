@@ -12,7 +12,7 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.operation_scope import assert_workspace_read_permission
 from gateway_backend.http.routes.operations import get_operation_route
 from gateway_backend.http.schemas.statistics import (
-    CollectionHealth, CurrentProcess, ExecutionPage, GroupResourceQuery, GroupStatistics, GroupStorageItem,
+    CurrentProcess, ExecutionPage, GroupResourceQuery, GroupStatistics, GroupStorageItem,
     OperationResourceQuery, ResourcePage, StatisticsPage, StatisticsQuery, StoragePage, WritePage,
 )
 from gateway_backend.http.statistics import get_statistics_http, page_metadata, resource_page, respond, time_range
@@ -120,17 +120,21 @@ def group_statistics(request: Request, context: Identity) -> GroupStatistics:
     start, end = time_range(StatisticsQuery(), now)
     from gateway_backend.http.statistics import query_error
     from gateway_backend.statistics.queries import StatisticsReadError
+    health = stats.health()
     try:
         data = stats.reader.group(start, end)
     except StatisticsReadError as exc:
-        raise query_error(exc) from None
+        if exc.reason != "unavailable":
+            raise query_error(exc) from None
+        from gateway_backend.statistics.queries import GroupRead
+        data = GroupRead((), ())
     # Group access never serializes repository, operation, table names or business fields.
     storage = tuple(GroupStorageItem.model_validate({key: value for key, value in record.model_dump().items()
         if key not in ('environment_id', 'group_id', 'repository_id', 'source_event_id')}) for record in data.storage)
     return GroupStatistics(environment_id=stats.reader.identity.environment_id, group_id=stats.reader.identity.group_id,
         generated_at_us=int(now.timestamp() * 1000000), storage=storage,
         current_instances=tuple(CurrentProcess(role=role, process_instance_id=instance) for role, instance in data.instances),
-        health=CollectionHealth(enabled=True, dropped_count=stats.dropped_count(), quality='available'))
+        health=health)
 
 
 @router.get('/v1/statistics/group/resources', response_model=ResourcePage, responses=RESPONSES)

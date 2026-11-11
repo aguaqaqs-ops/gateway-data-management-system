@@ -158,7 +158,7 @@ class DeviceStorageCollector:
         if len(self._changed) < self.config.queue_max_items and len(repository_id) <= 255:
             self._changed.add(repository_id)
 
-    def collect_next(self) -> None:
+    def collect_next(self) -> bool:
         """One repository per invocation; E schedules continuously with a 600s cycle goal."""
         if self._changed:
             repository_id = self._changed.pop()
@@ -166,16 +166,17 @@ class DeviceStorageCollector:
             with self.candidates._read() as connection:
                 if connection.execute('SELECT 1 FROM provisioned_scope_mappings WHERE enabled=1 '
                                       'AND repository_id=?', (repository_id,)).fetchone() is None:
-                    return
+                    return False
         else:
             repositories = self.candidates.repositories(self._after_repository)
             if not repositories:
                 self._after_repository = ''
                 self.collect(None)
-                return
+                return True
             repository_id = repositories[0]
             self._after_repository = repository_id
         self.collect(repository_id)
+        return False
 
     def collect(self, repository_id: str | None) -> None:
         start = time_ns() // 1000

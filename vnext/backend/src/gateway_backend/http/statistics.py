@@ -19,7 +19,7 @@ from starlette.types import Receive, Scope, Send
 
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.statistics import (
-    BucketValue, ResourceBucket, ResourcePage, ResourceQuery, ResourceSeries, StatisticsPage, StatisticsQuery,
+    CollectionHealth, BucketValue, ResourceBucket, ResourcePage, ResourceQuery, ResourceSeries, StatisticsPage, StatisticsQuery,
 )
 from gateway_backend.statistics.models import ResourceRecord
 from gateway_backend.statistics.queries import ResourceRead, Role, StatisticsReadError, StatisticsReader
@@ -32,6 +32,7 @@ class StatisticsHttpDependencies:
     reader: StatisticsReader
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
     dropped_count: Callable[[], int] = lambda: 0
+    health: Callable[[], CollectionHealth] = lambda: CollectionHealth(enabled=True, quality="available")
     sample_interval_seconds: float = 1
     export_slot: BoundedSemaphore = field(default_factory=lambda: BoundedSemaphore(1))
 

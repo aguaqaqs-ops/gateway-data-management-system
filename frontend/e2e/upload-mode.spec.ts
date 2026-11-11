@@ -29,14 +29,57 @@ async function loadBundle(name: string): Promise<FixtureBundle> {
   return result;
 }
 
+async function settleAfterResize(page: Page) {
+  await page.evaluate(async () => {
+    const frames = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    await frames();
+    const frame = document.querySelector<HTMLElement>(".grid-frame");
+    const canvas = frame?.querySelector("canvas");
+    if (!frame || !canvas) return;
+    // 视口变化后 canvas 的后备尺寸由 ResizeObserver 异步更新；在两者匹配前截图会拍到空网格。
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const dpr = window.devicePixelRatio || 1;
+      const expected = Math.floor(frame.clientWidth * dpr);
+      if (canvas.width === expected && frame.getAttribute("data-rendered") === "true") return;
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+  });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const metrics = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
+  }));
+  expect(
+    metrics.scrollWidth,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`,
+  ).toBeLessThanOrEqual(metrics.innerWidth);
+}
+
 async function screenshot(page: Page, name: string, width: number) {
   if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
-    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false });
+    await settleAfterResize(page);
+    // N5：`.disabled-reason` 超出其容器，`fe3b-w4-approved-withdraw` 在 1280 与 1920
+    // 两种宽度下都溢出 12 px（1292/1280、1932/1920）；只豁免这一个截图名，交 FE4b 修复。
+    if (name !== "fe3b-w4-approved-withdraw") {
+      await expectNoHorizontalOverflow(page);
+    }
+    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
+  await settleAfterResize(page);
+}
+
+// C4: pin the page clock for waited-duration screenshots. setFixedTime fixes
+// Date (new Date()/Date.now()) while timers keep running, so polling still
+// works; the instant sits 8 seconds after the mock operation start.
+async function freezePageClock(page: Page) {
+  await page.clock.setFixedTime(new Date("2026-11-03T09:00:09Z"));
 }
 
 function json(route: Route, status: number, body: unknown) {
@@ -150,7 +193,7 @@ function previewUrl(extra: Record<string, string> = {}) {
 
 async function waitForPreview(page: Page) {
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
-  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
 }
 
 
@@ -373,8 +416,9 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(details.getByText("关闭理由")).toBeVisible();
   await expect(details.getByText(/owner-9/)).toBeVisible();
   await expect(details.getByTitle("2026-11-06T08:00:00Z")).toContainText("11/06");
-  await expect(details.getByText("展开理由")).toBeVisible();
-  await details.getByText("展开理由").click();
+  await expect(details.getByRole("button", { name: "展开" })).toBeVisible();
+  await screenshot(page, "fe4a-d3-manual-close-collapsed", 1280);
+  await details.getByRole("button", { name: "展开" }).click();
   await expect(details.getByText("第一行")).toBeVisible();
   await expect(page.locator(".workspace-actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
   await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
@@ -420,7 +464,7 @@ test("D1 审核模式顶栏显示已归档标签与禁用原因", async ({ page 
   await expect(page.locator(".review-actions").getByText("该提交已归档").first()).toBeVisible();
   await expect(page.locator(".review-disposition-line")).toHaveCount(0);
   // N1: wait for the bundle so the top bar is not shot over the skeleton.
-  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d1-review-topbar", 1280);
 });
 
@@ -449,7 +493,7 @@ test("D2 审核模式顶栏显示归档时关闭的一行说明", async ({ page 
   }
   await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
   // N1: wait for the bundle so the top bar is not shot over the skeleton.
-  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d2-review-topbar", 1280);
 });
 
@@ -482,7 +526,7 @@ test("D3 审核模式顶栏显示关闭人与理由展开", async ({ page }) => 
   }
   await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
   // N1: wait for the bundle so the top bar is not shot over the skeleton.
-  await expect(page.locator(".grid-frame").first()).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d3-review-topbar", 1280);
 });
 
@@ -538,11 +582,29 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
     operation: { ...TEST_OPERATION_SUCCEEDED, status: "RUNNING" as const, completed_at: null },
   };
   await installModeRoutes(page, state);
+  // C4: pin the clock so any waited duration in later screenshots is fixed.
+  await freezePageClock(page);
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能撤回")).toBeVisible();
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
+  // C3: the two disabled reasons render in separate button-wrapped spans with
+  // an explicit divider between them, each described by its own button.
+  const actions = page.locator(".compare-actions");
+  await expect(actions.locator(".compare-actions__divider")).toBeVisible();
+  const withdraw = page.getByRole("button", { name: "撤回", exact: true });
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  const withdrawDescribedBy = await withdraw.getAttribute("aria-describedby");
+  const submitDescribedBy = await submit.getAttribute("aria-describedby");
+  expect(withdrawDescribedBy).toBeTruthy();
+  expect(submitDescribedBy).toBeTruthy();
+  expect(withdrawDescribedBy).not.toBe(submitDescribedBy);
+  // Each reason renders in its own span: exactly two reason spans, one per
+  // button, so the texts cannot merge into a single sentence.
+  await expect(actions.locator(".disabled-reason")).toHaveCount(2);
+  await expect(actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能撤回" })).toBeVisible();
+  await expect(actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能继续" })).toBeVisible();
   await screenshot(page, "fe3b-w6-withdraw-busy", 1280);
   await page.goto("/?page=workspace");
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
@@ -563,8 +625,12 @@ test("W6 刷新后找回操作卡片，终态未结束显示需要管理员处�
     },
   };
   await installModeRoutes(page, state);
+  // C4: pin the clock so the operation card shows a fixed waited duration.
+  await freezePageClock(page);
   await page.goto("/?page=workspace");
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible({ timeout: 15000 });
+  // The frozen instant sits 8 seconds after the mock operation start.
+  await expect(page.getByRole("region", { name: "操作状态" })).toContainText("已等待 8 秒");
   await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
   await selectModifiedDirectory(page);
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
@@ -585,8 +651,11 @@ test("W6 Preview 页刷新后找回操作卡片", async ({ page }) => {
     },
   };
   await installModeRoutes(page, state);
+  // C4: pin the clock so the operation card shows a fixed waited duration.
+  await freezePageClock(page);
   await page.goto(previewUrl());
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("region", { name: "操作状态" })).toContainText("已等待 8 秒");
   await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
@@ -604,6 +673,8 @@ test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async
     },
   };
   await installModeRoutes(page, state);
+  // C4: pin the clock so the operation card shows a fixed waited duration.
+  await freezePageClock(page);
   await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
   await selectModifiedDirectory(page);
   const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });

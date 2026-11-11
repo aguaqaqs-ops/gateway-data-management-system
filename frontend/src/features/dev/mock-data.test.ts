@@ -254,8 +254,10 @@ describe("simulated HTTP response contracts", () => {
     // History dataset listed in the reachability test below (shared pages,
     // cursor pages, merged pages, scenario set, D5 case), not only on the
     // scenario array. Probe Q4b (ARCHIVED_BASELINE + MANUAL_CLOSE in the
-    // shared HISTORY_PAGE_TWO) must fail here.
-    const checkDispositionCombinationRules = (datasetName: string, headId: string, datasetNodes: HistoryNode[]) => {
+    // shared HISTORY_PAGE_TWO) must fail here. C2: the promoted-head
+    // off-array tolerance applies to single-page slices only; merged views
+    // must contain the promoted baseline.
+    const checkDispositionCombinationRules = (datasetName: string, headId: string, datasetNodes: HistoryNode[], allowOffArrayHead: boolean) => {
       const archivedByResult = new Map<string, string[]>();
       for (const node of datasetNodes) {
         if (node.node_kind === "BASELINE_NODE") {
@@ -277,6 +279,9 @@ describe("simulated HTTP response contracts", () => {
           expect(node.disposition_source_kind, `${datasetName} ${node.ref_id} not manual`).not.toBe("MANUAL_CLOSE");
           const baseline = datasetNodes.find((candidate) => candidate.ref_id === node.promoted_baseline_node_id);
           if (!baseline) {
+            // C2: only single-page slices may keep the promoted head outside
+            // the nodes array; merged views must contain the promoted baseline.
+            expect(allowOffArrayHead, `${datasetName} ${node.ref_id} merged view must contain the promoted baseline`).toBe(true);
             // Shared page slices keep the promoted head outside the nodes
             // array; the head itself is the only allowed off-array target.
             expect(node.promoted_baseline_node_id, `${datasetName} ${node.ref_id} promoted is head`).toBe(headId);
@@ -306,18 +311,18 @@ describe("simulated HTTP response contracts", () => {
     const mergedShared: HistoryNode[] = [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes];
     const mergedCursor: HistoryNode[] = [...TEST_HISTORY_CURSOR_FIRST.nodes, ...TEST_HISTORY_CURSOR_SECOND.nodes];
     const scenarioNodes: HistoryNode[] = [...DISPOSITION_SCENARIO_NODES, ...DISPOSITION_SCENARIO_BASELINES];
-    const dispositionDatasets: Array<{ name: string; headId: string; nodes: HistoryNode[] }> = [
-      { name: "HISTORY_PAGE_ONE", headId: HISTORY_PAGE_ONE.head.node_id, nodes: HISTORY_PAGE_ONE.nodes },
-      { name: "HISTORY_PAGE_TWO", headId: HISTORY_PAGE_TWO.head.node_id, nodes: HISTORY_PAGE_TWO.nodes },
-      { name: "merged shared pages", headId: HISTORY_PAGE_ONE.head.node_id, nodes: mergedShared },
-      { name: "TEST_HISTORY_CURSOR_FIRST", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: TEST_HISTORY_CURSOR_FIRST.nodes },
-      { name: "TEST_HISTORY_CURSOR_SECOND", headId: TEST_HISTORY_CURSOR_SECOND.head.node_id, nodes: TEST_HISTORY_CURSOR_SECOND.nodes },
-      { name: "merged cursor pages", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: mergedCursor },
-      { name: "disposition scenarios", headId: DISPOSITION_HEAD.node_id, nodes: scenarioNodes },
-      { name: "D5 case", headId: DISPOSITION_HEAD.node_id, nodes: [...scenarioNodes, DISPOSITION_D5_NODE] },
+    const dispositionDatasets: Array<{ name: string; headId: string; nodes: HistoryNode[]; allowOffArrayHead: boolean }> = [
+      { name: "HISTORY_PAGE_ONE", headId: HISTORY_PAGE_ONE.head.node_id, nodes: HISTORY_PAGE_ONE.nodes, allowOffArrayHead: true },
+      { name: "HISTORY_PAGE_TWO", headId: HISTORY_PAGE_TWO.head.node_id, nodes: HISTORY_PAGE_TWO.nodes, allowOffArrayHead: true },
+      { name: "merged shared pages", headId: HISTORY_PAGE_ONE.head.node_id, nodes: mergedShared, allowOffArrayHead: false },
+      { name: "TEST_HISTORY_CURSOR_FIRST", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: TEST_HISTORY_CURSOR_FIRST.nodes, allowOffArrayHead: true },
+      { name: "TEST_HISTORY_CURSOR_SECOND", headId: TEST_HISTORY_CURSOR_SECOND.head.node_id, nodes: TEST_HISTORY_CURSOR_SECOND.nodes, allowOffArrayHead: true },
+      { name: "merged cursor pages", headId: TEST_HISTORY_CURSOR_FIRST.head.node_id, nodes: mergedCursor, allowOffArrayHead: false },
+      { name: "disposition scenarios", headId: DISPOSITION_HEAD.node_id, nodes: scenarioNodes, allowOffArrayHead: false },
+      { name: "D5 case", headId: DISPOSITION_HEAD.node_id, nodes: [...scenarioNodes, DISPOSITION_D5_NODE], allowOffArrayHead: false },
     ];
     for (const dataset of dispositionDatasets) {
-      checkDispositionCombinationRules(dataset.name, dataset.headId, dataset.nodes);
+      checkDispositionCombinationRules(dataset.name, dataset.headId, dataset.nodes, dataset.allowOffArrayHead);
     }
     // The shared scenario array carries no D5 shape: D5 lives only in D5 case
     // data (DISPOSITION_D5_NODE), asserted below.

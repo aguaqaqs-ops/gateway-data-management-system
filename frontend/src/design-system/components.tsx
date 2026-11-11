@@ -13,9 +13,12 @@ export function Button({ variant = "secondary", icon, disabledReason, children, 
   const isDisabled = disabled || Boolean(disabledReason);
   const generatedId = useId();
   const reasonId = `${id ?? `button-${generatedId}`}-disabled-reason`;
+  // C3: keep a caller-provided aria-describedby alongside the disabled reason
+  // instead of dropping it, so each reason stays attached to its own button.
+  const describedByIds = [describedBy, disabledReason ? reasonId : null].filter(Boolean).join(" ") || undefined;
   return (
     <span className="button-wrap">
-      <button id={id} className={`button button--${variant} ${className}`} disabled={isDisabled} aria-describedby={disabledReason ? reasonId : describedBy} {...props}>
+      <button id={id} className={`button button--${variant} ${className}`} disabled={isDisabled} aria-describedby={describedByIds} {...props}>
         {icon}<span>{children}</span>
       </button>
       {disabledReason && <span className="disabled-reason" id={reasonId}>{disabledReason}</span>}

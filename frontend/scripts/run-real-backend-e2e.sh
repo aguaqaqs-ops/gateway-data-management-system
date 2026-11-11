@@ -15,6 +15,8 @@
 #             --subphase fe3c seeds the scopes in JOURNEY_SCOPE_ROLE_SPEC and
 #             rebuilds one upload input directory per scope outside the
 #             worktree; --subphase fe3b keeps the original 18 scopes.
+#             --subphase fe4a runs only j1-archive-mainline and j2-manual-close
+#             (FE4a debugging; evidence runs the full fe3c set).
 #             Exports GATEWAY_FE_IDENTITIES, GATEWAY_FE_JOURNEY_SCOPES and
 #             GATEWAY_FE_JOURNEY_INPUT_ROOT.
 #   t1        FE3c real-data journey (kickoff §8): requires
@@ -290,8 +292,8 @@ case "$SUITE" in
     exit 2 ;;
 esac
 if [[ "$SUITE" == "journeys" ]]; then
-  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" ) ]] || {
-    printf 'error=--suite journeys requires --subphase fe3b|fe3c (got %s)\n' "$SUBPHASE" >&2
+  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" ) ]] || {
+    printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }
 elif [[ "$SUITE" == "t1" ]]; then
@@ -332,8 +334,9 @@ JOURNEY_SCOPE_ROLE_SPEC=(
   "j2-manual-close=submitter,submitter2,submitter-upload-only,reviewer,archiver,none"
 )
 # FE3c complete set: --subphase fe3c runs everything below; --subphase fe3b
-# keeps the original 18 scopes.
+# keeps the original 18 scopes; --subphase fe4a runs only J1/J2 debugging.
 FE3B_SCOPE_SLUGS=(r1-states r2-preview r2-full r3-truncated r4-submit r5-idempotency r6-reject-approve r7-withdraw r7-upload-only r7-approved r7-stale r7-reviewer-withdraw r9-history r10-noperm r10-no-preview r10-archive r11-review-conflict r11-workspace-conflict)
+FE4A_SCOPE_SLUGS=(j1-archive-mainline j2-manual-close)
 # FE3c t1: one scope on the shared t1 input directories (mounted read-only).
 T1_SCOPE_ROLE_SPEC=(
   "t1=submitter,reviewer,archiver"
@@ -345,6 +348,14 @@ elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe3b" ]]; then
   for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
     slug="${journey_spec%%=*}"
     for keep in "${FE3B_SCOPE_SLUGS[@]}"; do
+      if [[ "$keep" == "$slug" ]]; then ACTIVE_SCOPE_ROLE_SPEC+=("$journey_spec"); break; fi
+    done
+  done
+elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe4a" ]]; then
+  ACTIVE_SCOPE_ROLE_SPEC=()
+  for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
+    slug="${journey_spec%%=*}"
+    for keep in "${FE4A_SCOPE_SLUGS[@]}"; do
       if [[ "$keep" == "$slug" ]]; then ACTIVE_SCOPE_ROLE_SPEC+=("$journey_spec"); break; fi
     done
   done
@@ -1330,6 +1341,16 @@ else
   SUITE_SPEC="e2e-real/smoke.spec.ts"
 fi
 
+# FE4a debugging: --subphase fe4a runs only the J1/J2 scopes. The entry seeds
+# only those scopes, and the spec file is additionally filtered by title so
+# unseeded journeys skip instead of failing on the missing scope. Evidence
+# runs (fe3b/fe3c) never set this filter and run the complete set.
+PLAYWRIGHT_GREP=""
+if [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe4a" ]]; then
+  PLAYWRIGHT_GREP="--grep=j1-archive-mainline|j2-manual-close"
+fi
+log "playwright_grep=${PLAYWRIGHT_GREP:-none}"
+
 # 8. Run the suite; results come from the Playwright JSON reporter in the log
 # directory (B2), not from the tee of the process output. The spec file is
 # selected explicitly so smoke and journeys never pick up each other's cases.
@@ -1351,8 +1372,8 @@ docker exec \
   if [[ -f /tmp/journey-scopes.json ]]; then
     export GATEWAY_FE_JOURNEY_SCOPES="$(cat /tmp/journey-scopes.json)"
   fi
-  npx playwright test --config playwright.real.config.ts "$1"
-' suite "$SUITE_SPEC" > >(tee -a "$LOG_FILE") 2>&1 &
+  npx playwright test --config playwright.real.config.ts "$1" ${2:+"$2"}
+' suite "$SUITE_SPEC" "$PLAYWRIGHT_GREP" > >(tee -a "$LOG_FILE") 2>&1 &
 SUITE_PID=$!
 wait "$SUITE_PID"
 PLAYWRIGHT_EXIT=$?

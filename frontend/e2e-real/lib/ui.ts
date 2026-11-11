@@ -131,7 +131,37 @@ export function reviewStatus(page: Page): Locator {
 
 export async function expectDisabledWithReason(button: Locator, reason: string): Promise<void> {
   await expect(button).toBeDisabled();
-  await expect(button.locator('xpath=following-sibling::span[contains(@class, "disabled-reason")]')).toHaveText(reason);
+  await expect(button).toHaveAccessibleDescription(reason);
+  const describedBy = await button.getAttribute("aria-describedby");
+  const ids = (describedBy ?? "").split(/\s+/).filter(Boolean);
+  if (ids.length > 0) {
+    const page = button.page();
+    let matched = false;
+    for (const id of ids) {
+      const escaped = id.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      const target = page.locator(`[id="${escaped}"]`);
+      if ((await target.count()) === 0) continue;
+      const text = ((await target.textContent()) ?? "").trim();
+      if (text === reason) {
+        await expect(target, "aria-describedby target shows reason").toBeVisible();
+        matched = true;
+        break;
+      }
+    }
+    expect(matched, `aria-describedby points to visible reason "${reason}"`).toBe(true);
+    return;
+  }
+  const siblingReason = button.locator('xpath=following-sibling::span[contains(@class, "disabled-reason")]');
+  await expect(siblingReason).toHaveText(reason);
+  await expect(siblingReason).toBeVisible();
+}
+
+export async function expectReviewReasonShownOnce(page: Page, reason: string): Promise<void> {
+  const group = page.locator(".review-actions .review-actions__reason");
+  await expect(group).toHaveCount(1);
+  await expect(group).toHaveText(reason);
+  await expect(group).toBeVisible();
+  await expect(page.locator(".review-actions .disabled-reason")).toHaveCount(0);
 }
 
 export async function expectEnabled(button: Locator): Promise<void> {

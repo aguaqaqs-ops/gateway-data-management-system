@@ -29,6 +29,14 @@ describe("navigation and surface diagnostic copy", () => {
     expect(formatSurfaceDiagnostic("FUTURE_SURFACE_CODE").message).toBe("比较过程有提示");
     expect(firstDegradedDiagnostic(["ORDERED_DIFF_UNSUPPORTED", "DEGRADE_NO_COMPARE_KEY"])).toBe("本表没有可用的比较键");
     expect(firstDegradedDiagnostic(["FUTURE_SURFACE_CODE"])).toBe("降级原因未提供");
+    expect(formatSurfaceDiagnostic("ORDERED_PROVENANCE_MISSING").message).toBe("有序表缺少空行来源信息，或该信息无效");
+    expect(formatSurfaceDiagnostic("ORDERED_PROVENANCE_INVALID").message).toBe("有序表缺少空行来源信息，或该信息无效");
+    expect(formatSurfaceDiagnostic("METADATA_ROUTE_REQUIRES_NATIVE_ROWS").message).toBe("比较时发生内部错误");
+    expect(formatSurfaceDiagnostic("METADATA_ROLE_REQUIRES_NATIVE_ROWS").message).toBe("比较时发生内部错误");
+    for (const removed of ["ROW_IDENTITY_UNSUPPORTED", "ORDER_KEY_UNSUPPORTED", "COMPARISON_MODE_NOT_DETAILED", "BLANK_PROVENANCE_INVALID"]) {
+      expect(SURFACE_DIAGNOSTIC_CODES).not.toContain(removed);
+      expect(formatSurfaceDiagnostic(removed).message).toBe("比较过程有提示");
+    }
   });
 
   it("subtracts table diagnostics after removing table-name suffixes from the view summary", () => {

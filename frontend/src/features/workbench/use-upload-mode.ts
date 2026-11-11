@@ -4,6 +4,7 @@ import { ApiError } from "../api/authenticated-fetch";
 import { currentGatewaySession } from "../api/session";
 import { deriveUploadModeGates, type Problem, type UploadModeAttempt, type UploadModeGates, type UploadModeOperation, type UploadModeWorkspace } from "./upload-header";
 import type { SafeReviewFacts } from "../api/client";
+import { InflightGate } from "./inflight";
 
 function problemFrom(cause: unknown): Problem {
   if (cause instanceof ApiError) {
@@ -82,6 +83,11 @@ export interface UploadModeSnapshot {
    * original code, an unreadable attempt keeps the unreadable copy.
    */
   retryResume: () => Promise<ResumeOutcome>;
+  /**
+   * C1: clears the resume notice (for example when a new submit or upload
+   * starts), so the re-submitted gate reason is not shown in the alert box.
+   */
+  clearResumeNotice: () => void;
 }
 
 /**
@@ -111,7 +117,17 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   const [operationProblem, setOperationProblem] = useState<Problem | null>(null);
 
   // F1: counts completed resumes; the notice below only appears after a resume.
+  // C1: the notice belongs to the resume snapshot. A new submit or upload
+  // starts a different snapshot, so record the resume pointers and hide the
+  // notice once the workspace moves to a different attempt or submission.
   const [resumeSeq, setResumeSeq] = useState(0);
+  const resumeAttemptId = useRef<string | null>(null);
+  const resumeSubmissionId = useRef<string | null>(null);
+  const clearResumeNotice = useCallback(() => {
+    resumeAttemptId.current = null;
+    resumeSubmissionId.current = null;
+    setResumeSeq(0);
+  }, []);
   const inflight = useRef<Promise<RefreshResult> | null>(null);
   const attemptIdRef = useRef<string | null>(null);
   const workspaceRef = useRef<UploadModeWorkspace | null>(null);
@@ -279,56 +295,77 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   // G1 (§6.2 step 2): retry re-runs the resume sequence from step 1. The
   // known attempt ID survives the pointers being cleared (ABORTED), so the
   // empty-pointer branch still re-reads the attempt instead of clearing it.
+  const retryGate = useRef(new InflightGate<ResumeOutcome>());
   const retryResume = useCallback(async (): Promise<ResumeOutcome> => {
-    setWorkspaceLoading(true);
-    setAttemptLoading(true);
-    setOperationLoading(true);
-    try {
-      const session = currentGatewaySession();
-      let loaded: UploadModeWorkspace;
+    // C2: serialize behind an in-flight refresh, then merge rapid retries into
+    // a single read sequence instead of concurrent chains.
+    const pending = inflight.current;
+    if (pending) {
       try {
-        loaded = await gatewayApi.createWorkspace({
-          business_project_id: session.businessProjectId,
-          gateway_device_external_key: session.gatewayDeviceExternalKey,
-        });
-        setWorkspace(loaded);
-        setWorkspaceProblem(null);
-      } catch (cause) {
-        setWorkspaceProblem(problemFrom(cause));
-        setResumeSeq((seq) => seq + 1);
-        return { kind: "unknown" };
+        await pending;
+      } catch {
+        // The in-flight read keeps its own error state; retry still runs.
       }
-      // The known attempt ID survives the pointer being cleared (ABORTED), so
-      // prefer the previously seen ID over the fresh pointers.
-      const attemptId = loaded.active_submit_attempt_id ?? attemptIdRef.current;
-      if (loaded.active_submission_id) {
-        await readReview(loaded.active_submission_id);
-        clearAttemptChain();
-        return { kind: "submitted", submissionId: loaded.active_submission_id };
-      }
-      if (!attemptId) {
+    }
+    return retryGate.current.run(async () => {
+      setWorkspaceLoading(true);
+      setAttemptLoading(true);
+      setOperationLoading(true);
+      try {
+        const session = currentGatewaySession();
+        let loaded: UploadModeWorkspace;
+        try {
+          loaded = await gatewayApi.createWorkspace({
+            business_project_id: session.businessProjectId,
+            gateway_device_external_key: session.gatewayDeviceExternalKey,
+          });
+          setWorkspace(loaded);
+          setWorkspaceProblem(null);
+        } catch (cause) {
+          setWorkspaceProblem(problemFrom(cause));
+          resumeAttemptId.current = attemptIdRef.current;
+          resumeSubmissionId.current = null;
+          setResumeSeq((seq) => seq + 1);
+          return { kind: "unknown" };
+        }
+        // The known attempt ID survives the pointer being cleared (ABORTED), so
+        // prefer the previously seen ID over the fresh pointers.
+        const attemptId = loaded.active_submit_attempt_id ?? attemptIdRef.current;
+        if (loaded.active_submission_id) {
+          await readReview(loaded.active_submission_id);
+          clearAttemptChain();
+          resumeAttemptId.current = null;
+          resumeSubmissionId.current = loaded.active_submission_id;
+          return { kind: "submitted", submissionId: loaded.active_submission_id };
+        }
+        if (!attemptId) {
+          setReview(null);
+          setReviewProblem(null);
+          setReviewLoading(false);
+          clearAttemptChain();
+          resumeAttemptId.current = null;
+          resumeSubmissionId.current = null;
+          setResumeSeq((seq) => seq + 1);
+          return { kind: "empty" };
+        }
+        const loadedAttempt = await readAttemptChain(loaded.workspace_id, attemptId);
         setReview(null);
         setReviewProblem(null);
         setReviewLoading(false);
-        clearAttemptChain();
+        resumeAttemptId.current = attemptId;
+        resumeSubmissionId.current = null;
         setResumeSeq((seq) => seq + 1);
-        return { kind: "empty" };
+        if (!loadedAttempt) return { kind: "unknown" };
+        if (loadedAttempt.state === "ABORTED") {
+          return { kind: "aborted", abortCode: loadedAttempt.abort_code ?? null };
+        }
+        return { kind: "unfinished", operationId: loadedAttempt.operation_id ?? "" };
+      } finally {
+        setWorkspaceLoading(false);
+        setAttemptLoading(false);
+        setOperationLoading(false);
       }
-      const loadedAttempt = await readAttemptChain(loaded.workspace_id, attemptId);
-      setReview(null);
-      setReviewProblem(null);
-      setReviewLoading(false);
-      setResumeSeq((seq) => seq + 1);
-      if (!loadedAttempt) return { kind: "unknown" };
-      if (loadedAttempt.state === "ABORTED") {
-        return { kind: "aborted", abortCode: loadedAttempt.abort_code ?? null };
-      }
-      return { kind: "unfinished", operationId: loadedAttempt.operation_id ?? "" };
-    } finally {
-      setWorkspaceLoading(false);
-      setAttemptLoading(false);
-      setOperationLoading(false);
-    }
+    });
   }, [clearAttemptChain, readAttemptChain, readReview]);
 
   const resumeAfterOperation = useCallback(async (finishedOperationId: string): Promise<ResumeOutcome> => {
@@ -344,6 +381,18 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
   // unreadable reports the unknown copy; retry restarts from step 1.
   const resumeNotice = useMemo<ResumeNotice | null>(() => {
     if (resumeSeq === 0) return null;
+    // C1: a new submit or upload starts a different snapshot. Hide the notice
+    // once the workspace pointers no longer match the resume result, so a
+    // re-submitted "executing" gate reason is not shown in the red alert box.
+    if (workspace && !workspaceProblem) {
+      const liveAttempt = workspace.active_submit_attempt_id ?? null;
+      const liveSubmission = workspace.active_submission_id ?? null;
+      if (liveAttempt !== null || liveSubmission !== null) {
+        if (liveAttempt !== resumeAttemptId.current || liveSubmission !== resumeSubmissionId.current) {
+          return null;
+        }
+      }
+    }
     if (!workspace || workspaceProblem) {
       return { title: "无法确认提交状态", code: null, codeLabel: null };
     }
@@ -373,6 +422,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     workspaceLoading,
     workspaceProblem,
     resumeNotice,
+    clearResumeNotice,
     review,
     reviewLoading,
     reviewProblem,

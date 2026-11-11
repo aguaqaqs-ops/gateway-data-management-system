@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "../api/authenticated-fetch";
 import { applyReviewAction } from "../api/journeys";
 import { gatewayApi } from "../api/application-api";
 import type { SafeReviewFacts } from "../api/client";
 import { Button, Dialog } from "../../design-system/components";
-
 type DialogKind = "approve" | "reject" | "withdraw";
 
 const STATUS_REASON: Record<string, string> = {
@@ -35,9 +35,21 @@ interface ReviewActionsProps {
   facts: SafeReviewFacts;
   bundleReady: boolean;
   onFactsChanged: (facts: SafeReviewFacts) => void;
+  /**
+   * C5: invoked after the facts refresh that follows a terminal action or a
+   * 409 conflict, so the page re-reads the review and the History together
+   * instead of the review alone.
+   */
+  onReviewSettled?: () => void;
+  /**
+   * C12 rule 1: the top-bar error notice lives below the header main row, not
+   * inside the button row, so it cannot widen the row or move the buttons.
+   */
+  errorNoticeHost?: RefObject<HTMLElement | null>;
 }
 
-export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged }: ReviewActionsProps) {
+export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged, onReviewSettled, errorNoticeHost }: ReviewActionsProps) {
+  const generatedId = useId();
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [reason, setReason] = useState("");
   const [understood, setUnderstood] = useState(false);
@@ -45,10 +57,16 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const [error, setError] = useState<{ title: string; code: string } | null>(null);
   const [expiredApprove, setExpiredApprove] = useState(false);
   const dialogKey = useRef<string | null>(null);
+  // C12 rule 5: a refresh that advances the Review state must not silently
+  // drop the ARCHIVE_CLOSED notice ("已重新读取"); only switching submissions
+  // clears it. Ordinary conflicts still refresh through refreshFacts().
   useEffect(() => {
     setExpiredApprove(false);
     setError(null);
-  }, [submissionId, facts.review_version, facts.status]);
+  }, [submissionId]);
+  useEffect(() => {
+    setExpiredApprove(false);
+  }, [facts.review_version, facts.status]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition
     ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
@@ -58,6 +76,11 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const blockedReason = dispositionReason
     ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : facts.status === "PENDING" ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
   const approveReason = expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason;
+  // Rule 3: withdraw/reject always share blockedReason; approve joins them when
+  // its reason is identical. The shared reason is rendered once below the group.
+  const groupReason = blockedReason;
+  const approveUsesGroup = Boolean(blockedReason) && approveReason === blockedReason;
+  const groupReasonId = `${generatedId}-review-disabled-reason`;
 
   function open(next: DialogKind) {
     setDialog(next);
@@ -106,6 +129,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
       await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      onReviewSettled?.();
       setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
@@ -120,6 +144,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
         setError({ title: failure.title, code: failure.code });
         try {
           onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+          onReviewSettled?.();
         } catch {
           // Keep the failure notice when the refresh itself fails.
         }
@@ -133,11 +158,17 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
 
   const confirmDisabled = busy || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
-  return <div className="review-actions">
-    {dialog === null && renderError()}
-    <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={blockedReason}>撤回</Button>
-    <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={blockedReason}>退回</Button>
-    <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveReason}>审核通过</Button>
+  const errorNotice = dialog === null && error ? renderError() : null;
+  const errorHost = errorNoticeHost?.current ?? null;
+
+  return <>
+    <div className="review-actions">
+      <div className="review-actions__buttons">
+        <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>撤回</Button>
+        <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>退回</Button>
+        <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveUsesGroup ? undefined : approveReason} aria-describedby={approveUsesGroup ? groupReasonId : undefined}>审核通过</Button>
+      </div>
+      {groupReason && <span className="review-actions__reason" id={groupReasonId}>{groupReason}</span>}
 
     <Dialog open={dialog === "approve"} title="确认审核通过" onClose={() => { if (!busy) setDialog(null); }} actions={<>
       <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>取消</Button>
@@ -164,5 +195,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       <label className="confirm-checkbox"><input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
       {renderError()}
     </Dialog>
-  </div>;
+    </div>
+    {errorNotice && errorHost && createPortal(errorNotice, errorHost)}
+  </>;
 }

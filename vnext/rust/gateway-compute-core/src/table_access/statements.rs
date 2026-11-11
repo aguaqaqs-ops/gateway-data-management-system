@@ -1057,7 +1057,10 @@ fn parse_comment(cursor: &mut Cursor<'_>, max_field_bytes: usize) -> PResult<Opt
         LexError::Halt(fault) | LexError::Literal(fault) => fault,
     })?;
     let Lit::Str(bytes) = literal else {
-        return Err(Fault::malformed(offset, "COMMENT requires a string literal"));
+        return Err(Fault::malformed(
+            offset,
+            "COMMENT requires a string literal",
+        ));
     };
     if bytes.len() > max_field_bytes {
         return Err(Fault::resource("max_field_bytes", offset));

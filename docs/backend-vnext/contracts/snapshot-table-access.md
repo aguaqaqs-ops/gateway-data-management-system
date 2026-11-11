@@ -1,5 +1,7 @@
 # Snapshot Table Access Contract
 
+<a id="be-b-展示边界目标b0-固定b1-激活"></a>
+
 ## BE-b 展示边界（B1 已激活）
 
 Table Access owner 的 `SourceTableDescriptor`、`SourceColumnDescriptor` 增加 nullable comment；display_name 保持原 DDL 标识符。只捕获已支持 CREATE TABLE 的表/列 COMMENT 字符串，沿用转义/字符集/字段与 statement/source/operation 预算；空白注释归 null，多 COMMENT 最后一个生效，NUL/非法字符串按现有 malformed 拒绝。不扩 ALTER 或 allowlist，不将 SQL 行/块注释误作展示注释。

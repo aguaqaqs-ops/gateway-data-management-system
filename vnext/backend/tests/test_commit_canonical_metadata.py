@@ -400,3 +400,28 @@ def test_unsupported_manifest_versions_fail_closed_as_missing_provenance() -> No
 
     assert raised.value.code is CommitCanonicalMetadataCode.MISSING
     connection.close()
+
+
+def test_history_comments_follow_exact_submission_refs_for_equal_canonical_identity() -> None:
+    from gateway_backend.application.canonical_metadata.binding import presentation_for_commit
+    from gateway_backend.capabilities.table_presentation.metadata import TablePresentation, ColumnPresentation
+    from tests.support.mutation_contracts import manifest as draft_manifest, manifest_table
+    connection = _connection()
+    store = InMemoryArtifactStore()
+    draft = draft_manifest(tables=(manifest_table(),))
+    semantic = compute_manifest_digest(draft)
+    refs = []
+    for index, label in enumerate(("旧注释", "新注释")):
+        comments = PresentationMetadata((TablePresentation("orders", label, tuple(ColumnPresentation(name, label) for name in ("board", "link_no", "status"))),))
+        manifest = replace(draft, presentation=comments, manifest_digest=semantic)
+        ref = _put_manifest(store, durable_manifest_bytes(manifest), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"comments-{index}"))
+        refs.append(ref)
+        _insert_submission(connection, repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE,
+            manifest_ref_id=ref, manifest_digest=semantic.value, submission_id=f"submission-{index}", workspace_id=f"workspace-{index}")
+    assert refs[0] != refs[1]
+    # A newly constructed resolver represents reopening durable metadata after restart.
+    for index, label in enumerate(("旧注释", "新注释")):
+        metadata = _resolver(connection, store).resolve(repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE)
+        assert metadata.manifest is not None and metadata.manifest.manifest_digest == semantic
+        assert presentation_for_commit(metadata).tables[0].comment == label
+    connection.close()

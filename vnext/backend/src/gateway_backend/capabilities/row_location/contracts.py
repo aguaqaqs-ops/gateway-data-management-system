@@ -25,5 +25,3 @@ class RowLocationResult:
         self.records = ()
         self.batch = None
         self.charges.close()
-
-

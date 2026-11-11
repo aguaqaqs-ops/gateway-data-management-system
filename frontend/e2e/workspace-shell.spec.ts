@@ -2435,17 +2435,3 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   expect(failures, failures.join("\n")).toEqual([]);
 });
 
-test("probe duplicates browse", async ({ page }) => {
-  test.setTimeout(90000);
-  await installFixtureRoutes(page);
-  page.on("console", (message) => console.log("CONSOLE", message.type(), message.text().slice(0, 200)));
-  page.on("pageerror", (error) => console.log("PAGEERROR", error.message));
-  await page.goto(browseUrl("PREVIEW", "duplicates-orphans"));
-  await page.waitForTimeout(4000);
-  console.log("PROBE-1", await page.locator(".compare-error").count(), await page.locator(".grid-frame").count());
-  await page.screenshot({ path: "/evidence/probe-1.png" });
-  await page.locator('.nav-item[data-item-key="device:composite"] .nav-item__button').first().click();
-  await page.waitForTimeout(4000);
-  console.log("PROBE-2", await page.locator(".grid-frame").count());
-  await page.screenshot({ path: "/evidence/probe-2.png" });
-});

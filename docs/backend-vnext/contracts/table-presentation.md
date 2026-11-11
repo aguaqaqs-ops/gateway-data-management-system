@@ -13,3 +13,5 @@ replacement 指定 `side=BEFORE|CURRENT` 时只使用本侧 descriptor 和注释
 列序 registry 使用 `PRESENTATION_RULES_VERSION=1`，只保留确认的二十条业务重排（九类 IEC104 转发表、device、八类装置测点、fault_msg_cfg、IEC61850 dev_cfg）。规则结果进入 surface 展示字段；不改变 canonical/comparison ruleset digest，也没有独立 table-presentation wire selector。列宽、对齐由前端计算，不提供 hidden/width/align 或旧 preview-index 投影。
 
 权威验证为 `tests/test_table_presentation_resolver.py`；列并集、注释、before-only、分侧和固定列均为纯逻辑，不建 Dolt。Surface 序列化、v4 digest 与 golden 由 Surface owner 和后端 presentation generator 覆盖。
+
+进程内 API：`table_presentation/contracts.py` 拥有 frozen metadata、`PresentedColumn` 和只读 `PresentationColumn` 结构接口；resolver 只消费列名/类型/nullable，不反向依赖 Snapshot 执行模块。parser、snapshot、storage 与 surface 只引用该纯合同；公开 resolver 从 capability root 导入。旧 metadata.py 已移除，不保留别名。该整理不改变字段、selector、摘要或已有展示规则。

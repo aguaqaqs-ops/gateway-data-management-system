@@ -46,3 +46,9 @@ locator ref 位于 comparison 逻辑位置，完整进入 surface 遍历/重写�
 - `test_row_location.py`：最终重排与跨 row group、混合标量、keyless 多副本、缺 before 快照上下文、不可匹配/歧义拒绝及 backing/admission 释放。
 - `test_business_presentation_flow.py`：实际 gid 变化与未改/已改 cfg、EXACT 计数、locator/context、生产 bundle closure。
 - 现有 Preview/History、bundle/download/protection 测试拥有 flow 与 lifecycle，不另复制全量 filesystem 故障矩阵。B4 的固定输入/生成输出与 B5 集中门禁仍需各自真实证据。
+
+## 进程内 owner 边界
+
+`row_location/contracts.py` 拥有五列 schema 和 admitted `RowLocationResult`；application 从 row_location root 消费定位/扫描/发布入口。身份策略与 scanner 由 comparison root 提供，`standard_identity_policy` 复用同一 comparison schema/selected/excluded 决定，不让 locator 访问 comparison 私有 row_encoding。现有有界 Parquet writer 由 comparison 公开，最终 client 物理 schema 由 snapshot_materialization 的 `client_parquet_schema` 单一 owner 提供；不复制 codec 或绕过预算。
+
+架构测试登记三个 BE-b owner 及其实际有向依赖，并仅允许 comparison adapter 使用既定 `_standard_identity_scanner_native` 粗粒度入口。table_presentation 合同为纯叶，不反向读取 snapshot；row_location 可消费 navigation/comparison/snapshot/Surface 合同与同 operation 的 Table Access 预算。新调用均走 owner root 或 contracts，既有架构 baseline 保持为空，无新增私有导入豁免。

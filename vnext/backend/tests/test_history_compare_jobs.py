@@ -442,7 +442,7 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     assert publish_step.status is StepStatus.SUCCEEDED
     assert operation.ready_closure_ref is not None
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
-    pair_id = f"{harness.operation_id}-p0"
+    pair_id = "left_to_right"
     assert rows_by_binding == {
         (pair_id, "before", "t"): [{"id": "1"}],
         (pair_id, "current", "t"): [{"id": "1"}],
@@ -531,7 +531,7 @@ def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Pa
     assert cold_current.table_readers == []
     assert len(cache.entries) == 2
     cold_rows, cold_entries = _history_snapshot_bundle_data(cold)
-    cold_pair_id = f"{cold.operation_id}-p0"
+    cold_pair_id = "left_to_right"
     assert cold_rows == {
         (cold_pair_id, "before", "t"): [{"id": "1"}],
         (cold_pair_id, "current", "t"): [{"id": "1"}],
@@ -572,7 +572,7 @@ def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Pa
         for provider_item in warm_providers.values()
     )
     warm_rows, warm_entries = _history_snapshot_bundle_data(warm)
-    warm_pair_id = f"{warm.operation_id}-p0"
+    warm_pair_id = "left_to_right"
     assert set(warm_rows) == {
         (warm_pair_id, side, table)
         for side in ("before", "current")
@@ -683,7 +683,7 @@ def test_history_bundle_preserves_changed_added_and_deleted_table_bindings(tmp_p
         "t",
     )
     rows_by_binding, _snapshot_entries = _history_snapshot_bundle_data(harness)
-    pair_id = f"{harness.operation_id}-p0"
+    pair_id = "left_to_right"
     assert rows_by_binding == {
         (pair_id, "before", "t"): [{"id": "1"}],
         (pair_id, "current", "t"): [{"id": "2"}],
@@ -752,7 +752,7 @@ def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
         artifact_store=harness.artifact_store,
     )
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
-    pair_id = f"{harness.operation_id}-p0"
+    pair_id = "left_to_right"
     expected_rows = [
         {"gid": "1", "no": "1", "value": "a"},
         {"gid": "4000000000", "no": "2", "value": "blank"},
@@ -801,8 +801,8 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     pairs = assemble_state["pairs"]
     assert isinstance(pairs, list)
     assert len(pairs) == 2
-    assert pairs[0]["pair_id"] == f"{harness.operation_id}-p0"
-    assert pairs[1]["pair_id"] == f"{harness.operation_id}-p1"
+    assert pairs[0]["pair_id"] == "left_to_middle"
+    assert pairs[1]["pair_id"] == "middle_to_right"
     assert (pairs[0]["before_commit"], pairs[0]["current_commit"]) == (commit_a, commit_b)
     assert (pairs[1]["before_commit"], pairs[1]["current_commit"]) == (commit_b, commit_c)
     required_refs = assemble_state["required_refs"]
@@ -818,7 +818,7 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert [item["display_name"] for item in inputs] == ["node-0", "node-1", "node-2"]
     assert [item["role"] for item in inputs] == [node_a, node_b, node_c]
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
-    pair_ids = (f"{harness.operation_id}-p0", f"{harness.operation_id}-p1")
+    pair_ids = ("left_to_middle", "middle_to_right")
     assert rows_by_binding == {
         (pair_id, side, "t"): [{"id": "1"}]
         for pair_id in pair_ids
@@ -1332,7 +1332,7 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
             assert sum(item["comparison"]["cache_hits"] for item in pair_metrics) == (0 if case == "bad-payload" else expected_calls)
         rows, _ = _history_snapshot_bundle_data(harness)
         for index in range(len(order) - 1):
-            pair_id = f"{harness.operation_id}-p{index}"
+            pair_id = ("left_to_right" if len(order) == 2 else ("left_to_middle", "middle_to_right")[index])
             assert rows[pair_id, "before", "t"] == [{"id": str(values[order[index]])}]
             assert rows[pair_id, "current", "t"] == [{"id": str(values[order[index + 1]])}]
         with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
@@ -1530,7 +1530,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         assert risk_lookups == [name != "full-first"]
         assert risk_stores == ([True] if name == "full-first" else [])
         rows, _ = _history_snapshot_bundle_data(history)
-        pair_id = history.operation_id + "-p0"
+        pair_id = "left_to_right"
         assert rows[pair_id, "before", "t"] == [{"id": str(values[before_label])}]
         assert rows[pair_id, "current", "t"] == [{"id": str(values[current_label])}]
         with transaction() as uow:

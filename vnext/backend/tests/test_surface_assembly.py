@@ -686,3 +686,32 @@ def test_table_bindings_reject_missing_or_incompatible_ref_content() -> None:
     with pytest.raises(ValueError, match="incompatible"):
         SurfaceArtifactIndexEntry("orders", SurfaceTableRefs(before_table_ref=rows, current_table_ref=rows),
             table_content_bindings=SurfaceTableContentBindings(_content_binding("old"), _content_binding("new")))
+
+
+def test_surface_uses_frozen_comments_and_preserves_before_only_columns() -> None:
+    from gateway_backend.capabilities.table_presentation.metadata import (
+        ColumnPresentation, PresentationMetadata, TablePresentation,
+    )
+    old = _descriptor("orders", row_count=1, side="before")
+    current = replace(_descriptor("orders", row_count=1, side="current"), columns=(old.columns[0],))
+    table = ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+        before_descriptor=old, current_descriptor=current)
+    request = replace(_request(_facts(table)),
+        before_presentation=PresentationMetadata((TablePresentation("orders", "旧表", (
+            ColumnPresentation("id", "旧编号"), ColumnPresentation("name", "旧名称"))),)),
+        current_presentation=PresentationMetadata((TablePresentation("orders", "新表", (
+            ColumnPresentation("id", "新编号"),)),)))
+    result = assemble_surface(request)
+    assert result.surface is not None
+    projected = result.surface.tables[0]
+    assert projected.display_name == "新表"
+    assert [(c.name, c.display_name, c.present_in, c.pinned, c.display_order) for c in projected.columns] == [
+        ("id", "新编号", "BOTH", False, 0), ("name", "旧名称", "BEFORE", True, 1)]
+    replacement = assemble_surface(replace(request, comparison_facts=replace(request.comparison_facts,
+        comparison_mode=ComparisonMode.DATASET_REPLACEMENT)))
+    assert replacement.surface is not None
+    sides = replacement.surface.tables[0].replacement_summary
+    assert sides is not None and sides.before is not None and sides.current is not None
+    assert (sides.before.display_name, sides.current.display_name) == ("旧表", "新表")
+    assert {c.present_in for c in sides.before.columns} == {"BEFORE"}
+    assert {c.present_in for c in sides.current.columns} == {"CURRENT"}

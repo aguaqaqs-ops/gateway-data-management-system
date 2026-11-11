@@ -34,6 +34,22 @@ from tests.test_preview_read_http import _preview_result, _seed_upload, _seed_wo
 pytestmark = pytest.mark.unit
 
 
+def _pair_views(raw: bytes) -> dict[str, str]:
+    import io
+    import tarfile
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        closure_file = archive.extractfile("artifact-closure.json")
+        assert closure_file is not None
+        entries = json.loads(closure_file.read())["closure_entries"]
+        result = {}
+        for entry in entries:
+            if entry["kind"] == "SURFACE":
+                surface_file = archive.extractfile(entry["logical_path"])
+                assert surface_file is not None
+                result[entry["pair_id"]] = json.loads(surface_file.read())["view"]["view_id"]
+        return result
+
+
 def _copy_artifacts(source: InMemoryArtifactStore, target: LocalArtifactStore) -> None:
     for ref, raw in source._artifacts.values():
         target.put(raw, ref)
@@ -118,6 +134,8 @@ def test_preview_job_outputs_download_as_complete_tar(
     assert len(response.content) == int(response.headers["content-length"])
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == pair_count
+    expected_pairs = ["baseline_to_initial", "initial_to_modified"] if pair_count == 2 else ["initial_to_modified"]
+    assert _pair_views(response.content) == {name: name for name in expected_pairs}
     assert response.headers["etag"] == f'"{manifest["bundle_digest"]}"'
     if project_id == "project-b":
         assert b"DATASET_REPLACEMENT" in response.content
@@ -132,6 +150,8 @@ def test_history_job_outputs_download_as_complete_tar(tmp_path: Path, node_count
     assert len(response.content) == int(response.headers["content-length"])
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == node_count - 1
+    expected_pairs = ["left_to_right"] if node_count == 2 else ["left_to_middle", "middle_to_right"]
+    assert _pair_views(response.content) == {name: name for name in expected_pairs}
 
 
 def _assert_published_download_is_protected(db_path: Path, store: LocalArtifactStore, manifest_ref: ArtifactRef) -> None:

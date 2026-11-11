@@ -881,7 +881,8 @@ def _assemble_comparison(
     for index in range(payload.pair_count):
         before_node = payload.nodes[index]
         current_node = payload.nodes[index + 1]
-        pair_specs.append((f"{operation_id}-p{index}", before_node, current_node))
+        pair_id = "left_to_right" if payload.pair_count == 1 else ("left_to_middle", "middle_to_right")[index]
+        pair_specs.append((pair_id, before_node, current_node))
 
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []

@@ -13,7 +13,7 @@ use arrow_array::{
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
-    ParsedComparisonPolicy, StandardComputation, StandardKind, StandardRecordRef,
+    ParsedComparisonPolicy, StandardComputation, StandardIdentityBatch, StandardIdentityScanner, StandardKind, StandardRecordRef,
     compare_ordered_batches, compare_standard_table, parse_comparison_policy,
     summarize_unchanged_ordered_batches,
 };
@@ -29,7 +29,7 @@ use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyOSError, PyRuntimeError, PyTimeoutError, PyValueError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyModule, PyString};
+use pyo3::types::{PyBytes, PyList, PyModule, PyString};
 use pyo3_arrow::PyRecordBatchReader;
 
 use crate::{
@@ -119,6 +119,51 @@ impl ComparisonOperation {
         owner.shrink_to(py, retained)?;
         Ok(retained)
     }
+}
+
+/// A locator/navigation scanner is a distinct bounded phase under the same
+/// Python operation budget, not another comparison or a persistent identity cache.
+#[pyclass]
+struct RowIdentityScanner {
+    scanner: Option<StandardIdentityScanner>,
+    output: Option<StandardIdentityBatch>,
+    context: Arc<KernelContext>,
+    owner: Option<Arc<PythonChargeOwner>>,
+    watch: Arc<CancelWatch>,
+    deadline: Option<Instant>,
+}
+
+#[pymethods]
+impl RowIdentityScanner {
+    fn close(&mut self) {
+        self.output = None;
+        self.scanner = None;
+        self.owner = None;
+    }
+
+    fn scan(&mut self, py: Python<'_>, stream: PyRecordBatchReader, max_input_bytes: usize) -> PyResult<(Vec<String>, Vec<Py<PyBytes>>)> {
+        self.output = None;
+        python_adapter_control(&self.watch, self.deadline)?;
+        let mut input_bytes = 0;
+        let (schema, batches) = read_stream(py, stream, &self.context, &mut input_bytes, max_input_bytes)?;
+        let scanner = self.scanner.as_mut().ok_or_else(closed_handle)?;
+        let output = py.detach(|| scanner.scan(CanonicalBatchSide::new(schema, &batches)))
+            .map_err(|error| comparison_error(error.to_string()))?;
+        python_adapter_control(&self.watch, self.deadline)?;
+        let result = (output.identities.clone(), output.canonical_order_keys.iter().map(|key| PyBytes::new(py, key).unbind()).collect());
+        self.output = Some(output);
+        Ok(result)
+    }
+}
+
+#[pyfunction]
+fn _standard_identity_scanner_native(operation: PyRef<'_, ComparisonOperation>, policy_json: &str) -> PyResult<RowIdentityScanner> {
+    let owner = operation.owner.as_ref().ok_or_else(closed_handle)?.clone();
+    let policy = parse_comparison_policy("standard", policy_json, &operation.context).map_err(comparison_error)?;
+    let ParsedComparisonPolicy::Standard(options) = policy else { unreachable!() };
+    let scanner = StandardIdentityScanner::new(&options, &operation.context).map_err(|error| comparison_error(error.to_string()))?;
+    Ok(RowIdentityScanner { scanner: Some(scanner), output: None, context: Arc::clone(&operation.context),
+        owner: Some(owner), watch: Arc::clone(&operation.watch), deadline: operation.deadline })
 }
 
 struct OperationUse(Arc<AtomicUsize>);
@@ -1460,6 +1505,8 @@ fn _validate_records_batches_native(
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ComparisonOperation>()?;
+    module.add_class::<RowIdentityScanner>()?;
+    module.add_function(wrap_pyfunction!(_standard_identity_scanner_native, module)?)?;
     module.add_function(wrap_pyfunction!(
         _comparison_format_versions_native,
         module

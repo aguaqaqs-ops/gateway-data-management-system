@@ -13,6 +13,7 @@ from gateway_shared_kernel import DigestRef
 import pyarrow as pa
 from gateway_compute._native import (
     _begin_comparison_operation_native,
+    _standard_identity_scanner_native,
     _compare_records_native,
     _restore_comparison_table_native,
     _comparison_format_versions_native,
@@ -64,6 +65,21 @@ class ComparisonRecordsHandle(Protocol):
     def risk_record_batches(self) -> pa.RecordBatchReader: ...
     def is_sealed(self) -> bool: ...
     def close(self) -> None: ...
+
+
+class RowIdentityScanner(Protocol):
+    """One table-side occurrence stream; consume outputs before its next scan."""
+
+    def scan(self, stream: pa.RecordBatchReader, max_input_bytes: int) -> tuple[list[str], list[bytes]]: ...
+    def close(self) -> None: ...
+
+
+def standard_identity_scanner(operation: ComparisonOperation, policy_json: str) -> RowIdentityScanner:
+    context = current_kernel_context()
+    if context is None:
+        raise RuntimeError("row identity scan requires an operation scope")
+    operation.require_operation(id(context.memory))
+    return cast(RowIdentityScanner, _standard_identity_scanner_native(operation, policy_json))
 
 
 class _NeverCancel:

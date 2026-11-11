@@ -215,17 +215,20 @@ APP_DIAGNOSTIC_CASES = (
     ("VARCHAR(16)", "'one'", "'absent'", "APP_TABLE_NOT_FOUND", "one"),
     ("INT", "1", "''", "APP_TABLE_CFG_MISSING", "1"),
     ("INT", "1", "'app_cfg'", "APP_TABLE_CFG_DUPLICATE", "1"),
+    ("INT", "1", "'cfg_target'", None, "1"),
 )
 
 
 @pytest.mark.parametrize("replacement", [False, True])
 @pytest.mark.parametrize("name_type,name_value,target,code,expected_name", APP_DIAGNOSTIC_CASES)
 def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
-    name_type: str, name_value: str, target: str, code: str, expected_name: str | None, replacement: bool,
+    name_type: str, name_value: str, target: str, code: str | None, expected_name: str | None, replacement: bool,
 ) -> None:
     from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
     sql = (f"CREATE TABLE app_cfg(app_name {name_type} PRIMARY KEY,table_cfg TEXT);"
            f"INSERT INTO app_cfg VALUES({name_value},{target});")
+    if code is None:
+        sql += "CREATE TABLE cfg_target(gid BIGINT PRIMARY KEY,value TEXT);INSERT INTO cfg_target VALUES(1,'x');"
     store = InMemoryArtifactStore()
     identity = "CREATE TABLE version_manager(project_id VARCHAR(32) PRIMARY KEY);"
     before = _materialize_business_pair_input(sql + identity + "INSERT INTO version_manager VALUES('left');", store)
@@ -243,11 +246,16 @@ def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
     grouped = (list(navigation["replacement_sides"].values()) if replacement else [navigation["groups"]])
     assert all(any(tab["table_id"] == "app_cfg" and tab["row_filter"] is None
                    for item in groups[3]["items"] for tab in item["tabs"]) for groups in grouped)
-    assert projection.diagnostics_ref is not None
-    diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
-    selected = [d for d in diagnostics if d["code"] == code]
-    assert {d["side"] for d in selected} == {"BEFORE", "CURRENT"}
-    assert all(d["params"]["app_name"] == expected_name for d in selected)
+    if code is None:
+        assert projection.diagnostics_ref is None
+        assert all(next(item for item in groups[3]["items"] if item["item_key"] == "global:cfg_target")["label"] == expected_name
+                   for groups in grouped)
+    else:
+        assert projection.diagnostics_ref is not None
+        diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+        selected = [d for d in diagnostics if d["code"] == code]
+        assert {d["side"] for d in selected} == {"BEFORE", "CURRENT"}
+        assert all(d["params"]["app_name"] == expected_name for d in selected)
 
 
 @pytest.mark.parametrize("replacement", [False, True])

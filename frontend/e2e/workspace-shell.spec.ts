@@ -636,7 +636,6 @@ async function expectHeaderBreadcrumbVisible(page: Page) {
 }
 
 async function screenshot(page: Page, name: string, width: number) {
-  if (!outputDirectory) return;
   await page.setViewportSize({ width, height: 1080 });
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const appGrid = page.locator(".grid-frame[data-rendered]").first();
@@ -646,8 +645,11 @@ async function screenshot(page: Page, name: string, width: number) {
     await expect(appGrid.locator("canvas").first()).toBeVisible();
   }
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await mkdir(outputDirectory, { recursive: true });
+  // N14: the overflow assertion runs in every mode, not only when screenshots
+  // are being saved.
   await expectNoHorizontalOverflow(page);
+  if (!outputDirectory) return;
+  await mkdir(outputDirectory, { recursive: true });
   await page.screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), fullPage: true, animations: "disabled" });
 }
 
@@ -661,10 +663,10 @@ async function waitForGridPaint(page: Page, tabKey: string) {
 }
 
 async function screenshotHeader(page: Page, name: string, width: number) {
-  if (!outputDirectory) return;
   await page.setViewportSize({ width, height: 1080 });
-  await mkdir(outputDirectory, { recursive: true });
   await expectNoHorizontalOverflow(page);
+  if (!outputDirectory) return;
+  await mkdir(outputDirectory, { recursive: true });
   await page.locator(".compare-header").screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), animations: "disabled" });
 }
 

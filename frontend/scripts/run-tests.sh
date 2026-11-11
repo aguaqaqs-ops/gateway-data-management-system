@@ -16,8 +16,10 @@ EXPECTED_TOOLCHAIN_CONFIG_DIGEST="sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020
 EXPECTED_TOOLCHAIN_DIFF_IDS='["sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278","sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07","sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9","sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d","sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc","sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5","sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb"]'
 IDENTITY_ARCHIVE=""
 SOURCE_ARCHIVE=""
+INPUT_ARCHIVE=""
 cleanup_archives() {
   [[ -z "$SOURCE_ARCHIVE" ]] || rm -f "$SOURCE_ARCHIVE"
+  [[ -z "$INPUT_ARCHIVE" ]] || rm -f "$INPUT_ARCHIVE"
   [[ -z "$IDENTITY_ARCHIVE" ]] || rm -f "$IDENTITY_ARCHIVE"
 }
 trap cleanup_archives EXIT
@@ -103,6 +105,17 @@ if ! git -C "$REPO_DIR" archive --format=tar HEAD frontend > "$SOURCE_ARCHIVE"; 
   exit 2
 fi
 
+# F11: the backend input manifest and the machine diagnostic code table are the
+# authority for the frontend unit tests; archive those two same-HEAD files next
+# to the frontend tree instead of copying all of vnext/ into the image.
+INPUT_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/gateway-frontend-inputs.XXXXXX.tar")"
+if ! git -C "$REPO_DIR" archive --format=tar HEAD \
+  vnext/fixtures/presentation-inputs/manifest.json \
+  vnext/fixtures/presentation-inputs/diagnostic-codes.json > "$INPUT_ARCHIVE"; then
+  echo "could not archive the backend presentation input manifest from HEAD" >&2
+  exit 2
+fi
+
 mkdir -p "$LOG_DIR"
 if [[ -n "$SCREENSHOT_DIR" ]]; then mkdir -p "$SCREENSHOT_DIR"; fi
 LOG_FILE="$LOG_DIR/frontend-tests-$(date -u +%Y%m%dT%H%M%SZ).log"
@@ -112,6 +125,9 @@ FRONTEND_TREE_START="$(git -C "$REPO_DIR" rev-parse HEAD:frontend)"
 HOSTNAME_START="$(hostname -f)"
 NPM_CACHE_ARCHIVE_SHA256="$(sha256sum "$NPM_CACHE_ARCHIVE" | awk '{print $1}')"
 SOURCE_ARCHIVE_SHA256="$(sha256sum "$SOURCE_ARCHIVE" | awk '{print $1}')"
+INPUT_ARCHIVE_SHA256="$(sha256sum "$INPUT_ARCHIVE" | awk '{print $1}')"
+INPUT_MANIFEST_SHA256="$(sha256sum "$REPO_DIR/vnext/fixtures/presentation-inputs/manifest.json" | awk '{print $1}')"
+INPUT_CODES_SHA256="$(sha256sum "$REPO_DIR/vnext/fixtures/presentation-inputs/diagnostic-codes.json" | awk '{print $1}')"
 RESOLVED_COUNT="${#RESOLVED_ENTRIES[@]}"
 
 {
@@ -129,12 +145,15 @@ RESOLVED_COUNT="${#RESOLVED_ENTRIES[@]}"
   printf 'npm_cache_source_commit=%s\n' "$NPM_CACHE_SOURCE_COMMIT"
   printf 'package_lock_resolved_count=%s\n' "$RESOLVED_COUNT"
   printf 'tracked_frontend_archive_sha256=%s\n' "$SOURCE_ARCHIVE_SHA256"
+  printf 'presentation_inputs_archive_sha256=%s\n' "$INPUT_ARCHIVE_SHA256"
+  printf 'presentation_inputs_manifest_sha256=%s\n' "$INPUT_MANIFEST_SHA256"
+  printf 'diagnostic_codes_sha256=%s\n' "$INPUT_CODES_SHA256"
   printf 'run_e2e=%s\n' "$RUN_E2E"
   printf 'e2e_workers=%s\n' "${E2E_WORKERS:-playwright-default}"
   printf 'screenshot_dir=%s\n' "${SCREENSHOT_DIR:-none}"
 } | tee "$LOG_FILE"
 
-DOCKER_VOLUMES=(--volume "$SOURCE_ARCHIVE:/frontend-source.tar:ro" --volume "$NPM_CACHE_DIR:/npm-cache:ro")
+DOCKER_VOLUMES=(--volume "$SOURCE_ARCHIVE:/frontend-source.tar:ro" --volume "$INPUT_ARCHIVE:/presentation-inputs.tar:ro" --volume "$NPM_CACHE_DIR:/npm-cache:ro")
 DOCKER_SCREENSHOT_ENV=()
 if [[ -n "$SCREENSHOT_DIR" ]]; then
   DOCKER_VOLUMES+=(--volume "$SCREENSHOT_DIR:/evidence")
@@ -151,6 +170,7 @@ docker run --rm --init --ipc=host --network "$DOCKER_NETWORK" \
   "$TOOLCHAIN_IMAGE" bash -euo pipefail -c '
     mkdir -p /tmp/frontend /tmp/npm-cache
     tar -xf /frontend-source.tar --strip-components=1 -C /tmp/frontend
+    tar -xf /presentation-inputs.tar -C /tmp
     cp -a /npm-cache/. /tmp/npm-cache/
     cd /tmp/frontend
     npm ci --offline --cache /tmp/npm-cache --no-audit --no-fund

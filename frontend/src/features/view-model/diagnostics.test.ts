@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, NAVIGATION_DIAGNOSTIC_CODES, navigationDiagnosticParamKeys, navigationDiagnosticTemplateParamKeys, pairSurfaceDiagnosticCodes, SURFACE_DIAGNOSTIC_CODES, type NavigationDiagnostic } from "./diagnostics";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { installedFixtureBundle } from "../../test/helpers";
 import { loadComparisonPresentation } from "../bundle/presentation";
 
+const BACKEND_CODES = join(process.cwd(), "..", "vnext/fixtures/presentation-inputs/diagnostic-codes.json");
+
 describe("navigation and surface diagnostic copy", () => {
+  it("matches the backend-owned diagnostic code table exactly", () => {
+    const table = JSON.parse(readFileSync(BACKEND_CODES, "utf8")) as {
+      navigation: Record<string, string[]>;
+      surface_summary_codes: string[];
+    };
+    expect([...NAVIGATION_DIAGNOSTIC_CODES].sort()).toEqual(Object.keys(table.navigation).sort());
+    for (const [code, params] of Object.entries(table.navigation)) {
+      expect([...(navigationDiagnosticParamKeys(code) ?? [])].sort(), code).toEqual([...params].sort());
+    }
+    expect([...SURFACE_DIAGNOSTIC_CODES].sort()).toEqual([...table.surface_summary_codes].sort());
+  });
+
   it("has a localized template for every v1 navigation code and consumes exactly its params", () => {
     for (const code of NAVIGATION_DIAGNOSTIC_CODES) {
       const required = navigationDiagnosticParamKeys(code);

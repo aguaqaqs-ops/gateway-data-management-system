@@ -48,27 +48,30 @@ async function settleAfterResize(page: Page) {
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
-  const metrics = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
+  const metrics = await page.evaluate(() => {
+    // Report the elements that actually stick out so an overflow failure names
+    // the offending node instead of only the page width.
+    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
+      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.right > window.innerWidth + 0.5)
+      .slice(0, 5)
+      .map(({ element, rect }) => `${element.tagName.toLowerCase()}.${String(element.className || "").split(/\s+/).filter(Boolean).join(".")} right=${Math.round(rect.right)}`);
+    return { scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth, offenders };
+  });
   expect(
     metrics.scrollWidth,
-    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} offenders=${metrics.offenders.join(" | ")}`,
   ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 
 async function screenshot(page: Page, name: string, width: number) {
-  if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
-    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await settleAfterResize(page);
-    // N5：`.disabled-reason` 超出其容器，`fe3b-w4-approved-withdraw` 在 1280 与 1920
-    // 两种宽度下都溢出 12 px（1292/1280、1932/1920）；只豁免这一个截图名，交 FE4b 修复。
-    if (name !== "fe3b-w4-approved-withdraw") {
-      await expectNoHorizontalOverflow(page);
-    }
+    // N14: assert in every mode, before any screenshot bookkeeping.
+    await expectNoHorizontalOverflow(page);
+    if (!screenshotDirectory) continue;
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });

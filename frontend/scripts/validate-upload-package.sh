@@ -98,6 +98,7 @@ finish() {
 trap finish EXIT
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_FILE"; }
+trap 'status=$?; log "exit_code=$status"; exit "$status"' EXIT
 path_is_empty() { [[ -d "$1" ]] && [[ -z "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]]; }
 
 RUN_STAGE="preconditions"

@@ -496,15 +496,18 @@ def test_process_cache_misses_publish_complete_values_and_preserve_reader_pins(
         assert adapter.store(entry, blobs, owner=CacheOperationOwner('preview-operation', owner), checkpoint=_checkpoint, reserve=_reserve)
     run_processes((lambda: store(first, first_blobs, 'producer-a'), lambda: store(second, second_blobs, 'producer-b')))
     cache = cache_fixture.adapter()
-    observed = cache.lookup_and_pin(first.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
-    assert observed is not None and observed in (first, second)
-    for ref in observed.refs:
-        assert cache_fixture.local.get_ref(ref.artifact_id) == ref
-    assert all(cache_fixture.protected(observed.refs))
-    # A stale reader cannot delete a subsequently published value for the same key.
-    if same_key:
-        replacement, replacement_blobs = _value('replacement', kind=kind)
-        run_processes((lambda: store(replacement, replacement_blobs, 'replacement'),))
-        with cache_fixture.transaction() as uow:
-            assert not uow.computation_cache.discard_if_same(observed)
+    lease = cache.lookup_and_pin(first.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    assert lease is not None
+    with closing(lease):
+        observed = lease.entry
+        assert observed in (first, second)
+        for ref in observed.refs:
+            assert cache_fixture.local.get_ref(ref.artifact_id) == ref
         assert all(cache_fixture.protected(observed.refs))
+        # A stale reader cannot delete a subsequently published value for the same key.
+        if same_key:
+            replacement, replacement_blobs = _value('replacement', kind=kind)
+            run_processes((lambda: store(replacement, replacement_blobs, 'replacement'),))
+            with cache_fixture.transaction() as uow:
+                assert not uow.computation_cache.discard_if_same(observed)
+            assert all(cache_fixture.protected(observed.refs))

@@ -102,11 +102,16 @@ def test_baseline_preserves_distinct_claims_and_signed_net_change() -> None:
 def test_statistics_configuration_has_finite_defaults_and_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GATEWAY_STATISTICS_SAMPLE_INTERVAL_SECONDS", "2")
     monkeypatch.setenv("GATEWAY_STATISTICS_QUEUE_MAX_ITEMS", "256")
+    monkeypatch.setenv("GATEWAY_STATISTICS_EXPORT_CONCURRENCY", "1")
     config = StatisticsConfig()
     assert config.sample_interval_seconds == 2
     assert config.queue_max_items == 256
+    assert config.export_concurrency == 1
     assert config.max_page_count == 262144
     assert config.wal_soft_limit_bytes == 128 * 1024**2
     assert statistics_database_path(Path("/metadata")) == Path("/metadata/telemetry/statistics.sqlite3")
     with pytest.raises(ValidationError):
         StatisticsConfig(queue_max_bytes=1024)
+    monkeypatch.setenv("GATEWAY_STATISTICS_EXPORT_CONCURRENCY", "2")
+    with pytest.raises(ValidationError):
+        StatisticsConfig()

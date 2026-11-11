@@ -20,6 +20,11 @@ Tab: {tab_key, label, table_id, row_filter, facts}
 
 普通模式 `replacement_sides=null`，`groups` 按顺序始终含 FORWARD_CHANNELS、SECONDARY_DEVICES、COMMUNICATION_PROTOCOLS、GLOBAL_PARAMETERS、OTHER_TABLES 五组，允许空 items。固定认领也按该顺序；未认领表进入 OTHER_TABLES。item_kind 为 FORWARD_CHANNEL、DEVICE、COMPOSITE_SIGNAL_DEVICE、PROTOCOL_CHANNEL、TABLE。item/tab key、label、attributes、业务排序与十个原导航诊断按第一步；同侧重复业务键用规范标量整行字节序最小者提供 label/attributes，筛选仍覆盖全部有效身份集合。
 
+通道业务键的 board/link_no 须为 I-JSON safe 非负整数；仅有 `b<数字>_n<数字>_...` 形状但任一片段超域的合法表名不具备业务通道资格，按普通 OTHER_TABLES 整表呈现，不生成含非法数字的 CHANNEL_TABLE_UNCLAIMED。此约束与 net_cfg 通道键和 item attributes 的 safe 整数边界一致，不裁剪、转换或拒绝原表数据。
+
+APP_TABLE_CFG_MISSING / APP_TABLE_CFG_DUPLICATE / APP_TABLE_NOT_FOUND 的 app_name 是展示用 string|null；原 app_cfg.app_name 非文本时使用既有 null，表数据与表级入口保留。导航诊断不对合法业务表的非文本展示列作隐式字符串/数字转换，也不因展示标签类型而使 pair 失败。
+
+
 每表整表 tab 最多一个，整表与筛选 tab 不并存；同表全部筛选 tab 只属一组。已认领但无可见 tab 的表不由前端自动补入 OTHER_TABLES。省略表须两侧已知零行、局部 EXACT 且无变化/风险、整表 UNCHANGED/BUSINESS_EQUIVALENT 且无风险。表级 schema/风险、空 sg_cfg 或共享表不能因空行集消失；无装置可承载时，在 SECONDARY_DEVICES 用 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、`row_filter=null`、`attributes={}` 提供唯一整表入口。
 
 对发布筛选的每张共享表，各侧满足“已发布谓词覆盖行集合的并集大小 + 同侧孤儿行数 = 该侧总行数”。重复命中不累加为重复行。消费者只在有该侧快照且计数精确时核等式；缺快照侧由后端合同验证。诊断的查看整表是额外浏览入口，不另生成导航整表 tab。

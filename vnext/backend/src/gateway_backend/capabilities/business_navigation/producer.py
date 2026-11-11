@@ -289,7 +289,7 @@ class _Builder:
                 continue
             groups[4]["items"].append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))
             match = _FORWARD.fullmatch(name)
-            if match:
+            if match and int(match[1]) <= SAFE_INTEGER and int(match[2]) <= SAFE_INTEGER:
                 self.diagnostic("CHANNEL_TABLE_UNCLAIMED", "OTHER_TABLES", table=table, item=f"table:{name}", side=side, board=int(match[1]), link_no=int(match[2]))
         # Diagnostics can target an absent protocol item: use the existing net_cfg
         # table item as the nearest visible owner after empty channels are omitted.
@@ -335,7 +335,8 @@ class _Builder:
             seen: set[str] = set()
             for row in self.rows(source):
                 target = row.values.get("table_cfg")
-                app_name = row.values.get("app_name")
+                raw_name = row.values.get("app_name")
+                app_name = raw_name if isinstance(raw_name, str) else None
                 if not isinstance(target, str) or not target.strip():
                     self.diagnostic("APP_TABLE_CFG_MISSING", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name)
                 elif target not in names:

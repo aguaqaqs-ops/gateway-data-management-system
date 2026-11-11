@@ -173,3 +173,106 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
     assert results[0][0].comparison_digest == results[1][0].comparison_digest
     assert results[0][0].surface_digest == results[1][0].surface_digest
     assert results[0][1] == results[1][1]
+
+
+def _materialize_business_pair_input(sql: str, store: InMemoryArtifactStore) -> Any:
+    """Exercise the upload's business/catalog and canonical gates before the pair."""
+    from gateway_backend.application.preview_jobs import _comparison_storage_facts
+    from gateway_backend.capabilities.comparison import BoundSnapshotInput
+    from gateway_backend.capabilities.snapshot_materialization import (
+        MaterializationPolicy, materialize_canonical_snapshot,
+    )
+    from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
+    from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext
+    from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+    from tests.support.snapshot_materialization import materialize_business
+
+    rules = migrated_table_ruleset_snapshot()
+    raw = materialize_business(sql, "<Logic_Set />", ruleset=rules,
+                               policy=MaterializationPolicy.READERS_REQUIRED)
+    assert raw.status.value == "COMPLETE", raw.diagnostics
+    assert raw.snapshot is not None and raw.table_set is not None
+    projected = project_canonical_arrow_table_set(raw.table_set, rules, presentation=raw.presentation)
+    assert projected.status.value == "COMPLETE", projected.diagnostics
+    assert projected.manifest is not None
+    try:
+        canonical = materialize_canonical_snapshot(raw.snapshot, projected.tables,
+            artifact_store=store, context=ParserInvocationContext(NeverCancel()), repository_id="replacement-fixture")
+    finally:
+        for table in (*raw.table_set.tables, *projected.tables):
+            if table.reader is not None:
+                table.reader.close()
+            if table.batch_reader is not None:
+                table.batch_reader.close()
+    assert canonical.status.value == "COMPLETE", canonical.diagnostics
+    assert canonical.snapshot is not None and canonical.summary is not None and canonical.table_set is not None
+    return BoundSnapshotInput(canonical.snapshot, canonical.summary, canonical.table_set,
+                              _comparison_storage_facts(projected.manifest))
+
+
+APP_DIAGNOSTIC_CASES = (
+    ("INT", "1", "'absent'", "APP_TABLE_NOT_FOUND", None),
+    ("VARCHAR(16)", "'one'", "'absent'", "APP_TABLE_NOT_FOUND", "one"),
+    ("INT", "1", "''", "APP_TABLE_CFG_MISSING", None),
+    ("INT", "1", "'app_cfg'", "APP_TABLE_CFG_DUPLICATE", None),
+)
+
+
+@pytest.mark.parametrize("name_type,name_value,target,code,expected_name", APP_DIAGNOSTIC_CASES)
+def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
+    name_type: str, name_value: str, target: str, code: str, expected_name: str | None,
+) -> None:
+    from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+    sql = (f"CREATE TABLE app_cfg(app_name {name_type} PRIMARY KEY,table_cfg TEXT);"
+           f"INSERT INTO app_cfg VALUES({name_value},{target});")
+    store = InMemoryArtifactStore()
+    before = _materialize_business_pair_input(sql, store)
+    current = _materialize_business_pair_input(sql, store)
+    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        assess_identity=False, repository_id="replacement-fixture")
+    assert result.surface_result.status is SurfaceAssemblyStatus.READY
+    surface = result.surface_result.surface
+    assert surface is not None
+    projection, = surface.projections
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
+    assert any(tab["table_id"] == "app_cfg" and tab["row_filter"] is None
+               for item in navigation["groups"][3]["items"] for tab in item["tabs"])
+    assert projection.diagnostics_ref is not None
+    diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+    selected = [d for d in diagnostics if d["code"] == code]
+    assert {d["side"] for d in selected} == {"BEFORE", "CURRENT"}
+    assert all(d["params"]["app_name"] == expected_name for d in selected)
+
+
+@pytest.mark.parametrize("board,link", [
+    (9007199254740991, 1), (9007199254740992, 1), (1, 9007199254740992),
+])
+def test_business_materialized_unclaimed_table_name_keeps_safe_channel_domain(
+    board: int, link: int,
+) -> None:
+    from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+    name = f"b{board}_n{link}_sg_cfg"
+    sql = f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,value TEXT);INSERT INTO {name} VALUES(1,'x');"
+    store = InMemoryArtifactStore()
+    before = _materialize_business_pair_input(sql, store)
+    current = _materialize_business_pair_input(sql, store)
+    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        assess_identity=False, repository_id="replacement-fixture")
+    assert result.surface_result.status is SurfaceAssemblyStatus.READY
+    surface = result.surface_result.surface
+    assert surface is not None
+    projection, = surface.projections
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
+    items = navigation["groups"][4]["items"]
+    item = next(item for item in items if item["item_key"] == f"table:{name}")
+    assert item["tabs"][0]["table_id"] == name and item["tabs"][0]["row_filter"] is None
+    diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+    channels = [d for d in diagnostics if d["code"] == "CHANNEL_TABLE_UNCLAIMED"]
+    if board <= 9007199254740991 and link <= 9007199254740991:
+        assert len(channels) == 1 and channels[0]["params"] == {"board": board, "link_no": link}
+    else:
+        assert channels == []

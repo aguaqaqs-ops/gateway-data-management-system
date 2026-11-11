@@ -304,6 +304,7 @@ def generate(input_root: Path, output_root: Path) -> None:
                     else:
                         raise ValueError("frozen source no longer reproduces its documented projection rejection")
         for scenario in manifest["scenarios"]:
+            print("scenario=" + scenario["id"], flush=True)
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
                 with scratch.session(owner="operation:presentation-fixture") as session, scratch_scope(session):
                     records.append(generate_bundle(output_root, scenario, inputs))

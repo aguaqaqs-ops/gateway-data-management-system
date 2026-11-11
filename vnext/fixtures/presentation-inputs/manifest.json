@@ -2,12 +2,12 @@
   "files": [
     {
       "path": "boundary-before.sql",
-      "sha256": "718fbe4c8383bc4ac892b90ba2fe5a66b86763711708ba0c346a90ff66de5ba2",
+      "sha256": "3dcafe571f0ca47ff1cd7fb8e708bcd4910da4e7c11319606eed175a166f2135",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "boundary-current.sql",
-      "sha256": "7c162085b5e69db9dec945875cd4ebac98b6eadbe44cf267056933c235e9f3a5",
+      "sha256": "1da142c38eb58d6a62176ce329db9badb57ae1a41e7ec361ab9adb2eca26705c",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -22,12 +22,12 @@
     },
     {
       "path": "duplicate-before.sql",
-      "sha256": "9c46766991f06834aba2c7dd80e8e64a31b7d6ecffb6742afd14ffbf7a0753d3",
+      "sha256": "7abe1c3a0058365c2e30227cc818ed25af2214bcfff1bb7e36a04e0b4ae99f8f",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "duplicate-current.sql",
-      "sha256": "eb4ce39be5c9419d987df05672a736c4de4d2ed31f75b9d9c776d26af0140f28",
+      "sha256": "27ae372b16bad1d1c373576f79e2c26c2baeda4de5bca89420f9a3b08c8d33a9",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -48,12 +48,12 @@
     },
     {
       "path": "identity-before.sql",
-      "sha256": "e7f32406a17b2062c19256d39e818aeb72459ddc0bbdeec13d2cd1d953b5c160",
+      "sha256": "d107f832bb79077d3941d3ba11c519a9975257284b388f0226cc1071b42bf91d",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "identity-current.sql",
-      "sha256": "e48873d3f23fbf2274cc15f5e8e7fc5370f036eb38e91084e2db0ab567edd696",
+      "sha256": "0a518f8c15704b89ba328dbffd28fc7b5fae4b181e49a06291c1dda9f4c671e1",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -76,12 +76,12 @@
     },
     {
       "path": "schema-before.sql",
-      "sha256": "bfa45131f96738335440a4ae567ac648f42709101e441b55c728b95ebb2a36e0",
+      "sha256": "a9b2b5d390b29d5f4db972cabb67afa40feaff1b363e1cf83ee57b3c82119bbc",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "schema-current.sql",
-      "sha256": "0ab039637f9d3d551ac32443991ba56ab2e7363100120c1af42b5b7c989b7006",
+      "sha256": "9ffa94da7c06d84c58264d137bdceb6f4ef0a358d4c44c51b1fb384795e2dec1",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -155,12 +155,12 @@
     },
     {
       "path": "string-before.sql",
-      "sha256": "f23b4b2edf74be1da51252dea36e80d48532fc2bd10b92615c647e705fc3c2dd",
+      "sha256": "e24cf60f0e18f6b0dee189d0dd689a6aa6ce0824bf26964620dbfb2eb1d81ee9",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "string-current.sql",
-      "sha256": "9a6c84ea7bab21f5e721de5c8d2c35f1c9981d0849e93c879311a5daa514ea2c",
+      "sha256": "a6329b399e23ad9dab910da0df6ab2da9204d95d6f4c2167aa5b433374699528",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -497,7 +497,8 @@
       ],
       "coverage": [
         "text-digits-not-integer",
-        "same-side-physical-type"
+        "same-side-physical-type",
+        "target-type-mismatch-whole-table"
       ]
     },
     {

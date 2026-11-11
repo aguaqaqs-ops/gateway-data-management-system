@@ -5,6 +5,8 @@
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
 
+2026-11-11 修订：Owner 接受 FE-BEB-01–10 建议；本草案同步关键展示/省略规则。字段、摘要、发布与执行细节以[第二步设计](../backend-vnext/refactoring/formal/plans/be-b-second-step-design.md)为目标依据，尚待窄复核与产品实施；下文源码现状仍为第一步调查时点。
+
 ## 1. 结论摘要
 
 1. 缺口有两处，第二处比预期深：
@@ -73,13 +75,14 @@ SurfaceTable.display_name    = 当前侧表注释 ?? 基线侧表注释 ?? 表�
 SurfaceColumn.display_name   = 当前侧列注释 ?? 基线侧列注释 ?? 列标识符
 SurfaceColumn.pinned         新增，bool
 SurfaceColumn.display_order  新增，int；业务列序
+SurfaceColumn.present_in     新增，BEFORE | CURRENT | BOTH；普通表 columns 为两侧列名并集
 ```
 
 规则：
 
 - 注释只用于展示：不进入 snapshot、规范状态、comparison、risk 的身份与摘要，注释变化不产生差异与风险，也不影响 `NO_CANONICAL_CHANGE`。它们进入 surface 摘要（surface 的展示负载本来就计入摘要）。
 - 固定列（§6 Q4）：表中存在 `no` 时固定 `no`；存在 `name` 时固定 `name`，否则存在 `description` 时固定 `description`。
-- 列序：有业务列序规则的表按规则（规则中不存在的列忽略，未列出的列按 DDL 顺序追加），其余按 DDL 顺序；以 `display_order` 表达，不改变 `columns` 的现有顺序语义。列序规则由后端随规则集版本维护，迁移 legacy 中与 DDL 顺序不同的规则。
+- 列序：有业务列序规则的表按规则（规则中不存在的列忽略，未列出的列按 DDL 顺序追加），其余按 DDL 顺序；以 `display_order` 表达；普通 columns 改两侧列并集，数组仍按 canonical 列名排序，before-only 的展示字段取 before 并按 before DDL 序追加，完整规则见第二步 §4.4。列序规则由后端随规则集版本维护，迁移 legacy 中与 DDL 顺序不同的规则。
 - 列宽与对齐由前端按类型与内容计算；不提供隐藏。
 - 键列沿用 surface 现有比较键信息，不重复。
 
@@ -90,7 +93,8 @@ SurfaceColumn.display_order  新增，int；业务列序
 ```text
 BusinessNavigation:
   contract_version            backend-vnext/business-navigation/v1
-  groups: [Group]             按后端给出的顺序展示，见 4.3；空组保留，前端可隐藏
+  groups: [Group]             普通模式固定五组；replacement 为 []
+  replacement_sides           null | {before:[Group], current:[Group]}；replacement 各侧独立
                               诊断不在本产物内，见 §4.7
 
 Group:
@@ -111,21 +115,24 @@ Tab:
   tab_key                     item 内稳定
   label                       页签名（固定中文页签名，或表的 display_name）
   table_id                    指向 surface 中的表
-  row_filter                  null | { column, value }    前端在本地按此过滤该表的行
-  facts                       仅 row_filter 非空时提供：
-    change_kind               UNCHANGED | ADDED | DELETED | UPDATED
-    risk_level                该身份下的最高风险等级，无则为 null
-    before_row_count          已知时提供
-    current_row_count         已知时提供
+  row_filter                  null | {before:Predicate|null, current:Predicate|null}
+                              Predicate={column, values:[string]|[safe integer]}，完整语义见第二步 §4.2
+  facts                       普通模式筛选 tab 提供；整表/replacement 为 null
+    basis                     EXACT | TABLE_FALLBACK
+    change_kind               UNCHANGED | ADDED | DELETED | UPDATED | null
+    risk_level                行级归属最高风险或 null；fallback 时未知
+    before_row_count          integer|null
+    current_row_count         integer|null
+    table_scope               null | {change:bool, risk_level:RiskLevel|null}，同表各 tab 一致
 ```
 
 规则：
 
 - **不重复事实：** 整表页签（`row_filter = null`）不带变化与风险，前端从 surface 与 `RiskReport` 读取；只有按身份过滤的页签需要后端按身份汇总，才带 `facts`。项与分组的汇总由前端从页签计算。
 - **每张表最多被一个分组认领：** 未被认领的表全部进入 `OTHER_TABLES`；被身份过滤的共享表（如 `device_st`）可出现在多个装置项下，但只认领一次。
-- **页签可用性：** 沿用 legacy：两侧身份计数都已知且为 0、且没有该身份的变化时省略；计数未知时保留页签并输出诊断。
-- **风险归属：** 风险标注按其行身份连接到逐行记录，再按记录两侧的身份值归属到装置；同一页签内去重，保持输入顺序。
-- **数据集替换模式**（`DATASET_REPLACEMENT`）：两侧分别生成，不跨侧连接。
+- **页签可用性：** 两侧身份计数已知为 0、局部 EXACT 且无变化/风险、整表 UNCHANGED/BUSINESS_EQUIVALENT 且无风险才省略；计数或事实未知保留并输出诊断，表级结构变化/风险不能因空行集省略。无装置可承载时按第二步 §4.2 提供所属组的唯一整表入口。
+- **风险归属：** 行风险按 row_identity 与两侧筛选身份归属，同 tab 去重；完整身份来自快照/locator context，不保证 records 带未改身份列。TABLE/COMPARISON 风险单列 table_scope，不能由混合风险汇总反推；fallback 使用整表提示但不涂到所有行。
+- **数据集替换模式**（`DATASET_REPLACEMENT`）：一份 projection 内 replacement_sides 分侧独立，不跨侧连接，诊断/URL/整表键均带 side；完整不变量见第二步 §4.3。
 - **History 三节点：** 每个 pair 一份。
 - **诊断：** 放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，结构与编码见 §4.7。
 
@@ -146,7 +153,7 @@ Tab:
 - **通道集合：** 取两侧 `net_cfg` 的并集，按通道键 `b{board}_n{link_no}` 对齐。
 - **满足条件：** 通道在任一侧满足转发通道条件，且 surface 中至少有一张该通道的 9 类转发表或 `sg_cfg` 时，生成一个转发通道项，并认领该通道的这些表。
   - 页签是否显示（§4.5）不影响认领。
-  - 项没有可显示的页签时，由后端省略该项，但它的表仍算已认领，不进入“其他表”。
+  - 项没有可显示的页签且所有已认领表都满足 §4.2 的省略条件时，由后端省略该项，但它的表仍算已认领，不进入“其他表”。导航存在时前端不得自动补“其他表”；只在完全无导航时 B9 回退。
 - **两侧不同：** 例如基线侧满足、上传侧把 `tab_num` 改成 0，或者反过来，仍然生成项，不输出导航诊断。`net_cfg` 行的变化由比较与风险表达，导航不重复。
 - **都不满足：** 通道在两侧都不满足条件（包括两侧 `net_cfg` 都没有该通道）时，不生成项，该通道的表进入“其他表”，并输出 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
 
@@ -154,7 +161,7 @@ Tab:
 
 - 保留为二次装置组中的特殊项（`COMPOSITE_SIGNAL_DEVICE`），页签按 `dev_addr=65532` 过滤各测点表，与普通装置相同。
 - 不再产出 points/formulas 两份产物，前端在本地按 `(source_table, point_gid)` 从 `composite_signal_point` 取公式（`formula_ast_json`），从同侧 `device` 表组装装置名称映射。
-- `composite_signal_point` 由该特殊项认领，不进入“其他表”。
+- `composite_signal_point` 由该特殊项以唯一整表页签（row_filter=null）认领，不按 dev_addr 筛选，不进入“其他表”。
 - 公式查看器的展示规则沿用 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) §Frontend 中的公式展示与名称映射规则；该文档中 points/formulas 产物的描述已过时（§7）。
 
 **各侧数据的可得性**（2026-11-02 核对；此前版本称“bundle 已含两表整表”，对 Preview 不成立，已更正）：
@@ -168,7 +175,7 @@ Tab:
 **BE-b 补齐（owner 2026-11-02：提交人需要在提交前看到改前公式）：**
 
 - Preview bundle 对“双侧浏览表”在表有变化时同时闭合基线侧整表，作为该 pair 改前侧的表绑定。双侧浏览表当前为 `composite_signal_point`（改前公式）与 `device`（改前侧装置名称）。
-- 只在表有变化时附带：有变化的表本来就要读基线侧做比较，不为此额外读取未变化的表，不影响结构性过滤（DC39）。
+- 双侧浏览表有逻辑 before 时 before_table_ref 必须存在：完整内容/声明未变则别名 current ref，bindings 同值，不额外读 before；有变则导出 before。新增表 before=null、删除表 current=null，不造不存在侧。不影响结构性过滤（DC39）。
 - 这会改变 Comparison Bundle 的闭包规则（[comparison-bundle.md](../backend-vnext/contracts/comparison-bundle.md) 中“Preview bundle 闭合上传侧全部表以及被删除表的基线侧数据”一条）与 bundle 摘要，随 BE-b 在 P6 退出后实现。
 
 **名称映射：** 每一侧只用本侧的 `device` 表，`dev_addr` 唯一且装置描述非空时映射，否则显示原文 `Device N:测点`。
@@ -179,7 +186,7 @@ Tab:
 
 - 表 `b{board}_n{link_no}_sg_cfg` 作为同一通道转发通道项的页签，排在 9 类转发表页签之后。
 - 页签名取该表注释（当前为“定值”）；注释缺失时用“定值”。9 类转发表页签沿用固定中文名，不取注释（注释为“遥测引用表”等较长名称）。
-- 两侧都为 0 行时不显示该页签；任一侧有行（包括整表删除前有行）时显示。
+- 仅两侧都已知为 0 行、整表 UNCHANGED/BUSINESS_EQUIVALENT 且无风险时不显示该页签；任一侧有行或表有变化/风险时保留，包括空表结构变化（Owner 2026-11-11 同意前端补充）。
 - 只挂到转发通道项，项的生成按 §4.3 的两侧判定。所属通道在两侧都不满足转发通道条件时，表留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
 - 由转发通道认领后，不再进入“其他表”。
 
@@ -231,7 +238,7 @@ Diagnostic:
 - **未知编码：** 前端显示通用文案“导航提示（{code}）”，原值放进 Debug，不报错。新编码随 Contract 次版本号加入，与 §4.6 相同。
 - **数据集替换模式：** 两侧分别生成，诊断带对应的 `side`。
 
-**v1 编码：**
+**v1 编码：** 第二步 §4.2 另固定 DEVICE_TAB_FACTS_UNAVAILABLE（每表一条、局部未知）与 DEVICE_FILTER_VALUE_UNSUPPORTED（每表受影响侧一条、整表入口），含准确 target/params；所有新码随 B0 落同一目标 v1，无旧形状双读。
 
 `{侧}` 按 `side` 取“改前侧”或“改后侧”，`side` 为 null 时省略。`{表}` 由前端按 `table_id` 取 surface 的 `display_name`。
 
@@ -240,8 +247,8 @@ Diagnostic:
 | `DEVICE_ADDRESS_DUPLICATE` | 某侧 `device` 表中 `dev_addr` 重复 | `SECONDARY_DEVICES`，`device:addr:{dev_addr}` | 有 | `dev_addr` | {侧}装置总表中装置地址 {dev_addr} 重复 | `DUPLICATE_DEVICE_ADDRESS` |
 | `DEVICE_GID_DUPLICATE` | 某侧 `device` 表中 `gid` 重复 | `SECONDARY_DEVICES`，`table_id=device` | 有 | `gid` | {侧}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确 | `DUPLICATE_DEVICE_GID` |
 | `DEVICE_TAB_COUNT_UNKNOWN` | 测点表在某侧存在，但无法按身份列统计计数；页签保留（§4.2） | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column` | {侧}{表}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空 | `SECONDARY_TAB_AVAILABILITY_UNKNOWN` |
-| `DEVICE_ROWS_UNASSIGNED` | 测点表中有行的身份值在两侧装置总表中都不存在，在任何装置页签中都看不到 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count` | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增（owner 2026-11-02 确认） |
-| `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道在两侧都不满足转发通道条件，包括两侧 `net_cfg` 都没有该通道（§4.3） | `OTHER_TABLES`，`table:<表名>`，`table_id` | null（两侧合并判定） | `board`、`link_no` | {表}按名称属于通道 b{board}_n{link_no}，但网口配置表中没有该通道，或该通道不满足转发通道条件（规约为 IEC104 且 tab_num 大于 0），已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
+| `DEVICE_ROWS_UNASSIGNED` | 本侧行不在本侧实际发布谓词的覆盖集合中（第二步 §4.2），不能用两侧装置并集判断 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count: integer|null`（null=未知；replacement 为 null） | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增（owner 2026-11-02 确认） |
+| `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道在两侧都不满足转发通道条件，包括两侧 `net_cfg` 都没有该通道（§4.3） | `OTHER_TABLES`，`table:<表名>`，`table_id` | 普通 null；replacement 为本侧 | `board`、`link_no` | {表}按名称属于通道 b{board}_n{link_no}，但网口配置表中没有该通道，或该通道不满足转发通道条件（规约为 IEC104 且 tab_num 大于 0），已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
 | `PROTOCOL_EXE_MISSING` | 某侧 `net_cfg` 通道的 `exe` 为空 | `COMMUNICATION_PROTOCOLS`，`protocol:b{board}_n{link_no}` | 有 | `board`、`link_no` | {侧}通道 b{board}_n{link_no} 未配置规约，无法确定规约表 | `MISSING_PROTOCOL_EXE` |
 | `PROTOCOL_TABLE_NOT_FOUND` | `exe` 有值，但候选规约表都不存在 | 同上 | 有 | `board`、`link_no`、`protocol`、`expected_tables` | {侧}通道 b{board}_n{link_no} 的规约 {protocol} 没有对应的规约表（{expected_tables}） | `CANDIDATE_TABLE_NOT_FOUND` |
 | `APP_TABLE_CFG_MISSING` | 某侧 `app_cfg` 行的 `table_cfg` 为空 | `GLOBAL_PARAMETERS`，`app_cfg` 整表项，`table_id=app_cfg` | 有 | `app_name` | {侧}全局参数 {app_name} 未指定参数表 | `MISSING_TABLE_CFG` |
@@ -302,11 +309,13 @@ RowLocator（Parquet，每条行级记录一行，按 row_identity 排序）:
   row_identity        binary(32)，与 records 中的 row_identity 逐字节相同
   before_row_index    int64 nullable，在该表改前侧快照产物行文件中的 0 起行号
   current_row_index   int64 nullable，在改后侧快照产物行文件中的 0 起行号
+  before_filter_context_json   utf8 nullable，缺快照但逻辑行存在侧的最小 JCS 筛选值
+  current_filter_context_json  utf8 nullable，同上；详见第二步 §5.2
 ```
 
 - 新增记录只有 `current_row_index`，删除记录只有 `before_row_index`，修改记录两者都有。keyless 回退表的出现序号标识同样适用。
 - 只对 bundle 中有快照的一侧给出行号；该侧快照不在 bundle 中时对应字段为 null。Preview 中有变化的表只闭合上传侧（§4.4），
-  因此 `before_row_index` 全为 null，删除行与修改行的“前”行由前端用记录中的值组成（FE2 kickoff §5.3）；
+  因此 `before_row_index` 为 null，前端用记录中的已知值展示“前”行，用 locator context 执行筛选；不再假设 records 带完整身份列，keyless 缺失业务值也保留记录；
   `composite_signal_point`、`device` 按 §4.4 补齐基线侧后，这两张表的 `before_row_index` 随之给出。是否为其他表补齐改前侧不在本项范围（影响 bundle 体积，参考 BE-c 的测量）。
 - 行号针对该 `SurfaceTable` 的 `before_table_ref` / `current_table_ref` 在本 bundle 中指向的快照产物计算（含 `shared/` 去重后的产物），不针对比较时读取的其他副本。
 - ref 放在 `SurfaceTable` 的 records refs 中（如 `row_locator_ref`），与 `diagnostics_ref` 一样不进入 surface 摘要，进入 bundle closure 并按 SHA-256 校验。

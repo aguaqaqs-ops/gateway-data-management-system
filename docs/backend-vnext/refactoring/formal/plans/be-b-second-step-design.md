@@ -1,8 +1,10 @@
 # BE-b 第二步：导航、展示元数据与行定位设计
 
-日期：2026-11-10；2026-11-11 按首轮后端独审修订。状态：**后端设计独审通过；待前端定向核对，不代表双方已接受或产品已实施**。
+日期：2026-11-10；2026-11-11 按前端 FE-BEB-01–10 修订。状态：**修订候选，待原后端独审与前端窄复核；不代表双方已接受或产品已实施**。
 
-GPT-6-Astra 原审对 `0df6250ac84826e9826b60b68208816e451ab8e0` 给出 GO（仅后端设计），首轮 BDR-1/2、N1/N2 全部关闭。报告原件：`/home/dev/gdds-stage-exchange/be-b/reviews/0df6250ac8-backend-design-rereview.md`；最终转交 SHA 与文件摘要见同目录阶段日志及 prompt。
+历史审核：GPT-6-Astra 原审对 `0df6250ac84826e9826b60b68208816e451ab8e0` 给出 GO（仅后端设计），首轮 BDR-1/2、N1/N2 全部关闭。报告原件：`/home/dev/gdds-stage-exchange/be-b/reviews/0df6250ac8-backend-design-rereview.md`；最终转交 SHA 与文件摘要见同目录阶段日志及 prompt。
+
+本次修订依据：前端对 `f0be08d9ed` 的 `CHANGES_REQUIRED`，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-review-f0be08d9ed.md`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`。Owner 于 2026-11-11 同意全部前端建议并授权修订与复审提示词，明确采纳空 `sg_cfg` 有变化/风险仍保留的补充。下文将两项阻塞及八项非阻塞一起写定；具体关闭状态以新候选复审为准。
 
 Owner 本轮授权：落成第二步设计/执行计划，启动 GPT-6-Astra 后端独审，提供前端定向核对提示词，由 Owner 转交并带回结果。授权不含产品编码、上线或 push。Owner 同意前轮建议：历史展示元数据冻结；仅注释变化用于当前 Preview，不回写旧历史，不创造规范业务变化。
 
@@ -89,13 +91,15 @@ History 通过现有 commit metadata resolver 加载精确 manifest 的 presenta
 
 ### 4.1 正常 directed pair
 
-BusinessNavigation v1 保持第一步的 `groups/items/tabs`、五个 group、item_kind/attributes 和诊断编码。一个 pair 一份导航 JCS JSON；`projection_id=business_navigation`、`projection_kind=BUSINESS_NAVIGATION`、`projection_digest=SHA256(JCS bytes)`，risk_summary_ref=null；诊断另行引用。无诊断 diagnostics_ref=null。
+BusinessNavigation v1 保持第一步的 `groups/items/tabs`、五个 group、item_kind/attributes 和诊断编码。BE-b 成功产出的每个 surface 恰好一个 BUSINESS_NAVIGATION projection，一个 pair 一份导航 JCS JSON；`projection_id=business_navigation`、`projection_kind=BUSINESS_NAVIGATION`、`projection_digest=SHA256(JCS bytes)`，risk_summary_ref=null；诊断另行引用。无诊断 diagnostics_ref=null。
 
-固定认领顺序：FORWARD_CHANNELS → SECONDARY_DEVICES → COMMUNICATION_PROTOCOLS → GLOBAL_PARAMETERS → OTHER_TABLES。保留第一步已认领但无可见页签的通道表，验收按内部认领账本而非“每表必须出现在可见 tabs”判定。`app_cfg` 指向已认领表时不重复认领，按 APP_TABLE_CFG_DUPLICATE 提示。任何未被认领表进入 OTHER_TABLES。
+固定认领顺序：FORWARD_CHANNELS → SECONDARY_DEVICES → COMMUNICATION_PROTOCOLS → GLOBAL_PARAMETERS → OTHER_TABLES。保留第一步已认领但无可见页签的通道表，验收按内部认领账本而非“每表必须出现在可见 tabs”判定。`app_cfg` 指向已认领表时不重复认领，按 APP_TABLE_CFG_DUPLICATE 提示。任何未被认领表进入 OTHER_TABLES。普通模式五组始终保留（允许 items=[]），因此 groups 不为空。
+
+不新增公开认领账本。导航存在时，前端不得将未出现在 tabs 的表自动补进 OTHER_TABLES；无导航产物时的正式 B9 回退仍可用。每表整表 tab 最多一个，禁止同表同时有整表和筛选 tab，同表全部筛选 tab 只属一组。缺席表须两侧已知零行、surface 为 UNCHANGED/BUSINESS_EQUIVALENT 且无风险；内部认领账本由后端测试证明。发布筛选 tabs 的共享表每侧“全部已发布谓词覆盖的行集合大小 + 同侧孤儿行数 = 该侧总行数”，重复命中取集合并集，不能加各 tab 的 count。前端仅对 bundle 有该侧快照且计数精确的侧核此等式，缺快照侧由后端 Contract 测试负责。诊断提供的“查看整表”是额外浏览入口，不是导航中的整表 tab。
 
 组顺序固定上述顺序；通道按 board/link_no 数值、装置按 dev_addr 数值、全局固定项在先随后按目标表名 UTF-8 排序、其他表按 canonical name 排序。item/tab key 使用第一步键规则。两侧同一项的 label 优先 current 非空业务名称，再 before，再稳定标识；同侧重复业务键使用规范标量编码的整行字节序最小者提供 label/attributes，与 SQL 行序无关。代表行只决定显示 label/attributes，不能代替筛选集合；每侧收集该 dev_addr 的全部有效 gid，筛选按 §4.2 的集合谓词。重复地址/gid 仍出既定诊断，同一 tab 的行/风险去重，不丢弃行。
 
-数据异常使用第一步十个导航编码，另按 §4.2 增补局部事实不可用编码；无法按身份列计数（列缺失、已知不可解码/表降级）才产生 DEVICE_TAB_COUNT_UNKNOWN。资源不足、I/O、取消、超时、内部 bug 不伪装为“计数未知”；按现有任务失败/取消处理。诊断排序、去重、target 校验、中文文案归属沿用第一步。params 无服务器路径、异常全文。
+数据异常使用第一步十个导航编码，另按 §4.2 增补局部事实不可用和筛选值不支持编码；无法按身份列计数（列缺失、已知不可解码/表降级）才产生 DEVICE_TAB_COUNT_UNKNOWN。资源不足、I/O、取消、超时、内部 bug 不伪装为“计数未知”；按现有任务失败/取消处理。诊断排序、去重、target 校验、中文文案归属沿用第一步。params 无服务器路径、异常全文。
 
 ### 4.2 双侧筛选补足（需前端核对）
 
@@ -107,9 +111,13 @@ row_filter = null                         # 整表
 Predicate = { column: string, values: [string] | [integer] }
 ```
 
-row_filter 对象里的 null 表示本侧没有匹配身份，**不是整表**；对象两侧不可同时 null。整个 row_filter=null 才是整表。values 非空、同类型、去重，整数数值升序、字符串 UTF-8 字节升序；谓词是该列的集合成员判断，通常为单元素。普通共享测点表按各侧 dev_addr，device_cfg 按各侧该装置的全部有效 gid；两侧相等仍写两个谓词。类型必须与规范身份列值一致，不做字符串/数字宽松相等。缺失/无效身份不造匹配。
+row_filter 对象里的 null 表示本侧没有匹配身份，**不是整表**；对象两侧不可同时 null。整个 row_filter=null 才是整表。values 非空、同类型、去重，整数数值升序、字符串 UTF-8 字节升序；谓词是该列的集合成员判断，通常为单元素。普通共享测点表按各侧 dev_addr，device_cfg 按各侧该装置的全部有效 gid；两侧相等仍写两个谓词。类型必须与规范身份列值一致，不做字符串/数字宽松相等。整数限 `[-9007199254740991,9007199254740991]`，无小数；前端将已校验的 JSON 整数与 Parquet number/bigint 按 BigInt 值比较，字符串只和字符串比较。缺失/SQL NULL 不匹配，不解释为整表。
 
-**可达性与孤儿诊断：** 对每张共享表，分别用本侧实际发布 tab 谓词的覆盖集合判断未分配行，取代第一步“两侧装置总表都不存在”的条件。before 有装置而 current 已删、current 测点仍残留，或 gid 7→8 后 current cfg 残留 gid 7，均触发本侧 DEVICE_ROWS_UNASSIGNED，提供既有“查看整表”。重复地址 49 对应 gid 7/8 时一个 tab 的 values=[7,8] 覆盖两组；不同装置共用 gid 时行可同时出现在各自 tab，但每 tab 内仅计一次。筛选/计数/变化归属共用同一谓词，不能按代表行重新算。按每表每侧集合线性扫描；未知计数的 tab 不省略；仅两侧已知零且确定无变化才可省略，因此省略项不藏行。
+出现超范围整数或不支持的身份标量类型时，不截断、不把整数改成字符串冒充同类型：该表本 pair 全部撤去筛选 tabs，在 SECONDARY_DEVICES 以 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、row_filter=null 发布唯一整表入口，label 取表展示名，attributes={}。每表每个受影响侧输出 `DEVICE_FILTER_VALUE_UNSUPPORTED`，target 指该表整表项，params={identity_column, reason: INTEGER_OUT_OF_RANGE|UNSUPPORTED_TYPE|IDENTITY_EXCLUDED}，不回传原值。该表不再输出孤儿/局部事实诊断。装置键自身超域时不构造该装置项/数值 attributes，device 整表入口仍保留；依赖该身份的共享表按同一规则整表呈现。replacement 仅对受影响侧应用该规则。缺列/NULL 沿用计数未知或孤儿规则，不与此码混用。
+
+**改前筛选数据来源：** 不承诺 records 带全部身份列。B 的 ROW_MODIFIED 仅携带 changed columns，keyless records 甚至不带业务 values。前端有侧快照时用 locator index 读取该侧行；缺快照时用 §5.2 新增的最小 filter context，禁止凭未修改列推断或依赖 records 偶然带值。配对行任一半命中即显示整对；keyless 删除的其他旧值不可得时保留 identity/已知上下文并显示缺值，不丢记录。`composite_signal_point` 在复合信号项内是唯一整表 tab（row_filter=null），不按已排除比较的 dev_addr 筛选；该特殊项对其他共享测点表仍用 dev_addr=65532 的谓词。
+
+**可达性与孤儿诊断：** 对每张共享表，分别用本侧实际发布 tab 谓词的覆盖集合判断未分配行，取代第一步“两侧装置总表都不存在”的条件。before 有装置而 current 已删、current 测点仍残留，或 gid 7→8 后 current cfg 残留 gid 7，均触发本侧 DEVICE_ROWS_UNASSIGNED，提供既有“查看整表”。重复地址 49 对应 gid 7/8 时一个 tab 的 values=[7,8] 覆盖两组；不同装置共用 gid 时行可同时出现在各自 tab，但每 tab 内仅计一次。筛选/计数/变化归属共用同一谓词，不能按代表行重新算。按每表每侧集合线性扫描；未知计数的 tab 不省略；仅两侧已知零、局部 EXACT 且无变化/风险、整表 surface 为 UNCHANGED/BUSINESS_EQUIVALENT 且无任何风险时才可省略。表级变化/风险不能因空行集消失；没有可承载的装置项时，在 SECONDARY_DEVICES 生成上述唯一整表入口（有筛选 tabs 时不重复生成）。`sg_cfg` 也只有两侧已知零且整表无变化/风险才省略；有变化或风险即保留，通道项随之保留。省略空项须先满足其所有已认领表的此条件。
 
 普通 pair 的筛选 tab 必须提供：
 
@@ -120,13 +128,18 @@ facts:
   risk_level: <现有 RiskLevel> | null
   before_row_count: integer|null
   current_row_count: integer|null
+  table_scope: null | {change: bool, risk_level: <现有 RiskLevel>|null}
 ```
 
-EXACT 的 change_kind 非 null，risk_level=null 才表示精确的无风险；行数 unknown 用 null。缺侧已知零与有侧零由谓词区分。变化按记录两侧身份分别加入，地址/gid 变化可影响两个装置 tab，同一 tab 去重；风险按相同归属连接，不能只取 current。精确变化类型：无归属变化 UNCHANGED；before=0 且 current>0 为 ADDED；current=0 且 before>0 为 DELETED；其余有归属变化 UPDATED。
+EXACT 的 change_kind 非 null，risk_level=null 表示精确的无**行级归属**风险（表级另看 table_scope）；行数 unknown 用 null。缺侧已知零与有侧零由谓词区分。变化按记录两侧身份分别加入，地址/gid 变化可影响两个装置 tab，同一 tab 去重；风险按相同归属连接，不能只取 current。精确变化类型：无归属变化 UNCHANGED；before=0 且 current>0 为 ADDED；current=0 且 before>0 为 DELETED；其余有归属变化 UPDATED。
+
+**表级事实独立：** 同表所有筛选 tabs 的 table_scope 完全一致；表新增/删除、schema 变化（包括 SCHEMA_CHANGE 记录）令 change=true，单纯行变更不冒充表级变化。risk_level 只归约 TABLE/COMPARISON 目标风险，绝不从混合行风险的 RiskReport.tables[].risk_level 反推。无表级变化/风险才是 null。comparison 全局目标应用于本 pair 全部表，带 table_id 的目标只应用于对应表。EXACT 局部事实仍可与非 null table_scope 并存；前端用独立“表级”标记参与页签/项/组汇总和变化/风险筛选，不涂到各行。
+
+来源为 risk evaluator 在实际评估 TABLE/COMPARISON 事件时生成的有界、typed 每表归约结果（含缓存命中 replay 与 typed 降级路径），经 application 传给导航；不依赖已发布标注是否截断，不新建持久化风险账本或 HTTP DTO。若现有结果不能证明表级或行级归属完整，则走下述 TABLE_FALLBACK；此时 table_scope 保留已知事实，null 仅表示无已知表级事实，不能宣称无风险。整表 RiskReport 参与 fallback。
 
 records/annotations 不完整、table degraded 或缺少可用身份连接时，若现有有界计算结果仍足以证明全部局部变化与风险，可输出 EXACT；否则输出 TABLE_FALLBACK，局部 change_kind/risk_level **必须 null，表示未知而非无变化/安全**，计数能确定仍保留。前端按 basis 用 surface/RiskReport 的**整表**变化/风险参与页签标记、分组汇总与“只看变化/风险”筛选，并提示“此页签按整表提示，变化或风险无法精确归属”；不把整表风险涂到全部局部行。TABLE_FALLBACK 保留页签，即使局部已知零也不由未知事实推断无变化。
 
-新增稳定诊断 `DEVICE_TAB_FACTS_UNAVAILABLE`：target 指向该 tab 与 table，side=null，params={identity_column: string, reason: RECORDS_UNAVAILABLE|RISK_ATTRIBUTION_UNAVAILABLE|TABLE_DEGRADED}；多原因按此顺序择一最先项，不重复输出同一提示。中文文案由前端维护；未知编码仍按既定回退显示。COUNT_UNKNOWN 仅计数问题，二者可以同时出现。既有 DEVICE_ROWS_UNASSIGNED 的 row_count 为已知未覆盖行数；changed_row_count 改为 integer|null，null 明示“变化数未知”，不能填 0；发布被截断时不得从部分 records 冒充精确计数。上述 basis 与新增码一并送前端核对。
+局部精确性首版按表统一：只要一个筛选 tab 无法证明完整，就让该表全部筛选 tabs 为 TABLE_FALLBACK，避免逐装置诊断放大。新增稳定诊断 `DEVICE_TAB_FACTS_UNAVAILABLE` 每表一条：target={group_key: SECONDARY_DEVICES, item_key:null, tab_key:null, table_id}，side=null，params={identity_column: string, reason: RECORDS_UNAVAILABLE|RISK_ATTRIBUTION_UNAVAILABLE|TABLE_DEGRADED}；多原因按此顺序择一最先项。某表存在筛选 tabs 时，全为 TABLE_FALLBACK iff 存在该表此诊断；表级风险本身不使精确行事实降级。中文文案由前端维护；未知编码仍按既定回退显示。COUNT_UNKNOWN 仅计数问题，二者可以同时出现。既有 DEVICE_ROWS_UNASSIGNED 的 row_count 为已知未覆盖行数；changed_row_count 改为 integer|null，null 明示“变化数未知”，不能填 0；发布被截断时不得从部分 records 冒充精确计数。上述 basis 与新增码一并送前端核对。
 
 这是对第一步不充分形状与孤儿判定的明确修订，须更新第一步/Business Navigation Contract 与 FE4b；不同时保留旧 `{column,value}` 解码。
 
@@ -141,13 +154,15 @@ BusinessNavigation:
   replacement_sides: null | { before: [Group], current: [Group] }
 ```
 
-普通比较 replacement_sides=null；replacement 时 groups=[]，两侧独立构造、独立认领、独立 key namespace，不跨侧对齐装置/通道。每侧 item/tab 仍是相同结构；筛选只设置本侧谓词，另一侧 null，按本侧实际覆盖集合判孤儿。分侧浏览的筛选 tab 不输出普通 diff `facts`（null），UI 使用本侧表/行计数，不展示增删变化/行风险，不产生 DEVICE_TAB_FACTS_UNAVAILABLE；孤儿 changed_row_count=null，不将替换行称为普通改动行。diagnostic.side 必须是 BEFORE/CURRENT，target 在对应侧解析。此规则是第一步“分别生成、不跨侧连接”的序列化补足；前端需要按模式选分侧导航。
+严格校验 `replacement_sides != null ⇔ comparison_mode == DATASET_REPLACEMENT ⇔ groups == []`。普通比较 replacement_sides=null 且保留五组；replacement 时 groups=[]，存在侧保留五组、缺侧列表=[]，两侧独立构造、独立认领、独立 key namespace，不跨侧对齐装置/通道。每侧 item/tab 仍是相同结构；筛选只设置本侧谓词，另一侧 null，按本侧实际覆盖集合判孤儿。分侧浏览的筛选 tab 不输出普通 diff `facts`（null），UI 使用本侧表/行计数，不展示增删变化/行风险，不产生 DEVICE_TAB_FACTS_UNAVAILABLE；孤儿 changed_row_count=null，不将替换行称为普通改动行。diagnostic.side 必须是 BEFORE/CURRENT，target 在对应侧解析；CHANNEL_TABLE_UNCLAIMED 普通模式 side=null，replacement 必为实际侧。浏览状态/URL 和“查看整表”键必须包含 side；相同 item_key/tab_key 跨侧不冲突。此规则是第一步“分别生成、不跨侧连接”的序列化补足；前端需要按模式选分侧导航。
 
-分侧列展示复用已有 `replacement_summary.before/current.columns`，在各自 SurfaceColumn 上写本侧 display_name/pinned/display_order。各侧 `SurfaceReplacementSide` 增加 `display_name`，取本侧表注释或标识符；navigation 的整表 item/tab label 取同一来源，业务项/固定页签名称仍按第一步。表头、浏览标题、“查看整表”和带 side 的诊断表名读取该侧 replacement_summary.display_name；顶层 SurfaceTable.display_name 仅为 pair 总览标签，不能替代分侧标题。缺侧 summary=null，没有字段时的旧格式不双读。
+分侧列展示复用已有 `replacement_summary.before/current.columns`，在各自 SurfaceColumn 上写本侧 display_name/pinned/display_order/present_in（本侧 BEFORE 或 CURRENT；不因对侧同名而改 BOTH）。每侧 display_order 单独从 0 连续。各侧 `SurfaceReplacementSide` 增加 `display_name`，取本侧表注释或标识符；navigation 的整表 item/tab label 取同一来源，业务项/固定页签名称仍按第一步。表头、浏览标题、“查看整表”和带 side 的诊断表名读取该侧 replacement_summary.display_name；顶层 SurfaceTable.display_name 仅为 pair 总览标签，不能替代分侧标题。缺侧 summary=null，没有字段时的旧格式不双读。
 
 ### 4.4 列展示与稳定诊断
 
-SurfaceColumn 新增 required `pinned: bool` 与 `display_order: int`（0 起，表内唯一连续）。`columns` 数组原有 canonical/兼容语义不变；DDL 顺序由独立元数据取得，不能把数组原本的字母序当 DDL 顺序。有业务列序规则先排规则中的现存列，剩余按 DDL ordinal；只在 before 存在的列按 before ordinal 追加。固定列仍为 no、name，否则 description。列宽/对齐归前端，无隐藏。
+普通 pair 的 SurfaceTable.columns 明确改为**两侧列名并集**，每个名字恰好一个 SurfaceColumn；新增 required `present_in: BEFORE|CURRENT|BOTH`、`pinned: bool` 与 `display_order: int`。scalar_type/nullable 在有 current 时取 current，否则取 before；display_name 仍按 §3.3 当前非空注释→before 非空注释→标识符。schema_summary.before_only_columns 继续表达 schema 差异，不承担展示描述。
+
+columns 数组按 canonical 列名 UTF-8 字节序，展示按 display_order（并集内 0 起唯一连续）。当前列先按业务规则中的现存列、其余按 current DDL ordinal；before-only 按 before DDL ordinal 追加。无 current 表时全部按 before 的业务规则/DDL 排列。固定列对这份联合展示列表计算：no、name，否则 description。replacement 不用联合列表浏览，使用 §4.3 本侧列列表与独立次序；顶层 columns 仍按并集规则供总览。列宽/对齐归前端，无隐藏。
 
 列序 registry 属于 table_presentation，使用显式 `presentation_rules_version=1`，不修改 canonical/comparison ruleset digest。业务导航产物本身的字节与最终列字段已包含规则结果，不添加仅为缓存的版本轴。
 
@@ -157,8 +172,12 @@ surface diagnostics_summary 保持 string 编码数组，参数不另增 DTO；�
 | --- | --- |
 | `DUPLICATE_EFFECTIVE_KEY:<table>` | `DUPLICATE_EFFECTIVE_KEY` |
 | `max_annotations_per_pair exceeded` | `RISK_ANNOTATION_LIMIT_EXCEEDED` |
+| `risk table budget exceeded` | `RISK_TABLE_BUDGET_EXCEEDED` |
+| `annotation artifact budget exceeded` | `RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED` |
 | `risk diagnostics truncated` | `RISK_DIAGNOSTICS_TRUNCATED` |
 | 未分类比较异常的 Python 类名 | `COMPARISON_INTERNAL_ERROR` |
+
+`max_risk_tables_per_pair exceeded` 与 `max_risk_pair_wall_time_seconds exceeded` 是 pair 失败/取消路径，不产 READY surface、不进入 diagnostics_summary；仍按既有 typed operation error 表达。前端删除这两个 surface 文案键，连同旧原文键、前缀拆分和 `*Error/*Exception` 正则一起删除，未知码统一回退。交付表固定为“新码→旧原文→生产 emit 位置”，不是只有示例。
 
 已有稳定 typed code 保持；cancel/deadline/resource 不落入 generic internal error。日志仍可保留受控内部错误上下文，不进入面向用户产物。实施包必须按生产 emit 点盘点完整代码表、删除替代分支并输出机器可核列表；上表不承诺源码之外不存在其他遗留 emit 点。导航诊断仍保留结构化 params，不与 surface 诊断混为一类。
 
@@ -168,8 +187,8 @@ surface diagnostics_summary 保持 string 编码数组，参数不另增 DTO；�
 
 1. 读取两侧 metadata/presentation，构造 comparison plan；复用当前 native task session 与结构性过滤。
 2. compare → records publication → risk 保持既有顺序；复用已算的有界身份计数/变化归属，不因 records 截断丢失表级“有变化”事实；未具备精确局部聚合时按 §4.2 TABLE_FALLBACK，不为完整聚合建立另一套全量 records。
-3. 明确最终表交付集合并取得 export refs。Preview：current 全表、整表删除的 before，以及双侧浏览表的 changed before；History/replacement 保持所有可用侧。双侧浏览表当前只有 device/composite_signal_point。changed 指完整可浏览内容/声明不等，不能只看排除 formula_ast_json 后的 comparison changed_count。完全相同身份时两侧绑定同一 export ref。
-4. 在最终 export refs 上计算 row locator；计算导航/诊断、列展示；将只含值/refs 的结果交给 surface assembly。
+3. 明确最终表交付集合并取得 export refs。Preview：current 全表、整表删除的 before，以及双侧浏览表的 changed before；History/replacement 保持所有可用侧。双侧浏览表当前只有 device/composite_signal_point。changed 指完整可浏览内容/声明不等，不能只看排除 formula_ast_json 后的 comparison changed_count。双侧浏览表若 before 逻辑侧存在，before_table_ref 必须非 null：完整内容/声明相同时别名绑定 current ref，两个 table_content_bindings 相等；不新增 before 读取。两侧不同分别导出；新增表 before=null，删除表 current=null，禁止虚构不存在侧。composite 有变而 device 未变时，device.before 明确别名 current，前端不自行猜回退。
+4. 在最终 export refs 上计算 row locator，并从已存在的 canonical 输入补缺快照侧筛选上下文；计算导航/诊断、列展示；将只含值/refs 的结果交给 surface assembly。
 5. surface READY 后按现有 closure/重写路径组装 bundle；operation READY 与保护移交必须覆盖所有新 ref。不会在下载 HTTP 中现算导航或定位。
 
 只为导航读取 net_cfg/device/app_cfg 的必要列和已认领共享表的身份列；相同表身份可复用 current 计数。表未变化时不额外取 before 行；变化表按侧处理。History 三节点按节点/表/侧复用任务内计数。先按记录 identity 索引，再按身份汇总风险，禁止“装置×记录×标注”扫描。
@@ -178,15 +197,19 @@ surface diagnostics_summary 保持 string 编码数组，参数不另增 DTO；�
 
 ### 5.2 RowLocator 的算法与绑定
 
-形状按第一步：Parquet，`row_identity: binary(32) not null`、`before_row_index: int64 nullable`、`current_row_index: int64 nullable`；按 row_identity 字节升序，每条**已发布普通行级记录**一行。schema 级记录不占 locator 行；有序/blank 专用记录走原位置语义；无 row records、超发布上限、replacement 都为 null ref。
+在第一步三列基础上固定为五列 Parquet：`row_identity: binary(32) not null`、`before_row_index: int64 nullable`、`current_row_index: int64 nullable`、`before_filter_context_json: utf8 nullable`、`current_filter_context_json: utf8 nullable`；按 row_identity 字节升序，每条**已发布普通行级记录**一行。schema 级记录不占 locator 行；有序/blank 专用记录走原位置语义；无 row records、超发布上限、replacement 都为 null ref。
 
 先读取已发布标准记录的 identity 集，预留其有界字典空间；按最终 Parquet 的 row-group/batch/file 顺序计全局 0 起 index，用同一 native standard row encoder 编码键。只为命中的记录保存 index；每侧每条记录必须匹配恰好一次，存在但无法绑定是 producer 错误，不能静默降级成无 locator。
 
-keyless 使用 `standard.rs` 的 selected/excluded columns 与 `occurrence_digest`，每侧相同值第 0、1…次按该文件物理遍历顺序计数；记录 occurrence 从两侧计数差产生，不能把重复行一律指向第一行。该遍历只决定相同规范值的等价副本位置，不改变比较身份。计数表受 operation M 约束；释放上一表后处理下一表。无快照侧字段 null；新/删记录不存在的一侧也 null。风险标注经 records.row_identity 关联，不新增另一套定位标识。
+keyless 使用 `standard.rs` 的 selected/excluded columns 与 `occurrence_digest`，每侧相同值第 0、1…次按该文件物理遍历顺序计数；记录 occurrence 从两侧计数差产生，不能把重复行一律指向第一行。该遍历只决定相同规范值的等价副本位置，不改变比较身份。计数表受 operation M 约束；释放上一表后处理下一表。无快照侧的 index 字段 null；新/删记录逻辑不存在的一侧 index/context 也 null。风险标注经 records.row_identity 关联，不新增另一套定位标识。
+
+**缺快照侧的筛选上下文：** 每个 JSON 值为 JCS 小对象，仅含该表导航身份列，如 `{"dev_addr":49}`/`{"gid":7}`；值遵守 §4.2 类型/安全整数规则。schema 缺该列用 `{}`，SQL NULL 用 `{"gid":null}`，均不匹配。有快照侧上下文=null，必须从 index 对应行取值；逻辑不存在侧亦 null。逻辑行存在、无 bundle 快照且该表发布筛选 tabs 时，上下文必须非 null。整表入口无需上下文，两个字段均 null。不接受以 null 冒充缺失的必需上下文。
+
+缺快照侧从已有 canonical 输入按同一 native identity/occurrence 流扫描，只有命中已发布 records 的行才保留上下文，计入 M；行号仍 null，不伪造 bundle 位置。keyless 复用同一 selected/excluded 与 occurrence 编码；只对导航身份列包含在 selected columns 的表发布筛选 tabs，因而等价副本的筛选值必相等。若未来规则排除身份列，则该表改唯一整表入口并输出 DEVICE_FILTER_VALUE_UNSUPPORTED(reason=IDENTITY_EXCLUDED)，不凭 occurrence 任取不同身份。导航归属复用这份身份映射，不另做一套 occurrence。只补筛选值，不补全 keyless 的旧业务单元格，不改变 records 或 comparison 摘要。
 
 新 native helper 抽取并复用 standard 编码函数，接受解码后的批与 comparison schema，不能让 Python/浏览器重新实现规范标量算法。最终 export 经现有 SnapshotTable 解码适配恢复 NULL/decimal/ENUM/SET/binary 等类型，禁止直接把 Parquet 字符串当规范值。
 
-首版直接有界扫描最终 Parquet，确保 export cache 命中和 shared 去重后的文件位置正确；不假定比较时 Arrow 行序就是下载行序。任务内可复用完全相同 `(records内容, before/current raw SHA+size, 比较规则绑定)` 的 locator 结果；跨操作不缓存。不改变 records 文档/内容摘要，也不把位置写入 comparison digest。
+首版直接有界扫描最终 Parquet，确保 export cache 命中和 shared 去重后的文件位置正确；不假定比较时 Arrow 行序就是下载行序。任务内仅可复用全部输入相同的 locator 结果：records 内容、两侧 export raw SHA/size（含缺侧）、缺快照侧 canonical 内容/schema/规则绑定、导航身份列及是否发布筛选 tabs。不能只按 export refs 缓存，否则缺 before ref 时会错误复用上下文；跨操作不缓存。不改变 records 文档/内容摘要，也不把位置写入 comparison digest。
 
 ### 5.3 预算与失败
 
@@ -210,7 +233,7 @@ SurfaceTable 新增 required `table_content_bindings`，含 before/current/brows
 
 这些都是已有 owner 的规范内容/schema/规则字段，不创造另一套行哈希。不能只用 comparison digest：被排除比较的可浏览单元格仍须绑定。`source_schema_digest` 在 B 实际来自 compare_schema_digest，绑定列名/比较键而非完整类型或 DDL 序，保持该现状，不为字段名扩大其算法；`canonical_schema_digest` 绑定规范列的 SQL 类型/nullable及列序，`business_schema_digest` 绑定业务 schema 且有意忽略物理列序；DDL 展示次序另由 presentation 列数组表达。raw_content 保留重复行且无序。table_ref=null iff 对应 binding=null；同 ref 被复用时两侧绑定须相容。typed 输入由已验证物化/export 路径提供，surface 不读表重算。
 
-v4 digest preimage 用上述 binding 取代表文件 raw SHA/size；`row_locator_ref` 整项排除。其他 records/risk/projection 的现有摘要规则保持，不顺带重构全部摘要。表文件和 locator 的 raw SHA/size 仍完整存在 ref、bundle closure 和 bundle digest 中；浏览器安装必须先校验 closure。改文件内容会改变 bundle 完整性，不能只验证 surface 就信任下载行文件。
+v4 digest preimage 用上述 binding 取代表文件 raw SHA/size；`row_locator_ref` 整项排除。其他 records/risk/projection 的现有摘要规则保持，不顺带重构全部摘要。表文件和 locator 的 raw SHA/size 仍完整存在 ref、bundle closure 和 bundle digest 中；浏览器安装必须先校验 closure。前端不重算 surface_digest，只校验 table_content_bindings 形状、ref/binding 同 null，以及 surface ArtifactRef 的 raw_sha256/size_bytes 等于同 artifact_id 的 closure 条目。surface preimage 由后端 golden 负责；现有跨语言摘要核对限 bundle/closure，不新增浏览器 surface 算法。改文件内容会改变 bundle 完整性，不能只验证 surface 就信任下载行文件。
 
 | 变化（同一目标版本内） | 规范状态/comparison | surface | bundle |
 | --- | --- | --- | --- |
@@ -228,12 +251,12 @@ v4 digest preimage 用上述 binding 取代表文件 raw SHA/size；`row_locator
 
 导航/诊断/locator 使用 S1a comparison 逻辑位置；canonical manifest 沿用 durable 位置；最终 bundle 沿用 export，scratch 由现有 operation owner 管理。具体 kind→location registry、所有 ref 枚举器、bundle binding kind、表绑定、保护移交与下载均需加入新 ref。locator kind 使用 `ROW_LOCATOR`，导航 `PROJECTION`、诊断既有 `DIAGNOSTICS`；路径统一从现有 safe path builder 生成，不插入原始用户标识符。
 
-surface 遍历/重写必须包括 row_locator_ref，并在 operation-relative→bundle-relative 后保持语义摘要相等；locator 内只有 identity/index，无需 ref 重写。导航内 table_id 是同 pair surface 的逻辑表 ID。final tar 中引用指向唯一的实际成员或 existing shared binding，不能指回 canonical/scratch。
+surface 遍历/重写必须包括 row_locator_ref，并在 operation-relative→bundle-relative 后保持语义摘要相等；locator 内只有 identity/index/最小标量上下文，无需 ref 重写。导航内 table_id 是同 pair surface 的逻辑表 ID。final tar 中引用指向唯一的实际成员或 existing shared binding，不能指回 canonical/scratch。
 
 | Contract/组件 | 目标变更 |
 | --- | --- |
 | Business Navigation | 新 `backend-vnext/business-navigation/v1`，第一步规则加双侧筛选/replacement 明确形状 |
-| Comparison Surface | v3→v4：pinned/display_order、locator ref、table_content_bindings、projection 输入与 digest |
+| Comparison Surface | v3→v4：两侧 columns 并集/present_in/pinned/display_order、locator ref、table_content_bindings、projection 输入与 digest |
 | Comparison Bundle | v3→v4：ROW_LOCATOR closure kind、双侧浏览表与 final ref 绑定规则 |
 | CanonicalizationManifest | 3.3.0→3.4.0：required presentation、explicit digest 白名单与 raw 完整性 |
 | Table Access / Snapshot closure | 新 comment/presentation typed 字段；内部载荷 selector 同轮提升实际受影响版本，不改变 scalar/digest/storage projection version |
@@ -252,12 +275,27 @@ Preview pair/view 使用 baseline_to_initial、initial_to_modified；MODIFIED_ON
 | --- | --- |
 | COMMENT 正确捕获且不污染业务 | parser conformance：转义/Unicode/空值/伪 COMMENT/上限；独立 Python oracle；同值改注释业务 digest 对照 |
 | 精确历史元数据、no-op 不回写 | backend integration：同内容不同注释 Preview；NO_CANONICAL_CHANGE；业务变更后两个历史版本；PrepareImport/restart 保留 ref；损坏 frozen manifest 拒绝 |
-| 五组认领/过滤/诊断/计数 | business_navigation unit/contract 共享参数表：gid/地址变化、重复地址多 gid、删装置/换 gid 后本侧孤儿行、未知计数、空页签、replacement 分侧；records 截断与 annotations 不完整分别走 TABLE_FALLBACK，不误报无变化/无风险 |
-| locator 绑定正确 | row_location contract：混合标量、keyless 第三次出现、添加/删除/修改、缺侧、缓存命中/shared、跨 row group；重排后 index 改而新版本 comparison/surface 不变 |
+| 五组认领/过滤/诊断/计数 | business_navigation unit/contract 共享参数表：gid/地址变化、重复地址多 gid、删装置/换 gid 后本侧孤儿行、未知计数、空页签、整表新增/仅 schema 风险、空 sg_cfg/测点 schema 变化可达、无装置项时整表入口、replacement 分侧；records 截断与 annotations 不完整分别走 TABLE_FALLBACK，不误报无变化/无风险 |
+| locator 绑定正确 | row_location contract：混合标量、keyless 第三次出现、添加/删除/修改、缺侧筛选上下文（修改但身份列未改、keyless 删除、缺列/NULL）、整数边界/排除身份列转整表、缓存命中/shared、跨 row group；重排后 index 改而新版本 comparison/surface 不变 |
 | 闭包/完整性/生命周期 | backend bundle/operation integration：新 ref 遍历重写、混合 root 下载校验、保护后 cleanup、取消重试；不复制 S1a 全量 filesystem 故障矩阵 |
-| 前后端互通 | 固定上传输入→真实后端 bundle fixture→前端 loader/摘要交叉实现；禁止手写导航伪造生产结果 |
+| 前后端互通 | 固定上传输入→真实后端 bundle fixture→后端 surface golden + 前端 loader/ref/closure 一致性（现有 bundle/closure 摘要继续核对）；禁止手写导航伪造生产结果 |
 
-后端 fixture 入口目标 `vnext/scripts/generate-presentation-fixtures.py --output-root <external-empty-dir>`，输出独立于 frontend 工程，供现有前端生成器调用；具体参数和输入清单随实施固定。包括普通两 pair、History 三节点、replacement、gid 变化/重复、孤儿诊断、TABLE_FALLBACK、keyless、改前公式；共享最小输入避免排列爆炸。同输入在同一版本重复生成逐字节相同；fixture harness 除 operation/repository 外也须显式固定所有 opaque artifact ID allocator 和时间等输入，并记录其 fixture-only 控制方式，不能只固定 operation ID，不能改生产身份算法。fresh 生产旅程不使用此确定性替身，也不将其 IDs 引起的差异隐去。
+后端拥有 `vnext/fixtures/presentation-inputs/` 及 `manifest.json`（场景、相对文件名、每文件 SHA256、输出相对目录）。B4 从 FE4a 核对基线 `59c5b8cfca` 的 `frontend/src/test/fixtures/source/upload-inputs/` 复制实际输入字节并记录来源提交，再添加本次必要小型场景；前端 mock 所需副本逐文件 SHA 一致，不再以 frontend 路径作为后端生产器输入依赖。清单不是新的运行时协议。
+
+入口固定 `vnext/scripts/generate-presentation-fixtures.py --input-root <绝对路径> --output-root <外部空目录>`。在专用测试节点 clean 已提交 worktree，以后端 uv 环境调用（本轮只定义，不运行）：
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+CANDIDATE_SHA=$(git rev-parse HEAD)
+UV_OFFLINE=1 CARGO_NET_OFFLINE=true ./vnext/scripts/uv-consume.sh -C vnext/backend run python \
+  "$REPO_ROOT/vnext/scripts/generate-presentation-fixtures.py" \
+  --input-root "$REPO_ROOT/vnext/fixtures/presentation-inputs" \
+  --output-root "/home/dev/gdds-test-tmp/be-b-fixtures-$CANDIDATE_SHA"
+```
+
+输出 `<output>/backend/{fe2a,fe2b,pairs,...}`，按同一相对路径整体替换 `frontend/src/test/fixtures/source/backend/`；`<output>/index.json` 记录 scenario→目标相对目录、输入 SHA、生成提交、实际 operation/Submit 结果（含 NO_CANONICAL_CHANGE）。清单覆盖全部既有前端消费目录，缺项失败，不混用新旧产物。前端 wrapper 仅以 subprocess 调这个入口并搬运输出，不再导入后端私有符号；移除全部手写导航/诊断，占位 v1 不保留兼容解码，拒绝旧 row_filter.value。
+
+包括普通两 pair、History 三节点、replacement、gid 变化/重复、孤儿、TABLE_FALLBACK/table_scope、before-only 列、缺快照筛选上下文、keyless、Preview 改前公式与未变 device 别名、仅注释 Preview 与实际 NO_CANONICAL_CHANGE；共享最小输入避免排列爆炸。同输入在同一版本重复生成逐字节相同；fixture harness 显式固定全部 opaque artifact ID allocator、operation/repository、时间等输入并记录 fixture-only 控制，不改生产身份算法。fresh 生产旅程不使用此确定性替身，也不隐藏其 IDs 差异。
 
 交付必须含 FE4 kickoff §4 全七项：正式 Contract、五类 golden、生成入口/输入、main SHA/vnext tree/exit tag/必要镜像身份、生产 OpenAPI 原件、完整稳定编码替换表、相对 FE3c `6368c9c40c` 的差异。S1a 与 BE-b 分栏，分别列 OpenAPI、logical_path 集合、manifest 字段、ArtifactRef/surface 和 regenerated fixture；不只比较 OpenAPI。
 

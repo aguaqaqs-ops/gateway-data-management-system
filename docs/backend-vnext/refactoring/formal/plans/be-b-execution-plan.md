@@ -1,24 +1,30 @@
 # BE-b 实施与验收执行计划
 
-日期：2026-11-10；2026-11-11 按 FE-BEB-01–10 修订。状态：**前端反馈修订已获后端原审 GO，待前端窄复核；本轮仅授权文档、后端独审与前端核对准备，尚未授权产品实施**。
+日期：2026-11-10；2026-11-11 补齐 FE-BEB-11–13 与正式实施授权。状态：**设计开工条件已满足；授权新实施会话连续完成 B0–B5，产品验证与 exit 尚待执行**。
 
 设计依据：[BE-b 第二步设计](be-b-second-step-design.md)，业务依据[第一步](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md)、[FE4 kickoff §4](../../../../frontend-vnext/fe4-kickoff.md)。产品起点 B=`42780a12303c8040526bf5dc8f9c6f0acb12dbb1`，`p7-s1a-exit` 已完成。BE-b 不等待 S1b；FE4b 等 BE-b exit 与自己的 FE4a exit。
 
 ## 1. 开工条件与本轮交付
 
-本轮落成设计与计划，由 GPT-6-Astra 在新上下文、clean detached 候选独立审核；同一 finding 原审复审。前端定向核对由 Owner 转交 prompt 后回传，不通过工具代发消息。
+前端 `b61cc37d5f` 窄复核为 GO_WITH_NONBLOCKING，FE-BEB-01–10 全 CLOSED；报告 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-rereview-b61cc37d5f.md`，SHA256 `45fff18109b2594ca494b060379e869b893c246e3ee79769da23e9914cdb8845`。FE-BEB-11–13 已补入第二步 §4.1/4.2/§8 与第一步；前端原审明确无需再轮核对。后端 `b61cc37d5f` 原审 GO 原件同目录 `b61cc37d5f-backend-final.md`，后续文字补足的后端窄核记录在阶段日志。
 
-编码入口须同时满足：
+Owner 2026-11-11 最新指令：“我将在新会话中按照约定的分工角色/模型进行代码实现，授权直接推进完成整个 BE-b，除非遇到阻塞问题等待我确认。”此授权覆盖完整 B0–B5、下述 §5 既定最小真实范围、必要专用节点 focused/静态/容器/门禁、修复与原审复审、最终交付及满足 §6 后的本地 `be-b-exit`。不再逐包、逐次正常验证或退出前重复申请；不包含 push/上线、FE4b 产品实现、S1b/BE-c 或扩大性能目标。
 
-1. 后端设计独审无未关闭阻塞项。
-2. 前端确认双侧集合 row_filter、本侧孤儿判定、TABLE_FALLBACK/table_scope/new code、两侧列并集/present_in、缺快照筛选上下文、replacement_sides/同侧名称、surface v4 内容绑定/摘要及 fixture 可消费；差异同步设计和第一步，未返回不是同意。
-3. Owner 明确产品实施范围和本节真实数据范围。当前授权不解释为自动进入编码或打产品 exit tag。
+开工条件已满足：后端设计无未关闭阻塞；前端消费形状与摘要责任已确认；Owner 已给完整实施授权。当前设计会话只完成文档和新会话 prompt，不提前修改产品；新会话从 B0 开始直接执行。节点现场、缓存、t4 确切输入/已建节点清单须在相应执行前核实并登记，不把静态设计审核称为这些运行前提已通过。
 
-本轮只做文档差异、链接、源码依据核对；不运行产品测试、连接测试节点、构建镜像或修改 Accepted Contract。审核/prompt/log 放 `/home/dev/gdds-stage-exchange/be-b/`，只将设计、正式决定、计划入库。
+只有无法在既定方案内解决的业务/Contract 冲突、需改变资源/验收范围、缺失且无法取得的权威输入、不可逆操作或指定模型不可用等实质阻塞才交 Owner。常规命名、实现路径、池内合格节点选择、可逆修复/获准缓存准备由协调者推进。过程原件放 `/home/dev/gdds-stage-exchange/be-b/`；设计/Contract/正式决定与最终一页总结入库。
 
 ## 2. 工作包与风险
 
-一个持续协调者安排提交、风险和最终门禁；每包新实施上下文，内聚小包可合并。A/B 类逐包独审，C/D 由实施者与门禁，阶段末新上下文全范围独审。独审与实施者不同模型家族；本轮指定 Astra 仅指设计独审，不替未来实施团队预填模型或审核通过。取消专职测试者，focused 由实施者在合格节点运行。
+一个持续协调者安排提交、风险和最终门禁；每包新实施上下文，内聚小包可合并。A/B 类逐包独审，C/D 由实施者与门禁，阶段末新上下文全范围独审。独审与实施者不同模型家族；按 P7-D26/D27 及 S1a C 起实际安排沿用下表，不恢复 A/B 旧三角色。取消专职测试者，focused 由实施者在合格节点运行。
+
+| 角色 | 模型/强度 | 边界 |
+| --- | --- | --- |
+| 持续协调者 | `gpt-6.1-terra` / high | 主会话由 Owner 选模型；核基线/授权、分包/风险、触发门禁、维护日志、交付/退出，不冒充独审 |
+| 每包实施者 | `gpt-6.1-sol` / high | 新上下文，产品/Contract/测试源码、focused、普通修复和本人资源收尾 |
+| A/B 包独审与阶段全范围独审 | `gpt-6-astra` / xhigh（复杂判断可 max） | 新上下文、只读 clean detached 候选；同 finding 原审持续复审；阶段全范围另开新审核上下文 |
+
+来源：P7-D26/D27、S1a 执行方案 §4.1 的协调/实施模型，以及 `/home/dev/gdds-stage-exchange/p7-s1a/log.md` C 起 Sol 实施/Astra 独审的新流程；本阶段沿用当前已启用组合。子 agent 显式模型/强度并 `fork_turns="none"`，任务单绑定候选、路径、依赖和允许写入范围。模型不可用不静默替换。内聚包可合并，但不得由实施者自审；最多四个活跃角色含协调者，不递归扩队。不启动专职 Luna 测试角色。
 
 | 包 | 改动与产物 | 风险/审核 | 完成判据 |
 | --- | --- | --- | --- |
@@ -27,7 +33,7 @@
 | B2 导航与列展示 | 业务规则 registry、双侧过滤、分组认领、replacement、计数/风险归属、导航诊断 | C；若改 comparison 内聚合公共边界按实际升 B | 第一步全部规则有参数化覆盖；table_scope 与局部事实分离，空表结构/风险可达；线性扫描、有界状态；未发布 records 不被当成无变化 |
 | B3 最终表/定位/surface | 双侧浏览表、native shared row encoder、最终 Parquet locator、Surface v4 内容绑定与 ref 重写 | A/B：surface 摘要与 READY 引用，逐包独审 | 有快照侧定位完整；行序测试；closure/integrity 和保护不遗漏；后端 surface golden 与前端 loader/ref/closure 一致性；缺快照侧筛选可达 |
 | B4 flow/诊断/互通 | pair/view ID、稳定 code、Preview/History 全部接线、真实 fixture 入口、文档替换与错误路径 | B，逐包独审；可与 B3 合并 | 无旧 ID/自由文本 emit；完整七项前端交付草稿；没有 native 重复调用伪差分 |
-| B5 集中验收/退出 | 固定 V、受影响权威包+容器、最小真实范围、全范围独审、交付与一页总结 | 阶段全范围新独审 | 当前 H 的证据闭合，无未决阻塞；前端设计核对完成；Owner 按实施授权决定本地 exit |
+| B5 集中验收/退出 | 固定 V、受影响权威包+容器、最小真实范围、全范围独审、交付与一页总结 | 阶段全范围新独审 | 当前 H 的证据闭合，无未决阻塞；前端设计核对完成；按本次授权满足 §6 后本地 exit |
 
 建议 B1→B2→B3→B4 顺序实施，必要可合并 B3/B4；不为早交付把业务范围拆成多个对外 Contract/golden 版本。中间提交可有明确 deferred 集成项，但已发现正确性问题不得以延期关闭。每包 handoff 写交接区追加日志，不新建入库审核墙。
 
@@ -36,6 +42,8 @@
 预期改动 `vnext/rust/gateway-compute-core`/Python extension、backend capabilities/application/infrastructure、相关 tests/fixtures、`vnext/scripts` fixture 入口和 owning docs。shared_kernel 算法保持；repository_service 不增加 COMMENT 或导航逻辑。若实际修改共享契约/消费者，纳入相应包，不能因“预期只后端”漏测。
 
 `frontend/` 产品接入、占位 fixture 删除、浏览器 row identity 删除与截图属于 FE4b，不由 BE-b 静默修改。BE-b 提供后端 surface golden、既有 bundle/closure 跨语言向量与生成输出，不要求浏览器重算 surface_digest，前端设计 owner 确认怎样刷新既有 fixture 路径。
+
+B0 必须将 FE-BEB-11–13 的导航必有/退役清单、无记录行的完整性及 suppressed 计数前提、同侧整数 UTF8 typed decode 与逐侧诊断落入 Contract；B2 对 registry/实际比较资格做断言，B4 给反例 fixture。不能将本轮文字关闭当作产品测试已覆盖。
 
 B1 验证重点：native 与独立 oracle；manifest raw/semantic 分离；no-op 无副作用；PrepareImport 冻结/恢复。B2 以纯 contract 单元测试为主，不建 Dolt。B3 覆盖实际 Parquet、export cache、shared、mixed root 下载/保护；B4 最小 Preview/History/replacement 接线。测试同构输入用共享参数表，timing 测试 serial，每个不变量仅一个 owner。
 
@@ -53,9 +61,9 @@ B1 验证重点：native 与独立 oracle；manifest raw/semantic 分离；no-op
 
 runner 失败停止该次及依赖验收；保留原件。明确命令/缓存/环境错误按当前快速修复规则，无盲重试/次数触发的无谓审批；产品失败回实现/原审/必要复验，不能归为环境故障。
 
-## 5. 真实数据与成本边界（建议范围，待 Owner 确认）
+## 5. 真实数据与成本边界（本轮完整实施授权内的既定范围）
 
-BE-b 变化集中 Preview/History 及提交保存展示元数据；建议一次集中最小链：
+BE-b 变化集中 Preview/History 及提交保存展示元数据；本次完整实施授权按现有计划执行一次集中最小链：
 
 | 数据 | 目的与范围 | 不作何种宣称 |
 | --- | --- | --- |
@@ -75,15 +83,13 @@ t4 具体版本/两侧和节点库存须实施 kickoff 核清并列清单；不�
 - [ ] 交付正式 Contract、五类 golden、fixture 入口/固定输入与输出、生产 OpenAPI、稳定码全集、main/vnext tree/镜像身份；按 FE4 §4 分开解释 S1a 与 BE-b 的全部变化。
 - [ ] 阶段日志引用原始日志/机器 result/SHA、失败与限制，不把未知填为通过；本人临时资源收尾，保留仍被消费者引用的 evidence/carried 工作区。
 
-满足后在 main 可达最终 H 按 Owner 的产品实施/退出授权创建附注 `be-b-exit`，绑定 V/H/全范围独审/证据与限制；本轮不创建。提交一页阶段总结；FE4b 另行接入、取证与退出，不能把 BE-b exit 写成整个 FE4 已完成。不 push、不部署。
+满足后在 main 可达最终 H 依本次授权创建附注 `be-b-exit`，绑定 V/H/全范围独审/证据与限制，无需再次申请本地退出；设计准备会话不预打 tag。提交一页阶段总结；FE4b 另行接入、取证与退出，不能把 BE-b exit 写成整个 FE4 已完成。不 push、不部署。
 
-## 7. 前端定向核对请求
+## 7. 前端核对闭环与实施交接
 
-原提示词位于 `/home/dev/gdds-stage-exchange/be-b/prompts/frontend-targeted-review.md`，本次窄复核提示词位于同目录 `frontend-targeted-rereview.md`，审核时绑定不可变文档候选 SHA；后端独审在 `/home/dev/gdds-stage-exchange/be-b/reviews/`。反馈至少回答：双侧集合筛选可实现且不会把缺侧当全表/漏多 gid；本侧孤儿有入口；TABLE_FALLBACK 正确保留整表风险；replacement 分侧键/标题与诊断定位明确；后端 v4 golden 与前端 loader/closure 分工明确；原始 DDL 名与展示名分离满足浏览器需求；golden/fixture/七项交付足以刷新 FE4b。
+原提示词 `prompts/frontend-targeted-review.md` 与 `prompts/frontend-targeted-rereview.md`、两轮前端报告和后端原审报告均在阶段交接目录保留。前端原审已确认双侧筛选、表级/局部事实、replacement、列并集、五列 locator、摘要责任与 fixture 可消费；无需再转交一轮相同设计。
 
-返回 GO/GO_WITH_NONBLOCKING/CHANGES_REQUIRED，并列逐项文件段落、具体反例和建议；不要求前端现在实施/跑真实数据，也不让其代审后端存储/事务。前端意见回传后由后端设计者修订，实质后端变更交原 Astra 独审复核；再向 Owner报告可实施状态与剩余范围确认。
-
-本次反馈修订映射（均为设计落点，关闭以原审/前端复核为准）：
+下表为设计关闭与实施责任映射，B0/B4 同步 owning Contract/交付时逐项落实。新的实质消费者形状变化才回到设计/前端针对性核对，不为文字或命令修正重复流程。
 
 | Finding | 目标落点与实施责任 |
 | --- | --- |
@@ -94,8 +100,13 @@ t4 具体版本/两侧和节点库存须实施 kickoff 核清并列清单；不�
 | FE-BEB-05 | §4.4：补两个稳定码；两个 pair 失败/取消原文不进 surface，B4 给完整 emit 表 |
 | FE-BEB-06 | §4.2：每表一条事实不可用诊断，首版统一该表 fallback；B2 |
 | FE-BEB-07 | §5.1：有逻辑 before 的双侧浏览表必须绑定；未变别名 current，新增侧 null；B3 |
-| FE-BEB-08 | §4.2/5.2：安全整数/typed 比较、整表降级、locator 两个上下文字段；不修改 records；B2/B3，须前端核新形状 |
+| FE-BEB-08 | §4.2/5.2：安全整数/typed 比较、整表降级、locator 两个上下文字段；不修改 records；前端已确认新形状，B2/B3 实施 |
 | FE-BEB-09 | §4.1/4.3：projection 单一、五组/分侧不变量、side 键空间与诊断；B2/B4 |
 | FE-BEB-10 | §8：后端输入与 SHA 清单、完整调用及输出映射；B4，前端 wrapper 删除私有导入/手写占位 |
+| FE-BEB-11 | §1/4.1/8 与第一步：导航缺失/重复拒绝、退役 B9/fallbackNavigation/preview-no-navigation，目标目录及根 manifest/closure 清单；B0/B4 关闭产品落点，FE4b 删除旧前端路径 |
+| FE-BEB-12 | §4.2：无记录行双侧身份复用须实际比较资格、完整 records/locator、无 suppressed 增删；未知时不造 before；B0/B2/B4，增加 gid变化+未改cfg 和抑制新增反例 |
+| FE-BEB-13 | §4.2：规范类型→JSON→真实 Parquet 物理映射；同侧 metadata 严格 typed decode，不改整数UTF8导出；逐受影响侧诊断；B0/B2/B4 |
 
-FE4 kickoff §3.1 B1/B4/B6/B7/B9、§5.3 判据/fixture/截图分工及 §2.3/§4 来源记录由前端设计 owner 在窄复核后同步；本轮不修改前端产品代码或代签前端结论。
+FE4 kickoff §3.1 B1/B4/B6/B7/B9、§5.3 判据/fixture/截图分工及 §2.3/§4 来源记录由前端设计 owner 在 FE4b 正常设计中同步，包括 B9 退役及无 display_order 旧分支删除；不另阻塞 BE-b 后端开工。BE-b 交付列明这些消费者改动，不静默修改前端产品或代签 FE4b 验收。
+
+新会话入口：`/home/dev/gdds-stage-exchange/be-b/prompts/be-b-implementation.md`，绑定准备提交/文件摘要、授权、角色和退出清单。协调者开工先核该提交在 main 可达、实际 HEAD 增量及工作区归属，保护他人未提交修改；不从任意旧 FE 工作区直接继续。

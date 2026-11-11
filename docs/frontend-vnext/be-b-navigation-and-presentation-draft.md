@@ -5,7 +5,7 @@
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
 
-2026-11-11 修订：Owner 接受 FE-BEB-01–10 建议；本草案同步关键展示/省略规则。字段、摘要、发布与执行细节以[第二步设计](../backend-vnext/refactoring/formal/plans/be-b-second-step-design.md)为目标依据，尚待窄复核与产品实施；下文源码现状仍为第一步调查时点。
+2026-11-11 修订：Owner 接受 FE-BEB-01–10 建议；本草案同步关键展示/省略规则。字段、摘要、发布与执行细节以[第二步设计](../backend-vnext/refactoring/formal/plans/be-b-second-step-design.md)为目标依据，前端窄复核已通过（GO_WITH_NONBLOCKING），非阻塞文字补足见第二步 §4.1/4.2/§8；产品实施另按执行计划；下文源码现状仍为第一步调查时点。
 
 ## 1. 结论摘要
 
@@ -153,7 +153,7 @@ Tab:
 - **通道集合：** 取两侧 `net_cfg` 的并集，按通道键 `b{board}_n{link_no}` 对齐。
 - **满足条件：** 通道在任一侧满足转发通道条件，且 surface 中至少有一张该通道的 9 类转发表或 `sg_cfg` 时，生成一个转发通道项，并认领该通道的这些表。
   - 页签是否显示（§4.5）不影响认领。
-  - 项没有可显示的页签且所有已认领表都满足 §4.2 的省略条件时，由后端省略该项，但它的表仍算已认领，不进入“其他表”。导航存在时前端不得自动补“其他表”；只在完全无导航时 B9 回退。
+  - 项没有可显示的页签且所有已认领表都满足 §4.2 的省略条件时，由后端省略该项，但它的表仍算已认领，不进入“其他表”。导航存在时前端不得自动补“其他表”；BE-b 后缺导航或导航重复均为 Contract 违例，前端拒绝该 pair，退役 B9 无导航回退。
 - **两侧不同：** 例如基线侧满足、上传侧把 `tab_num` 改成 0，或者反过来，仍然生成项，不输出导航诊断。`net_cfg` 行的变化由比较与风险表达，导航不重复。
 - **都不满足：** 通道在两侧都不满足条件（包括两侧 `net_cfg` 都没有该通道）时，不生成项，该通道的表进入“其他表”，并输出 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
 

@@ -1,12 +1,12 @@
 # BE-b 第二步：导航、展示元数据与行定位设计
 
-日期：2026-11-10；2026-11-11 按前端 FE-BEB-01–10 修订。状态：**前端反馈修订已获后端原审 GO，待前端窄复核；不代表双方已接受或产品已实施**。
+日期：2026-11-10；2026-11-11 补齐 FE-BEB-11–13 并登记实施授权。状态：**前后端设计核对无阻塞，具备正式实施条件；产品尚未实施/验收**。
 
 历史审核：GPT-6-Astra 原审对 `0df6250ac84826e9826b60b68208816e451ab8e0` 给出 GO（仅后端设计），首轮 BDR-1/2、N1/N2 全部关闭。报告原件：`/home/dev/gdds-stage-exchange/be-b/reviews/0df6250ac8-backend-design-rereview.md`；最终转交 SHA 与文件摘要见同目录阶段日志及 prompt。
 
-本次修订依据：前端对 `f0be08d9ed` 的 `CHANGES_REQUIRED`，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-review-f0be08d9ed.md`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`。Owner 于 2026-11-11 同意全部前端建议并授权修订与复审提示词，明确采纳空 `sg_cfg` 有变化/风险仍保留的补充。下文将两项阻塞及八项非阻塞一起写定；后端原审对 `b055cbca5cb22ecc10fa2eacc5e7254deb6340f3` 给出 GO，报告 `/home/dev/gdds-stage-exchange/be-b/reviews/b055cbca5c-backend-frontend-fixes-review.md`；其 BRF-N1 已按实际 keyless identity frame 收紧下文文字。最终绑定见交接目录复审报告/prompt，前端关闭仍待窄复核。
+本次修订依据：前端对 `f0be08d9ed` 的 `CHANGES_REQUIRED`，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-review-f0be08d9ed.md`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`。Owner 于 2026-11-11 同意全部前端建议并授权修订与复审提示词，明确采纳空 `sg_cfg` 有变化/风险仍保留的补充。下文将两项阻塞及八项非阻塞一起写定；后端原审对 `b055cbca5cb22ecc10fa2eacc5e7254deb6340f3` 给出 GO，报告 `/home/dev/gdds-stage-exchange/be-b/reviews/b055cbca5c-backend-frontend-fixes-review.md`；其 BRF-N1 已按实际 keyless identity frame 收紧下文文字。后端最终绑定 `b61cc37d5f` 已 GO。前端同候选窄复核 `GO_WITH_NONBLOCKING`，FE-BEB-01–10 全部 CLOSED，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-rereview-b61cc37d5f.md`（SHA256 `45fff18109b2594ca494b060379e869b893c246e3ee79769da23e9914cdb8845`）；新增 FE-BEB-11–13 在下文补齐，原前端明确无需再轮复核。
 
-Owner 本轮授权：落成第二步设计/执行计划，启动 GPT-6-Astra 后端独审，提供前端定向核对提示词，由 Owner 转交并带回结果。授权不含产品编码、上线或 push。Owner 同意前轮建议：历史展示元数据冻结；仅注释变化用于当前 Preview，不回写旧历史，不创造规范业务变化。
+Owner 最新授权（2026-11-11）：修复非阻塞项并准备新会话任务提示词；新实施会话按约定角色/模型直接完成整个 BE-b，含 B0–B5 实现、必要验证、最终独审、交付与满足条件后的本地 exit，仅实质阻塞交 Owner。当前设计会话完成文档和交接，不抢先启动新会话的产品编码。授权不含 FE4b、其他阶段、上线或 push。Owner 同意前轮建议：历史展示元数据冻结；仅注释变化用于当前 Preview，不回写旧历史，不创造规范业务变化。
 
 业务依据：[第一步 §4–§6](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md)、[FE4 kickoff §4/§5.3](../../../../frontend-vnext/fe4-kickoff.md)。实现基线 B=`42780a12303c8040526bf5dc8f9c6f0acb12dbb1`（main、`p7-s1a-exit`），`vnext` tree=`bd452d67dc4bfe7ae99c13fea80d474d372b69ca`。S1a 独审 EXIT_GO 与实际变化清单在 `/home/dev/gdds-stage-exchange/p7-s1a/`；不把 B 的验证当作 BE-b 验证。
 
@@ -16,7 +16,7 @@ Owner 本轮授权：落成第二步设计/执行计划，启动 GPT-6-Astra 后
 
 完整交付第一步 §4.1–§4.10：五个业务分组、列中文名/列序/固定列、导航诊断、Preview 改前公式及名称映射、普通表行定位、pair/view ID 修复、surface 诊断稳定编码。FE4b 在 BE-b exit 后接入；P7-S1b 不构成本阶段依赖。
 
-不增加按行 HTTP API、后台取数、隐藏列、列宽规则、新服务/数据库、迁移兼容层、全量遥测或多 worker。保留正式无导航/无注释/无 locator 时的展示回退；它们不是旧格式双读。
+不增加按行 HTTP API、后台取数、隐藏列、列宽规则、新服务/数据库、迁移兼容层、全量遥测或多 worker。保留无注释时标识符回退、Contract 允许无 locator 时的表级展示。BE-b READY surface 导航恰好一份；缺失或重复是 Contract 违例，前端拒绝该 pair 并进入既有“无法打开比较结果”，删除无导航 B9 回退和旧格式兼容路径。
 
 | 决定 | 目标 |
 | --- | --- |
@@ -95,7 +95,7 @@ BusinessNavigation v1 保持第一步的 `groups/items/tabs`、五个 group、it
 
 固定认领顺序：FORWARD_CHANNELS → SECONDARY_DEVICES → COMMUNICATION_PROTOCOLS → GLOBAL_PARAMETERS → OTHER_TABLES。保留第一步已认领但无可见页签的通道表，验收按内部认领账本而非“每表必须出现在可见 tabs”判定。`app_cfg` 指向已认领表时不重复认领，按 APP_TABLE_CFG_DUPLICATE 提示。任何未被认领表进入 OTHER_TABLES。普通模式五组始终保留（允许 items=[]），因此 groups 不为空。
 
-不新增公开认领账本。导航存在时，前端不得将未出现在 tabs 的表自动补进 OTHER_TABLES；无导航产物时的正式 B9 回退仍可用。每表整表 tab 最多一个，禁止同表同时有整表和筛选 tab，同表全部筛选 tab 只属一组。缺席表须两侧已知零行、surface 为 UNCHANGED/BUSINESS_EQUIVALENT 且无风险；内部认领账本由后端测试证明。发布筛选 tabs 的共享表每侧“全部已发布谓词覆盖的行集合大小 + 同侧孤儿行数 = 该侧总行数”，重复命中取集合并集，不能加各 tab 的 count。前端仅对 bundle 有该侧快照且计数精确的侧核此等式，缺快照侧由后端 Contract 测试负责。诊断提供的“查看整表”是额外浏览入口，不是导航中的整表 tab。
+不新增公开认领账本。导航存在时，前端不得将未出现在 tabs 的表自动补进 OTHER_TABLES；缺导航或多份导航拒绝，不再调用 fallbackNavigation；display_order 为 required，不保留缺字段时猜 DDL 序的旧分支。每表整表 tab 最多一个，禁止同表同时有整表和筛选 tab，同表全部筛选 tab 只属一组。缺席表须两侧已知零行、surface 为 UNCHANGED/BUSINESS_EQUIVALENT 且无风险；内部认领账本由后端测试证明。发布筛选 tabs 的共享表每侧“全部已发布谓词覆盖的行集合大小 + 同侧孤儿行数 = 该侧总行数”，重复命中取集合并集，不能加各 tab 的 count。前端仅对 bundle 有该侧快照且计数精确的侧核此等式，缺快照侧由后端 Contract 测试负责。诊断提供的“查看整表”是额外浏览入口，不是导航中的整表 tab。
 
 组顺序固定上述顺序；通道按 board/link_no 数值、装置按 dev_addr 数值、全局固定项在先随后按目标表名 UTF-8 排序、其他表按 canonical name 排序。item/tab key 使用第一步键规则。两侧同一项的 label 优先 current 非空业务名称，再 before，再稳定标识；同侧重复业务键使用规范标量编码的整行字节序最小者提供 label/attributes，与 SQL 行序无关。代表行只决定显示 label/attributes，不能代替筛选集合；每侧收集该 dev_addr 的全部有效 gid，筛选按 §4.2 的集合谓词。重复地址/gid 仍出既定诊断，同一 tab 的行/风险去重，不丢弃行。
 
@@ -111,11 +111,27 @@ row_filter = null                         # 整表
 Predicate = { column: string, values: [string] | [integer] }
 ```
 
-row_filter 对象里的 null 表示本侧没有匹配身份，**不是整表**；对象两侧不可同时 null。整个 row_filter=null 才是整表。values 非空、同类型、去重，整数数值升序、字符串 UTF-8 字节升序；谓词是该列的集合成员判断，通常为单元素。普通共享测点表按各侧 dev_addr，device_cfg 按各侧该装置的全部有效 gid；两侧相等仍写两个谓词。类型必须与规范身份列值一致，不做字符串/数字宽松相等。整数限 `[-9007199254740991,9007199254740991]`，无小数；前端将已校验的 JSON 整数与 Parquet number/bigint 按 BigInt 值比较，字符串只和字符串比较。缺失/SQL NULL 不匹配，不解释为整表。
+row_filter 对象里的 null 表示本侧没有匹配身份，**不是整表**；对象两侧不可同时 null。整个 row_filter=null 才是整表。values 非空、同类型、去重，整数数值升序、字符串 UTF-8 字节升序；谓词是该列的集合成员判断，通常为单元素。普通共享测点表按各侧 dev_addr，device_cfg 按各侧该装置的全部有效 gid；两侧相等仍写两个谓词。类型必须与规范身份列值一致，不做字符串/数字宽松相等。整数限 `[-9007199254740991,9007199254740991]`，无小数；前端先按下表解码同侧 Parquet 身份列，再将整数与已校验的 JSON 整数按 BigInt 比较，字符串只和字符串比较。缺失/SQL NULL 不匹配，不解释为整表。
 
-出现超范围整数或不支持的身份标量类型时，不截断、不把整数改成字符串冒充同类型：该表本 pair 全部撤去筛选 tabs，在 SECONDARY_DEVICES 以 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、row_filter=null 发布唯一整表入口，label 取表展示名，attributes={}。每表每个受影响侧输出 `DEVICE_FILTER_VALUE_UNSUPPORTED`，target 指该表整表项，params={identity_column, reason: INTEGER_OUT_OF_RANGE|UNSUPPORTED_TYPE|IDENTITY_EXCLUDED}，不回传原值。该表不再输出孤儿/局部事实诊断。装置键自身超域时不构造该装置项/数值 attributes，device 整表入口仍保留；依赖该身份的共享表按同一规则整表呈现。replacement 仅对受影响侧应用该规则。缺列/NULL 沿用计数未知或孤儿规则，不与此码混用。
+支持类型以 Table Access 规范 `DeclaredType` 加 `logical_type` 判定，不以值外观猜测；client Parquet 保持现有物理编码，不为本次筛选改 writer/schema/cache 身份：
 
-**改前筛选数据来源：** 不承诺 records 带全部身份列。B 的 ROW_MODIFIED 仅携带 changed columns，keyless records 甚至不带业务 values。前端有侧快照时用 locator index 读取该侧行；缺快照时用 §5.2 新增的最小 filter context，禁止凭未修改列推断或依赖 records 偶然带值。配对行任一半命中即显示整对；keyless 删除的其他旧值不可得时保留 identity/已知上下文并显示缺值，不丢记录。`composite_signal_point` 在复合信号项内是唯一整表 tab（row_filter=null），不按已排除比较的 dev_addr 筛选；该特殊项对其他共享测点表仍用 dev_addr=65532 的谓词。
+| 规范身份类型 | Predicate / locator context 的 JSON | 客户端 Parquet 与前端解码 |
+| --- | --- | --- |
+| STANDARD + signed-integer / unsigned-integer（TINYINT/SMALLINT/MEDIUMINT/INT/BIGINT，SQL 别名先由 parser 规范化） | safe integer；unsigned 另须非负 | 当前导出 BYTE_ARRAY(UTF8) 十进制文本，hyparquet 得到 string；按同侧 metadata 严格解析为 BigInt，核声明位宽/符号与 safe 范围 |
+| STANDARD + string 且 SQL 为 CHAR/VARCHAR/TINYTEXT/TEXT/MEDIUMTEXT/LONGTEXT | string，保留规范文本 | BYTE_ARRAY(UTF8)，保持 string，不 trim、不把数字外观文本当整数 |
+| BOOLEAN、DECIMAL、FLOAT/DOUBLE、DATE/DATETIME/TIMESTAMP/TIME、BINARY/BLOB/BIT、ENUM/SET、JSON、未知/缺 declared type 或其他类型 | 不生成该类型谓词 | UNSUPPORTED_TYPE，整表浏览；不能因底层也是 UTF8/string 就视为支持 |
+
+依据是 `client_parquet._export_array`、`_parquet._arrow_field` 与已随 export 写出的 `gateway.sta.enc.v1`。前端在 raw SHA/closure 校验后读取**同侧** metadata（logical_type、declared_type、physical_type），不使用 current 优先的联合 SurfaceColumn 类型解码 before。整数文本全串须为规范十进制（`0`、正数或负数，无前导零/负零/空白/小数/指数/尾随字符）；用 BigInt 严格转换，不用 Number/parseInt 猜类型。Predicate/context 的 integer 则为 JSON safe number。物理类型、声明、decoded 值或谓词类别不一致即 bundle 解码错误，不静默不匹配。SQL NULL 与缺列仅不匹配；已在整表降级的表不执行谓词类型断言。
+
+出现超范围整数或不支持的身份标量类型时，不截断、不把整数改成字符串冒充同类型：该表本 pair 全部撤去筛选 tabs，在 SECONDARY_DEVICES 以 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、row_filter=null 发布唯一整表入口，label 取表展示名，attributes={}。每表每个受影响侧输出 `DEVICE_FILTER_VALUE_UNSUPPORTED`，side 明确为 BEFORE/CURRENT（普通模式也不填 null）；target 指该表整表项，params={identity_column, reason: INTEGER_OUT_OF_RANGE|UNSUPPORTED_TYPE|IDENTITY_EXCLUDED}，不回传原值。该表不再输出孤儿/局部事实诊断。装置键自身超域时不构造该装置项/数值 attributes，device 整表入口仍保留；依赖该身份的共享表按同一规则整表呈现。replacement 仅对受影响侧应用该规则。缺列/NULL 沿用计数未知或孤儿规则，不与此码混用。IDENTITY_EXCLUDED 表示实际存在的身份列未进入本次有效比较/identity frame：共同 pair 规则排除时，两存在侧都受影响，逐侧各一条；仅一侧失效时只报该侧；不存在的逻辑侧不发诊断。replacement 无跨侧比较，不套 pair 的排除判据，仅按本侧实际读取/筛选资格诊断。
+
+**改前筛选数据来源：** 不承诺 records 带全部身份列。B 的 ROW_MODIFIED 仅携带 changed columns，keyless records 甚至不带业务 values。前端有侧快照时用 locator index 读取该侧行；缺快照时用 §5.2 新增的最小 filter context，有记录行禁止凭未修改列推断或依赖 records 偶然带值；无记录行只按下段受限规则复用。配对行任一半命中即显示整对；keyless 删除的其他旧值不可得时保留 identity/已知上下文并显示缺值，不丢记录。`composite_signal_point` 在复合信号项内是唯一整表 tab（row_filter=null），不按已排除比较的 dev_addr 筛选；该特殊项对其他共享测点表仍用 dev_addr=65532 的谓词。
+
+**无记录行（FE-BEB-12）：** 下述双侧复用只适用于两逻辑侧均存在；新增/删除整表仍按存在侧筛选，不要求不存在侧有身份列。对双侧复用，有键筛选表的身份列须实际参与有效比较（共存、类型兼容，不在 ignored/compare_excluded/incompatible 中；键列本身有效）；keyless 必须进入实际 identity frame。实际存在但被比较规则排除/不兼容的身份列按 IDENTITY_EXCLUDED 改整表入口；物理缺列仍按前述计数未知/孤儿规则，不冒充规则排除。B2 对现有筛选 registry 及 schema 变化分支作同一资格断言，不能仅看列名出现在 selected 中。
+
+普通 pair 缺 before 快照时，仅满足下列全部可验证条件，当前未命中 row record 的行才可用同一身份值执行 before/current 两侧谓词：两逻辑侧存在、身份列资格成立、比较成功且无 schema-only/降级、实际 suppressed_added_count/suppressed_deleted_count 均为 0、发布 row records 按 kind 的数量与 row_change_stats 中真实 added/deleted/modified 计数完全一致、已有记录的 locator 完整且与快照行绑定成功。以上用现有 surface 计数/compare/records manifest 与 locator 校验，不新增能力字段。无行变化时允许零条 records 与 null locator，但必须由成功的比较计数/完整性事实证明；null ref、facts.basis=EXACT 或现有 display.replay_guarantee=EXACT 单独均不是证明。后端是资格与记录完整性的 owner，前端仅按这些明确条件消费，不重新计算 row identity。
+
+因此装置 gid 7→8 而 cfg 的 gid=7 行未改，或地址 49→50 而测点未改时，原行仍能命中 before 谓词；此规则只复用筛选身份，不承诺恢复全部旧单元格。UPDATE_ONLY 实际抑制增删、records 截断/缺失、比较降级时，不能把无 record 当前行伪装成两侧未变；该表局部事实用 TABLE_FALLBACK，前端仅按可得侧/已有记录及 context 浏览，明示“改前对应不可确定”，before 行数若已知可显示但不声称完整改前行可浏览。沿用表级回退，不扩大 before 全表导出或 locator 为全行账本。
 
 **可达性与孤儿诊断：** 对每张共享表，分别用本侧实际发布 tab 谓词的覆盖集合判断未分配行，取代第一步“两侧装置总表都不存在”的条件。before 有装置而 current 已删、current 测点仍残留，或 gid 7→8 后 current cfg 残留 gid 7，均触发本侧 DEVICE_ROWS_UNASSIGNED，提供既有“查看整表”。重复地址 49 对应 gid 7/8 时一个 tab 的 values=[7,8] 覆盖两组；不同装置共用 gid 时行可同时出现在各自 tab，但每 tab 内仅计一次。筛选/计数/变化归属共用同一谓词，不能按代表行重新算。按每表每侧集合线性扫描；未知计数的 tab 不省略；仅两侧已知零、局部 EXACT 且无变化/风险、整表 surface 为 UNCHANGED/BUSINESS_EQUIVALENT 且无任何风险时才可省略。表级变化/风险不能因空行集消失；没有可承载的装置项时，在 SECONDARY_DEVICES 生成上述唯一整表入口（有筛选 tabs 时不重复生成）。`sg_cfg` 也只有两侧已知零且整表无变化/风险才省略；有变化或风险即保留，通道项随之保留。省略空项须先满足其所有已认领表的此条件。
 
@@ -293,10 +309,10 @@ UV_OFFLINE=1 CARGO_NET_OFFLINE=true ./vnext/scripts/uv-consume.sh -C vnext/backe
   --output-root "/home/dev/gdds-test-tmp/be-b-fixtures-$CANDIDATE_SHA"
 ```
 
-输出 `<output>/backend/{fe2a,fe2b,pairs,...}`，按同一相对路径整体替换 `frontend/src/test/fixtures/source/backend/`；`<output>/index.json` 记录 scenario→目标相对目录、输入 SHA、生成提交、实际 operation/Submit 结果（含 NO_CANONICAL_CHANGE）。清单覆盖全部既有前端消费目录，缺项失败，不混用新旧产物。前端 wrapper 仅以 subprocess 调这个入口并搬运输出，不再导入后端私有符号；移除全部手写导航/诊断，占位 v1 不保留兼容解码，拒绝旧 row_filter.value。
+输出 `<output>/backend/{fe2a,fe2b,pairs,...}`，按同一相对路径整体替换 `frontend/src/test/fixtures/source/backend/`；`<output>/index.json` 记录 scenario→目标相对目录、输入 SHA、生成提交、实际 operation/Submit 结果（含 NO_CANONICAL_CHANGE）。清单覆盖下列**目标**消费集合，缺项失败，不混用新旧产物：`backend/fe2a/{preview-full,preview-modified-only,preview-replacement,history-three-nodes}`、`backend/fe2b/preview-workbench-normal`、`backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation`，以及 `backend/manifest.json`、`backend/artifact-closure.json` 和它们引用的全部成员。后两文件供前端 build-golden-bundle-fixture 读取；目录名中的 cross_implementation 不构成浏览器 surface 摘要要求。新增场景在 index.json 逐个声明输出位置。`fe2a/preview-no-navigation` 明确退役、不生成；不增加“禁止导航”的 fixture-only 开关，缺导航拒绝由前端负向单元用例覆盖。前端 wrapper 仅以 subprocess 调这个入口并搬运输出，不再导入后端私有符号；移除全部手写导航/诊断，占位 v1 不保留兼容解码，拒绝旧 row_filter.value。
 
-包括普通两 pair、History 三节点、replacement、gid 变化/重复、孤儿、TABLE_FALLBACK/table_scope、before-only 列、缺快照筛选上下文、keyless、Preview 改前公式与未变 device 别名、仅注释 Preview 与实际 NO_CANONICAL_CHANGE；共享最小输入避免排列爆炸。同输入在同一版本重复生成逐字节相同；fixture harness 显式固定全部 opaque artifact ID allocator、operation/repository、时间等输入并记录 fixture-only 控制，不改生产身份算法。fresh 生产旅程不使用此确定性替身，也不隐藏其 IDs 差异。
+包括普通两 pair、History 三节点、replacement、gid 变化/重复及未改 cfg 行、地址变化及未改测点、UPDATE_ONLY 抑制增删反例、整数 UTF8 typed decode/文本数字不混等、逐侧排除诊断、孤儿、TABLE_FALLBACK/table_scope、before-only 列、缺快照筛选上下文、keyless、Preview 改前公式与未变 device 别名、仅注释 Preview 与实际 NO_CANONICAL_CHANGE；共享最小输入避免排列爆炸。同输入在同一版本重复生成逐字节相同；fixture harness 显式固定全部 opaque artifact ID allocator、operation/repository、时间等输入并记录 fixture-only 控制，不改生产身份算法。fresh 生产旅程不使用此确定性替身，也不隐藏其 IDs 差异。
 
 交付必须含 FE4 kickoff §4 全七项：正式 Contract、五类 golden、生成入口/输入、main SHA/vnext tree/exit tag/必要镜像身份、生产 OpenAPI 原件、完整稳定编码替换表、相对 FE3c `6368c9c40c` 的差异。S1a 与 BE-b 分栏，分别列 OpenAPI、logical_path 集合、manifest 字段、ArtifactRef/surface 和 regenerated fixture；不只比较 OpenAPI。
 
-后端真实数据/最终门禁与前端正式 t1 截图各有 owner，范围见执行计划。前端核对返回前，只能称后端设计候选或后端独审通过；不能写成双方已接受、产品实现完成或 FE4b 可启动。
+后端真实数据/最终门禁与前端正式 t1 截图各有 owner，范围见执行计划。前后端设计核对与 FE-BEB-11–13 文本补足构成实施入口；B0/B4 必须将这些决定落实到 owning Contract、实际 producer/decoder 与交付清单。设计通过不等于产品通过，FE4b 仍在 BE-b exit 后接入。

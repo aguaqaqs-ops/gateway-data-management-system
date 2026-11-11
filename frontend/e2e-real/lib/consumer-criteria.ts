@@ -561,7 +561,9 @@ export async function assertBundleConsumerCriteria(
     for (const table of tables) {
       if (referenced.has(table.table_id)) continue;
       unreferenced += 1;
-      if (rowCountOf(table, "before") !== 0 || rowCountOf(table, "current") !== 0) fail(where, `未引用表 ${table.table_id} 的行数不为 0`);
+      // A null binding means the bundle carries no snapshot for that side;
+      // kickoff §5.3 only requires zero rows for sides with a binding.
+      if ((rowCountOf(table, "before") ?? 0) !== 0 || (rowCountOf(table, "current") ?? 0) !== 0) fail(where, `未引用表 ${table.table_id} 的行数不为 0`);
       if (table.change_kind !== "UNCHANGED" && table.change_kind !== "BUSINESS_EQUIVALENT") fail(where, `未引用表 ${table.table_id} 的变化类型为 ${String(table.change_kind)}`);
       if (table.risk_refs?.risk_level !== null && table.risk_refs?.risk_level !== undefined) fail(where, `未引用表 ${table.table_id} 带有风险`);
       if (table.risk_refs?.annotation_count !== 0 && table.risk_refs?.annotation_count !== undefined) fail(where, `未引用表 ${table.table_id} 带有风险注释`);

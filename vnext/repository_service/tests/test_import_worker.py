@@ -1437,3 +1437,33 @@ def test_statistics_hook_failure_preserves_success(tmp_path: Path, monkeypatch: 
         assert env.provider_for(REPOSITORY_ID).read_ref('main') == result.result.commit_id
     finally:
         env.close()
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+@pytest.mark.parametrize('fails_before_mutation', [False, True])
+def test_statistics_uses_observed_commit_and_read_only_outcome(tmp_path: Path, fails_before_mutation: bool) -> None:
+    from gateway_repository_service.statistics import ObservationRing, RepositoryStatistics, WriteObservation
+    from gateway_repository_contracts.statistics import StatisticsFeedQuery
+    env = WorkerTestEnvironment(tmp_path)
+    ring = ObservationRing('e', 'g')
+    statistics = RepositoryStatistics(env.layout, ring, outcome=env.store.observe_statistics_outcome)
+    env.pool._statistics = statistics
+    if fails_before_mutation:
+        env.provider_for(REPOSITORY_ID).refs['main'] = 'different-observed-commit'
+    try:
+        env.pool.start()
+        operation = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+        expected = OperationStatus.FAILED if fails_before_mutation else OperationStatus.SUCCEEDED
+        env.wait_for_status(REPOSITORY_ID, operation, expected)
+        assert env.pool.wait_for_quiescence(timeout=2)
+        while statistics.collect_one():
+            pass
+        page = ring.read(StatisticsFeedQuery())
+        value = page.records[-1].observation
+        assert isinstance(value, WriteObservation)
+        assert value.payload.observed_outcome == ('failed' if fails_before_mutation else 'succeeded')
+        assert value.payload.before_commit == (None if fails_before_mutation else DEFAULT_MAIN_COMMIT)
+        assert (value.payload.after_commit is not None) == (not fails_before_mutation)
+    finally:
+        env.close()

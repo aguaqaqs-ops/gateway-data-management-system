@@ -163,8 +163,8 @@ def test_scanner_closes_descriptor_when_iterator_cannot_be_opened(tmp_path: Path
     def fail_scandir(_descriptor: int) -> Iterator[object]:
         raise OSError('too many open files')
     with monkeypatch.context() as patch:
-        patch.setattr(module.os, 'scandir', fail_scandir)
-        patch.setattr(module.os, 'close', close)
+        patch.setattr(os, 'scandir', fail_scandir)
+        patch.setattr(os, 'close', close)
         values = list(module.scan_repository(tmp_path))
     assert len(closed) == 1
     assert values[-1] is not None and not values[-1].complete

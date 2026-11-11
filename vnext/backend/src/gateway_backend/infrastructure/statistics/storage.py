@@ -16,7 +16,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_
 from gateway_backend.artifacts.store import ArtifactUnavailableError
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.control_db.computation_cache import _entry_from_row
+from gateway_backend.infrastructure.control_db.computation_cache import computation_cache_entry_from_row
 from gateway_backend.infrastructure.control_db.sqlite_workspace import upload_revision_from_row, preview_result_from_row
 from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_from_row, submission_from_row
 from gateway_backend.statistics.config import StatisticsConfig
@@ -90,6 +90,11 @@ class StorageCandidates:
 
     def shared(self, artifact_id: str, known_owner: str | None) -> bool:
         """At most two direct cache owners, not a persistent attribution graph."""
+        location = parse_artifact_id(artifact_id)
+        # Content-addressed comparison and bundle refs can be shared without a cache
+        # row. Conservative public classification avoids inventing exclusive owners.
+        if location is ArtifactLocation.COMPARISON:
+            return True
         with self._read() as connection:
             owners = {str(row[0]) for row in connection.execute(
                 'SELECT repository_id FROM canonical_table_cache WHERE artifact_id=? UNION '
@@ -98,7 +103,8 @@ class StorageCandidates:
                 'EXISTS (SELECT 1 FROM json_each(c.member_refs_json) member '
                 "WHERE json_extract(member.value,'$.artifact_id')=?) LIMIT 2",
                 (artifact_id, artifact_id, artifact_id, artifact_id))}
-        return len(owners) > 1 or (known_owner is not None and bool(owners - {known_owner}))
+        return ((location is ArtifactLocation.EXPORT and not owners)
+                or len(owners) > 1 or (known_owner is not None and bool(owners - {known_owner})))
 
     @staticmethod
     def refs(source: str, row: Mapping[str, object]) -> tuple[str, ...]:
@@ -113,7 +119,7 @@ class StorageCandidates:
         if source in ('canonical_table_cache', 'snapshot_table_export_cache'):
             return (str(row['artifact_id']),)
         if source == 'computation_cache_entries':
-            entry = _entry_from_row(ComputationCacheKey(str(row['repository_id']),
+            entry = computation_cache_entry_from_row(ComputationCacheKey(str(row['repository_id']),
                 ComputationCacheKind(str(row['kind'])), DigestRef(str(row['task_digest']))),
                 tuple(row[name] for name in ('manifest_artifact_id', 'manifest_media_type',
                     'manifest_size_bytes', 'manifest_raw_sha256', 'member_refs_json', 'format')))
@@ -198,6 +204,9 @@ class DeviceStorageCollector:
                             partial, reason = True, 'budget_exceeded'
                             continue
                         for artifact_id in self.candidates.refs(source, row):
+                            if monotonic() >= deadline or len(seen) >= self.config.scan_total_entries:
+                                partial, reason = True, 'budget_exceeded'
+                                break
                             if artifact_id in seen:
                                 continue
                             shared = self.candidates.shared(artifact_id,

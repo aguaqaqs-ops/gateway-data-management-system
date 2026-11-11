@@ -82,7 +82,7 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 | --- | --- |
 | canonical_table_cache | artifact_id/media_type/size_bytes/raw_sha256，`sqlite_canonical_tables.py` 当前行解码；repository 关联直接用 canonical_table_cache.repository_id；canonical_commit_tables 仅是用途关联，不重复计量。 |
 | snapshot_table_export_cache | artifact_id/media_type/size_bytes/raw_sha256 + repository_id；`sqlite_snapshot_export_cache.py` 既有cache行构造 ArtifactRef。 |
-| computation_cache_entries | manifest_artifact_id/media_type/size_bytes/raw_sha256 及 member_refs_json；`computation_cache.py::_entry_from_row` / `_parse_entry_row` 复用固定格式 decode；不打开manifest内容。 |
+| computation_cache_entries | manifest_artifact_id/media_type/size_bytes/raw_sha256 及 member_refs_json；`computation_cache.py::computation_cache_entry_from_row` / `_parse_entry_row` 复用固定格式 decode；不打开manifest内容。 |
 | UploadRevision | source_artifacts；`sqlite_workspace.py::upload_revision_from_row` / `_decode_source_artifacts` 得到 SourceArtifactBinding，使用其现有 ref。 |
 | PreviewResult | bundle_artifact_id、ready_closure_artifact_id、canonical.canonical_table_set_closure_ref、canonical.canonicalization_manifest_ref 和 identity_pairs[].assessment_ref；`sqlite_workspace.py::preview_result_from_row` 的固定binding格式和 `_preview_artifact_ref_from_document`；只取decoder明确提供ref，不读bundle。 |
 | SubmitAttempt/Submission | source_artifact_refs、canonicalization_manifest_ref、prepared_canonicalization_manifest_ref；`sqlite_submission.py::submit_attempt_from_row/submission_from_row` 固定decoder；仅ID时由artifact store owning stat取得尺寸，不用业务字段猜大小。SubmitAttempt.repository_import_artifact_ref为BE对象；repository_artifact_ref为RS对象，不在BE重复计。 |
@@ -90,7 +90,10 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 | Head | baseline_head_records 仅指 baseline_node_id，不直接持有对象ref；不为统计追踪无限祖先/历史bundle，该源不新增字节，当前已有对象由上述固定来源覆盖。 |
 
 所有候选必须通过 LocalArtifactStore.observe_object 当前可见stat后才计 measured bytes；旧ref不存在记 stale，不能按ref.size永久累加。
-固定cache索引以至多两个repository的只读查询识别简单共享ref；被多库引用的对象从设备分类中排除，
+分类数表示可可靠归属的量。COMPARISON的content-addressed refs全部保守归公共；EXPORT仅在
+snapshot export cache有唯一直接owner时归设备，其余bundle/surface refs归公共。因此设备comparison=0
+不表示磁盘没有comparison对象。固定cache索引以至多两个repository的只读查询识别其他简单共享ref；
+被多库引用的对象从设备分类中排除，
 后台独立有限扫描将其计入public_unknown一次。operation仅用Preview acceptance、SubmitAttempt、History
 acceptance的现有operation_id关联归属；无简单owner的operation ref进入public_unknown，不查payload。
 公共快照始终是partial/not_collected的已知候选子集，不冒称覆盖所有磁盘孤儿、临时文件或公共目录。
@@ -137,7 +140,7 @@ RS `RepositoryStatistics` begin/mutation/end仅nonblocking排队和记录现成�
 create_private_ref之前的mutation hook传入，expected_commit不是before_commit观测。后台受限scanner
 以fd-relative/no-follow分片遍历，before_end≤mutation cutoff、after_start≥executor结束cutoff且无下一次
 执行干扰才接纳完整量。pending after与完整after以同observation_id的新sequence追加；结束/失败/队列满
-均有限释放active槽，不引入可靠投递。outcome由E注入的后台只读import_store查询取得，缺来源保持unknown。
+均有限释放active槽，不引入可靠投递。outcome由E注入的后台只读import_store.observe_statistics_outcome查询取得，不走BEGIN IMMEDIATE，缺来源保持unknown。
 `ObservationRing`同时按条目/字节限制，HTTP只读ring；client解码体上限1MiB且单次拉取不重试。
 backend `RepositoryFeedPoller.poll()`每轮一页/2秒超时，校验environment/group，按observation_id交给
 原有有界sink，reset/truncated只报告缺失、不补历史。resource采样scope始终为共享RS服务。

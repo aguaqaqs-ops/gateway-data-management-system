@@ -8,7 +8,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -376,6 +376,31 @@ class ImportOperationStore:
             if row is None:
                 return None
             return str(row["status"])
+
+    def observe_statistics_outcome(
+        self, repository_id: UUID, operation_id: UUID,
+    ) -> tuple[Literal["succeeded", "failed", "unknown"], str | None]:
+        """Background-only narrow read, without the business BEGIN IMMEDIATE path."""
+        if not self._lock.acquire(timeout=.05):
+            return "unknown", None
+        previous_timeout = self._connection.execute("PRAGMA busy_timeout").fetchone()[0]
+        try:
+            self._connection.execute("PRAGMA busy_timeout=50")
+            row = self._connection.execute(
+                "SELECT status, substr(result_json,1,32769) AS result_json "
+                "FROM repository_import_operations WHERE operation_id=? AND repository_scope=?",
+                (str(operation_id), repository_id.hex)).fetchone()
+            if row is None:
+                return "unknown", None
+            if row["status"] == OperationStatus.FAILED.value:
+                return "failed", None
+            raw = row["result_json"]
+            if row["status"] == OperationStatus.SUCCEEDED.value and isinstance(raw, str) and len(raw.encode()) <= 32768:
+                return "succeeded", VersionedImportResult.model_validate_json(raw).commit_id
+            return "unknown", None
+        finally:
+            self._connection.execute(f"PRAGMA busy_timeout={int(previous_timeout)}")
+            self._lock.release()
 
     def get_operation(
         self,

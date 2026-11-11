@@ -72,7 +72,7 @@ def _integer(value: object) -> int:
     return value
 
 
-def _entry_from_row(key: ComputationCacheKey, row: tuple[object, ...]) -> ComputationCacheEntry:
+def computation_cache_entry_from_row(key: ComputationCacheKey, row: tuple[object, ...]) -> ComputationCacheEntry:
     try:
         return _parse_entry_row(key, row)
     except (TypeError, ValueError, RecursionError, CanonicalEncodingError):
@@ -132,7 +132,7 @@ class SQLiteComputationCache:
             return None
         original = tuple(row)
         try:
-            entry = _entry_from_row(key, original)
+            entry = computation_cache_entry_from_row(key, original)
         except InvalidComputationCachePayload:
             self._discard_row(_values(key), original)
             return None
@@ -301,7 +301,7 @@ class SQLiteComputationCache:
             ).fetchone()
             if row is None:
                 continue
-            entry = _entry_from_row(key, tuple(row))
+            entry = computation_cache_entry_from_row(key, tuple(row))
             self._touch(entry)
             self._record_use(entry, producer_operation_id)
             touched += 1

@@ -453,7 +453,9 @@ class MutationStore:
             raise ValueError("invalid statistics page")
         if not self._lock.acquire(timeout=.05):
             return []
+        previous_timeout = self._connection.execute("PRAGMA busy_timeout").fetchone()[0]
         try:
+            self._connection.execute("PRAGMA busy_timeout=50")
             deadline = time.monotonic() + .05
             self._connection.set_progress_handler(
                 lambda: int(time.monotonic() > deadline), 1000)
@@ -467,6 +469,7 @@ class MutationStore:
             return [(int(row["effect_id"]), UUID(str(row["resource_id"]))) for row in rows]
         finally:
             self._connection.set_progress_handler(None, 0)
+            self._connection.execute(f"PRAGMA busy_timeout={int(previous_timeout)}")
             self._lock.release()
 
     def list_succeeded_create_repository_ids(self) -> list[UUID]:

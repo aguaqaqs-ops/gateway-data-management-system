@@ -92,3 +92,38 @@ def test_shared_cache_ref_is_public_and_not_charged_to_both_devices(tmp_path: Pa
     assert records[0].repository_id is None and records[0].category == 'public_unknown'
     assert records[0].object_count == 1 and records[0].logical_bytes == 3
     assert records[0].quality == 'partial'  # not a scan of all unreferenced physical files
+
+
+def test_uncached_identity_assessment_from_two_previews_is_public(tmp_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.domain.workspace.models import (
+        PreviewArtifactRef, PreviewIdentityPair, ProjectIdentityApplicability, ProjectIdentityMode, ProjectIdentityStatus,
+    )
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+    from tests.test_workspace_domain import _preview_result
+    local = open_test_store(tmp_path / 'artifacts')
+    ref = BoundedArtifactStore(local).put_stream(ArtifactLocation.COMPARISON, 'project-identity', [b'abc'],
+        declared_size=3, declared_raw_sha256=raw_blob_digest(b'abc'), media_type='application/json')
+    identity = PreviewIdentityPair(pair_id='initial_to_modified', applicability=ProjectIdentityApplicability.APPLICABLE,
+        status=ProjectIdentityStatus.SAME_PROJECT, mode=ProjectIdentityMode.DETAILED,
+        assessment_ref=PreviewArtifactRef(ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256),
+        assessment_digest=ref.raw_sha256)
+    path = tmp_path / 'control.db'
+    initialize_control_db(path)
+    base = _preview_result()
+    with sqlite3.connect(path) as db:
+        for index, repository in enumerate(('one', 'two')):
+            value = replace(base, preview_result_id=f'preview-{index}', repository_id=repository,
+                operation_id=f'op-{index}', identity_pairs=(identity,),
+                canonical=replace(base.canonical, configuration_facts=replace(base.canonical.configuration_facts,
+                    repository_id=repository, operation_id=f'op-{index}')))
+            db.execute('INSERT INTO preview_result_records VALUES (?,?,?,?,?,?,?,?)', preview_result_to_row(value))
+    records: list[StorageRecord] = []
+    config = StatisticsConfig()
+    collector = DeviceStorageCollector(StorageCandidates(path, config), local, IDENTITY, records.append, config)
+    collector.collect('one')
+    collector.collect('two')
+    assert sum(row.logical_bytes or 0 for row in records) == 0
+    records.clear()
+    collector.collect(None)
+    assert records[0].object_count == 1 and records[0].logical_bytes == 3

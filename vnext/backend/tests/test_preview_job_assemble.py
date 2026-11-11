@@ -1000,8 +1000,8 @@ def test_checkpoint_restoration_preserves_baseline_metadata_failure_code(
         run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
         session, control, operation, step = claim_next_step(harness)
         handler = PREVIEW_ASSEMBLE_HANDLER
-    with harness.deps.control_transaction_factory() as unit_of_work:
-        metadata_port = unit_of_work.commit_canonical_metadata
+    with harness.deps.control_transaction_factory() as metadata_uow:
+        metadata_port = metadata_uow.commit_canonical_metadata
     def unavailable_metadata(**kwargs: Any) -> Any:
         assert kwargs["commit_id"] == BASELINE_HEAD.business_baseline_commit_id
         raise CommitCanonicalMetadataError(CommitCanonicalMetadataCode(metadata_code), "baseline manifest is unavailable")

@@ -69,7 +69,10 @@ def final_parquet_batches(
     if context is None:
         raise RuntimeError("final Parquet scan requires the operation context")
     context.checkpoint()
-    with context.memory.reserve(2 * ref.size_bytes + 65536 + len(descriptor.columns) * 32768):
+    metadata_upper = 1024 * 1024 + len(descriptor.columns) * 65536 + sum(
+        (len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 1024
+        for column in descriptor.columns)
+    with context.memory.reserve(2 * ref.size_bytes + metadata_upper):
         raw = store.locate(ref)
         if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
             raise ValueError("final Parquet raw identity differs")
@@ -89,7 +92,7 @@ def final_parquet_batches(
                 decoded_source = pa.schema([pa.field(column.canonical_name, _source_type(column),
                     nullable=column.nullable) for column in source.columns])
                 profile, indices = canonical_comparison_profile(descriptor, decoded_source,
-                    metadata_budget_bytes=65536 + len(descriptor.columns) * 32768)
+                    metadata_budget_bytes=metadata_upper)
                 # Decode one row group at a time, but admit the largest up front
                 # so the native occurrence state cannot consume its headroom.
                 upper = max((sum(file.metadata.row_group(group).column(index).total_uncompressed_size

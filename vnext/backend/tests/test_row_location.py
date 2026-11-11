@@ -21,7 +21,8 @@ from gateway_backend.capabilities.snapshot_materialization import export_snapsho
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_c_inputs import plan
-from tests.support.table_rules import comparison_ruleset_for, keyless_record
+from tests.support.table_rules import comparison_ruleset_for, fallback_record
+from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
 from tests.support.comparison_s3_e_live import canonical_bound, publish_product
 
 
@@ -58,14 +59,21 @@ def test_locator_uses_final_row_groups_and_typed_missing_side_context(
 ) -> None:
     before = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES " + before_values + ";"))
     current = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES " + current_values + ";"))
+    if label == "keyless":
+        def keyless(source: Any) -> Any:
+            fact, = source.storage_facts
+            return replace(source, storage_facts=(replace(fact, storage_rule_view=replace(
+                fact.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS)),))
+        before, current = keyless(before), keyless(current)
     planned = (plan_comparison(ComparisonRequest(pair_id="keyless-locator", before=before, current=current,
-        rule_set=comparison_ruleset_for(keyless_record("t")))) if label == "keyless" else plan(before, current))
+        rule_set=comparison_ruleset_for(fallback_record()))) if label == "keyless" else plan(before, current))
     assert isinstance(planned, ComparisonPlan)
     store = InMemoryArtifactStore()
     task, = planned.tasks
     assert task.before_table is not None and task.current_table is not None
     before_ref: ArtifactRef | None = export_snapshot_table_parquet(task.before_table, store=store, repository_id="replacement-fixture")
     current_ref = export_snapshot_table_parquet(task.current_table, store=store, repository_id="replacement-fixture")
+    assert before_ref is not None
     before_ref = _rewrite(store, before_ref) if include_before else None
     current_ref = _rewrite(store, current_ref)
     with closing(compare_plan_native(planned)) as product:

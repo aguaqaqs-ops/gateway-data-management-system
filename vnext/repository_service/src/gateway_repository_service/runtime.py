@@ -314,8 +314,6 @@ class ServiceRuntime:
                 layout,
                 repository_path,
                 dolt_runner,
-                locks=locks,
-                repository_id=repository_id,
             )
 
         return provider_factory

@@ -461,10 +461,13 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                 WriteUnitOfWorkFactory,
                 bound_history_deps.control_transaction_factory,
             )
-            telemetry = build_statistics_sink(configured.deployment_config, "worker")
+            try:
+                telemetry = build_statistics_sink(configured.deployment_config, "worker")
+            except Exception:
+                _LOGGER.warning("statistics disabled reason=collection_failed")
             runtime = build_worker_runtime(
-                telemetry=telemetry,
                 configured,
+                telemetry=telemetry,
                 job_definitions=preview_definitions + submit_definitions + history_definitions,
                 handlers={**preview_handlers, **submit_handlers, **history_handlers},
                 payload_decoders={**preview_decoders, **submit_decoders, **history_decoders},
@@ -494,7 +497,11 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             )
             return 1
         try:
-            telemetry.start()
+            if telemetry is not None:
+                try:
+                    telemetry.start()
+                except Exception:
+                    _LOGGER.warning("statistics start failed")
             runtime.run(stop_requested.is_set, stop_requested.wait)
         except Exception as exc:
             _LOGGER.error(
@@ -508,7 +515,10 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
         return 0
     finally:
         if telemetry is not None:
-            telemetry.close()
+            try:
+                telemetry.close()
+            except Exception:
+                _LOGGER.warning("statistics stop failed")
         if previous_handlers is not None:
             _restore_signal_handlers(previous_handlers)
 

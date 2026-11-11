@@ -44,13 +44,23 @@ def create_app(
         app.state.storage_guard = runtime.storage_guard
         app.state.statistics_http = runtime.statistics_http
         app.state.admission_gate = runtime.admission_gate
-        runtime.statistics.start()
+        if runtime.statistics is not None:
+            try:
+                runtime.statistics.start()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning("statistics start failed")
         app.state.ready = True
         try:
             yield
         finally:
             begin_http_pre_drain(app)
-            runtime.statistics.close()
+            if runtime.statistics is not None:
+                try:
+                    runtime.statistics.close()
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).warning("statistics stop failed")
 
     from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
     from gateway_backend.http.errors import register_exception_handlers

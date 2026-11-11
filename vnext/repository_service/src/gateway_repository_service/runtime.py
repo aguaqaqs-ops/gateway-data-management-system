@@ -215,6 +215,7 @@ class ServiceRuntime:
                 statistics.start()
             except Exception:
                 _LOGGER.warning("statistics disabled reason=collection_failed")
+                statistics = None
             import_worker_pool = ImportWorkerPool(
                 settings=settings,
                 layout=layout,

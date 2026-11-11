@@ -262,6 +262,7 @@ class TestBearerHarness:
         assert set(paths.keys()) == {
             "/healthz",
             "/readyz",
+            "/v1/statistics/observations",
             "/v1/repositories",
             "/v1/repositories/{repository_id}/artifacts",
             "/v1/repositories/{repository_id}/versioned/imports",

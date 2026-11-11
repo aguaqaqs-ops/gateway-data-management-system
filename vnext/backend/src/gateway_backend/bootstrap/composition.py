@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from gateway_backend.http.statistics import StatisticsHttpDependencies
 from gateway_backend.bootstrap.statistics import BackendStatistics
+from gateway_backend.infrastructure.statistics.queries import SQLiteStatisticsReader
+from gateway_backend.statistics.config import statistics_database_path
+from gateway_backend.statistics.models import StatisticsIdentity
+from gateway_backend.http.schemas.statistics import CollectionHealth
+import logging
 
 
 from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
@@ -191,7 +196,7 @@ class BackendRuntime:
     history_http: HistoryHttpDependencies
     storage_guard: RuntimePreflight
     statistics_http: StatisticsHttpDependencies
-    statistics: BackendStatistics
+    statistics: BackendStatistics | None
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
@@ -410,14 +415,24 @@ def prepare_backend_runtime(
         comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
     )
-    statistics = BackendStatistics(deployment, settings.control_db_path, settings.repository_base_url, repository_token)
+    statistics: BackendStatistics | None = None
+    try:
+        statistics = BackendStatistics(deployment, settings.control_db_path, settings.repository_base_url, repository_token)
+        statistics_http = statistics.http
+    except Exception:
+        logging.getLogger(__name__).warning("statistics disabled reason=collection_failed")
+        statistics_http = StatisticsHttpDependencies(SQLiteStatisticsReader(
+            statistics_database_path(Path(deployment.storage.roots['be-metadata'].path)),
+            StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id),
+            available=lambda: False), health=lambda: CollectionHealth(enabled=False,
+                quality='unavailable', reason='collection_failed'))
     return BackendRuntime(
         settings=settings,
         storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
         history_http=history_http,
-        statistics_http=statistics.http,
+        statistics_http=statistics_http,
         statistics=statistics,
     )
 

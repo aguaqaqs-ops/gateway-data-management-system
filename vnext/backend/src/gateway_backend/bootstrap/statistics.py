@@ -8,6 +8,8 @@ from pathlib import Path
 from time import monotonic
 
 from gateway_repository_client import RepositoryClient
+from gateway_repository_contracts.statistics import Reason
+from typing import cast
 
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.http.schemas.statistics import CollectionHealth
@@ -60,11 +62,11 @@ class BackendStatistics:
             health=self.health, sample_interval_seconds=self.config.sample_interval_seconds)
 
     def health(self) -> CollectionHealth:
-        reason = self.sink.health.reason or self.poller.reason
+        reason = self.sink.health.reason or self.poller.reason or ("collection_failed" if self.collection_failures else None)
         return CollectionHealth(enabled=self.config.enabled,
             dropped_count=self.sink.health.dropped + self.poller.dropped_count + self.collection_failures,
             quality='available' if reason is None else 'partial' if self.sink.health.available else 'unavailable',
-            reason=reason)
+            reason=cast(Reason | None, reason))
 
     def start(self) -> None:
         self.sink.start()

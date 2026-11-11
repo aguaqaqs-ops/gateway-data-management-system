@@ -20,7 +20,7 @@ Tab: {tab_key, label, table_id, row_filter, facts}
 
 普通模式 `replacement_sides=null`，`groups` 按顺序始终含 FORWARD_CHANNELS、SECONDARY_DEVICES、COMMUNICATION_PROTOCOLS、GLOBAL_PARAMETERS、OTHER_TABLES 五组，允许空 items。固定认领也按该顺序；未认领表进入 OTHER_TABLES。item_kind 为 FORWARD_CHANNEL、DEVICE、COMPOSITE_SIGNAL_DEVICE、PROTOCOL_CHANNEL、TABLE。item/tab key、label、attributes、业务排序与十个原导航诊断按第一步；同侧重复业务键用规范标量整行字节序最小者提供 label/attributes，筛选仍覆盖全部有效身份集合。
 
-通道业务键的 board/link_no 须为 I-JSON safe 非负整数；仅有 `b<数字>_n<数字>_...` 形状但任一片段超域的合法表名不具备业务通道资格，按普通 OTHER_TABLES 整表呈现，不生成含非法数字的 CHANNEL_TABLE_UNCLAIMED。此约束与 net_cfg 通道键和 item attributes 的 safe 整数边界一致，不裁剪、转换或拒绝原表数据。
+从表名提取的 board/link_no 须在 `[0, 9007199254740991]` 内；仅有 `b<数字>_n<数字>_...` 形状但任一片段超域的合法表名不具备业务通道资格，按普通 OTHER_TABLES 整表呈现，不生成含非法数字的 CHANNEL_TABLE_UNCLAIMED。该范围与 net_cfg 通道键共用 safe 整数上界，不裁剪、转换或拒绝原表数据。
 
 APP_TABLE_CFG_MISSING / APP_TABLE_CFG_DUPLICATE / APP_TABLE_NOT_FOUND 的 app_name 是展示用 string|null；原 app_cfg.app_name 为整数时仅在该展示/诊断边界格式化为十进制文本，string 原样保留，NULL 或非展示标量使用既有 null；全局参数项的 app_name 标签采用同一规则。此格式化不改变比较键、row_filter、规范值或表数据，不因展示标签类型而使 pair 失败。
 

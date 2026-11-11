@@ -671,11 +671,22 @@ async function screenshotHeader(page: Page, name: string, width: number) {
 }
 
 async function clickFormulaCell(page: Page) {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   const grid = page.locator(".grid-frame[data-formula-column-offset]").first();
-  const bounds = await grid.boundingBox();
-  const offset = Number(await grid.getAttribute("data-formula-column-offset"));
+  let bounds = await grid.boundingBox();
+  let offset = Number(await grid.getAttribute("data-formula-column-offset"));
   const width = Number(await grid.getAttribute("data-formula-column-width"));
   if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width)) throw new Error("formula column has no grid bounds");
+  if (offset + width > bounds.width - 40) {
+    // The formula column can start beyond the visible width; scroll the grid
+    // horizontally before clicking instead of assuming it fits.
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.mouse.wheel(offset + width - bounds.width + 60, 0);
+    await page.waitForTimeout(100);
+    bounds = await grid.boundingBox();
+    if (!bounds) throw new Error("formula column has no grid bounds after scrolling");
+    offset = 0;
+  }
   const rowsVisible = Math.max(1, Math.floor((bounds.height - 38) / 38));
   const dialog = page.getByRole("dialog", { name: "公式查看" });
   for (let row = 0; row < rowsVisible; row += 1) {

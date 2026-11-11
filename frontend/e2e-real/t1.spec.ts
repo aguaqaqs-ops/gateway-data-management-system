@@ -30,6 +30,7 @@ import {
   waitForPendingSubmission,
 } from "./lib/api";
 import { digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
+import { assertBundleConsumerCriteria, BundleCriteriaReader, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
 /**
@@ -173,6 +174,215 @@ async function saveEvidenceBothWidths(page: Page, testInfo: TestInfo, label: str
   await saveEvidence(page, testInfo, `${label}-1920`);
 }
 
+interface NavigationTabLike {
+  tab_key: string;
+  label: string;
+  table_id: string;
+  row_filter: unknown;
+  facts: { basis?: string; before_row_count?: number; current_row_count?: number; change_kind?: string } | null;
+}
+
+interface NavigationItemLike {
+  item_key: string;
+  label: string;
+  tabs: NavigationTabLike[];
+}
+
+interface NavigationGroupLike {
+  group_key: string;
+  label: string;
+  items: NavigationItemLike[];
+}
+
+interface SurfaceColumnLike {
+  name: string;
+  display_name?: string | null;
+  pinned?: boolean;
+}
+
+interface SurfaceTableLike {
+  table_id: string;
+  table_name: string;
+  row_locator_ref: unknown;
+  columns: SurfaceColumnLike[];
+  table_content_bindings?: Record<string, { row_count?: number } | null | undefined>;
+}
+
+interface SurfaceLike {
+  tables: SurfaceTableLike[];
+}
+
+interface NavigationDiagnosticLike {
+  code: string;
+  side: string;
+  params: Record<string, unknown>;
+  target: { group_key: string; item_key: string; tab_key: string; table_id: string };
+}
+
+interface PairArtifacts {
+  surface: SurfaceLike;
+  groups: NavigationGroupLike[];
+  diagnostics: NavigationDiagnosticLike[];
+}
+
+/** Read the published surface and business navigation of one bundle pair. */
+function pairArtifacts(bundle: ParsedBundle, pairId: string): PairArtifacts {
+  const reader = new BundleCriteriaReader(bundle);
+  const surface = reader.json<SurfaceLike & { projections?: Array<{ projection_kind?: string; projection_ref?: unknown; diagnostics_ref?: unknown }> }>(
+    `pairs/${pairId}/comparison-surface.json`,
+  );
+  const projection = (surface.projections ?? []).find((candidate) => candidate.projection_kind === "BUSINESS_NAVIGATION");
+  if (!projection?.projection_ref) throw new Error(`bundle 缺少 ${pairId} 的业务导航投影`);
+  const navigation = reader.json<{ groups?: NavigationGroupLike[] }>(reader.pathOf(projection.projection_ref, `${pairId}.navigation`));
+  const diagnostics = projection.diagnostics_ref
+    ? (reader.json<{ diagnostics?: NavigationDiagnosticLike[] }>(reader.pathOf(projection.diagnostics_ref, `${pairId}.diagnostics`)).diagnostics ?? [])
+    : [];
+  return { surface, groups: navigation.groups ?? [], diagnostics };
+}
+
+function firstPairWithNavigation(bundle: ParsedBundle): string {
+  for (const pair of bundle.manifest.pairs) {
+    try {
+      if (pairArtifacts(bundle, pair.pair_id).groups.length > 0) return pair.pair_id;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("bundle 没有含业务导航的比较对");
+}
+
+function tableOf(surface: SurfaceLike, tableId: string): SurfaceTableLike {
+  const table = surface.tables.find((candidate) => candidate.table_id === tableId);
+  if (!table) throw new Error(`surface 缺少表 ${tableId}`);
+  return table;
+}
+
+function tabHasRows(surface: SurfaceLike, tab: NavigationTabLike): boolean {
+  const facts = tab.facts ?? {};
+  const counts = [facts.before_row_count, facts.current_row_count].filter((value): value is number => typeof value === "number");
+  if (counts.length > 0) return counts.some((count) => count > 0);
+  const bindings = tableOf(surface, tab.table_id).table_content_bindings ?? {};
+  return ["before", "current"].some((side) => (bindings[side]?.row_count ?? 0) > 0);
+}
+
+function maxTabsItem(items: readonly NavigationItemLike[]): NavigationItemLike | null {
+  let picked: NavigationItemLike | null = null;
+  for (const item of items) {
+    if (item.tabs.length === 0) continue;
+    if (!picked || item.tabs.length > picked.tabs.length) picked = item;
+  }
+  return picked;
+}
+
+function firstTabWithRows(surface: SurfaceLike, item: NavigationItemLike): NavigationTabLike {
+  return item.tabs.find((tab) => tabHasRows(surface, tab)) ?? item.tabs[0];
+}
+
+function settleFrames(page: Page): Promise<void> {
+  return page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
+async function expandNavigation(page: Page): Promise<void> {
+  const expand = page.getByRole("button", { name: "展开导航" });
+  if (await expand.isVisible().catch(() => false)) {
+    await expand.click();
+    await page.waitForTimeout(150);
+  }
+}
+
+async function expandAllGroups(page: Page): Promise<void> {
+  for (let guard = 0; guard < 10; guard += 1) {
+    const collapsed = page.locator('.nav-group__heading[aria-expanded="false"]');
+    if ((await collapsed.count()) === 0) return;
+    await collapsed.first().click();
+    await settleFrames(page);
+  }
+}
+
+async function openSidebarTab(page: Page, itemKey: string, tabKey: string): Promise<void> {
+  await expandNavigation(page);
+  await expandAllGroups(page);
+  await page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-tab button[data-tab-key="${tabKey}"]`).click({ timeout: 120_000 });
+  await waitForDiffBrowsing(page);
+  await settleFrames(page);
+}
+
+/** Overflow control is only rendered when the tab bar cannot show every tab. */
+async function assertTabsReachable(page: Page): Promise<boolean> {
+  const overflow = page.locator(".overflow-tabs__menu > button");
+  if (!(await overflow.isVisible().catch(() => false))) return false;
+  await overflow.click();
+  const entries = page.locator(".overflow-menu button");
+  const count = await entries.count();
+  expect(count, "页签溢出菜单至少一项").toBeGreaterThan(0);
+  await entries.nth(count - 1).click({ timeout: 120_000 });
+  await waitForDiffBrowsing(page);
+  return true;
+}
+
+/** Capture a multi-tab item at both widths and record the overflow state per width. */
+async function captureTabItemBothWidths(
+  page: Page,
+  testInfo: TestInfo,
+  label: string,
+  surface: SurfaceLike,
+  item: NavigationItemLike,
+  tab: NavigationTabLike,
+): Promise<void> {
+  const overflow: string[] = [];
+  for (const width of [1280, 1920]) {
+    await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
+    await settleFrames(page);
+    await openSidebarTab(page, item.item_key, tab.tab_key);
+    await saveEvidence(page, testInfo, `${label}-${width}`);
+    overflow.push((await assertTabsReachable(page)) ? `${width}=溢出` : `${width}=未溢出`);
+    await openSidebarTab(page, item.item_key, tab.tab_key);
+  }
+  appendCaseLog(`${label} item=${item.item_key} tabs=${item.tabs.length} tab=${tab.tab_key} ${overflow.join(" ")}`);
+}
+
+function pickColumnsTab(surface: SurfaceLike, groups: readonly NavigationGroupLike[]): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      for (const tab of item.tabs) {
+        if (seen.has(tab.table_id)) continue;
+        seen.add(tab.table_id);
+        const table = tableOf(surface, tab.table_id);
+        const hasPinned = table.columns.some((column) => column.pinned === true);
+        const hasDisplayName = table.columns.some((column) => typeof column.display_name === "string" && column.display_name.length > 0 && column.display_name !== column.name);
+        if (hasPinned && hasDisplayName) return { item, tab, table };
+      }
+    }
+  }
+  return null;
+}
+
+function pickLocatedTab(surface: SurfaceLike, groups: readonly NavigationGroupLike[]): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      for (const tab of item.tabs) {
+        if (seen.has(tab.table_id)) continue;
+        seen.add(tab.table_id);
+        const table = tableOf(surface, tab.table_id);
+        if (table.row_locator_ref) return { item, tab, table };
+      }
+    }
+  }
+  return null;
+}
+
+async function jumpToFirstLocatedRow(page: Page): Promise<void> {
+  const next = page.getByRole("button", { name: "下一个变更" });
+  if (await next.isEnabled().catch(() => false)) {
+    await next.click();
+    const previous = page.getByRole("button", { name: "上一个变更" });
+    if (await previous.isEnabled().catch(() => false)) await previous.click();
+  }
+  await settleFrames(page);
+}
+
 function compositeChanged(bundle: ParsedBundle, pairId: string): number | null {
   const member = bundle.members.find((item) => item.path === `pairs/${pairId}/comparison-surface.json`);
   if (!member) return null;
@@ -207,6 +417,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
   await page.setViewportSize({ width: 1920, height: 1080 });
   const diagnostics = collectPageDiagnostics(page);
   const m1: Array<{ step: string; rendererIncrementBytes: number | null; maxRssAnon: number | null; maxRssFile: number | null; maxRssShmem: number | null }> = [];
+  let navDiagnosticsCaptured = false;
 
   try {
     // Step 1: t1 v1 MODIFIED_ONLY on the empty INITIAL baseline.
@@ -248,6 +459,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     }
     expect(bundle1, "step1 bundle downloaded and installed").toBeTruthy();
     recording1.dispose();
+    const criteria1 = await assertBundleConsumerCriteria(bundle1 as ParsedBundle, "t1 step1 preview bundle");
+    appendCaseLog(`t1-step1 criteria ${formatCriteriaSummary(criteria1)}`);
     const summary1 = pairSummary(bundle1 as ParsedBundle, "initial_to_modified");
     expect(Number(summary1.table_count), "step1 table_count").toBe(v1PreviewCount + 1);
     expect(Number(summary1.changed_table_count), "step1 changed").toBe(v1PreviewCount + 1);
@@ -256,6 +469,28 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await waitForDiffBrowsing(page);
     await saveEvidence(page, testInfo, "t1-v1-diff");
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v1");
+
+    // FE4b §7.3: dependent-on-BE-b pages, still outside the M1 window.
+    const v1PairId = firstPairWithNavigation(bundle1 as ParsedBundle);
+    const v1 = pairArtifacts(bundle1 as ParsedBundle, v1PairId);
+    const secondaryItem = maxTabsItem(v1.groups.find((group) => group.group_key === "SECONDARY_DEVICES")?.items ?? []);
+    if (secondaryItem) {
+      await captureTabItemBothWidths(page, testInfo, "fe4-t1-device-tabs", v1.surface, secondaryItem, firstTabWithRows(v1.surface, secondaryItem));
+    }
+    const forwardItem = maxTabsItem(v1.groups.find((group) => group.group_key === "FORWARD_CHANNELS")?.items ?? []);
+    if (forwardItem) {
+      await captureTabItemBothWidths(page, testInfo, "fe4-t1-forward-channel", v1.surface, forwardItem, firstTabWithRows(v1.surface, forwardItem));
+    } else {
+      appendCaseLog("fe4-t1-forward-channel skipped: FORWARD_CHANNELS 无项");
+    }
+    if (v1.diagnostics.length > 0) {
+      const firstDiagnostic = v1.diagnostics[0];
+      await openSidebarTab(page, firstDiagnostic.target.item_key, firstDiagnostic.target.tab_key);
+      await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
+      await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
+      appendCaseLog(`fe4-t1-nav-diagnostics pair=${v1PairId} code=${firstDiagnostic.code} item=${firstDiagnostic.target.item_key} tab=${firstDiagnostic.target.tab_key}`);
+      navDiagnosticsCaptured = true;
+    }
 
     // Submit v1.
     const submitWait = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
@@ -357,6 +592,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     }
     expect(bundle2, "step4 bundle downloaded and installed").toBeTruthy();
     recording2.dispose();
+    const criteria2 = await assertBundleConsumerCriteria(bundle2 as ParsedBundle, "t1 step4 full bundle");
+    appendCaseLog(`t1-step4 criteria ${formatCriteriaSummary(criteria2)}`);
     expect((bundle2 as ParsedBundle).manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
     const bti = pairSummary(bundle2 as ParsedBundle, "baseline_to_initial");
     expect(Number(bti.changed_table_count), "baseline_to_initial changed").toBe(0);
@@ -379,6 +616,49 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await page.getByRole("tab", { name: "本次组态视图" }).click({ timeout: 120_000 });
     await waitForDiffBrowsing(page);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v2-initial_to_modified");
+
+    // FE4b §7.3: dependent-on-BE-b pages on the v2 FULL initial_to_modified pair.
+    const v2PairId = "initial_to_modified";
+    const v2 = pairArtifacts(bundle2 as ParsedBundle, v2PairId);
+    await expandNavigation(page);
+    await expandAllGroups(page);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-groups");
+    const columnsPick = pickColumnsTab(v2.surface, v2.groups);
+    expect(columnsPick, "t1 v2 initial_to_modified 有中文列名与固定列的表").toBeTruthy();
+    await openSidebarTab(page, columnsPick!.item.item_key, columnsPick!.tab.tab_key);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-columns");
+    appendCaseLog(`fe4-t1-columns table=${columnsPick!.table.table_id} item=${columnsPick!.item.item_key} tab=${columnsPick!.tab.tab_key}`);
+    const locatedPick = pickLocatedTab(v2.surface, v2.groups);
+    expect(locatedPick, "t1 v2 initial_to_modified 有 row_locator_ref 的表").toBeTruthy();
+    await openSidebarTab(page, locatedPick!.item.item_key, locatedPick!.tab.tab_key);
+    await jumpToFirstLocatedRow(page);
+    await saveEvidenceBothWidths(page, testInfo, "fe4-t1-located-rows");
+    appendCaseLog(`fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key}`);
+    if (!navDiagnosticsCaptured) {
+      for (const pair of ["baseline_to_initial", "initial_to_modified"] as const) {
+        const artifacts = pair === v2PairId ? v2 : pairArtifacts(bundle2 as ParsedBundle, pair);
+        if (artifacts.diagnostics.length === 0) {
+          appendCaseLog(`t1-nav-diagnostics ${pair} count=0`);
+          continue;
+        }
+        if (pair === "baseline_to_initial") {
+          await page.getByRole("tab", { name: "原始组态视图" }).click({ timeout: 120_000 });
+          await waitForDiffBrowsing(page);
+        }
+        const firstDiagnostic = artifacts.diagnostics[0];
+        await openSidebarTab(page, firstDiagnostic.target.item_key, firstDiagnostic.target.tab_key);
+        await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
+        await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
+        appendCaseLog(`fe4-t1-nav-diagnostics pair=${pair} code=${firstDiagnostic.code} item=${firstDiagnostic.target.item_key} tab=${firstDiagnostic.target.tab_key}`);
+        navDiagnosticsCaptured = true;
+        if (pair === "baseline_to_initial") {
+          await page.getByRole("tab", { name: "本次组态视图" }).click({ timeout: 120_000 });
+          await waitForDiffBrowsing(page);
+        }
+        break;
+      }
+      if (!navDiagnosticsCaptured) appendCaseLog("fe4-t1-nav-diagnostics skipped: 所有比较对诊断数为 0");
+    }
     const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
     await compareAction(page, "提交").click({ timeout: 120_000 });
     await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });

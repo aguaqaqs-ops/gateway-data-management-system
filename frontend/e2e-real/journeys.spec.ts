@@ -42,6 +42,7 @@ import {
   type WorkspaceBody,
 } from "./lib/api";
 import { countBundlePairs, digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
+import { assertBundleConsumerCriteria, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, inputDir, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
 /**
@@ -166,6 +167,8 @@ async function uploadAndPreview(
   expect(bundleResponse.status(), "bundle status").toBe(200);
   const body = Buffer.from(await bundleResponse.body());
   const bundle = parseBundleTar(body);
+  const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
+  appendCaseLog(`criteria ${scope.slug} preview ${formatCriteriaSummary(criteria)}`);
 
   const contentLength = bundleResponse.headers()["content-length"];
   expect(contentLength, "bundle Content-Length").toBe(String(body.byteLength));
@@ -545,6 +548,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
     const recoveredResponse = await recovered;
     expect(recoveredResponse.status()).toBe(200);
     const parsed = parseBundleTar(Buffer.from(await recoveredResponse.body()));
+    await assertBundleConsumerCriteria(parsed, "journey r3 recovered bundle");
     expect(parsed.manifest.status).toBe("READY");
     expect(countBundlePairs(parsed.manifest)).toBe(1);
     await waitForDiffBrowsing(session.page);
@@ -1001,6 +1005,7 @@ test("r9-history", async ({ browser }, testInfo) => {
     await selectTreeRow(session.page, "提交 1");
     await workshopAction(session.page, "加入比较").click();
 
+    const historyBundles = recordBundleResponses(session.page);
     const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
     await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
     expect((await compareResponse).status()).toBeLessThan(300);
@@ -1025,6 +1030,17 @@ test("r9-history", async ({ browser }, testInfo) => {
     await expect(tabs.getByRole("tab")).toHaveCount(1);
     await expect(tabs.getByRole("tab").first()).toHaveText(/节点 \d+ → 节点 \d+/);
     await saveEvidence(session.page, testInfo, "r9-history-diff");
+
+    let historyBundlesChecked = 0;
+    for (const recorded of historyBundles.responses) {
+      if (recorded.status() !== 200) continue;
+      const downloaded = parseBundleTar(Buffer.from(await recorded.body()));
+      const criteria = await assertBundleConsumerCriteria(downloaded, "journey r9-history bundle");
+      appendCaseLog(`criteria r9-history ${formatCriteriaSummary(criteria)}`);
+      historyBundlesChecked += 1;
+    }
+    historyBundles.dispose();
+    expect(historyBundlesChecked, "r9-history bundle downloads checked").toBeGreaterThan(0);
 
     assertClean(session.diagnostics, "r9-history");
     appendCaseLog(`r9-history ok nodes=${history.body.nodes.length}`);
@@ -1359,6 +1375,8 @@ async function uploadDirsAndPreview(
     }
     expect(bundle, "bundle downloaded and installed").toBeTruthy();
     expect(bundleResponse, "bundle response recorded").toBeTruthy();
+    const criteria = await assertBundleConsumerCriteria(bundle as ParsedBundle, `journey ${scope.slug} ${diffView} bundle`);
+    appendCaseLog(`criteria ${scope.slug} ${diffView} ${formatCriteriaSummary(criteria)}`);
     if (diffView === "replacement") {
       // Identity-different datasets render the replacement browser instead of
       // the comparison grid (R4); the grid paint flag never applies here.

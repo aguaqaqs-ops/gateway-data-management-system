@@ -128,6 +128,7 @@ def group_statistics(request: Request, context: Identity) -> GroupStatistics:
             raise query_error(exc) from None
         from gateway_backend.statistics.queries import GroupRead
         data = GroupRead((), ())
+        health = health.model_copy(update={"quality": "unavailable", "reason": health.reason or "collection_failed"})
     # Group access never serializes repository, operation, table names or business fields.
     storage = tuple(GroupStorageItem.model_validate({key: value for key, value in record.model_dump().items()
         if key not in ('environment_id', 'group_id', 'repository_id', 'source_event_id')}) for record in data.storage)

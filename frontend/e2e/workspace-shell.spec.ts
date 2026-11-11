@@ -2327,12 +2327,15 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     console.log("SHOT", name);
     await screenshot(page, name, 1920);
     await screenshot(page, name, 1280);
+    console.log("SHOT-DONE", name);
   };
   const openPreview = async (fixture: string, extra: Record<string, string> = {}) => {
+    console.log("OPEN", fixture);
     await page.goto(browseUrl("PREVIEW", fixture, extra));
     await waitForBrowse(page);
   };
   const openItem = async (itemKey: string) => {
+    console.log("ITEM", itemKey);
     await page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-item__button`).first().click();
   };
 

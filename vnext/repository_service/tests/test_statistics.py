@@ -204,3 +204,23 @@ def test_failed_after_work_releases_active_slot(tmp_path: Path, monkeypatch: pyt
     with pytest.raises(OSError):
         statistics.collect_one()
     assert statistics.begin(uuid4(), uuid4(), None) is not None
+
+
+@pytest.mark.parametrize('source', ['outcome', 'repository_page'])
+def test_closed_statistics_connection_always_releases_shared_business_mutex(source: str) -> None:
+    import sqlite3
+    import threading
+    from gateway_repository_service.mutation_store import MutationStore
+    from gateway_repository_service.versioned_import.store import ImportOperationStore
+    connection = sqlite3.connect(':memory:')
+    mutex = threading.Lock()
+    import_store = ImportOperationStore(connection, transaction_lock=mutex)
+    mutation_store = MutationStore(connection, transaction_lock=mutex)
+    connection.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        if source == 'outcome':
+            import_store.observe_statistics_outcome(uuid4(), uuid4())
+        else:
+            mutation_store.page_succeeded_repositories()
+    assert mutex.acquire(blocking=False)
+    mutex.release()

@@ -383,23 +383,25 @@ class ImportOperationStore:
         """Background-only narrow read, without the business BEGIN IMMEDIATE path."""
         if not self._lock.acquire(timeout=.05):
             return "unknown", None
-        previous_timeout = self._connection.execute("PRAGMA busy_timeout").fetchone()[0]
         try:
-            self._connection.execute("PRAGMA busy_timeout=50")
-            row = self._connection.execute(
-                "SELECT status, substr(result_json,1,32769) AS result_json "
-                "FROM repository_import_operations WHERE operation_id=? AND repository_scope=?",
-                (str(operation_id), repository_id.hex)).fetchone()
-            if row is None:
+            previous_timeout = self._connection.execute("PRAGMA busy_timeout").fetchone()[0]
+            try:
+                self._connection.execute("PRAGMA busy_timeout=50")
+                row = self._connection.execute(
+                    "SELECT status, substr(result_json,1,32769) AS result_json "
+                    "FROM repository_import_operations WHERE operation_id=? AND repository_scope=?",
+                    (str(operation_id), repository_id.hex)).fetchone()
+                if row is None:
+                    return "unknown", None
+                if row["status"] == OperationStatus.FAILED.value:
+                    return "failed", None
+                raw = row["result_json"]
+                if row["status"] == OperationStatus.SUCCEEDED.value and isinstance(raw, str) and len(raw.encode()) <= 32768:
+                    return "succeeded", VersionedImportResult.model_validate_json(raw).commit_id
                 return "unknown", None
-            if row["status"] == OperationStatus.FAILED.value:
-                return "failed", None
-            raw = row["result_json"]
-            if row["status"] == OperationStatus.SUCCEEDED.value and isinstance(raw, str) and len(raw.encode()) <= 32768:
-                return "succeeded", VersionedImportResult.model_validate_json(raw).commit_id
-            return "unknown", None
+            finally:
+                self._connection.execute(f"PRAGMA busy_timeout={int(previous_timeout)}")
         finally:
-            self._connection.execute(f"PRAGMA busy_timeout={int(previous_timeout)}")
             self._lock.release()
 
     def get_operation(

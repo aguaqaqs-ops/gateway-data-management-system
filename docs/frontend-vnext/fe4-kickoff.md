@@ -118,7 +118,7 @@
 | B1 | 业务分组与筛选 | **结构：**<br>• 每个比较对恰好一份导航产物；缺失或多于一份按 B9 拒绝。<br>• 普通模式读 `groups`，固定五组，按后端给出的顺序通用渲染，`items` 可为空（空组可隐藏）；未知 `group_key` 按通用分组显示。<br>• `DATASET_REPLACEMENT` 读 `replacement_sides.before/current`，此时 `groups=[]`。两侧是独立的键空间：浏览状态、URL、整表视图键都带 `side`。<br>• 按 `group_key`、`item_key` 寻址（命令层、URL、筛选）。<br>**筛选：**<br>• `row_filter` 为 `null`（整表）或 `{before, current}` 双侧集合谓词（`{column, values}`）。对象内某侧为 null，表示该侧没有匹配身份，不表示整表。<br>• 按侧在本地执行；一对行中任一半命中即显示整对。<br>• 整数按 BigInt 值比较，字符串只和字符串比较，缺失与 NULL 不匹配。<br>**事实与标记：**<br>• 普通模式的筛选页签用 `facts`：`basis=EXACT` 用局部 `change_kind`/`risk_level`；`TABLE_FALLBACK` 用整表变化与风险，并提示“此页签按整表提示”。<br>• `table_scope` 是同表一致的表级标记，参与页签、项、组汇总和“只看变化/风险”筛选，不涂到各行。<br>• 整表页签和 `SECONDARY_DEVICES` 中 `item_kind=TABLE` 的整表项，从 surface 与 `RiskReport` 读取。<br>• replacement 的筛选页签 `facts=null`，只显示本侧计数。<br>**解码校验：**<br>• 有导航时不再把未出现在页签中的表补进“其他表”。<br>• 同表整表页签最多一个；整表页签与筛选页签互斥；同表的筛选页签同属一组。 | BE-b §4.2、§4.3、§4.6；第二步 §4.1–§4.3；前端 kickoff §4.5；FE-BEB-01、03、06、09 |
 | B2 | 列展示与列序 | 普通比较的 `columns` 是两侧列名并集：<br>• 按 `present_in`（`BEFORE`/`CURRENT`/`BOTH`）在缺列一侧显示“该侧无此列”，与 NULL 区分；<br>• `display_order` 决定列序（并集内从 0 连续），`pinned` 决定固定列。<br>replacement 各侧用本侧 `replacement_summary.<side>.columns`。<br>列宽与对齐仍由前端计算；不提供隐藏 | BE-b §4.1；第二步 §4.3、§4.4；§6 Q4；FE-BEB-02 |
 | B3 | 中文显示名 | 表名与列名取 `SurfaceTable.display_name`、`SurfaceColumn.display_name`；replacement 的表头、浏览标题、“查看整表”和带 side 的诊断表名取 `replacement_summary.<side>.display_name`；Debug 模式另显示标识符 | BE-b §4.1；第二步 §4.3；UI 优化方向 C6 |
-| B4 | 行定位产物 | **定位：** 读 `row_locator_ref` 的五列 Parquet：`row_identity`、`before_row_index`、`current_row_index`、`before_filter_context_json`、`current_filter_context_json`。<br>**取身份值：**<br>• bundle 有该侧快照时按 index 读行，此时该侧 context 必须为 null；<br>• bundle 缺该侧快照时，从 context（JCS 小对象）取身份值，`{}` 与 `{"<列>":null}` 不匹配；<br>• 缺快照侧的无记录行（修订 8 按正式 Contract 收紧，§18.2 第 2 项）：只在 Business Navigation“无记录行与完整性”的四个条件全部成立时（前端的逐项判定见 §18.2 第 2 项），用有快照侧的身份值执行缺快照侧的谓词（FE-BEB-12）；任一条件不成立时不复用，只按可得侧、已有记录与 context 浏览，并提示“改前对应不可确定”；<br>• 快照中身份值的类型与谓词类型不一致时，作为 bundle 解码错误（FE-BEB-13）。<br>**显示：** keyless 删除行缺少的旧值显示“改前值不可得”，与 NULL 区分。<br>**删除：** `snapshotRowIdentity`、全部规范编码、`validateLocations` 和“本表的变更行无法定位”的匹配路径。<br>**回退：** ref 为 null 时按表级展示（BE-b §4.8 的既定回退），不在浏览器中补算身份 | BE-b §4.8；第二步 §4.2、§5.2；FE2 kickoff §5.3 末条；FE-BEB-08、12、13 |
+| B4 | 行定位产物 | **定位：** 读 `row_locator_ref` 的五列 Parquet：`row_identity`、`before_row_index`、`current_row_index`、`before_filter_context_json`、`current_filter_context_json`。<br>**取身份值：**<br>• bundle 有该侧快照时按 index 读行，此时该侧 context 必须为 null；<br>• bundle 缺该侧快照时，从 context（JCS 小对象）取身份值，`{}` 与 `{"<列>":null}` 不匹配；<br>• 缺快照侧的无记录行（修订 8 按正式 Contract 收紧，§18.2 第 2 项）：只在 Business Navigation“无记录行与完整性”的四个条件全部成立时（前端以哪些公开字段判定，待后端答复，§18.2 第 2 项），用有快照侧的身份值执行缺快照侧的谓词（FE-BEB-12）；任一条件不成立时不复用，只按可得侧、已有记录与 context 浏览，并提示“改前对应不可确定”；<br>• 快照中身份值的类型与谓词类型不一致时，作为 bundle 解码错误（FE-BEB-13）。<br>**显示：** keyless 删除行缺少的旧值显示“改前值不可得”，与 NULL 区分。<br>**删除：** `snapshotRowIdentity`、全部规范编码、`validateLocations` 和“本表的变更行无法定位”的匹配路径。<br>**回退：** ref 为 null 时按表级展示（BE-b §4.8 的既定回退），不在浏览器中补算身份 | BE-b §4.8；第二步 §4.2、§5.2；FE2 kickoff §5.3 末条；FE-BEB-08、12、13 |
 | B5 | 视图 ID | 前端按 `pair_id` 区分视图，修复前后都不受影响；FE4b 核对代码中没有依赖 History `-p<i>` 形式的逻辑。模拟数据改用第二步 §7 的取值（`baseline_to_initial`、`initial_to_modified`、`left_to_right`、`left_to_middle`、`middle_to_right`），每个 pair 用自己的 `view_id` | BE-b §4.9；第二步 §7 |
 | B6 | 诊断编码 | **导航诊断（BE-b §4.7 加第二步 §4.2 的两个新码）：**<br>• 就地提示，分组头汇总个数；<br>• `DEVICE_ROWS_UNASSIGNED` 提供“查看整表”（这是额外入口，不是导航页签），`changed_row_count` 为 null 时显示“变化行数未知”，replacement 下不显示变化行数；<br>• `DEVICE_TAB_FACTS_UNAVAILABLE` 每表一条，target 的 item、tab 为 null，带三个 reason 的文案；<br>• `DEVICE_FILTER_VALUE_UNSUPPORTED` 每个受影响侧一条，指向该表整表项，带三个 reason 的文案。<br>**surface 诊断：**<br>• 按后端交付的完整稳定编码表（[`presentation-diagnostic-codes.md`](../backend-vnext/contracts/presentation-diagnostic-codes.md) 与同源的 `diagnostic-codes.json`）更新文案表，增删与文案见 §18.4（修订 8）；<br>• 删除被取代的原文键、`DUPLICATE_EFFECTIVE_KEY:` 前缀切分、`*Error/*Exception` 正则，以及 `max_risk_tables_per_pair exceeded`、`max_risk_pair_wall_time_seconds exceeded` 两个键（这两条是 pair 失败，不进 READY surface）。<br>未知编码统一用通用文案，原值放 Debug | BE-b §4.7、§4.10；第二步 §4.2、§4.4；FE-BEB-05、06 |
 | B7 | Preview 改前公式与装置名 | 双侧浏览表（`device`、`composite_signal_point`）在改前侧逻辑存在时必有 `before_table_ref`：表未变时别名 current，有变时单独导出；新增表的 before 为 null。<br>改前公式与改前侧装置名统一读 before ref，Preview 与 History 一样显示改前、改后对照。<br>删除“改前公式在 BE-b 实现后提供”以及用 current 回填 before 的路径 | BE-b §4.4；第二步 §5.1；前端 kickoff §8；FE-BEB-07 |
@@ -165,7 +165,7 @@ FE4b 的 fixture、程序判据与截图分工已按第二步写定（§5.3）�
   - FE4a 的退出条件不含依赖 BE-b 的页面。
 - **FE4b：正式重拍。** 在 BE-b 交付后的 backend 上，用 t1 数据在 1280 与 1920 下重拍，交 owner 看图确认。t1 证据运行一次，同时产生正式重拍截图。范围：
   - 沿用上面 FE4a 的页面与截图名，作为 FE4b 的正式截图；
-  - 加上依赖 BE-b 的页面，页面与截图名在本文第 2 步（§5.3）定稿并在 FE4b 实现：侧栏各分组展开、装置页签（按身份过滤）、中文列名与业务列序及固定列、行定位后的修改行连线与风险底色、导航诊断（若 t1 数据产生）。
+  - 加上依赖 BE-b 的页面（修订 8：页面、截图名与选取规则见 §7.3 FE4b），在 FE4b 实现：侧栏各分组展开、装置页签（按身份过滤）、中文列名与业务列序及固定列、行定位后的修改行连线与风险底色、导航诊断（若 t1 数据产生）。
 
   t1 的 `composite_changed` 为 0，Preview 改前、改后公式对照由模拟接口截图覆盖。
 - **两段共同的范围：** 只报告 t1 第 1 步 MODIFIED_ONLY 的 renderer 增量；不做计时，不用 t2–t4；打包流程没改就不跑 t4（§7.4）。t4 上的导航正确性由 BE-b 的后端验证负责，前端不重复。
@@ -319,7 +319,7 @@ FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `arti
 | 子阶段 | 内容 | 前置条件 | 退出 tag | 审核范围 | 退出条件 |
 | --- | --- | --- | --- | --- | --- |
 | FE4a 带入项与新后端回归（已退出） | `fe-vnext` 快进到 main `16ffe72829`（§6.1）；§3.4 C1–C12；§3.5 Q21；§3.6 令牌；§3.8 取证工具；在 `t1.spec.ts` 中加入不依赖 BE-b 的参考截图（§3.3）；在 `vnext/` 树 `49c1de43be` 上跑真实 e2e 与 t1（次数按 §7.2） | 本文经定向复核；审核会话按 §11.1 标题重核分支与 tag、现场核对节点、镜像与 `--print-input` 后发出提示词 | `fe-fe4a-exit` | `fe-fe3c-exit..<FE4a 候选>` | 审核通过；证据（§7.2 FE4a 证据行）各一次通过；C4 的三次稳定性比较（§7.3）都通过；§7.3 看图清单中的截图经 owner 确认。不含依赖 BE-b 的页面 |
-| FE4b BE-b 接入与正式重拍 | §3.1 B1–B9；§3.2 侧栏；§3.3 正式重拍（含依赖 BE-b 的页面）；按 BE-b 交付合入 main、刷新 OpenAPI 与 fixture；FE4 退出 | `fe-fe4a-exit`；P7 S1a 本地退出并合入 main 之后，BE-b 完成第二步设计与实施、退出并合入 main，§4 的交付齐全；本文第 2 步（FE4b 设计）经审核与 owner 确认 | `fe-fe4b-exit`（即 FE4 退出） | `fe-fe4a-exit..<FE4b 候选>` | 审核通过；证据（§7.2 FE4b 行）各一次通过；正式重拍与 FE4b 截图经 owner 确认 |
+| FE4b BE-b 接入与正式重拍 | §3.1 B1–B9；§3.2 侧栏；§3.3 正式重拍（含依赖 BE-b 的页面）；按 BE-b 交付合入 main、重新生成 fixture（OpenAPI 不刷新，修订 8 §6.3）；FE4 退出 | `fe-fe4a-exit`；P7 S1a 本地退出并合入 main 之后，BE-b 完成第二步设计与实施、退出并合入 main，§4 的交付齐全；本文第 2 步（FE4b 设计）经审核与 owner 确认 | `fe-fe4b-exit`（即 FE4 退出） | `fe-fe4a-exit..<FE4b 候选>` | 审核通过；证据（§7.2 FE4b 行）各一次通过；正式重拍与 FE4b 截图经 owner 确认 |
 
 - 两段都在 `fe-vnext` 上进行，合入 main 只用快进或合并，不 rebase，不改写已被引用的提交。
 - **路径核对（每段都做）：** 设 `<main>` 为最后一次进入 `fe-vnext` 的 main 提交：
@@ -409,7 +409,8 @@ BE-b 第二步与 Contract 固定后，前端设计会话修订本文。修订 5
   - 记录生成所在的提交、`HEAD:vnext` 树、节点 hostname，以及输出目录全部文件的 SHA256 清单；
   - 同一提交连续生成两次，两份输出逐文件比较相同后才替换；替换后 `source/backend/` 与输出逐字节相同，不编辑生成产物。
 - **上传输入：** 由后端持有，位于 `vnext/fixtures/presentation-inputs/` 与 `manifest.json`，从 FE4a 核对基线 `59c5b8cfca` 的 `frontend/src/test/fixtures/source/upload-inputs/` 原字节复制。前端模拟数据所用副本逐文件按清单 SHA256 核对。修订 8 补充：
-  - 由前端单测读取仓库中的 `vnext/fixtures/presentation-inputs/manifest.json`，对 8 个原件逐个核对 SHA256，取代 `upload-inputs.test.ts` 中手写的 `SOURCE_SHA256` 常量；
+  - 由前端单测读取后端清单 `vnext/fixtures/presentation-inputs/manifest.json`，对 8 个原件逐个核对 SHA256，取代 `upload-inputs.test.ts` 中手写的 `SOURCE_SHA256` 常量；
+  - **输入通路（修订 8 审核 R8-2）：** `run-tests.sh` 现在只归档 `HEAD:frontend`，容器里没有 `vnext/`。FE4b 把 runner 的归档改为同一 HEAD 的 `frontend` 加两个文件 `vnext/fixtures/presentation-inputs/manifest.json`、`vnext/fixtures/presentation-inputs/diagnostic-codes.json`，容器内解包后两文件位于前端根目录的 `../vnext/fixtures/presentation-inputs/`，单测按这个相对路径读取，只读；runner 日志记录两文件的 SHA256。不复制整个 `vnext/`，也不在前端保存副本。F8 的编码集合单测走同一通路；
   - 后端另增的 `sql-{baseline,initial,modified}-canonical.sql` 只用于 fixture 生成，不复制到前端；
   - 真实旅程的派生输入 `e2e-real/fixtures/upload-inputs/`（FE3a Q10，`gid INT NULL`）与后端的 canonical 派生件不同，两者都是合法输入；FE4b 不改它，真实旅程的输入不变（§18.2 第 6 项）。
 - **目录清单：** 输出须覆盖下列目录，缺项即失败：
@@ -447,9 +448,13 @@ BE-b 第二步与 Contract 固定后，前端设计会话修订本文。修订 5
    - `RiskReport` 中该表无风险。
    不再要求“每张表都出现在可见页签中”。
 3. **按侧覆盖（不藏行）：** 对每张有筛选页签的共享表，只核 bundle 有该侧快照、且该表筛选页签为 `EXACT` 的一侧。该侧全部已发布谓词覆盖的行集合（取并集，不能把各页签计数相加）的大小，加上同侧 `DEVICE_ROWS_UNASSIGNED.row_count`，等于该侧行数。缺快照侧由后端 Contract 测试负责。
-4. **行定位：** 有 `row_locator_ref` 的表全部定位：
-   - 每条行级记录在有快照侧的 index 处命中恰好一行；
-   - 缺快照侧的 context 合规；
+4. **行定位：** 有 `row_locator_ref` 的表全部定位（修订 8 按审核 R8-3 改写）。只针对已发布的 STANDARD 普通行记录（`ROW_ADDED`、`ROW_DELETED`、`ROW_MODIFIED`），ordered、blank 与 schema 记录按原语义，不进入本条：
+   - **逻辑存在侧：** `ROW_ADDED` 只有 current，`ROW_DELETED` 只有 before，`ROW_MODIFIED` 两侧都有；
+   - **逻辑存在且 bundle 有该侧快照：** index 合法，命中该侧快照中恰好一行，该侧 context 为 null；
+   - **逻辑存在而缺该侧快照：** index 为 null；该表发布了筛选页签时 context 必须非 null 且为合规的 JCS 对象，否则为 null；
+   - **逻辑不存在侧：** index 与 context 都为 null；
+   - locator 中的身份集合与已发布 STANDARD 普通行记录的身份集合相等，没有重复；
+   - 该表已发布的 STANDARD 普通行记录非零而 `row_locator_ref` 为 null，判为不符（只有真实零记录的表才允许 null）；
    - 没有出现表级回退。
    回退的表数与 `TABLE_FALLBACK` 页签数只报告。
 
@@ -496,7 +501,7 @@ BE-b 第二步与 Contract 固定后，前端设计会话修订本文。修订 5
 | F2 | **surface v4：** selector 精确匹配；`columns` 为两侧并集，`present_in`、`pinned`、`display_order` 必填，`display_order` 是 0 起的排列；`table_content_bindings` 三项与对应 table ref 同为 null 或同非 null；`row_locator_ref`；replacement 各侧 `display_name` 与列；恰好一个 `BUSINESS_NAVIGATION` projection，`risk_summary_ref` 为 null；不重算 `surface_digest` | BE-b | Comparison Surface“当前版本 v4”“SurfaceTable”“语义摘要与 raw 完整性” | `features/view-model/model.ts` | 缺导航、两份导航、`display_order` 不连续、binding 与 ref 不同为 null，各一个反例，都按该比较对的 bundle 解码错误处理 |
 | F3 | **导航解码的严格不变量：** 本节“模拟数据规则”的七条与 B1 的三条唯一性；谓词 `values` 非空、同类、去重并按规定排序，两侧不同时为 null；未知 `group_key` 按通用分组显示 | BE-b | Business Navigation“载荷与唯一性”“双侧筛选与标量” | `model.ts` | 每条不变量一个反例（共享参数表）；`preview-replacement` 与普通场景各自满足互斥关系 |
 | F4 | **筛选与标量：** 按侧执行；整数按同侧 `gateway.sta.enc.v1` metadata 确定类型，规范十进制文本转 BigInt 并核 safe 范围；字符串原值比较；身份值类别与谓词不一致即解码错误；NULL 与缺列不匹配 | BE-b | Business Navigation“双侧筛选与标量”（FE-BEB-13） | `features/view-model/table-rows.ts` | `integer-boundary`、`text-identities`、`excluded-identity`；单测：负零、前导零、空白、小数、指数、超范围、字符串“7”对整数谓词 |
-| F5 | **行定位：** 读五列 locator；有快照侧按 index 读行且 context 必须为 null；缺快照侧解析 context（`{}` 与 `{"列":null}` 不匹配）；无记录行按 §18.2 第 2 项的判定决定是否复用身份；ref 为 null 时表级展示；删除 `snapshotRowIdentity`、规范编码、`validateLocations` 与“本表的变更行无法定位”路径 | BE-b | Row Location 全文；Business Navigation“无记录行与完整性” | `table-rows.ts`、`pages/ComparisonPage.tsx` | `duplicates-orphans`（缺快照、EXACT、复用）；`identity-changes`（抑制增删、`TABLE_FALLBACK`、不复用）；`preview-modified-only` 的 `keyless_demo`（删除行“改前值不可得”）；`schema-keyless`（keyless 多副本）；单测：有快照侧 context 非 null、index 越界、重复 identity |
+| F5 | **行定位：** 读五列 locator，按程序判据 4 的矩阵区分记录种类与逻辑存在侧；有快照的逻辑存在侧按 index 读行且 context 必须为 null；缺快照侧解析 context（`{}` 与 `{"列":null}` 不匹配）；无记录行是否复用身份待后端答复后写定（§18.2 第 2 项），答复前该分支不实现；ref 为 null 时表级展示；删除 `snapshotRowIdentity`、规范编码、`validateLocations` 与“本表的变更行无法定位”路径 | BE-b | Row Location 全文；Business Navigation“无记录行与完整性” | `table-rows.ts`、`pages/ComparisonPage.tsx` | 复用分支待答复后补用例，预期正向落在 `duplicates-orphans` 缺 before 快照的共享表（`device_cfg`、`device_st`，`EXACT`），反向落在 `identity-changes`（抑制增删、`TABLE_FALLBACK`）；`identity-unrecorded-exact` 的共享表有 before 别名，只能验证 gid 与地址变化的归属，不能证明复用分支执行过；`preview-modified-only` 的 `keyless_demo`（删除行“改前值不可得”）；`schema-keyless`（keyless 多副本）；单测：有快照侧 context 非 null、index 越界、重复 identity |
 | F6 | **双侧列：** 按 `present_in` 在缺列一侧显示“该侧无此列”，与 NULL 区分；列序按 `display_order`；固定列按 `pinned`；中文名按 `display_name`，Debug 另显示标识符 | BE-b | Table Presentation；Comparison Surface“当前版本 v4”第 2、3 条 | 表格组件、`ComparisonPage.tsx` | `schema-keyless` 的 `device_st.before_only`；`comment-only` 的中文名 |
 | F7 | **局部事实与表级标记：** `EXACT` 与 `TABLE_FALLBACK`（“此页签按整表提示”）；`table_scope` 参与页签、项、组汇总与“只看变化/风险”，不涂到各行；`SECONDARY_DEVICES` 中 `item_kind=TABLE` 的整表项 | BE-b | Business Navigation“局部事实与表级事实” | `model.ts`、侧栏 | `identity-changes`、`table-addition`、`schema-keyless` |
 | F8 | **诊断文案：** 12 个导航码与两个 reason 族；surface 码表按 §18.4 增删；删除前缀切分、类名正则与英文短句键；未知编码用通用文案，原值放 Debug | BE-b | Presentation 稳定编码 | `features/view-model/diagnostics.ts` | 单测读取 `diagnostic-codes.json`：导航码集合与各码 params 键集合、`surface_summary_codes` 集合分别与文案表全等；`duplicates-orphans`、`excluded-identity`、`missing-identity-column` 的就地提示 |
@@ -562,22 +567,22 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 - **FE4a 退出：** 附注 tag `fe-fe4a-exit` 指向 FE4a 证据 handoff。先把审核报告合入本地 main，再以 `--no-ff` 合入 tag。main 届时可能已有 P7 的文档或代码；FE4a 只改 `frontend/` 与 `docs/frontend-vnext/`，预期没有冲突，由审核会话先试合并。
 - **FE4a 的推送（owner 2026-11-10 已决定，§10 Q12）：** 退出时推送 tag `fe-fe4a-exit`。main 是否推送随后端的推送节奏由 owner 决定；届时 main 会带上 P7 的内容。
-- **FE4b 退出（FE4 退出）：** 同样流程，tag `fe-fe4b-exit`；推送在第 2 步写定。修订 8 的建议（§10 Q25，待 owner 确认）：退出时推送 tag `fe-fe4b-exit`；它指向的提交包含 S1a 与 BE-b 的全部提交，推送 tag 会把这些对象一并推到远端，但不移动远端 main。main 是否推送由 owner 按后端节奏另定。
+- **FE4b 退出（FE4 退出）：** 按 §19 的新流程：退出只入库一页总结，tag `fe-fe4b-exit` 指向 `fe-vnext` 上的总结提交，再以 `--no-ff` 合入 main。修订 8 的建议（§10 Q25，待 owner 确认）：退出时推送 tag `fe-fe4b-exit`；它指向的提交包含 S1a 与 BE-b 的全部提交，推送 tag 会把这些对象一并推到远端，但不移动远端 main。main 是否推送由 owner 按后端节奏另定。
 - tag 与合入由设计会话在 owner 确认后执行；推送只按 owner 的决定或授权执行。
 
 ### 6.5 FE4b 的合入点（修订 8）
 
 - **起点：** `fe-vnext` 为 `c2199b82f7`（`fe-fe4a-exit` 的目标），是 main 的祖先。
 - **合入点：** 快进到 `be-b-exit` 的目标 `3e5f24583dee3d3c44705e4ef34557890557568b`（`git merge --ff-only`），不 rebase，不改写已被引用的提交。设计会话已核对：`c2199b82f7` 是它的祖先，可以快进；它的 `vnext/` 树为 `2faac9fc1da9a6fd15eddef894f5c6e1652fba95`，与 BE-b 产品验证 V `37fe3a87d2` 相同。
-- **与设备目录 `fe-handoff` 的先后（§10 Q22，待 owner 确认；分析见 §18.7）。** 按建议甲：
-  - FE4b 开始时 `fe-handoff` 已退出并合入 main：改为快进到当时的 main 头，替代上一条的提交；
-  - FE4b 开始后 `fe-handoff` 才合入 main：在 `fe-vnext` 上以 `--no-ff` 合入 `fe-handoff` 合入后的那个 main 提交，只此一次。合并冲突由实施会话解决并写入 handoff；最迟在提交审核候选之前完成；
-  - 到 FE4b 准备送审时 `fe-handoff` 仍未合入 main：实施会话停下交设计会话，由 owner 决定等待，还是不带 `fe-handoff` 送审；
-  - 无论哪种情形，进入 `fe-vnext` 的 main 提交都须满足：`vnext/` 树仍为 `2faac9fc1d`；`git diff --name-only 3e5f24583d <该提交>` 只含 `frontend/` 与 `docs/` 下的路径。不满足即停下交设计会话。
+- **与设备目录 `fe-handoff` 的先后（§10 Q22，按审核 R8-1 后的事实改写，待 owner 确认；分析见 §18.7）。** 按建议甲（FE4b 作为集成线）：
+  - FE4b 从 `3e5f24583d` 开始，不等 `fe-handoff`；
+  - `fe-handoff` 经其自身审核通过后，在 FE4b 最终候选之前，以 `--no-ff` 把其审核通过的提交合入 `fe-vnext`，只此一次；冲突由实施者解决并写入 handoff；
+  - 到 FE4b 最终候选时 `fe-handoff` 尚未审核通过：FE4b 不带它继续，不相互等待；`fe-handoff` 在 FE4 退出后基于 main 再做真实回归；
+  - 合入的 `fe-handoff` 提交须满足：`git diff --name-only 3e5f24583d <该提交>` 只含 `frontend/` 与 `docs/` 下的路径，`vnext/` 树仍为 `2faac9fc1d`；路径核对另允许 `fe-handoff` 自身改动的路径（`docs/device-directory/`、`docs/frontend-vnext/frontend-kickoff.md`）。不满足即停下交设计会话。
 - **路径核对（§5.2）：** 设 `<main>` 为最后一次进入 `fe-vnext` 的 main 提交：
   - `git rev-parse <候选>:vnext` 等于 `2faac9fc1da9a6fd15eddef894f5c6e1652fba95`；
   - `git diff --name-only <main> <候选>` 只含 `frontend/` 与 `docs/frontend-vnext/` 下的路径。
-- **不合入之后的 main：** 除上面 `fe-handoff` 的一次合入外，FE4b 期间不合入 main 的后续提交。main 再改 `vnext/` 时，是否跟进由 owner 决定，实施与审核会话都不自行合入。
+- **不合入之后的 main：** FE4b 期间不合入 main 的后续提交（`fe-handoff` 按上条经它自己的提交进入）。main 再改 `vnext/` 时，是否跟进由 owner 决定，实施与审核会话都不自行合入。
 - **推送：** `3e5f24583d` 尚未推送（远端 main 仍为 `16ffe72829`）。FE4b 的开发、调试与取证都在本地与测试节点之间经局域网传递代码，不需要推送；FE4b 退出时的推送见 §6.4 与 §10 Q25。
 - **审核范围：** `fe-fe4a-exit..<FE4b 候选>`。其中来自 main 的 S1a、BE-b、设备目录与 AGENTS 文档，以及全部 `vnext/` 改动，不属于前端审核。属于前端审核的 `frontend/` 改动：
   - FE4b 自身的提交；
@@ -639,7 +644,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 | FE4a 审核（审核会话） | 模拟接口全量 `run-tests.sh --e2e --screenshots` 一次与探针（§11.2）；**不独立跑真实旅程与 t1**，改为核对实施会话的调试日志 | 审核 |
 | FE4a fix4 调试与复审（修订 6，§16） | 实施会话：07 上 `run-tests.sh`（不带 `--e2e`）一次；05 上 `--suite journeys --subphase fe3c` 完整集调试**一次**；不跑模拟接口全量与 t1。审核会话：helper 区分力探针（模拟接口）、07 上模拟接口全量一次并与复审第 3 轮 `full1` 做稳定性比较、核对 05 调试日志；不独立跑真实旅程与 t1 | 调试与审核（owner 2026-11-11，§10 Q18） |
 | FE4a 证据 | 审核通过后，在最终候选的 clean、已提交 detached worktree 上各运行一次：`run-tests.sh --e2e --screenshots`、`validate-upload-package.sh`、`--suite journeys`（完整集 20 个 scope）、`--suite t1`。审核会话随后核对证据日志。修订 6：`59c5b8cfca` 上的证据运行停止，四项在 fix4 候选上各重跑一次（§16.5，§10 Q19） | 证据；耗时只报告 |
-| FE4b | t1 证据运行一次，同时产生正式重拍截图（§3.3）；调试按需，在第 2 步写定。`journeys` 与 `t1` 加入导航、列与行定位的程序判据（第 2 步） | 第 2 步写定（修订 8：下面三行） |
+| FE4b | t1 证据运行一次，同时产生正式重拍截图（§3.3）；调试与判据见下面三行（修订 8） | 见下面三行 |
 | FE4b 调试（实施会话；修订 8，次数待 owner 确认，§10 Q23） | **fixture 生成：** 05 上同一提交连续两次，逐文件相同后才替换（§5.3）。它不运行真实数据，不计入下面的次数；合入点变化（§6.5）后须重新生成一次，同样连续两次。<br>**模拟接口：** focused 用例按需；送审前在最终候选上、同一节点连续两次全量 `run-tests.sh --e2e --screenshots`（`GATEWAY_FE_TEST_WORKERS=2`），作为 §7.3 第 ① 次稳定性比较。<br>**`--suite journeys`：** 完整集，**最多两次**。第一次在 bundle 解析、导航、表格与行定位都改完之后；第二次只在第一次失败并修复之后。入口须接受 FE4b 的子阶段名（建议 `fe4b`），选择范围等同 `fe3c` 的完整集；FE4a 加的 J1/J2 调试选择不用。<br>**`--suite t1`：最多两次。** 第一次验证程序判据（§5.3）与截图的选取（§7.3）；第二次只在第一次失败，或之后又改了 `t1.spec.ts` 或判据 helper 时。<br>`validate-upload-package.sh` 不在调试中跑：FE4b 不改上传包与校验。<br>超过上述次数时停下交设计会话，由 owner 决定 | 调试；通过后送审 |
 | FE4b 审核（审核会话；修订 8） | 模拟接口全量一次（第 ② 次稳定性比较）与探针（§11.3）；在 05 上用实施会话的 wrapper 独立生成一次 fixture，与候选中的 `source/backend/` 逐文件比较；**不独立跑真实旅程与 t1**，核对实施会话的调试日志、判据输出与截图 SHA256 | 审核 |
 | FE4b 证据（修订 8） | 审核通过后，在最终候选的 clean、已提交 detached worktree 上各运行一次：04 上 `run-tests.sh --e2e --screenshots`、`validate-upload-package.sh`、`--suite journeys`（完整集 20 个 scope）；05（或另一个按清单核对过 t1 目录的节点）上 `--suite t1`，同时产生正式重拍截图、程序判据输出与 M1。证据停止后在新候选上重跑时，四项都重跑（同 §10 Q19），不计为调试次数 | 证据；耗时只报告 |
@@ -650,7 +655,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 - **FE4b 证据同样四项各一次（修订 8）：** 理由同上；另外 FE4b 改了 bundle 解析，每个下载 bundle 的旅程都受影响，所以 `journeys` 跑完整集而不是只跑受影响的 scope。
 - **FE4b 的 t1 调试为什么给两次（修订 8，§10 Q23）：** FE4a 的 t1 调试只加了截图；FE4b 要在 t1 中新增四条程序判据、6 个依赖 BE-b 的截图页面，并且是新前端对新后端（S1a、BE-b）的第一次真实数据运行，第一次就暴露问题的可能性较大。FE4a 的 05-t1 证据从启动到收尾约 4 分 13 秒（wrapper 日志 04:40:48–04:45:01 UTC）；FE4b 加入截图与判据后会略长。只用 t1，不涉及 t2–t4。
 - **两段共同：** 只报告 t1 第 1 步 MODIFIED_ONLY 的 renderer 增量；不做计时，不用 t2–t4；打包流程没改就不跑 t4（§7.4）。不另加重复采样或性能测量（DC98）。
-- **t1 调试只有一次：** 需要第二次 t1 调试运行时（例如第一次失败，或之后又改了 `t1.spec.ts`），停下交设计会话，由 owner 决定，不自行追加。失败属于 DC68 的工具或取证错误时，按下条处理。在新候选上重跑的 t1 证据不计为调试运行（修订 6，§16.5）。
+- **FE4a 的 t1 调试只有一次（FE4b 的次数见上表与 §10 Q23）：** 需要第二次 t1 调试运行时（例如第一次失败，或之后又改了 `t1.spec.ts`），停下交设计会话，由 owner 决定，不自行追加。失败属于 DC68 的工具或取证错误时，按下条处理。在新候选上重跑的 t1 证据不计为调试运行（修订 6，§16.5）。
 - **失败与重做：** 按 AGENTS（main）“专用测试节点”的 DC68，原文如下：
 
   > **DC68 工具/取证错误（Owner 2026-11-08 修订）：**首次失败后，同一具体故障允许最多三轮自行修复、适用独审与受影响步骤复验；不因被测对象已经运行就立即交 owner。每轮先停止该次执行、保留原始失败及日志/SHA、确认收尾，再固定修订稿复验；三轮仍未解决、原因/副作用不明或超出既有授权时交 owner。不得无修改自动重试、改预期掩盖结果或跳过身份/缓存前提；产品 finding 按阶段已有修复与停止规则办理。只读后处理/预检、代码传输准备的不计次数澄清继续适用。
@@ -677,7 +682,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
   - owner 看复审通过的候选在 07 上的截图（handoff 记录路径与 SHA256）；证据运行的截图由第 ③ 次稳定性比较与之绑定，不另看。
 - **真实 backend 与 t1：** FE4a 的 t1 参考截图（§3.3 的页面与截图名）只留在节点上，SHA256 写入 handoff，不作验收，审核会话只核对 SHA256 与文件名是否齐全；FE4b 的 t1 正式重拍交 owner 看图（§3.3）。
 - **对照依据：** 审核会话对照 `sketches/` 与 UI 优化方向核对布局、层级、语义色、按钮层级、禁用原因与焦点样式，不做像素级比对。
-- **FE4b：** 模拟接口截图的比较沿用同一脚本、同一上限与同样的三次稳定性比较；FE4a 到 FE4b 的变化清单以 FE4a 证据截图为比较原件：04 `/home/dev/gdds-fe-evidence-04/fe4a-16f43063/shots`（清单 `shot-files.txt`，SHA256 `3db69cef9dc15ac8adeece2d52ce061f108ac4b754db384ebbaa4a77f233aa35`）；07 上有按该清单逐文件核对过的副本 `/home/dev/gdds-fe-shots/fe4a-rereview4/evidence-04-copy`。其余在第 2 步写定。真实 backend 的 t1 截图不用该脚本判定（数据与时间不固定），按 §3.3 看图。设计会话 2026-11-11 核对：04 原件 198 张、清单 SHA256 与上值相同；07 副本 198 张。
+- **FE4b：** 模拟接口截图的比较沿用同一脚本、同一上限与同样的三次稳定性比较；FE4a 到 FE4b 的变化清单以 FE4a 证据截图为比较原件：04 `/home/dev/gdds-fe-evidence-04/fe4a-16f43063/shots`（清单 `shot-files.txt`，SHA256 `3db69cef9dc15ac8adeece2d52ce061f108ac4b754db384ebbaa4a77f233aa35`）；07 上有按该清单逐文件核对过的副本 `/home/dev/gdds-fe-shots/fe4a-rereview4/evidence-04-copy`。其余见下面的“FE4b（修订 8 写定）”。真实 backend 的 t1 截图不用该脚本判定（数据与时间不固定），按 §3.3 看图。设计会话 2026-11-11 核对：04 原件 198 张、清单 SHA256 与上值相同；07 副本 198 张。
 
 **FE4b（修订 8 写定）：**
 
@@ -686,7 +691,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
   - **fixture 重新生成：** 生成 fixture 的输入换成后端的 canonical 派生件（`yc_list` 的值文本不同）、ID 与 pair 名改变，差异浏览页的截图内容会变；
   - **导航与侧栏（§3.2，F12）、列（F6）、行定位（F5）、诊断（F8）、改前公式（F9）**；
   - **N5：** `fe3b-w4-approved-withdraw` 与同一顶栏的其他截图（§18.5）；
-  - **退役（缺失）：** `navigation-fallback`（B9）；`tab-overflow` 依赖占位导航的页签，生成的 fixture 中单项最多 3 个页签（§18.2 第 7 项），若没有 fixture 能在 1280 或 1920 下触发页签溢出，该截图退役，理由写入 handoff；溢出逻辑由组件单测与 t1 的 `fe4-t1-device-tabs`、`fe4-t1-forward-channel` 覆盖；
+  - **退役（缺失）：** `navigation-fallback`（B9）；`tab-overflow` 依赖占位导航的页签，生成的 fixture 中单项最多 3 个页签（§18.2 第 7 项），若没有 fixture 能在 1280 或 1920 下触发页签溢出，该截图退役，理由写入 handoff；溢出逻辑由组件单测覆盖，t1 的 `fe4-t1-device-tabs`、`fe4-t1-forward-channel` 只在实际溢出时算作补充覆盖；
   - **合入 `fe-handoff` 时（§6.5）：** 只由 `fe-handoff` 引起的文件（包括它新增的截图），比较原件改为 `fe-handoff` 自身的 04 证据截图，结果应为“相同”或“噪声”；FE4b 改到的，按 FE4b 的原因列出。
 - **新增的模拟接口截图（1280、1920 各一张，共 19 个名字、38 个文件；合入 `fe-handoff` 时另加最后一行，共 20 个名字、40 个文件）：** 场景名指 §5.3 的生成目录。
 
@@ -719,13 +724,13 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
   | 截图名 | 时机与选取 |
   | --- | --- |
   | `fe4-t1-nav-groups` | 第 4 步 v2 FULL 的 `initial_to_modified`：侧栏展开全部非空的组（转发通道、规约通道、全局参数三组只在真实数据中出现） |
-  | `fe4-t1-device-tabs` | 同上，`SECONDARY_DEVICES` 中按后端顺序第一个有 2 个以上页签的项，打开其第一个有行的页签 |
-  | `fe4-t1-forward-channel` | 同上，`FORWARD_CHANNELS` 中按后端顺序第一个有 2 个以上页签的项；没有则不拍，在 handoff 中写明 |
+  | `fe4-t1-device-tabs` | 第 1 步 v1 Preview（在 M1 取值之后）：`SECONDARY_DEVICES` 中页签最多的项（并列取后端顺序第一个），打开其第一个有行的页签。审核核对：v1 的装置项最多 12 个页签，而 v2 FULL 只有 3 个 |
+  | `fe4-t1-forward-channel` | 同上，第 1 步 v1：`FORWARD_CHANNELS` 中页签最多的项（并列取第一个；v1 最多 10 个页签）；没有该组则不拍，在 handoff 中写明 |
   | `fe4-t1-columns` | 同上，按导航顺序第一张既有 `display_name` 与列名不同的列、又有固定列的表 |
   | `fe4-t1-located-rows` | 同上，有 `row_locator_ref` 的表（BE-b 实测 1 张），打开后滚到第一条定位的记录 |
   | `fe4-t1-nav-diagnostics` | 任一比较对有导航诊断时，第一个有诊断的比较对中按后端顺序的第一条就地提示；都没有时不拍，handoff 记录各比较对的诊断数为 0 |
 
-  截图仍在 M1 测量窗口之外（§3.3），不增加旅程步骤。
+  截图仍在 M1 测量窗口之外（§3.3），不增加旅程步骤。`fe4-t1-device-tabs`、`fe4-t1-forward-channel` 在某个宽度下页签溢出时，同时断言溢出控件可用、经它能到达最后一个页签；不溢出时如实记录该宽度未溢出，不算覆盖页签溢出（由组件单测覆盖）。
 - **FE4b 交 owner 看图的范围：**
   1. 上面变化清单中的全部文件，按原因分组；
   2. 新增的 38 个（合入 `fe-handoff` 时 40 个）模拟接口截图文件；
@@ -783,7 +788,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 **fix4 调试停止（修订 7）：** 2026-11-11，fix4 第一个候选 `d12e3b8f70` 的 05 完整集调试中 3 个 scope 失败，原因是 §16.2 的 helper 规则要求所有按钮都有 `aria-describedby`，工作台工具栏的原生按钮没有。这是设计会话的错误，不是产品缺陷。实施会话按 §16.3 停止并保留产物，处理正确。处理见 §17。
 
-**FE4b：** 在第 2 步写定。原则已经确定：
+**FE4b：** 原则（修订 5 时已定）：
 
 - BE-b 的 Contract 或产物与第一步不一致，不自行适配，交 owner 转后端；
 - 需要在浏览器中重新计算行标识、按表名推断分组或列序时，停下交设计会话。
@@ -792,14 +797,15 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 *合入点与输入：*
 - 快进失败；进入 `fe-vnext` 的 main 提交不满足 §6.5 的条件；候选的 `vnext/` 树不是 `2faac9fc1d`；路径核对出现 `frontend/`、`docs/frontend-vnext/` 以外的路径；
-- 到送审时 `fe-handoff` 仍未合入 main（§6.5，按 Q22 甲）；合入 `fe-handoff` 时的冲突需要改变它的会话启动或凭据处理（这两部分归 `fe-handoff` 的实施会话，见其 kickoff §6）；
+- 合入 `fe-handoff` 的提交不满足 §6.5 的条件；合入 `fe-handoff` 时的冲突需要改变它的会话启动或凭据处理（这两部分归 `fe-handoff` 的实施会话，见其 kickoff §6）；
 - `--print-input` 不是 `lock-578e079b762e`；两个依赖镜像、工具链或 npm 缓存缺失或身份不符（§6.7）；构建需要访问网络；
 - 运行时 `/openapi.json` 与快照规范化后不同（§6.3）；
 - fixture 生成：入口失败、输出缺少清单要求的目录、两次生成不完全相同，或上传输入副本与后端清单的 SHA256 不符（§5.3）。不改输入、不编辑生成产物、不放宽清单，保留两份输出交设计会话；
 - 生成的 fixture 或真实 bundle 违反 §5.3 的解码不变量（即后端产物与 Contract 不符）：保留产物，交设计会话，由 owner 转后端；不在前端放宽解码。
 
 *Contract 与设计：*
-- 实现需要 Contract 没有提供的字段，或 Contract 有两种读法而 fixture 不能区分（§18.2 第 2 项的复用条件就属于这一类风险）：停下交设计会话，不自行假设；
+- 实现需要 Contract 没有提供的字段，或 Contract 有两种读法而 fixture 不能区分：停下交设计会话，不自行假设；
+- 后端尚未答复 §18.2 第 2 项（无记录行复用判据）而 FE4b 准备送审：不送审，交设计会话；
 - 需要在浏览器中重新计算行标识、按表名推断分组或列序（原则）；
 - 改动需要改变 FE3 kickoff 已定的业务规则，或 §3.2 的侧栏规则。
 
@@ -875,10 +881,11 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 | # | 事项 | 设计会话建议 | 不采用的方案及代价 | 落点 |
 | --- | --- | --- | --- | --- |
-| Q22 | FE4b 与设备目录 `fe-handoff` 的先后与合并方式 | **甲：`fe-handoff` 先合入 main，FE4b 以它为基础。** FE4b 开始时 `fe-handoff` 已合入，就快进到当时的 main；FE4b 已开始，就在 `fe-handoff` 合入 main 后以 `--no-ff` 合入该 main 提交一次，最迟在送审前；到送审时仍未合入，停下由 owner 决定。理由：两者都改差异浏览页的 `compare-header`，而 N5 修的正是 Preview 模式下这个顶栏在 1280、1920 都溢出 12 px 的问题；先有设备位置再修 N5，顶栏只需改一次、看一次图。`fe-handoff` 范围小（会话启动与标题栏），目录试运行在等它；FE4b 的大部分工作（bundle 解析、导航、表格、fixture）不碰顶栏，可以并行。分析见 §18.7 | **乙：FE4b 先行，`fe-handoff` 在 FE4 退出后基于 main 重做。** 目录试运行要再等 FE4b 全程（实施、审核、证据，按 FE4a 的经验以天计），而 `fe-handoff` 加设备位置时还要再处理一次顶栏宽度。**丙：两者各自独立推进，FE4b 退出时再合并。** 冲突留到退出时解决，合并后的 `frontend/` 树没有在节点上跑过（FE4a 退出时已出现过一次：`5658a45f21`），N5 的顶栏宽度也可能被设备位置重新撑破 | §6.5、§7.3、§8、§18.7 |
+| Q22 | FE4b 与设备目录 `fe-handoff` 的先后与合并方式（按审核 R8-1 后的事实改写） | **甲：FE4b 作为集成线。** 事实：当前 main 的前端（FE4a 树 `5658a45f21`）仍按 `{column,value}` 读导航，后端已是 BE-b，main 上前后端不匹配，`fe-handoff` 在 main 上做的真实回归不是有效证据，目录试运行也要等前端适配 BE-b。做法：两者并行；`fe-handoff` 照常完成单测、模拟 e2e、截图与自身审核，真实回归改由 FE4b 的 `journeys` 调试与证据覆盖；审核通过的 `fe-handoff` 提交在 FE4b 最终候选前合入 `fe-vnext` 一次，随 FE4 退出进入 main，`dir-v1` 阶段 2 在 FE4 退出后开始；`fe-handoff` 来不及时 FE4b 不等它。这改变了 owner 已确认的 `fe-handoff` kickoff（真实回归位置、合入 main 与 `dir-v1` 的时点），需 owner 决定 | **乙：`fe-handoff` 先独立退出，真实回归在旧后端树上做：** 需拼接前端与旧 `vnext/` 树，组合未经验证，不推荐。**丙：FE4b 先退出，`fe-handoff` 之后基于 main 做：** 简单，但目录试运行串行等两者，`fe-handoff` 加设备位置时还要再处理一次顶栏。无论选哪种，FE4 退出前不要从 main 部署试运行 | §6.5、§7.3、§8、§18.7 |
 | Q23 | FE4b 的真实数据次数（DC33、DC98） | 调试：`journeys` 完整集最多两次、`t1` 最多两次；审核不独立跑真实数据；证据：`journeys` 完整集、`t1` 各一次（证据停止后在新候选上重跑不计为调试）；只用 t1，不用 t2–t4；打包流程没改就不跑 t4；M1 只报告第 1 步 MODIFIED_ONLY。理由：FE4b 改 bundle 解析与差异浏览页，每个下载 bundle 的旅程都受影响，只跑部分 scope 不够；t1 新增四条程序判据与 6 个截图页面，第一次就暴露问题的可能性较大。每次 t1 约 4–5 分钟 | **各只给一次调试（同 FE4a）：** 第一次失败后要再走一次 owner 确认，按 FE4a 修订 6、7 的经验，每次停顿都要等确认。**不给 journeys 调试、直接取证：** 证据失败要在新候选上四项重跑（Q19），代价更大 | §7.2 |
 | Q24 | FE4a 带入项的纳入与推迟 | 纳入：N5、N14、N17、N19、N20 与 N25、N24、N26、N27、审核清单补充、两个后端提交的审核。推迟：§17.2 的可选项（工作台工具栏原生按钮统一改为 `Button` 组件），理由是与 BE-b 无关，且会改动大量工作台截图、扩大看图范围；记入 FE4 退出的遗留，由以后的前端阶段处理。逐项理由见 §18.5 | **全部纳入：** 工作台截图大面积变化，与 FE4b 的差异浏览页变化混在一起，看图与审核都更难 | §18.5 |
 | Q25 | FE4 退出时的推送 | 推送 tag `fe-fe4b-exit`；main 是否推送由 owner 按后端节奏另定（同 Q12）。推送 tag 会把它指向的提交及其祖先（含 S1a、BE-b 的提交）一并推到远端，但不移动远端 main | **同时推送 main：** main 带有 S1a、BE-b 与 P7 文档，其推送应随后端的安排，不由前端退出决定 | §6.4 |
+| Q26 | FE4b 按新流程的角色与材料（审核 R8-6） | 按 §19：新开持续协调者会话 `fe4b-coord`；W1、W2 与 W4 中的判据 helper、wrapper 字段为 B 类逐包独审，其余为 C 类；独审用与实施者不同的模型家族；材料放 `/home/dev/gdds-stage-exchange/fe4b/`；退出一页总结放 `docs/frontend-vnext/fe4b-summary.md` | **设计会话兼任协调者：** 设计与协调集中在一个上下文，独立性较弱。**总结放后端计划目录（规格原文）：** 前端文档分散到后端目录 | §19 |
 
 ## 11. 提示词草稿
 
@@ -965,36 +972,36 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 ### 11.3 FE4b 实施与审核
 
-在本文第 2 步（§5.3）中写定。框架与 FE4a 相同：新建实施与审核会话；先读 BE-b 的 Contract、交接、golden 与 §4 第 7 项的变化说明；合入 BE-b 退出后的 main（届时含 P7 S1a）；刷新 OpenAPI 与 fixture；按 §3.1、§3.2 实施；t1 证据运行一次，同时产生正式重拍截图，交 owner 看图。§11.2 第 10 项（DOM 结构与真实旅程定位器）同样适用，写进 FE4b 的审核清单。
+修订 5 时的原文（修订 8 起以下面的草稿要点与 §19 为准，其中“刷新 OpenAPI”已改为不刷新，“框架与 FE4a 相同”已由 §19 的新流程取代）：新建实施与审核会话；先读 BE-b 的 Contract、交接、golden 与 §4 第 7 项的变化说明；合入 BE-b 退出后的 main（届时含 P7 S1a）；重新生成 fixture；按 §3.1、§3.2 实施；t1 证据运行一次，同时产生正式重拍截图，交 owner 看图。§11.2 第 10 项（DOM 结构与真实旅程定位器）同样适用，写进 FE4b 的审核清单。
 
 **修订 8 的草稿要点（正式提示词在本修订经独立审核、owner 确认 Q22–Q25 并合入 main 之后写）：**
 
-*发出前置条件（同 §11.1 的做法，由审核会话核对后发出）：*
+*发出前置条件（由持续协调者核对后发出，§19）：*
 1. 修订 8 经独立审核，owner 确认 Q22–Q25；设计会话以 `--no-ff` 合入本地 main，提示词填入合入后的提交号；
 2. 发出前重核并记录：`fe-vnext` 仍为 `c2199b82f7`；`be-b-exit` 仍指向 `3e5f24583d`，其 `vnext/` 为 `2faac9fc1d`；main 当前的头与 `vnext/` 树；`fe-handoff` 是否已合入 main 及合入提交（决定 §6.5 的哪种情形）；`S2B_DATASET_BASELINE`、`S1B_V2_PREVIEW_CHANGED_COUNTS` 在 `3e5f24583d:vnext/backend/benchmarks/real_dump_journey.py` 中仍是模块级常量（设计会话 2026-11-11 用 `git grep` 核对在第 192、234 行）；
 3. 在所选节点上现场核对 §6.7 的两个依赖镜像、工具链、npm 缓存与 t1 目录，并运行 `--print-input`。
 
 *实施提示词要点：*
-- 新会话，不沿用 FE4a 的实施会话；会话名 `fe4b-impl`；
+- 每个工作包一个新的实施上下文，不沿用 FE4a 的会话；会话名如 `fe4b-w1-impl`；按 §19 的工作包划分；
 - 先读：AGENTS（main）“专用测试节点”“前端测试（FD7）”（含后端改 `frontend/` 先告知的规则）；本文（main `[确认提交]`）§3.1、§3.2、§5.3、§6.5–§6.7、§7、§8 FE4b、§10 Q22–Q25、§18；交付文档与 BE-b 总结；七份正式 Contract（§18.1 表）；golden 的 README；FE4a 的 handoff、退出记录与带入项原文所在的审核报告；合入了 `fe-handoff` 时另读它的 kickoff 与 handoff；
 - 起点按 §6.5，路径核对、`--print-input`、RS 依赖镜像 tag 与运行时 OpenAPI 比对不符即停止；
 - 范围：§5.3 的 F1–F13、§3.2 侧栏、§18.5 纳入的带入项、`t1.spec.ts` 的正式重拍截图与程序判据、`journeys` 的程序判据、入口接受 `fe4b` 子阶段名；
 - 不做：不改 `vnext/`；不在浏览器中重算行标识；不依赖“未变表在 Preview 中也有 before 别名”这一实测现象（Contract 只承诺 `device` 与 `composite_signal_point`，§18.2 第 4 项）；不编辑生成的 fixture；不改打包流程；真实数据次数不超过 §7.2；
 - 节点与占用：生成 fixture 在 05；静态检查与模拟接口优先 07；真实 backend 与 t1 在 05；都按原子占用标记，真实 backend 入口自行获取；
 - 日志与回源：证据与调试运行经 §3.8 的 wrapper，设置 `GATEWAY_FE_LOG_DIR`（N26）；handoff 中的十六进制值用回源脚本核对；
-- 交付 `docs/frontend-vnext/fe4b-handoff.md`：合入点与路径核对；F1–F13 与带入项逐项的改动位置与用例；fixture 两次生成的记录（提交、`vnext/` 树、节点、两份输出的 SHA256 清单与比较结果）；程序判据输出；t1 的 FE3 kickoff §8.3 逐条核对与 M1；截图清单、变化清单分组与第 ① 次稳定性比较；真实旅程中出现的诊断码；每次运行的节点、hostname、起止 UTC、起止 HEAD、树、exit code、日志 SHA256 与镜像、缓存身份；回源结果；已完成、未测（含 §18.3 列出的只由单测覆盖的编码）、未决三节。
+- 交付各包的 handoff，放 `/home/dev/gdds-stage-exchange/fe4b/handoffs/`（§19），内容包括：合入点与路径核对；F1–F13 与带入项逐项的改动位置与用例；fixture 两次生成的记录（提交、`vnext/` 树、节点、两份输出的 SHA256 清单与比较结果）；程序判据输出；t1 的 FE3 kickoff §8.3 逐条核对与 M1；截图清单、变化清单分组与第 ① 次稳定性比较；真实旅程中出现的诊断码；每次运行的节点、hostname、起止 UTC、起止 HEAD、树、exit code、日志 SHA256 与镜像、缓存身份；回源结果；已完成、未测（含 §18.2 第 7 项列出的只由单测或 t1 覆盖的编码与情形）、未决三节。
 
 *审核提示词要点：*
-- 新会话，不与实施会话为同一会话；会话名 `fe4b-review`；审核 `fe-fe4a-exit..[FE4b handoff 提交]`，范围说明按 §6.5；先做路径核对；
-- **F1–F13 的区分力：** 逐项把修复回退或放宽后对应用例应失败，至少包括：去掉 v4 selector 的精确匹配（v3 向量应被拒的用例失败）；不核 `ROW_LOCATOR` 条目的 SHA；允许有快照侧 context 非 null；无记录行不按 §18.2 第 2 项判定就复用身份（`identity-changes` 的用例应失败）；整数文本接受前导零；文案表少一个 `diagnostic-codes.json` 中的码（集合全等单测失败）；
+- B 类包的逐包独审与阶段末全范围独审都用新上下文，模型家族与实施者不同（§19）；阶段末审核 `fe-fe4a-exit..[FE4b 候选]`，范围说明按 §6.5；先做路径核对；
+- **F1–F13 的区分力：** 逐项把修复回退或放宽后对应用例应失败，至少包括：去掉 v4 selector 的精确匹配（v3 向量应被拒的用例失败）；不核 `ROW_LOCATOR` 条目的 SHA；允许有快照侧 context 非 null；无记录行不按后端答复后写定的判据就复用身份（`identity-changes` 的用例应失败）；整数文本接受前导零；文案表少一个 `diagnostic-codes.json` 中的码（集合全等单测失败）；
 - **fixture：** 在 05 上用实施会话的 wrapper 独立生成一次，与候选中的 `source/backend/` 逐文件比较；核对删除项已无引用；
 - **§11.2 第 10 项**（DOM 结构改动时 grep `e2e-real/` 中的定位器，并核对共享 helper 全部调用处的结构）；
-- **两个后端提交（§18.6）：** 审查入口改动，并在实施会话的 `journeys` 调试日志中核对 `cleanup_runtime`、`cleanup_status=ok`、`main_exit_code` 与 `exit_code` 两行，以及 wrapper 取的是 `exit_code` 整行（N27）；
+- **两个后端提交（§18.6）：** 审查入口改动，并在实施会话的 `journeys` 调试日志中核对 `cleanup_runtime`、`cleanup_status=ok`、`main_exit_code` 与 `exit_code` 两行，以及 wrapper 得到的是 `exit_code` 字段而不是 `main_exit_code`（N27）；
 - **合入了 `fe-handoff` 时：** 只核冲突的解决与 FE4b 对其行为的影响（会话注入在真实旅程调试中仍有效；它的单测与模拟用例仍通过）；
 - **截图：** 第 ② 次稳定性比较；用比较脚本复核变化清单的分组；新增的 38 个（合入 `fe-handoff` 时 40 个）文件齐全；t1 截图的选取符合 §7.3 的规则；规则 4 不再有豁免；
 - **t4 筛查**（§7.4）；**回源**（§3.8）；
 - **运行：** 模拟接口全量一次与探针；不独立跑真实旅程与 t1，核对实施会话的调试日志；
-- 报告写入 `docs/frontend-vnext/reviews/fe4b-review.md`；通过后指明证据项（§7.2 FE4b 证据行），取证后核对证据日志，给出 FE4 退出建议（含 Q25 的推送）。
+- 报告写入 `/home/dev/gdds-stage-exchange/fe4b/reviews/<被审提交>.md`（§19），标明范围、风险与模型家族；通过后指明证据项（§7.2 FE4b 证据行），取证后核对证据日志，给出 FE4 退出建议（含 Q25 的推送）。
 
 ## 12. 交接材料
 
@@ -1439,7 +1446,7 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 | # | 出入 | 处理 |
 | --- | --- | --- |
 | 1 | §3.5（FE4a Q21）按后端答复删除了 `BLANK_PROVENANCE_INVALID`（“没有主动产生点”）；正式稳定编码表把它列为 native 保留错误码，可以进入 surface summary | 以正式 Contract 为准：FE4b 恢复该码，文案同有序表 gid 组（§18.4）。Q21 答复说的是当时的产生点，与 Contract 列出完整错误空间不矛盾，不交后端 |
-| 2 | 本文 B4 写“没有记录的行，两侧身份值相同”，缺少 Contract 的四个前提（后端在 B0 日志中也指出了这一点）；第二步设计 §4.2 要求前端“仅按这些明确条件消费”，且 `null` ref、`facts.basis=EXACT`、`replay_guarantee=EXACT` 单独都不是证明 | 同步本文 B4（已改）。前端的判定（F5），对缺快照侧且两逻辑侧都存在的表，以下全部成立才复用：① 表的 `change_kind` 不是 `ADDED`、`DELETED`，且 `display.table_processing_mode=STANDARD`、`change_kind` 不是 `SCHEMA_CHANGED`、`DEGRADED`、`FAILED`；② 身份列在 surface 列中 `present_in=BOTH`（被比较规则排除的情形已由后端改为整表入口，前端只需排除物理缺列）；③ `row_change_stats.suppressed_added_count`、`suppressed_deleted_count` 都为 0；④ 已发布 records 按 kind 计数与 `row_change_stats` 的新增、删除、修改计数相等；⑤ locator 存在时全部绑定成功（F5 的校验）。生成的 fixture 中，`duplicates-orphans` 满足全部条件且页签为 `EXACT`，`identity-changes` 因 ③ 不满足且页签为 `TABLE_FALLBACK`。**交 owner 转后端（不阻塞）：** 请后端确认“存在筛选页签时，上述条件全部成立 ⇔ 该表筛选页签为 `EXACT`”是否为保证的不变量（第二步说 `local_fallback_reason` 是两者的共同判据，物理缺列另算）；若是，前端把它加入解码不变量 |
+| 2 | 本文 B4 原写“没有记录的行，两侧身份值相同”，缺少 Contract 的四个前提（后端在 B0 日志中也指出了这一点）。Contract 又写“`null` ref、`facts.basis=EXACT`、`replay_guarantee=EXACT` 单独都不是证明”，第二步设计 §4.2 要求前端“仅按这些明确条件消费”，但没有写出从公开字段到条件的映射。修订 8 初稿在此给出的五项检查经独立审核（R8-1）指出不完整：漏了风险归属完整性（记录完整而因 `RISK_ATTRIBUTION_UNAVAILABLE` 进入 fallback 的情形），且公开 surface 把 `SCHEMA_CHANGED` 与 `SCHEMA_ONLY_CHANGED` 都显示为 `SCHEMA_ONLY`，前端区分不出后端只对后者禁止复用。设计会话随后读后端实现：对发布了筛选页签、两逻辑侧都存在的表，`may_reuse_unrecorded_identity` 看上去恰等于该表筛选页签 `basis=EXACT`，与 Contract 的写法不一致 | **交 owner 转后端，作为 F5 复用分支的前置（阻塞该分支，不阻塞其他工作）。** 问题原文：`/home/dev/gdds-stage-exchange/fe4b/questions/be-b-unrecorded-identity-consumer-rule.md`，请后端确认复用是否保证等价于 `basis=EXACT`、“两逻辑侧都存在”取哪个公开字段，或给出准确映射；并确认已发布 STANDARD 普通行记录非零时 `row_locator_ref` 必须非 null。答复写入 Contract 后，设计会话同步 B4、F5 与本行，再由审核会话定向复核。在此之前：F5 中该分支不实现、不送审；前端不得自拟判据；B4 的“只在四个条件全部成立时复用”保留为方向，不作为实施规则。初稿的五项检查作废 |
 | 3 | 交付文档与总结的状态行、§4 仍写“最终 H 与退出 tag 待核收”；`business-navigation.md` 头部仍写“集中验收…尚待完成”；golden README 仍写“剩余 B5 身份/OpenAPI/门禁绑定见交付” | 都写于打 tag 之前。FE4b 以 tag 消息与阶段日志“B5 最终核收”为准（§12）。交 owner 转后端更新，不阻塞 |
 | 4 | golden 显示 Preview 中未变化的表也带 `before_table_ref`（与 current 同一 artifact，例如 `fe2a/preview-modified-only` 的 `b1_n1_iec104_yc_list`、`device_st`、`version_manager`）；Contract 只承诺 `device` 与 `composite_signal_point` | 前端按 ref 是否存在通用处理，不依赖这一现象，写进实施提示词的“不做”（§11.3）。不交后端 |
 | 5 | BE-d 互通向量 `backend-interop/be-d-0ba45e5ef8/` 的 manifest 是 v3；交付没有重新生成它（§4 第 7 项也只列了 `source/backend/`，是本文清单的遗漏） | 设计决定，见 §18.3 第 1 项 |
@@ -1497,9 +1504,9 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 | N17 `ReviewActions` 错误提示的清除与回退 | 纳入 | FE4b 调整顶栏时一并处理：其他路径重读 Review 后清除旧的冲突提示；`errorNoticeHost` 为空时有回退位置。补模拟用例 |
 | N19 比较脚本自检对 Paeth 没有区分力 | 纳入 | 自检的编码器与解码器不再共用同一个 `paeth()`（例如用独立写法或固定的已知向量）；把 `paeth()` 改为恒返回“左”的变异应使自检失败 |
 | N20、N25 回源脚本的配对范围 | 纳入 | 支持 `` `路径`，SHA256 `值` `` 与表格单元格内的路径；标签项改为可复算的证据文件；报告“有路径却未配对”的文件哈希。FE4b 的 handoff 要用它回源 |
-| N24 C12 第 1 条在真实旅程中未覆盖 | 纳入 | 在现有 `r11-review-conflict` 中加断言：审核操作返回冲突、对话框关闭后，错误提示出现在 `.compare-header__notice`。只加断言，不加旅程步骤；该 scope 到不了这个状态时在 handoff 中说明，不另造场景 |
+| N24 C12 第 1 条在真实旅程中未覆盖 | 记为未测（按审核意见改写） | 现有 `r11-review-conflict` 是 `REVIEW_VERSION_CONFLICT`，刷新后先清除错误再关闭对话框，到不了过期通过或 `ARCHIVE_CLOSED` 的关闭后顶栏提示。不加真实旅程步骤，仍只由模拟接口 V12 覆盖，写入 handoff 的“未测” |
 | N26 证据提示词设置 `GATEWAY_FE_LOG_DIR` | 纳入 | 写进 FE4b 的实施与证据提示词（§11.3） |
-| N27 wrapper 的 `exit_code` 与 `busy_end` | 纳入 | `exit_code` 只取入口日志中 `exit_code=` 开头的整行（`b79fd4c72f` 之后入口另有 `main_exit_code=` 一行，不能误取）；`busy_end` 在释放标记之后记录，或改名为 `busy_before_release` |
+| N27 wrapper 的 `exit_code` 与 `busy_end` | 纳入（修订 8 按审核 R8-5 改写） | 字段缺失的原因不是匹配写法：wrapper 的 `report_field()` 已按 `^exit_code=` 整行匹配，但只扫描它捕获的入口输出段，而 `validate-upload-package.sh` 的 `finish()` 把结束字段只追加到自己的日志，标准输出只打印 `log_file` 与摘要。修法：上传校验入口在 `finish()` 中把结束字段（含 `exit_code`）同时打到标准输出；真实 backend 入口同样核对，必要时同法处理。wrapper 的执行结果仍以入口进程退出码为准，字段缺失不能改判成功。`busy_end` 在释放标记之后记录，或改名为 `busy_before_release`。验收：上传校验与真实 backend 两个入口经 wrapper 各得到最终 `exit_code` 字段，且不会取到 `main_exit_code` |
 | §17.2 可选项：工作台工具栏原生按钮改为 `Button` | **推迟** | 与 BE-b 无关，会改动大量工作台截图、扩大看图范围；记入 FE4 退出的遗留，由以后的前端阶段处理 |
 | 审核清单补充（DOM 结构改动时 grep `e2e-real/` 定位器，核对共享 helper 的全部调用处） | 纳入 | 写进 FE4b 审核提示词（§11.3） |
 | 两个后端 `frontend/` 提交 | 纳入 | 见 §18.6 |
@@ -1511,7 +1518,7 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
   - `7b16061b2e`（P7 S1a F）：入口在 `TMPDIR` 下建运行时根目录，用 `python3 -I vnext/scripts/tests/runtime_config_fixture.py <根> --owner <Compose 项目名>` 生成运行时配置与 Compose override `compose-runtime.json`，所有 `docker compose` 调用改经 `compose_runtime()` 带上 override；收尾时以 `--cleanup` 清理，失败运行加 `--retain` 保留现场，清理失败记 `cleanup_runtime=failed retained=<路径>`；
   - `b79fd4c72f`：收尾记录 `main_exit_code`；主流程成功但清理失败时，`exit_code` 改为 1。
 - **设计会话的只读阅读：** 入口有 `set -Eeuo pipefail` 与 `trap cleanup EXIT`，生成运行时配置失败会直接退出并进入收尾，收尾对已建的根目录做清理，逻辑成立；没有发现阻塞问题。审核时重点看：
-  1. wrapper 取 `exit_code` 的方式（N27）；
+  1. wrapper 取得 `exit_code` 字段的通路（N27，§18.5）；
   2. 失败保留的运行时根目录中是否含凭据（注释说凭据在另行删除的 `RUN_ROOT` 中）；
   3. 前端入口依赖后端测试目录下的 `runtime_config_fixture.py`。AGENTS 只要求后端改 `frontend/` 前先告知，改这个 helper 同样会影响前端入口。**交 owner 考虑（不阻塞）：** 是否把它也列入“先告知前端设计会话”的范围。
 - **由谁审、何时审：** 在 FE4b 审核中审，不现在另做窄审。理由：它们不在 FE4a 的被测树上，`5658a45f21` 还没有在任何节点上运行；单独窄审也需要一次真实运行才能验证，而 FE4b 的第一次 `journeys` 调试正好是它们的首次运行。
@@ -1524,10 +1531,46 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 - 它改会话启动（新模块与 `main.tsx`、`App.tsx`）、`DevIdentityControl`、`authenticated-fetch.ts` 的注释、工作台 `workspace-topbar` 与差异浏览页 `compare-header`（显示“地区一 / 地区二 / 项目名（站号）”与“返回目录”）、无会话与会话失效页面、工作台“尚无数据”。它要求不破坏 `e2e-real/lib/ui.ts` 用 `addInitScript` 注入的会话；测试注入的会话没有 `display`，不显示设备位置，现有布局不变。
 - FE4b 改差异浏览页的侧栏、表格与 `compare-header`（N5、N17），以及 `e2e-real`。两者在 `compare-header` 与 `ComparisonPage.tsx` 上重叠；N5 修的正是 `fe-handoff` 要加设备位置的那个顶栏，它现在已经在两种宽度下溢出 12 px。
 
-**建议甲（§10 Q22）：** `fe-handoff` 先合入 main，FE4b 以它为基础（做法见 §6.5）。
+**建议甲（§10 Q22，修订 8 按审核改写）：** FE4b 作为集成线，做法与理由见 §6.5 与 Q22。下面三条影响按此理解：`fe-handoff` 的截图比较原件为它自身的 04 证据截图（正式提示词写明提交、目录与 SHA256）；它的真实回归由 FE4b 的 `journeys` 调试与证据覆盖。
 
 **对 FE4b 的影响：**
 - **截图基线：** FE4a 到 FE4b 的变化清单中，只由 `fe-handoff` 引起的文件改用 `fe-handoff` 的 04 证据截图作比较原件，应为“相同”或“噪声”；FE4b 改到的按 FE4b 的原因列出（§7.3）。`fe-handoff` 新增的截图不进入 FE4b 的看图范围，除非 FE4b 改变了它们。
 - **N5 的验收：** 带设备位置的顶栏只出现在跳转会话中。FE4b 修 N5 时，除现有的 `fe3b-w4-approved-withdraw` 外，另拍 `fe4b-preview-topbar-device`（§7.3），覆盖 `fe-handoff` 加入的带设备位置的 Preview 顶栏，两种宽度下都不溢出。
 - **真实旅程的会话注入：** 测试注入的会话（`window.__gatewaySession` 已预先设置）按 `fe-handoff` 的优先级 2 保持不变，不读写 `sessionStorage`。FE4b 的第一次 `journeys` 调试同时验证 `fe-handoff` 的会话启动与整页跳转后注入仍有效；失败时按 §8 停止，判断属于哪一方。
 - **审核：** FE4b 审核只核合并冲突的解决与 FE4b 对 `fe-handoff` 行为的影响（§6.5）。会话启动与凭据处理的修正归 `fe-handoff` 的实施会话（其 kickoff §6）。
+
+## 19. FE4b 的流程、角色与材料（修订 8，按审核 R8-6）
+
+**依据：** AGENTS（main）“流程与角色（P7-D25/D26）”与[流程规格](../backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md) §1、§4：前端从 FE4a 之后的下一步起使用新流程。FE4a 的角色与记录是既有事实，不改。前端继续使用自己的权威入口（`frontend/scripts/run-tests.sh`）与真实 backend 入口，不使用后端的按包门禁（规格 §1 末段）。本文头部“会话分工”与 §11.1、§11.2 描述的是 FE4a 的安排，对 FE4b 以本节为准。
+
+**角色：**
+
+| 角色 | 担任 | 职责 |
+| --- | --- | --- |
+| 设计会话 | 本会话 | 维护本文与设计决定；回答实施中的设计问题；处理交设计会话的停止；同步后端答复 |
+| 持续协调者 | 建议新开一个会话 `fe4b-coord`（§10 Q26） | 按比例化政策 §4 定各工作包的风险等级；为每个包安排新的实施上下文与必要的独审；发出提示词；按 §6.5 推进 `fe-vnext`（快进、合入 `fe-handoff`）；维护阶段日志；引用机器日志组织证据与看图；退出时写一页总结，经 owner 确认后打 tag、合入 main |
+| 实施 | 每个工作包一个新上下文（会话名如 `fe4b-w1-impl`）；内聚的两三个小包可合并 | 实现与 focused 测试，运行前端现有脚本（取消专职测试者）；写包的 handoff |
+| 独审 | 新上下文，模型家族与该包实施者不同 | B 类包逐包独审；阶段末一次全范围独审，覆盖全部包与范围内 main 上的 `frontend/` 提交（§6.5）；同一 finding 由原审复审 |
+
+**工作包与风险（建议，协调者可按实际后果调整）：** FE4b 不写权威业务事实，没有 A 类。
+
+| 包 | 内容 | 风险 | 理由 | 审核 |
+| --- | --- | --- | --- | --- |
+| W1 解码与 fixture | F1、F2、F3、F11；BE-d 向量（§18.3 第 1 项）；runner 的输入通路（§5.3、R8-2） | B | 决定审核人看到的数据是否完整可信；放宽解码会让不合 Contract 的包进入展示。可重新下载恢复，不写权威事实 | 逐包独审 |
+| W2 筛选、行定位与局部事实 | F4、F5、F7 | B | 错误的筛选或定位会让审核人在页签中漏看变化行；审核结论由人作出，整表入口始终可用 | 逐包独审；F5 的无记录行复用分支等后端答复（§18.2 第 2 项）后单独补做并复审 |
+| W3 展示与交互 | F6、F8、F9、F10、F12、F13；§3.2 侧栏；N5、N17；合入 `fe-handoff` 后的顶栏 | C | 展示层，可重做；由 owner 看图验收 | 不逐包独审，由阶段末全范围独审覆盖 |
+| W4 取证与真实旅程 | N14、N19、N20 与 N25、N27；程序判据 helper（§5.3）；入口的 `fe4b` 子阶段；`t1.spec.ts` 的截图与判据 | C；其中程序判据 helper 与 wrapper 结果字段按 B | 工具的假阳性会放过错误产品（规格 §1 第 4 条的同类风险） | 判据 helper 与 wrapper 字段逐包独审，含变异探针；其余由阶段末独审覆盖 |
+
+**材料位置：**
+
+- 阶段交换目录 `/home/dev/gdds-stage-exchange/fe4b/`（开发主机，不在 Git checkout 下）：
+  - `log.md`：追加式阶段日志，每个角色一小段：UTC、角色、提交、做了什么、未测与未决、下一步；
+  - `prompts/`：协调者发出的提示词；
+  - `handoffs/`：各包的 handoff；
+  - `reviews/<sha>.md`：审核意见与追加的复审结论，标明范围、风险与模型家族；
+  - `questions/`：交后端的问题，例如 `be-b-unrecorded-identity-consumer-rule.md`（§18.2 第 2 项）；
+  - `evidence/`：从节点按原字节复制的日志、清单与比较输出，保留来源 hostname 与路径。截图、trace、Compose 日志仍只留在节点上，只记路径与 SHA256。
+- **入库：** 本文（设计）；后端答复由后端写入 Contract；退出时一页总结，按规格 §4 的模板。规格写的总结位置是后端计划目录，前端建议放 `docs/frontend-vnext/fe4b-summary.md`（§10 Q26）。FE4a 那样的 handoff 与审核报告不再入库。
+- **tag 与合入：** `fe-fe4b-exit` 指向 `fe-vnext` 上的一页总结提交；以 `--no-ff` 合入 main；推送按 §10 Q25。路径核对规则不变（§6.5）。
+
+**交 owner 的事项：** 按 AGENTS，只有产品范围、验收范围（含 §7.3 的看图）、来源冲突与不可逆操作交 owner；节点选择、可逆的实现细节与风险定级由协调者决定。调试次数超出 §7.2 属于验收范围，交 owner。

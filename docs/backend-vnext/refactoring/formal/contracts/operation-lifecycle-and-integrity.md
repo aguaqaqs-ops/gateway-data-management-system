@@ -26,6 +26,33 @@ restart 是 graceful shutdown 后的正常 startup recovery、health check 和 r
 接管。
 
 
+### 固定 worker 组维护
+
+内部认证 `POST /internal/v1/maintenance/drain` 幂等关闭 HTTP 新工作受理；同权限 GET
+返回同一临界区的 `accepting_new_work` 与非负 `in_flight`。计数覆盖已受理请求的完整处理
+（包括上传流），不是 durable 队列或 executor 数。闭门使 ready=false，所有原
+`acquire_new_work` 入口沿原错误码拒绝；GET/下载和原 operator recovery 仍按原权限可用。
+没有在线重新开门。严格布尔 `GATEWAY_BACKEND_MAINTENANCE_MODE` 默认 false；true
+启动保持闭门/not-ready，storage/config 健康检查照常执行，不写控制库维护状态。
+
+一次性 `manage-worker-group.py drain` 校验明确 Compose project 的固定实例、配置和资源，
+闭门并有限等待在途受理归零后，对全部 worker 发送 TERM；每批最多等待180秒，确认容器
+退出且 cgroup 无进程。超时/异常非零并保留栈，不发 KILL、不自动开门、不删卷或锁。
+这只表示 worker 已停：backend/RS 仍可能处理原请求、写缓存/统计，整组尚未静止。
+
+仅同配置 worker 重启可在该边界恢复。改 root、环境/组身份、W、版本/schema 前，先在
+旧配置确认 RUNNING 与未知外部结果，按原 key 查询/恢复，不能强清 UNKNOWN 或业务占用。
+`stop-group` 在 drain 后只读核对没有 RUNNING step 或 EFFECT_PENDING SubmitAttempt，
+再按 backend → RS 顺序 TERM 并分别确认整个 cgroup（含 Dolt children）退出；任一步失败
+停止后续步骤。该检查不替代运维核对原 RS 请求结果及变更适用性。只有业务状态满足此次
+变更要求且全部写入进程停止，才可维护配置/版本。
+
+维护 backend 的显式 `start-recovery` 要求闭门且在途归零、backend 的 storage/config
+可读健康、RS ready，以及全部原 worker 容器/cgroup 已停止；只 start 原容器，不 recreate
+或绕过运行时配置校验。此时已有队列可能执行，不称静止。恢复完成再次 drain；正常恢复
+先以确认配置重启 backend 至 ready，再启动固定 worker。维护不取消队列、不延长既有期限、
+不重置恢复次数，不新增持久队列或在线许可清除入口。
+
 ### 正常 drain 的纯重算让出（DC88）
 
 S2b D 对已注册 `PURE_RECOMPUTE` 且未跨外部 effect 的阶段，允许在尚未写出本次新 checkpoint 时协作让出。应用/registry owner 判能力；LeaseSession 在原 mutation lock 下重读 fresh records，以有效 lease/CAS 及真实 drain 为前置，按既有 `RUNNING → RETRY_WAIT` 清 worker/token/lease并立即可重领。保留旧 checkpoint（可为空）、prior outputs 与业务保护，不制造 checkpoint、发布未完成结果或更换冻结来源。

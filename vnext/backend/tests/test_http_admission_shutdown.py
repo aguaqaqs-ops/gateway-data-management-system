@@ -21,6 +21,7 @@ from gateway_backend.http.shutdown import begin_http_pre_drain, resolve_fastapi_
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     TEST_BEARER,
+    TEST_INTERNAL_BEARER,
     create_workspace_http_environment,
 )
 from tests.support.runtime_settings import (
@@ -41,6 +42,48 @@ def test_closable_admission_gate_stops_new_work() -> None:
     assert gate.allows_new_work() is False
     gate.close()
     assert gate.allows_new_work() is False
+
+
+def test_internal_drain_is_authorized_idempotent_and_counts_existing_admission(tmp_path: Path) -> None:
+    gate = ClosableAdmissionGate()
+    env = create_workspace_http_environment(tmp_path, admission_gate=gate)
+    internal = {"Authorization": "Bearer " + TEST_INTERNAL_BEARER}
+    path = "/internal/v1/maintenance/drain"
+    for method in (env.client.get, env.client.post):
+        assert method(path).status_code == 401
+        assert method(path, headers=AUTH).status_code == 401
+    assert gate.snapshot() == {"accepting_new_work": True, "in_flight": 0}
+    assert gate.try_acquire()
+    assert env.client.get(path, headers=internal).json() == {"accepting_new_work": True, "in_flight": 1}
+    for _ in range(2):
+        assert env.client.post(path, headers=internal).json() == {"accepting_new_work": False, "in_flight": 1}
+    assert not gate.try_acquire()
+    assert env.client.get("/readyz").status_code == 503
+    assert env.client.get("/healthz").status_code == 200
+    assert env.client.get("/v1/operations/missing", headers=AUTH).status_code == 404
+    # Recovery still reaches its own target validation after the gate closes.
+    recovery = env.client.post("/internal/v1/operations/missing/steps/missing/recovery", headers=internal, json={})
+    assert recovery.status_code == 422
+    gate.release()
+    assert env.client.get(path, headers=internal).json() == {"accepting_new_work": False, "in_flight": 0}
+
+
+def test_maintenance_startup_keeps_storage_and_reads_available_without_admission(tmp_path: Path) -> None:
+    prepare_backend_runtime_paths(tmp_path)
+    settings = make_backend_settings(tmp_path, maintenance_mode=True)
+    with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
+        with TestClient(create_app(settings)) as client:
+            internal = {"Authorization": "Bearer " + TEST_INTERNAL_BEARER}
+            assert client.get("/readyz").status_code == 503
+            assert client.get("/healthz").status_code == 200
+            assert client.get("/internal/v1/maintenance/drain", headers=internal).json() == {
+                "accepting_new_work": False, "in_flight": 0}
+
+
+@pytest.mark.parametrize("value", [0, 1, "1", "yes", "TRUE", None])
+def test_maintenance_mode_rejects_non_boolean_configuration(tmp_path: Path, value: object) -> None:
+    with pytest.raises(ValueError, match="maintenance_mode must be true or false"):
+        make_backend_settings(tmp_path, maintenance_mode=value)
 
 
 def test_create_routes_reject_after_admission_close_while_reads_remain(tmp_path: Path) -> None:

@@ -24,7 +24,9 @@ def create_app(
         app = FastAPI(title="Gateway Backend vNext")
         app.add_middleware(ArchiveRequestBodyLimitMiddleware)
         maybe_add_inflight_barrier_middleware(app)
-        _register_health_routes(app, ready=True)
+        app.state.ready = True
+        app.state.admission_gate = workspace_http.admission_gate
+        _register_health_routes(app, ready=None)
         register_workspace_http(app, workspace_http, history_deps=history_http)
         return app
 
@@ -50,7 +52,9 @@ def create_app(
             except Exception:
                 import logging
                 logging.getLogger(__name__).warning("statistics start failed")
-        app.state.ready = True
+        if configured.maintenance_mode:
+            runtime.admission_gate.close()
+        app.state.ready = not configured.maintenance_mode
         try:
             yield
         finally:

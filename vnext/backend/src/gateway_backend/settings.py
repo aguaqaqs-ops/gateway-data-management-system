@@ -65,6 +65,7 @@ class BackendSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="GATEWAY_BACKEND_", frozen=True)
 
     runtime_mode: Literal["container", "host"] = "container"
+    maintenance_mode: bool = False
     storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
     resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
     repository_base_url: str
@@ -87,6 +88,17 @@ class BackendSettings(BaseSettings):
     @cached_property
     def deployment_config(self) -> DeploymentConfig:
         return DeploymentConfig.load(self.storage_layout_file, self.resource_profile_file)
+
+    @field_validator("maintenance_mode", mode="before")
+    @classmethod
+    def _strict_maintenance_mode(cls, value: object) -> bool:
+        if type(value) is bool:
+            return value
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        raise ValueError("maintenance_mode must be true or false")
 
     @property
     def control_db_path(self) -> Path:

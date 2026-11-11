@@ -313,3 +313,60 @@ reserve8 GiB/M8 GiB/CPU2/swap0, backend2 GiB/CPU1, RS4 GiB/CPU2 and shared host
 reserve8 GiB/CPU2: 46 GiB/CPU9 in total. It does not change the W1 default or
 establish production/t4 capacity. The Compose test fixture selects this profile
 explicitly for its two-worker journey.
+
+### Drain and restart the fixed group
+
+The internal bearer protects GET/POST `/internal/v1/maintenance/drain`. POST
+closes creation admission and marks the backend not ready; GET returns
+`accepting_new_work` and `in_flight` from one gate snapshot. The count covers
+accepted HTTP requests, including an upload until its stream finishes. It is
+not the operation queue size. Existing reads/downloads and authenticated
+operator recovery remain available. There is no online reopen endpoint.
+
+Run the one-shot tool on the Docker host, using the same explicit project and
+Compose files used to create the group. The backend URL must be the selected
+container's published HTTP port on loopback. The token is read from its file;
+its value never enters command arguments or diagnostic output.
+
+```bash
+python3 vnext/scripts/manage-worker-group.py drain \
+  --project "$COMPOSE_PROJECT_NAME" \
+  --compose-file vnext/deploy/compose.yaml \
+  --compose-file /etc/gateway/runtime-compose.json \
+  --storage-layout /etc/gateway/storage-layout.json \
+  --resource-profile /etc/gateway/resource-profile.json \
+  --internal-bearer-token-file /etc/gateway/backend-internal-bearer
+```
+
+The tool verifies the actual fixed services, instance numbers, configuration
+binds, worker image and resource limits. It closes admission, waits at most
+180 seconds for in-flight requests, sends TERM to all workers, and waits at most
+180 seconds for their containers and cgroups to exit. It never uses Compose
+stop/down, automatic KILL, volume removal, lock deletion or automatic reopen.
+Failure is nonzero and preserves the original group for diagnosis. Worker exit
+alone does not establish whole-group quiescence: backend/RS may still write
+cache/statistics or finish an accepted import.
+
+For root, identity, W, version or schema changes, resolve RUNNING/UNKNOWN under
+the old configuration and query the original RS request key first. Use
+`stop-group` with the same arguments: after drain it refuses any RUNNING step
+or EFFECT_PENDING SubmitAttempt, then stops backend before RS, waiting up to
+180 seconds per service for the complete cgroup, including Dolt children.
+Only proceed with changes after business state is appropriate for the change
+and all writing processes have stopped. This read-only safety check does not
+replace operator reconciliation or prove that queued work supports a new
+schema. Pending work and its original deadlines remain; no unknown result or
+occupancy is erased.
+
+During maintenance set `GATEWAY_BACKEND_MAINTENANCE_MODE=true` in the Compose
+environment before explicitly restarting backend. It starts with storage/config
+checks active, admission closed and ready=false. Only lowercase `true`/`false`
+are accepted environment values; the default is false. To recover old RUNNING
+work, `start-recovery` with the same arguments checks the closed/drained backend
+and ready RS, verifies all original worker containers/cgroups have stopped,
+then starts those exact containers without recreating or bypassing their
+configuration validation. Existing queued work may execute during this explicit
+recovery step. Drain again after recovery and reconcile external results.
+For normal operation restart backend with the confirmed configuration and
+maintenance mode false, wait for readiness, then start the original fixed
+workers. Never recreate a replacement until the old execution processes exit.

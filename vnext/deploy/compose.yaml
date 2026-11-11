@@ -22,6 +22,7 @@ services:
       GATEWAY_BACKEND_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE: /run/secrets/backend-internal-bearer
+      GATEWAY_BACKEND_MAINTENANCE_MODE: ${GATEWAY_BACKEND_MAINTENANCE_MODE:-false}
       GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS: "30.0"
       GATEWAY_BACKEND_SESSION_FILE: /run/secrets/backend-session
       GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json

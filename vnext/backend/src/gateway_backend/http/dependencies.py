@@ -168,6 +168,11 @@ class ClosableAdmissionGate:
         with self._lock:
             self._open = False
 
+    def snapshot(self) -> dict[str, bool | int]:
+        """Read admission and creation count from the same critical section."""
+        with self._lock:
+            return {"accepting_new_work": self._open, "in_flight": self._in_flight}
+
 
 @contextmanager
 def acquire_new_work(

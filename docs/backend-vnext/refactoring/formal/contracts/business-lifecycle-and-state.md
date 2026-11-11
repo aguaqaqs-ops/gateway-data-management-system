@@ -8,6 +8,10 @@ Contract ID：`gateway-vnext.business-lifecycle-and-state`
 
 Owner：各子领域 owner（见下表；本文不建立共同 aggregate）
 
+维护停受理/worker 不等于取消或 finalize：已受理队列、冻结来源、业务占用、原绝对期限和
+恢复预算保持。未知外部提交先在旧配置按原请求 key 核对并恢复，不能因 worker、backend
+或 RS 退出而强清占用。具体维护顺序见 [Operation Lifecycle](operation-lifecycle-and-integrity.md#固定-worker-组维护)。
+
 Semantic version：`6.0.0`（2026-11-07 V2 归档核验与统一终局处置；前版 `5.0.0`）
 
 2026-09-06 amendment：P5 设计收口后，Repository `main` 与业务 `BaselineHead` 明确分离；

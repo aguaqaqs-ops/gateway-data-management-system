@@ -23,7 +23,8 @@ def _docker(*args: str) -> str:
 
 
 def validate_workers(config: DeploymentConfig, project: str,
-                     containers: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+                     containers: list[dict[str, Any]], *,
+                     allowed_states: tuple[str, ...] = ("running",)) -> dict[str, dict[str, Any]]:
     """Reject missing, scaled, stopped or differently configured worker processes."""
     expected = worker_services(config.resources.worker.count)
     found: dict[str, dict[str, Any]] = {}
@@ -43,7 +44,7 @@ def validate_workers(config: DeploymentConfig, project: str,
         environment = dict(item.split("=", 1) for item in container["Config"]["Env"])
         host = container["HostConfig"]
         if (environment.get(INSTANCE_ENV) != str(index)
-                or container["State"].get("Status") != "running"
+                or container["State"].get("Status") not in allowed_states
                 or host["Memory"] != profile.memory_envelope_bytes
                 or host["MemorySwap"] != profile.memory_envelope_bytes + profile.swap_limit_bytes
                 or host["NanoCpus"] != round(profile.cpu_limit * 1_000_000_000)
@@ -60,8 +61,13 @@ def validate_workers(config: DeploymentConfig, project: str,
 
 
 def check_workers(config: DeploymentConfig, project: str) -> dict[str, dict[str, Any]]:
+    return validate_workers(config, project, inspect_project(project))
+
+
+def inspect_project(project: str) -> list[dict[str, Any]]:
+    """Select only containers carrying the exact explicit Compose project label."""
     if not project or project.startswith("-"):
         raise ValueError("an explicit Compose project is required")
     ids = _docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + project).split()
     containers = json.loads(_docker("inspect", *ids)) if ids else []
-    return validate_workers(config, project, containers)
+    return containers

@@ -8,10 +8,10 @@
 | --- | --- | --- |
 | COMPARISON_INTERNAL_ERROR | Python 异常类名、任意非稳定异常字符串 | 比较未能完成；公开产物不带异常类名、路径或全文 |
 | DUPLICATE_EFFECTIVE_KEY | 仅 Surface summary 中的 `DUPLICATE_EFFECTIVE_KEY:<table>` | Surface 去掉表名尾缀；comparison facts/records 原参数化字符串保持 |
-| RISK_TABLE_BUDGET_EXCEEDED | `max_annotations_per_table exceeded`、表级预算短句 | 风险表级计算限额降级 |
+| RISK_TABLE_BUDGET_EXCEEDED | `risk table budget exceeded`（S1a 原 emit） | 风险表级计算限额降级 |
 | RISK_ANNOTATION_LIMIT_EXCEEDED | `max_annotations_per_pair exceeded` | pair 标注限额降级，部分标注不发布 |
 | RISK_DIAGNOSTICS_TRUNCATED | `risk diagnostics truncated` | 诊断预算不足，风险降级 |
-| RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED | `risk annotation artifact budget exceeded` | 标注 artifact 未发布，不能据此推断无风险 |
+| RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED | `annotation artifact budget exceeded`（S1a 原 emit） | 标注 artifact 未发布，不能据此推断无风险 |
 | PROJECT_IDENTITY_UNVERIFIABLE | 原稳定码保留 | 项目身份不能确认 |
 | DATASET_REPLACEMENT | 原稳定码保留 | 独立数据集分侧浏览 |
 
@@ -49,3 +49,5 @@ Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只
 | DEVICE_FILTER_VALUE_UNSUPPORTED | identity_column, reason |
 
 `DEVICE_TAB_FACTS_UNAVAILABLE.reason`：RECORDS_UNAVAILABLE、RISK_ATTRIBUTION_UNAVAILABLE、TABLE_DEGRADED。`DEVICE_FILTER_VALUE_UNSUPPORTED.reason`：INTEGER_OUT_OF_RANGE、UNSUPPORTED_TYPE、IDENTITY_EXCLUDED。原 value、异常全文和 host path 不回传。普通事实不可用只按 table 发一条；不支持筛选按受影响存在侧各一条；replacement 全部诊断须有实际 side。
+
+终态范围按 S1a 与当前 owning engine 区分：`max_risk_tables_per_pair exceeded` 为 FAILED 的 `_PairFailure`；`max_risk_pair_wall_time_seconds exceeded` 为 CANCELLED 的 `_PairCancelled`，均不进入成功 Surface summary，没有对应新增 surface code。`risk evaluation JSON budget exceeded`、`risk report JSON budget exceeded` 和 `risk evaluation deadline exceeded` 同样是终态内部诊断。本表不将这些旧终态短句替换或混入 surface code 键。

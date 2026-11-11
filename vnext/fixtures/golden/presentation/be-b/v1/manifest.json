@@ -1,13 +1,13 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "3b43d7c1cb038bb44a0f892a369e78e643d408e4",
-  "generator_vnext_tree": "c9d7765444bd3c6bbf3bd98dc2d92c0178a669c9",
-  "input_manifest_sha256": "e888e2c278258f502dbe6241a1ff57d646a81ef9a4ea488e1438416ed2dee4ab",
+  "generator_commit": "f663fba2f5a58a9310d0c41803b797c2d00a835b",
+  "generator_vnext_tree": "31213b86e85743509358e39ada08590c622b3129",
+  "input_manifest_sha256": "29462c66f0233d2818c0f1a50177a81b555c1bc7641be592d96092722a5d6ce7",
   "scenarios": [
     {
       "scenario": "preview-full",
       "output": "backend/fe2a/preview-full",
-      "bundle_digest": "sha256:49823b46dfe7496f00f96f45b406a2b00d573dca24ce16bf189ca2d7f1ddf069",
+      "bundle_digest": "sha256:d0296ffe0a517e75ec794630efe50642acd782054547f7c844234de697a8a9c3",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -16,7 +16,7 @@
     {
       "scenario": "preview-modified-only",
       "output": "backend/fe2a/preview-modified-only",
-      "bundle_digest": "sha256:24143e5e718cd259c508e601a551256895cb54a3add61f0871bc5e1f79ee786c",
+      "bundle_digest": "sha256:e46ec61e59c201d29ff293a3cfe1c289e8ff547ae80ac686d223e32f41f22566",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -25,7 +25,7 @@
     {
       "scenario": "preview-replacement",
       "output": "backend/fe2a/preview-replacement",
-      "bundle_digest": "sha256:b5472eebdab47344045acbc701e60b049120a4cc302b7de2c05202278a52ecae",
+      "bundle_digest": "sha256:7c38a805630c3df70a4c991cdc7f16e180e790e001f8bfdb65d190faec1c2f40",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -34,7 +34,7 @@
     {
       "scenario": "history-three-nodes",
       "output": "backend/fe2a/history-three-nodes",
-      "bundle_digest": "sha256:4e35a5fa5307b41100b8f155aa05d9e425708e8304800024c0fcfa2210df7d30",
+      "bundle_digest": "sha256:9d9d25b2ec2395f4c76b2cdc286b6f6e8310273d213db5e0cfd5786f9b20af0c",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -43,7 +43,7 @@
     {
       "scenario": "preview-workbench-normal",
       "output": "backend/fe2b/preview-workbench-normal",
-      "bundle_digest": "sha256:0e1bf81732ce5b3ebec4ae337957a6a7286d1e23633750462791e497e7539451",
+      "bundle_digest": "sha256:3b05de1d2d56e3ea3fc2d288a576894ea864faf3d3dbe4966c61ccc75c4a67c6",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -52,7 +52,7 @@
     {
       "scenario": "digest-cross-implementation",
       "output": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
-      "bundle_digest": "sha256:cdef724a918799ba3fbbc33662592fe101843c6831ac8afe3f910cb8eedfdf3f",
+      "bundle_digest": "sha256:dae07dd074906ded3225d5f0f0be12dad88e597caa4a2d5c3bac6e8996d805d5",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -61,7 +61,7 @@
     {
       "scenario": "identity-changes",
       "output": "backend/scenarios/identity-changes",
-      "bundle_digest": "sha256:f2063f312473396e114d01fc289b53aab052754ff6144cda24107a9f83b7ca10",
+      "bundle_digest": "sha256:646b7774daec21d066727b933e564780144d60765e80a89caf6f3d86f7dae3ae",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -79,7 +79,7 @@
     {
       "scenario": "duplicates-orphans",
       "output": "backend/scenarios/duplicates-orphans",
-      "bundle_digest": "sha256:63aec4f568ebb9cea4ce34f3311ab70a06e3332bf7410b94022a0d29bf3d63ca",
+      "bundle_digest": "sha256:b5cf58a3c6fdb64151c022974a27f82edbbdcda96b834f51236ea44283cbda1c",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -94,7 +94,7 @@
     {
       "scenario": "text-identities",
       "output": "backend/scenarios/text-identities",
-      "bundle_digest": "sha256:353a55fcfddadb16d793b91801db8de6346e98a79bb2237caf0f05cc78648257",
+      "bundle_digest": "sha256:2aadd45126ad3451090d1626c44d3c5515ec3eb3d0b92f58c9eb48687c5b56f0",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -118,7 +118,7 @@
     {
       "scenario": "integer-boundary",
       "output": "backend/scenarios/integer-boundary",
-      "bundle_digest": "sha256:6e40251e40499c9871e2161364d9c9982620a6aae272d3dcd5c8d6e5dda427d6",
+      "bundle_digest": "sha256:b5ba917fa325c5c51b5995fac20106df5fed29a63663d410bae13157050ca12f",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -136,7 +136,7 @@
     {
       "scenario": "schema-keyless",
       "output": "backend/scenarios/schema-keyless",
-      "bundle_digest": "sha256:e465d1c11d9d211e4e72f0c17fb9108e3e857811e4c42eb53d5709fbde9a51db",
+      "bundle_digest": "sha256:0c7d97a39b75c23f26c43e296670858452797259b9237d80d3257774805d82f6",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -154,7 +154,7 @@
     {
       "scenario": "table-addition",
       "output": "backend/scenarios/table-addition",
-      "bundle_digest": "sha256:777c0ac71477424723a319295a151b86ab1d472bbf4d16f239227572c4404306",
+      "bundle_digest": "sha256:08ccdbee0e41e23572300fd2f32523bf40a7acd099219360072271d248f4299c",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {},
@@ -163,7 +163,7 @@
     {
       "scenario": "comment-only",
       "output": "backend/scenarios/comment-only",
-      "bundle_digest": "sha256:5fe1ad089a95f9ca49b658f2a363c53738a9d72897a75a66c73275fd63ffe5a8",
+      "bundle_digest": "sha256:c30c7e0e99198e6771f198cff7bdf2529e303f74dd1108ca9dc998b53e1ad96b",
       "operation_result": "READY",
       "submit_result": {
         "baseline_canonical_state_digest": "sha256:1fbbadbe3b9e6aca93bcbb7201eaa84758c1463a92c0e3f9d25fce7958d56eb8",
@@ -207,7 +207,7 @@
     {
       "scenario": "formula-unchanged-device",
       "output": "backend/scenarios/formula-unchanged-device",
-      "bundle_digest": "sha256:88aeb41905de8de6d1ffc46709dd7669d896a7fb9127d7188e9e1f5acbd83296",
+      "bundle_digest": "sha256:c7ab70bc9cf63dd17148c05d6c05228932a44400f946ddec47a686375f0a12cb",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -223,7 +223,7 @@
     {
       "scenario": "identity-unrecorded-exact",
       "output": "backend/scenarios/identity-unrecorded-exact",
-      "bundle_digest": "sha256:eb45ef732c979c728c74ad7629598830097cf6e966063e1bc55382a462c064bd",
+      "bundle_digest": "sha256:21fecaa4633aef1d11ba3d8edc65fea6a9283b2b0e1770c209b1764ee77c21ab",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -240,7 +240,7 @@
     {
       "scenario": "excluded-identity",
       "output": "backend/scenarios/excluded-identity",
-      "bundle_digest": "sha256:da91cc573b76c47662abbad2cba11d9c18022e663b636be2a5d5d7b32a3f422a",
+      "bundle_digest": "sha256:0510d7efa61734123b0e582e4d41742460df0e34ebc1f7a1aab70c4027ed1c59",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -264,7 +264,7 @@
     {
       "scenario": "missing-identity-column",
       "output": "backend/scenarios/missing-identity-column",
-      "bundle_digest": "sha256:d5975231bfaf259a9e933d22d0144b31a3e933c21b540febb1e77c54477135a9",
+      "bundle_digest": "sha256:e0197ba98cd60944028e4a1e12941c592ec26071156698df612a0f51e9d5992b",
       "operation_result": "READY",
       "submit_result": null,
       "assertions": {
@@ -276,23 +276,6 @@
     }
   ],
   "files": {
-    "bundle/comment-only.json": "748af932e556c0cebe87bfdc5d1992e0e2281ce79c8fca4b3048ad9c9785f472",
-    "bundle/digest-cross-implementation.json": "99f535fb2ea55cf0180dee97d1f067d80bd5e3d8e86b9d2f87b6113b21abd2e4",
-    "bundle/duplicates-orphans.json": "a52bc30ad8a731adcbab3dd90f1db812ce4135c1ba634b6260869992ddfa0706",
-    "bundle/excluded-identity.json": "582b1b5e828e7c0a01c1bc5aa7e4db2c4a6a4cc6270ee298a215dc5f4b3fcfd1",
-    "bundle/formula-unchanged-device.json": "55b8d51d0d15d89849163615159d03ed556aa477fa5d038aaa55787d49556ea0",
-    "bundle/history-three-nodes.json": "4dbd55b01b0c42452fc941f5674e660ee71288cf083c6bbd2d9f1ebb75c6be51",
-    "bundle/identity-changes.json": "8b037aee9dc5d3631d0c736c949d46be26e513b39cb694e200b4bb3cbd1959fe",
-    "bundle/identity-unrecorded-exact.json": "0603c287ef999aedcfd76e39cf856f1aba7c5f154999e6958ea150193af817e6",
-    "bundle/integer-boundary.json": "95d0b912a04aaf10f5035009d79a7f714b2d08e2014cafadbe1bb2b586268b25",
-    "bundle/missing-identity-column.json": "1aad20bbdea2e696e784310f595b300813b5f007ef489fcc33b749e4756fb37f",
-    "bundle/preview-full.json": "3ed66dddd25298e5d9a477f9c67b2a0d36cab3237bbf2880c650502974739f5b",
-    "bundle/preview-modified-only.json": "fd1a496a64735a5844d0d535079397a02e3f3a69a33b96a7f8a6a60dbbb48dc7",
-    "bundle/preview-replacement.json": "12962187cbe19ea942e6e67235f5d1b9c3b83a77cd9bf122a495bd259a70dc56",
-    "bundle/preview-workbench-normal.json": "64f4c8bda9a1aab56d71d4f4298354b6830c4741798721473f8b40f4ce5e7a82",
-    "bundle/schema-keyless.json": "4c7059e6ee92a8909b96a893fd3ed3a1665fa2c361185de2703e55988646161d",
-    "bundle/table-addition.json": "0da09c11c6ec47d7e55feb5173b8900fe56ec7ccd6ab2083240a9e17d17e254d",
-    "bundle/text-identities.json": "a1c86b73614b3e3c7f8821fc8a944e0fe20390f80afd201648d2b0e58a0d8952",
     "navigation/comment-only.json": "16cf044025bc377671043ba7940bb92a1e57ed4941b40c34c2fce257b4349e30",
     "navigation/digest-cross-implementation.json": "e6204e371a403ccf630cb49a24b4c67387aedb2c2ab7b29c690304f367ac522b",
     "navigation/duplicates-orphans.json": "78cc0530bcf76a788ea47d682040447e6543ee0adad1c90fdee86deaeafb191e",
@@ -360,6 +343,23 @@
     "surface/preview-workbench-normal.json": "7370f82510d157b3e79185a4ed03f60a83920f678e0704105083773bfb5a6c7d",
     "surface/schema-keyless.json": "cda92f6021b8cd3a87c6ed50c383966bb01dc3142923346ac520b56a21e9c993",
     "surface/table-addition.json": "7796b6820e4cf070d8a47e5ccd5f2b4d1c7959eb28e1e2959c513e29f88e12a5",
-    "surface/text-identities.json": "8fcf3c748c90abb38ed687175fb9b1b88e5d7947a9c51bb1aeab2349d9de170a"
+    "surface/text-identities.json": "8fcf3c748c90abb38ed687175fb9b1b88e5d7947a9c51bb1aeab2349d9de170a",
+    "bundle/comment-only.json": "0b71ad9f5481cb174f1bbba146c3c0838b48977cb366463b308c788659e9f3f1",
+    "bundle/digest-cross-implementation.json": "387420ff7b4b86f52701c1c0e6dbb60bbe29910fc4d0c36e98ec222f033cba4a",
+    "bundle/duplicates-orphans.json": "387644fe4f30320e5ad2d80df0bcee5bbf10c93a28a4e1efe33c57a051652d2b",
+    "bundle/excluded-identity.json": "43167f415a63afc04f785ca6f992f0dc7277e5adc0b393afa46d53374e4c2cfa",
+    "bundle/formula-unchanged-device.json": "301aebc021c4cdc3bf55320cc98884a2205d5ef8ef509a6381bb794c4108cee4",
+    "bundle/history-three-nodes.json": "6a6b0c01187d9fa3ecc175251192cdf85858847bd7e25501abcc0e7390c4b93b",
+    "bundle/identity-changes.json": "c1a85e131555c32ab47dc85958f04cd79854a4648cbefed61735dbc081627e86",
+    "bundle/identity-unrecorded-exact.json": "6b58dfe1a52e963751f7f2113da822b6eba73b938962be5111b2614824a89dcc",
+    "bundle/integer-boundary.json": "b8b792645f44df93e4e7dab9433f5271d1ec755539be4dcbe78479444efddbb6",
+    "bundle/missing-identity-column.json": "055af94006a0f45689e2547a0c1d82d50787ee3f2a3bdcaa3b78f552d5a55d7b",
+    "bundle/preview-full.json": "f4f128179535dd778287b13d711bdd1b2a99efb54efacfd9d3954eb82aa3361b",
+    "bundle/preview-modified-only.json": "dd733856a3686d727940873a378d1a7fa71c05e3371851d577b66173f9c17c64",
+    "bundle/preview-replacement.json": "2b1bf78e406c5abf310cb2bbdcb7e8b78d4ced94b53e4e12a13009fc99056999",
+    "bundle/preview-workbench-normal.json": "f905f0a970ca8dc3a782a66a7e679fe0c5cc26b050a9d4c4d04a3654f74032c5",
+    "bundle/schema-keyless.json": "8a57c426563847c693dfaa0557ce8655ca97fc8534639c280b7b67e3c92930b5",
+    "bundle/table-addition.json": "ac326f4bdb58cc796a9214d6c21438b11749faae834955b70f3d76410fbdcf09",
+    "bundle/text-identities.json": "aaba36bfe53d4638561b0b7d624561e84a495a868e0b460f622dbc4e586c0b66"
   }
 }

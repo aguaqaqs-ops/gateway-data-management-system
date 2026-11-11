@@ -52,10 +52,10 @@
   "replacements": {
     "surface diagnostics_summary: DUPLICATE_EFFECTIVE_KEY:<table>": "DUPLICATE_EFFECTIVE_KEY",
     "generic comparison exception class or arbitrary text in facts/records/summary": "COMPARISON_INTERNAL_ERROR",
-    "risk summary: max_annotations_per_table exceeded": "RISK_TABLE_BUDGET_EXCEEDED",
     "risk summary: max_annotations_per_pair exceeded": "RISK_ANNOTATION_LIMIT_EXCEEDED",
     "risk summary: risk diagnostics truncated": "RISK_DIAGNOSTICS_TRUNCATED",
-    "risk summary: risk annotation artifact budget exceeded": "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
+    "risk summary: risk table budget exceeded": "RISK_TABLE_BUDGET_EXCEEDED",
+    "risk summary: annotation artifact budget exceeded": "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
   },
   "surface_summary_codes": [
     "BEFORE_ONLY_COLUMNS",
@@ -202,5 +202,38 @@
     "generic-table-exception": [
       "COMPARISON_INTERNAL_ERROR"
     ]
-  }
+  },
+  "terminal_only_diagnostics": [
+    {
+      "diagnostic": "max_risk_tables_per_pair exceeded",
+      "status": "FAILED",
+      "owner": "risk_evaluation/_engine.py",
+      "surface_summary": false
+    },
+    {
+      "diagnostic": "max_risk_pair_wall_time_seconds exceeded",
+      "status": "CANCELLED",
+      "owner": "risk_evaluation/_engine.py",
+      "surface_summary": false
+    },
+    {
+      "diagnostic": "risk evaluation JSON budget exceeded",
+      "status": "FAILED",
+      "owner": "risk_evaluation/_engine.py",
+      "surface_summary": false
+    },
+    {
+      "diagnostic": "risk report JSON budget exceeded",
+      "status": "FAILED",
+      "owner": "risk_evaluation/_engine.py",
+      "surface_summary": false
+    },
+    {
+      "diagnostic": "risk evaluation deadline exceeded",
+      "status": "CANCELLED",
+      "owner": "risk_evaluation/_engine.py",
+      "surface_summary": false
+    }
+  ],
+  "replacement_baseline_commit": "42780a12303c8040526bf5dc8f9c6f0acb12dbb1"
 }

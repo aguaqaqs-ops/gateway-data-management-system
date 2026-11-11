@@ -49,18 +49,28 @@ async function settleAfterResize(page: Page) {
 
 async function expectNoHorizontalOverflow(page: Page) {
   const metrics = await page.evaluate(() => {
-    // Report the elements that actually stick out so an overflow failure names
-    // the offending node instead of only the page width.
-    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
-      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.right > window.innerWidth + 0.5)
+    // Report what actually sticks out so an overflow failure names the node.
+    const describe = (element: Element) => `${element.tagName.toLowerCase()}.${String(element.className || "").split(/\s+/).filter(Boolean).join(".")}`;
+    const nodes = [...document.querySelectorAll<HTMLElement>("body *")];
+    const pastRight = nodes
+      .filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
       .slice(0, 5)
-      .map(({ element, rect }) => `${element.tagName.toLowerCase()}.${String(element.className || "").split(/\s+/).filter(Boolean).join(".")} right=${Math.round(rect.right)}`);
-    return { scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth, offenders };
+      .map((element) => `${describe(element)} right=${Math.round(element.getBoundingClientRect().right)}`);
+    const scrolling = nodes
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .slice(0, 5)
+      .map((element) => `${describe(element)} scrollWidth=${element.scrollWidth} clientWidth=${element.clientWidth}`);
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+      bodyWidth: Math.round(document.body.getBoundingClientRect().width),
+      pastRight,
+      scrolling,
+    };
   });
   expect(
     metrics.scrollWidth,
-    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} offenders=${metrics.offenders.join(" | ")}`,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")}`,
   ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 

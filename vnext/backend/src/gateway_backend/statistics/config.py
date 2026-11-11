@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +14,7 @@ class StatisticsConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GATEWAY_STATISTICS_", frozen=True)
 
     enabled: bool = True
+    export_concurrency: Literal[1] = 1
     sample_interval_seconds: float = Field(default=1, gt=0, le=3600)
     filesystem_interval_seconds: float = Field(default=60, gt=0, le=86400)
     storage_refresh_seconds: float = Field(default=600, gt=0, le=86400)

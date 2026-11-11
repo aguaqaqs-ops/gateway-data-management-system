@@ -113,6 +113,12 @@ Observation = Annotated[
 ]
 
 
+class StatisticsFeedQuery(StatisticsModel):
+    instance_id: Identifier | None = None
+    after_sequence: Counter = 0
+    limit: Annotated[int, Field(strict=True, ge=1, le=100)] = 100
+
+
 class StatisticsFeedRecord(StatisticsModel):
     observation_id: UUID
     sequence: Counter

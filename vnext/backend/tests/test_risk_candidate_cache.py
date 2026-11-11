@@ -739,11 +739,10 @@ def test_attribution_observer_sees_actual_typed_cold_and_replayed_outcomes(limit
         assert len(captured[0]) == 1
         name, annotations, complete = captured[0][0]
         assert name == "t" and complete is (limit == "complete")
+        assert annotations and all(type(a) is RiskAnnotation for a in annotations)
+        assert any(a.target.target_type is RiskTargetType.TABLE for a in annotations)
         if limit == "pair":
-            assert annotations == ()
-        else:
-            assert annotations and all(type(a) is RiskAnnotation for a in annotations)
-            assert any(a.target.target_type is RiskTargetType.TABLE for a in annotations)
+            assert len(annotations) == 1 and annotations[0].target.target_type is RiskTargetType.TABLE
         assert cache.hits == 1
     finally:
         cache.close()

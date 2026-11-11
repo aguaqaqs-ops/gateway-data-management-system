@@ -914,7 +914,17 @@ def _build_pair_degraded_without_annotations(
     )
     if context.attribution_observer is not None:
         for item in extracted:
-            context.attribution_observer(item.table_fact.table_name, (), False)
+            if has_visible_change(item):
+                # The pair-cap owner has just established a TABLE degradation,
+                # rather than an unknown collection of partial row annotations.
+                # Expose that actual typed outcome transiently; the published
+                # payload above deliberately keeps annotation_count=0.
+                outcome = _degraded_table(item, "RISK_ANNOTATION_LIMIT_EXCEEDED", rules,
+                    evaluation_input.risk_cache_session, context.operation)
+                with outcome.charges:
+                    context.attribution_observer(item.table_fact.table_name, outcome.annotations, False)
+            else:
+                context.attribution_observer(item.table_fact.table_name, (), False)
     # Discard every partial annotation and preserve an explicit degraded table-level risk for
     # each visible change. This keeps the pair-level failure observable downstream without
     # publishing a partial annotation closure.

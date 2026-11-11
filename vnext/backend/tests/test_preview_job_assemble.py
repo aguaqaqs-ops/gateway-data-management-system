@@ -846,8 +846,9 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
 
 
 def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
-    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]],
+    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]], execution_statistics: Any,
 ) -> None:
+    from gateway_backend.infrastructure.statistics.collection import bounded_metrics
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
 
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
@@ -861,6 +862,16 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     cold_metrics = list(pair_comparison_metrics)
     assert [item["pair_id"] for item in cold_metrics] == ["baseline_to_initial", "initial_to_modified"]
     assert sum(item["comparison"]["native_calls"] for item in cold_metrics) > 0
+    collected = bounded_metrics(execution_statistics)
+    assert collected.input_shape.table_count is not None
+    assert collected.input_shape.sql_bytes is not None and collected.input_shape.sql_bytes > 0
+    assert collected.stage_duration_ms.parse is not None
+    assert collected.stage_duration_ms.materialize is not None
+    assert collected.stage_duration_ms.compare is not None
+    assert collected.stage_duration_ms.risk is not None
+    assert collected.stage_duration_ms.export is not None
+    assert collected.stage_duration_ms.bundle is not None
+    assert {table.pair_id for table in collected.tables} == {"baseline_to_initial", "initial_to_modified"}
     pair_comparison_metrics.clear()
     harness.job_payload = build_preview_job_payload(
         workspace_id=harness.upload_revision.workspace_id, upload_revision=harness.upload_revision,

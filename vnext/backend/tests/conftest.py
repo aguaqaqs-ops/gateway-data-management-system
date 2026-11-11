@@ -99,3 +99,14 @@ def pair_comparison_metrics(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, A
 
     monkeypatch.setattr(pair_pipeline, 'compare_plan_native', compare)
     return recorded
+
+
+@pytest.fixture
+def execution_statistics() -> Iterator[Any]:
+    from gateway_backend.statistics.metrics import Metrics, set_metrics
+    metrics = Metrics()
+    set_metrics(metrics)
+    try:
+        yield metrics
+    finally:
+        set_metrics(None)

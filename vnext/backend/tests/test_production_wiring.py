@@ -519,7 +519,7 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
     surface = replace(
         result.surface,
         tables=(table,),
-        projections=(
+        projections=(*result.surface.projections,
             SurfaceProjectionRef(
                 projection_id="proj-1",
                 projection_kind="summary",

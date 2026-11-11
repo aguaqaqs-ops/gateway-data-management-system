@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.surface_navigation import seed_navigation
+
 from tests.support.artifact_layout import open_test_store, make_artifact_layout
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -47,7 +49,7 @@ PAX_PATHS = (
 
 
 def published_bundle(root: Path) -> tuple[LocalArtifactStore, ArtifactRef]:
-    store = open_test_store(root)
+    store = seed_navigation(open_test_store(root))
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=store,
     )
@@ -191,7 +193,7 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: BundleArtifactKind,
 ) -> None:
     import gateway_backend.application.bundle_download as downloads
-    store = open_test_store(tmp_path)
+    store = seed_navigation(open_test_store(tmp_path))
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
     source = put_with_built_ref(store, data, artifact_id="a1:durable:2fce63a0bc18d79ecd1ce65e765a09e5b7944e80193c7091c61fc9149985cf4f", media_type="application/json")
     result = assemble_bundle(_request(

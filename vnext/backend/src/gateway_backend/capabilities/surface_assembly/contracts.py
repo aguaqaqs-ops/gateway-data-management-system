@@ -871,6 +871,12 @@ class ComparisonSurface:
         projection_ids = tuple(item.projection_id for item in self.projections)
         if projection_ids != tuple(sorted(projection_ids)) or len(set(projection_ids)) != len(projection_ids):
             raise ValueError("projections must use canonical unique order")
+        navigation = tuple(p for p in self.projections if p.projection_id == "business_navigation"
+            or p.projection_kind == "BUSINESS_NAVIGATION")
+        if (len(navigation) != 1 or navigation[0].projection_id != "business_navigation"
+                or navigation[0].projection_kind != "BUSINESS_NAVIGATION"
+                or navigation[0].risk_summary_ref is not None):
+            raise ValueError("surface requires exactly one BUSINESS_NAVIGATION projection")
         if type(self.summary) is not SurfaceSummary:
             raise ValueError("summary must be SurfaceSummary")
         if type(self.refs) is not SurfaceRootRefs:

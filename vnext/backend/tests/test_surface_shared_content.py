@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.surface_navigation import seed_navigation
+
 import json
 from contextlib import ExitStack
 from dataclasses import replace
@@ -44,7 +46,7 @@ _PROJECTED_SQL_INPUTS = (
 @pytest.mark.parametrize("distinct_source_refs", (False, True))
 def test_dropped_source_column_preserves_provenance_for_a_shared_export(distinct_source_refs: bool) -> None:
     ruleset = migrated_table_ruleset_snapshot()
-    store = InMemoryArtifactStore()
+    store = seed_navigation(InMemoryArtifactStore())
     sql_inputs = _PROJECTED_SQL_INPUTS
     bindings = []
     descriptors = []

@@ -63,6 +63,7 @@ from gateway_backend.capabilities.surface_assembly import (
 )
 
 from tests.support.artifact_ref_faults import UNSUPPORTED_DELIVERY_ARTIFACT_IDS
+from tests.support.surface_navigation import NAVIGATION_PROJECTION
 
 _S1B_GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -212,6 +213,7 @@ def _request(
 ) -> SurfaceAssemblyInput:
     return SurfaceAssemblyInput(
         comparison_facts=facts,
+        projections=(NAVIGATION_PROJECTION,),
         surface_id=surface_id,
         view_id="view-1",
         before_role="before",
@@ -460,6 +462,7 @@ def test_risk_report_is_projected_without_synthesizing_missing_table_risk() -> N
     empty_result = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=facts,
+            projections=(NAVIGATION_PROJECTION,),
             surface_id="surface-empty-risk",
             view_id="view-1",
             before_role="before",
@@ -492,6 +495,7 @@ def test_risk_report_is_projected_without_synthesizing_missing_table_risk() -> N
     result = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=facts,
+            projections=(NAVIGATION_PROJECTION,),
             surface_id="surface-table-risk",
             view_id="view-1",
             before_role="before",
@@ -730,3 +734,17 @@ def test_surface_diagnostics_publish_only_stable_codes(message: str, code: str) 
     result = assemble_surface(_request(facts))
     assert result.surface is not None
     assert result.surface.tables[0].diagnostics.diagnostics_summary == (code,)
+
+
+@pytest.mark.parametrize("fault", ("missing", "wrong-id", "wrong-kind", "duplicate-kind", "risk-summary"))
+def test_ready_surface_requires_exactly_one_current_navigation_projection(fault: str) -> None:
+    request = _request(_facts(ComparisonTableFact("orders", ComparisonTableStatus.UNCHANGED)))
+    projections = {
+        "missing": (),
+        "wrong-id": (replace(NAVIGATION_PROJECTION, projection_id="wrong"),),
+        "wrong-kind": (replace(NAVIGATION_PROJECTION, projection_kind="wrong"),),
+        "duplicate-kind": (NAVIGATION_PROJECTION, replace(NAVIGATION_PROJECTION, projection_id="second")),
+        "risk-summary": (replace(NAVIGATION_PROJECTION, risk_summary_ref=_ref("risk-summary")),),
+    }[fault]
+    result = assemble_surface(replace(request, projections=projections))
+    assert result.status is SurfaceAssemblyStatus.FAILED and result.surface is None

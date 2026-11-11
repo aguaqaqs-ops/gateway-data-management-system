@@ -54,6 +54,7 @@ from gateway_backend.capabilities.surface_assembly import (
 )
 
 from tests.test_surface_assembly import _facts, _request as _surface_request
+from tests.support.surface_navigation import NAVIGATION_REF, seed_navigation
 
 pytestmark = pytest.mark.unit
 _S1B_GOLDEN = (
@@ -118,6 +119,11 @@ def _request(
     inputs: tuple[BundleInput, ...] | None = None,
     shared: BundleArtifactClosure = BundleArtifactClosure(),
 ) -> BundleAssemblyInput:
+    # Every successful v4 surface has a real navigation closure member.
+    pairs = tuple(replace(pair, surface_artifact_closure=BundleArtifactClosure(
+        (*pair.surface_artifact_closure.entries, BundleArtifactBinding(NAVIGATION_REF,
+            f"pairs/{pair.pair_id}/projections/business_navigation.json", BundleArtifactKind.PROJECTION,
+            pair_id=pair.pair_id)))) if pair.surface_result.surface is not None else pair for pair in pairs)
     return BundleAssemblyInput(
         bundle_contract_version=BUNDLE_CONTRACT_VERSION,
         bundle_profile=profile,
@@ -133,7 +139,7 @@ def _request(
 
 
 def test_single_pair_bundle_is_replayable_and_does_not_inline_rows() -> None:
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     surface_result = _surface_result()
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, surface_result),)),
@@ -159,8 +165,8 @@ def test_input_order_changes_do_not_change_bundle_document_or_digest() -> None:
         (BundlePairInput("pair", 0, 1, surface_result),),
         inputs=(BundleInput(1, "current", "Current"), BundleInput(0, "before", "Before")),
     )
-    one = assemble_bundle(first, source_store=InMemoryArtifactStore())
-    two = assemble_bundle(second, source_store=InMemoryArtifactStore())
+    one = assemble_bundle(first, source_store=seed_navigation(InMemoryArtifactStore()))
+    two = assemble_bundle(second, source_store=seed_navigation(InMemoryArtifactStore()))
 
     assert one.status is BundleAssemblyStatus.READY
     assert two.status is BundleAssemblyStatus.READY
@@ -189,7 +195,7 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
         pair_id="middle_to_right",
         table_name="settings",
     )
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     source.put(raw, snapshot_ref)
     source.put(raw, snapshot_ref_two)
     result = assemble_bundle(
@@ -234,7 +240,7 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
 def test_snapshot_table_reference_shared_between_sides_keeps_both_bindings() -> None:
     raw = b"same rows on both sides"
     snapshot_ref = _raw_ref("same-snapshot", raw, "application/vnd.apache.parquet")
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     source.put(raw, snapshot_ref)
     surface = _surface_result()
     closure = BundleArtifactClosure(
@@ -295,7 +301,7 @@ def test_multi_pair_identical_artifact_refs_are_shared() -> None:
         BundleArtifactKind.RECORDS,
         pair_id="middle_to_right",
     )
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     source.put(records_raw, records_ref)
     result = assemble_bundle(
         _request(
@@ -326,7 +332,7 @@ def test_multi_pair_identical_artifact_refs_are_shared() -> None:
 
 
 def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None:
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     child_raw = b"record bytes"
     child_ref = _raw_ref("records-source", child_raw, "application/octet-stream")
     closure_raw = canonicalize_json_value({"records_ref": artifact_ref_to_dict(child_ref)})
@@ -373,7 +379,7 @@ def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None
 
 
 def test_missing_nested_ref_diagnostic_identifies_parent_bundle_path() -> None:
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     child_ref = _raw_ref("missing-child", b"child", "application/octet-stream")
     parent_raw = canonicalize_json_value({"records_ref": artifact_ref_to_dict(child_ref)})
     parent_ref = _raw_ref("parent-with-missing-child", parent_raw)
@@ -414,7 +420,7 @@ def test_missing_closure_ref_fails_closed_without_bundle() -> None:
     missing_ref = _raw_ref("missing", b"missing")
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result(root_ref=missing_ref)),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
     )
 
     assert result.status is BundleAssemblyStatus.FAILED
@@ -425,7 +431,7 @@ def test_missing_closure_ref_fails_closed_without_bundle() -> None:
 def test_tampered_source_artifact_fails_closed() -> None:
     raw = b"diagnostics"
     ref = _raw_ref("tampered-source", raw, "application/octet-stream")
-    source = _TamperStore(ref.artifact_id)
+    source = seed_navigation(_TamperStore(ref.artifact_id))
     source.put(raw, ref)
     result = assemble_bundle(
         _request(
@@ -456,7 +462,7 @@ def test_tampered_source_artifact_fails_closed() -> None:
 
 
 def test_placeholder_risk_annotation_artifacts_fail_before_bundle_publication() -> None:
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     placeholder = canonicalize_json_value({})
     annotation_ref = _raw_ref("risk-annotation", placeholder, ANNOTATION_MEDIA_TYPE)
     manifest_ref = _raw_ref(
@@ -530,7 +536,7 @@ def test_placeholder_risk_annotation_artifacts_fail_before_bundle_publication() 
 def test_destination_failure_never_returns_public_bundle() -> None:
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
         destination_store=_FailingDestinationStore(fail_after=1),
     )
 
@@ -544,7 +550,7 @@ def test_required_failed_surface_fails_and_optional_failed_surface_degrades() ->
     failed = SurfaceAssemblyResult(status=SurfaceAssemblyStatus.FAILED, diagnostics=("SURFACE_FAILED",))
     required = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, failed),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
     )
     assert required.status is BundleAssemblyStatus.FAILED
     assert required.bundle is None
@@ -558,7 +564,7 @@ def test_required_failed_surface_fails_and_optional_failed_surface_degrades() ->
             profile=BundleProfile.MULTI_PAIR,
             inputs=(BundleInput(0, "a", "A"), BundleInput(1, "b", "B"), BundleInput(2, "c", "C")),
         ),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
     )
     assert optional.status is BundleAssemblyStatus.DEGRADED
     assert optional.bundle is not None
@@ -572,11 +578,11 @@ def test_cancelled_input_and_context_never_publish_bundle() -> None:
     )
     input_cancelled = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, cancelled_surface),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
     )
     context_cancelled = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
         context=BundleAssemblyContext(cancel_requested=lambda: True),
     )
 
@@ -587,10 +593,10 @@ def test_cancelled_input_and_context_never_publish_bundle() -> None:
 
 
 def test_manifest_and_closure_caps_fail_before_publication() -> None:
-    destination = InMemoryArtifactStore()
+    destination = seed_navigation(InMemoryArtifactStore())
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
-        source_store=InMemoryArtifactStore(),
+        source_store=seed_navigation(InMemoryArtifactStore()),
         destination_store=destination,
         policy=BundleAssemblyPolicy(max_bundle_manifest_json_bytes=1),
     )
@@ -603,7 +609,7 @@ def test_manifest_and_closure_caps_fail_before_publication() -> None:
 def test_surface_ref_rewrite_preserves_digest_when_artifact_bytes_are_unchanged() -> None:
     raw = b"diagnostics"
     ref = _raw_ref("diagnostics-source", raw, "application/octet-stream")
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     source.put(raw, ref)
     surface_result = _surface_result(root_ref=ref)
     result = assemble_bundle(
@@ -637,7 +643,7 @@ def test_surface_ref_rewrite_preserves_digest_when_artifact_bytes_are_unchanged(
 
 
 def test_recovery_rejects_manifest_and_closure_semantic_metadata_tampering() -> None:
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
         source_store=source,
@@ -710,7 +716,7 @@ def test_operation_bundle_admits_complete_closure_bytes_before_locate(monkeypatc
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
     )
-    source = InMemoryArtifactStore()
+    source = seed_navigation(InMemoryArtifactStore())
     raw = b"x" * (256 * 1024)
     ref = _raw_ref("shared-binary", raw, "application/octet-stream")
     source.put(raw, ref)

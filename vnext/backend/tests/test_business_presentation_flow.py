@@ -70,7 +70,8 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
         pairs=(BundlePairInput(result.pair_id,0,1,result.surface_result,closure),)), source_store=store)
     assert bundle.status is BundleAssemblyStatus.READY and bundle.bundle is not None
     validate_bundle(bundle.bundle, store)
-    kinds = {entry["kind"] for entry in bundle.bundle.to_document()["closure_entries"]}
+    closure_document = json.loads(store.locate(bundle.bundle.artifact_closure_ref))
+    kinds = {entry["kind"] for entry in closure_document["closure_entries"]}
     assert "PROJECTION" in kinds
     if changed_cfg:
         assert "ROW_LOCATOR" in kinds

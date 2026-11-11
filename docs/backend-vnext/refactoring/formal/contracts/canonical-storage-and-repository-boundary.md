@@ -103,7 +103,7 @@ projection version，source artifact digest，ruleset ID/version/digest；每表
 source/canonical schema digest、source/canonical row count、
 retained/structural/dropped columns+reason、canonical key、统一表摘要
 `content_digest`（其值等于该表的 `raw_content_digest`）、ordered identity policy 与
-gid range/count；以及 manifest digest。Manifest 不包含 `ordering_digest` 或额外的行摘要字段。
+gid range/count；required `presentation` 展示载荷（见上节）以及 manifest digest。当前 selector 为 `3.4.0`，缺少 presentation 或不是当前版本即拒绝。Manifest 不包含 `ordering_digest` 或额外的行摘要字段。
 Snapshot digest 的每表输入为表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与
 表摘要；不读行的 Repository-ref 描述由 catalog 与 manifest 生成，并与读行描述逐字段相同。
 Upload、Preview baseline 与 History 两侧使用同一算法，不以 SubmitAttempt 中的 snapshot
@@ -120,7 +120,7 @@ opaque`canonicalization_manifest_digest`；它不是完整业务manifest，也�
 
 `canonicalization_manifest_digest` 算法保持
 `RFC8785-JCS + gateway-vnext:canonicalization-manifest:v1\0 + SHA-256`。本轮是首次
-发布前的 v1 定稿，替换尚未发布的 one-off producer 内容，不增加 `v2` 或兼容字段。
+发布前的 v1 定稿，替换尚未发布的 one-off producer 内容，不增加 `v2` 或兼容字段。semantic preimage 显式只含 `contract_version`、`ruleset_digest`、`ruleset_id`、`ruleset_version`、`source_artifact_digest`、`storage_projection_version`、`tables`；durable serializer 另外完整保存 `presentation` 和 `manifest_digest`。
 
 每表 schema digest 的 canonical payload 必须包含：normalized `sql_type`（因此包含
 ENUM label / SET member 的声明顺序）、`nullable`、primary-key order。表按 canonical
@@ -344,6 +344,8 @@ S1–S5 交付，交付前现行源码仍按 `3.0.0` 行为运行（已随 P5 �
 存储，取代“keyless 不能作为 fallback”；manifest 每表条目的 canonical key policy 增加该取值。CanonicalizationManifest 的
 `contract_version` 自 P5 收口 S2b 起记录 `3.2.0`，读取接受 `3.0.0`、`3.1.0`、`3.2.0`。DC29 不提升 storage projection version（当前为 `2`，由 P5 收口
 S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升）：此前能投影成功的表规范字节与内容摘要不因 DC29 改变，新路径只用于此前被拒绝的表；规则集版本随规则变化提升。
+
+上述版本修订中允许读取历史载荷的说明仅记录当时实现；BE-b 现行 `3.4.0` required presentation 规则取代这些读取约定，不提供历史版本 decoder。
 
 ## 9. 验收标准
 

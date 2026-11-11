@@ -1416,6 +1416,8 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from dataclasses import replace
+    from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
+    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
     from gateway_backend.application import preview_jobs
     from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadata, CommitCanonicalScope
     from gateway_backend.application.workspace.preview import build_preview_job_payload
@@ -1453,7 +1455,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         return result
     monkeypatch.setattr(PersistentRiskCandidates, "lookup", observed_lookup)
     monkeypatch.setattr(cache, "store", observed_store)
-    sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES ({value});"
+    sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY COMMENT 'column-{value}') COMMENT='table-{value}'; INSERT INTO t VALUES ({value});"
     initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="a1:durable:5adad6374935ac1f2c031bb667178cd95a1b658a4c4276477d515ba2d687e8be")
     modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="a1:durable:661b6c2cafc55581541967e4871f60d18dc73d892270c5ecebb12ce7215e89bb")
     preview.upload_revision = preview_support.build_upload_revision(input_completeness=InputCompleteness.FULL,
@@ -1492,6 +1494,11 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         REPOSITORY_ID, commits[label], CommitCanonicalScope("device-1", "project-1"), False,
         manifests[label], inputs.sides[side_names[label]].snapshot.snapshot_digest,
     ) for label in commits})
+    seen_presentations: list[tuple[PresentationMetadata, PresentationMetadata]] = []
+    def capture_presentations(**kwargs: Any) -> Any:
+        seen_presentations.append((kwargs["before_presentation"], kwargs["current_presentation"]))
+        return run_history_pair_pipeline(**kwargs)
+    monkeypatch.setattr(compare_jobs, "run_history_pair_pipeline", capture_presentations)
     seen_content: dict[str, tuple[str, ...]] = {}
     seen_producers: dict[str, str] = {}
     for name, before_label, current_label, expected_native in (
@@ -1515,6 +1522,11 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1]) for record in caplog.records
             if record.message.startswith("s3_pair_metrics ")]
         assert len(metrics) == 1 and metrics[0]["comparison_kernel_calls"] == expected_native
+        before_presentation, current_presentation = seen_presentations[-1]
+        assert before_presentation == manifests[before_label].presentation
+        assert current_presentation == manifests[current_label].presentation
+        assert next(t.comment for t in current_presentation.tables if t.table_name == "t") == "table-3"
+        assert next(t.comment for t in before_presentation.tables if t.table_name == "t") == ("table-2" if before_label == "b" else None)
         assert risk_lookups == [name != "full-first"]
         assert risk_stores == ([True] if name == "full-first" else [])
         rows, _ = _history_snapshot_bundle_data(history)

@@ -925,7 +925,7 @@ def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
         baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key=IDEMPOTENCY_KEY,
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest())
     seen: list[tuple[PresentationMetadata, PresentationMetadata]] = []
-    original = preview_jobs.run_preview_pair_pipeline
+    original = pair_pipeline.run_preview_pair_pipeline
     def capture(**kwargs: Any) -> Any:
         seen.append((kwargs["before_presentation"], kwargs["current_presentation"]))
         return original(**kwargs)

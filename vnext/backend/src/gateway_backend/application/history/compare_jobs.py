@@ -1152,7 +1152,7 @@ def _history_presentations(payload: HistoryCompareJobPayload, deps: HistoryCompa
                         gateway_device_external_key=payload.gateway_device_external_key,
                         business_project_id=payload.business_project_id))
             except CommitCanonicalMetadataError as exc:
-                raise HistoryCompareJobError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
+                raise HistoryCompareInputError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
         presentations[commit_id] = presentation_for_commit(metadata)
     return presentations
 

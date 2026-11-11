@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import argparse
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import hashlib
+import base64
 import importlib
 import json
 from pathlib import Path, PurePosixPath
@@ -21,12 +22,17 @@ import tempfile
 from typing import Any, Iterator
 from unittest.mock import patch
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from gateway_compute._native import _init_kernel_native
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
 from gateway_backend.application.preview_jobs import _comparison_storage_facts, surface_artifact_closure
-from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict
+from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from presentation_fixture_submit import run_comment_only_submit
 from gateway_backend.artifacts.scratch import scratch_scope
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION, BundleAssemblyInput, BundleInput, BundlePairInput,
@@ -45,6 +51,7 @@ from gateway_backend.capabilities.table_access import (
     ParserInvocationContext, SqlParseRequest, SqlSourceInput, XmlParseRequest, XmlSourceInput,
     kernel_execution_scope, parse_arrow_sql, parse_xml,
 )
+from gateway_backend.capabilities.surface_assembly import compute_surface_digest, surface_digest_payload
 from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
 from gateway_backend.capabilities.table_rules import TABLE_RULESET_VERSION, comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
@@ -143,6 +150,7 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
     store = InMemoryArtifactStore()
     sources = [materialize(inputs[node["sql"]], inputs[node["xml"]], store) for node in scenario["nodes"]]
     pair_inputs = []
+    golden = {kind: [] for kind in ("navigation", "navigation-diagnostics", "row-location", "surface", "bundle")}
     for pair in scenario["pairs"]:
         before_index, current_index = pair["before"], pair["current"]
         before, current = sources[before_index], sources[current_index]
@@ -158,6 +166,50 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
         surface = result.surface_result.surface
         if surface is None or len([p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION"]) != 1:
             raise ValueError("production pair did not publish exactly one navigation")
+        label = {"scenario": scenario["id"], "pair_id": pair["id"]}
+        for projection in surface.projections:
+            if projection.projection_kind == "BUSINESS_NAVIGATION":
+                golden["navigation"].append({**label, "document": json.loads(store.locate(projection.projection_ref))})
+                golden["navigation-diagnostics"].append({**label, "document": None if projection.diagnostics_ref is None
+                    else json.loads(store.locate(projection.diagnostics_ref))})
+        physical_tables = []
+        physical_changes = []
+        for table in surface.tables:
+            refs = table.table_refs
+            rewritten = {}
+            for field in ("before_table_ref", "current_table_ref", "browse_table_ref"):
+                ref = getattr(refs, field)
+                if ref is None:
+                    continue
+                array = pq.read_table(pa.BufferReader(store.locate(ref)))
+                array = array.take(pa.array(list(reversed(range(array.num_rows))), type=pa.int64()))
+                sink = pa.BufferOutputStream()
+                pq.write_table(array, sink, row_group_size=1, compression="NONE")
+                raw = sink.getvalue().to_pybytes()
+                changed = replace(ref, artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "fixture-physical-variant",
+                    [table.table_id, field, raw_blob_digest(raw).value]), raw_sha256=raw_blob_digest(raw), size_bytes=len(raw))
+                rewritten[field] = changed
+                physical_changes.append({"table_id": table.table_id, "side_ref": field,
+                    "original_sha256": ref.raw_sha256.value, "rewritten_sha256": changed.raw_sha256.value,
+                    "row_count": array.num_rows, "rewrite": "reverse-file-row-order; row-group=1; compression=NONE"})
+            locator = table.row_locator_ref
+            if locator is not None:
+                raw = store.locate(locator)
+                file = pq.ParquetFile(pa.BufferReader(raw))
+                rows = [{**row, "row_identity": row["row_identity"].hex()} for row in file.read().to_pylist()]
+                golden["row-location"].append({**label, "table_id": table.table_id,
+                    "raw_sha256": locator.raw_sha256.value, "schema": str(file.schema_arrow),
+                    "rows": rows, "parquet_base64": base64.b64encode(raw).decode("ascii")})
+                locator = replace(locator, artifact_id=build_artifact_id(ArtifactLocation.EXPORT,
+                    "fixture-locator-variant", table.table_id), raw_sha256=raw_blob_digest(b"physical-locator-variant"), size_bytes=24)
+            physical_tables.append(replace(table, table_refs=replace(refs, **rewritten), row_locator_ref=locator))
+        physical_digest = compute_surface_digest(replace(surface, tables=tuple(physical_tables)))
+        if physical_digest != surface.surface_digest:
+            raise ValueError("table/locator physical encoding affected surface semantic digest")
+        golden["surface"].append({**label, "document": surface.to_document(),
+            "semantic_preimage": surface_digest_payload(surface), "surface_digest": surface.surface_digest.value,
+            "physical_variant_digest": physical_digest.value, "physical_variants": physical_changes,
+            "locator_ref_exclusion_checked": True})
         closure = surface_artifact_closure(surface, pair["id"], result.records_closure,
             before=before.bound, current=current.bound, include_all_tables=history,
             store=store, repository_id=REPOSITORY)
@@ -184,11 +236,26 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
     destination = root / scenario["output"]
     for name, data in sorted(outputs.items()):
         write_member(destination, name, data)
+    golden["bundle"].append({"scenario": scenario["id"], "manifest": manifest,
+        "artifact_closure": json.loads(closure_raw)})
+    for kind, values in golden.items():
+        write_member(root, f"golden/{kind}/{scenario['id']}.json", canonicalize_json_value(values))
+    submit_result = None
+    if "comment-only-preview" in scenario["coverage"]:
+        sql = inputs[scenario["nodes"][-1]["sql"]]
+        source_ref = put_with_built_ref(store, sql,
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "fixture-upload", raw_blob_digest(sql).value),
+            media_type="application/sql")
+        submit_result = run_comment_only_submit(before=sources[0], current=sources[-1], store=store,
+            manifest_ref=result.manifest_ref, closure_ref=result.artifact_closure_ref,
+            surface=pair_inputs[-1].surface_result.surface, bundle_digest=manifest["bundle_digest"],
+            source_ref=source_ref, sql_source_digest=raw_blob_digest(sql).value,
+            repository_id=REPOSITORY, rules_digest=migrated_table_ruleset_snapshot().ruleset_digest)
     # Preserve real typed documents/Parquet for consumers; no normalization or
     # post-publication rewriting of opaque IDs, navigation or locator bytes.
     return {"scenario": scenario["id"], "output": scenario["output"],
         "flow": scenario["flow"], "operation_result": result.status.value,
-        "submit_result": None, "coverage": scenario["coverage"],
+        "submit_result": submit_result, "coverage": scenario["coverage"],
         "inputs": {name: hashlib.sha256(inputs[name]).hexdigest()
             for name in sorted({node[k] for node in scenario["nodes"] for k in ("sql", "xml")})},
         "bundle_digest": manifest["bundle_digest"],

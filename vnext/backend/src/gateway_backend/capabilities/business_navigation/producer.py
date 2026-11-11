@@ -209,7 +209,7 @@ class _Builder:
         # One scan of the small registry table per existing logical side.
         net = names.get("net_cfg")
         if net:
-            for label, source in (("BEFORE", net.before), ("CURRENT", net.current)):
+            for label, source in self.registry_sides(net):
                 for row in self.rows(source):
                     board, link = row.values.get("board"), row.values.get("link_no")
                     if type(board) is not int or type(link) is not int or max(abs(board), abs(link)) > SAFE_INTEGER:
@@ -285,6 +285,11 @@ class _Builder:
         return groups
 
     @staticmethod
+    def registry_sides(table: NavigationTable) -> tuple[tuple[str, NavigationSide | None], ...]:
+        before = table.current if table.unchanged and table.before is not None and table.current is not None else table.before
+        return (("BEFORE", before), ("CURRENT", table.current))
+
+    @staticmethod
     def business_label(current: NavigationRow | None, before: NavigationRow | None, column: str, default: str) -> str:
         for row in (current, before):
             value = None if row is None else row.values.get(column)
@@ -308,7 +313,7 @@ class _Builder:
         if app is None:
             return
         targets: dict[str, dict[str, NavigationRow]] = defaultdict(dict)
-        for side, source in (("BEFORE", app.before), ("CURRENT", app.current)):
+        for side, source in self.registry_sides(app):
             seen: set[str] = set()
             for row in self.rows(source):
                 target = row.values.get("table_cfg")
@@ -346,7 +351,7 @@ class _Builder:
         if device is not None:
             claimed.add("device")
             output.append(self.item("device:table", "TABLE", device.display_name, [self.tab(device)]))
-            for side, source in (("BEFORE", device.before), ("CURRENT", device.current)):
+            for side, source in self.registry_sides(device):
                 address_counts: Counter[int] = Counter()
                 gid_counts: Counter[Scalar] = Counter()
                 for row in self.rows(source):

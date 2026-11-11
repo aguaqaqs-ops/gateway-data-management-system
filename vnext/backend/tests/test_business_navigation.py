@@ -409,3 +409,17 @@ def test_many_shared_gid_rows_aggregate_without_per_device_record_state() -> Non
     result = build_navigation((device(devs, devs), shared), check=lambda: None, reserve=lambda _: nullcontext(), max_state_bytes=300000)
     assert len(tabs(result, "device_cfg")) == 100
     assert all(t["facts"]["current_row_count"] == 1000 and t["facts"]["risk_level"] == "LOW" for t in tabs(result, "device_cfg"))
+
+
+@pytest.mark.parametrize("name,values,columns", [
+    ("device", {"dev_addr": 49, "gid": 7}, {"dev_addr": "INT", "gid": "INT"}),
+    ("net_cfg", {"board": 1, "link_no": 2, "exe": "dev103"}, {"board": "INT"}),
+    ("app_cfg", {"table_cfg": "missing", "app_name": "参数"}, {"table_cfg": "TEXT"}),
+])
+def test_unchanged_registry_never_opens_before_stream(
+    name: str, values: Mapping[str, Scalar], columns: Mapping[str, str | None],
+) -> None:
+    def forbidden() -> Any:
+        raise AssertionError("unchanged registry before stream must remain unopened")
+    old = NavigationSide(columns, forbidden, 1, "表")
+    build(table(name, old, side((values,), columns=columns), unchanged=True))

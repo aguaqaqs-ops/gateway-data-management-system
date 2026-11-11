@@ -352,6 +352,10 @@ the old configuration and query the original RS request key first. Use
 `stop-group` with the same arguments: after drain it refuses any RUNNING step
 or EFFECT_PENDING SubmitAttempt, then stops backend before RS, waiting up to
 180 seconds per service for the complete cgroup, including Dolt children.
+The RS runuser wrapper may report a controlled TERM as exit 143. This is accepted
+only for a running RS signalled by this invocation after its container and full
+cgroup have exited, with no OOM or daemon error. Pre-existing exit 143, other
+nonzero codes and other roles remain failures.
 Only proceed with changes after business state is appropriate for the change
 and all writing processes have stopped. This read-only safety check does not
 replace operator reconciliation or prove that queued work supports a new

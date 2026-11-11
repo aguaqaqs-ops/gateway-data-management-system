@@ -180,3 +180,61 @@ def test_admission_wait_observes_existing_requests_without_reopening(
     monkeypatch.setattr(maintenance.time, "sleep", lambda seconds: None)
     maintenance.close_admission("http://127.0.0.1:8000", "private")
     assert methods == [True, False]
+
+
+@pytest.mark.parametrize(("service", "was_running", "exit_code", "oom", "error", "accepted"), [
+    ("repository-service", True, 143, False, "", True),
+    ("repository-service", True, 0, False, "", True),
+    ("repository-service", False, 143, False, "", False),
+    ("repository-service", True, 1, False, "", False),
+    ("repository-service", True, 137, False, "", False),
+    ("repository-service", True, 143, True, "", False),
+    ("repository-service", True, 143, False, "daemon error", False),
+    ("backend", True, 143, False, "", False),
+    ("worker", True, 143, False, "", False),
+])
+def test_controlled_rs_term_exit_requires_signalled_role_and_complete_exit(
+    maintenance: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    service: str, was_running: bool, exit_code: int, oom: bool, error: str, accepted: bool,
+) -> None:
+    from copy import deepcopy
+    original = _group()[service]
+    if not was_running:
+        original["State"].update(Status="exited", Running=False, Pid=0, ExitCode=exit_code)
+    stopped = deepcopy(original)
+    stopped["State"].update(Status="exited", Running=False, Pid=0,
+                            ExitCode=exit_code, OOMKilled=oom, Error=error)
+    calls: list[tuple[str, ...]] = []
+    def docker(*args: str) -> str:
+        calls.append(args)
+        return json.dumps([stopped]) if args[0] == "inspect" else ""
+    monkeypatch.setattr(maintenance, "_cgroup", lambda item: tmp_path / "absent")
+    monkeypatch.setattr(maintenance, "_docker", docker)
+    if accepted:
+        maintenance.stop_services([original])
+    else:
+        with pytest.raises(ValueError, match="abnormal exit"):
+            maintenance.stop_services([original])
+    assert (("kill", "--signal", "TERM", service) in calls) is was_running
+    assert all(call[0] in {"kill", "inspect"} for call in calls)
+
+
+def test_rs_term_exit_keeps_waiting_for_child_cgroup_and_never_escalates(
+    maintenance: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from copy import deepcopy
+    original = _group()["repository-service"]
+    stopped = deepcopy(original)
+    stopped["State"].update(Status="exited", Running=False, Pid=0, ExitCode=143)
+    (tmp_path / "cgroup.events").write_text("populated 1\nfrozen 0\n")
+    calls: list[tuple[str, ...]] = []
+    def docker(*args: str) -> str:
+        calls.append(args)
+        return json.dumps([stopped]) if args[0] == "inspect" else ""
+    ticks = iter((0, 181))
+    monkeypatch.setattr(maintenance, "time", type("Clock", (), {"monotonic": staticmethod(lambda: next(ticks))}))
+    monkeypatch.setattr(maintenance, "_cgroup", lambda item: tmp_path)
+    monkeypatch.setattr(maintenance, "_docker", docker)
+    with pytest.raises(ValueError, match="still active, no KILL sent: repository-service"):
+        maintenance.stop_services([original])
+    assert calls == [("kill", "--signal", "TERM", "repository-service"), ("inspect", "repository-service")]

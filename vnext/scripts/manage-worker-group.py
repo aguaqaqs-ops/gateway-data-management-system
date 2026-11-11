@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import signal
 import sqlite3
 import subprocess
 import time
@@ -150,8 +151,17 @@ def stop_services(containers: list[dict[str, Any]]) -> None:
         pending = [item for item in current if item["State"]["Running"] or item["State"]["Pid"]
                    or not _empty(groups[item["Id"]])]
         if not pending:
-            failed = [_service(item) for item in current if item["State"].get("OOMKilled")
-                      or item["State"].get("ExitCode", 0) != 0]
+            failed = []
+            for item in current:
+                state = item["State"]
+                # RS runs beneath runuser, which reports TERM as 128 + SIGTERM.
+                # Accept it only for the RS we signalled in this invocation,
+                # after the container and its complete cgroup have exited.
+                controlled_rs_term = (item["Id"] in running and _service(item) == "repository-service"
+                    and state["Status"] == "exited" and state.get("ExitCode") == 128 + signal.SIGTERM)
+                if (state.get("OOMKilled") or state.get("Error")
+                        or (state.get("ExitCode") != 0 and not controlled_rs_term)):
+                    failed.append(_service(item))
             if failed:
                 raise ValueError("abnormal exit; preserve group for diagnosis: " + ",".join(failed))
             return

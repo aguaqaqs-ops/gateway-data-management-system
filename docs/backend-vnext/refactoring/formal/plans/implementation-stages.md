@@ -693,7 +693,7 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 ## 10. Phase 7：Multi-project Concurrency and Capacity（多项目并发与容量）
 
-**当前范围（2026-11-11）：** P7-D21 已撤回旧线性扩展/计时数值门槛。S1b 已本地退出，见[总结](p7-s1b-summary.md)；后续以 [P7 执行计划](p7-execution-plan.md)及 [S2 设计](p7-s2-design.md)为准。S2a 为固定 W=K 的组内多 worker、有限恢复与维护窗口；S2b 为静态独立组、独立版本和数据隔离，保留未来逐组升级边界，灰度自动化后移；完整设备副本/受控换组留 S4b。建议保持 S2a→S2b 分别实施退出，不增加内部包全量门禁；本轮仅授权设计，未实施 S2。
+**当前范围（2026-11-11）：** P7-D21 已撤回旧线性扩展/计时数值门槛。S1b 已本地退出，见[总结](p7-s1b-summary.md)；后续以 [P7 执行计划](p7-execution-plan.md)及 [S2 设计](p7-s2-design.md)为准。S2a 为固定 W=K 的组内多 worker、有限恢复与维护窗口；S2b 为静态独立组、独立版本和数据隔离，保留未来逐组升级边界，灰度自动化后移；完整设备副本/受控换组留 S4b。建议保持 S2a→S2b 分别实施退出，不增加内部包全量门禁；S2a[详细实施计划](p7-s2a-execution-plan.md)已形成候选，本轮授权Astra独审与修复，未实施S2。
 
 本节按 DC37 改写（2026-10-25）。
 

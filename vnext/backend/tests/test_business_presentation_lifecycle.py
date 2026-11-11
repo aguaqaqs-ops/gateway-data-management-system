@@ -62,7 +62,9 @@ def test_actual_presentation_refs_recover_from_disk_transfer_or_release_protecti
         assembled_step = uow.operations.get_step(operation_id + "-step-2")
     assert assembled_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(store, assembled_step.checkpoint_ref)
-    ready_ref = artifact_ref_from_dict(envelope.job_state["ready_closure_ref"])
+    ready_document = envelope.job_state["ready_closure_ref"]
+    assert isinstance(ready_document, dict)
+    ready_ref = artifact_ref_from_dict(ready_document)
     ready = load_ready_closure(store, ready_ref)
     manifest_ref = local.get_ref(str(envelope.job_state["bundle_artifact_id"]))
     manifest = json.loads(store.locate(manifest_ref))

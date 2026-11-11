@@ -368,6 +368,9 @@ if sys.argv[2] == "thread":
     def kernel_failure(_threads):
         raise ValueError("kernel initialization failed")
     operation_worker.initialize_compute_kernel = kernel_failure
+    # Keep the pipe handshake to one line; TextIO can prefetch later lines
+    # past the descriptor readiness observed by the existing selector helper.
+    operation_worker._LOGGER.disabled = True
     threading.Thread(target=lambda: sys.stdin.buffer.read(1), daemon=False).start()
     assert operation_worker.run(settings) == 1
     identity = worker_id_for(settings.deployment_config, settings.instance_index)

@@ -97,7 +97,7 @@ again at execution. Swap is explicitly zero. `memory.max` equals the role's
 configured envelope, `memory.swap.max` equals the additional swap allowance,
 and effective CPU quota/cpuset and visible ancestors must cover the role.
 The host formula counts W×E + backend + RS/Dolt + shared reserve once; M is a
-kernel allocation budget, not RSS or the cgroup hard limit. W=K=1 is enforced.
+kernel allocation budget, not RSS or the cgroup hard limit. Fixed W=K is enforced.
 
 Use Python 3.12+ on the actual deployment host. The renderer and host preflight
 use only the standard library; they do not install dependencies or create mount
@@ -137,7 +137,7 @@ CLI exposes the same explicit `init-layout` and `check-layout` host operations.
 
 `render` validates document structure and writes a new external Compose JSON
 override, which supplies every root/config bind with `create_host_path: false`,
-role-specific memory/CPU/swap and replicas. It neither checks a remote host nor
+role-specific memory/CPU/swap and one replica per fixed service. It neither checks a remote host nor
 initializes state. Always use the override, including `config`, `build`, `up`,
 `exec` and `down`; the base YAML has no usable storage default. Both documents
 are mounted read-only. Changing their values requires drain/restart and a new
@@ -281,3 +281,35 @@ the process exits, including when executor threads outlive the main run function
 Never unlink or replace `.gateway-worker-<index>.lock` during metadata maintenance.
 Replacement containers require confirmation that the old container and all its
 execution processes have exited; lease expiry alone does not establish that fact.
+
+
+The renderer keeps `worker` as instance 1 and emits `worker-2` through `worker-W`.
+Additional services extend the absolute base Compose file, sharing the worker
+image `${COMPOSE_PROJECT_NAME:-gateway}-worker`, environment and secrets. Set an
+explicit `COMPOSE_PROJECT_NAME` for every deployment and use that same project
+for every command. Every service has one replica, its own strict instance index
+and the same limits. Start all rendered services with `up -d`; an explicit
+`up backend worker` starts only instance 1. Never use `--scale` or manually run
+additional worker containers. The lifecycle flock rejects a duplicate index,
+while actual process count and resource allocation still require inspection.
+Workers use `restart: no`; after verifying the original container and its
+execution processes have exited, start the original fixed service explicitly.
+Do not recreate a replacement while the previous container is still alive.
+
+After all workers report ready, verify the actual project containers:
+
+```bash
+python3 vnext/scripts/render-runtime-config.py \
+  --storage-layout /etc/gateway/storage-layout.json \
+  --resource-profile /etc/gateway/resource-profile.json check-workers \
+  --project "$COMPOSE_PROJECT_NAME"
+```
+
+This rejects missing/stopped services, duplicate replicas or indices, differing
+worker images, automatic restart, and Docker memory/swap/CPU limits that differ
+from the profile. Runtime preflight also checks each process's actual cgroups.
+The approved small-input W2 correctness profile uses N1, each worker E16 GiB,
+reserve8 GiB/M8 GiB/CPU2/swap0, backend2 GiB/CPU1, RS4 GiB/CPU2 and shared host
+reserve8 GiB/CPU2: 46 GiB/CPU9 in total. It does not change the W1 default or
+establish production/t4 capacity. The Compose test fixture selects this profile
+explicitly for its two-worker journey.

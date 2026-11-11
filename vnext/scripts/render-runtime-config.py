@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from host_runtime_config import DeploymentConfig, check_host, initialize_host
+from worker_deployment import check_workers
 
 
 def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str, object]:
@@ -23,9 +24,22 @@ def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str
                                              (resources, "/run/gateway/resource-profile.json")))
         services[service_name] = {"volumes": mounts, "mem_limit": memory,
             "memswap_limit": memory + profile.swap_limit_bytes, "cpus": profile.cpu_limit,
-            "cgroup": "host", "deploy": {"replicas": config.resources.worker.count if role == "worker" else 1},
+            "cgroup": "host", "deploy": {"replicas": 1},
             "environment": {"GATEWAY_STORAGE_LAYOUT_FILE": "/run/gateway/storage-layout.json",
                             "GATEWAY_RESOURCE_PROFILE_FILE": "/run/gateway/resource-profile.json"}}
+    worker = services["worker"]
+    assert isinstance(worker, dict)
+    worker["environment"]["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
+    for index in range(2, config.resources.worker.count + 1):
+        # Inherit the production worker definition, including its one image tag.
+        # Only rendered mounts/resources and the fixed application index differ.
+        services[f"worker-{index}"] = {
+            **worker,
+            "extends": {"file": str(Path(__file__).resolve().parents[1] / "deploy/compose.yaml"),
+                        "service": "worker"},
+            "environment": {**worker["environment"],
+                            "GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX": str(index)},
+        }
     return {"services": services}
 
 
@@ -33,8 +47,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--storage-layout", type=Path, required=True)
     parser.add_argument("--resource-profile", type=Path, required=True)
-    parser.add_argument("command", choices=("render", "check-host", "init-layout", "check-layout"))
+    parser.add_argument("command", choices=("render", "check-host", "init-layout", "check-layout", "check-workers"))
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--project")
     args = parser.parse_args()
     try:
         storage, resources = args.storage_layout.absolute(), args.resource_profile.absolute()
@@ -49,6 +64,8 @@ def main() -> int:
             payload = json.dumps(render(config, storage, resources), indent=2) + "\n"
             with destination.open("x", encoding="utf-8") as stream:
                 stream.write(payload)
+        elif args.command == "check-workers":
+            print(json.dumps(check_workers(config, args.project), sort_keys=True))
         elif args.command == "init-layout":
             initialize_host(config)
         else:

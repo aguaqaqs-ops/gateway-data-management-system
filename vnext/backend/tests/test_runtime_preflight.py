@@ -143,17 +143,29 @@ def test_host_initialization_validates_all_roots_before_writing_and_is_idempoten
     preflight.initialize_host(deployment)
 
 
-def test_renderer_runs_without_site_packages_and_owns_every_role_limit_and_bind(tmp_path: Path) -> None:
+@pytest.mark.parametrize("count", (1, 2))
+def test_renderer_runs_without_site_packages_and_owns_every_role_limit_and_bind(tmp_path: Path, count: int) -> None:
     import subprocess
     import sys
     fixtures = Path(__file__).resolve().parents[2] / "fixtures/runtime-config/v1"
+    resource_path = tmp_path / "resource-profile.json"
+    resources = json.loads((fixtures / "resource-profile.json").read_bytes())
+    resources["worker"].update(count=count, active_limit=count)
+    resources["host_budget"].update(memory_bytes=96 * 1024**3, cpu_count=16)
+    resource_path.write_text(json.dumps(resources))
     output = tmp_path / "compose-runtime.json"
     result = subprocess.run([sys.executable, "-S", str(fixtures.parents[2] / "scripts/render-runtime-config.py"),
-        "--storage-layout", str(fixtures / "storage-layout.json"), "--resource-profile", str(fixtures / "resource-profile.json"),
+        "--storage-layout", str(fixtures / "storage-layout.json"), "--resource-profile", str(resource_path),
         "render", "--output", str(output)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
     services = json.loads(output.read_bytes())["services"]
-    assert set(services) == {"backend", "worker", "repository-service"}
+    assert set(services) == {"backend", "worker", "repository-service", *(
+        f"worker-{index}" for index in range(2, count + 1))}
+    for index in range(1, count + 1):
+        worker = services["worker" if index == 1 else f"worker-{index}"]
+        assert worker["environment"]["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] == str(index)
+        if index > 1:
+            assert worker["extends"] == {"file": str(fixtures.parents[2] / "deploy/compose.yaml"), "service": "worker"}
     assert services["worker"]["mem_limit"] == 32 * 1024**3
     assert services["worker"]["memswap_limit"] == 32 * 1024**3
     for role, service in services.items():

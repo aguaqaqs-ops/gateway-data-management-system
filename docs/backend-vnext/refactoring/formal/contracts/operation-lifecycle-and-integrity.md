@@ -255,7 +255,7 @@ owner 目录持独占 flock，成功、失败、取消或 close/ENOSPC 失败均
 
 
 F 接线细节：标准 Compose override 从两文档生成 long-syntax bind（禁止自动创建 source）、
-role memory/CPU/swap 和 replicas，基础 YAML 不提供可写存储默认值。host `check-host` 先核
+role memory/CPU/swap 和每固定服务 replicas=1：`worker` 为实例1、`worker-2` 至 `worker-W` 为其余实例。新增服务通过绝对路径 extends 基础 worker，共用一个显式镜像 tag、环境及 secrets；每服务注入严格编号，restart=no，禁用 `--scale`/自动扩容。`check-workers --project` 按 Compose project labels 核实际数量、编号、状态、镜像和 Docker 资源限制，不能只凭 profile count 宣称已部署 W。基础 YAML 不提供可写存储默认值。host `check-host` 先核
 实际 mountpoint/source 和宿主/祖先规划预算；显式 `init-layout` 只为已存在空 root 写固定
 marker，已有 marker 必须精确匹配。服务只核本角色 roots；backend HTTP admission/readiness、
 worker 写 UoW/claim 及 RS readiness/import claim 在实际观察成功后继续。挂载身份失效锁存，

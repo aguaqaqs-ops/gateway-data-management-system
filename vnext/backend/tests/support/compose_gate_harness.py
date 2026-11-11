@@ -426,59 +426,38 @@ print(json.dumps(sorted(commits)))
     return set(str(item) for item in payload)
 
 
+def configured_worker_services(env: dict[str, str]) -> tuple[str, ...]:
+    document = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
+    return tuple(name for name in document["services"]
+                 if name == "worker" or name.startswith("worker-"))
+
+
 def _worker_container_name(env: dict[str, str]) -> str:
-    return f"{env['COMPOSE_PROJECT_NAME']}-worker-1"
+    running = normalize_running_images(capture_running_container_provenance(env),
+                                       env["COMPOSE_PROJECT_NAME"])
+    return running["worker"]["container_id"]
 
 
 def capture_worker_container_state(env: dict[str, str]) -> dict[str, str]:
-    container = _worker_container_name(env)
-    restart = subprocess.run(
-        ["docker", "inspect", "--format", "{{.RestartCount}}", container],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if restart.returncode != 0:
-        pytest.fail(
-            f"docker inspect RestartCount failed for {container}: "
-            f"{restart.stderr}\n{restart.stdout}"
-        )
-    started = subprocess.run(
-        ["docker", "inspect", "--format", "{{.State.StartedAt}}", container],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if started.returncode != 0:
-        pytest.fail(
-            f"docker inspect StartedAt failed for {container}: "
-            f"{started.stderr}\n{started.stdout}"
-        )
-    return {
-        "restart_count": restart.stdout.strip(),
-        "started_at": started.stdout.strip(),
-    }
+    running = normalize_running_images(capture_running_container_provenance(env),
+                                       env["COMPOSE_PROJECT_NAME"])
+    states: dict[str, str] = {}
+    for service in configured_worker_services(env):
+        container = running[service]["container_id"]
+        result = subprocess.run(["docker", "inspect", "--format",
+            "{{.RestartCount}} {{.State.StartedAt}}", container],
+            check=False, capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            pytest.fail("worker state inspection failed: " + result.stderr)
+        states[service] = container + " " + result.stdout.strip()
+    return states
 
 
 def assert_worker_container_unchanged(
     env: dict[str, str],
     baseline: dict[str, str],
 ) -> None:
-    current = capture_worker_container_state(env)
-    if current["restart_count"] != baseline["restart_count"]:
-        pytest.fail(
-            "worker container restart count changed after submit failure: "
-            f"baseline={baseline['restart_count']} current={current['restart_count']} "
-            f"(container={_worker_container_name(env)})"
-        )
-    if current["started_at"] != baseline["started_at"]:
-        pytest.fail(
-            "worker container StartedAt changed after submit failure: "
-            f"baseline={baseline['started_at']} current={current['started_at']} "
-            f"(container={_worker_container_name(env)})"
-        )
+    assert capture_worker_container_state(env) == baseline, "fixed worker containers changed"
 
 
 def assert_submit_occupancy_cleared_in_compose(
@@ -563,42 +542,39 @@ def normalize_running_images(
     captured: dict[str, dict[str, str]],
     compose_project_name: str,
 ) -> dict[str, dict[str, str]]:
-    """Map compose ps container names to canonical service keys."""
-
-    service_suffixes = {
-        "backend": f"{compose_project_name}-backend-1",
-        "worker": f"{compose_project_name}-worker-1",
-        "repository_service": f"{compose_project_name}-repository-service-1",
-    }
+    """Normalize by project/service labels, independently of container names."""
     normalized: dict[str, dict[str, str]] = {}
-    for service, container_name in service_suffixes.items():
-        entry = captured.get(container_name)
-        if entry is None:
-            pytest.fail(f"missing running container for {service}: {container_name}")
-        normalized[service] = {
-            "container_id": entry["container_id"],
-            "image": entry["image"],
-        }
+    for entry in captured.values():
+        if entry["project"] != compose_project_name:
+            pytest.fail("container belongs to another Compose project")
+        service = entry["service"]
+        key = "repository_service" if service == "repository-service" else service
+        if key in normalized:
+            pytest.fail("duplicate Compose service: " + service)
+        normalized[key] = {"container_id": entry["container_id"], "image": entry["image"]}
     return normalized
 
 
 def capture_running_container_provenance(env: dict[str, str]) -> dict[str, dict[str, str]]:
-    result = run_compose(
-        env,
-        "ps",
-        "--format",
-        "{{.Name}}\t{{.ID}}",
-    )
-    if result.returncode != 0:
-        pytest.fail(f"compose ps failed: {result.stderr}\n{result.stdout}")
+    result = subprocess.run(["docker", "ps", "-q", "--filter",
+        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]],
+        check=False, capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        pytest.fail("project container enumeration failed: " + result.stderr)
+    ids = result.stdout.split()
+    if not ids:
+        return {}
+    inspected = subprocess.run(["docker", "inspect", *ids], check=False,
+        capture_output=True, text=True, timeout=30)
+    if inspected.returncode:
+        pytest.fail("project container inspection failed: " + inspected.stderr)
     captured: dict[str, dict[str, str]] = {}
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        name, container_id = line.split("\t", 1)
-        captured[name] = {
-            "container_id": container_id,
-            "image": _inspect_container_image_id(container_id),
+    for container in json.loads(inspected.stdout):
+        labels = container["Config"]["Labels"]
+        captured[container["Name"].lstrip("/")] = {
+            "container_id": container["Id"], "image": container["Image"],
+            "project": labels["com.docker.compose.project"],
+            "service": labels["com.docker.compose.service"],
         }
     return captured
 
@@ -634,19 +610,26 @@ def persist_compose_gate_provenance(
 
 def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> None:
     built = compose_image_ids(env)
-    running = capture_running_container_provenance(env)
-    project = env["COMPOSE_PROJECT_NAME"]
-    for service in ("backend", "worker"):
-        running_key = f"{project}-{service}-1"
-        running_image = running.get(running_key, {}).get("image")
-        built_image = built[service].get("id")
-        if running_image is None or built_image is None:
-            pytest.fail(f"missing running or built image for {service}")
-        if running_image != built_image:
-            pytest.fail(
-                f"running image for {service} does not match fresh build: "
-                f"{running_image} != {built_image}"
-            )
+    running = normalize_running_images(capture_running_container_provenance(env),
+                                       env["COMPOSE_PROJECT_NAME"])
+    for service in ("backend", *configured_worker_services(env)):
+        running_image = running.get(service, {}).get("image")
+        built_image = built["worker" if service.startswith("worker") else service].get("id")
+        if running_image is None or built_image is None or running_image != built_image:
+            pytest.fail(f"running image for {service} does not match fresh build")
+
+
+def check_fixed_worker_deployment(env: dict[str, str]) -> dict[str, Any]:
+    directory = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).parent
+    result = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/render-runtime-config.py"),
+        "--storage-layout", str(directory / "storage-layout.json"),
+        "--resource-profile", str(directory / "resource-profile.json"),
+        "check-workers", "--project", env["COMPOSE_PROJECT_NAME"]],
+        env=env, check=False, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    observed = cast(dict[str, Any], json.loads(result.stdout))
+    print("fixed_worker_deployment=" + json.dumps(observed, sort_keys=True), flush=True)
+    return observed
 
 
 SESSION_TOKEN = "compose-session-token"
@@ -691,12 +674,18 @@ def wait_repository_service_ready(env: dict[str, str], *, timeout_seconds: float
 
 def worker_ready(env: dict[str, str], *, timeout_seconds: float = 120.0) -> None:
     deadline = time.monotonic() + timeout_seconds
+    pending = set(configured_worker_services(env))
     while time.monotonic() < deadline:
-        logs = run_compose(env, "logs", "worker", "--no-color")
-        if "code=worker_ready" in logs.stdout:
+        for service in tuple(pending):
+            logs = run_compose(env, "logs", service, "--no-color")
+            if logs.returncode == 0 and "code=worker_ready" in logs.stdout:
+                pending.remove(service)
+        if not pending:
+            check_fixed_worker_deployment(env)
+            assert_running_backend_worker_images_match_build(env)
             return
         time.sleep(2.0)
-    raise RuntimeError("worker did not emit worker_ready")
+    raise RuntimeError("workers did not emit worker_ready: " + ",".join(sorted(pending)))
 
 
 def _git_head_tree_sha(repo_root: Path = REPO_ROOT) -> str:
@@ -1246,8 +1235,11 @@ def seed_repository_and_mapping(env: dict[str, str]) -> tuple[str, str]:
 def start_three_container_stack(
     env: dict[str, str],
     tmp_path: Path,
+    *,
+    workers: int = 1,
 ) -> tuple[str, str]:
     acquire_compose_gate_lock()
+    prepare_runtime_config(env, workers=workers)
     _assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
     build_compose_stack_images(env)
     _teardown_compose_project_resources(env)
@@ -1256,7 +1248,7 @@ def start_three_container_stack(
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
     wait_repository_service_ready(env)
     repository_id, initial_commit_id = seed_repository_and_mapping(env)
-    up_stack = run_compose(env, "up", "-d", "--no-build", "backend", "worker")
+    up_stack = run_compose(env, "up", "-d", "--no-build", "backend", *configured_worker_services(env))
     if up_stack.returncode != 0:
         pytest.fail(f"compose up backend/worker failed: {up_stack.stderr}\n{up_stack.stdout}")
     wait_http_ok(f"{BACKEND_URL}/readyz")
@@ -1875,14 +1867,14 @@ def identity_confirmation_requests(
 _runtime_fixtures: dict[str, tuple[Path, str]] = {}
 
 
-def prepare_runtime_config(env: dict[str, str]) -> None:
+def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
     if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env:
         return
     directory = Path(tempfile.mkdtemp(prefix="gateway-bind-", dir=os.environ.get("TMPDIR")))
     owner = env["COMPOSE_PROJECT_NAME"] + "-" + uuid4().hex
     _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (directory, owner)
     completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
-        str(directory), "--owner", owner], capture_output=True, text=True, check=False, timeout=30, env=env)
+        str(directory), "--owner", owner, "--workers", str(workers)], capture_output=True, text=True, check=False, timeout=30, env=env)
     if completed.returncode:
         print(f"runtime_fixture_retained={directory}", flush=True)
         pytest.fail(f"runtime fixture preparation failed: {completed.stderr}")

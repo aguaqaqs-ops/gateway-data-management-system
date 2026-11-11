@@ -59,7 +59,7 @@ def cleanup(directory: Path, owner: str, *, retain: bool) -> None:
         print("runtime_fixture_removed=" + str(directory), flush=True)
 
 
-def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None) -> Path:
+def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None, workers: int = 1) -> Path:
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
     if owner is not None:
         claim_owner(directory, owner)
@@ -67,6 +67,12 @@ def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | N
     fixtures = VNEXT / "fixtures/runtime-config/v1"
     storage = json.loads((fixtures / "storage-layout.json").read_bytes())
     profile = json.loads((fixtures / "resource-profile.json").read_bytes())
+    if workers == 2:
+        profile["worker"].update(count=2, active_limit=2,
+            memory_envelope_bytes=16 * 1024**3, kernel_memory_bytes=8 * 1024**3)
+        profile["host_budget"].update(memory_bytes=46 * 1024**3, cpu_count=9)
+    elif workers != 1:
+        raise ValueError("isolated correctness fixture supports W1 or the approved W2 profile")
     storage["filesystems"] = {}
     observed = mounts()
     existing_rs = rs_source is not None and next(rs_source.iterdir(), None) is not None
@@ -89,8 +95,7 @@ def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | N
             "min_free_bytes": 1, "min_free_fraction": 0.000001}
         root["source"] = str(source)
         root["filesystem_id"] = fs_id
-    # Resource amounts are still the explicit conservative N1/M24/E32 example;
-    # this fixture changes only watermarks for its tiny correctness inputs.
+    # Explicit W1 default or approved W2 N1/M8/E16 profile; tiny input watermarks.
     storage_path, resource_path = directory / "storage-layout.json", directory / "resource-profile.json"
     storage_path.write_text(json.dumps(storage))
     resource_path.write_text(json.dumps(profile))
@@ -110,6 +115,7 @@ def main() -> None:
     parser.add_argument("--rs-source", type=Path)
     parser.add_argument("--split-root", type=Path)
     parser.add_argument("--owner")
+    parser.add_argument("--workers", type=int, choices=(1, 2), default=1)
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--retain", action="store_true")
     args = parser.parse_args()
@@ -118,7 +124,7 @@ def main() -> None:
             parser.error("cleanup requires the exact fixture owner")
         cleanup(args.directory, args.owner, retain=args.retain)
     else:
-        print(prepare(args.directory, args.rs_source, args.split_root, args.owner))
+        print(prepare(args.directory, args.rs_source, args.split_root, args.owner, args.workers))
 
 
 if __name__ == "__main__":

@@ -354,6 +354,7 @@ def test_protocol_diagnostic_targets_existing_empty_channel_item() -> None:
     result = build(table("net_cfg", None, side((row,))))
     items = result.document["groups"][2]["items"]
     assert items[1]["item_key"] == "protocol:b1_n2" and items[1]["tabs"] == []
+    assert items[1]["attributes"] == {"board": 1, "link_no": 2, "protocol": "dev103"}
     diagnostic = diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")[0]
     assert diagnostic["target"]["item_key"] == "protocol:b1_n2"
     assert diagnostic["params"]["expected_tables"] == ["b1_n2_nr103d_cfg", "b1_n2_nr103d_dev_cfg"]

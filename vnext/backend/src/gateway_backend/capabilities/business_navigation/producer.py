@@ -265,7 +265,7 @@ class _Builder:
             claimed.update(tabs_by_name)
             label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix)
             protocol_name = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "protocol_name", "")
-            groups[2]["items"].append(self.item(f"protocol:{prefix}", "PROTOCOL_CHANNEL", (label + " " + protocol_name).strip(), list(tabs_by_name.values()), board=board, link_no=link))
+            groups[2]["items"].append(self.item(f"protocol:{prefix}", "PROTOCOL_CHANNEL", (label + " " + protocol_name).strip(), list(tabs_by_name.values()), board=board, link_no=link, protocol=self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "exe", "").lower()))
         self.globals(groups[3]["items"], names, claimed)
         for name, table in sorted(names.items()):
             if name in claimed:

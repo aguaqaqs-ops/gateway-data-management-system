@@ -1280,3 +1280,24 @@ async def test_arrow_busy_wait_releases_responses_and_restores_stream_deadline(o
             await consume()
         assert now[0] == (1.0 if outcome == 'cancel' else 300.0)
     assert all(response.is_closed for response in responses)
+
+
+async def test_open_fault_backoff_cannot_extend_read_admission_deadline() -> None:
+    now = [0.0]
+    responses: list[httpx.Response] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        now[0] = 299.99
+        response = httpx.Response(503, json={'code': 'SERVICE_NOT_READY', 'message': 'not ready', 'request_id': 'fault'},
+            headers={'X-Request-ID': 'fault'})
+        responses.append(response)
+        return response
+    async def sleeper(delay: float) -> None:
+        assert responses[-1].is_closed
+        assert delay == pytest.approx(0.01)
+        now[0] += delay
+    client = RepositoryClient(base_url='http://repository.test', bearer_token='token',
+        transport=httpx.MockTransport(handler), sleeper=sleeper, clock=lambda: now[0])
+    with pytest.raises(RepositoryClientTimeoutError):
+        async with client.stream_versioned_table_rows(repository_id=REPO_ID, commit_id=COMMIT_ID, table_name='items'):
+            raise AssertionError('admission deadline must prevent opening')
+    assert now[0] == 300.0 and len(responses) == 1 and responses[0].is_closed

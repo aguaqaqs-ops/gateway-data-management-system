@@ -2337,17 +2337,28 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     }
     await shot(name).catch((error: Error) => failures.push(`${name} (screenshot): ${String(error.message).split("\n")[0]}`));
   };
+  const expandNavigation = async () => {
+    const expand = page.getByRole("button", { name: "展开导航" });
+    if (await expand.isVisible()) {
+      await expand.click();
+      await page.waitForTimeout(200);
+    }
+  };
   const openPreview = async (fixture: string, extra: Record<string, string> = {}) => {
     await page.goto(browseUrl("PREVIEW", fixture, extra));
     await waitForBrowse(page);
     await page.waitForTimeout(300);
+    // 1280 宽度下侧栏默认收起；截图与后续点击都需要展开后的业务导航。
+    await expandNavigation();
   };
   const openItem = async (itemKey: string) => {
+    await expandNavigation();
     await page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-item__button`).first().click();
     await page.waitForTimeout(400);
   };
   const openTab = async (tabKey: string) => {
-    await page.locator(`.nav-tab[data-tab-key="${tabKey}"]`).first().click();
+    await expandNavigation();
+    await page.locator(`.nav-tab button[data-tab-key="${tabKey}"]`).first().click();
     await page.waitForTimeout(400);
   };
 
@@ -2403,6 +2414,7 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openItem("device:table");
   });
   await capture("fe4b-orphans-view-table", async () => {
+    await expandNavigation();
     const viewTable = page.getByRole("button", { name: /查看整表/ }).first();
     if (await viewTable.count()) {
       await viewTable.click();

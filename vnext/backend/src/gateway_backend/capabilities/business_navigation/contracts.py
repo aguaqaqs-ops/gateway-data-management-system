@@ -163,6 +163,12 @@ def identity_excluded_sides(
     """
     if task.before_descriptor is None or task.current_descriptor is None:
         return frozenset()
+    # selected is a two-side comparison projection. A physically missing
+    # column is absent from it without having been excluded by any rule.
+    # Keep that case with the owning COUNT_UNKNOWN/context completeness path.
+    if any(column not in {c.name for c in descriptor.columns}
+           for descriptor in (task.before_descriptor, task.current_descriptor)):
+        return frozenset()
     policy = task.policy
     assert policy is not None
     changes = fact.schema_changes

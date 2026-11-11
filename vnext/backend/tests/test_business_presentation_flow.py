@@ -78,3 +78,32 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
     assert "PROJECTION" in kinds
     if changed_cfg:
         assert "ROW_LOCATOR" in kinds
+
+
+@pytest.mark.parametrize("missing_side", ("BEFORE", "CURRENT"))
+def test_physical_filter_column_absence_does_not_become_rule_exclusion(missing_side: str) -> None:
+    device_sql = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT,description TEXT);"
+        "INSERT INTO device VALUES (7,49,'device');")
+    absent = device_sql + "CREATE TABLE device_cfg(id BIGINT PRIMARY KEY,note TEXT); INSERT INTO device_cfg VALUES(1,'old');"
+    present = device_sql + "CREATE TABLE device_cfg(id BIGINT PRIMARY KEY,gid BIGINT,note TEXT); INSERT INTO device_cfg VALUES(1,7,'new');"
+    before_sql, current_sql = (absent, present) if missing_side == "BEFORE" else (present, absent)
+    before = complete_canonical_bound(canonical_bound(before_sql))
+    current = complete_canonical_bound(canonical_bound(current_sql))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(standard_rule_record("device"), standard_rule_record("device_cfg")),
+        assess_identity=False, repository_id="replacement-fixture")
+    surface = result.surface_result.surface
+    assert surface is not None
+    projection, = surface.projections
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
+    tabs = [tab for item in navigation["groups"][1]["items"] for tab in item["tabs"] if tab["table_id"] == "device_cfg"]
+    assert len(tabs) == 1 and tabs[0]["row_filter"] is not None
+    assert tabs[0]["facts"][missing_side.lower() + "_row_count"] is None
+    assert tabs[0]["facts"]["basis"] == "TABLE_FALLBACK"
+    assert projection.diagnostics_ref is not None
+    diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+    assert not any(d["code"] == "DEVICE_FILTER_VALUE_UNSUPPORTED" for d in diagnostics)
+    assert any(d["code"] == "DEVICE_TAB_COUNT_UNKNOWN" and d["side"] == missing_side for d in diagnostics)
+    assert any(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE" for d in diagnostics)

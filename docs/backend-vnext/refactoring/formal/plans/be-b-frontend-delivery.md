@@ -1,6 +1,6 @@
 # BE-b → FE4b 交付
 
-状态：B4 实施交付草稿。后端输入、真实生成器、五类 golden 与正式 Contract 已提供；最终生产 OpenAPI 原件、V/H/exit tag、当前镜像身份、集中门禁/真实数据及全范围独审由 B5 绑定后才可宣称 BE-b 退出。本文不启动 FE4b，不修改 frontend 产品或代签前端验收。
+状态：B5 产品证据已落到固定 V；最终 H、04 同一固定 worktree 的脚本实际 carried/容器绑定及退出 tag 仍待协调者核收。本文交付正式 Contract、五类 golden、入口/输入/输出、V/镜像身份、生产 OpenAPI、稳定码和差异原件；不以 vnext tree 相同代替 H 绑定，不提前宣称 BE-b 已退出。本文不启动 FE4b，不修改 frontend 产品或代签前端验收。
 
 ## 1. 正式 Contract
 
@@ -47,15 +47,35 @@ Rust 变化先按 AGENTS 强制重装扩展并核 build input。wrapper 的 run 
 
 真实 business materialization 的 composite catalog 要求 device/测点地址为整数，且非空 device 具有唯一特殊身份；因此不伪造文本装置/文本测点可达的上传组合。文本数字反例使用允许的 device_cfg.gid TEXT，对整数 registry 必须 UNSUPPORTED_TYPE 整表降级。keyless identity frame 未包含筛选身份时必须唯一整表入口并按受影响侧报 IDENTITY_EXCLUDED；keyed 物理缺列走 COUNT_UNKNOWN/受限 fallback，不把缺列当比较排除。默认共享表规则不允许 keyless，keyless frame 分支以 owning capability 参数化测试验证；生成输出的 keyless_demo 证明真实 occurrence/locator。排除身份场景显式通过正式规则 decoder 注入对 device_st.dev_addr 的 compare exclusion，index 记录该非默认策略，不改变产品 registry。
 
-## 4. 版本与镜像身份
+## 4. 版本、门禁与镜像身份
 
-最终合入 main H、H:vnext、BE-b exit tag、门禁 V/H 绑定、镜像 revision/source-tree 与 backend/worker/RS 真 OCI config digest/全部有序 RootFS DiffID：**B5 待补**。当前生成 provenance 见输出 index，不能替代最终 exit 身份。
+产品验证 V=`37fe3a87d28ac5fc4f78bf2007260aefc06ecd12`，`V:vnext=2faac9fc1da9a6fd15eddef894f5c6e1652fba95`。最终 main H、H 的实际门禁/容器绑定与附注 `be-b-exit` **待最终核收**；本页不预填 tag。main 随后合入 FE4a/AGENTS 文档的事实不等于 carried 已通过，即使 vnext tree 相同，仍由04原固定 worktree 的门禁脚本实际判定。
 
-BE-b 未改五锁、toolchain selector 或依赖基线输入，不为本轮新增 dependency-base；仍按节点实际预置依赖模式本机构建，network=none。Rust/产品逻辑已变，B5 必须重建产品镜像并跑对应容器门禁。S1a 镜像仅为历史来源，不称 BE-b 已通过。
+04 权威 stage run `20261111T055102Z-cc3ccbdc2fd8`（gw-dms-test-04，固定 `/home/dev/gdds-stage-gate`）起止 clean 同 V，UTC 05:51:02–06:10:56，stage/runner exit0、占用已释放。rust 与 backend 都实际 run/pass；backend 并行4178、串行98通过，含本轮容器旅程。其余四包 not_run（未请求），不称六包全量或 carried。原目录 `/home/dev/gdds-gate-results/<V>/<run>/`：result.json SHA256 `350cc78acb68f8a7984f7c9e9dd8a627facf4d0ae8ce0fb31762d245ca420905`；runner.log `9ae59e20219600fe42b0c340e0c3e408e3de73ad20ecc1b0aeb803342dc0fa75`；compose-provenance.json `e65c3b7b517d510f21e5d28841659e3b768833fd2ea840d44226cbbd0a517a01`。交换副本在 `/home/dev/gdds-stage-exchange/be-b/b5-gate-37fe3a87d2/`。
 
-## 5. 生产 OpenAPI 原件
+06 fresh 真实链使用同 V。下表为该次实际服务/依赖镜像的**真 OCI config digest**与完整有序 RootFS DiffID 的原件索引，不将04/06本机 inspect image ID 混为 config digest，也不假定跨节点镜像相等：
 
-**B5 待补当前候选生产 Compose `/openapi.json` 的 response.content 原件、SHA256、节点/起止 UTC/HEAD/镜像及取件日志。** FE3 §5.1 规范化固定为 `json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=True) + "\n"`。静态 app.openapi 结果不替代生产原件；最终 current-vs-FE3c 与 current-vs-S1a 规范化结果均须有机器 diff。
+| 06 实际 tag | OCI config digest | DiffID 数 |
+| --- | --- | --- |
+| be-b-b5-t1-37fe3a87d2-backend:latest | sha256:9cf43af712bdc027836bcb0a41c1356e7c5087a3c00cad9135cd8f03166af9b4 | 13 |
+| be-b-b5-t1-37fe3a87d2-worker:latest | sha256:6508b162440286c8c6d688767bd4249506cb75d7415d2ebc1b9ef4da0e9e8175 | 13 |
+| be-b-b5-t4-37fe3a87d2-backend:latest | sha256:533779dbad2e61ea686cbc60bb7753a1a0e5cfe7da87718bd0c921986525b4a5 | 13 |
+| be-b-b5-t4-37fe3a87d2-worker:latest | sha256:03e524be8b47475ae27d289204ca1dd29b637fecbb7ff42436b3cbc3703aafc4 | 13 |
+| gateway-repository-service:be-b-b5-37fe3a87d2 | sha256:45b27bc72e1423e372bc2d113b791aebd1ebc406ac2d8767edd1afa23a841197 | 31 |
+| gateway-backend-deps:lock-578e079b762e | sha256:46c00a3b032e93fae3d86b0adb797c16902b0117477b6275c267ab6eec7fe939 | 19 |
+| gateway-p2r1-repository:lock-b47d6de3cbce | sha256:567e7bf95a9a226efb7e557260d494b63c1f3c865de53eb6860c181703db9c13 | 19 |
+
+完整七镜像身份及每一条有序 DiffID：`/home/dev/gdds-stage-exchange/be-b/b5-real-37fe3a87d2/image-identities-v2/identities.json`，SHA256 `923de66a5a9ebb3ef1d49768e6aa9467a4699afad3f1474ce9ce24343dedbacf`；同目录保留从 Docker-save 原样抽取的 config blobs。逐一重算 config bytes SHA、核 rootfs.diff_ids 与索引完全一致，结果 `b5-frontend-image-audit.json` SHA `d971e82efdb42bdddc399a385ae3062b436bbb0e2680cf6fd081c4d1e6bb3509`。该索引是完整身份，表中数量不代替全部 DiffID。
+
+BE-b 未改五锁、toolchain selector 或依赖基线输入，未为本轮新建 dependency-base；本机离线重建并使用预置依赖。04 result 明示 RS 缓存来源 CT201/f3d12825e9、2026-11-10T11:49:59Z 的批准 LAN 预填充；历史 uv 缓存来源提交/时间为 UNKNOWN，保留此限制。S1a 镜像只作历史来源；BE-b 当前产品/容器结果来自上面的 V 实跑。
+
+## 5. 生产 OpenAPI 原件与双 baseline diff
+
+原响应保存在 `/home/dev/gdds-stage-exchange/be-b/b5-real-37fe3a87d2/{t1,t4}/production-openapi.json`，均为06同 V 的生产 Compose HTTP 响应原字节；各79082字节、SHA256 `ce58f20a209883983d270e6f9d758044a22ce35e15e11eee137d1595f92ac079`。来源 run.log（gw-dms-06，clean V，UTC05:51:58–06:07:59，MINIMUM_CHAIN/SHELL_EXIT0）SHA `678aaab91fe8b4f47afa6a2c04c95f19acf66b1b10ae08cb3caf5cc623438421`。镜像身份见§4；没有用静态 app.openapi 替代原件。
+
+按 FE3 §5.1 的 `json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=True) + "\n"` 规范化，FE3c 生产原件、S1a real-r4 原件、当前 t1/t4 原件**原字节和规范化结果均相同**；规范化146666字节，SHA256 `4c2ddca7d64ec77029528f5a6f03f73b17185784091530c7086fa67d484d620a`。baseline 原件分别为 `/home/dev/gdds-reviews/artifacts/p6-openapi-6368c9c40c/production-openapi.json`、`/home/dev/gdds-stage-exchange/p7-s1a/g/evidence/real-r4/runtime-openapi.json`。
+
+机器索引 `/home/dev/gdds-stage-exchange/be-b/b5-frontend-openapi-audit.json` SHA256 `6bfd316bf044b108aecc8257bd63ace62fc1366d2e62fee71a0d498cff0fc991`，逐一记录原件/规范化 SHA与字节数。其同目录 `b5-openapi-{fe3c-to-current_t1,s1a-to-current_t1,fe3c-to-s1a,current_t1-to-current_t4}.diff` 均为0字节、SHA `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`；规范化文件原样保留。
 
 ## 6. 稳定编码全集
 
@@ -67,11 +87,17 @@ BE-b 未改五锁、toolchain selector 或依赖基线输入，不为本轮新�
 
 | 面 | S1a | BE-b |
 | --- | --- | --- |
-| 规范化 OpenAPI | 原退出独审八 tar/原件复核确认不变，规范化 SHA `4c2ddca7d64ec77029528f5a6f03f73b17185784091530c7086fa67d484d620a` | HTTP DTO/route 源码未改；当前生产原件与正式机器 diff 待 B5，不能提前写通过 |
-| tar logical_path literal 集合 | 固定身份下四组集合 354/105/111/114 均与 P6 相同；原件保留 | 新 BUSINESS_NAVIGATION 与有诊断时导航 DIAGNOSTICS、标准 ROW_LOCATOR、device/composite before；History 稳定 pair 名取代 operation-pN。完整实际集合逐场景由生成 index 记录，变化类别不能替代具体文件集合 |
-| manifest 字段集合 | 原 manifest 递归字段 62、closure 34，不变 | core manifest 顶层字段集合不加字段，bundle selector v3→v4、kind 新增 ROW_LOCATOR；嵌套 surface 增加列/内容 binding/locator 字段，完整字段与类型以新 Contract/golden 为准 |
+| 规范化 OpenAPI | 与FE3c原件逐字节一致，规范化 SHA见§5 | 与FE3c及S1a双baseline机器diff均空；当前生产原件/索引见§5 |
+| tar logical_path literal 集合 | 原退出固定身份四组354/105/111/114相同；本次保留fresh原件的同输入v1复核354→354，但11增11删，不归一隐藏 | 同输入v1实测354→356，13增11删；精确列表见下列machine索引。该样本新增导航/诊断2成员，其余shared路径差异原样保留。完整t1/t4另含真实locator；History稳定pair名取代operation-pN |
+| manifest 字段集合 | 同输入实测顶层11/递归62、closure递归34，均无增删 | 同输入实测仍11/62/34；bundle selector v3→v4、kind增加ROW_LOCATOR。另附Surface文件字段118→148（新增30递归路径），它是独立成员，不能误记为manifest新增字段 |
 | ArtifactRef/摘要 | 四字段 shape 保留；ID 改 `a1:<location>:<64hex>`，混合 root；ref JSON raw 变化经原 integrity 传递至 surface/bundle digest；不删除 raw preimage | 沿用 a1 codec/raw 校验；Surface v4 表/locator 物理 raw 排除改由内容 binding；导航/展示列产生新 Surface 语义值，pair/view 命名改变 bundle metadata；comparison 业务摘要不因诊断编码字节替换而改变，records 物理诊断字节及其 raw integrity 引用改变。bundle 继续绑定所有实际 raw bytes |
 | surface | selector v3/fields 保留；opaque ref 与 nested raw integrity 值变化 | v4；columns 两侧并集、present_in/pinned/display_order；replacement 本侧 display_name；table_content_bindings、row_locator_ref；恰一个导航；稳定 pair/view 与 codes |
 | fixture | 固定身份只是 S1a 比较取证，不是 fresh 生产 IDs | 新 backend-owned 固定输入/真实 generator/五类 golden；不再手写导航/诊断，不再生成 no-navigation；前端整体替换并核原件 SHA |
 
-S1a 来源：其 [总结](p7-s1a-summary.md) 与外部原退出独审 `/home/dev/gdds-stage-exchange/p7-s1a/reviews/42780a12303c8040526bf5dc8f9c6f0acb12dbb1-exit-go.md` §可见集合复核；本阶段不得改写历史原件。BE-b 的最终 machine delta（相同输入下 logical_path/递归字段集合与 OpenAPI）由 B5 追加原件索引；本文列出预期消费面及已经真实生成的集合，不把不同输入的字面差异算作业务变化。
+同输入机器索引 `/home/dev/gdds-stage-exchange/be-b/b5-frontend-delta/index.json`，SHA256 `94a78f6459f9aa455c4b9f1a747705c52a407633bc4ac5fbc2016fc3656248ae`。其 `p6-inventory.json`、`s1a-inventory.json`、`be_b-inventory.json` 保留原 tar/state 路径及 SHA、完整 literal closure/ordinary tar 成员集合、顶层与递归字段路径；`p6-to-s1a.json`、`s1a-to-be_b.json`、`p6-to-be_b.json` 逐项列新增/删除，不去 UUID/hash/path。`*-table-bindings.json` 另将实际重命名路径按原table binding对应并核raw integrity，不假定物理字节相等。
+
+三方均为实际 t1 v1、MODIFIED_ONLY、INITIAL空baseline，包SHA `42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2`、107115字节；旧state里的source ref与当前输入清单逐项相符。只比较该同输入同scope样本；当前v2 FULL不与历史v2 MODIFIED_ONLY混比。P6/S1a fresh原件各自源提交 `b0fc25e881cb4ce39b1cc847bad92b4ccb06b809` / `8cb31da588db17994b18cccc22e4dc3b7b9f1110`，当前为V。**literal tar baseline 使用保留P6原件，不冒称新运行了FE3c树6368c9c40c**；`fe3c-to-p6-source-audit.json` 记录该区间bundle_assembly、surface_assembly及bundle_download源码均无差异，结合FE4 kickoff §6.2/S1a退出记录衔接。FE3c OpenAPI则是直接原件双baseline比较。
+
+当前 t1/t4 的每一次真实 bundle 路径/字段原件在 `b5-real-37fe3a87d2/summary.json` 的 bundle_transfer；完整 tar 在各tier/bundles/，其 SHA逐个记录。t1覆盖MODIFIED_ONLY、FULL两pair、History2/3；t4为必要建点后的MODIFIED_ONLY及History2，未运行t4全旅程/三节点/性能矩阵。导航计数与locators同时由实际最终文件核对，不由consumer重算surface digest。
+
+S1a 历史[总结](p7-s1a-summary.md)与原退出独审 `/home/dev/gdds-stage-exchange/p7-s1a/reviews/42780a12303c8040526bf5dc8f9c6f0acb12dbb1-exit-go.md`保留原限定。B5真实链结果/摘要分别为 `b5-real-37fe3a87d2/result.json` SHA `66e20b1c63843beab8503ab912f5a5973c5a59a3526232a74db33771799a407d`、summary.json SHA `00f35654340f67f74a52ec5e1ec1b32e951ac0dffc6c16f6dde056a3982a3126`；完整正式handoff与最终全范围核收/H绑定由协调者追加。失败V571的runner六失败、06 SQLite锁/SIGBUS停止原件继续保留，不以最终成功覆盖；SIGBUS具体触发时序未证明，不把已确认的SQLite原锁释放问题扩大成完整因果证明。

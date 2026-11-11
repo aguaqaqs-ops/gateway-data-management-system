@@ -828,3 +828,11 @@ E 已将 §14.1/§15 的应用/文件系统布局改为具名 roots；完整部�
 create/upload/import/reconciliation/recovery/cleanup/offline admin/snapshot工具全部显式理解新roots；单服务锁保留在metadata。停服取得锁后收集一致的DB/WAL、Dolt、artifact与layout集合；不承诺在线跨盘原子snapshot或仅复制某个root即可恢复。backend不挂RS卷，统计观测由RS窄接口提供，不增加业务成功依赖。
 
 新项目按本轮AGENTS直接调整唯一基线，无迁移/旧layout fallback。ADR0012关于历史兼容列/残留的段落是原决策历史，不成为本轮新建兼容路径的要求；其协作admission pin、统一eligibility、未知形状仅诊断及成功cleanup不改commit/result仍保持。不新增broker/sidecar/receipt或另一安全主体。
+
+
+S2a 维护信号接线：容器 entrypoint 在既有 root/layout 前置检查后，通过标准 Python
+`initgroups → setgid → setuid → execvp` 以指定 gateway 用户直接运行原命令，并设置该账户
+HOME/SHELL/USER/LOGNAME，保留精确 argv。用户不存在或降权失败非零退出。删除 runuser/su
+监督包装及 fallback，避免它们收到 TERM 后自行两秒升级 KILL；Compose init 继续负责标准
+信号转发/子进程回收。RS 自身 bounded shutdown 与维护脚本确认完整 cgroup 退出保持；
+Uvicorn 的143信号状态单独不能证明 lifespan 清理成功，维护判定另核本代既有完成日志。

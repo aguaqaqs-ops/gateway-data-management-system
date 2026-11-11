@@ -44,9 +44,11 @@ restart 是 graceful shutdown 后的正常 startup recovery、health check 和 r
 旧配置确认 RUNNING 与未知外部结果，按原 key 查询/恢复，不能强清 UNKNOWN 或业务占用。
 `stop-group` 在 drain 后只读核对没有 RUNNING step 或 EFFECT_PENDING SubmitAttempt，
 再按 backend → RS 顺序 TERM 并分别确认整个 cgroup（含 Dolt children）退出；任一步失败
-停止后续步骤。RS 的 runuser 包装可将本次受控 TERM 表达为143；仅脚本本次确实向运行中的 RS
-发送 TERM、容器已退出/Pid0、完整 cgroup 已空且没有 OOM/daemon error 时接受，其他角色/
-其他非零或事先已退出143仍拒绝。该检查不替代运维核对原 RS 请求结果及变更适用性。只有业务状态满足此次
+停止后续步骤。RS entrypoint 使用现有 Python 标准降权后直接 exec，不经会自动升级 KILL 的
+runuser/su 监督包装。Uvicorn 在 lifespan 结束后可重发 TERM，故仅本次向运行中 RS 发送 TERM、
+同 ID/StartedAt 代际、容器已退出/Pid0、完整 cgroup 已空、没有 OOM/daemon error，且本代
+现有日志包含 shutdown complete 而无 shutdown failed 时接受143。缺少完成事实、其他角色/
+其他非零或事先已退出143仍拒绝；不会仅凭143声称优雅关闭。该检查不替代运维核对原 RS 请求结果及变更适用性。只有业务状态满足此次
 变更要求且全部写入进程停止，才可维护配置/版本。
 
 维护 backend 的显式 `start-recovery` 要求闭门且在途归零、backend 的 storage/config

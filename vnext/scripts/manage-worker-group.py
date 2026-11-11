@@ -140,8 +140,25 @@ def _empty(cgroup: Path) -> bool:
     return events.get("populated") == "0"
 
 
+
+def _rs_shutdown_completed(original: dict[str, Any], current: dict[str, Any]) -> bool:
+    started = original["State"].get("StartedAt")
+    if not started or current["State"].get("StartedAt") != started:
+        return False
+    # Uvicorn re-raises TERM after shutdown, even when lifespan shutdown failed.
+    # Inspect its existing generation-local completion log, including stderr,
+    # without copying application log contents into maintenance diagnostics.
+    result = subprocess.run(["docker", "logs", "--since", started, "--tail", "200", original["Id"]],
+                            capture_output=True, text=True, check=False, timeout=30)
+    if result.returncode:
+        return False
+    lines = (result.stdout + "\n" + result.stderr).splitlines()
+    return (any("Application shutdown complete." in line for line in lines)
+            and not any("Application shutdown failed." in line for line in lines))
+
 def stop_services(containers: list[dict[str, Any]]) -> None:
     groups = {item["Id"]: _cgroup(item) for item in containers}
+    originals = {item["Id"]: item for item in containers}
     running = [item["Id"] for item in containers if item["State"]["Status"] == "running"]
     if running:
         _docker("kill", "--signal", "TERM", *running)
@@ -154,11 +171,11 @@ def stop_services(containers: list[dict[str, Any]]) -> None:
             failed = []
             for item in current:
                 state = item["State"]
-                # RS runs beneath runuser, which reports TERM as 128 + SIGTERM.
-                # Accept it only for the RS we signalled in this invocation,
-                # after the container and its complete cgroup have exited.
+                # Direct Uvicorn execution re-raises TERM after lifespan shutdown.
+                # Signal status alone cannot distinguish a failed shutdown.
                 controlled_rs_term = (item["Id"] in running and _service(item) == "repository-service"
-                    and state["Status"] == "exited" and state.get("ExitCode") == 128 + signal.SIGTERM)
+                    and state["Status"] == "exited" and state.get("ExitCode") == 128 + signal.SIGTERM
+                    and _rs_shutdown_completed(originals[item["Id"]], item))
                 if (state.get("OOMKilled") or state.get("Error")
                         or (state.get("ExitCode") != 0 and not controlled_rs_term)):
                     failed.append(_service(item))

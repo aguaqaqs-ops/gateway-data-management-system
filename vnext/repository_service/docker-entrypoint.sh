@@ -11,7 +11,16 @@ python -m gateway_repository_service.artifact_layout \
   --storage-layout-file "${LAYOUT_FILE}" \
   --gateway-user "${GATEWAY_USER}"
 
-if command -v runuser >/dev/null 2>&1; then
-  exec runuser -u "${GATEWAY_USER}" -- "$@"
-fi
-exec su -s /bin/sh -c 'exec "$@"' "${GATEWAY_USER}" -- "$@"
+# Drop privileges in this process and exec the command directly. A supervising
+# runuser/su wrapper escalates TERM to KILL after two seconds, which would bypass
+# the service's own bounded shutdown and the maintenance command's no-KILL rule.
+exec python -c '
+import os, pwd, sys
+account = pwd.getpwnam(sys.argv[1])
+os.initgroups(account.pw_name, account.pw_gid)
+os.setgid(account.pw_gid)
+os.setuid(account.pw_uid)
+os.environ.update(HOME=account.pw_dir, SHELL=account.pw_shell,
+                  USER=account.pw_name, LOGNAME=account.pw_name)
+os.execvp(sys.argv[2], sys.argv[2:])
+' "${GATEWAY_USER}" "$@"

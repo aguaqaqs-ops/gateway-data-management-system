@@ -352,10 +352,13 @@ the old configuration and query the original RS request key first. Use
 `stop-group` with the same arguments: after drain it refuses any RUNNING step
 or EFFECT_PENDING SubmitAttempt, then stops backend before RS, waiting up to
 180 seconds per service for the complete cgroup, including Dolt children.
-The RS runuser wrapper may report a controlled TERM as exit 143. This is accepted
-only for a running RS signalled by this invocation after its container and full
-cgroup have exited, with no OOM or daemon error. Pre-existing exit 143, other
-nonzero codes and other roles remain failures.
+RS drops privileges with standard Python initgroups/setgid/setuid and execs the
+command directly, avoiding runuser/su wrappers that escalate TERM to KILL.
+Uvicorn may re-raise TERM as exit143 after shutdown. Accept it only for the running
+RS signalled in this invocation, with unchanged ID/StartedAt, exited container and
+empty full cgroup, no OOM/daemon error, and existing generation-local shutdown
+complete logs with no shutdown failed marker. Missing completion evidence,
+pre-existing exit143, other nonzero codes and other roles remain failures.
 Only proceed with changes after business state is appropriate for the change
 and all writing processes have stopped. This read-only safety check does not
 replace operator reconciliation or prove that queued work supports a new

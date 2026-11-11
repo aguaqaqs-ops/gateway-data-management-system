@@ -210,6 +210,7 @@ def test_controlled_rs_term_exit_requires_signalled_role_and_complete_exit(
         return json.dumps([stopped]) if args[0] == "inspect" else ""
     monkeypatch.setattr(maintenance, "_cgroup", lambda item: tmp_path / "absent")
     monkeypatch.setattr(maintenance, "_docker", docker)
+    monkeypatch.setattr(maintenance, "_rs_shutdown_completed", lambda before, after: True)
     if accepted:
         maintenance.stop_services([original])
     else:
@@ -238,3 +239,34 @@ def test_rs_term_exit_keeps_waiting_for_child_cgroup_and_never_escalates(
     with pytest.raises(ValueError, match="still active, no KILL sent: repository-service"):
         maintenance.stop_services([original])
     assert calls == [("kill", "--signal", "TERM", "repository-service"), ("inspect", "repository-service")]
+
+
+@pytest.mark.parametrize(("complete", "failed", "generation_changed", "returncode", "accepted"), [
+    (True, False, False, 0, True),
+    (False, False, False, 0, False),
+    (True, True, False, 0, False),
+    (True, False, True, 0, False),
+    (True, False, False, 1, False),
+])
+def test_rs_signal_exit_requires_current_generation_shutdown_completion(
+    maintenance: ModuleType, monkeypatch: pytest.MonkeyPatch,
+    complete: bool, failed: bool, generation_changed: bool, returncode: int, accepted: bool,
+) -> None:
+    from copy import deepcopy
+    from subprocess import CompletedProcess
+    original = _group()["repository-service"]
+    original["State"]["StartedAt"] = "2026-11-11T00:00:00Z"
+    current = deepcopy(original)
+    if generation_changed:
+        current["State"]["StartedAt"] = "2026-11-11T00:00:01Z"
+    logs = ("INFO: Application shutdown complete.\n" if complete else "")
+    logs += "ERROR: Application shutdown failed. Exiting.\n" if failed else ""
+    calls: list[list[str]] = []
+    def run(args: list[str], **kwargs: Any) -> CompletedProcess[str]:
+        calls.append(args)
+        # Uvicorn's lifecycle logging is on stderr, not stdout.
+        return CompletedProcess(args, returncode, stdout="", stderr=logs)
+    monkeypatch.setattr(maintenance.subprocess, "run", run)
+    assert maintenance._rs_shutdown_completed(original, current) is accepted
+    assert calls == ([] if generation_changed else [["docker", "logs", "--since",
+        original["State"]["StartedAt"], "--tail", "200", "repository-service"]])

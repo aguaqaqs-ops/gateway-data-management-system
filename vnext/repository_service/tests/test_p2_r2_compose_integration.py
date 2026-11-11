@@ -310,5 +310,11 @@ def test_entrypoint_prepares_layout_then_drops_to_gateway() -> None:
     assert "artifact-broker.sock" not in entrypoint
     assert "--peer-gid" not in entrypoint
     assert "GATEWAY_REPOSITORY_ARTIFACT_BROKER" not in entrypoint
-    assert "runuser -u" in entrypoint
+    assert "exec runuser" not in entrypoint
+    assert "exec su " not in entrypoint
+    assert "pwd.getpwnam(sys.argv[1])" in entrypoint
+    assert entrypoint.index("os.initgroups(") < entrypoint.index("os.setgid(") < entrypoint.index("os.setuid(")
+    assert "os.environ.update(HOME=account.pw_dir" in entrypoint
+    assert "os.execvp(sys.argv[2], sys.argv[2:])" in entrypoint
+    assert '\"${GATEWAY_USER}\" \"$@\"' in entrypoint
     assert "unlink-stage" not in entrypoint

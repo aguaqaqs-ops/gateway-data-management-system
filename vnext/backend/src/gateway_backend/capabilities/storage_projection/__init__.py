@@ -124,3 +124,6 @@ __all__ = [
     "validate_repository_import_package",
 ]
 
+
+from gateway_backend.capabilities.storage_projection._digest import compute_storage_rule_digest
+__all__ += ["compute_storage_rule_digest"]

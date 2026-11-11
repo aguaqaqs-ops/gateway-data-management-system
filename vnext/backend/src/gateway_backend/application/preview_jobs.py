@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 

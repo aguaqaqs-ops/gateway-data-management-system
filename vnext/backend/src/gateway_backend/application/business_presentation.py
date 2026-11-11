@@ -17,21 +17,21 @@ from gateway_backend.capabilities.business_navigation import (
     identity_excluded_sides, reduce_table_risks,
 )
 from gateway_backend.capabilities.business_navigation.contracts import FILTER_IDENTITY_COLUMNS, Scalar
-from gateway_backend.capabilities.business_navigation.producer import maximum_risk
-from gateway_backend.capabilities.comparison import native
+from gateway_backend.capabilities.business_navigation import maximum_risk
+from gateway_backend.capabilities.comparison import ComparisonRecordsHandle
 from gateway_backend.capabilities.comparison.contracts import (
     BoundSnapshotInput, ComparisonFacts, ComparisonMode, ComparisonPlan, ComparisonRecordsClosure,
     ComparisonTableStatus, RecordsArtifactFamily,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskAnnotation, RiskLevel, RiskTargetType
-from gateway_backend.capabilities.row_location.producer import (
+from gateway_backend.capabilities.row_location import (
     RowLocationResult, prepare_row_locations, publish_row_locations, identity_batches,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTable
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceArtifactIndexEntry, SurfaceProjectionRef
 from gateway_backend.capabilities.table_access import current_kernel_context
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata, TablePresentation
-from gateway_backend.capabilities.table_presentation.resolver import table_display_name
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
+from gateway_backend.capabilities.table_presentation import table_display_name
 
 NAVIGATION_ROW_TABLES = frozenset({"net_cfg", "device", "app_cfg", *FILTER_IDENTITY_COLUMNS})
 _REGISTRY_COLUMNS = {
@@ -145,7 +145,7 @@ def _side(table: SnapshotTable | None, presentation: TablePresentation | None) -
 
 def publish_business_presentation(
     plan: ComparisonPlan, facts: ComparisonFacts, closure: ComparisonRecordsClosure | None,
-    handles: dict[str, native.ComparisonRecordsHandle], table_artifacts: tuple[SurfaceArtifactIndexEntry, ...],
+    handles: dict[str, ComparisonRecordsHandle], table_artifacts: tuple[SurfaceArtifactIndexEntry, ...],
     attribution: RiskAttribution, store: ArtifactStorePort, *,
     before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
     same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],

@@ -1417,7 +1417,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
-    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+    from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
     from gateway_backend.application import preview_jobs
     from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadata, CommitCanonicalScope
     from gateway_backend.application.workspace.preview import build_preview_job_payload

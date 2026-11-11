@@ -16,9 +16,8 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from gateway_shared_kernel import raw_blob_digest
 from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort
-from gateway_backend.capabilities.snapshot_materialization._parquet import _arrow_field, encode_source_columns
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
-    canonical_comparison_profile, canonical_source_descriptor,
+from gateway_backend.capabilities.snapshot_materialization import (
+    canonical_comparison_profile, canonical_source_descriptor, client_parquet_schema,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
 from gateway_backend.capabilities.table_access import current_kernel_context
@@ -84,9 +83,9 @@ def final_parquet_batches(
         with context.memory.reserve(footer * 64):
             with pq.ParquetFile(pa.BufferReader(raw)) as file:
                 source = canonical_source_descriptor(descriptor)
-                physical = pa.schema([_arrow_field(column) for column in source.columns])
+                physical = client_parquet_schema(source.columns)
                 if (not file.schema_arrow.equals(physical, check_metadata=False)
-                        or (file.schema_arrow.metadata or {}).get(b"gateway.sta.enc.v1") != encode_source_columns(source.columns)
+                        or (file.schema_arrow.metadata or {}).get(b"gateway.sta.enc.v1") != physical.metadata[b"gateway.sta.enc.v1"]
                         or file.metadata.num_rows != descriptor.row_count):
                     raise ValueError("final Parquet differs from same-side descriptor")
                 decoded_source = pa.schema([pa.field(column.canonical_name, _source_type(column),

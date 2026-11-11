@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Generator
 from contextlib import closing, contextmanager, ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pyarrow as pa
@@ -15,42 +15,20 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from gateway_backend.artifacts.store import put_with_built_ref
 from gateway_backend.capabilities.business_navigation import FilterRecord
 from gateway_backend.capabilities.business_navigation.contracts import RowValues
-from gateway_backend.capabilities.business_navigation.producer import scalar_reason
-from gateway_backend.capabilities.comparison import native
-from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, _write_arrow_parquet,
+from gateway_backend.capabilities.business_navigation import scalar_reason
+from gateway_backend.capabilities.comparison import (
+    ComparisonRecordsHandle, begin_records_operation, standard_identity_scanner, standard_identity_policy,
+    RecordsPublicationContext, RecordsPublicationPolicy, write_arrow_parquet,
 )
 from gateway_backend.capabilities.comparison.contracts import RecordsClosureEntry, TableComparisonTask
-from gateway_backend.capabilities.comparison.row_encoding import _schema_view
-from gateway_backend.capabilities.comparison.task_input import standard_policy
 from gateway_backend.capabilities.snapshot_materialization import canonical_comparison_input
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTable
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
 from gateway_backend.capabilities.table_access import current_kernel_context
 from .inputs import final_parquet_batches
+from .contracts import LOCATOR_SCHEMA, RowLocationResult
 
-LOCATOR_SCHEMA = pa.schema([
-    pa.field("row_identity", pa.binary(32), nullable=False),
-    pa.field("before_row_index", pa.int64()), pa.field("current_row_index", pa.int64()),
-    pa.field("before_filter_context_json", pa.string()), pa.field("current_filter_context_json", pa.string()),
-])
 _ROW_KINDS = frozenset({"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"})
-
-
-@dataclass(slots=True)
-class RowLocationResult:
-    records: tuple[FilterRecord, ...]
-    scanned_rows: int
-    batch: pa.RecordBatch | None
-    charges: ExitStack = field(default_factory=ExitStack, repr=False)
-
-    def close(self) -> None:
-        # An operation callback may still reference this shell after a table
-        # finishes; drop all result backing before returning its admission.
-        self.records = ()
-        self.batch = None
-        self.charges.close()
-
 
 @dataclass(slots=True)
 class _Row:
@@ -83,10 +61,10 @@ def identity_batches(
     with source as batches:
         # Input decode is already admitted above. Return the unused native
         # envelope immediately on close; never create a second operation owner.
-        with closing(native.begin_records_operation(
+        with closing(begin_records_operation(
                 native_budget_bytes=context.memory.available_bytes // 2,
                 cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)) as phase:
-            with closing(native.standard_identity_scanner(phase, policy_json)) as scanner:
+            with closing(standard_identity_scanner(phase, policy_json)) as scanner:
                 for batch in batches:
                     context.checkpoint()
                     with pa.RecordBatchReader.from_batches(batch.schema, [batch]) as stream:
@@ -112,7 +90,7 @@ def _filter_context(batch: pa.RecordBatch, index: int, column: str | None, sql: 
 
 def prepare_row_locations(
     task: TableComparisonTask, entry: RecordsClosureEntry | None,
-    handle: native.ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
+    handle: ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
     store: ArtifactStorePort, *, filter_column: str | None = None,
 ) -> RowLocationResult:
     context = current_kernel_context()
@@ -128,7 +106,7 @@ def prepare_row_locations(
 
 def _prepare_row_locations(
     task: TableComparisonTask, entry: RecordsClosureEntry | None,
-    handle: native.ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
+    handle: ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
     store: ArtifactStorePort, *, filter_column: str | None, charges: ExitStack,
 ) -> RowLocationResult:
     context = current_kernel_context()
@@ -164,8 +142,7 @@ def _prepare_row_locations(
         raise ValueError("published records count differs from native records")
     if not rows:
         return RowLocationResult((), 0, None)
-    policy_json = canonicalize_json_value(standard_policy(task, _schema_view(
-        task.before_descriptor, task.current_descriptor, task.policy))).decode()
+    policy_json = canonicalize_json_value(standard_identity_policy(task)).decode()
     scanned = 0
     for side, table, ref in (("before", task.before_table, refs.before_table_ref),
                              ("current", task.current_table, refs.current_table_ref)):
@@ -233,7 +210,7 @@ def publish_row_locations(
     if not filtered:
         batch = pa.RecordBatch.from_arrays([batch.column(0), batch.column(1), batch.column(2),
             pa.nulls(batch.num_rows, type=pa.string()), pa.nulls(batch.num_rows, type=pa.string())], schema=LOCATOR_SCHEMA)
-    raw = _write_arrow_parquet((batch,), LOCATOR_SCHEMA, RecordsPublicationPolicy(),
+    raw = write_arrow_parquet((batch,), LOCATOR_SCHEMA, RecordsPublicationPolicy(),
         RecordsPublicationContext(checkpoint=context.checkpoint))
     ref = put_with_built_ref(store, raw,
         artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "row-locator", raw_blob_digest(raw).value),

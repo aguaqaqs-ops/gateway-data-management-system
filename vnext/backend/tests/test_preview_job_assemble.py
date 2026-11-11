@@ -908,7 +908,7 @@ def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, input_completeness: InputCompleteness,
 ) -> None:
     from gateway_backend.application.submission.errors import NoCanonicalChange
-    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+    from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
     from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
     from tests.support.preview_job_harness import BASELINE_SQL
     harness = build_preview_harness(tmp_path, input_completeness=input_completeness, canonical_noop=True)

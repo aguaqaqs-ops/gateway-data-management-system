@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 
 def normalize_comment(value: str | None) -> str | None:
@@ -96,3 +96,24 @@ def _object(value: object, keys: set[str]) -> dict[str, Any]:
 def _name(value: str) -> None:
     if type(value) is not str or not value or "\x00" in value:
         raise ValueError("presentation name must be a nonempty string without NUL")
+
+
+class PresentationColumn(Protocol):
+    """Read-only canonical descriptor fields consumed by the presentation owner."""
+    @property
+    def name(self) -> str: ...
+    @property
+    def scalar_type(self) -> str | None: ...
+    @property
+    def nullable(self) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PresentedColumn:
+    name: str
+    display_name: str
+    scalar_type: str | None
+    nullable: bool
+    present_in: str
+    pinned: bool
+    display_order: int

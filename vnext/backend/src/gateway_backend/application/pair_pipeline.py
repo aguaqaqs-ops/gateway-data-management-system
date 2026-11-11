@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.application.business_presentation import RiskAttribution, publish_business_presentation
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -25,7 +25,7 @@ from gateway_backend.capabilities.project_identity import (
     ProjectIdentityStatus,
     assess_project_identity,
 )
-from gateway_backend.capabilities.storage_projection._digest import compute_storage_rule_digest
+from gateway_backend.capabilities.storage_projection import compute_storage_rule_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort

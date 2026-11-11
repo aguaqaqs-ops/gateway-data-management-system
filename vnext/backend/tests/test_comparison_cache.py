@@ -23,7 +23,7 @@ from gateway_backend.capabilities.comparison.task_input import (
     NotCacheable, TableTaskIdentity, build_table_task_identity,
 )
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, _schema_for, _write_arrow_parquet,
+    RecordsPublicationContext, RecordsPublicationPolicy, _schema_for, write_arrow_parquet,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.support.comparison_s3_c_inputs import plan
@@ -155,7 +155,7 @@ def test_neutral_round_trip_matches_independent_facts_and_parquet(ordered: bool)
         for family in payload.families:
             with closing(handle.record_batches(family)) as reader:
                 batches = tuple(reader)
-                raw = _write_arrow_parquet(batches,
+                raw = write_arrow_parquet(batches,
                     _schema_for(RecordsArtifactFamily(family), None, identity.task_input.detail_policy),
                     RecordsPublicationPolicy(), RecordsPublicationContext())
             if family in frozen_records:

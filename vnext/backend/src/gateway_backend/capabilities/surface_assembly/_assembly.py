@@ -27,8 +27,8 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskTableRisk,
     validate_risk_annotation_documents,
 )
-from gateway_backend.capabilities.table_presentation.resolver import present_columns, table_display_name
-from gateway_backend.capabilities.table_presentation.metadata import TablePresentation
+from gateway_backend.capabilities.table_presentation import present_columns, table_display_name
+from gateway_backend.capabilities.table_presentation.contracts import TablePresentation
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
 from gateway_backend.capabilities.surface_assembly._digest import compute_surface_digest
 from gateway_backend.capabilities.surface_assembly._refs import validate_surface_refs

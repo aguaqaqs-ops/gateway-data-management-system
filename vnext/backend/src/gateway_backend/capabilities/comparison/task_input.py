@@ -140,6 +140,11 @@ def standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]
     }
 
 
+def standard_identity_policy(task: TableComparisonTask) -> dict[str, object]:
+    """Return the same standard codec policy used by this comparison task."""
+    return standard_policy(task, _schema_view(task.before_descriptor, task.current_descriptor, task.policy))
+
+
 def ordered_policy(task: TableComparisonTask, schema: Any, *, unchanged: bool = False) -> dict[str, object]:
     policy = task.policy
     assert policy is not None and policy.ordered_policy is not None

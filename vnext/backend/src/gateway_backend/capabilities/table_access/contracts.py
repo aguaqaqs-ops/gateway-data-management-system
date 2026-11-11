@@ -23,7 +23,7 @@ from gateway_shared_kernel import (
     TypedScalar,
 )
 
-from gateway_backend.capabilities.table_presentation.metadata import normalize_comment
+from gateway_backend.capabilities.table_presentation.contracts import normalize_comment
 
 PARSER_INPUT_CONTRACT_VERSION = 1
 PARSER_VERSION = 1

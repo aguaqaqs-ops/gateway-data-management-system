@@ -179,3 +179,12 @@ __all__ = [
     "restore_records_closure",
     "rewrite_closure_refs",
 ]
+
+from gateway_backend.capabilities.comparison.native import (
+    ComparisonRecordsHandle, begin_records_operation, standard_identity_scanner,
+)
+from gateway_backend.capabilities.comparison.task_input import standard_identity_policy
+from gateway_backend.capabilities.comparison.artifacts import write_arrow_parquet
+
+__all__ += ["ComparisonRecordsHandle", "begin_records_operation", "standard_identity_scanner",
+    "standard_identity_policy", "write_arrow_parquet"]

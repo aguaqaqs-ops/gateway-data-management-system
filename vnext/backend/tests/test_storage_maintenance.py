@@ -201,7 +201,7 @@ def test_writer_close_failure_still_removes_owned_scratch(tmp_path: Path, monkey
     import pyarrow as pa
     from gateway_backend.artifacts.scratch import scratch_scope
     from gateway_backend.capabilities.comparison.artifacts import (
-        RecordsPublicationContext, RecordsPublicationPolicy, _write_arrow_parquet,
+        RecordsPublicationContext, RecordsPublicationPolicy, write_arrow_parquet,
     )
     from gateway_backend.infrastructure.artifact_store.scratch import _BudgetedFile
     root = tmp_path / 'scratch'
@@ -217,7 +217,7 @@ def test_writer_close_failure_still_removes_owned_scratch(tmp_path: Path, monkey
     schema = pa.schema([('id', pa.int64())])
     with ScratchSpace(root, max_bytes=1024**2).session(owner='operation:comparison') as session, scratch_scope(session):
         with pytest.raises(OSError, match='close failure'):
-            _write_arrow_parquet((pa.RecordBatch.from_arrays([pa.array([1])], schema=schema),),
+            write_arrow_parquet((pa.RecordBatch.from_arrays([pa.array([1])], schema=schema),),
                 schema, RecordsPublicationPolicy(), RecordsPublicationContext())
     assert not list(root.iterdir())
 

@@ -448,7 +448,7 @@ def _publish_family(
         pa.RecordBatch.from_pylist(list(rows[offset : offset + 1024]), schema=schema)
         for offset in range(0, len(rows), 1024)
     )
-    parquet_bytes = _write_arrow_parquet(batches, schema, limits, context)
+    parquet_bytes = write_arrow_parquet(batches, schema, limits, context)
     records_ref = put_with_built_ref(
         store,
         parquet_bytes,
@@ -542,7 +542,7 @@ def publish_records_family_arrow(
         if operation is not None else None
     )
     try:
-        parquet_bytes = _write_arrow_parquet(batches, schema, limits, control)
+        parquet_bytes = write_arrow_parquet(batches, schema, limits, control)
         records_ref = put_with_built_ref(
             store,
             parquet_bytes,
@@ -693,7 +693,7 @@ def _publish_records_closure_arrow_admitted(
     )
 
 
-def _write_arrow_parquet(
+def write_arrow_parquet(
     batches: tuple[pa.RecordBatch, ...],
     schema: pa.Schema,
     limits: RecordsPublicationPolicy,

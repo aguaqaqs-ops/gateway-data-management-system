@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
@@ -404,7 +404,7 @@ def test_unsupported_manifest_versions_fail_closed_as_missing_provenance() -> No
 
 def test_history_comments_follow_exact_submission_refs_for_equal_canonical_identity() -> None:
     from gateway_backend.application.canonical_metadata.binding import presentation_for_commit
-    from gateway_backend.capabilities.table_presentation.metadata import TablePresentation, ColumnPresentation
+    from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, ColumnPresentation
     from tests.support.mutation_contracts import manifest as draft_manifest, manifest_table
     connection = _connection()
     store = InMemoryArtifactStore()

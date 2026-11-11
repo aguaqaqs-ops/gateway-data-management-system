@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata, TablePresentation, ColumnPresentation
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation, ColumnPresentation
 
 import dataclasses
 import secrets

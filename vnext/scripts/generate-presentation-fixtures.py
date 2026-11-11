@@ -53,7 +53,7 @@ from gateway_backend.capabilities.table_access import (
     kernel_execution_scope, parse_arrow_sql, parse_xml,
 )
 from gateway_backend.capabilities.surface_assembly import compute_surface_digest, surface_digest_payload
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.table_rules import TABLE_RULESET_VERSION, comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import table_ruleset_document, table_ruleset_from_document
 from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace

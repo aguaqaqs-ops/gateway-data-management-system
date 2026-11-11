@@ -267,3 +267,6 @@ __all__ = [
     "batch_metadata_from_schema",
     "schema_with_batch_metadata",
 ]
+
+from gateway_backend.capabilities.snapshot_materialization._parquet import client_parquet_schema
+__all__ += ["client_parquet_schema"]

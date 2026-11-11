@@ -693,7 +693,7 @@ def test_table_bindings_reject_missing_or_incompatible_ref_content() -> None:
 
 
 def test_surface_uses_frozen_comments_and_preserves_before_only_columns() -> None:
-    from gateway_backend.capabilities.table_presentation.metadata import (
+    from gateway_backend.capabilities.table_presentation.contracts import (
         ColumnPresentation, PresentationMetadata, TablePresentation,
     )
     old = _descriptor("orders", row_count=1, side="before")

@@ -100,6 +100,7 @@ NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
     "gateway_backend.bootstrap.compute_kernel": frozenset({"_init_kernel_native"}),
     "gateway_backend.capabilities.comparison.native": frozenset({
         "_begin_comparison_operation_native",
+        "_standard_identity_scanner_native",
         "_compare_records_native",
         "_facts_core_digest_native",
         "_summarize_unchanged_ordered_native",

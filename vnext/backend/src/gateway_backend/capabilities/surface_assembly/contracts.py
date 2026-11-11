@@ -20,7 +20,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     SchemaEvolution,
     ComparisonTableStatus,
 )
-from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationClosure,

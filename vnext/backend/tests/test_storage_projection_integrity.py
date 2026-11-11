@@ -719,7 +719,7 @@ def test_presentation_is_raw_bound_and_excluded_from_semantic_digest() -> None:
         compute_manifest_digest, durable_manifest_bytes, canonicalization_manifest_from_bytes,
         publish_canonicalization_manifest, open_canonicalization_manifest, PackageError, PublicationError,
     )
-    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata, TablePresentation, ColumnPresentation
+    from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation, ColumnPresentation
     result = project_storage(_request(_ordered_input((as_row(int_cell(1), int_cell(1), varchar_cell("a")),))))
     assert result.manifest is not None
     manifest = result.manifest

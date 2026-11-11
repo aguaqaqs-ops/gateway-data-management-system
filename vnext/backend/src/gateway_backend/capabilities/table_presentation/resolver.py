@@ -3,22 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
-from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotColumnDescriptor
-from gateway_backend.capabilities.table_presentation.metadata import TablePresentation
+from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, PresentationColumn, PresentedColumn
 from gateway_backend.capabilities.table_presentation.rules import COLUMN_ORDER_RULES
-
-
-@dataclass(frozen=True, slots=True)
-class PresentedColumn:
-    name: str
-    display_name: str
-    scalar_type: str | None
-    nullable: bool
-    present_in: str
-    pinned: bool
-    display_order: int
 
 
 def table_display_name(
@@ -29,8 +16,8 @@ def table_display_name(
 
 def present_columns(
     table_name: str,
-    before: tuple[SnapshotColumnDescriptor, ...],
-    current: tuple[SnapshotColumnDescriptor, ...],
+    before: tuple[PresentationColumn, ...],
+    current: tuple[PresentationColumn, ...],
     *,
     before_presentation: TablePresentation | None = None,
     current_presentation: TablePresentation | None = None,

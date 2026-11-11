@@ -8,7 +8,7 @@ import pytest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
-from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.application.preview_jobs import _comparison_storage_facts, surface_artifact_closure
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
     BundleAssemblyInput,
@@ -64,10 +64,19 @@ def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInpu
     raw = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert raw.snapshot is not None and raw.table_set is not None
     projected = project_canonical_arrow_table_set(raw.table_set, migrated_table_ruleset_snapshot())
-    result = materialize_canonical_snapshot(raw.snapshot, projected.tables, artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()), repository_id="replacement-fixture")
+    assert projected.manifest is not None
+    try:
+        result = materialize_canonical_snapshot(raw.snapshot, projected.tables, artifact_store=store,
+            context=ParserInvocationContext(NeverCancel()), repository_id="replacement-fixture")
+    finally:
+        for table in (*raw.table_set.tables, *projected.tables):
+            if table.reader is not None:
+                table.reader.close()
+            if table.batch_reader is not None:
+                table.batch_reader.close()
     assert result.snapshot is not None and result.summary is not None and result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
+        _comparison_storage_facts(projected.manifest))
 
 
 def _replacement(

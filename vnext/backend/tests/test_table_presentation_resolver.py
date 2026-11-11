@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotColumnDescriptor
-from gateway_backend.capabilities.table_presentation.metadata import ColumnPresentation, TablePresentation
+from gateway_backend.capabilities.table_presentation.contracts import ColumnPresentation, TablePresentation
 from gateway_backend.capabilities.table_presentation.resolver import present_columns, table_display_name
 from gateway_backend.capabilities.table_presentation.rules import COLUMN_ORDER_RULES, PRESENTATION_RULES_VERSION
 

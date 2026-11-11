@@ -22,7 +22,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     RecordsPublicationPolicy,
     _validate_parquet_bytes,
     _schema_for,
-    _write_arrow_parquet,
+    write_arrow_parquet,
 )
 from gateway_backend.capabilities.comparison.contracts import (
     RECORDS_PARQUET_FORMAT,
@@ -139,7 +139,7 @@ def test_records_writer_uses_1024_rows_then_one_row_group() -> None:
         RecordsArtifactFamily.STANDARD, None,
         RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
     )
-    raw = _write_arrow_parquet(
+    raw = write_arrow_parquet(
         (
             pa.RecordBatch.from_pylist(list(rows[:1024]), schema=schema),
             pa.RecordBatch.from_pylist(list(rows[1024:]), schema=schema),

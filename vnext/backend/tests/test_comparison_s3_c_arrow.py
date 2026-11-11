@@ -32,7 +32,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     _canonical_records_batch, _decoded_admission, _schema_matches,
     _standalone_read_bound, _standalone_retained_cap,
     _manifest_from_bytes, _schema_for, _validate_parquet_bytes,
-    _write_arrow_parquet, open_records_closure,
+    write_arrow_parquet, open_records_closure,
     publish_records_family_arrow, read_records_artifact,
     restore_records_closure,
 )
@@ -173,7 +173,7 @@ def test_native_standard_arrow_and_complete_facts_match_pre_c_source() -> None:
     assert handle.family_summary("STANDARD") == (
         1, old_entry["content_digest"],
     )
-    new_raw = _write_arrow_parquet(
+    new_raw = write_arrow_parquet(
         built_batches,
         _schema_for(RecordsArtifactFamily.STANDARD, None,
                     RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
@@ -234,7 +234,7 @@ def test_arrow_writer_preserves_fixed_python_parquet_raw_bytes(family: str) -> N
             for batch in source.iter_batches(batch_size=1024)
         )
     assert batches
-    rebuilt = _write_arrow_parquet(
+    rebuilt = write_arrow_parquet(
         batches, schema, RecordsPublicationPolicy(), RecordsPublicationContext()
     )
     assert rebuilt == raw
@@ -650,7 +650,7 @@ def test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python() 
             assert handle.family_summary(name) == (
                 old_entry["record_count"], old_entry["content_digest"],
             )
-            raw_parquet = _write_arrow_parquet(
+            raw_parquet = write_arrow_parquet(
                 built_batches,
                 _schema_for(family, None, RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES),
                 RecordsPublicationPolicy(), RecordsPublicationContext(),

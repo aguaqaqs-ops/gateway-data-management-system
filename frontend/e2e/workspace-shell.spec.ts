@@ -762,8 +762,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
 
   await page.getByRole("button", { name: "展开导航" }).click();
   const search = page.getByRole("textbox", { name: "搜索组、节点或页签" });
-  await search.fill("直流屏");
-  await expect(page.getByRole("button", { name: /直流屏/ })).toBeVisible();
+  await search.fill("测控装置");
+  await expect(page.getByRole("button", { name: /测控装置（升级）/ })).toBeVisible();
   await page.locator(".sidebar-toolbar button").click();
   await expect(page).not.toHaveURL(/changed=1/);
   await page.locator(".sidebar-toolbar button").click();
@@ -771,7 +771,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);
   await page.getByRole("radio", { name: "Debug" }).click();
-  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("直流屏");
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("测控装置");
   const stateBeforeReload = new URL(page.url());
   expect(stateBeforeReload.searchParams.get("view")).toBeNull();
   expect(stateBeforeReload.searchParams.get("pair")).toBe("baseline_to_initial");
@@ -783,7 +783,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await waitForBrowse(page);
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
-  await expect(reloadedSearch).toHaveValue("直流屏");
+  await expect(reloadedSearch).toHaveValue("测控装置");
   await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
@@ -853,7 +853,9 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-replacement", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
-  await expect(page.locator(".compare-header")).toContainText("高风险");
+  // The replacement pair carries no risk report (facts are null per side), so
+  // the mode notice takes the place of the per-view risk badge.
+  await expect(page.locator(".pair-diagnostic-strip")).toContainText("识别为不同数据集");
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换前/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换后/ })).toBeVisible();
@@ -1180,7 +1182,8 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   // reports it as one navigation diagnostic; the tables themselves stay clean.
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(1);
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1 条提示");
-  await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(0);
+  await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(1);
+  await expect(page.locator(".pair-diagnostic-strip")).toContainText("项目身份无法验证");
   await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
   await expect(page.locator(".table-heading h2")).toHaveText("遥测量");
   await screenshot(page, "s3-workbench-normal", 1920);

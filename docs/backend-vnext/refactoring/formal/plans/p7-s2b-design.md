@@ -19,7 +19,7 @@
 | `http/auth.py` SessionPort 已解析设备、project 和权限；LiveFileSessionPort 每请求读文件 | 保留鉴权；增加设备路由校验。凭据文件热发布改父目录只读挂载，不能依靠单文件 bind/secret 看到替换后的 inode |
 | `sqlite_mapping.py` 只在 composition/operation_worker 启动 seed；scope resolver 每次查 control DB | 增加 backend 内部在线注册；worker直接读新 DB 行，无广播或配置重载 |
 | `_apply_seed_record` 会 upsert repository/enabled | 在线新增使用 insert-or-exact-replay，禁止拿原 upsert 作注册；启动 seed 同步收窄为补齐缺项/精确核对，不覆盖在线事实 |
-| RS CreateRepository 已有原 key 幂等与初始空 commit，client 已支持 | 复用，不增加 create operation 或第二 effect ledger |
+| RS CreateRepository 已有原key幂等与初始空commit；PENDING/terminal失败原本只在startup处理 | 复用账本并补同key有界在线恢复，不增加create operation或第二effect ledger |
 | ClosableAdmissionGate 已记录 in_flight，maintenance/drain 关闭新受理 | 注册在同一个 gate 内持有整个受理区间，RS 调用在 SQLite 事务外 |
 | environment/group/root 标记和 BE-worker 配置比对已有；RS preflight 有组身份 | 复用并核 BE→RS 组身份；补部署总清单和整机聚合校验 |
 | Compose backend 固定8000，renderer按单组生成，管理命令已按project筛选 | 参数化端口/镜像/配置路径，补多组部署清单；不得通过宿主全局名称停其他组 |
@@ -31,7 +31,7 @@
 
 ### 3.1 单机目录
 
-新增宿主受控 `device-directory.json`：`schema_version=1`、`environment_id`、`devices[]`。每项仅 `gateway_device_external_key`、`group_id`、`enabled`。设备字符串按原始 UTF-8 exact 比较，不 trim/大小写折叠/Unicode归一化；1..255 bytes。最多10000项、8MiB；重复JSON键、未知字段、重复设备、未知组拒绝。`enabled=false`表示归属已预留但未要求入口开放；`true`表示组准备完成、期望开放。它不是当前 Nginx 已加载的证明。唯一性同时包括false项，失败预留不自动释放给别组。
+新增宿主受控 `device-directory.json`：`schema_version=1`、`environment_id`、`devices[]`。每项仅 `gateway_device_external_key`、`group_id`、`enabled`。设备字符串按原始 UTF-8 exact 比较，不 trim/大小写折叠/Unicode归一化；1..255个Unicode scalar（不含U+0000或surrogate，UTF-8最多1020 bytes）。最多10000项、8MiB；重复JSON键、未知字段、重复设备、未知组拒绝。`enabled=false`表示归属已预留但未要求入口开放；`true`表示组准备完成、期望开放。它不是当前 Nginx 已加载的证明。唯一性同时包括false项，失败预留不自动释放给别组。
 
 目录只保存归属和必要有效状态；project/repository/INITIAL/Head、任务和授权不放入。组内业务 DB 保存固定scope和历史事实。目录丢失/损坏时禁止新增和配置发布，已有服务继续使用已加载路由与组内有效映射；不猜组、不依据遍历各组DB重建唯一权威。新部署入口无有效配置时拒启。受控重建须明确停止相关服务及核数据，不能由新增命令自动完成。
 
@@ -49,11 +49,11 @@
 
 ### 4.1 路由键
 
-所有普通 `/v1/` 请求新增单值header `X-Gateway-Device-Key`：`hex_lower(SHA256(UTF8(gateway_device_external_key)))`，固定64个小写十六进制字符；不加前缀、不包含project。采用这个ASCII路由表示避免把任意Unicode设备标识放入HTTP header以及Nginx map字符串的不区分大小写匹配。它不是凭据或业务digest；原设备ID仍是业务权威。renderer发现不同设备产生相同路由键时拒绝，不合并。提供Python/TS共享向量（ASCII大小写、中文、组合字符），不改变已有业务ID/Contract digest。
+所有普通 `/v1/` 请求新增单值header `X-Gateway-Device-Key`：`hex_lower(SHA256(UTF8(gateway_device_external_key)))`，固定64个小写十六进制字符；不加前缀、不包含project。采用这个ASCII路由表示避免把任意Unicode设备标识放入HTTP header以及Nginx map字符串的不区分大小写匹配。它不是凭据或业务digest；原设备ID仍是业务权威。renderer发现不同设备产生相同路由键时拒绝，不合并。统一device/project身份域同步directory、HTTP DTO、seed、session及DB写入检查；现DB255字符上限不改成255bytes。提供Python/TS共享向量（ASCII大小写、中文、组合字符），不改变已有业务ID/Contract digest。
 
-客户端公共请求层从当前会话取得设备，和Bearer作为一次请求的同一身份快照；切换会话时不允许old token/new device组合。覆盖GET、POST、multipart、分页、轮询、bundle下载和外部脚本；不解析请求body找路由，不为operation/submission ID建立全局索引。单组调用同样使用该header，同步改调用方，无兼容双路径。每个页面持有操作的原设备上下文，不能因当前设备切换继续以新设备请求旧operation。
+客户端公共请求层从当前会话取得设备，和Bearer作为一次请求的同一身份快照；切换会话时不允许old token/new device组合。覆盖GET、POST、multipart、分页、轮询、bundle下载和外部脚本；不解析请求body找路由，不为operation/submission ID建立全局索引。单组调用同样使用该header，同步改调用方，无兼容双路径。TS复用已有`features/bundle/sha256.ts`与TextEncoder，不新增哈希依赖或要求浏览器crypto安全上下文。每个页面持有操作的原设备上下文，不能因当前设备切换继续以新设备请求旧operation。
 
-backend先解析现有Bearer，再验证header严格单值/格式及是否等于认证设备计算值，再用本地映射核设备active及scope/INITIAL一致；现有各对象权限检查继续执行。即使直接访问组backend或入口错误转发也不可越组写。group统计继续要求statistics_read_group，不自动提供跨组数据。未认证401；格式错误422 `REQUEST_VALIDATION_FAILED`；设备/对象/本组归属不匹配统一404 `RESOURCE_NOT_FOUND`，不泄漏正确组；内部管理的配置冲突另用409。预检/health与内部管理不使用普通设备header。
+backend先解析现有Bearer，再验证header严格单值/格式及是否等于认证设备计算值，再用本地映射核设备active及scope/INITIAL一致；现有各对象权限检查继续执行。即使直接访问组backend或入口错误转发也不可越组写。公开group统计继续要求statistics_read_group，不自动提供跨组数据。为保留原先无需设备mapping的组运维读，增加仅组backend loopback可达的`/internal/v1/statistics/group`与`/internal/v1/statistics/group/resources`，复用原reader/DTO/预算；这两个管理读使用独立依赖，只解析本组session并检查`statistics_read_group`，不要求设备mapping/route-key，也不使用internal维护token替代统计授权。组/环境由服务端deployment固定，不能由caller选择；入口拒绝这些内部路径。已有合法统计session在设备未映射时仍能查询；完全空session文件返回401，空组健康检查用原内部readiness/drain/identity，不生成虚假设备。未认证401；格式错误422 `REQUEST_VALIDATION_FAILED`；设备/对象/本组归属不匹配统一404 `RESOURCE_NOT_FOUND`，不泄漏正确组；内部管理的配置冲突另用409。预检/health与内部管理不使用普通设备header。
 
 ### 4.2 标准代理
 
@@ -73,7 +73,7 @@ Nginx HUP平滑加载保留旧请求，不设置会为配置刷新强制中断�
 
 ### 5.1 组内API
 
-新增内部 `POST /internal/v1/devices/register`，仅本组internal bearer；body严格为 `environment_id, group_id, gateway_device_external_key, business_project_id`，各身份使用现有有界类型。返回200（首次及exact重放一致）含这四项、repository_id、initial_node_id、initial_commit_id。不接受caller指定repo/commit、enabled或任意路径。新增 `GET /internal/v1/devices/registration?device=...` 查询现有DB映射和INITIAL（未登记404），返回identity便于响应丢失后核对；不查可变Head来猜INITIAL。
+新增内部 `POST /internal/v1/devices/register`，仅本组internal bearer；body严格为 `environment_id, group_id, gateway_device_external_key, business_project_id`，device/project使用统一的1..255 Unicode scalar类型（不含U+0000/surrogate，UTF-8最多1020bytes），environment/group沿既有部署identity类型。返回200（首次及exact重放一致）含这四项、repository_id、initial_node_id、initial_commit_id。不接受caller指定repo/commit、enabled或任意路径。新增 `GET /internal/v1/devices/registration?device=...` 查询现有DB映射和INITIAL（未登记404），返回identity便于响应丢失后核对；不查可变Head来猜INITIAL。
 
 POST持有 `acquire_new_work` 直到RS结果和DB事务结束；maintenance已关门返回503，drain可见当前注册in_flight。受理前核固定environment/group、受控目录设备预留确属本组及RS身份；目录坏只拒本次注册，不把整组readiness锁死。普通业务不依赖全局目录的每次读取。
 
@@ -81,19 +81,29 @@ POST持有 `acquire_new_work` 直到RS结果和DB事务结束；maintenance已�
 
 1. 在短read UoW查该device全部mapping（含disabled）及固定INITIAL。已有exact active scope且身份完整则返回原结果；不同project、disabled、损坏或相互矛盾均409，不重新启用/重绑。已映射时不再向RS创建第二库。
 2. 缺失时使用确定性RS create key：`p7-device-create-v1:` + SHA256(JCS `[environment_id,group_id,device_external_key]`)。同设备的冲突project也共用此key，避免竞争时生成两个库；scope冲突由下一事务唯一规则拒绝。key不含随机attempt、时间或调用者。
-3. 事务外调用既有 `RepositoryServiceClient.create_repository`。响应丢失按相同key重放，沿RS原失败/UNKNOWN语义；409未能确定原结果时停止本次，查询/原RS恢复，不换key绕过、不新增自动RS重启。组不能接管/删除无法判定的库。
+3. 事务外调用既有 `RepositoryServiceClient.create_repository`。响应丢失按相同key重放；使用下文RS创建owner的在线恢复补充。忙/未解决时停止本次，不换key绕过、不自动重启RS。组不能接管/删除无法判定的库。
 4. 短write UoW fresh-read映射及INITIAL，再次执行完整固定scope校验。若并发已有exact结果，必须与RS返回repo/initial一致；冲突原子拒绝。首次插入既有 `provisioned_scope_mappings`、`baseline_node_records(INITIAL)`、`baseline_head_records(version=0)`，一个事务。INITIAL node ID采用UUID5的`uuid.NAMESPACE_URL`与JCS `["gateway-device-initial-v1",environment,group,device]`字符串（加固定向量）；commit只取RS create返回的空commit，不能取当前main。已推进Head不得覆盖。
 5. 不新增control DB注册状态表/任务类型。RS create成功而DB未提交是可恢复的暂存结果：下一次同key取得原库继续；不做补偿删除。已有DB成功而响应丢失直接exact重放。worker的scope resolver自然看到新行，不能遍历重启全部worker。
 
 启动seed保留bootstrap用途，但改为只插缺失、对已有精确核对且不覆盖repo/enabled/INITIAL/Head；生产seed只能包含该组已预留设备。在线注册数据不要求回写seed文件；新节点可空seed启动并在线注册。移除“必须至少一个mapping”的启动限制。原允许mapping更新的Contract能力并未通过此入口实现，专门维护路径未来另定；删除被替代的启动upsert行为及其错误预期测试。
 
-### 5.2 宿主新增命令
+### 5.2 RS创建owner的有界在线恢复
 
-新增 `manage-processing-groups.py add-device --group <g> --device <d> --project <p> --session-document <受控文件>`；参数路径只指本机受控文件，secret不在argv/日志；命令不接受任意shell。调用方重复使用同device/group/scope即可，不另要求记忆随机幂等key。用 `status-device` 读目录期望、目标组DB和入口实际路由，区分reserved、registered、routing-pending、available；这些为现场推导结果，不保存第二状态机。
+当前RS将PENDING和terminal_not_published均返回409，只有启动reconcile能处理，不能直接据此承诺新增失败后热重试。本阶段对Repository Service Contract §7/§11作窄修订，仅影响CREATE_REPOSITORY：
+
+- 唯一RS runtime拥有一个非阻塞进程内create门，所有HTTP create入口和在线恢复共用，持有到Dolt执行及子进程确认结束、结果可判定为止；root ownership锁继续保证只有一个服务实例。忙返回503 `CREATE_REPOSITORY_BUSY`（不得混作scope冲突），client有限退避沿原预算；不挡import、读或其他组，不建立按设备常驻锁表。
+- 请求获得门后按scope/key/fingerprint读取原effect。SUCCEEDED返回原响应。无effect按原规则创建。PENDING已完整发布时复用既有create reconciliation核定原resource_id的完整目录与初始空commit，再记SUCCEEDED；不得用别的可变库main猜INITIAL。
+- PENDING未发布或terminal_not_published时，先确认无旧执行者、原target确未发布、同effect/resource_id一致，按原root安全边界清理本effect staging；损坏/无法确定不是“未发布”。只对CREATE以原scope/key/fingerprint/effect_id/resource_id为CAS前置清除terminal标志（原effect仍PENDING），复用原resource_id重新初始化与发布，不分配新repo ID、不删除幂等行、不改upload/import terminal规则。最多一次恢复/执行尝试后返回，不循环至成功。
+- 原startup reconcile与在线路径共用同一判定函数；启动仍在HTTP受理前进行，不能与在线门并发。SUCCEEDED的watch注册继续原路径。已发布但证据矛盾、原子发布部分失败或不能证明原执行者退出时保持未解决，报告503 `CREATE_REPOSITORY_UNRESOLVED`，不自动清理正式target或停止整组。真实root全局故障仍按原readiness规则处置。
+- RS owning tests负责在途同key忙、发布前失败同进程恢复、发布后未记成功的核定、terminal同身份重开、坏证据拒绝；backend只证明key不变及正确传播结果。无新REST结果查询：backend registration GET查本组DB，缺项不代表RS无effect，重试POST由原key核定。
+
+### 5.3 宿主新增命令
+
+新增 `manage-processing-groups.py add-device --group <g> --device <d> --project <p> --session-document <受控文件>`；参数路径只指本机受控文件，secret不在argv/日志；命令不接受任意shell。调用方重复使用同device/group/scope即可，不另要求记忆随机幂等key。用 `status-device` 读目录期望、目标组DB和入口实际路由，区分reserved、registered、routing-pending、available；这些为现场推导结果，不保存第二状态机。device-context使用现有鉴权身份即可读取自己的最小上下文，各实际业务操作仍独立检查原permissions。
 
 1. 取得发布锁和目标组管理锁，校验全清单、原目录及追加差异、目标组readiness与配置。已有别组预留立即冲突；先原子保存新设备`enabled=false`，确保命令在创建RS后崩溃也不能被另一组抢登记。
-2. 调组内注册API；失败保留false预留，其他设备/组继续。凭据按当前session格式在目标组session父目录原子合并发布：先验证旧项不丢失/不改动，新token不能重复或属于其他scope，原到期/撤销规则保留。源凭据不放路由目录，不把创建设备等同授予所有用户权限。
-3. 用新设备的授权会话执行一个不产生Workspace/任务的backend scope就绪查询（新增普通 `GET /v1/device-context`，返回当前scope/repository及组/环境，认证和设备header同其他业务口）；确认目标组尚可受理。无需为了验证授权先写业务。
+2. 调组内注册API；失败保留false预留，其他设备/组继续。凭据按当前session格式在目标组session父目录原子合并发布：先验证旧项不丢失/不改动，新token不能重复或属于其他scope，原到期/撤销规则保留；空新组允许合法`{"sessions":[]}`启动，此时所有普通Bearer请求401，不能生成默认管理员。源凭据不放路由目录，不把创建设备等同授予所有用户权限。
+3. 用新设备的授权会话执行一个不产生Workspace/任务的backend scope就绪查询（新增普通 `GET /v1/device-context`，返回当前scope/repository及组/环境，认证和设备header同其他业务口；只返回已认证且已映射的本scope最小上下文，不新增权限名、不授予读数据/写入权限）；确认目标组尚可受理。无需为了验证授权先写业务。
 4. 原子将目录该项改为true，从完整有效目录生成独立candidate Nginx配置，运行同版本`nginx -t`后原子发布固定配置并HUP。只发布候选，不覆盖/清理其他组配置。已有条目只能保持原路由。
 5. 通过仅loopback管理探针验证加载的配置摘要和该key实际选择组（Nginx本地生成的静态响应，不查询业务DB）；每次用新连接，至多30秒。随后通过公开入口调用device-context核端到端身份。二者满足才报告新增成功。probe/token不写公开访问日志。
 
@@ -131,6 +141,6 @@ POST持有 `acquire_new_work` 直到RS结果和DB事务结束；maintenance已�
 
 ## 8. Contract 与后续边界
 
-实施包A先将实际协议加入Business Lifecycle（设备归属/注册/INITIAL）、Operation Lifecycle（新增受理/drain、原恢复不变）、Repository Service（身份窄接口/原create）、Canonical Storage（组root边界）、Statistics（组作用域）、backend HTTP/OpenAPI及部署规格。必要时新增窄`processing-groups-and-routing.md` owning部署Contract并更新taxonomy，避免同一规则在多处各自成为权威；不得因本文增加第二恢复系统。
+实施包A先将实际协议加入Business Lifecycle（设备归属/注册/INITIAL）、Operation Lifecycle（新增受理/drain、原恢复不变）、Repository Service（身份窄接口/CREATE同key有界在线恢复）、Canonical Storage（组root边界）、Statistics（组作用域）、backend HTTP/OpenAPI及部署规格。必要时新增窄`processing-groups-and-routing.md` owning部署Contract并更新taxonomy，避免同一规则在多处各自成为权威；不得因本文增加第二恢复系统。
 
 S4b消费者保持：环境/组身份清楚、唯一写入组、原ID可保留、所有业务记录仍组内可枚举。S2b不实现通用导出器、生产换组或跨版本备份恢复。S3调度/背压不提前进入本阶段。公共入口协议需同步前端/外部消费者，不以“后端已支持”代替产品接线完成。

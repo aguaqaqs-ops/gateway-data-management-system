@@ -21,7 +21,7 @@ S2a已退出。本阶段只增加同机静态独立组、统一业务入口、�
 | `BE/http/auth.py`、`dependencies.py`、`wiring.py`、`routes/maintenance.py` | 普通API统一route-key核验；注册同AdmissionGate；现有内部鉴权；热session挂载与快照 | B/C |
 | `BE/http/routes/device_registration.py`、`http/schemas/device_registration.py`（新） | 内部注册/query、普通device-context DTO及有界错误；管理API不公开 | B/C |
 | `BE/application/provisioning/`（新窄模块） | 组身份/目录预留检查、同key RS create、事务前后重读；不新建job/恢复状态表 | B |
-| `RS/http/routes/repositories.py`、`create_repository/command.py`、`mutation_store.py` | 复用原create，不改原幂等/UNKNOWN、不创建通用查询服务 | B（只依赖） |
+| `RS/http/routes/repositories.py`、`create_repository/command.py`、`mutation_store.py` | 复用原create账本，补同key有界在线恢复及CREATE-only terminal CAS重开，不创建通用查询服务 | B |
 | `RS/http/routes/deployment_identity.py`（新）、`runtime_preflight.py`、`RC/client.py`、Contracts DTO | 增加认证组身份读方法；与ready分别判断，不令RS认识设备scope | A/D |
 | `vnext/scripts/render-runtime-config.py`、`host_runtime_config.py`、`worker_deployment.py` | 单组渲染复用；完整组清单汇总、跨组路径/端口/镜像/预算核验 | D |
 | `vnext/scripts/manage-worker-group.py` | 显式组管理锁、身份核验；入口独立project，原expected服务集合不吞入口 | B/D |
@@ -38,21 +38,21 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 
 ### A. 配置schema和Contract（风险B）
 
-1. 按设计§3实现纯parser/renderer模型：directory≤8MiB/10000 devices、groups≤1MiB/32 groups；严格字段、重复key、bool/int、原始UTF8设备ID≤255bytes，禁path/URL注入。目录device唯一性含false预留；生成key为UTF8 SHA256小写hex，固定向量。
+1. 按设计§3实现纯parser/renderer模型：directory≤8MiB/10000 devices、groups≤1MiB/32 groups；严格字段、重复key、bool/int、device/project为1..255 Unicode scalar、拒U+0000/surrogate、UTF8≤1020bytes（统一directory/HTTP/seed/session/写入校验，保留DB255字符域），禁path/URL注入。目录device唯一性含false预留；生成key为UTF8 SHA256小写hex，固定向量。
 2. 配置清单固定 `host.memory_bytes/cpu_count/shared_memory_reserve_bytes/shared_cpu_reserve`、`entry`和`groups[]`；entry包含监听/管理端口、镜像、memory/cpu预算；group包含group_id、project、backend loopback port、storage/resource路径、session目录、RS/internal token文件与明确镜像组合。全字段由typed model序列化，不接受任意Compose/shell片段。
 3. 不把全局directory digest写进每组部署锁存身份；后台任务只依赖本组固定部署与DB事实。新增设备不触发 `compare_configuration` mismatch。必要字段加入现有版本的基线模型，不引入旧/新配置兼容双读。
 4. Contract同步表见§6。确定route-key、registration/device-context/RS身份DTO及错误的OpenAPI；新增body≤8KiB、未知字段拒绝，GET query同有界身份。不为生成协议先实现业务。
-5. 写配置/向量/错误表及schema focused（无Dolt）；独审核输入边界和权威归属。交付包括对当前组统计语义的决定：仍是当前设备所属组、需statistics_read_group；运维可用各组受控session访问，无新增全局统计授权模型。
+5. 写配置/向量/错误表及schema focused（无Dolt）；独审核输入边界和权威归属。交付包括对当前组统计语义的决定：公开仍是当前设备所属组、需statistics_read_group；内部组统计读按设计§4.1新增两个loopback-only路径，独立依赖解析本组session+既有统计权限、不读设备mapping/route-key，复用reader/DTO/预算。组/环境由deployment固定，入口不公开；无新增全局统计授权模型。
 
 ### B. 组内在线注册与维护（风险A）
 
 1. 新内部register与query路由通过internal bearer，body环境/组必须等于本进程；目录必须已有device→本组预留。目录只在受理管理请求时读取，坏目录不使所有已运行组退出。
 2. acquire_new_work覆盖完整注册；先短read UoW，已有exact active scope返回固定INITIAL，冲突含disabled拒绝；缺项在事务外RS create，deterministic key按设计§5，返回后短write UoW fresh-read并原子插入mapping/INITIAL/Head。
 3. UUID5 namespace固定为`uuid.NAMESPACE_URL`，name为UTF8 JCS字符串数组`["gateway-device-initial-v1",environment_id,group_id,device_external_key]`；共享向量记录完整输出。RS key使用同设计中的独立domain，不复用业务digest。
-4. 整个register每次最多一个existing client调用（client本身有界原key重试）；不在HTTP层外套无限重试。RS PENDING/409不能冒称未创建，不换key；既有RS启动恢复责任保留。DB不完整时不能凭可变main补INITIAL。DB失败后保留RS结果供同key重做，不删除正式repo。
+4. 整个register每次最多一个existing client调用（client本身有界原key重试）；不在HTTP层外套无限重试。RS PENDING/409不能冒称未创建，不换key；新增设计§5.2的RS runtime非阻塞create门、原effect/resource_id有界在线恢复及CREATE-only terminal CAS重开。核旧Dolt子进程结束、已发布完整性和未发布证据，不盲清target；startup/在线共用判定函数；upload/import terminal语义不动。DB不完整时不能凭可变main补INITIAL。DB失败后保留RS结果供同key重做，不删除正式repo。
 5. 启动seed的批量固定归属校验仍执行；只允许缺项初始化与exact已有mapping，删除upsert覆盖；空mappings合法。组生产启动seed与directory核归属，旧本地fixture同步新前提；不把seed作为动态DB的全量清单，也不清未出现在seed中的在线记录。
 6. 管理锁位于宿主配置目录，group ID经白名单编码后构造固定文件名；顺序统一先全局发布锁、后目标组锁，维护只取目标组锁，不反向取得全局锁。drain在后台HTTP仍依赖原gate，无RPC租约。既有停止/恢复不用全机容器扫描结果随意停别组。
-7. focused最低：首次/同请求重放、project/禁用/固定归属冲突、并发同device同/异scope、RS响应丢失key不变、DB提交前故障后重放、Head推进后不回退、空seed与重启不覆盖在线映射、drain先关/注册先受理两种顺序。真实RS create自身crash矩阵复用原owner，新增测试不重复内部每个syscall。
+7. focused最低：首次/同请求重放、project/禁用/固定归属冲突、并发同device同/异scope、RS响应丢失key不变、DB提交前故障后重放、Head推进后不回退、空seed与重启不覆盖在线映射、drain先关/注册先受理两种顺序。RS owner新增最小在线恢复用例：在途同keybusy、发布前失败同进程恢复、发布后ledger未记成功、terminal原身份重开、坏证据拒绝；其他crash矩阵复用原owner，不重复内部每个syscall。
 
 ### C. 统一入口与热发布（风险B，配置唯一性/不误路由按A边界审核）
 
@@ -60,7 +60,7 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 2. 生成严格key map及固定upstream，body预算≥backend合法上限，显式关闭request/response缓存与upstream retry；连接/idle预算按设计。流式不在代理落完整上传/下载临时文件，backend原bounded输入控制保留。无外部请求拼接上游地址。
 3. 所有普通BE API经require_identity核route-key和本地scope；基础授权/对象权限保持。普通device-context只读DB、返回 `{environment_id,group_id,gateway_device_external_key,business_project_id,repository_id}`；必须已就绪可受理才在新增final probe判成功，普通读状态不以gate关闭推断业务对象消失。
 4. CLI `validate`/`render-entry`/`add-device`/`status-device`/`check-groups`：宿主受控路径、无shell、固定子进程timeout；前置检查失败exit2、锁忙exit3、后置未完成exit1、实际可用exit0，JSON输出不能含token。`status-device`不重放任何写入。
-5. add-device持锁按reserve(false)→register→原子追加session→scope probe→directory(true)→candidate nginx-t→publish/HUP→actual probe执行。session文档输入只含目标device/project授权项，包含至少一个可用device read权限probe身份；同token不同内容冲突，不覆盖既有撤销/到期项。
+5. add-device持锁按reserve(false)→register→原子追加session→scope probe→directory(true)→candidate nginx-t→publish/HUP→actual probe执行。session文档输入只含目标device/project授权项，包含至少一个未过期可认证的本设备scope probe身份（device-context仅返回自己的最小上下文，不新增权限名；具体业务仍检查原权限）；同token不同内容冲突，不覆盖既有撤销/到期项。`load_session_entries`同步允许合法空sessions启动（全体普通请求401），不注入默认token；格式坏仍拒绝。
 6. 将已验证配置以独立版本文件保存，原子切换Nginx固定入口文件；保留上一有效版本。HUP未确认时旧运行配置继续，控制器不报成功、不清旧文件；若已确认reload失败，恢复磁盘指向上一有效版本。进程在切换/确认间退出后，重试读取实际probe与文件核定，`nginx -t`不通过不得重启有效入口。最多一旧代未退出时拒绝继续reload，不强杀长流。
 7. focused：目录预留防重复分配、配置错误保留旧文件、false/true与actual不混淆、exact重放/部分失败恢复、同/异组锁、missing/duplicate/Unicode/大小写header、身份与错组拒绝。最小容器接线合并验证Nginx真实header行为、host原子替换容器可见、长upload/download跨HUP、新连接路由生效、旧设备业务继续。
 
@@ -94,14 +94,14 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 | 不变量 | 现有owner/新增测试位置 | 不重复项 |
 | --- | --- | --- |
 | 固定scope、INITIAL、Head不回退 | `test_provisioned_scope_seed.py` + 新`test_device_registration.py` | 不复制Archive/Submit全矩阵 |
-| RS create幂等/恢复 | RS create/mutation tests；backend adapter窄测试 | 不新增第二create ledger测试体系 |
+| RS create幂等/恢复 | RS create/mutation tests扩充设计§5.2在线恢复；backend adapter窄测试 | 不新增第二create ledger测试体系 |
 | 热新增与drain | `test_worker_group_maintenance.py` + register服务测试 | 不穷举所有线程调度 |
-| route-key/鉴权/对象边界 | backend HTTP auth/route tests参数表 | 不为每个同构404复制测试函数 |
+| route-key/鉴权/对象边界 | backend HTTP auth/route tests参数表；内部统计有权限无mapping/无权限/跨端点三个向量 | 不为每个同构404复制测试函数 |
 | 双组实际隔离及热发布 | 新`test_processing_groups_compose_e2e.py`；扩展既有harness | 集中一个场景矩阵，不每包重建完整镜像 |
 | consumer请求一致性 | authenticated-fetch/client tests、最小真实e2e | 无全局管理UI/重复后端业务证明 |
 | 闭包包含入口镜像 | `test_input_closure.py`既有脚本tests | 不改runner按包通过含义 |
 
-热新增Compose具体顺序：A/a1和B/b1完成初始化→以既有harness可观察屏障保持A一个操作在途、B持续发有效请求→add A/a2（可用合成身份作为边界）→核原容器代际/任务未重启、a2经统一入口完整业务→释放原任务并核结果→A维护时B继续→A恢复。另以合法流式请求跨HUP证明不中断；不用长sleep推断在途。屏障仅测试夹具，不引入production探针/故障注入API。真实旅程不靠这些合成ID冒称不同真实设备。
+热新增严格重叠Compose绑定A W2/B W1（两个A executor才可一边保持旧任务、一边完成新设备计算）：A/a1和B/b1完成初始化→以既有harness可观察屏障保持A一个操作在途、B持续发有效请求→add A/a2（可用合成身份作为边界）→核原容器代际/任务未重启、a2经统一入口完整业务→释放原任务并核结果→A维护时B继续→A恢复。另以合法流式请求跨HUP证明不中断；不用长sleep推断在途。屏障仅测试夹具，不引入production探针/故障注入API。基础A W1/B W1场景则仅在旧任务占用时完成新增注册/路由/上传受理，待旧任务自然完成后才要求新设备计算成功，不制造无法释放的W1屏障。真实旅程不靠这些合成ID冒称不同真实设备。
 
 权威失败停止当前及依赖验收，保留exit/log/SHA。构建/环境错误按当前快速修复规则，有依据修正后重跑失败步骤，不将产品问题归类成环境。所有实际测试在节点且在clean提交运行；本轮只读源码/文档核验不构成产品测试。
 
@@ -125,9 +125,9 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 | 新窄`formal/contracts/processing-groups-and-routing.md`及taxonomy | 单环境唯一设备组、目录预留/开放、route-key、热新增顺序/失败语义、组级维护、部署与整机资源；由部署/接入边界owner负责 |
 | `business-lifecycle-and-state.md` | 引用组归属边界；在线登记与INITIAL同事务、固定scope不变、新增不重绑；启动seed收窄 |
 | `operation-lifecycle-and-integrity.md` | 注册受理与drain共用gate，业务队列/claim/recovery保持S2a；无新job类型 |
-| `repository-service.md`及RC/Contracts/OpenAPI | 认证部署身份只读接口；原create及其409/UNKNOWN边界不变 |
+| `repository-service.md`及RC/Contracts/OpenAPI | 认证部署身份只读接口；CREATE-only同key有界在线恢复与terminal CAS重开，沿原ledger/资源身份；upload/import不改 |
 | `canonical-storage-and-repository-boundary.md` | 组间独立可写root、已有保护/发布/cleanup语义不变 |
-| `statistics-and-query.md` | group/environment观测归属、只读单组查询及现有权限；无聚合承诺 |
+| `statistics-and-query.md` | group/environment观测归属、公开设备路由与内部无mapping管理读复用原统计权限/预算；无聚合承诺 |
 | `vnext/deploy/README.md`、backend API文档、前端接入说明 | 启动空组、在线新增/查询/失败重试、单组维护、HTTP header和消费者接线 |
 
 正式Contract在产品实施A中按实际协议修订，标明目标/生效状态，不在本轮文档中假称已实现。运行报告和提示词不入库；设计/计划/S0决议保留正式来源。

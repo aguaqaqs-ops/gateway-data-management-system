@@ -693,7 +693,7 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 ## 10. Phase 7：Multi-project Concurrency and Capacity（多项目并发与容量）
 
-**当前范围（2026-11-11）：** P7-D21 已撤回旧线性扩展/计时数值门槛。S1b 已本地退出，见[总结](p7-s1b-summary.md)；后续以 [P7 执行计划](p7-execution-plan.md)及 [S2 设计](p7-s2-design.md)为准。S2a 为固定 W=K 的组内多 worker、有限恢复与维护窗口；S2b 为静态独立组、独立版本和数据隔离，保留未来逐组升级边界，灰度自动化后移；完整设备副本/受控换组留 S4b。建议保持 S2a→S2b 分别实施退出，不增加内部包全量门禁；S2a[详细实施计划](p7-s2a-execution-plan.md)已通过Astra独审与复审，具备代码实施条件；Owner已授权新会话按[S2a实施入口](p7-s2a-implementation-prompt.md)推进至本地exit，当前尚未实施S2。
+**当前范围（2026-11-11）：** P7-D21已撤回旧计时/线性扩展门槛。S2a已在`p7-s2a-exit`本地退出，见[总结](p7-s2a-summary.md)。S2b当前为同机独立组、统一入口、静态明确归属与新增设备热更新：新增不暂停旧任务/设备/组，程序/资源/root变更仅组级维护；详细设计/计划进入独审，产品未实施，见[S2b设计](p7-s2b-design.md)、[详细计划](p7-s2b-execution-plan.md)和[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)。灰度自动化后移，完整设备副本/受控换组仍留S4b，阶段内不增加重复全量门禁。
 
 本节按 DC37 改写（2026-10-25）。
 

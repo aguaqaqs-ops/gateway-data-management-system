@@ -91,6 +91,8 @@ def test_baseline_preserves_distinct_claims_and_signed_net_change() -> None:
             db.execute("UPDATE execution_summaries SET recorded_at_us=NULL")
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("UPDATE execution_summaries SET metrics_json=?", ('{"x":"' + 'a' * 13000 + '"}',))
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("INSERT INTO storage_observations(source_event_id,environment_id,group_id,service_owner,category,window_end_us,generated_at_us,quality) VALUES ('f','e','g','backend','filesystem',1,1,'unavailable')")
         indices = {row[1] for row in db.execute("PRAGMA index_list(resource_samples)")}
         assert {"resource_process_window", "resource_execution_window", "resource_retention"} <= indices
         db.execute("INSERT INTO write_observations(observation_id,environment_id,group_id,repository_id,rs_operation_id,process_instance_id,logical_net_change_bytes,observed_outcome,quality,recorded_at_us) VALUES ('id','e','g','r','op','p',-10,'succeeded','available',7)")

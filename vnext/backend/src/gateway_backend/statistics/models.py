@@ -95,6 +95,12 @@ class StorageRecord(StorageValues, StatisticsIdentity):
     service_owner: Literal["backend", "repository_service"]
     generated_at_us: Counter
 
+    @model_validator(mode="after")
+    def _filesystem_is_shared(self) -> Self:
+        if self.category == "filesystem" and self.repository_id is not None:
+            raise ValueError("filesystem capacity has no repository owner")
+        return self
+
 
 class ExecutionSummary(ObservationQuality, StatisticsIdentity):
     operation_id: Identifier

@@ -10,14 +10,18 @@ SCHEMA_SQL = """
 CREATE TABLE storage_observations (
  id INTEGER PRIMARY KEY, source_event_id TEXT NOT NULL UNIQUE,
  environment_id TEXT NOT NULL, group_id TEXT NOT NULL, repository_id TEXT,
- service_owner TEXT NOT NULL, category TEXT NOT NULL,
+ service_owner TEXT NOT NULL,
+ category TEXT NOT NULL CHECK(category IN ('repository','durable','canonical','comparison','export','scratch','metadata','public_unknown','filesystem')),
  object_count INTEGER CHECK(object_count >= 0), logical_bytes INTEGER CHECK(logical_bytes >= 0),
  allocated_bytes INTEGER CHECK(allocated_bytes >= 0),
  unverified_reference_bytes INTEGER CHECK(unverified_reference_bytes >= 0),
  filesystem_id TEXT, total_bytes INTEGER CHECK(total_bytes >= 0),
  available_bytes INTEGER CHECK(available_bytes >= 0), available_inodes INTEGER CHECK(available_inodes >= 0),
  window_start_us INTEGER CHECK(window_start_us >= 0), window_end_us INTEGER NOT NULL CHECK(window_end_us >= 0),
- generated_at_us INTEGER NOT NULL CHECK(generated_at_us >= 0), quality TEXT NOT NULL, reason TEXT
+ generated_at_us INTEGER NOT NULL CHECK(generated_at_us >= 0), quality TEXT NOT NULL, reason TEXT,
+ CHECK((category='filesystem' AND repository_id IS NULL AND filesystem_id IS NOT NULL
+ AND object_count IS NULL AND logical_bytes IS NULL AND allocated_bytes IS NULL AND unverified_reference_bytes IS NULL)
+ OR (category!='filesystem' AND filesystem_id IS NULL AND total_bytes IS NULL AND available_bytes IS NULL AND available_inodes IS NULL))
 ) STRICT;
 CREATE INDEX storage_repository_window ON storage_observations(repository_id,category,window_end_us,id);
 CREATE INDEX storage_filesystem_window ON storage_observations(category,filesystem_id,window_end_us,id);

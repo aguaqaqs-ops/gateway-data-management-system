@@ -21,7 +21,7 @@ Reason = Literal[
 Role = Literal["backend", "worker", "repository_service"]
 Category = Literal[
     "repository", "durable", "canonical", "comparison", "export", "scratch",
-    "metadata", "public", "unknown", "filesystem",
+    "metadata", "public_unknown", "filesystem",
 ]
 
 
@@ -46,6 +46,17 @@ class StorageValues(ObservationQuality):
     available_inodes: Counter | None = None
     window_start_us: Counter | None = None
     window_end_us: Counter
+
+    @model_validator(mode="after")
+    def _category_shape(self) -> Self:
+        capacity = (self.filesystem_id, self.total_bytes, self.available_bytes, self.available_inodes)
+        objects = (self.object_count, self.logical_bytes, self.allocated_bytes, self.unverified_reference_bytes)
+        if self.category == "filesystem":
+            if self.filesystem_id is None or any(value is not None for value in objects):
+                raise ValueError("filesystem observation requires identity and no object measurements")
+        elif any(value is not None for value in capacity):
+            raise ValueError("non-filesystem observation cannot include capacity fields")
+        return self
 
 
 class ResourceValues(ObservationQuality):
@@ -81,6 +92,12 @@ class RepositoryStorageObservation(StatisticsModel):
     kind: Literal["repository_storage"] = "repository_storage"
     repository_id: UUID
     payload: StorageValues
+
+    @model_validator(mode="after")
+    def _repository_category(self) -> Self:
+        if self.payload.category != "repository":
+            raise ValueError("repository storage requires repository category")
+        return self
 
 
 class FilesystemCapacityObservation(StatisticsModel):

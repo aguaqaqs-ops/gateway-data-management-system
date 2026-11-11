@@ -17,6 +17,9 @@ CPU 为微秒，空间/I/O 为 bytes，count 为非负整数；净变化允许�
 
 独立库路径为 be-metadata/telemetry/statistics.sqlite3；DDL owner 为
 `infrastructure/statistics/schema.py`，user_version=1，四表/索引与执行计划 §4 一致。
+category固定为repository/durable/canonical/comparison/export/scratch/metadata/public_unknown/filesystem。
+filesystem记录repository_id为null、filesystem_id非空、object/logical/allocated/unverified_reference字段为null；
+其他类别的filesystem_id/total_bytes/available_bytes/available_inodes为null。
 库不符/损坏只禁用统计，人工修复并重启；不自动删除/迁移，不影响 control DB 的严格校验。
 首次 recorded_at_us 非空且 upsert 不刷新；end 缺 start 保持 partial，不编造时间。相同窗口只补已知字段。
 
@@ -50,15 +53,15 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 
 | 字段 | 函数、变量与固定 scope |
 | --- | --- |
-| table_count / total_rows / max_table_rows | `application/preview_jobs.py::_bound_from_materialization` 收到 `SnapshotMaterializationResult.snapshot.tables` 的 descriptors，使用 table_name、row_count；取本次当前侧（MODIFIED）的唯一输入 identity，一输入跨 pair 只计一次。History 同理取 `application/history/compare_jobs.py` 当前侧已物化描述符；catalog-only或缺完整描述符则 null。 |
-| sql_bytes | Preview `BoundSnapshotInput.source` 对应 staged SQL SourceDocumentRef.size_bytes（`source_package_staging/_archive.py::_single_sql_member` 已记录）；按当前侧唯一输入 identity 计一次，不算压缩包大小。History/仅 repository ref 输入无 SQL 来源则 null。 |
+| table_count / total_rows / max_table_rows | `application/preview_jobs.py::_bound_from_materialization` 收到 `SnapshotMaterializationResult.summary.tables` 的 descriptors，使用 table_name、row_count；取本次当前侧（MODIFIED）的唯一输入 identity，一输入跨 pair 只计一次。History 同理取 `application/history/compare_jobs.py` 当前侧已物化描述符；catalog-only或缺完整描述符则 null。 |
+| sql_bytes | Preview `_materialize_uploaded_side` 的 `staged.required_sql_document_ref.size_bytes` / 已有 `sql_bytes` 长度（`source_package_staging/_archive.py::_single_sql_member` 已记录）；按当前侧唯一输入 identity 计一次，不算压缩包大小。History/仅 repository ref 输入无 SQL 来源则 null。 |
 | changed_tables / changed_rows | `application/pair_pipeline.py` 的 pair完成路径 已有 `native_comparison.result` 中 ComparisonTableFact 的 row_added_count/row_deleted_count/row_modified_count 及 table变化事实；按已有pair/table保留计数，changed_rows为上述三类之和。只有完整比较事实才给总量；dataset replacement 无对应变化事实为 null。 |
 | ordered_table_rows | 同 pair 的 `ComparisonTableFact.ordered_extension` 对应 ORDERED 行数，使用当前侧已知 row_count；按当前输入/table identity 去重，不把多个pair的相同当前表相加；无法完整判断则 null。 |
 | parse | Preview `preview_jobs.py::_materialize_uploaded_side` 的 `parse_arrow_sql`/`parse_xml` 调用边界；每次已执行调用 perf_counter 差累加；不包括 checkpoint restore，未解析为 null。 |
 | materialize | `materialize_business_snapshot` / `materialize_canonical_snapshot` / `materialize_repository_ref` 调用边界；同窗口已执行调用累加，不含 parse；含 canonical cache 验证/恢复成本。 |
 | compare / risk / export | `pair_pipeline.py` 已有 comparison_elapsed / risk_seconds / export_seconds，秒转毫秒；分别为 compare_plan_native、风险评估和 `_table_exports` 调用边界。不同pair累加；export可嵌套在surface内，不把这些阶段相加冒充总执行时长。 |
 | bundle | Preview `preview_jobs.py::_assemble_preview` 中已有 bundle_started 到 assemble_comparison_bundle 返回；History 相同 bundle builder 边界；仅发生时记录。 |
-| rs_import | `submit_jobs.py` 已有 repository client submit_versioned_import/get_operation 调用边界的客户端端到端时间（含网络/等待），只累计本窗口实际调用；健康handoff未执行的等待不伪造，绝非 Dolt 内部耗时。 |
+| rs_import | `submit_jobs.py` 已有 repository client submit_versioned_import/wait_operation 调用边界的客户端端到端时间（含网络/等待），只累计本窗口实际调用；健康handoff未执行的等待不伪造，绝非 Dolt 内部耗时。 |
 | finalize | `application/submission/finalize.py::finalize_submit` 及调用的既有 finalize 事务边界，单调计时；仅本窗口实际执行，未执行为 null。 |
 | canonical lookups/hits | `snapshot_materialization/artifact.py::publish_canonical_tables` 现有 lookup 分支：每 key 查找一次，完成验证并实际复用 cached ref 才计 hit；不能把 restore 尝试当 hit。 |
 | comparison lookups/hits | `capabilities/comparison/production.py::_compare_plan_native_once` 对每 task 的 persistent/session lookup 分支；使用同一个逐task分母，实际 `cached` 复用分支 `metrics.cache_hits` 为命中。现有 persistent_cache_lookups/cache_restores 是辅助事实，不能拿它们与混合命中构造不同scope比率。 |
@@ -73,7 +76,7 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 ## 占用候选的封闭来源
 
 只按 enabled provisioned_scope_mappings 的 repository 分页读取，短事务后 stat，单轮有限去重
-(service_owner,artifact_id)，上限10000；无可靠归属进公共/unknown。C 不递归探索任意业务 JSON。
+(service_owner,artifact_id)，上限10000；无可靠归属进public_unknown。C 不递归探索任意业务 JSON。
 
 | 来源 | 结构字段与已有 decoder |
 | --- | --- |
@@ -81,9 +84,9 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 | snapshot_table_export_cache | artifact_id/media_type/size_bytes/raw_sha256 + repository_id；`sqlite_snapshot_export_cache.py` 既有cache行构造 ArtifactRef。 |
 | computation_cache_entries | manifest_artifact_id/media_type/size_bytes/raw_sha256 及 member_refs_json；`computation_cache.py::_entry_from_row` / `_parse_entry_row` 复用固定格式 decode；不打开manifest内容。 |
 | UploadRevision | source_artifacts；`sqlite_workspace.py::upload_revision_from_row` / `_decode_source_artifacts` 得到 SourceArtifactBinding，使用其现有 ref。 |
-| PreviewResult | bundle_artifact_id、ready_closure_artifact_id、canonical.canonical_table_set_closure_ref、canonical.canonicalization_manifest_ref 和 identity_pairs 的明确ref字段；`sqlite_workspace.py::preview_result_from_row` 的固定binding格式和 `_preview_artifact_ref_from_document`；只取decoder明确提供ref，不读bundle。 |
+| PreviewResult | bundle_artifact_id、ready_closure_artifact_id、canonical.canonical_table_set_closure_ref、canonical.canonicalization_manifest_ref 和 identity_pairs[].assessment_ref；`sqlite_workspace.py::preview_result_from_row` 的固定binding格式和 `_preview_artifact_ref_from_document`；只取decoder明确提供ref，不读bundle。 |
 | SubmitAttempt/Submission | source_artifact_refs、canonicalization_manifest_ref、prepared_canonicalization_manifest_ref；`sqlite_submission.py::submit_attempt_from_row/submission_from_row` 固定decoder；仅ID时由artifact store owning stat取得尺寸，不用业务字段猜大小。SubmitAttempt.repository_import_artifact_ref为BE对象；repository_artifact_ref为RS对象，不在BE重复计。 |
-| Operation | artifact_refs；`sqlite_operations.py` 既有 operation decoder；由 business_refs 对应 owning业务记录取得简单repository关联，无法便宜关联则公共，不递归读取payload/checkpoint。 |
+| Operation | artifact_refs；`sqlite_operations.py::operation_record_from_row`；由 business_refs 对应 owning业务记录取得简单repository关联，无法便宜关联则公共，不递归读取payload/checkpoint。 |
 | Head | baseline_head_records 仅指 baseline_node_id，不直接持有对象ref；不为统计追踪无限祖先/历史bundle，该源不新增字节，当前已有对象由上述固定来源覆盖。 |
 
 所有候选必须通过 LocalArtifactStore.observe_object 当前可见stat后才计 measured bytes；旧ref不存在记 stale，不能按ref.size永久累加。

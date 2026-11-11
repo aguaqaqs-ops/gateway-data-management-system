@@ -38,3 +38,15 @@ def test_feed_rejects_invalid_version_order_bounds_and_unknown_fields(payload: d
     base: dict[str, object] = dict(instance_id="process", oldest_sequence=1, next_sequence=2, dropped_count=0)
     with pytest.raises(ValidationError):
         StatisticsFeedResponse.model_validate({**base, **payload})
+
+
+@pytest.mark.parametrize("payload", [
+    {"category": "public"}, {"category": "filesystem"},
+    {"category": "filesystem", "filesystem_id": "disk", "logical_bytes": 1},
+    {"category": "repository", "total_bytes": 1},
+])
+def test_storage_categories_preserve_capacity_scope(payload: dict[str, object]) -> None:
+    from gateway_repository_contracts.statistics import StorageValues
+
+    with pytest.raises(ValidationError):
+        StorageValues.model_validate({"window_end_us": 1, **payload})

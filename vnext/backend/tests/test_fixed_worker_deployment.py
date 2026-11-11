@@ -7,6 +7,7 @@ from pathlib import Path
 import runpy
 import sys
 import subprocess
+import time
 from typing import Any
 
 import pytest
@@ -75,7 +76,7 @@ def test_worker_readiness_requires_current_generation_logs_and_running_fixed_ins
         # The first poll has only old-generation ready logs (excluded by --since).
         return subprocess.CompletedProcess(args, 0, stdout="" if count == 1 else "code=worker_ready", stderr="")
     monkeypatch.setattr(harness, "run_compose", logs)
-    monkeypatch.setattr(harness.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
     monkeypatch.setattr(harness, "check_fixed_worker_deployment", lambda env: verified.append("running-fixed-identity"))
     monkeypatch.setattr(harness, "assert_running_backend_worker_images_match_build", lambda env: verified.append("image"))
     harness.worker_ready({})

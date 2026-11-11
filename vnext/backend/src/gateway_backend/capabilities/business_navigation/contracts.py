@@ -13,7 +13,7 @@ from typing import Any, TypeAlias
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonTableFact, SchemaEvolution, TableComparisonTask,
+    ComparisonTableFact, KeylessPolicy, SchemaEvolution, TableComparisonTask,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 
@@ -154,8 +154,12 @@ def identity_excluded_sides(
     valid = column in frame and column not in incompatible and column not in excluded
     valid = valid and policy.comparison_role == "STANDARD"
     if keyed:
-        valid = valid and bool(changes.effective_compare_key_before) and (
-            changes.effective_compare_key_before == changes.effective_compare_key_current)
+        key = changes.effective_compare_key_before
+        valid = (valid and bool(key) and key == changes.effective_compare_key_current
+                 and len(set(key)) == len(key) and set(key) <= selected
+                 and not (set(key) & (excluded | incompatible)))
+    else:
+        valid = valid and policy.keyless_policy is KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF
     if valid:
         return frozenset()
     return frozenset(side for side, descriptor in (

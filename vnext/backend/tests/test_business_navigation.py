@@ -301,14 +301,14 @@ def test_actual_keyed_and_keyless_native_identity_frame(
     from gateway_backend.capabilities.business_navigation import identity_excluded_sides
     from gateway_backend.capabilities.comparison.contracts import (
         ArtifactScope, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
-        SchemaEvolution, TableComparisonTask, _ComparisonTablePolicy,
+        KeylessPolicy, SchemaEvolution, TableComparisonTask, _ComparisonTablePolicy,
     )
     from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotColumnDescriptor
     from tests.support.storage_projection import table_descriptor
 
     descriptor = table_descriptor("device_st", (SnapshotColumnDescriptor("dev_addr", "dev_addr", False, "INT"), SnapshotColumnDescriptor("id", "id", False, "INT")), primary_key_columns=("id",) if keyed else (), row_count=0)
     key = ("id",) if keyed else ()
-    policy = _ComparisonTablePolicy("device_st", compare_excluded_columns=excluded, effective_key_before=key, effective_key_current=key)
+    policy = _ComparisonTablePolicy("device_st", compare_excluded_columns=excluded, effective_key_before=key, effective_key_current=key, keyless_policy=KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF)
     task = TableComparisonTask("device_st", descriptor, descriptor, None, None, ArtifactScope.ALL_CHANGES, policy)
     fact = ComparisonTableFact("device_st", ComparisonTableStatus.UNCHANGED, descriptor, descriptor, schema_changes=ComparisonSchemaChanges(selected_columns=("dev_addr", "id"), effective_compare_key_before=key, effective_compare_key_current=key, incompatible_columns=incompatible, schema_evolution=SchemaEvolution(evolution)))
     assert identity_excluded_sides(task, fact, "dev_addr") == (frozenset() if eligible else frozenset({"BEFORE", "CURRENT"}))

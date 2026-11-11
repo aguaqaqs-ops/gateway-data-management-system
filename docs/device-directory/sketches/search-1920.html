@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设备目录 · 跨地区搜索 · 1920</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#F3F5F7}
+.page{display:flex;flex-direction:column;background:#F3F5F7;color:#1B2229;overflow:hidden;
+  font-family:'IBM Plex Sans','PingFang SC','Noto Sans SC','Noto Sans CJK SC','Microsoft YaHei',sans-serif;font-size:13px}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px}
+.muted{color:#5F6B78}
+header.top{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:14px;padding:0 20px;background:#FFFFFF;border-bottom:1px solid #EEF1F4}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.brand-mark{width:22px;height:22px;border-radius:5px;background:#1F5FBF;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:600}
+.tag{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:4px;background:#F1F3F5;color:#4A5563;font-size:12px;font-weight:500}
+.tag--info{background:#E0F2FE;color:#0B5A8A}
+.vsep{width:1px;height:18px;background:#DDE2E7}
+.spacer{flex:1}
+.ghost-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid #DDE2E7;border-radius:6px;background:#FFFFFF;color:#1B2229;font:inherit}
+.searchbar{height:64px;flex:0 0 64px;display:flex;align-items:center;gap:16px;padding:0 20px;background:#FFFFFF;border-bottom:1px solid #DDE2E7}
+.search{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border:1px solid #C9D0D8;border-radius:8px;background:#FFFFFF;color:#5F6B78}
+.search--active{border-color:#1F5FBF;box-shadow:0 0 0 3px rgba(31,95,191,.16);color:#1B2229}
+.search input{border:0;outline:0;font:inherit;font-size:14px;flex:1;background:transparent;color:inherit}
+.kbd{display:inline-flex;align-items:center;height:20px;padding:0 6px;border:1px solid #DDE2E7;border-radius:4px;background:#F7F9FB;color:#5F6B78;font-size:11px}
+.seg{display:inline-flex;padding:3px;gap:2px;border-radius:8px;background:#F1F3F5}
+.seg button{height:30px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:#4A5563;font:inherit}
+.seg button[aria-checked=true]{background:#FFFFFF;color:#1B2229;font-weight:600;box-shadow:0 1px 2px rgba(27,34,41,.12)}
+.recent{display:flex;align-items:center;gap:8px;min-width:0}
+.chip{text-decoration:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:#F1F3F5;color:#1B2229;white-space:nowrap}
+.chip .muted{font-size:12px}
+.body{flex:1;display:flex;min-height:0}
+nav.tree{flex:0 0 auto;background:#FFFFFF;border-right:1px solid #DDE2E7;display:flex;flex-direction:column;min-height:0}
+.tree-head{padding:12px 12px 8px}
+.tree-filter{display:flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid #DDE2E7;border-radius:6px;color:#A3ACB6}
+.tree-list{flex:1;overflow:hidden;padding:0 8px 8px}
+.node{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:#1B2229;white-space:nowrap}
+.node .count{margin-left:auto;color:#5F6B78;font-size:12px;font-variant-numeric:tabular-nums}
+.node .caret{width:14px;color:#5F6B78;display:inline-flex}
+.node--l2{padding-left:30px}
+.node--root{font-weight:600}
+.node--sel{background:#E8F0FB;color:#174A96;font-weight:600;box-shadow:inset 3px 0 0 #1F5FBF}
+.node--sel .count{color:#174A96}
+.node--dim{color:#A3ACB6}
+.node--dim .count{color:#A3ACB6}
+.node--open{font-weight:600}
+main.content{flex:1;min-width:0;padding:20px;display:flex;flex-direction:column}
+.card{flex:1;min-height:0;background:#FFFFFF;border:1px solid #DDE2E7;border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.card-head{display:flex;align-items:center;gap:12px;height:56px;flex:0 0 56px;padding:0 16px;border-bottom:1px solid #EEF1F4}
+.crumb{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600}
+.crumb .sep{color:#A3ACB6;font-weight:400}
+.crumb .parent{color:#5F6B78;font-weight:500}
+.local-filter{display:flex;align-items:center;gap:6px;height:30px;width:240px;padding:0 10px;border:1px solid #DDE2E7;border-radius:6px;color:#A3ACB6}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th{height:36px;padding:0 16px;text-align:left;font-weight:500;color:#5F6B78;font-size:12px;background:#F7F9FB;border-bottom:1px solid #DDE2E7}
+tbody td{height:36px;padding:0 16px;border-bottom:1px solid #EEF1F4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tbody tr.hover td{background:#F7F9FB}
+tbody tr.focus td{background:#E8F0FB}
+tbody tr.focus td:first-child{box-shadow:inset 3px 0 0 #1F5FBF}
+.name{font-weight:500}
+.dup{display:inline-flex;align-items:center;height:18px;margin-left:8px;padding:0 6px;border-radius:4px;background:#FFE4C7;box-shadow:inset 0 0 0 1px #F5C796;color:#9A3412;font-size:11px;font-weight:500;vertical-align:1px}
+.enter{display:inline-flex;align-items:center;gap:2px;color:#A3ACB6}
+tr.hover .enter,tr.focus .enter{color:#1F5FBF;font-weight:500}
+.enter--off{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:4px;background:#F1F3F5;color:#5F6B78;font-size:12px}
+mark{background:#FFF1B8;color:inherit;border-radius:2px;padding:0 1px}
+.table-wrap{flex:1;min-height:0;overflow:hidden}
+.card-foot{height:48px;flex:0 0 48px;display:flex;align-items:center;gap:12px;padding:0 16px;border-top:1px solid #EEF1F4;color:#5F6B78;font-size:12px}
+.pager{display:inline-flex;gap:4px}
+.pager span{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 6px;border-radius:6px;border:1px solid #DDE2E7;color:#4A5563;background:#fff}
+.pager span.cur{background:#1F5FBF;border-color:#1F5FBF;color:#fff;font-weight:600}
+.hint{display:inline-flex;align-items:center;gap:6px}
+.notice{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:8px 12px;border-radius:6px;background:#E0F2FE;box-shadow:inset 0 0 0 1px #B5DDF6;color:#0B5A8A;font-size:12px}
+</style>
+</head>
+<body>
+<!-- 设计草图（设备目录）：独立的目录系统，选中项目后跳转到网关系统的数据提交树。仅作视觉与交互参考，不是实现代码；数据为示例。 -->
+<div class="page" style="width:1920px;height:1080px">
+  <header class="top">
+    <div class="brand"><span class="brand-mark">网</span>网关设备目录</div>
+    <span class="tag tag--info">试运行</span>
+    <span class="vsep"></span><span class="muted">目录导入 2026-11-10 · 8 个地区一 · 196 个地区二 · 18,426 个项目</span>
+    <span class="spacer"></span>
+    <span class="muted">进入身份</span>
+    <button type="button" class="ghost-btn" aria-haspopup="listbox" title="跳转到网关系统时使用的测试身份"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"></path></svg>test1 · 全部权限<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+  </header>
+  <div class="searchbar">
+    <label class="search search--active" style="width:560px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input value="cn"><span class="muted" style="font-size:12px">9 个结果</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></label>
+    <div class="seg" role="radiogroup" aria-label="搜索范围">
+      <button type="button" role="radio" aria-checked="true">全部地区</button>
+      <button type="button" role="radio" aria-checked="false">仅 江苏 / 苏州</button>
+    </div>
+    <span class="spacer"></span>
+    <div class="recent"><span class="muted hint"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>最近访问</span><a class="chip" href="#">城南 110kV 变电站<span class="muted">苏州</span></a><a class="chip" href="#">虎丘 220kV 变电站<span class="muted">苏州</span></a><a class="chip" href="#">长宁 220kV 变电站<span class="muted">宁波</span></a><a class="chip" href="#">川南 110kV 变电站<span class="muted">宜昌</span></a></div>
+  </div>
+  <div class="body">
+    <nav class="tree" aria-label="地区" style="width:280px">
+      <div class="tree-head"><div class="muted" style="font-size:12px">按地区筛选结果</div></div>
+      <div class="tree-list">
+        <div class="node node--root"><span class="caret"></span>全部匹配<span class="count">9</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>安徽<span class="count">1</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>福建<span class="count">1</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>河南<span class="count">1</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>湖北<span class="count">1</span></div><div class="node node--open"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></span>江苏<span class="count">3</span></div><div class="node node--l2">苏州<span class="count">2</span></div><div class="node node--l2">无锡<span class="count">1</span></div><div class="node node--dim"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>江西<span class="count">0</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>山东<span class="count">1</span></div><div class="node"><span class="caret"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span>浙江<span class="count">1</span></div>
+      </div>
+    </nav>
+    <main class="content">
+      <div class="notice">按拼音首字母“cn”匹配；结果跨全部地区，按名称排序。左侧数字为各地区的匹配数，点击可只看该地区。</div>
+      <section class="card" aria-label="搜索结果">
+        <div class="card-head">
+          <div class="crumb">搜索结果</div>
+          <span class="muted">“cn” 匹配 9 个项目</span>
+          <span class="spacer"></span>
+          <span class="muted" style="font-size:12px">按名称排序</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <colgroup><col><col style="width:220px"><col style="width:160px"><col style="width:220px"><col style="width:150px"></colgroup>
+            <thead><tr><th>项目名</th><th>地区</th><th>站号</th><th>设备标识</th><th></th></tr></thead>
+            <tbody><tr><td><span class="name"><mark>长宁</mark> 220kV 变电站</span></td><td class="muted">浙江 / 宁波</td><td class="mono">NB-0018</td><td class="mono muted">dev-92372cccbc500f7e</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr class="focus"><td><span class="name"><mark>城南</mark> 110kV 变电站</span><span class="dup" title="苏州下有 2 个同名项目，按站号区分">同名</span></td><td class="muted">江苏 / 苏州</td><td class="mono">SZ-0142</td><td class="mono muted">dev-fbe8accb4da11574</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>城南</mark> 110kV 变电站</span><span class="dup" title="苏州下有 2 个同名项目，按站号区分">同名</span></td><td class="muted">江苏 / 苏州</td><td class="mono">SZ-0388</td><td class="mono muted">dev-4fe636c51fca8dfd</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>城南</mark> 35kV 开关站</span></td><td class="muted">江苏 / 无锡</td><td class="mono">WX-0207</td><td class="mono muted">dev-0a5e7c9870eaba0b</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>城南</mark>中心 220kV 变电站</span></td><td class="muted">河南 / 洛阳</td><td class="mono">LY-0039</td><td class="mono muted">dev-4db3abcea3a7518b</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>城宁</mark> 110kV 变电站</span></td><td class="muted">安徽 / 芜湖</td><td class="mono">WH-0093</td><td class="mono muted">dev-8c716443c4eeed9c</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>川南</mark> 110kV 变电站</span></td><td class="muted">湖北 / 宜昌</td><td class="mono">YC-0164</td><td class="mono muted">dev-799cd713f932901c</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>春宁</mark> 35kV 开关站</span></td><td class="muted">福建 / 三明</td><td class="mono">SM-0331</td><td class="mono muted">dev-dd60086aaa11bc05</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr><tr><td><span class="name"><mark>翠南</mark> 110kV 变电站</span></td><td class="muted">山东 / 济南</td><td class="mono">JN-0275</td><td class="mono muted">dev-ad947e42f3e4738f</td><td><span class="enter">进入提交树<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></span></td></tr></tbody>
+          </table>
+        </div>
+        <div class="card-foot">
+          <span>共 9 项</span>
+          <span class="spacer"></span>
+          <span class="hint"><span class="kbd">Esc</span>清除搜索，回到 江苏 / 苏州</span>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</body>
+</html>

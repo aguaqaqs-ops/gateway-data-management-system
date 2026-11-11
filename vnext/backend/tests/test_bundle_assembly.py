@@ -593,7 +593,7 @@ def test_cancelled_input_and_context_never_publish_bundle() -> None:
 
 
 def test_manifest_and_closure_caps_fail_before_publication() -> None:
-    destination = seed_navigation(InMemoryArtifactStore())
+    destination = InMemoryArtifactStore()
     result = assemble_bundle(
         _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
         source_store=seed_navigation(InMemoryArtifactStore()),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+import threading
+from typing import Any
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -71,8 +73,10 @@ def integration_env(tmp_path: Path) -> Iterator[tuple[ImportWorkerPool, ImportOp
 
 @pytest.mark.integration
 @pytest.mark.serial
+@pytest.mark.parametrize("read_busy", (False, True))
 def test_dolt_worker_happy_path(
     integration_env: tuple[ImportWorkerPool, ImportOperationStore, DurableLayout, CandidateAImportProvider],
+    read_busy: bool, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pool, store, layout, provider = integration_env
     expected_commit = provider.read_ref("main")
@@ -139,15 +143,53 @@ def test_dolt_worker_happy_path(
         verification_policy=VerificationPolicy.STRUCTURAL,
         unknown_type_policy=UnknownTypePolicy.REJECT,
     )
-    key_hash = IdempotencyKeyHash.from_raw_key("integration-happy-path")
-    fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
-    store.claim_or_enqueue(
-        binding,
-        key_hash=key_hash,
-        fingerprint=fingerprint,
-        operation_id=OPERATION_ID,
-    )
-    pool.notify()
+    read_release, read_entered, skipped_claim = threading.Event(), threading.Event(), threading.Event()
+    read_values: list[str] = []
+    read_thread: threading.Thread | None = None
+    if read_busy:
+        from gateway_repository_service.versioned_read.provider import CandidateAReadProvider
+        reader = CandidateAReadProvider(provider._settings, layout, provider._repository, provider._runner,
+            locks=pool._locks, repository_id=REPOSITORY_ID)
+        pool._locks.set_release_notify(pool.notify)
+        collect = provider._runner._collect
+        def held_collect(*args: Any, **kwargs: Any) -> Any:
+            if not read_entered.is_set():
+                read_entered.set()
+                assert read_release.wait(10)
+            return collect(*args, **kwargs)
+        monkeypatch.setattr(provider._runner, '_collect', held_collect)
+        try_claim = pool._try_claim_one
+        def observe_claim() -> tuple[UUID, UUID] | None:
+            result = try_claim()
+            operation = store.get_operation(REPOSITORY_ID, OPERATION_ID)
+            if result is None and operation is not None and operation.status is OperationStatus.QUEUED:
+                skipped_claim.set()
+            return result
+        monkeypatch.setattr(pool, '_try_claim_one', observe_claim)
+        read_thread = threading.Thread(target=lambda: read_values.append(reader.read_ref('main')))
+        read_thread.start()
+    try:
+        if read_busy:
+            assert read_entered.wait(10)
+        key_hash = IdempotencyKeyHash.from_raw_key("integration-happy-path")
+        fingerprint = versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash)
+        store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=fingerprint,
+            operation_id=OPERATION_ID,
+        )
+        pool.notify()
+
+        if read_busy:
+            assert skipped_claim.wait(10)
+            operation = store.get_operation(REPOSITORY_ID, OPERATION_ID)
+            assert operation is not None and operation.status is OperationStatus.QUEUED
+    finally:
+        read_release.set()
+        if read_thread is not None:
+            read_thread.join(10)
+            assert not read_thread.is_alive() and read_values == [expected_commit]
 
     deadline = time.monotonic() + 60.0
     while time.monotonic() < deadline:

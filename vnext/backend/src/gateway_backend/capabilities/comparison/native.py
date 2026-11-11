@@ -25,6 +25,7 @@ from gateway_compute._native import (
 from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
 
 from gateway_backend.capabilities.comparison.contracts import (
+    standard_identity_is_keyless,
     BlankExtension, BlankSummary, ComparisonTableFact, ComparisonTableStatus,
     OrderedExtension, OrderedStatus, OrderedSummary, OrderedTableProcessingMode,
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
@@ -294,9 +295,8 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     diagnostics = tuple(_schema_diagnostics(schema, policy))
     count = data["record_count"]
     changed_rows = bool(data["row_added_count"] or data["row_deleted_count"])
-    is_keyless = not schema.before_key or (
-        policy.allow_keyless_key_transition and not schema.current_key
-    )
+    is_keyless = standard_identity_is_keyless(schema.before_key, schema.current_key,
+        policy.allow_keyless_key_transition)
     status = (ComparisonTableStatus.SCHEMA_CHANGED if diagnostics else
         ComparisonTableStatus.MODIFIED if (count or (is_keyless and changed_rows))
         else ComparisonTableStatus.UNCHANGED)

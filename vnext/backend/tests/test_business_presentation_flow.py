@@ -109,7 +109,8 @@ def test_physical_filter_column_absence_does_not_become_rule_exclusion(missing_s
     assert any(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE" for d in diagnostics)
 
 
-def test_keyless_added_identity_column_uses_one_whole_table_under_final_reordering() -> None:
+@pytest.mark.parametrize("source_key_transition", (False, True))
+def test_keyless_added_identity_column_uses_one_whole_table_under_final_reordering(source_key_transition: bool) -> None:
     from dataclasses import replace
     from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
     from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
@@ -123,7 +124,8 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
         return replace(bound, storage_facts=tuple(replace(fact, storage_rule_view=replace(fact.storage_rule_view,
             canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS))
             if fact.storage_rule_view.canonical_table == "device_cfg" else fact for fact in bound.storage_facts))
-    before = source(device + "CREATE TABLE device_cfg(id BIGINT,note TEXT); INSERT INTO device_cfg VALUES(1,'same');")
+    before_ddl = "CREATE TABLE device_cfg(id BIGINT" + (" PRIMARY KEY" if source_key_transition else "") + ",note TEXT);"
+    before = source(device + before_ddl + " INSERT INTO device_cfg VALUES(1,'same');")
     current = source(device + "CREATE TABLE device_cfg(id BIGINT,gid BIGINT,note TEXT); INSERT INTO device_cfg VALUES(1,7,'same'),(1,8,'same');")
     store = InMemoryArtifactStore()
     exports = {bound.snapshot.snapshot_id: {table.descriptor.table_name: export_snapshot_table_parquet(table,

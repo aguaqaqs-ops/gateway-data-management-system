@@ -58,6 +58,13 @@ class KeylessPolicy(StrEnum):
     FULL_ROW_DIGEST_SET_DIFF = "FULL_ROW_DIGEST_SET_DIFF"
 
 
+def standard_identity_is_keyless(
+    before_key: tuple[str, ...], current_key: tuple[str, ...], allow_keyless_key_transition: bool,
+) -> bool:
+    """The STANDARD native policy's single mode decision, including source key transitions."""
+    return not before_key or (allow_keyless_key_transition and not current_key)
+
+
 class ComparisonRecordKind(StrEnum):
     ROW_ADDED = "ROW_ADDED"
     ROW_DELETED = "ROW_DELETED"

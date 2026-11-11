@@ -23,6 +23,7 @@ from gateway_backend.capabilities.comparison.persistence import (
     decode_persistent_comparison, encode_persistent_comparison,
 )
 from gateway_backend.capabilities.comparison.contracts import (
+    standard_identity_is_keyless,
     BlankExtension, BlankSummary, ComparisonFacts, ComparisonMode,
     ComparisonPlan, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
     ComparisonRecord, ComparisonRecordKind, DetailedFactsResult, DatasetReplacementResult,
@@ -919,9 +920,8 @@ def _compare_task_native(
         return _compare_task_metadata(task), None
     if schema.key_invalid or schema.key_changed or not schema.selected:
         return _compare_task_metadata(task), None
-    is_keyless = not schema.before_key or (
-        policy.allow_keyless_key_transition and not schema.current_key
-    )
+    is_keyless = standard_identity_is_keyless(schema.before_key, schema.current_key,
+        policy.allow_keyless_key_transition)
     if is_keyless and policy.keyless_policy is KeylessPolicy.DEGRADE_NO_COMPARE_KEY:
         _scan_keyless_degrade_inputs(task, session, metrics)
         diagnostics = tuple(_schema_diagnostics(schema, policy)) + ("DEGRADE_NO_COMPARE_KEY",)

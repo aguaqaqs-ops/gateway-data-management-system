@@ -14,6 +14,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact, KeylessPolicy, SchemaEvolution, TableComparisonTask,
+    standard_identity_is_keyless,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 
@@ -172,7 +173,8 @@ def identity_excluded_sides(
     selected = set(changes.selected_columns)
     excluded = set(policy.compare_excluded_columns)
     incompatible = set(changes.incompatible_columns)
-    keyed = bool(changes.effective_compare_key_before or changes.effective_compare_key_current)
+    keyed = not standard_identity_is_keyless(changes.effective_compare_key_before,
+        changes.effective_compare_key_current, policy.allow_keyless_key_transition)
     # A keyed row has an independent stable key even when the filter column
     # physically exists on only one side: retain COUNT_UNKNOWN/fallback there.
     # Keyless copies are only equivalent under the actual whole-row frame;

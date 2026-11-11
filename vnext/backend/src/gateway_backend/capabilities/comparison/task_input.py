@@ -14,6 +14,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
+    standard_identity_is_keyless,
     ArtifactScope, ComparisonMode, ComparisonPlan, RecordsDetailPolicy,
     SchemaEvolution, TableComparisonTask, COMPARISON_CONTRACT_VERSION,
     RECORDS_ARTIFACT_CONTRACT_VERSION, RECORDS_CLOSURE_CONTRACT_VERSION,
@@ -133,8 +134,8 @@ def standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]
         "incompatible_columns": list(schema.incompatible),
         "emit_add_delete": task.artifact_scope is ArtifactScope.ALL_CHANGES,
         "columns_added": _is_columns_added(schema),
-        "mode": ("keyless" if not schema.before_key or
-                 (policy.allow_keyless_key_transition and not schema.current_key) else "keyed"),
+        "mode": ("keyless" if standard_identity_is_keyless(schema.before_key, schema.current_key,
+                 policy.allow_keyless_key_transition) else "keyed"),
         "schema_diagnostics": _schema_diagnostics(schema, policy),
     }
 

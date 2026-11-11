@@ -159,6 +159,7 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
         assert not any(d["code"] in {"DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_ROWS_UNASSIGNED"} for d in diagnostics)
         table = next(table for table in surface.tables if table.table_name == "device_cfg")
         if source_key_transition:
+            print("KEYLESS_KEY_TRANSITION", table.table_status, table.diagnostics.diagnostics_summary)
             # A source key transition is an incompatible schema change, so its
             # table-level record does not publish a row locator.
             assert table.table_status.value == "SCHEMA_CHANGED"

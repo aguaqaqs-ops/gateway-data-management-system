@@ -462,9 +462,15 @@ fn occurrence_digest(digest: &str, occurrence: usize) -> Result<String, OrderedC
 
 /// Exact identity projection shared by comparison and final-file location.
 fn keyless_identity_columns(
-    selected: &[String], excluded: &[String], columns_added: bool,
+    selected: &[String],
+    excluded: &[String],
+    columns_added: bool,
 ) -> Vec<String> {
-    selected.iter().filter(|name| !columns_added || !excluded.contains(name)).cloned().collect()
+    selected
+        .iter()
+        .filter(|name| !columns_added || !excluded.contains(name))
+        .cloned()
+        .collect()
 }
 
 /// A single table/side scan. Occurrence state spans batch and row-group boundaries,
@@ -485,44 +491,90 @@ pub struct StandardIdentityBatch {
 }
 
 impl StandardIdentityScanner {
-    pub fn new(options: &StandardOptions, context: &Arc<KernelContext>) -> Result<Self, OrderedCompareError> {
-        let size = options.selected_columns.iter().chain(&options.effective_key_before)
-            .chain(&options.effective_key_current).chain(&options.compare_excluded_columns)
-            .try_fold(4096usize, |sum, name| sum.checked_add(name.len().saturating_mul(8).saturating_add(128)))
+    pub fn new(
+        options: &StandardOptions,
+        context: &Arc<KernelContext>,
+    ) -> Result<Self, OrderedCompareError> {
+        let size = options
+            .selected_columns
+            .iter()
+            .chain(&options.effective_key_before)
+            .chain(&options.effective_key_current)
+            .chain(&options.compare_excluded_columns)
+            .try_fold(4096usize, |sum, name| {
+                sum.checked_add(name.len().saturating_mul(8).saturating_add(128))
+            })
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let lease = context.reserve(size)?;
         let selected = canonical_columns(&options.selected_columns)?;
         let excluded = canonical_columns(&options.compare_excluded_columns)?;
         let before = canonical_columns(&options.effective_key_before)?;
         let current = canonical_columns(&options.effective_key_current)?;
-        if selected.len() > MAX_COLUMNS || (options.mode == StandardMode::Keyed
-            && (before.is_empty() || before != current || before.iter().any(|name| !selected.contains(name)))) {
+        if selected.len() > MAX_COLUMNS
+            || (options.mode == StandardMode::Keyed
+                && (before.is_empty()
+                    || before != current
+                    || before.iter().any(|name| !selected.contains(name))))
+        {
             return Err(OrderedCompareError::new("COMPARISON_POLICY_INVALID"));
         }
         let columns = match options.mode {
             StandardMode::Keyed => before,
-            StandardMode::Keyless => keyless_identity_columns(&selected, &excluded, options.columns_added),
+            StandardMode::Keyless => {
+                keyless_identity_columns(&selected, &excluded, options.columns_added)
+            }
         };
-        Ok(Self { columns, mode: options.mode, counts: BTreeMap::new(), context: Arc::clone(context), lease })
+        Ok(Self {
+            columns,
+            mode: options.mode,
+            counts: BTreeMap::new(),
+            context: Arc::clone(context),
+            lease,
+        })
     }
 
     /// The input owner admits the decoded Arrow batch separately. This admission
     /// covers encoded cells, whole-row order keys, identities and their Python
     /// boundary copies until the next scan releases this returned batch.
-    pub fn scan(&mut self, side: CanonicalBatchSide<'_>) -> Result<StandardIdentityBatch, OrderedCompareError> {
+    pub fn scan(
+        &mut self,
+        side: CanonicalBatchSide<'_>,
+    ) -> Result<StandardIdentityBatch, OrderedCompareError> {
         self.context.check()?;
-        let input_bytes = side.batches.iter().flat_map(RecordBatch::columns)
-            .try_fold(0usize, |sum, array| sum.checked_add(array.to_data().get_slice_memory_size().ok()?))
+        let input_bytes = side
+            .batches
+            .iter()
+            .flat_map(RecordBatch::columns)
+            .try_fold(0usize, |sum, array| {
+                sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
+            })
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let row_count = side.batches.iter().try_fold(0usize, |sum, batch| sum.checked_add(batch.num_rows()))
+        let row_count = side
+            .batches
+            .iter()
+            .try_fold(0usize, |sum, batch| sum.checked_add(batch.num_rows()))
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let size = side.schema.fields().len().checked_mul(160).and_then(|n| n.checked_add(1024))
-            .and_then(|n| n.checked_mul(row_count)).and_then(|n| n.checked_add(input_bytes.checked_mul(8)?))
-            .and_then(|n| n.checked_add(8192)).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+        let size = side
+            .schema
+            .fields()
+            .len()
+            .checked_mul(160)
+            .and_then(|n| n.checked_add(1024))
+            .and_then(|n| n.checked_mul(row_count))
+            .and_then(|n| n.checked_add(input_bytes.checked_mul(8)?))
+            .and_then(|n| n.checked_add(8192))
+            .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let lease = self.context.reserve(size)?;
         validate_canonical_batches(&side)?;
         validate_projection(&side.schema, &self.columns)?;
-        let all = canonical_columns(&side.schema.fields().iter().map(|f| f.name().clone()).collect::<Vec<_>>())?;
+        let all = canonical_columns(
+            &side
+                .schema
+                .fields()
+                .iter()
+                .map(|f| f.name().clone())
+                .collect::<Vec<_>>(),
+        )?;
         let rows = read_rows(side.batches, &all, &self.context)?;
         let mut identities = Vec::with_capacity(row_count);
         let mut canonical_order_keys = Vec::with_capacity(row_count);
@@ -535,13 +587,21 @@ impl StandardIdentityScanner {
                 }
                 let count = self.counts.entry(digest.clone()).or_default();
                 let result = occurrence_digest(&digest, *count)?;
-                *count = count.checked_add(1).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+                *count = count
+                    .checked_add(1)
+                    .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
                 result
-            } else { digest };
+            } else {
+                digest
+            };
             identities.push(identity);
             canonical_order_keys.push(frame_for(row, &all, &all)?);
         }
-        Ok(StandardIdentityBatch { identities, canonical_order_keys, _lease: lease })
+        Ok(StandardIdentityBatch {
+            identities,
+            canonical_order_keys,
+            _lease: lease,
+        })
     }
 }
 
@@ -898,8 +958,17 @@ mod tests {
                 let context = context();
                 // Keyed comparison rejects duplicate keys; use a single modified
                 // row there, and the third+ keyless copies for multiset identity.
-                let current = if mode == StandardMode::Keyed { batch(&[1, 2], &["same", "new"])? } else { current };
-                let compared = compare(std::slice::from_ref(&before), std::slice::from_ref(&current), &policy, &context)?;
+                let current = if mode == StandardMode::Keyed {
+                    batch(&[1, 2], &["same", "new"])?
+                } else {
+                    current
+                };
+                let compared = compare(
+                    std::slice::from_ref(&before),
+                    std::slice::from_ref(&current),
+                    &policy,
+                    &context,
+                )?;
                 let mut scanner = StandardIdentityScanner::new(&policy, &context)?;
                 let mut scanned = Vec::new();
                 for offset in 0..current.num_rows() {
@@ -908,7 +977,11 @@ mod tests {
                     scanned.extend(output.identities.iter().cloned());
                     assert_eq!(output.canonical_order_keys.len(), 1);
                 }
-                let actual = compared.records.iter().filter_map(|r| r.row_identity.clone()).collect::<BTreeSet<_>>();
+                let actual = compared
+                    .records
+                    .iter()
+                    .filter_map(|r| r.row_identity.clone())
+                    .collect::<BTreeSet<_>>();
                 let expected = scanned.into_iter().skip(1).collect::<BTreeSet<_>>();
                 assert_eq!(actual, expected);
                 drop(scanner);
@@ -930,14 +1003,22 @@ mod tests {
             let batch = batch(&[id], &["same"])?;
             match scanner.scan(CanonicalBatchSide::new(batch.schema(), &[batch])) {
                 Ok(output) => drop(output),
-                Err(error) => { assert_eq!(error.to_string(), "RESOURCE_LIMIT_EXCEEDED"); exhausted = true; break; }
+                Err(error) => {
+                    assert_eq!(error.to_string(), "RESOURCE_LIMIT_EXCEEDED");
+                    exhausted = true;
+                    break;
+                }
             }
         }
         assert!(exhausted);
         cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
         let batch = batch(&[1], &["same"])?;
-        assert!(scanner.scan(CanonicalBatchSide::new(batch.schema(), &[batch])).err()
-            .is_some_and(|e| e.to_string() == "COMPARISON_CANCELLED"));
+        assert!(
+            scanner
+                .scan(CanonicalBatchSide::new(batch.schema(), &[batch]))
+                .err()
+                .is_some_and(|e| e.to_string() == "COMPARISON_CANCELLED")
+        );
         drop(scanner);
         assert_eq!(context.remaining_bytes(), 32 * 1024);
         Ok(())

@@ -13,8 +13,9 @@ mod standard;
 pub use kernel::{CanonicalBatchSide, KernelContext, KernelLease};
 pub use policy::{ParsedComparisonPolicy, parse_comparison_policy};
 pub use standard::{
-    RowLocation, StandardComputation, StandardIdentityBatch, StandardIdentityScanner, StandardKind, StandardMode, StandardOptions,
-    StandardRecordRef, canonical_cell_frame_at, compare_standard_table,
+    RowLocation, StandardComputation, StandardIdentityBatch, StandardIdentityScanner, StandardKind,
+    StandardMode, StandardOptions, StandardRecordRef, canonical_cell_frame_at,
+    compare_standard_table,
 };
 
 pub use ordered::{

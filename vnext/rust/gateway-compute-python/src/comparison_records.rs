@@ -13,9 +13,9 @@ use arrow_array::{
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef};
 use gateway_compute_core::comparison::{
     CanonicalBatchSide, KernelContext, KernelLease, OrderedBatchPair, OrderedKernelResult,
-    ParsedComparisonPolicy, StandardComputation, StandardIdentityBatch, StandardIdentityScanner, StandardKind, StandardRecordRef,
-    compare_ordered_batches, compare_standard_table, parse_comparison_policy,
-    summarize_unchanged_ordered_batches,
+    ParsedComparisonPolicy, StandardComputation, StandardIdentityBatch, StandardIdentityScanner,
+    StandardKind, StandardRecordRef, compare_ordered_batches, compare_standard_table,
+    parse_comparison_policy, summarize_unchanged_ordered_batches,
 };
 use gateway_compute_core::{
     BuiltRecords, CacheMetadata, NeutralFacts, RecordsBatchValidator, TableFactsInput,
@@ -141,29 +141,56 @@ impl RowIdentityScanner {
         self.owner = None;
     }
 
-    fn scan(&mut self, py: Python<'_>, stream: PyRecordBatchReader, max_input_bytes: usize) -> PyResult<(Vec<String>, Vec<Py<PyBytes>>)> {
+    fn scan(
+        &mut self,
+        py: Python<'_>,
+        stream: PyRecordBatchReader,
+        max_input_bytes: usize,
+    ) -> PyResult<(Vec<String>, Vec<Py<PyBytes>>)> {
         self.output = None;
         python_adapter_control(&self.watch, self.deadline)?;
         let mut input_bytes = 0;
-        let (schema, batches) = read_stream(py, stream, &self.context, &mut input_bytes, max_input_bytes)?;
+        let (schema, batches) =
+            read_stream(py, stream, &self.context, &mut input_bytes, max_input_bytes)?;
         let scanner = self.scanner.as_mut().ok_or_else(closed_handle)?;
-        let output = py.detach(|| scanner.scan(CanonicalBatchSide::new(schema, &batches)))
+        let output = py
+            .detach(|| scanner.scan(CanonicalBatchSide::new(schema, &batches)))
             .map_err(|error| comparison_error(error.to_string()))?;
         python_adapter_control(&self.watch, self.deadline)?;
-        let result = (output.identities.clone(), output.canonical_order_keys.iter().map(|key| PyBytes::new(py, key).unbind()).collect());
+        let result = (
+            output.identities.clone(),
+            output
+                .canonical_order_keys
+                .iter()
+                .map(|key| PyBytes::new(py, key).unbind())
+                .collect(),
+        );
         self.output = Some(output);
         Ok(result)
     }
 }
 
 #[pyfunction]
-fn _standard_identity_scanner_native(operation: PyRef<'_, ComparisonOperation>, policy_json: &str) -> PyResult<RowIdentityScanner> {
+fn _standard_identity_scanner_native(
+    operation: PyRef<'_, ComparisonOperation>,
+    policy_json: &str,
+) -> PyResult<RowIdentityScanner> {
     let owner = operation.owner.as_ref().ok_or_else(closed_handle)?.clone();
-    let policy = parse_comparison_policy("standard", policy_json, &operation.context).map_err(comparison_error)?;
-    let ParsedComparisonPolicy::Standard(options) = policy else { unreachable!() };
-    let scanner = StandardIdentityScanner::new(&options, &operation.context).map_err(|error| comparison_error(error.to_string()))?;
-    Ok(RowIdentityScanner { scanner: Some(scanner), output: None, context: Arc::clone(&operation.context),
-        owner: Some(owner), watch: Arc::clone(&operation.watch), deadline: operation.deadline })
+    let policy = parse_comparison_policy("standard", policy_json, &operation.context)
+        .map_err(comparison_error)?;
+    let ParsedComparisonPolicy::Standard(options) = policy else {
+        unreachable!()
+    };
+    let scanner = StandardIdentityScanner::new(&options, &operation.context)
+        .map_err(|error| comparison_error(error.to_string()))?;
+    Ok(RowIdentityScanner {
+        scanner: Some(scanner),
+        output: None,
+        context: Arc::clone(&operation.context),
+        owner: Some(owner),
+        watch: Arc::clone(&operation.watch),
+        deadline: operation.deadline,
+    })
 }
 
 struct OperationUse(Arc<AtomicUsize>);

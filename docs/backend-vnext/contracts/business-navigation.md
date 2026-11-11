@@ -88,8 +88,10 @@ B2 的 business_navigation unit/contract 共享参数表权威验证认领、集
 
 ## B2 实施接线边界
 
-`build_navigation` 接受 `NavigationTable` 双侧、`NavigationEvidence` 和同 operation 的 `check`/`reserve`；有界状态与序列化缓冲先向既有 M 预留，不建立新资源 owner。流式行只保留 registry/装置代表与实际谓词身份计数，孤儿身份只聚合总数。无变化共享表从 current 单次扫描为两侧谓词分别计数，不打开 before 行流。`canonical_order_key` 必须由现有规范标量整行编码提供，producer 不另造 row identity。
+`build_navigation` 接受 `NavigationTable` 双侧、`NavigationEvidence` 和同 operation 的 `check`/`reserve`/`resources`；有界状态与序列化缓冲先向既有 M 预留，成功后将 reservation 保留至原 operation.resources 结束；失败立即释放，不建立新资源 owner。代表行的完整 canonical_order_key、值及容器在保留前计账，替换时释放旧计账；返回的 JCS bytes 在 admission 内生成并复用。流式行只保留 registry/装置代表与实际谓词身份计数，孤儿身份只聚合总数。无变化共享表从 current 单次扫描为两侧谓词分别计数，不打开 before 行流。`canonical_order_key` 必须由现有规范标量整行编码提供，producer 不另造 row identity。
 
-`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；B4 必须从 evaluator 的完整实际事件流（含 cache replay）传入。
+`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。NavigationTable.local_fallback_reason 是省略、局部 facts 与复用 guard 的共同判据，包含该表实际身份列的 record context 完整性；物理缺列单独禁止双侧复用。registry 身份值与目标本侧 declared type 类别/宽度不符时以 UNSUPPORTED_TYPE 整表呈现，不作数值/文本转换。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；B4 必须从 evaluator 的完整实际事件流（含 cache replay）传入。
 
 B3/B4 必须实际提供上述输入、发布恰一个 projection、加入 closure/ref/保护与生命周期；不能因本包 typed helper 存在就假定 flow 已接通。后端输入资格与定位/完整性证明仍由各原 owner 校验。
+
+复合虚装置不依赖 device 的 65532 行；该特殊项在存在的共享测点侧使用 dev_addr=65532，不凭空构造 device_cfg 的 gid。无装置承载的空共享表只有完整 EXACT/无变化/无风险证明才可省略；证明不足时保留唯一整表入口，整表 tab 不产生局部事实不可用诊断。

@@ -23,6 +23,13 @@ GROUPS = (
     ("COMMUNICATION_PROTOCOLS", "通讯规约列表"), ("GLOBAL_PARAMETERS", "全局参数"),
     ("OTHER_TABLES", "其他表"),
 )
+POINT_TABLES = (
+    ("device_st", "状态类"), ("device_mx", "测量类"), ("device_co", "控制类"),
+    ("device_sg", "定值"), ("device_sp", "装置参数"), ("device_cnt", "计量类"),
+    ("device_sn", "定值区号"), ("device_tap", "档位"), ("device_other", "其它信息"),
+    ("device_disturb", "扰动数据"), ("device_cfg", "装置配置"),
+)
+FILTER_IDENTITY_COLUMNS = {name: "gid" if name == "device_cfg" else "dev_addr" for name, _ in POINT_TABLES}
 SAFE_INTEGER = 9007199254740991
 Scalar: TypeAlias = str | int | None
 RowValues: TypeAlias = Mapping[str, Scalar]
@@ -122,9 +129,22 @@ class NavigationTable:
     identity_excluded_sides: frozenset[str] = frozenset()
 
     @property
+    def local_fallback_reason(self) -> str | None:
+        """One effective completeness decision for omission, facts and FE12 reuse."""
+        column = FILTER_IDENTITY_COLUMNS.get(self.table_name)
+        if column is not None and any(
+            context is not None and column not in context
+            for record in self.evidence.records for context in (record.before, record.current)
+        ):
+            return "RECORDS_UNAVAILABLE"
+        return self.evidence.fallback_reason()
+
+    @property
     def may_reuse_unrecorded_identity(self) -> bool:
-        return (self.before is not None and self.current is not None
-                and not self.identity_excluded_sides and self.evidence.fallback_reason() is None)
+        column = FILTER_IDENTITY_COLUMNS.get(self.table_name)
+        return (self.before is not None and self.current is not None and column is not None
+                and column in self.before.column_types and column in self.current.column_types
+                and not self.identity_excluded_sides and self.local_fallback_reason is None)
 
     @property
     def display_name(self) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import replace
 from typing import Any
 
@@ -44,7 +44,7 @@ def device(old: tuple[Mapping[str, Scalar], ...], new: tuple[Mapping[str, Scalar
 
 
 def build(*tables: NavigationTable, replacement: bool = False) -> Any:
-    return build_navigation(tables, replacement=replacement, check=lambda: None, reserve=lambda _: nullcontext())
+    return build_navigation(tables, replacement=replacement, check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack())
 
 
 def tabs(result: Any, table_id: str, *, replacement_side: str | None = None) -> list[dict[str, Any]]:
@@ -117,6 +117,7 @@ def test_record_context_is_required_even_for_unchanged_identity_column() -> None
     shared = replace(table("device_st", source, source), evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True))
     result = build(device(({"dev_addr": 49, "gid": 1},), ({"dev_addr": 49, "gid": 1},)), shared)
     assert diagnostics(result, "DEVICE_TAB_FACTS_UNAVAILABLE")[0]["params"]["reason"] == "RECORDS_UNAVAILABLE"
+    assert not shared.may_reuse_unrecorded_identity
 
 
 def test_table_scope_does_not_paint_local_rows_and_is_identical_across_tabs() -> None:
@@ -182,6 +183,7 @@ def test_missing_identity_column_keeps_unknown_count_and_fallback_tabs() -> None
     result = build(device(devs, devs), shared)
     assert tabs(result, "device_st")[0]["facts"]["before_row_count"] is None
     assert diagnostics(result, "DEVICE_TAB_COUNT_UNKNOWN")[0]["side"] == "BEFORE"
+    assert not shared.may_reuse_unrecorded_identity
 
 
 def test_replacement_isolates_filter_values_labels_and_unsupported_side() -> None:
@@ -281,7 +283,7 @@ def test_linear_scan_and_bound_do_not_index_orphan_identities() -> None:
     assert result.scanned_rows == 10000
     assert diagnostics(result, "DEVICE_ROWS_UNASSIGNED")[0]["params"]["row_count"] == 10000
     with pytest.raises(ValueError, match="RESOURCE_LIMIT_EXCEEDED"):
-        build_navigation((table("device_st", None, source),), check=lambda: None, reserve=lambda _: nullcontext(), max_state_bytes=1)
+        build_navigation((table("device_st", None, source),), check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack(), max_state_bytes=1)
 
 
 ELIGIBILITY_CASES = (
@@ -397,7 +399,7 @@ def test_cancellation_propagates_and_memory_reservation_closes() -> None:
             raise RuntimeError("cancelled")
     source = side(({"dev_addr": 49},))
     with pytest.raises(RuntimeError, match="cancelled"):
-        build_navigation((table("device_st", None, source),), check=cancel, reserve=reserve)
+        build_navigation((table("device_st", None, source),), check=cancel, reserve=reserve, resources=ExitStack())
     assert released == [True]
 
 
@@ -406,7 +408,7 @@ def test_many_shared_gid_rows_aggregate_without_per_device_record_state() -> Non
     source = side(tuple({"gid": 7} for _ in range(1000)), column="gid")
     records = tuple(FilterRecord(str(n), "ROW_MODIFIED", {"gid": 7}, {"gid": 7}, RiskLevel.LOW) for n in range(1000))
     shared = replace(table("device_cfg", source, source), evidence=evidence(records=records, expected_record_counts=(0, 0, 1000), locator_complete=True))
-    result = build_navigation((device(devs, devs), shared), check=lambda: None, reserve=lambda _: nullcontext(), max_state_bytes=300000)
+    result = build_navigation((device(devs, devs), shared), check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack(), max_state_bytes=300000)
     assert len(tabs(result, "device_cfg")) == 100
     assert all(t["facts"]["current_row_count"] == 1000 and t["facts"]["risk_level"] == "LOW" for t in tabs(result, "device_cfg"))
 
@@ -423,3 +425,119 @@ def test_unchanged_registry_never_opens_before_stream(
         raise AssertionError("unchanged registry before stream must remain unopened")
     old = NavigationSide(columns, forbidden, 1, "表")
     build(table(name, old, side((values,), columns=columns), unchanged=True))
+
+
+@pytest.mark.parametrize("name,column", [("device_st", "dev_addr"), ("device_cfg", "gid")])
+@pytest.mark.parametrize("replacement", [False, True])
+@pytest.mark.parametrize("affected", ["BEFORE", "CURRENT"])
+def test_registry_to_target_category_mismatch_downgrades_only_affected_side(
+    name: str, column: str, replacement: bool, affected: str,
+) -> None:
+    devs = ({"dev_addr": 49, "gid": 7},)
+    number = 7 if column == "gid" else 49
+    sources = {label: side(({column: str(number) if label == affected else number},), column=column,
+                          sql_type="TEXT" if label == affected else "INT")
+               for label in ("BEFORE", "CURRENT")}
+    result = build(device(devs, devs), table(name, sources["BEFORE"], sources["CURRENT"]), replacement=replacement)
+    diags = diagnostics(result, "DEVICE_FILTER_VALUE_UNSUPPORTED")
+    assert len(diags) == 1 and diags[0]["side"] == affected
+    assert diags[0]["params"] == {"identity_column": column, "reason": "UNSUPPORTED_TYPE"}
+    if replacement:
+        other = "current" if affected == "BEFORE" else "before"
+        assert tabs(result, name, replacement_side=affected.lower())[0]["row_filter"] is None
+        assert tabs(result, name, replacement_side=other)[0]["row_filter"][other]["values"] == [number]
+    else:
+        assert len(tabs(result, name)) == 1 and tabs(result, name)[0]["row_filter"] is None
+    assert not diagnostics(result, "DEVICE_ROWS_UNASSIGNED")
+
+
+@pytest.mark.parametrize("changes", [
+    {"risk_attribution_complete": False}, {"comparison_succeeded": False},
+    {"schema_only": True}, {"degraded": True},
+])
+def test_uncertain_empty_shared_table_without_device_remains_reachable(changes: dict[str, Any]) -> None:
+    empty = replace(table("device_st", side(), side(), unchanged=True), evidence=evidence(**changes))
+    result = build(empty)
+    assert len(tabs(result, "device_st")) == 1
+    assert tabs(result, "device_st")[0]["row_filter"] is None
+    assert tabs(result, "device_st")[0]["facts"] is None
+    assert not diagnostics(result, "DEVICE_TAB_FACTS_UNAVAILABLE")
+    assert not empty.may_reuse_unrecorded_identity
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+@pytest.mark.parametrize("has_other_device", [False, True])
+def test_virtual_composite_filters_existing_shared_side_without_registry_row(
+    replacement: bool, has_other_device: bool,
+) -> None:
+    shared = table("device_st", None, side(({"dev_addr": 65532},)))
+    composite = table("composite_signal_point", None, side())
+    inputs = (shared, composite)
+    if has_other_device:
+        inputs += (device((), ({"dev_addr": 49, "gid": 7},)),)
+    result = build(*inputs, replacement=replacement)
+    groups = result.document["replacement_sides"]["current"] if replacement else result.document["groups"]
+    item = next(i for i in groups[1]["items"] if i["item_key"] == "device:composite")
+    point = next(t for t in item["tabs"] if t["table_id"] == "device_st")
+    assert point["row_filter"] == {"before": None, "current": {"column": "dev_addr", "values": [65532]}}
+    assert not diagnostics(result, "DEVICE_ROWS_UNASSIGNED")
+    assert all(t["table_id"] != "device_cfg" for t in item["tabs"])
+
+
+def test_large_full_row_keys_cannot_bypass_existing_operation_admission() -> None:
+    emitted: list[int] = []
+    def rows() -> Any:
+        for board in range(64):
+            emitted.append(board)
+            yield NavigationRow({"board": board, "link_no": 1, "exe": "iec104", "tab_num": 1}, bytes([board]) * 1024 * 1024)
+    source = NavigationSide({"board": "INT"}, rows, 64, "net")
+    with ExitStack() as resources, pytest.raises(ValueError, match="RESOURCE_LIMIT_EXCEEDED"):
+        build_navigation((table("net_cfg", None, source),), check=lambda: None,
+                         reserve=lambda _: nullcontext(), resources=resources)
+    assert len(emitted) < 64
+
+
+@pytest.mark.parametrize("name", ["net_cfg", "device", "app_cfg"])
+def test_replacing_large_representative_releases_old_state_charge(name: str) -> None:
+    if name == "net_cfg":
+        values: Mapping[str, Scalar] = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1}
+        column_types: Mapping[str, str | None] = {"board": "INT"}
+        other: tuple[NavigationTable, ...] = ()
+    elif name == "device":
+        values = {"dev_addr": 49, "gid": 7}
+        column_types = {"dev_addr": "INT", "gid": "INT"}
+        other = ()
+    else:
+        values = {"table_cfg": "target", "app_name": "app"}
+        column_types = {"table_cfg": "TEXT"}
+        other = (table("target", None, side()),)
+    def rows() -> Any:
+        for n in range(64, 0, -1):
+            yield NavigationRow(values, bytes([n]) * 1024 * 1024)
+    source = NavigationSide(column_types, rows, 64, name)
+    with ExitStack() as resources:
+        result = build_navigation((table(name, None, source), *other), check=lambda: None,
+                                  reserve=lambda _: nullcontext(), resources=resources,
+                                  max_state_bytes=2 * 1024 * 1024)
+        assert result.scanned_rows == 64
+        assert result.to_bytes()
+
+
+def test_result_and_cached_wire_bytes_keep_original_operation_admission() -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+    active: list[int] = []
+    @contextmanager
+    def reserve(size: int) -> Iterator[object]:
+        active.append(size)
+        try:
+            yield object()
+        finally:
+            active.pop()
+    with ExitStack() as resources:
+        result = build_navigation((table("other", None, side()),), check=lambda: None,
+                                  reserve=reserve, resources=resources)
+        assert active
+        first = result.to_bytes()
+        assert result.to_bytes() is first
+    assert active == []

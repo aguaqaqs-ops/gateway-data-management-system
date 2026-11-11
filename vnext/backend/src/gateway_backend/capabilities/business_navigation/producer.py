@@ -7,28 +7,23 @@ so a large unassigned table cannot create a row-sized navigation index.
 from __future__ import annotations
 
 import re
+import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
-from contextlib import AbstractContextManager
+from dataclasses import dataclass, field, replace
+from contextlib import AbstractContextManager, ExitStack
 from typing import Any
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.business_navigation.contracts import (
-    CONTRACT_VERSION, GROUPS, SAFE_INTEGER, NavigationRow, NavigationSide,
+    CONTRACT_VERSION, GROUPS, POINT_TABLES, SAFE_INTEGER, NavigationRow, NavigationSide,
     NavigationTable, Scalar, navigation_bytes, validate_diagnostics,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotation, RiskLevel, RiskTargetType,
 )
 
-POINT_TABLES = (
-    ("device_st", "状态类"), ("device_mx", "测量类"), ("device_co", "控制类"),
-    ("device_sg", "定值"), ("device_sp", "装置参数"), ("device_cnt", "计量类"),
-    ("device_sn", "定值区号"), ("device_tap", "档位"), ("device_other", "其它信息"),
-    ("device_disturb", "扰动数据"), ("device_cfg", "装置配置"),
-)
 FORWARD_TABS = (
     ("syx", "单点遥信"), ("dyx", "双点遥信"), ("yc", "遥测"),
     ("syk", "单点遥控"), ("dyk", "双点遥控"), ("yt", "遥调"),
@@ -94,27 +89,34 @@ class NavigationResult:
     document: dict[str, Any]
     diagnostics: dict[str, Any] | None
     scanned_rows: int
+    _payload: bytes = field(repr=False)
 
     def to_bytes(self) -> bytes:
-        return navigation_bytes(self.document, replacement=self.document["replacement_sides"] is not None)
+        """Return bytes encoded inside the original operation admission."""
+        return self._payload
 
 
 def build_navigation(
     tables: tuple[NavigationTable, ...], *, replacement: bool = False,
     check: Callable[[], None], reserve: Callable[[int], AbstractContextManager[object]],
+    resources: ExitStack,
     max_state_bytes: int = 16 * 1024 * 1024,
 ) -> NavigationResult:
     """Charge bounded state and serialization buffers to the existing operation M.
 
-    The caller supplies operation.memory.reserve and operation.checkpoint; neither
-    a separate memory budget nor an independent cancellation lifetime is created.
+    The caller supplies operation.memory.reserve, operation.resources and
+    operation.checkpoint. Successful result/serialization storage stays admitted
+    until the existing operation resources close; failures release immediately.
     """
     check()
     if type(max_state_bytes) is not int or not 0 < max_state_bytes <= 16 * 1024 * 1024:
         raise ValueError("invalid navigation state bound")
-    with reserve(max_state_bytes + 40 * 1024 * 1024):
-        return _build_navigation(tables, replacement=replacement, check=check,
-                                 max_state_bytes=max_state_bytes)
+    with ExitStack() as admission:
+        admission.enter_context(reserve(max_state_bytes + 40 * 1024 * 1024))
+        result = _build_navigation(tables, replacement=replacement, check=check,
+                                   max_state_bytes=max_state_bytes)
+        resources.callback(admission.pop_all().close)
+        return result
 
 
 def _build_navigation(
@@ -142,7 +144,7 @@ def _build_navigation(
     else:
         document = {"contract_version": CONTRACT_VERSION,
                     "groups": builder.groups(tables, None), "replacement_sides": None}
-    navigation_bytes(document, replacement=replacement)
+    payload = navigation_bytes(document, replacement=replacement)
     diagnostics = sorted({canonicalize_json_value(d) for d in builder.diagnostics})
     import json
     diagnostic_doc = None if not diagnostics else {"contract_version": CONTRACT_VERSION,
@@ -151,7 +153,7 @@ def _build_navigation(
         raise ValueError("RESOURCE_LIMIT_EXCEEDED")
     if diagnostic_doc is not None:
         validate_diagnostics(diagnostic_doc, document, frozenset(t.table_id for t in tables))
-    return NavigationResult(document, diagnostic_doc, builder.scanned)
+    return NavigationResult(document, diagnostic_doc, builder.scanned, payload)
 
 
 class _Builder:
@@ -166,6 +168,20 @@ class _Builder:
     def charge(self, value: object) -> None:
         self.check()
         self.used += len(canonicalize_json_value(value)) + 128
+        if self.used > self.limit:
+            raise ValueError("RESOURCE_LIMIT_EXCEEDED")
+
+    @staticmethod
+    def row_size(row: NavigationRow) -> int:
+        # Include full canonical ordering bytes even when values is only the small
+        # business-field projection. Count backing conservatively if owners alias it.
+        return (sys.getsizeof(row) + sys.getsizeof(row.canonical_order_key)
+                + sys.getsizeof(row.values)
+                + sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.values.items()))
+
+    def retain_row(self, row: NavigationRow, previous: NavigationRow | None) -> None:
+        self.check()
+        self.used += self.row_size(row) - (0 if previous is None else self.row_size(previous))
         if self.used > self.limit:
             raise ValueError("RESOURCE_LIMIT_EXCEEDED")
 
@@ -218,7 +234,8 @@ class _Builder:
                     existing = channels[key].get(label)
                     if existing is None or row.canonical_order_key < existing.canonical_order_key:
                         if existing is None:
-                            self.charge([board, link, label, dict(row.values)])
+                            self.charge([board, link, label])
+                        self.retain_row(row, existing)
                         channels[key][label] = row
                     tab_num = row.values.get("tab_num")
                     if str(row.values.get("exe") or "").lower() == "iec104" and type(tab_num) is int and tab_num > 0:
@@ -299,7 +316,8 @@ class _Builder:
 
     @staticmethod
     def omittable(table: NavigationTable) -> bool:
-        return (table.unchanged and not table.table_change and not table.evidence.any_table_risk
+        return (table.local_fallback_reason is None
+                and table.unchanged and not table.table_change and not table.evidence.any_table_risk
                 and table.evidence.table_risk is None
                 and all(s is None or s.row_count == 0 for s in (table.before, table.current)))
 
@@ -326,13 +344,16 @@ class _Builder:
                     if target in seen:
                         existing = targets[target].get(side)
                         if existing is not None and row.canonical_order_key < existing.canonical_order_key:
+                            self.retain_row(row, existing)
                             targets[target][side] = row
                     self.diagnostic("APP_TABLE_CFG_DUPLICATE", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name, table_cfg=target)
                 else:
                     seen.add(target)
                     existing = targets[target].get(side)
                     if existing is None or row.canonical_order_key < existing.canonical_order_key:
-                        self.charge([target, side, dict(row.values)])
+                        if existing is None:
+                            self.charge([target, side])
+                        self.retain_row(row, existing)
                         targets[target][side] = row
         for target, rows in sorted(targets.items()):
             claimed.add(target)
@@ -367,7 +388,9 @@ class _Builder:
                     address_counts[addr] += 1
                     previous = representatives[addr].get(side)
                     if previous is None or row.canonical_order_key < previous.canonical_order_key:
-                        self.charge([addr, side, dict(row.values)])
+                        if previous is None:
+                            self.charge([addr, side])
+                        self.retain_row(row, previous)
                         representatives[addr][side] = row
                     if scalar_reason(source.column_types.get("gid"), gid) is not None:
                         unsafe_gids.add(side)
@@ -438,7 +461,22 @@ class _Builder:
                     values: set[Scalar] = set()
                     if side in rows:
                         values = gids[side][addr] if column == "gid" else {addr}
+                    elif addr == 65532 and column == "dev_addr":
+                        # The composite device is virtual; it does not require a
+                        # physical device row and never invents a device_cfg gid.
+                        values = {65532}
                     values.discard(None)
+                    if not missing_column and side not in failures:
+                        for value in values:
+                            try:
+                                value_reason = scalar_reason(source.column_types[column], value)
+                            except ValueError:
+                                # Both tables may be individually valid but their
+                                # registry/target identity categories disagree.
+                                value_reason = "UNSUPPORTED_TYPE"
+                            if value_reason is not None:
+                                failures[side] = value_reason
+                                break
                     if values and side not in failures:
                         ordered = sorted(values, key=lambda v: (0, v) if type(v) is int else (1, str(v).encode("utf-8")))
                         predicates[addr][side.lower()] = {"column": column, "values": ordered}
@@ -484,12 +522,7 @@ class _Builder:
                 for side, reason in failures.items():
                     self.diagnostic("DEVICE_FILTER_VALUE_UNSUPPORTED", "SECONDARY_DEVICES", table=table, item=key, side=side, identity_column=column, reason=reason)
                 continue
-            reason = table.evidence.fallback_reason() if replacement_side is None else None
-            if replacement_side is None and any(
-                context is not None and column not in context
-                for record in table.evidence.records for context in (record.before, record.current)
-            ):
-                reason = "RECORDS_UNAVAILABLE"
+            reason = table.local_fallback_reason if replacement_side is None else None
             changed_values: dict[str, set[Scalar]] = {"BEFORE": set(), "CURRENT": set()}
             risk_values: dict[str, dict[Scalar, RiskLevel | None]] = {"BEFORE": {}, "CURRENT": {}}
             changed_orphans = {"BEFORE": 0, "CURRENT": 0}

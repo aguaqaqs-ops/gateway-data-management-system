@@ -846,9 +846,8 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
 
 
 def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]],
 ) -> None:
-    import json
     from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
 
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
@@ -858,13 +857,11 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     deps = replace(harness.deps, computation_cache=cache)
     _, handlers, _ = preview_jobs.preview_composition_bundle(deps)
     harness.handlers = dict(handlers)
-    with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
-        _run_through_publish(harness, "op-persistent-full-cold")
-    cold_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])
-        for record in caplog.records if record.message.startswith("s3_pair_metrics ")]
+    _run_through_publish(harness, "op-persistent-full-cold")
+    cold_metrics = list(pair_comparison_metrics)
     assert [item["pair_id"] for item in cold_metrics] == ["baseline_to_initial", "initial_to_modified"]
     assert sum(item["comparison"]["native_calls"] for item in cold_metrics) > 0
-    caplog.clear()
+    pair_comparison_metrics.clear()
     harness.job_payload = build_preview_job_payload(
         workspace_id=harness.upload_revision.workspace_id, upload_revision=harness.upload_revision,
         repository_id=REPOSITORY_ID,
@@ -874,10 +871,8 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
         idempotency_key="persistent-full-warm-new-key",
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
-    with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
-        _run_through_publish(harness, "op-persistent-full-warm")
-    warm_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])
-        for record in caplog.records if record.message.startswith("s3_pair_metrics ")]
+    _run_through_publish(harness, "op-persistent-full-warm")
+    warm_metrics = pair_comparison_metrics
     assert [item["pair_id"] for item in warm_metrics] == ["baseline_to_initial", "initial_to_modified"]
     assert sum(item["comparison"]["native_calls"] for item in warm_metrics) == 0
     assert sum(item["comparison"]["cache_hits"] for item in warm_metrics) > 0

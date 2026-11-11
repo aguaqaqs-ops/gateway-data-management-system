@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import pytest
 
@@ -78,3 +78,24 @@ def operation_scratch_context(scratch_space: ScratchSpace) -> Iterator[ScratchSe
     from gateway_backend.artifacts.scratch import scratch_scope
     with scratch_space.session(owner="operation:test-operation") as session, scratch_scope(session):
         yield session
+
+
+@pytest.fixture
+def pair_comparison_metrics(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Inspect existing comparison results directly, independent of product logging."""
+    from dataclasses import asdict
+    from gateway_backend.application import pair_pipeline
+    from gateway_backend.capabilities.comparison.production import NativeComparison
+    recorded: list[dict[str, Any]] = []
+    original = pair_pipeline.compare_plan_native
+
+    def compare(*args: Any, **kwargs: Any) -> NativeComparison:
+        result = original(*args, **kwargs)
+        metrics = result.metrics
+        assert metrics is not None
+        recorded.append({'pair_id': args[0].pair_id, 'comparison': asdict(metrics),
+                         'comparison_kernel_calls': metrics.native_calls - metrics.ordered_single_side_calls})
+        return result
+
+    monkeypatch.setattr(pair_pipeline, 'compare_plan_native', compare)
+    return recorded

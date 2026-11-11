@@ -1286,7 +1286,7 @@ HISTORY_CACHE_NODE_CASES = (
 
 @pytest.mark.parametrize(("case", "order", "expected_calls"), HISTORY_CACHE_NODE_CASES)
 def test_new_history_operation_reuses_complete_table_work_and_exports(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]],
     case: str, order: tuple[str, ...], expected_calls: int,
 ) -> None:
     from dataclasses import replace
@@ -1319,11 +1319,9 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
         harness.deps = bound_deps
         harness.handlers = dict(handlers)
         harness.publication_uow_factory = bound_deps.control_transaction_factory
-        caplog.clear()
-        with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
-            run_full_history_compare_job(harness)
-        pair_metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1])
-            for record in caplog.records if record.message.startswith("s3_pair_metrics ")]
+        pair_comparison_metrics.clear()
+        run_full_history_compare_job(harness)
+        pair_metrics = pair_comparison_metrics
         assert len(pair_metrics) == len(order) - 1
         calls = sum(item["comparison"]["native_calls"] for item in pair_metrics)
         assert calls == (expected_calls if run == "cold" or case == "bad-payload" else 0)
@@ -1413,7 +1411,7 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
 
 
 def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
@@ -1514,13 +1512,11 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
             artifact_store=preview.artifact_store, custom_providers=providers, node_specs=nodes,
             idempotency_key="history-new-operation-" + name, computation_cache=cache,
             snapshot_export_cache=exports, commit_metadata_port=metadata)
-        caplog.clear()
+        pair_comparison_metrics.clear()
         risk_lookups.clear()
         risk_stores.clear()
-        with caplog.at_level("INFO", logger="gateway_backend.application.pair_pipeline"):
-            run_full_history_compare_job(history)
-        metrics = [json.loads(record.message.split("s3_pair_metrics ", 1)[1]) for record in caplog.records
-            if record.message.startswith("s3_pair_metrics ")]
+        run_full_history_compare_job(history)
+        metrics = pair_comparison_metrics
         assert len(metrics) == 1 and metrics[0]["comparison_kernel_calls"] == expected_native
         before_presentation, current_presentation = seen_presentations[-1]
         assert before_presentation == manifests[before_label].presentation

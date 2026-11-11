@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeAlias
 
@@ -87,7 +88,7 @@ class SQLiteStatisticsStore:
                 or (wal.exists() and wal.stat().st_size >= self.config.wal_soft_limit_bytes)
                 or stat.f_bavail * stat.f_frsize < reserve)
 
-    def write_batch(self, records: list[Record]) -> None:
+    def write_batch(self, records: Sequence[Record]) -> None:
         if len(records) > self.config.write_batch_items:
             raise ValueError('batch exceeds item budget')
         encoded: list[tuple[str, dict[str, object]]] = []

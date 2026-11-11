@@ -24,15 +24,16 @@ from tests.support.comparison_s3_e_live import canonical_bound
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
 
-@pytest.mark.parametrize("changed_cfg", (False, True))
-def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_context(changed_cfg: bool) -> None:
+@pytest.mark.parametrize(("changed_cfg", "schema_added"), ((False, False), (True, False), (False, True)))
+def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_context(changed_cfg: bool, schema_added: bool) -> None:
     ddl = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT,description TEXT);"
         "CREATE TABLE device_cfg(id BIGINT PRIMARY KEY,gid BIGINT,note TEXT);")
     before = complete_canonical_bound(canonical_bound(ddl +
         "INSERT INTO device VALUES (7,49,'old device'); INSERT INTO device_cfg VALUES(1,7,'old');"))
-    current = complete_canonical_bound(canonical_bound(ddl +
+    current_ddl = ddl.replace("note TEXT);", "note TEXT,extra TEXT);") if schema_added else ddl
+    current = complete_canonical_bound(canonical_bound(current_ddl +
         "INSERT INTO device VALUES (8,49,'current device'); INSERT INTO device_cfg VALUES(1,7,'" +
-        ("new" if changed_cfg else "old") + "');"))
+        ("new" if changed_cfg else "old") + ("','added" if schema_added else "") + "');"))
     store = InMemoryArtifactStore()
     result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
@@ -62,6 +63,8 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
         assert row["current_filter_context_json"] is None
     else:
         assert tab["facts"]["change_kind"] == "UNCHANGED"
+    if schema_added:
+        assert tab["facts"]["table_scope"]["change"] is True
     closure = surface_artifact_closure(surface, result.pair_id, result.records_closure,
         before=before, current=current, store=store, repository_id="replacement-fixture")
     bundle = assemble_bundle(BundleAssemblyInput(bundle_contract_version=BUNDLE_CONTRACT_VERSION,

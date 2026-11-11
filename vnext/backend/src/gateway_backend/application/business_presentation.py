@@ -162,6 +162,10 @@ def publish_business_presentation(
         task = tasks[name]
         excluded = (identity_excluded_sides(task, fact, FILTER_IDENTITY_COLUMNS[name])
             if not replacement and name in FILTER_IDENTITY_COLUMNS else frozenset())
+        if (entries.get(name) is not None and handles.get(name) is None
+                and any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
+                and fact.status not in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE}):
+            raise ValueError("published ordinary row records have no native owner")
         located = prepare_row_locations(task, entries.get(name), handles.get(name), artifacts[name].table_refs,
             store, filter_column=FILTER_IDENTITY_COLUMNS.get(name) if not excluded else None)
         scanned_rows += located.scanned_rows
@@ -190,7 +194,8 @@ def publish_business_presentation(
             _side(current_tables.get(name), current_labels.get(name)), evidence=evidence,
             table_change=fact.status in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE,
                 ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
-                ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED},
+                ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED}
+                or fact.schema_changes.change_source is not None,
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation = build_navigation(tuple(tables), replacement=replacement,
         check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)

@@ -41,7 +41,7 @@ Predicate = {column: string, values: [string] | [integer]}
 
 整数文本必须全串是规范十进制：只允许 `0`、无前导零的正数或负数；拒绝负零、空白、小数、指数或尾随字符。JSON integer 先校验 safe number，再转 BigInt；禁止 Number/parseInt 猜类型、字符串/数字宽松相等，以及用 current 优先的联合 SurfaceColumn 类型解释 before。先校验 raw SHA/closure，再解码**同侧** metadata。物理类型、声明、值或谓词类别矛盾是 bundle 解码错误，不静默当无匹配。SQL NULL/物理缺列不匹配；已整表降级者不执行谓词断言。本功能不改 export 物理 schema 或缓存身份。
 
-超范围/不支持类型/身份列被有效比较排除时，该表本 pair 撤去全部筛选 tabs，保留上述唯一整表入口。每个受影响存在侧各发一条 `DEVICE_FILTER_VALUE_UNSUPPORTED`，`side=BEFORE|CURRENT`，target 指整表项，`params={identity_column, reason:INTEGER_OUT_OF_RANGE|UNSUPPORTED_TYPE|IDENTITY_EXCLUDED}`，不回传原值，也不再发此表孤儿/局部事实诊断。共同 pair 规则排除两存在侧时发两条；不存在侧不发。物理缺列/NULL 不归为 IDENTITY_EXCLUDED。装置键超域时不构造该装置项或数值 attributes，device 整表入口保留；依赖表同样降级。replacement 不套跨侧比较资格，只核本侧读取/筛选资格。
+超范围/不支持类型/身份列被有效比较排除时，普通 pair 的该表撤去全部筛选 tabs，保留上述唯一整表入口。每个受影响存在侧各发一条 `DEVICE_FILTER_VALUE_UNSUPPORTED`，`side=BEFORE|CURRENT`，target 指整表项，`params={identity_column, reason:INTEGER_OUT_OF_RANGE|UNSUPPORTED_TYPE|IDENTITY_EXCLUDED}`，不回传原值，也不再发此表孤儿/局部事实诊断。共同 pair 规则排除两存在侧时发两条；不存在侧不发。物理缺列/NULL 不归为 IDENTITY_EXCLUDED。装置键超域时不构造该装置项或数值 attributes，device 整表入口保留；依赖表同样降级。replacement 仅对受影响侧应用上述降级及诊断规则，另一侧按其本侧资格独立处理；不套跨侧比较资格，只核本侧读取/筛选资格。
 
 ## 无记录行与完整性（FE-BEB-12）
 

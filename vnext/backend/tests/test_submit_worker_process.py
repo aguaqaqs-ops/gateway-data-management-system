@@ -125,6 +125,7 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     fixture_settings = make_operation_worker_settings(db_path.parent, control_db_path=db_path)
     storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
     environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"

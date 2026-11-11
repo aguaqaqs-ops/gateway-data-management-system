@@ -132,6 +132,9 @@ class NavigationTable:
     def local_fallback_reason(self) -> str | None:
         """One effective completeness decision for omission, facts and FE12 reuse."""
         column = FILTER_IDENTITY_COLUMNS.get(self.table_name)
+        if column is not None and any(side is not None and column not in side.column_types
+                                      for side in (self.before, self.current)):
+            return "RECORDS_UNAVAILABLE"
         if column is not None and any(
             context is not None and column not in context
             for record in self.evidence.records for context in (record.before, record.current)

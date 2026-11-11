@@ -126,7 +126,11 @@ describe("business navigation decoding", () => {
     const view = deriveBundleView({ surface: replacementSurface, navigation: replacement });
     expect(view.replacementSides?.before[0]?.label).toBe("改前");
     expect(view.replacementSides?.current[0]?.items[0]?.label).toBe("改后装置表");
-    expect(view.groups).toHaveLength(0);
+    // Replacement navigation keeps `groups` empty in the artifact, but the sidebar
+    // merges both sides into one selectable tree keyed by group and item.
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0]?.groupKey).toBe("FUTURE_GROUP");
+    expect(view.groups[0]?.items.map((item) => item.itemKey)).toEqual(["before:device", "current:device"]);
   });
 });
 
@@ -187,17 +191,17 @@ describe("record and formula derivation", () => {
     expect(locations.map(({ index }) => index)).toEqual([1, 2, 3]);
   });
 
-  it("shows only the uploaded formula during a changed Preview and both sides in History", () => {
+  it("shows the before and current formula during a changed Preview and both sides in History", () => {
     const beforeAst = { kind: "EXPRESS", operator: "+", children: [{ kind: "DIGITAL", value: "1" }, { kind: "POINT", name: "Device 1:温度" }] };
     const currentAst = { kind: "EXPRESS", operator: "+", children: [{ kind: "DIGITAL", value: "1" }, { kind: "POINT", name: "Device 1:温度" }, { kind: "DIGITAL", value: "3" }] };
     const before = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "old", formula_ast_json: beforeAst }];
     const current = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "new", formula_ast_json: currentAst }];
     const devices = [{ dev_addr: 65532, description: "复合信号装置" }];
     const preview = deriveFormulaDisplays({ mode: "PREVIEW", before, current, beforeDevices: devices, currentDevices: devices });
-    expect(preview[0]).toMatchObject({ beforeFormula: null, currentFormula: currentAst, formulaChanged: true, label: "公式已改", currentDeviceName: "复合信号装置" });
+    expect(preview[0]).toMatchObject({ beforeFormula: beforeAst, currentFormula: currentAst, formulaChanged: true, label: "公式已改", beforeDeviceName: "复合信号装置", currentDeviceName: "复合信号装置" });
     const history = deriveFormulaDisplays({ mode: "HISTORY", before, current, beforeDevices: [{ dev_addr: 65532, description: "改前名称" }], currentDevices: devices });
     expect(history[0]).toMatchObject({ beforeFormula: beforeAst, currentFormula: currentAst, changed: true, formulaChanged: false, label: null, beforeDeviceName: "改前名称", currentDeviceName: "复合信号装置" });
     const deletedPreview = deriveFormulaDisplays({ mode: "PREVIEW", before, current: [], beforeDevices: devices, deletedPointKeys: new Set(["composite_signal_point:8"]) });
-    expect(deletedPreview[0]).toMatchObject({ beforeFormula: null, currentFormula: beforeAst, deleted: true });
+    expect(deletedPreview[0]).toMatchObject({ beforeFormula: beforeAst, currentFormula: beforeAst, deleted: true });
   });
 });

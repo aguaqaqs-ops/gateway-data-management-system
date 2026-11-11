@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from dataclasses import replace
+from time import perf_counter
 from typing import cast
 
 from gateway_shared_kernel import raw_blob_digest
@@ -148,7 +149,7 @@ def publish_business_presentation(
     attribution: RiskAttribution, store: ArtifactStorePort, *,
     before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
     same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
-) -> tuple[tuple[SurfaceArtifactIndexEntry, ...], SurfaceProjectionRef, dict[str, int]]:
+) -> tuple[tuple[SurfaceArtifactIndexEntry, ...], SurfaceProjectionRef, dict[str, int | float]]:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("business presentation requires the operation context")
@@ -167,6 +168,7 @@ def publish_business_presentation(
     tables = []
     locations: dict[str, RowLocationResult] = {}
     scanned_rows = locator_bytes = 0
+    locator_seconds = 0.0
     replacement = facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT
     for fact in facts.tables:
         context.checkpoint()
@@ -178,8 +180,10 @@ def publish_business_presentation(
                 and any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
                 and fact.status not in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE}):
             raise ValueError("published ordinary row records have no native owner")
+        locator_started = perf_counter()
         located = prepare_row_locations(task, entries.get(name), handles.get(name), artifacts[name].table_refs,
             store, filter_column=FILTER_IDENTITY_COLUMNS.get(name) if not excluded else None)
+        locator_seconds += perf_counter() - locator_started
         scanned_rows += located.scanned_rows
         records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity))
             for r in located.records) if name in FILTER_IDENTITY_COLUMNS else ()
@@ -187,10 +191,12 @@ def publish_business_presentation(
         if name in FILTER_IDENTITY_COLUMNS:
             locations[name] = located
         else:
+            locator_started = perf_counter()
             locator_ref = publish_row_locations(located, store, filtered=False)
             artifacts[name] = replace(artifacts[name], row_locator_ref=locator_ref)
             locator_bytes += 0 if locator_ref is None else locator_ref.size_bytes
             located.close()
+            locator_seconds += perf_counter() - locator_started
         evidence = NavigationEvidence(
             comparison_succeeded=fact.status is not ComparisonTableStatus.DEGRADED,
             schema_only=fact.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
@@ -209,8 +215,10 @@ def publish_business_presentation(
                 ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED}
                 or fact.schema_changes.change_source is not None,
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
+    navigation_started = perf_counter()
     navigation = build_navigation(tuple(tables), replacement=replacement,
         check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)
+    navigation_seconds = perf_counter() - navigation_started
     tables.clear()
     if facts.tables:
         del records, evidence
@@ -220,10 +228,13 @@ def publish_business_presentation(
     filtered_tables = {tab["table_id"] for groups in namespaces for group in groups
         for item in group["items"] for tab in item["tabs"] if tab["row_filter"] is not None}
     for name, located in locations.items():
+        locator_started = perf_counter()
         locator_ref = publish_row_locations(located, store, filtered=name in filtered_tables)
         artifacts[name] = replace(artifacts[name], row_locator_ref=locator_ref)
         locator_bytes += 0 if locator_ref is None else locator_ref.size_bytes
         located.close()
+        locator_seconds += perf_counter() - locator_started
+    navigation_started = perf_counter()
     payload = navigation.to_bytes()
     digest = raw_blob_digest(payload)
     ref = put_with_built_ref(store, payload,
@@ -237,7 +248,11 @@ def publish_business_presentation(
             media_type="application/json")
     projection = SurfaceProjectionRef("business_navigation", "BUSINESS_NAVIGATION", ref, digest,
         diagnostics_ref=diagnostic_ref)
+    navigation_seconds += perf_counter() - navigation_started
     return tuple(artifacts[name] for name in sorted(artifacts)), projection, {
+        # Disjoint child spans of business_presentation_seconds, which itself is
+        # contained in surface_and_table_export_seconds. Never sum the parents.
+        "locator_seconds": locator_seconds, "navigation_and_diagnostics_seconds": navigation_seconds,
         "locator_scanned_rows": scanned_rows, "locator_bytes": locator_bytes,
         "navigation_scanned_rows": navigation.scanned_rows, "navigation_bytes": len(payload),
         "navigation_diagnostic_bytes": 0 if diagnostic_ref is None else diagnostic_ref.size_bytes,

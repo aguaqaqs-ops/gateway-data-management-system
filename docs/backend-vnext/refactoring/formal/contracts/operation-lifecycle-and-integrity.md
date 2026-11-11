@@ -273,3 +273,19 @@ F 的 deployment 准入进一步约束：仅 backend 显式启动可在已验证
 worker 在部署/配置 preflight 和编号验证后、kernel/runtime/统计初始化前，以 `be-metadata/.gateway-worker-<index>.lock` 的普通文件获取非阻塞独占 flock。锁文件拒绝符号链接、非普通文件、异mount、异euid或组/其他用户可访问模式；FD不继承exec。重复编号立即失败，不删除或替换inode，文件存在本身不表示锁被占用。成功获取的FD持有到OS进程退出，即使 `run()` 返回而非daemon执行线程尚存也不提前释放。普通metadata维护不得删除或重命名这些锁文件。
 
 锁遵循同机协作部署信任域。它不能证明不继承FD的子进程已退出；替代固定实例仍须由受控部署确认旧容器及cgroup内执行者全部退出。固定 count 是输入上限，不代表已验证32实例容量；总预算按全部 W 个 worker 加 backend、RS/Dolt和共享余量校验，同组实例规格相同，默认N1、E32GiB/reserve8GiB/M24GiB保持。
+
+
+### 固定实例启动恢复
+
+启动扫描仍在每次一致 read UoW 中校验完整性、唯一 active step、registry/job 版本，并在恢复后重复门禁。
+RUNNING owner 必须属于当前环境/组的1..W固定实例；非法格式、namespace或编号，以及本实例多个RUNNING，均拒绝启动。
+终态旧owner不阻塞。PENDING/RETRY_WAIT沿原队列规则，manual只保留诊断及占用，不阻塞其他合法任务。
+
+合法foreign RUNNING无论lease有效或过期均不恢复、不抢占、不阻塞本实例ready；只由原固定实例重启恢复。
+own RUNNING有效lease沿原60秒启动预算等待自然到期，超时拒启；过期后在短write UoW重读状态、owner、租约和版本，
+用原token/版本CAS转RETRY_WAIT或MANUAL。已变终态/RETRY_WAIT/foreign则不写；fresh有效own租约仍等待。
+已持久化的manual或未来backoff属于任务局部状态，不使整组拒启；共享完整性错误仍拒启。
+
+PURE_RECOMPUTE保留checkpoint/frozen input/prior outputs与保护；EXTERNAL_EFFECT只调度原reconcile，
+不重做T1或换key。恢复不递增attempt，下一次原claim才递增。恢复清除旧租约后任务可由任意实例按原队列领取。
+固定worker_id跨重启不变，旧lease_token仍被CAS拒绝；无peer周期接管、自动清占用或新增持久队列。

@@ -188,3 +188,12 @@ use-case code由其owner版本化，不要求提升Shared Kernel version。
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Repository Service](repository-service.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
+
+
+## 固定实例重启与未知结果
+
+固定实例只恢复自身遗留RUNNING；其他实例不因lease过期接管。相同worker_id重启仍使用新claim token，
+不改变既有SubmitAttempt、原package/idempotency key或Repository operation身份。
+EXTERNAL_EFFECT恢复仅调度原reconcile路径，先查询原key结果；UNKNOWN不重做T1、不盲发新请求、
+不因task terminal/manual或实例退出而释放repository/Workspace占用。确认发布后仍沿原T3 finalize，
+或满足原确认abort条件后释放；其他独立任务可继续。

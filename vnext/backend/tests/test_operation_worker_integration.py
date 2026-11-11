@@ -22,6 +22,7 @@ from gateway_backend.application.checkpoints import (
     prepare_ready_closure,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
+from gateway_backend.bootstrap.worker_instance import worker_id_for
 from gateway_backend.bootstrap.operation_worker import (
     bootstrap_control_database,
     build_worker_runtime,
@@ -424,7 +425,7 @@ def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path
         claimed = OperationLifecycleActions(
             unit_of_work.operations,
             transaction_now=unit_of_work.operations.transaction_now,
-        ).claim_one("worker-startup-old", "lease-startup-old")
+        ).claim_one(worker_id_for(settings.deployment_config, settings.instance_index), "lease-startup-old")
     assert claimed is not None
     with connect_control_db(settings.control_db_path) as connection:
         connection.execute(
@@ -450,7 +451,7 @@ def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path
         payload_decoders={REGISTERED_DECODER: lambda payload: payload},
     )
     disposition = runtime._startup.startup()
-    assert disposition is StartupDisposition.RETRYABLE_BLOCK, events
+    assert disposition is StartupDisposition.READY, events
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
         recovered_step = unit_of_work.operations.get_step(step.step_id)
     assert recovered_step.status is StepStatus.RETRY_WAIT
@@ -994,7 +995,7 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
     assert recording_stub.submit_count == 1
 
     _expire_step_lease(settings.control_db_path, step_id)
-    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    assert startup.startup() is StartupDisposition.READY
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
         retry_step = unit_of_work.operations.get_step(step_id)
     assert retry_step.status is StepStatus.RETRY_WAIT
@@ -1092,3 +1093,64 @@ def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tm
     assert restarted._startup.startup() is StartupDisposition.READY
     claimed = restarted._startup.claim_one()
     assert claimed is not None and claimed.step.attempt_count == 1
+
+
+@pytest.mark.serial
+def test_two_processes_claim_distinct_steps_on_shared_sqlite(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    bootstrap_control_database(settings)
+    with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
+        for index in range(2):
+            operation = operation_record_from_document(_operation_document(f"operation-race-{index}"))
+            step = step_record_from_document(_step_document(operation.operation_id, f"step-race-{index}"))
+            unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+    child = r'''
+import sys
+from pathlib import Path
+from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
+from gateway_backend.operations.worker import StartupDisposition
+from gateway_backend.operations.worker_startup import WorkerStartup
+class Registry:
+    def resolve(self, key):
+        return lambda *_: None
+path = Path(sys.argv[1])
+startup = WorkerStartup(
+    read_uow_factory=lambda: ControlDbUnitOfWork(path, read_only=True),
+    write_uow_factory=lambda: ControlDbUnitOfWork(path),
+    registry=Registry(), recovery_hook=lambda *_: StartupDisposition.READY,
+    observer=lambda _: None, worker_id_factory=lambda: sys.argv[2])
+assert startup.startup() is StartupDisposition.READY
+print("READY", flush=True)
+sys.stdin.readline()
+work = startup.claim_one()
+assert work is not None
+print(work.step.step_id, flush=True)
+'''
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
+    children = [subprocess.Popen([sys.executable, "-c", child, str(settings.control_db_path), f"worker-{i}"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
+        for i in range(2)]
+    try:
+        for process in children:
+            assert process.stdout is not None
+            assert process.stdout.readline().strip() == "READY"
+        for process in children:
+            assert process.stdin is not None
+            process.stdin.write("claim\n")
+            process.stdin.flush()
+        claimed = []
+        for process in children:
+            output, error = process.communicate(timeout=10)
+            assert process.returncode == 0, error
+            claimed.append(output.strip())
+        assert set(claimed) == {"step-race-0", "step-race-1"}
+    finally:
+        for process in children:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)

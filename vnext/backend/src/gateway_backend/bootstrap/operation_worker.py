@@ -366,6 +366,7 @@ def build_worker_runtime(
         return RecoveryCapabilityValue(definition.recovery_capability.value)
 
     startup_recovery = build_startup_recovery(
+        worker_id=worker_id_for(deployment, settings.instance_index),
         write_uow_factory=resolved_write_uow_factory,
         capability_lookup=capability_lookup,
         jitter=jitter,
@@ -389,6 +390,8 @@ def build_worker_runtime(
         recovery_hook=_fail_closed_recovery,
         worker_id_factory=lambda: worker_id_for(deployment, settings.instance_index),
         startup_recovery=startup_recovery,
+        running_worker_ids=frozenset(worker_id_for(deployment, index)
+            for index in range(1, deployment.resources.worker.count + 1)),
         observer=startup_observer,
     )
     bounded_startup = _StartupBudget(
@@ -689,6 +692,7 @@ class _R4WorkerStartup(WorkerStartup):
         worker_id_factory: Callable[[], str] | None = None,
         lease_token_factory: Callable[[], str] | None = None,
         page_limit: int | None = None,
+        running_worker_ids: frozenset[str] | None = None,
     ) -> None:
         init_kwargs: dict[str, object] = {
             "read_uow_factory": read_uow_factory,
@@ -697,6 +701,8 @@ class _R4WorkerStartup(WorkerStartup):
             "recovery_hook": recovery_hook,
             "observer": observer,
         }
+        if running_worker_ids is not None:
+            init_kwargs["running_worker_ids"] = running_worker_ids
         if startup_recovery is not None:
             init_kwargs["startup_recovery"] = startup_recovery
         if worker_id_factory is not None:

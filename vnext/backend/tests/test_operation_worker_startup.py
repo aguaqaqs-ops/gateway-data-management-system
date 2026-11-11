@@ -426,6 +426,7 @@ def _startup(
     page_limit: int = 50,
     worker_id_factory: Callable[[], str] | None = None,
     lease_token_factory: Callable[[], str] | None = None,
+    running_worker_ids: frozenset[str] | None = None,
 ) -> tuple[WorkerStartup, UowFactory, UowFactory, list[WorkerEvent]]:
     read_factory = UowFactory(store, kind="read")
     write_factory = UowFactory(store, kind="write")
@@ -450,6 +451,7 @@ def _startup(
         worker_id_factory=worker_id_factory or (lambda: "worker-test"),
         lease_token_factory=lease_token_factory or (lambda: "lease-test"),
         page_limit=page_limit,
+        running_worker_ids=running_worker_ids,
     )
     return startup, read_factory, write_factory, events
 
@@ -803,3 +805,26 @@ class WorkerStartupHarness:
             observer=observe,
         )
         return startup, read_factory, write_factory, events
+
+
+@pytest.mark.parametrize("owner", ("old-worker", "wrong-namespace", "worker-0", "worker-3"))
+def test_running_owner_outside_configured_instances_refuses_startup(owner: str) -> None:
+    import dataclasses
+
+    operation = _operation("op-1", status=OperationStatus.RUNNING)
+    step = dataclasses.replace(_step("op-1", "step-1", status=StepStatus.RUNNING), worker_id=owner)
+    store = FakeStore((operation,), (step,))
+    startup, *_ = _startup(store, Registry({JobStepKey("import.package", "validate")}),
+        running_worker_ids=frozenset({"worker-test", "worker-peer"}))
+    assert startup.startup() is StartupDisposition.FATAL_BLOCK
+
+
+def test_multiple_running_steps_owned_by_one_instance_refuse_startup() -> None:
+    import dataclasses
+
+    operations = tuple(_operation(f"op-{i}", status=OperationStatus.RUNNING) for i in range(2))
+    steps = tuple(dataclasses.replace(_step(f"op-{i}", f"step-{i}", status=StepStatus.RUNNING),
+        worker_id="worker-test") for i in range(2))
+    store = FakeStore(operations, steps)
+    startup, *_ = _startup(store, Registry({JobStepKey("import.package", "validate")}))
+    assert startup.startup() is StartupDisposition.FATAL_BLOCK

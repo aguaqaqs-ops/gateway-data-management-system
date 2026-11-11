@@ -836,16 +836,9 @@ def startup_disposition_after_recovery(
     retry_not_before: datetime | None,
     transaction_now: datetime,
 ) -> StartupDisposition:
-    disposition = decision.disposition
-    if disposition in {
-        RecoveryPolicyDecisionDisposition.BLOCK_STARTUP_FATAL,
-        RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY,
-    }:
-        return StartupDisposition.FATAL_BLOCK
-    if disposition is RecoveryPolicyDecisionDisposition.NO_ACTION:
-        return StartupDisposition.READY
-    if retry_not_before is not None and retry_not_before > transaction_now:
-        return StartupDisposition.RETRYABLE_BLOCK
+    # A committed manual/backoff transition belongs to this task, not to the
+    # worker startup gate. Group integrity failures are raised before this point.
+    del decision, retry_not_before, transaction_now
     return StartupDisposition.READY
 
 
@@ -946,6 +939,10 @@ class StartupRecovery:
     capability_lookup: RecoveryCapabilityLookup
     jitter: Jitter
     now_factory: NowFactory
+    worker_id: str
+
+    def __post_init__(self) -> None:
+        _validate_opaque_id(self.worker_id, "worker_id")
 
     def recover_pair(
         self,
@@ -957,9 +954,12 @@ class StartupRecovery:
         if step.status is not StepStatus.RUNNING:
             return StartupDisposition.READY
 
+        if step.worker_id != self.worker_id:
+            return StartupDisposition.READY
+
         now = self.now_factory()
         if not step_lease_expired(step, now):
-            # A restarted worker must not become idle-ready while any old RUNNING
+            # A restarted worker must not become idle-ready while its old RUNNING
             # step still owns a live lease. Startup retries are bounded by the
             # worker's existing startup budget and eventually revisit expiry.
             return StartupDisposition.RETRYABLE_BLOCK
@@ -973,6 +973,8 @@ class StartupRecovery:
                 if fresh_step.status is StepStatus.RETRY_WAIT:
                     return StartupDisposition.READY
                 if fresh_step.status is not StepStatus.RUNNING:
+                    return StartupDisposition.READY
+                if fresh_step.worker_id != self.worker_id:
                     return StartupDisposition.READY
                 if not step_lease_expired(fresh_step, transaction_now):
                     return StartupDisposition.RETRYABLE_BLOCK
@@ -1365,6 +1367,7 @@ def _validate_ijson_version(value: object, label: str) -> None:
 
 def build_startup_recovery(
     *,
+    worker_id: str,
     write_uow_factory: WriteUnitOfWorkFactory,
     capability_lookup: RecoveryCapabilityLookup,
     jitter: Jitter,
@@ -1384,6 +1387,7 @@ def build_startup_recovery(
         capability_lookup=capability_lookup,
         jitter=jitter,
         now_factory=effective_now,
+        worker_id=worker_id,
     )
 
 

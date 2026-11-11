@@ -96,6 +96,7 @@ class WorkerStartup:
         "_page_limit",
         "_worker_id",
         "_ready",
+        "_running_worker_ids",
     )
 
     def __init__(
@@ -110,6 +111,7 @@ class WorkerStartup:
         worker_id_factory: Callable[[], str] = _new_worker_id,
         lease_token_factory: Callable[[], str] = _new_lease_token,
         page_limit: int = DEFAULT_PAGE_LIMIT,
+        running_worker_ids: frozenset[str] | None = None,
     ) -> None:
         if not callable(read_uow_factory):
             raise ValueError("read_uow_factory must be callable")
@@ -133,6 +135,11 @@ class WorkerStartup:
         worker_id = worker_id_factory()
         _validate_opaque_id(worker_id, "worker_id")
 
+        if startup_recovery is not None and startup_recovery.worker_id != worker_id:
+            raise ValueError("startup recovery owner must match worker identity")
+        if running_worker_ids is not None and worker_id not in running_worker_ids:
+            raise ValueError("worker identity must belong to configured running owners")
+        self._running_worker_ids = running_worker_ids
         self._read_uow_factory = read_uow_factory
         self._write_uow_factory = write_uow_factory
         self._registry = registry
@@ -291,6 +298,15 @@ class WorkerStartup:
                     if next_cursor == cursor:
                         raise ValueError("operation status cursor did not advance")
                     cursor = next_cursor
+        own_running = 0
+        for pair in pairs:
+            if pair.step.status is StepStatus.RUNNING:
+                if (self._running_worker_ids is not None
+                        and pair.step.worker_id not in self._running_worker_ids):
+                    raise ValueError("RUNNING owner is outside the configured worker instances")
+                own_running += pair.step.worker_id == self._worker_id
+        if own_running > 1:
+            raise ValueError("worker instance has multiple RUNNING steps")
         return tuple(pairs)
 
     def _active_steps(
@@ -322,6 +338,8 @@ class WorkerStartup:
         disposition = StartupDisposition.READY
         for pair in pairs:
             if self._is_manual(pair):
+                continue
+            if pair.step.status is StepStatus.RUNNING and pair.step.worker_id != self._worker_id:
                 continue
             if self._startup_recovery is not None:
                 candidate = self._startup_recovery.recover_pair(pair.operation, pair.step)

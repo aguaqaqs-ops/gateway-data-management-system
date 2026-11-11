@@ -123,16 +123,17 @@ startup = WorkerStartup(
     registry=Registry(),
     recovery_hook=lambda *_args: StartupDisposition.READY,
     startup_recovery=build_startup_recovery(
+        worker_id="worker-process-old",
         write_uow_factory=write_uow,
         capability_lookup=lambda *_args: RecoveryCapabilityValue.PURE_RECOMPUTE,
         jitter=lambda lower, _upper: lower,
         now_factory=now,
     ),
     observer=lambda _event: None,
-    worker_id_factory=lambda: "worker-process-new",
+    worker_id_factory=lambda: "worker-process-old",
     lease_token_factory=lambda: "lease-process-new",
 )
-assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+assert startup.startup() is StartupDisposition.READY
 with ControlDbUnitOfWork(db_path, read_only=True, now=now) as unit_of_work:
     persisted = unit_of_work.operations.get_step("step-process-takeover")
 assert persisted.status is StepStatus.RETRY_WAIT

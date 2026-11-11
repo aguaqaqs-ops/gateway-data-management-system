@@ -202,8 +202,9 @@ class TakeoverHarness:
     def write_uow(self) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(self.db_path, now=self.clock)
 
-    def startup_recovery(self) -> StartupRecovery:
+    def startup_recovery(self, worker_id: str = "worker-old") -> StartupRecovery:
         return build_startup_recovery(
+            worker_id=worker_id,
             write_uow_factory=self.write_uow,
             capability_lookup=lambda _job_kind, _step_name: self.capability,
             jitter=_deterministic_jitter,
@@ -229,7 +230,7 @@ class TakeoverHarness:
         )
         self.advance_past_lease(step)
         startup = self.worker_startup()
-        assert startup.startup() is StartupDisposition.FATAL_BLOCK
+        assert startup.startup() is StartupDisposition.READY
         with self.read_uow() as unit_of_work:
             store = unit_of_work.operations
             persisted_step = store.get_step(step_id)
@@ -255,13 +256,13 @@ class TakeoverHarness:
             reason=reason,
         )
 
-    def worker_startup(self, *, worker_id: str = "worker-takeover") -> WorkerStartup:
+    def worker_startup(self, *, worker_id: str = "worker-old") -> WorkerStartup:
         return WorkerStartup(
             read_uow_factory=self.read_uow,
             write_uow_factory=self.write_uow,
             registry=_Registry(cast(ClaimedExecutor, _terminal_executor)),
             recovery_hook=cast(RecoveryHook, _ready_recovery),
-            startup_recovery=self.startup_recovery(),
+            startup_recovery=self.startup_recovery(worker_id),
             observer=lambda _event: None,
             worker_id_factory=lambda: worker_id,
             lease_token_factory=lambda: f"lease-{worker_id}",
@@ -310,13 +311,13 @@ class TakeoverHarness:
         )
         while step.attempt_count < attempt_count:
             self.advance_past_lease(step)
-            recovery_startup = self.worker_startup(worker_id=f"worker-recover-{step.attempt_count}")
-            assert recovery_startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+            recovery_startup = self.worker_startup(worker_id=step.worker_id or "worker-old")
+            assert recovery_startup.startup() is StartupDisposition.READY
             with self.read_uow() as unit_of_work:
                 retry_not_before = unit_of_work.operations.get_step(step.step_id).retry_not_before
             assert retry_not_before is not None
             self.clock.value = retry_not_before
-            claim_startup = self.worker_startup(worker_id=f"worker-claim-{step.attempt_count + 1}")
+            claim_startup = self.worker_startup(worker_id="worker-old")
             assert claim_startup.startup() is StartupDisposition.READY
             work = claim_startup.claim_one()
             assert work is not None
@@ -372,7 +373,7 @@ STARTUP_LEASE_DISPOSITION_CASES = (
     (
         "expired",
         RecoveryCapabilityValue.PURE_RECOMPUTE,
-        StartupDisposition.RETRYABLE_BLOCK,
+        StartupDisposition.READY,
         StepStatus.RETRY_WAIT,
         OperationStatus.RUNNING,
         "R5.RETRY_SCHEDULED",
@@ -380,7 +381,7 @@ STARTUP_LEASE_DISPOSITION_CASES = (
     (
         "expired",
         RecoveryCapabilityValue.EXTERNAL_EFFECT,
-        StartupDisposition.RETRYABLE_BLOCK,
+        StartupDisposition.READY,
         StepStatus.RETRY_WAIT,
         OperationStatus.RUNNING,
         "R5.RECONCILE_STARTED",
@@ -388,7 +389,7 @@ STARTUP_LEASE_DISPOSITION_CASES = (
     (
         "expired",
         RecoveryCapabilityValue.NON_RETRYABLE,
-        StartupDisposition.FATAL_BLOCK,
+        StartupDisposition.READY,
         StepStatus.MANUAL_RECOVERY_REQUIRED,
         OperationStatus.MANUAL_RECOVERY_REQUIRED,
         "R5.MANUAL_RECOVERY_REQUIRED",
@@ -451,6 +452,7 @@ def test_transaction_recheck_blocks_a_lease_that_became_live(
     assert lease_expires_at is not None
     outer_now = lease_expires_at + timedelta(seconds=1)
     recovery = build_startup_recovery(
+        worker_id=step.worker_id or "worker-old",
         write_uow_factory=harness.write_uow,
         capability_lookup=lambda _job_kind, _step_name: capability,
         jitter=_deterministic_jitter,
@@ -474,8 +476,8 @@ def test_due_retry_wait_reclaim_preserves_started_at_and_increments_attempt(
     operation, step = harness.seed_claimed_running()
     original_started_at = step.started_at
     harness.advance_past_lease(step)
-    startup = harness.worker_startup(worker_id="worker-reclaim")
-    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    startup = harness.worker_startup(worker_id="worker-old")
+    assert startup.startup() is StartupDisposition.READY
 
     with harness.read_uow() as unit_of_work:
         retry_not_before = unit_of_work.operations.get_step(step.step_id).retry_not_before
@@ -488,8 +490,8 @@ def test_due_retry_wait_reclaim_preserves_started_at_and_increments_attempt(
     assert work.step.status is StepStatus.RUNNING
     assert work.step.attempt_count == step.attempt_count + 1
     assert work.step.started_at == original_started_at
-    assert work.step.worker_id == "worker-reclaim"
-    assert work.step.lease_token == "lease-worker-reclaim"
+    assert work.step.worker_id == "worker-old"
+    assert work.step.lease_token == "lease-worker-old"
     del operation
 
 
@@ -502,7 +504,7 @@ def test_session_budget_exhaustion_marks_manual_recovery(
     operation, step = harness.seed_running_with_attempt_count(3)
     harness.advance_past_lease(step)
     startup = harness.worker_startup()
-    assert startup.startup() is StartupDisposition.FATAL_BLOCK
+    assert startup.startup() is StartupDisposition.READY
 
     with harness.read_uow() as unit_of_work:
         persisted_step = unit_of_work.operations.get_step(step.step_id)
@@ -525,11 +527,11 @@ def test_concurrent_recovery_cas_leaves_single_retry_wait(tmp_path: Path) -> Non
         results.append(startup.startup())
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        executor.submit(run_startup, "worker-a")
-        executor.submit(run_startup, "worker-b")
+        executor.submit(run_startup, "worker-old")
+        executor.submit(run_startup, "worker-peer")
         executor.shutdown(wait=True)
 
-    assert StartupDisposition.RETRYABLE_BLOCK in results
+    assert StartupDisposition.READY in results
     assert any(
         disposition in {StartupDisposition.READY, StartupDisposition.RETRYABLE_BLOCK}
         for disposition in results
@@ -547,8 +549,8 @@ def test_old_lease_token_is_fenced_after_takeover(tmp_path: Path) -> None:
     )
     original_started_at = step.started_at
     harness.advance_past_lease(step)
-    reclaim_startup = harness.worker_startup(worker_id="worker-new")
-    assert reclaim_startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    reclaim_startup = harness.worker_startup(worker_id="worker-stale")
+    assert reclaim_startup.startup() is StartupDisposition.READY
 
     with harness.read_uow() as unit_of_work:
         retry_not_before = unit_of_work.operations.get_step(step.step_id).retry_not_before
@@ -854,7 +856,7 @@ def test_operator_recovery_session_lease_loss_returns_manual_without_blocking_st
     assert work.step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
     harness.advance_past_lease(work.step)
 
-    restarted = harness.worker_startup(worker_id="worker-after-session-loss")
+    restarted = harness.worker_startup(worker_id="worker-recovery-session")
     assert restarted.startup() is StartupDisposition.READY
     with harness.read_uow() as unit_of_work:
         persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
@@ -937,3 +939,55 @@ def test_build_recovery_candidates_rejects_running_to_running_intent() -> None:
             decision=decision,
             transaction_now=BASE_TIME,
         )
+
+
+@pytest.mark.parametrize("expired", (False, True))
+def test_foreign_running_lease_does_not_block_or_recover(tmp_path: Path, expired: bool) -> None:
+    harness = _make_harness(tmp_path)
+    operation, step = harness.seed_claimed_running()
+    if expired:
+        harness.advance_past_lease(step)
+    startup = harness.worker_startup(worker_id="worker-peer")
+    assert startup.startup() is StartupDisposition.READY
+    assert startup.claim_one() is None
+    # Both the startup filter and direct recovery obey the same ownership rule.
+    assert harness.startup_recovery("worker-peer").recover_pair(operation, step) is StartupDisposition.READY
+    with harness.read_uow() as unit_of_work:
+        assert unit_of_work.operations.get_step(step.step_id) == step
+        assert unit_of_work.operations.get_operation(operation.operation_id) == operation
+
+
+def test_own_live_lease_waits_until_expiry_then_task_backoff_is_local(tmp_path: Path) -> None:
+    harness = _make_harness(tmp_path)
+    _, step = harness.seed_claimed_running()
+    startup = harness.worker_startup()
+    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    harness.advance_past_lease(step)
+    assert startup.startup() is StartupDisposition.READY
+    assert startup.claim_one() is None
+    # A different queued task remains runnable while the recovered task waits.
+    other = operation_record_from_document(_operation_document("operation-other"))
+    other_step = step_record_from_document(_step_document(other.operation_id, "step-other"))
+    with harness.write_uow() as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(other, other_step)
+    work = startup.claim_one()
+    assert work is not None and work.step.step_id == other_step.step_id
+
+
+def test_recovery_rechecks_owner_after_scan_before_writing(tmp_path: Path) -> None:
+    harness = _make_harness(tmp_path)
+    operation, step = harness.seed_claimed_running()
+    harness.advance_past_lease(step)
+    assert harness.startup_recovery().recover_pair(operation, step) is StartupDisposition.READY
+    with harness.read_uow() as unit_of_work:
+        retry = unit_of_work.operations.get_step(step.step_id)
+    assert retry.retry_not_before is not None
+    harness.clock.value = retry.retry_not_before
+    peer = harness.worker_startup(worker_id="worker-peer")
+    assert peer.startup() is StartupDisposition.READY
+    claimed = peer.claim_one()
+    assert claimed is not None
+    harness.advance_past_lease(claimed.step)
+    assert harness.startup_recovery().recover_pair(operation, step) is StartupDisposition.READY
+    with harness.read_uow() as unit_of_work:
+        assert unit_of_work.operations.get_step(step.step_id) == claimed.step

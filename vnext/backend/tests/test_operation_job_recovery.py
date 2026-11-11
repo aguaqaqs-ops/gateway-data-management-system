@@ -1195,8 +1195,9 @@ class PureComputeRecoveryHarness:
     def write_uow(self) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(self.db_path, now=self.clock)
 
-    def startup_recovery(self) -> StartupRecovery:
+    def startup_recovery(self, worker_id: str) -> StartupRecovery:
         return build_startup_recovery(
+            worker_id=worker_id,
             write_uow_factory=self.write_uow,
             capability_lookup=lambda _job_kind, _step_name: self.capability,
             jitter=_deterministic_jitter,
@@ -1209,7 +1210,7 @@ class PureComputeRecoveryHarness:
             write_uow_factory=self.write_uow,
             registry=_PureComputeRegistry(),
             recovery_hook=cast(RecoveryHook, _ready_recovery),
-            startup_recovery=self.startup_recovery(),
+            startup_recovery=self.startup_recovery(worker_id),
             observer=lambda _event: None,
             worker_id_factory=lambda: worker_id,
             lease_token_factory=lambda: f"lease-{worker_id}",
@@ -1256,8 +1257,8 @@ class PureComputeRecoveryHarness:
         )
         while step.attempt_count < attempt_count:
             self.advance_past_lease(step)
-            recovery_startup = self.worker_startup(worker_id=f"worker-recover-{step.attempt_count}")
-            assert recovery_startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+            recovery_startup = self.worker_startup(worker_id=step.worker_id or "worker-pure-old")
+            assert recovery_startup.startup() is StartupDisposition.READY
             with self.read_uow() as unit_of_work:
                 retry_not_before = unit_of_work.operations.get_step(step.step_id).retry_not_before
             assert retry_not_before is not None
@@ -1616,8 +1617,8 @@ def test_pure_compute_lease_takeover_reclaim_preserves_started_at_and_checkpoint
     assert checkpoint_ref is not None
 
     harness.advance_past_lease(step)
-    reclaim_startup = harness.worker_startup(worker_id="worker-pure-takeover-new")
-    assert reclaim_startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    reclaim_startup = harness.worker_startup(worker_id=worker_id)
+    assert reclaim_startup.startup() is StartupDisposition.READY
 
     with harness.read_uow() as unit_of_work:
         retry_not_before = unit_of_work.operations.get_step(step_id).retry_not_before
@@ -1677,7 +1678,7 @@ def test_pure_compute_retry_does_not_duplicate_successor_or_closure(tmp_path: Pa
     with harness.read_uow() as unit_of_work:
         running_step = unit_of_work.operations.get_step(step_id)
     harness.advance_past_lease(running_step)
-    assert harness.worker_startup().startup() is StartupDisposition.RETRYABLE_BLOCK
+    assert harness.worker_startup(worker_id=worker_id).startup() is StartupDisposition.READY
 
     with harness.read_uow() as unit_of_work:
         retry_step = unit_of_work.operations.get_step(step_id)

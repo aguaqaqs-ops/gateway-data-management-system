@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 import struct
 from collections.abc import Iterator, Callable
 from types import SimpleNamespace
@@ -177,6 +179,7 @@ def source_arrow_metadata(source: SourceTableDescriptor, stream: pa.RecordBatchR
     }
 
 
+@timed("parse")
 def parse_arrow_sql(request: SqlParseRequest, *, budgets: ResourceBudgets = RESOURCE_BUDGETS) -> ParseResult:
     context = current_kernel_context()
     if context is None:

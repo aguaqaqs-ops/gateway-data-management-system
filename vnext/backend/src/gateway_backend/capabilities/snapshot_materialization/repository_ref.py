@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 import dataclasses
 import hashlib
 import logging
@@ -91,6 +93,7 @@ class _Halt(Exception):
         self.table = table
 
 
+@timed("materialize")
 def materialize_repository_ref(
     request: RepositoryRefMaterializationRequest,
 ) -> SnapshotMaterializationResult:
@@ -123,6 +126,7 @@ def _run_materializer(
         )
 
 
+@timed("materialize")
 def describe_repository_ref(
     request: RepositoryRefMaterializationRequest,
 ) -> SnapshotMaterializationResult:

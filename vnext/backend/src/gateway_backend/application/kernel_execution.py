@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, ExitStack
 from dataclasses import replace
@@ -161,6 +163,7 @@ def publish_generic_stopped_compute_cancelled(session: LeaseSession) -> Executor
     return ExecutorAcknowledgment.PUBLISHED
 
 
+@timed("bundle")
 def assemble_operation_bundle(
     request: BundleAssemblyInput, *, source_store: ArtifactStorePort, context: BundleAssemblyContext,
 ) -> BundleAssemblyResult:

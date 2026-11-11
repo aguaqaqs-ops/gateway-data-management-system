@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -45,6 +47,7 @@ class FinalizeSubmitTransactionRequest:
     defer_operation_terminal: bool = False
 
 
+@timed("finalize")
 def finalize_submit_transaction(
     *,
     request: FinalizeSubmitTransactionRequest,

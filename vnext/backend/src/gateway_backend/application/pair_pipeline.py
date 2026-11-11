@@ -9,10 +9,9 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 
 from collections.abc import Callable, Mapping
 from contextlib import closing
-from dataclasses import asdict, dataclass
-import json
-import logging
+from dataclasses import dataclass
 from time import perf_counter
+from gateway_backend.statistics.metrics import duration, ordered_input_table, pair_table, pair_totals
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
@@ -82,7 +81,6 @@ from gateway_backend.capabilities.table_access import Reservation, current_kerne
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
-_LOG = logging.getLogger(__name__)
 
 
 class PairPipelineError(Exception):
@@ -380,7 +378,6 @@ def _finish_comparison_risk_surface(
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
     published: DetailedFactsResult | DatasetReplacementResult
-    record_publication_started = perf_counter()
     record_timings: dict[str, float] = {}
     if isinstance(compared, DatasetReplacementResult):
         if compared.facts is None:
@@ -427,7 +424,6 @@ def _finish_comparison_risk_surface(
         comparison_facts = closure_facts
     else:
         raise PairPipelineError("pair comparison did not produce facts")
-    record_publication_seconds = perf_counter() - record_publication_started
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
@@ -458,7 +454,6 @@ def _finish_comparison_risk_surface(
         raise PairPipelineError("risk evaluation failed")
     # Surface holds only small facts/refs; its JSON construction and retained
     # result still consume the same operation M after native records seal.
-    surface_started = perf_counter()
     def reserve_surface(size: int) -> Reservation:
         try:
             return context.memory.reserve(size)
@@ -479,13 +474,11 @@ def _finish_comparison_risk_surface(
         include_all_before=include_all_before_tables or request.mode is ComparisonMode.DATASET_REPLACEMENT,
     )
     export_seconds = perf_counter() - export_started
-    presentation_started = perf_counter()
-    table_artifacts, navigation_projection, presentation_metrics = publish_business_presentation(
+    table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
         table_artifacts, attribution, store, before_presentation=before_presentation,
         current_presentation=current_presentation, same_complete=_same_complete_table_identity,
     )
-    presentation_seconds = perf_counter() - presentation_started
     with reserve_surface(8 * 16 * 1024**2):
         surface = assemble_surface(
         SurfaceAssemblyInput(
@@ -513,61 +506,21 @@ def _finish_comparison_risk_surface(
     checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
-    surface_seconds = perf_counter() - surface_started
     native_comparison.commit_cache()
-    comparison_metrics = native_comparison.metrics
-    measured = {} if comparison_metrics is None else asdict(comparison_metrics)
-    native_seconds = (
-        measured.get("native_input_read_seconds", 0.0)
-        + measured.get("native_index_compare_seconds", 0.0)
-        + measured.get("native_records_build_seconds", 0.0)
-        + measured.get("ordered_current_summary_seconds", 0.0)
-    )
-    parquet_seconds = record_timings.get("parquet_write_seconds", 0.0)
-    conversion_seconds = risk_conversion.get("necessary_arrow_conversion_seconds", 0.0)
-    extraction_seconds = risk_conversion.get("fact_extraction_seconds", 0.0)
-    validation_seconds = risk_conversion.get("ruleset_validation_seconds", 0.0)
-    rules_seconds = risk_conversion.get("rules_evaluation_seconds", 0.0)
-    publication_seconds = risk_conversion.get("publication_seconds", 0.0)
-    _LOG.info("s3_pair_metrics %s", json.dumps({
-        "pair_id": request.pair_id,
-        "mode": request.mode.value,
-        "comparison_total_seconds": comparison_elapsed,
-        "comparison": measured,
-        "comparison_kernel_calls": measured.get("native_calls", 0) - measured.get("ordered_single_side_calls", 0),
-        "ordered_single_side_calls": measured.get("ordered_single_side_calls", 0),
-        "diff_cache_lookups": measured.get("persistent_cache_lookups", 0),
-        "cache_restore_calls": measured.get("cache_restores", 0),
-        "cache_records_validation_calls": measured.get("cache_records_validations", 0),
-        "digest_rebinds": measured.get("digest_rebinds", 0),
-        "comparison_python_other_seconds": max(
-            0.0, measured.get("compare_read_build_seconds", 0.0) - native_seconds,
-        ),
-        "upstream_projection_seconds": None,
-        "records_publication_seconds": record_publication_seconds,
-        "parquet_write_seconds": parquet_seconds,
-        "records_publication_other_seconds": max(0.0, record_publication_seconds - parquet_seconds),
-        "risk_total_seconds": risk_seconds,
-        "risk_necessary_arrow_conversion_seconds": conversion_seconds,
-        "risk_fact_extraction_seconds": extraction_seconds,
-        "risk_ruleset_validation_seconds": validation_seconds,
-        "risk_rules_evaluation_seconds": rules_seconds,
-        "risk_publication_seconds": publication_seconds,
-        "risk_digest_jcs_seconds": risk_conversion.get("digest_jcs_seconds", 0.0),
-        "risk_report_jcs_seconds": risk_conversion.get("report_jcs_seconds", 0.0),
-        "risk_artifact_publication_seconds": risk_conversion.get("artifact_publication_seconds", 0.0),
-        "risk_other_seconds": max(
-            0.0, risk_seconds - validation_seconds - extraction_seconds
-            - rules_seconds - publication_seconds,
-        ),
-        "surface_and_table_export_seconds": surface_seconds,
-        "table_export_seconds": export_seconds,
-        "business_presentation_seconds": presentation_seconds,
-        **presentation_metrics,
-        "bundle_assembly_seconds": None,
-        "charged_high_water_bytes": context.memory.high_water_bytes,
-        "charged_live_bytes": context.memory.used_bytes,
-    }, sort_keys=True))
+    duration("compare", comparison_elapsed)
+    duration("risk", risk_seconds)
+    duration("export", export_seconds)
+    summary = comparison_facts.summary
+    pair_totals(changed_tables=summary.changed_table_count,
+        changed_rows=summary.row_added_count + summary.row_deleted_count + summary.row_modified_count)
+    if not comparison_facts.summary.degraded_table_count:
+        ordered_input_table(request.current.snapshot.snapshot_digest.value)
+    for fact in comparison_facts.tables:
+        if fact.ordered_extension is not None and fact.current_descriptor is not None:
+            ordered_input_table(request.current.snapshot.snapshot_digest.value, fact.table_name, fact.current_descriptor.row_count)
+        pair_table(request.pair_id, fact.table_name, request.mode.value,
+            fact.row_count_before, fact.row_count_current,
+            None if fact.diagnostics else fact.row_added_count + fact.row_deleted_count + fact.row_modified_count)
     risk_digest = (
         risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     )

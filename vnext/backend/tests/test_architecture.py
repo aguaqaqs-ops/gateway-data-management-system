@@ -708,6 +708,8 @@ def _assert_capability_import_allowed(
             return
         _assert_capability_edge_allowed(source, current_owner, imported)
         return
+    if imported == "gateway_backend.statistics.metrics":
+        return
     if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
         return
     if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.infrastructure.statistics.collection import BufferedTelemetrySink
+
 from gateway_backend.artifacts.scratch import ScratchSpacePort
 
 from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config, local_store_from_config, scratch_space_from_config
@@ -313,6 +315,7 @@ def build_worker_runtime(
     write_uow_factory: WriteUnitOfWorkFactory | None = None,
     read_uow_factory: WriteUnitOfWorkFactory | None = None,
     now_factory: Callable[[], datetime] | None = None,
+    telemetry: BufferedTelemetrySink | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
@@ -397,6 +400,7 @@ def build_worker_runtime(
         drain_timeout=settings.graceful_drain_timeout_seconds,
     )
     return WorkerRuntime(
+        telemetry=telemetry,
         startup=cast(WorkerStartup, bounded_startup),
         write_uow_factory=resolved_write_uow_factory,
         observer=observer,

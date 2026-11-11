@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import bind_scope
+
+from gateway_backend.statistics.metrics import input_shape, timed
+
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from gateway_backend.artifacts.location import parse_artifact_id
@@ -367,6 +371,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         try:
             _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:
@@ -498,6 +503,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         try:
             rule_set = _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:
@@ -681,6 +687,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         try:
             _assert_runtime_ruleset(payload)
         except HistoryCompareRulesetVersionMismatch as exc:
@@ -925,6 +932,10 @@ def _assemble_comparison(
                 raise PairPipelineCancelled
             before = sides[before_node.commit_id]
             current = sides[current_node.commit_id]
+            descriptors = current.summary.tables
+            input_shape(current.snapshot.snapshot_digest.value, table_count=len(descriptors),
+                total_rows=sum(item.row_count for item in descriptors),
+                max_table_rows=max((item.row_count for item in descriptors), default=0))
             pair_state = _run_pair_pipeline(
                 pair_id=pair_id,
                 before=before,
@@ -1024,6 +1035,7 @@ def _validate_described_sides(payload: HistoryCompareJobPayload, deps: HistoryCo
             code="CHECKPOINT_JOB_STATE_MISMATCH")
 
 
+@timed("materialize")
 def _ensure_history_demands(
     payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies,
     sides: dict[str, BoundSnapshotInput],

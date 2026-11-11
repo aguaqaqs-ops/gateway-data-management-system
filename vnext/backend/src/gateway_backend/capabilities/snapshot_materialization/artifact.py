@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import cache_hit, cache_lookup
+
 from gateway_backend.artifacts.location import ArtifactLocation
 
 import json
@@ -191,6 +193,7 @@ def _publish_snapshot_table_artifact(
             )
             row_ref = cached_row_ref
             stored_parquet = candidate
+            cache_hit("snapshot_export")
         except (ArtifactPublishError, ManifestVerificationError):
             # Cache contents are derived and recoverable. A corrupt or mismatched
             # cached row file behaves like a miss; the canonical reader remains
@@ -507,6 +510,8 @@ def publish_canonical_tables(
             if not isinstance(table.reader, ArrowSnapshotTableReader):
                 raise ValueError("canonical IPC publication requires the Arrow projection reader")
             key = canonical_table_key(repository_id, table.descriptor)
+            if lookup is not None:
+                cache_lookup("canonical")
             ref = None if lookup is None else lookup(key)
             if ref is not None:
                 try:
@@ -517,6 +522,8 @@ def publish_canonical_tables(
                 except (ManifestVerificationError, ValueError, OSError):
                     context.checkpoint()
                     ref = None
+            if ref is not None:
+                cache_hit("canonical")
             if ref is None:
                 isolated = table.reader.reopen()
                 try:
@@ -714,6 +721,7 @@ def publish_ready_tables(
     cached: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
     if cache_keys and export_cache is not None:
         try:
+            cache_lookup("snapshot_export", len(cache_keys))
             cached = export_cache.lookup_many(tuple(cache_keys.values()))
         except Exception:
             cached = {}

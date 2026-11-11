@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, ColumnPresentation, PresentationMetadata
 
 import dataclasses
@@ -96,6 +98,7 @@ _DERIVED_COLUMNS = (
 )
 
 
+@timed("materialize")
 def materialize_business_snapshot(
     request: BusinessSnapshotMaterializationRequest,
 ) -> SnapshotMaterializationResult:

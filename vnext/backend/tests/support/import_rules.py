@@ -80,6 +80,8 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "domain": frozenset({"domain"}),
     "artifacts": frozenset({"artifacts"}),
     "operations": frozenset({"operations", "artifacts"}),
+    "statistics": frozenset({"statistics", "operations", "ext:repository_wire"}),
+    "infrastructure:statistics": frozenset({"statistics", "operations", "ext:repository_wire", "ext:sqlite"}),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
@@ -383,8 +385,12 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
             and edge.target == "gateway_backend.artifacts.location"
             and edge.names == ("parse_artifact_id",)
         )
+        approved_telemetry_hook = edge.target == "gateway_backend.statistics.metrics"
+        approved_telemetry_port = (source_zone == "operations" and edge.target == "gateway_backend.statistics.ports")
+        approved_statistics_model = (source_zone == "http" and edge.target == "gateway_backend.statistics.models")
         if (not _target_category_allowed(allowed, target_zone, edge.target)
-                and not approved_native_call and not approved_artifact_id_codec):
+                and not approved_native_call and not approved_artifact_id_codec
+                and not approved_telemetry_hook and not approved_telemetry_port and not approved_statistics_model):
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

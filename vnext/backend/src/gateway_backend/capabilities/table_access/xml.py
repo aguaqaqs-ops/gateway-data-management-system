@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from gateway_backend.capabilities.table_access._parser_runtime import ParserHalt, ParserRuntime
 from gateway_backend.capabilities.table_access._xml_parser import parse_xml_document
 from gateway_backend.capabilities.table_access.contracts import (
@@ -16,6 +18,7 @@ from gateway_backend.capabilities.table_access.contracts import (
 __all__ = ["parse_xml"]
 
 
+@timed("parse")
 def parse_xml(
     request: XmlParseRequest,
     *,

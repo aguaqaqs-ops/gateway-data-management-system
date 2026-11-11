@@ -92,3 +92,26 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 所有候选必须通过 LocalArtifactStore.observe_object 当前可见stat后才计 measured bytes；旧ref不存在记 stale，不能按ref.size永久累加。
 RS库候选仅从成功 create_repository 的 MutationStore keyset页得resource_id，经DurableLayout.published_repository定位。
 扫描不跟随symlink、不执行Dolt、不创建/修复库，before/after不等待业务；计时cutoff和缺失语义以实施计划 §3 为准。
+
+## B 运行接点与近似范围
+
+`operations/worker_runtime.py` 仅捕获专用 sink 的普通 Exception，executor 原异常与原 observer
+继续按既有规则传播；begin 紧邻真实 executor 调用，end 位于 finally 且 completed/wake 必达。
+`statistics/metrics.py` 是无业务依赖、无 I/O/编码的有限标量 hook；capability 仅可依赖这个窄模块。
+active sink 与 SQLite/采样实现在 `infrastructure/statistics/`，bootstrap 可注入，进程启停由 E 接线。
+
+回调缓冲按整条最大记录字节保守计费，表项额外保守限制在10KiB以内；后台再按实际12KiB metrics、
+16KiB record、batch字节校验编码。固定字段过大则丢载荷并明确 partial。相同输入形态不跨pair相加，
+一个claim出现多个不同当前输入时形态为null；changed统计按pair计量。ordered当前表去重集合最多100项，
+超过则ordered总量为null。表项保留pair标识，条目/字节截断不改变tables_total。
+
+parse/materialize/bundle在现有公开调用边界计时；History按需读取边界单独计时。finalize实际计时入口
+为`application/submission/finalize_transaction.py::finalize_submit_transaction`，包含现有事务，避免与其
+内部纯finalize重复累计。rs_import在HTTP adapter的submit_versioned_import/wait_operation调用计时。
+comparison每个已执行task记录一次查找，验证后实际cached复用才命中；risk候选在session统一记录
+查询与验证返回，避免再在持久层重复统计。未触达的cache层为null。
+
+资源读取仅在后台进行，CPU/I/O摘要使用同实例、同执行窗口内实际采样点之间的差值，不外推至
+未采样的头尾区间；摘要为partial/counter_unavailable，短窗口无两个有效点则差值为null。RSS与
+cgroup内存为采样峰值，未扫描scratch则该峰值为null。业务结果没有可靠已提交结果来源时保持unknown。
+原始样本保留各自时间，计数下降或实例改变不相减。

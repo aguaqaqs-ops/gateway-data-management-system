@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
@@ -83,6 +85,7 @@ class HttpRepositoryWriteClient:
             )
         return artifact_ref
 
+    @timed("rs_import")
     def submit_versioned_import(
         self,
         *,
@@ -144,6 +147,7 @@ class HttpRepositoryWriteClient:
         )
         return wire_codec.import_operation_from_wire(response.operation)
 
+    @timed("rs_import")
     def wait_operation(
         self,
         *,

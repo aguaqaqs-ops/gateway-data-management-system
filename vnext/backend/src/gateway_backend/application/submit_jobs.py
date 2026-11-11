@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import bind_scope
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
 
 import dataclasses
@@ -508,6 +510,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_submit_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id, payload.submit_attempt_id)
         attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
         _assert_payload_matches_attempt(payload, attempt)
         if attempt.state is not SubmitAttemptState.PREPARED:
@@ -620,6 +623,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_submit_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id, payload.submit_attempt_id)
         attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
         _assert_payload_matches_attempt(payload, attempt)
 
@@ -763,6 +767,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
         lease_session: LeaseSession,
     ) -> ExecutorAcknowledgment:
         payload = _load_submit_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id, payload.submit_attempt_id)
         with deps.control_transaction_factory() as unit_of_work:
             fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
         if fresh_attempt is None:
@@ -1329,6 +1334,7 @@ def _submit_may_invoke_handler_without_checkpoint(
         return False
     try:
         payload = _load_submit_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id, payload.submit_attempt_id)
         attempt = _load_submit_attempt(deps, payload.submit_attempt_id)
     except Exception:
         return False

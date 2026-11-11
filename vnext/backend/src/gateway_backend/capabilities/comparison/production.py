@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import cache_hit, cache_lookup
+
 import json
 import re
 from time import perf_counter
@@ -501,11 +503,16 @@ class ComparisonTaskSession:
         if context is None:
             raise RuntimeError("comparison context was lost")
         context.checkpoint()
+        cache_lookup("risk_candidate")
         item = self.risk_candidates.get((task_key, risk_key))
         if item is not None:
+            cache_hit("risk_candidate")
             return item[0]
-        return (None if self.risk_persistence is None or not self.persistent_retention
+        result = (None if self.risk_persistence is None or not self.persistent_retention
             else self.risk_persistence.lookup(risk_key))
+        if result is not None:
+            cache_hit("risk_candidate")
+        return result
 
     def risk_store(
         self, task_key: str, risk_key: str,
@@ -1113,6 +1120,8 @@ def _compare_plan_native_once(
         for task in plan.tasks:
             context.checkpoint()
             metrics.dispatches += 1
+            if session is not None:
+                cache_lookup("comparison")
             key = session.key_for(plan, task) if session is not None else None
             persistent = None if session is None else session.persistent_lookup(plan, task)
             cached = persistent if persistent is not None else (None if session is None else session.lookup(key, task))
@@ -1126,6 +1135,7 @@ def _compare_plan_native_once(
                     fact, handle = cached
                     cached_names.add(task.table_name)
                     metrics.cache_hits += 1
+                    cache_hit("comparison")
             except (InterruptedError, TimeoutError, MemoryError):
                 raise
             except (StandardComparisonError, TableAccessError, ValueError, OSError, pa.ArrowException) as exc:

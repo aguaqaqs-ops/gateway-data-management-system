@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation, ColumnPresentation
 
 import dataclasses
@@ -123,6 +125,7 @@ def materialize_sql_snapshot(
         )
 
 
+@timed("materialize")
 def materialize_canonical_snapshot(
     source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
     context: ParserInvocationContext, repository_id: str,

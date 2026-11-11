@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import cache_hit, cache_lookup
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import struct
@@ -65,6 +67,7 @@ def lookup_snapshot_table_parquet(
             read_session = getattr(store, "read_session", None)
             if callable(read_session):
                 borrowed.enter_context(read_session())
+            cache_lookup("snapshot_export")
             cached = export_cache.lookup_many((key,)).get(key)
             context.checkpoint()
             if cached is None:
@@ -101,6 +104,7 @@ def lookup_snapshot_table_parquet(
                         if footer_reservation is not None:
                             footer_reservation.close()
                 context.checkpoint()
+                cache_hit("snapshot_export")
                 return cached
             except (InterruptedError, TimeoutError, MemoryError):
                 raise

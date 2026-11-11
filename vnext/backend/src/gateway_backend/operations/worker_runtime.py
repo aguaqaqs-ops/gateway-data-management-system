@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from gateway_backend.statistics.ports import NullTelemetrySink, TelemetrySink
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import LEASE_DURATION
 from gateway_backend.operations.store import LeaseExpired, StaleWrite, StoreBusy
@@ -116,6 +117,7 @@ class WorkerRuntime:
         "_startup",
         "_write_uow_factory",
         "_observer",
+        "_telemetry",
         "_monotonic",
         "_lifecycle",
         "_thread_factory",
@@ -134,6 +136,7 @@ class WorkerRuntime:
         startup: WorkerStartup,
         write_uow_factory: WriteUnitOfWorkFactory,
         observer: WorkerObserver,
+        telemetry: TelemetrySink | None = None,
         lifecycle: WorkerLifecycleController | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         thread_factory: ThreadFactory = _new_executor_thread,
@@ -177,6 +180,7 @@ class WorkerRuntime:
         self._startup = startup
         self._write_uow_factory = write_uow_factory
         self._observer = observer
+        self._telemetry = telemetry or NullTelemetrySink()
         self._monotonic = monotonic
         self._lifecycle = lifecycle or WorkerLifecycleController(monotonic=monotonic)
         self._thread_factory = thread_factory
@@ -343,6 +347,10 @@ class WorkerRuntime:
 
         def execute() -> None:
             try:
+                try:
+                    self._telemetry.begin_execution(work)
+                except Exception:
+                    pass
                 outcome.value = work.executor(
                     work.operation,
                     work.step,
@@ -352,8 +360,19 @@ class WorkerRuntime:
             except BaseException as error:
                 outcome.error = error
             finally:
-                completed.set()
-                self._wake_event.set()
+                try:
+                    try:
+                        self._telemetry.end_execution(work)
+                    except Exception:
+                        pass
+                except BaseException as telemetry_error:
+                    if outcome.error is None:
+                        outcome.error = telemetry_error
+                    else:
+                        _add_secondary_failure_note(outcome.error, "telemetry shutdown", telemetry_error)
+                finally:
+                    completed.set()
+                    self._wake_event.set()
 
         thread = self._thread_factory(execute)
         if thread.daemon:

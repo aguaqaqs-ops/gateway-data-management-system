@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import bind_scope
+
+from gateway_backend.statistics.metrics import input_shape
+
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
@@ -629,6 +633,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         if _publish_preview_ruleset_mismatch_if_needed(
             payload=payload,
             operation=operation,
@@ -762,6 +767,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         active_rules = _active_preview_ruleset()
         if active_rules.ruleset_digest is None or active_rules.ruleset_digest.value != payload.comparison_ruleset_digest:
             _publish_preview_ruleset_mismatch_failure(
@@ -933,6 +939,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        bind_scope(payload.repository_id)
         if _publish_preview_ruleset_mismatch_if_needed(
             payload=payload,
             operation=operation,
@@ -1697,6 +1704,12 @@ def _materialize_uploaded_side(
             label="uploaded canonical",
             storage_facts=_comparison_storage_facts(projected.manifest),
         )
+        if side is OperationDiagnosticSide.MODIFIED:
+            descriptors = bound.summary.tables
+            input_shape(bound.snapshot.snapshot_digest.value, table_count=len(descriptors),
+                total_rows=sum(item.row_count for item in descriptors),
+                max_table_rows=max((item.row_count for item in descriptors), default=0),
+                sql_bytes=staged.required_sql_document_ref.size_bytes)
         try:
             manifest_ref = publish_canonicalization_manifest(projected.manifest, store)
         except PublicationError as exc:
@@ -1962,6 +1975,10 @@ def _assemble_preview(
     computation_cache: ComputationCachePort | None = None,
     presentations: Mapping[str, PresentationMetadata] | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
+    current_summary = sides[_SIDE_MODIFIED].summary.tables
+    input_shape(sides[_SIDE_MODIFIED].snapshot.snapshot_digest.value,
+        table_count=len(current_summary), total_rows=sum(item.row_count for item in current_summary),
+        max_table_rows=max((item.row_count for item in current_summary), default=0))
     display_inputs = dict(presentations or {})
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []

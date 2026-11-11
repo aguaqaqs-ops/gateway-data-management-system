@@ -45,6 +45,7 @@ from gateway_backend.operations.worker import (
 )
 from gateway_backend.operations.worker_lifecycle import WorkerLifecycleController
 from gateway_backend.operations.worker_runtime import WorkerRuntime
+from gateway_backend.statistics.ports import TelemetrySink
 from gateway_backend.operations.worker_startup import WorkerStartup
 
 pytestmark = pytest.mark.unit
@@ -403,6 +404,7 @@ def _runtime(
     jitter: Callable[[float, float], float] | None = None,
     lifecycle: WorkerLifecycleController | None = None,
     wake_event_factory: Callable[[], InjectedWakeEvent] | None = None,
+    telemetry: TelemetrySink | None = None,
 ) -> WorkerRuntime:
     def observe(event: WorkerEvent) -> None:
         events.append(event)
@@ -419,6 +421,7 @@ def _runtime(
         return InjectedWakeEvent(run_executor)
 
     return WorkerRuntime(
+        telemetry=telemetry,
         startup=cast(WorkerStartup, startup),
         write_uow_factory=cast(Callable[[], OperationUnitOfWork], factory),
         observer=observe,
@@ -1310,3 +1313,39 @@ def test_daemon_executor_is_rejected() -> None:
             events,
             thread_factory=ThreadFactory(daemon=True),
         ).run(drain_requested=lambda: False, wait=lambda _timeout: False)
+
+
+@pytest.mark.parametrize("business_error", [False, True])
+def test_telemetry_failures_do_not_change_executor_or_completion(business_error: bool) -> None:
+    operation, step = _active_records()
+    store = RuntimeStore(operation, step)
+    factory = RuntimeUowFactory(store)
+    stop = [False]
+    calls: list[str] = []
+    failure = RuntimeError("business failure")
+
+    class BrokenTelemetry:
+        def begin_execution(self, work: ClaimedWork) -> None:
+            calls.append("begin")
+            raise OSError("statistics database failed")
+
+        def end_execution(self, work: ClaimedWork) -> None:
+            calls.append("end")
+            raise ValueError("statistics buffer full")
+
+    def execute(op: OperationRecord, claimed: StepRecord, control: ExecutionControl,
+                session: LeaseSession) -> ExecutorAcknowledgment:
+        calls.append("execute")
+        if business_error:
+            raise failure
+        return _checkpoint_then_handoff(stop)(op, claimed, control, session)
+
+    work = ClaimedWork(operation, step, cast(ClaimedExecutor, execute))
+    runtime = _runtime(FakeStartup([work]), factory, [], telemetry=BrokenTelemetry())
+    if business_error:
+        with pytest.raises(RuntimeError) as caught:
+            runtime.run(drain_requested=lambda: stop[0])
+        assert caught.value is failure
+    else:
+        runtime.run(drain_requested=lambda: stop[0])
+    assert calls == ["begin", "execute", "end"]

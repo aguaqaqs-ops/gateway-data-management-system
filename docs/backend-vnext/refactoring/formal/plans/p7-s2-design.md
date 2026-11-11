@@ -1,6 +1,6 @@
 # P7 S2 多 worker 与静态处理组设计
 
-日期：2026-11-11。状态：**Owner 已确认业务边界并授权落成正式设计；本稿未独审，S2 产品未实施、未验证。** 源码核对基线为 `p7-s1b-exit` / `e3feb79a53f939fd0c6541ee1bd5430286efa325`，S1b 退出见[总结](p7-s1b-summary.md)。本稿固定范围、设计约束和验证责任；S2a代码接点和完整工作包见[详细实施计划](p7-s2a-execution-plan.md)，本轮候选正独审，不授权产品实施、push 或部署。
+日期：2026-11-11。状态：**Owner 已确认业务边界并授权落成正式设计；S2a 设计与详细计划已通过 GPT-6-Astra 独审及复审，S2 产品未实施、未验证。** 源码核对基线为 `p7-s1b-exit` / `e3feb79a53f939fd0c6541ee1bd5430286efa325`，S1b 退出见[总结](p7-s1b-summary.md)。本稿固定范围、设计约束和验证责任；S2a代码接点和完整工作包见[详细实施计划](p7-s2a-execution-plan.md)，独审通过与来源见该计划开头，不授权产品实施、push 或部署。
 
 依据：[S0 本轮决议 §12](p7-s0-owner-decisions.md#12-s2-简单性与业务边界收口2026-11-11)、[总体设计](p7-design.md)、[执行计划](p7-execution-plan.md)、[处理组与设备副本](p7-processing-groups-and-test-extraction-design.md)。本稿收窄早期 S2 的可选能力；现行 owning Contract 在实现前按实际变更修订，不将目标描述冒称已经生效。
 
@@ -113,7 +113,7 @@ S1b 移交的 D24：N>1 开放前同真实输入 N2/N1 正式结果/digest 一�
 
 ## 10. 实施准备仍需具体化的工程事项
 
-业务边界已足够。下列S2a工程事项已核源码并纳入[详细实施计划](p7-s2a-execution-plan.md)，本轮进行独审闭合；产品能力仍未实施。S2b条目留其实施准备，不阻塞S2a：
+业务边界已足够。下列S2a工程事项已核源码并纳入[详细实施计划](p7-s2a-execution-plan.md)，本轮已独审闭合；产品能力仍未实施。S2b条目留其实施准备，不阻塞S2a：
 
 1. 核 `operations/worker_startup.py`、`recovery.py`、`persistence.py` 与 `sqlite_operations.py`：活动记录扫描的并发视图、有效/过期租约分类、恢复领取 CAS、任务局部阻塞及现有故障分类；确定最小改动和状态迁移。
 2. 核 `worker_runtime.py`、部署入口与现有进程管理：实际 W 约束、退出确认、启动次序、维护接线和观测；不得把进程内计数当跨进程权威。

@@ -188,4 +188,4 @@ P7-D25–D27规定过程原件在 `/home/dev/gdds-stage-exchange/<stage>/`；S1b
 
 当前是文档准备，无产品/依赖/部署边界修改，不触发产品镜像重建，不声明新的image revision/source-tree已通过产品门禁。独审结论、产品实现、测试与实际上线分别记录。
 
-S2a具体算法、源码接点、Contract变更及A–F工作包已列入[详细实施计划](p7-s2a-execution-plan.md)，本轮按[S0 §13](p7-s0-owner-decisions.md#13-s2a-详细计划与-astra-独审授权2026-11-11)授权进行Astra独审与修复；当前候选待审。保留S2b静态组接点，不从S1b历史提示词直接实施S2，不push/部署或预称产品验收完成。
+S2a具体算法、源码接点、Contract变更及A–F工作包已列入[详细实施计划](p7-s2a-execution-plan.md)，本轮按[S0 §13](p7-s0-owner-decisions.md#13-s2a-详细计划与-astra-独审授权2026-11-11)授权完成Astra独审与修复，已具备代码实施条件，审核来源见该计划开头。保留S2b静态组接点，不从S1b历史提示词直接实施S2，不push/部署或预称产品验收完成。

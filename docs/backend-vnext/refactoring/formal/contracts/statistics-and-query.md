@@ -35,6 +35,22 @@ History 单独 read_project_history + acceptance。普通 session 的 statistics
 组 DTO 无 repository/operation/表名；它不是 internal recovery bearer，不能授予恢复写入或所有设备访问权。
 GET 只读已生成记录，不触发扫描/GC/配置修改。DB 正常但空返回200 not_collected；禁用/坏库503 STATISTICS_UNAVAILABLE。
 
+查询 adapter `infrastructure/statistics/queries.py` 每次新建 mode=ro/query_only 连接，只访问当前环境/组。
+有限读事务统一计数最多50000行、32MiB原始字段与1秒SQL预算；summary分页使用时间和稳定主键。
+当前占用按固定category/service索引各取最新一行，不扫全部历史；组filesystem按配置身份去重。
+曲线先查指定attempt的至多100个claim，再按各claim的process/start/end分别读取；缺start不猜窗口。
+组曲线只读取无operation关联的服务采样。所有series合计max_points默认600/最大2000，非每series倍增。
+CPU/read/write的桶值是同实例/claim连续采样的非负计数差；计数下降标counter_reset，超过2.5秒的缺口不插值。
+内存桶保留avg/max/count；没有值时avg/max为null、count=0，不伪造历史。
+
+普通页limit默认100/最大500；export默认1000/最大10000，CSV隐含export。JSON保留嵌套metrics，CSV将其
+编码成一个标准转义JSON单元格；公式形字符串加前缀引号，数字（含负净变化）保持数值语义。
+每个backend的全部导出共用一个非阻塞semaphore，准备前获取，响应发送/断连/取消的finally释放；
+生成失败也释放。先在有限内存内完成编码，响应超过32MiB则422 budget_exceeded，不发送成功头或半页。
+分页元信息由X-Statistics-{Next-Cursor,Schema-Version,Generated-At-Us,Window-Start-Us,Window-End-Us,
+Coverage-Start-Us,Coverage-End-Us,Quality,Reason,Units}返回，未知值省略；OpenAPI声明CSV及这些headers。
+没有跨页快照、持久游标、长期导出文件或caller路径。组摘要是固定有界单对象，只有集合接口支持分页/导出。
+
 RS `/v1/statistics/observations` 复用 require_bearer_token。`repository_contracts/statistics.py` 是 feed DTO owner，
 现有 import/get_operation 不变。kind 是 repository_storage/write/resource/filesystem_capacity 的 discriminated union。
 随机 observation_id 去重；sequence 只用于实例内临时分页，重启或环满允许丢失，reset/truncated 明示，无 ack/replay。

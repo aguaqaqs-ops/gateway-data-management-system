@@ -42,6 +42,7 @@ def create_app(
             history_deps=runtime.history_http,
         )
         app.state.storage_guard = runtime.storage_guard
+        app.state.statistics_http = runtime.statistics_http
         app.state.admission_gate = runtime.admission_gate
         app.state.ready = True
         try:

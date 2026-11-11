@@ -807,6 +807,15 @@ def test_production_reachability_matches_frozen_baseline() -> None:
     )
 
 
+def test_statistics_http_dtos_and_reader_have_production_consumers() -> None:
+    current = unreachable_modules(_backend_edges(), backend_modules())
+    assert not current.intersection({
+        'gateway_backend.http.schemas.statistics', 'gateway_backend.http.routes.statistics',
+        'gateway_backend.http.statistics', 'gateway_backend.statistics.queries',
+        'gateway_backend.infrastructure.statistics.queries',
+    })
+
+
 REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
     ("gateway_backend.capabilities.snapshot_materialization.compose", False),
     ("gateway_backend.capabilities.table_access._xml_parser", False),

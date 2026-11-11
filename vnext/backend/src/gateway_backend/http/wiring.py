@@ -17,11 +17,19 @@ from gateway_backend.http.routes.submissions import router as submissions_router
 from gateway_backend.http.routes.upload_revisions import router as upload_revisions_router
 from gateway_backend.http.routes.workspaces import router as workspaces_router
 from gateway_backend.http.routes.history import router as history_router
+from gateway_backend.http.routes.statistics import router as statistics_router
 
 PRODUCTION_OPENAPI_PATHS = frozenset(
     {
         "/healthz",
         "/readyz",
+        "/v1/repositories/{repository_id}/statistics/storage",
+        "/v1/repositories/{repository_id}/statistics/storage/history",
+        "/v1/repositories/{repository_id}/statistics/writes",
+        "/v1/operations/{operation_id}/statistics/executions",
+        "/v1/operations/{operation_id}/statistics/resources",
+        "/v1/statistics/group",
+        "/v1/statistics/group/resources",
         "/v1/history",
         "/v1/history-compares",
         "/v1/history-compares/{operation_id}",
@@ -71,3 +79,4 @@ def register_workspace_http(
     app.include_router(archives_router)
     app.include_router(history_router)
     app.include_router(operator_recovery_router)
+    app.include_router(statistics_router)

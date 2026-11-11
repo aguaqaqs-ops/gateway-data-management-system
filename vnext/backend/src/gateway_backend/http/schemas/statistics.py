@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Annotated, Generic, Literal, Self, TypeVar
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from gateway_repository_contracts.statistics import Counter, Identifier, ObservationQuality, Reason, Role, StatisticsModel, StorageValues
 from gateway_backend.statistics.models import ExecutionSummary, StorageRecord, WriteRecord
@@ -19,6 +19,13 @@ class StatisticsQuery(StatisticsModel):
     cursor: str | None = Field(default=None, max_length=2048)
     export: bool = False
     format: Literal["json", "csv"] = "json"
+
+    @field_validator('limit', 'max_points', 'attempt_count', 'claim_version', mode='before', check_fields=False)
+    @classmethod
+    def _http_integer(cls, value: object) -> object:
+        if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 19:
+            return int(value)
+        return value
 
     @property
     def is_export(self) -> bool:
@@ -94,12 +101,14 @@ class ResourceBucket(StatisticsModel):
     write_bytes: BucketValue
 
 
-class ResourceSeries(StatisticsModel):
+class ResourceSeries(ObservationQuality):
     role: Role
     process_instance_id: Identifier
     step_id: Identifier | None = None
     attempt_count: Counter | None = None
     claim_version: Counter | None = None
+    window_start_us: Counter
+    window_end_us: Counter
     bucket_width_us: Counter
     points: tuple[ResourceBucket, ...] = Field(default=(), max_length=2000)
 
@@ -132,3 +141,4 @@ class GroupStatistics(StatisticsModel):
 StoragePage = StatisticsPage[StorageRecord]
 ExecutionPage = StatisticsPage[ExecutionSummary]
 WritePage = StatisticsPage[WriteRecord]
+ResourcePage = StatisticsPage[ResourceSeries]

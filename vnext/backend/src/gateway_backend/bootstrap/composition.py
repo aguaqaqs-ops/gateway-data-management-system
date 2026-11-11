@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from gateway_backend.http.statistics import StatisticsHttpDependencies
+from gateway_backend.infrastructure.statistics.queries import SQLiteStatisticsReader
+from gateway_backend.statistics.config import StatisticsConfig, statistics_database_path
+from gateway_backend.statistics.models import StatisticsIdentity
+
 
 from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
 
@@ -187,6 +192,7 @@ class BackendRuntime:
     workspace_http: WorkspaceHttpDependencies
     history_http: HistoryHttpDependencies
     storage_guard: RuntimePreflight
+    statistics_http: StatisticsHttpDependencies
 
 
 def build_workspace_job_registry() -> JobDefinitionRegistry:
@@ -405,12 +411,18 @@ def prepare_backend_runtime(
         comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
     )
+    statistics_config = StatisticsConfig()
     return BackendRuntime(
         settings=settings,
         storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
         history_http=history_http,
+        statistics_http=StatisticsHttpDependencies(SQLiteStatisticsReader(
+            statistics_database_path(Path(deployment.storage.roots['be-metadata'].path)),
+            StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id),
+            available=lambda: statistics_config.enabled,
+        )),
     )
 
 

@@ -24,6 +24,8 @@ CREATE TABLE storage_observations (
  OR (category!='filesystem' AND filesystem_id IS NULL AND total_bytes IS NULL AND available_bytes IS NULL AND available_inodes IS NULL))
 ) STRICT;
 CREATE INDEX storage_repository_window ON storage_observations(repository_id,category,window_end_us,id);
+CREATE INDEX storage_repository_time ON storage_observations(repository_id,window_end_us,id);
+CREATE INDEX storage_current ON storage_observations(repository_id,category,service_owner,filesystem_id,window_end_us,id);
 CREATE INDEX storage_filesystem_window ON storage_observations(category,filesystem_id,window_end_us,id);
 CREATE INDEX storage_retention ON storage_observations(window_end_us,id);
 CREATE TABLE execution_summaries (
@@ -42,6 +44,7 @@ CREATE TABLE execution_summaries (
 ) STRICT;
 CREATE INDEX execution_repository_recorded ON execution_summaries(repository_id,recorded_at_us,operation_id,step_id,claim_version);
 CREATE INDEX execution_attempt_window ON execution_summaries(operation_id,step_id,attempt_count,claim_version);
+CREATE INDEX execution_operation_recorded ON execution_summaries(operation_id,recorded_at_us,step_id,claim_version);
 CREATE INDEX execution_retention ON execution_summaries(recorded_at_us);
 CREATE TABLE resource_samples (
  id INTEGER PRIMARY KEY, source_event_id TEXT NOT NULL UNIQUE,

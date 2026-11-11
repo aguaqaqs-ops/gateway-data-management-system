@@ -387,7 +387,8 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         )
         approved_telemetry_hook = edge.target == "gateway_backend.statistics.metrics"
         approved_telemetry_port = (source_zone == "operations" and edge.target == "gateway_backend.statistics.ports")
-        approved_statistics_model = (source_zone == "http" and edge.target == "gateway_backend.statistics.models")
+        approved_statistics_model = (source_zone == "http" and edge.target in {
+            "gateway_backend.statistics.models", "gateway_backend.statistics.queries"})
         approved_statistics_wire = (edge.source == "gateway_backend.http.schemas.statistics"
                                     and edge.target == "gateway_repository_contracts.statistics")
         # The storage telemetry adapter reads only the owning fixed ref decoders and

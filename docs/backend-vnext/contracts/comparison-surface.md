@@ -1,8 +1,8 @@
 # Comparison Surface Contract
 
-## BE-b v4 目标（B0 固定，尚未激活）
+## BE-b v4（实施中）
 
-当前产品 selector 仍为 `backend-vnext/comparison-surface/v3`。下列目标与 B3/B4 typed model、serializer、decoder、digest/golden 和全部 ref caller 同轮激活为 v4；不提供 v3 双读。本节目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
+当前产品 selector 为 `backend-vnext/comparison-surface/v4`，只接受当前版本。B3 已实现下列列展示、内容绑定、locator ref 遍历/改写和摘要形状；导航唯一性、locator producer 与前端完整 fixture 仍待 B3/B4 后续集成，本段不表示 BE-b 已可交付。下列目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
 
 - 每个成功 surface 恰一个 BUSINESS_NAVIGATION projection，完整载荷/FE-BEB-11–13 语义由 [Business Navigation Contract](business-navigation.md) 拥有；缺失/重复拒绝。surface 仍不读表或计算 diff/risk。
 - 普通 columns 为两侧 canonical 列名并集，每名一个，数组按 UTF-8 名序；新增 required `present_in:BEFORE|CURRENT|BOTH`、`pinned:bool`、`display_order:int`。展示顺序从 0 连续唯一：current 业务规则/DDL 次序，再 before-only DDL 次序；没有 current 时取 before。类型/nullable 优先 current，否则 before；名称 current 非空注释→before 非空注释→标识符。固定列规则 no、name，否则 description；宽度/对齐归前端，无隐藏或缺字段回退。
@@ -12,7 +12,7 @@
 - pair/view ID：Preview FULL 为 baseline_to_initial、initial_to_modified，MODIFIED_ONLY 仅实际 pair；History 两节点 left_to_right，三节点 left_to_middle、middle_to_right。pair_id 不拼 operation ID；同 bundle view_id 唯一，无旧别名。
 - surface diagnostics_summary 仅稳定码；完整 emit 替换表由 B4 交付，不包含异常全文或 pair 失败/取消原文。比较/风险业务算法不因编码替换改变。
 
-行定位、双侧浏览及 ref 生命周期由 [Bundle Contract 的 BE-b 目标](comparison-bundle.md#be-b-v4-目标b0-固定尚未激活) 约束；无记录行不能仅凭 EXACT、null locator 或 replay_guarantee 造 before，完整前提见 [Business Navigation](business-navigation.md#无记录行与完整性fe-beb-12)。
+行定位、双侧浏览及 ref 生命周期由 [Bundle Contract 的 BE-b 目标](comparison-bundle.md#be-b-v4实施中) 约束；无记录行不能仅凭 EXACT、null locator 或 replay_guarantee 造 before，完整前提见 [Business Navigation](business-navigation.md#无记录行与完整性fe-beb-12)。
 
 > v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。v3 增加 `schema_evolution` 并定义整表新增/删除浏览。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
 

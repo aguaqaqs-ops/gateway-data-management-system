@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from time import monotonic
+import re
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -599,9 +600,7 @@ def _stable_messages(messages: Iterable[str]) -> tuple[str, ...]:
     def stable(value: str) -> str:
         if value.startswith("DUPLICATE_EFFECTIVE_KEY:"):
             return "DUPLICATE_EFFECTIVE_KEY"
-        if value.endswith(("Error", "Exception")):
-            return "COMPARISON_INTERNAL_ERROR"
-        return value
+        return value if re.fullmatch(r"[A-Z][A-Z0-9_]*", value) else "COMPARISON_INTERNAL_ERROR"
     return tuple(sorted({stable(item) for item in messages if item}))
 
 

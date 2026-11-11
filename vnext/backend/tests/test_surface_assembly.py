@@ -715,3 +715,18 @@ def test_surface_uses_frozen_comments_and_preserves_before_only_columns() -> Non
     assert (sides.before.display_name, sides.current.display_name) == ("旧表", "新表")
     assert {c.present_in for c in sides.before.columns} == {"BEFORE"}
     assert {c.present_in for c in sides.current.columns} == {"CURRENT"}
+
+
+@pytest.mark.parametrize(("message", "code"), (
+    ("DUPLICATE_EFFECTIVE_KEY:orders", "DUPLICATE_EFFECTIVE_KEY"),
+    ("TableAccessError", "COMPARISON_INTERNAL_ERROR"),
+    ("ArrowInvalid", "COMPARISON_INTERNAL_ERROR"),
+    ("arbitrary error text", "COMPARISON_INTERNAL_ERROR"),
+    ("KEYLESS_FALLBACK", "KEYLESS_FALLBACK"),
+))
+def test_surface_diagnostics_publish_only_stable_codes(message: str, code: str) -> None:
+    facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED,
+        diagnostics=(message,)))
+    result = assemble_surface(_request(facts))
+    assert result.surface is not None
+    assert result.surface.tables[0].diagnostics.diagnostics_summary == (code,)

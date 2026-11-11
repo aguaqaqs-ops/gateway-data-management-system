@@ -302,6 +302,8 @@ class SurfaceReplacementSide:
         names = tuple(item.name for item in self.columns)
         if names != tuple(sorted(names)) or len(set(names)) != len(names):
             raise ValueError("columns must use canonical unique order")
+        if sorted(c.display_order for c in self.columns) != list(range(len(self.columns))):
+            raise ValueError("replacement display_order must be unique and contiguous")
 
     def to_document(self) -> dict[str, object]:
         return {
@@ -579,6 +581,8 @@ class SurfaceTable:
             raise ValueError("columns must use canonical unique order")
         if type(self.table_refs) is not SurfaceTableRefs:
             raise ValueError("table_refs must be SurfaceTableRefs")
+        if type(self.table_content_bindings) is not SurfaceTableContentBindings:
+            raise ValueError("table_content_bindings must be SurfaceTableContentBindings")
         self.table_content_bindings.validate_refs(self.table_refs)
         _require_optional_ref(self.row_locator_ref, "row_locator_ref")
         if sorted(c.display_order for c in self.columns) != list(range(len(self.columns))):
@@ -906,6 +910,8 @@ class SurfaceArtifactIndexEntry:
         if type(self.table_refs) is not SurfaceTableRefs:
             raise ValueError("table_refs must be SurfaceTableRefs")
         _require_optional_ref(self.diagnostics_ref, "diagnostics_ref")
+        if type(self.table_content_bindings) is not SurfaceTableContentBindings:
+            raise ValueError("table_content_bindings must be SurfaceTableContentBindings")
         self.table_content_bindings.validate_refs(self.table_refs)
         _require_optional_ref(self.row_locator_ref, "row_locator_ref")
 

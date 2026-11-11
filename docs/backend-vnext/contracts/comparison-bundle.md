@@ -1,8 +1,8 @@
 # Comparison Bundle Contract
 
-## BE-b v4 目标（B0 固定，尚未激活）
+## BE-b v4（实施中）
 
-当前 selector 仍为 `backend-vnext/comparison-bundle/v3`；B3/B4 与 Surface v4 的 producer/transport decoder、closure、重写和 golden 同步激活 v4，旧产物重新生成，不双读。外层 flow/job HTTP DTO 不因内部 surface 字段变化盲升版本。
+当前 selector 为 `backend-vnext/comparison-bundle/v4`，transport decoder 只接受当前版本。B3 已加入 ROW_LOCATOR kind 与 surface 引用遍历/绑定，并落实双侧浏览的最终导出集合；locator producer、导航及完整 fixture 尚待后续集成，不能把当前增量称为完整 BE-b。外层 flow/job HTTP DTO 不因内部 surface 字段变化盲升版本。
 
 - closure kind 增加 ROW_LOCATOR；surface 引用导航(PROJECTION)、诊断(DIAGNOSTICS)、locator 及 before/current/browse 表均须遍历、绑定、改写、下载校验并纳入现有保护/READY/恢复/清理。safe path builder 生成位置，不拼原用户标识符。最终 ref 仅指 bundle 实际唯一成员或 existing shared binding，不能指 canonical/scratch。
 - 普通 device/composite_signal_point 有逻辑 before 时必须有 before_table_ref：有变化独立导出，未变可别名 current，不为新增表造 before。保持既有 export cache/shared 去重，locator 按最终导出文件行序计算。replacement 继续两侧独立浏览，不造跨侧 row pair。

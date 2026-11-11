@@ -18,8 +18,10 @@ class StatisticsFeedClient(Protocol):
 
 class RepositoryFeedPoller:
     def __init__(self, client: StatisticsFeedClient, identity: StatisticsIdentity,
-                 offer: Callable[[StorageRecord | WriteRecord | ResourceRecord], bool], *, timeout_seconds: float = 2) -> None:
+                 offer: Callable[[StorageRecord | WriteRecord | ResourceRecord], bool], *, timeout_seconds: float = 2,
+                 page_items: int = 100) -> None:
         self.client, self.identity, self.offer, self.timeout = client, identity, offer, timeout_seconds
+        self.page_items = page_items
         self.instance_id: str | None = None
         self.after_sequence = 0
         self.dropped_count = 0
@@ -29,7 +31,7 @@ class RepositoryFeedPoller:
         """One page per tick bounds work even if producer outpaces the backend."""
         try:
             page = await asyncio.wait_for(self.client.get_statistics_observations(
-                StatisticsFeedQuery(instance_id=self.instance_id, after_sequence=self.after_sequence)), self.timeout)
+                StatisticsFeedQuery(instance_id=self.instance_id, after_sequence=self.after_sequence, limit=self.page_items)), self.timeout)
             if page.reset or page.truncated:
                 self.reason = 'retention'
             else:

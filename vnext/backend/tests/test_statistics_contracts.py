@@ -107,7 +107,7 @@ def test_statistics_configuration_has_finite_defaults_and_env_override(monkeypat
     assert config.sample_interval_seconds == 2
     assert config.queue_max_items == 256
     assert config.export_concurrency == 1
-    assert config.max_page_count == 262144
+    assert config.max_page_count == 524288
     assert config.wal_soft_limit_bytes == 128 * 1024**2
     assert statistics_database_path(Path("/metadata")) == Path("/metadata/telemetry/statistics.sqlite3")
     with pytest.raises(ValidationError):

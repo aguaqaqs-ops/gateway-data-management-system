@@ -49,7 +49,8 @@ class StatisticsLifecycle:
         deployment = settings.deployment_config
         self.ring = ObservationRing(deployment.storage.environment_id if deployment else 'test',
             deployment.storage.group_id if deployment else 'test',
-            max_items=config.rs_ring_items, max_bytes=config.rs_ring_bytes)
+            max_items=config.rs_ring_items, max_bytes=config.rs_ring_bytes,
+            extra_dropped=lambda: self.dropped + self.statistics.dropped)
         self.roots = ({name: (Path(root.path), root.filesystem_id)
                        for name, root in deployment.storage.roots.items() if name.startswith('rs-')}
                       if deployment else {})

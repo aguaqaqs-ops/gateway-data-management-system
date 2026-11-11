@@ -213,3 +213,58 @@ fixed packages, mixed-root download and bounded cleanup. A failure leaves the
 deployment stopped for diagnosis. Once the new copy has accepted writes, simply
 switching back to the old copy is unsafe. No online migration, automatic disk
 selection, old path alias or automatic DB deletion is provided.
+
+## Statistics (P7-S1b)
+
+Backend and worker write the independent `be-metadata/telemetry/statistics.sqlite3`
+using separate bounded buffers/connections. Repository Service keeps a disposable
+ring; backend polls its authenticated internal feed every 5 seconds. Collection
+starts/stops with the existing processes; it does not participate in business
+readiness, transactions, recovery or cleanup decisions. No new volume or service
+is required. Ordinary session permission `statistics_read_group` grants group
+health/capacity only; repository/operation APIs still require their existing scope
+permissions. Never grant the recovery bearer for statistics display.
+
+Compose forwards the same restart-scoped `GATEWAY_STATISTICS_ENABLED` (default
+`true`), `SAMPLE_INTERVAL_SECONDS` (`1`), `FILESYSTEM_INTERVAL_SECONDS` (`60`) and
+`STORAGE_REFRESH_SECONDS` (`600`) to all three roles. These names share the
+`GATEWAY_STATISTICS_` prefix. Backend/worker also receive `TOTAL_BUDGET_BYTES`
+(default `4294967296`, 4 GiB per group, including WAL/maintenance). Direct process
+settings expose the other finite defaults in their statistics config; a Compose
+override can explicitly pass additional settings. Keep the current sample period
+identical across roles: queries use it to recognize gaps; historical period
+changes cannot be reconstructed. Changing settings requires restarting the roles.
+
+The budget was calibrated on 06 against the actual schema/indexes: 30,000 resource
+rows averaged 475.82 indexed bytes, 10,000 occupancy rows 554.19 bytes, 1,000
+10-table execution summaries 4,612.10 bytes and 1,000 writes 593.92 bytes. The
+42,000-row run used 25,124,864 DB bytes, 1,466,752 WAL bytes and 32,768 SHM bytes.
+A sizing example of three 1-second processes for 7 days, ten repositories with five
+600-second categories plus one public category for 90 days, two filesystem feed
+records every 60 seconds, and 500 execution/write pairs per day for 90 days needs
+about 1.61 GB indexed main storage (2.01 GB with 25% allowance). The 4 GiB budget
+has a 2 GiB main-file cap; the original 2 GiB total/1 GiB main cap would retain
+about 2.67 curve days under that example after projected summaries/trends. This
+is a capacity example, not a guarantee: more devices, attempts, process instances,
+filesystem identities or larger bounded metrics shorten coverage. Actual curves,
+summary coverage, nulls, truncation and drop counters are the authority; 7/90 days
+are targets. No exact physical allocation or reclaimed-byte promise is made.
+
+Every batch respects the loaded metadata filesystem byte/fraction/inode low-water
+policy plus finite batch headroom. Pressure pauses statistics and retries at the
+maintenance interval (60 seconds), dropping buffered input; old curves are the
+first pressure-cleanup candidate. Statistics never removes business data or runs
+VACUUM. Schema/identity mismatch or corruption disables statistics until an
+operator repairs it while stopped and restarts. For this undeployed project,
+explicitly recreating only the disposable telemetry DB/WAL/SHM loses historical
+statistics; it cannot reconstruct previous resource/write windows. Never delete
+or recreate the control DB to repair telemetry. Queries do not trigger scans or
+configuration changes. Group health remains readable when the statistics DB is
+unavailable; device/operation statistics return `STATISTICS_UNAVAILABLE`.
+
+Capacity/debug originals and sizing assumptions are retained at
+`/home/dev/gdds-stage-exchange/p7-s1b/e/`; the accepted capacity log is
+`capacity-bddf517966-r2.log`. This was a host filesystem calibration and focused
+lifecycle check, not a current-image container gate or formal performance result.
+The final stage gate binds container lifecycle/deployment evidence to the final
+candidate.

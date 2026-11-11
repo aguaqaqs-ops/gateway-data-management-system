@@ -34,12 +34,13 @@ class _DirectoryEntries(Protocol):
 
 class ObservationRing:
     def __init__(self, environment_id: str, group_id: str, *, max_items: int = 4096,
-                 max_bytes: int = 16 * 1024 * 1024) -> None:
+                 max_bytes: int = 16 * 1024 * 1024, extra_dropped: Callable[[], int] = lambda: 0) -> None:
         if max_items < 1 or max_bytes < 1:
             raise ValueError('ring budgets must be positive')
         self.environment_id, self.group_id = environment_id, group_id
         self.instance_id = str(uuid4())
         self.max_items, self.max_bytes = max_items, max_bytes
+        self.extra_dropped = extra_dropped
         self._records: deque[tuple[StatisticsFeedRecord, int]] = deque()
         self._bytes = self._sequence = self._dropped = 0
         self._lock = threading.Lock()
@@ -77,7 +78,7 @@ class ObservationRing:
                 records.append(record)
                 size += count
             return StatisticsFeedResponse(instance_id=self.instance_id,
-                oldest_sequence=oldest, next_sequence=self._sequence + 1, dropped_count=self._dropped,
+                oldest_sequence=oldest, next_sequence=self._sequence + 1, dropped_count=self._dropped + self.extra_dropped(),
                 reset=reset, truncated=after < oldest - 1 or (not reset and after > self._sequence),
                 records=tuple(records),
                 coverage_start_us=self._records[0][0].generated_at_us if self._records else None,

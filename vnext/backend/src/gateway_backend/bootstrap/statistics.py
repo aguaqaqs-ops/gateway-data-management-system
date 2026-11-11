@@ -53,7 +53,7 @@ class BackendStatistics:
             local_store_from_config(deployment), self.sink.identity, self.sink.offer, self.config)
         self.poller = RepositoryFeedPoller(RepositoryClient(base_url=base_url, bearer_token=token,
             timeout_seconds=self.config.rs_http_timeout_seconds), self.sink.identity, self.sink.offer,
-            timeout_seconds=self.config.rs_http_timeout_seconds)
+            timeout_seconds=self.config.rs_http_timeout_seconds, page_items=self.config.feed_page_items)
         self.roots = {name: (Path(root.path), root.filesystem_id) for name, root in deployment.storage.roots.items()
                       if name.startswith('be-')}
         self._stop = threading.Event()
@@ -83,12 +83,17 @@ class BackendStatistics:
 
     def _run(self) -> None:
         next_storage = next_capacity = next_poll = 0.0
+        cycle_started = monotonic()
         while not self._stop.is_set():
             now = monotonic()
             if now >= next_storage:
                 try:
                     complete = self.collector.collect_next()
-                    next_storage = now + (self.config.storage_refresh_seconds if complete else .01)
+                    if complete:
+                        next_storage = max(monotonic() + .05, cycle_started + self.config.storage_refresh_seconds)
+                        cycle_started = next_storage
+                    else:
+                        next_storage = monotonic() + .01
                 except Exception:
                     self.collection_failures += 1
                     next_storage = now + self.config.maintenance_seconds

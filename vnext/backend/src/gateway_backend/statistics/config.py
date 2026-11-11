@@ -40,7 +40,7 @@ class StatisticsConfig(BaseSettings):
     retention_batch_rows: PositiveBudget = 1000
     maintenance_seconds: float = Field(default=60, gt=0, le=3600)
     shutdown_flush_seconds: float = Field(default=1, gt=0, le=1)
-    total_budget_bytes: PositiveBudget = Field(default=2 * 1024**3, ge=1024 * 1024)
+    total_budget_bytes: PositiveBudget = Field(default=4 * 1024**3, ge=1024 * 1024)
 
     @model_validator(mode="after")
     def _coherent_budgets(self) -> Self:

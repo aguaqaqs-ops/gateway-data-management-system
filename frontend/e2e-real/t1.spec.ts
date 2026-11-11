@@ -175,7 +175,7 @@ async function saveEvidenceBothWidths(page: Page, testInfo: TestInfo, label: str
 }
 
 interface NavigationTabLike {
-  tab_key: string;
+  tab_key: string | null;
   label: string;
   table_id: string;
   row_filter: unknown;
@@ -216,7 +216,7 @@ interface NavigationDiagnosticLike {
   code: string;
   side: string;
   params: Record<string, unknown>;
-  target: { group_key: string; item_key: string; tab_key: string; table_id: string };
+  target: { group_key: string; item_key: string; tab_key: string | null; table_id: string };
 }
 
 interface PairArtifacts {
@@ -299,10 +299,33 @@ async function expandAllGroups(page: Page): Promise<void> {
   }
 }
 
-async function openSidebarTab(page: Page, itemKey: string, tabKey: string): Promise<void> {
+function findSidebarTab(
+  groups: readonly NavigationGroupLike[],
+  target: { item_key: string; tab_key: string | null; table_id: string },
+): { item: NavigationItemLike; tab: NavigationTabLike } {
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (item.item_key !== target.item_key) continue;
+      const tab =
+        item.tabs.find((candidate) => (candidate.tab_key ?? null) === (target.tab_key ?? null) && candidate.table_id === target.table_id) ??
+        item.tabs.find((candidate) => (candidate.tab_key ?? null) === (target.tab_key ?? null)) ??
+        item.tabs[0];
+      if (tab) return { item, tab };
+    }
+  }
+  throw new Error(`导航中找不到 ${target.item_key}/${target.tab_key ?? "table"}`);
+}
+
+async function openSidebarTab(page: Page, item: NavigationItemLike, tab: NavigationTabLike): Promise<void> {
   await expandNavigation(page);
   await expandAllGroups(page);
-  await page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-tab button[data-tab-key="${tabKey}"]`).click({ timeout: 120_000 });
+  const tabs = page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-tab button`);
+  const index = Math.max(0, item.tabs.indexOf(tab));
+  if ((await tabs.count()) === 0) {
+    await page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`).click({ timeout: 120_000 });
+  } else {
+    await tabs.nth(index).click({ timeout: 120_000 });
+  }
   await waitForDiffBrowsing(page);
   await settleFrames(page);
 }
@@ -333,12 +356,12 @@ async function captureTabItemBothWidths(
   for (const width of [1280, 1920]) {
     await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
     await settleFrames(page);
-    await openSidebarTab(page, item.item_key, tab.tab_key);
+    await openSidebarTab(page, item, tab);
     await saveEvidence(page, testInfo, `${label}-${width}`);
     overflow.push((await assertTabsReachable(page)) ? `${width}=溢出` : `${width}=未溢出`);
-    await openSidebarTab(page, item.item_key, tab.tab_key);
+    await openSidebarTab(page, item, tab);
   }
-  appendCaseLog(`${label} item=${item.item_key} tabs=${item.tabs.length} tab=${tab.tab_key} ${overflow.join(" ")}`);
+  appendCaseLog(`${label} item=${item.item_key} tabs=${item.tabs.length} tab=${tab.tab_key ?? "table"} ${overflow.join(" ")}`);
 }
 
 function pickColumnsTab(surface: SurfaceLike, groups: readonly NavigationGroupLike[]): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
@@ -485,10 +508,11 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     }
     if (v1.diagnostics.length > 0) {
       const firstDiagnostic = v1.diagnostics[0];
-      await openSidebarTab(page, firstDiagnostic.target.item_key, firstDiagnostic.target.tab_key);
+      const navTarget = findSidebarTab(v1.groups, firstDiagnostic.target);
+      await openSidebarTab(page, navTarget.item, navTarget.tab);
       await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
       await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
-      appendCaseLog(`fe4-t1-nav-diagnostics pair=${v1PairId} code=${firstDiagnostic.code} item=${firstDiagnostic.target.item_key} tab=${firstDiagnostic.target.tab_key}`);
+      appendCaseLog(`fe4-t1-nav-diagnostics pair=${v1PairId} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`);
       navDiagnosticsCaptured = true;
     }
 
@@ -625,15 +649,15 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-groups");
     const columnsPick = pickColumnsTab(v2.surface, v2.groups);
     expect(columnsPick, "t1 v2 initial_to_modified 有中文列名与固定列的表").toBeTruthy();
-    await openSidebarTab(page, columnsPick!.item.item_key, columnsPick!.tab.tab_key);
+    await openSidebarTab(page, columnsPick!.item, columnsPick!.tab);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-columns");
-    appendCaseLog(`fe4-t1-columns table=${columnsPick!.table.table_id} item=${columnsPick!.item.item_key} tab=${columnsPick!.tab.tab_key}`);
+    appendCaseLog(`fe4-t1-columns table=${columnsPick!.table.table_id} item=${columnsPick!.item.item_key} tab=${columnsPick!.tab.tab_key ?? "table"}`);
     const locatedPick = pickLocatedTab(v2.surface, v2.groups);
     expect(locatedPick, "t1 v2 initial_to_modified 有 row_locator_ref 的表").toBeTruthy();
-    await openSidebarTab(page, locatedPick!.item.item_key, locatedPick!.tab.tab_key);
+    await openSidebarTab(page, locatedPick!.item, locatedPick!.tab);
     await jumpToFirstLocatedRow(page);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-located-rows");
-    appendCaseLog(`fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key}`);
+    appendCaseLog(`fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key ?? "table"}`);
     if (!navDiagnosticsCaptured) {
       for (const pair of ["baseline_to_initial", "initial_to_modified"] as const) {
         const artifacts = pair === v2PairId ? v2 : pairArtifacts(bundle2 as ParsedBundle, pair);
@@ -646,10 +670,11 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
           await waitForDiffBrowsing(page);
         }
         const firstDiagnostic = artifacts.diagnostics[0];
-        await openSidebarTab(page, firstDiagnostic.target.item_key, firstDiagnostic.target.tab_key);
+        const navTarget = findSidebarTab(artifacts.groups, firstDiagnostic.target);
+        await openSidebarTab(page, navTarget.item, navTarget.tab);
         await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
         await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
-        appendCaseLog(`fe4-t1-nav-diagnostics pair=${pair} code=${firstDiagnostic.code} item=${firstDiagnostic.target.item_key} tab=${firstDiagnostic.target.tab_key}`);
+        appendCaseLog(`fe4-t1-nav-diagnostics pair=${pair} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`);
         navDiagnosticsCaptured = true;
         if (pair === "baseline_to_initial") {
           await page.getByRole("tab", { name: "本次组态视图" }).click({ timeout: 120_000 });

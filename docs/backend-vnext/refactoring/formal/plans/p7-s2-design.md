@@ -1,6 +1,6 @@
 # P7 S2 多 worker 与静态处理组设计
 
-日期：2026-11-11。当前状态：**S2a已在 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45` 退出；S2b已确认业务边界和热新增要求，详细设计/计划进入独审，产品未实施。** S2a结果见[总结](p7-s2a-summary.md)；S2b当前入口为[详细设计](p7-s2b-design.md)、[执行计划](p7-s2b-execution-plan.md)和[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)。下文S2a算法及早期准备记录按历史时点阅读，不以旧“未实施”文字覆盖exit。
+日期：2026-11-11。当前状态：**S2a已在 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45` 退出；S2b已确认业务边界和热新增要求，详细设计/计划已通过Astra独审与复审、具备代码实施条件，产品未实施。** S2a结果见[总结](p7-s2a-summary.md)；S2b当前入口为[详细设计](p7-s2b-design.md)、[执行计划](p7-s2b-execution-plan.md)和[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)。下文S2a算法及早期准备记录按历史时点阅读，不以旧“未实施”文字覆盖exit。
 
 依据：[S0 本轮决议 §12](p7-s0-owner-decisions.md#12-s2-简单性与业务边界收口2026-11-11)、[总体设计](p7-design.md)、[执行计划](p7-execution-plan.md)、[处理组与设备副本](p7-processing-groups-and-test-extraction-design.md)。本稿收窄早期 S2 的可选能力；现行 owning Contract 在实现前按实际变更修订，不将目标描述冒称已经生效。
 

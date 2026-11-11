@@ -1,6 +1,8 @@
 # P7 S2b 详细执行计划
 
-日期：2026-11-11。状态：**待 GPT-6-Astra 独立审核；尚未具备已审代码实施条件。** 基线 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45`；配套[设计](p7-s2b-design.md)为行为和算法依据。Owner授权本轮形成文档并独审/修复至可实施，不含产品实现、测试运行、push或部署。审核报告、修订和交接放 `/home/dev/gdds-stage-exchange/p7-s2b/`，不把过程文档入库。
+日期：2026-11-11。状态：**GPT-6-Astra独审及原审复审通过，GO、未关闭阻塞0，具备代码实施条件；产品未实施。** 基线 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45`；配套[设计](p7-s2b-design.md)为行为和算法依据。Owner授权本轮形成文档并独审/修复至可实施，不含产品实现、测试运行、push或部署。审核报告、修订和交接放 `/home/dev/gdds-stage-exchange/p7-s2b/`，不把过程文档入库。
+
+审核绑定：`fcd3996fa1e92ddee9b48f0e4da99897c2683a50`，原件 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`（SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`）。R1创建热恢复、R2 W1验收时序均关闭；最终状态/摘要核对见同目录 `readiness-finalization.md`。没有产品测试或镜像结果。
 
 ## 1. 范围、依赖和执行规则
 

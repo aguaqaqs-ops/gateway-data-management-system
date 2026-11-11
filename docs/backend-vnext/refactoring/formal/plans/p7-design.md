@@ -1,6 +1,6 @@
 # Phase 7 多设备库并发与试运行总体设计
 
-日期：2026-11-11。当前状态：**S2a已在 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45` 退出；S2b统一入口、独立组与新增设备热更新已确认，详细设计/计划进入独审，产品未实施。** 见[S2a总结](p7-s2a-summary.md)、[S2b设计](p7-s2b-design.md)及[详细计划](p7-s2b-execution-plan.md)。下文早期盘点保留来源时点。
+日期：2026-11-11。当前状态：**S2a已在 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45` 退出；S2b统一入口、独立组与新增设备热更新已确认，详细设计/计划已通过Astra独审与复审、具备代码实施条件，产品未实施。** 见[S2a总结](p7-s2a-summary.md)、[S2b设计](p7-s2b-design.md)及[详细计划](p7-s2b-execution-plan.md)。下文早期盘点保留来源时点。
 
 当前设计入口：[S2 多 worker 与静态处理组设计](p7-s2-design.md)。Owner 确认简单性优先：固定规模组内并发、有限恢复和维护窗口；静态组用于后续逐组升级，不在本轮建设灰度自动化；完整设备副本留 S4b。S2a[详细实施计划](p7-s2a-execution-plan.md)已通过Astra独审与复审，具备代码实施条件。Owner已另授权S2a实施至本地exit，见[实施入口](p7-s2a-implementation-prompt.md)与S0 §14；不从S1b历史授权推导S2b开工或上线许可。
 

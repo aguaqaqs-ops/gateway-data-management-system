@@ -1,6 +1,8 @@
 # P7 S2b 静态独立处理组与设备热新增设计
 
-日期：2026-11-11。状态：**业务边界已获 Owner 确认；详细设计待独立审核，产品未实施。** 源码基线 `p7-s2a-exit` / `f720ef571df72682d56732876f03c79f076eca45`。配套[详细执行计划](p7-s2b-execution-plan.md)给出接点、工作包和验证责任。本轮只授权文档及 GPT-6-Astra 独审、修复至具备代码实施条件，不含产品实现、push、部署或阶段 exit。
+日期：2026-11-11。状态：**业务边界已获Owner确认；详细设计和执行计划已通过GPT-6-Astra独审及复审，具备代码实施条件；产品未实施。** 源码基线 `p7-s2a-exit` / `f720ef571df72682d56732876f03c79f076eca45`。配套[详细执行计划](p7-s2b-execution-plan.md)给出接点、工作包和验证责任。本轮只授权文档及 GPT-6-Astra 独审、修复至具备代码实施条件，不含产品实现、push、部署或阶段 exit。
+
+审核来源：候选 `f4887a496c3d28f69fee7845710de1746f386f36` 首审发现2项阻塞，修订 `fcd3996fa1e92ddee9b48f0e4da99897c2683a50` 原审复审GO、未关闭阻塞0。报告 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`，SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`；最终状态变更核对另记同目录 `readiness-finalization.md`。GO仅指方案可编码，执行前条件见计划§7。
 
 依据：[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)、[S2 共用设计](p7-s2-design.md)、[分组与副本设计](p7-processing-groups-and-test-extraction-design.md)、[比例化政策](../policies/proportional-assurance-and-risk-based-verification-policy.md)。本稿明确替代早期“全部归属配置只能维护窗口更新”“S2b 不在线注册”的限制；原 S2a 退出与既有业务 Contract 不改写为本稿已实现。
 

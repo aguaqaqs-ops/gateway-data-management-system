@@ -99,6 +99,7 @@ Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production
 
 - **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
   权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
+- **后端改 `frontend/`（owner 2026-11-11）：**后端会话改动 `frontend/` 下任何文件（包括 `frontend/scripts/` 中的真实 backend e2e 入口）之前，先告知前端设计会话改动目的与范围。这类提交属于前端审核范围，由前端设计会话列入当前或下一个前端阶段的审核与调试。起因：P7 S1a 的 `7b16061b2e`、`b79fd4c72f` 在 main 上直接改了 `run-real-backend-e2e.sh`（见 [FE4 kickoff](docs/frontend-vnext/fe4-kickoff.md) 的 FE4a 退出记录）。
 - **节点：**与后端共用上述五节点池；静态检查、mock/真实 backend e2e 和阶段证据均可在合格空闲节点运行，不在开发主机运行。阶段证据仍使用 clean、已提交 worktree 与权威入口，记录实际节点。
 - **工具链镜像：**测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行（含 Node.js、浏览器与
   系统库）：在 CT201 取得，经 `docker save`/`docker load` 传到节点；跨节点身份比较 config digest 与全部

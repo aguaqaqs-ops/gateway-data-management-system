@@ -368,7 +368,7 @@ FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `arti
   - **事实：** main 在 `16ffe72829` 之后有两个后端提交改了 `frontend/scripts/run-real-backend-e2e.sh`：`7b16061b2e`（P7 S1a F：入口改用 `vnext/scripts/tests/runtime_config_fixture.py` 生成运行时根目录与 Compose override `compose_runtime`）与 `b79fd4c72f`（清理时调用 fixture 的 `--cleanup`，失败时保留现场并 exit 非 0，新增 `main_exit_code`）。按本节，它们属于前端审核范围；
   - **不阻塞 FE4a 退出：** 两者不在 FE4a 的被测树上（被测后端固定在 `16ffe72829`，§10 Q2），tag 目标与证据不受影响，合并没有冲突；
   - **纳入 FE4b：** FE4b 第 2 步设计时把这两个提交列为前端审核对象，FE4b 的调试覆盖新入口；FE4b 审核范围 `fe-fe4a-exit..<FE4b 候选>` 经由 main 包含它们；
-  - **owner 决定（2026-11-11）：** 今后后端改 `frontend/` 前先告知前端设计会话。写入 AGENTS 或后端流程由 owner 另行安排，本文只记录。
+  - **owner 决定（2026-11-11）：** 今后后端改 `frontend/` 前先告知前端设计会话。已按 owner 要求写入 AGENTS“前端测试（FD7）”一节。
 - **带入 FE4b 的项**（证据核对第 2 轮 §6）：
   - N5：预览页顶栏禁用原因溢出；修复后删除规则 4 的豁免 `fe3b-w4-approved-withdraw`；
   - N19：比较脚本自检对 Paeth 预测函数没有区分力；
@@ -668,7 +668,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 - BE-b 的排期与后端会话安排（后端流程）；
 - t1 第二次调试运行（§7.2）；
 - 已完成：FE4a 退出时推送 tag `fe-fe4a-exit`；owner 2026-11-11 决定本次不推送 main，main 的推送随后端节奏另定；
-- 后端今后改 `frontend/` 前先告知前端设计会话（owner 2026-11-11）：写入 AGENTS 或后端流程由 owner 安排；
+- 已完成：后端今后改 `frontend/` 前先告知前端设计会话（owner 2026-11-11），已写入 AGENTS“前端测试（FD7）”一节；
 - FE4b 退出时的 tag、合入与推送。
 
 ## 11. 提示词草稿

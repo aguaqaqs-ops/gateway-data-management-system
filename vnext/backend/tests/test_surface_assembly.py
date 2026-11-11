@@ -651,3 +651,38 @@ def test_cancellation_and_json_budget_never_publish_partial_surface() -> None:
     )
     assert over_budget.status is SurfaceAssemblyStatus.FAILED
     assert over_budget.surface is None
+
+
+def test_surface_physical_rows_and_locator_are_outside_semantic_digest() -> None:
+    facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED))
+    rows = _ref("rows-first", "application/vnd.apache.parquet")
+    result = assemble_surface(_request(facts, table_refs=SurfaceTableRefs(current_table_ref=rows)))
+    assert result.surface is not None
+    original = result.surface
+    table = original.tables[0]
+    reordered = _ref("rows-reordered", "application/vnd.apache.parquet")
+    locator = _ref("row-locator", "application/vnd.apache.parquet")
+    changed = replace(table, table_refs=replace(table.table_refs, current_table_ref=reordered),
+                      row_locator_ref=locator)
+    rebound = replace(original, tables=(changed,))
+    assert compute_surface_digest(rebound) == original.surface_digest
+    rewritten_locator = replace(locator, artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", "locator-bundle"))
+    rewritten = rewrite_surface_refs(rebound, {locator: rewritten_locator})
+    assert rewritten.tables[0].row_locator_ref == rewritten_locator
+    assert compute_surface_digest(rewritten) == original.surface_digest
+    from gateway_backend.capabilities.bundle_assembly._refs import collect_surface_refs
+    assert rewritten_locator in collect_surface_refs(rewritten)
+    binding = changed.table_content_bindings.current
+    assert binding is not None
+    different_content = replace(changed, table_content_bindings=replace(changed.table_content_bindings,
+        current=replace(binding, raw_content_digest=_digest("different-content"))))
+    assert compute_surface_digest(replace(original, tables=(different_content,))) != original.surface_digest
+
+
+def test_table_bindings_reject_missing_or_incompatible_ref_content() -> None:
+    rows = _ref("shared-rows", "application/vnd.apache.parquet")
+    with pytest.raises(ValueError, match="nullability"):
+        SurfaceArtifactIndexEntry("orders", SurfaceTableRefs(current_table_ref=rows))
+    with pytest.raises(ValueError, match="incompatible"):
+        SurfaceArtifactIndexEntry("orders", SurfaceTableRefs(before_table_ref=rows, current_table_ref=rows),
+            table_content_bindings=SurfaceTableContentBindings(_content_binding("old"), _content_binding("new")))

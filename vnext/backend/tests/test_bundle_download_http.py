@@ -301,7 +301,7 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
     from gateway_backend.artifacts import artifact_ref_to_dict
     from gateway_backend.application.bundle_download import prepare_bundle_download
     from gateway_backend.capabilities.bundle_assembly import BundlePairInput, assemble_bundle
-    from tests.test_surface_assembly import _bindings
+
     from tests.test_bundle_assembly import _request, _surface_result
 
     env, url, store, artifact_id = bundle_route

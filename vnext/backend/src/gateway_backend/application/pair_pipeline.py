@@ -24,6 +24,7 @@ from gateway_backend.capabilities.project_identity import (
     ProjectIdentityStatus,
     assess_project_identity,
 )
+from gateway_backend.capabilities.storage_projection._digest import compute_storage_rule_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
@@ -609,7 +610,6 @@ def _surface_table_artifacts(
         descriptor = next(t for t in bound.summary.tables if t.table_name == name)
         facts = next(t for t in bound.storage_facts if t.storage_rule_view.canonical_table == name)
         if (descriptor.raw_content_digest is None or facts.canonical_schema_digest is None
-                or facts.storage_rule_view.storage_rule_digest is None
                 or facts.storage_projection_version is None
                 or facts.raw_content_digest != descriptor.raw_content_digest):
             raise PairPipelineError("table content binding is incomplete")
@@ -619,7 +619,7 @@ def _surface_table_artifacts(
             row_count=descriptor.row_count,
             source_schema_digest=facts.source_schema_digest,
             canonical_schema_digest=facts.canonical_schema_digest,
-            storage_rule_digest=facts.storage_rule_view.storage_rule_digest,
+            storage_rule_digest=compute_storage_rule_digest(facts.storage_rule_view),
             storage_projection_version=facts.storage_projection_version,
         )
     return tuple(SurfaceArtifactIndexEntry(

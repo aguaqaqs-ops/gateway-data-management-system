@@ -96,13 +96,15 @@ class StorageCandidates:
         if location is ArtifactLocation.COMPARISON:
             return True
         with self._read() as connection:
-            owners = {str(row[0]) for row in connection.execute(
-                'SELECT repository_id FROM canonical_table_cache WHERE artifact_id=? UNION '
-                'SELECT repository_id FROM snapshot_table_export_cache WHERE artifact_id=? UNION '
-                'SELECT repository_id FROM computation_cache_entries c WHERE manifest_artifact_id=? OR '
-                'EXISTS (SELECT 1 FROM json_each(c.member_refs_json) member '
-                "WHERE json_extract(member.value,'$.artifact_id')=?) LIMIT 2",
-                (artifact_id, artifact_id, artifact_id, artifact_id))}
+            if location is ArtifactLocation.EXPORT:
+                owners = {str(row[0]) for row in connection.execute(
+                    'SELECT DISTINCT repository_id FROM snapshot_table_export_cache WHERE artifact_id=? LIMIT 2',
+                    (artifact_id,))}
+            else:
+                owners = {str(row[0]) for row in connection.execute(
+                    'SELECT repository_id FROM canonical_table_cache WHERE artifact_id=? UNION '
+                    'SELECT repository_id FROM snapshot_table_export_cache WHERE artifact_id=? LIMIT 2',
+                    (artifact_id, artifact_id))}
         return ((location is ArtifactLocation.EXPORT and not owners)
                 or len(owners) > 1 or (known_owner is not None and bool(owners - {known_owner})))
 

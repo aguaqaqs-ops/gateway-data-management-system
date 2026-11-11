@@ -96,6 +96,7 @@ def test_shared_cache_ref_is_public_and_not_charged_to_both_devices(tmp_path: Pa
 
 def test_uncached_identity_assessment_from_two_previews_is_public(tmp_path: Path) -> None:
     from dataclasses import replace
+    from gateway_shared_kernel.jcs import canonicalize_json_value
     from gateway_backend.domain.workspace.models import (
         PreviewArtifactRef, PreviewIdentityPair, ProjectIdentityApplicability, ProjectIdentityMode, ProjectIdentityStatus,
     )
@@ -115,6 +116,9 @@ def test_uncached_identity_assessment_from_two_previews_is_public(tmp_path: Path
         for index, repository in enumerate(('one', 'two')):
             value = replace(base, preview_result_id=f'preview-{index}', repository_id=repository,
                 operation_id=f'op-{index}', identity_pairs=(identity,),
+                identity_assessment_set_digest=raw_blob_digest(canonicalize_json_value({
+                    'schema': 'project-identity-assessment-set/v1', 'pairs': [[identity.pair_id,
+                    identity.applicability.value, identity.status.value, ref.raw_sha256.value]]})),
                 canonical=replace(base.canonical, configuration_facts=replace(base.canonical.configuration_facts,
                     repository_id=repository, operation_id=f'op-{index}')))
             db.execute('INSERT INTO preview_result_records VALUES (?,?,?,?,?,?,?,?)', preview_result_to_row(value))

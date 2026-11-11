@@ -1443,8 +1443,8 @@ def test_statistics_hook_failure_preserves_success(tmp_path: Path, monkeypatch: 
 @pytest.mark.serial
 @pytest.mark.parametrize('fails_before_mutation', [False, True])
 def test_statistics_uses_observed_commit_and_read_only_outcome(tmp_path: Path, fails_before_mutation: bool) -> None:
-    from gateway_repository_service.statistics import ObservationRing, RepositoryStatistics, WriteObservation
-    from gateway_repository_contracts.statistics import StatisticsFeedQuery
+    from gateway_repository_service.statistics import ObservationRing, RepositoryStatistics
+    from gateway_repository_contracts.statistics import StatisticsFeedQuery, WriteObservation
     env = WorkerTestEnvironment(tmp_path)
     ring = ObservationRing('e', 'g')
     statistics = RepositoryStatistics(env.layout, ring, outcome=env.store.observe_statistics_outcome)
@@ -1457,8 +1457,12 @@ def test_statistics_uses_observed_commit_and_read_only_outcome(tmp_path: Path, f
         expected = OperationStatus.FAILED if fails_before_mutation else OperationStatus.SUCCEEDED
         env.wait_for_status(REPOSITORY_ID, operation, expected)
         assert env.pool.wait_for_quiescence(timeout=2)
+        statements: list[str] = []
+        env.connection.set_trace_callback(statements.append)
         while statistics.collect_one():
             pass
+        env.connection.set_trace_callback(None)
+        assert not any(statement.startswith('BEGIN') for statement in statements)
         page = ring.read(StatisticsFeedQuery())
         value = page.records[-1].observation
         assert isinstance(value, WriteObservation)

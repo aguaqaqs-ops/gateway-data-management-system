@@ -970,7 +970,7 @@ function FormulaCard({ formula, preview }: { formula: ReturnType<typeof deriveFo
   const currentLines = renderFormulaLines(formula.currentFormula, formula.currentDevices);
   const aligned = alignFormulaLines(beforeLines, currentLines);
   return <section className="formula-card"><div className="formula-card__heading"><strong>{formula.currentDeviceName ?? formula.beforeDeviceName ?? "未知装置"} · {formula.pointLabel}</strong>{(formula.label || (formula.changed && !preview)) && <span className="formula-changed">公式已改</span>}</div>
-    {preview ? <section className="formula-side formula-side--single"><strong>{title}</strong><FormulaLineList lines={lines} /></section>
+    {preview && !formula.beforeFormula ? <section className="formula-side formula-side--single"><strong>{title}</strong><FormulaLineList lines={lines} /></section>
       : <div className="formula-pair"><strong className="formula-pair__heading">改前公式</strong><strong className="formula-pair__heading">改后公式</strong>{aligned.length ? aligned.map((line, index) => <FormulaAlignedPair key={line.before?.key ?? line.current?.key ?? index} line={line} />) : <div className="formula-empty formula-empty--span">暂无公式</div>}</div>}
   </section>;
 }

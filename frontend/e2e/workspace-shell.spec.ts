@@ -836,7 +836,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();
   await expect(formula.getByText("改前公式", { exact: true })).toBeVisible();
-  await expect(formula).toContainText("公式已改");
+  await expect(formula.getByText("改后公式", { exact: true })).toBeVisible();
   await expect(formula).toContainText("| 嵌套命名表达式 =");
   await expect(formula).toContainText("+ （* 分组）");
   await expect(formula).toContainText("线路保护装置 A:线路电流");

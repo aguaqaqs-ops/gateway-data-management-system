@@ -750,7 +750,7 @@ export function deriveFormulaDisplays(input: {
       currentDeviceName: newRow ? deviceName(newRow.dev_addr, input.currentDevices ?? []) : null,
       beforeDevices: input.beforeDevices ?? [],
       currentDevices: input.currentDevices ?? [],
-      beforeFormula: input.mode === "HISTORY" ? oldRow?.formula_ast_json ?? null : null,
+      beforeFormula: oldRow?.formula_ast_json ?? null,
       currentFormula: newRow?.formula_ast_json ?? (input.mode === "PREVIEW" && deleted ? oldRow?.formula_ast_json ?? null : null),
       changed: changed && !deleted,
       deleted,

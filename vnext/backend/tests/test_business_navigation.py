@@ -290,13 +290,16 @@ ELIGIBILITY_CASES = (
     (False, ("dev_addr",), (), "COLUMNS_ADDED", False),
     (True, ("dev_addr",), (), "COLUMNS_ADDED", False),
     (True, (), ("dev_addr",), "INCOMPATIBLE", False),
+    (True, ("id",), (), "NONE", False),
+    (True, (), ("id",), "INCOMPATIBLE", False),
     (False, (), ("dev_addr",), "INCOMPATIBLE", False),
 )
 
 
+@pytest.mark.parametrize("identity_column", ["dev_addr", "gid"])
 @pytest.mark.parametrize("keyed,excluded,incompatible,evolution,eligible", ELIGIBILITY_CASES)
 def test_actual_keyed_and_keyless_native_identity_frame(
-    keyed: bool, excluded: tuple[str, ...], incompatible: tuple[str, ...], evolution: str, eligible: bool,
+    keyed: bool, excluded: tuple[str, ...], incompatible: tuple[str, ...], evolution: str, eligible: bool, identity_column: str,
 ) -> None:
     from gateway_backend.capabilities.business_navigation import identity_excluded_sides
     from gateway_backend.capabilities.comparison.contracts import (
@@ -306,12 +309,17 @@ def test_actual_keyed_and_keyless_native_identity_frame(
     from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotColumnDescriptor
     from tests.support.storage_projection import table_descriptor
 
-    descriptor = table_descriptor("device_st", (SnapshotColumnDescriptor("dev_addr", "dev_addr", False, "INT"), SnapshotColumnDescriptor("id", "id", False, "INT")), primary_key_columns=("id",) if keyed else (), row_count=0)
+    excluded = tuple(identity_column if c == "dev_addr" else c for c in excluded)
+    incompatible = tuple(identity_column if c == "dev_addr" else c for c in incompatible)
+    descriptor = table_descriptor("device_st", (SnapshotColumnDescriptor(identity_column, identity_column, False, "INT"), SnapshotColumnDescriptor("id", "id", False, "INT")), primary_key_columns=("id",) if keyed else (), row_count=0)
     key = ("id",) if keyed else ()
     policy = _ComparisonTablePolicy("device_st", compare_excluded_columns=excluded, effective_key_before=key, effective_key_current=key, keyless_policy=KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF)
     task = TableComparisonTask("device_st", descriptor, descriptor, None, None, ArtifactScope.ALL_CHANGES, policy)
-    fact = ComparisonTableFact("device_st", ComparisonTableStatus.UNCHANGED, descriptor, descriptor, schema_changes=ComparisonSchemaChanges(selected_columns=("dev_addr", "id"), effective_compare_key_before=key, effective_compare_key_current=key, incompatible_columns=incompatible, schema_evolution=SchemaEvolution(evolution)))
-    assert identity_excluded_sides(task, fact, "dev_addr") == (frozenset() if eligible else frozenset({"BEFORE", "CURRENT"}))
+    fact = ComparisonTableFact("device_st", ComparisonTableStatus.UNCHANGED, descriptor, descriptor, schema_changes=ComparisonSchemaChanges(selected_columns=tuple(sorted((identity_column, "id"))), effective_compare_key_before=key, effective_compare_key_current=key, incompatible_columns=incompatible, schema_evolution=SchemaEvolution(evolution)))
+    assert identity_excluded_sides(task, fact, identity_column) == (frozenset() if eligible else frozenset({"BEFORE", "CURRENT"}))
+    if not keyed:
+        inactive = replace(task, policy=replace(policy, keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY))
+        assert identity_excluded_sides(inactive, fact, identity_column) == frozenset({"BEFORE", "CURRENT"})
 
 
 def test_typed_table_and_comparison_risk_reduction_excludes_row_events() -> None:

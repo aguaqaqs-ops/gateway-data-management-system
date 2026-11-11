@@ -231,6 +231,7 @@ def test_production_openapi_only_exposes_allowed_routes() -> None:
     assert set(paths.keys()) == {
         "/healthz",
         "/readyz",
+        "/v1/statistics/observations",
         "/v1/repositories",
         "/v1/repositories/{repository_id}/artifacts",
         "/v1/repositories/{repository_id}/versioned/imports",
@@ -247,6 +248,7 @@ ALLOWED_V1_ROUTE_FILES = {
     SRC_ROOT / "http" / "routes" / "imports.py",
     SRC_ROOT / "http" / "routes" / "operations.py",
     SRC_ROOT / "http" / "routes" / "versioned_read.py",
+    SRC_ROOT / "http" / "routes" / "statistics.py",
 }
 
 

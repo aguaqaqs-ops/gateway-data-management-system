@@ -21,6 +21,11 @@
       "source": "BE-b bounded presentation scenario"
     },
     {
+      "path": "diagnostic-codes.json",
+      "sha256": "ab8b5f29e02fcc4bc12e1daf40e2e106d1233176bb102b4c019e2cdefb88ba8f",
+      "source": "Business Navigation validator params and current owning diagnostic emit mapping"
+    },
+    {
       "path": "duplicate-before.sql",
       "sha256": "7abe1c3a0058365c2e30227cc818ed25af2214bcfff1bb7e36a04e0b4ae99f8f",
       "source": "BE-b bounded presentation scenario"
@@ -55,6 +60,11 @@
       "path": "identity-current.sql",
       "sha256": "0a518f8c15704b89ba328dbffd28fc7b5fae4b181e49a06291c1dda9f4c671e1",
       "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "identity-unrecorded-current.sql",
+      "sha256": "5e4ba54a8e30002c06c9f1e87465e1c5fa77185c30e736941e254e233b368cbf",
+      "source": "BE-b registry gid/address changes with all cfg/point rows unchanged"
     },
     {
       "path": "logics-1.xml",
@@ -189,7 +199,9 @@
     "backend/scenarios/schema-keyless",
     "backend/scenarios/table-addition",
     "backend/scenarios/comment-only",
-    "backend/scenarios/formula-unchanged-device"
+    "backend/scenarios/formula-unchanged-device",
+    "backend/scenarios/identity-unrecorded-exact",
+    "backend/scenarios/excluded-identity"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -242,7 +254,8 @@
         "before-formula",
         "keyless",
         "before-only-columns"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "preview-modified-only",
@@ -273,7 +286,8 @@
         "modified-only",
         "missing-snapshot-context",
         "before-formula"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "preview-replacement",
@@ -303,7 +317,8 @@
       "coverage": [
         "replacement",
         "side-isolation"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "history-three-nodes",
@@ -344,7 +359,8 @@
       "coverage": [
         "history-three-nodes",
         "both-side-tables"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "preview-workbench-normal",
@@ -373,7 +389,8 @@
       ],
       "coverage": [
         "ordered-normal"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "digest-cross-implementation",
@@ -402,7 +419,8 @@
       ],
       "coverage": [
         "bundle-closure-digests"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "identity-changes",
@@ -436,7 +454,17 @@
         "table-fallback",
         "orphan",
         "integer-utf8"
-      ]
+      ],
+      "assertions": {
+        "required_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE",
+          "DEVICE_ROWS_UNASSIGNED"
+        ],
+        "fallback_tables": [
+          "device_cfg",
+          "device_st"
+        ]
+      }
     },
     {
       "id": "duplicates-orphans",
@@ -468,7 +496,14 @@
         "duplicate-gid",
         "orphan",
         "missing-snapshot-filter-context"
-      ]
+      ],
+      "assertions": {
+        "required_codes": [
+          "DEVICE_ADDRESS_DUPLICATE",
+          "DEVICE_GID_DUPLICATE",
+          "DEVICE_ROWS_UNASSIGNED"
+        ]
+      }
     },
     {
       "id": "text-identities",
@@ -499,7 +534,23 @@
         "text-digits-not-integer",
         "same-side-physical-type",
         "target-type-mismatch-whole-table"
-      ]
+      ],
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "side": "BEFORE",
+            "table_id": "device_cfg",
+            "reason": "UNSUPPORTED_TYPE"
+          },
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "side": "CURRENT",
+            "table_id": "device_cfg",
+            "reason": "UNSUPPORTED_TYPE"
+          }
+        ]
+      }
     },
     {
       "id": "integer-boundary",
@@ -529,7 +580,17 @@
       "coverage": [
         "safe-integer-boundary",
         "per-side-unsupported-diagnostic"
-      ]
+      ],
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "side": "CURRENT",
+            "table_id": "device_st",
+            "reason": "INTEGER_OUT_OF_RANGE"
+          }
+        ]
+      }
     },
     {
       "id": "schema-keyless",
@@ -562,7 +623,17 @@
         "empty-sg-cfg",
         "table-scope",
         "keyless-third-occurrence"
-      ]
+      ],
+      "assertions": {
+        "before_only_columns": {
+          "device_st": [
+            "before_only"
+          ]
+        },
+        "locator_min_rows": {
+          "keyless_demo": 2
+        }
+      }
     },
     {
       "id": "table-addition",
@@ -592,7 +663,8 @@
       "coverage": [
         "whole-table-addition",
         "empty-initial"
-      ]
+      ],
+      "assertions": {}
     },
     {
       "id": "comment-only",
@@ -622,7 +694,12 @@
       "coverage": [
         "comment-only-preview",
         "canonical-identity-unchanged"
-      ]
+      ],
+      "assertions": {
+        "unchanged_tables": [
+          "comment_demo"
+        ]
+      }
     },
     {
       "id": "formula-unchanged-device",
@@ -652,7 +729,106 @@
       "coverage": [
         "before-formula",
         "unchanged-device-alias"
-      ]
+      ],
+      "assertions": {
+        "before_alias_tables": [
+          "device"
+        ],
+        "changed_tables": [
+          "composite_signal_point"
+        ]
+      }
+    },
+    {
+      "id": "identity-unrecorded-exact",
+      "output": "backend/scenarios/identity-unrecorded-exact",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "identity-unrecorded-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "gid-change-unrecorded-cfg",
+        "address-change-unrecorded-point",
+        "exact-before-filter-identity-reuse"
+      ],
+      "assertions": {
+        "forbidden_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE"
+        ],
+        "exact_tables": [
+          "device_cfg",
+          "device_st"
+        ]
+      }
+    },
+    {
+      "id": "excluded-identity",
+      "output": "backend/scenarios/excluded-identity",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "identity-unrecorded-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "per-side-identity-excluded-diagnostic",
+        "whole-table-downgrade"
+      ],
+      "comparison_exclusions": {
+        "device_cfg": [
+          "gid"
+        ]
+      },
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "side": "BEFORE",
+            "table_id": "device_cfg",
+            "reason": "IDENTITY_EXCLUDED"
+          },
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "side": "CURRENT",
+            "table_id": "device_cfg",
+            "reason": "IDENTITY_EXCLUDED"
+          }
+        ]
+      }
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",

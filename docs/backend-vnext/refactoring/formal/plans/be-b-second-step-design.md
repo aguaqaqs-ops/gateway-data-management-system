@@ -324,11 +324,14 @@ FE-BEB-11 的导航唯一/退役与 FE12 完整性、FE13 物理类型/逐侧诊
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 CANDIDATE_SHA=$(git rev-parse HEAD)
-UV_OFFLINE=1 CARGO_NET_OFFLINE=true ./vnext/scripts/uv-consume.sh -C vnext/backend run python \
+UV_OFFLINE=1 CARGO_NET_OFFLINE=true ./vnext/scripts/uv-consume.sh -C vnext/backend sync
+UV_OFFLINE=1 CARGO_NET_OFFLINE=true vnext/backend/.venv/bin/python \
   "$REPO_ROOT/vnext/scripts/generate-presentation-fixtures.py" \
   --input-root "$REPO_ROOT/vnext/fixtures/presentation-inputs" \
   --output-root "/home/dev/gdds-test-tmp/be-b-fixtures-$CANDIDATE_SHA"
 ```
+
+先由受控 wrapper 同步 locked 环境，再用该环境 Python 显式调用脚本；wrapper 的 run 禁止跨项目脚本目标，因此不直接用 `run python <vnext/scripts/...>`。Rust 改动后按 AGENTS 强制重装并核 build input。
 
 输出 `<output>/backend/{fe2a,fe2b,pairs,...}`，按同一相对路径整体替换 `frontend/src/test/fixtures/source/backend/`；`<output>/index.json` 记录 scenario→目标相对目录、输入 SHA、生成提交、实际 operation/Submit 结果（含 NO_CANONICAL_CHANGE）。清单覆盖下列**目标**消费集合，缺项失败，不混用新旧产物：`backend/fe2a/{preview-full,preview-modified-only,preview-replacement,history-three-nodes}`、`backend/fe2b/preview-workbench-normal`、`backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation`，以及 `backend/manifest.json`、`backend/artifact-closure.json` 和它们引用的全部成员。后两文件供前端 build-golden-bundle-fixture 读取；目录名中的 cross_implementation 不构成浏览器 surface 摘要要求。新增场景在 index.json 逐个声明输出位置。`fe2a/preview-no-navigation` 明确退役、不生成；不增加“禁止导航”的 fixture-only 开关，缺导航拒绝由前端负向单元用例覆盖。前端 wrapper 仅以 subprocess 调这个入口并搬运输出，不再导入后端私有符号；移除全部手写导航/诊断，占位 v1 不保留兼容解码，拒绝旧 row_filter.value。
 

@@ -1,8 +1,10 @@
 # Comparison Bundle Contract
 
-## BE-b v4（实施中）
+<a id="be-b-v4实施中"></a>
 
-当前 selector 为 `backend-vnext/comparison-bundle/v4`，transport decoder 只接受当前版本。B3 已加入 ROW_LOCATOR kind、实际 [locator producer](row-location.md)、导航及 surface 引用遍历/绑定，并落实 Preview/History 双侧浏览的最终导出集合；完整 fixture/golden、集中验收与阶段独审尚待收口，不能把当前增量称为完整 BE-b。外层 flow/job HTTP DTO 不因内部 surface 字段变化盲升版本。
+## 当前版本 v4
+
+当前 selector 为 `backend-vnext/comparison-bundle/v4`，transport decoder 只接受该版本。外层 flow/job HTTP DTO 不因内部 surface 字段变化盲升版本。本文规定当前闭包与下载行为；阶段证据和交付身份由 BE-b 交付记录绑定。
 
 - closure kind 增加 ROW_LOCATOR；surface 引用导航(PROJECTION)、诊断(DIAGNOSTICS)、locator 及 before/current/browse 表均须遍历、绑定、改写、下载校验并纳入现有保护/READY/恢复/清理。safe path builder 生成位置，不拼原用户标识符。最终 ref 仅指 bundle 实际唯一成员或 existing shared binding，不能指 canonical/scratch。
 - 普通 device/composite_signal_point 有逻辑 before 时必须有 before_table_ref：有变化独立导出，未变可别名 current，不为新增表造 before。保持既有 export cache/shared 去重，locator 按最终导出文件行序计算。replacement 继续两侧独立浏览，不造跨侧 row pair。
@@ -252,13 +254,8 @@ bundle-root/
           <table_id>.records.parquet
           <table_id>.records.manifest.json
       projections/
-        forward-channels.json
-        secondary-devices.json
-        communication-protocols.json
-        global-parameters.json
-        unparsed-tables.json
-        composite-signal-points.json
-        composite-signal-formulas.json
+        business_navigation.json
+        business_navigation-diagnostics.json optional
       risk/
         risk-evaluation.json
         risk-report.json
@@ -283,12 +280,10 @@ bundle-root/
   单元素 `table_bindings`，不再用单个 `pair_id` / `table_name` 表示 snapshot binding。
 - MULTI_PAIR 闭包中若出现相同 `source_ref` 且相同 artifact kind 的非 snapshot binding，assembler
   将其提升为 `shared/{kind-segment}/{digest-suffix}/artifact`。Snapshot table binding 使用上面的
-  `table_bindings` 合并规则。该结构属于 Bundle v3 Contract。
+  `table_bindings` 合并规则。该结构属于当前 Bundle v4 Contract。
 - Upload preview 的 `before_table_ref`、`current_table_ref` 和 `browse_table_ref` 若非空，必须直接指向
   可读取的 Parquet snapshot rows；不得以 JSON descriptor 或 metadata envelope 占位。
-- Upload preview 默认只发布单侧 snapshot：current 侧存在时只发布 `current_table_ref`（包括
-  unchanged、modified、schema changed 和 degraded）；仅 current 不可用且 before 存在时发布
-  `before_table_ref`。两侧均不可用时不发布 row ref。
+- 普通 Preview 默认 current 侧存在时发布 current；删除表保留 before。`device` 与 `composite_signal_point` 有逻辑 before 时另必须绑定 before，未变允许别名 current；新增表的 before 为 null。History 每个节点绑定完整两侧。replacement 两侧独立，不产生 row pair。
 - Preview bundle 闭合上传侧全部表以及被删除表的基线侧数据；History 每个节点闭合全部表。bundle 清单为每个 pair/node 保留表名到 Parquet ref 的绑定。相同内容的 Parquet rows 按内容地址共享，不合并或丢弃绑定。
 - `records_ref` 若非空同样必须闭合为 bundle 内 Parquet diff rows，并与其 manifest ref 一起发布。
   Bundle assembler 不得自动生成 descriptor、diff envelope 或其他 metadata 来替代这些 row artifacts。
@@ -322,7 +317,7 @@ bundle-root/
   展示摘要；这不是 artifact 读取失败。
 - Alias member 默认不重复携带 records artifact；closure 只需闭合 canonical table records 和 alias mapping。
 - Comparison records、business projections、risk report、risk annotations 和 diagnostics 是 pair 级 artifacts，默认不跨 pair 合并。
-- Business projection supplemental artifact 是任意可附加的 pair 级 artifact。复合信号 points/formulas 使用 projection item 内的 ref/digest 寻址，并必须同时出现在 pair closure；因此无需提升 comparison bundle 总合同版本。
+- 业务导航与诊断分别由 PROJECTION/DIAGNOSTICS 闭合。复合信号从同侧普通 `device`/`composite_signal_point` 表读取名称、payload/AST，不生成 points/formulas supplemental artifacts。
 - 正式 row records artifact 固定为 Parquet；JSON 只用于 manifest、surface、projection、risk 和 diagnostics 等小型结构化 metadata。
 - Layout 是建议，不是 digest 身份；manifest/closure 才是可校验事实。
 
@@ -355,14 +350,14 @@ ComparisonBundleArtifactClosure:
   surfaces
   comparison_records
   business_projections
-  business_projection_supplemental_artifacts
+  row_locators
   risk_reports
   risk_annotations
   diagnostics
   shared_snapshot_artifacts optional
 ```
 
-Bundle v3 的 closure entry 至少包含 `logical_path`、final `artifact_ref`、kind、size/raw digest
+Bundle v4 的 closure entry 至少包含 `logical_path`、final `artifact_ref`、kind、size/raw digest
 和 pair/shared scope。`SNAPSHOT_TABLE` entry 使用按 `(pair_id, side, table_name)` 排序的非空
 `table_bindings`；同一内容文件可绑定到多个 pair/table。其他 kind 使用 `pair_id` / `table_name`
 表达单一 scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
@@ -375,7 +370,7 @@ Bundle v3 的 closure entry 至少包含 `logical_path`、final `artifact_ref`�
 - Cache hit 恢复到 bundle 时必须重写为 bundle-relative refs。
 - Closure 缺失时 bundle 不能对外 READY。
 - Bundle digest 可以包含 closure manifest digest；closure refs 本身可重写。
-- Core closure 不闭合 upload-specific 的 `preview_index.json`、`diff_summary.json`；它们由 preview bundle delivery 层根据当前 v3 contract 生成。
+- Core closure 不闭合 upload-specific 的 `preview_index.json`、`diff_summary.json`；它们由 preview bundle delivery 层根据当前 Preview delivery contract 生成。
 - 所有 `ComparisonSurface.tables[].risk_refs.annotation_ref` 与
   `annotation_manifest_ref` 必须在 bundle 内闭合为真实
   `backend-vnext/risk-annotations/v1` content / manifest JSON。任何非当前合同或空 placeholder 都不能占用 annotation ref。
@@ -403,34 +398,9 @@ flow_assembly_cache optional
 - `flow_assembly_cache` 是 flow-level assembly cache，不是 comparison fact。
 - `comparison_surface_cache` 和 `flow_assembly_cache` 是 downstream optional caches，不合并为单一 pair-total cache。
 
-## Ordered Table 预留
+## Ordered 与缓存边界
 
-第一版 bundle 不理解 ordered diff 语义，只闭合 surface 引用的 artifacts。
-
-`ORDERED_TABLE_COMPARE` contract/capability 第一版已拆出。实现完成后，bundle 需要补充：
-
-- ordered records artifacts。
-- ordered diagnostics artifacts。
-- ordered risk annotations artifacts。
-- pseudo blank interval 和 table processing mode 相关 artifacts/diagnostics。
-
-## 第一版取舍
-
-第一版固定选择：
-
-- Bundle core 是 flow-neutral。
-- 多 pair 只在 bundle 层组织，不合并 comparison facts。
-- 所有 refs bundle-relative。
-- 正式 row records 使用 Parquet；JSONL 不作为正式 row artifact 格式。
-- Business projection 作为 pair-local artifact/ref 进入 bundle closure，不塞进 row records。
-- 不实现正式 bundle cache。
-- Ordered table 只保留 artifact closure 预留。
-
-后续计划：
-
-- Dolt native provider 已有第一版设计；实现和 benchmark 完成后，确认 native records 到 `ComparisonRecords` 的归一化结果。
-- Dolt native 只作为 comparison provider；最终仍输出 `ComparisonFacts + ComparisonRecordsClosure`，再进入 surface/bundle。
-- Ordered diff contract/capability 已有第一版设计；实现完成后回补 surface ordered extension 和 bundle ordered artifacts。
+Bundle 只闭合 surface 引用的已发布 ordered records、blank/interval 与风险产物，不重算算法。标准 locator 与 ordered records 分开解码。计算缓存不缓存 surface/bundle；snapshot export cache 只复用可重建的行文件。缓存命中仍须当前 bundle ref rewrite、完整 raw 校验和原 operation 保护，不建立新保留生命周期。
 
 ## 验收标准
 
@@ -438,7 +408,7 @@ flow_assembly_cache optional
 - Bundle manifest 可由 artifact closure 完整校验。
 - History 2/3 节点可以表达为 1/2 个 pair surface。
 - Upload FULL preview 发布 `baseline_to_initial` 与 `initial_to_modified` 两个 pair surface，不做三方 diff。
-- Upload preview 的默认 view 是 `initial_to_modified`；`manifest.comparison_surface_ref` 指向该默认 surface 的顶层副本，`preview_index.views[].derived_artifacts.comparison_surface_ref` 指向各自的 `pairs/{pair_id}/comparison-surface.json`。
+- Preview 的默认 view 是 `initial_to_modified`；`manifest.comparison_surface_ref` 指向该默认 surface 的顶层副本，`preview_index.views[].derived_artifacts.comparison_surface_ref` 指向各自的 `pairs/{pair_id}/comparison-surface.json`。
 - Upload preview snapshot、records、risk 和 projection artifact 默认 pair-scoped；不同 `source_ref`
   不得共享同一 pair-scoped logical path（`tables/...`、`comparison/records/...`、`risk/...` 等）。
   相同 `source_ref` 的跨 pair 重复允许提升为 `shared/...`（见上条）。

@@ -1,0 +1,99 @@
+{
+  "format": "backend-presentation-diagnostic-codes/v1",
+  "navigation": {
+    "APP_TABLE_CFG_DUPLICATE": [
+      "app_name",
+      "table_cfg"
+    ],
+    "APP_TABLE_CFG_MISSING": [
+      "app_name"
+    ],
+    "APP_TABLE_NOT_FOUND": [
+      "app_name",
+      "table_cfg"
+    ],
+    "CHANNEL_TABLE_UNCLAIMED": [
+      "board",
+      "link_no"
+    ],
+    "DEVICE_ADDRESS_DUPLICATE": [
+      "dev_addr"
+    ],
+    "DEVICE_FILTER_VALUE_UNSUPPORTED": [
+      "identity_column",
+      "reason"
+    ],
+    "DEVICE_GID_DUPLICATE": [
+      "gid"
+    ],
+    "DEVICE_ROWS_UNASSIGNED": [
+      "changed_row_count",
+      "identity_column",
+      "row_count"
+    ],
+    "DEVICE_TAB_COUNT_UNKNOWN": [
+      "identity_column"
+    ],
+    "DEVICE_TAB_FACTS_UNAVAILABLE": [
+      "identity_column",
+      "reason"
+    ],
+    "PROTOCOL_EXE_MISSING": [
+      "board",
+      "link_no"
+    ],
+    "PROTOCOL_TABLE_NOT_FOUND": [
+      "board",
+      "expected_tables",
+      "link_no",
+      "protocol"
+    ]
+  },
+  "surface_and_records_codes": [
+    "BEFORE_ONLY_COLUMNS",
+    "BLANK_PROVENANCE_INVALID",
+    "BLANK_PROVENANCE_MISSING",
+    "BUSINESS_SCHEMA_CHANGED",
+    "CANONICAL_BLANK_PROVENANCE_INVALID",
+    "CANONICAL_GID_INVALID",
+    "COMPARISON_INTERNAL_ERROR",
+    "CURRENT_ONLY_COLUMNS",
+    "DATASET_REPLACEMENT",
+    "DEGRADE_NO_COMPARE_KEY",
+    "DUPLICATE_EFFECTIVE_KEY",
+    "EFFECTIVE_KEY_CHANGED",
+    "EFFECTIVE_KEY_IGNORED",
+    "INCOMPATIBLE_SELECTED_COLUMNS",
+    "NO_SELECTED_COLUMNS",
+    "ORDERED_INTEGER_INVALID",
+    "ORDERED_PROVIDER",
+    "ORDERED_REQUIRED_COLUMN_MISSING",
+    "ORDER_KEY_DUPLICATE",
+    "ORDER_KEY_INVALID",
+    "ORDER_KEY_MISSING",
+    "PROJECT_IDENTITY_UNVERIFIABLE",
+    "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED",
+    "RISK_ANNOTATION_LIMIT_EXCEEDED",
+    "RISK_DIAGNOSTICS_TRUNCATED",
+    "RISK_TABLE_BUDGET_EXCEEDED",
+    "ROW_IDENTITY_DUPLICATE",
+    "ROW_IDENTITY_MISSING",
+    "ROW_SHAPE_MISMATCH",
+    "SCALAR_TYPE_MISMATCH",
+    "SCALAR_TYPE_UNKNOWN",
+    "SCALAR_VALUE_INVALID",
+    "SET_VALUE_INVALID",
+    "SOURCE_GID_INVALID",
+    "SOURCE_PRIMARY_KEY_CHANGED",
+    "SOURCE_RESERVED_PSEUDO_GID",
+    "TABLE_READER_UNAVAILABLE"
+  ],
+  "replacements": {
+    "DUPLICATE_EFFECTIVE_KEY:<table>": "DUPLICATE_EFFECTIVE_KEY",
+    "Python exception class or arbitrary text": "COMPARISON_INTERNAL_ERROR",
+    "max_annotations_per_table exceeded": "RISK_TABLE_BUDGET_EXCEEDED",
+    "max_annotations_per_pair exceeded": "RISK_ANNOTATION_LIMIT_EXCEEDED",
+    "risk diagnostics truncated": "RISK_DIAGNOSTICS_TRUNCATED",
+    "risk annotation artifact budget exceeded": "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
+  }
+}

@@ -54,6 +54,7 @@ from gateway_backend.capabilities.table_access import (
 from gateway_backend.capabilities.surface_assembly import compute_surface_digest, surface_digest_payload
 from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
 from gateway_backend.capabilities.table_rules import TABLE_RULESET_VERSION, comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import table_ruleset_document, table_ruleset_from_document
 from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
 from gateway_backend.operations.worker import ExecutionControl
 
@@ -146,6 +147,44 @@ def write_member(root: Path, name: str, data: bytes) -> None:
     destination.write_bytes(data)
 
 
+def validate_scenario_assertions(surface: Any, store: InMemoryArtifactStore, expected: dict[str, Any]) -> None:
+    projection = next(p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION")
+    navigation = json.loads(store.locate(projection.projection_ref))
+    diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+    codes = {d["code"] for d in diagnostics}
+    if not set(expected.get("required_codes", [])).issubset(codes) or set(expected.get("forbidden_codes", [])) & codes:
+        raise AssertionError("scenario navigation diagnostic codes disagree")
+    for wanted in expected.get("required_diagnostics", []):
+        if not any(d["code"] == wanted["code"] and d["side"] == wanted["side"]
+            and d["target"]["table_id"] == wanted["table_id"] and d["params"].get("reason") == wanted["reason"] for d in diagnostics):
+            raise AssertionError(f"missing scenario diagnostic: {wanted}")
+    tabs = [tab for group in navigation["groups"] for item in group["items"] for tab in item["tabs"]]
+    for kind, basis in (("fallback_tables", "TABLE_FALLBACK"), ("exact_tables", "EXACT")):
+        for table in expected.get(kind, []):
+            facts = [tab["facts"] for tab in tabs if tab["table_id"] == table and tab["row_filter"] is not None]
+            if not facts or any(fact is None or fact["basis"] != basis for fact in facts):
+                raise AssertionError(f"scenario {table} did not publish {basis} facts")
+    tables = {t.table_id: t for t in surface.tables}
+    for name in expected.get("before_alias_tables", []):
+        refs = tables[name].table_refs
+        if refs.before_table_ref is None or refs.before_table_ref != refs.current_table_ref:
+            raise AssertionError("unchanged table did not alias current into logical before")
+    for name in expected.get("changed_tables", []):
+        if tables[name].change_kind.value in {"UNCHANGED", "BUSINESS_EQUIVALENT"}:
+            raise AssertionError("expected changed table")
+    for name in expected.get("unchanged_tables", []):
+        if tables[name].change_kind.value not in {"UNCHANGED", "BUSINESS_EQUIVALENT"}:
+            raise AssertionError("expected unchanged table")
+    for name, columns in expected.get("before_only_columns", {}).items():
+        found = {c.name for c in tables[name].columns if c.present_in == "BEFORE"}
+        if not set(columns).issubset(found):
+            raise AssertionError("before-only surface column missing")
+    for name, minimum in expected.get("locator_min_rows", {}).items():
+        ref = tables[name].row_locator_ref
+        if ref is None or pq.ParquetFile(pa.BufferReader(store.locate(ref))).metadata.num_rows < minimum:
+            raise AssertionError("locator omitted keyless occurrences")
+
+
 def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, bytes]) -> dict[str, Any]:
     store = InMemoryArtifactStore()
     sources = [materialize(inputs[node["sql"]], inputs[node["xml"]], store) for node in scenario["nodes"]]
@@ -158,14 +197,24 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
             store=store, control=ExecutionControl(), on_cancel=lambda: None,
             repository_id=REPOSITORY, before_presentation=before.presentation,
             current_presentation=current.presentation)
+        rules = migrated_table_ruleset_snapshot()
+        exclusions = scenario.get("comparison_exclusions", {})
+        if exclusions:
+            document = table_ruleset_document(rules)
+            for rule in document["rules"]:
+                if rule["selector"]["kind"] == "EXACT" and rule["selector"]["value"] in exclusions:
+                    rule["compare_excluded_columns"] = exclusions[rule["selector"]["value"]]
+            rules = table_ruleset_from_document(document)
+        common["rule_set"] = comparison_rule_set(rules)
         history = scenario["flow"] == "HISTORY"
         if history:
-            result = run_history_pair_pipeline(**common, rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()))
+            result = run_history_pair_pipeline(**common)
         else:
             result = run_preview_pair_pipeline(**common, view_id=pair["id"])
         surface = result.surface_result.surface
         if surface is None or len([p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION"]) != 1:
             raise ValueError("production pair did not publish exactly one navigation")
+        validate_scenario_assertions(surface, store, scenario.get("assertions", {}))
         label = {"scenario": scenario["id"], "pair_id": pair["id"]}
         for projection in surface.projections:
             if projection.projection_kind == "BUSINESS_NAVIGATION":
@@ -258,6 +307,8 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
         "submit_result": submit_result, "coverage": scenario["coverage"],
         "inputs": {name: hashlib.sha256(inputs[name]).hexdigest()
             for name in sorted({node[k] for node in scenario["nodes"] for k in ("sql", "xml")})},
+        "assertions": scenario.get("assertions", {}), "assertions_result": "PASS",
+        "comparison_exclusions": scenario.get("comparison_exclusions", {}),
         "bundle_digest": manifest["bundle_digest"],
         "logical_paths": sorted(entry["logical_path"] for entry in manifest["closure_entries"]),
         "manifest_fields": sorted(manifest),

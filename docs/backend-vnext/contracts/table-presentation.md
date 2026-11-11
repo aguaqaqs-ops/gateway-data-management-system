@@ -1,6 +1,6 @@
 # Table Presentation Contract
 
-Owner：Backend Table Presentation。BE-b B2 的进程内 resolver 已实现；Surface v4 字段与发布由 B3/B4 接线，不能将 resolver 已存在表述为当前成功 flow 已发布 v4。
+Owner：Backend Table Presentation。当前 resolver 由共同 Preview/History pair pipeline 接入 Surface v4；阶段验收与对外交付状态见 BE-b 交付记录。
 
 展示 metadata 来自精确 frozen CanonicalizationManifest 的 presentation；注释与规范业务 schema、比较键、canonical IPC/Parquet 和 cache identity 分开。metadata 缺注释时合法回退；损坏或缺 required manifest 字段由原 owner 拒绝，不从另一历史版本补写。
 
@@ -12,4 +12,4 @@ replacement 指定 `side=BEFORE|CURRENT` 时只使用本侧 descriptor 和注释
 
 列序 registry 使用 `PRESENTATION_RULES_VERSION=1`，只保留确认的二十条业务重排（九类 IEC104 转发表、device、八类装置测点、fault_msg_cfg、IEC61850 dev_cfg）。规则结果进入 surface 展示字段；不改变 canonical/comparison ruleset digest，也没有独立 table-presentation wire selector。列宽、对齐由前端计算，不提供 hidden/width/align 或旧 preview-index 投影。
 
-权威验证为 `tests/test_table_presentation_resolver.py`；列并集、注释、before-only、分侧和固定列均为纯逻辑，不建 Dolt。Surface 序列化、v4 digest/golden 与消费者接线归 B3/B4。
+权威验证为 `tests/test_table_presentation_resolver.py`；列并集、注释、before-only、分侧和固定列均为纯逻辑，不建 Dolt。Surface 序列化、v4 digest 与 golden 由 Surface owner 和后端 presentation generator 覆盖。

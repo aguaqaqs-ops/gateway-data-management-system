@@ -1,8 +1,10 @@
 # Comparison Surface Contract
 
-## BE-b v4（实施中）
+<a id="be-b-v4实施中"></a>
 
-当前产品 selector 为 `backend-vnext/comparison-surface/v4`，只接受当前版本。B3 已实现下列列展示、内容绑定、实际 native/最终文件 locator、导航恰一份及 Preview/History 接线；前端完整 fixture/golden、集中验收与阶段独审仍待收口，本段不表示 BE-b 已可交付。下列目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
+## 当前版本 v4
+
+当前 selector 为 `backend-vnext/comparison-surface/v4`；只接受该版本。本文与 `surface_assembly/contracts.py` 共同定义当前载荷。验收状态与产物来源由 BE-b 交付记录说明，Contract 版本不代表阶段已退出。
 
 - 每个成功 surface 恰一个 BUSINESS_NAVIGATION projection，完整载荷/FE-BEB-11–13 语义由 [Business Navigation Contract](business-navigation.md) 拥有；缺失/重复拒绝。surface 仍不读表或计算 diff/risk。
 - 普通 columns 为两侧 canonical 列名并集，每名一个，数组按 UTF-8 名序；新增 required `present_in:BEFORE|CURRENT|BOTH`、`pinned:bool`、`display_order:int`。展示顺序从 0 连续唯一：current 业务规则/DDL 次序，再 before-only DDL 次序；没有 current 时取 before。类型/nullable 优先 current，否则 before；名称 current 非空注释→before 非空注释→标识符。固定列规则 no、name，否则 description；宽度/对齐归前端，无隐藏或缺字段回退。
@@ -10,13 +12,11 @@
 - SurfaceTable 增加 nullable `row_locator_ref` 和 required `table_content_bindings={before,current,browse}`。每项 nullable，并与对应 table_ref 同 null；非 null 为 `{business_schema_digest,raw_content_digest,row_count,source_schema_digest,canonical_schema_digest,storage_rule_digest,storage_projection_version}`。语义与已有 owner 相同，不新增行摘要。source_schema_digest 保持现有 compare schema 含义，完整类型/DDL 序由 canonical_schema_digest 绑定。同 ref 的 binding 必须相容。
 - v4 semantic preimage 用 table_content_bindings 取代表文件 raw SHA/size，整个 locator ref 排除；诊断/view_id 的既有排除和其他 records/risk/projection 摘要规则不变。表/locator raw 完整性仍由 refs/bundle closure 保护。后端 surface golden 验证重排/改写不变性；前端只核形状、ref/binding 同 null 及 surface ref 与 closure raw SHA/size 一致，不重算 surface_digest。
 - pair/view ID：Preview FULL 为 baseline_to_initial、initial_to_modified，MODIFIED_ONLY 仅实际 pair；History 两节点 left_to_right，三节点 left_to_middle、middle_to_right。pair_id 不拼 operation ID；同 bundle view_id 唯一，无旧别名。
-- surface diagnostics_summary 仅稳定码；完整 emit 替换表由 B4 交付，不包含异常全文或 pair 失败/取消原文。比较/风险业务算法不因编码替换改变。
+- surface diagnostics_summary 仅稳定码；完整 emit 替换表见 [稳定编码](presentation-diagnostic-codes.md)，不包含异常全文或 pair 失败/取消原文。比较/风险业务算法不因编码替换改变。
 
-行定位、双侧浏览及 ref 生命周期由 [Bundle Contract 的 BE-b 目标](comparison-bundle.md#be-b-v4实施中) 约束；无记录行不能仅凭 EXACT、null locator 或 replay_guarantee 造 before，完整前提见 [Business Navigation](business-navigation.md#无记录行与完整性fe-beb-12)。
+行定位、双侧浏览及 ref 生命周期由 [Bundle Contract](comparison-bundle.md#be-b-v4实施中) 约束；无记录行不能仅凭 EXACT、null locator 或 replay_guarantee 造 before，完整前提见 [Business Navigation](business-navigation.md#无记录行与完整性fe-beb-12)。
 
-> v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。v3 增加 `schema_evolution` 并定义整表新增/删除浏览。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
-
-本文定义 backend vNext 第一版 `ComparisonSurface` contract。Surface 是面向前端和 Workbench 的 flow-neutral 展示结构：它消费 comparison/risk 的已完成事实和 artifact refs，不计算 diff，不计算 risk，不承载 upload、submit 或 history compare 的业务绑定语义。
+Surface 是面向前端和 Workbench 的 flow-neutral 展示结构：只消费 comparison/risk 已完成事实和 artifact refs，不计算 diff/risk，不承载 upload、submit 或 history compare 的业务绑定语义。
 
 前后端简化策略见 `../frontend-surface-simplification.md`。Surface 保持 thin index；业务导航通过正式 projection artifacts 表达，不通过前端表名猜测实现。
 
@@ -26,7 +26,7 @@ Comparison surface 负责：
 
 - 表达一个 directed pair/view 的展示入口。
 - 提供表清单、表级状态、统计、展示策略和 artifact refs。
-- 引用业务 projection artifacts，例如转发通道、二次装置、通讯规约、全局参数和未解析表。
+- 引用恰一份 BUSINESS_NAVIGATION projection 及可选的导航诊断。
 - 引用 `ComparisonFacts`、`ComparisonRecordsClosure`、`RiskReport`、`RiskAnnotationArtifact`、diagnostics artifacts。
 - 为 bundle assembly 和前端只读浏览提供稳定输入。
 
@@ -165,8 +165,10 @@ SurfaceTable:
   row_count
   row_change_stats
   schema_summary optional
-  columns optional
+  columns: SurfaceColumn[]
   table_refs
+  table_content_bindings: {before,current,browse}
+  row_locator_ref nullable
   records_refs
   risk_refs
   display
@@ -195,11 +197,7 @@ SchemaSummary:
 SurfaceProjectionRef:
   projection_id
   projection_kind:
-    FORWARD_CHANNELS
-    SECONDARY_DEVICES
-    COMMUNICATION_PROTOCOLS
-    GLOBAL_PARAMETERS
-    UNPARSED_TABLES
+    BUSINESS_NAVIGATION
   projection_ref
   projection_digest
   projection_summary
@@ -207,7 +205,7 @@ SurfaceProjectionRef:
   diagnostics_ref optional
 ```
 
-`change_kind` 第一版建议：
+`change_kind`：
 
 ```text
 UNCHANGED
@@ -218,6 +216,7 @@ UPDATED
 SCHEMA_CHANGED
 DEGRADED
 FAILED
+REPLACED
 ```
 
 规则：
@@ -229,7 +228,7 @@ FAILED
 - `FAILED` 或 `DEGRADED` 表必须保留 review/diagnostics 入口。
 - `ADDED_TABLE` 使用 `TABLE_BROWSE` 并通过 `current_table_ref` 浏览新增表；`DELETED_TABLE` 使用 `TABLE_BROWSE` 并通过 `before_table_ref` 浏览删除表。两者不依赖逐行 records。
 - `schema_evolution=COLUMNS_ADDED` 保留分类，但 `current_only_columns` 为空，surface 不向 Preview、Submission 或 History 展示新增列清单。
-- 第一版不为 ordered table 生成 move/interval 展示，只表达 degraded/unsupported 或普通表结果。
+- Ordered records、blank 与区间展示沿 [Ordered Table Compare](../capabilities/ordered-diff-compute.md)，不交给 standard row locator。
 
 ## Refs
 
@@ -315,73 +314,33 @@ Dataset Replacement table 额外发布：
 replacement_summary:
   before:                         # 该侧无表时为 null
     row_count
+    display_name
     columns[]:
       name
       display_name
       scalar_type optional
       nullable optional
+      pinned
+      display_order
+      present_in: BEFORE
   current:                        # 结构同 before；该侧无表时为 null
 ```
 
 `replacement_summary` 只允许出现在 `table_processing_mode=DATASET_REPLACEMENT` 的表；它是前端在不解码全量 Parquet 的情况下展示双侧存在性、行数和 schema 差异的权威来源。存在空表必须发布非 null side 且 `row_count=0`，不得与缺表混淆。replacement 表格不得消费 records/risk annotations 构造行级 diff。
 
-## Ordered Table 第一版策略
+## Ordered 与缓存边界
 
-Surface contract 不定义 ordered diff algorithm。第一版只消费 ordered provider 已产出的事实；如果 ordered provider 未接入或 ordered 结果发生真实降级，surface 直接展示 `DEGRADED` / `DEGRADED_NOTICE`，不再保留旧的 ordered 占位值。
+Surface 不定义 ordered 算法。它消费已发布的 `ordered_extension`、ordered records 与风险；真实降级展示 DEGRADED_NOTICE，不把普通 key-based diff 当 ordered diff。`ordered_extension.ordered_records_ref` 必须由 ordered decoder 消费，current snapshot 存在时按 CURRENT_SLOTTED 浏览。没有 records 时只展示 SUMMARY_ONLY，不表示 artifact 读取失败。标准五列 locator 不替代 ordered position/blank 语义。
 
-预留字段：
+Surface 不包含 flow state，不新增 surface cache。Snapshot Parquet cache 和计算缓存命中后仍进入当前 operation 的 ref/closure/READY/protection；cache key、路径及宿主标识不进入载荷。
 
-```text
-ordered_extension:
-  ordered_contract_version
-  ordered_summary optional
-  ordered_records_ref optional
-  ordered_records_manifest_ref optional
-  ordered_display_mode optional
-  table_processing_mode optional
-  ordered_preprocess_applied optional
-```
+## 语义摘要与 raw 完整性
 
-第一版策略：
+`surface_digest_payload` 是 v4 的唯一 preimage owner。它保留 `table_content_bindings`、columns/presentation、comparison/risk identity、records/risk/projection integrity；排除 surface_id、view_id/label、diagnostics 与 diagnostics_count、全部 table refs 和整个 row_locator_ref。其他 ref 以 `{raw_sha256,size_bytes}` 参与，不按 artifact_id 或存储位置散列。
 
-- ordered provider 未实现时，surface 使用 `DEGRADED` / `DEGRADED_NOTICE`。
-- risk 使用 `ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED`。
-- 不把普通 key-based diff 伪装成 ordered semantic diff。
-- `ordered_extension.ordered_records_ref` 是 ordered records 的 canonical ref；前端必须按
-  ordered records contract 解析，不得把它交给标准 `INSERT` / `DELETE` / `UPDATE` records parser。
-- 当 surface 同时携带 `table_refs.current_table_ref` 和 ordered records 时，前端应按
-  `CURRENT_SLOTTED` 展示，使用 current snapshot rows 支持 full/diff/risk 过滤；只有缺少 snapshot
-  table refs 时才使用 records-only fallback。
-- 如果 ordered 表没有 `ordered_records_ref`，且 `records_refs.records_ref` 也为空，前端展示
-  `SUMMARY_ONLY` 摘要空态；这表示 surface 未发布行级 artifact，不表示读取失败。
+因此重排行文件或重编码、重写 locator 不改变 v4 surface 摘要；更换 records/risk/projection 的实际字节仍可能改变摘要。所有实际物理表和 locator 必须由 raw ref 与 bundle closure 严格校验，不能把 semantic digest 当 raw 校验。后端 golden 固定 preimage、digest 与物理改写不变量；前端校验当前形状、双侧 metadata、ref/binding 同 null 和 closure raw 一致性，不重算 surface_digest。
 
-后续 `ORDERED_TABLE_COMPARE` 完成后，需要补充：
-
-- ordered records contract。
-- move/position/interval summary。
-- `ROW_INTERVAL` risk target 映射。
-- ordered table 前端导航和风险定位规则。
-- `ORDERED_TAIL_SEGMENT`、`ORDERED_LOCAL_PATCH`、`ORDERED_SHIFT_REPAIRED`、`ORDERED_REORDER_COMPLEX`、`DEGRADED` 的展示策略。
-- pseudo blank interval 的展示与定位。
-
-## 第一版取舍
-
-第一版固定选择：
-
-- Surface 输入为 `ComparisonFacts + optional RecordsClosure + optional RiskReport`。
-- 普通表按 table/row/schema summary 输出。
-- Row records 不内联到 surface。
-- Surface 不包含 flow state。
-- Surface 不实现 surface cache，只保留 digest 和 future cache key 边界。Snapshot parquet cache
-  属于 snapshot artifact capability；cache hit 恢复后仍必须表现为 bundle-relative parquet ref。
-- Ordered table 只预留 extension，不展开语义。
-
-后续可能变化：
-
-- Dolt native provider 已有第一版设计；实现和 benchmark 完成后，确认 native records 如何映射到 `ComparisonRecords`，surface contract 不直接消费 Dolt native raw output。
-- Ordered diff contract/capability 已有第一版设计；实现完成后，补充 ordered extension。
-- 增加 surface cache。
-- 增加更细的分页索引、列视图和前端筛选 manifest。
+`rewrite_surface_refs` 只重写已验证的 opaque ArtifactRef。仅 ref ID/location 变化保持摘要；若嵌套 records/risk JSON 的 raw bytes 改变，assembler 按 owner 重新计算，不能为了保旧 golden 删除 integrity 输入。
 
 ## 验收标准
 
@@ -392,15 +351,6 @@ ordered_extension:
 - Degraded/unsupported 表有可展示诊断入口。
 - Ordered unsupported 不被展示成普通 semantic diff。
 
-## S4 reference contract realization
+## 实现与验证
 
-当前 Python contract realization 使用 `backend-vnext/comparison-surface/v3`，公共类型位于
-`gateway_backend.capabilities.surface_assembly.contracts`。`SurfaceAssemblyInput` 只接受
-`ComparisonFacts`、可选 `ComparisonRecordsClosure`、可选 `RiskReport`/annotation closure
-以及显式 artifact index；`SurfaceAssemblyResult` 在 `READY` 以外的 terminal status 不携带
-Surface。
-
-`surface_digest` 不包含 `surface_id`、raw ref identity、diagnostics、operation/flow metadata
-或时间字段；ref 的 `size_bytes`/`raw_sha256` integrity identity、closure digests 和表级
-semantic payload 会参与 digest。`rewrite_surface_refs` 只能替换已验证的 opaque
-`ArtifactRef`，并保持 digest 不变。
+公共类型在 `gateway_backend.capabilities.surface_assembly.contracts`。`SurfaceAssemblyResult` 仅 READY 携带 surface。`test_surface_contracts.py`、`test_surface_assembly.py` 和后端 presentation golden 分别拥有 shape/ref、语义与互通。导航完整性与缺快照上下文以 Business Navigation/Row Location owning Contract 为准，不复制一套算法。

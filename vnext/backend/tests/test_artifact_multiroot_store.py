@@ -316,7 +316,7 @@ def test_process_publication_interruption_and_cleanup_preserve_complete_object(t
             os._exit(0)  # Real process exit before no-replace publication.
         open_test_store(base).put_chunks(chunks(), ref)
     run_processes((interrupted,))
-    assert local.get_ref(ref.artifact_id) is None
+    assert not local.object_directory(ref.artifact_id).exists()
     def publish() -> None:
         assert open_test_store(base).put(raw, ref) == ref
     run_processes((publish, publish))

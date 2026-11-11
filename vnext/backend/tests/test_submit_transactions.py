@@ -1287,7 +1287,7 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path,
         run_processes((lambda: accept(first_seed, 'accept-key-1'), lambda: accept(second_seed, 'accept-key-2')))
         import sqlite3
         with sqlite3.connect(db_path) as db:
-            assert db.execute('SELECT COUNT(*) FROM submit_attempts').fetchone()[0] == 1
+            assert db.execute('SELECT COUNT(*) FROM submit_attempt_records').fetchone()[0] == 1
         return
     accept_submit_transaction(
         command=_accept_command(first_seed, idempotency_key="accept-key-1"),

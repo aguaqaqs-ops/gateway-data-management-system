@@ -118,16 +118,26 @@ def check_database_files(metadata: Path) -> None:
             raise ValueError("control database file is redirected or not ordinary")
         if name != "control.sqlite3" and not present:
             raise ValueError("control database journal has no owning database")
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        directory = os.open(metadata, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        directory = os.open(metadata, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
-            def mount_id(fd: int) -> str:
-                return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
-                            if line.startswith("mnt_id:"))
-            if mount_id(descriptor) != mount_id(directory):
-                raise ValueError("control database file is on an unexpected mount")
+            # Closing an ordinary fd for a live SQLite inode drops this process's
+            # POSIX locks, even when another thread owns the SQLite connection.
+            # Linux O_PATH observes identity without opening the file for I/O.
+            descriptor = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                opened = os.fstat(descriptor)
+                if not stat.S_ISREG(opened.st_mode) or opened.st_dev != info.st_dev:
+                    raise ValueError("control database file is redirected or not ordinary")
+                if not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True):
+                    raise ValueError("control database file is not readable")
+                def mount_id(fd: int) -> str:
+                    return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
+                                if line.startswith("mnt_id:"))
+                if mount_id(descriptor) != mount_id(directory):
+                    raise ValueError("control database file is on an unexpected mount")
+            finally:
+                os.close(descriptor)
         finally:
-            os.close(descriptor)
             os.close(directory)
 
 

@@ -26,11 +26,14 @@ from gateway_backend.operations.store import RecordNotFound, StoreBusy, Unsuppor
 
 def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
     root_device, _root_inode, root_mount = directory_identity(metadata)
-    descriptor = os.open(database, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    # This identity check also runs inside an active SQLite UoW. An ordinary
+    # open/close would discard its process-owned POSIX locks on the database.
+    descriptor = os.open(database, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         info = os.fstat(descriptor)
         if (not stat.S_ISREG(info.st_mode) or info.st_size == 0
-                or info.st_dev != root_device or descriptor_mount_id(descriptor) != root_mount):
+                or info.st_dev != root_device or descriptor_mount_id(descriptor) != root_mount
+                or not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True)):
             raise ValueError('existing initialized ordinary control database is required')
         return info.st_dev, info.st_ino
     finally:

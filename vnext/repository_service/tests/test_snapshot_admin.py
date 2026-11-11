@@ -16,6 +16,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+from unittest.mock import MagicMock
+
+import httpx2 as httpx
+from pydantic import ValidationError
 
 import pytest
 from fastapi.testclient import TestClient
@@ -955,10 +959,13 @@ def _read_versioned_json(client: TestClient, path: str) -> dict[str, Any]:
     while True:
         assert time.monotonic() < deadline, "versioned read admission deadline exceeded"
         response = client.get(path, headers=_AUTH_HEADERS)
+        response.close()
+        request_id = response.headers.get("X-Request-ID")
+        assert request_id is not None and 0 < len(request_id) <= 1024, "missing or illegal X-Request-ID"
         if response.status_code == 503:
             error = SimpleError.model_validate(response.json())
+            assert error.request_id is not None and error.request_id == request_id, "error request_id does not match X-Request-ID"
             if error.code == REPOSITORY_BUSY_CODE:
-                response.close()
                 remaining = deadline - time.monotonic()
                 assert remaining > 0, "versioned read admission deadline exceeded"
                 time.sleep(min(1.0, remaining))
@@ -967,6 +974,35 @@ def _read_versioned_json(client: TestClient, path: str) -> dict[str, Any]:
         body = response.json()
         assert isinstance(body, dict)
         return body
+
+
+INVALID_BUSY_REQUEST_IDS = (
+    pytest.param(None, {"request_id": "busy"}, id="missing-header"),
+    pytest.param("", {"request_id": "busy"}, id="empty-header"),
+    pytest.param("x" * 1025, {"request_id": "busy"}, id="oversize-header"),
+    pytest.param("busy", {}, id="missing-body-id"),
+    pytest.param("busy", {"request_id": None}, id="null-body-id"),
+    pytest.param("busy", {"request_id": ""}, id="empty-body-id"),
+    pytest.param("busy", {"request_id": "other"}, id="mismatched-body-id"),
+)
+
+
+@pytest.mark.parametrize(("header", "body_id"), INVALID_BUSY_REQUEST_IDS)
+def test_snapshot_read_rejects_invalid_busy_without_waiting(
+    monkeypatch: pytest.MonkeyPatch, header: str | None, body_id: dict[str, object],
+) -> None:
+    client = MagicMock(spec=TestClient)
+    response = httpx.Response(503,
+        json={"code": REPOSITORY_BUSY_CODE, "message": "repository is busy"} | body_id,
+        headers={} if header is None else {"X-Request-ID": header})
+    client.get.return_value = response
+    sleep = MagicMock(side_effect=AssertionError("invalid busy must not wait"))
+    monkeypatch.setattr(time, "sleep", sleep)
+    with pytest.raises((AssertionError, ValidationError)):
+        _read_versioned_json(client, "/versioned/read")
+    client.get.assert_called_once()
+    sleep.assert_not_called()
+    assert response.is_closed
 
 
 def _read_snapshot_facts(

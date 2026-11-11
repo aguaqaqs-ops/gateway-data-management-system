@@ -115,7 +115,11 @@ def test_dropped_source_column_preserves_provenance_for_a_shared_export(distinct
 @pytest.mark.parametrize("field", ("business_schema_digest", "raw_content_digest", "row_count", "canonical_schema_digest"))
 def test_shared_export_rejects_different_canonical_payload(field: str) -> None:
     first = _content_binding("same")
-    second = replace(first, **{field: 4 if field == "row_count" else _digest("different")})
+    second = replace(first,
+        business_schema_digest=_digest("different") if field == "business_schema_digest" else first.business_schema_digest,
+        raw_content_digest=_digest("different") if field == "raw_content_digest" else first.raw_content_digest,
+        row_count=4 if field == "row_count" else first.row_count,
+        canonical_schema_digest=_digest("different") if field == "canonical_schema_digest" else first.canonical_schema_digest)
     ref = _ref("shared-table")
     with pytest.raises(ValueError, match="incompatible"):
         SurfaceArtifactIndexEntry("net_cfg", SurfaceTableRefs(ref, ref),
@@ -142,11 +146,12 @@ def test_history_preserves_distinct_frozen_source_schemas_for_shared_rows(tmp_pa
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
     from tests.support.canonical_metadata import CatalogCommitCanonicalMetadataPort, metadata_for_catalog
     from tests.support.history_compare_job_harness import (
-        build_history_compare_harness, run_full_history_compare_job,
+        build_history_compare_harness, run_full_history_compare_job, REPOSITORY_ID,
     )
-    from tests.support.http_workspace_harness import BASELINE_HEAD, REPOSITORY_ID
+    from tests.support.http_workspace_harness import BASELINE_HEAD
+    from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
     from tests.support.repository_ref_materialization import (
-        FakeRepositoryTableAccessProvider, RepositoryColumn, catalog_table, make_catalog,
+        FakeRepositoryTableAccessProvider, catalog_table, make_catalog,
     )
     ruleset = migrated_table_ruleset_snapshot()
     sql_inputs = _PROJECTED_SQL_INPUTS

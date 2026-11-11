@@ -10,6 +10,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
+from contextlib import AbstractContextManager
 from typing import Any
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -99,6 +100,24 @@ class NavigationResult:
 
 
 def build_navigation(
+    tables: tuple[NavigationTable, ...], *, replacement: bool = False,
+    check: Callable[[], None], reserve: Callable[[int], AbstractContextManager[object]],
+    max_state_bytes: int = 16 * 1024 * 1024,
+) -> NavigationResult:
+    """Charge bounded state and serialization buffers to the existing operation M.
+
+    The caller supplies operation.memory.reserve and operation.checkpoint; neither
+    a separate memory budget nor an independent cancellation lifetime is created.
+    """
+    check()
+    if type(max_state_bytes) is not int or not 0 < max_state_bytes <= 16 * 1024 * 1024:
+        raise ValueError("invalid navigation state bound")
+    with reserve(max_state_bytes + 40 * 1024 * 1024):
+        return _build_navigation(tables, replacement=replacement, check=check,
+                                 max_state_bytes=max_state_bytes)
+
+
+def _build_navigation(
     tables: tuple[NavigationTable, ...], *, replacement: bool = False,
     check: Callable[[], None], max_state_bytes: int = 16 * 1024 * 1024,
 ) -> NavigationResult:
@@ -391,6 +410,12 @@ class _Builder:
             owners: dict[str, dict[Scalar, set[int]]] = {"BEFORE": defaultdict(set), "CURRENT": defaultdict(set)}
             failures: dict[str, str] = {}
             orphans: dict[str, int] = {}
+            reuse_counts = (table.unchanged and table.before is not None and table.current is not None
+                            and table.before.column_types.get(column) == table.current.column_types.get(column))
+            known_values = set(representatives) if column == "dev_addr" else {
+                value for side_gids in gids.values() for values in side_gids.values() for value in values}
+            reused_histogram: Counter[Scalar] | None = None
+            reused_total = 0
             for side, source in (("BEFORE", table.before), ("CURRENT", table.current)):
                 if source is None:
                     counts[side] = {addr: 0 for addr in candidates}
@@ -416,20 +441,37 @@ class _Builder:
                             owners[side][value].add(addr)
                 side_counts = {addr: 0 for addr in candidates}
                 orphan = 0
-                for row in self.rows(source):
-                    value = row.values.get(column)
-                    if not missing_column:
-                        reason = scalar_reason(source.column_types[column], value)
-                        if reason:
-                            failures[side] = reason
-                    hits = owners[side].get(value, set())
-                    if hits:
-                        for addr in hits:
-                            side_counts[addr] += 1
-                    else:
-                        orphan += 1
+                if reuse_counts and reused_histogram is not None:
+                    for value, count in reused_histogram.items():
+                        for addr in owners[side].get(value, set()):
+                            side_counts[addr] += count
+                    covered = sum(count for value, count in reused_histogram.items() if value in owners[side])
+                    orphan = reused_total - covered
+                else:
+                    histogram: Counter[Scalar] = Counter()
+                    total = 0
+                    scan_source = table.current if reuse_counts else source
+                    for row in self.rows(scan_source):
+                        total += 1
+                        value = row.values.get(column)
+                        if not missing_column:
+                            reason = scalar_reason(source.column_types[column], value)
+                            if reason:
+                                failures[side] = reason
+                        if reuse_counts and value in known_values:
+                            histogram[value] += 1
+                        hits = owners[side].get(value, set())
+                        if hits:
+                            for addr in hits:
+                                side_counts[addr] += 1
+                        else:
+                            orphan += 1
+                    if reuse_counts:
+                        reused_histogram, reused_total = histogram, total
                 counts[side] = None if missing_column else side_counts
                 orphans[side] = orphan
+            if reuse_counts and failures.get("BEFORE") == "INTEGER_OUT_OF_RANGE":
+                failures["CURRENT"] = "INTEGER_OUT_OF_RANGE"
             if failures:
                 key = f"table:{name}"
                 output.append(self.item(key, "TABLE", table.display_name, [self.tab(table)]))

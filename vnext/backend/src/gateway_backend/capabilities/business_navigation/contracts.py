@@ -112,7 +112,8 @@ class NavigationTable:
 
     @property
     def display_name(self) -> str:
-        return (self.current or self.before).display_name if self.current or self.before else self.table_name
+        source = self.current or self.before
+        return source.display_name if source is not None else self.table_name
 
 
 def identity_excluded_sides(

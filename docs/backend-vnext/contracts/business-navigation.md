@@ -1,6 +1,6 @@
 # Business Navigation Contract
 
-状态：BE-b 已核准目标，**尚未激活**。B0 只固定语义与所有权；B2 的 producer/typed decoder、B3/B4 的 surface/bundle 接线与 golden 同步完成后，才支持 `backend-vnext/business-navigation/v1`。当前 S1a 产品没有此生产产物。本文件不构成产品通过或前端可消费当前 main 的声明。
+状态：BE-b B2 已实现 v1 的进程内 producer、严格 validator 与纯逻辑 Contract 测试；B3/B4 的 surface/bundle 接线与 golden 尚待完成。只有整条生产路径完成后才发布 `backend-vnext/business-navigation/v1`。本包 capability 不构成当前成功 flow 已可消费的声明。
 
 Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3–4.7](../../frontend-vnext/be-b-navigation-and-presentation-draft.md)，实现边界、预算与激活依赖见[第二步 §4/5/7](../refactoring/formal/plans/be-b-second-step-design.md)。本合同拥有导航载荷、筛选、局部事实与诊断；Surface 拥有引用与展示表，Bundle 拥有物理闭包。导航只消费已完成的 comparison/risk 事实，不重新计算两者。
 
@@ -85,3 +85,11 @@ records/annotations/归属不完整且现有有界事实不足以证明 EXACT �
 B2 的 business_navigation unit/contract 共享参数表权威验证认领、集合覆盖、table_scope、FE12 资格/抑制反例与 FE13 逐侧诊断；纯逻辑不建 Dolt。B3 的 row_location 验证最终文件身份/occurrence/context；B4 的真实 bundle fixture 验证 producer→decoder 互通，前端 FE4b 验证 BigInt/同侧 metadata、负向缺导航与 ref/closure。不重复实现 canonical 编码。
 
 每表每侧有界扫描，共享 operation M/scratch/cancel/deadline；导航 16 MiB、诊断 4 MiB，计入既有 N1/M24 GiB、worker envelope32/reserve8。无跨操作新缓存或独立恢复状态机。导航/诊断位于 S1a comparison 逻辑位置，由现有 ref/保护/READY/bundle 路径管理；新增 ref 的遍历/重写及清理由 B3/B4 同轮接入。
+
+## B2 实施接线边界
+
+`build_navigation` 接受 `NavigationTable` 双侧、`NavigationEvidence` 和同 operation 的 `check`/`reserve`；有界状态与序列化缓冲先向既有 M 预留，不建立新资源 owner。流式行只保留 registry/装置代表与实际谓词身份计数，孤儿身份只聚合总数。无变化共享表从 current 单次扫描为两侧谓词分别计数，不打开 before 行流。`canonical_order_key` 必须由现有规范标量整行编码提供，producer 不另造 row identity。
+
+`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；B4 必须从 evaluator 的完整实际事件流（含 cache replay）传入。
+
+B3/B4 必须实际提供上述输入、发布恰一个 projection、加入 closure/ref/保护与生命周期；不能因本包 typed helper 存在就假定 flow 已接通。后端输入资格与定位/完整性证明仍由各原 owner 校验。

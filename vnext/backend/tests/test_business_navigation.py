@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from contextlib import nullcontext
 from dataclasses import replace
 from typing import Any
 
@@ -43,7 +44,7 @@ def device(old: tuple[Mapping[str, Scalar], ...], new: tuple[Mapping[str, Scalar
 
 
 def build(*tables: NavigationTable, replacement: bool = False) -> Any:
-    return build_navigation(tables, replacement=replacement, check=lambda: None)
+    return build_navigation(tables, replacement=replacement, check=lambda: None, reserve=lambda _: nullcontext())
 
 
 def tabs(result: Any, table_id: str, *, replacement_side: str | None = None) -> list[dict[str, Any]]:
@@ -197,7 +198,7 @@ def test_replacement_isolates_filter_values_labels_and_unsupported_side() -> Non
 
 
 def test_channel_empty_sg_schema_change_and_global_claim_priority() -> None:
-    row = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1, "channel_desc": "通道"}
+    row: dict[str, Scalar] = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1, "channel_desc": "通道"}
     net = table("net_cfg", None, side((row,), columns={"board": "INT"}))
     sg = table("b1_n2_sg_cfg", None, side(label="定值"), table_change=True)
     app = table("app_cfg", None, side(({"app_name": "重复", "table_cfg": sg.table_name},)))
@@ -280,7 +281,7 @@ def test_linear_scan_and_bound_do_not_index_orphan_identities() -> None:
     assert result.scanned_rows == 10000
     assert diagnostics(result, "DEVICE_ROWS_UNASSIGNED")[0]["params"]["row_count"] == 10000
     with pytest.raises(ValueError, match="RESOURCE_LIMIT_EXCEEDED"):
-        build_navigation((table("device_st", None, source),), check=lambda: None, max_state_bytes=1)
+        build_navigation((table("device_st", None, source),), check=lambda: None, reserve=lambda _: nullcontext(), max_state_bytes=1)
 
 
 ELIGIBILITY_CASES = (
@@ -327,3 +328,14 @@ def test_typed_table_and_comparison_risk_reduction_excludes_row_events() -> None
     )
     assert reduce_table_risks(("a", "b", "c"), events) == {"a": RiskLevel.UNKNOWN, "b": RiskLevel.MEDIUM_HIGH, "c": RiskLevel.UNKNOWN}
     assert reduce_table_risks(("a", "b", "c"), iter(events)) == reduce_table_risks(("a", "b", "c"), events)
+
+
+def test_unchanged_shared_table_never_opens_before_row_stream() -> None:
+    def forbidden() -> Any:
+        raise AssertionError("unchanged before stream must remain unopened")
+    devs = ({"dev_addr": 49, "gid": 7},)
+    old = NavigationSide({"dev_addr": "INT"}, forbidden, 1, "表")
+    new = side(({"dev_addr": 49},))
+    result = build(device(devs, devs), table("device_st", old, new, unchanged=True))
+    assert tabs(result, "device_st")[0]["facts"]["before_row_count"] == 1
+    assert result.scanned_rows == 3  # two tiny registry sides + current shared side

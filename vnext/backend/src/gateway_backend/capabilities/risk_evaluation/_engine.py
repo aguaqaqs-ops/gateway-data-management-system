@@ -689,6 +689,8 @@ def _publish_result(
     manifest_digests: list[DigestRef] = []
     for outcome in outcomes:
         if not outcome.annotations:
+            if context.attribution_observer is not None:
+                context.attribution_observer(outcome.table_name, (), not outcome.degraded)
             continue
         level = max((item.risk_level for item in outcome.annotations), key=lambda value: _LEVEL_RANK[value])
         reason_codes = tuple(
@@ -724,6 +726,13 @@ def _publish_result(
                 artifacts.append(artifact)
                 manifest_digests.append(artifact.manifest_digest)
         artifact_requested = evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY
+        if context.attribution_observer is not None:
+            context.attribution_observer(
+                outcome.table_name, outcome.annotations,
+                not outcome.degraded and not (
+                    artifact_requested and outcome.allow_artifact and artifact is None
+                ),
+            )
         table_risks.append(
             RiskTableRisk(
                 table_name=outcome.table_name,
@@ -903,6 +912,9 @@ def _build_pair_degraded_without_annotations(
         for item in extracted
         if has_visible_change(item)
     )
+    if context.attribution_observer is not None:
+        for item in extracted:
+            context.attribution_observer(item.table_fact.table_name, (), False)
     # Discard every partial annotation and preserve an explicit degraded table-level risk for
     # each visible change. This keeps the pair-level failure observable downstream without
     # publishing a partial annotation closure.

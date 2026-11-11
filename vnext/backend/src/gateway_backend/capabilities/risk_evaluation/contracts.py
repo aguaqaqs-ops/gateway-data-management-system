@@ -190,6 +190,11 @@ class RiskExecutionContext:
     deadline_monotonic: float | None = None
     clock: Callable[[], float] = monotonic
     operation: RiskOperationPort | None = field(default=None, repr=False, compare=False)
+    # Transient typed outcomes, after current evaluation/replay and before the
+    # owning charges close. Consumers reduce immediately; no artifact reparse.
+    attribution_observer: Callable[[str, tuple[RiskAnnotation, ...], bool], None] | None = field(
+        default=None, repr=False, compare=False,
+    )
 
     def __post_init__(self) -> None:
         if self.cancel_requested is not None and not isinstance(self.cancel_requested, RiskCancellationProbe):

@@ -710,3 +710,40 @@ def test_other_optional_candidates_cannot_block_cold_annotation_emit() -> None:
         assert candidate.risk_closure.closure_manifest_digest == baseline.risk_closure.closure_manifest_digest
     finally:
         cache.close()
+
+
+@pytest.mark.parametrize("limit", ("complete", "pair", "artifact"))
+def test_attribution_observer_sees_actual_typed_cold_and_replayed_outcomes(limit: str) -> None:
+    from gateway_backend.capabilities.risk_evaluation.contracts import RiskAnnotation
+
+    table = replace(_added_rows("t", 1), status=ComparisonTableStatus.SCHEMA_CHANGED,
+        table_fact_digest=raw_blob_digest(b"typed-observer"))
+    source = _input((table,))
+    cache = _Candidates()
+    cached = replace(source, risk_cache_session=cache, risk_task_keys={"t": "t-key"})
+    policy = (RiskExecutionPolicy(max_annotations_per_pair=1) if limit == "pair" else
+              RiskExecutionPolicy(max_annotation_artifact_bytes_per_table=1) if limit == "artifact" else
+              RiskExecutionPolicy())
+    try:
+        warm = _evaluate_with_operation(cached, artifact_store=InMemoryArtifactStore())
+        assert warm.status is RiskEvaluationStatus.READY and cache.events is not None
+        captured: list[list[tuple[str, tuple[RiskAnnotation, ...], bool]]] = []
+        for value in (source, cached):
+            events: list[tuple[str, tuple[RiskAnnotation, ...], bool]] = []
+            result = _evaluate_with_operation(value, artifact_store=InMemoryArtifactStore(),
+                execution_policy=policy, execution_context=RiskExecutionContext(
+                    attribution_observer=lambda name, annotations, complete: events.append((name, annotations, complete))))
+            assert result.status in {RiskEvaluationStatus.READY, RiskEvaluationStatus.DEGRADED}
+            captured.append(events)
+        assert captured[0] == captured[1]
+        assert len(captured[0]) == 1
+        name, annotations, complete = captured[0][0]
+        assert name == "t" and complete is (limit == "complete")
+        if limit == "pair":
+            assert annotations == ()
+        else:
+            assert annotations and all(type(a) is RiskAnnotation for a in annotations)
+            assert any(a.target.target_type is RiskTargetType.TABLE for a in annotations)
+        assert cache.hits == 1
+    finally:
+        cache.close()

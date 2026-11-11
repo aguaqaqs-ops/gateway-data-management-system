@@ -39,7 +39,7 @@ UV_OFFLINE=1 CARGO_NET_OFFLINE=true vnext/backend/.venv/bin/python \
 
 Rust 变化先按 AGENTS 强制重装扩展并核 build input。wrapper 的 run 不允许跨项目脚本，故同步后显式用同一已锁定环境 Python 调用。后端镜像可只读挂载 scripts 和 inputs，以该镜像 Python 调用同一入口；入口的 Git clean/commit provenance 检查需同时可见原 checkout 与 Git metadata，不在镜像内改造生产 identity。
 
-生成器显式固定 secrets.token_hex 的单进程序号→SHAKE256、各 materialization/publication owner 的时钟、repository、flow pair/view、单 kernel thread 与预算，全部记入 index。scratch 随临时上下文关闭；生产 fresh journey 不使用这些替身。comment-only 场景实际调用 accept_submit_transaction，原 no-op guard 返回 NO_CANONICAL_CHANGE，记录只读事务数、零写事务和零 Repository main 调用；fixture 的只读 control/baseline ports 在 index 明示。
+生成器显式固定 secrets.token_hex 的单进程序号→SHAKE256、各 materialization/publication owner 的时钟、repository、flow pair/view、单 kernel thread 与预算，全部记入 index。BundleInput 严格跟随真实 flow producer：Preview 的 baseline/initial/modified 角色与英文标题；History 的固定 fixture node ref_id 角色与 node-i 标题；两者 snapshot_digest=null、display_metadata={}，不把组件计算中的 snapshot identity 填入 flow 未发布字段。scratch 随临时上下文关闭；生产 fresh journey 不使用这些替身。comment-only 场景实际调用 accept_submit_transaction，原 no-op guard 返回 NO_CANONICAL_CHANGE，记录只读事务数、零写事务和零 Repository main 调用；fixture 的只读 control/baseline ports 在 index 明示。
 
 前端 wrapper 只用 subprocess 调入口并整体替换 `backend/`；复制输入时逐文件核 manifest SHA。删除手写导航/诊断、fallbackNavigation 和旧无导航 fixture；不编辑生成产物。浏览器不重算 surface_digest，继续核 bundle/closure 摘要、ref raw SHA/size、同侧 Parquet metadata/BigInt 与形状。
 

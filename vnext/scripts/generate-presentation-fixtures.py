@@ -288,8 +288,9 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
     result = assemble_bundle(BundleAssemblyInput(
         bundle_contract_version=BUNDLE_CONTRACT_VERSION,
         bundle_profile=BundleProfile.MULTI_PAIR if len(pair_inputs) > 1 else BundleProfile.SINGLE_PAIR,
-        inputs=tuple(BundleInput(i, node["role"], node["label"], snapshot_digest=source.bound.snapshot.snapshot_digest)
-            for i, (node, source) in enumerate(zip(scenario["nodes"], sources, strict=True))),
+        inputs=tuple(BundleInput(i, f"fixture-history-ref-{i}", f"node-{i}")
+            if scenario["flow"] == "HISTORY" else BundleInput(i, node["role"], node["role"].capitalize())
+            for i, node in enumerate(scenario["nodes"])),
         pairs=tuple(pair_inputs), ref_scope=BundleRefScope.BUNDLE_RELATIVE,
     ), source_store=store)
     if result.bundle is None or result.manifest_ref is None or result.artifact_closure_ref is None:
@@ -399,6 +400,8 @@ def generate(input_root: Path, output_root: Path) -> None:
             "allocator_owners": list(ALLOCATOR_MODULES), "repository_id": REPOSITORY,
             "uuid_allocator": "UUID from next deterministic 16-byte token; preview canonical closure owner",
             "pair_and_view_ids": "current flow contract; no operation ID prefix",
+            "history_node_ref_ids": "fixture-history-ref-<node-index>; roles match History producer",
+            "bundle_inputs": "Preview role/English label; History ref_id/node-i; snapshot_digest=null in both",
             "kernel_threads": 1, "memory_budget_bytes": 8 * 1024**3},
         "rejected_frozen_sources": rejected_sources, "scenarios": records}
     write_member(output_root, "index.json", canonicalize_json_value(index))

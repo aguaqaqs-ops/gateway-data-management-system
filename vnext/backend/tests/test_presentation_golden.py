@@ -82,6 +82,12 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
                     assert context is None
                     assert 0 <= index < table["table_content_bindings"][side]["row_count"]
     for vector in _load("bundle", scenario):
+        history = scenario in {"history-three-nodes", "schema-keyless"}
+        for index, item in enumerate(vector["manifest"]["inputs"]):
+            assert item["snapshot_digest"] is None and item["display_metadata"] == {}
+            assert item["display_name"] == (f"node-{index}" if history else item["role"].capitalize())
+            if history:
+                assert item["role"] == f"fixture-history-ref-{index}"
         transport = read_bundle_transport_metadata(canonicalize_json_value(vector["manifest"]))
         assert transport.expected_closure_bytes == canonicalize_json_value(vector["artifact_closure"])
     if scenario == "comment-only":

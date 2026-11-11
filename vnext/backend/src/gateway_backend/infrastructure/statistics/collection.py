@@ -15,6 +15,8 @@ from gateway_backend.infrastructure.statistics.sqlite_store import Record, SQLit
 from gateway_backend.operations.worker import ClaimedWork
 from gateway_backend.statistics.config import StatisticsConfig
 from gateway_backend.statistics.metrics import Metrics, set_metrics
+from gateway_repository_contracts.statistics import Reason
+
 from gateway_backend.statistics.models import (
     CacheCounts, ExecutionMetrics, ExecutionSummary, InputShape, ResourceRecord, StageDurations,
     StatisticsIdentity, TableMetric,
@@ -66,12 +68,12 @@ def bounded_metrics(metrics: Metrics) -> ExecutionMetrics:
         table = TableMetric(pair_id=pair, table_name=name, comparison_mode=mode,
                             before_rows=before, after_rows=after, changed_rows=changed)
         try:
-            ExecutionMetrics(**{**fields, 'tables': tuple([*tables, table]),
+            ExecutionMetrics.model_validate({**fields, 'tables': tuple([*tables, table]),
                                 'tables_truncated': metrics.tables_total > len(tables) + 1 or metrics.truncated})
         except ValueError:
             break
         tables.append(table)
-    return ExecutionMetrics(**{**fields, 'tables': tuple(tables),
+    return ExecutionMetrics.model_validate({**fields, 'tables': tuple(tables),
                               'tables_truncated': metrics.truncated or metrics.tables_total > len(tables)})
 
 
@@ -171,7 +173,7 @@ class BufferedTelemetrySink:
             write, write_reset = counter_delta(window.first, window.last, 'write_bytes')
             reset = cpu_reset or read_reset or write_reset
         metrics = None
-        reason = 'counter_reset' if reset else 'counter_unavailable'
+        reason: Reason = 'counter_reset' if reset else 'counter_unavailable'
         if event.ended:
             try:
                 metrics = bounded_metrics(window.metrics)

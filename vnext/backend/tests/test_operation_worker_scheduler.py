@@ -1344,8 +1344,8 @@ def test_telemetry_failures_do_not_change_executor_or_completion(business_error:
     runtime = _runtime(FakeStartup([work]), factory, [], telemetry=BrokenTelemetry())
     if business_error:
         with pytest.raises(RuntimeError) as caught:
-            runtime.run(drain_requested=lambda: stop[0])
+            runtime.run(drain_requested=lambda: stop[0], wait=lambda _: False)
         assert caught.value is failure
     else:
-        runtime.run(drain_requested=lambda: stop[0])
+        runtime.run(drain_requested=lambda: stop[0], wait=lambda _: False)
     assert calls == ["begin", "execute", "end"]

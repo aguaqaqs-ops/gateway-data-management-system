@@ -388,9 +388,12 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         approved_telemetry_hook = edge.target == "gateway_backend.statistics.metrics"
         approved_telemetry_port = (source_zone == "operations" and edge.target == "gateway_backend.statistics.ports")
         approved_statistics_model = (source_zone == "http" and edge.target == "gateway_backend.statistics.models")
+        approved_statistics_wire = (edge.source == "gateway_backend.http.schemas.statistics"
+                                    and edge.target == "gateway_repository_contracts.statistics")
         if (not _target_category_allowed(allowed, target_zone, edge.target)
                 and not approved_native_call and not approved_artifact_id_codec
-                and not approved_telemetry_hook and not approved_telemetry_port and not approved_statistics_model):
+                and not approved_telemetry_hook and not approved_telemetry_port and not approved_statistics_model
+                and not approved_statistics_wire):
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

@@ -11,10 +11,11 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 
 import gateway_backend.application.pair_pipeline as pipeline
-from gateway_backend.artifacts import InMemoryArtifactStore, ArtifactRef, put_with_built_ref
+from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.capabilities.business_navigation import validate_navigation
 from gateway_backend.capabilities.comparison import ComparisonRequest
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskExecutionPolicy, RiskEvaluationResult
+from gateway_backend.capabilities.risk_evaluation import evaluate_risk as original_evaluate
 from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyStatus
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_cache_inputs import complete_canonical_bound
@@ -47,7 +48,6 @@ def test_real_risk_degradation_replays_into_public_whole_table_facts_fallback(
     session = pipeline.declare_pair_comparison_session(requests)
     assert session is not None
     policy = RiskExecutionPolicy()
-    original_evaluate = pipeline.evaluate_risk
     def evaluate(*args: Any, **kwargs: Any) -> RiskEvaluationResult:
         return original_evaluate(*args, **kwargs, execution_policy=policy)
     monkeypatch.setattr(pipeline, "evaluate_risk", evaluate)
@@ -112,7 +112,7 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
     from gateway_backend.artifacts import artifact_ref_from_dict
     from tests.support.artifact_layout import open_test_store
 
-    ddl = "CREATE TABLE t(id BIGINT PRIMARY KEY,note TEXT); CREATE TABLE marker(id BIGINT PRIMARY KEY,stage INT);"
+    ddl = "CREATE TABLE marker(id BIGINT PRIMARY KEY,stage INT); CREATE TABLE t(id BIGINT PRIMARY KEY,note TEXT);"
     sources = [complete_canonical_bound(canonical_bound(ddl +
         "INSERT INTO t VALUES(1,'" + ("old" if stage == 0 else "new") + "'),(2,'same'),(3,'same');"
         f"INSERT INTO marker VALUES(1,{stage});")) for stage in range(3)]
@@ -146,15 +146,15 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
             rule_set=rules, repository_id="replacement-fixture", export_cache=cache)
         surface = result.surface_result.surface
         assert surface is not None
-        table = next(t for t in surface.tables if t.table_name == "t")
-        assert table.table_refs.current_table_ref == reordered
+        surface_table = next(t for t in surface.tables if t.table_name == "t")
+        assert surface_table.table_refs.current_table_ref == reordered
         if index == 0:
-            assert table.row_locator_ref is not None
-            row, = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
+            assert surface_table.row_locator_ref is not None
+            row, = pq.read_table(pa.BufferReader(store.locate(surface_table.row_locator_ref))).to_pylist()
             assert row["before_row_index"] == 0 and row["current_row_index"] == 2
         else:
-            assert table.row_locator_ref is None
-            assert table.table_refs.before_table_ref == reordered
+            assert surface_table.row_locator_ref is None
+            assert surface_table.table_refs.before_table_ref == reordered
         closure = surface_artifact_closure(surface, pair_id, result.records_closure,
             before=sources[index], current=sources[index + 1], include_all_tables=True,
             store=store, repository_id="replacement-fixture", export_cache=cache)

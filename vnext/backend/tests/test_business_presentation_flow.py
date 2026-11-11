@@ -107,3 +107,54 @@ def test_physical_filter_column_absence_does_not_become_rule_exclusion(missing_s
     assert not any(d["code"] == "DEVICE_FILTER_VALUE_UNSUPPORTED" for d in diagnostics)
     assert any(d["code"] == "DEVICE_TAB_COUNT_UNKNOWN" and d["side"] == missing_side for d in diagnostics)
     assert any(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE" for d in diagnostics)
+
+
+def test_keyless_added_identity_column_has_unknown_local_facts_under_final_reordering() -> None:
+    from dataclasses import replace
+    from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+    from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
+    from tests.support.table_rules import fallback_record
+    from tests.test_row_location import _rewrite
+
+    device = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT,description TEXT);"
+        "INSERT INTO device VALUES(7,49,'device7'),(8,50,'device8');")
+    def source(sql: str) -> Any:
+        bound = complete_canonical_bound(canonical_bound(sql))
+        return replace(bound, storage_facts=tuple(replace(fact, storage_rule_view=replace(fact.storage_rule_view,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS))
+            if fact.storage_rule_view.canonical_table == "device_cfg" else fact for fact in bound.storage_facts))
+    before = source(device + "CREATE TABLE device_cfg(id BIGINT,note TEXT); INSERT INTO device_cfg VALUES(1,'same');")
+    current = source(device + "CREATE TABLE device_cfg(id BIGINT,gid BIGINT,note TEXT); INSERT INTO device_cfg VALUES(1,7,'same'),(1,8,'same');")
+    store = InMemoryArtifactStore()
+    exports = {bound.snapshot.snapshot_id: {table.descriptor.table_name: export_snapshot_table_parquet(table,
+        store=store, repository_id="replacement-fixture") for table in bound.table_set.tables} for bound in (before, current)}
+    original = exports[current.snapshot.snapshot_id]["device_cfg"]
+    results = []
+    for reverse in (False, True):
+        exports[current.snapshot.snapshot_id]["device_cfg"] = _rewrite(store, original) if reverse else original
+        result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+            store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
+            rule_set=comparison_ruleset_for(standard_rule_record("device"), fallback_record()),
+            assess_identity=False, repository_id="replacement-fixture", table_exports=exports)
+        surface = result.surface_result.surface
+        assert surface is not None
+        projection, = surface.projections
+        document = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
+        tabs = [tab for item in document["groups"][1]["items"] for tab in item["tabs"] if tab["table_id"] == "device_cfg"]
+        print("KEYLESS_MISSING_GID", json.dumps({"reversed": reverse, "comparison_digest": result.comparison_digest,
+            "surface_digest": result.surface_digest, "tabs": tabs}, ensure_ascii=False))
+        results.append((result, document, tabs))
+    for result, document, tabs in results:
+        assert len(tabs) == 2
+        assert all(tab["facts"]["basis"] == "TABLE_FALLBACK" for tab in tabs)
+        assert all(tab["facts"]["change_kind"] is None and tab["facts"]["risk_level"] is None for tab in tabs)
+        assert all(tab["facts"]["before_row_count"] is None and tab["facts"]["current_row_count"] == 1 for tab in tabs)
+        projection, = result.surface_result.surface.projections
+        assert projection.diagnostics_ref is not None
+        diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
+        assert not any(d["code"] == "DEVICE_FILTER_VALUE_UNSUPPORTED" for d in diagnostics)
+        assert sum(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE"
+            for d in diagnostics) == 1
+    assert results[0][0].comparison_digest == results[1][0].comparison_digest
+    assert results[0][0].surface_digest == results[1][0].surface_digest
+    assert results[0][1] == results[1][1]

@@ -1182,6 +1182,9 @@ class DoltRunner:
             else:
                 self._active_children.unregister(process)
 
+    def has_owned_children(self, owner: object) -> bool:
+        return bool(self._active_children.snapshot_for_owner(owner))
+
     def _seed_private_dolt_config(self) -> None:
         """Keep the private runner HOME from reaching the network.
 
@@ -1225,12 +1228,13 @@ class DoltRunner:
         stdin_path: Path | None = None,
         capture_stdout: bool = False,
         cancellation: StreamCancellationCheck | None = None,
+        owner: object | None = None,
     ) -> CommandResult:
         if evaluate_stream_cancellation(cancellation):
             raise ProcessStreamCancelledError("command cancelled before start")
         if timeout <= 0:
             raise ProcessStreamCancelledError("command cancelled before start")
-        process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path)
+        process, stdin_handle = self._start(command_kind, args, cwd=cwd, stdin_path=stdin_path, owner=owner)
         try:
             return self._collect(
                 process,

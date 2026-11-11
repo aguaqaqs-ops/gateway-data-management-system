@@ -42,7 +42,7 @@ from gateway_repository_service.mutation_store import (
     MutationStore,
     configure_connection,
 )
-from gateway_repository_service.process import CommandResult, DoltRunner, ProcessStreamCancelledError, StreamCancellationCheck
+from gateway_repository_service.process import CommandResult, DoltRunner, ProcessBoundaryError, ProcessStreamCancelledError, StreamCancellationCheck
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
@@ -1169,3 +1169,110 @@ def test_exact_identifier_real_dolt(read_repo: ReadRepoFixture, tmp_path: Path) 
                 "my table",
                 UnknownTypePolicy.REJECT,
             )
+
+
+def test_metadata_reservation_is_released_only_after_confirmed_child_exit(tmp_path: Path) -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+    from gateway_repository_service.versioned_read.errors import RepositoryBusyError
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
+    registry = RepositoryLockRegistry()
+    repository_id, other_id = uuid4(), uuid4()
+    runner = MagicMock(spec=DoltRunner)
+    runner.has_owned_children.return_value = False
+    provider = CandidateAReadProvider(settings, layout, layout.staging_artifacts, runner,
+        locks=registry, repository_id=repository_id)
+    peer = CandidateAReadProvider(settings, layout, layout.staging_artifacts, runner,
+        locks=registry, repository_id=other_id)
+    wakeups: list[bool] = []
+    registry.set_release_notify(lambda: wakeups.append(registry.is_active(repository_id)))
+    with patch.object(provider._cli, 'commit_exists', return_value=True):
+        assert provider.commit_exists('exact')
+    assert wakeups == [False]  # Callback may safely reacquire the scheduler guard.
+    runner.has_owned_children.return_value = True
+    with patch.object(provider._cli, 'commit_exists', side_effect=ProcessBoundaryError('cleanup failed')):
+        with pytest.raises(ProviderUnavailableError):
+            provider.commit_exists('exact')
+    assert registry.is_active(repository_id)
+    with pytest.raises(RepositoryBusyError):
+        provider.read_ref('main')
+    runner.has_owned_children.return_value = False
+    with patch.object(peer._cli, 'commit_exists', return_value=True):
+        assert peer.commit_exists('exact')
+    assert registry.is_active(repository_id) and not registry.is_active(other_id)
+
+
+@pytest.mark.parametrize('consume', (False, True))
+def test_unconsumed_or_completed_rows_close_returns_repository_reservation(tmp_path: Path, consume: bool) -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+    from gateway_repository_service.versioned_read.errors import RepositoryBusyError
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.storage_roots)
+    registry = RepositoryLockRegistry()
+    repository_id = uuid4()
+    runner = MagicMock(spec=DoltRunner)
+    runner.has_owned_children.return_value = False
+    provider = CandidateAReadProvider(settings, layout, layout.staging_artifacts, runner,
+        locks=registry, repository_id=repository_id)
+    table = TableCatalog('records', (ColumnCatalog('id', 'BIGINT', False, 1),), row_count=0)
+    with patch.object(provider._cli, 'stream_table_at', return_value=iter(())):
+        rows = provider.stream_table_at('exact', table, UnknownTypePolicy.REJECT, existence_verified=True)
+    assert registry.is_active(repository_id)
+    with pytest.raises(RepositoryBusyError):
+        provider.catalog_at('exact')
+    if consume:
+        assert list(rows) == []
+    else:
+        from gateway_repository_service.versioned_read.wire import close_row_iterator
+        close_row_iterator(rows)
+    assert not registry.is_active(repository_id)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_actual_read_cli_reservation_excludes_same_repository_and_allows_another(
+    read_repo: ReadRepoFixture,
+) -> None:
+    from gateway_repository_service.versioned_import.locks import RepositoryLockRegistry
+    from gateway_repository_service.versioned_read.errors import RepositoryBusyError
+    layout, settings, runner, original, _offline = read_repo
+    registry = RepositoryLockRegistry()
+    repository_id, other_id = uuid4(), uuid4()
+    provider = CandidateAReadProvider(settings, layout, original._repository, runner,
+        locks=registry, repository_id=repository_id)
+    other_path = layout.staging_artifacts / 'other-read-repository'
+    other_path.mkdir()
+    OfflineCliProvider(settings, layout, other_path, runner).initialize_repository()
+    other = CandidateAReadProvider(settings, layout, other_path, runner,
+        locks=registry, repository_id=other_id)
+    entered, finish = threading.Event(), threading.Event()
+    real_collect = runner._collect
+    observed: list[str] = []
+    failures: list[BaseException] = []
+    def collect(*args: Any, **kwargs: Any) -> Any:
+        if threading.current_thread().name == 'held-read':
+            entered.set()
+            assert finish.wait(10)
+        return real_collect(*args, **kwargs)
+    def read() -> None:
+        try:
+            observed.append(provider.read_ref('main'))
+        except BaseException as exc:
+            failures.append(exc)
+    with patch.object(runner, '_collect', side_effect=collect):
+        worker = threading.Thread(target=read, name='held-read')
+        worker.start()
+        try:
+            assert entered.wait(10)
+            assert runner.has_owned_children(provider._owner)
+            assert not registry.try_reserve(repository_id)  # import cannot claim this repository
+            with pytest.raises(RepositoryBusyError):
+                provider.catalog_at('exact')
+            assert other.read_ref('main')
+        finally:
+            finish.set()
+            worker.join(10)
+    assert not worker.is_alive() and not failures and len(observed) == 1
+    assert not runner.has_owned_children(provider._owner)
+    assert registry.try_reserve(repository_id)
+    registry.release_reservation(repository_id)

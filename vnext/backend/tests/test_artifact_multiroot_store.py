@@ -299,3 +299,43 @@ def test_object_physical_observation_is_bounded_and_retains_physical_identity(tm
     assert first["device"] == second["device"]
     assert first["inode"] == second["inode"]
     assert first["allocated_bytes"] == store.payload_path(ref.artifact_id).stat().st_blocks * 512
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize('location', tuple(ArtifactLocation))
+def test_process_publication_interruption_and_cleanup_preserve_complete_object(tmp_path: Path, location: ArtifactLocation) -> None:
+    import multiprocessing
+    from tests.support.process_concurrency import run_processes
+    base = tmp_path / 'objects'
+    local = open_test_store(base)
+    raw = b'complete-content'
+    ref = ref_for(location, raw)
+    def interrupted() -> None:
+        def chunks() -> Iterator[bytes]:
+            yield raw[:3]
+            os._exit(0)  # Real process exit before no-replace publication.
+        open_test_store(base).put_chunks(chunks(), ref)
+    run_processes((interrupted,))
+    assert local.get_ref(ref.artifact_id) is None
+    def publish() -> None:
+        assert open_test_store(base).put(raw, ref) == ref
+    run_processes((publish, publish))
+    assert local.locate(ref) == raw
+    context = multiprocessing.get_context('fork')
+    borrowed, checked = context.Event(), context.Event()
+    def read() -> None:
+        reader = open_test_store(base)
+        with reader.read_session():
+            borrowed.set()
+            assert checked.wait(10)
+            assert reader.locate(ref) == raw
+    def cleanup() -> None:
+        assert borrowed.wait(10)
+        cleaner = BoundedArtifactStore(open_test_store(base), unpinned_ttl=timedelta(0))
+        try:
+            assert cleaner.delete_eligible(ref, expected_classification=CleanupClassification.ELIGIBLE_AFTER,
+                now=NOW + timedelta(days=365)) is DeleteDisposition.RETRYABLE_FAILURE
+        finally:
+            checked.set()
+    run_processes((read, cleanup))
+    assert local.locate(ref) == raw

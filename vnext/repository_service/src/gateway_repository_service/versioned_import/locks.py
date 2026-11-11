@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -24,6 +24,7 @@ class RepositoryLockRegistry:
     """
 
     def __init__(self, *, max_repository_lock_entries: int = 1024) -> None:
+        self._release_notify: Callable[[], None] | None = None
         self._scheduler_lock = threading.Lock()
         self._active_repositories: set[UUID] = set()
         self._repository_locks_guard = threading.Lock()
@@ -37,9 +38,18 @@ class RepositoryLockRegistry:
             self._active_repositories.add(repository_id)
             return True
 
+    def set_release_notify(self, callback: Callable[[], None] | None) -> None:
+        with self._scheduler_lock:
+            self._release_notify = callback
+
     def release_reservation(self, repository_id: UUID) -> None:
         with self._scheduler_lock:
+            released = repository_id in self._active_repositories
             self._active_repositories.discard(repository_id)
+            notify = self._release_notify
+        # Dispatcher acquires its own guard; never call it under registry locks.
+        if released and notify is not None:
+            notify()
 
     def is_active(self, repository_id: UUID) -> bool:
         with self._scheduler_lock:

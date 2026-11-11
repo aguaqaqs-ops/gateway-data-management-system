@@ -134,7 +134,8 @@ class GroupStatistics(StatisticsModel):
     group_id: Identifier
     generated_at_us: Counter
     storage: tuple[GroupStorageItem, ...] = Field(default=(), max_length=500)
-    current_instances: tuple[CurrentProcess, ...] = Field(default=(), max_length=3)
+    current_instances: tuple[CurrentProcess, ...] = Field(default=(), max_length=100)
+    instances_truncated: bool
     health: CollectionHealth
 
 

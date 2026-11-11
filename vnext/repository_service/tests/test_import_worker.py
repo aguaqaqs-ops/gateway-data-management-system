@@ -1471,3 +1471,27 @@ def test_statistics_uses_observed_commit_and_read_only_outcome(tmp_path: Path, f
         assert (value.payload.after_commit is not None) == (not fails_before_mutation)
     finally:
         env.close()
+
+
+@pytest.mark.serial
+def test_read_reservation_release_wakes_sleeping_import_dispatcher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = WorkerTestEnvironment(tmp_path, max_import_workers=1)
+    sleeping = threading.Event()
+    original_wait = env.pool._notify.wait
+    def wait(timeout: float | None = None) -> bool:
+        assert timeout is None
+        sleeping.set()
+        return original_wait(timeout=timeout)
+    monkeypatch.setattr(env.pool._notify, 'wait', wait)
+    env.locks.set_release_notify(env.pool.notify)
+    assert env.locks.try_reserve(REPOSITORY_ID)
+    operation_id = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID, key='after-read')
+    env.pool.start()
+    try:
+        assert sleeping.wait(5)
+        assert env.store.get_operation(REPOSITORY_ID, operation_id).status is OperationStatus.QUEUED  # type: ignore[union-attr]
+        env.locks.release_reservation(REPOSITORY_ID)
+        env.wait_for_status(REPOSITORY_ID, operation_id, OperationStatus.SUCCEEDED, timeout=10)
+    finally:
+        env.locks.set_release_notify(None)
+        env.close()

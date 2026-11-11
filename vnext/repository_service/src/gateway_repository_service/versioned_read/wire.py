@@ -18,6 +18,7 @@ from gateway_repository_contracts import (
     REQUEST_VALIDATION_FAILED_CODE,
     ResolveVersionedRefResponse,
     SERVICE_NOT_READY_CODE,
+    REPOSITORY_BUSY_CODE,
     TABLE_NOT_FOUND_CODE,
     UNKNOWN_SQL_TYPE_CODE,
     VersionedCatalog,
@@ -39,6 +40,7 @@ from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
     ProviderUnavailableError,
+    RepositoryBusyError,
     ReadStreamCancelledError,
     RepositoryNotVisibleError,
     TableNotFoundError,
@@ -136,6 +138,8 @@ def map_read_error(exc: BaseException) -> ServiceError:
             message=_UNKNOWN_SQL_TYPE_MESSAGE,
             status_code=422,
         )
+    if isinstance(exc, RepositoryBusyError):
+        return ServiceError(code=REPOSITORY_BUSY_CODE, message="repository is busy", status_code=503)
     if isinstance(exc, ProviderUnavailableError):
         return ServiceError(
             code=SERVICE_NOT_READY_CODE,

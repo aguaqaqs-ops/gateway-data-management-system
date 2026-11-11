@@ -384,11 +384,14 @@ class CandidateADoltCli:
         layout: DurableLayout,
         repository: Path,
         runner: DoltRunner,
+        *,
+        command_owner: object | None = None,
     ) -> None:
         self.settings = settings
         self.layout = layout
         self.repository = repository
         self.runner = runner
+        self._command_owner = command_owner
         self.query_directory = layout.query_directory
         self._catalog_cache: OrderedDict[str, tuple[TableCatalog, ...]] = OrderedDict()
         self._catalog_cache_lock = threading.Lock()
@@ -847,6 +850,7 @@ class CandidateADoltCli:
             raise DoltCliStreamCancelledError(f"Dolt command cancelled: {kind}")
         if timeout <= 0:
             raise DoltCliStreamCancelledError(f"Dolt command cancelled: {kind}")
+        owner_kwargs: dict[str, Any] = {"owner": self._command_owner} if self._command_owner is not None else {}
         result = self.runner.run(
             kind,
             args,
@@ -855,6 +859,7 @@ class CandidateADoltCli:
             stdin_path=stdin_path,
             capture_stdout=True,
             cancellation=cancellation,
+            **owner_kwargs,
         )
         if result.timed_out or result.cancelled or result.exit_code != 0:
             raise DoltCliError(f"Dolt command failed: {kind}")

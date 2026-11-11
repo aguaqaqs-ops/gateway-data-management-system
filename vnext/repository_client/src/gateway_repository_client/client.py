@@ -324,6 +324,8 @@ class RepositoryClient:
         *,
         repository_id: UUID,
         ref_name: MainRefLiteral = "main",
+        cancel_requested: CancelRequested | None = None,
+        deadline_at: float | None = None,
     ) -> ResolveVersionedRefResponse:
         encoded_ref = encode_path_segment(ref_name)
 
@@ -345,6 +347,9 @@ class RepositoryClient:
             _send,
             sleeper=self._sleeper,
             clock=self._clock,
+            cancel_requested=cancel_requested,
+            deadline_at=deadline_at,
+            read_admission=True,
         )
 
     async def get_versioned_catalog(
@@ -382,6 +387,7 @@ class RepositoryClient:
             clock=self._clock,
             cancel_requested=cancel_requested,
             deadline_at=deadline_at,
+            read_admission=True,
         )
         RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=self._clock).check()
         return result

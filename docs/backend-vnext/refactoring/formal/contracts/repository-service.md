@@ -87,8 +87,12 @@ Backend HTTPArrow精确commit/catalog/row及Submit parent catalog adapter传入�
 通用`cancel_requested`/absolute monotonic `deadline_at`；
 client不依赖Backend。catalog、Arrow open/error-body/read/每chunk及backoff都检查同一控制，
 等待中的attempt/read可取消并关闭本次response/client；恰在取消时完成的open结果也由原owner
-关闭。每请求沿原502/503/transport策略最多3次尝试，退避先释放attempt资源，不叠Backend外层
-HTTP重试；首字节消费后不重新拼接流。HTTP各phase超时取原值与剩余deadline较小值，原idle
+关闭。普通502/503/transport故障每请求最多3次尝试，退避先释放attempt资源，不叠Backend外层
+HTTP重试。专用合法`503 REPOSITORY_BUSY`只表示同库物理CLI许可未取得：versioned ref/catalog及
+Arrow open从逻辑请求首次尝试锚定300秒read-admission窗口，与caller deadline取较早者，
+释放response/client后固定间隔1秒可取消重试原请求，不计普通故障3次预算、不重置起点。
+resolve_ref也接受可选cancel/deadline；T1主引用解析无kernel context，仍只有该有限窗口。
+200成功后沿原caller deadline/idle限制，不用admission窗口截断已开流；首字节消费后不重新拼接流。HTTP各phase超时取原值与剩余deadline较小值，原idle
 timeout保留，整个等待仍受absolute deadline约束。取消/截止不是cache miss；adapter恢复当前
 operation的控制异常，原transport timeout/retryable分类与durable recovery仍由原Lifecycle拥有。
 N1时Backend逐次read/restore，无每表pool；RS实读并发为1（上限`min(N,8)`），输入/mapping/
@@ -632,6 +636,15 @@ Row stream不保证row或batch ordering；需要稳定顺序的caller自行按�
 因为同一immutable commit可由不同caller读取；response schema metadata使STRINGIFY
 降级可见。
 
+RS单进程内的read/read及read/import共用`RepositoryLockRegistry`独占reservation；不同库独立。
+read_ref、commit_exists及catalog整次实际CLI调用各持有许可，catalog内部存在性查询不嵌套取锁。
+row iterator返回前取得许可，覆盖Dolt child和producer结束；未消费close、正常结束、取消、断流和
+bridge构造失败均显式收尾，确认执行者退出后唯一归还。释放在registry锁外唤醒原import dispatcher，
+read争用立即busy，import沿既有durable队列等待；不扩大到整个Preview/History或业务Submit占用。
+无法确认metadata child或流producer退出时保留本库许可并结构化诊断，同库继续busy、其他库继续；
+不伪装全服务fault latch或not-ready。人工核实退出后受控重启RS，无在线强清接口，300秒届满不释放许可。
+exact commit使catalog与row两次许可之间main变化不改变结果；已输出流的真实失败不能改为busy或重放。
+
 Read route的稳定失败语义为：
 
 | 场景 | HTTP status | stable code |
@@ -643,6 +656,7 @@ Read route的稳定失败语义为：
 | `REJECT`下catalog含unknown SQL type | `422` | `UNKNOWN_SQL_TYPE` |
 | catalog 含畸形 ENUM/SET（§10.1 族判定失败） | `422` | `REQUEST_VALIDATION_FAILED` |
 | RepositoryId、ref、table name或policy不满足wire validation | `422` | `REQUEST_VALIDATION_FAILED` |
+| 同库物理CLI许可未取得（必须在200前） | `503` | `REPOSITORY_BUSY` |
 | response开始前provider、timeout或Dolt output不可用/损坏 | `503` | `SERVICE_NOT_READY` |
 
 CommitId仍是repository-scoped bounded opaque token；`COMMIT_NOT_FOUND`不得反向引入

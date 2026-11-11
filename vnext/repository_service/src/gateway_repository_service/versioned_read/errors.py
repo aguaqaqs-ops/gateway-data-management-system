@@ -23,6 +23,10 @@ class TableNotFoundError(VersionedReadError):
     """Exact table name is absent from the pinned catalog."""
 
 
+class RepositoryBusyError(VersionedReadError):
+    """Another physical CLI access owns this repository reservation."""
+
+
 class ProviderUnavailableError(VersionedReadError):
     """Provider, timeout, or malformed Dolt output made the read unavailable."""
 

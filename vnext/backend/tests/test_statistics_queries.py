@@ -303,3 +303,18 @@ def test_service_curve_respects_configured_interval_and_page_coverage(tmp_path: 
     assert item['quality'] == 'available'
     assert response.json()['coverage_start_us'] == BASE
     assert response.json()['coverage_end_us'] == BASE + 5000000
+
+
+def test_group_keeps_worker_generations_and_bounds_recent_instances(store: SQLiteStatisticsStore) -> None:
+    store.write_batch([_resource('old', process_instance_id='worker-old'),
+        _resource('same', process_instance_id='worker-old', sampled_at_us=BASE + 1),
+        _resource('peer', process_instance_id='worker-peer', sampled_at_us=BASE + 2),
+        _resource('restart', process_instance_id='worker-restarted', sampled_at_us=BASE + 3)])
+    data = _reader(store).group(BASE, BASE + 1000)
+    assert data.instances == (('worker', 'worker-restarted'), ('worker', 'worker-peer'), ('worker', 'worker-old'))
+    assert not data.instances_truncated
+    store.write_batch([_resource(f'extra-{i}', process_instance_id=f'p{i:03}', sampled_at_us=BASE + 4) for i in range(101)])
+    data = _reader(store).group(BASE, BASE + 1000)
+    assert len(data.instances) == 100 and data.instances_truncated
+    assert data.instances[0] == ('worker', 'p000')
+    assert data.instances[-1] == ('worker', 'p099')

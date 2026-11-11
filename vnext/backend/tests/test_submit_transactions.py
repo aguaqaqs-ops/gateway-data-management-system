@@ -1220,20 +1220,10 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
         )
 
 
-def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path) -> None:
+@pytest.mark.serial
+@pytest.mark.parametrize("concurrent", (False, True))
+def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path, concurrent: bool) -> None:
     first_seed = seed_submit_ready_workspace(db_path)
-    accept_submit_transaction(
-        command=_accept_command(first_seed, idempotency_key="accept-key-1"),
-        scope_resolution=FixedScopeResolutionPort(
-            repository_id=first_seed.workspace.repository_id,
-            baseline_head=BASELINE_HEAD,
-        ),
-        unit_of_work_factory=_uow_factory(first_seed.db_path),
-        job_registry=_submit_job_registry(),
-        main_resolve=RecordingMainResolvePort(),
-        preflight=_preflight(first_seed),
-        now=TS1,
-    )
 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         workspace = Workspace(
@@ -1284,6 +1274,34 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
         preview_operation_id="op-preview-2",
         protected_refs=first_seed.protected_refs,
     )
+    if concurrent:
+        from tests.support.process_concurrency import run_processes
+        def accept(seed: SubmitSeed, key: str) -> None:
+            try:
+                accept_submit_transaction(command=_accept_command(seed, idempotency_key=key),
+                    scope_resolution=FixedScopeResolutionPort(repository_id='repo-1', baseline_head=BASELINE_HEAD),
+                    unit_of_work_factory=_uow_factory(db_path), job_registry=_submit_job_registry(),
+                    main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1)
+            except SubmitOccupancyConflict:
+                pass
+        run_processes((lambda: accept(first_seed, 'accept-key-1'), lambda: accept(second_seed, 'accept-key-2')))
+        import sqlite3
+        with sqlite3.connect(db_path) as db:
+            assert db.execute('SELECT COUNT(*) FROM submit_attempts').fetchone()[0] == 1
+        return
+    accept_submit_transaction(
+        command=_accept_command(first_seed, idempotency_key="accept-key-1"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=first_seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(first_seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(first_seed),
+        now=TS1,
+    )
+
     with pytest.raises(SubmitOccupancyConflict):
         accept_submit_transaction(
             command=_accept_command(second_seed, idempotency_key="accept-key-2"),

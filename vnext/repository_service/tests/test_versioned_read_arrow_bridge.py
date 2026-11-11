@@ -1619,3 +1619,26 @@ def test_production_modules_only_import_declared_dependencies() -> None:
     )
     assert "anyio" in declared_import_roots
     assert "anyio" in third_party_import_roots
+
+
+@pytest.mark.serial
+def test_unconfirmed_producer_exit_keeps_repository_reservation() -> None:
+    from gateway_repository_service.versioned_read.provider import _ReservedRows
+    entered, release_worker = threading.Event(), threading.Event()
+    returned: list[str] = []
+    plan, batches = _plan_and_batches(1, 1)
+    def produce() -> Iterator[pa.RecordBatch]:
+        entered.set()
+        assert release_worker.wait(5)
+        yield batches[0]
+    rows = _ReservedRows(produce(), lambda: returned.append('released'), lambda: returned.append('retained'))
+    bridge = ArrowIpcStreamBridge(plan, rows, threading.Event())
+    try:
+        assert entered.wait(5)
+        with pytest.raises(BridgeJoinTimeoutError):
+            bridge.close_sync(join_timeout_seconds=0.01)
+        assert returned == ['retained']
+    finally:
+        release_worker.set()
+        bridge.close_sync(join_timeout_seconds=5)
+    assert not bridge.is_worker_alive() and returned == ['retained']

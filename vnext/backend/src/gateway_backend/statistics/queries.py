@@ -55,6 +55,7 @@ class ResourceRead:
 class GroupRead:
     storage: tuple[StorageRecord, ...]
     instances: tuple[tuple[Role, str], ...]
+    instances_truncated: bool
 
 
 class StatisticsReader(Protocol):

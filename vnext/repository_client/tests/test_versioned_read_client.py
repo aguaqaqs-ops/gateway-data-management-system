@@ -159,3 +159,49 @@ async def test_stream_versioned_table_rows_encodes_commit_id_in_path() -> None:
     async with stream:
         chunks = [chunk async for chunk in stream.aiter_bytes()]
     assert chunks == [b"arrow"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ("ref", "catalog"))
+@pytest.mark.parametrize("outcome", ("success", "admission_timeout", "caller_deadline", "cancel", "ordinary_fault"))
+async def test_read_busy_has_one_bounded_admission_window(kind: str, outcome: str) -> None:
+    from gateway_repository_client.errors import RepositoryClientError, RepositoryClientTimeoutError
+    now = [0.0]
+    responses: list[httpx.Response] = []
+    delays: list[float] = []
+    cancelled = [False]
+    def handler(request: httpx.Request) -> httpx.Response:
+        count = len(responses)
+        if outcome == 'ordinary_fault':
+            response = httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready"}, headers={"X-Request-ID": "busy"})
+        elif outcome == 'success' and count >= 125:
+            body = {"ref_name": "main", "commit_id": COMMIT_ID} if kind == 'ref' else {"catalog": {"commit_id": COMMIT_ID, "tables": []}}
+            response = httpx.Response(200, json=body, headers={"X-Request-ID": "ok"})
+        else:
+            response = httpx.Response(503, json={"code": "REPOSITORY_BUSY", "message": "repository is busy"}, headers={"X-Request-ID": "busy"})
+        responses.append(response)
+        return response
+    async def sleeper(delay: float) -> None:
+        assert responses[-1].is_closed
+        delays.append(delay)
+        now[0] += delay
+        if outcome == 'cancel':
+            cancelled[0] = True
+    client = RepositoryClient(base_url="http://repository.test", bearer_token="token",
+        transport=httpx.MockTransport(handler), sleeper=sleeper, clock=lambda: now[0])
+    async def read() -> object:
+        deadline = 2.5 if outcome == 'caller_deadline' else None
+        if kind == 'ref':
+            return await client.resolve_versioned_ref(repository_id=REPO_ID, cancel_requested=lambda: cancelled[0], deadline_at=deadline)
+        return await client.get_versioned_catalog(repository_id=REPO_ID, commit_id=COMMIT_ID, cancel_requested=lambda: cancelled[0], deadline_at=deadline)
+    if outcome == 'success':
+        await read()
+        assert now[0] == 125 and len(responses) == 126
+    else:
+        expected = InterruptedError if outcome == 'cancel' else RepositoryClientError if outcome == 'ordinary_fault' else RepositoryClientTimeoutError
+        with pytest.raises(expected):
+            await read()
+        assert now[0] == {'admission_timeout': 300.0, 'caller_deadline': 2.5, 'cancel': 1.0, 'ordinary_fault': 0.15}[outcome] or outcome == 'ordinary_fault'
+        if outcome == 'ordinary_fault':
+            assert len(responses) == 3 and delays == [0.05, 0.1]
+    assert all(response.is_closed for response in responses)

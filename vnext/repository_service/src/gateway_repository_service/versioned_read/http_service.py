@@ -21,6 +21,7 @@ from gateway_repository_service.versioned_read.wire import (
     build_catalog_response,
     build_resolve_response,
     raise_read_error,
+    close_row_iterator,
 )
 
 
@@ -75,13 +76,16 @@ class VersionedReadHttpService:
                 )
             except Exception as exc:
                 raise_read_error(exc)
-            bridge = ArrowIpcStreamBridge(
-                plan,
-                rows,
-                cancellation,
-                dolt_runner=self._dolt_runner,
-                stream_owner=stream_owner,
-            )
+            try:
+                bridge = ArrowIpcStreamBridge(
+                    plan, rows, cancellation, dolt_runner=self._dolt_runner, stream_owner=stream_owner,
+                )
+            except BaseException:
+                close_row_iterator(rows, cancelled=True)
+                release = getattr(rows, "release_after_join", None)
+                if callable(release):
+                    release()
+                raise
             return bridge, lease
         except Exception:
             if lease is not None:

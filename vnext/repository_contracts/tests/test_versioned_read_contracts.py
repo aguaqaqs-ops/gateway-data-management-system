@@ -345,5 +345,6 @@ def test_versioned_read_error_codes_cover_failure_matrix() -> None:
         "UNKNOWN_SQL_TYPE",
         "RESPONSE_LIMIT_EXCEEDED",
         "SERVICE_NOT_READY",
+        "REPOSITORY_BUSY",
         "REQUEST_VALIDATION_FAILED",
     }

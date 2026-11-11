@@ -229,12 +229,15 @@ class ServiceRuntime:
             stack.callback(
                 lambda: import_worker_pool.stop(timeout=settings.import_shutdown_grace_seconds)
             )
+            import_locks.set_release_notify(import_worker_pool.notify)
+            stack.callback(lambda: import_locks.set_release_notify(None))
             import_worker_pool.start()
             import_worker_pool.notify()
             read_provider_factory = cls._build_read_provider_factory(
                 settings=settings,
                 layout=layout,
                 dolt_runner=dolt_runner,
+                locks=import_locks,
             )
             versioned_read_application = VersionedReadApplication(
                 mutation_store,
@@ -311,6 +314,8 @@ class ServiceRuntime:
                 layout,
                 repository_path,
                 dolt_runner,
+                locks=locks,
+                repository_id=repository_id,
             )
 
         return provider_factory
@@ -321,6 +326,7 @@ class ServiceRuntime:
         settings: RepositoryServiceSettings,
         layout: DurableLayout,
         dolt_runner: DoltRunner,
+        locks: RepositoryLockRegistry,
     ) -> Callable[[UUID], CandidateAReadProvider]:
         def provider_factory(repository_id: UUID) -> CandidateAReadProvider:
             repository_path = layout.published_repository(repository_key(repository_id))
@@ -329,12 +335,15 @@ class ServiceRuntime:
                 layout,
                 repository_path,
                 dolt_runner,
+                locks=locks,
+                repository_id=repository_id,
             )
 
         return provider_factory
 
     def shutdown(self) -> None:
         self._stopping.set()
+        self.import_locks.set_release_notify(None)
         self.upload_admission.close()
         self.row_stream_admission.close()
         log_event(

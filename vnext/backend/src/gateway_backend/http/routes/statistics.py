@@ -127,7 +127,7 @@ def group_statistics(request: Request, context: Identity) -> GroupStatistics:
         if exc.reason != "unavailable":
             raise query_error(exc) from None
         from gateway_backend.statistics.queries import GroupRead
-        data = GroupRead((), ())
+        data = GroupRead((), (), False)
         health = health.model_copy(update={"quality": "unavailable", "reason": health.reason or "collection_failed"})
     # Group access never serializes repository, operation, table names or business fields.
     storage = tuple(GroupStorageItem.model_validate({key: value for key, value in record.model_dump().items()
@@ -135,7 +135,7 @@ def group_statistics(request: Request, context: Identity) -> GroupStatistics:
     return GroupStatistics(environment_id=stats.reader.identity.environment_id, group_id=stats.reader.identity.group_id,
         generated_at_us=int(now.timestamp() * 1000000), storage=storage,
         current_instances=tuple(CurrentProcess(role=role, process_instance_id=instance) for role, instance in data.instances),
-        health=health)
+        instances_truncated=data.instances_truncated, health=health)
 
 
 @router.get('/v1/statistics/group/resources', response_model=ResourcePage, responses=RESPONSES)

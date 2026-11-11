@@ -39,6 +39,7 @@ from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
     ProviderUnavailableError,
+    RepositoryBusyError,
     RepositoryNotVisibleError,
     TableNotFoundError,
     VersionedReadError,
@@ -167,6 +168,7 @@ def test_resolve_auto_generates_request_id(env: ImportHttpTestEnvironment) -> No
         (RepositoryNotVisibleError("missing"), 404, REPOSITORY_NOT_FOUND_CODE),
         (MainRefNotFoundError("missing"), 404, REF_NOT_FOUND_CODE),
         (ProviderUnavailableError("down"), 503, "SERVICE_NOT_READY"),
+        (RepositoryBusyError("busy"), 503, "REPOSITORY_BUSY"),
     ],
 )
 def test_resolve_error_matrix(
@@ -255,6 +257,7 @@ def test_catalog_returns_wire_shape(env: ImportHttpTestEnvironment) -> None:
         (RepositoryNotVisibleError("missing"), 404, REPOSITORY_NOT_FOUND_CODE),
         (CommitNotFoundError("missing"), 404, COMMIT_NOT_FOUND_CODE),
         (ProviderUnavailableError("down"), 503, "SERVICE_NOT_READY"),
+        (RepositoryBusyError("busy"), 503, "REPOSITORY_BUSY"),
     ],
 )
 def test_catalog_error_matrix(
@@ -348,6 +351,7 @@ def test_rows_empty_table_returns_schema_and_eos(env: ImportHttpTestEnvironment)
             REQUEST_VALIDATION_FAILED_CODE,
         ),
         (ProviderUnavailableError("down"), 503, "SERVICE_NOT_READY"),
+        (RepositoryBusyError("busy"), 503, "REPOSITORY_BUSY"),
     ],
 )
 def test_rows_preflight_error_matrix(

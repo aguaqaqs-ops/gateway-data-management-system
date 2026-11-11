@@ -1241,3 +1241,42 @@ async def test_post_byte_eof_close_failure_raises_stream_error() -> None:
 
     assert exc_info.value.request_id == "req-arrow"
     assert attempts["count"] == 1
+
+
+@pytest.mark.parametrize('outcome', ('success', 'timeout', 'cancel'))
+async def test_arrow_busy_wait_releases_responses_and_restores_stream_deadline(outcome: str) -> None:
+    now = [0.0]
+    cancelled = [False]
+    responses: list[httpx.Response] = []
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            # Admission has succeeded; crossing 300s must not truncate a stream.
+            now[0] = 500.0
+            yield b'arrow-body'
+    def handler(request: httpx.Request) -> httpx.Response:
+        if outcome == 'success' and len(responses) >= 125:
+            response = httpx.Response(200, headers=ARROW_HEADERS, stream=Body())
+        else:
+            response = httpx.Response(503, json={'code': 'REPOSITORY_BUSY', 'message': 'busy'}, headers={'X-Request-ID': 'busy'})
+        responses.append(response)
+        return response
+    async def sleeper(delay: float) -> None:
+        assert responses[-1].is_closed
+        assert delay == 1.0
+        now[0] += delay
+        cancelled[0] = outcome == 'cancel'
+    client = RepositoryClient(base_url='http://repository.test', bearer_token='token',
+        transport=httpx.MockTransport(handler), sleeper=sleeper, clock=lambda: now[0])
+    stream = client.stream_versioned_table_rows(repository_id=REPO_ID, commit_id=COMMIT_ID,
+        table_name='items', cancel_requested=lambda: cancelled[0])
+    async def consume() -> list[bytes]:
+        async with stream:
+            return [chunk async for chunk in stream.aiter_bytes()]
+    if outcome == 'success':
+        assert await consume() == [b'arrow-body']
+        assert len(responses) == 126
+    else:
+        with pytest.raises(InterruptedError if outcome == 'cancel' else RepositoryClientTimeoutError):
+            await consume()
+        assert now[0] == (1.0 if outcome == 'cancel' else 300.0)
+    assert all(response.is_closed for response in responses)

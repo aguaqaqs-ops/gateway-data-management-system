@@ -265,3 +265,28 @@ def test_invalid_cached_parquet_falls_back_to_canonical_source_export() -> None:
     assert source.reader is not None
     assert tuple(opened.reader.iter_rows()) == tuple(source.reader.reopen().iter_rows())
 
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize('same_key', (True, False))
+def test_export_cache_process_writers_keep_exact_complete_index(db_path: Path, same_key: bool) -> None:
+    from tests.support.process_concurrency import run_processes
+    from dataclasses import replace
+    first_key = _key()
+    second_key = first_key if same_key else _key(layout=b'other-layout')
+    first = _ref()
+    second = replace(first, artifact_id='a1:durable:' + 'a' * 64)
+    def store(key: SnapshotTableArtifactCacheKey, ref: ArtifactRef) -> None:
+        with _uow(db_path) as uow:
+            uow.snapshot_table_export_cache.store_many(((key, ref),))
+    run_processes((lambda: store(first_key, first), lambda: store(second_key, second)))
+    with _uow(db_path) as uow:
+        cache = uow.snapshot_table_export_cache
+        values = cache.lookup_many((first_key, second_key))
+        assert values[first_key] in (first, second)
+        if not same_key:
+            assert values == {first_key: first, second_key: second}
+        current = values[first_key]
+        stale = second if current == first else first
+        assert not cache.discard_if_same(first_key, stale)
+        assert uow.protection.is_protected(current.artifact_id)

@@ -182,6 +182,9 @@ class ArrowIpcStreamBridge:
             name="versioned-read-arrow-bridge",
             daemon=False,
         )
+        hold = getattr(row_iterator, "hold_until_join", None)
+        if callable(hold):
+            hold()
         BRIDGE_REGISTRY.register(self)
         self._worker.start()
 
@@ -269,7 +272,16 @@ class ArrowIpcStreamBridge:
         completed_barrier = probe.close_completed_barrier if probe is not None else None
         if completed_barrier is not None:
             completed_barrier.set()
-        outcome.raise_if_failed()
+        try:
+            outcome.raise_if_failed()
+        except BaseException:
+            retain = getattr(self._row_iterator, "retain_reservation", None)
+            if callable(retain):
+                retain()
+            raise
+        release = getattr(self._row_iterator, "release_after_join", None)
+        if callable(release):
+            release()
 
     def _reset_retryable_close_outcome_locked(self) -> None:
         if (

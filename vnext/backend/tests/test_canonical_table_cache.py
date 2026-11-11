@@ -94,3 +94,20 @@ def test_commit_index_rejects_cross_scope_refs(db_path: Path) -> None:
         uow.canonical_tables.register(key, ref)
         with pytest.raises(ValueError, match="scope"):
             uow.canonical_tables.bind_commit(repository_id="other", commit_id="exact", refs=(ref,))
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize('same_key', (True, False))
+def test_canonical_cache_process_registration_preserves_reader_protection(db_path: Path, same_key: bool) -> None:
+    from tests.support.process_concurrency import run_processes
+    first_key, first = cached_entry()
+    second_key, second = (first_key, first) if same_key else cached_entry(b'other-table')
+    def register(key: CanonicalTableKey, ref: ArtifactRef) -> None:
+        with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
+            uow.canonical_tables.register(key, ref)
+            uow.set_artifact_protection((ref,), owner_kind='current-preview', owner_id=ref.artifact_id, intent='pin')
+    run_processes((lambda: register(first_key, first), lambda: register(second_key, second)))
+    with ControlDbUnitOfWork(db_path, now=lambda: NOW + timedelta(days=7)) as uow:
+        assert uow.canonical_tables.lookup(first_key) == first
+        assert uow.canonical_tables.lookup(second_key) == second
+        assert uow.protection.is_protected(first.artifact_id)

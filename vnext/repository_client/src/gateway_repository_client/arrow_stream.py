@@ -31,6 +31,8 @@ from gateway_repository_client.retry import (
     DEFAULT_MAX_ATTEMPTS,
     RETRYABLE_STATUS_CODES,
     Sleeper,
+    ReadAdmissionControl,
+    is_repository_busy,
 )
 
 OpenAttempt = Callable[[], Awaitable[tuple[httpx.AsyncClient, httpx.Response]]]
@@ -59,6 +61,8 @@ class ArrowIpcByteStream:
         self._base_delay_seconds = base_delay_seconds
         self._sleeper = sleeper
         self._control = RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
+        self._admission: ReadAdmissionControl | None = None
+        self._new_admission = lambda: ReadAdmissionControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
         self._client: httpx.AsyncClient | None = None
         self._response: httpx.Response | None = None
         self._request_id: str | None = None
@@ -194,6 +198,9 @@ class ArrowIpcByteStream:
             await self._backoff(self._attempts_used)
             self._ensure_open()
 
+        if self._admission is None:
+            self._admission = self._new_admission()
+        admission = self._admission
         last_error: BaseException | None = None
         while self._attempts_used < self._max_attempts:
             self._ensure_open()
@@ -203,7 +210,7 @@ class ArrowIpcByteStream:
             response: httpx.Response | None = None
             try:
                 try:
-                    opened = await self._control.run(self._open_attempt, abandon=_close_opened_pair)
+                    opened = await admission.run(self._open_attempt, abandon=_close_opened_pair)
                     client, response = opened
                 except httpx.TransportError as exc:
                     last_error = exc
@@ -216,7 +223,7 @@ class ArrowIpcByteStream:
                 try:
                     self._ensure_open()
                     candidate_response = opened[1]
-                    await self._control.run(lambda: self._validate_open_response(candidate_response))
+                    await admission.run(lambda: self._validate_open_response(candidate_response))
                     self._ensure_open()
                     self._client = client
                     self._response = response
@@ -228,6 +235,10 @@ class ArrowIpcByteStream:
                     client = None
                     response = None
                     self._record_close_errors(close_errors)
+                    if is_repository_busy(exc) and not self._bytes_exposed:
+                        self._attempts_used -= 1
+                        await admission.sleep(self._sleeper or asyncio.sleep, 1.0)
+                        continue
                     retryable = isinstance(exc, RepositoryClientError) and (
                         exc.status_code in RETRYABLE_STATUS_CODES
                     ) or (

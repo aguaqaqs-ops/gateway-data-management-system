@@ -479,3 +479,32 @@ def test_optional_budget_rejection_does_not_discard_a_healthy_value_or_swallow_c
     cache.release_operation_pins(WRITER)
     with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize('kind', tuple(ComputationCacheKind))
+@pytest.mark.parametrize('same_key', (True, False))
+def test_process_cache_misses_publish_complete_values_and_preserve_reader_pins(
+    cache_fixture: CacheFixture, kind: ComputationCacheKind, same_key: bool,
+) -> None:
+    from tests.support.process_concurrency import run_processes
+    first, first_blobs = _value('first', kind=kind)
+    second, second_blobs = _value('second', kind=kind, task=b'complete-task' if same_key else b'other-task')
+    def store(entry: ComputationCacheEntry, blobs: tuple[tuple[ArtifactRef, bytes], ...], owner: str) -> None:
+        # Each process constructs its own connection and root lock descriptors.
+        adapter = CacheFixture(cache_fixture.db_path, open_test_store(cache_fixture.local.layout.durable.parent)).adapter()
+        assert adapter.store(entry, blobs, owner=CacheOperationOwner('preview-operation', owner), checkpoint=_checkpoint, reserve=_reserve)
+    run_processes((lambda: store(first, first_blobs, 'producer-a'), lambda: store(second, second_blobs, 'producer-b')))
+    cache = cache_fixture.adapter()
+    observed = cache.lookup_and_pin(first.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    assert observed is not None and observed in (first, second)
+    for ref in observed.refs:
+        assert cache_fixture.local.get_ref(ref.artifact_id) == ref
+    assert all(cache_fixture.protected(observed.refs))
+    # A stale reader cannot delete a subsequently published value for the same key.
+    if same_key:
+        replacement, replacement_blobs = _value('replacement', kind=kind)
+        run_processes((lambda: store(replacement, replacement_blobs, 'replacement'),))
+        with cache_fixture.transaction() as uow:
+            assert not uow.computation_cache.discard_if_same(observed)
+        assert all(cache_fixture.protected(observed.refs))

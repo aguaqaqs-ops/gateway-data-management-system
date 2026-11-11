@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
+
+from gateway_repository_contracts import REPOSITORY_BUSY_CODE
 from collections.abc import Awaitable, Callable
 from typing import TypeAlias, TypeVar
 
@@ -32,6 +35,21 @@ def _is_retryable_protocol_error(exc: RepositoryProtocolError) -> bool:
     return exc.status_code in RETRYABLE_STATUS_CODES
 
 
+def is_repository_busy(exc: BaseException) -> bool:
+    return isinstance(exc, RepositoryClientError) and exc.status_code == 503 and exc.error.code == REPOSITORY_BUSY_CODE
+
+
+class ReadAdmissionControl(RequestControl):
+    """One finite admission window, shared by all attempts of a logical read."""
+
+    def __init__(self, *, cancel_requested: CancelRequested | None = None,
+                 deadline_at: float | None = None, clock: Clock | None = None) -> None:
+        admission_end = (clock or time.monotonic)() + 300.0
+        super().__init__(cancel_requested=cancel_requested,
+            deadline_at=min(deadline_at, admission_end) if deadline_at is not None else admission_end,
+            clock=clock)
+
+
 async def retry_idempotent_request(
     operation: Callable[[], Awaitable[T]],
     *,
@@ -41,17 +59,19 @@ async def retry_idempotent_request(
     deadline_at: float | None = None,
     clock: Clock | None = None,
     cancel_requested: CancelRequested | None = None,
+    read_admission: bool = False,
 ) -> T:
     """Retry transient network or gateway failures for the same idempotent request."""
 
     sleep = sleeper or _default_sleeper
     control = RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
+    admission = ReadAdmissionControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock) if read_admission else control
     attempt = 0
     while True:
-        control.check()
+        admission.check()
         attempt += 1
         try:
-            result = await control.run(operation)
+            result = await admission.run(operation)
             # A completed observation belongs to the polling owner, which may
             # return a terminal result at its boundary. New explicit caller
             # cancellation remains checked before returning its request.
@@ -67,6 +87,10 @@ async def retry_idempotent_request(
             if exc.response.status_code not in RETRYABLE_STATUS_CODES or attempt >= max_attempts:
                 raise
         except RepositoryClientError as exc:
+            if read_admission and is_repository_busy(exc):
+                attempt -= 1
+                await admission.sleep(sleep, 1.0)
+                continue
             if exc.status_code not in RETRYABLE_STATUS_CODES or attempt >= max_attempts:
                 raise
         except RepositoryProtocolError as exc:
@@ -74,4 +98,4 @@ async def retry_idempotent_request(
                 raise
         if attempt < max_attempts:
             delay = base_delay_seconds * (2 ** (attempt - 1))
-            await control.sleep(sleep, delay)
+            await admission.sleep(sleep, delay)

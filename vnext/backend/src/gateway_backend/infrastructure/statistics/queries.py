@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, cast
 from gateway_repository_contracts.statistics import Role
 
 from pydantic import BaseModel, ValidationError
@@ -187,12 +187,11 @@ class SQLiteStatisticsReader:
                 # A configured filesystem identity is counted once across services.
                 key = ('filesystem', row['filesystem_id']) if row['category'] == 'filesystem' else (row['service_owner'], row['category'])
                 latest[key] = row
-            instances: list[tuple[Role, str]] = []
-            roles: tuple[Role, ...] = ('backend', 'worker', 'repository_service')
-            for role in roles:
-                instance_rows = query.select('SELECT role,process_instance_id FROM resource_samples WHERE environment_id=? AND group_id=? AND role=?'
-                    ' AND sampled_at_us>=? AND sampled_at_us<? ORDER BY sampled_at_us DESC,id DESC LIMIT 1', (*self._identity, role, start_us, end_us))
-                if instance_rows:
-                    instances.append((role, str(instance_rows[0]['process_instance_id'])))
+            instance_rows = query.select(
+                'SELECT role,process_instance_id,MAX(sampled_at_us) AS latest FROM resource_samples'
+                ' WHERE environment_id=? AND group_id=? AND sampled_at_us>=? AND sampled_at_us<?'
+                ' GROUP BY role,process_instance_id ORDER BY latest DESC,role,process_instance_id LIMIT 101',
+                (*self._identity, start_us, end_us))
+            instances = tuple((cast(Role, row['role']), str(row['process_instance_id'])) for row in instance_rows[:100])
             storage = _decode(StorageRecord, list(latest.values()))
-        return GroupRead(storage=storage, instances=tuple(instances))
+        return GroupRead(storage=storage, instances=instances, instances_truncated=len(instance_rows) > 100)

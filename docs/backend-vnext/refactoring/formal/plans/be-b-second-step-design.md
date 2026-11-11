@@ -1,10 +1,10 @@
 # BE-b 第二步：导航、展示元数据与行定位设计
 
-日期：2026-11-10；2026-11-11 按前端 FE-BEB-01–10 修订。状态：**修订候选，待原后端独审与前端窄复核；不代表双方已接受或产品已实施**。
+日期：2026-11-10；2026-11-11 按前端 FE-BEB-01–10 修订。状态：**前端反馈修订已获后端原审 GO，待前端窄复核；不代表双方已接受或产品已实施**。
 
 历史审核：GPT-6-Astra 原审对 `0df6250ac84826e9826b60b68208816e451ab8e0` 给出 GO（仅后端设计），首轮 BDR-1/2、N1/N2 全部关闭。报告原件：`/home/dev/gdds-stage-exchange/be-b/reviews/0df6250ac8-backend-design-rereview.md`；最终转交 SHA 与文件摘要见同目录阶段日志及 prompt。
 
-本次修订依据：前端对 `f0be08d9ed` 的 `CHANGES_REQUIRED`，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-review-f0be08d9ed.md`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`。Owner 于 2026-11-11 同意全部前端建议并授权修订与复审提示词，明确采纳空 `sg_cfg` 有变化/风险仍保留的补充。下文将两项阻塞及八项非阻塞一起写定；具体关闭状态以新候选复审为准。
+本次修订依据：前端对 `f0be08d9ed` 的 `CHANGES_REQUIRED`，原件 `/home/dev/gdds-stage-exchange/be-b/reviews/frontend-targeted-review-f0be08d9ed.md`，SHA256 `b1187f8254dc8a6c210dfe4a099faf72893313a64b524d3d12402eeab969cfff`。Owner 于 2026-11-11 同意全部前端建议并授权修订与复审提示词，明确采纳空 `sg_cfg` 有变化/风险仍保留的补充。下文将两项阻塞及八项非阻塞一起写定；后端原审对 `b055cbca5cb22ecc10fa2eacc5e7254deb6340f3` 给出 GO，报告 `/home/dev/gdds-stage-exchange/be-b/reviews/b055cbca5c-backend-frontend-fixes-review.md`；其 BRF-N1 已按实际 keyless identity frame 收紧下文文字。最终绑定见交接目录复审报告/prompt，前端关闭仍待窄复核。
 
 Owner 本轮授权：落成第二步设计/执行计划，启动 GPT-6-Astra 后端独审，提供前端定向核对提示词，由 Owner 转交并带回结果。授权不含产品编码、上线或 push。Owner 同意前轮建议：历史展示元数据冻结；仅注释变化用于当前 Preview，不回写旧历史，不创造规范业务变化。
 
@@ -205,7 +205,7 @@ keyless 使用 `standard.rs` 的 selected/excluded columns 与 `occurrence_diges
 
 **缺快照侧的筛选上下文：** 每个 JSON 值为 JCS 小对象，仅含该表导航身份列，如 `{"dev_addr":49}`/`{"gid":7}`；值遵守 §4.2 类型/安全整数规则。schema 缺该列用 `{}`，SQL NULL 用 `{"gid":null}`，均不匹配。有快照侧上下文=null，必须从 index 对应行取值；逻辑不存在侧亦 null。逻辑行存在、无 bundle 快照且该表发布筛选 tabs 时，上下文必须非 null。整表入口无需上下文，两个字段均 null。不接受以 null 冒充缺失的必需上下文。
 
-缺快照侧从已有 canonical 输入按同一 native identity/occurrence 流扫描，只有命中已发布 records 的行才保留上下文，计入 M；行号仍 null，不伪造 bundle 位置。keyless 复用同一 selected/excluded 与 occurrence 编码；只对导航身份列包含在 selected columns 的表发布筛选 tabs，因而等价副本的筛选值必相等。若未来规则排除身份列，则该表改唯一整表入口并输出 DEVICE_FILTER_VALUE_UNSUPPORTED(reason=IDENTITY_EXCLUDED)，不凭 occurrence 任取不同身份。导航归属复用这份身份映射，不另做一套 occurrence。只补筛选值，不补全 keyless 的旧业务单元格，不改变 records 或 comparison 摘要。
+缺快照侧从已有 canonical 输入按同一 native identity/occurrence 流扫描，只有命中已发布 records 的行才保留上下文，计入 M；行号仍 null，不伪造 bundle 位置。keyless 复用同一 selected/excluded 与 occurrence 编码；导航身份列必须进入实际用于 keyless row identity 的 frame 列集合，因而等价副本的筛选值必相等；直接复用 native 的列选择（columns_added 时为 selected 减 excluded，否则为 selected），不另写 Python 近似判断。身份列未进入实际 frame 时，则该表改唯一整表入口并输出 DEVICE_FILTER_VALUE_UNSUPPORTED(reason=IDENTITY_EXCLUDED)，不凭 occurrence 任取不同身份。导航归属复用这份身份映射，不另做一套 occurrence。只补筛选值，不补全 keyless 的旧业务单元格，不改变 records 或 comparison 摘要。
 
 新 native helper 抽取并复用 standard 编码函数，接受解码后的批与 comparison schema，不能让 Python/浏览器重新实现规范标量算法。最终 export 经现有 SnapshotTable 解码适配恢复 NULL/decimal/ENUM/SET/binary 等类型，禁止直接把 Parquet 字符串当规范值。
 

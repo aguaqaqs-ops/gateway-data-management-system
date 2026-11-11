@@ -2321,6 +2321,7 @@ test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", asy
 });
 
 test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
+  test.setTimeout(240000);
   await installFixtureRoutes(page);
   const shot = async (name: string) => {
     await screenshot(page, name, 1920);

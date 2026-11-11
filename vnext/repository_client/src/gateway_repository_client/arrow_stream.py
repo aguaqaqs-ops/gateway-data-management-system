@@ -62,7 +62,7 @@ class ArrowIpcByteStream:
         self._sleeper = sleeper
         self._control = RequestControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
         self._admission: ReadAdmissionControl | None = None
-        self._new_admission = lambda: ReadAdmissionControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
+        self._new_admission: Callable[[], ReadAdmissionControl] = lambda: ReadAdmissionControl(cancel_requested=cancel_requested, deadline_at=deadline_at, clock=clock)
         self._client: httpx.AsyncClient | None = None
         self._response: httpx.Response | None = None
         self._request_id: str | None = None

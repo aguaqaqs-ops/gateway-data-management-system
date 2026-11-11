@@ -158,9 +158,15 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
         assert excluded[0]["params"] == {"identity_column": "gid", "reason": "IDENTITY_EXCLUDED"}
         assert not any(d["code"] in {"DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_ROWS_UNASSIGNED"} for d in diagnostics)
         table = next(table for table in surface.tables if table.table_name == "device_cfg")
-        assert table.row_locator_ref is not None
-        rows = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
-        assert all(row["before_filter_context_json"] is None and row["current_filter_context_json"] is None for row in rows)
+        if source_key_transition:
+            # A source key transition is an incompatible schema change, so its
+            # table-level record does not publish a row locator.
+            assert table.table_status.value == "SCHEMA_CHANGED"
+            assert table.row_locator_ref is None
+        else:
+            assert table.row_locator_ref is not None
+            rows = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
+            assert all(row["before_filter_context_json"] is None and row["current_filter_context_json"] is None for row in rows)
     assert results[0][0].comparison_digest == results[1][0].comparison_digest
     assert results[0][0].surface_digest == results[1][0].surface_digest
     assert results[0][1] == results[1][1]

@@ -49,7 +49,9 @@ button { color: inherit; }
 .button--ghost:hover:not(:disabled) { background: var(--color-ghost-hover); }
 .button--danger { border-color: var(--color-danger); background: var(--color-surface); color: var(--color-danger); }
 .button--danger:hover:not(:disabled) { background: var(--color-danger-soft); }
-.disabled-reason { max-width: 220px; color: var(--color-text-subtle); font-size: var(--font-size-xs); line-height: 1.35; }
+/* N5: the header status row sets white-space: nowrap; a disabled reason inside
+   it must still wrap within its max-width instead of widening the page. */
+.disabled-reason { max-width: 220px; color: var(--color-text-subtle); font-size: var(--font-size-xs); line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
 .icon-button { display: inline-grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--color-text-muted); cursor: pointer; }
 .icon-button:hover { background: var(--color-surface-muted); }
 

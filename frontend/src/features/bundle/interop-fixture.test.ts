@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { describe, expect, it } from "vitest";
 import { bytesStream, readFixture } from "../../test/helpers";
-import { normalizeSha256, Sha256 } from "./sha256";
+import { Sha256 } from "./sha256";
 import {
   BundleIntegrityError,
   installBundleTar,
@@ -135,7 +135,7 @@ function tarHeader(options: { name: string; size: number; type: string }): Uint8
 }
 
 describe("backend interop bundle fixtures", () => {
-  it("installs the backend interop bundle with byte-identical metadata and six members", async () => {
+  it("keeps the v3 interop tar byte-identical but rejects its bundle selector", async () => {
     const index = await jsonFixture<InteropIndex>("index.json");
     const tar = await fixture("bundle.tar");
     expect(tar.byteLength).toBe(24_576);
@@ -145,30 +145,19 @@ describe("backend interop bundle fixtures", () => {
       expect(bytes.byteLength).toBe(file.length);
       expect(sha256(bytes)).toBe(file.sha256);
     }
+    const manifest = JSON.parse(new TextDecoder().decode(await fixture("manifest.json"))) as { bundle_contract_version: string };
+    expect(manifest.bundle_contract_version).toBe("backend-vnext/comparison-bundle/v3");
 
     const store = new RecordingStore();
-    const result = await installBundleTar({
+    await expect(installBundleTar({
       body: bytesStream(tar),
       store,
       expectedBundleDigest: index.bundle_digest,
       etag: index.bundle_digest,
       contentLength: String(index.content_length),
-    });
-
-    expect(store.aborted).toBe(false);
-    expect(store.files.size).toBe(6);
-    expect(store.opened).toEqual(index.ordinary_artifacts.map((artifact) => artifact.logical_path));
-    expect(normalizeSha256(result.manifest.bundle_digest)).toBe(normalizeSha256(index.bundle_digest));
-    expect(Buffer.from(store.files.get("manifest.json") ?? new Uint8Array()).equals(Buffer.from(await fixture("manifest.json")))).toBe(true);
-    expect(Buffer.from(store.files.get("artifact-closure.json") ?? new Uint8Array()).equals(Buffer.from(await fixture("artifact-closure.json")))).toBe(true);
-    for (const artifact of index.ordinary_artifacts) {
-      const bytes = store.files.get(artifact.logical_path);
-      expect(bytes?.byteLength).toBe(artifact.size_bytes);
-      expect(`sha256:${sha256(bytes ?? new Uint8Array())}`).toBe(artifact.raw_sha256);
-    }
-    // The frontend installs tar/OPFS content only: there is no RECORDS artifact,
-    // which is what the backend reports as verified_logical_record_count === 0.
-    expect(result.manifest.closure.entries.some((entry) => entry.kind === "RECORDS")).toBe(false);
+    })).rejects.toThrow(/不支持的 bundle contract version/);
+    expect(store.aborted).toBe(true);
+    expect(store.files.size).toBe(0);
   });
 
   it("decodes literal and long-path pax records at both layers", async () => {

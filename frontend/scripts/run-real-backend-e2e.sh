@@ -17,6 +17,9 @@
 #             worktree; --subphase fe3b keeps the original 18 scopes.
 #             --subphase fe4a runs only j1-archive-mainline and j2-manual-close
 #             (FE4a debugging; evidence runs the full fe3c set).
+#             --subphase fe4b runs the full fe3c journey set (FE4b debugging and
+#             evidence) and checks every downloaded bundle against the FE-BEB
+#             consumer criteria helper.
 #             Exports GATEWAY_FE_IDENTITIES, GATEWAY_FE_JOURNEY_SCOPES and
 #             GATEWAY_FE_JOURNEY_INPUT_ROOT.
 #   t1        FE3c real-data journey (kickoff §8): requires
@@ -292,8 +295,8 @@ case "$SUITE" in
     exit 2 ;;
 esac
 if [[ "$SUITE" == "journeys" ]]; then
-  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" ) ]] || {
-    printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a (got %s)\n' "$SUBPHASE" >&2
+  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" || "$SUBPHASE" == "fe4b" ) ]] || {
+    printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a|fe4b (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }
 elif [[ "$SUITE" == "t1" ]]; then

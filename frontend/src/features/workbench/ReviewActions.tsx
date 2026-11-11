@@ -7,6 +7,8 @@ import type { SafeReviewFacts } from "../api/client";
 import { Button, Dialog } from "../../design-system/components";
 type DialogKind = "approve" | "reject" | "withdraw";
 
+const STALE_ON_FACTS_REFRESH = new Set(["REVIEW_VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT"]);
+
 const STATUS_REASON: Record<string, string> = {
   APPROVED: "该提交已通过审核",
   REJECTED: "该提交已退回",
@@ -67,6 +69,13 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   useEffect(() => {
     setExpiredApprove(false);
   }, [facts.review_version, facts.status]);
+  // N17: a REVIEW reload from another path (for example the bundle or table
+  // reload) can make a previously reported conflict stale. Only the conflict
+  // notices are superseded by fresher facts; terminal and closed notices
+  // ("已重新读取") stay until the submission itself changes.
+  useEffect(() => {
+    setError((current) => (current && STALE_ON_FACTS_REFRESH.has(current.code) ? null : current));
+  }, [facts.review_version, facts.status, facts.submission_disposition]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition
     ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
@@ -197,5 +206,6 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     </Dialog>
     </div>
     {errorNotice && errorHost && createPortal(errorNotice, errorHost)}
+    {errorNotice && !errorHost && errorNotice}
   </>;
 }

@@ -83,6 +83,26 @@ export function recordBundleResponses(page: Page): { responses: Response[]; disp
   return { responses, dispose: () => void page.off("response", listener) };
 }
 
+/** Read bundle bodies when they arrive: Playwright cannot fetch a response
+ * body after the page has navigated away from it. */
+export function recordBundleBodies(page: Page): { bodies: Buffer[]; pending: Promise<void>[]; dispose: () => void } {
+  const bodies: Buffer[] = [];
+  const pending: Promise<void>[] = [];
+  const listener = (response: Response): void => {
+    if (!isBundleResponse(response)) return;
+    pending.push(
+      response
+        .body()
+        .then((body) => {
+          bodies.push(Buffer.from(body));
+        })
+        .catch(() => undefined),
+    );
+  };
+  page.on("response", listener);
+  return { bodies, pending, dispose: () => void page.off("response", listener) };
+}
+
 /** Poll until the bundle digest directory carries `.complete.json` (installed). */
 export async function waitForInstalledBundle(page: Page, digestHex: string, timeout = 600_000): Promise<void> {
   await expect(async () => {

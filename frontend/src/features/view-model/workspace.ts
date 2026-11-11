@@ -283,3 +283,9 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonC
   }
   return [];
 }
+
+/** B7: a provisioned device whose History still has only the initial baseline. */
+export function hasOnlyInitialBaseline(history: Schemas["HistoryListResponse"]): boolean {
+  return history.nodes.length > 0
+    && history.nodes.every((node) => node.node_kind === "BASELINE_NODE" && node.baseline_kind === "INITIAL");
+}

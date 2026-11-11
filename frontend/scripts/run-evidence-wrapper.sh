@@ -198,6 +198,13 @@ else
   printf 'occupancy_marker=%s\n' "$(tr '\n' ';' < "$BUSY_DIR/$SESSION")" >> "$LOG_FILE"
 fi
 
+# N26: frontend entries write their own per-run details; point them at the
+# wrapper's log directory so evidence never lands inside the worktree.
+if [[ -z "${GATEWAY_FE_LOG_DIR:-}" ]]; then
+  export GATEWAY_FE_LOG_DIR="$LOG_DIR"
+  printf 'gateway_fe_log_dir=%s\n' "$GATEWAY_FE_LOG_DIR" >> "$LOG_FILE"
+fi
+
 printf 'entry_output_begin=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" >> "$LOG_FILE"
 set +e
 if [[ "$SEPARATOR_SEEN" == "1" ]]; then

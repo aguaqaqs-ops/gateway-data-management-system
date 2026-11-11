@@ -10,6 +10,7 @@ import {
   expectReviewReasonShownOnce,
   gotoWorkbench,
   opfsBundleState,
+  recordBundleBodies,
   recordBundleResponses,
   reviewAction,
   reviewStatus,
@@ -42,6 +43,7 @@ import {
   type WorkspaceBody,
 } from "./lib/api";
 import { countBundlePairs, digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
+import { assertBundleConsumerCriteria, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, inputDir, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
 /**
@@ -166,6 +168,8 @@ async function uploadAndPreview(
   expect(bundleResponse.status(), "bundle status").toBe(200);
   const body = Buffer.from(await bundleResponse.body());
   const bundle = parseBundleTar(body);
+  const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
+  appendCaseLog(`criteria ${scope.slug} preview ${formatCriteriaSummary(criteria)}`);
 
   const contentLength = bundleResponse.headers()["content-length"];
   expect(contentLength, "bundle Content-Length").toBe(String(body.byteLength));
@@ -431,9 +435,9 @@ test("r2-preview", async ({ browser }, testInfo) => {
     await expect(footer).toContainText("本地 bundle · 浏览期间不请求后端");
     await expect(footer).toContainText(run.bundle.manifest.bundle_digest.slice(0, 19));
 
-    const tabs = session.page.getByRole("tablist", { name: "比较视图" });
-    await expect(tabs.getByRole("tab")).toHaveCount(1);
-    await expect(tabs.getByRole("tab").first()).toContainText("当前基线 → 本次归档组态");
+    // Q6: a single view has no segmented control; the view label moves into the breadcrumb.
+    await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
+    await expect(session.page.locator("nav.breadcrumb")).toContainText("当前基线 → 本次归档组态");
     await expect(session.page.locator("section.comparison-content")).toContainText(/表|变更/);
 
     // Re-opening the same preview in the same context must reuse OPFS.
@@ -545,6 +549,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
     const recoveredResponse = await recovered;
     expect(recoveredResponse.status()).toBe(200);
     const parsed = parseBundleTar(Buffer.from(await recoveredResponse.body()));
+    await assertBundleConsumerCriteria(parsed, "journey r3 recovered bundle");
     expect(parsed.manifest.status).toBe("READY");
     expect(countBundlePairs(parsed.manifest)).toBe(1);
     await waitForDiffBrowsing(session.page);
@@ -1001,6 +1006,7 @@ test("r9-history", async ({ browser }, testInfo) => {
     await selectTreeRow(session.page, "提交 1");
     await workshopAction(session.page, "加入比较").click();
 
+    const historyBodies = recordBundleBodies(session.page);
     const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
     await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
     expect((await compareResponse).status()).toBeLessThan(300);
@@ -1021,10 +1027,18 @@ test("r9-history", async ({ browser }, testInfo) => {
     await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
     await waitForDiffBrowsing(session.page);
     await expect(session.page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
-    const tabs = session.page.getByRole("tablist", { name: "比较视图" });
-    await expect(tabs.getByRole("tab")).toHaveCount(1);
-    await expect(tabs.getByRole("tab").first()).toHaveText(/节点 \d+ → 节点 \d+/);
+    // Q6: a single history view has no segmented control; the node pair moves into the breadcrumb.
+    await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
+    await expect(session.page.locator("nav.breadcrumb")).toContainText(/节点 \d+ → 节点 \d+/);
     await saveEvidence(session.page, testInfo, "r9-history-diff");
+
+    await Promise.all(historyBodies.pending);
+    historyBodies.dispose();
+    for (const body of historyBodies.bodies) {
+      const criteria = await assertBundleConsumerCriteria(parseBundleTar(body), "journey r9-history bundle");
+      appendCaseLog(`criteria r9-history ${formatCriteriaSummary(criteria)}`);
+    }
+    expect(historyBodies.bodies.length, "r9-history bundle downloads checked").toBeGreaterThan(0);
 
     assertClean(session.diagnostics, "r9-history");
     appendCaseLog(`r9-history ok nodes=${history.body.nodes.length}`);
@@ -1359,6 +1373,8 @@ async function uploadDirsAndPreview(
     }
     expect(bundle, "bundle downloaded and installed").toBeTruthy();
     expect(bundleResponse, "bundle response recorded").toBeTruthy();
+    const criteria = await assertBundleConsumerCriteria(bundle as ParsedBundle, `journey ${scope.slug} ${diffView} bundle`);
+    appendCaseLog(`criteria ${scope.slug} ${diffView} ${formatCriteriaSummary(criteria)}`);
     if (diffView === "replacement") {
       // Identity-different datasets render the replacement browser instead of
       // the comparison grid (R4); the grid paint flag never applies here.

@@ -104,6 +104,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
   BE-a 之后（DC75），FE3 另设只持 `withdraw_own_submission` 的提交人身份，与持 `review_submission` 的审核人分开；验证本人撤回时不用审核人或全权限身份代替。
 - 一个会话对应一个网关设备与业务项目。legacy README 中的“设备选择/SSO 入口”不作为前端页面，切换设备即切换会话。
 - token 不写入构建产物；开发与 e2e 通过 dev server 代理或仅开发环境出现的身份选择注入。
+- 设备目录跳转会话（`fe-handoff`，Q1 试运行）：token 随片段到达后只保存在当前标签页的 `sessionStorage`（键 `gdds-gateway-session`），不写入 URL、日志、错误、截图或构建产物；这是 Q1 整体方案前的临时例外，不是长期会话存储方案。
 
 ### 4.4 Bundle 本地化（FD3）
 

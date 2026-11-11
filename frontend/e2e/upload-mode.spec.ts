@@ -48,27 +48,46 @@ async function settleAfterResize(page: Page) {
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
-  const metrics = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
+  const metrics = await page.evaluate(() => {
+    // Report what actually sticks out so an overflow failure names the node.
+    const describe = (element: Element) => `${element.tagName.toLowerCase()}.${String(element.className || "").split(/\s+/).filter(Boolean).join(".")}`;
+    const nodes = [...document.querySelectorAll<HTMLElement>("body *")];
+    const pastRight = nodes
+      .filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
+      .slice(0, 5)
+      .map((element) => `${describe(element)} right=${Math.round(element.getBoundingClientRect().right)}`);
+    const scrolling = nodes
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .slice(0, 5)
+      .map((element) => `${describe(element)} scrollWidth=${element.scrollWidth} clientWidth=${element.clientWidth}`);
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+      bodyWidth: Math.round(document.body.getBoundingClientRect().width),
+      pastRight,
+      scrolling,
+      statusChildren: [...(document.querySelector(".compare-status")?.children ?? [])].map(
+        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
+      ),
+      headerChildren: [...(document.querySelector(".compare-header__top")?.children ?? [])].map(
+        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
+      ),
+    };
+  });
   expect(
     metrics.scrollWidth,
-    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")} header=[${metrics.headerChildren.join(" | ")}] status=[${metrics.statusChildren.join(" | ")}]`,
   ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 
 async function screenshot(page: Page, name: string, width: number) {
-  if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
-    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await settleAfterResize(page);
-    // N5：`.disabled-reason` 超出其容器，`fe3b-w4-approved-withdraw` 在 1280 与 1920
-    // 两种宽度下都溢出 12 px（1292/1280、1932/1920）；只豁免这一个截图名，交 FE4b 修复。
-    if (name !== "fe3b-w4-approved-withdraw") {
-      await expectNoHorizontalOverflow(page);
-    }
+    // N14: assert in every mode, before any screenshot bookkeeping.
+    await expectNoHorizontalOverflow(page);
+    if (!screenshotDirectory) continue;
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });

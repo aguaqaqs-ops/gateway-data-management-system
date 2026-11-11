@@ -43,12 +43,12 @@ describe("read-only browsing commands and URL state", () => {
     expect(encodeBrowseState(decoded)).not.toContain("Request");
   });
 
-  it("switches and restores Preview views by pair_id when both surface view_id values are equal", async () => {
+  it("switches and restores Preview views by pair_id when the two surfaces carry their own view_id", async () => {
     const { bundle, manifest } = await installedFixtureBundle("preview-full");
     const pairIds = manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id);
     expect(pairIds).toEqual(["baseline_to_initial", "initial_to_modified"]);
     const presentations = await Promise.all(pairIds.map((pairId) => loadComparisonPresentation(bundle, pairId)));
-    expect(presentations.map(({ surface }) => (surface.view as Record<string, unknown>).view_id)).toEqual(["initial_to_modified", "initial_to_modified"]);
+    expect(presentations.map(({ surface }) => (surface.view as Record<string, unknown>).view_id)).toEqual(["baseline_to_initial", "initial_to_modified"]);
     const first = executeBrowseCommand(initialBrowseState, { name: "select-pair", pairId: pairIds[0] as string });
     const second = executeBrowseCommand(first, { name: "select-pair", pairId: pairIds[1] as string });
     expect(decodeBrowseState(encodeBrowseState(second)).pairId).toBe("initial_to_modified");

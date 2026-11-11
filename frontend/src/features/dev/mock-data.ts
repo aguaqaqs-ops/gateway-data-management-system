@@ -128,6 +128,27 @@ export const HISTORY_PAGE_TWO = {
   next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
 
+export const INITIAL_ONLY_WORKSPACE = {
+  ...WORKSPACE_RESPONSE,
+  workspace_id: "workspace-initial-only",
+  generation: 1,
+  optimistic_version: 1,
+  current_upload_revision_id: null,
+  current_preview_result_id: null,
+} satisfies Schemas["WorkspaceResponse"];
+
+export const INITIAL_ONLY_HISTORY = {
+  head: { node_id: "initial-only-ref-0", commit_id: "commit-initial-only-0", version: 1 },
+  nodes: [
+    {
+      ref_kind: "baseline_node", ref_id: "initial-only-ref-0", node_kind: "BASELINE_NODE", baseline_kind: "INITIAL",
+      commit_id: "commit-initial-only-0", created_at: "2026-11-03T08:00:00Z", parent: null,
+      identity_exception: false,
+    },
+  ],
+  next_cursor: null,
+} satisfies Schemas["HistoryListResponse"];
+
 export const REVIEW_FACTS = {
   submission_id: "fe2a-history-ref-2",
   status: "PENDING",
@@ -186,7 +207,7 @@ export const HISTORY_COMPARE_SUCCEEDED = {
     input: { nodes: HISTORY_COMPARE_REQUEST.nodes },
     pairs: [
       {
-        pair_id: "fe2a-history-fixture-p0", before_commit: "commit-baseline-0", current_commit: "commit-baseline-1",
+        pair_id: "left_to_middle", before_commit: "commit-baseline-0", current_commit: "commit-baseline-1",
         before_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
         current_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
         comparison_digest: "sha256:2b774878059e5090568163242cae87e737b056bff7c309206108d1fc3d79a315",
@@ -194,7 +215,7 @@ export const HISTORY_COMPARE_SUCCEEDED = {
         surface_digest: "sha256:b8655d480b64a4aac7a934bad84edc6afd0536a8e0ab6e19fbda2ac369961f5f", record_count: 4,
       },
       {
-        pair_id: "fe2a-history-fixture-p1", before_commit: "commit-baseline-1", current_commit: "commit-submission-2",
+        pair_id: "middle_to_right", before_commit: "commit-baseline-1", current_commit: "commit-submission-2",
         before_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
         current_ref: { ref_kind: "submission", ref_id: "fe2a-history-ref-2" },
         comparison_digest: "sha256:a4d362ecddeff4fd28aec475bb8486f3bfbe9c7722892664eb92064b3685acb5",

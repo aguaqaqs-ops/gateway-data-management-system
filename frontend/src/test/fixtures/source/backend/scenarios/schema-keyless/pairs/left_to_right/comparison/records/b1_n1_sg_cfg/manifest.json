@@ -1,0 +1,1 @@
+{"content_digest":"sha256:ad06a72a13363704733a7da176a32585f30aa3a7b21020f920f93441c4e3ffbd","contract_version":"backend-vnext/comparison-records/v1","family":"STANDARD","record_count":1,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"standard-records/v1","table_name":"b1_n1_sg_cfg"}

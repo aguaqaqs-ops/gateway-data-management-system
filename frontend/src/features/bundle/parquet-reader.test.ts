@@ -27,10 +27,11 @@ describe("local Parquet browsing", () => {
     const { bundle, manifest } = await installedGoldenBundle();
     const pairId = (manifest.pairs[0] as { pair_id: string }).pair_id;
     const presentation = await loadComparisonPresentation(bundle, pairId);
-    expect(presentation.view.groups[0]?.groupKey).toBe("SECONDARY_DEVICES");
+    expect(presentation.view.groups.map((group) => group.groupKey)).toEqual(["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"]);
     expect(presentation.view.tables.find((table) => table.tableName === "device")?.riskLevel).toBe("MEDIUM_HIGH");
-    expect(presentation.tableArtifacts.get("device")?.before).toBeNull();
-    expect(presentation.tableArtifacts.get("device")?.current).toContain("tables/current/device.parquet");
+    expect(presentation.tableArtifacts.get("device")?.before).toContain("tables/before/device.parquet");
+    expect(presentation.tableArtifacts.get("device")?.current).toMatch(/\.parquet$/);
+    expect(presentation.tableArtifacts.get("device")?.before).not.toBe(presentation.tableArtifacts.get("device")?.current);
     const rows = await readLocalTable(bundle, presentation, "device", "current", { columns: ["dev_addr"] });
     const diffs = await readLocalChangeRecords(bundle, presentation, "device");
     expect(rows).toHaveLength(4);

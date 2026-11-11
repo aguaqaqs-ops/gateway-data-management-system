@@ -51,24 +51,26 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function screenshot(page: Page, name: string, width: number) {
-  if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
-    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
+    // N14: assert in every mode, before any screenshot bookkeeping.
     await expectNoHorizontalOverflow(page);
+    if (!screenshotDirectory) continue;
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
 }
 
 async function cardScreenshot(page: Page, name: string, width: number, locator: ReturnType<Page["locator"]>) {
-  if (!screenshotDirectory) return;
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
-    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await locator.scrollIntoViewIfNeeded();
     await page.waitForTimeout(50);
+    // N14: assert in every mode, before any screenshot bookkeeping.
     await expectNoHorizontalOverflow(page);
+    if (!screenshotDirectory) continue;
+    await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
     await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });

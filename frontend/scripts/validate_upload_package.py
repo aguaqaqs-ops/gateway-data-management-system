@@ -60,6 +60,10 @@ def main() -> int:
         else:
             print(f"PACKAGE {item['name']} OK rejected={code}")
     print(f"RESULT packages={len(manifest['packages'])} failures={failures}")
+    # N27: the evidence wrapper reads the entry's own end fields from stdout, so
+    # the validator must print its exit code itself (the process exit alone is not
+    # part of the entry output section).
+    print(f"exit_code={1 if failures else 0}")
     return 1 if failures else 0
 
 

@@ -110,6 +110,7 @@ done
 BACKEND_COMPOSE_TEST_FILES=(
     tests/test_archive_compose_e2e.py
     tests/test_backend_http_container_gate.py
+    tests/test_fixed_workers_compose_e2e.py
     tests/test_history_compose_e2e.py
     tests/test_ordered_compare_compose.py
     tests/test_ordered_submit_bisect_compose.py

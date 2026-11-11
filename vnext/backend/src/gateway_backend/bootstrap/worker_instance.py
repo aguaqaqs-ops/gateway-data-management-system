@@ -17,6 +17,10 @@ from gateway_backend.runtime_preflight import check_configured_root
 _PROCESS_LOCKS: list[int] = []
 
 
+class WorkerInstanceConflict(ValueError):
+    """The configured instance is already owned by a live cooperating process."""
+
+
 def worker_id_for(config: DeploymentConfig, instance_index: int) -> str:
     if type(instance_index) is not int or not 1 <= instance_index <= config.resources.worker.count:
         raise ValueError("worker instance index is outside the configured range")
@@ -42,7 +46,7 @@ def acquire_worker_instance(config: DeploymentConfig, instance_index: int) -> st
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError("worker instance is already running") from None
+            raise WorkerInstanceConflict("worker instance is already running") from None
         _PROCESS_LOCKS.append(descriptor)
         descriptor = None
         return identity

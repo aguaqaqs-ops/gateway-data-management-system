@@ -407,7 +407,7 @@ def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(
         duplicate = _instance_process(environment, 1, "exit")
         output, _ = duplicate.communicate(timeout=5)
         assert duplicate.returncode != 0
-        assert "already running" in output
+        assert "WorkerInstanceConflict: worker instance is already running" in output
         other = _instance_process(environment, 2, "exit")
         output, _ = other.communicate(timeout=5)
         assert other.returncode == 0

@@ -121,7 +121,7 @@ from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
 from gateway_backend.runtime_preflight import RuntimePreflight
 from gateway_backend.bootstrap.deployment_identity import compare_configuration
-from gateway_backend.bootstrap.worker_instance import acquire_worker_instance, worker_id_for
+from gateway_backend.bootstrap.worker_instance import WorkerInstanceConflict, acquire_worker_instance, worker_id_for
 
 from gateway_backend.settings import OperationWorkerSettings
 
@@ -489,6 +489,9 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             return 1
         except ControlDbIntegrityError:
             _LOGGER.error("operation_worker_failed category=control_db_integrity")
+            return 1
+        except WorkerInstanceConflict:
+            _LOGGER.error("operation_worker_failed category=worker_instance_conflict")
             return 1
         except ValueError:
             _LOGGER.error("operation_worker_failed category=settings_invalid")

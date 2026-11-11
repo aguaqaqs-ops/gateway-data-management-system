@@ -1655,6 +1655,7 @@ def run_accept_to_submission_read_journey(
     identity_confirmation_reason: str | None = "Compose journey accepted preview identity findings",
     preview_only: bool = False,
     include_preview_surfaces: bool = False,
+    on_preview_accepted: Callable[[str], None] | None = None,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
@@ -1699,6 +1700,8 @@ def run_accept_to_submission_read_journey(
         )
         assert preview.status_code == 202, preview.text
         preview_operation = preview.json()
+        if on_preview_accepted is not None:
+            on_preview_accepted(str(preview_operation["operation_id"]))
         preview_terminal = poll_operation(client, preview_operation["operation_id"])
         assert preview_terminal["status"] == "SUCCEEDED", preview_terminal
 

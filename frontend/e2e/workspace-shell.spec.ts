@@ -680,7 +680,7 @@ async function clickFormulaCell(page: Page) {
 }
 
 async function hoverChangedTelemetryValue(page: Page) {
-  const grid = page.locator('.grid-frame[data-tab-key="telemetry"]');
+  const grid = page.locator('.grid-frame[data-tab-key="table"]');
   const bounds = await grid.boundingBox();
   if (!bounds) throw new Error("workbench telemetry grid has no bounds");
   const tooltip = page.getByRole("tooltip");
@@ -763,7 +763,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.getByRole("button", { name: "展开导航" }).click();
   const search = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   await search.fill("测控装置");
-  await expect(page.getByRole("button", { name: /测控装置（升级）/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /测控装置（再次升级）/ })).toBeVisible();
   await page.locator(".sidebar-toolbar button").click();
   await expect(page).not.toHaveURL(/changed=1/);
   await page.locator(".sidebar-toolbar button").click();
@@ -816,8 +816,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "复合信号虚装置" }).click();
-  await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
-  await waitForGridPaint(page, "composite_signal_point");
+  await expect(page.locator(".table-heading h2")).toHaveText("composite_signal_point");
+  await waitForGridPaint(page, "table");
   await clickFormulaCell(page);
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();
@@ -833,12 +833,12 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await screenshot(page, "formula-preview", 1280);
   await formula.getByRole("button", { name: "关闭公式" }).click();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle", node: "device:composite", tab: "composite_signal_point" }));
+  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle", node: "device:composite", tab: "table" }));
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
-  expect(new URL(page.url()).searchParams.get("tab")).toBe("composite_signal_point");
-  await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
-  await waitForGridPaint(page, "composite_signal_point");
+  expect(new URL(page.url()).searchParams.get("tab")).toBe("table");
+  await expect(page.locator(".table-heading h2")).toHaveText("composite_signal_point");
+  await waitForGridPaint(page, "table");
   await clickFormulaCell(page);
   const historyFormula = page.getByRole("dialog", { name: "公式查看" });
   await expect(historyFormula.getByText("改前公式", { exact: true })).toBeVisible();
@@ -857,8 +857,11 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   // the mode notice takes the place of the per-view risk badge.
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("识别为不同数据集");
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /替换前/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /替换后/ })).toBeVisible();
+  await expect(page.locator(".replacement-side h3")).toHaveCount(2);
+  await expect(page.locator(".replacement-side h3").first()).toContainText("composite_signal_point");
+  await expect(page.locator(".replacement-side-toggle")).toContainText("替换前：");
+  await page.locator(".replacement-side-toggle button").nth(1).click();
+  await expect(page.locator(".replacement-side.is-inactive")).toHaveCount(1);
   await screenshot(page, "dataset-replacement-browse", 1920);
   await screenshot(page, "dataset-replacement-browse", 1280);
 
@@ -1174,10 +1177,10 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
 test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有 1 条通道提示）", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "forward-channel:b1_n1", tab: "telemetry" }));
+  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "table:b1_n1_iec104_yc_list", tab: "table" }));
   await expect(page.locator(".task-indicator")).toHaveCount(0);
   await waitForBrowse(page);
-  await expect(page.locator(".navigation-sidebar")).toContainText("转发通道");
+  await expect(page.locator(".navigation-sidebar")).toContainText("其他表");
   // BE-b v4 keeps the channel table that no network port claims in 其他表 and
   // reports it as one navigation diagnostic; the tables themselves stay clean.
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(1);
@@ -1185,9 +1188,9 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(1);
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("项目身份无法验证");
   await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
-  await expect(page.locator(".table-heading h2")).toHaveText("遥测量");
+  await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_yc_list");
   await screenshot(page, "s3-workbench-normal", 1920);
-  await waitForGridPaint(page, "telemetry");
+  await waitForGridPaint(page, "table");
   await screenshot(page, "s4-grid-normal-main", 1920);
   await hoverChangedTelemetryValue(page);
   await screenshot(page, "s4-grid-normal-hover", 1920);

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier, Event
+from threading import Barrier
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -127,63 +127,35 @@ class _LoaderExit(BaseException):
     pass
 
 
-@pytest.mark.serial
 @pytest.mark.parametrize("outcome", ("cached", "oversize", "loader_error", "loader_exit", "size_error", "publish_exit"))
-def test_concurrent_catalog_callers_share_outcome_and_can_retry(
+def test_catalog_failure_does_not_poison_subsequent_load(
     monkeypatch: pytest.MonkeyPatch, outcome: str,
 ) -> None:
     cache = application._VersionedCatalogCache()
     key = (uuid4(), "immutable")
     catalog = (TableCatalog("table", (), 1),)
-    entered = Event()
-    release = Event()
-    followers = Barrier(3)
     failure = _LoaderExit("exit") if outcome.endswith("exit") else ValueError("failure")
-
-    class ObservedFuture(Future[tuple[TableCatalog, ...]]):
-        def result(self, timeout: float | None = None) -> tuple[TableCatalog, ...]:
-            followers.wait(timeout=5)
-            return super().result(timeout=5)
-
     def load() -> tuple[TableCatalog, ...]:
-        entered.set()
-        assert release.wait(5)
         if outcome.startswith("loader_"):
             raise failure
         return catalog
-
     original_store = cache._store
-
     def fail_publication(*args: Any) -> None:
         original_store(*args)
         raise failure
-
     with monkeypatch.context() as scoped:
-        scoped.setattr(application, "Future", ObservedFuture)
         if outcome == "oversize":
             scoped.setattr(application, "_VERSIONED_CATALOG_CACHE_BYTES", 1)
         elif outcome == "size_error":
             scoped.setattr(application, "_catalog_cache_size", MagicMock(side_effect=failure))
         elif outcome == "publish_exit":
             scoped.setattr(cache, "_store", fail_publication)
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            leader = pool.submit(cache.get_or_load, key, load)
-            try:
-                assert entered.wait(5)
-                unwanted_loader = MagicMock(side_effect=AssertionError("duplicate load"))
-                waiting = [pool.submit(cache.get_or_load, key, unwanted_loader) for _ in range(2)]
-                followers.wait(timeout=5)
-            finally:
-                release.set()
-            for result in [leader, *waiting]:
-                if outcome in ("cached", "oversize"):
-                    assert result.result(timeout=5) is catalog
-                else:
-                    with pytest.raises(type(failure)) as caught:
-                        result.result(timeout=5)
-                    assert caught.value is failure
-            unwanted_loader.assert_not_called()
-    assert cache._inflight == {}
+        if outcome in ("cached", "oversize"):
+            assert cache.get_or_load(key, load) is catalog
+        else:
+            with pytest.raises(type(failure)) as caught:
+                cache.get_or_load(key, load)
+            assert caught.value is failure
     retry = MagicMock(return_value=catalog)
     assert cache.get_or_load(key, retry) is catalog
     assert retry.call_count == (0 if outcome == "cached" else 1)

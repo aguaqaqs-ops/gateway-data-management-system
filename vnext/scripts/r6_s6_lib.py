@@ -143,7 +143,6 @@ def start_service(work: Path) -> RunningService:
         profile="test",
         roots=RepositoryRoots.under(data_root),
         bearer_token=BEARER_TOKEN,
-        catalog_parallel_workers=4,
         metadata_timeout_seconds=180.0,
         import_timeout_seconds=4.0 * 60.0 * 60.0,
         full_scan_timeout_seconds=3600,

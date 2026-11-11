@@ -72,7 +72,6 @@ class RepositoryServiceSettings(BaseSettings):
     artifact_ttl_seconds: int = 24 * 60 * 60
     artifact_cleanup_interval_seconds: int = 300
     sqlite_busy_timeout_ms: int = 5000
-    catalog_parallel_workers: int = 2
     max_concurrent_uploads: int = 8
     max_import_workers: int = 4
     max_queued_imports: int = 64
@@ -141,7 +140,6 @@ class RepositoryServiceSettings(BaseSettings):
         "artifact_ttl_seconds",
         "artifact_cleanup_interval_seconds",
         "sqlite_busy_timeout_ms",
-        "catalog_parallel_workers",
         "max_concurrent_uploads",
         "max_import_workers",
         "max_queued_imports",
@@ -155,12 +153,6 @@ class RepositoryServiceSettings(BaseSettings):
             raise ValueError("bounds must be positive")
         return value
 
-    @field_validator("catalog_parallel_workers")
-    @classmethod
-    def _catalog_parallel_workers_must_be_bounded(cls, value: int) -> int:
-        if not 1 <= value <= 4:
-            raise ValueError("catalog_parallel_workers must be between 1 and 4")
-        return value
 
     @field_validator("record_batch_row_bounds")
     @classmethod

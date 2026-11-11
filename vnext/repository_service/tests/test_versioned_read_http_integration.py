@@ -856,3 +856,72 @@ def test_http_concurrent_row_streams_do_not_interfere(read_http_env: ReadHttpInt
         timeout_seconds=10.0,
         message="dolt child processes were not reaped after concurrent reads",
     )
+
+
+@pytest.mark.serial
+def test_cold_catalog_follower_returns_busy_before_first_cli_completes(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    env.offline.replay(_write_sql(env.layout, 'exclusive-catalog.sql',
+        'CREATE TABLE first_table(id BIGINT PRIMARY KEY); CREATE TABLE second_table(id BIGINT PRIMARY KEY);'))
+    commit_id = _commit_changes(env.offline, 'exclusive catalog fixture')
+    env.runtime.versioned_read_application._provider_factory = ServiceRuntime._build_read_provider_factory(
+        settings=env.settings, layout=env.layout, dolt_runner=env.runner, locks=env.runtime.import_locks)
+    entered, release = threading.Event(), threading.Event()
+    guard = threading.Lock()
+    real_collect = env.runner._collect
+    running = 0
+    maximum = 0
+    results: list[int] = []
+    def collect(*args: Any, **kwargs: Any) -> Any:
+        nonlocal running, maximum
+        with guard:
+            running += 1
+            maximum = max(maximum, running)
+            first = not entered.is_set()
+            if first:
+                entered.set()
+        try:
+            if first:
+                assert release.wait(10)
+            return real_collect(*args, **kwargs)
+        finally:
+            with guard:
+                running -= 1
+    def load() -> None:
+        response = env.client.get(_catalog_url(env, commit_id), headers=_auth_headers())
+        results.append(response.status_code)
+    with patch.object(env.runner, '_collect', side_effect=collect):
+        worker = threading.Thread(target=load)
+        worker.start()
+        try:
+            assert entered.wait(10)
+            response = env.client.get(_catalog_url(env, commit_id), headers=_auth_headers())
+            assert response.status_code == 503 and response.json()['code'] == 'REPOSITORY_BUSY'
+        finally:
+            release.set()
+            worker.join(10)
+    assert not worker.is_alive() and results == [200] and maximum == 1
+    assert not env.runtime.import_locks.is_active(env.repository_id)
+
+
+@pytest.mark.serial
+def test_same_repository_stream_is_busy_before_200_and_released_after_disconnect(read_http_env: ReadHttpIntegrationEnvironment) -> None:
+    env = read_http_env
+    commit_id = _seed_large_items_table(env, sql_name='exclusive-stream.sql', marker_suffix='28')
+    env.runtime.versioned_read_application._provider_factory = ServiceRuntime._build_read_provider_factory(
+        settings=env.settings, layout=env.layout, dolt_runner=env.runner, locks=env.runtime.import_locks)
+    async def exercise() -> None:
+        async with create_async_streaming_client(env.app) as client:
+            first = await stream_rows(client, path=_rows_url(env, commit_id), params={'table_name': 'items'}, headers=_auth_headers())
+            try:
+                assert first.status_code == 200 and await read_first_chunk(first)
+                second = env.client.get(_rows_url(env, commit_id), params={'table_name': 'items'}, headers=_auth_headers())
+                assert second.status_code == 503 and second.json()['code'] == 'REPOSITORY_BUSY'
+            finally:
+                await first.aclose()
+    run_async(exercise())
+    _wait_until(lambda: not env.runtime.import_locks.is_active(env.repository_id), message='read reservation survived confirmed disconnect cleanup')
+    assert env.runner._active_children.snapshot() == ()
+    response = env.client.get(_rows_url(env, commit_id), params={'table_name': 'items'}, headers=_auth_headers())
+    assert response.status_code == 200
+    assert sum(batch.num_rows for batch in pa_ipc.open_stream(response.content)) == 2500

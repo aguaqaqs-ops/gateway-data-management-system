@@ -7,7 +7,6 @@ import json
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -492,30 +491,15 @@ class CandidateADoltCli:
             if table_type == "VIEW":
                 continue
             table_names.append(table_name)
-        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
-        if workers <= 1:
-            tables = [
-                self._load_table_catalog(
-                    name,
-                    target_literal,
-                    cancellation=cancellation,
-                    call_timeout=call_timeout,
-                )
-                for name in table_names
-            ]
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                tables = list(
-                    executor.map(
-                        lambda name: self._load_table_catalog(
-                            name,
-                            target_literal,
-                            cancellation=cancellation,
-                            call_timeout=call_timeout,
-                        ),
-                        table_names,
-                    )
-                )
+        tables = [
+            self._load_table_catalog(
+                name,
+                target_literal,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
+            for name in table_names
+        ]
         catalog = tuple(sorted(tables, key=lambda table: table.name))
         self._store_cached_catalog(safe_target, catalog)
         return catalog
@@ -543,30 +527,15 @@ class CandidateADoltCli:
             if table_type == "VIEW":
                 continue
             table_names.append(table_name)
-        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
-        if workers <= 1:
-            tables = [
-                self._load_table_schema(
-                    name,
-                    target_literal,
-                    cancellation=cancellation,
-                    call_timeout=call_timeout,
-                )
-                for name in table_names
-            ]
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                tables = list(
-                    executor.map(
-                        lambda name: self._load_table_schema(
-                            name,
-                            target_literal,
-                            cancellation=cancellation,
-                            call_timeout=call_timeout,
-                        ),
-                        table_names,
-                    )
-                )
+        tables = [
+            self._load_table_schema(
+                name,
+                target_literal,
+                cancellation=cancellation,
+                call_timeout=call_timeout,
+            )
+            for name in table_names
+        ]
         return tuple(sorted(tables, key=lambda table: table.name))
 
     def commit_exists(self, commit_id: str) -> bool:
@@ -596,22 +565,8 @@ class CandidateADoltCli:
             tuple(table_names[start : start + _CATALOG_COUNT_BATCH_TABLES])
             for start in range(0, len(table_names), _CATALOG_COUNT_BATCH_TABLES)
         ]
-        workers = min(self.settings.catalog_parallel_workers, len(table_names)) or 1
-        if workers <= 1:
-            schemas = [self._load_table_schema(name, target_literal) for name in table_names]
-            count_batches = [self._load_table_counts(batch, target_literal) for batch in batches]
-        else:
-            # Both phases share one pool and the existing total concurrency cap.
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                schemas = list(
-                    executor.map(
-                        lambda name: self._load_table_schema(name, target_literal),
-                        table_names,
-                    )
-                )
-                count_batches = list(
-                    executor.map(lambda batch: self._load_table_counts(batch, target_literal), batches)
-                )
+        schemas = [self._load_table_schema(name, target_literal) for name in table_names]
+        count_batches = [self._load_table_counts(batch, target_literal) for batch in batches]
         counts = {name: count for batch in count_batches for name, count in batch.items()}
         tables = [TableCatalog(table.name, table.columns, counts[table.name]) for table in schemas]
         catalog = tuple(sorted(tables, key=lambda table: table.name))

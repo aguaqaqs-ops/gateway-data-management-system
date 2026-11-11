@@ -638,6 +638,8 @@ Row stream不保证row或batch ordering；需要稳定顺序的caller自行按�
 
 RS单进程内的read/read及read/import共用`RepositoryLockRegistry`独占reservation；不同库独立。
 read_ref、commit_exists及catalog整次实际CLI调用各持有许可，catalog内部存在性查询不嵌套取锁。
+冷catalog不以Future等待另一请求，直接尝试同库许可，失败即busy。catalog、type_catalog及catalog_at
+内部的schema/count CLI均顺序调用，不在一个reservation内再启动同库并行CLI；删除catalog_parallel_workers配置入口。
 row iterator返回前取得许可，覆盖Dolt child和producer结束；未消费close、正常结束、取消、断流和
 bridge构造失败均显式收尾，确认执行者退出后唯一归还。释放在registry锁外唤醒原import dispatcher，
 read争用立即busy，import沿既有durable队列等待；不扩大到整个Preview/History或业务Submit占用。

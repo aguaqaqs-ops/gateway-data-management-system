@@ -62,8 +62,10 @@ RS `/v1/statistics/observations` 复用 require_bearer_token。`repository_contr
 backend 入库前校验当前 environment/group 和 repository UUID，feed 不充当用户授权。
 
 `StatisticsConfig` 的 GATEWAY_STATISTICS_ 前缀配置按正常重启生效；默认和上限见执行计划 §5。
-2GiB 是初始工程预算，DB page上限占一半，WAL软阈值 min(128MiB,budget/16)，不是7天保证或硬配额。
-E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍不足停新增样本，保留真实缺失，不扩大业务预算。
+E 在06以真实schema/索引/WAL测量后将默认总预算从初始2GiB校准为4GiB，DB page上限占一半（2GiB），
+WAL软阈值 min(128MiB,budget/16)。三角色7天、十库90天等明确样例约1.61GB main、加25%余量约2.01GB；
+更大载荷/实例/设备会缩短实际覆盖，不是7天保证或硬配额；测量输入与限制见deploy/README.md。
+容量压力先丢旧曲线，仍不足停新增样本，保留真实缺失，不扩大业务预算。
 
 ## D23 字段到现成来源
 

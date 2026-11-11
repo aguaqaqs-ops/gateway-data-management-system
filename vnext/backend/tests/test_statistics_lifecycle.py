@@ -30,12 +30,20 @@ def test_statistics_failure_does_not_change_business_readiness(tmp_path: Path, m
         sink = build_statistics_sink(settings.deployment_config, 'backend')
         sink.store.path.parent.mkdir(parents=True)
         sink.store.path.write_bytes(b'invalid sqlite')
+    import json
+    session_document = json.loads(settings.session_file.read_text())
+    session_document['sessions'][0]['permissions'].append('statistics_read_group')
+    settings.session_file.write_text(json.dumps(session_document))
     original = composition.prepare_backend_runtime
     monkeypatch.setattr(composition, 'prepare_backend_runtime',
         lambda configured: original(configured, skip_repository_ready_probe=True))
     with TestClient(create_app(settings)) as client:
         assert client.get('/readyz').status_code == 200
         assert client.get('/healthz').json() == {'status': 'ok'}
+        health = client.get('/v1/statistics/group')
+        assert health.status_code == 200
+        assert health.json()['health']['quality'] == 'unavailable'
+        assert str(tmp_path) not in health.text
     if fault == 'corrupt':
         assert sink.store.path.read_bytes() == b'invalid sqlite'
 
@@ -67,13 +75,13 @@ def test_active_lifecycle_persists_samples_and_releases_writer(tmp_path: Path, m
 
 def test_periodic_thread_start_failure_still_closes_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import Mock
-    import gateway_backend.bootstrap.statistics as module
+    import threading
     settings = make_backend_settings(tmp_path)
     lifecycle = BackendStatistics(settings.deployment_config, settings.control_db_path, 'http://127.0.0.1:9', 'test')
     monkeypatch.setattr(lifecycle.sink, 'start', lambda: None)
     close = Mock()
     monkeypatch.setattr(lifecycle.sink, 'close', close)
-    monkeypatch.setattr(module.threading.Thread, 'start', Mock(side_effect=RuntimeError('no thread')))
+    monkeypatch.setattr(threading.Thread, 'start', Mock(side_effect=RuntimeError('no thread')))
     lifecycle.start()
     lifecycle.close()
     assert lifecycle._thread is None

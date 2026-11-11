@@ -166,12 +166,6 @@ def identity_excluded_sides(
     """
     if task.before_descriptor is None or task.current_descriptor is None:
         return frozenset()
-    # selected is a two-side comparison projection. A physically missing
-    # column is absent from it without having been excluded by any rule.
-    # Keep that case with the owning COUNT_UNKNOWN/context completeness path.
-    if any(column not in {c.name for c in descriptor.columns}
-           for descriptor in (task.before_descriptor, task.current_descriptor)):
-        return frozenset()
     policy = task.policy
     assert policy is not None
     changes = fact.schema_changes
@@ -179,6 +173,13 @@ def identity_excluded_sides(
     excluded = set(policy.compare_excluded_columns)
     incompatible = set(changes.incompatible_columns)
     keyed = bool(changes.effective_compare_key_before or changes.effective_compare_key_current)
+    # A keyed row has an independent stable key even when the filter column
+    # physically exists on only one side: retain COUNT_UNKNOWN/fallback there.
+    # Keyless copies are only equivalent under the actual whole-row frame;
+    # omitting the filter column makes cross-device occurrence binding ambiguous.
+    if keyed and any(column not in {c.name for c in descriptor.columns}
+                     for descriptor in (task.before_descriptor, task.current_descriptor)):
+        return frozenset()
     frame = selected - excluded if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else selected
     valid = column in frame and column not in incompatible and column not in excluded
     valid = valid and policy.comparison_role == "STANDARD"

@@ -109,7 +109,7 @@ def test_physical_filter_column_absence_does_not_become_rule_exclusion(missing_s
     assert any(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE" for d in diagnostics)
 
 
-def test_keyless_added_identity_column_has_unknown_local_facts_under_final_reordering() -> None:
+def test_keyless_added_identity_column_uses_one_whole_table_under_final_reordering() -> None:
     from dataclasses import replace
     from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
     from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
@@ -145,16 +145,20 @@ def test_keyless_added_identity_column_has_unknown_local_facts_under_final_reord
             "surface_digest": result.surface_digest, "tabs": tabs}, ensure_ascii=False))
         results.append((result, document, tabs))
     for result, document, tabs in results:
-        assert len(tabs) == 2
-        assert all(tab["facts"]["basis"] == "TABLE_FALLBACK" for tab in tabs)
-        assert all(tab["facts"]["change_kind"] is None and tab["facts"]["risk_level"] is None for tab in tabs)
-        assert all(tab["facts"]["before_row_count"] is None and tab["facts"]["current_row_count"] == 1 for tab in tabs)
-        projection, = result.surface_result.surface.projections
+        assert len(tabs) == 1 and tabs[0]["row_filter"] is None and tabs[0]["facts"] is None
+        surface = result.surface_result.surface
+        assert surface is not None
+        projection, = surface.projections
         assert projection.diagnostics_ref is not None
         diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
-        assert not any(d["code"] == "DEVICE_FILTER_VALUE_UNSUPPORTED" for d in diagnostics)
-        assert sum(d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE" and d["params"]["reason"] == "RECORDS_UNAVAILABLE"
-            for d in diagnostics) == 1
+        excluded = [d for d in diagnostics if d["code"] == "DEVICE_FILTER_VALUE_UNSUPPORTED"]
+        assert len(excluded) == 1 and excluded[0]["side"] == "CURRENT"
+        assert excluded[0]["params"] == {"identity_column": "gid", "reason": "IDENTITY_EXCLUDED"}
+        assert not any(d["code"] in {"DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_ROWS_UNASSIGNED"} for d in diagnostics)
+        table = next(table for table in surface.tables if table.table_name == "device_cfg")
+        assert table.row_locator_ref is not None
+        rows = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
+        assert all(row["before_filter_context_json"] is None and row["current_filter_context_json"] is None for row in rows)
     assert results[0][0].comparison_digest == results[1][0].comparison_digest
     assert results[0][0].surface_digest == results[1][0].surface_digest
     assert results[0][1] == results[1][1]

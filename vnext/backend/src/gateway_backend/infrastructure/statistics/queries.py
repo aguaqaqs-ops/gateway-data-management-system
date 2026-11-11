@@ -40,10 +40,10 @@ class _Read:
 
 
 def _decode(model: type[T], rows: list[dict[str, object]]) -> tuple[T, ...]:
-    result = []
+    result: list[T] = []
     for raw in rows:
         row = {key: value for key, value in raw.items() if key != 'id'}
-        if model is ExecutionSummary:
+        if 'metrics_json' in row:
             metrics = row.pop('metrics_json')
             row['metrics'] = None if metrics is None else json.loads(str(metrics))
         result.append(model.model_validate(row))

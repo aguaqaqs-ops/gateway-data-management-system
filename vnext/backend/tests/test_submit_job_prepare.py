@@ -60,6 +60,7 @@ from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
 from gateway_backend.domain.submission.models import RepositoryArtifactRef, SubmitAttemptState
+from gateway_backend.bootstrap.worker_instance import worker_id_for
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import StepStatus
 from gateway_backend.operations.contracts import OperationStatus
@@ -296,6 +297,7 @@ def _claimed_prepare_session(
     operation_id: str,
     *,
     control_now: Callable[[], datetime] | None = None,
+    worker_id: str = _WORKER_ID,
     store: InMemoryArtifactStore | None = None,
 ) -> tuple[LeaseSession, ExecutionControl]:
     uow_factory = _control_db_factory(db_path, control_now, store)
@@ -304,7 +306,7 @@ def _claimed_prepare_session(
         claimed = OperationLifecycleActions(
             unit_of_work.operations,
             transaction_now=transaction_now,
-        ).claim_one(_WORKER_ID, _LEASE_TOKEN)
+        ).claim_one(worker_id, _LEASE_TOKEN)
     assert claimed is not None
     claimed_operation, claimed_step = claimed
     assert claimed_operation.operation_id == operation_id
@@ -312,7 +314,7 @@ def _claimed_prepare_session(
 
     control = ExecutionControl()
     session = LeaseSession(
-        worker_id=_WORKER_ID,
+        worker_id=worker_id,
         lease_token=_LEASE_TOKEN,
         operation_id=claimed_operation.operation_id,
         step_id=claimed_step.step_id,
@@ -332,6 +334,7 @@ def _run_prepare_handler(
     operation_id: str,
     *,
     control_now: Callable[[], datetime] | None = None,
+    worker_id: str = _WORKER_ID,
 ) -> ExecutorAcknowledgment:
     handler = build_prepare_import_handler(
         _submit_runtime_dependencies(db_path, store, control_now=control_now)
@@ -340,6 +343,7 @@ def _run_prepare_handler(
         db_path,
         operation_id,
         control_now=control_now,
+        worker_id=worker_id,
         store=store,
     )
     uow_factory = _control_db_factory(db_path, control_now, store)
@@ -648,20 +652,22 @@ def _worker_startup_ready_after_lease_expiry(
 ) -> None:
     clock["value"] = clock["value"] + LEASE_DURATION + timedelta(seconds=1)
     startup = harness.runtime._startup
-    disposition = startup.startup()
     for _ in range(4):
+        disposition = startup.startup()
+        if disposition not in {StartupDisposition.READY, StartupDisposition.RETRYABLE_BLOCK}:
+            raise AssertionError(f"unexpected startup disposition: {disposition}")
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+            retry_not_before = unit_of_work.operations.get_step(
+                f"{operation_id}-step-1"
+            ).retry_not_before
+        # A task's backoff no longer blocks worker readiness. Advance this
+        # fixture's clock to the task's eligibility before requesting its claim.
+        if retry_not_before is not None and retry_not_before > clock["value"]:
+            clock["value"] = retry_not_before + timedelta(seconds=1)
+            continue
         if disposition is StartupDisposition.READY:
             return
-        if disposition is StartupDisposition.RETRYABLE_BLOCK:
-            with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-                retry_not_before = unit_of_work.operations.get_step(
-                    f"{operation_id}-step-1"
-                ).retry_not_before
-            assert retry_not_before is not None
-            clock["value"] = retry_not_before + timedelta(seconds=1)
-            disposition = startup.startup()
-            continue
-        raise AssertionError(f"unexpected startup disposition: {disposition}")
+        assert retry_not_before is not None
     raise AssertionError("startup did not reach READY")
 
 
@@ -785,6 +791,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         harness.artifact_store,
         operation_id,
         control_now=control_now,
+        worker_id=worker_id_for(harness.settings.deployment_config, harness.settings.instance_index),
     )
     assert len(transport.requests) == requests_before
 

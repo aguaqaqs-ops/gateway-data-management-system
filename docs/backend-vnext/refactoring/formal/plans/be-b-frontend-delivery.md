@@ -1,6 +1,6 @@
 # BE-b → FE4b 交付
 
-状态：B5 产品证据已落到固定 V；最终 H、04 同一固定 worktree 的脚本实际 carried/容器绑定及退出 tag 仍待协调者核收。本文交付正式 Contract、五类 golden、入口/输入/输出、V/镜像身份、生产 OpenAPI、稳定码和差异原件；不以 vnext tree 相同代替 H 绑定，不提前宣称 BE-b 已退出。本文不启动 FE4b，不修改 frontend 产品或代签前端验收。
+状态：B5 产品证据与全范围独审已落到固定 V，04 OCI 补证已核收；最终 H、04 同一固定 worktree 的脚本实际 carried/容器绑定及退出 tag 仍待协调者核收。本文交付正式 Contract、五类 golden、入口/输入/输出、V/镜像身份、生产 OpenAPI、稳定码和差异原件；不以 vnext tree 相同代替 H 绑定，不提前宣称 BE-b 已退出。本文不启动 FE4b，不修改 frontend 产品或代签前端验收。
 
 ## 1. 正式 Contract
 
@@ -49,9 +49,19 @@ Rust 变化先按 AGENTS 强制重装扩展并核 build input。wrapper 的 run 
 
 ## 4. 版本、门禁与镜像身份
 
-产品验证 V=`37fe3a87d28ac5fc4f78bf2007260aefc06ecd12`，`V:vnext=2faac9fc1da9a6fd15eddef894f5c6e1652fba95`。最终 main H、H 的实际门禁/容器绑定与附注 `be-b-exit` **待最终核收**；本页不预填 tag。main 随后合入 FE4a/AGENTS 文档的事实不等于 carried 已通过，即使 vnext tree 相同，仍由04原固定 worktree 的门禁脚本实际判定。
+产品验证 V=`37fe3a87d28ac5fc4f78bf2007260aefc06ecd12`，`V:vnext=2faac9fc1da9a6fd15eddef894f5c6e1652fba95`。最终 main H、H 的实际门禁/容器绑定与附注 `be-b-exit` **待最终核收**；最终 H 的 commit/tree、实际 carried 结果及来源证据由阶段日志和附注 tag 记录，本文不自引用自身提交或预填 tag。main 随后合入 FE4a/AGENTS 文档的事实不等于 carried 已通过，即使 vnext tree 相同，仍由04原固定 worktree 的门禁脚本实际判定。
 
 04 权威 stage run `20261111T055102Z-cc3ccbdc2fd8`（gw-dms-test-04，固定 `/home/dev/gdds-stage-gate`）起止 clean 同 V，UTC 05:51:02–06:10:56，stage/runner exit0、占用已释放。rust 与 backend 都实际 run/pass；backend 并行4178、串行98通过，含本轮容器旅程。其余四包 not_run（未请求），不称六包全量或 carried。原目录 `/home/dev/gdds-gate-results/<V>/<run>/`：result.json SHA256 `350cc78acb68f8a7984f7c9e9dd8a627facf4d0ae8ce0fb31762d245ca420905`；runner.log `9ae59e20219600fe42b0c340e0c3e408e3de73ad20ecc1b0aeb803342dc0fa75`；compose-provenance.json `e65c3b7b517d510f21e5d28841659e3b768833fd2ea840d44226cbbd0a517a01`。交换副本在 `/home/dev/gdds-stage-exchange/be-b/b5-gate-37fe3a87d2/`。
+
+04 原 successful Compose provenance 的三个受测镜像已按不可变本机 image ID 采集，未按 mutable tag 查找，未 build/tag；config 原字节 SHA 与全部有序 RootFS DiffID 均核对一致：
+
+| 04 受测服务 | OCI config digest | 完整 DiffID 数 |
+| --- | --- | --- |
+| backend | sha256:87310f6d947df756b552aa1f5525ed0d01d9ab6410fd77a5953b5ff46686c188 | 13 |
+| worker | sha256:e61da04e223e723a5fccbc6748814553242eed8d849311580cb5625310a16249 | 13 |
+| repository-service | sha256:6d605eddc7bc59f4db7bc8bf32c4c24de272baf02dc48d54d82fa9cc6e6493fd | 31 |
+
+完整身份与逐条 DiffID 原件 `/home/dev/gdds-stage-exchange/be-b/b5-image-identity-04/identities.json` SHA256 `af932c56cf4448a3e7bd9ff4513449eaf7badf8946bafd02f9c1575b6cfd70fd`，另记录 default Docker context、gw-dms-test-04 daemon/endpoint 与合格 backend 闭包一致。backend/worker 没有内嵌 Git revision/source-tree label，源码绑定取自 clean V runner、精确受测镜像 ID 和完整 backend 闭包；RS revision=V、source-tree/build-input 与原 gate 一致，不虚构 label。原审镜像补记 `/home/dev/gdds-stage-exchange/be-b/reviews/b5-37fe3a87d2-image-addendum.md` SHA256 `686b7aeaae3c33f034f1dfafad7f67924fc48081cc6f6dfc65495b2bcf6152b8` 判定补证合格；其原文引用增加 Docker 环境绑定前的索引 SHA `f9774ca08917febe31c6aa2bca7080aa85ec896e25912f7aa05f50f050192fe3`，当前完整索引使用上述 af932c56，原补记保留不改写。04 与06身份分别记录，不据此宣称跨节点镜像等价。
 
 06 fresh 真实链使用同 V。下表为该次实际服务/依赖镜像的**真 OCI config digest**与完整有序 RootFS DiffID 的原件索引，不将04/06本机 inspect image ID 混为 config digest，也不假定跨节点镜像相等：
 
@@ -100,4 +110,4 @@ BE-b 未改五锁、toolchain selector 或依赖基线输入，未为本轮新�
 
 当前 t1/t4 的每一次真实 bundle 路径/字段原件在 `b5-real-37fe3a87d2/summary.json` 的 bundle_transfer；完整 tar 在各tier/bundles/，其 SHA逐个记录。t1覆盖MODIFIED_ONLY、FULL两pair、History2/3；t4为必要建点后的MODIFIED_ONLY及History2，未运行t4全旅程/三节点/性能矩阵。导航计数与locators同时由实际最终文件核对，不由consumer重算surface digest。
 
-S1a 历史[总结](p7-s1a-summary.md)与原退出独审 `/home/dev/gdds-stage-exchange/p7-s1a/reviews/42780a12303c8040526bf5dc8f9c6f0acb12dbb1-exit-go.md`保留原限定。B5真实链结果/摘要分别为 `b5-real-37fe3a87d2/result.json` SHA `66e20b1c63843beab8503ab912f5a5973c5a59a3526232a74db33771799a407d`、summary.json SHA `00f35654340f67f74a52ec5e1ec1b32e951ac0dffc6c16f6dde056a3982a3126`；完整正式handoff与最终全范围核收/H绑定由协调者追加。失败V571的runner六失败、06 SQLite锁/SIGBUS停止原件继续保留，不以最终成功覆盖；SIGBUS具体触发时序未证明，不把已确认的SQLite原锁释放问题扩大成完整因果证明。
+S1a 历史[总结](p7-s1a-summary.md)与原退出独审 `/home/dev/gdds-stage-exchange/p7-s1a/reviews/42780a12303c8040526bf5dc8f9c6f0acb12dbb1-exit-go.md`保留原限定。B5真实链结果/摘要分别为 `b5-real-37fe3a87d2/result.json` SHA `66e20b1c63843beab8503ab912f5a5973c5a59a3526232a74db33771799a407d`、summary.json SHA `00f35654340f67f74a52ec5e1ec1b32e951ac0dffc6c16f6dde056a3982a3126`。正式真实链 handoff `/home/dev/gdds-stage-exchange/be-b/b5-real-37fe3a87d2-handoff.md` SHA256 `9a3149e71bb5103111c05de9272c026303c903173b5dfdf2ca69fbfa22115dad`；唯一最终原件索引 `b5-real-37fe3a87d2/sha256-final.json` SHA256 `20e6d30bfd313d4083fe4a28c7504b75e6e878ee8d1fb161df496e488e7333a5`，早期 sha256.json/sha256-r1.json 只保留为历史，不作最终索引。全范围 V 独审 `/home/dev/gdds-stage-exchange/be-b/reviews/b5-full-37fe3a87d2-evidence-review.md` SHA256 `bc648540af4124489b8ad49746b87318cfc8b179980aa513adfcb9c16f707ae9` 核收产品代码、受影响权威包、计划内 t1/t4 链及前端机器差异，无新增产品 finding；该报告原待补的04 OCI项已由§4镜像补记关闭。最终 H 的文档核收、同节点同 worktree 脚本实际 carried/容器绑定和退出 tag 仍由阶段日志/附注 tag 记录，不将 V 核收写成阶段已退出。失败V571的runner六失败、06 SQLite锁/SIGBUS停止原件继续保留，不以最终成功覆盖；SIGBUS具体触发时序未证明，不把已确认的SQLite原锁释放问题扩大成完整因果证明。

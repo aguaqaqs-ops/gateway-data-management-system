@@ -222,7 +222,8 @@ test("installs a v4 backend bundle into OPFS with matching sizes and digests", a
   expect(expected.size).toBeGreaterThan(4);
   const installed = await readInstalledFiles(page, key, Array.from(expected.keys()));
   const topLevelDirs = [...new Set([...expected.keys()].filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))];
-  expect(installed.names.sort()).toEqual([".complete.json", ".last-used", ...topLevelDirs].sort());
+  const rootFiles = [...expected.keys()].filter((path) => !path.includes("/"));
+  expect(installed.names.sort()).toEqual([".complete.json", ".last-used", ...topLevelDirs, ...rootFiles].sort());
   expect(installed.marker.bundle_digest).toBe(key);
   for (const [path, file] of expected) {
     expect(installed.files[path]?.size).toBe(file.size);

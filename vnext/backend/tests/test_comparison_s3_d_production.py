@@ -1269,10 +1269,11 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
         assert actual.tables[0].diagnostics == ("COMPARISON_INTERNAL_ERROR",)
         assert actual.tables[0].ordered_extension is None
         assert actual.tables[0].blank_extension is None
-        # BE-b replaces leaked exception class names in facts/records with a
-        # stable code. The old-source capture remains historical evidence.
+        # BE-b replaces public diagnostic bytes; these incidental diagnostics
+        # remain excluded from the frozen business comparison digests.
         assert expected["tables"][0]["diagnostics"] == ["TableAccessError"]
-        assert actual.facts_core_digest.value != expected["facts_core_digest"]
+        assert actual.facts_core_digest.value == expected["facts_core_digest"]
+        assert actual.comparison_digest.value == expected["comparison_digest"]
         assert (actual.tables[0].row_added_count, actual.tables[0].row_deleted_count,
                 actual.tables[0].row_modified_count) == (0, 0, 0)
     finally:

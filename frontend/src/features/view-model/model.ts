@@ -33,12 +33,26 @@ function isRowRecordKind(value: unknown): value is RowRecordKind {
   return typeof value === "string" && ROW_RECORD_KINDS.has(value) && !TABLE_RECORD_KINDS.has(value);
 }
 
+export type ColumnPresentIn = "BEFORE" | "CURRENT" | "BOTH";
+
 export interface SurfaceColumn {
   name: string;
   display_name: string;
   scalar_type: string | null;
   nullable: boolean;
+  /** Which side physically has this column; a missing side renders 该侧无此列. */
+  present_in: ColumnPresentIn;
+  /** Contiguous 0-based union order; the frontend never re-derives it from names. */
+  display_order: number;
+  pinned: boolean;
 }
+
+/** Columns in their business order; guards against a non-contiguous decode. */
+export function orderedColumns(table: SurfaceTable): SurfaceColumn[] {
+  return [...(table.columns ?? [])].sort((left, right) => left.display_order - right.display_order);
+}
+
+
 
 export interface ArtifactReference {
   artifact_id: string;
@@ -54,6 +68,14 @@ export interface SurfaceTable {
   table_status: string;
   change_kind?: ChangeKind;
   columns?: SurfaceColumn[];
+  /** Per-side physical content identity; each side is null exactly when its table ref is null. */
+  table_content_bindings?: {
+    before?: Record<string, unknown> | null;
+    current?: Record<string, unknown> | null;
+    browse?: Record<string, unknown> | null;
+  };
+  /** Typed 5-column row locator; null when the table publishes no ordinary row records. */
+  row_locator_ref?: ArtifactReference | null;
   row_change_stats?: {
     row_added_count?: number;
     row_count_before?: number | null;
@@ -132,18 +154,41 @@ export interface ComparisonSurface {
   tables: SurfaceTable[];
 }
 
+export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v1";
+
+export type NavigationBasis = "EXACT" | "TABLE_FALLBACK";
+
+export interface NavigationTableScope {
+  change: boolean;
+  risk_level: RiskLevel | null;
+}
+
 export interface NavigationFacts {
+  basis?: NavigationBasis | null;
   change_kind?: ChangeKind | null;
   risk_level?: RiskLevel | null;
   before_row_count?: number | null;
   current_row_count?: number | null;
+  /** Table-level change/risk marker; it summarizes the table and is never painted on rows. */
+  table_scope?: NavigationTableScope | null;
+}
+
+/** One side of a typed set predicate; null means the side contributes no matching identity. */
+export interface NavigationPredicate {
+  column: string;
+  values: Array<string | number>;
+}
+
+export interface NavigationRowFilter {
+  before: NavigationPredicate | null;
+  current: NavigationPredicate | null;
 }
 
 export interface NavigationTab {
   tab_key: string;
   label: string;
   table_id: string;
-  row_filter: { column: string; value: string | number } | null;
+  row_filter: NavigationRowFilter | null;
   facts?: NavigationFacts | null;
 }
 
@@ -161,11 +206,22 @@ export interface NavigationGroup {
   items: NavigationItem[];
 }
 
-export interface BusinessNavigation {
-  contract_version?: string;
-  groups: NavigationGroup[];
+export interface DerivedReplacementSide {
+  before: DerivedNavigationGroup[];
+  current: DerivedNavigationGroup[];
 }
 
+export interface ReplacementNavigationSide {
+  before: NavigationGroup[];
+  current: NavigationGroup[];
+}
+
+export interface BusinessNavigation {
+  contract_version: string;
+  groups: NavigationGroup[];
+  /** Non-null exactly for DATASET_REPLACEMENT; each side owns its own key space. */
+  replacement_sides: ReplacementNavigationSide | null;
+}
 export interface RiskReason {
   reason_code: string;
   message: string;
@@ -236,6 +292,10 @@ export interface DerivedTable {
   columns: SurfaceColumn[];
   rowCounts: { before: number | null; current: number | null };
   hasRecords: boolean;
+  /** True when the table publishes a typed 5-column row locator. */
+  hasRowLocator: boolean;
+  /** Table-level change/risk marker from the whole-table tab, if any. */
+  tableScope: NavigationTableScope | null;
 }
 
 export interface DerivedNavigationGroup {
@@ -263,6 +323,8 @@ export interface DerivedNavigationGroup {
 export interface DerivedBundleView {
   groups: DerivedNavigationGroup[];
   tables: DerivedTable[];
+  /** Non-null exactly for DATASET_REPLACEMENT; each side owns its own groups. */
+  replacementSides: DerivedReplacementSide | null;
   diagnostics: string[];
 }
 
@@ -284,72 +346,190 @@ function tableProjection(surface: ComparisonSurface, risk?: RiskReport): Map<str
       changeKind: table.change_kind ?? table.table_status ?? "UNCHANGED",
       riskLevel: riskReport?.risk_level ?? table.risk_refs?.risk_level ?? null,
       annotationCount: riskReport?.annotation_count ?? table.risk_refs?.annotation_count ?? 0,
-      columns: [...(table.columns ?? [])],
+      columns: orderedColumns(table),
       rowCounts: { before: rowCount(table, "before"), current: rowCount(table, "current") },
       hasRecords: table.records_refs?.records_format === "PARQUET" || table.records_refs?.records_ref != null,
+      hasRowLocator: table.row_locator_ref != null,
+      tableScope: null,
     });
   }
   return result;
 }
 
-function fallbackNavigation(tables: DerivedTable[]): BusinessNavigation {
+/** Raised when a bundle payload violates the presentation Contract. */
+export class ComparisonDecodeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ComparisonDecodeError";
+  }
+}
+
+function reject(message: string): never {
+  throw new ComparisonDecodeError(message);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const NAVIGATION_BASES: ReadonlySet<string> = new Set(["EXACT", "TABLE_FALLBACK"]);
+
+function decodePredicate(value: unknown, where: string): NavigationPredicate {
+  if (!isRecord(value)) reject(`${where} 不是对象`);
+  const column = value.column;
+  if (typeof column !== "string" || column.length === 0) reject(`${where} 缺少列`);
+  const rawValues = value.values;
+  if (!Array.isArray(rawValues) || rawValues.length === 0) reject(`${where} 的 values 为空`);
+  const allNumbers = rawValues.every((item) => typeof item === "number");
+  const allStrings = rawValues.every((item) => typeof item === "string");
+  if (!allNumbers && !allStrings) reject(`${where} 的 values 类型不一致`);
+  const seen = new Set<string | number>();
+  const values: Array<string | number> = [];
+  let previous: string | number | null = null;
+  for (const item of rawValues) {
+    if (typeof item === "number") {
+      if (!Number.isSafeInteger(item)) reject(`${where} 的整数值超出安全范围`);
+    } else if (typeof item === "string") {
+      if (item.length === 0) reject(`${where} 的字符串值为空`);
+    } else {
+      reject(`${where} 的 values 类型不一致`);
+    }
+    if (seen.has(item)) reject(`${where} 的 values 重复`);
+    seen.add(item);
+    if (previous !== null) {
+      const ordered = typeof previous === typeof item && item > previous;
+      if (!ordered) reject(`${where} 的 values 未按规范排序`);
+    }
+    previous = item;
+    values.push(item);
+  }
+  return { column, values };
+}
+
+function decodeRowFilter(value: unknown, where: string): NavigationRowFilter | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) reject(`${where} 的 row_filter 不是对象`);
+  const before = value.before === null || value.before === undefined ? null : decodePredicate(value.before, `${where}.before`);
+  const current = value.current === null || value.current === undefined ? null : decodePredicate(value.current, `${where}.current`);
+  if (before === null && current === null) reject(`${where} 的 row_filter 两侧都为空`);
+  return { before, current };
+}
+
+function decodeTableScope(value: unknown, where: string): NavigationTableScope | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value) || typeof value.change !== "boolean") reject(`${where} 的 table_scope 无效`);
+  const risk = value.risk_level ?? null;
+  if (risk !== null && typeof risk !== "string") reject(`${where} 的 table_scope.risk_level 无效`);
+  return { change: value.change, risk_level: risk as RiskLevel | null };
+}
+
+function decodeFacts(value: unknown, where: string): NavigationFacts | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) reject(`${where} 的 facts 不是对象`);
+  const basis = value.basis ?? null;
+  if (basis !== null && (typeof basis !== "string" || !NAVIGATION_BASES.has(basis))) reject(`${where} 的 facts.basis 无效`);
   return {
-    contract_version: "frontend-placeholder/business-navigation/v1",
-    groups: [{
-      group_key: "ALL_TABLES",
-      label: "全部表",
-      items: tables.map((table) => ({
-        item_key: `table:${table.tableName}`,
-        item_kind: "TABLE",
-        label: table.label,
-        tabs: [{ tab_key: table.tableName, label: table.label, table_id: table.tableName, row_filter: null }],
-      })),
-    }],
+    basis: basis as NavigationBasis | null,
+    change_kind: (value.change_kind ?? null) as ChangeKind | null,
+    risk_level: (value.risk_level ?? null) as RiskLevel | null,
+    before_row_count: typeof value.before_row_count === "number" ? value.before_row_count : null,
+    current_row_count: typeof value.current_row_count === "number" ? value.current_row_count : null,
+    table_scope: decodeTableScope(value.table_scope, where),
   };
 }
 
-function normalizeNavigation(navigation: BusinessNavigation | undefined, tables: DerivedTable[]): { value: BusinessNavigation; diagnostics: string[] } {
-  if (!navigation || !Array.isArray(navigation.groups)) return { value: fallbackNavigation(tables), diagnostics: ["未提供业务导航产物，使用单组全部表占位"] };
-  const known = new Set(tables.map((table) => table.tableName));
-  const claimed = new Set<string>();
-  const groups = navigation.groups.map((group) => ({
-    ...group,
-    label: group.label || group.group_key,
-    items: (group.items ?? []).map((item) => ({
-      ...item,
-      tabs: (item.tabs ?? []).filter((tab) => {
-        if (!known.has(tab.table_id)) return false;
-        claimed.add(tab.table_id);
-        return true;
-      }),
-    })),
-  }));
-  const unclaimed = tables.filter((table) => !claimed.has(table.tableName));
-  if (unclaimed.length) {
-    let other = groups.find((group) => group.group_key === "OTHER_TABLES");
-    if (!other) {
-      other = { group_key: "OTHER_TABLES", label: "其他表", items: [] };
-      groups.push(other);
+function decodeGroups(value: unknown, tables: Map<string, SurfaceTable>, where: string): NavigationGroup[] {
+  if (!Array.isArray(value)) reject(`${where} 不是数组`);
+  const groupKeys = new Set<string>();
+  const perTable = new Map<string, Array<{ groupKey: string; tab: NavigationTab }>>();
+  const groups: NavigationGroup[] = [];
+  for (const [groupIndex, rawGroup] of value.entries()) {
+    if (!isRecord(rawGroup)) reject(`${where}[${groupIndex}] 不是对象`);
+    const groupKey = rawGroup.group_key;
+    if (typeof groupKey !== "string" || groupKey.length === 0) reject(`${where}[${groupIndex}] 缺少 group_key`);
+    if (groupKeys.has(groupKey)) reject(`${where} 的 group_key 重复：${groupKey}`);
+    groupKeys.add(groupKey);
+    if (!Array.isArray(rawGroup.items)) reject(`${where}.${groupKey}.items 不是数组`);
+    const itemKeys = new Set<string>();
+    const items: NavigationItem[] = [];
+    for (const [itemIndex, rawItem] of rawGroup.items.entries()) {
+      if (!isRecord(rawItem)) reject(`${where}.${groupKey}[${itemIndex}] 不是对象`);
+      const itemKey = rawItem.item_key;
+      if (typeof itemKey !== "string" || itemKey.length === 0) reject(`${where}.${groupKey}[${itemIndex}] 缺少 item_key`);
+      if (itemKeys.has(itemKey)) reject(`${where}.${groupKey} 的 item_key 重复：${itemKey}`);
+      itemKeys.add(itemKey);
+      if (!Array.isArray(rawItem.tabs)) reject(`${where}.${groupKey}.${itemKey}.tabs 不是数组`);
+      const tabKeys = new Set<string>();
+      const tabs: NavigationTab[] = [];
+      for (const [tabIndex, rawTab] of rawItem.tabs.entries()) {
+        if (!isRecord(rawTab)) reject(`${where}.${groupKey}.${itemKey}[${tabIndex}] 不是对象`);
+        const tabKey = rawTab.tab_key;
+        if (typeof tabKey !== "string" || tabKey.length === 0) reject(`${where}.${groupKey}.${itemKey}[${tabIndex}] 缺少 tab_key`);
+        if (tabKeys.has(tabKey)) reject(`${where}.${groupKey}.${itemKey} 的 tab_key 重复：${tabKey}`);
+        tabKeys.add(tabKey);
+        const tableId = rawTab.table_id;
+        if (typeof tableId !== "string" || !tables.has(tableId)) reject(`导航引用了未发布的表：${String(tableId)}`);
+        const tab: NavigationTab = {
+          tab_key: tabKey,
+          label: typeof rawTab.label === "string" && rawTab.label.length > 0 ? rawTab.label : tabKey,
+          table_id: tableId,
+          row_filter: decodeRowFilter(rawTab.row_filter, `${where}.${groupKey}.${itemKey}.${tabKey}`),
+          facts: decodeFacts(rawTab.facts, `${where}.${groupKey}.${itemKey}.${tabKey}`),
+        };
+        const entries = perTable.get(tableId) ?? [];
+        entries.push({ groupKey, tab });
+        perTable.set(tableId, entries);
+        tabs.push(tab);
+      }
+      items.push({
+        item_key: itemKey,
+        item_kind: typeof rawItem.item_kind === "string" ? rawItem.item_kind : "TABLE",
+        label: typeof rawItem.label === "string" && rawItem.label.length > 0 ? rawItem.label : itemKey,
+        attributes: isRecord(rawItem.attributes) ? (rawItem.attributes as NavigationItem["attributes"]) : undefined,
+        tabs,
+      });
     }
-    other.items.push(...unclaimed.map((table) => ({
-      item_key: `table:${table.tableName}`,
-      item_kind: "TABLE",
-      label: table.label,
-      tabs: [{ tab_key: table.tableName, label: table.label, table_id: table.tableName, row_filter: null }],
-    })));
+    groups.push({ group_key: groupKey, label: typeof rawGroup.label === "string" ? rawGroup.label : groupKey, items });
   }
-  return { value: { ...navigation, groups }, diagnostics: [] };
+  for (const [tableId, entries] of perTable) {
+    const wholeTable = entries.filter((entry) => entry.tab.row_filter === null);
+    if (wholeTable.length > 1) reject(`表 ${tableId} 有多个整表页签`);
+    if (wholeTable.length === 1 && entries.length > 1) reject(`表 ${tableId} 的整表页签与筛选页签同时存在`);
+    const filterTabs = entries.filter((entry) => entry.tab.row_filter !== null);
+    if (filterTabs.length > 1) {
+      if (new Set(entries.map((entry) => entry.groupKey)).size > 1) reject(`表 ${tableId} 的筛选页签不在同一分组`);
+      if (new Set(filterTabs.map((entry) => entry.tab.facts?.basis ?? null)).size > 1) reject(`表 ${tableId} 的筛选页签 facts.basis 不一致`);
+    }
+  }
+  return groups;
 }
 
-export function deriveBundleView(input: {
-  surface: ComparisonSurface;
-  navigation?: BusinessNavigation;
-  riskReport?: RiskReport;
-}): DerivedBundleView {
-  const tableMap = tableProjection(input.surface, input.riskReport);
-  const tables = [...tableMap.values()];
-  const navigation = normalizeNavigation(input.navigation, tables);
-  const groups = navigation.value.groups.map((group) => ({
+/** Strict decode of the single business navigation artifact belonging to a pair. */
+export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurface): BusinessNavigation {
+  if (!isRecord(input)) reject("business navigation 不是对象");
+  if (input.contract_version !== NAVIGATION_CONTRACT_VERSION) {
+    reject(`不支持的 business navigation contract version：${String(input.contract_version)}`);
+  }
+  const tables = new Map(surface.tables.map((table) => [table.table_name, table]));
+  const groups = decodeGroups(input.groups, tables, "groups");
+  const replacementRaw = input.replacement_sides ?? null;
+  let replacementSides: ReplacementNavigationSide | null = null;
+  if (replacementRaw !== null) {
+    if (!isRecord(replacementRaw)) reject("replacement_sides 不是对象");
+    if (surface.comparison_mode !== "DATASET_REPLACEMENT") reject("非替换模式下出现 replacement_sides");
+    if (groups.length > 0) reject("替换模式的 groups 必须为空");
+    replacementSides = {
+      before: decodeGroups(replacementRaw.before, tables, "replacement_sides.before"),
+      current: decodeGroups(replacementRaw.current, tables, "replacement_sides.current"),
+    };
+  } else if (surface.comparison_mode === "DATASET_REPLACEMENT") {
+    reject("替换模式缺少 replacement_sides");
+  }
+  return { contract_version: NAVIGATION_CONTRACT_VERSION, groups, replacement_sides: replacementSides };
+}
+
+function deriveGroups(groups: NavigationGroup[], tables: Map<string, DerivedTable>): DerivedNavigationGroup[] {
+  return groups.map((group) => ({
     groupKey: group.group_key,
     label: group.label || group.group_key,
     items: group.items.map((item) => {
@@ -359,7 +539,7 @@ export function deriveBundleView(input: {
         tableName: tab.table_id,
         rowFilter: tab.row_filter,
         facts: tab.facts ?? null,
-        table: tableMap.get(tab.table_id) ?? null,
+        table: tables.get(tab.table_id) ?? null,
       }));
       return {
         itemKey: item.item_key,
@@ -373,7 +553,30 @@ export function deriveBundleView(input: {
       };
     }),
   }));
-  return { groups, tables, diagnostics: navigation.diagnostics };
+}
+
+export function deriveBundleView(input: {
+  surface: ComparisonSurface;
+  navigation: BusinessNavigation;
+  riskReport?: RiskReport;
+}): DerivedBundleView {
+  const tableMap = tableProjection(input.surface, input.riskReport);
+  const groups = deriveGroups(input.navigation.groups, tableMap);
+  const sides = input.navigation.replacement_sides;
+  const replacementSides = sides === null ? null : {
+    before: deriveGroups(sides.before, tableMap),
+    current: deriveGroups(sides.current, tableMap),
+  };
+  const scopeGroups = replacementSides === null ? groups : [...replacementSides.before, ...replacementSides.current];
+  for (const group of scopeGroups) {
+    for (const item of group.items) {
+      for (const tab of item.tabs) {
+        if (tab.rowFilter !== null || tab.table === null || tab.facts?.table_scope == null) continue;
+        tab.table.tableScope = tab.facts.table_scope;
+      }
+    }
+  }
+  return { groups, tables: [...tableMap.values()], replacementSides, diagnostics: [] };
 }
 
 export interface RowDiffRecord extends Record<string, unknown> {

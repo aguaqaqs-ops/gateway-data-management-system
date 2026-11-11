@@ -1,0 +1,1 @@
+{"content_digest":"sha256:892e2808a62e43e0ef9c97c0c5663b881ac93804247e8e182b71364273f9f682","contract_version":"backend-vnext/comparison-records/v1","family":"BLANK","record_count":1,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"blank-records/v1","table_name":"b1_n1_iec104_syx_list"}

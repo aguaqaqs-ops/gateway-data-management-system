@@ -45,7 +45,7 @@ function describeSubmitError(cause: unknown): { title: string; code: string; ret
       PREVIEW_DERIVED_STALE: "Preview 结果已过期，请重新上传并预览",
       PREVIEW_BINDING_CONFLICT: "Preview 结果与当前工作区不一致，请刷新后重试",
       SUBMIT_OCCUPANCY_CONFLICT: "已有提交正在处理，请稍后重试",
-      NO_CANONICAL_CHANGE: "本次组态与基线一致，没有可提交的变更",
+      NO_CANONICAL_CHANGE: "本次组态与基线一致，没有可提交的变更。注释等展示信息的变化不单独保存，将随下一次业务变化一起保存。",
       PROJECT_IDENTITY_CONFIRMATION_REQUIRED: "需要确认项目身份差异后才能提交",
       PROJECT_IDENTITY_CONFIRMATION_MISMATCH: "项目身份确认已变化，请刷新后重新确认",
       IDEMPOTENCY_CONFLICT: "本次提交与服务器记录不一致，请关闭后重新提交",

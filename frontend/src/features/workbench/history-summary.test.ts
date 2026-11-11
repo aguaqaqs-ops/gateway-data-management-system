@@ -28,10 +28,10 @@ describe("summarizeSurface", () => {
     // p0 table_count 9 / changed 6 / degraded 2, p1 table_count 10 / changed 7 / degraded 2.
     const { bundle, manifest } = await installedFixtureBundle("history-three-nodes");
     const pairs = (manifest.pairs ?? []) as Array<{ pair_id: string }>;
-    expect(pairs.map((pair) => pair.pair_id).sort()).toEqual(["fe2a-history-fixture-p0", "fe2a-history-fixture-p1"]);
+    expect(pairs.map((pair) => pair.pair_id).sort()).toEqual(["left_to_middle", "middle_to_right"]);
     const expectations: Record<string, { tableCount: number; changedTableCount: number; degradedTableCount: number }> = {
-      "fe2a-history-fixture-p0": { tableCount: 9, changedTableCount: 6, degradedTableCount: 2 },
-      "fe2a-history-fixture-p1": { tableCount: 10, changedTableCount: 7, degradedTableCount: 2 },
+      left_to_middle: { tableCount: 9, changedTableCount: 5, degradedTableCount: 0 },
+      middle_to_right: { tableCount: 10, changedTableCount: 6, degradedTableCount: 0 },
     };
     for (const pair of pairs) {
       const presentation = await loadComparisonPresentation(bundle, pair.pair_id);

@@ -15,7 +15,7 @@ async function installedFixtureWithRecords() {
 describe("POSIX tar bundle installation", () => {
   it("installs a golden bundle in closure order and supports long pax paths", async () => {
     const { manifest, closure, bundle } = await installedGoldenBundle();
-    expect(manifest.bundle_contract_version).toBe("backend-vnext/comparison-bundle/v3");
+    expect(manifest.bundle_contract_version).toBe("backend-vnext/comparison-bundle/v4");
     expect(manifest.closure.entries.map((entry) => entry.logical_path)).toEqual(closure.entries.map((entry) => entry.logical_path));
     expect(manifest.closure.entries.some((entry) => entry.logical_path.length > 100)).toBe(true);
     expect(await bundle.readArtifact(manifest.closure.entries[0]?.logical_path ?? "")).toBeInstanceOf(Blob);

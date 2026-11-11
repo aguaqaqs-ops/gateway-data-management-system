@@ -1,1 +1,0 @@
-{"content_digest":"sha256:0db46b9cc287946695245cb1b5b4943fa9f0c4484facf3fcecfc51b9a48160d3","contract_version":"backend-vnext/comparison-records/v1","family":"STANDARD","record_count":1,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"standard-records/v1","table_name":"b1_n1_iec104_yc_list"}

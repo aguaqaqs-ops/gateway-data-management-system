@@ -12,6 +12,7 @@ export interface BrowseState {
   nodeKey: string | null;
   workbenchNodeKey: string | null;
   tabKey: string | null;
+  side: "before" | "current" | null;
   changeIndex: number;
   expandedGroups: string[];
   onlyInteresting: boolean;
@@ -32,6 +33,7 @@ export const initialBrowseState: BrowseState = {
   nodeKey: null,
   workbenchNodeKey: null,
   tabKey: null,
+  side: null,
   changeIndex: 0,
   expandedGroups: [],
   onlyInteresting: false,
@@ -46,6 +48,7 @@ export type BrowseCommand =
   | { name: "set-operation"; operationId: string | null; operationKind: "history-compare" | "operation" | null }
   | { name: "select-node"; nodeKey: string }
   | { name: "select-tab"; tabKey: string }
+  | { name: "select-side"; side: "before" | "current" }
   | { name: "jump-to-change"; index: number }
   | { name: "toggle-group"; groupKey: string }
   | { name: "set-only-interesting"; enabled: boolean }
@@ -79,6 +82,7 @@ export function executeBrowseCommand(state: BrowseState, command: BrowseCommand)
     case "set-operation": next = { ...state, operationId: command.operationId, operationKind: command.operationKind }; break;
     case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
     case "select-tab": next = { ...state, tabKey: command.tabKey }; break;
+    case "select-side": next = { ...state, side: command.side }; break;
     case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
     case "toggle-group": next = {
       ...state,
@@ -114,6 +118,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.nodeKey) params.set("node", state.nodeKey);
   if (state.workbenchNodeKey) params.set("workbenchNode", state.workbenchNodeKey);
   if (state.tabKey) params.set("tab", state.tabKey);
+  if (state.side) params.set("side", state.side);
   if (state.changeIndex > 0) params.set("change", String(state.changeIndex));
   if (state.onlyInteresting) params.set("changed", "1");
   if (state.debug) params.set("debug", "1");
@@ -140,6 +145,7 @@ export function decodeBrowseState(search: string): BrowseState {
     nodeKey: params.get("node"),
     workbenchNodeKey: params.get("workbenchNode"),
     tabKey: params.get("tab"),
+    side: params.get("side") === "before" || params.get("side") === "current" ? params.get("side") as "before" | "current" : null,
     changeIndex: Number.isFinite(change) ? change : 0,
     expandedGroups: params.getAll("group"),
     onlyInteresting: params.get("changed") === "1",

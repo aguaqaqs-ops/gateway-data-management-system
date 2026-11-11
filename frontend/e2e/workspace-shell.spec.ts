@@ -795,19 +795,19 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.locator(".overflow-menu").getByRole("button", { name: /b1_n1_iec104_syx_list/ }).click();
   await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_syx_list");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("b1_n1_iec104_syx_list");
-  await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "fe2a-history-fixture-p0" }));
+  await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "left_to_middle" }));
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("mode")).toBe("REVIEW");
   await expect(page.locator(".mode-tag")).toHaveText("审核");
 
-  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "fe2a-history-fixture-p0" }));
+  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle" }));
   await waitForBrowse(page);
   await expect(page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
   await expect(page.getByRole("tab", { name: "节点 2 → 节点 3" })).toBeVisible();
   await screenshotHeader(page, "s3-header-history", 1920);
   await screenshotHeader(page, "s3-header-history", 1280);
   await page.getByRole("tab", { name: "节点 2 → 节点 3" }).click();
-  await expect(page).toHaveURL(/pair=fe2a-history-fixture-p1/);
+  await expect(page).toHaveURL(/pair=middle_to_right/);
 
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
@@ -817,7 +817,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await clickFormulaCell(page);
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();
-  await expect(formula.getByText("改前公式在 BE-b 实现后提供", { exact: true })).toBeVisible();
+  await expect(formula.getByText("改前公式", { exact: true })).toBeVisible();
   await expect(formula).toContainText("公式已改");
   await expect(formula).toContainText("| 嵌套命名表达式 =");
   await expect(formula).toContainText("+ （* 分组）");
@@ -829,9 +829,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await screenshot(page, "formula-preview", 1280);
   await formula.getByRole("button", { name: "关闭公式" }).click();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "fe2a-history-fixture-p0", node: "device:composite", tab: "composite_signal_point" }));
+  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle", node: "device:composite", tab: "composite_signal_point" }));
   await waitForBrowse(page);
-  expect(new URL(page.url()).searchParams.get("pair")).toBe("fe2a-history-fixture-p0");
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("composite_signal_point");
   await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
   await waitForGridPaint(page, "composite_signal_point");
@@ -844,7 +844,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await screenshot(page, "formula-history", 1280);
 });
 
-test("数据集替换显示身份结论与两侧表，缺失导航使用单组占位回退", async ({ page }) => {
+test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-replacement", { pair: "initial_to_modified" }));
@@ -856,11 +856,6 @@ test("数据集替换显示身份结论与两侧表，缺失导航使用单组�
   await screenshot(page, "dataset-replacement-browse", 1920);
   await screenshot(page, "dataset-replacement-browse", 1280);
 
-  await page.goto(browseUrl("PREVIEW", "preview-no-navigation"));
-  await waitForBrowse(page);
-  await expect(page.getByText("占位导航")).toBeVisible();
-  await screenshot(page, "navigation-fallback", 1920);
-  await screenshot(page, "navigation-fallback", 1280);
 });
 
 test("覆盖 bundle 下载截断重试、加载骨架、错误页和五级风险语义色", async ({ page }) => {
@@ -1064,7 +1059,7 @@ test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重
   await expect(drawer).toContainText("下载失败，可重试");
   await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toHaveCount(0);
   await expect(drawer).toContainText("节点 1 → 节点 2");
-  await expect(drawer).not.toContainText("fe2a-history-fixture-p1");
+  await expect(drawer).not.toContainText("middle_to_right");
   await drawer.getByRole("button", { name: "重试下载" }).click();
   await expect(drawer).toContainText("已就绪", { timeout: 10_000 });
   await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toBeVisible();

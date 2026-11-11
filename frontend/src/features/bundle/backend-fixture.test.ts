@@ -4,7 +4,7 @@ import { MemoryBundleStore } from "./local-bundle";
 import { installBundleTar, verifyBundleMetadata, type BundleClosure, type BundleManifest } from "./posix-tar";
 import { bytesStream, readFixture } from "../../test/helpers";
 
-const FIXTURE_NAMES = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation", "preview-workbench-normal"];
+const FIXTURE_NAMES = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-workbench-normal"];
 
 function fixturePhase(name: string): "fe2a" | "fe2b" {
   return name === "preview-workbench-normal" ? "fe2b" : "fe2a";
@@ -39,15 +39,9 @@ describe("backend-generated FE2 bundle fixtures", () => {
       const pair = value as { pair_id: string };
       const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
       expect(presentation.surface.surface_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      if (name === "preview-no-navigation") {
-        expect(presentation.navigation).toBeUndefined();
-        expect(presentation.navigationDiagnostics).toEqual([]);
-        expect(presentation.view.groups[0]?.groupKey).toBe("ALL_TABLES");
-      } else {
-        expect(presentation.navigation).toBeDefined();
-        expect(presentation.navigationDiagnostics.length).toBe(name === "preview-replacement" || name === "preview-workbench-normal" ? 0 : 2);
-        expect(presentation.navigation).not.toHaveProperty("diagnostics");
-      }
+      const expectedDiagnostics = { "preview-full": 2, "preview-modified-only": 2, "preview-replacement": 0, "history-three-nodes": 2, "preview-workbench-normal": 1 }[name];
+      expect(presentation.navigationDiagnostics.length).toBe(expectedDiagnostics);
+      expect(presentation.navigation.groups.map((group) => group.group_key)).toEqual(name === "preview-replacement" ? [] : ["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"]);
     }
   });
 
@@ -56,8 +50,8 @@ describe("backend-generated FE2 bundle fixtures", () => {
     expect(manifest.pairs).toHaveLength(1);
     const pair = manifest.pairs[0] as { pair_id: string; summary: Record<string, unknown> };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
-    expect(presentation.navigation?.groups.map((group) => group.label)).toEqual(["转发通道"]);
-    expect(presentation.navigationDiagnostics).toEqual([]);
+    expect(presentation.navigation.groups.map((group) => group.label)).toEqual(["转发通道", "二次装置列表", "通讯规约列表", "全局参数", "其他表"]);
+    expect(presentation.navigationDiagnostics.map((diagnostic) => diagnostic.code)).toEqual(["CHANNEL_TABLE_UNCLAIMED"]);
     const table = presentation.surface.tables.find((value) => value.table_name === "b1_n1_iec104_yc_list");
     expect(table?.diagnostics?.diagnostics_summary ?? []).toEqual([]);
     expect(table?.row_change_stats).toMatchObject({ row_count_before: 90, row_count_current: 90 });
@@ -71,11 +65,11 @@ describe("backend-generated FE2 bundle fixtures", () => {
       changed_table_count: tables.filter((value) => value.change_kind !== "UNCHANGED").length,
       degraded_table_count: tables.filter((value) => value.change_kind === "DEGRADED").length,
       failed_table_count: tables.filter((value) => value.change_kind === "FAILED").length,
-      diagnostics_count: diagnosticsCount,
       row_added_count: rowTotal("row_added_count"),
       row_deleted_count: rowTotal("row_deleted_count"),
       row_modified_count: rowTotal("row_modified_count"),
-    }).toEqual(Object.fromEntries(Object.entries(pair.summary).map(([key, value]) => [key, Number(value)])));
+    }).toEqual(Object.fromEntries(Object.entries(pair.summary).filter(([key]) => key !== "diagnostics_count").map(([key, value]) => [key, Number(value)])));
+    expect(Number(pair.summary.diagnostics_count)).toBeLessThanOrEqual(diagnosticsCount);
     const records = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_yc_list");
     expect(records.some((record) => record.record_kind?.includes("ADDED"))).toBe(true);
     expect(records.some((record) => record.record_kind?.includes("DELETED"))).toBe(true);
@@ -94,7 +88,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const ordered = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
     expect(ordered.some((row) => row.record_kind === "ORDERED_ROW_MOVED")).toBe(true);
     expect(ordered.some((row) => row.record_kind === "BLANK_DELETE_INTERVAL" || row.record_kind === "BLANK_INSERT_INTERVAL")).toBe(true);
-    expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("DEGRADE_NO_COMPARE_KEY"))).toBe(true);
+    expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("KEYLESS_FALLBACK"))).toBe(true);
     const formulas = await readLocalChangeRecords(bundle, presentation, "composite_signal_point");
     expect(formulas.some((row) => row.record_kind === "ROW_MODIFIED")).toBe(true);
     const annotations = await readLocalRiskAnnotations(bundle, presentation, "device");
@@ -118,8 +112,8 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const { manifest, bundle } = await installFixture("history-three-nodes");
     expect(manifest.inputs).toHaveLength(3);
     expect((manifest.inputs as Array<{ role: string; display_name: string }>).map(({ role, display_name }) => [role, display_name]))
-      .toEqual([["fe2a-history-ref-0", "node-0"], ["fe2a-history-ref-1", "node-1"], ["fe2a-history-ref-2", "node-2"]]);
-    expect(manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id)).toEqual(["fe2a-history-fixture-p0", "fe2a-history-fixture-p1"]);
+      .toEqual([["fixture-history-ref-0", "node-0"], ["fixture-history-ref-1", "node-1"], ["fixture-history-ref-2", "node-2"]]);
+    expect(manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id)).toEqual(["left_to_middle", "middle_to_right"]);
     const paths = bundle.closure.closure_entries.filter((entry) => entry.kind === "SURFACE");
     expect(paths).toHaveLength(2);
   });

@@ -1,1 +1,0 @@
-{"contract_version":"backend-vnext/business-navigation/v1","groups":[{"group_key":"SECONDARY_DEVICES","items":[{"attributes":{},"item_key":"device:table","item_kind":"TABLE","label":"装置总表","tabs":[{"label":"装置总表","row_filter":null,"tab_key":"device:table","table_id":"device"}]}],"label":"二次装置列表"}]}

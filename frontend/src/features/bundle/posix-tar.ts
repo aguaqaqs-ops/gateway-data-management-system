@@ -1,5 +1,12 @@
 import { canonicalJson, normalizeSha256, Sha256 } from "./sha256";
 
+/**
+ * Bundle contract selector accepted by this client. Older selectors (v3 and
+ * earlier) carry a different closure and navigation shape, so installing one
+ * would silently drop artifacts; they are rejected instead of upgraded.
+ */
+export const BUNDLE_CONTRACT_VERSION = "backend-vnext/comparison-bundle/v4";
+
 const BLOCK = 512;
 const METADATA_LIMIT = 16 * 1024 * 1024;
 
@@ -407,16 +414,23 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
   }
   if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(closure.bundle_digest) || normalizeSha256(manifest.bundle_digest) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("bundle 摘要不一致");
   if (manifest.bundle_contract_version !== closure.bundle_contract_version) throw new BundleIntegrityError("bundle contract version 不一致");
+  if (manifest.bundle_contract_version !== BUNDLE_CONTRACT_VERSION) throw new BundleIntegrityError(`不支持的 bundle contract version：${manifest.bundle_contract_version}`);
   if (normalizeSha256(etag) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("ETag 与预期 bundle 摘要不一致");
   if (!sameCanonical(semanticClosure.entries, closure.entries) || !sameCanonical(manifest.closure_entries, closure.closure_entries)) {
     throw new BundleIntegrityError("manifest 与 closure 内容不一致");
   }
   if (semanticClosure.entries.length !== manifest.closure_entries.length) throw new BundleIntegrityError("closure 引用数量不一致");
   const paths = new Set<string>();
+  const artifactIds = new Set<string>();
   for (let index = 0; index < semanticClosure.entries.length; index += 1) {
     const entry = semanticClosure.entries[index];
     const physical = manifest.closure_entries[index];
     if (!entry || !physical) throw new BundleIntegrityError("closure entry 缺失");
+    const artifactId = physical.artifact_ref?.artifact_id;
+    if (typeof artifactId !== "string" || !artifactId || artifactIds.has(artifactId)) {
+      throw new BundleIntegrityError("closure artifact_id 缺失或重复");
+    }
+    artifactIds.add(artifactId);
     verifyEntry(entry, physical);
     validatePath(entry.logical_path);
     if (entry.logical_path === "manifest.json" || entry.logical_path === "artifact-closure.json" || paths.has(entry.logical_path)) {

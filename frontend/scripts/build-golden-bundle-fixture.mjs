@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const scriptPath = fileURLToPath(import.meta.url);
 const frontendRoot = dirname(dirname(scriptPath));
 const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend");
-const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation", "preview-workbench-normal"];
+const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-workbench-normal"];
 
 const sha256 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 

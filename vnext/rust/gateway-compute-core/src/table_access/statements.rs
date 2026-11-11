@@ -1054,7 +1054,8 @@ fn parse_comment(cursor: &mut Cursor<'_>, max_field_bytes: usize) -> PResult<Opt
     cursor.skip_ws_and_comments()?;
     let offset = cursor.pos;
     let literal = parse_literal(cursor).map_err(|error| match error {
-        LexError::Halt(fault) | LexError::Literal(fault) => fault,
+        LexError::Halt(fault) => fault,
+        LexError::Literal(_) => Fault::malformed(offset, "COMMENT requires a string literal"),
     })?;
     let Lit::Str(bytes) = literal else {
         return Err(Fault::malformed(

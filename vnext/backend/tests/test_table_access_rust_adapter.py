@@ -280,10 +280,20 @@ def test_native_comments_match_independent_create_comment_oracle(sql: str) -> No
         table["arrow_stream"].close()
 
 
-@pytest.mark.parametrize("literal", ("'bad\\0value'", "123", "NULL", "'unterminated"))
-def test_native_comment_rejects_malformed_strings(literal: str) -> None:
-    result = _native_result(f"CREATE TABLE t (id INT COMMENT {literal});".encode())
-    assert result.get("status") != "COMPLETE"
+MALFORMED_COMMENT_LITERALS = ("'bad\\0value'", "123", "NULL", "'unterminated", "DEFAULT")
+
+
+@pytest.mark.parametrize("literal", MALFORMED_COMMENT_LITERALS)
+@pytest.mark.parametrize("scope", ("column", "table"))
+def test_native_comment_rejects_malformed_strings(literal: str, scope: str) -> None:
+    sql = (f"CREATE TABLE t (id INT COMMENT {literal});" if scope == "column"
+           else f"CREATE TABLE t (id INT) COMMENT={literal};")
+    result = _native_result(sql.encode())
+    assert result["kind"] == "result"
+    assert result["status"] == "FAILED"
+    diagnostics = result["diagnostics"]
+    assert isinstance(diagnostics, list)
+    assert diagnostics[0]["code"] == ParserDiagnosticCode.MALFORMED_SQL.value
 
 
 def test_native_comment_obeys_field_budget_and_does_not_enter_canonical_ipc() -> None:

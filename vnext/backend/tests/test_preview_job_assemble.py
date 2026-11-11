@@ -965,3 +965,56 @@ def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submission_records").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("restore_step", ("materialize_inputs", "assemble_preview"))
+@pytest.mark.parametrize("metadata_code", ("COMMIT_CANONICAL_METADATA_MISSING", "COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH"))
+def test_checkpoint_restoration_preserves_baseline_metadata_failure_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_step: str, metadata_code: str,
+) -> None:
+    from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataCode, CommitCanonicalMetadataError
+    from gateway_backend.operations.lease_session import LeaseSession
+    from gateway_backend.operations.worker import WriteUnitOfWorkFactory
+    harness = build_preview_harness(tmp_path)
+    operation_id = "op-baseline-metadata-unavailable"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    if restore_step == "materialize_inputs":
+        def stop_after_checkpoint(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("stopped after durable materialize checkpoint")
+        with monkeypatch.context() as fault:
+            fault.setattr(type(session), "publish_successor", stop_after_checkpoint)
+            with pytest.raises(RuntimeError, match="after durable materialize checkpoint"):
+                run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+            operation = unit_of_work.operations.get_operation(operation_id)
+            step = unit_of_work.operations.get_step(step.step_id)
+        assert step.checkpoint_ref is not None
+        assert step.worker_id is not None and step.lease_token is not None
+        session = LeaseSession(worker_id=step.worker_id, lease_token=step.lease_token,
+            operation_id=operation.operation_id, step_id=step.step_id,
+            write_uow_factory=cast(WriteUnitOfWorkFactory, harness.control_transaction_factory),
+            control=control, observer=lambda _event: None)
+        handler = PREVIEW_MATERIALIZE_HANDLER
+    else:
+        run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+        session, control, operation, step = claim_next_step(harness)
+        handler = PREVIEW_ASSEMBLE_HANDLER
+    with harness.deps.control_transaction_factory() as unit_of_work:
+        metadata_port = unit_of_work.commit_canonical_metadata
+    def unavailable_metadata(**kwargs: Any) -> Any:
+        assert kwargs["commit_id"] == BASELINE_HEAD.business_baseline_commit_id
+        raise CommitCanonicalMetadataError(CommitCanonicalMetadataCode(metadata_code), "baseline manifest is unavailable")
+    monkeypatch.setattr(metadata_port, "resolve", unavailable_metadata)
+    acknowledgment = run_claimed_handler(harness, handler, session, control, operation, step)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        failed_operation = unit_of_work.operations.get_operation(operation_id)
+        failed_step = unit_of_work.operations.get_step(step.step_id)
+        workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+    assert failed_operation.status is OperationStatus.FAILED
+    assert failed_step.status is StepStatus.FAILED
+    assert failed_operation.diagnostic is not None
+    assert failed_operation.diagnostic.code == metadata_code
+    assert failed_step.diagnostic == failed_operation.diagnostic
+    assert workspace is not None and workspace.current_preview_result_id is None

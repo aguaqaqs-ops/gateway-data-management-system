@@ -646,10 +646,12 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                     "checkpoint envelope does not match the preview materialize JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
-            inputs = _materialized_preview_inputs_from_checkpoint(
-                envelope.job_state,
-                deps.artifact_store, repository_id=payload.repository_id, dependencies=deps,
+            inputs = _restore_preview_inputs_or_publish_failure(
+                envelope.job_state, repository_id=payload.repository_id, deps=deps,
+                operation=operation, step=step, lease_session=lease_session, control=control,
             )
+            if inputs is None:
+                return ExecutorAcknowledgment.PUBLISHED
             materialized_sides_ref = artifact_ref_from_dict(
                 cast(dict[str, object], envelope.job_state[_JOB_STATE_MATERIALIZED_SIDES_REF])
             )
@@ -786,10 +788,12 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 "materialize checkpoint does not match the preview JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        inputs = _materialized_preview_inputs_from_checkpoint(
-            materialize_envelope.job_state,
-            deps.artifact_store, repository_id=payload.repository_id, dependencies=deps,
+        inputs = _restore_preview_inputs_or_publish_failure(
+            materialize_envelope.job_state, repository_id=payload.repository_id, deps=deps,
+            operation=operation, step=step, lease_session=lease_session, control=control,
         )
+        if inputs is None:
+            return ExecutorAcknowledgment.PUBLISHED
 
         _assert_configuration_payload(inputs.canonical.configuration_facts, payload, operation.operation_id)
         if step.checkpoint_ref is not None:
@@ -2699,6 +2703,23 @@ def _side_binding_document(
         "storage_facts": _storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
+
+
+def _restore_preview_inputs_or_publish_failure(
+    job_state: Mapping[str, object], *, repository_id: str, deps: PreviewRuntimeDependencies,
+    operation: OperationRecord, step: StepRecord, lease_session: LeaseSession, control: ExecutionControl,
+) -> _MaterializedPreviewInputs | None:
+    try:
+        return _materialized_preview_inputs_from_checkpoint(job_state, deps.artifact_store,
+            repository_id=repository_id, dependencies=deps)
+    except PreviewJobError as exc:
+        if exc.diagnostic_code is None:
+            raise
+        _publish_preview_materialization_failure(operation=operation, step=step,
+            lease_session=lease_session, diagnostic_code=exc.diagnostic_code, message=str(exc),
+            diagnostic_details=exc.diagnostic_details, diagnostic_omitted_count=exc.diagnostic_omitted_count,
+            control=control)
+        return None
 
 
 def _materialized_preview_inputs_from_checkpoint(

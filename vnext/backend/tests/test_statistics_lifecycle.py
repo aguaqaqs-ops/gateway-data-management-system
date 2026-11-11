@@ -63,3 +63,19 @@ def test_active_lifecycle_persists_samples_and_releases_writer(tmp_path: Path, m
         lifecycle.close()
     assert lifecycle.sink.store.connection is None
     assert lifecycle._thread is not None and not lifecycle._thread.is_alive()
+
+
+def test_periodic_thread_start_failure_still_closes_sink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+    import gateway_backend.bootstrap.statistics as module
+    settings = make_backend_settings(tmp_path)
+    lifecycle = BackendStatistics(settings.deployment_config, settings.control_db_path, 'http://127.0.0.1:9', 'test')
+    monkeypatch.setattr(lifecycle.sink, 'start', lambda: None)
+    close = Mock()
+    monkeypatch.setattr(lifecycle.sink, 'close', close)
+    monkeypatch.setattr(module.threading.Thread, 'start', Mock(side_effect=RuntimeError('no thread')))
+    lifecycle.start()
+    lifecycle.close()
+    assert lifecycle._thread is None
+    assert lifecycle.collection_failures == 1
+    close.assert_called_once()

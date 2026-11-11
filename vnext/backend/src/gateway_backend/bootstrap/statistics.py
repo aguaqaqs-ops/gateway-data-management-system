@@ -75,6 +75,7 @@ class BackendStatistics:
                 self._thread = threading.Thread(target=self._run, name='backend-statistics', daemon=True)
                 self._thread.start()
             except Exception:
+                self._thread = None
                 self.collection_failures += 1
 
     def _run(self) -> None:
@@ -104,6 +105,9 @@ class BackendStatistics:
 
     def close(self) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=self.config.shutdown_flush_seconds)
-        self.sink.close()
+        deadline = monotonic() + self.config.shutdown_flush_seconds
+        try:
+            if self._thread is not None:
+                self._thread.join(timeout=max(0, deadline - monotonic()))
+        finally:
+            self.sink.close(timeout=max(0, deadline - monotonic()))

@@ -118,7 +118,7 @@ class StatisticsLifecycle:
     def close(self) -> None:
         self._stop.set()
         # Interrupt yielding periodic scans before the business DB closes.
-        self.statistics.close()
         deadline = monotonic() + 1
+        self.statistics.close(timeout=max(0, deadline - monotonic()))
         for thread in self._threads:
             thread.join(timeout=max(0, deadline - monotonic()))

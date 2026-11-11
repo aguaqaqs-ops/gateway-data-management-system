@@ -151,10 +151,10 @@ class BufferedTelemetrySink:
             self._thread = None
             self._failure('collection_failed')
 
-    def close(self) -> None:
+    def close(self, *, timeout: float | None = None) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=self.config.shutdown_flush_seconds)
+            self._thread.join(timeout=self.config.shutdown_flush_seconds if timeout is None else max(0, timeout))
 
     def _failure(self, reason: str) -> None:
         self.health.available, self.health.reason = False, reason

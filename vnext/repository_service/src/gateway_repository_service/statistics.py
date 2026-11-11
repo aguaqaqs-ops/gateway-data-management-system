@@ -336,10 +336,10 @@ class RepositoryStatistics:
             except Exception:
                 self.dropped += 1
 
-    def close(self) -> None:
+    def close(self, *, timeout: float = 1) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=1)
+            self._thread.join(timeout=max(0, timeout))
 
 
 def best_effort(callback: Callable[[], object]) -> object | None:

@@ -1,5 +1,5 @@
 {
-  "contract_version": "backend-vnext/comparison-surface/v3",
+  "contract_version": "backend-vnext/comparison-surface/v4",
   "cases": {
     "added_columns_only": {
       "table_status": "UNCHANGED",

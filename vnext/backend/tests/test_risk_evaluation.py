@@ -414,7 +414,7 @@ def test_pair_annotation_cap_discards_partial_annotation_closure() -> None:
     assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
     assert result.risk_report.tables[0].annotation_count == 0
     assert result.risk_report.tables[0].diagnostics == (
-        "max_annotations_per_pair exceeded",
+        "RISK_ANNOTATION_LIMIT_EXCEEDED",
     )
     assert result.annotation_artifacts == ()
     assert result.risk_closure is None

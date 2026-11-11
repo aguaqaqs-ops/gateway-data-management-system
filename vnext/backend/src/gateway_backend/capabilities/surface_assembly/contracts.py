@@ -20,6 +20,8 @@ from gateway_backend.capabilities.comparison.contracts import (
     SchemaEvolution,
     ComparisonTableStatus,
 )
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationClosure,
     RiskLevel,
@@ -28,7 +30,7 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
 )
 
 
-SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v3"
+SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v4"
 SURFACE_JSON_MEDIA_TYPE = "application/json"
 MAX_SURFACE_JSON_BYTES = 16 * 1024 * 1024
 MAX_SURFACE_WALL_TIME_SECONDS = 120.0
@@ -199,6 +201,9 @@ class SurfaceColumn:
     display_name: str
     scalar_type: str | None
     nullable: bool
+    present_in: str
+    pinned: bool
+    display_order: int
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _require_identifier(self.name, "name"))
@@ -207,6 +212,11 @@ class SurfaceColumn:
             _require_text(self.scalar_type, "scalar_type")
         if type(self.nullable) is not bool:
             raise ValueError("nullable must be bool")
+        if self.present_in not in {"BEFORE", "CURRENT", "BOTH"}:
+            raise ValueError("invalid column present_in")
+        if type(self.pinned) is not bool:
+            raise ValueError("pinned must be bool")
+        _require_non_negative(self.display_order, "display_order")
 
     def to_document(self) -> dict[str, object]:
         return {
@@ -214,6 +224,9 @@ class SurfaceColumn:
             "display_name": self.display_name,
             "nullable": self.nullable,
             "scalar_type": self.scalar_type,
+            "present_in": self.present_in,
+            "pinned": self.pinned,
+            "display_order": self.display_order,
         }
 
 
@@ -277,10 +290,12 @@ class SurfaceSchemaSummary:
 
 @dataclass(frozen=True, slots=True)
 class SurfaceReplacementSide:
+    display_name: str
     row_count: int
     columns: tuple[SurfaceColumn, ...]
 
     def __post_init__(self) -> None:
+        _require_text(self.display_name, "display_name")
         _require_non_negative(self.row_count, "row_count")
         if type(self.columns) is not tuple or any(type(item) is not SurfaceColumn for item in self.columns):
             raise ValueError("columns must contain SurfaceColumn")
@@ -292,6 +307,7 @@ class SurfaceReplacementSide:
         return {
             "columns": [item.to_document() for item in self.columns],
             "row_count": self.row_count,
+            "display_name": self.display_name,
         }
 
 
@@ -323,6 +339,65 @@ class SurfaceTableRefs:
             "browse_table_ref": _optional_ref(self.browse_table_ref),
             "current_table_ref": _optional_ref(self.current_table_ref),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class TableContentBinding:
+    """Owner-provided canonical content, independent of the exported row order."""
+
+    business_schema_digest: DigestRef
+    raw_content_digest: DigestRef
+    row_count: int
+    source_schema_digest: DigestRef
+    canonical_schema_digest: DigestRef
+    storage_rule_digest: DigestRef
+    storage_projection_version: str
+
+    def __post_init__(self) -> None:
+        for name in ("business_schema_digest", "raw_content_digest", "source_schema_digest",
+                     "canonical_schema_digest", "storage_rule_digest"):
+            _require_digest(getattr(self, name), name)
+        _require_non_negative(self.row_count, "row_count")
+        _require_text(self.storage_projection_version, "storage_projection_version")
+
+    def to_document(self) -> dict[str, object]:
+        return {
+            "business_schema_digest": self.business_schema_digest.value,
+            "raw_content_digest": self.raw_content_digest.value,
+            "row_count": self.row_count,
+            "source_schema_digest": self.source_schema_digest.value,
+            "canonical_schema_digest": self.canonical_schema_digest.value,
+            "storage_rule_digest": self.storage_rule_digest.value,
+            "storage_projection_version": self.storage_projection_version,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SurfaceTableContentBindings:
+    before: TableContentBinding | None = None
+    current: TableContentBinding | None = None
+    browse: TableContentBinding | None = None
+
+    def __post_init__(self) -> None:
+        if any(value is not None and type(value) is not TableContentBinding
+               for value in (self.before, self.current, self.browse)):
+            raise ValueError("invalid table content binding")
+
+    def validate_refs(self, refs: SurfaceTableRefs) -> None:
+        seen: dict[ArtifactRef, TableContentBinding] = {}
+        for side in ("before", "current", "browse"):
+            ref = getattr(refs, side + "_table_ref")
+            binding = getattr(self, side)
+            if (ref is None) != (binding is None):
+                raise ValueError("table ref and content binding must have matching nullability")
+            if ref is not None:
+                if ref in seen and seen[ref] != binding:
+                    raise ValueError("shared table ref has incompatible content bindings")
+                seen[ref] = binding
+
+    def to_document(self) -> dict[str, object]:
+        return {side: None if (value := getattr(self, side)) is None else value.to_document()
+                for side in ("before", "current", "browse")}
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +552,8 @@ class SurfaceTable:
     display: SurfaceDisplay
     compare: SurfaceCompare
     diagnostics: SurfaceDiagnostics
+    table_content_bindings: SurfaceTableContentBindings = SurfaceTableContentBindings()
+    row_locator_ref: ArtifactRef | None = None
     content_changed: bool = False
     replacement_summary: SurfaceReplacementSummary | None = None
     ordered_extension: dict[str, object] | None = None
@@ -502,6 +579,10 @@ class SurfaceTable:
             raise ValueError("columns must use canonical unique order")
         if type(self.table_refs) is not SurfaceTableRefs:
             raise ValueError("table_refs must be SurfaceTableRefs")
+        self.table_content_bindings.validate_refs(self.table_refs)
+        _require_optional_ref(self.row_locator_ref, "row_locator_ref")
+        if sorted(c.display_order for c in self.columns) != list(range(len(self.columns))):
+            raise ValueError("display_order must be unique and contiguous")
         if type(self.records_refs) is not SurfaceRecordsRefs:
             raise ValueError("records_refs must be SurfaceRecordsRefs")
         if type(self.risk_refs) is not SurfaceRiskRefs:
@@ -545,6 +626,8 @@ class SurfaceTable:
             "table_id": self.table_id,
             "table_name": self.table_name,
             "table_refs": self.table_refs.to_document(),
+            "table_content_bindings": self.table_content_bindings.to_document(),
+            "row_locator_ref": _optional_ref(self.row_locator_ref),
             "table_status": self.table_status.value,
         }
 
@@ -815,12 +898,16 @@ class SurfaceArtifactIndexEntry:
     table_name: str
     table_refs: SurfaceTableRefs = SurfaceTableRefs()
     diagnostics_ref: ArtifactRef | None = None
+    table_content_bindings: SurfaceTableContentBindings = SurfaceTableContentBindings()
+    row_locator_ref: ArtifactRef | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "table_name", _require_identifier(self.table_name, "table_name"))
         if type(self.table_refs) is not SurfaceTableRefs:
             raise ValueError("table_refs must be SurfaceTableRefs")
         _require_optional_ref(self.diagnostics_ref, "diagnostics_ref")
+        self.table_content_bindings.validate_refs(self.table_refs)
+        _require_optional_ref(self.row_locator_ref, "row_locator_ref")
 
 
 @dataclass(frozen=True, slots=True)
@@ -840,6 +927,9 @@ class SurfaceAssemblyInput:
     risk_report_ref: ArtifactRef | None = None
     risk_annotation_closure_ref: ArtifactRef | None = None
     diagnostics_ref: ArtifactRef | None = None
+    before_presentation: PresentationMetadata = PresentationMetadata()
+    current_presentation: PresentationMetadata = PresentationMetadata()
+    projections: tuple[SurfaceProjectionRef, ...] = ()
     profile: SurfaceProfile = SurfaceProfile.STANDARD_TABLE_BROWSER
     ref_scope: SurfaceRefScope = SurfaceRefScope.OPERATION_RELATIVE
     requires_submit_confirmation: bool = False

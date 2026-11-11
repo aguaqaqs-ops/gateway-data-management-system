@@ -132,7 +132,7 @@ def test_failed_result_cannot_publish_bundle_refs() -> None:
 
 
 def test_bundle_contract_version_is_v3() -> None:
-    assert BUNDLE_CONTRACT_VERSION == "backend-vnext/comparison-bundle/v3"
+    assert BUNDLE_CONTRACT_VERSION == "backend-vnext/comparison-bundle/v4"
     assert isinstance(DigestRef("sha256:" + "00" * 32), DigestRef)
 
 

@@ -35,6 +35,7 @@ def _surface_refs(surface: ComparisonSurface) -> tuple[ArtifactRef, ...]:
                 table.table_refs.before_table_ref,
                 table.table_refs.current_table_ref,
                 table.table_refs.browse_table_ref,
+                table.row_locator_ref,
                 table.records_refs.records_ref,
                 table.records_refs.records_manifest_ref,
                 table.risk_refs.report_ref,

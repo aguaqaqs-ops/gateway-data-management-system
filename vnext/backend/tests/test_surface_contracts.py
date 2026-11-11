@@ -95,7 +95,7 @@ def test_surface_contract_is_v2_and_does_not_inline_rows() -> None:
         change_kind=SurfaceChangeKind.UNCHANGED,
         row_change_stats=SurfaceRowChangeStats(),
         schema_summary=None,
-        columns=(SurfaceColumn("id", "ID", "INT", False),),
+        columns=(SurfaceColumn("id", "ID", "INT", False, "BOTH", False, 0),),
         table_refs=SurfaceTableRefs(),
         records_refs=SurfaceRecordsRefs(records_format=SurfaceRecordsFormat.INLINE_SUMMARY),
         risk_refs=SurfaceRiskRefs(),
@@ -107,7 +107,7 @@ def test_surface_contract_is_v2_and_does_not_inline_rows() -> None:
         compare=SurfaceCompare(None, (), (), ()),
         diagnostics=SurfaceDiagnostics(),
     )
-    assert SURFACE_CONTRACT_VERSION.endswith("/v3")
+    assert SURFACE_CONTRACT_VERSION.endswith("/v4")
     document = table.to_document()
     assert "before_values" not in str(document)
     assert "current_values" not in str(document)

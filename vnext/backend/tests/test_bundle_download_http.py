@@ -156,6 +156,7 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
         BundlePairInput, BundleProfile, assemble_bundle,
     )
     from gateway_backend.capabilities.surface_assembly import compute_surface_digest
+    from tests.test_surface_assembly import _bindings
     from tests.test_bundle_assembly import _request, _surface_result
     from tests.test_bundle_download import PAX_PATHS
 
@@ -175,8 +176,9 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
         surface_result = _surface_result(table_name="empty")
         assert surface_result.surface is not None
         surface = surface_result.surface
-        table = replace(surface.tables[0], table_refs=replace(surface.tables[0].table_refs,
-            current_table_ref=ref, before_table_ref=refs[0] if index == 1 else None))
+        table_refs = replace(surface.tables[0].table_refs,
+            current_table_ref=ref, before_table_ref=refs[0] if index == 1 else None)
+        table = replace(surface.tables[0], table_refs=table_refs, table_content_bindings=_bindings(table_refs))
         surface = replace(surface, tables=(table,))
         surface = replace(surface, surface_digest=compute_surface_digest(surface))
         surface_result = replace(surface_result, surface=surface)
@@ -299,6 +301,7 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
     from gateway_backend.artifacts import artifact_ref_to_dict
     from gateway_backend.application.bundle_download import prepare_bundle_download
     from gateway_backend.capabilities.bundle_assembly import BundlePairInput, assemble_bundle
+    from tests.test_surface_assembly import _bindings
     from tests.test_bundle_assembly import _request, _surface_result
 
     env, url, store, artifact_id = bundle_route

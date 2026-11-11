@@ -304,7 +304,7 @@ def evaluate_risk(
                 total_annotations += len(outcome.annotations)
             except _TableBudgetExceeded:
                 degraded = _degraded_table(
-                    item, "risk table budget exceeded", rules,
+                    item, "RISK_TABLE_BUDGET_EXCEEDED", rules,
                     evaluation_input.risk_cache_session,
                     context.operation,
                 )
@@ -398,7 +398,7 @@ def _evaluate_table_impl(
         > policy.max_diagnostics_bytes_per_table
     ):
         return _degraded_table(
-            item, "risk diagnostics truncated", rules,
+            item, "RISK_DIAGNOSTICS_TRUNCATED", rules,
             evaluation_input.risk_cache_session,
             context.operation,
         )
@@ -733,7 +733,7 @@ def _publish_result(
                 source_table_status=outcome.source_table_status,
                 annotation_ref=None if artifact is None else artifact.content_ref,
                 diagnostics=outcome.diagnostics
-                + (("annotation artifact budget exceeded",) if artifact is None and outcome.allow_artifact and artifact_requested else ()),
+                + (("RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED",) if artifact is None and outcome.allow_artifact and artifact_requested else ()),
             )
         )
         if artifact_requested:
@@ -898,7 +898,7 @@ def _build_pair_degraded_without_annotations(
             reason_codes=(reason_for(degraded_rule),),
             annotation_count=0,
             source_table_status=item.table_fact.status,
-            diagnostics=("max_annotations_per_pair exceeded",),
+            diagnostics=("RISK_ANNOTATION_LIMIT_EXCEEDED",),
         )
         for item in extracted
         if has_visible_change(item)

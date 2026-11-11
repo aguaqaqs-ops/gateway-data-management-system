@@ -49,17 +49,8 @@ def surface_digest_payload(surface: ComparisonSurface) -> dict[str, object]:
     for table in surface.tables:
         table_document = table.to_document()
         table_document.pop("diagnostics", None)
-        table_document["table_refs"] = {
-            "before_table": _optional_artifact_integrity(
-                table.table_refs.before_table_ref
-            ),
-            "browse_table": _optional_artifact_integrity(
-                table.table_refs.browse_table_ref
-            ),
-            "current_table": _optional_artifact_integrity(
-                table.table_refs.current_table_ref
-            ),
-        }
+        table_document.pop("table_refs", None)
+        table_document.pop("row_locator_ref", None)
         table_document["records_refs"] = {
             "records_format": table.records_refs.records_format.value,
             "records": _optional_artifact_integrity(table.records_refs.records_ref),

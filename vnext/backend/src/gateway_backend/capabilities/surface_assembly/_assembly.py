@@ -26,6 +26,9 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskTableRisk,
     validate_risk_annotation_documents,
 )
+from gateway_backend.capabilities.table_presentation.resolver import present_columns, table_display_name
+from gateway_backend.capabilities.table_presentation.metadata import TablePresentation
+from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
 from gateway_backend.capabilities.surface_assembly._digest import compute_surface_digest
 from gateway_backend.capabilities.surface_assembly._refs import validate_surface_refs
 from gateway_backend.capabilities.surface_assembly.contracts import (
@@ -55,6 +58,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceTable,
     SurfaceTableProcessingMode,
     SurfaceTableRefs,
+    SurfaceTableContentBindings,
     SurfaceView,
     SURFACE_CONTRACT_VERSION,
 )
@@ -93,6 +97,8 @@ def assemble_surface(
             facts, request.risk_report, request.risk_annotation_closure
         )
         artifact_by_name = {item.table_name: item for item in request.table_artifacts}
+        before_presentation = {item.table_name: item for item in request.before_presentation.tables}
+        current_presentation = {item.table_name: item for item in request.current_presentation.tables}
         tables: list[SurfaceTable] = []
         for table in facts.tables:
             checkpoint()
@@ -106,6 +112,8 @@ def assemble_surface(
                     risk_entry_by_name.get(table.table_name),
                     request.risk_report_ref,
                     keyless_fallback=table.table_name in request.keyless_fallback_tables,
+                    before_presentation=before_presentation.get(table.table_name),
+                    current_presentation=current_presentation.get(table.table_name),
                 )
             )
         checkpoint()
@@ -165,7 +173,7 @@ def assemble_surface(
             ),
             view=view,
             tables=table_tuple,
-            projections=(),
+            projections=request.projections,
             summary=summary,
             refs=SurfaceRootRefs(
                 records_closure_ref=facts.records_ref,
@@ -341,6 +349,8 @@ def _project_table(
     risk_report_ref: ArtifactRef | None,
     *,
     keyless_fallback: bool = False,
+    before_presentation: TablePresentation | None = None,
+    current_presentation: TablePresentation | None = None,
 ) -> SurfaceTable:
     table_refs = SurfaceTableRefs() if artifact_entry is None else artifact_entry.table_refs
     records = _records_refs(table, records_closure)
@@ -354,18 +364,18 @@ def _project_table(
         change_kind = SurfaceChangeKind.UPDATED
     if ordered_unsupported:
         change_kind = SurfaceChangeKind.DEGRADED
-    display_name = _display_name(table)
+    display_name = table_display_name(table.table_name, before_presentation, current_presentation)
     before_descriptor = table.before_descriptor
     current_descriptor = table.current_descriptor
     schema = None
     if table.schema_changes != type(table.schema_changes)():
         schema = SurfaceSchemaSummary.from_comparison(table.schema_changes)
-    columns = _columns(current_descriptor or before_descriptor)
+    columns = _columns(table.table_name, before_descriptor, current_descriptor, before_presentation, current_presentation)
     replacement_summary = None
     if replacement:
         replacement_summary = SurfaceReplacementSummary(
-            before=_replacement_side(before_descriptor),
-            current=_replacement_side(current_descriptor),
+            before=_replacement_side(table.table_name, before_descriptor, before_presentation, "BEFORE"),
+            current=_replacement_side(table.table_name, current_descriptor, current_presentation, "CURRENT"),
         )
         schema = None
         records = SurfaceRecordsRefs()
@@ -410,6 +420,9 @@ def _project_table(
         schema_summary=schema,
         columns=columns,
         table_refs=table_refs,
+        table_content_bindings=(SurfaceTableContentBindings() if artifact_entry is None
+                                else artifact_entry.table_content_bindings),
+        row_locator_ref=None if artifact_entry is None else artifact_entry.row_locator_ref,
         records_refs=records,
         risk_refs=risk_refs,
         display=SurfaceDisplay(strategy, processing, replay),
@@ -540,26 +553,39 @@ def _display_name(table: ComparisonTableFact) -> str:
     return table.table_name if descriptor is None else descriptor.display_table_name
 
 
-def _columns(descriptor: object | None) -> tuple[SurfaceColumn, ...]:
-    if descriptor is None:
-        return ()
-    return tuple(
-        SurfaceColumn(
-            name=item.name,
-            display_name=item.display_name,
-            scalar_type=item.scalar_type,
-            nullable=item.nullable,
-        )
-        for item in sorted(descriptor.columns, key=lambda value: value.name)  # type: ignore[attr-defined]
-    )
+def _columns(
+    table_name: str, before: SnapshotTableDescriptor | None,
+    current: SnapshotTableDescriptor | None,
+    before_presentation: TablePresentation | None,
+    current_presentation: TablePresentation | None,
+    *, side: str | None = None,
+) -> tuple[SurfaceColumn, ...]:
+    return tuple(SurfaceColumn(
+        name=item.name, display_name=item.display_name, scalar_type=item.scalar_type,
+        nullable=item.nullable, present_in=item.present_in, pinned=item.pinned,
+        display_order=item.display_order,
+    ) for item in present_columns(
+        table_name, () if before is None else before.columns,
+        () if current is None else current.columns,
+        before_presentation=before_presentation, current_presentation=current_presentation,
+        side=side,
+    ))
 
 
-def _replacement_side(descriptor: object | None) -> SurfaceReplacementSide | None:
+def _replacement_side(
+    table_name: str, descriptor: SnapshotTableDescriptor | None,
+    presentation: TablePresentation | None, side: str,
+) -> SurfaceReplacementSide | None:
     if descriptor is None:
         return None
     return SurfaceReplacementSide(
-        row_count=descriptor.row_count,  # type: ignore[attr-defined]
-        columns=_columns(descriptor),
+        display_name=table_display_name(table_name, presentation, None),
+        row_count=descriptor.row_count,
+        columns=_columns(table_name,
+            descriptor if side == "BEFORE" else None,
+            descriptor if side == "CURRENT" else None,
+            presentation if side == "BEFORE" else None,
+            presentation if side == "CURRENT" else None, side=side),
     )
 
 
@@ -570,7 +596,13 @@ def _compare_key(descriptor: object | None) -> tuple[str, ...]:
 
 
 def _stable_messages(messages: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted(set(item for item in messages if item)))
+    def stable(value: str) -> str:
+        if value.startswith("DUPLICATE_EFFECTIVE_KEY:"):
+            return "DUPLICATE_EFFECTIVE_KEY"
+        if value.endswith(("Error", "Exception")):
+            return "COMPARISON_INTERNAL_ERROR"
+        return value
+    return tuple(sorted({stable(item) for item in messages if item}))
 
 
 def _referenced_artifacts(surface: ComparisonSurface) -> tuple[ArtifactRef, ...]:
@@ -580,6 +612,7 @@ def _referenced_artifacts(surface: ComparisonSurface) -> tuple[ArtifactRef, ...]
             table.table_refs.before_table_ref,
             table.table_refs.current_table_ref,
             table.table_refs.browse_table_ref,
+            table.row_locator_ref,
             table.records_refs.records_ref,
             table.records_refs.records_manifest_ref,
             table.risk_refs.report_ref,

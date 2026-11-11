@@ -1,5 +1,5 @@
 {
-  "contract_version": "backend-vnext/comparison-bundle/v3",
+  "contract_version": "backend-vnext/comparison-bundle/v4",
   "cases": {
     "identical_snapshot_rows_across_pairs": {
       "binding_count": 1,

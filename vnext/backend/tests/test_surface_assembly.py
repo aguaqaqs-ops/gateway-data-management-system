@@ -54,6 +54,8 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceRefScope,
     SurfaceTableProcessingMode,
     SurfaceTableRefs,
+    SurfaceTableContentBindings,
+    TableContentBinding,
     assemble_surface,
     compute_surface_digest,
     rewrite_surface_refs,
@@ -189,6 +191,16 @@ def _facts(
     )
 
 
+def _content_binding(seed: str) -> TableContentBinding:
+    return TableContentBinding(_digest(seed + "business"), _digest(seed + "content"), 3,
+        _digest(seed + "source"), _digest(seed + "canonical"), _digest(seed + "rules"), "3")
+
+
+def _bindings(refs: SurfaceTableRefs) -> SurfaceTableContentBindings:
+    return SurfaceTableContentBindings(**{side: None if (ref := getattr(refs, side + "_table_ref")) is None
+        else _content_binding(ref.artifact_id) for side in ("before", "current", "browse")})
+
+
 def _request(
     facts: ComparisonFacts,
     *,
@@ -205,7 +217,7 @@ def _request(
         before_role="before",
         current_role="current",
         records_closure=records_closure,
-        table_artifacts=(SurfaceArtifactIndexEntry("orders", table_refs),),
+        table_artifacts=(SurfaceArtifactIndexEntry("orders", table_refs, table_content_bindings=_bindings(table_refs)),),
         keyless_fallback_tables=keyless_fallback_tables,
         ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
         identity_annotation=identity_annotation,
@@ -560,7 +572,12 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
         result.surface,
         tables=(replace(table_result, table_refs=swapped_refs),),
     )
-    assert compute_surface_digest(swapped_surface) != result.surface.surface_digest
+    assert compute_surface_digest(swapped_surface) == result.surface.surface_digest
+    swapped_bindings = replace(table_result.table_content_bindings,
+        before=table_result.table_content_bindings.current, current=table_result.table_content_bindings.before)
+    rebound = replace(result.surface, tables=(replace(table_result, table_refs=swapped_refs,
+        table_content_bindings=swapped_bindings),))
+    assert compute_surface_digest(rebound) != result.surface.surface_digest
 
 
 def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:

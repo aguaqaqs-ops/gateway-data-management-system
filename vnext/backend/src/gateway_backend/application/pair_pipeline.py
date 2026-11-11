@@ -66,6 +66,8 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceIdentityAnnotation,
     SurfaceArtifactIndexEntry,
     SurfaceTableRefs,
+    SurfaceTableContentBindings,
+    TableContentBinding,
     SurfaceRefScope,
     assemble_surface,
 )
@@ -218,6 +220,7 @@ def run_preview_pair_pipeline(
         show_keyless_fallback_hint=True,
         include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
         dedup_session=dedup_session, table_exports=table_exports,
+        before_presentation=before_presentation, current_presentation=current_presentation,
     )
     records_closure = surface.published.records_closure
     if (
@@ -268,6 +271,7 @@ def run_history_pair_pipeline(
         on_cancel=on_cancel,
         include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
         dedup_session=dedup_session, table_exports=table_exports,
+        before_presentation=before_presentation, current_presentation=current_presentation,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -315,6 +319,8 @@ def _run_comparison_risk_surface(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -338,6 +344,7 @@ def _run_comparison_risk_surface(
             include_all_before_tables=include_all_before_tables,
             repository_id=repository_id, export_cache=export_cache,
             comparison_elapsed=comparison_elapsed, table_exports=table_exports,
+            before_presentation=before_presentation, current_presentation=current_presentation,
         )
 
 
@@ -356,6 +363,8 @@ def _finish_comparison_risk_surface(
     export_cache: SnapshotTableExportCachePort | None,
     comparison_elapsed: float,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:
@@ -462,6 +471,7 @@ def _finish_comparison_risk_surface(
         surface = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=comparison_facts,
+            before_presentation=before_presentation, current_presentation=current_presentation,
             surface_id=f"surface-{request.pair_id}",
             view_id=view_id,
             before_role="before",
@@ -581,31 +591,49 @@ def _surface_table_artifacts(
                 repository_id=repository_id, export_cache=export_cache)
         return artifacts
 
-    before = table_map(request.before)
     current = table_map(request.current)
-    if not include_all_before:
-        before = {name: ref for name, ref in before.items() if name not in current}
-    return tuple(
-        SurfaceArtifactIndexEntry(
-            table_name=table_name,
-            table_refs=SurfaceTableRefs(
-                before_table_ref=(
-                    before.get(table_name)
-                    or (
-                        current.get(table_name)
-                        if _same_complete_table_identity(
-                            request.before,
-                            request.current,
-                            table_name,
-                        )
-                        else None
-                    )
-                ),
-                current_table_ref=current.get(table_name),
-            ),
+    if request.before.table_set is None:
+        raise PairPipelineError("surface bundle requires canonical table artifacts")
+    before: dict[str, ArtifactRef] = {}
+    aliases: set[str] = set()
+    for table in request.before.table_set.tables:
+        name = table.descriptor.table_name
+        same = name in current and _same_complete_table_identity(request.before, request.current, name)
+        if same:
+            aliases.add(name)
+        elif include_all_before or name not in current or name in {"device", "composite_signal_point"}:
+            before[name] = (table_exports[request.before.snapshot.snapshot_id][name]
+                if table_exports is not None else export_snapshot_table_parquet(
+                    table, store=store, repository_id=repository_id, export_cache=export_cache))
+    def binding(bound: BoundSnapshotInput, name: str) -> TableContentBinding:
+        descriptor = next(t for t in bound.summary.tables if t.table_name == name)
+        facts = next(t for t in bound.storage_facts if t.storage_rule_view.canonical_table == name)
+        if (descriptor.raw_content_digest is None or facts.canonical_schema_digest is None
+                or facts.storage_rule_view.storage_rule_digest is None
+                or facts.storage_projection_version is None
+                or facts.raw_content_digest != descriptor.raw_content_digest):
+            raise PairPipelineError("table content binding is incomplete")
+        return TableContentBinding(
+            business_schema_digest=descriptor.business_schema_digest,
+            raw_content_digest=descriptor.raw_content_digest,
+            row_count=descriptor.row_count,
+            source_schema_digest=facts.source_schema_digest,
+            canonical_schema_digest=facts.canonical_schema_digest,
+            storage_rule_digest=facts.storage_rule_view.storage_rule_digest,
+            storage_projection_version=facts.storage_projection_version,
         )
-        for table_name in sorted(before.keys() | current.keys())
-    )
+    return tuple(SurfaceArtifactIndexEntry(
+        table_name=name,
+        table_refs=SurfaceTableRefs(
+            before_table_ref=current[name] if name in aliases else before.get(name),
+            current_table_ref=current.get(name),
+        ),
+        table_content_bindings=SurfaceTableContentBindings(
+            before=(binding(request.current, name) if name in aliases else
+                    binding(request.before, name) if name in before else None),
+            current=binding(request.current, name) if name in current else None,
+        ),
+    ) for name in sorted(before.keys() | current.keys()))
 
 
 def _same_complete_table_identity(

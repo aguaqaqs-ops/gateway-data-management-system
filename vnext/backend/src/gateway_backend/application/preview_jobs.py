@@ -1803,6 +1803,12 @@ def surface_artifact_closure(
             table_name=table_name,
         )
         add(
+            table.row_locator_ref,
+            f"{prefix}/comparison/locators/{table_name}.parquet",
+            BundleArtifactKind.ROW_LOCATOR,
+            table_name=table_name,
+        )
+        add(
             table.records_refs.records_ref,
             f"{prefix}/comparison/records/{table_name}/rows.bin",
             BundleArtifactKind.RECORDS,
@@ -2147,7 +2153,7 @@ def _run_pair_pipeline(
             store=store,
             control=control,
             on_cancel=on_cancel,
-            view_id=_PAIR_INITIAL_TO_MODIFIED,
+            view_id=pair_id,
             rule_set=rule_set,
             assess_identity=assess_identity,
             identity_before_table_set=identity_before_table_set, repository_id=repository_id, export_cache=export_cache,

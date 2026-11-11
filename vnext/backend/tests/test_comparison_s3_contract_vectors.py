@@ -171,7 +171,7 @@ def test_table_budget_exception_does_not_consume_pair_count() -> None:
         ("b", 2),
         ("c", 1),
     )
-    assert result.risk_report.tables[0].diagnostics == ("risk table budget exceeded",)
+    assert result.risk_report.tables[0].diagnostics == ("RISK_TABLE_BUDGET_EXCEEDED",)
     assert result.risk_closure is not None
 
 
@@ -204,7 +204,7 @@ def test_diagnostics_preflight_degraded_does_consume_pair_count() -> None:
         ("c", 0),
     )
     assert all(
-        table.diagnostics == ("max_annotations_per_pair exceeded",)
+        table.diagnostics == ("RISK_ANNOTATION_LIMIT_EXCEEDED",)
         for table in result.risk_report.tables
     )
     assert result.annotation_artifacts == ()

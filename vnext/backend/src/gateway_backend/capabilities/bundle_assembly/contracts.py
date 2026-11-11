@@ -16,7 +16,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceAssemblyResult,
 )
 
-BUNDLE_CONTRACT_VERSION = "backend-vnext/comparison-bundle/v3"
+BUNDLE_CONTRACT_VERSION = "backend-vnext/comparison-bundle/v4"
 BUNDLE_MANIFEST_MEDIA_TYPE = "application/vnd.gateway.comparison-bundle.manifest+json"
 BUNDLE_CLOSURE_MEDIA_TYPE = "application/vnd.gateway.comparison-bundle.closure+json"
 MAX_BUNDLE_MANIFEST_JSON_BYTES = 16 * 1024 * 1024
@@ -49,6 +49,7 @@ class BundlePairStatus(StrEnum):
 class BundleArtifactKind(StrEnum):
     SURFACE = "SURFACE"
     SNAPSHOT_TABLE = "SNAPSHOT_TABLE"
+    ROW_LOCATOR = "ROW_LOCATOR"
     RECORDS = "RECORDS"
     RECORDS_MANIFEST = "RECORDS_MANIFEST"
     RECORDS_CLOSURE = "RECORDS_CLOSURE"

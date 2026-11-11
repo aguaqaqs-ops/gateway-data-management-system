@@ -82,6 +82,7 @@ def rewrite_surface_refs(
         return replace(
             table,
             table_refs=rewrite_table_refs(table.table_refs),
+            row_locator_ref=rewrite(table.row_locator_ref),
             records_refs=replace(
                 table.records_refs,
                 records_ref=rewrite(table.records_refs.records_ref),
@@ -137,6 +138,7 @@ def validate_surface_refs(surface: ComparisonSurface) -> None:
             table.table_refs.before_table_ref,
             table.table_refs.current_table_ref,
             table.table_refs.browse_table_ref,
+            table.row_locator_ref,
             table.records_refs.records_ref,
             table.records_refs.records_manifest_ref,
             table.risk_refs.report_ref,

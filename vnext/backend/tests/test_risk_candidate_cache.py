@@ -432,12 +432,12 @@ def test_cached_risk_rechecks_current_operation_boundary_at_emit(
         (
             RiskExecutionPolicy(max_annotations_per_table=2, max_annotations_per_pair=3),
             ((_added_rows("a", 3), _added_rows("b", 2), _added_rows("c", 1))),
-            "a", (1, 2, 1), "risk table budget exceeded",
+            "a", (1, 2, 1), "RISK_TABLE_BUDGET_EXCEEDED",
         ),
         (
             RiskExecutionPolicy(max_annotations_per_table=2, max_annotations_per_pair=2),
             (_added_rows("a", 3),),
-            "a", (0,), "max_annotations_per_pair exceeded",
+            "a", (0,), "RISK_ANNOTATION_LIMIT_EXCEEDED",
         ),
         (
             RiskExecutionPolicy(
@@ -448,7 +448,7 @@ def test_cached_risk_rechecks_current_operation_boundary_at_emit(
                 _added_rows("a", 3, diagnostics=("first", "second")),
                 _added_rows("b", 2), _added_rows("c", 1),
             ),
-            "b", (0, 0, 0), "max_annotations_per_pair exceeded",
+            "b", (0, 0, 0), "RISK_ANNOTATION_LIMIT_EXCEEDED",
         ),
     ),
 )
@@ -516,7 +516,7 @@ def test_cached_table_time_budget_degrades_at_the_same_emit_check() -> None:
         assert cache.hits == 1
         assert hit.status is miss.status is RiskEvaluationStatus.DEGRADED
         assert hit.risk_report is not None and miss.risk_report is not None
-        assert hit.risk_report.tables[0].diagnostics == ("risk table budget exceeded",)
+        assert hit.risk_report.tables[0].diagnostics == ("RISK_TABLE_BUDGET_EXCEEDED",)
         assert hit.risk_evaluation is not None and miss.risk_evaluation is not None
         assert hit.risk_evaluation.risk_evaluation_digest == miss.risk_evaluation.risk_evaluation_digest
         assert hit_clock.calls == miss_clock.calls
@@ -531,13 +531,13 @@ def test_cached_table_time_budget_degrades_at_the_same_emit_check() -> None:
         # precedence over a time check that would now reach the table budget.
         (2, True, RiskExecutionPolicy(max_annotations_per_table=1, max_annotations_per_pair=1,
             max_risk_table_wall_time_seconds=0.003), RiskEvaluationStatus.DEGRADED, (0,),
-            "max_annotations_per_pair exceeded"),
+            "RISK_ANNOTATION_LIMIT_EXCEEDED"),
         # A filtered candidate does not perform an emit-local time check.
         (1, False, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.0001),
             RiskEvaluationStatus.READY, (), None),
         # The last retained emit still performs its original post-append check.
         (1, True, RiskExecutionPolicy(max_risk_table_wall_time_seconds=0.001),
-            RiskEvaluationStatus.DEGRADED, (1,), "risk table budget exceeded"),
+            RiskEvaluationStatus.DEGRADED, (1,), "RISK_TABLE_BUDGET_EXCEEDED"),
     ),
 )
 def test_candidate_replay_preserves_cap_filter_and_last_emit_time_points(

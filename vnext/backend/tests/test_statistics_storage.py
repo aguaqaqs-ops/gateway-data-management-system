@@ -50,3 +50,45 @@ def test_capacity_uses_configured_identity_once(tmp_path: Path) -> None:
     assert len(values) == 1
     assert values[0].available_bytes is not None
     assert values[0].logical_bytes is None and values[0].repository_id is None
+
+
+def test_storage_budget_is_explicit_partial(tmp_path: Path) -> None:
+    local = open_test_store(tmp_path / 'artifacts')
+    path = tmp_path / 'control.db'
+    initialize_control_db(path)
+    with sqlite3.connect(path) as db:
+        for index in range(3):
+            db.execute('INSERT INTO canonical_table_cache VALUES (?,?,?,?,?,NULL)',
+                ('a1:canonical:' + str(index) * 64, 'repository', 'application/octet-stream', 123, 'sha256:' + 'a' * 64))
+    records: list[StorageRecord] = []
+    config = StatisticsConfig(scan_total_entries=1)
+    collector = DeviceStorageCollector(StorageCandidates(path, config), local, IDENTITY, records.append, config)
+    collector.collect('repository')
+    assert all(row.quality == 'partial' and row.reason == 'budget_exceeded' for row in records)
+    assert collector.stale_candidates == 1
+
+
+def test_shared_cache_ref_is_public_and_not_charged_to_both_devices(tmp_path: Path) -> None:
+    local = open_test_store(tmp_path / 'artifacts')
+    ref = BoundedArtifactStore(local).put_stream(ArtifactLocation.COMPARISON, 'test', [b'abc'],
+        declared_size=3, declared_raw_sha256=raw_blob_digest(b'abc'), media_type='application/octet-stream')
+    path = tmp_path / 'control.db'
+    initialize_control_db(path)
+    with sqlite3.connect(path) as db:
+        for index, repository in enumerate(('one', 'two')):
+            db.execute('INSERT INTO provisioned_scope_mappings VALUES (?,?,?,1)',
+                       (f'device-{index}', 'project', repository))
+            db.execute('INSERT INTO snapshot_table_export_cache VALUES (?,?,?,?,?,?,?,?)',
+                       (repository, 'digest', 1, ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value, 1))
+    records: list[StorageRecord] = []
+    config = StatisticsConfig()
+    collector = DeviceStorageCollector(StorageCandidates(path, config), local, IDENTITY, records.append, config)
+    collector.collect('one')
+    collector.collect('two')
+    assert all(row.logical_bytes == 0 for row in records)
+    records.clear()
+    collector.collect(None)
+    assert len(records) == 1
+    assert records[0].repository_id is None and records[0].category == 'public_unknown'
+    assert records[0].object_count == 1 and records[0].logical_bytes == 3
+    assert records[0].quality == 'partial'  # not a scan of all unreferenced physical files

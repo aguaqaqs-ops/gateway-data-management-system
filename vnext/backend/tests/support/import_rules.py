@@ -390,10 +390,23 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         approved_statistics_model = (source_zone == "http" and edge.target == "gateway_backend.statistics.models")
         approved_statistics_wire = (edge.source == "gateway_backend.http.schemas.statistics"
                                     and edge.target == "gateway_repository_contracts.statistics")
+        # The storage telemetry adapter reads only the owning fixed ref decoders and
+        # live stat; it cannot call application/capabilities or mutate business state.
+        approved_statistics_storage = (
+            edge.source == "gateway_backend.infrastructure.statistics.storage"
+            and edge.target in {
+                "gateway_backend.artifacts.computation_cache", "gateway_backend.artifacts.location",
+                "gateway_backend.artifacts.serialize", "gateway_backend.artifacts.store",
+                "gateway_backend.infrastructure.artifact_store.local_store",
+                "gateway_backend.infrastructure.control_db.computation_cache",
+                "gateway_backend.infrastructure.control_db.sqlite_workspace",
+                "gateway_backend.infrastructure.control_db.sqlite_submission",
+            }
+        )
         if (not _target_category_allowed(allowed, target_zone, edge.target)
                 and not approved_native_call and not approved_artifact_id_codec
                 and not approved_telemetry_hook and not approved_telemetry_port and not approved_statistics_model
-                and not approved_statistics_wire):
+                and not approved_statistics_wire and not approved_statistics_storage):
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

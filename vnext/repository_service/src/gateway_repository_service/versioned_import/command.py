@@ -94,7 +94,7 @@ class ImportOperationExecutor:
         store: ImportOperationStore,
         fault_injector: ImportWorkerFaultInjector | None = None,
         interruption_check: Callable[[], bool] | None = None,
-        mutation_cutoff: Callable[[], object] | None = None,
+        mutation_cutoff: Callable[[str], object] | None = None,
     ) -> None:
         self._settings = settings
         self._layout = layout
@@ -174,7 +174,7 @@ class ImportOperationExecutor:
 
         if self._mutation_cutoff is not None:
             try:
-                self._mutation_cutoff()
+                self._mutation_cutoff(evidence.main_before)
             except Exception:
                 pass  # Dedicated disposable telemetry must not affect the mutation.
         provider.create_private_ref(context.private_ref_name, context.expected_commit_id)

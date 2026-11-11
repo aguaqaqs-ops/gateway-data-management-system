@@ -532,3 +532,19 @@ def test_mutation_store_sql_does_not_persist_raw_key() -> None:
     for columns in insert_columns:
         assert "idempotency_key" not in columns
         assert "raw_key" not in columns
+
+
+def test_statistics_repository_page_is_keyset_and_only_succeeded_create(store: MutationStore) -> None:
+    created: list[UUID] = []
+    for index in range(3):
+        scope = IdempotencyScope.for_create()
+        key_hash = IdempotencyKeyHash.from_raw_key(f'statistics-{index}')
+        resource = uuid4()
+        effect = store.allocate_pending(scope, key_hash=key_hash, fingerprint=create_repository_fingerprint_v1(), resource_id=resource)
+        if index < 2:
+            store.mark_succeeded(effect.effect_id, response_body={'repository_id': str(resource)})
+            created.append(resource)
+    first = store.page_succeeded_repositories(limit=1)
+    second = store.page_succeeded_repositories(after_effect_id=first[0][0], limit=1)
+    assert [first[0][1], second[0][1]] == created
+    assert store.page_succeeded_repositories(after_effect_id=second[0][0]) == []

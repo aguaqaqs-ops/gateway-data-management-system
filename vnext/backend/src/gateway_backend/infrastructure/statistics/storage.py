@@ -54,21 +54,22 @@ class StorageCandidates:
                 'SELECT repository_id FROM provisioned_scope_mappings WHERE enabled=1 AND repository_id>? '
                 'ORDER BY repository_id LIMIT ?', (after, self.config.storage_page_size))]
 
-    def page(self, source: str, repository_id: str, after: int) -> list[Mapping[str, object]]:
+    def page(self, source: str, repository_id: str | None, after: int) -> list[Mapping[str, object]]:
         if source not in _SOURCES:
             raise ValueError('unknown statistics source')
         with self._read() as connection:
             if source == 'operation_records':
+                owners = (
+                    'SELECT p.operation_id FROM preview_idempotency_records p JOIN workspace_records w '
+                    'ON p.workspace_id=w.workspace_id WHERE (? IS NULL OR w.repository_id=?) UNION '
+                    'SELECT operation_id FROM submit_attempt_records WHERE (? IS NULL OR repository_id=?) UNION '
+                    'SELECT operation_id FROM history_compare_acceptance_records WHERE (? IS NULL OR repository_id=?)')
+                selection = 'NOT IN' if repository_id is None else 'IN'
                 return [dict(row) for row in connection.execute(
                     'SELECT rowid AS cursor,length(artifact_refs)>262144 AS oversized, '
                     'substr(artifact_refs,1,262145) AS artifact_refs FROM operation_records '
-                    'WHERE rowid>? AND operation_id IN ('
-                    'SELECT p.operation_id FROM preview_idempotency_records p JOIN workspace_records w '
-                    'ON p.workspace_id=w.workspace_id WHERE w.repository_id=? UNION '
-                    'SELECT operation_id FROM submit_attempt_records WHERE repository_id=? UNION '
-                    'SELECT operation_id FROM history_compare_acceptance_records WHERE repository_id=?) '
-                    'ORDER BY rowid LIMIT ?',
-                    (after, repository_id, repository_id, repository_id, self.config.storage_page_size))]
+                    f'WHERE rowid>? AND operation_id {selection} ({owners}) ORDER BY rowid LIMIT ?',
+                    (after, *([repository_id] * 6), self.config.storage_page_size))]
             # Total row bytes are checked by SQLite before copying BLOBs into Python.
             columns = connection.execute(f'PRAGMA table_info({source})').fetchall()
             names = [str(row['name']) for row in columns]
@@ -81,11 +82,23 @@ class StorageCandidates:
             else:
                 join, owner = '', 't.repository_id'
             rows = connection.execute(
-                f'SELECT t.rowid AS cursor,({size})>? AS oversized,{projection} '
-                f'FROM {source} t {join} WHERE {owner}=? AND t.rowid>? ORDER BY t.rowid LIMIT ?',
-                (_MAX_ROW_BYTES, *([_MAX_ROW_BYTES] * len(names)), repository_id, after,
+                f'SELECT t.rowid AS cursor,{owner} AS owner_repository,({size})>? AS oversized,{projection} '
+                f'FROM {source} t {join} WHERE (? IS NULL OR {owner}=?) AND t.rowid>? ORDER BY t.rowid LIMIT ?',
+                (_MAX_ROW_BYTES, *([_MAX_ROW_BYTES] * len(names)), repository_id, repository_id, after,
                  self.config.storage_page_size)).fetchall()
             return [dict(row) for row in rows]
+
+    def shared(self, artifact_id: str, known_owner: str | None) -> bool:
+        """At most two direct cache owners, not a persistent attribution graph."""
+        with self._read() as connection:
+            owners = {str(row[0]) for row in connection.execute(
+                'SELECT repository_id FROM canonical_table_cache WHERE artifact_id=? UNION '
+                'SELECT repository_id FROM snapshot_table_export_cache WHERE artifact_id=? UNION '
+                'SELECT repository_id FROM computation_cache_entries c WHERE manifest_artifact_id=? OR '
+                'EXISTS (SELECT 1 FROM json_each(c.member_refs_json) member '
+                "WHERE json_extract(member.value,'$.artifact_id')=?) LIMIT 2",
+                (artifact_id, artifact_id, artifact_id, artifact_id))}
+        return len(owners) > 1 or (known_owner is not None and bool(owners - {known_owner}))
 
     @staticmethod
     def refs(source: str, row: Mapping[str, object]) -> tuple[str, ...]:
@@ -150,18 +163,20 @@ class DeviceStorageCollector:
             repositories = self.candidates.repositories(self._after_repository)
             if not repositories:
                 self._after_repository = ''
+                self.collect(None)
                 return
             repository_id = repositories[0]
             self._after_repository = repository_id
         self.collect(repository_id)
 
-    def collect(self, repository_id: str) -> None:
+    def collect(self, repository_id: str | None) -> None:
         start = time_ns() // 1000
         deadline = monotonic() + self.config.scan_total_seconds
         seen: set[str] = set()
-        totals = {location.value: [0, 0, 0] for location in ArtifactLocation}
-        partial = False
-        reason: Reason | None = None
+        totals = ({'public_unknown': [0, 0, 0]} if repository_id is None else
+                  {location.value: [0, 0, 0] for location in ArtifactLocation})
+        partial = repository_id is None
+        reason: Reason | None = 'not_collected' if repository_id is None else None
         rows_scanned = 0
         try:
             for source in _SOURCES:
@@ -185,13 +200,21 @@ class DeviceStorageCollector:
                         for artifact_id in self.candidates.refs(source, row):
                             if artifact_id in seen:
                                 continue
+                            shared = self.candidates.shared(artifact_id,
+                                str(row['owner_repository']) if row.get('owner_repository') is not None else repository_id)
+                            public = shared or (repository_id is None and source == 'operation_records')
+                            if public != (repository_id is None):
+                                continue
+                            if artifact_id in seen:
+                                continue
                             if len(seen) >= self.config.scan_total_entries or monotonic() >= deadline:
                                 partial, reason = True, 'budget_exceeded'
                                 break
                             seen.add(artifact_id)
                             try:
                                 value = self.store.observe_object(artifact_id)
-                                bucket = totals[parse_artifact_id(artifact_id).value]
+                                category = 'public_unknown' if repository_id is None else parse_artifact_id(artifact_id).value
+                                bucket = totals[category]
                                 bucket[0] += 1
                                 bucket[1] += cast(int, value['logical_bytes'])
                                 bucket[2] += cast(int, value['allocated_bytes'])

@@ -112,7 +112,11 @@ def scan_repository(path: Path, *, max_entries: int = 10000, max_seconds: float 
     try:
         assert_no_symlink_ancestors(path)
         root = open_dir_nofollow(path)
-        stack.append((root, os.scandir(root)))
+        try:
+            stack.append((root, os.scandir(root)))
+        except BaseException:
+            os.close(root)
+            raise
         tick, count = clock(), 0
         while stack:
             if clock() - start >= max_seconds or entries >= max_entries:
@@ -135,7 +139,11 @@ def scan_repository(path: Path, *, max_entries: int = 10000, max_seconds: float 
                 if not same_mount(parent, child):
                     os.close(child)
                     raise OSError('child mount inside repository')
-                stack.append((child, os.scandir(child)))
+                try:
+                    stack.append((child, os.scandir(child)))
+                except BaseException:
+                    os.close(child)
+                    raise
             elif stat.S_ISREG(info.st_mode):
                 # A concurrent replacement can make this stat approximate, never a content read.
                 objects += 1
@@ -198,6 +206,11 @@ class RepositoryStatistics:
             return None
         try:
             if len(self._active) >= self._pending.maxsize:
+                for repository, old in tuple(self._active.items()):
+                    if old.end_cutoff is not None:
+                        old.interference = True
+                        del self._active[repository]
+            if len(self._active) >= self._pending.maxsize:
                 self.dropped += 1
                 return None
             previous = self._active.get(repository_id)
@@ -213,9 +226,19 @@ class RepositoryStatistics:
         finally:
             self._lock.release()
 
-    def mutation(self, window: WriteWindow | None) -> None:
+    def mutation(self, window: WriteWindow | None, before_commit: str | None = None) -> None:
         if window is not None:
+            window.before_commit = before_commit
             window.mutation_cutoff = self.clock()
+
+    def _release(self, window: WriteWindow) -> None:
+        # Only background work takes the blocking lock. Hook cleanup is nonblocking.
+        if self._lock.acquire(blocking=False):
+            try:
+                if self._active.get(window.repository_id) is window:
+                    del self._active[window.repository_id]
+            finally:
+                self._lock.release()
 
     def end(self, window: WriteWindow | None) -> None:
         if window is None:
@@ -225,6 +248,7 @@ class RepositoryStatistics:
             self._pending.put_nowait((window, True))
         except queue.Full:
             self.dropped += 1
+            self._release(window)
             # No completed observation is promised when the finite queue is full.
 
     def _publish(self, window: WriteWindow) -> None:
@@ -274,13 +298,12 @@ class RepositoryStatistics:
             if after:
                 window.after = result
                 self._publish(window)
-                with self._lock:
-                    if self._active.get(window.repository_id) is window:
-                        del self._active[window.repository_id]
             else:
                 window.before = result
             return True
         finally:
+            if after:
+                self._release(window)
             self._pending.task_done()
 
     def collect_repository(self, repository_id: UUID) -> None:

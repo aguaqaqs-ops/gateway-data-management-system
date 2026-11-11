@@ -90,6 +90,11 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 | Head | baseline_head_records 仅指 baseline_node_id，不直接持有对象ref；不为统计追踪无限祖先/历史bundle，该源不新增字节，当前已有对象由上述固定来源覆盖。 |
 
 所有候选必须通过 LocalArtifactStore.observe_object 当前可见stat后才计 measured bytes；旧ref不存在记 stale，不能按ref.size永久累加。
+固定cache索引以至多两个repository的只读查询识别简单共享ref；被多库引用的对象从设备分类中排除，
+后台独立有限扫描将其计入public_unknown一次。operation仅用Preview acceptance、SubmitAttempt、History
+acceptance的现有operation_id关联归属；无简单owner的operation ref进入public_unknown，不查payload。
+公共快照始终是partial/not_collected的已知候选子集，不冒称覆盖所有磁盘孤儿、临时文件或公共目录。
+单行元数据在SQLite复制前限256KiB，超限与SQL/扫描预算中止都显式partial。
 RS库候选仅从成功 create_repository 的 MutationStore keyset页得resource_id，经DurableLayout.published_repository定位。
 扫描不跟随symlink、不执行Dolt、不创建/修复库，before/after不等待业务；计时cutoff和缺失语义以实施计划 §3 为准。
 
@@ -120,3 +125,21 @@ cgroup内存为采样峰值，未扫描scratch则该峰值为null。业务结果
 有限保留清理后先PASSIVE checkpoint；WAL达到软阈值时再做busy_timeout=0的机会式TRUNCATE
 checkpoint，无可截断窗口则暂停、以后维护周期重试，不等待读者、不做VACUUM。SQLite页满的
 竞态失败同样触发一次有限旧曲线清理后再重试，不以总预算尚有余量为由忽略main页上限。
+
+
+## C 后台组件与接线责任
+
+`StorageCandidates`以只读connection/短SQL预算读取封闭来源；`DeviceStorageCollector.collect_next()`每次一库，
+轮询末尾独立刷新公共候选，`changed()`只加入有限去重集合。`filesystem_capacity()`只statvfs配置root，
+以配置filesystem_id去重。E负责正常启停和600秒设备/60秒容量目标调度，HTTP查询不得调用这些函数。
+
+RS `RepositoryStatistics` begin/mutation/end仅nonblocking排队和记录现成标量；首次已核read_ref值在
+create_private_ref之前的mutation hook传入，expected_commit不是before_commit观测。后台受限scanner
+以fd-relative/no-follow分片遍历，before_end≤mutation cutoff、after_start≥executor结束cutoff且无下一次
+执行干扰才接纳完整量。pending after与完整after以同observation_id的新sequence追加；结束/失败/队列满
+均有限释放active槽，不引入可靠投递。outcome由E注入的后台只读import_store查询取得，缺来源保持unknown。
+`ObservationRing`同时按条目/字节限制，HTTP只读ring；client解码体上限1MiB且单次拉取不重试。
+backend `RepositoryFeedPoller.poll()`每轮一页/2秒超时，校验environment/group，按observation_id交给
+原有有界sink，reset/truncated只报告缺失、不补历史。resource采样scope始终为共享RS服务。
+E将ring置于app.state.statistics_ring、注入worker pool、启动/关闭统计并调度resource/capacity/repository；
+D仅消费已保存SQLite行，F负责候选容器绑定，本包不宣称active部署已验证。

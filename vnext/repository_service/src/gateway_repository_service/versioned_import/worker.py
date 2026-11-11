@@ -397,7 +397,7 @@ class ImportWorkerPool:
                         store=self._store,
                         fault_injector=self._fault_injector,
                         interruption_check=_interruption_check,
-                        mutation_cutoff=(lambda: statistics.mutation(window)) if statistics else None,
+                        mutation_cutoff=(lambda commit: statistics.mutation(window, commit)) if statistics else None,
                     )
                     provider = _CancellableProviderWrapper(
                         self._provider_factory(repository_id),
@@ -405,7 +405,7 @@ class ImportWorkerPool:
                     )
                     if statistics is not None:
                         value = best_effort(lambda: statistics.begin(
-                            repository_id, operation_id, context.expected_commit_id))
+                            repository_id, operation_id, None))
                         if isinstance(value, WriteWindow):
                             window = value
                     try:

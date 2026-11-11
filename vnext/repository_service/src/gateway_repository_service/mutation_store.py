@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -453,9 +454,9 @@ class MutationStore:
         if not self._lock.acquire(timeout=.05):
             return []
         try:
-            deadline = __import__('time').monotonic() + .05
+            deadline = time.monotonic() + .05
             self._connection.set_progress_handler(
-                lambda: int(__import__('time').monotonic() > deadline), 1000)
+                lambda: int(time.monotonic() > deadline), 1000)
             rows = self._connection.execute(
                 """SELECT e.effect_id, e.resource_id FROM synchronous_mutation_effects e
                    JOIN mutation_idempotency i ON i.id=e.idempotency_id

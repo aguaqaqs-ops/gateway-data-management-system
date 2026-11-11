@@ -137,3 +137,70 @@ def test_feed_http_is_authenticated_and_read_only() -> None:
         assert len(response.json()['records']) == 1
         assert client.get('/v1/statistics/observations?limit=101', headers=headers).status_code == 422
         assert len(ring.read(StatisticsFeedQuery()).records) == 1
+
+
+def test_service_capacity_is_deduplicated_and_resource_is_shared(tmp_path: Path) -> None:
+    from gateway_repository_contracts.statistics import FilesystemCapacityObservation, ResourceObservation
+    from gateway_repository_service.statistics import filesystem_capacity, sample_resources
+    ring = ObservationRing('e', 'g')
+    filesystem_capacity(ring, {'repository': (tmp_path, 'shared-disk'), 'metadata': (tmp_path, 'shared-disk')})
+    sample_resources(ring)
+    page = ring.read(StatisticsFeedQuery())
+    assert len(page.records) == 2
+    assert isinstance(page.records[0].observation, FilesystemCapacityObservation)
+    assert isinstance(page.records[1].observation, ResourceObservation)
+    assert page.records[1].observation.repository_id is None
+
+
+def test_scanner_closes_descriptor_when_iterator_cannot_be_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    import gateway_repository_service.statistics as module
+    closed: list[int] = []
+    original_close = os.close
+    def close(descriptor: int) -> None:
+        closed.append(descriptor)
+        original_close(descriptor)
+    def fail_scandir(_descriptor: int) -> Iterator[object]:
+        raise OSError('too many open files')
+    with monkeypatch.context() as patch:
+        patch.setattr(module.os, 'scandir', fail_scandir)
+        patch.setattr(module.os, 'close', close)
+        values = list(module.scan_repository(tmp_path))
+    assert len(closed) == 1
+    assert values[-1] is not None and not values[-1].complete
+    with pytest.raises(OSError):
+        os.fstat(closed[0])
+
+
+def test_full_queue_does_not_permanently_consume_active_slots(tmp_path: Path) -> None:
+    statistics = RepositoryStatistics(DurableLayout(RepositoryRoots.under(tmp_path)), ObservationRing('e', 'g'), max_pending=1)
+    first = statistics.begin(uuid4(), uuid4(), None)
+    assert first is not None
+    statistics.end(first)  # before still fills the queue; after is dropped
+    second = statistics.begin(uuid4(), uuid4(), None)
+    assert second is not None
+    assert statistics.dropped >= 1
+
+
+@pytest.mark.parametrize('fault', ['scan', 'outcome', 'publish'])
+def test_failed_after_work_releases_active_slot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str) -> None:
+    calls = [0]
+    def scanner(_path: Path) -> Iterator[ScanResult | None]:
+        calls[0] += 1
+        if fault == 'scan' and calls[0] == 2:
+            raise OSError('unavailable scan')
+        yield ScanResult(1, 2, 1, 2, 1, 1, 1, True)
+    statistics = RepositoryStatistics(DurableLayout(RepositoryRoots.under(tmp_path)), ObservationRing('e', 'g'),
+                                      scanner=scanner, max_pending=1)
+    first = statistics.begin(uuid4(), uuid4(), None)
+    statistics.collect_one()
+    statistics.end(first)
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise OSError('unavailable telemetry')
+    if fault == 'outcome':
+        monkeypatch.setattr(statistics, 'outcome', fail)
+    elif fault == 'publish':
+        monkeypatch.setattr(statistics.ring, 'append', fail)
+    with pytest.raises(OSError):
+        statistics.collect_one()
+    assert statistics.begin(uuid4(), uuid4(), None) is not None

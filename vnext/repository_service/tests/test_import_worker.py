@@ -1415,3 +1415,25 @@ def test_cancellable_provider_wrapper_merges_catalog_cancellation() -> None:
     assert len(received) == 1
     assert received[0] is not None
     assert received[0]() is True
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+@pytest.mark.parametrize('hook', ['begin', 'mutation', 'end'])
+def test_statistics_hook_failure_preserves_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, hook: str) -> None:
+    from gateway_repository_service.statistics import ObservationRing, RepositoryStatistics
+    env = WorkerTestEnvironment(tmp_path)
+    statistics = RepositoryStatistics(env.layout, ObservationRing('e', 'g'))
+    def fail(*_args: object) -> None:
+        raise OSError('telemetry unavailable')
+    monkeypatch.setattr(statistics, hook, fail)
+    env.pool._statistics = statistics
+    try:
+        env.pool.start()
+        operation = env.enqueue(REPOSITORY_ID, artifact_id=ARTIFACT_ID)
+        env.wait_for_status(REPOSITORY_ID, operation, OperationStatus.SUCCEEDED)
+        result = env.store.get_operation(REPOSITORY_ID, operation)
+        assert result is not None and result.result is not None
+        assert env.provider_for(REPOSITORY_ID).read_ref('main') == result.result.commit_id
+    finally:
+        env.close()

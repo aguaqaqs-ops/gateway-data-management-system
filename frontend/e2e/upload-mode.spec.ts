@@ -66,6 +66,9 @@ async function expectNoHorizontalOverflow(page: Page) {
       bodyWidth: Math.round(document.body.getBoundingClientRect().width),
       pastRight,
       scrolling,
+      statusChildren: [...(document.querySelector(".compare-status")?.children ?? [])].map(
+        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
+      ),
       headerChildren: [...(document.querySelector(".compare-header__top")?.children ?? [])].map(
         (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
       ),
@@ -73,7 +76,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   });
   expect(
     metrics.scrollWidth,
-    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")} header=[${metrics.headerChildren.join(" | ")}]`,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth} body=${metrics.bodyWidth} pastRight=${metrics.pastRight.join(" | ")} scrolling=${metrics.scrolling.join(" | ")} header=[${metrics.headerChildren.join(" | ")}] status=[${metrics.statusChildren.join(" | ")}]`,
   ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 

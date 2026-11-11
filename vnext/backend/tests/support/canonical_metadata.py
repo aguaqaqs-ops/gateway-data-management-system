@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -146,6 +148,7 @@ def metadata_for_catalog(
             ruleset_digest=active.ruleset_digest,
             source_artifact_digest=raw_blob_digest(b"test-source-artifact"),
             tables=tuple(manifest_tables),
+            presentation=PresentationMetadata().project((t.name, t.retained_columns) for t in manifest_tables),
         )
         if manifest_override is not None:
             manifest = manifest_override

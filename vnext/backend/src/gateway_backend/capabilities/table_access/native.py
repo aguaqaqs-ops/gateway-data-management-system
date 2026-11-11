@@ -48,7 +48,7 @@ class ArrowSourceTableReader:
         self._table: pa.Table | None = table
         self._context = context
         self._reservation = context.memory.retain_arrow(table)
-        metadata_bytes = 4096 + sum(512 + (len(c.canonical_name) + len(c.display_name) + len(c.sql_type)) * 16
+        metadata_bytes = 4096 + len(descriptor.comment or "") * 16 + sum(512 + (len(c.canonical_name) + len(c.display_name) + len(c.sql_type) + len(c.comment or "")) * 16
                                     + sum(len(label) * 16 + 128 for label in c.enum_or_set_labels or ())
                                     for c in descriptor.columns)
         try:
@@ -147,23 +147,24 @@ def source_descriptor_from_arrow(value: dict[str, Any]) -> SourceTableDescriptor
     return SourceTableDescriptor(
         display_name=value["display_name"], canonical_name=value["canonical_name"],
         primary_key_canonical_names=tuple(value["primary_key"]), reader_ready=value["reader_ready"],
+        comment=value["comment"],
         columns=tuple(SourceColumnDescriptor(
             display_name=c["display_name"], canonical_name=c["canonical_name"], ordinal=c["ordinal"],
             sql_type=c["sql_type"], logical_type=SqlLogicalType(c["logical_type"]),
             declared_type=None if c["declared_type"] is None else DeclaredType(
                 **{**c["declared_type"], "kind": DeclaredTypeKind(c["declared_type"]["kind"])}),
-            nullable=c["nullable"], enum_or_set_labels=None if c["labels"] is None else tuple(c["labels"]),
+            nullable=c["nullable"], comment=c["comment"], enum_or_set_labels=None if c["labels"] is None else tuple(c["labels"]),
         ) for c in value["columns"]),
     )
 
 
 def source_arrow_metadata(source: SourceTableDescriptor, stream: pa.RecordBatchReader) -> dict[str, Any]:
     return {
-        "canonical_name": source.canonical_name, "display_name": source.display_name,
+        "canonical_name": source.canonical_name, "display_name": source.display_name, "comment": source.comment,
         "primary_key": list(source.primary_key_canonical_names), "reader_ready": source.reader_ready,
         "arrow_stream": stream,
         "columns": [{
-            "canonical_name": c.canonical_name, "display_name": c.display_name, "ordinal": c.ordinal,
+            "canonical_name": c.canonical_name, "display_name": c.display_name, "ordinal": c.ordinal, "comment": c.comment,
             "sql_type": c.sql_type, "logical_type": c.logical_type.value, "nullable": c.nullable,
             "labels": None if c.enum_or_set_labels is None else list(c.enum_or_set_labels),
             "declared_type": None if c.declared_type is None else {

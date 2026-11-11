@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from collections.abc import Callable, Mapping
@@ -97,6 +99,8 @@ class PreviewPairPipelineResult:
     surface_result: SurfaceAssemblyResult
     identity_assessment: ProjectIdentityAssessment | None
     identity_assessment_ref: ArtifactRef | None
+    before_presentation: PresentationMetadata = PresentationMetadata()
+    current_presentation: PresentationMetadata = PresentationMetadata()
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +112,8 @@ class HistoryPairPipelineResult:
     record_count: int
     records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
+    before_presentation: PresentationMetadata = PresentationMetadata()
+    current_presentation: PresentationMetadata = PresentationMetadata()
 
 
 def preview_identity_assessment(
@@ -168,6 +174,8 @@ def run_preview_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -219,6 +227,7 @@ def run_preview_pair_pipeline(
         raise PairPipelineError("records closure is missing")
     return PreviewPairPipelineResult(
         pair_id=pair_id,
+        before_presentation=before_presentation, current_presentation=current_presentation,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_digest,
         surface_digest=surface.surface_digest,
@@ -241,6 +250,8 @@ def run_history_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -270,6 +281,7 @@ def run_history_pair_pipeline(
         raise PairPipelineError("risk evaluation digest is missing")
     return HistoryPairPipelineResult(
         pair_id=pair_id,
+        before_presentation=before_presentation, current_presentation=current_presentation,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_evaluation.risk_evaluation_digest.value,
         surface_digest=surface.surface_digest,

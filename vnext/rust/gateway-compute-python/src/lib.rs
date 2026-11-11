@@ -675,6 +675,7 @@ fn parse_column_descriptor(
         _ => return Err(PyValueError::new_err("unknown SQL logical_type")),
     };
     let mut descriptor = ColumnDescriptor {
+        comment: None,
         display_name: String::new(),
         canonical_name,
         ordinal,
@@ -1267,6 +1268,7 @@ fn add_column(
 ) -> PyResult<()> {
     let value = PyDict::new(py);
     value.set_item("display_name", column.display_name.as_str())?;
+    value.set_item("comment", column.comment.as_deref())?;
     value.set_item("canonical_name", column.canonical_name.as_str())?;
     value.set_item("ordinal", column.ordinal)?;
     value.set_item("sql_type", column.sql_type.as_str())?;
@@ -1288,6 +1290,7 @@ fn add_table(
     let value = PyDict::new(py);
     let descriptor: &TableDescriptor = &table.descriptor;
     value.set_item("display_name", descriptor.display_name.as_str())?;
+    value.set_item("comment", descriptor.comment.as_deref())?;
     value.set_item("canonical_name", descriptor.canonical_name.as_str())?;
     value.set_item("primary_key", &descriptor.primary_key)?;
     value.set_item("reader_ready", descriptor.reader_ready)?;

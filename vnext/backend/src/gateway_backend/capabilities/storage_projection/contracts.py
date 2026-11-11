@@ -10,6 +10,8 @@ this module only.
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 import math
 from dataclasses import dataclass
 from enum import StrEnum
@@ -38,7 +40,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-CANONICALIZATION_MANIFEST_CONTRACT = "3.3.0"
+CANONICALIZATION_MANIFEST_CONTRACT = "3.4.0"
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1
@@ -287,6 +289,7 @@ class CanonicalizationManifest:
     ruleset_digest: DigestRef
     source_artifact_digest: DigestRef
     tables: tuple[CanonicalizationManifestTable, ...]
+    presentation: PresentationMetadata
     manifest_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
@@ -312,6 +315,9 @@ class CanonicalizationManifest:
             if table.name in seen:
                 raise ValueError("manifest tables must not repeat names")
             seen.add(table.name)
+        if type(self.presentation) is not PresentationMetadata:
+            raise ValueError("presentation must be PresentationMetadata")
+        self.presentation.require_coverage({t.name: t.retained_columns for t in self.tables})
         if self.manifest_digest is not None and type(self.manifest_digest) is not DigestRef:
             raise ValueError("manifest_digest must be DigestRef or None")
 

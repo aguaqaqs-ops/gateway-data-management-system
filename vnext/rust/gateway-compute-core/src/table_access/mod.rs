@@ -831,6 +831,7 @@ fn finish_table(
         && !document_failed
         && !table.columns.is_empty();
     let descriptor = TableDescriptor {
+        comment: table.comment,
         display_name: table.display_name,
         canonical_name: table.canonical_name,
         columns: table.columns,

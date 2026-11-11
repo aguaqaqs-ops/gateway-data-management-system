@@ -23,6 +23,8 @@ from gateway_shared_kernel import (
     TypedScalar,
 )
 
+from gateway_backend.capabilities.table_presentation.metadata import normalize_comment
+
 PARSER_INPUT_CONTRACT_VERSION = 1
 PARSER_VERSION = 1
 _UTF8_ENCODING = "utf-8"
@@ -269,8 +271,10 @@ class SourceColumnDescriptor:
     declared_type: DeclaredType | None
     nullable: bool
     enum_or_set_labels: tuple[str, ...] | None = None
+    comment: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "comment", normalize_comment(self.comment))
         _require_identifier(self.display_name, "display_name")
         _require_identifier(self.canonical_name, "canonical_name")
         _require_non_negative_int(self.ordinal, "ordinal")
@@ -322,8 +326,10 @@ class SourceTableDescriptor:
     columns: tuple[SourceColumnDescriptor, ...]
     primary_key_canonical_names: tuple[str, ...]
     reader_ready: bool
+    comment: str | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "comment", normalize_comment(self.comment))
         _require_identifier(self.display_name, "display_name")
         _require_identifier(self.canonical_name, "canonical_name")
         if type(self.columns) is not tuple:

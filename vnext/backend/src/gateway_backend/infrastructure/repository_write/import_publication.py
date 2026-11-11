@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 import hashlib
 import json
 import logging
@@ -575,6 +577,7 @@ def _parent_manifest_for_plan(
             ruleset_digest=current_manifest.ruleset_digest,
             source_artifact_digest=current_manifest.source_artifact_digest,
             tables=(),
+            presentation=PresentationMetadata(),
             manifest_digest=DigestRef("sha256:" + "0f" * 32),
         )
     parent_manifest = build_input.parent_manifest

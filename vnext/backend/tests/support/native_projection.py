@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from dataclasses import replace
 
 from gateway_shared_kernel import DigestRef
@@ -94,7 +96,8 @@ def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResu
     assert request.ruleset.ruleset_digest is not None
     manifest = CanonicalizationManifest(CANONICALIZATION_MANIFEST_CONTRACT, STORAGE_PROJECTION_VERSION,
         request.ruleset.ruleset_id, request.ruleset.ruleset_version, request.ruleset.ruleset_digest,
-        request.tables[0].source_binding.snapshot_digest, tuple(manifest_tables))
+        request.tables[0].source_binding.snapshot_digest, tuple(manifest_tables),
+        PresentationMetadata().project((t.name, t.retained_columns) for t in manifest_tables))
     manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
     assert manifest.manifest_digest is not None
     return ProjectionResult(ProjectionStatus.COMPLETE, tuple(projected), 0, manifest=manifest,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata, TablePresentation, ColumnPresentation
+
 import dataclasses
 import secrets
 import time
@@ -348,6 +350,9 @@ def _materialize_selected(
         snapshot=snapshot,
         summary=summary,
         table_set=table_set,
+        presentation=PresentationMetadata(tuple(TablePresentation(p.descriptor.canonical_name, p.descriptor.comment,
+            tuple(ColumnPresentation(c.canonical_name, c.comment) for c in p.descriptor.columns))
+            for p in sorted(selected, key=lambda p: p.descriptor.canonical_name.encode("utf-8")))),
     )
 
 
@@ -376,6 +381,7 @@ def _with_artifacts(
         diagnostics=result.table_set.diagnostics,
     )
     return SnapshotMaterializationResult(
+        presentation=result.presentation,
         status=result.status,
         materialization_stage=result.materialization_stage,
         cache_trust_level=result.cache_trust_level,

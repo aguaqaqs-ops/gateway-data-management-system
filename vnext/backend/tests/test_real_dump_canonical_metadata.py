@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import copy
@@ -144,7 +146,8 @@ def _fixture() -> MetadataFixture:
         dummy_digest(), dummy_digest(), d.raw_content_digest) for d in descriptors)
     manifest = CanonicalizationManifest(CANONICALIZATION_MANIFEST_CONTRACT,
         STORAGE_PROJECTION_VERSION, RULESET_ID, RULESET_VERSION, dummy_digest(),
-        dummy_digest(), canonical_tables)
+        dummy_digest(), canonical_tables,
+        PresentationMetadata().project((t.name, t.retained_columns) for t in canonical_tables))
     manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
     assert manifest.manifest_digest is not None
     f = MetadataFixture(store, payload, {}, {}, ArtifactRef('a1:durable:8137c58af077cafc2702c843d5e79b85e00bc871674dcc5867a64f36f27f3588', "application/jcs", 0,

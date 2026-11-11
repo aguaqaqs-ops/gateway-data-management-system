@@ -10,6 +10,7 @@ pub use super::types::SqlLogicalType;
 /// Column descriptor (`SourceColumnDescriptor`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDescriptor {
+    pub comment: Option<String>,
     pub display_name: String,
     pub canonical_name: String,
     pub ordinal: usize,
@@ -23,6 +24,7 @@ pub struct ColumnDescriptor {
 /// Table descriptor (`SourceTableDescriptor`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDescriptor {
+    pub comment: Option<String>,
     pub display_name: String,
     pub canonical_name: String,
     pub columns: Vec<ColumnDescriptor>,

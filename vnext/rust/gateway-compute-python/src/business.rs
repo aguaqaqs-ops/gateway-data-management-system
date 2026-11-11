@@ -147,6 +147,7 @@ fn table_descriptor(
         }
     }
     Ok(TableDescriptor {
+        comment: None,
         display_name: required_preflighted_python_string(object, "display_name")?,
         canonical_name: required_preflighted_python_string(object, "canonical_name")?,
         columns: parsed,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import TablePresentation, ColumnPresentation, PresentationMetadata
+
 import dataclasses
 import secrets
 from datetime import UTC, datetime
@@ -288,6 +290,9 @@ def _compose(
             diagnostics=sql_result.diagnostics,
         )
     return SnapshotMaterializationResult(
+        presentation=PresentationMetadata(tuple(sorted((*sql_result.presentation.tables,
+            TablePresentation(COMPOSITE_SIGNAL_POINT_TABLE, None, tuple(ColumnPresentation(name, None) for name, *_ in _DERIVED_COLUMNS))),
+            key=lambda t: t.table_name.encode("utf-8")))),
         status=sql_result.status,
         materialization_stage=stage,
         cache_trust_level=trust,
@@ -480,6 +485,7 @@ def _with_artifacts(
         diagnostics=result.table_set.diagnostics,
     )
     return SnapshotMaterializationResult(
+        presentation=result.presentation,
         status=result.status,
         materialization_stage=result.materialization_stage,
         cache_trust_level=result.cache_trust_level,

@@ -13,6 +13,8 @@ Downstream consumers may import this module only.
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -1517,6 +1519,7 @@ class SnapshotMaterializationResult:
     snapshot: Snapshot | None = None
     summary: SnapshotSummary | None = None
     table_set: SnapshotTableSet | None = None
+    presentation: PresentationMetadata = PresentationMetadata()
 
     def __post_init__(self) -> None:
         if type(self.status) is not SnapshotMaterializationStatus:

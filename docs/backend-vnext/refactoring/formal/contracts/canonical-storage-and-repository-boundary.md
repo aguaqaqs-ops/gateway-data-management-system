@@ -12,9 +12,11 @@ Semantic version：`3.8.0`（2026-11-06，DC86/DC87；D 的规范 IPC manifest/�
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
-## BE-b presentation 目标（B0 固定，B1 激活）
+<a id="be-b-presentation-目标b0-固定b1-激活"></a>
 
-本节为已核准目标；当前 CanonicalizationManifest selector 仍是 `3.3.0`，不是本文 semantic version `3.8.0` 或 storage projection version `3`。B1 同轮激活 manifest `3.4.0`、producer/durable serializer/decoder/digest、PrepareImport 与历史读取并更新 golden；不提前仅改常量，不双读旧格式。
+## BE-b presentation（B1 已激活）
+
+CanonicalizationManifest selector 为 `3.4.0`，与本文 semantic version `3.8.0`、storage projection version `3` 独立。producer、durable serializer/decoder、semantic digest、PrepareImport 和精确历史读取同轮激活；旧格式拒绝。surface 列展示由 B3/B4 接入，此处只拥有冻结展示元数据。
 
 新增 required `presentation={tables:[{table_name,comment:string|null,columns:[{name,comment:string|null}]}]}`，完整覆盖最终 canonical 表列，表 UTF-8 canonical name 序、列 DDL 序。完整 durable JSON 编码此字段；manifest semantic digest 改为显式 canonical 字段白名单，唯一排除新增 presentation（仍排除 manifest_digest 自身），版本字段仍参与。版本提升可一次改变摘要；同新版本内 comment-only 不变。raw snapshot 业务 source_artifact_digest 不替换成含注释输入文件 SHA；SourcePackage raw 输入 SHA 可以变化。
 

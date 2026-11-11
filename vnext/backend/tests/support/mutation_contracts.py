@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.mutation_planning._digest import row_digest_from_image
@@ -162,6 +164,7 @@ def manifest(
         ruleset_digest=_DIGEST_E,
         source_artifact_digest=_DIGEST_A,
         tables=tables,
+        presentation=PresentationMetadata().project((t.name, t.retained_columns) for t in tables),
         manifest_digest=digest_value,
     )
 

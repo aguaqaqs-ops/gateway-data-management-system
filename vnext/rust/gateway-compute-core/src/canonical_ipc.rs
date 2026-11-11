@@ -233,6 +233,7 @@ pub fn set_declared_type_from_parts(
         .validate()
         .map_err(|error| schema_error(error.to_string()))?;
     let expected = ColumnDescriptor {
+        comment: None,
         display_name: String::new(),
         canonical_name: String::new(),
         ordinal: 0,
@@ -2841,6 +2842,7 @@ mod tests {
         labels: Option<Vec<&str>>,
     ) -> ColumnDescriptor {
         ColumnDescriptor {
+            comment: None,
             display_name: name.to_owned(),
             canonical_name: name.to_owned(),
             ordinal,

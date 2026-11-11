@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 import hashlib
 import io
 import json
@@ -44,6 +46,7 @@ _FILE_MODE = 0o644
 _TAR_HEADER_SLACK = 64 * 1024
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _DURABLE_KEYS = (
+    "presentation",
     "contract_version",
     "manifest_digest",
     "ruleset_digest",
@@ -151,6 +154,7 @@ def canonicalization_manifest_from_bytes(payload: bytes) -> CanonicalizationMani
                 "source_artifact_digest",
             ),
             tables=tables,
+            presentation=PresentationMetadata.from_document(mapping["presentation"]),
             manifest_digest=_digest(mapping["manifest_digest"], "manifest_digest"),
         )
     except ValueError as exc:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadata
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -16,6 +18,16 @@ from gateway_backend.capabilities.table_rules.contracts import (
     StorageRuleView,
     TableRulesetSnapshot,
 )
+
+
+def presentation_for_commit(metadata: CommitCanonicalMetadata) -> PresentationMetadata:
+    if type(metadata) is not CommitCanonicalMetadata:
+        raise ValueError("metadata must be CommitCanonicalMetadata")
+    if metadata.initial:
+        return PresentationMetadata()
+    if metadata.manifest is None:
+        raise ValueError("Submission presentation requires its frozen manifest")
+    return metadata.manifest.presentation
 
 
 def canonical_binding_for_commit(
@@ -99,4 +111,4 @@ def _storage_rule_view(table: CanonicalizationManifestTable) -> StorageRuleView:
     )
 
 
-__all__ = ["canonical_binding_for_commit"]
+__all__ = ["canonical_binding_for_commit", "presentation_for_commit"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.configuration_facts import configuration_facts_blob
@@ -192,6 +194,7 @@ def _manifest(
         ruleset_digest=DigestRef("sha256:" + "11" * 32),
         source_artifact_digest=DigestRef("sha256:" + "22" * 32),
         tables=(),
+        presentation=PresentationMetadata(),
     )
     manifest = replace(draft, manifest_digest=compute_manifest_digest(draft))
     if (

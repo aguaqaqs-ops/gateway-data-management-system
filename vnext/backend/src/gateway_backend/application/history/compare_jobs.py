@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.artifacts.location import parse_artifact_id
 
 import dataclasses
@@ -14,7 +16,7 @@ from datetime import datetime
 from types import TracebackType
 from typing import ContextManager, cast
 
-from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
@@ -908,6 +910,7 @@ def _assemble_comparison(
     ), computation_cache=None if dependencies is None else dependencies.computation_cache,
         cache_owner=CacheOperationOwner("history-compare-operation", operation_id),
         repository_id=payload.repository_id)
+    presentations = _history_presentations(payload, dependencies) if dependencies is not None else {}
     table_exports: dict[str, dict[str, ArtifactRef]] = {}
     try:
         if dependencies is not None:
@@ -923,6 +926,8 @@ def _assemble_comparison(
                 pair_id=pair_id,
                 before=before,
                 current=current,
+                before_presentation=presentations.get(before_node.commit_id, PresentationMetadata()),
+                current_presentation=presentations.get(current_node.commit_id, PresentationMetadata()),
                 rule_set=rule_set,
                 store=store,
                 control=control,
@@ -1137,6 +1142,21 @@ def _ensure_history_demands_once(
     return loaded, exports
 
 
+def _history_presentations(payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies) -> dict[str, PresentationMetadata]:
+    presentations = {}
+    for commit_id in dict.fromkeys(node.commit_id for node in payload.nodes):
+        with deps.control_transaction_factory() as unit_of_work:
+            try:
+                metadata = unit_of_work.commit_canonical_metadata.resolve(repository_id=payload.repository_id,
+                    commit_id=commit_id, scope=CommitCanonicalScope(
+                        gateway_device_external_key=payload.gateway_device_external_key,
+                        business_project_id=payload.business_project_id))
+            except CommitCanonicalMetadataError as exc:
+                raise HistoryCompareJobError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
+        presentations[commit_id] = presentation_for_commit(metadata)
+    return presentations
+
+
 def _run_pair_pipeline(
     *,
     pair_id: str,
@@ -1149,9 +1169,12 @@ def _run_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
+            before_presentation=before_presentation, current_presentation=current_presentation,
             pair_id=pair_id,
             before=before,
             current=current,

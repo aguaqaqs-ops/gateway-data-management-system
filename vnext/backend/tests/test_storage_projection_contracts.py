@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 
@@ -113,6 +115,7 @@ def _manifest(ruleset_digest: object) -> CanonicalizationManifest:
         ruleset_version=RULESET_VERSION,
         ruleset_digest=ruleset_digest,  # type: ignore[arg-type]
         source_artifact_digest=digest,
+        presentation=PresentationMetadata().project((("net_cfg", ("board", "link_no")),)),
         tables=(
             CanonicalizationManifestTable(
                 name="net_cfg",
@@ -152,7 +155,7 @@ def _import_input() -> RepositoryImportArtifactInput:
 
 def test_versions_and_publication_budgets_match_s0() -> None:
     assert STORAGE_PROJECTION_VERSION == "3"
-    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.3.0"
+    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.4.0"
     assert PACKAGE_VERSION == 1
     assert MAX_MANIFEST_JSON_BYTES == 16 * _MIB
     assert MAX_REPLAY_SQL_BYTES == 200 * _MIB

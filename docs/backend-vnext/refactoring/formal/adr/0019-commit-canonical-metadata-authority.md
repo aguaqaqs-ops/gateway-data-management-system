@@ -17,7 +17,7 @@
 
 ## Context
 
-BE-b 目标解释（B0 固定，B1 随 manifest 3.4.0 激活）：本 ADR 的 commit→Submission→精确 manifest ref 同样是展示注释权威。presentation 从 manifest semantic digest 排除，但完整 raw SHA/size/ref 和 typed 集合核对仍保护它；不能按相同 snapshot digest 寻找最新注释。comment-only Preview 不产生 canonical change、commit、Submission 或旧历史覆盖。INITIAL 无展示来源按现有空来源回退；非 INITIAL 丢失/损坏 ref 仍稳定失败。详细载荷与激活边界见 [Canonical Storage 的 BE-b 目标](../contracts/canonical-storage-and-repository-boundary.md#be-b-presentation-目标b0-固定b1-激活)，不增加 metadata DB 表、索引或跨库事务。
+BE-b 解释（B1 随 manifest 3.4.0 已激活）：本 ADR 的 commit→Submission→精确 manifest ref 同样是展示注释权威。presentation 从 manifest semantic digest 排除，但完整 raw SHA/size/ref 和 typed 集合核对仍保护它；不能按相同 snapshot digest 寻找最新注释。comment-only Preview 不产生 canonical change、commit、Submission 或旧历史覆盖。INITIAL 无展示来源按现有空来源回退；非 INITIAL 丢失/损坏 ref 仍稳定失败。详细载荷与激活边界见 [Canonical Storage 的 BE-b 目标](../contracts/canonical-storage-and-repository-boundary.md#be-b-presentation-目标b0-固定b1-激活)，不增加 metadata DB 表、索引或跨库事务。
 
 - P3-R3 规定 Repository-ref 物化以 hidden FINAL SnapshotSummary 为权威，缺失即失败，不从 catalog 与行重建。
 - 实际上全仓没有写入方（R3-D02 一直延期），HTTP Arrow adapter 改为从行重建 summary，版本字段取运行时常量，`capabilities/snapshot_materialization/repository_ref.py` 随后再读一遍全表做交叉校验。结果是：

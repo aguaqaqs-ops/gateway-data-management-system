@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from dataclasses import replace
 
 from gateway_shared_kernel import DigestRef
@@ -25,7 +27,9 @@ from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, TableRulesetSnapshot
 
 
-def project_canonical_arrow_table_set(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot) -> CanonicalProjectionResult:
+def project_canonical_arrow_table_set(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot, *,
+    presentation: PresentationMetadata = PresentationMetadata(),
+) -> CanonicalProjectionResult:
     context = current_kernel_context()
     if context is None or ruleset.ruleset_digest is None:
         raise ValueError("canonical projection requires the operation context and complete ruleset")
@@ -95,7 +99,8 @@ def project_canonical_arrow_table_set(raw: SnapshotTableSet, ruleset: TableRules
                     table.batch_reader.close()
             return CanonicalProjectionResult(ProjectionStatus.FAILED, (), omitted, diagnostics=tuple(diagnostics))
         manifest = CanonicalizationManifest(CANONICALIZATION_MANIFEST_CONTRACT, STORAGE_PROJECTION_VERSION,
-            ruleset.ruleset_id, ruleset.ruleset_version, ruleset.ruleset_digest, raw.snapshot_digest, tuple(manifest_tables))
+            ruleset.ruleset_id, ruleset.ruleset_version, ruleset.ruleset_digest, raw.snapshot_digest, tuple(manifest_tables),
+            presentation.project((t.name, t.retained_columns) for t in manifest_tables))
         manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
         return CanonicalProjectionResult(ProjectionStatus.COMPLETE, tuple(tables), 0, manifest=manifest)
     except BaseException:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata
+
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 
 import dataclasses
@@ -30,7 +32,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.store import ArtifactBufferStorePort
 from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source, assemble_operation_bundle as assemble_bundle
-from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
@@ -414,6 +416,7 @@ class _CanonicalPreviewMetadata:
 class _MaterializedPreviewInputs:
     sides: dict[str, BoundSnapshotInput]
     canonical: _CanonicalPreviewMetadata
+    presentations: dict[str, PresentationMetadata]
 
 
 def preview_job_definitions() -> tuple[JobDefinition, ...]:
@@ -843,6 +846,8 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     operation_id=operation.operation_id,
                     on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                     computation_cache=deps.computation_cache,
+                    presentations=inputs.presentations,
+                    baseline_presentation=_preview_baseline_presentation(payload, deps),
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -1298,6 +1303,9 @@ def _materialize_all_sides(
     )
     return _MaterializedPreviewInputs(
         sides=sides,
+        presentations={_SIDE_INITIAL: (PresentationMetadata() if initial_manifest_ref is None else
+            open_canonicalization_manifest(deps.artifact_store, initial_manifest_ref).presentation),
+            _SIDE_MODIFIED: open_canonicalization_manifest(deps.artifact_store, manifest_ref).presentation},
         canonical=_CanonicalPreviewMetadata(
             initial_canonical_state_digest=initial_state_digest,
             configuration_facts=configuration_facts,
@@ -1398,6 +1406,21 @@ def _preview_baseline_binding(
                 diagnostic_code=exc.code.value,
             ) from exc
     return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+
+
+def _preview_baseline_presentation(payload: PreviewJobPayload, deps: PreviewRuntimeDependencies) -> PresentationMetadata:
+    with deps.control_transaction_factory() as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(payload.workspace_id)
+        if workspace is None or workspace.repository_id != payload.repository_id:
+            raise PreviewJobError("preview workspace scope is unavailable")
+        try:
+            metadata = unit_of_work.commit_canonical_metadata.resolve(
+                repository_id=payload.repository_id, commit_id=payload.business_baseline_commit_id,
+                scope=CommitCanonicalScope(gateway_device_external_key=workspace.gateway_device_external_key,
+                    business_project_id=workspace.business_project_id))
+        except CommitCanonicalMetadataError as exc:
+            raise PreviewJobError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
+    return presentation_for_commit(metadata)
 
 
 def _changed_canonical_tables(
@@ -1596,6 +1619,7 @@ def _materialize_uploaded_side(
         projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,
+            presentation=business_result.presentation,
         )
         _LOG.info("s3_preview_stage_metrics %s", json.dumps({
             "operation_id": operation_id, "stage": "uploaded_projection", "side": side.value,
@@ -1922,7 +1946,13 @@ def _assemble_preview(
     on_cancel: Callable[[], None],
     export_cache: SnapshotTableExportCachePort | None = None,
     computation_cache: ComputationCachePort | None = None,
+    presentations: Mapping[str, PresentationMetadata] | None = None,
+    baseline_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> tuple[dict[str, object], ArtifactRef, str]:
+    display_inputs = dict(presentations or {})
+    display_inputs[_SIDE_BASELINE] = baseline_presentation
+    if payload.input_completeness is InputCompleteness.MODIFIED_ONLY:
+        display_inputs[_SIDE_INITIAL] = baseline_presentation
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
@@ -1996,6 +2026,8 @@ def _assemble_preview(
                 pair_id=pair_id,
                 before=before,
                 current=current,
+                before_presentation=display_inputs.get(_SIDE_BASELINE if pair_id == _PAIR_BASELINE_TO_INITIAL or payload.input_completeness is InputCompleteness.MODIFIED_ONLY else _SIDE_INITIAL, PresentationMetadata()),
+                current_presentation=display_inputs.get(_SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED, PresentationMetadata()),
                 store=store,
                 control=control,
                 rule_set=rule_set,
@@ -2099,9 +2131,12 @@ def _run_pair_pipeline(
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
+    before_presentation: PresentationMetadata = PresentationMetadata(),
+    current_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
+            before_presentation=before_presentation, current_presentation=current_presentation,
             pair_id=pair_id,
             before=before,
             current=current,
@@ -2805,7 +2840,10 @@ def _materialized_preview_inputs_from_checkpoint(
             "materialize checkpoint canonical state digest does not match its tables",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    return _MaterializedPreviewInputs(sides=sides, canonical=canonical)
+    return _MaterializedPreviewInputs(sides=sides, canonical=canonical, presentations={
+        _SIDE_MODIFIED: manifest.presentation,
+        _SIDE_INITIAL: PresentationMetadata() if initial_manifest is None else initial_manifest.presentation,
+    })
 
 
 def _assemble_state_from_checkpoint(

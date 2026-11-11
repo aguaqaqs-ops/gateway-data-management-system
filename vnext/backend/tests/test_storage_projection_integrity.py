@@ -709,3 +709,35 @@ def test_malformed_enum_set_values_fail_closed(
     assert result.status is ProjectionStatus.FAILED
     assert result.manifest is None
     assert ProjectionDiagnosticCode.UNSUPPORTED_TABLE in _codes(result)
+
+
+def test_presentation_is_raw_bound_and_excluded_from_semantic_digest() -> None:
+    from dataclasses import replace
+    import json
+    from gateway_backend.artifacts import InMemoryArtifactStore
+    from gateway_backend.capabilities.storage_projection import (
+        compute_manifest_digest, durable_manifest_bytes, canonicalization_manifest_from_bytes,
+        publish_canonicalization_manifest, open_canonicalization_manifest, PackageError, PublicationError,
+    )
+    from gateway_backend.capabilities.table_presentation.metadata import PresentationMetadata, TablePresentation, ColumnPresentation
+    result = project_storage(_request(_ordered_input((as_row(int_cell(1), int_cell(1), varchar_cell("a")),))))
+    assert result.manifest is not None
+    manifest = result.manifest
+    presentation = PresentationMetadata(tuple(TablePresentation(t.name, "表", tuple(ColumnPresentation(c, "列") for c in t.retained_columns)) for t in manifest.tables))
+    changed = replace(manifest, presentation=presentation)
+    assert compute_manifest_digest(changed) == manifest.manifest_digest
+    assert durable_manifest_bytes(changed) != durable_manifest_bytes(manifest)
+    assert canonicalization_manifest_from_bytes(durable_manifest_bytes(changed)) == changed
+    store = InMemoryArtifactStore()
+    old_ref = publish_canonicalization_manifest(manifest, store)
+    new_ref = publish_canonicalization_manifest(changed, store)
+    assert old_ref != new_ref
+    assert open_canonicalization_manifest(store, old_ref).presentation == manifest.presentation
+    assert open_canonicalization_manifest(store, new_ref).presentation == presentation
+    document = json.loads(durable_manifest_bytes(changed))
+    for malformed in ({}, {"tables": []}, {"tables": [{"table_name": manifest.tables[0].name, "comment": None, "columns": []}]}):
+        document["presentation"] = malformed
+        with pytest.raises(PackageError):
+            canonicalization_manifest_from_bytes(json.dumps(document).encode())
+    with pytest.raises(PublicationError):
+        open_canonicalization_manifest(store, replace(new_ref, size_bytes=new_ref.size_bytes + 1))

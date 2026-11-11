@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from threading import Event
+from types import SimpleNamespace
 from typing import cast
 
 import pyarrow as pa
@@ -253,3 +254,46 @@ def test_adapter_reuses_its_fixed_process_pool() -> None:
     _native_result(b"CREATE TABLE t (id INT NULL);")
     with pytest.raises(ValueError, match="initialized with 1 threads"):
         _parse_sql_native(b"CREATE TABLE t (id INT NULL);", NeverCancel(), None, 2)
+
+
+COMMENT_VECTORS = (
+    "CREATE TABLE T (id INT COMMENT '编号', label VARCHAR(30) COMMENT 'a''b\\n中') COMMENT='表';",
+    "CREATE TABLE t (id INT COMMENT 'first' COMMENT ' last ', label VARCHAR(30) DEFAULT 'COMMENT fake') COMMENT 'old' COMMENT='new';",
+    "CREATE TABLE t (id INT COMMENT ' \t ', label VARCHAR(30)) COMMENT='';",
+    "/* COMMENT 'fake' */ CREATE TABLE t (id INT /* COMMENT 'fake' */, label ENUM('COMMENT','b') COMMENT 'actual'); -- COMMENT 'fake'\n",
+    "CREATE TABLE z (id INT); CREATE TABLE a (id INT COMMENT 'a\\tb\\Z\\q');",
+)
+
+
+@pytest.mark.parametrize("sql", COMMENT_VECTORS)
+def test_native_comments_match_independent_create_comment_oracle(sql: str) -> None:
+    from tests.support.comment_oracle import comment_oracle
+    result = _native_result(sql.encode())
+    assert result["status"] == "COMPLETE"
+    tables = result["tables"]
+    assert isinstance(tables, list)
+    actual = {"tables": sorted([{"table_name": t["canonical_name"], "comment": t["comment"],
+        "columns": [{"name": c["canonical_name"], "comment": c["comment"]} for c in t["columns"]]}
+        for t in tables], key=lambda t: str(t["table_name"]).encode())}
+    assert actual == comment_oracle(sql)
+    for table in tables:
+        table["arrow_stream"].close()
+
+
+@pytest.mark.parametrize("literal", ("'bad\\0value'", "123", "NULL", "'unterminated"))
+def test_native_comment_rejects_malformed_strings(literal: str) -> None:
+    result = _native_result(f"CREATE TABLE t (id INT COMMENT {literal});".encode())
+    assert result.get("status") != "COMPLETE"
+
+
+def test_native_comment_obeys_field_budget_and_does_not_enter_canonical_ipc() -> None:
+    limited = _parse_sql_native(b"CREATE TABLE t (id INT COMMENT '12345');", NeverCancel(), budgets=SimpleNamespace(max_field_bytes=4))
+    assert limited["status"] == "FAILED"
+    encoded = []
+    for comment in ("old", "new"):
+        result = _native_result(f"CREATE TABLE t (id BIGINT COMMENT '{comment}'); INSERT INTO t VALUES (1);".encode())
+        tables = result["tables"]
+        assert isinstance(tables, list)
+        table = tables[0]
+        encoded.append(_encode_canonical_ipc_native(table["columns"], table["arrow_stream"], NeverCancel(), _CANONICAL_IPC_BUDGETS))
+    assert encoded[0] == encoded[1]

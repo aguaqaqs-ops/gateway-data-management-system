@@ -11,7 +11,7 @@ use std::sync::Arc;
 use super::ParserBudgets;
 use super::cursor::{Cursor, python_strip, starts_dash_comment};
 use super::errors::{Fault, PResult, ParserDiagnostic, ParserDiagnosticCode as Code};
-use super::literal::{LexError, parse_literal};
+use super::literal::{LexError, Lit, parse_literal};
 use super::model::{ColumnDescriptor, SqlLogicalType};
 use super::types::map_sql_type;
 
@@ -95,6 +95,7 @@ const STATEMENT_KEYWORDS: [&str; 21] = [
 
 #[derive(Debug)]
 pub(crate) struct TableBuild {
+    pub comment: Option<String>,
     pub display_name: String,
     pub canonical_name: String,
     pub columns: Vec<ColumnDescriptor>,
@@ -210,13 +211,14 @@ pub(crate) fn parse_create_table(
             Fault::new(code, offset, format!("duplicate table {display}")),
             None,
         );
-        skip_create_remainder(cursor, catalog, max_ident)?;
+        skip_create_remainder(cursor, catalog, max_ident, budgets.max_field_bytes)?;
         return Ok(());
     }
     if catalog.tables.len() >= budgets.max_tables_per_source {
         return Err(Fault::resource("max_tables_per_source", offset));
     }
     let mut table = TableBuild {
+        comment: None,
         display_name: display,
         canonical_name: canonical.clone(),
         columns: Vec::new(),
@@ -234,7 +236,7 @@ pub(crate) fn parse_create_table(
         &mut table,
         budgets,
     )?;
-    skip_table_options(cursor, catalog, max_ident)?;
+    table.comment = skip_table_options(cursor, catalog, max_ident, budgets.max_field_bytes)?;
     cursor.skip_ws_and_comments()?;
     if !cursor.at_end() {
         return Err(Fault::malformed(
@@ -484,6 +486,7 @@ fn parse_column(
     }
     let type_sql = parse_column_type(cursor, budgets.max_identifier_code_points)?;
     let mapped = map_sql_type(&type_sql, budgets.max_enum_set_sql_type_bytes);
+    let mut comment = None;
     let mut nullable = true;
     let mut inline_pk = false;
     while !cursor.at_end() {
@@ -530,7 +533,7 @@ fn parse_column(
             continue;
         }
         if cursor.try_keyword(b"comment")? {
-            skip_default(cursor, budgets.max_identifier_code_points)?;
+            comment = parse_comment(cursor, budgets.max_field_bytes)?;
             continue;
         }
         if cursor.try_keyword(b"primary")? {
@@ -558,6 +561,7 @@ fn parse_column(
         break;
     }
     let column = ColumnDescriptor {
+        comment,
         display_name: display.clone(),
         canonical_name: canonical.clone(),
         ordinal: table.columns.len(),
@@ -986,27 +990,36 @@ fn skip_table_options(
     cursor: &mut Cursor<'_>,
     catalog: &mut Catalog,
     max_ident: usize,
-) -> PResult<()> {
+    max_field_bytes: usize,
+) -> PResult<Option<String>> {
+    let mut comment = None;
     while !cursor.at_end() {
         cursor.skip_ws_and_comments()?;
         if cursor.at_end() || cursor.peek() == Some(b';') {
-            return Ok(());
+            return Ok(comment);
         }
         let saved = cursor.pos;
         let mut matched = false;
+        let mut is_comment = false;
         for option in TABLE_OPTIONS {
             cursor.pos = saved;
             if cursor.try_keyword(option)? {
                 matched = true;
+                is_comment = option == b"comment";
                 break;
             }
         }
         if !matched {
             cursor.pos = saved;
-            return Ok(());
+            return Ok(comment);
         }
         cursor.skip_ws_and_comments()?;
-        if cursor.peek() == Some(b'=') {
+        if is_comment {
+            if cursor.peek() == Some(b'=') {
+                cursor.pos += 1;
+            }
+            comment = parse_comment(cursor, max_field_bytes)?;
+        } else if cursor.peek() == Some(b'=') {
             cursor.pos += 1;
             skip_set_rhs(cursor, max_ident)?;
         } else if cursor.try_keyword(b"character")? {
@@ -1034,7 +1047,27 @@ fn skip_table_options(
             }
         }
     }
-    Ok(())
+    Ok(comment)
+}
+
+fn parse_comment(cursor: &mut Cursor<'_>, max_field_bytes: usize) -> PResult<Option<String>> {
+    cursor.skip_ws_and_comments()?;
+    let offset = cursor.pos;
+    let literal = parse_literal(cursor).map_err(|error| match error {
+        LexError::Halt(fault) | LexError::Literal(fault) => fault,
+    })?;
+    let Lit::Str(bytes) = literal else {
+        return Err(Fault::malformed(offset, "COMMENT requires a string literal"));
+    };
+    if bytes.len() > max_field_bytes {
+        return Err(Fault::resource("max_field_bytes", offset));
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| Fault::malformed(offset, "COMMENT is not valid UTF-8"))?;
+    if text.contains('\0') {
+        return Err(Fault::malformed(offset, "COMMENT must not contain NUL"));
+    }
+    Ok((!python_strip(text).is_empty()).then(|| text.to_owned()))
 }
 
 fn skip_name_or_string(cursor: &mut Cursor<'_>, max_ident: usize) -> PResult<()> {
@@ -1084,12 +1117,13 @@ fn skip_create_remainder(
     cursor: &mut Cursor<'_>,
     catalog: &mut Catalog,
     max_ident: usize,
+    max_field_bytes: usize,
 ) -> PResult<()> {
     cursor.skip_ws_and_comments()?;
     if cursor.peek() == Some(b'(') {
         cursor.take_balanced_paren()?;
     }
-    skip_table_options(cursor, catalog, max_ident)
+    skip_table_options(cursor, catalog, max_ident, max_field_bytes).map(|_| ())
 }
 
 pub(crate) fn expect_end(cursor: &mut Cursor<'_>) -> PResult<()> {

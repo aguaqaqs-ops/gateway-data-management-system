@@ -672,7 +672,7 @@ def test_removed_tables_follow_the_complete_canonical_state(
 def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() -> None:
     store = InMemoryArtifactStore()
     source = materialize_sql(
-        "CREATE TABLE com_cfg (`index` INT NOT NULL, `no` INT NOT NULL, `value` VARCHAR(8), PRIMARY KEY (`index`));"
+        "CREATE TABLE com_cfg (`index` INT NOT NULL, `no` INT NOT NULL, `value` VARCHAR(8) COMMENT '值', PRIMARY KEY (`index`)) COMMENT='配置';"
         "INSERT INTO com_cfg VALUES (1, 10, 'a');",
         policy=MaterializationPolicy.READERS_REQUIRED,
         artifact_store=store,
@@ -683,6 +683,7 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     frozen = project_canonical_arrow_table_set(
         source.table_set,
         migrated_table_ruleset_snapshot(),
+        presentation=source.presentation,
     )
     assert frozen.status is ProjectionStatus.COMPLETE
     assert frozen.manifest is not None
@@ -752,6 +753,12 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     replay_sql = _replay_sql_from_package(package)
     assert "CREATE TABLE `com_cfg`" in replay_sql
     assert "`no`" not in replay_sql
+    assert "COMMENT" not in replay_sql
+    from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
+    reopened = open_canonicalization_manifest(store, published.checkpoint.canonicalization_manifest_ref)
+    assert reopened.presentation == frozen.manifest.presentation
+    assert reopened.presentation.tables[0].comment == "配置"
+    assert {c.name: c.comment for c in reopened.presentation.tables[0].columns} == {"index": None, "value": "值"}
 
 
 def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:

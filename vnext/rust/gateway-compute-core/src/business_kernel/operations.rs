@@ -648,6 +648,7 @@ fn arrow_table(
     }
     Ok(KernelArrowTable {
         descriptor: TableDescriptor {
+            comment: None,
             display_name: name.to_owned(),
             canonical_name: name.to_owned(),
             columns: descriptors,

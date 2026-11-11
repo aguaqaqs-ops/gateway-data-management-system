@@ -222,7 +222,7 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
 
     assert projected.status is ProjectionStatus.COMPLETE
     assert projected.manifest is not None
-    assert projected.manifest.contract_version == "3.3.0"
+    assert projected.manifest.contract_version == "3.4.0"
     assert len(projected.tables) == 1
     canonical = projected.tables[0]
     assert canonical.descriptor.primary_key_columns == ("board", "link_no")

@@ -445,6 +445,29 @@ class MutationStore:
                 )
             return views
 
+    def page_succeeded_repositories(self, *, after_effect_id: int = 0,
+                                    limit: int = 100) -> list[tuple[int, UUID]]:
+        """Bounded read-only statistics page, never initializes a repository."""
+        if not 1 <= limit <= 100 or after_effect_id < 0:
+            raise ValueError("invalid statistics page")
+        if not self._lock.acquire(timeout=.05):
+            return []
+        try:
+            deadline = __import__('time').monotonic() + .05
+            self._connection.set_progress_handler(
+                lambda: int(__import__('time').monotonic() > deadline), 1000)
+            rows = self._connection.execute(
+                """SELECT e.effect_id, e.resource_id FROM synchronous_mutation_effects e
+                   JOIN mutation_idempotency i ON i.id=e.idempotency_id
+                   WHERE i.mutation_kind=? AND e.status=? AND e.effect_id>?
+                   ORDER BY e.effect_id LIMIT ?""",
+                (MutationKind.CREATE_REPOSITORY.value, EffectStatus.SUCCEEDED.value,
+                 after_effect_id, limit)).fetchall()
+            return [(int(row["effect_id"]), UUID(str(row["resource_id"]))) for row in rows]
+        finally:
+            self._connection.set_progress_handler(None, 0)
+            self._lock.release()
+
     def list_succeeded_create_repository_ids(self) -> list[UUID]:
         """Return SUCCEEDED create-repository IDs without taking a write lock."""
 

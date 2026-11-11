@@ -94,12 +94,14 @@ class ImportOperationExecutor:
         store: ImportOperationStore,
         fault_injector: ImportWorkerFaultInjector | None = None,
         interruption_check: Callable[[], bool] | None = None,
+        mutation_cutoff: Callable[[], object] | None = None,
     ) -> None:
         self._settings = settings
         self._layout = layout
         self._store = store
         self._fault_injector = fault_injector or NoOpImportWorkerFaultInjector()
         self._interruption_check = interruption_check
+        self._mutation_cutoff = mutation_cutoff
 
     def _is_interrupted(self) -> bool:
         return self._interruption_check is not None and self._interruption_check()
@@ -170,6 +172,11 @@ class ImportOperationExecutor:
             )
         evidence.main_after_first_check = evidence.main_before
 
+        if self._mutation_cutoff is not None:
+            try:
+                self._mutation_cutoff()
+            except Exception:
+                pass  # Dedicated disposable telemetry must not affect the mutation.
         provider.create_private_ref(context.private_ref_name, context.expected_commit_id)
         evidence.private_ref_created = True
         provider.checkout_private_ref(context.private_ref_name)

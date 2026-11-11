@@ -139,6 +139,7 @@ def assert_request_id_header(response: Any) -> str:
 
 
 PRODUCTION_OPENAPI_PATHS = {
+    "/v1/statistics/observations",
     "/healthz",
     "/readyz",
     "/v1/repositories",

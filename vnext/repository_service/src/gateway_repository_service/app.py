@@ -18,6 +18,8 @@ from gateway_repository_service.http.routes.operations import register_operation
 from gateway_repository_service.http.routes.probes import register_probe_routes
 from gateway_repository_service.http.routes.repositories import register_repository_routes
 from gateway_repository_service.http.routes.versioned_read import register_versioned_read_routes
+from gateway_repository_service.http.routes.statistics import register_statistics_routes
+from gateway_repository_service.statistics import ObservationRing
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings
 
@@ -52,6 +54,7 @@ def create_app(
         lifespan=lifespan or (_default_lifespan if use_lifecycle else None),
     )
     app.state.settings = configured
+    app.state.empty_statistics_ring = ObservationRing("unconfigured", "unconfigured", max_items=1)
     if readiness is not None:
         app.state.readiness = readiness
     elif not use_lifecycle:
@@ -66,5 +69,6 @@ def create_app(
     register_import_routes(app)
     register_operation_routes(app)
     register_versioned_read_routes(app)
+    register_statistics_routes(app)
 
     return app

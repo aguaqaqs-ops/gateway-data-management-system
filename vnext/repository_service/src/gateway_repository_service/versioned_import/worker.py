@@ -14,6 +14,7 @@ from uuid import UUID
 
 from gateway_repository_contracts import SimpleError
 
+from gateway_repository_service.statistics import RepositoryStatistics, WriteWindow, best_effort
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_import.command import ImportOperationExecutor
@@ -162,8 +163,10 @@ class ImportWorkerPool:
         fault_injector: ImportWorkerFaultInjector | None = None,
         shutdown_event: threading.Event | None = None,
         before_claim: Callable[[], None] | None = None,
+        statistics: RepositoryStatistics | None = None,
     ) -> None:
         self._before_claim = before_claim
+        self._statistics = statistics
         self._settings = settings
         self._layout = layout
         self._store = store
@@ -386,18 +389,30 @@ class ImportWorkerPool:
                     ) -> bool:
                         return self._is_shutting_down() or _cancellation.is_set()
 
+                    statistics = self._statistics
+                    window: WriteWindow | None = None
+                    if statistics is not None:
+                        value = best_effort(lambda: statistics.begin(
+                            repository_id, operation_id, context.expected_commit_id))
+                        if isinstance(value, WriteWindow):
+                            window = value
                     executor = ImportOperationExecutor(
                         settings=self._settings,
                         layout=self._layout,
                         store=self._store,
                         fault_injector=self._fault_injector,
                         interruption_check=_interruption_check,
+                        mutation_cutoff=(lambda: statistics.mutation(window)) if statistics else None,
                     )
                     provider = _CancellableProviderWrapper(
                         self._provider_factory(repository_id),
                         cancellation_event.is_set,
                     )
-                    executor.execute(context, provider)
+                    try:
+                        executor.execute(context, provider)
+                    finally:
+                        if statistics is not None:
+                            best_effort(lambda: statistics.end(window))
         finally:
             with self._in_flight_lock:
                 self._in_flight = max(0, self._in_flight - 1)

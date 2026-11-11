@@ -29,6 +29,7 @@ from gateway_repository_contracts import (
     VersionedTableNameString,
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
+from gateway_repository_contracts.statistics import StatisticsFeedQuery, StatisticsFeedResponse
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
 from gateway_repository_client.deadline import CancelRequested, RequestControl, validate_deadline_seconds
 from gateway_repository_client.errors import RepositoryClientError, RepositoryProtocolError
@@ -93,6 +94,17 @@ class RepositoryClient:
         self._transport = transport
         self._sleeper = sleeper
         self._clock = clock
+
+    async def get_statistics_observations(self, query: StatisticsFeedQuery) -> StatisticsFeedResponse:
+        """One disposable feed page, with a strict decoded-body limit and no retry loop."""
+        async with self._json_client() as client:
+            request = client.build_request("GET", "/v1/statistics/observations",
+                headers={"Authorization": f"Bearer {self._bearer_token}"},
+                params=query.model_dump(mode="json", exclude_none=True))
+            response = await client.send(request, stream=True)
+            return await parse_json_response(response, expected_status=200,
+                model=StatisticsFeedResponse, max_success_body_bytes=1024 * 1024,
+                max_error_body_bytes=MAX_WIRE_ERROR_JSON_BYTES)
 
     async def create_repository(
         self,

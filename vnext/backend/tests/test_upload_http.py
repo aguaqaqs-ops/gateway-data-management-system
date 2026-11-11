@@ -60,18 +60,18 @@ def test_accept_upload_returns_201(env: WorkspaceHttpTestEnvironment) -> None:
 def test_drain_counts_upload_until_existing_stream_finishes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from gateway_backend.http.dependencies import ClosableAdmissionGate
     from gateway_backend.http.routes import upload_revisions
+    from gateway_backend.http.orchestration.multipart_stream import parse_streaming_multipart
     from tests.support.http_workspace_harness import TEST_INTERNAL_BEARER
 
     gate = ClosableAdmissionGate()
     env = create_workspace_http_environment(tmp_path, admission_gate=gate)
     workspace = _create_workspace(env.client, env.auth_headers()).json()
-    parse = upload_revisions.parse_streaming_multipart
     internal = {"Authorization": "Bearer " + TEST_INTERNAL_BEARER}
 
     async def drain_while_streaming(**kwargs: Any) -> Any:
         response = env.client.post("/internal/v1/maintenance/drain", headers=internal)
         assert response.json() == {"accepting_new_work": False, "in_flight": 1}
-        return await parse(**kwargs)
+        return await parse_streaming_multipart(**kwargs)
 
     monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", drain_while_streaming)
     url = f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions"

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from queue import Queue
 import subprocess
+import sys
 from threading import Event
 from typing import Any
 
@@ -30,6 +31,22 @@ def _stop_workers(ids: list[str]) -> None:
     assert state.returncode == 0, state.stderr
     assert all(item["State"]["Pid"] == 0 and not item["State"]["Running"]
                for item in json.loads(state.stdout))
+
+
+def _manage_group(env: dict[str, str], command: str) -> str:
+    rendered = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
+    mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
+    result = subprocess.run([sys.executable, str(harness.VNEXT_ROOT / "scripts/manage-worker-group.py"), command,
+        "--project", env["COMPOSE_PROJECT_NAME"],
+        "--compose-file", str(harness.COMPOSE_FILE),
+        "--compose-file", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"],
+        "--storage-layout", mounts["/run/gateway/storage-layout.json"],
+        "--resource-profile", mounts["/run/gateway/resource-profile.json"],
+        "--internal-bearer-token-file", env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"]],
+        env=env, check=False, capture_output=True, text=True, timeout=900)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print("fixed_group_maintenance=" + result.stdout.strip(), flush=True)
+    return result.stdout
 
 
 def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(tmp_path: Path) -> None:
@@ -124,7 +141,13 @@ else:
             assert result.returncode == 0, result.stdout + result.stderr
             print(f"{service}_cgroup_preflight={result.stdout}", flush=True)
         harness.persist_compose_gate_provenance(env, harness.capture_running_container_provenance(env))
-        _stop_workers(ids)
+        assert "not quiescent" in _manage_group(env, "drain")
+        # Recovery explicitly starts the same fixed containers under closed admission.
+        assert "not quiescent" in _manage_group(env, "start-recovery")
+        harness.worker_ready(env)
+        restarted = harness.capture_worker_container_state(env)
+        assert {state.split()[0] for state in restarted.values()} == set(ids)
+        assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
         harness.run_compose(env, "unpause", "repository-service")
         resume_polling.set()

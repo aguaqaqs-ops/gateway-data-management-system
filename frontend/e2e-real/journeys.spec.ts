@@ -7,6 +7,7 @@ import {
   expandWorkspaceDetails,
   expectDisabledWithReason,
   expectEnabled,
+  expectReviewReasonShownOnce,
   gotoWorkbench,
   opfsBundleState,
   recordBundleResponses,
@@ -957,6 +958,7 @@ test("r7-reviewer-withdraw", async ({ browser }, testInfo) => {
     await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已撤回", { timeout: 120_000 });
     await expectDisabledWithReason(reviewAction(reviewerSession.page, "撤回"), "该提交已撤回");
     await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已撤回");
+    await expectReviewReasonShownOnce(reviewerSession.page, "该提交已撤回");
     await saveEvidence(reviewerSession.page, testInfo, "r7-reviewer-withdraw");
 
     await expectPointersCleared(submitter);
@@ -1212,6 +1214,7 @@ test("r11-review-conflict", async ({ browser }, testInfo) => {
     expect(reviewRequests.count(), "refresh does not resend the actions").toBe(1);
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已撤回");
+    await expectReviewReasonShownOnce(reviewerSession.page, "该提交已撤回");
     await saveEvidence(reviewerSession.page, testInfo, "r11-review-conflict");
 
     assertClean(submitterSession.diagnostics, "r11-review-conflict-submitter");
@@ -1544,6 +1547,7 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     await openReviewPage(reviewerSession.page, submitA.submissionId);
     await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已通过");
     await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已归档");
+    await expectReviewReasonShownOnce(reviewerSession.page, "该提交已归档");
     await saveEvidence(reviewerSession.page, testInfo, "j1-review-disposition-archived");
     assertClean(reviewerSession.diagnostics, "j1-review-archived");
 
@@ -1929,6 +1933,7 @@ test("j2-manual-close", async ({ browser }, testInfo) => {
     await expect(reviewStatus(reviewerSession.page)).toHaveText("审核：已通过");
     await expect(reviewerSession.page.locator(".review-disposition-line")).toHaveText("归档时选中了其他提交");
     await expectDisabledWithReason(reviewAction(reviewerSession.page, "审核通过"), "该提交已关闭（未归档）");
+    await expectReviewReasonShownOnce(reviewerSession.page, "该提交已关闭（未归档）");
     await saveEvidence(reviewerSession.page, testInfo, "j2-review-disposition-closed-at-archive");
     assertClean(reviewerSession.diagnostics, "j2-review-closed-at-archive");
 

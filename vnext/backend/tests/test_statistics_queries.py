@@ -67,7 +67,7 @@ def _reader(store: SQLiteStatisticsStore) -> SQLiteStatisticsReader:
 def _env(tmp_path: Path, store: SQLiteStatisticsStore) -> WorkspaceHttpTestEnvironment:
     env = create_workspace_http_environment(tmp_path, now=lambda: NOW, extra_sessions={
         'group': make_identity(permissions=frozenset({'statistics_read_group'})),
-        'cross': make_identity(gateway_device_external_key='other-device'),
+        'cross': make_identity(device_key='other-device'),
     })
     cast(FastAPI, env.client.app).state.statistics_http = StatisticsHttpDependencies(_reader(store), now=lambda: NOW)
     return env
@@ -79,14 +79,14 @@ def test_latest_and_keyset_pages_do_not_scan_old_history(store: SQLiteStatistics
     request = ReadRequest('storage_history', 'repo-1', BASE, BASE + 100, 3)
     first = reader.read(request)
     second = reader.read(replace(request, cursor=first.next_cursor))
-    assert [item.source_event_id for item in first.items] == ['0', '1', '2']
-    assert [item.source_event_id for item in second.items] == ['3', '4', '5']
+    assert [item.source_event_id for item in first.items if isinstance(item, StorageRecord)] == ['0', '1', '2']
+    assert [item.source_event_id for item in second.items if isinstance(item, StorageRecord)] == ['3', '4', '5']
     assert reader.read(replace(request, owner_id='other')).items == ()
     with pytest.raises(StatisticsReadError, match='invalid_cursor'):
         reader.read(replace(request, kind='writes', cursor=first.next_cursor))
     monkeypatch.setattr(queries, 'MAX_READ_ROWS', 5)
     current = reader.read(replace(request, kind='storage'))
-    assert [item.source_event_id for item in current.items] == ['19']
+    assert [item.source_event_id for item in current.items if isinstance(item, StorageRecord)] == ['19']
 
 
 @pytest.mark.parametrize('budget', ['rows', 'bytes', 'time'])

@@ -627,6 +627,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.infrastructure.repository_read",
                         "gateway_backend.infrastructure.repository_write",
                         "gateway_backend.infrastructure.statistics",
+                        "gateway_backend.statistics",
                         "gateway_backend.operations",
                         "gateway_backend.settings",
                         "gateway_backend.deployment_config",

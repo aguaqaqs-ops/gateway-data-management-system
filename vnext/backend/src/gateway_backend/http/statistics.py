@@ -22,7 +22,7 @@ from gateway_backend.http.schemas.statistics import (
     BucketValue, ResourceBucket, ResourcePage, ResourceQuery, ResourceSeries, StatisticsPage, StatisticsQuery,
 )
 from gateway_backend.statistics.models import ResourceRecord
-from gateway_backend.statistics.queries import ResourceRead, StatisticsReadError, StatisticsReader
+from gateway_backend.statistics.queries import ResourceRead, Role, StatisticsReadError, StatisticsReader
 
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
@@ -138,7 +138,7 @@ def page_metadata(items: Sequence[Any], start_us: int, end_us: int, now: datetim
 
 
 def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_us: int, now: datetime, scope: str) -> ResourcePage:
-    groups: dict[tuple[str, str, str | None, int | None, int | None], list[ResourceRecord]] = defaultdict(list)
+    groups: dict[tuple[Role, str, str | None, int | None, int | None], list[ResourceRecord]] = defaultdict(list)
     for sample in data.samples:
         groups[(sample.role, sample.process_instance_id, sample.step_id, sample.attempt_count, sample.claim_version)].append(sample)
     if len(groups) > query.max_points:
@@ -161,7 +161,7 @@ def resource_page(data: ResourceRead, query: ResourceQuery, start_us: int, end_u
                 value = getattr(sample, name)
                 if name in counters:
                     old = getattr(previous, name) if previous is not None else None
-                    if old is None or value is None:
+                    if previous is None or old is None or value is None:
                         value = None
                     elif value < old:
                         value, reason = None, 'counter_reset'

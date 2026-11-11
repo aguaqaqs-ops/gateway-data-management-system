@@ -1,7 +1,7 @@
 """Authorized saved telemetry only. These GETs never collect or mutate data."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
@@ -17,12 +17,12 @@ from gateway_backend.http.schemas.statistics import (
 )
 from gateway_backend.http.statistics import get_statistics_http, page_metadata, resource_page, respond, time_range
 from gateway_backend.statistics.models import StorageRecord
-from gateway_backend.statistics.queries import ReadRequest, ResourceRequest
+from gateway_backend.statistics.queries import CollectionKind, ReadRequest, ResourceRequest
 
 router = APIRouter(tags=['statistics'])
 
 # CSV carries the same page metadata in headers; no server export file or query session.
-RESPONSES = {
+RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {'description': 'Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. '
             'Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; '
             'raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; '
@@ -60,12 +60,12 @@ def _repository(repository_id: str, context: IdentityContext, deps: WorkspaceHtt
         raise ApiError(code='RESOURCE_NOT_FOUND', message='resource not found', status_code=404)
 
 
-def _collection(kind: str, owner: str, request: Request, query: StatisticsQuery) -> Response:
+def _collection(kind: CollectionKind, owner: str, request: Request, query: StatisticsQuery) -> Response:
     deps = get_statistics_http(request)
     now = deps.now()
     start, end = time_range(query, now)
 
-    def prepare() -> StatisticsPage:
+    def prepare() -> StatisticsPage[Any]:
         data = deps.reader.read(ReadRequest(kind=kind, owner_id=owner, start_us=start, end_us=end,
             limit=query.effective_limit, cursor=query.cursor))
         timestamps = [item.window_end_us if isinstance(item, StorageRecord) else item.recorded_at_us for item in data.items]

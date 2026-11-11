@@ -9,7 +9,8 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
+from gateway_repository_contracts.statistics import Role
 
 from pydantic import ValidationError
 
@@ -93,7 +94,7 @@ class SQLiteStatisticsReader:
             connection.execute('BEGIN')
             yield _Read(connection, deadline)
         except (sqlite3.Error, OSError, ValidationError, json.JSONDecodeError) as exc:
-            reason = 'budget_exceeded' if isinstance(exc, sqlite3.OperationalError) and str(exc) == 'interrupted' else 'unavailable'
+            reason: Literal['budget_exceeded', 'unavailable'] = 'budget_exceeded' if isinstance(exc, sqlite3.OperationalError) and str(exc) == 'interrupted' else 'unavailable'
             raise StatisticsReadError(reason) from None
         finally:
             if connection is not None:
@@ -105,6 +106,9 @@ class SQLiteStatisticsReader:
 
     def read(self, request: ReadRequest) -> ReadPage:
         kind = request.kind
+        keys: tuple[str, ...]
+        types: tuple[type, ...]
+        model: type[StorageRecord] | type[WriteRecord] | type[ExecutionSummary]
         if kind in ('storage', 'storage_history'):
             table, timestamp, keys, types = 'storage_observations', 'window_end_us', ('id',), (int, int)
             owner, model = 'repository_id', StorageRecord
@@ -179,11 +183,12 @@ class SQLiteStatisticsReader:
                 # A configured filesystem identity is counted once across services.
                 key = ('filesystem', row['filesystem_id']) if row['category'] == 'filesystem' else (row['service_owner'], row['category'])
                 latest[key] = row
-            instances = []
-            for role in ('backend', 'worker', 'repository_service'):
-                row = query.select('SELECT role,process_instance_id FROM resource_samples WHERE environment_id=? AND group_id=? AND role=?'
+            instances: list[tuple[Role, str]] = []
+            roles: tuple[Role, ...] = ('backend', 'worker', 'repository_service')
+            for role in roles:
+                instance_rows = query.select('SELECT role,process_instance_id FROM resource_samples WHERE environment_id=? AND group_id=? AND role=?'
                     ' AND sampled_at_us>=? AND sampled_at_us<? ORDER BY sampled_at_us DESC,id DESC LIMIT 1', (*self._identity, role, start_us, end_us))
-                if row:
-                    instances.append((str(row[0]['role']), str(row[0]['process_instance_id'])))
+                if instance_rows:
+                    instances.append((role, str(instance_rows[0]['process_instance_id'])))
             storage = _decode(StorageRecord, list(latest.values()))
         return GroupRead(storage=storage, instances=tuple(instances))

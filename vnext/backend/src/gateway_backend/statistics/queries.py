@@ -3,8 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, Protocol
+from gateway_repository_contracts.statistics import Role
 
 from gateway_backend.statistics.models import ExecutionSummary, ResourceRecord, StatisticsIdentity, StorageRecord, WriteRecord
+
+
+CollectionKind = Literal['storage', 'storage_history', 'writes', 'executions']
 
 
 class StatisticsReadError(Exception):
@@ -15,7 +19,7 @@ class StatisticsReadError(Exception):
 
 @dataclass(frozen=True)
 class ReadRequest:
-    kind: Literal['storage', 'storage_history', 'writes', 'executions']
+    kind: CollectionKind
     owner_id: str
     start_us: int
     end_us: int
@@ -50,7 +54,7 @@ class ResourceRead:
 @dataclass(frozen=True)
 class GroupRead:
     storage: tuple[StorageRecord, ...]
-    instances: tuple[tuple[str, str], ...]
+    instances: tuple[tuple[Role, str], ...]
 
 
 class StatisticsReader(Protocol):

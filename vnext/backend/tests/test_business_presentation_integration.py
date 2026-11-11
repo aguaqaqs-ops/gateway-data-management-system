@@ -173,7 +173,7 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
     assert shared["shared"] and len(shared["table_bindings"]) == 3
     assert store.locate(artifact_ref_from_dict(shared["artifact_ref"])) == raw
     locator_entry, = [e for e in manifest["closure_entries"] if e["kind"] == "ROW_LOCATOR" and e["pair_id"] == "left_to_middle"
-        and "t/" in e["logical_path"]]
+        and e["logical_path"].endswith("/t.parquet")]
     locator, = pq.read_table(pa.BufferReader(store.locate(artifact_ref_from_dict(locator_entry["artifact_ref"])))).to_pylist()
     assert locator["current_row_index"] == 2
 

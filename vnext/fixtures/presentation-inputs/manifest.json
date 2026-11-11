@@ -155,12 +155,12 @@
     },
     {
       "path": "string-before.sql",
-      "sha256": "e24cf60f0e18f6b0dee189d0dd689a6aa6ce0824bf26964620dbfb2eb1d81ee9",
+      "sha256": "8faf7e24eee5f33c1a6e533faf9fae17528dc3148c0cf716d4c7c2d3beacd91f",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "string-current.sql",
-      "sha256": "a6329b399e23ad9dab910da0df6ab2da9204d95d6f4c2167aa5b433374699528",
+      "sha256": "2b5de7fb0049f9b160ff5d3ee4405f8a992d3ffbbbd74a026faa1b00376d2cbf",
       "source": "BE-b bounded presentation scenario"
     },
     {

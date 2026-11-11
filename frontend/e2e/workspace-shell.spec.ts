@@ -2324,6 +2324,7 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   test.setTimeout(240000);
   await installFixtureRoutes(page);
   const shot = async (name: string) => {
+    console.log("SHOT", name);
     await screenshot(page, name, 1920);
     await screenshot(page, name, 1280);
   };

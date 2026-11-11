@@ -24,6 +24,8 @@ import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { ApiError } from "../features/api/authenticated-fetch";
 import { bundleErrorTitle } from "../features/bundle/local-bundle";
 import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
+import { DeviceBar, SessionGate } from "../features/session/SessionComponents";
+import { isGatewaySessionBlocked, useGatewaySessionState } from "../features/session/handoff-session";
 import { SubmitDialog } from "../features/workbench/SubmitDialog";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { ReviewActions } from "../features/workbench/ReviewActions";
@@ -184,6 +186,7 @@ function bundlePathForState(state: BrowseState): string | null {
 }
 
 export function ComparisonPage({ identityControl }: { identityControl?: ReactNode }) {
+  const sessionState = useGatewaySessionState();
   const runtime = useMemo(() => new BrowseCommandRuntime(decodeBrowseState(window.location.search)), []);
   const [browse, setBrowse] = useState<BrowseState>(runtime.snapshot.state);
   const [bundle, setBundle] = useState<InstalledBundle | null>(null);
@@ -344,6 +347,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   useEffect(() => { try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* defaults remain in memory */ } }, [settings]);
 
   const loadBundle = useCallback(async () => {
+    if (sessionState.kind !== "handoff" && sessionState.kind !== "preset") return;
     const current = runtime.snapshot.state;
     if (current.mode === "REVIEW" && current.submissionId && !current.operationId) {
       try {
@@ -413,7 +417,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
     }
-  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime]);
+  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
   // C5: after a terminal review action or an expired/closed 409, re-read the
@@ -593,11 +597,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     window.location.assign(`/?${params.toString()}`);
   };
 
+  if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
   return <main className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
     {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
+      <DeviceBar state={sessionState} />
       <div className="compare-header__top">
         <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>

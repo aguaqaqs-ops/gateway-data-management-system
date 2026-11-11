@@ -1,6 +1,61 @@
 {
   "files": [
     {
+      "path": "boundary-before.sql",
+      "sha256": "718fbe4c8383bc4ac892b90ba2fe5a66b86763711708ba0c346a90ff66de5ba2",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "boundary-current.sql",
+      "sha256": "7c162085b5e69db9dec945875cd4ebac98b6eadbe44cf267056933c235e9f3a5",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "comment-before.sql",
+      "sha256": "f8e264a940e003f630d20adaaff489aa5f50d7e8e2c39805aaa6646544b2c228",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "comment-current.sql",
+      "sha256": "12d73c79b8a73e2c179bb37593653d33e569e56262bb786149d74da72ac9be34",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "duplicate-before.sql",
+      "sha256": "9c46766991f06834aba2c7dd80e8e64a31b7d6ecffb6742afd14ffbf7a0753d3",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "duplicate-current.sql",
+      "sha256": "eb4ce39be5c9419d987df05672a736c4de4d2ed31f75b9d9c776d26af0140f28",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "empty.sql",
+      "sha256": "0293c803c55f377d5b7a703f2cacab67b68f3cc2acabfcaf5780908530c14719",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "empty.xml",
+      "sha256": "d516d86b8b1c8a21cd10943bc105f8b149cd7d372ced9ce65fe7ee9538c328eb",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "formula-unchanged-device.sql",
+      "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001",
+      "source": "BE-b scenario: identical SQL sides, changed XML only"
+    },
+    {
+      "path": "identity-before.sql",
+      "sha256": "e7f32406a17b2062c19256d39e818aeb72459ddc0bbdeec13d2cd1d953b5c160",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "identity-current.sql",
+      "sha256": "e48873d3f23fbf2274cc15f5e8e7fc5370f036eb38e91084e2db0ab567edd696",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
       "path": "logics-1.xml",
       "sha256": "033a4c33fe7ef18caf5d3780862aaf2a82eba7e78cd8f147e0db0861ab60a53b",
       "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
@@ -17,6 +72,16 @@
       "sha256": "3387cc9165ab81cc7c8e2f95ecc0dc4562569730d7670b5607e10fe9e8fccbca",
       "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
       "source_path": "frontend/src/test/fixtures/source/upload-inputs/logics-3.xml"
+    },
+    {
+      "path": "schema-before.sql",
+      "sha256": "bfa45131f96738335440a4ae567ac648f42709101e441b55c728b95ebb2a36e0",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "schema-current.sql",
+      "sha256": "0ab039637f9d3d551ac32443991ba56ab2e7363100120c1af42b5b7c989b7006",
+      "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "sql-baseline.sql",
@@ -47,6 +112,26 @@
       "sha256": "b71a5b8c19541c349fe34946dd66b26ec1783c7f0fcdd716fc6915c3ca133dd4",
       "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
       "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-replacement-current.sql"
+    },
+    {
+      "path": "string-before.sql",
+      "sha256": "f23b4b2edf74be1da51252dea36e80d48532fc2bd10b92615c647e705fc3c2dd",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "string-current.sql",
+      "sha256": "9a6c84ea7bab21f5e721de5c8d2c35f1c9981d0849e93c879311a5daa514ea2c",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "workbench-before.sql",
+      "sha256": "7efeabbe22d67a7501a84cad0278ddcfe94d1dc172e7eb4232eaa2f27204c39c",
+      "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "workbench-current.sql",
+      "sha256": "3e09fa0c00ddd4a5408e9913a13af9732e133331b71a2366b42e113bb96a86c3",
+      "source": "BE-b bounded presentation scenario"
     }
   ],
   "format": "backend-presentation-fixture-inputs/v1",
@@ -56,7 +141,15 @@
     "backend/fe2a/preview-replacement",
     "backend/fe2a/history-three-nodes",
     "backend/fe2b/preview-workbench-normal",
-    "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation"
+    "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
+    "backend/scenarios/identity-changes",
+    "backend/scenarios/duplicates-orphans",
+    "backend/scenarios/text-identities",
+    "backend/scenarios/integer-boundary",
+    "backend/scenarios/schema-keyless",
+    "backend/scenarios/table-addition",
+    "backend/scenarios/comment-only",
+    "backend/scenarios/formula-unchanged-device"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -66,5 +159,460 @@
     "backend/fe2a/preview-no-navigation"
   ],
   "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
-  "source_prefix": "frontend/src/test/fixtures/source/upload-inputs/"
+  "source_prefix": "frontend/src/test/fixtures/source/upload-inputs/",
+  "scenarios": [
+    {
+      "id": "preview-full",
+      "output": "backend/fe2a/preview-full",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "sql-baseline.sql",
+          "xml": "logics-1.xml",
+          "role": "baseline",
+          "label": "当前基线"
+        },
+        {
+          "sql": "sql-initial.sql",
+          "xml": "logics-2.xml",
+          "role": "initial",
+          "label": "原始组态"
+        },
+        {
+          "sql": "sql-modified.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "baseline_to_initial",
+          "before": 0,
+          "current": 1
+        },
+        {
+          "id": "initial_to_modified",
+          "before": 1,
+          "current": 2
+        }
+      ],
+      "coverage": [
+        "ordinary-two-pairs",
+        "before-formula",
+        "keyless",
+        "before-only-columns"
+      ]
+    },
+    {
+      "id": "preview-modified-only",
+      "output": "backend/fe2a/preview-modified-only",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "sql-baseline.sql",
+          "xml": "logics-1.xml",
+          "role": "baseline",
+          "label": "当前基线"
+        },
+        {
+          "sql": "sql-modified.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "modified-only",
+        "missing-snapshot-context",
+        "before-formula"
+      ]
+    },
+    {
+      "id": "preview-replacement",
+      "output": "backend/fe2a/preview-replacement",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "sql-replacement-before.sql",
+          "xml": "logics-1.xml",
+          "role": "baseline",
+          "label": "改前数据集"
+        },
+        {
+          "sql": "sql-replacement-current.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "replacement",
+        "side-isolation"
+      ]
+    },
+    {
+      "id": "history-three-nodes",
+      "output": "backend/fe2a/history-three-nodes",
+      "flow": "HISTORY",
+      "nodes": [
+        {
+          "sql": "sql-baseline.sql",
+          "xml": "logics-1.xml",
+          "role": "baseline",
+          "label": "当前基线"
+        },
+        {
+          "sql": "sql-initial.sql",
+          "xml": "logics-2.xml",
+          "role": "initial",
+          "label": "原始组态"
+        },
+        {
+          "sql": "sql-modified.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "left_to_middle",
+          "before": 0,
+          "current": 1
+        },
+        {
+          "id": "middle_to_right",
+          "before": 1,
+          "current": 2
+        }
+      ],
+      "coverage": [
+        "history-three-nodes",
+        "both-side-tables"
+      ]
+    },
+    {
+      "id": "preview-workbench-normal",
+      "output": "backend/fe2b/preview-workbench-normal",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "workbench-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "workbench-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "ordered-normal"
+      ]
+    },
+    {
+      "id": "digest-cross-implementation",
+      "output": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "sql-initial.sql",
+          "xml": "logics-2.xml",
+          "role": "initial",
+          "label": "原始组态"
+        },
+        {
+          "sql": "sql-modified.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "bundle-closure-digests"
+      ]
+    },
+    {
+      "id": "identity-changes",
+      "output": "backend/scenarios/identity-changes",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "identity-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "gid-change-unrecorded-cfg",
+        "address-change-unrecorded-point",
+        "update-only-suppressed-add-delete",
+        "table-fallback",
+        "orphan",
+        "integer-utf8"
+      ]
+    },
+    {
+      "id": "duplicates-orphans",
+      "output": "backend/scenarios/duplicates-orphans",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "duplicate-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "duplicate-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "duplicate-address-multiple-gid",
+        "duplicate-gid",
+        "orphan",
+        "missing-snapshot-filter-context"
+      ]
+    },
+    {
+      "id": "text-identities",
+      "output": "backend/scenarios/text-identities",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "string-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "string-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "text-digits-not-integer",
+        "same-side-physical-type"
+      ]
+    },
+    {
+      "id": "integer-boundary",
+      "output": "backend/scenarios/integer-boundary",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "boundary-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "boundary-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "safe-integer-boundary",
+        "per-side-unsupported-diagnostic"
+      ]
+    },
+    {
+      "id": "schema-keyless",
+      "output": "backend/scenarios/schema-keyless",
+      "flow": "HISTORY",
+      "nodes": [
+        {
+          "sql": "schema-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "schema-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "left_to_right",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "before-only-column",
+        "empty-point-schema-change",
+        "empty-sg-cfg",
+        "table-scope",
+        "keyless-third-occurrence"
+      ]
+    },
+    {
+      "id": "table-addition",
+      "output": "backend/scenarios/table-addition",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "empty.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "schema-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "whole-table-addition",
+        "empty-initial"
+      ]
+    },
+    {
+      "id": "comment-only",
+      "output": "backend/scenarios/comment-only",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "comment-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "comment-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "comment-only-preview",
+        "canonical-identity-unchanged"
+      ]
+    },
+    {
+      "id": "formula-unchanged-device",
+      "output": "backend/scenarios/formula-unchanged-device",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "formula-unchanged-device.sql",
+          "xml": "logics-1.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "formula-unchanged-device.sql",
+          "xml": "logics-3.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "before-formula",
+        "unchanged-device-alias"
+      ]
+    }
+  ],
+  "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation"
 }

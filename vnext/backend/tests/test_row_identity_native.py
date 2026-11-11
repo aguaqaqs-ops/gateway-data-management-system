@@ -24,7 +24,6 @@ def test_native_identity_batch_stream_matches_independent_codec(keyless: bool, c
     assert source.table_set is not None
     context = current_kernel_context()
     assert context is not None
-    baseline = context.memory.used_bytes
     policy = json.dumps({"mode": "keyless" if keyless else "keyed", "selected_columns": ["note", "id"],
         "effective_key_before": ["id"], "effective_key_current": ["id"],
         "compare_excluded_columns": ["note"], "columns_added": columns_added})
@@ -34,11 +33,12 @@ def test_native_identity_batch_stream_matches_independent_codec(keyless: bool, c
     if keyless and not columns_added:
         fields.append(text)
     base = encode_row(fields).digest_ref.value
-    with closing(native.begin_records_operation(native_budget_bytes=16 * 1024**2,
-            cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)) as operation:
-        with closing(native.standard_identity_scanner(operation, policy)) as scanner:
-            stream, owner = canonical_comparison_input(source.table_set.tables[0])
-            with closing(owner), closing(stream):
+    stream, owner = canonical_comparison_input(source.table_set.tables[0])
+    with closing(owner), closing(stream):
+        baseline = context.memory.used_bytes
+        with closing(native.begin_records_operation(native_budget_bytes=16 * 1024**2,
+                cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)) as operation:
+            with closing(native.standard_identity_scanner(operation, policy)) as scanner:
                 offset = 0
                 for batch in stream:
                     for index in range(batch.num_rows):
@@ -53,4 +53,4 @@ def test_native_identity_batch_stream_matches_independent_codec(keyless: bool, c
                         assert order_keys == [full.row_frame]
                         offset += 1
                 assert offset == 3
-    assert context.memory.used_bytes == baseline
+        assert context.memory.used_bytes == baseline

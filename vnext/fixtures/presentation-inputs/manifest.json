@@ -22,7 +22,7 @@
     },
     {
       "path": "diagnostic-codes.json",
-      "sha256": "ab8b5f29e02fcc4bc12e1daf40e2e106d1233176bb102b4c019e2cdefb88ba8f",
+      "sha256": "2ce67148a34f14ea8f29ca2ad8934841285e7834f5cd476060db447b5341c0e4",
       "source": "Business Navigation validator params and current owning diagnostic emit mapping"
     },
     {

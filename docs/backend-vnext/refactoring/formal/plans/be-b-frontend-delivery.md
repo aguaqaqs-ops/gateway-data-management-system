@@ -59,7 +59,7 @@ BE-b 未改五锁、toolchain selector 或依赖基线输入，不为本轮新�
 
 ## 6. 稳定编码全集
 
-[稳定编码替换表](../../../contracts/presentation-diagnostic-codes.md) 与输入目录 `diagnostic-codes.json` 同源交付：包括导航十二码及 params、Surface/Risk/records codes，以及 DUPLICATE_EFFECTIVE_KEY 参数尾缀、Python 异常类名与风险英文短句的替换。比较 production 的 generic ValueError/OSError/ArrowException/TableAccessError 路径也向公开 records 发 COMPARISON_INTERNAL_ERROR；typed StandardComparisonError 的既有大写码保留。前端移除旧前缀/短句匹配并完整映射文案。
+[稳定编码替换表](../../../contracts/presentation-diagnostic-codes.md) 与输入目录 `diagnostic-codes.json` 同源交付：包括导航十二码及 params、Surface/Risk/records 分列 codes，以及 Surface 中 DUPLICATE_EFFECTIVE_KEY 参数尾缀、generic Python 异常类名与风险英文短句的替换。comparison facts/records 的 `DUPLICATE_EFFECTIVE_KEY:<table>` 保持原形式，只有 Surface summary 去尾缀；KEYLESS_FALLBACK、ORDERED_DIFF_UNSUPPORTED、ORDERED_PROVENANCE_MISSING/INVALID 和其余 typed emitter 错误空间均列明。比较 production 的 generic ValueError/OSError/ArrowException/TableAccessError 路径也向公开 records 发 COMPARISON_INTERNAL_ERROR；typed StandardComparisonError 的既有大写码保留。前端移除旧前缀/短句匹配并完整映射文案。
 
 ## 7. 相对 FE3c 的差异（S1a 与 BE-b 分列）
 

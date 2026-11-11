@@ -49,14 +49,24 @@
       "protocol"
     ]
   },
-  "surface_and_records_codes": [
+  "replacements": {
+    "surface diagnostics_summary: DUPLICATE_EFFECTIVE_KEY:<table>": "DUPLICATE_EFFECTIVE_KEY",
+    "generic comparison exception class or arbitrary text in facts/records/summary": "COMPARISON_INTERNAL_ERROR",
+    "risk summary: max_annotations_per_table exceeded": "RISK_TABLE_BUDGET_EXCEEDED",
+    "risk summary: max_annotations_per_pair exceeded": "RISK_ANNOTATION_LIMIT_EXCEEDED",
+    "risk summary: risk diagnostics truncated": "RISK_DIAGNOSTICS_TRUNCATED",
+    "risk summary: risk annotation artifact budget exceeded": "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
+  },
+  "surface_summary_codes": [
     "BEFORE_ONLY_COLUMNS",
     "BLANK_PROVENANCE_INVALID",
     "BLANK_PROVENANCE_MISSING",
     "BUSINESS_SCHEMA_CHANGED",
     "CANONICAL_BLANK_PROVENANCE_INVALID",
+    "CANONICAL_COLUMN_COLLISION",
     "CANONICAL_GID_INVALID",
     "COMPARISON_INTERNAL_ERROR",
+    "COMPARISON_RULESET_DIGEST_MISSING",
     "CURRENT_ONLY_COLUMNS",
     "DATASET_REPLACEMENT",
     "DEGRADE_NO_COMPARE_KEY",
@@ -64,9 +74,14 @@
     "EFFECTIVE_KEY_CHANGED",
     "EFFECTIVE_KEY_IGNORED",
     "INCOMPATIBLE_SELECTED_COLUMNS",
+    "KEYLESS_FALLBACK",
+    "METADATA_ROLE_REQUIRES_NATIVE_ROWS",
+    "METADATA_ROUTE_REQUIRES_NATIVE_ROWS",
     "NO_SELECTED_COLUMNS",
+    "ORDERED_DIFF_UNSUPPORTED",
     "ORDERED_INTEGER_INVALID",
-    "ORDERED_PROVIDER",
+    "ORDERED_PROVENANCE_INVALID",
+    "ORDERED_PROVENANCE_MISSING",
     "ORDERED_REQUIRED_COLUMN_MISSING",
     "ORDER_KEY_DUPLICATE",
     "ORDER_KEY_INVALID",
@@ -86,14 +101,106 @@
     "SOURCE_GID_INVALID",
     "SOURCE_PRIMARY_KEY_CHANGED",
     "SOURCE_RESERVED_PSEUDO_GID",
-    "TABLE_READER_UNAVAILABLE"
+    "TABLE_DESCRIPTOR_MISSING",
+    "TABLE_POLICY_MISSING",
+    "TABLE_READER_UNAVAILABLE",
+    "TABLE_TASK_HAS_NO_SIDE",
+    "TABLE_TASK_INVALID"
   ],
-  "replacements": {
-    "DUPLICATE_EFFECTIVE_KEY:<table>": "DUPLICATE_EFFECTIVE_KEY",
-    "Python exception class or arbitrary text": "COMPARISON_INTERNAL_ERROR",
-    "max_annotations_per_table exceeded": "RISK_TABLE_BUDGET_EXCEEDED",
-    "max_annotations_per_pair exceeded": "RISK_ANNOTATION_LIMIT_EXCEEDED",
-    "risk diagnostics truncated": "RISK_DIAGNOSTICS_TRUNCATED",
-    "risk annotation artifact budget exceeded": "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
+  "comparison_typed_error_codes": {
+    "CANONICAL_COLUMN_COLLISION": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/row_encoding.py"
+    ],
+    "COMPARISON_RULESET_DIGEST_MISSING": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "METADATA_ROLE_REQUIRES_NATIVE_ROWS": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "METADATA_ROUTE_REQUIRES_NATIVE_ROWS": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "ORDERED_PROVENANCE_INVALID": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/task_input.py"
+    ],
+    "ORDERED_PROVENANCE_MISSING": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/task_input.py"
+    ],
+    "TABLE_DESCRIPTOR_MISSING": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "TABLE_POLICY_MISSING": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "TABLE_READER_UNAVAILABLE": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/production.py"
+    ],
+    "TABLE_TASK_HAS_NO_SIDE": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ],
+    "TABLE_TASK_INVALID": [
+      "vnext/backend/src/gateway_backend/capabilities/comparison/standard.py"
+    ]
+  },
+  "comparison_native_retained_error_codes": [
+    "BLANK_PROVENANCE_INVALID",
+    "BLANK_PROVENANCE_MISSING",
+    "CANONICAL_BLANK_PROVENANCE_INVALID",
+    "CANONICAL_GID_INVALID",
+    "ORDERED_INTEGER_INVALID",
+    "ORDER_KEY_DUPLICATE",
+    "ORDER_KEY_INVALID",
+    "ORDER_KEY_MISSING",
+    "ROW_IDENTITY_DUPLICATE",
+    "ROW_SHAPE_MISMATCH",
+    "SCALAR_TYPE_MISMATCH",
+    "SCALAR_TYPE_UNKNOWN",
+    "SCALAR_VALUE_INVALID",
+    "SET_VALUE_INVALID",
+    "SOURCE_GID_INVALID",
+    "SOURCE_RESERVED_PSEUDO_GID"
+  ],
+  "comparison_records_only_codes": [
+    "ORDERED_PROVIDER"
+  ],
+  "comparison_records_parameterized_diagnostics": [
+    {
+      "template": "DUPLICATE_EFFECTIVE_KEY:<table>",
+      "surface_summary_code": "DUPLICATE_EFFECTIVE_KEY",
+      "behavior": "Retained in comparison facts/records; only Surface summary removes suffix",
+      "emit_source": "vnext/backend/src/gateway_backend/capabilities/comparison/production.py"
+    }
+  ],
+  "emit_scopes": {
+    "surface-only": [
+      "KEYLESS_FALLBACK",
+      "ORDERED_DIFF_UNSUPPORTED",
+      "PROJECT_IDENTITY_UNVERIFIABLE"
+    ],
+    "comparison-schema": [
+      "BEFORE_ONLY_COLUMNS",
+      "CURRENT_ONLY_COLUMNS",
+      "INCOMPATIBLE_SELECTED_COLUMNS",
+      "EFFECTIVE_KEY_CHANGED",
+      "SOURCE_PRIMARY_KEY_CHANGED",
+      "EFFECTIVE_KEY_IGNORED",
+      "BUSINESS_SCHEMA_CHANGED",
+      "DEGRADE_NO_COMPARE_KEY",
+      "NO_SELECTED_COLUMNS",
+      "ORDERED_REQUIRED_COLUMN_MISSING",
+      "ROW_IDENTITY_MISSING"
+    ],
+    "risk-summary": [
+      "RISK_TABLE_BUDGET_EXCEEDED",
+      "RISK_ANNOTATION_LIMIT_EXCEEDED",
+      "RISK_DIAGNOSTICS_TRUNCATED",
+      "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED"
+    ],
+    "comparison-facts-root": [
+      "DATASET_REPLACEMENT"
+    ],
+    "generic-table-exception": [
+      "COMPARISON_INTERNAL_ERROR"
+    ]
   }
 }

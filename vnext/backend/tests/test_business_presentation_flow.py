@@ -211,34 +211,38 @@ def _materialize_business_pair_input(sql: str, store: InMemoryArtifactStore) -> 
 
 
 APP_DIAGNOSTIC_CASES = (
-    ("INT", "1", "'absent'", "APP_TABLE_NOT_FOUND", None),
+    ("INT", "1", "'absent'", "APP_TABLE_NOT_FOUND", "1"),
     ("VARCHAR(16)", "'one'", "'absent'", "APP_TABLE_NOT_FOUND", "one"),
-    ("INT", "1", "''", "APP_TABLE_CFG_MISSING", None),
-    ("INT", "1", "'app_cfg'", "APP_TABLE_CFG_DUPLICATE", None),
+    ("INT", "1", "''", "APP_TABLE_CFG_MISSING", "1"),
+    ("INT", "1", "'app_cfg'", "APP_TABLE_CFG_DUPLICATE", "1"),
 )
 
 
+@pytest.mark.parametrize("replacement", [False, True])
 @pytest.mark.parametrize("name_type,name_value,target,code,expected_name", APP_DIAGNOSTIC_CASES)
 def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
-    name_type: str, name_value: str, target: str, code: str, expected_name: str | None,
+    name_type: str, name_value: str, target: str, code: str, expected_name: str | None, replacement: bool,
 ) -> None:
     from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
     sql = (f"CREATE TABLE app_cfg(app_name {name_type} PRIMARY KEY,table_cfg TEXT);"
            f"INSERT INTO app_cfg VALUES({name_value},{target});")
     store = InMemoryArtifactStore()
-    before = _materialize_business_pair_input(sql, store)
-    current = _materialize_business_pair_input(sql, store)
+    identity = "CREATE TABLE version_manager(project_id VARCHAR(32) PRIMARY KEY);"
+    before = _materialize_business_pair_input(sql + identity + "INSERT INTO version_manager VALUES('left');", store)
+    current = _materialize_business_pair_input(sql + identity +
+        ("INSERT INTO version_manager VALUES('right');" if replacement else "INSERT INTO version_manager VALUES('left');"), store)
     result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-        assess_identity=False, repository_id="replacement-fixture")
+        assess_identity=True, repository_id="replacement-fixture")
     assert result.surface_result.status is SurfaceAssemblyStatus.READY
     surface = result.surface_result.surface
     assert surface is not None
     projection, = surface.projections
-    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
-    assert any(tab["table_id"] == "app_cfg" and tab["row_filter"] is None
-               for item in navigation["groups"][3]["items"] for tab in item["tabs"])
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=replacement)
+    grouped = (list(navigation["replacement_sides"].values()) if replacement else [navigation["groups"]])
+    assert all(any(tab["table_id"] == "app_cfg" and tab["row_filter"] is None
+                   for item in groups[3]["items"] for tab in item["tabs"]) for groups in grouped)
     assert projection.diagnostics_ref is not None
     diagnostics = json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
     selected = [d for d in diagnostics if d["code"] == code]
@@ -246,33 +250,39 @@ def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
     assert all(d["params"]["app_name"] == expected_name for d in selected)
 
 
+@pytest.mark.parametrize("replacement", [False, True])
 @pytest.mark.parametrize("board,link", [
     (9007199254740991, 1), (9007199254740992, 1), (1, 9007199254740992),
 ])
 def test_business_materialized_unclaimed_table_name_keeps_safe_channel_domain(
-    board: int, link: int,
+    board: int, link: int, replacement: bool,
 ) -> None:
     from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
     name = f"b{board}_n{link}_sg_cfg"
     sql = f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,value TEXT);INSERT INTO {name} VALUES(1,'x');"
     store = InMemoryArtifactStore()
-    before = _materialize_business_pair_input(sql, store)
-    current = _materialize_business_pair_input(sql, store)
+    identity = "CREATE TABLE version_manager(project_id VARCHAR(32) PRIMARY KEY);"
+    before = _materialize_business_pair_input(sql + identity + "INSERT INTO version_manager VALUES('left');", store)
+    current = _materialize_business_pair_input(sql + identity +
+        ("INSERT INTO version_manager VALUES('right');" if replacement else "INSERT INTO version_manager VALUES('left');"), store)
     result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-        assess_identity=False, repository_id="replacement-fixture")
+        assess_identity=True, repository_id="replacement-fixture")
     assert result.surface_result.status is SurfaceAssemblyStatus.READY
     surface = result.surface_result.surface
     assert surface is not None
     projection, = surface.projections
-    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
-    items = navigation["groups"][4]["items"]
-    item = next(item for item in items if item["item_key"] == f"table:{name}")
-    assert item["tabs"][0]["table_id"] == name and item["tabs"][0]["row_filter"] is None
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=replacement)
+    grouped = (list(navigation["replacement_sides"].values()) if replacement else [navigation["groups"]])
+    for groups in grouped:
+        item = next(item for item in groups[4]["items"] if item["item_key"] == f"table:{name}")
+        assert item["tabs"][0]["table_id"] == name and item["tabs"][0]["row_filter"] is None
     diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
     channels = [d for d in diagnostics if d["code"] == "CHANNEL_TABLE_UNCLAIMED"]
     if board <= 9007199254740991 and link <= 9007199254740991:
-        assert len(channels) == 1 and channels[0]["params"] == {"board": board, "link_no": link}
+        assert len(channels) == (2 if replacement else 1)
+        assert all(d["params"] == {"board": board, "link_no": link} for d in channels)
+        assert {d["side"] for d in channels} == ({"BEFORE", "CURRENT"} if replacement else {None})
     else:
         assert channels == []

@@ -310,6 +310,8 @@ class _Builder:
     def business_label(current: NavigationRow | None, before: NavigationRow | None, column: str, default: str) -> str:
         for row in (current, before):
             value = None if row is None else row.values.get(column)
+            if column == "app_name" and type(value) is int:
+                value = str(value)
             if isinstance(value, str) and value.strip():
                 return value
         return default
@@ -336,7 +338,7 @@ class _Builder:
             for row in self.rows(source):
                 target = row.values.get("table_cfg")
                 raw_name = row.values.get("app_name")
-                app_name = raw_name if isinstance(raw_name, str) else None
+                app_name = str(raw_name) if type(raw_name) is int else (raw_name if isinstance(raw_name, str) else None)
                 if not isinstance(target, str) or not target.strip():
                     self.diagnostic("APP_TABLE_CFG_MISSING", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name)
                 elif target not in names:

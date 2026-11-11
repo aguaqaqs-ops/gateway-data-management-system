@@ -199,7 +199,8 @@ def test_history_preserves_distinct_frozen_source_schemas_for_shared_rows(tmp_pa
         bundle_ref = next(ref for item in required_refs
             if (ref := artifact_ref_from_dict(item)).media_type == BUNDLE_MANIFEST_MEDIA_TYPE)
         bundle = json.loads(harness.artifact_store.locate(bundle_ref))
-        surface_ref = bundle["pairs"][0]["surface_ref"]
+        surface_ref = next(entry["artifact_ref"] for entry in bundle["closure_entries"]
+            if entry["kind"] == "SURFACE")
         surface = json.loads(harness.artifact_store.locate(artifact_ref_from_dict(surface_ref)))
         projected_table = next(t for t in surface["tables"] if t["table_name"] == "net_cfg")
         assert projected_table["table_refs"]["before_table_ref"] == projected_table["table_refs"]["current_table_ref"]

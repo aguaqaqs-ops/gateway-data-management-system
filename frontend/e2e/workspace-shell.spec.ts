@@ -1,9 +1,11 @@
 import { expect, test, type Page, type Request as PlaywrightRequest, type Route } from "@playwright/test";
 import { mkdir, readFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";
 import {
   HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_RUNNING, MANUAL_RECOVERY_TO_SUCCESS,
+  INITIAL_ONLY_HISTORY, INITIAL_ONLY_WORKSPACE,
   SIMULATED_ERROR_RESPONSES, TEST_REVIEW_FACTS, WORKSPACE_ALREADY_EXISTS, WORKSPACE_CREATED, HISTORY_COMPARE_ACCEPT_BODY,
   TEST_OPERATION_SUCCEEDED, testHistoryCompareSucceeded, TEST_SUBMIT_ACCEPTED,
   TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_SUBMISSION, testPreviewResult, TEST_UPLOAD_FULL,
@@ -81,6 +83,10 @@ async function installFixtureRoutes(page: Page, options: {
   archiveBlocked?: boolean;
   approvedSubmission?: boolean;
   submissionOne?: boolean;
+  /** B7: workspace/history contain only the INITIAL baseline. */
+  initialOnly?: boolean;
+  /** Every API call is rejected with 401 AUTHENTICATION_REQUIRED. */
+  unauthorized?: boolean;
 } = {}) {
   const requests = new Map<string, number>();
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
@@ -130,9 +136,14 @@ async function installFixtureRoutes(page: Page, options: {
       apiResponses.push({ method: "POST", path, status: 200, body: JSON.stringify(next) });
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(next) });
     }
+    if (options.unauthorized) {
+      const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
+      apiResponses.push({ method: "POST", path, status: 401, body: JSON.stringify(error) });
+      return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify(error) });
+    }
     workspaceCallCount += 1;
     const response = workspaceCallCount === 1 ? WORKSPACE_CREATED : WORKSPACE_ALREADY_EXISTS;
-    let body = uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
+    let body = options.initialOnly ? INITIAL_ONLY_WORKSPACE : uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
       ? { ...response.body, optimistic_version: 14 }
       : response.body;
     const attemptPointer = options.workspaceSubmitAttemptId ?? submitAttemptPointer;
@@ -149,7 +160,14 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     if (request.method() !== "GET") return route.fallback();
     const url = new URL(request.url());
-    let body: Schemas["HistoryListResponse"] = url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
+    if (options.unauthorized) {
+      const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
+      apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 401, body: JSON.stringify(error) });
+      return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify(error) });
+    }
+    let body: Schemas["HistoryListResponse"] = options.initialOnly
+      ? INITIAL_ONLY_HISTORY
+      : url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
     if (!url.searchParams.has("cursor") && options.approvedSubmission) {
       body = { ...body, nodes: body.nodes.map((node) => node.ref_id === "fe2a-history-ref-2" ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined } : node) };
     }
@@ -2444,6 +2462,176 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openPreview("comment-only");
     await openItem("table:comment_demo");
   });
+  await capture("fe4b-preview-topbar-device", async () => {
+    // fe-handoff: a directory handoff session shows the device bar above the
+    // preview top bar; this page only exists once that branch is merged.
+    await gotoWithHandoff(page, "/");
+    await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+    await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
+    await waitForBrowse(page);
+    await expect(page.locator(".compare-header .device-bar .device-context")).toBeVisible();
+  });
   expect(failures, failures.join("\n")).toEqual([]);
 });
 
+const HANDOFF_SESSION = {
+  v: 1,
+  token: "dir-token-e2e",
+  gateway_device_external_key: "gateway-17",
+  business_project_id: "project-42",
+  display: { region1: "华东", region2: "上海", project_name: "示例项目", station_code: "站-01" },
+  return_url: "http://directory.example:8100/?r1=%E5%8D%8E%E4%B8%9C&page=1",
+} as const;
+
+function handoffHash(overrides: Record<string, unknown> = {}): string {
+  const encoded = Buffer.from(JSON.stringify({ ...HANDOFF_SESSION, ...overrides }), "utf8").toString("base64url");
+  return `#gdds-handoff=${encoded}`;
+}
+
+async function gotoWithHandoff(page: Page, path = "/", overrides: Record<string, unknown> = {}): Promise<void> {
+  await page.goto(`${path}${handoffHash(overrides)}`);
+}
+
+test("目录跳转片段被清除，工作台显示设备位置与返回目录", async ({ page }) => {
+  const { apiRequests } = await installFixtureRoutes(page, {});
+  await gotoWithHandoff(page, "/?from=directory");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+  expect(new URL(page.url()).searchParams.get("from")).toBe("directory");
+  const device = page.locator(".workspace-brand .device-context");
+  await expect(device).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
+  await expect(page.locator(".workspace-brand .device-path")).toHaveAttribute("aria-label", "设备位置：华东 / 上海 / 示例项目（站-01）");
+  // The device key span is replaced by the location in handoff sessions.
+  await expect(page.locator(".workspace-brand > span:not(.device-context)")).toHaveCount(0);
+  const returnLink = page.locator(".workspace-topbar__right .return-directory");
+  await expect(returnLink).toHaveAttribute("href", HANDOFF_SESSION.return_url);
+  await expect(returnLink).toHaveAttribute("title", "离开网关工作台，返回设备目录");
+  expect(await page.evaluate(() => sessionStorage.getItem("gdds-gateway-session"))).not.toBeNull();
+  expect(await page.evaluate(() => (window as unknown as { __gatewaySession?: { accessToken?: string } }).__gatewaySession?.accessToken)).toBe("dir-token-e2e");
+  expect(apiRequests.length).toBeGreaterThan(0);
+  expect(apiRequests.every((request) => request.token === "Bearer dir-token-e2e")).toBe(true);
+  await screenshot(page, "workbench-device", 1280);
+  await screenshot(page, "workbench-device", 1920);
+});
+
+test("工作台跳转比较页面的完整加载仍保留会话与设备栏", async ({ page }) => {
+  await installFixtureRoutes(page, {});
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await page.goto(browseUrl("PREVIEW", "preview-full"));
+  await waitForBrowse(page);
+  await expect(page.locator(".mode-tag")).toHaveText("上传");
+  const bar = page.locator(".compare-header .device-bar");
+  await expect(bar).toBeVisible();
+  await expect(bar.locator(".device-context")).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
+  await expect(bar.getByRole("link", { name: "返回目录" })).toHaveAttribute("href", HANDOFF_SESSION.return_url);
+  const breadcrumbBox = await page.locator(".compare-header .breadcrumb").boundingBox();
+  expect(breadcrumbBox?.width ?? 0).toBeGreaterThan(0);
+  const deviceBox = await bar.locator(".device-context").boundingBox();
+  expect(deviceBox?.width ?? 0).toBeGreaterThan(0);
+  await screenshotHeader(page, "compare-preview-device", 1280);
+  await screenshotHeader(page, "compare-preview-device", 1920);
+  await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "fe2a-history-fixture-p0" }));
+  await waitForBrowse(page);
+  await expect(page.locator(".mode-tag")).toHaveText("审核");
+  await expect(page.locator(".compare-header .device-bar")).toBeVisible();
+  await screenshotHeader(page, "compare-review-device", 1280);
+  await screenshotHeader(page, "compare-review-device", 1920);
+});
+
+test("刷新后仍保留跳转会话", async ({ page }) => {
+  await installFixtureRoutes(page, {});
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await expect(page.locator(".workspace-brand .device-context")).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
+  expect(new URL(page.url()).hash).toBe("");
+});
+
+test("新标签页没有会话时显示未选择设备且不发起 API 请求", async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: "http://127.0.0.1:5173" });
+  await context.addInitScript(() => {
+    (window as unknown as { __gatewayTestConfig?: { disableDevIdentity?: boolean } }).__gatewayTestConfig = { disableDevIdentity: true };
+  });
+  const page = await context.newPage();
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/v1/")) requests.push(request.url());
+  });
+  await page.goto("/");
+  await expect(page.getByRole("status")).toHaveText("未选择设备，请从设备目录进入");
+  await expect(page.locator(".workspace-topbar .workspace-brand")).toHaveText("网关数据工作台");
+  await expect(page.locator(".device-context")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "返回目录" })).toHaveCount(0);
+  expect(requests).toEqual([]);
+  await screenshot(page, "no-session", 1280);
+  await screenshot(page, "no-session", 1920);
+  await context.close();
+});
+
+test("401 会话失效显示过期提示、设备与返回目录且不自动重试", async ({ page }) => {
+  const { apiRequests } = await installFixtureRoutes(page, { unauthorized: true });
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByText("会话无效或已过期，请从设备目录重新进入")).toBeVisible();
+  await expect(page.getByText("设备：华东 / 上海 / 示例项目（站-01）")).toBeVisible();
+  const returnLink = page.getByRole("link", { name: "返回目录" });
+  await expect(returnLink).toHaveAttribute("href", HANDOFF_SESSION.return_url);
+  await expect(returnLink).toHaveClass(/button--primary/);
+  await expect(page.locator(".device-context")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("gdds-gateway-session"))).toBeNull();
+  await page.waitForTimeout(500);
+  expect(apiRequests.length).toBeLessThanOrEqual(2);
+  expect(apiRequests.every((request) => request.token === "Bearer dir-token-e2e")).toBe(true);
+  await screenshot(page, "session-expired", 1280);
+  await screenshot(page, "session-expired", 1920);
+});
+
+test("非法跳转片段显示无效提示且不回退旧会话", async ({ page }) => {
+  await installFixtureRoutes(page, {});
+  await gotoWithHandoff(page, "/", { v: 9 });
+  await expect(page.getByText("跳转信息无效，请从设备目录重新进入")).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回目录" })).toHaveCount(0);
+  expect(new URL(page.url()).hash).toBe("");
+  expect(await page.evaluate(() => sessionStorage.getItem("gdds-gateway-session"))).toBeNull();
+  await screenshot(page, "handoff-invalid", 1280);
+  await screenshot(page, "handoff-invalid", 1920);
+});
+
+test("只有初始基线的设备显示尚无数据并保留上传入口", async ({ page }) => {
+  await installFixtureRoutes(page, { initialOnly: true });
+  // 详情面板只在宽视口默认展开，上传入口的标题在那里渲染。
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  const note = page.locator(".workspace-table-scroll .tree-empty-note");
+  await expect(note).toContainText("尚无数据");
+  await expect(note).toContainText("该设备只有初始基线。选择组态目录并上传后，即可提交第一次组态。");
+  await expect(page.getByRole("heading", { name: "上传组态目录" })).toBeVisible();
+  await screenshot(page, "workbench-no-data", 1920);
+  // 回到 1280 时详情面板按窄视口折叠，尚无数据提示仍在表格下方。
+  await page.setViewportSize({ width: 1280, height: 1080 });
+  await page.reload();
+  await expect(note).toBeVisible();
+  await screenshot(page, "workbench-no-data", 1280);
+});
+
+test("长设备名称只收缩项目名，站号不截断且页面不溢出", async ({ page }) => {
+  const display = {
+    region1: "内蒙古自治区呼伦贝尔市",
+    region2: "鄂温克族自治旗",
+    project_name: "城南110kV变电站二期扩建及配套送出工程自动化与通信系统联合调试组态数据归档包及验收说明与竣工资料移交清单",
+    station_code: "SZ-0142",
+  };
+  await installFixtureRoutes(page, {});
+  await gotoWithHandoff(page, "/", { display });
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 1080 });
+  await expect(page.locator(".workspace-brand .device-context"))
+    .toHaveAttribute("title", `${display.region1} / ${display.region2} / ${display.project_name}（${display.station_code}）`);
+  const project = page.locator(".workspace-brand .device-path__project");
+  const station = page.locator(".workspace-brand .device-path__station");
+  expect(await project.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await station.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+});

@@ -128,6 +128,27 @@ export const HISTORY_PAGE_TWO = {
   next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
 
+export const INITIAL_ONLY_WORKSPACE = {
+  ...WORKSPACE_RESPONSE,
+  workspace_id: "workspace-initial-only",
+  generation: 1,
+  optimistic_version: 1,
+  current_upload_revision_id: null,
+  current_preview_result_id: null,
+} satisfies Schemas["WorkspaceResponse"];
+
+export const INITIAL_ONLY_HISTORY = {
+  head: { node_id: "initial-only-ref-0", commit_id: "commit-initial-only-0", version: 1 },
+  nodes: [
+    {
+      ref_kind: "baseline_node", ref_id: "initial-only-ref-0", node_kind: "BASELINE_NODE", baseline_kind: "INITIAL",
+      commit_id: "commit-initial-only-0", created_at: "2026-11-03T08:00:00Z", parent: null,
+      identity_exception: false,
+    },
+  ],
+  next_cursor: null,
+} satisfies Schemas["HistoryListResponse"];
+
 export const REVIEW_FACTS = {
   submission_id: "fe2a-history-ref-2",
   status: "PENDING",

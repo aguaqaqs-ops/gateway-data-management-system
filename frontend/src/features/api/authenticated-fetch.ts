@@ -1,4 +1,5 @@
 import { reportConnectionStatus } from "./connection-status";
+import { expireHandoffSessionOnUnauthorized } from "../session/handoff-session";
 
 export type AccessTokenProvider = () => string | null | Promise<string | null>;
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -24,7 +25,11 @@ export interface AuthenticatedFetchOptions {
   trackConnection?: boolean;
 }
 
-/** Adds the current bearer token to every API call without persisting credentials in browser storage. */
+/**
+ * Adds the current bearer token to every API call. The directory-handoff trial
+ * is the one exception to "no credentials in browser storage": it keeps the
+ * per-tab session in sessionStorage (see features/session/handoff-session.ts).
+ */
 export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch, trackConnection = true }: AuthenticatedFetchOptions) {
   const root = baseUrl.replace(/\/$/, "");
   return async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -50,6 +55,11 @@ export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch, trac
     const message = typeof errorBody.message === "string"
       ? errorBody.message
       : `请求失败（HTTP ${response.status}）`;
+    if (response.status === 401 && code === "AUTHENTICATION_REQUIRED") {
+      // The handoff session is the only state that can expire here; injected
+      // dev/test identities are left alone so their own error surfaces remain.
+      expireHandoffSessionOnUnauthorized();
+    }
     throw new ApiError(message, response.status, code, errorBody.details);
   };
 }

@@ -7,7 +7,7 @@ export interface GatewaySession {
 declare global {
   interface Window {
     __gatewaySession?: GatewaySession;
-    __gatewayTestConfig?: { historyCompareTimeoutMs?: number };
+    __gatewayTestConfig?: { historyCompareTimeoutMs?: number; disableDevIdentity?: boolean };
   }
 }
 

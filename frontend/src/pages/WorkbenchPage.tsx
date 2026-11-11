@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Folder, GitBranch, GitCommitHorizontal, Layers, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Folder, GitBranch, GitCommitHorizontal, Info, Layers, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { components } from "../features/api/generated/openapi";
 import { gatewayApi } from "../features/api/application-api";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
@@ -19,8 +19,10 @@ import { ArchiveMainlineDialog } from "../features/workbench/ArchiveMainlineDial
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { summarizeHistoryPair, type HistoryPairSummary } from "../features/workbench/history-summary";
 import { baselineDisplayLabelFor } from "../features/view-model/baseline-labels";
-import { buildWorkspaceTree, deriveWorkbenchActions, sortWorkspaceTreeRows, type WorkbenchActionId, type WorkspaceTreeRow } from "../features/view-model/workspace";
+import { buildWorkspaceTree, deriveWorkbenchActions, hasOnlyInitialBaseline, sortWorkspaceTreeRows, type WorkbenchActionId, type WorkspaceTreeRow } from "../features/view-model/workspace";
 import { WORKSPACE_STATE_COPY } from "../features/view-model/workspace-state-copy";
+import { DevicePath, ReturnToDirectoryLink, SessionGate } from "../features/session/SessionComponents";
+import { isGatewaySessionBlocked, useGatewaySessionState } from "../features/session/handoff-session";
 
 type Schemas = components["schemas"];
 type SortColumn = "label" | "createdAt" | "submitAt" | "reviewAt";
@@ -58,6 +60,7 @@ function showOperationForCompare(operationId: string | null, state: Schemas["His
 }
 
 export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode }) {
+  const sessionState = useGatewaySessionState();
   // Upload-mode occupancy (submit/upload gates, step-card reason) is shared
   // with the Preview page through useUploadModeState (B4): a single read
   // sequence for the workspace, review, attempt and operation.
@@ -500,6 +503,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const showHistoryDrawer = Boolean(historyCompareOperationId);
   const showOperationStatus = operationId !== null && (operationKind === null || operationKind === "operation");
 
+  if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
   if (loading) return <main className="workspace-page"><LoadingSkeleton label="加载工作区与 History" /></main>;
   if (loadError || !workspace || !history) return <main className="workspace-page workspace-page--error"><ErrorState code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
 
@@ -510,8 +514,8 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
-      <div className="workspace-brand"><strong>网关数据工作台</strong><span>{workspace.gateway_device_external_key}</span></div>
-      <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}</div>
+      <div className={`workspace-brand${sessionState.kind === "handoff" ? " workspace-brand--device" : ""}`}><strong>网关数据工作台</strong>{sessionState.kind === "handoff" ? <DevicePath display={sessionState.session.display} /> : <span>{workspace.gateway_device_external_key}</span>}</div>
+      <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}{sessionState.kind === "handoff" && <><span className="topbar-divider" aria-hidden="true" /><ReturnToDirectoryLink href={sessionState.session.returnUrl} /></>}</div>
     </header>
     <div className="workspace-layout" {...(uploadLocked ? { inert: "" } as object : {})}>
       <section className="workspace-main" aria-label="组态树工作台">
@@ -553,6 +557,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
               <td>{row.reviewAt ? new Date(row.reviewAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "—"}</td>
             </tr>)}</tbody>
           </table>
+          {hasOnlyInitialBaseline(history) && <div className="tree-empty-note"><div className="info-note" role="status"><Info size={16} aria-hidden="true" /><div><strong>尚无数据</strong><span>该设备只有初始基线。选择组态目录并上传后，即可提交第一次组态。</span></div></div></div>}
         </div>
         <div className="compare-tray" aria-label="比较托盘">
           <div className="compare-tray__label"><GitBranch size={17} /><strong>比较托盘</strong>{compareRefs.length > 0 && <span>{compareRefs.length} / 3</span>}{compareLabels.length === 0 && <small>选择 2–3 个基线或提交节点</small>}</div>

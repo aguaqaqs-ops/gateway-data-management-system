@@ -79,6 +79,7 @@ def navigation_row_demands(
         raise ValueError("navigation requires canonical table sets")
     demands = []
     for before, bound in ((True, plan.before), (False, plan.current)):
+        assert bound.table_set is not None
         for table in bound.table_set.tables:
             name = table.descriptor.table_name
             if name in NAVIGATION_ROW_TABLES and not (

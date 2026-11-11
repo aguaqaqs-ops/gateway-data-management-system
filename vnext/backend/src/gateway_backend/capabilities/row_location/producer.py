@@ -1,7 +1,7 @@
 """One table at a time, bind published STANDARD identities to final files."""
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Generator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -63,7 +63,7 @@ def _canonical_batches(table: SnapshotTable) -> Iterator[Iterator[pa.RecordBatch
 def identity_batches(
     table: SnapshotTable, policy_json: str, *, ref: ArtifactRef | None = None,
     store: ArtifactStorePort | None = None,
-) -> Iterator[tuple[pa.RecordBatch, list[str], list[bytes]]]:
+) -> Generator[tuple[pa.RecordBatch, list[str], list[bytes]], None, None]:
     """Keep decoded input/output and occurrence state within one operation M."""
     context = current_kernel_context()
     if context is None:

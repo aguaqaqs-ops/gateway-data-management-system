@@ -506,6 +506,7 @@ def test_startup_scans_all_pages_in_order_and_keeps_recovery_outside_read_uow() 
         registry,
         recovery,
         page_limit=1,
+        worker_id_factory=lambda: "old-worker",
     )
 
     assert startup.startup() is StartupDisposition.READY

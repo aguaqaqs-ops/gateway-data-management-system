@@ -43,6 +43,7 @@ def test_process_startup_takeover_moves_expired_running_to_retry_wait(tmp_path: 
     db_path.parent.mkdir(parents=True)
     child_code = r'''
 import dataclasses
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -91,14 +92,18 @@ step = step_record_from_document({
     "status": StepStatus.PENDING.value, "step_id": "step-process-takeover",
     "step_name": "compute", "updated_at": "2024-01-02T03:04:05Z", "worker_id": None,
 })
-with ControlDbUnitOfWork(db_path, now=now) as unit_of_work:
-    unit_of_work.operations.insert_operation_with_initial_step(operation, step)
-    claimed = OperationLifecycleActions(
-        unit_of_work.operations,
-        transaction_now=unit_of_work.operations.transaction_now,
-    ).claim_one("worker-process-old", "lease-process-old")
-assert claimed is not None
-_, claimed_step = claimed
+if sys.argv[2] == "seed":
+    with ControlDbUnitOfWork(db_path, now=now) as unit_of_work:
+        unit_of_work.operations.insert_operation_with_initial_step(operation, step)
+        claimed = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.operations.transaction_now,
+        ).claim_one("worker-process-old", "lease-process-old")
+    assert claimed is not None
+    print("CLAIMED", flush=True)
+    os._exit(23)  # No worker handoff: leave the committed RUNNING lease behind.
+with ControlDbUnitOfWork(db_path, read_only=True, now=now) as unit_of_work:
+    claimed_step = unit_of_work.operations.get_step("step-process-takeover")
 started_at = claimed_step.started_at
 clock["value"] = claimed_step.lease_expires_at + timedelta(seconds=1)
 
@@ -117,44 +122,52 @@ def read_uow():
 def write_uow():
     return ControlDbUnitOfWork(db_path, now=now)
 
+identity = "worker-process-peer" if sys.argv[2] == "peer" else "worker-process-old"
 startup = WorkerStartup(
     read_uow_factory=read_uow,
     write_uow_factory=write_uow,
     registry=Registry(),
     recovery_hook=lambda *_args: StartupDisposition.READY,
     startup_recovery=build_startup_recovery(
-        worker_id="worker-process-old",
+        worker_id=identity,
         write_uow_factory=write_uow,
         capability_lookup=lambda *_args: RecoveryCapabilityValue.PURE_RECOMPUTE,
         jitter=lambda lower, _upper: lower,
         now_factory=now,
     ),
     observer=lambda _event: None,
-    worker_id_factory=lambda: "worker-process-old",
+    worker_id_factory=lambda: identity,
     lease_token_factory=lambda: "lease-process-new",
 )
 assert startup.startup() is StartupDisposition.READY
 with ControlDbUnitOfWork(db_path, read_only=True, now=now) as unit_of_work:
     persisted = unit_of_work.operations.get_step("step-process-takeover")
+if sys.argv[2] == "peer":
+    assert persisted.status is StepStatus.RUNNING
+    assert persisted.lease_token == "lease-process-old"
+    print("PEER_OK", flush=True)
+    raise SystemExit(0)
 assert persisted.status is StepStatus.RETRY_WAIT
 assert persisted.started_at == started_at
 assert persisted.worker_id is None
 assert persisted.lease_token is None
 print("TAKEOVER_OK", flush=True)
 '''
-    process = subprocess.run(
-        [sys.executable, "-c", child_code, str(db_path)],
-        cwd=BACKEND_ROOT,
-        env=_subprocess_environment(db_path),
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    assert process.returncode == 0, process.stdout + process.stderr
-    assert "TAKEOVER_OK" in process.stdout
-    assert "lease-process-old" not in process.stdout
-    assert str(db_path) not in process.stdout
+    for mode, expected_exit, marker in (("seed", 23, "CLAIMED"), ("peer", 0, "PEER_OK"),
+                                       ("own", 0, "TAKEOVER_OK")):
+        process = subprocess.run(
+            [sys.executable, "-c", child_code, str(db_path), mode],
+            cwd=BACKEND_ROOT,
+            env=_subprocess_environment(db_path),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert process.returncode == expected_exit, process.stdout + process.stderr
+        assert marker in process.stdout
+        assert "lease-process-old" not in process.stdout
+        assert str(db_path) not in process.stdout
 
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.operations.get_step("step-process-takeover")

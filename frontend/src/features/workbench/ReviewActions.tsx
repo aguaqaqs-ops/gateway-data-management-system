@@ -67,6 +67,13 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   useEffect(() => {
     setExpiredApprove(false);
   }, [facts.review_version, facts.status]);
+  // N17: a REVIEW reload from another path (for example the bundle or table
+  // reload) can make a previously reported conflict stale. Clearing on a
+  // disposition/version change keeps own-refresh notices that did not change
+  // facts, and drops notices that the refreshed facts have superseded.
+  useEffect(() => {
+    setError(null);
+  }, [facts.review_version, facts.status, facts.submission_disposition]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition
     ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
@@ -197,5 +204,6 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     </Dialog>
     </div>
     {errorNotice && errorHost && createPortal(errorNotice, errorHost)}
+    {errorNotice && !errorHost && errorNotice}
   </>;
 }

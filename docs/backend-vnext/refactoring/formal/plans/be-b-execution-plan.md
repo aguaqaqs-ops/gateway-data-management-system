@@ -1,6 +1,6 @@
 # BE-b 实施与验收执行计划
 
-日期：2026-11-10；2026-11-11 按首轮后端独审修订。状态：**计划候选；本轮仅授权文档、后端独审与前端核对准备，尚未授权产品实施**。
+日期：2026-11-10；2026-11-11 按首轮后端独审修订。状态：**后端设计独审通过，待前端定向核对；本轮仅授权文档、后端独审与前端核对准备，尚未授权产品实施**。
 
 设计依据：[BE-b 第二步设计](be-b-second-step-design.md)，业务依据[第一步](../../../../frontend-vnext/be-b-navigation-and-presentation-draft.md)、[FE4 kickoff §4](../../../../frontend-vnext/fe4-kickoff.md)。产品起点 B=`42780a12303c8040526bf5dc8f9c6f0acb12dbb1`，`p7-s1a-exit` 已完成。BE-b 不等待 S1b；FE4b 等 BE-b exit 与自己的 FE4a exit。
 

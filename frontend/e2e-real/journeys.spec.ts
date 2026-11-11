@@ -10,6 +10,7 @@ import {
   expectReviewReasonShownOnce,
   gotoWorkbench,
   opfsBundleState,
+  recordBundleBodies,
   recordBundleResponses,
   reviewAction,
   reviewStatus,
@@ -1005,7 +1006,7 @@ test("r9-history", async ({ browser }, testInfo) => {
     await selectTreeRow(session.page, "提交 1");
     await workshopAction(session.page, "加入比较").click();
 
-    const historyBundles = recordBundleResponses(session.page);
+    const historyBodies = recordBundleBodies(session.page);
     const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
     await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
     expect((await compareResponse).status()).toBeLessThan(300);
@@ -1031,16 +1032,13 @@ test("r9-history", async ({ browser }, testInfo) => {
     await expect(session.page.locator("nav.breadcrumb")).toContainText(/节点 \d+ → 节点 \d+/);
     await saveEvidence(session.page, testInfo, "r9-history-diff");
 
-    let historyBundlesChecked = 0;
-    for (const recorded of historyBundles.responses) {
-      if (recorded.status() !== 200) continue;
-      const downloaded = parseBundleTar(Buffer.from(await recorded.body()));
-      const criteria = await assertBundleConsumerCriteria(downloaded, "journey r9-history bundle");
+    await Promise.all(historyBodies.pending);
+    historyBodies.dispose();
+    for (const body of historyBodies.bodies) {
+      const criteria = await assertBundleConsumerCriteria(parseBundleTar(body), "journey r9-history bundle");
       appendCaseLog(`criteria r9-history ${formatCriteriaSummary(criteria)}`);
-      historyBundlesChecked += 1;
     }
-    historyBundles.dispose();
-    expect(historyBundlesChecked, "r9-history bundle downloads checked").toBeGreaterThan(0);
+    expect(historyBodies.bodies.length, "r9-history bundle downloads checked").toBeGreaterThan(0);
 
     assertClean(session.diagnostics, "r9-history");
     appendCaseLog(`r9-history ok nodes=${history.body.nodes.length}`);

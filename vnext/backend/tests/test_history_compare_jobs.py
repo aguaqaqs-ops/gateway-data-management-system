@@ -1479,7 +1479,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     assert step.checkpoint_ref is not None
     checkpoint = load_checkpoint_envelope(preview.artifact_store, step.checkpoint_ref)
     inputs = preview_jobs._materialized_preview_inputs_from_checkpoint(checkpoint.job_state,
-        preview.artifact_store, repository_id=REPOSITORY_ID)
+        preview.artifact_store, repository_id=REPOSITORY_ID, dependencies=preview.deps)
     canonical = inputs.canonical
     assert canonical.initial_canonicalization_manifest_ref is not None
     manifests = {

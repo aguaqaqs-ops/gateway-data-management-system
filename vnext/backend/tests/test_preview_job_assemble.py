@@ -433,7 +433,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID)
+        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps)
 
 
 def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
@@ -457,7 +457,7 @@ def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID)
+        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps)
 
 
 def _run_through_publish(harness: PreviewJobHarness, operation_id: str) -> None:

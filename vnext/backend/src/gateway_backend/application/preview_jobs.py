@@ -648,7 +648,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 )
             inputs = _materialized_preview_inputs_from_checkpoint(
                 envelope.job_state,
-                deps.artifact_store, repository_id=payload.repository_id,
+                deps.artifact_store, repository_id=payload.repository_id, dependencies=deps,
             )
             materialized_sides_ref = artifact_ref_from_dict(
                 cast(dict[str, object], envelope.job_state[_JOB_STATE_MATERIALIZED_SIDES_REF])
@@ -788,7 +788,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             )
         inputs = _materialized_preview_inputs_from_checkpoint(
             materialize_envelope.job_state,
-            deps.artifact_store, repository_id=payload.repository_id,
+            deps.artifact_store, repository_id=payload.repository_id, dependencies=deps,
         )
 
         _assert_configuration_payload(inputs.canonical.configuration_facts, payload, operation.operation_id)
@@ -847,7 +847,6 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                     computation_cache=deps.computation_cache,
                     presentations=inputs.presentations,
-                    baseline_presentation=_preview_baseline_presentation(payload, deps),
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -1248,6 +1247,7 @@ def _materialize_all_sides(
         return CanonicalContentIdentity(digest.value, rules_digest.value,
             STORAGE_PROJECTION_VERSION, SCALAR_ENCODING_VERSION)
     baseline_identity = content(baseline_state_digest)
+    baseline_presentation = PresentationMetadata()
     with deps.control_transaction_factory() as unit_of_work:
         node = unit_of_work.baseline.get_node(payload.business_baseline_node_id)
         if node is None or node.repository_id != payload.repository_id or node.commit_id != payload.business_baseline_commit_id:
@@ -1277,6 +1277,7 @@ def _materialize_all_sides(
                 or baseline_side.content_identity.storage_projection_version != metadata.manifest.storage_projection_version):
                 raise PreviewJobError("configuration baseline facts identity does not match source manifest")
             baseline_identity = baseline_side.content_identity
+            baseline_presentation = presentation_for_commit(metadata)
     if payload.input_completeness is InputCompleteness.FULL:
         initial_values = uploaded_sides[OperationDiagnosticSide.INITIAL]
         initial_side = ConfigurationSideFacts(content(initial_state_digest), initial_values[3],
@@ -1303,7 +1304,8 @@ def _materialize_all_sides(
     )
     return _MaterializedPreviewInputs(
         sides=sides,
-        presentations={_SIDE_INITIAL: (PresentationMetadata() if initial_manifest_ref is None else
+        presentations={_SIDE_BASELINE: baseline_presentation,
+            _SIDE_INITIAL: (baseline_presentation if initial_manifest_ref is None else
             open_canonicalization_manifest(deps.artifact_store, initial_manifest_ref).presentation),
             _SIDE_MODIFIED: open_canonicalization_manifest(deps.artifact_store, manifest_ref).presentation},
         canonical=_CanonicalPreviewMetadata(
@@ -1408,14 +1410,16 @@ def _preview_baseline_binding(
     return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
 
 
-def _preview_baseline_presentation(payload: PreviewJobPayload, deps: PreviewRuntimeDependencies) -> PresentationMetadata:
+def _preview_baseline_presentation(*, workspace_id: str, repository_id: str, commit_id: str,
+    deps: PreviewRuntimeDependencies,
+) -> PresentationMetadata:
     with deps.control_transaction_factory() as unit_of_work:
-        workspace = unit_of_work.workspace.get_workspace(payload.workspace_id)
-        if workspace is None or workspace.repository_id != payload.repository_id:
+        workspace = unit_of_work.workspace.get_workspace(workspace_id)
+        if workspace is None or workspace.repository_id != repository_id:
             raise PreviewJobError("preview workspace scope is unavailable")
         try:
             metadata = unit_of_work.commit_canonical_metadata.resolve(
-                repository_id=payload.repository_id, commit_id=payload.business_baseline_commit_id,
+                repository_id=repository_id, commit_id=commit_id,
                 scope=CommitCanonicalScope(gateway_device_external_key=workspace.gateway_device_external_key,
                     business_project_id=workspace.business_project_id))
         except CommitCanonicalMetadataError as exc:
@@ -1947,12 +1951,8 @@ def _assemble_preview(
     export_cache: SnapshotTableExportCachePort | None = None,
     computation_cache: ComputationCachePort | None = None,
     presentations: Mapping[str, PresentationMetadata] | None = None,
-    baseline_presentation: PresentationMetadata = PresentationMetadata(),
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     display_inputs = dict(presentations or {})
-    display_inputs[_SIDE_BASELINE] = baseline_presentation
-    if payload.input_completeness is InputCompleteness.MODIFIED_ONLY:
-        display_inputs[_SIDE_INITIAL] = baseline_presentation
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
@@ -2704,7 +2704,7 @@ def _side_binding_document(
 def _materialized_preview_inputs_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
-    *, repository_id: str,
+    *, repository_id: str, dependencies: PreviewRuntimeDependencies | None = None,
 ) -> _MaterializedPreviewInputs:
     if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF, _JOB_STATE_CANONICAL}:
         raise CheckpointDecodeError(
@@ -2840,9 +2840,16 @@ def _materialized_preview_inputs_from_checkpoint(
             "materialize checkpoint canonical state digest does not match its tables",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
+    if dependencies is None:
+        raise CheckpointDecodeError("materialize checkpoint presentation resolver is unavailable",
+            code="CHECKPOINT_JOB_STATE_MISMATCH")
+    facts = canonical.configuration_facts
+    baseline_presentation = _preview_baseline_presentation(workspace_id=facts.workspace_id,
+        repository_id=repository_id, commit_id=facts.business_baseline_commit_id, deps=dependencies)
     return _MaterializedPreviewInputs(sides=sides, canonical=canonical, presentations={
+        _SIDE_BASELINE: baseline_presentation,
         _SIDE_MODIFIED: manifest.presentation,
-        _SIDE_INITIAL: PresentationMetadata() if initial_manifest is None else initial_manifest.presentation,
+        _SIDE_INITIAL: baseline_presentation if initial_manifest is None else initial_manifest.presentation,
     })
 
 

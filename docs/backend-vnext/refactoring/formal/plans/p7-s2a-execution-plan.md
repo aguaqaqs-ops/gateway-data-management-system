@@ -103,7 +103,7 @@ RS保持单服务进程、DurableRootLock及原versioned_import repository reser
 
 - 复用 `RepositoryLockRegistry` 的进程内reservation状态，不加DB表/RW锁/新队列。import保留先try_reserve再durable claim的流程；read通过同一原子try_reserve获得一次可幂等release的许可。read失败立即返回busy，不持有线程等待；import遇到read占用继续留在既有队列。
 - runtime把同一registry注入read provider factory。`read_ref`、`commit_exists`、`catalog_at`各自包住整次实际CLI调用（catalog内部存在性查询不嵌套取锁）。stream在 `stream_table_at` 返回iterator之前取许可，覆盖直到Dolt进程及producer确实结束；缓存catalog与row stream可分次获取，均指定exact commit，不依赖两次之间main不变化。
-- 许可用显式可关闭对象/iterator管理，不依赖generator从未启动时不会执行的finally；构造失败、未消费close、正常结束、断连/取消、bridge创建失败均唯一归还。HTTP200发出前必须已取得许可，不能把busy藏到首次next中。bridge清理/child join失败时不能提前释放并放下一次访问：按已有服务故障锁存/not-ready及人工重启处理，保留占用直到进程退出。不得把流中途的真实故障伪装busy或重开输出流。
+- 许可用显式可关闭对象/iterator管理，不依赖generator从未启动时不会执行的finally；构造失败、未消费close、正常结束、断连/取消、bridge创建失败在确认无执行者后唯一归还。HTTP200发出前必须已取得许可，不能把busy藏到首次next中。metadata或stream异常后若无法证明Dolt child/producer已退出，保留该repository reservation并记录结构化故障诊断，同库后续访问返回busy，其他库可继续；不提前放下一次访问，也不宣称已有全服务fault latch/not-ready。人工核实进程退出后按受控流程重启RS以重建进程内registry，不提供在线强制清许可接口；不能仅等300秒或看到请求结束就释放。不得把流中途的真实故障伪装busy或重开输出流。
 - read和writer释放reservation都在registry锁外通知原dispatcher；`Condition.wait()`无timeout，遗漏通知会使待执行import永久睡眠。注册唯一唤醒回调，关闭时解除；不在registry锁内回调dispatcher，保持既有guard/scheduler锁顺序与entry淘汰保护。无需轮询常驻服务。
 - 不承诺读写公平或无限负载零等待。实际Dolt集成证明同库CLI无交叠、不同库可交叠、读结果绑定原commit、取消后进程已退出；不是仅mock一把锁即完成。
 

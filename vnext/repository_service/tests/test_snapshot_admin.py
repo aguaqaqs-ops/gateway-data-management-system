@@ -9,6 +9,7 @@ import shutil
 import signal
 import sqlite3
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,7 +20,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway_repository_contracts import encode_commit_id_path_segment
+from gateway_repository_contracts import REPOSITORY_BUSY_CODE, SimpleError, encode_commit_id_path_segment
 from support.storage_layout import local_storage_layout
 from gateway_repository_service.app import create_app
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
@@ -27,6 +28,7 @@ from gateway_repository_service.locking import DurableRootLock, RootLockBusy
 from gateway_repository_service.mutation_fingerprints import CREATE_REPOSITORY_FINGERPRINT_V1
 from gateway_repository_service.mutation_store import IdempotencyScope, MutationStore
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
+from gateway_repository_service.versioned_import.faults import ImportWorkerFaultPoint
 from support.http_harness import import_headers
 from support.import_admission_crash_harness import build_import_package_bytes
 from support.lifecycle_harness import lifecycle_settings
@@ -875,6 +877,7 @@ def test_dolt_probe_failure_reaps_children_and_query_temp(tmp_path: Path) -> Non
 
 _AUTH_HEADERS = {"Authorization": "Bearer test-bearer-token"}
 _IMPORT_TIMEOUT_SECONDS = 60.0
+_READ_ADMISSION_TIMEOUT_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -944,6 +947,28 @@ def _import_package(
     return _poll_succeeded(client, repository_id, str(submitted.json()["operation_id"]))
 
 
+def _read_versioned_json(client: TestClient, path: str) -> dict[str, Any]:
+    # SUCCEEDED is a durable business result; the import executor may still hold
+    # its physical CLI reservation while cleaning its private ref. Raw HTTP test
+    # callers obey the same finite busy admission contract as RepositoryClient.
+    deadline = time.monotonic() + _READ_ADMISSION_TIMEOUT_SECONDS
+    while True:
+        assert time.monotonic() < deadline, "versioned read admission deadline exceeded"
+        response = client.get(path, headers=_AUTH_HEADERS)
+        if response.status_code == 503:
+            error = SimpleError.model_validate(response.json())
+            if error.code == REPOSITORY_BUSY_CODE:
+                response.close()
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, "versioned read admission deadline exceeded"
+                time.sleep(min(1.0, remaining))
+                continue
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert isinstance(body, dict)
+        return body
+
+
 def _read_snapshot_facts(
     client: TestClient,
     repository_id: UUID,
@@ -951,20 +976,10 @@ def _read_snapshot_facts(
 ) -> dict[str, Any]:
     ready = client.get("/readyz")
     assert ready.status_code == 200
-    ref = client.get(
-        f"/v1/repositories/{repository_id}/versioned/refs/main",
-        headers=_AUTH_HEADERS,
-    )
-    assert ref.status_code == 200, ref.text
-    catalog = client.get(
-        (
-            f"/v1/repositories/{repository_id}/versioned/commits/"
-            f"{encode_commit_id_path_segment(commit_id)}/catalog"
-        ),
-        headers=_AUTH_HEADERS,
-    )
-    assert catalog.status_code == 200, catalog.text
-    return {"ref": ref.json(), "catalog": catalog.json()}
+    ref = _read_versioned_json(client, f"/v1/repositories/{repository_id}/versioned/refs/main")
+    catalog = _read_versioned_json(client,
+        f"/v1/repositories/{repository_id}/versioned/commits/{encode_commit_id_path_segment(commit_id)}/catalog")
+    return {"ref": ref, "catalog": catalog}
 
 
 def _records_row_count(catalog_body: dict[str, Any]) -> int:
@@ -1096,12 +1111,31 @@ def test_incomplete_restore_copy_fails_check_with_dolt(
 
 @pytest.mark.integration
 @pytest.mark.serial
-def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
+def test_whole_root_restore_preserves_public_facts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings = lifecycle_settings(tmp_path / "src")
     payload = build_import_package_bytes()
     before_temps = snapshot_check_temp_homes(settings.storage_roots.scratch)
     before_pids = list_dolt_pids()
-    with TestClient(create_app(settings)) as client:
+    cleanup_entered, cleanup_release = threading.Event(), threading.Event()
+    busy_observed: list[str] = []
+    class HoldAfterSucceeded:
+        def maybe_raise(self, point: ImportWorkerFaultPoint) -> None:
+            if point is ImportWorkerFaultPoint.AFTER_SUCCEEDED_BEFORE_PRIVATE_REF_CLEANUP:
+                cleanup_entered.set()
+                assert cleanup_release.wait(10), "snapshot caller did not release import cleanup"
+    app = create_app(settings)
+    with TestClient(app) as client:
+        runtime: ServiceRuntime = app.state.runtime
+        runtime.import_worker_pool._fault_injector = HoldAfterSucceeded()
+        get = client.get
+        def observe_get(*args: Any, **kwargs: Any) -> Any:
+            response = get(*args, **kwargs)
+            if response.status_code == 503 and response.json().get("code") == REPOSITORY_BUSY_CODE:
+                assert cleanup_entered.is_set()
+                busy_observed.append(str(response.request.url.path))
+                cleanup_release.set()
+            return response
+        monkeypatch.setattr(client, "get", observe_get)
         created = client.post(
             "/v1/repositories",
             headers={**_AUTH_HEADERS, "Idempotency-Key": "restore-create"},
@@ -1117,7 +1151,15 @@ def test_whole_root_restore_preserves_public_facts(tmp_path: Path) -> None:
             idempotency_prefix="restore-c1",
         )
         commit_id = str(operation["result"]["commit_id"])
-        snapshot_facts = _read_snapshot_facts(client, repository_id, commit_id)
+        try:
+            assert cleanup_entered.wait(10)
+            assert runtime.import_locks.is_active(repository_id)
+            snapshot_facts = _read_snapshot_facts(client, repository_id, commit_id)
+        finally:
+            cleanup_release.set()
+        assert busy_observed
+        assert set(busy_observed) == {f"/v1/repositories/{repository_id}/versioned/refs/main"}
+        assert not runtime.import_locks.is_active(repository_id)
         assert snapshot_facts["ref"]["commit_id"] == commit_id
         assert _records_row_count(snapshot_facts["catalog"]) == 1
 

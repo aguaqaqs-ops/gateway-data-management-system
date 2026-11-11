@@ -595,10 +595,11 @@ def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> Non
 
 
 def check_fixed_worker_deployment(env: dict[str, str]) -> dict[str, Any]:
-    directory = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).parent
+    rendered = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
+    mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
     result = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/render-runtime-config.py"),
-        "--storage-layout", str(directory / "storage-layout.json"),
-        "--resource-profile", str(directory / "resource-profile.json"),
+        "--storage-layout", mounts["/run/gateway/storage-layout.json"],
+        "--resource-profile", mounts["/run/gateway/resource-profile.json"],
         "check-workers", "--project", env["COMPOSE_PROJECT_NAME"]],
         env=env, check=False, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr

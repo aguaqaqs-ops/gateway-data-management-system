@@ -172,13 +172,13 @@ async def test_read_busy_has_one_bounded_admission_window(kind: str, outcome: st
     cancelled = [False]
     def handler(request: httpx.Request) -> httpx.Response:
         count = len(responses)
-        if outcome == 'ordinary_fault':
-            response = httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready"}, headers={"X-Request-ID": "busy"})
-        elif outcome == 'success' and count >= 125:
+        if outcome == 'ordinary_fault' or outcome == 'success' and count < 2:
+            response = httpx.Response(503, json={"code": "SERVICE_NOT_READY", "message": "not ready", "request_id": "busy"}, headers={"X-Request-ID": "busy"})
+        elif outcome == 'success' and count >= 127:
             body = {"ref_name": "main", "commit_id": COMMIT_ID} if kind == 'ref' else {"catalog": {"commit_id": COMMIT_ID, "tables": []}}
             response = httpx.Response(200, json=body, headers={"X-Request-ID": "ok"})
         else:
-            response = httpx.Response(503, json={"code": "REPOSITORY_BUSY", "message": "repository is busy"}, headers={"X-Request-ID": "busy"})
+            response = httpx.Response(503, json={"code": "REPOSITORY_BUSY", "message": "repository is busy", "request_id": "busy"}, headers={"X-Request-ID": "busy"})
         responses.append(response)
         return response
     async def sleeper(delay: float) -> None:
@@ -196,12 +196,12 @@ async def test_read_busy_has_one_bounded_admission_window(kind: str, outcome: st
         return await client.get_versioned_catalog(repository_id=REPO_ID, commit_id=COMMIT_ID, cancel_requested=lambda: cancelled[0], deadline_at=deadline)
     if outcome == 'success':
         await read()
-        assert now[0] == 125 and len(responses) == 126
+        assert now[0] == pytest.approx(125.15) and len(responses) == 128
     else:
         expected = InterruptedError if outcome == 'cancel' else RepositoryClientError if outcome == 'ordinary_fault' else RepositoryClientTimeoutError
         with pytest.raises(expected):
             await read()
-        assert now[0] == {'admission_timeout': 300.0, 'caller_deadline': 2.5, 'cancel': 1.0, 'ordinary_fault': 0.15}[outcome] or outcome == 'ordinary_fault'
+        assert now[0] == pytest.approx({'admission_timeout': 300.0, 'caller_deadline': 2.5, 'cancel': 1.0, 'ordinary_fault': 0.15}[outcome])
         if outcome == 'ordinary_fault':
             assert len(responses) == 3 and delays == [0.05, 0.1]
     assert all(response.is_closed for response in responses)

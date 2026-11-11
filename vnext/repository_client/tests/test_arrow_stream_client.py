@@ -1257,7 +1257,7 @@ async def test_arrow_busy_wait_releases_responses_and_restores_stream_deadline(o
         if outcome == 'success' and len(responses) >= 125:
             response = httpx.Response(200, headers=ARROW_HEADERS, stream=Body())
         else:
-            response = httpx.Response(503, json={'code': 'REPOSITORY_BUSY', 'message': 'busy'}, headers={'X-Request-ID': 'busy'})
+            response = httpx.Response(503, json={'code': 'REPOSITORY_BUSY', 'message': 'busy', 'request_id': 'busy'}, headers={'X-Request-ID': 'busy'})
         responses.append(response)
         return response
     async def sleeper(delay: float) -> None:

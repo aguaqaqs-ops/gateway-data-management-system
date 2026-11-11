@@ -16,7 +16,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from gateway_backend.capabilities.comparison.contracts import RecordsArtifactFamily, ComparisonPlan, ComparisonRequest
 from gateway_backend.capabilities.comparison import plan_comparison
 from gateway_backend.capabilities.comparison.production import compare_plan_native
-from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA, prepare_row_locations, publish_row_locations
+from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA, prepare_row_locations, publish_row_locations
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
 from gateway_backend.capabilities.table_access import current_kernel_context

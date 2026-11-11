@@ -15,7 +15,7 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.capabilities.business_navigation.contracts import validate_diagnostics, validate_navigation
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
-from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA
+from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA
 
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v1"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())

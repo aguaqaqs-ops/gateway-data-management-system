@@ -58,7 +58,7 @@ def _copy_artifacts(source: InMemoryArtifactStore, target: LocalArtifactStore) -
 
 
 def _history_http_job(
-    root: Path, store: LocalArtifactStore, node_count: int = 2,
+    root: Path, store: LocalArtifactStore, node_count: int = 2, *, changed_rows: bool = False,
 ) -> tuple[WorkspaceHttpTestEnvironment, HistoryCompareJobHarness]:
     from gateway_backend.application.history.compare_jobs import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -68,7 +68,11 @@ def _history_http_job(
         (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
         ("bn-b", "commit-b"), ("bn-c", "commit-c"),
     )[:node_count]
-    harness = build_history_compare_harness(root / "job", artifact_store=BoundedArtifactStore(store), node_specs=nodes)
+    from tests.support.history_compare_job_harness import history_compare_provider
+    providers = ({commit: history_compare_provider(commit_id=commit, row_count=index + 1)
+        for index, (_node, commit) in enumerate(nodes)} if changed_rows else None)
+    harness = build_history_compare_harness(root / "job", artifact_store=BoundedArtifactStore(store), node_specs=nodes,
+        custom_providers=providers)
     env = create_workspace_http_environment(
         root / "http", db_path=harness.db_path,
         identity=make_identity(permissions=frozenset({"read_project_history"})),
@@ -361,3 +365,48 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
     assert "etag" not in response.headers
     with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
         assert acquired
+
+
+@pytest.mark.parametrize("node_count", (2, 3))
+def test_history_ready_protects_actual_locators_and_fresh_http_reads_the_closed_bundle(tmp_path: Path, node_count: int) -> None:
+    from datetime import UTC, datetime, timedelta
+    from gateway_backend.application.checkpoints import load_ready_closure
+    from gateway_backend.artifacts import artifact_ref_from_dict
+    from gateway_backend.artifacts.bounded_store import CleanupClassification, DeleteDisposition
+    from gateway_backend.operations import OperationStatus
+
+    local = open_test_store(tmp_path / "artifacts")
+    env, harness = _history_http_job(tmp_path, local, node_count, changed_rows=True)
+    response = env.client.get(f"/v1/history-compares/{harness.operation_id}/bundle", headers=env.auth_headers())
+    assert response.status_code == 200, response.text
+    manifest = assert_complete_tar(response.content)
+    entries = cast(list[dict[str, object]], manifest["closure_entries"])
+    new_entries = [entry for entry in entries if entry["kind"] in {"ROW_LOCATOR", "PROJECTION"}]
+    assert {entry["kind"] for entry in new_entries} == {"ROW_LOCATOR", "PROJECTION"}
+    assert sum(entry["kind"] == "ROW_LOCATOR" for entry in new_entries) == node_count - 1
+    new_refs = []
+    for entry in new_entries:
+        raw_ref = entry["artifact_ref"]
+        assert isinstance(raw_ref, dict)
+        new_refs.append(artifact_ref_from_dict(raw_ref))
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+        assert operation.status is OperationStatus.SUCCEEDED and operation.ready_closure_ref is not None
+        ready = load_ready_closure(local, operation.ready_closure_ref)
+        assert set(new_refs) <= set(ready.artifact_refs())
+        assert all(uow.protection.is_protected(ref.artifact_id) for ref in new_refs)
+    fresh_local = open_test_store(tmp_path / "artifacts")
+    bounded = BoundedArtifactStore(fresh_local, protection_uow=lambda: ControlDbUnitOfWork(harness.db_path),
+        unpinned_ttl=timedelta(0))
+    for ref in new_refs:
+        future = datetime.now(UTC) + timedelta(days=2)
+        assert bounded.classify_cleanup(ref, future).classification is CleanupClassification.PROTECTED
+        assert bounded.delete_eligible(ref, expected_classification=CleanupClassification.ELIGIBLE_AFTER,
+            now=future) is DeleteDisposition.RETRYABLE_FAILURE
+    fresh = create_workspace_http_environment(tmp_path / "fresh-http", db_path=harness.db_path,
+        identity=make_identity(permissions=frozenset({"read_project_history"})),
+        artifact_store=bounded, bundle_reader=LocalArtifactBundleReader(fresh_local))
+    reopened = fresh.client.get(f"/v1/history-compares/{harness.operation_id}/bundle", headers=fresh.auth_headers())
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.content == response.content
+    assert assert_complete_tar(reopened.content)["bundle_digest"] == manifest["bundle_digest"]

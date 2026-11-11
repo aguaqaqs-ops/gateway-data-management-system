@@ -809,8 +809,8 @@
         "whole-table-downgrade"
       ],
       "comparison_exclusions": {
-        "device_cfg": [
-          "gid"
+        "device_st": [
+          "dev_addr"
         ]
       },
       "assertions": {
@@ -818,13 +818,13 @@
           {
             "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
             "side": "BEFORE",
-            "table_id": "device_cfg",
+            "table_id": "device_st",
             "reason": "IDENTITY_EXCLUDED"
           },
           {
             "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
             "side": "CURRENT",
-            "table_id": "device_cfg",
+            "table_id": "device_st",
             "reason": "IDENTITY_EXCLUDED"
           }
         ]

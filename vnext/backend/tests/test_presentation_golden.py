@@ -20,6 +20,7 @@ from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v1"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())
 SCENARIOS = tuple(item["scenario"] for item in MANIFEST["scenarios"])
+CODE_INVENTORY: dict[str, Any] = json.loads((Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json").read_bytes())
 
 
 def _load(kind: str, scenario: str) -> list[dict[str, Any]]:
@@ -44,6 +45,11 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
         assert raw_blob_digest(canonicalize_json_value(payload)).value == vector["surface_digest"]
         assert vector["surface_digest"] == surface["surface_digest"] == vector["physical_variant_digest"]
         assert all("table_refs" not in table and "row_locator_ref" not in table for table in payload["_tables"])
+        published_codes = set(surface["diagnostics"]["diagnostics_summary"])
+        published_codes.update(surface["view"]["diagnostics_summary"])
+        for table in surface["tables"]:
+            published_codes.update(table["diagnostics"]["diagnostics_summary"])
+        assert published_codes <= set(CODE_INVENTORY["surface_summary_codes"])
         table_ids = frozenset(table["table_id"] for table in surface["tables"])
         navigation = validate_navigation(navigations[pair_id]["document"],
             replacement=surface["comparison_mode"] == "DATASET_REPLACEMENT")

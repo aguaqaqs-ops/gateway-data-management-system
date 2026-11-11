@@ -19,6 +19,7 @@ import json
 from pathlib import Path, PurePosixPath
 import subprocess
 import tempfile
+import uuid
 from typing import Any, Iterator
 from unittest.mock import patch
 
@@ -29,7 +30,7 @@ from gateway_compute._native import _init_kernel_native
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
-from gateway_backend.application.preview_jobs import _comparison_storage_facts, surface_artifact_closure
+from gateway_backend.application.preview_jobs import _comparison_storage_facts, _publish_canonical_table_set_closure, surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from presentation_fixture_submit import run_comment_only_submit
@@ -45,7 +46,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
     BusinessSnapshotMaterializationRequest, MaterializationPolicy, MaterializationStage,
     SqlSnapshotMaterializationRequest, materialize_business_snapshot, materialize_canonical_snapshot,
 )
-from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
+from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set, publish_canonicalization_manifest
 from gateway_backend.capabilities.table_access import (
     KernelExecutionContext, NeverCancel, OperationMemoryBudget, PARSER_INPUT_CONTRACT_VERSION,
     ParserInvocationContext, SqlParseRequest, SqlSourceInput, XmlParseRequest, XmlSourceInput,
@@ -86,6 +87,7 @@ def fixed_fixture_inputs() -> Iterator[None]:
         # All owners import the standard secrets module. Patch its allocation
         # once, and each owner's locally imported datetime separately.
         stack.enter_context(patch("secrets.token_hex", token_hex))
+        stack.enter_context(patch("uuid.uuid4", lambda: uuid.UUID(hex=token_hex(16))))
         for name in ALLOCATOR_MODULES:
             module = importlib.import_module("gateway_backend.capabilities." + name)
             if hasattr(module, "datetime"):
@@ -97,6 +99,9 @@ def fixed_fixture_inputs() -> Iterator[None]:
 class MaterializedInput:
     bound: BoundSnapshotInput
     presentation: PresentationMetadata
+    canonicalization_manifest_ref: Any
+    canonicalization_manifest_digest: Any
+    canonical_table_set_closure_ref: Any
 
 
 def materialize(sql: bytes, xml: bytes, store: InMemoryArtifactStore) -> MaterializedInput:
@@ -132,8 +137,10 @@ def materialize(sql: bytes, xml: bytes, store: InMemoryArtifactStore) -> Materia
                 table.batch_reader.close()
     if result.snapshot is None or result.summary is None or result.table_set is None or result.status.value != "COMPLETE":
         raise ValueError(f"canonical publication failed: {result.diagnostics!r}")
-    return MaterializedInput(BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
-        _comparison_storage_facts(projected.manifest)), projected.manifest.presentation)
+    bound = BoundSnapshotInput(result.snapshot, result.summary, result.table_set, _comparison_storage_facts(projected.manifest))
+    return MaterializedInput(bound, projected.manifest.presentation,
+        publish_canonicalization_manifest(projected.manifest, store), projected.manifest.manifest_digest,
+        _publish_canonical_table_set_closure(bound, store))
 
 
 def write_member(root: Path, name: str, data: bytes) -> None:
@@ -390,6 +397,7 @@ def generate(input_root: Path, output_root: Path) -> None:
         "fixture_only_controls": {"wall_clock_utc": FROZEN_TIME,
             "opaque_allocator": "secrets.token_hex: SHAKE256(be-b-presentation-fixture-v1:<global-call-ordinal>)",
             "allocator_owners": list(ALLOCATOR_MODULES), "repository_id": REPOSITORY,
+            "uuid_allocator": "UUID from next deterministic 16-byte token; preview canonical closure owner",
             "pair_and_view_ids": "current flow contract; no operation ID prefix",
             "kernel_threads": 1, "memory_budget_bytes": 8 * 1024**3},
         "rejected_frozen_sources": rejected_sources, "scenarios": records}

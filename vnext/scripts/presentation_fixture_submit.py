@@ -12,6 +12,8 @@ from typing import Any, Iterator
 
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from gateway_backend.application.submission.accept_transaction import AcceptSubmitPreflight, accept_submit_transaction
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submission.errors import NoCanonicalChange
@@ -60,11 +62,13 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
         return PreviewArtifactRef(**{**artifact_ref_to_dict(ref), "raw_sha256": ref.raw_sha256})
     preview = PreviewResult("fixture-preview", workspace.workspace_id, upload.upload_revision_id, 1,
         repository_id, head.business_baseline_node_id, head.business_baseline_commit_id, 1,
-        "fixture-current-rules", "fixture-current-preview", {},
+        migrated_table_ruleset_snapshot().ruleset_version, PREVIEW_JOB_CONTRACT_VERSION, {},
         PreviewResultDigests(sql_source_digest, sql_source_digest, current.bound.snapshot.snapshot_digest.value,
             surface.comparison_digest.value, surface.risk_evaluation_digest.value, surface.surface_digest.value, bundle_digest),
-        PreviewCanonicalBindings(before_digest, facts, preview_ref(closure_ref), closure_ref.raw_sha256,
-            preview_ref(manifest_ref), manifest_ref.raw_sha256, before_digest, current_digest, rules_digest),
+        PreviewCanonicalBindings(before_digest, facts, preview_ref(current.canonical_table_set_closure_ref),
+            current.canonical_table_set_closure_ref.raw_sha256,
+            preview_ref(current.canonicalization_manifest_ref), current.canonicalization_manifest_digest,
+            before_digest, current_digest, rules_digest),
         identity_digest, (pair,), manifest_ref.artifact_id, closure_ref.artifact_id, facts.operation_id, now)
 
     class ReadPorts:
@@ -117,5 +121,8 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
             "baseline_canonical_state_digest": before_digest.value,
             "modified_canonical_state_digest": current_digest.value,
             "fixture_only_ports": ["control-read-unit-of-work", "baseline-scope"],
-            "source_ref": artifact_ref_to_dict(source_ref)}
+            "source_ref": artifact_ref_to_dict(source_ref),
+            "canonicalization_manifest_ref": artifact_ref_to_dict(current.canonicalization_manifest_ref),
+            "canonicalization_manifest_digest": current.canonicalization_manifest_digest.value,
+            "canonical_table_set_closure_ref": artifact_ref_to_dict(current.canonical_table_set_closure_ref)}
     raise AssertionError("comment-only Submit did not return NO_CANONICAL_CHANGE")

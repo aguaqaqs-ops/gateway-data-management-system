@@ -160,7 +160,11 @@ def export_snapshot_table_parquet(
                     context.checkpoint()
                     upper = chunk.nbytes * 8 + chunk.num_rows * (len(source.columns) * 512 + 1024) + 512 * 1024
                     with context.memory.reserve(upper):
-                        arrays = [_export_array(chunk.column(i), column) for i, column in enumerate(source.columns)]
+                        positions = [chunk.schema.get_field_index(column.canonical_name) for column in source.columns]
+                        if any(position < 0 for position in positions):
+                            raise ValueError("client export input is missing a canonical column")
+                        arrays = [_export_array(chunk.column(position), column)
+                            for position, column in zip(positions, source.columns, strict=True)]
                         converted = pa.RecordBatch.from_arrays(arrays, schema=schema)
                         # Parquet retains per-row-group column metadata until close.
                         writer_metadata.enter_context(context.memory.reserve(len(source.columns) * 1024 + 4096 +

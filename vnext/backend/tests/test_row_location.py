@@ -13,13 +13,15 @@ import pytest
 from gateway_shared_kernel import raw_blob_digest
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
-from gateway_backend.capabilities.comparison.contracts import RecordsArtifactFamily
+from gateway_backend.capabilities.comparison.contracts import RecordsArtifactFamily, ComparisonPlan, ComparisonRequest
+from gateway_backend.capabilities.comparison import plan_comparison
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.row_location.producer import LOCATOR_SCHEMA, build_row_locations
 from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_c_inputs import plan
+from tests.support.table_rules import comparison_ruleset_for, keyless_record
 from tests.support.comparison_s3_e_live import canonical_bound, publish_product
 
 
@@ -56,11 +58,13 @@ def test_locator_uses_final_row_groups_and_typed_missing_side_context(
 ) -> None:
     before = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES " + before_values + ";"))
     current = complete_canonical_bound(canonical_bound(ddl + "INSERT INTO t VALUES " + current_values + ";"))
-    planned = plan(before, current)
+    planned = (plan_comparison(ComparisonRequest(pair_id="keyless-locator", before=before, current=current,
+        rule_set=comparison_ruleset_for(keyless_record("t")))) if label == "keyless" else plan(before, current))
+    assert isinstance(planned, ComparisonPlan)
     store = InMemoryArtifactStore()
     task, = planned.tasks
     assert task.before_table is not None and task.current_table is not None
-    before_ref = export_snapshot_table_parquet(task.before_table, store=store, repository_id="replacement-fixture")
+    before_ref: ArtifactRef | None = export_snapshot_table_parquet(task.before_table, store=store, repository_id="replacement-fixture")
     current_ref = export_snapshot_table_parquet(task.current_table, store=store, repository_id="replacement-fixture")
     before_ref = _rewrite(store, before_ref) if include_before else None
     current_ref = _rewrite(store, current_ref)

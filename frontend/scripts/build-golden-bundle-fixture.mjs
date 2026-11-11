@@ -6,7 +6,28 @@ import { fileURLToPath } from "node:url";
 const scriptPath = fileURLToPath(import.meta.url);
 const frontendRoot = dirname(dirname(scriptPath));
 const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend");
-const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-workbench-normal"];
+// Every bundle the mock e2e suite can open by name. `fe2a`/`fe2b` hold the
+// Preview/History journeys, `scenarios` the BE-b acceptance scenarios that back
+// the FE4b business-navigation and row-location screenshots.
+const fixtureDirectories = {
+  "preview-full": "fe2a/preview-full",
+  "preview-modified-only": "fe2a/preview-modified-only",
+  "preview-replacement": "fe2a/preview-replacement",
+  "history-three-nodes": "fe2a/history-three-nodes",
+  "preview-workbench-normal": "fe2b/preview-workbench-normal",
+  "identity-changes": "scenarios/identity-changes",
+  "duplicates-orphans": "scenarios/duplicates-orphans",
+  "text-identities": "scenarios/text-identities",
+  "integer-boundary": "scenarios/integer-boundary",
+  "schema-keyless": "scenarios/schema-keyless",
+  "table-addition": "scenarios/table-addition",
+  "comment-only": "scenarios/comment-only",
+  "formula-unchanged-device": "scenarios/formula-unchanged-device",
+  "identity-unrecorded-exact": "scenarios/identity-unrecorded-exact",
+  "excluded-identity": "scenarios/excluded-identity",
+  "missing-identity-column": "scenarios/missing-identity-column",
+};
+const fixtureNames = Object.keys(fixtureDirectories);
 
 const sha256 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
@@ -64,8 +85,9 @@ function createTar(members) {
 }
 
 async function readBackendBundle(fixtureName) {
-  const fixturePhase = fixtureName === "preview-workbench-normal" ? "fe2b" : "fe2a";
-  const fixtureRoot = join(sourceRoot, fixturePhase, fixtureName);
+  const fixtureDirectory = fixtureDirectories[fixtureName];
+  if (!fixtureDirectory) throw new Error("unknown golden fixture: " + fixtureName);
+  const fixtureRoot = join(sourceRoot, ...fixtureDirectory.split("/"));
   const manifestBytes = await readFile(join(fixtureRoot, "manifest.json"));
   const closureBytes = await readFile(join(fixtureRoot, "artifact-closure.json"));
   const manifest = JSON.parse(manifestBytes.toString("utf8"));

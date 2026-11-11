@@ -1,17 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const FIXTURE_DIR = "src/test/fixtures/backend-interop/be-d-0ba45e5ef8";
 const OPFS_ROOT = "gateway-comparison-bundles-v1";
 const WORKSPACE_ID = "ws-1";
 const PREVIEW_RESULT_ID = "preview-interop-1";
-
-interface InteropIndex {
-  bundle_digest: string;
-  content_length: number;
-  files: Array<{ path: string; length: number; sha256: string }>;
-  ordinary_artifacts: Array<{ logical_path: string; size_bytes: number; raw_sha256: string }>;
-}
 
 interface InstalledFile {
   size: number;
@@ -39,38 +33,83 @@ async function readFixture(name: string): Promise<Buffer> {
   return readFile(`${FIXTURE_DIR}/${name}`);
 }
 
-function corruptParquetByte(tar: Buffer): Buffer {
-  const corrupted = Buffer.from(tar);
-  // rows.parquet member header starts at 16896; its 741-byte payload starts at 17408.
-  corrupted[17408 + 100] = corrupted[17408 + 100]! ^ 0xff;
-  return corrupted;
+interface TarMember {
+  path: string;
+  offset: number;
+  size: number;
+  sha256: string;
+}
+
+interface TarBundle {
+  tar: Buffer;
+  bundleDigest: string;
+  contractVersion: string;
+  members: Map<string, TarMember>;
 }
 
 function hexDigest(digest: string): string {
   return digest.replace(/^sha256:/, "");
 }
 
-function expectedInstalledFiles(index: InteropIndex): Map<string, InstalledFile> {
-  const expected = new Map<string, InstalledFile>();
-  for (const file of index.files) {
-    if (file.path === "manifest.json" || file.path === "artifact-closure.json") {
-      expected.set(file.path, { size: file.length, sha256: file.sha256 });
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * Reads a generated bundle tar without the product parser: the e2e assertion
+ * must know the expected members (sizes and digests) independently of the code
+ * under test. Long paths are emitted as PAX extended headers by the fixture
+ * builder, so `x` entries are folded into the next member.
+ */
+async function readGeneratedBundle(name: string): Promise<TarBundle> {
+  const tar = await readFile(`src/test/fixtures/generated/${name}.tar`);
+  const members = new Map<string, TarMember>();
+  let offset = 0;
+  let pendingPath: string | null = null;
+  while (offset + 512 <= tar.byteLength) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const size = Number.parseInt(header.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
+    const type = String.fromCharCode(header[156] ?? 48);
+    const nameField = header.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+    const prefix = header.subarray(345, 500).toString("utf8").replace(/\0.*$/, "");
+    const payload = tar.subarray(offset + 512, offset + 512 + size);
+    offset += 512 + Math.ceil(size / 512) * 512;
+    if (type === "x") {
+      const record = payload.toString("utf8");
+      const match = /(?:^|\n)\d+ path=([^\n]+)\n/.exec(record);
+      if (!match?.[1]) throw new Error("PAX header without a path record");
+      pendingPath = match[1];
+      continue;
     }
+    const path = pendingPath ?? (prefix ? `${prefix}/${nameField}` : nameField);
+    pendingPath = null;
+    members.set(path, { path, offset: offset - Math.ceil(size / 512) * 512 - 512 + 512, size, sha256: sha256(payload) });
   }
-  for (const artifact of index.ordinary_artifacts) {
-    expected.set(artifact.logical_path, {
-      size: artifact.size_bytes,
-      sha256: artifact.raw_sha256.replace(/^sha256:/, ""),
-    });
-  }
+  const manifestBytes = tar.subarray(512, 512 + (members.get("manifest.json")?.size ?? 0));
+  const manifest = JSON.parse(manifestBytes.toString("utf8")) as { bundle_digest: string; bundle_contract_version: string };
+  return { tar, bundleDigest: manifest.bundle_digest, contractVersion: manifest.bundle_contract_version, members };
+}
+
+function expectedInstalledFiles(bundle: TarBundle): Map<string, InstalledFile> {
+  const expected = new Map<string, InstalledFile>();
+  for (const member of bundle.members.values()) expected.set(member.path, { size: member.size, sha256: member.sha256 });
   return expected;
+}
+
+function corruptArtifactByte(bundle: TarBundle): Buffer {
+  const corrupted = Buffer.from(bundle.tar);
+  const artifact = [...bundle.members.values()].find((member) => member.path.endsWith(".parquet"));
+  if (!artifact) throw new Error("generated bundle has no parquet artifact to corrupt");
+  corrupted[artifact.offset + 64] = corrupted[artifact.offset + 64]! ^ 0xff;
+  return corrupted;
 }
 
 /**
  * Installs the minimal API surface this page needs for a direct PREVIEW URL, then
  * returns a collector for any unexpected /v1 request so a missing mock fails loudly.
  */
-async function installRoutes(page: Page, mode: BundleMode, tar: Buffer, index: InteropIndex): Promise<{ unexpected: string[]; bundleRequests: () => number }> {
+async function installRoutes(page: Page, mode: BundleMode, bundle: TarBundle): Promise<{ unexpected: string[]; bundleRequests: () => number }> {
   const unexpected: string[] = [];
   let bundleRequests = 0;
 
@@ -94,11 +133,11 @@ async function installRoutes(page: Page, mode: BundleMode, tar: Buffer, index: I
 
   await page.route("**/v1/workspaces/*/preview-results/*/bundle", async (route) => {
     bundleRequests += 1;
-    const body = mode === "full" ? tar : mode === "truncated" ? tar.subarray(0, tar.byteLength - 512) : corruptParquetByte(tar);
+    const body = mode === "full" ? bundle.tar : mode === "truncated" ? bundle.tar.subarray(0, bundle.tar.byteLength - 512) : corruptArtifactByte(bundle);
     await route.fulfill({
       status: 200,
       contentType: "application/x-tar",
-      headers: { ETag: index.bundle_digest, "Content-Length": String(tar.byteLength) },
+      headers: { ETag: bundle.bundleDigest, "Content-Length": String(bundle.tar.byteLength) },
       body,
     });
   });
@@ -106,13 +145,13 @@ async function installRoutes(page: Page, mode: BundleMode, tar: Buffer, index: I
   return { unexpected, bundleRequests: () => bundleRequests };
 }
 
-function browseUrl(index: InteropIndex): string {
+function browseUrl(bundle: { bundleDigest: string }): string {
   const params = new URLSearchParams({
     page: "compare",
     mode: "PREVIEW",
     workspaceId: WORKSPACE_ID,
     previewResultId: PREVIEW_RESULT_ID,
-    bundleDigest: index.bundle_digest,
+    bundleDigest: bundle.bundleDigest,
   });
   return "/?" + params.toString();
 }
@@ -170,22 +209,20 @@ async function expectDownloadFailure(page: Page): Promise<void> {
   await expect(page.getByRole("alert")).toContainText(/BUNDLE_(INTEGRITY_MISMATCH|LOAD_FAILED)/);
 }
 
-test("installs the backend interop bundle into OPFS with matching sizes and digests", async ({ page }) => {
-  const index = JSON.parse((await readFixture("index.json")).toString("utf8")) as InteropIndex;
-  const tar = await readFixture("bundle.tar");
-  expect(tar.byteLength).toBe(24_576);
-  expect(tar.byteLength).toBe(index.content_length);
-  const routes = await installRoutes(page, "full", tar, index);
-  const key = hexDigest(index.bundle_digest);
+test("installs a v4 backend bundle into OPFS with matching sizes and digests", async ({ page }) => {
+  const bundle = await readGeneratedBundle("preview-replacement");
+  expect(bundle.contractVersion).toBe("backend-vnext/comparison-bundle/v4");
+  const routes = await installRoutes(page, "full", bundle);
+  const key = hexDigest(bundle.bundleDigest);
 
-  await page.goto(browseUrl(index));
+  await page.goto(browseUrl(bundle));
   await waitForInstalledBundle(page);
 
-  const expected = expectedInstalledFiles(index);
-  expect(expected.size).toBe(6);
+  const expected = expectedInstalledFiles(bundle);
+  expect(expected.size).toBeGreaterThan(4);
   const installed = await readInstalledFiles(page, key, Array.from(expected.keys()));
   const topLevelDirs = [...new Set([...expected.keys()].filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""))];
-  expect(installed.names.sort()).toEqual([".complete.json", ".last-used", "artifact-closure.json", "manifest.json", ...topLevelDirs].sort());
+  expect(installed.names.sort()).toEqual([".complete.json", ".last-used", ...topLevelDirs].sort());
   expect(installed.marker.bundle_digest).toBe(key);
   for (const [path, file] of expected) {
     expect(installed.files[path]?.size).toBe(file.size);
@@ -193,34 +230,45 @@ test("installs the backend interop bundle into OPFS with matching sizes and dige
   }
   expect(routes.bundleRequests()).toBe(1);
   expect(routes.unexpected).toEqual([]);
-
-  // The frontend installs tar/OPFS artifacts only; the backend reports the same
-  // bundle as verified_logical_record_count === 0 because it has no RECORDS entry.
-  const closure = JSON.parse((await readFixture("artifact-closure.json")).toString("utf8")) as { entries: Array<{ kind: string }> };
-  expect(closure.entries.some((entry) => entry.kind === "RECORDS")).toBe(false);
-  expect([...installed.names].some((name) => name.toLowerCase().includes("records"))).toBe(false);
 });
 
 test("aborts the opfs install when the bundle body is truncated", async ({ page }) => {
-  const index = JSON.parse((await readFixture("index.json")).toString("utf8")) as InteropIndex;
-  const tar = await readFixture("bundle.tar");
-  const routes = await installRoutes(page, "truncated", tar, index);
+  const bundle = await readGeneratedBundle("preview-replacement");
+  const routes = await installRoutes(page, "truncated", bundle);
 
-  await page.goto(browseUrl(index));
+  await page.goto(browseUrl(bundle));
   await expectDownloadFailure(page);
-  expect(await bundleDirectoryExists(page, hexDigest(index.bundle_digest))).toBe(false);
+  expect(await bundleDirectoryExists(page, hexDigest(bundle.bundleDigest))).toBe(false);
   // ensureLocalBundle retries a BundleIntegrityError once and surfaces the second failure.
   expect(routes.bundleRequests()).toBe(2);
 });
 
 test("aborts the opfs install when a parquet member byte is corrupted", async ({ page }) => {
-  const index = JSON.parse((await readFixture("index.json")).toString("utf8")) as InteropIndex;
-  const tar = await readFixture("bundle.tar");
-  const routes = await installRoutes(page, "corrupted", tar, index);
+  const bundle = await readGeneratedBundle("preview-replacement");
+  const routes = await installRoutes(page, "corrupted", bundle);
 
-  await page.goto(browseUrl(index));
+  await page.goto(browseUrl(bundle));
   await expectDownloadFailure(page);
   await expect(page.locator(".compare-error")).toContainText("BUNDLE_INTEGRITY_MISMATCH");
-  expect(await bundleDirectoryExists(page, hexDigest(index.bundle_digest))).toBe(false);
+  expect(await bundleDirectoryExists(page, hexDigest(bundle.bundleDigest))).toBe(false);
   expect(routes.bundleRequests()).toBe(2);
+});
+
+test("rejects the v3 interop tar before anything reaches OPFS", async ({ page }) => {
+  const index = JSON.parse((await readFixture("index.json")).toString("utf8")) as { bundle_digest: string; content_length: number };
+  const tar = await readFixture("bundle.tar");
+  const bundle: TarBundle = {
+    tar,
+    bundleDigest: index.bundle_digest,
+    contractVersion: "backend-vnext/comparison-bundle/v3",
+    members: new Map(),
+  };
+  expect(tar.byteLength).toBe(24_576);
+  expect(tar.byteLength).toBe(index.content_length);
+  const routes = await installRoutes(page, "full", bundle);
+
+  await page.goto(browseUrl(bundle));
+  await expectDownloadFailure(page);
+  expect(await bundleDirectoryExists(page, hexDigest(index.bundle_digest))).toBe(false);
+  expect(routes.unexpected).toEqual([]);
 });

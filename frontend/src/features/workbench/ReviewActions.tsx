@@ -7,6 +7,8 @@ import type { SafeReviewFacts } from "../api/client";
 import { Button, Dialog } from "../../design-system/components";
 type DialogKind = "approve" | "reject" | "withdraw";
 
+const STALE_ON_FACTS_REFRESH = new Set(["REVIEW_VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT"]);
+
 const STATUS_REASON: Record<string, string> = {
   APPROVED: "该提交已通过审核",
   REJECTED: "该提交已退回",
@@ -68,11 +70,11 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     setExpiredApprove(false);
   }, [facts.review_version, facts.status]);
   // N17: a REVIEW reload from another path (for example the bundle or table
-  // reload) can make a previously reported conflict stale. Clearing on a
-  // disposition/version change keeps own-refresh notices that did not change
-  // facts, and drops notices that the refreshed facts have superseded.
+  // reload) can make a previously reported conflict stale. Only the conflict
+  // notices are superseded by fresher facts; terminal and closed notices
+  // ("已重新读取") stay until the submission itself changes.
   useEffect(() => {
-    setError(null);
+    setError((current) => (current && STALE_ON_FACTS_REFRESH.has(current.code) ? null : current));
   }, [facts.review_version, facts.status, facts.submission_disposition]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition

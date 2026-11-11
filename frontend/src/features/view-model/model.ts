@@ -555,20 +555,49 @@ function deriveGroups(groups: NavigationGroup[], tables: Map<string, DerivedTabl
   }));
 }
 
+function mergeReplacementGroups(sides: { before: DerivedNavigationGroup[]; current: DerivedNavigationGroup[] }): DerivedNavigationGroup[] {
+  const groups = new Map<string, DerivedNavigationGroup>();
+  for (const side of [sides.before, sides.current]) {
+    for (const group of side) {
+      const target = groups.get(group.groupKey) ?? { ...group, items: [] as DerivedNavigationGroup["items"] };
+      groups.set(group.groupKey, target);
+      for (const item of group.items) {
+        const existing = target.items.find((candidate) => candidate.itemKey === item.itemKey);
+        if (existing === undefined) {
+          target.items.push({ ...item, tabs: [...item.tabs] });
+          continue;
+        }
+        for (const tab of item.tabs) {
+          const sameTable = existing.tabs.find((candidate) => candidate.tableName === tab.tableName && candidate.tableName !== "");
+          if (sameTable === undefined) existing.tabs.push(tab);
+          else sameTable.rowFilter ??= tab.rowFilter;
+        }
+        existing.showTabs = existing.tabs.length > 1;
+      }
+    }
+  }
+  return [...groups.values()];
+}
+
 export function deriveBundleView(input: {
   surface: ComparisonSurface;
   navigation: BusinessNavigation;
   riskReport?: RiskReport;
 }): DerivedBundleView {
   const tableMap = tableProjection(input.surface, input.riskReport);
-  const groups = deriveGroups(input.navigation.groups, tableMap);
   const sides = input.navigation.replacement_sides;
   const replacementSides = sides === null ? null : {
     before: deriveGroups(sides.before, tableMap),
     current: deriveGroups(sides.current, tableMap),
   };
-  const scopeGroups = replacementSides === null ? groups : [...replacementSides.before, ...replacementSides.current];
-  for (const group of scopeGroups) {
+  // Replacement navigation keeps `groups` empty; the sidebar still needs one
+  // selectable tree, so both sides are merged by group/item and their tabs are
+  // unioned by table. The side toggle decides which rows the table shows.
+  const groups = replacementSides === null
+    ? deriveGroups(input.navigation.groups, tableMap)
+    : mergeReplacementGroups(replacementSides);
+  const scopes = replacementSides === null ? groups : [...replacementSides.before, ...replacementSides.current];
+  for (const group of scopes) {
     for (const item of group.items) {
       for (const tab of item.tabs) {
         if (tab.rowFilter !== null || tab.table === null || tab.facts?.table_scope == null) continue;

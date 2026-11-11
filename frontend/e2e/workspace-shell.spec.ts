@@ -709,8 +709,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
 
   await expect(page.locator(".view-tabs small")).toHaveText(["更新", "更新"]);
   const firstPreviewView = page.locator(".view-tabs [role=tab]").first();
-  await expect(firstPreviewView).toHaveAttribute("title", /2 张表降级比较/);
-  await expect(firstPreviewView).toHaveAttribute("title", /3 张表有比较提示/);
+  await expect(firstPreviewView).toHaveAttribute("title", /2 张表有比较提示/);
+  await expect(firstPreviewView).not.toHaveAttribute("title", /降级比较/);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("原始组态视图");
   await expect(page.locator(".mode-tabs")).toHaveCount(0);
@@ -1167,15 +1167,17 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
   ] });
 });
 
-test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断", async ({ page }) => {
+test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有 1 条通道提示）", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "forward-channel:b1_n1", tab: "telemetry" }));
   await expect(page.locator(".task-indicator")).toHaveCount(0);
   await waitForBrowse(page);
   await expect(page.locator(".navigation-sidebar")).toContainText("转发通道");
-  await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(0);
-  await expect(page.locator(".diagnostic-note")).toHaveCount(0);
+  // BE-b v4 keeps the channel table that no network port claims in 其他表 and
+  // reports it as one navigation diagnostic; the tables themselves stay clean.
+  await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(1);
+  await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1");
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(0);
   await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
   await expect(page.locator(".table-heading h2")).toHaveText("遥测量");

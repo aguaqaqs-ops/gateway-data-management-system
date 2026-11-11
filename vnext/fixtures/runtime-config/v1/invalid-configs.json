@@ -353,5 +353,69 @@
       "shared_cpu_reserve"
     ],
     "value": 9007199254740992
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "count"
+    ],
+    "value": 0
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "count"
+    ],
+    "value": 33
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "count"
+    ],
+    "value": true
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "count"
+    ],
+    "value": 1.5
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "active_limit"
+    ],
+    "value": 0
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "active_limit"
+    ],
+    "value": 33
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "active_limit"
+    ],
+    "value": true
+  },
+  {
+    "document": "resources",
+    "path": [
+      "worker",
+      "active_limit"
+    ],
+    "value": 1.5
   }
 ]

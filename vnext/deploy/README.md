@@ -268,3 +268,16 @@ Capacity/debug originals and sizing assumptions are retained at
 lifecycle check, not a current-image container gate or formal performance result.
 The final stage gate binds container lifecycle/deployment evidence to the final
 candidate.
+
+
+Worker resources use a fixed `count == active_limit` in 1..32. All workers use
+one resource specification; the host planning check includes every worker plus
+backend, Repository Service and shared reserves. The default remains W1/N1 with
+32 GiB envelope, 8 GiB reserve and 24 GiB kernel budget. Input limits do not claim
+validated capacity. Each worker requires
+`GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX` in 1..count. Its stable identity
+is scoped to environment/group and its numbered metadata flock remains held until
+the process exits, including when executor threads outlive the main run function.
+Never unlink or replace `.gateway-worker-<index>.lock` during metadata maintenance.
+Replacement containers require confirmation that the old container and all its
+execution processes have exited; lease expiry alone does not establish that fact.

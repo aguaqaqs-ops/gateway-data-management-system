@@ -87,6 +87,7 @@ def make_operation_worker_settings(
     _configure_test_profile(storage_file, resources_file, db_path, overrides, prepare=prepare)
     return OperationWorkerSettings(
         runtime_mode="host",
+        instance_index=overrides.pop("instance_index", 1),  # type: ignore[arg-type]
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
         resource_profile_file=overrides.pop("resource_profile_file", resources_file),  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]

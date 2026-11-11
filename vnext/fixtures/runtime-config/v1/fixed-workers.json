@@ -1,0 +1,26 @@
+[
+  {
+    "name": "single",
+    "count": 1,
+    "memory_envelope_bytes": 34359738368,
+    "kernel_memory_bytes": 25769803776,
+    "host_memory_bytes": 51539607552,
+    "host_cpu_count": 8
+  },
+  {
+    "name": "two-small-input",
+    "count": 2,
+    "memory_envelope_bytes": 17179869184,
+    "kernel_memory_bytes": 8589934592,
+    "host_memory_bytes": 68719476736,
+    "host_cpu_count": 32
+  },
+  {
+    "name": "input-upper-bound",
+    "count": 32,
+    "memory_envelope_bytes": 17179869184,
+    "kernel_memory_bytes": 8589934592,
+    "host_memory_bytes": 1099511627776,
+    "host_cpu_count": 128
+  }
+]

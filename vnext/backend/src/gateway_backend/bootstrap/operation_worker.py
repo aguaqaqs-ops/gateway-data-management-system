@@ -121,6 +121,7 @@ from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
 from gateway_backend.runtime_preflight import RuntimePreflight
 from gateway_backend.bootstrap.deployment_identity import compare_configuration
+from gateway_backend.bootstrap.worker_instance import acquire_worker_instance, worker_id_for
 
 from gateway_backend.settings import OperationWorkerSettings
 
@@ -386,6 +387,7 @@ def build_worker_runtime(
         registry=kernel_registry,
         definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
+        worker_id_factory=lambda: worker_id_for(deployment, settings.instance_index),
         startup_recovery=startup_recovery,
         observer=startup_observer,
     )
@@ -428,6 +430,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             RuntimePreflight(configured.deployment_config, "worker", container=configured.runtime_mode == "container",
                 configuration_check=lambda: compare_configuration(configured.deployment_config))
+            acquire_worker_instance(configured.deployment_config, configured.instance_index)
             initialize_compute_kernel(configured.kernel_threads)
             previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
             from gateway_backend.bootstrap.composition import (

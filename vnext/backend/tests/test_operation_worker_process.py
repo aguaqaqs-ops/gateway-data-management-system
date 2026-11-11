@@ -57,6 +57,7 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     fixture_settings = make_operation_worker_settings(db_path.parent, control_db_path=db_path)
     storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
     environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
@@ -352,3 +353,94 @@ sys.stdin.buffer.read(1)
     assert persisted_step.optimistic_version == expected_step_version
     assert persisted_step.lease_expires_at is not None
     assert persisted_step.lease_expires_at < datetime.now(UTC) - timedelta(seconds=1)
+
+
+_INSTANCE_CHILD = r'''
+import sys
+import threading
+from gateway_backend.bootstrap.worker_instance import acquire_worker_instance
+from gateway_backend.settings import OperationWorkerSettings
+
+settings = OperationWorkerSettings(instance_index=int(sys.argv[1]))
+if sys.argv[2] == "thread":
+    from gateway_backend.bootstrap import operation_worker
+    from gateway_backend.bootstrap.worker_instance import worker_id_for
+    def kernel_failure(_threads):
+        raise ValueError("kernel initialization failed")
+    operation_worker.initialize_compute_kernel = kernel_failure
+    threading.Thread(target=lambda: sys.stdin.buffer.read(1), daemon=False).start()
+    assert operation_worker.run(settings) == 1
+    identity = worker_id_for(settings.deployment_config, settings.instance_index)
+else:
+    identity = acquire_worker_instance(settings.deployment_config, settings.instance_index)
+print("ACQUIRED " + identity, flush=True)
+'''
+
+
+def _instance_process(environment: dict[str, str], index: int, mode: str) -> subprocess.Popen[str]:
+    return subprocess.Popen([sys.executable, "-c", _INSTANCE_CHILD, str(index), mode],
+        cwd=BACKEND_ROOT, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, bufsize=1)
+
+
+def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(tmp_path: Path) -> None:
+    import json
+    from gateway_backend.bootstrap.deployment_identity import publish_configuration
+    from gateway_backend.deployment_config import DeploymentConfig
+
+    environment = _subprocess_environment(tmp_path / "instance" / "control.sqlite3")
+    resources_file = Path(environment["GATEWAY_RESOURCE_PROFILE_FILE"])
+    resources = json.loads(resources_file.read_bytes())
+    resources["worker"].update(count=2, active_limit=2, memory_envelope_bytes=16 * 1024**3,
+                               kernel_memory_bytes=8 * 1024**3)
+    resources_file.write_text(json.dumps(resources))
+    config = DeploymentConfig.load(Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"]), resources_file)
+    publish_configuration(config)
+    owner = _instance_process(environment, 1, "thread")
+    try:
+        first = _read_until(owner, "ACQUIRED").split("ACQUIRED ", 1)[1].strip()
+        # Reading to EOF would block: the non-daemon thread still owns the process.
+        assert owner.poll() is None
+        duplicate = _instance_process(environment, 1, "exit")
+        output, _ = duplicate.communicate(timeout=5)
+        assert duplicate.returncode != 0
+        assert "already running" in output
+        other = _instance_process(environment, 2, "exit")
+        output, _ = other.communicate(timeout=5)
+        assert other.returncode == 0
+        assert first not in output
+        assert owner.stdin is not None
+        owner.stdin.write("1")
+        owner.stdin.flush()
+        owner.communicate(timeout=5)
+        assert owner.returncode == 0
+        restarted = _instance_process(environment, 1, "exit")
+        output, _ = restarted.communicate(timeout=5)
+        assert restarted.returncode == 0
+        second = output.split("ACQUIRED ", 1)[1].strip()
+        assert second == first
+    finally:
+        if owner.poll() is None:
+            owner.kill()
+            owner.wait(timeout=5)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "fifo", "permissions"])
+def test_worker_instance_lock_rejects_redirected_or_invalid_files(tmp_path: Path, kind: str) -> None:
+    environment = _subprocess_environment(tmp_path / "invalid-lock" / "control.sqlite3")
+    lock = tmp_path / "invalid-lock" / ".gateway-worker-1.lock"
+    if kind == "symlink":
+        target = tmp_path / "target"
+        target.touch(mode=0o600)
+        lock.symlink_to(target)
+    elif kind == "directory":
+        lock.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(lock, 0o600)
+    else:
+        lock.touch(mode=0o666)
+        lock.chmod(0o666)
+    process = _instance_process(environment, 1, "exit")
+    output, _ = process.communicate(timeout=5)
+    assert process.returncode != 0
+    assert "ACQUIRED" not in output

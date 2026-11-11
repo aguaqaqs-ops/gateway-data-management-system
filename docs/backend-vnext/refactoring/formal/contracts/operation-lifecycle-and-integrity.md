@@ -236,9 +236,9 @@ T1即PREPARED但不代表已有包，prepare checkpoint前后的冻结恢复界�
 
 ## P7-S1a 生效补充：资源和跨 root closure（已生效）
 
-状态：S1a 资源与跨 root closure 接线已实现，operation-runtime/v2 不变；证据与适用边界见 [S1a 总结](../plans/p7-s1a-summary.md)。[A 入口](../plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实，[S1a 执行方案 §3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)继续约束配置与资源接线。本步单环境/组、W=K=1，不修订多 worker startup/recovery 或队列状态机。
+状态：S1a 资源与跨 root closure 接线已实现，operation-runtime/v2 不变；证据与适用边界见 [S1a 总结](../plans/p7-s1a-summary.md)。[A 入口](../plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实，[S1a 执行方案 §3](../plans/p7-s1a-execution-plan.md#3-编码输入定稿)继续约束配置与资源接线。S2a 配置与实例边界采用单环境/组、固定 W=K（1–32），每实例单 executor；恢复与队列状态机由下述启动条款约束。
 
-`storage-layout.json` 与 `resource-profile.json` 是位置与资源的各自唯一来源，公共 schema_version/environment_id/group_id 必须匹配。入口为 GATEWAY_STORAGE_LAYOUT_FILE / GATEWAY_RESOURCE_PROFILE_FILE，替代旧 root 与重复 N/M/E 环境入口，不保 alias。N为1–256；M为显式正整数bytes且≤40GiB；8GiB≤reserve<E≤48GiB且M≤E−reserve；W=K=1。JSON拒绝bool/小数冒充整数、NaN/Infinity、重复/未知key及不支持版本。N不得超过有效CPU quota整数部分或cpuset，容器实际memory.max=E且祖先限制足够；M是kernel预算，不能用RSS代替。整机同时计worker、backend、RS/Dolt与共享余量，不重复算page cache或Dolt。scratch/staging cap是必填正整数，资源变化只在排空/重启生效。
+`storage-layout.json` 与 `resource-profile.json` 是位置与资源的各自唯一来源，公共 schema_version/environment_id/group_id 必须匹配。入口为 GATEWAY_STORAGE_LAYOUT_FILE / GATEWAY_RESOURCE_PROFILE_FILE，替代旧 root 与重复 N/M/E 环境入口，不保 alias。N为1–256；M为显式正整数bytes且≤40GiB；8GiB≤reserve<E≤48GiB且M≤E−reserve；W=K且1–32。JSON拒绝bool/小数冒充整数、NaN/Infinity、重复/未知key及不支持版本。N不得超过有效CPU quota整数部分或cpuset，容器实际memory.max=E且祖先限制足够；M是kernel预算，不能用RSS代替。整机同时计worker、backend、RS/Dolt与共享余量，不重复算page cache或Dolt。scratch/staging cap是必填正整数，资源变化只在排空/重启生效。
 
 角色预检实际挂载来源/marker/权限/身份与cgroup后才允许ready/claim；不以渲染成功代替实际核验。HTTP新工作因基础存储不可用/低水位沿503 SERVICE_NOT_READY，接收后的I/O失败沿原operation恢复，effect UNKNOWN仍先核原结果。readiness与liveness不混用，不新增公共failure code。
 
@@ -264,3 +264,12 @@ worker 写 UoW/claim 及 RS readiness/import claim 在实际观察成功后继�
 
 
 F 的 deployment 准入进一步约束：仅 backend 显式启动可在已验证 metadata root 发布可重建的配置摘要记录；worker startup、claim 与写事务必须读取同组、同规范化摘要，缺损/变化拒绝且不自建 DB 或重写记录。通用 readiness/请求不更新记录，安全离线维护与低水位清理不依赖记录；它不增加 operation 状态、lease、epoch 或业务成功证据。运行期 root 身份失效锁存到重启；临时容量拒绝可在安全回收后恢复。
+
+
+### 固定 worker 实例与进程生命周期
+
+`GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX` 必填，严格整数1..W；不从副本序号或运行现场猜测。worker_id 为 `worker-<namespace_sha256>-<index>`，namespace 是 JCS 编码的 `[environment_id, group_id]`，摘要为完整 SHA256 小写hex，编号为无前导零十进制。worker_id 标识固定实例；每次 claim 的 lease_token 仍独立随机，统计 process_instance_id 仍按每次进程启动产生，不可互相替代。
+
+worker 在部署/配置 preflight 和编号验证后、kernel/runtime/统计初始化前，以 `be-metadata/.gateway-worker-<index>.lock` 的普通文件获取非阻塞独占 flock。锁文件拒绝符号链接、非普通文件、异mount、异euid或组/其他用户可访问模式；FD不继承exec。重复编号立即失败，不删除或替换inode，文件存在本身不表示锁被占用。成功获取的FD持有到OS进程退出，即使 `run()` 返回而非daemon执行线程尚存也不提前释放。普通metadata维护不得删除或重命名这些锁文件。
+
+锁遵循同机协作部署信任域。它不能证明不继承FD的子进程已退出；替代固定实例仍须由受控部署确认旧容器及cgroup内执行者全部退出。固定 count 是输入上限，不代表已验证32实例容量；总预算按全部 W 个 worker 加 backend、RS/Dolt和共享余量校验，同组实例规格相同，默认N1、E32GiB/reserve8GiB/M24GiB保持。

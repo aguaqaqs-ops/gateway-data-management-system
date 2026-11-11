@@ -289,11 +289,13 @@ class ResourceProfile:
         environment_id, group_id = _header(doc)
         item = _object(doc["worker"], {"count", "active_limit", "kernel_threads", "kernel_memory_bytes",
             "memory_envelope_bytes", "memory_reserve_bytes", "cpu_limit", "swap_limit_bytes"})
-        worker = WorkerResources(_integer(item["count"], maximum=1), _integer(item["active_limit"], maximum=1),
+        worker = WorkerResources(_integer(item["count"], maximum=32), _integer(item["active_limit"], maximum=32),
             _integer(item["kernel_threads"], maximum=256), _integer(item["kernel_memory_bytes"], maximum=40 * _GIB),
             _integer(item["memory_envelope_bytes"], maximum=48 * _GIB),
             _integer(item["memory_reserve_bytes"], minimum=8 * _GIB), _number(item["cpu_limit"]),
             _integer(item["swap_limit_bytes"], minimum=0))
+        if worker.count != worker.active_limit:
+            raise ValueError("worker count must equal active_limit")
         if (worker.memory_reserve_bytes >= worker.memory_envelope_bytes
                 or worker.kernel_memory_bytes > worker.memory_envelope_bytes - worker.memory_reserve_bytes
                 or worker.kernel_threads > math.floor(worker.cpu_limit)):

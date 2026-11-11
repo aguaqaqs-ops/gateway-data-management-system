@@ -67,6 +67,7 @@ def test_worker_settings_are_separate_from_backend_settings_and_fixed(
         str(mapping_file),
     )
 
+    monkeypatch.setenv("GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX", "1")
     settings = OperationWorkerSettings()  # type: ignore[call-arg]
 
     assert settings.control_db_path == db_path
@@ -337,3 +338,18 @@ def test_production_worker_configuration_rejects_startup_and_claim_before_databa
         runtime._startup.claim_one()
     assert not opened
     assert (record.read_bytes() if record.exists() else None) == original
+
+
+@pytest.mark.parametrize("value", [True, False, 0, -1, 1.0, "1.0", "+1", " 1", "١", 2])
+def test_worker_instance_index_rejects_non_integer_and_out_of_profile(tmp_path: Path, value: object) -> None:
+    with pytest.raises(ValidationError, match="instance_index"):
+        make_operation_worker_settings(tmp_path, instance_index=value)
+
+
+def test_worker_instance_index_is_required_and_environment_integer_is_accepted(tmp_path: Path) -> None:
+    settings = make_operation_worker_settings(tmp_path, instance_index="1")
+    document = settings.model_dump()
+    document.pop("instance_index")
+    with pytest.raises(ValidationError, match="instance_index"):
+        OperationWorkerSettings(**document)
+    assert settings.instance_index == 1

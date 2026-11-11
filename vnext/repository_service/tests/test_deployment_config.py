@@ -122,3 +122,21 @@ def test_shared_configuration_frozen_jcs_digest(case: dict[str, Any]) -> None:
     for ascii_only in (False, True):
         parsed = parser.from_bytes(json.dumps(document, ensure_ascii=ascii_only).encode())
         assert parsed.digest == case["digest"]
+
+
+@pytest.mark.parametrize("case", json.loads((_FIXTURES / "fixed-workers.json").read_bytes()), ids=lambda case: case["name"])
+def test_fixed_worker_count_and_total_resource_budget(case: dict[str, Any]) -> None:
+    _, resources = _documents()
+    resources["worker"].update(count=case["count"], active_limit=case["count"],
+        memory_envelope_bytes=case["memory_envelope_bytes"], kernel_memory_bytes=case["kernel_memory_bytes"])
+    resources["host_budget"].update(memory_bytes=case["host_memory_bytes"], cpu_count=case["host_cpu_count"])
+    parsed = ResourceProfile.from_bytes(json.dumps(resources).encode())
+    assert parsed.worker.count == parsed.worker.active_limit == case["count"]
+    for field in ("memory_bytes", "cpu_count"):
+        insufficient = deepcopy(resources)
+        insufficient["host_budget"][field] = 1
+        with pytest.raises(ValueError, match="planning budget"):
+            ResourceProfile.from_bytes(json.dumps(insufficient).encode())
+    resources["worker"]["active_limit"] = 2 if case["count"] == 1 else 1
+    with pytest.raises(ValueError, match="must equal"):
+        ResourceProfile.from_bytes(json.dumps(resources).encode())

@@ -174,6 +174,7 @@ class OperationWorkerSettings(BaseSettings):
     transient_backoff_max_seconds: float = 10.0
     startup_retry_budget_seconds: float = 60.0
     graceful_drain_timeout_seconds: float = 180.0
+    instance_index: int
     max_in_flight: int = 1
     claim_limit: int = 1
     @property
@@ -199,6 +200,16 @@ class OperationWorkerSettings(BaseSettings):
     @property
     def control_db_path(self) -> Path:
         return Path(self.deployment_config.storage.roots["be-metadata"].path) / "control.sqlite3"
+
+    @field_validator("instance_index", mode="before")
+    @classmethod
+    def _require_instance_index(cls, value: object) -> int:
+        # Environment variables are strings; Python callers must supply real ints.
+        if type(value) is str and value.isascii() and value.isdecimal():
+            value = int(value)
+        if type(value) is not int or value < 1:
+            raise ValueError("instance_index must be a strict positive integer")
+        return value
 
     @field_validator("storage_layout_file", "resource_profile_file")
     @classmethod
@@ -231,7 +242,8 @@ class OperationWorkerSettings(BaseSettings):
         )
         if self.heartbeat_interval_seconds > self.lease_duration_seconds / 3:
             raise ValueError("heartbeat_interval_seconds must be at most lease duration / 3")
-        self.deployment_config
+        if self.instance_index > self.deployment_config.resources.worker.count:
+            raise ValueError("instance_index exceeds configured worker count")
         return self
 
     def __repr__(self) -> str:

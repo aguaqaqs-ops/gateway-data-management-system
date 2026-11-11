@@ -35,6 +35,42 @@ def _group() -> dict[str, dict[str, Any]]:
         for service in ("backend", "repository-service", "worker", "worker-2")}
 
 
+def test_group_validation_uses_actual_configuration_binds_and_exact_project_services(maintenance: ModuleType) -> None:
+    fixture = SCRIPTS.parent / "fixtures/runtime-config/v1"
+    storage, resources = fixture / "storage-layout.json", fixture / "resource-profile.json"
+    config = maintenance.DeploymentConfig.load(storage, resources)
+    group = _group()
+    del group["worker-2"]
+    for service, container in group.items():
+        container["Config"]["Labels"].update({"com.docker.compose.project": "ours",
+            "com.docker.compose.container-number": "1", "com.docker.compose.oneoff": "False"})
+        container["Mounts"] = [{"Destination": target, "Source": str(source), "Type": "bind", "RW": False}
+            for target, source in (("/run/gateway/storage-layout.json", storage),
+                                   ("/run/gateway/resource-profile.json", resources))]
+        if service == "worker":
+            profile = config.resources.worker
+            container["Config"]["Env"] = ["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX=1"]
+            container["Image"] = "sha256:fixed-worker"
+            container["HostConfig"].update(Memory=profile.memory_envelope_bytes,
+                MemorySwap=profile.memory_envelope_bytes + profile.swap_limit_bytes,
+                NanoCpus=round(profile.cpu_limit * 1_000_000_000), RestartPolicy={"Name": "no"})
+    assert set(maintenance.validate_group(config, "ours", list(group.values()))) == set(group)
+    group["backend"]["Mounts"][0]["RW"] = True
+    with pytest.raises(ValueError, match="read-only bind"):
+        maintenance.validate_group(config, "ours", list(group.values()))
+
+
+@pytest.mark.parametrize("payload", [b"private\ncredential", b"\xffprivate", b""])
+def test_invalid_credential_diagnostics_do_not_include_file_contents(
+    maintenance: ModuleType, tmp_path: Path, payload: bytes,
+) -> None:
+    path = tmp_path / "token"
+    path.write_bytes(payload)
+    with pytest.raises(ValueError) as raised:
+        maintenance.read_token(path)
+    assert str(raised.value) in {"invalid credential file", "unreadable credential file"}
+
+
 @pytest.mark.parametrize("command", ["drain", "stop-group"])
 def test_group_shutdown_closes_admission_before_workers_and_stops_callers_before_rs(
     maintenance: ModuleType, monkeypatch: pytest.MonkeyPatch, command: str,

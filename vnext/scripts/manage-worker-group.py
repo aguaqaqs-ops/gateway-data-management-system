@@ -19,6 +19,16 @@ from worker_deployment import _docker, inspect_project, validate_workers, worker
 WAIT_SECONDS = 180
 
 
+def read_token(path: Path) -> str:
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        raise ValueError("unreadable credential file") from None
+    if not token or "\n" in token or "\r" in token:
+        raise ValueError("invalid credential file")
+    return token
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         # Never forward the deployment credential to a redirect destination.
@@ -207,9 +217,7 @@ def main() -> int:
                 or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
             raise ValueError("backend URL must be an HTTP origin without credentials")
         config = DeploymentConfig.load(args.storage_layout.absolute(), args.resource_profile.absolute())
-        token = args.internal_bearer_token_file.read_text().strip()
-        if not token or "\n" in token or "\r" in token:
-            raise ValueError("invalid credential file")
+        token = read_token(args.internal_bearer_token_file)
         compose = ["docker", "compose", "-p", args.project]
         for path in args.compose_file:
             compose.extend(("-f", str(path.absolute())))

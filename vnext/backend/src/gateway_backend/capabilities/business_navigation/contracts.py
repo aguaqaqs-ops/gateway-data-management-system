@@ -79,6 +79,22 @@ class NavigationEvidence:
     table_risk: RiskLevel | None = None
     any_table_risk: bool = False
 
+    def __post_init__(self) -> None:
+        for name in ("comparison_succeeded", "schema_only", "degraded", "locator_complete", "risk_attribution_complete", "any_table_risk"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError("invalid navigation evidence flag")
+        if type(self.expected_record_counts) is not tuple or len(self.expected_record_counts) != 3:
+            raise ValueError("invalid record counts")
+        for count in (*self.expected_record_counts, self.suppressed_added_count, self.suppressed_deleted_count):
+            if type(count) is not int or count < 0:
+                raise ValueError("invalid navigation evidence count")
+        if type(self.records) is not tuple or any(type(r) is not FilterRecord for r in self.records):
+            raise ValueError("invalid filter records")
+        if len({r.row_identity for r in self.records}) != len(self.records):
+            raise ValueError("duplicate filter record identity")
+        if self.table_risk is not None and type(self.table_risk) is not RiskLevel:
+            raise ValueError("invalid table risk")
+
     def fallback_reason(self) -> str | None:
         counts = tuple(sum(r.kind == kind for r in self.records)
                        for kind in ("ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"))
@@ -92,11 +108,6 @@ class NavigationEvidence:
             return "TABLE_DEGRADED"
         return None
 
-    @property
-    def may_reuse_unrecorded_identity(self) -> bool:
-        return self.fallback_reason() is None
-
-
 @dataclass(frozen=True, slots=True)
 class NavigationTable:
     table_id: str
@@ -109,6 +120,11 @@ class NavigationTable:
     # Actual owner-resolved pair eligibility. Missing physical columns are distinct
     # from an existing column excluded from comparison.
     identity_excluded_sides: frozenset[str] = frozenset()
+
+    @property
+    def may_reuse_unrecorded_identity(self) -> bool:
+        return (self.before is not None and self.current is not None
+                and not self.identity_excluded_sides and self.evidence.fallback_reason() is None)
 
     @property
     def display_name(self) -> str:
@@ -199,7 +215,7 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
             item_keys.add(item["item_key"])
             if item["item_kind"] not in {"FORWARD_CHANNEL", "DEVICE", "COMPOSITE_SIGNAL_DEVICE", "PROTOCOL_CHANNEL", "TABLE"}:
                 raise ValueError("invalid item kind")
-            if type(item["attributes"]) is not dict or type(item["tabs"]) is not list or not item["tabs"]:
+            if type(item["attributes"]) is not dict or type(item["tabs"]) is not list:
                 raise ValueError("invalid attributes or empty item")
             for attr in item["attributes"].values():
                 if type(attr) not in {str, int} or (type(attr) is int and abs(attr) > SAFE_INTEGER):

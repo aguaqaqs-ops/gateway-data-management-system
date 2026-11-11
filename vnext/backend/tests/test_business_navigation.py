@@ -84,7 +84,7 @@ def test_unmodified_rows_retain_before_filter_identity(column: str, old_value: i
     assert len(orphan) == 1 and orphan[0]["side"] == "CURRENT"
     assert orphan[0]["params"]["row_count"] == 1
     assert orphan[0]["params"]["changed_row_count"] == 0
-    assert evidence().may_reuse_unrecorded_identity
+    assert table(name, source, source, unchanged=True).may_reuse_unrecorded_identity
 
 
 FALLBACK_CASES = (
@@ -108,7 +108,7 @@ def test_incomplete_records_or_risk_never_report_exact(changes: dict[str, Any], 
     assert facts["change_kind"] is facts["risk_level"] is None
     assert facts["before_row_count"] == 1
     assert diagnostics(result, "DEVICE_TAB_FACTS_UNAVAILABLE")[0]["params"]["reason"] == reason
-    assert not shared.evidence.may_reuse_unrecorded_identity
+    assert not shared.may_reuse_unrecorded_identity
 
 
 def test_record_context_is_required_even_for_unchanged_identity_column() -> None:
@@ -339,3 +339,54 @@ def test_unchanged_shared_table_never_opens_before_row_stream() -> None:
     result = build(device(devs, devs), table("device_st", old, new, unchanged=True))
     assert tabs(result, "device_st")[0]["facts"]["before_row_count"] == 1
     assert result.scanned_rows == 3  # two tiny registry sides + current shared side
+
+
+def test_protocol_diagnostic_targets_existing_empty_channel_item() -> None:
+    row: dict[str, Scalar] = {"board": 1, "link_no": 2, "exe": "dev103"}
+    result = build(table("net_cfg", None, side((row,))))
+    items = result.document["groups"][2]["items"]
+    assert items[1]["item_key"] == "protocol:b1_n2" and items[1]["tabs"] == []
+    diagnostic = diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")[0]
+    assert diagnostic["target"]["item_key"] == "protocol:b1_n2"
+    assert diagnostic["params"]["expected_tables"] == ["b1_n2_nr103d_cfg", "b1_n2_nr103d_dev_cfg"]
+
+
+def test_unrecorded_identity_requires_two_sides_and_actual_eligibility() -> None:
+    source = side(({"dev_addr": 49},))
+    assert not table("device_st", None, source).may_reuse_unrecorded_identity
+    assert not table("device_st", source, source, identity_excluded_sides=frozenset({"BEFORE"})).may_reuse_unrecorded_identity
+    assert table("device_st", source, source).may_reuse_unrecorded_identity
+
+
+def test_suppressed_additions_do_not_fabricate_before_identity() -> None:
+    devs = ({"dev_addr": 49, "gid": 7},)
+    old = side()
+    current = side(({"dev_addr": 49},))
+    shared = replace(table("device_st", old, current), evidence=evidence(suppressed_added_count=1))
+    result = build(device(devs, devs), shared)
+    facts = tabs(result, "device_st")[0]["facts"]
+    assert facts["basis"] == "TABLE_FALLBACK" and facts["before_row_count"] == 0
+    assert not shared.may_reuse_unrecorded_identity
+
+
+def test_cancellation_propagates_and_memory_reservation_closes() -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+    released: list[bool] = []
+    @contextmanager
+    def reserve(size: int) -> Iterator[object]:
+        assert size > 16 * 1024 * 1024
+        try:
+            yield object()
+        finally:
+            released.append(True)
+    calls = 0
+    def cancel() -> None:
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            raise RuntimeError("cancelled")
+    source = side(({"dev_addr": 49},))
+    with pytest.raises(RuntimeError, match="cancelled"):
+        build_navigation((table("device_st", None, source),), check=cancel, reserve=reserve)
+    assert released == [True]

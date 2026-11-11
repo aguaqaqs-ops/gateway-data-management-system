@@ -262,11 +262,10 @@ class _Builder:
                             tabs_by_name[name] = self.tab(table, name)
                 if not found:
                     self.diagnostic("PROTOCOL_TABLE_NOT_FOUND", "COMMUNICATION_PROTOCOLS", item=f"protocol:{prefix}", side=label, board=board, link_no=link, protocol=protocol, expected_tables=candidates)
-            if tabs_by_name:
-                claimed.update(tabs_by_name)
-                label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix)
-                protocol_name = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "protocol_name", "")
-                groups[2]["items"].append(self.item(f"protocol:{prefix}", "PROTOCOL_CHANNEL", (label + " " + protocol_name).strip(), list(tabs_by_name.values()), board=board, link_no=link))
+            claimed.update(tabs_by_name)
+            label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix)
+            protocol_name = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "protocol_name", "")
+            groups[2]["items"].append(self.item(f"protocol:{prefix}", "PROTOCOL_CHANNEL", (label + " " + protocol_name).strip(), list(tabs_by_name.values()), board=board, link_no=link))
         self.globals(groups[3]["items"], names, claimed)
         for name, table in sorted(names.items()):
             if name in claimed:
@@ -538,9 +537,8 @@ class _Builder:
                         self.diagnostic("DEVICE_ROWS_UNASSIGNED", "SECONDARY_DEVICES", table=table, side=side, identity_column=column,
                             row_count=orphans[side], changed_row_count=(len(changed_orphans[side]) if reason is None and replacement_side is None else None))
         for candidate in candidates.values():
-            if candidate["tabs"]:
-                self.charge(candidate)
-                output.append(candidate)
+            self.charge(candidate)
+            output.append(candidate)
         visible = {item["item_key"] for item in output}
         for diagnostic in self.diagnostics[diagnostic_start:]:
             target = diagnostic["target"]

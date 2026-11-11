@@ -1,6 +1,6 @@
 # FE4 kickoff：前端收口与业务导航接入
 
-- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。修订 5（2026-11-11）：按 BE-b 第二步候选 `b61cc37d5f` 与前端窄复核同步 §3.1 与 §5.3，owner 同意 B9 退役（§10 Q17、§13.6）。修订 6（2026-11-11）：FE4a 证据运行（被测提交 `59c5b8cfca`）在 04-c 真实旅程完整集停止（[证据核对第 1 轮](reviews/fe4a-evidence-check-1.md)，`fe4a-review` 分支 `14f8daa7f8`，尚未合入 main）：候选的真实旅程 helper 没有随 C12 第 3 条同步。设计会话决定以 fix4（只改测试代码）修复，并安排调试、复审与证据重跑；owner 2026-11-11 确认 fix4 的一次完整集调试与证据重跑的解释（§10 Q18、Q19）；更正 §15.4 的错误说法（处理见 §16）。修订 7（2026-11-11）：fix4 第一个候选 `d12e3b8f70` 的 05 完整集调试有 3 个 scope 失败，原因是 §16.2 写定的 helper 规则不适用于工作台工具栏的原生按钮（设计会话的错误）；改写 §16.2 的 helper 规则，owner 2026-11-11 授权再跑一次完整集调试（§10 Q20，处理见 §17）。**FE4a 当前：** 等待 fix4 修正候选。
+- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。修订 5（2026-11-11）：按 BE-b 第二步候选 `b61cc37d5f` 与前端窄复核同步 §3.1 与 §5.3，owner 同意 B9 退役（§10 Q17、§13.6）。修订 6（2026-11-11）：FE4a 证据运行（被测提交 `59c5b8cfca`）在 04-c 真实旅程完整集停止（[证据核对第 1 轮](reviews/fe4a-evidence-check-1.md)，`fe4a-review` 分支 `14f8daa7f8`，尚未合入 main）：候选的真实旅程 helper 没有随 C12 第 3 条同步。设计会话决定以 fix4（只改测试代码）修复，并安排调试、复审与证据重跑；owner 2026-11-11 确认 fix4 的一次完整集调试与证据重跑的解释（§10 Q18、Q19）；更正 §15.4 的错误说法（处理见 §16）。修订 7（2026-11-11）：fix4 第一个候选 `d12e3b8f70` 的 05 完整集调试有 3 个 scope 失败，原因是 §16.2 写定的 helper 规则不适用于工作台工具栏的原生按钮（设计会话的错误）；改写 §16.2 的 helper 规则，owner 2026-11-11 授权再跑一次完整集调试（§10 Q20，处理见 §17）。**FE4a 已退出（2026-11-11，§5.2 表后的退出记录）：** owner 2026-11-11 05:51 UTC 确认看图与遗留项，附注 tag `fe-fe4a-exit` → `c2199b82f7`，以 `--no-ff` 合入本地 main（`1d1de9d2a4`），tag 已推送，main 未推送。**FE4 当前：** FE4b 等 P7 S1a 本地退出并合入 main，再等 BE-b 第二步设计、实施与退出（§4、§5.2）。
 - **日期：** 2026-11-10（时间均为 UTC）。
 - **起点：** `fe-fe3c-exit`（tag 对象 `43e66d3eb7` → `06b454b0ef`；被测提交 `e22e39ba15`；`frontend/` 树 `46e425f84e`）。main 合入提交 `475022300c`，退出记录 `16ffe72829`。
   `fe-vnext` 仍在 `e22e39ba15`，比 tag 少一个 docs 提交（`06b454b0ef`，只新增 `fe3c-evidence-04.md`）。
@@ -313,16 +313,80 @@ FE4b 接入的后端树会同时带有 S1a 与 BE-b 的改动。S1a 改变 `arti
 
 | 子阶段 | 内容 | 前置条件 | 退出 tag | 审核范围 | 退出条件 |
 | --- | --- | --- | --- | --- | --- |
-| FE4a 带入项与新后端回归 | `fe-vnext` 快进到 main `16ffe72829`（§6.1）；§3.4 C1–C12；§3.5 Q21；§3.6 令牌；§3.8 取证工具；在 `t1.spec.ts` 中加入不依赖 BE-b 的参考截图（§3.3）；在 `vnext/` 树 `49c1de43be` 上跑真实 e2e 与 t1（次数按 §7.2） | 本文经定向复核；审核会话按 §11.1 标题重核分支与 tag、现场核对节点、镜像与 `--print-input` 后发出提示词 | `fe-fe4a-exit` | `fe-fe3c-exit..<FE4a 候选>` | 审核通过；证据（§7.2 FE4a 证据行）各一次通过；C4 的三次稳定性比较（§7.3）都通过；§7.3 看图清单中的截图经 owner 确认。不含依赖 BE-b 的页面 |
+| FE4a 带入项与新后端回归（已退出） | `fe-vnext` 快进到 main `16ffe72829`（§6.1）；§3.4 C1–C12；§3.5 Q21；§3.6 令牌；§3.8 取证工具；在 `t1.spec.ts` 中加入不依赖 BE-b 的参考截图（§3.3）；在 `vnext/` 树 `49c1de43be` 上跑真实 e2e 与 t1（次数按 §7.2） | 本文经定向复核；审核会话按 §11.1 标题重核分支与 tag、现场核对节点、镜像与 `--print-input` 后发出提示词 | `fe-fe4a-exit` | `fe-fe3c-exit..<FE4a 候选>` | 审核通过；证据（§7.2 FE4a 证据行）各一次通过；C4 的三次稳定性比较（§7.3）都通过；§7.3 看图清单中的截图经 owner 确认。不含依赖 BE-b 的页面 |
 | FE4b BE-b 接入与正式重拍 | §3.1 B1–B9；§3.2 侧栏；§3.3 正式重拍（含依赖 BE-b 的页面）；按 BE-b 交付合入 main、刷新 OpenAPI 与 fixture；FE4 退出 | `fe-fe4a-exit`；P7 S1a 本地退出并合入 main 之后，BE-b 完成第二步设计与实施、退出并合入 main，§4 的交付齐全；本文第 2 步（FE4b 设计）经审核与 owner 确认 | `fe-fe4b-exit`（即 FE4 退出） | `fe-fe4a-exit..<FE4b 候选>` | 审核通过；证据（§7.2 FE4b 行）各一次通过；正式重拍与 FE4b 截图经 owner 确认 |
 
 - 两段都在 `fe-vnext` 上进行，合入 main 只用快进或合并，不 rebase，不改写已被引用的提交。
 - **路径核对（每段都做）：** 设 `<main>` 为最后一次进入 `fe-vnext` 的 main 提交：
   - `git rev-parse <候选>:vnext` 与 `git rev-parse <main>:vnext` 相等；
   - `git diff --name-only <main> <候选>` 只含 `frontend/` 与 `docs/frontend-vnext/` 下的路径。
-- 审核范围中来自 main 的文档与 `vnext/` 不属于前端审核，由后端审核负责。main 上直接提交的 `frontend/` 改动属于前端审核范围（目前没有）。
+- 审核范围中来自 main 的文档与 `vnext/` 不属于前端审核，由后端审核负责。main 上直接提交的 `frontend/` 改动属于前端审核范围：FE4a 期间 main 上出现了两个（`7b16061b2e`、`b79fd4c72f`），纳入 FE4b，见下方 FE4a 退出记录。
 - FE4a 期间不合入 main（owner 2026-11-10 已决定，§10 Q2）。P7 S1a 在 main 上改 `vnext/` 不影响 FE4a，被测后端固定为 `16ffe72829`；需要偏离时停下交 owner，实施与审核会话都不自行合入。
 - FE4b 的合入点、依赖镜像与比对原件在第 2 步写定。
+
+**FE4a 已退出（2026-11-11）：**
+
+- **tag 与范围：**
+  - 附注 tag `fe-fe4a-exit`（tag 对象 `b98dd9c1c0`）指向证据 handoff `c2199b82f7`（`fe-vnext` 头），审核范围 `fe-fe3c-exit..c2199b82f7`；
+  - 证据运行的提交 H 是 fix4 handoff `16f4306306`（修正候选 `26236839f7`），tag 目标与它只差 `docs/frontend-vnext/fe4a-evidence.md`；
+  - `frontend/` 树 `d8e9a2e717`；`vnext/` 树 `49c1de43be`，与合入点 main `16ffe72829` 相同（§6.1），路径核对通过。
+- **合入 main（§6.4）：** 合入前 main 为 `37fe3a87d2`（main worktree clean，没有进行中的合并或变基）。
+  - `4c566a11a9`：`--no-ff` 合入 `fe4a-review` 分支（7 份审核报告，头 `f95a66c800`）；
+  - `1d1de9d2a4`：`--no-ff` 合入 tag `fe-fe4a-exit`，`frontend/scripts/run-real-backend-e2e.sh` 自动合并，没有冲突；
+  - 合入后 `HEAD:vnext` 等于合入前 main 的 `vnext/` 树 `2faac9fc1d`；相对合入前 main 只改 `frontend/`（27 个文件）与 `docs/frontend-vnext/`（13 个文件）；
+  - 合入后 main 的 `frontend/` 树为 `5658a45f21`，与审核会话在 main `8fb7245911` 上的试合并结果相同。它是 FE4a 的改动加上 main 上的两个后端提交（见下），**还没有在任何节点上运行过**。
+- **owner 确认（2026-11-11 05:51 UTC，在设计会话中）：**
+  - **看图：** 07 `/home/dev/gdds-fe-shots/fe4a-rereview4/full1`（复审第 4 轮在最终 `frontend/` 树上的全量截图，与复审第 3 轮没有内容变化；证据截图经第 ③ 次比较与它绑定），范围按 §7.3，分组按 fix2 handoff §6.4 的 50 个文件：确认；
+  - **规则 4 的唯一豁免** `fe3b-w4-approved-withdraw`（1280、1920 下顶栏都溢出 12 px，禁用原因被截断）：接受，随 FE4b 的 N5 修复并删除豁免；
+  - **C8：** 灰色冲突提示（`.form-warning`）与红色集合变化提示同屏（`fe4a-c8-both-notices`，§15.3）：接受；
+  - **N11**（关闭成功后输入仍可编辑）：接受现状；
+  - **N15**（“收起”在正文下一行，缩进 4 px）：接受现状；
+  - **main 推送（§10 Q12）：** 本次只推送 tag，不推送 main；
+  - **后端改 `frontend/`：** 今后后端改 `frontend/` 前，先告知前端设计会话（见下“main 上的 `frontend/` 提交”）。
+- **证据运行**（04、05 各在 clean detached worktree `/home/dev/gdds-fe4a-evidence-16f43063` 上，被测提交 H，各一次，没有 DC68 重做）：
+
+  | 节点 | 运行 | 结果 | wrapper 日志 | SHA256 |
+  | --- | --- | --- | --- | --- |
+  | 04 | 04-a 模拟接口全量 runner（含截图，`GATEWAY_FE_TEST_WORKERS=2`） | exit 0；单测 35 个文件 214 项，e2e 96 通过；198 张截图 | `/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-04/fe4a-evidence-04-run-tests-20261111T043941Z.log` | `088da58cc4fd0834c20d2e4f3b8acfe4a12ae85028a78ff8ad1d9e4c95a1f2f5` |
+  | 04 | 04-b 上传包的后端校验 | exit 0；4 个包，`failures=0` | `/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-04/fe4a-evidence-04-validate-upload-package-20261111T044322Z.log` | `b1d4932eab7697969cf0e54811492c200f3ac254a9b3f6bc9f120a7d081094f1` |
+  | 04 | 04-c 真实 backend `--suite journeys`（完整集） | exit 0；20/20，`openapi_compare=match`，`cleanup_status=ok` | `/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-04/fe4a-evidence-04-run-real-backend-e2e-20261111T044548Z.log` | `94da0b0f3b9430aed5cc86b10639a650be5f05ffb28ec08b2ff907edc2339ce2` |
+  | 05 | 05-t1 真实数据 `--suite t1` | exit 0；1 通过，`table_count=125`，`composite_changed=0`，两份 t1 清单各 19 个文件核对通过 | `/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-05/fe4a-evidence-05-run-real-backend-e2e-20261111T044048Z.log` | `3a450ca0b666f3549f0b0d729201d98d89653c655d0f789c35bd79b4d42d954e` |
+
+- **核对结果**（[证据核对第 2 轮](reviews/fe4a-evidence-check-2.md) §2、§3）：
+  - J1、J2 共 8 次预检的异常集合与 FE3 kickoff §4.6 一致，`business_issues` 都等于 `anomalies` 去掉 ASE 与 PIE；
+  - t1 符合 FE3 kickoff §8.3：v1 Preview 125、125、0、0；v2 FULL 恰好两对；`initial_to_modified` 为 125 张表、变化 4；`composite_changed=0`，同一 `vnext/` 树上没有后端 t1 结果，没有对照；14 张参考截图齐全（不作验收）；
+  - M1：t1 第 1 步 MODIFIED_ONLY 的 renderer 增量 19,300,352 字节（18.41 MiB），为 FE3a 24.86 MiB 的 0.74 倍；第 4 步 FULL 只报告；
+  - C4 三次稳定性比较都通过：第 ①、② 次由复审第 4 轮复审第 3 轮 `full1` 对本轮 `full1` 的 `--stable` 比较代替（§16.4 第 3 项）；第 ③ 次为 04 证据截图对 07 `/home/dev/gdds-fe-shots/fe4a-rereview4/full1`，exit 0，内容变化 0，噪声 19 张（每张最多 56 个像素、连通块 10）；
+  - 打包流程筛查（§7.4）为空，没有跑 t4。
+- **截图：** 198 张（1280、1920），在 04 的 `/home/dev/gdds-fe-evidence-04/fe4a-16f43063/shots/`；清单 `/home/dev/gdds-fe-evidence-04/fe4a-16f43063/shots/shot-files.txt` SHA256 `3db69cef9dc15ac8adeece2d52ce061f108ac4b754db384ebbaa4a77f233aa35`。它是 FE4b 的比较原件（§7.3）。
+- **停止与修复经过：**
+  - 第一次证据（被测提交 `59c5b8cfca`，fix3 handoff）在 04-c 完整集停止：真实旅程 helper 没有随 C12 第 3 条同步（证据核对第 1 轮；修订 6，§16）；
+  - fix4 第一个候选 X `d12e3b8f70` 的 05 完整集调试有 3 个 scope 失败：§16.2 写定的 helper 规则不适用于工作台工具栏的原生按钮，属设计会话的错误（修订 7，§17）；
+  - 修正候选 Y `26236839f7` 的 05 完整集调试 20 个 scope 全部通过，复审第 4 轮通过，证据在其 handoff H 上四项重跑通过。
+- **依据：** [审核](reviews/fe4a-review.md)：定向修复；[复审第 1 轮](reviews/fe4a-rereview-1.md)、[第 2 轮](reviews/fe4a-rereview-2.md)：定向修复；[复审第 3 轮](reviews/fe4a-rereview-3.md)：通过；[证据核对第 1 轮](reviews/fe4a-evidence-check-1.md)：停止，转 fix4；[复审第 4 轮](reviews/fe4a-rereview-4.md)：通过；[证据核对第 2 轮](reviews/fe4a-evidence-check-2.md)：通过。handoff：`fe4a-handoff.md`、`fe4a-handoff-fix1.md`–`fe4a-handoff-fix4.md`、`fe4a-evidence.md`。
+- **main 上的 `frontend/` 提交（设计会话决定，采纳审核会话试合并后的建议）：**
+  - **事实：** main 在 `16ffe72829` 之后有两个后端提交改了 `frontend/scripts/run-real-backend-e2e.sh`：`7b16061b2e`（P7 S1a F：入口改用 `vnext/scripts/tests/runtime_config_fixture.py` 生成运行时根目录与 Compose override `compose_runtime`）与 `b79fd4c72f`（清理时调用 fixture 的 `--cleanup`，失败时保留现场并 exit 非 0，新增 `main_exit_code`）。按本节，它们属于前端审核范围；
+  - **不阻塞 FE4a 退出：** 两者不在 FE4a 的被测树上（被测后端固定在 `16ffe72829`，§10 Q2），tag 目标与证据不受影响，合并没有冲突；
+  - **纳入 FE4b：** FE4b 第 2 步设计时把这两个提交列为前端审核对象，FE4b 的调试覆盖新入口；FE4b 审核范围 `fe-fe4a-exit..<FE4b 候选>` 经由 main 包含它们；
+  - **owner 决定（2026-11-11）：** 今后后端改 `frontend/` 前先告知前端设计会话。写入 AGENTS 或后端流程由 owner 另行安排，本文只记录。
+- **带入 FE4b 的项**（证据核对第 2 轮 §6）：
+  - N5：预览页顶栏禁用原因溢出；修复后删除规则 4 的豁免 `fe3b-w4-approved-withdraw`；
+  - N19：比较脚本自检对 Paeth 预测函数没有区分力；
+  - N20 与 N25：回源脚本的配对范围（`` `路径`，SHA256 `值` `` 与表格单元格内的路径不配对；标签项改为可复算的证据文件；报告“有路径却未配对”的文件哈希）；
+  - N26：证据提示词写明设置 `GATEWAY_FE_LOG_DIR`；
+  - N27：wrapper 的 `exit_code` 字段（04-b 记 `wrapper_field_missing`）与 `busy_end` 的记录时机（在释放后记录，或改名为 `busy_before_release`）；
+  - N24：C12 第 1 条（对话框关闭后的审核错误提示移到 `.compare-header__notice`）在真实旅程中没有覆盖，只由模拟接口 V12 覆盖；FE4b 如果构造过期通过或 `ARCHIVE_CLOSED` 场景，可以补上；
+  - §17.2 的可选项：工作台工具栏的原生按钮统一改为 `Button` 组件；
+  - 复审第 2 轮 N14（截图 helper 的溢出断言只在开截图时执行）、N17（`ReviewActions` 错误提示的清除时机与 `errorNoticeHost` 无回退）；
+  - 审核清单补充（证据核对第 1 轮 §4）：DOM 结构改动时 grep `e2e-real/` 中的定位器，并核对共享 helper 全部调用处的结构（§11.2 第 10 项，FE4b 同样适用）；
+  - 上一条中 main 上的两个 `frontend/` 提交。
+- **不带入：** N21–N23（handoff 文字与计数小误），值已由审核会话现场核对，不出勘误。
+- **保留到 FE4 退出：**
+  - 04：`/home/dev/gdds-fe-evidence-04/fe4a-16f43063/`（FE4b 的比较原件）、`/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-04/`；
+  - 05：`/home/dev/gdds-fe-evidence-05/fe4a-16f43063/`、`/home/dev/gdds-fe-logs/fe4a-evidence-16f43063-05/`（含 t1 参考截图）；
+  - 07：`/home/dev/gdds-fe-shots/fe4a-rereview4/`（owner 看图的对象与证据截图副本）、`/home/dev/gdds-fe-logs/fe4a-rereview4/`；
+  - 开发主机：`/home/dev/gdds-fe4a-handoff/`（证据回源用的清单副本）。
+- **FE4b 起点：** `fe-fe4a-exit`（tag 对象 `b98dd9c1c0` → `c2199b82f7`，`frontend/` 树 `d8e9a2e717`），main 合入提交 `1d1de9d2a4`。
 
 ### 5.3 FE4b 的第 2 步
 
@@ -502,7 +566,7 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
   - owner 看复审通过的候选在 07 上的截图（handoff 记录路径与 SHA256）；证据运行的截图由第 ③ 次稳定性比较与之绑定，不另看。
 - **真实 backend 与 t1：** FE4a 的 t1 参考截图（§3.3 的页面与截图名）只留在节点上，SHA256 写入 handoff，不作验收，审核会话只核对 SHA256 与文件名是否齐全；FE4b 的 t1 正式重拍交 owner 看图（§3.3）。
 - **对照依据：** 审核会话对照 `sketches/` 与 UI 优化方向核对布局、层级、语义色、按钮层级、禁用原因与焦点样式，不做像素级比对。
-- **FE4b：** 模拟接口截图的比较沿用同一脚本、同一上限与同样的三次稳定性比较；FE4a 到 FE4b 的变化清单以 FE4a 证据截图为比较原件，具体在第 2 步写定。真实 backend 的 t1 截图不用该脚本判定（数据与时间不固定），按 §3.3 看图。
+- **FE4b：** 模拟接口截图的比较沿用同一脚本、同一上限与同样的三次稳定性比较；FE4a 到 FE4b 的变化清单以 FE4a 证据截图为比较原件：04 `/home/dev/gdds-fe-evidence-04/fe4a-16f43063/shots`（清单 `shot-files.txt`，SHA256 `3db69cef9dc15ac8adeece2d52ce061f108ac4b754db384ebbaa4a77f233aa35`）；07 上有按该清单逐文件核对过的副本 `/home/dev/gdds-fe-shots/fe4a-rereview4/evidence-04-copy`。其余在第 2 步写定。真实 backend 的 t1 截图不用该脚本判定（数据与时间不固定），按 §3.3 看图。
 
 ### 7.4 t1 与 M1
 
@@ -572,7 +636,8 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 - 修订 4：FE4a 审核交设计会话的 D1、D2 与看图范围，按设计会话的建议确认 Q14–Q16（§15）；
 - 修订 5：2026-11-11 同意 B9 退役（Q17，§13.6）；
 - 修订 6：FE4a 证据停止后，2026-11-11 约 02:28 UTC 在设计会话中按设计会话的建议确认 Q18、Q19（§16）；
-- 修订 7：fix4 调试停止后，2026-11-11 约 03:02 UTC 在设计会话中按设计会话的建议确认 Q20（§17）。
+- 修订 7：fix4 调试停止后，2026-11-11 约 03:02 UTC 在设计会话中按设计会话的建议确认 Q20（§17）；
+- FE4a 退出：2026-11-11 05:51 UTC 在设计会话中确认 §7.3 看图、豁免、C8、N11、N15，决定本次不推送 main，并要求后端今后改 `frontend/` 前先告知前端设计会话（§5.2 表后的 FE4a 退出记录）。
 
 | # | 事项 | owner 2026-11-10 的决定 | 本文落点 |
 | --- | --- | --- | --- |
@@ -602,7 +667,9 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 - 已完成：后端交接记录 `p7-s1a-frontend-beb-handoff.md` 中第二步的开始时间已按 Q5 修订 2 更正（`e2eaab4db9`，§4）；
 - BE-b 的排期与后端会话安排（后端流程）；
 - t1 第二次调试运行（§7.2）；
-- FE4a 退出时 main 的推送；FE4b 退出时的 tag、合入与推送。
+- 已完成：FE4a 退出时推送 tag `fe-fe4a-exit`；owner 2026-11-11 决定本次不推送 main，main 的推送随后端节奏另定；
+- 后端今后改 `frontend/` 前先告知前端设计会话（owner 2026-11-11）：写入 AGENTS 或后端流程由 owner 安排；
+- FE4b 退出时的 tag、合入与推送。
 
 ## 11. 提示词草稿
 
@@ -697,8 +764,8 @@ FE4b 的设计期间若发现 BE-b 的 Contract 与第一步或第二步不一�
 
 | 类别 | FE4a 读取 | FE4b 另读 |
 | --- | --- | --- |
-| 已完成 | FE3 kickoff §3.2 的 FE3a、FE3b、FE3c 退出记录；`fe3c-evidence-04.md`、`fe3b-evidence-04.md`；`fe3c-handoff.md` 及 fix1、fix2 | `fe4a-handoff.md` 与 FE4a 退出记录；BE-b 的退出交接 |
-| 未测 | `fe3c-handoff.md` §5.5（只由模拟接口覆盖的项）；FE3 kickoff §4.6 末段（时间倒退等只由模拟接口覆盖）、§4.7（提交 403、仍在运行与 `MANUAL_RECOVERY_REQUIRED` 只由模拟接口覆盖）、§15.3 与 §16.7（过期 `APPROVE` 409 只由模拟接口覆盖）；§8.4（t1 FULL 不可比较，FE4 起不再报告；t4 自 FE3a 后未重测） | `fe4a-handoff.md` 的“未测”一节 |
+| 已完成 | FE3 kickoff §3.2 的 FE3a、FE3b、FE3c 退出记录；`fe3c-evidence-04.md`、`fe3b-evidence-04.md`；`fe3c-handoff.md` 及 fix1、fix2 | FE4a 的 handoff：`fe4a-handoff.md` 及 fix1–fix4（`fe4a-handoff-fix1.md`–`fe4a-handoff-fix4.md`）；`fe4a-evidence.md`；FE4a 退出记录（§5.2 表后）与 FE4a 审核报告（`reviews/fe4a-review.md`、`fe4a-rereview-1.md`–`fe4a-rereview-4.md`、`fe4a-evidence-check-1.md`、`fe4a-evidence-check-2.md`）；BE-b 的退出交接 |
+| 未测 | `fe3c-handoff.md` §5.5（只由模拟接口覆盖的项）；FE3 kickoff §4.6 末段（时间倒退等只由模拟接口覆盖）、§4.7（提交 403、仍在运行与 `MANUAL_RECOVERY_REQUIRED` 只由模拟接口覆盖）、§15.3 与 §16.7（过期 `APPROVE` 409 只由模拟接口覆盖）；§8.4（t1 FULL 不可比较，FE4 起不再报告；t4 自 FE3a 后未重测） | `fe4a-handoff.md` 的“未测”一节；N24（C12 第 1 条在真实旅程中未覆盖，只由模拟接口 V12 覆盖）；05-t1 的 `composite_changed=0` 没有后端对照；合入后 main 的 `frontend/` 树 `5658a45f21`（含 `7b16061b2e`、`b79fd4c72f`）没有在任何节点上运行过 |
 | 未决 | 本文 §3.4–§3.7、§10；FE3 kickoff §12 中仍开放的项 | 本文第 2 步；BE-b 第二步与交接中留给前端的事项 |
 
 ## 13. 同分支中对其他文档的修改

@@ -140,7 +140,6 @@ def _empty(cgroup: Path) -> bool:
     return events.get("populated") == "0"
 
 
-
 def _rs_shutdown_completed(original: dict[str, Any], current: dict[str, Any]) -> bool:
     started = original["State"].get("StartedAt")
     if not started or current["State"].get("StartedAt") != started:
@@ -155,6 +154,7 @@ def _rs_shutdown_completed(original: dict[str, Any], current: dict[str, Any]) ->
     lines = (result.stdout + "\n" + result.stderr).splitlines()
     return (any("Application shutdown complete." in line for line in lines)
             and not any("Application shutdown failed." in line for line in lines))
+
 
 def stop_services(containers: list[dict[str, Any]]) -> None:
     groups = {item["Id"]: _cgroup(item) for item in containers}

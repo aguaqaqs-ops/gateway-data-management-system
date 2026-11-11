@@ -316,5 +316,5 @@ def test_entrypoint_prepares_layout_then_drops_to_gateway() -> None:
     assert entrypoint.index("os.initgroups(") < entrypoint.index("os.setgid(") < entrypoint.index("os.setuid(")
     assert "os.environ.update(HOME=account.pw_dir" in entrypoint
     assert "os.execvp(sys.argv[2], sys.argv[2:])" in entrypoint
-    assert '\"${GATEWAY_USER}\" \"$@\"' in entrypoint
+    assert '"${GATEWAY_USER}" "$@"' in entrypoint
     assert "unlink-stage" not in entrypoint

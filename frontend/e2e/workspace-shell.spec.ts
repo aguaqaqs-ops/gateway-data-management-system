@@ -775,7 +775,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const stateBeforeReload = new URL(page.url());
   expect(stateBeforeReload.searchParams.get("view")).toBeNull();
   expect(stateBeforeReload.searchParams.get("pair")).toBe("baseline_to_initial");
-  expect(stateBeforeReload.searchParams.get("tab")).toBe("__whole__:device");
+  expect(stateBeforeReload.searchParams.get("tab")).toBe("table");
   expect(stateBeforeReload.searchParams.get("changed")).toBe("1");
   expect(stateBeforeReload.searchParams.get("debug")).toBe("1");
   const requestCountBeforeReload = requests.get("preview-full") ?? 0;
@@ -859,7 +859,7 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
   await expect(page.locator(".replacement-side h3")).toHaveCount(2);
   await expect(page.locator(".replacement-side h3").first()).toContainText("device");
-  await expect(page.locator(".replacement-side-toggle")).toContainText("替换前：");
+  await expect(page.locator(".replacement-summary")).toContainText("替换前：");
   await page.locator(".replacement-side-toggle button").nth(1).click();
   await expect(page.locator(".replacement-side.is-inactive")).toHaveCount(1);
   await screenshot(page, "dataset-replacement-browse", 1920);

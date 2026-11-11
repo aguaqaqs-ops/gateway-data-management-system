@@ -2,7 +2,7 @@
 
 ## BE-b v4（实施中）
 
-当前产品 selector 为 `backend-vnext/comparison-surface/v4`，只接受当前版本。B3 已实现下列列展示、内容绑定、locator ref 遍历/改写和摘要形状；导航唯一性、locator producer 与前端完整 fixture 仍待 B3/B4 后续集成，本段不表示 BE-b 已可交付。下列目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
+当前产品 selector 为 `backend-vnext/comparison-surface/v4`，只接受当前版本。B3 已实现下列列展示、内容绑定、实际 native/最终文件 locator、导航恰一份及 Preview/History 接线；前端完整 fixture/golden、集中验收与阶段独审仍待收口，本段不表示 BE-b 已可交付。下列目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
 
 - 每个成功 surface 恰一个 BUSINESS_NAVIGATION projection，完整载荷/FE-BEB-11–13 语义由 [Business Navigation Contract](business-navigation.md) 拥有；缺失/重复拒绝。surface 仍不读表或计算 diff/risk。
 - 普通 columns 为两侧 canonical 列名并集，每名一个，数组按 UTF-8 名序；新增 required `present_in:BEFORE|CURRENT|BOTH`、`pinned:bool`、`display_order:int`。展示顺序从 0 连续唯一：current 业务规则/DDL 次序，再 before-only DDL 次序；没有 current 时取 before。类型/nullable 优先 current，否则 before；名称 current 非空注释→before 非空注释→标识符。固定列规则 no、name，否则 description；宽度/对齐归前端，无隐藏或缺字段回退。

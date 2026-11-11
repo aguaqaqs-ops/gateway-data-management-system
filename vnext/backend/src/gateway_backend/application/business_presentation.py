@@ -43,7 +43,8 @@ _REGISTRY_COLUMNS = {
 class RiskAttribution:
     """Reduce typed transient outcomes while their owning evaluation is live."""
     def __init__(self) -> None:
-        self.table_events: list[RiskAnnotation] = []
+        self.table_levels: dict[str, RiskLevel | None] = {}
+        self.global_level: RiskLevel | None = None
         self.rows: dict[str, dict[str, RiskLevel]] = {}
         self.complete: dict[str, bool] = {}
         self.any_risk: dict[str, bool] = {}
@@ -54,7 +55,8 @@ class RiskAttribution:
         context.resources.callback(self.close)
 
     def close(self) -> None:
-        self.table_events.clear()
+        self.table_levels.clear()
+        self.global_level = None
         self.rows.clear()
         self.complete.clear()
         self.any_risk.clear()
@@ -74,7 +76,16 @@ class RiskAttribution:
             context.checkpoint()
             target = annotation.target
             if target.target_type in {RiskTargetType.TABLE, RiskTargetType.COMPARISON}:
-                self.table_events.append(annotation)
+                # Reduce while the actual annotation owner is live. Retaining
+                # its full reasons/evidence would keep arbitrary payload bytes
+                # after Risk's admission closes; navigation needs only levels.
+                if target.table_name is not None:
+                    table_level = reduce_table_risks((target.table_name,), (annotation,))[target.table_name]
+                    self.table_levels[target.table_name] = maximum_risk(
+                        self.table_levels.get(target.table_name), table_level)
+                elif target.target_type is RiskTargetType.COMPARISON:
+                    global_level = reduce_table_risks((name,), (annotation,))[name]
+                    self.global_level = maximum_risk(self.global_level, global_level)
             else:
                 for identity in (target.row_identity, target.before_row_identity, target.current_row_identity):
                     if identity is not None:
@@ -151,7 +162,8 @@ def publish_business_presentation(
     tasks = {t.table_name: t for t in plan.tasks}
     artifacts = {t.table_name: t for t in table_artifacts}
     entries = {} if closure is None else {e.table_name: e for e in closure.records if e.family is RecordsArtifactFamily.STANDARD}
-    table_risks = reduce_table_risks((t.table_name for t in facts.tables), attribution.table_events)
+    table_risks = {t.table_name: maximum_risk(attribution.table_levels.get(t.table_name), attribution.global_level)
+        for t in facts.tables}
     tables = []
     locations: dict[str, RowLocationResult] = {}
     scanned_rows = locator_bytes = 0

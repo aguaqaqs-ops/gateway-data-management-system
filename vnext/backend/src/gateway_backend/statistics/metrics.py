@@ -28,6 +28,7 @@ class Metrics:
     ambiguous_input: bool = False
     ordered_seen: set[str] = field(default_factory=set)
     ordered_incomplete: bool = False
+    changed_incomplete: bool = False
     repository_id: str | None = None
     submit_attempt_id: str | None = None
 
@@ -123,10 +124,16 @@ def pair_table(pair: str, name: str, mode: str, before: int | None, after: int |
         pass
 
 
-def pair_totals(*, changed_tables: int, changed_rows: int) -> None:
+def pair_totals(*, changed_tables: int, changed_rows: int, complete: bool = True) -> None:
     try:
         metrics = _current.get()
         if metrics is not None:
+            if not complete:
+                metrics.changed_incomplete = True
+                metrics.shape.pop('changed_tables', None)
+                metrics.shape.pop('changed_rows', None)
+            if metrics.changed_incomplete:
+                return
             for key, value in (('changed_tables', changed_tables), ('changed_rows', changed_rows)):
                 metrics.shape[key] = metrics.shape.get(key, 0) + value
     except Exception:
@@ -143,10 +150,14 @@ def bind_scope(repository_id: str, submit_attempt_id: str | None = None) -> None
         pass
 
 
-def ordered_input_table(identity: str, name: str | None = None, rows: int = 0) -> None:
+def ordered_input_table(identity: str, name: str | None = None, rows: int = 0, *, complete: bool = True) -> None:
     try:
         metrics = _current.get()
         if metrics is None or metrics.ambiguous_input or metrics.input_identity != identity or metrics.ordered_incomplete:
+            return
+        if not complete:
+            metrics.ordered_incomplete = True
+            metrics.shape.pop('ordered_table_rows', None)
             return
         metrics.shape.setdefault('ordered_table_rows', 0)
         if name is None or name in metrics.ordered_seen:

@@ -59,7 +59,7 @@ E 用真实 schema 在节点测量后校准；容量压力先丢旧曲线，仍�
 | ordered_table_rows | 同 pair 的 `ComparisonTableFact.ordered_extension` 对应 ORDERED 行数，使用当前侧已知 row_count；按当前输入/table identity 去重，不把多个pair的相同当前表相加；无法完整判断则 null。 |
 | parse | Preview `preview_jobs.py::_materialize_uploaded_side` 的 `parse_arrow_sql`/`parse_xml` 调用边界；每次已执行调用 perf_counter 差累加；不包括 checkpoint restore，未解析为 null。 |
 | materialize | `materialize_business_snapshot` / `materialize_canonical_snapshot` / `materialize_repository_ref` 调用边界；同窗口已执行调用累加，不含 parse；含 canonical cache 验证/恢复成本。History `application/history/compare_jobs.py::_materialize_commit` 的 `describe_repository_ref` 计入该阶段的元数据描述成本；`_ensure_history_demands` 的实际按需物化也按已有调用边界计时，不冒称 describe 已读取全表。checkpoint restore 未重新调用边界时为null。 |
-| compare / risk / export | `pair_pipeline.py` 已有 comparison_elapsed / risk_seconds / export_seconds，秒转毫秒；分别为 compare_plan_native、风险评估和 `_surface_table_artifacts` 调用边界。不同pair累加；export可嵌套在surface内，不把这些阶段相加冒充总执行时长。 |
+| compare / risk / export | `compare_plan_native`、`evaluate_risk`和`pair_pipeline.py::_surface_table_artifacts`的现有调用边界，用finally记录单调窗口毫秒（下游阶段失败仍保留已完成耗时）。不同pair累加；export可嵌套在surface内，不把这些阶段相加冒充总执行时长。 |
 | bundle | Preview `preview_jobs.py::_assemble_preview` 中已有 bundle_started 到 `assemble_bundle` 返回（导入别名指向 `application/kernel_execution.py::assemble_operation_bundle`）；History 相同 bundle builder 边界；仅发生时记录。 |
 | rs_import | `submit_jobs.py` 已有 repository client submit_versioned_import/wait_operation 调用边界的客户端端到端时间（含网络/等待），只累计本窗口实际调用；健康handoff未执行的等待不伪造，绝非 Dolt 内部耗时。 |
 | finalize | `application/submission/finalize.py::finalize_submit` 及调用的既有 finalize 事务边界，单调计时；仅本窗口实际执行，未执行为 null。 |
@@ -115,3 +115,8 @@ comparison每个已执行task记录一次查找，验证后实际cached复用才
 未采样的头尾区间；摘要为partial/counter_unavailable，短窗口无两个有效点则差值为null。RSS与
 cgroup内存为采样峰值，未扫描scratch则该峰值为null。业务结果没有可靠已提交结果来源时保持unknown。
 原始样本保留各自时间，计数下降或实例改变不相减。
+
+空间压力同时检查DB/WAL物理长度和main的page_count/freelist_count，预留一个有限batch及索引页。
+有限保留清理后先PASSIVE checkpoint；WAL达到软阈值时再做busy_timeout=0的机会式TRUNCATE
+checkpoint，无可截断窗口则暂停、以后维护周期重试，不等待读者、不做VACUUM。SQLite页满的
+竞态失败同样触发一次有限旧曲线清理后再重试，不以总预算尚有余量为由忽略main页上限。

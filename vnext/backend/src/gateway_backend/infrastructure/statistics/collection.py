@@ -18,7 +18,7 @@ from gateway_backend.statistics.metrics import Metrics, set_metrics
 from gateway_repository_contracts.statistics import Reason
 
 from gateway_backend.statistics.models import (
-    CacheCounts, ExecutionMetrics, ExecutionSummary, InputShape, ResourceRecord, StageDurations,
+    RECORD_MAX_BYTES, CacheCounts, ExecutionMetrics, ExecutionSummary, InputShape, ResourceRecord, StageDurations,
     StatisticsIdentity, TableMetric,
 )
 
@@ -105,7 +105,7 @@ class BufferedTelemetrySink:
             return False
         try:
             if (len(self._queue) >= self.config.queue_max_items
-                    or (len(self._queue) + 1) * self.config.record_max_bytes > self.config.queue_max_bytes):
+                    or (len(self._queue) + 1) * RECORD_MAX_BYTES > self.config.queue_max_bytes):
                 self.health.dropped += 1
                 return False
             self._queue.append(record)
@@ -192,9 +192,9 @@ class BufferedTelemetrySink:
             metrics=metrics, quality='partial', reason=reason)
 
     def _sample(self) -> ResourceRecord:
-        sample = self.sampler()
         window = self._active
-        if window is not None and window.ended_us is None:
+        sample = self.sampler()
+        if window is not None and self._active is window and window.ended_us is None:
             window.first = window.first or sample
             window.last = sample
             if sample.rss_bytes is not None:
@@ -208,7 +208,7 @@ class BufferedTelemetrySink:
     def _take_batch(self) -> list[Record]:
         batch: list[Record] = []
         # Conservative reservation avoids encoding on the callback and bounds each SQL batch.
-        maximum = min(self.config.write_batch_items, self.config.write_batch_bytes // self.config.record_max_bytes)
+        maximum = min(self.config.write_batch_items, max(1, self.config.write_batch_bytes // RECORD_MAX_BYTES))
         with self._lock:
             events = [self._queue.popleft() for _ in range(min(maximum, len(self._queue)))]
         for event in events:
@@ -240,6 +240,7 @@ class BufferedTelemetrySink:
                     except Exception:
                         self._failure('counter_unavailable')
                 if self.store.connection is not None:
+                    batch: list[Record] = []
                     try:
                         if now >= next_maintenance:
                             next_maintenance = now + self.config.maintenance_seconds
@@ -256,9 +257,20 @@ class BufferedTelemetrySink:
                                 self.store.write_batch(batch)
                                 self.health.written += len(batch)
                             self.health.available, self.health.reason = True, None
-                    except Exception:
-                        self._failure('collection_failed')
-                        self.store.close()
+                    except Exception as error:
+                        self.health.dropped += len(batch)
+                        if isinstance(error, sqlite3.DatabaseError) and getattr(error, 'sqlite_errorcode', None) == sqlite3.SQLITE_FULL:
+                            self._failure('budget_exceeded')
+                            # A concurrent writer may consume the reserved pages. Reclaim a
+                            # finite old-curve batch before any later write retry.
+                            try:
+                                self.store.maintain(time_ns() // 1000)
+                            except Exception:
+                                self.store.close()
+                            next_maintenance = now + self.config.maintenance_seconds
+                        else:
+                            self._failure('collection_failed')
+                            self.store.close()
                         next_open = now + self.config.maintenance_seconds
                 else:
                     with self._lock:

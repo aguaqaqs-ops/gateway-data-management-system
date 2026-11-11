@@ -138,7 +138,7 @@ category取repository/durable/canonical/comparison/export/scratch/metadata/publi
 | EXPORT_CONCURRENCY | 每backend 1；进程内semaphore，忙即429 STATISTICS_EXPORT_BUSY，不排队 |
 | TOTAL_BUDGET_BYTES | 初始 2 GiB/组，是预算而非“能保7天”的保证；首次节点验证必须测量后校准 |
 
-SQLite 初始 page_size=4096，main DB max_page_count=`floor(TOTAL_BUDGET_BYTES / 2 / 4096)`，2 GiB初值对应262144页（1 GiB）。总预算剩余用于WAL和维护余量；WAL观测软阈值为`min(128 MiB, TOTAL_BUDGET_BYTES/16)`。每个写入连接核相同页上限；短事务/短读，wal_autocheckpoint 使用标准有限设置，maintenance 用非阻塞 PASSIVE checkpoint。注意 journal_size_limit 不是活动 WAL 硬上限，不能据此宣称严格总额保证。调整预算只在正常重启生效；缩小到现有DB大小以下时停写统计并说明原因，不自动删库。
+SQLite 初始 page_size=4096，main DB max_page_count=`floor(TOTAL_BUDGET_BYTES / 2 / 4096)`，2 GiB初值对应262144页（1 GiB）。总预算剩余用于WAL和维护余量；WAL观测软阈值为`min(128 MiB, TOTAL_BUDGET_BYTES/16)`。每个写入连接核相同页上限；短事务/短读，wal_autocheckpoint 使用标准有限设置，maintenance 先用非阻塞 PASSIVE checkpoint；WAL达软阈值时以busy_timeout=0机会式TRUNCATE checkpoint回收可截断文件，读者阻止时不等待。注意 journal_size_limit 不是活动 WAL 硬上限，不能据此宣称严格总额保证。调整预算只在正常重启生效；缩小到现有DB大小以下时停写统计并说明原因，不自动删库。
 
 每次有限批写前查 DB/WAL 大小和现有 filesystem 低水位；达预算/低水位则只做可行清理、暂停采样，保持足够批次余量，不循环写错误记录。多进程竞态可有一个有限批次的观测超量，明确为工程预算；不建跨进程配额仲裁。删除先用过期项，再最旧曲线；SQL 页回收复用而非立刻缩文件，不在热路径全库 VACUUM。长期空间无法恢复则停止统计并人工处理，不自动删库。
 

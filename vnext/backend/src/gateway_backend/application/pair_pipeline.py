@@ -10,8 +10,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from time import perf_counter
-from gateway_backend.statistics.metrics import duration, ordered_input_table, pair_table, pair_totals
+from gateway_backend.statistics.metrics import ordered_input_table, pair_table, pair_totals, timed
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
@@ -333,9 +332,7 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair planning did not produce a comparison plan")
     if context is None:
         raise PairPipelineError("pair computation requires an operation kernel context")
-    comparison_started = perf_counter()
     with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
-        comparison_elapsed = perf_counter() - comparison_started
         return _finish_comparison_risk_surface(
             native_comparison=native_comparison, request=request, plan=plan,
             view_id=view_id, store=store, control=control,
@@ -343,7 +340,7 @@ def _run_comparison_risk_surface(
             show_keyless_fallback_hint=show_keyless_fallback_hint,
             include_all_before_tables=include_all_before_tables,
             repository_id=repository_id, export_cache=export_cache,
-            comparison_elapsed=comparison_elapsed, table_exports=table_exports,
+            table_exports=table_exports,
             before_presentation=before_presentation, current_presentation=current_presentation,
         )
 
@@ -362,7 +359,6 @@ def _finish_comparison_risk_surface(
     include_all_before_tables: bool,
     repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None,
-    comparison_elapsed: float,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata = PresentationMetadata(),
     current_presentation: PresentationMetadata = PresentationMetadata(),
@@ -429,7 +425,6 @@ def _finish_comparison_risk_surface(
         raise PairPipelineCancelled
     risk_conversion: dict[str, float] = {}
     attribution = RiskAttribution()
-    risk_started = perf_counter()
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=comparison_facts,
@@ -448,7 +443,6 @@ def _finish_comparison_risk_surface(
             attribution_observer=attribution.observe,
         ),
     )
-    risk_seconds = perf_counter() - risk_started
     checkpoint()
     if risk.status not in {RiskEvaluationStatus.READY, RiskEvaluationStatus.DEGRADED} or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
@@ -467,13 +461,11 @@ def _finish_comparison_risk_surface(
     context.resources.enter_context(reserve_surface(
         16 * 1024**2 + len(comparison_facts.tables) * 65536,
     ))
-    export_started = perf_counter()
     table_artifacts = _surface_table_artifacts(
         request, store=store, repository_id=repository_id, export_cache=export_cache,
         table_exports=table_exports,
         include_all_before=include_all_before_tables or request.mode is ComparisonMode.DATASET_REPLACEMENT,
     )
-    export_seconds = perf_counter() - export_started
     table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
         table_artifacts, attribution, store, before_presentation=before_presentation,
@@ -507,14 +499,11 @@ def _finish_comparison_risk_surface(
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
     native_comparison.commit_cache()
-    duration("compare", comparison_elapsed)
-    duration("risk", risk_seconds)
-    duration("export", export_seconds)
     summary = comparison_facts.summary
     pair_totals(changed_tables=summary.changed_table_count,
-        changed_rows=summary.row_added_count + summary.row_deleted_count + summary.row_modified_count)
-    if not comparison_facts.summary.degraded_table_count:
-        ordered_input_table(request.current.snapshot.snapshot_digest.value)
+        changed_rows=summary.row_added_count + summary.row_deleted_count + summary.row_modified_count,
+        complete=not summary.degraded_table_count)
+    ordered_input_table(request.current.snapshot.snapshot_digest.value, complete=not summary.degraded_table_count)
     for fact in comparison_facts.tables:
         if fact.ordered_extension is not None and fact.current_descriptor is not None:
             ordered_input_table(request.current.snapshot.snapshot_digest.value, fact.table_name, fact.current_descriptor.row_count)
@@ -535,6 +524,7 @@ def _finish_comparison_risk_surface(
     )
 
 
+@timed("export")
 def _surface_table_artifacts(
     request: ComparisonRequest,
     *,

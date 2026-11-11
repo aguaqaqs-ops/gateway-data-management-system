@@ -12,7 +12,7 @@ from gateway_backend.infrastructure.statistics.sampling import ProcessSampler, c
 from gateway_backend.infrastructure.statistics.sqlite_store import SQLiteStatisticsStore, StatisticsUnavailable
 from gateway_backend.statistics.config import StatisticsConfig
 from gateway_backend.statistics.metrics import (
-    Metrics, cache_hit, cache_lookup, duration, input_shape, pair_table, pair_totals, set_metrics, timed,
+    Metrics, cache_hit, cache_lookup, duration, input_shape, ordered_input_table, pair_table, pair_totals, set_metrics, timed,
 )
 from gateway_backend.statistics.models import ExecutionSummary, ResourceRecord, StatisticsIdentity
 from tests.test_operation_worker_scheduler import _active_records
@@ -202,3 +202,75 @@ def test_background_failure_discards_finite_buffer_and_keeps_health_in_memory(tm
     assert not sink.health.available and sink.health.reason == 'collection_failed'
     assert sink.health.dropped == 1
     assert path.read_bytes() == b'broken'
+
+
+def test_incomplete_pair_and_different_input_keep_totals_unknown() -> None:
+    metrics = Metrics()
+    set_metrics(metrics)
+    try:
+        input_shape('a', table_count=1, total_rows=2, max_table_rows=2)
+        ordered_input_table('a', 'table', 2)
+        ordered_input_table('a', 'table', 2)
+        assert metrics.shape['ordered_table_rows'] == 2
+        pair_totals(changed_tables=1, changed_rows=2)
+        pair_totals(changed_tables=0, changed_rows=0, complete=False)
+        pair_totals(changed_tables=1, changed_rows=2)
+        input_shape('b', table_count=1, total_rows=3, max_table_rows=3)
+    finally:
+        set_metrics(None)
+    result = bounded_metrics(metrics)
+    assert result.input_shape.changed_rows is None and result.input_shape.changed_tables is None
+    assert result.input_shape.total_rows is None and result.input_shape.ordered_table_rows is None
+
+
+@pytest.mark.parametrize("pressure", ["wal", "pages"])
+def test_wal_and_main_page_pressure_reclaim_curves_and_resume(tmp_path: Path, pressure: str) -> None:
+    config = StatisticsConfig(total_budget_bytes=1024 * 1024)
+    store = SQLiteStatisticsStore(tmp_path / 'db', IDENTITY, config)
+    store.open()
+    assert store.connection is not None
+    db = store.connection
+    db.execute('PRAGMA wal_autocheckpoint=0')
+    store.write_batch([_summary()])
+    try:
+        for batch in range(20):
+            records = [_resource(source_event_id=f'{batch}-{index}' + 'x' * 240,
+                                 sampled_at_us=batch * 100 + index + 1) for index in range(100)]
+            store.write_batch(records)
+            if pressure == 'pages':
+                db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            if store.under_pressure():
+                break
+        else:
+            pytest.fail('small configured budget never applied pressure')
+        count = db.execute('SELECT count(*) FROM resource_samples').fetchone()[0]
+        assert count > 0
+        assert store.maintain(1000000)
+        assert db.execute('SELECT count(*) FROM resource_samples').fetchone()[0] < count
+        assert db.execute('SELECT count(*) FROM execution_summaries').fetchone() == (1,)
+        assert Path(str(store.path) + '-wal').stat().st_size == 0
+        store.write_batch([_resource(source_event_id='resumed')])
+    finally:
+        store.close()
+
+
+def test_sampler_never_attributes_a_read_across_claim_switch(tmp_path: Path) -> None:
+    config = StatisticsConfig()
+    operation, step = _active_records()
+    first = ClaimedWork(operation, step, lambda *_: ExecutorAcknowledgment.PUBLISHED)
+    second = dataclasses.replace(first, step=dataclasses.replace(step, optimistic_version=step.optimistic_version + 1))
+    sink = BufferedTelemetrySink(SQLiteStatisticsStore(tmp_path / 'db', IDENTITY, config), IDENTITY, config)
+    sink.begin_execution(first)
+
+    def switch_claim() -> ResourceRecord:
+        sink.end_execution(first)
+        sink.begin_execution(second)
+        return _resource()
+
+    sink.sampler = switch_claim
+    try:
+        sample = sink._sample()
+        assert sample.operation_id is None and sample.claim_version is None
+        assert sink._active is not None and sink._active.first is None
+    finally:
+        sink.end_execution(second)

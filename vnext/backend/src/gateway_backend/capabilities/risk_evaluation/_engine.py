@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.statistics.metrics import timed
+
 from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from contextlib import nullcontext
@@ -233,6 +235,7 @@ class _RiskCandidateRecorder:
         self.charges.close()
 
 
+@timed("risk")
 def evaluate_risk(
     evaluation_input: RiskEvaluationInput,
     *,

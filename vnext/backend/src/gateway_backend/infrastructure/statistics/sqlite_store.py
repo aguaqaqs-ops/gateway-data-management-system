@@ -74,9 +74,16 @@ class SQLiteStatisticsStore:
     def under_pressure(self) -> bool:
         import os
         stat = os.statvfs(self.path.parent)
-        reserve = self.config.write_batch_bytes * 4
+        reserve = min(self.config.write_batch_bytes * 4, self.config.total_budget_bytes // 16)
         wal = Path(str(self.path) + '-wal')
-        return (self.disk_bytes() + reserve >= self.config.total_budget_bytes
+        connection = self._connection()
+        pages = connection.execute('PRAGMA page_count').fetchone()[0]
+        free_pages = connection.execute('PRAGMA freelist_count').fetchone()[0]
+        # SQLite's main-file cap is independent of the DB+WAL budget. Reserve enough
+        # reusable/growable pages for one bounded batch, including index maintenance.
+        batch_pages = (self.config.write_batch_bytes + 4095) // 4096 + 8
+        page_pressure = self.config.max_page_count - pages + free_pages < batch_pages
+        return (page_pressure or self.disk_bytes() + reserve >= self.config.total_budget_bytes
                 or (wal.exists() and wal.stat().st_size >= self.config.wal_soft_limit_bytes)
                 or stat.f_bavail * stat.f_frsize < reserve)
 
@@ -141,4 +148,13 @@ class SQLiteStatisticsStore:
             if self.under_pressure():
                 connection.execute('DELETE FROM resource_samples WHERE id IN (SELECT id FROM resource_samples ORDER BY sampled_at_us,id LIMIT ?)', (limit,))
         connection.execute('PRAGMA wal_checkpoint(PASSIVE)')
+        wal = Path(str(self.path) + '-wal')
+        if wal.exists() and wal.stat().st_size >= self.config.wal_soft_limit_bytes:
+            # PASSIVE makes pages reusable but leaves the physical WAL file in place.
+            # A zero-wait standard checkpoint can reclaim it once readers permit it.
+            connection.execute('PRAGMA busy_timeout=0')
+            try:
+                connection.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+            finally:
+                connection.execute(f'PRAGMA busy_timeout={self.config.sqlite_busy_timeout_ms}')
         return not self.under_pressure()

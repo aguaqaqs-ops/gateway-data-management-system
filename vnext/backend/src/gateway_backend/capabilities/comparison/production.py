@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.statistics.metrics import cache_hit, cache_lookup
+from gateway_backend.statistics.metrics import cache_hit, cache_lookup, timed
 
 import json
 import re
@@ -1012,6 +1012,7 @@ def _ordered_unchanged_native(
     )
 
 
+@timed("compare")
 def compare_plan_native(
     plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
     retain_cache_candidates: bool = False,

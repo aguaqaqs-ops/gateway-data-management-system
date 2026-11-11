@@ -72,22 +72,23 @@ def test_real_bind_and_cgroup_preflight_refuses_invalid_deployments(tmp_path: Pa
 
 
 @pytest.mark.parametrize("role,split", (("backend", False), ("worker", False),
-                                       ("repository_service", True), ("backend", True)))
+                                       ("repository_service", True), ("backend", True), ("worker-2", False)))
 def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_path: Path, role: str, split: bool) -> None:
     image = os.environ.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE")
     if not image:
         pytest.fail("verified dependency image required")
     with tempfile.TemporaryDirectory(prefix="gateway-f-split-", dir="/dev/shm") as temporary:
-        prepared = subprocess.run([sys.executable, str(VNEXT / "scripts/tests/runtime_config_fixture.py"), str(tmp_path),
+        prepared = subprocess.run([sys.executable, str(VNEXT / "scripts/tests/runtime_config_fixture.py"), str(tmp_path), "--workers", "2" if role == "worker-2" else "1",
             *(["--split-root", temporary] if split else [])], capture_output=True, text=True, check=False, timeout=30)
         assert prepared.returncode == 0, prepared.stdout + prepared.stderr
         storage = json.loads((tmp_path / "storage-layout.json").read_bytes())
         if split:
             assert Path(storage["roots"]["be-export"]["source"]).stat().st_dev != Path(storage["roots"]["be-metadata"]["source"]).stat().st_dev
             assert Path(storage["roots"]["rs-scratch"]["source"]).stat().st_dev != Path(storage["roots"]["rs-metadata"]["source"]).stat().st_dev
+        runtime_role = "worker" if role == "worker-2" else role
         script = ("import sys,json; sys.path.insert(0,'/workspace/vnext/scripts'); "
             "from pathlib import Path; from host_runtime_config import DeploymentConfig,RuntimePreflight; "
-            f"guard=RuntimePreflight(DeploymentConfig.load(Path('/run/gateway/storage-layout.json'),Path('/run/gateway/resource-profile.json')),{role!r}); "
+            f"guard=RuntimePreflight(DeploymentConfig.load(Path('/run/gateway/storage-layout.json'),Path('/run/gateway/resource-profile.json')),{runtime_role!r}); "
             "print('COMPOSE_PREFLIGHT_OK ' + json.dumps(guard.observations(),sort_keys=True))")
         service = "repository-service" if role == "repository_service" else role
         override = tmp_path / "source-proof.json"

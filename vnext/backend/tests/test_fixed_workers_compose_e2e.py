@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from tests.support import compose_gate_harness as harness
-from tests.test_submit_compose_e2e import _compose_env
+from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -39,13 +39,15 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
         baseline = harness.capture_worker_container_state(env)
         duplicate = harness.run_compose(env, "run", "--rm", "--no-deps", "--pull", "never", "worker", timeout=60)
         assert duplicate.returncode != 0
-        assert "worker instance is already running" in duplicate.stdout + duplicate.stderr
+        assert "operation_worker_failed category=settings_invalid" in duplicate.stdout + duplicate.stderr
+        assert "code=worker_ready" not in duplicate.stdout + duplicate.stderr
         harness.assert_worker_container_unchanged(env, baseline)
         rendezvous = Barrier(2)
         def preview(index: int) -> dict[str, Any]:
             rendezvous.wait(timeout=30)
             return harness.run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-                journey_key_prefix=f"fixed-workers-{index}", preview_only=True)
+                journey_key_prefix=f"fixed-workers-{index}", preview_only=True,
+                token=harness.SESSION_TOKEN if index == 1 else ACTOR2_TOKEN)
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(preview, (1, 2)))
         assert results[0]["workspace_id"] != results[1]["workspace_id"]

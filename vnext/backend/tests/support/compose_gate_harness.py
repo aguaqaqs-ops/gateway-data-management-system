@@ -432,12 +432,6 @@ def configured_worker_services(env: dict[str, str]) -> tuple[str, ...]:
                  if name == "worker" or name.startswith("worker-"))
 
 
-def _worker_container_name(env: dict[str, str]) -> str:
-    running = normalize_running_images(capture_running_container_provenance(env),
-                                       env["COMPOSE_PROJECT_NAME"])
-    return running["worker"]["container_id"]
-
-
 def capture_worker_container_state(env: dict[str, str]) -> dict[str, str]:
     running = normalize_running_images(capture_running_container_provenance(env),
                                        env["COMPOSE_PROJECT_NAME"])
@@ -517,25 +511,6 @@ def count_backend_operations(env: dict[str, str]) -> int:
     if result.returncode != 0:
         pytest.fail(f"failed to count operations: {result.stderr}\n{result.stdout}")
     return int(result.stdout.strip())
-
-
-def _inspect_container_image_id(container_id: str) -> str:
-    completed = subprocess.run(
-        ["docker", "inspect", "--format", "{{.Image}}", container_id],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if completed.returncode != 0:
-        pytest.fail(
-            f"docker inspect failed for {container_id}: "
-            f"{completed.stderr}\n{completed.stdout}"
-        )
-    image_id = completed.stdout.strip()
-    if not image_id.startswith("sha256:"):
-        pytest.fail(f"expected immutable image id for {container_id}, got {image_id!r}")
-    return image_id
 
 
 def normalize_running_images(

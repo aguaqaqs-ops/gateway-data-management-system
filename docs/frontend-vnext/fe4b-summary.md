@@ -5,7 +5,7 @@ FE4b 完成业务导航、行定位与 BE-b 消费者判据，并把 fe-handoff 
 - 候选 `fcf4268c1a531a8f44fe04038668ab475507acb5`，前端树
   `f3f1fdf1238346f3ed561cd80d6799c4dc64f4a2`，`vnext` 树
   `2faac9fc1da9a6fd15eddef894f5c6e1652fba95`；相对 `fe4b-base`（`3e5f24583d`）
-  39 个提交、615 个文件，仅 `frontend/` 与 `docs/frontend-vnext/`。
+  39 个提交、615 个文件，仅 `frontend/` 与 `docs/`（fe-handoff 另带入一份设备目录 handoff 报告）。
 - 修复 `duplicates-orphans` 截图冻结：1280 视口下侧栏默认收起使导航项不可见；
   `expandNavigation()` 在打开预览/项/页签前展开侧栏。同一提交修正 `openTab` 选择器，
   并让 `freezeColumns` 包含元列后的 pinned 业务列。

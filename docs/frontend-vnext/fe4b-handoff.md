@@ -9,7 +9,7 @@ FE4b 覆盖 kickoff §5.3（BE-b 消费者判据）、§7.3（截图清单）与
 - 分支 `fe-vnext`，候选 `fcf4268c1a531a8f44fe04038668ab475507acb5`；前端树
   `f3f1fdf1238346f3ed561cd80d6799c4dc64f4a2`；`vnext` 树 `2faac9fc1da9a6fd15eddef894f5c6e1652fba95`。
   相对 `3e5f24583d`：39 个提交、615 个文件、+3756/−1816，全部位于 `frontend/` 与
-  `docs/frontend-vnext/`。
+  `docs/`（前端交接文档与 fe-handoff 带入的 `docs/device-directory/handoff-fe-handoff.md`）。
 - 本阶段新增/修改：`duplicates-orphans` 冻结修复、19 张 `fe4b-*` mock 截图、fe-handoff 合并、
   `frontend/e2e-real/lib/consumer-criteria.ts` 判据 helper、13 张 t1 真实数据截图。
 - 最终候选证据（同一提交 `fcf4268c1a`）：
@@ -31,7 +31,7 @@ FE4b 覆盖 kickoff §5.3（BE-b 消费者判据）、§7.3（截图清单）与
 | 起点 tag | `fe4b-base` = `3e5f24583d` |
 | `HEAD:vnext` | `2faac9fc1da9a6fd15eddef894f5c6e1652fba95` |
 | `3e5f24583d:vnext` | 同上（相等） |
-| `git diff --name-only 3e5f24583d fcf4268c1a` | 仅 `frontend/`、`docs/frontend-vnext/` |
+| `git diff --name-only 3e5f24583d fcf4268c1a` | 仅 `frontend/`、`docs/frontend-vnext/` 与 `docs/device-directory/handoff-fe-handoff.md`（fe-handoff 带入） |
 | fe-handoff 合并 | `e225b63224`（父：`7daf61bdb2`、`251640f104`） |
 | 依赖基镜像 | `gateway-backend-deps:lock-578e079b762e`（04 上传校验使用） |
 

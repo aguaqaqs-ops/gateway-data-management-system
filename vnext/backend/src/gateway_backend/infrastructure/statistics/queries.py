@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal, TypeVar
 from gateway_repository_contracts.statistics import Role
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from gateway_backend.statistics.models import ExecutionSummary, ResourceRecord, StatisticsIdentity, StorageRecord, WriteRecord
 from gateway_backend.statistics.queries import GroupRead, ReadPage, ReadRequest, ResourceRead, ResourceRequest, StatisticsReadError
@@ -20,7 +20,7 @@ from gateway_backend.statistics.queries import GroupRead, ReadPage, ReadRequest,
 MAX_READ_ROWS = 50000
 MAX_READ_BYTES = 32 * 1024 * 1024
 SQL_SECONDS = 1.0
-T = TypeVar('T', bound=StorageRecord | WriteRecord | ExecutionSummary | ResourceRecord)
+T = TypeVar('T', bound=BaseModel)
 
 
 class _Read:

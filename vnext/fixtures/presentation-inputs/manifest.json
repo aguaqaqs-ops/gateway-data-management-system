@@ -1,0 +1,70 @@
+{
+  "files": [
+    {
+      "path": "logics-1.xml",
+      "sha256": "033a4c33fe7ef18caf5d3780862aaf2a82eba7e78cd8f147e0db0861ab60a53b",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/logics-1.xml"
+    },
+    {
+      "path": "logics-2.xml",
+      "sha256": "9eb1789efacd87bf6aed01320c34ba538b2a294df80956df60808c2201932de2",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/logics-2.xml"
+    },
+    {
+      "path": "logics-3.xml",
+      "sha256": "3387cc9165ab81cc7c8e2f95ecc0dc4562569730d7670b5607e10fe9e8fccbca",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/logics-3.xml"
+    },
+    {
+      "path": "sql-baseline.sql",
+      "sha256": "f6205557b237abeeac5d2832a5365273d326014bebdc87bd7d2c2ad95d1b7730",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-baseline.sql"
+    },
+    {
+      "path": "sql-initial.sql",
+      "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-initial.sql"
+    },
+    {
+      "path": "sql-modified.sql",
+      "sha256": "57450fdce2e9ab27e695e48a7cb0c80475caa016c7c9beaeef41b30bea717773",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-modified.sql"
+    },
+    {
+      "path": "sql-replacement-before.sql",
+      "sha256": "7b696562f88ffc56146935fbd7023194a3e53f279e62fcf6b36d3857bdd1b48f",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-replacement-before.sql"
+    },
+    {
+      "path": "sql-replacement-current.sql",
+      "sha256": "b71a5b8c19541c349fe34946dd66b26ec1783c7f0fcdd716fc6915c3ca133dd4",
+      "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+      "source_path": "frontend/src/test/fixtures/source/upload-inputs/sql-replacement-current.sql"
+    }
+  ],
+  "format": "backend-presentation-fixture-inputs/v1",
+  "required_output_directories": [
+    "backend/fe2a/preview-full",
+    "backend/fe2a/preview-modified-only",
+    "backend/fe2a/preview-replacement",
+    "backend/fe2a/history-three-nodes",
+    "backend/fe2b/preview-workbench-normal",
+    "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation"
+  ],
+  "required_root_outputs": [
+    "backend/manifest.json",
+    "backend/artifact-closure.json"
+  ],
+  "retired_output_directories": [
+    "backend/fe2a/preview-no-navigation"
+  ],
+  "source_commit": "59c5b8cfca0ae6d07a64a6a4e1645f724fa2ad1f",
+  "source_prefix": "frontend/src/test/fixtures/source/upload-inputs/"
+}

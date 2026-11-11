@@ -12,6 +12,16 @@ Semantic version：`3.8.0`（2026-11-06，DC86/DC87；D 的规范 IPC manifest/�
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
+## BE-b presentation 目标（B0 固定，B1 激活）
+
+本节为已核准目标；当前 CanonicalizationManifest selector 仍是 `3.3.0`，不是本文 semantic version `3.8.0` 或 storage projection version `3`。B1 同轮激活 manifest `3.4.0`、producer/durable serializer/decoder/digest、PrepareImport 与历史读取并更新 golden；不提前仅改常量，不双读旧格式。
+
+新增 required `presentation={tables:[{table_name,comment:string|null,columns:[{name,comment:string|null}]}]}`，完整覆盖最终 canonical 表列，表 UTF-8 canonical name 序、列 DDL 序。完整 durable JSON 编码此字段；manifest semantic digest 改为显式 canonical 字段白名单，唯一排除新增 presentation（仍排除 manifest_digest 自身），版本字段仍参与。版本提升可一次改变摘要；同新版本内 comment-only 不变。raw snapshot 业务 source_artifact_digest 不替换成含注释输入文件 SHA；SourcePackage raw 输入 SHA 可以变化。
+
+完整 manifest raw SHA/size/ArtifactRef、typed decode 和表列集合核对保护 presentation。读取缺字段、旧版或损坏拒绝；仅合法 null 注释允许标识符回退。PrepareImport 保留 frozen_manifest 原对象并完整序列化，重新发布不能漏掉 presentation。Preview checkpoint 重开冻结 initial/modified 精确 ref，baseline/History 从冻结 scope+commit 的 finalized Submission 取精确 ref，不从 canonical cache descriptor 猜测，不新增 latest-comment 索引、表或 ref。
+
+注释不写 Dolt DDL、replay SQL、canonical descriptor/IPC/Parquet、comparison/risk 输入或 export cache。仅改注释时 Preview 展示新值，Submit NO_CANONICAL_CHANGE 无新历史；同时有业务变更则新 Submission 保存该上传全部展示元数据，旧历史仍取旧 ref。INITIAL 无展示来源按现有 INITIAL Contract 回退；非 INITIAL 缺来源稳定失败。权威验证由 B1 parser conformance、storage_projection contract/integrity、commit_metadata 与 PrepareImport/restart integration 分别负责，不复制新的持久化状态机。
+
 ## 1. Authority boundary
 
 ```text

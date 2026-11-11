@@ -88,6 +88,8 @@ SurfaceColumn.present_in     新增，BEFORE | CURRENT | BOTH；普通表 column
 
 ### 4.2 业务导航产物
 
+B0 已将本节及第二步的 FE-BEB-11–13 约束归入 [Business Navigation owning Contract](../backend-vnext/contracts/business-navigation.md)；Surface/Bundle 的目标字段、摘要及 ref 生命周期各由其 owning Contract 承接。目标随 B1–B4 实现激活，当前设计提交不表示生产已产出导航。第一步历史源码观察不替代实际 main 的消费者矩阵。
+
 每个 pair 一份，经 `SurfaceProjectionRef` 引用（`projection_kind = BUSINESS_NAVIGATION`，一份产物含全部分组，取代 legacy 的五份），进入 bundle 闭包与 surface 摘要：
 
 ```text

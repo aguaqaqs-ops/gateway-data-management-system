@@ -1,5 +1,7 @@
 # Business Projection Capability
 
+> BE-b B0 核对：下文五份 projection/SECONDARY_DEVICES v2/points-formulas 与 SECONDARY_TAB_AVAILABILITY_UNKNOWN 是过时设计，S1a 产品当前 projections 为空。目标是每 pair 一份 BusinessNavigation v1，含五组、双侧集合筛选、table_scope 与局部事实降级；唯一 owning 语义见 [Business Navigation Contract](../contracts/business-navigation.md)。B2/B4 同实现替换本页旧正文，不激活旧 projection 版本或恢复 supplemental artifacts。全部 ref/闭包生命周期由 surface/bundle 同轮接线。
+
 本文定义 comparison surface 到业务视图 projection 的实现边界，重点覆盖 secondary-device 的 per-device/per-tab changes 与 risk 聚合。
 
 ## 输入与输出

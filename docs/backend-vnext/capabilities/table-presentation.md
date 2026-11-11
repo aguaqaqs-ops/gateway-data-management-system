@@ -1,5 +1,7 @@
 # Table Presentation
 
+> BE-b B0 核对：本页旧 `backend_vnext/`、analysis/宽度规则和 hidden summary 路径不代表当前 S1a 实现。BE-b resolver 的输入为独立 before/current presentation 与 descriptor，输出 SurfaceColumn 的名称/并集/present_in/pinned/display_order；显式 presentation_rules_version=1，只包含业务列序，不改 canonical/comparison ruleset digest。列宽/对齐由前端计算，无隐藏；旧离线报告仅历史参考。目标规则以 [Surface Contract](../contracts/comparison-surface.md#be-b-v4-目标b0-固定尚未激活) 和 [第二步 §4.4](../refactoring/formal/plans/be-b-second-step-design.md#44-列展示与稳定诊断) 为准，B3/B4 同实现替换旧正文，不恢复这些路径。
+
 ## Capability Boundary
 
 实现位于 `backend_vnext/capabilities/table_presentation/`，提供 flow-neutral、无 IO 的确定性 resolver：

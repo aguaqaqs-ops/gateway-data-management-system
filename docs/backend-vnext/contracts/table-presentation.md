@@ -1,5 +1,7 @@
 # Table Presentation Contract
 
+> BE-b B0 核对：下文为被替代的旧设计，并非 S1a 产品已实现的能力。BE-b 目标只提供 surface 的 display_name/present_in/pinned/display_order；不实现旧 width/align/hidden、从 10 递增的序号或 preview-index 专属投影。目标语义与激活边界由 [Comparison Surface 的 BE-b v4 目标](comparison-surface.md#be-b-v4-目标b0-固定尚未激活) 拥有，B3/B4 与实现一起替换本文正文；不单独激活旧 table-presentation/v1。COMMENT 从精确 canonical manifest 取，不从 hidden summary 恢复。
+
 本文定义表格列展示投影的正式跨模块契约。该契约只表达展示默认值，不参与 snapshot、comparison、risk 或 repository 业务身份。
 
 ## Contract

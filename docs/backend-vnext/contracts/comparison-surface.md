@@ -1,5 +1,19 @@
 # Comparison Surface Contract
 
+## BE-b v4 目标（B0 固定，尚未激活）
+
+当前产品 selector 仍为 `backend-vnext/comparison-surface/v3`。下列目标与 B3/B4 typed model、serializer、decoder、digest/golden 和全部 ref caller 同轮激活为 v4；不提供 v3 双读。本节目标优先于下文被替代的字段说明，B4 收口时合并正文并删除旧路径。
+
+- 每个成功 surface 恰一个 BUSINESS_NAVIGATION projection，完整载荷/FE-BEB-11–13 语义由 [Business Navigation Contract](business-navigation.md) 拥有；缺失/重复拒绝。surface 仍不读表或计算 diff/risk。
+- 普通 columns 为两侧 canonical 列名并集，每名一个，数组按 UTF-8 名序；新增 required `present_in:BEFORE|CURRENT|BOTH`、`pinned:bool`、`display_order:int`。展示顺序从 0 连续唯一：current 业务规则/DDL 次序，再 before-only DDL 次序；没有 current 时取 before。类型/nullable 优先 current，否则 before；名称 current 非空注释→before 非空注释→标识符。固定列规则 no、name，否则 description；宽度/对齐归前端，无隐藏或缺字段回退。
+- replacement_summary.before/current 的列按本侧独立连续 display_order 与本侧 present_in（BEFORE/CURRENT），各侧 summary 新增 required display_name，取本侧注释或标识符；顶层并集仅总览使用，不替代分侧标题。
+- SurfaceTable 增加 nullable `row_locator_ref` 和 required `table_content_bindings={before,current,browse}`。每项 nullable，并与对应 table_ref 同 null；非 null 为 `{business_schema_digest,raw_content_digest,row_count,source_schema_digest,canonical_schema_digest,storage_rule_digest,storage_projection_version}`。语义与已有 owner 相同，不新增行摘要。source_schema_digest 保持现有 compare schema 含义，完整类型/DDL 序由 canonical_schema_digest 绑定。同 ref 的 binding 必须相容。
+- v4 semantic preimage 用 table_content_bindings 取代表文件 raw SHA/size，整个 locator ref 排除；诊断/view_id 的既有排除和其他 records/risk/projection 摘要规则不变。表/locator raw 完整性仍由 refs/bundle closure 保护。后端 surface golden 验证重排/改写不变性；前端只核形状、ref/binding 同 null 及 surface ref 与 closure raw SHA/size 一致，不重算 surface_digest。
+- pair/view ID：Preview FULL 为 baseline_to_initial、initial_to_modified，MODIFIED_ONLY 仅实际 pair；History 两节点 left_to_right，三节点 left_to_middle、middle_to_right。pair_id 不拼 operation ID；同 bundle view_id 唯一，无旧别名。
+- surface diagnostics_summary 仅稳定码；完整 emit 替换表由 B4 交付，不包含异常全文或 pair 失败/取消原文。比较/风险业务算法不因编码替换改变。
+
+行定位、双侧浏览及 ref 生命周期由 [Bundle Contract 的 BE-b 目标](comparison-bundle.md#be-b-v4-目标b0-固定尚未激活) 约束；无记录行不能仅凭 EXACT、null locator 或 replay_guarantee 造 before，完整前提见 [Business Navigation](business-navigation.md#无记录行与完整性fe-beb-12)。
+
 > v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。v3 增加 `schema_evolution` 并定义整表新增/删除浏览。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 `ComparisonSurface` contract。Surface 是面向前端和 Workbench 的 flow-neutral 展示结构：它消费 comparison/risk 的已完成事实和 artifact refs，不计算 diff，不计算 risk，不承载 upload、submit 或 history compare 的业务绑定语义。

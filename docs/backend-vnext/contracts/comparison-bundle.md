@@ -1,5 +1,19 @@
 # Comparison Bundle Contract
 
+## BE-b v4 目标（B0 固定，尚未激活）
+
+当前 selector 仍为 `backend-vnext/comparison-bundle/v3`；B3/B4 与 Surface v4 的 producer/transport decoder、closure、重写和 golden 同步激活 v4，旧产物重新生成，不双读。外层 flow/job HTTP DTO 不因内部 surface 字段变化盲升版本。
+
+- closure kind 增加 ROW_LOCATOR；surface 引用导航(PROJECTION)、诊断(DIAGNOSTICS)、locator 及 before/current/browse 表均须遍历、绑定、改写、下载校验并纳入现有保护/READY/恢复/清理。safe path builder 生成位置，不拼原用户标识符。最终 ref 仅指 bundle 实际唯一成员或 existing shared binding，不能指 canonical/scratch。
+- 普通 device/composite_signal_point 有逻辑 before 时必须有 before_table_ref：有变化独立导出，未变可别名 current，不为新增表造 before。保持既有 export cache/shared 去重，locator 按最终导出文件行序计算。replacement 继续两侧独立浏览，不造跨侧 row pair。
+- locator 为五列 Parquet：`row_identity:binary(32) not null`、`before_row_index:int64 nullable`、`current_row_index:int64 nullable`、`before_filter_context_json:utf8 nullable`、`current_filter_context_json:utf8 nullable`。按 identity 字节升序，每条已发布普通行记录一行；schema/ordered/blank 用原语义。无 records、超发布上限、replacement 为 null ref。
+- 各侧 index 为最终 Parquet 解码 file/row-group/batch 顺序的全局 0 起位置，每条存在侧记录恰好命中一行；无法绑定是 producer 错误。native standard encoder/occurrence 为唯一 identity owner；keyless 等价副本按最终文件遍历 occurrence 绑定，不能总指首行。不把行号写入 comparison identity。
+- 逻辑行存在但缺该侧 bundle 快照且发布筛选 tabs 时，context required 非 null，为 JCS 最小导航身份对象；缺列 `{}`、SQL NULL `{identity_column:null}` 均不匹配。有快照侧或逻辑不存在侧 context=null；整表入口两侧 context=null。缺快照侧 index 永远 null；context 从同一 canonical/native identity 流仅为已发布 records 取值，不补全旧单元格或全行索引。
+- context/predicate 类型与 FE12 无记录行完整性依据 [Business Navigation Contract](business-navigation.md)；不能由空 records/null locator 单独推断 before 未变。整数保持 client Parquet UTF8 与同侧 metadata，不改 writer schema。
+- operation-relative→bundle-relative 改写包含 locator ref，semantic surface digest 必须相等；locator 内无 ref。物理表或 locator 字节重排可改变 bundle digest；同目标版本内规范内容/其他语义产物不变时 surface digest 不变。
+
+B3 row_location contract 拥有行身份/索引/context 验证；现有 test_bundle_assembly、test_bundle_download 与 operation integration 拥有闭包/混合 root/保护，B4 generator 生成真实导航/locator/surface/bundle 五类 golden。FE4b 负责本地 loader/ref/closure 消费与删除浏览器规范编码，不要求重算 surface digest。
+
 > comparison-bundle v2 / preview-bundle v3 加入逐 pair identity assessment artifact、顶层 assessment-set digest 与 replacement confirmation requirement。comparison-bundle v3 将 Preview/History 的完整表数据闭合为 Parquet 并按 layout 与 writer 版本复用导出。只支持当前合同；历史产物需重新生成。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 comparison bundle contract。Bundle 是一个或多个 `ComparisonSurface` 及其 artifacts 的闭合交付单元，可用于前端加载或下载。

@@ -1,5 +1,13 @@
 # Snapshot Table Access Contract
 
+## BE-b 展示边界目标（B0 固定，B1 激活）
+
+Table Access owner 的 `SourceTableDescriptor`、`SourceColumnDescriptor` 增加 nullable comment；display_name 保持原 DDL 标识符。只捕获已支持 CREATE TABLE 的表/列 COMMENT 字符串，沿用转义/字符集/字段与 statement/source/operation 预算；空白注释归 null，多 COMMENT 最后一个生效，NUL/非法字符串按现有 malformed 拒绝。不扩 ALTER 或 allowlist，不将 SQL 行/块注释误作展示注释。
+
+raw table-set materialization 的进程内结果独立携带 `PresentationMetadata={tables:[{table_name,comment,columns:[{name,comment}]}]}`，canonical projection 按保留表/列变换。表 canonical name UTF-8 序，列 DDL 序，覆盖最终 canonical 全部表列，缺注释显式 null；derived 无源字段为 null。不得把 comment 写进 canonical descriptor wrapper、IPC/Parquet metadata、逐表 cache identity 或 table-set closure 的第二份载荷。持久化唯一 owner 是 CanonicalizationManifest.presentation，详见 [Canonical Storage](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#be-b-presentation-目标b0-固定b1-激活)。
+
+Rust parser/native adapter 同轮传递 comment，测试专用独立 oracle 覆盖 COMMENT 子集，不恢复 Python 生产 parser。请求/scalar/materialization 算法形状不变的 selector 保持原值；实际受影响的 durable payload 按[消费者矩阵](../refactoring/formal/plans/be-b-second-step-design.md#71-b0-contractselector-与消费者矩阵)同步更改 producer/decoder，旧载荷拒绝。
+
 本文定义 `SnapshotTableSet`、`SnapshotTableReader`、`SnapshotTableArtifact` 和 raw table artifact cache 的边界。它们是 Snapshot 行数据访问层，不是 repository/Dolt 写入层。
 
 ## SnapshotTable

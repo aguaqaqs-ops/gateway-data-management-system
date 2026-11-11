@@ -72,6 +72,8 @@ evidence 保存 added/deleted/updated/formula-updated count。UNKNOWN 正常聚�
 
 ## Secondary-device Projection
 
+BE-b B0 落点：本节与 Frontend 中 points/formulas refs 是已被当前 S1a 派生普通表路径取代的旧设计，不能作为 BE-b producer/consumer 目标。BE-b 的特殊装置为 BusinessNavigation 的 COMPOSITE_SIGNAL_DEVICE 项；composite_signal_point 是唯一整表 tab，device 及公式通过 bundle 双侧普通表浏览。有逻辑 before 时 device/composite_signal_point 必有 before ref；未变可别名 current，新增无 before。前端从同侧 device 映射名称、同侧 composite_signal_point 读 payload/AST，replacement 分侧不对齐。不新增 points/formulas 产物或接口。B2/B3/B4 同接线删除下列被替代字段，目标以 [Business Navigation](../contracts/business-navigation.md) 与 [Bundle BE-b](../contracts/comparison-bundle.md#be-b-v4-目标b0-固定尚未激活) 为准；canonical AST/composite risk 语义不变。
+
 `SECONDARY_DEVICES` 输出顺序固定为：
 
 1. `metadata:device` 装置总表；

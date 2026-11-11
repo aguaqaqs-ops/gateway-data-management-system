@@ -1,5 +1,13 @@
 # Snapshot Contract
 
+## BE-b COMMENT 与身份目标（B0 固定，B1 激活）
+
+展示注释由 Table Access 提取，经独立 PresentationMetadata 保存到精确 CanonicalizationManifest.presentation；不写入本合同 Snapshot/Summary 的业务身份、规范行/IPC/Parquet 或 Dolt COMMENT。display_name 保持 DDL 标识符，不可直接覆盖成中文注释。Storage projection 删除列也删除其展示元数据，派生字段无源注释为 null；业务列序只在 surface 应用。
+
+同一目标 manifest 版本内仅改注释，不改变 canonical/business/raw state、comparison 或 risk 输入；本次 Preview 可显示新注释，Submit 仍 NO_CANONICAL_CHANGE，无新 commit/Submission/历史覆盖。History 使用精确 repository+scope+commit→finalized Submission→manifest ref，不按 snapshot digest 找最新注释。INITIAL 按现有 INITIAL 来源空展示/标识符回退；非 INITIAL 丢失/损坏 manifest 拒绝，不能当作 null 注释。
+
+详细持久化、raw 完整性与恢复规则由 [Canonical Storage](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#be-b-presentation-目标b0-固定b1-激活) 与 ADR0019 拥有，本节不新增 snapshot 摘要或兼容路径。
+
 本文定义 `Snapshot`、`SnapshotSummary`、`SnapshotTableDescriptor` 和 schema policy。`Snapshot` 表示一次 flow-neutral 的可比较配置状态，不表达 package 容器，也不表达具体 row reader 或 artifact 位置。
 
 ## Snapshot

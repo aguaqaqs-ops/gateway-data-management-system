@@ -70,7 +70,7 @@ BE-b 未改五锁、toolchain selector 或依赖基线输入，不为本轮新�
 | 规范化 OpenAPI | 原退出独审八 tar/原件复核确认不变，规范化 SHA `4c2ddca7d64ec77029528f5a6f03f73b17185784091530c7086fa67d484d620a` | HTTP DTO/route 源码未改；当前生产原件与正式机器 diff 待 B5，不能提前写通过 |
 | tar logical_path literal 集合 | 固定身份下四组集合 354/105/111/114 均与 P6 相同；原件保留 | 新 BUSINESS_NAVIGATION 与有诊断时导航 DIAGNOSTICS、标准 ROW_LOCATOR、device/composite before；History 稳定 pair 名取代 operation-pN。完整实际集合逐场景由生成 index 记录，变化类别不能替代具体文件集合 |
 | manifest 字段集合 | 原 manifest 递归字段 62、closure 34，不变 | core manifest 顶层字段集合不加字段，bundle selector v3→v4、kind 新增 ROW_LOCATOR；嵌套 surface 增加列/内容 binding/locator 字段，完整字段与类型以新 Contract/golden 为准 |
-| ArtifactRef/摘要 | 四字段 shape 保留；ID 改 `a1:<location>:<64hex>`，混合 root；ref JSON raw 变化经原 integrity 传递至 surface/bundle digest；不删除 raw preimage | 沿用 a1 codec/raw 校验；Surface v4 表/locator 物理 raw 排除改由内容 binding；导航 digest/展示列/pair ID 等产生新语义值。bundle 继续绑定所有实际 raw bytes |
+| ArtifactRef/摘要 | 四字段 shape 保留；ID 改 `a1:<location>:<64hex>`，混合 root；ref JSON raw 变化经原 integrity 传递至 surface/bundle digest；不删除 raw preimage | 沿用 a1 codec/raw 校验；Surface v4 表/locator 物理 raw 排除改由内容 binding；导航/展示列产生新 Surface 语义值，pair/view 命名改变 bundle metadata；comparison 业务摘要不因诊断编码字节替换而改变，records 物理诊断字节及其 raw integrity 引用改变。bundle 继续绑定所有实际 raw bytes |
 | surface | selector v3/fields 保留；opaque ref 与 nested raw integrity 值变化 | v4；columns 两侧并集、present_in/pinned/display_order；replacement 本侧 display_name；table_content_bindings、row_locator_ref；恰一个导航；稳定 pair/view 与 codes |
 | fixture | 固定身份只是 S1a 比较取证，不是 fresh 生产 IDs | 新 backend-owned 固定输入/真实 generator/五类 golden；不再手写导航/诊断，不再生成 no-navigation；前端整体替换并核原件 SHA |
 

@@ -1,6 +1,6 @@
 # Business Navigation Contract
 
-状态：BE-b B2 已实现 v1 producer/validator；B3 已将实际 canonical streams、比较/locator 完整性与 typed Risk outcome（含 cache replay）接入 Preview/History，成功 surface 强制恰一个导航 projection。B4 fixture/golden、集中验收与阶段独审尚待完成；当前实施事实不表示 BE-b 已向前端正式交付。
+状态：BE-b B2 已实现 v1 producer/validator；B3 已将实际 canonical streams、比较/locator 完整性与 typed Risk outcome（含 cache replay）接入 Preview/History，成功 surface 强制恰一个导航 projection。B4 已提供真实 fixture generator、17 场景及五类 golden，见 [前端交付](../refactoring/formal/plans/be-b-frontend-delivery.md)；集中验收、最终身份/OpenAPI 原件与阶段独审尚待完成，当前实施事实不表示 BE-b 已退出。
 
 Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3–4.7](../../frontend-vnext/be-b-navigation-and-presentation-draft.md)，实现边界、预算与激活依赖见[第二步 §4/5/7](../refactoring/formal/plans/be-b-second-step-design.md)。本合同拥有导航载荷、筛选、局部事实与诊断；Surface 拥有引用与展示表，Bundle 拥有物理闭包。导航只消费已完成的 comparison/risk 事实，不重新计算两者。
 

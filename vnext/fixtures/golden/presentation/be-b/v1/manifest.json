@@ -1,0 +1,365 @@
+{
+  "format": "backend-presentation-golden/v1",
+  "generator_commit": "3b43d7c1cb038bb44a0f892a369e78e643d408e4",
+  "generator_vnext_tree": "c9d7765444bd3c6bbf3bd98dc2d92c0178a669c9",
+  "input_manifest_sha256": "e888e2c278258f502dbe6241a1ff57d646a81ef9a4ea488e1438416ed2dee4ab",
+  "scenarios": [
+    {
+      "scenario": "preview-full",
+      "output": "backend/fe2a/preview-full",
+      "bundle_digest": "sha256:49823b46dfe7496f00f96f45b406a2b00d573dca24ce16bf189ca2d7f1ddf069",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "preview-modified-only",
+      "output": "backend/fe2a/preview-modified-only",
+      "bundle_digest": "sha256:24143e5e718cd259c508e601a551256895cb54a3add61f0871bc5e1f79ee786c",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "preview-replacement",
+      "output": "backend/fe2a/preview-replacement",
+      "bundle_digest": "sha256:b5472eebdab47344045acbc701e60b049120a4cc302b7de2c05202278a52ecae",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "history-three-nodes",
+      "output": "backend/fe2a/history-three-nodes",
+      "bundle_digest": "sha256:4e35a5fa5307b41100b8f155aa05d9e425708e8304800024c0fcfa2210df7d30",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "preview-workbench-normal",
+      "output": "backend/fe2b/preview-workbench-normal",
+      "bundle_digest": "sha256:0e1bf81732ce5b3ebec4ae337957a6a7286d1e23633750462791e497e7539451",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "digest-cross-implementation",
+      "output": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
+      "bundle_digest": "sha256:cdef724a918799ba3fbbc33662592fe101843c6831ac8afe3f910cb8eedfdf3f",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "identity-changes",
+      "output": "backend/scenarios/identity-changes",
+      "bundle_digest": "sha256:f2063f312473396e114d01fc289b53aab052754ff6144cda24107a9f83b7ca10",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "fallback_tables": [
+          "device_cfg",
+          "device_st"
+        ],
+        "required_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE",
+          "DEVICE_ROWS_UNASSIGNED"
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "duplicates-orphans",
+      "output": "backend/scenarios/duplicates-orphans",
+      "bundle_digest": "sha256:63aec4f568ebb9cea4ce34f3311ab70a06e3332bf7410b94022a0d29bf3d63ca",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "required_codes": [
+          "DEVICE_ADDRESS_DUPLICATE",
+          "DEVICE_GID_DUPLICATE",
+          "DEVICE_ROWS_UNASSIGNED"
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "text-identities",
+      "output": "backend/scenarios/text-identities",
+      "bundle_digest": "sha256:353a55fcfddadb16d793b91801db8de6346e98a79bb2237caf0f05cc78648257",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "reason": "UNSUPPORTED_TYPE",
+            "side": "BEFORE",
+            "table_id": "device_cfg"
+          },
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "reason": "UNSUPPORTED_TYPE",
+            "side": "CURRENT",
+            "table_id": "device_cfg"
+          }
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "integer-boundary",
+      "output": "backend/scenarios/integer-boundary",
+      "bundle_digest": "sha256:6e40251e40499c9871e2161364d9c9982620a6aae272d3dcd5c8d6e5dda427d6",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "reason": "INTEGER_OUT_OF_RANGE",
+            "side": "CURRENT",
+            "table_id": "device_st"
+          }
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "schema-keyless",
+      "output": "backend/scenarios/schema-keyless",
+      "bundle_digest": "sha256:e465d1c11d9d211e4e72f0c17fb9108e3e857811e4c42eb53d5709fbde9a51db",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "before_only_columns": {
+          "device_st": [
+            "before_only"
+          ]
+        },
+        "locator_min_rows": {
+          "keyless_demo": 2
+        }
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "table-addition",
+      "output": "backend/scenarios/table-addition",
+      "bundle_digest": "sha256:777c0ac71477424723a319295a151b86ab1d472bbf4d16f239227572c4404306",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {},
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "comment-only",
+      "output": "backend/scenarios/comment-only",
+      "bundle_digest": "sha256:5fe1ad089a95f9ca49b658f2a363c53738a9d72897a75a66c73275fd63ffe5a8",
+      "operation_result": "READY",
+      "submit_result": {
+        "baseline_canonical_state_digest": "sha256:1fbbadbe3b9e6aca93bcbb7201eaa84758c1463a92c0e3f9d25fce7958d56eb8",
+        "canonical_table_set_closure_ref": {
+          "artifact_id": "a1:durable:249107ca85ed0125b391b54c2681bec5cd787d1edbb7534dd5971d4dcb5c2e02",
+          "media_type": "application/jcs",
+          "raw_sha256": "sha256:fe97fb21d61464408ae40b217fdc3335c4bb193cbe075dbd30f23cbffcbb70b7",
+          "size_bytes": 652
+        },
+        "canonicalization_manifest_digest": "sha256:122b06afb0bc8bec8afa5e335102b79a4d0e810ac65e40497667bea8e3b89ea4",
+        "canonicalization_manifest_ref": {
+          "artifact_id": "a1:durable:96d36a578862cfe1c53b37abba62e41df22c0c8a91745c2fb8cf8a2d52732246",
+          "media_type": "application/json",
+          "raw_sha256": "sha256:3ee95ad94a632a3ad7fcdb9b5bdf639af814985d3da62068b60573d4ad5097df",
+          "size_bytes": 2331
+        },
+        "code": "NO_CANONICAL_CHANGE",
+        "fixture_only_ports": [
+          "control-read-unit-of-work",
+          "baseline-scope"
+        ],
+        "modified_canonical_state_digest": "sha256:1fbbadbe3b9e6aca93bcbb7201eaa84758c1463a92c0e3f9d25fce7958d56eb8",
+        "owner": "accept_submit_transaction",
+        "read_transactions": 1,
+        "repository_main_calls": 0,
+        "source_ref": {
+          "artifact_id": "a1:durable:5949cbdedfbcbe085d3efe7c0dc0211042929b41362fb6f0e8b2f0a09af87590",
+          "media_type": "application/sql",
+          "raw_sha256": "sha256:12d73c79b8a73e2c179bb37593653d33e569e56262bb786149d74da72ac9be34",
+          "size_bytes": 149
+        },
+        "write_transactions": 0
+      },
+      "assertions": {
+        "unchanged_tables": [
+          "comment_demo"
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "formula-unchanged-device",
+      "output": "backend/scenarios/formula-unchanged-device",
+      "bundle_digest": "sha256:88aeb41905de8de6d1ffc46709dd7669d896a7fb9127d7188e9e1f5acbd83296",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "before_alias_tables": [
+          "device"
+        ],
+        "changed_tables": [
+          "composite_signal_point"
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "identity-unrecorded-exact",
+      "output": "backend/scenarios/identity-unrecorded-exact",
+      "bundle_digest": "sha256:eb45ef732c979c728c74ad7629598830097cf6e966063e1bc55382a462c064bd",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "exact_tables": [
+          "device_cfg",
+          "device_st"
+        ],
+        "forbidden_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE"
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "excluded-identity",
+      "output": "backend/scenarios/excluded-identity",
+      "bundle_digest": "sha256:da91cc573b76c47662abbad2cba11d9c18022e663b636be2a5d5d7b32a3f422a",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "required_diagnostics": [
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "reason": "IDENTITY_EXCLUDED",
+            "side": "BEFORE",
+            "table_id": "device_st"
+          },
+          {
+            "code": "DEVICE_FILTER_VALUE_UNSUPPORTED",
+            "reason": "IDENTITY_EXCLUDED",
+            "side": "CURRENT",
+            "table_id": "device_st"
+          }
+        ]
+      },
+      "assertions_result": "PASS"
+    },
+    {
+      "scenario": "missing-identity-column",
+      "output": "backend/scenarios/missing-identity-column",
+      "bundle_digest": "sha256:d5975231bfaf259a9e933d22d0144b31a3e933c21b540febb1e77c54477135a9",
+      "operation_result": "READY",
+      "submit_result": null,
+      "assertions": {
+        "required_codes": [
+          "DEVICE_TAB_COUNT_UNKNOWN"
+        ]
+      },
+      "assertions_result": "PASS"
+    }
+  ],
+  "files": {
+    "bundle/comment-only.json": "748af932e556c0cebe87bfdc5d1992e0e2281ce79c8fca4b3048ad9c9785f472",
+    "bundle/digest-cross-implementation.json": "99f535fb2ea55cf0180dee97d1f067d80bd5e3d8e86b9d2f87b6113b21abd2e4",
+    "bundle/duplicates-orphans.json": "a52bc30ad8a731adcbab3dd90f1db812ce4135c1ba634b6260869992ddfa0706",
+    "bundle/excluded-identity.json": "582b1b5e828e7c0a01c1bc5aa7e4db2c4a6a4cc6270ee298a215dc5f4b3fcfd1",
+    "bundle/formula-unchanged-device.json": "55b8d51d0d15d89849163615159d03ed556aa477fa5d038aaa55787d49556ea0",
+    "bundle/history-three-nodes.json": "4dbd55b01b0c42452fc941f5674e660ee71288cf083c6bbd2d9f1ebb75c6be51",
+    "bundle/identity-changes.json": "8b037aee9dc5d3631d0c736c949d46be26e513b39cb694e200b4bb3cbd1959fe",
+    "bundle/identity-unrecorded-exact.json": "0603c287ef999aedcfd76e39cf856f1aba7c5f154999e6958ea150193af817e6",
+    "bundle/integer-boundary.json": "95d0b912a04aaf10f5035009d79a7f714b2d08e2014cafadbe1bb2b586268b25",
+    "bundle/missing-identity-column.json": "1aad20bbdea2e696e784310f595b300813b5f007ef489fcc33b749e4756fb37f",
+    "bundle/preview-full.json": "3ed66dddd25298e5d9a477f9c67b2a0d36cab3237bbf2880c650502974739f5b",
+    "bundle/preview-modified-only.json": "fd1a496a64735a5844d0d535079397a02e3f3a69a33b96a7f8a6a60dbbb48dc7",
+    "bundle/preview-replacement.json": "12962187cbe19ea942e6e67235f5d1b9c3b83a77cd9bf122a495bd259a70dc56",
+    "bundle/preview-workbench-normal.json": "64f4c8bda9a1aab56d71d4f4298354b6830c4741798721473f8b40f4ce5e7a82",
+    "bundle/schema-keyless.json": "4c7059e6ee92a8909b96a893fd3ed3a1665fa2c361185de2703e55988646161d",
+    "bundle/table-addition.json": "0da09c11c6ec47d7e55feb5173b8900fe56ec7ccd6ab2083240a9e17d17e254d",
+    "bundle/text-identities.json": "a1c86b73614b3e3c7f8821fc8a944e0fe20390f80afd201648d2b0e58a0d8952",
+    "navigation/comment-only.json": "16cf044025bc377671043ba7940bb92a1e57ed4941b40c34c2fce257b4349e30",
+    "navigation/digest-cross-implementation.json": "e6204e371a403ccf630cb49a24b4c67387aedb2c2ab7b29c690304f367ac522b",
+    "navigation/duplicates-orphans.json": "78cc0530bcf76a788ea47d682040447e6543ee0adad1c90fdee86deaeafb191e",
+    "navigation/excluded-identity.json": "3e4b1dfdc6a0b2fe3d79afc1fbac330f0e8dfd585772ab83f7a5f4b633bfde0b",
+    "navigation/formula-unchanged-device.json": "52a9b07c1745e08c2284df935e07a00c18a71029d767dab3a2ad905c6114b08c",
+    "navigation/history-three-nodes.json": "2cd8c8d713c52c04007e7a76f430cfba2f8c825c45b9a195a713ac4e87511d61",
+    "navigation/identity-changes.json": "7ada9a2cf9b3659d37ec6f7c764fd3f14e160d7cd4d1b4e6e7c8f67a2d094ffd",
+    "navigation/identity-unrecorded-exact.json": "d9df5e4a1c1e07f3683489f52b1a6af96ad3540a44185231d33dd95a4cb9a5c8",
+    "navigation/integer-boundary.json": "0348107b0e455d24854d959c23be0167136b7feac690d370cf2b0b8060495ff6",
+    "navigation/missing-identity-column.json": "3ab1e328abd93a89f30bf0379481c65954bf10f7f7c2e270ece25e53c6dd3265",
+    "navigation/preview-full.json": "521a3c684e9d8c5473f2b3a80a395cf2b7e9dc4333db3161e72f6d65c73355e1",
+    "navigation/preview-modified-only.json": "3a3110dde4f810e915398ee6ba52b6e98fc361e17f2c381ffb0ba988399b9f42",
+    "navigation/preview-replacement.json": "348efe578f3503fd1a261badcf5698a87bd95b16dc750995a0280584909f6051",
+    "navigation/preview-workbench-normal.json": "202cebc00f706b6f6a3c12822f8bd0b102e886fcd4887aed680a4bb39b25ce32",
+    "navigation/schema-keyless.json": "a35e74a2da8ad9ab2f0c19ea39e6151d069f1c42ee8977aef928980487ed76fc",
+    "navigation/table-addition.json": "36b773977225269284061c9826a34adf278ccde934b398f2374abd8a0dee179f",
+    "navigation/text-identities.json": "2c6d679a41685535e30d13a397d4f09531afe86e4a8c4b350482704933f1405e",
+    "navigation-diagnostics/comment-only.json": "edda43f6ef1badf323010e7a2068d2fce0a498835906c6b2577db9f64b32469e",
+    "navigation-diagnostics/digest-cross-implementation.json": "26ada824bd4a8bdea20ae437c0d1f7fbb0a44af6299a7575ba6e91b5126df386",
+    "navigation-diagnostics/duplicates-orphans.json": "416bb3ed024a9dc8272aed686ee559e5cd67e1fa3647374c0f0fae589127743e",
+    "navigation-diagnostics/excluded-identity.json": "59d5de48978ed3b28427d43a6479d882887cdd3a1752469e147874178c8b2a35",
+    "navigation-diagnostics/formula-unchanged-device.json": "b720a1a59d147f0d1a1289853e6a006519ad96928960bdfc307f7909d64ab58e",
+    "navigation-diagnostics/history-three-nodes.json": "0bda07e4318595bd2f5f6adf5812058e7732dcfce49ca9d7080f231e9a8e6524",
+    "navigation-diagnostics/identity-changes.json": "13dabdd9d258394dd34cc59045bbe0e16521603ebd77c113c07d635230a87d0f",
+    "navigation-diagnostics/identity-unrecorded-exact.json": "ebf952df9c85aa311f405994906019d260490b47f45e589a9313d4f958a8a2bd",
+    "navigation-diagnostics/integer-boundary.json": "cf54de73347f3e5de08ec0b36028645c4e90459f4bc1159a6e27a9b8661dff05",
+    "navigation-diagnostics/missing-identity-column.json": "1d5136dba9a9418c65453fced2007f693a140552b248b4056cd3d54f41f4e7cc",
+    "navigation-diagnostics/preview-full.json": "04f50922a411589686971d3faa507911c65959a6476be852dc5b5e49b61f618d",
+    "navigation-diagnostics/preview-modified-only.json": "2e5bcce105f66b12d16ff0c1c28af518faaab329a62e7be098c0710ec89135ba",
+    "navigation-diagnostics/preview-replacement.json": "de0c4c0458f98945ed098ba56212b9d0a742a16a489baf52d464daa9fbd3030c",
+    "navigation-diagnostics/preview-workbench-normal.json": "83bb3b52a2c0b5f8c6eabb6c2c994e6785ef5b66373a9a2c170d863066492498",
+    "navigation-diagnostics/schema-keyless.json": "a380ac5aa263b25c552676b4ff3ef5fbb339652fe3fde790dfde5a2a69fdddc3",
+    "navigation-diagnostics/table-addition.json": "7e1b9647a87c609828b94eb0bc6f90ebe136971349b7523cfb791bdd3987a813",
+    "navigation-diagnostics/text-identities.json": "39014e45182144b84e2b9263878aa1f4b66d49c345d755315c52953832271c56",
+    "row-location/comment-only.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "row-location/digest-cross-implementation.json": "648298455e8e6c1a34bafcc48c60b65cd6e90d4e251c327c2b6e93f04a000471",
+    "row-location/duplicates-orphans.json": "e799ce30c0c482c46122bdc42603da25cfd75b5f6d34967846a111562e538584",
+    "row-location/excluded-identity.json": "9bb57d9fce12f371fc0c49bf9b940920847e838847574636f469109f1a57eb7a",
+    "row-location/formula-unchanged-device.json": "c2abf28cd5a4180760b3279eb20f3fbb3ad49113444bc28fa8556637fa71abb1",
+    "row-location/history-three-nodes.json": "bcc2d888caa4b60437e0e9efdff78e0a7b38956e13889d4e489ce800efab8d57",
+    "row-location/identity-changes.json": "39c77ed3b871aee358c80d1ff672255c83a74026a1cb7b9eeb0bda6c0e916333",
+    "row-location/identity-unrecorded-exact.json": "eb51956b88c436189e7355ff7fe5d3d19d4397fa201ac1441703d0a250680b41",
+    "row-location/integer-boundary.json": "fbe4174d03dad8828a75acb9e93b233cd9314605109d06f885c20391f0ed0925",
+    "row-location/missing-identity-column.json": "a203842e35582859c3df59b55565be6b36dceb718053a9e1fe211ef8fc5d6ff1",
+    "row-location/preview-full.json": "fb489c85dfa0cb2a953df73acf63ef9e7f887efbe59b9915816b7156fb7431cc",
+    "row-location/preview-modified-only.json": "618afc92ed2bf75ea71405b6555b7ac08b9262ae55a51e7e43bf52df453df55e",
+    "row-location/preview-replacement.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "row-location/preview-workbench-normal.json": "00d78c80cd52116e06fdd726f8da7df26e2849e556f3f4815e2956356f35d3ba",
+    "row-location/schema-keyless.json": "715128c58b39e0019b31c79534ef57e596bf99641dd502434714fbabde65ca82",
+    "row-location/table-addition.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "row-location/text-identities.json": "b34dc5f38d744834ac0412079df99f735df38ccdb9c1e8af3c7fe11659d6ad6d",
+    "surface/comment-only.json": "114093626205a07fa563ae1dd30b963db9eda00913e076c74737e876cf62f5d5",
+    "surface/digest-cross-implementation.json": "2627b2f0bd51e646c2d375a0b647740b16b0a199e99df8fd927bddf8d6e4ed31",
+    "surface/duplicates-orphans.json": "1f226a812297932c97c754ad4b1c10c3f2e2c4f4907d4a651433f5d96dc51343",
+    "surface/excluded-identity.json": "2c352ab132fa2582949ec48eb03df66dbb2035bc77ddea7ce695edab70d982f8",
+    "surface/formula-unchanged-device.json": "22ca72c51ba450412e049aaa988475871da154738c0a508e715c0d1f00cb3cef",
+    "surface/history-three-nodes.json": "9c32ae88787ee0a0db7ad3ef990b68d4ef63e66df9efd4deda2b36a5bda499ed",
+    "surface/identity-changes.json": "d7ec3a80ceafcde1cee326a184784f4893af0844ec3006fbf0c0af1c28ee61d6",
+    "surface/identity-unrecorded-exact.json": "5271380bbfa21ddb193a4e8acaa0a3f6d3b61a1676b0151e4af45ce312bd153b",
+    "surface/integer-boundary.json": "c8fd640842e1fa4b36e32d9b9894a63659a80caafd6e4310e42827ed656deb78",
+    "surface/missing-identity-column.json": "6db2fd5899cd3135821ae7eeb88addb6970b6928af016ff6c1ef905887175583",
+    "surface/preview-full.json": "25ce1c6110973f6c8fdb1686854c0898be1b8630e2af6d64f2cafc22d3429ce6",
+    "surface/preview-modified-only.json": "911d50976ba59d18cfc6d3842cd8c6a98333e4cda2c84967af9c2fc2eec0a112",
+    "surface/preview-replacement.json": "dd22a18f98ba7c65ff8e411ad6bfbf4806d10d83b429d5feff6bebb4406309f0",
+    "surface/preview-workbench-normal.json": "7370f82510d157b3e79185a4ed03f60a83920f678e0704105083773bfb5a6c7d",
+    "surface/schema-keyless.json": "cda92f6021b8cd3a87c6ed50c383966bb01dc3142923346ac520b56a21e9c993",
+    "surface/table-addition.json": "7796b6820e4cf070d8a47e5ccd5f2b4d1c7959eb28e1e2959c513e29f88e12a5",
+    "surface/text-identities.json": "8fcf3c748c90abb38ed687175fb9b1b88e5d7947a9c51bb1aeab2349d9de170a"
+  }
+}

@@ -19,7 +19,7 @@
 
 ordered 的稳定码保留：`ORDERED_REQUIRED_COLUMN_MISSING`、`NO_SELECTED_COLUMNS`、`ROW_IDENTITY_MISSING`、`BLANK_PROVENANCE_INVALID`、`BLANK_PROVENANCE_MISSING`、`CANONICAL_BLANK_PROVENANCE_INVALID`、`CANONICAL_GID_INVALID`、`ORDERED_INTEGER_INVALID`、`ORDER_KEY_DUPLICATE`、`ORDER_KEY_INVALID`、`ORDER_KEY_MISSING`、`ROW_IDENTITY_DUPLICATE`、`ROW_SHAPE_MISMATCH`、`SCALAR_TYPE_MISMATCH`、`SCALAR_TYPE_UNKNOWN`、`SCALAR_VALUE_INVALID`、`SET_VALUE_INVALID`、`SOURCE_GID_INVALID`、`SOURCE_RESERVED_PSEUDO_GID`。它们沿 comparison records/表 scope 传递；`ORDERED_PROVIDER` 是 ordered 单侧记录已有来源码。取消、超时、资源异常和内部 native runtime failure 沿任务终态传播，不伪装成功表或无风险。
 
-Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只允许大写 token。未知内部文本统一归 COMPARISON_INTERNAL_ERROR。surface assembly/bundle assembly 的 FAILED/CANCELLED terminal diagnostics 不进入成功 surface，pair 失败/取消的原文不混入 Surface summary。本表不将内部终态错误字符串承诺为新的客户端协议。
+Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只允许大写 token。`comparison/production.py` 的 generic ValueError/OSError/ArrowException/TableAccessError 分支向公开 comparison facts 与 records 一并 emit COMPARISON_INTERNAL_ERROR；typed StandardComparisonError 保留既有大写码。未知内部文本统一归 COMPARISON_INTERNAL_ERROR。surface assembly/bundle assembly 的 FAILED/CANCELLED terminal diagnostics 不进入成功 surface，pair 失败/取消的原文不混入 Surface summary。本表不将内部终态错误字符串承诺为新的客户端协议。
 
 ## 导航诊断全集
 

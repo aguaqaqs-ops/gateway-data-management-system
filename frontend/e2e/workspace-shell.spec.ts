@@ -676,7 +676,18 @@ async function clickFormulaCell(page: Page) {
   const offset = Number(await grid.getAttribute("data-formula-column-offset"));
   const width = Number(await grid.getAttribute("data-formula-column-width"));
   if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width)) throw new Error("formula column has no grid bounds");
-  await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 38 + 19);
+  const rowsVisible = Math.max(1, Math.floor((bounds.height - 38) / 38));
+  const dialog = page.getByRole("dialog", { name: "公式查看" });
+  for (let row = 0; row < rowsVisible; row += 1) {
+    await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 38 + row * 38 + 19);
+    try {
+      await expect(dialog).toBeVisible({ timeout: 300 });
+      return;
+    } catch {
+      // Rows without a formula value still accept the click; keep scanning.
+    }
+  }
+  throw new Error("could not open the formula drawer from the formula column");
 }
 
 async function hoverChangedTelemetryValue(page: Page) {

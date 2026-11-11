@@ -362,6 +362,16 @@ class TableContentBinding:
         _require_non_negative(self.row_count, "row_count")
         _require_text(self.storage_projection_version, "storage_projection_version")
 
+    def exported_content_identity(self) -> tuple[DigestRef, DigestRef, int, DigestRef]:
+        """Content a shared Parquet file must represent on either side.
+
+        Source schema, storage rules and projection version describe how that
+        content was derived. Keep their per-side provenance even when distinct
+        derivations produce the same exported canonical table.
+        """
+        return (self.business_schema_digest, self.raw_content_digest, self.row_count,
+                self.canonical_schema_digest)
+
     def to_document(self) -> dict[str, object]:
         return {
             "business_schema_digest": self.business_schema_digest.value,
@@ -393,7 +403,9 @@ class SurfaceTableContentBindings:
             if (ref is None) != (binding is None):
                 raise ValueError("table ref and content binding must have matching nullability")
             if ref is not None:
-                if ref in seen and seen[ref] != binding:
+                assert binding is not None
+                if (ref in seen and seen[ref].exported_content_identity()
+                        != binding.exported_content_identity()):
                     raise ValueError("shared table ref has incompatible content bindings")
                 seen[ref] = binding
 

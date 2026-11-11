@@ -762,8 +762,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
 
   await page.getByRole("button", { name: "展开导航" }).click();
   const search = page.getByRole("textbox", { name: "搜索组、节点或页签" });
-  await search.fill("测控装置");
-  await expect(page.getByRole("button", { name: /测控装置（再次升级）/ })).toBeVisible();
+  await search.fill("复合信号");
+  await expect(page.getByRole("button", { name: /复合信号虚装置/ })).toBeVisible();
   await page.locator(".sidebar-toolbar button").click();
   await expect(page).not.toHaveURL(/changed=1/);
   await page.locator(".sidebar-toolbar button").click();
@@ -771,7 +771,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);
   await page.getByRole("radio", { name: "Debug" }).click();
-  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("测控装置");
+  await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("复合信号");
   const stateBeforeReload = new URL(page.url());
   expect(stateBeforeReload.searchParams.get("view")).toBeNull();
   expect(stateBeforeReload.searchParams.get("pair")).toBe("baseline_to_initial");
@@ -783,7 +783,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await waitForBrowse(page);
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
-  await expect(reloadedSearch).toHaveValue("测控装置");
+  await expect(reloadedSearch).toHaveValue("复合信号");
   await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
@@ -858,7 +858,7 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("识别为不同数据集");
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
   await expect(page.locator(".replacement-side h3")).toHaveCount(2);
-  await expect(page.locator(".replacement-side h3").first()).toContainText("composite_signal_point");
+  await expect(page.locator(".replacement-side h3").first()).toContainText("device");
   await expect(page.locator(".replacement-side-toggle")).toContainText("替换前：");
   await page.locator(".replacement-side-toggle button").nth(1).click();
   await expect(page.locator(".replacement-side.is-inactive")).toHaveCount(1);

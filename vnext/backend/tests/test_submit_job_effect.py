@@ -1773,7 +1773,7 @@ def test_submit_import_recovery_counts_transport_failure_and_reuses_idempotency_
     assert failed_step.attempt_count == 1
     assert failed_step.lease_expires_at is not None
     control_clock["value"] = failed_step.lease_expires_at + timedelta(seconds=1)
-    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+    assert startup.startup() is StartupDisposition.READY
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         startup_retry = unit_of_work.operations.get_step(
@@ -1781,6 +1781,8 @@ def test_submit_import_recovery_counts_transport_failure_and_reuses_idempotency_
         )
     assert startup_retry.status is StepStatus.RETRY_WAIT
     assert startup_retry.retry_not_before is not None
+    assert startup_retry.retry_not_before > control_clock["value"]
+    assert startup.claim_one() is None
     control_clock["value"] = startup_retry.retry_not_before
     assert startup.startup() is StartupDisposition.READY
     second_work = startup.claim_one()

@@ -8,7 +8,7 @@ from queue import Queue
 import subprocess
 import sys
 from threading import Event
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -47,6 +47,42 @@ def _manage_group(env: dict[str, str], command: str) -> str:
     assert result.returncode == 0, result.stdout + result.stderr
     print("fixed_group_maintenance=" + result.stdout.strip(), flush=True)
     return result.stdout
+
+
+def _queued_preview_snapshot(env: dict[str, str], operation_ids: list[str]) -> dict[str, Any]:
+    # Read one consistent view of the accepted facts, not telemetry or queue counts.
+    probe = f'''
+import json, sqlite3
+operation_ids = json.loads({json.dumps(json.dumps(operation_ids))})
+connection = sqlite3.connect('file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro', uri=True, timeout=1)
+connection.row_factory = sqlite3.Row
+connection.execute('BEGIN')
+snapshot = {{}}
+for operation_id in operation_ids:
+    operation = dict(connection.execute("SELECT operation_id, status, job_contract_version, "
+        "job_payload, optimistic_version, created_at_us, updated_at_us FROM operation_records "
+        "WHERE operation_id = ?", (operation_id,)).fetchone())
+    operation['job_payload'] = json.loads(operation['job_payload'])
+    assert operation['status'] == 'QUEUED'
+    step = dict(connection.execute("SELECT status, contract_version, optimistic_version, attempt_count, "
+        "eligible_at_us, retry_not_before_us, created_at_us, updated_at_us FROM step_records "
+        "WHERE operation_id = ?", (operation_id,)).fetchone())
+    assert step['status'] == 'PENDING' and step['attempt_count'] == 0
+    workspace = dict(connection.execute("SELECT workspace_id, generation, optimistic_version, "
+        "current_upload_revision_id, state, created_at_us, updated_at_us FROM workspace_records "
+        "WHERE workspace_id = ?", (operation['job_payload']['workspace_id'],)).fetchone())
+    protections = [dict(row) for row in connection.execute("SELECT artifact_id, intent, recorded_at_us, "
+        "expires_at_us FROM artifact_protection_intents WHERE owner_kind = 'preview-operation' "
+        "AND owner_id = ? ORDER BY artifact_id", (operation_id,))]
+    assert protections and all(row['intent'] == 'active-operation' for row in protections)
+    snapshot[operation_id] = {{'operation': operation, 'step': step,
+        'workspace': workspace, 'protections': protections}}
+connection.close()
+print(json.dumps(snapshot, sort_keys=True))
+'''
+    result = harness.run_compose(env, "exec", "-T", "backend", "python", "-c", probe)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return cast(dict[str, Any], json.loads(result.stdout))
 
 
 def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(tmp_path: Path) -> None:
@@ -95,6 +131,12 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
             try:
                 operation_ids = [accepted.get(timeout=60) for _ in range(2)]
                 assert len(set(operation_ids)) == 2
+                queued = _queued_preview_snapshot(env, operation_ids)
+                assert "not quiescent" in _manage_group(env, "drain")
+                assert _queued_preview_snapshot(env, operation_ids) == queued
+                # These schemas have no operation/Workspace absolute deadline.
+                # Preserve their real time anchors and protection expiry instead.
+                print("queued_previews_preserved_across_drain=" + json.dumps(operation_ids), flush=True)
                 paused = harness.run_compose(env, "pause", "repository-service")
                 assert paused.returncode == 0, paused.stderr
                 # Restart the exact original containers without waiting on the paused RS healthcheck.

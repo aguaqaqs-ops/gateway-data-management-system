@@ -12,6 +12,7 @@ from gateway_repository_contracts.statistics import (
     RepositoryStorageObservation, StatisticsFeedQuery, StorageValues, WriteObservation,
 )
 from gateway_repository_service.app import create_app
+from gateway_repository_service.auth_state import AuthState
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.storage_roots import RepositoryRoots
@@ -127,6 +128,7 @@ def test_feed_http_is_authenticated_and_read_only() -> None:
     ring = ObservationRing('e', 'g')
     ring.append(_observation())
     app.state.statistics_ring = ring
+    app.state.auth_state = AuthState('token')
     with TestClient(app) as client:
         assert client.get('/v1/statistics/observations').status_code == 401
         headers = {'Authorization': 'Bearer token'}

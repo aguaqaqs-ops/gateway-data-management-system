@@ -21,7 +21,7 @@ from gateway_backend.infrastructure.control_db.sqlite_workspace import upload_re
 from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_from_row, submission_from_row
 from gateway_backend.statistics.config import StatisticsConfig
 from gateway_backend.statistics.models import StatisticsIdentity, StorageRecord
-from gateway_repository_contracts.statistics import Category
+from gateway_repository_contracts.statistics import Category, Quality, Reason
 from gateway_shared_kernel import DigestRef
 
 # Fixed sources, never recursive JSON walking or artifact-content reads.
@@ -63,7 +63,8 @@ class StorageCandidates:
                     'SELECT rowid AS cursor,length(artifact_refs)>262144 AS oversized, '
                     'substr(artifact_refs,1,262145) AS artifact_refs FROM operation_records '
                     'WHERE rowid>? AND operation_id IN ('
-                    'SELECT operation_id FROM preview_result_records WHERE repository_id=? UNION '
+                    'SELECT p.operation_id FROM preview_idempotency_records p JOIN workspace_records w '
+                    'ON p.workspace_id=w.workspace_id WHERE w.repository_id=? UNION '
                     'SELECT operation_id FROM submit_attempt_records WHERE repository_id=? UNION '
                     'SELECT operation_id FROM history_compare_acceptance_records WHERE repository_id=?) '
                     'ORDER BY rowid LIMIT ?',
@@ -111,7 +112,7 @@ class StorageCandidates:
             return (result.bundle_artifact_id, result.ready_closure_artifact_id,
                     result.canonical.canonical_table_set_closure_ref.artifact_id,
                     result.canonical.canonicalization_manifest_ref.artifact_id,
-                    *(pair.assessment_ref.artifact_id for pair in result.identity_pairs))
+                    *(pair.assessment_ref.artifact_id for pair in result.identity_pairs if pair.assessment_ref is not None))
         if source == 'submit_attempt_records':
             attempt = submit_attempt_from_row(row)
             return (*attempt.source_artifact_refs, attempt.canonical_table_set_closure_ref,
@@ -159,7 +160,8 @@ class DeviceStorageCollector:
         deadline = monotonic() + self.config.scan_total_seconds
         seen: set[str] = set()
         totals = {location.value: [0, 0, 0] for location in ArtifactLocation}
-        partial, reason = False, None
+        partial = False
+        reason: Reason | None = None
         rows_scanned = 0
         try:
             for source in _SOURCES:
@@ -172,6 +174,9 @@ class DeviceStorageCollector:
                     if not rows:
                         break
                     for row in rows:
+                        if rows_scanned >= self.config.scan_total_entries or monotonic() >= deadline:
+                            partial, reason = True, 'budget_exceeded'
+                            break
                         cursor = int(cast(int, row['cursor']))
                         rows_scanned += 1
                         if row['oversized']:
@@ -219,6 +224,11 @@ def filesystem_capacity(identity: StatisticsIdentity, roots: Mapping[str, tuple[
             continue
         seen.add(filesystem_id)
         now = time_ns() // 1000
+        total: int | None
+        available: int | None
+        inodes: int | None
+        quality: Quality
+        reason: Reason | None
         try:
             value = os.statvfs(path)
             total, available, inodes = value.f_blocks * value.f_frsize, value.f_bavail * value.f_frsize, value.f_favail

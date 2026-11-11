@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from gateway_shared_kernel import raw_blob_digest
-from gateway_backend.artifacts.bounded_store import BoundedArtifactStore
+from gateway_backend.infrastructure.artifact_store import BoundedArtifactStore
 from gateway_backend.artifacts.location import ArtifactLocation
 from gateway_backend.infrastructure.control_db.database import initialize_control_db
 from gateway_backend.infrastructure.statistics.storage import DeviceStorageCollector, StorageCandidates, filesystem_capacity

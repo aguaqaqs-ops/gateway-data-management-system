@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic, time_ns
 from uuid import UUID, uuid4
-from typing import Literal
+from typing import Literal, Protocol
 from gateway_repository_contracts.statistics import Reason
 
 from gateway_repository_contracts.statistics import (
@@ -25,6 +25,11 @@ from gateway_repository_service.layout import DurableLayout, repository_key
 
 def utc_us() -> int:
     return time_ns() // 1000
+
+
+class _DirectoryEntries(Protocol):
+    def __next__(self) -> os.DirEntry[str]: ...
+    def close(self) -> None: ...
 
 
 class ObservationRing:
@@ -101,7 +106,7 @@ def scan_repository(path: Path, *, max_entries: int = 10000, max_seconds: float 
     """
     start, start_us = clock(), utc_us()
     objects = logical = allocated = entries = 0
-    stack: list[tuple[int, os.ScandirIterator[str]]] = []
+    stack: list[tuple[int, _DirectoryEntries]] = []
     complete = False
     reason: Reason | None = 'collection_failed'
     try:
@@ -232,7 +237,7 @@ class RepositoryStatistics:
         def delta(name: str) -> int | None:
             left, right = getattr(b, name, None), getattr(a, name, None)
             return right - left if left is not None and right is not None else None
-        reason = ('interference' if window.interference else
+        reason: Reason = ('interference' if window.interference else
                   'budget_exceeded' if any(s is not None and s.reason == 'budget_exceeded' for s in (before, after))
                   else 'not_collected')
         self.ring.append(WriteObservation(repository_id=window.repository_id, payload=WriteValues(

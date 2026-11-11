@@ -391,11 +391,6 @@ class ImportWorkerPool:
 
                     statistics = self._statistics
                     window: WriteWindow | None = None
-                    if statistics is not None:
-                        value = best_effort(lambda: statistics.begin(
-                            repository_id, operation_id, context.expected_commit_id))
-                        if isinstance(value, WriteWindow):
-                            window = value
                     executor = ImportOperationExecutor(
                         settings=self._settings,
                         layout=self._layout,
@@ -408,6 +403,11 @@ class ImportWorkerPool:
                         self._provider_factory(repository_id),
                         cancellation_event.is_set,
                     )
+                    if statistics is not None:
+                        value = best_effort(lambda: statistics.begin(
+                            repository_id, operation_id, context.expected_commit_id))
+                        if isinstance(value, WriteWindow):
+                            window = value
                     try:
                         executor.execute(context, provider)
                     finally:

@@ -818,7 +818,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");
-  expect(requests.get("preview-full")).toBe(requestCountBeforeReload);
+  // The URL digest cannot authorize an OPFS read after a full reload.
+  expect(requests.get("preview-full")).toBe(requestCountBeforeReload + 1);
 
   await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("");
   await page.getByRole("button", { name: "显示全部" }).click();

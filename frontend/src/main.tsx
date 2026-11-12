@@ -14,8 +14,13 @@ if (!rootElement) {
 // the fragment is cleared with replaceState inside the initializer.
 initializeGatewaySession();
 
-createRoot(rootElement).render(
+async function renderApp() {
+  // Publish the initial development identity before scope-bound state reads.
+  if (import.meta.env.DEV) await import("./features/dev/DevIdentityControl");
+  createRoot(rootElement!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
-);
+  );
+}
+void renderApp();

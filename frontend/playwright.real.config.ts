@@ -3,9 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * FE3a/FE3b real-backend e2e (frontend kickoff §4).
- * Production build behind vite preview, proxied to the Compose backend
- * (GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000 inside the toolchain
- * container). One worker, serial; no retries. Identities are injected per
+ * Production build behind vite preview, proxied to the public entry
+ * (GATEWAY_FRONTEND_ENTRY_ORIGIN is the host loopback entry address). One worker, serial; no retries. Identities are injected per
  * browser context via window.__gatewaySession (owner Q5).
  *
  * Suite selection mirrors `scripts/run-real-backend-e2e.sh --suite`:
@@ -16,7 +15,7 @@ import { defineConfig, devices } from "@playwright/test";
 const suite = process.env.GATEWAY_FE_SUITE ?? "smoke";
 const testMatch = {
   smoke: /smoke\.spec\.ts$/,
-  journeys: /journeys\.spec\.ts$/,
+  journeys: /(?:journeys|processing-groups)\.spec\.ts$/,
   t1: /t1\.spec\.ts$/,
 } satisfies Record<string, RegExp>;
 

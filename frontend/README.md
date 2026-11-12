@@ -35,4 +35,13 @@ nonofficial `resolved` hosts.
 The Docker network defaults to `none`, which is suitable for mocked-backend
 browser tests. FE3 browser tests that connect to a real backend need host
 networking or an explicitly reachable backend address, configured with
-`GATEWAY_FRONTEND_DOCKER_NETWORK` and `GATEWAY_FRONTEND_BACKEND_ORIGIN`.
+`GATEWAY_FRONTEND_DOCKER_NETWORK` and `GATEWAY_FRONTEND_ENTRY_ORIGIN`.
+
+All ordinary API requests carry the immutable session's Bearer and exact device
+route key. Long workflows stop with “会话已变化” if that session is replaced.
+The real backend runner owns two isolated processing groups and a public Nginx
+entry; every scope is registered with `add-device`. Browser traffic uses the
+entry, while OpenAPI comparison reads a controlled backend loopback directly.
+`--suite journeys --subphase s2b-routing` runs only the synthetic routing and hot
+add browser checks. Normal journeys also include those checks; t1 runs only at
+the agreed evidence point. The runner owns its node marker and Compose cleanup.

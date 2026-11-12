@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
 import json
 from pathlib import Path
 from queue import Queue
@@ -18,6 +19,36 @@ from tests.support.processing_groups_harness import EXECUTOR_BARRIER, wait_for
 from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
+
+
+def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[Path],
+        resume_polling: Event, cleanup: Callable[[], None] | None = None) -> None:
+    """Attempt every release, retaining the test failure over observation errors."""
+    primary = sys.exception()
+    failures: list[tuple[str, BaseException]] = []
+    def attempt(phase: str, action: Callable[[], None]) -> None:
+        try:
+            action()
+        except BaseException as error:
+            failures.append((phase, error))
+    try:
+        attempt("diagnostics", preserve_failure)
+    finally:
+        try:
+            for barrier in barriers:
+                attempt("executor release", lambda: write_container_readable_text(
+                    barrier.with_suffix(".release"), "release executor"))
+        finally:
+            try:
+                attempt("polling resume", resume_polling.set)
+            finally:
+                if cleanup is not None:
+                    attempt("project cleanup", cleanup)
+    if primary is not None:
+        for phase, error in failures:
+            primary.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")
+    elif failures:
+        raise failures[0][1]
 
 
 def _stop_workers(ids: list[str]) -> None:
@@ -197,10 +228,7 @@ else:
                 assert overlap.returncode == 0, overlap.stdout + overlap.stderr
                 print(overlap.stdout, flush=True)
             finally:
-                preserve_failure()
-                for barrier in barriers:
-                    write_container_readable_text(barrier.with_suffix(".release"), "release executor")
-                resume_polling.set()
+                _finalize_worker_probe(preserve_failure, barriers, resume_polling)
             results = [future.result(timeout=300) for future in futures]
         assert results[0]["workspace_id"] != results[1]["workspace_id"]
         assert results[0]["preview_summaries"] == results[1]["preview_summaries"]
@@ -223,8 +251,5 @@ else:
         assert {state.split()[0] for state in restarted.values()} == set(ids)
         assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
-        preserve_failure()
-        for barrier in barriers:
-            write_container_readable_text(barrier.with_suffix(".release"), "release executor")
-        resume_polling.set()
-        harness.cleanup_compose_project_artifacts(env)
+        _finalize_worker_probe(preserve_failure, barriers, resume_polling,
+            lambda: harness.cleanup_compose_project_artifacts(env))

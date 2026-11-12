@@ -11,7 +11,7 @@ import pytest
 from starlette.requests import Request
 
 from gateway_backend.device_identity import device_route_key
-from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError, ScopeNotFound
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.routes.statistics import _internal_group_identity
@@ -49,7 +49,7 @@ def test_context_needs_local_scope_and_remains_readable_while_admission_is_close
     assert response.json() == {'environment_id': 'environment', 'group_id': 'group-a',
         'gateway_device_external_key': env.identity.gateway_device_external_key,
         'business_project_id': env.identity.business_project_id, 'repository_id': env.scope_resolution.resolve(env.identity).repository_id}
-    with patch.object(env.scope_resolution, 'resolve', side_effect=ScopeResolutionError('wrong local group')):
+    with patch.object(env.scope_resolution, 'resolve', side_effect=ScopeNotFound('wrong local group')):
         for path in ('/v1/device-context', '/v1/operations/unknown'):
             rejected = env.client.get(path, headers=env.auth_headers())
             assert rejected.status_code == 404
@@ -92,3 +92,43 @@ def test_internal_statistics_trusts_only_actual_gateway_not_host_or_forwarded_he
                 with pytest.raises(ApiError) as error:
                     _internal_group_identity(request)
                 assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize('error,status,code', [
+    (ScopeNotFound('provider unavailable'), 404, 'RESOURCE_NOT_FOUND'),
+    (ScopeResolutionError('provisioned mapping is missing'), 503, 'DEPENDENCY_UNAVAILABLE'),
+])
+def test_scope_error_type_controls_status_without_exposing_internal_reason(
+        tmp_path: Path, error: ScopeResolutionError, status: int, code: str) -> None:
+    env = create_workspace_http_environment(tmp_path)
+    with patch.object(env.scope_resolution, 'resolve', side_effect=error):
+        response = env.client.get('/v1/device-context', headers=env.auth_headers())
+    assert response.status_code == status
+    assert response.json()['code'] == code
+    assert error.reason not in response.text
+
+
+@pytest.mark.parametrize('fault,status', [('missing', 404), ('disabled', 404), ('initial-mismatch', 404),
+    ('initial-missing', 503), ('head-missing', 503), ('sqlite-unavailable', 503)])
+def test_real_sqlite_scope_distinguishes_absence_from_unavailable_facts(tmp_path: Path, fault: str, status: int) -> None:
+    import sqlite3
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedScopeResolution
+    env = create_workspace_http_environment(tmp_path)
+    app = cast(FastAPI, env.client.app)
+    app.state.workspace_http = replace(app.state.workspace_http, scope_resolution=ProvisionedScopeResolution(env.db_path))
+    statements = {'missing': 'DELETE FROM provisioned_scope_mappings',
+        'disabled': 'UPDATE provisioned_scope_mappings SET enabled=0',
+        'initial-mismatch': "UPDATE baseline_node_records SET business_project_id='other' WHERE kind='INITIAL'",
+        'initial-missing': "DELETE FROM baseline_node_records WHERE kind='INITIAL'",
+        'head-missing': 'DELETE FROM baseline_head_records'}
+    if fault == 'sqlite-unavailable':
+        env.db_path.unlink()
+    else:
+        with sqlite3.connect(env.db_path) as database:
+            database.execute(statements[fault])
+    response = env.client.get('/v1/device-context', headers=env.auth_headers())
+    assert response.status_code == status
+    assert response.json()['code'] == ('RESOURCE_NOT_FOUND' if status == 404 else 'DEPENDENCY_UNAVAILABLE')
+    assert str(env.db_path) not in response.text
+    if status == 503:
+        assert response.json() == {'code': 'DEPENDENCY_UNAVAILABLE', 'message': 'scope provider unavailable', 'details': None}

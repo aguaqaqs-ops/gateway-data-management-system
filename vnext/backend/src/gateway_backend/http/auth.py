@@ -13,7 +13,7 @@ from typing import Annotated, Protocol, runtime_checkable
 from fastapi import Depends, Header, Request
 
 from gateway_backend.device_identity import DEVICE_KEY_HEADER, device_route_key, validate_device_route_key
-from gateway_backend.domain.workspace.errors import ScopeResolutionError
+from gateway_backend.domain.workspace.errors import ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.errors import ApiError
@@ -234,7 +234,7 @@ def require_identity(request: Request,
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     try:
         get_workspace_http(request).scope_resolution.resolve(context)
-    except (ScopeResolutionError, KeyError):
+    except ScopeNotFound:
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404) from None
     return context
 

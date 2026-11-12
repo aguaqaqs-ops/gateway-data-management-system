@@ -16,6 +16,7 @@ from gateway_backend.domain.baseline.models import (
     BaselineNodeKind,
 )
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext, ResolvedScope
+from gateway_backend.domain.workspace.errors import ScopeResolutionError
 from gateway_backend.infrastructure.control_db.sqlite_provisioned_scope import (
     ProvisionedScopeTransactionRead,
     resolve_provisioned_scope_from_connection,
@@ -30,12 +31,15 @@ class ProvisionedScopeResolution:
     def resolve(self, context: IdentityContext) -> ResolvedScope:
         from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
-        with ControlDbUnitOfWork(self._db_path, read_only=True) as unit_of_work:
-            return resolve_provisioned_scope_from_connection(
-                unit_of_work.connection,
-                gateway_device_external_key=context.gateway_device_external_key,
-                business_project_id=context.business_project_id,
-            )
+        try:
+            with ControlDbUnitOfWork(self._db_path, read_only=True) as unit_of_work:
+                return resolve_provisioned_scope_from_connection(
+                    unit_of_work.connection,
+                    gateway_device_external_key=context.gateway_device_external_key,
+                    business_project_id=context.business_project_id,
+                )
+        except (sqlite3.Error, OSError):
+            raise ScopeResolutionError("scope provider unavailable") from None
 
 
 class ProvisionedBaselineHeadRead:

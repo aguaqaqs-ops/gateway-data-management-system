@@ -27,7 +27,7 @@ JSON 均拒重复 key、未知字段、bool 充 int、非有限数。schema_vers
 
 所有普通 `/v1/` 请求（含对象ID、分页、轮询、上传、下载）携带同一会话快照的 Bearer 和单值 `X-Gateway-Device-Key`，值为 `SHA256(UTF8(device))` 的64位小写hex，无前缀、无project。入口先严格校验再 map 至固定 upstream；未知 key 404，无默认组/跨组 fallback/写入重放。组端独立核Bearer、header及本组active scope/INITIAL，再走原对象权限。
 
-未认证401；header/请求格式错误422 `REQUEST_VALIDATION_FAILED`；设备/对象/本组归属不符404 `RESOURCE_NOT_FOUND`，不泄露正确组。health、预检和 internal 管理不要求设备header。入口仅公开 `/v1/` 和无敏感health，拒 `/internal/`。入口自身拒绝与连接错误同样使用ApiError JSON，不拦截或替换backend业务错误。
+未认证401；header/请求格式错误422 `REQUEST_VALIDATION_FAILED`；设备/对象/本组归属不符404 `RESOURCE_NOT_FOUND`，不泄露正确组。明确未映射/禁用/归属不符由typed ScopeNotFound表达；provider不可用或INITIAL/Head事实缺失仍503 DEPENDENCY_UNAVAILABLE，不能根据诊断字符串或笼统异常归为404，也不向caller泄露内部原因。health、预检和 internal 管理不要求设备header。入口仅公开 `/v1/` 和无敏感health，拒 `/internal/`。入口自身拒绝与连接错误同样使用ApiError JSON，不拦截或替换backend业务错误。
 
 内部组统计的管理网络边界为宿主loopback发布端口；bridge backend看到的peer可为本组实际宿主gateway。仅接受进程loopback或内核唯一活动default route派生的精确gateway，部署inspect须将其与本组唯一bridge网络的IPAM Gateway核等、且backend仅发布127.0.0.1。Host和forwarded header不授予信任；普通非gateway组peer仍404。session及statistics_read_group仍必须，不声称抵御受控宿主管理员或CAP_NET_RAW主体。
 

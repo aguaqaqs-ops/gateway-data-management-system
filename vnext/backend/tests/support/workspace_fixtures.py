@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
+from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict, ScopeResolutionError
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     IdentityContext,
@@ -54,18 +54,14 @@ class FixedScopeResolutionPort:
     repository_id: str = "repo-1"
     baseline_head: BaselineHead | None = None
     resolve_calls: int = 0
-    simulate_resolution_error: str | None = None
+    simulate_resolution_error: ScopeResolutionError | None = None
 
     def resolve(self, context: IdentityContext) -> ResolvedScope:
         del context
         self.resolve_calls += 1
         if self.simulate_resolution_error is not None:
-            from gateway_backend.domain.workspace.errors import ScopeResolutionError
-
-            raise ScopeResolutionError(self.simulate_resolution_error)
+            raise self.simulate_resolution_error
         if self.baseline_head is None:
-            from gateway_backend.domain.workspace.errors import ScopeResolutionError
-
             raise ScopeResolutionError("baseline head missing")
         return ResolvedScope(
             repository_id=self.repository_id,

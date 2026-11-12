@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from gateway_backend.domain.workspace.errors import ScopeNotFound
 
 from gateway_backend.domain.submission.models import (
     SubmitAttemptState,
@@ -148,7 +149,7 @@ def test_get_submit_attempt_hides_missing_mapping(
 ) -> None:
     env, workspace = seeded_env
     accepted = _accept_submit(env, workspace, key="submit-mapping-missing")
-    env.scope_resolution.simulate_resolution_error = "provisioned mapping is missing"
+    env.scope_resolution.simulate_resolution_error = ScopeNotFound("provisioned mapping is missing")
     response = env.client.get(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts/{accepted['submit_attempt_id']}",
         headers=env.auth_headers(),

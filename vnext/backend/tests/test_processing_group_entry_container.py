@@ -112,6 +112,7 @@ def test_real_entry_routes_exact_headers_and_keeps_upload_download_across_hup(
                 ([('X-Gateway-Device-Key', 'a' * 64)], 404)]:
             rejected = httpx.get(url + '/v1/ping', headers=headers)
             assert rejected.status_code == status
+            assert rejected.headers['Content-Type'].startswith('application/json')
             assert rejected.json()['code'] == ('RESOURCE_NOT_FOUND' if status == 404 else 'REQUEST_VALIDATION_FAILED')
         assert httpx.get(url + '/internal/v1/statistics/group').status_code == 404
         assert httpx.get(url + '/openapi.json').status_code == 404

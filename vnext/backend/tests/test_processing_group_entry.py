@@ -183,19 +183,48 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     assert len(json.loads((session_dir / 'session.json').read_text())['sessions']) == 1
 
 
-def test_hot_publication_rejects_existing_device_or_upstream_rebinding(modules: tuple[Any, dict[str, Any]]) -> None:
+@pytest.mark.parametrize('change', ['delete', 'disable', 'rebind', 'upstream', 'listen-address', 'listen-port'])
+def test_hot_publication_preserves_loaded_routes_upstreams_and_listeners(
+        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str) -> None:
     entry, _ = modules
     groups = config()
     directory = DeviceDirectory(1, groups.environment_id, (DeviceDirectoryEntry('old', 'group-a', True),))
-    _, old = entry.render_entry(groups, directory)
-    _, rebound = entry.render_entry(groups, replace(directory, devices=(replace(directory.devices[0], group_id='group-b'),)))
+    digest, old = entry.render_entry(groups, directory)
+    (tmp_path / 'nginx.conf').write_bytes(old)
+    if change == 'delete':
+        directory = replace(directory, devices=())
+    if change == 'disable':
+        directory = replace(directory, devices=(replace(directory.devices[0], enabled=False),))
+    if change == 'rebind':
+        directory = replace(directory, devices=(replace(directory.devices[0], group_id='group-b'),))
+    if change == 'upstream':
+        groups = replace(groups, groups=(replace(groups.groups[0], backend_port=9999), *groups.groups[1:]))
+    if change == 'listen-address':
+        groups = replace(groups, entry=replace(groups.entry, listen_address='::1'))
+    if change == 'listen-port':
+        groups = replace(groups, entry=replace(groups.entry, listen_port=9090))
+    new_digest, new = entry.render_entry(groups, directory)
+    runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
+    monkeypatch.setattr(runtime, 'probe', lambda *args, **kwargs: {'config_digest': digest, 'group_id': 'group-a'})
+    monkeypatch.setattr(runtime, 'retiring_workers', lambda: False)
+    monkeypatch.setattr(runtime, 'validate', lambda *args: None)
+    monkeypatch.setattr(runtime, 'compose', lambda *args: pytest.fail('invalid change must not signal reload'))
     with pytest.raises(entry.Incomplete):
-        entry.require_append_only_routes(old, rebound)
-    changed = replace(groups, groups=(replace(groups.groups[0], backend_port=9999), *groups.groups[1:]))
-    with pytest.raises(entry.Incomplete):
-        entry.require_append_only_routes(old, entry.render_entry(changed, directory)[1])
-    _, appended = entry.render_entry(groups, replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-b', True))))
-    entry.require_append_only_routes(old, appended)
+        runtime.publish(new_digest, new, key='a' * 64, group='group-a')
+    assert (tmp_path / 'nginx.conf').read_bytes() == old
+
+
+def test_loaded_version_is_bound_to_actual_bytes_not_just_embedded_label(
+        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    entry, _ = modules
+    groups = config()
+    directory = DeviceDirectory(1, groups.environment_id, (DeviceDirectoryEntry('old', 'group-a', True),))
+    digest, raw = entry.render_entry(groups, directory)
+    entry.verify_config_identity(raw, digest)
+    (tmp_path / 'nginx.conf').write_bytes(raw.replace(b'127.0.0.1:8100', b'127.0.0.1:9999'))
+    runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
+    with pytest.raises(entry.Incomplete, match='content differs'):
+        runtime.loaded_config({'config_digest': digest})
 
 
 @pytest.mark.parametrize('state,code', [('unreserved', 1), ('reserved', 1), ('registered', 1), ('routing-pending', 1), ('available', 0)])

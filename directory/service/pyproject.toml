@@ -1,0 +1,12 @@
+[project]
+name = "gdds-directory"
+version = "0.1.0"
+requires-python = "==3.14.6"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.15.21", "mypy==2.3.0"]
+
+[tool.mypy]
+strict = true
+files = ["gdds_directory", "tests"]

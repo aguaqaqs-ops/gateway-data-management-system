@@ -1,6 +1,6 @@
 # 前端专项整顿执行计划
 
-- **状态：** 草案，待 Owner 确认 §11 的事项（2026-11-12）。
+- **状态：** Owner 已确认（2026-11-12）：§11 七项均按本文建议。§2 的开始条件满足后实施。
 - **会话分工：** 前端设计会话写本计划、答复设计问题并给出 F7 判断；实施与审核各由独立会话负责（[前端 kickoff](frontend-kickoff.md) §10）。
 - **依据：** 主 checkout 根目录的未提交文件 `remediation-input-frontend.md`（下称“输入”）与 `project-review-2026-11.md` §11、§12；[FE4 kickoff](fe4-kickoff.md) §20；AGENTS“前端测试（FD7）”。
 - **代码事实基线：** main `eb6530b36e`（FE4 合并后的 H，`H:frontend` `b4806ba6a5`）。本文按函数名引用代码，不引用行号：H4 之后行号全部改变。
@@ -23,7 +23,7 @@
 
 ## 2. 开始条件与基线
 
-- **开始条件：** FE4 kickoff §20.5 合并后验证通过、§20.4 第 6 步收尾完成，本计划经 Owner 确认并合入 main。实施从当时的 main 头开始，记为 B。B 的 `frontend/` 树与 H 不同时（§20.5 失败后有修复），先重新核对本文引用的函数与数量，有出入写进 handoff，不算偏差。
+- **开始条件：** FE4 kickoff §20.5 合并后验证通过、§20.4 第 6 步收尾完成，本计划合入 main（Owner 已于 2026-11-12 确认）。实施从当时的 main 头开始，记为 B。B 的 `frontend/` 树与 H 不同时（§20.5 失败后有修复），先重新核对本文引用的函数与数量，有出入写进 handoff，不算偏差。
 - **测试数量基线：** §20.5 的 04 mock 全量（H 上：vitest 46 个文件 481 项、Playwright 118 项、PNG 252 张；`smoke` 9 项、`journeys` 21 项，见交换目录 `fe4b/handoffs/fe4-post-merge-eb6530b36e-handoff.md`，以审核会话核对后的数字为准）。本轮新增的测试只增加计数；既有用例一个不删、不改断言。
 - **截图基线：** 07 上 B 的 mock 全量截图（B@07，实施会话的第一次运行）。04 的退出比较用 §20.5 的 04 mock 截图；B 与 H 的 `frontend/` 树不同时，先在 04 跑一次 B 作基线（调试，不作证据）。
 - **H 上的现状数字**（供结果评审对照，口径：`frontend/src` 不含生成类型与测试夹具）：99 个文件 17,285 行；超过 160 字符的行 630，超过 400 字符的 43，最长 2,048 字符（`ComparisonPage.tsx`）。组件体：`ComparisonPage` 579 行，`useState` 30、`useRef` 9、`useEffect` 9；`WorkbenchPage` 557 行，32、3、7；`ArchiveMainlineDialog` 516 行，30、3、1。`pair_id` 子串匹配 4 处（`viewLabel` 2、`viewTitle` 2）。OpenAPI 快照 39 条路径，其中 `/internal/` 6 条。
@@ -60,7 +60,7 @@
 - **移动：** `src/design-system/ConnectionStatusIndicator.tsx` → `src/features/workbench/ConnectionStatusIndicator.tsx`（`git mv`，组件内导入改为 `../api/connection-status`），两个页面的导入随之修改；`connection-status.test.ts` 中渲染组件的用例原样移到 `src/features/workbench/ConnectionStatusIndicator.test.ts`，另两个用例留下。用例数不变，单测文件数加 1。
 - **证明规则生效：** 加一个参数化单测（`// @vitest-environment node`），用 ESLint 的 Node API `lintText` 对每条规则各给一个违规样例（必须报 `no-restricted-imports`）和一个合法样例（不报）。门禁配置写错（例如 glob 不匹配）时它会失败，否则规则可能一直“静默通过”。
 - **文档：** kickoff §4.2 已写入目录与层的对应关系（本计划的同一提交）。
-- **不处理：** A 层内部方向不整齐的导入（`bundle` → `view-model`、`api` → `bundle`）。另见 §11 第 2 项：两个放在 A 层目录里的 UI 组件。
+- **不处理：** A 层内部方向不整齐的导入（`bundle` → `view-model`、`api` → `bundle`）。另见 §11 第 2 项：两个放在 A 层目录里的 UI 组件，Owner 决定本轮不动、记为遗留。
 
 ## 6. H2：机械拆 `ComparisonPage.tsx`
 
@@ -236,6 +236,8 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 
 整轮末尾一次，新会话，审核 `B..C`，重点 H3，其余各项一并看。
 
+- **角色（AGENTS“代码独审与验收核对”，main `8dafcf92b8`）：** 审核会话是新上下文，模型由 Owner 安排（AGENTS 默认代码独审为 `gpt-6-astra`）；报告写明审核范围、风险与模型家族。交付清单、原始证据完整性与截图对照可以按需交验收核对（默认 `gpt-6-luna`），前端不强制增设固定角色；不另安排时，由审核会话一并核对 §9 第 10 步的证据。
+
 - **H3：** 每个 hook 的职责与 §7.2 一致；`git diff --color-moved` 下非移动改动逐条有理由；§7.1 的各条规则与 §7.3 的 effect 顺序、重置序列、具名函数与捕获值逐项核对；在 07 上对每个组件挑一两处风险最高的接线做探针（例如撤掉某个重置或调换两个 hook 的调用顺序），看 mock e2e 是否失败；不失败的记为覆盖缺口，写进报告，不阻塞。
 - **H4、H1、H2：** 格式化提交可重放；三条规则与规则单测；移动是否整块；t4 筛查（§9）：两个打包文件在 `B..C` 中只有格式化提交的改动。
 - **G1：** 推导表、等价性论证与单测；源码中不再有 `pair_id` 子串匹配。
@@ -243,7 +245,9 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 - **截图：** 审核会话在 07 跑一次 C 的 mock 全量，与 B@07 比较。
 - **结论：** 可以退出、定向修复或停下交 Owner。报告放交换目录 `reviews/`。
 
-## 11. 与输入的出入，交 Owner 决定
+## 11. 与输入的出入（Owner 2026-11-12 已决定）
+
+**Owner 决定：** 七项均按本节建议。第 1 项选甲；第 2 项本轮不动，记为遗留；第 3、5、6、7 项按本文执行；第 4 项 F7 转入小任务第 6 项。
 
 1. **H1 规则对测试文件的范围（建议甲）。** 甲：规则作用于测试文件，A 层测试可以导入 `features/dev`，渲染组件的用例随组件移走（§5）。乙：规则只作用于生产代码。甲多一个测试文件，保证测试也不跨层用 UI。
 2. **A 层目录里还有两个 UI 组件（建议本轮不动）。** `features/session/SessionComponents.tsx`（`SessionGate`、`DeviceBar`）与 `features/view-model/table-state.tsx` 中的 `SurfaceChangeBadge`、`TableFailureNotice` 按 kickoff §4.2 属于 C 层，三条导入规则查不出来。移动不改行为，但 `table-state.tsx` 还要把纯函数与组件拆开，超出输入范围。建议记为遗留，下次改到这两个文件时移到 C 层；Owner 希望本轮做的，归入 H1。

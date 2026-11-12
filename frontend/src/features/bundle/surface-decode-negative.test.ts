@@ -39,6 +39,7 @@ async function installMutatedSurface(mutate: (surface: Record<string, unknown>) 
       ? mutatedBytes
       : new Uint8Array(await (await installed.bundle.readArtifact(logicalPath)).arrayBuffer());
     const sink = await transaction.openArtifact(logicalPath);
+    if (!("write" in sink)) throw new Error("memory store must return an artifact sink");
     await sink.write(bytes);
     await sink.close();
     if (logicalPath === surfacePath) {

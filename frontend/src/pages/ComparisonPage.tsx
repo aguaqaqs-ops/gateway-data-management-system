@@ -9,7 +9,8 @@ import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type Installed
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
 import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
-import { readParquetTable } from "../features/bundle/parquet-reader";
+import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
+import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
 import { buildBrowseRows, canReuseUnrecordedIdentity, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
 import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
@@ -500,14 +501,26 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const tableRecords = rowRecords as RowDiffRecord[];
       const locator = parseRowLocator(locatorRows as Record<string, unknown>[]);
       const filterTabs = filterTabsForTable(surfaceTable.table_name);
+      const exactTable = filterTabs.length > 0 && filterTabs.every((tab) => tab.facts?.basis === "EXACT");
       validateRowLocations({ table: surfaceTable, locator, records: tableRecords,
         beforeRowCount: beforeSnapshotRows.length, currentRowCount: currentSnapshotRows.length,
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
-        publishesFilterTabs: filterTabs.length > 0 });
+        publishesFilterTabs: filterTabs.length > 0, exactTable });
+      const degraded = tableRecords.some((record) => record.record_kind === "TABLE_DEGRADED" || record.record_kind === "ORDERED_TABLE_DEGRADED");
+      const needsEncodings = selectedTab.rowFilter !== null && !degraded;
+      const [beforeMeta, currentMeta] = needsEncodings
+        ? await Promise.all([
+          paths?.before ? readParquetMetadata(bundle, paths.before) : Promise.resolve(null),
+          paths?.current ? readParquetMetadata(bundle, paths.current) : Promise.resolve(null),
+        ])
+        : [null, null];
+      const tableLabel = `表 ${surfaceTable.table_name}`;
+      const beforeEncodings: Map<string, SnapshotColumnEncoding> = beforeMeta ? decodeSnapshotEncodings(beforeMeta.key_value_metadata, `${tableLabel}.改前`) : new Map();
+      const currentEncodings: Map<string, SnapshotColumnEncoding> = currentMeta ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`) : new Map();
       setBeforeRows(beforeSnapshotRows); setCurrentRows(currentSnapshotRows); setRecords(tableRecords); setAnnotations(risks);
       const built = buildBrowseRows({ table: surfaceTable, beforeRows: beforeSnapshotRows, currentRows: currentSnapshotRows, records: tableRecords, annotations: risks, locator,
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
-        rowFilter: selectedTab.rowFilter,
+        rowFilter: selectedTab.rowFilter, beforeEncodings, currentEncodings, degraded,
         reuseUnrecordedBefore: canReuseUnrecordedIdentity(surfaceTable, filterTabs, Boolean(paths?.before), Boolean(paths?.current)),
         onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns });
       setRows(built.rows);

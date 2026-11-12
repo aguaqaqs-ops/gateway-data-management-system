@@ -6,6 +6,20 @@ import {
   parseRowLocator,
   validateRowLocations,
 } from "./table-rows";
+import type { SnapshotColumnEncoding } from "./snapshot-encoding";
+
+function encodings(entries: Array<[string, Partial<SnapshotColumnEncoding> & { scalarKind: SnapshotColumnEncoding["scalarKind"] }]>): Map<string, SnapshotColumnEncoding> {
+  return new Map(entries.map(([name, entry]) => [name, {
+    columnName: name, declaredBits: null, signed: true, sqlType: "", logicalType: "standard", physicalType: "utf8",
+    declaredKind: entry.scalarKind === "integer" ? "signed-integer" : entry.scalarKind === "string" ? "string" : null,
+    ...entry,
+  }]));
+}
+
+const browseEncodings = () => encodings([
+  ["dev_addr", { scalarKind: "integer", declaredBits: 64, signed: true }],
+  ["description", { scalarKind: "string" }],
+]);
 
 function hex(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
@@ -67,12 +81,14 @@ describe("locator validation", () => {
       hasBeforeSnapshot: true,
       hasCurrentSnapshot: true,
       publishesFilterTabs: base.publications,
+      exactTable: false,
       ...overrides,
     });
   }
 
   it("accepts one locator row per published ordinary record", () => {
     expect(validate([record("ROW_ADDED", 0x11), record("ROW_MODIFIED", 0x22), record("ROW_DELETED", 0x33)], [locatorRow(0x11, null, 1), locatorRow(0x22, 1, 0), locatorRow(0x33, 2, null)])).not.toThrow();
+    expect(validate([record("ROW_ADDED", 0x11), record("ROW_MODIFIED", 0x22), record("ROW_DELETED", 0x33)], [locatorRow(0x11, null, 1), locatorRow(0x22, 1, 0), locatorRow(0x33, 2, null)], { exactTable: true })).not.toThrow();
   });
 
   it.each([
@@ -173,12 +189,14 @@ describe("browse rows from published locators", () => {
       table: table(), beforeRows: rowsBefore, currentRows: rowsCurrent,
       records: [record("ROW_MODIFIED", 0x11, { changed_columns: ["description"] })],
       annotations: [], locator, rowFilter: { before: { column: "dev_addr", values: [7] }, current: null },
+      beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
     });
     expect(result.rows.map((row) => row.values.dev_addr)).toEqual([7, 7]);
     const currentOnly = buildBrowseRows({
       table: table(), beforeRows: rowsBefore, currentRows: rowsCurrent,
       records: [record("ROW_MODIFIED", 0x11, { changed_columns: ["description"] })],
       annotations: [], locator, rowFilter: { before: null, current: { column: "dev_addr", values: [7] } },
+      beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
     });
     expect(currentOnly.rows.map((row) => row.kind)).toEqual(["modified-before", "modified-after"]);
   });
@@ -187,6 +205,7 @@ describe("browse rows from published locators", () => {
     const filterResult = (reuse: boolean) => buildBrowseRows({
       table: table(), beforeRows: [], currentRows: rowsCurrent, records: [],
       annotations: [], locator: new Map(), hasBeforeSnapshot: false, rowFilter: { before: { column: "dev_addr", values: [8] }, current: null },
+      beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
       reuseUnrecordedBefore: reuse,
     }).rows.map((row) => row.values.dev_addr);
     expect(filterResult(false)).toEqual([]);
@@ -198,12 +217,25 @@ describe("browse rows from published locators", () => {
     const nullRow = buildBrowseRows({
       table: table(), beforeRows: [], currentRows: [{ dev_addr: null }], records: [], annotations: [], locator,
       rowFilter: { before: null, current: { column: "dev_addr", values: [0] } },
+      beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
     });
     expect(nullRow.rows).toHaveLength(0);
     const integerRow = buildBrowseRows({
       table: table(), beforeRows: [], currentRows: [{ dev_addr: 7n }], records: [], annotations: [], locator,
       rowFilter: { before: null, current: { column: "dev_addr", values: [7] } },
+      beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
     });
     expect(integerRow.rows).toHaveLength(1);
+  });
+
+  it("skips predicate assertions for a degraded table", () => {
+    const locator = parseRowLocator([locatorRow(0x11, 0, 0)]);
+    const result = buildBrowseRows({
+      table: table(), beforeRows: rowsBefore, currentRows: rowsCurrent,
+      records: [record("ROW_MODIFIED", 0x11, { changed_columns: ["description"] })],
+      annotations: [], locator, rowFilter: { before: { column: "dev_addr", values: [999] }, current: null },
+      degraded: true,
+    });
+    expect(result.rows.length).toBeGreaterThan(0);
   });
 });

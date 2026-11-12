@@ -21,6 +21,12 @@ def main() -> int:
     importing.add_argument("--dry-run", action="store_true")
     commands.add_parser("status")
     commands.add_parser("serve")
+    provisioning = commands.add_parser("provision")
+    selection = provisioning.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--stations", type=Path)
+    selection.add_argument("--all", action="store_true")
+    selection.add_argument("--renew-sessions", action="store_true")
+    provisioning.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     value = os.environ.get("GDDS_DIRECTORY_DB", "")
     if not value or not Path(value).is_absolute():
@@ -29,6 +35,17 @@ def main() -> int:
     path = Path(value)
     try:
         db.validate_path(path)
+        if args.command == "provision":
+            from . import provision
+
+            if args.renew_sessions and args.dry_run:
+                parser.error("--dry-run cannot be used with --renew-sessions")
+            try:
+                stations = args.stations.read_text(encoding="utf-8").splitlines() if args.stations else None
+            except (OSError, UnicodeError):
+                print("cannot read stations file", file=sys.stderr)
+                return 2
+            return provision.run(path, stations=stations, all_devices=args.all, renew=args.renew_sessions, dry_run=args.dry_run)
         if args.command == "serve":
             from .http_service import DirectoryServer
 

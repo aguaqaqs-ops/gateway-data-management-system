@@ -219,6 +219,9 @@ def inspect_group(config: Any, group: Any, *, allowed_states: tuple[str, ...] = 
             or labels.get("com.docker.compose.network") != "default"):
         raise ValueError("group network is not owned by the selected Compose project")
     selected = inspect_project(group.project) if containers is None else containers
+    expected_peers = {item["Id"] for item in selected if item["State"]["Status"] == "running"}
+    if set(network.get("Containers") or {}) != expected_peers:
+        raise ValueError("group network has an unexpected attached peer")
     result = validate_group_containers(config, group, selected,
         allowed_states=allowed_states, image_identities=identities, network_identity=network)
     backend = next(item for item in selected if item["Config"]["Labels"]["com.docker.compose.service"] == "backend")

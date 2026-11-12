@@ -416,6 +416,10 @@ and lifecycle. A group's maintenance command never includes the entry or
 another group's containers. Maintenance additionally inspects actual container
 project/service labels, image references, fixed worker indices, ports, mounts
 and cgroup resource limits against the selected group before sending TERM.
+It also verifies the default network's Compose owner and exact attached peers,
+and matches backend's unique kernel IPv4 default gateway to Docker IPAM.
+Internal statistics may trust only this host gateway or loopback, alongside
+the original session permission; Host/forwarded headers do not establish it.
 Backend startup and worker startup authenticate the RS deployment identity and
 match environment, group and storage digest; a healthy endpoint from another
 group cannot make the target ready.

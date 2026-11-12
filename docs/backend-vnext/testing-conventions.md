@@ -510,7 +510,7 @@ backend 的 `tests/conftest.py` 保留默认 `unit` 分类：未标 `integration
 
 ```bash
 mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
-uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
+./vnext/scripts/uv-consume.sh -C vnext/repository_service run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
 ```
 
 这是唯一可靠的判据，静态扫描做不到。

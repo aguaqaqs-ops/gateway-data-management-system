@@ -168,7 +168,7 @@ mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
   测试运行期间任何人都不得在被测 worktree 中写入。
 - 调试与取证分开：调试期间只跑必要 focused 测试与受影响的真实数据段；收敛后在最终候选集中完成必要权威包、容器门禁及 Owner 确认的最小真实范围。阶段按实际闭包运行或合格沿用，不默认完整旅程或重复性能采样；项目最终/发布门禁仍运行全部六包。真实范围在 kickoff 写明、阶段退出前由 Owner 确认（DC33、DC98）。
 - 未经 owner 授权不推送，不改写已被审核引用的提交。流程细节见
-  [P5 收口执行计划 §8](docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md)。
+  [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。
 
 ## Docker / Compose 验证
 
@@ -183,8 +183,6 @@ mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
 - 依赖基础镜像仅在其定义的依赖/锁/工具链等输入变化时重建、传输；产品源码变化使用已有基础镜像和构建缓存。一次集中完整验收是正常通过时的目标，不是失败后的次数上限；修复后按受影响范围重建复验，遵守现行停止/DC68 规则。构建/缓存故障先停止受影响执行与依赖验收，可以继续无依赖的逻辑开发，不跳过离线或身份前提。
 
 ## 全局比例化保障
-
-Phase 6退出按[DC97](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc97-性能可靠测量与节点协调补充owner2026-11-08)：性能数值目标只报告，是否达标不作退出门槛；仍须完成已确认范围的可靠测量、真实统计、正确性／资源安全／来源与独审核收，失败和未知不得写为通过。可由Luna max只读监视并向协调者汇报；不额外启动测试或替代唯一执行者／独立审核。
 
 按[DC98](docs/backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc98-业务正确性优先与s4验证范围收敛owner2026-11-09)，各阶段以新增/受影响业务正确性为主，不默认逐阶段全量测量、合成放大、预热加重复采样或细粒度profiling；性能/容量专项按明确目的、范围和成本另定。合格来源依原规则复用，最终必要门禁、冻结语义、资源硬边界与已发现finding不因裁剪取消。真实数据按改动面提出最小范围，由Owner确认；未运行或未知不写通过，取消项不自动转交后续阶段。
 

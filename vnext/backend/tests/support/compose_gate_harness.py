@@ -208,11 +208,12 @@ def run_repository_service_exec(
     )
 
 
-def ensure_repository_service_image() -> None:
+def ensure_repository_service_image(*, candidate_revision: str | None = None) -> None:
     image = repository_service_image()
     expected_identity = _repository_service_image_identity()
     current = _inspect_image(image)
-    if _repository_service_image_matches(current, expected_identity):
+    if (_repository_service_image_matches(current, expected_identity)
+            and (candidate_revision is None or (current.get("labels") or {}).get("org.opencontainers.image.revision") == candidate_revision)):
         return
     if not BUILD_REPOSITORY_SCRIPT.is_file():
         pytest.fail(f"missing repository-service build script: {BUILD_REPOSITORY_SCRIPT}")
@@ -230,7 +231,8 @@ def ensure_repository_service_image() -> None:
             f"stdout={completed.stdout[-500:]} stderr={completed.stderr[-500:]}"
         )
     rebuilt = _inspect_image(image)
-    if not _repository_service_image_matches(rebuilt, expected_identity):
+    if (not _repository_service_image_matches(rebuilt, expected_identity)
+            or (candidate_revision is not None and (rebuilt.get("labels") or {}).get("org.opencontainers.image.revision") != candidate_revision)):
         labels = rebuilt.get("labels", {})
         pytest.fail(
             "repository-service image provenance does not match current build context after build; "
@@ -1883,10 +1885,19 @@ def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
     storage = json.loads((directory / "storage-layout.json").read_bytes())
     manifest = json.loads((VNEXT_ROOT / "fixtures/processing-groups/v1/groups.json").read_bytes())
     manifest["environment_id"] = storage["environment_id"]
-    manifest["groups"] = [dict(manifest["groups"][0], group_id=storage["group_id"],
+    manifest["host"] = json.loads((directory / "resource-profile.json").read_bytes())["host_budget"]
+    target = dict(manifest["groups"][0], group_id=storage["group_id"], backend_port=8000,
         project=env["COMPOSE_PROJECT_NAME"], storage_config=str(directory / "storage-layout.json"),
-        resource_config=str(directory / "resource-profile.json"), session_directory=str(session_directory))]
+        resource_config=str(directory / "resource-profile.json"), session_directory=str(session_directory),
+        internal_token_file=env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"],
+        repository_token_file=env["GATEWAY_P2R2_BEARER_TOKEN_FILE"])
+    if "GATEWAY_BACKEND_CANDIDATE_SHA" in env:
+        target["images"] = dict(backend=env["GATEWAY_BACKEND_IMAGE"], worker=env["GATEWAY_WORKER_IMAGE"],
+            repository_service=repository_service_image(), revision=env["GATEWAY_BACKEND_CANDIDATE_SHA"])
+    manifest["groups"] = [target]
     write_container_readable_text(public / "groups.json", json.dumps(manifest))
+    mapping = json.loads(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]).read_bytes())
+    devices = dict.fromkeys(row["gateway_device_external_key"] for row in mapping["mappings"])
     write_container_readable_text(public / "device-directory.json", json.dumps(dict(schema_version=1,
-        environment_id=storage["environment_id"], devices=[dict(gateway_device_external_key=DEVICE_KEY,
-            group_id=storage["group_id"], enabled=True)])))
+        environment_id=storage["environment_id"], devices=[dict(gateway_device_external_key=device,
+            group_id=storage["group_id"], enabled=True) for device in devices])))

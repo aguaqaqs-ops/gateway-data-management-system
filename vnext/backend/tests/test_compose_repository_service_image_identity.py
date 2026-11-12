@@ -15,6 +15,7 @@ EXPECTED_IDENTITY = (EXPECTED_BUILD_INPUT_REVISION, EXPECTED_SOURCE_TREE_SHA256)
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("candidate_revision", [None, "e" * 40])
 @pytest.mark.parametrize(
     ("image_exists", "initial_labels", "expected_builds"),
     [
@@ -49,6 +50,7 @@ def test_repository_service_image_is_bound_to_current_build_identity(
     image_exists: bool,
     initial_labels: dict[str, str],
     expected_builds: int,
+    candidate_revision: str | None,
 ) -> None:
     labels = dict(initial_labels)
     present = image_exists
@@ -88,6 +90,7 @@ def test_repository_service_image_is_bound_to_current_build_identity(
             labels = {
                 "gateway.p2r1.build-input-revision": EXPECTED_BUILD_INPUT_REVISION,
                 "gateway.p2r1.source-tree-sha256": EXPECTED_SOURCE_TREE_SHA256,
+                "org.opencontainers.image.revision": candidate_revision or "f" * 40,
             }
             present = True
             return subprocess.CompletedProcess(args, 0, "built", "")
@@ -95,6 +98,6 @@ def test_repository_service_image_is_bound_to_current_build_identity(
 
     monkeypatch.setattr("tests.support.compose_gate_harness.subprocess.run", fake_run)
 
-    compose_gate_harness.ensure_repository_service_image()
+    compose_gate_harness.ensure_repository_service_image(candidate_revision=candidate_revision)
 
-    assert len(build_calls) == expected_builds
+    assert len(build_calls) == max(expected_builds, int(candidate_revision is not None))

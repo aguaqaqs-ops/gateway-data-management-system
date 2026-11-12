@@ -38,6 +38,7 @@ def _manage_group(env: dict[str, str], command: str) -> str:
     mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
     result = subprocess.run([sys.executable, str(harness.VNEXT_ROOT / "scripts/manage-worker-group.py"), command,
         "--project", env["COMPOSE_PROJECT_NAME"],
+        "--groups-file", str(Path(env["GATEWAY_PROCESSING_GROUPS_DIRECTORY"]) / "groups.json"),
         "--compose-file", str(harness.COMPOSE_FILE),
         "--compose-file", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"],
         "--storage-layout", mounts["/run/gateway/storage-layout.json"],
@@ -88,6 +89,14 @@ print(json.dumps(snapshot, sort_keys=True))
 def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(tmp_path: Path) -> None:
     harness.require_docker()
     env = _compose_env(tmp_path)
+    revision = subprocess.run(["git", "-C", str(harness.REPO_ROOT), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    assert not subprocess.run(["git", "-C", str(harness.REPO_ROOT), "status", "--porcelain"],
+        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    env.update(GATEWAY_BACKEND_CANDIDATE_SHA=revision,
+        GATEWAY_BACKEND_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-backend:fixed",
+        GATEWAY_WORKER_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-worker:fixed")
+    harness.ensure_repository_service_image(candidate_revision=revision)
     resume_polling = Event()
     accepted: Queue[str] = Queue()
     try:

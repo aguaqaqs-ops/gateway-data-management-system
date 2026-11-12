@@ -101,8 +101,13 @@ def test_production_renderer_applies_actual_compose_limits_and_role_mounts(tmp_p
         secret.write_text("fixture-only")
         mapping = tmp_path / "mapping.json"
         mapping.write_text('{"mappings":[]}')
+        public = tmp_path / "public"
+        public.mkdir()
+        sessions = tmp_path / "sessions"
+        sessions.mkdir()
         environment = {**os.environ, "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret),
-            "GATEWAY_BACKEND_SESSION_FILE": str(secret), "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret),
+            "GATEWAY_BACKEND_SESSION_DIRECTORY": str(sessions), "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret),
+            "GATEWAY_PROCESSING_GROUPS_DIRECTORY": str(public),
             "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping)}
         project = "gateway-f-render-" + uuid4().hex[:12]
         command = ["docker", "compose", "-p", project, "-f", str(VNEXT / "deploy/compose.yaml"),
@@ -133,9 +138,13 @@ def test_backend_harness_removes_successful_owned_binds_and_retains_failed_state
     image = os.environ["GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE"]
     secret = tmp_path / "token"
     secret.write_text("fixture-only")
+    session = tmp_path / "session.json"
+    session.write_text('{"sessions":[]}')
+    mapping = tmp_path / "mapping.json"
+    mapping.write_text('{"mappings":[]}')
     env = {**os.environ, "COMPOSE_PROJECT_NAME": "gateway-f-be-owner-" + uuid4().hex[:12],
-        "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_SESSION_FILE": str(secret),
-        "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(secret)}
+        "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_SESSION_FILE": str(session),
+        "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret), "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping)}
     harness.prepare_runtime_config(env)
     directory, _owner = harness._runtime_fixtures[env["COMPOSE_PROJECT_NAME"]]
     override = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])

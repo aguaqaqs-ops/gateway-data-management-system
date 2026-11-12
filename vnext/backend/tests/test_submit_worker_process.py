@@ -4,6 +4,8 @@ from __future__ import annotations
 
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 import selectors
 import signal
 import subprocess
@@ -12,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from tests.support.runtime_settings import make_operation_worker_settings
+from tests.support.http_shutdown_harness import repository_ready_stub_context
 
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_PREPARE
@@ -126,6 +129,8 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
     environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE"] = str(fixture_settings.processing_groups_file)
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE"] = str(fixture_settings.device_directory_file)
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
@@ -135,16 +140,21 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     return environment
 
 
-def _spawn_worker(db_path: Path) -> subprocess.Popen[str]:
-    return subprocess.Popen(
-        [sys.executable, "-m", MODULE],
-        cwd=BACKEND_ROOT,
-        env=_subprocess_environment(db_path),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
+@contextmanager
+def _spawn_worker(db_path: Path) -> Iterator[subprocess.Popen[str]]:
+    environment = _subprocess_environment(db_path)
+    with repository_ready_stub_context(db_path.parent,
+            storage_layout_file=Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"])) as repository:
+        environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = repository.base_url
+        process = subprocess.Popen([sys.executable, "-m", MODULE], cwd=BACKEND_ROOT,
+            env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1)
+        try:
+            yield process
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def _read_until(process: subprocess.Popen[str], marker: str, timeout: float = 5.0) -> str:
@@ -164,7 +174,7 @@ def _read_until(process: subprocess.Popen[str], marker: str, timeout: float = 5.
                 return "".join(lines)
     finally:
         selector.close()
-    return "".join(lines)
+    pytest.fail(f"worker exited before {marker!r}; output={''.join(lines)!r}")
 
 
 def _finish(process: subprocess.Popen[str], signal_number: signal.Signals) -> str:
@@ -180,22 +190,22 @@ def _finish(process: subprocess.Popen[str], signal_number: signal.Signals) -> st
 
 def test_module_worker_bootstraps_submit_registry_and_drains_on_sigterm(tmp_path: Path) -> None:
     db_path = tmp_path / "submit-process" / "control.sqlite3"
-    process = _spawn_worker(db_path)
-    try:
-        initial_output = _read_until(process, "code=worker_ready")
-        output = initial_output + _finish(process, signal.SIGTERM)
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
+    with _spawn_worker(db_path) as process:
+        try:
+            initial_output = _read_until(process, "code=worker_ready")
+            output = initial_output + _finish(process, signal.SIGTERM)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
 
-    assert process.returncode == 0
-    assert "code=drain_started" in output
-    assert "code=worker_exited" in output
-    assert "RuntimeWarning" not in output
-    assert str(db_path) not in output
-    assert "test-repository-token" not in output
-    assert db_path.is_file()
+        assert process.returncode == 0
+        assert "code=drain_started" in output
+        assert "code=worker_exited" in output
+        assert "RuntimeWarning" not in output
+        assert str(db_path) not in output
+        assert "test-repository-token" not in output
+        assert db_path.is_file()
 
 
 @pytest.mark.parametrize(

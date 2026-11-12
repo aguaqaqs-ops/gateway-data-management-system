@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fcntl
+from datetime import UTC, datetime
+import socket
 import json
 import logging
 import os
@@ -816,6 +818,34 @@ def _teardown_compose_project_resources(env: dict[str, str]) -> None:
         )
         if pruned.returncode != 0:
             pytest.fail(f"docker network rm failed: {pruned.stderr}\n{pruned.stdout}")
+
+
+def capture_container_diagnostics(env: dict[str, str], destination: Path) -> Path:
+    """Preserve original state/full logs before this test's containers are removed."""
+    destination.mkdir(mode=0o700)
+    records: list[dict[str, Any]] = []
+    def capture(name: str, command: list[str]) -> bytes:
+        result = subprocess.run(command, capture_output=True, check=False, timeout=30)
+        for suffix, data in (("stdout", result.stdout), ("stderr", result.stderr)):
+            descriptor = os.open(destination / (name + "." + suffix), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(data)
+        records.append({"name": name, "command": command, "exit_code": result.returncode})
+        return result.stdout if result.returncode == 0 else b""
+    candidate = capture("candidate", ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"]).decode().strip()
+    identifiers = capture("containers", ["docker", "ps", "-aq", "--filter",
+        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]]).decode().split()
+    if identifiers:
+        capture("inspect", ["docker", "inspect", *identifiers])
+        for identifier in identifiers:
+            capture("logs-" + identifier, ["docker", "logs", "--timestamps", identifier])
+    descriptor = os.open(destination / "source.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        json.dump({"candidate": candidate, "hostname": socket.gethostname(), "utc": datetime.now(UTC).isoformat(),
+            "project": env["COMPOSE_PROJECT_NAME"], "runtime_override": env.get("GATEWAY_RUNTIME_COMPOSE_OVERRIDE"),
+            "records": records}, stream, sort_keys=True)
+    print("container_diagnostics=" + str(destination), flush=True)
+    return destination
 
 
 def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:

@@ -111,6 +111,12 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
     rendered_path.write_text(json.dumps(rendered_config))
     resume_polling = Event()
     accepted: Queue[str] = Queue()
+    diagnostics_attempted = False
+    def preserve_failure() -> None:
+        nonlocal diagnostics_attempted
+        if sys.exc_info()[0] is not None and not diagnostics_attempted:
+            diagnostics_attempted = True
+            harness.capture_container_diagnostics(env, tmp_path / "worker-diagnostics")
     try:
         _repository_id, initial_commit = harness.start_three_container_stack(env, tmp_path, workers=2)
         rendered = harness.run_compose(env, "config", "--format", "json")
@@ -191,6 +197,7 @@ else:
                 assert overlap.returncode == 0, overlap.stdout + overlap.stderr
                 print(overlap.stdout, flush=True)
             finally:
+                preserve_failure()
                 for barrier in barriers:
                     write_container_readable_text(barrier.with_suffix(".release"), "release executor")
                 resume_polling.set()
@@ -216,6 +223,7 @@ else:
         assert {state.split()[0] for state in restarted.values()} == set(ids)
         assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
+        preserve_failure()
         for barrier in barriers:
             write_container_readable_text(barrier.with_suffix(".release"), "release executor")
         resume_polling.set()

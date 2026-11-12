@@ -195,11 +195,11 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
       );
       if (!response.ok) throw new Error(`GET preview bundle returned ${response.status}`);
       if (response.headers.get("Content-Type")?.split(";", 1)[0] !== "application/x-tar") throw new Error("preview bundle must be a tar stream");
-      return Array.from(new Uint8Array(await response.arrayBuffer()));
+      return { bytes: Array.from(new Uint8Array(await response.arrayBuffer())), contentLength: response.headers.get("Content-Length"), etag: response.headers.get("ETag") };
     },
     { token: identity.token, workspaceId: workspace.workspace_id, previewResultId: workspace.current_preview_result_id },
   );
-  const bundle = parseBundleTar(Buffer.from(bundleBytes)).manifest;
+  const bundle = (await parseBundleTar(Buffer.from(bundleBytes.bytes), { ...bundleBytes, expectedBundleDigest: preview.bundle_digest })).manifest;
   expect(bundle.bundle_digest).toBe(preview.bundle_digest);
   return { preview, bundle };
 }

@@ -85,8 +85,8 @@ export function recordBundleResponses(page: Page): { responses: Response[]; disp
 
 /** Read bundle bodies when they arrive: Playwright cannot fetch a response
  * body after the page has navigated away from it. */
-export function recordBundleBodies(page: Page): { bodies: Buffer[]; pending: Promise<void>[]; dispose: () => void } {
-  const bodies: Buffer[] = [];
+export function recordBundleBodies(page: Page): { bodies: Array<{ body: Buffer; contentLength: string | null; etag: string | null }>; pending: Promise<void>[]; dispose: () => void } {
+  const bodies: Array<{ body: Buffer; contentLength: string | null; etag: string | null }> = [];
   const pending: Promise<void>[] = [];
   const listener = (response: Response): void => {
     if (!isBundleResponse(response)) return;
@@ -94,7 +94,7 @@ export function recordBundleBodies(page: Page): { bodies: Buffer[]; pending: Pro
       response
         .body()
         .then((body) => {
-          bodies.push(Buffer.from(body));
+          bodies.push({ body: Buffer.from(body), contentLength: response.headers()["content-length"] ?? null, etag: response.headers()["etag"] ?? null });
         })
         .catch(() => undefined),
     );

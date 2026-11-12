@@ -156,6 +156,11 @@ open(path, "w", encoding="utf-8").write("\n".join(out) + "\n")
 PY
 }
 
+cleanup_runtime_roots() {
+  "$REPO_DIR/vnext/scripts/uv-consume.sh" -C "$REPO_DIR/vnext/backend" run --no-sync \
+    python -m tests.support.frontend_processing_groups --cleanup-retained --root "$GROUPS_ROOT" --control "$GROUPS_CONTROL"
+}
+
 cleanup() {
   local exit_code=$?
   local main_exit_code=$exit_code
@@ -168,11 +173,21 @@ cleanup() {
   # 1. stop and remove the toolchain container first: this ends any running
   #    `docker exec` (B2) and frees the project network (kickoff §4.8).
   if [[ -n "$TOOLCHAIN_CONTAINER" ]]; then
-    docker stop --time 10 "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || true
-    docker rm --force "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || true
+    docker stop --time 10 "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || { cleanup_failed=1; log "cleanup_toolchain_stop=failed"; }
+    docker rm --force "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || { cleanup_failed=1; log "cleanup_toolchain_remove=failed"; }
   fi
   if [[ -n "$GROUPS_PID" ]]; then
-    touch "$GROUPS_CONTROL/groups-stop"
+    # Atomic parent outcome precedes stop: a normal helper exit is not proof
+    # that the browser run succeeded. Missing/bad status retains diagnostic roots.
+    if ! python3 -I - "$GROUPS_CONTROL" "$main_exit_code" "$cleanup_failed" "$INTERRUPT_SIGNAL" <<'PY_STATUS'
+import json, pathlib, sys
+control = pathlib.Path(sys.argv[1])
+temporary = control / "groups-run-status.json.tmp"
+temporary.write_text(json.dumps(dict(main_exit_code=int(sys.argv[2]), cleanup_failed=sys.argv[3] != "0", interrupted=bool(sys.argv[4]))))
+temporary.replace(control / "groups-run-status.json")
+PY_STATUS
+    then cleanup_failed=1; log "cleanup_groups_status=failed"; fi
+    touch "$GROUPS_CONTROL/groups-stop" || cleanup_failed=1
     if ! wait "$GROUPS_PID"; then cleanup_failed=1; log "cleanup_groups=failed"; fi
     [[ -f "$GROUPS_CONTROL/groups-stopped.json" ]] || { cleanup_failed=1; log "cleanup_groups=unconfirmed"; }
   fi
@@ -203,6 +218,19 @@ cleanup() {
       log "cleanup_dolt_processes=running"
     fi
   fi
+  # RUN_ROOT contains incoming browser credentials, separate from GROUPS_ROOT.
+  # Its removal must succeed before diagnostic runtime roots may be deleted.
+  if [[ -n "$RUN_ROOT" ]]; then
+    rm -rf -- "$RUN_ROOT" || { cleanup_failed=1; log "cleanup_run_root=failed"; }
+  fi
+  if [[ -n "$GROUPS_PID" && "$main_exit_code" == "0" && "$cleanup_failed" == "0" && -z "$INTERRUPT_SIGNAL" ]]; then
+    if ! cleanup_runtime_roots >> "$LOG_FILE" 2>&1; then
+      cleanup_failed=1
+      log "cleanup_runtime_roots=failed_or_unconfirmed"
+    fi
+  elif [[ -n "$GROUPS_PID" ]]; then
+    log "cleanup_runtime_roots=retained"
+  fi
   # 5. release flock, then delete the busy marker (kickoff §4.2 order).
   if [[ "$HAVE_FLOCK" == "1" ]]; then
     exec 9>&- || true
@@ -231,9 +259,6 @@ cleanup() {
   fi
   log "cleanup_status=$([[ "$cleanup_failed" == "0" ]] && echo ok || echo failed)"
   if [[ "$cleanup_failed" != "0" && "$exit_code" == "0" ]]; then exit_code=1; fi
-
-  # 6. remove per-run secrets and inputs.
-  [[ -n "$RUN_ROOT" ]] && rm -rf -- "$RUN_ROOT" || true
 
   {
     printf 'ended_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

@@ -41,6 +41,6 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: "jsdom",
-    include: ["src/**/*.test.{ts,tsx}"]
+    include: ["src/**/*.test.{ts,tsx}", "e2e-real/lib/**/*.test.ts"]
   }
 });

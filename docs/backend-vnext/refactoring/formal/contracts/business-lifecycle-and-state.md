@@ -398,3 +398,9 @@ BackendArtifactRef、SourceArtifactBinding、Preview/Attempt/Submission及Archiv
 T1 Preview→Attempt保护移交、finalize/abort释放、Archive BaselineHead CAS保护移交与各业务事实仍在原同一短DB事务中成立；外层先按固定次序借roots再开事务，不在既有SQLite protection participant内部倒序取root锁。共享对象最后强owner释放后才转TTL，prune cache index不删除强引用。低频Head不能按年龄失去保护。Archive事务不新增文件读/物化，原exact-commit回填分界保持。
 
 ConfigurationFacts.facts_digest含完整source_artifact_id，Archive candidate含manifest/source refs与facts_digest；新ID会按原公式传递到candidate/candidate-set/冻结audit subject及相关fingerprint。不得删除这些原绑定以保旧golden，也不得将其误认canonical_state_digest算法变化。同盘/分盘配置不进入这些业务绑定摘要；固定同一组业务/nonce输入时应相等。具体逐项摘要与golden责任见A§4。
+
+## S2b online device registration amendment
+
+[Processing Groups and Device Routing](processing-groups-and-routing.md) owns unique environment/device→group reservation. Registration uses exact device/project and deterministic RS key `p7-device-create-v1:` + SHA256(JCS `[environment,group,device]`); conflicting project uses the same key. INITIAL ID is UUID5(NAMESPACE_URL, JCS `["gateway-device-initial-v1",environment,group,device]`), commit only from RS create. Short read/write transactions fresh-read fixed scope; RS I/O stays outside. Mapping, INITIAL and Head(version0) insert atomically. Exact active replay returns immutable INITIAL and never rewinds Head; disabled, conflicting or incomplete identity is409. RS success before DB failure is retained for same-key retry, never compensated by repository deletion.
+
+Startup seed only fills missing records and checks exact existing mapping/repository/enabled/INITIAL; it does not update, reactivate, rebind or remove online records absent from seed. Empty seed is valid. Existing generic mapping-change descriptions above do not authorize changes through startup seed or this new endpoint; dedicated maintenance/transfer is outside S2b. Registration tests own replay/conflicts/atomicity and seed tests own bootstrap behavior.

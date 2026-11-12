@@ -682,3 +682,7 @@ Persistence record 反向成为 domain model
 - Contract 变更具有 owner、版本、compatibility 和 golden test 要求。
 - SourcePackage、SnapshotTable、RepositoryImportArtifact和
   CanonicalizationManifest均能定位到唯一内容owner。
+
+## Processing-group deployment owner (S2b)
+
+[Processing Groups and Device Routing](processing-groups-and-routing.md) owns host directory uniqueness, public route-key, hot publication and group deployment/budget boundaries. Business scope/INITIAL and RS effects retain their existing owners; no shared business database or second recovery owner is introduced.

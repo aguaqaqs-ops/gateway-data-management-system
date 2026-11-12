@@ -1,5 +1,6 @@
 """Thin Versioned Repository Service DTOs."""
 
+from gateway_repository_contracts.deployment import DeploymentIdentityResponse
 from gateway_repository_contracts.errors import SimpleError
 from gateway_repository_contracts.headers import (
     REPOSITORY_IMPORT_MEDIA_TYPE,
@@ -61,6 +62,7 @@ from gateway_repository_contracts.versioned_read_constants import (
 )
 
 __all__ = [
+    "DeploymentIdentityResponse",
     "COMMIT_NOT_FOUND_CODE",
     "REPOSITORY_IMPORT_MEDIA_TYPE",
     "REF_NOT_FOUND_CODE",

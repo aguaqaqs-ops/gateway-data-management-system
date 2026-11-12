@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -112,6 +114,8 @@ def _validate_mapping_record(item: object) -> dict[str, object]:
         value = record[key]
         if type(value) is not str or not value:
             raise ValueError(f"{key} must be a non-empty string")
+    validate_scope_identity(record["gateway_device_external_key"])
+    validate_scope_identity(record["business_project_id"])
     return record
 
 

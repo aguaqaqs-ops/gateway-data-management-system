@@ -177,3 +177,7 @@ backend `RepositoryFeedPoller.poll()`每轮一页/2秒超时，校验environment
 原有有界sink，reset/truncated只报告缺失、不补历史。resource采样scope始终为共享RS服务。
 E将ring置于app.state.statistics_ring、注入worker pool、启动/关闭统计并调度resource/capacity/repository；
 D仅消费已保存SQLite行，F负责候选容器绑定，本包不宣称active部署已验证。
+
+## S2b group routing and management reads
+
+Public group statistics describe the authenticated device’s local group, require statistics_read_group and use the public device header/local mapping boundary. There is no global aggregation or new global statistics grant. Loopback-only `/internal/v1/statistics/group` and `/internal/v1/statistics/group/resources` use an independent dependency resolving this group’s live session and the same statistics_read_group permission, without device mapping/route-key or internal maintenance bearer substitution. They reuse the existing reader/DTO/budgets; deployment fixes environment/group and the public entry rejects internal paths. A valid statistics session with no mapping can read; no permission is rejected, empty sessions401. See [routing owner](processing-groups-and-routing.md).

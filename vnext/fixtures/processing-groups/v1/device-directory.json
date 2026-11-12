@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "environment_id": "test-env",
+  "devices": [
+    {
+      "gateway_device_external_key": "设备一",
+      "group_id": "group-a",
+      "enabled": false
+    },
+    {
+      "gateway_device_external_key": "device-b",
+      "group_id": "group-b",
+      "enabled": true
+    }
+  ]
+}

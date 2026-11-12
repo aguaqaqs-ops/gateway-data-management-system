@@ -320,3 +320,7 @@ own RUNNING有效lease沿原60秒启动预算等待自然到期，超时拒启�
 PURE_RECOMPUTE保留checkpoint/frozen input/prior outputs与保护；EXTERNAL_EFFECT只调度原reconcile，
 不重做T1或换key。恢复不递增attempt，下一次原claim才递增。恢复清除旧租约后任务可由任意实例按原队列领取。
 固定worker_id跨重启不变，旧lease_token仍被CAS拒绝；无peer周期接管、自动清占用或新增持久队列。
+
+## S2b registration admission
+
+Device registration holds the existing acquire_new_work AdmissionGate over its full RS/DB acceptance interval. Drain closes acceptance and waits for this in_flight work as well as existing creations. No new job, queue, registration ledger or recovery state machine is introduced; S2a claim/deadline/UNKNOWN rules remain owned here. See [group routing](processing-groups-and-routing.md).

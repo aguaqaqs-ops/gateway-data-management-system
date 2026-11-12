@@ -445,3 +445,7 @@ request/upload 在尚无 operation 时以活动 flock 表示接收存活。默�
 可用 `--orphan-grace-seconds 0` 处理已确认无活跃 owner 的目录。未知形状、缺失/非法 ref 或 owner、
 symlink/子挂载只报 manual_review，不递归删除。`.gateway-storage.json` 保留给部署 owner，名称识别
 不代表 marker 身份通过；metadata、Dolt、secrets 不属于此枚举范围。
+
+## S2b processing-group roots
+
+[Group deployment](processing-groups-and-routing.md) requires independent writable roots for every group, including metadata/telemetry/RS ledger/cache/temp; actual filesystem identities and non-overlap/nesting are checked before deployment. Same-disk capacity is observed once rather than promised per group. Existing protected artifact, bounded scratch, publication and cleanup semantics remain authoritative; a failed device registration never deletes a formal RS repository.

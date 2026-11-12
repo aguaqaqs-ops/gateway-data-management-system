@@ -6,20 +6,22 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from gateway_backend.http.schemas.device_registration import ScopeIdentity
+
 
 class CreateWorkspaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    gateway_device_external_key: str
-    business_project_id: str
+    gateway_device_external_key: ScopeIdentity
+    business_project_id: ScopeIdentity
 
 
 class WorkspaceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
-    gateway_device_external_key: str
-    business_project_id: str
+    gateway_device_external_key: ScopeIdentity
+    business_project_id: ScopeIdentity
     state: str
     generation: int
     current_upload_revision_id: str | None = None

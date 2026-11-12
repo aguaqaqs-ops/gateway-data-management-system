@@ -836,3 +836,9 @@ HOME/SHELL/USER/LOGNAME，保留精确 argv。用户不存在或降权失败非�
 监督包装及 fallback，避免它们收到 TERM 后自行两秒升级 KILL；Compose init 继续负责标准
 信号转发/子进程回收。RS 自身 bounded shutdown 与维护脚本确认完整 cgroup 退出保持；
 Uvicorn 的143信号状态单独不能证明 lifespan 清理成功，维护判定另核本代既有完成日志。
+
+## S2b deployment identity and CREATE-only online recovery amendment
+
+Authenticated `GET /internal/v1/deployment-identity` returns strict `{environment_id,group_id,storage_digest}` from existing preflight facts, no root scan; all fields required, unknown fields rejected. Backend/worker and registration must compare identity rather than treating readyz as identity. Each group owns its RS bearer. Wire DTO is DeploymentIdentityResponse in repository-contracts.
+
+CREATE_REPOSITORY alone gains bounded same-key online recovery. The unique runtime has a nonblocking create gate covering the real executor/Dolt child exit; busy503 CREATE_REPOSITORY_BUSY, unresolved503 CREATE_REPOSITORY_UNRESOLVED. Under the gate, SUCCEEDED always replays original response. Existing PENDING fully published is reconciled using the original effect/resource_id and original empty commit. Proven unpublished PENDING/terminal_not_published may clean only that effect staging and retry once with original identity; CREATE-only narrow CAS can clear terminal with original scope/key/fingerprint/effect_id/resource_id, never allocate another repo or delete ledger. Contradictory publication evidence stays unresolved; no formal target blind removal. Startup and online use one owner decision function, no second ledger/state machine. Upload/import terminal behavior is unchanged. Owning create/mutation tests cover in-flight busy, before/after publish recovery, terminal reopen and bad evidence; backend only tests stable key and result propagation.

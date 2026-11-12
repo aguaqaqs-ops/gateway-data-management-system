@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -148,8 +150,7 @@ class ReviewIdempotencyRecord:
     event_sequence: int
 
     def __post_init__(self) -> None:
-        if type(self.business_project_id) is not str or not self.business_project_id:
-            raise ValueError("business_project_id must be a non-empty string")
+        validate_scope_identity(self.business_project_id)
         if type(self.submission_id) is not str or not self.submission_id:
             raise ValueError("submission_id must be a non-empty string")
         if type(self.idempotency_key) is not str or not self.idempotency_key:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 from gateway_backend.artifacts.location import parse_artifact_id
 
 from collections.abc import Mapping
@@ -62,10 +64,8 @@ class IdentityContext:
     def __post_init__(self) -> None:
         if type(self.actor_id) is not str or not self.actor_id:
             raise ValueError("actor_id must be a non-empty string")
-        if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
-            raise ValueError("gateway_device_external_key must be a non-empty string")
-        if type(self.business_project_id) is not str or not self.business_project_id:
-            raise ValueError("business_project_id must be a non-empty string")
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         if type(self.permissions) is not frozenset:
             raise ValueError("permissions must be a frozenset")
 
@@ -79,10 +79,8 @@ class WorkspaceScope:
     def __post_init__(self) -> None:
         if type(self.owner_actor_id) is not str or not self.owner_actor_id:
             raise ValueError("owner_actor_id must be a non-empty string")
-        if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
-            raise ValueError("gateway_device_external_key must be a non-empty string")
-        if type(self.business_project_id) is not str or not self.business_project_id:
-            raise ValueError("business_project_id must be a non-empty string")
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,10 +178,8 @@ class Workspace:
             raise ValueError("workspace_id must be a non-empty string")
         if type(self.owner_actor_id) is not str or not self.owner_actor_id:
             raise ValueError("owner_actor_id must be a non-empty string")
-        if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
-            raise ValueError("gateway_device_external_key must be a non-empty string")
-        if type(self.business_project_id) is not str or not self.business_project_id:
-            raise ValueError("business_project_id must be a non-empty string")
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         if type(self.repository_id) is not str or not self.repository_id:
             raise ValueError("repository_id must be a non-empty string")
         if type(self.state) is not WorkspaceState:

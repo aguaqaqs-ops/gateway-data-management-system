@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 import json
 from gateway_backend.artifacts.location import parse_artifact_id
 
@@ -143,10 +145,8 @@ class ArchivePlan:
         validate_archive_artifact_bindings(json.loads(self.frozen_input_json))
         if type(self.repository_id) is not str or not self.repository_id:
             raise ValueError("repository_id must be a non-empty string")
-        if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
-            raise ValueError("gateway_device_external_key must be a non-empty string")
-        if type(self.business_project_id) is not str or not self.business_project_id:
-            raise ValueError("business_project_id must be a non-empty string")
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         if type(self.idempotency_key) is not str or not self.idempotency_key:
             raise ValueError("idempotency_key must be a non-empty string")
         if type(self.request_fingerprint) is not str or not self.request_fingerprint:

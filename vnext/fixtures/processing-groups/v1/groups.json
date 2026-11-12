@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "environment_id": "test-env",
+  "host": {
+    "memory_bytes": 68719476736,
+    "cpu_count": 32,
+    "shared_memory_reserve_bytes": 8589934592,
+    "shared_cpu_reserve": 2
+  },
+  "entry": {
+    "listen_address": "0.0.0.0",
+    "listen_port": 8080,
+    "management_port": 8081,
+    "image": "nginx:1.28.0",
+    "memory_limit_bytes": 536870912,
+    "cpu_limit": 1
+  },
+  "groups": [
+    {
+      "group_id": "group-a",
+      "project": "gateway-group-a",
+      "backend_port": 8100,
+      "storage_config": "/etc/gateway/group-a/storage.json",
+      "resource_config": "/etc/gateway/group-a/resources.json",
+      "session_directory": "/etc/gateway/group-a/sessions",
+      "internal_token_file": "/etc/gateway/group-a/internal.token",
+      "repository_token_file": "/etc/gateway/group-a/repository.token",
+      "images": {
+        "backend": "gateway-backend:revision-1",
+        "worker": "gateway-worker:revision-1",
+        "repository_service": "gateway-repository:revision-1",
+        "revision": "f720ef571df72682d56732876f03c79f076eca45"
+      }
+    },
+    {
+      "group_id": "group-b",
+      "project": "gateway-group-b",
+      "backend_port": 8101,
+      "storage_config": "/etc/gateway/group-b/storage.json",
+      "resource_config": "/etc/gateway/group-b/resources.json",
+      "session_directory": "/etc/gateway/group-b/sessions",
+      "internal_token_file": "/etc/gateway/group-b/internal.token",
+      "repository_token_file": "/etc/gateway/group-b/repository.token",
+      "images": {
+        "backend": "gateway-backend:revision-1",
+        "worker": "gateway-worker:revision-1",
+        "repository_service": "gateway-repository:revision-1",
+        "revision": "f720ef571df72682d56732876f03c79f076eca45"
+      }
+    }
+  ]
+}

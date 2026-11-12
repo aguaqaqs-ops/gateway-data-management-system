@@ -1,0 +1,62 @@
+[
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "device-a",
+    "route_key": "dd5e8641af47e250fe2bdb2b4e4d0cb910154cee5c4122d814b5b7ce6b78f3bb",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"device-a\"]",
+    "create_key": "p7-device-create-v1:1663d4096ff29b85ea5aa3add44c92546b11bc15c440f3463cdc0d354e33a74c",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"device-a\"]",
+    "initial_node_id": "9f378f7e-6f84-57ab-929c-15e081aed0fe"
+  },
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "Device-A",
+    "route_key": "77dd8d6cbf18d47555fcc88179baa9549d27aac7b7ef5e1503cb0bc2f7712a84",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"Device-A\"]",
+    "create_key": "p7-device-create-v1:8883bbc5c06cb3bcd355bd2ee09903299b4ee65347668db2364cb14c67aec161",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"Device-A\"]",
+    "initial_node_id": "4a990c19-e13e-57a3-939a-d3bf531e6fed"
+  },
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "设备一",
+    "route_key": "499e97c0e8319d488ca5842d6d5a935c580585c361b455565617f68d774aef6c",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"设备一\"]",
+    "create_key": "p7-device-create-v1:ee5295f39b7fb49dd1e1ab8dfdc08d5a7778deccc88d45509a31db203a7d3a75",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"设备一\"]",
+    "initial_node_id": "221b4307-b059-5b9c-ab69-6204707a0a03"
+  },
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "é",
+    "route_key": "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"é\"]",
+    "create_key": "p7-device-create-v1:45e88ea6655d45c3052a3fdec0d3af3a455c16a118e50631182d89d40e8416dd",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"é\"]",
+    "initial_node_id": "a750a631-e12b-56e2-b058-7b351bb98497"
+  },
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "é",
+    "route_key": "bf12767b0f2a56b2190075bae8169f656e3ce8d6357d4aff184bc6c7ea48f9f6",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"é\"]",
+    "create_key": "p7-device-create-v1:a93b734c3ce36b2b415fe15dd7b399455e74d238c7ceef963ab254829ede92e8",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"é\"]",
+    "initial_node_id": "57888769-39d6-56ab-8fcc-2eef3e59592e"
+  },
+  {
+    "environment_id": "test-env",
+    "group_id": "group-a",
+    "gateway_device_external_key": "😀",
+    "route_key": "f0443a342c5ef54783a111b51ba56c938e474c32324d90c3a60c9c8e3a37e2d9",
+    "create_name_jcs": "[\"test-env\",\"group-a\",\"😀\"]",
+    "create_key": "p7-device-create-v1:b990a2f41212fc3c81a04dfa3953fa7edc8022e81de365318622a5e57b50e7d2",
+    "initial_name_jcs": "[\"gateway-device-initial-v1\",\"test-env\",\"group-a\",\"😀\"]",
+    "initial_node_id": "7feb75dd-182c-571c-b397-c4882e986efe"
+  }
+]

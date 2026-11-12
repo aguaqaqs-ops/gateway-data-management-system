@@ -63,11 +63,12 @@ def _pythonpath_environment() -> str:
 def start_repository_ready_stub(
     tmp_path: Path,
     *,
+    storage_layout_file: Path,
     bearer_token: str = TEST_REPOSITORY_TOKEN,
 ) -> RepositoryReadyStub:
     port_file = tmp_path / "repository-ready-stub.json"
     process = subprocess.Popen(
-        [sys.executable, str(REPOSITORY_READY_STUB_SCRIPT), bearer_token, str(port_file)],
+        [sys.executable, str(REPOSITORY_READY_STUB_SCRIPT), bearer_token, str(port_file), str(storage_layout_file)],
         env={"PYTHONPATH": _pythonpath_environment(), **os.environ},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -99,9 +100,10 @@ def start_repository_ready_stub(
 def repository_ready_stub_context(
     tmp_path: Path,
     *,
+    storage_layout_file: Path,
     bearer_token: str = TEST_REPOSITORY_TOKEN,
 ) -> Iterator[RepositoryReadyStub]:
-    stub = start_repository_ready_stub(tmp_path, bearer_token=bearer_token)
+    stub = start_repository_ready_stub(tmp_path, storage_layout_file=storage_layout_file, bearer_token=bearer_token)
     try:
         yield stub
     finally:

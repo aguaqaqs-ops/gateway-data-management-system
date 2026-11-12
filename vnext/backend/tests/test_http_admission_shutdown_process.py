@@ -63,7 +63,7 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
     preview = seed["preview_result"]
     baseline_head = seed["baseline_head"]
     port_file = tmp_path / "http-port.json"
-    with repository_ready_stub_context(tmp_path) as repository_stub:
+    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
@@ -136,7 +136,7 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
     node_b = seed["node_b"]
     port_file = tmp_path / "http-port-history.json"
     inflight_barrier = HttpInflightReadBarrier(tmp_path)
-    with repository_ready_stub_context(tmp_path) as repository_stub:
+    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,

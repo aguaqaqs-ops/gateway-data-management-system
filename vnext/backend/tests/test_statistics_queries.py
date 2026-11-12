@@ -255,7 +255,8 @@ def test_export_slot_rejects_busy_and_releases_for_every_exit(store: SQLiteStati
 
 def test_openapi_documents_seven_read_routes_and_export_headers(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
     schema = _env(tmp_path, store).client.get('/openapi.json').json()
-    paths = {path: value for path, value in schema['paths'].items() if '/statistics/' in path or path == '/v1/statistics/group'}
+    paths = {path: value for path, value in schema['paths'].items()
+        if path.startswith('/v1/') and '/statistics/' in path}
     assert len(paths) == 7
     assert all(set(value) == {'get'} for value in paths.values())
     for path, value in paths.items():

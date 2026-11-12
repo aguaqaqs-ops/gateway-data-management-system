@@ -116,8 +116,10 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     import json
     _, cli = modules
     raw = json.loads((FIXTURES / 'groups.json').read_bytes())
-    groups_file = tmp_path / 'groups.json'
-    directory_file = tmp_path / 'device-directory.json'
+    public = tmp_path / 'public'
+    public.mkdir()
+    groups_file = public / 'groups.json'
+    directory_file = public / 'device-directory.json'
     session_dir = tmp_path / 'sessions'
     session_dir.mkdir()
     (session_dir / 'session.json').write_text('{"sessions":[]}')
@@ -164,6 +166,10 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
             raise OSError('session parent fsync unavailable')
     monkeypatch.setitem(cli['add_device'].__globals__, 'atomic_write', write)
     monkeypatch.setitem(cli['add_device'].__globals__, 'request_json', request)
+    monkeypatch.setitem(cli['add_device'].__globals__, 'check_public_directory', lambda *args: None)
+    monkeypatch.setitem(cli['add_device'].__globals__, 'check_groups', lambda *args: {})
+    monkeypatch.setitem(cli['add_device'].__globals__, 'load_configs', lambda *args: {groups.groups[0].group_id: object()})
+    monkeypatch.setitem(cli['add_device'].__globals__, 'inspect_group', lambda *args: {})
     monkeypatch.setattr(runtime_type, 'probe', lambda self, key='': {})
     monkeypatch.setattr(runtime_type, 'require_append_only', lambda self, raw: None)
     monkeypatch.setattr(runtime_type, 'retiring_workers', lambda self: False)
@@ -206,6 +212,7 @@ def test_status_exit_code_reports_actual_availability_without_writing(
     monkeypatch.setattr(sys, 'argv', ['manage-processing-groups.py', 'status-device', '--groups-file', str(groups),
         '--directory-file', str(directory), '--entry-directory', str(tmp_path), '--entry-project', 'entry-test', '--device', 'device'])
     monkeypatch.setitem(cli['main'].__globals__, 'status_device', lambda *args: {'state': state})
+    monkeypatch.setitem(cli['main'].__globals__, 'check_public_directory', lambda *args: None)
     assert cli['main']() == code
     assert directory.read_bytes() == original
     assert 'token' not in capsys.readouterr().out

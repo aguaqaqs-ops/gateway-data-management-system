@@ -383,11 +383,11 @@ workers. Never recreate a replacement until the old execution processes exit.
 
 公共入口为独立 Compose project 的固定 `nginx:1.28.0`，只开放 `/v1/` 和 `/healthz`；内部管理及 OpenAPI 仍只经受控组端点访问。所有普通请求携带一次会话快照的 Bearer 和 `X-Gateway-Device-Key=hex_lower(SHA256(UTF8(device)))`，单组调用也必须提供；接收backend独立核本地scope。
 
-宿主控制目录包含 `groups.json` 和 `device-directory.json`，session位于每组独立的 `<session_directory>/session.json`。配置和session均挂载父目录只读，原子替换文件。入口单独挂 `<entry-directory>` 到 `/etc/gateway-entry`，不挂secret或业务root。准备固定镜像及空session/seed后，用 `manage-processing-groups.py validate` 核格式、`check-groups` 核真实部署；所有命令显式提供 `--groups-file`、`--directory-file`、`--entry-directory`、`--entry-project`。首次使用 `render-entry` 校验并生成 `nginx.conf` 后，用 `compose.entry.yaml` 独立启动入口（设置 `GATEWAY_ENTRY_DIRECTORY/IMAGE/MEMORY/CPUS`）。已有入口不能用render覆盖。
+宿主控制目录包含 `groups.json` 和 `device-directory.json`，session位于每组独立的 `<session_directory>/session.json`。配置和session均挂载父目录只读，原子替换文件。入口单独挂 `<entry-directory>` 到 `/etc/gateway-entry`，不挂secret或业务root。准备固定镜像及空session/seed后，用 `manage-processing-groups.py validate` 核格式、`check-groups` 核整机路径/预算，`check-groups --inspect` 核实际运行部署；所有命令显式提供 `--groups-file`、`--directory-file`、`--entry-directory`、`--entry-project`。首次使用 `render-entry` 校验并生成 `nginx.conf` 后，用 `compose.entry.yaml` 独立启动入口（设置 `GATEWAY_ENTRY_DIRECTORY/IMAGE/MEMORY/CPUS`）。已有入口不能用render覆盖。
 
 热新增：`manage-processing-groups.py add-device ... --group <g> --device <exact-device> --project <exact-project> --session-document <absolute-file>`。授权文件只含本scope session，至少一个未过期身份；secret不放argv。命令按预留false→注册→原子追加授权→组scope就绪→目录true→同版本nginx-t→HUP→实际加载及公共scope探针推进；仅exit0表示检查时可用。exit2前置拒绝、exit3锁/旧流代际忙、exit1未完成。保留原文件和诊断后，用同身份重试；不改key、不删预留、不换组，也不重启已有worker。
 
-`status-device ... --device <d>` 仅查询目录期望、组内登记和实际入口；不重放写入。`enabled=true` 不表示已加载。reload未确认不会杀旧worker，长上传/下载可自然完成；一代旧worker尚未退出时下一次发布返回busy。维护只操作目标组，不停止独立入口或其他组；已有设备改组/禁用/重绑不属于本命令。
+`status-device ... --device <d>` 仅查询目录期望、组内登记、实际入口和当前授权scope探针；不重放写入，只有available返回exit0。`enabled=true` 不表示已加载。reload未确认不会杀旧worker，长上传/下载可自然完成；一代旧worker尚未退出时下一次发布返回busy。维护只操作目标组，不停止独立入口或其他组；已有设备改组/禁用/重绑不属于本命令。
 
 ## Independent groups and whole-host budget (P7 S2b)
 

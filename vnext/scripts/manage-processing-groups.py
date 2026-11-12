@@ -14,6 +14,7 @@ from urllib.parse import quote
 from processing_group_config import DeviceDirectory, DeviceDirectoryEntry, ProcessingGroupsConfig
 from processing_group_entry import Busy, EntryRuntime, Incomplete, atomic_write, render_entry, request_json
 from processing_group_locks import publication_lock, group_management_lock
+from processing_group_deployment import check_public_directory, check_groups, load_configs, inspect_group
 import host_runtime_config
 
 _identity = importlib.import_module(host_runtime_config.configuration.__package__ + ".device_identity")
@@ -176,6 +177,10 @@ def add_device(args: argparse.Namespace, groups: ProcessingGroupsConfig, runtime
         group = next(item for item in groups.groups if item.group_id == args.group)
         directory = DeviceDirectory.load(args.directory_file, known_groups=groups.group_ids)
         groups.require_directory(directory)
+        check_public_directory(groups, args.groups_file.parent)
+        check_public_directory(groups, args.entry_directory)
+        check_groups(groups)
+        inspect_group(load_configs(groups)[group.group_id], group)
         old = next((row for row in directory.devices if row.gateway_device_external_key == device), None)
         if old is not None and old.group_id != group.group_id:
             raise ValueError("device is already reserved by another group")
@@ -239,6 +244,7 @@ def main() -> int:
     parser.add_argument("--device")
     parser.add_argument("--project")
     parser.add_argument("--session-document", type=Path)
+    parser.add_argument("--inspect", action="store_true", help="check actual running groups with check-groups")
     args = parser.parse_args()
     try:
         if not args.groups_file.is_absolute() or not args.directory_file.is_absolute() or args.groups_file.parent != args.directory_file.parent:
@@ -246,6 +252,8 @@ def main() -> int:
         groups = ProcessingGroupsConfig.load(args.groups_file)
         directory = DeviceDirectory.load(args.directory_file, known_groups=groups.group_ids)
         groups.require_directory(directory)
+        check_public_directory(groups, args.groups_file.parent)
+        check_public_directory(groups, args.entry_directory)
         runtime = EntryRuntime(groups, args.entry_directory, args.entry_project)
         if args.command == "add-device":
             if not all((args.group, args.device, args.project, args.session_document)):
@@ -257,8 +265,7 @@ def main() -> int:
             _identity.validate_scope_identity(args.device)
             result = status_device(groups, directory, runtime, args.device)
         elif args.command == "check-groups":
-            from processing_group_deployment import check_groups
-            result = check_groups(groups)
+            result = check_groups(groups, inspect=args.inspect)
         elif args.command == "render-entry":
             with publication_lock(args.groups_file.parent):
                 digest, raw = render_entry(groups, directory)

@@ -130,7 +130,7 @@ http {{
         client_max_body_size 0;
         client_body_timeout 600s;
         send_timeout 600s;
-        location = /healthz {{ return 200 'ok'; }}
+        location = /healthz {{ return 200 '{{"status":"ok"}}'; }}
         location /v1/ {{
             if ($gateway_key = "") {{ return 422; }}
             if ($gateway_upstream = "") {{ return 404; }}
@@ -140,6 +140,7 @@ http {{
             proxy_cache off;
             proxy_next_upstream off;
             proxy_intercept_errors off;
+            proxy_redirect off;
             proxy_connect_timeout 5s;
             proxy_read_timeout 600s;
             proxy_send_timeout 600s;

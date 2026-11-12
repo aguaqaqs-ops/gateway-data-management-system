@@ -341,6 +341,23 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const pageRef = useRef<HTMLElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
 
+  // R15: the sticky sidebar tracks the measured compare-header height so the
+  // navigation title and search box are never covered by a taller top bar.
+  // This effect stays above every early return: skipping it on some renders
+  // would change the hook order and crash the page.
+  useEffect(() => {
+    const header = headerRef.current;
+    const page = pageRef.current;
+    if (!header || !page) return;
+    const apply = () => {
+      page.style.setProperty("--compare-header-height", `${Math.max(1, Math.round(header.getBoundingClientRect().height))}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const unsubscribe = runtime.subscribe(({ state }) => { setBrowse(state); setSearch(state.search); setOnlyInteresting(state.onlyInteresting); setDebug(state.debug); });
     const restore = () => runtime.restoreFromUrl();
@@ -637,21 +654,6 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
-  // R15: the sticky sidebar tracks the measured compare-header height so the
-  // navigation title and search box are never covered by a taller top bar.
-  useEffect(() => {
-    const header = headerRef.current;
-    const page = pageRef.current;
-    if (!header || !page) return;
-    const apply = () => {
-      page.style.setProperty("--compare-header-height", `${Math.max(1, Math.round(header.getBoundingClientRect().height))}px`);
-    };
-    apply();
-    const observer = new ResizeObserver(apply);
-    observer.observe(header);
-    return () => observer.disconnect();
-  }, []);
-
   return <main ref={pageRef} className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
     {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}

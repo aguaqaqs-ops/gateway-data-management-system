@@ -80,7 +80,7 @@ class SessionManagement:
         pass
 
 
-def test_replace_preserves_other_session_and_recovers_same_candidate(tmp_path: Path) -> None:
+def test_replace_preserves_other_session_and_recovers_same_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "session.json"
     old = provision._session("dev-1", "prj-1", 180)
     candidate = provision._session("dev-1", "prj-1", 180)
@@ -89,7 +89,7 @@ def test_replace_preserves_other_session_and_recovers_same_candidate(tmp_path: P
     path.chmod(0o640)
     adapter = object.__new__(provision.GatewayHostAdapter)
     adapter.session_path = path
-    adapter.management = SessionManagement()
+    monkeypatch.setattr(adapter, "management", SessionManagement(), raising=False)
     adapter.groups = object()
     adapter.group = SimpleNamespace(group_id="group")
     adapter.replace_sessions([(old, candidate)])
@@ -175,10 +175,10 @@ def test_renew_recovers_same_candidates_after_replace_before_activation(
     _, locks, _, _ = provision._load_helpers(Path(__file__).resolve().parents[3])
     adapter = object.__new__(provision.GatewayHostAdapter)
     adapter.session_path = path
-    adapter.management = SessionManagement()
+    monkeypatch.setattr(adapter, "management", SessionManagement(), raising=False)
     adapter.groups = SimpleNamespace(environment_id="env")
     adapter.group = SimpleNamespace(group_id="group")
-    adapter.config = SimpleNamespace(groups_file=tmp_path / "groups.json", ttl_days=180)
+    monkeypatch.setattr(adapter, "config", SimpleNamespace(groups_file=tmp_path / "groups.json", ttl_days=180), raising=False)
     adapter.locks = locks
     monkeypatch.setattr(adapter, "reload", lambda: None)
     monkeypatch.setattr(provision, "_log", lambda *args, **kwargs: None)

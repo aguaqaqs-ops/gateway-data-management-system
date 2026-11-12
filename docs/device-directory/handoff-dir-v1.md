@@ -64,3 +64,29 @@ owner 已确认上述处理组接入建议可以作为正式设计。本轮将 d
 设计补齐了本地事务、当前/待生效完整凭据、同一次续期的恢复边界、管理锁与第三方会话保留规则。执行计划给出顺序工作内容、风险与测试 owner、06/07 离线组件取证、十张截图清单、阶段 1 handoff 以及 05 阶段 2 的前提与最小真实旅程。具体职责、模型和审核按仓库标准执行。
 
 本轮仅提交本目录文档，做差异、链接及源码接点核对；无产品代码、依赖或网关文件修改，无测试/截图/缓存预填充或真实网关操作，不宣称任何阶段通过，未推送。
+
+## 阶段 1 实施进展（2026-11-12，尚未放行）
+
+产品候选 `e5a9feb7dcb402e838fa83c43398aef092963a0a`；基线与分支历史见上文，产品实现提交从 `8f4a557179` 至该候选，后续本 handoff 提交仅记文档。范围为 `directory/` 和本目录文档；未改 `frontend/`、`vnext/`，未推送。`directory/README.md` 记载配置、CLI 和检查入口。新增代码不在网关 build context，本轮未重建网关镜像。
+
+### 组件检查和缓存
+
+- 06 `gw-dms-06`：2026-11-12 18:45:30–18:45:41 UTC，起止 HEAD 均为产品候选，`UV_OFFLINE=1 directory/scripts/run-tests.sh --service`，exit 0；ruff、mypy strict 和 47 项 pytest 通过。原始日志 `/home/dev/gdds-test-tmp/dir-v1-full-e5a9/service.log`（06），副本 `/home/dev/gdds-stage-exchange/dir-v1/evidence/e5a9/service.log`，SHA256 `18ca5bf6ca4dd8b7ea8a99e6017316e463c32597055fed2fdb54c9ef005eadad`。
+- 07 `gw-dms-07`：2026-11-12 18:44:29–18:45:03 UTC，起止 HEAD 均为产品候选，`GATEWAY_FE_TEST_WORKERS=2 directory/scripts/run-tests.sh --frontend --screenshots /home/dev/gdds-test-tmp/dir-v1-full-e5a9/screenshots`，exit 0；类型、lint、8 项单元测试、构建、8 项 mock e2e 和十张截图生成通过。原始日志 `/home/dev/gdds-test-tmp/dir-v1-full-e5a9/frontend.log`（07），副本 `/home/dev/gdds-stage-exchange/dir-v1/evidence/e5a9/frontend.log`，SHA256 `d7e8a78602a3671e41153c7fadc85631e27e861b9c0143501d93bc825b7e159f`。
+- CT201 实际 hostname `heavy-dev-01`；Python lock SHA256 `e8831eaccba668e94805d683bd8fdcecf9c1e68ecc4e839ff26d32e942f2dca3`，缓存来源提交 `8f4a557179befbeaa10bcf252c276ce89c36195f`，归档 SHA256 `5b6a5182631b5063a2330f9421369acaca9f5338063351b4ddbd5f625eee8651`，06 预填充 `2026-11-12T18:45:25Z`。06 manifest SHA256 `58d76c3aab335fe4d7539084b725b1b33a5d63a1586f84b684e7f9c89f094280`；uv/Python 身份详见原日志。
+- npm lock SHA256 `77c82bb106af15487a87bf149a41d16eb3dec5693ae329e39f81bf71f96d71ae`，缓存来源提交 `018d33ec34daa7e9a9aca9d685b54831bf613493`，归档 SHA256 `524744168cb8b139cabc4a215786ccea7aa3586a788eff0f008e1911f4c66f6e`，07 预填充 `2026-11-12T18:40:25Z`；manifest SHA256 `27927845e3a0976972cbebf8ae2c893a159fcd643f8cc012ae0160eb53625a67`。固定 Playwright 镜像 config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`，全部七个 DiffID 载于原日志。两节点均通过 LAN 文件传输取预置缓存，测试未连接公网。
+- 失败证据：06 `3111a215f5` mypy 名称冲突，日志 `/home/dev/gdds-test-tmp/dir-v1-full-3111/service.log` SHA256 `2b165649cb5903853ed0277317d4fb8cbb2583d7dbd1d6b1f849ce0bd713e94c`；06 `018d33ec34` mypy 测试替身类型错误，日志 `/home/dev/gdds-test-tmp/dir-v1-full-018d/service.log` SHA256 `a1785239361cddf6681cde146cf0b80100d071f80dded744e76fd5f73b53eae3`；06 `3894fea6db` pytest 收集未找到源代码包，日志 `/home/dev/gdds-test-tmp/dir-v1-full-3894/service.log` SHA256 `8ff2b6d01cf85d2479736f63f7346532ce0e5686f56d949c5c4e7fa0aa7d2d83`。分别修复后从入口重跑。
+- 07 `3894fea6db` lint 全角空白，日志 `/home/dev/gdds-test-tmp/dir-v1-full-3894/frontend.log` SHA256 `1b96229013a1e1e7ade65f81fd61f77a04fe067274a970fba20eec553af6a3c5`；07 `1b3912ddc7` Vitest 误收集 Playwright，日志 `/home/dev/gdds-test-tmp/dir-v1-full-1b39/frontend.log` SHA256 `57d67567014aa9c2c7f35f782bbcc90e2616dd51355e46962c4013ea72406085`；07 `e58abf1f71` 两项 e2e 定位器歧义，日志 `/home/dev/gdds-test-tmp/dir-v1-full-e58a/frontend.log` SHA256 `efd99ac8ef8ba8fe56c1b70010be25ed92c62f70d95d961437c9a7fbc85e7beb`。分别修复后从入口重跑。
+- 06 初次源码准备 Git 所有权检查失败且修正重试仍失败；停止该次操作并释放占用后，owner 授权独立完整 bundle。记录 `/home/dev/gdds-stage-exchange/dir-v1/cache/service/setup-failure-20261112.log` SHA256 `89c8d0e84cebd7c2231cfdbd943e1595c0606a997b2e6fa30a08301b5583913c`；重试记录 `/home/dev/gdds-stage-exchange/dir-v1/cache/service/setup-retry-failure-20261112.log` SHA256 `b1289eb3f010c0345fae630ef6e774c1369fad1eb949ae624292c4f470a8ee81`。两次均未触及测试对象。
+
+### 截图与审核
+
+十张截图原件在 07 `/home/dev/gdds-test-tmp/dir-v1-full-e5a9/screenshots/`，副本在 `/home/dev/gdds-stage-exchange/dir-v1/evidence/e5a9/`。`SHA256SUMS` SHA256 `720ba4df5d670538c44c0bd7adc68c7a035f82ef26d0225b30d0db156ed03a01`，逐张摘要和状态/宽度以该清单及前端原日志为准；摘要和 PNG 尺寸检查通过不代表视觉验收。
+
+实施者初步对照：布局保留顶部搜索、左侧两层地区树、右侧表格、同名标记与未开通状态。相对草图，地区树的独立过滤框、表头的地区内过滤框未实现；本轮样例目录较小，最近访问为空，截图不能证明有内容时的排布。未开通截图的原生 title 提示未显示，不能凭截图核验禁用原因；焦点、文案及全部十图仍须 Luna 逐项核对并交独审/设计负责人处理差异，不能据此记为视觉通过。
+
+- 基础代码静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/foundation-static-20261112.md`，SHA256 `d60c8108985e1d2cd5eef669463756e649deaaa1cb90c12320f7f2f1939bd222`。
+- HTTP 静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/http-8f4a-3111.md`，SHA256 `f07cdc517facd9fd467a77bc8b8d80396736bb8dcd7b1dce5427049b80e2eb21`。
+- 开通/续期静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/provision-76b7-2aad.md`，SHA256 `af8c300ed28fad98d6adfa200df355f9307927ec8837ae66a4c195885deb78ed`。
+- 服务门禁静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/service-runner-static-20261112.md`，SHA256 `a01e87a9520ff3694ef85dcd33598119fa23d2238077646201572f4e2ff447fd`；前端门禁 `/home/dev/gdds-stage-exchange/dir-v1/reviews/frontend-gate-018d.md`，SHA256 `3c537c298b32eebf232a5d95189416274351b0b3efb4025c778ca5ee3525dc1d`。后续 runner 调整须纳入阶段末独审。
+- **尚未完成：**最终候选的阶段末全范围 Astra 独审与 findings 复审；Luna 对批准清单、原始日志、缓存/工具链来源和十张截图的独立逐项核对。当前不可宣布阶段 1 审核通过或放行。真实热新增、旧 token 撤销、上传审核和完整真实旅程均未验证；阶段 2 未开始。

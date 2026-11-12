@@ -1,4 +1,4 @@
-import { expect, type Browser, type BrowserContext, type Locator, type Page, type Response, type TestInfo } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -61,14 +61,6 @@ export async function waitForDiffBrowsing(page: Page): Promise<void> {
   await expect(page.locator('div.grid-frame[aria-label="比较表格"]')).toHaveAttribute("data-rendered", "true", {
     timeout: 120_000,
   });
-}
-
-export function isBundleResponse(response: Response): boolean {
-  return response.request().method() === "GET" && response.url().split("?")[0].endsWith("/bundle");
-}
-
-export function waitForBundleResponse(page: Page, timeout = 300_000): Promise<Response> {
-  return page.waitForResponse(isBundleResponse, { timeout });
 }
 
 /** Poll until the bundle digest directory carries `.complete.json` (installed). */

@@ -1,3 +1,4 @@
+import { captureResponse } from "./lib/response-snapshot";
 import { test, expect, type Browser, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -452,14 +453,14 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const recording1 = captureBundleDownloads(page, submitter);
     bundleObservations.push(recording1);
     const uploadWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
-    const previewWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
+    const previewWait1 = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
     const measured1 = await measurePackaging(browser, async () => {
       await startUpload(page);
       await uploadWait1;
     });
     const upload1 = await uploadWait1;
     expect(upload1.status(), "step1 upload status").toBe(201);
-    const preview1 = await previewWait1;
+    const preview1 = await previewWait1.read();
     expect(preview1.status(), "step1 preview status").toBe(202);
     const accepted1 = (await preview1.json()) as { operation_id: string; upload_revision_id: string };
     const operation1 = await waitForOperation(submitter, accepted1.operation_id, 600_000);
@@ -581,14 +582,14 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await selectUploadDirs(page, { modified: v2Dir, initial: v1Dir });
     const recording2 = captureBundleDownloads(page, submitter);
     bundleObservations.push(recording2);
-    const previewWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
+    const previewWait2 = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
     const uploadWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
     const measured2 = await measurePackaging(browser, async () => {
       await startUpload(page);
       await uploadWait2;
     });
     m1.push({ step: "t1-full", rendererIncrementBytes: measured2.rendererIncrementBytes, maxRssAnon: measured2.maxRssAnon, maxRssFile: measured2.maxRssFile, maxRssShmem: measured2.maxRssShmem });
-    const preview2 = await previewWait2;
+    const preview2 = await previewWait2.read();
     expect(preview2.status(), "step4 preview status").toBe(202);
     const accepted2 = (await preview2.json()) as { operation_id: string; upload_revision_id: string };
     const operation2 = await waitForOperation(submitter, accepted2.operation_id, 900_000);

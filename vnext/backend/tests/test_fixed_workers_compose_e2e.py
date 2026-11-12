@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
 import json
 from pathlib import Path
 from queue import Queue
@@ -13,9 +14,53 @@ from typing import Any, cast
 import pytest
 
 from tests.support import compose_gate_harness as harness
+from tests.support.container_input_files import write_container_readable_text
+from tests.support.processing_groups_harness import EXECUTOR_BARRIER, wait_for
 from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
+
+
+def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[Path],
+        resume_polling: Event, cleanup: Callable[[], None] | None = None) -> None:
+    """Attempt every release, retaining the test failure over observation errors."""
+    primary = sys.exception()
+    failures: list[tuple[str, BaseException]] = []
+    def attempt(phase: str, action: Callable[[], object]) -> None:
+        try:
+            action()
+        except BaseException as error:
+            failures.append((phase, error))
+    try:
+        attempt("diagnostics", preserve_failure)
+    finally:
+        try:
+            for barrier in barriers:
+                attempt("executor release", lambda: write_container_readable_text(
+                    barrier.with_suffix(".release"), "release executor"))
+        finally:
+            try:
+                attempt("polling resume", resume_polling.set)
+            finally:
+                if cleanup is not None:
+                    if primary is None and failures:
+                        # The existing cleanup owner uses the active exception
+                        # to retain failed roots. Give a new finalizer failure
+                        # the same context as an original journey failure.
+                        try:
+                            raise failures[0][1]
+                        except BaseException:
+                            attempt("project cleanup", cleanup)
+                    else:
+                        attempt("project cleanup", cleanup)
+    if primary is not None:
+        for phase, error in failures:
+            primary.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")
+    elif failures:
+        first = failures[0][1]
+        for phase, error in failures[1:]:
+            first.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")
+        raise first
 
 
 def _stop_workers(ids: list[str]) -> None:
@@ -38,6 +83,7 @@ def _manage_group(env: dict[str, str], command: str) -> str:
     mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
     result = subprocess.run([sys.executable, str(harness.VNEXT_ROOT / "scripts/manage-worker-group.py"), command,
         "--project", env["COMPOSE_PROJECT_NAME"],
+        "--groups-file", str(Path(env["GATEWAY_PROCESSING_GROUPS_DIRECTORY"]) / "groups.json"),
         "--compose-file", str(harness.COMPOSE_FILE),
         "--compose-file", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"],
         "--storage-layout", mounts["/run/gateway/storage-layout.json"],
@@ -88,8 +134,32 @@ print(json.dumps(snapshot, sort_keys=True))
 def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(tmp_path: Path) -> None:
     harness.require_docker()
     env = _compose_env(tmp_path)
+    revision = subprocess.run(["git", "-C", str(harness.REPO_ROOT), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    assert not subprocess.run(["git", "-C", str(harness.REPO_ROOT), "status", "--porcelain"],
+        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    env.update(GATEWAY_BACKEND_CANDIDATE_SHA=revision,
+        GATEWAY_BACKEND_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-backend:fixed",
+        GATEWAY_WORKER_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-worker:fixed")
+    harness.ensure_repository_service_image(candidate_revision=revision)
+    harness.prepare_runtime_config(env, workers=2)
+    rendered_path = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])
+    rendered_config = json.loads(rendered_path.read_bytes())
+    roots = {item["target"]: item["source"] for item in rendered_config["services"]["worker"]["volumes"]}
+    scratch = Path(roots["/var/lib/gateway/be-scratch"])
+    barriers = [scratch / f"fixed-worker-{index}-barrier" for index in (1, 2)]
+    for index, service in enumerate(("worker", "worker-2"), 1):
+        rendered_config["services"][service]["command"] = ["python", "-c",
+            EXECUTOR_BARRIER.replace("processing-group-barrier", f"fixed-worker-{index}-barrier")]
+    rendered_path.write_text(json.dumps(rendered_config))
     resume_polling = Event()
     accepted: Queue[str] = Queue()
+    diagnostics_attempted = False
+    def preserve_failure() -> None:
+        nonlocal diagnostics_attempted
+        if sys.exc_info()[0] is not None and not diagnostics_attempted:
+            diagnostics_attempted = True
+            harness.capture_container_diagnostics(env, tmp_path / "worker-diagnostics")
     try:
         _repository_id, initial_commit = harness.start_three_container_stack(env, tmp_path, workers=2)
         rendered = harness.run_compose(env, "config", "--format", "json")
@@ -137,12 +207,15 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
                 # These schemas have no operation/Workspace absolute deadline.
                 # Preserve their real time anchors and protection expiry instead.
                 print("queued_previews_preserved_across_drain=" + json.dumps(operation_ids), flush=True)
-                paused = harness.run_compose(env, "pause", "repository-service")
-                assert paused.returncode == 0, paused.stderr
-                # Restart the exact original containers without waiting on the paused RS healthcheck.
+                # Keep the authenticated startup dependency available. Each test-only
+                # executor barrier blocks after claim while the supervisor renews leases.
+                for barrier in barriers:
+                    write_container_readable_text(barrier.with_suffix(".arm"), "hold executor")
                 started = subprocess.run(["docker", "start", *ids], check=False,
                     capture_output=True, text=True, timeout=30)
                 assert started.returncode == 0, started.stderr
+                for barrier in barriers:
+                    wait_for(barrier.with_suffix(".reached").exists, timeout=30)
                 probe = f'''
 import json, sqlite3, time
 from pathlib import Path
@@ -167,8 +240,7 @@ else:
                 assert overlap.returncode == 0, overlap.stdout + overlap.stderr
                 print(overlap.stdout, flush=True)
             finally:
-                harness.run_compose(env, "unpause", "repository-service")
-                resume_polling.set()
+                _finalize_worker_probe(preserve_failure, barriers, resume_polling)
             results = [future.result(timeout=300) for future in futures]
         assert results[0]["workspace_id"] != results[1]["workspace_id"]
         assert results[0]["preview_summaries"] == results[1]["preview_summaries"]
@@ -191,6 +263,5 @@ else:
         assert {state.split()[0] for state in restarted.values()} == set(ids)
         assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
-        harness.run_compose(env, "unpause", "repository-service")
-        resume_polling.set()
-        harness.cleanup_compose_project_artifacts(env)
+        _finalize_worker_probe(preserve_failure, barriers, resume_polling,
+            lambda: harness.cleanup_compose_project_artifacts(env))

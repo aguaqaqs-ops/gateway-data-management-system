@@ -98,6 +98,9 @@ http {{
     map_hash_max_size 32768;
     client_body_temp_path /tmp/client_body;
     proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
     map $http_x_gateway_device_key $gateway_key {{
         default "";
         "~^[0-9a-f]{{64}}$" $http_x_gateway_device_key;

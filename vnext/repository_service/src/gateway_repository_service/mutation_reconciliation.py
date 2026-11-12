@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,6 +13,7 @@ from gateway_repository_contracts import OperationStatus, REPOSITORY_IMPORT_MEDI
 from gateway_repository_service.create_repository.visibility import (
     DEFAULT_REF,
     create_repository_matches_ledger_full,
+    has_published_repository_tree,
 )
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_fingerprints import parse_upload_artifact_fingerprint_v1

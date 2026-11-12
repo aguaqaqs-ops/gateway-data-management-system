@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -72,8 +74,10 @@ async def test_registration_replay_keeps_initial_and_head_and_uses_one_key(tmp_p
     first = await register(app)
     assert first.initial_node_id == device_initial_node_id(ENV, GROUP, "new-device")
     assert repository.keys == [device_create_key(ENV, GROUP, "new-device")]
-    with ControlDbUnitOfWork(database) as uow:
-        uow.connection.execute("UPDATE baseline_head_records SET optimistic_version = 7")
+    from tests.support.baseline_fixtures import apply_baseline_head_state
+    from tests.support.workspace_fixtures import make_baseline_head
+    apply_baseline_head_state(database, repository_id=first.repository_id, device_key="new-device", project_id="project",
+        baseline_head=make_baseline_head(version=7, commit_id="advanced-commit"))
     assert await register(app) == first
     assert app.query("new-device") == first
     assert len(repository.keys) == 1
@@ -97,7 +101,11 @@ async def test_response_loss_and_db_failure_replay_original_repository(tmp_path:
     from gateway_backend.application.provisioning.contracts import RegistrationDependencyUnavailable
     with pytest.raises(RegistrationDependencyUnavailable):
         await register(app)
-    with patch("gateway_backend.infrastructure.control_db.sqlite_registration._apply_seed_record", side_effect=OSError("commit unavailable")):
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import _apply_seed_record
+    def fail_before_commit(connection: sqlite3.Connection, record: dict[str, object], *, seed_now: datetime) -> None:
+        _apply_seed_record(connection, record, seed_now=seed_now)
+        raise OSError("commit unavailable")
+    with patch("gateway_backend.infrastructure.control_db.sqlite_registration._apply_seed_record", side_effect=fail_before_commit):
         with pytest.raises(OSError):
             await register(app)
     assert app.query("new-device") is None

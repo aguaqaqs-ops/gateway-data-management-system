@@ -345,6 +345,10 @@ def test_recovery_errors_do_not_leak_sensitive_values(tmp_path: Path) -> None:
     crash_create_subprocess(settings, idempotency_key=idempotency_key, point="after_pending")
     runtime = restart_runtime(settings)
     try:
+        resource_id = get_create_resource_id(settings, idempotency_key)
+        target = runtime.layout.published_repository(repository_key(resource_id))
+        target.mkdir()
+        (target / "preserve").write_text("incomplete target")
         with pytest.raises(ServiceError) as exc_info:
             replay_create(runtime, idempotency_key=idempotency_key)
         assert_no_sensitive_leaks(

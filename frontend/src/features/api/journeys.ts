@@ -191,6 +191,8 @@ export interface PreviewJourneyProgress {
   operationId?: string;
 }
 
+const previewApis = new WeakMap<PreviewJourneyProgress, GatewayApi>();
+
 export function createPreviewJourneyProgress(): PreviewJourneyProgress {
   return {};
 }
@@ -201,7 +203,8 @@ export async function runPreviewJourney(
   input: PreviewJourneyInput,
   progress: PreviewJourneyProgress = createPreviewJourneyProgress(),
 ): Promise<BundleJourneyResult> {
-  api = bindGatewayApi(api);
+  api = previewApis.get(progress) ?? bindGatewayApi(api);
+  previewApis.set(progress, api);
   let upload = progress.upload;
   if (!upload) {
     if (!progress.workspaceId) {
@@ -414,6 +417,8 @@ export interface ArchiveJourneyProgress {
   result?: Schemas["ArchiveResultResponse"];
 }
 
+const archiveApis = new WeakMap<ArchiveJourneyProgress, GatewayApi>();
+
 export function createArchiveJourneyProgress(): ArchiveJourneyProgress {
   return { confirmations: new Map(), anomalyResolutions: new Map() };
 }
@@ -442,7 +447,8 @@ export async function runArchiveJourney(
   input: ArchiveJourneyInput,
   progress: ArchiveJourneyProgress = createArchiveJourneyProgress(),
 ): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
-  api = bindGatewayApi(api);
+  api = archiveApis.get(progress) ?? bindGatewayApi(api);
+  archiveApis.set(progress, api);
   const candidates = await api.listArchiveCandidates();
   let plan = await api.previewArchive({ selected: input.selected });
   if (candidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");

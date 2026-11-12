@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGatewaySession, currentGatewaySession, deviceRouteKey, validateScopeIdentity } from "./session";
 import { createAuthenticatedFetch } from "./authenticated-fetch";
 import { createGatewayApi } from "./client";
-import { pollOperation } from "./journeys";
+import { pollOperation, runPreviewJourney, createPreviewJourneyProgress } from "./journeys";
 import { scopedStorage } from "./scoped-storage";
 import { decodeHandoffFragment, initializeGatewaySession, getGatewaySessionState } from "../session/handoff-session";
-import { TEST_HISTORY_CURSOR_FIRST, TEST_OPERATION_ACCEPTED } from "../dev/simulated-api";
+import { TEST_HISTORY_CURSOR_FIRST, TEST_OPERATION_ACCEPTED, WORKSPACE_CREATED, TEST_UPLOAD_FULL } from "../dev/simulated-api";
 
 const vectors = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/identity-vectors.json", "utf8")) as Array<{ gateway_device_external_key: string; route_key: string }>;
 const boundaries = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json", "utf8")) as { rejected_noncharacters: string[]; accepted_adjacent_scalars: string[] };
@@ -61,6 +61,28 @@ describe("request and flow session binding", () => {
     const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher }).bindSession!();
     await expect(pollOperation(api, "op", { wait: async () => { adopt("device-b"); } })).rejects.toThrow("会话已变化");
     await expect(api.getHistoryBundle("op")).rejects.toThrow("会话已变化"); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("stops upload processing and Preview retry when the flow changes session", async () => {
+    adopt();
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/v1/workspaces")) return new Response(JSON.stringify(WORKSPACE_CREATED));
+      return new Response(JSON.stringify(TEST_UPLOAD_FULL));
+    });
+    const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher });
+    const file = new File(["modified"], "modified.zip");
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({ start(controller) { adopt("device-b"); controller.enqueue(new TextEncoder().encode("modified")); controller.close(); } }) });
+    const progress = createPreviewJourneyProgress();
+    const previewInput = { workspaceRequest: { business_project_id: "project", gateway_device_external_key: "device-a" }, upload: { inputCompleteness: "MODIFIED_ONLY" as const, modified: { partName: "modified", mediaType: "application/zip", file } }, baselineNodeId: "baseline", baselineHeadVersion: 0 };
+    const store = {} as Parameters<typeof runPreviewJourney>[1];
+    await expect(runPreviewJourney(api, store, previewInput, progress)).rejects.toThrow("会话已变化");
+    await expect(runPreviewJourney(api, store, previewInput, progress)).rejects.toThrow("会话已变化");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("maps only workspace startup 404 to the device entry message without retry", async () => {
+    adopt(); const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: "RESOURCE_NOT_FOUND", message: "missing" }), { status: 404, headers: { "X-Gateway-Entry-Rejection": "route-not-loaded" } }));
+    const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher });
+    await expect(api.createWorkspace({ business_project_id: "project", gateway_device_external_key: "device-a" })).rejects.toThrow("当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。");
+    await expect(api.getOperation("id")).rejects.toThrow("missing"); expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it("does not expire a new handoff when an old request returns 401", async () => {
     const payload = (device: string) => btoa(JSON.stringify({ v: 1, token: device, business_project_id: "project", gateway_device_external_key: device, display: { region1: "a", region2: "b", project_name: "c", station_code: "d" }, return_url: "https://directory.test" })).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");

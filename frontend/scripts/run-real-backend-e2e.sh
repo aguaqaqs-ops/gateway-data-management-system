@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# FE3b real-backend e2e runner (frontend kickoff §4.1–§4.9).
+# Public-entry real-backend e2e runner (frontend kickoff §4.1–§4.9).
 #
 # Standalone script, NOT part of run-tests.sh (kickoff §4.1, owner Q4).
 # Spins up the Compose backend stack on this node, seeds one independent
 # Repository Service scope per journey on an empty INITIAL baseline, verifies
-# the running /openapi.json against the committed snapshot through the preview
-# server, then runs the Playwright real-backend suite inside the toolchain
+# the running /openapi.json from a controlled backend loopback against the committed snapshot, then runs the Playwright real-backend suite inside the toolchain
 # container (production build, one browser context per identity).
 #
 # Suites:
@@ -103,8 +102,6 @@ HAVE_FLOCK=0
 TOOLCHAIN_CONTAINER=""
 PROJECT_NAME=""
 RUN_ROOT=""
-RUNTIME_ROOT=""
-RUNTIME_COMPOSE_OVERRIDE=""
 RS_TAG=""
 RS_TAG_SET=0
 SMOKE_INPUT=""
@@ -116,11 +113,6 @@ INTERRUPT_SIGNAL=""
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_FILE"; }
 
-compose_runtime() {
-  local -a command=(docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml")
-  [[ -z "$RUNTIME_COMPOSE_OVERRIDE" ]] || command+=(-f "$RUNTIME_COMPOSE_OVERRIDE")
-  "${command[@]}" -p "$PROJECT_NAME" "$@"
-}
 
 mkdir -p -- "$LOG_DIR"
 if [[ -n "$EVIDENCE_DIR" ]]; then mkdir -p -- "$EVIDENCE_DIR"; fi
@@ -184,16 +176,6 @@ cleanup() {
     if ! wait "$GROUPS_PID"; then cleanup_failed=1; log "cleanup_groups=failed"; fi
     [[ -f "$GROUPS_CONTROL/groups-stopped.json" ]] || { cleanup_failed=1; log "cleanup_groups=unconfirmed"; }
   fi
-  # 2. compose logs, then down (volumes, orphans, project-local images).
-  if [[ -n "$PROJECT_NAME" && -z "$GROUPS_PID" ]]; then
-    compose_runtime logs --no-color --timestamps \
-      >"$LOG_DIR/compose-$PROJECT_NAME.log" 2>&1 || true
-    if ! compose_runtime down -v --remove-orphans --rmi local \
-      >/dev/null 2>&1; then
-      cleanup_failed=1
-      log "cleanup_compose_down=failed"
-    fi
-  fi
   # 3. remove the per-run RS image tag (kickoff §4.8).
   if [[ "$RS_TAG_SET" == "1" ]]; then
     docker image rm "$RS_TAG" >/dev/null 2>&1 || true
@@ -219,19 +201,6 @@ cleanup() {
     if dolt_running; then
       cleanup_failed=1
       log "cleanup_dolt_processes=running"
-    fi
-  fi
-  # Bind roots belong to this exact run. Keep failed state outside RUN_ROOT,
-  # which contains secrets and is removed independently below.
-  if [[ -n "$RUNTIME_ROOT" ]]; then
-    local -a runtime_cleanup=(python3 -I "$REPO_DIR/vnext/scripts/tests/runtime_config_fixture.py"
-      "$RUNTIME_ROOT" --owner "$PROJECT_NAME" --cleanup)
-    if [[ "$exit_code" != "0" || "$cleanup_failed" != "0" ]]; then
-      runtime_cleanup+=(--retain)
-    fi
-    if ! "${runtime_cleanup[@]}" >>"$LOG_FILE" 2>&1; then
-      cleanup_failed=1
-      log "cleanup_runtime=failed retained=$RUNTIME_ROOT"
     fi
   fi
   # 5. release flock, then delete the busy marker (kickoff §4.2 order).
@@ -304,7 +273,7 @@ case "$SUITE" in
 esac
 if [[ "$SUITE" == "journeys" ]]; then
   [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" || "$SUBPHASE" == "fe4b" || "$SUBPHASE" == "s2b-routing" ) ]] || {
-    printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a|fe4b (got %s)\n' "$SUBPHASE" >&2
+    printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a|fe4b|s2b-routing (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }
 elif [[ "$SUITE" == "t1" ]]; then

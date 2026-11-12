@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import signal
 import sys
 import time
@@ -64,7 +65,7 @@ def main() -> None:
         for rows in by_device.values():
             register("group-a", rows)
         synthetic = dict(name="synthetic-group-b", role="submitter", scope="synthetic-group-b",
-            token="synthetic-group-b-token", actorId="synthetic-group-b",
+            token=secrets.token_hex(24), actorId="synthetic-group-b",
             businessProjectId="synthetic-project-b", gatewayDeviceExternalKey="synthetic-device-b")
         def session(identity: dict[str, str]) -> dict[str, object]:
             return dict(token=identity["token"], actor_id=identity["actorId"],
@@ -72,7 +73,7 @@ def main() -> None:
                 permissions=["workspace_read", "read_project_history", "upload_submit_workspace", "preview_workspace"])
         register("group-b", [session(synthetic)])
         hot = dict(name="synthetic-hot-b", role="submitter", scope="synthetic-hot-b",
-            token="synthetic-hot-b-token", actorId="synthetic-hot-b",
+            token=secrets.token_hex(24), actorId="synthetic-hot-b",
             businessProjectId="synthetic-hot-project", gatewayDeviceExternalKey="synthetic-hot-device")
         if args.scopes:
             scopes = json.loads(args.scopes.read_text())
@@ -84,6 +85,7 @@ def main() -> None:
         write(args.control / "groups-ready.json", dict(entry_url=stack.url,
             backend_url=stack.group_url("group-a"), synthetic=synthetic, hot=hot,
             deployment=stack.inspect(), registrations=registrations))
+        (args.control / "groups-ready.json").chmod(0o600)
         while not stopping and not (args.control / "groups-stop").exists():
             if (args.control / "hot-add-request").exists() and not (args.control / "hot-add-result.json").exists():
                 before = stack.snapshot()
@@ -94,6 +96,14 @@ def main() -> None:
             time.sleep(0.1)
     finally:
         stack.close()
+        for incoming in args.root.glob("incoming-*.json"):
+            incoming.unlink()
+        ready = args.control / "groups-ready.json"
+        if ready.exists():
+            record = json.loads(ready.read_text())
+            for identity in ("synthetic", "hot"):
+                record[identity].pop("token", None)
+            write(ready, record)
         write(args.control / "groups-stopped.json", {"state": "stopped"})
 
 

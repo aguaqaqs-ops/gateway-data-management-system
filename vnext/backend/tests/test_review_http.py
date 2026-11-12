@@ -10,10 +10,12 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
 from gateway_backend.application.submission.review import PERMISSION_REVIEW_SUBMISSION
+from gateway_backend.application.submission import review as review_application
 from gateway_backend.domain.submission.models import IdentityConfirmationAction, SubmitIdentityConfirmation
 from gateway_backend.device_identity import device_route_key
 from gateway_backend.domain.workspace.errors import ScopeNotFound, ScopeResolutionError
@@ -32,6 +34,7 @@ from tests.support.http_workspace_harness import (
     seed_pending_review_submission,
 )
 from tests.support.workspace_fixtures import make_identity
+from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import _upsert_provisioned_mapping_row
 
 pytestmark = pytest.mark.unit
@@ -425,15 +428,19 @@ def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path)
         repository_id="repo-other",
         baseline_head=BASELINE_HEAD,
     )
-    response = env.client.post(
-        f"/v1/submissions/{seed.submission_id}/review-events",
-        headers={
-            "Authorization": f"Bearer {OTHER_SCOPE_BEARER}",
-            "X-Gateway-Device-Key": device_route_key("device-other"),
-            "Idempotency-Key": "review-cross-scope",
-        },
-        json=_apply_body(),
-    )
+    env.scope_resolution.repository_id = "repo-other"
+    env.scope_resolution.baseline_head = read_authoritative_baseline_head(env.db_path, "repo-other")
+    with patch.object(review_application, "assert_review_scope", wraps=review_application.assert_review_scope) as authorize_target:
+        response = env.client.post(
+            f"/v1/submissions/{seed.submission_id}/review-events",
+            headers={
+                "Authorization": f"Bearer {OTHER_SCOPE_BEARER}",
+                "X-Gateway-Device-Key": device_route_key("device-other"),
+                "Idempotency-Key": "review-cross-scope",
+            },
+            json=_apply_body(),
+        )
+    authorize_target.assert_called_once()
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
@@ -459,7 +466,11 @@ def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -
     )
     approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
     assert approved.status_code == 201
-    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER, device_key="device-other")
+    env.scope_resolution.repository_id = "repo-other"
+    env.scope_resolution.baseline_head = read_authoritative_baseline_head(env.db_path, "repo-other")
+    with patch.object(review_application, "assert_review_scope", wraps=review_application.assert_review_scope) as authorize_target:
+        response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER, device_key="device-other")
+    authorize_target.assert_called_once()
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 

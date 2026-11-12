@@ -10,6 +10,7 @@ import {
   expectReviewReasonShownOnce,
   gotoWorkbench,
   opfsBundleState,
+  isBundleResponse,
   recordBundleBodies,
   recordBundleResponses,
   reviewAction,
@@ -43,6 +44,7 @@ import {
   type WorkspaceBody,
 } from "./lib/api";
 import { countBundlePairs, digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
+import { PreviewBundleEvidence, type BundleDownload } from "./lib/preview-bundle-evidence";
 import { assertBundleConsumerCriteria, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, inputDir, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
@@ -127,13 +129,22 @@ interface UploadRun {
   bundle: ParsedBundle;
   status: number;
   previewStatus: number;
-  etag: string;
+  etag: string | null;
 }
 
-/**
- * Browser-driven upload + preview. The upload card packages the directory,
- * POSTs the multipart revision, starts the preview operation, polls it, and
- * installs the tar bundle into OPFS before entering diff browsing.
+const previewBundleEvidence = new PreviewBundleEvidence();
+
+async function assertBrowserIdentity(page: Page, identity: JourneyIdentity): Promise<void> {
+  const matches = await page.evaluate((expected) => {
+    const current = window.__gatewaySession;
+    return current?.accessToken === expected.token && current.businessProjectId === expected.businessProjectId
+      && current.gatewayDeviceExternalKey === expected.gatewayDeviceExternalKey;
+  }, { token: identity.token, businessProjectId: identity.businessProjectId, gatewayDeviceExternalKey: identity.gatewayDeviceExternalKey });
+  if (!matches) throw new Error("browser session changed; refusing Preview bundle evidence reuse");
+}
+
+/** Browser-driven upload + preview, accepting a verified same-context cache hit.
+ * Downloads are observed from the start, but a new HTTP event is not completion.
  */
 async function uploadAndPreview(
   page: Page,
@@ -141,62 +152,74 @@ async function uploadAndPreview(
   scope: JourneyScope,
   input: "modified_only" | "full",
 ): Promise<UploadRun> {
-  const bundleWait = waitForBundleResponse(page, 300_000);
-  const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
-  const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
-
-  if (input === "full") {
-    await selectUploadDirs(page, {
-      modified: inputDir(scope, "full_modified"),
-      initial: inputDir(scope, "full_initial"),
-    });
-  } else {
-    await selectUploadDirs(page, { modified: inputDir(scope, "modified_only") });
-  }
-  await startUpload(page);
-
-  const upload = await uploadWait;
-  expect(upload.status(), "upload-revisions status").toBe(201);
-  const preview = await previewWait;
-  expect(preview.status(), "preview-operations status").toBe(202);
-  const accepted = (await preview.json()) as { operation_id: string };
-
-  const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
-  expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
-
-  const bundleResponse = await bundleWait;
-  expect(bundleResponse.status(), "bundle status").toBe(200);
-  const body = Buffer.from(await bundleResponse.body());
-  const bundle = await parseBundleTar(body, { contentLength: bundleResponse.headers()["content-length"] ?? null, etag: bundleResponse.headers()["etag"] ?? null });
-  const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
-  appendCaseLog(`criteria ${scope.slug} preview ${formatCriteriaSummary(criteria)}`);
-
-  const contentLength = bundleResponse.headers()["content-length"];
-  expect(contentLength, "bundle Content-Length").toBe(String(body.byteLength));
-  expect(bundleResponse.headers()["content-type"] ?? "").toContain(BUNDLE_CONTENT_TYPE);
-  const etag = (bundleResponse.headers()["etag"] ?? "").replace(/^W\//, "");
-  expect(etag, "bundle ETag").toBe(`"${bundle.manifest.bundle_digest}"`);
-  expect(digestHex(etag.replace(/^"|"$/g, "")), "ETag digest").toBe(bundle.bundleDigest);
-
-  const outcome = await waitForPreviewOutcome(page);
-  expect(outcome, "preview outcome").toBe("compare");
-  await waitForDiffBrowsing(page);
-
-  const url = new URL(page.url());
-  const previewId = url.searchParams.get("previewResultId");
-  const workspaceId = url.searchParams.get("workspaceId");
-  expect(previewId, "previewResultId in compare URL").toBeTruthy();
-  expect(workspaceId, "workspaceId in compare URL").toBeTruthy();
-
-  return {
-    previewId: previewId as string,
-    workspaceId: workspaceId as string,
-    operationId: accepted.operation_id,
-    bundle,
-    status: upload.status(),
-    previewStatus: preview.status(),
-    etag,
+  identity = { ...identity };
+  await assertBrowserIdentity(page, identity);
+  const downloads: Array<{ path: string; status: number; result: Promise<{ download: BundleDownload } | { error: unknown }> }> = [];
+  const observe = (response: PlaywrightResponse): void => {
+    if (!isBundleResponse(response)) return;
+    downloads.push({ path: new URL(response.url()).pathname, status: response.status(),
+      result: response.body().then((body) => ({ download: { body: Buffer.from(body),
+        contentLength: response.headers()["content-length"] ?? null, contentType: response.headers()["content-type"] ?? null, etag: response.headers()["etag"] ?? null } }),
+      (error: unknown) => ({ error })) });
   };
+  page.on("response", observe);
+  try {
+    const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
+    const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    if (input === "full") {
+      await selectUploadDirs(page, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
+    } else await selectUploadDirs(page, { modified: inputDir(scope, "modified_only") });
+    await startUpload(page);
+    const upload = await uploadWait;
+    expect(upload.status(), "upload-revisions status").toBe(201);
+    const uploaded = await upload.json() as { workspace_id: string; upload_revision_id: string };
+    const preview = await previewWait;
+    expect(preview.status(), "preview-operations status").toBe(202);
+    const accepted = await preview.json() as { operation_id: string };
+    const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
+    expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
+    expect(await waitForPreviewOutcome(page), "preview outcome").toBe("compare");
+    await waitForDiffBrowsing(page);
+    await assertBrowserIdentity(page, identity);
+
+    const url = new URL(page.url());
+    const previewId = url.searchParams.get("previewResultId");
+    const workspaceId = url.searchParams.get("workspaceId");
+    expect(previewId, "previewResultId in compare URL").toBeTruthy();
+    expect(workspaceId, "workspaceId in compare URL").toBe(uploaded.workspace_id);
+    // Authorize the exact result under the current identity; URL digest is ignored.
+    const authorized = await getPreviewResult(identity, workspaceId as string, previewId as string);
+    expect(authorized.status, "current Preview authorization").toBe(200);
+    expect(authorized.body.preview_result_id).toBe(previewId);
+    expect(authorized.body.workspace_id).toBe(workspaceId);
+    expect(authorized.body.operation_id).toBe(accepted.operation_id);
+    expect(authorized.body.upload_revision_id).toBe(uploaded.upload_revision_id);
+    const installed = await opfsBundleState(page, digestHex(authorized.body.bundle_digest));
+    const readiness = { uiReady: true, opfsComplete: installed.hasDigestDir && installed.hasManifest && installed.hasCompleteMarker };
+    const path = `/v1/workspaces/${encodeURIComponent(workspaceId as string)}/preview-results/${encodeURIComponent(previewId as string)}/bundle`;
+    const transferred = downloads.filter((download) => download.path === path);
+    let evidence: Awaited<ReturnType<PreviewBundleEvidence["resolve"]>> | undefined;
+    let etag: string | null = null;
+    for (const response of transferred) {
+      expect(response.status, "bundle status").toBe(200);
+      const result = await response.result;
+      if ("error" in result) throw result.error;
+      evidence = await previewBundleEvidence.resolve({ context: page.context(), identity,
+        authorizedDigest: authorized.body.bundle_digest, ...readiness, download: result.download });
+      etag = result.download.etag;
+    }
+    evidence ??= await previewBundleEvidence.resolve({ context: page.context(), identity,
+      authorizedDigest: authorized.body.bundle_digest, ...readiness });
+    await assertBrowserIdentity(page, identity);
+    const bundle = evidence.bundle;
+    const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
+    await assertBrowserIdentity(page, identity);
+    appendCaseLog(`criteria ${scope.slug} preview source=${evidence.source} digest=${bundle.bundleDigest} ${formatCriteriaSummary(criteria)}`);
+    return { previewId: previewId as string, workspaceId: workspaceId as string,
+      operationId: accepted.operation_id, bundle, status: upload.status(), previewStatus: preview.status(), etag };
+  } finally {
+    page.off("response", observe);
+  }
 }
 
 interface SubmitRun {

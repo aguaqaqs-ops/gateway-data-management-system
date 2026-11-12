@@ -143,7 +143,7 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 /* N5: the status cluster carries connection, review status and the header
    actions; at 1280 its content can exceed the grid cell, so it wraps instead of
    overflowing the page by the width of one action group. */
-.compare-status { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 4px; color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
+.compare-status { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
 .compare-status__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-connection); box-shadow: 0 0 0 3px var(--color-connection-soft); }
 .compare-status__divider { width: 1px; height: 16px; margin: 0 3px; background: var(--color-border); }
 .compare-header__bottom { display: flex; min-height: 48px; align-items: center; gap: 22px; padding: 0 28px; }

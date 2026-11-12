@@ -281,3 +281,15 @@ def test_source_build_uses_only_verified_selected_revision_and_repository_proven
     arguments = rendered["services"]["repository-service"]["build"]["args"]
     assert arguments["BUILD_INPUT_REVISION"] == "2" * 40
     assert arguments["SOURCE_TREE_SHA256"] == "sha256:" + "3" * 64
+
+
+@pytest.mark.parametrize("routes", [[], ["0100007F"], ["0100007F", "0200007F"]])
+def test_group_gateway_requires_unique_active_kernel_default_route(deployment: tuple[Any, Any], routes: list[str]) -> None:
+    helper, _ = deployment
+    raw = "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n"
+    raw += "".join("eth0 00000000 " + gateway + " 0003 0 0 0 00000000 0 0 0\n" for gateway in routes)
+    if len(routes) == 1:
+        assert helper.default_gateway(raw) == "127.0.0.1"
+    else:
+        with pytest.raises(ValueError, match="one active"):
+            helper.default_gateway(raw)

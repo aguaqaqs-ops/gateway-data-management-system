@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import ipaddress
 from pathlib import Path
 import stat
 from typing import Any
@@ -98,7 +99,8 @@ def load_configs(groups: ProcessingGroupsConfig) -> dict[str, Any]:
 
 def validate_group_containers(config: Any, group: Any, containers: list[dict[str, Any]], *,
                               allowed_states: tuple[str, ...] = ("running",),
-                              image_identities: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+                              image_identities: dict[str, dict[str, Any]] | None = None,
+                              network_identity: dict[str, Any] | None = None) -> dict[str, Any]:
     workers = validate_workers(config, group.project, containers, allowed_states=allowed_states)
     expected = {"backend", "repository-service", *worker_services(config.resources.worker.count)}
     found: dict[str, Any] = {}
@@ -128,6 +130,10 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
                 raise ValueError("running image does not match the selected local image/revision")
         if set(item["NetworkSettings"]["Networks"]) != {group.project + "_default"}:
             raise ValueError("group services must use only their private Compose network")
+        if network_identity is not None:
+            network = item["NetworkSettings"]["Networks"][group.project + "_default"]
+            if item["State"]["Status"] == "running" and network.get("NetworkID") != network_identity["Id"]:
+                raise ValueError("group service uses an unexpected actual network identity")
         environment = dict(value.split("=", 1) for value in item["Config"]["Env"])
         if role != "repository_service":
             prefix = "GATEWAY_BACKEND_" if role == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
@@ -184,13 +190,46 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
     return found
 
 
+def default_gateway(raw: str) -> str:
+    """Read the same kernel default-route fact used by the internal HTTP boundary."""
+    if len(raw) > 65536:
+        raise ValueError("group network route observation exceeds bound")
+    gateways = []
+    for line in raw.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 8 and fields[1] == "00000000" and fields[7] == "00000000" and int(fields[3], 16) & 3 == 3:
+            gateways.append(str(ipaddress.IPv4Address(bytes.fromhex(fields[2])[::-1])))
+    if len(gateways) != 1 or gateways[0] == "0.0.0.0":
+        raise ValueError("group must have one active IPv4 host gateway")
+    return gateways[0]
+
+
 def inspect_group(config: Any, group: Any, *, allowed_states: tuple[str, ...] = ("running",),
                   containers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     refs = (group.images.backend, group.images.worker, group.images.repository_service)
     images = json.loads(_docker("image", "inspect", *refs))
     identities = dict(zip(refs, images, strict=True))
-    return validate_group_containers(config, group, inspect_project(group.project) if containers is None else containers,
-        allowed_states=allowed_states, image_identities=identities)
+    networks = json.loads(_docker("network", "inspect", group.project + "_default"))
+    if len(networks) != 1:
+        raise ValueError("missing unique group Compose network")
+    network = networks[0]
+    labels = network.get("Labels") or {}
+    if (network["Name"] != group.project + "_default" or network["Driver"] != "bridge"
+            or labels.get("com.docker.compose.project") != group.project
+            or labels.get("com.docker.compose.network") != "default"):
+        raise ValueError("group network is not owned by the selected Compose project")
+    selected = inspect_project(group.project) if containers is None else containers
+    result = validate_group_containers(config, group, selected,
+        allowed_states=allowed_states, image_identities=identities, network_identity=network)
+    backend = next(item for item in selected if item["Config"]["Labels"]["com.docker.compose.service"] == "backend")
+    if backend["State"]["Status"] == "running":
+        gateway = default_gateway(_docker("exec", backend["Id"], "cat", "/proc/net/route"))
+        configured = [row["Gateway"] for row in network["IPAM"]["Config"]
+            if row.get("Gateway") and isinstance(ipaddress.ip_address(row["Gateway"]), ipaddress.IPv4Address)]
+        if configured != [gateway]:
+            raise ValueError("backend default route differs from its controlled host gateway")
+        result["backend"]["host_gateway"] = gateway
+    return result
 
 
 def check_groups(groups: ProcessingGroupsConfig, *, markers: bool = True, inspect: bool = False) -> dict[str, object]:

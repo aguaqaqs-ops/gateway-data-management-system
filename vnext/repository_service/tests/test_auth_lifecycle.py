@@ -26,7 +26,7 @@ from gateway_repository_service.process import DoltRunner, process_tree_pids
 from gateway_repository_service.provider_lifecycle import OfflineCliCapabilityGate, ProviderUnavailableError
 from gateway_repository_service.runtime import ServiceRuntime, ServiceStartupError
 from gateway_repository_service.settings import SettingsError, RepositoryServiceSettings
-from support.http_harness import create_test_client, create_test_http_app
+from support.http_harness import PRODUCTION_OPENAPI_PATHS, create_test_client, create_test_http_app
 
 
 from support.lifecycle_harness import lifecycle_settings as _lifecycle_settings
@@ -259,18 +259,7 @@ class TestBearerHarness:
         settings = _lifecycle_settings(tmp_path)
         client = create_test_client(create_app(settings, enable_lifecycle=False))
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths.keys()) == {
-            "/healthz",
-            "/readyz",
-            "/v1/statistics/observations",
-            "/v1/repositories",
-            "/v1/repositories/{repository_id}/artifacts",
-            "/v1/repositories/{repository_id}/versioned/imports",
-            "/v1/repositories/{repository_id}/operations/{operation_id}",
-            "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
-            "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
-            "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
-        }
+        assert set(paths.keys()) == PRODUCTION_OPENAPI_PATHS
 
 
 class TestRootLockContention:

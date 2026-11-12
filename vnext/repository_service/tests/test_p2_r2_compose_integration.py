@@ -224,22 +224,11 @@ def test_compose_repository_service_healthcheck_uses_python_readyz() -> None:
 
 def test_production_openapi_only_exposes_allowed_routes() -> None:
     from gateway_repository_service.app import create_app
-    from support.http_harness import create_test_client
+    from support.http_harness import PRODUCTION_OPENAPI_PATHS, create_test_client
 
     client = create_test_client(create_app(enable_lifecycle=False))
     paths = client.get("/openapi.json").json()["paths"]
-    assert set(paths.keys()) == {
-        "/healthz",
-        "/readyz",
-        "/v1/statistics/observations",
-        "/v1/repositories",
-        "/v1/repositories/{repository_id}/artifacts",
-        "/v1/repositories/{repository_id}/versioned/imports",
-        "/v1/repositories/{repository_id}/operations/{operation_id}",
-        "/v1/repositories/{repository_id}/versioned/refs/{ref_name}",
-        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
-        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows",
-    }
+    assert set(paths.keys()) == PRODUCTION_OPENAPI_PATHS
 
 
 ALLOWED_V1_ROUTE_FILES = {

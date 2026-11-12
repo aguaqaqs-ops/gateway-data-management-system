@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the service gate's externally supplied, content-addressed inputs.
 
-Use `service-inputs.py tree CACHE_DIR` to calculate the cache tree SHA256
+Use `service_inputs.py tree CACHE_DIR` to calculate the cache tree SHA256
 for the provenance manifest after prefill. The gate's verify form checks it.
 """
 from __future__ import annotations
@@ -98,7 +98,7 @@ def main() -> int:
         elif len(sys.argv) == 7 and sys.argv[1] == 'verify':
             verify(*(Path(arg) for arg in sys.argv[2:]))
         else:
-            raise ValueError('usage: service-inputs.py tree CACHE | verify MANIFEST CACHE LOCK UV REPO')
+            raise ValueError('usage: service_inputs.py tree CACHE | verify MANIFEST CACHE LOCK UV REPO')
     except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         # Never print file contents or subprocess output on failure.
         print(f'service input verification failed: {type(exc).__name__}', file=sys.stderr)

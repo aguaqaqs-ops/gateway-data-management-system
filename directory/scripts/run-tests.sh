@@ -2,6 +2,11 @@
 # Directory component gate. Capture stdout/stderr to a file outside the worktree.
 set -euo pipefail
 
+if [[ "${1:-}" == --frontend ]]; then
+  shift
+  exec "$(dirname "$0")/run-frontend-tests.sh" "$@"
+fi
+
 repo="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 service="$repo/directory/service"
 lock="$service/uv.lock"
@@ -95,7 +100,7 @@ if [[ "$manifest" != /* || ! -f "$manifest" ]]; then
   exit 2
 fi
 uv_bin="$(command -v uv)"
-python3 -I "$repo/directory/scripts/service-inputs.py" verify "$manifest" "$cache" "$lock" "$uv_bin" "$repo"
+python3 -I "$repo/directory/scripts/service_inputs.py" verify "$manifest" "$cache" "$lock" "$uv_bin" "$repo"
 python_bin="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["python_path"])' "$manifest")"
 common=(env -i "PATH=$PATH" "HOME=/home/dev" "TMPDIR=$tmp" "UV_OFFLINE=1" "UV_NO_CONFIG=1" "UV_PYTHON_DOWNLOADS=never" "UV_CACHE_DIR=$cache" "UV_PROJECT_ENVIRONMENT=$run_dir/venv" "PYTHONDONTWRITEBYTECODE=1" "RUFF_CACHE_DIR=$run_dir/ruff" "MYPY_CACHE_DIR=$run_dir/mypy")
 cd "$service"

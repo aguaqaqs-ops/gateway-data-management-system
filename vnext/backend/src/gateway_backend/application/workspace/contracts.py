@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -104,8 +106,8 @@ def compute_upload_request_fingerprint(
     }
     payload = {
         "owner_actor_id": scope_owner_actor_id,
-        "gateway_device_external_key": scope_gateway_device_external_key,
-        "business_project_id": scope_business_project_id,
+        "gateway_device_external_key": validate_scope_identity(scope_gateway_device_external_key),
+        "business_project_id": validate_scope_identity(scope_business_project_id),
         "expected_workspace_version": expected_workspace_version,
         "input_completeness": input_completeness.value,
         "source_artifacts": artifact_payload,

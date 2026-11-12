@@ -153,13 +153,13 @@ def compute_candidate_digest(
     payload = {
         "based_on_baseline_node_id": based_on_baseline_node_id,
         "business_baseline_commit_id": business_baseline_commit_id,
-        "business_project_id": business_project_id,
+        "business_project_id": validate_scope_identity(business_project_id),
         "canonical_business_digest": canonical_business_digest,
         "configuration_facts_digest": validate_archive_digest(configuration_facts_digest, field_name="configuration_facts_digest"),
         "canonicalization_manifest_digest": canonicalization_manifest_digest,
         "canonicalization_manifest_ref": canonicalization_manifest_ref,
         "completed_verification_policy": completed_verification_policy,
-        "gateway_device_external_key": gateway_device_external_key,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
         "preview_result_id": preview_result_id,
         "repository_commit_id": repository_commit_id,
         "repository_id": repository_id,
@@ -209,9 +209,9 @@ def compute_candidate_set_digest(
         "baseline_commit_id": baseline_commit_id,
         "baseline_head_version": baseline_head_version,
         "baseline_node_id": baseline_node_id,
-        "business_project_id": business_project_id,
+        "business_project_id": validate_scope_identity(business_project_id),
         "candidates": candidate_payloads,
-        "gateway_device_external_key": gateway_device_external_key,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
         "repository_id": repository_id,
     }
     return compute_archive_digest("candidate-set", payload)
@@ -308,7 +308,7 @@ def compute_confirmation_request_fingerprint(
     payload = {
         "action": action.value,
         "actor_id": validate_utf8_id(actor_id, field_name="actor_id"),
-        "business_project_id": business_project_id,
+        "business_project_id": validate_scope_identity(business_project_id),
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "CONFIRMATION",
         "expected_baseline_head_version": validate_non_negative_int(
@@ -321,7 +321,7 @@ def compute_confirmation_request_fingerprint(
             field_name="expected_candidate_digest",
         ),
         "expected_sequence": validate_archive_sequence(expected_sequence),
-        "gateway_device_external_key": gateway_device_external_key,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
         "reason": validate_archive_confirmation_reason(action, reason),
         "repository_id": repository_id,
         "selected_submission_id": validate_utf8_id(selected_submission_id, field_name="selected_submission_id"),
@@ -353,7 +353,7 @@ def compute_resolution_request_fingerprint(
     payload = {
         "action": action.value,
         "actor_id": validate_utf8_id(actor_id, field_name="actor_id"),
-        "business_project_id": business_project_id,
+        "business_project_id": validate_scope_identity(business_project_id),
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "RESOLUTION",
         "expected_baseline_head_version": validate_non_negative_int(
@@ -366,7 +366,7 @@ def compute_resolution_request_fingerprint(
             field_name="expected_candidate_digest",
         ),
         "expected_sequence": validate_archive_sequence(expected_sequence),
-        "gateway_device_external_key": gateway_device_external_key,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
         "issue_code": issue_code,
         "reason": validate_utf8_reason(reason),
         "repository_id": repository_id,
@@ -418,7 +418,7 @@ def compute_start_request_fingerprint(
     )
     payload = {
         "anomaly_resolution_refs": resolution_payload,
-        "business_project_id": business_project_id,
+        "business_project_id": validate_scope_identity(business_project_id),
         "candidate_set_digest": validate_archive_digest(candidate_set_digest, field_name="candidate_set_digest"),
         "command_kind": "START",
         "confirmation_refs": confirmation_payload,
@@ -431,7 +431,7 @@ def compute_start_request_fingerprint(
             expected_candidate_digest,
             field_name="expected_candidate_digest",
         ),
-        "gateway_device_external_key": gateway_device_external_key,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
         "repository_id": repository_id,
         "selected_submission_id": validate_utf8_id(selected_submission_id, field_name="selected_submission_id"),
     }

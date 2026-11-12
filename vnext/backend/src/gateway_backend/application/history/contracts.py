@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -223,6 +225,8 @@ class HistoryCompareAcceptanceRecord:
     created_at: datetime
 
     def __post_init__(self) -> None:
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         for label in (
             "acceptance_id",
             "gateway_device_external_key",

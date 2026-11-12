@@ -106,7 +106,9 @@ class SubmissionDisposition:
     manual_closure: ManualSubmissionClosure | None = None
 
     def __post_init__(self) -> None:
-        for value in (self.submission_id, self.repository_id, self.gateway_device_external_key, self.business_project_id):
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
+        for value in (self.submission_id, self.repository_id):
             if type(value) is not str or not value:
                 raise ValueError("submission disposition requires exact target/scope")
         if type(self.disposition) is not SubmissionDispositionKind or type(self.source_kind) is not SubmissionDispositionSourceKind:
@@ -202,6 +204,8 @@ class ArchiveConfirmationEvent:
     request_payload_json: str
 
     def __post_init__(self) -> None:
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         if self.subject_kind is not ArchiveSubjectKind.CONFIRM_SELECTION:
             raise ValueError("confirmation event subject_kind must be CONFIRM_SELECTION")
         if type(self.sequence) is not int or not 1 <= self.sequence <= 9007199254740991:
@@ -239,6 +243,8 @@ class ArchiveAnomalyResolutionEvent:
     subject_payload_json: str
 
     def __post_init__(self) -> None:
+        validate_scope_identity(self.gateway_device_external_key)
+        validate_scope_identity(self.business_project_id)
         validate_archive_artifact_bindings(json.loads(self.subject_payload_json))
         if self.subject_kind not in {
             ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.device_identity import validate_scope_identity
+
 import hashlib
 import re
 from collections.abc import Mapping
@@ -386,8 +388,8 @@ def compute_accept_request_fingerprint(
     payload = {
         "workspace_id": workspace_id,
         "owner_actor_id": owner_actor_id,
-        "gateway_device_external_key": gateway_device_external_key,
-        "business_project_id": business_project_id,
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
+        "business_project_id": validate_scope_identity(business_project_id),
         "repository_id": repository_id,
         "expected_workspace_version": expected_workspace_version,
         "upload_revision_id": upload_revision_id,

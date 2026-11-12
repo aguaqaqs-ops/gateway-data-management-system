@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -18,6 +19,7 @@ from gateway_backend.processing_group_config import DeviceDirectory, ProcessingG
 pytestmark = pytest.mark.unit
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures/processing-groups/v1"
 VECTORS = json.loads((FIXTURES / "identity-vectors.json").read_bytes())
+BOUNDARIES = json.loads((FIXTURES / "scope-identity-boundaries.json").read_bytes())
 INVALID_IDENTITIES = [None, 1, True, "", "a" * 256, "\x00", "a\x00b", "\ud800", "\udfff"]
 
 
@@ -55,7 +57,7 @@ def test_identity_boundary_shared_by_directory_dto_and_session_context(value: An
         _parse_directory(document)
 
 
-@pytest.mark.parametrize("value", ["😀" * 255, "设备", "é", "e\u0301", " raw /device\\ ", "\uffff"])
+@pytest.mark.parametrize("value", ["😀" * 255, "设备", "é", "e\u0301", " raw /device\\ "])
 def test_scope_uses_unicode_scalars_and_exact_bytes(value: str) -> None:
     assert validate_scope_identity(value) == value
     assert len(value.encode()) <= 1020
@@ -182,3 +184,69 @@ def test_manual_close_uses_scope_character_domain_without_widening_opaque_ids(id
     assert compute_close_request_fingerprint(**request).startswith("sha256:")
     with pytest.raises(ArchiveRequestValidation):
         compute_close_request_fingerprint(**{**request, "repository_id": "库" * 86})
+
+
+@pytest.mark.parametrize("point", BOUNDARIES["rejected_noncharacters"])
+def test_scope_rejects_every_unicode_noncharacter(point: str) -> None:
+    with pytest.raises(ValueError, match="noncharacter"):
+        validate_scope_identity(chr(int(point[2:], 16)))
+
+
+@pytest.mark.parametrize("point", BOUNDARIES["accepted_adjacent_scalars"])
+def test_scope_accepts_adjacent_canonical_unicode_scalars(point: str) -> None:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+
+    identity = chr(int(point[2:], 16))
+    assert validate_scope_identity(identity) == identity
+    assert json.loads(canonicalize_json_value(identity)) == identity
+
+
+@pytest.mark.parametrize("field", ["gateway_device_external_key", "business_project_id"])
+def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(field: str, tmp_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import compute_close_request_fingerprint
+    from gateway_backend.application.workspace.contracts import compute_upload_request_fingerprint
+    from gateway_backend.domain.workspace.models import InputCompleteness
+    from gateway_backend.http.auth import load_session_entries
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import load_provisioned_mapping_file
+
+    scope = dict(gateway_device_external_key="device", business_project_id="project")
+    scope[field] = "bad\uffffscope"
+    for model, document in (
+        (CreateWorkspaceRequest, scope),
+        (RegisterDeviceRequest, dict(environment_id="test-env", group_id="group-a", **scope)),
+    ):
+        with pytest.raises(ValueError, match="noncharacter"):
+            model.model_validate(document)
+    with pytest.raises(ValueError, match="noncharacter"):
+        IdentityContext("actor", scope["gateway_device_external_key"], scope["business_project_id"], frozenset({"read"}))
+    session_file = tmp_path / "sessions.json"
+    session_file.write_text(json.dumps(dict(sessions=[dict(token="test-token", actor_id="actor", permissions=["read"], **scope)])))
+    with pytest.raises(ValueError, match="noncharacter"):
+        load_session_entries(session_file)
+    seed_file = tmp_path / "seed.json"
+    seed_file.write_text(json.dumps(dict(mappings=[dict(repository_id="repo", business_baseline_node_id="initial",
+        business_baseline_commit_id="commit", baseline_head_version=0, enabled=True, **scope)])))
+    with pytest.raises(ValueError, match="noncharacter"):
+        load_provisioned_mapping_file(seed_file)
+    with pytest.raises(ValueError, match="noncharacter"):
+        compute_upload_request_fingerprint(scope_owner_actor_id="actor",
+            scope_gateway_device_external_key=scope["gateway_device_external_key"],
+            scope_business_project_id=scope["business_project_id"], expected_workspace_version=0,
+            input_completeness=InputCompleteness.FULL, source_artifacts={})
+    with pytest.raises(ValueError, match="noncharacter"):
+        compute_close_request_fingerprint(repository_id="repo", submission_id="submission",
+            expected_review_version=0, expected_baseline_node_id="initial", expected_baseline_head_version=0,
+            reason="close", **scope)
+    if field == "gateway_device_external_key":
+        document = _directory()
+        document["devices"][0][field] = scope[field]
+        with pytest.raises(ValueError, match="noncharacter"):
+            _parse_directory(document)
+        with pytest.raises(ValueError, match="noncharacter"):
+            DeviceRegistrationQuery(device=scope[field])
+        generators: tuple[Callable[[str], str], ...] = (device_route_key,
+            lambda value: device_create_key("test-env", "group-a", value),
+            lambda value: device_initial_node_id("test-env", "group-a", value))
+        for generate in generators:
+            with pytest.raises(ValueError, match="noncharacter"):
+                generate(scope[field])

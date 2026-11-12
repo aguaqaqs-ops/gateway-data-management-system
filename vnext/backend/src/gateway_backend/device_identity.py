@@ -20,6 +20,10 @@ def validate_scope_identity(value: object) -> str:
         raise ValueError("scope identity must contain 1..255 Unicode scalar values")
     if any(ord(char) == 0 or 0xD800 <= ord(char) <= 0xDFFF for char in value):
         raise ValueError("scope identity contains NUL or surrogate")
+    # Match the existing canonical Unicode gate without importing application dependencies.
+    if any(0xFDD0 <= codepoint <= 0xFDEF or (codepoint & 0xFFFF) in (0xFFFE, 0xFFFF)
+            for codepoint in map(ord, value)):
+        raise ValueError("scope identity contains Unicode noncharacter")
     if len(value.encode("utf-8")) > 1020:
         raise ValueError("scope identity exceeds 1020 UTF-8 bytes")
     return value

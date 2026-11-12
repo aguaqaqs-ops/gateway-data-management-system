@@ -163,7 +163,7 @@ def test_optional_disappearance_does_not_hide_owner_changes_or_other_errors(
             permission_checks.append(mode == os.R_OK and kwargs.get("effective_ids") is True)
             return False
         return original_access(path, mode, **kwargs)
-    def changed_mount(path: Path, limit: int) -> str:
+    def changed_mount(path: Path, limit: int = 1024 * 1024) -> str:
         if fault == "main-mount" and injected and path.parent == Path("/proc/self/fdinfo"):
             # Keep file and directory mutually consistent but change the mount
             # from the one that owned the previously validated main database.

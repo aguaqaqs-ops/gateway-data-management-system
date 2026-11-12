@@ -96,6 +96,21 @@ def merge_sessions(old: dict[str, object], incoming: dict[str, object], *, devic
     return raw, probe
 
 
+def require_unique_session_tokens(groups: ProcessingGroupsConfig, target: str,
+                                  incoming: dict[str, object]) -> None:
+    """Credentials cannot silently become a second group's identity."""
+    owners: dict[str, str] = {}
+    for group in groups.groups:
+        document = session_document(Path(group.session_directory) / "session.json")
+        for session in document["sessions"]:
+            token = session["token"]
+            if token in owners:
+                raise ValueError("session token is shared across processing groups")
+            owners[token] = group.group_id
+    if any(owners.get(session["token"], target) != target for session in incoming["sessions"]):
+        raise ValueError("session token belongs to another processing group")
+
+
 def _identity_response(value: dict[str, object], groups: ProcessingGroupsConfig, group: object,
                        device: str, project: str | None = None) -> None:
     if (value.get("environment_id"), value.get("group_id"), value.get("gateway_device_external_key")) != (groups.environment_id, group.group_id, device):
@@ -165,6 +180,7 @@ def add_device(args: argparse.Namespace, groups: ProcessingGroupsConfig, runtime
         if old is not None and old.group_id != group.group_id:
             raise ValueError("device is already reserved by another group")
         session_path = Path(group.session_directory) / "session.json"
+        require_unique_session_tokens(groups, group.group_id, incoming)
         merged, probe_token = merge_sessions(session_document(session_path), incoming, device=device, project=project)
         internal = Path(group.internal_token_file).read_text().strip()
         if not internal:

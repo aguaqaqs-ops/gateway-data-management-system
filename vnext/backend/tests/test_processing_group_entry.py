@@ -109,8 +109,9 @@ def test_session_append_is_exact_scope_and_preserves_expiry(modules: tuple[Any, 
             device='device', project='project', now=now)
 
 
+@pytest.mark.parametrize('failure', ['registration-response', 'session-fsync'])
 def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
-        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
     import argparse
     import json
     _, cli = modules
@@ -123,6 +124,7 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     internal = tmp_path / 'internal'
     internal.write_text('secret')
     raw['groups'][0].update(session_directory=str(session_dir), internal_token_file=str(internal))
+    raw['groups'] = raw['groups'][:1]
     groups_file.write_text(json.dumps(raw))
     groups = cli['ProcessingGroupsConfig'].load(groups_file)
     directory_file.write_bytes(cli['DeviceDirectory'](1, groups.environment_id, ()).to_bytes())
@@ -142,7 +144,7 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
             events.append('register')
             reserved = cli['DeviceDirectory'].load(directory_file, known_groups=groups.group_ids)
             assert reserved.require_reservation(args.device, args.group).enabled is False
-            if first:
+            if first and failure == 'registration-response':
                 first = False
                 raise cli['Incomplete']('response lost')
             return context
@@ -153,6 +155,14 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     def publish(*args: object, **kwargs: object) -> None:
         assert json.loads(directory_file.read_text())['devices'][0]['enabled'] is True
         events.append('publish')
+    original_write = cli['atomic_write']
+    def write(path: Path, payload: bytes) -> None:
+        nonlocal first
+        original_write(path, payload)
+        if path == session_dir / 'session.json' and first and failure == 'session-fsync':
+            first = False
+            raise OSError('session parent fsync unavailable')
+    monkeypatch.setitem(cli['add_device'].__globals__, 'atomic_write', write)
     monkeypatch.setitem(cli['add_device'].__globals__, 'request_json', request)
     monkeypatch.setattr(runtime_type, 'probe', lambda self, key='': {})
     monkeypatch.setattr(runtime_type, 'require_append_only', lambda self, raw: None)
@@ -161,7 +171,7 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     with pytest.raises(cli['Incomplete']):
         cli['add_device'](args, groups, runtime_type(groups, tmp_path, 'entry-test'))
     assert json.loads(directory_file.read_text())['devices'][0]['enabled'] is False
-    assert json.loads((session_dir / 'session.json').read_text()) == {'sessions': []}
+    assert len(json.loads((session_dir / 'session.json').read_text())['sessions']) == (0 if failure == 'registration-response' else 1)
     assert cli['add_device'](args, groups, runtime_type(groups, tmp_path, 'entry-test'))['state'] == 'available'
     assert events == ['register', 'register', 'context', 'publish', 'context']
     assert len(json.loads((session_dir / 'session.json').read_text())['sessions']) == 1
@@ -199,3 +209,24 @@ def test_status_exit_code_reports_actual_availability_without_writing(
     assert cli['main']() == code
     assert directory.read_bytes() == original
     assert 'token' not in capsys.readouterr().out
+
+
+def test_credentials_cannot_be_reused_across_groups(modules: tuple[Any, dict[str, Any]], tmp_path: Path) -> None:
+    import json
+    _, cli = modules
+    groups = config()
+    row = {'token': 'credential', 'actor_id': 'actor', 'gateway_device_external_key': 'device',
+        'business_project_id': 'project', 'permissions': ['workspace_read']}
+    configured = []
+    for index, group in enumerate(groups.groups):
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        (directory / 'session.json').write_text(json.dumps({'sessions': [row] if index else []}))
+        configured.append(replace(group, session_directory=str(directory)))
+    groups = replace(groups, groups=tuple(configured))
+    with pytest.raises(ValueError, match='another processing group'):
+        cli['require_unique_session_tokens'](groups, groups.groups[0].group_id, {'sessions': [row]})
+    cli['require_unique_session_tokens'](groups, groups.groups[1].group_id, {'sessions': [row]})
+    (Path(groups.groups[0].session_directory) / 'session.json').write_text(json.dumps({'sessions': [row]}))
+    with pytest.raises(ValueError, match='shared across'):
+        cli['require_unique_session_tokens'](groups, groups.groups[0].group_id, {'sessions': []})

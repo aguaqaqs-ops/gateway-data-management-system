@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -157,6 +158,17 @@ http {{
     return digest, text.replace("DIGEST_PLACEHOLDER", digest).encode("utf-8")
 
 
+def require_append_only_routes(previous: bytes, current: bytes) -> None:
+    """Hot add cannot alter a route or upstream already loaded by Nginx."""
+    def selections(raw: bytes) -> tuple[dict[bytes, bytes], dict[bytes, bytes]]:
+        routes = dict(re.findall(rb"^        ([0-9a-f]{64}) http://gateway_([a-z0-9][a-z0-9_-]{0,63});$", raw, re.MULTILINE))
+        upstreams = dict(re.findall(rb"^    upstream gateway_([a-z0-9][a-z0-9_-]{0,63}) \{ server 127\.0\.0\.1:([0-9]+); \}$", raw, re.MULTILINE))
+        return routes, upstreams
+    before, after = selections(previous), selections(current)
+    if any(after[index].get(key) != value for index in (0, 1) for key, value in before[index].items()):
+        raise Incomplete("hot publication would alter an existing route or upstream")
+
+
 class EntryRuntime:
     """Only targets the independent entry project and its single fixed service."""
     def __init__(self, groups: ProcessingGroupsConfig, directory: Path, project: str) -> None:
@@ -194,7 +206,7 @@ class EntryRuntime:
         return container
 
     def retiring_workers(self) -> bool:
-        result = self.command(["docker", "top", self.container_id(), "-eo", "args"])
+        result = self.command(["docker", "top", self.container_id(), "-eo", "pid,args"])
         if result.returncode:
             raise Incomplete("entry process generation unavailable")
         return "nginx: worker process is shutting down" in result.stdout
@@ -210,6 +222,19 @@ class EntryRuntime:
             "-t", "-c", CONTAINER_DIRECTORY + "/" + filename])
         if result.returncode:
             raise Incomplete("candidate entry configuration rejected")
+
+    def loaded_config(self, current: dict[str, object]) -> bytes:
+        loaded_digest = current.get("config_digest")
+        if type(loaded_digest) is not str or len(loaded_digest) != 64 or any(char not in "0123456789abcdef" for char in loaded_digest):
+            raise Incomplete("loaded entry digest unavailable")
+        version = self.directory / "versions" / (loaded_digest + ".conf")
+        raw = version.read_bytes() if version.exists() else (self.directory / "nginx.conf").read_bytes()
+        if ('"config_digest":"' + loaded_digest + '"').encode() not in raw:
+            raise Incomplete("last loaded entry bytes unavailable")
+        return raw
+
+    def require_append_only(self, candidate: bytes) -> None:
+        require_append_only_routes(self.loaded_config(self.probe()), candidate)
 
     def publish(self, digest: str, raw: bytes, *, key: str, group: str,
                 timeout: float = 30, poll: Callable[[float], None] = time.sleep) -> None:
@@ -230,13 +255,8 @@ class EntryRuntime:
         atomic_write(self.directory / filename, raw)
         self.validate(filename)
         active = self.directory / "nginx.conf"
-        loaded_digest = current.get("config_digest")
-        if type(loaded_digest) is not str or len(loaded_digest) != 64 or any(char not in "0123456789abcdef" for char in loaded_digest):
-            raise Incomplete("loaded entry digest unavailable")
-        loaded_version = versions / (loaded_digest + ".conf")
-        old = loaded_version.read_bytes() if loaded_version.exists() else active.read_bytes()
-        if ('"config_digest":"' + loaded_digest + '"').encode() not in old:
-            raise Incomplete("last loaded entry bytes unavailable")
+        old = self.loaded_config(current)
+        require_append_only_routes(old, raw)
         atomic_write(self.directory / "previous.conf", old)
         atomic_write(active, raw)
         result = self.compose("exec", "-T", "entry", "nginx", "-s", "reload", "-c", CONTAINER_DIRECTORY + "/nginx.conf")

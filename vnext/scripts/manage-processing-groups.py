@@ -43,7 +43,7 @@ def session_document(path: Path) -> dict[str, object]:
         if type(row) is not dict or not {"token", "actor_id", "gateway_device_external_key", "business_project_id", "permissions"} <= set(row) or set(row) - {"token", "actor_id", "gateway_device_external_key", "business_project_id", "permissions", "expires_at"}:
             raise ValueError("invalid session entry")
         token = row["token"]
-        if type(token) is not str or not token or token in tokens or any(ord(char) < 32 or ord(char) > 126 for char in token):
+        if type(token) is not str or not token or token in tokens or any(ord(char) <= 32 or ord(char) > 126 for char in token):
             raise ValueError("invalid or duplicate session token")
         tokens.add(token)
         if type(row["actor_id"]) is not str or not row["actor_id"]:
@@ -146,39 +146,46 @@ def add_device(args: argparse.Namespace, groups: ProcessingGroupsConfig, runtime
         if not internal:
             raise ValueError("internal bearer unavailable")
         # Ready and prior-generation checks precede reserving a new identity.
-        request_json(group.backend_endpoint + "/readyz")
-        runtime.probe()
+        try:
+            request_json(group.backend_endpoint + "/readyz")
+            runtime.require_append_only(render_entry(groups, directory)[1])
+        except Incomplete:
+            raise ValueError("target group or entry precondition unavailable") from None
         if runtime.retiring_workers():
             raise Busy("previous entry generation is still serving requests")
-        if old is None:
-            reserved = replace(directory, devices=(*directory.devices, DeviceDirectoryEntry(device, group.group_id, False)))
-            reserved.require_append_only(directory)
-            # Re-parse to enforce count/size/collision limits after append.
-            directory = DeviceDirectory.from_bytes(reserved.to_bytes(), known_groups=groups.group_ids)
-            atomic_write(args.directory_file, directory.to_bytes())
-        registration = request_json(group.backend_endpoint + "/internal/v1/devices/register", token=internal,
-            body={"environment_id": groups.environment_id, "group_id": group.group_id,
-                "gateway_device_external_key": device, "business_project_id": project})
-        _identity_response(registration, groups, group, device, project)
-        atomic_write(session_path, merged)
-        key = _identity.device_route_key(device)
-        context = request_json(group.backend_endpoint + "/v1/device-context", token=probe_token, key=key)
-        _identity_response(context, groups, group, device, project)
-        if context["repository_id"] != registration["repository_id"]:
-            raise Incomplete("registered repository differs from scope")
-        request_json(group.backend_endpoint + "/readyz")
-        enabled = replace(directory, devices=tuple(replace(row, enabled=True) if row.gateway_device_external_key == device else row for row in directory.devices))
-        enabled.require_append_only(directory)
-        atomic_write(args.directory_file, enabled.to_bytes())
-        digest, raw = render_entry(groups, enabled)
-        runtime.publish(digest, raw, key=key, group=group.group_id)
-        public_address = "[::1]" if ":" in groups.entry.listen_address else "127.0.0.1"
-        final = request_json(f"http://{public_address}:{groups.entry.listen_port}/v1/device-context", token=probe_token, key=key)
-        _identity_response(final, groups, group, device, project)
-        if final != context:
-            raise Incomplete("public scope differs from registered scope")
-        request_json(group.backend_endpoint + "/readyz")
-        return {"state": "available", "group_id": group.group_id, "config_digest": digest}
+        try:
+            if old is None:
+                reserved = replace(directory, devices=(*directory.devices, DeviceDirectoryEntry(device, group.group_id, False)))
+                reserved.require_append_only(directory)
+                # Re-parse to enforce count/size/collision limits after append.
+                directory = DeviceDirectory.from_bytes(reserved.to_bytes(), known_groups=groups.group_ids)
+                atomic_write(args.directory_file, directory.to_bytes())
+            registration = request_json(group.backend_endpoint + "/internal/v1/devices/register", token=internal,
+                body={"environment_id": groups.environment_id, "group_id": group.group_id,
+                    "gateway_device_external_key": device, "business_project_id": project})
+            _identity_response(registration, groups, group, device, project)
+            atomic_write(session_path, merged)
+            key = _identity.device_route_key(device)
+            context = request_json(group.backend_endpoint + "/v1/device-context", token=probe_token, key=key)
+            _identity_response(context, groups, group, device, project)
+            if context["repository_id"] != registration["repository_id"]:
+                raise Incomplete("registered repository differs from scope")
+            request_json(group.backend_endpoint + "/readyz")
+            enabled = replace(directory, devices=tuple(replace(row, enabled=True) if row.gateway_device_external_key == device else row for row in directory.devices))
+            enabled.require_append_only(directory)
+            atomic_write(args.directory_file, enabled.to_bytes())
+            digest, raw = render_entry(groups, enabled)
+            runtime.publish(digest, raw, key=key, group=group.group_id)
+            public_address = "[::1]" if ":" in groups.entry.listen_address else "127.0.0.1"
+            final = request_json(f"http://{public_address}:{groups.entry.listen_port}/v1/device-context", token=probe_token, key=key)
+            _identity_response(final, groups, group, device, project)
+            if final != context:
+                raise Incomplete("public scope differs from registered scope")
+            request_json(group.backend_endpoint + "/readyz")
+            return {"state": "available", "group_id": group.group_id, "config_digest": digest}
+        except (OSError, ValueError):
+            raise Incomplete("device provisioning or publication not completed; retry the same identity") from None
+
 
 
 def main() -> int:

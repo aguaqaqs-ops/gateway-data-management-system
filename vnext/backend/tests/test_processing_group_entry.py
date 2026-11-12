@@ -155,6 +155,7 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
         events.append('publish')
     monkeypatch.setitem(cli['add_device'].__globals__, 'request_json', request)
     monkeypatch.setattr(runtime_type, 'probe', lambda self, key='': {})
+    monkeypatch.setattr(runtime_type, 'require_append_only', lambda self, raw: None)
     monkeypatch.setattr(runtime_type, 'retiring_workers', lambda self: False)
     monkeypatch.setattr(runtime_type, 'publish', publish)
     with pytest.raises(cli['Incomplete']):
@@ -164,3 +165,18 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     assert cli['add_device'](args, groups, runtime_type(groups, tmp_path, 'entry-test'))['state'] == 'available'
     assert events == ['register', 'register', 'context', 'publish', 'context']
     assert len(json.loads((session_dir / 'session.json').read_text())['sessions']) == 1
+
+
+def test_hot_publication_rejects_existing_device_or_upstream_rebinding(modules: tuple[Any, dict[str, Any]]) -> None:
+    entry, _ = modules
+    groups = config()
+    directory = DeviceDirectory(1, groups.environment_id, (DeviceDirectoryEntry('old', 'group-a', True),))
+    _, old = entry.render_entry(groups, directory)
+    _, rebound = entry.render_entry(groups, replace(directory, devices=(replace(directory.devices[0], group_id='group-b'),)))
+    with pytest.raises(entry.Incomplete):
+        entry.require_append_only_routes(old, rebound)
+    changed = replace(groups, groups=(replace(groups.groups[0], backend_port=9999), *groups.groups[1:]))
+    with pytest.raises(entry.Incomplete):
+        entry.require_append_only_routes(old, entry.render_entry(changed, directory)[1])
+    _, appended = entry.render_entry(groups, replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-b', True))))
+    entry.require_append_only_routes(old, appended)

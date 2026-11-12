@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateCounts, matches, readState, regionCounts, sorted, stateSearch, visible } from "./model";
+import { duplicateCounts, handoffQuery, matches, readState, regionCounts, sorted, stateSearch, visible } from "./model";
 import type { Project } from "./model";
 
 const projects: Project[] = [
@@ -32,5 +32,23 @@ describe("目录查询", () => {
     const result = visible(many, readState("?r1=%E6%B1%9F%E8%8B%8F&page=2"));
     expect(result).toHaveLength(51);
     expect(result.slice(50, 100)).toHaveLength(1);
+  });
+  it("长地区与搜索的 UTF-8 返回查询遵守 I3 并完整恢复位置", () => {
+    const state = { r1: "江".repeat(50), r2: "苏".repeat(50), q: "站".repeat(20) + "%26&+#?=/ 😀", scope: "region" as const, page: 2 };
+    const encoded = stateSearch(state);
+    expect(encoded.length).toBeGreaterThan(1000);
+    const query = handoffQuery(encoded)!;
+    expect(Array.from(query).length).toBeLessThanOrEqual(1000);
+    expect(query).toContain("%2526%26%2B%23%3F%3D%2F");
+    const returned = new URL(`https://directory.example/${query}`).search;
+    expect(readState(returned)).toEqual(state);
+    expect(handoffQuery("")).toBeUndefined();
+  });
+  it("按 Unicode 字符计数，超限保留状态并明确拒绝，不截断", () => {
+    const boundary = stateSearch({ r1: "", r2: "", q: "😀".repeat(997), scope: "all", page: 1 });
+    expect(Array.from(handoffQuery(boundary)!).length).toBe(1000);
+    expect(() => handoffQuery(boundary + "x")).toThrow("return query too long");
+    // ASCII escapes are significant too; decoding %26 would change the query.
+    expect(() => handoffQuery("?q=" + "%26".repeat(333))).toThrow("return query too long");
   });
 });

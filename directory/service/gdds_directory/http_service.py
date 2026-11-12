@@ -5,7 +5,9 @@ import gzip
 import json
 import mimetypes
 import re
+import socket
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,6 +18,53 @@ from . import db
 
 DEVICE_KEY = re.compile(r"dev-[0-9a-f]{16}\Z")
 JSON_TYPE = "application/json; charset=utf-8"
+
+
+def _static_path(root: Path, name: str) -> Path:
+    # Build output paths are POSIX relative paths, never source/hidden paths.
+    if (not name or "\\" in name or name.startswith("/")
+            or any(part in ("", ".", "..") or part.startswith(".") for part in name.split("/"))):
+        raise ValueError("invalid build path")
+    candidate = root / name
+    if not candidate.resolve().is_relative_to(root) or not candidate.is_file():
+        raise ValueError("invalid build file")
+    return candidate
+
+
+def _build_files(root: Path) -> frozenset[str]:
+    """Only the Vite build manifest's outputs and the built HTML are public."""
+    try:
+        manifest_path = root / ".vite" / "manifest.json"
+        if not manifest_path.resolve().is_relative_to(root):
+            raise ValueError("invalid manifest path")
+        manifest = json.loads(manifest_path.read_bytes(), object_pairs_hook=_unique_object)
+        if (not isinstance(manifest, dict) or not isinstance(manifest.get("index.html"), dict)
+                or manifest["index.html"].get("isEntry") is not True):
+            raise ValueError("missing built entry")
+        names = {"index.html"}
+        for chunk in manifest.values():
+            if not isinstance(chunk, dict) or not isinstance(chunk.get("file"), str):
+                raise ValueError("invalid build chunk")
+            names.add(chunk["file"])
+            for field in ("css", "assets"):
+                values = chunk.get(field, [])
+                if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+                    raise ValueError("invalid build assets")
+                names.update(values)
+        for name in names:
+            _static_path(root, name)
+        return frozenset(names)
+    except (OSError, ValueError, RecursionError):
+        raise db.ConfigurationError(
+            "GDDS_DIRECTORY_STATIC_DIR: complete Vite build with manifest required"
+        ) from None
+
+
+def _interrupt(request: socket.socket) -> None:
+    try:
+        request.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 def _json(value: object) -> bytes:
@@ -49,15 +98,67 @@ def _accepts_gzip(value: str) -> bool:
 
 
 class DirectoryServer(ThreadingHTTPServer):
+    max_requests = 32
+    request_queue_size = 32
+    io_timeout = 5.0
+    request_deadline = 30.0
+    daemon_threads = False
+    block_on_close = True
+
     def __init__(
         self, address: tuple[str, int], database: Path, static: Path,
         public_url: str, gateway_url: str,
     ) -> None:
         self.database = database
         self.static = static.resolve()
+        self.static_files = _build_files(self.static)
         self.public_url = public_url
         self.gateway_url = gateway_url
+        self._slots = threading.BoundedSemaphore(self.max_requests)
+        self._requests_lock = threading.Lock()
+        self._requests: set[socket.socket] = set()
+        self._closing = False
         super().__init__(address, DirectoryHandler)
+
+    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+        with self._requests_lock:
+            if self._closing or not self._slots.acquire(blocking=False):
+                # Do not parse or write on an excess connection in the accept loop.
+                self.shutdown_request(request)
+                return
+            self._requests.add(request)
+            try:
+                super().process_request(request, client_address)
+            except Exception:
+                self._requests.remove(request)
+                self._slots.release()
+                raise
+
+    def process_request_thread(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+        # An absolute deadline also bounds clients trickling headers/body bytes.
+        deadline = threading.Timer(self.request_deadline, _interrupt, args=(request,))
+        try:
+            request.settimeout(self.io_timeout)
+            deadline.start()
+            self.finish_request(request, client_address)
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            deadline.cancel()
+            if deadline.ident is not None:
+                deadline.join()
+            self.shutdown_request(request)
+            with self._requests_lock:
+                self._requests.remove(request)
+                self._slots.release()
+
+    def server_close(self) -> None:
+        with self._requests_lock:
+            self._closing = True
+            for request in self._requests:
+                _interrupt(request)
+        # Join admitted handlers (and their cancelled deadline timers).
+        super().server_close()
 
     def handle_error(self, request: object, client_address: object) -> None:
         # Never print request data or a handler traceback that might contain a secret.
@@ -160,7 +261,10 @@ class DirectoryHandler(BaseHTTPRequestHandler):
             length = int(lengths[0])
             if length < 0 or length > 8192:
                 raise ValueError("invalid length")
-            request = json.loads(self.rfile.read(length), object_pairs_hook=_unique_object)
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise ValueError("incomplete body")
+            request = json.loads(body, object_pairs_hook=_unique_object)
             if not isinstance(request, dict) or set(request) - {"device_key", "return_query"}:
                 raise ValueError("invalid object")
             device = request.get("device_key")
@@ -229,11 +333,10 @@ class DirectoryHandler(BaseHTTPRequestHandler):
 
     def static_file(self, path: str) -> None:
         try:
-            candidate = (self.server.static / unquote(path).lstrip("/")).resolve()
-            if candidate == self.server.static:
-                candidate = (self.server.static / "index.html").resolve()
-            if not candidate.is_relative_to(self.server.static) or not candidate.is_file():
+            name = "index.html" if path == "/" else unquote(path).removeprefix("/")
+            if name not in self.server.static_files:
                 raise FileNotFoundError
+            candidate = _static_path(self.server.static, name)
             content = candidate.read_bytes()
         except (OSError, ValueError):
             self.error_json(404, "NOT_FOUND", "页面不存在")

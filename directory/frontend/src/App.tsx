@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { duplicateCounts, matches, readState, regionCounts, stateSearch, visible } from "./model";
+import { duplicateCounts, handoffQuery, matches, readState, regionCounts, stateSearch, visible } from "./model";
 import type { Catalog, Project, ViewState } from "./model";
 
 const RECENT_KEY = "gdds-directory-recent";
@@ -80,11 +80,17 @@ export default function App() {
 
   const enter = useCallback(async (project: Project) => {
     if (!project.provisioned || busy) return;
+    let returnQuery: string | undefined;
+    try { returnQuery = handoffQuery(window.location.search); }
+    catch {
+      setHandoffError("当前返回位置过长，请缩短搜索内容后再进入；当前页面状态已保留。");
+      return;
+    }
     setBusy(true);
     setHandoffError("");
     try {
       const response = await fetch("/api/handoffs", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ device_key: project.device_key, return_query: window.location.search || undefined }) });
+        body: JSON.stringify({ device_key: project.device_key, return_query: returnQuery }) });
       if (!response.ok) {
         const data: { code?: string } = await response.json().catch(() => ({}));
         setHandoffError(errors[data.code || ""] || "进入失败，请稍后重试。");

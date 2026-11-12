@@ -36,6 +36,16 @@ export function stateSearch(state: ViewState): string {
   return query ? `?${query}` : "";
 }
 
+export function handoffQuery(search: string): string | undefined {
+  // I3 counts Unicode characters, not the browser's percent-encoded bytes.
+  // Decode only UTF-8 non-ASCII runs: %25, %26, %2B etc. must stay escaped.
+  const query = search.replace(/(?:%[89a-f][0-9a-f])+/gi, (encoded) => {
+    try { return decodeURIComponent(encoded); } catch { return encoded; }
+  });
+  if (Array.from(query).length > 1000) throw new Error("return query too long");
+  return query || undefined;
+}
+
 export function matches(project: Project, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;

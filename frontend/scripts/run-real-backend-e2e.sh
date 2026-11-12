@@ -743,7 +743,18 @@ export CARGO_TARGET_DIR="$RUN_ROOT/cargo-target"
 export GATEWAY_RUST_BUILD_INPUT="$(git -C "$REPO_DIR" rev-parse HEAD:vnext/rust)"
 (
   cd "$REPO_DIR/vnext/rust"
+  selector="$(python3 -I -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+  installed="$(rustup toolchain list)"
+  if ! printf '%s\n' "$installed" | awk '{print $1}' | grep -Fq "$selector-"; then
+    log "error=repository Rust selector is not prefilled"
+    exit 2
+  fi
+  tool_directory=""
   for tool in rustc cargo rustfmt clippy-driver; do
+    resolved="$(rustup which --toolchain "$selector" "$tool")"
+    resolved_directory="$(dirname "$resolved")"
+    [[ -z "$tool_directory" || "$resolved_directory" == "$tool_directory" ]] || { log "error=Rust toolchain mismatch"; exit 2; }
+    tool_directory="$resolved_directory"
     command -v "$tool" >/dev/null || { log "error=required offline Rust tool missing: $tool"; exit 2; }
     "$tool" --version
   done

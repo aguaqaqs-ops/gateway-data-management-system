@@ -132,3 +132,56 @@ def test_real_sqlite_scope_distinguishes_absence_from_unavailable_facts(tmp_path
     assert str(env.db_path) not in response.text
     if status == 503:
         assert response.json() == {'code': 'DEPENDENCY_UNAVAILABLE', 'message': 'scope provider unavailable'}
+
+
+@pytest.mark.parametrize('consumer', ['operation', 'review', 'submit', 'history', 'history-compare'])
+@pytest.mark.parametrize('failure', ['provider', 'missing'])
+def test_scope_failure_after_successful_auth_keeps_dependency_and_permission_semantics(
+        tmp_path: Path, consumer: str, failure: str) -> None:
+    from contextlib import ExitStack
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.http_workspace_harness import BASELINE_HEAD, seed_pending_review_submission, seed_submit_ready_workspace
+    from tests.support.workspace_fixtures import make_identity
+    from tests.test_operation_http import _seed_preview_operation
+    from tests.test_submit_http import _seeded_workspace_dict, _submit_body
+    identity = make_identity()
+    identity = replace(identity, permissions=identity.permissions | {'read_project_history'})
+    env = create_workspace_http_environment(tmp_path, identity=identity)
+    path = '/v1/history'
+    body: dict[str, object] | None = None
+    if consumer == 'operation':
+        _, accepted = _seed_preview_operation(env.client, env.auth_headers())
+        path = '/v1/operations/' + accepted['operation_id']
+    if consumer == 'review':
+        seed = seed_pending_review_submission(env.db_path)
+        path = '/v1/submissions/' + seed.submission_id + '/review-events'
+        body = {'expected_review_version': 0, 'action': 'APPROVE', 'reason': 'review'}
+    if consumer == 'submit':
+        submit = _seeded_workspace_dict(seed_submit_ready_workspace(env.db_path, env.artifact_store))
+        path = '/v1/workspaces/' + submit['workspace_id'] + '/submit-attempts'
+        body = _submit_body(submit)
+    if consumer == 'history-compare':
+        path = '/v1/history-compares'
+        body = {'nodes': [{'ref_kind': 'baseline_node', 'ref_id': BASELINE_HEAD.business_baseline_node_id}] * 2}
+    reason = 'private provider /private/control.sqlite3 failed'
+    error = ScopeResolutionError(reason) if failure == 'provider' else ScopeNotFound(reason)
+    good = env.scope_resolution.resolve(env.identity)
+    with ExitStack() as stack:
+        if consumer == 'operation':
+            resolver = stack.enter_context(patch.object(env.scope_resolution, 'resolve', side_effect=[good, error]))
+            transaction = None
+        else:
+            resolver = stack.enter_context(patch.object(env.scope_resolution, 'resolve', wraps=env.scope_resolution.resolve))
+            transaction = stack.enter_context(patch.object(ControlDbUnitOfWork, 'resolve_provisioned_scope', side_effect=error))
+        headers = env.auth_headers(idempotency_key='typed-second-resolve') if body is not None else env.auth_headers()
+        response = env.client.post(path, headers=headers, json=body) if body is not None else env.client.get(path, headers=headers)
+    expected = 503 if failure == 'provider' else 403 if consumer.startswith('history') else 404
+    assert response.status_code == expected
+    assert response.json()['code'] == ('DEPENDENCY_UNAVAILABLE' if expected == 503 else 'SCOPE_FORBIDDEN' if expected == 403 else 'RESOURCE_NOT_FOUND')
+    assert reason not in response.text
+    assert '/private/' not in response.text
+    assert resolver.call_count >= 1
+    if transaction is not None:
+        assert transaction.call_count == 1
+    else:
+        assert resolver.call_count == 2

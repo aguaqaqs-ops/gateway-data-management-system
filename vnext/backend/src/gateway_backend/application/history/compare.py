@@ -44,7 +44,7 @@ from gateway_backend.application.history.ports import (
     HistoryControlUnitOfWorkFactory,
 )
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
-from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeNotFound
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -242,7 +242,7 @@ def validate_history_compare_binding(
             gateway_device_external_key=command.context.gateway_device_external_key,
             business_project_id=command.context.business_project_id,
         )
-    except ScopeResolutionError as exc:
+    except ScopeNotFound as exc:
         raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY) from exc
 
     compare_port = _compare_port(unit_of_work)

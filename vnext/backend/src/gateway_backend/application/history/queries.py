@@ -11,7 +11,7 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.history.errors import HistoryIntegrityFailure, HistoryRequestValidation
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
 from gateway_backend.application.history.projection import _decode_cursor, project_history_page
-from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 
@@ -43,7 +43,7 @@ def get_project_history(
                 limit=resolved_limit,
                 after_order_key=cursor_order_key,
             )
-    except ScopeResolutionError as exc:
+    except ScopeNotFound as exc:
         raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY) from exc
     except ValueError as exc:
         raise HistoryIntegrityFailure("history fact rows are inconsistent") from exc

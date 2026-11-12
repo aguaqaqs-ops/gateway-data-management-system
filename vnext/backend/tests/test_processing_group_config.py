@@ -169,3 +169,16 @@ def test_registration_openapi_schema_defines_required_and_unknown_fields() -> No
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {"environment_id", "group_id", "gateway_device_external_key", "business_project_id"}
     assert schema["properties"]["gateway_device_external_key"]["maxLength"] == 255
+
+
+@pytest.mark.parametrize("identity", ["设" * 86, "😀" * 255])
+def test_manual_close_uses_scope_character_domain_without_widening_opaque_ids(identity: str) -> None:
+    from gateway_backend.application.archive.contracts import compute_close_request_fingerprint
+    from gateway_backend.application.archive.errors import ArchiveRequestValidation
+
+    request: dict[str, Any] = dict(repository_id="repository", gateway_device_external_key=identity,
+        business_project_id=identity, submission_id="submission", expected_review_version=0,
+        expected_baseline_node_id="node", expected_baseline_head_version=0, reason="closed")
+    assert compute_close_request_fingerprint(**request).startswith("sha256:")
+    with pytest.raises(ArchiveRequestValidation):
+        compute_close_request_fingerprint(**{**request, "repository_id": "库" * 86})

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_backend.artifacts.types import validate_artifact_id
+from gateway_backend.device_identity import validate_scope_identity
 from gateway_backend.domain.archive.models import validate_archive_artifact_bindings
 
 import hashlib
@@ -446,8 +447,8 @@ def compute_close_request_fingerprint(*, repository_id: str, gateway_device_exte
         expected_baseline_node_id: str, expected_baseline_head_version: int, reason: str) -> str:
     return compute_archive_digest("close-request", {
         "command_kind": "CLOSE", "repository_id": validate_utf8_id(repository_id, field_name="repository_id"),
-        "gateway_device_external_key": validate_utf8_id(gateway_device_external_key, field_name="gateway_device_external_key"),
-        "business_project_id": validate_utf8_id(business_project_id, field_name="business_project_id"),
+        "gateway_device_external_key": validate_scope_identity(gateway_device_external_key),
+        "business_project_id": validate_scope_identity(business_project_id),
         "submission_id": validate_utf8_id(submission_id, field_name="submission_id"),
         "expected_review_version": validate_non_negative_int(expected_review_version, field_name="expected_review_version"),
         "expected_baseline_node_id": validate_utf8_id(expected_baseline_node_id, field_name="expected_baseline_node_id"),

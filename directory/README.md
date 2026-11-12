@@ -6,7 +6,7 @@
 
 设置 `GDDS_DIRECTORY_DB` 为受控私有目录中的 SQLite 绝对路径；其父目录须由当前用户拥有且不允许其他用户访问。数据库、sidecar 和私有临时文件不能位于静态目录或网关公共配置目录。schema 不匹配时拒绝使用。目录首次导入时创建；新项目不提供旧 schema 迁移。
 
-设置 `GDDS_DIRECTORY_PUBLIC_URL` 为浏览器访问目录的 HTTP(S) 地址，`GDDS_DIRECTORY_GATEWAY_FRONTEND_URL` 为浏览器访问网关前端的 HTTP(S) 地址。`GDDS_DIRECTORY_LISTEN` 默认 `0.0.0.0:8100`；`GDDS_DIRECTORY_STATIC_DIR` 可指定构建产物的绝对路径，默认 `directory/frontend/dist`。在前端构建产物就绪后启动：
+设置 `GDDS_DIRECTORY_PUBLIC_URL` 为浏览器访问目录的 HTTP(S) 地址，`GDDS_DIRECTORY_GATEWAY_FRONTEND_URL` 为浏览器访问网关前端的 HTTP(S) 地址。`GDDS_DIRECTORY_LISTEN` 默认 `0.0.0.0:8100`；`GDDS_DIRECTORY_STATIC_DIR` 可指定构建产物的绝对路径，默认 `directory/frontend/dist`。确保 PATH 中的 `python3` 是 Python 3.14.6，并在前端构建产物就绪后启动：
 
 ```sh
 export PATH="$PWD/directory/bin:$PATH"

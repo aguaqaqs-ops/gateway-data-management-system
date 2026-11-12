@@ -248,6 +248,8 @@ class StageGateTests(unittest.TestCase):
         with patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
              patch.object(gate, "image", return_value=image):
             self.assertTrue(gate.container_equivalent(source, "backend")[0])
+            with patch.object(gate, "entry_image", return_value={**gate.entry_image(), "image_id": "different"}):
+                self.assertFalse(gate.container_equivalent(source, "backend")[0])
             gate.changed = "vnext/deploy/compose.yaml\nvnext/deploy/compose.yaml"
             self.assertFalse(gate.container_equivalent(source, "backend")[0])
             gate.changed = ""

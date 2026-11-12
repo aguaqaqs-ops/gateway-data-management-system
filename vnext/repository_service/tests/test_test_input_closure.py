@@ -456,6 +456,8 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
     if package == "backend":
         assert selections["backend_dependency_base_image"] == "fixture/backend-deps:custom"
         assert selections["backend_use_preloaded_dependencies"] == "1"
+        assert selections["entry_image"] == "nginx:1.28.0"
+        assert "nginx:1.28.0" in image_ids
         assert "fixture/backend-deps:custom" in inspected
     proxy_fingerprint = inputs["setting_fingerprints"]["HTTP_PROXY"]
     assert proxy_fingerprint == {
@@ -478,6 +480,8 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
 
 
 DOCKER_IMAGE_ID_MANIFEST_CASES = (
+    pytest.param("backend", "nginx:1.28.0", {}, True, id="backend-default-entry-image"),
+    pytest.param("backend", "fixture/nginx:fixed", {"GATEWAY_ENTRY_IMAGE": "fixture/nginx:fixed"}, True, id="backend-selected-entry-image"),
     pytest.param(
         "backend",
         "gateway-repository-service:local",

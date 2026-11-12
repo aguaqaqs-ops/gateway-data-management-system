@@ -33,7 +33,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def request_json(url: str, *, token: str | None = None, key: str | None = None,
-                 body: dict[str, object] | None = None) -> dict[str, object]:
+                 body: dict[str, object] | None = None, timeout: float = 5) -> dict[str, object]:
     headers = {"Accept": "application/json", "Connection": "close"}
     if token is not None:
         headers["Authorization"] = "Bearer " + token
@@ -43,7 +43,7 @@ def request_json(url: str, *, token: str | None = None, key: str | None = None,
     if data is not None:
         headers["Content-Type"] = "application/json"
     try:
-        with build_opener(ProxyHandler({}), _NoRedirect()).open(Request(url, data=data, headers=headers), timeout=5) as response:
+        with build_opener(ProxyHandler({}), _NoRedirect()).open(Request(url, data=data, headers=headers), timeout=timeout) as response:
             raw = response.read(65537)
             if len(raw) > 65536:
                 raise Incomplete("management response exceeds limit")
@@ -94,6 +94,8 @@ error_log /dev/stderr warn;
 events {{ worker_connections 1024; }}
 http {{
     access_log off;
+    map_hash_bucket_size 128;
+    map_hash_max_size 32768;
     client_body_temp_path /tmp/client_body;
     proxy_temp_path /tmp/proxy;
     map $http_x_gateway_device_key $gateway_key {{
@@ -194,8 +196,8 @@ class EntryRuntime:
             raise Incomplete("entry process generation unavailable")
         return "nginx: worker process is shutting down" in result.stdout
 
-    def probe(self, key: str = "") -> dict[str, object]:
-        return request_json(f"http://127.0.0.1:{self.groups.entry.management_port}/status?key={key}")
+    def probe(self, key: str = "", *, timeout: float = 5) -> dict[str, object]:
+        return request_json(f"http://127.0.0.1:{self.groups.entry.management_port}/status?key={key}", timeout=timeout)
 
     def validate(self, filename: str) -> None:
         # Same selected image, host network and parent mount; no pulls or mutable build.
@@ -243,7 +245,7 @@ class EntryRuntime:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                if self.probe(key) == {"config_digest": digest, "group_id": group}:
+                if self.probe(key, timeout=min(5, max(0.001, deadline - time.monotonic()))) == {"config_digest": digest, "group_id": group}:
                     return
             except Incomplete:
                 pass

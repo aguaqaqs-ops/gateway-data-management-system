@@ -57,7 +57,7 @@ def test_failed_publication_preserves_loaded_route_and_never_kills_streams(
     (tmp_path / 'nginx.conf').write_bytes(old)
     new_digest, new = entry.render_entry(groups, replace(directory, devices=(DeviceDirectoryEntry('new', groups.groups[0].group_id, True),)))
     runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
-    monkeypatch.setattr(runtime, 'probe', lambda key='': {'config_digest': old_digest, 'group_id': ''})
+    monkeypatch.setattr(runtime, 'probe', lambda key='', **kwargs: {'config_digest': old_digest, 'group_id': ''})
     monkeypatch.setattr(runtime, 'retiring_workers', lambda: failure == 'retiring')
     commands: list[tuple[str, ...]] = []
     def validate(name: str) -> None:
@@ -87,7 +87,7 @@ def test_retry_uses_actual_loaded_version_after_interrupted_confirmation(
     digest, raw = entry.render_entry(groups, directory)
     (tmp_path / 'nginx.conf').write_bytes(b'unconfirmed disk candidate')
     runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
-    monkeypatch.setattr(runtime, 'probe', lambda key='': {'config_digest': digest, 'group_id': 'group-a'})
+    monkeypatch.setattr(runtime, 'probe', lambda key='', **kwargs: {'config_digest': digest, 'group_id': 'group-a'})
     monkeypatch.setattr(runtime, 'compose', lambda *args: pytest.fail('exact loaded replay must not reload'))
     runtime.publish(digest, raw, key='a' * 64, group='group-a')
     assert (tmp_path / 'nginx.conf').read_bytes() == raw

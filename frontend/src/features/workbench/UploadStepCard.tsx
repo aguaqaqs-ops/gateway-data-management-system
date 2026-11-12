@@ -1,7 +1,8 @@
+import { scopedStorage } from "../api/scoped-storage";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, FolderOpen, RefreshCw, Upload } from "lucide-react";
 import type { components } from "../api/generated/openapi";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { PollingConnectionLostError, createPreviewJourneyProgress, runPreviewJourney } from "../api/journeys";
 import { currentGatewaySession } from "../api/session";
@@ -84,6 +85,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   /** Occupancy reason from the shared upload-mode gates; disables only the start button (B1). */
   occupancyReason?: string | null;
 }>(function UploadStepCard({ head, onReloadHead, onUploadStateChange, onReadyChange, onComplete, occupancyReason }, ref) {
+  const gatewayApi = useBoundGatewayApi();
   const initialInput = useRef<HTMLInputElement>(null);
   const modifiedInput = useRef<HTMLInputElement>(null);
   const progress = useRef(createPreviewJourneyProgress());
@@ -223,7 +225,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
         baselineHeadVersion: head.version,
         onOperationAccepted: (operationId) => {
           try {
-            sessionStorage.setItem("gateway-preview-operation", operationId);
+            scopedStorage.setItem("gateway-preview-operation", operationId);
             const url = new URL(window.location.href);
             url.searchParams.set("operationId", operationId);
             url.searchParams.set("operationKind", "operation");
@@ -246,11 +248,11 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       advance("writing");
       phaseRef.current = "done";
       setPhase("done");
-      sessionStorage.removeItem("gateway-preview-operation");
+      scopedStorage.removeItem("gateway-preview-operation");
       onComplete(result.workspace.workspace_id, result.preview.preview_result_id);
       progress.current = createPreviewJourneyProgress();
     } catch (cause) {
-      sessionStorage.removeItem("gateway-preview-operation");
+      scopedStorage.removeItem("gateway-preview-operation");
       clearOperationUrl();
       const definite = cause instanceof ApiError && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && cause.status !== 429;
       if (definite) progress.current = createPreviewJourneyProgress();

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { GatewaySession } from "../api/session";
+import { createGatewaySession, type GatewaySession } from "../api/session";
 import {
   adoptInjectedSession,
   getGatewaySessionState,
@@ -30,11 +30,11 @@ function publish(): void {
   const state = getGatewaySessionState();
   if (state.kind === "preset" && !publishedByDevIdentity) return;
   const identity = identityById(selected);
-  const session: GatewaySession = {
+  const session: GatewaySession = createGatewaySession({
     businessProjectId: "project-42",
     gatewayDeviceExternalKey: "gateway-17",
     accessToken: identity.token,
-  };
+  });
   publishedByDevIdentity = true;
   window.__gatewaySession = session;
   adoptInjectedSession(session);

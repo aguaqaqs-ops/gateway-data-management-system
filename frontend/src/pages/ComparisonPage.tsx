@@ -1,9 +1,10 @@
+import { scopedStorage } from "../features/api/scoped-storage";
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
-import { gatewayApi, fetchBundle } from "../features/api/application-api";
+import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
 import { pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
@@ -187,6 +188,8 @@ function bundlePathForState(state: BrowseState): string | null {
 }
 
 export function ComparisonPage({ identityControl }: { identityControl?: ReactNode }) {
+  const gatewayApi = useBoundGatewayApi();
+  const [fetchBundle] = useState(boundBundleFetch);
   const sessionState = useGatewaySessionState();
   const runtime = useMemo(() => new BrowseCommandRuntime(decodeBrowseState(window.location.search)), []);
   const [browse, setBrowse] = useState<BrowseState>(runtime.snapshot.state);
@@ -357,13 +360,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         const matches = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === current.submissionId);
         if (matches.length !== 1 || !matches[0]?.parent) throw new Error("History 中找不到唯一待审提交及其基线节点");
         const keyName = `gateway-review-history-key:${current.submissionId}`;
-        let idempotencyKey = window.sessionStorage.getItem(keyName);
-        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID(); window.sessionStorage.setItem(keyName, idempotencyKey); }
+        let idempotencyKey = scopedStorage.getItem(keyName);
+        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID(); scopedStorage.setItem(keyName, idempotencyKey); }
         const accepted = await gatewayApi.startHistoryCompare({ nodes: [
           { ref_kind: matches[0].parent.ref_kind, ref_id: matches[0].parent.ref_id },
           { ref_kind: "submission", ref_id: current.submissionId },
         ] }, idempotencyKey);
-        window.sessionStorage.removeItem(keyName);
+        scopedStorage.removeItem(keyName);
         runtime.execute({ name: "set-operation", operationId: accepted.operation_id, operationKind: "history-compare" }, "external");
         return;
       } catch (cause) {
@@ -382,7 +385,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     setError(null); setBundle(null); setPairs([]); setHistoryCompareStatus(null);
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
-      let expectedBundleDigest = current.bundleDigest || undefined;
+      let expectedBundleDigest: string | undefined;
+      if (current.mode === "PREVIEW" && current.workspaceId && current.previewResultId) {
+        expectedBundleDigest = (await gatewayApi.getPreviewResult(current.workspaceId, current.previewResultId)).bundle_digest;
+      }
       if (current.mode === "REVIEW" && current.submissionId) setReviewFacts(await gatewayApi.getReviewFacts(current.submissionId));
       if (current.mode === "HISTORY" || current.mode === "REVIEW") {
         if (!current.operationId) throw new Error("历史比较操作 ID 缺失");

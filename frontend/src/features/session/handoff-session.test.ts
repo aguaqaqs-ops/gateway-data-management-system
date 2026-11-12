@@ -1,3 +1,4 @@
+import { currentGatewaySession, createGatewaySession } from "../api/session";
 import { Buffer } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthenticatedFetch } from "../api/authenticated-fetch";
@@ -108,7 +109,7 @@ describe("handoff initialization priority", () => {
     const state = getGatewaySessionState();
     expect(state.kind).toBe("handoff");
     if (state.kind === "handoff") expect(state.session).toEqual(VALID);
-    expect(window.__gatewaySession).toEqual({
+    expect(window.__gatewaySession).toMatchObject({
       businessProjectId: VALID.businessProjectId,
       gatewayDeviceExternalKey: VALID.gatewayDeviceExternalKey,
       accessToken: VALID.accessToken,
@@ -136,7 +137,7 @@ describe("handoff initialization priority", () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     initializeGatewaySession();
 
-    expect(getGatewaySessionState()).toEqual({ kind: "preset", session: preset });
+    expect(getGatewaySessionState()).toEqual({ kind: "preset", session: createGatewaySession(preset) });
     expect(getItem).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(HANDOFF_SESSION_STORAGE_KEY)).toBe(storedPayload());
@@ -180,7 +181,7 @@ describe("expiry and dev identity", () => {
       status: 401,
       headers: { "Content-Type": "application/json" },
     }));
-    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", token: () => "dir-token-secret", fetcher });
+    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", session: currentGatewaySession, fetcher });
 
     await expect(request("/v1/workspaces")).rejects.toMatchObject({ status: 401, code: "AUTHENTICATION_REQUIRED" });
     expect(getGatewaySessionState()).toEqual({ kind: "expired", returnUrl: VALID.returnUrl, display: VALID.display });
@@ -192,7 +193,7 @@ describe("expiry and dev identity", () => {
   it("does not expire an injected preset on 401", async () => {
     window.__gatewaySession = { businessProjectId: "project-42", gatewayDeviceExternalKey: "gateway-17", accessToken: "dev-token" };
     initializeGatewaySession();
-    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", token: () => "dev-token",
+    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", session: currentGatewaySession,
       fetcher: async () => new Response(JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "no" }), { status: 401 }) });
 
     await expect(request("/v1/workspaces")).rejects.toMatchObject({ status: 401 });

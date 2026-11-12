@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request as PlaywrightRequest, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request as PlaywrightRequest, type Route } from "./guard";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";

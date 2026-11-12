@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../api/generated/openapi";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { PollingConnectionLostError, runSubmitJourney, SubmitAbortedError } from "../api/journeys";
 import { currentGatewaySession } from "../api/session";
@@ -82,6 +82,7 @@ interface SubmitDialogProps {
 }
 
 export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSubmitted }: SubmitDialogProps) {
+  const gatewayApi = useBoundGatewayApi();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [workspaceVersion, setWorkspaceVersion] = useState<number | null>(null);
   const [workspaceDevice, setWorkspaceDevice] = useState<string | null>(null);

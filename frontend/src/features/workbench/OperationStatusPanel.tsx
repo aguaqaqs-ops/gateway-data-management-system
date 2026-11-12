@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, RefreshCw } from "lucide-react";
 import type { components } from "../api/generated/openapi";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { OperationFailedError, PollingConnectionLostError, pollOperation } from "../api/journeys";
 import { OPERATION_STATUS_COPY } from "../view-model/operation-status-copy";
@@ -17,6 +17,7 @@ export function operationElapsedSeconds(operation: Operation | null, now = Date.
 }
 
 export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { operationId: string; onSucceeded?: (operationId: string) => void; onFailed?: (operationId: string) => void }) {
+  const gatewayApi = useBoundGatewayApi();
   const [operation, setOperation] = useState<Operation | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [queryError, setQueryError] = useState<{ code: string; message: string } | null>(null);

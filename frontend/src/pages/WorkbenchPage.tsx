@@ -1,7 +1,8 @@
+import { scopedStorage } from "../features/api/scoped-storage";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Folder, GitBranch, GitCommitHorizontal, Info, Layers, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { components } from "../features/api/generated/openapi";
-import { gatewayApi } from "../features/api/application-api";
+import { useBoundGatewayApi } from "../features/api/application-api";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
 import { ApiError } from "../features/api/authenticated-fetch";
 import { bundleErrorTitle } from "../features/bundle/local-bundle";
@@ -60,6 +61,7 @@ function showOperationForCompare(operationId: string | null, state: Schemas["His
 }
 
 export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode }) {
+  const gatewayApi = useBoundGatewayApi();
   const sessionState = useGatewaySessionState();
   // Upload-mode occupancy (submit/upload gates, step-card reason) is shared
   // with the Preview page through useUploadModeState (B4): a single read
@@ -86,7 +88,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const [sort, setSort] = useState<{ column: SortColumn; direction: 1 | -1 } | null>(null);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set());
   const [compareIntent, setCompareIntent] = useState<IdempotentIntent<Schemas["HistoryCompareAcceptRequest"]> | null>(() => {
-    try { return readHistoryCompareIntent(window.sessionStorage.getItem("gateway-history-compare-pending-intent")); }
+    try { return readHistoryCompareIntent(scopedStorage.getItem("gateway-history-compare-pending-intent")); }
     catch { return null; }
   });
   const [compareStartError, setCompareStartError] = useState<{ code: string; message: string } | null>(() => compareIntent
@@ -108,7 +110,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const [resumePreviewOperation] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("operationId");
-    return Boolean(id && params.get("operationKind") !== "history-compare" && sessionStorage.getItem("gateway-preview-operation") === id);
+    return Boolean(id && params.get("operationKind") !== "history-compare" && scopedStorage.getItem("gateway-preview-operation") === id);
   });
   const [resumeSubmitOperationId, setResumeSubmitOperationId] = useState<string | null>(null);
   // F1: rendered from the hook snapshot; the page keeps no resume copy.
@@ -126,7 +128,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const searchRef = useRef<HTMLInputElement>(null);
 
   const resumePreviewFromOperation = useCallback(async (finishedOperationId: string) => {
-    if (sessionStorage.getItem("gateway-preview-operation") !== finishedOperationId) return;
+    if (scopedStorage.getItem("gateway-preview-operation") !== finishedOperationId) return;
     const session = currentGatewaySession();
     try {
       const workspace = await gatewayApi.createWorkspace({ business_project_id: session.businessProjectId, gateway_device_external_key: session.gatewayDeviceExternalKey });
@@ -135,11 +137,11 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       const preview = await gatewayApi.getPreviewResult(workspace.workspace_id, previewResultId);
       await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: preview.bundle_digest, fetchBundle: () => gatewayApi.getPreviewBundle(workspace.workspace_id, previewResultId) });
       resumePending.current = false;
-      sessionStorage.removeItem("gateway-preview-operation");
+      scopedStorage.removeItem("gateway-preview-operation");
       window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId: workspace.workspace_id, previewResultId, workbenchNode: selectedKey }, compareRefs));
     } catch {
       resumePending.current = false;
-      sessionStorage.removeItem("gateway-preview-operation");
+      scopedStorage.removeItem("gateway-preview-operation");
       setUploadLocked(false);
     }
   }, [compareRefs, selectedKey]);
@@ -308,7 +310,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     setCompareRefs(next.slice(0, 3));
     setCompareIntent(null);
     setCompareStartError(null);
-    try { window.sessionStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
+    try { scopedStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
     const url = new URL(window.location.href);
     url.searchParams.delete("compare");
     for (const node of next.slice(0, 3)) url.searchParams.append("compare", refKey(node));
@@ -344,7 +346,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     try {
       const accepted = await requestWithTimeout(gatewayApi.startHistoryCompare(intent.request, intent.key), historyCompareRequestTimeoutMs());
       setCompareIntent(null);
-      try { window.sessionStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
+      try { scopedStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
       const compareParams: Record<string, string> = {
         page: "workspace", operationId: accepted.operation_id, operationKind: "history-compare", workbenchNode: selectedKey,
       };
@@ -367,12 +369,12 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     let intent = compareIntent;
     if (!intent) {
       try {
-        const saved = window.sessionStorage.getItem(pendingIntentKey);
+        const saved = scopedStorage.getItem(pendingIntentKey);
         if (saved) intent = readHistoryCompareIntent(saved);
       } catch { /* create a new intent when storage is unavailable or invalid */ }
     }
     intent = resolveHistoryCompareIntent(intent, request);
-    try { window.sessionStorage.setItem(pendingIntentKey, JSON.stringify(intent)); } catch { /* in-memory retry still reuses the key */ }
+    try { scopedStorage.setItem(pendingIntentKey, JSON.stringify(intent)); } catch { /* in-memory retry still reuses the key */ }
     setCompareRefs(intent.request.nodes);
     const url = new URL(window.location.href);
     url.searchParams.delete("compare");
@@ -525,7 +527,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && <OperationStatusPanel
           operationId={operationId}
           onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
-          onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
+          onFailed={resumePreviewOperation ? () => { resumePending.current = false; scopedStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : resumeSubmitOperationId === operationId ? (id) => void resumeSubmitFromOperation(id) : undefined}
         />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
           <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && !selected?.submissionDisposition && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>

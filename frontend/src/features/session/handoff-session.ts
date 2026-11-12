@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { GatewaySession } from "../api/session";
+import { createGatewaySession, currentGatewaySession, scopeMarker, type GatewaySessionInput, type GatewaySession } from "../api/session";
+import { clearScopedState } from "../api/scoped-storage";
 
 export const HANDOFF_SESSION_STORAGE_KEY = "gdds-gateway-session";
 export const HANDOFF_FRAGMENT_KEY = "gdds-handoff";
@@ -76,6 +77,7 @@ function parseHandoffPayload(value: unknown): HandoffSession | null {
   const display = parseDisplay(value.display);
   const returnUrl = parseReturnUrl(value.return_url);
   if (!token || !gatewayDeviceExternalKey || !businessProjectId || !display || !returnUrl) return null;
+  try { createGatewaySession({ businessProjectId, gatewayDeviceExternalKey, accessToken: token }); } catch { return null; }
   return { businessProjectId, gatewayDeviceExternalKey, accessToken: token, display, returnUrl };
 }
 
@@ -91,11 +93,7 @@ function storedPayload(session: HandoffSession): Record<string, unknown> {
 }
 
 function toGatewaySession(session: HandoffSession): GatewaySession {
-  return {
-    businessProjectId: session.businessProjectId,
-    gatewayDeviceExternalKey: session.gatewayDeviceExternalKey,
-    accessToken: session.accessToken,
-  };
+  return createGatewaySession(session);
 }
 
 export function decodeHandoffFragment(hash: string): FragmentResult {
@@ -165,6 +163,8 @@ function readStoredSession(): HandoffSession | null {
 function computeState(): GatewaySessionState {
   const fragment = decodeHandoffFragment(window.location.hash);
   if (fragment.kind === "ok") {
+    const stored = readStoredSession();
+    if (stored && scopeMarker(toGatewaySession(stored)) !== scopeMarker(toGatewaySession(fragment.session))) clearScopedState();
     clearHandoffFragment();
     window.__gatewaySession = toGatewaySession(fragment.session);
     persistSession(fragment.session);
@@ -181,7 +181,7 @@ function computeState(): GatewaySessionState {
   const preset = window.__gatewaySession;
   if (preset && (preset.businessProjectId || preset.gatewayDeviceExternalKey || preset.accessToken)) {
     // Test injection: keep it exactly as supplied and never touch sessionStorage.
-    return { kind: "preset", session: preset };
+    return { kind: "preset", session: currentGatewaySession() };
   }
 
   const stored = readStoredSession();
@@ -248,13 +248,15 @@ export function shouldPublishDevIdentity(): boolean {
     && window.__gatewayTestConfig?.disableDevIdentity !== true;
 }
 
-export function adoptInjectedSession(session: GatewaySession): void {
+export function adoptInjectedSession(session: GatewaySessionInput): void {
   const kind = getGatewaySessionState().kind;
   if (kind === "handoff" || kind === "invalid" || kind === "expired") return;
-  setState({ kind: "preset", session });
+  window.__gatewaySession = createGatewaySession(session);
+  setState({ kind: "preset", session: currentGatewaySession() });
 }
 
-export function expireHandoffSessionOnUnauthorized(): boolean {
+export function expireHandoffSessionOnUnauthorized(snapshot = currentGatewaySession()): boolean {
+  if (snapshot !== currentGatewaySession()) return false;
   const state = getGatewaySessionState();
   if (state.kind !== "handoff") return false;
   const returnUrl = state.session.returnUrl;
@@ -264,3 +266,7 @@ export function expireHandoffSessionOnUnauthorized(): boolean {
   setState({ kind: "expired", returnUrl, display });
   return true;
 }
+
+window.addEventListener("hashchange", () => {
+  if (new URLSearchParams(window.location.hash.slice(1)).has(HANDOFF_FRAGMENT_KEY)) window.location.reload();
+});

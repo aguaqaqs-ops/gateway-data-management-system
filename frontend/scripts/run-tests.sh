@@ -111,7 +111,9 @@ fi
 INPUT_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/gateway-frontend-inputs.XXXXXX.tar")"
 if ! git -C "$REPO_DIR" archive --format=tar HEAD \
   vnext/fixtures/presentation-inputs/manifest.json \
-  vnext/fixtures/presentation-inputs/diagnostic-codes.json > "$INPUT_ARCHIVE"; then
+  vnext/fixtures/presentation-inputs/diagnostic-codes.json \
+  vnext/fixtures/processing-groups/v1/identity-vectors.json \
+  vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json > "$INPUT_ARCHIVE"; then
   echo "could not archive the backend presentation input manifest from HEAD" >&2
   exit 2
 fi

@@ -4,7 +4,7 @@ import type { Plugin } from "vite";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const backendOrigin = process.env.GATEWAY_FRONTEND_BACKEND_ORIGIN ?? "http://127.0.0.1:8000";
+const backendOrigin = process.env.GATEWAY_FRONTEND_ENTRY_ORIGIN ?? "http://127.0.0.1:8000";
 
 const productionModuleManifest: Plugin = {
   name: "production-module-manifest",
@@ -27,7 +27,6 @@ const backendProxy = {
   "/v1": { target: backendOrigin, changeOrigin: true },
   "/healthz": { target: backendOrigin, changeOrigin: true },
   "/readyz": { target: backendOrigin, changeOrigin: true },
-  "/openapi.json": { target: backendOrigin, changeOrigin: true },
 };
 
 export default defineConfig({

@@ -1,14 +1,18 @@
+import { createGatewaySession } from "./session";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, createAuthenticatedFetch } from "./authenticated-fetch";
 import { createGatewayApi } from "./client";
 import { SIMULATED_ERROR_RESPONSES, TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_ACCEPTED, TEST_REVIEW_APPLIED, TEST_UPLOAD_FULL } from "../dev/simulated-api";
+
+const snapshots = new Map<string, ReturnType<typeof createGatewaySession>>();
+function testSession(token: string) { let value = snapshots.get(token); if (!value) { value = createGatewaySession({ businessProjectId: "project", gatewayDeviceExternalKey: "device", accessToken: token }); snapshots.set(token, value); } return value; }
 
 describe("authenticated OpenAPI client", () => {
   it("attaches the current bearer token and surfaces stable API errors", async () => {
     const forbidden = SIMULATED_ERROR_RESPONSES.find((scenario) => scenario.route === "/v1/history" && scenario.status === 403);
     if (!forbidden) throw new Error("GET /v1/history SCOPE_FORBIDDEN scenario missing");
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(forbidden.body), { status: forbidden.status, headers: { "Content-Type": "application/json" } }));
-    const request = createAuthenticatedFetch({ baseUrl: "https://gateway.example/api", token: () => "session-token", fetcher });
+    const request = createAuthenticatedFetch({ baseUrl: "https://gateway.example/api", session: () => testSession("session-token"), fetcher });
     await expect(request("/v1/history")).rejects.toMatchObject({ name: "ApiError", status: 403, code: "SCOPE_FORBIDDEN", details: undefined });
     expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer session-token");
     expect(fetcher.mock.calls[0]?.[0]).toEqual(new URL("https://gateway.example/v1/history"));
@@ -16,14 +20,14 @@ describe("authenticated OpenAPI client", () => {
 
   it("does not keep a stale bearer token when the provider returns empty", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
-    const request = createAuthenticatedFetch({ baseUrl: "https://gateway.example", token: () => null, fetcher });
+    const request = createAuthenticatedFetch({ baseUrl: "https://gateway.example", session: () => createGatewaySession({ businessProjectId: "project", gatewayDeviceExternalKey: "device", accessToken: null }), fetcher });
     await request("/healthz", { headers: { Authorization: "Bearer stale" } });
     expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).has("Authorization")).toBe(false);
   });
 
   it("sends idempotency and optimistic versions with mutation requests", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(TEST_OPERATION_ACCEPTED), { status: 202, headers: { "Content-Type": "application/json" } }));
-    const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => "test", fetcher });
+    const api = createGatewayApi({ baseUrl: "http://gateway.test", session: () => testSession("test"), fetcher });
     await api.startPreview("ws one", {
       expected_workspace_version: 9,
       upload_revision_id: "upload-1",
@@ -40,7 +44,7 @@ describe("authenticated OpenAPI client", () => {
   it("keeps review operations limited to the approved action set and preserves the Contract status", async () => {
     const response = TEST_REVIEW_APPLIED;
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { status: 201, headers: { "Content-Type": "application/json" } }));
-    const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => null, fetcher });
+    const api = createGatewayApi({ baseUrl: "http://gateway.test", session: () => testSession("test"), fetcher });
     const result = await api.applyReview("submission-1", { expected_review_version: 7, action: "APPROVE" }, "review-key");
     expect(result.status).toBe("APPROVED");
     expect(result.event.event_kind).toBe("APPROVED");
@@ -55,7 +59,7 @@ describe("authenticated OpenAPI client", () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(firstPage), { status: 200, headers: { "Content-Type": "application/json" } }))
       .mockResolvedValueOnce(new Response(JSON.stringify(secondPage), { status: 200, headers: { "Content-Type": "application/json" } }));
-    const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => null, fetcher });
+    const api = createGatewayApi({ baseUrl: "http://gateway.test", session: () => testSession("test"), fetcher });
 
     const result = await api.listHistory();
 
@@ -69,7 +73,7 @@ describe("authenticated OpenAPI client", () => {
 
   it("hashes uploaded files and builds the multipart manifest with the expected workspace version", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(TEST_UPLOAD_FULL), { status: 201, headers: { "Content-Type": "application/json" } }));
-    const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => null, fetcher });
+    const api = createGatewayApi({ baseUrl: "http://gateway.test", session: () => testSession("test"), fetcher });
     const initial = new File(["initial-archive"], "initial.zip", { type: "application/zip" });
     const modified = new File(["modified-archive"], "modified.zip", { type: "application/zip" });
     for (const file of [initial, modified]) Object.defineProperty(file, "stream", { value: () => new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode(file.name === "initial.zip" ? "initial-archive" : "modified-archive")); controller.close(); } }) });
@@ -93,7 +97,7 @@ describe("authenticated OpenAPI client", () => {
 
   it("uses the typed API error class for non-success replies", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("not json", { status: 503 }));
-    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.test", token: () => null, fetcher });
+    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.test", session: () => testSession("test"), fetcher });
     await expect(request("/readyz")).rejects.toBeInstanceOf(ApiError);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { components } from "../api/generated/openapi";
 import { ApiError } from "../api/authenticated-fetch";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import { buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys";
 import { Button, Dialog } from "../../design-system/components";
 import {
@@ -73,6 +73,7 @@ function anomalyHoverTitle(anomaly: Anomaly): string {
 
 
 export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived, resolveName, resolveBaselineLabel, onSelectSubmission, onDispositionChanged }: ArchiveMainlineDialogProps) {
+  const gatewayApi = useBoundGatewayApi();
   const [candidates, setCandidates] = useState<Candidates | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedDigest, setSelectedDigest] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { previewBaseUrl, type JourneyIdentity } from "./env";
 
 /**
@@ -152,7 +153,7 @@ export interface ApiEnvelope<T> {
 }
 
 function headersFor(identity: JourneyIdentity, extra?: Record<string, string>): Record<string, string> {
-  return { Authorization: `Bearer ${identity.token}`, ...extra };
+  return { ...extra, Authorization: `Bearer ${identity.token}`, "X-Gateway-Device-Key": createHash("sha256").update(identity.gatewayDeviceExternalKey).digest("hex") };
 }
 
 export async function apiRequest<T>(

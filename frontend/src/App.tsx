@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { currentGatewaySession } from "./features/api/session";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
 import { ComparisonPage } from "./pages/ComparisonPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
@@ -14,11 +15,14 @@ function currentPage(): "workspace" | "compare" | "design-system" {
 }
 
 export function App() {
+  const [session, setSession] = useState(currentGatewaySession);
+  useEffect(() => { const changed = () => setSession(currentGatewaySession()); window.addEventListener("gateway-session-change", changed); return () => window.removeEventListener("gateway-session-change", changed); }, []);
+  const key = `${session.deviceRouteKey}:${session.accessToken ?? ""}`;
   const identityControl = DevelopmentIdentityControl
     ? <Suspense fallback={null}><DevelopmentIdentityControl /></Suspense>
     : undefined;
   const page = currentPage();
   if (page === "design-system") return <DesignSystemPage />;
-  if (page === "compare") return <ComparisonPage identityControl={identityControl} />;
-  return <WorkbenchPage identityControl={identityControl} />;
+  if (page === "compare") return <ComparisonPage key={key} identityControl={identityControl} />;
+  return <WorkbenchPage key={key} identityControl={identityControl} />;
 }

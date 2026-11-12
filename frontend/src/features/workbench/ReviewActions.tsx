@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/authenticated-fetch";
 import { applyReviewAction } from "../api/journeys";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import type { SafeReviewFacts } from "../api/client";
 import { Button, Dialog } from "../../design-system/components";
 type DialogKind = "approve" | "reject" | "withdraw";
@@ -51,6 +51,7 @@ interface ReviewActionsProps {
 }
 
 export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged, onReviewSettled, errorNoticeHost }: ReviewActionsProps) {
+  const gatewayApi = useBoundGatewayApi();
   const generatedId = useId();
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [reason, setReason] = useState("");

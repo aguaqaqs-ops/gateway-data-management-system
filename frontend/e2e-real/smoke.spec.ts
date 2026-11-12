@@ -134,7 +134,7 @@ async function workspaceFromPage(page: Page, identity: Identity): Promise<Worksp
     async ({ token, businessProjectId, gatewayDeviceExternalKey }) => {
       const response = await fetch("/v1/workspaces", {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(window.__gatewaySession!.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
         body: JSON.stringify({ business_project_id: businessProjectId, gateway_device_external_key: gatewayDeviceExternalKey }),
       });
       if (!response.ok) throw new Error(`POST /v1/workspaces returned ${response.status}`);
@@ -164,7 +164,7 @@ async function waitForOperation(page: Page, token: string, operationId: string):
     const operation = await page.evaluate(
       async ({ token, operationId }) => {
         const response = await fetch(`/v1/operations/${encodeURIComponent(operationId)}`, {
-          headers: { authorization: `Bearer ${token}` },
+          headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(window.__gatewaySession!.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
         });
         if (!response.ok) throw new Error(`GET /v1/operations returned ${response.status}`);
         return (await response.json()) as OperationBody;
@@ -184,7 +184,7 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
     async ({ token, workspaceId, previewResultId }) => {
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}`,
-        { headers: { authorization: `Bearer ${token}` } },
+        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(window.__gatewaySession!.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") } },
       );
       if (!response.ok) throw new Error(`GET preview-results returned ${response.status}`);
       return (await response.json()) as PreviewResultBody;
@@ -195,7 +195,7 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
     async ({ token, workspaceId, previewResultId }) => {
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}/bundle`,
-        { headers: { authorization: `Bearer ${token}` } },
+        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(window.__gatewaySession!.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") } },
       );
       if (!response.ok) throw new Error(`GET preview bundle returned ${response.status}`);
       return (await response.json()) as BundleBody;
@@ -308,7 +308,7 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
   expect(await workspaceFromPage(page, identity)).toMatchObject({ workspace_id: expect.any(String) });
   const history = await page.evaluate(async (token: string) => {
     const response = await fetch("/v1/history?limit=100", {
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(window.__gatewaySession!.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
     });
     if (!response.ok) throw new Error(`GET /v1/history returned ${response.status}`);
     return (await response.json()) as {

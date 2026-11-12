@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request as PlaywrightRequest, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request as PlaywrightRequest, type Route } from "./guard";
 import { mkdir, readFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { join } from "node:path";

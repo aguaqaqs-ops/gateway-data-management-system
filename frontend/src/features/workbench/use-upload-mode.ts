@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { gatewayApi } from "../api/application-api";
+import { useBoundGatewayApi, gatewayApi as unboundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { currentGatewaySession } from "../api/session";
 import { deriveUploadModeGates, type Problem, type UploadModeAttempt, type UploadModeGates, type UploadModeOperation, type UploadModeWorkspace } from "./upload-header";
@@ -100,6 +100,7 @@ export interface UploadModeSnapshot {
  * before reporting the terminal reason.
  */
 export function useUploadModeState(options: { enabled: boolean }): UploadModeSnapshot {
+  const gatewayApi = useBoundGatewayApi();
   const { enabled } = options;
   const [workspace, setWorkspace] = useState<UploadModeWorkspace | null>(null);
   // N1: start loading so the first frame reports "reading" instead of flashing
@@ -446,7 +447,7 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
  */
 export async function getUrlOperationJobKind(operationId: string): Promise<string | null> {
   try {
-    const loaded = await gatewayApi.getOperation(operationId);
+    const loaded = await unboundGatewayApi.getOperation(operationId);
     return loaded.job_kind ?? null;
   } catch {
     return null;

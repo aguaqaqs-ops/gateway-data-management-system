@@ -1,3 +1,4 @@
+import { bindGatewayApi } from "./client";
 import type { components } from "./generated/openapi";
 import type { GatewayApi, ReviewAction, UploadRevisionInput } from "./client";
 import { ensureLocalBundle, type InstalledBundle, type ReadableBundleStore } from "../bundle/local-bundle";
@@ -46,6 +47,7 @@ function abortableWait(milliseconds: number, signal?: AbortSignal): Promise<void
 }
 
 export async function pollOperation(api: GatewayApi, operationId: string, options: PollOptions = {}): Promise<Schemas["OperationResponse"]> {
+  api = bindGatewayApi(api);
   const intervalMs = options.intervalMs ?? 1_000;
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   const maxTransientRetries = options.maxTransientRetries ?? 4;
@@ -114,6 +116,7 @@ export async function pollHistoryCompare(
   operationId: string,
   options: HistoryComparePollOptions = {},
 ): Promise<Schemas["HistoryCompareResultResponse"]> {
+  api = bindGatewayApi(api);
   const intervalMs = options.intervalMs ?? 1_000;
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
   const maxTransientRetries = options.maxTransientRetries ?? 4;
@@ -198,6 +201,7 @@ export async function runPreviewJourney(
   input: PreviewJourneyInput,
   progress: PreviewJourneyProgress = createPreviewJourneyProgress(),
 ): Promise<BundleJourneyResult> {
+  api = bindGatewayApi(api);
   let upload = progress.upload;
   if (!upload) {
     if (!progress.workspaceId) {
@@ -289,6 +293,7 @@ export interface SubmitJourneyResult {
 }
 
 export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInput): Promise<SubmitJourneyResult> {
+  api = bindGatewayApi(api);
   const body = {
     expected_workspace_version: input.expectedWorkspaceVersion,
     preview_result_id: input.previewResultId,
@@ -329,6 +334,7 @@ export interface HistoryComparisonJourneyResult {
 }
 
 export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<HistoryComparisonJourneyResult> {
+  api = bindGatewayApi(api);
   if (nodes.length < 2 || nodes.length > 3) throw new Error("历史比较需要两到三个节点");
   if (nodes.some((node) => node.ref_kind === "submission" && !node.ref_id)) throw new Error("历史提交节点缺少标识");
   const accepted = await api.startHistoryCompare({
@@ -346,6 +352,7 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
 
 /** Review compares the baseline node to the submission and always downloads the History bundle. */
 export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<ReviewHistoryJourneyResult> {
+  api = bindGatewayApi(api);
   const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
   const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
   if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);
@@ -435,6 +442,7 @@ export async function runArchiveJourney(
   input: ArchiveJourneyInput,
   progress: ArchiveJourneyProgress = createArchiveJourneyProgress(),
 ): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
+  api = bindGatewayApi(api);
   const candidates = await api.listArchiveCandidates();
   let plan = await api.previewArchive({ selected: input.selected });
   if (candidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");

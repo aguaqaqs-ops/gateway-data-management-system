@@ -1,5 +1,6 @@
+import { type GatewaySession } from "./session";
 import type { components, paths } from "./generated/openapi";
-import { createAuthenticatedFetch, type AccessTokenProvider, type FetchLike } from "./authenticated-fetch";
+import { createAuthenticatedFetch, type SessionProvider, type FetchLike } from "./authenticated-fetch";
 import { Sha256 } from "../bundle/sha256";
 
 type Schemas = components["schemas"];
@@ -40,11 +41,13 @@ export interface UploadRevisionInput {
 
 export interface GatewayApiOptions {
   baseUrl: string;
-  token: AccessTokenProvider;
+  session: SessionProvider;
+  boundSession?: GatewaySession;
   fetcher?: FetchLike;
 }
 
 export interface GatewayApi {
+  bindSession?(): GatewayApi;
   createWorkspace(body: Schemas["CreateWorkspaceRequest"]): Promise<Schemas["WorkspaceResponse"]>;
   uploadRevision(workspaceId: string, input: UploadRevisionInput): Promise<Schemas["UploadRevisionResponse"]>;
   startPreview(workspaceId: string, body: Schemas["StartPreviewRequest"], idempotencyKey?: string): Promise<Schemas["OperationAcceptedResponse"]>;
@@ -117,8 +120,10 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
   };
 
   return {
+    bindSession: () => createGatewayApi({ ...options, boundSession: options.boundSession ?? options.session() }),
     createWorkspace: (body) => sendJson<Schemas["WorkspaceResponse"]>(route("/v1/workspaces"), body),
     async uploadRevision(workspaceId, input) {
+      const request = createAuthenticatedFetch({ ...options, boundSession: options.boundSession ?? options.session() });
       if (input.inputCompleteness === "FULL" && !input.initial) throw new Error("完整上传必须包含原始组态");
       if (input.inputCompleteness === "MODIFIED_ONLY" && input.initial) throw new Error("仅修改上传不能包含原始组态");
       const artifacts: { INITIAL?: { part_name: string; media_type: string; size_bytes: number; raw_sha256: string }; MODIFIED: { part_name: string; media_type: string; size_bytes: number; raw_sha256: string } } = {
@@ -150,6 +155,7 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
       return { ...result, status: safeReviewStatus(result.status), event: safeReviewEvent(result.event) };
     },
     async listHistory() {
+      const request = createAuthenticatedFetch({ ...options, boundSession: options.boundSession ?? options.session() });
       const nodes: SafeHistoryList["nodes"] = [];
       const seenCursors = new Set<string>();
       let cursor: string | undefined;
@@ -186,3 +192,5 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     closeSubmission: (submissionId, body, key) => sendJson<Schemas["CloseSubmissionResponse"]>(route("/v1/submissions/{submission_id}/closure").replace("{submission_id}", encodeURIComponent(submissionId)), body, key),
   };
 }
+
+export function bindGatewayApi(api: GatewayApi): GatewayApi { return api.bindSession?.() ?? api; }

@@ -13,6 +13,8 @@ from typing import Any, cast
 import pytest
 
 from tests.support import compose_gate_harness as harness
+from tests.support.container_input_files import write_container_readable_text
+from tests.support.processing_groups_harness import EXECUTOR_BARRIER, wait_for
 from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
@@ -97,6 +99,16 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
         GATEWAY_BACKEND_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-backend:fixed",
         GATEWAY_WORKER_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-worker:fixed")
     harness.ensure_repository_service_image(candidate_revision=revision)
+    harness.prepare_runtime_config(env, workers=2)
+    rendered_path = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])
+    rendered_config = json.loads(rendered_path.read_bytes())
+    roots = {item["target"]: item["source"] for item in rendered_config["services"]["worker"]["volumes"]}
+    scratch = Path(roots["/var/lib/gateway/be-scratch"])
+    barriers = [scratch / f"fixed-worker-{index}-barrier" for index in (1, 2)]
+    for index, service in enumerate(("worker", "worker-2"), 1):
+        rendered_config["services"][service]["command"] = ["python", "-c",
+            EXECUTOR_BARRIER.replace("processing-group-barrier", f"fixed-worker-{index}-barrier")]
+    rendered_path.write_text(json.dumps(rendered_config))
     resume_polling = Event()
     accepted: Queue[str] = Queue()
     try:
@@ -146,12 +158,15 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
                 # These schemas have no operation/Workspace absolute deadline.
                 # Preserve their real time anchors and protection expiry instead.
                 print("queued_previews_preserved_across_drain=" + json.dumps(operation_ids), flush=True)
-                paused = harness.run_compose(env, "pause", "repository-service")
-                assert paused.returncode == 0, paused.stderr
-                # Restart the exact original containers without waiting on the paused RS healthcheck.
+                # Keep the authenticated startup dependency available. Each test-only
+                # executor barrier blocks after claim while the supervisor renews leases.
+                for barrier in barriers:
+                    write_container_readable_text(barrier.with_suffix(".arm"), "hold executor")
                 started = subprocess.run(["docker", "start", *ids], check=False,
                     capture_output=True, text=True, timeout=30)
                 assert started.returncode == 0, started.stderr
+                for barrier in barriers:
+                    wait_for(barrier.with_suffix(".reached").exists, timeout=30)
                 probe = f'''
 import json, sqlite3, time
 from pathlib import Path
@@ -176,7 +191,8 @@ else:
                 assert overlap.returncode == 0, overlap.stdout + overlap.stderr
                 print(overlap.stdout, flush=True)
             finally:
-                harness.run_compose(env, "unpause", "repository-service")
+                for barrier in barriers:
+                    write_container_readable_text(barrier.with_suffix(".release"), "release executor")
                 resume_polling.set()
             results = [future.result(timeout=300) for future in futures]
         assert results[0]["workspace_id"] != results[1]["workspace_id"]
@@ -200,6 +216,7 @@ else:
         assert {state.split()[0] for state in restarted.values()} == set(ids)
         assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
-        harness.run_compose(env, "unpause", "repository-service")
+        for barrier in barriers:
+            write_container_readable_text(barrier.with_suffix(".release"), "release executor")
         resume_polling.set()
         harness.cleanup_compose_project_artifacts(env)

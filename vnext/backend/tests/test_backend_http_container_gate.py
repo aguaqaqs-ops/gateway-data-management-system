@@ -16,6 +16,7 @@ from tests.support.compose_gate_harness import (
     BACKEND_URL,
     build_backend_image,
     capture_running_container_provenance,
+    cleanup_compose_project_artifacts,
     compose_image_ids,
     compose_project_name,
     ensure_repository_service_image,
@@ -103,33 +104,36 @@ def _wait_http_ok(url: str, *, timeout_seconds: float = 120.0) -> None:
 def test_backend_image_builds_with_http_server_entrypoint(tmp_path: Path) -> None:
     require_docker()
     env = _compose_env(tmp_path)
-    build_backend_image(env)
+    try:
+        build_backend_image(env)
 
-    image_ref = f"{env['COMPOSE_PROJECT_NAME']}-backend"
-    config = subprocess.run(
-        ["docker", "inspect", image_ref, "--format", "{{json .Config.Cmd}}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert config.stdout.strip() == '["python","-m","gateway_backend.bootstrap.http_server"]'
+        image_ref = f"{env['COMPOSE_PROJECT_NAME']}-backend"
+        config = subprocess.run(
+            ["docker", "inspect", image_ref, "--format", "{{json .Config.Cmd}}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert config.stdout.strip() == '["python","-m","gateway_backend.bootstrap.http_server"]'
+    finally:
+        cleanup_compose_project_artifacts(env)
 
 
 def test_backend_container_ready_and_stops_cleanly_with_repository_service(tmp_path: Path) -> None:
     require_docker()
     env = _compose_env(tmp_path)
-    ensure_repository_service_image()
-    build_backend_image(env)
-
-    up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
-    if up_repo.returncode != 0:
-        pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
-
-    up_backend = run_compose(env, "up", "-d", "--no-build", "backend")
-    if up_backend.returncode != 0:
-        pytest.fail(f"compose up backend failed: {up_backend.stderr}\n{up_backend.stdout}")
-
     try:
+        ensure_repository_service_image()
+        build_backend_image(env)
+
+        up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
+        if up_repo.returncode != 0:
+            pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
+
+        up_backend = run_compose(env, "up", "-d", "--no-build", "backend")
+        if up_backend.returncode != 0:
+            pytest.fail(f"compose up backend failed: {up_backend.stderr}\n{up_backend.stdout}")
+
         _wait_http_ok(f"{BACKEND_URL}/readyz")
         running = capture_running_container_provenance(env)
         built = compose_image_ids(env)
@@ -151,4 +155,4 @@ def test_backend_container_ready_and_stops_cleanly_with_repository_service(tmp_p
         assert status.returncode == 0
         assert "exited" in status.stdout.lower()
     finally:
-        run_compose(env, "down", "-v", "--remove-orphans")
+        cleanup_compose_project_artifacts(env)

@@ -21,7 +21,9 @@ const unexpected: string[] = [];
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   tar = await readFile("src/test/fixtures/generated/preview-full.tar");
-  tarDigest = (await parseBundleTar(tar)).bundleDigest;
+  const manifestSize = Number.parseInt(tar.subarray(124, 136).toString().replace(/\0.*$/, "").trim(), 8);
+  const manifestDigest = (JSON.parse(tar.subarray(512, 512 + manifestSize).toString()) as { bundle_digest: string }).bundle_digest;
+  tarDigest = (await parseBundleTar(tar, { contentLength: String(tar.length), etag: `"${manifestDigest}"` })).bundleDigest;
   server = createServer(async (request, response) => {
     const path = new URL(request.url!, "http://fixture").pathname;
     let body = "";

@@ -1085,7 +1085,7 @@ def test_archive_confirmation_rejects_extra_fields_over_http(
 
 
 def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
-    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session" / "session.json"
     payload = json.loads(session_path.read_text(encoding="utf-8"))
     for entry in payload["sessions"]:
         permissions = entry["permissions"]
@@ -1096,7 +1096,7 @@ def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
 
 
 def test_deploy_session_example_lists_read_project_history_explicitly() -> None:
-    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session" / "session.json"
     payload = json.loads(session_path.read_text(encoding="utf-8"))
     documented = payload.get("documented_permissions")
     assert isinstance(documented, list)

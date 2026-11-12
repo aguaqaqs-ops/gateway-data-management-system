@@ -1,6 +1,6 @@
 # FE4 kickoff：前端收口与业务导航接入
 
-- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。修订 5（2026-11-11）：按 BE-b 第二步候选 `b61cc37d5f` 与前端窄复核同步 §3.1 与 §5.3，owner 同意 B9 退役（§10 Q17、§13.6）。修订 6（2026-11-11）：FE4a 证据运行（被测提交 `59c5b8cfca`）在 04-c 真实旅程完整集停止（[证据核对第 1 轮](reviews/fe4a-evidence-check-1.md)，`fe4a-review` 分支 `14f8daa7f8`，尚未合入 main）：候选的真实旅程 helper 没有随 C12 第 3 条同步。设计会话决定以 fix4（只改测试代码）修复，并安排调试、复审与证据重跑；owner 2026-11-11 确认 fix4 的一次完整集调试与证据重跑的解释（§10 Q18、Q19）；更正 §15.4 的错误说法（处理见 §16）。修订 7（2026-11-11）：fix4 第一个候选 `d12e3b8f70` 的 05 完整集调试有 3 个 scope 失败，原因是 §16.2 写定的 helper 规则不适用于工作台工具栏的原生按钮（设计会话的错误）；改写 §16.2 的 helper 规则，owner 2026-11-11 授权再跑一次完整集调试（§10 Q20，处理见 §17）。**FE4a 已退出（2026-11-11，§5.2 表后的退出记录）：** owner 2026-11-11 05:51 UTC 确认看图与遗留项，附注 tag `fe-fe4a-exit` → `c2199b82f7`，以 `--no-ff` 合入本地 main（`1d1de9d2a4`），tag 已推送，main 未推送。修订 8（2026-11-11）：P7 S1a（`p7-s1a-exit` → `42780a1230`）与 BE-b（`be-b-exit` → `3e5f24583d`）都已本地退出并合入 main。设计会话只读复核 BE-b 的正式交付（§18），据此写定 FE4b 的合入点、依赖镜像、OpenAPI、改动范围、带入项、截图、测试与证据和停止条件（§5.3、§6.5–§6.7、§7、§8、§11.3），新增 owner 问题 Q22–Q25（§10）。修订 8 fix1（同日）：按独立审核（`fe4-kickoff-rev8-review` 分支 `f87b4d07e1`，定向修订，R8-1–R8-7）修订，新增 Q26 与 §19（新流程下 FE4b 的角色与材料）；无记录行复用身份的前端判据交后端答复（§18.2 第 2 项），只阻塞 F5 的该分支（§13.10）。**Owner 补充（2026-11-11，Q26 已决定）：**前端暂不需要固定长程任务的角色分工，无需参考后端角色分配规则。已删除 FE4b 对后端固定角色、工作包与模型家族安排的引用。修订 8 fix2（同日）：按复核意见收紧 F5 的阻塞范围、写明定位截图时机、写全 `fe-handoff` 的三种集成情形（§13.11）。复审（`2c279ca5b2`）通过，owner 2026-11-11 确认 Q22–Q25，同时修改 `fe-handoff` 的 kickoff（§13.12）。修订 8 F5 同步（同日）：后端以 `dc87844f63` 写定无记录行复用的公开判据，本文同步 B4、F5、§8、§18.1、§18.2 与解码不变量（§13.13）。**FE4 当前：** F5 同步待定向复核；FE4b 实施可以开始，提示词在阶段交换目录。
+- **状态：** 修订 1，2026-11-10。初稿（`e0082180e0`）经[审核](reviews/fe4-kickoff-review.md)（`6536502a11`，定向修订）后，按审核意见与 owner 2026-11-10 的决定修订（§13、§14）。修订 2（同日）：owner 按建议确认其余问题，并补充决定 BE-b 第二步在 S1a 结束后由后端开始（§10、§13.3）。§10 的问题已全部由 owner 决定。修订 3（同日）：定向复核（[复核报告](reviews/fe4-kickoff-rereview-1.md)，通过）的 R1–R4 与后端记录更正（§13.4）。修订 4（同日）：FE4a 审核（`541febf566`，定向修复）交设计会话的 D1（C4 截图稳定性）、D2（审核模式顶栏在 1280 下横向溢出）与看图范围，owner 2026-11-10 按设计会话的建议确认（§10 Q14–Q16，处理见 §15）。修订 5（2026-11-11）：按 BE-b 第二步候选 `b61cc37d5f` 与前端窄复核同步 §3.1 与 §5.3，owner 同意 B9 退役（§10 Q17、§13.6）。修订 6（2026-11-11）：FE4a 证据运行（被测提交 `59c5b8cfca`）在 04-c 真实旅程完整集停止（[证据核对第 1 轮](reviews/fe4a-evidence-check-1.md)，`fe4a-review` 分支 `14f8daa7f8`，尚未合入 main）：候选的真实旅程 helper 没有随 C12 第 3 条同步。设计会话决定以 fix4（只改测试代码）修复，并安排调试、复审与证据重跑；owner 2026-11-11 确认 fix4 的一次完整集调试与证据重跑的解释（§10 Q18、Q19）；更正 §15.4 的错误说法（处理见 §16）。修订 7（2026-11-11）：fix4 第一个候选 `d12e3b8f70` 的 05 完整集调试有 3 个 scope 失败，原因是 §16.2 写定的 helper 规则不适用于工作台工具栏的原生按钮（设计会话的错误）；改写 §16.2 的 helper 规则，owner 2026-11-11 授权再跑一次完整集调试（§10 Q20，处理见 §17）。**FE4a 已退出（2026-11-11，§5.2 表后的退出记录）：** owner 2026-11-11 05:51 UTC 确认看图与遗留项，附注 tag `fe-fe4a-exit` → `c2199b82f7`，以 `--no-ff` 合入本地 main（`1d1de9d2a4`），tag 已推送，main 未推送。修订 8（2026-11-11）：P7 S1a（`p7-s1a-exit` → `42780a1230`）与 BE-b（`be-b-exit` → `3e5f24583d`）都已本地退出并合入 main。设计会话只读复核 BE-b 的正式交付（§18），据此写定 FE4b 的合入点、依赖镜像、OpenAPI、改动范围、带入项、截图、测试与证据和停止条件（§5.3、§6.5–§6.7、§7、§8、§11.3），新增 owner 问题 Q22–Q25（§10）。修订 8 fix1（同日）：按独立审核（`fe4-kickoff-rev8-review` 分支 `f87b4d07e1`，定向修订，R8-1–R8-7）修订，新增 Q26 与 §19（新流程下 FE4b 的角色与材料）；无记录行复用身份的前端判据交后端答复（§18.2 第 2 项），只阻塞 F5 的该分支（§13.10）。**Owner 补充（2026-11-11，Q26 已决定）：**前端暂不需要固定长程任务的角色分工，无需参考后端角色分配规则。已删除 FE4b 对后端固定角色、工作包与模型家族安排的引用。修订 8 fix2（同日）：按复核意见收紧 F5 的阻塞范围、写明定位截图时机、写全 `fe-handoff` 的三种集成情形（§13.11）。复审（`2c279ca5b2`）通过，owner 2026-11-11 确认 Q22–Q25，同时修改 `fe-handoff` 的 kickoff（§13.12）。修订 8 F5 同步（同日）：后端以 `dc87844f63` 写定无记录行复用的公开判据，本文同步 B4、F5、§8、§18.1、§18.2 与解码不变量（§13.13）。**FE4 当前：** F5 同步待定向复核；FE4b 实施可以开始，提示词在阶段交换目录。修订 9（2026-11-12）：FE4b 最终候选 `cafd65a0fa` 的四项证据按 owner 三项决定视为合格；P7 S2b 已退出，原定“带入 S2b E 前端审核”的各项改由 FE4 合并后验证、前端专项整顿与小任务承接；写定 FE4 退出步骤（§20、§13.14）。**FE4 当前（2026-11-12）：** 等 handoff 更正与文档提交 S、续审、测试提交 T 与 owner 确认 FE4 退出（§20.4）。
 - **日期：** 2026-11-10（时间均为 UTC）。
 - **起点：** `fe-fe3c-exit`（tag 对象 `43e66d3eb7` → `06b454b0ef`；被测提交 `e22e39ba15`；`frontend/` 树 `46e425f84e`）。main 合入提交 `475022300c`，退出记录 `16ffe72829`。
   `fe-vnext` 仍在 `e22e39ba15`，比 tag 少一个 docs 提交（`06b454b0ef`，只新增 `fe3c-evidence-04.md`）。
@@ -1186,6 +1186,14 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 
 复核 `/home/dev/gdds-stage-exchange/fe4b/reviews/e15aca4e1f.md` 指出 F5 正例过宽（`duplicates-orphans` 的 `device_st` 未记录行是孤儿），同分支后续提交改为 `device:addr:50` 的 `device_cfg` 未记录行 id=2（gid=8）。后端澄清提交尚未合入 main，由后端或 owner 按后端流程合入。FE4b 的被测后端树不变（`2faac9fc1d`），实施会话用 `git show dc87844f63:<Contract 路径>` 读取澄清后的 Contract。其他文档本次不改。
 
+### 13.14 修订 9：FE4 收尾安排（2026-11-12）
+
+依据：FE4b 证据核对报告（`/home/dev/gdds-stage-exchange/fe4b/reviews/fe4b-final-evidence-cafd65a0fa.md`，结论停止，§6 记 owner 决定与 S2b 退出后的变化）与 owner 2026-11-12 的决定。本次修订在分支 `fe4-exit-record`（从 main `8739d4094e` 拉出，独立 worktree）提交，随 FE4 退出以 `--no-ff` 合入 main（§20.4 第 4 步），不单独推送。
+
+**本文修改的节：** 头部（状态）；§13.14；新增 §20。其余各节不改；§5、§6.4、§7 中与 §20 不同的执行细节，以 §20 为准。
+
+**其他文档：** 本提交不改。`fe-handoff` kickoff 的放行时机与 §10 Q25 的推送时机见 §20.8，待 owner 确认；主 checkout 根目录的 `remediation-input-frontend.md`（未提交的设计输入）按 §20.6 修订。
+
 ## 14. 审核意见与 owner 决定的处理（修订 1）
 
 依据[审核报告](reviews/fe4-kickoff-review.md)第 11 节与 owner 2026-11-10 的决定（§10）。owner 的决定优先于审核报告第 12 节提示词中的写法。
@@ -1620,3 +1628,119 @@ owner 按建议确认 Q1、Q3、Q4、Q6–Q9，并补充决定：BE-b 第二步�
 - **tag 与合入：** `fe-fe4b-exit` 指向 `fe-vnext` 上的一页总结提交；以 `--no-ff` 合入 main；推送按 §10 Q25。路径核对规则不变（§6.5）。
 
 **交 owner 的事项：** 按 AGENTS，只有产品范围、验收范围（含 §7.3 的看图）、来源冲突与不可逆操作交 owner；节点选择与已授权范围内可逆的实现细节按 AGENTS 办理。调试次数超出 §7.2 属于验收范围，交 owner。
+
+## 20. FE4 收尾：S2b 退出后的决定与退出步骤（修订 9）
+
+依据：FE4b 证据核对报告 `/home/dev/gdds-stage-exchange/fe4b/reviews/fe4b-final-evidence-cafd65a0fa.md`（§4.1、§4.2、§6）、复审报告 `fe4b-final-cafd65a0fa.md`（§3–§5）与 owner 2026-11-12 的决定。可执行的命令与提示词放在阶段交换目录（§20.9），本节只写决定、顺序与判据。
+
+### 20.1 事实（2026-11-12）
+
+- **FE4b 最终候选：** `cafd65a0fa`（`fe-vnext`），`frontend/` 树 `f8962e9bdb`，`vnext/` 树 `2faac9fc1d`。FE4b 曾随 tag `fe-fe4b-exit`（→ `52ccf553f5`，未推送）以 `8adadeafd4` 合入 main；之后最终审核的三轮修复都在 `fe-vnext` 上，没有进入 main。合并基为 `52ccf553f5`。
+- **四项证据**（04 mock 全量、上传包校验、journeys；05 t1）在 `cafd65a0fa` 上运行。核对结论为“停止”，三项原因见 §20.2，owner 已决定。
+- **P7 S2b 已退出：** `p7-s2b-exit`（tag 对象 `d1ba73b0c2` → `64b89505f4`）；main 为 `8739d4094e`，`vnext/` 树 `2196ef7149`（含 `bd1f3c171c` 对 SQLite 旁路文件竞态的修复）。S2b 的真实旅程（04 候选 `996a3389f3`：smoke 9/9、journeys 21/21、t1 1/1）跑的是 main 的前端，不含 FE4b 修复轮。
+- **合并试算**（只读，main `8739d4094e` × `cafd65a0fa`）：冲突 1 个文件 `frontend/e2e/upload-mode.spec.ts`，冲突块只在文件开头的 import 行；自动合并 `frontend/e2e/workspace-shell.spec.ts`、`frontend/scripts/run-real-backend-e2e.sh`、`frontend/src/features/session/handoff-session.test.ts`、`frontend/src/features/workbench/SubmitDialog.tsx`、`frontend/src/pages/ComparisonPage.tsx`。合并基之后 main 改了 `frontend/` 52 个文件，FE4b 修复轮改了 22 个。合并结果是一棵谁都没测过的 `frontend/` 树。
+- **t1 1280 截图空白：** S2b 的 04 t1 有两张（`fe4-t1-located-rows-1280`、`fe4-t1-preview-v2-baseline_to_initial-1280`），FE4b 的 05 t1 有一张（`fe4-t1-located-rows-1280`）；对应 1920 正常，t1 判据断言都通过。`t1.spec.ts` 的 `saveEvidenceBothWidths` 在 `setViewportSize` 后立即截图。网格的 `data-rendered` 随列宽重算而失效（列宽由 `ResizeObserver` 测得的容器宽度决定），但截图前没有再等它。
+- **packaging 筛查（§7.4）：** `52ccf553f5..main` 中 `UploadStepCard.tsx` 的改动是会话绑定的 API、`scopedStorage` 与会话变化的退出分支，不涉及 `begin("packaging")` 到下一阶段之间的打包代码；`upload-package.ts` 未改；FE4b 修复轮两个文件都未改。不触发 t4，由审核会话在合并后核验中复核。
+
+### 20.2 Owner 决定（证据核对报告 §4.2 三项，2026-11-12 均选甲）
+
+1. **journeys 接受规则扩展。** 原文：“接受规则扩到本签名——单个 scope、e2e 轮询单次 `503 SERVICE_NOT_READY: deployment storage unavailable`、该操作 worker 无异常、其余条件 2–4 成立”（条件 2–4：其余 scope 全部通过；OpenAPI 比对通过、`cleanup_status=ok`、起止 HEAD 与树号不变、worktree 结束时 clean；失败只发生在 journeys）。依据报告 §4.1：API 的 `storage_admission` 中间件与 worker 调用同一个 `check_database_files`，旁路文件 `lstat` 与 `O_PATH` 打开之间的竞态；main `bd1f3c171c` 已修；中间件不留原因，日志不能单独证明。04 journeys（19/20，`r10-archive` 失败）按“通过（已知后端缺陷）”接受，不重跑。**适用范围：**只适用于 `cafd65a0fa`（后端树 `2faac9fc1d`）上的 FE4b 证据；§20.5 的合并后验证不适用。
+2. **trace 中的测试 token。** 保留原件，不删除、不脱敏；handoff 更正计数，并注明这些 token 由入口每次运行随机生成、对应 Compose 栈已拆除、已失效。修复轮 05 的 trace 同样处理。
+3. **第 ③ 次比较的 `fe3b-w6-withdraw-busy`。** 按 R9 同类的已知截图不稳定接受，第 ③ 次比较视为合格。W6 忙态各图的稳定门（或查明 R9 根因）列入后续（§20.6）。
+
+据此四项证据与第 ③ 次比较视为合格。实施会话按决定更正证据 handoff，并以文档提交 S 更新 `docs/frontend-vnext/fe4b-summary.md`（只改该文件）。
+
+### 20.3 Owner 同意的后续安排（证据核对报告 §6.4，2026-11-12）
+
+1. S2b 不重开。
+2. FE4 退出合并后，在 04 对合并后的 main 做一次前端权威入口验证（§20.5），取代原定的“S2b E 前端审核”落点：兼做 FE4b 前端连修复后后端的回归，并有界核实 1280 截图空白；冲突解决的 diff 由审核会话定向核对。
+3. 前端专项整顿在 FE4 合并之后开始；不改行为的 FE4b 遗留项并入整顿，会改行为的另开小任务（§20.6）。
+4. 后端 `storage_admission` 中间件吞掉异常原因、不写日志，交后端（§20.7）。
+
+**替换说明。** 复审报告 `fe4b-final-cafd65a0fa.md` §4、§5，证据核对报告 §4.2 第 3、5 项与 §4.3，R6 提示词 §4、§5 和证据 handoff 中写作“带入 S2b E 前端审核”的各项，S2b 退出后已没有这个落点，改由下表承接：
+
+| 原“带入 S2b E 前端审核”的项 | 现在由谁承接 |
+| --- | --- |
+| FE4b 前端连修复后后端的完整 journeys 回归 | §20.5 合并后验证（journeys 完整集） |
+| FE4b 前端连修复后后端的 t1 | §20.5（t1） |
+| S2b 交来的 t1 1280 截图空白核实 | §20.4 第 2 步的测试提交 T 与 §20.5 的 t1 |
+| O1（`ComparisonPage.loadTable` 接线用例）、O2 的死代码删除、O4（过时注释）、O5（handoff 记录规则） | 前端专项整顿（§20.6） |
+| O2 的 F7 汇总口径 | 整顿中由设计会话给出判断；判为不等价时转小任务，不在整顿中改行为 |
+| W6 忙态截图不稳定（R9）。更正：证据核对报告 §3 说 `fe3b-w6-withdraw-busy` 没有稳定门，不对；`upload-mode.spec.ts` 的 `screenshot()` 对该文件全部截图都先执行 `.compare-header` 稳定门，但稳定门在 `settleAfterResize` 之前执行、只比较连续两帧，04 上仍拍到另一种状态 | 整顿：查 R9 根因，或把稳定门移到 `settleAfterResize` 之后并按状态特征判定（只改测试工具） |
+| 真实旅程 trace 不保留 `authorization` 请求头；凭据检索须解压 zip | 整顿（只改测试工具）；检索规则自 §20.5 起立即适用 |
+| O3（整数列与 metadata 物理类型交叉核对）、e2e `waitForOperation` 是否容忍单次 503、`NO_CANONICAL_CHANGE` 是否改为不可重试、D1a、D1b | 会改行为的小任务（§20.6），D1a、D1b 与可重试等 owner 看图后再启动 |
+| `fe4b-columns-pinned`、t1 只复现 `APP_TABLE_NOT_FOUND`、`min(8em, max-content)` | 给 owner 的确认表（§20.6），不阻塞合并 |
+| `storage_admission` 中间件不留原因 | 后端（§20.7） |
+
+### 20.4 FE4 退出步骤（owner 确认 FE4 退出后执行）
+
+本节修订 `prompts/fe4b-final-evidence-check.md` §5 原定的六条。
+
+**前置：**① 实施会话完成 handoff 更正与 S；② 实施会话准备测试提交 T（第 2 步）；③ 执行退出的会话在一个 detached worktree 中做**试合并**：从当时的 main 头依次合并 S、T、R，冲突按 §20.4.1 解决，不动 main 与 tag；④ 审核会话续审：核对 S（证据核对提示词 §2 第 9 项）、定向审核 T、审核试合并的冲突解决与五个自动合并文件，并在 07 对试合并结果跑一次 mock 全量（调试，不作证据），确认 FE4b 的用例在 S2b 的设备路由 guard 下能过；⑤ owner 确认 FE4 退出。看图材料中待 owner 确认的偏差不阻塞退出。
+
+1. **tag。** 先把现有 `fe-fe4b-exit` 的 tag 对象存档为 `refs/archive/fe4b/fe-fe4b-exit-52ccf553f5`，再以附注 tag 移到 S（`git tag -f -a`；它从未推送）。tag 说明引用：FE4b 最终审核三份报告（`reviews/fe4b-final-52ccf553f5.md`、`fe4b-final-38bff91680.md`、`fe4b-final-cafd65a0fa.md`）、证据核对报告 `fe4b-final-evidence-cafd65a0fa.md`、更正后的证据 handoff `handoffs/fe4b-evidence-cafd65a0fa-handoff.md` 与 §20.2 的 owner 决定。`fe-handoff-exit` 以附注 tag 打在 `251640f104`，说明按 `fe-handoff` kickoff“集成与退出”一节写：该提交只完成组件审核；真实回归发生在 FE4b 最终候选 `cafd65a0fa`，引用其证据 handoff；连修复后后端的回归见 §20.5。
+2. **测试提交 T（截图前等网格绘制，只改测试）。** 在 owner 确认之前由实施会话准备：分支 `fe4-t1-shot-gate`，从 main `8739d4094e` 起，只改 `frontend/e2e-real/t1.spec.ts`（FE4b 没有改这个文件，main 与合并结果中的版本相同）。`saveEvidenceBothWidths` 与 `captureTabItemBothWidths` 在每次 `setViewportSize` 之后、截图之前执行同一个等待：
+   1. 先等两帧（`requestAnimationFrame` 两次），让 `ResizeObserver` 与随后的重渲染发生；
+   2. 页面上没有 `div.grid-frame[aria-label="比较表格"]` 时到此为止；
+   3. 有网格时，等每个网格的 `data-rendered="true"`，上限 10 秒；
+   4. 再等第一个网格连续两次元素截图（`animations: "disabled"`）逐字节相同，最多 10 次、间隔 100 ms（与 R9 顶栏稳定门同一写法）；
+   5. 在 `journey-cases.log` 写一行 `shot-gate label=<名>-<宽> grid=<个数> rendered=ok|timeout waited_ms=<毫秒> stable=<次数>|unstable`；
+   6. 等待超时不抛错，照常截图并在该行如实记录。超时与 `unstable` 都由审核会话按 §20.5 判据处理，不靠测试失败表达，以免中断 t1 后面的步骤与 M1。
+
+   为了核实空白是否只是截图时序，`saveEvidenceBothWidths` 在 1280 宽时另存一张不经等待、紧接 `setViewportSize` 的诊断图 `<名>-1280-pregate.png`（与改动前的时机相同），再经等待后保存正式的 `<名>-1280.png`。诊断图不作验收，只用于对照；1920 不加（三次空白都在 1280）。这些截图与日志行都在 M1 测量窗口之外，不增加旅程步骤。T 不改判据、产品代码和其他测试文件。
+3. **合并地点。** main 现检出在另一会话的 worktree `/home/dev/gdds-s5-design-main`（2026-11-12 只读查看：clean，HEAD `8739d4094e`）。执行退出的会话先只读确认该 worktree 的归属、是否 clean、是否有进程在用，再与其所有者或 owner 协调。首选：所有者让出 main（在该 worktree 中由所有者执行 `git switch --detach`），执行退出的会话 `git worktree add /home/dev/gdds-fe4-exit-main main`，在那里合并，完成后让回 main 并记录。经 owner 同意也可以直接在那个 worktree 中合并，但只执行下面第 4 步的命令，不动其他内容。不在主 checkout `/home/dev/gateway-data-management-system` 合并，不覆盖他人改动。
+4. **合并顺序。** 在持有 main 的 worktree 中依次：
+   1. `git merge --no-ff fe-fe4b-exit`：范围 `52ccf553f5..S`，按 §6.5 的路径规则只含 `frontend/` 与 `docs/`；冲突按 §20.4.1 解决，在合并提交中完成；
+   2. `git merge --no-ff fe4-t1-shot-gate`（T，审核通过的那个提交）；
+   3. `git merge --no-ff fe4-exit-record`（本记录）。
+
+   冲突文件直接取试合并中审核过的结果。每个合并提交的树必须等于试合并中对应提交的树，不等即停，不手工修到相同。记录三个合并提交与最终提交 H，以及 `H:frontend`、`H:vnext`。main 头若与试合并时不同，回到前置第 ③ 步重新试合并并重新审核；新增的 main 提交改到 `frontend/` 或 `vnext/` 时交设计会话重新判断（§20.5 的镜像核对与截图归因都以 `vnext/` 树 `2196ef7149` 为前提）。合并后不在开发主机上运行任何测试。
+5. **合并后验证。** 冲突解决已在试合并时审核；实施会话按 §20.5 运行，审核会话核对正式合并与试合并的树一致、核对证据与截图归因。
+6. **放行与推送。** §20.5 通过、审核会话核对合格后：执行退出的会话通知目录任务 `dir-v1` 进入阶段 2；只推送 tag `fe-fe4b-exit`（§10 Q25）。main 与 `fe-handoff-exit` 都不在推送授权内。FE4 至此退出完成；执行退出的会话随后在 main 上以一个文档提交补记退出记录（tag、合并提交、H、验证结论），做法同 FE4a 的 `3b977394a4`，不推送。
+7. **验证失败。** 停下，不放行 `dir-v1`，不推送 tag，交设计会话与 owner。合并保持在 main 上（owner 2026-11-12 安排的是“合并后验证”）；修复走正常的前端实现、审核与验证流程，基于当时的 main。
+
+`dir-v1` 当前在 `996a3389f3`，进入阶段 2 时消费的是合并后的前端，所以放在验证通过之后：在此之前合并后的前端没有在任何节点运行过，`fe-handoff` 的设备位置与跳转会话也只经过 FE4b 候选上的真实回归，没有经过 S2b 的设备路由与 Preview 授权改动。
+
+#### 20.4.1 冲突解决规则
+
+- **`frontend/e2e/upload-mode.spec.ts`。** 唯一的冲突块是 import：main 侧（S2b）把 `expect`、`test`、`Page`、`Route` 改从 `./guard` 导入（自动 fixture，任何 `/v1/` 模拟请求缺少或带错 `X-Gateway-Device-Key` 时让用例失败）；FE4b 侧新增 `import { Buffer } from "node:buffer";`（R9 顶栏稳定门与跳转会话载荷编码用）。解决为两者都保留：从 `./guard` 导入，并保留 `Buffer` 一行。其余自动合并的块也必须两侧都在：main 侧的 `testPreviewResult` 导入与 `installModeRoutes` 中 `preview-results/{id}` 路由（Preview 缓存授权）；FE4b 侧的 `waitForStableHeader` 接入 `screenshot()`、`expectSidebarSticky`、W6 `.compare-status` 溢出断言与“比较页侧栏随顶栏吸顶”用例。依据：两侧改的是互不重叠的关注点（S2b 是模拟请求的设备路由头与 Preview 结果授权；FE4b 是截图稳定、溢出与吸顶断言），任何一侧的断言被丢掉都会让该侧已审核通过的回归门失效。FE4b 的新用例必须在 main 的 guard 下运行，不得改回 `@playwright/test` 绕开 guard；它们在 guard 下失败属于 finding，按正常流程修复，不在冲突解决中处理。
+- **自动合并的五个文件**同样列入审核会话的定向核对（各自与两个父提交比较，确认两侧意图都在）：`workspace-shell.spec.ts`（main：`./guard`、按 `previewResultId` 取 fixture、`apiRequests`；FE4b：R9 稳定门、`NO_CANONICAL_CHANGE` 提交路径、R13/R15 断言）；`run-real-backend-e2e.sh`（main：处理组、公共入口、宿主后端环境与 Rust 扩展检查；FE4b：N27 在 stdout 打印最终 `exit_code`）；`handoff-session.test.ts`（main：不可变会话与 `createAuthenticatedFetch({ session })`；FE4b：清除 fragment 不调 `pushState`）；`SubmitDialog.tsx`（main：会话绑定的 API 与 `SessionChangedError`；FE4b：导出 `describeSubmitError`）；`ComparisonPage.tsx`（main：`useBoundGatewayApi`、`boundBundleFetch`、`scopedStorage`；FE4b：R10–R16 的读取、吸顶与标记）。设计会话的只读扫描：合并结果中 FE4b 新增代码没有使用已被 main 替换的全局 `gatewayApi`、`fetchBundle` 或未分作用域的 `sessionStorage`。
+- 冲突解决只改冲突块，不顺带改产品代码或其他测试；若必须改产品代码才能让两侧共存，停下交设计会话。试合并提交的 `git show --remerge-diff` 输出交审核会话；正式合并直接取试合并的结果，以树号相同为准。
+
+### 20.5 合并后验证（取代“S2b E 前端审核”）
+
+- **被测提交：** §20.4 第 4 步的 H。开始前核对 `H:frontend` 与审核会话核过的合并结果一致、`H:vnext` = `2196ef7149`。
+- **节点与项目：** 04 的 clean detached worktree，经 `run-evidence-wrapper.sh` 依次：mock 全量（`GATEWAY_FE_TEST_WORKERS=2`，带截图）、上传包校验、真实 `smoke`、`journeys` 完整集。t1 在 05：与 FE4b t1 证据同节点、同输入目录，判据行与 M1 可直接并列；可与 04 并行；S2b 的 04 与 FE4b 的 05 都出现过 1280 空白，换节点不能区分原因。05 若缺处理组入口需要的宿主后端环境（Rust selector 工具链、离线 Cargo 与 uv 缓存），按 DC67 预填充；仍不可用时按 DC91 改在 04 上排在 journeys 之后，并在 handoff 写明。
+- **镜像与缓存：** 每台节点用 `build-backend-dependency-base.sh --print-input` 求依赖镜像 tag，与 S2b 实际使用的 `gateway-backend-deps:lock-578e079b762e`、`gateway-p2r1-repository:lock-b47d6de3cbce` 核对 config digest 与全部 DiffID；工具链镜像与 npm 缓存按 FE4b 证据的写法核对。不符即停，按 DC67 预填充。
+- **判据：** mock 全量、上传包校验、smoke、journeys、t1 全部通过；OpenAPI 比对通过；t1 判据行、`table_count`、`anomalies`、诊断码与 M1 与 FE4b 证据、S2b 证据并列。**§20.2 第 1 项的接受规则不再适用**（后端已含 `bd1f3c171c`）：任何真实旅程失败即停，交设计会话与 owner，由 owner 决定是否转交后端。
+- **截图：** 合并后 mock 截图对 FE4b 04 证据截图（07 副本 `/home/dev/gdds-fe-audit-shots/fe4b-evidence-04-cafd65a0fa`）跑比较模式，每个变化都要归因到 S2b 的前端改动或冲突解决（另用 S2b 的 mock 截图作对照）。t1 的 1280、1920 截图逐张目检；正式 1280 图仍空白，或任何 `shot-gate` 行为 `timeout`/`unstable`，按产品缺陷嫌疑停下交 owner。
+- **凭据检索：** 日志、证据目录与 trace（zip 逐成员解压）中检索 `Bearer `、`dir-token`、`gdds-handoff=` 与入口生成的 token 前缀；trace 若仍含 token，按 §20.2 第 2 项保留原件并注明已失效。
+- 不做计时，不跑 t2–t4；不推送。证据失败即停；被测对象运行前的操作或环境错误按 AGENTS 的构建故障快速修复与 DC68 现行规则处理。
+
+### 20.6 遗留安排
+
+- **前端专项整顿：** 开始条件改为 FE4 合并且 §20.5 通过之后，证据基线改为 H。不改行为的 FE4b 遗留项并入（§20.3 替换说明表）。设计输入是主 checkout 根目录的 `remediation-input-frontend.md`（未提交）。
+- **小任务（会改行为）：** O3、D1a、D1b、`NO_CANONICAL_CHANGE` 是否改为不可重试、e2e `waitForOperation` 是否容忍单次 503。等 owner 看图并决定后再启动；清单、来源与验收方式见交换目录 `followups/fe4-behavior-small-task.md`。
+- **owner 确认表：** 看图材料中其余待确认的偏差（`fe4b-columns-pinned`、t1 只复现 `APP_TABLE_NOT_FOUND`、`min(8em, max-content)`）与上面需要 owner 决定的项，见交换目录 `followups/fe4-owner-confirmations.md`，不阻塞合并。
+
+### 20.7 后端交接
+
+`storage_admission` 中间件捕获 `(OSError, ValueError)` 后返回 `503 SERVICE_NOT_READY` 且不留原因。问题写在交换目录 `questions/backend-storage-admission-logging.md`，由 owner 转交后端设计会话，前端不直接联系。
+
+### 20.8 与现行规则的出入（交 owner 确认）
+
+1. **tag 推送时机：** §10 Q25 写“退出时”推送 `fe-fe4b-exit`；本节放在 §20.5 验证通过之后。推送不可撤回，验证暴露 FE4b 前端问题时可以不再移动已推送的 tag；只是推迟，不扩大授权。
+2. **`dir-v1` 放行时机：** `fe-handoff` kickoff“集成与退出”写“FE4 退出后通知”；本节放在 §20.5 通过之后（理由见 §20.4 末段）。比原文更晚，不放宽。
+3. **短期分支：** T 与本记录在短期分支上（`fe4-t1-shot-gate`、`fe4-exit-record`），因为 main 检出在另一会话的 worktree 中；退出时以 `--no-ff` 合入，符合 AGENTS“确需并行的工作才开短期分支，并尽快合回”。
+4. **诊断截图：** t1 的 `*-1280-pregate.png` 只作对照，不作验收，不改变 §7.3 的看图范围。
+
+### 20.9 交换目录中的材料
+
+`/home/dev/gdds-stage-exchange/fe4b/`：
+
+- `prompts/fe4-t1-shot-gate.md`：实施会话准备 T；
+- `prompts/fe4-exit-execution.md`：执行退出的会话，A 试合并、B 正式退出（§20.4 第 1、3、4 步）、C 收尾（第 6 步）；
+- `prompts/fe4b-exit-check.md`：审核会话续审（S 与 handoff 更正、T 的定向审核、试合并审核与 07 mock 调试、改写 `handoffs/fe-handoff.md`、FE4 退出建议）；
+- `prompts/fe4-post-merge-verification.md`：实施会话的合并后验证（§20.5）；
+- `prompts/fe4-post-merge-review.md`：审核会话核对正式合并与试合并一致、证据、t1 截图空白与 mock 截图归因；
+- `questions/backend-storage-admission-logging.md`、`followups/fe4-behavior-small-task.md`、`followups/fe4-owner-confirmations.md`。

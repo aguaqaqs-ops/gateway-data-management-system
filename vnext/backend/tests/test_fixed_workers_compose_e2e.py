@@ -43,7 +43,16 @@ def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[
                 attempt("polling resume", resume_polling.set)
             finally:
                 if cleanup is not None:
-                    attempt("project cleanup", cleanup)
+                    if primary is None and failures:
+                        # The existing cleanup owner uses the active exception
+                        # to retain failed roots. Give a new finalizer failure
+                        # the same context as an original journey failure.
+                        try:
+                            raise failures[0][1]
+                        except BaseException:
+                            attempt("project cleanup", cleanup)
+                    else:
+                        attempt("project cleanup", cleanup)
     if primary is not None:
         for phase, error in failures:
             primary.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")

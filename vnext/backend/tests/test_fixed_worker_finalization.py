@@ -1,7 +1,10 @@
 """Failure-only observations must not prevent the fixed-worker test's cleanup."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
+import subprocess
+import sys
 from threading import Event
 
 import pytest
@@ -18,12 +21,15 @@ def test_fixed_worker_finalizer_attempts_all_cleanup_and_preserves_primary_failu
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, primary_failure: bool, fault: str,
 ) -> None:
     calls: list[str] = []
+    cleanup_context: list[BaseException | None] = []
     primary = AssertionError("original worker invariant failure")
     secondary = RuntimeError("injected " + fault)
     barriers = [tmp_path / "worker-1", tmp_path / "worker-2"]
     resumed = Event()
     def record(phase: str) -> None:
         calls.append(phase)
+        if phase == "project cleanup":
+            cleanup_context.append(sys.exception())
         if phase == fault:
             raise secondary
     def collect() -> None:
@@ -50,6 +56,7 @@ def test_fixed_worker_finalizer_attempts_all_cleanup_and_preserves_primary_failu
     assert caught.value is (primary if primary_failure else secondary)
     assert calls == ["diagnostics", "worker-1.release", "worker-2.release", "polling resume", "project cleanup"]
     assert resumed.is_set()
+    assert cleanup_context == [primary if primary_failure else secondary if fault != "project cleanup" else None]
     if primary_failure:
         assert primary.__notes__ == [f"fixed-worker {fault} failed: RuntimeError: injected {fault}"]
 
@@ -84,3 +91,32 @@ def test_fixed_worker_finalizer_keeps_all_errors_when_multiple_cleanup_actions_f
     if primary_failure:
         expected.insert(0, ("diagnostics", "collector"))
     assert notes == [f"fixed-worker {phase} failed: RuntimeError: {message}" for phase, message in expected]
+
+
+@pytest.mark.parametrize("fault", ["diagnostics", "executor release", "polling resume", None])
+def test_fixed_worker_finalizer_passes_failure_context_to_existing_root_retention_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None,
+) -> None:
+    project = "unit-fixed-worker-retention"
+    env = {"COMPOSE_PROJECT_NAME": project}
+    cleanup_commands: list[list[str]] = []
+    def command(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--cleanup" in args:
+            cleanup_commands.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(journey.harness, "_teardown_compose_project_resources", lambda _: None)
+    monkeypatch.setattr(journey.harness, "release_compose_gate_lock", lambda: None)
+    monkeypatch.setattr(journey.harness.subprocess, "run", command)
+    monkeypatch.setitem(journey.harness._runtime_fixtures, project, (tmp_path, "test-owner"))
+    def fail_at(phase: str) -> None:
+        if phase == fault:
+            raise RuntimeError("injected " + phase)
+    monkeypatch.setattr(journey, "write_container_readable_text", lambda _path, _text: fail_at("executor release"))
+    resume = Event()
+    monkeypatch.setattr(resume, "set", lambda: fail_at("polling resume"))
+    with pytest.raises(RuntimeError) if fault is not None else nullcontext():
+        journey._finalize_worker_probe(lambda: fail_at("diagnostics"), [tmp_path / "barrier"], resume,
+            lambda: journey.harness.cleanup_compose_project_artifacts(env))
+    assert len(cleanup_commands) == 1
+    assert ("--retain" in cleanup_commands[0]) is (fault is not None)
+    assert project not in journey.harness._runtime_fixtures

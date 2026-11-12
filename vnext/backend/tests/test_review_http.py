@@ -24,6 +24,7 @@ from gateway_backend.infrastructure.control_db.sqlite_submission import (
     submission_to_row,
 )
 from tests.support.http_workspace_harness import (
+    BASELINE_HEAD,
     PendingReviewHttpSeed,
     TEST_BEARER,
     WorkspaceHttpTestEnvironment,
@@ -422,7 +423,7 @@ def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path)
         device_key="device-other",
         project_id=seed.project_id,
         repository_id="repo-other",
-        baseline_head=None,
+        baseline_head=BASELINE_HEAD,
     )
     response = env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
@@ -454,7 +455,7 @@ def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -
         device_key="device-other",
         project_id=seed.project_id,
         repository_id="repo-other",
-        baseline_head=None,
+        baseline_head=BASELINE_HEAD,
     )
     approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
     assert approved.status_code == 201

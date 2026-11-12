@@ -245,8 +245,10 @@ class ProcessingGroupsStack:
         group = next(item for item in self.groups.groups if item.group_id == "group-a")
         config = host.DeploymentConfig.load(Path(group.storage_config), Path(group.resource_config))
         wrong_image = replace(group, images=replace(group.images, backend=group.images.repository_service))
+        containers = deployment.inspect_project(group.project)
+        containers.sort(key=lambda item: item["Config"]["Labels"]["com.docker.compose.service"] != "backend")
         try:
-            deployment.inspect_group(config, wrong_image)
+            deployment.inspect_group(config, wrong_image, containers=containers)
         except ValueError as error:
             assert "actual group image/resources differ" in str(error), error
         else:

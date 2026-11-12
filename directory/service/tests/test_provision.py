@@ -2,6 +2,7 @@
 import json
 import hashlib
 import sqlite3
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -155,3 +156,83 @@ def test_rejects_db_and_private_temp_under_gateway_public_directories(tmp_path: 
     path = (entry if in_entry else public) / "database.sqlite"
     assert provision.run(path, all_devices=True, dry_run=True) == 2
     assert not path.exists()
+
+
+@pytest.mark.parametrize("failed_device,failed_revoked", [("dev-1", False), ("dev-2", True)])
+def test_renew_recovers_same_candidates_after_replace_before_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_device: str, failed_revoked: bool
+) -> None:
+    conn = database(tmp_path / "db")
+    conn.execute("INSERT INTO projects VALUES (?,?,?,?,?,?,?,?,0)", ("S2", "dev-2", "prj-2", "Second", "R1", "R2", '["s"]', '[]'))
+    original = [provision._session("dev-1", "prj-1", 180), provision._session("dev-2", "prj-2", 180)]
+    third = provision._session("third", "project-third", 180)
+    added = provision._session("new-third", "project-new", 180)
+    conn.executemany("INSERT INTO provisioning (device_key,environment_id,group_id,current_session,repository_id) VALUES (?,?,?,?,?)", [(row["gateway_device_external_key"], "env", "group", json.dumps(row), "repo") for row in original])
+    conn.commit()
+    path = tmp_path / "session.json"
+    path.write_bytes(provision._encode([*original, third]))
+    path.chmod(0o600)
+    _, locks, _, _ = provision._load_helpers(Path(__file__).resolve().parents[3])
+    adapter = object.__new__(provision.GatewayHostAdapter)
+    adapter.session_path = path
+    adapter.management = SessionManagement()
+    adapter.groups = SimpleNamespace(environment_id="env")
+    adapter.group = SimpleNamespace(group_id="group")
+    adapter.config = SimpleNamespace(groups_file=tmp_path / "groups.json", ttl_days=180)
+    adapter.locks = locks
+    monkeypatch.setattr(adapter, "reload", lambda: None)
+    monkeypatch.setattr(provision, "_log", lambda *args, **kwargs: None)
+    generated: list[str] = []
+    original_session = provision._session
+    def issue(device: str, project: str, ttl: int) -> dict[str, Any]:
+        value = original_session(device, project, ttl)
+        generated.append(device)
+        return value
+    monkeypatch.setattr(provision, "_session", issue)
+    failing = True
+    probes: list[tuple[str, bool]] = []
+    def probe(session: dict[str, Any], repository: str, *, revoked: bool = False) -> None:
+        nonlocal failing
+        # No target is activated until every device has passed both probes.
+        assert conn.execute("SELECT count(*) FROM provisioning WHERE pending_session IS NOT NULL").fetchone()[0] == 2
+        probes.append((session["gateway_device_external_key"], revoked))
+        if failing and (session["gateway_device_external_key"], revoked) == (failed_device, failed_revoked):
+            raise provision.Incomplete("probe not confirmed")
+    monkeypatch.setattr(adapter, "probe", probe)
+    with pytest.raises(provision.Incomplete):
+        provision._renew(conn, adapter, RecordingLog())
+    stored = conn.execute("SELECT current_session,pending_session FROM provisioning ORDER BY device_key").fetchall()
+    assert all(row[1] is not None for row in stored)
+    assert hashlib.sha256(stored[0][0].encode()).digest() == hashlib.sha256(json.dumps(original[0]).encode()).digest()
+    assert hashlib.sha256(stored[1][0].encode()).digest() == hashlib.sha256(json.dumps(original[1]).encode()).digest()
+    pending = [json.loads(row[1]) for row in stored]
+    assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(provision._encode([*pending, third])).digest()
+    path.write_bytes(provision._encode([*pending, third, added]))
+    failing = False
+    probes.clear()
+    assert provision._renew(conn, adapter, RecordingLog()) == 0
+    assert generated == ["dev-1", "dev-2"]
+    assert probes == [("dev-1", False), ("dev-1", True), ("dev-2", False), ("dev-2", True)]
+    result = conn.execute("SELECT current_session,pending_session FROM provisioning ORDER BY device_key").fetchall()
+    assert all(row[1] is None for row in result)
+    assert [hashlib.sha256(row[0].encode()).digest() for row in result] == [hashlib.sha256(row[1].encode()).digest() for row in stored]
+    assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(provision._encode([*pending, third, added])).digest()
+    conn.close()
+
+
+@pytest.mark.parametrize("raw,code,expected", [
+    (b'{"state":"busy"}', 3, ("busy", "unknown")),
+    (b'{"state":"invalid","reason":"configuration or request rejected"}', 2, ("invalid", "configuration or request rejected")),
+    (b'{"state":"invalid","reason":"secret"}', 2, ("invalid", "unknown")),
+    (b'{"state":"busy","reason":"secret"}', 1, ("unknown", "unknown")),
+    (b'not-json-secret', 1, ("unknown", "unknown")),
+])
+def test_management_diagnostics_only_expose_allowlisted_messages(raw: bytes, code: int, expected: tuple[str, str]) -> None:
+    assert provision._safe_diagnostic(raw, code) == expected
+
+
+def test_management_output_is_bounded_and_sanitized() -> None:
+    code, state, reason = provision._management_command([sys.executable, "-c", "import sys; sys.stderr.write('{\"state\":\"busy\"}'); sys.exit(3)"], {})
+    assert (code, state, reason) == (3, "busy", "unknown")
+    with pytest.raises(provision.Incomplete, match="output exceeded limit"):
+        provision._management_command([sys.executable, "-c", "import sys; sys.stdout.write('x' * 65537); sys.stdout.flush()"], {})

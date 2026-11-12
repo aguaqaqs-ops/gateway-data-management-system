@@ -12,10 +12,13 @@ import json
 import os
 import re
 import secrets
+import selectors
+import signal
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -29,6 +32,73 @@ from . import db, importer
 
 PERMISSIONS = ["workspace_read", "upload_submit_workspace", "preview_workspace", "review_submission", "withdraw_own_submission", "archive_submission", "read_project_history"]
 MAX_SESSION = 1048576
+MAX_MANAGEMENT_OUTPUT = 65536
+
+
+def _safe_diagnostic(raw: bytes, code: int) -> tuple[str, str]:
+    """Map only known tool messages; never return remote-controlled text."""
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return "unknown", "unknown"
+    if not isinstance(value, dict):
+        return "unknown", "unknown"
+    expected = {0: "available", 1: "incomplete", 2: "invalid", 3: "busy"}
+    state = expected.get(code, "unknown")
+    if value.get("state") != state:
+        return "unknown", "unknown"
+    reasons = {
+        "configuration or request rejected": "configuration or request rejected",
+        "device provisioning or publication not completed; retry the same identity": "provisioning or publication unconfirmed",
+    }
+    reason = value.get("reason")
+    return state, reasons.get(reason, "unknown") if isinstance(reason, str) else "unknown"
+
+
+def _management_command(args: list[str], env: dict[str, str]) -> tuple[int, str, str]:
+    """Drain both streams under one byte and time bound; preserve no raw output."""
+    process: subprocess.Popen[bytes] | None = None
+    completed = False
+    try:
+        process = subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+        assert process.stdout is not None
+        deadline = time.monotonic() + 180
+        captured = bytearray()
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Incomplete("management command unconfirmed")
+                for key, _ in selector.select(remaining):
+                    chunk = os.read(key.fd, 8192)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    captured.extend(chunk)
+                    if len(captured) > MAX_MANAGEMENT_OUTPUT:
+                        raise Incomplete("management output exceeded limit")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise Incomplete("management command unconfirmed")
+        code = process.wait(timeout=remaining)
+        state, reason = _safe_diagnostic(bytes(captured), code)
+        completed = True
+        return code if code in (0, 1, 2, 3) else 1, state, reason
+    except (OSError, subprocess.TimeoutExpired):
+        raise Incomplete("management command unconfirmed") from None
+    finally:
+        if process is not None:
+            if not completed:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if process.poll() is None:
+                process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
 
 
 class Rejected(Exception):
@@ -172,6 +242,7 @@ def _encode(rows: list[dict[str, Any]]) -> bytes:
 class GatewayHostAdapter:
     def __init__(self, config: Config) -> None:
         self.config = config
+        self.diagnostic = ("unknown", "unknown")
         self.host, self.locks, self.entry, self.management = _load_helpers(config.root)
         self.reload()
 
@@ -243,11 +314,9 @@ class GatewayHostAdapter:
             self.management.session_document(Path(name))
             args = [sys.executable, str(self.config.root / "vnext/scripts/manage-processing-groups.py"), "add-device", "--groups-file", str(self.config.groups_file), "--directory-file", str(self.config.directory_file), "--entry-directory", str(self.config.entry_directory), "--entry-project", self.config.entry_project, "--group", self.group.group_id, "--device", device, "--project", project, "--session-document", name]
             env = {key: os.environ[key] for key in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG", "XDG_RUNTIME_DIR") if key in os.environ}
-            try:
-                result = subprocess.run(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180, check=False)
-            except (OSError, subprocess.TimeoutExpired):
-                raise Incomplete("management command unconfirmed") from None
-            return result.returncode if result.returncode in (0, 1, 2, 3) else 1
+            code, state, reason = _management_command(args, env)
+            self.diagnostic = (state, reason)
+            return code
         finally:
             os.unlink(name)
 
@@ -394,9 +463,10 @@ def _add_batch(conn: sqlite3.Connection, adapter: GatewayHostAdapter, rows: list
             _log(stream, "management-unconfirmed", device=device, completed=completed, gateway_step="unknown")
             print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "management", "gateway_step": "unknown"}))
             raise
-        _log(stream, "management-exit", device=device, exit_code=code, completed=completed)
+        state, reason = getattr(adapter, "diagnostic", ("unknown", "unknown"))
+        _log(stream, "management-exit", device=device, exit_code=code, state=state, reason=reason, completed=completed)
         if code != 0:
-            print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "management", "gateway_step": "unknown"}))
+            print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "management", "state": state, "reason": reason, "gateway_step": "unknown"}))
             return code
         try:
             receipt = adapter.registration(device, project)

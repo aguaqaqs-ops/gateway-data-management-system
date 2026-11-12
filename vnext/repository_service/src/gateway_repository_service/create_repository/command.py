@@ -99,15 +99,16 @@ class CreateRepositoryCommand:
 
         self._fault_injector.after_pending()
         key = repository_key(repository_id)
-        staged: Path | None = self._layout.staging_repository(key, uuid4().hex[:12])
+        staging = self._layout.staging_repository(key, uuid4().hex[:12])
+        staged: Path | None = staging
         self._fault_injector.after_staging()
         try:
             create_port = self._create_port or DoltCreateAdapter(self._settings, self._layout, runner)
-            initial_commit_id = create_port.initialize_and_head(staged)
+            initial_commit_id = create_port.initialize_and_head(staging)
             self._fault_injector.after_dolt_init()
             target = self._layout.published_repository(key)
-            self._layout.assert_publication_devices(staged, target.parent)
-            self._publication_port.publish(staged, target, fault=self._fault_injector.publication_fault())
+            self._layout.assert_publication_devices(staging, target.parent)
+            self._publication_port.publish(staging, target, fault=self._fault_injector.publication_fault())
             staged = None
             body = {"repository_id": str(repository_id), "default_ref": DEFAULT_REF,
                 "initial_commit_id": initial_commit_id}

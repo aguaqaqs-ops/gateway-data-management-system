@@ -4,7 +4,7 @@ import { mockCatalog, projects } from "./fixtures";
 test("浏览、搜索、历史和键盘", async ({ page }) => {
   await mockCatalog(page);
   await page.goto("/");
-  await expect(page.getByText("18 个项目")).toBeVisible();
+  await expect(page.getByText("18 个项目", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /江苏/ }).click();
   await page.getByRole("button", { name: /苏州/ }).click();
   await expect(page.getByText("共 14 个项目")).toBeVisible();
@@ -28,7 +28,7 @@ test("存储不可用时键盘仍可进入", async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(window, "localStorage", { get() { throw new Error("storage unavailable"); } }));
   await page.route("**/api/handoffs", (route) => route.fulfill({ status: 409, json: { code: "SESSION_UPDATING" } }));
   await page.goto("/");
-  await expect(page.getByText("18 个项目")).toBeVisible();
+  await expect(page.getByText("18 个项目", { exact: true })).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("alert")).toContainText("会话正在更新");

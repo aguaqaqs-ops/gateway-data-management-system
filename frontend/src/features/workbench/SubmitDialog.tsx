@@ -33,7 +33,7 @@ function confirmationCopy(pair: RequiredPair): { title: string; body: string; ch
   };
 }
 
-function describeSubmitError(cause: unknown): { title: string; code: string; retryable: boolean } {
+export function describeSubmitError(cause: unknown): { title: string; code: string; retryable: boolean } {
   if (cause instanceof SubmitAbortedError) {
     return { title: "提交未完成，请检查上传与 Preview 后重试", code: cause.abortCode, retryable: false };
   }

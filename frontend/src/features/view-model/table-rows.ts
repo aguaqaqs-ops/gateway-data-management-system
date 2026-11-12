@@ -2,14 +2,20 @@ import {
   ComparisonDecodeError,
   normalizeRowIdentity,
   riskAnnotationRowIdentities,
-  type NavigationRowFilter,
+  type ColumnPresentIn,
   type NavigationFacts,
+  type NavigationRowFilter,
   type RiskAnnotation,
   type RiskLevel,
   type RowDiffRecord,
   type SurfaceColumn,
   type SurfaceTable,
 } from "./model";
+import {
+  assertPredicateCompatible,
+  matchesTypedPredicate,
+  type SnapshotColumnEncoding,
+} from "./snapshot-encoding";
 
 export type BrowseRowKind = "unchanged" | "added" | "deleted" | "modified-before" | "modified-after" | "ordered" | "blank" | "collapsed";
 
@@ -113,7 +119,14 @@ export function canReuseUnrecordedIdentity(
   return filterTabs.every((tab) => tab.facts?.basis === "EXACT");
 }
 
-/** Rejects locator payloads that contradict the published surface, records or snapshots. */
+/**
+ * Rejects locator payloads that contradict the published surface, records or
+ * snapshots. With `exactTable`, the whole table is published as EXACT, so the
+ * Business Navigation FE-BEB-12 integrity invariants also apply: both
+ * suppressed counts are zero, the published ordinary records match the
+ * row_change_stats counts by kind, and the locator identity set matches the
+ * published records one-to-one.
+ */
 export function validateRowLocations(input: {
   table: SurfaceTable;
   locator: Map<string, RowLocatorRecord>;
@@ -123,10 +136,33 @@ export function validateRowLocations(input: {
   hasBeforeSnapshot: boolean;
   hasCurrentSnapshot: boolean;
   publishesFilterTabs: boolean;
+  exactTable: boolean;
 }): void {
   const ordinary = input.records.filter((record) => STANDARD_ORDINARY_KINDS.has(String(record.record_kind)));
   if (ordinary.length > 0 && input.locator.size === 0) {
     throw new ComparisonDecodeError(`表 ${input.table.table_name} 有普通行记录但缺少行定位产物`);
+  }
+  if (input.exactTable) {
+    const suppressedAdded = input.table.row_change_stats?.suppressed_added_count ?? 0;
+    const suppressedDeleted = input.table.row_change_stats?.suppressed_deleted_count ?? 0;
+    if (suppressedAdded !== 0 || suppressedDeleted !== 0) {
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 为 EXACT 但 suppressed 计数非零`);
+    }
+    const published = { ROW_ADDED: 0, ROW_DELETED: 0, ROW_MODIFIED: 0 };
+    for (const record of ordinary) {
+      const kind = String(record.record_kind);
+      if (kind === "ROW_ADDED" || kind === "ROW_DELETED" || kind === "ROW_MODIFIED") published[kind] += 1;
+    }
+    const stats = input.table.row_change_stats;
+    if (typeof stats?.row_added_count === "number" && published.ROW_ADDED !== stats.row_added_count) {
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布新增行数与 row_change_stats 不符`);
+    }
+    if (typeof stats?.row_deleted_count === "number" && published.ROW_DELETED !== stats.row_deleted_count) {
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布删除行数与 row_change_stats 不符`);
+    }
+    if (typeof stats?.row_modified_count === "number" && published.ROW_MODIFIED !== stats.row_modified_count) {
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布修改行数与 row_change_stats 不符`);
+    }
   }
   const seen = new Set<string>();
   for (const record of ordinary) {
@@ -158,6 +194,13 @@ export function validateRowLocations(input: {
     if (!input.publishesFilterTabs) {
       if (located.beforeFilterContext !== null || located.currentFilterContext !== null) {
         throw new ComparisonDecodeError(`${where} 的整表入口不应带过滤上下文`);
+      }
+    }
+  }
+  if (input.exactTable) {
+    for (const identity of input.locator.keys()) {
+      if (!seen.has(identity)) {
+        throw new ComparisonDecodeError(`表 ${input.table.table_name} 有多余的行定位：${identity}`);
       }
     }
   }
@@ -234,30 +277,18 @@ export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlyS
   return output;
 }
 
-function scalarValue(value: unknown): unknown {
-  if (value && typeof value === "object" && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) {
-    const document = value as Record<string, unknown>;
-    return Object.hasOwn(document, "text") ? document.text : undefined;
-  }
-  return value;
-}
+const EMPTY_ENCODINGS: ReadonlyMap<string, SnapshotColumnEncoding> = new Map();
 
-/** Typed set membership: integers compare by value, strings only match strings, NULL never matches. */
-function matchesPredicate(predicate: NavigationRowFilter["before"], values: Record<string, unknown> | null): boolean {
-  if (!predicate || !values) return false;
-  const raw = scalarValue(values[predicate.column]);
-  if (raw === null || raw === undefined) return false;
-  return predicate.values.some((candidate) => {
-    if (typeof candidate === "number") {
-      if (typeof raw === "bigint") return raw === BigInt(candidate);
-      if (typeof raw === "number") return raw === candidate;
-      if (typeof raw === "string" && /^-?\d+$/.test(raw.trim())) {
-        try { return BigInt(raw.trim()) === BigInt(candidate); } catch { return false; }
-      }
-      return false;
-    }
-    return typeof raw === "string" && raw === candidate;
-  });
+/**
+ * Renders the missing-side placeholder for a grid cell. A column that is
+ * physically absent on the row's side shows 该侧无此列, which is distinct
+ * from a NULL value on a present column (shown as — by displayValue).
+ */
+export function missingSideMarker(side: "before" | "current" | null, presentIn: ColumnPresentIn | undefined): string | null {
+  if ((side === "before" && presentIn === "CURRENT") || (side === "current" && presentIn === "BEFORE")) {
+    return "该侧无此列";
+  }
+  return null;
 }
 
 export function buildBrowseRows(input: {
@@ -271,6 +302,11 @@ export function buildBrowseRows(input: {
   hasCurrentSnapshot?: boolean;
   onlyInteresting?: boolean;
   rowFilter?: NavigationRowFilter | null;
+  /** Same-side `gateway.sta.enc.v1` column encodings; required when rowFilter is set. */
+  beforeEncodings?: ReadonlyMap<string, SnapshotColumnEncoding> | null;
+  currentEncodings?: ReadonlyMap<string, SnapshotColumnEncoding> | null;
+  /** A degraded table publishes no predicate assertions: its filter is skipped. */
+  degraded?: boolean;
   reuseUnrecordedBefore?: boolean;
   search?: string;
   expandedRuns?: ReadonlySet<string>;
@@ -438,14 +474,18 @@ export function buildBrowseRows(input: {
   }
 
   let visible = rows;
-  const filter = input.rowFilter ?? null;
+  const filter = input.degraded === true ? null : input.rowFilter ?? null;
   if (filter) {
+    const beforeEncodings = input.beforeEncodings ?? EMPTY_ENCODINGS;
+    const currentEncodings = input.currentEncodings ?? EMPTY_ENCODINGS;
+    assertPredicateCompatible(filter.before, beforeEncodings, "改前筛选");
+    assertPredicateCompatible(filter.current, currentEncodings, "改后筛选");
     const reusable = input.reuseUnrecordedBefore === true && !hasBeforeSnapshot && hasCurrentSnapshot;
     const matches = (row: BrowseRow) => {
-      if (row.side === "before") return matchesPredicate(filter.before, row.values);
+      if (row.side === "before") return matchesTypedPredicate(filter.before, row.values, beforeEncodings, "改前筛选");
       if (row.side === "current") {
-        if (matchesPredicate(filter.current, row.values)) return true;
-        return reusable && row.recordKind === null && matchesPredicate(filter.before, row.values);
+        if (matchesTypedPredicate(filter.current, row.values, currentEncodings, "改后筛选")) return true;
+        return reusable && row.recordKind === null && matchesTypedPredicate(filter.before, row.values, currentEncodings, "改前筛选");
       }
       return false;
     };

@@ -56,7 +56,7 @@ async function installFixtureRoutes(page: Page, options: {
   uploadHoldPolls?: number;
   submitIdentity?: "confirm";
   submitForbidden?: boolean;
-  submitConflict?: "WORKSPACE_VERSION_CONFLICT";
+  submitConflict?: "WORKSPACE_VERSION_CONFLICT" | "NO_CANONICAL_CHANGE";
   submitAttemptReadFails?: boolean;
   submitAttemptState?: Schemas["SubmitAttemptResponse"]["state"];
   workspaceSubmitAttemptId?: string;
@@ -420,7 +420,7 @@ async function installFixtureRoutes(page: Page, options: {
     }
     if (options.submitConflict) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submit-attempts" && item.method === "POST" && item.status === 409 && item.body.code === options.submitConflict);
-      if (!error) throw new Error("POST submit-attempts WORKSPACE_VERSION_CONFLICT fixture missing");
+      if (!error) throw new Error(`POST submit-attempts ${options.submitConflict} fixture missing`);
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
       return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
     }
@@ -653,8 +653,27 @@ async function expectHeaderBreadcrumbVisible(page: Page) {
   expect(box?.width ?? 0).toBeGreaterThan(0);
 }
 
+/**
+ * R9: the top bar occasionally renders one transient frame under a loaded
+ * runner (a 1px shift of the back link and the right-side switches, root cause
+ * still unknown). Screenshots wait until two consecutive header element
+ * captures are byte-identical so the saved PNG reflects the settled state.
+ */
+async function waitForStableHeader(page: Page) {
+  const header = page.locator(".compare-header");
+  if ((await header.count()) === 0) return;
+  let previous: Buffer | null = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const current = await header.screenshot({ animations: "disabled" });
+    if (previous && Buffer.compare(previous, current) === 0) return;
+    previous = current;
+    await page.waitForTimeout(100);
+  }
+}
+
 async function screenshot(page: Page, name: string, width: number) {
   await page.setViewportSize({ width, height: 1080 });
+  await waitForStableHeader(page);
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const appGrid = page.locator(".grid-frame[data-rendered]").first();
   if (await appGrid.count()) {
@@ -682,6 +701,7 @@ async function waitForGridPaint(page: Page, tabKey: string) {
 
 async function screenshotHeader(page: Page, name: string, width: number) {
   await page.setViewportSize({ width, height: 1080 });
+  await waitForStableHeader(page);
   await expectNoHorizontalOverflow(page);
   if (!outputDirectory) return;
   await mkdir(outputDirectory, { recursive: true });
@@ -2435,37 +2455,63 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   await capture("fe4b-duplicates", async () => {
     await openPreview("duplicates-orphans");
     await openItem("device:table");
+    const unassigned = page.locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" }).first();
+    await expect(unassigned).toBeVisible();
+    await expect(unassigned.getByRole("button", { name: "查看整表" })).toBeVisible();
   });
   await capture("fe4b-orphans-view-table", async () => {
     await expandNavigation();
     const viewTable = page.getByRole("button", { name: /查看整表/ }).first();
-    if (await viewTable.count()) {
-      await viewTable.click();
-      await page.waitForTimeout(500);
-    }
+    await expect(viewTable).toBeVisible();
+    await viewTable.click();
+    await page.waitForTimeout(500);
   });
   await capture("fe4b-table-fallback", async () => {
     await openPreview("identity-changes");
     await openItem("device:addr:49");
     await openTab("device_cfg");
+    await expect(page.locator('.nav-item[data-item-key="device:addr:49"] .nav-tab__basis').first()).toHaveText("此页签按整表提示");
   });
   await capture("fe4b-table-scope", async () => {
     await openPreview("table-addition");
     await openItem("device:composite");
     await openTab("device_st");
+    const scopeMarker = page.locator(".table-heading .table-scope-marker");
+    await expect(scopeMarker).toHaveCount(1);
+    await expect(scopeMarker).toContainText("整表发生变化");
+    await expect(page.locator(".grid-frame .table-scope-marker")).toHaveCount(0);
   });
   await capture("fe4b-filter-unsupported", async () => {
     await openPreview("excluded-identity");
     await openItem("table:device_st");
+    const unassigned = page.locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" }).first();
+    await expect(unassigned).toBeVisible();
+    await expect(unassigned.getByRole("button", { name: "查看整表" })).toBeVisible();
   });
   await capture("fe4b-count-unknown", async () => {
     await openPreview("missing-identity-column");
     await openItem("device:addr:49");
     await openTab("device_cfg");
+    await expect(page.locator(".diagnostic-note--navigation", { hasText: "变化行数未知" }).first()).toBeVisible();
   });
   await capture("fe4b-comment-only", async () => {
     await openPreview("comment-only");
     await openItem("table:comment_demo");
+  });
+  await capture("fe4b-no-canonical-change", async () => {
+    // F13: the comment-only Preview submits to a NO_CANONICAL_CHANGE 409.
+    await page.unrouteAll({ behavior: "wait" });
+    await installFixtureRoutes(page, { submitConflict: "NO_CANONICAL_CHANGE" });
+    try {
+      await openPreview("comment-only");
+      await page.getByRole("button", { name: "提交", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("button", { name: "确认提交" }).click();
+      await expect(dialog.getByText("本次组态与基线一致，没有可提交的变更。注释等展示信息的变化不单独保存，将随下一次业务变化一起保存。", { exact: true })).toBeVisible();
+    } finally {
+      await page.unrouteAll({ behavior: "wait" });
+      await installFixtureRoutes(page);
+    }
   });
   await capture("fe4b-preview-topbar-device", async () => {
     // fe-handoff: a directory handoff session shows the device bar above the
@@ -2475,8 +2521,78 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
     await waitForBrowse(page);
     await expect(page.locator(".compare-header .device-bar .device-context")).toBeVisible();
+    // fe-handoff R8: the device bar is a direct child of compare-header on its
+    // own row directly above the top bar, never inside .compare-status. It is
+    // not literally :first-child: a pre-existing sr-only h1 (FE2a) stays first
+    // for accessibility; the layout contract is the row order below.
+    await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+    await expect(page.locator(".compare-header > .device-bar + .compare-header__top")).toHaveCount(1);
+    await expect(page.locator(".compare-status .device-bar")).toHaveCount(0);
   });
   expect(failures, failures.join("\n")).toEqual([]);
+});
+
+async function expectSidebarSticky(page: Page, label: string) {
+  for (const width of [1280, 1920]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(400);
+    const expand = page.getByRole("button", { name: "展开导航" });
+    if (await expand.isVisible()) {
+      await expand.click();
+      await page.waitForTimeout(300);
+    }
+    const measure = () => page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        const computed = getComputedStyle(element);
+        return { top: box.top, bottom: box.bottom, cssTop: computed.top, cssHeight: computed.height };
+      };
+      const main = document.querySelector(".comparison-page");
+      return {
+        header: rect(".compare-header"),
+        sidebar: rect(".navigation-sidebar"),
+        innerHeight: window.innerHeight,
+        headerVar: main ? (main as HTMLElement).style.getPropertyValue("--compare-header-height") : "no-main",
+      };
+    });
+    let metrics = await measure();
+    const describe = () => JSON.stringify(metrics);
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(400);
+    metrics = await measure();
+    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏 ${describe()}`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+  }
+}
+
+test("比较页侧栏随顶栏吸顶：跳转会话、审核与设备栏三场景", async ({ page }) => {
+  test.setTimeout(600000);
+  await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
+  await waitForBrowse(page);
+  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expectSidebarSticky(page, "A-preview-device");
+  await page.evaluate(() => window.sessionStorage.clear());
+  await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
+  await waitForBrowse(page);
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await page.getByRole("button", { name: "审核通过", exact: true }).click();
+  await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
+  await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(0);
+  await expectSidebarSticky(page, "B-review-disposition");
+  await gotoWithHandoff(page, "/");
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
+  await waitForBrowse(page);
+  await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expectSidebarSticky(page, "C-review-device-disposition");
 });
 
 const HANDOFF_SESSION = {
@@ -2536,8 +2652,9 @@ test("工作台跳转比较页面的完整加载仍保留会话与设备栏", as
   expect(deviceBox?.width ?? 0).toBeGreaterThan(0);
   await screenshotHeader(page, "compare-preview-device", 1280);
   await screenshotHeader(page, "compare-preview-device", 1920);
-  await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "fe2a-history-fixture-p0" }));
+  await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "left_to_middle" }));
   await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
   await expect(page.locator(".mode-tag")).toHaveText("审核");
   await expect(page.locator(".compare-header .device-bar")).toBeVisible();
   await screenshotHeader(page, "compare-review-device", 1280);

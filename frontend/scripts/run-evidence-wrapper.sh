@@ -216,8 +216,10 @@ ENTRY_EXIT=$?
 set -e
 printf 'entry_output_end=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" >> "$LOG_FILE"
 
-# Record the marker before releasing our own copy.
-busy_end_value() {
+# The marker content below is read before marker_release runs, so the field is
+# named busy_before_release (N27): it is the occupancy record prior to the
+# release, not a post-release state.
+busy_before_release_value() {
   if [[ -f "$BUSY_DIR/$SESSION" ]]; then
     tr '\n' ';' < "$BUSY_DIR/$SESSION"
   elif [[ -d "$BUSY_DIR" ]]; then
@@ -227,7 +229,7 @@ busy_end_value() {
     printf 'absent'
   fi
 }
-BUSY_END="$(busy_end_value)"
+BUSY_BEFORE_RELEASE="$(busy_before_release_value)"
 
 # The EXIT trap stays armed (marker_release is idempotent) so a later failure
 # still releases a wrapper-owned marker.
@@ -241,7 +243,7 @@ STATUS_END="$(git -C "$WORKTREE" status --porcelain --untracked-files=all)"
   printf 'ended_at=%s\n' "$(date -u +%Y%m%dT%H%M%SZ)"
   printf 'head_end=%s\n' "$HEAD_END"
   printf 'status_end=%s\n' "${STATUS_END:-clean}"
-  printf 'busy_end=%s\n' "$BUSY_END"
+  printf 'busy_before_release=%s\n' "$BUSY_BEFORE_RELEASE"
 } >> "$LOG_FILE"
 
 # Result fields are read only from the entry-output section, never from the
@@ -270,6 +272,7 @@ case "$ENTRY" in
   run-real-backend-e2e.sh)
     report_field "suite" "entry did not log suite"
     report_field "suite_exit" "entry did not log suite_exit"
+    report_field "exit_code" "entry did not log exit_code"
     ;;
 esac
 

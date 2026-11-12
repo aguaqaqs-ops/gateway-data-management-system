@@ -10,8 +10,9 @@ import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type Installed
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
 import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
-import { readParquetTable } from "../features/bundle/parquet-reader";
-import { buildBrowseRows, canReuseUnrecordedIdentity, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
+import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
+import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
+import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
 import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
@@ -340,6 +341,28 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const selectedNavRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const reviewNoticeRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+
+  // R15: the sticky sidebar tracks the measured compare-header height so the
+  // navigation title and search box are never covered by a taller top bar.
+  // This effect stays above every early return: skipping it on some renders
+  // would change the hook order and crash the page. It re-runs when the
+  // session state settles because the header only mounts after the session
+  // gate opens; otherwise the variable would stay unset on session-gated
+  // first renders.
+  useEffect(() => {
+    const header = headerRef.current;
+    const page = pageRef.current;
+    if (!header || !page) return;
+    const apply = () => {
+      page.style.setProperty("--compare-header-height", `${Math.max(1, Math.round(header.getBoundingClientRect().height))}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [sessionState]);
 
   useEffect(() => {
     const unsubscribe = runtime.subscribe(({ state }) => { setBrowse(state); setSearch(state.search); setOnlyInteresting(state.onlyInteresting); setDebug(state.debug); });
@@ -508,14 +531,26 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const tableRecords = rowRecords as RowDiffRecord[];
       const locator = parseRowLocator(locatorRows as Record<string, unknown>[]);
       const filterTabs = filterTabsForTable(surfaceTable.table_name);
+      const exactTable = filterTabs.length > 0 && filterTabs.every((tab) => tab.facts?.basis === "EXACT");
       validateRowLocations({ table: surfaceTable, locator, records: tableRecords,
         beforeRowCount: beforeSnapshotRows.length, currentRowCount: currentSnapshotRows.length,
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
-        publishesFilterTabs: filterTabs.length > 0 });
+        publishesFilterTabs: filterTabs.length > 0, exactTable });
+      const degraded = tableRecords.some((record) => record.record_kind === "TABLE_DEGRADED" || record.record_kind === "ORDERED_TABLE_DEGRADED");
+      const needsEncodings = selectedTab.rowFilter !== null && !degraded;
+      const [beforeMeta, currentMeta] = needsEncodings
+        ? await Promise.all([
+          paths?.before ? readParquetMetadata(bundle, paths.before) : Promise.resolve(null),
+          paths?.current ? readParquetMetadata(bundle, paths.current) : Promise.resolve(null),
+        ])
+        : [null, null];
+      const tableLabel = `表 ${surfaceTable.table_name}`;
+      const beforeEncodings: Map<string, SnapshotColumnEncoding> = beforeMeta ? decodeSnapshotEncodings(beforeMeta.key_value_metadata, `${tableLabel}.改前`) : new Map();
+      const currentEncodings: Map<string, SnapshotColumnEncoding> = currentMeta ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`) : new Map();
       setBeforeRows(beforeSnapshotRows); setCurrentRows(currentSnapshotRows); setRecords(tableRecords); setAnnotations(risks);
       const built = buildBrowseRows({ table: surfaceTable, beforeRows: beforeSnapshotRows, currentRows: currentSnapshotRows, records: tableRecords, annotations: risks, locator,
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
-        rowFilter: selectedTab.rowFilter,
+        rowFilter: selectedTab.rowFilter, beforeEncodings, currentEncodings, degraded,
         reuseUnrecordedBefore: canReuseUnrecordedIdentity(surfaceTable, filterTabs, Boolean(paths?.before), Boolean(paths?.current)),
         onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns });
       setRows(built.rows);
@@ -630,10 +665,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
-  return <main className="comparison-page">
+  return <main ref={pageRef} className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
     {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
-    <header className="compare-header">
+    <header ref={headerRef} className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <DeviceBar state={sessionState} />
       <div className="compare-header__top">
@@ -699,7 +734,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                 <span className="table-heading__row-changes">+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}</span>
                 {rowRiskCounts.map(({ level, count }) => <span className="table-heading__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
                 {table.annotationCount > 0 && <span>{table.annotationCount} 条风险标注</span>}
-                {selectedTab.tabKey.startsWith("__whole__:") && <span>整表视图</span>}{table.tableScope && <span className="table-scope-marker" title={table.tableScope.risk_level ? riskLevelText(table.tableScope.risk_level) : "整表范围"}>{table.tableScope.change ? "整表发生变化" : "整表未变化"}{table.tableScope.risk_level ? " · 整表风险" : ""}</span>}
+                {selectedTab.tabKey.startsWith("__whole__:") && <span>整表视图</span>}{(() => { const scope = selectedTab.rowFilter !== null ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope; return scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>; })()}
               </div>
               {(surfaceTable.diagnostics?.diagnostics_summary?.length ?? 0) > 0 && <div className="table-heading__diagnostics">{(surfaceTable.diagnostics?.diagnostics_summary ?? []).map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}><AlertTriangle size={13} />{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}</div>}
               {riskReasonDetails.length > 0 && <div className="table-risk-reasons"><strong>风险原因</strong>{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div>}
@@ -892,8 +927,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
       value = "查看公式" + (formulaChanged ? " · 公式已改" : "");
     } else {
       const columnShape = orderedColumns.find((item) => item.name === columnId);
-      const missing = columnShape && ((row.side === "before" && columnShape.present_in === "CURRENT") || (row.side === "current" && columnShape.present_in === "BEFORE"));
-      value = missing ? "该侧无此列" : row.values[columnId];
+      value = missingSideMarker(row.side, columnShape?.present_in) ?? row.values[columnId];
     }
     const risk = row.riskLevel ? riskTokens(row.riskLevel) : null;
     const changed = row.changedColumns.includes(columnId);

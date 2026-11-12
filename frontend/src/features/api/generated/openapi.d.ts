@@ -21,6 +21,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/devices/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Device */
+        post: operations["register_device_internal_v1_devices_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/devices/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Query Registration */
+        get: operations["query_registration_internal_v1_devices_registration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/maintenance/drain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Drain Status */
+        get: operations["drain_status_internal_v1_maintenance_drain_get"];
+        put?: never;
+        /** Drain */
+        post: operations["drain_internal_v1_maintenance_drain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/v1/operations/{operation_id}/steps/{step_id}/recovery": {
         parameters: {
             query?: never;
@@ -32,6 +84,40 @@ export interface paths {
         put?: never;
         /** Operator Recovery Route */
         post: operations["operator_recovery_route_internal_v1_operations__operation_id__steps__step_id__recovery_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/statistics/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Internal Group Statistics */
+        get: operations["internal_group_statistics_internal_v1_statistics_group_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/statistics/group/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Internal Group Resources */
+        get: operations["internal_group_resources_internal_v1_statistics_group_resources_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -174,6 +260,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/device-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device Context */
+        get: operations["device_context_v1_device_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/history": {
         parameters: {
             query?: never;
@@ -251,6 +354,125 @@ export interface paths {
         };
         /** Get Operation Route */
         get: operations["get_operation_route_v1_operations__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/operations/{operation_id}/statistics/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operation Executions */
+        get: operations["operation_executions_v1_operations__operation_id__statistics_executions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/operations/{operation_id}/statistics/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operation Resources */
+        get: operations["operation_resources_v1_operations__operation_id__statistics_resources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/repositories/{repository_id}/statistics/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Repository Storage */
+        get: operations["repository_storage_v1_repositories__repository_id__statistics_storage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/repositories/{repository_id}/statistics/storage/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Repository Storage History */
+        get: operations["repository_storage_history_v1_repositories__repository_id__statistics_storage_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/repositories/{repository_id}/statistics/writes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Repository Writes */
+        get: operations["repository_writes_v1_repositories__repository_id__statistics_writes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/statistics/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Group Statistics */
+        get: operations["group_statistics_v1_statistics_group_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/statistics/group/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Group Resources */
+        get: operations["group_resources_v1_statistics_group_resources_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -991,6 +1213,26 @@ export interface components {
             /** Business Baseline Node Id */
             business_baseline_node_id: string;
         };
+        /** BucketValue */
+        BucketValue: {
+            /** Avg */
+            avg?: number | null;
+            /** Count */
+            count: number;
+            /** Max */
+            max?: number | null;
+        };
+        /** CacheCounts */
+        CacheCounts: {
+            /** Canonical */
+            canonical?: number | null;
+            /** Comparison */
+            comparison?: number | null;
+            /** Risk Candidate */
+            risk_candidate?: number | null;
+            /** Snapshot Export */
+            snapshot_export?: number | null;
+        };
         /** CloseSubmissionRequest */
         CloseSubmissionRequest: {
             /** Expected Baseline Head Version */
@@ -1030,12 +1272,233 @@ export interface components {
             /** Workspace Version */
             workspace_version: number;
         };
+        /** CollectionHealth */
+        CollectionHealth: {
+            /**
+             * Dropped Count
+             * @default 0
+             */
+            dropped_count: number;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+        };
         /** CreateWorkspaceRequest */
         CreateWorkspaceRequest: {
             /** Business Project Id */
             business_project_id: string;
             /** Gateway Device External Key */
             gateway_device_external_key: string;
+        };
+        /** CurrentProcess */
+        CurrentProcess: {
+            /** Process Instance Id */
+            process_instance_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "backend" | "worker" | "repository_service";
+        };
+        /** DeviceContextResponse */
+        DeviceContextResponse: {
+            /** Business Project Id */
+            business_project_id: string;
+            /** Environment Id */
+            environment_id: string;
+            /** Gateway Device External Key */
+            gateway_device_external_key: string;
+            /** Group Id */
+            group_id: string;
+            /** Repository Id */
+            repository_id: string;
+        };
+        /** DeviceRegistrationResponse */
+        DeviceRegistrationResponse: {
+            /** Business Project Id */
+            business_project_id: string;
+            /** Environment Id */
+            environment_id: string;
+            /** Gateway Device External Key */
+            gateway_device_external_key: string;
+            /** Group Id */
+            group_id: string;
+            /** Initial Commit Id */
+            initial_commit_id: string;
+            /** Initial Node Id */
+            initial_node_id: string;
+            /** Repository Id */
+            repository_id: string;
+        };
+        /** DrainSnapshot */
+        DrainSnapshot: {
+            /** Accepting New Work */
+            accepting_new_work: boolean;
+            /** In Flight */
+            in_flight: number;
+        };
+        /** ExecutionMetrics */
+        ExecutionMetrics: {
+            cache_hits?: components["schemas"]["CacheCounts"];
+            cache_lookups?: components["schemas"]["CacheCounts"];
+            input_shape?: components["schemas"]["InputShape"];
+            stage_duration_ms?: components["schemas"]["StageDurations"];
+            /**
+             * Tables
+             * @default []
+             */
+            tables: components["schemas"]["TableMetric"][];
+            /** Tables Total */
+            tables_total?: number | null;
+            /**
+             * Tables Truncated
+             * @default false
+             */
+            tables_truncated: boolean;
+        };
+        /** ExecutionSummary */
+        ExecutionSummary: {
+            /** Attempt Count */
+            attempt_count: number;
+            /** Cgroup Peak Bytes */
+            cgroup_peak_bytes?: number | null;
+            /** Claim Version */
+            claim_version: number;
+            /** Config Digest */
+            config_digest?: string | null;
+            /** Cpu Time Us */
+            cpu_time_us?: number | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Ended At Us */
+            ended_at_us?: number | null;
+            /** Environment Id */
+            environment_id: string;
+            /** Group Id */
+            group_id: string;
+            /** Input Digest */
+            input_digest?: string | null;
+            metrics?: components["schemas"]["ExecutionMetrics"] | null;
+            /**
+             * Observed Outcome
+             * @default unknown
+             * @enum {string}
+             */
+            observed_outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+            /** Operation Id */
+            operation_id: string;
+            /** Process Instance Id */
+            process_instance_id: string;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Read Bytes */
+            read_bytes?: number | null;
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /** Recorded At Us */
+            recorded_at_us: number;
+            /** Repository Id */
+            repository_id?: string | null;
+            /** Revision */
+            revision?: string | null;
+            /** Rss Peak Bytes */
+            rss_peak_bytes?: number | null;
+            /** Rules Digest */
+            rules_digest?: string | null;
+            /** Scratch Peak Bytes */
+            scratch_peak_bytes?: number | null;
+            /** Started At Us */
+            started_at_us?: number | null;
+            /** Step Id */
+            step_id: string;
+            /** Submit Attempt Id */
+            submit_attempt_id?: string | null;
+            /** Worker Id */
+            worker_id: string;
+            /** Write Bytes */
+            write_bytes?: number | null;
+        };
+        /** GroupStatistics */
+        GroupStatistics: {
+            /**
+             * Current Instances
+             * @default []
+             */
+            current_instances: components["schemas"]["CurrentProcess"][];
+            /** Environment Id */
+            environment_id: string;
+            /** Generated At Us */
+            generated_at_us: number;
+            /** Group Id */
+            group_id: string;
+            health: components["schemas"]["CollectionHealth"];
+            /** Instances Truncated */
+            instances_truncated: boolean;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Storage
+             * @default []
+             */
+            storage: components["schemas"]["GroupStorageItem"][];
+        };
+        /** GroupStorageItem */
+        GroupStorageItem: {
+            /** Allocated Bytes */
+            allocated_bytes?: number | null;
+            /** Available Bytes */
+            available_bytes?: number | null;
+            /** Available Inodes */
+            available_inodes?: number | null;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "repository" | "durable" | "canonical" | "comparison" | "export" | "scratch" | "metadata" | "public_unknown" | "filesystem";
+            /** Filesystem Id */
+            filesystem_id?: string | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /** Logical Bytes */
+            logical_bytes?: number | null;
+            /** Object Count */
+            object_count?: number | null;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Service Owner
+             * @enum {string}
+             */
+            service_owner: "backend" | "repository_service";
+            /** Total Bytes */
+            total_bytes?: number | null;
+            /** Unverified Reference Bytes */
+            unverified_reference_bytes?: number | null;
+            /** Window End Us */
+            window_end_us: number;
+            /** Window Start Us */
+            window_start_us?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1193,6 +1656,23 @@ export interface components {
             review_status?: ("PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN") | null;
             /** Submission Disposition */
             submission_disposition?: ("ARCHIVED_BASELINE" | "CLOSED_NOT_ARCHIVED") | null;
+        };
+        /** InputShape */
+        InputShape: {
+            /** Changed Rows */
+            changed_rows?: number | null;
+            /** Changed Tables */
+            changed_tables?: number | null;
+            /** Max Table Rows */
+            max_table_rows?: number | null;
+            /** Ordered Table Rows */
+            ordered_table_rows?: number | null;
+            /** Sql Bytes */
+            sql_bytes?: number | null;
+            /** Table Count */
+            table_count?: number | null;
+            /** Total Rows */
+            total_rows?: number | null;
         };
         /** OperationAcceptedResponse */
         OperationAcceptedResponse: {
@@ -1387,6 +1867,64 @@ export interface components {
             /** Workspace Id */
             workspace_id: string;
         };
+        /** RegisterDeviceRequest */
+        RegisterDeviceRequest: {
+            /** Business Project Id */
+            business_project_id: string;
+            /** Environment Id */
+            environment_id: string;
+            /** Gateway Device External Key */
+            gateway_device_external_key: string;
+            /** Group Id */
+            group_id: string;
+        };
+        /** ResourceBucket */
+        ResourceBucket: {
+            /** Bucket End Us */
+            bucket_end_us: number;
+            /** Bucket Start Us */
+            bucket_start_us: number;
+            cgroup_bytes: components["schemas"]["BucketValue"];
+            cpu_time_us: components["schemas"]["BucketValue"];
+            read_bytes: components["schemas"]["BucketValue"];
+            rss_bytes: components["schemas"]["BucketValue"];
+            write_bytes: components["schemas"]["BucketValue"];
+        };
+        /** ResourceSeries */
+        ResourceSeries: {
+            /** Attempt Count */
+            attempt_count?: number | null;
+            /** Bucket Width Us */
+            bucket_width_us: number;
+            /** Claim Version */
+            claim_version?: number | null;
+            /**
+             * Points
+             * @default []
+             */
+            points: components["schemas"]["ResourceBucket"][];
+            /** Process Instance Id */
+            process_instance_id: string;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "backend" | "worker" | "repository_service";
+            /** Step Id */
+            step_id?: string | null;
+            /** Window End Us */
+            window_end_us: number;
+            /** Window Start Us */
+            window_start_us: number;
+        };
         /** ReviewAppliedResponse */
         ReviewAppliedResponse: {
             event: components["schemas"]["ReviewEventResponse"];
@@ -1482,6 +2020,25 @@ export interface components {
             /** Size Bytes */
             size_bytes: number;
         };
+        /** StageDurations */
+        StageDurations: {
+            /** Bundle */
+            bundle?: number | null;
+            /** Compare */
+            compare?: number | null;
+            /** Export */
+            export?: number | null;
+            /** Finalize */
+            finalize?: number | null;
+            /** Materialize */
+            materialize?: number | null;
+            /** Parse */
+            parse?: number | null;
+            /** Risk */
+            risk?: number | null;
+            /** Rs Import */
+            rs_import?: number | null;
+        };
         /** StartArchiveRequest */
         StartArchiveRequest: {
             /** Anomaly Resolution Refs */
@@ -1511,6 +2068,213 @@ export interface components {
             options?: components["schemas"]["StartPreviewOptions"];
             /** Upload Revision Id */
             upload_revision_id: string;
+        };
+        /** StatisticsPage[ExecutionSummary] */
+        StatisticsPage_ExecutionSummary_: {
+            /** Coverage End Us */
+            coverage_end_us?: number | null;
+            /** Coverage Start Us */
+            coverage_start_us?: number | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ExecutionSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Units
+             * @default bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds
+             * @constant
+             */
+            units: "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds";
+            /** Window End Us */
+            window_end_us?: number | null;
+            /** Window Start Us */
+            window_start_us?: number | null;
+        };
+        /** StatisticsPage[ResourceSeries] */
+        StatisticsPage_ResourceSeries_: {
+            /** Coverage End Us */
+            coverage_end_us?: number | null;
+            /** Coverage Start Us */
+            coverage_start_us?: number | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ResourceSeries"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Units
+             * @default bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds
+             * @constant
+             */
+            units: "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds";
+            /** Window End Us */
+            window_end_us?: number | null;
+            /** Window Start Us */
+            window_start_us?: number | null;
+        };
+        /** StatisticsPage[StorageRecord] */
+        StatisticsPage_StorageRecord_: {
+            /** Coverage End Us */
+            coverage_end_us?: number | null;
+            /** Coverage Start Us */
+            coverage_start_us?: number | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["StorageRecord"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Units
+             * @default bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds
+             * @constant
+             */
+            units: "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds";
+            /** Window End Us */
+            window_end_us?: number | null;
+            /** Window Start Us */
+            window_start_us?: number | null;
+        };
+        /** StatisticsPage[WriteRecord] */
+        StatisticsPage_WriteRecord_: {
+            /** Coverage End Us */
+            coverage_end_us?: number | null;
+            /** Coverage Start Us */
+            coverage_start_us?: number | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["WriteRecord"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Units
+             * @default bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds
+             * @constant
+             */
+            units: "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds";
+            /** Window End Us */
+            window_end_us?: number | null;
+            /** Window Start Us */
+            window_start_us?: number | null;
+        };
+        /** StorageRecord */
+        StorageRecord: {
+            /** Allocated Bytes */
+            allocated_bytes?: number | null;
+            /** Available Bytes */
+            available_bytes?: number | null;
+            /** Available Inodes */
+            available_inodes?: number | null;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "repository" | "durable" | "canonical" | "comparison" | "export" | "scratch" | "metadata" | "public_unknown" | "filesystem";
+            /** Environment Id */
+            environment_id: string;
+            /** Filesystem Id */
+            filesystem_id?: string | null;
+            /** Generated At Us */
+            generated_at_us: number;
+            /** Group Id */
+            group_id: string;
+            /** Logical Bytes */
+            logical_bytes?: number | null;
+            /** Object Count */
+            object_count?: number | null;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /** Repository Id */
+            repository_id?: string | null;
+            /**
+             * Service Owner
+             * @enum {string}
+             */
+            service_owner: "backend" | "repository_service";
+            /** Source Event Id */
+            source_event_id: string;
+            /** Total Bytes */
+            total_bytes?: number | null;
+            /** Unverified Reference Bytes */
+            unverified_reference_bytes?: number | null;
+            /** Window End Us */
+            window_end_us: number;
+            /** Window Start Us */
+            window_start_us?: number | null;
         };
         /** SubmissionClosureSummaryResponse */
         SubmissionClosureSummaryResponse: {
@@ -1647,6 +2411,21 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** TableMetric */
+        TableMetric: {
+            /** After Rows */
+            after_rows?: number | null;
+            /** Before Rows */
+            before_rows?: number | null;
+            /** Changed Rows */
+            changed_rows?: number | null;
+            /** Comparison Mode */
+            comparison_mode?: string | null;
+            /** Pair Id */
+            pair_id?: string | null;
+            /** Table Name */
+            table_name: string;
+        };
         /** UploadRevisionResponse */
         UploadRevisionResponse: {
             /**
@@ -1715,6 +2494,68 @@ export interface components {
             /** Workspace Id */
             workspace_id: string;
         };
+        /** WriteRecord */
+        WriteRecord: {
+            /** After Allocated Bytes */
+            after_allocated_bytes?: number | null;
+            /** After Commit */
+            after_commit?: string | null;
+            /** After End Us */
+            after_end_us?: number | null;
+            /** After Logical Bytes */
+            after_logical_bytes?: number | null;
+            /** After Start Us */
+            after_start_us?: number | null;
+            /** Allocated Net Change Bytes */
+            allocated_net_change_bytes?: number | null;
+            /** Before Allocated Bytes */
+            before_allocated_bytes?: number | null;
+            /** Before Commit */
+            before_commit?: string | null;
+            /** Before End Us */
+            before_end_us?: number | null;
+            /** Before Logical Bytes */
+            before_logical_bytes?: number | null;
+            /** Before Start Us */
+            before_start_us?: number | null;
+            /** Environment Id */
+            environment_id: string;
+            /** Group Id */
+            group_id: string;
+            /** Logical Net Change Bytes */
+            logical_net_change_bytes?: number | null;
+            /** Observation Id */
+            observation_id: string;
+            /**
+             * Observed Outcome
+             * @default unknown
+             * @enum {string}
+             */
+            observed_outcome: "succeeded" | "failed" | "unknown";
+            /** Operation Id */
+            operation_id?: string | null;
+            /** Process Instance Id */
+            process_instance_id: string;
+            /**
+             * Quality
+             * @default available
+             * @enum {string}
+             */
+            quality: "available" | "partial" | "unavailable";
+            /** Reason */
+            reason?: ("disabled" | "not_collected" | "counter_unavailable" | "counter_reset" | "interference" | "budget_exceeded" | "retention" | "collection_failed") | null;
+            /** Recorded At Us */
+            recorded_at_us: number;
+            /** Repository Id */
+            repository_id: string;
+            /**
+             * Rs Operation Id
+             * Format: uuid
+             */
+            rs_operation_id: string;
+            /** Submission Id */
+            submission_id?: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1742,6 +2583,169 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    register_device_internal_v1_devices_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description DEVICE_REGISTRATION_CONFLICT */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_TOO_LARGE */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ADMISSION_LIMIT_REACHED */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SERVICE_NOT_READY or DEPENDENCY_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    query_registration_internal_v1_devices_registration_get: {
+        parameters: {
+            query: {
+                device: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description DEVICE_REGISTRATION_CONFLICT */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SERVICE_NOT_READY */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    drain_status_internal_v1_maintenance_drain_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrainSnapshot"];
+                };
+            };
+        };
+    };
+    drain_internal_v1_maintenance_drain_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrainSnapshot"];
                 };
             };
         };
@@ -1808,6 +2812,186 @@ export interface operations {
             };
         };
     };
+    internal_group_statistics_internal_v1_statistics_group_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupStatistics"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    internal_group_resources_internal_v1_statistics_group_resources_get: {
+        parameters: {
+            query: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+                max_points?: number;
+                role: "backend" | "worker" | "repository_service";
+                process_instance_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_ResourceSeries_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readyz_readyz_get: {
         parameters: {
             query?: never;
@@ -1831,7 +3015,9 @@ export interface operations {
     append_archive_anomaly_resolution_route_v1_archive_anomaly_resolutions_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1918,7 +3104,9 @@ export interface operations {
                 after_sequence?: number;
                 limit?: number;
             };
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -1966,7 +3154,9 @@ export interface operations {
     list_archive_candidates_route_v1_archive_candidates_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2002,6 +3192,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
             /** @description ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE */
             503: {
                 headers: {
@@ -2014,7 +3213,9 @@ export interface operations {
     append_archive_confirmation_route_v1_archive_confirmations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2096,7 +3297,9 @@ export interface operations {
     preview_archive_plan_route_v1_archive_plan_preview_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2162,7 +3365,9 @@ export interface operations {
     start_archive_route_v1_archives_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2244,7 +3449,9 @@ export interface operations {
     get_archive_result_route_v1_archives__archive_result_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 archive_result_id: string;
             };
@@ -2300,13 +3507,65 @@ export interface operations {
             };
         };
     };
+    device_context_v1_device_context_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceContextResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SERVICE_NOT_READY */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_history_route_v1_history_get: {
         parameters: {
             query?: {
                 limit?: number | null;
                 cursor?: string | null;
             };
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2354,8 +3613,9 @@ export interface operations {
     accept_history_compare_route_v1_history_compares_post: {
         parameters: {
             query?: never;
-            header?: {
+            header: {
                 "Idempotency-Key"?: string | null;
+                "X-Gateway-Device-Key": string;
             };
             path?: never;
             cookie?: never;
@@ -2445,7 +3705,9 @@ export interface operations {
     get_history_compare_route_v1_history_compares__operation_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 operation_id: string;
             };
@@ -2504,7 +3766,9 @@ export interface operations {
     get_history_compare_bundle_route_v1_history_compares__operation_id__bundle_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 operation_id: string;
             };
@@ -2569,7 +3833,9 @@ export interface operations {
     get_operation_route_v1_operations__operation_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 operation_id: string;
             };
@@ -2625,10 +3891,657 @@ export interface operations {
             };
         };
     };
+    operation_executions_v1_operations__operation_id__statistics_executions_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_ExecutionSummary_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    operation_resources_v1_operations__operation_id__statistics_resources_get: {
+        parameters: {
+            query: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+                max_points?: number;
+                step_id: string;
+                attempt_count: number;
+                claim_version?: number | null;
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_ResourceSeries_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    repository_storage_v1_repositories__repository_id__statistics_storage_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_StorageRecord_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    repository_storage_history_v1_repositories__repository_id__statistics_storage_history_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_StorageRecord_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    repository_writes_v1_repositories__repository_id__statistics_writes_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_WriteRecord_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    group_statistics_v1_statistics_group_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded current group capacity, public overhead, recent process identities and collection health. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupStatistics"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    group_resources_v1_statistics_group_resources_get: {
+        parameters: {
+            query: {
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
+                export?: boolean;
+                format?: "json" | "csv";
+                max_points?: number;
+                role: "backend" | "worker" | "repository_service";
+                process_instance_id: string;
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Finite saved statistics. CSV implies export. JSON/CSV share authorization and SQL budgets. Normal limit 100/500 max; export 1000/10000 max and 32MiB. Curves default 1h/max6h, max_points 600/2000 max; raw reads 50000 rows and 1s SQL budget. No cross-page snapshot. Counters are within-instance interval deltas; memory is sampled avg/max/count; gaps are not interpolated. */
+            200: {
+                headers: {
+                    /** @description Bounded attachment for all exports. */
+                    "Content-Disposition"?: string;
+                    /** @description Last returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-End-Us"?: string;
+                    /** @description First returned saved sample; absent for empty results. */
+                    "X-Statistics-Coverage-Start-Us"?: string;
+                    /** @description Response generation UTC microseconds. */
+                    "X-Statistics-Generated-At-Us"?: string;
+                    /** @description Next page cursor; absent when complete. */
+                    "X-Statistics-Next-Cursor"?: string;
+                    /** @description available, partial or unavailable. */
+                    "X-Statistics-Quality"?: string;
+                    /** @description Stable missing/partial reason, when known. */
+                    "X-Statistics-Reason"?: string;
+                    /** @description Schema version 1. */
+                    "X-Statistics-Schema-Version"?: string;
+                    /** @description Explicit byte/count/time units. */
+                    "X-Statistics-Units"?: string;
+                    /** @description Requested exclusive UTC microseconds. */
+                    "X-Statistics-Window-End-Us"?: string;
+                    /** @description Requested inclusive UTC microseconds. */
+                    "X-Statistics-Window-Start-Us"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsPage_ResourceSeries_"];
+                    "text/csv": string;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description REQUEST_VALIDATION_FAILED; narrow range or select claim_version on budget rejection. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_EXPORT_BUSY; one preparation/send per backend, no queue. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description STATISTICS_UNAVAILABLE; disabled or unhealthy database. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     close_submission_route_v1_submissions__submission_id__closure_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 submission_id: string;
             };
@@ -2719,7 +4632,9 @@ export interface operations {
     get_review_facts_route_v1_submissions__submission_id__review_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 submission_id: string;
             };
@@ -2778,7 +4693,9 @@ export interface operations {
     apply_review_route_v1_submissions__submission_id__review_events_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 submission_id: string;
             };
@@ -2862,7 +4779,9 @@ export interface operations {
     create_or_get_workspace_route_v1_workspaces_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -2923,7 +4842,9 @@ export interface operations {
     start_preview_route_v1_workspaces__workspace_id__preview_operations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
             };
@@ -2998,7 +4919,9 @@ export interface operations {
     get_preview_result_route_v1_workspaces__workspace_id__preview_results__preview_result_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
                 preview_result_id: string;
@@ -3058,7 +4981,9 @@ export interface operations {
     read_preview_bundle_route_v1_workspaces__workspace_id__preview_results__preview_result_id__bundle_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
                 preview_result_id: string;
@@ -3124,7 +5049,9 @@ export interface operations {
     get_submission_route_v1_workspaces__workspace_id__submissions__submission_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
                 submission_id: string;
@@ -3184,7 +5111,9 @@ export interface operations {
     accept_submit_route_v1_workspaces__workspace_id__submit_attempts_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
             };
@@ -3259,7 +5188,9 @@ export interface operations {
     get_submit_attempt_route_v1_workspaces__workspace_id__submit_attempts__submit_attempt_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
                 submit_attempt_id: string;
@@ -3319,7 +5250,9 @@ export interface operations {
     accept_upload_route_v1_workspaces__workspace_id__upload_revisions_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
             path: {
                 workspace_id: string;
             };

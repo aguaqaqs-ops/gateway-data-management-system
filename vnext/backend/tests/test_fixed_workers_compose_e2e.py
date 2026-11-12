@@ -26,7 +26,7 @@ def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[
     """Attempt every release, retaining the test failure over observation errors."""
     primary = sys.exception()
     failures: list[tuple[str, BaseException]] = []
-    def attempt(phase: str, action: Callable[[], None]) -> None:
+    def attempt(phase: str, action: Callable[[], object]) -> None:
         try:
             action()
         except BaseException as error:

@@ -482,7 +482,7 @@ def test_accept_submit_hides_foreign_preview_before_configuration_decode(
     env = create_workspace_http_environment(tmp_path, extra_sessions={"other-reader": make_identity(actor_id="other-actor")})
     seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
     workspace = _seeded_workspace_dict(seed)
-    headers = {"Authorization": "Bearer other-reader"}
+    headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
     foreign_workspace = _seed_workspace(env.client, headers)
     foreign_upload = _seed_upload(env.client, headers, foreign_workspace)
     foreign_preview = _preview_result(foreign_workspace, foreign_upload, "op-foreign-preview")

@@ -15,6 +15,7 @@ import pytest
 
 from gateway_backend.application.submission.review import PERMISSION_REVIEW_SUBMISSION
 from gateway_backend.domain.submission.models import IdentityConfirmationAction, SubmitIdentityConfirmation
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_submission import (
@@ -104,15 +105,19 @@ def _post_review(
 ) -> Any:
     return env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
-        headers={"Authorization": f"Bearer {bearer}", "Idempotency-Key": idempotency_key},
+        headers={**env.auth_headers(idempotency_key=idempotency_key), "Authorization": f"Bearer {bearer}"},
         json=body or _apply_body(),
     )
 
 
-def _get_review(env: WorkspaceHttpTestEnvironment, seed: PendingReviewHttpSeed, *, bearer: str = TEST_BEARER) -> Any:
+def _get_review(env: WorkspaceHttpTestEnvironment, seed: PendingReviewHttpSeed, *, bearer: str = TEST_BEARER,
+                device_key: str | None = None) -> Any:
+    headers = {**env.auth_headers(), "Authorization": f"Bearer {bearer}"}
+    if device_key is not None:
+        headers["X-Gateway-Device-Key"] = device_route_key(device_key)
     return env.client.get(
         f"/v1/submissions/{seed.submission_id}/review",
-        headers={"Authorization": f"Bearer {bearer}"},
+        headers=headers,
     )
 
 
@@ -250,7 +255,7 @@ def test_apply_review_requires_idempotency_key(
     env, seed = review_env
     response = env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}"},
+        headers=env.auth_headers(),
         json=_apply_body(),
     )
     assert response.status_code == 422
@@ -361,7 +366,7 @@ def test_apply_review_without_permission_hides_missing_submission(tmp_path: Path
     )
     response = env.client.post(
         "/v1/submissions/sub-missing/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}", "Idempotency-Key": "review-missing"},
+        headers=env.auth_headers(idempotency_key="review-missing"),
         json=_apply_body(),
     )
     assert response.status_code == 403
@@ -374,7 +379,7 @@ def test_apply_review_returns_404_for_missing_submission(
     env, _seed = review_env
     response = env.client.post(
         "/v1/submissions/sub-missing/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}", "Idempotency-Key": "review-404"},
+        headers=env.auth_headers(idempotency_key="review-404"),
         json=_apply_body(),
     )
     assert response.status_code == 404
@@ -387,7 +392,7 @@ def test_get_review_returns_404_for_missing_submission(
     env, _seed = review_env
     response = env.client.get(
         "/v1/submissions/sub-missing/review",
-        headers={"Authorization": f"Bearer {TEST_BEARER}"},
+        headers=env.auth_headers(),
     )
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
@@ -418,6 +423,7 @@ def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path)
         f"/v1/submissions/{seed.submission_id}/review-events",
         headers={
             "Authorization": f"Bearer {OTHER_SCOPE_BEARER}",
+            "X-Gateway-Device-Key": device_route_key("device-other"),
             "Idempotency-Key": "review-cross-scope",
         },
         json=_apply_body(),
@@ -447,7 +453,7 @@ def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -
     )
     approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
     assert approved.status_code == 201
-    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER)
+    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER, device_key="device-other")
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 

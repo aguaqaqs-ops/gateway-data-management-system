@@ -8,7 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_backend.http.wiring import PRODUCTION_OPENAPI_PATHS
+from gateway_backend.device_identity import device_route_key
 from tests.support.http_workspace_harness import create_workspace_http_environment
+from tests.support.runtime_settings import TEST_DEVICE_KEY
 
 pytestmark = pytest.mark.unit
 
@@ -140,7 +142,7 @@ def test_openapi_schemas_reject_additional_properties(client: TestClient) -> Non
     assert options_schema.get("additionalProperties") is False
     extra_field = client.post(
         "/v1/workspaces",
-        headers={"Authorization": "Bearer test-session-token"},
+        headers={"Authorization": "Bearer test-session-token", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)},
         json={
             "gateway_device_external_key": "device-1",
             "business_project_id": "project-1",

@@ -176,7 +176,7 @@ def test_get_operation_without_read_permission_hides_missing_id(tmp_path: Path) 
     )
     response = env.client.get(
         "/v1/operations/op-missing",
-        headers={"Authorization": f"Bearer {TEST_BEARER_LIMITED}"},
+        headers={**env.auth_headers(), "Authorization": f"Bearer {TEST_BEARER_LIMITED}"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
@@ -193,7 +193,7 @@ def test_get_operation_requires_workspace_read_permission(tmp_path: Path) -> Non
     _, preview = _seed_preview_operation(env.client, env.auth_headers())
     response = env.client.get(
         f"/v1/operations/{preview['operation_id']}",
-        headers={"Authorization": f"Bearer {TEST_BEARER_LIMITED}"},
+        headers={**env.auth_headers(), "Authorization": f"Bearer {TEST_BEARER_LIMITED}"},
     )
     assert response.status_code == 403
     assert response.json()["code"] == "SCOPE_FORBIDDEN"
@@ -355,8 +355,9 @@ def test_submit_operation_authorizes_workspace_before_configuration_decode(
     operation_id, attempt_id = _accept_submit_operation(env)
     message = corrupt_configuration_body(env.db_path, kind="attempt", target_id=attempt_id, fault=fault)
     url = f"/v1/operations/{operation_id}"
-    assert env.client.get(url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
-    other = env.client.post("/v1/workspaces", headers={"Authorization": "Bearer other-reader"},
+    other_headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
+    assert env.client.get(url, headers=other_headers).status_code == 404
+    other = env.client.post("/v1/workspaces", headers=other_headers,
         json={"gateway_device_external_key": "device-1", "business_project_id": "project-1"})
     assert other.status_code == 201
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
@@ -368,11 +369,11 @@ def test_submit_operation_authorizes_workspace_before_configuration_decode(
             if ref["kind"] == "workspace":
                 ref["value"] = other.json()["workspace_id"]
         unit_of_work.connection.execute("UPDATE operation_records SET business_refs = ? WHERE operation_id = ?", (canonicalize_json_value(refs), operation_id))
-    assert env.client.get(url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
+    assert env.client.get(url, headers=other_headers).status_code == 404
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         unit_of_work.connection.execute("UPDATE operation_records SET business_refs = ? WHERE operation_id = ?", (original_refs, operation_id))
     with forbid_configuration_object_reads(monkeypatch):
-        assert env.client.get(url, headers={"Authorization": "Bearer denied"}).status_code == 403
+        assert env.client.get(url, headers={**env.auth_headers(), "Authorization": "Bearer denied"}).status_code == 403
     with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
         with pytest.raises(ValueError, match=message):
             strict_client.get(url, headers=env.auth_headers())

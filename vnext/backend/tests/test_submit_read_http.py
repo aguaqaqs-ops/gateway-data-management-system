@@ -306,15 +306,16 @@ def test_submit_point_read_filters_scope_before_configuration_decode(
         submission = seed_pending_review_submission(env.db_path)
         target_id, workspace_id, route = submission.submission_id, submission.workspace_id, "submissions"
         message = corrupt_configuration_body(env.db_path, kind="submission", target_id=target_id, fault=fault)
-    other = env.client.post("/v1/workspaces", headers={"Authorization": "Bearer other-reader"},
+    other_headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
+    other = env.client.post("/v1/workspaces", headers=other_headers,
         json={"gateway_device_external_key": "device-1", "business_project_id": "project-1"})
     assert other.status_code == 201
     own_url = f"/v1/workspaces/{other.json()['workspace_id']}/{route}/{target_id}"
     target_url = f"/v1/workspaces/{workspace_id}/{route}/{target_id}"
-    assert env.client.get(own_url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
-    assert env.client.get(target_url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
+    assert env.client.get(own_url, headers=other_headers).status_code == 404
+    assert env.client.get(target_url, headers=other_headers).status_code == 404
     with forbid_configuration_object_reads(monkeypatch):
-        assert env.client.get(target_url, headers={"Authorization": "Bearer denied"}).status_code == 403
+        assert env.client.get(target_url, headers={**env.auth_headers(), "Authorization": "Bearer denied"}).status_code == 403
     with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
         with pytest.raises(ValueError, match=message):
             strict_client.get(target_url, headers=env.auth_headers())

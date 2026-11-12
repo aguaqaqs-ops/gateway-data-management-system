@@ -70,6 +70,7 @@ from gateway_backend.infrastructure.control_db.database import (
 from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_to_row
 from tests.support.compose_gate_harness import (
     BASELINE_NODE_ID,
+    BEARER_TOKEN,
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
@@ -894,7 +895,7 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
             return None
 
         def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
-            assert headers == {"Authorization": f"Bearer {real_dump_journey.BEARER_TOKEN}"}
+            assert headers == {"Authorization": f"Bearer {BEARER_TOKEN}"}
             return OperationResponse(_succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID))
 
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())

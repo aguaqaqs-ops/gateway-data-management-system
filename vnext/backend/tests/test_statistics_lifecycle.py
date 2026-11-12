@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from gateway_backend.app import create_app
 from gateway_backend.bootstrap import composition
 from gateway_backend.bootstrap.statistics import BackendStatistics, build_statistics_sink
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.infrastructure.control_db import initialize_and_verify_control_db
 from tests.support.runtime_settings import TEST_SESSION_TOKEN, make_backend_settings, prepare_backend_runtime_paths
 
@@ -40,7 +41,8 @@ def test_statistics_failure_does_not_change_business_readiness(tmp_path: Path, m
     with TestClient(create_app(settings)) as client:
         assert client.get('/readyz').status_code == 200
         assert client.get('/healthz').json() == {'status': 'ok'}
-        health = client.get('/v1/statistics/group', headers={'Authorization': f'Bearer {TEST_SESSION_TOKEN}'})
+        health = client.get('/v1/statistics/group', headers={'Authorization': f'Bearer {TEST_SESSION_TOKEN}',
+            'X-Gateway-Device-Key': device_route_key(session_document['sessions'][0]['gateway_device_external_key'])})
         assert health.status_code == 200
         assert health.json()['health']['quality'] == 'unavailable'
         assert str(tmp_path) not in health.text

@@ -22,6 +22,7 @@ from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
 from gateway_backend.domain.workspace.models import InputCompleteness
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.infrastructure.artifact_store import BoundedArtifactStore, LocalArtifactStore
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step, HistoryCompareJobHarness
@@ -279,7 +280,9 @@ def bundle_route(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[Worksp
 
 
 @pytest.mark.parametrize(("headers", "expected"), (
-    ({}, 401), ({"Authorization": "Bearer denied"}, 403), ({"Authorization": "Bearer foreign"}, 404),
+    ({}, 401),
+    ({"Authorization": "Bearer denied", "X-Gateway-Device-Key": device_route_key("device-1")}, 403),
+    ({"Authorization": "Bearer foreign", "X-Gateway-Device-Key": device_route_key("other")}, 404),
 ))
 def test_bundle_authorizes_before_any_artifact_read(
     bundle_route: tuple[WorkspaceHttpTestEnvironment, str, LocalArtifactStore, str],

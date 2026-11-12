@@ -16,6 +16,7 @@ from uvicorn.config import Config
 
 from gateway_backend.app import create_app
 from gateway_backend.bootstrap.http_server import AdmissionFirstUvicornServer
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from gateway_backend.http.shutdown import begin_http_pre_drain, resolve_fastapi_app
 from tests.support.http_workspace_harness import (
@@ -25,6 +26,7 @@ from tests.support.http_workspace_harness import (
     create_workspace_http_environment,
 )
 from tests.support.runtime_settings import (
+    TEST_DEVICE_KEY,
     TEST_REPOSITORY_TOKEN,
     make_backend_settings,
     prepare_backend_runtime_paths,
@@ -32,7 +34,7 @@ from tests.support.runtime_settings import (
 
 pytestmark = pytest.mark.unit
 
-AUTH = {"Authorization": f"Bearer {TEST_BEARER}"}
+AUTH = {"Authorization": f"Bearer {TEST_BEARER}", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
 
 
 def test_closable_admission_gate_stops_new_work() -> None:

@@ -213,6 +213,26 @@ class EntryRuntime:
         container = result.stdout.strip()
         if result.returncode or not container or "\n" in container:
             raise Incomplete("entry is not running")
+        inspected = self.command(["docker", "container", "inspect", container])
+        selected = self.command(["docker", "image", "inspect", "--format", "{{.Id}}", self.groups.entry.image])
+        if inspected.returncode or selected.returncode:
+            raise Incomplete("entry image or container identity unavailable")
+        try:
+            actual = json.loads(inspected.stdout)[0]
+            labels = actual["Config"]["Labels"]
+            mounts = [mount for mount in actual["Mounts"] if mount["Destination"] == CONTAINER_DIRECTORY]
+            if (labels.get("com.docker.compose.project"), labels.get("com.docker.compose.service")) != (self.project, "entry"):
+                raise ValueError("entry project differs")
+            if actual["Image"] != selected.stdout.strip() or actual["Config"]["Image"] != self.groups.entry.image:
+                raise ValueError("entry image differs from validator")
+            if actual["HostConfig"]["NetworkMode"] != "host" or actual["HostConfig"]["Memory"] != self.groups.entry.memory_limit_bytes:
+                raise ValueError("entry network or memory differs")
+            if actual["HostConfig"]["NanoCpus"] != round(self.groups.entry.cpu_limit * 1_000_000_000):
+                raise ValueError("entry CPU differs")
+            if len(mounts) != 1 or mounts[0]["Type"] != "bind" or mounts[0]["RW"] or Path(mounts[0]["Source"]).resolve() != self.directory.resolve():
+                raise ValueError("entry parent mount differs")
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise Incomplete("entry deployment differs from selected manifest") from None
         return container
 
     def retiring_workers(self) -> bool:

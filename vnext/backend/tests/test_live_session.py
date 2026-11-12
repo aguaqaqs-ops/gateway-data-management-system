@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_backend.app import create_app
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.settings import BackendSettings
 from tests.support.runtime_settings import (
     TEST_DEVICE_KEY,
@@ -35,7 +36,7 @@ WORKSPACE_BODY = {
     "gateway_device_external_key": TEST_DEVICE_KEY,
     "business_project_id": TEST_PROJECT_ID,
 }
-AUTH = {"Authorization": f"Bearer {TEST_SESSION_TOKEN}"}
+AUTH = {"Authorization": f"Bearer {TEST_SESSION_TOKEN}", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
 ROTATED_TOKEN = "xxxx-session-token"
 
 
@@ -106,7 +107,7 @@ def test_same_size_token_replacement_revokes_old_identity_when_mtime_preserved(
         revoked = client.post("/v1/workspaces", headers=AUTH, json=WORKSPACE_BODY)
         accepted = client.post(
             "/v1/workspaces",
-            headers={"Authorization": f"Bearer {ROTATED_TOKEN}"},
+            headers={**AUTH, "Authorization": f"Bearer {ROTATED_TOKEN}"},
             json=WORKSPACE_BODY,
         )
     assert revoked.status_code == 401

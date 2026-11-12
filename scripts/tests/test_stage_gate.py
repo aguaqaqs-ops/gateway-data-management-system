@@ -52,6 +52,9 @@ class FixtureGate(G.Gate):
         self.closure = types.SimpleNamespace(ClosureError=FakeClosureError,
             compare_manifests=lambda a, b: {"status": "可沿用" if a["total_digest"] == b["total_digest"] else "运行"})
 
+    def entry_image(self):
+        return {"tag": "nginx:1.28.0", "image_id": "entry", "config_digest": "config", "rootfs_diff_ids": ["layer"]}
+
     def load_config(self):
         self.result["cache_provenance"] = {"source": "selftest"}
 
@@ -241,7 +244,7 @@ class StageGateTests(unittest.TestCase):
     def test_runtime_change_and_revert_or_image_label_change_prevents_container_carry(self):
         gate = FixtureGate(self.root, head=OTHER)
         image = {"labels": {"gateway.p2r1.build-input-revision": "input", "gateway.p2r1.source-tree-sha256": "tree"}}
-        source = {"commit_sha": SHA, "container_gate": {"status": "run", "images": {"repository_service": image}}}
+        source = {"commit_sha": SHA, "container_gate": {"status": "run", "images": {"repository_service": image, "entry": gate.entry_image()}}}
         with patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
              patch.object(gate, "image", return_value=image):
             self.assertTrue(gate.container_equivalent(source, "backend")[0])

@@ -620,7 +620,8 @@ def compose_auth_headers(
     token: str = SESSION_TOKEN,
     idempotency_key: str | None = None,
 ) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {token}"}
+    from gateway_backend.device_identity import device_route_key
+    headers = {"Authorization": f"Bearer {token}", "X-Gateway-Device-Key": device_route_key(DEVICE_KEY)}
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
     return headers

@@ -1154,7 +1154,7 @@ def test_mixed_stage_gate_rechecks_carried_backend_after_repository_runner(
     source_manifest.write_text(json.dumps(original), encoding="utf-8")
     source_record = tmp_path / "original-result.json"
     source_record.write_text(json.dumps({"commit_sha": head, "container_gate": {"status": "run",
-        "images": {"repository_service": {"labels": labels}}}}), encoding="utf-8")
+        "images": {"repository_service": {"labels": labels}, "entry": {"tag": "nginx:1.28.0", "image_id": "entry", "config_digest": "config", "rootfs_diff_ids": ["layer"]}}}}), encoding="utf-8")
     source = {"record": str(source_record), "record_sha256": gate_module["sha256"](source_record),
               "manifest": {"path": str(source_manifest), "sha256": gate_module["sha256"](source_manifest)}}
     gate = gate_module["Gate"](SimpleNamespace(commit_sha=head, packages=["backend", "repository_service"],
@@ -1170,6 +1170,7 @@ def test_mixed_stage_gate_rechecks_carried_backend_after_repository_runner(
     monkeypatch.setattr(gate, "source", lambda name, _manifest: (source, "original run") if name == "backend" else (None, "run RS"))
     monkeypatch.setattr(gate, "repository_identity", lambda: {"build_input_revision": "input", "source_tree_sha256": "tree"})
     monkeypatch.setattr(gate, "image", lambda: {"tag": custom_tag, "image_id": image_id, "labels": current_labels})
+    monkeypatch.setattr(gate, "entry_image", lambda: {"tag": "nginx:1.28.0", "image_id": "entry", "config_digest": "config", "rootfs_diff_ids": ["layer"]})
     runs: list[list[str]] = []
 
     def runner(names: list[str]) -> None:

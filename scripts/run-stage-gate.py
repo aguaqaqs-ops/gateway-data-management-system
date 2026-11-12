@@ -34,6 +34,7 @@ FINAL_PURPOSES = {"s5", "release", "production"}
 # A semantic change to lookup/failure handling must invalidate old records.
 SCHEMA_VERSION = 1
 ENV_KEYS = {
+    "GATEWAY_ENTRY_IMAGE",
     "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE", "GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES",
     "GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE", "GATEWAY_P2R1_CACHE_URL",
     "GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES", "GATEWAY_REPOSITORY_SERVICE_IMAGE",
@@ -204,12 +205,14 @@ class Gate:
         return remained
 
     def command(self, command: list[str], *, cwd: Path | None = None,
-                env: dict[str, str] | None = None, logfile: str = "prepare.log", check: bool = True) -> str:
+                env: dict[str, str] | None = None, logfile: str = "prepare.log", check: bool = True, timeout: float | None = None) -> str:
         with (self.directory / logfile).open("ab") as log:
             process = subprocess.Popen(command, cwd=cwd, env=env or self.env, stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                code = process.wait()
+                code = process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise GateError("command timed out; see " + logfile) from None
             finally:
                 descendants = self.stop_group(process)
         if check and code:
@@ -462,6 +465,32 @@ class Gate:
         return {"tag": tag, "image_id": raw["Id"], "rootfs_diff_ids": raw["RootFS"]["Layers"],
                 "labels": raw.get("Config", {}).get("Labels") or {}}
 
+    def entry_image(self) -> dict[str, Any]:
+        """Capture local closure identity and portable config/RootFS identities."""
+        import tarfile
+        tag = self.env.get("GATEWAY_ENTRY_IMAGE", "nginx:1.28.0")
+        raw = json.loads(self.output(["docker", "image", "inspect", tag]))[0]
+        archive = self.directory / ("entry-image-" + raw["Id"].split(":")[-1] + ".tar")
+        if not archive.exists():
+            self.command(["docker", "image", "save", "--output", str(archive), tag], timeout=120)
+        with tarfile.open(archive) as saved:
+            manifest_stream = saved.extractfile("manifest.json")
+            if manifest_stream is None:
+                raise GateError("entry image archive has no manifest")
+            manifest = json.load(manifest_stream)
+            if len(manifest) != 1:
+                raise GateError("entry image archive manifest is ambiguous")
+            config_stream = saved.extractfile(manifest[0]["Config"])
+            if config_stream is None:
+                raise GateError("entry image archive has no config")
+            config = config_stream.read()
+        config_object = json.loads(config)
+        layers = config_object["rootfs"]["diff_ids"]
+        if layers != raw["RootFS"]["Layers"]:
+            raise GateError("entry image RootFS identity differs from archive")
+        return {"tag": tag, "image_id": raw["Id"], "config_digest": "sha256:" + hashlib.sha256(config).hexdigest(),
+                "rootfs_diff_ids": layers, "archive": {"path": str(archive), "sha256": sha256(archive)}}
+
     def container_equivalent(self, source: dict[str, Any], package: str) -> tuple[bool, str]:
         original = source["commit_sha"]
         # log covers every intermediate commit: change-and-revert must not erase a boundary trigger.
@@ -482,6 +511,11 @@ class Gate:
                 if labels.get(label) != expected[key] or source_image["labels"].get(label) != expected[key]:
                     return False, "repository-service build-input/source-tree label changed"
             if package == "backend":
+                entry = self.entry_image()
+                previous_entry = gate["images"]["entry"]
+                for key in ("tag", "image_id", "config_digest", "rootfs_diff_ids"):
+                    if previous_entry.get(key) != entry[key]:
+                        return False, "entry image identity changed"
                 # source() has already validated the same-worktree backend manifest.
                 return True, "same-source backend closure and repository-service identity match"
             return True, "same-source repository-service closure and image identity match"
@@ -592,7 +626,9 @@ class Gate:
                 status="run" if set(to_run) & {"backend", "repository_service"} else "carried",
                 reason={name: self.result["packages"][name]["reason"] for name in self.args.packages
                         if name in {"backend", "repository_service"}},
-                images={"repository_service": self.image()}, repository_identity=self.repository_identity())
+                images={"repository_service": self.image(),
+                        **({"entry": self.entry_image()} if "backend" in self.args.packages else {})},
+                repository_identity=self.repository_identity())
         else:
             self.result["container_gate"].update(status="not_requested", reason="no container packages requested")
 

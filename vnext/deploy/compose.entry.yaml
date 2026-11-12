@@ -1,0 +1,19 @@
+services:
+  entry:
+    image: ${GATEWAY_ENTRY_IMAGE:-nginx:1.28.0}
+    pull_policy: never
+    user: "101:101"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: host
+    entrypoint: ["nginx"]
+    command: ["-c", "/etc/gateway-entry/nginx.conf", "-g", "daemon off;"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16777216,mode=1777
+    volumes:
+      - ${GATEWAY_ENTRY_DIRECTORY:?entry directory required}:/etc/gateway-entry:ro
+    mem_limit: ${GATEWAY_ENTRY_MEMORY:-536870912}
+    cpus: ${GATEWAY_ENTRY_CPUS:-1}
+    stop_signal: SIGQUIT
+    restart: "no"

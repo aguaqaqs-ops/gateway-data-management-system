@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from gateway_backend.domain.workspace.models import IdentityContext
-from gateway_backend.http.auth import assert_statistics_group_permission, require_identity
+from gateway_backend.http.auth import assert_statistics_group_permission, require_identity, require_session_identity
 from gateway_backend.http.dependencies import HistoryHttpDependencies, WorkspaceHttpDependencies, get_history_http, get_workspace_http
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.operation_scope import assert_workspace_read_permission
@@ -147,3 +147,24 @@ def group_resources(request: Request, query: Annotated[GroupResourceQuery, Query
     return respond(stats, query, lambda: resource_page(stats.reader.resources(ResourceRequest(start_us=start, end_us=end,
         role=query.role, process_instance_id=query.process_instance_id)), query, start, end, now,
         f'{query.role}:{query.process_instance_id}', sample_interval_seconds=stats.sample_interval_seconds))
+
+
+def _internal_group_identity(request: Request) -> IdentityContext:
+    # Host entry cannot reach these paths. Direct management is loopback-only.
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+    context = require_session_identity(request)
+    assert_statistics_group_permission(context)
+    return context
+
+
+@router.get('/internal/v1/statistics/group', response_model=GroupStatistics, responses=RESPONSES)
+def internal_group_statistics(request: Request,
+        context: Annotated[IdentityContext, Depends(_internal_group_identity)]) -> GroupStatistics:
+    return group_statistics(request, context)
+
+
+@router.get('/internal/v1/statistics/group/resources', response_model=ResourcePage, responses=RESPONSES)
+def internal_group_resources(request: Request, query: Annotated[GroupResourceQuery, Query()],
+        context: Annotated[IdentityContext, Depends(_internal_group_identity)]) -> Response:
+    return group_resources(request, query, context)

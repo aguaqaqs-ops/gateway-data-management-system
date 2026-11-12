@@ -37,7 +37,9 @@ cache_provenance 和预置依赖设置。配置不在 Git 内，不允许更换 
 }
 ```
 
-也可配置 `GATEWAY_P2R1_CACHE_URL`、`GATEWAY_REPOSITORY_SERVICE_IMAGE`、
+公共入口固定默认 `nginx:1.28.0`，须先按 DC67 预填到04；`GATEWAY_ENTRY_IMAGE` 可选择已核固定镜像。backend 闭包记录所选tag与本机ID，容器结果的 `images.entry` 记录config digest、全部RootFS DiffID及原save归档摘要。入口配置为独立 `vnext/deploy/compose.entry.yaml`，它同样是backend输入。
+
+也可配置 `GATEWAY_ENTRY_IMAGE`、`GATEWAY_P2R1_CACHE_URL`、`GATEWAY_REPOSITORY_SERVICE_IMAGE`、
 `GATEWAY_REPOSITORY_BASE_IMAGE`、`GATEWAY_TEST_WORKERS`、`CARGO_BUILD_JOBS`；完整允许集见脚本
 `ENV_KEYS`。URL 禁止携带凭据，cache provenance 不记录 secret；上述五项来源字段必填，来源提交/制品摘要/UTC 格式校验，identity_record 须存在且 SHA256 匹配。缺缓存停止；准备后新开 run，不能覆盖失败。
 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、固定 TMPDIR、Cargo PATH、build network none 不可覆盖。

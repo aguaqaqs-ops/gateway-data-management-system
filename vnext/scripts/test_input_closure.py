@@ -145,6 +145,11 @@ PACKAGE_DOCKER_INPUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "Backend Compose tests select services and build arguments from this file.",
         ),
         (
+            "docker:compose:entry",
+            "vnext/deploy/compose.entry.yaml",
+            "Independent Nginx public entry is a backend Compose journey input.",
+        ),
+        (
             "dockerfile:backend",
             "vnext/backend/Dockerfile",
             "Backend and worker images are built from this Dockerfile.",
@@ -197,6 +202,7 @@ DOCKER_INPUT_ENVIRONMENT: dict[str, tuple[str, ...]] = {
         "DOCKER_HOST",
         "DOCKER_TLS",
         "DOCKER_TLS_VERIFY",
+        "GATEWAY_ENTRY_IMAGE",
         "GATEWAY_BACKEND_UV_BOOTSTRAP_INDEX_URL",
         "GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST",
         "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE",
@@ -278,6 +284,7 @@ DOCKER_INPUT_ENVIRONMENT: dict[str, tuple[str, ...]] = {
     ),
 }
 
+DEFAULT_ENTRY_IMAGE = "nginx:1.28.0"
 DEFAULT_REPOSITORY_SERVICE_IMAGE = "gateway-repository-service:local"
 DEFAULT_REPOSITORY_BASE_IMAGE = "python:3.14.6-slim-bookworm"
 DEFAULT_REPOSITORY_CLIENT_IMAGE = "gateway-repository-client-e2e:local"
@@ -814,6 +821,9 @@ def _docker_build_inputs(
             environment.get("GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES") or "0"
         )
         image_references.add(backend_dependency_base_image)
+        entry_image = environment.get("GATEWAY_ENTRY_IMAGE") or DEFAULT_ENTRY_IMAGE
+        selections["entry_image"] = entry_image
+        image_references.add(entry_image)
     else:
         client_dependency_base_image = (
             environment.get("GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE")

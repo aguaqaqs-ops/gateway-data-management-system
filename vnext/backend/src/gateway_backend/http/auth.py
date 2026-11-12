@@ -8,10 +8,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Annotated, Protocol, runtime_checkable
 
-from fastapi import Request
+from fastapi import Depends, Header, Request
 
+from gateway_backend.device_identity import DEVICE_KEY_HEADER, device_route_key, validate_device_route_key
+from gateway_backend.domain.workspace.errors import ScopeResolutionError
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.errors import ApiError
@@ -207,10 +209,34 @@ def load_internal_bearer_token(token_file: Path) -> str:
     return token
 
 
-def require_identity(request: Request) -> IdentityContext:
+def require_session_identity(request: Request) -> IdentityContext:
+    """Resolve only current credentials; reserved for internal group management reads."""
     from gateway_backend.http.dependencies import get_workspace_http
 
     return get_workspace_http(request).session_port.resolve(request)
+
+
+def require_identity(request: Request,
+        context: Annotated[IdentityContext, Depends(require_session_identity)],
+        device_key: Annotated[str, Header(alias=DEVICE_KEY_HEADER, pattern=r"^[0-9a-f]{64}$")]) -> IdentityContext:
+    """Authenticate before validating the exact route key and local scope authority."""
+    from gateway_backend.http.dependencies import get_workspace_http
+
+    del device_key  # Document the required header; raw values retain duplicate detection.
+    values = request.headers.getlist(DEVICE_KEY_HEADER)
+    try:
+        if len(values) != 1:
+            raise ValueError("device key must be single valued")
+        key = validate_device_route_key(values[0])
+    except ValueError:
+        raise ApiError(code="REQUEST_VALIDATION_FAILED", message="request validation failed", status_code=422) from None
+    if key != device_route_key(context.gateway_device_external_key):
+        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+    try:
+        get_workspace_http(request).scope_resolution.resolve(context)
+    except (ScopeResolutionError, KeyError):
+        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404) from None
+    return context
 
 
 @runtime_checkable
@@ -257,5 +283,6 @@ __all__ = [
     "load_session_entries",
     "load_session_file",
     "require_identity",
+    "require_session_identity",
     "require_internal_bearer",
 ]

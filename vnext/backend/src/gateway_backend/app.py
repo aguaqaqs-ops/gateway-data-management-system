@@ -43,6 +43,7 @@ def create_app(
             runtime.workspace_http,
             history_deps=runtime.history_http,
         )
+        app.state.deployment_identity = (configured.deployment_config.storage.environment_id, configured.deployment_config.storage.group_id)
         app.state.device_registration = runtime.device_registration
         app.state.storage_guard = runtime.storage_guard
         app.state.statistics_http = runtime.statistics_http

@@ -20,11 +20,15 @@ from gateway_backend.http.routes.workspaces import router as workspaces_router
 from gateway_backend.http.routes.history import router as history_router
 from gateway_backend.http.routes.statistics import router as statistics_router
 from gateway_backend.http.routes.maintenance import router as maintenance_router
+from gateway_backend.http.routes.device_context import router as device_context_router
 
 PRODUCTION_OPENAPI_PATHS = frozenset(
     {
         "/internal/v1/devices/register",
         "/internal/v1/devices/registration",
+        "/v1/device-context",
+        "/internal/v1/statistics/group",
+        "/internal/v1/statistics/group/resources",
         "/healthz",
         "/readyz",
         "/v1/repositories/{repository_id}/statistics/storage",
@@ -86,4 +90,5 @@ def register_workspace_http(
     app.include_router(operator_recovery_router)
     app.include_router(statistics_router)
     app.include_router(maintenance_router)
+    app.include_router(device_context_router)
     app.include_router(device_registration_router)

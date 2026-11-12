@@ -831,7 +831,9 @@ class WorkspaceHttpTestEnvironment:
     now: Callable[[], datetime]
 
     def auth_headers(self, *, idempotency_key: str | None = None) -> dict[str, str]:
-        headers = {"Authorization": f"Bearer {TEST_BEARER}"}
+        from gateway_backend.device_identity import device_route_key
+        headers = {"Authorization": f"Bearer {TEST_BEARER}",
+            "X-Gateway-Device-Key": device_route_key(self.identity.gateway_device_external_key)}
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         return headers

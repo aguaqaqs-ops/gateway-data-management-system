@@ -703,7 +703,7 @@ def _capture_repository_import_status(
         with httpx.Client(timeout=15.0) as client:
             response = client.get(
                 f"{repository_url}/v1/repositories/{repository_id}/operations/{operation_id}",
-                headers=compose_auth_headers(token=BEARER_TOKEN),
+                headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
             )
     except httpx.HTTPError as exc:
         raise JourneyFailure("Repository public operation status request failed") from exc

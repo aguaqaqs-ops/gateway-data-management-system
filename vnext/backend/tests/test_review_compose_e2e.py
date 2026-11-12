@@ -16,6 +16,7 @@ from tests.support.compose_gate_harness import (
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
+    compose_auth_headers,
     compose_project_name,
     assert_running_backend_worker_images_match_build,
     capture_running_container_provenance,
@@ -106,10 +107,7 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
 
 
 def _auth_headers(*, idempotency_key: str | None = None) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {SESSION_TOKEN}"}
-    if idempotency_key is not None:
-        headers["Idempotency-Key"] = idempotency_key
-    return headers
+    return compose_auth_headers(token=SESSION_TOKEN, device_key=DEVICE_KEY, idempotency_key=idempotency_key)
 
 
 def test_compose_submit_to_review_approve_journey(tmp_path: Path) -> None:
@@ -183,7 +181,7 @@ def test_compose_self_only_submit_withdraw_and_upload_again(tmp_path: Path) -> N
             env, initial_commit_id=initial_commit_id, token=SELF_TOKEN,
             journey_key_prefix="self-only-first",
         )
-        with httpx.Client(base_url=BACKEND_URL, headers={"Authorization": f"Bearer {SELF_TOKEN}"}, timeout=60.0) as client:
+        with httpx.Client(base_url=BACKEND_URL, headers=compose_auth_headers(token=SELF_TOKEN, device_key=DEVICE_KEY), timeout=60.0) as client:
             payload = {"gateway_device_external_key": DEVICE_KEY, "business_project_id": PROJECT_ID}
             workspace = client.post("/v1/workspaces", json=payload)
             assert workspace.status_code == 200, workspace.text

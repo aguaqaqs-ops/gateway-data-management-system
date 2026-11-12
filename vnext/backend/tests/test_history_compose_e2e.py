@@ -193,10 +193,7 @@ def _auth_headers(
     token: str = ARCHIVER_TOKEN,
     idempotency_key: str | None = None,
 ) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {token}"}
-    if idempotency_key is not None:
-        headers["Idempotency-Key"] = idempotency_key
-    return headers
+    return compose_auth_headers(token=token, device_key=DEVICE_KEY, idempotency_key=idempotency_key)
 
 
 def _approve_submission(
@@ -509,12 +506,12 @@ def test_compose_history_compare_journey_zero_write_restart(
 
         with httpx.Client(
             base_url=BACKEND_URL,
-            headers=compose_auth_headers(token=CROSS_SCOPE_TOKEN),
+            headers=compose_auth_headers(token=CROSS_SCOPE_TOKEN, device_key="other-device"),
             timeout=120.0,
         ) as cross_scope:
             denied_scope = cross_scope.get("/v1/history")
-            assert denied_scope.status_code == 403
-            assert denied_scope.json()["code"] == "SCOPE_FORBIDDEN"
+            assert denied_scope.status_code == 404
+            assert denied_scope.json()["code"] == "RESOURCE_NOT_FOUND"
 
         with httpx.Client(
             base_url=BACKEND_URL,

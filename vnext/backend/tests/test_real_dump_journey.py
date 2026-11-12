@@ -894,7 +894,7 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
             return None
 
         def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
-            assert headers
+            assert headers == {"Authorization": f"Bearer {real_dump_journey.BEARER_TOKEN}"}
             return OperationResponse(_succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID))
 
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())

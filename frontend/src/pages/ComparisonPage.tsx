@@ -386,6 +386,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
       let expectedBundleDigest: string | undefined;
+      if (current.mode === "PREVIEW" && current.workspaceId && current.previewResultId) {
+        expectedBundleDigest = (await gatewayApi.getPreviewResult(current.workspaceId, current.previewResultId)).bundle_digest;
+      }
       if (current.mode === "REVIEW" && current.submissionId) setReviewFacts(await gatewayApi.getReviewFacts(current.submissionId));
       if (current.mode === "HISTORY" || current.mode === "REVIEW") {
         if (!current.operationId) throw new Error("历史比较操作 ID 缺失");

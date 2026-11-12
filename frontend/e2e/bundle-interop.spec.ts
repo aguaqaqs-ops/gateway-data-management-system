@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./guard";
 import { createHash } from "node:crypto";
+import { testPreviewResult } from "../src/features/dev/simulated-api";
 import { readFile } from "node:fs/promises";
 
 const FIXTURE_DIR = "src/test/fixtures/backend-interop/be-d-0ba45e5ef8";
@@ -130,6 +131,11 @@ async function installRoutes(page: Page, mode: BundleMode, bundle: TarBundle): P
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(WORKSPACE_RESPONSE) });
   });
+
+  await page.route("**/v1/workspaces/*/preview-results/*", (route) => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ ...testPreviewResult(bundle.bundleDigest), workspace_id: WORKSPACE_ID, preview_result_id: PREVIEW_RESULT_ID }),
+  }));
 
   await page.route("**/v1/workspaces/*/preview-results/*/bundle", async (route) => {
     bundleRequests += 1;

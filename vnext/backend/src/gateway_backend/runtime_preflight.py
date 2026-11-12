@@ -105,9 +105,50 @@ def check_configured_root(config: StorageLayoutConfig, slot: str) -> None:
     check_marker(config, slot, path)
 
 
+def _database_descriptor_identity(descriptor: int, directory: int, device: int) -> tuple[int, int, str]:
+    opened = os.fstat(descriptor)
+    if not stat.S_ISREG(opened.st_mode) or opened.st_dev != device:
+        raise ValueError("control database file is redirected or not ordinary")
+    if not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True):
+        raise ValueError("control database file is not readable")
+    def mount_id(fd: int) -> str:
+        return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
+                    if line.startswith("mnt_id:"))
+    observed_mount = mount_id(descriptor)
+    if observed_mount != mount_id(directory):
+        raise ValueError("control database file is on an unexpected mount")
+    return opened.st_dev, opened.st_ino, observed_mount
+
+
+def _database_metadata_identity(metadata: Path, directory: int, expected: tuple[int, int]) -> None:
+    try:
+        current = nofollow_directory(metadata)
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+        raise DeploymentIdentityChanged("control database metadata identity changed") from None
+    opened = os.fstat(directory)
+    if ((current.st_dev, current.st_ino) != expected
+            or not stat.S_ISDIR(opened.st_mode) or (opened.st_dev, opened.st_ino) != expected):
+        raise DeploymentIdentityChanged("control database metadata identity changed")
+
+
+def _verify_database_after_sidecar_disappearance(metadata: Path, directory: int,
+        metadata_identity: tuple[int, int], database_identity: tuple[int, int, str] | None) -> None:
+    if database_identity is None:
+        raise ValueError("control database journal has no owning database")
+    _database_metadata_identity(metadata, directory, metadata_identity)
+    descriptor = os.open(metadata / "control.sqlite3", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        if _database_descriptor_identity(descriptor, directory, metadata_identity[0]) != database_identity:
+            raise ValueError("control database file identity changed")
+        _database_metadata_identity(metadata, directory, metadata_identity)
+    finally:
+        os.close(descriptor)
+
+
 def check_database_files(metadata: Path) -> None:
     info = nofollow_directory(metadata)
     present = (metadata / "control.sqlite3").exists()
+    database_identity: tuple[int, int, str] | None = None
     for name in ("control.sqlite3", "control.sqlite3-wal", "control.sqlite3-shm", "control.sqlite3-journal"):
         path = metadata / name
         try:
@@ -123,18 +164,21 @@ def check_database_files(metadata: Path) -> None:
             # Closing an ordinary fd for a live SQLite inode drops this process's
             # POSIX locks, even when another thread owns the SQLite connection.
             # Linux O_PATH observes identity without opening the file for I/O.
-            descriptor = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
             try:
-                opened = os.fstat(descriptor)
-                if not stat.S_ISREG(opened.st_mode) or opened.st_dev != info.st_dev:
-                    raise ValueError("control database file is redirected or not ordinary")
-                if not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True):
-                    raise ValueError("control database file is not readable")
-                def mount_id(fd: int) -> str:
-                    return next(line for line in _bounded(Path(f"/proc/self/fdinfo/{fd}"), 4096).splitlines()
-                                if line.startswith("mnt_id:"))
-                if mount_id(descriptor) != mount_id(directory):
-                    raise ValueError("control database file is on an unexpected mount")
+                descriptor = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+            except FileNotFoundError:
+                if name == "control.sqlite3":
+                    raise
+                # A normal last-connection close may remove a sidecar after
+                # lstat. Accept only that disappearance, with both owners still
+                # valid; do not retry the sidecar or suppress any other error.
+                _verify_database_after_sidecar_disappearance(metadata, directory,
+                    (info.st_dev, info.st_ino), database_identity)
+                continue
+            try:
+                identity = _database_descriptor_identity(descriptor, directory, info.st_dev)
+                if name == "control.sqlite3":
+                    database_identity = identity
             finally:
                 os.close(descriptor)
         finally:

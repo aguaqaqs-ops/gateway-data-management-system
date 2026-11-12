@@ -121,6 +121,10 @@ http {{
         default "";
 {routes}
     }}
+    map $uri $gateway_route_rejection {{
+        default "";
+        ~^/v1/ route-not-loaded;
+    }}
     map $arg_key $gateway_probe_group {{
         default "";
 {names}
@@ -135,11 +139,10 @@ http {{
         error_page 408 502 503 504 = @gateway_unavailable;
         error_page 500 = @gateway_internal;
         location @gateway_invalid {{ return 422 '{{"code":"REQUEST_VALIDATION_FAILED","message":"request validation failed","details":null}}'; }}
-        location @gateway_route_missing {{
-            add_header X-Gateway-Entry-Rejection route-not-loaded always;
+        location @gateway_not_found {{
+            add_header X-Gateway-Entry-Rejection $gateway_route_rejection always;
             return 404 '{{"code":"RESOURCE_NOT_FOUND","message":"resource not found","details":null}}';
         }}
-        location @gateway_not_found {{ return 404 '{{"code":"RESOURCE_NOT_FOUND","message":"resource not found","details":null}}'; }}
         location @gateway_unavailable {{ return 503 '{{"code":"DEPENDENCY_UNAVAILABLE","message":"service unavailable","details":null}}'; }}
         location @gateway_internal {{ return 500 '{{"code":"INTERNAL_ERROR","message":"internal server error","details":null}}'; }}
         client_max_body_size 0;
@@ -147,7 +150,6 @@ http {{
         send_timeout 600s;
         location = /healthz {{ return 200 '{{"status":"ok"}}'; }}
         location /v1/ {{
-            error_page 404 = @gateway_route_missing;
             proxy_hide_header X-Gateway-Entry-Rejection;
             if ($gateway_key = "") {{ return 422; }}
             if ($gateway_upstream = "") {{ return 404; }}

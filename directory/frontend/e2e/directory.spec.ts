@@ -1,6 +1,19 @@
 import { expect, test } from "@playwright/test";
 import { mockCatalog, projects } from "./fixtures";
 
+test("同名二级地区只选中完整名称路径", async ({ page }) => {
+  const rows = [
+    { ...projects[0], region1: "甲地区", region2: "城区" },
+    { ...projects[1], region1: "乙地区", region2: "城区" },
+  ];
+  await page.route("**/api/catalog", (route) => route.fulfill({ json: { catalog_version: "c-test", imported_at: "2026-11-01T00:00:00Z", projects: rows } }));
+  await page.goto("/?r1=%E7%94%B2%E5%9C%B0%E5%8C%BA&r2=%E5%9F%8E%E5%8C%BA");
+  await page.getByLabel("筛选地区", { exact: true }).fill("城区");
+  const tree = page.getByRole("navigation", { name: "地区", exact: true });
+  await expect(tree.getByRole("button", { name: /城区/ })).toHaveCount(2);
+  await expect(tree.locator('[aria-current="true"]')).toHaveCount(1);
+});
+
 test("地区树过滤只缩小地区选项，地区内过滤复用搜索与地址状态", async ({ page }) => {
   await mockCatalog(page);
   await page.goto("/?r1=%E6%B1%9F%E8%8B%8F&r2=%E8%8B%8F%E5%B7%9E&page=2");
@@ -125,6 +138,8 @@ test("存储不可用时键盘仍可进入", async ({ page }) => {
   await page.route("**/api/handoffs", (route) => route.fulfill({ status: 409, json: { code: "SESSION_UPDATING" } }));
   await page.goto("/");
   await expect(page.getByText("18 个项目", { exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr").first()).toBeVisible();
+  await page.locator("body").click({ position: { x: 2, y: 2 } });
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("tr[aria-selected=true]")).toHaveCount(1);
   await page.keyboard.press("Enter");

@@ -1,5 +1,6 @@
 import { captureResponse } from "./lib/response-snapshot";
 import { test, expect, type Browser, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
+import { Buffer } from "node:buffer";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -167,11 +168,59 @@ function pairSummary(bundle: ParsedBundle, pairId: string): Record<string, strin
  * FE4a §3.3 reference screenshots (not acceptance evidence): capture the page
  * at 1280 and 1920 widths. All call sites sit outside the M1 measurement
  * windows and add no journey steps.
+ *
+ * 截图前等网格绘制就绪：视口宽度变化后，ResizeObserver 测得新的 frameWidth，
+ * 由此重算的 columns 使 paintToken 失效、data-rendered 回到 "false" 并触发重绘；
+ * 必须在新列宽下重新等到渲染完成再截图，否则 1280 下容易拍到空白表格。
+ * 等待超时或元素截图出错都不抛出：截图本身不是 t1 判据，是否空白由证据审核判定，
+ * 中断旅程反而会丢掉后面的判据断言、M1 与证据步骤。
  */
+async function waitForGridShotReady(page: Page, label: string, width: number): Promise<void> {
+  const startedAt = Date.now();
+  await settleFrames(page);
+  const grids = page.locator('div.grid-frame[aria-label="比较表格"]');
+  const gridCount = await grids.count();
+  if (gridCount === 0) {
+    await appendCaseLog(`shot-gate label=${label}-${width} grid=0 rendered=ok waited_ms=${Date.now() - startedAt} stable=0`);
+    return;
+  }
+  let rendered: "ok" | "timeout" = "ok";
+  try {
+    for (let index = 0; index < gridCount; index += 1) {
+      await expect(grids.nth(index)).toHaveAttribute("data-rendered", "true", { timeout: 10_000 });
+    }
+  } catch {
+    rendered = "timeout";
+  }
+  // stable=<次数> 为首次出现连续两次逐字节相同时的累计元素截图次数（最少 2）；
+  // 10 次内未出现相同对记 unstable，元素截图抛错记 error。
+  let stable = "unstable";
+  try {
+    let previous: Buffer | null = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const current = await grids.first().screenshot({ animations: "disabled" });
+      if (previous !== null && Buffer.compare(previous, current) === 0) {
+        stable = String(attempt + 1);
+        break;
+      }
+      previous = current;
+      await page.waitForTimeout(100);
+    }
+  } catch {
+    stable = "error";
+  }
+  await appendCaseLog(
+    `shot-gate label=${label}-${width} grid=${gridCount} rendered=${rendered} waited_ms=${Date.now() - startedAt} stable=${stable}`,
+  );
+}
+
 async function saveEvidenceBothWidths(page: Page, testInfo: TestInfo, label: string): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 });
+  await saveEvidence(page, testInfo, `${label}-1280-pregate`);
+  await waitForGridShotReady(page, label, 1280);
   await saveEvidence(page, testInfo, `${label}-1280`);
   await page.setViewportSize({ width: 1920, height: 1080 });
+  await waitForGridShotReady(page, label, 1920);
   await saveEvidence(page, testInfo, `${label}-1920`);
 }
 
@@ -358,6 +407,7 @@ async function captureTabItemBothWidths(
     await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
     await settleFrames(page);
     await openSidebarTab(page, item, tab);
+    await waitForGridShotReady(page, label, width);
     await saveEvidence(page, testInfo, `${label}-${width}`);
     overflow.push((await assertTabsReachable(page)) ? `${width}=溢出` : `${width}=未溢出`);
     await openSidebarTab(page, item, tab);

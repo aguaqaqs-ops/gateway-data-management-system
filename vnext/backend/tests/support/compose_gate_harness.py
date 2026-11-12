@@ -329,8 +329,8 @@ def compose_image_ids(env: dict[str, str]) -> dict[str, dict[str, Any]]:
     repo_image = repository_service_image()
     return {
         "repository_service": _inspect_image(repo_image),
-        "backend": _inspect_image(f"{project}-backend"),
-        "worker": _inspect_image(f"{project}-worker"),
+        "backend": _inspect_image(env.get("GATEWAY_BACKEND_IMAGE", f"{project}-backend")),
+        "worker": _inspect_image(env.get("GATEWAY_WORKER_IMAGE", f"{project}-worker")),
     }
 
 
@@ -619,9 +619,10 @@ def compose_auth_headers(
     *,
     token: str = SESSION_TOKEN,
     idempotency_key: str | None = None,
+    device_key: str = DEVICE_KEY,
 ) -> dict[str, str]:
     from gateway_backend.device_identity import device_route_key
-    headers = {"Authorization": f"Bearer {token}", "X-Gateway-Device-Key": device_route_key(DEVICE_KEY)}
+    headers = {"Authorization": f"Bearer {token}", "X-Gateway-Device-Key": device_route_key(device_key)}
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
     return headers
@@ -1601,6 +1602,7 @@ def resolve_archive_preview_anomalies(
     token: str,
     idempotency_key_prefix: str,
     reason: str,
+    device_key: str = DEVICE_KEY,
 ) -> list[dict[str, Any]]:
     action_by_kind = {
         "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
@@ -1623,6 +1625,7 @@ def resolve_archive_preview_anomalies(
             "/v1/archive-anomaly-resolutions",
             headers=compose_auth_headers(
                 token=token,
+                device_key=device_key,
                 idempotency_key=f"{idempotency_key_prefix}-{index}",
             ),
             json={
@@ -1654,6 +1657,9 @@ def run_accept_to_submission_read_journey(
     env: dict[str, str],
     *,
     initial_commit_id: str,
+    base_url: str = BACKEND_URL,
+    device_key: str = DEVICE_KEY,
+    project_id: str = PROJECT_ID,
     journey_key_prefix: str = "compose",
     token: str = SESSION_TOKEN,
     expected_baseline_node_id: str = BASELINE_NODE_ID,
@@ -1666,15 +1672,15 @@ def run_accept_to_submission_read_journey(
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
-        base_url=BACKEND_URL,
-        headers=compose_auth_headers(token=token),
+        base_url=base_url,
+        headers=compose_auth_headers(device_key=device_key, token=token),
         timeout=60.0,
     ) as client:
         workspace = client.post(
             "/v1/workspaces",
             json={
-                "gateway_device_external_key": DEVICE_KEY,
-                "business_project_id": PROJECT_ID,
+                "gateway_device_external_key": device_key,
+                "business_project_id": project_id,
             },
         )
         assert workspace.status_code in {200, 201}, workspace.text
@@ -1687,7 +1693,7 @@ def run_accept_to_submission_read_journey(
         upload_payload = upload_builder(workspace_body["optimistic_version"])
         upload = client.post(
             f"/v1/workspaces/{workspace_id}/upload-revisions",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-upload"),
+            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-upload"),
             files=upload_payload,
         )
         assert upload.status_code == 201, upload.text
@@ -1695,7 +1701,7 @@ def run_accept_to_submission_read_journey(
 
         preview = client.post(
             f"/v1/workspaces/{workspace_id}/preview-operations",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-preview"),
+            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-preview"),
             json={
                 "expected_workspace_version": upload_body["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
@@ -1762,7 +1768,7 @@ def run_accept_to_submission_read_journey(
             submit_body["identity_confirmations"] = identity_confirmations
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-submit"),
+            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-submit"),
             json=submit_body,
         )
         if expected_submit_code is not None:

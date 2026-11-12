@@ -59,7 +59,8 @@ def cleanup(directory: Path, owner: str, *, retain: bool) -> None:
         print("runtime_fixture_removed=" + str(directory), flush=True)
 
 
-def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None, workers: int = 1) -> Path:
+def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None, workers: int = 1, *, group_id: str | None = None,
+            processing_groups_small_input: bool = False) -> Path:
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
     if owner is not None:
         claim_owner(directory, owner)
@@ -67,7 +68,16 @@ def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | N
     fixtures = VNEXT / "fixtures/runtime-config/v1"
     storage = json.loads((fixtures / "storage-layout.json").read_bytes())
     profile = json.loads((fixtures / "resource-profile.json").read_bytes())
-    if workers == 2:
+    if group_id is not None:
+        storage["group_id"] = group_id
+        profile["group_id"] = group_id
+    if processing_groups_small_input:
+        if workers not in (1, 2):
+            raise ValueError("small processing-group fixture supports W1 or W2")
+        profile["worker"].update(count=workers, active_limit=workers,
+            memory_envelope_bytes=12 * 1024**3, kernel_memory_bytes=4 * 1024**3)
+        profile["host_budget"].update(memory_bytes=64 * 1024**3, cpu_count=32)
+    elif workers == 2:
         profile["worker"].update(count=2, active_limit=2,
             memory_envelope_bytes=16 * 1024**3, kernel_memory_bytes=8 * 1024**3)
         profile["host_budget"].update(memory_bytes=46 * 1024**3, cpu_count=9)
@@ -116,6 +126,8 @@ def main() -> None:
     parser.add_argument("--split-root", type=Path)
     parser.add_argument("--owner")
     parser.add_argument("--workers", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--group-id")
+    parser.add_argument("--processing-groups-small-input", action="store_true")
     parser.add_argument("--cleanup", action="store_true")
     parser.add_argument("--retain", action="store_true")
     args = parser.parse_args()
@@ -124,7 +136,8 @@ def main() -> None:
             parser.error("cleanup requires the exact fixture owner")
         cleanup(args.directory, args.owner, retain=args.retain)
     else:
-        print(prepare(args.directory, args.rs_source, args.split_root, args.owner, args.workers))
+        print(prepare(args.directory, args.rs_source, args.split_root, args.owner, args.workers,
+            group_id=args.group_id, processing_groups_small_input=args.processing_groups_small_input))
 
 
 if __name__ == "__main__":

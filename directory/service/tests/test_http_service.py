@@ -212,12 +212,12 @@ class ObservedServer(DirectoryServer):
         super().__init__(("127.0.0.1", 0), root / "directory.sqlite", build_static(root / "dist"),
                          "https://directory.example/", "https://gateway.example/")
 
-    def finish_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+    def finish_request(self, request: socket.socket | tuple[bytes, socket.socket], client_address: tuple[str, int]) -> None:
         self.workers.append(threading.current_thread())
         self.entered.put(None)
         super().finish_request(request, client_address)
 
-    def process_request_thread(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+    def process_request_thread(self, request: socket.socket | tuple[bytes, socket.socket], client_address: tuple[str, int]) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
@@ -262,7 +262,7 @@ def test_incomplete_http_requests_expire(
     # an otherwise live read, so trickling cannot extend a connection forever.
     server.io_timeout = 0.2 if limit == "idle" else 10
     server.request_deadline = 0.2 if limit == "deadline" else 10
-    with socket.create_connection(server.server_address, timeout=3) as client:
+    with socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as client:
         client.sendall(partial)
         server.entered.get(timeout=3)
         receive_until_closed(client)
@@ -272,13 +272,13 @@ def test_incomplete_http_requests_expire(
 
 def test_concurrency_rejects_excess_and_releases_capacity(bounded_http: ObservedServer) -> None:
     server = bounded_http
-    with (socket.create_connection(server.server_address, timeout=3) as first,
-          socket.create_connection(server.server_address, timeout=3) as second):
+    with (socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as first,
+          socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as second):
         first.sendall(b"GET /healthz HTTP/1.0\r\nX-Incomplete:")
         second.sendall(b"POST /api/handoffs HTTP/1.0\r\nContent-Length: 100\r\n\r\n{")
         server.entered.get(timeout=3)
         server.entered.get(timeout=3)
-        with socket.create_connection(server.server_address, timeout=3) as excess:
+        with socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as excess:
             assert receive_until_closed(excess) == b""
         assert server.entered.empty()
         first.shutdown(socket.SHUT_RDWR)
@@ -288,8 +288,8 @@ def test_concurrency_rejects_excess_and_releases_capacity(bounded_http: Observed
 
 def test_close_interrupts_incomplete_requests_and_joins_workers(bounded_http: ObservedServer) -> None:
     server = bounded_http
-    with (socket.create_connection(server.server_address, timeout=3) as first,
-          socket.create_connection(server.server_address, timeout=3) as second):
+    with (socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as first,
+          socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=3) as second):
         first.sendall(b"GET /healthz HTTP/1.0\r\nX-Incomplete:")
         second.sendall(b"POST /api/handoffs HTTP/1.0\r\nContent-Length: 100\r\n\r\n{")
         server.entered.get(timeout=3)
@@ -305,7 +305,7 @@ def test_close_interrupts_incomplete_requests_and_joins_workers(bounded_http: Ob
 
 
 def test_truncated_body_is_rejected_even_if_json_is_complete(bounded_http: ObservedServer) -> None:
-    with socket.create_connection(bounded_http.server_address, timeout=3) as client:
+    with socket.create_connection(("127.0.0.1", int(bounded_http.server_address[1])), timeout=3) as client:
         body = b'{"device_key":"dev-0000000000000000"}'
         client.sendall(b"POST /api/handoffs HTTP/1.0\r\nContent-Length: "
                        + str(len(body) + 1).encode() + b"\r\n\r\n" + body)

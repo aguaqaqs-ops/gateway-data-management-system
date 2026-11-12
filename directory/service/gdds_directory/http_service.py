@@ -120,7 +120,8 @@ class DirectoryServer(ThreadingHTTPServer):
         self._closing = False
         super().__init__(address, DirectoryHandler)
 
-    def process_request(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+    def process_request(self, request: socket.socket | tuple[bytes, socket.socket], client_address: tuple[str, int]) -> None:
+        assert isinstance(request, socket.socket)
         with self._requests_lock:
             if self._closing or not self._slots.acquire(blocking=False):
                 # Do not parse or write on an excess connection in the accept loop.
@@ -134,7 +135,8 @@ class DirectoryServer(ThreadingHTTPServer):
                 self._slots.release()
                 raise
 
-    def process_request_thread(self, request: socket.socket, client_address: tuple[str, int]) -> None:
+    def process_request_thread(self, request: socket.socket | tuple[bytes, socket.socket], client_address: tuple[str, int]) -> None:
+        assert isinstance(request, socket.socket)
         # An absolute deadline also bounds clients trickling headers/body bytes.
         deadline = threading.Timer(self.request_deadline, _interrupt, args=(request,))
         try:

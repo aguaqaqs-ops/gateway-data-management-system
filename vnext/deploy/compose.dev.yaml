@@ -1,3 +1,9 @@
-secrets:
-  backend-session:
-    file: ./config/session.json
+services:
+  backend:
+    volumes:
+      - type: bind
+        source: ./config/session
+        target: /run/gateway/session
+        read_only: true
+        bind:
+          create_host_path: false

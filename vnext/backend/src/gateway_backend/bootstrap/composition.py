@@ -104,6 +104,8 @@ from gateway_backend.infrastructure.repository_write.terminal_evidence_codec imp
     WireRepositoryTerminalEvidenceDecodePort,
 )
 from gateway_backend.runtime_preflight import RuntimePreflight
+from gateway_backend.bootstrap.repository_identity import assert_repository_identity
+from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.bootstrap.deployment_identity import publish_configuration, compare_configuration
 
 from gateway_backend.application.provisioning.registration import DeviceRegistration
@@ -225,8 +227,9 @@ def assert_repository_service_ready(
     bearer_token: str,
     *,
     timeout_seconds: float,
+    deployment: DeploymentConfig | None = None,
 ) -> None:
-    """Fail closed when Repository Service /readyz is unavailable."""
+    """Check readiness and authenticated deployment identity before accepting work."""
 
     if type(base_url) is not str or base_url == "":
         raise ValueError("repository base URL is missing")
@@ -242,6 +245,8 @@ def assert_repository_service_ready(
                 raise ValueError("repository service is not ready")
     except (urllib.error.URLError, TimeoutError, ValueError):
         raise ValueError("repository service is not ready") from None
+    if deployment is not None:
+        assert_repository_identity(base_url, bearer_token, deployment, timeout_seconds=timeout_seconds)
 
 
 class HttpRepositoryMainResolvePort:
@@ -311,6 +316,7 @@ def prepare_backend_runtime(
             settings.repository_base_url,
             repository_token,
             timeout_seconds=settings.repository_timeout_seconds,
+            deployment=settings.deployment_config,
         )
     registry = build_workspace_job_registry()
     assert_workspace_registry_ready(registry)

@@ -1,5 +1,6 @@
 services:
   backend:
+    image: ${GATEWAY_BACKEND_IMAGE:-${COMPOSE_PROJECT_NAME:-gateway}-backend}
     build:
       context: ..
       dockerfile: backend/Dockerfile
@@ -9,8 +10,6 @@ services:
         USE_PRELOADED_DEPENDENCIES: ${GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES:-0}
         UV_BOOTSTRAP_INDEX_URL: ${GATEWAY_BACKEND_UV_BOOTSTRAP_INDEX_URL:-https://pypi.org/simple}
         UV_BOOTSTRAP_TRUSTED_HOST: ${GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST:-}
-    ports:
-      - "8000:8000"
     environment:
       GATEWAY_STATISTICS_ENABLED: ${GATEWAY_STATISTICS_ENABLED:-true}
       GATEWAY_STATISTICS_SAMPLE_INTERVAL_SECONDS: ${GATEWAY_STATISTICS_SAMPLE_INTERVAL_SECONDS:-1}
@@ -24,13 +23,26 @@ services:
       GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE: /run/secrets/backend-internal-bearer
       GATEWAY_BACKEND_MAINTENANCE_MODE: ${GATEWAY_BACKEND_MAINTENANCE_MODE:-false}
       GATEWAY_BACKEND_REPOSITORY_TIMEOUT_SECONDS: "30.0"
-      GATEWAY_BACKEND_SESSION_FILE: /run/secrets/backend-session
+      GATEWAY_BACKEND_SESSION_FILE: /run/gateway/session/session.json
+      GATEWAY_BACKEND_PROCESSING_GROUPS_FILE: /run/gateway/groups/groups.json
+      GATEWAY_BACKEND_DEVICE_DIRECTORY_FILE: /run/gateway/groups/device-directory.json
       GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
+      - type: bind
+        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config}
+        target: /run/gateway/groups
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${GATEWAY_BACKEND_SESSION_DIRECTORY:-./config/session}
+        target: /run/gateway/session
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - repository-bearer-token
-      - backend-session
       - backend-internal-bearer
     depends_on:
       repository-service:
@@ -47,7 +59,7 @@ services:
       start_period: 30s
     stop_grace_period: 180s
   worker:
-    image: ${COMPOSE_PROJECT_NAME:-gateway}-worker
+    image: ${GATEWAY_WORKER_IMAGE:-${COMPOSE_PROJECT_NAME:-gateway}-worker}
     build:
       context: ..
       dockerfile: backend/Dockerfile
@@ -70,9 +82,17 @@ services:
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL: ${GATEWAY_BACKEND_REPOSITORY_BASE_URL:-http://repository-service:8000}
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE: /run/secrets/repository-bearer-token
       GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_TIMEOUT_SECONDS: "30.0"
+      GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE: /run/gateway/groups/groups.json
+      GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE: /run/gateway/groups/device-directory.json
       GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE: /run/gateway/provisioned-mapping.json
     volumes:
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
+      - type: bind
+        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config}
+        target: /run/gateway/groups
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - repository-bearer-token
     stop_grace_period: 180s
@@ -172,8 +192,6 @@ services:
 secrets:
   repository-bearer-token:
     file: ${GATEWAY_P2R2_BEARER_TOKEN_FILE}
-  backend-session:
-    file: ${GATEWAY_BACKEND_SESSION_FILE}
   backend-internal-bearer:
     file: ${GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE}
 volumes:

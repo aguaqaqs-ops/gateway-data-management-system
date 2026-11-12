@@ -120,6 +120,7 @@ from gateway_backend.operations.worker_lifecycle import WorkerLifecycleControlle
 from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
 from gateway_backend.runtime_preflight import RuntimePreflight
+from gateway_backend.bootstrap.repository_identity import assert_repository_identity
 from gateway_backend.bootstrap.deployment_identity import compare_configuration
 from gateway_backend.bootstrap.worker_instance import WorkerInstanceConflict, acquire_worker_instance, worker_id_for
 
@@ -182,6 +183,8 @@ def build_production_preview_dependencies(
     """Compose production Preview ports: Bounded store, HTTP/Arrow adapter, mapping Head."""
 
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
+    assert_repository_identity(settings.repository_base_url, token, settings.deployment_config,
+        timeout_seconds=settings.repository_timeout_seconds)
     bootstrap_control_database(settings)
     from gateway_backend.bootstrap.provisioning import reserved_directory
     storage = settings.deployment_config.storage

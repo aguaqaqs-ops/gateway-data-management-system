@@ -474,7 +474,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     for (const recorded of [...recording1.responses].reverse()) {
       try {
         expect(recorded.status(), "step1 bundle status").toBe(200);
-        bundle1 = parseBundleTar(Buffer.from(await recorded.body()));
+        bundle1 = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult1.bundle_digest });
         break;
       } catch {
         continue;
@@ -608,7 +608,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     for (const recorded of [...recording2.responses].reverse()) {
       try {
         expect(recorded.status(), "step4 bundle status").toBe(200);
-        bundle2 = parseBundleTar(Buffer.from(await recorded.body()));
+        bundle2 = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult2.bundle_digest });
         break;
       } catch {
         continue;

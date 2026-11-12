@@ -8,27 +8,148 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import signal
+import stat
+import sys
 import time
 from pathlib import Path
 
-from tests.support.processing_groups_harness import ProcessingGroupsStack
+from tests.support.processing_groups_harness import SCRIPTS, ProcessingGroupsStack, run
 
 
 def write(path: Path, value: object) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        temporary.write_text(json.dumps(value), encoding="utf-8")
+        temporary.replace(path)
+    except Exception as publication_error:
+        try:
+            temporary.unlink(missing_ok=True)
+        except Exception as cleanup_error:
+            raise ExceptionGroup("control document publication and temporary cleanup failed",
+                [publication_error, cleanup_error]) from None
+        raise
+
+
+def caller_succeeded(control: Path) -> bool:
+    status = json.loads((control / "groups-run-status.json").read_text())
+    if (not isinstance(status, dict) or type(status.get("main_exit_code")) is not int
+            or type(status.get("cleanup_failed")) is not bool or type(status.get("interrupted")) is not bool):
+        raise ValueError("missing or invalid browser runner exit status")
+    return status["main_exit_code"] == 0 and not status["cleanup_failed"] and not status["interrupted"]
+
+
+def sanitize_credentials(root: Path, control: Path, owner: str) -> list[Exception]:
+    """Attempt each credential independently, without printing any document values."""
+    errors: list[Exception] = []
+    try:
+        incoming_paths = list(root.glob("incoming-*.json*"))
+    except Exception as error:
+        errors.append(error)
+        incoming_paths = []
+    for path in incoming_paths:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception as error:
+            errors.append(error)
+    # Revoke runtime credentials in place: a failed down may leave active bind
+    # mounts. Keep their inode and every diagnostic database/artifact intact.
+    for group in ("group-a", "group-b"):
+        directory = root / group
+        try:
+            if not directory.exists():
+                continue
+            run(sys.executable, str(SCRIPTS / "tests/runtime_config_fixture.py"), str(directory),
+                "--owner", owner, "--cleanup", "--retain")
+        except Exception as error:
+            errors.append(error)
+            continue
+        for name, replacement in (("session/session.json", '{"sessions":[]}'), ("internal.token", ""), ("repository.token", "")):
+            path = root / group / name
+            try:
+                if path.exists():
+                    descriptor = os.open(path, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            raise ValueError("runtime credential is not an ordinary owned file")
+                        stream.truncate(0)
+                        stream.write(replacement)
+            except Exception as error:
+                errors.append(error)
+    ready = control / "groups-ready.json"
+    try:
+        if ready.exists():
+            record = json.loads(ready.read_text())
+            for identity in ("synthetic", "hot"):
+                record[identity].pop("token", None)
+            write(ready, record)
+    except Exception as error:
+        errors.append(error)
+        # A malformed/unwritable ready document must not keep its plaintext tokens.
+        try:
+            ready.unlink(missing_ok=True)
+        except Exception as unlink_error:
+            errors.append(unlink_error)
+    # First publication can fail before ready exists. This exact temporary is
+    # independent of incoming files in GROUPS_ROOT and of the parent's RUN_ROOT.
+    try:
+        ready.with_suffix(ready.suffix + ".tmp").unlink(missing_ok=True)
+    except Exception as error:
+        errors.append(error)
+    return errors
+
+
+def finish_stack(stack: ProcessingGroupsStack, root: Path, control: Path, *, interrupted: bool = False,
+                 primary_error: BaseException | None = None) -> None:
+    errors: list[BaseException] = [primary_error] if primary_error is not None else []
+    success = False
+    try:
+        success = caller_succeeded(control) and not interrupted
+    except Exception as error:
+        errors.append(error)
+    try:
+        # Defer destructive cleanup until the parent has checked all residuals and
+        # removed RUN_ROOT secrets. Service shutdown/log collection still happens now.
+        stack.close(retain=True)
+    except Exception as error:
+        errors.append(error)
+    errors.extend(sanitize_credentials(root, control, stack.owner))
+    if errors:
+        raise BaseExceptionGroup("browser group shutdown or credential cleanup failed", errors)
+    write(control / "groups-stopped.json", {"state": "stopped", "caller_succeeded": success,
+        "owner": stack.owner, "root": str(root.absolute())})
+
+
+def cleanup_retained(root: Path, control: Path) -> None:
+    """Called only after the parent finished every service/secret residual check."""
+    record = json.loads((control / "groups-stopped.json").read_text())
+    if (not caller_succeeded(control) or record.get("state") != "stopped"
+            or record.get("caller_succeeded") is not True or record.get("root") != str(root.absolute())
+            or not isinstance(record.get("owner"), str) or not record["owner"]):
+        raise ValueError("refusing destructive cleanup without confirmed successful shutdown")
+    # Preflight both owners before deleting either root, using the existing inode
+    # and owner checked fixture authority, not a directory name/prefix.
+    for retain in (True, False):
+        for group in ("group-a", "group-b"):
+            print(run(sys.executable, str(SCRIPTS / "tests/runtime_config_fixture.py"), str(root / group),
+                "--owner", record["owner"], "--cleanup", *(["--retain"] if retain else [])), end="", flush=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--sessions", required=True, type=Path)
+    parser.add_argument("--sessions", type=Path)
+    parser.add_argument("--cleanup-retained", action="store_true")
     parser.add_argument("--scopes", type=Path)
     parser.add_argument("--control", required=True, type=Path)
     args = parser.parse_args()
+    if args.cleanup_retained:
+        cleanup_retained(args.root, args.control)
+        return
+    if args.sessions is None:
+        parser.error("--sessions is required when starting groups")
     stopping = False
 
     def stop(_signal: int, _frame: object) -> None:
@@ -92,16 +213,8 @@ def main() -> None:
                 write(args.control / "hot-add-result.json", {"state": "available", "containers_unchanged": True})
             time.sleep(0.1)
     finally:
-        stack.close()
-        for incoming in args.root.glob("incoming-*.json"):
-            incoming.unlink()
-        ready = args.control / "groups-ready.json"
-        if ready.exists():
-            record = json.loads(ready.read_text())
-            for identity in ("synthetic", "hot"):
-                record[identity].pop("token", None)
-            write(ready, record)
-        write(args.control / "groups-stopped.json", {"state": "stopped"})
+        finish_stack(stack, args.root, args.control, interrupted=stopping, primary_error=sys.exc_info()[1])
+
 
 
 if __name__ == "__main__":

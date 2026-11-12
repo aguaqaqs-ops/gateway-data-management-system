@@ -167,7 +167,7 @@ async function uploadAndPreview(
   const bundleResponse = await bundleWait;
   expect(bundleResponse.status(), "bundle status").toBe(200);
   const body = Buffer.from(await bundleResponse.body());
-  const bundle = parseBundleTar(body);
+  const bundle = await parseBundleTar(body, { contentLength: bundleResponse.headers()["content-length"] ?? null, etag: bundleResponse.headers()["etag"] ?? null });
   const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
   appendCaseLog(`criteria ${scope.slug} preview ${formatCriteriaSummary(criteria)}`);
 
@@ -548,7 +548,7 @@ test("r3-truncated", async ({ browser }, testInfo) => {
     await error.getByRole("button", { name: "重试", exact: true }).click();
     const recoveredResponse = await recovered;
     expect(recoveredResponse.status()).toBe(200);
-    const parsed = parseBundleTar(Buffer.from(await recoveredResponse.body()));
+    const parsed = await parseBundleTar(Buffer.from(await recoveredResponse.body()), { contentLength: recoveredResponse.headers()["content-length"] ?? null, etag: recoveredResponse.headers()["etag"] ?? null });
     await assertBundleConsumerCriteria(parsed, "journey r3 recovered bundle");
     expect(parsed.manifest.status).toBe("READY");
     expect(countBundlePairs(parsed.manifest)).toBe(1);
@@ -1034,8 +1034,8 @@ test("r9-history", async ({ browser }, testInfo) => {
 
     await Promise.all(historyBodies.pending);
     historyBodies.dispose();
-    for (const body of historyBodies.bodies) {
-      const criteria = await assertBundleConsumerCriteria(parseBundleTar(body), "journey r9-history bundle");
+    for (const download of historyBodies.bodies) {
+      const criteria = await assertBundleConsumerCriteria(await parseBundleTar(download.body, download), "journey r9-history bundle");
       appendCaseLog(`criteria r9-history ${formatCriteriaSummary(criteria)}`);
     }
     expect(historyBodies.bodies.length, "r9-history bundle downloads checked").toBeGreaterThan(0);
@@ -1364,7 +1364,7 @@ async function uploadDirsAndPreview(
     for (const recorded of [...bundleRecording.responses].reverse()) {
       try {
         expect(recorded.status(), "bundle status").toBe(200);
-        bundle = parseBundleTar(Buffer.from(await recorded.body()));
+        bundle = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult.bundle_digest });
         bundleResponse = recorded;
         break;
       } catch {

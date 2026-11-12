@@ -315,9 +315,9 @@ print(json.dumps(dict(r) if r else {}))
             "--groups-file", str(self.groups_path), "--backend-url", self.group_url(group),
             "--internal-bearer-token-file", row["internal_token_file"], env=self.envs[group], timeout=300)
 
-    def close(self) -> None:
+    def close(self, *, retain: bool = False) -> None:
         errors: list[Exception] = []
-        retain = sys.exc_info()[0] is not None
+        retain = retain or sys.exc_info()[0] is not None
         try:
             self.release()
         except Exception as error:

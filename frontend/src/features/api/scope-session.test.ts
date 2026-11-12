@@ -9,8 +9,8 @@ import { scopedStorage } from "./scoped-storage";
 import { decodeHandoffFragment, initializeGatewaySession, getGatewaySessionState } from "../session/handoff-session";
 import { TEST_HISTORY_CURSOR_FIRST, TEST_OPERATION_ACCEPTED } from "../dev/simulated-api";
 
-const vectors = JSON.parse(readFileSync(new URL("../../../../vnext/fixtures/processing-groups/v1/identity-vectors.json", import.meta.url), "utf8")) as Array<{ gateway_device_external_key: string; route_key: string }>;
-const boundaries = JSON.parse(readFileSync(new URL("../../../../vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json", import.meta.url), "utf8")) as { rejected_noncharacters: string[]; accepted_adjacent_scalars: string[] };
+const vectors = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/identity-vectors.json", "utf8")) as Array<{ gateway_device_external_key: string; route_key: string }>;
+const boundaries = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json", "utf8")) as { rejected_noncharacters: string[]; accepted_adjacent_scalars: string[] };
 const scalar = (value: string) => String.fromCodePoint(Number.parseInt(value.slice(2), 16));
 const input = (device = "device-a", token = "token-a") => ({ businessProjectId: "project", gatewayDeviceExternalKey: device, accessToken: token });
 function adopt(device = "device-a", token = "token-a") { window.__gatewaySession = createGatewaySession(input(device, token)); return currentGatewaySession(); }

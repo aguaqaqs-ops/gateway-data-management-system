@@ -109,6 +109,9 @@ RS_TAG=""
 RS_TAG_SET=0
 SMOKE_INPUT=""
 STACK_STARTED=0
+GROUPS_PID=""
+GROUPS_CONTROL=""
+GROUPS_ROOT=""
 INTERRUPT_SIGNAL=""
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_FILE"; }
@@ -176,8 +179,13 @@ cleanup() {
     docker stop --time 10 "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || true
     docker rm --force "$TOOLCHAIN_CONTAINER" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$GROUPS_PID" ]]; then
+    touch "$GROUPS_CONTROL/groups-stop"
+    if ! wait "$GROUPS_PID"; then cleanup_failed=1; log "cleanup_groups=failed"; fi
+    [[ -f "$GROUPS_CONTROL/groups-stopped.json" ]] || { cleanup_failed=1; log "cleanup_groups=unconfirmed"; }
+  fi
   # 2. compose logs, then down (volumes, orphans, project-local images).
-  if [[ -n "$PROJECT_NAME" ]]; then
+  if [[ -n "$PROJECT_NAME" && -z "$GROUPS_PID" ]]; then
     compose_runtime logs --no-color --timestamps \
       >"$LOG_DIR/compose-$PROJECT_NAME.log" 2>&1 || true
     if ! compose_runtime down -v --remove-orphans --rmi local \
@@ -362,6 +370,8 @@ elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe4a" ]]; then
       if [[ "$keep" == "$slug" ]]; then ACTIVE_SCOPE_ROLE_SPEC+=("$journey_spec"); break; fi
     done
   done
+elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "s2b-routing" ]]; then
+  ACTIVE_SCOPE_ROLE_SPEC=("r1-states=submitter,reviewer")
 else
   ACTIVE_SCOPE_ROLE_SPEC=("${JOURNEY_SCOPE_ROLE_SPEC[@]}")
 fi
@@ -548,9 +558,7 @@ STAMP="$(date -u +%Y%m%dt%H%M%Sz | tr 'A-Z' 'a-z')"
 PROJECT_NAME="gdds-fe-${SUBPHASE}-${HEAD_START:0:12}-${STAMP}"
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 RUN_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-${SUBPHASE}-e2e.XXXXXX")"
-RUNTIME_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe-runtime.XXXXXX")"
-python3 -I "$REPO_DIR/vnext/scripts/tests/runtime_config_fixture.py" "$RUNTIME_ROOT" --owner "$PROJECT_NAME" >>"$LOG_FILE" 2>&1
-RUNTIME_COMPOSE_OVERRIDE="$RUNTIME_ROOT/compose-runtime.json"
+
 chmod 0755 "$RUN_ROOT"
 log "compose_project=$PROJECT_NAME"
 log "run_root=$RUN_ROOT"
@@ -756,197 +764,33 @@ if [[ "$SUITE" == "smoke" ]]; then
   done
 fi
 
-# 1. build backend+worker images (offline, preloaded deps).
-if ! compose_runtime build backend worker 2>&1 | tee -a "$LOG_FILE"; then
-  log "error=backend/worker build failed"
-  exit 2
-fi
-compose_runtime images 2>&1 | tee -a "$LOG_FILE" || true
-
-# 2. up repository-service, wait ready, seed one repository per scope.
+# Two complete groups plus independent public entry. The helper owns the
+# existing test-only Compose harness and registers every scope by add-device.
+GROUPS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe-groups.XXXXXX")"
+GROUPS_CONTROL="$LOG_DIR/groups-control"
+mkdir "$GROUPS_CONTROL"
+SCOPES_ARGS=()
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then SCOPES_ARGS=(--scopes "$RUN_ROOT/journey-scopes.json"); fi
+# Hand flock ownership to the sole stack process, retaining our node marker.
+exec 9>&-
+HAVE_FLOCK=0
+UV_OFFLINE=1 CARGO_NET_OFFLINE=true "$REPO_DIR/vnext/scripts/uv-consume.sh" -C "$REPO_DIR/vnext/backend" run python \
+  "$FRONTEND_DIR/scripts/processing-groups-e2e.py" --root "$GROUPS_ROOT" \
+  --sessions "$RUN_ROOT/session.json" "${SCOPES_ARGS[@]}" --control "$GROUPS_CONTROL" \
+  >"$LOG_DIR/processing-groups.log" 2>&1 &
+GROUPS_PID=$!
+for _ in $(seq 1 900); do
+  [[ ! -f "$GROUPS_CONTROL/groups-ready.json" ]] || break
+  if ! kill -0 "$GROUPS_PID" 2>/dev/null; then log "error=processing groups setup failed; see processing-groups.log"; exit 2; fi
+  sleep 2
+done
+[[ -f "$GROUPS_CONTROL/groups-ready.json" ]] || { log "error=processing groups setup timed out"; exit 2; }
+ENTRY_ORIGIN="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["entry_url"])' "$GROUPS_CONTROL/groups-ready.json")"
+BACKEND_ORIGIN="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["backend_url"])' "$GROUPS_CONTROL/groups-ready.json")"
 STACK_STARTED=1
-if ! compose_runtime up -d --no-build repository-service 2>&1 | tee -a "$LOG_FILE"; then
-  log "error=repository-service up failed"
-  exit 2
-fi
-RS_READY_OK=0
-for _ in $(seq 1 90); do
-  if compose_runtime exec -T repository-service python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)" >/dev/null 2>&1; then
-    RS_READY_OK=1
-    break
-  fi
-  sleep 2
-done
-if [[ "$RS_READY_OK" != "1" ]]; then
-  log "error=repository-service never became ready"
-  exit 2
-fi
-log "repository_service_ready=ok"
-
-# Smoke seeds the two fixed scopes plus one per upload input; journeys seed
-# one fully independent scope per journey spec (kickoff §4.6).
-if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
-  SCOPE_SLUGS=("${JOURNEY_SLUGS[@]}")
-  SCOPE_NAMES=("${JOURNEY_SLUGS[@]}")
-else
-  SCOPE_SLUGS=(upload-preview permission-denied "${INPUT_SCOPE_SLUGS[@]}")
-  SCOPE_NAMES=("上传与预览" "权限拒绝" "${INPUT_SCOPE_NAMES[@]}")
-fi
-SCOPE_ROWS=()
-for index in "${!SCOPE_SLUGS[@]}"; do
-  scope="${SCOPE_SLUGS[$index]}"
-  scope_name="${SCOPE_NAMES[$index]}"
-  if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
-    device_key="fe3b-device-${scope}"
-    business_project="fe3b-project-${scope}"
-    baseline_node="fe3b-baseline-${scope}"
-    seed_key="fe3b-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
-  else
-    case "$scope" in
-      upload-preview)
-        device_key="$UPLOAD_DEVICE"; business_project="$UPLOAD_PROJECT" ;;
-      permission-denied)
-        device_key="$PERMISSION_DEVICE"; business_project="$PERMISSION_PROJECT" ;;
-      input-*)
-        device_key="fe3a-device-${scope}"; business_project="fe3a-project-${scope}" ;;
-      *)
-        log "error=unknown scope $scope"; exit 2 ;;
-    esac
-    baseline_node="fe3a-baseline-${scope}"
-    seed_key="fe3a-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
-  fi
-  if ! compose_runtime exec -T repository-service python -c "
-import urllib.request
-req = urllib.request.Request('http://127.0.0.1:8000/v1/repositories', method='POST', headers={'Authorization': 'Bearer $RS_BEARER', 'Idempotency-Key': '$seed_key'})
-print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/seed-${scope}.json" 2>>"$LOG_FILE"; then
-    log "error=repository-service seed failed for scope=$scope"
-    exit 2
-  fi
-  seed_json="$(cat "$RUN_ROOT/seed-${scope}.json")"
-  repo_id="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["repository_id"])' "$seed_json")"
-  init_commit="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["initial_commit_id"])' "$seed_json")"
-  if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
-    # Fail closed: each journey scope must start from an empty INITIAL commit
-    # (kickoff §4.6; same check as the Compose gate harness).
-    if ! compose_runtime exec -T repository-service python -c "
-import base64, json, urllib.request
-encoded = base64.urlsafe_b64encode('$init_commit'.encode()).decode().rstrip('=')
-request = urllib.request.Request(
-    'http://127.0.0.1:8000/v1/repositories/$repo_id/versioned/commits/' + encoded + '/catalog',
-    headers={'Authorization': 'Bearer $RS_BEARER'},
-)
-with urllib.request.urlopen(request, timeout=60.0) as response:
-    catalog = json.loads(response.read().decode())['catalog']
-if catalog['tables']:
-    raise SystemExit('INITIAL commit is not empty')
-" 2>>"$LOG_FILE"; then
-      log "error=journey scope INITIAL commit is not empty or unreadable scope=$scope"
-      exit 2
-    fi
-    log "journey_scope_initial_empty=ok scope=$scope"
-  fi
-  SCOPE_ROWS+=("${scope}|${device_key}|${business_project}|${baseline_node}|${repo_id}|${init_commit}")
-  log "scope=$scope_name scope_slug=$scope repository_id=$repo_id initial_commit_id=$init_commit business_baseline_node_id=$baseline_node"
-done
-
-python3 -I - "$RUN_ROOT/provisioned-mapping.json" "${SCOPE_ROWS[@]}" <<'PY'
-import json
-import sys
-
-out_path, *rows = sys.argv[1:]
-mappings = []
-for row in rows:
-    _slug, device, project, node, repo, commit = row.split("|")
-    mappings.append({
-        "gateway_device_external_key": device,
-        "business_project_id": project,
-        "repository_id": repo,
-        "business_baseline_node_id": node,
-        "business_baseline_commit_id": commit,
-        "baseline_head_version": 0,
-        "enabled": True,
-    })
-with open(out_path, "w", encoding="utf-8") as handle:
-    json.dump({"mappings": mappings}, handle, indent=2)
-    handle.write("\n")
-PY
-chmod 0644 "$RUN_ROOT/provisioned-mapping.json"
-log "provisioned_mappings=$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["mappings"]))' "$RUN_ROOT/provisioned-mapping.json")"
-
-if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
-  # Backfill the seeded repository and INITIAL commit into the document the
-  # suite reads through GATEWAY_FE_JOURNEY_SCOPES (lib/env.ts JourneyScope).
-  python3 -I - "$RUN_ROOT/provisioned-mapping.json" "$RUN_ROOT/journey-scopes.json" <<'PY'
-import json
-import sys
-
-mapping_path, scopes_path = sys.argv[1], sys.argv[2]
-mappings = json.load(open(mapping_path, encoding="utf-8"))["mappings"]
-scopes = json.load(open(scopes_path, encoding="utf-8"))
-by_scope = {}
-for mapping in mappings:
-    slug = mapping["business_project_id"].removeprefix("fe3b-project-")
-    by_scope[slug] = mapping
-for scope in scopes["scopes"]:
-    mapping = by_scope.get(scope["slug"])
-    if mapping is None:
-        raise SystemExit(f"missing provisioned mapping for journey scope {scope['slug']}")
-    scope["repository_id"] = mapping["repository_id"]
-    scope["initial_commit_id"] = mapping["business_baseline_commit_id"]
-    scope["business_baseline_node_id"] = mapping["business_baseline_node_id"]
-with open(scopes_path, "w", encoding="utf-8") as handle:
-    json.dump(scopes, handle, indent=2)
-    handle.write("\n")
-PY
-  chmod 0644 "$RUN_ROOT/journey-scopes.json"
-  python3 -I - "$RUN_ROOT/journey-scopes.json" <<'PY' | tee -a "$LOG_FILE"
-import json
-import sys
-
-for scope in json.load(open(sys.argv[1], encoding="utf-8"))["scopes"]:
-    print(
-        f"journey_scope={scope['slug']} repo={scope['repository_id']} "
-        f"initial={scope['initial_commit_id']} baseline={scope['business_baseline_node_id']}"
-    )
-PY
-fi
-
-# 3. up backend+worker, wait /readyz and the worker readiness log line.
-if ! compose_runtime up -d --no-build backend worker 2>&1 | tee -a "$LOG_FILE"; then
-  log "error=backend/worker up failed"
-  exit 2
-fi
-READYZ_OK=0
-for _ in $(seq 1 90); do
-  if curl -fsS http://127.0.0.1:8000/readyz >/dev/null 2>&1; then
-    READYZ_OK=1
-    break
-  fi
-  sleep 2
-done
-if [[ "$READYZ_OK" != "1" ]]; then
-  log "error=backend /readyz never became ready"
-  exit 2
-fi
-log "backend_readyz=ok"
-WORKER_READY_OK=0
-for _ in $(seq 1 60); do
-  if compose_runtime logs worker --no-color 2>/dev/null | grep -q 'code=worker_ready'; then
-    WORKER_READY_OK=1
-    break
-  fi
-  sleep 2
-done
-if [[ "$WORKER_READY_OK" != "1" ]]; then
-  log "error=worker never logged code=worker_ready"
-  exit 2
-fi
-log "worker_ready=ok"
-for svc in backend worker; do
-  cid=$(compose_runtime ps -q "$svc")
-  log "${svc}_image_id=$(docker inspect --format '{{.Image}}' "$cid")"
-done
-log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --format '{{.Id}}' 2>/dev/null || echo unknown)"
+log "entry_origin=$ENTRY_ORIGIN"
+log "group_count=2 group_a_registration=add-device group_b=synthetic"
+log "groups_topology=$GROUPS_CONTROL/groups-ready.json"
 
 # 4. Upload input directories, always outside the worktree.
 # Smoke (FE3a): five independent directories, one per input scope; SQL files
@@ -1091,19 +935,19 @@ RUN_STAGE="toolchain"
 git -C "$REPO_DIR" archive --format=tar HEAD frontend > "$RUN_ROOT/frontend.tar"
 TOOLCHAIN_CONTAINER="${PROJECT_NAME}-toolchain"
 if ! docker run -d --init --ipc=host --name "$TOOLCHAIN_CONTAINER" --label "com.docker.compose.project=$PROJECT_NAME" --label "gateway.fe.session=$SESSION" \
-  --network "${PROJECT_NAME}_default" \
+  --network host \
   --volume "$RUN_ROOT/frontend.tar:/frontend.tar:ro" \
   --volume "$NPM_CACHE_DIR:/npm-cache:ro" \
   --volume "$LOG_DIR:/results" \
   --volume "${INPUT_MOUNT_SOURCE}:${INPUT_MOUNT_TARGET}:ro" \
-  --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
+  --env "GATEWAY_FRONTEND_ENTRY_ORIGIN=$ENTRY_ORIGIN" \
   --env "GATEWAY_FE_SUITE=$SUITE" \
   "$TOOLCHAIN_IMAGE" sleep infinity >/dev/null; then
   log "error=toolchain container failed to start"
   exit 2
 fi
 log "toolchain_container=$TOOLCHAIN_CONTAINER"
-log "toolchain_network=${PROJECT_NAME}_default"
+log "toolchain_network=host browser_backend=public-entry"
 
 if ! docker exec "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c '
   mkdir -p /tmp/frontend /tmp/npm-cache
@@ -1137,8 +981,8 @@ fi
 log "preview_ready=http://127.0.0.1:4173"
 
 RUN_STAGE="openapi-compare"
-if ! docker exec "$TOOLCHAIN_CONTAINER" node -e 'fetch("http://127.0.0.1:4173/openapi.json").then(async (r) => { if (!r.ok) process.exit(1); process.stdout.write(await r.text()); }).catch(() => process.exit(1))' > "$LOG_DIR/openapi-runtime.json"; then
-  log "error=fetching /openapi.json through the preview proxy failed"
+if ! curl --fail --silent --show-error "$BACKEND_ORIGIN/openapi.json" > "$LOG_DIR/openapi-runtime.json"; then
+  log "error=fetching OpenAPI from controlled backend loopback failed"
   exit 2
 fi
 set +e
@@ -1338,6 +1182,7 @@ if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
       --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
     )
     SUITE_SPEC="e2e-real/journeys.spec.ts"
+    if [[ "$SUBPHASE" == "s2b-routing" ]]; then SUITE_SPEC="e2e-real/processing-groups.spec.ts"; fi
   fi
 else
   SUITE_ENV=(--env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input")
@@ -1368,14 +1213,16 @@ docker exec \
   "${SUITE_ENV[@]}" \
   --env "GATEWAY_FE_RESULTS_FILE=/results/results.json" \
   --env "GATEWAY_FE_RESULTS_DIR=/results" \
-  --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
+  --env "GATEWAY_FRONTEND_ENTRY_ORIGIN=$ENTRY_ORIGIN" \
   "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c '
   cd /tmp/frontend
   export GATEWAY_FE_IDENTITIES="$(cat /tmp/identities.json)"
   if [[ -f /tmp/journey-scopes.json ]]; then
     export GATEWAY_FE_JOURNEY_SCOPES="$(cat /tmp/journey-scopes.json)"
   fi
-  npx playwright test --config playwright.real.config.ts "$1" ${2:+"$2"}
+  specs=("$1")
+  if [[ "$1" == "e2e-real/journeys.spec.ts" ]]; then specs+=(e2e-real/processing-groups.spec.ts); fi
+  npx playwright test --config playwright.real.config.ts "${specs[@]}" ${2:+"$2"}
 ' suite "$SUITE_SPEC" "$PLAYWRIGHT_GREP" > >(tee -a "$LOG_FILE") 2>&1 &
 SUITE_PID=$!
 wait "$SUITE_PID"

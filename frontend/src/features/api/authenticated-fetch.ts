@@ -1,4 +1,4 @@
-import { assertCurrentSession, SessionChangedError, currentGatewaySession, type GatewaySession } from "./session";
+import { SessionChangedError, currentGatewaySession, type GatewaySession } from "./session";
 import { reportConnectionStatus } from "./connection-status";
 import { expireHandoffSessionOnUnauthorized } from "../session/handoff-session";
 
@@ -47,6 +47,7 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
     if (isApi) headers.set("X-Gateway-Device-Key", snapshot.deviceRouteKey);
     else headers.delete("X-Gateway-Device-Key");
     const response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
+    if ((boundSession || session === currentGatewaySession) && session() !== snapshot) throw new SessionChangedError();
     if (response.ok) {
       if (trackConnection) reportConnectionStatus("connected");
       return response;
@@ -63,12 +64,12 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
     const message = typeof errorBody.message === "string"
       ? errorBody.message
       : `请求失败（HTTP ${response.status}）`;
+    if ((boundSession || session === currentGatewaySession) && session() !== snapshot) throw new SessionChangedError();
     if (response.status === 401 && code === "AUTHENTICATION_REQUIRED") {
       // The handoff session is the only state that can expire here; injected
       // dev/test identities are left alone so their own error surfaces remain.
       expireHandoffSessionOnUnauthorized(snapshot);
     }
-    if (currentGatewaySession() !== snapshot && session === currentGatewaySession) assertCurrentSession(snapshot);
     const displayMessage = response.status === 404 && init.method === "POST" && path === "/v1/workspaces"
       ? "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。" : message;
     throw new ApiError(displayMessage, response.status, code, errorBody.details);

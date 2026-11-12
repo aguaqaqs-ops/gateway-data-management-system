@@ -612,6 +612,9 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
         if edge.source.startswith("gateway_backend.bootstrap"):
             imported = edge.target
             if imported.startswith("gateway_backend."):
+                # This exact stdlib root model is owned by deployment composition.
+                if imported == "gateway_backend.processing_group_config":
+                    continue
                 assert imported.startswith(
                     (
                         "gateway_backend.application",

@@ -156,7 +156,7 @@ async def test_wrong_rs_identity_and_reservation_fail_before_create(tmp_path: Pa
 
 
 def test_internal_routes_and_empty_seed_preserve_online_records(tmp_path: Path) -> None:
-    env = create_workspace_http_environment(tmp_path)
+    env = create_workspace_http_environment(tmp_path, admission_gate=ClosableAdmissionGate())
     app, repository = application(env.db_path)
     cast(FastAPI, env.client.app).state.device_registration = app
     path = "/internal/v1/devices/register"
@@ -184,7 +184,7 @@ def test_internal_routes_and_empty_seed_preserve_online_records(tmp_path: Path) 
     ("gateway_device_external_key", "a" * 256), ("business_project_id", "\x00"),
 ])
 def test_registration_http_identity_validation_precedes_effect(tmp_path: Path, field: str, value: str) -> None:
-    env = create_workspace_http_environment(tmp_path)
+    env = create_workspace_http_environment(tmp_path, admission_gate=ClosableAdmissionGate())
     app, repository = application(env.db_path)
     cast(FastAPI, env.client.app).state.device_registration = app
     assert env.client.post("/internal/v1/devices/register", json={**BODY, field: value}, headers=AUTH).status_code == 422
@@ -192,7 +192,7 @@ def test_registration_http_identity_validation_precedes_effect(tmp_path: Path, f
 
 
 def test_registration_body_is_bounded_and_rejects_duplicate_keys(tmp_path: Path) -> None:
-    env = create_workspace_http_environment(tmp_path)
+    env = create_workspace_http_environment(tmp_path, admission_gate=ClosableAdmissionGate())
     path = "/internal/v1/devices/register"
     assert env.client.post(path, content=b" " * 8193, headers=AUTH).status_code == 413
     raw = json.dumps(BODY)[:-1] + ',"group_id":"other"}'
@@ -204,7 +204,7 @@ def test_admitted_registration_remains_visible_to_drain_until_complete(tmp_path:
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
     entered, release = Event(), Event()
-    env = create_workspace_http_environment(tmp_path)
+    env = create_workspace_http_environment(tmp_path, admission_gate=ClosableAdmissionGate())
     app, repository = application(env.db_path)
     class BlockingRepository(Repository):
         async def create_repository(self, *, idempotency_key: str) -> CreatedRepository:

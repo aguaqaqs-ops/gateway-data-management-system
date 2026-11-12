@@ -3,7 +3,7 @@ import type { components } from "../api/generated/openapi";
 import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { PollingConnectionLostError, runSubmitJourney, SubmitAbortedError } from "../api/journeys";
-import { currentGatewaySession } from "../api/session";
+import { currentGatewaySession, SessionChangedError } from "../api/session";
 import { Button, Dialog } from "../../design-system/components";
 import { formatWaitDuration } from "./wait-duration";
 import { describeSubmitSummary } from "./submit-summary";
@@ -186,6 +186,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       clearOperationUrl();
       setSubmitted(result.submission.submission_id);
     } catch (cause) {
+      if (cause instanceof SessionChangedError) return;
       clearOperationUrl();
       // 已确定失败（4xx/ABORTED）时换新键，否则重试会重放同一个失败结果；
       // 超时、连接中断与 5xx 结果不确定，沿用原键避免重复提交。

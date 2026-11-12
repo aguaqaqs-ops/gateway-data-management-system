@@ -1,4 +1,4 @@
-import { type GatewaySession } from "./session";
+import { SessionChangedError, type GatewaySession } from "./session";
 import type { components, paths } from "./generated/openapi";
 import { createAuthenticatedFetch, type SessionProvider, type FetchLike } from "./authenticated-fetch";
 import { Sha256 } from "../bundle/sha256";
@@ -48,6 +48,7 @@ export interface GatewayApiOptions {
 
 export interface GatewayApi {
   bindSession?(): GatewayApi;
+  assertSession?(): void;
   createWorkspace(body: Schemas["CreateWorkspaceRequest"]): Promise<Schemas["WorkspaceResponse"]>;
   uploadRevision(workspaceId: string, input: UploadRevisionInput): Promise<Schemas["UploadRevisionResponse"]>;
   startPreview(workspaceId: string, body: Schemas["StartPreviewRequest"], idempotencyKey?: string): Promise<Schemas["OperationAcceptedResponse"]>;
@@ -119,7 +120,11 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     return json<T>(await request(path, { method: "POST", headers, body: JSON.stringify(body) }));
   };
 
-  return {
+  const assertSession = () => {
+    if (options.boundSession && options.session() !== options.boundSession) throw new SessionChangedError();
+  };
+  const api: GatewayApi = {
+    assertSession,
     bindSession: () => createGatewayApi({ ...options, boundSession: options.boundSession ?? options.session() }),
     createWorkspace: (body) => sendJson<Schemas["WorkspaceResponse"]>(route("/v1/workspaces"), body),
     async uploadRevision(workspaceId, input) {
@@ -191,6 +196,24 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     getArchiveResult: async (archiveResultId) => json<Schemas["ArchiveResultResponse"]>(await request(route("/v1/archives/{archive_result_id}").replace("{archive_result_id}", encodeURIComponent(archiveResultId)))),
     closeSubmission: (submissionId, body, key) => sendJson<Schemas["CloseSubmissionResponse"]>(route("/v1/submissions/{submission_id}/closure").replace("{submission_id}", encodeURIComponent(submissionId)), body, key),
   };
+  if (!options.boundSession) return api;
+  return new Proxy(api, {
+    get(target, property, receiver) {
+      const method = Reflect.get(target, property, receiver);
+      if (typeof method !== "function" || property === "bindSession" || property === "assertSession" || !Object.hasOwn(target, property)) return method;
+      return async (...args: unknown[]) => {
+        assertSession();
+        try {
+          const result: unknown = await Reflect.apply(method, target, args);
+          assertSession();
+          return result;
+        } catch (cause) {
+          assertSession();
+          throw cause;
+        }
+      };
+    },
+  });
 }
 
 export function bindGatewayApi(api: GatewayApi): GatewayApi { return api.bindSession?.() ?? api; }

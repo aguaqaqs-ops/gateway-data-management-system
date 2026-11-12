@@ -8,7 +8,7 @@ import { ApiError, DEVICE_UNAVAILABLE_MESSAGE } from "../features/api/authentica
 import { bundleErrorTitle } from "../features/bundle/local-bundle";
 import { reportConnectionStatus } from "../features/api/connection-status";
 import { PollingConnectionLostError, pollHistoryCompare } from "../features/api/journeys";
-import { currentGatewaySession, historyCompareRequestTimeoutMs } from "../features/api/session";
+import { currentGatewaySession, SessionChangedError, historyCompareRequestTimeoutMs } from "../features/api/session";
 import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
 import { ClosureReason, formatDispositionTime } from "../features/workbench/disposition-display";
 import { ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
@@ -136,10 +136,12 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       if (!previewResultId) { setUploadLocked(false); return; }
       const preview = await gatewayApi.getPreviewResult(workspace.workspace_id, previewResultId);
       await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: preview.bundle_digest, fetchBundle: () => gatewayApi.getPreviewBundle(workspace.workspace_id, previewResultId) });
+      gatewayApi.assertSession?.();
       resumePending.current = false;
       scopedStorage.removeItem("gateway-preview-operation");
       window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId: workspace.workspace_id, previewResultId, workbenchNode: selectedKey }, compareRefs));
-    } catch {
+    } catch (cause) {
+      if (cause instanceof SessionChangedError) return;
       resumePending.current = false;
       scopedStorage.removeItem("gateway-preview-operation");
       setUploadLocked(false);
@@ -406,6 +408,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           store: new OpfsBundleStore(), expectedBundleDigest: result.result.bundle_digest,
           fetchBundle: () => gatewayApi.getHistoryBundle(historyCompareOperationId, controller.signal),
         });
+        gatewayApi.assertSession?.();
         setHistoryBundle(installed);
         setCompareError(null);
         setBundleStatus("ready");

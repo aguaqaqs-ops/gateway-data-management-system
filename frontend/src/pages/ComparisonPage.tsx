@@ -403,9 +403,11 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
         fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
+      gatewayApi.assertSession?.();
       loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };
       const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary => Boolean(value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string"));
       const loadedPairs = await Promise.all(pairSummaries.map(async (pair) => ({ pair, presentation: await loadComparisonPresentation(loaded, pair.pair_id) })));
+      gatewayApi.assertSession?.();
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
       const currentState = runtime.snapshot.state;
       const initialBundleLoad = currentState.bundleDigest === null;

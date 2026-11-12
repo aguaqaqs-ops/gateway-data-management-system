@@ -259,6 +259,7 @@ export async function runPreviewJourney(
     fetchBundle: () => api.getPreviewBundle(workspaceId, preview.preview_result_id),
     onProgress: input.onDownloadProgress,
   });
+  api.assertSession?.();
   return { workspace: refreshedWorkspace, upload, operation, preview, bundle };
 }
 
@@ -320,6 +321,7 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
   if (attempt.state === "ABORTED") throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");
   if (!attempt.submission_id) throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");
   const submission = await api.getSubmission(input.workspaceId, attempt.submission_id);
+  api.assertSession?.();
   return { accepted, operation, attempt, submission };
 }
 
@@ -350,6 +352,7 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
     expectedBundleDigest: result.result.bundle_digest,
     fetchBundle: () => api.getHistoryBundle(accepted.operation_id),
   });
+  api.assertSession?.();
   return { accepted, result, bundle };
 }
 
@@ -501,6 +504,7 @@ export async function runArchiveJourney(
     anomaly_resolution_refs: anomalyResolutionRefs,
   }, progress.startKey);
   progress.result ??= await api.getArchiveResult(progress.started.archive_result_id);
+  api.assertSession?.();
   return { plan, started: progress.started, result: progress.result };
 }
 

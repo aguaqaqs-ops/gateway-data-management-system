@@ -1,13 +1,14 @@
+import { installedGoldenBundle } from "../../test/helpers";
 import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGatewaySession, currentGatewaySession, deviceRouteKey, validateScopeIdentity } from "./session";
 import { createAuthenticatedFetch } from "./authenticated-fetch";
 import { createGatewayApi } from "./client";
-import { pollOperation, runPreviewJourney, createPreviewJourneyProgress } from "./journeys";
+import { pollOperation, runPreviewJourney, createPreviewJourneyProgress, runHistoryComparison } from "./journeys";
 import { scopedStorage } from "./scoped-storage";
 import { decodeHandoffFragment, initializeGatewaySession, getGatewaySessionState } from "../session/handoff-session";
-import { TEST_HISTORY_CURSOR_FIRST, TEST_OPERATION_ACCEPTED, WORKSPACE_CREATED, TEST_UPLOAD_FULL } from "../dev/simulated-api";
+import { TEST_HISTORY_CURSOR_FIRST, TEST_OPERATION_ACCEPTED, WORKSPACE_CREATED, TEST_UPLOAD_FULL, testHistoryCompareAcceptance, testHistoryCompareSucceeded } from "../dev/simulated-api";
 
 const vectors = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/identity-vectors.json", "utf8")) as Array<{ gateway_device_external_key: string; route_key: string }>;
 const boundaries = JSON.parse(readFileSync("../vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json", "utf8")) as { rejected_noncharacters: string[]; accepted_adjacent_scalars: string[] };
@@ -77,6 +78,23 @@ describe("request and flow session binding", () => {
     await expect(runPreviewJourney(api, store, previewInput, progress)).rejects.toThrow("会话已变化");
     await expect(runPreviewJourney(api, store, previewInput, progress)).rejects.toThrow("会话已变化");
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it("does not deliver a bound JSON result after session replacement during decoding", async () => {
+    adopt();
+    const response = new Response("{}");
+    vi.spyOn(response, "json").mockImplementation(async () => { adopt("device-b"); return WORKSPACE_CREATED.body; });
+    const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher: vi.fn(async () => response) }).bindSession!();
+    await expect(api.createWorkspace({ business_project_id: "project", gateway_device_external_key: "device-a" })).rejects.toThrow("会话已变化");
+  });
+  it("does not publish a completed bundle flow after session replacement during local install", async () => {
+    adopt();
+    const fixture = await installedGoldenBundle();
+    const fetcher = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(String(url).endsWith("/v1/history-compares")
+      ? testHistoryCompareAcceptance("compare-op") : testHistoryCompareSucceeded(fixture.manifest.bundle_digest, "compare-op"))));
+    const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher });
+    vi.spyOn(fixture.store, "open").mockImplementation(async () => { adopt("device-b"); return fixture.bundle; });
+    await expect(runHistoryComparison(api, fixture.store, [{ ref_kind: "baseline_node", ref_id: "a" }, { ref_kind: "baseline_node", ref_id: "b" }], "compare-key")).rejects.toThrow("会话已变化");
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it("maps only workspace startup 404 to the device entry message without retry", async () => {
     adopt(); const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: "RESOURCE_NOT_FOUND", message: "missing" }), { status: 404, headers: { "X-Gateway-Entry-Rejection": "route-not-loaded" } }));

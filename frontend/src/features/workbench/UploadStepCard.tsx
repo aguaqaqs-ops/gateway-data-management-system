@@ -5,7 +5,7 @@ import type { components } from "../api/generated/openapi";
 import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { PollingConnectionLostError, createPreviewJourneyProgress, runPreviewJourney } from "../api/journeys";
-import { currentGatewaySession } from "../api/session";
+import { currentGatewaySession, SessionChangedError } from "../api/session";
 import { OpfsBundleStore } from "../bundle/local-bundle";
 import { Button, DirectorySummary, OperationStatus, formatBytes, type OperationPhase } from "../../design-system/components";
 import { operationElapsedSeconds } from "./OperationStatusPanel";
@@ -252,6 +252,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       onComplete(result.workspace.workspace_id, result.preview.preview_result_id);
       progress.current = createPreviewJourneyProgress();
     } catch (cause) {
+      if (cause instanceof SessionChangedError) return;
       scopedStorage.removeItem("gateway-preview-operation");
       clearOperationUrl();
       const definite = cause instanceof ApiError && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && cause.status !== 429;

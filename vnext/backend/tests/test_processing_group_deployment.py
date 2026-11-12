@@ -122,6 +122,8 @@ def test_group_renderer_sets_exact_project_ports_images_and_parent_mounts(deploy
     backend = rendered["services"]["backend"]
     assert backend["ports"] == [dict(target=8000, published=str(group.backend_port), host_ip="127.0.0.1", protocol="tcp")]
     assert backend["image"] == group.images.backend
+    assert backend["build"]["args"]["CANDIDATE_SHA"] == "unknown"
+    assert rendered["services"]["repository-service"]["build"]["args"]["CANDIDATE_SHA"] == "unknown"
     mounts = {item["target"]: item for item in backend["volumes"]}
     assert mounts["/run/gateway/session"]["source"] == group.session_directory
     assert mounts["/run/gateway/groups"]["source"] == str(public)
@@ -228,4 +230,15 @@ def test_public_parent_alias_cannot_expose_private_group_root(deployment: tuple[
     monkeypatch.setattr(helper.host, "mounts", lambda: (SimpleNamespace(target="/", root="/"),
         SimpleNamespace(target=str(public), root=str(private))))
     with pytest.raises(ValueError, match="paths overlap"):
+        helper.check_public_directory(groups, public)
+
+
+def test_public_parent_rejects_any_nested_bind_mount(deployment: tuple[Any, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+    helper, groups = deployment
+    public = tmp_path / "public"
+    public.mkdir()
+    monkeypatch.setattr(helper.host, "mounts", lambda: (SimpleNamespace(target="/", root="/"),
+        SimpleNamespace(target=str(public / "hidden"), root=str(Path(groups.groups[0].session_directory)))))
+    with pytest.raises(ValueError, match="child mounts"):
         helper.check_public_directory(groups, public)

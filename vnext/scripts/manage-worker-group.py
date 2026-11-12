@@ -203,7 +203,7 @@ def assert_business_settled(config: DeploymentConfig) -> None:
 def manage(command: str, config: DeploymentConfig, project: str, url: str, token: str, *, deployment: Any = None) -> str:
     containers = inspect_project(project)
     if deployment is not None:
-        inspect_group(config, deployment, allowed_states=("running", "exited", "created"))
+        inspect_group(config, deployment, allowed_states=("running", "exited", "created"), containers=containers)
     group = validate_group(config, project, containers)
     origin = urlsplit(url)
     published = group["backend"]["HostConfig"].get("PortBindings", {}).get("8000/tcp") or []

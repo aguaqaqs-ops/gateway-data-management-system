@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -57,6 +58,8 @@ def render_group(config: DeploymentConfig, storage: Path, resources: Path, group
         raise ValueError("selected group configuration differs")
     if (str(storage), str(resources)) != (group.storage_config, group.resource_config):
         raise ValueError("selected configuration paths differ from group manifest")
+    revision = "unknown"
+    repository_arguments = {"CANDIDATE_SHA": "unknown"}
     if build_from_source:
         source = Path(__file__).resolve().parents[2]
         revision = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
@@ -65,6 +68,13 @@ def render_group(config: DeploymentConfig, storage: Path, resources: Path, group
             capture_output=True, text=True, check=True, timeout=10).stdout.strip()
         if dirty or revision != group.images.revision:
             raise ValueError("selected group source build requires its clean revision worktree")
+        identity_script = Path(__file__).resolve().parents[1] / "repository_service/tests/support/build_context_digest.py"
+        identity = json.loads(subprocess.run([sys.executable, str(identity_script), "identity"],
+            capture_output=True, text=True, check=True, timeout=30).stdout)
+        if identity["candidate_sha"] != revision:
+            raise ValueError("repository image source differs from selected group")
+        repository_arguments = {"CANDIDATE_SHA": revision, "BUILD_INPUT_REVISION": identity["build_input_revision"],
+            "SOURCE_TREE_SHA256": identity["source_tree_sha256"]}
     check_public_directory(groups, groups_file.parent)
     rendered = render(config, storage, resources)
     services = rendered["services"]
@@ -72,7 +82,7 @@ def render_group(config: DeploymentConfig, storage: Path, resources: Path, group
     for name in ("backend", *worker_services(config.resources.worker.count)):
         service = services[name]
         service["image"] = group.images.backend if name == "backend" else group.images.worker
-        service["build"] = {"args": {"CANDIDATE_SHA": group.images.revision}}
+        service["build"] = {"args": {"CANDIDATE_SHA": revision}}
         service["volumes"].append({"type": "bind", "source": str(groups_file.parent),
             "target": "/run/gateway/groups", "read_only": True, "bind": {"create_host_path": False}})
         prefix = "GATEWAY_BACKEND_" if name == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
@@ -82,6 +92,7 @@ def render_group(config: DeploymentConfig, storage: Path, resources: Path, group
     services["backend"]["volumes"].append({"type": "bind", "source": group.session_directory,
         "target": "/run/gateway/session", "read_only": True, "bind": {"create_host_path": False}})
     services["repository-service"]["image"] = group.images.repository_service
+    services["repository-service"]["build"] = {"args": repository_arguments}
     rendered["secrets"] = {"repository-bearer-token": {"file": group.repository_token_file},
         "backend-internal-bearer": {"file": group.internal_token_file}}
     rendered["name"] = group.project

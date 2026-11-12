@@ -43,6 +43,8 @@ def check_public_directory(groups: ProcessingGroupsConfig, parent: Path) -> None
     """A public parent bind must not expose any group's private files or roots."""
     host.preflight.nofollow_directory(parent)
     observed = host.mounts()
+    if any(Path(item.target) != parent and parent in Path(item.target).parents for item in observed):
+        raise ValueError("public configuration directory must not contain child mounts")
     public = _physical_path(parent, observed)
     for group in groups.groups:
         config = host.DeploymentConfig.load(Path(group.storage_config), Path(group.resource_config))
@@ -86,6 +88,9 @@ def load_configs(groups: ProcessingGroupsConfig) -> dict[str, Any]:
             secrets.add(digest)
             paths.append((group.group_id + "/credential", Path(filename)))
     _overlaps(paths)
+    observed = host.mounts()
+    physical = [(owner, _physical_path(path, observed)) for owner, path in paths]
+    _overlaps(physical)
     if memory > groups.host.memory_bytes or cpu > groups.host.cpu_count:
         raise ValueError("all groups and entry exceed host planning budget")
     return configs
@@ -179,11 +184,12 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
     return found
 
 
-def inspect_group(config: Any, group: Any, *, allowed_states: tuple[str, ...] = ("running",)) -> dict[str, Any]:
+def inspect_group(config: Any, group: Any, *, allowed_states: tuple[str, ...] = ("running",),
+                  containers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     refs = (group.images.backend, group.images.worker, group.images.repository_service)
     images = json.loads(_docker("image", "inspect", *refs))
     identities = dict(zip(refs, images, strict=True))
-    return validate_group_containers(config, group, inspect_project(group.project),
+    return validate_group_containers(config, group, inspect_project(group.project) if containers is None else containers,
         allowed_states=allowed_states, image_identities=identities)
 
 

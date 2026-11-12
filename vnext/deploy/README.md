@@ -400,13 +400,13 @@ manifest entry before every Compose command:
 python3 vnext/scripts/render-runtime-config.py \
   --storage-layout /etc/gateway/group-a/storage.json \
   --resource-profile /etc/gateway/group-a/resources.json \
-  --groups-file /etc/gateway/groups.json \
-  --directory-file /etc/gateway/device-directory.json --group group-a \
+  --groups-file /etc/gateway/public/groups.json \
+  --directory-file /etc/gateway/public/device-directory.json --group group-a \
   render --output /run/gateway-group-a-compose.json
 docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
   -f /run/gateway-group-a-compose.json config
 docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
-  -f /run/gateway-group-a-compose.json up -d
+  -f /run/gateway-group-a-compose.json up --no-build -d
 ```
 
 The selected project must equal the manifest project. Backend publishes only
@@ -422,7 +422,10 @@ group cannot make the target ready.
 
 For a new build of the selected group, add `--build-from-source` to render;
 this requires the current source worktree to be clean and at the selected
-group revision. Other groups may retain their own declared revisions. Run
+group revision. It populates all three roles' revision inputs from the verified
+HEAD and RS build identity from its owning provenance helper. Default render
+uses `unknown` build revision inputs so an accidental build cannot self-sign
+the manifest revision and pass inspection. Other groups may retain their own declared revisions. Run
 existing validated images with `up --no-build`. Runtime inspection compares
 the selected local image ID and each image's OCI revision to the manifest;
 labels alone do not establish build provenance, which remains the gate's

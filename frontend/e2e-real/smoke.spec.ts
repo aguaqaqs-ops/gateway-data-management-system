@@ -1,3 +1,4 @@
+import type { GatewaySession } from "../src/features/api/session";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Browser, type Page } from "@playwright/test";
@@ -132,11 +133,11 @@ function collectPageErrors(page: Page): string[] {
 async function workspaceFromPage(page: Page, identity: Identity): Promise<WorkspaceBody> {
   return page.evaluate(
     async ({ token, businessProjectId, gatewayDeviceExternalKey }) => {
-      const snapshot = window.__gatewaySession!;
+      const snapshot = window.__gatewaySession as GatewaySession;
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
       const response = await fetch("/v1/workspaces", {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapshot.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
         body: JSON.stringify({ business_project_id: businessProjectId, gateway_device_external_key: gatewayDeviceExternalKey }),
       });
       if (!response.ok) throw new Error(`POST /v1/workspaces returned ${response.status}`);
@@ -165,10 +166,10 @@ async function waitForOperation(page: Page, token: string, operationId: string):
   while (Date.now() < deadline) {
     const operation = await page.evaluate(
       async ({ token, operationId }) => {
-        const snapshot = window.__gatewaySession!;
+        const snapshot = window.__gatewaySession as GatewaySession;
         if (snapshot.accessToken !== token) throw new Error("会话已变化");
         const response = await fetch(`/v1/operations/${encodeURIComponent(operationId)}`, {
-          headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapshot.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
+          headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
         });
         if (!response.ok) throw new Error(`GET /v1/operations returned ${response.status}`);
         return (await response.json()) as OperationBody;
@@ -186,11 +187,11 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
   if (!workspace.current_preview_result_id) throw new Error("workspace has no current preview result");
   const preview = await page.evaluate(
     async ({ token, workspaceId, previewResultId }) => {
-      const snapshot = window.__gatewaySession!;
+      const snapshot = window.__gatewaySession as GatewaySession;
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}`,
-        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapshot.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") } },
+        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey } },
       );
       if (!response.ok) throw new Error(`GET preview-results returned ${response.status}`);
       return (await response.json()) as PreviewResultBody;
@@ -199,11 +200,11 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
   );
   const bundle = await page.evaluate(
     async ({ token, workspaceId, previewResultId }) => {
-      const snapshot = window.__gatewaySession!;
+      const snapshot = window.__gatewaySession as GatewaySession;
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}/bundle`,
-        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapshot.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") } },
+        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey } },
       );
       if (!response.ok) throw new Error(`GET preview bundle returned ${response.status}`);
       return (await response.json()) as BundleBody;
@@ -315,10 +316,10 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
   await expect(page.getByText("初始基线").first()).toBeVisible({ timeout: 60000 });
   expect(await workspaceFromPage(page, identity)).toMatchObject({ workspace_id: expect.any(String) });
   const history = await page.evaluate(async (token: string) => {
-    const snapshot = window.__gatewaySession!;
+    const snapshot = window.__gatewaySession as GatewaySession;
     if (snapshot.accessToken !== token) throw new Error("会话已变化");
     const response = await fetch("/v1/history?limit=100", {
-      headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapshot.gatewayDeviceExternalKey))), (byte) => byte.toString(16).padStart(2, "0")).join("") },
+      headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
     });
     if (!response.ok) throw new Error(`GET /v1/history returned ${response.status}`);
     return (await response.json()) as {

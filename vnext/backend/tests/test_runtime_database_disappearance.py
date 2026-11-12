@@ -107,3 +107,78 @@ def test_observed_main_database_disappearance_still_refuses_identity_check(
     assert len(observations) == 1
     assert observations[0]["real_open_errno"] == 2
     assert not database.exists()
+
+
+OWNER_CHANGE_FAULTS = (
+    "main-deleted", "main-replaced", "main-symlink", "main-permission", "main-mount",
+    "metadata-missing", "metadata-replaced", "metadata-symlink", "sidecar-eacces", "sidecar-eio", "sidecar-eloop",
+)
+
+
+@pytest.mark.parametrize("layer", LAYERS)
+@pytest.mark.parametrize("fault", OWNER_CHANGE_FAULTS)
+def test_optional_disappearance_does_not_hide_owner_changes_or_other_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layer: str, fault: str,
+) -> None:
+    import errno
+
+    metadata, observe = _observer(tmp_path, layer)
+    database = metadata / "control.sqlite3"
+    target = metadata / "control.sqlite3-wal"
+    target.write_bytes(b"optional-sidecar")
+    replacement = tmp_path / "replacement-main"
+    replacement.write_bytes(b"different-main")
+    original_open, original_access = os.open, os.access
+    original_bounded = runtime_preflight._bounded
+    injected = False
+    permission_checks: list[bool] = []
+    def change_then_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        nonlocal injected
+        if Path(path) == target and flags & os.O_PATH and not injected:
+            injected = True
+            if fault.startswith("sidecar-"):
+                failure = {"sidecar-eacces": errno.EACCES, "sidecar-eio": errno.EIO, "sidecar-eloop": errno.ELOOP}[fault]
+                raise OSError(failure, "injected O_PATH refusal", str(target))
+            target.unlink()
+            if fault == "main-deleted":
+                database.unlink()
+            elif fault == "main-replaced":
+                os.replace(replacement, database)
+            elif fault == "main-symlink":
+                database.unlink()
+                database.symlink_to(replacement)
+            elif fault.startswith("metadata-"):
+                displaced = tmp_path / "displaced-metadata"
+                metadata.rename(displaced)
+                if fault == "metadata-replaced":
+                    metadata.mkdir()
+                    # Keep the main inode identical: the directory identity must
+                    # independently reject the replacement, not merely the file.
+                    os.link(displaced / "control.sqlite3", database)
+                elif fault == "metadata-symlink":
+                    metadata.symlink_to(displaced, target_is_directory=True)
+        return original_open(path, flags, *args, **kwargs)
+    def deny_changed_main(path: Any, mode: int, **kwargs: Any) -> bool:
+        if fault == "main-permission" and injected and str(path).startswith("/proc/self/fd/"):
+            permission_checks.append(mode == os.R_OK and kwargs.get("effective_ids") is True)
+            return False
+        return original_access(path, mode, **kwargs)
+    def changed_mount(path: Path, limit: int) -> str:
+        if fault == "main-mount" and injected and path.parent == Path("/proc/self/fdinfo"):
+            # Keep file and directory mutually consistent but change the mount
+            # from the one that owned the previously validated main database.
+            return "mnt_id: changed-owner-mount"
+        return original_bounded(path, limit)
+    monkeypatch.setattr(runtime_preflight, "_bounded", changed_mount)
+    monkeypatch.setattr(os, "open", change_then_open)
+    monkeypatch.setattr(os, "access", deny_changed_main)
+    with pytest.raises((OSError, ValueError)) as caught:
+        observe()
+    assert injected
+    if fault == "main-permission":
+        assert permission_checks == [True]
+    if fault == "main-replaced":
+        assert not replacement.exists()
+    else:
+        assert replacement.read_bytes() == b"different-main"
+    print(json.dumps({"layer": layer, "fault": fault, "result": type(caught.value).__name__}, sort_keys=True))

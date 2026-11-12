@@ -312,6 +312,7 @@ JOURNEY_SCOPE_ROLE_SPEC=(
   "r11-workspace-conflict=submitter,reviewer,none"
   "j1-archive-mainline=submitter,submitter2,reviewer,archiver,none"
   "j2-manual-close=submitter,submitter2,submitter-upload-only,reviewer,archiver,none"
+  "s2b-entry=submitter,reviewer"
 )
 # FE3c complete set: --subphase fe3c runs everything below; --subphase fe3b
 # keeps the original 18 scopes; --subphase fe4a runs only J1/J2 debugging.
@@ -340,7 +341,7 @@ elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe4a" ]]; then
     done
   done
 elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "s2b-routing" ]]; then
-  ACTIVE_SCOPE_ROLE_SPEC=("r1-states=submitter,reviewer")
+  ACTIVE_SCOPE_ROLE_SPEC=("s2b-entry=submitter,reviewer")
 else
   ACTIVE_SCOPE_ROLE_SPEC=("${JOURNEY_SCOPE_ROLE_SPEC[@]}")
 fi
@@ -772,8 +773,7 @@ if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then SCOPES_ARGS=(--scopes 
 # Hand flock ownership to the sole stack process, retaining our node marker.
 exec 9>&-
 HAVE_FLOCK=0
-UV_OFFLINE=1 CARGO_NET_OFFLINE=true "$REPO_DIR/vnext/scripts/uv-consume.sh" -C "$REPO_DIR/vnext/backend" run python \
-  "$FRONTEND_DIR/scripts/processing-groups-e2e.py" --root "$GROUPS_ROOT" \
+UV_OFFLINE=1 CARGO_NET_OFFLINE=true "$REPO_DIR/vnext/scripts/uv-consume.sh" -C "$REPO_DIR/vnext/backend" run --no-sync python -m tests.support.frontend_processing_groups --root "$GROUPS_ROOT" \
   --sessions "$RUN_ROOT/session.json" "${SCOPES_ARGS[@]}" --control "$GROUPS_CONTROL" \
   >"$LOG_DIR/processing-groups.log" 2>&1 &
 GROUPS_PID=$!

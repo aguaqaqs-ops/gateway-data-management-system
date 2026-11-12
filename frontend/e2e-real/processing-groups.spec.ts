@@ -1,9 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { identities, resultsDir, type JourneyIdentity } from "./lib/env";
-import { contextForIdentity, gotoWorkbench } from "./lib/ui";
-import { apiRequest, currentWorkspace, tryApi } from "./lib/api";
+import { identityFor, inputDir, scopeBySlug, resultsDir, type JourneyIdentity } from "./lib/env";
+import { contextForIdentity, gotoWorkbench, selectUploadDirs, startUpload, waitForPreviewOutcome } from "./lib/ui";
+import { apiRequest, currentWorkspace, getOperation, getPreviewResult, tryApi } from "./lib/api";
 
 test("public entry opens two groups and a hot added synthetic device without cross-scope reads", async ({ browser }) => {
   test.setTimeout(180_000);
@@ -11,7 +11,9 @@ test("public entry opens two groups and a hot added synthetic device without cro
   const topology = JSON.parse(await readFile(join(control, "groups-ready.json"), "utf8")) as {
     synthetic: JourneyIdentity; hot: JourneyIdentity;
   };
-  const first = identities()[0]!;
+  const scope = scopeBySlug("s2b-entry");
+  const first = identityFor(scope, "submitter");
+  let operationId: string | null = null;
   const second = topology.synthetic;
   for (const identity of [first, second]) {
     const context = await contextForIdentity(browser, identity);
@@ -21,10 +23,19 @@ test("public entry opens two groups and a hot added synthetic device without cro
       await gotoWorkbench(page);
       await history;
       await expect(page.getByText("初始基线").first()).toBeVisible({ timeout: 60_000 });
+      if (identity === first) {
+        await selectUploadDirs(page, { modified: inputDir(scope, "modified_only") });
+        await startUpload(page);
+        expect(await waitForPreviewOutcome(page)).toBe("compare");
+        const workspace = await currentWorkspace(first);
+        const preview = await getPreviewResult(first, workspace.workspace_id, workspace.current_preview_result_id!);
+        operationId = preview.body.operation_id;
+        expect((await getOperation(first, operationId)).body.operation_id).toBe(operationId);
+      }
     } finally { await context.close(); }
   }
-  const workspace = await currentWorkspace(first);
-  const crossScope = await tryApi(second, "GET", `/v1/workspaces/${workspace.workspace_id}`);
+  expect(operationId).toBeTruthy();
+  const crossScope = await tryApi(second, "GET", `/v1/operations/${operationId}`);
   expect(crossScope).toMatchObject({ ok: false, status: 404 });
   await writeFile(join(control, "hot-add-request"), "add-device");
   await expect.poll(async () => {

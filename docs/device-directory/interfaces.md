@@ -1,14 +1,14 @@
 # 设备目录系统接口约定（试运行版）
 
-状态：owner 已确认，2026-11-11。设计背景见 [design.md](design.md)。
+状态：原接口于 2026-11-11 确认；2026-11-12 处理组接入修订为**待 owner 确认的草案**，与 design §12 配套，尚未实施。设计背景见 [design.md](design.md)。
 
 | 编号 | 接口 | 提供方 → 使用方 |
 | --- | --- | --- |
 | I1 | 目录导入文件 | 外部导入程序 → 目录命令行 |
 | I2 | 唯一键规则 | 目录系统 |
 | I3 | 目录服务 HTTP 接口 | 目录服务 → 目录前端 |
-| I4 | 写入网关系统的文件 | 目录命令行 → 网关 backend/worker |
-| I5 | 仓库服务建仓 | 网关 repository-service → 目录命令行 |
+| I4 | 会话文件与续期 | 目录命令行 → 目标处理组 |
+| I5 | 设备开通与登记回执 | 目录命令行 → 网关宿主管理工具/组内登记接口 |
 | I6 | 跳转片段 | 目录服务 → 网关前端 |
 | I7 | 配置 | 部署 → 目录服务、命令行 |
 | I8 | 命令行 | 运维 → 目录系统 |
@@ -50,7 +50,6 @@ normalized = NFKC(station_code) 去掉首尾空白后转为大写
 h          = SHA-256( "gdds-directory/station/v1" + 0x00 + UTF-8(normalized) ) 十六进制小写的前 16 位
 gateway_device_external_key = "dev-" + h
 business_project_id         = "prj-" + h
-business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用）
 ```
 
 | 站号 | 规范化后 | 设备键 | 项目号 |
@@ -62,6 +61,7 @@ business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用�
 - 键只取决于站号，与名称、地区、导入时间、机器都无关。
 - 两个不同站号得到相同的 `h` 时，导入以 `KEY_COLLISION` 拒绝。
 - 试运行阶段设备与项目一一对应，所以两个键共用同一个 `h`。
+- 初始基线节点 ID 和建仓幂等键由网关登记流程生成，目录不推导它们；保存 I5 返回的固定 INITIAL 回执。
 
 ## I3 目录服务 HTTP 接口
 
@@ -69,7 +69,7 @@ business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用�
 
 ### `GET /api/catalog`
 
-返回完整目录。响应头带 `ETag: "<catalog_version>"`；请求带匹配的 `If-None-Match` 时返回 304。支持 gzip。
+返回完整目录。响应头带 `ETag: "<catalog_version>"`；请求带匹配的 `If-None-Match` 时返回 304。支持 gzip。导入或开通引起 `provisioned` 可见值变化时更新版本；开通不改变 `imported_at`。
 
 ```json
 {
@@ -117,6 +117,7 @@ business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用�
 | 404 | `DEVICE_NOT_FOUND` | 设备不存在或已移除 |
 | 409 | `DEVICE_NOT_PROVISIONED` | 设备未开通 |
 | 409 | `SESSION_EXPIRED` | 会话已过期，需要运维执行 `--renew-sessions` |
+| 409 | `SESSION_UPDATING` | 会话续期尚未收尾，暂不签发跳转，需运维完成同一次续期 |
 
 ### `GET /healthz`
 
@@ -124,32 +125,11 @@ business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用�
 
 其余路径返回目录前端的静态文件；`/api/` 下的未知路径返回 404 `NOT_FOUND`。
 
-## I4 写入网关系统的文件
+## I4 会话文件与续期
 
-这两个文件只由 I8 `provision` 写入，并且只在 backend 与 worker 都已停止时写（design §6）。
+目标宿主路径只从 I7 指定的 groups 清单中所选组的 `session_directory` 派生：`<session_directory>/session.json`。容器固定读取 `/run/gateway/session/session.json`，挂载其父目录；原子替换无需重启。目录不写 seed 映射文件。
 
-### 设备映射文件（`GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE` 的宿主机路径）
-
-为每个已开通的设备写入一条：
-
-```json
-{
-  "gateway_device_external_key": "dev-fbe8accb4da11574",
-  "business_project_id": "prj-fbe8accb4da11574",
-  "repository_id": "<I5 返回的 repository_id>",
-  "business_baseline_node_id": "dir-initial-fbe8accb4da11574",
-  "business_baseline_commit_id": "<I5 返回的 initial_commit_id>",
-  "baseline_head_version": 0,
-  "enabled": true,
-  "issuer": "device-directory"
-}
-```
-
-`baseline_head_version` 固定为 0。网关只在第一次登记时用它建立初始基线，之后重启不会回退已经前进的基线（`vnext/deploy/README.md`）。
-
-### 会话文件（`GATEWAY_BACKEND_SESSION_FILE` 的宿主机路径）
-
-为每个已开通的设备写入一条：
+文件严格为 `{"sessions": [...]}`，每条只允许以下字段（`expires_at` 在网关协议中可选，目录生成时必填）：
 
 ```json
 {
@@ -166,37 +146,56 @@ business_baseline_node_id   = "dir-initial-" + h      （I4 映射文件使用�
     "archive_submission",
     "read_project_history"
   ],
-  "expires_at": "2027-05-10T08:30:00Z",
-  "issuer": "device-directory"
+  "expires_at": "2027-05-10T08:30:00Z"
 }
 ```
 
-`expires_at` 等于签发时间加上 `GDDS_DIRECTORY_SESSION_TTL_DAYS`，UTC，RFC 3339 格式。
+`expires_at` 为签发时间加 `GDDS_DIRECTORY_SESSION_TTL_DAYS`，UTC RFC 3339。token 只存在受控 SQLite、私有 session 文件和跳转响应中，不进入 argv、日志、异常、截图或测试快照。新增传给 I5 的临时 session 文档仅包含本设备一条会话，文件权限 0600，位于网关公共配置目录之外，用毕删除；重跑凭据来自 SQLite。
 
-### 写入规则（两个文件相同）
+**新增：**文件由 I5 的现有工具追加。其 schema 拒绝 `issuer`、`documented_permissions` 及其他未知字段，不保留旧设计的扩展字段；发现不合法的既有文件时拒绝操作，不静默删除字段。
 
-- `"issuer": "device-directory"` 的条目归目录管理，每次都按开通记录整体重新生成。其他条目和顶层其他字段（如 `documented_permissions`）原样保留，顺序不变。网关加载这两个文件时只读取自己需要的字段，会忽略 `issuer`。
-- 写入前按网关的规则自检：列表非空、token 不重复、一个仓库只对应一个设备/项目组合、必填字段非空。自检不通过就不写。
-- 在同一目录下写临时文件，复制原文件的权限和属主，fsync 后改名替换原文件。
-- 两个文件都以单文件方式挂载进容器，容器启动时才挂载新文件，所以写完后必须重新启动 backend 与 worker。第一次在 05 节点做端到端时，要实测确认启动后容器内读到的是新内容。
+**续期：**遵守 design §6.2；以 SQLite 保存的 token、actor、scope、permissions、expiry 的完整记录识别本系统条目，其他合法条目的值及顺序保留。不能仅以 `test1` 或 `dir-` 前缀判定归属。持有现有 publication lock → group management lock，并在锁内重读；复用既有宿主 helper 的校验与锁协议，不另建互不协调的锁。严格检查 JSON 重复 key、字段域、到期时间、全部组 token 唯一性和每文件 1 MiB 上限。
 
-## I5 仓库服务建仓
+先保存待生效凭据，再在同目录写临时文件，复制原文件权限/属主，文件 fsync 后 replace 并 fsync 父目录；确认新 token 的 scope 与旧 token 的 401，再提交 SQLite 的当前凭据。中断重跑使用同一待生效凭据；文件中未知变更或归属冲突时停止，保留诊断。续期不修改路由、不建仓、不调用 `add-device` 代替撤销、不重启服务。待收尾期间 handoff 返回 409 `SESSION_UPDATING`。
 
-目录命令行通过 Compose 在 repository-service 容器内发请求（与 `vnext/backend/tests/support/compose_gate_harness.py` 的 `seed_repository_and_mapping` 相同），不需要在宿主机上持有仓库服务的 token：
+## I5 设备开通与登记回执
 
-```
-docker compose -p <项目名> --env-file <env 文件> exec -T repository-service python -c <脚本>
-```
-
-脚本读取容器内的 `/run/secrets/repository-bearer-token`，然后发送：
+试运行目标为一个预先部署好的固定组。目录通过可替换的宿主适配器调用现有工具，不复制该工具的发布流程；以参数数组、非 shell 方式执行：
 
 ```
-POST http://127.0.0.1:8000/v1/repositories
-Authorization: Bearer <token>
-Idempotency-Key: directory-provision-<h>
+python3 <网关仓库>/vnext/scripts/manage-processing-groups.py add-device
+  --groups-file <绝对路径> --directory-file <绝对路径>
+  --entry-directory <绝对路径> --entry-project <项目名>
+  --group <固定组 ID> --device <设备键> --project <项目号>
+  --session-document <仅本设备的私有临时文件>
 ```
 
-期望返回 201：`{"repository_id": "<UUID>", "default_ref": "...", "initial_commit_id": "..."}`。其他状态视为失败，命令行停止并报告已完成的设备。幂等键长度不超过 255，满足仓库服务的约束。
+工具负责预留、组内登记/建仓、会话追加、入口发布及实际可用性确认。目录不直接请求 Repository Service 建仓，不计算建仓幂等键或 INITIAL ID，不停止已有服务。工具自己获取宿主锁，目录调用时不重复持锁。工具 exit 0 才表示其检查时 available；exit 3 为 busy，exit 2 为前置拒绝，exit 1 为未完成。目录保留原始退出码及脱敏诊断，不自动重放写操作。
+
+工具成功 stdout 只有 `state/group_id/config_digest`，不能从中假设获得仓库信息。目录再使用清单所选组的内部 bearer 文件（不传 secret 值到 argv），请求其固定 loopback backend 端点：
+
+```
+GET /internal/v1/devices/registration?device=<设备键 URL 编码>
+Authorization: Bearer <所选组内部 token>
+```
+
+200 响应：
+
+```json
+{
+  "environment_id": "<环境>",
+  "group_id": "<组>",
+  "gateway_device_external_key": "dev-fbe8accb4da11574",
+  "business_project_id": "prj-fbe8accb4da11574",
+  "repository_id": "<网关登记的仓库 ID>",
+  "initial_node_id": "<网关生成的固定 INITIAL ID>",
+  "initial_commit_id": "<固定初始提交号>"
+}
+```
+
+必须核对前四项与本次目标，保存后三项作为回执。随后用本次 session token 经公共入口请求 `GET /v1/device-context`，带 `X-Gateway-Device-Key=hex_lower(SHA256(UTF8(device_key)))`；核对环境、组、设备、项目和仓库一致，才在本地标为已开通。HTTP 请求不跟随重定向、不继承 ambient proxy，不向公共入口发送 internal bearer。
+
+中断后同身份重跑：网关拥有建仓/登记的幂等性，目录拥有待生效 token 与本地回执。部分成功不回滚业务事实，不改组或推测 INITIAL，不把 `enabled=true` 当作成功证据。
 
 ## I6 跳转片段
 
@@ -241,29 +240,34 @@ Idempotency-Key: directory-provision-<h>
 | `GDDS_DIRECTORY_PUBLIC_URL` | 无，必填 | 浏览器访问目录的地址，用于拼 `return_url` |
 | `GDDS_DIRECTORY_GATEWAY_FRONTEND_URL` | 无，必填 | 浏览器访问网关前端的地址 |
 | `GDDS_DIRECTORY_SESSION_TTL_DAYS` | `180` | 会话有效期（天） |
+| `GDDS_DIRECTORY_STATIC_DIR` | `directory/frontend/dist`（相对仓库定位） | 目录前端构建产物目录；显式配置时必须是绝对路径 |
 
 只有命令行使用：
 
 | 环境变量 | 说明 |
 | --- | --- |
-| `GDDS_DIRECTORY_COMPOSE_FILE` | 网关的 `vnext/deploy/compose.yaml` 路径 |
-| `GDDS_DIRECTORY_COMPOSE_PROJECT` | Compose 项目名 |
-| `GDDS_DIRECTORY_COMPOSE_ENV_FILE` | 网关 Compose 使用的 env 文件 |
-| `GDDS_DIRECTORY_MAPPING_FILE` | 设备映射文件的宿主机路径（与 `GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE` 相同） |
-| `GDDS_DIRECTORY_SESSION_FILE` | 会话文件的宿主机路径（与 `GATEWAY_BACKEND_SESSION_FILE` 相同） |
+| `GDDS_DIRECTORY_GATEWAY_ROOT` | 已部署网关源码仓库的绝对路径，用于定位既有宿主管理工具/helper |
+| `GDDS_DIRECTORY_GROUPS_FILE` | 网关 groups 清单的绝对路径 |
+| `GDDS_DIRECTORY_GATEWAY_DIRECTORY_FILE` | 网关设备预留目录 JSON 的绝对路径；与 groups 文件位于同一受控父目录，与业务目录 SQLite 不同 |
+| `GDDS_DIRECTORY_GROUP_ID` | 本轮试运行唯一固定目标组 ID；必须存在于清单，已开通设备不能改组 |
+| `GDDS_DIRECTORY_ENTRY_DIRECTORY` | 已初始化公共入口配置目录的绝对路径 |
+| `GDDS_DIRECTORY_ENTRY_PROJECT` | 已部署公共入口的 Compose 项目名 |
 | `GDDS_DIRECTORY_LOG_DIR` | 开通日志目录，放在 worktree 之外 |
+
+组端点、环境、session 路径和管理凭据路径只从已校验的 groups 清单派生，不接受额外 URL/路径覆盖。`serve` 不加载网关管理配置，运行时只读目录 SQLite；`import/status` 也不要求管理凭据，只有 `provision` 校验上述管理必填项。缺项或路径不合法按配置错误退出并报告变量名，不输出 secret 值。
 
 ## I8 命令行
 
 | 命令 | 作用 | 退出码 |
 | --- | --- | --- |
+| `gdds-directory serve` | 启动单进程目录 HTTP/静态服务，只读目录 SQLite | 0 正常退出；1 运行失败；2 配置/用法错误 |
 | `gdds-directory import <csv> [--dry-run]` | 校验并导入 I1 文件，输出摘要 | 0 成功；1 校验失败（错误输出到 stderr）；2 用法错误 |
-| `gdds-directory provision --stations <文件> [--dry-run]` | 开通文件中列出的站号（每行一个） | 0 成功；1 失败；2 用法错误 |
-| `gdds-directory provision --all [--dry-run]` | 开通全部未开通且未移除的项目 | 同上 |
+| `gdds-directory provision --stations <文件> [--dry-run]` | 在固定目标组开通文件中列出的站号（每行一个） | 0 成功；1 未完成；2 配置/输入拒绝；3 busy |
+| `gdds-directory provision --all [--dry-run]` | 开通全部未开通且未移除的项目，含未完成项 | 同上 |
 | `gdds-directory provision --renew-sessions` | 为全部已开通设备重新签发会话（换新 token，延长有效期） | 同上 |
-| `gdds-directory status` | 输出项目数、已移除数、已开通数、30 天内到期的会话数 | 0 |
+| `gdds-directory status` | 输出项目数、已移除数、已开通数、待开通/待续期数、30 天内到期的会话数；仅本地记录 | 0 |
 
 - `provision` 中，站号不存在或已移除时直接失败，不建任何仓库。
-- `provision --dry-run` 只列出将要新建仓库的设备，不建仓库、不写文件、不重启服务。
-- `provision` 在 `GDDS_DIRECTORY_LOG_DIR` 下写日志：主机名、起止时间、设备列表、新建仓库 ID、写入前后两个文件的 SHA256、服务重启结果。日志不写入 token。
-- `provision` 失败时，输出停在哪一步：仓库已建到第几个、文件是否已写、服务是否已重新启动；按 design §6 可以直接重跑。
+- `provision --dry-run` 只读预检并列出将要开通/恢复的设备和目标组，不调用有副作用的管理命令、不生成新 token、不写文件。
+- `provision` 在 `GDDS_DIRECTORY_LOG_DIR` 下写日志：主机名、起止时间、目标环境/组、设备及已完成列表、管理工具原始 exit code、登记回执 ID、可用性探针结果；续期另记 session 文件写入前后 SHA256。日志不写 token、认证头、session 文档、完整 handoff URL 或秘密值。
+- `provision` 失败时输出当前设备、本地待生效/已完成状态和可确认的失败步骤；无法确认的网关内部步骤明确写未知。按 design §6 同身份重跑，不声称存在跨 SQLite、授权文件与网关登记的原子事务。

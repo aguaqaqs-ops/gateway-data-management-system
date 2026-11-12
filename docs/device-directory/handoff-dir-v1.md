@@ -31,7 +31,7 @@
 
 ## 差异：会话文件的挂载与宿主路径约定已改变
 
-[design §6](design.md#6-开通provision) 与 [I4](interfaces.md#i4-写入网关系统的文件) 声明两个文件均以单文件挂载，I7 又以 `GATEWAY_BACKEND_SESSION_FILE` 指代宿主机路径。
+原设计（`deb88a1123` 中的 `design.md` §6 与 `interfaces.md` I4）声明两个文件均以单文件挂载，I7 又以 `GATEWAY_BACKEND_SESSION_FILE` 指代宿主机路径。
 
 当前 `vnext/deploy/compose.yaml:27` 将容器内会话路径固定为 `/run/gateway/session/session.json`，`:39` 挂载的是宿主 `GATEWAY_BACKEND_SESSION_DIRECTORY` 父目录。`vnext/deploy/README.md:394` 明确每组独立的 session 目录，并说明会话不再使用单文件挂载。
 
@@ -50,3 +50,9 @@
 按用户指令及 kickoff §7，发现实际网关行为与设计不符时停止报告；本轮止于此处。需要先确认并修订开通设计与接口，再恢复阶段 1 的实现和专用节点验证。
 
 核对时 `fe-handoff` 已是 `main` 的祖先，但本任务尚未实现或通过审核，仍不满足阶段 2 的全部前置条件。阶段 1 完成后应更新本 handoff，提供实际提交、日志、缓存与十张截图的证据，并等待审核；不以本报告代替这些交付。
+
+## 后续设计对齐草案（2026-11-12）
+
+用户要求在本会话提出原设计的修改建议。本轮已将 `design.md`、`interfaces.md` 与 `kickoff-directory-v1.md` 对齐为一份待确认的修订草案：固定一个预部署处理组；新增复用现有 `add-device`；登记回执及 INITIAL 由网关提供；会话去掉管理工具不接受的 `issuer`，续期在现有宿主锁下仅替换 SQLite 精确归属的授权；前端代理指向公共入口。新增最小待生效凭据供本地中断收尾，未完成续期暂停 handoff。
+
+这是对上文阻塞的建议解决方案，尚非 owner 已确认的替代 Contract，也不表示已运行验证。只做源码与文档一致性核对及 `git diff --check`，未运行测试、改产品代码、增加依赖或进入阶段 2。草案提交主题为 `docs(device-directory): propose processing-group aligned provisioning`。

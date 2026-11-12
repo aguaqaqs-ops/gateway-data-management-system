@@ -24,7 +24,10 @@ def _application(request: Request) -> DeviceRegistration:
     return application
 
 
-@router.post("/internal/v1/devices/register", response_model=DeviceRegistrationResponse)
+@router.post("/internal/v1/devices/register", response_model=DeviceRegistrationResponse,
+    responses={401: {"description": "AUTHENTICATION_REQUIRED"}, 409: {"description": "DEVICE_REGISTRATION_CONFLICT"},
+        413: {"description": "REQUEST_TOO_LARGE"}, 422: {"description": "REQUEST_VALIDATION_FAILED"},
+        429: {"description": "ADMISSION_LIMIT_REACHED"}, 503: {"description": "SERVICE_NOT_READY or DEPENDENCY_UNAVAILABLE"}})
 async def register_device(request: Request, body: RegisterDeviceRequest) -> DeviceRegistrationResponse:
     with acquire_new_work(_gate(request), closed_code="SERVICE_NOT_READY", closed_status=503):
         try:
@@ -37,7 +40,10 @@ async def register_device(request: Request, body: RegisterDeviceRequest) -> Devi
     return DeviceRegistrationResponse.model_validate(asdict(result))
 
 
-@router.get("/internal/v1/devices/registration", response_model=DeviceRegistrationResponse)
+@router.get("/internal/v1/devices/registration", response_model=DeviceRegistrationResponse,
+    responses={401: {"description": "AUTHENTICATION_REQUIRED"}, 404: {"description": "RESOURCE_NOT_FOUND"},
+        409: {"description": "DEVICE_REGISTRATION_CONFLICT"}, 422: {"description": "REQUEST_VALIDATION_FAILED"},
+        503: {"description": "SERVICE_NOT_READY"}})
 def query_registration(request: Request, device: Annotated[ScopeIdentity, Query()]) -> DeviceRegistrationResponse:
     if list(request.query_params.keys()) != ["device"] or len(request.query_params.getlist("device")) != 1:
         raise ApiError(code="REQUEST_VALIDATION_FAILED", message="request validation failed", status_code=422)

@@ -247,26 +247,26 @@ def main() -> int:
                 or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
             raise ValueError("backend URL must be an HTTP origin without credentials")
         config = DeploymentConfig.load(args.storage_layout.absolute(), args.resource_profile.absolute())
-        groups = ProcessingGroupsConfig.load(args.groups_file.absolute())
-        target = next((item for item in groups.groups if item.group_id == config.storage.group_id), None)
-        if (groups.environment_id != config.storage.environment_id or target is None
-                or target.project != args.project or target.backend_endpoint != args.backend_url.rstrip("/")
-                or Path(target.storage_config) != args.storage_layout.absolute()
-                or Path(target.resource_config) != args.resource_profile.absolute()
-                or Path(target.internal_token_file) != args.internal_bearer_token_file.absolute()):
-            raise ValueError("maintenance target differs from group deployment manifest")
-        token = read_token(args.internal_bearer_token_file)
-        compose = ["docker", "compose", "-p", args.project]
-        for path in args.compose_file:
-            compose.extend(("-f", str(path.absolute())))
-        rendered = subprocess.run([*compose, "config", "--format", "json"], capture_output=True, text=True, timeout=30)
-        if rendered.returncode:
-            raise ValueError("Compose configuration validation failed")
-        services = json.loads(rendered.stdout)["services"]
-        expected = set(worker_services(config.resources.worker.count))
-        if {name for name in services if name == "worker" or name.startswith("worker-")} != expected:
-            raise ValueError("Compose fixed worker service list differs from profile")
         with group_management_lock(args.groups_file.absolute().parent, config.storage.group_id):
+            groups = ProcessingGroupsConfig.load(args.groups_file.absolute())
+            target = next((item for item in groups.groups if item.group_id == config.storage.group_id), None)
+            if (groups.environment_id != config.storage.environment_id or target is None
+                    or target.project != args.project or target.backend_endpoint != args.backend_url.rstrip("/")
+                    or Path(target.storage_config) != args.storage_layout.absolute()
+                    or Path(target.resource_config) != args.resource_profile.absolute()
+                    or Path(target.internal_token_file) != args.internal_bearer_token_file.absolute()):
+                raise ValueError("maintenance target differs from group deployment manifest")
+            token = read_token(args.internal_bearer_token_file)
+            compose = ["docker", "compose", "-p", args.project]
+            for path in args.compose_file:
+                compose.extend(("-f", str(path.absolute())))
+            rendered = subprocess.run([*compose, "config", "--format", "json"], capture_output=True, text=True, timeout=30)
+            if rendered.returncode:
+                raise ValueError("Compose configuration validation failed")
+            services = json.loads(rendered.stdout)["services"]
+            expected = set(worker_services(config.resources.worker.count))
+            if {name for name in services if name == "worker" or name.startswith("worker-")} != expected:
+                raise ValueError("Compose fixed worker service list differs from profile")
             print(manage(args.command, config, args.project, args.backend_url, token))
         return 0
     except BlockingIOError:

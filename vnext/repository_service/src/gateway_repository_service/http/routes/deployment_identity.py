@@ -9,7 +9,8 @@ from gateway_repository_service.runtime import ServiceRuntime
 
 
 def register_deployment_identity_routes(app: FastAPI) -> None:
-    @app.get("/internal/v1/deployment-identity", response_model=DeploymentIdentityResponse)
+    @app.get("/internal/v1/deployment-identity", response_model=DeploymentIdentityResponse,
+        responses={401: {"description": "Unauthenticated"}, 503: {"description": "Identity unavailable"}})
     def deployment_identity(request: Request,
                             _authorized: Annotated[None, Depends(require_bearer_token)]) -> DeploymentIdentityResponse:
         runtime = getattr(request.app.state, "runtime", None)

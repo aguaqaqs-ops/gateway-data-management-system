@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -22,11 +22,11 @@ INVALID_IDENTITIES = [None, 1, True, "", "a" * 256, "\x00", "a\x00b", "\ud800", 
 
 
 def _groups() -> dict[str, Any]:
-    return json.loads((FIXTURES / "groups.json").read_bytes())
+    return cast(dict[str, Any], json.loads((FIXTURES / "groups.json").read_bytes()))
 
 
 def _directory() -> dict[str, Any]:
-    return json.loads((FIXTURES / "device-directory.json").read_bytes())
+    return cast(dict[str, Any], json.loads((FIXTURES / "device-directory.json").read_bytes()))
 
 
 def _parse_directory(doc: dict[str, Any]) -> DeviceDirectory:
@@ -153,7 +153,7 @@ def test_registration_dto_has_exact_fields_and_bounded_query() -> None:
     request = dict(environment_id="test-env", group_id="group-a", gateway_device_external_key="设备一", business_project_id="project")
     assert RegisterDeviceRequest(**request).gateway_device_external_key == "设备一"
     with pytest.raises(ValueError):
-        RegisterDeviceRequest(**request, repository_id="caller-chosen")
+        RegisterDeviceRequest.model_validate({**request, "repository_id": "caller-chosen"})
     with pytest.raises(ValueError):
         DeviceRegistrationQuery(device="x" * 256)
 

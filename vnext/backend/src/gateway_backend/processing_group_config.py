@@ -49,9 +49,9 @@ def _read(path: Path, limit: int) -> bytes:
         return stream.read(limit + 1)
 
 
-def _serialize(model: object) -> bytes:
+def _serialize(model: DeviceDirectory | ProcessingGroupsConfig) -> bytes:
     return (json.dumps(asdict(model), ensure_ascii=False, allow_nan=False,
-        separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")  # type: ignore[arg-type]
+        separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
 
 
 @dataclass(frozen=True, slots=True)

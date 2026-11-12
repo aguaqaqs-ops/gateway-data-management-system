@@ -109,8 +109,8 @@ common=(env -i "PATH=$PATH" "HOME=/home/dev" "TMPDIR=$tmp" "UV_OFFLINE=1" "UV_NO
 cd "$service"
 "${common[@]}" "$uv_bin" sync --locked --offline --no-config --python "$python_bin"
 mkdir -m 700 "$run_dir/private"
-env -i "PATH=$run_dir/venv/bin:$PATH" "HOME=/home/dev" "PYTHONDONTWRITEBYTECODE=1" \
-  "GDDS_DIRECTORY_DB=$run_dir/private/directory.sqlite" "$repo/directory/bin/gdds-directory" status
+(cd "$run_dir" && env -i "PATH=$repo/directory/bin:$run_dir/venv/bin:$PATH" "HOME=/home/dev" \
+  "PYTHONDONTWRITEBYTECODE=1" "GDDS_DIRECTORY_DB=$run_dir/private/directory.sqlite" gdds-directory status)
 "${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync ruff check .
 "${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync mypy
 "${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync python -m pytest -o "cache_dir=$run_dir/pytest" "$@"

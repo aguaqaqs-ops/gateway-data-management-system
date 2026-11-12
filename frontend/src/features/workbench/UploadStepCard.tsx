@@ -253,6 +253,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       progress.current = createPreviewJourneyProgress();
     } catch (cause) {
       if (cause instanceof SessionChangedError) return;
+      try { gatewayApi.assertSession?.(); } catch { return; }
       scopedStorage.removeItem("gateway-preview-operation");
       clearOperationUrl();
       const definite = cause instanceof ApiError && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && cause.status !== 429;

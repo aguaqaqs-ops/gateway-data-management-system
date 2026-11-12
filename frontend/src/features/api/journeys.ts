@@ -253,7 +253,7 @@ export async function runPreviewJourney(
   if (preview.operation_id !== operationId) throw new Error("Preview 结果不属于本次预览操作");
   if (preview.upload_revision_id !== upload.upload_revision_id) throw new Error("Preview 结果不属于本次上传版本");
   input.onDownloadStart?.();
-  const bundle = await ensureLocalBundle({
+  const bundle = await ensureJourneyBundle(api, {
     store,
     expectedBundleDigest: preview.bundle_digest,
     fetchBundle: () => api.getPreviewBundle(workspaceId, preview.preview_result_id),
@@ -347,7 +347,7 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
   }, idempotencyKey);
   const result = await pollHistoryCompare(api, accepted.operation_id, options);
   if (result.status !== "SUCCEEDED" || !result.result) throw new Error(result.diagnostic?.message ?? "历史比较没有成功结果");
-  const bundle = await ensureLocalBundle({
+  const bundle = await ensureJourneyBundle(api, {
     store,
     expectedBundleDigest: result.result.bundle_digest,
     fetchBundle: () => api.getHistoryBundle(accepted.operation_id),
@@ -528,4 +528,15 @@ export async function runDatasetReplacementPreview(
   input: Omit<PreviewJourneyInput, "upload"> & { upload: Omit<UploadRevisionInput, "expectedWorkspaceVersion" | "initial" | "inputCompleteness"> & { inputCompleteness: "MODIFIED_ONLY"; initial?: never } },
 ): Promise<BundleJourneyResult> {
   return runPreviewJourney(api, store, input);
+}
+
+async function ensureJourneyBundle(api: GatewayApi, options: Parameters<typeof ensureLocalBundle>[0]): Promise<InstalledBundle> {
+  try {
+    const bundle = await ensureLocalBundle(options);
+    api.assertSession?.();
+    return bundle;
+  } catch (cause) {
+    api.assertSession?.();
+    throw cause;
+  }
 }

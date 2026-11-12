@@ -142,6 +142,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId: workspace.workspace_id, previewResultId, workbenchNode: selectedKey }, compareRefs));
     } catch (cause) {
       if (cause instanceof SessionChangedError) return;
+      try { gatewayApi.assertSession?.(); } catch { return; }
       resumePending.current = false;
       scopedStorage.removeItem("gateway-preview-operation");
       setUploadLocked(false);

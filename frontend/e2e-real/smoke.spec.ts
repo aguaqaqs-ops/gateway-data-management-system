@@ -243,6 +243,9 @@ async function runInputScope(
   const acceptedBody = (await accepted.json()) as { operation_id: string };
   const operation = await waitForOperation(page, identity.token, acceptedBody.operation_id);
   expect(operation.status).toBe("SUCCEEDED");
+  // Let the upload flow complete its full page navigation before page.evaluate.
+  await page.waitForURL(/page=compare/, { timeout: 120_000 });
+  await expect(page.locator(".compare-workspace")).toBeVisible({ timeout: 120_000 });
 
   const { preview, bundle } = await previewAndBundle(page, identity);
   expect(bundle.failed_pairs).toEqual([]);

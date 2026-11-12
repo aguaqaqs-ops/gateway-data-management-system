@@ -90,7 +90,7 @@ describe("request and flow session binding", () => {
     adopt();
     const fixture = await installedGoldenBundle();
     const fetcher = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(String(url).endsWith("/v1/history-compares")
-      ? testHistoryCompareAcceptance("compare-op") : testHistoryCompareSucceeded(fixture.manifest.bundle_digest, "compare-op"))));
+      ? testHistoryCompareAcceptance("compare-op") : { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: "compare-op" })));
     const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher });
     vi.spyOn(fixture.store, "open").mockImplementation(async () => { adopt("device-b"); return fixture.bundle; });
     await expect(runHistoryComparison(api, fixture.store, [{ ref_kind: "baseline_node", ref_id: "a" }, { ref_kind: "baseline_node", ref_id: "b" }], "compare-key")).rejects.toThrow("会话已变化");

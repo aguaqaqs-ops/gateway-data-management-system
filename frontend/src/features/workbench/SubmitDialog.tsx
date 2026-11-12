@@ -187,6 +187,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       setSubmitted(result.submission.submission_id);
     } catch (cause) {
       if (cause instanceof SessionChangedError) return;
+      try { gatewayApi.assertSession?.(); } catch { return; }
       clearOperationUrl();
       // 已确定失败（4xx/ABORTED）时换新键，否则重试会重放同一个失败结果；
       // 超时、连接中断与 5xx 结果不确定，沿用原键避免重复提交。

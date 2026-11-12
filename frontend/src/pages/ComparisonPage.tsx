@@ -344,7 +344,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   // R15: the sticky sidebar tracks the measured compare-header height so the
   // navigation title and search box are never covered by a taller top bar.
   // This effect stays above every early return: skipping it on some renders
-  // would change the hook order and crash the page.
+  // would change the hook order and crash the page. It re-runs when the
+  // session state settles because the header only mounts after the session
+  // gate opens; otherwise the variable would stay unset on session-gated
+  // first renders.
   useEffect(() => {
     const header = headerRef.current;
     const page = pageRef.current;
@@ -356,7 +359,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const observer = new ResizeObserver(apply);
     observer.observe(header);
     return () => observer.disconnect();
-  }, []);
+  }, [sessionState]);
 
   useEffect(() => {
     const unsubscribe = runtime.subscribe(({ state }) => { setBrowse(state); setSearch(state.search); setOnlyInteresting(state.onlyInteresting); setDebug(state.debug); });

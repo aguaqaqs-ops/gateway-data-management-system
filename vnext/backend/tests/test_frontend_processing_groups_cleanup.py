@@ -154,3 +154,66 @@ def test_changed_runtime_owner_is_not_written_but_ready_still_sanitized(tmp_path
     ready = json.loads((control / "groups-ready.json").read_text())
     assert all("token" not in ready[identity] for identity in ("synthetic", "hot"))
     assert not (control / "groups-stopped.json").exists()
+
+
+@pytest.mark.parametrize("temporary_cleanup_failures", [0, 1, -1], ids=["publisher-removes-temp", "independent-scrub-removes-temp", "temp-removal-error-reported"])
+def test_first_ready_publication_failure_retains_roots_and_sanitizes_exact_temporary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temporary_cleanup_failures: int,
+) -> None:
+    root, control = tmp_path / "groups", tmp_path / "control"
+    stack = fixture_stack(root, monkeypatch)
+    control.mkdir()
+    frontend.write(control / "groups-run-status.json", dict(main_exit_code=0, cleanup_failed=False, interrupted=False))
+    frontend.write(root / "incoming-0.json", {"token": "test-only-credential"})
+    ready = control / "groups-ready.json"
+    temporary = control / "groups-ready.json.tmp"
+    replace_error = OSError("injected first ready replace failure")
+    unlink_error = PermissionError("injected exact ready temporary removal failure")
+    original_replace, original_unlink = Path.replace, Path.unlink
+    observed_temporary = False
+    unlink_attempts = 0
+
+    def replace(path: Path, target: str | Path) -> Path:
+        nonlocal observed_temporary
+        if path == temporary and not observed_temporary:
+            assert target == ready and not ready.exists()
+            document = json.loads(temporary.read_text())
+            assert all("token" in document[name] for name in ("synthetic", "hot"))
+            observed_temporary = True
+            raise replace_error
+        return original_replace(path, target)
+
+    def unlink(path: Path, missing_ok: bool = False) -> None:
+        nonlocal unlink_attempts
+        if path == temporary:
+            unlink_attempts += 1
+            if temporary_cleanup_failures == -1 or unlink_attempts <= temporary_cleanup_failures:
+                raise unlink_error
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    with pytest.raises((OSError, ExceptionGroup)) as publication:
+        frontend.write(ready, {"synthetic": {"token": "test-only-credential"}, "hot": {"token": "test-only-credential"}})
+    assert observed_temporary and not ready.exists()
+    assert temporary.exists() is (temporary_cleanup_failures != 0)
+    with pytest.raises(BaseExceptionGroup) as shutdown:
+        frontend.finish_stack(stack, root, control, primary_error=publication.value)
+    assert shutdown.value.subgroup(lambda error: error is replace_error) is not None
+    if temporary_cleanup_failures:
+        assert shutdown.value.subgroup(lambda error: error is unlink_error) is not None
+    assert not ready.exists()
+    assert temporary.exists() is (temporary_cleanup_failures == -1)
+    assert not (control / "groups-stopped.json").exists()
+    assert not (root / "incoming-0.json").exists()
+    assert all((directory / "diagnostic.db").is_file() for directory in stack.runtime_roots.values())
+    assert all((directory / name).read_text() == "" for directory in stack.runtime_roots.values() for name in ("internal.token", "repository.token"))
+    assert all(json.loads((directory / "session/session.json").read_text()) == {"sessions": []} for directory in stack.runtime_roots.values())
+    # Only the exact credential document may be removed; other evidence remains.
+    print("first_ready_replace_failure=" + json.dumps(dict(temporary_observed_before_replace=observed_temporary,
+        ready_absent=True, temporary_absent=not temporary.exists(), temporary_removal_error_reported=bool(temporary_cleanup_failures),
+        original_replace_error_preserved=True, stopped_absent=True, diagnostic_roots_retained=True)))
+    if temporary_cleanup_failures == -1:
+        # Test teardown only: remove its synthetic credential after proving that
+        # the real cleanup reported failure. Do not leave probe secrets in evidence.
+        original_unlink(temporary)

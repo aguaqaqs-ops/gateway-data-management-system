@@ -21,8 +21,16 @@ from tests.support.processing_groups_harness import SCRIPTS, ProcessingGroupsSta
 
 def write(path: Path, value: object) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        temporary.write_text(json.dumps(value), encoding="utf-8")
+        temporary.replace(path)
+    except Exception as publication_error:
+        try:
+            temporary.unlink(missing_ok=True)
+        except Exception as cleanup_error:
+            raise ExceptionGroup("control document publication and temporary cleanup failed",
+                [publication_error, cleanup_error]) from None
+        raise
 
 
 def caller_succeeded(control: Path) -> bool:
@@ -84,6 +92,12 @@ def sanitize_credentials(root: Path, control: Path, owner: str) -> list[Exceptio
             ready.unlink(missing_ok=True)
         except Exception as unlink_error:
             errors.append(unlink_error)
+    # First publication can fail before ready exists. This exact temporary is
+    # independent of incoming files in GROUPS_ROOT and of the parent's RUN_ROOT.
+    try:
+        ready.with_suffix(ready.suffix + ".tmp").unlink(missing_ok=True)
+    except Exception as error:
+        errors.append(error)
     return errors
 
 

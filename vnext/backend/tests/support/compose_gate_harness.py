@@ -1891,7 +1891,7 @@ def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
         resource_config=str(directory / "resource-profile.json"), session_directory=str(session_directory),
         internal_token_file=env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"],
         repository_token_file=env["GATEWAY_P2R2_BEARER_TOKEN_FILE"])
-    if "GATEWAY_BACKEND_CANDIDATE_SHA" in env:
+    if all(name in env for name in ("GATEWAY_BACKEND_CANDIDATE_SHA", "GATEWAY_BACKEND_IMAGE", "GATEWAY_WORKER_IMAGE")):
         target["images"] = dict(backend=env["GATEWAY_BACKEND_IMAGE"], worker=env["GATEWAY_WORKER_IMAGE"],
             repository_service=repository_service_image(), revision=env["GATEWAY_BACKEND_CANDIDATE_SHA"])
     manifest["groups"] = [target]

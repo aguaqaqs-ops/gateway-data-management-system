@@ -2,6 +2,7 @@ import {
   ComparisonDecodeError,
   normalizeRowIdentity,
   riskAnnotationRowIdentities,
+  type ColumnPresentIn,
   type NavigationFacts,
   type NavigationRowFilter,
   type RiskAnnotation,
@@ -277,6 +278,18 @@ export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlyS
 }
 
 const EMPTY_ENCODINGS: ReadonlyMap<string, SnapshotColumnEncoding> = new Map();
+
+/**
+ * Renders the missing-side placeholder for a grid cell. A column that is
+ * physically absent on the row's side shows 该侧无此列, which is distinct
+ * from a NULL value on a present column (shown as — by displayValue).
+ */
+export function missingSideMarker(side: "before" | "current" | null, presentIn: ColumnPresentIn | undefined): string | null {
+  if ((side === "before" && presentIn === "CURRENT") || (side === "current" && presentIn === "BEFORE")) {
+    return "该侧无此列";
+  }
+  return null;
+}
 
 export function buildBrowseRows(input: {
   table: SurfaceTable;

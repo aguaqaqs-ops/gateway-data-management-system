@@ -3,9 +3,12 @@ import type { RowDiffRecord, SurfaceTable } from "./model";
 import {
   buildBrowseRows,
   canReuseUnrecordedIdentity,
+  missingSideMarker,
+  normalizeDisplayScalar,
   parseRowLocator,
   validateRowLocations,
 } from "./table-rows";
+import { loadTableCase } from "../../test/helpers";
 import type { SnapshotColumnEncoding } from "./snapshot-encoding";
 
 function encodings(entries: Array<[string, Partial<SnapshotColumnEncoding> & { scalarKind: SnapshotColumnEncoding["scalarKind"] }]>): Map<string, SnapshotColumnEncoding> {
@@ -237,5 +240,21 @@ describe("browse rows from published locators", () => {
       degraded: true,
     });
     expect(result.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("missing-side cell marker", () => {
+  it("marks physically absent columns and keeps NULL distinct", async () => {
+    const { surfaceTable } = await loadTableCase("schema-keyless", "device_st");
+    const presentIn = new Map(surfaceTable.columns?.map((column) => [column.name, column.present_in]));
+    expect(presentIn.get("before_only")).toBe("BEFORE");
+    expect(presentIn.get("dev_addr")).toBe("BOTH");
+    expect(missingSideMarker("current", presentIn.get("before_only"))).toBe("该侧无此列");
+    expect(missingSideMarker("before", presentIn.get("before_only"))).toBeNull();
+    expect(missingSideMarker("current", presentIn.get("dev_addr"))).toBeNull();
+    expect(missingSideMarker("before", presentIn.get("dev_addr"))).toBeNull();
+    expect(missingSideMarker(null, presentIn.get("before_only"))).toBeNull();
+    expect(missingSideMarker("current", presentIn.get("before_only")) ?? normalizeDisplayScalar(null)).toBe("该侧无此列");
+    expect(missingSideMarker("current", presentIn.get("dev_addr")) ?? normalizeDisplayScalar(null)).toBe("—");
   });
 });

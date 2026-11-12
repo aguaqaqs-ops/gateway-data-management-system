@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { Buffer } from "node:buffer";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";
@@ -83,6 +84,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 async function screenshot(page: Page, name: string, width: number) {
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
+    await waitForStableHeader(page);
     await settleAfterResize(page);
     // N14: assert in every mode, before any screenshot bookkeeping.
     await expectNoHorizontalOverflow(page);
@@ -99,6 +101,22 @@ async function screenshot(page: Page, name: string, width: number) {
 // works; the instant sits 8 seconds after the mock operation start.
 async function freezePageClock(page: Page) {
   await page.clock.setFixedTime(new Date("2026-11-03T09:00:09Z"));
+}
+
+/**
+ * R9: same settled-header gate as workspace-shell: two consecutive header
+ * element captures must be byte-identical before a screenshot is saved.
+ */
+async function waitForStableHeader(page: Page) {
+  const header = page.locator(".compare-header");
+  if ((await header.count()) === 0) return;
+  let previous: Buffer | null = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const current = await header.screenshot({ animations: "disabled" });
+    if (previous && Buffer.compare(previous, current) === 0) return;
+    previous = current;
+    await page.waitForTimeout(100);
+  }
 }
 
 function json(route: Route, status: number, body: unknown) {
@@ -208,6 +226,34 @@ async function installModeRoutes(page: Page, state: ModeState) {
 function previewUrl(extra: Record<string, string> = {}) {
   const params = new URLSearchParams({ page: "compare", mode: "PREVIEW", workspaceId: "workspace-fe2b", previewResultId: "preview-full", ...extra });
   return "/?" + params.toString();
+}
+
+async function expectSidebarSticky(page: Page, label: string) {
+  for (const width of [1280, 1920]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(400);
+    const expand = page.getByRole("button", { name: "展开导航" });
+    if (await expand.isVisible()) {
+      await expand.click();
+      await page.waitForTimeout(300);
+    }
+    const measure = () => page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom };
+      };
+      return { header: rect(".compare-header"), sidebar: rect(".navigation-sidebar"), innerHeight: window.innerHeight };
+    });
+    let metrics = await measure();
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(400);
+    metrics = await measure();
+    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+  }
 }
 
 async function waitForPreview(page: Page) {
@@ -606,6 +652,8 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
+  const statusOverflow = await page.locator(".compare-status").evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(statusOverflow, `compare-status 元素横向溢出：${statusOverflow}px`).toBeLessThanOrEqual(1);
   await expect(page.getByText("提交正在执行，完成后才能撤回")).toBeVisible();
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
   // C3: the two disabled reasons render in separate button-wrapped spans with
@@ -680,6 +728,30 @@ test("W6 Preview 页刷新后找回操作卡片", async ({ page }) => {
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能继续").first()).toBeVisible();
   await screenshot(page, "fe3b-w6-preview-resumed-card", 1280);
+});
+
+test("比较页侧栏随顶栏吸顶：已通过提交 Preview 设备栏与原因行", async ({ page }) => {
+  test.setTimeout(300000);
+  const state: ModeState = {
+    workspace: workspace({ active_submission_id: "submission-1" }),
+    review: { ...TEST_REVIEW_FACTS, status: "APPROVED" as const },
+  };
+  await installModeRoutes(page, state);
+  const payload = {
+    v: 1,
+    token: "dir-token-e2e",
+    gateway_device_external_key: "gateway-17",
+    business_project_id: "project-42",
+    display: { region1: "华东", region2: "上海", project_name: "示例项目", station_code: "站-01" },
+    return_url: "http://directory.example:8100/",
+  };
+  await page.goto(`/?page=workspace#gdds-handoff=${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`);
+  await page.waitForTimeout(1500);
+  await page.goto(previewUrl());
+  await waitForPreview(page);
+  await expect(page.getByText("该提交已通过审核，不能撤回")).toBeVisible();
+  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expectSidebarSticky(page, "D-preview-reasons-device");
 });
 
 test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async ({ page }) => {

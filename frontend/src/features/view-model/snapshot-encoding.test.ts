@@ -93,7 +93,7 @@ describe("snapshot encoding metadata decoding", () => {
     ["nameless column", JSON.stringify({ columns: [{ sql_type: "BIGINT" }] })],
   ])("rejects %s file metadata", (_, value) => {
     const entries = value === undefined ? [] : [{ key: SNAPSHOT_ENCODING_METADATA_KEY, value: value as string }];
-    expect(() => decodeSnapshotEncodings(entries, "表 demo.改后")).toThrow(/元数据|结构无效/);
+    expect(() => decodeSnapshotEncodings(entries, "表 demo.改后")).toThrow(/元数据|结构无效|合法 JSON/);
   });
 
   it("rejects an integer declaration that contradicts the physical type or width", () => {

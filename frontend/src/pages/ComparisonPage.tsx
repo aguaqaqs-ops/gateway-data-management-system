@@ -11,7 +11,7 @@ import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, ris
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { buildBrowseRows, canReuseUnrecordedIdentity, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
+import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
 import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
@@ -338,6 +338,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const selectedNavRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const reviewNoticeRef = useRef<HTMLDivElement | null>(null);
+  const pageRef = useRef<HTMLElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const unsubscribe = runtime.subscribe(({ state }) => { setBrowse(state); setSearch(state.search); setOnlyInteresting(state.onlyInteresting); setDebug(state.debug); });
@@ -635,10 +637,25 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
-  return <main className="comparison-page">
+  // R15: the sticky sidebar tracks the measured compare-header height so the
+  // navigation title and search box are never covered by a taller top bar.
+  useEffect(() => {
+    const header = headerRef.current;
+    const page = pageRef.current;
+    if (!header || !page) return;
+    const apply = () => {
+      page.style.setProperty("--compare-header-height", `${Math.max(1, Math.round(header.getBoundingClientRect().height))}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  return <main ref={pageRef} className="comparison-page">
     {resumeOperationId && <div className="comparison-resume"><OperationStatusPanel operationId={resumeOperationId} onSucceeded={(id) => void finishSubmitResume(id)} onFailed={(id) => void finishSubmitResume(id)} /></div>}
     {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
-    <header className="compare-header">
+    <header ref={headerRef} className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <DeviceBar state={sessionState} />
       <div className="compare-header__top">
@@ -897,8 +914,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
       value = "查看公式" + (formulaChanged ? " · 公式已改" : "");
     } else {
       const columnShape = orderedColumns.find((item) => item.name === columnId);
-      const missing = columnShape && ((row.side === "before" && columnShape.present_in === "CURRENT") || (row.side === "current" && columnShape.present_in === "BEFORE"));
-      value = missing ? "该侧无此列" : row.values[columnId];
+      value = missingSideMarker(row.side, columnShape?.present_in) ?? row.values[columnId];
     }
     const risk = row.riskLevel ? riskTokens(row.riskLevel) : null;
     const changed = row.changedColumns.includes(columnId);

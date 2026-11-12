@@ -2465,7 +2465,7 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openPreview("identity-changes");
     await openItem("device:addr:49");
     await openTab("device_cfg");
-    await expect(page.locator('.nav-item[data-item-key="device:addr:49"] .nav-tab__basis')).toHaveText("此页签按整表提示");
+    await expect(page.locator('.nav-item[data-item-key="device:addr:49"] .nav-tab__basis').first()).toHaveText("此页签按整表提示");
   });
   await capture("fe4b-table-scope", async () => {
     await openPreview("table-addition");
@@ -2541,17 +2541,25 @@ async function expectSidebarSticky(page: Page, label: string) {
         const element = document.querySelector(selector);
         if (!element) return null;
         const box = element.getBoundingClientRect();
-        return { top: box.top, bottom: box.bottom };
+        const computed = getComputedStyle(element);
+        return { top: box.top, bottom: box.bottom, cssTop: computed.top, cssHeight: computed.height };
       };
-      return { header: rect(".compare-header"), sidebar: rect(".navigation-sidebar"), innerHeight: window.innerHeight };
+      const main = document.querySelector(".comparison-page");
+      return {
+        header: rect(".compare-header"),
+        sidebar: rect(".navigation-sidebar"),
+        innerHeight: window.innerHeight,
+        headerVar: main ? (main as HTMLElement).style.getPropertyValue("--compare-header-height") : "no-main",
+      };
     });
     let metrics = await measure();
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    const describe = () => JSON.stringify(metrics);
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(400);
     metrics = await measure();
-    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏 ${describe()}`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
+    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
   }
 }
 

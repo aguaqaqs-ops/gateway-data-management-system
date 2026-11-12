@@ -7,7 +7,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run src",
     "test:e2e": "playwright test --grep-invert @screenshots",
     "test:screenshots": "playwright test --grep @screenshots --workers 1",
     "build": "tsc --noEmit && vite build"

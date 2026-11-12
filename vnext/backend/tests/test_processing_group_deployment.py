@@ -153,7 +153,7 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
     public.mkdir()
     (public / "groups.json").write_bytes(groups.to_bytes())
     (public / "device-directory.json").write_text(json.dumps(dict(schema_version=1, environment_id=groups.environment_id, devices=[])))
-    containers = []
+    containers: list[dict[str, Any]] = []
     for service, role in (("backend", "backend"), ("worker", "worker"), ("repository-service", "repository_service")):
         profile = getattr(config.resources, role)
         memory = profile.memory_envelope_bytes if role == "worker" else profile.memory_limit_bytes

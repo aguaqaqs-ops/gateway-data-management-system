@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { installedGoldenBundle } from "../../src/test/helpers";
+import { readFile } from "node:fs/promises";
 import { parseBundleTar } from "./tar";
 
 // Only a fixture mutator: production installBundleTar is the validation oracle.
@@ -19,6 +19,13 @@ function memberSegments(tar: Buffer): Buffer[] {
     }
   }
   return segments;
+}
+
+async function goldenBundle() {
+  const tar = await readFile("src/test/fixtures/generated/golden-bundle.tar");
+  const size = Number.parseInt(tar.subarray(124, 136).toString().replace(/\0.*$/, "").trim(), 8);
+  const manifest = JSON.parse(tar.subarray(512, 512 + size).toString()) as { bundle_digest: string; closure: { entries: unknown[] } };
+  return { tar, manifest };
 }
 
 const archiveFaults: Array<[string, (members: Buffer[], end: Buffer) => Buffer, RegExp]> = [
@@ -43,7 +50,7 @@ const metadataFaults = [
 
 describe("real e2e bundle transport uses the complete product validator", () => {
   it("accepts the backend golden format including legal long PAX paths and semantic ETag", async () => {
-    const { tar, manifest } = await installedGoldenBundle();
+    const { tar, manifest } = await goldenBundle();
     const parsed = await parseBundleTar(Buffer.from(tar), { contentLength: String(tar.length), etag: `"${manifest.bundle_digest}"`, expectedBundleDigest: manifest.bundle_digest });
     expect(parsed.members.length).toBe(manifest.closure.entries.length + 2);
     expect(parsed.members.some((member) => member.path.length > 100)).toBe(true);
@@ -51,13 +58,13 @@ describe("real e2e bundle transport uses the complete product validator", () => 
   });
 
   it.each(archiveFaults)("rejects %s even with matching actual HTTP length", async (_name, mutate, message) => {
-    const { tar, manifest } = await installedGoldenBundle();
+    const { tar, manifest } = await goldenBundle();
     const malformed = mutate(memberSegments(Buffer.from(tar)), Buffer.alloc(1024));
     await expect(parseBundleTar(malformed, { contentLength: String(malformed.length), etag: `"${manifest.bundle_digest}"`, expectedBundleDigest: manifest.bundle_digest })).rejects.toThrow(message);
   });
 
   it.each(metadataFaults)("rejects %s on a valid complete archive", async (_name, metadata, message) => {
-    const { tar, manifest } = await installedGoldenBundle();
+    const { tar, manifest } = await goldenBundle();
     await expect(parseBundleTar(Buffer.from(tar), { contentLength: String(tar.length), etag: `"${manifest.bundle_digest}"`, expectedBundleDigest: manifest.bundle_digest, ...metadata })).rejects.toThrow(message);
   });
 });

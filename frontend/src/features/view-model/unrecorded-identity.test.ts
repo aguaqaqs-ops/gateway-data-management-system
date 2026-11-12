@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadComparisonPresentation } from "../bundle/presentation";
-import { installedFixtureBundle, loadTableCase, type FixtureTableCase } from "../../test/helpers";
+import { loadTableCase, type FixtureTableCase } from "../../test/helpers";
 import {
   buildBrowseRows,
   canReuseUnrecordedIdentity,

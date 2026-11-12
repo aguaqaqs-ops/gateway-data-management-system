@@ -2555,20 +2555,16 @@ async function expectSidebarSticky(page: Page, label: string) {
   }
 }
 
-test("比较页侧栏随顶栏吸顶：跳转会话 Preview 设备栏", async ({ page }) => {
-  test.setTimeout(300000);
-  await installFixtureRoutes(page, {});
+test("比较页侧栏随顶栏吸顶：跳转会话、审核与设备栏三场景", async ({ page }) => {
+  test.setTimeout(600000);
+  await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
   await gotoWithHandoff(page, "/");
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
   await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
   await expectSidebarSticky(page, "A-preview-device");
-});
-
-test("比较页侧栏随顶栏吸顶：审核处置说明与冲突提示", async ({ page }) => {
-  test.setTimeout(300000);
-  await installFixtureRoutes(page, { reviewConflict: "ARCHIVE_CLOSED" });
+  await page.evaluate(() => window.sessionStorage.clear());
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
@@ -2577,18 +2573,10 @@ test("比较页侧栏随顶栏吸顶：审核处置说明与冲突提示", async
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator(".compare-header > .device-bar")).toHaveCount(0);
   await expectSidebarSticky(page, "B-review-disposition");
-});
-
-test("比较页侧栏随顶栏吸顶：跳转会话审核设备栏与处置说明", async ({ page }) => {
-  test.setTimeout(300000);
-  await installFixtureRoutes(page, {});
   await gotoWithHandoff(page, "/");
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
-  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
-  await page.getByRole("button", { name: "审核通过", exact: true }).click();
-  await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
   await expectSidebarSticky(page, "C-review-device-disposition");

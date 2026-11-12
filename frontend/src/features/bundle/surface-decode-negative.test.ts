@@ -21,7 +21,7 @@ function flipHexTail(value: string): string {
 /** Installs the generated fixture, mutates one surface field, and re-commits the clone. */
 async function installMutatedSurface(mutate: (surface: Record<string, unknown>) => void): Promise<ClonedBundle> {
   const installed = await installedFixtureBundle(FIXTURE);
-  const sourceEntries = installed.manifest.closure.entries as Array<Record<string, unknown>>;
+  const sourceEntries = installed.manifest.closure.entries as unknown as Array<Record<string, unknown>>;
   const surfaceEntry = sourceEntries.find((entry) => entry["kind"] === "SURFACE" && entry["pair_id"] === PAIR);
   if (!surfaceEntry || typeof surfaceEntry["logical_path"] !== "string") throw new Error("fixture has no surface entry");
   const surfacePath = surfaceEntry["logical_path"] as string;
@@ -51,14 +51,14 @@ async function installMutatedSurface(mutate: (surface: Record<string, unknown>) 
   const nextManifest = {
     ...installed.manifest,
     closure: { ...(installed.manifest.closure as unknown as Record<string, unknown>), entries: nextEntries },
-    closure_entries: (installed.manifest.closure_entries as Array<Record<string, unknown>>).map((entry) =>
+    closure_entries: (installed.manifest.closure_entries as unknown as Array<Record<string, unknown>>).map((entry) =>
       entry["logical_path"] === surfacePath
         ? { ...entry, raw_sha256: mutatedDigest, size_bytes: mutatedBytes.byteLength }
         : entry),
   } as unknown as BundleManifest;
   const nextClosure = {
     ...installed.closure,
-    closure_entries: (installed.closure.closure_entries as Array<Record<string, unknown>>).map((entry) =>
+    closure_entries: (installed.closure.closure_entries as unknown as Array<Record<string, unknown>>).map((entry) =>
       entry["logical_path"] === surfacePath
         ? { ...entry, raw_sha256: mutatedDigest, size_bytes: mutatedBytes.byteLength }
         : entry),

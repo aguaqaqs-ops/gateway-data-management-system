@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 import threading
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -66,38 +67,42 @@ def test_concurrent_upload_registration_preserves_both_artifacts() -> None:
     assert (repo_b, artifact_b, 22) in snapshot.upload_artifacts
 
 
+@pytest.mark.serial
 def test_concurrent_create_replay_keeps_both_repositories_under_readiness_watch(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings, runtime = start_runtime(tmp_path)
-    errors: list[BaseException] = []
-    barrier = threading.Barrier(2)
+    _settings, runtime = start_runtime(tmp_path)
+    first_create_finished = threading.Event()
+    register_together = threading.Barrier(2)
+    register_succeeded_create = runtime.register_succeeded_create
 
-    def worker(idempotency_key: str) -> None:
-        try:
-            barrier.wait()
-            replay_create(runtime, idempotency_key=idempotency_key)
-        except BaseException as exc:
-            errors.append(exc)
+    def register(repository_id: UUID) -> None:
+        # execute() has returned and released the CREATE gate. The next request
+        # may create while this successful request is about to update its watch.
+        first_create_finished.set()
+        register_together.wait(timeout=30)
+        register_succeeded_create(repository_id)
 
-    threads = [
-        threading.Thread(target=worker, args=("concurrent-create-a",)),
-        threading.Thread(target=worker, args=("concurrent-create-b",)),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    assert errors == []
-
+    monkeypatch.setattr(runtime, "register_succeeded_create", register)
     try:
-        assert runtime.is_ready()
-        snapshot = runtime.consistency_watch.snapshot()
-        assert len(snapshot.create_repository_ids) == 2
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            try:
+                first = pool.submit(replay_create, runtime, idempotency_key="concurrent-create-a")
+                assert first_create_finished.wait(timeout=30)
+                second = pool.submit(replay_create, runtime, idempotency_key="concurrent-create-b")
+                response_a = first.result(timeout=30)
+                response_b = second.result(timeout=30)
+            finally:
+                register_together.abort()
 
-        victim_id = snapshot.create_repository_ids[0]
-        published = runtime.layout.published_repository(repository_key(victim_id))
+        repository_ids = {UUID(str(response_a.repository_id)), UUID(str(response_b.repository_id))}
+        assert len(repository_ids) == 2
+        assert set(runtime.consistency_watch.snapshot().create_repository_ids) == repository_ids
+        assert runtime.is_ready()
+
+        published = runtime.layout.published_repository(repository_key(UUID(str(response_b.repository_id))))
         shutil.rmtree(published)
         assert not runtime.is_ready()
     finally:
+        register_together.abort()
         runtime.shutdown()

@@ -31,7 +31,7 @@ services:
     volumes:
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
       - type: bind
-        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config}
+        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config/public}
         target: /run/gateway/groups
         read_only: true
         bind:
@@ -90,7 +90,7 @@ services:
     volumes:
       - ${GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE:-./config/provisioned-mapping.json}:/run/gateway/provisioned-mapping.json:ro
       - type: bind
-        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config}
+        source: ${GATEWAY_PROCESSING_GROUPS_DIRECTORY:-./config/public}
         target: /run/gateway/groups
         read_only: true
         bind:

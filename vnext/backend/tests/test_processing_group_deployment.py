@@ -242,3 +242,42 @@ def test_public_parent_rejects_any_nested_bind_mount(deployment: tuple[Any, Any]
         SimpleNamespace(target=str(public / "hidden"), root=str(Path(groups.groups[0].session_directory)))))
     with pytest.raises(ValueError, match="child mounts"):
         helper.check_public_directory(groups, public)
+
+
+@pytest.mark.parametrize("fault", [None, "dirty", "revision"])
+def test_source_build_uses_only_verified_selected_revision_and_repository_provenance(deployment: tuple[Any, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None) -> None:
+    import subprocess
+    helper, groups = deployment
+    selected = replace(groups.groups[0], images=replace(groups.groups[0].images, revision="1" * 40))
+    groups = replace(groups, groups=(selected, groups.groups[1]))
+    public = tmp_path / "public"
+    public.mkdir()
+    config = helper.load_configs(groups)[selected.group_id]
+    sys.path.insert(0, str(VNEXT / "scripts"))
+    try:
+        render = runpy.run_path(str(VNEXT / "scripts/render-runtime-config.py"))["render_group"]
+    finally:
+        sys.path.pop(0)
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if command[-1] == "HEAD":
+            output = "9" * 40 if fault == "revision" else selected.images.revision
+        elif command[-1] == "--porcelain":
+            output = " M source.py" if fault == "dirty" else ""
+        else:
+            assert command[-1] == "identity"
+            output = json.dumps(dict(candidate_sha=selected.images.revision, build_input_revision="2" * 40,
+                source_tree_sha256="sha256:" + "3" * 64))
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+    if fault is not None:
+        with pytest.raises(ValueError, match="clean revision"):
+            render(config, Path(selected.storage_config), Path(selected.resource_config), groups, selected.group_id,
+                public / "groups.json", public / "device-directory.json", build_from_source=True)
+        return
+    rendered = render(config, Path(selected.storage_config), Path(selected.resource_config), groups, selected.group_id,
+        public / "groups.json", public / "device-directory.json", build_from_source=True)
+    for role in ("backend", "worker", "repository-service"):
+        assert rendered["services"][role]["build"]["args"]["CANDIDATE_SHA"] == selected.images.revision
+    arguments = rendered["services"]["repository-service"]["build"]["args"]
+    assert arguments["BUILD_INPUT_REVISION"] == "2" * 40
+    assert arguments["SOURCE_TREE_SHA256"] == "sha256:" + "3" * 64

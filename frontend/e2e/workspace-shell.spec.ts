@@ -2485,10 +2485,12 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
     await waitForBrowse(page);
     await expect(page.locator(".compare-header .device-bar .device-context")).toBeVisible();
-    // fe-handoff R8: the device bar is the first child of compare-header and
-    // never lives inside .compare-status.
+    // fe-handoff R8: the device bar is a direct child of compare-header on its
+    // own row directly above the top bar, never inside .compare-status. It is
+    // not literally :first-child: a pre-existing sr-only h1 (FE2a) stays first
+    // for accessibility; the layout contract is the row order below.
     await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
-    await expect(page.locator(".compare-header > :first-child")).toHaveClass(/device-bar/);
+    await expect(page.locator(".compare-header > .device-bar + .compare-header__top")).toHaveCount(1);
     await expect(page.locator(".compare-status .device-bar")).toHaveCount(0);
   });
   expect(failures, failures.join("\n")).toEqual([]);

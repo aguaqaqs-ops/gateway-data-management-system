@@ -228,7 +228,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         // the URL belongs to the preview flow and is left alone (job_kind).
         // The runtime state is updated (not just the URL) so later browse
         // commands do not restore the stale operation id.
-        if (await getUrlOperationJobKind(urlOperationId) === "backend-vnext/submit") {
+        if (await getUrlOperationJobKind(gatewayApi, urlOperationId) === "backend-vnext/submit") {
           runtime.execute({ name: "set-operation", operationId: loadedAttempt.operation_id, operationKind: "operation" }, "external");
         }
       }

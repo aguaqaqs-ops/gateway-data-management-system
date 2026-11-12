@@ -61,15 +61,9 @@ export class SessionChangedError extends Error {
   constructor() { super("会话已变化"); this.name = "SessionChangedError"; }
 }
 
-export function assertCurrentSession(snapshot: GatewaySession): void {
-  if (currentGatewaySession() !== snapshot) throw new SessionChangedError();
-}
-
 export function scopeMarker(session = currentGatewaySession()): string {
   return JSON.stringify([session.deviceRouteKey, session.businessProjectId]);
 }
-
-export function currentAccessToken(): string | null { return currentGatewaySession().accessToken; }
 
 const DEFAULT_HISTORY_COMPARE_TIMEOUT_MS = 30_000;
 

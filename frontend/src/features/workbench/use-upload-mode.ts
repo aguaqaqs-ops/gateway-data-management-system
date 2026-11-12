@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useBoundGatewayApi, gatewayApi as unboundGatewayApi } from "../api/application-api";
+import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { currentGatewaySession } from "../api/session";
 import { deriveUploadModeGates, type Problem, type UploadModeAttempt, type UploadModeGates, type UploadModeOperation, type UploadModeWorkspace } from "./upload-header";
-import type { SafeReviewFacts } from "../api/client";
+import type { GatewayApi, SafeReviewFacts } from "../api/client";
 import { InflightGate } from "./inflight";
 
 function problemFrom(cause: unknown): Problem {
@@ -445,9 +445,9 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
  * the pages can tell a submit operation from a preview operation (§6.2).
  * Returns null when the operation cannot be read.
  */
-export async function getUrlOperationJobKind(operationId: string): Promise<string | null> {
+export async function getUrlOperationJobKind(api: GatewayApi, operationId: string): Promise<string | null> {
   try {
-    const loaded = await unboundGatewayApi.getOperation(operationId);
+    const loaded = await api.getOperation(operationId);
     return loaded.job_kind ?? null;
   } catch {
     return null;

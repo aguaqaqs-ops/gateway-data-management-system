@@ -28,7 +28,7 @@ export interface AuthenticatedFetchOptions {
 }
 
 /**
- * Adds the current bearer token to every API call. The directory-handoff trial
+ * Adds Bearer and device routing from one immutable session snapshot. The directory-handoff trial
  * is the one exception to "no credentials in browser storage": it keeps the
  * per-tab session in sessionStorage (see features/session/handoff-session.ts).
  */
@@ -65,7 +65,7 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
       ? errorBody.message
       : `请求失败（HTTP ${response.status}）`;
     if ((boundSession || session === currentGatewaySession) && session() !== snapshot) throw new SessionChangedError();
-    if (response.status === 401 && code === "AUTHENTICATION_REQUIRED") {
+    if (response.status === 401) {
       // The handoff session is the only state that can expire here; injected
       // dev/test identities are left alone so their own error surfaces remain.
       expireHandoffSessionOnUnauthorized(snapshot);

@@ -168,10 +168,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     setLoading(true);
     setLoadError(null);
     try {
-      const [snapshot, loadedHistory] = await Promise.all([
-        uploadMode.refresh(),
-        gatewayApi.listHistory(),
-      ]);
+      const snapshot = await uploadMode.refresh();
       if (!snapshot.workspace || snapshot.workspaceError) {
         // The shared refresh keeps stale state on failure; the page-level
         // load still reports it as a load error (as before B4).
@@ -179,6 +176,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         setHistory(null);
         return;
       }
+      const loadedHistory = await gatewayApi.listHistory();
       setHistory(loadedHistory);
       const loadedAttempt = snapshot.attempt;
       if (snapshot.workspace.active_submit_attempt_id && loadedAttempt?.operation_id) {
@@ -187,7 +185,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         if (urlOperationId !== loadedAttempt.operation_id) {
           // §6.2: only a submit operation in the URL loses to the pointer;
           // a preview operation belongs to the preview flow (job_kind).
-          const jobKind = urlOperationId ? await getUrlOperationJobKind(urlOperationId) : null;
+          const jobKind = urlOperationId ? await getUrlOperationJobKind(gatewayApi, urlOperationId) : null;
           if (!urlOperationId || jobKind === "backend-vnext/submit") {
             url.searchParams.set("operationId", loadedAttempt.operation_id);
             url.searchParams.set("operationKind", "operation");
@@ -212,11 +210,9 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     const session = currentGatewaySession();
     if (!session.businessProjectId || !session.gatewayDeviceExternalKey) return null;
     try {
-      const [snapshot, loadedHistory] = await Promise.all([
-        uploadMode.refresh(),
-        gatewayApi.listHistory(),
-      ]);
+      const snapshot = await uploadMode.refresh();
       if (!snapshot.workspace || snapshot.workspaceError) return null;
+      const loadedHistory = await gatewayApi.listHistory();
       setHistory(loadedHistory);
       return loadedHistory.head;
     } catch {

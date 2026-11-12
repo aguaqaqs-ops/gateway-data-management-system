@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "vnext/backend"))
-from tests.support.processing_groups_harness import ProcessingGroupsStack
+from tests.support.processing_groups_harness import ProcessingGroupsStack  # noqa: E402
 
 
 def write(path: Path, value: object) -> None:

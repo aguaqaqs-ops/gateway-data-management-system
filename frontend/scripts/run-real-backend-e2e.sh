@@ -733,6 +733,24 @@ if [[ "$SUITE" == "smoke" ]]; then
   done
 fi
 
+# The group helper uses the host backend environment, including the Rust
+# extension. Resolve only the node's prefilled repository-selected toolchain.
+RUN_STAGE="host-dependencies"
+export PATH="/home/dev/.cargo/bin:$PATH"
+unset RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME
+export UV_OFFLINE=1 CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=4
+export CARGO_TARGET_DIR="$RUN_ROOT/cargo-target"
+export GATEWAY_RUST_BUILD_INPUT="$(git -C "$REPO_DIR" rev-parse HEAD:vnext/rust)"
+(
+  cd "$REPO_DIR/vnext/rust"
+  for tool in rustc cargo rustfmt clippy-driver; do
+    command -v "$tool" >/dev/null || { log "error=required offline Rust tool missing: $tool"; exit 2; }
+    "$tool" --version
+  done
+) 2>&1 | tee -a "$LOG_FILE"
+"$REPO_DIR/vnext/scripts/uv-consume.sh" -C "$REPO_DIR/vnext/backend" sync --reinstall-package gateway-compute-python 2>&1 | tee -a "$LOG_FILE"
+"$REPO_DIR/vnext/scripts/check-rust-extension-build-input.sh" 2>&1 | tee -a "$LOG_FILE"
+
 # Two complete groups plus independent public entry. The helper owns the
 # existing test-only Compose harness and registers every scope by add-device.
 GROUPS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe-groups.XXXXXX")"

@@ -1,3 +1,4 @@
+import { captureResponse } from "./lib/response-snapshot";
 import { test, expect, type Browser, type BrowserContext, type Page, type Response as PlaywrightResponse } from "@playwright/test";
 import {
   appendCaseLog,
@@ -18,7 +19,6 @@ import {
   startUpload,
   stepUploadAction,
   treeRow,
-  waitForBundleResponse,
   waitForDiffBrowsing,
   waitForPreviewOutcome,
   workshopAction,
@@ -141,16 +141,16 @@ async function uploadAndPreview(
   const observation = captureBundleDownloads(page, identity);
   try {
     await observation.assertIdentity();
-    const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
-    const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    const uploadWait = await captureResponse(page, identity, "POST", /\/upload-revisions$/);
+    const previewWait = await captureResponse(page, identity, "POST", /\/preview-operations$/);
     if (input === "full") {
       await selectUploadDirs(page, { modified: inputDir(scope, "full_modified"), initial: inputDir(scope, "full_initial") });
     } else await selectUploadDirs(page, { modified: inputDir(scope, "modified_only") });
     await startUpload(page);
-    const upload = await uploadWait;
+    const upload = await uploadWait.read();
     expect(upload.status(), "upload-revisions status").toBe(201);
     const uploaded = await upload.json() as { workspace_id: string; upload_revision_id: string };
-    const preview = await previewWait;
+    const preview = await previewWait.read();
     expect(preview.status(), "preview-operations status").toBe(202);
     const accepted = await preview.json() as { operation_id: string };
     const operation = await waitForOperation(identity, accepted.operation_id, 240_000);
@@ -188,7 +188,7 @@ interface SubmitRun {
 
 async function submitViaUi(page: Page, identity: JourneyIdentity, workspaceId: string): Promise<SubmitRun> {
   const keys = countPosts(page, SUBMIT_ATTEMPTS);
-  const accepted = page.waitForResponse((response) => isPost(response, SUBMIT_ATTEMPTS), { timeout: 300_000 });
+  const accepted = await captureResponse(page, identity, "POST", /\/submit-attempts$/);
 
   await compareAction(page, "提交").click();
   const dialog = page.getByRole("dialog");
@@ -196,8 +196,8 @@ async function submitViaUi(page: Page, identity: JourneyIdentity, workspaceId: s
   await expect(dialog.getByRole("heading", { name: "提交本次组态", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "确认提交", exact: true }).click();
 
-  const response = await accepted;
-  const responseBody = await response.text().catch(() => "");
+  const response = await accepted.read();
+  const responseBody = await response.text();
   expect(response.status(), `submit-attempts status body=${responseBody.slice(0, 500)}`).toBe(202);
   const result = page.locator('section[aria-label="提交结果"]');
   await expect(result).toBeVisible({ timeout: 240_000 });
@@ -525,9 +525,9 @@ test("r3-truncated", async ({ browser }, testInfo) => {
 
     // Re-download from the real backend succeeds and enters diff browsing.
     await session.page.unroute(/\/bundle$/, bundleRoute);
-    const recovered = waitForBundleResponse(session.page, 300_000);
+    const recovered = await captureResponse(session.page, submitter, "GET", /\/bundle$/);
     await error.getByRole("button", { name: "重试", exact: true }).click();
-    const recoveredResponse = await recovered;
+    const recoveredResponse = await recovered.read();
     expect(recoveredResponse.status()).toBe(200);
     const parsed = await parseBundleTar(Buffer.from(await recoveredResponse.body()), { contentLength: recoveredResponse.headers()["content-length"] ?? null, etag: recoveredResponse.headers()["etag"] ?? null });
     await assertBundleConsumerCriteria(parsed, "journey r3 recovered bundle");
@@ -777,11 +777,11 @@ test("r7-upload-only", async ({ browser }) => {
   try {
     await gotoWorkbenchFresh(session.page);
     const uploadWait = session.page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
-    const previewWait = session.page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    const previewWait = await captureResponse(session.page, uploadOnly, "POST", /\/preview-operations$/);
     await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
     await startUpload(session.page);
     expect((await uploadWait).status()).toBe(201);
-    const previewResponse = await previewWait;
+    const previewResponse = await previewWait.read();
     expect(previewResponse.status()).toBe(202);
     const accepted = (await previewResponse.json()) as { operation_id: string };
     expect((await waitForOperation(uploadOnly, accepted.operation_id, 240_000)).status).toBe("SUCCEEDED");
@@ -989,9 +989,9 @@ test("r9-history", async ({ browser }, testInfo) => {
 
     const historyBodies = captureBundleDownloads(session.page, submitter);
     try {
-      const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
+      const compareResponse = await captureResponse(session.page, submitter, "POST", /\/history-compares$/, 120_000);
       await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
-      const compareAccepted = await compareResponse;
+      const compareAccepted = await compareResponse.read();
       expect(compareAccepted.status()).toBeLessThan(300);
       const historyOperationId = ((await compareAccepted.json()) as { operation_id: string }).operation_id;
 
@@ -1328,15 +1328,15 @@ async function uploadDirsAndPreview(
   identity = { ...identity };
   const observation = captureBundleDownloads(page, identity);
   try {
-    const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
-    const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    const uploadWait = await captureResponse(page, identity, "POST", /\/upload-revisions$/);
+    const previewWait = await captureResponse(page, identity, "POST", /\/preview-operations$/);
     await observation.assertIdentity();
     await selectUploadDirs(page, dirs);
     await startUpload(page);
-    const upload = await uploadWait;
+    const upload = await uploadWait.read();
     expect(upload.status(), "upload-revisions status").toBe(201);
     const uploaded = await upload.json() as { workspace_id: string; upload_revision_id: string };
-    const preview = await previewWait;
+    const preview = await previewWait.read();
     expect(preview.status(), "preview-operations status").toBe(202);
     const accepted = (await preview.json()) as { operation_id: string };
     const operation = await waitForOperation(identity, accepted.operation_id, 240_000);

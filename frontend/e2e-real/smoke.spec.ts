@@ -1,3 +1,4 @@
+import { captureResponse } from "./lib/response-snapshot";
 import { parseBundleTar, type BundleManifest } from "./lib/tar";
 import type { GatewaySession } from "../src/features/api/session";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -229,16 +230,12 @@ async function runInputScope(
       uploadStatuses.push(response.status());
     }
   });
-  const acceptedResponse = page.waitForResponse(
-    (response) => response.request().method() === "POST"
-      && /\/v1\/workspaces\/[^/]+\/preview-operations$/.test(new URL(response.url()).pathname),
-    { timeout: 300_000 },
-  );
+  const acceptedResponse = await captureResponse(page, identity, "POST", /\/v1\/workspaces\/[^/]+\/preview-operations$/);
 
   await gotoWorkbench(page);
   await selectAndUpload(page, modifiedDir, initialDir);
   await expect.poll(() => uploadStatuses, { timeout: 300_000 }).toContain(201);
-  const accepted = await acceptedResponse;
+  const accepted = await acceptedResponse.read();
   expect(accepted.status()).toBe(202);
   const acceptedBody = (await accepted.json()) as { operation_id: string };
   const operation = await waitForOperation(page, identity.token, acceptedBody.operation_id);
@@ -338,6 +335,7 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   const uploadResponses: number[] = [];
   const previewResults: PreviewResultBody[] = [];
   const operationStates: string[] = [];
+  const responseErrors: unknown[] = [];
   page.on("response", (response) => {
     const request = response.request();
     const path = new URL(response.url()).pathname;
@@ -345,10 +343,10 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
       uploadResponses.push(response.status());
     }
     if (request.method() === "GET" && /\/preview-results\/[^/]+$/.test(path) && response.status() === 200) {
-      void response.json().then((body) => previewResults.push(body as PreviewResultBody)).catch(() => undefined);
+      void response.json().then((body) => previewResults.push(body as PreviewResultBody)).catch((error: unknown) => responseErrors.push(error));
     }
     if (request.method() === "GET" && /\/v1\/operations\/[^/]+$/.test(path) && response.status() === 200) {
-      void response.json().then((body) => operationStates.push((body as { status: string }).status)).catch(() => undefined);
+      void response.json().then((body) => operationStates.push((body as { status: string }).status)).catch((error: unknown) => responseErrors.push(error));
     }
   });
 
@@ -364,9 +362,9 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   // The upload is accepted by the real backend (upload_revision created).
   await expect.poll(() => uploadResponses, { timeout: 300000 }).toContain(201);
   // The preview operation reaches SUCCEEDED.
-  await expect.poll(() => operationStates, { timeout: 600000 }).toContain("SUCCEEDED");
+  await expect.poll(() => { if (responseErrors.length) throw responseErrors[0]; return operationStates; }, { timeout: 600000 }).toContain("SUCCEEDED");
   // GET preview-results/{id} returns 200.
-  await expect.poll(() => previewResults.length, { timeout: 120000 }).toBeGreaterThan(0);
+  await expect.poll(() => { if (responseErrors.length) throw responseErrors[0]; return previewResults.length; }, { timeout: 120000 }).toBeGreaterThan(0);
   const previewBody = previewResults[0]!;
 
   // The workspace pointer is the same preview result (kickoff §3.3).
@@ -379,6 +377,7 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   await bundleResponse;
   await page.waitForURL(/page=compare/, { timeout: 120000 });
   await expect(page.locator(".compare-workspace")).toBeVisible({ timeout: 120000 });
+  if (responseErrors.length) throw responseErrors[0];
   expect(pageErrors).toEqual([]);
   await context.close();
 });

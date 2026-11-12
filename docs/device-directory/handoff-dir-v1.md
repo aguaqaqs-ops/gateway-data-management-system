@@ -90,3 +90,20 @@ owner 已确认上述处理组接入建议可以作为正式设计。本轮将 d
 - 开通/续期静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/provision-76b7-2aad.md`，SHA256 `af8c300ed28fad98d6adfa200df355f9307927ec8837ae66a4c195885deb78ed`。
 - 服务门禁静态独审/复审：`/home/dev/gdds-stage-exchange/dir-v1/reviews/service-runner-static-20261112.md`，SHA256 `a01e87a9520ff3694ef85dcd33598119fa23d2238077646201572f4e2ff447fd`；前端门禁 `/home/dev/gdds-stage-exchange/dir-v1/reviews/frontend-gate-018d.md`，SHA256 `3c537c298b32eebf232a5d95189416274351b0b3efb4025c778ca5ee3525dc1d`。后续 runner 调整须纳入阶段末独审。
 - **尚未完成：**最终候选的阶段末全范围 Astra 独审与 findings 复审；Luna 对批准清单、原始日志、缓存/工具链来源和十张截图的独立逐项核对。当前不可宣布阶段 1 审核通过或放行。真实热新增、旧 token 撤销、上传审核和完整真实旅程均未验证；阶段 2 未开始。
+
+### 后续阶段末核对（候选 e5a9，未关闭）
+
+阶段末 Astra 静态独审原件 `/home/dev/gdds-stage-exchange/dir-v1/reviews/final-e5a9-astra.md`，SHA256 `2e6b6a6b209529c63cd5ee0d5ca8cb36b71ceb2872a76367bc3a6e0152791675`。发现三项 P2：静态根可暴露非构建文件；合法长地址状态超过 handoff 1000 字符约束；HTTP 连接无读取超时和并发上限。需实施修正、原审复审和受影响组件重新取证，`e5a9` 不是最终候选。
+
+Luna 核对原件 `/home/dev/gdds-stage-exchange/dir-v1/reviews/acceptance-e5a9-luna.md`，SHA256 `f46d23b6bf53c22f62ae5a54b8d393ce74b2d43a0b88c662d847ddb8db1d901e`。它核对了副本摘要和十张图，原节点文件从其本地上下文不可访问，原件一致性及来源独立核验记为未知；搜索地区列与高亮缺失、两个过滤框缺失、错误提示状态底部行被裁切列为偏差/失败，禁用提示和焦点证据不足。需由实施者处理并重新取证，由适当角色重新核对；不覆盖原核对记录。
+
+### 修正候选 `3255fe69c2`（2026-11-12，尚未放行）
+
+`75ec736e4f` 修正静态构建清单、长查询及 HTTP 资源边界，`4181a3708f` 修正 socket 类型；`52a34abdc5` 补草图布局、可见禁用提示和焦点截图；`ca96f89f7d` 修正跨父地区同名子节点选中；`3255fe69c2` 修正截图测试定位器。当前产品候选 `3255fe69c2558bad184e0883914431450b754c0f`，以下为实际运行，非沿用：
+
+- 06 `gw-dms-06`：19:12:56–19:13:10 UTC，起止 HEAD 均为该候选，服务入口 exit 0，ruff、mypy strict、63 项 pytest 通过。原件 `/home/dev/gdds-test-tmp/dir-v1-full-3255/service.log`（06），交接区副本 `/home/dev/gdds-stage-exchange/dir-v1/evidence/3255/service.log`，SHA256 `c8d27116dabac40c514f0b85783be94b94015408907b31b455398f8bb8bd8943`。该节点重新预填充时间 `2026-11-12T19:12:48Z`，缓存 manifest SHA256 `462abdf0910b4365c167893de6e1fcf46d9d7e297a2f349615270dfcc9f293f9`。
+- 07 `gw-dms-07`：19:11:54–19:12:30 UTC，起止 HEAD 均为该候选，前端入口 exit 0；类型、lint、19 项单测、构建、14 项 mock e2e 和十张截图生成通过。原件 `/home/dev/gdds-test-tmp/dir-v1-full-3255/frontend.log`（07），副本 `/home/dev/gdds-stage-exchange/dir-v1/evidence/3255/frontend.log`，SHA256 `a612d05e4be890e2fbe835854e05b494024acebbafe1eec32aa073f5f8574a97`。沿用上文同一 npm 缓存与固定镜像身份，manifest SHA256 `27927845e3a0976972cbebf8ae2c893a159fcd643f8cc012ae0160eb53625a67`。
+- 十张截图原件为 07 `/home/dev/gdds-test-tmp/dir-v1-full-3255/screenshots/`，交接区副本 `/home/dev/gdds-stage-exchange/dir-v1/evidence/3255/`；`SHA256SUMS` SHA256 `dd36a8348cdca2ba0e0472327ac6aaf8c531aa3a1902b9bc8f7c1ad9e41c9aa3`。实施者从节点读取原件摘要的记录 `/home/dev/gdds-stage-exchange/dir-v1/evidence/3255/node-original-hashes.log` SHA256 `6081a4885d3c2e38bb47821e0470039e1e40418274436dcf4012a2d22f3b45a7`；Luna 独立视觉核对仍在进行。
+- 新失败记录：06 `75ec736e4f` mypy socket 类型错误，日志 `/home/dev/gdds-test-tmp/dir-v1-full-75ec/service.log` SHA256 `fae098728616eecccddae9002f4289a852abcff788bcb1c1a5bc3f622df2be25`；07 `52a34abdc5` 键盘测试失败，日志 `/home/dev/gdds-test-tmp/dir-v1-full-52a3/frontend.log` SHA256 `bc77bace43561ff844f461db187169099aab988dde82987230b1e968368717b5`；07 `3deac086c4` 键盘未选中，日志 `/home/dev/gdds-test-tmp/dir-v1-full-3dea/frontend.log` SHA256 `c3e0ffb27fe856d2372c59abb8d87d461bf9fd7385614a4ad527b3bd92e39f00`；07 `ca96f89f7d` 截图测试 XPath 错误，日志 `/home/dev/gdds-test-tmp/dir-v1-full-ca96/frontend.log` SHA256 `b9855cb9ec6521da01b25b75e471ee905952b635563734bb845de47f4441a227`。修正后重新从入口执行。
+- `e5a9` 三项 P2 修订的 Astra 静态复核 `/home/dev/gdds-stage-exchange/dir-v1/reviews/rereview-75ec-astra.md` SHA256 `b78fa092a850581ead9f441ef8480e018cef84161f5a3c4f91d609f7cd37f22a`；前端新 P2 原审 `/home/dev/gdds-stage-exchange/dir-v1/reviews/frontend-52a3-astra.md` SHA256 `8e3d0c6bb3d498277da09fccef6d710fe36f48a28c8deb503f24b4419c77ad57`，修订复核 `/home/dev/gdds-stage-exchange/dir-v1/reviews/rereview-ca96-astra.md` SHA256 `dd53d3b50c2beeece54ceafe14258c08f75d3a66350c9843d438c209b360b977`。两次复核是新的 Astra 上下文：阶段末原审临时会话不可恢复，不能称为原审者复审，须协调者处理此流程差异。
+- 搜索草图的拼音命中对应汉字高亮缺少接口位置映射；当前仅直接文字命中高亮，设计偏差已交 owner 决定，未擅自标为通过。真实热新增、撤销、上传审核和完整旅程仍未运行。阶段 1 交审/放行待上述决定、视觉核对和审核流程差异处理；阶段 2 未开始。

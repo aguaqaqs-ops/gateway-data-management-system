@@ -2318,16 +2318,28 @@ def _canonical_state_digest_from_submission(
     return digest
 
 
-def _approve(client: httpx.Client, submission_id: str, idempotency_key: str) -> None:
+def _approve(client: httpx.Client, submission_id: str, idempotency_key: str, *,
+             token: str = ARCHIVER_TOKEN) -> None:
     _require_one_of(
         client.post(
             f"/v1/submissions/{submission_id}/review-events",
-            headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key=idempotency_key),
+            headers=compose_auth_headers(token=token, idempotency_key=idempotency_key),
             json={"expected_review_version": 0, "action": "APPROVE"},
         ),
         {200, 201},
         "submission approval",
     )
+
+
+def _archive_business_reasons() -> dict[str, str]:
+    try:
+        business_reasons = json.loads(os.environ.get("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", "{}"))
+    except json.JSONDecodeError as exc:
+        raise JourneyFailure("archive business reasons must be a JSON object") from exc
+    if not isinstance(business_reasons, dict) or any(not isinstance(key, str) or not isinstance(value, str) or not value
+        for key, value in business_reasons.items()):
+        raise JourneyFailure("archive business reasons require nonempty reason strings keyed by subject digest or issue code")
+    return cast(dict[str, str], business_reasons)
 
 
 def _archive(
@@ -2336,9 +2348,10 @@ def _archive(
     key_prefix: str,
     *,
     identity_exception_reason: str | None = None,
+    token: str = ARCHIVER_TOKEN,
 ) -> dict[str, Any]:
     candidates = _require(
-        client.get("/v1/archive-candidates", headers=compose_auth_headers(token=ARCHIVER_TOKEN)),
+        client.get("/v1/archive-candidates", headers=compose_auth_headers(token=token)),
         200,
         "archive candidates",
     )
@@ -2370,7 +2383,7 @@ def _archive(
     preview = _require(
         client.post(
             "/v1/archive-plan-preview",
-            headers=compose_auth_headers(token=ARCHIVER_TOKEN),
+            headers=compose_auth_headers(token=token),
             json={"selected": selected},
         ),
         200,
@@ -2398,13 +2411,7 @@ def _archive(
     }
     if any(item.get("subject_kind") not in business_actions for item in other_anomalies):
         raise JourneyFailure("archive plan contains an unsupported anomaly")
-    try:
-        business_reasons = json.loads(os.environ.get("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", "{}"))
-    except json.JSONDecodeError as exc:
-        raise JourneyFailure("archive business reasons must be a JSON object") from exc
-    if not isinstance(business_reasons, dict) or any(not isinstance(key, str) or not isinstance(value, str) or not value
-        for key, value in business_reasons.items()):
-        raise JourneyFailure("archive business reasons require nonempty reason strings keyed by subject digest or issue code")
+    business_reasons = _archive_business_reasons()
     if identity_exception_reason is None and identity_anomalies:
         raise JourneyFailure("archive plan has an unresolved project identity exception")
     if identity_exception_reason is not None and (
@@ -2415,12 +2422,26 @@ def _archive(
         or identity_anomalies[0].get("issue_code") != "PROJECT_IDENTITY_EXCEPTION"
     ):
         raise JourneyFailure("archive plan identity exception differs from the selected submission")
+    # Resolve the complete plan before any selection confirmation or anomaly
+    # ACK. An unknown later subject must not leave earlier ACKs behind.
+    prepared: list[tuple[dict[str, Any], int, str | None]] = []
+    for anomaly in anomalies:
+        latest_sequence = anomaly.get("latest_sequence")
+        if type(latest_sequence) is not int or not 0 <= latest_sequence <= 9007199254740991:
+            raise JourneyFailure("archive anomaly sequence is invalid")
+        reason = None
+        if anomaly.get("resolution_status") != "ACCEPTED":
+            reason = identity_exception_reason if anomaly["subject_kind"] == "PROJECT_IDENTITY_EXCEPTION" else business_reasons.get(
+                anomaly["subject_digest"], business_reasons.get(anomaly["issue_code"]))
+            if not isinstance(reason, str) or not reason.strip():
+                raise JourneyFailure(f"archive issue requires an explicit reason: {anomaly['issue_code']} subject={anomaly['subject_digest']}")
+        prepared.append((anomaly, latest_sequence, reason))
     head = cast(dict[str, Any], preview["head"])
     confirmation = _require_one_of(
         client.post(
             "/v1/archive-confirmations",
             headers=compose_auth_headers(
-                token=ARCHIVER_TOKEN,
+                token=token,
                 idempotency_key=f"{key_prefix}-archive-confirm",
             ),
             json={
@@ -2438,20 +2459,14 @@ def _archive(
         "archive confirmation",
     )
     anomaly_resolution_refs: list[dict[str, Any]] = []
-    for index, anomaly in enumerate(anomalies):
+    for index, (anomaly, latest_sequence, reason) in enumerate(prepared):
         subject_kind = str(anomaly["subject_kind"])
-        latest_sequence = anomaly.get("latest_sequence")
-        if type(latest_sequence) is not int or not 0 <= latest_sequence <= 9007199254740991:
-            raise JourneyFailure("archive anomaly sequence is invalid")
         if anomaly.get("resolution_status") == "ACCEPTED":
             anomaly_resolution_refs.append({"subject_digest": anomaly["subject_digest"], "sequence": latest_sequence})
             continue
-        reason = identity_exception_reason if subject_kind == "PROJECT_IDENTITY_EXCEPTION" else business_reasons.get(
-            anomaly["subject_digest"], business_reasons.get(anomaly["issue_code"]))
-        if not isinstance(reason, str) or not reason:
-            raise JourneyFailure(f"archive issue requires an explicit reason: {anomaly['issue_code']} subject={anomaly['subject_digest']}")
+        assert reason is not None
         resolution = _require_one_of(client.post("/v1/archive-anomaly-resolutions",
-            headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key=f"{key_prefix}-resolution-{index}"),
+            headers=compose_auth_headers(token=token, idempotency_key=f"{key_prefix}-resolution-{index}"),
             json={"expected_baseline_node_id": head["business_baseline_node_id"],
                 "expected_baseline_head_version": head["baseline_head_version"], "selected": selected,
                 "candidate_set_digest": preview["candidate_set_digest"], "subject_digest": anomaly["subject_digest"],
@@ -2464,7 +2479,7 @@ def _archive(
     ready = _require(
         client.post(
             "/v1/archive-plan-preview",
-            headers=compose_auth_headers(token=ARCHIVER_TOKEN),
+            headers=compose_auth_headers(token=token),
             json={"selected": selected},
         ),
         200,
@@ -2477,7 +2492,7 @@ def _archive(
         client.post(
             "/v1/archives",
             headers=compose_auth_headers(
-                token=ARCHIVER_TOKEN,
+                token=token,
                 idempotency_key=f"{key_prefix}-archive-start",
             ),
             json={
@@ -2499,6 +2514,12 @@ def _archive(
     )
     if type(archived.get("baseline_node_id")) is not str:
         raise JourneyFailure("archive did not advance the baseline node")
+    archived["observed_anomalies"] = [
+        {"subject_digest": anomaly["subject_digest"], "subject_kind": anomaly["subject_kind"],
+         "issue_code": anomaly["issue_code"], "prior_resolution_status": anomaly["resolution_status"],
+         "resolution_sequence": reference["sequence"]}
+        for anomaly, reference in zip(anomalies, anomaly_resolution_refs, strict=True)
+    ]
     return archived
 
 

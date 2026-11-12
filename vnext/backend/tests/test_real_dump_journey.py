@@ -2401,8 +2401,9 @@ def test_debug_step_order_covers_every_business_action() -> None:
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS
 
 
-@pytest.mark.parametrize("with_reason", [False, True])
-def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, with_reason: bool) -> None:
+@pytest.mark.parametrize("authorization", ["missing", "issue", "subject"])
+def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, authorization: str) -> None:
+    with_reason = authorization != "missing"
     calls: list[dict[str, Any]] = []
     selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
     candidate = {**selected, "review_version": 1}
@@ -2412,6 +2413,7 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
     previews = 0
     def respond(request: httpx.Request) -> httpx.Response:
         nonlocal previews
+        assert request.headers["Authorization"] == "Bearer fresh-group-reviewer"
         if request.url.path == "/v1/archive-candidates":
             return httpx.Response(200, json={"candidates": [candidate]})
         body = json.loads(request.content)
@@ -2431,13 +2433,13 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
             assert body["anomaly_resolution_refs"] == [{"subject_digest": anomaly["subject_digest"], "sequence": 5}]
             return httpx.Response(201, json={"archive_result_id": "result", "baseline_node_id": "archived-node"})
         return httpx.Response(201, json={"sequence": 1})
-    monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({"GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({anomaly["subject_digest"] if authorization == "subject" else "GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
     with httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond)) as client:
         if with_reason:
-            assert real_dump_journey._archive(client, "sub", "consumer")["archive_result_id"] == "result"
+            assert real_dump_journey._archive(client, "sub", "consumer", token="fresh-group-reviewer")["archive_result_id"] == "result"
         else:
             with pytest.raises(JourneyFailure, match="explicit reason"):
-                real_dump_journey._archive(client, "sub", "consumer")
+                real_dump_journey._archive(client, "sub", "consumer", token="fresh-group-reviewer")
             assert not any("anomaly_resolution_refs" in item for item in calls)
 
 

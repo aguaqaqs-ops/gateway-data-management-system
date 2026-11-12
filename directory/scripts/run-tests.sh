@@ -3,6 +3,9 @@
 set -euo pipefail
 
 if [[ "${1:-}" == --frontend ]]; then
+  printf 'entry_argv='
+  printf '%q ' "$0" "$@"
+  printf '\n'
   shift
   exec "$(dirname "$0")/run-frontend-tests.sh" "$@"
 fi

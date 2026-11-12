@@ -26,8 +26,9 @@ def load_registration(connection: sqlite3.Connection, *, environment: str, group
     if row["enabled"] != 1 or (project is not None and row["business_project_id"] != project):
         raise RegistrationConflict("fixed scope conflicts")
     initial = connection.execute("SELECT * FROM baseline_node_records WHERE repository_id = ? AND kind = 'INITIAL'", (row["repository_id"],)).fetchone()
-    head = connection.execute("SELECT n.repository_id FROM baseline_head_records h JOIN baseline_node_records n ON n.node_id = h.node_id WHERE h.repository_id = ?", (row["repository_id"],)).fetchone()
+    head = connection.execute("SELECT n.repository_id, n.gateway_device_external_key, n.business_project_id FROM baseline_head_records h JOIN baseline_node_records n ON n.node_id = h.node_id WHERE h.repository_id = ?", (row["repository_id"],)).fetchone()
     if (initial is None or head is None or head["repository_id"] != row["repository_id"]
+            or head["gateway_device_external_key"] != device or head["business_project_id"] != row["business_project_id"]
             or initial["gateway_device_external_key"] != device or initial["business_project_id"] != row["business_project_id"]):
         raise RegistrationConflict("fixed scope conflicts")
     return Registration(environment, group, device, row["business_project_id"], row["repository_id"], initial["node_id"], initial["commit_id"])

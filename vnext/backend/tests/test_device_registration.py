@@ -241,3 +241,21 @@ def test_empty_group_bootstrap_keeps_ordinary_bearer_unauthorized(tmp_path: Path
             assert client.get("/v1/operations/absent", headers={"Authorization": "Bearer arbitrary"}).status_code == 401
             with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as uow:
                 assert uow.connection.execute("SELECT count(*) FROM provisioned_scope_mappings").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("head_device,head_project", [("other-device", "project"), ("new-device", "other-project")])
+@pytest.mark.asyncio
+async def test_registration_rejects_head_owned_by_another_scope(tmp_path: Path, head_device: str, head_project: str) -> None:
+    from tests.support.baseline_fixtures import apply_baseline_head_state
+    from tests.support.workspace_fixtures import make_baseline_head
+    database = tmp_path / "control.db"
+    initialize_control_db(database)
+    app, repository = application(database)
+    result = await register(app)
+    apply_baseline_head_state(database, repository_id=result.repository_id, device_key=head_device, project_id=head_project,
+        baseline_head=make_baseline_head(version=1, commit_id="advanced-commit"))
+    with pytest.raises(RegistrationConflict):
+        await register(app)
+    with pytest.raises(RegistrationConflict):
+        app.query("new-device")
+    assert len(repository.keys) == 1

@@ -10,6 +10,7 @@ from threading import Event
 import pytest
 
 from tests import test_fixed_workers_compose_e2e as journey
+from tests.support import compose_gate_harness as harness
 
 pytestmark = pytest.mark.unit
 FINALIZER_FAULTS = ("diagnostics", "executor release", "polling resume", "project cleanup")
@@ -104,10 +105,10 @@ def test_fixed_worker_finalizer_passes_failure_context_to_existing_root_retentio
         if "--cleanup" in args:
             cleanup_commands.append(args)
         return subprocess.CompletedProcess(args, 0, "", "")
-    monkeypatch.setattr(journey.harness, "_teardown_compose_project_resources", lambda _: None)
-    monkeypatch.setattr(journey.harness, "release_compose_gate_lock", lambda: None)
-    monkeypatch.setattr(journey.harness.subprocess, "run", command)
-    monkeypatch.setitem(journey.harness._runtime_fixtures, project, (tmp_path, "test-owner"))
+    monkeypatch.setattr(harness, "_teardown_compose_project_resources", lambda _: None)
+    monkeypatch.setattr(harness, "release_compose_gate_lock", lambda: None)
+    monkeypatch.setattr(harness.subprocess, "run", command)
+    monkeypatch.setitem(harness._runtime_fixtures, project, (tmp_path, "test-owner"))
     def fail_at(phase: str) -> None:
         if phase == fault:
             raise RuntimeError("injected " + phase)
@@ -116,7 +117,7 @@ def test_fixed_worker_finalizer_passes_failure_context_to_existing_root_retentio
     monkeypatch.setattr(resume, "set", lambda: fail_at("polling resume"))
     with pytest.raises(RuntimeError) if fault is not None else nullcontext():
         journey._finalize_worker_probe(lambda: fail_at("diagnostics"), [tmp_path / "barrier"], resume,
-            lambda: journey.harness.cleanup_compose_project_artifacts(env))
+            lambda: harness.cleanup_compose_project_artifacts(env))
     assert len(cleanup_commands) == 1
     assert ("--retain" in cleanup_commands[0]) is (fault is not None)
-    assert project not in journey.harness._runtime_fixtures
+    assert project not in harness._runtime_fixtures

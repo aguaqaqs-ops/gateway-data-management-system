@@ -19,6 +19,7 @@ test("public entry opens two groups and a hot added synthetic device without cro
     const context = await contextForIdentity(browser, identity);
     try {
       const page = await context.newPage();
+      await page.setViewportSize({ width: 1920, height: 1080 });
       const history = page.waitForResponse((response) => response.url().includes("/v1/history") && response.status() === 200);
       await gotoWorkbench(page);
       await history;

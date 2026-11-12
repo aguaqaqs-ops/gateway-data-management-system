@@ -42,7 +42,7 @@ JSON 均拒重复 key、未知字段、bool 充 int、非有限数。schema_vers
 
 ## 4. Hot add and failures
 
-新增顺序：预留false→组内原key注册→原子追加本设备授权→scope probe→目录true→同版本nginx -t→原子发布/HUP→loopback实际加载摘要/组probe+公共device-context。仅文件true或HUP exit0不能报告available。旧有效配置必须保留；坏候选不替换，未确认报告未完成并允许同身份重试。不建注册任务表、目录服务或第二恢复器。
+新增顺序：预留false→组内原key注册→原子追加本设备授权→scope probe→目录true→同版本nginx -t→原子发布/HUP→loopback实际加载摘要/组probe+公共device-context。仅文件true或HUP exit0不能报告available。管理加载探针与公共device-context共用HUP后的同一30秒只读确认窗口；仅入口自产且以固定X-Gateway-Entry-Rejection: route-not-loaded标记的/v1路由404可在窗口内重试，upstream同名header由入口隐藏。真实backend拒绝或scope矛盾立即失败，不重放注册、授权、配置或HUP。旧有效配置必须保留；坏候选不替换，未确认报告未完成并允许同身份重试。不建注册任务表、目录服务或第二恢复器。
 
 注册原key、固定INITIAL及短事务由 Business Lifecycle 拥有，RS I/O 在事务外。注册完整受理区间持原 AdmissionGate，drain可见in_flight。空seed/合法空sessions可以启动，空sessions全部普通请求401，不注入默认token。新增前在发布锁内核所有组session token不复用；目标组仅允许同token的exact重放，不通过追加覆盖到期或撤销项。旧设备及在途任务不中断；维护A不停止B/入口。已有设备迁移/删除/禁用/重绑由S4b另定，调度/背压由S3另定。
 

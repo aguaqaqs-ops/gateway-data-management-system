@@ -220,12 +220,14 @@ def add_device(args: argparse.Namespace, groups: ProcessingGroupsConfig, runtime
             enabled.require_append_only(directory)
             atomic_write(args.directory_file, enabled.to_bytes())
             digest, raw = render_entry(groups, enabled)
-            runtime.publish(digest, raw, key=key, group=group.group_id)
             public_address = "[::1]" if ":" in groups.entry.listen_address else "127.0.0.1"
-            final = request_json(f"http://{public_address}:{groups.entry.listen_port}/v1/device-context", token=probe_token, key=key)
-            _identity_response(final, groups, group, device, project)
-            if final != context:
-                raise Incomplete("public scope differs from registered scope")
+            def confirm_public(probe_timeout: float) -> None:
+                final = request_json(f"http://{public_address}:{groups.entry.listen_port}/v1/device-context",
+                    token=probe_token, key=key, timeout=probe_timeout, route_pending=True)
+                _identity_response(final, groups, group, device, project)
+                if final != context:
+                    raise Incomplete("public scope differs from registered scope")
+            runtime.publish(digest, raw, key=key, group=group.group_id, confirm=confirm_public)
             request_json(group.backend_endpoint + "/readyz")
             return {"state": "available", "group_id": group.group_id, "config_digest": digest}
         except (OSError, ValueError):

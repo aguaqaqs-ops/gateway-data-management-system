@@ -109,12 +109,12 @@ def test_session_append_is_exact_scope_and_preserves_expiry(modules: tuple[Any, 
             device='device', project='project', now=now)
 
 
-@pytest.mark.parametrize('failure', ['registration-response', 'session-fsync'])
+@pytest.mark.parametrize('failure', ['registration-response', 'session-fsync', 'entry-generation'])
 def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
         modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
     import argparse
     import json
-    _, cli = modules
+    entry, cli = modules
     raw = json.loads((FIXTURES / 'groups.json').read_bytes())
     public = tmp_path / 'public'
     public.mkdir()
@@ -152,11 +152,23 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
             return context
         if url.endswith('/v1/device-context'):
             events.append('context')
+            if kwargs.get('route_pending') and failure == 'entry-generation' and first:
+                first = False
+                raise entry.EntryRoutePending('old public worker')
             return context
         return {}
-    def publish(*args: object, **kwargs: object) -> None:
+    def publish(*args: Any, **kwargs: Any) -> None:
         assert json.loads(directory_file.read_text())['devices'][0]['enabled'] is True
         events.append('publish')
+        if failure == 'entry-generation':
+            runtime = args[0]
+            monkeypatch.setattr(runtime, 'probe', lambda *a, **k: {'config_digest': args[1], 'group_id': kwargs['group']})
+            elapsed = [0.0]
+            monkeypatch.setattr(entry.time, 'monotonic', lambda: elapsed[0])
+            runtime.confirm_loaded(args[1], key=kwargs['key'], group=kwargs['group'], confirm=kwargs['confirm'],
+                poll=lambda value: elapsed.__setitem__(0, elapsed[0] + value))
+        else:
+            kwargs['confirm'](5)
     original_write = cli['atomic_write']
     def write(path: Path, payload: bytes) -> None:
         nonlocal first
@@ -174,6 +186,11 @@ def test_hot_add_reserves_before_effect_and_replays_after_partial_failure(
     monkeypatch.setattr(runtime_type, 'require_append_only', lambda self, raw: None)
     monkeypatch.setattr(runtime_type, 'retiring_workers', lambda self: False)
     monkeypatch.setattr(runtime_type, 'publish', publish)
+    if failure == 'entry-generation':
+        assert cli['add_device'](args, groups, runtime_type(groups, tmp_path, 'entry-test'))['state'] == 'available'
+        assert events == ['register', 'context', 'publish', 'context', 'context']
+        assert len(json.loads((session_dir / 'session.json').read_text())['sessions']) == 1
+        return
     with pytest.raises(cli['Incomplete']):
         cli['add_device'](args, groups, runtime_type(groups, tmp_path, 'entry-test'))
     assert json.loads(directory_file.read_text())['devices'][0]['enabled'] is False
@@ -276,3 +293,55 @@ def test_credentials_cannot_be_reused_across_groups(modules: tuple[Any, dict[str
     (Path(groups.groups[0].session_directory) / 'session.json').write_text(json.dumps({'sessions': [row]}))
     with pytest.raises(ValueError, match='shared across'):
         cli['require_unique_session_tokens'](groups, groups.groups[0].group_id, {'sessions': []})
+
+
+@pytest.mark.parametrize('outcome', ['old-public-worker', 'actual-refusal', 'never-loaded'])
+def test_public_confirmation_shares_reload_deadline_without_repeating_publication(
+        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
+    entry, _ = modules
+    groups = config()
+    directory = DeviceDirectory(1, groups.environment_id, (DeviceDirectoryEntry('old', 'group-a', True),))
+    old_digest, old = entry.render_entry(groups, directory)
+    (tmp_path / 'nginx.conf').write_bytes(old)
+    newer = replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-a', True)))
+    digest, raw = entry.render_entry(groups, newer)
+    runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
+    elapsed = [0.0]
+    management: list[float] = []
+    public: list[float] = []
+    reloads: list[tuple[str, ...]] = []
+    monkeypatch.setattr(entry.time, 'monotonic', lambda: elapsed[0])
+    def probe(key: str = '', *, timeout: float = 5) -> dict[str, object]:
+        elapsed[0] += min(0.2, timeout)
+        management.append(elapsed[0])
+        return {'config_digest': old_digest if len(management) == 1 else digest, 'group_id': 'group-a'}
+    def confirm(timeout: float) -> None:
+        assert 0 < timeout <= min(5, 1.2 - elapsed[0] + 0.00001)
+        elapsed[0] += min(0.2, timeout)
+        public.append(elapsed[0])
+        if outcome == 'actual-refusal':
+            raise entry.Incomplete('backend rejected current identity')
+        if outcome == 'never-loaded' or len(public) == 1:
+            raise entry.EntryRoutePending('entry-owned route miss')
+    def compose(*args: str) -> subprocess.CompletedProcess[str]:
+        reloads.append(args)
+        return subprocess.CompletedProcess(args, 0, '', '')
+    monkeypatch.setattr(runtime, 'probe', probe)
+    monkeypatch.setattr(runtime, 'retiring_workers', lambda: False)
+    monkeypatch.setattr(runtime, 'validate', lambda name: None)
+    monkeypatch.setattr(runtime, 'compose', compose)
+    def run() -> None:
+        runtime.publish(digest, raw, key=newer.devices[1].route_key, group='group-a', timeout=1,
+            poll=lambda value: elapsed.__setitem__(0, elapsed[0] + value), confirm=confirm)
+    if outcome == 'old-public-worker':
+        run()
+        assert len(public) == 2
+    else:
+        with pytest.raises(entry.Incomplete, match='backend rejected' if outcome == 'actual-refusal' else 'not confirmed'):
+            run()
+        if outcome == 'actual-refusal':
+            assert len(public) == 1
+    assert elapsed[0] <= 1.20001
+    assert len(reloads) == 1
+    assert (tmp_path / 'nginx.conf').read_bytes() == raw
+    assert (tmp_path / 'previous.conf').read_bytes() == old

@@ -6,8 +6,9 @@ automatically grant production permissions to real users.
 
 ## Session permissions
 
-Backend HTTP authorization uses `session.json` entries mounted at
-`GATEWAY_BACKEND_SESSION_FILE`. Each session carries an explicit `permissions`
+Backend HTTP authorization uses `session.json` entries in the per-group session
+parent mounted read-only at `/run/gateway/session`; the runtime path is
+`/run/gateway/session/session.json`. Each session carries an explicit `permissions`
 array. Permission checks are exact string matches with no inheritance.
 
 | Permission | Purpose |
@@ -53,7 +54,7 @@ journeys before reopening traffic.
 Compose and production startup require these host files (see `compose.yaml`):
 
 - `GATEWAY_P2R2_BEARER_TOKEN_FILE` — Repository Service bearer token
-- `GATEWAY_BACKEND_SESSION_FILE` — session permissions document
+- `GATEWAY_BACKEND_SESSION_DIRECTORY` — parent directory containing `session.json`
 - `GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE` — internal recovery bearer
 
 Files should be readable only by the service user/group configured for the
@@ -387,3 +388,78 @@ workers. Never recreate a replacement until the old execution processes exit.
 热新增：`manage-processing-groups.py add-device ... --group <g> --device <exact-device> --project <exact-project> --session-document <absolute-file>`。授权文件只含本scope session，至少一个未过期身份；secret不放argv。命令按预留false→注册→原子追加授权→组scope就绪→目录true→同版本nginx-t→HUP→实际加载及公共scope探针推进；仅exit0表示检查时可用。exit2前置拒绝、exit3锁/旧流代际忙、exit1未完成。保留原文件和诊断后，用同身份重试；不改key、不删预留、不换组，也不重启已有worker。
 
 `status-device ... --device <d>` 仅查询目录期望、组内登记和实际入口；不重放写入。`enabled=true` 不表示已加载。reload未确认不会杀旧worker，长上传/下载可自然完成；一代旧worker尚未退出时下一次发布返回busy。维护只操作目标组，不停止独立入口或其他组；已有设备改组/禁用/重绑不属于本命令。
+
+## Independent groups and whole-host budget (P7 S2b)
+
+`groups.json` fixes each group's Compose project, loopback backend port, exact
+backend/worker/Repository Service image references and revision, configuration
+paths, session directory and two separate credential files. The shared
+`device-directory.json` lives beside `groups.json` in a dedicated public
+configuration directory. All groups' private session directories, credential
+files and business roots must be outside it, including physical bind aliases;
+render and actual inspection reject overlap. Backend and workers receive
+that parent directory read-only at `/run/gateway/groups`; session publication
+replaces `session.json` inside its dedicated parent bind. A single-file session
+secret cannot observe atomic replacement and is not used. Neither directory is
+part of the fixed per-group runtime configuration digest.
+
+Use the selected group's storage and resource files, and render its explicit
+manifest entry before every Compose command:
+
+```bash
+python3 vnext/scripts/render-runtime-config.py \
+  --storage-layout /etc/gateway/group-a/storage.json \
+  --resource-profile /etc/gateway/group-a/resources.json \
+  --groups-file /etc/gateway/public/groups.json \
+  --directory-file /etc/gateway/public/device-directory.json --group group-a \
+  render --output /run/gateway-group-a-compose.json
+docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
+  -f /run/gateway-group-a-compose.json config
+docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
+  -f /run/gateway-group-a-compose.json up --no-build -d
+```
+
+The selected project must equal the manifest project. Backend publishes only
+`127.0.0.1:<backend_port>`; workers and RS publish no host port and use only that
+project's private network. The public Nginx entry has its own Compose project
+and lifecycle. A group's maintenance command never includes the entry or
+another group's containers. Maintenance additionally inspects actual container
+project/service labels, image references, fixed worker indices, ports, mounts
+and cgroup resource limits against the selected group before sending TERM.
+It also verifies the default network's Compose owner and exact attached peers,
+and matches backend's unique kernel IPv4 default gateway to Docker IPAM.
+Internal statistics may trust only this host gateway or loopback, alongside
+the original session permission; Host/forwarded headers do not establish it.
+Backend startup and worker startup authenticate the RS deployment identity and
+match environment, group and storage digest; a healthy endpoint from another
+group cannot make the target ready.
+
+For a new build of the selected group, add `--build-from-source` to render;
+this requires the current source worktree to be clean and at the selected
+group revision. It populates all three roles' revision inputs from the verified
+HEAD and RS build identity from its owning provenance helper. Default render
+uses `unknown` build revision inputs so an accidental build cannot self-sign
+the manifest revision and pass inspection. Other groups may retain their own declared revisions. Run
+existing validated images with `up --no-build`. Runtime inspection compares
+the selected local image ID and each image's OCI revision to the manifest;
+labels alone do not establish build provenance, which remains the gate's
+clean-source/build-closure responsibility.
+
+The group renderer checks all configured groups together. The memory formula
+is `sum(W*E + backend + RS) + entry + shared_reserve <= host`; CPU follows the
+same sum. Every group's host declaration must equal the one whole-host budget.
+Production worker N1/E32 GiB/reserve8 GiB/M24 GiB stays unchanged. The approved
+small-input profile E12/reserve8/M4 GiB, worker CPU2/swap0/N1 gives 44.5 GiB/13
+CPU for A W1+B W1, or 56.5 GiB/15 CPU for A W2+B W1, including entry0.5 GiB/CPU1
+and shared8 GiB/CPU2 once. These profiles prove functionality only.
+
+Whole-host preflight rejects nested/overlapping writable roots, shared session
+parents or credentials, duplicate projects/ports, mismatched identities and
+aggregate overcommit. Host checks observe the real filesystem/device and merge
+free-space reporting once per actual filesystem, requiring one consistent
+low-water policy. Shared disk space is not assigned independently to each
+group; no exclusive per-group capacity quota or physical bandwidth isolation
+is promised. These checks read existing roots and do not initialize or repair
+user business directories. Initialize explicitly prepared empty roots through
+`init-layout` before starting a new group. Thin guest free space does not prove
+free capacity in the physical host pool.

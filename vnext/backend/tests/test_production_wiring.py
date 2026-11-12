@@ -168,7 +168,8 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
         assert resolved.handler_identity == definition.handler_identity
 
 
-def test_production_worker_wires_http_arrow_adapter_and_mapping_head(tmp_path: Path) -> None:
+def test_production_worker_wires_http_arrow_adapter_and_mapping_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("gateway_backend.bootstrap.operation_worker.assert_repository_identity", lambda *args, **kwargs: None)
     prepare_backend_runtime_paths(tmp_path)
     settings = make_operation_worker_settings(
         tmp_path,

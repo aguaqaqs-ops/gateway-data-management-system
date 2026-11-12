@@ -1864,3 +1864,23 @@ def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
         print(f"runtime_fixture_retained={directory}", flush=True)
         pytest.fail(f"runtime fixture preparation failed: {completed.stderr}")
     env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"] = str(directory / "compose-runtime.json")
+    # Live session and routing inputs are parent-directory binds: atomic replace
+    # must be visible without recreating the backend or fixed workers.
+    session_source = Path(env["GATEWAY_BACKEND_SESSION_FILE"])
+    session_directory = directory / "session"
+    session_directory.mkdir(mode=0o755)
+    write_container_readable_text(session_directory / "session.json", session_source.read_text())
+    env["GATEWAY_BACKEND_SESSION_DIRECTORY"] = str(session_directory)
+    public = directory / "public"
+    public.mkdir(mode=0o755)
+    env["GATEWAY_PROCESSING_GROUPS_DIRECTORY"] = str(public)
+    storage = json.loads((directory / "storage-layout.json").read_bytes())
+    manifest = json.loads((VNEXT_ROOT / "fixtures/processing-groups/v1/groups.json").read_bytes())
+    manifest["environment_id"] = storage["environment_id"]
+    manifest["groups"] = [dict(manifest["groups"][0], group_id=storage["group_id"],
+        project=env["COMPOSE_PROJECT_NAME"], storage_config=str(directory / "storage-layout.json"),
+        resource_config=str(directory / "resource-profile.json"), session_directory=str(session_directory))]
+    write_container_readable_text(public / "groups.json", json.dumps(manifest))
+    write_container_readable_text(public / "device-directory.json", json.dumps(dict(schema_version=1,
+        environment_id=storage["environment_id"], devices=[dict(gateway_device_external_key=DEVICE_KEY,
+            group_id=storage["group_id"], enabled=True)])))

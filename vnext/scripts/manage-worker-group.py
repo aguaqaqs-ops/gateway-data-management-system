@@ -18,6 +18,7 @@ from processing_group_config import ProcessingGroupsConfig
 from processing_group_locks import group_management_lock
 from host_runtime_config import DeploymentConfig
 from worker_deployment import _docker, inspect_project, validate_workers, worker_services
+from processing_group_deployment import inspect_group
 
 WAIT_SECONDS = 180
 
@@ -199,8 +200,11 @@ def assert_business_settled(config: DeploymentConfig) -> None:
         raise ValueError("unsettled RUNNING/external effects; reconcile original requests under old configuration before stop-group")
 
 
-def manage(command: str, config: DeploymentConfig, project: str, url: str, token: str) -> str:
-    group = validate_group(config, project, inspect_project(project))
+def manage(command: str, config: DeploymentConfig, project: str, url: str, token: str, *, deployment: Any = None) -> str:
+    containers = inspect_project(project)
+    if deployment is not None:
+        inspect_group(config, deployment, allowed_states=("running", "exited", "created"), containers=containers)
+    group = validate_group(config, project, containers)
     origin = urlsplit(url)
     published = group["backend"]["HostConfig"].get("PortBindings", {}).get("8000/tcp") or []
     if (origin.scheme != "http" or origin.hostname not in {"127.0.0.1", "::1", "localhost"}
@@ -267,7 +271,7 @@ def main() -> int:
             expected = set(worker_services(config.resources.worker.count))
             if {name for name in services if name == "worker" or name.startswith("worker-")} != expected:
                 raise ValueError("Compose fixed worker service list differs from profile")
-            print(manage(args.command, config, args.project, args.backend_url, token))
+            print(manage(args.command, config, args.project, args.backend_url, token, deployment=target))
         return 0
     except BlockingIOError:
         import sys

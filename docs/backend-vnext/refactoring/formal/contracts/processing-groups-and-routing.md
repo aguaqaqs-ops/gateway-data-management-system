@@ -49,3 +49,7 @@ JSON 均拒重复 key、未知字段、bool 充 int、非有限数。schema_vers
 每组完整BE/worker/RS和独立可写DB/Dolt/roots/凭据/生命周期；只读依赖镜像可共享。实际跨组root不等/不嵌套；相同filesystem合并容量水位，不能重复承诺空闲。
 
 整机一次核 `sum(W*E + BE + RS) + entry + shared_reserve <= host`，CPU同式；各组局部预算仍核，W=K、N默认1、worker reserve≥8GiB不放宽。无目录generation强制其他组停机。两组同版本验证不代表跨版本兼容或硬件故障隔离。
+
+公共 groups/directory 的只读父目录必须专用，不得包含或被包含于任一组的 session、token 或业务 root；按宿主实际 mount/device 解析别名，并拒绝该公共目录内的子 mount。仅只读挂载不能防止错误目录把其他组凭据一起暴露。session 使用每组独立父目录，容器固定读取 `/run/gateway/session/session.json`。
+
+实际组检查核全部服务的 project/service、固定 worker 编号、私有 Compose 网络、loopback backend 端口、角色 root/配置/session/凭据挂载与资源限制；同时核声明镜像引用解析出的本机 image ID 与运行容器 Image、各角色 OCI revision。revision label 不是构建来源的自证明，来源仍由 clean 构建与 owning provenance/闭包核收。默认渲染供已验证镜像 `up --no-build` 使用，构建 revision 输入固定为 unknown，不能以未核实的清单 revision 自签。显式 source-build 只核本次所选组的 clean HEAD 并生成其实际构建参数，RS 继续使用既有 provenance helper；不要求其他运行组 revision 等于当前源码，也不重建或停止其他组。

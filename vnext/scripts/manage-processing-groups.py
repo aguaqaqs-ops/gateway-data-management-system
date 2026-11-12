@@ -120,9 +120,33 @@ def status_device(groups: ProcessingGroupsConfig, directory: DeviceDirectory, ru
     _identity_response(registration, groups, group, device)
     actual = runtime.probe(row.route_key)
     expected_digest, _ = render_entry(groups, directory)
-    return {"state": "available" if row.enabled and actual == {"config_digest": expected_digest, "group_id": row.group_id} else "routing-pending",
-        "group_id": row.group_id, "desired_enabled": row.enabled, "registration": "registered",
-        "loaded_config_digest": actual.get("config_digest"), "selected_group": actual.get("group_id")}
+    result: dict[str, object] = {"state": "routing-pending", "group_id": row.group_id,
+        "desired_enabled": row.enabled, "registration": "registered",
+        "loaded_config_digest": actual.get("config_digest"), "selected_group": actual.get("group_id"),
+        "config_pending": actual.get("config_digest") != expected_digest}
+    if not row.enabled or actual.get("group_id") != row.group_id:
+        return result
+    sessions = session_document(Path(group.session_directory) / "session.json")
+    project = registration.get("business_project_id")
+    probe = next((session["token"] for session in sessions["sessions"]
+        if (session["gateway_device_external_key"], session["business_project_id"]) == (device, project)
+        and (_expires(session) is None or _expires(session) > datetime.now(UTC))), None)
+    if probe is None:
+        result["authorization"] = "unavailable"
+        return result
+    public_address = "[::1]" if ":" in groups.entry.listen_address else "127.0.0.1"
+    try:
+        request_json(group.backend_endpoint + "/readyz")
+        public = request_json(f"http://{public_address}:{groups.entry.listen_port}/v1/device-context", token=probe, key=row.route_key)
+        _identity_response(public, groups, group, device, str(project))
+        if public["repository_id"] != registration["repository_id"]:
+            raise Incomplete("public repository differs")
+    except Incomplete:
+        result["availability"] = "unconfirmed"
+        return result
+    result["state"] = "available"
+    return result
+
 
 
 def add_device(args: argparse.Namespace, groups: ProcessingGroupsConfig, runtime: EntryRuntime) -> dict[str, object]:
@@ -235,7 +259,7 @@ def main() -> int:
         else:
             result = {"state": "valid"}
         print(json.dumps(result, ensure_ascii=True, sort_keys=True))
-        return 0
+        return 1 if args.command == "status-device" and result.get("state") != "available" else 0
     except (BlockingIOError, Busy):
         print('{"state":"busy"}', file=sys.stderr)
         return 3

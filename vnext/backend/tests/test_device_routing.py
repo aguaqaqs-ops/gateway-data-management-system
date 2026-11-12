@@ -75,3 +75,20 @@ def test_internal_statistics_uses_current_session_permission_without_mapping(tmp
         request = Request({'type': 'http', 'app': env.client.app, 'headers': [], 'client': ('127.0.0.1', 1)})
         with pytest.raises(PermissionDenied):
             _internal_group_identity(request)
+
+
+def test_internal_statistics_trusts_only_actual_gateway_not_host_or_forwarded_headers(tmp_path: Path) -> None:
+    env = create_workspace_http_environment(tmp_path)
+    identity = replace(env.identity, permissions=frozenset({'statistics_read_group'}))
+    deps = cast(FastAPI, env.client.app).state.workspace_http
+    with patch.object(deps.session_port, 'resolve', return_value=identity), \
+            patch('gateway_backend.http.routes.statistics._default_gateway_peer', return_value='172.23.0.1'):
+        for peer, allowed in [('172.23.0.1', True), ('172.23.0.2', False), ('10.0.0.1', False)]:
+            request = Request({'type': 'http', 'app': env.client.app, 'client': (peer, 1),
+                'headers': [(b'host', b'127.0.0.1'), (b'x-forwarded-for', b'127.0.0.1')]})
+            if allowed:
+                assert _internal_group_identity(request) == identity
+            else:
+                with pytest.raises(ApiError) as error:
+                    _internal_group_identity(request)
+                assert error.value.status_code == 404

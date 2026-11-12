@@ -180,3 +180,22 @@ def test_hot_publication_rejects_existing_device_or_upstream_rebinding(modules: 
         entry.require_append_only_routes(old, entry.render_entry(changed, directory)[1])
     _, appended = entry.render_entry(groups, replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-b', True))))
     entry.require_append_only_routes(old, appended)
+
+
+@pytest.mark.parametrize('state,code', [('unreserved', 1), ('reserved', 1), ('registered', 1), ('routing-pending', 1), ('available', 0)])
+def test_status_exit_code_reports_actual_availability_without_writing(
+        modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str], state: str, code: int) -> None:
+    import sys
+    _, cli = modules
+    groups = tmp_path / 'groups.json'
+    directory = tmp_path / 'device-directory.json'
+    groups.write_bytes((FIXTURES / 'groups.json').read_bytes())
+    directory.write_bytes((FIXTURES / 'device-directory.json').read_bytes())
+    original = directory.read_bytes()
+    monkeypatch.setattr(sys, 'argv', ['manage-processing-groups.py', 'status-device', '--groups-file', str(groups),
+        '--directory-file', str(directory), '--entry-directory', str(tmp_path), '--entry-project', 'entry-test', '--device', 'device'])
+    monkeypatch.setitem(cli['main'].__globals__, 'status_device', lambda *args: {'state': state})
+    assert cli['main']() == code
+    assert directory.read_bytes() == original
+    assert 'token' not in capsys.readouterr().out

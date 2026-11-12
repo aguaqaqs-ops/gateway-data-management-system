@@ -118,6 +118,15 @@ http {{
     server {{
         listen {listen}:{entry.listen_port};
         server_name _;
+        default_type application/json;
+        error_page 400 411 414 422 494 = @gateway_invalid;
+        error_page 404 = @gateway_not_found;
+        error_page 408 502 503 504 = @gateway_unavailable;
+        error_page 500 = @gateway_internal;
+        location @gateway_invalid {{ return 422 '{{"code":"REQUEST_VALIDATION_FAILED","message":"request validation failed","details":null}}'; }}
+        location @gateway_not_found {{ return 404 '{{"code":"RESOURCE_NOT_FOUND","message":"resource not found","details":null}}'; }}
+        location @gateway_unavailable {{ return 503 '{{"code":"DEPENDENCY_UNAVAILABLE","message":"service unavailable","details":null}}'; }}
+        location @gateway_internal {{ return 500 '{{"code":"INTERNAL_ERROR","message":"internal server error","details":null}}'; }}
         client_max_body_size 0;
         client_body_timeout 600s;
         send_timeout 600s;
@@ -130,6 +139,7 @@ http {{
             proxy_buffering off;
             proxy_cache off;
             proxy_next_upstream off;
+            proxy_intercept_errors off;
             proxy_connect_timeout 5s;
             proxy_read_timeout 600s;
             proxy_send_timeout 600s;
@@ -221,6 +231,7 @@ class EntryRuntime:
             "--entrypoint", "nginx", self.groups.entry.image,
             "-t", "-c", CONTAINER_DIRECTORY + "/" + filename])
         if result.returncode:
+            atomic_write(self.directory / "last-error.txt", result.stderr.encode("utf-8", errors="replace"))
             raise Incomplete("candidate entry configuration rejected")
 
     def loaded_config(self, current: dict[str, object]) -> bytes:
@@ -261,6 +272,7 @@ class EntryRuntime:
         atomic_write(active, raw)
         result = self.compose("exec", "-T", "entry", "nginx", "-s", "reload", "-c", CONTAINER_DIRECTORY + "/nginx.conf")
         if result.returncode:
+            atomic_write(self.directory / "last-error.txt", result.stderr.encode("utf-8", errors="replace"))
             # The signal tool failed: restore startup's last valid bytes, leave
             # any already-loaded workers untouched and report incomplete.
             atomic_write(active, old)

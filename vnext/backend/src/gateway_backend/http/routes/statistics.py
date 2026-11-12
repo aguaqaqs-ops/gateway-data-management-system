@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from pathlib import Path
+import socket
+import struct
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
@@ -149,9 +152,31 @@ def group_resources(request: Request, query: Annotated[GroupResourceQuery, Query
         f'{query.role}:{query.process_instance_id}', sample_interval_seconds=stats.sample_interval_seconds))
 
 
+def _default_gateway_peer() -> str | None:
+    """Kernel-derived host peer for the group's sole inspected Docker bridge.
+
+    The deployment inspector verifies strict host-loopback publication and this
+    route against network IPAM. No caller Host/forwarded value grants trust.
+    """
+    try:
+        with Path("/proc/net/route").open("r", encoding="ascii") as routes:
+            raw = routes.read(65537)
+        if len(raw) > 65536:
+            return None
+        gateways = {socket.inet_ntoa(struct.pack("<I", int(fields[2], 16)))
+            for line in raw.splitlines()[1:]
+            if len(fields := line.split()) >= 4 and fields[1] == "00000000"
+            and int(fields[3], 16) & 3 == 3 and fields[2] != "00000000"}
+        return next(iter(gateways)) if len(gateways) == 1 else None
+    except (OSError, ValueError, UnicodeError, struct.error):
+        return None
+
+
 def _internal_group_identity(request: Request) -> IdentityContext:
-    # Host entry cannot reach these paths. Direct management is loopback-only.
-    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+    # The host can reach a bridge backend through its loopback-published port;
+    # that connection's socket peer is the actual host gateway, not 127.0.0.1.
+    peer = None if request.client is None else request.client.host
+    if peer not in {"127.0.0.1", "::1"} and (peer is None or peer != _default_gateway_peer()):
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     context = require_session_identity(request)
     assert_statistics_group_permission(context)

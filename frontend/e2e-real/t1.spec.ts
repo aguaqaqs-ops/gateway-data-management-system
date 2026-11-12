@@ -8,13 +8,11 @@ import {
   contextForIdentity,
   expectNoPageErrors,
   gotoWorkbench,
-  recordBundleResponses,
   saveEvidence,
   selectTreeRow,
   selectUploadDirs,
   startUpload,
   waitForDiffBrowsing,
-  waitForInstalledBundle,
   waitForPreviewOutcome,
   workshopAction,
 } from "./lib/ui";
@@ -29,7 +27,9 @@ import {
   waitForOperation,
   waitForPendingSubmission,
 } from "./lib/api";
-import { digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
+import type { ParsedBundle } from "./lib/tar";
+import { captureBundleDownloads, type BundleObservation } from "./lib/bundle-observer";
+import { consumePreviewBundle } from "./lib/consume-bundle";
 import { assertBundleConsumerCriteria, BundleCriteriaReader, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
@@ -441,6 +441,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
   const diagnostics = collectPageDiagnostics(page);
   const m1: Array<{ step: string; rendererIncrementBytes: number | null; maxRssAnon: number | null; maxRssFile: number | null; maxRssShmem: number | null }> = [];
   let navDiagnosticsCaptured = false;
+  const bundleObservations: BundleObservation[] = [];
 
   try {
     // Step 1: t1 v1 MODIFIED_ONLY on the empty INITIAL baseline.
@@ -448,7 +449,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await gotoWorkbench(page);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-workbench");
     await selectUploadDirs(page, { modified: v1Dir });
-    const recording1 = recordBundleResponses(page);
+    const recording1 = captureBundleDownloads(page, submitter);
+    bundleObservations.push(recording1);
     const uploadWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
     const previewWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
     const measured1 = await measurePackaging(browser, async () => {
@@ -459,7 +461,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(upload1.status(), "step1 upload status").toBe(201);
     const preview1 = await previewWait1;
     expect(preview1.status(), "step1 preview status").toBe(202);
-    const operation1 = await waitForOperation(submitter, ((await preview1.json()) as { operation_id: string }).operation_id, 600_000);
+    const accepted1 = (await preview1.json()) as { operation_id: string; upload_revision_id: string };
+    const operation1 = await waitForOperation(submitter, accepted1.operation_id, 600_000);
     expect(operation1.status, "step1 preview operation").toBe("SUCCEEDED");
     m1.push({ step: "t1-v1-modified", rendererIncrementBytes: measured1.rendererIncrementBytes, maxRssAnon: measured1.maxRssAnon, maxRssFile: measured1.maxRssFile, maxRssShmem: measured1.maxRssShmem });
     expect(await waitForPreviewOutcome(page)).toBe("compare");
@@ -468,23 +471,15 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const previewId1 = compareUrl1.searchParams.get("previewResultId");
     expect(workspaceId, "step1 workspaceId").toBeTruthy();
     expect(previewId1, "step1 previewId").toBeTruthy();
-    const previewResult1 = (await getPreviewResult(submitter, workspaceId as string, previewId1 as string)).body;
-    await waitForInstalledBundle(page, digestHex(previewResult1.bundle_digest));
-    let bundle1: ParsedBundle | null = null;
-    for (const recorded of [...recording1.responses].reverse()) {
-      try {
-        expect(recorded.status(), "step1 bundle status").toBe(200);
-        bundle1 = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult1.bundle_digest });
-        break;
-      } catch {
-        continue;
-      }
-    }
-    expect(bundle1, "step1 bundle downloaded and installed").toBeTruthy();
+    const evidence1 = await consumePreviewBundle(page, recording1, { workspaceId: workspaceId as string,
+      previewId: previewId1 as string, operationId: accepted1.operation_id, uploadRevisionId: accepted1.upload_revision_id,
+      readPreview: () => getPreviewResult(submitter, workspaceId as string, previewId1 as string) });
+    const bundle1 = evidence1.bundle;
     recording1.dispose();
-    const criteria1 = await assertBundleConsumerCriteria(bundle1 as ParsedBundle, "t1 step1 preview bundle");
-    appendCaseLog(`t1-step1 criteria ${formatCriteriaSummary(criteria1)}`);
-    const summary1 = pairSummary(bundle1 as ParsedBundle, "initial_to_modified");
+    const criteria1 = await assertBundleConsumerCriteria(bundle1, "t1 step1 preview bundle");
+    await recording1.assertIdentity();
+    appendCaseLog(`t1-step1 criteria source=${evidence1.source} ${formatCriteriaSummary(criteria1)}`);
+    const summary1 = pairSummary(bundle1, "initial_to_modified");
     expect(Number(summary1.table_count), "step1 table_count").toBe(v1PreviewCount + 1);
     expect(Number(summary1.changed_table_count), "step1 changed").toBe(v1PreviewCount + 1);
     expect(Number(summary1.degraded_table_count), "step1 degraded").toBe(0);
@@ -494,8 +489,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-preview-v1");
 
     // FE4b §7.3: dependent-on-BE-b pages, still outside the M1 window.
-    const v1PairId = firstPairWithNavigation(bundle1 as ParsedBundle);
-    const v1 = pairArtifacts(bundle1 as ParsedBundle, v1PairId);
+    const v1PairId = firstPairWithNavigation(bundle1);
+    const v1 = pairArtifacts(bundle1, v1PairId);
     const secondaryItem = maxTabsItem(v1.groups.find((group) => group.group_key === "SECONDARY_DEVICES")?.items ?? []);
     if (secondaryItem) {
       await captureTabItemBothWidths(page, testInfo, "fe4-t1-device-tabs", v1.surface, secondaryItem, firstTabWithRows(v1.surface, secondaryItem));
@@ -584,7 +579,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // Steps 4–5: FULL ①=t1-v1 ②=t1-v2, then approve.
     await gotoWorkbench(page);
     await selectUploadDirs(page, { modified: v2Dir, initial: v1Dir });
-    const recording2 = recordBundleResponses(page);
+    const recording2 = captureBundleDownloads(page, submitter);
+    bundleObservations.push(recording2);
     const previewWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/preview-operations"), { timeout: 300_000 });
     const uploadWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
     const measured2 = await measurePackaging(browser, async () => {
@@ -594,7 +590,8 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     m1.push({ step: "t1-full", rendererIncrementBytes: measured2.rendererIncrementBytes, maxRssAnon: measured2.maxRssAnon, maxRssFile: measured2.maxRssFile, maxRssShmem: measured2.maxRssShmem });
     const preview2 = await previewWait2;
     expect(preview2.status(), "step4 preview status").toBe(202);
-    const operation2 = await waitForOperation(submitter, ((await preview2.json()) as { operation_id: string }).operation_id, 900_000);
+    const accepted2 = (await preview2.json()) as { operation_id: string; upload_revision_id: string };
+    const operation2 = await waitForOperation(submitter, accepted2.operation_id, 900_000);
     expect(operation2.status, "step4 preview operation").toBe("SUCCEEDED");
     expect(await waitForPreviewOutcome(page)).toBe("compare");
     const compareUrl2 = new URL(page.url());
@@ -602,33 +599,25 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const workspaceId2 = compareUrl2.searchParams.get("workspaceId");
     expect(previewId2, "step4 previewId").toBeTruthy();
     expect(workspaceId2, "step4 workspaceId").toBeTruthy();
-    const previewResult2 = (await getPreviewResult(submitter, workspaceId2 as string, previewId2 as string)).body;
-    await waitForInstalledBundle(page, digestHex(previewResult2.bundle_digest));
-    let bundle2: ParsedBundle | null = null;
-    for (const recorded of [...recording2.responses].reverse()) {
-      try {
-        expect(recorded.status(), "step4 bundle status").toBe(200);
-        bundle2 = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult2.bundle_digest });
-        break;
-      } catch {
-        continue;
-      }
-    }
-    expect(bundle2, "step4 bundle downloaded and installed").toBeTruthy();
+    const evidence2 = await consumePreviewBundle(page, recording2, { workspaceId: workspaceId2 as string,
+      previewId: previewId2 as string, operationId: accepted2.operation_id, uploadRevisionId: accepted2.upload_revision_id,
+      readPreview: () => getPreviewResult(submitter, workspaceId2 as string, previewId2 as string) });
+    const bundle2 = evidence2.bundle;
     recording2.dispose();
-    const criteria2 = await assertBundleConsumerCriteria(bundle2 as ParsedBundle, "t1 step4 full bundle");
-    appendCaseLog(`t1-step4 criteria ${formatCriteriaSummary(criteria2)}`);
-    expect((bundle2 as ParsedBundle).manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
-    const bti = pairSummary(bundle2 as ParsedBundle, "baseline_to_initial");
+    const criteria2 = await assertBundleConsumerCriteria(bundle2, "t1 step4 full bundle");
+    await recording2.assertIdentity();
+    appendCaseLog(`t1-step4 criteria source=${evidence2.source} ${formatCriteriaSummary(criteria2)}`);
+    expect((bundle2).manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
+    const bti = pairSummary(bundle2, "baseline_to_initial");
     expect(Number(bti.changed_table_count), "baseline_to_initial changed").toBe(0);
     expect(Number(bti.degraded_table_count), "baseline_to_initial degraded").toBe(0);
     expect(Number(bti.failed_table_count), "baseline_to_initial failed").toBe(0);
     appendCaseLog(`t1-step4 baseline_to_initial.table_count=${bti.table_count}`);
-    const itm = pairSummary(bundle2 as ParsedBundle, "initial_to_modified");
+    const itm = pairSummary(bundle2, "initial_to_modified");
     expect(Number(itm.table_count), "initial_to_modified table_count").toBe(v2PreviewCount + 1);
     expect(Number(itm.degraded_table_count), "initial_to_modified degraded").toBe(0);
     expect(Number(itm.failed_table_count), "initial_to_modified failed").toBe(0);
-    const composite = compositeChanged(bundle2 as ParsedBundle, "initial_to_modified");
+    const composite = compositeChanged(bundle2, "initial_to_modified");
     appendCaseLog(`t1-step4 composite_changed=${composite}`);
     expect(composite, "initial_to_modified comparison surface exposes composite_signal_point").not.toBeNull();
     const changedExpected = v2Changed + (composite as number);
@@ -643,7 +632,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
 
     // FE4b §7.3: dependent-on-BE-b pages on the v2 FULL initial_to_modified pair.
     const v2PairId = "initial_to_modified";
-    const v2 = pairArtifacts(bundle2 as ParsedBundle, v2PairId);
+    const v2 = pairArtifacts(bundle2, v2PairId);
     await expandNavigation(page);
     await expandAllGroups(page);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-groups");
@@ -660,7 +649,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     appendCaseLog(`fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key ?? "table"}`);
     if (!navDiagnosticsCaptured) {
       for (const pair of ["baseline_to_initial", "initial_to_modified"] as const) {
-        const artifacts = pair === v2PairId ? v2 : pairArtifacts(bundle2 as ParsedBundle, pair);
+        const artifacts = pair === v2PairId ? v2 : pairArtifacts(bundle2, pair);
         if (artifacts.diagnostics.length === 0) {
           appendCaseLog(`t1-nav-diagnostics ${pair} count=0`);
           continue;
@@ -736,6 +725,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expectNoPageErrors(diagnostics, "t1");
     appendCaseLog("t1 ok");
   } finally {
+    for (const observation of bundleObservations) observation.dispose();
     await context.close().catch(() => undefined);
   }
 });

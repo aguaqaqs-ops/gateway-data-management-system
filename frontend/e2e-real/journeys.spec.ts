@@ -10,9 +10,6 @@ import {
   expectReviewReasonShownOnce,
   gotoWorkbench,
   opfsBundleState,
-  isBundleResponse,
-  recordBundleBodies,
-  recordBundleResponses,
   reviewAction,
   reviewStatus,
   saveEvidence,
@@ -23,7 +20,6 @@ import {
   treeRow,
   waitForBundleResponse,
   waitForDiffBrowsing,
-  waitForInstalledBundle,
   waitForPreviewOutcome,
   workshopAction,
 } from "./lib/ui";
@@ -44,7 +40,8 @@ import {
   type WorkspaceBody,
 } from "./lib/api";
 import { countBundlePairs, digestHex, parseBundleTar, type ParsedBundle } from "./lib/tar";
-import { PreviewBundleEvidence, type BundleDownload } from "./lib/preview-bundle-evidence";
+import { captureBundleDownloads } from "./lib/bundle-observer";
+import { consumeBundle, consumePreviewBundle } from "./lib/consume-bundle";
 import { assertBundleConsumerCriteria, formatCriteriaSummary } from "./lib/consumer-criteria";
 import { identityFor, inputDir, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
@@ -131,17 +128,6 @@ interface UploadRun {
   etag: string | null;
 }
 
-const previewBundleEvidence = new PreviewBundleEvidence();
-
-async function assertBrowserIdentity(page: Page, identity: JourneyIdentity): Promise<void> {
-  const matches = await page.evaluate((expected) => {
-    const current = window.__gatewaySession;
-    return current?.accessToken === expected.token && current.businessProjectId === expected.businessProjectId
-      && current.gatewayDeviceExternalKey === expected.gatewayDeviceExternalKey;
-  }, { token: identity.token, businessProjectId: identity.businessProjectId, gatewayDeviceExternalKey: identity.gatewayDeviceExternalKey });
-  if (!matches) throw new Error("browser session changed; refusing Preview bundle evidence reuse");
-}
-
 /** Browser-driven upload + preview, accepting a verified same-context cache hit.
  * Downloads are observed from the start, but a new HTTP event is not completion.
  */
@@ -152,17 +138,9 @@ async function uploadAndPreview(
   input: "modified_only" | "full",
 ): Promise<UploadRun> {
   identity = { ...identity };
-  await assertBrowserIdentity(page, identity);
-  const downloads: Array<{ path: string; status: number; result: Promise<{ download: BundleDownload } | { error: unknown }> }> = [];
-  const observe = (response: PlaywrightResponse): void => {
-    if (!isBundleResponse(response)) return;
-    downloads.push({ path: new URL(response.url()).pathname, status: response.status(),
-      result: response.body().then((body) => ({ download: { body: Buffer.from(body),
-        contentLength: response.headers()["content-length"] ?? null, contentType: response.headers()["content-type"] ?? null, etag: response.headers()["etag"] ?? null } }),
-      (error: unknown) => ({ error })) });
-  };
-  page.on("response", observe);
+  const observation = captureBundleDownloads(page, identity);
   try {
+    await observation.assertIdentity();
     const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
     const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
     if (input === "full") {
@@ -179,45 +157,26 @@ async function uploadAndPreview(
     expect(operation.status, `preview operation ${accepted.operation_id}`).toBe("SUCCEEDED");
     expect(await waitForPreviewOutcome(page), "preview outcome").toBe("compare");
     await waitForDiffBrowsing(page);
-    await assertBrowserIdentity(page, identity);
+    await observation.assertIdentity();
 
     const url = new URL(page.url());
     const previewId = url.searchParams.get("previewResultId");
     const workspaceId = url.searchParams.get("workspaceId");
     expect(previewId, "previewResultId in compare URL").toBeTruthy();
     expect(workspaceId, "workspaceId in compare URL").toBe(uploaded.workspace_id);
-    // Authorize the exact result under the current identity; URL digest is ignored.
-    const authorized = await getPreviewResult(identity, workspaceId as string, previewId as string);
-    expect(authorized.status, "current Preview authorization").toBe(200);
-    expect(authorized.body.preview_result_id).toBe(previewId);
-    expect(authorized.body.workspace_id).toBe(workspaceId);
-    expect(authorized.body.operation_id).toBe(accepted.operation_id);
-    expect(authorized.body.upload_revision_id).toBe(uploaded.upload_revision_id);
-    const installed = await opfsBundleState(page, digestHex(authorized.body.bundle_digest));
-    const readiness = { uiReady: true, opfsComplete: installed.hasDigestDir && installed.hasManifest && installed.hasCompleteMarker };
-    const path = `/v1/workspaces/${encodeURIComponent(workspaceId as string)}/preview-results/${encodeURIComponent(previewId as string)}/bundle`;
-    const transferred = downloads.filter((download) => download.path === path);
-    let evidence: Awaited<ReturnType<PreviewBundleEvidence["resolve"]>> | undefined;
-    let etag: string | null = null;
-    for (const response of transferred) {
-      expect(response.status, "bundle status").toBe(200);
-      const result = await response.result;
-      if ("error" in result) throw result.error;
-      evidence = await previewBundleEvidence.resolve({ context: page.context(), identity,
-        authorizedDigest: authorized.body.bundle_digest, ...readiness, download: result.download });
-      etag = result.download.etag;
-    }
-    evidence ??= await previewBundleEvidence.resolve({ context: page.context(), identity,
-      authorizedDigest: authorized.body.bundle_digest, ...readiness });
-    await assertBrowserIdentity(page, identity);
+    const evidence = await consumePreviewBundle(page, observation, {
+      workspaceId: workspaceId as string, previewId: previewId as string, operationId: accepted.operation_id,
+      uploadRevisionId: uploaded.upload_revision_id,
+      readPreview: () => getPreviewResult(identity, workspaceId as string, previewId as string),
+    });
     const bundle = evidence.bundle;
     const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} preview bundle`);
-    await assertBrowserIdentity(page, identity);
+    await observation.assertIdentity();
     appendCaseLog(`criteria ${scope.slug} preview source=${evidence.source} digest=${bundle.bundleDigest} ${formatCriteriaSummary(criteria)}`);
     return { previewId: previewId as string, workspaceId: workspaceId as string,
-      operationId: accepted.operation_id, bundle, status: upload.status(), previewStatus: preview.status(), etag };
+      operationId: accepted.operation_id, bundle, status: upload.status(), previewStatus: preview.status(), etag: evidence.etag };
   } finally {
-    page.off("response", observe);
+    observation.dispose();
   }
 }
 
@@ -1028,39 +987,49 @@ test("r9-history", async ({ browser }, testInfo) => {
     await selectTreeRow(session.page, "提交 1");
     await workshopAction(session.page, "加入比较").click();
 
-    const historyBodies = recordBundleBodies(session.page);
-    const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
-    await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
-    expect((await compareResponse).status()).toBeLessThan(300);
+    const historyBodies = captureBundleDownloads(session.page, submitter);
+    try {
+      const compareResponse = session.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
+      await session.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click();
+      const compareAccepted = await compareResponse;
+      expect(compareAccepted.status()).toBeLessThan(300);
+      const historyOperationId = ((await compareAccepted.json()) as { operation_id: string }).operation_id;
 
-    const drawer = session.page.locator('section[aria-label="历史比较结果抽屉"]');
-    await expect(drawer).toBeVisible({ timeout: 60_000 });
-    await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 300_000 });
-    await expect(drawer.locator(".history-pair-summary")).toHaveCount(1);
-    const summary = drawer.locator(".history-pair-summary").first();
-    await expect(summary).toContainText("比较对 1");
-    await expect(summary).toContainText(/节点 \d+ → 节点 \d+/);
-    await expect(summary).toContainText(/\d+ 条差异记录/);
-    await expect(summary).toContainText(/表 \d+/);
-    await expect(summary).toContainText(/变更 \d+/);
-    await expect(drawer).toContainText("已就绪：bundle 已下载并校验。", { timeout: 300_000 });
-    await saveEvidence(session.page, testInfo, "r9-history-drawer");
+      const drawer = session.page.locator('section[aria-label="历史比较结果抽屉"]');
+      await expect(drawer).toBeVisible({ timeout: 60_000 });
+      await expect(drawer.locator(".status-tag")).toHaveText("已完成", { timeout: 300_000 });
+      await expect(drawer.locator(".history-pair-summary")).toHaveCount(1);
+      const summary = drawer.locator(".history-pair-summary").first();
+      await expect(summary).toContainText("比较对 1");
+      await expect(summary).toContainText(/节点 \d+ → 节点 \d+/);
+      await expect(summary).toContainText(/\d+ 条差异记录/);
+      await expect(summary).toContainText(/表 \d+/);
+      await expect(summary).toContainText(/变更 \d+/);
+      await expect(drawer).toContainText("已就绪：bundle 已下载并校验。", { timeout: 300_000 });
+      await saveEvidence(session.page, testInfo, "r9-history-drawer");
 
-    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
-    await waitForDiffBrowsing(session.page);
-    await expect(session.page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
-    // Q6: a single history view has no segmented control; the node pair moves into the breadcrumb.
-    await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
-    await expect(session.page.locator("nav.breadcrumb")).toContainText(/节点 \d+ → 节点 \d+/);
-    await saveEvidence(session.page, testInfo, "r9-history-diff");
+      await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click();
+      await waitForDiffBrowsing(session.page);
+      await expect(session.page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
+      // Q6: a single history view has no segmented control; the node pair moves into the breadcrumb.
+      await expect(session.page.getByRole("tablist", { name: "比较视图" })).toHaveCount(0);
+      await expect(session.page.locator("nav.breadcrumb")).toContainText(/节点 \d+ → 节点 \d+/);
+      await saveEvidence(session.page, testInfo, "r9-history-diff");
 
-    await Promise.all(historyBodies.pending);
-    historyBodies.dispose();
-    for (const download of historyBodies.bodies) {
-      const criteria = await assertBundleConsumerCriteria(await parseBundleTar(download.body, download), "journey r9-history bundle");
-      appendCaseLog(`criteria r9-history ${formatCriteriaSummary(criteria)}`);
-    }
-    expect(historyBodies.bodies.length, "r9-history bundle downloads checked").toBeGreaterThan(0);
+      const authorized = await tryApi<{ operation_id: string; status: string; result: { bundle_digest: string } | null }>(
+        submitter, "GET", `/v1/history-compares/${encodeURIComponent(historyOperationId)}`);
+      expect(authorized.status).toBe(200);
+      if (!("body" in authorized)) throw new Error("current History bundle authorization failed");
+      expect(authorized.body.operation_id).toBe(historyOperationId);
+      expect(authorized.body.status).toBe("SUCCEEDED");
+      expect(authorized.body.result).toBeTruthy();
+      const evidence = await consumeBundle(session.page, historyBodies, {
+        authorizedDigest: authorized.body.result!.bundle_digest,
+        requestPath: `/v1/history-compares/${encodeURIComponent(historyOperationId)}/bundle` });
+      const criteria = await assertBundleConsumerCriteria(evidence.bundle, "journey r9-history bundle");
+      await historyBodies.assertIdentity();
+      appendCaseLog(`criteria r9-history source=${evidence.source} ${formatCriteriaSummary(criteria)}`);
+    } finally { historyBodies.dispose(); }
 
     assertClean(session.diagnostics, "r9-history");
     appendCaseLog(`r9-history ok nodes=${history.body.nodes.length}`);
@@ -1356,14 +1325,17 @@ async function uploadDirsAndPreview(
   dirs: { modified: string; initial?: string },
   diffView: "grid" | "replacement" = "grid",
 ): Promise<UploadRun> {
-  const bundleRecording = recordBundleResponses(page);
+  identity = { ...identity };
+  const observation = captureBundleDownloads(page, identity);
   try {
     const uploadWait = page.waitForResponse((response) => isPost(response, "/upload-revisions"), { timeout: 300_000 });
     const previewWait = page.waitForResponse((response) => isPost(response, "/preview-operations"), { timeout: 300_000 });
+    await observation.assertIdentity();
     await selectUploadDirs(page, dirs);
     await startUpload(page);
     const upload = await uploadWait;
     expect(upload.status(), "upload-revisions status").toBe(201);
+    const uploaded = await upload.json() as { workspace_id: string; upload_revision_id: string };
     const preview = await previewWait;
     expect(preview.status(), "preview-operations status").toBe(202);
     const accepted = (await preview.json()) as { operation_id: string };
@@ -1378,36 +1350,17 @@ async function uploadDirsAndPreview(
     const workspaceId = url.searchParams.get("workspaceId");
     expect(previewId, "previewResultId in compare URL").toBeTruthy();
     expect(workspaceId, "workspaceId in compare URL").toBeTruthy();
-    const previewResult = (await getPreviewResult(identity, workspaceId as string, previewId as string)).body;
-    await waitForInstalledBundle(page, digestHex(previewResult.bundle_digest));
-    // Prefer the newest recorded download; fall back to earlier ones.
-    let bundle: ParsedBundle | null = null;
-    let bundleResponse: PlaywrightResponse | null = null;
-    for (const recorded of [...bundleRecording.responses].reverse()) {
-      try {
-        expect(recorded.status(), "bundle status").toBe(200);
-        bundle = await parseBundleTar(Buffer.from(await recorded.body()), { contentLength: recorded.headers()["content-length"] ?? null, etag: recorded.headers()["etag"] ?? null, expectedBundleDigest: previewResult.bundle_digest });
-        bundleResponse = recorded;
-        break;
-      } catch {
-        continue;
-      }
-    }
-    expect(bundle, "bundle downloaded and installed").toBeTruthy();
-    expect(bundleResponse, "bundle response recorded").toBeTruthy();
-    const criteria = await assertBundleConsumerCriteria(bundle as ParsedBundle, `journey ${scope.slug} ${diffView} bundle`);
-    appendCaseLog(`criteria ${scope.slug} ${diffView} ${formatCriteriaSummary(criteria)}`);
-    if (diffView === "replacement") {
-      // Identity-different datasets render the replacement browser instead of
-      // the comparison grid (R4); the grid paint flag never applies here.
-      await expect(page.locator("section.replacement-browser")).toBeVisible({ timeout: 120_000 });
-      await expect(page.getByText(/身份结论/)).toBeVisible();
-    } else {
-      await waitForDiffBrowsing(page);
-    }
-    return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle: bundle as ParsedBundle, status: upload.status(), previewStatus: preview.status(), etag: (bundleResponse as PlaywrightResponse).headers()["etag"] ?? "" };
+    expect(workspaceId).toBe(uploaded.workspace_id);
+    const evidence = await consumePreviewBundle(page, observation, { workspaceId: workspaceId as string,
+      previewId: previewId as string, operationId: accepted.operation_id, uploadRevisionId: uploaded.upload_revision_id,
+      view: diffView, readPreview: () => getPreviewResult(identity, workspaceId as string, previewId as string) });
+    const bundle = evidence.bundle;
+    const criteria = await assertBundleConsumerCriteria(bundle, `journey ${scope.slug} ${diffView} bundle`);
+    appendCaseLog(`criteria ${scope.slug} ${diffView} source=${evidence.source} ${formatCriteriaSummary(criteria)}`);
+    await observation.assertIdentity();
+    return { previewId: previewId as string, workspaceId: workspaceId as string, operationId: accepted.operation_id, bundle: bundle, status: upload.status(), previewStatus: preview.status(), etag: evidence.etag };
   } finally {
-    bundleRecording.dispose();
+    observation.dispose();
   }
 }
 

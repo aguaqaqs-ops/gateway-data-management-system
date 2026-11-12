@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { duplicateCounts, handoffQuery, matches, readState, regionCounts, sorted, stateSearch, visible } from "./model";
+import { duplicateCounts, filterRegions, handoffQuery, highlightParts, matches, readState, regionCounts, sorted, stateSearch, visible } from "./model";
 import type { Project } from "./model";
 
 const projects: Project[] = [
@@ -32,6 +32,29 @@ describe("目录查询", () => {
     const result = visible(many, readState("?r1=%E6%B1%9F%E8%8B%8F&page=2"));
     expect(result).toHaveLength(51);
     expect(result.slice(50, 100)).toHaveLength(1);
+  });
+  it("地区标签筛选保留父路径、原始计数和未匹配搜索的地区", () => {
+    const counts = regionCounts([...projects, { ...projects[0], device_key: "dev-4", region2: "无锡" }], "cn");
+    expect(filterRegions(counts, " 苏州 ")).toEqual(new Map([["江苏", new Map([["苏州", 2]])]]));
+    expect(filterRegions(counts, "江苏").get("江苏")).toEqual(new Map([["苏州", 2], ["无锡", 1]]));
+    expect(filterRegions(counts, "浙江")).toEqual(new Map([["浙江", new Map([["宁波", 0]])]]));
+    expect(filterRegions(counts, "不存在").size).toBe(0);
+    expect(filterRegions(counts, "  ")).toEqual(counts);
+    expect(counts.size).toBe(2);
+  });
+  it.each([
+    ["城南与城南", " 城南 ", false, ["城南", "城南"]],
+    ["SZ-0142", "sz-0", true, ["SZ-0"]],
+    ["SZ-0142", "0142", true, []],
+    ["<站&站>", "站", false, ["站", "站"]],
+    ["İ站", "站", false, ["站"]],
+    ["İ站", "i", false, ["İ"]],
+    ["城南", "cn", false, []],
+    ["城南", " ", false, []]
+  ] as const)("显示文本 %s 的直接命中 %s", (text, query, prefix, hits) => {
+    const parts = highlightParts(text, query, prefix);
+    expect(parts.map((part) => part.text).join("")).toBe(text);
+    expect(parts.filter((part) => part.hit).map((part) => part.text)).toEqual(hits);
   });
   it("长地区与搜索的 UTF-8 返回查询遵守 I3 并完整恢复位置", () => {
     const state = { r1: "江".repeat(50), r2: "苏".repeat(50), q: "站".repeat(20) + "%26&+#?=/ 😀", scope: "region" as const, page: 2 };

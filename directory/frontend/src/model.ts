@@ -83,6 +83,52 @@ export function regionCounts(projects: Project[], query: string): Map<string, Ma
   }
   return regions;
 }
+
+// This only filters the tree's labels; counts and project selection stay intact.
+export function filterRegions(regions: Map<string, Map<string, number>>, query: string): Map<string, Map<string, number>> {
+  const q = query.trim().toLowerCase();
+  return new Map([...regions].flatMap(([region, children]) => {
+    const visibleChildren = region.toLowerCase().includes(q) ? children
+      : new Map([...children].filter(([name]) => name.toLowerCase().includes(q)));
+    return visibleChildren.size ? [[region, visibleChildren] as const] : [];
+  }));
+}
+
+export interface HighlightPart { text: string; hit: boolean }
+
+// The same literal, case-insensitive matching as the displayed search fields.
+// Pinyin has no character alignment in the catalog, so it cannot locate Hanzi.
+export function highlightParts(text: string, query: string, prefix = false): HighlightPart[] {
+  const q = query.trim().toLowerCase();
+  const lower = text.toLowerCase();
+  if (!q || (prefix && !lower.startsWith(q))) return [{ text, hit: false }];
+  const parts: HighlightPart[] = [];
+  // Case folding can expand a character (e.g. İ); keep source text intact.
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let sourceOffset = 0;
+  for (const character of text) {
+    for (let unit = 0; unit < character.toLowerCase().length; unit++) {
+      starts.push(sourceOffset);
+      ends.push(sourceOffset + character.length);
+    }
+    sourceOffset += character.length;
+  }
+  let offset = 0;
+  let index = lower.indexOf(q);
+  while (index !== -1) {
+    const start = starts[index];
+    const end = ends[index + q.length - 1];
+    if (start > offset) parts.push({ text: text.slice(offset, start), hit: false });
+    if (end > offset) parts.push({ text: text.slice(Math.max(offset, start), end), hit: true });
+    offset = end;
+    if (prefix) break;
+    index = lower.indexOf(q, index + q.length);
+  }
+  if (offset < text.length) parts.push({ text: text.slice(offset), hit: false });
+  return parts;
+}
+
 export function duplicateCounts(projects: Project[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const project of projects) counts.set(project.name, (counts.get(project.name) || 0) + 1);

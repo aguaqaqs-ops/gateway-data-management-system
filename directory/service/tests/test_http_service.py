@@ -4,7 +4,7 @@ import base64
 import gzip
 import hashlib
 import hmac
-import http.client
+from http.client import HTTPConnection
 import json
 import secrets
 import subprocess
@@ -53,7 +53,7 @@ def http(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Path
 
 def request(port: int, method: str, path: str, body: bytes | None = None,
             headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], bytes]:
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn = HTTPConnection("127.0.0.1", port, timeout=5)
     try:
         conn.request(method, path, body, headers or {})
         response = conn.getresponse()

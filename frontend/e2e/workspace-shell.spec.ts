@@ -2645,7 +2645,7 @@ test("未接入设备的工作区启动显示设备目录指引且入口404不�
     await route.fulfill({ status: 404, contentType: "application/json", headers: { "X-Gateway-Entry-Rejection": "route-not-loaded" }, body: JSON.stringify({ code: "RESOURCE_NOT_FOUND", message: "missing" }) });
   });
   await page.goto("/");
-  await expect(page.getByText("当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。")).toBeVisible();
+  await expect(page.locator(".error-state__description")).toHaveText("当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。");
   const observed = starts;
   await page.waitForTimeout(300);
   expect(starts).toBe(observed);

@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi } from "../features/api/application-api";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
-import { ApiError } from "../features/api/authenticated-fetch";
+import { ApiError, DEVICE_UNAVAILABLE_MESSAGE } from "../features/api/authenticated-fetch";
 import { bundleErrorTitle } from "../features/bundle/local-bundle";
 import { reportConnectionStatus } from "../features/api/connection-status";
 import { PollingConnectionLostError, pollHistoryCompare } from "../features/api/journeys";
@@ -503,7 +503,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
   if (loading) return <main className="workspace-page"><LoadingSkeleton label="加载工作区与 History" /></main>;
-  if (loadError || !workspace || !history) return <main className="workspace-page workspace-page--error"><ErrorState code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
+  if (loadError || !workspace || !history) return <main className="workspace-page workspace-page--error"><ErrorState description={loadError?.message === DEVICE_UNAVAILABLE_MESSAGE ? DEVICE_UNAVAILABLE_MESSAGE : undefined} code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
 
   const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;

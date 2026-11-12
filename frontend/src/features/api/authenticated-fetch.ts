@@ -5,6 +5,8 @@ import { expireHandoffSessionOnUnauthorized } from "../session/handoff-session";
 export type SessionProvider = () => GatewaySession;
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export const DEVICE_UNAVAILABLE_MESSAGE = "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。";
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
@@ -71,7 +73,7 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
       expireHandoffSessionOnUnauthorized(snapshot);
     }
     const displayMessage = response.status === 404 && init.method === "POST" && path === "/v1/workspaces"
-      ? "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。" : message;
+      ? DEVICE_UNAVAILABLE_MESSAGE : message;
     throw new ApiError(displayMessage, response.status, code, errorBody.details);
   };
 }

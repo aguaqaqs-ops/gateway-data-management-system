@@ -329,3 +329,47 @@ def test_submission_disposition_schema_enforces_one_real_terminal_source(db_path
         start_archive_for_seed(seed, confirmation_sequence=append_selection_confirmation(seed))
     with pytest.raises(sqlite3.IntegrityError), ControlDbUnitOfWork(db_path) as uow:
         uow.connection.execute(f"UPDATE submission_disposition_records SET {assignment}")
+
+
+SCOPE_WRITE_STATEMENTS = (
+    """INSERT INTO archive_plan_records (
+        plan_id, repository_id, gateway_device_external_key, business_project_id,
+        idempotency_key, request_fingerprint, accepted_by, accepted_at_us,
+        old_baseline_node_id, old_baseline_commit_id, old_baseline_head_version,
+        candidate_set_digest, selected_submission_id, selected_candidate_digest,
+        selected_repository_commit_id, confirmation_refs_json, anomaly_resolution_refs_json,
+        frozen_input_json
+    ) VALUES ('plan', 'repo', ?, ?, 'key', 'fingerprint', 'actor', 0, 'node', 'commit', 0,
+        'digest', 'submission', 'digest', 'commit', '[]', '[]', '{}')""",
+    """INSERT INTO history_compare_acceptance_records (
+        acceptance_id, gateway_device_external_key, business_project_id, repository_id,
+        idempotency_key, request_fingerprint, comparison_ruleset_digest, nodes_json,
+        operation_id, created_at_us
+    ) VALUES ('acceptance', ?, ?, 'repo', 'key', 'fingerprint', 'digest', '[]', 'operation', 0)""",
+)
+
+
+@pytest.mark.parametrize("statement", SCOPE_WRITE_STATEMENTS, ids=["archive", "history"])
+@pytest.mark.parametrize("identity", ["设备" * 127 + "一", "😀" * 255])
+def test_archive_and_history_persist_full_unicode_scope(statement: str, identity: str) -> None:
+    connection = _memory_connection()
+    try:
+        bootstrap_control_db_schema(connection)
+        connection.execute(statement, (identity, identity))
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("statement", SCOPE_WRITE_STATEMENTS, ids=["archive", "history"])
+@pytest.mark.parametrize("identity", ["x" * 256, "a\x00b"])
+@pytest.mark.parametrize("field", [0, 1], ids=["device", "project"])
+def test_archive_and_history_reject_out_of_domain_scope(statement: str, identity: str, field: int) -> None:
+    connection = _memory_connection()
+    try:
+        bootstrap_control_db_schema(connection)
+        values = ["valid", "valid"]
+        values[field] = identity
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(statement, values)
+    finally:
+        connection.close()

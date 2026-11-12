@@ -135,9 +135,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(owner_actor_id) = 'text' AND length(owner_actor_id) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
-            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255),
+            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         repository_id TEXT NOT NULL
             CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
         state TEXT NOT NULL
@@ -513,7 +513,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE TABLE review_idempotency_records (
         business_project_id TEXT NOT NULL
-            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255),
+            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         idempotency_key TEXT NOT NULL
             CHECK (typeof(idempotency_key) = 'text' AND length(idempotency_key) BETWEEN 1 AND 255),
         submission_id TEXT NOT NULL
@@ -580,9 +580,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     CREATE TABLE provisioned_scope_mappings (
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
-            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255),
+            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         repository_id TEXT NOT NULL
             CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
         enabled INTEGER NOT NULL
@@ -609,9 +609,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
-            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255),
+            CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         commit_id TEXT NOT NULL
             CHECK (typeof(commit_id) = 'text' AND length(commit_id) BETWEEN 1 AND 255),
         kind TEXT NOT NULL
@@ -663,10 +663,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
             CHECK
-                (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         idempotency_key TEXT NOT NULL
             CHECK (typeof(idempotency_key) = 'text' AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
         request_fingerprint TEXT NOT NULL
@@ -734,8 +734,8 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         disposition TEXT NOT NULL CHECK (disposition IN ('ARCHIVED_BASELINE', 'CLOSED_NOT_ARCHIVED')),
         source_kind TEXT NOT NULL CHECK (source_kind IN ('ARCHIVE', 'MANUAL_CLOSE')),
         repository_id TEXT NOT NULL CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
-        gateway_device_external_key TEXT NOT NULL CHECK (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
-        business_project_id TEXT NOT NULL CHECK (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+        gateway_device_external_key TEXT NOT NULL CHECK (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
+        business_project_id TEXT NOT NULL CHECK (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         closed_by TEXT CHECK (closed_by IS NULL OR (typeof(closed_by) = 'text' AND length(CAST(closed_by AS BLOB)) BETWEEN 1 AND 255)),
         reason TEXT CHECK (reason IS NULL OR (typeof(reason) = 'text' AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096)),
         idempotency_key TEXT CHECK (idempotency_key IS NULL OR (typeof(idempotency_key) = 'text' AND length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255)),
@@ -781,10 +781,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
             CHECK
-                (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         subject_kind TEXT NOT NULL
             CHECK (subject_kind = 'CONFIRM_SELECTION'),
         subject_digest TEXT NOT NULL
@@ -825,10 +825,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
             CHECK
-                (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         subject_kind TEXT NOT NULL
             CHECK (subject_kind IN ('APPROVED_SIBLING_EXCLUDED', 'PROJECT_IDENTITY_EXCEPTION', 'CONFIGURATION_SOURCE', 'CONFIGURATION_TIME_QUALITY', 'CONFIGURATION_TIME_ORDER')),
         subject_digest TEXT NOT NULL
@@ -879,10 +879,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(acceptance_id) = 'text' AND length(CAST(acceptance_id AS BLOB)) BETWEEN 1 AND 255),
         gateway_device_external_key TEXT NOT NULL
             CHECK
-                (typeof(gateway_device_external_key) = 'text' AND length(CAST(gateway_device_external_key AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(gateway_device_external_key) = 'text' AND length(gateway_device_external_key) BETWEEN 1 AND 255 AND length(CAST(gateway_device_external_key AS BLOB)) <= 1020 AND instr(gateway_device_external_key, char(0)) = 0),
         business_project_id TEXT NOT NULL
             CHECK
-                (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(business_project_id) = 'text' AND length(business_project_id) BETWEEN 1 AND 255 AND length(CAST(business_project_id AS BLOB)) <= 1020 AND instr(business_project_id, char(0)) = 0),
         repository_id TEXT NOT NULL
             CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
         idempotency_key TEXT NOT NULL

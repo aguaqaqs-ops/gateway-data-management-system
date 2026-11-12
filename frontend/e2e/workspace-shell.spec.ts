@@ -391,13 +391,13 @@ async function installFixtureRoutes(page: Page, options: {
     const path = new URL(request.url()).pathname;
     const previewResultId = path.split("/").at(-1) ?? "";
     apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    const fixture = await loadFixture("preview-full");
+    const fixture = await loadFixture(previewResultId === "preview-1" ? "preview-full" : previewResultId);
     const identityPairs = options.submitIdentity === "confirm" ? [
       { pair_id: "pair-dataset", applicability: "APPLICABLE" as const, status: "DIFFERENT_PROJECT" as const, mode: "DATASET_REPLACEMENT" as const, assessment_ref: "assessment-1", assessment_digest: "sha256:assessment-1" },
       { pair_id: "pair-unverifiable", applicability: "APPLICABLE" as const, status: "UNVERIFIABLE" as const, mode: "DETAILED" as const, assessment_ref: "assessment-2", assessment_digest: "sha256:assessment-2" },
     ] : [];
     const response = {
-      ...testPreviewResult(fixture.manifest.bundle_digest), preview_result_id: previewResultId, workspace_id: "workspace-fe2b",
+      ...testPreviewResult(fixture.manifest.bundle_digest), preview_result_id: previewResultId, workspace_id: path.split("/")[3],
       upload_revision_id: "upload-1", generation: 3, operation_id: "preview-op-1", business_baseline_node_id: "fe2a-history-ref-1",
       business_baseline_commit_id: "commit-baseline-1", identity_pairs: identityPairs,
     };
@@ -732,7 +732,7 @@ async function hoverChangedTelemetryValue(page: Page) {
 }
 
 test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面", async ({ page }) => {
-  const { requests } = await installFixtureRoutes(page);
+  const { requests, apiRequests } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }));
   await waitForBrowse(page);
@@ -809,6 +809,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   expect(stateBeforeReload.searchParams.get("changed")).toBe("1");
   expect(stateBeforeReload.searchParams.get("debug")).toBe("1");
   const requestCountBeforeReload = requests.get("preview-full") ?? 0;
+  const metadataReadsBeforeReload = apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1")).length;
   await page.reload();
   await waitForBrowse(page);
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
@@ -818,8 +819,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");
-  // The URL digest cannot authorize an OPFS read after a full reload.
-  expect(requests.get("preview-full")).toBe(requestCountBeforeReload + 1);
+  // Authorize the digest again under the current session, then reuse OPFS.
+  expect(apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1"))).toHaveLength(metadataReadsBeforeReload + 1);
+  expect(requests.get("preview-full")).toBe(requestCountBeforeReload);
 
   await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("");
   await page.getByRole("button", { name: "显示全部" }).click();
@@ -2652,3 +2654,51 @@ test("未接入设备的工作区启动显示设备目录指引且入口404不�
   await screenshot(page, "s2b-device-unavailable", 1280);
   await screenshot(page, "s2b-device-unavailable", 1920);
 });
+
+
+test("Preview cache reopens only after current metadata authorization and ignores URL digest", async ({ page }) => {
+  const { requests, apiRequests } = await installFixtureRoutes(page);
+  await gotoWithHandoff(page, browseUrl("PREVIEW", "preview-full"));
+  await waitForBrowse(page);
+  const downloads = requests.get("preview-full");
+  expect(downloads).toBe(1);
+  const metadataReads = () => apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1"));
+  expect(metadataReads()).toHaveLength(1);
+  await page.reload();
+  await waitForBrowse(page);
+  expect(metadataReads()).toHaveLength(2);
+  expect(requests.get("preview-full")).toBe(downloads);
+  const url = new URL(page.url());
+  url.searchParams.set("bundle", "sha256:" + "0".repeat(64));
+  await page.goto(url.toString());
+  await waitForBrowse(page);
+  expect(metadataReads()).toHaveLength(3);
+  expect(requests.get("preview-full")).toBe(downloads);
+  const fixture = await loadFixture("preview-full");
+  await expect(page.locator(".sidebar-footer")).toContainText(fixture.manifest.bundle_digest.slice(0, 19));
+});
+
+for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [404, "RESOURCE_NOT_FOUND", true], [401, "AUTHENTICATION_REQUIRED", true]] as const) {
+  test(`Preview cache rejects metadata ${status} before exposing an installed bundle`, async ({ page }) => {
+    const { requests } = await installFixtureRoutes(page);
+    await gotoWithHandoff(page, browseUrl("PREVIEW", "preview-full"));
+    await waitForBrowse(page);
+    const downloads = requests.get("preview-full");
+    expect(downloads).toBe(1);
+    let deniedReads = 0;
+    await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+$/, async (route) => {
+      deniedReads += 1;
+      expect(route.request().headers()["authorization"]).toBe(changeIdentity ? "Bearer new-cache-scope" : "Bearer dir-token-e2e");
+      await route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ code, message: "current session cannot read this preview" }) });
+    });
+    if (changeIdentity) {
+      const url = new URL(page.url());
+      await gotoWithHandoff(page, url.pathname + url.search, { token: "new-cache-scope", gateway_device_external_key: "new-cache-device" });
+    } else await page.reload();
+    if (status === 401) await expect(page.getByText("会话无效或已过期，请从设备目录重新进入")).toBeVisible();
+    else await expect(page.locator(".compare-error")).toContainText(code);
+    await expect(page.locator(".grid-frame")).toHaveCount(0);
+    expect(deniedReads).toBe(1);
+    expect(requests.get("preview-full")).toBe(downloads);
+  });
+}

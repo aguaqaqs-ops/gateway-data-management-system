@@ -5,7 +5,7 @@ import type { components } from "../src/features/api/generated/openapi";
 import {
   DISPOSITION_D5_NODE, DISPOSITION_HEAD, DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
   HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, SIMULATED_ERROR_RESPONSES, TEST_OPERATION_SUCCEEDED,
-  TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS,
+  TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS, testPreviewResult,
 } from "../src/features/dev/simulated-api";
 
 type Schemas = components["schemas"];
@@ -168,6 +168,10 @@ async function installModeRoutes(page: Page, state: ModeState) {
     };
     return json(route, 200, history);
   });
+  await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+$/, (route) => json(route, 200, {
+    ...testPreviewResult(bundle.manifest.bundle_digest), workspace_id: state.workspace.workspace_id,
+    preview_result_id: new URL(route.request().url()).pathname.split("/").at(-1),
+  }));
   await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+\/bundle$/, (route) => route.fulfill({
     status: 200,
     headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },

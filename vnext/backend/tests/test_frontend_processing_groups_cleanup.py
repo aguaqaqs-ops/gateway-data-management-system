@@ -138,3 +138,19 @@ def test_bad_owner_never_deletes_either_root(tmp_path: Path, monkeypatch: pytest
     with pytest.raises(AssertionError, match="another owner"):
         frontend.cleanup_retained(root, control)
     assert all(directory.exists() for directory in stack.runtime_roots.values())
+
+
+def test_changed_runtime_owner_is_not_written_but_ready_still_sanitized(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, control = tmp_path / "groups", tmp_path / "control"
+    stack = fixture_stack(root, monkeypatch)
+    prepare_control(root, control, dict(main_exit_code=0, cleanup_failed=False, interrupted=False))
+    foreign = root / "group-b"
+    (foreign / ".gateway-runtime-fixture-owner.json").write_text("{}")
+    original_credentials = {name: (foreign / name).read_bytes() for name in ("session/session.json", "internal.token", "repository.token")}
+    with pytest.raises(BaseExceptionGroup):
+        frontend.finish_stack(stack, root, control)
+    assert all((foreign / name).read_bytes() == value for name, value in original_credentials.items())
+    assert not (root / "incoming-0.json").exists()
+    ready = json.loads((control / "groups-ready.json").read_text())
+    assert all("token" not in ready[identity] for identity in ("synthetic", "hot"))
+    assert not (control / "groups-stopped.json").exists()

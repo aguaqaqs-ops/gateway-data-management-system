@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import signal
+import stat
 import sys
 import time
 from pathlib import Path
@@ -31,7 +33,7 @@ def caller_succeeded(control: Path) -> bool:
     return status["main_exit_code"] == 0 and not status["cleanup_failed"] and not status["interrupted"]
 
 
-def sanitize_credentials(root: Path, control: Path) -> list[Exception]:
+def sanitize_credentials(root: Path, control: Path, owner: str) -> list[Exception]:
     """Attempt each credential independently, without printing any document values."""
     errors: list[Exception] = []
     try:
@@ -47,11 +49,25 @@ def sanitize_credentials(root: Path, control: Path) -> list[Exception]:
     # Revoke runtime credentials in place: a failed down may leave active bind
     # mounts. Keep their inode and every diagnostic database/artifact intact.
     for group in ("group-a", "group-b"):
+        directory = root / group
+        try:
+            if not directory.exists():
+                continue
+            run(sys.executable, str(SCRIPTS / "tests/runtime_config_fixture.py"), str(directory),
+                "--owner", owner, "--cleanup", "--retain")
+        except Exception as error:
+            errors.append(error)
+            continue
         for name, replacement in (("session/session.json", '{"sessions":[]}'), ("internal.token", ""), ("repository.token", "")):
             path = root / group / name
             try:
                 if path.exists():
-                    path.write_text(replacement)
+                    descriptor = os.open(path, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            raise ValueError("runtime credential is not an ordinary owned file")
+                        stream.truncate(0)
+                        stream.write(replacement)
             except Exception as error:
                 errors.append(error)
     ready = control / "groups-ready.json"
@@ -85,7 +101,7 @@ def finish_stack(stack: ProcessingGroupsStack, root: Path, control: Path, *, int
         stack.close(retain=True)
     except Exception as error:
         errors.append(error)
-    errors.extend(sanitize_credentials(root, control))
+    errors.extend(sanitize_credentials(root, control, stack.owner))
     if errors:
         raise BaseExceptionGroup("browser group shutdown or credential cleanup failed", errors)
     write(control / "groups-stopped.json", {"state": "stopped", "caller_succeeded": success,

@@ -172,7 +172,8 @@ class DirectoryHandler(BaseHTTPRequestHandler):
                 or any(ord(c) < 32 or ord(c) == 127 or c == "#" for c in query)
             )):
                 raise ValueError("invalid return query")
-        except (ValueError, UnicodeDecodeError):
+            query.encode("utf-8")
+        except (ValueError, RecursionError):
             self.close_connection = True
             self.error_json(400, "INVALID_REQUEST", "请求不合法", no_store=True)
             return

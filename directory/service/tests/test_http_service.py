@@ -143,7 +143,9 @@ def test_static_and_unknown_api(http: tuple[Path, Path, int]) -> None:
     ({"device_key": "dev-0000000000000000", "return_query": ""}, "INVALID_REQUEST"),
     ({"device_key": "dev-0000000000000000", "return_query": "https://evil.example"}, "INVALID_REQUEST"),
     ({"device_key": "dev-0000000000000000", "return_query": "?q=x#fragment"}, "INVALID_REQUEST"),
+    ({"device_key": "dev-0000000000000000", "return_query": "?q=\ud800"}, "INVALID_REQUEST"),
     ({"device_key": "dev-0000000000000000", "return_query": "?" + "x" * 1000}, "INVALID_REQUEST"),
+    (b"[" * 1200 + b"0" + b"]" * 1200, "INVALID_REQUEST"),
     ({"device_key": "dev-0000000000000000"}, "DEVICE_NOT_FOUND"),
 ])
 def test_handoff_rejects_invalid_and_unknown(
@@ -151,7 +153,10 @@ def test_handoff_rejects_invalid_and_unknown(
 ) -> None:
     path, _, port = http
     initialise(path)
-    _, headers, response = post(port, payload)
+    body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+    status, headers, raw_response = request(port, "POST", "/api/handoffs", body)
+    response = json.loads(raw_response)
+    assert status == (404 if expected == "DEVICE_NOT_FOUND" else 400)
     assert response["code"] == expected
     assert headers["cache-control"] == "no-store"
 

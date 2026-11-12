@@ -78,7 +78,7 @@ for (const state of states) {
         const index = await page.locator("tbody tr").evaluateAll((rows) => rows.findIndex((row) => row.querySelector(".unavailable")));
         expect(index).toBeGreaterThanOrEqual(0);
         for (let step = 0; step <= index; step += 1) await page.keyboard.press("ArrowDown");
-        const row = button.locator("ancestor::tr");
+        const row = button.locator("xpath=ancestor::tr");
         await expect(row).toBeFocused();
         await expect(row).toHaveAttribute("aria-selected", "true");
         expect(await row.evaluate((node) => node.matches(":focus-visible"))).toBe(true);

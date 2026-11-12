@@ -29,7 +29,10 @@ describe("scope identity Contract", () => {
     for (const value of ["", "a".repeat(256), "\0", "\ud800", "\udfff"]) expect(() => validateScopeIdentity(value)).toThrow();
     for (const value of ["中".repeat(255), "😀".repeat(255), " é "]) expect(() => validateScopeIdentity(value)).not.toThrow();
     expect(deviceRouteKey("é")).not.toBe(deviceRouteKey("é"));
-    expect(Object.isFrozen(createGatewaySession(input()))).toBe(true);
+    const snapshot = createGatewaySession(input());
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    window.__gatewaySession = snapshot;
+    expect(currentGatewaySession()).toBe(snapshot);
     window.__gatewaySession = input("\ud800");
     expect(() => currentGatewaySession()).toThrow();
   });

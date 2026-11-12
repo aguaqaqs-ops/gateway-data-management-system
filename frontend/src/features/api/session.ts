@@ -38,7 +38,9 @@ export function deviceRouteKey(device: string): string {
 
 export function createGatewaySession(input: GatewaySessionInput): GatewaySession {
   validateScopeIdentity(input.businessProjectId);
-  return Object.freeze({ ...input, deviceRouteKey: deviceRouteKey(input.gatewayDeviceExternalKey) });
+  const snapshot = Object.freeze({ ...input, deviceRouteKey: deviceRouteKey(input.gatewayDeviceExternalKey) });
+  sessions.set(snapshot, snapshot);
+  return snapshot;
 }
 
 const sessions = new WeakMap<GatewaySessionInput, GatewaySession>();

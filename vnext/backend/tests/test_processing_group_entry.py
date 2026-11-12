@@ -221,10 +221,20 @@ def test_loaded_version_is_bound_to_actual_bytes_not_just_embedded_label(
     directory = DeviceDirectory(1, groups.environment_id, (DeviceDirectoryEntry('old', 'group-a', True),))
     digest, raw = entry.render_entry(groups, directory)
     entry.verify_config_identity(raw, digest)
-    (tmp_path / 'nginx.conf').write_bytes(raw.replace(b'127.0.0.1:8100', b'127.0.0.1:9999'))
+    (tmp_path / 'nginx.conf').write_bytes(raw)
+    versions = tmp_path / 'versions'
+    versions.mkdir()
+    (versions / (digest + '.conf')).write_bytes(raw.replace(b'127.0.0.1:8100', b'127.0.0.1:9999'))
     runtime = entry.EntryRuntime(groups, tmp_path, 'entry-test')
+    monkeypatch.setattr(runtime, 'probe', lambda *args, **kwargs: {'config_digest': digest, 'group_id': 'group-a'})
+    monkeypatch.setattr(runtime, 'retiring_workers', lambda: False)
+    monkeypatch.setattr(runtime, 'validate', lambda *args: None)
+    monkeypatch.setattr(runtime, 'compose', lambda *args: pytest.fail('damaged loaded version must not signal reload'))
+    newer = replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-b', True)))
+    new_digest, new = entry.render_entry(groups, newer)
     with pytest.raises(entry.Incomplete, match='content differs'):
-        runtime.loaded_config({'config_digest': digest})
+        runtime.publish(new_digest, new, key='a' * 64, group='group-a')
+    assert (tmp_path / 'nginx.conf').read_bytes() == raw
 
 
 @pytest.mark.parametrize('state,code', [('unreserved', 1), ('reserved', 1), ('registered', 1), ('routing-pending', 1), ('available', 0)])

@@ -187,8 +187,14 @@ temporary.write_text(json.dumps(dict(main_exit_code=int(sys.argv[2]), cleanup_fa
 temporary.replace(control / "groups-run-status.json")
 PY_STATUS
     then cleanup_failed=1; log "cleanup_groups_status=failed"; fi
-    touch "$GROUPS_CONTROL/groups-stop" || cleanup_failed=1
-    if ! wait "$GROUPS_PID"; then cleanup_failed=1; log "cleanup_groups=failed"; fi
+    if ! touch "$GROUPS_CONTROL/groups-stop"; then
+      cleanup_failed=1
+      kill -TERM "$GROUPS_PID" 2>/dev/null || true
+    fi
+    wait "$GROUPS_PID"
+    local groups_exit_code=$?
+    log "groups_exit_code=$groups_exit_code"
+    if [[ "$groups_exit_code" != "0" ]]; then cleanup_failed=1; log "cleanup_groups=failed"; fi
     [[ -f "$GROUPS_CONTROL/groups-stopped.json" ]] || { cleanup_failed=1; log "cleanup_groups=unconfirmed"; }
   fi
   # 3. remove the per-run RS image tag (kickoff §4.8).

@@ -34,7 +34,12 @@ def caller_succeeded(control: Path) -> bool:
 def sanitize_credentials(root: Path, control: Path) -> list[Exception]:
     """Attempt each credential independently, without printing any document values."""
     errors: list[Exception] = []
-    for path in root.glob("incoming-*.json*"):
+    try:
+        incoming_paths = list(root.glob("incoming-*.json*"))
+    except Exception as error:
+        errors.append(error)
+        incoming_paths = []
+    for path in incoming_paths:
         try:
             path.unlink(missing_ok=True)
         except Exception as error:

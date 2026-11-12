@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 
+from tests.support import compose_gate_harness as harness
 from tests.support import frontend_processing_groups as frontend
 from tests.support import processing_groups_harness as groups
 
@@ -31,7 +32,7 @@ def fixture_stack(root: Path, monkeypatch: pytest.MonkeyPatch) -> groups.Process
             return ""
         return original_run(*args)
     monkeypatch.setattr(groups, "run", run)
-    monkeypatch.setattr(groups.harness, "release_compose_gate_lock", lambda: None)
+    monkeypatch.setattr(harness, "release_compose_gate_lock", lambda: None)
     for name in ("group-a", "group-b"):
         directory = root / name
         directory.mkdir()

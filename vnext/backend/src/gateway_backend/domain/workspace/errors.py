@@ -19,6 +19,10 @@ class ScopeResolutionError(WorkspaceDomainError):
         self.reason = reason
 
 
+class ScopeNotFound(ScopeResolutionError):
+    """Definitive absence, disablement or mismatch of the local authenticated scope."""
+
+
 class PermissionDenied(WorkspaceDomainError):
     """Required permission is missing from the current session."""
 

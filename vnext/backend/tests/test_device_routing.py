@@ -11,7 +11,7 @@ import pytest
 from starlette.requests import Request
 
 from gateway_backend.device_identity import device_route_key
-from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeResolutionError, ScopeNotFound
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.routes.statistics import _internal_group_identity
@@ -49,7 +49,7 @@ def test_context_needs_local_scope_and_remains_readable_while_admission_is_close
     assert response.json() == {'environment_id': 'environment', 'group_id': 'group-a',
         'gateway_device_external_key': env.identity.gateway_device_external_key,
         'business_project_id': env.identity.business_project_id, 'repository_id': env.scope_resolution.resolve(env.identity).repository_id}
-    with patch.object(env.scope_resolution, 'resolve', side_effect=ScopeResolutionError('wrong local group')):
+    with patch.object(env.scope_resolution, 'resolve', side_effect=ScopeNotFound('wrong local group')):
         for path in ('/v1/device-context', '/v1/operations/unknown'):
             rejected = env.client.get(path, headers=env.auth_headers())
             assert rejected.status_code == 404
@@ -92,3 +92,96 @@ def test_internal_statistics_trusts_only_actual_gateway_not_host_or_forwarded_he
                 with pytest.raises(ApiError) as error:
                     _internal_group_identity(request)
                 assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize('error,status,code', [
+    (ScopeNotFound('provider unavailable'), 404, 'RESOURCE_NOT_FOUND'),
+    (ScopeResolutionError('provisioned mapping is missing'), 503, 'DEPENDENCY_UNAVAILABLE'),
+])
+def test_scope_error_type_controls_status_without_exposing_internal_reason(
+        tmp_path: Path, error: ScopeResolutionError, status: int, code: str) -> None:
+    env = create_workspace_http_environment(tmp_path)
+    with patch.object(env.scope_resolution, 'resolve', side_effect=error):
+        response = env.client.get('/v1/device-context', headers=env.auth_headers())
+    assert response.status_code == status
+    assert response.json()['code'] == code
+    assert error.reason not in response.text
+
+
+@pytest.mark.parametrize('fault,status', [('missing', 404), ('disabled', 404), ('initial-mismatch', 404),
+    ('initial-missing', 503), ('head-missing', 503), ('sqlite-unavailable', 503)])
+def test_real_sqlite_scope_distinguishes_absence_from_unavailable_facts(tmp_path: Path, fault: str, status: int) -> None:
+    import sqlite3
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedScopeResolution
+    env = create_workspace_http_environment(tmp_path)
+    app = cast(FastAPI, env.client.app)
+    app.state.workspace_http = replace(app.state.workspace_http, scope_resolution=ProvisionedScopeResolution(env.db_path))
+    statements = {'missing': 'DELETE FROM provisioned_scope_mappings',
+        'disabled': 'UPDATE provisioned_scope_mappings SET enabled=0',
+        'initial-mismatch': "UPDATE baseline_node_records SET business_project_id='other' WHERE kind='INITIAL'",
+        'initial-missing': "DELETE FROM baseline_node_records WHERE kind='INITIAL'",
+        'head-missing': 'DELETE FROM baseline_head_records'}
+    if fault == 'sqlite-unavailable':
+        env.db_path.unlink()
+    else:
+        with sqlite3.connect(env.db_path) as database:
+            database.execute(statements[fault])
+    response = env.client.get('/v1/device-context', headers=env.auth_headers())
+    assert response.status_code == status
+    assert response.json()['code'] == ('RESOURCE_NOT_FOUND' if status == 404 else 'DEPENDENCY_UNAVAILABLE')
+    assert str(env.db_path) not in response.text
+    if status == 503:
+        assert response.json() == {'code': 'DEPENDENCY_UNAVAILABLE', 'message': 'scope provider unavailable'}
+
+
+@pytest.mark.parametrize('consumer', ['operation', 'review', 'submit', 'history', 'history-compare'])
+@pytest.mark.parametrize('failure', ['provider', 'missing'])
+def test_scope_failure_after_successful_auth_keeps_dependency_and_permission_semantics(
+        tmp_path: Path, consumer: str, failure: str) -> None:
+    from contextlib import ExitStack
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.http_workspace_harness import BASELINE_HEAD, seed_pending_review_submission, seed_submit_ready_workspace
+    from tests.support.workspace_fixtures import make_identity
+    from tests.test_operation_http import _seed_preview_operation
+    from tests.test_submit_http import _seeded_workspace_dict, _submit_body
+    identity = make_identity()
+    identity = replace(identity, permissions=identity.permissions | {'read_project_history', 'review_submission'})
+    env = create_workspace_http_environment(tmp_path, identity=identity)
+    path = '/v1/history'
+    body: dict[str, object] | None = None
+    if consumer == 'operation':
+        _, accepted = _seed_preview_operation(env.client, env.auth_headers())
+        path = '/v1/operations/' + accepted['operation_id']
+    if consumer == 'review':
+        seed = seed_pending_review_submission(env.db_path)
+        path = '/v1/submissions/' + seed.submission_id + '/review-events'
+        body = {'expected_review_version': 0, 'action': 'APPROVE', 'reason': 'review'}
+    if consumer == 'submit':
+        submit = _seeded_workspace_dict(seed_submit_ready_workspace(env.db_path, env.artifact_store))
+        path = '/v1/workspaces/' + submit['workspace_id'] + '/submit-attempts'
+        body = _submit_body(submit)
+    if consumer == 'history-compare':
+        path = '/v1/history-compares'
+        body = {'nodes': [{'ref_kind': 'baseline_node', 'ref_id': BASELINE_HEAD.business_baseline_node_id}] * 2}
+    reason = 'private provider /private/control.sqlite3 failed'
+    error = ScopeResolutionError(reason) if failure == 'provider' else ScopeNotFound(reason)
+    good = env.scope_resolution.resolve(env.identity)
+    with ExitStack() as stack:
+        if consumer == 'operation':
+            resolver = stack.enter_context(patch.object(env.scope_resolution, 'resolve', side_effect=[good, error]))
+            transaction = None
+        else:
+            resolver = stack.enter_context(patch.object(env.scope_resolution, 'resolve', wraps=env.scope_resolution.resolve))
+            transaction = stack.enter_context(patch.object(ControlDbUnitOfWork, 'resolve_provisioned_scope', side_effect=error))
+        headers = env.auth_headers(idempotency_key='typed-second-resolve') if body is not None else env.auth_headers()
+        response = env.client.post(path, headers=headers, json=body) if body is not None else env.client.get(path, headers=headers)
+    expected = 503 if failure == 'provider' else 403 if consumer.startswith('history') else 404
+    assert response.status_code == expected
+    assert response.json()['code'] == ('DEPENDENCY_UNAVAILABLE' if expected == 503 else 'SCOPE_FORBIDDEN' if expected == 403 else 'RESOURCE_NOT_FOUND')
+    assert reason not in response.text
+    assert '/private/' not in response.text
+    assert resolver.call_count >= 1
+    if transaction is not None:
+        assert transaction.call_count == 1
+    else:
+        assert resolver.call_count == 2

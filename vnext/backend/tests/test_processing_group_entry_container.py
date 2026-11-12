@@ -38,6 +38,7 @@ def test_real_entry_routes_exact_headers_and_keeps_upload_download_across_hup(
     entry = importlib.import_module('processing_group_entry')
     download_started, upload_started, release = threading.Event(), threading.Event(), threading.Event()
     received: list[bytes] = []
+    refused: list[int] = []
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -57,7 +58,23 @@ def test_real_entry_routes_exact_headers_and_keeps_upload_download_across_hup(
                     self.wfile.write(b'ended')
                     self.wfile.flush()
                 return
-            raw = json.dumps({'group_id': 'group-a'}).encode()
+            if self.path.startswith('/v1/refused/'):
+                status = int(self.path.rsplit('/', 1)[1])
+                refused.append(status)
+                raw = b'{"code":"RESOURCE_NOT_FOUND","message":"backend refusal","details":null}'
+                self.send_response(status)
+                self.send_header('X-Gateway-Entry-Rejection', 'route-not-loaded')
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            if self.path == '/v1/device-context':
+                device = 'new' if self.headers.get('X-Gateway-Device-Key') == device_route_key('new') else 'old'
+                payload = {'environment_id': groups.environment_id, 'group_id': 'group-a',
+                    'gateway_device_external_key': device, 'business_project_id': 'project', 'repository_id': 'repository-' + device}
+            else:
+                payload = {'group_id': 'group-a'}
+            raw = json.dumps(payload).encode()
             self.send_response(200)
             self.send_header('Content-Length', str(len(raw)))
             self.end_headers()
@@ -114,6 +131,15 @@ def test_real_entry_routes_exact_headers_and_keeps_upload_download_across_hup(
             assert rejected.status_code == status
             assert rejected.headers['Content-Type'].startswith('application/json')
             assert rejected.json()['code'] == ('RESOURCE_NOT_FOUND' if status == 404 else 'REQUEST_VALIDATION_FAILED')
+        with pytest.raises(entry.EntryRoutePending):
+            entry.request_json(url + '/v1/device-context', key='a' * 64, route_pending=True)
+        for status in (401, 403, 404):
+            def rejected_public(timeout: float) -> None:
+                entry.request_json(url + '/v1/refused/' + str(status), key=key, timeout=timeout, route_pending=True)
+            with pytest.raises(entry.Incomplete) as refusal:
+                runtime.confirm_loaded(digest, key=key, group='group-a', confirm=rejected_public)
+            assert not isinstance(refusal.value, entry.EntryRoutePending)
+        assert refused == [401, 403, 404]
         assert httpx.get(url + '/internal/v1/statistics/group').status_code == 404
         assert httpx.get(url + '/openapi.json').status_code == 404
 
@@ -137,7 +163,11 @@ def test_real_entry_routes_exact_headers_and_keeps_upload_download_across_hup(
             assert upload_started.wait(5), 'request body was buffered instead of forwarded'
             newer = replace(directory, devices=(*directory.devices, DeviceDirectoryEntry('new', 'group-a', True)))
             new_digest, new = entry.render_entry(groups, newer)
-            runtime.publish(new_digest, new, key=device_route_key('new'), group='group-a')
+            def confirm_public(timeout: float) -> None:
+                assert entry.request_json(url + '/v1/device-context', key=device_route_key('new'), timeout=timeout, route_pending=True) == {
+                    'environment_id': groups.environment_id, 'group_id': 'group-a', 'gateway_device_external_key': 'new',
+                    'business_project_id': 'project', 'repository_id': 'repository-new'}
+            runtime.publish(new_digest, new, key=device_route_key('new'), group='group-a', confirm=confirm_public)
             assert runtime.container_id() == container
             assert entry.request_json(url + '/v1/ping', key=device_route_key('new')) == {'group_id': 'group-a'}
             assert entry.request_json(url + '/v1/ping', key=key) == {'group_id': 'group-a'}

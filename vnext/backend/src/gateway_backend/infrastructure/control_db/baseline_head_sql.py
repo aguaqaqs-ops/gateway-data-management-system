@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from gateway_backend.domain.workspace.errors import ScopeResolutionError
+from gateway_backend.domain.workspace.errors import ScopeNotFound, ScopeResolutionError
 from gateway_backend.domain.workspace.models import BaselineHead
 
 
@@ -53,7 +53,7 @@ def assert_initial_scope_matches(
         row["gateway_device_external_key"] != gateway_device_external_key
         or row["business_project_id"] != business_project_id
     ):
-        raise ScopeResolutionError("baseline initial scope does not match provisioned mapping")
+        raise ScopeNotFound("baseline initial scope does not match provisioned mapping")
 
 
 __all__ = ["assert_initial_scope_matches", "get_current_head_from_connection"]

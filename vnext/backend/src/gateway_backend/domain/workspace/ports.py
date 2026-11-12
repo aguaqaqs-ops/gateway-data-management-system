@@ -19,7 +19,11 @@ from gateway_backend.domain.workspace.models import (
 @runtime_checkable
 class ScopeResolutionPort(Protocol):
     def resolve(self, context: IdentityContext) -> ResolvedScope:
-        """Resolve the current session to a provisioned repository and BaselineHead."""
+        """Resolve the session to provisioned scope and Head.
+
+        ScopeNotFound means definitive local absence/mismatch; other
+        ScopeResolutionError means unavailable or incomplete provider facts.
+        """
 
 
 @runtime_checkable

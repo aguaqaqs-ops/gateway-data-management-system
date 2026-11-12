@@ -28,7 +28,7 @@ from gateway_backend.application.submission.ports import (
     SubmitOccupancyReadPort,
     SubmissionRepository,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeNotFound
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     PreviewResult,
@@ -395,7 +395,7 @@ def _resolve_fresh_provisioned_scope(
             gateway_device_external_key=command.context.gateway_device_external_key,
             business_project_id=command.context.business_project_id,
         )
-    except ScopeResolutionError:
+    except ScopeNotFound:
         raise ScopeForbidden
 
 

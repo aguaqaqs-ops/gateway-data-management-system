@@ -29,7 +29,7 @@ from gateway_backend.domain.submission.review import (
     ReviewProjection,
     review_action_for_event_kind,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeResolutionError, WorkspaceNotOpen
+from gateway_backend.domain.workspace.errors import ScopeForbidden, ScopeNotFound, WorkspaceNotOpen
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope, Workspace
 from gateway_backend.domain.workspace.policies import assert_permission, assert_workspace_open
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
@@ -203,7 +203,7 @@ def resolve_fresh_provisioned_scope(
             gateway_device_external_key=context.gateway_device_external_key,
             business_project_id=context.business_project_id,
         )
-    except ScopeResolutionError:
+    except ScopeNotFound:
         raise ScopeForbidden from None
 
 

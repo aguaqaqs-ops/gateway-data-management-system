@@ -10,7 +10,7 @@ from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.application.history.contracts import HistoryCompareAcceptanceRecord
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden, ScopeResolutionError
+from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden, ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope, Workspace
 from gateway_backend.domain.workspace.policies import assert_exact_scope, assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
@@ -19,14 +19,6 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.operations.contracts import OperationRecord
 
 PERMISSION_WORKSPACE_READ = "workspace_read"
-
-_MAPPING_NOT_FOUND_REASONS = frozenset(
-    {
-        "provisioned mapping is missing",
-        "provisioned mapping is disabled",
-    }
-)
-
 
 def assert_workspace_read_permission(context: IdentityContext) -> None:
     assert_permission(context, PERMISSION_WORKSPACE_READ)
@@ -53,34 +45,12 @@ def submit_attempt_id_from_operation(operation: OperationRecord) -> str | None:
     return None
 
 
-def _map_scope_resolution_error(exc: ScopeResolutionError) -> ApiError:
-    if exc.reason in _MAPPING_NOT_FOUND_REASONS:
-        return ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
-    return ApiError(
-        code="DEPENDENCY_UNAVAILABLE",
-        message=str(exc),
-        status_code=503,
-        details={"reason": exc.reason},
-    )
+def _map_scope_resolution_error(_exc: ScopeNotFound) -> ApiError:
+    return ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
 
 
-def _map_history_scope_resolution_error(exc: ScopeResolutionError) -> ApiError:
-    if exc.reason in _MAPPING_NOT_FOUND_REASONS:
-        return ApiError(
-            code="SCOPE_FORBIDDEN",
-            message="scope forbidden",
-            status_code=403,
-        )
-    return ApiError(
-        code="DEPENDENCY_UNAVAILABLE",
-        message=str(exc),
-        status_code=503,
-        details={"reason": exc.reason},
-    )
+def _map_history_scope_resolution_error(_exc: ScopeNotFound) -> ApiError:
+    return ApiError(code="SCOPE_FORBIDDEN", message="scope forbidden", status_code=403)
 
 
 def _authorize_workspace_scope(
@@ -126,7 +96,7 @@ def _authorize_current_mapping(
 ) -> ResolvedScope:
     try:
         resolved = scope_resolution.resolve(context)
-    except ScopeResolutionError as exc:
+    except ScopeNotFound as exc:
         raise _map_scope_resolution_error(exc) from exc
     if resolved.repository_id != workspace.repository_id:
         raise ApiError(
@@ -185,7 +155,7 @@ def authorize_history_compare_operation_read(
                 gateway_device_external_key=context.gateway_device_external_key,
                 business_project_id=context.business_project_id,
             )
-        except ScopeResolutionError as exc:
+        except ScopeNotFound as exc:
             raise _map_history_scope_resolution_error(exc) from exc
         if resolved.repository_id != acceptance.repository_id:
             raise ApiError(

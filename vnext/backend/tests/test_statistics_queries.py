@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from uuid import uuid4
 
 import pytest
+from gateway_backend.domain.workspace.errors import ScopeNotFound
 
 from gateway_backend.http.schemas.statistics import StatisticsQuery
 from gateway_backend.http.statistics import StatisticsHttpDependencies, respond
@@ -121,7 +122,7 @@ def test_device_permission_mapping_and_missing_database_matrix(tmp_path: Path, s
     assert env.client.get(url).status_code == 401
     assert env.client.get(url, headers={'Authorization': 'Bearer group'}).status_code == 403
     assert env.client.get(url.replace('repo-1', 'other'), headers=env.auth_headers()).status_code == 404
-    env.scope_resolution.simulate_resolution_error = 'provisioned mapping is disabled'
+    env.scope_resolution.simulate_resolution_error = ScopeNotFound('provisioned mapping is disabled')
     assert env.client.get(url, headers=env.auth_headers()).status_code == 404
     env.scope_resolution.simulate_resolution_error = None
     empty = env.client.get(url, headers=env.auth_headers())

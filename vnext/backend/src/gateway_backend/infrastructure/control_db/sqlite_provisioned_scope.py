@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import cast
 
-from gateway_backend.domain.workspace.errors import ScopeResolutionError
+from gateway_backend.domain.workspace.errors import ScopeNotFound, ScopeResolutionError
 from gateway_backend.domain.workspace.models import ResolvedScope
 from gateway_backend.infrastructure.control_db.baseline_head_sql import (
     assert_initial_scope_matches,
@@ -46,9 +46,9 @@ def resolve_provisioned_scope_from_connection(
         business_project_id=business_project_id,
     )
     if mapping is None:
-        raise ScopeResolutionError("provisioned mapping is missing")
+        raise ScopeNotFound("provisioned mapping is missing")
     if mapping["enabled"] != 1:
-        raise ScopeResolutionError("provisioned mapping is disabled")
+        raise ScopeNotFound("provisioned mapping is disabled")
     repository_id = mapping["repository_id"]
     assert_initial_scope_matches(
         connection,
@@ -56,10 +56,11 @@ def resolve_provisioned_scope_from_connection(
         gateway_device_external_key=gateway_device_external_key,
         business_project_id=business_project_id,
     )
-    return ResolvedScope(
-        repository_id=repository_id,
-        baseline_head=get_current_head_from_connection(connection, repository_id),
-    )
+    try:
+        head = get_current_head_from_connection(connection, repository_id)
+    except KeyError:
+        raise ScopeResolutionError("baseline head is missing") from None
+    return ResolvedScope(repository_id=repository_id, baseline_head=head)
 
 
 class ProvisionedScopeTransactionRead:

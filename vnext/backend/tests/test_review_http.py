@@ -15,6 +15,7 @@ import pytest
 
 from gateway_backend.application.submission.review import PERMISSION_REVIEW_SUBMISSION
 from gateway_backend.domain.submission.models import IdentityConfirmationAction, SubmitIdentityConfirmation
+from gateway_backend.domain.workspace.errors import ScopeNotFound, ScopeResolutionError
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_submission import (
@@ -529,7 +530,7 @@ def test_apply_review_returns_503_when_scope_provider_fails(
     review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
 ) -> None:
     env, seed = review_env
-    env.scope_resolution.simulate_resolution_error = "provider unavailable"
+    env.scope_resolution.simulate_resolution_error = ScopeResolutionError("provider unavailable")
     response = _post_review(env, seed, idempotency_key="review-provider-fail")
     assert response.status_code == 503
     assert response.json()["code"] == "DEPENDENCY_UNAVAILABLE"
@@ -546,7 +547,7 @@ def test_apply_review_hides_mapping_resolution_failures(
     resolution_error: str,
 ) -> None:
     env, seed = review_env
-    env.scope_resolution.simulate_resolution_error = resolution_error
+    env.scope_resolution.simulate_resolution_error = ScopeNotFound(resolution_error)
     response = _post_review(env, seed, idempotency_key=f"review-mapping-{case_id}")
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
@@ -575,7 +576,7 @@ def test_get_review_hides_mapping_resolution_failures(
     env, seed = review_env
     approved = _post_review(env, seed, idempotency_key=f"review-get-mapping-{case_id}")
     assert approved.status_code == 201
-    env.scope_resolution.simulate_resolution_error = resolution_error
+    env.scope_resolution.simulate_resolution_error = ScopeNotFound(resolution_error)
     response = _get_review(env, seed)
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"

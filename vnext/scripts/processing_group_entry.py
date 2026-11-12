@@ -23,6 +23,10 @@ class Incomplete(RuntimeError):
     """A durable step may have completed; inspect and retry the same identity."""
 
 
+class EntryRoutePending(Incomplete):
+    """Only the entry itself rejected a not-yet-loaded public route."""
+
+
 class Busy(RuntimeError):
     """A prior worker generation is still serving a request."""
 
@@ -34,7 +38,8 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def request_json(url: str, *, token: str | None = None, key: str | None = None,
-                 body: dict[str, object] | None = None, timeout: float = 5) -> dict[str, object]:
+                 body: dict[str, object] | None = None, timeout: float = 5,
+                 route_pending: bool = False) -> dict[str, object]:
     headers = {"Accept": "application/json", "Connection": "close"}
     if token is not None:
         headers["Authorization"] = "Bearer " + token
@@ -50,8 +55,14 @@ def request_json(url: str, *, token: str | None = None, key: str | None = None,
                 raise Incomplete("management response exceeds limit")
             value = json.loads(raw)
     except HTTPError as exc:
+        pending = (route_pending and body is None and exc.code == 404
+            and exc.headers.get("X-Gateway-Entry-Rejection") == "route-not-loaded")
+        status = exc.code
+        exc.close()
+        if pending:
+            raise EntryRoutePending("entry public route not loaded") from None
         # Never echo a URL, credential, response payload or server private path.
-        raise Incomplete("management request rejected (HTTP " + str(exc.code) + ")") from None
+        raise Incomplete("management request rejected (HTTP " + str(status) + ")") from None
     except (OSError, ValueError):
         raise Incomplete("management request unavailable or invalid") from None
     if type(value) is not dict:
@@ -110,6 +121,10 @@ http {{
         default "";
 {routes}
     }}
+    map $uri $gateway_route_rejection {{
+        default "";
+        ~^/v1/ route-not-loaded;
+    }}
     map $arg_key $gateway_probe_group {{
         default "";
 {names}
@@ -124,7 +139,10 @@ http {{
         error_page 408 502 503 504 = @gateway_unavailable;
         error_page 500 = @gateway_internal;
         location @gateway_invalid {{ return 422 '{{"code":"REQUEST_VALIDATION_FAILED","message":"request validation failed","details":null}}'; }}
-        location @gateway_not_found {{ return 404 '{{"code":"RESOURCE_NOT_FOUND","message":"resource not found","details":null}}'; }}
+        location @gateway_not_found {{
+            add_header X-Gateway-Entry-Rejection $gateway_route_rejection always;
+            return 404 '{{"code":"RESOURCE_NOT_FOUND","message":"resource not found","details":null}}';
+        }}
         location @gateway_unavailable {{ return 503 '{{"code":"DEPENDENCY_UNAVAILABLE","message":"service unavailable","details":null}}'; }}
         location @gateway_internal {{ return 500 '{{"code":"INTERNAL_ERROR","message":"internal server error","details":null}}'; }}
         client_max_body_size 0;
@@ -132,6 +150,7 @@ http {{
         send_timeout 600s;
         location = /healthz {{ return 200 '{{"status":"ok"}}'; }}
         location /v1/ {{
+            proxy_hide_header X-Gateway-Entry-Rejection;
             if ($gateway_key = "") {{ return 422; }}
             if ($gateway_upstream = "") {{ return 404; }}
             proxy_http_version 1.1;
@@ -284,7 +303,8 @@ class EntryRuntime:
         require_append_only_routes(self.loaded_config(self.probe()), candidate)
 
     def publish(self, digest: str, raw: bytes, *, key: str, group: str,
-                timeout: float = 30, poll: Callable[[float], None] = time.sleep) -> None:
+                timeout: float = 30, poll: Callable[[float], None] = time.sleep,
+                confirm: Callable[[float], None] | None = None) -> None:
         verify_config_identity(raw, digest)
         try:
             current = self.probe(key)
@@ -294,6 +314,7 @@ class EntryRuntime:
             # Repair disk after a previous interrupted confirmation/rollback only
             # after proving these exact bytes are the currently loaded generation.
             atomic_write(self.directory / "nginx.conf", raw)
+            self.confirm_loaded(digest, key=key, group=group, timeout=timeout, poll=poll, confirm=confirm)
             return
         if self.retiring_workers():
             raise Busy("previous entry generation is still serving requests")
@@ -314,14 +335,37 @@ class EntryRuntime:
             # any already-loaded workers untouched and report incomplete.
             atomic_write(active, old)
             raise Incomplete("entry reload signal failed")
+        self.confirm_loaded(digest, key=key, group=group, timeout=timeout, poll=poll, confirm=confirm)
+
+    def confirm_loaded(self, digest: str, *, key: str, group: str, timeout: float = 30,
+                       poll: Callable[[float], None] = time.sleep,
+                       confirm: Callable[[float], None] | None = None) -> None:
+        """Management and public reads share one deadline; no writes are replayed."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                if self.probe(key, timeout=min(5, max(0.001, deadline - time.monotonic()))) == {"config_digest": digest, "group_id": group}:
-                    return
+                loaded = self.probe(key, timeout=min(5, max(0.001, deadline - time.monotonic())))
             except Incomplete:
-                pass
-            poll(0.1)
+                loaded = None
+            if loaded == {"config_digest": digest, "group_id": group}:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                if confirm is None:
+                    return
+                try:
+                    confirm(min(5, remaining))
+                except EntryRoutePending:
+                    # HUP can expose the management listener before all old
+                    # public accepts retire. Only this entry-owned 404 retries.
+                    pass
+                else:
+                    if time.monotonic() <= deadline:
+                        return
+                    break
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                poll(min(0.1, remaining))
         # HUP may still complete: do not replace an unconfirmed live generation
         # or kill old workers. Retry derives state from disk plus actual probe.
-        raise Incomplete("entry reload not confirmed")
+        raise Incomplete("entry/public availability not confirmed")

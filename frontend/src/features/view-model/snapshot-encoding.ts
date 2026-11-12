@@ -23,18 +23,6 @@ export interface SnapshotColumnEncoding {
   declaredKind: string | null;
 }
 
-interface RawColumnPayload {
-  canonical_name: unknown;
-  display_name: unknown;
-  ordinal: unknown;
-  sql_type: unknown;
-  logical_type: unknown;
-  nullable: unknown;
-  physical_type: unknown;
-  declared_type: unknown;
-  enum_or_set_labels: unknown;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -64,35 +52,36 @@ export function decodeSnapshotEncodings(
   }
   const encodings = new Map<string, SnapshotColumnEncoding>();
   for (const item of payload.columns as unknown[]) {
-    if (!isRecord(item) || typeof item.canonical_name !== "string") {
+    if (!isRecord(item) || typeof item["canonical_name"] !== "string") {
       throw new ComparisonDecodeError(`${where} 的 ${SNAPSHOT_ENCODING_METADATA_KEY} 列结构无效`);
     }
-    const column = item as RawColumnPayload;
-    const declared = (isRecord(column.declared_type) ? (column.declared_type.kind as unknown) : null) as string | null;
-    const logicalType = typeof column.logical_type === "string" ? column.logical_type : "";
-    const physicalType = typeof column.physical_type === "string" ? column.physical_type : "";
+    const columnName: string = item["canonical_name"];
+    const declaredType = isRecord(item["declared_type"]) ? item["declared_type"] : null;
+    const declaredKind = typeof declaredType?.["kind"] === "string" ? (declaredType["kind"] as string) : null;
+    const logicalType = typeof item["logical_type"] === "string" ? (item["logical_type"] as string) : "";
+    const physicalType = typeof item["physical_type"] === "string" ? (item["physical_type"] as string) : "";
     const encoding: SnapshotColumnEncoding = {
-      columnName: column.canonical_name,
+      columnName,
       scalarKind: "unsupported",
       declaredBits: null,
       signed: true,
-      sqlType: typeof column.sql_type === "string" ? column.sql_type : "",
+      sqlType: typeof item["sql_type"] === "string" ? (item["sql_type"] as string) : "",
       logicalType,
       physicalType,
-      declaredKind: typeof declared === "string" ? declared : null,
+      declaredKind: declaredKind,
     };
-    if (logicalType === "standard" && (declared === "signed-integer" || declared === "unsigned-integer")) {
+    if (logicalType === "standard" && (declaredKind === "signed-integer" || declaredKind === "unsigned-integer")) {
       if (physicalType !== "utf8") {
         throw new ComparisonDecodeError(`${where} 列 ${encoding.columnName} 的整数声明与物理类型矛盾`);
       }
-      const bits = isRecord(column.declared_type) ? (column.declared_type.bits as unknown) : null;
+      const bits: unknown = declaredType?.["bits"] ?? null;
       if (typeof bits !== "number" || !INTEGER_BITS.has(bits)) {
         throw new ComparisonDecodeError(`${where} 列 ${encoding.columnName} 的整数声明位宽无效`);
       }
       encoding.scalarKind = "integer";
       encoding.declaredBits = bits;
-      encoding.signed = declared === "signed-integer";
-    } else if (logicalType === "standard" && declared === "string") {
+      encoding.signed = declaredKind === "signed-integer";
+    } else if (logicalType === "standard" && declaredKind === "string") {
       encoding.scalarKind = "string";
     }
     if (encodings.has(encoding.columnName)) {

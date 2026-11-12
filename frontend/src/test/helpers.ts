@@ -8,8 +8,8 @@ import { installBundleTar } from "../features/bundle/posix-tar";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { parseRowLocator, type RowDiffRecord, type RowLocatorRecord } from "../features/view-model/table-rows";
-import type { SurfaceTable } from "../features/view-model/model";
+import { parseRowLocator, type RowLocatorRecord } from "../features/view-model/table-rows";
+import type { NavigationFacts, NavigationRowFilter, RowDiffRecord, SurfaceTable } from "../features/view-model/model";
 
 export function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
   return new NodeReadableStream<Uint8Array>({
@@ -58,7 +58,7 @@ export interface FixtureTableCase {
   locator: Map<string, RowLocatorRecord>;
   hasBeforeSnapshot: boolean;
   hasCurrentSnapshot: boolean;
-  filterTabs: Array<{ facts: { basis?: string | null } | null; rowFilter: { before: { column: string; values: Array<string | number> } | null; current: { column: string; values: Array<string | number> } | null } | null }>;
+  filterTabs: Array<{ facts: NavigationFacts | null; rowFilter: NavigationRowFilter | null }>;
   beforeEncodings: Map<string, SnapshotColumnEncoding>;
   currentEncodings: Map<string, SnapshotColumnEncoding>;
 }

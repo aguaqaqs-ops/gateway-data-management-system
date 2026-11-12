@@ -45,7 +45,7 @@ export async function readParquetMetadata(bundle: InstalledBundle, logicalPath: 
       byteLength: blob.size,
       slice: async (start, end) => buffer.slice(start, end),
     };
-    return parquetMetadataAsync(file, { compressors });
+    return parquetMetadataAsync(file);
   };
   return bundle.readWithRetry ? bundle.readWithRetry(read) : read(bundle);
 }

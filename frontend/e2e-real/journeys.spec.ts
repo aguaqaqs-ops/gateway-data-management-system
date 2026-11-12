@@ -58,7 +58,6 @@ import { identityFor, inputDir, scopeBySlug, type JourneyIdentity, type JourneyS
  * playwright.real.config.ts, so scopes never interleave.
  */
 
-const BUNDLE_CONTENT_TYPE = "application/x-tar";
 const REVIEW_EVENTS = "/review-events";
 const SUBMIT_ATTEMPTS = "/submit-attempts";
 

@@ -52,3 +52,35 @@ def test_fixed_worker_finalizer_attempts_all_cleanup_and_preserves_primary_failu
     assert resumed.is_set()
     if primary_failure:
         assert primary.__notes__ == [f"fixed-worker {fault} failed: RuntimeError: injected {fault}"]
+
+
+@pytest.mark.parametrize("primary_failure", [True, False])
+def test_fixed_worker_finalizer_keeps_all_errors_when_multiple_cleanup_actions_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, primary_failure: bool,
+) -> None:
+    calls: list[str] = []
+    primary = AssertionError("original worker invariant failure")
+    def fail(phase: str) -> None:
+        calls.append(phase)
+        raise RuntimeError(phase)
+    monkeypatch.setattr(journey, "write_container_readable_text", lambda path, _value: fail(path.name))
+    resumed = Event()
+    monkeypatch.setattr(resumed, "set", lambda: fail("resume"))
+    with pytest.raises(AssertionError if primary_failure else RuntimeError) as caught:
+        try:
+            if primary_failure:
+                raise primary
+        finally:
+            journey._finalize_worker_probe(lambda: fail("collector"), [tmp_path / "worker-1", tmp_path / "worker-2"],
+                resumed, lambda: fail("cleanup"))
+    assert calls == ["collector", "worker-1.release", "worker-2.release", "resume", "cleanup"]
+    if primary_failure:
+        assert caught.value is primary
+    else:
+        assert str(caught.value) == "collector"
+    notes = caught.value.__notes__
+    expected = [("executor release", "worker-1.release"), ("executor release", "worker-2.release"),
+        ("polling resume", "resume"), ("project cleanup", "cleanup")]
+    if primary_failure:
+        expected.insert(0, ("diagnostics", "collector"))
+    assert notes == [f"fixed-worker {phase} failed: RuntimeError: {message}" for phase, message in expected]

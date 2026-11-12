@@ -48,7 +48,10 @@ def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[
         for phase, error in failures:
             primary.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")
     elif failures:
-        raise failures[0][1]
+        first = failures[0][1]
+        for phase, error in failures[1:]:
+            first.add_note(f"fixed-worker {phase} failed: {type(error).__name__}: {error}")
+        raise first
 
 
 def _stop_workers(ids: list[str]) -> None:

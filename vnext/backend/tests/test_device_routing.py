@@ -145,7 +145,7 @@ def test_scope_failure_after_successful_auth_keeps_dependency_and_permission_sem
     from tests.test_operation_http import _seed_preview_operation
     from tests.test_submit_http import _seeded_workspace_dict, _submit_body
     identity = make_identity()
-    identity = replace(identity, permissions=identity.permissions | {'read_project_history'})
+    identity = replace(identity, permissions=identity.permissions | {'read_project_history', 'review_submission'})
     env = create_workspace_http_environment(tmp_path, identity=identity)
     path = '/v1/history'
     body: dict[str, object] | None = None

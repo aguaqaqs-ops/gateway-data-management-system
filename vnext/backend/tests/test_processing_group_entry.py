@@ -295,7 +295,7 @@ def test_credentials_cannot_be_reused_across_groups(modules: tuple[Any, dict[str
         cli['require_unique_session_tokens'](groups, groups.groups[0].group_id, {'sessions': []})
 
 
-@pytest.mark.parametrize('outcome', ['old-public-worker', 'actual-refusal', 'never-loaded'])
+@pytest.mark.parametrize('outcome', ['old-public-worker', 'actual-refusal', 'never-loaded', 'late-success'])
 def test_public_confirmation_shares_reload_deadline_without_repeating_publication(
         modules: tuple[Any, dict[str, Any]], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
     entry, _ = modules
@@ -317,8 +317,10 @@ def test_public_confirmation_shares_reload_deadline_without_repeating_publicatio
         return {'config_digest': old_digest if len(management) == 1 else digest, 'group_id': 'group-a'}
     def confirm(timeout: float) -> None:
         assert 0 < timeout <= min(5, 1.2 - elapsed[0] + 0.00001)
-        elapsed[0] += min(0.2, timeout)
+        elapsed[0] += timeout + 1 if outcome == 'late-success' else min(0.2, timeout)
         public.append(elapsed[0])
+        if outcome == 'late-success':
+            return
         if outcome == 'actual-refusal':
             raise entry.Incomplete('backend rejected current identity')
         if outcome == 'never-loaded' or len(public) == 1:
@@ -341,7 +343,8 @@ def test_public_confirmation_shares_reload_deadline_without_repeating_publicatio
             run()
         if outcome == 'actual-refusal':
             assert len(public) == 1
-    assert elapsed[0] <= 1.20001
+    if outcome != 'late-success':
+        assert elapsed[0] <= 1.20001
     assert len(reloads) == 1
     assert (tmp_path / 'nginx.conf').read_bytes() == raw
     assert (tmp_path / 'previous.conf').read_bytes() == old

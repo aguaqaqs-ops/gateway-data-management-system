@@ -348,11 +348,11 @@ class EntryRuntime:
             except Incomplete:
                 loaded = None
             if loaded == {"config_digest": digest, "group_id": group}:
-                if confirm is None:
-                    return
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
+                if confirm is None:
+                    return
                 try:
                     confirm(min(5, remaining))
                 except EntryRoutePending:
@@ -360,7 +360,9 @@ class EntryRuntime:
                     # public accepts retire. Only this entry-owned 404 retries.
                     pass
                 else:
-                    return
+                    if time.monotonic() <= deadline:
+                        return
+                    break
             remaining = deadline - time.monotonic()
             if remaining > 0:
                 poll(min(0.1, remaining))

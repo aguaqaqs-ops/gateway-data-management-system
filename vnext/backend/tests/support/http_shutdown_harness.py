@@ -296,6 +296,8 @@ def _base_http_server_environment(
     )
     environment["GATEWAY_BACKEND_SESSION_FILE"] = str(settings.session_file)
     environment["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"] = str(settings.provisioned_mapping_file)
+    environment["GATEWAY_BACKEND_PROCESSING_GROUPS_FILE"] = str(settings.processing_groups_file)
+    environment["GATEWAY_BACKEND_DEVICE_DIRECTORY_FILE"] = str(settings.device_directory_file)
     environment["GATEWAY_BACKEND_HTTP_HOST"] = "127.0.0.1"
     environment["GATEWAY_BACKEND_HTTP_LOG_LEVEL"] = "error"
     environment["GATEWAY_BACKEND_HTTP_PORT_FILE"] = str(port_file)

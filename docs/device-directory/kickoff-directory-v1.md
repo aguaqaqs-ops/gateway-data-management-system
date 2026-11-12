@@ -1,8 +1,8 @@
 # 实施 kickoff：设备目录系统 v1（`directory/`）
 
-**修订状态（2026-11-12）：** 本文包含与 design §12 配套的处理组接入修订草案，待 owner 确认；阶段 1 尚未恢复，阶段 2 未开始。
+**修订状态（2026-11-12）：** owner 已确认处理组接入修订为正式设计。阶段 1 按 [详细执行计划](execution-plan-directory-v1.md) 开始实施；本轮文档确认不表示阶段 1 已完成或阶段 2 已放行。
 
-你是“设备目录系统 v1”的实施者。设备目录是独立于网关机数据管理系统（下称“网关系统”）的一套小系统：按 地区一 → 地区二 → 项目 浏览或搜索项目，再跳转到网关系统中该设备的数据提交树。业务范围和 Q1–Q5 已由 owner 确认；处理组接入按本轮修订草案确认后的 design/interfaces 执行，不由实施者另行设计。
+你是“设备目录系统 v1”的实施者。设备目录是独立于网关机数据管理系统（下称“网关系统”）的一套小系统：按 地区一 → 地区二 → 项目 浏览或搜索项目，再跳转到网关系统中该设备的数据提交树。业务范围和 Q1–Q5 已由 owner 确认；处理组接入按已确认的 design/interfaces 执行，不由实施者另行设计。
 
 ## 1. 先读
 
@@ -10,6 +10,7 @@
 2. `docs/device-directory/design.md`：设计，包括业务约束 B1–B11 和已确认事项 Q1–Q5。
 3. `docs/device-directory/interfaces.md`：接口约定 I1–I8，是本任务的验收依据。
 4. `docs/device-directory/sketches/*.png`：界面草图（1280、1920 浏览，1920 搜索）。
+   实施顺序、测试归属和证据要求另须阅读 [execution-plan-directory-v1.md](execution-plan-directory-v1.md)。
 5. 参考实现（只读，不修改）：
    - `vnext/scripts/manage-processing-groups.py`：`add_device`、`session_document`、`merge_sessions`、`require_unique_session_tokens`，作为开通、会话 schema 与跨组唯一性边界；注意工具只追加会话，不承担旧 token 撤销。
    - `vnext/scripts/processing_group_locks.py`、`processing_group_entry.py`：宿主锁顺序、发布与 probe 协议；复用 helper，不复制第二套 nginx 发布器。
@@ -19,7 +20,7 @@
 
 ## 2. 基线与边界
 
-- 从 `main` 的最新提交（应包含 `18d290f20b`）创建短期分支 `dir-v1`，在独立 worktree 中开发，例如 `/home/dev/gdds-dir-v1`。不推送。
+- 本任务已在 `/home/dev/gdds-dir-v1` 的 `dir-v1` 分支开始，产品基线为 `main@eb6530b36e`，包含 `18d290f20b`；继续追加提交，不重新创建/重置分支或改写已有交接提交。恢复实施前核对最新 `main`、分支独有提交与工作区，处理基线变化见执行计划。不推送。
 - 只改 `directory/` 和 `docs/device-directory/`。**不改 `vnext/`、`frontend/`。**确实需要改时先停下报告。
 - 网关前端的跳转入口由另一个任务 `fe-handoff` 实现，你不实现。
 
@@ -39,8 +40,8 @@ directory/
 - 运行时只用标准库：包括 `http.server` 的 `ThreadingHTTPServer`、`sqlite3`、`csv`、`hashlib`、`unicodedata`、`gzip`、`secrets`、`json`、`subprocess`，以及宿主适配所需的 `urllib`、`fcntl`、文件与时间处理模块；复用既有网关 stdlib helper 不新增第三方依赖。
 - 开发依赖只允许 `pytest==9.1.1`、`ruff==0.15.21`、`mypy==2.3.0`，与 `vnext/backend/uv.lock` 相同的版本，这样节点上已预填充的 uv 缓存能命中。需要其他依赖时先停下报告。
 - mypy 用 `strict = true`，覆盖测试代码。
-- 命令行入口是 `gdds-directory`，子命令见 I8。服务以 `gdds-directory serve` 启动；I8 没有列出这个子命令，请在本分支同时把它补进 `interfaces.md` 的 I8。
-- 静态文件目录如果需要配置，新增 `GDDS_DIRECTORY_STATIC_DIR`，并同步补进 I7。
+- 命令行入口是 `gdds-directory`，包含 I8 已定义的 `serve`。可用源代码包加仓库内可执行 launcher 实现，不为安装入口引入未经允许的第三方 build backend。
+- 静态文件目录使用 I7 已定义的 `GDDS_DIRECTORY_STATIC_DIR`。
 
 **前端：**
 
@@ -133,20 +134,11 @@ directory/
 
 任何一点与设计不符，就停下报告并附上证据，不要自行绕过。
 
-### 审核与推进分工（owner，2026-11-11）
+### 审核与推进
 
-审核通过后，由审核会话继续推进本任务：
+实施、风险分级、独审及模型安排遵循 `AGENTS.md` 与适用的标准流程；具体工作顺序、产物和验证范围见 [执行计划](execution-plan-directory-v1.md)。审核在只读 detached worktree 中进行；开通、续期、凭据相关修正交回实施方，审核方不直接修改。
 
-- 合入 `main`，打退出 tag `dir-v1-exit`。推送需要 owner 授权。
-- `fe-handoff` 合入 `main` 后，通知实施会话进入阶段 2，并审核阶段 2 的端到端证据。
-- 可以在节点上自行复跑验收，作为独立验证。
-- 根据试运行反馈起草后续 kickoff。
-
-修正的分工：
-
-- 审核发现的问题写成修正清单，交回实施会话。实施会话修完后，由审核会话复审。
-- 不影响行为的小问题（文档笔误、测试命名等），审核会话可以直接改，并在审核记录中逐项列明。
-- 例外：开通与续期命令相关的修正一律交回实施会话，审核会话不直接改。它们会调用宿主管理工具发布设备或替换授权文件。
+阶段 1 handoff 完成后停下交审。审核通过后按既定流程处理本地合入和 `dir-v1-exit` 附注 tag；tag 明确仅覆盖阶段 1 的组件验收，不声称真实端到端已通过。推送仍需 owner 授权。阶段 2 按 `kickoff-fe-handoff.md` 的集成放行及本文前置条件执行，端到端证据须审核核收。
 
 ## 7. 必须停下报告的情况
 

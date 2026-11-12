@@ -1,6 +1,6 @@
 # 设备目录系统接口约定（试运行版）
 
-状态：原接口于 2026-11-11 确认；2026-11-12 处理组接入修订为**待 owner 确认的草案**，与 design §12 配套，尚未实施。设计背景见 [design.md](design.md)。
+状态：**正式接口，owner 已确认**。原接口确认于 2026-11-11；处理组接入修订确认于 2026-11-12，与 [design §12](design.md#12-已确认的处理组接入修订owner2026-11-12) 配套。实现与验收仍按 [执行计划](execution-plan-directory-v1.md) 完成。
 
 | 编号 | 接口 | 提供方 → 使用方 |
 | --- | --- | --- |
@@ -154,9 +154,9 @@ business_project_id         = "prj-" + h
 
 **新增：**文件由 I5 的现有工具追加。其 schema 拒绝 `issuer`、`documented_permissions` 及其他未知字段，不保留旧设计的扩展字段；发现不合法的既有文件时拒绝操作，不静默删除字段。
 
-**续期：**遵守 design §6.2；以 SQLite 保存的 token、actor、scope、permissions、expiry 的完整记录识别本系统条目，其他合法条目的值及顺序保留。不能仅以 `test1` 或 `dir-` 前缀判定归属。持有现有 publication lock → group management lock，并在锁内重读；复用既有宿主 helper 的校验与锁协议，不另建互不协调的锁。严格检查 JSON 重复 key、字段域、到期时间、全部组 token 唯一性和每文件 1 MiB 上限。
+**续期：**遵守 design §4.1、§6.2；以 SQLite 保存的 token、actor、scope、permissions、expiry 的完整记录识别本系统条目，其他合法条目的值及顺序保留。不能仅以 `test1` 或 `dir-` 前缀判定归属。持有现有 publication lock → group management lock，并在锁内重读；复用既有宿主 helper 的校验与锁协议，不另建互不协调的锁。严格检查 JSON 重复 key、字段域、到期时间、全部组 token 唯一性和每文件 1 MiB 上限。
 
-先保存待生效凭据，再在同目录写临时文件，复制原文件权限/属主，文件 fsync 后 replace 并 fsync 父目录；确认新 token 的 scope 与旧 token 的 401，再提交 SQLite 的当前凭据。中断重跑使用同一待生效凭据；文件中未知变更或归属冲突时停止，保留诊断。续期不修改路由、不建仓、不调用 `add-device` 代替撤销、不重启服务。待收尾期间 handoff 返回 409 `SESSION_UPDATING`。
+先保存待生效凭据，再在同目录写临时文件，复制原文件权限/属主，文件 fsync 后 replace 并 fsync 父目录；确认新 token 的 scope 与旧 token 的 401，再提交 SQLite 的当前凭据。中断重跑使用同一待生效凭据，按 design §4.1 比较本设备完整条目；先完成已有续期并退出，不在恢复后立即再轮换。文件中本设备未知变更或归属冲突时停止，保留诊断，其他合法会话在锁内重读保留。续期不修改路由、不建仓、不调用 `add-device` 代替撤销、不重启服务。待收尾期间 handoff 返回 409 `SESSION_UPDATING`。
 
 ## I5 设备开通与登记回执
 
@@ -261,13 +261,13 @@ Authorization: Bearer <所选组内部 token>
 | 命令 | 作用 | 退出码 |
 | --- | --- | --- |
 | `gdds-directory serve` | 启动单进程目录 HTTP/静态服务，只读目录 SQLite | 0 正常退出；1 运行失败；2 配置/用法错误 |
-| `gdds-directory import <csv> [--dry-run]` | 校验并导入 I1 文件，输出摘要 | 0 成功；1 校验失败（错误输出到 stderr）；2 用法错误 |
-| `gdds-directory provision --stations <文件> [--dry-run]` | 在固定目标组开通文件中列出的站号（每行一个） | 0 成功；1 未完成；2 配置/输入拒绝；3 busy |
+| `gdds-directory import <csv> [--dry-run]` | 校验并导入 I1 文件，输出摘要 | 0 成功；1 校验失败（错误输出到 stderr）；2 配置/用法错误；3 目录管理锁 busy |
+| `gdds-directory provision --stations <文件> [--dry-run]` | 在固定目标组开通文件中列出的站号（每行一个） | 0 成功；1 未完成；2 配置/输入拒绝；3 目录或网关管理锁 busy |
 | `gdds-directory provision --all [--dry-run]` | 开通全部未开通且未移除的项目，含未完成项 | 同上 |
 | `gdds-directory provision --renew-sessions` | 为全部已开通设备重新签发会话（换新 token，延长有效期） | 同上 |
 | `gdds-directory status` | 输出项目数、已移除数、已开通数、待开通/待续期数、30 天内到期的会话数；仅本地记录 | 0 |
 
-- `provision` 中，站号不存在或已移除时直接失败，不建任何仓库。
+- `provision --stations` 中，站号不存在或已移除时直接失败，不建任何仓库；`--renew-sessions` 针对全部曾开通设备，包含当前已移除项。
 - `provision --dry-run` 只读预检并列出将要开通/恢复的设备和目标组，不调用有副作用的管理命令、不生成新 token、不写文件。
 - `provision` 在 `GDDS_DIRECTORY_LOG_DIR` 下写日志：主机名、起止时间、目标环境/组、设备及已完成列表、管理工具原始 exit code、登记回执 ID、可用性探针结果；续期另记 session 文件写入前后 SHA256。日志不写 token、认证头、session 文档、完整 handoff URL 或秘密值。
 - `provision` 失败时输出当前设备、本地待生效/已完成状态和可确认的失败步骤；无法确认的网关内部步骤明确写未知。按 design §6 同身份重跑，不声称存在跨 SQLite、授权文件与网关登记的原子事务。

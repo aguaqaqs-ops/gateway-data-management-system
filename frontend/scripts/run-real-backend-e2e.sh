@@ -303,7 +303,7 @@ case "$SUITE" in
     exit 2 ;;
 esac
 if [[ "$SUITE" == "journeys" ]]; then
-  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" || "$SUBPHASE" == "fe4b" ) ]] || {
+  [[ "$SUBPHASE_SET" == "1" && ( "$SUBPHASE" == "fe3b" || "$SUBPHASE" == "fe3c" || "$SUBPHASE" == "fe4a" || "$SUBPHASE" == "fe4b" || "$SUBPHASE" == "s2b-routing" ) ]] || {
     printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a|fe4b (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }

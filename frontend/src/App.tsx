@@ -1,4 +1,3 @@
-import { currentGatewaySession } from "./features/api/session";
 import { useEffect, useState, lazy, Suspense } from "react";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
 import { ComparisonPage } from "./pages/ComparisonPage";
@@ -15,9 +14,9 @@ function currentPage(): "workspace" | "compare" | "design-system" {
 }
 
 export function App() {
-  const [session, setSession] = useState(currentGatewaySession);
-  useEffect(() => { const changed = () => setSession(currentGatewaySession()); window.addEventListener("gateway-session-change", changed); return () => window.removeEventListener("gateway-session-change", changed); }, []);
-  const key = `${session.deviceRouteKey}:${session.accessToken ?? ""}`;
+  const [sessionGeneration, setSessionGeneration] = useState(0);
+  useEffect(() => { const changed = () => setSessionGeneration((value) => value + 1); window.addEventListener("gateway-session-change", changed); return () => window.removeEventListener("gateway-session-change", changed); }, []);
+  const key = sessionGeneration;
   const identityControl = DevelopmentIdentityControl
     ? <Suspense fallback={null}><DevelopmentIdentityControl /></Suspense>
     : undefined;

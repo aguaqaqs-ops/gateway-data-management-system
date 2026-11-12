@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
+from typing import cast
+from fastapi import FastAPI
 
 import pytest
 from starlette.requests import Request
@@ -41,7 +43,7 @@ def test_bearer_precedes_route_validation_and_unknown_key_is_not_a_default_group
 
 def test_context_needs_local_scope_and_remains_readable_while_admission_is_closed(tmp_path: Path) -> None:
     env = create_workspace_http_environment(tmp_path)
-    env.client.app.state.deployment_identity = ('environment', 'group-a')
+    cast(FastAPI, env.client.app).state.deployment_identity = ('environment', 'group-a')
     response = env.client.get('/v1/device-context', headers=env.auth_headers())
     assert response.status_code == 200
     assert response.json() == {'environment_id': 'environment', 'group_id': 'group-a',
@@ -52,7 +54,7 @@ def test_context_needs_local_scope_and_remains_readable_while_admission_is_close
             rejected = env.client.get(path, headers=env.auth_headers())
             assert rejected.status_code == 404
             assert rejected.json()['code'] == 'RESOURCE_NOT_FOUND'
-    gate = env.client.app.state.admission_gate
+    gate = cast(FastAPI, env.client.app).state.admission_gate
     with patch.object(gate, 'allows_new_work', return_value=False):
         assert env.client.get('/v1/device-context', headers=env.auth_headers()).status_code == 200
 
@@ -60,7 +62,7 @@ def test_context_needs_local_scope_and_remains_readable_while_admission_is_close
 def test_internal_statistics_uses_current_session_permission_without_mapping(tmp_path: Path) -> None:
     env = create_workspace_http_environment(tmp_path)
     identity = replace(env.identity, permissions=frozenset({'statistics_read_group'}))
-    deps = env.client.app.state.workspace_http
+    deps = cast(FastAPI, env.client.app).state.workspace_http
     with patch.object(deps.session_port, 'resolve', return_value=identity), \
             patch.object(env.scope_resolution, 'resolve', side_effect=AssertionError('internal read must not resolve device')):
         request = Request({'type': 'http', 'app': env.client.app, 'headers': [], 'client': ('127.0.0.1', 1)})

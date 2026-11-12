@@ -238,10 +238,10 @@ def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(field: 
             expected_review_version=0, expected_baseline_node_id="initial", expected_baseline_head_version=0,
             reason="close", **scope)
     if field == "gateway_device_external_key":
-        document = _directory()
-        document["devices"][0][field] = scope[field]
+        directory_document = _directory()
+        directory_document["devices"][0][field] = scope[field]
         with pytest.raises(ValueError, match="noncharacter"):
-            _parse_directory(document)
+            _parse_directory(directory_document)
         with pytest.raises(ValueError, match="noncharacter"):
             DeviceRegistrationQuery(device=scope[field])
         generators: tuple[Callable[[str], str], ...] = (device_route_key,

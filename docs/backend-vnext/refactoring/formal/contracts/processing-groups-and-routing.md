@@ -10,7 +10,7 @@ Owner：Backend Deployment / HTTP 接入边界。业务 scope / INITIAL 由 Busi
 
 设备与 project 为原始 UTF-8 exact 字符串：1..255 Unicode scalar、最多1020 bytes，拒 NUL/surrogate/noncharacter；不 trim、大小写折叠或归一化。设备不是 pathname、URL 或 shell 片段。Python/TS 共享向量在 `vnext/fixtures/processing-groups/v1/identity-vectors.json`；业务 digest 不变。
 
-P7-S2B-D07（Owner 2026-11-12）规定 noncharacter 为 U+FDD0–U+FDEF 与平面 0..16 各自末尾两个码点，共 66 个。所有 device/project 身份入口（目录/组配置、HTTP DTO、session、seed、领域与业务写入）在摘要或注册副作用前拒绝；HTTP 沿输入校验错误，配置加载沿既有失败方式。保留中文、emoji、组合/预组合的 exact 区分；不放宽 [Shared Canonical Encoding](shared-canonical-encoding.md)。本增量尚待 A 实现、验证和原审复审，不表示已激活或 A 已 GO。
+P7-S2B-D07（Owner 2026-11-12）规定 noncharacter 为 U+FDD0–U+FDEF 与平面 0..16 各自末尾两个码点，共 66 个。所有 device/project 身份入口（目录/组配置、HTTP DTO、session、seed、领域与业务写入）在摘要或注册副作用前拒绝；HTTP 沿输入校验错误，配置加载沿既有失败方式。保留中文、emoji、组合/预组合的 exact 区分；不放宽 [Shared Canonical Encoding](shared-canonical-encoding.md)。A 已接入公共身份校验及共享边界向量（`vnext/fixtures/processing-groups/v1/scope-identity-boundaries.json`）；验证和原审复审分别核收，不表示后续路由已激活或 A 已 GO。
 
 ## 2. Host documents
 

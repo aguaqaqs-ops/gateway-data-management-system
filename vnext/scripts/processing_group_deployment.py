@@ -80,10 +80,10 @@ def load_configs(groups: ProcessingGroupsConfig) -> dict[str, Any]:
         _ordinary(session / "session.json")
         paths.append((group.group_id + "/session", session))
         for filename in (group.internal_token_file, group.repository_token_file):
-            raw = _ordinary(Path(filename)).strip()
-            if not raw or b"\n" in raw or b"\r" in raw:
+            token = _ordinary(Path(filename)).decode("utf-8").strip()
+            if not token or "\n" in token or "\r" in token:
                 raise ValueError("invalid group credential file")
-            digest = hashlib.sha256(raw).digest()
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
             if digest in secrets:
                 raise ValueError("group credentials must be distinct")
             secrets.add(digest)

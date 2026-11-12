@@ -73,12 +73,13 @@ def test_aggregate_budget_counts_entry_and_shared_reserve_once(deployment: tuple
         helper.load_configs(replace(groups, host=too_small))
 
 
-@pytest.mark.parametrize("fault", ["root-nesting", "token-content", "session-nesting", "host-mismatch", "group-mismatch"])
+@pytest.mark.parametrize("fault", ["root-nesting", "token-content", "token-space", "session-nesting", "host-mismatch", "group-mismatch"])
 def test_cross_group_paths_credentials_and_identity_are_independent(deployment: tuple[Any, Any], fault: str) -> None:
     helper, groups = deployment
     first, second = groups.groups
-    if fault == "token-content":
-        Path(second.repository_token_file).write_bytes(Path(first.repository_token_file).read_bytes())
+    if fault in {"token-content", "token-space"}:
+        token = Path(first.repository_token_file).read_text()
+        Path(second.repository_token_file).write_text(token if fault == "token-content" else "\u2003" + token + "\u2003")
     elif fault == "session-nesting":
         nested = Path(first.session_directory) / "nested"
         nested.mkdir()

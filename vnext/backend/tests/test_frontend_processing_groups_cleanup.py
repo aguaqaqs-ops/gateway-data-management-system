@@ -132,6 +132,6 @@ def test_bad_owner_never_deletes_either_root(tmp_path: Path, monkeypatch: pytest
     prepare_control(root, control, dict(main_exit_code=0, cleanup_failed=False, interrupted=False))
     frontend.finish_stack(stack, root, control)
     (root / "group-b/.gateway-runtime-fixture-owner.json").write_text("{}")
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(AssertionError, match="another owner"):
         frontend.cleanup_retained(root, control)
     assert all(directory.exists() for directory in stack.runtime_roots.values())

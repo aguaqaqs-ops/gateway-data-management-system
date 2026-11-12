@@ -107,6 +107,8 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
     accepted: Queue[str] = Queue()
     try:
         stack.start()
+        if a_workers == 1:
+            stack.reject_foreign_root_and_image()
         _internal_statistics(stack)
         _repository_boundaries(stack)
         a1 = stack.add("group-a", "compose-device")

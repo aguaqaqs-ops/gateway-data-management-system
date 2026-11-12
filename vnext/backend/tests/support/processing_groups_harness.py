@@ -6,6 +6,7 @@ No production endpoint, environment switch or executor hook is introduced.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib
 import json
 import os
@@ -236,6 +237,48 @@ class ProcessingGroupsStack:
         result = self.cli("check-groups", "--inspect")
         print("processing_group_deployment=" + json.dumps(result, sort_keys=True), flush=True)
         return result
+
+    def reject_foreign_root_and_image(self) -> None:
+        """Real Docker bindings/selected images, without changing a live group."""
+        deployment = importlib.import_module("processing_group_deployment")
+        host = importlib.import_module("host_runtime_config")
+        group = next(item for item in self.groups.groups if item.group_id == "group-a")
+        config = host.DeploymentConfig.load(Path(group.storage_config), Path(group.resource_config))
+        wrong_image = replace(group, images=replace(group.images, backend=group.images.repository_service))
+        try:
+            deployment.inspect_group(config, wrong_image)
+        except ValueError as error:
+            assert "actual group image/resources differ" in str(error), error
+        else:
+            raise AssertionError("actual container accepted a different selected image")
+        # Same source image and A configuration, but one actual bind points at
+        # B's existing root. Preflight must reject before any startup write probe.
+        command = ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--cgroupns", "host",
+            "--name", self.owner + "-foreign-root", "--label", "com.docker.compose.project=" + group.project,
+            "--label", "com.docker.compose.service=boundary-probe",
+            "--memory", str(2 * GIB), "--memory-swap", str(2 * GIB), "--cpus", "1"]
+        for slot, root in config.storage.role_roots("backend").items():
+            source = self.configs["group-b"]["roots"][slot]["source"] if slot == "be-durable" else root.source
+            command.extend(("--mount", "type=bind,source=" + source + ",target=" + root.path))
+        for source, target in ((group.storage_config, "/run/gateway/storage-layout.json"),
+                               (group.resource_config, "/run/gateway/resource-profile.json")):
+            command.extend(("--mount", "type=bind,readonly,source=" + source + ",target=" + target))
+        probe = """from pathlib import Path
+from gateway_backend.deployment_config import DeploymentConfig
+from gateway_backend.runtime_preflight import DeploymentIdentityChanged, RuntimePreflight
+config=DeploymentConfig.load(Path('/run/gateway/storage-layout.json'),Path('/run/gateway/resource-profile.json'))
+try:
+    RuntimePreflight(config,'backend')
+except DeploymentIdentityChanged as error:
+    assert 'actual bind mount does not match configuration' in str(error), str(error)
+    print('foreign_root_rejected_before_startup_writes=true')
+else:
+    raise AssertionError('foreign group root was accepted')
+"""
+        assert "foreign_root_rejected_before_startup_writes=true" in run(*command,
+            "--entrypoint", "python", group.images.backend, "-c", probe, timeout=30)
+        print("actual_foreign_root_and_selected_image_rejected=true", flush=True)
+        self.inspect()
 
     def barrier_path(self, state: str) -> Path:
         return Path(self.configs["group-a"]["roots"]["be-scratch"]["source"]) / ("processing-group-barrier." + state)

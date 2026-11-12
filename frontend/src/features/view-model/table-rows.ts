@@ -122,8 +122,9 @@ export function canReuseUnrecordedIdentity(
  * Rejects locator payloads that contradict the published surface, records or
  * snapshots. With `exactTable`, the whole table is published as EXACT, so the
  * Business Navigation FE-BEB-12 integrity invariants also apply: both
- * suppressed counts are zero and the published ordinary records match the
- * row_change_stats counts by kind.
+ * suppressed counts are zero, the published ordinary records match the
+ * row_change_stats counts by kind, and the locator identity set matches the
+ * published records one-to-one.
  */
 export function validateRowLocations(input: {
   table: SurfaceTable;
@@ -195,9 +196,11 @@ export function validateRowLocations(input: {
       }
     }
   }
-  for (const identity of input.locator.keys()) {
-    if (!seen.has(identity)) {
-      throw new ComparisonDecodeError(`表 ${input.table.table_name} 有多余的行定位：${identity}`);
+  if (input.exactTable) {
+    for (const identity of input.locator.keys()) {
+      if (!seen.has(identity)) {
+        throw new ComparisonDecodeError(`表 ${input.table.table_name} 有多余的行定位：${identity}`);
+      }
     }
   }
 }

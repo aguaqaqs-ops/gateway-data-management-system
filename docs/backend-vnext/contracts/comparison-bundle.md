@@ -99,6 +99,9 @@ BundleInput:
 
 - 第一版 `bundle_profile` 只区分 `SINGLE_PAIR` / `MULTI_PAIR`。
 - `inputs` 可以表达节点顺序和展示标题，但不暴露 repository commit hash、host path 或 cache refs。
+- Preview 的 `inputs[].role` 是封闭集合 `baseline`、`initial`、`modified`，按实际输入模式使用其子集；由 Preview 构造边界校验。消费者可通过 `before_input_index` / `current_input_index` 找到角色，不从 `pair_id` 子串推断。
+- History compare 的 `inputs[].role` 维持现有 node `ref_id`（节点引用，不是 Dolt commit hash），按原顺序输出，不套 Preview 三值枚举。通用 `BundleInput.role` 因而仍是字符串，不能全局收窄。
+- 以上为现有文档语义显式化；整顿 G1 不改字段、内容/字节、bundle digest 或 golden，不增加兼容别名。空 GID 的显式引用留待下一次 surface/bundle 文档变更，不在本轮加字段。
 - Flow 可以在自己的业务 record 中保存真实 source/ref identity。
 - Bundle assembly 不根据 input kind 计算 comparison。
 

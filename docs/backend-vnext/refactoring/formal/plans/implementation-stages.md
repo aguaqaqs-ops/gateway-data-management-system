@@ -26,7 +26,8 @@ P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3→P4 Cleanup Handoff](p3-p4-cleanup-handoff.md)、
 [P3→P4 Cleanup Manifest](p3-p4-cleanup-manifest.yaml) 与 tags
 `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
-P2-R1 默认 provider 为Candidate A offline CLI，Candidate B保留但默认禁用。该顺序由
+P2-R1 的测量记录保留；Candidate B 及无消费者选型代码按[后端整顿 C1](p7-backend-remediation-execution-plan.md)删除，不再保留默认禁用路径。
+删除决定已确认，当前为文档准备，C1 实施后才标记代码已删除；现用产品 CLI/构建身份不变。历史选型由
 [ADR 0009](../adr/0009-proportional-assurance-and-trusted-internal-repository.md)
 和[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)共同约束；Phase 0–9的安全、
 恢复、证据与测试强度统一遵守
@@ -108,9 +109,9 @@ Phase 6  Single-operation Performance and Rust Adoption（单任务性能与 Rus
     |
 Phase 7  Multi-project Concurrency and Capacity（多项目并发与容量）
     |
-Phase 8  Shadow Traffic and Cutover
+Phase 8  First Data-preserving Deployment Preparation（首次保留数据的部署准备）
     |
-Phase 9  Cleanup and Production Hardening
+Phase 9  Deployment Recovery and Operational Acceptance（部署恢复与运维验收）
 ```
 
 Phase 3 production implementation必须等待修订后的Phase 2最小consumer纵切通过。
@@ -693,7 +694,9 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 ## 10. Phase 7：Multi-project Concurrency and Capacity（多项目并发与容量）
 
-**当前范围（2026-11-11）：** P7-D21已撤回旧计时/线性扩展门槛。S2a已在`p7-s2a-exit`本地退出，见[总结](p7-s2a-summary.md)。S2b当前为同机独立组、统一入口、静态明确归属与新增设备热更新：新增不暂停旧任务/设备/组，程序/资源/root变更仅组级维护；详细设计/计划已通过Astra独审与复审、具备代码实施条件，产品未实施，见[S2b设计](p7-s2b-design.md)、[详细计划](p7-s2b-execution-plan.md)和[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)。灰度自动化后移，完整设备副本/受控换组仍留S4b，阶段内不增加重复全量门禁。
+2026-11-12 后续范围以[专项整顿](p7-backend-remediation-execution-plan.md)及[设计入口](p7-post-remediation-design-inputs.md)为准：S2b exit 后整顿，S3 仅两类任务简单保底，S4a 后立即真实回灌演练，S4b 首阶整组测试克隆，生产换组移出本轮；不改 S2b 的既有实施安排。
+
+**2026-11-11 记录（进度按 S2b exit/总结核，后续范围按上段更新）：** P7-D21已撤回旧计时/线性扩展门槛。S2a已在`p7-s2a-exit`本地退出，见[总结](p7-s2a-summary.md)。S2b当前为同机独立组、统一入口、静态明确归属与新增设备热更新：新增不暂停旧任务/设备/组，程序/资源/root变更仅组级维护；详细设计/计划已通过Astra独审与复审、具备代码实施条件，产品未实施，见[S2b设计](p7-s2b-design.md)、[详细计划](p7-s2b-execution-plan.md)和[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)。灰度自动化后移；S4b 测试副本现在按三步阶梯，生产换组移出本轮，阶段内不增加重复全量门禁。
 
 本节按 DC37 改写（2026-10-25）。
 
@@ -705,7 +708,7 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 
 ### 主要工作
 
-- S2a 固定组内 W=K、每 worker 一个 executor，按各组 W×E 加共享服务与宿主余量核整机资源；M 不冒充 RSS。公平调度与对用户可见的排队状态留 S3。
+- S2a 固定组内 W=K、每 worker 一个 executor，按各组 W×E 加共享服务与宿主余量核整机资源；M 不冒充 RSS。交互优先、简单批量保底与对用户可见的排队状态留 S3；设备公平/aging 仅在同类饥饿实测后重开。
 - 多 worker：重新设计启动时的租约判定（历史 Phase 6 S2b 复审 R1-O2），在 P7 S2a 核健康租约共存、有限恢复与缓存/RS 共享边界。
 - DC77 部署输入（owner，2026-11-04）：生产按多个 worker 考虑；500 仓库同日上传通常分散到达，批量任务允许处理到次日，日常交互优先。具体 worker 数量、到达曲线与次日完成时点待测定。领取任务时的优先级须结合批量保底份额或有界等待，避免永久饥饿；不抢占正在执行的事务/提交。核对队列等待与执行截止时间、上传产物保护期以及多 worker 恢复，性能数值按 P7-D21 撤回，正确性和资源功能要求按 P7-D22 保留。
 - 跨 operation 的 Repository Service 资源队列、单 repository writer 与节点级排队；其他共享瓶颈（control DB、磁盘与内存带宽）；HTTP 准入名额在慢速上传期间的占用（DC49）。
@@ -721,63 +724,36 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 - 按 P7-D21/D22 报告真实操作耗时、吞吐、内存与磁盘观测，不以已撤回数值作门槛；真实操作不因执行期限、租约或内存上限失败，优化按真实累计耗时、收益和机制成本取舍。
 - 过载时系统有背压，不通过无限线程/任务扩张维持吞吐。
 
-## 11. Phase 8：Shadow Traffic and Cutover
+## 11. Phase 8：首次保留数据的部署准备
 
-### 目标
+依据 [P7-D37](p7-s0-owner-decisions.md#19-后端专项整顿与后续阶段收窄2026-11-12)。Owner 已确认没有需要 shadow 对照或切换流量的在用旧系统；本阶段不建设旧系统双轨、Submit 双重验证、feature flag 回滚或迁移 legacy 的默认任务。P7 交付可重建试运行准备，其已有恢复/授权/资源边界继续有效；以下要求必须在首次承诺保留数据**之前**完成，不因阶段编号延期。
 
-在不破坏正式业务状态的前提下验证新路径，并按风险从低到高切换流量。
+### 目标与工作
 
-### 切换顺序
-
-1. 离线 language-neutral fixture/canonical correctness 对照，以及独立 vNext measurement。
-2. 只读 shadow：catalog、history resolve、comparison。
-3. Upload preview shadow，结果不对用户生效。
-4. Upload preview 正式切换。
-5. Submit 双重验证但单写，禁止两个系统同时提交 repository 写入。
-6. Submit/Review 正式切换。
-7. Archive plan preview shadow。
-8. Archive业务BaselineHead CAS正式切换；Repository `main`不随Archive移动。
-
-### 规则
-
-- Shadow 比较使用规范化结果，不要求保留旧 host path、cache key 或 bundle layout。
-- Shadow 只对照 canonical correctness 和明确 intentional change；不运行 legacy-vs-vNext 性能门禁。
-- 任何写路径只能有一个 system of record 和一个 writer owner。
-- 每次切换有明确 feature flag、回滚点和数据兼容说明。
-- 回滚不得依赖删除新系统已经提交的 immutable commit。
+- 明确保留哪些业务/审核/操作状态、部署范围、升级维护窗口和恢复目标；从 backend、RS 当前单一基线引入必要的事务性前向 migration，版本/schema 不符 fail closed，不提前建设旧版本双读双写。
+- 备份覆盖同一一致时点的 backend/RS control DB（含正确的 WAL 处理）、Dolt、artifact roots、规则/部署配置及必要身份资料；明确凭据保护、保留和恢复 owner，不能用原始数据重导入冒充审核/operation 状态恢复。
+- 接入正式身份认证与凭据生命周期，保留现有 device/scope/操作权限和内部接口保护；具体身份来源在 kickoff 定稿，不把静态测试 session 当正式认证。
+- 前端静态文件经统一入口发布，明确同源 API、设备路由、静态缓存与版本配套；前端由其 owner 实施，后端在总结中交接入口变化，不建立新的前端发布服务。
+- 更新启动/暂停/排空/诊断/备份恢复/升级说明；Dolt 升级复用[部署 runbook](../../../../../vnext/deploy/README.md#dolt-升级核对流程)，包括实际版本拒启、DC67 预填充、fresh 六包和 t4 参考对照。
 
 ### 退出条件
 
-- 新路径承载全部正式旅程，旧路径不再写业务事实。
-- Shadow 差异全部有结论。
-- 回滚演练和数据一致性检查通过。
+保留范围及数据责任明确，migration/备份/正式认证/统一入口设计和实现齐备，必要恢复演练完成后才作保留承诺；保留既有单 writer、事务/CAS、UNKNOWN 核结果和不可变 commit。尚未验证的恢复或认证不能用“后续 Phase 9”豁免。实际部署另按授权，不以本次文档更新宣称已上线。
 
-## 12. Phase 9：Cleanup and Production Hardening
+## 12. Phase 9：保留数据部署的恢复与运维验收
 
-### 目标
+### 目标与工作
 
-删除临时兼容边界，完成生产运维、容量和恢复能力，使目标架构成为唯一正式实现。
+在目标部署边界验证 Phase 8 机制和运行说明，完成真实运维交接；不重复建设已在 P7 完成的统计/恢复能力，不安排删除并不存在的旧 Flow、StateStore、Dolt local adapter、shadow writer 或兼容 artifact。
 
-### 主要工作
-
-- 删除旧 Flow、统一 StateStore、Dolt local adapter、重复 DTO 和路径字段。
-- 从业务容器移除 Dolt 二进制和 repository volume。
-- 删除不再使用的 feature flag、shadow writer 和 compatibility artifact。
-- 只完成当时accepted contract和生产运维实际需要的Repository Service backup/restore、GC、
-  Dolt upgrade/rollback与容量runbook；不得借production hardening重开已延期的通用治理surface。
-- 完成 operation backlog、lease、cache、artifact、repository disk 和业务 journey observability。
-- 按已登记A/B类风险执行关键故障注入、灾难恢复、滚动升级和安全审计；C/D类只验证失败不
-  污染权威事实、可重试/诊断，不穷举内部interleaving。
-- 更新所有架构、contract、部署和运维文档。
+- 在确认的部署配置上验证受支持前向升级、版本不匹配拒启、备份完整性与隔离恢复。失败时按停服/恢复方案处置，不承诺跨 schema 无损降级，也不删除已提交 immutable commit 来回退。
+- 验证正式身份的登录/失效/最小权限、device/scope 隔离、内外接口边界，以及统一入口下的前端静态资源和完整业务旅程。
+- 核收运维说明、备份保留和恢复责任、Dolt 升级流程与真实 t4 对照；只按已登记 A/B 风险验证关键故障/恢复，C/D 保持可重试/诊断，不追加通用安全或监控平台。
+- 容量/统计按真实使用检验，P7-D22 的工程取舍与统计消费事后检验继续适用；没有真实分布不承诺长期 p95 或吞吐。
 
 ### 退出条件
 
-- 目标架构是唯一正式主路径。
-- 业务容器不执行 Dolt 命令、不访问 repository 本地目录。
-- API 不拥有业务状态机，Domain 不依赖 infrastructure。
-- Operation 可跨进程恢复，Repository 写操作可审计和恢复。
-- 完整journey通过；accepted contracts与风险登记要求的故障、恢复、性能和安全验收通过，
-  不以未接受的理论威胁或全故障点矩阵阻塞退出。
+确认范围的正式旅程、数据保留/升级/隔离恢复、认证与统一入口发布通过，未知和限制明确；最终 production/release 使用最终 HEAD 重建及 fresh 六包门禁，前端独立门禁与实际部署验收齐备。恢复演练不改变生产写入责任，不复活旧路径。只有将来出现真实旧系统替换对象才另开 shadow/cutover 设计。
 
 ## 13. 跨阶段工作流
 
@@ -790,14 +766,11 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 3. 更新受影响owner implementation和consumer的contract tests；canonical bytes变更
    固定要求Python/Rust，Repository只在自身wire/structural contract受影响时更新。
 4. 说明 cache/digest compatibility。
-5. 说明滚动升级期间的兼容窗口。
+5. 当前无保留部署不建兼容窗口；已有保留承诺时明确支持的升级路径/维护窗口及不兼容拒绝，不默认滚动混跑。
 
 ### 13.2 数据迁移
 
-- Legacy Dolt migration/compatibility 是独立 cutover gate；本计划不预设迁移或不迁移结论。
-- Gate 若选择不迁移，必须提供明确环境初始化和切换边界。
-- Gate 若选择迁移，迁移器是独立一次性应用，不把 legacy schema 兼容写入新 domain。
-- 迁移结果通过业务 ID、commit、artifact digest 和抽样 journey 验证；不得把 raw legacy commit 与 canonical vNext commit 当作同版本 state 直接比较。
+当前无历史保留/兼容义务，backend 与 RS 直接修改单一基线，schema 不符拒启，可重建本地环境由开发者停服清 DB 后重建。首次必须保留数据时按 Phase 8 引入前向迁移和备份恢复；迁移按业务身份、提交、artifact digest 和必要旅程核对。无在用旧系统时不设 legacy migration/cutover gate；真实替换需求出现后另行设计一次性迁移，不把 legacy schema 写回 domain。
 
 ### 13.3 可观测性
 

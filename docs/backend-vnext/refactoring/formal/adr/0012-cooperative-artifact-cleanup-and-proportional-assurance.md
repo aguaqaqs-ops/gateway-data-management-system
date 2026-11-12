@@ -85,10 +85,9 @@ tombstone budget作为Contract合规门。
 - active delete intent generation、residual receipt/proof以及与其绑定的restore/reclaim状态机；
 - 只为上述永久sidecar服务的`artifact_tombstone_budget`和projected reservation。
 
-既有control DB版本不得倒退。可以保留不再写入的兼容列，除非现有constraint要求新的前向
-migration；不得为了代码整洁执行高风险破坏性schema downgrade。已有sidecar或legacy cleanup
-metadata只需要一条有界兼容路径：在root lock下，eligible且可解释者best effort收敛；protected、
-畸形或矛盾者保留并诊断，允许operator处理。不得继续维护完整对抗竞态矩阵。
+2026-11-12 修订（[P7 整顿决议](../plans/p7-s0-owner-decisions.md#19-后端专项整顿与后续阶段收窄2026-11-12)）：本项目没有已部署使用方、历史保留数据或兼容要求，不再保留历史 cleanup metadata 的兼容列或有界收敛路径。sidecar、unlink-stage、receipt、residual 等旧名字一律按未知路径保留并诊断，不因可解释而恢复旧清理状态机。
+
+RS control DB 采用单一基线 schema；删除无人写入的列和 `artifact_residual`，schema 与代码不符即拒绝启动。开发者在确认本地实例可重建并停止相关服务后，删除该 RS control DB 及其 `-wal`、`-shm` 再重建；不得自动升级/降级或回填。首次出现必须保留数据的部署时，才从该基线引入前向 migration。此修订由整顿 C2/C3 实现，不宣称现有迁移链已删除；主决定、protected retention、root/symlink、admission pin、eligibility 重读和成功结果先持久化等基础边界不变。
 
 ### Proportional verification
 

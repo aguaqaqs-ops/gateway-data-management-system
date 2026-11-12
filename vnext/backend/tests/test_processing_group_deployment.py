@@ -185,8 +185,15 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
                 NanoCpus=round(profile.cpu_limit * 1_000_000_000), RestartPolicy=dict(Name="no"),
                 PortBindings={"8000/tcp": [dict(HostIp="127.0.0.1", HostPort=str(group.backend_port))]} if role == "backend" else {})))
     assert set(helper.validate_group_containers(config, group, containers)) == {"backend", "worker", "repository-service"}
+    identities = {entry["Config"]["Image"]: dict(Id=entry["Image"], Config=dict(Labels={"org.opencontainers.image.revision": group.images.revision}))
+        for entry in containers}
+    assert helper.validate_group_containers(config, group, containers, image_identities=identities)
+    identities[group.images.backend]["Id"] = "sha256:old-tag-target"
+    with pytest.raises(ValueError, match="selected local image"):
+        helper.validate_group_containers(config, group, containers, image_identities=identities)
     faults: list[tuple[list[Any], Any]] = [(["Config", "Image"], "other:revision"),
         (["Config", "Labels", "com.docker.compose.project"], "other"),
+        (["Config", "Labels", "org.opencontainers.image.revision"], "0" * 40),
         (["NetworkSettings", "Networks"], {"other_default": {}}),
         (["HostConfig", "Memory"], 1),
         (["HostConfig", "PortBindings"], {"8000/tcp": [dict(HostIp="0.0.0.0", HostPort=str(group.backend_port))]}),

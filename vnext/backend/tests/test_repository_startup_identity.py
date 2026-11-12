@@ -75,3 +75,32 @@ def test_worker_checks_repository_identity_before_database_bootstrap(tmp_path: P
         lambda *args: pytest.fail("wrong RS must not bootstrap the worker database"))
     with pytest.raises(ValueError, match="wrong repository group"):
         build_production_preview_dependencies(settings)
+
+
+@pytest.mark.serial
+def test_startup_does_not_forward_repository_credential_to_redirect(tmp_path: Path) -> None:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from threading import Thread
+
+    settings = make_backend_settings(tmp_path)
+    captured: list[str] = []
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            captured.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", "/credential-capture")
+            self.end_headers()
+        def log_message(self, *args: object) -> None:
+            pass
+    with HTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            with pytest.raises(ValueError, match="identity unavailable"):
+                assert_repository_identity(f"http://127.0.0.1:{server.server_port}", "private-repository-credential",
+                    settings.deployment_config, timeout_seconds=2)
+            assert captured == ["/internal/v1/deployment-identity"]
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            assert not thread.is_alive()

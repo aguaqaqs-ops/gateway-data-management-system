@@ -1,14 +1,14 @@
 # P7 S2b 详细执行计划
 
-日期：2026-11-11。状态：**GPT-6-Astra独审及原审复审通过，GO、未关闭阻塞0，具备代码实施条件；产品未实施。** 基线 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45`；配套[设计](p7-s2b-design.md)为行为和算法依据。Owner授权本轮形成文档并独审/修复至可实施，不含产品实现、测试运行、push或部署。审核报告、修订和交接放 `/home/dev/gdds-stage-exchange/p7-s2b/`，不把过程文档入库。
+日期：2026-11-11；更新：2026-11-12。状态：原设计已通过独审；产品已实施至 A 候选 `0689a7b4c10bb649cbe833b1626308538c87bc2f`，R1 静态复审通过，**R2 按 Owner P7-S2B-D07 修订身份域，待实现、验证及原审复审；A 尚未 GO，S2b 未退出。** 源码基线 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45`。实施授权见 [S0 §16](p7-s0-owner-decisions.md#16-s2b-实施至-exit-授权与角色测试安排2026-11-11)，本次身份域决议见 [S0 §17](p7-s0-owner-decisions.md#17-s2b-身份域与-canonical-冲突决议2026-11-12)。本次仅同步文档，不冒称产品修复或测试已完成。配套文档：[设计](p7-s2b-design.md)。
 
-审核绑定：`fcd3996fa1e92ddee9b48f0e4da99897c2683a50`，原件 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`（SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`）。R1创建热恢复、R2 W1验收时序均关闭；最终状态/摘要核对见同目录 `readiness-finalization.md`。没有产品测试或镜像结果。
+历史设计审核绑定（不覆盖本次身份域修订）：`fcd3996fa1e92ddee9b48f0e4da99897c2683a50`，原件 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`（SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`）。R1创建热恢复、R2 W1验收时序均关闭；最终状态/摘要核对见同目录 `readiness-finalization.md`。该历史设计审核不包含产品测试或镜像结果。
 
 ## 1. 范围、依赖和执行规则
 
 S2a已退出。本阶段只增加同机静态独立组、统一业务入口、在线新增设备、部署隔离和整机预算；组程序/资源/root变更仅组级维护。新增设备全过程不能重启/暂停旧设备、worker或其他组。已有设备转组/删除/禁用/重绑不走新增，S3调度及S4b复制/转交不提前实现。
 
-未来获得产品实施授权后按A→B→C→D→E→F推进，可在B完成后将无依赖的D配置工作并行准备，但同一文件/主线合入由协调者串行处理。各包不跑全量门禁；必要focused和容器接线后，F对最终候选集中验收。A/B风险包独审使用新上下文、不同模型家族，原finding由原审复审；阶段末完整独审。可沿用S2a协调Terra/high、实施Sol6.1/high、独审Astra/xhigh的角色方案，但需在未来实施授权入口明确，不把本轮文档授权扩大成产品执行。
+产品实施已由 S0 §16 授权，按A→B→C→D→E→F推进，可在B完成后将无依赖的D配置工作并行准备，但同一文件/主线合入由协调者串行处理。各包不跑全量门禁；必要focused和容器接线后，F对最终候选集中验收。A/B风险包独审使用新上下文、不同模型家族，原finding由原审复审；阶段末完整独审。可沿用S2a协调Terra/high、实施Sol6.1/high、独审Astra/xhigh的角色方案，具体角色已在 S0 §16 明确；本次文档修订不代替协调者执行。
 
 全部测试、lint、编译、容器在专用节点clean已提交worktree执行。自动门禁固定04及既有工具；focused/真实节点按有效规则与现场占用选取，优先06/05，不回退CT201测试。历史文档有06 96GiB和当前main五节点64GiB两种记录，预算以执行现场核实为准；本计划先按64GiB保守设计，不修改硬件、生产默认或其他人的资源。新阶段不继承S2a具体真实输入与测试profile授权。
 
@@ -40,11 +40,19 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 
 ### A. 配置schema和Contract（风险B）
 
-1. 按设计§3实现纯parser/renderer模型：directory≤8MiB/10000 devices、groups≤1MiB/32 groups；严格字段、重复key、bool/int、device/project为1..255 Unicode scalar、拒U+0000/surrogate、UTF8≤1020bytes（统一directory/HTTP/seed/session/写入校验，保留DB255字符域），禁path/URL注入。目录device唯一性含false预留；生成key为UTF8 SHA256小写hex，固定向量。
+1. 按设计§3实现纯parser/renderer模型：directory≤8MiB/10000 devices、groups≤1MiB/32 groups；严格字段、重复key、bool/int、device/project为1..255 Unicode scalar、拒U+0000/surrogate/noncharacter、UTF8≤1020bytes（统一directory/HTTP/seed/session/写入校验，保留DB255字符域），禁path/URL注入。目录device唯一性含false预留；生成key为UTF8 SHA256小写hex，固定向量。
 2. 配置清单固定 `host.memory_bytes/cpu_count/shared_memory_reserve_bytes/shared_cpu_reserve`、`entry`和`groups[]`；entry包含监听/管理端口、镜像、memory/cpu预算；group包含group_id、project、backend loopback port、storage/resource路径、session目录、RS/internal token文件与明确镜像组合。全字段由typed model序列化，不接受任意Compose/shell片段。
 3. 不把全局directory digest写进每组部署锁存身份；后台任务只依赖本组固定部署与DB事实。新增设备不触发 `compare_configuration` mismatch。必要字段加入现有版本的基线模型，不引入旧/新配置兼容双读。
 4. Contract同步表见§6。确定route-key、registration/device-context/RS身份DTO及错误的OpenAPI；新增body≤8KiB、未知字段拒绝，GET query同有界身份。不为生成协议先实现业务。
 5. 写配置/向量/错误表及schema focused（无Dolt）；独审核输入边界和权威归属。交付包括对当前组统计语义的决定：公开仍是当前设备所属组、需statistics_read_group；内部组统计读按设计§4.1新增两个loopback-only路径，独立依赖解析本组session+既有统计权限、不读设备mapping/route-key，复用reader/DTO/预算。组/环境由deployment固定，入口不公开；无新增全局统计授权模型。
+
+#### A 的 R2 恢复与验收（P7-S2B-D07）
+
+Owner 已选统一拒绝 noncharacter，无需再次征询。先核 main 和原审来源，不重写历史审核摘要。实施者在公共身份校验 owner 修复，保持宿主 stdlib adapter 可用；核目录/组业务 project、HTTP DTO、seed、session、领域/写入入口均接入，保留 R1 多字节修复。不得为了复用而把宿主纯配置路径引入额外运行时依赖，不扩大 opaque ID 域，不修改共享 canonical 接受域。
+
+把 U+FFFF 正向用例改为负向；共享纯校验参数表覆盖全部 66 个 noncharacter（含末平面），并有相邻合法码点、中文/emoji 最大长度、组合/预组合 exact 正例。两类身份字段及各入口只做必要接线用例，避免笛卡尔积；已有 Upload/Submit/History/close digest 向量按影响复验，不复制完整业务矩阵。HTTP 非法输入按输入校验拒绝，目录/session/seed 按原错误方式拒绝，不留摘要异常兜底或静默替换。尚未激活的 B/C 路由和 E 消费者在各包补接线证明。
+
+在 06 clean 已提交 worktree、有效本人占用和离线缓存前提下运行必要 backend focused、变更文件 Ruff、完整 backend mypy；若影响其他包，按实际改动补其检查。记录候选、节点、起止 HEAD/UTC、exit/log/SHA。本次身份修复不单独触发完整 runner/真实旅程或 Compose；容器边界如有实际增量按 AGENTS 判断。由 R2 原审对实现、Contract/设计修订及证据复审，明确 R1 保持关闭、R2 关闭后才宣称 A GO，再沿原授权继续 B–F。Owner 决议不是审核 GO。
 
 ### B. 组内在线注册与维护（风险A）
 
@@ -109,7 +117,7 @@ A先用rg复核实际HTTP入口、harness路径和OpenAPI生成入口；表中�
 
 ## 5. 资源档与缓存准备
 
-生产默认N1、单worker E32/reserve8/M24不变。以下是**待执行前确认的小输入测试建议**，不是已获具体资源授权或已测容量：
+生产默认N1、单worker E32/reserve8/M24不变。以下小输入测试档已获 Owner 对 06 的明确确认（S0 §17、阶段日志），不是已测容量；执行前仍核现场资源与占用：
 
 | 档位 | 每worker | BE/RS每组 | 入口/整机共享余量 | 内存总预算 |
 | --- | --- | --- | --- | --- |
@@ -140,12 +148,12 @@ Owner已同意“小输入、两个设备、两组功能验证，不做容量/�
 
 实施准备阶段先只读盘点获准真实输入与原始身份来源，形成一次DC33清单：每设备external key/project来源、输入路径/模式/字节/SHA、预期业务链/异常处置、组、节点、profile、是否新增设备、不得改变的源事实。基本旅程按有效输入执行Upload→Preview→Submit→Review/Archive或真实无变化/异常分支；保持源异常，不造审批成功。新增设备并发屏障在合成Compose强制验证；真实旅程按实际输入支持的重叠运行保存观测，不伪造时序。
 
-若只存在一个合格真实设备，不悄悄降低已定范围：继续不依赖它的实现/边界验证，退出前将“一个真实链+合成多组边界”替代建议及来源缺口交Owner明确决定。具体profile/节点/输入清单执行前集中确认，不能把本轮设计授权当真实运行许可。这不是未定核心算法，代码实施准备可完成；但未确认/未取得真实来源不能宣称阶段exit-ready。
+Owner 已接受“一个真实业务链+明确标注的合成双组边界”替代，并确认 §5 的 06 两档资源（S0 §17、阶段日志）。沿用该确认，不再因缺少第二真实设备重复阻塞；t2/t3 可盘点，但只有核实独立设备和来源才能称第二真实设备。执行前仍形成并核对实际输入路径、身份、SHA、组与 profile 清单，不伪造源事实；未运行不宣称通过。
 
-其他运行前条件：获得产品实施授权；前端修改前通知前端设计；目标节点有效占用和离线缓存就绪；新镜像平台身份固定并进入闭包；测试资源档确认。它们与“详细设计具备编码条件”分别记录。默认N1，N>1开放前D24同输入N2/N1结果/digest与t4 D23参考仍最迟S5，本阶段不代替。
+其他运行前条件：沿用 S0 §16 已获产品实施授权；前端修改前通知前端设计；目标节点有效占用和离线缓存就绪；新镜像平台身份固定并进入闭包；按已确认资源档核现场。它们与“详细设计具备编码条件”分别记录。默认N1，N>1开放前D24同输入N2/N1结果/digest与t4 D23参考仍最迟S5，本阶段不代替。
 
-## 8. 本轮设计审核收口
+## 8. 原设计审核收口（历史流程）
 
-正式审核固定本地提交，在clean detached worktree只读核源码、设计/计划及S0和总入口一致性。GPT-6-Astra审核范围包括：业务需求完整、最小机制、scope/INITIAL幂等、热新增不中断、代理语义/错误/流式、凭据/端点/roots边界、维护竞争、预算、测试owner/闭包、消费者接线和真实来源限制。
+本节保留原设计审核流程；当前 A/R2 修订按 §3 A 增补执行，不复用历史 GO 关闭新 finding。正式审核固定本地提交，在clean detached worktree只读核源码、设计/计划及S0和总入口一致性。GPT-6-Astra审核范围包括：业务需求完整、最小机制、scope/INITIAL幂等、热新增不中断、代理语义/错误/流式、凭据/端点/roots边界、维护竞争、预算、测试owner/闭包、消费者接线和真实来源限制。
 
 本轮不运行产品测试；文档检查采用路径/引用、diff和算法追踪，不将其称为测试通过。报告写阶段区并绑定完整SHA及文档摘要。若有阻塞finding，由设计者修订并提交，原审对增量及关联全文复审；直到明确GO、未关闭阻塞0。之后只更新状态/审核入口并让原审核最终差异，保留最终受审内容摘要。最终答复清楚区分设计GO、执行前条件及尚未进行的产品实施/验证。

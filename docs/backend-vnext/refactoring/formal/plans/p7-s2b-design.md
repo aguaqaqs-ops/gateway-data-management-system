@@ -1,8 +1,8 @@
 # P7 S2b 静态独立处理组与设备热新增设计
 
-日期：2026-11-11。状态：**业务边界已获Owner确认；详细设计和执行计划已通过GPT-6-Astra独审及复审，具备代码实施条件；产品未实施。** 源码基线 `p7-s2a-exit` / `f720ef571df72682d56732876f03c79f076eca45`。配套[详细执行计划](p7-s2b-execution-plan.md)给出接点、工作包和验证责任。本轮只授权文档及 GPT-6-Astra 独审、修复至具备代码实施条件，不含产品实现、push、部署或阶段 exit。
+日期：2026-11-11；更新：2026-11-12。状态：原设计已通过独审；产品已实施至 A 候选 `0689a7b4c10bb649cbe833b1626308538c87bc2f`，R1 静态复审通过，**R2 按 Owner P7-S2B-D07 修订身份域，待实现、验证及原审复审；A 尚未 GO，S2b 未退出。** 源码基线 `p7-s2a-exit=f720ef571df72682d56732876f03c79f076eca45`。实施授权见 [S0 §16](p7-s0-owner-decisions.md#16-s2b-实施至-exit-授权与角色测试安排2026-11-11)，本次身份域决议见 [S0 §17](p7-s0-owner-decisions.md#17-s2b-身份域与-canonical-冲突决议2026-11-12)。本次仅同步文档，不冒称产品修复或测试已完成。配套文档：[执行计划](p7-s2b-execution-plan.md)。
 
-审核来源：候选 `f4887a496c3d28f69fee7845710de1746f386f36` 首审发现2项阻塞，修订 `fcd3996fa1e92ddee9b48f0e4da99897c2683a50` 原审复审GO、未关闭阻塞0。报告 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`，SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`；最终状态变更核对另记同目录 `readiness-finalization.md`。GO仅指方案可编码，执行前条件见计划§7。
+历史设计审核来源（不覆盖本次身份域修订）：候选 `f4887a496c3d28f69fee7845710de1746f386f36` 首审发现2项阻塞，修订 `fcd3996fa1e92ddee9b48f0e4da99897c2683a50` 原审复审GO、未关闭阻塞0。报告 `/home/dev/gdds-stage-exchange/p7-s2b/reviews/design-fcd3996f-rereview.md`，SHA256 `6e1d8f8c0d03db5f2ac0855511ae71acbb857e9f52d7570da5e968a73e21c23c`；最终状态变更核对另记同目录 `readiness-finalization.md`。GO仅指方案可编码，执行前条件见计划§7。
 
 依据：[S0 §15](p7-s0-owner-decisions.md#15-s2b-业务收口与设计审核授权2026-11-11)、[S2 共用设计](p7-s2-design.md)、[分组与副本设计](p7-processing-groups-and-test-extraction-design.md)、[比例化政策](../policies/proportional-assurance-and-risk-based-verification-policy.md)。本稿明确替代早期“全部归属配置只能维护窗口更新”“S2b 不在线注册”的限制；原 S2a 退出与既有业务 Contract 不改写为本稿已实现。
 
@@ -33,13 +33,15 @@
 
 ### 3.1 单机目录
 
-新增宿主受控 `device-directory.json`：`schema_version=1`、`environment_id`、`devices[]`。每项仅 `gateway_device_external_key`、`group_id`、`enabled`。设备字符串按原始 UTF-8 exact 比较，不 trim/大小写折叠/Unicode归一化；1..255个Unicode scalar（不含U+0000或surrogate，UTF-8最多1020 bytes）。最多10000项、8MiB；重复JSON键、未知字段、重复设备、未知组拒绝。`enabled=false`表示归属已预留但未要求入口开放；`true`表示组准备完成、期望开放。它不是当前 Nginx 已加载的证明。唯一性同时包括false项，失败预留不自动释放给别组。
+新增宿主受控 `device-directory.json`：`schema_version=1`、`environment_id`、`devices[]`。每项仅 `gateway_device_external_key`、`group_id`、`enabled`。设备字符串按原始 UTF-8 exact 比较，不 trim/大小写折叠/Unicode归一化；1..255个Unicode scalar（不含U+0000、surrogate或noncharacter，UTF-8最多1020 bytes）。最多10000项、8MiB；重复JSON键、未知字段、重复设备、未知组拒绝。`enabled=false`表示归属已预留但未要求入口开放；`true`表示组准备完成、期望开放。它不是当前 Nginx 已加载的证明。唯一性同时包括false项，失败预留不自动释放给别组。
 
 目录只保存归属和必要有效状态；project/repository/INITIAL/Head、任务和授权不放入。组内业务 DB 保存固定scope和历史事实。目录丢失/损坏时禁止新增和配置发布，已有服务继续使用已加载路由与组内有效映射；不猜组、不依据遍历各组DB重建唯一权威。新部署入口无有效配置时拒启。受控重建须明确停止相关服务及核数据，不能由新增命令自动完成。
 
 新增 `groups.json` 为宿主部署清单：schema/environment、整机CPU/内存和一次共享reserve、入口端口/资源/固定镜像、每组 `group_id`、Compose project、backend管理端点、storage/resource文件路径、session目录、内部/RS token文件路径、backend/worker/RS明确镜像引用和程序revision。路径绝对、服务端所有；文件不含secret值。组数1..32，文件1MiB；端点只允许本机/明确部署内网地址，无userinfo/fragment/任意caller URL，HTTP客户端禁止重定向。环境由入口部署确定，客户端不能通过header切环境。
 
 目录与session采用父目录只读bind、普通文件同目录temporary+fsync+replace+父目录fsync发布。不给容器Docker socket或宿主写权限。每组仅挂本组session目录；公共目录只读挂到backend管理边界，普通业务/worker不在每次请求依赖目录读取。凭据轮换/撤销仍按原session语义，不因路由快照冻结授权。
+
+身份域补充（P7-S2B-D07）：上述限制同时适用于 device 和 business project。noncharacter 为 U+FDD0–U+FDEF 及平面 0..16 各自末尾两个码点，共 66 个；它们虽是 Unicode scalar，仍在身份入口显式拒绝。所有目录/配置、HTTP DTO、seed、session、领域及业务写入入口一致校验，先于摘要计算和注册副作用；HTTP 沿既有输入校验错误，配置加载沿既有失败方式。普通中文、emoji、组合/预组合字符保留 exact 区分。共享 canonical Contract 不放宽，合法身份的既有 digest/算法不变；本项是目标规则，A 修复及后续路由激活仍需各自核收。
 
 ### 3.2 串行配置操作
 
@@ -75,7 +77,7 @@ Nginx HUP平滑加载保留旧请求，不设置会为配置刷新强制中断�
 
 ### 5.1 组内API
 
-新增内部 `POST /internal/v1/devices/register`，仅本组internal bearer；body严格为 `environment_id, group_id, gateway_device_external_key, business_project_id`，device/project使用统一的1..255 Unicode scalar类型（不含U+0000/surrogate，UTF-8最多1020bytes），environment/group沿既有部署identity类型。返回200（首次及exact重放一致）含这四项、repository_id、initial_node_id、initial_commit_id。不接受caller指定repo/commit、enabled或任意路径。新增 `GET /internal/v1/devices/registration?device=...` 查询现有DB映射和INITIAL（未登记404），返回identity便于响应丢失后核对；不查可变Head来猜INITIAL。
+新增内部 `POST /internal/v1/devices/register`，仅本组internal bearer；body严格为 `environment_id, group_id, gateway_device_external_key, business_project_id`，device/project使用统一的1..255 Unicode scalar类型（不含U+0000/surrogate/noncharacter，UTF-8最多1020bytes），environment/group沿既有部署identity类型。返回200（首次及exact重放一致）含这四项、repository_id、initial_node_id、initial_commit_id。不接受caller指定repo/commit、enabled或任意路径。新增 `GET /internal/v1/devices/registration?device=...` 查询现有DB映射和INITIAL（未登记404），返回identity便于响应丢失后核对；不查可变Head来猜INITIAL。
 
 POST持有 `acquire_new_work` 直到RS结果和DB事务结束；maintenance已关门返回503，drain可见当前注册in_flight。受理前核固定environment/group、受控目录设备预留确属本组及RS身份；目录坏只拒本次注册，不把整组readiness锁死。普通业务不依赖全局目录的每次读取。
 

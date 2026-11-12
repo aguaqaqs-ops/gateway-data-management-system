@@ -230,3 +230,19 @@ Owner要求给出新协调会话实施提示词，沿用之前角色分配/测�
 计划§5的小输入E12/reserve8/M4/N1档与§7的DC33具体输入/第二设备来源/节点清单仍须在执行准备时集中落实适用确认；本次阶段授权不伪造尚未核实的输入身份，也不自动视为具体参数已逐项确认。已有后续明确答复直接沿用，不重复问；等待期间继续无依赖实现/独审与已有授权范围验证。新增设备热更新、仅相关组维护、真实设备不改名伪造、N1及最迟S5的D24责任保持。
 
 实质阻塞只暂停受影响部分；提供证据、影响、选项及推荐，等明确回复，未回复不视为同意。阶段内focused、相关修改收敛后的最小容器接线、F集中完整独审/受影响门禁/已确认真实旅程/前端独立验证，沿现行规则运行。正常环境/构建错误按快速修复规则处理，不因旧次数上限机械停止。最终总结HEAD绑定合格证据后再本地exit并收尾，不能先tag后补验。
+
+
+## 17. S2b 身份域与 canonical 冲突决议（2026-11-12）
+
+Owner 明确同意方案一，并授权本会话落成设计/执行文档及恢复提示词，由 Owner 手动转交协调会话。本节编号 **P7-S2B-D07**，修订此前已审设计中仅排除 NUL/surrogate 的身份域；不放宽既有 [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md)。
+
+- 所有 device/project 身份为 1..255 Unicode scalar、UTF-8 最多 1020 bytes，统一拒绝 U+0000、surrogate 和 Unicode noncharacter。noncharacter 精确定义为 U+FDD0–U+FDEF，以及平面 0..16 各自末尾的 U+nFFFE/U+nFFFF，共 66 个码点（含 U+10FFFE/U+10FFFF）。
+- 目录、组配置中的业务 project、HTTP 注册/查询与业务 DTO、session、seed、领域和业务写入入口使用同一身份域，在身份进入摘要计算或注册副作用前拒绝非法输入。配置/session/seed 按既有加载失败方式拒绝；HTTP 请求按既有输入校验错误返回，不等到业务摘要内部报错。
+- 保留普通非 ASCII、中文、emoji、组合/预组合字符及合法 supplementary scalar；按原文 exact，不 trim、大小写折叠、Unicode 归一化或静默替换。保留 DB255 字符域与多字节修复；repository/node/idempotency 等 opaque ID 不随之扩大。
+- 保留共享 canonical 校验、既有合法输入的 JCS bytes/业务 digest 和 route-key/create-key/INITIAL 算法；同步身份 owning Contract、设计/计划与共享边界向量。新项目不增加兼容分支、迁移、双读双写或回填。
+
+实施协调者沿 §16 原授权修复 A、在 06 的 clean 已提交 worktree 做必要 focused/Ruff/mypy，再交 R2 原审复审；完整码点集合由纯校验参数表覆盖，各入口做必要接线验证，不展开所有入口乘所有码点矩阵、不引 Dolt fixture。正向保留多字节最大长度与 exact 身份向量，核既有合法 digest 不变。B/C/E 尚未激活的路由/消费者在各包接线时继续遵守同一规则，不能因 A 模型通过而宣称全部路由已验证。
+
+决议时 A 候选为 `0689a7b4c10bb649cbe833b1626308538c87bc2f`，R1 原审静态复审已通过，R2 尚未实现/验证/关闭，A 尚未 GO、S2b 尚未完成。原件在 `/home/dev/gdds-stage-exchange/p7-s2b/package-a-handoff.md` 与 `reviews/a-0689a7b4-rereview.md`。历史设计 GO 及其摘要只绑定原候选，不覆盖本次修订。协调者完成实现与原审核收后继续 B–F，无需再次询问本项选择；最终门禁、真实旅程、全阶段独审与 exit 条件不豁免。本会话仅文档提交，不运行产品测试、不创建 exit、不 push/上线。
+
+已在阶段日志记录的 Owner 具体运行确认继续有效：06 两组 W1 的 44.5GiB/CPU13 与 A W2+B W1 的 56.5GiB/CPU15 小输入档（每 worker N1/E12/reserve8/M4GiB、CPU2、swap0），以及一个真实业务链加明确标注的合成双组边界替代；M4 不足停止并另提。允许盘点 t2/t3 不等于已核实第二真实设备；执行前仍核实际路径、源身份、输入摘要、现场资源及占用，不重复申请已确认范围。

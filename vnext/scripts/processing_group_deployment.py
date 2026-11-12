@@ -90,6 +90,14 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
                 or actual["NanoCpus"] != round(profile.cpu_limit * 1_000_000_000)
                 or item["Config"]["Image"] != images.get(service, group.images.worker)):
             raise ValueError("actual group image/resources differ")
+        if set(item["NetworkSettings"]["Networks"]) != {group.project + "_default"}:
+            raise ValueError("group services must use only their private Compose network")
+        environment = dict(value.split("=", 1) for value in item["Config"]["Env"])
+        if role != "repository_service":
+            prefix = "GATEWAY_BACKEND_" if role == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
+            if (environment.get(prefix + "REPOSITORY_BASE_URL") != "http://repository-service:8000"
+                    or environment.get(prefix + "REPOSITORY_BEARER_TOKEN_FILE") != "/run/secrets/repository-bearer-token"):
+                raise ValueError("group repository endpoint/credential wiring differs")
         bindings = actual.get("PortBindings") or {}
         if role == "backend":
             if bindings != {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": str(group.backend_port)}]}:

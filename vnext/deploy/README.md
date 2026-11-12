@@ -6,8 +6,9 @@ automatically grant production permissions to real users.
 
 ## Session permissions
 
-Backend HTTP authorization uses `session.json` entries mounted at
-`GATEWAY_BACKEND_SESSION_FILE`. Each session carries an explicit `permissions`
+Backend HTTP authorization uses `session.json` entries in the per-group session
+parent mounted read-only at `/run/gateway/session`; the runtime path is
+`/run/gateway/session/session.json`. Each session carries an explicit `permissions`
 array. Permission checks are exact string matches with no inheritance.
 
 | Permission | Purpose |
@@ -53,7 +54,7 @@ journeys before reopening traffic.
 Compose and production startup require these host files (see `compose.yaml`):
 
 - `GATEWAY_P2R2_BEARER_TOKEN_FILE` — Repository Service bearer token
-- `GATEWAY_BACKEND_SESSION_FILE` — session permissions document
+- `GATEWAY_BACKEND_SESSION_DIRECTORY` — parent directory containing `session.json`
 - `GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE` — internal recovery bearer
 
 Files should be readable only by the service user/group configured for the
@@ -377,3 +378,60 @@ recovery step. Drain again after recovery and reconcile external results.
 For normal operation restart backend with the confirmed configuration and
 maintenance mode false, wait for readiness, then start the original fixed
 workers. Never recreate a replacement until the old execution processes exit.
+
+## Independent groups and whole-host budget (P7 S2b)
+
+`groups.json` fixes each group's Compose project, loopback backend port, exact
+backend/worker/Repository Service image references and revision, configuration
+paths, session directory and two separate credential files. The shared
+`device-directory.json` lives beside `groups.json`. Backend and workers receive
+that parent directory read-only at `/run/gateway/groups`; session publication
+replaces `session.json` inside its dedicated parent bind. A single-file session
+secret cannot observe atomic replacement and is not used. Neither directory is
+part of the fixed per-group runtime configuration digest.
+
+Use the selected group's storage and resource files, and render its explicit
+manifest entry before every Compose command:
+
+```bash
+python3 vnext/scripts/render-runtime-config.py \
+  --storage-layout /etc/gateway/group-a/storage.json \
+  --resource-profile /etc/gateway/group-a/resources.json \
+  --groups-file /etc/gateway/groups.json \
+  --directory-file /etc/gateway/device-directory.json --group group-a \
+  render --output /run/gateway-group-a-compose.json
+docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
+  -f /run/gateway-group-a-compose.json config
+docker compose -p gateway-group-a -f vnext/deploy/compose.yaml \
+  -f /run/gateway-group-a-compose.json up -d
+```
+
+The selected project must equal the manifest project. Backend publishes only
+`127.0.0.1:<backend_port>`; workers and RS publish no host port and use only that
+project's private network. The public Nginx entry has its own Compose project
+and lifecycle. A group's maintenance command never includes the entry or
+another group's containers. Maintenance additionally inspects actual container
+project/service labels, image references, fixed worker indices, ports, mounts
+and cgroup resource limits against the selected group before sending TERM.
+Backend startup and worker startup authenticate the RS deployment identity and
+match environment, group and storage digest; a healthy endpoint from another
+group cannot make the target ready.
+
+The group renderer checks all configured groups together. The memory formula
+is `sum(W*E + backend + RS) + entry + shared_reserve <= host`; CPU follows the
+same sum. Every group's host declaration must equal the one whole-host budget.
+Production worker N1/E32 GiB/reserve8 GiB/M24 GiB stays unchanged. The approved
+small-input profile E12/reserve8/M4 GiB, worker CPU2/swap0/N1 gives 44.5 GiB/13
+CPU for A W1+B W1, or 56.5 GiB/15 CPU for A W2+B W1, including entry0.5 GiB/CPU1
+and shared8 GiB/CPU2 once. These profiles prove functionality only.
+
+Whole-host preflight rejects nested/overlapping writable roots, shared session
+parents or credentials, duplicate projects/ports, mismatched identities and
+aggregate overcommit. Host checks observe the real filesystem/device and merge
+free-space reporting once per actual filesystem, requiring one consistent
+low-water policy. Shared disk space is not assigned independently to each
+group; no exclusive per-group capacity quota or physical bandwidth isolation
+is promised. These checks read existing roots and do not initialize or repair
+user business directories. Initialize explicitly prepared empty roots through
+`init-layout` before starting a new group. Thin guest free space does not prove
+free capacity in the physical host pool.

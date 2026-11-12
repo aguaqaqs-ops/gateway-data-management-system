@@ -1,6 +1,7 @@
 """Whole-host budgets and isolation have one pure owner, with bounded host observations."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 import importlib
 import json
@@ -42,6 +43,7 @@ def deployment(tmp_path: Path) -> tuple[Any, Any]:
         resources["worker"].update(memory_envelope_bytes=12 * 1024**3, kernel_memory_bytes=4 * 1024**3)
         for slot, root in storage["roots"].items():
             root["source"] = str(directory / slot)
+            (directory / slot).mkdir()
         for name, value in (("storage", storage), ("resource", resources)):
             filename = directory / (name + ".json")
             filename.write_text(json.dumps(value))
@@ -119,3 +121,69 @@ def test_group_renderer_sets_exact_project_ports_images_and_parent_mounts(deploy
     assert mounts["/run/gateway/session"]["read_only"] is True
     assert rendered["secrets"]["repository-bearer-token"]["file"] == group.repository_token_file
     assert rendered["services"]["worker"]["image"] == group.images.worker
+
+
+def test_same_physical_disk_is_reported_once_across_groups(deployment: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    helper, groups = deployment
+    from types import SimpleNamespace
+    monkeypatch.setattr(helper.host, "check_host", lambda *args, **kwargs: None)
+    monkeypatch.setattr(helper.host, "mounts", lambda: (SimpleNamespace(target="/", root="/", device="8:1"),))
+    result = helper.check_groups(groups)
+    assert len(result["filesystems"]) == 1
+    assert next(iter(result["filesystems"].values()))["available_bytes"] > 0
+
+
+def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(deployment: tuple[Any, Any], tmp_path: Path) -> None:
+    helper, groups = deployment
+    config = helper.load_configs(groups)["group-a"]
+    group = groups.groups[0]
+    (tmp_path / "groups.json").write_bytes(groups.to_bytes())
+    (tmp_path / "device-directory.json").write_text(json.dumps(dict(schema_version=1, environment_id=groups.environment_id, devices=[])))
+    containers = []
+    for service, role in (("backend", "backend"), ("worker", "worker"), ("repository-service", "repository_service")):
+        profile = getattr(config.resources, role)
+        memory = profile.memory_envelope_bytes if role == "worker" else profile.memory_limit_bytes
+        images = {"backend": group.images.backend, "worker": group.images.worker, "repository_service": group.images.repository_service}
+        mounts = [dict(Type="bind", Source=root.source, Destination=root.path, RW=True)
+            for root in config.storage.role_roots(role).values()]
+        files = {"/run/gateway/storage-layout.json": group.storage_config,
+            "/run/gateway/resource-profile.json": group.resource_config,
+            "/run/secrets/repository-bearer-token": group.repository_token_file}
+        environment = []
+        if role != "repository_service":
+            files.update({"/run/gateway/groups": str(tmp_path), "/run/gateway/provisioned-mapping.json": str(tmp_path / "seed.json")})
+            prefix = "GATEWAY_BACKEND_" if role == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
+            environment += [prefix + "REPOSITORY_BASE_URL=http://repository-service:8000",
+                prefix + "REPOSITORY_BEARER_TOKEN_FILE=/run/secrets/repository-bearer-token",
+                prefix + "PROCESSING_GROUPS_FILE=/run/gateway/groups/groups.json",
+                prefix + "DEVICE_DIRECTORY_FILE=/run/gateway/groups/device-directory.json"]
+        if role == "worker":
+            environment += ["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX=1"]
+        if role == "backend":
+            environment += ["GATEWAY_BACKEND_SESSION_FILE=/run/gateway/session/session.json"]
+            files.update({"/run/gateway/session": group.session_directory,
+                "/run/secrets/backend-internal-bearer": group.internal_token_file})
+        mounts.extend(dict(Type="bind", Source=source, Destination=target, RW=False) for target, source in files.items())
+        containers.append(dict(Id=service, Image="sha256:" + role, State=dict(Status="running"), Mounts=mounts,
+            NetworkSettings=dict(Networks={group.project + "_default": {}}),
+            Config=dict(Image=images[role], Env=environment, Labels={"com.docker.compose.project": group.project,
+                "com.docker.compose.service": service, "com.docker.compose.container-number": "1", "com.docker.compose.oneoff": "False"}),
+            HostConfig=dict(Memory=memory, MemorySwap=memory + profile.swap_limit_bytes,
+                NanoCpus=round(profile.cpu_limit * 1_000_000_000), RestartPolicy=dict(Name="no"),
+                PortBindings={"8000/tcp": [dict(HostIp="127.0.0.1", HostPort=str(group.backend_port))]} if role == "backend" else {})))
+    assert set(helper.validate_group_containers(config, group, containers)) == {"backend", "worker", "repository-service"}
+    faults: list[tuple[list[Any], Any]] = [(["Config", "Image"], "other:revision"),
+        (["Config", "Labels", "com.docker.compose.project"], "other"),
+        (["NetworkSettings", "Networks"], {"other_default": {}}),
+        (["HostConfig", "Memory"], 1),
+        (["HostConfig", "PortBindings"], {"8000/tcp": [dict(HostIp="0.0.0.0", HostPort=str(group.backend_port))]}),
+        (["Mounts", 0, "Source"], "/other-group/root"),
+        (["Mounts", 0, "RW"], False)]
+    for path, value in faults:
+        changed = deepcopy(containers)
+        target: Any = changed[0]
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        with pytest.raises(ValueError):
+            helper.validate_group_containers(config, group, changed)

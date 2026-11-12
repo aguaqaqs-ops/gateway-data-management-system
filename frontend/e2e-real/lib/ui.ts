@@ -71,38 +71,6 @@ export function waitForBundleResponse(page: Page, timeout = 300_000): Promise<Re
   return page.waitForResponse(isBundleResponse, { timeout });
 }
 
-/** Record every bundle download on the page; the download may legitimately
- * finish before, during, or after compare rendering, so completion is decided
- * by the OPFS install state, not by a single waitForResponse window. */
-export function recordBundleResponses(page: Page): { responses: Response[]; dispose: () => void } {
-  const responses: Response[] = [];
-  const listener = (response: Response): void => {
-    if (isBundleResponse(response)) responses.push(response);
-  };
-  page.on("response", listener);
-  return { responses, dispose: () => void page.off("response", listener) };
-}
-
-/** Read bundle bodies when they arrive: Playwright cannot fetch a response
- * body after the page has navigated away from it. */
-export function recordBundleBodies(page: Page): { bodies: Array<{ body: Buffer; contentLength: string | null; etag: string | null }>; pending: Promise<void>[]; dispose: () => void } {
-  const bodies: Array<{ body: Buffer; contentLength: string | null; etag: string | null }> = [];
-  const pending: Promise<void>[] = [];
-  const listener = (response: Response): void => {
-    if (!isBundleResponse(response)) return;
-    pending.push(
-      response
-        .body()
-        .then((body) => {
-          bodies.push({ body: Buffer.from(body), contentLength: response.headers()["content-length"] ?? null, etag: response.headers()["etag"] ?? null });
-        })
-        .catch(() => undefined),
-    );
-  };
-  page.on("response", listener);
-  return { bodies, pending, dispose: () => void page.off("response", listener) };
-}
-
 /** Poll until the bundle digest directory carries `.complete.json` (installed). */
 export async function waitForInstalledBundle(page: Page, digestHex: string, timeout = 600_000): Promise<void> {
   await expect(async () => {

@@ -107,4 +107,4 @@ cd "$service"
 "${common[@]}" "$uv_bin" sync --locked --offline --no-config --python "$python_bin"
 "${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync ruff check .
 "${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync mypy
-"${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync pytest -o "cache_dir=$run_dir/pytest" "$@"
+"${common[@]}" "$uv_bin" run --locked --offline --no-config --no-sync python -m pytest -o "cache_dir=$run_dir/pytest" "$@"

@@ -1,6 +1,7 @@
 # AGENTS
 
 本仓库的 agent 硬约束。完整背景见 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+脚本已经强制执行的步骤不在本文重复，以脚本及其说明为准；本文只列脚本不强制、需要人或 agent 自己遵守的约束。
 
 ## 项目前提
 
@@ -16,19 +17,27 @@
 - 这不放宽阶段内的冻结约定：某阶段声明“不改行为”时，golden 与 digest 仍作为该阶段的回归
   基准。
 
+## 新代码的校验与身份（Owner 2026-11-12）
+
+适用于新增和本次改动的代码；存量不为此批量删改，专项改造由 Owner 另定。
+
+- **校验：**有静态类型的字段不再做运行时类型复检，`__post_init__` 只写取值和跨字段的不变量。新增或改字段的文档类型，从字节解码时用 pydantic 严格模式并禁止多余字段，不再手写解码函数。逐行计算用的对象不用 pydantic。
+- **身份与版本：**新增 digest、ID、版本常量或状态枚举，要在设计里写明它防的是什么、由谁核对；只计算不核对的不加。
+
 ## 流程与角色（P7-D25/D26）
 
-新流程后端按 P7-D27 提前至 **S1a-B 原流程收尾后暂停、工具验证通过后从 C 启用**。A/B 既有事实及 FE4a 角色不改，构建快速修复、产品范围和验收要求保留。具体切换条件见 [S0 决议 §7](docs/backend-vnext/refactoring/formal/plans/p7-s0-owner-decisions.md#7-b-收尾后的流程切换owner-后续确认与安排)。
+后端自 P7 S1a-C 起按本节执行（P7-D27，见 [S0 决议 §7](docs/backend-vnext/refactoring/formal/plans/p7-s0-owner-decisions.md#7-b-收尾后的流程切换owner-后续确认与安排)）；流程变化不改变产品范围和验收要求。
 
 **前端角色安排（Owner 2026-11-11）：**前端暂不需要固定长程任务的角色分工，无需参考后端角色分配规则。下列角色、上下文、模型家族及按角色分包要求仅适用于后端。
 
 - 后端每阶段一个设计会话和持续协调者；协调者按比例化政策 §4 的实际后果定 A–D 风险、触发门禁、合入并维护阶段日志。每包新实施上下文，内聚的两三个小包可合并。
 - A/B 类逐包独审；C/D 类由实施者与门禁完成。阶段末一次全范围独审覆盖全部包；独审须新上下文并使用与实施者不同的模型家族。同一 finding 原审复审。取消专职测试者，门禁由脚本执行，focused 由实施者执行；不自动递归扩队。
-- 设计、Contract、正式决议入库。handoff、审核意见、提示词及运行材料放仓库外 `/home/dev/gdds-stage-exchange/<stage>/`；提交加追加式阶段日志交接，退出只入库一页总结。历史过程文档不改写。
+- 设计、Contract、正式决议入库。handoff、审核意见、提示词及运行材料放仓库外 `/home/dev/gdds-stage-exchange/<stage>/`；提交加追加式阶段日志交接，退出只入库一页总结。历史过程文档不改写。本文与 testing-conventions 中仍称 handoff 的记录项，由阶段日志或机器结果承接，不再入库。
+- **阶段总结写给人看（Owner 2026-11-12）：**一页，写做了什么、与设计的偏差、遗留事项。SHA256、日志路径、run ID 这类机器记录不抄进总结，用引用指向门禁结果目录（阶段交接区的 `gate/`，原件位置记在其中）。模板见流程规格 §4，其“验证”一行按本条只写结论、未测限制和引用。
 - 节点选择与原子占用、已授权范围内可逆实现细节、风险定级和已确认环境/命令错误的修复，由协调者按下文默认规则自决。只将产品范围、验收范围、来源冲突、不可逆操作交 Owner 决定；他人资源冲突先针对性协调，不擅自抢占。runner 失败停止本次及依赖验收，不能归作环境错误掩盖产品 finding。
-- 审核 worktree 用毕、finding 关闭且无消费者即回收；不删除在途 S1a/FE4a、固定门禁/carried 来源、dirty 或用途不明工作区。批量回收先向 Owner 展示数量及排除项，执行前复核，不 force。
+- 审核 worktree 用毕、finding 关闭且无消费者即回收；不删除在途阶段、固定门禁/carried 来源、dirty 或用途不明工作区。批量回收先向 Owner 展示数量及排除项，执行前复核，不 force。
 
-门禁、交接目录、总结模板和实施安排见 [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。入口已实现为 [`scripts/run-stage-gate.py`](scripts/run-stage-gate.py)，操作见 [`scripts/README.md`](scripts/README.md)。完成独审与专用节点验证、协调者确认启用前，仍用现有权威入口和 testing-conventions 取证；不以实现提交冒称已完成启用验收。
+门禁、交接目录、总结模板和实施安排见 [流程规格](docs/backend-vnext/refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。
 
 ### 代码独审与验收核对
 
@@ -40,86 +49,72 @@
 
 ## 跑测试
 
-权威入口：
+后端阶段门禁入口，在开发节点触发，经 SSH 在 `ct108-gw-dms-04` 的固定 worktree 执行：
 
 ```bash
-./vnext/scripts/run-tests.sh
+scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose stage|s3-ready|s5|release|production] [--fresh] [--session <名>]
 ```
+
+脚本调用权威 runner `./vnext/scripts/run-tests.sh`，占用、环境准备、闭包查表与容器等价、身份与日志记录、清理都由它执行，不手工重复，结果不手抄。参数、04 节点配置、结果位置和失败语义见 [`scripts/README.md`](scripts/README.md)；runner 与闭包的行为说明见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本不强制、仍须遵守：
+
+- 权威运行必须在专用节点、clean 已提交 worktree 上进行；期间不写被测树、不改相关镜像（runner 的既定构建例外保留）。同节点整机单飞、离线预填充、保护真实输入及原始证据、失败不冒称通过都是硬约束。
+- **项目最终门禁与发布门禁必须运行全部六包**：S5、发布与最终 production gate 选对应 `--purpose`（强制六包 fresh、最终 HEAD 重建），不用普通 stage 结果替代。其他阶段按范围与闭包选包；阶段性验证只跑所需 focused/marker 范围，不跑全量。
+- 按包沿用和容器结果沿用只以脚本查表结果为准：不手工计算 carried，不把其他节点或其他 worktree 的记录当来源，不手工创建固定门禁 worktree 或删除其归属记录。
+- 占用冲突（exit 3）不抢占，稍后重新触发。修正后新开一次运行，不覆盖失败记录；中断后残留的占用标记由协调者核远端进程和结果后处理，不直接删除。
+- 脚本不覆盖真实数据旅程和前端，它们使用各自入口。门禁之外的手工运行（focused、真实数据旅程）仍按 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口) 自行满足 `legacy` 链接、`TMPDIR` 和日志记录要求。
 
 ### 专用测试节点
 
 所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
-五节点均为 **32 vCPU / 64 GiB**，组成无固定功能分工的资源池（DC91）。以下任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，池内换节点无需另申请用途例外：
+五节点（SSH 别名 `ct108-gw-dms-04`、`ct108-gw-dms-05`、`ct108-gw-dms`、`ct107-gw-dms-06`、`ct109-gw-dms-07`）均为 **32 vCPU / 64 GiB**，组成无固定功能分工的资源池（DC91）。任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，池内换节点无需另申请用途例外；自动门禁固定在 04，由脚本保证。
 
-| 节点（SSH 别名） | 当前配置 |
-| --- | --- |
-| `ct108-gw-dms-04` | 32 vCPU / 64 GiB |
-| `ct108-gw-dms-05` | 32 vCPU / 64 GiB |
-| `ct108-gw-dms` | 32 vCPU / 64 GiB |
-| `ct107-gw-dms-06` | 32 vCPU / 64 GiB |
-| `ct109-gw-dms-07` | 32 vCPU / 64 GiB |
-
-- 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。已有自行管理标记的入口（前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
+- 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。自行管理标记的入口（`run-stage-gate.py`、前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
 - 同节点整机单飞；计时测量期间该节点不运行其他任务。已知物理拓扑仍是 04/06/07 同宿主、04/05/CT108 分属不同宿主，不能因配置一致就视为五套独立硬件。跨节点不自动互斥，实际干扰时针对性协调。
 - 已授权测试不需逐次与其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（DC97）。
 - 长测由唯一测试执行者负责等待异常／完成事件，常规巡视可降至小时级；协调者等待其唤醒，不重复巡检、转述分钟级进度或逐次跨会话通报。异常及时保留原始exit／日志并按现行规则处理，完成后核收与收尾；具体分工见[测试执行与监视](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)。
 - 正式测量可选池内合格节点；同一统计组的预热和测量留在同一节点与配置，记录冷暖、CPU/内存及存储条件。换节点或硬件配置后的样本分组报告，不能混入旧组或直接宣称同条件提速。
 - pytest workers/Cargo jobs 初始建议各 4；前端设置 `GATEWAY_FE_TEST_WORKERS=2`。测试并发与产品 N/M 分开。生产默认 N1、单 active、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB；节点容量不构成增预算授权。其他资源档须有适用授权、固定参数及独审，并留系统/其他服务余量，结果按配置分列。
-- 缓存不跨节点共享。按包 carried 和镜像等价须在来源 V 的同一节点、同一 worktree 判定，不能随调度搬迁证据。
+- 缓存不跨节点共享，证据不随调度搬迁。
 - 清理仅限已授权且确认无运行者、无待用消费者、无需保留的本人或明确废弃派生文件，逐项留路径、理由及前后空间记录。保留已引用成功/失败原始证据、当前 carried worktree/环境/镜像、真实输入、冻结基准资源及未决故障状态；不按年龄批删，不执行全局 Docker prune，不清他人有效资源。
 
 网络与缓存遵守 [测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)：
 
 - CT201 只作联网开发与获准缓存来源；测试 CT 禁止直连公网，只经获准 LAN 获取源码、依赖、镜像与制品。各节点分别预填充并确认本次缓存端点可达，不能假设缓存跨节点共享。
-- Python runner/同步设置 `UV_OFFLINE=1`；Rust runner 设置 `CARGO_NET_OFFLINE=true`。root SSH 的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME`、`CARGO_HOME`，按仓库 selector 核对四个 Rust 工具为同一工具链。
+- 不经门禁脚本直接调用 runner 或同步环境时，设置 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`；root SSH 的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME`、`CARGO_HOME`，四个 Rust 工具须解析到仓库 selector 指定的同一工具链。门禁脚本已固定并核对这些条件。
 - **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；只有 05 调试构建可按链接中的受限代理例外执行，结果不作证据。离线隔离不关闭本机 Docker 网络、loopback、测试端口或获准 LAN。
-- **backend/worker：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份；节点使用预置 dependency-base、`GATEWAY_DOCKER_BUILD_NETWORK=none`，保留 Compose 本机 build，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
-- **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；同节点闭包/按包 carried 使用本机 image ID，容器门禁等价另按下节判定。RS/client e2e 保留各自预置依赖模式；client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
-- 新阶段日志/门禁结果（S1a-A/B、FE4a 仍用 handoff）记录缓存来源类别/端点标识、来源节点/提交、制品摘要、预填充时间与使用方式；镜像另按链接记录完整身份。不得记录凭据，manifest 中 proxy/cache 值只存摘要。
-- **DC68 工具/取证错误：**Owner 2026-11-10 对确认属于非程序逻辑的构建/环境故障改用下文快速修复流程，取消此类故障“重做一次/最多两三轮即交 Owner”的限制，立即适用于已因次数停止的 S1a 和后续全部阶段。其他工具/取证错误仍按 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则；产品 finding 不归入构建故障。
+- **backend/worker：**依赖输入变化时，按链接列明的输入与 `build-backend-dependency-base.sh --save` 流程在 CT201 clean worktree 构建、传输并记录完整身份。门禁之外的 Compose 运行按链接使用预置 dependency-base 和节点本机构建。
+- **缓存来源记录：**门禁所用的预置依赖选择、缓存来源和镜像身份记录由 04 节点配置提供，脚本校验并写入结果（字段见 [`scripts/README.md`](scripts/README.md)）；其他运行按链接列明的字段记入阶段日志。任何记录不得含凭据。
+- **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID。client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。
+- **DC68 工具/取证错误：**确认属于非程序逻辑的构建/环境故障走下文快速修复流程，不受“重做一次/最多两三轮即交 Owner”的限制。其他工具/取证错误仍按 [testing-conventions](docs/backend-vnext/testing-conventions.md) 的 DC68 现行规则；产品 finding 不归入构建故障。
 
 ### 构建故障快速修复（Owner 2026-11-10）
 
 - 命令/路径错误、获准缓存未就绪、可安全修复的本地环境/临时空间问题等，确认未改变程序逻辑、依赖选择、部署语义和测试预期后，走“定位 → 修正构建条件 → 重跑失败步骤”。执行者可在本授权内直接处理，无需每次经过测试→评审→实现→评审→测试，也无需逐次申请恢复或换角色。
 - 此类修正复跑**不设固定次数上限**，每次须有具体修正或已核实的环境变化；不允许无变化盲重试。持续失败时补充诊断、改变有依据的排查方案；仅因次数达到 2–3 次不得停止交 Owner。需要新权限/他人资源、存在来源冲突或无法确认副作用/安全收尾等真实阻塞时，才停止受影响部分并说明所需决定。
 - 修改仓库构建脚本、Dockerfile、锁/依赖、entrypoint 等，由实施者修复，原审对该修订做一次针对性代码评审，再由执行者构建/验证；不为命令/环境修正额外评审执行稿。后续有新代码差异再评审其差异；证据核收归阶段验收，不逐次重审。程序编译/类型错误、运行时行为或产品正确性问题回正常实现/评审/测试流程，不能因发生在 build 就归为环境故障。
-- 一个故障维护一个普通条目：保留原始失败日志/exit/SHA，追加根因、修正和每次复跑结果/日志索引，最终 handoff 引用一次；不重复多份报告、签署或持久计数机制。恢复后从失败的构建步骤重做；已失败的 runner 不直接续接为合格证据，须按现行范围/闭包规则重新运行所需权威入口。
-- 只停止当前失败执行和依赖验收，可继续无依赖实施。所有修复仍遵守节点占用、clean 已提交源码、离线预填充、镜像身份和本人资源清理边界；不得在测试运行中写被测树/重建相关镜像、清理他人资源、跳身份或改预期。测试角色在此范围可修正命令与环境并复跑，不获得产品源码、资源预算或验收范围的修改权。
+- 一个故障维护一个普通条目：保留原始失败日志/exit/SHA，追加根因、修正和每次复跑结果/日志索引，最终在阶段日志引用一次；不重复多份报告、签署或持久计数机制。恢复后从失败的构建步骤重做；已失败的 runner 不直接续接为合格证据，须按现行范围/闭包规则重新运行所需权威入口。
+- 只停止当前失败执行和依赖验收，可继续无依赖实施。所有修复仍遵守节点占用、clean 已提交源码、离线预填充、镜像身份和本人资源清理边界；不得在测试运行中写被测树/重建相关镜像、清理他人资源、跳身份或改预期。本授权只覆盖修正命令与环境并复跑，不含产品源码、资源预算或验收范围的修改权。
 
-权威运行必须在专用节点、clean 已提交 worktree 上进行；期间不写被测树、不改相关镜像（runner 的既定构建例外保留）。同节点整机单飞、离线预填充、保护真实输入及原始证据、失败不冒称通过都是硬约束。
-门禁脚本负责 SSH/占用、legacy 链接、固定临时路径、起止 HEAD/UTC/hostname、日志和 SHA、runner exit 与清理；具体步骤见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本启用前及 S1a-A/B、FE4a 继续按该文现行步骤执行。
+### 手工运行与依赖消费
 
-阶段性验证只跑所需 focused/marker 范围，不跑全量。权威入口可用 `GATEWAY_TEST_PACKAGES` 选包；固定顺序为 `rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`，未知或重复名称 exit 2，未设置则全六包。**项目最终门禁与发布门禁必须运行全部六包**；其他阶段按范围与闭包规则选择。
-
-Rust 包依次执行全 workspace 的 fmt、clippy（`-D warnings`）、test（locked/offline），三步都执行、任一失败则包失败，不排除 crate；扩展 Python/Arrow 行为由 backend pytest 覆盖。Rust 改动后跑 backend focused 前须强制重装扩展，不能使用旧 `.so`；构建输入检查、额外参数仅传 pytest 及 worktree 外 Cargo 缓存处理见 [Rust 扩展规则](docs/backend-vnext/testing-conventions.md#rust-包与-backend-的-rust-扩展dc48)。
-
-按包沿用只接受同来源节点、同固定 worktree 的完整闭包匹配，以及该包实际通过且整次 runner exit 0 的原始记录；直接引用最初实跑来源。新门禁用查表记录代替人工 carried，Hypothesis、环境同步与闭包前置条件由脚本承担，规则见 [闭包约定](docs/backend-vnext/testing-conventions.md#hypothesis-隔离与按包闭包沿用)。未实现前不能省略这些条件。
-
-backend/RS 主体并行，`serial and not parallel_safe` 始终 `-n 0`，其余三个 Python 包单进程；`parallel_safe` 须逐项审查不依赖时序、线程/进程、网络、Dolt 或共享持久状态，backend 当前无此例外。worker 默认 `auto`，按节点资源设置，不盲目并行 serial；[执行入口](docs/backend-vnext/testing-conventions.md#执行入口)列明 marker 命令、两遍拆分与参数。
-专用测试节点可显式以绝对路径 `GATEWAY_TEST_BASETEMP` 使用 tmpfs，仅影响 pytest 临时目录，不改变服务卷；持久化、崩溃恢复和快照验收必须用真实文件系统，详见同节。
-
-Host 依赖准备使用 `./vnext/scripts/prepare-dev-dependencies.sh`（不跑测试）；所有 uv 消费使用 `./vnext/scripts/uv-consume.sh -C vnext/<package> <sync|run|lock-check|pip-install> ...`。保持 canonical registry identity，禁止隐式改锁；依赖变更须显式授权并重新同步。internal 模式须给 index、pypi 默认剥离机器 index，`GATEWAY_DEV_OFFLINE=1` 只约束准备步骤；locked/无同步检查与五锁漂移拒绝规则见 [内网构建环境变量](docs/backend-vnext/testing-conventions.md#内网构建环境变量仅记录名与语义不得写入-lockfile-或-production-runtime)。
-Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production runtime、不改变 Compose 服务网络；默认值、覆盖方式与接入脚本见同节。
+- Rust 改动后跑 backend focused 前须用 `--reinstall-package gateway-compute-python` 强制重装扩展，不能使用旧 `.so`；见 [Rust 扩展规则](docs/backend-vnext/testing-conventions.md#rust-包与-backend-的-rust-扩展dc48)。
+- 手工运行 `serial and not parallel_safe` 组始终 `-n 0`，不盲目并行 serial。`parallel_safe` 须逐项审查不依赖时序、线程/进程、网络、Dolt 或共享持久状态，backend 当前无此例外。marker 命令与 runner 的两遍拆分见 [测试批次](docs/backend-vnext/testing-conventions.md#测试批次与-focused-运行)。
+- 专用测试节点可显式以绝对路径 `GATEWAY_TEST_BASETEMP` 使用 tmpfs，仅影响 pytest 临时目录，不改变服务卷；持久化、崩溃恢复和快照验收必须用真实文件系统。
+- Host 依赖准备使用 `./vnext/scripts/prepare-dev-dependencies.sh`（不跑测试）；所有 uv 消费使用 `./vnext/scripts/uv-consume.sh -C vnext/<package> <sync|run|lock-check|pip-install> ...`。保持 canonical registry identity，禁止隐式改锁；依赖变更须显式授权并重新同步。index 模式、离线和五锁漂移拒绝由脚本执行，说明见 [内网构建环境变量](docs/backend-vnext/testing-conventions.md#内网构建环境变量仅记录名与语义不得写入-lockfile-或-production-runtime)。
+- Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production runtime、不改变 Compose 服务网络。
 
 ## 前端测试（FD7）
 
 依据 [前端 kickoff §6](docs/frontend-vnext/frontend-kickoff.md#6-测试与证据fd7)（owner 2026-11-02 确认）；
 细节见 [testing-conventions.md](docs/backend-vnext/testing-conventions.md#前端测试fd7) “前端测试”一节。
-真实 backend e2e 的独立入口为 `frontend/scripts/run-real-backend-e2e.sh`，不并入 `run-tests.sh`；`--session` 必填；脚本自行获取与释放 DC70 占用，调用前不要手工获取，否则脚本以 exit 3 退出。
 
 - **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
-  权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
+  权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。真实 backend e2e 的独立入口为
+  `frontend/scripts/run-real-backend-e2e.sh`，不并入 `run-tests.sh`；`--session` 必填。
 - **后端改 `frontend/`（owner 2026-11-11）：**后端会话改动 `frontend/` 下任何文件（包括 `frontend/scripts/` 中的真实 backend e2e 入口）之前，先告知前端设计会话改动目的与范围。这类提交属于前端审核范围，由前端设计会话列入当前或下一个前端阶段的审核与调试。起因：P7 S1a 的 `7b16061b2e`、`b79fd4c72f` 在 main 上直接改了 `run-real-backend-e2e.sh`（见 [FE4 kickoff](docs/frontend-vnext/fe4-kickoff.md) 的 FE4a 退出记录）。
-- **节点：**与后端共用上述五节点池；静态检查、mock/真实 backend e2e 和阶段证据均可在合格空闲节点运行，不在开发主机运行。阶段证据仍使用 clean、已提交 worktree 与权威入口，记录实际节点。
-- **工具链镜像：**测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行（含 Node.js、浏览器与
-  系统库）：在 CT201 取得，经 `docker save`/`docker load` 传到节点；跨节点身份比较 config digest 与全部
-  RootFS DiffID，不比较 `docker inspect` ID。镜像版本变化时按同一流程重新取得与传输。
-- **npm 缓存：**按 DC67 在 CT201 依 `package-lock.json` 取得缓存，经获准的局域网预填充到实际使用的节点，挂载进
-  工具链容器，在容器中 `npm ci --offline`。缓存缺失即停止，补齐后从头运行。
-- **节点协调：**所有前端运行均遵守上述原子占用规则。`run-real-backend-e2e.sh` 自行取得/释放标记；外层不得重复取得。核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
-- **日志：**与后端相同，写到 worktree 外，记录 `hostname`、起止时间、起止 HEAD、exit code 与日志 SHA256；
-  handoff 另记工具链镜像 tag 与身份（config digest、全部 RootFS DiffID）、npm 缓存来源（来源提交、缓存摘要、
-  预填充时间）与运行节点。
+- **节点与占用：**与后端共用上述五节点池和原子占用规则，不在开发主机运行；阶段证据使用 clean、已提交 worktree 与权威入口，记录实际节点。`run-real-backend-e2e.sh` 自行取得、核对和释放占用标记，调用前不要手工获取，否则脚本以 exit 3 退出。其他入口由执行者取得占用，核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
+- **工具链镜像与 npm 缓存：**测试节点宿主机不安装 Node.js，前端测试在固定版本的工具链镜像中运行。镜像与 npm 缓存（依 `package-lock.json`）按 DC67 在 CT201 取得，经获准的局域网预填充到实际使用的节点；镜像版本变化时按同一流程重新取得与传输。缓存缺失即停止，补齐后从头运行。镜像身份（config digest 与全部 RootFS DiffID）和 `npm ci --offline` 由入口校验和执行。
+- **日志：**入口自行把日志写到 worktree 外，并记录 `hostname`、起止时间、起止 HEAD、exit code、工具链镜像 tag 与身份、npm 缓存来源提交与摘要、日志 SHA256；阶段日志引用该日志，另记日志里没有的 npm 缓存预填充时间。
 - **截图验收：**FE2 起在 1280 与 1920 两种宽度下截图，截图存于 worktree 外的证据目录并记录 SHA256。审核会话对照
   `docs/frontend-vnext/sketches` 核对布局、层级、语义色、按钮层级、禁用原因与焦点样式，不做像素级比对；不符处
   修正或作为偏差列入 handoff 交 owner 确认。
@@ -135,6 +130,9 @@ Docker build 网络与 uv bootstrap 参数只影响构建，不进入 production
   `import_provider` fixture 的会被 conftest 自动判定，无需重复标注。
 - 依赖固定时间预算（`Event.wait(timeout=...)`、`thread.join(timeout=...)`、子进程
   sleep 与 stream timeout 的相对关系）的测试，**必须**加 `@pytest.mark.serial`。
+- **artifact ID（Owner 2026-11-12）：**除 golden 和 ID 格式校验的测试外，backend 测试经 `build_artifact_id`
+  （`gateway_backend/artifacts/location.py`）生成 artifact ID，不手写 `a1:` 字面量。已有的字面量在下次改到该文件时
+  顺手改，不为此专门返工。
 - 改动测试分类后，仅在专用测试节点按占用规则用「移开 dolt 再跑 `-m unit`」验证，静态扫描不可靠：
 
 ```bash
@@ -159,12 +157,8 @@ mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
 各包依赖一律精确钉版本（`==`），用 `uv add --dev` 添加。
 
 改动 `vnext/repository_service/uv.lock` 后，**必须**同步更新
-`vnext/repository_service/Dockerfile` 里的 `ARG UV_LOCK_SHA256`，否则
-`test_dockerfile_uv_lock_sha256_matches_lockfile` 会失败：
-
-```bash
-sha256sum vnext/repository_service/uv.lock
-```
+`vnext/repository_service/Dockerfile` 里的 `ARG UV_LOCK_SHA256`（`sha256sum vnext/repository_service/uv.lock`），否则
+`test_dockerfile_uv_lock_sha256_matches_lockfile` 会失败。
 
 ## 主线开发与阶段边界
 
@@ -178,37 +172,15 @@ sha256sum vnext/repository_service/uv.lock
 
 ## Docker / Compose 验证
 
-Owner 于 2026-11-10 明确：从当前 S1a 起及后续实施，**工作包做针对性验证，阶段最终候选集中构建验收**。
-S1a 的 A–F 是实施小节，G 是阶段集中验收点；工作包交接、独审轮次或角色更换不触发完整镜像构建、
-全量 runner 或完整真实数据旅程。小节按改动做静态/类型、focused/unit/Contract、必要真实 filesystem/Dolt
-及最小数据链验证；可明确移交至阶段最终候选的容器项记为 `deferred`，不阻塞无依赖的后续实施。
+**工作包做针对性验证，阶段最终候选集中构建验收**（Owner 2026-11-10）。工作包交接、独审轮次或角色更换不触发完整镜像构建、
+全量 runner 或完整真实数据旅程；工作包按改动做静态/类型、focused/unit/Contract、必要真实 filesystem/Dolt
+及最小数据链验证。可明确移交至阶段最终候选的容器项记为 `deferred`，不阻塞无依赖的后续实施。
 
-下列边界决定必须验证什么，不要求每个中间提交立即构建。相关改动收敛后，只有无法由逻辑/宿主集成
-证明且影响后续接线的 mount、权限、entrypoint、cgroup、signal 等行为，提前做最小必要容器验证；
-关联小节可合并执行，不扩成完整业务矩阵。其余容器验收集中到阶段最终候选；评审不因尚未到该验收点
-要求重复完整构建，也不得用延期关闭已发现的正确性问题。
-
-依赖基础镜像仅在其定义的依赖/锁/工具链等输入变化时重建、传输；产品源码变化使用已有基础镜像和构建缓存。
-一次集中完整验收是正常通过时的目标，不是失败后的次数上限；修复后按受影响范围重建复验，遵守现行停止/DC68
-规则。构建/缓存故障先停止受影响执行与依赖验收，可以继续无依赖的逻辑开发，不跳过离线或身份前提。
-
-以下改动在相应容器验证点必须重建当前候选 HEAD 并运行受影响容器门禁：
-
-- Dockerfile、依赖锁/production 依赖闭包、基础镜像、镜像构建或传输脚本；
-- entrypoint、Compose、环境变量接线、healthcheck/readiness 接线；
-- UID/GID、目录权限、volume/mount、socket、pidfile、broker/helper；
-- 依赖容器用户、PID、signal、mount 或 filesystem 隔离才能证明的 startup/shutdown 行为；
-- 修改实际 Docker/Compose e2e 或 container harness，或本轮要宣称当前 HEAD 已通过容器门禁；
-- 阶段退出、发布或最终 production gate。最终候选 HEAD 必须有绑定到它的容器
-  门禁结果：发布与最终 production gate 必须在最终 HEAD 重建并完整运行；阶段退出
-  可按下文“镜像身份等价”沿用已验证提交的结果。
-
-纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖
-且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
-表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
-
-阶段退出的容器沿用须同时满足同来源闭包与镜像等价，规则见 [镜像身份等价](docs/backend-vnext/testing-conventions.md#镜像身份等价与结果沿用)。不满足就重建实跑；同次 runner 已通过的 Compose 旅程不重复跑。S5、发布及最终 production gate 必须最终 HEAD 重建和完整六包，不查表跳过。
-新流程由门禁结果记录重建理由、image revision/source-tree 和最初来源；评审/阶段总结引用结果即可。S1a-A/B、FE4a 的原记录方式及脚本启用前的操作细节继续见 testing-conventions，不删掉尚无人承担的取证步骤。
+- 只有无法由逻辑/宿主集成证明且影响后续接线的 mount、权限、entrypoint、cgroup、signal 等行为，在相关改动收敛后提前做最小必要容器验证；关联工作包可合并执行，不扩成完整业务矩阵。其余容器验收集中到阶段最终候选；评审不因尚未到该验收点要求重复完整构建，也不得用延期关闭已发现的正确性问题。
+- 容器边界的改动（镜像与依赖构建、entrypoint/Compose/环境变量与 healthcheck 接线、UID/GID/权限/mount/socket/pidfile/broker、依赖容器隔离才能证明的 startup/shutdown、Docker/Compose e2e 与 harness；逐项清单见 [触发式重建](docs/backend-vnext/testing-conventions.md#docker--compose触发式重建)）须在相应容器验证点重建当前候选 HEAD 并运行受影响容器门禁。
+- 纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得表述为当前 HEAD 已验证；要宣称当前 HEAD 已通过容器门禁，须有绑定到它的门禁结果。
+- 阶段退出时最终候选 HEAD 必须有绑定到它的容器门禁结果。重建实跑还是沿用由门禁脚本判定（条件见 [镜像身份等价](docs/backend-vnext/testing-conventions.md#镜像身份等价与结果沿用)），并记录重建理由、image revision/source-tree 和最初来源；评审与阶段总结引用结果即可。同次 runner 已通过的 Compose 旅程不重复跑。S5、发布及最终 production gate 必须在最终 HEAD 重建并完整运行六包，不查表跳过。
+- 依赖基础镜像仅在其定义的依赖/锁/工具链等输入变化时重建、传输；产品源码变化使用已有基础镜像和构建缓存。一次集中完整验收是正常通过时的目标，不是失败后的次数上限；修复后按受影响范围重建复验，遵守现行停止/DC68 规则。构建/缓存故障先停止受影响执行与依赖验收，可以继续无依赖的逻辑开发，不跳过离线或身份前提。
 
 ## 全局比例化保障
 

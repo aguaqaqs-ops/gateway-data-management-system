@@ -75,6 +75,12 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         VNEXT_ROOT / "rust" / "rust-toolchain.toml",
         vnext_root / "rust" / "rust-toolchain.toml",
     )
+    # The backend manifest hashes the independent entry Compose file as a
+    # required Git component. Keep real committed bytes, as for the Rust selector.
+    shutil.copy2(
+        VNEXT_ROOT / "deploy" / "compose.entry.yaml",
+        vnext_root / "deploy" / "compose.entry.yaml",
+    )
 
     scripts = vnext_root / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)

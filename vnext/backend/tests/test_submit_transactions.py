@@ -85,6 +85,7 @@ from gateway_backend.domain.submission.models import (
 from gateway_backend.domain.workspace.errors import (
     PermissionDenied,
     ScopeForbidden,
+    ScopeResolutionError,
     WorkspaceVersionConflict,
 )
 from gateway_backend.domain.workspace.models import (
@@ -2662,6 +2663,11 @@ def _drift_mapping_disable(db_path: Path) -> None:
 
 
 def _drift_repo_swap(db_path: Path) -> None:
+    # A complete new repository isolates mapping drift from unavailable authority.
+    _upsert_provisioned_mapping_row(db_path, repository_id="repo-other", baseline_head=BASELINE_HEAD)
+
+
+def _drift_repo_missing_authority(db_path: Path) -> None:
     _upsert_provisioned_mapping_row(db_path, repository_id="repo-other", baseline_head=None)
 
 
@@ -2671,6 +2677,7 @@ NEW_KEY_PROJECTION_DRIFT_CASES: tuple[tuple[str, type[Exception], Callable[[Path
     ("node_only", BaselineVersionConflict, _drift_head_node_only),
     ("mapping_disable", ScopeForbidden, _drift_mapping_disable),
     ("repo_swap", ScopeForbidden, _drift_repo_swap),
+    ("repo_missing_authority", ScopeResolutionError, _drift_repo_missing_authority),
 )
 
 
@@ -2715,8 +2722,19 @@ def test_t1_new_key_rejects_projection_drift_without_writes(
         assert row is not None
         if expected_error is ScopeForbidden and apply_drift is _drift_mapping_disable:
             assert row["enabled"] == 0
-        elif expected_error is ScopeForbidden and apply_drift is _drift_repo_swap:
+        elif apply_drift in (_drift_repo_swap, _drift_repo_missing_authority):
             assert row["repository_id"] == "repo-other"
+            if apply_drift is _drift_repo_swap:
+                resolved = unit_of_work.resolve_provisioned_scope(
+                    gateway_device_external_key="device-1", business_project_id="project-1")
+                assert resolved.repository_id == "repo-other"
+            else:
+                assert unit_of_work.connection.execute(
+                    "SELECT COUNT(*) FROM baseline_node_records WHERE repository_id='repo-other'"
+                ).fetchone()[0] == 0
+                assert unit_of_work.connection.execute(
+                    "SELECT COUNT(*) FROM baseline_head_records WHERE repository_id='repo-other'"
+                ).fetchone()[0] == 0
 
 
 def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path: Path) -> None:

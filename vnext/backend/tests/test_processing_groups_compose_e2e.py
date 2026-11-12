@@ -77,8 +77,14 @@ def _rejected_identity(stack: ProcessingGroupsStack) -> None:
     with stack.client("synthetic-b1") as b:
         headers = dict(b.headers)
         wrong = httpx.get(stack.group_url("group-a") + "/v1/device-context", headers=headers)
-        assert wrong.status_code == 404, wrong.text
+        assert wrong.status_code == 401, wrong.text
         wrong = b.get("/v1/device-context", headers={"X-Gateway-Device-Key": "0" * 64})
+        assert wrong.status_code == 404, wrong.text
+    with stack.client("compose-device") as a:
+        wrong = httpx.get(stack.group_url("group-a") + "/v1/device-context",
+            headers={**dict(a.headers), "X-Gateway-Device-Key": harness.compose_auth_headers(device_key="synthetic-b1")["X-Gateway-Device-Key"]})
+        assert wrong.status_code == 404, wrong.text
+        wrong = a.post("/v1/workspaces", json=dict(gateway_device_external_key="synthetic-b1", business_project_id="compose-project"))
         assert wrong.status_code == 404, wrong.text
     for token, status in (("group-b-internal", 401), ("group-a-internal", 409)):
         response = httpx.post(stack.group_url("group-a") + "/internal/v1/devices/register",

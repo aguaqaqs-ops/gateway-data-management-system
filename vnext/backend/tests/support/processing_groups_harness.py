@@ -26,18 +26,20 @@ SCRIPTS = harness.VNEXT_ROOT / "scripts"
 GIB = 1024**3
 PERMISSIONS = ["workspace_read", "upload_submit_workspace", "preview_workspace",
                "review_submission", "archive_submission", "statistics_read_group"]
-# Wrap only worker-1's executor thread. The ordinary worker supervisor keeps
+# Wrap only worker-1's executor callable. The ordinary worker supervisor keeps
 # running; reaching this file means the old claimed operation occupies that
 # executor, rather than merely waiting for its polling client.
 EXECUTOR_BARRIER = '''
-import threading, time
+import time
 from pathlib import Path
-from gateway_backend.operations.worker_runtime import WorkerRuntime
-from gateway_backend.bootstrap.operation_worker import run
-original = WorkerRuntime.__init__
+from gateway_backend.bootstrap import operation_worker
 root = Path('/var/lib/gateway/be-scratch')
-def factory(target):
-    def execute():
+original = operation_worker._KernelWorkerRegistry.resolve
+def resolve(self, key):
+    executor = original(self, key)
+    if executor is None:
+        return None
+    def execute(*args, **kwargs):
         arm = root / 'processing-group-barrier.arm'
         if arm.exists():
             arm.unlink()
@@ -47,13 +49,12 @@ def factory(target):
                 if time.monotonic() >= deadline:
                     raise RuntimeError('processing-group test barrier timed out')
                 time.sleep(0.02)
-        target()
-    return threading.Thread(target=execute, daemon=False)
-def initialize(self, **kwargs):
-    original(self, **dict(kwargs, thread_factory=factory))
-WorkerRuntime.__init__ = initialize
-raise SystemExit(run())
+        return executor(*args, **kwargs)
+    return execute
+operation_worker._KernelWorkerRegistry.resolve = resolve
+raise SystemExit(operation_worker.main())
 '''
+
 
 
 def port() -> int:
@@ -269,20 +270,53 @@ print(json.dumps(dict(r) if r else {}))
             "--internal-bearer-token-file", row["internal_token_file"], env=self.envs[group], timeout=300)
 
     def close(self) -> None:
-        self.release()
+        errors: list[Exception] = []
+        retain = sys.exc_info()[0] is not None
         try:
-            for group_id in self.envs:
+            self.release()
+        except Exception as error:
+            errors.append(error)
+        # Each project is attempted even if logs, TERM/down or an earlier
+        # project's cleanup failed. The exact owner labels bound every action.
+        for group_id in self.envs:
+            try:
                 logs = harness.run_compose(self.envs[group_id], "logs", "--no-color", timeout=30)
                 print("processing_group_logs=" + group_id + "\n" + logs.stdout + logs.stderr, flush=True)
+            except Exception as error:
+                errors.append(error)
+            try:
                 down = harness.run_compose(self.envs[group_id], "down", "--remove-orphans", "--volumes", timeout=240)
-                assert down.returncode == 0, down.stderr
+                if down.returncode:
+                    raise RuntimeError("owned group cleanup failed: " + group_id + " " + down.stderr)
+            except Exception as error:
+                errors.append(error)
+        try:
             down = self.entry.compose("down", "--remove-orphans")
-            assert down.returncode == 0, down.stderr
+            if down.returncode:
+                raise RuntimeError("owned entry cleanup failed: " + down.stderr)
+        except Exception as error:
+            errors.append(error)
+        released = True
+        for project in (self.entry_project, *(env["COMPOSE_PROJECT_NAME"] for env in self.envs.values())):
+            try:
+                if run("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + project).strip():
+                    released = False
+                    errors.append(RuntimeError("owned containers remain: " + project))
+            except Exception as error:
+                released = False
+                errors.append(error)
+        if released:
             for directory in self.runtime_roots.values():
-                run(sys.executable, str(SCRIPTS / "tests/runtime_config_fixture.py"), str(directory),
-                    "--owner", self.owner, "--cleanup", *( ["--retain"] if sys.exc_info()[0] else []))
-        finally:
+                try:
+                    print(run(sys.executable, str(SCRIPTS / "tests/runtime_config_fixture.py"), str(directory),
+                        "--owner", self.owner, "--cleanup", *(["--retain"] if retain or errors else [])), end="", flush=True)
+                except Exception as error:
+                    errors.append(error)
             harness.release_compose_gate_lock()
+        else:
+            print("processing_groups_cleanup_requires_node_protection=true", flush=True)
+        if errors:
+            raise ExceptionGroup("processing group cleanup failed; preserve node protection if resources remain", errors)
 
     def archive(self, device: str, submission_id: str, *, reason: str) -> dict[str, Any]:
         """Use the existing Review/Archive protocol, preserving explicit anomalies."""

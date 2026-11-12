@@ -65,7 +65,7 @@ describe("request and flow session binding", () => {
   it("stops upload processing and Preview retry when the flow changes session", async () => {
     adopt();
     const fetcher = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).endsWith("/v1/workspaces")) return new Response(JSON.stringify(WORKSPACE_CREATED));
+      if (String(url).endsWith("/v1/workspaces")) return new Response(JSON.stringify(WORKSPACE_CREATED.body));
       return new Response(JSON.stringify(TEST_UPLOAD_FULL));
     });
     const api = createGatewayApi({ baseUrl: "http://gateway", session: currentGatewaySession, fetcher });

@@ -118,6 +118,16 @@ describe("handoff initialization priority", () => {
     expect(window.location.pathname).toBe("/");
   });
 
+  it("clears the fragment with replaceState and never calls pushState", () => {
+    // Credential boundary: the token-bearing fragment must not stay in the
+    // browsing history. A pushState-based clear would keep it there.
+    const pushState = vi.spyOn(window.history, "pushState");
+    openWithFragment(encodeBase64Url(payload()));
+
+    expect(window.location.hash).toBe("");
+    expect(pushState).not.toHaveBeenCalled();
+  });
+
   it("does not fall back to an older session when the fragment is invalid", () => {
     window.sessionStorage.setItem(HANDOFF_SESSION_STORAGE_KEY, storedPayload());
     openWithFragment(encodeBase64Url(payload({ v: 9 })));
@@ -183,6 +193,7 @@ describe("expiry and dev identity", () => {
     const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", token: () => "dir-token-secret", fetcher });
 
     await expect(request("/v1/workspaces")).rejects.toMatchObject({ status: 401, code: "AUTHENTICATION_REQUIRED" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(getGatewaySessionState()).toEqual({ kind: "expired", returnUrl: VALID.returnUrl, display: VALID.display });
     expect(window.sessionStorage.getItem(HANDOFF_SESSION_STORAGE_KEY)).toBeNull();
     expect(window.__gatewaySession).toBeUndefined();

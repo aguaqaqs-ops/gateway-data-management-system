@@ -91,6 +91,9 @@ finish() {
     docker rmi "$VALIDATE_TAG" >> "$LOG_FILE" 2>&1 || true
   fi
   sha256sum "$LOG_FILE" > "$LOG_FILE.sha256" 2>/dev/null || true
+  # N27: the wrapper reads result fields from captured stdout, so the final
+  # exit code is printed here as well as recorded in the log file.
+  printf 'exit_code=%s\n' "$exit_code"
   printf 'log_file=%s\n' "$LOG_FILE"
   cat "$LOG_FILE.sha256" 2>/dev/null || true
   exit "$exit_code"
@@ -98,7 +101,6 @@ finish() {
 trap finish EXIT
 
 log() { printf '%s\n' "$*" | tee -a "$LOG_FILE"; }
-trap 'status=$?; log "exit_code=$status"; exit "$status"' EXIT
 path_is_empty() { [[ -d "$1" ]] && [[ -z "$(find "$1" -mindepth 1 -maxdepth 1 -print -quit)" ]]; }
 
 RUN_STAGE="preconditions"

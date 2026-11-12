@@ -14,10 +14,14 @@ copying:
   makes the run fail.
 - Truncated forms (``<hex>…<hex>``) are printed and not verified.
 
-Path+SHA256 pairing is recognised only in two shapes: a Markdown table row
-(path and value in cells) and the prose form ``path`` SHA256 ``value``. Script
-files such as ``.sh`` and ``.py`` count as paths; ordinary words like ``J1/J2``
-do not.
+Path+SHA256 pairing is recognised in two shapes: a Markdown table row (path
+and value in cells, or ``path``[，/,]SHA256 ``value`` prose inside a cell)
+and the prose form ``path`` SHA256 ``value`` (an ASCII or full-width comma may
+sit between the path and ``SHA256``). Script files such as ``.sh`` and ``.py``
+count as paths; ordinary words like ``J1/J2`` do not.
+
+Verified 64-char values that never pair with a path are listed as
+``unpaired sha256`` lines (report only; they do not change the exit code).
 
 Exit codes: 0 when every full token resolves and no abnormal length exists,
 1 on any unverified/mismatched value or abnormal length, 2 on usage errors.
@@ -44,7 +48,7 @@ FILE_EXT = (
 )
 FILE_NAME_RE = re.compile(rf"[\w.~-]+\.(?:{FILE_EXT})$")
 SHA_LINE_RE = re.compile(r"\s*([0-9a-fA-F]{64})\s+[ *]?(.+?)\s*$")
-SHA_PAIR_RE = re.compile(r"`([^`\n]+)`\s*SHA256\s*`?([0-9a-f]{64})`?")
+SHA_PAIR_RE = re.compile(r"`([^`\n]+)`\s*[，,]?\s*SHA256\s*`?([0-9a-f]{64})`?")
 
 
 def parse_args(argv):
@@ -136,17 +140,28 @@ def same_path(recorded: str, name: str) -> bool:
 
 
 def pair_line(line):
-    """Return positionally paired (name, sha) entries for 64-char values.
+    """Return paired (name, sha) entries for 64-char values.
 
     Only Markdown table rows and the prose form ``name`` SHA256 ``value`` are
-    paired.  In a table row, path cells and 64-char values pair in order; if
+    paired.  A table row first pairs every in-cell ``name`` SHA256 ``value``
+    prose span (an ASCII or full-width comma may sit between the name and
+    ``SHA256``); the remaining values pair with path cells in order, and if
     the row is not balanced each value takes the nearest path cell (before it
     on a tie).
     """
-    hexes = [(m.start(), m.group(0)) for m in HEX64_RE.finditer(line)]
-    if not hexes:
-        return []
     pairs = []
+    consumed = set()
+    if line.lstrip().startswith("|"):
+        for _match in SHA_PAIR_RE.finditer(line):
+            pairs.append((strip_markup(_match.group(1)), _match.group(2).lower()))
+            consumed.add((_match.start(2), _match.end(2)))
+    hexes = [
+        (m.start(), m.group(0))
+        for m in HEX64_RE.finditer(line)
+        if (m.start(), m.end()) not in consumed
+    ]
+    if not hexes:
+        return pairs
     if line.lstrip().startswith("|"):
         cells = []
         offset = 0
@@ -447,13 +462,44 @@ def main(argv=None):
             origin = matching_recorded[0][1]
             print(f"ok pairing {name} == {sha} (line {lineno}, {origin})")
 
+    # Report verified 64-char values that never paired with a path (kickoff
+    # §18.5 N20/N25).  Only values that have something to pair with are
+    # reported: a path-like hint on the handoff line, an on-site file with the
+    # same hash, or a recorded source binding the value to a path.  Bare
+    # digests (for example config digests quoted from evidence files) are not
+    # file hashes and stay silent.  Report only; the exit code is unchanged.
+    paired_shas = {sha for _, _, sha in handoff_pairs}
+    unpaired = []
+    for token in sorted(token_lines, key=lambda t: (len(t), t)):
+        if len(token) != 64 or token in paired_shas:
+            continue
+        if token not in observed and token not in files_by_hash:
+            continue
+        hints = []
+        for lineno in token_lines[token]:
+            for span in re.findall(r"`([^`\n]+)`", lines[lineno - 1]):
+                if looks_like_path(span) and strip_markup(span) not in hints:
+                    hints.append(strip_markup(span))
+        onsite = sorted({str(path) for path in files_by_hash.get(token, [])})
+        recorded = sorted({f"{origin}:{path}" for origin, path in combined_table.get(token, [])})
+        if not hints and not onsite and not recorded:
+            continue
+        unpaired.append(token)
+        where = ",".join(str(n) for n in token_lines[token])
+        print(
+            f"unpaired sha256 {token} (lines {where}) "
+            f"handoff-path={','.join(hints) if hints else '-'} "
+            f"on-site={','.join(onsite) if onsite else '-'} "
+            f"recorded={','.join(recorded) if recorded else '-'}"
+        )
+
     for lineno, token in truncated:
         print(f"truncated (not verified): {token} (line {lineno})")
 
     print(
         f"summary: {len(token_lines)} distinct full token(s); "
         f"git={counts['git']} sha256={counts['sha256']} allowed={counts['allowed']} "
-        f"abnormal={counts['abnormal']}; {len(truncated)} truncated form(s)"
+        f"abnormal={counts['abnormal']} unpaired={len(unpaired)}; {len(truncated)} truncated form(s)"
     )
     if failures:
         print(f"FAILED: {len(failures)} problem(s)")

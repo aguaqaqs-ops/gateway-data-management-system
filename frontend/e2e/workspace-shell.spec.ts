@@ -56,7 +56,7 @@ async function installFixtureRoutes(page: Page, options: {
   uploadHoldPolls?: number;
   submitIdentity?: "confirm";
   submitForbidden?: boolean;
-  submitConflict?: "WORKSPACE_VERSION_CONFLICT";
+  submitConflict?: "WORKSPACE_VERSION_CONFLICT" | "NO_CANONICAL_CHANGE";
   submitAttemptReadFails?: boolean;
   submitAttemptState?: Schemas["SubmitAttemptResponse"]["state"];
   workspaceSubmitAttemptId?: string;
@@ -420,7 +420,7 @@ async function installFixtureRoutes(page: Page, options: {
     }
     if (options.submitConflict) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submit-attempts" && item.method === "POST" && item.status === 409 && item.body.code === options.submitConflict);
-      if (!error) throw new Error("POST submit-attempts WORKSPACE_VERSION_CONFLICT fixture missing");
+      if (!error) throw new Error(`POST submit-attempts ${options.submitConflict} fixture missing`);
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
       return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
     }
@@ -2462,6 +2462,21 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openPreview("comment-only");
     await openItem("table:comment_demo");
   });
+  await capture("fe4b-no-canonical-change", async () => {
+    // F13: the comment-only Preview submits to a NO_CANONICAL_CHANGE 409.
+    await page.unrouteAll({ behavior: "wait" });
+    await installFixtureRoutes(page, { submitConflict: "NO_CANONICAL_CHANGE" });
+    try {
+      await openPreview("comment-only");
+      await page.getByRole("button", { name: "提交", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("button", { name: "确认提交" }).click();
+      await expect(dialog.getByText("本次组态与基线一致，没有可提交的变更。注释等展示信息的变化不单独保存，将随下一次业务变化一起保存。", { exact: true })).toBeVisible();
+    } finally {
+      await page.unrouteAll({ behavior: "wait" });
+      await installFixtureRoutes(page);
+    }
+  });
   await capture("fe4b-preview-topbar-device", async () => {
     // fe-handoff: a directory handoff session shows the device bar above the
     // preview top bar; this page only exists once that branch is merged.
@@ -2470,6 +2485,11 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
     await waitForBrowse(page);
     await expect(page.locator(".compare-header .device-bar .device-context")).toBeVisible();
+    // fe-handoff R8: the device bar is the first child of compare-header and
+    // never lives inside .compare-status.
+    await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+    await expect(page.locator(".compare-header > :first-child")).toHaveClass(/device-bar/);
+    await expect(page.locator(".compare-status .device-bar")).toHaveCount(0);
   });
   expect(failures, failures.join("\n")).toEqual([]);
 });

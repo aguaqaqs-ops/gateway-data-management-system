@@ -54,6 +54,31 @@ def paeth(left, up, up_left):
     return up_left
 
 
+def reference_paeth(left, up, up_left):
+    """Independent Paeth predictor for the self-test encoder.
+
+    Kept textually separate from paeth() on purpose: the decoder uses
+    paeth(), the self-test encoder uses this function, so a defect in one
+    cannot mask a defect in the other (kickoff §18.5 N19). Mutating paeth()
+    to always return ``left`` must make --self-test fail.
+    """
+    guess = left + up - up_left
+    left_gap = guess - left
+    if left_gap < 0:
+        left_gap = -left_gap
+    up_gap = guess - up
+    if up_gap < 0:
+        up_gap = -up_gap
+    up_left_gap = guess - up_left
+    if up_left_gap < 0:
+        up_left_gap = -up_left_gap
+    if left_gap <= up_gap and left_gap <= up_left_gap:
+        return left
+    if up_gap <= up_left_gap:
+        return up
+    return up_left
+
+
 def unfilter_row(filter_type, row, previous, bytes_per_pixel):
     if filter_type == 0:
         return bytes(row)
@@ -294,7 +319,7 @@ def make_png(width, height, pixels, color_type=6, bit_depth=8, interlace=0):
             elif filter_type == 3:
                 filtered[index] = (filtered[index] - (left + up) // 2) & 0xFF
             elif filter_type == 4:
-                filtered[index] = (filtered[index] - paeth(left, up, up_left)) & 0xFF
+                filtered[index] = (filtered[index] - reference_paeth(left, up, up_left)) & 0xFF
         raw.append(filter_type)
         raw.extend(filtered)
         previous = row

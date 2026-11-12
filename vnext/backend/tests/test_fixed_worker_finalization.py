@@ -107,7 +107,7 @@ def test_fixed_worker_finalizer_passes_failure_context_to_existing_root_retentio
         return subprocess.CompletedProcess(args, 0, "", "")
     monkeypatch.setattr(harness, "_teardown_compose_project_resources", lambda _: None)
     monkeypatch.setattr(harness, "release_compose_gate_lock", lambda: None)
-    monkeypatch.setattr(harness.subprocess, "run", command)
+    monkeypatch.setattr(subprocess, "run", command)
     monkeypatch.setitem(harness._runtime_fixtures, project, (tmp_path, "test-owner"))
     def fail_at(phase: str) -> None:
         if phase == fault:

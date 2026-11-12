@@ -925,11 +925,13 @@ test("加载中显示骨架，bundle 接口失败显示可重试错误页", asyn
   await waitForBrowse(page);
 
   await page.unrouteAll({ behavior: "wait" });
-  await installFixtureRoutes(page, { fail: true });
-  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal"));
+  const { requests: failedRequests } = await installFixtureRoutes(page, { fail: true });
+  // Exercise a real download failure, independent of the valid cache above.
+  await page.goto(browseUrl("PREVIEW", "preview-modified-only"));
   await expect(page.getByRole("alert")).toContainText("SERVICE_NOT_READY");
   await expect(page.getByRole("alert")).toContainText("比较结果暂时不可用");
   await expect(page.getByText("已连接", { exact: true })).toHaveCount(0);
+  expect(failedRequests.get("preview-modified-only")).toBe(1);
   await screenshot(page, "bundle-error", 1920);
   await screenshot(page, "bundle-error", 1280);
 });

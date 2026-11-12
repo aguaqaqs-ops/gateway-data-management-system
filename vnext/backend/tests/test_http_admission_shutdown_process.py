@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from gateway_backend.device_identity import device_route_key
 from tests.support.http_inflight_read_barrier import HttpInflightReadBarrier
 from tests.support.http_shutdown_harness import (
     HTTP_SERVER_MODULE,
@@ -26,7 +27,7 @@ from tests.support.http_shutdown_harness import (
     wait_for_http_server_startup_failure,
 )
 from tests.support.http_workspace_harness import TEST_BEARER
-from tests.support.runtime_settings import TEST_REPOSITORY_TOKEN
+from tests.support.runtime_settings import TEST_DEVICE_KEY, TEST_REPOSITORY_TOKEN
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -62,7 +63,7 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
     preview = seed["preview_result"]
     baseline_head = seed["baseline_head"]
     port_file = tmp_path / "http-port.json"
-    with repository_ready_stub_context(tmp_path) as repository_stub:
+    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
@@ -94,6 +95,7 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
                         f"{base_url}/v1/workspaces/{workspace.workspace_id}/submit-attempts",
                         headers={
                             "Authorization": f"Bearer {TEST_BEARER}",
+                            "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY),
                             "Idempotency-Key": "submit-sigterm-drain",
                         },
                         json={
@@ -134,7 +136,7 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
     node_b = seed["node_b"]
     port_file = tmp_path / "http-port-history.json"
     inflight_barrier = HttpInflightReadBarrier(tmp_path)
-    with repository_ready_stub_context(tmp_path) as repository_stub:
+    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
@@ -152,7 +154,8 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
         )
         try:
             base_url = wait_for_http_server_ready(port_file)
-            auth_headers = {"Authorization": f"Bearer {TEST_BEARER}"}
+            auth_headers = {"Authorization": f"Bearer {TEST_BEARER}",
+                "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
             history_result: dict[str, object] = {}
             operation_result: dict[str, object] = {}
             bundle_result: dict[str, object] = {}

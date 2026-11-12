@@ -19,6 +19,7 @@ from tests.support.compose_gate_harness import (
     SESSION_TOKEN,
     assert_running_backend_worker_images_match_build,
     capture_running_container_provenance,
+    compose_auth_headers,
     compose_project_name,
     count_backend_operations,
     list_repository_commit_ids,
@@ -151,10 +152,7 @@ def _auth_headers(
     token: str = ARCHIVER_TOKEN,
     idempotency_key: str | None = None,
 ) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {token}"}
-    if idempotency_key is not None:
-        headers["Idempotency-Key"] = idempotency_key
-    return headers
+    return compose_auth_headers(token=token, device_key=DEVICE_KEY, idempotency_key=idempotency_key)
 
 
 def _approve_submission(

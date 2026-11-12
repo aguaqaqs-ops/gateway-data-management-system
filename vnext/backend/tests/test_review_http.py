@@ -15,6 +15,7 @@ import pytest
 
 from gateway_backend.application.submission.review import PERMISSION_REVIEW_SUBMISSION
 from gateway_backend.domain.submission.models import IdentityConfirmationAction, SubmitIdentityConfirmation
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.domain.workspace.errors import ScopeNotFound, ScopeResolutionError
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -102,18 +103,26 @@ def _post_review(
     idempotency_key: str,
     body: dict[str, object] | None = None,
     bearer: str = TEST_BEARER,
+    device_key: str | None = None,
 ) -> Any:
+    headers = {**env.auth_headers(idempotency_key=idempotency_key), "Authorization": f"Bearer {bearer}"}
+    if device_key is not None:
+        headers["X-Gateway-Device-Key"] = device_route_key(device_key)
     return env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
-        headers={"Authorization": f"Bearer {bearer}", "Idempotency-Key": idempotency_key},
+        headers=headers,
         json=body or _apply_body(),
     )
 
 
-def _get_review(env: WorkspaceHttpTestEnvironment, seed: PendingReviewHttpSeed, *, bearer: str = TEST_BEARER) -> Any:
+def _get_review(env: WorkspaceHttpTestEnvironment, seed: PendingReviewHttpSeed, *, bearer: str = TEST_BEARER,
+                device_key: str | None = None) -> Any:
+    headers = {**env.auth_headers(), "Authorization": f"Bearer {bearer}"}
+    if device_key is not None:
+        headers["X-Gateway-Device-Key"] = device_route_key(device_key)
     return env.client.get(
         f"/v1/submissions/{seed.submission_id}/review",
-        headers={"Authorization": f"Bearer {bearer}"},
+        headers=headers,
     )
 
 
@@ -251,7 +260,7 @@ def test_apply_review_requires_idempotency_key(
     env, seed = review_env
     response = env.client.post(
         f"/v1/submissions/{seed.submission_id}/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}"},
+        headers=env.auth_headers(),
         json=_apply_body(),
     )
     assert response.status_code == 422
@@ -362,7 +371,7 @@ def test_apply_review_without_permission_hides_missing_submission(tmp_path: Path
     )
     response = env.client.post(
         "/v1/submissions/sub-missing/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}", "Idempotency-Key": "review-missing"},
+        headers=env.auth_headers(idempotency_key="review-missing"),
         json=_apply_body(),
     )
     assert response.status_code == 403
@@ -375,7 +384,7 @@ def test_apply_review_returns_404_for_missing_submission(
     env, _seed = review_env
     response = env.client.post(
         "/v1/submissions/sub-missing/review-events",
-        headers={"Authorization": f"Bearer {TEST_BEARER}", "Idempotency-Key": "review-404"},
+        headers=env.auth_headers(idempotency_key="review-404"),
         json=_apply_body(),
     )
     assert response.status_code == 404
@@ -388,7 +397,7 @@ def test_get_review_returns_404_for_missing_submission(
     env, _seed = review_env
     response = env.client.get(
         "/v1/submissions/sub-missing/review",
-        headers={"Authorization": f"Bearer {TEST_BEARER}"},
+        headers=env.auth_headers(),
     )
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
@@ -419,6 +428,7 @@ def test_apply_review_hides_cross_scope_submission_same_database(tmp_path: Path)
         f"/v1/submissions/{seed.submission_id}/review-events",
         headers={
             "Authorization": f"Bearer {OTHER_SCOPE_BEARER}",
+            "X-Gateway-Device-Key": device_route_key("device-other"),
             "Idempotency-Key": "review-cross-scope",
         },
         json=_apply_body(),
@@ -448,7 +458,7 @@ def test_get_review_hides_cross_scope_submission_same_database(tmp_path: Path) -
     )
     approved = _post_review(env, seed, idempotency_key="review-cross-scope-get")
     assert approved.status_code == 201
-    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER)
+    response = _get_review(env, seed, bearer=OTHER_SCOPE_BEARER, device_key="device-other")
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
@@ -770,8 +780,9 @@ def test_self_review_scope_is_hidden_for_read_and_replay(tmp_path: Path, target:
     assert _post_review(env, seed, idempotency_key="scope-replay", body=body).status_code == 201
     target_seed = replace(seed, submission_id="missing") if target == "missing" else seed
     bearer = "self-only" if target == "missing" else "other-scope"
-    assert _get_review(env, target_seed, bearer=bearer).status_code == 404
-    assert _post_review(env, target_seed, idempotency_key="scope-replay", body=body, bearer=bearer).status_code == 404
+    device_key = env.identity.gateway_device_external_key if target == "missing" else "other-device"
+    assert _get_review(env, target_seed, bearer=bearer, device_key=device_key).status_code == 404
+    assert _post_review(env, target_seed, idempotency_key="scope-replay", body=body, bearer=bearer, device_key=device_key).status_code == 404
 
 
 def test_self_target_authorization_precedes_review_closure_read(tmp_path: Path) -> None:
@@ -852,8 +863,8 @@ def test_review_authorizes_target_before_decoding_configuration_facts(
     assert _get_review(env, seed, bearer="other-self").status_code == 404
     _upsert_provisioned_mapping_row(env.db_path, device_key="device-2", project_id="project-2", repository_id="repo-2")
     env.scope_resolution.repository_id = "repo-2"
-    assert _get_review(env, seed, bearer="foreign-scope").status_code == 404
-    assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="foreign-scope").status_code == 404
+    assert _get_review(env, seed, bearer="foreign-scope", device_key="device-2").status_code == 404
+    assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="foreign-scope", device_key="device-2").status_code == 404
     env.scope_resolution.repository_id = "repo-1"
     with forbid_configuration_object_reads(monkeypatch):
         assert _get_review(env, seed, bearer="denied").status_code == 403

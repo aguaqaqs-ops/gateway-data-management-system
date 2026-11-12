@@ -63,11 +63,12 @@ def _pythonpath_environment() -> str:
 def start_repository_ready_stub(
     tmp_path: Path,
     *,
+    storage_layout_file: Path,
     bearer_token: str = TEST_REPOSITORY_TOKEN,
 ) -> RepositoryReadyStub:
     port_file = tmp_path / "repository-ready-stub.json"
     process = subprocess.Popen(
-        [sys.executable, str(REPOSITORY_READY_STUB_SCRIPT), bearer_token, str(port_file)],
+        [sys.executable, str(REPOSITORY_READY_STUB_SCRIPT), bearer_token, str(port_file), str(storage_layout_file)],
         env={"PYTHONPATH": _pythonpath_environment(), **os.environ},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -99,9 +100,10 @@ def start_repository_ready_stub(
 def repository_ready_stub_context(
     tmp_path: Path,
     *,
+    storage_layout_file: Path,
     bearer_token: str = TEST_REPOSITORY_TOKEN,
 ) -> Iterator[RepositoryReadyStub]:
-    stub = start_repository_ready_stub(tmp_path, bearer_token=bearer_token)
+    stub = start_repository_ready_stub(tmp_path, storage_layout_file=storage_layout_file, bearer_token=bearer_token)
     try:
         yield stub
     finally:
@@ -294,6 +296,8 @@ def _base_http_server_environment(
     )
     environment["GATEWAY_BACKEND_SESSION_FILE"] = str(settings.session_file)
     environment["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"] = str(settings.provisioned_mapping_file)
+    environment["GATEWAY_BACKEND_PROCESSING_GROUPS_FILE"] = str(settings.processing_groups_file)
+    environment["GATEWAY_BACKEND_DEVICE_DIRECTORY_FILE"] = str(settings.device_directory_file)
     environment["GATEWAY_BACKEND_HTTP_HOST"] = "127.0.0.1"
     environment["GATEWAY_BACKEND_HTTP_LOG_LEVEL"] = "error"
     environment["GATEWAY_BACKEND_HTTP_PORT_FILE"] = str(port_file)

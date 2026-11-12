@@ -21,6 +21,7 @@ from gateway_backend.application.archive.contracts import (
 from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.application.archive.queries import PERMISSION_ARCHIVE_SUBMISSION
 from gateway_backend.domain.archive.models import ArchiveConfirmationAction
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.http.dependencies import (
     ArchiveRequestBodyLimitMiddleware,
     ClosableAdmissionGate,
@@ -100,10 +101,11 @@ def _auth_headers(
     *,
     bearer: str = TEST_BEARER,
     idempotency_key: str | None = None,
+    device_key: str | None = None,
 ) -> dict[str, str]:
-    headers = {"Authorization": f"Bearer {bearer}"}
-    if idempotency_key is not None:
-        headers["Idempotency-Key"] = idempotency_key
+    headers = {**env.auth_headers(idempotency_key=idempotency_key), "Authorization": f"Bearer {bearer}"}
+    if device_key is not None:
+        headers["X-Gateway-Device-Key"] = device_route_key(device_key)
     return headers
 
 
@@ -356,11 +358,11 @@ def test_archive_only_actor_reads_candidate_version_and_closes_with_cas(tmp_path
     own_headers = _auth_headers(env, bearer=archive_only)
     review = env.client.get(f"/v1/submissions/{seed.submission_id}/review", headers=own_headers)
     assert review.status_code == 403
-    foreign = env.client.get("/v1/archive-candidates", headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER))
+    foreign = env.client.get("/v1/archive-candidates", headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, device_key="device-other"))
     assert foreign.status_code == 200 and foreign.json()["candidates"] == []
     foreign_close = env.client.post(
         path,
-        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, idempotency_key="foreign-close"),
+        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, device_key="device-other", idempotency_key="foreign-close"),
         json=_closure_body(),
     )
     assert foreign_close.status_code == 404 and foreign_close.json()["code"] == "RESOURCE_NOT_FOUND"
@@ -441,7 +443,7 @@ def test_archive_get_result_hides_cross_scope_result_same_database(tmp_path: Pat
     started = archive_env_start(env, seed, confirmation_sequence)
     response = env.client.get(
         f"/v1/archives/{started['archive_result_id']}",
-        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER),
+        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, device_key="device-other"),
     )
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
@@ -1083,7 +1085,7 @@ def test_archive_confirmation_rejects_extra_fields_over_http(
 
 
 def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
-    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session" / "session.json"
     payload = json.loads(session_path.read_text(encoding="utf-8"))
     for entry in payload["sessions"]:
         permissions = entry["permissions"]
@@ -1094,7 +1096,7 @@ def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
 
 
 def test_deploy_session_example_lists_read_project_history_explicitly() -> None:
-    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session" / "session.json"
     payload = json.loads(session_path.read_text(encoding="utf-8"))
     documented = payload.get("documented_permissions")
     assert isinstance(documented, list)
@@ -1253,7 +1255,7 @@ def test_manual_close_hides_foreign_corrupt_facts_before_decode(tmp_path: Path) 
         uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?", (b'{}', seed.submission_id))
     client = TestClient(env.client.app, raise_server_exceptions=False)
     response = client.post(f"/v1/submissions/{seed.submission_id}/closure",
-        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, idempotency_key="hidden-close"), json=_closure_body())
+        headers=_auth_headers(env, bearer=OTHER_SCOPE_BEARER, device_key="device-other", idempotency_key="hidden-close"), json=_closure_body())
     assert response.status_code == 404 and response.json()["code"] == "RESOURCE_NOT_FOUND"
     own = client.post(f"/v1/submissions/{seed.submission_id}/closure",
         headers=_auth_headers(env, idempotency_key="broken-close"), json=_closure_body())

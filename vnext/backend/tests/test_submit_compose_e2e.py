@@ -258,7 +258,7 @@ def test_compose_three_process_submit_stack_smoke_and_backend_restart(tmp_path: 
                 }
             ).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {SESSION_TOKEN}",
+                **compose_auth_headers(token=SESSION_TOKEN, device_key=DEVICE_KEY),
                 "Content-Type": "application/json",
             },
             method="POST",

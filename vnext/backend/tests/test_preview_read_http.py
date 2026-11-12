@@ -166,14 +166,14 @@ def test_preview_point_read_filters_workspace_before_configuration_decode(
     result = _preview_result(workspace, upload)
     env.repository.save_preview_result(result)
     message = corrupt_configuration_body(env.db_path, kind="preview", target_id=result.preview_result_id, fault=fault)
-    other_headers = {"Authorization": "Bearer other-reader"}
+    other_headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
     other = _seed_workspace(env.client, other_headers)
     own_url = f"/v1/workspaces/{other['workspace_id']}/preview-results/{result.preview_result_id}"
     target_url = f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}"
     assert env.client.get(own_url, headers=other_headers).status_code == 404
     assert env.client.get(target_url, headers=other_headers).status_code == 404
     with forbid_configuration_object_reads(monkeypatch):
-        assert env.client.get(target_url, headers={"Authorization": "Bearer denied"}).status_code == 403
+        assert env.client.get(target_url, headers={**env.auth_headers(), "Authorization": "Bearer denied"}).status_code == 403
     with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
         with pytest.raises(ValueError, match=message):
             strict_client.get(target_url, headers=env.auth_headers())

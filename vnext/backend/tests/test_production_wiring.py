@@ -29,6 +29,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRefTimeoutPolicy,
 )
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.http.auth import LiveFileSessionPort
 from gateway_backend.bootstrap.composition import (
     HttpRepositoryMainResolvePort,
@@ -752,6 +753,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         f"/v1/workspaces/{updated_workspace.workspace_id}/submit-attempts",
         headers={
             "Authorization": f"Bearer {TEST_SESSION_TOKEN}",
+            "X-Gateway-Device-Key": device_route_key(updated_workspace.gateway_device_external_key),
             "Idempotency-Key": "submit-accept-202",
             "Content-Type": "application/json",
         },

@@ -17,6 +17,7 @@ import pytest
 from gateway_backend.domain.workspace.errors import ScopeNotFound
 
 from gateway_backend.http.schemas.statistics import StatisticsQuery
+from gateway_backend.device_identity import device_route_key
 from gateway_backend.http.statistics import StatisticsHttpDependencies, respond
 from gateway_backend.infrastructure.statistics import queries
 from gateway_backend.infrastructure.statistics.queries import SQLiteStatisticsReader
@@ -120,7 +121,7 @@ def test_device_permission_mapping_and_missing_database_matrix(tmp_path: Path, s
     env = _env(tmp_path, store)
     url = '/v1/repositories/repo-1/statistics/storage'
     assert env.client.get(url).status_code == 401
-    assert env.client.get(url, headers={'Authorization': 'Bearer group'}).status_code == 403
+    assert env.client.get(url, headers={**env.auth_headers(), 'Authorization': 'Bearer group'}).status_code == 403
     assert env.client.get(url.replace('repo-1', 'other'), headers=env.auth_headers()).status_code == 404
     env.scope_resolution.simulate_resolution_error = ScopeNotFound('provisioned mapping is disabled')
     assert env.client.get(url, headers=env.auth_headers()).status_code == 404
@@ -185,8 +186,9 @@ def test_operation_curves_segment_claim_process_and_bound_all_points(tmp_path: P
     assert all(item['reason'] == 'counter_reset' for item in items)
     assert all(item['points'][0]['cpu_time_us'] == {'avg': 35.0, 'max': 50, 'count': 2} for item in items)
     assert env.client.get(url, headers=env.auth_headers(), params={'step_id': 's', 'attempt_count': 2}).json()['items'] == []
-    assert env.client.get(url, headers={'Authorization': 'Bearer group'}, params=params).status_code == 403
-    assert env.client.get(url, headers={'Authorization': 'Bearer cross'}, params=params).status_code == 404
+    assert env.client.get(url, headers={**env.auth_headers(), 'Authorization': 'Bearer group'}, params=params).status_code == 403
+    assert env.client.get(url, headers={'Authorization': 'Bearer cross',
+        'X-Gateway-Device-Key': device_route_key('other-device')}, params=params).status_code == 404
     executions = env.client.get(f'/v1/operations/{op}/statistics/executions', headers=env.auth_headers())
     assert executions.status_code == 200 and len(executions.json()['items']) == 2
 
@@ -198,7 +200,7 @@ def test_group_is_separate_and_never_contains_device_fields(tmp_path: Path, stor
         _storage('fs-be', repository_id=None, category='filesystem', filesystem_id='disk', logical_bytes=None, available_bytes=12),
         _resource('device-resource'), _resource('shared', role='backend', process_instance_id='http', operation_id=None, step_id=None, claim_version=None, attempt_count=None)])
     assert env.client.get('/v1/statistics/group', headers=env.auth_headers()).status_code == 403
-    headers = {'Authorization': 'Bearer group'}
+    headers = {**env.auth_headers(), 'Authorization': 'Bearer group'}
     response = env.client.get('/v1/statistics/group', headers=headers)
     assert response.status_code == 200
     storage = response.json()['storage']
@@ -254,7 +256,8 @@ def test_export_slot_rejects_busy_and_releases_for_every_exit(store: SQLiteStati
 
 def test_openapi_documents_seven_read_routes_and_export_headers(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
     schema = _env(tmp_path, store).client.get('/openapi.json').json()
-    paths = {path: value for path, value in schema['paths'].items() if '/statistics/' in path or path == '/v1/statistics/group'}
+    paths = {path: value for path, value in schema['paths'].items()
+        if path.startswith('/v1/') and '/statistics/' in path}
     assert len(paths) == 7
     assert all(set(value) == {'get'} for value in paths.values())
     for path, value in paths.items():
@@ -284,8 +287,9 @@ def test_history_statistics_use_history_acceptance_permission(tmp_path: Path, st
     resources = f'/v1/operations/{operation_id}/statistics/resources'
     for url, params in ((executions, {}), (resources, {'step_id': 's', 'attempt_count': 1})):
         assert env.client.get(url, headers=env.auth_headers(), params=params).status_code == 200
-        assert env.client.get(url, headers={'Authorization': 'Bearer workspace'}, params=params).status_code == 403
-        assert env.client.get(url, headers={'Authorization': 'Bearer other-history'}, params=params).status_code == 404
+        assert env.client.get(url, headers={**env.auth_headers(), 'Authorization': 'Bearer workspace'}, params=params).status_code == 403
+        assert env.client.get(url, headers={'Authorization': 'Bearer other-history',
+            'X-Gateway-Device-Key': device_route_key('other')}, params=params).status_code == 404
 
 
 def test_service_curve_respects_configured_interval_and_page_coverage(tmp_path: Path, store: SQLiteStatisticsStore) -> None:
@@ -296,7 +300,7 @@ def test_service_curve_respects_configured_interval_and_page_coverage(tmp_path: 
         operation_id=None, step_id=None, attempt_count=None, claim_version=None),
         _resource('service-b', role='backend', process_instance_id='http', sampled_at_us=BASE + 5000000, cpu_time_us=200,
         operation_id=None, step_id=None, attempt_count=None, claim_version=None)])
-    response = env.client.get('/v1/statistics/group/resources', headers={'Authorization': 'Bearer group'},
+    response = env.client.get('/v1/statistics/group/resources', headers={**env.auth_headers(), 'Authorization': 'Bearer group'},
         params={'role': 'backend', 'process_instance_id': 'http', 'max_points': 1})
     assert response.status_code == 200
     item = response.json()['items'][0]

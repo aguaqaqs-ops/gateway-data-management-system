@@ -189,7 +189,7 @@ class ProcessingGroupsStack:
         self.inspect()
 
     def group_url(self, group: str) -> str:
-        return next(item.backend_endpoint for item in self.groups.groups if item.group_id == group)
+        return str(next(item.backend_endpoint for item in self.groups.groups if item.group_id == group))
 
     def cli(self, command: str, *extra: str) -> dict[str, Any]:
         output = run(sys.executable, str(SCRIPTS / "manage-processing-groups.py"), command,

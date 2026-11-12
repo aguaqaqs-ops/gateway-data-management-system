@@ -52,7 +52,7 @@ def run_journey(package: Path, output: Path, *, review_reason: str) -> dict[str,
             context = client.get("/v1/device-context")
             assert context.status_code == 200, context.text
             assert context.json()["group_id"] == "group-b"
-            assert client.get("/v1/operations/" + result.get("operation_id", "foreign-object")).status_code == 404
+            assert client.get("/v1/workspaces/" + result["workspace_id"]).status_code == 404
         deployment = stack.inspect()
         record = dict(candidate=stack.revision, classification="one real chain plus synthetic group boundary",
             source=dict(path=str(package), name=SOURCE_NAME, size_bytes=SOURCE_BYTES, sha256=SOURCE_SHA256,

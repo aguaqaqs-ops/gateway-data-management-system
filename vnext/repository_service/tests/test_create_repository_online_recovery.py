@@ -164,3 +164,31 @@ def test_deployment_identity_requires_rs_bearer_and_returns_cached_facts(tmp_pat
         storage = settings.deployment_config.storage
         assert response.json() == {"environment_id": storage.environment_id, "group_id": storage.group_id,
             "storage_digest": storage.digest}
+
+
+@pytest.mark.integration
+def test_renamed_create_waits_for_both_durable_publication_barriers(tmp_path: Path) -> None:
+    from gateway_repository_service import publication
+    runtime = ServiceRuntime.start(lifecycle_settings(tmp_path))
+    try:
+        command = CreateRepositoryCommand(settings=runtime.settings, layout=runtime.layout, mutation_store=runtime.mutation_store)
+        target_parent = runtime.layout.versioned
+        sync = publication._fsync_directory
+        def fail_target_parent(path: Path) -> None:
+            if path == target_parent:
+                raise OSError("publication parent sync unavailable")
+            sync(path)
+        with patch.object(publication, "_fsync_directory", side_effect=fail_target_parent):
+            with pytest.raises(OSError):
+                command.execute("durable-create")
+            effect = original(runtime, "durable-create")
+            assert runtime.layout.published_repository(repository_key(effect.resource_id)).is_dir()
+            with pytest.raises(ServiceError) as raised:
+                command.execute("durable-create")
+            assert raised.value.code == "CREATE_REPOSITORY_UNRESOLVED"
+            assert original(runtime, "durable-create").status == EffectStatus.PENDING
+        response = command.execute("durable-create")
+        assert str(response.repository_id) == str(effect.resource_id)
+        assert original(runtime, "durable-create").status == EffectStatus.SUCCEEDED
+    finally:
+        runtime.shutdown()

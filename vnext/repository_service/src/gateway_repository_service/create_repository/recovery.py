@@ -9,6 +9,7 @@ from uuid import UUID
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.process import DoltRunner
 from gateway_repository_service.providers import OfflineCliProvider
+from gateway_repository_service.publication import fsync_tree, sync_directory_publication_parents
 from gateway_repository_service.settings import RepositoryServiceSettings
 
 
@@ -36,6 +37,10 @@ def inspect_create_publication(*, settings: RepositoryServiceSettings, layout: D
         changes = provider._query_json("create_initial_status", "SELECT * FROM dolt_status;\n")
         if len(history) != 1 or str(history[0].get("commit_hash")) != head or tables or changes:
             raise CreateEvidenceUnresolved("pending create is not the original empty repository")
+        # A rename may have succeeded before either parent fsync failed. Finish
+        # the original publication barriers before the ledger may claim success.
+        fsync_tree(target)
+        sync_directory_publication_parents(layout.staging_versioned, target.parent)
         return head
     except Exception as exc:
         raise CreateEvidenceUnresolved("published create evidence cannot be established") from exc

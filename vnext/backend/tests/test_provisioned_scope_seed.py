@@ -260,3 +260,18 @@ def test_restart_seed_cannot_change_existing_mapping(tmp_path: Path, field: str,
     with pytest.raises(ValueError):
         seed_provisioned_mappings(db_path, seed)
     assert _seed_state(db_path) == before
+
+
+@pytest.mark.parametrize("old_enabled", [False, True])
+def test_restart_seed_cannot_rebind_existing_device_to_another_project(tmp_path: Path, old_enabled: bool) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_and_verify_control_db(db_path)
+    seed_provisioned_mapping_with_head(db_path, enabled=old_enabled, repository_id="repo-1",
+        baseline_head=make_baseline_head(version=0, commit_id="commit-1"))
+    before = _seed_state(db_path)
+    seed = tmp_path / "new-project.json"
+    seed.write_text(json.dumps({"mappings": [_mapping_record(device_key="device-1", project_id="other-project",
+        repository_id="repo-2", node_id="node-2", commit_id="commit-2")]}))
+    with pytest.raises(ValueError, match="device is already fixed"):
+        seed_provisioned_mappings(db_path, seed)
+    assert _seed_state(db_path) == before

@@ -141,6 +141,7 @@ def _validate_seed_batch_reverse_scope(
 ) -> None:
     repository_to_scope: dict[str, tuple[str, str]] = {}
     scope_to_repository: dict[tuple[str, str], str] = {}
+    device_to_project: dict[str, str] = {}
     for record in records:
         repository_id = record["repository_id"]
         device_key = record["gateway_device_external_key"]
@@ -151,6 +152,15 @@ def _validate_seed_batch_reverse_scope(
             or type(project_id) is not str
         ):
             raise ValueError("seed record has invalid scope fields")
+        if device_key in device_to_project and device_to_project[device_key] != project_id:
+            raise ValueError("seed batch assigns one device to multiple projects")
+        device_to_project[device_key] = project_id
+        stored_projects = connection.execute(
+            "SELECT business_project_id FROM provisioned_scope_mappings WHERE gateway_device_external_key = ?",
+            (device_key,),
+        ).fetchall()
+        if any(row["business_project_id"] != project_id for row in stored_projects):
+            raise ValueError("device is already fixed to a different project")
         scope = (device_key, project_id)
         if repository_id in repository_to_scope and repository_to_scope[repository_id] != scope:
             raise ValueError("seed batch assigns one repository to multiple scopes")

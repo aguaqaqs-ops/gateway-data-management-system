@@ -58,10 +58,15 @@ def atomic_publish(
     if fault == FaultPoint.BEFORE_RENAME:
         raise RuntimeError("fault injected before publication rename")
     _rename_noreplace(staging, target)
-    _fsync_directory(staging.parent)
-    _fsync_directory(target.parent)
+    sync_directory_publication_parents(staging.parent, target.parent)
     if fault == FaultPoint.AFTER_RENAME:
         raise RuntimeError("fault injected after publication rename")
+
+
+def sync_directory_publication_parents(staging_parent: Path, target_parent: Path) -> None:
+    """Complete both durable rename barriers, also when recovery observes an existing target."""
+    _fsync_directory(staging_parent)
+    _fsync_directory(target_parent)
 
 
 def atomic_publish_file(

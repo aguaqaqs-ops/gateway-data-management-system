@@ -126,6 +126,7 @@ test("存储不可用时键盘仍可进入", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("18 个项目", { exact: true })).toBeVisible();
   await page.keyboard.press("ArrowDown");
+  await expect(page.locator("tr[aria-selected=true]")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("alert")).toContainText("会话正在更新");
 });

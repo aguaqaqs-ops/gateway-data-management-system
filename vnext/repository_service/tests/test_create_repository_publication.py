@@ -61,8 +61,8 @@ def test_create_repository_no_replace_conflict_cleans_staging(tmp_path: Path) ->
         with pytest.raises(ServiceError) as exc_info:
             command.execute("no-replace-conflict")
 
-        assert exc_info.value.status_code == 409
-        assert exc_info.value.code == "IDEMPOTENCY_CONFLICT"
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.code == "CREATE_REPOSITORY_UNRESOLVED"
         assert list(runtime.layout.staging_versioned.iterdir()) == []
     finally:
         runtime.shutdown()

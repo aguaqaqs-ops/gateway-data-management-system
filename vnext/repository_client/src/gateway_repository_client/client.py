@@ -12,6 +12,7 @@ from pydantic import TypeAdapter, ValidationError
 from gateway_repository_contracts import (
     CommitIdString,
     CreateRepositoryResponse,
+    DeploymentIdentityResponse,
     GetOperationResponse,
     GetVersionedCatalogResponse,
     IdempotencyKeyString,
@@ -105,6 +106,14 @@ class RepositoryClient:
             return await parse_json_response(response, expected_status=200,
                 model=StatisticsFeedResponse, max_success_body_bytes=1024 * 1024,
                 max_error_body_bytes=MAX_WIRE_ERROR_JSON_BYTES)
+
+    async def get_deployment_identity(self) -> DeploymentIdentityResponse:
+        """One authenticated, bounded identity read; readiness is a separate observation."""
+        async with self._json_client() as client:
+            response = await client.send(client.build_request("GET", "/internal/v1/deployment-identity",
+                headers={"Authorization": f"Bearer {self._bearer_token}"}), stream=True)
+            return await parse_json_response(response, expected_status=200,
+                model=DeploymentIdentityResponse, max_success_body_bytes=4096)
 
     async def create_repository(
         self,

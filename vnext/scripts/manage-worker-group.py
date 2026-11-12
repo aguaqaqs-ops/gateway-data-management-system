@@ -14,6 +14,8 @@ from urllib.error import URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, ProxyHandler
 
+from processing_group_config import ProcessingGroupsConfig
+from processing_group_locks import group_management_lock
 from host_runtime_config import DeploymentConfig
 from worker_deployment import _docker, inspect_project, validate_workers, worker_services
 
@@ -235,6 +237,7 @@ def main() -> int:
     parser.add_argument("--resource-profile", type=Path, required=True)
     parser.add_argument("--compose-file", type=Path, action="append", required=True)
     parser.add_argument("--project", required=True)
+    parser.add_argument("--groups-file", type=Path, required=True)
     parser.add_argument("--backend-url", default="http://127.0.0.1:8000")
     parser.add_argument("--internal-bearer-token-file", type=Path, required=True)
     args = parser.parse_args()
@@ -244,6 +247,14 @@ def main() -> int:
                 or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
             raise ValueError("backend URL must be an HTTP origin without credentials")
         config = DeploymentConfig.load(args.storage_layout.absolute(), args.resource_profile.absolute())
+        groups = ProcessingGroupsConfig.load(args.groups_file.absolute())
+        target = next((item for item in groups.groups if item.group_id == config.storage.group_id), None)
+        if (groups.environment_id != config.storage.environment_id or target is None
+                or target.project != args.project or target.backend_endpoint != args.backend_url.rstrip("/")
+                or Path(target.storage_config) != args.storage_layout.absolute()
+                or Path(target.resource_config) != args.resource_profile.absolute()
+                or Path(target.internal_token_file) != args.internal_bearer_token_file.absolute()):
+            raise ValueError("maintenance target differs from group deployment manifest")
         token = read_token(args.internal_bearer_token_file)
         compose = ["docker", "compose", "-p", args.project]
         for path in args.compose_file:
@@ -255,8 +266,13 @@ def main() -> int:
         expected = set(worker_services(config.resources.worker.count))
         if {name for name in services if name == "worker" or name.startswith("worker-")} != expected:
             raise ValueError("Compose fixed worker service list differs from profile")
-        print(manage(args.command, config, args.project, args.backend_url, token))
+        with group_management_lock(args.groups_file.absolute().parent, config.storage.group_id):
+            print(manage(args.command, config, args.project, args.backend_url, token))
         return 0
+    except BlockingIOError:
+        import sys
+        print("processing group management is busy", file=sys.stderr)
+        return 3
     except ValueError as exc:
         import sys
         print(f"maintenance failed: {exc}; gate is not reopened; preserve original group", file=sys.stderr)

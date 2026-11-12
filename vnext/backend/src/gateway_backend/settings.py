@@ -74,6 +74,8 @@ class BackendSettings(BaseSettings):
     repository_timeout_seconds: float = FIXED_REPOSITORY_TIMEOUT_SECONDS
     session_file: Path
     provisioned_mapping_file: Path
+    processing_groups_file: Path = Path("/run/gateway/groups.json")
+    device_directory_file: Path = Path("/run/gateway/device-directory.json")
     upload_max_compressed_bytes: int = FIXED_UPLOAD_MAX_COMPRESSED_BYTES
     upload_max_expanded_bytes: int = FIXED_UPLOAD_MAX_EXPANDED_BYTES
     upload_max_entries: int = FIXED_UPLOAD_MAX_ENTRIES
@@ -129,7 +131,7 @@ class BackendSettings(BaseSettings):
     def _require_absolute_session_file(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="session_file")
 
-    @field_validator("provisioned_mapping_file")
+    @field_validator("provisioned_mapping_file", "processing_groups_file", "device_directory_file")
     @classmethod
     def _require_absolute_mapping_file(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="provisioned_mapping_file")
@@ -179,6 +181,8 @@ class OperationWorkerSettings(BaseSettings):
     repository_bearer_token_file: Path = Field(repr=False)
     repository_timeout_seconds: float = FIXED_REPOSITORY_TIMEOUT_SECONDS
     provisioned_mapping_file: Path
+    processing_groups_file: Path = Path("/run/gateway/groups.json")
+    device_directory_file: Path = Path("/run/gateway/device-directory.json")
     lease_duration_seconds: float = 30.0
     heartbeat_interval_seconds: float = 10.0
     idle_claim_poll_seconds: float = 1.0
@@ -238,7 +242,7 @@ class OperationWorkerSettings(BaseSettings):
     def _require_absolute_token_file(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="repository_bearer_token_file")
 
-    @field_validator("provisioned_mapping_file")
+    @field_validator("provisioned_mapping_file", "processing_groups_file", "device_directory_file")
     @classmethod
     def _require_absolute_worker_mapping_file(cls, value: Path) -> Path:
         return require_absolute_path(value, field_name="provisioned_mapping_file")

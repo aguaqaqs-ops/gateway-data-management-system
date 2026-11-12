@@ -42,8 +42,6 @@ class BearerSessionPort:
     """Map bearer token to a configured IdentityContext."""
 
     def __init__(self, sessions: dict[str, IdentityContext]) -> None:
-        if not sessions:
-            raise ValueError("sessions must not be empty")
         self._sessions = dict(sessions)
 
     def resolve(self, request: Request) -> IdentityContext:
@@ -121,7 +119,7 @@ def load_session_entries(session_file: Path) -> dict[str, LoadedSession]:
     if type(payload) is not dict:
         raise ValueError("session file must be a JSON object")
     raw_sessions = payload.get("sessions")
-    if type(raw_sessions) is not list or not raw_sessions:
+    if type(raw_sessions) is not list:
         raise ValueError("session file must contain sessions")
     sessions: dict[str, LoadedSession] = {}
     for item in raw_sessions:

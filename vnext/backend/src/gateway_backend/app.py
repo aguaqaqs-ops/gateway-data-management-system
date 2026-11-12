@@ -43,6 +43,7 @@ def create_app(
             runtime.workspace_http,
             history_deps=runtime.history_http,
         )
+        app.state.device_registration = runtime.device_registration
         app.state.storage_guard = runtime.storage_guard
         app.state.statistics_http = runtime.statistics_http
         app.state.admission_gate = runtime.admission_gate

@@ -20,7 +20,6 @@ from support.recovery_harness import (
     CreateFaultPoint,
     UploadFaultPoint,
     assert_create_crash_disk_evidence,
-    assert_create_replay_conflict,
     assert_no_sensitive_leaks,
     assert_upload_crash_disk_evidence,
     assert_upload_replay_conflict,
@@ -94,10 +93,10 @@ def test_create_restart_marks_terminal_not_published(tmp_path: Path, point: Crea
             settings=runtime.settings,
         )
         assert runtime.is_ready()
-        assert_create_replay_conflict(runtime, idempotency_key=idempotency_key)
-        new_response = replay_create(runtime, idempotency_key=f"create-new-{point}")
-        assert UUID(str(new_response.repository_id)) != repository_id
-        assert count_effects(runtime.mutation_store) == effect_count + 1
+        recovered = replay_create(runtime, idempotency_key=idempotency_key)
+        assert UUID(str(recovered.repository_id)) == repository_id
+        assert count_effects(runtime.mutation_store) == effect_count
+        assert not is_terminal_not_published(runtime.mutation_store, scope=scope, idempotency_key=idempotency_key)
     finally:
         runtime.shutdown()
 

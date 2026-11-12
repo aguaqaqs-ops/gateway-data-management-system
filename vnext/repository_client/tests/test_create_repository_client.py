@@ -134,3 +134,18 @@ async def test_retry_idempotent_request_does_not_retry_409() -> None:
         await retry_idempotent_request(operation)
 
     assert attempts["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_authenticated_deployment_identity_is_strict_and_bounded() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/internal/v1/deployment-identity"
+        assert request.headers["Authorization"] == "Bearer secret"
+        return httpx.Response(200, json={"environment_id": "env", "group_id": "group", "storage_digest": "sha256:" + "a" * 64})
+    client = RepositoryClient(base_url="http://rs", bearer_token="secret", transport=httpx.MockTransport(handler))
+    result = await client.get_deployment_identity()
+    assert result.group_id == "group"
+    bad = RepositoryClient(base_url="http://rs", bearer_token="secret", transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"environment_id": "env", "group_id": "group", "storage_digest": "sha256:" + "a" * 64, "extra": True})))
+    with pytest.raises(RepositoryProtocolError):
+        await bad.get_deployment_identity()

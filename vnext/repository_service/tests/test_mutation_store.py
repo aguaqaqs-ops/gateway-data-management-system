@@ -548,3 +548,26 @@ def test_statistics_repository_page_is_keyset_and_only_succeeded_create(store: M
     second = store.page_succeeded_repositories(after_effect_id=first[0][0], limit=1)
     assert [first[0][1], second[0][1]] == created
     assert store.page_succeeded_repositories(after_effect_id=second[0][0]) == []
+
+
+def test_create_terminal_reopen_requires_exact_original_identity(store: MutationStore) -> None:
+    from dataclasses import replace
+    scope = IdempotencyScope.for_create()
+    key = store.hash_idempotency_key("same-create")
+    fingerprint = create_repository_fingerprint_v1()
+    effect = store.allocate_pending(scope, key_hash=key, fingerprint=fingerprint, resource_id=REPOSITORY_ID)
+    store.mark_terminal_not_published(scope, key_hash=key, fingerprint=fingerprint, effect_id=effect.effect_id)
+    original = store.lookup_create_effect(key_hash=key, fingerprint=fingerprint)
+    assert original is not None
+    for changed in (replace(original, resource_id=OTHER_REPOSITORY_ID), replace(original, effect_id=999),
+                    replace(original, key_hash=store.hash_idempotency_key("other")),
+                    replace(original, fingerprint=b"other"), replace(original, scope=_upload_scope())):
+        with pytest.raises(MutationStoreError):
+            store.reopen_unpublished_create(changed)
+    store.reopen_unpublished_create(original)
+    result = store.lookup_create_effect(key_hash=key, fingerprint=fingerprint)
+    assert result is not None and not result.terminal_not_published
+    assert result.resource_id == REPOSITORY_ID and result.effect_id == effect.effect_id
+    store.mark_succeeded(effect.effect_id, response_body={"result": "success"})
+    with pytest.raises(MutationStoreError):
+        store.reopen_unpublished_create(original)

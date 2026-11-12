@@ -339,13 +339,6 @@ async def replay_upload(
     return response
 
 
-def assert_create_replay_conflict(runtime: ServiceRuntime, *, idempotency_key: str) -> None:
-    with pytest.raises(ServiceError) as exc_info:
-        replay_create(runtime, idempotency_key=idempotency_key)
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.code == "IDEMPOTENCY_CONFLICT"
-
-
 async def assert_upload_replay_conflict(
     runtime: ServiceRuntime,
     *,

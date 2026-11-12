@@ -209,6 +209,8 @@ class MutationStore:
         *,
         transaction_lock: threading.Lock | None = None,
     ) -> None:
+        from gateway_repository_service.create_repository.execution import CreateExecutionOwner
+        self.create_execution = CreateExecutionOwner()
         self._connection = connection
         self._lock = transaction_lock if transaction_lock is not None else threading.Lock()
 
@@ -246,6 +248,41 @@ class MutationStore:
                 effect=effect,
                 terminal_not_published=False,
             )
+
+    def lookup_create_effect(self, *, key_hash: IdempotencyKeyHash, fingerprint: bytes) -> StoredEffectView | None:
+        scope = IdempotencyScope.for_create()
+        with self._transaction():
+            row = self._fetch_idempotency_row(scope, key_hash)
+            if row is None:
+                return None
+            if row["request_fingerprint"] != fingerprint:
+                raise FingerprintConflict(scope=scope)
+            effect = self._fetch_effect_for_idempotency(int(row["id"]))
+            if effect is None:
+                if bool(row["terminal_not_published"]):
+                    raise MutationStoreError("terminal create has no effect")
+                return None
+            return StoredEffectView(effect_id=effect.effect_id, idempotency_id=int(row["id"]),
+                scope=scope, key_hash=key_hash, fingerprint=fingerprint,
+                terminal_not_published=bool(row["terminal_not_published"]), resource_id=effect.resource_id,
+                status=effect.status, response_body=effect.response_body)
+
+    def reopen_unpublished_create(self, effect: StoredEffectView) -> None:
+        """CREATE-only terminal CAS against the original complete ledger/resource identity."""
+        if effect.scope != IdempotencyScope.for_create() or effect.status != EffectStatus.PENDING:
+            raise MutationStoreError("only pending create effects may reopen")
+        with self._transaction():
+            cursor = self._connection.execute(
+                """UPDATE mutation_idempotency SET terminal_not_published = 0
+                   WHERE id = ? AND mutation_kind = ? AND repository_scope = ''
+                     AND key_hash = ? AND request_fingerprint = ? AND terminal_not_published = 1
+                     AND EXISTS (SELECT 1 FROM synchronous_mutation_effects e
+                       WHERE e.idempotency_id = mutation_idempotency.id AND e.effect_id = ?
+                         AND e.resource_id = ? AND e.status = 'PENDING')""",
+                (effect.idempotency_id, MutationKind.CREATE_REPOSITORY.value, effect.key_hash.digest,
+                 effect.fingerprint, effect.effect_id, str(effect.resource_id)))
+            if cursor.rowcount != 1:
+                raise MutationStoreError("create terminal identity changed")
 
     def allocate_pending(
         self,

@@ -341,6 +341,7 @@ class ServiceRuntime:
 
     def shutdown(self) -> None:
         self._stopping.set()
+        self.mutation_store.create_execution.close()
         self.import_locks.set_release_notify(None)
         self.upload_admission.close()
         self.row_stream_admission.close()
@@ -517,10 +518,10 @@ class ServiceRuntime:
     def _wait_for_admission_drain(self, *, timeout: float) -> bool:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0:
+            if self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0 and not self.mutation_store.create_execution.in_use:
                 return True
             time.sleep(0.01)
-        return self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0
+        return self.upload_admission.in_use == 0 and self.row_stream_admission.in_use == 0 and not self.mutation_store.create_execution.in_use
 
     def is_accepting_import_effects(self) -> bool:
         return not self._stopping.is_set()

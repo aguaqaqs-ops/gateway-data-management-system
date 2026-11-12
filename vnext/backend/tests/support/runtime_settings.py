@@ -85,6 +85,7 @@ def make_operation_worker_settings(
         db_path.parent / "provisioned-mapping.json",
     )
     _configure_test_profile(storage_file, resources_file, db_path, overrides, prepare=prepare)
+    _prepare_registration_files(tmp_path, storage_file, overrides)
     return OperationWorkerSettings(
         runtime_mode="host",
         instance_index=overrides.pop("instance_index", 1),  # type: ignore[arg-type]
@@ -120,6 +121,7 @@ def make_backend_settings(
     )
     mapping_file = overrides.pop("provisioned_mapping_file", tmp_path / "provisioned-mapping.json")
     _configure_test_profile(storage_file, resources_file, db_path, overrides, prepare=prepare)
+    _prepare_registration_files(tmp_path, storage_file, overrides)
     return BackendSettings(
         runtime_mode="host",
         storage_layout_file=overrides.pop("storage_layout_file", storage_file),  # type: ignore[arg-type]
@@ -201,3 +203,22 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
             pass  # invalid-profile owners exercise the settings validator next
         else:
             publish_configuration(deployment)
+
+
+def _prepare_registration_files(directory: Path, storage: Path, overrides: dict[str, object]) -> None:
+    """A real group reservation accompanies the production seed in runtime fixtures."""
+    source = Path(__file__).resolve().parents[3] / "fixtures/processing-groups/v1/groups.json"
+    groups = json.loads(source.read_bytes())
+    layout = json.loads(storage.read_bytes())
+    groups["environment_id"] = layout["environment_id"]
+    groups["groups"] = [groups["groups"][0]]
+    groups["groups"][0]["group_id"] = layout["group_id"]
+    groups_path = directory / "groups.json"
+    device_path = directory / "device-directory.json"
+    if not groups_path.exists():
+        groups_path.write_text(json.dumps(groups))
+    if not device_path.exists():
+        device_path.write_text(json.dumps({"schema_version": 1, "environment_id": layout["environment_id"],
+            "devices": [{"gateway_device_external_key": TEST_DEVICE_KEY, "group_id": layout["group_id"], "enabled": True}]}))
+    overrides.setdefault("processing_groups_file", groups_path)
+    overrides.setdefault("device_directory_file", device_path)

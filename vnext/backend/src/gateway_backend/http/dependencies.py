@@ -397,7 +397,8 @@ class ArchiveRequestBodyLimitMiddleware:
             return
         path = str(scope.get("path", ""))
         is_closure = path.startswith("/v1/submissions/") and path.endswith("/closure") and path.count("/") == 4
-        if path not in BODY_LIMIT_POST_PATHS and not is_closure:
+        is_registration = path == "/internal/v1/devices/register"
+        if path not in BODY_LIMIT_POST_PATHS and not is_closure and not is_registration:
             await self.app(scope, receive, send)
             return
 
@@ -406,6 +407,8 @@ class ArchiveRequestBodyLimitMiddleware:
         from gateway_backend.application.archive.contracts import ARCHIVE_MAX_REQUEST_BYTES
         from gateway_backend.http.errors import error_response
 
+        from gateway_backend.device_identity import MAX_REGISTRATION_BODY_BYTES
+        body_limit = MAX_REGISTRATION_BODY_BYTES if is_registration else ARCHIVE_MAX_REQUEST_BYTES
         body = b""
         more_body = True
         while more_body:
@@ -417,7 +420,7 @@ class ArchiveRequestBodyLimitMiddleware:
                 chunk = b""
             body += bytes(chunk)
             more_body = bool(message.get("more_body", False))
-            if len(body) > ARCHIVE_MAX_REQUEST_BYTES:
+            if len(body) > body_limit:
                 response = error_response(
                     code="REQUEST_TOO_LARGE",
                     message="request body exceeds size limit",

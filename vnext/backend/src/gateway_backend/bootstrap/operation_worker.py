@@ -183,7 +183,12 @@ def build_production_preview_dependencies(
 
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
     bootstrap_control_database(settings)
-    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
+    from gateway_backend.bootstrap.provisioning import reserved_directory
+    storage = settings.deployment_config.storage
+    directory = reserved_directory(settings.processing_groups_file, settings.device_directory_file,
+        environment=storage.environment_id, group=storage.group_id)
+    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file,
+        directory=directory, group=storage.group_id)
     deployment = settings.deployment_config
     local_store = local_store_from_config(deployment)
     local_store.check_publication_support()

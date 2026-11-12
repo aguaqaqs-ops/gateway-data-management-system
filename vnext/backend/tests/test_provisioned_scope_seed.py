@@ -245,3 +245,18 @@ def test_rejected_seed_batch_is_refused_as_a_whole(
         seed_provisioned_mappings(db_path, mapping_file)
 
     assert _seed_state(db_path) == before
+
+
+@pytest.mark.parametrize("field,value", [("repository_id", "other-repo"), ("enabled", False)])
+def test_restart_seed_cannot_change_existing_mapping(tmp_path: Path, field: str, value: object) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    initialize_and_verify_control_db(db_path)
+    seed_provisioned_mapping_with_head(db_path, repository_id="repo-1", baseline_head=make_baseline_head(version=0, commit_id="commit-1"))
+    record = _mapping_record(device_key="device-1", project_id="project-1", repository_id="repo-1", node_id="node-1", commit_id="commit-1")
+    record[field] = value
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"mappings": [record]}))
+    before = _seed_state(db_path)
+    with pytest.raises(ValueError):
+        seed_provisioned_mappings(db_path, seed)
+    assert _seed_state(db_path) == before

@@ -26,6 +26,12 @@ COMPOSITION_MODULES = frozenset(
     {"gateway_backend", "gateway_backend.app", "gateway_backend.settings", "gateway_backend.deployment_config", "gateway_backend.runtime_preflight"}
 )
 
+# Exact shared owners: identity is a domain value; host documents are composition.
+OWNED_ROOT_MODULES = {
+    "gateway_backend.device_identity": "domain",
+    "gateway_backend.processing_group_config": "composition",
+}
+
 RULE_LAYER = "layer"
 RULE_CAPABILITY_SURFACE = "capability-surface"
 RULE_PRIVATE = "private"
@@ -295,6 +301,8 @@ def zone(module: str, packages: frozenset[str]) -> str | None:
             if module == prefix or module.startswith(f"{prefix}."):
                 return external
         return None
+    if module in OWNED_ROOT_MODULES:
+        return OWNED_ROOT_MODULES[module]
     if module in COMPOSITION_MODULES:
         return "composition"
     top = f"{BACKEND_PACKAGE}.{parts[1]}"

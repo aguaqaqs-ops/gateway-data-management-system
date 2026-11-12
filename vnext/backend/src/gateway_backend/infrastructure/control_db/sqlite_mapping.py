@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_backend.device_identity import validate_scope_identity
+from gateway_backend.application.provisioning.contracts import ReservationPort
 
 import json
 import sqlite3
@@ -49,12 +50,17 @@ class ProvisionedBaselineHeadRead:
         return SQLiteBaselineHeadRead(self._db_path).get_current_head(repository_id)
 
 
-def seed_provisioned_mappings(db_path: Path, mapping_file: Path) -> None:
-    """Idempotently upsert provisioned mappings from a server-owned JSON file."""
+def seed_provisioned_mappings(db_path: Path, mapping_file: Path, *, directory: ReservationPort | None = None, group: str | None = None) -> None:
+    """Insert missing and verify exact provisioned mappings from a server-owned JSON file."""
 
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
     records = load_provisioned_mapping_file(mapping_file)
+    if directory is not None:
+        if group is None:
+            raise ValueError("seed directory identity is unavailable")
+        for record in records:
+            directory.require_reservation(str(record["gateway_device_external_key"]), group)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         _seed_provisioned_mappings_in_transaction(unit_of_work.connection, records)
 
@@ -71,7 +77,7 @@ def load_provisioned_mapping_file(mapping_file: Path) -> tuple[dict[str, object]
     if type(payload) is not dict:
         raise ValueError("provisioned mapping file must be a JSON object")
     raw_mappings = payload.get("mappings")
-    if type(raw_mappings) is not list or not raw_mappings:
+    if type(raw_mappings) is not list:
         raise ValueError("provisioned mapping file must contain mappings")
     records: list[dict[str, object]] = []
     for item in raw_mappings:
@@ -204,6 +210,12 @@ def _apply_seed_record(
         or type(initial_version) is not int
     ):
         raise ValueError("seed record has invalid field types")
+    existing = connection.execute(
+        "SELECT repository_id, enabled FROM provisioned_scope_mappings WHERE gateway_device_external_key = ? AND business_project_id = ?",
+        (gateway_device_external_key, business_project_id),
+    ).fetchone()
+    if existing is not None and (existing["repository_id"] != repository_id or existing["enabled"] != enabled):
+        raise ValueError("seed mapping differs from stored fixed mapping")
     initial_node = connection.execute(
         """
         SELECT node_id, commit_id, gateway_device_external_key, business_project_id
@@ -212,6 +224,8 @@ def _apply_seed_record(
         """,
         (repository_id,),
     ).fetchone()
+    if (existing is None) != (initial_node is None):
+        raise ValueError("seed mapping/INITIAL facts are incomplete")
     if initial_node is None:
         if initial_version != 0:
             raise ValueError("first repository seed must use baseline_head_version 0")
@@ -263,6 +277,10 @@ def _apply_seed_record(
             or initial_node["business_project_id"] != business_project_id
         ):
             raise ValueError("seed initial identity does not match stored INITIAL node")
+    if existing is not None:
+        if connection.execute("SELECT 1 FROM baseline_head_records WHERE repository_id = ?", (repository_id,)).fetchone() is None:
+            raise ValueError("seed mapping has no stored Head")
+        return
     connection.execute(
         """
         INSERT INTO provisioned_scope_mappings (
@@ -271,9 +289,6 @@ def _apply_seed_record(
             repository_id,
             enabled
         ) VALUES (?, ?, ?, ?)
-        ON CONFLICT(gateway_device_external_key, business_project_id) DO UPDATE SET
-            repository_id = excluded.repository_id,
-            enabled = excluded.enabled
         """,
         (gateway_device_external_key, business_project_id, repository_id, enabled),
     )

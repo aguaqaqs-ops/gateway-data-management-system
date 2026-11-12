@@ -27,6 +27,8 @@ from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferSto
 
 import httpx
 from gateway_repository_client import RepositoryClient
+from gateway_backend.infrastructure.control_db.sqlite_registration import SQLiteRegistrationStore
+from gateway_backend.infrastructure.repository_write.registration import RegistrationRepositoryAdapter
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
@@ -104,6 +106,7 @@ from gateway_backend.infrastructure.repository_write.terminal_evidence_codec imp
 from gateway_backend.runtime_preflight import RuntimePreflight
 from gateway_backend.bootstrap.deployment_identity import publish_configuration, compare_configuration
 
+from gateway_backend.application.provisioning.registration import DeviceRegistration
 from gateway_backend.settings import BackendSettings
 
 class TransactionWorkspaceRepository:
@@ -191,6 +194,7 @@ class LocalArtifactRefLookup:
 @dataclass(frozen=True, slots=True)
 class BackendRuntime:
     settings: BackendSettings
+    device_registration: DeviceRegistration
     admission_gate: ClosableAdmissionGate
     workspace_http: WorkspaceHttpDependencies
     history_http: HistoryHttpDependencies
@@ -296,7 +300,12 @@ def prepare_backend_runtime(
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
-    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file)
+    from gateway_backend.bootstrap.provisioning import reserved_directory
+    storage = settings.deployment_config.storage
+    directory = reserved_directory(settings.processing_groups_file, settings.device_directory_file,
+        environment=storage.environment_id, group=storage.group_id)
+    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file,
+        directory=directory, group=storage.group_id)
     if not skip_repository_ready_probe:
         assert_repository_service_ready(
             settings.repository_base_url,
@@ -428,6 +437,12 @@ def prepare_backend_runtime(
                 quality='unavailable', reason='collection_failed'))
     return BackendRuntime(
         settings=settings,
+        device_registration=DeviceRegistration(store=SQLiteRegistrationStore(settings.control_db_path, storage.environment_id, storage.group_id),
+            environment=storage.environment_id, group=storage.group_id, storage_digest=storage.digest,
+            reservation=lambda device: reserved_directory(settings.processing_groups_file, settings.device_directory_file,
+                environment=storage.environment_id, group=storage.group_id).require_reservation(device, storage.group_id),
+            repository=RegistrationRepositoryAdapter(RepositoryClient(base_url=settings.repository_base_url, bearer_token=repository_token,
+                timeout_seconds=settings.repository_timeout_seconds, transport=repository_transport))),
         storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,

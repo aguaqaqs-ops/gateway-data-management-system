@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from gateway_backend.http.dependencies import HistoryHttpDependencies, WorkspaceHttpDependencies
 from gateway_backend.http.errors import register_exception_handlers
+from gateway_backend.http.routes.device_registration import router as device_registration_router
 from gateway_backend.http.routes.operations import router as operations_router
 from gateway_backend.http.routes.operator_recovery import router as operator_recovery_router
 from gateway_backend.http.routes.preview_operations import router as preview_operations_router
@@ -22,6 +23,8 @@ from gateway_backend.http.routes.maintenance import router as maintenance_router
 
 PRODUCTION_OPENAPI_PATHS = frozenset(
     {
+        "/internal/v1/devices/register",
+        "/internal/v1/devices/registration",
         "/healthz",
         "/readyz",
         "/v1/repositories/{repository_id}/statistics/storage",
@@ -83,3 +86,4 @@ def register_workspace_http(
     app.include_router(operator_recovery_router)
     app.include_router(statistics_router)
     app.include_router(maintenance_router)
+    app.include_router(device_registration_router)

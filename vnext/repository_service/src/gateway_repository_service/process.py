@@ -1182,6 +1182,9 @@ class DoltRunner:
             else:
                 self._active_children.unregister(process)
 
+    def has_active_children(self) -> bool:
+        return bool(self._active_children.snapshot())
+
     def has_owned_children(self, owner: object) -> bool:
         return bool(self._active_children.snapshot_for_owner(owner))
 

@@ -270,3 +270,15 @@ def test_rs_signal_exit_requires_current_generation_shutdown_completion(
     assert maintenance._rs_shutdown_completed(original, current) is accepted
     assert calls == ([] if generation_changed else [["docker", "logs", "--since",
         original["State"]["StartedAt"], "--tail", "200", "repository-service"]])
+
+
+def test_group_management_lock_is_shared_and_other_groups_are_independent(maintenance: ModuleType, tmp_path: Path) -> None:
+    # The same host module is the lock owner for maintenance and future publication.
+    with maintenance.group_management_lock(tmp_path, "group-a"):
+        with pytest.raises(BlockingIOError):
+            with maintenance.group_management_lock(tmp_path, "group-a"):
+                pass
+        with maintenance.group_management_lock(tmp_path, "group-b"):
+            pass
+    with maintenance.group_management_lock(tmp_path, "group-a"):
+        pass

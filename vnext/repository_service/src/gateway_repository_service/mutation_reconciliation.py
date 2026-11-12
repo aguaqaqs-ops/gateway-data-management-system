@@ -14,8 +14,6 @@ from gateway_repository_contracts import OperationStatus, REPOSITORY_IMPORT_MEDI
 from gateway_repository_service.create_repository.visibility import (
     DEFAULT_REF,
     create_repository_matches_ledger_full,
-    has_published_repository_tree,
-    read_published_repository_head_strict,
 )
 from gateway_repository_service.layout import DurableLayout, repository_key
 from gateway_repository_service.mutation_fingerprints import parse_upload_artifact_fingerprint_v1
@@ -240,11 +238,9 @@ class SynchronousMutationReconciler:
 
     def reconcile(self) -> ReconciliationResult:
         for effect in self._mutation_store.iter_effects_by_status(EffectStatus.PENDING):
-            if effect.terminal_not_published:
-                continue
             if effect.scope.mutation_kind == MutationKind.CREATE_REPOSITORY:
                 self._reconcile_pending_create(effect)
-            else:
+            elif not effect.terminal_not_published:
                 self._reconcile_pending_upload(effect)
 
         return ReconciliationResult(
@@ -317,38 +313,24 @@ class SynchronousMutationReconciler:
         return tuple(blocking)
 
     def _reconcile_pending_create(self, effect: StoredEffectView) -> None:
-        repository_id = effect.resource_id
-        if has_published_repository_tree(self._layout, repository_id):
-            try:
-                initial_commit_id = read_published_repository_head_strict(
-                    self._settings,
-                    self._layout,
-                    repository_id,
-                )
-            except Exception as exc:
-                raise ReconciliationError(
-                    f"failed to read head for pending create effect {effect.effect_id}"
-                ) from exc
-            if initial_commit_id is None:
-                raise ReconciliationError(
-                    f"published repository tree exists but main head is unavailable for effect {effect.effect_id}"
-                )
-            response_body = {
-                "repository_id": str(repository_id),
-                "default_ref": DEFAULT_REF,
-                "initial_commit_id": initial_commit_id,
-            }
-            self._mutation_store.mark_succeeded(effect.effect_id, response_body=response_body)
-            return
-
-        self._cleanup_create_staging(repository_id)
-        self._assert_create_staging_absent(repository_id)
-        self._mutation_store.mark_terminal_not_published(
-            effect.scope,
-            key_hash=effect.key_hash,
-            fingerprint=effect.fingerprint,
-            effect_id=effect.effect_id,
+        from gateway_repository_service.create_repository.recovery import (
+            cleanup_create_staging, inspect_create_publication,
         )
+        try:
+            initial = inspect_create_publication(settings=self._settings, layout=self._layout,
+                repository_id=effect.resource_id)
+            if initial is not None:
+                if effect.terminal_not_published:
+                    raise ReconciliationError("terminal create contradicts publication")
+                self._mutation_store.mark_succeeded(effect.effect_id, response_body={
+                    "repository_id": str(effect.resource_id), "default_ref": DEFAULT_REF,
+                    "initial_commit_id": initial})
+            else:
+                cleanup_create_staging(self._layout, effect.resource_id)
+                self._mutation_store.mark_terminal_not_published(effect.scope, key_hash=effect.key_hash,
+                    fingerprint=effect.fingerprint, effect_id=effect.effect_id)
+        except Exception as exc:
+            raise ReconciliationError(f"create evidence unresolved for effect {effect.effect_id}") from exc
 
     def _reconcile_pending_upload(self, effect: StoredEffectView) -> None:
         repository_id = effect.scope.repository_id
@@ -393,19 +375,6 @@ class SynchronousMutationReconciler:
             fingerprint=effect.fingerprint,
             effect_id=effect.effect_id,
         )
-
-    def _cleanup_create_staging(self, repository_id: UUID) -> None:
-        key = repository_key(repository_id)
-        pattern = f"{key}.*"
-        for staged in self._layout.staging_versioned.glob(pattern):
-            if staged.is_dir():
-                shutil.rmtree(staged)
-
-    def _assert_create_staging_absent(self, repository_id: UUID) -> None:
-        if staging_dirs_for_repository(self._layout, repository_id):
-            raise ReconciliationError(
-                f"failed to remove create staging for repository {repository_id.hex}"
-            )
 
     def _cleanup_upload_staging(self, repository_id: UUID, artifact_id: UUID) -> None:
         key = repository_key(repository_id)

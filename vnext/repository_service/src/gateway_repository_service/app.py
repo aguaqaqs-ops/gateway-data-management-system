@@ -12,6 +12,7 @@ from starlette.middleware.errors import ServerErrorMiddleware
 from gateway_repository_service.http.errors import register_exception_handlers, server_exception_handler
 from gateway_repository_service.http.middleware import RequestIdMiddleware
 from gateway_repository_service.http.readiness import DefaultReadiness, LifecycleReadiness, ReadinessPort
+from gateway_repository_service.http.routes.deployment_identity import register_deployment_identity_routes
 from gateway_repository_service.http.routes.artifacts import register_artifact_routes
 from gateway_repository_service.http.routes.imports import register_import_routes
 from gateway_repository_service.http.routes.operations import register_operation_routes
@@ -67,6 +68,7 @@ def create_app(
     register_exception_handlers(app)
     register_probe_routes(app)
     register_repository_routes(app)
+    register_deployment_identity_routes(app)
     register_artifact_routes(app)
     register_import_routes(app)
     register_operation_routes(app)

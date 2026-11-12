@@ -89,7 +89,7 @@ def _rejected_identity(stack: ProcessingGroupsStack) -> None:
         assert wrong.status_code == 404, wrong.text
     with stack.client("compose-device") as a:
         wrong = httpx.get(stack.group_url("group-a") + "/v1/device-context",
-            headers={**dict(a.headers), "X-Gateway-Device-Key": harness.compose_auth_headers(device_key="synthetic-b1")["X-Gateway-Device-Key"]})
+            headers=harness.compose_auth_headers(token="compose-device-token", device_key="synthetic-b1"))
         assert wrong.status_code == 404, wrong.text
         wrong = a.post("/v1/workspaces", json=dict(gateway_device_external_key="synthetic-b1", business_project_id="compose-project"))
         assert wrong.status_code == 404, wrong.text

@@ -1,3 +1,4 @@
+import { parseBundleTar, type BundleManifest } from "./lib/tar";
 import type { GatewaySession } from "../src/features/api/session";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,8 +16,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
  *
  * The five `input-*` scopes are independent repositories seeded on an empty
  * INITIAL baseline. They upload the A/B/C/D inputs (Q10) through the real
- * UI and then read the bundle manifest through the preview proxy, because the
- * current backend still returns JSON at the bundle path (§3.3).
+ * UI and then verify the streamed tar manifest through the public entry.
  */
 
 interface Identity {
@@ -48,19 +48,7 @@ interface OperationBody {
   diagnostic?: { code: string; message: string } | null;
 }
 
-interface BundleBody {
-  bundle_id?: string;
-  manifest_ref?: { artifact_id?: string };
-  failed_pairs: unknown[];
-  inputs: Array<{ input_index: number; role: string; display_name: string }>;
-  pairs: Array<{
-    pair_id: string;
-    before_input_index: number;
-    current_input_index: number;
-    status: string;
-    summary: Record<string, string>;
-  }>;
-}
+type BundleBody = BundleManifest;
 
 interface ScopeRecord {
   identity: string;
@@ -68,7 +56,6 @@ interface ScopeRecord {
   upload_status: number;
   operation_id: string;
   preview_result_id: string;
-  bundle_id: string;
   bundle_digest: string;
   failed_pairs: number;
   pairs: Array<{
@@ -198,7 +185,7 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
     },
     { token: identity.token, workspaceId: workspace.workspace_id, previewResultId: workspace.current_preview_result_id },
   );
-  const bundle = await page.evaluate(
+  const bundleBytes = await page.evaluate(
     async ({ token, workspaceId, previewResultId }) => {
       const snapshot = window.__gatewaySession as GatewaySession;
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
@@ -207,10 +194,13 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
         { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey } },
       );
       if (!response.ok) throw new Error(`GET preview bundle returned ${response.status}`);
-      return (await response.json()) as BundleBody;
+      if (response.headers.get("Content-Type")?.split(";", 1)[0] !== "application/x-tar") throw new Error("preview bundle must be a tar stream");
+      return Array.from(new Uint8Array(await response.arrayBuffer()));
     },
     { token: identity.token, workspaceId: workspace.workspace_id, previewResultId: workspace.current_preview_result_id },
   );
+  const bundle = parseBundleTar(Buffer.from(bundleBytes)).manifest;
+  expect(bundle.bundle_digest).toBe(preview.bundle_digest);
   return { preview, bundle };
 }
 
@@ -285,7 +275,6 @@ async function runInputScope(
     upload_status: 201,
     operation_id: acceptedBody.operation_id,
     preview_result_id: preview.preview_result_id,
-    bundle_id: bundle.bundle_id ?? bundle.manifest_ref?.artifact_id ?? "",
     bundle_digest: preview.bundle_digest,
     failed_pairs: bundle.failed_pairs.length,
     pairs,

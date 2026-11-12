@@ -1352,7 +1352,7 @@ for record in json.load(open(sys.argv[1], encoding="utf-8")):
     print(
         f"input_scope={record['scope']} identity={record['identity']} "
         f"upload_status={record['upload_status']} operation_id={record['operation_id']} "
-        f"preview_result_id={record['preview_result_id']} bundle_id={record.get('bundle_id', '')} "
+        f"preview_result_id={record['preview_result_id']} "
         f"bundle_digest={record.get('bundle_digest', '')} "
         f"failed_pairs={record['failed_pairs']} pairs={pairs} identity_pairs={identities}"
     )

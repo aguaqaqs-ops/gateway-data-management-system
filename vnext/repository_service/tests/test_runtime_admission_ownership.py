@@ -18,6 +18,7 @@ from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.admission import InflightKeyGate, PermitPool, UploadCancelRegistry
 from gateway_repository_service.artifact_cleaner import NoOpArtifactCleaner
 from gateway_repository_service.http.errors import ServiceError
+from gateway_repository_service.create_repository.execution import CreateExecutionOwner
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.mutation_store import ClaimResult, EffectRecord, EffectStatus, MutationStore
 from gateway_repository_service.runtime import AdmissionDrainTimeoutError, ServiceRuntime
@@ -55,12 +56,14 @@ def _fake_runtime(
     root_lock.is_held.return_value = True
     worker_pool = MagicMock()
     worker_pool.wait_for_quiescence.return_value = True
+    mutation_store = MagicMock()
+    mutation_store.create_execution = CreateExecutionOwner()
     return ServiceRuntime(
         settings=settings,
         layout=MagicMock(),
         root_lock=root_lock,
         control_store=control_store,
-        mutation_store=MagicMock(),
+        mutation_store=mutation_store,
         import_store=MagicMock(),
         import_locks=MagicMock(),
         import_worker_pool=worker_pool,
@@ -568,3 +571,18 @@ def test_shutdown_logs_safe_operational_fields(caplog: pytest.LogCaptureFixture)
         assert "data_root" not in fields
         text = str(fields)
         assert "token" not in text.lower() or fields.get("event") == "runtime_shutdown"
+
+
+@pytest.mark.serial
+def test_shutdown_retains_db_and_root_until_admitted_create_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _fake_runtime(grace=0.01)
+    monkeypatch.setattr("gateway_repository_service.runtime.BRIDGE_REGISTRY.close_all", lambda *_a, **_kw: None)
+    with runtime.mutation_store.create_execution.admit():
+        with pytest.raises(AdmissionDrainTimeoutError) as raised:
+            runtime.shutdown()
+        assert raised.value.create_in_use
+        runtime.control_store.close.assert_not_called()  # type: ignore[attr-defined]
+        runtime.root_lock.release.assert_not_called()  # type: ignore[attr-defined]
+    runtime.shutdown()
+    runtime.control_store.close.assert_called_once()  # type: ignore[attr-defined]
+    runtime.root_lock.release.assert_called_once()  # type: ignore[attr-defined]

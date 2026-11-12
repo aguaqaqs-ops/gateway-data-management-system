@@ -69,14 +69,15 @@ class ServiceStartupError(RuntimeError):
 
 
 class AdmissionDrainTimeoutError(RuntimeError):
-    """Raised when upload/row-stream permits remain after shutdown drain grace."""
+    """Raised when CREATE/upload/row-stream ownership remains after shutdown drain grace."""
 
-    def __init__(self, *, upload_in_use: int, row_stream_in_use: int) -> None:
+    def __init__(self, *, upload_in_use: int, row_stream_in_use: int, create_in_use: bool) -> None:
+        self.create_in_use = create_in_use
         self.upload_in_use = upload_in_use
         self.row_stream_in_use = row_stream_in_use
         super().__init__(
             "admission permits still held after shutdown drain grace: "
-            f"upload_in_use={upload_in_use} row_stream_in_use={row_stream_in_use}"
+            f"upload_in_use={upload_in_use} row_stream_in_use={row_stream_in_use} create_in_use={create_in_use}"
         )
 
 
@@ -469,6 +470,7 @@ class ServiceRuntime:
                     drain_error = AdmissionDrainTimeoutError(
                         upload_in_use=upload_snap.in_use,
                         row_stream_in_use=row_snap.in_use,
+                        create_in_use=self.mutation_store.create_execution.in_use,
                     )
                     cleanup_errors.append(drain_error)
                 log_event(

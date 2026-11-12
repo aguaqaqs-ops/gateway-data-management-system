@@ -5,12 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from gateway_repository_service.app import create_app
 from gateway_repository_service.create_repository.adapters import DoltCreateAdapter
 from gateway_repository_service.create_repository.command import CreateRepositoryCommand
 from gateway_repository_service.create_repository.execution import CreateExecutionOwner
@@ -153,15 +152,27 @@ def test_unconfirmed_dolt_exit_retains_create_owner() -> None:
     assert raised.value.code == "CREATE_REPOSITORY_UNRESOLVED"
 
 
-@pytest.mark.integration
+@pytest.mark.unit
 def test_deployment_identity_requires_rs_bearer_and_returns_cached_facts(tmp_path: Path) -> None:
-    settings = lifecycle_settings(tmp_path)
-    with TestClient(create_app(settings)) as client:
+    from gateway_repository_service.deployment_config import DeploymentConfig
+    from gateway_repository_service.settings import RepositoryServiceSettings
+    from gateway_repository_service.storage_roots import RepositoryRoots
+    from support.http_harness import create_create_route_test_app
+    fixtures = Path(__file__).resolve().parents[2] / "fixtures/runtime-config/v1"
+    config = DeploymentConfig.load(fixtures / "storage-layout.json", fixtures / "resource-profile.json")
+    settings = RepositoryServiceSettings(profile="test", bearer_token="test-bearer-token",
+        roots=RepositoryRoots.under(tmp_path / "unused"))
+    # Supply already-validated preflight facts, with no actual runtime/Dolt fixture.
+    settings.__dict__["deployment_config"] = config
+    runtime = MagicMock(spec=ServiceRuntime)
+    runtime.settings = settings
+    app = create_create_route_test_app(settings)
+    app.state.runtime = runtime
+    with TestClient(app) as client:
         assert client.get("/internal/v1/deployment-identity").status_code == 401
         response = client.get("/internal/v1/deployment-identity", headers={"Authorization": "Bearer test-bearer-token"})
         assert response.status_code == 200
-        assert settings.deployment_config is not None
-        storage = settings.deployment_config.storage
+        storage = config.storage
         assert response.json() == {"environment_id": storage.environment_id, "group_id": storage.group_id,
             "storage_digest": storage.digest}
 

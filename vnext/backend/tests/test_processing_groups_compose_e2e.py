@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 from queue import Queue
+from threading import Event
 
 import httpx
 import pytest
@@ -110,7 +111,20 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
         if a_workers == 2:
             stack.compose("group-a", "stop", "worker-2")
         stack.arm()
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        b_stop = Event()
+        b_seen: Queue[None] = Queue()
+        def continue_b() -> int:
+            count = 0
+            with stack.client("synthetic-b1") as client:
+                while not b_stop.is_set():
+                    response = client.get("/v1/device-context", timeout=5)
+                    assert response.status_code == 200, response.text
+                    count += 1
+                    b_seen.put(None)
+                    b_stop.wait(0.1)
+            return count
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            continuity = executor.submit(continue_b)
             old = executor.submit(stack.journey, "group-a", "compose-device", a1,
                                   preview_only=True, on_preview_accepted=accepted.put)
             try:
@@ -122,10 +136,12 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
                 if a_workers == 2:
                     stack.compose("group-a", "start", "worker-2")
                     harness.worker_ready(stack.envs["group-a"])
+                b_seen.get(timeout=10)
                 before = stack.snapshot()
                 with stack.client("synthetic-b1") as b:
                     assert b.get("/v1/device-context").status_code == 200
                 inode = (stack.runtime_roots["group-a"] / "session/session.json").stat().st_ino
+                b_before_add = b_seen.qsize()
                 a2 = stack.add("group-a", "synthetic-a2")
                 assert (stack.runtime_roots["group-a"] / "session/session.json").stat().st_ino != inode
                 assert stack.snapshot() == before
@@ -148,11 +164,14 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
                     print("strict_hot_add_overlap=" + json.dumps(dict(old_operation=old_id,
                         new_operation=new_id, new_archive=archived["baseline_node_id"], old_fact=old_fact)), flush=True)
                 assert stack.snapshot() == before
+                assert b_seen.qsize() > b_before_add
                 with stack.client("synthetic-b1") as b:
                     assert b.get("/v1/device-context").status_code == 200
                     assert b.get("/v1/operations/" + new_id).status_code == 404
             finally:
                 stack.release()
+                b_stop.set()
+            print("other_group_continuity_requests=" + str(continuity.result(timeout=10)), flush=True)
             assert old.result(timeout=180)["workspace_id"] != new_result["workspace_id"]
         # Exact replay after Head advancement retains INITIAL; no seed rewind.
         assert stack.add("group-a", "synthetic-a2") == a2

@@ -131,4 +131,4 @@ def test_real_sqlite_scope_distinguishes_absence_from_unavailable_facts(tmp_path
     assert response.json()['code'] == ('RESOURCE_NOT_FOUND' if status == 404 else 'DEPENDENCY_UNAVAILABLE')
     assert str(env.db_path) not in response.text
     if status == 503:
-        assert response.json() == {'code': 'DEPENDENCY_UNAVAILABLE', 'message': 'scope provider unavailable', 'details': None}
+        assert response.json() == {'code': 'DEPENDENCY_UNAVAILABLE', 'message': 'scope provider unavailable'}

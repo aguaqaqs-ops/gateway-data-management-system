@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 from host_runtime_config import DeploymentConfig, check_host, initialize_host
 from worker_deployment import check_workers, worker_services
 from processing_group_config import ProcessingGroupsConfig
-from processing_group_deployment import load_configs
+from processing_group_deployment import check_public_directory, load_configs
 
 
 def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str, object]:
@@ -37,7 +39,7 @@ def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str
         # Inherit the production worker definition, including its one image tag.
         # Only rendered mounts/resources and the fixed application index differ.
         services[f"worker-{index}"] = {
-            **worker,
+            **deepcopy(worker),
             "extends": {"file": str(Path(__file__).resolve().parents[1] / "deploy/compose.yaml"),
                         "service": "worker"},
             "environment": {**worker["environment"],
@@ -47,7 +49,7 @@ def render(config: DeploymentConfig, storage: Path, resources: Path) -> dict[str
 
 
 def render_group(config: DeploymentConfig, storage: Path, resources: Path, groups: ProcessingGroupsConfig,
-                 group_id: str, groups_file: Path, directory_file: Path) -> dict[str, object]:
+                 group_id: str, groups_file: Path, directory_file: Path, *, build_from_source: bool = False) -> dict[str, object]:
     if groups_file.parent != directory_file.parent:
         raise ValueError("groups and directory must share their controlled parent directory")
     group = next((item for item in groups.groups if item.group_id == group_id), None)
@@ -55,12 +57,22 @@ def render_group(config: DeploymentConfig, storage: Path, resources: Path, group
         raise ValueError("selected group configuration differs")
     if (str(storage), str(resources)) != (group.storage_config, group.resource_config):
         raise ValueError("selected configuration paths differ from group manifest")
+    if build_from_source:
+        source = Path(__file__).resolve().parents[2]
+        revision = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(source), "status", "--porcelain"],
+            capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+        if dirty or revision != group.images.revision:
+            raise ValueError("selected group source build requires its clean revision worktree")
+    check_public_directory(groups, groups_file.parent)
     rendered = render(config, storage, resources)
     services = rendered["services"]
     assert isinstance(services, dict)
     for name in ("backend", *worker_services(config.resources.worker.count)):
         service = services[name]
         service["image"] = group.images.backend if name == "backend" else group.images.worker
+        service["build"] = {"args": {"CANDIDATE_SHA": group.images.revision}}
         service["volumes"].append({"type": "bind", "source": str(groups_file.parent),
             "target": "/run/gateway/groups", "read_only": True, "bind": {"create_host_path": False}})
         prefix = "GATEWAY_BACKEND_" if name == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
@@ -86,6 +98,7 @@ def main() -> int:
     parser.add_argument("--groups-file", type=Path)
     parser.add_argument("--directory-file", type=Path)
     parser.add_argument("--group")
+    parser.add_argument("--build-from-source", action="store_true")
     args = parser.parse_args()
     try:
         storage, resources = args.storage_layout.absolute(), args.resource_profile.absolute()
@@ -104,7 +117,7 @@ def main() -> int:
                 groups = ProcessingGroupsConfig.load(args.groups_file.absolute())
                 load_configs(groups)
                 rendered = render_group(config, storage, resources, groups, args.group,
-                    args.groups_file.absolute(), args.directory_file.absolute())
+                    args.groups_file.absolute(), args.directory_file.absolute(), build_from_source=args.build_from_source)
             payload = json.dumps(rendered, indent=2) + "\n"
             with destination.open("x", encoding="utf-8") as stream:
                 stream.write(payload)
@@ -115,7 +128,7 @@ def main() -> int:
         else:
             check_host(config, markers=args.command == "check-layout")
         return 0
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         parser.exit(2, f"deployment configuration refused: {exc}\n")
 
 

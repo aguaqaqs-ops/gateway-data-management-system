@@ -57,6 +57,8 @@ RUN UV_OFFLINE=1 uv sync --locked --no-install-local --no-install-project \
         --out /build/wheels
 
 FROM python:3.14.6-slim-bookworm AS runtime
+ARG CANDIDATE_SHA=unknown
+LABEL org.opencontainers.image.revision="${CANDIDATE_SHA}"
 ARG USE_PRELOADED_DEPENDENCIES=0
 ARG UV_VERSION=0.11.28
 ARG UV_BOOTSTRAP_INDEX_URL=https://pypi.org/simple

@@ -9,7 +9,8 @@ from typing import Any
 
 import host_runtime_config as host
 from processing_group_config import DeviceDirectory, ProcessingGroupsConfig
-from worker_deployment import inspect_project, validate_workers, worker_services
+from worker_deployment import _docker, inspect_project, validate_workers, worker_services
+import json
 
 
 def _ordinary(path: Path) -> bytes:
@@ -29,6 +30,28 @@ def _overlaps(paths: list[tuple[str, Path]]) -> None:
         for other_owner, other in paths[:index]:
             if path == other or path in other.parents or other in path.parents:
                 raise ValueError("deployment paths overlap: " + owner + "/" + other_owner)
+
+
+def _physical_path(path: Path, observed: Any) -> Path:
+    info = path.stat()
+    mount = max((item for item in observed if Path(item.target) == path or Path(item.target) in path.parents),
+        key=lambda item: len(item.target))
+    return Path("/device-" + str(info.st_dev)) / mount.root.lstrip("/") / path.relative_to(mount.target)
+
+
+def check_public_directory(groups: ProcessingGroupsConfig, parent: Path) -> None:
+    """A public parent bind must not expose any group's private files or roots."""
+    host.preflight.nofollow_directory(parent)
+    observed = host.mounts()
+    public = _physical_path(parent, observed)
+    for group in groups.groups:
+        config = host.DeploymentConfig.load(Path(group.storage_config), Path(group.resource_config))
+        paths = [Path(group.session_directory), Path(group.internal_token_file), Path(group.repository_token_file),
+            *(Path(root.source) for root in config.storage.roots.values())]
+        for private in paths:
+            # Reject string nesting before requiring a root's existing inode.
+            _overlaps([("public", parent), ("private", private)])
+            _overlaps([("public", public), ("private", _physical_path(private, observed))])
 
 
 def load_configs(groups: ProcessingGroupsConfig) -> dict[str, Any]:
@@ -69,7 +92,8 @@ def load_configs(groups: ProcessingGroupsConfig) -> dict[str, Any]:
 
 
 def validate_group_containers(config: Any, group: Any, containers: list[dict[str, Any]], *,
-                              allowed_states: tuple[str, ...] = ("running",)) -> dict[str, Any]:
+                              allowed_states: tuple[str, ...] = ("running",),
+                              image_identities: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     workers = validate_workers(config, group.project, containers, allowed_states=allowed_states)
     expected = {"backend", "repository-service", *worker_services(config.resources.worker.count)}
     found: dict[str, Any] = {}
@@ -82,6 +106,8 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
                 or labels.get("com.docker.compose.oneoff", "False").lower() != "false"
                 or item["State"]["Status"] not in allowed_states):
             raise ValueError("unexpected group service identity/state")
+        if labels.get("org.opencontainers.image.revision") != group.images.revision:
+            raise ValueError("actual group image revision differs")
         role = "worker" if service in workers else "repository_service" if service == "repository-service" else "backend"
         profile = getattr(config.resources, role)
         memory = profile.memory_envelope_bytes if role == "worker" else profile.memory_limit_bytes
@@ -90,6 +116,11 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
                 or actual["NanoCpus"] != round(profile.cpu_limit * 1_000_000_000)
                 or item["Config"]["Image"] != images.get(service, group.images.worker)):
             raise ValueError("actual group image/resources differ")
+        if image_identities is not None:
+            expected_image = image_identities[item["Config"]["Image"]]
+            if (expected_image["Id"] != item["Image"]
+                    or (expected_image["Config"].get("Labels") or {}).get("org.opencontainers.image.revision") != group.images.revision):
+                raise ValueError("running image does not match the selected local image/revision")
         if set(item["NetworkSettings"]["Networks"]) != {group.project + "_default"}:
             raise ValueError("group services must use only their private Compose network")
         environment = dict(value.split("=", 1) for value in item["Config"]["Env"])
@@ -135,6 +166,7 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
             manifest = ProcessingGroupsConfig.from_bytes(_ordinary(documents["PROCESSING_GROUPS_FILE"]))
             if manifest.environment_id != config.storage.environment_id or group not in manifest.groups:
                 raise ValueError("mounted group manifest differs from selected group")
+            check_public_directory(manifest, source)
             manifest.require_directory(DeviceDirectory.load(documents["DEVICE_DIRECTORY_FILE"], known_groups=manifest.group_ids))
             seed = mounts.get("/run/gateway/provisioned-mapping.json")
             if seed is None or seed["Type"] != "bind" or seed["RW"]:
@@ -145,6 +177,14 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
     if set(found) != expected:
         raise ValueError("missing group services")
     return found
+
+
+def inspect_group(config: Any, group: Any, *, allowed_states: tuple[str, ...] = ("running",)) -> dict[str, Any]:
+    refs = (group.images.backend, group.images.worker, group.images.repository_service)
+    images = json.loads(_docker("image", "inspect", *refs))
+    identities = dict(zip(refs, images, strict=True))
+    return validate_group_containers(config, group, inspect_project(group.project),
+        allowed_states=allowed_states, image_identities=identities)
 
 
 def check_groups(groups: ProcessingGroupsConfig, *, markers: bool = True, inspect: bool = False) -> dict[str, object]:
@@ -170,7 +210,7 @@ def check_groups(groups: ProcessingGroupsConfig, *, markers: bool = True, inspec
                 free = os.statvfs(path)
                 filesystems[info.st_dev] = {"available_bytes": free.f_bavail * free.f_frsize,
                     "available_inodes": free.f_favail, "capacity_policy": bounds}
-        result[group.group_id] = (validate_group_containers(config, group, inspect_project(group.project)) if inspect
+        result[group.group_id] = (inspect_group(config, group) if inspect
             else {"storage_digest": config.storage.digest, "resource_digest": config.resources.digest})
     _overlaps(physical_paths)
     return {"groups": result, "filesystems": {str(key): value for key, value in filesystems.items()}}

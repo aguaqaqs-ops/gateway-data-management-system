@@ -237,7 +237,7 @@ def assert_repository_service_ready(
         raise ValueError("repository bearer token is missing")
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/readyz",
-        headers={"Authorization": f"Bearer {bearer_token}"},
+        # Readiness is public; only the non-redirecting identity call gets the credential.
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:

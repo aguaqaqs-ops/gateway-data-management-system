@@ -18,7 +18,7 @@ from processing_group_config import ProcessingGroupsConfig
 from processing_group_locks import group_management_lock
 from host_runtime_config import DeploymentConfig
 from worker_deployment import _docker, inspect_project, validate_workers, worker_services
-from processing_group_deployment import validate_group_containers
+from processing_group_deployment import inspect_group
 
 WAIT_SECONDS = 180
 
@@ -203,7 +203,7 @@ def assert_business_settled(config: DeploymentConfig) -> None:
 def manage(command: str, config: DeploymentConfig, project: str, url: str, token: str, *, deployment: Any = None) -> str:
     containers = inspect_project(project)
     if deployment is not None:
-        validate_group_containers(config, deployment, containers, allowed_states=("running", "exited", "created"))
+        inspect_group(config, deployment, allowed_states=("running", "exited", "created"))
     group = validate_group(config, project, containers)
     origin = urlsplit(url)
     published = group["backend"]["HostConfig"].get("PortBindings", {}).get("8000/tcp") or []

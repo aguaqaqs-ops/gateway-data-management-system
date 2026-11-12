@@ -99,8 +99,15 @@ def test_cross_group_paths_credentials_and_identity_are_independent(deployment: 
         helper.load_configs(groups)
 
 
-def test_group_renderer_sets_exact_project_ports_images_and_parent_mounts(deployment: tuple[Any, Any]) -> None:
+@pytest.mark.parametrize("workers", [1, 2])
+def test_group_renderer_sets_exact_project_ports_images_and_parent_mounts(deployment: tuple[Any, Any], tmp_path: Path, workers: int) -> None:
     helper, groups = deployment
+    path = Path(groups.groups[0].resource_config)
+    resource = json.loads(path.read_bytes())
+    resource["worker"].update(count=workers, active_limit=workers)
+    path.write_text(json.dumps(resource))
+    public = tmp_path / "public"
+    public.mkdir()
     configs = helper.load_configs(groups)
     sys.path.insert(0, str(VNEXT / "scripts"))
     try:
@@ -110,17 +117,20 @@ def test_group_renderer_sets_exact_project_ports_images_and_parent_mounts(deploy
     group = groups.groups[0]
     config = configs[group.group_id]
     rendered = render(config, Path(group.storage_config), Path(group.resource_config), groups, group.group_id,
-        Path("/etc/gateway/groups.json"), Path("/etc/gateway/device-directory.json"))
+        public / "groups.json", public / "device-directory.json")
     assert rendered["name"] == group.project
     backend = rendered["services"]["backend"]
     assert backend["ports"] == [dict(target=8000, published=str(group.backend_port), host_ip="127.0.0.1", protocol="tcp")]
     assert backend["image"] == group.images.backend
     mounts = {item["target"]: item for item in backend["volumes"]}
     assert mounts["/run/gateway/session"]["source"] == group.session_directory
-    assert mounts["/run/gateway/groups"]["source"] == "/etc/gateway"
+    assert mounts["/run/gateway/groups"]["source"] == str(public)
     assert mounts["/run/gateway/session"]["read_only"] is True
     assert rendered["secrets"]["repository-bearer-token"]["file"] == group.repository_token_file
     assert rendered["services"]["worker"]["image"] == group.images.worker
+    for name in ("worker", "worker-2")[:workers]:
+        targets = [item["target"] for item in rendered["services"][name]["volumes"]]
+        assert len(set(targets)) == len(targets)
 
 
 def test_same_physical_disk_is_reported_once_across_groups(deployment: tuple[Any, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,8 +147,10 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
     helper, groups = deployment
     config = helper.load_configs(groups)["group-a"]
     group = groups.groups[0]
-    (tmp_path / "groups.json").write_bytes(groups.to_bytes())
-    (tmp_path / "device-directory.json").write_text(json.dumps(dict(schema_version=1, environment_id=groups.environment_id, devices=[])))
+    public = tmp_path / "public"
+    public.mkdir()
+    (public / "groups.json").write_bytes(groups.to_bytes())
+    (public / "device-directory.json").write_text(json.dumps(dict(schema_version=1, environment_id=groups.environment_id, devices=[])))
     containers = []
     for service, role in (("backend", "backend"), ("worker", "worker"), ("repository-service", "repository_service")):
         profile = getattr(config.resources, role)
@@ -151,7 +163,7 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
             "/run/secrets/repository-bearer-token": group.repository_token_file}
         environment = []
         if role != "repository_service":
-            files.update({"/run/gateway/groups": str(tmp_path), "/run/gateway/provisioned-mapping.json": str(tmp_path / "seed.json")})
+            files.update({"/run/gateway/groups": str(public), "/run/gateway/provisioned-mapping.json": str(tmp_path / "seed.json")})
             prefix = "GATEWAY_BACKEND_" if role == "backend" else "GATEWAY_BACKEND_OPERATION_WORKER_"
             environment += [prefix + "REPOSITORY_BASE_URL=http://repository-service:8000",
                 prefix + "REPOSITORY_BEARER_TOKEN_FILE=/run/secrets/repository-bearer-token",
@@ -167,6 +179,7 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
         containers.append(dict(Id=service, Image="sha256:" + role, State=dict(Status="running"), Mounts=mounts,
             NetworkSettings=dict(Networks={group.project + "_default": {}}),
             Config=dict(Image=images[role], Env=environment, Labels={"com.docker.compose.project": group.project,
+                "org.opencontainers.image.revision": group.images.revision,
                 "com.docker.compose.service": service, "com.docker.compose.container-number": "1", "com.docker.compose.oneoff": "False"}),
             HostConfig=dict(Memory=memory, MemorySwap=memory + profile.swap_limit_bytes,
                 NanoCpus=round(profile.cpu_limit * 1_000_000_000), RestartPolicy=dict(Name="no"),
@@ -187,3 +200,25 @@ def test_actual_container_inspection_rejects_mount_port_image_and_project_drift(
         target[path[-1]] = value
         with pytest.raises(ValueError):
             helper.validate_group_containers(config, group, changed)
+
+
+def test_public_parent_cannot_expose_group_private_paths(deployment: tuple[Any, Any], tmp_path: Path) -> None:
+    helper, groups = deployment
+    public = tmp_path / "public"
+    public.mkdir()
+    helper.check_public_directory(groups, public)
+    # The tempting common configuration parent contains all private group files.
+    with pytest.raises(ValueError, match="paths overlap"):
+        helper.check_public_directory(groups, tmp_path)
+
+
+def test_public_parent_alias_cannot_expose_private_group_root(deployment: tuple[Any, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+    helper, groups = deployment
+    public = tmp_path / "public"
+    public.mkdir()
+    private = Path(groups.groups[0].session_directory)
+    monkeypatch.setattr(helper.host, "mounts", lambda: (SimpleNamespace(target="/", root="/"),
+        SimpleNamespace(target=str(public), root=str(private))))
+    with pytest.raises(ValueError, match="paths overlap"):
+        helper.check_public_directory(groups, public)

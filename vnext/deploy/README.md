@@ -384,7 +384,10 @@ workers. Never recreate a replacement until the old execution processes exit.
 `groups.json` fixes each group's Compose project, loopback backend port, exact
 backend/worker/Repository Service image references and revision, configuration
 paths, session directory and two separate credential files. The shared
-`device-directory.json` lives beside `groups.json`. Backend and workers receive
+`device-directory.json` lives beside `groups.json` in a dedicated public
+configuration directory. All groups' private session directories, credential
+files and business roots must be outside it, including physical bind aliases;
+render and actual inspection reject overlap. Backend and workers receive
 that parent directory read-only at `/run/gateway/groups`; session publication
 replaces `session.json` inside its dedicated parent bind. A single-file session
 secret cannot observe atomic replacement and is not used. Neither directory is
@@ -416,6 +419,14 @@ and cgroup resource limits against the selected group before sending TERM.
 Backend startup and worker startup authenticate the RS deployment identity and
 match environment, group and storage digest; a healthy endpoint from another
 group cannot make the target ready.
+
+For a new build of the selected group, add `--build-from-source` to render;
+this requires the current source worktree to be clean and at the selected
+group revision. Other groups may retain their own declared revisions. Run
+existing validated images with `up --no-build`. Runtime inspection compares
+the selected local image ID and each image's OCI revision to the manifest;
+labels alone do not establish build provenance, which remains the gate's
+clean-source/build-closure responsibility.
 
 The group renderer checks all configured groups together. The memory formula
 is `sum(W*E + backend + RS) + entry + shared_reserve <= host`; CPU follows the

@@ -99,10 +99,9 @@ def test_shutdown_faults_preserve_original_error_scrub_independently_and_never_c
     if fault == "malformed status":
         (control / "groups-run-status.json").write_text('{"main_exit_code":false}')
     if fault in ("close exception", "credential exception"):
-        def close(*, retain: bool = False) -> None:
-            assert retain
+        def down(*args: str) -> subprocess.CompletedProcess[str]:
             raise close_error
-        monkeypatch.setattr(stack, "close", close)
+        monkeypatch.setattr(stack.entry, "compose", down)
     if fault == "credential exception":
         original_unlink = Path.unlink
         def unlink(path: Path, missing_ok: bool = False) -> None:
@@ -112,7 +111,11 @@ def test_shutdown_faults_preserve_original_error_scrub_independently_and_never_c
         monkeypatch.setattr(Path, "unlink", unlink)
     with pytest.raises(BaseExceptionGroup) as caught:
         frontend.finish_stack(stack, root, control, primary_error=primary)
-    errors = caught.value.exceptions
+    def leaves(error: BaseException) -> list[BaseException]:
+        if isinstance(error, BaseExceptionGroup):
+            return [leaf for child in error.exceptions for leaf in leaves(child)]
+        return [error]
+    errors = leaves(caught.value)
     if primary:
         assert primary in errors
     if fault in ("close exception", "credential exception"):

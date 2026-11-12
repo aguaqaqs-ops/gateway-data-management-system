@@ -26,7 +26,13 @@ def _internal_statistics(stack: ProcessingGroupsStack) -> None:
         session("unmapped-statistics-device", "unmapped-project", "unmapped-statistics", permissions=["statistics_read_group"]),
         session("unmapped-statistics-device", "unmapped-project", "unprivileged-statistics", permissions=["workspace_read"]),
     ]}).encode())
-    for suffix in ("", "/resources"):
+    def backend_instance() -> str | None:
+        response = httpx.get(endpoint, headers={"Authorization": "Bearer unmapped-statistics"})
+        assert response.status_code == 200, response.text
+        return next((str(row["process_instance_id"]) for row in response.json()["current_instances"]
+                     if row["role"] == "backend"), None)
+    instance = wait_for(backend_instance)
+    for suffix in ("", "/resources?role=backend&process_instance_id=" + instance):
         for token, status in (("unmapped-statistics", 200), ("unprivileged-statistics", 403), ("absent", 401)):
             response = httpx.get(endpoint + suffix, headers={"Authorization": "Bearer " + token})
             assert response.status_code == status, response.text
@@ -143,6 +149,7 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
                 inode = (stack.runtime_roots["group-a"] / "session/session.json").stat().st_ino
                 b_before_add = b_seen.qsize()
                 a2 = stack.add("group-a", "synthetic-a2")
+                assert b_seen.qsize() > b_before_add
                 assert (stack.runtime_roots["group-a"] / "session/session.json").stat().st_ino != inode
                 assert stack.snapshot() == before
                 assert stack.operation("group-a", old_id) == old_fact
@@ -178,7 +185,7 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
         before_maintenance = stack.snapshot()
         assert "group processes stopped" in stack.maintenance("group-a", "stop-group")
         assert stack.snapshot()["group-b"] == before_maintenance["group-b"]
-        assert stack.entry.container_id() == before_maintenance["entry"]
+        assert stack.snapshot()["entry"] == before_maintenance["entry"]
         # A's stopped state must not block B's management or complete business.
         b2 = stack.add("group-b", "synthetic-b2")
         result = stack.journey("group-b", "synthetic-b2", b2)

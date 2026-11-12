@@ -17,6 +17,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tests.support.processing_groups_harness import ProcessingGroupsStack
+from tests.support.compose_gate_harness import REPO_ROOT
 from tests.support.upload_http_packages import upload_files
 
 SOURCE_NAME = "rd-t1-a-v1.tar.gz"
@@ -27,7 +28,7 @@ SOURCE_SHA256 = "42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b
 def run_journey(package: Path, output: Path, *, review_reason: str) -> dict[str, Any]:
     if not package.is_absolute() or package.name != SOURCE_NAME:
         raise ValueError("use the inventoried original t1 source package")
-    if not output.is_absolute() or output.exists() or not review_reason.strip():
+    if not output.is_absolute() or REPO_ROOT in output.resolve().parents or output.exists() or not review_reason.strip():
         raise ValueError("fresh absolute evidence output and explicit review reason are required")
     payload = package.read_bytes()
     if len(payload) != SOURCE_BYTES or hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:

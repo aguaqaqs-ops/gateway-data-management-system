@@ -228,7 +228,8 @@ class ProcessingGroupsStack:
             ids = self.compose(group_id, "ps", "-aq").split()
             snapshots[group_id] = run("docker", "inspect", "--format",
                 "{{.Id}} {{.State.Pid}} {{.State.StartedAt}} {{.RestartCount}}", *ids)
-        snapshots["entry"] = self.entry.container_id()
+        snapshots["entry"] = run("docker", "inspect", "--format",
+            "{{.Id}} {{.State.Pid}} {{.State.StartedAt}} {{.RestartCount}}", self.entry.container_id())
         return snapshots
 
     def inspect(self) -> dict[str, Any]:

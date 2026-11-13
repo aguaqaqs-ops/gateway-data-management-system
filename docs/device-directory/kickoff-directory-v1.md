@@ -112,11 +112,11 @@ directory/
 
 写完后停下，等待审核。审核在只读的 detached worktree 中进行。
 
-**阶段 2：端到端验收。**阶段 1 审核通过，且满足 `kickoff-fe-handoff.md` 的 FE4/fe-handoff 集成与目录放行条件之后，再开始阶段 2。在包含两项改动的提交上运行，地点是 05 节点。按清单核对 Compose 管理端口与公共入口端口，并按 DC70 补充取得整机占用标记 `/home/dev/gdds-node-busy.d`，用完删除。步骤：
+**阶段 2：端到端验收。**操作细化见[阶段 2 详细执行计划](execution-plan-directory-v1-stage2.md)。阶段 1 审核通过，且满足 `kickoff-fe-handoff.md` 的 FE4/fe-handoff 集成与目录放行条件之后，再开始阶段 2。在包含两项改动的提交上运行，地点是 05 节点。按清单核对 Compose 管理端口与公共入口端口，并按 DC70 补充取得整机占用标记 `/home/dev/gdds-node-busy.d`，用完删除。步骤：
 
 1. 按网关既有部署流程准备并核验一个处理组及公共入口（镜像、资源、清单与父目录挂载），然后启动；这属于验收环境准备，不由目录产品创建组。
 2. 导入样例名单。名单至少包含：2 个地区一、同名项目、多音字拼音。
-3. 通过目录 CLI 复用 `add-device` 开通 2 台设备 A、B，核 fixed INITIAL 回执、本地完成状态和公共 scope；记录 backend/worker 原容器身份，确认热新增不重启它们。
+3. 通过目录 CLI 复用 `add-device` 开通本轮验收使用的 2 台测试设备 A、B（非产品默认数量或上限），核 fixed INITIAL 回执、本地完成状态和公共 scope；记录 backend/worker 原容器身份，确认热新增不重启它们。
 4. 启动目录服务；以 `vite preview` 启动网关前端，使用已有 `GATEWAY_FRONTEND_ENTRY_ORIGIN` 将 `/v1` 代理到公共入口，不直连组 backend。
 5. 从目录搜索并进入 A。确认：
    - 地址片段已清除；

@@ -276,8 +276,8 @@ def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_r
     name = "device_st" if filtered else "t"
     registry = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT); INSERT INTO device VALUES(7,49);"
                 if filtered else "")
-    before = registry + f"CREATE TABLE {name}(id INT PRIMARY KEY,dev_addr INT,old TEXT);"
-    current = registry + f"CREATE TABLE {name}(id INT PRIMARY KEY,dev_addr INT,new TEXT);" if changed else before
+    before = registry + f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,dev_addr INT,old TEXT);"
+    current = registry + f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,dev_addr INT,new TEXT);" if changed else before
     result = run_history_pair_pipeline(pair_id="empty-structure",
         before=_artifact_bound(before, store), current=_artifact_bound(current, store),
         rule_set=comparison_ruleset_for(standard_rule_record(name), standard_rule_record("device")), store=store,

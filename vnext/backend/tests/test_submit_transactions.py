@@ -134,7 +134,7 @@ pytestmark = pytest.mark.unit
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
-PREVIEW_READY_CLOSURE_DIGEST = "d-closure"
+PREVIEW_READY_CLOSURE_DIGEST = "v1:a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"
 _SHA_INITIAL = "sha256:" + "a" * 64
 _SHA_MODIFIED = "sha256:" + "b" * 64
 _SHA_CLOSURE = "sha256:" + "c" * 64
@@ -439,6 +439,11 @@ def _protected_preview_refs(repository_id: str = "repo-1") -> tuple[ArtifactRef,
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
+        ArtifactRef(
+            artifact_id=_preview_result("ws-unused").bundle_artifact_id,
+            media_type="application/json", size_bytes=0,
+            raw_sha256=raw_blob_digest(b""),
+        ),
         *make_canonical_artifact_fixture(repository_id).refs,
     )
 
@@ -582,7 +587,7 @@ def _accept_command(
 
 def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     return AcceptSubmitPreflight(
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_ready_closure_digest="v1:" + seed.preview_result.ready_closure_artifact_id,
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=seed.protected_refs,
         current_storage_projection_ruleset_digest=(

@@ -437,3 +437,11 @@ S1a ref校验补充：所有四字段backend `ArtifactRef` 使用统一严格a1 
 后台 `comparison-structure-audit` 是 ArtifactStore 产物，独立于前端 bundle 完整闭包；不得加入 bundle manifest、risk annotations 或普通 diagnostics。每个 pair 的共享 pipeline 在成功发布隐藏展示前写入及 exact-ref 校验，缓存命中同样恢复证据并建立当前 pair 的审计。Preview assemble-state v4 / History assemble-state v2 保存每对 `structure_audit_bindings={pair_id,comparison_digest,audit_artifact_id|null}`；严格解码，READY 创建、checkpoint 重放及最终 publish 均核对引用在完整 closure 内、审计可读且 pair/comparison 绑定相等。缺失、损坏和错绑定拒绝发布。
 
 现有 READY closure 的原始 SHA/size 和原有 operation/Preview/History 保护覆盖审计；closure 本身形状/preimage 不变。D 的 Submit 衔接必须在既有事务内把 **完整 READY closure 输出（含审计和审核 bundle）** 转为提交所有保护，再释放 Attempt/临时引用；终态与 workspace 复用不得释放该提交记录仍持有的审核闭包。C 仅建立并验证结果闭包，提交所有保护移交由 Submit/Review owning lifecycle 实施。
+
+### Submission 审核结果的闭包与保留
+
+Submission 复用其不可变 PreviewResult 的 bundle；新增审核读取不改变 bundle v4 preimage，不把后台结构审计加入下载包。PreviewResult 的 comparison_pairs 冻结每组 snapshot/comparison/risk/surface/ruleset digest 和可空审计 ID；AcceptSubmit 和每次审核读取将其与 READY 的 exact refs、manifest pair digest、bundle closure 及严格审计文档核对。Preview assemble-state 由 v4 升至 v5，持久 Preview 绑定直接采用新字段，不兼容旧记录。
+
+AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manifest/final closure 与全部成员、后台审计），并把 exact refs 记录为原 Submit Operation 输入。finalize 原事务先转为 submission-review/submission_id 所有，再释放 Attempt/checkpoint。该保护随 Submission 保留，不随退回、撤回、归档关闭或工作区复用释放；没有提交消费者的失败 Attempt 仍仅按原临时生命周期收尾。
+
+审核摘要与下载都先执行 submission 的当前权限和 exact scope，再核固定结果与完整后台闭包。当前规则变化不重算旧结果。本地缓存不得免除这次服务器授权及摘要身份核对；缺失与完整性错误明确返回，不以空结果或新 History 替代。JSON 元数据读取沿 bundle 的 16 MiB 上限，整表成员以流式 chunks 验证。

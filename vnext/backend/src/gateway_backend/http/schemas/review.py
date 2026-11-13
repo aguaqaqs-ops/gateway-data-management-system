@@ -133,3 +133,21 @@ def _identity_confirmation_to_response(
         actor_id=confirmation.actor_id,
         confirmed_at=confirmation.confirmed_at,
     )
+
+
+class SubmissionResultPairResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    pair_id: str
+    comparison_digest: str
+    risk_digest: str
+    surface_digest: str
+
+
+class SubmissionResultResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    submission_id: str
+    preview_result_id: str
+    bundle_digest: str
+    default_pair_id: Literal["initial_to_modified"]
+    input_completeness: Literal["FULL", "MODIFIED_ONLY"]
+    pairs: list[SubmissionResultPairResponse]

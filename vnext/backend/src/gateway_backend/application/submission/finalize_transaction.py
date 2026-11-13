@@ -96,7 +96,18 @@ def finalize_submit_transaction(
     # T1 already froze authority into Attempt. A missing temporary Preview only
     # prevents this optional producer lookup; never infer a producer from pins.
     preview = unit_of_work.workspace.get_preview_result(attempt.preview_result_id)
+    if preview is None:
+        raise FinalizeBindingMismatch("frozen Preview is missing")
     if preview is not None:
+        from gateway_backend.application.submission.review_result import assert_submission_preview_binding
+        try:
+            assert_submission_preview_binding(result.submission, preview)
+        except ValueError as exc:
+            raise FinalizeBindingMismatch("frozen Preview binding mismatch") from exc
+        operation_inputs = unit_of_work.operations.get_operation(attempt.operation_id).artifact_refs
+        if not {preview.ready_closure_artifact_id, preview.bundle_artifact_id}.issubset(
+                {ref.artifact_id for ref in operation_inputs}):
+            raise FinalizeBindingMismatch("frozen operation inputs do not cover Preview review closure")
         if (
             preview.workspace_id != attempt.workspace_id
             or preview.repository_id != attempt.repository_id
@@ -237,7 +248,11 @@ def _assert_finalized_closure(
     repository_occupancy = unit_of_work.submission.get_repository_occupancy(attempt.repository_id)
     if repository_occupancy is not None:
         raise FinalizeRecoveryRequired("repository occupancy is still held after finalize")
+    review_refs = unit_of_work.list_artifact_protection_for_owner(
+        owner_kind="submission-review", owner_id=submission.submission_id)
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    if not {ref.artifact_id for ref in operation.artifact_refs}.issubset(review_refs):
+        raise FinalizeRecoveryRequired("submission review protection is incomplete")
     if operation.status is not OperationStatus.SUCCEEDED:
         raise FinalizeRecoveryRequired("operation is not SUCCEEDED")
     steps, _cursor = unit_of_work.operations.list_steps(attempt.operation_id)
@@ -251,6 +266,17 @@ def _transfer_finalize_protection(
     *,
     attempt: SubmitAttempt,
 ) -> None:
+    operation = unit_of_work.operations.get_operation(attempt.operation_id)
+    # Accept stored the exact complete Preview closure in immutable operation
+    # inputs. Prepare checkpoints have separate pins and never expand this set.
+    refs = operation.artifact_refs
+    held = unit_of_work.list_artifact_protection_for_owner(
+        owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id)
+    if (not refs or attempt.preview_ready_closure_ref not in {ref.artifact_id for ref in refs}
+            or not {ref.artifact_id for ref in refs}.issubset(held)):
+        raise FinalizeBindingMismatch("frozen Preview closure protection is incomplete")
+    unit_of_work.set_artifact_protection(refs, owner_kind="submission-review",
+        owner_id=attempt.submission_id or "", intent="submission-review")
     unit_of_work.clear_artifact_protection(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,

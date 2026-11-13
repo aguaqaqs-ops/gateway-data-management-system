@@ -363,7 +363,7 @@ def _artifact_refs_for_attempt(
     if not set(required_ids).issubset(selected_ids):
         raise PreviewBindingConflict("protected artifact refs do not cover attempt bindings")
     refs_by_id = {ref.artifact_id: ref for ref in protected_refs}
-    return tuple(refs_by_id[artifact_id] for artifact_id in required_ids)
+    return tuple(refs_by_id[artifact_id] for artifact_id in sorted(refs_by_id))
 
 
 def _build_prepared_attempt(

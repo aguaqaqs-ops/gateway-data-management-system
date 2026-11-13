@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
+from pydantic import TypeAdapter
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -21,6 +23,7 @@ from gateway_backend.domain.workspace.models import (
     PreviewCanonicalBindings,
     PreviewIdentityPair,
     PreviewResult,
+    PreviewComparisonPair,
     PreviewResultDigests,
     ProjectIdentityApplicability,
     ProjectIdentityMode,
@@ -434,6 +437,7 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             }
             for item in result.identity_pairs
         ],
+        "comparison_pairs": [pair.model_dump(mode="json") for pair in result.comparison_pairs],
         "bundle_artifact_id": result.bundle_artifact_id,
         "ready_closure_artifact_id": result.ready_closure_artifact_id,
     }
@@ -516,6 +520,8 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
         identity_pairs=tuple(
             _preview_identity_pair_from_document(item) for item in identity_pairs_payload
         ),
+        comparison_pairs=TypeAdapter(tuple[PreviewComparisonPair, ...]).validate_json(
+            canonicalize_json_value(binding["comparison_pairs"])),
         bundle_artifact_id=str(binding["bundle_artifact_id"]),
         ready_closure_artifact_id=str(binding["ready_closure_artifact_id"]),
         operation_id=_required_text(row, "operation_id"),

@@ -194,7 +194,7 @@ def test_finalize_touches_real_preview_producer_in_its_transaction_and_replay_do
     assert _cache_snapshot(db_path) == after
 
 
-def test_missing_temporary_preview_does_not_add_a_new_finalize_precondition(db_path: Path) -> None:
+def test_missing_frozen_preview_rejects_finalize_without_partial_publication(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
     request = _request(db_path, seed, attempt)
@@ -208,8 +208,10 @@ def test_missing_temporary_preview_does_not_add_a_new_finalize_precondition(db_p
             "DELETE FROM preview_result_records WHERE preview_result_id=?", (attempt.preview_result_id,),
         )
     before = _cache_snapshot(db_path)
-    with ControlDbUnitOfWork(db_path, now=lambda: transaction_time) as unit_of_work:
-        assert not finalize_submit_transaction(request=request, unit_of_work=unit_of_work).replay
+    with pytest.raises(FinalizeBindingMismatch, match="frozen Preview is missing"):
+        with ControlDbUnitOfWork(db_path, now=lambda: transaction_time) as unit_of_work:
+            finalize_submit_transaction(request=request, unit_of_work=unit_of_work)
+    _assert_effect_pending(db_path, attempt)
     assert _cache_snapshot(db_path) == before
 
 

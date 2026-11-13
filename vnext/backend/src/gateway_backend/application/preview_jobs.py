@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pydantic import TypeAdapter
+
 from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
 
 from gateway_backend.statistics.metrics import bind_scope
@@ -212,6 +214,7 @@ from gateway_backend.domain.workspace.models import (
     ProjectIdentityMode,
     ProjectIdentityStatus,
     PreviewResult,
+    PreviewComparisonPair,
     PreviewResultDigests,
     SourceArtifactBinding,
     SourceArtifactRole,
@@ -277,7 +280,7 @@ _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-c
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
 PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v2"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v4"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v5"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -2127,6 +2130,16 @@ def _assemble_preview(
             "pair_ids": [item.pair_id for item in pair_results],
             "structure_audit_bindings": [structure_audit_binding(
                 item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
+            "comparison_pairs": [PreviewComparisonPair(
+                pair_id=item.pair_id,
+                before_snapshot_digest=spec[1].snapshot.snapshot_digest.value,
+                current_snapshot_digest=spec[2].snapshot.snapshot_digest.value,
+                comparison_digest=item.comparison_digest,
+                risk_digest=item.risk_digest, surface_digest=item.surface_digest,
+                ruleset_digest=payload.comparison_ruleset_digest,
+                structure_audit_artifact_id=(None if item.structure_audit_ref is None
+                    else item.structure_audit_ref.artifact_id),
+            ).model_dump(mode="json") for spec, item in zip(pair_specs, pair_results, strict=True)],
             "default_view": _PAIR_INITIAL_TO_MODIFIED,
             "input_completeness": payload.input_completeness.value,
             "digests": {
@@ -2252,6 +2265,8 @@ def _build_preview_result(
         ),
         identity_assessment_set_digest=identity_set_digest,
         identity_pairs=identity_pairs,
+        comparison_pairs=TypeAdapter(tuple[PreviewComparisonPair, ...]).validate_json(
+            canonicalize_json_value(assemble_state["comparison_pairs"])),
         bundle_artifact_id=bundle_artifact_id,
         ready_closure_artifact_id=ready_closure_artifact_id,
         operation_id=operation.operation_id,

@@ -17,6 +17,8 @@ from gateway_backend.application.submission.accept import (
     load_new_accept_preflight_facts,
     try_accept_submit_replay,
 )
+from gateway_backend.application.submission.review_result import load_preview_review_closure
+from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
@@ -144,7 +146,12 @@ def load_accept_submit_preflight(
         )
     except SubmitImportBuilderError as exc:
         raise PreviewBindingConflict(str(exc)) from exc
-    refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
+    try:
+        review_refs = load_preview_review_closure(preview_result,
+            lookup=artifact_ref_lookup, store=artifact_store)
+    except (ManifestVerificationError, ValueError, TypeError, KeyError) as exc:
+        raise PreviewBindingConflict("preview review closure is unavailable or invalid") from exc
+    refs_by_id = {ref.artifact_id: ref for ref in (*canonical_refs, *review_refs)}
     for _role, binding in upload_revision.source_artifacts.items():
         refs_by_id[binding.artifact_id] = ArtifactRef(
             artifact_id=binding.artifact_id,

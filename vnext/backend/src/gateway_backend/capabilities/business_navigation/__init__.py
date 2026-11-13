@@ -1,4 +1,4 @@
-"""Business Navigation v1 producer and wire validator."""
+"""Business Navigation v2 producer and wire validator."""
 
 from .contracts import (
     CONTRACT_VERSION, FilterRecord, NavigationEvidence, NavigationRow, NavigationSide,

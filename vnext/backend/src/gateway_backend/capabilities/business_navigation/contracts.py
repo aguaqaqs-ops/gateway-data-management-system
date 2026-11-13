@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v1.
+"""Flow-neutral inputs and strict wire validation for business navigation v2.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -437,11 +437,30 @@ _DIAGNOSTIC_PARAMS = {
 }
 
 
+class _Target(_Document):
+    group_key: str | None
+    item_key: str | None
+    tab_key: str | None
+    table_id: str | None
+
+
+class _Diagnostic(_Document):
+    code: str
+    target: _Target
+    side: Literal["BEFORE", "CURRENT"] | None
+    params: dict[str, Any]
+
+
+class _Diagnostics(_Document):
+    contract_version: str
+    diagnostics: list[_Diagnostic]
+
+
 def validate_diagnostics(
     document: object, navigation: dict[str, Any], table_ids: frozenset[str],
 ) -> dict[str, Any]:
     """Validate fixed-code params, side/targets and the per-table fallback invariant."""
-    doc = _object(document, {"contract_version", "diagnostics"})
+    doc = _Diagnostics.model_validate(document).model_dump()
     if doc["contract_version"] != CONTRACT_VERSION or type(doc["diagnostics"]) is not list or not doc["diagnostics"]:
         raise ValueError("invalid diagnostics envelope")
     replacement = navigation["replacement_sides"] is not None

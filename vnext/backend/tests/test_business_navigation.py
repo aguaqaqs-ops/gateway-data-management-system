@@ -562,13 +562,14 @@ EMPTY_TABLE_CASES = (
 )
 
 
+@pytest.mark.parametrize("kind", (SurfaceChangeKind.ADDED, SurfaceChangeKind.DELETED, SurfaceChangeKind.DEGRADED))
 @pytest.mark.parametrize("old,new,structure,replacement,empty", EMPTY_TABLE_CASES)
 def test_empty_marks_existing_zero_sides_without_deleting_audit_tabs(
-    old: int | None, new: int | None, structure: bool, replacement: bool, empty: bool,
+    old: int | None, new: int | None, structure: bool, replacement: bool, empty: bool, kind: SurfaceChangeKind,
 ) -> None:
     shared = replace(table("other", None if old is None else side(tuple({} for _ in range(old))),
         None if new is None else side(tuple({} for _ in range(new))), table_change=True,
-        structure_changed=structure, change_kind=SurfaceChangeKind.DEGRADED, risk_level=RiskLevel.HIGH),
+        structure_changed=structure, change_kind=kind, risk_level=RiskLevel.HIGH),
         evidence=evidence(degraded=True, table_risk=RiskLevel.HIGH))
     result = build(shared, replacement=replacement)
     if replacement:
@@ -580,7 +581,7 @@ def test_empty_marks_existing_zero_sides_without_deleting_audit_tabs(
     assert tab["empty"] is empty
     assert group["nonempty_item_count"] == int(not empty)
     summary = group["items"][0]["summary"]
-    assert summary == {"change_kinds": [] if empty else ["DEGRADED"],
+    assert summary == {"change_kinds": [] if empty else [kind.value],
                        "risk_level": None if empty else "HIGH", "nonempty_tab_count": int(not empty)}
 
 

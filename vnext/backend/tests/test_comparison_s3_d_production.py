@@ -510,7 +510,7 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         # Keep the pre-E capture intact. Only location-bearing transport bytes
         # use the separately authored S1a preimage; all semantic/Parquet checks stay.
         fixture_root = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison"
-        location_vector = json.loads((fixture_root / "s1a/blank-location-closure.json").read_bytes())
+        location_vector = json.loads((fixture_root / "s3-e/comparison-v4-blank-location-closure.json").read_bytes())
         historical = location_vector["historical_source"]
         assert historical["case"] == request.node.nodeid
         assert hashlib.sha256((fixture_root / "s3-e/old-python-expected.json").read_bytes()).hexdigest() == historical["file_sha256"]

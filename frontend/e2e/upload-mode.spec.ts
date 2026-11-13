@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "./guard";
+import { expect, test, type Locator, type Page, type Route } from "./guard";
 import { Buffer } from "node:buffer";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -122,8 +122,8 @@ async function expectNoHorizontalOverflow(page: Page) {
 async function screenshot(page: Page, name: string, width: number) {
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
-    await waitForStableHeader(page);
     await settleAfterResize(page);
+    await waitForStableHeader(page);
     // N14: assert in every mode, before any screenshot bookkeeping.
     await expectNoHorizontalOverflow(page);
     if (!screenshotDirectory) continue;
@@ -145,17 +145,37 @@ async function freezePageClock(page: Page) {
   await page.clock.setFixedTime(new Date("2026-11-03T09:00:09Z"));
 }
 
+/** R9/T4: clip to the header's visible part so the gate never scrolls the page. */
+async function captureVisibleHeaderClip(page: Page, header: Locator): Promise<Buffer | null> {
+  const box = await header.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box || !viewport) return null;
+  const x = Math.max(0, Math.floor(box.x));
+  const y = Math.max(0, Math.floor(box.y));
+  const width = Math.min(viewport.width, Math.ceil(box.x + box.width)) - x;
+  const height = Math.min(viewport.height, Math.ceil(box.y + box.height)) - y;
+  if (width <= 0 || height <= 0) return null;
+  return page.screenshot({ clip: { x, y, width, height }, animations: "disabled" });
+}
+
 /**
- * R9: same settled-header gate as workspace-shell: two consecutive header
- * element captures must be byte-identical before a screenshot is saved.
+ * R9: the settled-header gate compares viewport clips, not element captures;
+ * `settleAfterResize` has already run and the gate must not change scroll.
  */
 async function waitForStableHeader(page: Page) {
   const header = page.locator(".compare-header");
   if ((await header.count()) === 0) return;
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   let previous: Buffer | null = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const current = await header.screenshot({ animations: "disabled" });
-    if (previous && Buffer.compare(previous, current) === 0) return;
+    const current = await captureVisibleHeaderClip(page, header.first());
+    if (current === null) return;
+    if (previous && Buffer.compare(previous, current) === 0) {
+      const scrollAfter = await page.evaluate(() => window.scrollY);
+      if (scrollAfter !== scrollBefore)
+        throw new Error(`R9 稳定门改变了滚动位置：${scrollBefore} -> ${scrollAfter}`);
+      return;
+    }
     previous = current;
     await page.waitForTimeout(100);
   }

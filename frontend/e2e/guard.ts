@@ -1,7 +1,7 @@
 import { test as base } from "@playwright/test";
 import { createHash } from "node:crypto";
 export { expect } from "@playwright/test";
-export type { Page, Request, Route } from "@playwright/test";
+export type { Locator, Page, Request, Route } from "@playwright/test";
 
 export const test = base.extend<{ deviceHeaderGuard: void }>({
   deviceHeaderGuard: [

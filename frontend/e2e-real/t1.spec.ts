@@ -4,6 +4,7 @@ import {
   expect,
   type Browser,
   type BrowserContext,
+  type Locator,
   type Page,
   type TestInfo,
 } from "@playwright/test";
@@ -228,14 +229,28 @@ function pairSummary(bundle: ParsedBundle, pairId: string): Record<string, strin
  * 等待超时或元素截图出错都不抛出：截图本身不是 t1 判据，是否空白由证据审核判定，
  * 中断旅程反而会丢掉后面的判据断言、M1 与证据步骤。
  */
+/** T4: clip to the grid's visible part so the stability gate never scrolls the page. */
+async function captureVisibleGridClip(page: Page, grid: Locator): Promise<Buffer | null> {
+  const box = await grid.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box || !viewport) return null;
+  const x = Math.max(0, Math.floor(box.x));
+  const y = Math.max(0, Math.floor(box.y));
+  const width = Math.min(viewport.width, Math.ceil(box.x + box.width)) - x;
+  const height = Math.min(viewport.height, Math.ceil(box.y + box.height)) - y;
+  if (width <= 0 || height <= 0) return null;
+  return page.screenshot({ clip: { x, y, width, height }, animations: "disabled" });
+}
+
 async function waitForGridShotReady(page: Page, label: string, width: number): Promise<void> {
   const startedAt = Date.now();
   await settleFrames(page);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   const grids = page.locator('div.grid-frame[aria-label="比较表格"]');
   const gridCount = await grids.count();
   if (gridCount === 0) {
     await appendCaseLog(
-      `shot-gate label=${label}-${width} grid=0 rendered=ok waited_ms=${Date.now() - startedAt} stable=0`,
+      `shot-gate label=${label}-${width} grid=0 rendered=ok waited_ms=${Date.now() - startedAt} stable=0 scroll_before=${scrollBefore} scroll_after=${scrollBefore}`,
     );
     return;
   }
@@ -253,7 +268,11 @@ async function waitForGridShotReady(page: Page, label: string, width: number): P
   try {
     let previous: Buffer | null = null;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const current = await grids.first().screenshot({ animations: "disabled" });
+      const current = await captureVisibleGridClip(page, grids.first());
+      if (current === null) {
+        stable = "0";
+        break;
+      }
       if (previous !== null && Buffer.compare(previous, current) === 0) {
         stable = String(attempt + 1);
         break;
@@ -264,8 +283,9 @@ async function waitForGridShotReady(page: Page, label: string, width: number): P
   } catch {
     stable = "error";
   }
+  const scrollAfter = await page.evaluate(() => window.scrollY);
   await appendCaseLog(
-    `shot-gate label=${label}-${width} grid=${gridCount} rendered=${rendered} waited_ms=${Date.now() - startedAt} stable=${stable}`,
+    `shot-gate label=${label}-${width} grid=${gridCount} rendered=${rendered} waited_ms=${Date.now() - startedAt} stable=${stable} scroll_before=${scrollBefore} scroll_after=${scrollAfter}`,
   );
 }
 

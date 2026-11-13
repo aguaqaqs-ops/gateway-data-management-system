@@ -139,7 +139,7 @@ def main() -> None:
         raise ValueError('aggregate memory budget exceeded')
     if 2 * (2 + 1 + 2) + 2 + 2 > HOST_BUDGET['cpu_count']:
         raise ValueError('aggregate CPU budget exceeded')
-    for port in (18000, 18001, 18080, 18081, 18082, 18083, 18100, 18101, 18991, 8443, 9443, 10443):
+    for port in (18000, 18001, 18080, 18081, 18082, 18083, 18100, 18101, 18991, 28443, 9443, 10443):
         available(port)
     observed = host.mounts()
     prepare('a', revision, observed)

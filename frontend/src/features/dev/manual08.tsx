@@ -1,8 +1,24 @@
 // Only enabled by CT110 A's development entry; B uses its device directory.
+import { useLayoutEffect, useRef } from "react";
+
+let controls: HTMLElement | null = null;
+let applicationRoot: HTMLElement | null = null;
+
+export function Manual08Controls() {
+  const slot = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (controls) slot.current?.append(controls);
+    return () => { if (controls && applicationRoot) applicationRoot.before(controls); };
+  }, []);
+  return <span ref={slot} className="manual08-reset-slot" />;
+}
+
 export async function prepareManual08(root: HTMLElement): Promise<boolean> {
   const toolbar = document.createElement("div");
   toolbar.className = "manual08-controls";
-  toolbar.style.cssText = "display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:8px 20px";
+  toolbar.style.cssText = "display:inline-flex;align-items:center;gap:12px";
+  controls = toolbar;
+  applicationRoot = root;
   const status = document.createElement("span");
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
@@ -14,6 +30,7 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
   root.before(toolbar);
   let busy = false;
   let resetObserved = false;
+  let pageLocked = false;
   const resetKey = "gdds-a-reset-pending";
   const stages: Record<string, string> = {
     stopping: "正在停止服务…", rebuilding: "正在重置…",
@@ -24,7 +41,7 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
     const response = await fetch("/manual-api/status", { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取重置状态，请重试。");
     const result = await response.json() as { state: string; stage: string };
-    root.inert = result.state === "running" || result.state === "failed";
+    lockPage(result.state === "running" || result.state === "failed");
     reset.disabled = result.state === "running";
     if (result.state === "running") {
       resetObserved = true;
@@ -38,18 +55,23 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
     return result.state;
   }
 
+  function lockPage(locked: boolean): void {
+    pageLocked = locked;
+    for (const element of root.querySelectorAll<HTMLElement>("main > :not(.workspace-topbar), .workspace-topbar .workspace-brand, .workspace-topbar__right > :not(.manual08-reset-slot)")) element.inert = locked;
+  }
+
   async function waitForReset(): Promise<void> {
     while (await readStatus() === "running") {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    if (root.inert) throw new Error(status.textContent ?? "重置失败，请重试。");
+    if (pageLocked) throw new Error(status.textContent ?? "重置失败，请重试。");
   }
 
   reset.addEventListener("click", () => {
     if (busy || !window.confirm("确认清除环境 A 的测试数据并重置？")) return;
     busy = true;
     reset.disabled = true;
-    root.inert = true;
+    lockPage(true);
     void (async () => {
       try {
         const response = await fetch("/manual-api/reset", { method: "POST", headers: { "X-GDDS-Reset": "confirm" } });

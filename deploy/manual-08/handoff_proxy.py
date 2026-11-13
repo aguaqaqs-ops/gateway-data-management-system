@@ -28,7 +28,7 @@ def external_urls(host: str, environment: str) -> tuple[str, str]:
     authority = f'[{name}]' if ':' in name else name
     origin = f'https://{authority}:{port}'
     if environment == '/a':
-        return origin + '/manual/', origin + '/'
+        return origin + '/', origin + '/'
     if environment == '/b' and port in GATEWAY_PORTS:
         return origin + '/', f'https://{authority}:{GATEWAY_PORTS[port]}/'
     raise ValueError('unsupported directory port')

@@ -16,8 +16,8 @@ def handoff(return_url: str) -> bytes:
 class HandoffProxyTest(unittest.TestCase):
     def test_preserves_scope_and_returns_to_the_accessed_address(self):
         for host, env, gateway, public in (
-            ('192.168.233.209:8443', '/a', 'https://192.168.233.209:8443/', 'https://192.168.233.209:8443/manual/?q=x'),
-            ('10.78.0.3:8443', '/a', 'https://10.78.0.3:8443/', 'https://10.78.0.3:8443/manual/?q=x'),
+            ('192.168.233.209:28443', '/a', 'https://192.168.233.209:28443/', 'https://192.168.233.209:28443/?q=x'),
+            ('10.78.0.3:28443', '/a', 'https://10.78.0.3:28443/', 'https://10.78.0.3:28443/?q=x'),
             ('10.79.0.3:9443', '/b', 'https://10.79.0.3:10443/', 'https://10.79.0.3:9443/?q=x'),
             ('192.168.233.209:9443', '/b', 'https://192.168.233.209:10443/', 'https://192.168.233.209:9443/?q=x'),
             ('[2001:db8::1]:9443', '/b', 'https://[2001:db8::1]:10443/', 'https://[2001:db8::1]:9443/?q=x'),

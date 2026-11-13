@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState, lazy, Suspense, type ReactNode } from "react";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
 import { ComparisonPage } from "./pages/ComparisonPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
@@ -13,7 +13,7 @@ function currentPage(): "workspace" | "compare" | "design-system" {
   return params.get("page") === "compare" ? "compare" : "workspace";
 }
 
-export function App() {
+export function App({ headerControl }: { headerControl?: ReactNode }) {
   const [sessionGeneration, setSessionGeneration] = useState(0);
   useEffect(() => { const changed = () => setSessionGeneration((value) => value + 1); window.addEventListener("gateway-session-change", changed); return () => window.removeEventListener("gateway-session-change", changed); }, []);
   const key = sessionGeneration;
@@ -23,5 +23,5 @@ export function App() {
   const page = currentPage();
   if (page === "design-system") return <DesignSystemPage />;
   if (page === "compare") return <ComparisonPage key={key} identityControl={identityControl} />;
-  return <WorkbenchPage key={key} identityControl={identityControl} />;
+  return <WorkbenchPage key={key} identityControl={identityControl} headerControl={headerControl} />;
 }

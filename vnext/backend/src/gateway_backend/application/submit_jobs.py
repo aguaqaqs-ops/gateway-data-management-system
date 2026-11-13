@@ -2590,7 +2590,6 @@ def _make_stable_abort_builder(
                 expected_await_step_version=step.optimistic_version,
                 expected_operation_version=operation.optimistic_version,
                 defer_operation_terminal=True,
-                review_artifact_refs=review_artifact_refs,
             ),
             unit_of_work=transaction,
         )

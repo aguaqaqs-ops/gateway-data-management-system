@@ -1,0 +1,76 @@
+{
+  "binding_digest": "v2:sha256:f19a8e969790e032e7fd2f1e7d5d3698a0fd74efca0deee576bb08a3bff9b44d",
+  "fixture_workspace_id": "preview-binding-golden",
+  "preimage": {
+    "baseline_head_version": 3,
+    "binding_contract_version": "backend-vnext/preview-ready-binding/v2",
+    "bundle_artifact_id": "a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+    "business_baseline_commit_id": "commit-base",
+    "business_baseline_node_id": "node-1",
+    "canonical": {
+      "baseline_canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "canonical_table_set_closure_digest": "sha256:7d71338f573d3b456e24516bea409038e6f22b8f28f9f185fb2abec566605753",
+      "canonical_table_set_closure_ref": [
+        "a1:durable:3e05636aa9b041e486150f3ba350caaa9db6578825fc54f4b58f3963e3dcf99e",
+        "application/jcs",
+        359,
+        "sha256:7d71338f573d3b456e24516bea409038e6f22b8f28f9f185fb2abec566605753"
+      ],
+      "canonicalization_manifest_digest": "sha256:d3425f5b7e3a48e4f3424f595d6430bf6aadcd76363817e8685c4ce64a9c0e59",
+      "canonicalization_manifest_ref": [
+        "a1:durable:3fa9d814b79a37769b3c0669ad245741b4dbeb66df53bb2a0bc95aca1b313248",
+        "application/json",
+        1204,
+        "sha256:72af288fb5962dcf9ca1e483e465222b1871e1b85f5db362869faf55c65b1522"
+      ],
+      "configuration_facts_digest": "sha256:16a458d2e5fd81b0a8d3c9cfba12bb8073531e3a51b55ffba0301984865f5c4a",
+      "initial_canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "modified_canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16"
+    },
+    "comparison_pairs": [
+      {
+        "before_snapshot_digest": "d-snapshot",
+        "comparison_digest": "d-comparison",
+        "current_snapshot_digest": "d-snapshot",
+        "pair_id": "initial_to_modified",
+        "risk_digest": "d-risk",
+        "ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
+        "structure_audit_artifact_id": null,
+        "surface_digest": "d-surface"
+      }
+    ],
+    "contract_version": "contract-1",
+    "digests": {
+      "bundle_digest": "sha256:preview-canonical",
+      "comparison_digest": "d-comparison",
+      "input_digest": "d-input",
+      "risk_digest": "d-risk",
+      "snapshot_digest": "d-snapshot",
+      "source_digest": "d-source",
+      "surface_digest": "d-surface"
+    },
+    "generation": 1,
+    "identity_assessment_set_digest": "sha256:5a775c463f9b8063e9596f2b7b006a3019cb7bd39db241d3f1197022646c83a8",
+    "identity_pairs": [
+      {
+        "applicability": "NOT_APPLICABLE",
+        "assessment_digest": null,
+        "assessment_ref": null,
+        "mode": "DETAILED",
+        "pair_id": "initial_to_modified",
+        "status": "NOT_APPLICABLE"
+      }
+    ],
+    "operation_id": "op-preview-1",
+    "preview_result_id": "pr-1",
+    "provider_versions": {
+      "comparison": "v1"
+    },
+    "ready_closure_artifact_id": "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+    "repository_id": "repo-1",
+    "ruleset_version": "rules-1",
+    "upload_revision_id": "ur-1",
+    "workspace_id": "preview-binding-golden"
+  }
+}

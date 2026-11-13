@@ -1,6 +1,8 @@
 # 实施 kickoff：设备目录系统 v1（`directory/`）
 
-你是“设备目录系统 v1”的实施者。设备目录是独立于网关机数据管理系统（下称“网关系统”）的一套小系统：按 地区一 → 地区二 → 项目 浏览或搜索项目，再跳转到网关系统中该设备的数据提交树。设计已由 owner 确认，你按设计实现，不重新设计。
+**修订状态（2026-11-12）：** owner 已确认处理组接入修订为正式设计。阶段 1 按 [详细执行计划](execution-plan-directory-v1.md) 开始实施；本轮文档确认不表示阶段 1 已完成或阶段 2 已放行。
+
+你是“设备目录系统 v1”的实施者。设备目录是独立于网关机数据管理系统（下称“网关系统”）的一套小系统：按 地区一 → 地区二 → 项目 浏览或搜索项目，再跳转到网关系统中该设备的数据提交树。业务范围和 Q1–Q5 已由 owner 确认；处理组接入按已确认的 design/interfaces 执行，不由实施者另行设计。
 
 ## 1. 先读
 
@@ -8,15 +10,17 @@
 2. `docs/device-directory/design.md`：设计，包括业务约束 B1–B11 和已确认事项 Q1–Q5。
 3. `docs/device-directory/interfaces.md`：接口约定 I1–I8，是本任务的验收依据。
 4. `docs/device-directory/sketches/*.png`：界面草图（1280、1920 浏览，1920 搜索）。
+   实施顺序、测试归属和证据要求另须阅读 [execution-plan-directory-v1.md](execution-plan-directory-v1.md)。
 5. 参考实现（只读，不修改）：
-   - `vnext/backend/tests/support/compose_gate_harness.py` 中的 `seed_repository_and_mapping`、`start_three_container_stack`、`worker_ready`：建仓库、写映射文件、启动服务并等待就绪的现有做法；
-   - `vnext/backend/src/gateway_backend/http/auth.py` 中的 `load_session_entries`、`vnext/backend/src/gateway_backend/infrastructure/control_db/sqlite_mapping.py` 中的 `load_provisioned_mapping_file` 和 `_validate_seed_batch_reverse_scope`：网关读取这两个文件的规则，I4 的自检要与它们一致；
-   - `vnext/deploy/compose.yaml`、`vnext/deploy/README.md`：两个文件的挂载方式和权限名；
+   - `vnext/scripts/manage-processing-groups.py`：`add_device`、`session_document`、`merge_sessions`、`require_unique_session_tokens`，作为开通、会话 schema 与跨组唯一性边界；注意工具只追加会话，不承担旧 token 撤销。
+   - `vnext/scripts/processing_group_locks.py`、`processing_group_entry.py`：宿主锁顺序、发布与 probe 协议；复用 helper，不复制第二套 nginx 发布器。
+   - `vnext/backend/src/gateway_backend/application/provisioning/registration.py` 与 `http/routes/device_registration.py`：幂等建仓/登记和固定 INITIAL 回执；不得按旧设计自行建仓或生成 INITIAL。
+   - `docs/backend-vnext/refactoring/formal/contracts/processing-groups-and-routing.md`、`vnext/deploy/compose.yaml`、`vnext/deploy/README.md`：处理组部署、公共入口及 session 父目录挂载。
    - `frontend/scripts/run-tests.sh`：前端工具链镜像、身份校验和离线 npm 的做法。
 
 ## 2. 基线与边界
 
-- 从 `main` 的最新提交（应包含 `18d290f20b`）创建短期分支 `dir-v1`，在独立 worktree 中开发，例如 `/home/dev/gdds-dir-v1`。不推送。
+- 本任务已在 `/home/dev/gdds-dir-v1` 的 `dir-v1` 分支开始，产品基线为 `main@eb6530b36e`，包含 `18d290f20b`；继续追加提交，不重新创建/重置分支或改写已有交接提交。恢复实施前核对最新 `main`、分支独有提交与工作区，处理基线变化见执行计划。不推送。
 - 只改 `directory/` 和 `docs/device-directory/`。**不改 `vnext/`、`frontend/`。**确实需要改时先停下报告。
 - 网关前端的跳转入口由另一个任务 `fe-handoff` 实现，你不实现。
 
@@ -33,11 +37,11 @@ directory/
 **服务（Python）：**
 
 - 使用 `pyproject.toml`、`uv.lock`；`.python-version` 为 `3.14.6`，与 `vnext/backend` 一致。
-- 运行时只用标准库：`http.server` 的 `ThreadingHTTPServer`、`sqlite3`、`csv`、`hashlib`、`unicodedata`、`gzip`、`secrets`、`json`、`subprocess`。
+- 运行时只用标准库：包括 `http.server` 的 `ThreadingHTTPServer`、`sqlite3`、`csv`、`hashlib`、`unicodedata`、`gzip`、`secrets`、`json`、`subprocess`，以及宿主适配所需的 `urllib`、`fcntl`、文件与时间处理模块；复用既有网关 stdlib helper 不新增第三方依赖。
 - 开发依赖只允许 `pytest==9.1.1`、`ruff==0.15.21`、`mypy==2.3.0`，与 `vnext/backend/uv.lock` 相同的版本，这样节点上已预填充的 uv 缓存能命中。需要其他依赖时先停下报告。
 - mypy 用 `strict = true`，覆盖测试代码。
-- 命令行入口是 `gdds-directory`，子命令见 I8。服务以 `gdds-directory serve` 启动；I8 没有列出这个子命令，请在本分支同时把它补进 `interfaces.md` 的 I8。
-- 静态文件目录如果需要配置，新增 `GDDS_DIRECTORY_STATIC_DIR`，并同步补进 I7。
+- 命令行入口是 `gdds-directory`，包含 I8 已定义的 `serve`。可用源代码包加仓库内可执行 launcher 实现，不为安装入口引入未经允许的第三方 build backend。
+- 静态文件目录使用 I7 已定义的 `GDDS_DIRECTORY_STATIC_DIR`。
 
 **前端：**
 
@@ -53,24 +57,23 @@ directory/
 | 部分 | 依据 | 重点 |
 | --- | --- | --- |
 | 唯一键 | I2 | I2 表中的三个例子作为固定测试用例 |
-| 数据库 | design §4 | 站号为主键；开通记录只在建仓成功后写入 |
+| 数据库 | design §4、§6 | 站号为主键；先保存待生效凭据，成功确认后保存登记回执并开放 handoff；开通更新目录版本 |
 | 导入 | design §5、I1 | 整份替换，全部校验通过才生效；逐行错误码；`--dry-run`；移除与恢复；输出摘要 |
 | HTTP 接口 | I3 | ETag 与 304、gzip、`Cache-Control: no-store`；错误响应体格式；`return_query` 校验；`/api/` 未知路径返回 JSON 404 |
-| 开通 | design §6、I4、I5、I8 | 见下文 |
+| 开通与续期 | design §6、I4、I5、I8 | 复用宿主管理工具，续期按现有锁替换自身会话，见下文 |
 | 前端 | design §8、草图 | 见下文 |
 | 配置 | I7 | 必填项缺失时启动失败，并说明缺了哪一项 |
 
-**开通（`provision`）：**
+**开通与续期（`provision`）：**
 
-- 步骤顺序严格按 design §6：
-  1. 逐台建仓库，每建成一个就写入开通记录；
-  2. 停止 backend 与 worker；
-  3. 自检后原子替换两个文件；
-  4. 启动 backend 与 worker，等待 backend `/readyz` 返回成功、worker 就绪。
-- 写文件时，带 `"issuer": "device-directory"` 的条目整体重新生成，其他条目和顶层字段原样保留。自检规则与网关加载器一致。
-- Compose 调用封装成一个可替换的接口。单元测试用替身，不在单元测试里启动 Docker。
-- 中断后重跑：已建仓库不重复建，文件和重启步骤可以整段重跑。用测试证明重跑不重复建仓库、不破坏不归目录管理的条目。
-- token 不写入任何日志、标准输出、异常信息或测试快照。
+- 固定一个预先部署的处理组及公共入口；使用 I7 的清单配置，从清单派生环境、端点、session 和凭据路径，不创建处理组、不自动分组。
+- 新增按 design §6.1：先在目录 DB 保存目标与待生效 token，再用私有临时 session 文档调用现有 `add-device`；工具 exit 0 后查询 registration 固定回执，并用本次 token 经公共入口核 scope，完成本地记录后才允许 handoff。
+- 宿主适配器可替换，单元测试用替身，不启动 Docker。目录不写 seed 映射或路由 JSON，不直接建仓、不重启 backend/worker、不自己实现 nginx 发布。
+- 重跑使用同一设备/项目/环境/组及待生效凭据，证明不重复创建仓库、未完成项不提前可进入。busy/未完成保留工具 exit code 和本地记录，不能把 enabled/HUP 成功替代 available。
+- 续期按 design §6.2：复用 publication → group management 锁，在锁内重读并校验会话、全局 token 唯一性和文件上限，原子替换 SQLite 精确归属的会话；保留其他合法条目。不加 `issuer` 或未知顶层字段。
+- 用一个中断用例证明替换后、DB 收尾前退出可用持久待生效 token 完成恢复；其他输入/归属冲突用参数表证明拒绝且不误写。续期中 handoff 返回 `SESSION_UPDATING`，新 token 的 scope 正确、旧 token 的后续新请求为 401 后才报告成功。
+- 不建立跨文件分布式事务或第二网关恢复器。过期/未知/冲突按已知状态报告，不猜测业务事实。按每文件 1 MiB 与路由目录 10000 条/8 MiB 的现有限制做批次预检，不做额外规模评估。
+- token 不写入任何日志、标准输出、异常信息或测试快照；管理凭据只经受控文件读取，secret 不进 argv。
 
 **目录服务：**
 
@@ -82,7 +85,7 @@ directory/
 - 地址状态（`r1`、`r2`、`q`、`scope`、`page`）、搜索规则与排序按 design §8。
 - “未开通”的设备，“进入”位置显示“未开通”，不可点击。
 - 最近访问存在 `localStorage`，所有读写都包在 try/catch 中；存储不可用时页面照常工作。
-- 跳转失败（404、409 未开通、409 会话过期）时，显示中文提示，不跳转。
+- 跳转失败（404、409 未开通、409 会话过期、409 会话更新中）时，显示中文提示，不跳转。
 - 还没有导入过名单（503 `CATALOG_EMPTY`）时，显示空状态。加载失败时显示错误状态并可重试。
 - 键盘：↑↓ 选择，Enter 进入，`/` 聚焦搜索，Esc 清除搜索。
 
@@ -109,42 +112,35 @@ directory/
 
 写完后停下，等待审核。审核在只读的 detached worktree 中进行。
 
-**阶段 2：端到端验收。**审核通过、且 `fe-handoff` 已合入 `main` 之后，再开始阶段 2。在包含两项改动的提交上运行，地点是 05 节点。05 上的 Compose 占用 8000 端口，要按 DC70 补充取得整机占用标记 `/home/dev/gdds-node-busy.d`，用完删除。步骤：
+**阶段 2：端到端验收。**操作细化见[阶段 2 详细执行计划](execution-plan-directory-v1-stage2.md)。阶段 1 审核通过，且满足 `kickoff-fe-handoff.md` 的 FE4/fe-handoff 集成与目录放行条件之后，再开始阶段 2。在包含两项改动的提交上运行，地点是 05 节点。按清单核对 Compose 管理端口与公共入口端口，并按 DC70 补充取得整机占用标记 `/home/dev/gdds-node-busy.d`，用完删除。步骤：
 
-1. 启动网关 Compose 栈。
+1. 按网关既有部署流程准备并核验一个处理组及公共入口（镜像、资源、清单与父目录挂载），然后启动；这属于验收环境准备，不由目录产品创建组。
 2. 导入样例名单。名单至少包含：2 个地区一、同名项目、多音字拼音。
-3. 开通 2 台设备 A、B。
-4. 启动目录服务；以 `vite preview` 启动网关前端，`/v1` 代理到 backend。
+3. 通过目录 CLI 复用 `add-device` 开通本轮验收使用的 2 台测试设备 A、B（非产品默认数量或上限），核 fixed INITIAL 回执、本地完成状态和公共 scope；记录 backend/worker 原容器身份，确认热新增不重启它们。
+4. 启动目录服务；以 `vite preview` 启动网关前端，使用已有 `GATEWAY_FRONTEND_ENTRY_ORIGIN` 将 `/v1` 代理到公共入口，不直连组 backend。
 5. 从目录搜索并进入 A。确认：
    - 地址片段已清除；
    - 显示“尚无数据”，上传入口可用；
    - 用 `frontend/e2e-real` 已有的样例包完成上传 → Preview → 提交 → `test1` 审核通过；
    - 在差异浏览页刷新，仍在 A 中。
 6. 返回目录，进入 B，确认看不到 A 的数据。
-7. 执行 `provision --renew-sessions`，确认旧 token 返回 401，新 token 可用。
+7. 执行 `provision --renew-sessions`，确认通过父目录挂载生效，旧 token 的后续新请求返回 401，新 token 的公共 scope 正确；不重启 backend/worker、不改路由。
 
-步骤 3 和 5 同时验证 design 中待实测的三点：
+步骤 3、5 和 7 同时验证本轮设计中待实测的三点：
 
-- 重启后容器读到的是新写入的文件；
+- 热新增通过实际入口可用性探针，会话原子替换无需重启即可被容器读取；
 - 只有初始基线的设备可以上传；
 - `test1` 能审核本人的提交。
 
 任何一点与设计不符，就停下报告并附上证据，不要自行绕过。
 
-### 审核与推进分工（owner，2026-11-11）
+### 审核与推进
 
-审核通过后，由审核会话继续推进本任务：
+实施、风险分级、独审及模型安排遵循 `AGENTS.md` 与适用的标准流程；具体工作顺序、产物和验证范围见 [执行计划](execution-plan-directory-v1.md)。审核在只读 detached worktree 中进行；开通、续期、凭据相关修正交回实施方，审核方不直接修改。
 
-- 合入 `main`，打退出 tag `dir-v1-exit`。推送需要 owner 授权。
-- `fe-handoff` 合入 `main` 后，通知实施会话进入阶段 2，并审核阶段 2 的端到端证据。
-- 可以在节点上自行复跑验收，作为独立验证。
-- 根据试运行反馈起草后续 kickoff。
+Astra 聚焦代码独审及关键风险，Luna 在阶段交付核对清单、原始证据和截图，确定性条件由本系统 runner 检查；职责与门禁要求见[执行计划 §3.6](execution-plan-directory-v1.md#36-验收核对与门禁)。核对不代替独审，不自行改代码、标准或重跑测试。
 
-修正的分工：
-
-- 审核发现的问题写成修正清单，交回实施会话。实施会话修完后，由审核会话复审。
-- 不影响行为的小问题（文档笔误、测试命名等），审核会话可以直接改，并在审核记录中逐项列明。
-- 例外：开通命令相关的修正一律交回实施会话，审核会话不直接改。开通命令会改写网关的设备映射文件和会话文件，并重启 backend/worker。
+阶段 1 handoff 完成后停下交审。审核通过后按既定流程处理本地合入和 `dir-v1-exit` 附注 tag；tag 明确仅覆盖阶段 1 的组件验收，不声称真实端到端已通过。推送仍需 owner 授权。阶段 2 按 `kickoff-fe-handoff.md` 的集成放行及本文前置条件执行，端到端证据须审核核收。
 
 ## 7. 必须停下报告的情况
 

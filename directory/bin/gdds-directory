@@ -1,0 +1,3 @@
+#!/bin/sh
+service_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../service" && pwd)
+PYTHONPATH="$service_dir${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m gdds_directory "$@"

@@ -8,6 +8,7 @@
 
 ## 1. 入口与授权
 
+- **双 pair 专项已暂缓（Owner 后续决定）：** 取消 FE4b 合并后强制实施的安排，不阻塞 FE4b 合并或人工功能验证部署。[原设计](p7-preview-pair-parallel-design.md)及[原实施计划](p7-preview-pair-parallel-execution-plan.md)只保留作历史参考，不启动独审、测试或编码。后续按 P7 D22 先测试当前版本首次单份无缓存上传和后续 FULL 上传的 Preview 分段耗时，再讨论瓶颈及优化方法；main `8739d4094e` 已在执行计划 S5 与 S0 决议 §18 落实。N1 默认与 D24 责任保持。
 - Owner已授权按已审计划连续完成S2a A–F至本地exit，见[S0 §14](p7-s0-owner-decisions.md#14-s2a-实施至-exit-授权与-ci-分工2026-11-11)及[实施入口](p7-s2a-implementation-prompt.md)；不push或上线。S1b A–F 及其角色提示词是历史执行入口，不自动成为 S2 开工授权。
 - S2 共用一份设计，建议沿用先 S2a 后 S2b、分别退出的原安排；Owner 对合并可能性的提问不视为已授权合并，理由和减少重复验证方式见 [S2 设计 §2](p7-s2-design.md#2-阶段划分与实施顺序)。
 - S2a源码接点、owning Contract改动、工作包和最小验证已在详细计划闭合并独审通过；实际main后继若前进，按增量核对。风险/角色按AGENTS与比例化政策；S2a产品实施授权已由S0 §14单独给出，S2b实施细节及授权仍待其准备。

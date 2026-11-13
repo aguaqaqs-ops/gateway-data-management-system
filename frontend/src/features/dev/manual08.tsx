@@ -30,7 +30,7 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
   // The comparison page has no reset button; only a floating status remains
   // so a reset started from the workbench is still visible here.
   if (new URLSearchParams(location.search).get("page") === "compare") {
-    reset.hidden = true;
+    reset.style.display = "none";
     toolbar.classList.add("manual08-controls--floating");
   }
   root.before(toolbar);

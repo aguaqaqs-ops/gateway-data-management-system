@@ -408,6 +408,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const collapsed = settings.sidebarCollapsed;
   const [formulaOpen, setFormulaOpen] = useState(false);
   const [formulas, setFormulas] = useState<ReturnType<typeof deriveFormulaDisplays>>([]);
+  const [formulaFocus, setFormulaFocus] = useState<string | null>(null);
   const [rows, setRows] = useState<BrowseRow[]>([]);
   const [beforeRows, setBeforeRows] = useState<Record<string, unknown>[]>([]);
   const [currentRows, setCurrentRows] = useState<Record<string, unknown>[]>([]);
@@ -736,7 +737,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const left = workspaceRef.current?.getBoundingClientRect().left ?? 0;
     setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(clientX - left) }));
   };
-  const openFormula = useCallback(async () => {
+  const openFormula = useCallback(async (pointKey: string | null) => {
     if (!bundle || !presentation) return;
     const composite = presentation.surface.tables.find((item) => item.table_name === "composite_signal_point");
     if (!composite) return;
@@ -775,6 +776,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     }
     setFormulas(deriveFormulaDisplays({ mode: browse.mode === "PREVIEW" ? "PREVIEW" : "HISTORY", before: beforeRows, current: currentRows,
       beforeDevices: beforeDevices as Record<string, unknown>[], currentDevices: currentDevices as Record<string, unknown>[], deletedPointKeys }));
+    setFormulaFocus(pointKey);
     setFormulaOpen(true);
   }, [browse.mode, bundle, presentation]);
 
@@ -902,7 +904,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             {debugMode && <DebugInfoBar table={surfaceTable} reasonDetails={riskReasonDetails} />}
             {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
-                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={() => void openFormula()} />
+                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={(pointKey) => void openFormula(pointKey)} />
                 {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })} />}
               </div>}
             </>}</> : <div className="empty-table">请选择一个导航页签。</div>}
@@ -922,7 +924,16 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       <label className="confirm-checkbox"><input type="checkbox" checked={withdrawUnderstood} onChange={(event) => setWithdrawUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
       {withdrawError && <div role="alert" className="form-error"><span>{withdrawError.title}</span><span>错误代码：<code>{withdrawError.code}</code></span></div>}
     </Dialog>
-    {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{formulas.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}</div></aside></div>}
+    {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{(() => {
+      // The clicked row's formula; the full list is one click away.
+      const focused = formulaFocus ? formulas.filter((formula) => formula.pointKey === formulaFocus) : [];
+      const shown = focused.length > 0 ? focused : formulas;
+      return <>
+        {formulaFocus && focused.length === 0 && <p className="formula-drawer__note">没有找到该行的公式，下面列出全部 {formulas.length} 条。</p>}
+        {focused.length > 0 && formulas.length > 1 && <button className="link-button formula-drawer__all" onClick={() => setFormulaFocus(null)}>显示全部 {formulas.length} 条公式</button>}
+        {shown.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}
+      </>;
+    })()}</div></aside></div>}
   </main>;
 }
 
@@ -1069,7 +1080,7 @@ function CopyDebugValue({ label, value }: { label: string; value: string }) {
   return <button className="debug-info-value" type="button" aria-label={`复制 ${label}`} title={`复制完整值：${value}`} onClick={() => void copy()}><span>{label}</span><code>{display}</code><Copy size={12} />{copied && <span className="sr-only" aria-live="polite">已复制</span>}</button>;
 }
 
-function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: () => void }) {
+function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: (pointKey: string | null) => void }) {
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
@@ -1116,9 +1127,13 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     if (typeof column.id === "string" && column.id !== "__number") onWidthChange(column.id, Math.round(newSize));
   }, [onWidthChange]);
   // Double-clicking a header's right edge fits the column to its longest value.
-  const headerClicked = useCallback((columnIndex: number, event: { isEdge: boolean; isDoubleClick?: boolean }) => {
-    const column = columns[columnIndex];
-    if (!column || typeof column.id !== "string" || column.id === "__number" || !event.isEdge || !event.isDoubleClick) return;
+  // Glide does not report clicks on header edges (its own fit needs a
+  // selection reader we do not provide), so the edge under the pointer is
+  // tracked from mouse moves and the frame's native double-click fits it.
+  const edgeColumn = useRef<number | null>(null);
+  const fitEdgeColumn = useCallback(() => {
+    const column = edgeColumn.current === null ? undefined : columns[edgeColumn.current];
+    if (!column || typeof column.id !== "string" || column.id === "__number") return;
     onWidthChange(column.id, fitColumn(column.id, String(column.title), sampleRows(rows, 5000), "fit"));
   }, [columns, fitColumn, onWidthChange, rows]);
   const paintToken = useMemo(() => ({}), [columns, rows]);
@@ -1191,7 +1206,11 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const click = useCallback(([column, row]: readonly [number, number]) => {
     const target = rows[row];
     if (target?.kind === "collapsed") { lastToggleClick.current = Date.now(); onExpand(target); return; }
-    if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") onOpenFormula();
+    // Formulas are keyed by source_table:point_gid, the same pair the row carries.
+    if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") {
+      const values = target?.values ?? {};
+      onOpenFormula(values.source_table === undefined || values.point_gid === undefined ? null : `${String(values.source_table ?? "")}:${String(values.point_gid ?? "")}`);
+    }
   }, [columns, onExpand, onOpenFormula, rows, table.table_name]);
   const activate = useCallback(([, row]: readonly [number, number]) => {
     const target = rows[row];
@@ -1200,6 +1219,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const onMouseMove = useCallback((event: Parameters<NonNullable<ComponentProps<typeof DataEditor>["onMouseMove"]>>[0]) => {
     const next = event.kind === "cell" ? event.location : null;
     setHoveredCell((previous) => previous?.[0] === next?.[0] && previous?.[1] === next?.[1] ? previous : next);
+    edgeColumn.current = event.kind === "header" && event.isEdge ? event.location[0] : null;
   }, []);
   const onVisibleRegionChanged = useCallback((range: { y: number; height: number }) => {
     const first = rows[Math.max(0, Math.min(rows.length - 1, range.y))];
@@ -1223,7 +1243,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
-  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} onHeaderClicked={headerClicked} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
+  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" onDoubleClick={fitEdgeColumn} data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
     {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}

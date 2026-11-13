@@ -38,6 +38,8 @@ export interface BrowseRow {
   pairKey: string | null;
   collapsedCount?: number;
   collapsedRows?: BrowseRow[];
+  /** A "collapsed" row with expanded=true is the handle above an opened run. */
+  expanded?: boolean;
 }
 
 const ADDED_KINDS = new Set(["ROW_ADDED", "ORDERED_ROW_ADDED"]);
@@ -267,12 +269,13 @@ export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlyS
     }
     if (!run.length) continue;
     const key = `unchanged:${run[0]?.rowNumber ?? 0}:${run.length}`;
-    if (expandedKeys.has(key)) output.push(...run);
-    else output.push({
+    const expanded = expandedKeys.has(key);
+    output.push({
       key, kind: "collapsed", side: null, rowNumber: run[0]?.rowNumber ?? null, rowIdentity: null, riskLevel: null,
       recordKind: null, semanticKind: null, beforePosition: null, currentPosition: null,
-      changedColumns: [], values: {}, pairKey: null, collapsedCount: run.length, collapsedRows: run,
+      changedColumns: [], values: {}, pairKey: null, collapsedCount: run.length, collapsedRows: run, expanded,
     });
+    if (expanded) output.push(...run);
   }
   return output;
 }

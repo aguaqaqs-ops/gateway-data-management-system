@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RowDiffRecord, SurfaceTable } from "./model";
 import {
+  type BrowseRow,
   buildBrowseRows,
   canReuseUnrecordedIdentity,
+  collapseUnchangedRows,
   missingSideMarker,
   normalizeDisplayScalar,
   parseRowLocator,
@@ -256,5 +258,29 @@ describe("missing-side cell marker", () => {
     expect(missingSideMarker(null, presentIn.get("before_only"))).toBeNull();
     expect(missingSideMarker("current", presentIn.get("before_only")) ?? normalizeDisplayScalar(null)).toBe("该侧无此列");
     expect(missingSideMarker("current", presentIn.get("dev_addr")) ?? normalizeDisplayScalar(null)).toBe("—");
+  });
+});
+
+describe("unchanged run folding", () => {
+  const row = (rowNumber: number, kind: BrowseRow["kind"] = "unchanged"): BrowseRow => ({
+    key: `r${rowNumber}`, kind, side: "current", rowNumber, rowIdentity: `id${rowNumber}`, riskLevel: null,
+    recordKind: null, semanticKind: null, beforePosition: null, currentPosition: rowNumber,
+    changedColumns: [], values: {}, pairKey: null,
+  });
+  const rows = [row(1), row(2), row(3, "added"), row(4), row(5), row(6)];
+
+  it("folds each unchanged run into one row", () => {
+    const folded = collapseUnchangedRows(rows, new Set());
+    expect(folded.map((item) => [item.kind, item.collapsedCount ?? null, item.expanded ?? null]))
+      .toEqual([["collapsed", 2, false], ["added", null, null], ["collapsed", 3, false]]);
+  });
+
+  it("keeps a handle above an opened run so it can fold again", () => {
+    const key = collapseUnchangedRows(rows, new Set())[2]?.key ?? "";
+    const opened = collapseUnchangedRows(rows, new Set([key]));
+    expect(opened.map((item) => item.kind === "collapsed" ? `handle:${String(item.expanded)}` : item.key))
+      .toEqual(["handle:false", "r3", "handle:true", "r4", "r5", "r6"]);
+    expect(opened[2]?.key).toBe(key);
+    expect(collapseUnchangedRows(rows, new Set())).toHaveLength(3);
   });
 });

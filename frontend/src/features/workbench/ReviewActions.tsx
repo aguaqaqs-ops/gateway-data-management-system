@@ -173,7 +173,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
 
   return <>
     <div className="review-actions">
-      <div className="review-actions__buttons">
+      <div className="review-actions__buttons" title={groupReason ?? undefined}>
         <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>撤回</Button>
         <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>退回</Button>
         <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveUsesGroup ? undefined : approveReason} aria-describedby={approveUsesGroup ? groupReasonId : undefined}>审核通过</Button>

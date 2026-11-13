@@ -1,6 +1,6 @@
 [Unit]
 Description=08 multi-device catalog
-After=gdds08-b-stack.service
+After=gdds08-b-stack.service gdds08-a-stack.service
 
 [Service]
 Type=simple

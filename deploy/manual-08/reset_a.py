@@ -197,6 +197,7 @@ def main() -> None:
     call(str(PYTHON), *management[1:], 'render-entry', env=env)
     validate_compose(group, entry, env)
     call(*group, 'up', '-d', '--no-build', '--pull', 'never', 'backend', 'worker', env=env, timeout=600)
+    call(str(PYTHON), str(SOURCE / 'deploy/manual-08/pin_cgroups.py'), 'a', env=env)
     call(*entry, 'up', '-d', '--no-build', '--pull', 'never', 'entry', env=env, timeout=600)
     print('provisioning', flush=True)
     call(str(PYTHON), '-m', 'gdds_directory', 'provision', '--all', env=env, timeout=600)

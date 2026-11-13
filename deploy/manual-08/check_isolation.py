@@ -35,6 +35,21 @@ def main() -> None:
         networks = set(container['NetworkSettings']['Networks'])
         if networks != ({'host'} if project.endswith('-entry') else {project + '_default'}):
             raise ValueError('manual service network differs')
+        if not project.endswith('-entry'):
+            ident = container['Id']
+            pid = container['State']['Pid']
+            settings = container['HostConfig']
+            entries = Path(f'/proc/{pid}/cgroup').read_text().splitlines()
+            paths = [line.split(':', 2)[2] for line in entries if line.startswith('0::')]
+            if len(paths) != 1 or Path(paths[0]).name != f'docker-{ident}.scope' or '..' in Path(paths[0]).parts:
+                raise ValueError('manual service cgroup differs')
+            cgroup = Path('/sys/fs/cgroup') / paths[0].lstrip('/')
+            systemd_swap = subprocess.check_output(['systemctl', 'show', f'docker-{ident}.scope',
+                                                    '--property=MemorySwapMax', '--value'], text=True).strip()
+            if (settings['MemorySwap'] != settings['Memory']
+                    or (cgroup / 'memory.max').read_text().strip() != str(settings['Memory'])
+                    or (cgroup / 'memory.swap.max').read_text().strip() != '0' or systemd_swap != '0'):
+                raise ValueError('manual service memory or swap limit differs')
         ports = container['HostConfig'].get('PortBindings') or {}
         if service == 'backend':
             expected_port = '18000' if scope_name == 'a' else '18001'
@@ -44,7 +59,7 @@ def main() -> None:
             raise ValueError('unexpected published port')
     if found != expected:
         raise ValueError('manual project services are incomplete')
-    print('manual container mounts, networks and published backend ports are isolated')
+    print('manual container mounts, networks, published ports and zero-swap limits are verified')
 
 
 if __name__ == '__main__':

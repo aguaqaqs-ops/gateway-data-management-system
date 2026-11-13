@@ -30,6 +30,8 @@ systemctl start gdds08-b-stack gdds08-b-directory
 
 `gdds08-a-stack` 的启动保护拒绝未完成或失败的重置。所有 Compose 命令必须使用相应栈 unit 中固定的 project、base 和 runtime override；不要手动挂接另一环境的目录、session、secret、卷或网络，不用全局 prune。自启依赖已启用的五个 unit 及 nginx。
 
+08 使用 Docker `systemd` cgroup 驱动。观察到在此节点启动已启用的 systemd 服务时，Docker 容器的实际 swap 限额可能被重置；因此组启动脚本在各角色就绪后把既有的零 swap 限额登记到对应 systemd scope，并复核实际值。不要省略这一步或仅相信 Docker inspect；失败时停止该组并检查实际 cgroup。宿主原 Docker 配置保存在本机部署证据目录，试用 cgroupfs 未通过且已回退。
+
 ## A 重置与失败恢复
 
 页面点击重置并确认一次。管理服务限制同一时间一项任务：关闭 A 入口、停止 A 目录及组，核对没有其他容器引用 A 的资源，然后重建 A 的十个数据根、会话、路由和目录数据库，以正式 `add-device` 流程重新开通唯一设备。完成前检查组部署、设备公共 scope 和只有 INITIAL 的历史；B 不在重置范围。

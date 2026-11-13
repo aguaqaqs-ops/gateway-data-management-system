@@ -44,6 +44,7 @@ def main() -> None:
     if not (B / 'private/directory.sqlite').exists():
         call(str(PYTHON), '-m', 'gdds_directory', 'import', str(SOURCE / 'deploy/manual-08/catalog-b.csv'), env=env)
     call(*group, 'up', '-d', '--no-build', '--pull', 'never', 'backend', 'worker', env=env)
+    call(str(PYTHON), str(SOURCE / 'deploy/manual-08/pin_cgroups.py'), 'b', env=env)
     call(*entry, 'up', '-d', '--no-build', '--pull', 'never', 'entry', env=env)
     call(str(PYTHON), '-m', 'gdds_directory', 'provision', '--all', env=env)
     call(*management, 'check-groups', '--inspect', env=env)

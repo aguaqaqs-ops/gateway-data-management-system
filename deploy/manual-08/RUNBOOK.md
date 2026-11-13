@@ -28,7 +28,7 @@ systemctl stop gdds08-b-directory gdds08-b-stack
 systemctl start gdds08-b-stack gdds08-b-directory
 ```
 
-`gdds08-a-stack` 的启动保护拒绝未完成或失败的重置。所有 Compose 命令必须使用相应栈 unit 中固定的 project、base 和 runtime override；不要手动挂接另一环境的目录、session、secret、卷或网络，不用全局 prune。自启依赖各栈、目录、管理和交接代理 unit 及 nginx。映射节点原有 `wg-ct-209-mapping.service` 负责 8443/9443，新增 `gdds08-wg-gateway.service` 只为 B 增加 10443 的转发，不改动原规则。
+`gdds08-a-stack` 的启动保护拒绝未完成或失败的重置。所有 Compose 命令必须使用相应栈 unit 中固定的 project、base 和 runtime override；不要手动挂接另一环境的目录、session、secret、卷或网络，不用全局 prune。自启依赖各栈、目录、管理和交接代理 unit 及 nginx。映射节点原有 `wg-ct-209-mapping.service` 负责 8443/9443，并调用独立的 `gdds08-wg-gateway.sh` 为 B 增加 10443 的转发；原有规则保持不变。
 
 08 使用 Docker `systemd` cgroup 驱动。观察到在此节点启动已启用的 systemd 服务时，Docker 容器的实际 swap 限额可能被重置；因此组启动脚本在各角色就绪后把既有的零 swap 限额登记到对应 systemd scope，并复核实际值。不要省略这一步或仅相信 Docker inspect；失败时停止该组并检查实际 cgroup。宿主原 Docker 配置保存在本机部署证据目录，试用 cgroupfs 未通过且已回退。
 

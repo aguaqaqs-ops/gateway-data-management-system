@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, StringScalar, encode_row
 from contextlib import closing
 from typing import Any
 
@@ -114,9 +115,13 @@ def test_configuration_rows_align_page_and_number_and_emit_all_changes(table_nam
     }
     modified, = (record for record in records if record["record_kind"] == "ROW_MODIFIED")
     assert modified["changed_columns"] == ["value"]
-    before_values = {item["column_name"]: item["value"]["text"] for item in modified["before_values"]}
-    assert before_values["page_no"] == "2"
-    assert before_values["no"] == "1"
+    key = encode_row([
+        RowField("no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("1")),
+        RowField("page_no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("2")),
+    ])
+    assert modified["row_identity"] == key.digest_ref.raw_digest
+    assert modified["before_values"][0]["value"]["text"] == "old"
+    assert modified["current_values"][0]["value"]["text"] == "new"
     assert (facts.summary.row_added_count, facts.summary.row_deleted_count,
             facts.summary.row_modified_count) == (1, 1, 1)
 

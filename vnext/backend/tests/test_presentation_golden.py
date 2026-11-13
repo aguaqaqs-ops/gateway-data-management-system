@@ -17,7 +17,7 @@ from gateway_backend.capabilities.business_navigation.contracts import validate_
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA
 
-GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v1"
+GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v2"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())
 SCENARIOS = tuple(item["scenario"] for item in MANIFEST["scenarios"])
 CODE_INVENTORY: dict[str, Any] = json.loads((Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json").read_bytes())
@@ -53,6 +53,24 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
         table_ids = frozenset(table["table_id"] for table in surface["tables"])
         navigation = validate_navigation(navigations[pair_id]["document"],
             replacement=surface["comparison_mode"] == "DATASET_REPLACEMENT")
+        # Frozen actual producer outcomes bridge marker publication to bound
+        # Surface/Bundle consumers; these are business scenarios, not a second
+        # emptiness algorithm in the golden reader.
+        if scenario == "table-addition":
+            secondary = navigation["groups"][1]
+            empty_device = next(i for i in secondary["items"] if i["item_key"] == "device:addr:49")
+            assert all(t["empty"] for t in empty_device["tabs"])
+            assert empty_device["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0}
+            assert secondary["nonempty_item_count"] == 1
+            added_empty = next(t for g in navigation["groups"] for i in g["items"] for t in i["tabs"]
+                               if t["table_id"] == "b1_n1_sg_cfg")
+            assert added_empty["empty"] is True
+            added_table = next(t for t in surface["tables"] if t["table_id"] == "b1_n1_sg_cfg")
+            assert added_table["change_kind"] == "ADDED" and added_table["risk_refs"]["risk_level"] is not None
+        if scenario == "schema-keyless":
+            structural = [t for g in navigation["groups"] for i in g["items"] for t in i["tabs"]
+                          if t["table_id"] == "device_st"]
+            assert structural and all(t["empty"] is False for t in structural)
         diagnostic = diagnostics[pair_id]["document"]
         if diagnostic is not None:
             validate_diagnostics(diagnostic, navigation, table_ids)

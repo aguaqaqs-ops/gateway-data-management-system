@@ -116,3 +116,6 @@ B3 共享 application/business_presentation 接上述输入，实际发布恰一
 v2 防止缺少 empty/summary 的旧文档被当作新规则结果，由后端 pydantic strict/extra=forbid 与前端 decoder 核对。导航 JCS raw SHA 进入现有 projection digest、Surface digest、bundle 物理闭包及 D Preview/READY 完整绑定，消费者继续核全部引用与摘要，不新增仅计算的身份轴。比较事实/缓存未变，不改 comparison digest 或强行禁用缓存；既有 Preview assemble-state v6、History assemble-state v3 防止恢复旧版导航的 assemble checkpoint，由各自 state decoder 校验。没有兼容路径或旧结果迁移。
 
 验证 owner 为 business_navigation 参数表（标记/保留/非空汇总/未知/孤儿）、pair pipeline 贯通（原始结构与 C 隐藏共存、Preview/History）、提交绑定结果贯通（不可变完整闭包）和前端 decoder/展开交互。golden 与真实 producer fixture 必须一并重建，生成过程本身不算测试通过。
+
+
+F 的当前 producer/consumer golden 位于 `vnext/fixtures/golden/presentation/be-b/v2/`，17 场景的五类文件由同一真实 producer 两次独立生成且逐字节相同；manifest 保存来源提交、输入摘要和逐文件摘要。v1 只保留历史固定向量，当前 owning consumer 不再读取它。前端 fixture 替换由同一生成归档提供，前端接入前不把后端生成成功宣称前端已兼容。

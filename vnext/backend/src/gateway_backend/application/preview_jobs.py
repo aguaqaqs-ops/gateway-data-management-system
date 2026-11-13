@@ -830,7 +830,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             ready_closure_ref = _preview_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_preview_bundle_binding(envelope.job_state, closure.artifact_refs())
-            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs())
+            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
             _pin_preview_refs(
                 deps,
                 (
@@ -864,7 +864,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
-            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -993,7 +993,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
         ready_closure_ref = _preview_ready_ref(assemble_envelope.job_state)
         ready_closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
         _assert_preview_bundle_binding(assemble_envelope.job_state, ready_closure.artifact_refs())
-        verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_closure.artifact_refs())
+        verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_closure.artifact_refs(), assemble_state.get("pair_ids"))
 
         preview_result = _build_preview_result(
             payload=payload,

@@ -150,7 +150,7 @@ def test_hidden_pair_is_consistent_and_audit_is_only_in_backend_ready_closure() 
         before=_artifact_bound(_BEFORE, store),
         current=_artifact_bound("CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES(1,10);", store),
         rule_set=comparison_ruleset_for(standard_rule_record("t")), store=store,
-        control=ExecutionControl(), on_cancel=lambda: None)
+        control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
     surface = result.surface_result.surface
     assert surface is not None
     table, = surface.tables
@@ -204,8 +204,10 @@ def test_browse_role_never_treats_default_zero_counts_as_equality(key: str, adde
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
         table, = product.result.facts.tables
         assert table.row_added_count == table.row_deleted_count == table.row_modified_count == 0
-        assert structure_change_is_audit_only(table) is bool(key)
-        assert visible_table_fact(table).status is (ComparisonTableStatus.UNCHANGED if key else ComparisonTableStatus.SCHEMA_ONLY_CHANGED)
+        # BROWSE_ONLY deliberately resolves no comparison key, even with a DDL
+        # storage PK. Metadata/default zeros cannot stand in for a row proof.
+        assert not structure_change_is_audit_only(table)
+        assert visible_table_fact(table).status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED
 
 
 @pytest.mark.parametrize("rows", ("(1,10),(1,11)", "(NULL,10)", "(1,10)"))

@@ -53,7 +53,7 @@ def publish_structure_audit(
             before_raw_content_digest=before.raw_content_digest.value,
             current_raw_content_digest=current.raw_content_digest.value,
             raw_fact=cast(dict[str, JsonValue], _table_digest_payload(table)),
-            equality_evidence=cast(Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"], table.shared_value_equality),
+            equality_evidence=table.shared_value_equality,
             hidden_reason="ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL",
         ))
     if not tables:
@@ -95,12 +95,15 @@ def structure_audit_binding(pair_id: str, comparison_digest: str, ref: ArtifactR
         audit_artifact_id=None if ref is None else ref.artifact_id).model_dump(mode="json")
 
 
-def verify_structure_audit_bindings(store: ArtifactStorePort, raw_bindings: object, refs: tuple[ArtifactRef, ...]) -> None:
+def verify_structure_audit_bindings(store: ArtifactStorePort, raw_bindings: object, refs: tuple[ArtifactRef, ...], expected_pair_ids: object) -> None:
     from pydantic import TypeAdapter
     from gateway_backend.application.payloads import CheckpointDecodeError
 
     try:
         bindings = TypeAdapter(tuple[StructureAuditBinding, ...]).validate_json(canonicalize_json_value(raw_bindings))
+        pair_ids = TypeAdapter(tuple[str, ...]).validate_json(canonicalize_json_value(expected_pair_ids))
+        if len(pair_ids) != len(bindings) or {binding.pair_id for binding in bindings} != set(pair_ids):
+            raise ValueError("incomplete structure audit pair bindings")
         if len({binding.pair_id for binding in bindings}) != len(bindings):
             raise ValueError("duplicate structure audit pair binding")
         by_id = {ref.artifact_id: ref for ref in refs}

@@ -147,7 +147,7 @@ function riskTokens(level: RiskLevel): { bg: string; rail: string; text: string;
 }
 
 function rowLabel(row: BrowseRow): string {
-  if (row.kind === "collapsed") return "… " + (row.collapsedCount ?? 0) + " 行未变更 · 展开";
+  if (row.kind === "collapsed") return row.expanded ? "▴ 收起 " + (row.collapsedCount ?? 0) + " 行未变更" : "▾ " + (row.collapsedCount ?? 0) + " 行未变更 · 展开";
   if (row.recordKind === "BLANK_DELETE_INTERVAL" || row.recordKind === "BLANK_INSERT_INTERVAL") {
     const interval = row.values.interval && typeof row.values.interval === "object" ? row.values.interval as Record<string, unknown> : {};
     const start = Number(interval.before_start ?? interval.current_start ?? row.beforePosition ?? row.currentPosition ?? 0);
@@ -523,6 +523,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     if (browse.nodeKey !== selectedNodeKey) runtime.execute({ name: "select-node", nodeKey: selectedNodeKey }, "external");
   }, [browse.nodeKey, browse.tabKey, presentation, runtime, selectedNodeKey, selectedTab]);
   useEffect(() => { selectedNavRef.current?.scrollIntoView({ block: "nearest" }); }, [browse.nodeKey, browse.tabKey]);
+  // Opened unchanged runs belong to one tab; run keys repeat across tables.
+  useEffect(() => { setExpandedRuns((old) => old.size ? new Set() : old); }, [selectedNodeKey, selectedTab?.tabKey, selectedTab?.tableName]);
 
   const filterTabsForTable = useCallback((tableName: string) => {
     if (!presentation) return [];
@@ -772,7 +774,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             {presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName).map((item, index) => <div className="diagnostic-note" key={item.code + index}><AlertTriangle size={15} /><span>{formatNavigationDiagnostic(item, presentation.surface.tables)}</span>{debugMode && <code>{item.code}</code>}</div>)}
             {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
-                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => new Set([...old, row.key]))} onOpenFormula={() => void openFormula()} />
+                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={() => void openFormula()} />
                 {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })} />}
               </div>}
             </>}</> : <div className="empty-table">请选择一个导航页签。</div>}
@@ -966,7 +968,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const cellTheme = risk
       ? { bgCell: changed ? risk.cell : risk.bg, textDark: row.kind === "modified-before" || row.kind === "deleted" ? "#535D69" : risk.text, ...(boldStyle ? { baseFontStyle: boldStyle } : {}) }
       : changed ? { bgCell: "#E6E9ED", textDark: "#1B2229", ...(boldStyle ? { baseFontStyle: boldStyle } : {}) } : undefined;
-    return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value), displayData: normalizeDisplayScalar(value), allowOverlay: row.kind === "collapsed",
+    return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value), displayData: normalizeDisplayScalar(value), allowOverlay: false,
       style: row.kind === "modified-before" || row.kind === "deleted" ? "faded" : "normal",
       themeOverride: columnId === "__number" ? undefined : cellTheme };
   }, [columns, orderedColumns, pairRows, rows, table.table_name, theme.baseFontStyle]);
@@ -980,12 +982,18 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     if (row.kind === "deleted" && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
     if (highlightedIdentity && row.rowIdentity === highlightedIdentity) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
   }, [columns.length, debug, highlightedIdentity, markPainted, pairRows, rows]);
-  const click = useCallback(([column]: readonly [number, number]) => {
+  // A single click on an unchanged-run row toggles it; Enter/Space (activation)
+  // toggles too, but the activation that follows a double click is ignored.
+  const lastToggleClick = useRef(0);
+  const click = useCallback(([column, row]: readonly [number, number]) => {
+    const target = rows[row];
+    if (target?.kind === "collapsed") { lastToggleClick.current = Date.now(); onExpand(target); return; }
     if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") onOpenFormula();
-  }, [columns, onOpenFormula, table.table_name]);
-  const activate = useCallback(([column, row]: readonly [number, number]) => {
-    if (columns[column]?.id === "__diff" && rows[row]?.kind === "collapsed") onExpand(rows[row] as BrowseRow);
-  }, [columns, onExpand, rows]);
+  }, [columns, onExpand, onOpenFormula, rows, table.table_name]);
+  const activate = useCallback(([, row]: readonly [number, number]) => {
+    const target = rows[row];
+    if (target?.kind === "collapsed" && Date.now() - lastToggleClick.current > 600) onExpand(target);
+  }, [onExpand, rows]);
   const onMouseMove = useCallback((event: Parameters<NonNullable<ComponentProps<typeof DataEditor>["onMouseMove"]>>[0]) => {
     const next = event.kind === "cell" ? event.location : null;
     setHoveredCell((previous) => previous?.[0] === next?.[0] && previous?.[1] === next?.[1] ? previous : next);
@@ -995,7 +1003,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const last = rows[Math.max(0, Math.min(rows.length - 1, range.y + range.height - 1))];
     if (!first || !last) return;
     const start = first.rowNumber ?? first.currentPosition ?? 1;
-    const end = last.collapsedRows?.at(-1)?.rowNumber ?? last.rowNumber ?? last.currentPosition ?? start;
+    const end = (last.expanded ? null : last.collapsedRows?.at(-1)?.rowNumber) ?? last.rowNumber ?? last.currentPosition ?? start;
     markPainted();
     onVisibleRows({ start, end });
   }, [markPainted, onVisibleRows, rows]);

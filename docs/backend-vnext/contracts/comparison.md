@@ -421,7 +421,8 @@ SchemaChanges:
 - key 不变时，row diff 只比较 selected columns。
 - before-only/current-only columns 不进入 row diff。
 - key 变化时，不做复杂 row identity 映射；输出全表变化或 `DEGRADED`。
-- 整表新增/删除只输出表级 fact 与 row count，不生成 `ROW_ADDED` / `ROW_DELETED` 记录。
+- 整表新增/删除只依赖已经校验表身份、存在性、schema 和行数的 descriptor，输出表级 fact 与 row count，不要求行 reader、比较键或 ordered/blank extension，不生成 `ROW_ADDED` / `ROW_DELETED` 记录。存在但零行的表仍输出整表新增/删除，不能等同于表不存在。
+- 整表导出与浏览独立满足当前绑定、内容及 bundle closure 校验；导出缓存命中与否不改变比较事实，导出缺失且无法恢复仍使交付失败。
 - 降级表不阻塞其他表比较。
 
 ## ComparisonRecords

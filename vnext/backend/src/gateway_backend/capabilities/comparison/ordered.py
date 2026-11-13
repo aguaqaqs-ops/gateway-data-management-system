@@ -13,7 +13,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    SnapshotTable, SnapshotTableDescriptor,
+    SnapshotTableDescriptor,
 )
 
 
@@ -34,7 +34,7 @@ def _compare_single_side_ordered(task: TableComparisonTask) -> ComparisonTableFa
     descriptor = current if added else before
     try:
         return _compare_single_side(
-            task, descriptor, task.current_table if added else task.before_table,
+            task, descriptor,
             added=added, policy=policy,
         )
     except StandardComparisonError as exc:
@@ -49,7 +49,6 @@ def _compare_single_side_ordered(task: TableComparisonTask) -> ComparisonTableFa
 def _compare_single_side(
     task: TableComparisonTask,
     descriptor: SnapshotTableDescriptor | None,
-    table: SnapshotTable | None,
     *,
     added: bool,
     policy: _ComparisonTablePolicy,
@@ -58,14 +57,6 @@ def _compare_single_side(
         raise OrderedComparisonError("TABLE_DESCRIPTOR_MISSING")
     assert policy.ordered_policy is not None
     schema_changes = _single_side_schema_changes(descriptor, added=added, policy=policy)
-    if table is None or table.reader is None:
-        return _degraded_fact(
-            task,
-            None if added else descriptor,
-            descriptor if added else None,
-            schema_changes,
-            ("TABLE_READER_UNAVAILABLE",),
-        )
     return ComparisonTableFact(
         table_name=task.table_name,
         status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,

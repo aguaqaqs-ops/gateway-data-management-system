@@ -98,7 +98,7 @@ class _CompositeArrowOwner:
 
 
 def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
-    """Mirror only the existing per-task reader admissions for native M split."""
+    """Admit rows only for two-sided comparison; single-side facts use descriptors."""
     before, current = task.before_table, task.current_table
     policy = task.policy
     first, second = task.before_descriptor, task.current_descriptor
@@ -883,6 +883,8 @@ def _compare_task_native(
     before = task.before_descriptor
     current = task.current_descriptor
     if before is None or current is None:
+        # Validated descriptors own whole-table facts. Export/browser closure
+        # independently demands rows on a cold export cache.
         return _compare_task_metadata(task), None
     schema = _schema_view(before, current, policy)
     changes = _schema_changes_from_view(schema, policy)

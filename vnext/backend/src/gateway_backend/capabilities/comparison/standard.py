@@ -8,7 +8,7 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope, ComparisonFacts, ComparisonPlan, ComparisonRecord,
+    ComparisonFacts, ComparisonPlan, ComparisonRecord,
     ComparisonRecordKind, ComparisonSchemaChanges, ComparisonSummary,
     ComparisonTableFact, ComparisonTableStatus, PairResultStatus,
     SchemaEvolution, _ComparisonTablePolicy,
@@ -21,7 +21,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     COMPARISON_PROJECTION_CONTRACT_VERSION, SCALAR_ENCODING_VERSION,
-    SnapshotTable, SnapshotTableDescriptor,
+    SnapshotTableDescriptor,
 )
 
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
@@ -48,19 +48,15 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
         return _compare_single_side(
             task.table_name,
             current_descriptor,
-            task.current_table,
             policy,
             added=True,
-            artifact_scope=task.artifact_scope,
         )
     if current_descriptor is None:
         return _compare_single_side(
             task.table_name,
             before_descriptor,
-            task.before_table,
             policy,
             added=False,
-            artifact_scope=task.artifact_scope,
         )
 
     if _can_table_early_exit(before_descriptor, current_descriptor, policy):
@@ -120,11 +116,9 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
 def _compare_single_side(
     table_name: str,
     descriptor: SnapshotTableDescriptor | None,
-    table: SnapshotTable | None,
     policy: _ComparisonTablePolicy,
     *,
     added: bool,
-    artifact_scope: ArtifactScope,
 ) -> ComparisonTableFact:
     if descriptor is None:
         raise StandardComparisonError("TABLE_DESCRIPTOR_MISSING")
@@ -138,17 +132,6 @@ def _compare_single_side(
         if added
         else policy.effective_key_before,
     )
-    if table is None or table.reader is None:
-        return ComparisonTableFact(
-            table_name=table_name,
-            status=ComparisonTableStatus.DEGRADED,
-            before_descriptor=None if added else descriptor,
-            current_descriptor=descriptor if added else None,
-            schema_changes=schema_changes,
-            row_count_before=None if added else descriptor.row_count,
-            row_count_current=descriptor.row_count if added else None,
-            diagnostics=("TABLE_READER_UNAVAILABLE",),
-        )
     return ComparisonTableFact(
         table_name=table_name,
         status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,

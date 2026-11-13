@@ -1758,7 +1758,7 @@ def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
         facts = observed[-1]
         assert facts is not None
         fact, = facts.tables
-        assert fact.status is (ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE)
+        assert fact.status is (ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE), (run, fact.diagnostics)
         assert fact.row_count_before == (None if added else row_count)
         assert fact.row_count_current == (row_count if added else None)
         assert fact.row_added_count == fact.row_deleted_count == fact.row_modified_count == 0
@@ -1776,3 +1776,30 @@ def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
         previous = harness
     assert observed[0] == observed[1]
     assert snapshots[0] == snapshots[1]
+
+
+@pytest.mark.parametrize("ordered", (False, True), ids=("ordinary", "ordered"))
+def test_single_side_history_missing_export_source_keeps_real_error(
+    tmp_path: Path, ordered: bool,
+) -> None:
+    left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-unreadable-single-side"
+    table = ordered_syx_catalog_table() if ordered else catalog_table("t", (int_id_column(),), primary_key=("id",))
+    name = table.table_name
+    rows: RepositoryRows = {name: ((1, 1, "a"),) if ordered else ((1,),)}
+    providers = {
+        left: FakeRepositoryTableAccessProvider(catalog=make_catalog((),
+            repository_id=REPOSITORY_ID, ref=left, commit=left), rows={}, current_commit=left),
+        right: FakeRepositoryTableAccessProvider(catalog=make_catalog((table,),
+            repository_id=REPOSITORY_ID, ref=right, commit=right), rows=rows,
+            current_commit=right, missing_table_on_open=name),
+    }
+    harness = build_history_compare_harness(tmp_path, custom_providers=providers,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ("bn-unreadable-single-side", right)))
+    insert_history_compare_operation(harness)
+    assert run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER).status is StepStatus.SUCCEEDED
+    assert run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER).status is StepStatus.FAILED
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+    assert operation.status is OperationStatus.FAILED
+    assert operation.diagnostic is not None and operation.diagnostic.code == "REPOSITORY_TABLE_NOT_FOUND"
+    assert operation.ready_closure_ref is None

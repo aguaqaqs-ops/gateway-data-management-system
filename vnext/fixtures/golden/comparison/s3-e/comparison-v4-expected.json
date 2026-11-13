@@ -581,7 +581,7 @@
       ]
     },
     "tests/test_comparison_s3_d_production.py::test_nonrecord_added_column_uses_shared_multiset_without_public_row_counts[BROWSE_ONLY]": {
-      "comparison_digest": "sha256:1d8bb88376a322a44c8422daf0e52bb9bddc35f47b4327916663eb8c1ebbe1fa",
+      "comparison_digest": "sha256:fb67b14bc437a50688dd3b1edb93bc37a94b16f2685942c028dc5a4e64860015",
       "facts_core_digest": "sha256:0663bf9d6bff3e5c4fc26885188146d31905f2d915211bdf8688dc0e4281173e",
       "input_digest": "ceaf8a343859a544d9f9d796b778afc27222e3f62cbafea529702bf3d703fcd6",
       "tables": [
@@ -792,7 +792,7 @@
       ]
     },
     "tests/test_comparison_s3_d_production.py::test_source_key_transition_uses_the_keyless_policy[False]": {
-      "comparison_digest": "sha256:7bf42334613f588c648a16800611a81c83f1c263fa9a412101f1740c7388c2a7",
+      "comparison_digest": "sha256:6fb200c7a792f60708dd0715a7b0b5fa36ee4cafd42a5ef786bc9bfd12b42440",
       "facts_core_digest": "sha256:5576d969a1528eb1880a7e64cb729248340c0c9e3442cf683a3df41e99ebabd6",
       "input_digest": "e7a1fc3a2d1ff814c2db18476ad8f857560c9a43da11084823e073ed7c9ee0d6",
       "tables": [

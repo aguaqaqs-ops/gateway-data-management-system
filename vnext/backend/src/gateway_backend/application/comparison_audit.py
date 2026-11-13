@@ -1,18 +1,19 @@
 """Backend-only structural-change evidence, independently retained by READY closure."""
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, field_validator, model_validator
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.comparison.contracts import ComparisonFacts, ComparisonPlan
+from gateway_backend.capabilities.comparison.contracts import COMPARISON_CONTRACT_VERSION, ComparisonFacts, ComparisonPlan
+from gateway_backend.capabilities.comparison.cache_document import NeutralFactDocument
+from gateway_backend.capabilities.comparison.cache_codec import _neutral_fact
 from gateway_backend.capabilities.comparison.presentation import structure_change_is_audit_only
-from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
 
 
 class HiddenStructureFact(BaseModel):
@@ -20,9 +21,19 @@ class HiddenStructureFact(BaseModel):
     table_name: str
     before_raw_content_digest: str
     current_raw_content_digest: str
-    raw_fact: dict[str, JsonValue]
+    before_business_schema_digest: str
+    current_business_schema_digest: str
+    table_fact_digest: str
+    raw_fact: NeutralFactDocument
     equality_evidence: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"]
     hidden_reason: Literal["ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL"]
+
+    @model_validator(mode="after")
+    def consistent_evidence(self) -> HiddenStructureFact:
+        if self.raw_fact.shared_value_equality != self.equality_evidence:
+            raise ValueError("structure audit equality evidence mismatch")
+        return self
+
 
 
 class ComparisonStructureAudit(BaseModel):
@@ -35,6 +46,13 @@ class ComparisonStructureAudit(BaseModel):
     comparison_digest: str
     ruleset_digest: str
     tables: tuple[HiddenStructureFact, ...]
+
+    @field_validator("comparison_contract_version")
+    @classmethod
+    def current_comparison_contract(cls, value: str) -> str:
+        if value != COMPARISON_CONTRACT_VERSION:
+            raise ValueError("unsupported structure audit comparison contract")
+        return value
 
 
 def publish_structure_audit(
@@ -70,13 +88,17 @@ def _publish_structure_audit(
             continue
         before, current = table.before_descriptor, table.current_descriptor
         if (before is None or current is None or before.raw_content_digest is None
-                or current.raw_content_digest is None or table.shared_value_equality is None):
+                or current.raw_content_digest is None or table.shared_value_equality is None
+                or table.table_fact_digest is None):
             raise ValueError("hidden structure audit requires complete content bindings")
         tables.append(HiddenStructureFact(
             table_name=table.table_name,
             before_raw_content_digest=before.raw_content_digest.value,
             current_raw_content_digest=current.raw_content_digest.value,
-            raw_fact=cast(dict[str, JsonValue], _table_digest_payload(table)),
+            before_business_schema_digest=before.business_schema_digest.value,
+            current_business_schema_digest=current.business_schema_digest.value,
+            table_fact_digest=table.table_fact_digest.value,
+            raw_fact=NeutralFactDocument.model_validate_json(_neutral_fact(table)),
             equality_evidence=table.shared_value_equality,
             hidden_reason="ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL",
         ))

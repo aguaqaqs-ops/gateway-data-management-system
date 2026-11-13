@@ -109,11 +109,11 @@ def test_cache_restores_equality_and_current_pair_audit(ordered: bool) -> None:
         assert structure_change_is_audit_only(restored)
         store = InMemoryArtifactStore()
         for pair in ("cold-pair", "hot-pair"):
-            ref = publish_structure_audit(replace(planned, pair_id=pair), replace(facts, tables=(restored,)), store)
+            ref = publish_structure_audit(replace(planned, pair_id=pair), replace(facts, tables=(replace(restored, table_fact_digest=table.table_fact_digest),)), store)
             assert ref is not None
             document = ComparisonStructureAudit.model_validate_json(store.locate(ref))
             assert document.pair_id == pair
-            assert document.tables[0].raw_fact["schema_changes"]
+            assert document.tables[0].raw_fact.schema_changes
             assert document.comparison_digest == facts.comparison_digest.value
     finally:
         if handle is not None:

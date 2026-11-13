@@ -642,4 +642,4 @@ table/core/comparison任务身份与facts/records内容、规则和业务摘要�
 
 原始 table status/schema/diagnostics、计数与证据保持不变。仅派生对外 UNCHANGED、清除对应 schema 标记及风险与统计；该表仍可浏览。非空无有效键、无共有字段、比较失败或未知证据保持原有可见/降级语义。只浏览表只沿现有 native 路径做最小共有字段探测，不新增行级展示。canonical 保存身份及 NO_CANONICAL_CHANGE 资格完全独立。
 
-后台结构审计由共享 pair pipeline 在风险/surface 成功发布前写入并 exact-ref 回读校验，保存双方 snapshot/raw content 身份、pair、comparison digest、ruleset digest、原始 table digest preimage、被隐藏列和相等依据/原因，不复制整表。ArtifactStore 的内容寻址 ID 防止内容错配，由 exact-ref locate 和 READY closure 核对；不增加只计算不核对的新 digest 或版本。
+后台结构审计由共享 pair pipeline 在风险/surface 成功发布前写入并 exact-ref 回读校验，保存双方 snapshot/raw content 身份、pair、comparison digest、ruleset digest、原始严格 table fact 文档与 table_fact_digest、被隐藏列和相等依据/原因，不复制整表。ArtifactStore 的内容寻址 ID 防止内容错配，由 exact-ref locate 和 READY closure 核对；不增加只计算不核对的新 digest 或版本。

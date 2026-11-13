@@ -593,7 +593,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = replace(old_ref, artifact_id="a1:durable:9e1660768076ad9eb6982ad5106b06ff209eb2cafb8ddaa08254acbbacf27eef")
+    new_ref = replace(old_ref, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "rewritten-orders"))
     with_ref = assemble_surface(
         _request(
             facts,

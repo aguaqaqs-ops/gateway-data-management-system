@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 
 from gateway_backend.application import preview_jobs
+from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.application.checkpoints import load_ready_closure
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
 from gateway_backend.application.submission.accept_transaction import accept_submit_transaction
@@ -52,7 +53,7 @@ def test_hidden_schema_preview_preserves_ready_audit_and_accepts_canonical_chang
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest())
     seed_provisioned_mapping_with_head(harness.db_path, repository_id=REPOSITORY_ID, baseline_head=BASELINE_HEAD)
     pairs = []
-    original = preview_jobs.run_preview_pair_pipeline
+    original = run_preview_pair_pipeline
     def capture(**kwargs: Any) -> Any:
         pair = original(**kwargs)
         pairs.append(pair)
@@ -60,7 +61,8 @@ def test_hidden_schema_preview_preserves_ready_audit_and_accepts_canonical_chang
     monkeypatch.setattr(preview_jobs, "run_preview_pair_pipeline", capture)
     _run_through_publish(harness, "op-hidden-schema")
     assert len(pairs) == 1 and pairs[0].structure_audit_ref is not None
-    assert pairs[0].surface_result.surface.summary.changed_table_count == 0
+    surface = pairs[0].surface_result.surface
+    assert surface is not None and surface.summary.changed_table_count == 0
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
         workspace = uow.workspace.get_workspace(harness.upload_revision.workspace_id)
         assert workspace is not None and workspace.current_preview_result_id is not None

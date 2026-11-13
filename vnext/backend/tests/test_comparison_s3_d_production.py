@@ -15,6 +15,7 @@ import pyarrow as pa
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.application import pair_pipeline
@@ -1040,7 +1041,7 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
 
 def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotTableArtifact:
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef("a1:durable:6b4cbfd9f0e62f1f72e504e3a73569e3150c926b07e47a29b9c707b5d4f555bc", "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "reader-failure"), "application/octet-stream", 0, empty_digest)
     return SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(

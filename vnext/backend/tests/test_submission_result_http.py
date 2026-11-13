@@ -13,7 +13,7 @@ from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_r
 from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.artifacts.store import ArtifactUnavailableError
 from tests.support.http_workspace_harness import create_workspace_http_environment, InMemoryBundleReader
-from tests.support.review_result_fixtures import closed_review_preview
+from tests.support.review_result_fixtures import closed_review_preview, review_artifact_refs
 from tests.support.preview_fixtures import make_canonical_artifact_fixture
 from tests.support.workspace_fixtures import make_identity
 from tests.test_submit_transactions import seed_submit_ready_workspace, _seed_effect_pending_attempt
@@ -94,7 +94,7 @@ def test_full_result_stays_bound_after_review_release_and_workspace_reuse(tmp_pa
         uow.workspace.save_workspace(replace(workspace, generation=workspace.generation + 1,
             optimistic_version=workspace.optimistic_version + 1), expected_version=workspace.optimistic_version)
         held = uow.list_artifact_protection_for_owner(owner_kind="submission-review", owner_id="sub-1")
-        assert {ref.artifact_id for ref in seed.protected_refs}.issubset(held)
+        assert {ref.artifact_id for ref in review_artifact_refs(seed)}.issubset(held)
         submission = uow.submission.get_submission("sub-1")
         assert submission is not None
         assert not uow.list_artifact_protection_for_owner(owner_kind="submit-attempt",

@@ -149,8 +149,11 @@ def load_accept_submit_preflight(
     try:
         review_refs = load_preview_review_closure(preview_result,
             lookup=artifact_ref_lookup, store=artifact_store)
-    except (ManifestVerificationError, ValueError, TypeError, KeyError) as exc:
-        raise PreviewBindingConflict("preview review closure is unavailable or invalid") from exc
+    except ManifestVerificationError as exc:
+        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="required review artifact is not readable",
+            status_code=503) from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PreviewBindingConflict("preview review closure is invalid") from exc
     refs_by_id = {ref.artifact_id: ref for ref in (*canonical_refs, *review_refs)}
     for _role, binding in upload_revision.source_artifacts.items():
         refs_by_id[binding.artifact_id] = ArtifactRef(

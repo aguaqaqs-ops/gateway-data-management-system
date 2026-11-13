@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from tests.support.review_result_fixtures import review_artifact_refs
+from tests.support.review_result_fixtures import review_artifact_refs, closed_review_preview
+from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
 from tests.support.configuration_facts import replace_preview_with_facts
 
@@ -203,6 +204,9 @@ def _seed_additional_pending_review_submission(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
         )
+        preview, review_refs, _payloads = closed_review_preview(
+            preview, make_canonical_artifact_fixture(repository_id).refs)
+        protected_refs = (*_protected_preview_refs()[:2], *review_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(
@@ -219,7 +223,6 @@ def _seed_additional_pending_review_submission(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = f"op-preview-{submission_id}"
-        protected_refs = _protected_preview_refs()
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
